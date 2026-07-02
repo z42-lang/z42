@@ -30,8 +30,8 @@ bootstrap」。
 > （`z42c.driver.zpkg` + stdlib dist），用它 `z42c build scripts/xtask.z42.toml` 产出
 > `xtask.zpkg` → 再 `z42 xtask.zpkg build stdlib`（即 `build/xtask_stdlib.z42`，z42c 从源码
 > 重编 stdlib + 自建 z42c）。z42c 只读 `.zsym`、VM 扫目录（读各 zpkg 的 NSPC section 认领
-> namespace），都不需要任何 namespace 索引即可编译/运行 xtask，所以这个次序无死锁。**全程
-> 无 dotnet / C#**（C# bootstrap 编译器已于 2026-06-26 移除，工具链全 z42 自举）。
+> namespace），都不需要任何 namespace 索引即可编译/运行 xtask，所以这个次序无死锁。
+> **工具链全程 z42 自举**。
 
 > 所有版本号的唯一真相源是仓库根 `versions.toml`（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `common/xtask_versions.z42`）。
@@ -204,6 +204,33 @@ scripts/
 ```
 
 每个命令的详细 Usage 见 `z42 xtask.zpkg --help`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
+
+## 迭代注意点（自举边界与验证）
+
+改本目录（乃至全仓）代码时，最容易踩的是**自举边界**：
+
+- **语法/格式越界**：当前源码**不得使用比上一版已发布 nightly z42c 更新的语法或 zbc·zpkg 格式**
+  ——新语法必须"support 先行、晚一个 nightly 再 use"，否则跨版本自举断链。改动 z42c
+  （lexer/parser/codegen/格式 writer）或引入新语法后**必跑**边界检查：
+
+  ```bash
+  z42 xtask.zpkg bootstrap-check     # 下载 nightly z42c 编当前源，验证无越界
+  ```
+
+- **删种子/兜底路径**：必须与"为所有 cold-start 入口供种"作为**同一原子变更**；本地只能验
+  warm 路径，cold 路径的全绿以 CI 为准。完整纪律见 [`.claude/rules/bootstrap-seed.md`](../.claude/rules/bootstrap-seed.md)。
+
+- **改 xtask 源码后**：先重建再验证——`z42c build scripts/xtask.z42.toml --release` 产新
+  `xtask.zpkg`，再跑 GREEN gate。
+
+**commit 前验证**（GREEN 标准）：
+
+```bash
+z42 xtask.zpkg test                # 完整 gate（vm / cross-zpkg / lib / compiler 全 stage）
+```
+
+iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄加速，但 **commit 前必须完整
+gate**。改打包系统时另跑 `test packages-config / packages-staging / packages-assemble` 自检。
 
 ## 关联文档
 

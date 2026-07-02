@@ -1,16 +1,16 @@
 # 构建编排（build / regen）
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现（C#-free）｜ **代码**: `scripts/build/` · `scripts/xtask_regen.z42`
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/build/` · `scripts/xtask_regen.z42`
 > **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-02
 
-## 一句话定位
+## 概述
 
 `build` 命令族把"z42c 自建自己 → 自建 z42c 编 stdlib → 产物成扁平视图"这条自举构建链
 编排成可重复的步骤；`regen` 用同一套工具链重生全部 golden 测试的 `.zbc` 基线。
 
 ## 设计目标与约束
 
-- **C#-free**：全链只用 z42c（warm 种子或 nightly 下载），无 dotnet 步骤
+- **全链自举**：一切编译只经 z42c（warm 产物或 nightly 种子），无外部编译器介入
 - **自建即验证**：z42c 每次构建都在自己编自己，构建通过本身就是编译器冒烟测试
 - **产物可寻址**：一切落 `artifacts/build/`；stdlib 汇成单一扁平目录供 `Z42_LIBS` 指向
 - **warm/cold 两态**：有产物走 warm（快）；fresh checkout 走 cold（下载种子），两态产出等价
