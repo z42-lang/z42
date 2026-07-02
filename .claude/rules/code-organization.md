@@ -45,7 +45,7 @@ README 是**基础层 + 人 review 的落点**：看完 README 就掌握"这个�
 
 ## 如何测试验证
 [精确到可复制的命令——AI 照着跑、人照着验；指明测本目录跑哪个 stage / 哪些用例]
-    z42 xtask.zpkg test <stage>       # 覆盖本目录的测试（实际写成 bash 代码块）
+    xtask test <stage>       # 覆盖本目录的测试（实际写成 bash 代码块）
 
 ## 关联文档
 - 设计/机制（深入层）：[book 章节](../../docs/book/src/...)

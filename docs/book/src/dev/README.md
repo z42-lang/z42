@@ -10,7 +10,7 @@
 
 ```mermaid
 graph LR
-    DEV[开发者 / CI] -->|z42 xtask.zpkg <cmd>| XTASK[xtask<br/>scripts/*.z42]
+    DEV[开发者 / CI] -->|xtask <cmd>| XTASK[xtask<br/>scripts/*.z42]
     XTASK -->|build / regen| BUILD[构建编排<br/>z42c 自建 + stdlib]
     XTASK -->|test| GATE[测试门禁<br/>GREEN gate]
     XTASK -->|package| PKG[打包引擎<br/>packages.toml]

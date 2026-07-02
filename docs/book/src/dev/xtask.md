@@ -5,7 +5,7 @@
 
 ## 概述
 
-xtask 是纯 z42 写的仓库开发 CLI（`z42 xtask.zpkg <cmd>`），统一承载构建、测试、打包、
+xtask 是纯 z42 写的仓库开发 CLI（`xtask <cmd>`），统一承载构建、测试、打包、
 发行等全部开发动作——它自己就是被 z42c 编译、跑在 z42vm 上的 z42 程序（dogfooding）。
 用法与命令清单见 `scripts/README.md`（基础层），本页讲设计与机制。
 
@@ -23,7 +23,7 @@ xtask 是纯 z42 写的仓库开发 CLI（`z42 xtask.zpkg <cmd>`），统一承�
 | 实现语言 | z42（而非 bash / Rust cargo-xtask） | dogfooding 压力测试语言与 stdlib（Cli/IO/Toml/Regex 都被迫成熟）；跨平台无 shell 差异 |
 | 命令路由 | `Std.Cli` SubcommandRouter 树 | 每层自动生成 `-h` 帮助；命令面即数据结构，可静态审阅 |
 | 工具链选择 | 全局 `--toolchain <dir>` → `Z42_TOOLCHAIN` 环境变量 | 一处剥离、处处生效，命令实现无需逐个透传参数 |
-| 运行形态 | launcher 加载 zpkg 为主，可选 `z42 publish desktop` 出原生 apphost | 开发期免编译原生壳；发行期可独立可执行 |
+| 运行形态 | 原生 apphost 可执行（仓库根 `./xtask`，内嵌 launcher + zpkg） | 单文件、直接运行，不依赖 PATH 上的 launcher；与用户应用同一套 apphost 机制 |
 
 ## 机制
 
@@ -33,7 +33,7 @@ xtask 是纯 z42 写的仓库开发 CLI（`z42 xtask.zpkg <cmd>`），统一承�
 graph TD
     A[install-z42 脚本<br/>无 z42 依赖] -->|下载上一版 nightly| B[种子: z42c.driver.zpkg<br/>+ stdlib dist + z42vm]
     B -->|种子 z42c 编 scripts/xtask.z42.toml| C[artifacts/xtask/xtask.zpkg]
-    C -->|z42 launcher 加载执行| D[xtask 运行]
+    C -->|z42 apphost build → ./xtask| D[xtask 运行<br/>原生 apphost]
     D -->|build compiler / stdlib| E[自建 z42c + stdlib<br/>替换种子产物]
     E -.->|下一次构建用自建产物<br/>warm 路径| D
 ```
@@ -83,7 +83,7 @@ graph LR
 
 - **冷启动依赖网络**：fresh checkout 无种子时必须能下载 nightly（CI 全新 runner 同理）
 - **格式漂移窗口**：zbc/zpkg format bump 后，旧 nightly 种子不可读，需等新 nightly 发布
-- **launcher 前置**：`z42 xtask.zpkg` 形态要求 PATH 上有 z42（launcher）与 z42vm
+- **z42vm 前置**：xtask 启动即校验 z42vm 可用（`_ensureDriverVm`）；多数命令以子进程驱动 z42vm / z42c
 
 ## Deferred
 

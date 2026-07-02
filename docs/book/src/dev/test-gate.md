@@ -5,7 +5,7 @@
 
 ## 概述
 
-`test` 命令族构成提交门禁（GREEN gate）：裸 `z42 xtask.zpkg test` 串联全部必跑 stage，
+`test` 命令族构成提交门禁（GREEN gate）：裸 `xtask test` 串联全部必跑 stage，
 任一失败即停；全绿是 commit / push 的先决条件。另提供两种开发期加速——`--scope`（stage 级
 缩窄）与 `test changed`（命令级按需计划）——但都不替代提交前的完整 gate。
 

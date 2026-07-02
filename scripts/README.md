@@ -4,18 +4,16 @@
 
 仓库的开发 CLI 与启动引导。绝大多数开发命令（build / test / package / deps /
 regen / audit / bench / release）都已收敛到一个自举的 z42 程序 **xtask**：源码是本目录的
-`xtask*.z42`（按命令分子目录组织，见末尾），编译成单个 `artifacts/xtask/xtask.zpkg`，
-经 launcher 调用：
+`xtask*.z42`（按命令分子目录组织，见末尾），构建为**原生 apphost 可执行**（仓库根 `./xtask`，
+内嵌 launcher + `xtask.zpkg`）：
 
 ```
-z42c build scripts/xtask.z42.toml --release    # 构建 → artifacts/xtask/xtask.zpkg
-z42 xtask.zpkg <command> [args]                # 经 launcher 运行
-./xtask <command> [args]                       # 或经原生 apphost（z42 apphost build 产仓库根 ./xtask）
+z42 apphost build scripts/xtask.z42.toml       # 构建 → 仓库根 ./xtask
+xtask <command> [args]                         # 直接运行
 ```
 
-xtask 本身是一个 z42 程序，由 launcher **运行**——它不是通用 `z42` launcher 的一
-部分（launcher 保持通用运行时）。冷启动如何先产出 `xtask.zpkg` 见下文「冷启动
-bootstrap」。
+xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
+运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
 
 本目录的 `.z42` 全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。唯一
 的非 xtask 文件是安装引导脚本：
@@ -28,7 +26,7 @@ bootstrap」。
 > **冷启动 bootstrap（鸡生蛋的真正破解点）**：`xtask.zpkg` 依赖 stdlib 才能编译，且
 > 编译它的 z42c 自身也是 z42 写的。冷树上**下载上一版已发布 nightly 的 z42c 种子**
 > （`z42c.driver.zpkg` + stdlib dist），用它 `z42c build scripts/xtask.z42.toml` 产出
-> `xtask.zpkg` → 再 `z42 xtask.zpkg build stdlib`（即 `build/xtask_stdlib.z42`，z42c 从源码
+> `xtask.zpkg` → 再 `xtask build stdlib`（即 `build/xtask_stdlib.z42`，z42c 从源码
 > 重编 stdlib + 自建 z42c）。z42c 只读 `.zsym`、VM 扫目录（读各 zpkg 的 NSPC section 认领
 > namespace），都不需要任何 namespace 索引即可编译/运行 xtask，所以这个次序无死锁。
 > **工具链全程 z42 自举**。
@@ -132,15 +130,15 @@ deps install [--os P] [--check] [--print-env] ──► _depsInstall
 
 **首次 clone / 新 dev 环境**：
 ```bash
-z42 xtask.zpkg deps install --check          # 看缺什么
-z42 xtask.zpkg deps install                  # 装跨平台 toolchain
-z42 xtask.zpkg deps install --os android     # 需要打 android 时再装该平台必备
-z42 xtask.zpkg deps install --drift          # 校验投影文件跟 versions.toml 一致
+xtask deps install --check          # 看缺什么
+xtask deps install                  # 装跨平台 toolchain
+xtask deps install --os android     # 需要打 android 时再装该平台必备
+xtask deps install --drift          # 校验投影文件跟 versions.toml 一致
 ```
 
 **commit 前 / 归档前（必跑，workflow 阶段 8 全绿入口）**：
 ```bash
-z42 xtask.zpkg test               # 串联 vm + cross-zpkg + stdlib + compiler 全 stage
+xtask test               # 串联 vm + cross-zpkg + stdlib + compiler 全 stage
 ```
 
 > 不要单独只跑其中一个 stage 就当作通过 —— 历史上 cross-zpkg subclass catch
@@ -148,21 +146,21 @@ z42 xtask.zpkg test               # 串联 vm + cross-zpkg + stdlib + compiler �
 
 **日常开发循环（最高频）**：
 ```bash
-z42 xtask.zpkg regen              # 改了编译器后重生 .zbc 基线
-z42 xtask.zpkg test vm            # 跑 VM 端到端（interp + jit）
-z42 xtask.zpkg test changed       # 或只测受改动影响的 stage
+xtask regen              # 改了编译器后重生 .zbc 基线
+xtask test vm            # 跑 VM 端到端（interp + jit）
+xtask test changed       # 或只测受改动影响的 stage
 ```
 
 **改了 stdlib `.z42` 源**：
 ```bash
-z42 xtask.zpkg build stdlib       # 重编 stdlib zpkg（扁平视图，无 namespace 索引）
-z42 xtask.zpkg test vm
+xtask build stdlib       # 重编 stdlib zpkg（扁平视图，无 namespace 索引）
+xtask test vm
 ```
 
 **完整发行验证**：
 ```bash
-z42 xtask.zpkg build package release   # 打 host-RID 发行包
-z42 xtask.zpkg test dist               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
+xtask build package release   # 打 host-RID 发行包
+xtask test dist               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
 ```
 
 ## 源码结构（按命令分子目录）
@@ -203,7 +201,7 @@ scripts/
     └── xtask_install{,_android}.z42
 ```
 
-每个命令的详细 Usage 见 `z42 xtask.zpkg --help`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
+每个命令的详细 Usage 见 `xtask --help`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
 ## 迭代注意点（自举边界与验证）
 
@@ -214,7 +212,7 @@ scripts/
   （lexer/parser/codegen/格式 writer）或引入新语法后**必跑**边界检查：
 
   ```bash
-  z42 xtask.zpkg bootstrap-check     # 下载 nightly z42c 编当前源，验证无越界
+  xtask bootstrap-check     # 下载 nightly z42c 编当前源，验证无越界
   ```
 
 - **删种子/兜底路径**：必须与"为所有 cold-start 入口供种"作为**同一原子变更**；本地只能验
@@ -226,7 +224,7 @@ scripts/
 **commit 前验证**（GREEN 标准）：
 
 ```bash
-z42 xtask.zpkg test                # 完整 gate（vm / cross-zpkg / lib / compiler 全 stage）
+xtask test                # 完整 gate（vm / cross-zpkg / lib / compiler 全 stage）
 ```
 
 iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄加速，但 **commit 前必须完整
