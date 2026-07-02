@@ -291,7 +291,7 @@ fn print_build_info() {
     // Effective libs dir lookup result.
     match resolve_libs_dir() {
         Some(dir) => println!("libs dir: {}", dir.display()),
-        None => println!("libs dir: (not found — run z42 xtask.zpkg build stdlib or set Z42_LIBS)"),
+        None => println!("libs dir: (not found — run xtask build stdlib or set Z42_LIBS)"),
     }
 }
 
