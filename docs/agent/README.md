@@ -18,4 +18,4 @@
 以及本次重构的决策与迁移待办。
 
 > 迁移期说明：多数开发规范暂仍在 `.claude/rules/`，将逐步搬来此处。见
-> [`rules/doc-system.md` 第五节](rules/doc-system.md)。
+> [`rules/doc-system.md` 第六节](rules/doc-system.md)。
