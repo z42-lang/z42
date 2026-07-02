@@ -8,7 +8,7 @@ regen / audit / bench / release）都已收敛到一个自举的 z42 程序 **xt
 内嵌 launcher + `xtask.zpkg`）：
 
 ```
-z42 apphost build scripts/xtask.z42.toml       # 构建 → 仓库根 ./xtask
+z42 publish scripts/xtask.z42.toml             # 构建+部署 → 仓库根 ./xtask
 xtask <command> [args]                         # 直接运行
 ```
 

@@ -33,7 +33,7 @@ xtask 是纯 z42 写的仓库开发 CLI（`xtask <cmd>`），统一承载构建�
 graph TD
     A[install-z42 脚本<br/>无 z42 依赖] -->|下载上一版 nightly| B[种子: z42c.driver.zpkg<br/>+ stdlib dist + z42vm]
     B -->|种子 z42c 编 scripts/xtask.z42.toml| C[artifacts/xtask/xtask.zpkg]
-    C -->|z42 apphost build → ./xtask| D[xtask 运行<br/>原生 apphost]
+    C -->|z42 publish → ./xtask| D[xtask 运行<br/>原生 apphost]
     D -->|build compiler / stdlib| E[自建 z42c + stdlib<br/>替换种子产物]
     E -.->|下一次构建用自建产物<br/>warm 路径| D
 ```
