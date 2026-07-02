@@ -45,10 +45,6 @@ git clone https://github.com/codesigner-ui/z42 && cd z42
 ./xtask test                                 # full gate; ./xtask auto-locates ./.z42, no PATH export
 ```
 
-> **Prerequisites:** git + Rust stable + [`gh`](https://github.com/cli/cli) (authed).
-> Build from source, packaging, CI, release: [docs/workflow/](docs/workflow/).
-> Collaboration workflow: [.claude/CLAUDE.md](.claude/CLAUDE.md).
-
 ---
 
 ## Documentation
