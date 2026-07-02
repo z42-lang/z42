@@ -59,7 +59,7 @@ bootstrap」。
 
 ## 各命令处理流程
 
-> 据源码逻辑绘制；函数名标在节点上，可对照源文件。全程 C#-free（z42c + z42vm 自举）。
+> 据源码逻辑绘制；函数名标在节点上，可对照源文件（z42c + z42vm 全程自举）。
 
 ### `test`（完整 GREEN gate，`test/xtask_test.z42 :: _testAll`）
 
