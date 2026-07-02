@@ -87,6 +87,22 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 2. **阶段 2 —— 落「使用」**：新 nightly 发布后，**才**在 z42c / stdlib / xtask / 用例里**使用**新语法、
    或让构建**产出**新格式。→ 刚发布的 z42c（阶段 1 能力）能编。
 
+### 边界的第二根轴：stdlib API 面（2026-07-02 补）
+
+种子约束不止语法/格式——CI 冷启动（`.github/actions/ci-bootstrap` step 2/3）用**种子 z42c +
+种子 stdlib** 编当前 xtask 源与 z42c 源，因此这两个源码域**引用的 stdlib API 也被上一 nightly
+钉死**：
+
+- **xtask / z42c 源新用一个 stdlib API**：该 API 必须已随某个 nightly 发布（加 API 本身随时可做，
+  用它要晚一个 nightly——与语法同款纪律）。
+- **删/改 xtask / z42c 在用的 API**：两阶段跨两个 nightly——阶段 1 加新 API、**旧 API 暂留**
+  （种子例外，非兼容层）、调用点不动 → nightly 发布 → 阶段 2 切全部调用点 + **同一提交删旧 API**。
+- stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
+
+可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
+[`docs/workflow/testing/verify-by-change.md`](../../docs/workflow/testing/verify-by-change.md)
+「stdlib 破坏性 API 变更」。
+
 **铁律**：当前 main 的源码，**任何时刻都不得使用比「上一个已发布 nightly 的 z42c」更新的语法 / 格式**。
 违反 = 跨版本自举断链 = 被迫退回 C# 种子。
 
