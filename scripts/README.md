@@ -204,3 +204,12 @@ scripts/
 ```
 
 每个命令的详细 Usage 见 `z42 xtask.zpkg --help`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
+
+## 关联文档
+
+本 README 是**基础层**（干什么 / 怎么用 / 怎么开发）；设计思路与实现机制（深入层）见 book 工具链部分：
+
+- [xtask：自举 dev CLI](../docs/book/src/toolchain/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
+- [构建编排（build / regen）](../docs/book/src/toolchain/build.md) —— z42c 七包自建拓扑、stdlib 三阶段、不动点验证、golden 重生
+- [工具链概览](../docs/book/src/toolchain/README.md) —— xtask / launcher / workload 全景（在线版：<https://codesigner-ui.github.io/z42/toolchain/>）
+- 操作手册（构建/测试的完整流程）：[`docs/workflow/`](../docs/workflow/)

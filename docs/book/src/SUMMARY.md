@@ -38,6 +38,15 @@
   - [三层架构与包边界]()
   - [核心包索引]()
 
+# 第五部分 · 工具链（Toolchain）
+
+- [概览](toolchain/README.md)
+  - [xtask：自举 dev CLI](toolchain/xtask.md)
+  - [构建编排（build / regen）](toolchain/build.md)
+  - [测试门禁（test gate）]()
+  - [发行打包（packages.toml）]()
+  - [launcher 与 workload]()
+
 ---
 
 # 附录（Appendix）
