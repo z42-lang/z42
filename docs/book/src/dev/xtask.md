@@ -75,8 +75,8 @@ graph LR
 | 路由树 + 分发 | `scripts/xtask_cli.z42` | `_cliRoot` 构造树；`_applyToolchainOpt` 剥离全局标志 |
 | 共享基建 | `scripts/common/` | 路径解析、进程执行、versions.toml、golden 枚举 |
 | 构建编排 | `scripts/build/` | 见[构建编排](build.md) |
-| 测试编排 | `scripts/test/` | 见测试门禁（待写） |
-| 打包引擎 | `scripts/package/` + `scripts/packages.toml` | 见发行打包（待写） |
+| 测试编排 | `scripts/test/` | 见[测试门禁](test-gate.md) |
+| 打包引擎 | `scripts/package/` + `scripts/packages.toml` | 见[打包引擎](packaging.md) |
 | 依赖安装 | `scripts/install/` | 跨平台 toolchain 检查/安装（rust/node/android SDK…） |
 
 ## 边界与限制

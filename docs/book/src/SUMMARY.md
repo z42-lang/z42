@@ -50,8 +50,8 @@
 - [概览](dev/README.md)
   - [xtask：自举 dev CLI](dev/xtask.md)
   - [构建编排（build / regen）](dev/build.md)
-  - [测试门禁（test gate）]()
-  - [打包引擎（packages.toml）]()
+  - [测试门禁（test gate）](dev/test-gate.md)
+  - [打包引擎（packages.toml）](dev/packaging.md)
 
 ---
 
