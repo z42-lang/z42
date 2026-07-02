@@ -236,7 +236,7 @@ gate**。改打包系统时另跑 `test packages-config / packages-staging / pac
 
 本 README 是**基础层**（干什么 / 怎么用 / 怎么开发）；设计思路与实现机制（深入层）见 book 工具链部分：
 
-- [xtask：自举 dev CLI](../docs/book/src/toolchain/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
-- [构建编排（build / regen）](../docs/book/src/toolchain/build.md) —— z42c 七包自建拓扑、stdlib 三阶段、不动点验证、golden 重生
-- [工具链概览](../docs/book/src/toolchain/README.md) —— xtask / launcher / workload 全景（在线版：<https://codesigner-ui.github.io/z42/toolchain/>）
+- [xtask：自举 dev CLI](../docs/book/src/dev/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
+- [构建编排（build / regen）](../docs/book/src/dev/build.md) —— z42c 七包自建拓扑、stdlib 三阶段、不动点验证、golden 重生
+- [开发基础设施概览](../docs/book/src/dev/README.md) —— xtask 三条产线全景（在线版：<https://codesigner-ui.github.io/z42/dev/>）
 - 操作手册（构建/测试的完整流程）：[`docs/workflow/`](../docs/workflow/)

@@ -41,11 +41,17 @@
 # 第五部分 · 工具链（Toolchain）
 
 - [概览](toolchain/README.md)
-  - [xtask：自举 dev CLI](toolchain/xtask.md)
-  - [构建编排（build / regen）](toolchain/build.md)
+  - [launcher（z42 命令）]()
+  - [workload 与平台发行]()
+  - [SDK 与发行包布局]()
+
+# 第六部分 · 开发基础设施（Dev Infrastructure）
+
+- [概览](dev/README.md)
+  - [xtask：自举 dev CLI](dev/xtask.md)
+  - [构建编排（build / regen）](dev/build.md)
   - [测试门禁（test gate）]()
-  - [发行打包（packages.toml）]()
-  - [launcher 与 workload]()
+  - [打包引擎（packages.toml）]()
 
 ---
 

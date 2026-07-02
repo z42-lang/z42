@@ -18,7 +18,9 @@ z42 项目文档总入口。
 | 第二部分 · 编译器 | [`book/src/compiler/`](book/src/compiler/) | 自举与种子 / pipeline / zpkg 产物 / 错误码 |
 | 第三部分 · 运行时 | [`book/src/runtime/`](book/src/runtime/) | 执行模型 / IR·zbc / GC / 嵌入·跨平台 / native ABI |
 | 第四部分 · 标准库 | [`book/src/stdlib/`](book/src/stdlib/) | 三层架构 / 包边界 / 核心包索引 |
-| 附录 | [`book/src/appendix/`](book/src/appendix/) | 测试框架 / 工具链等独立主题 |
+| 第五部分 · 工具链 | [`book/src/toolchain/`](book/src/toolchain/) | 面向用户：launcher / workload 平台发行 / SDK 布局 |
+| 第六部分 · 开发基础设施 | [`book/src/dev/`](book/src/dev/) | 面向仓库开发：xtask / 构建编排 / 测试门禁 / 打包引擎 |
+| 附录 | [`book/src/appendix/`](book/src/appendix/) | 测试框架 / REPL 等独立主题 |
 
 > 本地渲染：`cargo install mdbook` 后于 `book/` 跑 `mdbook serve --open`。
 > 各概览页带**迁移状态表**，追踪旧 `design/` 各文档迁入进度（⬜/🟡/✅）。

@@ -1,7 +1,8 @@
 # 附录（Appendix）
 
 较独立、单页即可讲清的主题——不成体系，但属于长期知识。
-（工具链已升格为[第五部分](../toolchain/README.md)，其迁移状态见彼处。）
+（工具链主题已升格：面向用户的见[第五部分](../toolchain/README.md)，面向仓库开发的见
+[第六部分](../dev/README.md)，迁移状态各见彼处。）
 
 ## 迁移状态（旧 `docs/design/testing/` + `docs/design/toolchain/repl.md` → 本部分）
 
@@ -10,5 +11,5 @@
 
 | 旧文档 | 目标 | 状态 |
 |--------|------|------|
-| testing/testing.md / test-runner-bootstrap.md / cross-platform-testing.md | 测试框架设计（单页） | ⬜ |
+| testing/testing.md / cross-platform-testing.md | 测试框架设计（单页） | ⬜ |
 | toolchain/repl.md | REPL（独立主题） | ⬜ |
