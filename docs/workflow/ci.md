@@ -4,7 +4,7 @@ z42 CI 在 GitHub Actions 运行（[`.github/workflows/`](../../.github/workflow
 
 CI 与本地测试遵循**同一个 6 阶段分层流水线**——本地按阶段跑 `xtask` 即镜像 CI。深入的自举机制（SDK/Current 两套 toolchain、成对分代、不动点）见 [`testing/bootstrap.md`](testing/bootstrap.md)；本文聚焦 **CI 拓扑 + 阶段总览**。
 
-> 🚧 **现状**：6 阶段模型是**目标拓扑**，迁移进行中（见 `docs/spec/changes/compile-once-toolchain/`）。阶段 3/4 已产出共享 artifact（`current-sdk`），阶段 5 的部分消费者（`test-consume`）已消费；其余测试 job 仍各自自举，逐步迁移。下文标注「✅ 已落地 / 🟡 进行中 / ⬜ 目标」。
+> 🚧 **现状**：6 阶段模型是**目标拓扑**，主体已落地（change 已归档：[`docs/spec/archive/2026-06-30-compile-once-toolchain/`](../spec/archive/2026-06-30-compile-once-toolchain/)）。阶段 3/4 已产出共享 artifact（`current-sdk`），阶段 5 的部分消费者（`test-consume`）已消费；其余测试 job 仍各自自举——剩余项（test 腿全消费 / `build test-assets` / `test` 编排器）经实测低性价比延后，见 [roadmap Deferred「compile-once 正式模型 (CO-D1..D4)」](../roadmap.md)。下文标注「✅ 已落地 / 🟡 进行中 / ⬜ 目标（= CO-D 延后项）」。
 
 ---
 
@@ -115,7 +115,8 @@ flowchart TD
 ./xtask test          # 默认串联全 stage（完整 GREEN gate）
 ```
 
-等价于（任一失败立刻停）：
+裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM）——
+`--no-build` 可跳过的正是这段；随后串联以下 stage（任一失败立刻停）：
 
 ```bash
 cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust）无编译错误

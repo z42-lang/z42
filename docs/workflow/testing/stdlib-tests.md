@@ -26,7 +26,7 @@ compile（直接 z42c.driver.zpkg）+ run（仿 VM golden 的 `_runVmBatch`）�
 - **jit**：in-process runner 无法驱动 JIT（硬编码 interp），故 `--mode jit`
   **强制 subprocess** —— 每个 test fork `z42vm --mode jit`（复用 z42vm 的
   transitive eager-load + cranelift 路径）。`[Setup]`/`[Teardown]` 在 jit 下
-  **不跑**（subprocess 限制）。CI 由独立 `stdlib-jit-consistency (linux-x64)`
+  **不跑**（subprocess 限制）。CI 由独立 `test-stdlib-jit(linux-x64)`（job key: stdlib-jit-consistency）
   job 跑，捕获 stdlib 的 interp/JIT 分歧。
 
 ## 测试发现机制

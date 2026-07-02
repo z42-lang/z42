@@ -30,7 +30,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 - [ ] 本地 fresh checkout（删了 `artifacts/` 后第一次构建）
 - [ ] CI 每条全新 runner 上 build stdlib / build z42c / package / golden regen 的 job
-- [ ] download-bootstrap 类 gate（`vm-jit-consistency` / `stdlib-jit-consistency` / `compiler-stdlib`）
+- [ ] download-bootstrap 类 gate（`test-vm-jit` / `test-stdlib-jit` / `test-compiler-stdlib`；job key 仍为 `vm-jit-consistency` / `stdlib-jit-consistency` / `compiler-stdlib`）
 - [ ] 打包矩阵（`package-{android,ios,wasm}` 等也会冷建 stdlib）
 
 只要其中任一入口在删除后**没有种子来源**，该入口就会 `error: no <X> seed` 全红。

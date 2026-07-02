@@ -26,6 +26,7 @@
 | 加速机制分两种 | `--scope`（stage 级）与 `test changed`（命令级） | scope 按子系统粗切、心智简单；changed 按文件精确到单库命令，适合小步迭代 |
 | changed 的保守坍缩 | 任一改动文件映射为 full → 整个计划坍缩为 `test all` | 宁可多跑不可漏跑；xtask 自身与 workspace 配置改动一律 full |
 | 计划执行方式 | 逻辑命令 in-process 重入 CLI 路由（不 shell out） | 免去每命令一次进程启动；cargo 命令例外走子进程 |
+| 产物消费模式 | `--no-build` / `--toolchain <sdk>` 跳过构建波，直接消费已建产物 | CI 集中构建一次（compile-toolchain / compile-test-assets）、多 job 消费；本地缓存后快速迭代 |
 
 ## 机制
 
@@ -42,7 +43,9 @@ graph LR
 ```
 
 先一次性备齐工具链与基线（regen 构建波），再依序跑四个验证 stage；任一步失败立即终止。
-JIT 一致性不在本地默认路径内，由 CI 专项覆盖（本地可用 `test vm jit` 手动跑）。
+设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的
+`test-host` 正是先经 bootstrap 集中构建、再 `test all --no-build` 消费的形态。
+JIT 一致性不在本地默认路径内，由 CI `test-vm-jit` 专腿覆盖（本地可用 `test vm jit` 手动跑）。
 
 ### `--scope`：stage 级缩窄
 

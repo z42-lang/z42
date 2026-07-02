@@ -482,14 +482,15 @@ iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄 scope 跳过
 快速 iterate，不替代 commit 门禁。详细 scope 说明见
 [`docs/workflow/testing/README.md`](../../docs/workflow/testing/README.md)。
 
-`z42 xtask.zpkg test` 等价于按顺序跑（任一 stage 失败立刻停）：
+裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM；
+`--no-build` 可跳过），随后按顺序跑以下 stage（任一失败立刻停）：
 
 ```bash
 # 1. 编译验证（无编译错误）—— z42vm（Rust VM）。z42c（编译器）+ stdlib 由 xtask 在下面的
 #    test stage 内用 z42c 自建
 cargo build --manifest-path src/runtime/Cargo.toml --release
 
-# 2. VM goldens（interp；JIT 由 CI vm-jit-consistency 专腿覆盖，见 split-interp-jit）
+# 2. VM goldens（interp；JIT 由 CI test-vm-jit(linux-x64) 专腿覆盖，job key: vm-jit-consistency）
 z42 xtask.zpkg test vm
 
 # 3. 跨 zpkg 端到端（catch / vcall / 元数据跨包行为）
@@ -529,7 +530,7 @@ z42 xtask.zpkg test compiler
 
 逐 stage（出现失败时展开）：
 - ✅ cargo build (release) —— z42vm
-- ✅ z42 xtask.zpkg test vm: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI vm-jit-consistency 专腿 / 本地 `test vm jit` 覆盖）
+- ✅ z42 xtask.zpkg test vm: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test vm jit` 覆盖）
 - ✅ z42 xtask.zpkg test cross-zpkg: K/K
 - ✅ z42 xtask.zpkg test lib: 22/22 lib
 - ✅ z42 xtask.zpkg test compiler: 7/7 zpkg + units（z42c 自举）
