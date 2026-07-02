@@ -2,6 +2,9 @@
 
 z42 各层级测试的运行命令。**测试设计**（attribute 体系、TIDX section、runner 协议）见 [`docs/design/testing/`](../../design/testing/)。
 
+> **我改了 X，该怎么验？** → [`verify-by-change.md`](verify-by-change.md)（按改动类型的速查表：
+> 快速迭代 / commit 前必跑 / CI 替你验什么 / 自举边界注意点）。
+
 ## 测试层级
 
 z42 测试分四层，各层独立运行：

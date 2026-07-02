@@ -205,6 +205,9 @@ scripts/
 
 ## 迭代注意点（自举边界与验证）
 
+> 按改动类型的完整验证速查（改了编译器/stdlib/VM/xtask 各跑什么）：
+> [`docs/workflow/testing/verify-by-change.md`](../docs/workflow/testing/verify-by-change.md)。
+
 改本目录（乃至全仓）代码时，最容易踩的是**自举边界**：
 
 - **语法/格式越界**：当前源码**不得使用比上一版已发布 nightly z42c 更新的语法或 zbc·zpkg 格式**
