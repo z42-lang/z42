@@ -46,7 +46,7 @@ git push origin v0.2.0
 `.github/workflows/release.yml` 在 tag push 后跑 3 阶段：
 
 1. **verify** — 校验 `tag.strip_prefix('v') == versions.toml [project].version`；drift fail-fast
-2. **package** (matrix × 9 RID) — 每个 RID 一台 runner，跑 `z42 xtask.zpkg build stdlib` + `z42 xtask.zpkg package release --rid <rid>` + release.yml 的内联 tar/shasum 归档步骤
+2. **package** (matrix × 9 RID) — 每个 RID 一台 runner，跑 `xtask build stdlib` + `xtask package release --rid <rid>` + release.yml 的内联 tar/shasum 归档步骤
 3. **publish** — 汇总 9 个 archive，生成 `SHA256SUMS`，调 `gh release create v<version>` 上传
 
 ### Artifact 命名

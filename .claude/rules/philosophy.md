@@ -74,7 +74,7 @@ paths:
 适用范围：
 
 - **zbc / zpkg 二进制格式** — 字段添加 / 移除直接做；version bump 后旧版本
-  zbc **不可读**（解码器无需 fallback）。残留旧产物用 `z42 xtask.zpkg regen`
+  zbc **不可读**（解码器无需 fallback）。残留旧产物用 `xtask regen`
   重生
 - **stdlib 公开 API** — 接口 / 类 / 方法删除或重命名直接做；不留 alias / deprecation
 - **IR 指令** — 新增字段 / 改语义直接做；旧字段不保留

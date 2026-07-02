@@ -105,9 +105,9 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 # → "WebAssembly (wasm) binary module"
 ```
 
-### 4. SHA-256 invariant（z42 xtask.zpkg package 末尾自动跑 SHA-256 invariant，原生 byte compare）
+### 4. SHA-256 invariant（xtask package 末尾自动跑 SHA-256 invariant，原生 byte compare）
 
-`z42 xtask.zpkg package` 末尾会自动跑 SHA-256 invariant（原生 byte compare），确保跨 9 包 byte-identical：
+`xtask package` 末尾会自动跑 SHA-256 invariant（原生 byte compare），确保跨 9 包 byte-identical：
 
 - `libs/*.zpkg` — stdlib 二进制（平台无关；无 namespace 索引——读 NSPC）
 - `native/include/z42_abi.h` + `z42_host.h` — Tier 1 C ABI 头

@@ -314,7 +314,7 @@ docs/spec/changes/<change-name>/
 ## Testing Strategy
 - 单元测试：[覆盖点]
 - Golden test：[新增场景]
-- VM 验证：z42 xtask.zpkg test（cargo build z42vm + z42c 自建 + vm/cross-zpkg/stdlib/compiler）
+- VM 验证：xtask test（cargo build z42vm + z42c 自建 + vm/cross-zpkg/stdlib/compiler）
 ```
 
 ---
@@ -345,8 +345,8 @@ docs/spec/changes/<change-name>/
 
 ## 阶段 3: 验证
 - [ ] 3.1 cargo build (z42vm) —— 无编译错误（z42c + stdlib 由 xtask test 用 z42c 自建）
-- [ ] 3.2 z42 xtask.zpkg test compiler —— z42c 自举全绿
-- [ ] 3.3 z42 xtask.zpkg test vm —— 全绿
+- [ ] 3.2 xtask test compiler —— z42c 自举全绿
+- [ ] 3.3 xtask test vm —— 全绿
 - [ ] 3.4 spec scenarios 逐条覆盖确认
 - [ ] 3.5 docs/design/ 文档同步（新语法 / IR / VM 行为）
 - [ ] 3.6 docs/roadmap.md 进度表更新（若有特性完成某 pipeline 阶段）
@@ -472,7 +472,7 @@ docs/spec/changes/<change-name>/
 统一入口：
 
 ```bash
-z42 xtask.zpkg test          # 默认串联所有必跑 stage（完整 GREEN gate）
+xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 ```
 
 **Scope-aware 加速（add-test-split-by-area, 2026-05-21）**：
@@ -491,25 +491,25 @@ iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄 scope 跳过
 cargo build --manifest-path src/runtime/Cargo.toml --release
 
 # 2. VM goldens（interp；JIT 由 CI test-vm-jit(linux-x64) 专腿覆盖，job key: vm-jit-consistency）
-z42 xtask.zpkg test vm
+xtask test vm
 
 # 3. 跨 zpkg 端到端（catch / vcall / 元数据跨包行为）
-z42 xtask.zpkg test cross-zpkg
+xtask test cross-zpkg
 
 # 4. stdlib [Test] dogfood（全量 [Test] 用例）
-z42 xtask.zpkg test lib
+xtask test lib
 
 # 5. z42c 自举（编译器正确性：build 7 子包 + 产物存在 + [Test] units）
-z42 xtask.zpkg test compiler
+xtask test compiler
 ```
 
 > **不要漏跑 cross-zpkg / lib / compiler**。historic regression：cross-zpkg
 > subclass catch bug 之所以一直没被发现，就是 3 / 4 不在默认 GREEN 路径里 —— 每次
-> spec 验证都漏跑。该 lesson 现在以 `z42 xtask.zpkg test` 形式固化；编译器正确性
+> spec 验证都漏跑。该 lesson 现在以 `xtask test` 形式固化；编译器正确性
 > 由 stage 5（z42c 自举）保证。
 
-打包发行验证：发行版变更（z42 xtask.zpkg build package / 跨平台 / 嵌入接口）追加跑
-`z42 xtask.zpkg test dist`（要求先跑 `z42 xtask.zpkg build package release`
+打包发行验证：发行版变更（xtask build package / 跨平台 / 嵌入接口）追加跑
+`xtask test dist`（要求先跑 `xtask build package release`
 产 host-RID 包）。
 
 **测试失败处理规则：**
@@ -526,15 +526,15 @@ z42 xtask.zpkg test compiler
 ```markdown
 ## 验证报告
 
-### z42 xtask.zpkg test 状态：✅ 全绿（N stages）/ ❌ 失败 at <stage>
+### xtask test 状态：✅ 全绿（N stages）/ ❌ 失败 at <stage>
 
 逐 stage（出现失败时展开）：
 - ✅ cargo build (release) —— z42vm
-- ✅ z42 xtask.zpkg test vm: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test vm jit` 覆盖）
-- ✅ z42 xtask.zpkg test cross-zpkg: K/K
-- ✅ z42 xtask.zpkg test lib: 22/22 lib
-- ✅ z42 xtask.zpkg test compiler: 7/7 zpkg + units（z42c 自举）
-- （可选）✅ z42 xtask.zpkg test dist: P/P
+- ✅ xtask test vm: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test vm jit` 覆盖）
+- ✅ xtask test cross-zpkg: K/K
+- ✅ xtask test lib: 22/22 lib
+- ✅ xtask test compiler: 7/7 zpkg + units（z42c 自举）
+- （可选）✅ xtask test dist: P/P
 
 ### Spec 覆盖（若有 spec）
 | Scenario | 实现位置 | 验证方式 | 状态 |
@@ -694,7 +694,7 @@ tasks.md 顶部：
 - **验证未全绿时 commit / push**
   - 🔴 **任何测试失败都不得进入 commit**
   - 包括 pre-existing 失败：发现后必须修复，或新建单独 issue + 说明
-  - 验证命令必须完整运行：`cargo build && z42 xtask.zpkg test`（全 stage gate）
+  - 验证命令必须完整运行：`cargo build && xtask test`（全 stage gate）
   - 全绿的定义：所有编译无错，所有测试 100% 通过
 
 - **顺手修复 Scope 外问题**

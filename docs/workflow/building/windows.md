@@ -107,7 +107,7 @@ Git Bash 内部把 `C:\foo\bar` 映射为 `/c/foo/bar`。但 Cargo / z42vm 这�
 | 动态库 | `libz42.dylib` | `libz42.so` | `z42.dll` (+ `z42.lib` import lib) |
 | 静态库 | `libz42.a` | `libz42.a` | （cargo 不出，因为 Windows 没有惯例的 `.a`）|
 
-`z42 xtask.zpkg package` 的 desktop 打包步骤（原 `scripts/_lib/package_desktop.sh`，已移植进 xtask）自动检测哪个后缀存在并 cp 进 `bin/`。
+`xtask package` 的 desktop 打包步骤（原 `scripts/_lib/package_desktop.sh`，已移植进 xtask）自动检测哪个后缀存在并 cp 进 `bin/`。
 
 ### Line endings
 
@@ -132,7 +132,7 @@ xtask 打包的 sha256 校验（原 `scripts/_lib/package_helpers.sh` 的 `pkg_s
 
 ### `file` / `ar` 工具
 
-Git Bash 自带 `file`、`ar`、`grep`、`awk`、`sed`、`tr` —— `z42 xtask.zpkg package` 用到的全部 POSIX 工具都有。`xxd` / `hexdump` 也在。
+Git Bash 自带 `file`、`ar`、`grep`、`awk`、`sed`、`tr` —— `xtask package` 用到的全部 POSIX 工具都有。`xxd` / `hexdump` 也在。
 
 ### `xcrun` / `xcodebuild` —— iOS RID
 
