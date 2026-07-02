@@ -1,6 +1,8 @@
 # z42 知识库（mdBook）
 #
 # 本地渲染：cargo install mdbook 后，在本目录跑  mdbook serve --open
+# mermaid 图本地渲染（可选）：cargo install mdbook-mermaid && mdbook-mermaid install .
+#   （CI 部署时自动注入，此处 book.toml 保持干净；GitHub 网页原生渲染 mermaid）
 # 本 book 是 z42 语言 / 编译器 / VM / 标准库的【系统化长期知识库·唯一 SoT】。
 # 与 docs/design/（旧·逐步迁入）、docs/spec/（变更工作区）职责区分见
 # .claude/rules/doc-system.md。

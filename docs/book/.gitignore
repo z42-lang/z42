@@ -1,2 +1,5 @@
 # mdBook 渲染产物（本地 `mdbook build` 生成，不入库）
 book/
+# 本地跑 `mdbook-mermaid install .` 注入的资源（CI 构建期注入，不入库）
+mermaid.min.js
+mermaid-init.js

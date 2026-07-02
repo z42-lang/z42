@@ -27,15 +27,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install mdBook
+      - name: Install mdBook + mdbook-mermaid
         run: |
           MDBOOK_VERSION=0.4.40
+          MERMAID_VERSION=0.14.0
           mkdir -p "$HOME/.local/bin"
           curl -sSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C "$HOME/.local/bin"
+          curl -sSL "https://github.com/badboy/mdbook-mermaid/releases/download/v${MERMAID_VERSION}/mdbook-mermaid-v${MERMAID_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build
-        run: cd docs/book && mdbook build
+        # mdbook-mermaid install 向 checkout 副本注入 mermaid 预处理器配置 + js 资源
+        # （仓库内 book.toml 保持干净；本地无插件也能 build，GitHub 网页原生渲染 mermaid）
+        run: |
+          cd docs/book
+          mdbook-mermaid install .
+          mdbook build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/book/book
