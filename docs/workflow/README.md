@@ -2,24 +2,12 @@
 
 **面向开发者：怎么跑命令。** 设计原理归 [`docs/design/`](../design/)；spec 提案流程归 [`.claude/rules/workflow.md`](../../.claude/rules/workflow.md)。
 
-## 前置：先拿到 z42
+## 先拿到 z42
 
 **前置工具**：git + Rust stable（`rustc --version` 自检）+ `gh`（auth'd，下载 SDK 用）。
 工具链 100% z42 自举：`z42c`（编译器）用 z42 写、编译为 zpkg；`z42vm`（VM）是 Rust。
 
-所有命令都经 `z42` launcher 跑，而 z42 的工具链本身用 z42 写（`xtask`）——所以先下载一个预编译 launcher 引导（鸡生蛋的唯一原生 primer）。**自举 + 本地/CI 测试验证的完整流程**（SDK vs Current 两套 toolchain、交叉验证、边界不变量、冗余清单）见 [`testing/bootstrap.md`](testing/bootstrap.md)：
-
-```bash
-./scripts/install-z42.sh                       # → ./.z42/（z42 launcher + z42c + z42vm + stdlib）；Windows: install-z42.bat
-export PATH="$PWD/.z42:$PWD/.z42/bin:$PATH"     # z42 / z42c / z42vm 上 PATH
-# 用下载的 stdlib 编 dev CLI（Z42_LIBS 指 z42c 去 .z42/libs 找 stdlib）：
-Z42_LIBS="$PWD/.z42/libs" z42c build scripts/xtask.z42.toml --release   # → artifacts/xtask/xtask.zpkg
-```
-
-> 从源码整套构建（不下预编译）见 [`building/`](building/)；冷启动 bootstrap 机制见 [`building/stdlib.md`](building/stdlib.md)。
-> 可选环境变量：`Z42_LIBS`（stdlib 扁平目录，默认 `artifacts/build/libraries/dist/release/`）、`Z42_PORTABLE_VM`（z42vm 路径）——CI 显式设置，本地默认即可。
-
-## Quick Start
+首次获取 launcher、编 `xtask` dev CLI、跑第一个程序的完整步骤见 [`quickstart.md`](quickstart.md)。装好后核心两步：
 
 ```bash
 ./xtask build all    # 编译器 + VM + stdlib
@@ -27,6 +15,9 @@ Z42_LIBS="$PWD/.z42/libs" z42c build scripts/xtask.z42.toml --release   # → ar
 ```
 
 完整命令：`./xtask help`（源 = [`scripts/xtask*.z42`](../../scripts/)）。
+
+> 从源码整套构建（不下预编译）见 [`building/`](building/)；冷启动 bootstrap 机制见 [`building/stdlib.md`](building/stdlib.md)；**自举 + 本地/CI 交叉验证的完整流程**（SDK vs Current 两套 toolchain、边界不变量、冗余清单）见 [`testing/bootstrap.md`](testing/bootstrap.md)。
+> 可选环境变量：`Z42_LIBS`（stdlib 扁平目录，默认 `artifacts/build/libraries/dist/release/`）、`Z42_PORTABLE_VM`（z42vm 路径）——CI 显式设置，本地默认即可。
 
 ## 我要做 ... → 看 ...
 

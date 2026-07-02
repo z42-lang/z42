@@ -35,50 +35,19 @@ A **full-stack systems programming language** designed for productivity and perf
 
 ## Quick Start
 
-### 1. Get z42
-
-z42's build/test/dev tooling is **itself written in z42** (the `xtask` CLI), so
-you bootstrap by first downloading a prebuilt launcher — the one native primer
-(chicken-and-egg: you need a working z42 to run the z42-implemented tooling):
+Download the launcher, build the `xtask` dev CLI, then compile and run a program —
+full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**:
 
 ```bash
 git clone https://github.com/codesigner-ui/z42 && cd z42
-./scripts/install-z42.sh                       # → ./.z42/  (z42 launcher + z42c + z42vm + stdlib)
-                                               #   Windows: scripts\install-z42.bat
-export PATH="$PWD/.z42:$PWD/.z42/bin:$PATH"     # put z42 / z42c / z42vm on PATH
+./scripts/install-z42.sh                     # → ./.z42/  (launcher + z42c + z42vm + stdlib)
+.z42/z42 publish scripts/xtask.z42.toml       # build + deploy → ./xtask (native apphost)
+./xtask test                                 # full gate; ./xtask auto-locates ./.z42, no PATH export
 ```
 
-> `install-z42.sh` downloads the prebuilt package (version from
-> `versions.toml [toolchain.z42].launcher`, default `nightly`) into a
-> project-local, gitignored `./.z42/` — it never touches your system.
-
-### 2. Build the xtask CLI, then drive everything through it
-
-```bash
-# build the dev CLI against the downloaded stdlib (z42c finds .z42/libs automatically):
-z42c build scripts/xtask.z42.toml --release                            # → artifacts/xtask/xtask.zpkg
-z42 publish desktop scripts/xtask.z42.toml                              # → ./xtask  (native apphost)
-
-./xtask build all     # compiler + runtime + stdlib (from source)
-./xtask test          # full gate (compiler + vm + cross-zpkg + stdlib)
-./xtask help          # all commands (build / test / deps / regen / bench / package)
-```
-
-### 3. Compile + run a z42 program
-
-```bash
-z42c build path/to/app.z42.toml --release   # → <out_dir>/<name>.zpkg  (see examples/*.z42.toml)
-z42 <out_dir>/<name>.zpkg                    # run it via the launcher
-```
-
-A green `./xtask test` already proves the toolchain compiles and runs z42
-end-to-end. See [examples/](examples/) for project layouts.
-
-> **Prerequisites:** git + Rust stable (`rustc --version`) + [`gh`](https://github.com/cli/cli) (authed — downloads the prebuilt primer). A C toolchain (`build-essential` / Xcode CLT) is needed for C-backed stdlib deps.
-> **Building the whole toolchain from source** (no prebuilt download) and the full
-> bootstrap details live in [docs/workflow/building/](docs/workflow/building/).
-> Full build / test / packaging / CI / release workflows: [docs/workflow/](docs/workflow/).
-Collaboration workflow: [.claude/CLAUDE.md](.claude/CLAUDE.md).
+> **Prerequisites:** git + Rust stable + [`gh`](https://github.com/cli/cli) (authed).
+> Build from source, packaging, CI, release: [docs/workflow/](docs/workflow/).
+> Collaboration workflow: [.claude/CLAUDE.md](.claude/CLAUDE.md).
 
 ---
 
