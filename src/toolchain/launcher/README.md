@@ -15,7 +15,7 @@ z42）；其余逻辑全部用 z42 写。
 |------|------|------|
 | `core/launcher.z42` | **z42** | launcher 命令实现：`~/.z42` 缓存 / 版本解析 / 起 app / 各子命令 handler（从 `Std.Cli.ParseResult` 读参）。编译为 `launcher.zpkg`（Exe-mode）。 |
 | `core/launcher_cli.z42` | **z42** | CLI 层（migrate-xtask-launcher-to-std-cli）：`Std.Cli` 嵌套 `SubcommandRouter` 命令树 + `_runLauncher`（apphost 简写 / `run` 透传 / Resolve + dispatch）。每层 `-h` help 由库生成（手写 `_help()` 已删）。 |
-| `core/apphost.z42` | **z42** | apphost stub-patch 库（apphost-as-config 2026-06-17）：拷贝 apphost stub 模板 + patch 内嵌占位符 + macOS ad-hoc 重签名。`Produce(app, outPath)` 由 `_cmdPublishDesktop`（`z42 publish desktop`）调用——**无独立 `z42 apphost` 命令**。 |
+| `core/apphost.z42` | **z42** | apphost stub-patch 库（apphost-as-config 2026-06-17）：拷贝 apphost stub 模板 + patch 内嵌占位符 + macOS ad-hoc 重签名。`Produce(app, outPath)` 由 `_cmdPublishDesktop`（`z42 publish`）调用——**无独立 `z42 apphost` 命令**。 |
 
 > **unify-launcher-apphost（2026-06-21）**：原 Rust trampoline crate（`Cargo.toml` /
 > `src/main.rs` / `src/lib.rs`）**已删**。`z42` 现在就是**通用 per-app apphost stub**
@@ -29,7 +29,7 @@ z42）；其余逻辑全部用 z42 写。
 `run` / `link` / `list` / `default` / `which` / `info`（本地、无网络）。
 `install` / `uninstall` / `self update` / 下载 = P2（后续 spec）。
 
-`z42 publish desktop <project.z42.toml>`（读 `[platform.desktop].publish_dir`）→ 产出 per-app 原生可执行文件 apphost（机制 / 本地优先解析 / 签名详见 [`docs/design/runtime/launcher.md`](../../../docs/design/runtime/launcher.md) 的 apphost 段）。apphost-as-config：apphost 是 desktop 平台的发布产物，不是独立命令。
+`z42 publish <project.z42.toml>`（读 `[platform.desktop].publish_dir`）→ 产出 per-app 原生可执行文件 apphost（机制 / 本地优先解析 / 签名详见 [`docs/design/runtime/launcher.md`](../../../docs/design/runtime/launcher.md) 的 apphost 段）。apphost-as-config：apphost 是 desktop 平台的发布产物，不是独立命令。
 
 ## 状态
 

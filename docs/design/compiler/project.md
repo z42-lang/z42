@@ -1339,7 +1339,7 @@ stub 产出 exe。与 ios/android/wasm export 对称——apphost 不是独立�
 z42 export ios     <project.z42.toml> [--bundle-id com.x.y] [--output ./MyApp] [--sdk-ver 0.3.0]
 z42 export android <project.z42.toml> [--app-id  com.x.y] [--output ./MyApp] [--sdk-ver 0.3.0]
 z42 export wasm    <project.z42.toml>                       [--output ./MyApp] [--sdk-ver 0.3.0]
-z42 publish desktop <project.z42.toml>                       [--output <publish_dir>]
+z42 publish <project.z42.toml>                             [--output <publish_dir>]
 ```
 
 详细设计见 [`docs/design/toolchain/export.md`](../toolchain/export.md)。

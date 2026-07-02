@@ -68,7 +68,7 @@ int _testDistRun(string modeArg) {
     overallPass = overallPass + smoke[0];
     overallFail = overallFail + smoke[1];
 
-    // ── desktop-publish smoke (build app → publish desktop → run produced exe) ──────
+    // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
     int[] ah = _apphostSmoke(distDir, work);
     overallPass = overallPass + ah[0];
     overallFail = overallFail + ah[1];
@@ -225,7 +225,7 @@ int[] _launcherSmoke(string distDir, string work) {
 }
 
 // ── desktop-publish smoke: returns [pass, fail] ────────────────────────────────────
-// Build a tiny app.zpkg with the packaged z42c, `z42 publish desktop` it (the
+// Build a tiny app.zpkg with the packaged z42c, `z42 publish` it (the
 // portable trampoline finds the stub template in bin/apphost), then run the
 // produced native exe against a Z42_HOME pointing at the package and assert it
 // runs the app. Exercises patch + macOS re-sign + local-first resolution.
@@ -285,19 +285,20 @@ int[] _apphostSmoke(string distDir, string work) {
             Console.WriteLine("");
             int[] rf = new int[2]; rf[0] = pass; rf[1] = fail + 1; return rf;
         }
-        // 2. z42 publish desktop — portable trampoline (drop Z42_HOME / Z42_PORTABLE_VM
+        // 2. z42 publish — portable trampoline (drop Z42_HOME / Z42_PORTABLE_VM
         //    so it resolves the package itself and finds bin/apphost as template).
-        //    apphost-as-config: desktop publish is `publish desktop <toml>` reading
-        //    [platform.desktop].publish_dir (= "." → exe beside the built zpkg).
-        int pc = new Process(launcher).Arg("publish").Arg("desktop").Arg(Path.Join(ad, "app.z42.toml"))
+        //    apphost-as-config: desktop publish is `publish <toml>` (--rid defaults
+        //    to host) reading [platform.desktop].publish_dir (= "." → exe beside the
+        //    built zpkg). unify-platform-deploy-rid removed the `desktop` subcommand.
+        int pc = new Process(launcher).Arg("publish").Arg(Path.Join(ad, "app.z42.toml"))
             .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
             .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
         if (pc != 0 || !File.Exists(producedExe)) {
-            Console.WriteLine("  FAIL: z42 publish desktop (rc=" + pc.ToString() + ")");
+            Console.WriteLine("  FAIL: z42 publish (rc=" + pc.ToString() + ")");
             Console.WriteLine("");
             int[] rf = new int[2]; rf[0] = pass; rf[1] = fail + 1; return rf;
         }
-        Console.WriteLine("  ✓ z42 publish desktop → " + producedExe);
+        Console.WriteLine("  ✓ z42 publish → " + producedExe);
 
         // 3. run the produced exe with Z42_HOME → a symlink at <ahome>/launcher
         //    pointing at the package (portable-style: launcher.zpkg + bin/z42vm).

@@ -2,7 +2,7 @@ namespace Z42.Build.Project;
 
 /// `[platform.desktop]` 段。固定字段。
 public sealed class DesktopConfig {
-    public bool   Apphost;      // apphost = true → `z42 publish desktop` 才产 apphost（gate）
+    public bool   Apphost;      // apphost = true → `z42 publish` 才产 apphost（gate）
     public string PublishDir;   // 输出目录（仅位置，不再充当 gate）
     public bool   HasIcon;
     public string Icon;

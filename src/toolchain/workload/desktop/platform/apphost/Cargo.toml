@@ -1,5 +1,5 @@
 # Per-app native apphost stub — owned by the desktop workload (apphost-to-workload,
-# 2026-06-18). `z42 publish desktop` copies this binary and patches its embedded
+# 2026-06-18). `z42 publish` copies this binary and patches its embedded
 # target placeholder with the app's zpkg path. Shares the "locate z42vm + run app
 # zpkg directly" logic with the launcher trampoline via the z42-hostrun crate.
 [package]

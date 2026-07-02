@@ -18,7 +18,7 @@ include = ["*.z42"]
 "z42.compression" = "0.1.0"   # Gzip + Tar — unpack .tar.gz
 "z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS
 "z42.encoding"    = "0.1.0"   # Utf8.GetBytes — patch apphost placeholder
-"z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish desktop <toml>`
+"z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
 "z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
 "z42.workload.desktop" = "0.1.0"   # desktop publish: Z42.Workload.Desktop.Apphost.Produce (workload-owned)
 "z42.workload.ios"     = "0.1.0"   # iOS export: Z42.Workload.Ios.IosExport.Generate (workload-owned)
@@ -40,7 +40,7 @@ mode     = "interp"
 optimize = 2
 
 # apphost-as-config: this binary publishes a native desktop apphost.
-#   apphost = true  → gate（无此则 `z42 publish desktop` 不产 apphost）。
+#   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
 #   publish_dir 缺省 = 项目目录（仅输出位置，非 gate）。
 #   bin/payload（add-package-layout-config）：根 launcher 特例——bin 落部署根 `z42`。
 [platform.desktop]

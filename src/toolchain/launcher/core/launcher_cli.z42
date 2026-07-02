@@ -3,7 +3,7 @@
 // Builds the Std.Cli nested SubcommandRouter for the `z42` launcher and
 // dispatches a resolved command. Replaces the hand-written if-else chain in
 // launcher.z42's Main. Each leaf declares its flags/positionals via ArgParser,
-// so `-h` works at every level (z42 run -h / z42 link -h / z42 publish desktop -h)
+// so `-h` works at every level (z42 run -h / z42 link -h / z42 publish -h)
 // and help is generated (no hand-written _help()).
 //
 // Two commands bypass Resolve (handled in _runLauncher before routing):

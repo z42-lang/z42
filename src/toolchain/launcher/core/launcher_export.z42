@@ -7,7 +7,7 @@
 //
 // Config is read from the project's z42.toml [platform.ios/android/wasm] section.
 // CLI flags override toml values. The built .zpkg is resolved via the same dist_dir
-// logic as `z42 publish desktop`. Platform SDKs live at ~/.z42/runtimes/<rid>/<ver>/.
+// logic as `z42 publish`. Platform SDKs live at ~/.z42/runtimes/<rid>/<ver>/.
 namespace Z42Launcher;
 
 using Std;
@@ -283,7 +283,7 @@ void _cmdRunDeploy(string[] argv) {
 string _desktopResolveZpkg(string verb, string tomlPath, TomlValue toml, string projName) {
     string zpkgSrc = _expResolveZpkg(tomlPath, toml, projName);
     if (!File.Exists(zpkgSrc)) {
-        ConsoleError.WriteLine("z42 " + verb + " desktop: built zpkg not found: " + zpkgSrc
+        ConsoleError.WriteLine("z42 " + verb + ": built zpkg not found: " + zpkgSrc
             + "  (build it first: z42c build " + tomlPath + ")");
         Environment.Exit(1);
     }
@@ -348,7 +348,7 @@ string _expDefaultOutputDir(string tomlPath, string name, string suffix) {
     return (dir.Length > 0) ? Path.Join(dir, sub) : sub;
 }
 
-// Find the built zpkg via the same dist_dir logic as `z42 publish desktop`.
+// Find the built zpkg via the same dist_dir logic as `z42 publish`.
 string _expResolveZpkg(string tomlPath, TomlValue toml, string name) {
     string projDir = Path.GetDirectoryName(tomlPath);
     string outDir  = _expTomlStr(toml, "build", "output_dir", "");

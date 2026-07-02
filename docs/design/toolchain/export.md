@@ -13,7 +13,7 @@
 | Android | `z42 export android` | Kotlin + Gradle 工程 |
 | WebAssembly | `z42 export wasm` | `index.html` + `index.js` |
 
-> **desktop 不在 export 范畴**（rework-desktop-publish-run, 2026-06-17）：desktop 没有 IDE 工程可生成，它的发布产物 apphost 是 **publish** 形态——`z42 publish desktop` / `z42 run desktop`（读 `[platform.desktop]`）。命令模型见 [platform-export-lifecycle.md](platform-export-lifecycle.md)。
+> **desktop 不在 export 范畴**（rework-desktop-publish-run, 2026-06-17）：desktop 没有 IDE 工程可生成，它的发布产物 apphost 是 **publish** 形态——`z42 publish` / `z42 run desktop`（读 `[platform.desktop]`）。命令模型见 [platform-export-lifecycle.md](platform-export-lifecycle.md)。
 
 ## 工作流
 

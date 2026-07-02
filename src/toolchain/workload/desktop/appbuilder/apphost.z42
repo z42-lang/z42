@@ -6,7 +6,7 @@
 // stub (the z42-apphost crate at platform/apphost, shipped next to z42vm) and
 // patching its embedded target placeholder with the app's zpkg path. This is the
 // **desktop platform's publish artifact** — driven by `[platform.desktop]` via
-// `z42 publish desktop` (launcher_export.z42, which depends on this package).
+// `z42 publish` (launcher_export.z42, which depends on this package).
 // apphost is the desktop output, symmetric with ios `.ipa` / android `.aab` / wasm bundle.
 //
 // The embed is always resolved at runtime against the exe's OWN dir

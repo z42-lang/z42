@@ -31,8 +31,8 @@ cache_dir  = "${output_dir}/.cache"
 mode     = "interp"
 optimize = 2
 
-# apphost-as-config (2026-06-17): `z42 publish desktop scripts/xtask.z42.toml`
-# reads [platform.desktop] and emits a native `./xtask` apphost that runs the
+# apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
+# defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the
 # built xtask.zpkg directly. z42c does NOT consume this section — it's read by
 # the desktop export patcher only.
 #   apphost = true  → the gate: only then does publish emit an apphost.

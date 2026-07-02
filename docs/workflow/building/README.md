@@ -42,7 +42,7 @@
 
 ```bash
 Z42_LIBS="$PWD/.z42/libs" z42c build scripts/xtask.z42.toml --release   # 编 xtask.zpkg
-z42 publish desktop scripts/xtask.z42.toml                                # 读 [platform.desktop] → ./xtask
+z42 publish scripts/xtask.z42.toml                                        # 读 [platform.desktop] → ./xtask
 ```
 
 `./xtask` 原生 + 平台相关 + 已 gitignore（重生不提交）；机制与 `[apphost].publish_dir` 配置见 [`runtime/launcher.md`](../../design/runtime/launcher.md#z42toml-配置apphost-publishapphost-out-path-2026-06-10)。

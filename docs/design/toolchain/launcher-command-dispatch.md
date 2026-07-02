@@ -41,7 +41,7 @@
 | **Workload** | 平台 publish/export/工程生成 + 模板 + native 包（xcframework/AAR）+ **apphost（desktop publish 产物）**（desktop/ios/android/wasm）| 按需 `z42 workload install` | **目录发现**（`$Z42_HOME/workloads/`，**跟 SDK 走**，drop-in 即注册）| 平台按需、host 无关平台不强塞；ABI↔runtime 版本绑定暂不做 |
 
 > **命令模型 + apphost 归属（define-cli-command-model, 2026-06-17）**：完整动词语义（字节码模型 / build-zpkg / run 双形态 / publish-deployable / export-IDE工程）见 [platform-export-lifecycle.md](platform-export-lifecycle.md)。要点：
-> - **取消 `z42 apphost` 命令**。apphost 是 `[platform.desktop]` 配置驱动的 desktop **publish 部署件**，经 **`z42 publish desktop`**（release，留存）产出；**`z42 run desktop`** 产 debug apphost 临时跑（预演部署启动）。`apphost.z42` 的 stub-patch 逻辑是这两者的实现，不再是独立 verb。
+> - **取消 `z42 apphost` 命令**。apphost 是 `[platform.desktop]` 配置驱动的 desktop **publish 部署件**，经 **`z42 publish`**（release，留存）产出；**`z42 run desktop`** 产 debug apphost 临时跑（预演部署启动）。`apphost.z42` 的 stub-patch 逻辑是这两者的实现，不再是独立 verb。
 > - **`export` 仅 ios/android**（生成 Xcode/gradle 原生工程）；desktop 无 IDE 工程可导出 → 没有 `export desktop`。
 > - **`run` 双形态**：`run`（无参）跑 zpkg 字节码于 host vm；`run <plat>` 以平台部署形态跑（desktop=apphost / mobile=on-device / wasm=浏览器）。
 > - 门控不变：默认 `build`/`run`（无参）零 workload；`publish`/`export`/`run <plat>` 才下载对应平台 workload（desktop 亦 workload，仅 publish/run 维度；host runtime 仍经 `z42 install`）。

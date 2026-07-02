@@ -1,6 +1,6 @@
 //! Per-app native apphost stub (add-apphost, 2026-06-09).
 //!
-//! `z42 apphost build <app.zpkg>` copies this binary and patches the embedded
+//! `z42 publish <project.z42.toml>` copies this binary and patches the embedded
 //! target placeholder (located in the file by [`MAGIC`]) with the app's zpkg
 //! path *relative to the produced exe*. At runtime the stub reads that path,
 //! resolves a z42vm + libs (framework-dependent, local-first), and runs the
@@ -73,7 +73,7 @@ fn main() {
     let target = match parse_target() {
         Some(t) => t,
         None => {
-            eprintln!("apphost: 未配置目标 app —— 占位符未被 `z42 apphost build` patch。");
+            eprintln!("apphost: 未配置目标 app —— 占位符未被 `z42 publish` patch。");
             exit(1);
         }
     };

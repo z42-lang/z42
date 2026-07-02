@@ -41,7 +41,7 @@ $Z42_HOME/runtimes/<ver>/z42vm  <app.zpkg>  --  <app args>
 ├── bin/
 │   ├── z42c                    # apphost → ../programs/z42c/z42c.driver.zpkg
 │   ├── z42vm                   # VM 主进程（也在 PATH 上）
-│   └── apphost                 # stub 模板（z42 publish desktop 用）
+│   └── apphost                 # stub 模板（z42 publish 用）
 ├── libs/                       # stdlib zpkg
 │   └── z42.*.zpkg
 ├── programs/                   # SDK 内置命令 zpkg 实现（跟 SDK 走，版本无关，2026-06-20）
@@ -217,12 +217,12 @@ app 可在 **`<app>.runtimeconfig.json`** sidecar(.NET 同款,独立于 zpkg,可
 
 ```bash
 z42c build app.z42.toml            # → app.zpkg（如常）
-z42 publish desktop app.z42.toml   # release apphost → publish_dir（留存的发布件）
+z42 publish app.z42.toml           # release apphost → publish_dir（留存的发布件）
 z42 run desktop app.z42.toml       # debug apphost（旁 zpkg）+ 直接 exec（预演部署启动）
 ./app arg1 arg2                    # publish 出的 apphost 直接运行；参数 + 退出码透传
 ```
 
-> **publish vs run desktop**：`publish desktop` 产 release apphost 到 `[platform.desktop].publish_dir`（留存件）；`run desktop` 产 debug apphost 于 zpkg 同目录并直接 exec（ephemeral，预演 apphost 自解析启动路径，区别于 `z42 run` 走 launcher 路径）。详见 [platform-export-lifecycle.md](../toolchain/platform-export-lifecycle.md) 命令模型。
+> **publish vs run desktop**：`z42 publish` 产 release apphost 到 `[platform.desktop].publish_dir`（留存件）；`run desktop` 产 debug apphost 于 zpkg 同目录并直接 exec（ephemeral，预演 apphost 自解析启动路径，区别于 `z42 run` 走 launcher 路径）。详见 [platform-export-lifecycle.md](../toolchain/platform-export-lifecycle.md) 命令模型。
 
 ### 机制：内嵌占位符 patch（.NET 同款）
 
@@ -235,7 +235,7 @@ native apphost stub（`src/toolchain/workload/desktop/platform/apphost`，z42-ap
 
 **输入：项目 toml**（apphost-as-config；占位符总是相对路径，运行时按 **exe 自身目录**（`current_exe`）解析 ⇒ 整个 `<exe + app.zpkg>` 可整体搬迁）：
 
-`z42 publish <project.z42.toml> --rid <desktop-rid>` 需 `[platform.desktop] apphost = true`（**gate**；缺省 / false → 报 "not configured to publish a desktop apphost" 退出），读 `publish_dir`（**仅输出位置**，缺省 = 项目目录）+ 从 `[build]`/`[project]` 推出已编译 zpkg，把 exe 产到 `publish_dir/<name>`（exe 名 = `[project].name`；`--output` 覆盖 publish_dir）。内嵌的 zpkg 路径**相对 exe 所在目录**。典型：`z42 publish desktop scripts/xtask.z42.toml` 在仓库根产出 `./xtask`，内嵌 `artifacts/xtask/xtask.zpkg` → `./xtask build package` 直跑 xtask，免敲 `z42 artifacts/xtask/xtask.zpkg -- …`。**无 wrapper 脚本**——产 `./xtask` 的步骤就是「编 zpkg → `z42 publish desktop <toml>`」两条命令（见 `docs/workflow/building/` 与下「z42.toml 配置」）。`./xtask` 原生 + 平台相关 + 已 gitignore，**重生不提交**。`z42c` **不消费** `[platform.desktop]`（patcher 才读它；C# 只把它登记为已知 section 以免 WS008）。
+`z42 publish <project.z42.toml> --rid <desktop-rid>` 需 `[platform.desktop] apphost = true`（**gate**；缺省 / false → 报 "not configured to publish a desktop apphost" 退出），读 `publish_dir`（**仅输出位置**，缺省 = 项目目录）+ 从 `[build]`/`[project]` 推出已编译 zpkg，把 exe 产到 `publish_dir/<name>`（exe 名 = `[project].name`；`--output` 覆盖 publish_dir）。内嵌的 zpkg 路径**相对 exe 所在目录**。典型：`z42 publish scripts/xtask.z42.toml` 在仓库根产出 `./xtask`，内嵌 `artifacts/xtask/xtask.zpkg` → `./xtask build package` 直跑 xtask，免敲 `z42 artifacts/xtask/xtask.zpkg -- …`。**无 wrapper 脚本**——产 `./xtask` 的步骤就是「编 zpkg → `z42 publish <toml>`」两条命令（见 `docs/workflow/building/` 与下「z42.toml 配置」）。`./xtask` 原生 + 平台相关 + 已 gitignore，**重生不提交**。`z42c` **不消费** `[platform.desktop]`（patcher 才读它；C# 只把它登记为已知 section 以免 WS008）。
 
 运行时 stub 读占位符（未 patch 则报错退出），定位 `z42vm` + `libs`，**直接 `exec z42vm <app.zpkg> -- <argv>`（设 `Z42_LIBS`）**。
 
@@ -243,7 +243,7 @@ native apphost stub（`src/toolchain/workload/desktop/platform/apphost`，z42-ap
 
 patch 同一段占位符的逻辑有**两个调用方**：
 
-1. **用户 app**：`z42 publish desktop <project.toml>` —— desktop **workload** 包的 `apphost.z42`（`Z42.Workload.Desktop.Apphost.PatchBytes`）。
+1. **用户 app**：`z42 publish <project.toml>` —— desktop **workload** 包的 `apphost.z42`（`Z42.Workload.Desktop.Apphost.PatchBytes`）。
 2. **SDK 自己的 apphost**（现在的 `z42`，将来的 `bin/z42c`）：在 **`xtask package`** 里产出 —— xtask **内联**了一份精简 patcher（`scripts/package/xtask_package_desktop.z42` 的 `_produceApphost`，复刻 `PatchBytes`）。
 
 **为什么 xtask 内联、不复用 workload 的 patcher**：xtask 的依赖只有 `z42.core/io/...`，**不依赖 workload 包**——而 workload 包**正是同一次 `xtask package` 在产出的东西**（`_buildDesktopWorkload`）。让 xtask 依赖 workload 会构成循环（用还没造好的 workload 去造 SDK），用上一次发布的旧 workload 又会版本/ABI 错位。发布走 from-source（CI `xtask-bootstrap-source`），那条链里根本没有"下载的 workload"可用。故内联打破循环。
@@ -252,7 +252,7 @@ patch 同一段占位符的逻辑有**两个调用方**：
 
 **这样设计更加灵活，也避免以后循环依赖带来更多问题**（xtask 自包含、不被 workload 反向拖住）。代价是 MAGIC 字符串现有三处副本（Rust stub 嵌入端＝权威 / workload `apphost.z42` / xtask 内联），改 MAGIC 须三处同步；后续若嫌重复，可把 `PatchBytes` 抽成**编译期共享库**（z42.io 或新建 z42.apphost）让 workload 与 xtask 共用一份——但仍是共享库、不是"下载 workload"。
 
-> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.json`**（版本 pin + `configProperties` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 stub 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish desktop）用，只是 apphost 不路由经它。
+> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.json`**（版本 pin + `configProperties` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 stub 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
 
 ### 运行时解析：z42vm 探测（统一 apphost 唯一真相，2026-06-21）
 
@@ -292,11 +292,11 @@ macOS（尤其 Apple Silicon）强制代码签名：**patch 二进制字节会�
 native apphost 模板按 host 编译，随 desktop 包分发：
 - `./xtask package` → `<pkg>/bin/apphost`（patcher 便携模式从 `dirname(Z42_PORTABLE_VM)/apphost` 取）。
 - `install-z42.sh --system` → `$Z42_HOME/bin/apphost`（installed 模式从此处取）。
-- `./xtask test dist` 有 apphost smoke（build → `publish desktop` → 跑产出 exe → 断言）。
+- `./xtask test dist` 有 apphost smoke（build → `z42 publish` → 跑产出 exe → 断言）。
 
 ### z42.toml 配置：`[platform.desktop]` publish（apphost-as-config, 2026-06-17）
 
-项目用 `[platform.desktop]` 段声明桌面平台输出；`z42 publish desktop <toml>` 读它产出原生 apphost exe（对称 ios/android/wasm export；**无独立 `z42 apphost` 命令**）：
+项目用 `[platform.desktop]` 段声明桌面平台输出；`z42 publish <toml>` 读它产出原生 apphost exe（对称 ios/android/wasm export；**无独立 `z42 apphost` 命令**）：
 
 ```toml
 [platform.desktop]
@@ -306,7 +306,7 @@ publish_dir = ".."   # exe 落在哪（project-dir 相对，同 output_dir）
 
 - **`publish_dir`**：apphost exe 的输出目录，**相对 toml 所在目录**（与 `[build].output_dir` 同基准）。exe 名 = `[project].name`。
 - 已编译 zpkg 的位置由 patcher 从 `[build]`（`output_dir` / `dist_dir`，支持单层 `${output_dir}` 展开；缺省回退 `<output_dir>/dist`）+ `[project].name` 推出——与 `z42c build` 的产物布局一致。
-- **`z42c` 不消费 `[platform.desktop]`**：消费方是 `z42 publish desktop <toml>` patcher（逻辑全留 z42，符合"z42 优先"）。C# `ProjectManifest` 仅把 `platform.desktop` + `publish_dir` 登记为已知 schema，避免 WS008 unknown-key（仍对 `[platform.desktop]` 内的陌生 key 报 WS008）。
+- **`z42c` 不消费 `[platform.desktop]`**：消费方是 `z42 publish <toml>` patcher（逻辑全留 z42，符合"z42 优先"）。C# `ProjectManifest` 仅把 `platform.desktop` + `publish_dir` 登记为已知 schema，避免 WS008 unknown-key（仍对 `[platform.desktop]` 内的陌生 key 报 WS008）。
 
 **两条命令产 `./xtask`**（无 wrapper 脚本）：
 
@@ -314,7 +314,7 @@ publish_dir = ".."   # exe 落在哪（project-dir 相对，同 output_dir）
 # 1. 编 xtask.zpkg（冷树先 build stdlib，见 building/stdlib.md）
 dotnet run --project src/compiler/z42.Driver -- build scripts/xtask.z42.toml --release
 # 2. 从 toml 产 ./xtask（读 [platform.desktop].publish_dir）
-z42 publish desktop scripts/xtask.z42.toml
+z42 publish scripts/xtask.z42.toml
 ```
 
 > **历史**：`[project].apphost = true` 布尔（Deferred `apphost-future-build-flag`）→ `[apphost]` 段 + 独立 `z42 apphost build <toml>` 命令（2026-06-10）→ **apphost-as-config（2026-06-17）** 统一为 `[platform.desktop]` 段 + `z42 publish desktop`，取消独立 `z42 apphost` 命令（apphost 与 ios `.ipa`/android `.aab`/wasm bundle 同层，是 desktop 平台发布产物）。消费逻辑始终全留 z42 patcher，compiler 仅登记 schema。

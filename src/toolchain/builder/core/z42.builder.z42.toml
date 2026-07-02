@@ -46,8 +46,8 @@ mode     = "interp"
 optimize = 2
 
 # apphost-as-config: this binary publishes a native desktop apphost.
-#   apphost = true  → gate（无此则 `z42 publish desktop` 不产 apphost）。
-#   publish_dir 指仓库根（镜像 scripts/xtask.z42.toml 的 ".."）→ `z42 publish desktop`
+#   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
+#   publish_dir 指仓库根（镜像 scripts/xtask.z42.toml 的 ".."）→ `z42 publish`
 #   产仓库根 `./z42b`（dev 便捷入口，同 ./xtask）。从本 toml 目录 src/toolchain/builder/core
 #   上溯 4 级到仓库根。
 #   bin/payload（add-package-layout-config）：镜像现状布局。

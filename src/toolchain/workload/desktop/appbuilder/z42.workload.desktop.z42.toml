@@ -1,5 +1,5 @@
 # Desktop workload — z42 build logic (apphost producer). The **first real
-# workload z42 package**: the launcher depends on it so `z42 publish desktop`
+# workload z42 package**: the launcher depends on it so `z42 publish`
 # calls Z42.Workload.Desktop.Apphost.Produce. (apphost-producer-workload, 2026-06-18)
 [project]
 name    = "z42.workload.desktop"

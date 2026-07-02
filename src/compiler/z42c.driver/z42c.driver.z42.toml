@@ -18,7 +18,7 @@ pack    = true
 "z42c.pipeline"  = "0.1.0"   # DepScan（CI-4；镜像 C# driver→pipeline 边）
 
 # apphost-as-config: this binary publishes a native desktop apphost.
-#   apphost = true  → gate（无此则 `z42 publish desktop` 不产 apphost）。
+#   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
 #   publish_dir 缺省 = 项目目录（仅输出位置，非 gate）。
 #   bin/payload（add-package-layout-config）：镜像现状布局；6 个 workspace 兄弟库
 #   （见上 [dependencies]）由 publish 自动依赖打包，与本 payload 同目录。
