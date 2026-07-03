@@ -60,6 +60,33 @@ gen1 = 种子编出的 z42c 七包；gen2 = 用 gen1 再编一遍七包；**gen1
 （多包协作，非单 source 产物）。工具链选择尊重 `Z42_TOOLCHAIN`（见 [xtask](xtask.md)），
 未设时用 build-tree 的 z42c + stdlib + z42vm。
 
+### bootstrap-check：跨版本自举边界检查
+
+`xtask bootstrap-check [rid]` 验证「上一个已发布 nightly 的 z42c 能否编译当前源」——
+support-先行纪律的本地快门（CI 等价物是每腿 ci-bootstrap + `verify-selfhost`）。
+何时必跑见 `docs/workflow/testing/verify-by-change.md`。
+
+```mermaid
+graph TD
+    P[前置: 解析 RID + 要求 gh 已登录] --> DL[gh release download nightly<br/>z42-sdk-nightly-RID 解包]
+    DL --> V{nightly z42vm +<br/>programs/z42c/driver 存在?}
+    V -->|否| E1[红: nightly 包缺种子]
+    V -->|是| A["(A) nightly 轨<br/>nightly z42vm+z42c+stdlib<br/>拓扑序编当前七包"]
+    A --> B["(B) repo 轨 sanity<br/>仓库 z42vm+z42c+stdlib<br/>同样编一遍（未 build 则跳过）"]
+    B --> J{判定 退出码=A}
+    J -->|A 绿| OK[✅ 无越界]
+    J -->|A 红 B 绿| VIO[❌ 越界: 当前源用了 nightly<br/>不具备的语法/格式/API<br/>→ support 先行拆分或回退]
+    J -->|A 红 B 红| SRC[源码本身编不过<br/>先修编译错误]
+```
+
+流程要点：种子取自 **SDK** nightly 的 `programs/z42c/`（runtime 包是纯嵌入包、不带 z42c）；
+两轨都按拓扑序编七包、每编成一个成员即累积进 runlibs 供后续成员解析；(A) 轨用 nightly 的
+stdlib 供依赖，因此**语法轴和 stdlib API 轴的越界都会在此暴露**。(B) 轨仅作"源码本身没写坏"
+的对照，不影响退出码。工作目录 `artifacts/build/z42c/bootstrap-check/`。
+
+已知限制：**只编 z42c 七包，不编 xtask 源**——xtask 源的越界目前只能由 CI 冷启动兜底
+（缺口登记见 `docs/workflow/testing/verify-by-change.md` 覆盖矩阵）。
+
 ## 实现
 
 | 组件 | 位置 | 要点 |
@@ -67,7 +94,7 @@ gen1 = 种子编出的 z42c 七包；gen2 = 用 gen1 再编一遍七包；**gen1
 | stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlibCore` | 种子校验 → 七包自建 → dogfood → 扁平视图 |
 | z42c 七包自建 + 不动点 | `scripts/build/xtask_compiler.z42` 的 `_buildCompilerViaZ42c` / `_testCompilerUnits` | 拓扑序累积 runlibs；gen1==gen2 逐字节比对 |
 | 自举 e2e oracle | `scripts/build/xtask_compiler_e2e.z42` | div-by-zero 等行为校验（500 行限制拆出） |
-| 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` | nightly z42c 能否编当前源（分阶段引入纪律探针） |
+| 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·bootstrap-check"） |
 | golden 重生 | `scripts/xtask_regen.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |
 
 ## 边界与限制
