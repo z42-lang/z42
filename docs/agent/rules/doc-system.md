@@ -19,7 +19,8 @@ docs/
     └── rules/     开发规范（流程/风格/提交…；后续可在 agent/ 下新建其它分类子目录）
 
 docs/spec/changes/     【变更工作区】进行中 change + ACTIVE.md 账本 —— 保留
-src/**/README.md       【目录说明】5 段制 —— 人 review 的落点
+README.md              【仓库门面】首页 + 快速索引 —— 分流到 book / workflow / rules / roadmap
+src/**/README.md       【目录说明】6 段制 —— 人 review 的落点
 CLAUDE.md / AGENTS.md  【瘦入口】让任意大模型 import 上面的文件 —— 最后一步才配
 ```
 
@@ -37,6 +38,10 @@ CLAUDE.md / AGENTS.md  【瘦入口】让任意大模型 import 上面的文件 
 | **④ 目录说明** | 某目录**有啥/怎么测/关联谁** | 随代码变 | 各 `src/**/README.md` | 人 review 入口 |
 
 附：**操作手册**（`docs/workflow/`，怎么操作的命令）独立于以上四类。
+
+附：**仓库门面**（根 `README.md`）——文档体系的**人的瘦入口**，与 `CLAUDE.md`/`AGENTS.md`
+（大模型瘦入口）对称：只做定位 + 上手 + 快速索引，实质内容全部链接进以上四类，不承载知识。
+写作规范见 [readme-writing.md](readme-writing.md)。
 
 **SoT 铁律**：每条知识只有一个权威位置，其他地方只能链接，不得复制。发现同一事实两处各写一份
 → 按[规范冲突检测](../../../.claude/CLAUDE.md)停下，留一处、另一处改链接。
