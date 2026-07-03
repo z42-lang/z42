@@ -22,18 +22,27 @@ git clone https://github.com/codesigner-ui/z42 && cd z42
 
 ## 2. Build the xtask CLI, then drive everything through it
 
-`z42 publish` **compiles the project if needed and emits a native apphost in one
-step** — no separate `z42c build` first. Invoke the just-installed primer by path
-(`.z42/z42`); the resulting `./xtask` auto-locates the `./.z42` runtime, so **no
-`PATH` export is needed to run it**:
+`z42 publish` compiles the project if needed and emits a native `./xtask` apphost.
+The apphost stub ships with the **desktop workload**, not the base SDK, so install
+it once first — match `--version` to your SDK (`nightly` if you took the default).
+The produced `./xtask` auto-locates the `./.z42` runtime, so **no `PATH` export is
+needed to run it**:
 
 ```bash
-.z42/z42 publish scripts/xtask.z42.toml   # build + deploy → ./xtask  (native apphost; --rid defaults to host)
+.z42/z42 workload install desktop --version nightly   # one-time: provides the apphost stub
+.z42/z42 publish scripts/xtask.z42.toml               # build + deploy → ./xtask  (--rid defaults to host)
 
 ./xtask build all     # compiler + runtime + stdlib (from source)
 ./xtask test          # full gate (compiler + vm + cross-zpkg + stdlib)
 ./xtask help          # all commands (build / test / deps / regen / bench / package)
 ```
+
+> **Don't want the workload?** Run the CLI straight through the launcher instead —
+> no apphost needed (this is exactly how CI drives xtask):
+> ```bash
+> .z42/bin/z42c build scripts/xtask.z42.toml --release   # → artifacts/xtask/xtask.zpkg
+> .z42/z42 artifacts/xtask/xtask.zpkg -- test            # run any xtask command
+> ```
 
 ## 3. Compile + run a z42 program
 
