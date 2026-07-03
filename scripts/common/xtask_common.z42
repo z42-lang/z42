@@ -159,6 +159,107 @@ string _activeVm(string root, string profile) {
     return _builtVm(root, profile);
 }
 
+// ── cold-start seed resolution (shared: build compiler / build stdlib + CI) ───
+//
+// A cold tree has no in-tree z42c/stdlib seed. Instead of erroring, resolve one
+// from the downloaded/installed SDK (or an explicit override) and stage it into the
+// in-tree layout so the normal self-build runs. WARM trees are left untouched — the
+// in-tree gen1 is exactly what the second build re-seeds from to reach the gen2
+// byte-identical fixpoint, so it must win over the SDK.
+
+// SDK toolchain root (.z42 layout: programs/z42c + libs + bin). Order:
+// Z42_TOOLCHAIN (--toolchain) → Z42_HOME → the SDK running this xtask
+// (Z42_PORTABLE_VM = <sdk>/bin/z42vm ⇒ <sdk>) → repo-local ./.z42. "" if none.
+string _seedSdkDir(string root) {
+    string tc = _toolchainDir(root);
+    if (tc.Length > 0 && Directory.Exists(Path.Join(tc, "programs"))) { return tc; }
+    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    if (home.Length > 0 && Directory.Exists(Path.Join(home, "programs"))) { return home; }
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (pv.Length > 0) {
+        string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));   // <sdk>/bin/z42vm ⇒ <sdk>
+        if (sdk.Length > 0 && Directory.Exists(Path.Join(sdk, "programs"))) { return sdk; }
+    }
+    string local = Path.Join(root, ".z42");
+    if (Directory.Exists(Path.Join(local, "programs"))) { return local; }
+    return "";
+}
+
+// z42c seed dir (z42c.driver.zpkg + 6 siblings). Z42C_DIR (explicit, only when it
+// actually holds the driver) wins; else <sdk>/programs/z42c. "" if neither resolves.
+string _seedDriverHome(string root) {
+    string zc = Environment.GetEnvironmentVariable("Z42C_DIR") ?? "";
+    if (zc.Length > 0) {
+        if (!Path.IsRooted(zc)) { zc = Path.Join(root, zc); }
+        if (File.Exists(Path.Join(zc, "z42c.driver.zpkg"))) { return zc; }
+    }
+    string sdk = _seedSdkDir(root);
+    if (sdk.Length > 0) { return _toolchainDriverHome(sdk); }
+    return "";
+}
+
+// stdlib seed dir (flat z42.*.zpkg). Z42_LIBS (explicit, only when it actually holds
+// stdlib — it doubles as the runtime load path, which may point at an empty output
+// dir) wins; else <sdk>/libs. "" if neither resolves.
+string _seedStdlibDir(string root) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs.Length > 0) {
+        if (!Path.IsRooted(libs)) { libs = Path.Join(root, libs); }
+        if (File.Exists(Path.Join(libs, "z42.core.zpkg"))) { return libs; }
+    }
+    string sdk = _seedSdkDir(root);
+    if (sdk.Length > 0) { return _toolchainLibs(sdk); }
+    return "";
+}
+
+// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
+// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
+// (WARM). When absent (COLD), stage the resolved seed (Z42C_DIR / Z42_LIBS /
+// --toolchain / Z42_HOME / apphost SDK) into the in-tree layout — mirroring what CI
+// used to hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
+int _ensureSeed(string root) {
+    string profile = "release";
+    string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string inDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string inCore = Path.Join(flatDir, "z42.core.zpkg");
+    if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
+        && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
+        return 0;
+    }
+
+    string driverHome = _seedDriverHome(root);
+    string stdlibDir = _seedStdlibDir(root);
+    if (driverHome.Length == 0 || stdlibDir.Length == 0) {
+        ConsoleError.WriteLine("error: no z42c seed. Provide one of:");
+        ConsoleError.WriteLine("  Z42C_DIR=<dir w/ z42c.driver.zpkg+siblings>   Z42_LIBS=<stdlib dist>");
+        ConsoleError.WriteLine("  --toolchain <sdk>  /  Z42_HOME=<sdk>          (.z42 layout: programs/z42c + libs)");
+        ConsoleError.WriteLine("  ./scripts/install-z42.sh → ./.z42            (auto-detected when xtask runs via that SDK)");
+        return 1;
+    }
+
+    string[] members = _compilerMembers(root);
+    int i = 0;
+    while (i < members.Length) {
+        string m = members[i];
+        string dst = Path.Join(root, "artifacts/build/z42c/" + m + "/" + profile + "/dist");
+        Directory.Create(dst);
+        _copyAll(driverHome, dst, m + ".zpkg");
+        if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
+            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
+            return 1;
+        }
+        i = i + 1;
+    }
+    Directory.Create(flatDir);
+    _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
+    if (!File.Exists(inCore)) {
+        ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
+        return 1;
+    }
+    Console.WriteLine("  seed: staged z42c (" + driverHome + ") + stdlib (" + stdlibDir + ") → in-tree (cold-start)");
+    return 0;
+}
+
 // ── artifact paths (absolute, repo-root-relative) ────────────────────────────
 
 // stdlib flat dist (= the Z42_LIBS value the compiler + VM load stdlib from):

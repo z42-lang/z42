@@ -65,19 +65,10 @@ int _buildStdlibCore() {
     // 不在 PATH → warm 自建会 NotFound）。缺则 cargo 建（幂等）。
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { int rcv = _buildRuntime(); if (rcv != 0) { return rcv; } }
-    string seedDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    string seedStdlibCore = Path.Join(flatDir, "z42.core.zpkg");
-    bool haveSeed = File.Exists(seedDriver) && File.GetSize(seedDriver) > 0L
-                 && File.Exists(seedStdlibCore) && File.GetSize(seedStdlibCore) > 0L;
-    if (!haveSeed) {
-        // A fresh checkout needs a warm z42c seed (the previous published nightly's
-        // z42c.driver.zpkg + stdlib dist) to self-build. CI seeds this via the
-        // ci-bootstrap action; locally, install the nightly toolchain first.
-        ConsoleError.WriteLine("error: no warm z42c seed (z42c.driver.zpkg + stdlib dist) found.");
-        ConsoleError.WriteLine("  Seed from the previous nightly toolchain first, then re-run the build.");
-        return 1;
-    }
-    Console.WriteLine("  seed: existing z42c + stdlib → warm z42c self-build");
+    // Cold tree → stage the z42c+stdlib seed from the resolved SDK; warm → no-op.
+    // Shared with build compiler + CI (see _ensureSeed).
+    int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }
+    Console.WriteLine("  seed: z42c + stdlib present → warm z42c self-build");
     int zc = _buildCompilerViaZ42c(root, profile, members, vm, flatDir); if (zc != 0) { return zc; }
 
     // ── 3. run-libs = {stdlib + z42c 7 pkgs} (copy; runs z42c.driver) ──────

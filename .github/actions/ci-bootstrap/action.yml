@@ -51,7 +51,6 @@ runs:
         }
         # nightly archive: Windows ships .zip (unzip), Unix ships .tar.gz (tar).
         case "$RID" in windows-*) EXT=zip ;; *) EXT=tar.gz ;; esac
-        MEMBERS="z42c.core z42c.ir z42c.syntax z42c.project z42c.semantics z42c.pipeline z42c.driver"
         ROOT="$PWD"
 
         # ── 0. z42vm (Rust; cargo) ───────────────────────────────────────────────────
@@ -91,22 +90,19 @@ runs:
         cp -f "$work/sdkpkg/libs/"*.zpkg "$seed/"
         echo "   seed: $(ls "$seed"/*.zpkg | wc -l | tr -d ' ') zpkg @ $seed"
 
-        # Prime the STANDARD locations so xtask's warm self-build + `using Std.*` resolve:
-        #   * stdlib dist  ← seed stdlib (current source compiles against it; replaced by
-        #                    the fresh xtask-built stdlib below)
-        #   * z42c per-member dist  ← seed z42c (the warm seed `_buildCompilerZ42` reuses)
-        libs="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$libs"
-        cp -f "$seed"/z42.*.zpkg "$libs/" 2>/dev/null || true
-        for m in $MEMBERS; do
-          d="$ROOT/artifacts/build/z42c/$m/release/dist"; mkdir -p "$d"
-          cp -f "$seed/$m.zpkg" "$d/"
-        done
+        # No hand-copy into the build tree anymore: xtask's `_ensureSeed` stages the
+        # in-tree z42c + stdlib seed from the SDK dir passed via Z42_TOOLCHAIN below
+        # (steps 3/4) — the SAME resolver `./xtask build compiler` uses locally, so CI
+        # and local share one logic. `libs` is just the runtime load path for the fresh
+        # stdlib that build stdlib writes there.
+        libs="$ROOT/artifacts/build/libraries/dist/release"
 
         # Native-form (Windows D:\… on windows-x64; unchanged on Unix) copies of every
         # ABSOLUTE path z42vm must parse. The bash exec position ("$vm" …) keeps the MSYS
         # form — git-bash launches the .exe fine; only what z42vm itself reads is converted.
         seedw="$(winpath "$seed")"
         libsw="$(winpath "$libs")"
+        sdkpkgw="$(winpath "$work/sdkpkg")"   # SDK dir for _ensureSeed (Z42_TOOLCHAIN)
         driverw="$(winpath "$seed/z42c.driver.zpkg")"
 
         # Windows can't overwrite a RUNNING .exe. Steps [3]/[4] run xtask, which calls
@@ -126,13 +122,13 @@ runs:
           build scripts/xtask.z42.toml --release
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
 
-        # ── 3. xtask builds CURRENT z42c (warm self-build → standard loc) ────────────
-        echo "── [3/5] xtask build compiler (warm self-build from seed) ──"
-        Z42_LIBS="$libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build compiler
+        # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_TOOLCHAIN) ─
+        echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_TOOLCHAIN) ──"
+        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build compiler
 
         # ── 4. xtask builds CURRENT stdlib (flat dist + index.json) ──────────────────
         echo "── [4/5] xtask build stdlib ──"
-        Z42_LIBS="$libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build stdlib
+        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build stdlib
 
         # ── 5. sanity: toolchain present ─────────────────────────────────────────────
         echo "── [5/5] verify toolchain ──"

@@ -24,12 +24,7 @@ using Std.IO;
 int _buildCompiler() {
     string root = _root();
     string profile = "release";
-    string seedDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    if (!File.Exists(seedDriver) || File.GetSize(seedDriver) <= 0L) {
-        ConsoleError.WriteLine("error: no z42c seed at " + seedDriver);
-        ConsoleError.WriteLine("       seed z42c first: install the nightly toolchain (`z42 install`)");
-        return 1;
-    }
+    int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }   // warm no-op / cold: stage SDK seed → in-tree
     int rc = _buildRuntime(); if (rc != 0) { return rc; }   // cargo release z42vm（C#-free）跑种子 driver
     string vm = _builtVm(root, "release");
     string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);

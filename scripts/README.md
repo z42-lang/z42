@@ -31,6 +31,15 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > namespace），都不需要任何 namespace 索引即可编译/运行 xtask，所以这个次序无死锁。
 > **工具链全程 z42 自举**。
 
+> **种子从哪来（`build compiler` / `build stdlib` 共用一套解析，CI = 本地）**：冷树无
+> in-tree 种子时，`_ensureSeed`（`common/xtask_common.z42`）按 **`Z42C_DIR` →
+> `--toolchain`/`Z42_TOOLCHAIN` → `Z42_HOME` → 运行 xtask 的 apphost SDK
+> （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 顺序找到 SDK，把 `programs/z42c` + `libs`
+> 拷进 in-tree 再自建；warm 树（已有 in-tree 种子）直接复用——**gen2 字节不动点靠它**，
+> 故不覆盖。所以 `install-z42.sh` 之后本地 `xtask build compiler` 开箱即用；CI 只需设
+> `Z42_TOOLCHAIN=<下载的 SDK>`（`.github/actions/ci-bootstrap`），不再手动拷种子。
+> `Z42C_DIR` / `Z42_LIBS` 显式覆盖仅在其确实含 `z42c.driver.zpkg` / `z42.core.zpkg` 时生效。
+
 > 所有版本号的唯一真相源是仓库根 `versions.toml`（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `common/xtask_versions.z42`）。
 
