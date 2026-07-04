@@ -51,6 +51,7 @@ int _buildStdlibCore() {
     string profile = "release";
     string buildLibsRoot = Path.Join(root, "artifacts/build/libraries");
     string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    Stopwatch swAll = _procStart("build stdlib (z42c self-build + libs)");
 
     // ── 1+2. Produce the seed: stdlib + z42c, from CURRENT source ─────────
     //    S5 Phase A — prefer the C#-FREE path: when a z42c.driver.zpkg + a stdlib
@@ -68,7 +69,6 @@ int _buildStdlibCore() {
     // Cold tree → stage the z42c+stdlib seed from the resolved SDK; warm → no-op.
     // Shared with build compiler + CI (see _ensureSeed).
     int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }
-    Console.WriteLine("  seed: z42c + stdlib present → warm z42c self-build");
     int zc = _buildCompilerViaZ42c(root, profile, members, vm, flatDir); if (zc != 0) { return zc; }
 
     // ── 3. run-libs = {stdlib + z42c 7 pkgs} (copy; runs z42c.driver) ──────
@@ -90,12 +90,12 @@ int _buildStdlibCore() {
     //    CWD=src/libraries → workspace discovery + per-member output_dir template;
     //    --mode interp (jit has cross-zpkg undefined-fn on compiler workloads);
     //    Z42_LIBS=runDir for z42c.driver's own runtime imports.
-    Console.WriteLine("  z42c build --workspace (CWD=src/libraries, interp) → per-member dist");
+    _vNormal("  z42c build --workspace (CWD=src/libraries, interp) → per-member dist");
     int bc = new Process(vm).Arg(z42cDriver).Arg("--mode").Arg("interp").Arg("--")
         .Arg("build").Arg("--workspace").Arg("--release")
         .WorkingDirectory(Path.Join(root, "src/libraries"))
         .Env("Z42_LIBS", runDir)
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42c build --workspace stdlib failed (" + bc.ToString() + ")"); return 1; }
 
     // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────
@@ -108,7 +108,7 @@ int _buildStdlibCore() {
             libs[i] + "/" + profile + "/dist/" + libs[i] + ".zpkg");
         if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
             long size = File.GetSize(zpkg);
-            Console.WriteLine("    ✓ " + libs[i] + ".zpkg (" + size.ToString() + " bytes)");
+            _vDetailed("    ✓ " + libs[i] + ".zpkg (" + size.ToString() + " bytes)");
             ok = ok + 1;
         } else {
             Console.WriteLine("    ✗ " + libs[i] + ".zpkg — workspace product missing at " + zpkg);
@@ -117,15 +117,13 @@ int _buildStdlibCore() {
         i = i + 1;
     }
 
-    Console.WriteLine("");
-    Console.WriteLine("build-stdlib: " + ok.ToString() + " succeeded, " + fail.ToString() + " failed");
+    _vlog(1, "  build-stdlib: " + ok.ToString() + " succeeded, " + fail.ToString() + " failed");
     if (fail > 0) { return 1; }
-
-    Console.WriteLine("");
 
     // ── 6. Flat view (hard-link, z42c-built; overwrites step-1 C# seed view) ──
     _assembleStdlibFlatView(root, profile);
-    Console.WriteLine("  flat view: " + flatDir + "/   (VM single-dir lookup target)");
+    _vNormal("  flat view: " + flatDir + "/   (VM single-dir lookup target)");
+    _procEnd("build stdlib (z42c self-build + libs)", swAll);
     return 0;
 }
 

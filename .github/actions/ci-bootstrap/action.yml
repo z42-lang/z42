@@ -123,12 +123,14 @@ runs:
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
 
         # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_TOOLCHAIN) ─
+        # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
+        # (default is now minimal — ▶/✔ markers only; detailed is what debugs bootstrap).
         echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_TOOLCHAIN) ──"
-        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build compiler
+        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
 
         # ── 4. xtask builds CURRENT stdlib (flat dist + index.json) ──────────────────
         echo "── [4/5] xtask build stdlib ──"
-        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- build stdlib
+        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
 
         # ── 5. sanity: toolchain present ─────────────────────────────────────────────
         echo "── [5/5] verify toolchain ──"

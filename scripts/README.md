@@ -43,6 +43,27 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > 所有版本号的唯一真相源是仓库根 `versions.toml`（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `common/xtask_versions.z42`）。
 
+## 全局选项
+
+在任意子命令前（pre-route，见 `xtask_cli.z42` 的 `_apply*Opt`）：
+
+| 选项 | 作用 |
+|------|------|
+| `--toolchain <dir>` | 指定 `.z42` 布局的工具链（`programs/z42c` + `libs` + `bin`）；写入 `Z42_TOOLCHAIN`，被 seed / VM / libs 定位器读取 |
+| `--verbosity` / `-v <level>` | 输出详略：`q[uiet]` \| `m[inimal]`（默认）\| `n[ormal]` \| `d[etailed]` \| `diag[nostic]`；写入 `Z42_VERBOSITY`，子进程继承 |
+
+**verbosity 级别（累进，MSBuild 风格；实现见 `common/xtask_common.z42`）：**
+
+| 级别 | 打印 |
+|------|------|
+| `quiet` | 仅错误 |
+| `minimal`（默认） | + `▶`/`✔` 每个流程的开始/结束标记（跟踪进度） |
+| `normal` | + 每步最终选定的结果（如 `seed: z42c ← <path>`） |
+| `detailed` | + 逐候选路径的选择过程（如 SDK 依次试 `Z42_TOOLCHAIN`→`Z42_HOME`→…）+ 子工具逐文件输出 |
+| `diagnostic` | + 每个流程的耗时（`⏱ … — N ms`） |
+
+示例：`xtask -v detailed build compiler` 会打出冷启动供种的完整候选路径选择过程。
+
 ## 命令一览
 
 | 命令 | 触发时机 | 关键依赖 | 主要产物 |

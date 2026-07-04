@@ -24,6 +24,7 @@ using Std.IO;
 int _buildCompiler() {
     string root = _root();
     string profile = "release";
+    Stopwatch sw = _procStart("build compiler (z42c self-build)");
     int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }   // warm no-op / cold: stage SDK seed → in-tree
     int rc = _buildRuntime(); if (rc != 0) { return rc; }   // cargo release z42vm（C#-free）跑种子 driver
     string vm = _builtVm(root, "release");
@@ -32,7 +33,9 @@ int _buildCompiler() {
         int sc = _buildStdlib(); if (sc != 0) { return sc; }   // C#-free（A1 warm 种子路径）
     }
     string[] members = _compilerMembers(root);
-    return _buildCompilerViaZ42c(root, profile, members, vm, stdlibFlat);
+    int r = _buildCompilerViaZ42c(root, profile, members, vm, stdlibFlat);
+    if (r == 0) { _procEnd("build compiler (z42c self-build)", sw); }
+    return r;
 }
 
 // C#-free z42c self-build (replace-csharp S5 Phase A): rebuild the 7 z42c.* from
@@ -43,7 +46,7 @@ int _buildCompiler() {
 // the seed. `stdlibFlat` (existing stdlib) is needed at runtime to run the seed z42c.
 // Precondition: caller verified the seed driver + stdlib exist.
 int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
-    Console.WriteLine("  building z42c via z42c (C#-free, single-toml topo)");
+    _vNormal("  building z42c via z42c (C#-free, single-toml topo)");
     string seedDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     // runlibs = stdlib (run z42c.driver) + seed z42c siblings; fresh members accumulate here.
     string runlibs = Path.Join(root, "artifacts/build/z42c/selfbuild-runlibs/" + profile);
@@ -62,7 +65,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
             .Arg("build").Arg(Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml"))
             .Arg("--release").Arg("--output-dir").Arg(outDir)
             .Env("Z42_LIBS", runlibs)
-            .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+            .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
         if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c self-build failed: " + m); return 1; }
         _copyAll(outDir, runlibs, m + ".zpkg");   // accumulate fresh sibling for later members
         i = i + 1;

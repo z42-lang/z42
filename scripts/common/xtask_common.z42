@@ -7,6 +7,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;   // Stopwatch — diagnostic-level elapsed timing
 
 // ── repo root + process exec ─────────────────────────────────────────────────
 
@@ -159,6 +160,66 @@ string _activeVm(string root, string profile) {
     return _builtVm(root, profile);
 }
 
+// ── verbosity (MSBuild-style, cumulative): quiet<minimal<normal<detailed<diag ─
+//
+// Set via the global `--verbosity` / `-v <level>` option (stripped in xtask_cli),
+// stashed in Z42_VERBOSITY (canonical name) so spawned children inherit it.
+//   quiet(0)      errors only
+//   minimal(1)    + ▶/✔ start & end markers per process         (default)
+//   normal(2)     + the final resolved result of each step
+//   detailed(3)   + the step-by-step selection process + child per-file output
+//   diagnostic(4) + per-process elapsed time
+
+// Normalize a --verbosity value (full name or first-letter abbrev) to 0..4, or -1.
+int _normVerbosity(string s) {
+    if (s == "q" || s == "quiet")         { return 0; }
+    if (s == "m" || s == "minimal")       { return 1; }
+    if (s == "n" || s == "normal")        { return 2; }
+    if (s == "d" || s == "detailed")      { return 3; }
+    if (s == "diag" || s == "diagnostic") { return 4; }
+    return -1;
+}
+
+string _verbName(int level) {
+    if (level <= 0) { return "quiet"; }
+    if (level == 1) { return "minimal"; }
+    if (level == 2) { return "normal"; }
+    if (level == 3) { return "detailed"; }
+    return "diagnostic";
+}
+
+// Current level (default minimal). Reads Z42_VERBOSITY; unset/unknown → minimal.
+int _verbosity() {
+    string v = Environment.GetEnvironmentVariable("Z42_VERBOSITY") ?? "";
+    if (v.Length == 0) { return 1; }
+    int lvl = _normVerbosity(v);
+    if (lvl < 0) { return 1; }
+    return lvl;
+}
+
+bool _verbAtLeast(int level) { return _verbosity() >= level; }
+void _vlog(int level, string msg) { if (_verbosity() >= level) { Console.WriteLine(msg); } }
+void _vNormal(string msg)   { _vlog(2, msg); }   // final chosen result
+void _vDetailed(string msg) { _vlog(3, msg); }   // selection-process detail
+
+// Noisy child sub-tool stdout is gated inline as
+//   `.Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null())`
+// so the default minimal stays clean of z42c per-file "wrote ->" spam.
+
+// Begin a tracked process: prints "▶ <name>" at minimal+; returns a Stopwatch for
+// _procEnd's diagnostic timing.
+Stopwatch _procStart(string name) {
+    _vlog(1, "▶ " + name);
+    return Stopwatch.StartNew();
+}
+// End a tracked process: prints "✔ <name>" at minimal+; at diagnostic, elapsed ms.
+void _procEnd(string name, Stopwatch sw) {
+    _vlog(1, "✔ " + name);
+    if (_verbosity() >= 4) {
+        Console.WriteLine("  ⏱ " + name + " — " + sw.Elapsed().TotalMilliseconds().ToString() + " ms");
+    }
+}
+
 // ── cold-start seed resolution (shared: build compiler / build stdlib + CI) ───
 //
 // A cold tree has no in-tree z42c/stdlib seed. Instead of erroring, resolve one
@@ -172,27 +233,45 @@ string _activeVm(string root, string profile) {
 // (Z42_PORTABLE_VM = <sdk>/bin/z42vm ⇒ <sdk>) → repo-local ./.z42. "" if none.
 string _seedSdkDir(string root) {
     string tc = _toolchainDir(root);
-    if (tc.Length > 0 && Directory.Exists(Path.Join(tc, "programs"))) { return tc; }
+    if (tc.Length > 0 && Directory.Exists(Path.Join(tc, "programs"))) {
+        _vDetailed("    sdk: --toolchain/Z42_TOOLCHAIN → " + tc + "  ✓"); return tc;
+    }
+    if (tc.Length > 0) { _vDetailed("    sdk: Z42_TOOLCHAIN=" + tc + "  (no programs/, skip)"); }
+    else { _vDetailed("    sdk: Z42_TOOLCHAIN unset"); }
     string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
-    if (home.Length > 0 && Directory.Exists(Path.Join(home, "programs"))) { return home; }
+    if (home.Length > 0 && Directory.Exists(Path.Join(home, "programs"))) {
+        _vDetailed("    sdk: Z42_HOME → " + home + "  ✓"); return home;
+    }
+    if (home.Length > 0) { _vDetailed("    sdk: Z42_HOME=" + home + "  (no programs/, skip)"); }
+    else { _vDetailed("    sdk: Z42_HOME unset"); }
     string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
     if (pv.Length > 0) {
         string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));   // <sdk>/bin/z42vm ⇒ <sdk>
-        if (sdk.Length > 0 && Directory.Exists(Path.Join(sdk, "programs"))) { return sdk; }
-    }
+        if (sdk.Length > 0 && Directory.Exists(Path.Join(sdk, "programs"))) {
+            _vDetailed("    sdk: Z42_PORTABLE_VM → " + sdk + "  ✓"); return sdk;
+        }
+        _vDetailed("    sdk: Z42_PORTABLE_VM=" + pv + " ⇒ " + sdk + "  (no programs/, skip)");
+    } else { _vDetailed("    sdk: Z42_PORTABLE_VM unset"); }
     string local = Path.Join(root, ".z42");
-    if (Directory.Exists(Path.Join(local, "programs"))) { return local; }
+    if (Directory.Exists(Path.Join(local, "programs"))) {
+        _vDetailed("    sdk: ./.z42 → " + local + "  ✓"); return local;
+    }
+    _vDetailed("    sdk: ./.z42 absent — no SDK found");
     return "";
 }
 
 // z42c seed dir (z42c.driver.zpkg + 6 siblings). Z42C_DIR (explicit, only when it
 // actually holds the driver) wins; else <sdk>/programs/z42c. "" if neither resolves.
 string _seedDriverHome(string root) {
+    _vDetailed("  seed·z42c: resolving driver-home");
     string zc = Environment.GetEnvironmentVariable("Z42C_DIR") ?? "";
     if (zc.Length > 0) {
         if (!Path.IsRooted(zc)) { zc = Path.Join(root, zc); }
-        if (File.Exists(Path.Join(zc, "z42c.driver.zpkg"))) { return zc; }
-    }
+        if (File.Exists(Path.Join(zc, "z42c.driver.zpkg"))) {
+            _vDetailed("  seed·z42c: Z42C_DIR → " + zc + "  ✓"); return zc;
+        }
+        _vDetailed("  seed·z42c: Z42C_DIR=" + zc + "  (no z42c.driver.zpkg, fall back to SDK)");
+    } else { _vDetailed("  seed·z42c: Z42C_DIR unset → SDK"); }
     string sdk = _seedSdkDir(root);
     if (sdk.Length > 0) { return _toolchainDriverHome(sdk); }
     return "";
@@ -202,11 +281,15 @@ string _seedDriverHome(string root) {
 // stdlib — it doubles as the runtime load path, which may point at an empty output
 // dir) wins; else <sdk>/libs. "" if neither resolves.
 string _seedStdlibDir(string root) {
+    _vDetailed("  seed·stdlib: resolving stdlib dist");
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
     if (libs.Length > 0) {
         if (!Path.IsRooted(libs)) { libs = Path.Join(root, libs); }
-        if (File.Exists(Path.Join(libs, "z42.core.zpkg"))) { return libs; }
-    }
+        if (File.Exists(Path.Join(libs, "z42.core.zpkg"))) {
+            _vDetailed("  seed·stdlib: Z42_LIBS → " + libs + "  ✓"); return libs;
+        }
+        _vDetailed("  seed·stdlib: Z42_LIBS=" + libs + "  (no z42.core.zpkg, fall back to SDK)");
+    } else { _vDetailed("  seed·stdlib: Z42_LIBS unset → SDK"); }
     string sdk = _seedSdkDir(root);
     if (sdk.Length > 0) { return _toolchainLibs(sdk); }
     return "";
@@ -224,9 +307,11 @@ int _ensureSeed(string root) {
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
+        _vDetailed("  seed: in-tree warm present — reuse (no staging)");
         return 0;
     }
 
+    Stopwatch sw = _procStart("seed cold-start (stage z42c + stdlib from SDK)");
     string driverHome = _seedDriverHome(root);
     string stdlibDir = _seedStdlibDir(root);
     if (driverHome.Length == 0 || stdlibDir.Length == 0) {
@@ -236,6 +321,8 @@ int _ensureSeed(string root) {
         ConsoleError.WriteLine("  ./scripts/install-z42.sh → ./.z42            (auto-detected when xtask runs via that SDK)");
         return 1;
     }
+    _vNormal("  seed: z42c   ← " + driverHome);
+    _vNormal("  seed: stdlib ← " + stdlibDir);
 
     string[] members = _compilerMembers(root);
     int i = 0;
@@ -256,7 +343,7 @@ int _ensureSeed(string root) {
         ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
         return 1;
     }
-    Console.WriteLine("  seed: staged z42c (" + driverHome + ") + stdlib (" + stdlibDir + ") → in-tree (cold-start)");
+    _procEnd("seed cold-start (stage z42c + stdlib from SDK)", sw);
     return 0;
 }
 

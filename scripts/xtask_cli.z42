@@ -19,10 +19,11 @@ using Std.Cli;
 // ── entry: the whole Main body (shims + resolve + dispatch) → exit code ──────
 
 int _runCli(string[] argvIn) {
-    // Pull the global `--toolchain <dir>` out of argv before routing (the nested
-    // router models only per-leaf options). Sets Z42_TOOLCHAIN → every locator
-    // (_toolchainDir / _libsDir / ...) redirects to that `.z42` toolchain.
-    string[] argv = _applyToolchainOpt(argvIn);
+    // Pull the global `--toolchain <dir>` and `--verbosity <level>` out of argv
+    // before routing (the nested router models only per-leaf options). --toolchain
+    // sets Z42_TOOLCHAIN (every locator redirects to that `.z42`); --verbosity sets
+    // Z42_VERBOSITY (read by _verbosity, inherited by children).
+    string[] argv = _applyVerbosityOpt(_applyToolchainOpt(argvIn));
     string c0 = argv.Length > 0 ? argv[0] : "";
     string c1 = argv.Length > 1 ? argv[1] : "";
 
@@ -86,6 +87,46 @@ string[] _applyToolchainOpt(string[] argv) {
     i = 0;
     while (i < n) {
         if (argv[i] == "--toolchain") {
+            if (i + 1 < n) { i = i + 2; } else { i = i + 1; }
+            continue;
+        }
+        kept[j] = argv[i];
+        j = j + 1;
+        i = i + 1;
+    }
+    return kept;
+}
+
+// Strip a global `--verbosity <level>` / `-v <level>` (two-token form) from argv
+// and stash the canonical level name in Z42_VERBOSITY (read by _verbosity). Last
+// occurrence wins; an invalid level → error + exit(2). Mirrors _applyToolchainOpt.
+string[] _applyVerbosityOpt(string[] argv) {
+    int n = argv.Length;
+    string val = "";
+    bool seen = false;
+    int keep = 0;
+    int i = 0;
+    while (i < n) {
+        if (argv[i] == "--verbosity" || argv[i] == "-v") {
+            if (i + 1 < n) { val = argv[i + 1]; seen = true; i = i + 2; } else { i = i + 1; }
+            continue;
+        }
+        keep = keep + 1;
+        i = i + 1;
+    }
+    if (!seen) { return argv; }
+    int lvl = _normVerbosity(val);
+    if (lvl < 0) {
+        ConsoleError.WriteLine("xtask: invalid --verbosity '" + val
+            + "' (use q[uiet] | m[inimal] | n[ormal] | d[etailed] | diag[nostic])");
+        Environment.Exit(2);
+    }
+    Environment.SetEnvironmentVariable("Z42_VERBOSITY", _verbName(lvl));
+    string[] kept = new string[keep];
+    int j = 0;
+    i = 0;
+    while (i < n) {
+        if (argv[i] == "--verbosity" || argv[i] == "-v") {
             if (i + 1 < n) { i = i + 2; } else { i = i + 1; }
             continue;
         }
