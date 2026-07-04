@@ -6,6 +6,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Toml;
+using Std.Time;
 
 // ── test vm ─────────────────────────────────────────────────────────────────
 
@@ -16,9 +17,12 @@ using Std.Toml;
 // then run the in-process golden runner (_runVmGoldens, xtask_test_vm.z42) with
 // the parsed modes/jobs — no separate compile + zpkg spawn.
 int _testVm(ParseResult r) {
+    Stopwatch sw = _procStart("test vm");
     string modeArg = r.GetPositional(0);         // "" | interp | jit
     string modes = modeArg.Length > 0 ? modeArg : "interp jit";
-    return _testVmCore(modes, !r.GetFlag("no-rebuild"), r.GetFlag("no-build"), r.GetOption("jobs"), r.GetOption("shard"));
+    int __rc = _testVmCore(modes, !r.GetFlag("no-rebuild"), r.GetFlag("no-build"), r.GetOption("jobs"), r.GetOption("shard"));
+    if (__rc == 0) { _procEnd("test vm", sw); }
+    return __rc;
 }
 
 // regen goldens for a test stage: --toolchain active OR --no-build set → z42c+stdlib
@@ -67,9 +71,12 @@ int _testVmCore(string modes, bool rebuild, bool noBuild, string jobs, string sh
 // (_testCrossZpkgImpl, xtask_test_cross.z42) with the parsed mode — no separate
 // compile + zpkg spawn.
 int _testCrossZpkg(ParseResult r) {
+    Stopwatch sw = _procStart("test cross-zpkg");
     string mode = r.GetPositional(0);
     if (mode.Length == 0) { mode = "interp"; }
-    return _testCrossZpkgCore(mode, false);
+    int __rc = _testCrossZpkgCore(mode, false);
+    if (__rc == 0) { _procEnd("test cross-zpkg", sw); }
+    return __rc;
 }
 
 // noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test all` already prepared
@@ -102,6 +109,7 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 // PACKAGED z42c/z42vm against the goldens + a launcher smoke — no separate
 // compile + zpkg spawn. Not in the default GREEN gate (run on demand).
 int _testDist(ParseResult r) {
+    Stopwatch sw = _procStart("test dist");
     string root = _root();
     int c = _buildCompiler(); if (c != 0) { return c; }   // C#-free 自举编译器（z42c 种子自建）
     c = _exec(_cargoRelease().Arg("-q")
@@ -113,7 +121,9 @@ int _testDist(ParseResult r) {
     if (!_hasReleasePkg(root)) {
         c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
     }
-    return _testDistRun(r.GetPositional(0));
+    int __rc = _testDistRun(r.GetPositional(0));
+    if (__rc == 0) { _procEnd("test dist", sw); }
+    return __rc;
 }
 
 bool _hasReleasePkg(string root) {
@@ -150,6 +160,7 @@ string _latestReleasePkg(string root) {
 // failure. Mirrors the former scripts/test-all.sh's stage set (the --parallel wave +
 // --scope auto-narrow optimizations are a later increment).
 int _testAll(bool noBuild) {
+    Stopwatch sw = _procStart("test");
     // build wave (once): stdlib + compiler driver + release runtime + golden zbc.
     // compile-once consume: skip the redundant z42c+stdlib rebuild when they're
     // already present — either a --toolchain is set (CI downloads current-sdk) OR
@@ -185,6 +196,7 @@ int _testAll(bool noBuild) {
     Console.WriteLine("\n=== stage: compiler ===");
     c = _testCompiler(true); if (c != 0) { return c; }
     Console.WriteLine("\n✅ GREEN — all stages passed (vm + cross-zpkg + stdlib + compiler; C#-free)");
+    _procEnd("test", sw);
     return 0;
 }
 

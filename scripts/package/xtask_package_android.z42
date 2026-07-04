@@ -26,6 +26,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // ── runtime pack (z42-runtime-<ver>-android-<rid>): per-ABI .so/.a + headers + libs ──
 int _buildRuntimePackageAndroid(string root, string rid, string version, string profile) {
@@ -103,6 +104,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
 
 // ── workload tooling: the gradle project (buildable unit) ───────────────────────
 int _packageAndroid(string root, string pkgDir, string rid, string version, string profile, string hostRid) {
+    Stopwatch sw = _procStart("package android");
     // [1/4] build the separate runtime pack first (per-ABI .so + headers + libs live there).
     int c = _buildRuntimePackageAndroid(root, rid, version, profile);
     if (c != 0) { return c; }
@@ -120,6 +122,7 @@ int _packageAndroid(string root, string pkgDir, string rid, string version, stri
     Console.WriteLine("[3/3] manifest.toml");
     _pkgEmitManifestAndroidTooling(root, pkgDir, rid, version, profile, hostRid);
     Console.WriteLine("      ✓ manifest.toml (workload tooling)");
+    _procEnd("package android", sw);
     return 0;
 }
 

@@ -20,8 +20,10 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 int _bootstrapCheck(string ridArg) {
+    Stopwatch sw = _procStart("bootstrap-check");
     string root = _root();
     string[] members = _compilerMembers(root);
 
@@ -111,7 +113,9 @@ int _bootstrapCheck(string ridArg) {
     }
     if (b == 0) { Console.WriteLine("✅ repo z42c self-build OK"); }
     else if (b == 2) { Console.WriteLine("ℹ repo self-build skipped (z42c not built)"); }
-    return a;
+    int __rc = a;
+    if (__rc == 0) { _procEnd("bootstrap-check", sw); }
+    return __rc;
 }
 
 // Compile the current z42c workspace (members in topo order) with a given seed

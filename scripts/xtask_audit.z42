@@ -10,8 +10,10 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Regex;
+using Std.Time;
 
 int _auditRun() {
+    Stopwatch sw = _procStart("audit");
     string root = _root();
 
     // 收集所有 source.z42（src/tests + src/libraries/*/tests 递归）
@@ -32,6 +34,7 @@ int _auditRun() {
 
     Console.WriteLine("");
     Console.WriteLine("audit-missing-usings: " + patched.ToString() + " file(s) patched");
+    _procEnd("audit", sw);
     return 0;
 }
 

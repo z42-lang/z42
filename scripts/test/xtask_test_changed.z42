@@ -19,12 +19,14 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // `test changed` body — run in-process. Returns the overall exit code:
 // 0 on success, 2 when not a git repo / spawn failure, or the first failing
 // command's exit code. `base_` is the diff base (default "HEAD" resolved by
 // the caller); `dryRun` prints the plan without executing.
 int _testChangedRun(string base_, bool dryRun) {
+    Stopwatch sw = _procStart("test changed");
     if (!_isInGitRepo()) {
         ConsoleError.WriteLine("[test-changed] error: not a git repository");
         return 2;
@@ -74,7 +76,9 @@ int _testChangedRun(string base_, bool dryRun) {
         return 0;
     }
 
-    return _executeChangedPlan(plan.cmds);
+    int __rc = _executeChangedPlan(plan.cmds);
+    if (__rc == 0) { _procEnd("test changed", sw); }
+    return __rc;
 }
 
 // Plan derived from the changed-file set: the de-duped command list to run

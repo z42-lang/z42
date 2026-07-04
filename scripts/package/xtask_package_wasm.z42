@@ -14,6 +14,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // ── runtime pack (z42-runtime-<ver>-browser-wasm): wasm module + bindings + libs ──
 int _buildRuntimePackageWasm(string root, string rid, string version, string profile) {
@@ -70,6 +71,7 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
 
 // ── workload tooling: js/ facade + package.json (runtime pkg-* symlinked at install) ──
 int _packageWasm(string root, string pkgDir, string rid, string version, string profile, string hostRid) {
+    Stopwatch sw = _procStart("package wasm");
     string wasmRoot = Path.Join(root, "src/toolchain/workload/wasm/platform");
 
     // build the separate runtime pack first (wasm module + bindings live there).
@@ -96,6 +98,7 @@ int _packageWasm(string root, string pkgDir, string rid, string version, string 
     Console.WriteLine("[3/3] manifest.toml");
     _pkgEmitManifestWasm(pkgDir, rid, version, profile, hostRid);
     Console.WriteLine("      ✓ manifest.toml (workload tooling)");
+    _procEnd("package wasm", sw);
     return 0;
 }
 

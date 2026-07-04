@@ -8,12 +8,14 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Json;
+using Std.Time;
 
 // `xtask release assemble-desktop-workload <LABEL> [<dist>]`
 // Merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
 // into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz so any host can
 // `publish --rid <target>`. Removes the per-RID intermediates.
 int _releaseAssembleDesktop(string label, string dist) {
+    Stopwatch sw = _procStart("release assemble-desktop-workload");
     if (label.Length == 0) {
         ConsoleError.WriteLine("usage: xtask release assemble-desktop-workload <LABEL> [dist]");
         return 2;
@@ -79,6 +81,7 @@ int _releaseAssembleDesktop(string label, string dist) {
     if (tc != 0) { ConsoleError.WriteLine("tar failed: " + outTar); return 1; }
     Directory.Delete(work, true);
     Console.WriteLine("✓ merged desktop workload → " + Path.GetFileName(outTar));
+    _procEnd("release assemble-desktop-workload", sw);
     return 0;
 }
 
@@ -93,6 +96,7 @@ void _deleteGlob(string dir, string pattern) {
 // contract (z42 install / workload install read it). Shared by release.yml (tagged)
 // and ci.yml publish-nightly (rolling), so the schema lives in ONE place.
 int _releaseGenIndex(string label, string dist, string channel, string tag, string version) {
+    Stopwatch sw = _procStart("release gen-release-index");
     if (label.Length == 0) {
         ConsoleError.WriteLine("usage: xtask release gen-release-index <LABEL> [dist] [channel] [tag] [version]");
         return 2;
@@ -174,6 +178,7 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     string outPath = Path.Join(distDir, "release-index.json");
     File.WriteAllText(outPath, JsonValue.StringifyPretty(idx));
     Console.WriteLine("✓ wrote " + outPath);
+    _procEnd("release gen-release-index", sw);
     return 0;
 }
 

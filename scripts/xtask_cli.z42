@@ -15,6 +15,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Cli;
+using Std.Time;   // Stopwatch — bench command process marker
 
 // ── entry: the whole Main body (shims + resolve + dispatch) → exit code ──────
 
@@ -52,7 +53,11 @@ int _runCli(string[] argvIn) {
         ConsoleError.WriteLine("xtask: " + e.Message);
         return 2;
     }
-    if (res.IsHelp())    { Console.WriteLine(res.HelpText()); return 0; }
+    if (res.IsHelp())    {
+        Console.WriteLine(res.HelpText());
+        if (_isHelpFlag(c0)) { Console.WriteLine(_globalOptionsHelp()); }   // root -h: list pre-route globals
+        return 0;
+    }
     if (res.IsUnknown()) {
         ConsoleError.WriteLine(res.ErrorMessage());
         Console.WriteLine(res.HelpText());
@@ -138,6 +143,14 @@ string[] _applyVerbosityOpt(string[] argv) {
 }
 
 // ── root tree ────────────────────────────────────────────────────────────────
+
+// Footer appended to `xtask -h` — the pre-route global options the router tree
+// (per-leaf only) doesn't model.
+string _globalOptionsHelp() {
+    return "\nGLOBAL OPTIONS (before any subcommand):\n"
+        + "  --toolchain <dir>       use a .z42 SDK layout (programs/z42c + libs + bin)\n"
+        + "  --verbosity, -v <lvl>   q[uiet] | m[inimal] (default) | n[ormal] | d[etailed] | diag[nostic]";
+}
 
 SubcommandRouter _cliRoot() {
     SubcommandRouter root = new SubcommandRouter("xtask", "z42 repo dev CLI");
@@ -337,8 +350,10 @@ int _benchE2e(string[] argv) {
         return 2;
     }
     if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); return 0; }
-    if (r.GetFlag("diff")) { return _benchDiff(r); }
-    return _bench(r);
+    Stopwatch sw = _procStart("bench");
+    int __rc = r.GetFlag("diff") ? _benchDiff(r) : _bench(r);
+    if (__rc == 0) { _procEnd("bench", sw); }
+    return __rc;
 }
 
 // ── dispatch (resolved command → handler) ─────────────────────────────────────

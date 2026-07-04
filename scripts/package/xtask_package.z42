@@ -7,15 +7,19 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Cli;
+using Std.Time;
 
 // `package [release|debug] [--rid R] [--variant V]` (top-level since
 // migrate-xtask-launcher-to-std-cli; was `build package`). Args from ParseResult.
 int _buildPackage(ParseResult r) {
+    Stopwatch sw = _procStart("build package");
     string prof = r.GetPositional(0);   // "" | release | debug | Release | Debug
     string profile = "release";          // xtask defaults release (package.sh default is debug)
     if (prof == "debug" || prof == "Debug") { profile = "debug"; }
     else if (prof == "release" || prof == "Release") { profile = "release"; }
-    return _buildPackageCore(profile, r.GetOption("rid"), r.GetOption("variant"), r.GetFlag("no-build"));
+    int __rc = _buildPackageCore(profile, r.GetOption("rid"), r.GetOption("variant"), r.GetFlag("no-build"));
+    if (__rc == 0) { _procEnd("build package", sw); }
+    return __rc;
 }
 
 // Core packaging by explicit (profile, rid, variant) — callable without a

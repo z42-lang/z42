@@ -203,6 +203,7 @@ void _linkAll(string srcDir, string flatDir, string pattern) {
 // redundant stdlib rebuild).
 int _buildSdk(string outOpt, bool noBuild) {
     string root = _root();
+    Stopwatch sw = _procStart("build sdk");
     string outDir = outOpt;
     if (outOpt.Length == 0) { outDir = Path.Join(root, "artifacts/.z42"); }
     else if (!Path.IsRooted(outOpt)) { outDir = Path.Join(root, outOpt); }
@@ -242,6 +243,7 @@ int _buildSdk(string outOpt, bool noBuild) {
     _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(binDir, "z42vm.exe"));
     _makeExe(Path.Join(binDir, "z42vm"));
     Console.WriteLine("  ✓ bin/z42vm");
+    _procEnd("build sdk", sw);
     return 0;
 }
 
@@ -256,6 +258,7 @@ int _stageToolchain(string dest) {
         return 2;
     }
     string root = _root();
+    Stopwatch sw = _procStart("build stage-toolchain");
     // 1. stdlib flat dist (Z42_LIBS lookup): every file in dist/release/
     string flatSrc = _libsDir(root);
     string flatDst = Path.Join(dest, "artifacts/build/libraries/dist/release");

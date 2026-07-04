@@ -93,6 +93,7 @@ int _ensureCompilerTooling() {
 // built z42c fresh in its build wave; rebuilding here was z42c's 2nd/3rd full
 // self-build in one gate run). Standalone `test compiler` passes false.
 int _testCompiler(bool noBuild) {
+    Stopwatch sw = _procStart("test compiler");
     if (!noBuild) {
         int tc = _ensureCompilerTooling();   // 重建 runtime+runner+driver，防版本 skew 假失败
         if (tc != 0) { return tc; }
@@ -128,7 +129,9 @@ int _testCompiler(bool noBuild) {
     if (fail > 0) { return 1; }
 
     // ── z42c [Test] units ────────────────────────────────────────────────
-    return _testCompilerUnits(root, profile, members);
+    int __rc = _testCompilerUnits(root, profile, members);
+    if (__rc == 0) { _procEnd("test compiler", sw); }
+    return __rc;
 }
 
 // reset 一个私有目录（删后建）。

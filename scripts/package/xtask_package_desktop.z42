@@ -9,10 +9,12 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // ── desktop SDK pipeline ────────────────────────────────────────────────────
 
 int _packageDesktop(string root, string pkgDir, string rid, string version, string profile, string hostRid, bool noBuild) {
+    Stopwatch sw = _procStart("package desktop");
     string cargoTarget = _cargoTargetFor(rid);   // "" for host → reuse warm build dir
     bool rel = (profile == "release");
 
@@ -158,6 +160,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     // [5/5] manifest.toml
     Console.WriteLine("[5/5] manifest.toml");
     _pkgEmitManifest(pkgDir, rid, version, profile, hostRid);
+    _procEnd("package desktop", sw);
     return 0;
 }
 

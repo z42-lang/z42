@@ -19,11 +19,13 @@ using Std;
 using Std.IO;
 using Std.Encoding;
 using Std.Toml;
+using Std.Time;
 
 // TIER 2 entry: full SDK incl emulator/AVD/Gradle for running Android tests.
 int _depsInstallAndroidEmulator(bool force) { return _depsInstallAndroidSdk(force, "emulator"); }
 
 int _depsInstallAndroidSdk(bool force, string tier) {
+    Stopwatch sw = _procStart("deps install android");
     bool wantEmu = (tier != "build");   // "emulator"/"full" → emulator + AVD + Gradle
     string root = _root();
     // ── version pins — single source of truth: versions.toml ─────────────
@@ -180,6 +182,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     } else {
         Console.WriteLine("  export PATH=\"$ANDROID_HOME/platform-tools:$PATH\"");
     }
+    _procEnd("deps install android", sw);
     return 0;
 }
 
@@ -187,7 +190,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
 int _runJava(string bin, string[] args, string javaHome) {
     return new Process(bin).Args(args).WorkingDirectory(_root())
         .Env("JAVA_HOME", javaHome)
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 // run a JDK-backed tool with an unbounded `yes` on stdin (sdkmanager license
@@ -197,7 +200,7 @@ int _runJavaYes(string bin, string[] args, string javaHome) {
     foreach (var a in args) { cmd = cmd + " '" + a + "'"; }
     return new Process("bash").Arg("-c").Arg(cmd).WorkingDirectory(_root())
         .Env("JAVA_HOME", javaHome)
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 // run a JDK-backed tool feeding `stdin` on standard input (license/AVD prompts).

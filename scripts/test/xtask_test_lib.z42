@@ -12,6 +12,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Toml;
+using Std.Time;
 
 // Count a lib's [Test] units (single-file tests/*.z42 + dir-mode tests/<name>/
 // source.z42) — drives shard load balancing.
@@ -60,6 +61,7 @@ string[] _shardLibs(string root, int k, int n) {
 }
 
 int _testLib(ParseResult r, string kind) {
+    Stopwatch sw = _procStart("test stdlib");
     string lib = r.GetPositional(0);
     string[] libs;
     int[] sh = _parseShard(r.GetOption("shard"));
@@ -72,7 +74,9 @@ int _testLib(ParseResult r, string kind) {
     } else {
         libs = new string[0];
     }
-    return _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"));
+    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"));
+    if (__rc == 0) { _procEnd("test stdlib", sw); }
+    return __rc;
 }
 
 int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode) {

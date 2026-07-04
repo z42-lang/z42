@@ -16,6 +16,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // ── Backend contract ──────────────────────────────────────────────────────
 
@@ -45,13 +46,19 @@ public class AssetLayout {
 
 // name ∈ wasm|ios|android ; step ∈ ""(=all)|build|assets|run.
 int _platformDispatch(string name, string step, string root) {
-    if (name == "desktop") { return _platformStep(new DesktopBackend(), step, root); }
-    if (name == "wasm")    { return _platformStep(new WasmBackend(), step, root); }
-    if (name == "ios")     { return _platformStep(new IosBackend(), step, root); }
-    if (name == "android") { return _platformStep(new AndroidBackend(), step, root); }
-    if (name == "all")     { return _platformAllPlatforms(step, root); }
-    ConsoleError.WriteLine("error: unknown platform '" + name + "' (desktop|wasm|ios|android|all)");
-    return 2;
+    Stopwatch sw = _procStart("test platform");
+    int __rc;
+    if (name == "desktop") { __rc = _platformStep(new DesktopBackend(), step, root); }
+    else if (name == "wasm")    { __rc = _platformStep(new WasmBackend(), step, root); }
+    else if (name == "ios")     { __rc = _platformStep(new IosBackend(), step, root); }
+    else if (name == "android") { __rc = _platformStep(new AndroidBackend(), step, root); }
+    else if (name == "all")     { __rc = _platformAllPlatforms(step, root); }
+    else {
+        ConsoleError.WriteLine("error: unknown platform '" + name + "' (desktop|wasm|ios|android|all)");
+        return 2;
+    }
+    if (__rc == 0) { _procEnd("test platform", sw); }
+    return __rc;
 }
 
 int _platformStep(IPlatformBackend b, string step, string root) {

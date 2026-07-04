@@ -24,6 +24,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Cli;
+using Std.Time;   // Stopwatch — command process markers
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
@@ -56,8 +57,11 @@ int _run(string[] argv) {
 // ── build ─────────────────────────────────────────────────────────────────
 
 int _buildRuntime() {
-    return _exec(_cargoRelease()
+    Stopwatch sw = _procStart("build runtime (cargo z42vm)");
+    int __rc = _exec(_cargoRelease()
         .Arg("--manifest-path").Arg(_runtimeManifest()));
+    if (__rc == 0) { _procEnd("build runtime (cargo z42vm)", sw); }
+    return __rc;
 }
 
 // 编译器自举：用 _buildCompiler（z42c 种子自建，src/compiler）。
@@ -65,10 +69,13 @@ int _buildRuntime() {
 
 // feature-matrix (CI P4.1): verify each Cargo feature combo compiles (host target).
 int _featureMatrix() {
+    Stopwatch sw = _procStart("feature-matrix");
     int c = _cargoFeature("interp-only"); if (c != 0) { return c; }
     c = _cargoFeature("wasm");            if (c != 0) { return c; }
     c = _cargoFeature("ios");             if (c != 0) { return c; }
-    return _cargoFeature("android");
+    int __rc = _cargoFeature("android");
+    if (__rc == 0) { _procEnd("feature-matrix", sw); }
+    return __rc;
 }
 
 int _cargoFeature(string feat) {
@@ -123,7 +130,10 @@ int _depsCheck() {
     // in-process (unify-scripts-into-xtask): folded from the former standalone
     // scripts/check-versions-drift.z42 into xtask_deps.z42 (_checkVersionsDrift);
     // no per-invocation dotnet-run-build + z42vm-run dance.
-    return _checkVersionsDrift();
+    Stopwatch sw = _procStart("deps check");
+    int __rc = _checkVersionsDrift();
+    if (__rc == 0) { _procEnd("deps check", sw); }
+    return __rc;
 }
 
 // `audit` is dispatched directly to `_auditRun` (xtask_audit.z42) from
@@ -137,7 +147,10 @@ int _depsCheck() {
 int _regen(ParseResult r) {
     bool release = r.GetPositional(0) == "release";
     bool rebuildStdlib = !r.GetFlag("no-stdlib");
-    return _regenCore(release, rebuildStdlib);
+    Stopwatch sw = _procStart("regen");
+    int __rc = _regenCore(release, rebuildStdlib);
+    if (__rc == 0) { _procEnd("regen", sw); }
+    return __rc;
 }
 
 int _regenCore(bool release, bool rebuildStdlib) {

@@ -15,6 +15,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Time;
 
 // ── runtime pack (z42-runtime-<ver>-<rid>): native VM lib + xcframework + libs ──
 int _buildRuntimePackageIos(string root, string rid, string version, string profile) {
@@ -73,6 +74,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
 
 // ── workload tooling: Sources/ + Package.swift (placeholder) + manifest ──
 int _packageIos(string root, string pkgDir, string rid, string version, string profile, string hostRid) {
+    Stopwatch sw = _procStart("package ios");
     bool rel = (profile == "release");
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
     string macMin = _vReadOr(root, "platform.ios.min_macos", "13.0");
@@ -149,6 +151,7 @@ int _packageIos(string root, string pkgDir, string rid, string version, string p
     m = m + "ios-deployment-target = \"" + iosMin + "\"\n";
     File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);
     Console.WriteLine("      ✓ manifest.toml (workload tooling)");
+    _procEnd("package ios", sw);
     return 0;
 }
 
