@@ -134,6 +134,7 @@ runs:
         echo "── [5/5] verify toolchain ──"
         [ -f "$ROOT/artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg" ] \
           || { echo "::error::current z42c.driver.zpkg missing after build compiler"; exit 1; }
-        [ -f "$libs/z42.core.zpkg" ] || { echo "::error::stdlib flat dist missing"; exit 1; }
+        [ -f "$ROOT/artifacts/build/libraries/dist/release/z42.core.zpkg" ] \
+          || { echo "::error::stdlib flat dist missing"; exit 1; }
         rm -rf "$work"
         echo "✅ CI bootstrap OK ($RID) — z42c + stdlib + xtask in standard locations"
