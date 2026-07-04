@@ -57,7 +57,7 @@ CLAUDE.md / AGENTS.md  【瘦入口】让任意大模型 import 上面的文件 
 | **D5** | book 用 **mdBook**（纯 markdown，`mdbook serve` 可渲染发布） | 与 Rust 技术栈一致，无额外负担 |
 | **D6** | 开发规范**模型中立**，居 `docs/agent/rules/`；`CLAUDE.md`/`AGENTS.md` 仅瘦入口指进去，**最后一步**才配 | 文档为所有大模型设计，不硬绑 Claude 专属机制 |
 | **D7** | `docs/spec/archive/`（590 历史目录）**暂留**，book 全面覆盖后单独清理 | 死历史 git 已留痕，不阻塞当前 |
-| **D8** | 目录 README **六段制**：职责 / 功能索引 / 基础用法 / 如何测试验证 / 关联文档 / 核心文件 | 人不读源码，靠 README 快速 review（模板见 [code-organization.md](../../../.claude/rules/code-organization.md)） |
+| **D8** | 目录 README **六段制**：职责 / 功能索引 / 基础用法 / 如何测试验证 / 关联文档 / 核心文件 | 人不读源码，靠 README 快速 review（模板与各段写法见 [readme-writing.md 第二部分](readme-writing.md)） |
 | **D9** | **README 与 book 两层分工**：README = 自足基础层（干什么/怎么用/怎么开发），book = 深入层（设计思路/实现逻辑），互链不互抄——见第四节 | 看 README 即可上手开发，查 book 才需要细节；两层各一份、不漂移 |
 
 ## 四、目录 README 与 book 的两层分工（D9 展开，2026-07-02 确立）
@@ -76,9 +76,10 @@ README；设计决策、编排机制、流程图进 book 工具链章节。
 
 - README **不展开**设计原理/实现细节——需要时一句话 + 链接 book 章节
 - book **不重复** README 已有的基础用法/命令清单——链接回 README
-- 改代码 → README 的结构/用法段同步；改机制 → book 同步；两层各自触发
+- 改代码 → README 的结构/用法段同步；改机制 → book 同步；触发总控见第九节矩阵
 
-**后续所有目录文档都按此整理或修改。**
+**后续所有目录文档都按此整理或修改。** 六段模板与各段写法细则见
+[readme-writing.md 第二部分](readme-writing.md)。
 
 ## 五、知识「上浮」规则（本体系不过时的保证）
 
@@ -119,3 +120,16 @@ archive 堆到 590。用"上浮"把知识收敛到 book 单一权威，是 desig
 
 对外文档（用户/贡献者）英文；内部文档（开发流程/实现细节）中文。book 面向用户与维护者双受众，
 **默认中文正文、关键术语保留英文**，成熟章节再评估是否出英文版。
+
+## 九、统一维护触发矩阵（改了什么 → 同步哪些文档，2026-07-05 确立）
+
+**「改动类型 → 必须同步的文档」收敛为一张触发矩阵，全仓唯一 SoT、不得另立分表**；归档前按
+配套 **doc-check 清单**逐项核对，无文档 = 未完成。矩阵与清单迁移期驻
+[workflow.md 阶段 9](../../../.claude/rules/workflow.md)（`.claude/` 迁来本目录时随之收敛到本节）。
+
+两条配套原则：
+
+- 各写作规范内的"改了什么 → 哪一段"表（如 [readme-writing.md](readme-writing.md) 第五 / 十节）
+  是矩阵对应列的**段级展开**，不新增矩阵之外的触发类型。
+- **迁移期规则**：矩阵命中的 book 页若尚不存在（该主题内容还在旧 `docs/design/`），**直接把
+  该主题新写进 book**（按 [book-writing.md](book-writing.md) 落页，顺带完成迁移），不回写 design/（D2）。

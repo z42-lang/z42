@@ -8,7 +8,7 @@
 
 | 子目录 | 内容 |
 |--------|------|
-| [`rules/`](rules/) | 开发规范：[文档体系](rules/doc-system.md)、[book 写作规范](rules/book-writing.md)、协作流程、提交格式… |
+| [`rules/`](rules/) | 开发规范：[文档体系](rules/doc-system.md)、写作规范（[README 根+目录](rules/readme-writing.md) / [book](rules/book-writing.md)）、协作流程、提交格式… |
 
 > 后续如有其它分类（如提示词模板、检查清单等），在 `agent/` 下新建子目录，不塞进 `rules/`。
 

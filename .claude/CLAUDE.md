@@ -5,7 +5,7 @@
 z42 是一门融合 C#、Rust、Python 优点的系统编程语言。
 - 编译器：z42 自举（`src/compiler`，自编译为 zpkg）；C# bootstrap 编译器已移除（2026-06-26）
 - 虚拟机：Rust，支持 Interpreter / JIT / AOT 混合执行
-- 详细设计见 `docs/design/`；库推荐见 `.claude/libraries.md`
+- 详细设计见 `docs/book/`（知识库 SoT；旧 `docs/design/` 迁移中，见 doc-system.md）；库推荐见 `.claude/libraries.md`
 
 ## 代码库结构
 
@@ -14,7 +14,7 @@ src/compiler/       # z42 自举编译器（z42c.core/ir/syntax/project/semantic
 src/runtime/    # Rust VM（interp / jit / aot）
 src/libraries/  # 标准库 .z42 源码（编译后产出 .zpkg）
 src/toolchain/  # 配套工具链（launcher / test-runner / workload；debugger·builder 占位）
-docs/design/    # 语言规范（language-overview.md, ir.md, ...）
+docs/book/      # 知识库（mdBook：语言/编译器/运行时/stdlib/工具链；旧 docs/design/ 迁移中）
 examples/       # .z42 示例源文件
 ```
 
@@ -41,9 +41,9 @@ examples/       # .z42 示例源文件
 
 **核心规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。无文档 = 未完成。**
 
-具体的"改动类型 → 需更新文档"映射表见 [workflow.md 阶段 9](rules/workflow.md)。
+具体的"改动类型 → 需更新文档"映射见 [workflow.md 阶段 9](rules/workflow.md) 的**统一维护触发矩阵**（唯一 SoT）；归档前按同节 **doc-check 清单**逐项核对。
 
-> **实现原理文档规则（2026-04-25）**：涉及编译器或 VM 的**内部机制 / 架构策略**的变更（不只是对外行为），必须把"实现原理"（数据结构、算法、加载策略、决策权衡）同步到 `docs/design/compiler/compiler-architecture.md` 或 `docs/design/runtime/vm-architecture.md`，使新接手者不必阅读大量源码即可理解"为什么这样设计"。
+> **实现原理文档规则（2026-04-25）**：涉及编译器或 VM 的**内部机制 / 架构策略**的变更（不只是对外行为），必须把"实现原理"（数据结构、算法、加载策略、决策权衡）同步到 `docs/book/` 编译器 / 运行时部分的对应机制页（旧 `docs/design/` 不再更新，见 doc-system.md 决策 D2），使新接手者不必阅读大量源码即可理解"为什么这样设计"。
 
 ## 代码风格
 

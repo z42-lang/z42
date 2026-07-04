@@ -21,7 +21,7 @@ Think First → Spec It → Build It → Archive It
 | 角色 | 职责 |
 |------|------|
 | **User** | 定方向、审批规范、裁决分歧 |
-| **Spec**（`docs/design/` + `docs/spec/`）| 人机合同，实现的唯一依据 |
+| **Spec**（`docs/book/` + `docs/spec/`）| 人机合同，实现的唯一依据 |
 | **Claude** | 自驱执行各阶段；不超 Scope；不猜测歧义 |
 
 **User 介入点只有两个：** ① 规范审批（Proposal + Spec）；② 规范分歧裁决。其余全部 Claude 自驱。
@@ -44,7 +44,7 @@ docs/spec/
     └── YYYY-MM-DD-<name>/
 ```
 
-长期规范（新语法、IR 指令、VM 行为）最终同步到 `docs/design/`，不存在 `docs/spec/` 中。
+长期规范（新语法、IR 指令、VM 行为）最终上浮到 `docs/book/`（知识库唯一 SoT），不存在 `docs/spec/` 中。
 
 ### 与 OpenSpec 原版的偏离（z42 本地约定）
 
@@ -55,7 +55,7 @@ docs/spec/
 | **目录名** | `openspec/` | `spec/` | 去掉方法论品牌暗示，名字更中性 |
 | **目录位置** | 仓库根 `openspec/` | `docs/spec/`（2026-05-10 起）| spec 与 design doc 同属"项目文档"范畴；放在 `docs/` 下减少顶层目录数，单一文档目录便于检索 |
 | **archive 位置** | `changes/archive/` 子目录 | `archive/` 与 `changes/` 并列 | archive 不是一个 change；并列使 "进行中 vs 历史" 语义清晰，扫描活跃变更不需排除子目录 |
-| **顶层 specs 库** | `openspec/specs/<capability>/spec.md` 作为系统当前行为的 SoT | 无顶层 `docs/spec/specs/`，长期规范改为 `docs/design/<feature>.md` | z42 的语言/IR/VM 规范用人类可读的叙事文档组织（给语言使用者读），而非结构化 capability spec；变更归档时人肉 merge 到 `docs/design/` |
+| **顶层 specs 库** | `openspec/specs/<capability>/spec.md` 作为系统当前行为的 SoT | 无顶层 `docs/spec/specs/`，长期规范为 `docs/book/` 对应页 | z42 的语言/IR/VM 规范用人类可读的叙事文档组织（给语言使用者读），而非结构化 capability spec；变更归档时知识上浮到 `docs/book/` |
 
 这些偏离一经明确，不得在未经讨论的情况下回改 OpenSpec 原版结构。
 
@@ -95,7 +95,7 @@ docs/spec/
 **任一未达成 → 停，回到阶段 1–6 补齐，不得推进代码。**
 
 **常见反例（皆为违规）**：
-- ❌ 只有 `docs/design/<feature>.md`（长期规范）就开始写代码
+- ❌ 只有 `docs/book/` 对应页（长期规范）就开始写代码
   → 长期规范 ≠ `docs/spec/changes/<name>/` 的 proposal/specs/design；两者都必须有
 - ❌ "因为迭代中与 User 逐步沟通了方案，所以跳过 proposal/specs"
   → 对话中的确认不替代 spec；User 审批的是文档，不是聊天记录
@@ -211,13 +211,13 @@ docs/spec/changes/<change-name>/
 | `src/path/to/Foo.z42`    | NEW    | 新增文件 |
 | `src/path/to/Bar.z42`    | MODIFY | 修改 X 字段 / Y 方法 |
 | `src/path/to/Old.z42`    | DELETE | 删除（pre-1.0 直接删，不留兼容） |
-| `docs/design/foo.md`     | MODIFY | 同步规范 |
+| `docs/book/src/<part>/foo.md` | MODIFY | 同步知识库 |
 | `src/path/to/tests/foo/source.z42` | NEW | 新测试 |
 
 **只读引用**（理解上下文必须读，但不修改；不计入并行冲突）：
 
 - `src/path/to/Existing.z42` — 用于理解 X 行为
-- `docs/design/related.md` — 参考 Y 规则
+- `docs/book/src/<part>/related.md` — 参考 Y 规则
 
 **变更类型枚举**：`NEW` / `MODIFY` / `DELETE` / `RENAME`（rename 同时占用旧路径 DELETE + 新路径 NEW）。
 
@@ -348,7 +348,7 @@ docs/spec/changes/<change-name>/
 - [ ] 3.2 xtask test compiler —— z42c 自举全绿
 - [ ] 3.3 xtask test vm —— 全绿
 - [ ] 3.4 spec scenarios 逐条覆盖确认
-- [ ] 3.5 docs/design/ 文档同步（新语法 / IR / VM 行为）
+- [ ] 3.5 文档同步（按阶段 9 触发矩阵：目录 README / `docs/book/` / workflow）
 - [ ] 3.6 docs/roadmap.md 进度表更新（若有特性完成某 pipeline 阶段）
 
 ## 备注
@@ -413,7 +413,7 @@ docs/spec/changes/<change-name>/
 
 1. **Scope 越界**：实施中发现需要修改授权 Scope 之外的文件 → 回阶段 3 更新当前 spec 的 Scope，或开新 spec
 2. **测试失败超出当前 spec 范围**：发现 pre-existing failure 或外部回归
-3. **规范冲突**：实施中发现两个 spec 的设计相互冲突，或与 docs/design/ 现有规范冲突
+3. **规范冲突**：实施中发现两个 spec 的设计相互冲突，或与 `docs/book/`（迁移期含旧 design/）现有规范冲突
 4. **决策点未覆盖**：spec 中未明确的设计点（如字段命名、错误信息措辞、性能权衡），不得自行决定
 5. **依赖前置变更需调整**：例如 C1 落地后发现 C2 引用的 C1 字段需要重命名
 6. **GREEN 失败**：当前 spec 验证未全绿（参见阶段 8）
@@ -555,18 +555,28 @@ xtask test compiler
 1. 将 tasks.md 状态改为 `🟢 已完成`，更新日期
 2. 移动目录：`docs/spec/changes/<name>/` → `docs/spec/archive/YYYY-MM-DD-<name>/`
    - **释放子系统锁**：从 `docs/spec/changes/ACTIVE.md` 摘除本 change 持有的全部子系统行（见 [`parallel-development.md`](parallel-development.md)）
-3. **同步到长期规范**（所有变更类型均需执行，按下表）：
+3. **文档同步（统一维护触发矩阵）**：下表是"改了什么 → 必须同步哪些文档"的**唯一 SoT**——
+   其他规范只链接此表，不另立分表；"同步到哪一段"的段级展开见各写作规范。逐行核对，
+   本次改动命中的行全部落实。知识类内容一律落 `docs/book/`（旧 `docs/design/` 不再更新；
+   迁移期若对应 book 页尚不存在，直接把该主题新写进 book，顺带完成迁移）。
 
-   | 变更类型 | 必须更新的文档 |
-   |---------|--------------|
-   | 新语法 / 语句 | `docs/design/language/language-overview.md` + `docs/design/<feature>.md` |
-   | 新 IR 指令 | `docs/design/runtime/ir.md` |
-   | 新 zbc / VM 行为 | `docs/design/<feature>.md` |
-   | 新构建步骤 / CLI 参数 / 工程文件规则 | `docs/design/compiler/project.md` 或 `CLAUDE.md` |
-   | 任意特性完成某个 pipeline 阶段（Parser / TypeCheck / IrGen / VM） | `docs/roadmap.md` Pipeline 实现进度表 |
-   | fix / refactor（若涉及行为或机制变更） | 对应 `docs/design/` 文档必须更新 |
-   | 新协作规则 / 工作流规则 | `.claude/rules/workflow.md`（流程）/ `philosophy.md`（实现哲学）/ `version-bumping.md`（zbc/zpkg bump）任一对应文件 |
-   | 语言设计决策变更（设计目标、phase 归属、设计理由） | `docs/features.md` |
+   | 改了什么 | 目录 README（六段） | book | 其他 |
+   |---------|--------------------|------|------|
+   | 新增 / 删除文件，对外入口或依赖变化 | 功能索引 + 核心文件 | — | — |
+   | 测试方式 / 测试命令变化 | 如何测试验证 | — | `docs/workflow/testing/` 对应页 |
+   | 对外行为变更（新语法 / API / CLI / 二进制格式） | 功能索引 | 对应机制页 / 参考页（知识上浮） | 根 README 对应段；`docs/roadmap.md`（pipeline 进度 / Deferred 索引，如涉及） |
+   | 内部机制 / 架构策略变更（数据结构、算法、加载策略、决策权衡） | — | 对应机制页「机制 / 实现」节 | — |
+   | 构建 / 打包 / 调试操作变化 | 基础用法（如涉及） | — | `docs/workflow/` 对应页 |
+   | change 归档引入新能力 | 关联文档段登记 change 名 | 所改页页头「对齐」日期刷新 | — |
+   | 新协作规则 / 流程变化 | — | — | `.claude/rules/` 或 `docs/agent/rules/` 对应文件 |
+   | 语言设计决策变更（设计目标 / phase 归属 / 设计理由） | — | 语言部分对应页 | `docs/features.md` |
+
+   **归档前 doc-check 清单（全部勾上才能进 commit 步骤）：**
+
+   - [ ] 触发矩阵逐行核对，命中行的文档均已更新
+   - [ ] 所改目录的 README 六段齐全、与本次改动对齐（六段制见 [code-organization.md](code-organization.md)）
+   - [ ] 所改 / 新写 book 页：页头「对齐」日期已刷新、代码路径可解析；新页已挂入 `docs/book/src/SUMMARY.md`
+   - [ ] 本次触及文档中的相对链接均可解析（无死链）
 
    > **规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。**
    > 无文档 = 未完成，不得进入 commit 步骤。
@@ -639,7 +649,7 @@ tasks.md 顶部：
 **文档影响：** [列出需要更新的文档，无则写"无"]
 
 - [ ] 1.1 [任务]
-- [ ] 1.x docs/design/ 或 workflow.md 更新（若有行为/机制变更）
+- [ ] 1.x 文档同步（若有行为/机制变更，按阶段 9 触发矩阵）
 ```
 
 完成后直接进阶段 8（验证）→ 阶段 9（归档）。
@@ -687,8 +697,8 @@ tasks.md 顶部：
   - 规范驱动：所有非平凡变更必须先有 Spec（proposal + specs/<capability>/spec.md + design），User 批准后才开始代码
   - 参见本文件顶部 **🔴 Spec-First Self-Check** 小节 — lang/ir/vm 变更开工前逐项核对
   - **反例**（曾在 2026-04-24 静态抽象接口成员变更中发生）：只建 `tasks.md` +
-    `docs/design/<feature>.md` 就开始实施，把聊天中的逐步确认当作 spec 审批；
-    归档时被发现违规。纠正：`docs/design/` 长期规范与 `docs/spec/changes/<name>/`
+    长期规范文档就开始实施，把聊天中的逐步确认当作 spec 审批；
+    归档时被发现违规。纠正：长期规范（`docs/book/`）与 `docs/spec/changes/<name>/`
     变更规范是**两份独立文档**，lang/ir/vm 变更两者都必须存在
 
 - **验证未全绿时 commit / push**
