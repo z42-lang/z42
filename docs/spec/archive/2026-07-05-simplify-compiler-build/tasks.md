@@ -1,13 +1,16 @@
 # Tasks: 简化编译器构建
 
-> 状态：🟡 进行中 | 创建：2026-07-05
-> 占用子系统：`compiler` + `toolchain`（ACTIVE.md 已登记）
+> 状态：🟢 已完成 | 创建：2026-07-05 | 完成：2026-07-05
+> 占用子系统：`compiler` + `toolchain` + `runtime`（ACTIVE.md 归档时释放）
+> CI：`b0ba6ce2` 全绿（34/34 job，test-host ×4 OS + test-compiler-stdlib 均过；不动点修复生效）
 
 ## 进度概览
 - [x] 阶段 1: z42c build(exe) 复制非 stdlib 依赖（compiler）✅
 - [x] 阶段 2: xtask 自建/编 stdlib 改自包含，删 selfbuild-runlibs + dogfood（toolchain）✅
 - [x] 阶段 3: `artifacts/build/z42c` → `compiler` 全量改名（compiler+toolchain+**runtime**）✅
-- [ ] 阶段 4: env 收拢（删 Z42C_DIR、Z42_TOOLCHAIN 语义收进 SDK 根）（toolchain）
+- [x] 阶段 4: env 折叠 Z42_HOME（删 Z42C_DIR/Z42_TOOLCHAIN + 布局守卫）（toolchain）✅
+- [x] 阶段 5: 文档同步（build.md/xtask.md/self-hosting.md/workflow/README）✅
+- [x] 回归修复: 自举不动点 gen2 改走 --workspace + _copyAll self-copy 守卫（fix c65c04a2）✅
 
 ## 阶段 3: 改名 z42c → compiler ✅
 - [x] 3.1 `z42.workspace.toml` output_dir → compiler
@@ -50,7 +53,7 @@
 - [x] 4.4 CI `ci-bootstrap`：`Z42_TOOLCHAIN=` → `Z42_HOME=`（步骤 3/4 + 注释；解析等价，仅换 var 名）✅
 - [x] 4.5 scripts/README env 段更新 ✅
 - [x] 4.6b **根因修复 `_copyAll` self-copy**（验证期发现）：`File.Copy(X,X)` 先截断 dst 再读空 src → 把文件清零。当 caller 的 src/dst 同目录（`_ensureSeed` 在 `Z42_LIBS` 已指向 flat dist 时 stage stdlib）→ 整个 stdlib dist 被清零。`_copyAll` 加 `hits[i] != dstPath` 守卫（保护全部 11 个调用点）✅
-- [ ] 4.6 验证：warm/cold build compiler + `xtask test` 全绿（本地）+ CI ci-bootstrap 绿
+- [x] 4.6 验证 ✅：warm/cold build compiler（cold 经 `--toolchain .z42`→Z42_HOME 供种）+ build stdlib 22/22 + 本地 `xtask test` 全绿 + CI `b0ba6ce2` 全绿
 
 ## 阶段 2 回归修复：自举不动点 gen2 改走 --workspace（验证期发现，2026-07-05）
 > Phase 2 把 `build compiler`（gen1）切到 `z42c build --workspace`，但不动点测试
@@ -61,18 +64,21 @@
 - [x] R.1 `_testSelfHostByteIdentical` 重写：快照 gen1（canonical dist）→ 用 gen1 的自包含
   driver 再跑 `build --workspace`（与 `_buildCompilerViaZ42c` 同参）→ 覆盖 canonical dist =
   gen2 → 逐段比对。gen1/gen2 同路径 → 真正「driver 复现自身」不动点。签名去掉 `flat` 参数。
-- [ ] R.2 验证：本地 `xtask test compiler` 不动点 7/7 绿 + CI verify-selfhost/test-host 绿
+- [x] R.2 验证 ✅：本地 `xtask test compiler` 不动点 7/7 gen1==gen2 + CI `b0ba6ce2` test-host ×4 OS 绿（verify-selfhost 本 run 被 path filter 跳过，test-host 的 `test all` 覆盖同一不动点）
 
 ## 阶段 4 备注 / 后续
 - **`_testCompilerStdlib`（`xtask test compiler-stdlib`，CI-only stage）仍建 `artifacts/build/compiler/dogfood/{run,stdlib,verify}-release` scratch 目录**——与 Phase 2 删的 `_buildStdlibCore` dogfood 是不同函数。非本次 GREEN 失败诱因；清理需把它改自包含（同 Phase 2 手法），工作量独立 → 记为后续（待 User 定是否并入本 change）。
 
-## 阶段 5: 文档
-- [ ] 5.1 `docs/design/compiler/self-hosting.md`：自建改 --workspace + 自包含 exe，删 runlibs/dogfood 描述
-- [ ] 5.2 `docs/workflow/building/compiler.md` + `docs/book/src/dev/build.md` 产物路径/命令
-- [ ] 5.3 `artifacts/build/` 布局说明（放 docs/workflow 或 scripts/README）
-- [ ] 5.4 ACTIVE.md 释放 compiler + toolchain 锁；归档
+## 阶段 5: 文档 ✅
+- [x] 5.1 `docs/design/compiler/self-hosting.md`：现状路径 build/compiler + alllibs 段「已部分超越」标注（自包含 driver）；frozen 设计文档只修现状事实，机制 SoT 落 book/build.md
+- [x] 5.2 `docs/book/src/dev/build.md`（三阶段图去 runlibs/dogfood → self-contained + .stdlib-run）+ `xtask.md`（env 折叠）+ `docs/workflow/building/{compiler,wasm,android,ios}.md` + `packaging.md` 路径
+- [x] 5.3 `scripts/README.md`：种子解析段（Z42_HOME 布局守卫）+ build stdlib 流程图 + 全局 env 段
+- [x] 5.4 ACTIVE.md 释放 compiler + toolchain + runtime 锁；归档
 
-## 备注
+## 备注 / 后续（独立跟踪，不阻塞归档）
 - 运行时零改动（依赖既有 `search_dirs = [entry dir, libs]`）。
 - 「E0402 wrinkle」注释过时，阶段 2 顺带删。
 - Problem 2（单 member 直接 build 缺兄弟包）Out of Scope，文档提示用 `--workspace`。
+- **后续 F1（可选）**：`_testCompilerStdlib`（`xtask test compiler-stdlib`）仍建 `dogfood/{run,stdlib,verify}-release` scratch 目录——独立于本 change 的 build 路径，清理需改自包含。待 User 定。
+- **后续 F2（可选，2026-07-05 User 提）**：`build toolchain` 命令对称化——`src/toolchain/*`（launcher/builder/workload）目前 builder 内联、launcher 单独，无统一 `build toolchain`（对齐 `build compiler|stdlib`）。`stage-toolchain` 是打包非编译、不并入。独立 change 评估。
+- **后续 F3（可选）**：exe-bundle 自动化 e2e 断言（原 1.3/2.5）——Phase 1 自包含 exe 由每次 build compiler/stdlib 隐式覆盖（全线跑自包含 driver），专门断言待补。
