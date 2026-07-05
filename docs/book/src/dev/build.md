@@ -1,7 +1,7 @@
 # 构建编排（build / regen）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/build/` · `scripts/xtask_regen.z42`
-> **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-02
+> **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-05
 
 ## 概述
 
@@ -43,6 +43,17 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 因 stdlib 正被重建需稳定副本），产物覆盖各成员 dist；阶段三 hard-link（零拷贝）汇聚成单目录。
 `build compiler` 即单独执行阶段一 + 七包完整性校验。（simplify-compiler-build 去掉了旧的
 `selfbuild-runlibs/` + `dogfood/` 拼接目录。）
+
+### 增量编译（单工程 z42c build，port-incremental-build-cache 2026-07-05）
+
+单工程 `z42c build <toml>` 逐文件写 fullMode `.zbc` 到 cache 目录（`[build].cache_dir` →
+`${output_dir}/.cache` → `<projectDir>/.cache` 级联），并做**整包**级 probe：对每个源文件校验
+「SHA-256 == 上次 zpkg MODS 记录 ∧ cache zbc 存在 ∧ TSIG 含该模块 ns」，全命中 → 完全跳过
+重编/重写（`cached: N/N` + `no changes; preserved`，exe 仍复制依赖），任一变化 → 整包全量重编
+（不做 per-file 混合重建——C# 时代实证有正确性风险后放弃）。`--no-incremental` 强制全量；
+`Z42_INCR_DEBUG=1` 打印逐文件 miss 原因。**workspace/flat 构建（上图阶段一/二）不落 cache、
+不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap Deferred
+`incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
 
 ### 不动点验证（test compiler 的核心）
 

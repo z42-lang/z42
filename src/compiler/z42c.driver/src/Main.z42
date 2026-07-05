@@ -16,6 +16,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 using Z42.Pipeline;
 
 void Main() {
@@ -29,12 +30,14 @@ void Main() {
     if (cmd == "build") {
         bool isRelease = false;
         bool isWorkspace = false;
+        bool noIncremental = false;
         string outputDir = "";
         // ai from 1: `build --workspace` 时 argv[1] 是 flag 不是 toml 路径。
         int ai = 1;
         while (ai < argv.Length) {
             if (argv[ai] == "--release") { isRelease = true; }
             else if (argv[ai] == "--workspace") { isWorkspace = true; }
+            else if (argv[ai] == "--no-incremental") { noIncremental = true; }
             else if (argv[ai] == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
             ai = ai + 1;
         }
@@ -42,7 +45,7 @@ void Main() {
             Environment.Exit(_buildWorkspace(isRelease, outputDir));
             return;
         }
-        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0));
+        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental));
         return;
     }
     if (cmd == "--emit-zbc") {
@@ -82,7 +85,7 @@ void Main() {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount) {
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
@@ -105,6 +108,29 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
         else { libsDirs = new string[0]; libsDirsN = 0; }
     }
+    // 源文本一次性读入（增量 probe 的 hash、DepScan 的 usings 聚合、包级编译三处共用）。
+    string[] texts = new string[srcs.Length];
+    int ti = 0;
+    while (ti < srcs.Length) { texts[ti] = File.ReadAllText(srcs[ti]); ti = ti + 1; }
+    bool isExe = pm.Kind == "exe";
+    string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
+    // 增量 probe（port-incremental-build-cache；单工程模式）：全命中 → 完全跳过重编/重写
+    // （镜像 C# ed901f01 "preserved existing zpkg"——无任何新信息要写）。exe 的依赖复制仍
+    // 执行，保 dist 内兄弟 zpkg 新鲜（design D3）。workspace/flat（outputDirOverride）不走。
+    if (outputDirOverride.Length == 0 && !noIncremental) {
+        string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
+        string lastZpkg = Path.Join(distDir, pm.Name + ".zpkg");
+        IncrProbeResult probe = IncrementalBuild.Probe(srcs, texts, srcs.Length, projectDir, probeCache, lastZpkg);
+        ConsoleError.WriteLine("cached: " + probe.CachedCount.ToString() + "/" + probe.TotalCount.ToString() + " files");
+        if (probe.AllCached && File.Exists(lastZpkg)) {
+            if (isExe) {
+                int sbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+                if (sbc != 0) { return sbc; }
+            }
+            Console.WriteLine("no changes; preserved -> " + lastZpkg);
+            return 0;
+        }
+    }
     DepScanResult scan = null;
     ImportedSymbols imported = null;
     DependencyIndex depIndex = null;
@@ -120,7 +146,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         int auc = 0;
         int ui = 0;
         while (ui < srcs.Length) {
-            string[] us = IrDump.ExtractUsings(File.ReadAllText(srcs[ui]), srcs[ui]);
+            string[] us = IrDump.ExtractUsings(texts[ui], srcs[ui]);
             int j = 0;
             while (j < us.Length) {
                 bool seen = false;
@@ -142,9 +168,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
                                              allUsings, auc);
     }
     // 包级编译（PS-1）：全文件先 parse 合并收集符号，再逐文件产物——同包跨文件互引可见
-    string[] texts = new string[srcs.Length];
     int i = 0;
-    while (i < srcs.Length) { texts[i] = File.ReadAllText(srcs[i]); i = i + 1; }
     CompiledModuleZ[] cms = IrDump.BuildPackage(texts, srcs, srcs.Length, depIndex, imported, isRelease);
     ZbcFileZ[] mods = new ZbcFileZ[srcs.Length];
     i = 0;
@@ -175,7 +199,6 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     ExportedModuleZ[] exported = new ExportedModuleZ[srcs.Length];
     i = 0;
     while (i < srcs.Length) { exported[i] = cms[i].Exported; i = i + 1; }
-    bool isExe = pm.Kind == "exe";
     // DEPS 条目（usings ∪ usedDepNs → nsMap）
     ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
     if (scan != null) {
@@ -193,7 +216,6 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
         return 1;
     }
-    string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
     Directory.Create(distDir);
     string outPath = Path.Join(distDir, pm.Name + ".zpkg");
     // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
@@ -204,6 +226,18 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         string symPath = Path.Join(distDir, pm.Name + ".zsym");
         File.WriteAllBytes(symPath, wres.Sidecar);
         Console.WriteLine("wrote -> " + symPath);
+    }
+    // cache 落盘（port-incremental-build-cache 阶段 1）：单工程模式逐文件写 fullMode
+    // .zbc。workspace/flat（outputDirOverride 非空）暂不落——cache 目录须由 workspace
+    // 布局解析（WsPlan 尚不携带），且 gen1==gen2 字节门禁路径保持零扰动。
+    if (outputDirOverride.Length == 0) {
+        string cacheDir = _resolveCacheDir(pm, projectDir, isRelease);
+        i = 0;
+        while (i < srcs.Length) {
+            _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
+            i = i + 1;
+        }
+        ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
     }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
@@ -254,6 +288,40 @@ int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int li
         }
     }
     return 0;
+}
+
+// 解析 cache 目录（port-incremental-build-cache）。级联镜像 _resolveDistDir：
+//   cache_dir = build.cache_dir ?? "${output_dir}/.cache"（模板同基准）
+// 无任何 [build] 配置 → 历史默认基准 `<projectDir>/.cache`（与 <projectDir>/dist 对仗）。
+string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
+    if (!pm.HasOutputDir && !pm.HasDistDir && !pm.HasCacheDir) {
+        return Path.Join(projectDir, ".cache");
+    }
+    string profile = isRelease ? "release" : "debug";
+    string absProj = Path.IsRooted(projectDir) ? projectDir
+        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Name, profile, "");
+    string outputRaw = pm.HasOutputDir ? pm.OutputDir : "${workspace_dir}/artifacts/${profile}";
+    string outputExp = PathTemplate.Expand(outputRaw, octx);
+    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
+    TemplateContext cctx = new TemplateContext(absProj, absProj, pm.Name, profile, outputAbs);
+    string cacheRaw = pm.HasCacheDir ? pm.CacheDir : "${output_dir}/.cache";
+    string cacheExp = PathTemplate.Expand(cacheRaw, cctx);
+    return Path.IsRooted(cacheExp) ? cacheExp : Path.Join(absProj, cacheExp);
+}
+
+// 单文件 fullMode .zbc 落盘到 cache（增量编译物质基础；镜像 C# BuildTarget 的
+// cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用（workspace/flat
+// 的 outputDirOverride 路径暂不落 cache——布线待 WsPlan 携带 cache 目录）。
+void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
+    string rel = src;
+    string prefix = projectDir.EndsWith("/") ? projectDir : projectDir + "/";
+    if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
+    if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
+    string zbcPath = Path.Join(cacheDir, rel + ".zbc");
+    string parent = Path.GetDirectoryName(zbcPath);
+    if (parent.Length > 0) { Directory.Create(parent); }
+    File.WriteAllBytes(zbcPath, ZbcWriter.Write(irm).ToBytes());
 }
 
 // 解析无 --output-dir override 时的有效 dist 目录。
@@ -321,7 +389,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir) {
     int i = 0;
     while (i < ordered.Length) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
-        int rc = _build(ordered[i], isRelease, outputDir, flat, 1);
+        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true);
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -355,7 +423,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease) {
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN);
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true);
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;
@@ -388,6 +456,7 @@ void _usage() {
     Console.WriteLine("  z42c --dump-ir     <file.z42>          .zasm-like IR text");
     Console.WriteLine("  z42c --emit-zbc    <file.z42> <out>    compile to .zbc (subset)");
     Console.WriteLine("  z42c build         <project.z42.toml>  build packed .zpkg -> dist/");
+    Console.WriteLine("                     [--no-incremental]  force full rebuild (skip cache probe)");
     Console.WriteLine("  z42c build --workspace [--output-dir <d>] build all members (topo order);");
     Console.WriteLine("                                          omit --output-dir for per-member layout");
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");

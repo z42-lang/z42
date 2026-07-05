@@ -1,0 +1,21 @@
+# z42c.pipeline IncrementalBuild 单测（port-incremental-build-cache）。
+[project]
+name    = "z42c.pipeline.test.incremental"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.pipeline"  = "0.1.0"
+"z42c.project"   = "0.1.0"
+"z42c.semantics" = "0.1.0"
+"z42c.ir"        = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.io"         = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.pipeline/tests/incremental → artifacts/build/compiler/z42c.pipeline/tests/incremental
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/incremental"

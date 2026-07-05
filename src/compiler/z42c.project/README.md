@@ -29,5 +29,6 @@ workspace 继承 / include 链 / policy / `[[exe]]` targets / profiles / tests·
 | `src/PackageTypes.z42` | ZbcFileZ / ZpkgExportZ / ZpkgDepZ / ZpkgFileZ（packed 子集模型）|
 | `src/ZpkgBuilder.z42` | 组装：ns 去重 + exports FQ 幂等 + entry 四级自动检测 + Sha256Hex |
 | `src/ZpkgWriter.z42` | packed 七段（META/STRS/NSPC/EXPT/DEPS/SIGS/MODS）；MODS 体复用 z42c.ir 段构建器（单源防漂移）|
+| `src/ZpkgReader.z42` | packed 消费面子集：META/NSPC/SIGS/TSIG/IMPL + `ReadSourceHashes`（MODS 头 per-file (src,hash,ns)——增量 probe 输入，port-incremental-build-cache）|
 
 对真 C# CLI：META/NSPC/EXPT/DEPS 逐字节相等；全段 byte-identical 待 TSIG/IMPL（follow-up）。

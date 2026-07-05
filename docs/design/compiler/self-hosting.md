@@ -314,9 +314,10 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 
 - **来源**：add-params-varargs 5.6（2026-07-01 regen zpkg-format fixture 时发现代码级延后未记录）
 - **触发原因**：`z42c.project` 的 `ZpkgWriter.z42`/`ZpkgReader.z42` 自举重写时未实现 indexed/FILE（增量编译 cache）模式（源码内联注释"延后：indexed/FILE"/"indexed 不在消费面"已如此声明，但从未补记到 design doc）；当前 `z42c.pipeline`（`WorkspaceBuild.z42`/`PipelineSkeleton.z42`）没有任何路径读写 indexed zpkg，Rust `zbc_reader.rs` 对 indexed zpkg 也是显式 `bail!`（"indexed zpkg cannot be loaded directly by the VM"）。
-- **前置依赖**：出现真实增量编译 cache 需求时，先设计消费方（谁在什么时机读/写 indexed zpkg、cache 失效策略），再实现 `ZpkgWriterZ.WriteIndexed` + `ZpkgReader` 对称读。
-- **触发条件**：增量编译成为性能瓶颈、需要 cache 机制时。
-- **当前 workaround**：`z42c build` 永远走 packed 全量输出；`src/tests/zpkg-format/indexed-minimal/` fixture 保留 C# 时代旧字节基线（`minor=22`），随 add-params-varargs 的 zpkg minor 0.23 bump **不跟随 regen**——该 fixture 当前无法用 z42c 生成，其余 3 个 zpkg-format fixture 已 regen 到 0.23。
+- **前置依赖**：出现真实 indexed 消费方需求时，先设计（谁在什么时机读/写 indexed zpkg、debug-态按文件加载策略），再实现 `ZpkgWriterZ.WriteIndexed` + `ZpkgReader` 对称读。
+- **触发条件**：需要 debug-态 indexed（按文件散装）zpkg 时。
+- **当前 workaround**：`z42c build` 永远产 packed zpkg；`src/tests/zpkg-format/indexed-minimal/` fixture 保留 C# 时代旧字节基线（`minor=22`），随 add-params-varargs 的 zpkg minor 0.23 bump **不跟随 regen**——该 fixture 当前无法用 z42c 生成，其余 3 个 zpkg-format fixture 已 regen 到 0.23。
+- **范围收窄（port-incremental-build-cache，2026-07-05）**：本条原兼指「增量编译 cache」——packed 模式单文件 fullMode cache `.zbc` 落盘 + 整包级增量 probe 已在该 change 落地（见 [project.md 增量编译节](project.md)），本条仅剩 **indexed/FILE zpkg 模式**本身；workspace 构建的增量布线另见 [project.md#incremental-future-workspace-wiring](project.md#incremental-future-workspace-wiring)。
 
 ### self-hosting-future-single-vm-bootstrap-gap
 

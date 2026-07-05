@@ -7,6 +7,9 @@
 | 文件 | 职责 |
 |------|------|
 | `src/PipelineSkeleton.z42` | 占位（`namespace Z42.Pipeline`，引用 core/syntax/semantics/ir/project）|
+| `src/DepScan.z42` | libs 目录扫描：DependencyIndex / nsMap / TSIG 池（prelude-first + Ordinal 排序）|
+| `src/WorkspaceBuild.z42` | workspace 成员发现 + 拓扑序 + per-member 布局（WsPlan）|
+| `src/IncrementalBuild.z42` | 增量 probe（port-incremental-build-cache）：hash / cache zbc / TSIG 三校验，any-fresh→整包失效、全命中→跳过重写；单测见 `tests/incremental/` |
 
 ## 入口点
 `Z42.Pipeline`（命名空间）。

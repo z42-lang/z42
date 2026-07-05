@@ -10,7 +10,15 @@
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。
-用法：`z42c --dump-tokens|--dump-ast|--dump-bound <file.z42>` / `z42c --emit-zbc <file.z42> <out.zbc>`。
+用法：`z42c --dump-tokens|--dump-ast|--dump-bound <file.z42>` / `z42c --emit-zbc <file.z42> <out.zbc>` /
+`z42c build <project.z42.toml> [--release] [--no-incremental]` / `z42c build --workspace [--output-dir <d>]`。
+
+## 增量编译（port-incremental-build-cache，2026-07-05）
+单工程 `build` 逐文件写 fullMode `.zbc` 到 cache 目录（`[build].cache_dir` →
+`${output_dir}/.cache` → `<projectDir>/.cache` 级联），并按「hash + cache zbc + TSIG」
+整包 probe——全命中完全跳过重写（`no changes; preserved`），任一变化整包重编。
+`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看逐文件 miss 原因。workspace/flat
+模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/design/compiler/project.md)）。
 
 ## 依赖关系
 → z42c.syntax, z42c.semantics, z42c.core。stdlib（Std / Std.IO）自动可用。

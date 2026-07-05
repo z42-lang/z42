@@ -316,36 +316,47 @@ dist_dir   = "/c"
 | `true`  | `false` | `dist/<name>.zpkg` (packed)                  | 发布态，DBUG 内嵌（便于现场 debug）|
 | `true`  | `true`  | `dist/<name>.zpkg` + `dist/<name>.zsym`      | 发布态，最小体积，离线可符号化 |
 
-**增量编译工作方式（C5 落地，2026-04-27）：**
+**增量编译工作方式（C5 2026-04-27 引入；最终形态 `ed901f01` 同日定型；z42c 移植
+port-incremental-build-cache，2026-07-05）：**
 
-跨 packed/indexed 两种模式都支持：
+判定粒度是**整包**，不做 per-file 混合重建（C# 曾实现「cached CU 经 ZbcReader 重建 +
+fresh 混编」，当天即因正确性放弃——clean build 720/720 通过、no-change 增量重建
+6/720 失败：per-namespace TSIG 重写丢元数据 + fresh/cached string-pool 及 impl 关系
+合并不一致。设计哲学：宁可 fresh，不可错误命中）：
 
 ```
-z42c build
-  ├─ IncrementalBuild.Probe(sourceFiles, lastZpkg, cacheDir)
-  │    ├─ 读取 dist/<name>.zpkg（若存在；不存在则全 fresh）
-  │    ├─ 对每个 .z42:
-  │    │    ├─ SHA-256 == zpkg 记录 ✓
-  │    │    ├─ cache/<rel>.zbc 存在 ✓
-  │    │    ├─ zpkg.ExportedModules[ns] 存在 ✓
-  │    │    └─ 全满足 → cached；否则 fresh
-  │    └─ 同时读出上次 zpkg.Dependencies（cached CU 重建用）
-  ├─ TryCompileSourceFiles(freshFiles, cachedExports)
-  │    └─ Phase 1+2 仅处理 fresh；cachedExports 注入 sharedCollector 的 externalImported
-  ├─ 重建 cached CU：ZbcReader.Read(zbcBytes) + 上次 zpkg.ExportedModules + Dependencies
-  └─ BuildPacked / BuildIndexed 合并 freshUnits + cachedUnits 写新 zpkg
+z42c build <toml> [--release] [--no-incremental]      （单工程模式；workspace/flat 不走）
+  ├─ IncrementalBuild.Probe(srcs, texts, projectDir, cacheDir, lastZpkg)   （z42c.pipeline）
+  │    ├─ dist/<name>.zpkg 不存在 / 不可读（strict-pin 不符）→ 全 fresh
+  │    ├─ zpkg MODS 记录数 != 当前源文件数 → 全 fresh（防删文件后保留陈旧模块）
+  │    ├─ 对每个 .z42：SHA-256 == 记录 ✓ ∧ cache/<rel>.zbc 存在 ✓ ∧ TSIG 含 ns ✓
+  │    └─ any miss → 整包 fresh；全 hit → AllCached
+  ├─ AllCached → 完全跳过重编/重写（保留现有 zpkg 原字节；exe 仍复制非 stdlib 依赖进 dist）
+  └─ 否则全量重编 → 逐文件写 cache/<rel>.zbc（fullMode）→ 写 dist/<name>.zpkg
 ```
 
-**编译日志输出**：`cached: N/M files`（命中率）。`--no-incremental` 强制全量。
+**编译日志输出**：`cached: N/M files`（stderr）；全命中时 `no changes; preserved -> <zpkg>`。
+`--no-incremental` 强制全量。收益主场景：多包构建里未改动的包整包秒跳过。
 
-**cache zbc 格式区分**：
-
-| 路径 | 模式 | 内容 |
-|---|---|---|
-| `<cache>/<rel>.zbc`（packed 模式） | **fullMode** | 含 STRS/TYPE/SIGS/EXPT/IMPT — 单独 ZbcReader.Read 即可恢复完整 IrModule |
-| `<cache>/<rel>.zbc`（indexed 模式 = `<dist>/<rel>.zbc`） | **stripped** | 仅 BSTR/FUNC，被 zpkg.files[] 引用，VM 通过 zpkg 全局 SIGS 加载 |
+**cache zbc 格式**：`<cache>/<rel .z42→.zbc>`，**fullMode**（NSPC/STRS/TYPE/SIGS/IMPT/EXPT/
+FUNC/REGT[/DBUG/TIDX] 全段）——与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出。probe 只校验其
+**存在性**（"上次构建完整落盘"的标记 + 未来细粒度增量的物质基础），当前不读回。
+indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
+[self-hosting.md Deferred](self-hosting.md#self-hosting-future-indexed-zpkg)。
 
 **调试**：设环境变量 `Z42_INCR_DEBUG=1` 可看到每个文件 cached / miss 详情（miss 原因：no-record / hash-diff / no-zbc / no-export-mod）。
+
+### incremental-future-workspace-wiring
+
+- **来源**：port-incremental-build-cache（2026-07-05，User 裁决移出该 change）
+- **触发原因**：workspace / flat 构建（`--workspace` / 显式 `--output-dir`）经
+  `outputDirOverride` 传 dist，`WsPlan` 不携带 cache 目录 → 该路径暂不落 cache、不 probe。
+- **前置依赖**：`WorkspaceBuild.PlanLayout` 展开 `[workspace.build].cache_dir` 模板并随
+  `WsPlan` 传入 `_build`；xtask gen 系脚本（自举 gen1/gen2 字节对比）显式 `--no-incremental`
+  ——否则 gen2 全命中跳过会使字节对比空洞化。
+- **触发条件**：stdlib 22 包 / z42c 7 包 warm 重建成为迭代瓶颈时（整包跳过在 workspace
+  构建收益最大）。
+- **当前 workaround**：workspace 构建永远全量（与本 change 前行为逐字节一致）。
 
 **目录结构（含产物，单工程默认）：**
 

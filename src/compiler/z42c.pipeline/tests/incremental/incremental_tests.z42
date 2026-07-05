@@ -1,0 +1,123 @@
+// z42c.pipeline IncrementalBuild.Probe 单测（port-incremental-build-cache）。
+// 真实产物链：IrDump 编一个单文件模块 → ZpkgBuilder/ZpkgWriterZ 写 packed zpkg +
+// ZbcWriter 写 cache zbc → Probe 四态判定 + ZpkgReader.ReadSourceHashes 消费面。
+namespace Z42cPipelineIncrementalTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Pipeline;
+using Z42.Project;
+using Z42.Semantics;
+using Z42.IR.BinaryFormat;
+
+string _src() { return "namespace T;\nint Add(int a, int b) { return a + b; }\n"; }
+
+string _tmpRoot() {
+    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    if (t == "") { t = "/tmp"; }
+    return Path.Join(t, "z42c-incr-tests");
+}
+
+// 在 <tmp>/<name> 组装：t.z42（源）+ dist/incrpkg.zpkg + cache/t.zbc。返回工程根。
+string _setup(string name) {
+    string proj = Path.Join(_tmpRoot(), name);
+    Directory.Create(Path.Join(proj, "dist"));
+    Directory.Create(Path.Join(proj, "cache"));
+    CompiledModuleZ cm = IrDump.BuildModuleD(_src(), "t.z42", null, null);
+    string[] exports = new string[cm.Module.FuncCount];
+    int e = 0;
+    while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
+    string ns = cm.Namespace == "" ? "main" : cm.Namespace;
+    ZbcFileZ f = new ZbcFileZ("t.z42", ZpkgBuilder.Sha256Hex(_src()), ns,
+                              exports, cm.Module.FuncCount, cm.Module);
+    ZbcFileZ[] mods = new ZbcFileZ[1];
+    mods[0] = f;
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD("incrpkg", "0.1.0", false, false, "",
+                                           mods, 1, new ZpkgDepZ[0], 0);
+    // TSIG：BuildModuleD 不做包级提取（cm.Exported=null），用独立提取入口。
+    ExportedModuleZ[] ex = new ExportedModuleZ[1];
+    ex[0] = IrDump.ExtractExports(_src(), "t.z42", ns);
+    z.Exported = ex;
+    z.ExportedCount = 1;
+    ZpkgWriteResult w = ZpkgWriterZ.WritePackedWithSidecar(z, false);
+    File.WriteAllBytes(Path.Join(proj, "dist/incrpkg.zpkg"), w.Main);
+    File.WriteAllBytes(Path.Join(proj, "cache/t.zbc"), ZbcWriter.Write(cm.Module).ToBytes());
+    File.WriteAllText(Path.Join(proj, "t.z42"), _src());
+    return proj;
+}
+
+IncrProbeResult _probe(string proj, string text, string cacheSub, string zpkgName) {
+    string[] srcs = new string[1];
+    srcs[0] = Path.Join(proj, "t.z42");
+    string[] texts = new string[1];
+    texts[0] = text;
+    return IncrementalBuild.Probe(srcs, texts, 1, proj,
+                                  Path.Join(proj, cacheSub),
+                                  Path.Join(proj, zpkgName));
+}
+
+// 全命中：hash / cache zbc / TSIG ns 三条件齐 → AllCached。
+[Test]
+void test_probe_all_cached() {
+    string proj = _setup("hit");
+    IncrProbeResult r = _probe(proj, _src(), "cache", "dist/incrpkg.zpkg");
+    Assert.True(r.AllCached);
+    Assert.Equal(1, r.CachedCount);
+    Assert.Equal(1, r.TotalCount);
+}
+
+// 源文本变化 → hash-diff → 全 fresh（0/1）。
+[Test]
+void test_probe_hash_diff() {
+    string proj = _setup("hashdiff");
+    IncrProbeResult r = _probe(proj, _src() + "// touched\n", "cache", "dist/incrpkg.zpkg");
+    Assert.False(r.AllCached);
+    Assert.Equal(0, r.CachedCount);
+}
+
+// cache zbc 缺失 → no-zbc → 全 fresh。
+[Test]
+void test_probe_no_zbc() {
+    string proj = _setup("nozbc");
+    IncrProbeResult r = _probe(proj, _src(), "cache-missing", "dist/incrpkg.zpkg");
+    Assert.False(r.AllCached);
+}
+
+// 上次 zpkg 不存在 → 全 fresh。
+[Test]
+void test_probe_no_last_zpkg() {
+    string proj = _setup("nozpkg");
+    IncrProbeResult r = _probe(proj, _src(), "cache", "dist/absent.zpkg");
+    Assert.False(r.AllCached);
+}
+
+// 源文件数与 zpkg 记录数不符（增/删文件）→ 全 fresh（防陈旧模块保留）。
+[Test]
+void test_probe_record_count_mismatch() {
+    string proj = _setup("recount");
+    string[] srcs = new string[2];
+    srcs[0] = Path.Join(proj, "t.z42");
+    srcs[1] = Path.Join(proj, "u.z42");
+    string[] texts = new string[2];
+    texts[0] = _src();
+    texts[1] = _src();
+    IncrProbeResult r = IncrementalBuild.Probe(srcs, texts, 2, proj,
+                                               Path.Join(proj, "cache"),
+                                               Path.Join(proj, "dist/incrpkg.zpkg"));
+    Assert.False(r.AllCached);
+    Assert.Equal(2, r.TotalCount);
+}
+
+// ReadSourceHashes 消费面：MODS 头 → (源文件, hash, ns)。
+[Test]
+void test_read_source_hashes() {
+    string proj = _setup("readsrc");
+    ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(Path.Join(proj, "dist/incrpkg.zpkg")));
+    ZpkgSourceHash[] hs = ZpkgReader.ReadSourceHashes(z);
+    Assert.Equal(1, hs.Length);
+    Assert.Equal("t.z42", hs[0].SourceFile);
+    Assert.Equal("T", hs[0].Namespace);
+    Assert.Equal(ZpkgBuilder.Sha256Hex(_src()), hs[0].SourceHash);
+}

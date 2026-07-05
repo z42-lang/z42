@@ -209,6 +209,33 @@ public static class ZpkgReader {
         return r;
     }
 
+    // MODS 头 → 每模块 (源文件, 源 SHA-256, ns)。增量 probe 消费面
+    // （port-incremental-build-cache）：与 ReadModuleSigs 同一游标走法，只取头三个池索引。
+    public static ZpkgSourceHash[] ReadSourceHashes(ZpkgInfo z) {
+        ZpkgSection mods = z.Section("MODS");
+        if (mods == null) { return new ZpkgSourceHash[0]; }
+        var m = new ZpkgCursor(z.Data, mods.Offset);
+        int modCount = m.U32();
+        ZpkgSourceHash[] r = new ZpkgSourceHash[modCount];
+        int i = 0;
+        while (i < modCount) {
+            string ns = z.Pool[m.U32()];
+            string src = z.Pool[m.U32()];
+            string hash = z.Pool[m.U32()];
+            m.U16();                            // fnCount
+            m.U32();                            // firstSigIdx
+            int k = 0;
+            while (k < 5) {                     // func/type/dbug/regt/tidx 五个 len+体
+                int len = m.U32();
+                m.Pos = m.Pos + len;
+                k = k + 1;
+            }
+            r[i] = new ZpkgSourceHash(src, hash, ns);
+            i = i + 1;
+        }
+        return r;
+    }
+
     // TSIG → ExportedModuleZ[]（镜像写入器逆操作；IMPL 不读——Phase3 延后）。
     public static ExportedModuleZ[] ReadTsig(ZpkgInfo z) {
         ZpkgSection s = z.Section("TSIG");
@@ -454,6 +481,16 @@ public static class ZpkgReader {
         int i = 0;
         while (i < len) { b[i] = d[off + i]; i = i + 1; }
         return Utf8.GetString(b);
+    }
+}
+
+// MODS 头条目（增量 probe：源文件 → 上次构建的源 hash + ns）。
+public sealed class ZpkgSourceHash {
+    public string SourceFile;
+    public string SourceHash;
+    public string Namespace;
+    public ZpkgSourceHash(string sourceFile, string sourceHash, string ns) {
+        this.SourceFile = sourceFile; this.SourceHash = sourceHash; this.Namespace = ns;
     }
 }
 

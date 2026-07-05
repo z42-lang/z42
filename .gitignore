@@ -1,6 +1,11 @@
 # Build artifacts (all redirected to artifacts/)
 artifacts/
 
+# Per-project incremental compile cache (z42c build; port-incremental-build-cache).
+# Default lands at <projectDir>/.cache for bare projects (e.g. test-unit tomls under
+# src/), ${output_dir}/.cache otherwise (already covered by artifacts/).
+.cache/
+
 # .NET / C#
 *.user
 *.suo
