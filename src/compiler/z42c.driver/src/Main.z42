@@ -205,6 +205,54 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         File.WriteAllBytes(symPath, wres.Sidecar);
         Console.WriteLine("wrote -> " + symPath);
     }
+    // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
+    if (isExe) {
+        int bc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+        if (bc != 0) { return bc; }
+    }
+    return 0;
+}
+
+// 自包含 exe 依赖复制（镜像 z42b publish `_pubBundleProjectDeps`）。把 exe 直接声明的
+// **非标准库**依赖（名不以 `z42.` 开头，即 workspace 本地兄弟包如 `z42c.*`）的已构建
+// zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序 = [entry-zpkg 目录,
+// Z42_LIBS]，故 exe 从自身 dist 即可解析兄弟包，stdlib（z42.*）仍走 Z42_LIBS。
+// 仅直接依赖（与 publish 一致：exe 应直接声明全部所需兄弟；传递闭包记 Deferred）。
+int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int libsDirsN) {
+    int i = 0;
+    while (i < pm.DepCount) {
+        string dep = pm.Deps[i].Name;
+        i = i + 1;
+        if (dep.StartsWith("z42.")) { continue; }   // 标准库：走 Z42_LIBS，不复制
+        string zname = dep + ".zpkg";
+        bool copied = false;
+        int d = 0;
+        while (d < libsDirsN) {
+            string cand = Path.Join(libsDirs[d], zname);
+            if (File.Exists(cand)) {
+                string dst = Path.Join(distDir, zname);
+                if (cand != dst) {
+                    if (File.Exists(dst)) { File.Delete(dst); }
+                    File.Copy(cand, dst);
+                    string sym = Path.Join(libsDirs[d], dep + ".zsym");
+                    if (File.Exists(sym)) {
+                        string symDst = Path.Join(distDir, dep + ".zsym");
+                        if (File.Exists(symDst)) { File.Delete(symDst); }
+                        File.Copy(sym, symDst);
+                    }
+                }
+                copied = true;
+                d = libsDirsN;   // break
+            } else {
+                d = d + 1;
+            }
+        }
+        if (!copied) {
+            ConsoleError.WriteLine("z42c build: exe dep '" + dep
+                + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace）");
+            return 1;
+        }
+    }
     return 0;
 }
 
