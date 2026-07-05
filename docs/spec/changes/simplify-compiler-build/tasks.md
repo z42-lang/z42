@@ -5,7 +5,7 @@
 
 ## 进度概览
 - [x] 阶段 1: z42c build(exe) 复制非 stdlib 依赖（compiler）✅
-- [ ] 阶段 2: xtask 自建/编 stdlib 改自包含，删 selfbuild-runlibs + dogfood（toolchain）
+- [x] 阶段 2: xtask 自建/编 stdlib 改自包含，删 selfbuild-runlibs + dogfood（toolchain）✅
 - [ ] 阶段 3: `artifacts/build/z42c` → `compiler` 全量改名（compiler+toolchain）
 - [ ] 阶段 4: env 收拢（删 Z42C_DIR、Z42_TOOLCHAIN 语义收进 SDK 根）（toolchain）
 - [ ] 阶段 5: 文档
@@ -16,11 +16,13 @@
 - [x] 1.4 验证 ✅：新 z42c build z42c.driver → dist 含 6 个 z42c.*（不含 z42.io）；`Z42_LIBS=stdlib` 跑 bundle 后 driver 从自身目录解析兄弟包成功（未 bundle 对照 undefined）；gen2/gen3 字节不动点 7/7 identical
 - [ ] 1.3 自动化 e2e 断言 —— 折入阶段 2（xtask 全线用新 z42c 后，`_testCompilerE2e` 断言 z42c.driver/dist 含兄弟包 + 自包含跑通）
 
-## 阶段 2: xtask 去 scratch 目录（toolchain）
-- [ ] 2.1 `_buildCompilerViaZ42c` → `z42c build --workspace`（CWD=src/compiler；Z42_LIBS=运行种子 driver 的 {stdlib+种子7包}，种子来自 SDK programs/z42c）
-- [ ] 2.2 删 `selfbuild-runlibs/` 相关代码
-- [ ] 2.3 `_buildStdlibCore`：删 `dogfood/run-` 拼接；直接跑 `compiler/z42c.driver/dist/z42c.driver.zpkg`（阶段1 后自带兄弟包），`Z42_LIBS=stdlib dist`
-- [ ] 2.4 验证：`xtask build compiler` → 无 selfbuild-runlibs；`xtask build stdlib` → 无 dogfood；`xtask test compiler` 7/7 + 不动点绿
+## 阶段 2: xtask 去 scratch 目录（toolchain）✅
+- [x] 2.1 `_buildCompilerViaZ42c` → 一句 `z42c build --workspace`（CWD=src/compiler；driver 自包含直跑，`Z42_LIBS=stdlibFlat`）+ `_ensureDriverSelfContained`（把兄弟包 bundle 进 driver dist，对种子/旧版 z42c 兜底）
+- [x] 2.2 **`selfbuild-runlibs/` 彻底删除**（--workspace 内部解析兄弟）
+- [x] 2.3 `_buildStdlibCore`：**删 `dogfood/`**；直接跑自包含 `z42c.driver`；`dogfood` 瘦成 `.stdlib-run` **只 stdlib 快照**（driver 运行期 Std.* 需稳定副本，因 stdlib 正被重建）——隔离在编译输出**外**
+- [x] 2.4 验证 ✅：cold build compiler 无 selfbuild-runlibs + driver dist 自包含；build stdlib 22/22 无 dogfood；`artifacts/build/z42c/` 仅 7 member 目录；gen2/gen3 不动点 7/7 identical
+- [ ] 2.5 （折自 1.3）exe-bundle 自动化 e2e 断言 —— 待补：`_testCompilerE2e` 断言 z42c.driver/dist 含兄弟包
+- 备注：`.stdlib-run`（stdlib 快照）未完全消除——driver 编 stdlib 时自身 Std.* 需稳定副本。已从 `{stdlib+z42c}` 瘦身为只 stdlib、移出编译输出目录、命名自解释。完全去除需 driver 不依赖被重建的 stdlib（更深，记后续可选）。
 
 ## 阶段 3: 目录改名 z42c → compiler（compiler+toolchain）
 - [ ] 3.1 `src/compiler/z42.workspace.toml` `[workspace.build] output_dir` z42c→compiler

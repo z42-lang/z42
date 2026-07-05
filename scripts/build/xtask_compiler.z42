@@ -38,38 +38,41 @@ int _buildCompiler() {
     return r;
 }
 
-// C#-free z42c self-build (replace-csharp S5 Phase A): rebuild the 7 z42c.* from
-// CURRENT source using an EXISTING z42c.driver.zpkg as the seed compiler (z42c
-// builds z42c), with NO dotnet. Single-toml per member in topo order, accumulating
-// freshly-built siblings (avoids the `build --workspace` self-build E0402 wrinkle).
-// Writes to the canonical dist (artifacts/build/z42c/<m>/release/dist), overwriting
-// the seed. `stdlibFlat` (existing stdlib) is needed at runtime to run the seed z42c.
-// Precondition: caller verified the seed driver + stdlib exist.
-int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
-    _vNormal("  building z42c via z42c (C#-free, single-toml topo)");
-    string seedDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    // runlibs = stdlib (run z42c.driver) + seed z42c siblings; fresh members accumulate here.
-    string runlibs = Path.Join(root, "artifacts/build/z42c/selfbuild-runlibs/" + profile);
-    _resetDir(runlibs);
-    _copyAll(stdlibFlat, runlibs, "*.zpkg");
+// 把 6 个非-driver member 的 zpkg 复制进 z42c.driver 的 dist，使 driver **自包含**
+// （可直接跑，兄弟包从自身目录解析，Z42_LIBS 只需 stdlib）。幂等（删+拷覆盖）。
+// z42c build(exe) 本已 bundle（simplify-compiler-build 阶段1）；此处对种子/旧版 z42c
+// 建的 driver 兜底，保证下游一律跑自包含 driver，无需拼 colocated 目录。
+void _ensureDriverSelfContained(string root, string profile, string[] members) {
+    string driverDist = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist");
     int i = 0;
     while (i < members.Length) {
-        _copyAll(Path.Join(root, "artifacts/build/z42c/" + members[i] + "/" + profile + "/dist"), runlibs, "*.zpkg");
-        i = i + 1;
-    }
-    i = 0;
-    while (i < members.Length) {
         string m = members[i];
-        string outDir = Path.Join(root, "artifacts/build/z42c/" + m + "/" + profile + "/dist");
-        int rc = new Process(vm).Arg(seedDriver).Arg("--mode").Arg("interp").Arg("--")
-            .Arg("build").Arg(Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml"))
-            .Arg("--release").Arg("--output-dir").Arg(outDir)
-            .Env("Z42_LIBS", runlibs)
-            .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
-        if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c self-build failed: " + m); return 1; }
-        _copyAll(outDir, runlibs, m + ".zpkg");   // accumulate fresh sibling for later members
         i = i + 1;
+        if (m == "z42c.driver") { continue; }
+        string src = Path.Join(Path.Join(root, "artifacts/build/z42c/" + m + "/" + profile + "/dist"), m + ".zpkg");
+        string dst = Path.Join(driverDist, m + ".zpkg");
+        if (File.Exists(src) && src != dst) {
+            if (File.Exists(dst)) { File.Delete(dst); }
+            File.Copy(src, dst);
+        }
     }
+}
+
+// C#-free z42c self-build：用现有 z42c.driver.zpkg 作种子编译器，一句 `build --workspace`
+// 按拓扑序重建 7 个 z42c.* 到各自 dist（兄弟包由 workspace dist 自动解析——旧「E0402
+// wrinkle」已不复现）。driver 先自包含化 → 直接跑，无需拼 selfbuild-runlibs；`stdlibFlat`
+// （稳定的现有 stdlib）作 Z42_LIBS 供种子 driver 运行期 Std.*（编译器构建不动 stdlib）。
+int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
+    _vNormal("  building z42c via z42c (--workspace, C#-free)");
+    _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
+    string driver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    int rc = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
+        .Arg("build").Arg("--workspace").Arg("--release")
+        .WorkingDirectory(Path.Join(root, "src/compiler"))
+        .Env("Z42_LIBS", stdlibFlat)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
+    _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
     return 0;
 }
 

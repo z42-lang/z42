@@ -71,30 +71,30 @@ int _buildStdlibCore() {
     int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }
     int zc = _buildCompilerViaZ42c(root, profile, members, vm, flatDir); if (zc != 0) { return zc; }
 
-    // ── 3. run-libs = {stdlib + z42c 7 pkgs} (copy; runs z42c.driver) ──────
-    string runDir = Path.Join(root, "artifacts/build/z42c/dogfood/run-" + profile);
-    _resetDir(runDir);
-    _copyAll(flatDir, runDir, "*.zpkg");
-    int mi = 0;
-    while (mi < members.Length) {
-        _copyAll(Path.Join(root, "artifacts/build/z42c/" + members[mi] + "/" + profile + "/dist"), runDir, "*.zpkg");
-        mi = mi + 1;
-    }
-    string z42cDriver = Path.Join(runDir, "z42c.driver.zpkg");
+    // ── 3. 稳定 stdlib 快照（供 z42c.driver 运行期的 Std.*）──────────────────
+    //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
+    //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
+    //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
+    string stdlibRun = Path.Join(root, "artifacts/build/.stdlib-run/" + profile);
+    _resetDir(stdlibRun);
+    _copyAll(flatDir, stdlibRun, "*.zpkg");
+    // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
+    string z42cDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     if (!File.Exists(z42cDriver) || File.GetSize(z42cDriver) <= 0L) {
-        ConsoleError.WriteLine("  ✗ z42c.driver.zpkg invalid in " + runDir);
+        ConsoleError.WriteLine("  ✗ z42c.driver.zpkg invalid: " + z42cDriver);
         return 1;
     }
 
-    // ── 4. z42c rebuild stdlib per-member (M2 drop-in; overwrites C# seed) ──
+    // ── 4. z42c rebuild stdlib per-member (M2 drop-in; overwrites seed) ──
     //    CWD=src/libraries → workspace discovery + per-member output_dir template;
     //    --mode interp (jit has cross-zpkg undefined-fn on compiler workloads);
-    //    Z42_LIBS=runDir for z42c.driver's own runtime imports.
+    //    Z42_LIBS=stdlibRun：稳定 stdlib 快照供 driver 运行期 Std.*（fresh member 从
+    //    workspace dist 解析、优先于快照，故重建自洽）。
     _vNormal("  z42c build --workspace (CWD=src/libraries, interp) → per-member dist");
     int bc = new Process(vm).Arg(z42cDriver).Arg("--mode").Arg("interp").Arg("--")
         .Arg("build").Arg("--workspace").Arg("--release")
         .WorkingDirectory(Path.Join(root, "src/libraries"))
-        .Env("Z42_LIBS", runDir)
+        .Env("Z42_LIBS", stdlibRun)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42c build --workspace stdlib failed (" + bc.ToString() + ")"); return 1; }
 
