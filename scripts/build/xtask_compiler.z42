@@ -150,8 +150,15 @@ void _copyAll(string srcDir, string dstDir, string pattern) {
     string[] hits = Path.Glob(srcDir, pattern);
     int i = 0;
     while (i < hits.Length) {
-        try { File.Copy(hits[i], Path.Join(dstDir, Path.GetFileName(hits[i]))); }
-        catch (Exception e) { /* skip */ }
+        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
+        // Guard self-copy: File.Copy(X, X) opens the dest for write FIRST (truncating
+        // X to 0) then reads the now-empty source → silently zeroes the file. Reachable
+        // when a caller's src and dst resolve to the same dir (e.g. _ensureSeed staging
+        // stdlib while Z42_LIBS already points at the flat dist). Skip it.
+        if (hits[i] != dstPath) {
+            try { File.Copy(hits[i], dstPath); }
+            catch (Exception e) { /* skip */ }
+        }
         i = i + 1;
     }
 }
@@ -328,54 +335,63 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     Console.WriteLine("✅ z42c [Test]: all " + totalUnits.ToString() + " unit(s) passed (compiled + run via TIDX)");
     int ec = _testCompilerE2e(root, vm, flat);
     if (ec != 0) { return ec; }
-    return _testSelfHostByteIdentical(root, vm, flat, members, profile);
+    return _testSelfHostByteIdentical(root, vm, members, profile);
 }
 
 
-// 0.3.10 gate：z42c driver (built by C#) recompiles each of the 7 z42c packages;
-// output must be byte-identical to the C#-built artifacts.
-// Z42_LIBS=flat (stdlib + C#-built z42c) for dep resolution of each build.
-int _testSelfHostByteIdentical(string root, string vm, string flat, string[] members, string profile) {
+// Self-host 不动点：gen1 = 现有 canonical dist（`build compiler` 的 `z42c build
+// --workspace` 产物）；gen2 = 用 gen1 自己的 driver 再跑一遍 SAME `--workspace` →
+// 覆盖 canonical dist。`--workspace` 确定 → gen2 必逐字节等于 gen1 快照。
+//
+// 关键（simplify-compiler-build，2026-07-05）：gen1、gen2 现在**同走 --workspace**。此前
+// gen2 用逐包 `build <toml> --output-dir` + `Z42_LIBS=flat`（含全部 z42c+stdlib 的胖目录），
+// Phase 2 把 gen1 切到 --workspace 后二者分歧——单包胖-flat 构建拉入更大且非确定的依赖闭包
+// （目录扫描顺序非确定，见 common-pitfalls §1）→ gen2>gen1 且逐次漂移。改为二者同路径后，
+// 测试回到真正的「driver 复现自身」不动点语义。
+int _testSelfHostByteIdentical(string root, string vm, string[] members, string profile) {
     Console.WriteLine("");
-    Console.WriteLine("── z42c self-host byte-identical: z42c compiles z42c packages ──");
+    Console.WriteLine("── z42c self-host 不动点：--workspace 再建一遍应逐字节复现 ──");
 
-    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    string outDir = Path.Join(root, "artifacts/build/compiler/selfhost-out");
-    Directory.Create(outDir);
-    _cleanGlob(outDir, "*.zpkg");
+    string buildRoot = Path.Join(root, "artifacts/build/compiler");
+    string driverZpkg = Path.Join(buildRoot, "z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+
+    // gen1 快照：把现有 canonical dist 的 7 个 <member>.zpkg 拷到独立目录（随后 gen2 会
+    // 覆盖 canonical dist）。
+    string snapDir = Path.Join(buildRoot, "selfhost-gen1");
+    _resetDir(snapDir);
+    int i = 0;
+    while (i < members.Length) {
+        string src = Path.Join(buildRoot, members[i] + "/" + profile + "/dist/" + members[i] + ".zpkg");
+        if (!File.Exists(src)) {
+            Console.WriteLine("  ✗ gen1 missing (先跑 build compiler): " + src);
+            return 1;
+        }
+        File.Copy(src, Path.Join(snapDir, members[i] + ".zpkg"));
+        i = i + 1;
+    }
+
+    // gen2：用 gen1 的自包含 driver 再跑 --workspace（与 _buildCompilerViaZ42c 完全同参）→
+    // 覆盖 canonical dist。
+    _ensureDriverSelfContained(root, profile, members);
+    int rc = new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp").Arg("--")
+        .Arg("build").Arg("--workspace").Arg("--release")
+        .WorkingDirectory(Path.Join(root, "src/compiler"))
+        .Env("Z42_LIBS", stdlibFlat)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ gen2 --workspace 构建失败"); return 1; }
+    _ensureDriverSelfContained(root, profile, members);
 
     int ok = 0;
     int fail = 0;
-    int i = 0;
+    i = 0;
     while (i < members.Length) {
         string member = members[i];
-        string tomlPath = Path.Join(root, "src/compiler/" + member + "/" + member + ".z42.toml");
-        string expected = Path.Join(root, "artifacts/build/compiler/" + member + "/" + profile + "/dist/" + member + ".zpkg");
-
-        ProcessResult br = new Process(vm)
-            .Arg(driverZpkg).Arg("--")
-            .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outDir)
-            .Env("Z42_LIBS", flat)
-            .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run();
-        if (br.ExitCode != 0) {
-            Console.WriteLine("  ✗ z42c build failed: " + member);
-            fail = fail + 1;
-            i = i + 1;
-            continue;
-        }
-
-        string produced = Path.Join(outDir, member + ".zpkg");
-        if (!File.Exists(produced)) {
-            Console.WriteLine("  ✗ output not found: " + produced);
-            fail = fail + 1;
-            i = i + 1;
-            continue;
-        }
-
-        byte[] got = File.ReadAllBytes(produced);
-        byte[] want = File.ReadAllBytes(expected);
+        i = i + 1;
+        byte[] want = File.ReadAllBytes(Path.Join(snapDir, member + ".zpkg"));  // gen1
+        byte[] got = File.ReadAllBytes(                                          // gen2
+            Path.Join(buildRoot, member + "/" + profile + "/dist/" + member + ".zpkg"));
         // Section-level compare: ignore BLID (16B BLAKE3-128 build_id tail).
-        // gen1 (canonical = _buildCompiler 自建) vs gen2 (gen1 编 source) 全段须一致。
         if (!_sectionsEqualIgnoreBlid(got, want)) {
             Console.WriteLine("  ✗ sections mismatch: " + member + " (gen2 " + got.Length.ToString() + "B vs gen1 " + want.Length.ToString() + "B)");
             fail = fail + 1;
@@ -383,7 +399,6 @@ int _testSelfHostByteIdentical(string root, string vm, string flat, string[] mem
             Console.WriteLine("  ✓ " + member + " (sections byte-identical, BLID ignored)");
             ok = ok + 1;
         }
-        i = i + 1;
     }
 
     Console.WriteLine("");
@@ -391,7 +406,7 @@ int _testSelfHostByteIdentical(string root, string vm, string flat, string[] mem
         Console.WriteLine("❌ z42c self-host 不动点: " + fail.ToString() + "/" + members.Length.ToString() + " packages gen1≠gen2");
         return 1;
     }
-    Console.WriteLine("✅ z42c self-host 不动点: " + ok.ToString() + "/" + members.Length.ToString() + " packages gen1==gen2 (C#-free)");
+    Console.WriteLine("✅ z42c self-host 不动点: " + ok.ToString() + "/" + members.Length.ToString() + " packages gen1==gen2 (--workspace, C#-free)");
     return 0;
 }
 
