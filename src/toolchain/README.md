@@ -17,6 +17,18 @@
 
 > 命名说明：`toolchain` 取"围绕 compiler/runtime 的整套配套工具"之广义；语言核心**编译器在 [`../compiler/`](../compiler/) + [`../z42c/`](../z42c/)**、VM 在 [`../runtime/`](../runtime/)，不在本目录。
 
+## 构建（add-build-toolchain, 2026-07-05）
+
+对称于 `xtask build compiler|stdlib`：
+
+| 命令 | 产出 |
+|------|------|
+| `xtask build workload` | `workload/*`（4 个 lib）→ stdlib libs dir（launcher 的依赖） |
+| `xtask build toolchain` | launcher/z42b/z42d/z42i 各 `publish <toml>` → **其 `[platform.desktop].publish_dir`**（native apphost + payload）；自动先 `build workload` |
+| `xtask build sdk` | 完整可运行 `.z42` SDK —— 把上述 apphost + z42c 从各 `publish_dir` 合并进 SDK |
+
+**路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/build/xtask_toolchain.z42`](../../scripts/build/xtask_toolchain.z42)。
+
 ## 状态
 
 launcher / test-runner 已实装并在 CI / xtask 中使用；workload 实装中（承接 host 解散迁入的 host-api + 平台 facade，consolidate-platform-into-workload）；builder / devtools / interactive 为占位，具体设计与落地时机见 `docs/roadmap.md`。`host/` 顶层已移除——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host/) + [`../runtime/include/`](../runtime/include/)，Tier 2/Tier 3 在 `workload/`。

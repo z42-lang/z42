@@ -106,7 +106,9 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
 
     bool isWin = rid.StartsWith("windows-");
     string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
-    string z42bZpkg = Path.Join(root, "artifacts/build/toolchain/builder/z42.builder.zpkg");
+    // z42b zpkg location read from its toml (SoT: no hardcoded toolchain path —
+    // add-build-toolchain). _toolchainZpkg = [build] dist_dir cascade + project.name.
+    string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
     // Each `z42b publish` call now targets that component's own staging dir
     // (artifacts/publish/<comp>/, packages.toml Decision 6) instead of pkgDir
     // directly — the final [assemble] step merges all of them into pkgDir.

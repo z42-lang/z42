@@ -1,0 +1,206 @@
+// xtask — build toolchain / build workload (add-build-toolchain, 2026-07-05).
+//
+// Symmetry with `build compiler`↔src/compiler & `build stdlib`↔src/libraries:
+//   build workload  ↔ src/toolchain/workload/*  (kind=lib; launcher's deps)
+//   build toolchain ↔ src/toolchain/{launcher,builder,devtools,interactive} apphosts
+//
+// SoT principle (User, 2026-07-05): every toolchain output/publish path is READ from
+// the component's own z42.toml (`[build].dist_dir`, `[platform.desktop].publish_dir`),
+// NEVER hardcoded here — change a path in the toml and xtask follows automatically.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Time;
+using Std.Toml;
+
+// ── component manifests ──────────────────────────────────────────────────────
+// workload libs (kind=lib): built into the stdlib libs dir so launcher resolves them.
+string[] _workloadTomls() {
+    string[] xs = new string[4];
+    xs[0] = "src/toolchain/workload/desktop/appbuilder/z42.workload.desktop.z42.toml";
+    xs[1] = "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml";
+    xs[2] = "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml";
+    xs[3] = "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml";
+    return xs;
+}
+// apphost components (kind=exe, apphost=true): published to their own publish_dir.
+string[] _toolchainApphostTomls() {
+    string[] xs = new string[4];
+    xs[0] = "src/toolchain/launcher/core/z42.launcher.z42.toml";
+    xs[1] = "src/toolchain/builder/core/z42.builder.z42.toml";
+    xs[2] = "src/toolchain/devtools/core/z42.devtools.z42.toml";
+    xs[3] = "src/toolchain/interactive/core/z42.interactive.z42.toml";
+    return xs;
+}
+
+// ── toml-driven path readers (SoT: never hardcode toolchain paths) ───────────
+// Read a dotted-path string field from `absToml`, or `dflt` when any segment absent.
+string _tomlField(string absToml, string dotted, string dflt) {
+    TomlValue node = TomlValue.Parse(File.ReadAllText(absToml));
+    foreach (var key in dotted.Split(".")) {
+        if (!node.ContainsKey(key)) { return dflt; }
+        node = node.Get(key);
+    }
+    return node.AsString();
+}
+string _absToml(string root, string tomlPath) {
+    if (Path.IsRooted(tomlPath)) { return tomlPath; }
+    return Path.Join(root, tomlPath);
+}
+// Resolve a dir value declared in a toml — relative resolves against the toml's dir,
+// "" (absent) means the toml's own dir.
+string _resolveFromToml(string absToml, string value) {
+    if (value.Length == 0) { return Path.GetDirectoryName(absToml); }
+    if (Path.IsRooted(value)) { return value; }
+    return Path.Join(Path.GetDirectoryName(absToml), value);
+}
+// [platform.desktop].publish_dir → absolute dir. Unset → ${output_dir}/publish
+// (mirrors z42b _pubDefaultPublishDir; the toolchain tomls all set it explicitly,
+// so the workspace-inheritance leg is deliberately omitted here).
+string _desktopPublishDir(string root, string tomlPath) {
+    string abs = _absToml(root, tomlPath);
+    string pub = _tomlField(abs, "platform.desktop.publish_dir", "");
+    if (pub.Length > 0) { return _resolveFromToml(abs, pub); }
+    string outDir = _resolveFromToml(abs, _tomlField(abs, "build.output_dir", ""));
+    return Path.Join(outDir, "publish");
+}
+// built zpkg path = dist dir + [project].name + ".zpkg". dist cascade mirrors z42c
+// _resolveDistDir: dist_dir (with ${output_dir} template) → ${output_dir}/dist →
+// <projDir>/dist.
+string _toolchainZpkg(string root, string tomlPath) {
+    string abs = _absToml(root, tomlPath);
+    string outRaw  = _tomlField(abs, "build.output_dir", "");
+    string distRaw = _tomlField(abs, "build.dist_dir", "");
+    string distDir;
+    if (distRaw.Length > 0) {
+        distDir = _resolveFromToml(abs, distRaw.Replace("${output_dir}", outRaw));
+    } else if (outRaw.Length > 0) {
+        distDir = Path.Join(_resolveFromToml(abs, outRaw), "dist");
+    } else {
+        distDir = Path.Join(Path.GetDirectoryName(abs), "dist");
+    }
+    return Path.Join(distDir, _tomlField(abs, "project.name", "") + ".zpkg");
+}
+
+// self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-
+// build). Usable directly as the z42c seed dir for _z42cBuildToml.
+string _selfContainedDriverDir(string root) {
+    return Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist");
+}
+
+// Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver)
+// EXIST — build only what's missing. Unlike `_buildCompiler`, this does NOT force a
+// z42c `--workspace` rebuild on a warm tree (User "只需要编译就行"): `build workload`/
+// `build toolchain` compile the toolchain, not the compiler — a dev who changed z42c
+// runs `build compiler` themselves.
+int _ensureToolchainDeps(string root) {
+    if (!File.Exists(_builtVm(root, "release"))) {
+        int r = _buildRuntime(); if (r != 0) { return r; }
+    }
+    if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
+        int r = _buildStdlib(); if (r != 0) { return r; }
+    }
+    if (!File.Exists(Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg"))) {
+        int r = _buildCompiler(); if (r != 0) { return r; }
+    }
+    return 0;
+}
+
+// ── build workload ───────────────────────────────────────────────────────────
+// Compile the 4 workload libs → the stdlib libs dir (their toml dist_dir points there
+// so launcher's z42c build resolves them). Prereq: z42vm + z42c + stdlib present
+// (build-if-missing; warm ≈ no-op).
+int _buildWorkload() {
+    string root = _root();
+    Stopwatch sw = _procStart("build workload (toolchain workload libs)");
+    int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
+    string vm = _builtVm(root, "release");
+    string z42cDir = _selfContainedDriverDir(root);
+    string libs = _libsDir(root);
+    foreach (var toml in _workloadTomls()) {
+        _vNormal("  workload: " + toml);
+        int c = _z42cBuildToml(vm, z42cDir, libs, toml);
+        if (c != 0) { ConsoleError.WriteLine("  ✗ workload build failed: " + toml); return c; }
+    }
+    _procEnd("build workload (toolchain workload libs)", sw);
+    return 0;
+}
+
+// ── build toolchain ──────────────────────────────────────────────────────────
+// Publish the 4 apphost components → each toml's publish_dir. Auto-builds workloads
+// first (launcher depends on them, User Q1). z42b compiled first since it publishes
+// the others. Every output/publish location is read from the component toml.
+int _buildToolchain() {
+    string root = _root();
+    Stopwatch sw = _procStart("build toolchain (apphosts via publish)");
+    int wc = _buildWorkload(); if (wc != 0) { return wc; }   // + z42c/stdlib/z42vm prereq
+    string vm = _builtVm(root, "release");
+    string z42cDir = _selfContainedDriverDir(root);
+    string libs = _libsDir(root);
+    string rid = _detectHostRid();
+    // native apphost stub (shared by every apphost; z42b publish patches a copy).
+    int sc = _exec(_cargoRelease()
+        .Arg("--manifest-path").Arg("src/toolchain/workload/desktop/platform/apphost/Cargo.toml"));
+    if (sc != 0) { ConsoleError.WriteLine("  ✗ apphost stub cargo build failed"); return sc; }
+    string cargoOut = _cargoOutFor(root, rid, "release");
+    string apphostStub = Path.Join(cargoOut, Platform.IsWindows() ? "apphost.exe" : "apphost");
+    // z42b must exist before it can publish the others.
+    string builderToml = "src/toolchain/builder/core/z42.builder.z42.toml";
+    int bc = _z42cBuildToml(vm, z42cDir, libs, builderToml);
+    if (bc != 0) { ConsoleError.WriteLine("  ✗ z42b build failed"); return bc; }
+    string z42bZpkg = _toolchainZpkg(root, builderToml);
+    // compile + publish each apphost → its own publish_dir (from toml).
+    foreach (var toml in _toolchainApphostTomls()) {
+        int c = _z42cBuildToml(vm, z42cDir, libs, toml);
+        if (c != 0) { ConsoleError.WriteLine("  ✗ compile failed: " + toml); return c; }
+        string pubDir = _desktopPublishDir(root, toml);
+        _vNormal("  publish: " + toml + " → " + pubDir);
+        c = _z42bPublish(vm, z42bZpkg, libs, apphostStub, toml, rid, pubDir);
+        if (c != 0) { ConsoleError.WriteLine("  ✗ publish failed: " + toml); return c; }
+    }
+    _procEnd("build toolchain (apphosts via publish)", sw);
+    return 0;
+}
+
+// ── sdk apphost merge ────────────────────────────────────────────────────────
+// Make `build sdk` produce a COMPLETE, runnable SDK: publish z42c + the 4 toolchain
+// apphosts, then merge each component's publish_dir tree (bin apphost + programs
+// payload, layout per its toml's bin/payload) into the SDK `outDir`. publish_dir is
+// read from each toml (SoT). `noBuild`: skip (re)publishing — merge whatever each
+// publish_dir already holds (CI warm path).
+int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
+    string z42cToml = "src/compiler/z42c.driver/z42c.driver.z42.toml";
+    if (!noBuild) {
+        int tc = _buildToolchain(); if (tc != 0) { return tc; }   // launcher/z42b/z42d/z42i
+        // z42c is already built (build sdk's _buildStdlib); z42b + apphost stub were
+        // just built by _buildToolchain — publish z42c's apphost with them.
+        string vm = _builtVm(root, "release");
+        string rid = _detectHostRid();
+        string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+        string stub = Path.Join(_cargoOutFor(root, rid, "release"),
+            Platform.IsWindows() ? "apphost.exe" : "apphost");
+        int zc = _z42bPublish(vm, z42bZpkg, _libsDir(root), stub, z42cToml, rid,
+            _desktopPublishDir(root, z42cToml));
+        if (zc != 0) { ConsoleError.WriteLine("  ✗ z42c apphost publish failed"); return zc; }
+    }
+    // merge z42c + 4 toolchain apphost publish trees into the SDK.
+    string[] tc4 = _toolchainApphostTomls();
+    string[] tomls = new string[tc4.Length + 1];
+    tomls[0] = z42cToml;
+    int k = 0;
+    while (k < tc4.Length) { tomls[k + 1] = tc4[k]; k = k + 1; }
+    int i = 0;
+    while (i < tomls.Length) {
+        string pub = _desktopPublishDir(root, tomls[i]);
+        if (Directory.Exists(pub)) {
+            _vNormal("  sdk: merge apphost ← " + pub);
+            Directory.Copy(pub, outDir, true);
+        } else {
+            ConsoleError.WriteLine("  ✗ sdk: apphost not published: " + pub + " (run build toolchain)");
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}

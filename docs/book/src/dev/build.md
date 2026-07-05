@@ -44,6 +44,11 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 `build compiler` 即单独执行阶段一 + 七包完整性校验。（simplify-compiler-build 去掉了旧的
 `selfbuild-runlibs/` + `dogfood/` 拼接目录。）
 
+> **`artifacts/build/` 只放编译/publish 产物**（add-build-toolchain, 2026-07-05）。构建/测试的
+> **中间态**——`stdlib-run` 快照（图中阶段二的 `Z42_LIBS`）、`alllibs` flat 视图、`e2e`/`selfhost-gen1`/
+> `dogfood` 工作区——一律落 `artifacts/.scratch/`（gitignored、可重生），不再混进 `build/`。
+> 各自用途见 [自举与种子机制页 / scratch 目录说明]。
+
 ### 增量编译（单工程 z42c build，port-incremental-build-cache 2026-07-05）
 
 单工程 `z42c build <toml>` 逐文件写 fullMode `.zbc` 到 cache 目录（`[build].cache_dir` →
@@ -110,6 +115,8 @@ stdlib 供依赖，因此**语法轴和 stdlib API 轴的越界都会在此暴�
 | 自举 e2e oracle | `scripts/build/xtask_compiler_e2e.z42` | div-by-zero 等行为校验（500 行限制拆出） |
 | 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·bootstrap-check"） |
 | golden 重生 | `scripts/xtask_regen.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |
+| 测试资产编译（`build test`）| `scripts/xtask_regen.z42` 的 `_buildTest` | ensure z42c/stdlib/z42vm（缺则自建）→ `_regenGolden`（= regen 的 golden 编译，不重建工具链） |
+| 工具链 apphost / 完整 SDK | `scripts/build/xtask_toolchain.z42`（`_buildWorkload`/`_buildToolchain`/`_sdkMergeApphosts`）| `build workload\|toolchain\|sdk`：publish 各 apphost → **toml 的 publish_dir**（路径从 toml 读）；sdk 合并成完整可运行 SDK |
 
 ## 边界与限制
 

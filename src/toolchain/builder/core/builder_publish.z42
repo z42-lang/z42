@@ -75,11 +75,14 @@ int _pubDesktop(ParseResult r, string rid) {
 
     string publishDir = r.GetOption("output");
     if (publishDir.Length == 0) { publishDir = _pubPlatformStr(toml, "desktop", "publish_dir", ""); }
-    if (publishDir.Length == 0) { publishDir = "."; }   // default: project dir (location only)
     bool isWin = rid.StartsWith("windows-");
     string projDir = Path.GetDirectoryName(tomlPath);
     // `root` = the deploy root that bin/payload are relative to.
-    string root = (projDir.Length > 0) ? Path.Join(projDir, publishDir) : publishDir;
+    // unset → ${output_dir}/publish (project.md [build] defaults; keeps publish
+    // out of the source tree — the old project-dir default leaked z42/programs/).
+    string root;
+    if (publishDir.Length == 0) { root = _pubDefaultPublishDir(tomlPath, toml, projName); }
+    else { root = (projDir.Length > 0) ? Path.Join(projDir, publishDir) : publishDir; }
 
     // build-if-needed: ensure the expected zpkg exists (compile via z42c if missing).
     string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
@@ -213,6 +216,26 @@ string _pubFindZ42c() {
     if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
     if (!File.Exists(z42c)) { return ""; }
     return z42c;
+}
+
+// Default publish root when neither --output nor [platform.desktop].publish_dir is
+// set: ${output_dir}/publish. output_dir resolves like _pubResolveZpkg — explicit
+// [build].output_dir first, then the enclosing workspace's [workspace.build]
+// template, else the project dir (so the bare default is <projDir>/publish, never
+// the project dir itself).
+string _pubDefaultPublishDir(string tomlPath, TomlValue toml, string name) {
+    string projDir = Path.GetDirectoryName(tomlPath);
+    string outDir = _pubTomlStr(toml, "build", "output_dir", "");
+    if (outDir.Length > 0) {
+        string outAbs = (projDir.Length > 0) ? Path.Join(projDir, outDir) : outDir;
+        return Path.Join(outAbs, "publish");
+    }
+    string wsRoot = _pubFindWorkspaceRoot(tomlPath);
+    if (wsRoot.Length > 0) {
+        string wsOutDir = _pubWorkspaceOutputDir(wsRoot, name);
+        if (wsOutDir.Length > 0) { return Path.Join(Path.Join(wsRoot, wsOutDir), "publish"); }
+    }
+    return (projDir.Length > 0) ? Path.Join(projDir, "publish") : "publish";
 }
 
 // Resolve the built zpkg via the same dist_dir logic as the launcher used.

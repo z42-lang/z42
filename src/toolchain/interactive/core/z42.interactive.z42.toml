@@ -31,10 +31,11 @@ dist_dir = "../../../../artifacts/build/toolchain/interactive"
 mode     = "interp"
 optimize = 2
 
-# apphost-as-config: publishes a native desktop apphost `./z42i` at the repo root.
+# apphost-as-config: publishes the z42i desktop apphost into the shared artifacts
+# tree (unified toolchain/<comp>/publish layout, add-build-toolchain 2026-07-05).
 # bin/payload mirrors z42b's SDK package layout (add-package-layout-config).
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../.."
+publish_dir = "../../../../artifacts/build/toolchain/interactive/publish"
 bin         = "bin/z42i"
 payload     = "programs/interactive/z42.interactive.zpkg"

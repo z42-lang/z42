@@ -74,3 +74,11 @@ TestResults/
 # Generated dev-CLI apphost at the repo root (scripts/build-xtask.sh).
 # Native, platform-specific — regenerate, don't commit.
 /xtask
+
+# Guard against publish output leaking into the source tree (add-build-toolchain,
+# 2026-07-05): publish_dir now defaults to ${output_dir}/publish, but a stray
+# explicit publish into a component dir must never get committed.
+src/**/programs/
+src/**/publish/
+src/toolchain/*/core/z42
+src/toolchain/*/core/bin/

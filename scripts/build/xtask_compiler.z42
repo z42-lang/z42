@@ -179,7 +179,7 @@ int _testCompilerStdlib() {
     string[] members = _compilerMembers(root);
     string vm = _builtVm(root, "release");
     string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
-    string dogfoodRoot = Path.Join(root, "artifacts/build/compiler/dogfood");
+    string dogfoodRoot = Path.Join(root, "artifacts/.scratch/dogfood");
 
     // runDir = z42c 7 包 + stdlib（拷贝；运行 z42c.driver 用）。
     string runDir = Path.Join(dogfoodRoot, "run-" + profile);
@@ -251,7 +251,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     // retire-test-runner: z42c [Test] units run through z42b (z42.builder.zpkg)
     // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
     // resolve from `flat`); incremental/cached when already current.
-    string builderZpkg = Path.Join(root, "artifacts/build/toolchain/builder/z42.builder.zpkg");
+    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
     int bc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
         .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
         .Env("Z42_LIBS", flat).WorkingDirectory(root));
@@ -358,7 +358,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
 
     // gen1 快照：把现有 canonical dist 的 7 个 <member>.zpkg 拷到独立目录（随后 gen2 会
     // 覆盖 canonical dist）。
-    string snapDir = Path.Join(buildRoot, "selfhost-gen1");
+    string snapDir = Path.Join(root, "artifacts/.scratch/selfhost-gen1");
     _resetDir(snapDir);
     int i = 0;
     while (i < members.Length) {

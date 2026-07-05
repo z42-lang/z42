@@ -74,6 +74,10 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `deps check` | 改 `versions.toml` 后对账 | `versions.toml` + 投影文件 | versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift 一致性 |
 | `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/build/libraries/dist/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
 | `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（7 个自建成员） |
+| `build workload` | 改了 `src/toolchain/workload` 源 | z42c/stdlib（缺则自建） | 4 个 workload lib → `artifacts/build/libraries/dist/release/z42.workload.*.zpkg`（launcher 依赖） |
+| `build toolchain` | 改了 launcher/z42b/z42d/z42i 源 | 同上 + 自动 `build workload` | 4 个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码） |
+| `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（= `regen` 的 golden 编译，不重建工具链） |
+| `build sdk [--out D] [--no-build]` | 组装完整可运行 SDK | z42c/stdlib/z42vm + `build toolchain` | `.z42` 布局：`bin/{z42vm,z42c,z42b,z42d,z42i}` + `z42`(launcher 根) + `programs/*` + `libs/*`；apphost 从各 publish_dir 合并 |
 | `build package [release\|debug] [--rid R]` | 准备发行 / 测发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<rid>-<config>/{bin,libs,native}`（末尾自动跑 SHA-256 invariant） |
 | `regen` | 编译器变更使 `.zbc` 基线漂移 | z42c + z42vm | run-golden 按组件镜像到 `artifacts/build/`（gitignored，不污染 src）；committed 字节基线 `src/tests/zbc-format/*/source.zbc` 就地重写 |
 | `audit` | 新增 test `source.z42` | `z42.regex` | 自动补缺失的 `using` 声明 |
@@ -86,6 +90,13 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test dist` | 验证打包后发行版能独立工作 | `build package` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 | `release …` | nightly / 发行打包编排 | 各 RID workload | 合并 desktop workload / 生成 release-index.json |
+
+> **构建输出约定（add-build-toolchain, 2026-07-05）**：
+> - `artifacts/build/` **只放编译/publish 产物**；构建/测试的中间态（`stdlib-run` 快照、`alllibs`
+>   flat 视图、`e2e`/`selfhost-gen1`/`dogfood` 工作区）落 `artifacts/.scratch/`（gitignored、可重生）。
+> - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
+>   `[platform.desktop].publish_dir`，级联默认见 `docs/design/compiler/project.md`）——xtask 不硬编码，
+>   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
 
 ## 各命令处理流程
 

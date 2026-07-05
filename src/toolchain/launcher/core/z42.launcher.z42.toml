@@ -30,10 +30,9 @@ include = ["*.z42"]
 # artifacts tree (mirrors src/toolchain/launcher) instead of a dist/ dir
 # inside src/. Relative from this toml's dir (src/toolchain/launcher/core)
 # up 4 levels to the repo root, then into artifacts/build/toolchain/launcher.
-# restructure-build-output-dirs (2026-06-06): legacy flat layout — set
-# dist_dir directly (no nested dist/ subdir). cache_dir / output_dir
-# stay defaulted (cache lands beside the dist by default).
-dist_dir = "../../../../artifacts/build/toolchain/launcher"
+# add-build-toolchain (2026-07-05): output_dir root — dist/cache/publish all
+# cascade from it (dist = ${output_dir}/dist; publish_dir set explicitly below).
+output_dir = "../../../../artifacts/build/toolchain/launcher"
 
 [profile.release]
 mode     = "interp"
@@ -41,9 +40,10 @@ optimize = 2
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
-#   publish_dir 缺省 = 项目目录（仅输出位置，非 gate）。
+#   publish_dir 缺省 = ${output_dir}/publish（仅输出位置，非 gate）。
 #   bin/payload（add-package-layout-config）：根 launcher 特例——bin 落部署根 `z42`。
 [platform.desktop]
 apphost = true
 bin     = "z42"
 payload = "programs/launcher/launcher.zpkg"
+publish_dir = "../../../../artifacts/build/toolchain/launcher/publish"

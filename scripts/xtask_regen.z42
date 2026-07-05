@@ -16,6 +16,17 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 
+// `xtask build test` — compile the golden test assets (src/tests + library tests →
+// `.zbc` mirror under artifacts/build/tests), symmetric with build compiler/stdlib/
+// toolchain/workload. Ensures z42c + stdlib + z42vm are present (build-if-missing,
+// like the other build commands), then compiles the goldens — i.e. regen's golden
+// compile WITHOUT rebuilding the toolchain (CI's compile-test-assets does the same
+// via `regen --no-stdlib`).
+int _buildTest() {
+    int p = _ensureToolchainDeps(_root()); if (p != 0) { return p; }
+    return _regenGolden();
+}
+
 int _regenGolden() {
     string root = _root();
     // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。

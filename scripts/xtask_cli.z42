@@ -229,8 +229,12 @@ SubcommandRouter _buildRouter() {
     ArgParser stage = new ArgParser("xtask build stage-toolchain", "stage z42c+stdlib+xtask zpkgs → <dest> for the CI toolchain-<os> artifact");
     stage.AddOptionalPositional("dest", "destination dir (required)");
     b.Add("stage-toolchain", "stage toolchain zpkgs → <dest> (CI artifact)", stage);
-    b.Add("launcher", "trampoline + launcher.zpkg",
-        new ArgParser("xtask build launcher", "trampoline + launcher.zpkg"));
+    b.Add("workload", "build toolchain workload libs (src/toolchain/workload)",
+        new ArgParser("xtask build workload", "build workload libs (desktop/ios/android/wasm)"));
+    b.Add("toolchain", "publish toolchain apphosts (launcher/z42b/z42d/z42i)",
+        new ArgParser("xtask build toolchain", "publish toolchain apphosts → each toml's publish_dir"));
+    b.Add("test", "compile golden test assets (src/tests → .zbc mirror)",
+        new ArgParser("xtask build test", "compile golden test assets (= regen golden, deps build-if-missing)"));
     b.Add("all", "runtime + compiler + stdlib",
         new ArgParser("xtask build all", "runtime + compiler + stdlib"));
     return b;
@@ -393,10 +397,9 @@ int _dispatchBuild(string[] p, ParseResult r) {
     if (sub == "stdlib")       { return _buildStdlib(); }
     if (sub == "sdk")          { return _buildSdk(r.GetOption("out"), r.GetFlag("no-build")); }
     if (sub == "stage-toolchain") { return _stageToolchain(r.GetPositional(0)); }
-    // unify-launcher-apphost (2026-06-21): launcher trampoline crate is gone;
-    // `z42` is now the per-app apphost stub. "build launcher" = build that stub.
-    if (sub == "launcher")     { return _exec(_cargoRelease()
-                                     .Arg("--manifest-path").Arg("src/toolchain/workload/desktop/platform/apphost/Cargo.toml")); }
+    if (sub == "workload")     { return _buildWorkload(); }   // src/toolchain/workload libs
+    if (sub == "toolchain")    { return _buildToolchain(); }  // publish apphosts → toml publish_dir (含旧 build launcher 的 apphost stub)
+    if (sub == "test")         { return _buildTest(); }       // 编译 golden 测试资产（src/tests → .zbc）
     if (sub == "all") {
         int c = _buildRuntime();  if (c != 0) { return c; }
         c = _buildStdlib();       if (c != 0) { return c; }   // warm（z42c builds stdlib + z42c）

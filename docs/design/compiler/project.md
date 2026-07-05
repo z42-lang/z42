@@ -1315,7 +1315,9 @@ title = "My App"   # optional: HTML &lt;title&gt;（默认 = project name）
 apphost     = true   # GATE：唯有 apphost = true，`z42 publish <toml> --rid <desktop-rid>` 才产 apphost。
                      # 缺省 / false → publish 报 "not configured to publish a desktop apphost" 并退出。
 publish_dir = ".."   # 仅输出位置（部署根，相对 toml 所在目录，同 [build].output_dir 基准）。
-                     # 不再充当 gate；缺省 = 项目目录。--output 可覆盖。
+                     # 不再充当 gate；缺省 = ${output_dir}/publish（对齐 [build] 四件套默认，
+                     # add-build-toolchain 2026-07-05；output_dir 未设→workspace 继承→<项目目录>/publish）。
+                     # --output 可覆盖。
 # 部署布局（可选，add-package-layout-config）：apphost 二进制与 payload zpkg 在
 # 部署根（publish_dir）下的相对路径。缺省 → 扁平：apphost = publish_dir/<name>，
 # payload 原地内嵌（不复制）。

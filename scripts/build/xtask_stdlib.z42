@@ -75,7 +75,7 @@ int _buildStdlibCore() {
     //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
     //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
     //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
-    string stdlibRun = Path.Join(root, "artifacts/build/.stdlib-run/" + profile);
+    string stdlibRun = Path.Join(root, "artifacts/.scratch/stdlib-run/" + profile);
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
@@ -142,11 +142,11 @@ string[] _compilerMembers(string root) {
 }
 
 // 组装 alllibs flat 视图：stdlib dist + z42c 7 成员 dist 全部 hard-link 到
-// artifacts/build/compiler/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
+// artifacts/.scratch/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
 // （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
 // 三处消费共用：test lib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
 string _assembleAllLibs(string root, string profile) {
-    string flat = Path.Join(root, "artifacts/build/compiler/alllibs/" + profile);
+    string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
     _linkAll(Path.Join(root, "artifacts/build/libraries/dist/" + profile), flat, "*.zpkg");
@@ -243,6 +243,12 @@ int _buildSdk(string outOpt, bool noBuild) {
     _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(binDir, "z42vm.exe"));
     _makeExe(Path.Join(binDir, "z42vm"));
     Console.WriteLine("  ✓ bin/z42vm");
+
+    // 4. complete + runnable SDK: merge z42c + toolchain apphosts (bin/z42, bin/z42c,
+    //    bin/z42b, bin/z42d, bin/z42i + their programs payloads) from each toml's
+    //    publish_dir (add-build-toolchain). noBuild → merge already-published trees.
+    int mc = _sdkMergeApphosts(root, outDir, noBuild); if (mc != 0) { return mc; }
+    Console.WriteLine("  ✓ apphosts (z42/z42c/z42b/z42d/z42i merged from publish_dir)");
     _procEnd("build sdk", sw);
     return 0;
 }

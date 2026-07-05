@@ -44,7 +44,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
     string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
-    string e2eDir = Path.Join(root, "artifacts/build/compiler/e2e");
+    string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
     Directory.Create(e2eDir);
 
     string libsRel = Path.Join(root, "artifacts/build/libraries/dist/release");

@@ -33,12 +33,11 @@ dist_dir = "../../../../artifacts/build/toolchain/devtools"
 mode     = "interp"
 optimize = 2
 
-# apphost-as-config: publishes a native desktop apphost `./z42d` at the repo root
-# (dev convenience, same as ./xtask / ./z42b). From this toml's dir up 4 levels
-# to repo root. bin/payload mirrors z42b's SDK package layout
-# (add-package-layout-config).
+# apphost-as-config: publishes the z42d desktop apphost into the shared artifacts
+# tree (unified toolchain/<comp>/publish layout, add-build-toolchain 2026-07-05).
+# bin/payload mirrors z42b's SDK package layout (add-package-layout-config).
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../.."
+publish_dir = "../../../../artifacts/build/toolchain/devtools/publish"
 bin         = "bin/z42d"
 payload     = "programs/devtools/z42.devtools.zpkg"

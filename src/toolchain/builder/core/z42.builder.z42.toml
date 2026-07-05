@@ -47,12 +47,11 @@ optimize = 2
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
-#   publish_dir 指仓库根（镜像 scripts/xtask.z42.toml 的 ".."）→ `z42 publish`
-#   产仓库根 `./z42b`（dev 便捷入口，同 ./xtask）。从本 toml 目录 src/toolchain/builder/core
-#   上溯 4 级到仓库根。
+#   publish_dir 落共享 artifacts 树（toolchain/<组件>/publish 统一格式，
+#   add-build-toolchain 2026-07-05）。缺省即 ${output_dir}/publish。
 #   bin/payload（add-package-layout-config）：镜像现状布局。
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../.."
+publish_dir = "../../../../artifacts/build/toolchain/builder/publish"
 bin         = "bin/z42b"
 payload     = "programs/z42b/z42.builder.zpkg"
