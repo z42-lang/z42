@@ -196,6 +196,12 @@ int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
         if (Directory.Exists(pub)) {
             _vNormal("  sdk: merge apphost ← " + pub);
             Directory.Copy(pub, outDir, true);
+        } else if (noBuild) {
+            // --no-build: apphosts may legitimately not be published (e.g. CI's
+            // compile-test-assets assembles only the toolchain layout + goldens, never
+            // runs build toolchain) — skip, don't fail. Full SDK still needs them; the
+            // !noBuild path above publishes + guarantees them.
+            _vNormal("  sdk: skip apphost (not published, --no-build): " + pub);
         } else {
             ConsoleError.WriteLine("  ✗ sdk: apphost not published: " + pub + " (run build toolchain)");
             return 1;
