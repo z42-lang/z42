@@ -50,6 +50,10 @@
 | `artifacts/build/README.md` | NEW | 说明 compiler/ libraries/ runtime/ xtask/ 各子目录（gitignore 目录加说明文件？改放 docs） |
 | `src/compiler/z42c.project/tests/<name>/` | NEW | exe 自包含输出单测（产物含非 stdlib 依赖；lib 不含） |
 
+**Scope 扩展（阶段 3 改名/回归揭示，2026-07-05）**：
+| `src/runtime/build.rs` | MODIFY | ✅ Phase2 删 dogfood 的回归修复：driver-home 从 `dogfood/run-release` 改指自包含 `compiler/z42c.driver/dist` + `Z42_LIBS=libraries/dist`（**新占 runtime 锁**） |
+| `src/compiler/*/tests/*.z42.toml`（18 个）+ `src/compiler/README.md` | MODIFY | ✅ 测试项目 output_dir 及文档的 `build/z42c` → `build/compiler`（`manifest_tests.z42` 的 PathTemplate 测试数据保留） |
+
 **只读引用**：
 - `src/runtime/src/main.rs`（`search_dirs` = entry dir + libs，理解解析顺序；不改）
 - `docs/spec/archive/2026-06-19-restructure-publish-output-dirs/`（publish 已有的 exe 依赖复制，参考实现）

@@ -6,8 +6,15 @@
 ## 进度概览
 - [x] 阶段 1: z42c build(exe) 复制非 stdlib 依赖（compiler）✅
 - [x] 阶段 2: xtask 自建/编 stdlib 改自包含，删 selfbuild-runlibs + dogfood（toolchain）✅
-- [ ] 阶段 3: `artifacts/build/z42c` → `compiler` 全量改名（compiler+toolchain）
+- [x] 阶段 3: `artifacts/build/z42c` → `compiler` 全量改名（compiler+toolchain+**runtime**）✅
 - [ ] 阶段 4: env 收拢（删 Z42C_DIR、Z42_TOOLCHAIN 语义收进 SDK 根）（toolchain）
+
+## 阶段 3: 改名 z42c → compiler ✅
+- [x] 3.1 `z42.workspace.toml` output_dir → compiler
+- [x] 3.2 全部 scripts/ 引用（14 文件）+ 18 个 compiler 测试 toml + src/compiler/README（sed；manifest_tests.z42 的 PathTemplate 测试数据保留 build/z42c）
+- [x] 3.3 CI ci-bootstrap 种子 stage 路径
+- [x] 3.4 **build.rs 回归修复**（Phase 2 删 dogfood 后，`src/runtime/build.rs` 仍引 `dogfood/run-release` → C7/embedding e2e fixture 静默跳过）：改指自包含 driver `compiler/z42c.driver/dist` + `Z42_LIBS=libraries/dist`（新占 **runtime** 锁）
+- [x] 3.5 验证 ✅：cold build compiler 落 `artifacts/build/compiler/`（7 member），无旧 z42c 目录；build.rs 路径修正（cargo/e2e 由 CI 验）
 - [ ] 阶段 5: 文档
 
 ## 阶段 1: z42c build(exe) 自包含（compiler）✅

@@ -12,5 +12,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
-# src/compiler/z42c.ir/tests/depindex → artifacts/build/z42c/z42c.ir/tests/depindex (no src pollution).
-output_dir = "../../../../../artifacts/build/z42c/z42c.ir/tests/depindex"
+# src/compiler/z42c.ir/tests/depindex → artifacts/build/compiler/z42c.ir/tests/depindex (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.ir/tests/depindex"

@@ -75,11 +75,13 @@ fn main() {
     // skipped and their tests opt out — no hard build dependency.
     let project_root = manifest_dir.parent().and_then(Path::parent);
     if let Some(root) = project_root {
-        // driver-home = the dogfood run dir: z42c.driver.zpkg + its 6 z42c.*
-        // siblings + the stdlib, all flat — usable as both the driver location
-        // and Z42_LIBS (built by `xtask build stdlib`).
-        let home = root.join("artifacts/build/z42c/dogfood/run-release");
-        let driver = home.join("z42c.driver.zpkg");
+        // z42c.driver is self-contained: its 6 z42c.* siblings are bundled into its
+        // own dist by `z42c build` (simplify-compiler-build). So Z42_LIBS supplies
+        // only the stdlib — the driver's siblings resolve from its own dir (z42vm's
+        // entry-zpkg dir + libs search). Both produced by `xtask build stdlib`.
+        let driver = root
+            .join("artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+        let home = root.join("artifacts/build/libraries/dist/release");
         let vm = find_z42vm(root);
         let ready = driver.is_file() && vm.as_ref().is_some_and(|v| v.is_file());
         println!("cargo:rerun-if-changed={}", driver.display());
@@ -123,8 +125,9 @@ fn find_z42vm(root: &Path) -> Option<PathBuf> {
 }
 
 /// Compile a single `.z42` → `.zbc` via z42c (z42vm running z42c.driver.zpkg),
-/// mirroring `xtask regen`'s _compileCase. `driver_home` supplies the driver's
-/// z42c.* siblings AND the stdlib (flat) via Z42_LIBS. Returns true on success.
+/// mirroring `xtask regen`'s _compileCase. `driver_home` is Z42_LIBS (stdlib); the
+/// driver's z42c.* siblings resolve from the driver's own dir (bundled, self-
+/// contained exe). Returns true on success.
 fn z42c_emit_zbc(vm: &Path, driver: &Path, driver_home: &Path, src: &Path, out: &Path) -> bool {
     Command::new(vm)
         .arg(driver)

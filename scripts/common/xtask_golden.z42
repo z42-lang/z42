@@ -80,7 +80,7 @@ bool _isNonRunnableCat(string cat) {
 // Run-golden compiled `.zbc` is build output, not source — it lives under
 // `artifacts/build/` mirroring the src layout *per component* (same convention
 // stdlib/z42c package builds already use: `artifacts/build/libraries/<lib>`,
-// `artifacts/build/z42c/<member>`), NOT beside `source.z42`:
+// `artifacts/build/compiler/<member>`), NOT beside `source.z42`:
 //   src/tests/<rel>            → artifacts/build/tests/<rel>
 //   src/libraries/<lib>/<rel>  → artifacts/build/libraries/<lib>/<rel>
 // i.e. strip the leading `src/` and re-root under `artifacts/build/`. regen

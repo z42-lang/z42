@@ -100,7 +100,7 @@ int _platformAssets(IPlatformBackend b, string root) {
     // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟（colocated 解析）；Std.IO 依赖走 Z42_LIBS。
     string driverHome = _assembleDriverHome(root);
     if (driverHome.Length == 0) {
-        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/z42c/z42c.*/release/dist); run build compiler");
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist); run build compiler");
         return 1;
     }
     string vm = _builtVm(root, "release");

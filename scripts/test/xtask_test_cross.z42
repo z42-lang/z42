@@ -50,7 +50,7 @@ int _testCrossZpkgImpl(string mode) {
         vmBin = _builtVm(root, "debug");
     }
     if (driverHome.Length == 0) {
-        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/z42c/z42c.*/release/dist)");
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
         ConsoleError.WriteLine("       Build it via: ./xtask test compiler  (or build stdlib)");
         return 1;
     }
@@ -196,7 +196,7 @@ int _testCrossZpkgImpl(string mode) {
 // compilation 的 Z42_LIBS（stdlib + fixture deps）隔离，避免单-libs 目录污染。
 // 返回 driver-home 目录路径；z42c 未构建（缺任一成员 dist）返回 ""。
 string _assembleDriverHome(string root) {
-    string baseDir = Path.Join(root, "artifacts/build/z42c");
+    string baseDir = Path.Join(root, "artifacts/build/compiler");
     string[] members = new string[7];
     members[0] = "z42c.core"; members[1] = "z42c.ir"; members[2] = "z42c.project";
     members[3] = "z42c.syntax"; members[4] = "z42c.semantics"; members[5] = "z42c.pipeline";

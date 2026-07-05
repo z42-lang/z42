@@ -25,7 +25,7 @@ int _regenGolden() {
     string tc = _toolchainDir(root);
     string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _assembleDriverHome(root);
     if (driverHome.Length == 0) {
-        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/z42c/z42c.*/release/dist)");
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
         ConsoleError.WriteLine("       Build it via stdlib/compiler build first.");
         return 1;
     }

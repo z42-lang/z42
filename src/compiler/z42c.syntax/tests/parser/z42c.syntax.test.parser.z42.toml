@@ -13,5 +13,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
-# src/compiler/z42c.syntax/tests/parser → artifacts/build/z42c/z42c.syntax/tests/parser (no src pollution).
-output_dir = "../../../../../artifacts/build/z42c/z42c.syntax/tests/parser"
+# src/compiler/z42c.syntax/tests/parser → artifacts/build/compiler/z42c.syntax/tests/parser (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.syntax/tests/parser"

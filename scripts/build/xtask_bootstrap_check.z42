@@ -38,7 +38,7 @@ int _bootstrapCheck(string ridArg) {
         return 2;
     }
 
-    string work = Path.Join(root, "artifacts/build/z42c/bootstrap-check");
+    string work = Path.Join(root, "artifacts/build/compiler/bootstrap-check");
     _resetDir(work);
 
     // ── fetch the latest nightly SDK package (z42vm + libs/ + programs/z42c/ seed) ──
@@ -84,7 +84,7 @@ int _bootstrapCheck(string ridArg) {
 
     // ── (B) repo z42c → current source (normal self-build sanity) ──
     int b = 2;
-    string repoDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg");
+    string repoDriver = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
     string repoVm = _builtVm(root, "release");
     string repoStd = Path.Join(root, "artifacts/build/libraries/dist/release");
     if (File.Exists(repoDriver) && File.Exists(repoVm)) {
@@ -93,7 +93,7 @@ int _bootstrapCheck(string ridArg) {
         _resetDir(rdh);
         int mi = 0;
         while (mi < members.Length) {
-            _copyAll(Path.Join(root, "artifacts/build/z42c/" + members[mi] + "/release/dist"), rdh, members[mi] + ".zpkg");
+            _copyAll(Path.Join(root, "artifacts/build/compiler/" + members[mi] + "/release/dist"), rdh, members[mi] + ".zpkg");
             mi = mi + 1;
         }
         b = _bcRunWorkspace(root, "repo", repoVm, Path.Join(rdh, "z42c.driver.zpkg"), repoStd, members, work);

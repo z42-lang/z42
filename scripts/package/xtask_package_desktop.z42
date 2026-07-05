@@ -30,7 +30,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     if (!noBuild) {
         c = _buildCompiler(); if (c != 0) { return c; }
     } else {
-        string drv = Path.Join(root, "artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg");
+        string drv = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
         if (!File.Exists(drv) || File.GetSize(drv) <= 0L) {
             ConsoleError.WriteLine("error: --no-build but no z42c seed at " + drv + " (bootstrap first)");
             return 1;
@@ -41,7 +41,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     string[] z42cSeedMembers = _compilerMembers(root);
     int zsi = 0;
     while (zsi < z42cSeedMembers.Length) {
-        string zsp = Path.Join(root, "artifacts/build/z42c/" + z42cSeedMembers[zsi] + "/release/dist/" + z42cSeedMembers[zsi] + ".zpkg");
+        string zsp = Path.Join(root, "artifacts/build/compiler/" + z42cSeedMembers[zsi] + "/release/dist/" + z42cSeedMembers[zsi] + ".zpkg");
         _copyIfExists(zsp, Path.Join(z42cDir, z42cSeedMembers[zsi] + ".zpkg"));
         zsi = zsi + 1;
     }

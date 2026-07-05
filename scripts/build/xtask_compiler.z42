@@ -4,7 +4,7 @@
 // Builds the z42 self-host compiler workspace (src/compiler — 7 子包 1:1 镜像 C#
 // bootstrap 的 7 项目) and smoke-tests that all 7 z42c.<sub>.zpkg are produced.
 // Mirrors xtask_stdlib.z42 (_buildStdlibCore) but targets src/compiler →
-// artifacts/build/z42c.
+// artifacts/build/compiler.
 //
 // NO Z42_LIBS needed: the C# z42c resolves declared workspace siblings from the
 // CURRENT workspace — WorkspaceBuildOrchestrator threads each member's dist dir
@@ -43,13 +43,13 @@ int _buildCompiler() {
 // z42c build(exe) 本已 bundle（simplify-compiler-build 阶段1）；此处对种子/旧版 z42c
 // 建的 driver 兜底，保证下游一律跑自包含 driver，无需拼 colocated 目录。
 void _ensureDriverSelfContained(string root, string profile, string[] members) {
-    string driverDist = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist");
+    string driverDist = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist");
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
         i = i + 1;
         if (m == "z42c.driver") { continue; }
-        string src = Path.Join(Path.Join(root, "artifacts/build/z42c/" + m + "/" + profile + "/dist"), m + ".zpkg");
+        string src = Path.Join(Path.Join(root, "artifacts/build/compiler/" + m + "/" + profile + "/dist"), m + ".zpkg");
         string dst = Path.Join(driverDist, m + ".zpkg");
         if (File.Exists(src) && src != dst) {
             if (File.Exists(dst)) { File.Delete(dst); }
@@ -65,7 +65,7 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
 int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
     _vNormal("  building z42c via z42c (--workspace, C#-free)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
-    string driver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     int rc = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
         .Arg("build").Arg("--workspace").Arg("--release")
         .WorkingDirectory(Path.Join(root, "src/compiler"))
@@ -91,7 +91,7 @@ int _ensureCompilerTooling() {
 // smoke: build + assert each z42c.<sub>.zpkg product exists & is non-empty.
 // member list derives from the workspace manifest's default-members (single
 // source of truth; cf. _stdlibList). member name == [project].name == zpkg
-// basename, so the product path is build/z42c/<name>/release/dist/<name>.zpkg.
+// basename, so the product path is build/compiler/<name>/release/dist/<name>.zpkg.
 // noBuild=true: skip the tooling + z42c rebuild (the caller — `test all` — already
 // built z42c fresh in its build wave; rebuilding here was z42c's 2nd/3rd full
 // self-build in one gate run). Standalone `test compiler` passes false.
@@ -106,7 +106,7 @@ int _testCompiler(bool noBuild) {
 
     string root = _root();
     string profile = "release";
-    string buildRoot = Path.Join(root, "artifacts/build/z42c");
+    string buildRoot = Path.Join(root, "artifacts/build/compiler");
     string[] members = _compilerMembers(root);
 
     int ok = 0;
@@ -172,7 +172,7 @@ int _testCompilerStdlib() {
     string[] members = _compilerMembers(root);
     string vm = _builtVm(root, "release");
     string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
-    string dogfoodRoot = Path.Join(root, "artifacts/build/z42c/dogfood");
+    string dogfoodRoot = Path.Join(root, "artifacts/build/compiler/dogfood");
 
     // runDir = z42c 7 包 + stdlib（拷贝；运行 z42c.driver 用）。
     string runDir = Path.Join(dogfoodRoot, "run-" + profile);
@@ -180,7 +180,7 @@ int _testCompilerStdlib() {
     _copyAll(stdlibFlat, runDir, "*.zpkg");
     int mi = 0;
     while (mi < members.Length) {
-        _copyAll(Path.Join(root, "artifacts/build/z42c/" + members[mi] + "/" + profile + "/dist"), runDir, "*.zpkg");
+        _copyAll(Path.Join(root, "artifacts/build/compiler/" + members[mi] + "/" + profile + "/dist"), runDir, "*.zpkg");
         mi = mi + 1;
     }
     string z42cDriver = Path.Join(runDir, "z42c.driver.zpkg");
@@ -207,7 +207,7 @@ int _testCompilerStdlib() {
     _copyAll(outDir, verDir, "*.zpkg");          // z42c-built stdlib
     mi = 0;
     while (mi < members.Length) {                 // z42c 7 包
-        _copyAll(Path.Join(root, "artifacts/build/z42c/" + members[mi] + "/" + profile + "/dist"), verDir, "*.zpkg");
+        _copyAll(Path.Join(root, "artifacts/build/compiler/" + members[mi] + "/" + profile + "/dist"), verDir, "*.zpkg");
         mi = mi + 1;
     }
     string probeSrc = Path.Join(root, "src/libraries/z42.math/tests/math_basics.z42");
@@ -240,7 +240,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     string flat = _assembleAllLibs(root, profile);
 
     string vm     = _builtVm(root, "release");
-    string driverZpkg = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     // retire-test-runner: z42c [Test] units run through z42b (z42.builder.zpkg)
     // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
     // resolve from `flat`); incremental/cached when already current.
@@ -282,10 +282,10 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 }
                 // Build output → artifacts mirror via the unit toml's [build]
                 // output_dir (mirror-build-output-per-component, 2026-06-16):
-                //   src/compiler/<member>/tests/<unit> → artifacts/build/z42c/<member>/tests/<unit>
+                //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/tests/<unit>
                 // so the produced .zpkg lands in <mirror>/dist/, NOT beside source.
                 string mirrorDist = Path.Join(
-                    Path.Join(root, "artifacts/build/z42c/" + members[i] + "/tests/" + unit),
+                    Path.Join(root, "artifacts/build/compiler/" + members[i] + "/tests/" + unit),
                     "dist");
                 string[] zps = Path.Glob(mirrorDist, "*.zpkg");
                 // Guard against a recurrence of the prior false-green: before
@@ -339,8 +339,8 @@ int _testSelfHostByteIdentical(string root, string vm, string flat, string[] mem
     Console.WriteLine("");
     Console.WriteLine("── z42c self-host byte-identical: z42c compiles z42c packages ──");
 
-    string driverZpkg = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    string outDir = Path.Join(root, "artifacts/build/z42c/selfhost-out");
+    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string outDir = Path.Join(root, "artifacts/build/compiler/selfhost-out");
     Directory.Create(outDir);
     _cleanGlob(outDir, "*.zpkg");
 
@@ -350,7 +350,7 @@ int _testSelfHostByteIdentical(string root, string vm, string flat, string[] mem
     while (i < members.Length) {
         string member = members[i];
         string tomlPath = Path.Join(root, "src/compiler/" + member + "/" + member + ".z42.toml");
-        string expected = Path.Join(root, "artifacts/build/z42c/" + member + "/" + profile + "/dist/" + member + ".zpkg");
+        string expected = Path.Join(root, "artifacts/build/compiler/" + member + "/" + profile + "/dist/" + member + ".zpkg");
 
         ProcessResult br = new Process(vm)
             .Arg(driverZpkg).Arg("--")

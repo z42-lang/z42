@@ -19,7 +19,7 @@
 
 ## 构建
 ```
-z42 xtask.zpkg build compiler     # 编译 7 子包 → artifacts/build/z42c/<pkg>/release/dist/
+z42 xtask.zpkg build compiler     # 编译 7 子包 → artifacts/build/compiler/<pkg>/release/dist/
 z42 xtask.zpkg test  compiler     # 上述 + 断言 7 zpkg 产出（smoke；opt-in soak）
 ```
 兄弟依赖经 workspace 自动解析（须在各 manifest `[dependencies]` 声明）；stdlib 自动可用。

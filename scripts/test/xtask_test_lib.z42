@@ -113,7 +113,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // once; threaded through _runUnitsBatched → _compilePrep so every unit
     // compiles via z42c, not `dotnet z42c.dll`.
     string vm = _builtVm(root, "release");
-    string driverZpkg = Path.Join(root, "artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
     string libs = _assembleAllLibs(root, "release");
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each

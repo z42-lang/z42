@@ -303,7 +303,7 @@ string _seedStdlibDir(string root) {
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
-    string inDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string inDriver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
@@ -328,7 +328,7 @@ int _ensureSeed(string root) {
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
-        string dst = Path.Join(root, "artifacts/build/z42c/" + m + "/" + profile + "/dist");
+        string dst = Path.Join(root, "artifacts/build/compiler/" + m + "/" + profile + "/dist");
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {

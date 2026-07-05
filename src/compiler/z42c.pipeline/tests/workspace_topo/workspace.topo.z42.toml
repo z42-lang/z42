@@ -15,5 +15,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
-# src/compiler/z42c.pipeline/tests/workspace_topo → artifacts/build/z42c/z42c.pipeline/tests/workspace_topo (no src pollution).
-output_dir = "../../../../../artifacts/build/z42c/z42c.pipeline/tests/workspace_topo"
+# src/compiler/z42c.pipeline/tests/workspace_topo → artifacts/build/compiler/z42c.pipeline/tests/workspace_topo (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/workspace_topo"

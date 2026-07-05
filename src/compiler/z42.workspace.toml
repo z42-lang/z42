@@ -2,7 +2,7 @@
 #
 # 7 子包 1:1 镜像 C# bootstrap 的 7 个项目（src/compiler/）。骨架阶段仅占位类型，
 # 真实逻辑（Lexer/Parser/Semantics/IR/Pipeline）由 0.3.3 起的后续 spec 落地。
-# 产物：artifacts/build/z42c/<pkg>/<profile>/{dist,cache}/，按 build profile 分级。
+# 产物：artifacts/build/compiler/<pkg>/<profile>/{dist,cache}/，按 build profile 分级。
 #
 # 与 src/libraries/（stdlib workspace）解耦：A 主线 stdlib 重组不冲击本树。
 # 包间依赖经 `z42c build --workspace` 拓扑序 + 同 workspace dist 自动发现解析
@@ -42,5 +42,5 @@ license = "MIT"
 [workspace.build]
 # output_dir 是 workspace-root-relative（src/compiler/ → ../../ = repo root）；
 # cache_dir 由 CentralizedBuildLayout 相对 output_dir 解析，故用 ${output_dir} 模板。
-output_dir = "../../artifacts/build/z42c/${project_name}/${profile}"
+output_dir = "../../artifacts/build/compiler/${project_name}/${profile}"
 cache_dir  = "${output_dir}/cache"

@@ -71,7 +71,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `deps install` | **首次 clone / 平台版本变动** | `versions.toml` | rust targets + cargo-ndk + wasm-pack；按平台装 NDK / 构建 SDK |
 | `deps check` | 改 `versions.toml` 后对账 | `versions.toml` + 投影文件 | versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift 一致性 |
 | `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/build/libraries/dist/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
-| `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/z42c/<member>/release/dist/*.zpkg`（7 个自建成员） |
+| `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（7 个自建成员） |
 | `build package [release\|debug] [--rid R]` | 准备发行 / 测发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<rid>-<config>/{bin,libs,native}`（末尾自动跑 SHA-256 invariant） |
 | `regen` | 编译器变更使 `.zbc` 基线漂移 | z42c + z42vm | run-golden 按组件镜像到 `artifacts/build/`（gitignored，不污染 src）；committed 字节基线 `src/tests/zbc-format/*/source.zbc` 就地重写 |
 | `audit` | 新增 test `source.z42` | `z42.regex` | 自动补缺失的 `using` 声明 |

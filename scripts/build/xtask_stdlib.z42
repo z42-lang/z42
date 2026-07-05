@@ -79,7 +79,7 @@ int _buildStdlibCore() {
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
-    string z42cDriver = Path.Join(root, "artifacts/build/z42c/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string z42cDriver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     if (!File.Exists(z42cDriver) || File.GetSize(z42cDriver) <= 0L) {
         ConsoleError.WriteLine("  ✗ z42c.driver.zpkg invalid: " + z42cDriver);
         return 1;
@@ -142,18 +142,18 @@ string[] _compilerMembers(string root) {
 }
 
 // 组装 alllibs flat 视图：stdlib dist + z42c 7 成员 dist 全部 hard-link 到
-// artifacts/build/z42c/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
+// artifacts/build/compiler/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
 // （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
 // 三处消费共用：test lib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
 string _assembleAllLibs(string root, string profile) {
-    string flat = Path.Join(root, "artifacts/build/z42c/alllibs/" + profile);
+    string flat = Path.Join(root, "artifacts/build/compiler/alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
     _linkAll(Path.Join(root, "artifacts/build/libraries/dist/" + profile), flat, "*.zpkg");
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
-        _linkAll(Path.Join(root, "artifacts/build/z42c/" + members[i] + "/" + profile + "/dist"), flat, "*.zpkg");
+        _linkAll(Path.Join(root, "artifacts/build/compiler/" + members[i] + "/" + profile + "/dist"), flat, "*.zpkg");
         i = i + 1;
     }
     return flat;
@@ -225,7 +225,7 @@ int _buildSdk(string outOpt, bool noBuild) {
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
-        string distDir = Path.Join(root, "artifacts/build/z42c/" + m + "/release/dist");
+        string distDir = Path.Join(root, "artifacts/build/compiler/" + m + "/release/dist");
         _copyIfExists(Path.Join(distDir, m + ".zpkg"), Path.Join(z42cDir, m + ".zpkg"));
         _copyIfExists(Path.Join(distDir, m + ".zsym"), Path.Join(z42cDir, m + ".zsym"));
         i = i + 1;
@@ -272,7 +272,7 @@ int _stageToolchain(string dest) {
     // 2. stdlib per-member dist (warm-seed self-build inputs)
     _stageMembers(Path.Join(root, "artifacts/build/libraries"), dest, "artifacts/build/libraries");
     // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)
-    _stageMembers(Path.Join(root, "artifacts/build/z42c"), dest, "artifacts/build/z42c");
+    _stageMembers(Path.Join(root, "artifacts/build/compiler"), dest, "artifacts/build/compiler");
     // 4. xtask dev CLI
     string xtDst = Path.Join(dest, "artifacts/xtask");
     Directory.Create(xtDst);

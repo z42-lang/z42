@@ -40,7 +40,7 @@ int _bench(ParseResult r) {
     // z42c.driver needs its own siblings resolvable at runtime, scenario stdlib
     // deps resolve from the same dir.
     int czc = _buildCompiler(); if (czc != 0) { return czc; }
-    string driverZpkg = Path.Join(root, "artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
     string flat = _assembleAllLibs(root, "release");
     string work = Directory.CreateTempDir("xtask-bench");
 
