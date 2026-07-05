@@ -22,8 +22,8 @@ using Std.Time;   // Stopwatch — bench command process marker
 int _runCli(string[] argvIn) {
     // Pull the global `--toolchain <dir>` and `--verbosity <level>` out of argv
     // before routing (the nested router models only per-leaf options). --toolchain
-    // sets Z42_TOOLCHAIN (every locator redirects to that `.z42`); --verbosity sets
-    // Z42_VERBOSITY (read by _verbosity, inherited by children).
+    // sets Z42_HOME (the single "SDK root"; every locator redirects to that `.z42`);
+    // --verbosity sets Z42_VERBOSITY (read by _verbosity, inherited by children).
     string[] argv = _applyVerbosityOpt(_applyToolchainOpt(argvIn));
     string c0 = argv.Length > 0 ? argv[0] : "";
     string c1 = argv.Length > 1 ? argv[1] : "";
@@ -70,8 +70,9 @@ bool _isFlag(string a) { return a.Length >= 1 && a.CharAt(0) == '-'; }
 bool _isHelpFlag(string a) { return a == "-h" || a == "--help"; }
 
 // Strip a global `--toolchain <dir>` (two-token form) from argv and stash <dir>
-// in Z42_TOOLCHAIN (read by _toolchainDir). Last occurrence wins. Returns argv
-// unchanged when absent. Two passes (count survivors, then fill) — no List type.
+// in Z42_HOME (the single "SDK root" var, read by _toolchainDir; simplify-compiler-
+// build folded the former Z42_TOOLCHAIN into Z42_HOME). Last occurrence wins. Returns
+// argv unchanged when absent. Two passes (count survivors, then fill) — no List type.
 string[] _applyToolchainOpt(string[] argv) {
     int n = argv.Length;
     string tc = "";
@@ -86,7 +87,7 @@ string[] _applyToolchainOpt(string[] argv) {
         i = i + 1;
     }
     if (tc.Length == 0) { return argv; }
-    Environment.SetEnvironmentVariable("Z42_TOOLCHAIN", tc);
+    Environment.SetEnvironmentVariable("Z42_HOME", tc);
     string[] kept = new string[keep];
     int j = 0;
     i = 0;

@@ -57,8 +57,13 @@ int _runVmGoldens(string[] modes, int jobs, int shardK, int shardN) {
     // function/extern (add-method-invoke-non-generic: Std.Type.GetType) fails at
     // run time with "undefined function" against a stale z42.core, even though it
     // compiled fine. Mirrors the regen step's stdlibDist selection.
-    string tc = Environment.GetEnvironmentVariable("Z42_TOOLCHAIN") ?? "";
-    string goldenLibs = (tc.Length > 0) ? _toolchainLibs(tc) : _libsDir(root);
+    // Z42_HOME (--toolchain) may be an SDK layout (has libs/) or a managed layout
+    // (runtimes/, no libs/); use the toolchain libs only when they actually exist,
+    // else the build-tree stdlib.
+    string tc = _toolchainDir(root);
+    string tcLibs = (tc.Length > 0) ? _toolchainLibs(tc) : "";
+    string goldenLibs = (tcLibs.Length > 0 && File.Exists(Path.Join(tcLibs, "z42.core.zpkg")))
+        ? tcLibs : _libsDir(root);
     Environment.SetEnvironmentVariable("Z42_LIBS", goldenLibs);
 
     int overallPass = 0;

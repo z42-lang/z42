@@ -91,7 +91,7 @@ runs:
         echo "   seed: $(ls "$seed"/*.zpkg | wc -l | tr -d ' ') zpkg @ $seed"
 
         # No hand-copy into the build tree anymore: xtask's `_ensureSeed` stages the
-        # in-tree z42c + stdlib seed from the SDK (Z42_TOOLCHAIN) below (steps 3/4) — the
+        # in-tree z42c + stdlib seed from the SDK (Z42_HOME) below (steps 3/4) — the
         # SAME resolver `./xtask build compiler` uses locally, so CI and local share one
         # logic. Z42_LIBS points at the SDK's nightly stdlib so xtask.zpkg (built by the
         # seed z42c against THAT stdlib) can LOAD to run; pointing it at the empty in-tree
@@ -101,7 +101,7 @@ runs:
         # ABSOLUTE path z42vm must parse. The bash exec position ("$vm" …) keeps the MSYS
         # form — git-bash launches the .exe fine; only what z42vm itself reads is converted.
         seedw="$(winpath "$seed")"
-        sdkpkgw="$(winpath "$work/sdkpkg")"        # SDK dir → Z42_TOOLCHAIN (seed source)
+        sdkpkgw="$(winpath "$work/sdkpkg")"        # SDK dir → Z42_HOME (seed source)
         sdklibsw="$(winpath "$work/sdkpkg/libs")"  # nightly stdlib → Z42_LIBS (xtask runtime)
         driverw="$(winpath "$seed/z42c.driver.zpkg")"
 
@@ -122,15 +122,15 @@ runs:
           build scripts/xtask.z42.toml --release
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
 
-        # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_TOOLCHAIN) ─
+        # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
         # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
         # (default is now minimal — ▶/✔ markers only; detailed is what debugs bootstrap).
-        echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_TOOLCHAIN) ──"
-        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
+        echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_HOME) ──"
+        Z42_HOME="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
 
         # ── 4. xtask builds CURRENT stdlib (flat dist + index.json) ──────────────────
         echo "── [4/5] xtask build stdlib ──"
-        Z42_TOOLCHAIN="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
+        Z42_HOME="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
 
         # ── 5. sanity: toolchain present ─────────────────────────────────────────────
         echo "── [5/5] verify toolchain ──"

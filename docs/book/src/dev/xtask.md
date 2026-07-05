@@ -22,7 +22,7 @@ xtask 是纯 z42 写的仓库开发 CLI（`xtask <cmd>`），统一承载构建�
 |------|------|------|
 | 实现语言 | z42（而非 bash / Rust cargo-xtask） | dogfooding 压力测试语言与 stdlib（Cli/IO/Toml/Regex 都被迫成熟）；跨平台无 shell 差异 |
 | 命令路由 | `Std.Cli` SubcommandRouter 树 | 每层自动生成 `-h` 帮助；命令面即数据结构，可静态审阅 |
-| 工具链选择 | 全局 `--toolchain <dir>` → `Z42_TOOLCHAIN` 环境变量 | 一处剥离、处处生效，命令实现无需逐个透传参数 |
+| 工具链选择 | 全局 `--toolchain <dir>` → `Z42_HOME` 环境变量 | 一处剥离、处处生效，命令实现无需逐个透传参数 |
 | 运行形态 | 原生 apphost 可执行（仓库根 `./xtask`，内嵌 launcher + zpkg） | 单文件、直接运行，不依赖 PATH 上的 launcher；与用户应用同一套 apphost 机制 |
 
 ## 机制
@@ -47,22 +47,26 @@ graph TD
 ```mermaid
 graph LR
     M[Main] --> R[_runCli]
-    R --> T[--toolchain 剥离<br/>→ Z42_TOOLCHAIN]
+    R --> T[--toolchain 剥离<br/>→ Z42_HOME]
     T --> I[拦截层<br/>test/bench/run 裸命令默认行为]
     I --> RT[SubcommandRouter 树<br/>Resolve]
     RT --> D[_dispatch 按 Path 分层分发<br/>→ 各 _dispatchXxx]
 ```
 
 三段式：① 全局标志剥离（`--toolchain` 两 token 形式从 argv 摘除，last-wins，写入
-`Z42_TOOLCHAIN`）；② 拦截层给裸命令定默认语义（裸 `test` = 完整 GREEN gate、裸 `bench` = e2e、
+`Z42_HOME`——单一「SDK 根」变量；simplify-compiler-build 把原 `Z42_TOOLCHAIN` 折进 `Z42_HOME`）；
+② 拦截层给裸命令定默认语义（裸 `test` = 完整 GREEN gate、裸 `bench` = e2e、
 `run` 原样透传 launcher）；③ 路由树解析后按路径首段分发到各子模块的 handler。
 
-### `--toolchain` / `Z42_TOOLCHAIN` 的作用范围
+### `--toolchain` / `Z42_HOME` 的作用范围
 
 设了 toolchain 后，**所有**解析"用哪套 z42c / stdlib / z42vm"的路径函数
-（`_toolchainDir` → `_toolchainDriverHome` / `_toolchainLibs`）都优先取 toolchain 目录，
+（`_toolchainDir` → `_toolchainDriverHome` / `_toolchainLibs`）都优先取该 `Z42_HOME` 目录，
 否则回落 build-tree（`artifacts/build/`）。也就是说它不是某几个命令的参数，而是全局的
 "工具链根切换"——例如 `regen --toolchain <dir>` 会用该工具链的 z42c 编 golden。
+`Z42_HOME` 跨两种布局：SDK-toolchain（`programs/`+`libs/`+`bin/z42vm`，`--toolchain` 或便携 SDK）
+与 managed 安装（`runtimes/`+`config.toml`）；消费端按 `programs/` / `bin/z42vm` 是否存在守卫，
+managed 布局的 `Z42_HOME` 不符 SDK-toolchain 布局时自动回落 build-tree，不会错位。
 
 ## 实现
 

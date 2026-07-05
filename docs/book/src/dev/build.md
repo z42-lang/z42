@@ -31,15 +31,18 @@
 ```mermaid
 graph TD
     S{warm 种子存在?<br/>z42c.driver.zpkg + stdlib dist} -->|否| ERR[报错: 引导下载 nightly<br/>cold 冷启动]
-    S -->|是| P1[阶段一: 种子 z42c 按拓扑序<br/>自建 z42c 七包<br/>每包产物累积进 runlibs]
-    P1 --> P2[阶段二: runlibs + stdlib 种子<br/>组装 dogfood 目录<br/>z42vm 跑自建 z42c.driver<br/>build --workspace --release]
+    S -->|是| P1[阶段一: 种子 z42c 自建 z42c 七包<br/>build --workspace<br/>driver dist 自包含 6 兄弟包]
+    P1 --> P2[阶段二: 直跑自建 self-contained<br/>z42c.driver 编 stdlib 七包<br/>Z42_LIBS=.stdlib-run 快照]
     P2 --> P3[阶段三: 各成员 dist 被自建产物<br/>drop-in 替换<br/>hard-link 汇成扁平视图]
     P3 --> OUT[artifacts/build/libraries/dist/release/<br/>= Z42_LIBS]
 ```
 
-要点：阶段一每编完一个 z42c 成员，其 zpkg 立即进入后续成员的编译依赖（拓扑累积）；
-阶段二让**自建的** z42c（不是种子）编 stdlib workspace，产物直接覆盖各成员 dist；
-阶段三 hard-link（零拷贝）汇聚成单目录。`build compiler` 即单独执行阶段一 + 七包完整性校验。
+要点：阶段一用 `z42c build --workspace`——拓扑序编七包、兄弟依赖由 workspace 内部解析，
+产物 driver dist **自包含** 6 个 `z42c.*` 兄弟包（.NET 式，`z42c build` 编 exe 时自动复制非
+stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LIBS` 指向 `.stdlib-run` 快照，
+因 stdlib 正被重建需稳定副本），产物覆盖各成员 dist；阶段三 hard-link（零拷贝）汇聚成单目录。
+`build compiler` 即单独执行阶段一 + 七包完整性校验。（simplify-compiler-build 去掉了旧的
+`selfbuild-runlibs/` + `dogfood/` 拼接目录。）
 
 ### 不动点验证（test compiler 的核心）
 
@@ -57,8 +60,8 @@ gen1 = 种子编出的 z42c 七包；gen2 = 用 gen1 再编一遍七包；**gen1
 | flat 模式 | `src/tests/<cat>/<name>.z42` | artifacts 镜像 |
 
 **排除类**：`errors` / `parse`（预期编译/解析失败，本就无 `.zbc` 可产）、`cross-zpkg`
-（多包协作，非单 source 产物）。工具链选择尊重 `Z42_TOOLCHAIN`（见 [xtask](xtask.md)），
-未设时用 build-tree 的 z42c + stdlib + z42vm。
+（多包协作，非单 source 产物）。工具链选择尊重 `Z42_HOME`（`--toolchain` 设它，见 [xtask](xtask.md)），
+未设或非 SDK-toolchain 布局时用 build-tree 的 z42c + stdlib + z42vm。
 
 ### bootstrap-check：跨版本自举边界检查
 
@@ -82,7 +85,7 @@ graph TD
 流程要点：种子取自 **SDK** nightly 的 `programs/z42c/`（runtime 包是纯嵌入包、不带 z42c）；
 两轨都按拓扑序编七包、每编成一个成员即累积进 runlibs 供后续成员解析；(A) 轨用 nightly 的
 stdlib 供依赖，因此**语法轴和 stdlib API 轴的越界都会在此暴露**。(B) 轨仅作"源码本身没写坏"
-的对照，不影响退出码。工作目录 `artifacts/build/z42c/bootstrap-check/`。
+的对照，不影响退出码。工作目录 `artifacts/build/compiler/bootstrap-check/`。
 
 已知限制：**只编 z42c 七包，不编 xtask 源**——xtask 源的越界目前只能由 CI 冷启动兜底
 （缺口登记见 `docs/workflow/testing/verify-by-change.md` 覆盖矩阵）。
@@ -91,8 +94,8 @@ stdlib 供依赖，因此**语法轴和 stdlib API 轴的越界都会在此暴�
 
 | 组件 | 位置 | 要点 |
 |------|------|------|
-| stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlibCore` | 种子校验 → 七包自建 → dogfood → 扁平视图 |
-| z42c 七包自建 + 不动点 | `scripts/build/xtask_compiler.z42` 的 `_buildCompilerViaZ42c` / `_testCompilerUnits` | 拓扑序累积 runlibs；gen1==gen2 逐字节比对 |
+| stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlibCore` | 种子校验 → 七包自建 → self-contained driver 编 stdlib（`.stdlib-run` 快照）→ 扁平视图 |
+| z42c 七包自建 + 不动点 | `scripts/build/xtask_compiler.z42` 的 `_buildCompilerViaZ42c` / `_testCompilerUnits` | `z42c build --workspace`（driver dist 自包含兄弟包）；gen1==gen2 逐字节比对 |
 | 自举 e2e oracle | `scripts/build/xtask_compiler_e2e.z42` | div-by-zero 等行为校验（500 行限制拆出） |
 | 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·bootstrap-check"） |
 | golden 重生 | `scripts/xtask_regen.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |

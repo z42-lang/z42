@@ -54,6 +54,11 @@
 | `src/runtime/build.rs` | MODIFY | ✅ Phase2 删 dogfood 的回归修复：driver-home 从 `dogfood/run-release` 改指自包含 `compiler/z42c.driver/dist` + `Z42_LIBS=libraries/dist`（**新占 runtime 锁**） |
 | `src/compiler/*/tests/*.z42.toml`（18 个）+ `src/compiler/README.md` | MODIFY | ✅ 测试项目 output_dir 及文档的 `build/z42c` → `build/compiler`（`manifest_tests.z42` 的 PathTemplate 测试数据保留） |
 
+**Scope 扩展（阶段 4 折叠 Z42_HOME 的布局守卫，2026-07-05）**：User 裁决把 `Z42_TOOLCHAIN` 折进 `Z42_HOME`；因两者布局不同（managed `runtimes/` vs SDK `programs/`+`bin/`），消费端需加守卫防错位。
+| `scripts/xtask_cli.z42` | MODIFY | ✅ `--toolchain` 设 `Z42_HOME`（原 `Z42_TOOLCHAIN`） |
+| `scripts/common/xtask_common.z42` | MODIFY | ✅ `_toolchainDir` 读 `Z42_HOME`；`_activeVm`/`_z42vm` 加 `bin/z42vm` 布局守卫；`_seedSdkDir` 删冗余 `Z42_HOME` 块 |
+| `scripts/test/xtask_test_vm.z42` | MODIFY | ✅ golden libs 改经 `_toolchainDir` + libs 存在守卫（原直读 `Z42_TOOLCHAIN`） |
+
 **只读引用**：
 - `src/runtime/src/main.rs`（`search_dirs` = entry dir + libs，理解解析顺序；不改）
 - `docs/spec/archive/2026-06-19-restructure-publish-output-dirs/`（publish 已有的 exe 依赖复制，参考实现）
@@ -67,5 +72,5 @@
 
 ## Open Questions
 
-- [ ] env 第 1 层：`--toolchain` 到底折进 `Z42_HOME` 还是保留 `Z42_TOOLCHAIN` 作为 xtask-only 别名？（CI 现用 `Z42_TOOLCHAIN`，改 `Z42_HOME` 要同步 ci-bootstrap）
+- [x] env 第 1 层：`--toolchain` 折进 `Z42_HOME`（User 裁决，2026-07-05）。因 `Z42_HOME`（managed）与 `Z42_TOOLCHAIN`（SDK）布局不同，消费端加"是否 SDK-toolchain 布局"守卫（`programs/`/`bin/z42vm` 存在）——不碰 launcher 层（那仍是独立 env 第 2 层 change）。CI `ci-bootstrap` 同步 `Z42_HOME=`。
 - [ ] `artifacts/build/README.md` 放哪（artifacts 是 gitignore；说明文档是否改放 `docs/workflow/`）

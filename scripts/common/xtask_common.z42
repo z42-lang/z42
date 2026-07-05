@@ -63,7 +63,14 @@ string _z42vm() {
     if (pv.Length > 0) { return pv; }
     string vmname = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
     string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
-    if (home.Length > 0) { return Path.Join(home, Path.Join("launcher", vmname)); }
+    if (home.Length > 0) {
+        // Z42_HOME spans two layouts: SDK/toolchain root (<home>/bin/z42vm — a
+        // portable SDK or a `--toolchain <dir>`) and managed install
+        // (<home>/launcher/z42vm). Prefer whichever exists.
+        string binVm = Path.Join(home, Path.Join("bin", vmname));
+        if (File.Exists(binVm)) { return binVm; }
+        return Path.Join(home, Path.Join("launcher", vmname));
+    }
     return vmname;
 }
 
@@ -120,14 +127,16 @@ string[] _splitWords(string s) {
 
 // ── toolchain selector (--toolchain <dir>) ───────────────────────────────────
 
-// The active toolchain dir in `.z42` layout (libs/ + programs/z42c/*.zpkg + bin/),
-// or "" when unset. Set from the global `--toolchain` option (stored in the
-// Z42_TOOLCHAIN env var so every helper + spawned child sees it). When "", callers
-// fall back to the build-tree artifacts paths (backward-compatible default). A
-// relative value resolves against the repo root.
-//   .z42 = SDK (downloaded), artifacts/.z42 = local SDK (built) — Decision 1.
+// The SDK toolchain root in `.z42` layout (programs/z42c/*.zpkg + libs/ + bin/), or
+// "" when unset. Read from Z42_HOME — the single "SDK root" var, set either by the
+// launcher/install or by the global `--toolchain <dir>` option (which now exports
+// Z42_HOME so every helper + spawned child sees it; simplify-compiler-build folded the
+// former Z42_TOOLCHAIN into Z42_HOME). A MANAGED Z42_HOME uses a different layout
+// (runtimes/<ver>/ + config.toml, no programs//bin/z42vm); callers guard on programs/
+// (_seedSdkDir) or bin/z42vm existence (_activeVm) and fall back to the build tree when
+// this root is not an SDK-toolchain layout. Relative → repo root.
 string _toolchainDir(string root) {
-    string tc = Environment.GetEnvironmentVariable("Z42_TOOLCHAIN") ?? "";
+    string tc = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
     if (tc.Length == 0) { return ""; }
     if (Path.IsRooted(tc)) { return tc; }
     return Path.Join(root, tc);
@@ -156,7 +165,12 @@ string _toolchainVm(string tcDir) {
 // the VM with no cargo build.
 string _activeVm(string root, string profile) {
     string tc = _toolchainDir(root);
-    if (tc.Length > 0) { return _toolchainVm(tc); }
+    if (tc.Length > 0) {
+        // Only when Z42_HOME is an SDK-toolchain layout (bin/z42vm present); a managed
+        // Z42_HOME (runtimes/, no bin/z42vm) falls through to the build-tree binary.
+        string tcVm = _toolchainVm(tc);
+        if (File.Exists(tcVm)) { return tcVm; }
+    }
     return _builtVm(root, profile);
 }
 
@@ -229,20 +243,16 @@ void _procEnd(string name, Stopwatch sw) {
 // byte-identical fixpoint, so it must win over the SDK.
 
 // SDK toolchain root (.z42 layout: programs/z42c + libs + bin). Order:
-// Z42_TOOLCHAIN (--toolchain) → Z42_HOME → the SDK running this xtask
+// Z42_HOME (--toolchain sets it, else launcher/install) → the SDK running this xtask
 // (Z42_PORTABLE_VM = <sdk>/bin/z42vm ⇒ <sdk>) → repo-local ./.z42. "" if none.
+// A managed-layout Z42_HOME (runtimes/, no programs/) fails the programs/ guard and is
+// skipped — only an SDK-toolchain-layout root qualifies as a seed source.
 string _seedSdkDir(string root) {
     string tc = _toolchainDir(root);
     if (tc.Length > 0 && Directory.Exists(Path.Join(tc, "programs"))) {
-        _vDetailed("    sdk: --toolchain/Z42_TOOLCHAIN → " + tc + "  ✓"); return tc;
+        _vDetailed("    sdk: Z42_HOME/--toolchain → " + tc + "  ✓"); return tc;
     }
-    if (tc.Length > 0) { _vDetailed("    sdk: Z42_TOOLCHAIN=" + tc + "  (no programs/, skip)"); }
-    else { _vDetailed("    sdk: Z42_TOOLCHAIN unset"); }
-    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
-    if (home.Length > 0 && Directory.Exists(Path.Join(home, "programs"))) {
-        _vDetailed("    sdk: Z42_HOME → " + home + "  ✓"); return home;
-    }
-    if (home.Length > 0) { _vDetailed("    sdk: Z42_HOME=" + home + "  (no programs/, skip)"); }
+    if (tc.Length > 0) { _vDetailed("    sdk: Z42_HOME=" + tc + "  (no programs/ — managed layout? skip)"); }
     else { _vDetailed("    sdk: Z42_HOME unset"); }
     string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
     if (pv.Length > 0) {
@@ -260,18 +270,9 @@ string _seedSdkDir(string root) {
     return "";
 }
 
-// z42c seed dir (z42c.driver.zpkg + 6 siblings). Z42C_DIR (explicit, only when it
-// actually holds the driver) wins; else <sdk>/programs/z42c. "" if neither resolves.
+// z42c seed dir (z42c.driver.zpkg + 6 siblings) = <sdk>/programs/z42c. "" if no SDK.
 string _seedDriverHome(string root) {
-    _vDetailed("  seed·z42c: resolving driver-home");
-    string zc = Environment.GetEnvironmentVariable("Z42C_DIR") ?? "";
-    if (zc.Length > 0) {
-        if (!Path.IsRooted(zc)) { zc = Path.Join(root, zc); }
-        if (File.Exists(Path.Join(zc, "z42c.driver.zpkg"))) {
-            _vDetailed("  seed·z42c: Z42C_DIR → " + zc + "  ✓"); return zc;
-        }
-        _vDetailed("  seed·z42c: Z42C_DIR=" + zc + "  (no z42c.driver.zpkg, fall back to SDK)");
-    } else { _vDetailed("  seed·z42c: Z42C_DIR unset → SDK"); }
+    _vDetailed("  seed·z42c: resolving driver-home ← SDK");
     string sdk = _seedSdkDir(root);
     if (sdk.Length > 0) { return _toolchainDriverHome(sdk); }
     return "";
@@ -297,9 +298,9 @@ string _seedStdlibDir(string root) {
 
 // Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
 // byte-identical fixpoint) can run. No-op when the in-tree seed is already present
-// (WARM). When absent (COLD), stage the resolved seed (Z42C_DIR / Z42_LIBS /
-// --toolchain / Z42_HOME / apphost SDK) into the in-tree layout — mirroring what CI
-// used to hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
+// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
+// (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
+// hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
@@ -316,9 +317,9 @@ int _ensureSeed(string root) {
     string stdlibDir = _seedStdlibDir(root);
     if (driverHome.Length == 0 || stdlibDir.Length == 0) {
         ConsoleError.WriteLine("error: no z42c seed. Provide one of:");
-        ConsoleError.WriteLine("  Z42C_DIR=<dir w/ z42c.driver.zpkg+siblings>   Z42_LIBS=<stdlib dist>");
-        ConsoleError.WriteLine("  --toolchain <sdk>  /  Z42_HOME=<sdk>          (.z42 layout: programs/z42c + libs)");
-        ConsoleError.WriteLine("  ./scripts/install-z42.sh → ./.z42            (auto-detected when xtask runs via that SDK)");
+        ConsoleError.WriteLine("  --toolchain <sdk>  /  Z42_HOME=<sdk>   (.z42 layout: programs/z42c + libs)");
+        ConsoleError.WriteLine("  Z42_LIBS=<stdlib dist>                 (stdlib only; z42c seed still needs Z42_HOME)");
+        ConsoleError.WriteLine("  ./scripts/install-z42.sh → ./.z42      (auto-detected when xtask runs via that SDK)");
         return 1;
     }
     _vNormal("  seed: z42c   ← " + driverHome);

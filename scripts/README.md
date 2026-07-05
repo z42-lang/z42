@@ -32,13 +32,15 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > **工具链全程 z42 自举**。
 
 > **种子从哪来（`build compiler` / `build stdlib` 共用一套解析，CI = 本地）**：冷树无
-> in-tree 种子时，`_ensureSeed`（`common/xtask_common.z42`）按 **`Z42C_DIR` →
-> `--toolchain`/`Z42_TOOLCHAIN` → `Z42_HOME` → 运行 xtask 的 apphost SDK
-> （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 顺序找到 SDK，把 `programs/z42c` + `libs`
-> 拷进 in-tree 再自建；warm 树（已有 in-tree 种子）直接复用——**gen2 字节不动点靠它**，
-> 故不覆盖。所以 `install-z42.sh` 之后本地 `xtask build compiler` 开箱即用；CI 只需设
-> `Z42_TOOLCHAIN=<下载的 SDK>`（`.github/actions/ci-bootstrap`），不再手动拷种子。
-> `Z42C_DIR` / `Z42_LIBS` 显式覆盖仅在其确实含 `z42c.driver.zpkg` / `z42.core.zpkg` 时生效。
+> in-tree 种子时，`_ensureSeed`（`common/xtask_common.z42`）按 **`Z42_HOME`
+> （`--toolchain` 设它，或 launcher/install 设）→ 运行 xtask 的 apphost SDK
+> （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 顺序找 SDK-toolchain 布局的根
+> （`programs/z42c` + `libs`），把 `programs/z42c` + `libs` 拷进 in-tree 再自建；
+> warm 树（已有 in-tree 种子）直接复用——**gen2 字节不动点靠它**，故不覆盖。所以
+> `install-z42.sh` 之后本地 `xtask build compiler` 开箱即用；CI 只需设
+> `Z42_HOME=<下载的 SDK>`（`.github/actions/ci-bootstrap`），不再手动拷种子。
+> managed 布局的 `Z42_HOME`（`runtimes/`，无 `programs/`）不符 SDK-toolchain 布局 →
+> 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其确实含 `z42.core.zpkg` 时生效。
 
 > 所有版本号的唯一真相源是仓库根 `versions.toml`（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `common/xtask_versions.z42`）。
@@ -49,7 +51,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 
 | 选项 | 作用 |
 |------|------|
-| `--toolchain <dir>` | 指定 `.z42` 布局的工具链（`programs/z42c` + `libs` + `bin`）；写入 `Z42_TOOLCHAIN`，被 seed / VM / libs 定位器读取 |
+| `--toolchain <dir>` | 指定 `.z42` 布局的工具链（`programs/z42c` + `libs` + `bin`）；写入 `Z42_HOME`（单一「SDK 根」变量），被 seed / VM / libs 定位器读取 |
 | `--verbosity` / `-v <level>` | 输出详略：`q[uiet]` \| `m[inimal]`（默认）\| `n[ormal]` \| `d[etailed]` \| `diag[nostic]`；写入 `Z42_VERBOSITY`，子进程继承 |
 
 **verbosity 级别（累进，MSBuild 风格；实现见 `common/xtask_common.z42`）：**
@@ -59,7 +61,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `quiet` | 仅错误 |
 | `minimal`（默认） | + `▶`/`✔` 每个流程的开始/结束标记（跟踪进度） |
 | `normal` | + 每步最终选定的结果（如 `seed: z42c ← <path>`） |
-| `detailed` | + 逐候选路径的选择过程（如 SDK 依次试 `Z42_TOOLCHAIN`→`Z42_HOME`→…）+ 子工具逐文件输出 |
+| `detailed` | + 逐候选路径的选择过程（如 SDK 依次试 `Z42_HOME`→`Z42_PORTABLE_VM`→`./.z42`）+ 子工具逐文件输出 |
 | `diagnostic` | + 每个流程的耗时（`⏱ … — N ms`） |
 
 示例：`xtask -v detailed build compiler` 会打出冷启动供种的完整候选路径选择过程。
@@ -109,11 +111,11 @@ test ──► _testAll
 
 ```
 build stdlib ──► _buildStdlibCore
-  ① 校验 warm 种子 (z42c.driver.zpkg + stdlib dist 存在)   缺 → 报错引导下载 nightly
+  ① 校验 warm 种子 (z42c.driver.zpkg + stdlib dist 存在)   缺 → _ensureSeed 冷启动供种 (SDK)
   ② z42c 自建 7 个 z42c 成员    _buildCompilerViaZ42c (build/xtask_compiler.z42)
-       └ 种子 z42c 按 topo 序逐个编译 z42c.*，新 sibling 累积进 runlibs
-  ③ run-libs 组装 (stdlib + z42c 7 包, copy)               _copyAll → dogfood/run-release
-  ④ z42vm 跑 z42c.driver build --workspace --release       CWD=src/libraries, interp
+       └ z42c build --workspace（driver dist 自包含 6 个 z42c.* 兄弟包）
+  ③ 快照 stdlib → .stdlib-run (只 stdlib；driver 运行期 Std.* 需稳定副本)   _copyAll(flatDir, .stdlib-run)
+  ④ 直跑自包含 z42c.driver build --workspace --release    CWD=src/libraries, interp, Z42_LIBS=.stdlib-run
        └ per-member dist 覆盖 canonical 布局
   ⑤ verify 产物 + flat view (hard-link)    _assembleStdlibFlatView → libraries/dist/release
 ```

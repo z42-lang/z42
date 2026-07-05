@@ -49,7 +49,7 @@ cargo --version               # Rust stable；VM
 gh --version                  # auth'd；下载预编译 launcher / SDK
 ./scripts/install-z42.sh      # z42 launcher + z42c + z42vm + stdlib → ./.z42/
 ./xtask build stdlib          # stdlib zpkg → artifacts/build/libraries/dist/release/
-./xtask build compiler    # z42c 自举 → artifacts/build/z42c/z42c.driver/release/dist/z42c.driver.zpkg（多数用户由 install-z42.sh 直接提供）
+./xtask build compiler    # z42c 自举 → artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg（多数用户由 install-z42.sh 直接提供）
 
 # iOS RID（macOS only）
 xcode-select --install        # Xcode + xcrun

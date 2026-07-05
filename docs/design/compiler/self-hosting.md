@@ -16,7 +16,7 @@
 
 ```
 src/compiler/
-├── z42.workspace.toml          # members=["*"]，输出 artifacts/build/z42c/<pkg>/<profile>/
+├── z42.workspace.toml          # members=["*"]，输出 artifacts/build/compiler/<pkg>/<profile>/
 ├── z42c.core/      → z42c.core.zpkg      (lib)   镜像 z42.Core
 ├── z42c.ir/        → z42c.ir.zpkg        (lib)   镜像 z42.IR
 ├── z42c.syntax/    → z42c.syntax.zpkg    (lib)   镜像 z42.Syntax   (Lexer+Parser+AST)
@@ -69,7 +69,7 @@ driver    ◄── pipeline, ir, core
 
 ## 构建与依赖解析
 
-**构建**：`z42c build --workspace --release`（cwd=`src/compiler`）→ 拓扑序编译 7 子包 → `artifacts/build/z42c/<member>/<profile>/{dist,cache}/`。经 xtask：`./xtask build compiler`。
+**构建**：`z42c build --workspace --release`（cwd=`src/compiler`）→ 拓扑序编译 7 子包 → `artifacts/build/compiler/<member>/<profile>/{dist,cache}/`。经 xtask：`./xtask build compiler`。
 
 ### z42c driver 自有 `build --workspace`（端口 C# orchestrator，z42c-build-workspace）
 
@@ -126,9 +126,15 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 
 ### 运行 / 测试 z42c（单一 flat libs 目录 — 重要）
 
+> **已部分超越（simplify-compiler-build, 2026-07-05）**：`z42c build` 编 exe 时现自动把非
+> stdlib 依赖复制进输出 dist（.NET 式自包含），故 `z42c.driver` dist 已**自带** 6 个
+> `z42c.*` 兄弟包——跑它时 `Z42_LIBS` 只需 stdlib，z42vm 从 driver 自身目录解析兄弟包。
+> 下面「合并 z42c+stdlib 到 alllibs」的手工步骤只对**非自包含**旧产物需要；当前机制见
+> [`docs/book/src/dev/build.md`](../../book/src/dev/build.md)。
+
 **运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑 z42c 产物
 （driver / 测试）时，先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**（`xtask test
-compiler` 自动组装 `artifacts/build/z42c/alllibs/<profile>/`），再 `Z42_LIBS=<该目录>`：
+compiler` 自动组装 `artifacts/build/compiler/alllibs/<profile>/`），再 `Z42_LIBS=<该目录>`：
 
 ```
 Z42_PORTABLE_VM=<z42vm> Z42_LIBS=<flat 含 z42c.*+z42.*> z42vm z42c.driver.zpkg
@@ -254,7 +260,7 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 `da0d547b` 全清。随后：
 
 - **删 C# 源**：`src/compiler/`（旧 280 .cs C# 编译器）+ `z42.Tests` + `z42.slnx` 全删；`src/z42c/`
-  重命名为 `src/compiler/`（产物路径 `artifacts/build/z42c/` 与包名 `z42c.*` 解耦保留）。仓库无 `.cs`/`.slnx`。
+  重命名为 `src/compiler/`（产物路径 2026-07-05 起亦为 `artifacts/build/compiler/`，镜像源码目录、与 `libraries/` 一致）。仓库无 `.cs`/`.slnx`。
 - **清 dotnet**：全部 5 个 workflow（ci / bench-pr / bench-update / release）无 `setup-dotnet` /
   `dotnet-version` / 真实 `dotnet build|test|run`；保留一处 C#-free guard stub（PATH 注入假 `dotnet` →
   被调即 `exit 97`），结构性保证「无 C#」。
