@@ -124,8 +124,15 @@ runs:
         # (Current-source z42c already makes the cache write non-fatal; this covers the
         # still-broken published seed until a fixed nightly self-heals.)
         echo "── [2/5] seed z42c builds current xtask.zpkg ──"
+        # `|| true` + the xtask.zpkg guard below: the seed writes the COMPLETE
+        # xtask.zpkg FIRST, then (on the broken nightly) crashes writing the cache on
+        # Windows (os error 3) — a non-zero exit AFTER the real output. --no-incremental
+        # SHOULD skip the cache, but the published nightly's z42c ignores it; so we also
+        # tolerate the crash and gate on the actual product existing. A real failure
+        # (crash before writing xtask.zpkg) still trips the guard.
         Z42_LIBS="$seedw" "$runvm" "$driverw" --mode interp -- \
-          build scripts/xtask.z42.toml --release --no-incremental
+          build scripts/xtask.z42.toml --release --no-incremental \
+          || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
 
         # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
