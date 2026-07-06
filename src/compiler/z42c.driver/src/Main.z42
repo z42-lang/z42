@@ -314,8 +314,13 @@ string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
 // cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用（workspace/flat
 // 的 outputDirOverride 路径暂不落 cache——布线待 WsPlan 携带 cache 目录）。
 void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
-    string rel = src;
-    string prefix = projectDir.EndsWith("/") ? projectDir : projectDir + "/";
+    // Normalize separators before stripping the projectDir prefix: on Windows `src`
+    // may use `\` while the prefix is built with `/`, so an un-normalized StartsWith
+    // fails → `rel` stays an absolute path (drive letter) → malformed zbcPath →
+    // File.WriteAllBytes "cannot find the path specified" (os error 3).
+    string rel = src.Replace("\\", "/");
+    string projFwd = projectDir.Replace("\\", "/");
+    string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
     if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
     if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
     string zbcPath = Path.Join(cacheDir, rel + ".zbc");
