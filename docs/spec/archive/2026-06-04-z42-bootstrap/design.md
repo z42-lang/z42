@@ -4,7 +4,7 @@
 - tag = (launcher=="nightly") ? "nightly" : "v"+launcher
 - ver = launcher value ("nightly" | "0.1.0")
 - asset = z42-<ver>-<rid>.tar.gz   (windows: .zip)
-- url = https://github.com/codesigner-ui/z42/releases/download/<tag>/<asset>
+- url = https://github.com/z42-lang/z42/releases/download/<tag>/<asset>
 - inner extracted dir = z42-<ver>-<rid>-release/  → contents moved into .z42/
 
 ## Staleness check (stamp = .z42/.bootstrap-stamp, "ver:rid:id")

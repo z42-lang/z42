@@ -282,5 +282,5 @@ gate**。改打包系统时另跑 `test packages-config / packages-staging / pac
 
 - [xtask：自举 dev CLI](../docs/book/src/dev/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
 - [构建编排（build / regen）](../docs/book/src/dev/build.md) —— z42c 七包自建拓扑、stdlib 三阶段、不动点验证、golden 重生
-- [开发基础设施概览](../docs/book/src/dev/README.md) —— xtask 三条产线全景（在线版：<https://codesigner-ui.github.io/z42/dev/>）
+- [开发基础设施概览](../docs/book/src/dev/README.md) —— xtask 三条产线全景（在线版：<https://z42-lang.github.io/z42/dev/>）
 - 操作手册（构建/测试的完整流程）：[`docs/workflow/`](../docs/workflow/)

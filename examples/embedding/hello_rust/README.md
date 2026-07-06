@@ -10,7 +10,7 @@ cd examples/hello_rust
 
 # Cargo.toml 的 z42-host path-dep 默认指 ../../../src/toolchain/workload/host-api
 # 如果你 download SDK package 而不是 clone repo，请改 path-dep 为：
-#   z42-host = { git = "https://github.com/codesigner-ui/z42", path = "src/toolchain/workload/host-api" }
+#   z42-host = { git = "https://github.com/z42-lang/z42", path = "src/toolchain/workload/host-api" }
 # 或等 Rust crate 上 crates.io（roadmap deferred）
 
 cargo run -- ../hello_c/hello.zbc ../../libs/

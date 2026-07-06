@@ -11,7 +11,7 @@ you bootstrap by first downloading a prebuilt launcher — the one native primer
 (chicken-and-egg: you need a working z42 to run the z42-implemented tooling):
 
 ```bash
-git clone https://github.com/codesigner-ui/z42 && cd z42
+git clone https://github.com/z42-lang/z42 && cd z42
 ./scripts/install-z42.sh                       # → ./.z42/  (z42 launcher + z42c + z42vm + stdlib)
                                                #   Windows: scripts\install-z42.bat
 ```

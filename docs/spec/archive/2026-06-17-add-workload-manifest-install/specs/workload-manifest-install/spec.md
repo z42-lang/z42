@@ -21,7 +21,7 @@
 
 #### Scenario: 缺省 base-url 用 GitHub release
 - **WHEN** 用户 `z42 workload install ios --version <v>`（无 `--base-url`）
-- **THEN** baseUrl = `https://github.com/codesigner-ui/z42/releases/download/v<v>`，其余流程同上
+- **THEN** baseUrl = `https://github.com/z42-lang/z42/releases/download/v<v>`，其余流程同上
 
 #### Scenario: checksum 不匹配
 - **WHEN** 下载的归档 sha256 与 manifest 不符

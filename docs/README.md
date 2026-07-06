@@ -8,7 +8,7 @@ z42 项目文档总入口。
 
 ## 📖 知识库 book —— 系统"是什么"的唯一权威
 
-**在线阅读（带侧栏+搜索的完整书）：<https://codesigner-ui.github.io/z42/>**
+**在线阅读（带侧栏+搜索的完整书）：<https://z42-lang.github.io/z42/>**
 （每次 push 改动 `book/` 自动重新发布；源码即 markdown，也可直接在 GitHub 翻 [`book/src/`](book/src/)）
 
 | 部分 | 概览页 | 涵盖 |

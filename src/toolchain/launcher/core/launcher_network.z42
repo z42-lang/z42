@@ -37,7 +37,7 @@ void _cmdInstall(ParseResult r) {
         return;
     }
     string tag = (ver == "nightly") ? "nightly" : ("v" + ver);
-    string baseUrl = "https://github.com/codesigner-ui/z42/releases/download/" + tag;
+    string baseUrl = "https://github.com/z42-lang/z42/releases/download/" + tag;
     bool isWindows = rid.StartsWith("windows");
 
     string asset = "";
@@ -108,7 +108,7 @@ void _cmdSelfUpdate(ParseResult r) {
         return;
     }
     string tag = (ver == "nightly") ? "nightly" : ("v" + ver);
-    string baseUrl = "https://github.com/codesigner-ui/z42/releases/download/" + tag;
+    string baseUrl = "https://github.com/z42-lang/z42/releases/download/" + tag;
     bool isWindows = rid.StartsWith("windows");
 
     string asset = "";

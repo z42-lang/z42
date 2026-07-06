@@ -49,7 +49,7 @@ wasm→`browser-wasm`。非 primary RID（iossim-arm64、android-x64）只产自
 ### D3：`--base-url` 覆盖 + URL 布局
 **问题：** 缺省 GitHub release，但本地验证 / 自托管镜像需指向别处；且联网装需可本地端到端验证。
 **决定：** `workload install <wl> [--base-url <url>]`。缺省
-`https://github.com/codesigner-ui/z42/releases/download/<tag>`（对齐 `_cmdInstall`）。给 `--base-url` 则原样用作根，
+`https://github.com/z42-lang/z42/releases/download/<tag>`（对齐 `_cmdInstall`）。给 `--base-url` 则原样用作根，
 launcher 取 `<base>/release-index.json` 与 `<base>/<archive>`（与 GitHub 资产同布局，故本地
 `python3 -m http.server` 起 `<root>/<tag>/` 即可：`--base-url http://localhost:PORT/<tag>`）。
 **理由：** 一个选项同时解锁镜像/离线/CI-less 验证；零额外协议。

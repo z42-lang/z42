@@ -2,7 +2,7 @@ name: Deploy book to GitHub Pages
 
 # 每次 push 到 main 且改动了 docs/book/ 时，构建 mdBook 并发布到 GitHub Pages。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
-# 发布后网址：https://codesigner-ui.github.io/z42/
+# 发布后网址：https://z42-lang.github.io/z42/
 
 on:
   push:

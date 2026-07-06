@@ -111,7 +111,7 @@ void _workloadInstallNetwork(ParseResult r, string wl, string baseUrlOpt) {
     }
     string tag = (ver == "nightly") ? "nightly" : ("v" + ver);
     string baseUrl = (baseUrlOpt.Length > 0) ? baseUrlOpt
-        : ("https://github.com/codesigner-ui/z42/releases/download/" + tag);
+        : ("https://github.com/z42-lang/z42/releases/download/" + tag);
 
     JsonValue we = _fetchWorkloadEntry(baseUrl, wl);
     if (!we.IsObject()) {

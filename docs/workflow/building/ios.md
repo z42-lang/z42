@@ -55,7 +55,7 @@ facade 会把 stdlib zpkg 打进 `Resources/`，故先备好 z42 工具链：
 ```swift
 .package(path: "/abs/path/to/z42/src/toolchain/workload/ios/platform"),
 // 或 release：
-// .package(url: "https://github.com/codesigner-ui/z42-ios.git", from: "0.1.0"),
+// .package(url: "https://github.com/z42-lang/z42-ios.git", from: "0.1.0"),
 ```
 
 Target deps：

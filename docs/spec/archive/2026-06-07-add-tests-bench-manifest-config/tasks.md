@@ -42,7 +42,7 @@
 
 ## Phase 4 — 22 stdlib z42.toml 迁移
 
-> 状态：✅ 已落地 by [`6aac4c5d stdlib: migrate 21 packages to [tests.dependencies] = z42.test`](https://github.com/codesigner-ui/z42/commit/6aac4c5d) (2026-06-06)。21 个使用 z42.test 的 stdlib 包统一在一个 commit 里完成迁移（z42.test 自身不需迁移）；spec 原"逐包 commit"细分降级为单 commit 批量执行，因为 21 处都是同形 diff + 必须一起绿才算成功，分 commit 反而不可拆。
+> 状态：✅ 已落地 by [`6aac4c5d stdlib: migrate 21 packages to [tests.dependencies] = z42.test`](https://github.com/z42-lang/z42/commit/6aac4c5d) (2026-06-06)。21 个使用 z42.test 的 stdlib 包统一在一个 commit 里完成迁移（z42.test 自身不需迁移）；spec 原"逐包 commit"细分降级为单 commit 批量执行，因为 21 处都是同形 diff + 必须一起绿才算成功，分 commit 反而不可拆。
 
 - [x] 4.1 一次性 sed/awk migration（commit 内不入仓库，commit 即落地）
 - [x] 4.2 21 包合并到 commit `6aac4c5d`（z42.test 自身不迁）

@@ -39,7 +39,7 @@ Download the launcher, build the `xtask` dev CLI, then compile and run a program
 full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**:
 
 ```bash
-git clone https://github.com/codesigner-ui/z42 && cd z42
+git clone https://github.com/z42-lang/z42 && cd z42
 ./scripts/install-z42.sh                              # → ./.z42/  (launcher + z42c + z42vm + stdlib)
 .z42/z42 workload install desktop --version nightly    # apphost stub (ships with the desktop workload)
 .z42/z42 publish scripts/xtask.z42.toml                # build + deploy → ./xtask (native apphost)
