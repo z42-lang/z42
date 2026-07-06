@@ -231,13 +231,20 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     // .zbc。workspace/flat（outputDirOverride 非空）暂不落——cache 目录须由 workspace
     // 布局解析（WsPlan 尚不携带），且 gen1==gen2 字节门禁路径保持零扰动。
     if (outputDirOverride.Length == 0) {
-        string cacheDir = _resolveCacheDir(pm, projectDir, isRelease);
-        i = 0;
-        while (i < srcs.Length) {
-            _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
-            i = i + 1;
+        // The incremental cache is a PERF optimization (next build's probe); a write
+        // failure (e.g. a Windows path quirk in _writeCacheZbc) must NOT crash the
+        // build — degrade to non-incremental. The .zpkg is already written above.
+        try {
+            string cacheDir = _resolveCacheDir(pm, projectDir, isRelease);
+            i = 0;
+            while (i < srcs.Length) {
+                _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
+                i = i + 1;
+            }
+            ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
+        } catch (Exception e) {
+            ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
         }
-        ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
     }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
