@@ -1,7 +1,7 @@
 # 构建编排（build / regen）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/build/` · `scripts/xtask_regen.z42`
-> **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-05
+> **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-07
 
 ## 概述
 
@@ -62,8 +62,52 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 
 ### 不动点验证（test compiler 的核心）
 
-gen1 = 种子编出的 z42c 七包；gen2 = 用 gen1 再编一遍七包；**gen1 与 gen2 必须逐字节相等**。
-不相等即编译器 self-host 有非确定性或语义 bug。这是"byte-identical 全自举"目标的日常守门员。
+gen1 = `build compiler`（`z42c build --workspace`）产的 7 包 canonical dist；gen2 = **用
+gen1 的 driver 再跑一遍 `--workspace`**；**gen1 与 gen2 必须逐字节相等**。不相等即编译器
+self-host 有非确定性或语义 bug——"byte-identical 全自举"目标的日常守门员。
+
+实现（`_testSelfHostByteIdentical`，`scripts/build/xtask_compiler.z42`）：
+
+```
+snapshot gen1: 拷 canonical dist 的 7 个 <member>.zpkg → artifacts/.scratch/selfhost-gen1
+rebuild gen2:  gen1 的自包含 driver 跑 `build --workspace`（Z42_LIBS=stdlib）→ 覆盖 canonical dist
+compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
+```
+
+两个关键点：
+
+1. **gen1、gen2 必须走完全相同的构建路径**（都 `--workspace`）。这是 simplify-compiler-build
+   踩过的坑：曾经 gen2 走"逐包 `build <toml>` + 胖 flat `Z42_LIBS`（stdlib+z42c 全塞一个目录）"，
+   与 gen1 的 `--workspace` 分歧——单包胖-flat 构建从目录里拉入的依赖闭包更大、且扫描顺序非确定
+   （[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)），于是 gen2>gen1 且逐次漂移，
+   CI 全红。教训：**不动点两代必须同路径**，否则测的是"两条不同构建是否巧合一致"而非"编译器复现自身"。
+2. **忽略 BLID**：zpkg 末尾 16B 是 BLAKE3-128 build-id（内容哈希尾），天然每次不同；比对在 section
+   级别做、跳过 BLID，只验代码/元数据段一致。
+
+### strict-pin：为什么改格式必须 bump 版本 + regen
+
+z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`src/runtime/src/metadata/zbc_reader.rs`）
+加载时**精确匹配 major+minor**，不匹配直接拒（`zpkg minor 22 not supported (writer 0.23)`），
+**没有兼容回退**（pre-1.0「不为旧版本提供兼容」）。推论：
+
+- 改 wire 格式（新 opcode / section / 字段语义）→ **writer + reader 版本常量必须同一 commit 一起 bump**，
+  否则 strict-pin 校验失败。完整同步清单（zbc 5 处 / zpkg 9 处 + fixture regen）见
+  [version-bumping.md](../../../.claude/rules/version-bumping.md)。
+- strict-pin 让所有旧 `.zbc`/`.zpkg` artifact **立即失效**——所以 bump 后必须 `xtask regen` 重生
+  golden 基线 + 重截 z42c golden hex 单测（header 的 minor 字段会变）。
+- `zbc_reader_tests.rs::zpkg_version_constants_pinned` 钉住 reader 常量当前值，防止 writer/reader
+  单边漂移悄悄溜过（曾漏改一侧 → fresh 构建炸、cache 命中蒙混）。
+
+### 改了编译器（`src/compiler/`）→ 本地验证步骤
+
+| 步 | 命令 | 干什么 / 为什么 |
+|----|------|----------------|
+| ① 迭代 | `xtask test compiler` | 重建 z42c + **不动点(gen1==gen2)** + [Test] units + e2e。抓编译错误 + 非确定性/codegen 回归 |
+| ② 边界 | `xtask bootstrap-check` | **仅当**动了 lexer/parser/codegen/格式 writer，或源用了新语法/API。用上一 nightly 编当前源，抓"越界"（见下） |
+| ③ 格式 | version-bumping checklist | **仅当**改了 zbc/zpkg wire 格式。writer+reader 常量同 commit bump + regen |
+| ④ 门禁 | `xtask test` | 提交前完整 GREEN gate（cargo z42vm + vm + cross-zpkg + stdlib + compiler）。①不算 GREEN |
+
+> 完整"改动类型 → 验证"速查见 [`verify-by-change.md`](../../../workflow/testing/verify-by-change.md)。
 
 ### regen：golden 基线重生
 
@@ -98,10 +142,23 @@ graph TD
     J -->|A 红 B 红| SRC[源码本身编不过<br/>先修编译错误]
 ```
 
+每轨的编译核心（`_bcRunWorkspace`）是一个**拓扑序 + runlibs 累积**循环——因为单包
+`build <toml>` 只从 `Z42_LIBS` 解析依赖，后面的成员要能看到前面刚建的：
+
+```
+runlibs = 拷(该轨 stdlib) + 拷(该轨 z42c 7 兄弟)          # 种子 libs
+for m in members(拓扑序 core→ir→syntax→…→driver):
+    <该轨 z42vm> <该轨 driver> -- build src/compiler/<m>/<m>.z42.toml \
+        --release --output-dir <out/m>  Z42_LIBS=runlibs
+    产物存在且非空 → 拷 <m>.zpkg 进 runlibs                # 累积:供后续成员解析
+    否则 → 该轨 fail
+```
+
 流程要点：种子取自 **SDK** nightly 的 `programs/z42c/`（runtime 包是纯嵌入包、不带 z42c）；
-两轨都按拓扑序编七包、每编成一个成员即累积进 runlibs 供后续成员解析；(A) 轨用 nightly 的
-stdlib 供依赖，因此**语法轴和 stdlib API 轴的越界都会在此暴露**。(B) 轨仅作"源码本身没写坏"
-的对照，不影响退出码。工作目录 `artifacts/build/compiler/bootstrap-check/`。
+(A) 轨的 z42vm/driver/stdlib **全是 nightly 的**（旧解析器 + 旧格式 + 旧 stdlib API），所以
+**语法轴和 stdlib API 轴的越界都会在此暴露**——旧 z42c 遇到新语法解析失败、或找不到新 stdlib
+API。(B) 轨换成仓库当前工具链、仅作"源码本身没写坏"的对照，不影响退出码。工作目录
+`artifacts/build/compiler/bootstrap-check/`。
 
 已知限制：**只编 z42c 七包，不编 xtask 源**——xtask 源的越界目前只能由 CI 冷启动兜底
 （缺口登记见 `docs/workflow/testing/verify-by-change.md` 覆盖矩阵）。
