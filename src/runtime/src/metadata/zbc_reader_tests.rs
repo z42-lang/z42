@@ -122,7 +122,7 @@ fn zbc_version_constants_pinned() {
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 22, "zpkg minor at 0.22 (add-reflection-assignable-from: coupled with inner zbc 1.20)");
+    assert_eq!(ZPKG_VERSION_MINOR, 23, "zpkg minor at 0.23 (add-params-varargs: TSIG params byte; coupled with inner zbc 1.20)");
 }
 
 #[test]
