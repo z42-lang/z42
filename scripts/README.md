@@ -260,7 +260,7 @@ scripts/
   （lexer/parser/codegen/格式 writer）或引入新语法后**必跑**边界检查：
 
   ```bash
-  xtask bootstrap-check     # 下载 nightly z42c 编当前源，验证无越界
+  xtask test bootstrap      # 下载 nightly z42c 编当前源，验证无越界
   ```
 
 - **删种子/兜底路径**：必须与"为所有 cold-start 入口供种"作为**同一原子变更**；本地只能验
@@ -276,7 +276,7 @@ xtask test                # 完整 gate（vm / cross-zpkg / lib / compiler 全 s
 ```
 
 iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄加速，但 **commit 前必须完整
-gate**。改打包系统时另跑 `test packages-config / packages-staging / packages-assemble` 自检。
+gate**。改打包系统时另跑 `test packages`（parse + staging + assembly 三层自检合一）。
 
 ## 关联文档
 

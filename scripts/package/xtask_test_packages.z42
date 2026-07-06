@@ -1,0 +1,22 @@
+// xtask — `test packages`: packages.toml self-checks aggregator (simplify-xtask-verify,
+// 2026-07-07).
+//
+// Runs the three packages.toml pipeline self-checks in sequence — one command
+// instead of three (test packages-config / packages-staging / packages-assemble).
+// The three layers stay distinct functions (parse / staging / assembly), only the
+// command face collapses 3→1. Each is a plain throw-on-mismatch self-check (xtask is
+// an exe, so the [Test]-attribute runner can't discover it):
+//   1. _testPackagesConfig    — parse packages.toml + include resolution
+//   2. _testPackagesStaging   — z42vm/native/stdlib staging handlers
+//   3. _testPackagesAssemble  — merge staged components + copy order + error path
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+int _testPackages() {
+    int c = _testPackagesConfig();   if (c != 0) { return c; }
+    c = _testPackagesStaging();      if (c != 0) { return c; }
+    c = _testPackagesAssemble();     if (c != 0) { return c; }
+    return 0;
+}

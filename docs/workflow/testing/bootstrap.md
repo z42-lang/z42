@@ -60,7 +60,7 @@ host SDK ───┼─ host-package (per OS)   下载 host-SDK + cargo z42vm +
 ```
 
 > **现状（2026-06-27）**：9 个 package/platform job 已消费 host-SDK artifact（`xtask-bootstrap-artifact`
-> action）✓。但**测试 job（build-and-test / vm-jit / stdlib-jit / compiler-stdlib）仍各自全量
+> action）✓。但**测试 job（build-and-test / vm-jit / stdlib-jit）仍各自全量
 > 重新自举**（`ci-bootstrap.sh`，~12min/job）——这是当前最大的冗余（见 §5）。
 
 ---
@@ -169,7 +169,7 @@ SDK set（下载）打破。compile job 的 S0-S2 是**不可消除的 shell 层
 | 3 | test all 内 z42c 编 3 次 | ✅ 已修（89db08a0：cross-zpkg/compiler stage 加 noBuild）| — |
 | 4 | 两个 bootstrap 脚本 | ✅ 均已消除：`ci-bootstrap.sh` → `.github/actions/ci-bootstrap` composite action（10 处统一 `uses:`）；`selfhost-bootstrap.sh` 已删（其重建+gen1==gen2 不动点逻辑本在 xtask，verify-selfhost 改用 `ci-bootstrap action + xtask test compiler`）。scripts/ 仅剩 install-z42.sh | — |
 | 5 | `bootstrap-no-csharp` job | 唯一做不动点，但 needs 不 gate 发布 | 不动点门折进 compile job S4；此 job **改造**成 cross-bootstrap（种子换本地 SDK），进 publish needs |
-| 6 | `compiler-stdlib` job | z42c 编全 stdlib + 功能验证 | 覆盖已在 compile job + test 阶段，评估删 |
+| 6 | `compiler-stdlib` job | ✅ 已删（simplify-xtask-verify，2026-07-07）：replace-csharp S2.1 dogfood 遗物，C# 移除后 "z42c 编 stdlib" 即 `build stdlib` 本身（build sdk / gate regen 波 / 每腿 ci-bootstrap 都做），隔离再编 + emit 探针对 `build stdlib` + `test stdlib` 无独立覆盖 | — |
 | 7 | scripts/ 多个 shell CLI | 5 个 .sh | 逻辑内联 CI；仅留 `install-z42.sh` |
 
 ### 迭代（每步独立 commit + CI 验证；详见 spec tasks.md）
@@ -177,7 +177,7 @@ SDK set（下载）打破。compile job 的 S0-S2 是**不可消除的 shell 层
 - **P2** compile job（内联 S0-S5 + 条件不动点门 + goldens/units 上传 current-sdk）；format 兜底**第一版不做**（Decision 2）
 - **P3** 下游消费 artifact（test-interp / test-jit / host-package / package-* / platform）
 - **P4** cross-bootstrap：改造 bootstrap-no-csharp（种子换本地 SDK set，重跑 S2-S4）+ **三关进 publish needs**（package-* + cross-bootstrap + test-interp + test-jit 等）
-- **P5** 重命名（build-and-test→test-interp、vm-jit+stdlib-jit→test-jit）+ 评估删 compiler-stdlib + 删脚本（仅留 install-z42.sh）
+- **P5** 重命名（build-and-test→test-interp、vm-jit+stdlib-jit→test-jit）+ ✅ 删 compiler-stdlib（已落地）+ 删脚本（仅留 install-z42.sh）
 
 **预期**：关键路径 ~52min → ~25-30min；`{z42c,stdlib}` 编 16 次 → 1 对（+条件 gen3）；matched-set 边界显式 +
 发布门三关（完整/稳定/正确）严密。

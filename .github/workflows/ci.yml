@@ -115,7 +115,7 @@ jobs:
       # ALL legs bootstrap from the prev nightly seed — download the prev published
       # nightly's z42c compiler seed, then build current z42c + stdlib + xtask from
       # source with it. The staged-bootstrap discipline (.claude/rules/bootstrap-seed.md)
-      # guarantees the prev nightly compiles current source; `xtask bootstrap-check`
+      # guarantees the prev nightly compiles current source; `xtask test bootstrap`
       # is the local boundary check. Logic lives in the ci-bootstrap composite action
       # (Windows adds .zip/.exe handling — same seed contract). After this, every later
       # step drives work through `z42vm xtask.zpkg …`.
@@ -777,46 +777,6 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- test compiler
 
-  # ── z42c dogfood-builds stdlib ─────────────
-  # Validates the self-host compiler (z42c) can build the ENTIRE stdlib workspace
-  # via `build --workspace` and that the z42c-built stdlib is functionally correct
-  # (z42c re-runs against it). Products land in a private dogfood dir, production
-  # stdlib untouched. linux-x64 only.
-  compiler-stdlib:
-    name: test-compiler-stdlib(linux-x64)
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
-
-      # seed from the prev nightly's z42c compiler and build current source warm —
-      # same path as build-and-test.
-      - name: Bootstrap toolchain (nightly z42c seed → current source)
-        uses: ./.github/actions/ci-bootstrap
-        with:
-          rid: linux-x64
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: z42c dogfood-builds stdlib (xtask)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # warm toolchain (z42c seed already in place); the command
-          # re-builds all 22 stdlib pkgs via z42c build --workspace + a functional
-          # emit check against the z42c-built stdlib.
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test compiler-stdlib
-
   # P1.D.2: PR-only bench smoke. Runs `just bench-e2e --quick` on linux,
   # uploads bench/results/e2e.json as artifact for manual inspection.
   # No diff/gate yet — that's P1.D.3 (gh-pages baseline + automatic PR diff).
@@ -1232,7 +1192,7 @@ jobs:
     # on a prior nightly. The self-heal invariant rests entirely
     # on the staged-bootstrap discipline (.claude/rules/bootstrap-seed.md): the prev
     # nightly's z42c MUST always be able to compile current source (new syntax / zbc
-    # bump lands "support" one release before "use"; `xtask bootstrap-check`
+    # bump lands "support" one release before "use"; `xtask test bootstrap`
     # is the boundary check). If that discipline is ever violated, the prev nightly
     # can't build current source → these deps fail → publish can't republish a fixed
     # nightly → manual recovery. Keep `needs` to the jobs that

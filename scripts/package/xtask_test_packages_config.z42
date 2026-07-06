@@ -3,9 +3,9 @@
 // xtask is an exe (scripts/xtask.z42.toml kind="exe"), not a stdlib zpkg — the
 // [Test]-attribute reflection runner (`z42 xtask.zpkg test stdlib`) only discovers
 // stdlib library members, so it cannot see this module. Mirrors the existing
-// `test compiler`/`test compiler-stdlib` precedent: a plain functional self-check
-// command living in xtask itself, asserting via throw-on-mismatch rather than
-// [Test]-attribute discovery.
+// `test compiler` precedent: a plain functional self-check command living in xtask
+// itself, asserting via throw-on-mismatch rather than [Test]-attribute discovery.
+// One of three layers dispatched by `test packages` (see xtask_test_packages.z42).
 namespace Z42Xtask;
 
 using Std;

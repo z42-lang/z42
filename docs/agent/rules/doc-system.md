@@ -94,7 +94,7 @@ archive 堆到 590。用"上浮"把知识收敛到 book 单一权威，是 desig
 **任何"多步骤 / 有非平凡控制流 / 有反直觉决策"的实现逻辑，其流程与原理必须写进 `docs/book/`
 对应机制页——不能只留在源码 + 提交信息里。** 判据（命中任一即"复杂"）：
 
-- 多阶段编排（如 build stdlib 三阶段、不动点 gen1/gen2 两代、bootstrap-check 双轨）；
+- 多阶段编排（如 build stdlib 三阶段、不动点 gen1/gen2 两代、test bootstrap 双轨）；
 - 有顺序 / 累积 / 状态依赖的循环（如 `_bcRunWorkspace` 的拓扑序 + runlibs 累积）；
 - 有"为什么这样而非那样"的决策或踩过的坑（如不动点两代必须同路径、strict-pin 无兼容回退）；
 - 跨组件 / 跨进程的数据流或协议（如 writer↔reader 版本 pin、种子↔冷启动）。

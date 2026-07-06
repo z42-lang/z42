@@ -1,4 +1,4 @@
-// xtask — `bootstrap-check`: staged-bootstrap boundary check.
+// xtask — `test bootstrap`: staged-bootstrap boundary check.
 //
 // Script-zero port of the former scripts/check-bootstrap-compat.sh. Enforces the
 // staged-bootstrap discipline (.claude/rules/bootstrap-seed.md): the LAST PUBLISHED
@@ -23,7 +23,7 @@ using Std.IO;
 using Std.Time;
 
 int _bootstrapCheck(string ridArg) {
-    Stopwatch sw = _procStart("bootstrap-check");
+    Stopwatch sw = _procStart("test bootstrap");
     string root = _root();
     string[] members = _compilerMembers(root);
 
@@ -68,9 +68,11 @@ int _bootstrapCheck(string ridArg) {
     }
     if (xc != 0) { ConsoleError.WriteLine("error: failed to extract " + archive); return 1; }
 
-    string nvm = Path.Join(nightly, "z42vm");
+    // The SDK package's z42vm lives under bin/ (managed layout: z42 apphost at root,
+    // bin/z42vm, libs/, native/, programs/z42{c,b}). z42c seed → programs/z42c/.
+    string nvm = Path.Join(nightly, "bin/z42vm");
     if (File.Exists(nvm + ".exe")) { nvm = nvm + ".exe"; }
-    if (!File.Exists(nvm)) { ConsoleError.WriteLine("error: nightly z42vm missing after extract"); return 1; }
+    if (!File.Exists(nvm)) { ConsoleError.WriteLine("error: nightly z42vm missing after extract (expected bin/z42vm)"); return 1; }
     // tar/unzip drop the executable bit — restore it (windows .exe needs none).
     if (ext != "zip") { _exec(new Process("chmod").Arg("+x").Arg(nvm)); }
     string nDriver = Path.Join(Path.Join(nightly, "programs/z42c"), "z42c.driver.zpkg");
@@ -114,13 +116,19 @@ int _bootstrapCheck(string ridArg) {
     if (b == 0) { Console.WriteLine("✅ repo z42c self-build OK"); }
     else if (b == 2) { Console.WriteLine("ℹ repo self-build skipped (z42c not built)"); }
     int __rc = a;
-    if (__rc == 0) { _procEnd("bootstrap-check", sw); }
+    if (__rc == 0) { _procEnd("test bootstrap", sw); }
     return __rc;
 }
 
 // Compile the current z42c workspace (members in topo order) with a given seed
-// (vm + driver + stdlib). Accumulates each freshly-built sibling into a runlibs dir
-// so later members resolve earlier ones. Returns 0 if all members built, else 1.
+// (vm + driver + stdlib) into an ISOLATED output tree (not the repo's canonical dist).
+// Each member is a single-project build against Z42_LIBS=runlibs; each freshly-built
+// sibling is accumulated into runlibs so later members resolve the CURRENT-source
+// (seed-compiled) version, not the seed's own bundled copy. Per-member `--output-dir`
+// (not workspace-flat `--output-dir`) is required: the compiler members have deep
+// interdependencies (z42c.ir → z42c.core types) that only the per-member dist layout
+// resolves — a single flat workspace output dir breaks sibling type resolution (E0402).
+// Returns 0 if all members built, else 1.
 int _bcRunWorkspace(string root, string label, string vm, string driver, string stdlibDir, string[] members, string work) {
     Console.WriteLine("── [" + label + "] compiling current z42c workspace ──");
     string runlibs = Path.Join(work, label + "-runlibs");

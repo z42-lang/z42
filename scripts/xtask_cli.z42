@@ -172,10 +172,6 @@ SubcommandRouter _cliRoot() {
     regen.AddOptionalPositional("profile", "release (default debug)");
     root.Add("regen", "regenerate golden .zbc fixtures", regen);
 
-    ArgParser bcheck = new ArgParser("xtask bootstrap-check", "verify last nightly z42c compiles current source");
-    bcheck.AddOptionalPositional("rid", "target RID (default: host)");
-    root.Add("bootstrap-check", "staged-bootstrap boundary check (nightly z42c → current source)", bcheck);
-
     root.Add("audit", "scan src/ + insert missing 'using' directives",
         new ArgParser("xtask audit", "scan src/ + insert missing 'using' directives"));
 
@@ -286,14 +282,11 @@ SubcommandRouter _testRouter() {
     t.Add("dist", "distribution verification", dist);
     t.Add("compiler", "z42c 自举不动点 + smoke",
         new ArgParser("xtask test compiler", "z42c fixpoint"));
-    t.Add("compiler-stdlib", "z42c dogfood-builds stdlib + functional check",
-        new ArgParser("xtask test compiler-stdlib", "z42c builds stdlib"));
-    t.Add("packages-config", "packages.toml parser self-check",
-        new ArgParser("xtask test packages-config", "packages.toml parse + include resolution"));
-    t.Add("packages-staging", "z42vm/native/stdlib staging handler self-check",
-        new ArgParser("xtask test packages-staging", "fixed-kind staging handlers"));
-    t.Add("packages-assemble", "packages.toml assembly engine self-check",
-        new ArgParser("xtask test packages-assemble", "merge staged components + copy order + error path"));
+    t.Add("packages", "packages.toml self-checks (parse + staging + assembly)",
+        new ArgParser("xtask test packages", "packages.toml parse + staging + assembly self-checks"));
+    ArgParser bootstrap = new ArgParser("xtask test bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)");
+    bootstrap.AddOptionalPositional("rid", "target RID (default: host)");
+    t.Add("bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)", bootstrap);
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
@@ -409,7 +402,6 @@ int _dispatch(CommandResolution res) {
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "regen")          { return _regen(r); }
-    if (top == "bootstrap-check") { return _bootstrapCheck(r.GetPositional(0)); }
     if (top == "audit")          { return _auditRun(); }
     if (top == "clean")          { return _clean(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.
@@ -442,10 +434,8 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "cross-zpkg")   { return _testCrossZpkg(r); }
     if (sub == "dist")         { return _testDist(r); }
     if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
-    if (sub == "compiler-stdlib") { return _testCompilerStdlib(); }
-    if (sub == "packages-config") { return _testPackagesConfig(); }
-    if (sub == "packages-staging") { return _testPackagesStaging(); }
-    if (sub == "packages-assemble") { return _testPackagesAssemble(); }
+    if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
+    if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "platform") {
         string plat = p.Length > 2 ? p[2] : "";

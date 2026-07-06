@@ -47,7 +47,7 @@ flowchart TD
 
 - **触发**：仅 z42c（`src/compiler`）改动（rule b）。
 - **CI job**：`verify-selfhost(linux-x64)`（下载上一 nightly 种子 → 重建 z42c+stdlib+xtask → 不动点 gen1==gen2 逐字节）。
-- **本地**：`xtask bootstrap-check [rid]`（✅ 下载上一 nightly 种子 → 用它 + 仓库 z42c 双编当前 z42c 源 → 越界即红；gh/tar 作外部子进程，逻辑在 xtask）。
+- **本地**：`xtask test bootstrap [rid]`（✅ 下载上一 nightly 种子 → 用它 + 仓库 z42c 双编当前 z42c 源 → 越界即红；gh/tar 作外部子进程，逻辑在 xtask）。
 - 规范：[`.claude/rules/bootstrap-seed.md`](../../.claude/rules/bootstrap-seed.md)。
 
 ### ③ host package（同平台共享）
@@ -74,7 +74,7 @@ flowchart TD
   - `test-vm-jit(linux-x64)`（4 shard）：VM goldens jit。
   - `test-stdlib-jit(linux-x64)`（4 shard）：stdlib `[Test]` jit。
   - `test-consume(linux-x64)`：消费 `current-sdk` 跑 cross-zpkg + vm interp（✅ 已落地，跨 job 消费验证）。
-  - `test-compiler-stdlib(linux-x64)`、`verify-features(linux-x64)`、`test-{wasm-browser,ios-sim,android-emu,desktop-cabi}`、`package-host(<host-arch>)`。
+  - `verify-features(linux-x64)`、`test-{wasm-browser,ios-sim,android-emu,desktop-cabi}`、`package-host(<host-arch>)`。
 - **本地**：`xtask test [--toolchain <sdk>] [--no-build]`（✅ cross-zpkg/vm 已通；编排器 ⬜）。
 - 约束（先简化后修）：① `test-runner` 是 native，暂保留——`xtask test` 接口不变，内部后续换 `z42.build`；② release-vm-jit 有 bug（见 [memory](../../.claude/projects)），jit 跑 debug vm 或延后。
 
@@ -94,7 +94,7 @@ flowchart TD
 | ② | `verify-selfhost(linux-x64)` | linux |
 | ③ | `compile-toolchain(<host-arch>)` / `package-host(<host-arch>)` | linux-x64, macos-arm64（pkg 含 +arm64/+windows）|
 | ④ | `compile-test-assets(<host-arch>)`（独立 job：regen + bundle 进 current-sdk）| linux-x64, macos-arm64 |
-| ⑤ | `test-host(<host-arch>)` / `test-vm-jit(linux-x64)` / `test-stdlib-jit(linux-x64)` / `test-consume(linux-x64)` / `test-compiler-stdlib(linux-x64)` / `verify-features(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}(<host-arch>)` / `package-{ios,android,wasm}(<host-arch>)` | 见各 job |
+| ⑤ | `test-host(<host-arch>)` / `test-vm-jit(linux-x64)` / `test-stdlib-jit(linux-x64)` / `test-consume(linux-x64)` / `verify-features(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}(<host-arch>)` / `package-{ios,android,wasm}(<host-arch>)` | 见各 job |
 | ⑥ | `publish-nightly` | linux |
 
 > **job 命名约定**：`<动作>-<目标>[-<scope>](<host-arch>)`。**每个 job 都带目标**（含通用 host gate → `host`），命名统一无例外。

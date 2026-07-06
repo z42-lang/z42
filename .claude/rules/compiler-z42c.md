@@ -103,7 +103,7 @@ class 继承层次（**非** record；每个节点带 `Span Span` 用于错误�
 
 ## 分阶段引入语法 / 格式（自举纪律）
 
-z42c 自身用 z42 写、由**上一个已发布 nightly 的 z42c** 编译。因此**新语法 / 新 zbc·zpkg 格式必须 support 先行、晚一个 nightly 再 use**——否则跨版本自举断链。完整纪律 + `xtask bootstrap-check` 边界检查见 [bootstrap-seed.md](bootstrap-seed.md)。
+z42c 自身用 z42 写、由**上一个已发布 nightly 的 z42c** 编译。因此**新语法 / 新 zbc·zpkg 格式必须 support 先行、晚一个 nightly 再 use**——否则跨版本自举断链。完整纪律 + `xtask test bootstrap` 边界检查见 [bootstrap-seed.md](bootstrap-seed.md)。
 
 特性开关在 `z42c.core/src/LanguageFeatures.z42`（`Set(name, on)` / `IsEnabled(name)`）；需要按 phase 门禁某语法时在 Parser 查 `IsEnabled` 并报 feature-disabled 诊断。
 

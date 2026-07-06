@@ -225,7 +225,7 @@ xtask 绝不能依赖本提交新加的语法/stdlib API。
 |---|---|---|
 | **A. forward-bootstrap**（`bootstrap-no-csharp` job）| 下载上一 nightly 种子 → C#-free 重建全栈 → 跑测试 | INV-1 + INV-2 |
 | **B. self-host fixpoint** | 新工具重建自己，byte-identical 7 日零漂移 | INV-3（详见下节）|
-| **C. 本地快门**（`xtask bootstrap-check`）| 下载 nightly z42c 编当前 z42c 源，越界立即红 | INV-1（改 parser/codegen/格式后必跑）|
+| **C. 本地快门**（`xtask test bootstrap`）| 下载 nightly z42c 编当前 z42c 源，越界立即红 | INV-1（改 parser/codegen/格式后必跑）|
 
 ## byte-identical 对账（0.3.x 退出标准）
 

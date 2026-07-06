@@ -103,7 +103,7 @@ z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`
 | 步 | 命令 | 干什么 / 为什么 |
 |----|------|----------------|
 | ① 迭代 | `xtask test compiler` | 重建 z42c + **不动点(gen1==gen2)** + [Test] units + e2e。抓编译错误 + 非确定性/codegen 回归 |
-| ② 边界 | `xtask bootstrap-check` | **仅当**动了 lexer/parser/codegen/格式 writer，或源用了新语法/API。用上一 nightly 编当前源，抓"越界"（见下） |
+| ② 边界 | `xtask test bootstrap` | **仅当**动了 lexer/parser/codegen/格式 writer，或源用了新语法/API。用上一 nightly 编当前源，抓"越界"（见下） |
 | ③ 格式 | version-bumping checklist | **仅当**改了 zbc/zpkg wire 格式。writer+reader 常量同 commit bump + regen |
 | ④ 门禁 | `xtask test` | 提交前完整 GREEN gate（cargo z42vm + vm + cross-zpkg + stdlib + compiler）。①不算 GREEN |
 
@@ -123,9 +123,9 @@ z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`
 （多包协作，非单 source 产物）。工具链选择尊重 `Z42_HOME`（`--toolchain` 设它，见 [xtask](xtask.md)），
 未设或非 SDK-toolchain 布局时用 build-tree 的 z42c + stdlib + z42vm。
 
-### bootstrap-check：跨版本自举边界检查
+### test bootstrap：跨版本自举边界检查
 
-`xtask bootstrap-check [rid]` 验证「上一个已发布 nightly 的 z42c 能否编译当前源」——
+`xtask test bootstrap [rid]` 验证「上一个已发布 nightly 的 z42c 能否编译当前源」——
 support-先行纪律的本地快门（CI 等价物是每腿 ci-bootstrap + `verify-selfhost`）。
 何时必跑见 `docs/workflow/testing/verify-by-change.md`。
 
@@ -143,7 +143,12 @@ graph TD
 ```
 
 每轨的编译核心（`_bcRunWorkspace`）是一个**拓扑序 + runlibs 累积**循环——因为单包
-`build <toml>` 只从 `Z42_LIBS` 解析依赖，后面的成员要能看到前面刚建的：
+`build <toml>` 只从 `Z42_LIBS` 解析依赖，后面的成员要能看到前面刚建的。**为什么不走
+一句 `build --workspace --output-dir <flat>`（更省拷贝）**：编译器七包有深度互依赖
+（`z42c.ir` 引用 `z42c.core` 的类型），单一扁平输出目录破坏兄弟包的类型解析
+（实测两轨齐炸 `E0402: member access on non-class`）——per-member `--output-dir` +
+runlibs 累积的隔离布局才能让每个成员看到正确的兄弟元数据；且边界检查要输出到隔离目录、
+不能污染 repo 的 canonical dist（故也不能借用生产 `build compiler` 的无 `--output-dir` 路径）：
 
 ```
 runlibs = 拷(该轨 stdlib) + 拷(该轨 z42c 7 兄弟)          # 种子 libs
@@ -170,7 +175,7 @@ API。(B) 轨换成仓库当前工具链、仅作"源码本身没写坏"的对�
 | stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlibCore` | 种子校验 → 七包自建 → self-contained driver 编 stdlib（`.stdlib-run` 快照）→ 扁平视图 |
 | z42c 七包自建 + 不动点 | `scripts/build/xtask_compiler.z42` 的 `_buildCompilerViaZ42c` / `_testCompilerUnits` | `z42c build --workspace`（driver dist 自包含兄弟包）；gen1==gen2 逐字节比对 |
 | 自举 e2e oracle | `scripts/build/xtask_compiler_e2e.z42` | div-by-zero 等行为校验（500 行限制拆出） |
-| 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·bootstrap-check"） |
+| 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·test bootstrap"） |
 | golden 重生 | `scripts/xtask_regen.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |
 | 测试资产编译（`build test`）| `scripts/xtask_regen.z42` 的 `_buildTest` | ensure z42c/stdlib/z42vm（缺则自建）→ `_regenGolden`（= regen 的 golden 编译，不重建工具链） |
 | 工具链 apphost / 完整 SDK | `scripts/build/xtask_toolchain.z42`（`_buildWorkload`/`_buildToolchain`/`_sdkMergeApphosts`）| `build workload\|toolchain\|sdk`：publish 各 apphost → **toml 的 publish_dir**（路径从 toml 读）；sdk 合并成完整可运行 SDK |

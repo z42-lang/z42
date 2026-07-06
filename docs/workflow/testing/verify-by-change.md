@@ -9,13 +9,13 @@
 
 | 改动 | 快速迭代（改一点验一点） | commit 前额外必跑 | CI 替你验的 |
 |------|------------------------|------------------|------------|
-| **编译器 `src/compiler/`** | `xtask test changed`（→ compiler + vm） | 触及 lexer/parser/codegen/格式 writer，或 z42c 源用了新写法 → `xtask bootstrap-check` | 每腿 ci-bootstrap（种子编当前源）、`verify-selfhost`、JIT 分片腿 |
+| **编译器 `src/compiler/`** | `xtask test changed`（→ compiler + vm） | 触及 lexer/parser/codegen/格式 writer，或 z42c 源用了新写法 → `xtask test bootstrap` | 每腿 ci-bootstrap（种子编当前源）、`verify-selfhost`、JIT 分片腿 |
 | **标准库 `src/libraries/`（加 API / 改实现）** | `xtask test changed`（→ lib <lib> + vm）或 `xtask test stdlib <lib> --filter=K` | — | `test-stdlib-jit` 分片、各平台腿 |
 | **标准库（删/改 xtask 或 z42c 在用的 API）** | 同上 + 迁移调用点 | ⚠️ **两步舞**：nightly N 先加新 API（旧暂留）→ N 发布后切调用点+删旧。**完整操作剧本见下**"stdlib 破坏性 API 变更" | ci-bootstrap step 2/3（用**种子** stdlib 编 xtask/z42c 源） |
 | **VM `src/runtime/`（Rust）** | `cargo test --manifest-path src/runtime/Cargo.toml` + `xtask test vm` | — | 4 OS 腿、JIT 分片、feature-matrix |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建 → 随便跑条命令冒烟 | changed 映射对 `scripts/xtask*` = **full**（完整 gate） | ci-bootstrap step 2（种子编 xtask 源） |
-| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask bootstrap-check` | 格式 bump 另跑 [version-bumping checklist](../../../.claude/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
-| **打包 `scripts/package/` / `packages.toml`** | `xtask test packages-config / packages-staging / packages-assemble` | `xtask build package release` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
+| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask test bootstrap` | 格式 bump 另跑 [version-bumping checklist](../../../.claude/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
+| **打包 `scripts/package/` / `packages.toml`** | `xtask test packages` | `xtask build package release` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
 | **纯文档 / `.claude/`** | 无 | 无（`--scope=docs-only` 零 stage） | 不触发 CI（paths-ignore） |
 
 ## 边界为什么管 API（不只是语法）
@@ -86,7 +86,7 @@ publish-nightly 只在 main push 且测试过后运行；红了就修，**不得
 2. 验证 + 提交：
 
 ```bash
-xtask bootstrap-check         # (A) 绿 = 新 nightly 种子已含 File.Size，z42c 源切换安全
+xtask test bootstrap          # (A) 绿 = 新 nightly 种子已含 File.Size，z42c 源切换安全
                               #   ⚠️ 它暂不编 xtask 源（已知缺口①）——xtask 侧越界目前只能靠 CI 兜底
 xtask test                    # 完整 gate 全绿
 git commit -m "refactor(stdlib): 调用点切换 File.Size 并删除 GetSize"
@@ -106,10 +106,10 @@ git push origin main
 
 | 源码域 × 工具链 | 种子（上一 nightly） | 当前（本仓） |
 |--------|------|------|
-| z42c 源 | `bootstrap-check` (A)；CI 每腿 + `verify-selfhost` | gate compiler stage 不动点；`bootstrap-check` (B) |
+| z42c 源 | `test bootstrap` (A)；CI 每腿 + `verify-selfhost` | gate compiler stage 不动点；`test bootstrap` (B) |
 | stdlib 源 | —（不需要） | gate regen 波 `build stdlib` |
 | xtask 源 | ⚠️ 仅 CI（本地无手段） | ❌ 无覆盖 |
 
-> **已知缺口**（2026-07-02 识别，待立项）：① `bootstrap-check` 不编 xtask 源——本地无法提前
+> **已知缺口**（2026-07-02 识别，待立项）：① `test bootstrap` 不编 xtask 源——本地无法提前
 > 发现 xtask 越界；② "当前工具链编 xtask 源"处处不验——z42c 变严格 / stdlib 删 API 的破坏
-> 会延迟到下一 nightly 变种子后才在 CI 引爆。修复方向：`bootstrap-check` 与 gate 各补一编。
+> 会延迟到下一 nightly 变种子后才在 CI 引爆。修复方向：`test bootstrap` 与 gate 各补一编。

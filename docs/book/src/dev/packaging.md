@@ -64,7 +64,7 @@ CI 合并四 RID）。包内布局的用户视角描述见工具链部分（待�
 | 固定 staging handler | `scripts/package/xtask_stage_components.z42` | z42vm / native / stdlib 三个产出函数 |
 | desktop 管道 | `scripts/package/xtask_package_desktop.z42` | SDK 分段组装 + manifest + SHA-256 |
 | 移动/浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm） |
-| 自检 | `test packages-config / packages-staging / packages-assemble` | 解析、staging、组装三层各一个 harness |
+| 自检 | `test packages` | 解析、staging、组装三层各一个 harness，一条命令顺序跑完 |
 
 ## 边界与限制
 
