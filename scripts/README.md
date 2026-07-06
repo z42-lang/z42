@@ -78,7 +78,10 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `build toolchain` | 改了 launcher/z42b/z42d/z42i 源 | 同上 + 自动 `build workload` | 4 个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码） |
 | `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（= `regen` 的 golden 编译，不重建工具链） |
 | `build sdk [--out D] [--no-build]` | 组装完整可运行 SDK | z42c/stdlib/z42vm + `build toolchain` | `.z42` 布局：`bin/{z42vm,z42c,z42b,z42d,z42i}` + `z42`(launcher 根) + `programs/*` + `libs/*`；apphost 从各 publish_dir 合并 |
-| `build package [release\|debug] [--rid R]` | 准备发行 / 测发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<rid>-<config>/{bin,libs,native}`（末尾自动跑 SHA-256 invariant） |
+| `package sdk [--profile] [--no-build]` | 打 host SDK 发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<host>-release/{bin,libs,native}`（末尾 SHA-256 invariant） |
+| `package runtime [--rid R]` | runtime 包（native+stdlib，平台随 rid） | `cargo` + z42c | host: `z42-runtime-<ver>-<rid>`；平台: `z42-<ver>-<rid>-release` |
+| `package workload [--rid R] \| <label> [dist]` | `--rid`/无参：建 per-RID desktop workload；`<label>`：合并 4 个 per-RID → 单 archive | `cargo` | workload 包 / 合并 archive |
+| `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
 | `regen` | 编译器变更使 `.zbc` 基线漂移 | z42c + z42vm | run-golden 按组件镜像到 `artifacts/build/`（gitignored，不污染 src）；committed 字节基线 `src/tests/zbc-format/*/source.zbc` 就地重写 |
 | `audit` | 新增 test `source.z42` | `z42.regex` | 自动补缺失的 `using` 声明 |
 | `bench [--diff]` | 性能基准 / 回归对比 | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果 |
@@ -89,7 +92,6 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test compiler` | z42c 编译器变动 | z42c 自建 | 7/7 自举不动点（gen1==gen2）+ [Test] units + e2e |
 | `test dist` | 验证打包后发行版能独立工作 | `build package` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
-| `release …` | nightly / 发行打包编排 | 各 RID workload | 合并 desktop workload / 生成 release-index.json |
 
 > **构建输出约定（add-build-toolchain, 2026-07-05）**：
 > - `artifacts/build/` **只放编译/publish 产物**；构建/测试的中间态（`stdlib-run` 快照、`alllibs`

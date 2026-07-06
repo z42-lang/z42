@@ -355,8 +355,14 @@ jobs:
           # z42c self-build + the former 2nd self-build in the runtime pack). The
           # package's own cargo native libs (z42vm/cdylib/staticlib/apphost) + launcher
           # still build. Verified locally byte-identical to a full build (mod build-date).
+          # merge-package-release: the former combined `package release` split into
+          # name-driven subcommands — host produces SDK + runtime + desktop workload.
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- package release --no-build
+            "$runner" artifacts/xtask/xtask.zpkg -- package sdk --no-build
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$runner" artifacts/xtask/xtask.zpkg -- package workload
 
       - name: Verify package manifest + native artifacts
         shell: bash
@@ -985,7 +991,7 @@ jobs:
           libs="$PWD/artifacts/build/libraries/dist/release"
           for rid in ios-arm64 iossim-arm64; do
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" \
-              "$vm" artifacts/xtask/xtask.zpkg -- package release --rid "$rid"
+              "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
           done
 
       - name: Verify iOS packages
@@ -1076,7 +1082,7 @@ jobs:
           libs="$PWD/artifacts/build/libraries/dist/release"
           for rid in android-arm64 android-x64; do
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" \
-              "$vm" artifacts/xtask/xtask.zpkg -- package release --rid "$rid"
+              "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
           done
 
       - name: Verify Android packages
@@ -1170,7 +1176,7 @@ jobs:
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- package release --rid browser-wasm
+            "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid browser-wasm
 
       - name: Verify wasm package + WebAssembly validation
         run: |
@@ -1375,7 +1381,7 @@ jobs:
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            release assemble-desktop-workload nightly artifacts/release
+            package workload nightly artifacts/release
 
       - name: Generate SHA256SUMS
         shell: bash
@@ -1392,7 +1398,7 @@ jobs:
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            release gen-release-index nightly artifacts/release nightly nightly nightly
+            package index nightly artifacts/release nightly nightly nightly
 
       - name: Force-replace nightly release
         shell: bash

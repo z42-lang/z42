@@ -158,19 +158,13 @@ SubcommandRouter _cliRoot() {
 
     root.AddRouter("build", "build components", _buildRouter());
 
-    ArgParser pkg = new ArgParser("xtask package", "assemble a full SDK package");
-    pkg.AddOption("rid", "", "target RID (default: host)", "");
-    pkg.AddOption("variant", "", "package variant suffix", "");
-    pkg.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (skip their rebuild; for CI warm)");
-    pkg.AddOptionalPositional("profile", "release|debug (default release)");
-    root.Add("package", "assemble a full SDK package", pkg);
+    root.AddRouter("package", "assemble release packages (sdk / runtime / workload / index)", _packageRouter());
 
     root.Add("feature-matrix", "verify each cargo feature combo compiles",
         new ArgParser("xtask feature-matrix", "verify each cargo feature combo compiles"));
 
     root.AddRouter("test", "run tests", _testRouter());
     root.AddRouter("deps", "toolchain deps", _depsRouter());
-    root.AddRouter("release", "release packaging (assemble workloads / gen index)", _releaseRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
     ArgParser regen = new ArgParser("xtask regen", "regenerate golden .zbc fixtures");
@@ -197,20 +191,44 @@ SubcommandRouter _cliRoot() {
     return root;
 }
 
-SubcommandRouter _releaseRouter() {
-    SubcommandRouter rel = new SubcommandRouter("xtask release", "release packaging");
-    ArgParser asm = new ArgParser("xtask release assemble-desktop-workload", "merge the 4 per-RID desktop workloads into one RID-agnostic archive");
-    asm.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
-    asm.AddOptionalPositional("dist", "dist dir (default: dist)");
-    rel.Add("assemble-desktop-workload", "merge per-RID desktop workloads → one archive", asm);
-    ArgParser idx = new ArgParser("xtask release gen-release-index", "generate release-index.json from SHA256SUMS");
+// merge-package-release: `package` 收成 name 驱动 router（对齐 build compiler|stdlib|
+// toolchain），`release` 删除。profile 降为 --profile 选项（旧 `package release` 的
+// "release" 是 profile 位置参数，与子命令名冲突）。
+SubcommandRouter _packageRouter() {
+    SubcommandRouter pkg = new SubcommandRouter("xtask package", "assemble release packages");
+
+    ArgParser sdk = new ArgParser("xtask package sdk", "assemble the host SDK package");
+    sdk.AddOption("profile", "", "release|debug (default release)", "release");
+    sdk.AddOption("variant", "", "package variant suffix", "");
+    sdk.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    pkg.Add("sdk", "assemble the host SDK package", sdk);
+
+    ArgParser rt = new ArgParser("xtask package runtime", "assemble the runtime package (native+stdlib; platform via --rid)");
+    rt.AddOption("rid", "", "target RID (default: host)", "");
+    rt.AddOption("profile", "", "release|debug (default release)", "release");
+    rt.AddOption("variant", "", "package variant suffix", "");
+    rt.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    pkg.Add("runtime", "assemble the runtime package (native+stdlib; --rid for platform)", rt);
+
+    // dual-mode: `--rid <rid>` builds one per-RID desktop workload package
+    // (_buildDesktopWorkload); a `<label>` positional merges the 4 per-RID workloads
+    // into one RID-agnostic archive (_releaseAssembleDesktop).
+    ArgParser wl = new ArgParser("xtask package workload", "build a per-RID desktop workload (--rid) or merge all into one archive (<label>)");
+    wl.AddOption("rid", "", "build ONE per-RID desktop workload for this RID", "");
+    wl.AddOption("profile", "", "release|debug (default release)", "release");
+    wl.AddOptionalPositional("label", "merge mode: <LABEL> (e.g. 0.3.0 or nightly)");
+    wl.AddOptionalPositional("dist", "merge mode: dist dir (default: dist)");
+    pkg.Add("workload", "build per-RID desktop workload (--rid) or merge all → archive (<label>)", wl);
+
+    ArgParser idx = new ArgParser("xtask package index", "generate release-index.json from SHA256SUMS");
     idx.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
     idx.AddOptionalPositional("dist", "dist dir (default: dist)");
     idx.AddOptionalPositional("channel", "channel (default: stable)");
     idx.AddOptionalPositional("tag", "tag (default: v<LABEL>)");
     idx.AddOptionalPositional("version", "version (default: <LABEL>)");
-    rel.Add("gen-release-index", "generate release-index.json (launcher supply contract)", idx);
-    return rel;
+    pkg.Add("index", "generate release-index.json (launcher supply contract)", idx);
+
+    return pkg;
 }
 
 SubcommandRouter _buildRouter() {
@@ -363,10 +381,19 @@ int _benchE2e(string[] argv) {
 
 // ── dispatch (resolved command → handler) ─────────────────────────────────────
 
-int _dispatchRelease(string[] p, ParseResult r) {
+int _dispatchPackage(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
-    if (sub == "assemble-desktop-workload") { return _releaseAssembleDesktop(r.GetPositional(0), r.GetPositional(1)); }
-    if (sub == "gen-release-index") { return _releaseGenIndex(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2), r.GetPositional(3), r.GetPositional(4)); }
+    if (sub == "sdk")     { return _packageSdk(r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "runtime") { return _packageRuntime(r.GetOption("rid"), r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "workload") {
+        // A <label> positional selects MERGE mode (combine per-RID workloads → archive);
+        // otherwise BUILD mode (one per-RID workload; --rid or host default).
+        string label = r.GetPositional(0);
+        if (label.Length > 0) { return _releaseAssembleDesktop(label, r.GetPositional(1)); }
+        return _packageWorkloadBuild(r.GetOption("rid"), r.GetOption("profile"));
+    }
+    if (sub == "index")   { return _releaseGenIndex(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2), r.GetPositional(3), r.GetPositional(4)); }
+    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index}");
     return 2;
 }
 
@@ -376,11 +403,10 @@ int _dispatch(CommandResolution res) {
     ParseResult r = res.Result();
     string top = p[0];
     if (top == "build")          { return _dispatchBuild(p, r); }
-    if (top == "package")        { return _buildPackage(r); }
+    if (top == "package")        { return _dispatchPackage(p, r); }
     if (top == "feature-matrix") { return _featureMatrix(); }
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
-    if (top == "release")        { return _dispatchRelease(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "regen")          { return _regen(r); }
     if (top == "bootstrap-check") { return _bootstrapCheck(r.GetPositional(0)); }

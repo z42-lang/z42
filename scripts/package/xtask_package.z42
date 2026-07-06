@@ -9,25 +9,92 @@ using Std.IO;
 using Std.Cli;
 using Std.Time;
 
-// `package [release|debug] [--rid R] [--variant V]` (top-level since
-// migrate-xtask-launcher-to-std-cli; was `build package`). Args from ParseResult.
-int _buildPackage(ParseResult r) {
-    Stopwatch sw = _procStart("build package");
-    string prof = r.GetPositional(0);   // "" | release | debug | Release | Debug
-    string profile = "release";          // xtask defaults release (package.sh default is debug)
-    if (prof == "debug" || prof == "Debug") { profile = "debug"; }
-    else if (prof == "release" || prof == "Release") { profile = "release"; }
-    int __rc = _buildPackageCore(profile, r.GetOption("rid"), r.GetOption("variant"), r.GetFlag("no-build"));
-    if (__rc == 0) { _procEnd("build package", sw); }
-    return __rc;
+// ── shared setup / finish (merge-package-release) ───────────────────────────
+// Compute pkgDir (z42-<ver>-<rid>-<profile>[-<variant>]) + create bin/libs/native.
+string _pkgSetupDir(string root, string rid, string version, string profile, string variant) {
+    string pkgName = "z42-" + version + "-" + rid + "-" + profile;
+    if (variant.Length > 0) { pkgName = pkgName + "-" + variant; }
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Package:    " + pkgName);
+    Console.WriteLine("Output:     " + pkgDir);
+    Console.WriteLine("Target RID: " + rid + "  (category=" + _ridCategory(rid) + ")");
+    Console.WriteLine("Profile:    " + profile);
+    Console.WriteLine("");
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(Path.Join(pkgDir, "bin"));
+    Directory.Create(Path.Join(pkgDir, "libs"));
+    Directory.Create(Path.Join(pkgDir, "native/include"));
+    return pkgDir;
+}
+// SHA-256 invariant check + success message on an assembled pkgDir.
+int _pkgFinish(string root, string pkgDir) {
+    Console.WriteLine("");
+    Console.WriteLine("SHA-256 invariant check:");
+    int c = _pkgSha256Check(root, pkgDir);
+    if (c != 0) { ConsoleError.WriteLine("  ✗ SHA-256 invariant FAILED"); return c; }
+    Console.WriteLine("  ✓ SHA-256 invariants OK");
+    Console.WriteLine("");
+    Console.WriteLine("✅ Package assembled: " + pkgDir);
+    return 0;
 }
 
-// Core packaging by explicit (profile, rid, variant) — callable without a
-// ParseResult (e.g. from `test dist` which needs a host release package).
-// noBuild: skip the z42c+stdlib rebuild and assemble from existing canonical
-// artifacts (CI warm: the bootstrap already built them). Cargo native libs
-// (z42vm/cdylib/staticlib/apphost) + launcher.zpkg still build — they're package-
-// specific and not produced by the bootstrap.
+// ── package sdk (host SDK only; merge-package-release) ───────────────────────
+int _packageSdk(string profile, string variant, bool noBuild) {
+    Stopwatch sw = _procStart("package sdk");
+    string root = _root();
+    string rid = _detectHostRid();
+    if (_ridCategory(rid) != "desktop") {
+        ConsoleError.WriteLine("package sdk: host RID is not desktop (" + rid + ")"); return 2;
+    }
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
+    int c = _packageDesktop(root, pkgDir, rid, version, profile, rid, noBuild); if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir); if (c != 0) { return c; }
+    _procEnd("package sdk", sw); return 0;
+}
+
+// ── package runtime (native+stdlib; host or platform via rid) ────────────────
+int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
+    Stopwatch sw = _procStart("package runtime");
+    string root = _root();
+    string hostRid = _detectHostRid();
+    if (rid.Length == 0) { rid = hostRid; }
+    string category = _ridCategory(rid);
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    if (category == "desktop") {
+        // host runtime pack owns its z42-runtime-<rid> dir + finishes internally.
+        int rc = _buildRuntimePackage(root, rid, version, profile);
+        if (rc == 0) { _procEnd("package runtime", sw); }
+        return rc;
+    }
+    string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
+    int c;
+    if (category == "ios")          { c = _packageIos(root, pkgDir, rid, version, profile, hostRid); }
+    else if (category == "android") { c = _packageAndroid(root, pkgDir, rid, version, profile, hostRid); }
+    else if (category == "wasm")    { c = _packageWasm(root, pkgDir, rid, version, profile, hostRid); }
+    else { ConsoleError.WriteLine("package runtime: unknown category '" + category + "' for rid " + rid); return 2; }
+    if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir); if (c != 0) { return c; }
+    _procEnd("package runtime", sw); return 0;
+}
+
+// ── package workload (build ONE per-RID desktop workload) ────────────────────
+int _packageWorkloadBuild(string rid, string profile) {
+    Stopwatch sw = _procStart("package workload (build per-RID)");
+    string root = _root();
+    if (rid.Length == 0) { rid = _detectHostRid(); }
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    int c = _buildDesktopWorkload(root, rid, version, profile);
+    if (c == 0) { _procEnd("package workload (build per-RID)", sw); }
+    return c;
+}
+
+// Full host package (SDK + runtime + workload) — internal helper for `test dist`
+// (needs a complete host release package). NOT a command anymore; the command layer
+// uses the split _packageSdk / _packageRuntime / _packageWorkloadBuild.
 int _buildPackageCore(string profile, string rid, string variant, bool noBuild) {
     string root = _root();
     string hostRid = _detectHostRid();
@@ -35,18 +102,7 @@ int _buildPackageCore(string profile, string rid, string variant, bool noBuild) 
     string category = _ridCategory(rid);
     string version = _versionsGet(root);
     if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
-    string pkgName = "z42-" + version + "-" + rid + "-" + profile;
-    if (variant.Length > 0) { pkgName = pkgName + "-" + variant; }
-    string pkgDir = Path.Join(_packagesDir(root), pkgName);
-    Console.WriteLine("Package:    " + pkgName);
-    Console.WriteLine("Output:     " + pkgDir);
-    Console.WriteLine("Target RID: " + rid + "  (category=" + category + ")");
-    Console.WriteLine("Profile:    " + profile);
-    Console.WriteLine("");
-    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
-    Directory.Create(Path.Join(pkgDir, "bin"));
-    Directory.Create(Path.Join(pkgDir, "libs"));
-    Directory.Create(Path.Join(pkgDir, "native/include"));
+    string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
 
     int c;
     if (category == "desktop") {
@@ -54,7 +110,6 @@ int _buildPackageCore(string profile, string rid, string variant, bool noBuild) 
         if (c != 0) { return c; }
         c = _buildRuntimePackage(root, rid, version, profile);
         if (c != 0) { return c; }
-        // desktop workload (apphost stub) — separate from SDK (Decision 9 full gating)
         c = _buildDesktopWorkload(root, rid, version, profile);
     } else if (category == "ios") {
         c = _packageIos(root, pkgDir, rid, version, profile, hostRid);
@@ -63,19 +118,11 @@ int _buildPackageCore(string profile, string rid, string variant, bool noBuild) 
     } else if (category == "wasm") {
         c = _packageWasm(root, pkgDir, rid, version, profile, hostRid);
     } else {
-        ConsoleError.WriteLine("xtask build package: unknown category '" + category + "' for rid " + rid);
+        ConsoleError.WriteLine("build package: unknown category '" + category + "' for rid " + rid);
         return 2;
     }
     if (c != 0) { return c; }
-
-    Console.WriteLine("");
-    Console.WriteLine("SHA-256 invariant check:");
-    c = _pkgSha256Check(root, pkgDir);
-    if (c != 0) { ConsoleError.WriteLine("  ✗ SHA-256 invariant FAILED"); return c; }
-    Console.WriteLine("  ✓ SHA-256 invariants OK");
-    Console.WriteLine("");
-    Console.WriteLine("✅ Package assembled: " + pkgDir);
-    return 0;
+    return _pkgFinish(root, pkgDir);
 }
 
 // ── RID + version helpers ───────────────────────────────────────────────────
