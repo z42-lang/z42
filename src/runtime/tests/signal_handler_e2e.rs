@@ -73,7 +73,7 @@ fn assert_marker(stderr: &[u8], sig_name: &str) {
         "stderr missing signal marker for {sig_name}; got:\n{s}"
     );
     assert!(
-        s.contains("z42vm 0.1.0"),
+        s.contains(&format!("z42vm {}", env!("CARGO_PKG_VERSION"))),
         "stderr missing build banner; got:\n{s}"
     );
     assert!(
