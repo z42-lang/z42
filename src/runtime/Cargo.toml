@@ -168,6 +168,19 @@ z42-rs     = { path = "crates/z42-rs" }
 # jobs read the numeric output, never the HTML — drop it to lighten bench builds.
 criterion  = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
+# loom: deterministic interleaving model checker for the concurrent-GC handshake.
+# Only compiled under `--cfg loom` (RUSTFLAGS='--cfg loom' cargo test --test
+# gc_registration_race_loom). Used by investigate-concurrent-gc-stale-mark-race
+# phase 3 to reproduce + verify a fix for a race that hardware can't reproduce
+# locally (see docs/spec/changes/investigate-concurrent-gc-stale-mark-race).
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
+# Declare the custom `loom` cfg so check-cfg (Rust 1.80+) doesn't warn on the
+# `#![cfg(loom)]` model file in normal builds.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
 [[bench]]
 name = "smoke_bench"
 harness = false

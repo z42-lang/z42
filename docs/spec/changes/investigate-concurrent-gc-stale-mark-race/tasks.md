@@ -26,10 +26,16 @@
 
 ## 阶段 3: loom 验证 + 正确修复
 
-- [ ] 3.1 引入 loom/shuttle，对 alloc / write_barrier / handshake / new_with_core 注册的线程交错建模型测试，确定性复现 race（windows）+ deadlock（注册封闭尝试）
-- [ ] 3.2 在模型下设计修复：注册—首safepoint 窗口封闭 + marking 期 allocate-black + 不破坏 collector 仲裁时序（绝不放宽 invariant）
-- [ ] 3.3 cargo test —— 全绿（含本测试在 windows 重新启用、稳定 10/10）
-- [ ] 3.4 移除 cross_thread_smoke.rs 上的 windows `#[ignore]`（过渡撤销）
+- [~] 3.1 引入 loom + 对 register→handshake→barrier→sweep→validate 交错建模，**确定性复现 race**。
+      **已落地**（2026-07-08）：`src/runtime/tests/gc_registration_race_loom.rs`（`#![cfg(loom)]`，
+      `[target.'cfg(loom)'.dev-dependencies] loom`）。`race_reproduces_without_registration_close`
+      在 0.01s 本地必现 "stale mark bit … after sweep"——把 design 判为"硬件不可本地复现"的 race
+      变成**确定性本地测试**。**未做**：collector 仲裁（`collector_active` CAS）建模 → 复现
+      2026-06-01 deadlock；无它则 `registration_close_eliminates_race`（现 `#[ignore]`）不能证明
+      fix 无死锁。下一增量。
+- [ ] 3.2 在模型下设计修复：注册—首safepoint 窗口封闭 + marking 期 allocate-black + 不破坏 collector 仲裁时序（绝不放宽 invariant）——**先补 deadlock 模型**再验证
+- [ ] 3.3 cargo test —— 全绿（含本测试重新启用、稳定）
+- [ ] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
 - [ ] 3.5 docs/design/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明
 
 ## 备注
