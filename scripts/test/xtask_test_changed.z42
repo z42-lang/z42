@@ -216,9 +216,9 @@ _MapResult _mapSkip() { return new _MapResult(); }
 // lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
 _MapResult _mapLibraryFile(string f) {
     string lib = _segment(f, 2);
-    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test lib " + lib, "xtask test e2e" }); }
-    if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test lib " + lib }); }
-    if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test lib " + lib }); }
+    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }); }
+    if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
+    if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
     return _mapSkip();
 }
 
@@ -248,7 +248,7 @@ _MapResult _mapFile(string f) {
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
     if (f.StartsWith("src/toolchain/")) {
-        return _mapCmds(new string[]{ "xtask test lib" });
+        return _mapCmds(new string[]{ "xtask test stdlib" });
     }
 
     // All xtask CLI source is now ONE compiled xtask.zpkg (test-vm / regen / cross /

@@ -23,30 +23,26 @@ int _bench(ParseResult r) {
     string scenDir = Path.Join(root, "bench/scenarios");
     string resultsDir = Path.Join(root, "bench/results");
     Directory.Create(resultsDir);
+    // Bench needs z42vm + stdlib (scenarios `using Std.IO.Console`, resolved at
+    // `libs`) + the self-contained z42c driver (scenarios compile via z42c, not
+    // `dotnet run`). _ensureToolchainDeps builds each only if missing — CI bench
+    // bootstraps xtask alone (against nightly .z42/libs), so the source-built tree
+    // may start empty. A dev who changed z42c runs `build compiler` themselves.
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string vm = _builtVm(root, "release");
-    if (!File.Exists(vm)) { int rc = _buildRuntime(); if (rc != 0) { return rc; } }
     string libs = _libsDir(root);
-    // 2026-06-05: bench scenarios `using Std.IO.Console` so stdlib must be
-    // built and present at `libs` before z42vm runs the .zbc. CI bench
-    // workflow only bootstraps xtask itself (against nightly .z42/libs), so
-    // the source-built `libs` dir starts empty — build it here.
-    if (!File.Exists(Path.Join(libs, "z42.core.zpkg"))) {
-        int sc = _buildStdlib();
-        if (sc != 0) { return sc; }
-    }
-    // remove-dotnet-from-builds: scenarios compile via z42c (z42vm + driver),
-    // not `dotnet run`. Ensure the z42c seed is built, then assemble alllibs flat
-    // (stdlib + z42c 7 siblings) as the single Z42_LIBS dir for the compile —
-    // z42c.driver needs its own siblings resolvable at runtime, scenario stdlib
-    // deps resolve from the same dir.
-    int czc = _buildCompiler(); if (czc != 0) { return czc; }
+    // alllibs flat (stdlib + z42c 7 siblings) is the single Z42_LIBS dir for the
+    // compile — z42c.driver needs its own siblings resolvable at runtime.
     string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
     string flat = _assembleAllLibs(root, "release");
     string work = Directory.CreateTempDir("xtask-bench");
 
     string benchmarks = "";
     int count = 0;
-    foreach (var f in Directory.Enumerate(scenDir)) {
+    // Sort before iterating: filesystem enumeration order is non-deterministic
+    // across OSes, and both --quick's "first 2" selection and the benchmarks
+    // array order depend on it (common-pitfalls §1).
+    foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
         if (!f.EndsWith(".z42")) { continue; }
         if (quick && count >= 2) { break; }
         string name = f.Substring(0, f.Length - 4);

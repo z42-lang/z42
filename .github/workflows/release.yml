@@ -139,8 +139,28 @@ jobs:
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- package release --rid ${{ matrix.rid }}
+          rid="${{ matrix.rid }}"
+          libs="$PWD/artifacts/build/libraries/dist/release"
+          # Windows: `package` cargo-relinks z42vm and can't overwrite the *running*
+          # z42vm.exe → run xtask from a copy outside the cargo output dir (mirrors
+          # ci.yml host-package). No-op on Linux/macOS.
+          runner="$vm"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            mkdir -p "$PWD/.ci-runner"; cp "$vm" "$PWD/.ci-runner/"
+            cp "$PWD"/artifacts/build/runtime/release/*.dll "$PWD/.ci-runner/" 2>/dev/null || true
+            runner="$PWD/.ci-runner/$(basename "$vm")"
+          fi
+          # merge-package-release: the former combined `package release --rid` split
+          # into name-driven subcommands. Desktop host RID → SDK + runtime + desktop
+          # workload (--no-build consumes the bootstrap-built z42c+stdlib); platform
+          # RID (ios/android/wasm) → runtime pack + tooling facade.
+          if [[ "$rid" == linux-* || "$rid" == macos-* || "$rid" == windows-* ]]; then
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package sdk --no-build
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package workload
+          else
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
+          fi
 
       - name: Archive
         shell: bash
@@ -245,7 +265,7 @@ jobs:
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            release assemble-desktop-workload "${{ needs.verify.outputs.version }}" dist
+            package workload "${{ needs.verify.outputs.version }}" dist
 
       - name: Generate SHA256SUMS
         shell: bash
@@ -262,7 +282,7 @@ jobs:
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            release gen-release-index "$v" dist stable "v$v" "$v"
+            package index "$v" dist stable "v$v" "$v"
 
       - name: Create GitHub Release
         shell: bash

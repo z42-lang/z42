@@ -7,6 +7,9 @@
 
 ---
 
+> **落地状态（2026-07-07）**：#1 / #2 / #4 已由 change `fix-xtask-review-bugs`
+> 修复并归档；#3 复核发现已由 `4e8ea7d9` 提前修好。其余（代码简化 / CI / 文档）待后续变更。
+
 ## 一、必须先修的 bug（4 个）
 
 ### 1. `test changed` 对 stdlib/toolchain 改动直接失败（pre-existing）
