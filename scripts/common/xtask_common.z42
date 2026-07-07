@@ -76,27 +76,15 @@ string _z42vm() {
 
 // ── string / collection helpers (shared across modules) ─────────────────────
 
-/// String sort using an O(n²) selection sort — fine for n ≤ ~64 test
-/// entries; avoids depending on a Std.Collections sort that the host
-/// xtask may or may not pull in.
+/// Non-mutating sort: copy then sort the copy in place via `_sortStrings`
+/// (xtask_golden.z42) — one sort algorithm shared by both entry points.
+/// Deterministic ascending (common-pitfalls.md §1); n is small (≤ ~64 entries).
 string[] _sortedStrings(string[] src) {
     int n = src.Length;
     string[] arr = new string[n];
     int i = 0;
     while (i < n) { arr[i] = src[i]; i = i + 1; }
-    i = 0;
-    while (i < n) {
-        int minIdx = i;
-        int j = i + 1;
-        while (j < n) {
-            if (arr[j].CompareTo(arr[minIdx]) < 0) { minIdx = j; }
-            j = j + 1;
-        }
-        if (minIdx != i) {
-            string tmp = arr[i]; arr[i] = arr[minIdx]; arr[minIdx] = tmp;
-        }
-        i = i + 1;
-    }
+    _sortStrings(arr);
     return arr;
 }
 

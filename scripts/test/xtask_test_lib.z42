@@ -4,7 +4,7 @@
 // _cleanGlob/_linkAll/_sortedStrings/_parseShard etc. cross-file (same namespace).
 //
 // `test stdlib|bench [lib]`: discover each src/libraries/<lib>/tests|bench/*,
-// compile to zpkg via z42c, run through z42-test-runner; results aggregated.
+// compile to zpkg via z42c, run through z42b; results aggregated.
 // Single-file tests (tests/foo.z42) go through emit-zbc; dir-mode tests
 // (tests/<name>/source.z42) synthesise a mini-manifest + `z42c build`.
 namespace Z42Xtask;
@@ -83,10 +83,10 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
     // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/bench/,
     // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/bench/. The
-    // z42-test-runner runs both [Test] and [Benchmark] regardless.
+    // z42b runs both [Test] and [Benchmark] regardless.
     string subdir = (kind == "bench") ? "bench" : "tests";
     string label  = (kind == "bench") ? "bench" : "test";
-    if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42-test-runner
+    if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
     string[] reqLibs = reqLibsIn;
     int nReq = reqLibsIn.Length;
     string root = _root();
@@ -158,7 +158,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
     if (jobsN < 1) { jobsN = 1; }
-    // mode forwarded to z42-test-runner: "" / "interp" → in-process interp;
+    // mode forwarded to z42b: "" / "interp" → in-process interp;
     // "jit" → runner forces subprocess fork of z42vm --mode jit.
     if (mode.Length == 0) { mode = "interp"; }
     foreach (var lib in libList) {

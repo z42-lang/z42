@@ -163,7 +163,7 @@ void _copyAll(string srcDir, string dstDir, string pattern) {
     }
 }
 
-// Build + run each z42c [Test] unit through z42-test-runner.
+// Build + run each z42c [Test] unit through z42b.
 //
 // RUNTIME 关键：z42vm 的 Z42_LIBS 是 *单个* 目录（非 colon-list），且必须含全部
 // 依赖 zpkg。故先组装一个「z42c 7 包 + stdlib」合并 flat 目录，编译期与运行期
