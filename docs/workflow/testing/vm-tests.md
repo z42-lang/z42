@@ -59,8 +59,6 @@ src/tests/
 └── ...
 ```
 
-详见 [`docs/design/testing/testing.md`](../../design/testing/testing.md) "测试目录组织" 段。
-
 ## 编写新 golden
 
 ```bash
@@ -72,4 +70,4 @@ src/tests/
 
 ## stdlib-bound 测试 vs vm-core 测试
 
-按归属规则：用到 stdlib 类的测试放 `src/libraries/<lib>/tests/`；纯 VM 行为 / 多包协作放 `src/tests/`。详细规则见 [`docs/design/testing/testing.md`](../../design/testing/testing.md) "添加新测试时的归属规则" 段。
+按归属规则：用到 stdlib 类的测试放 `src/libraries/<lib>/tests/`；纯 VM 行为 / 多包协作放 `src/tests/`。

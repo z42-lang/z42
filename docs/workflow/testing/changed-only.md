@@ -27,7 +27,7 @@ Z42_TEST_CHANGED_BASE=origin/main ./xtask test changed
 | `*.workspace.toml` / `build.rs` / `scripts/xtask*.z42` | 全套 `./xtask test` |
 | 其他 `src/**` | 全套 `./xtask test`（防御性） |
 
-完整规则见 [`docs/design/testing/testing.md`](../../design/testing/testing.md) "增量测试" 段。
+完整映射的唯一真相源是代码 `scripts/test/xtask_test_changed.z42` 的 `_mapFile`（本表是其快照）。
 
 ## 局限
 

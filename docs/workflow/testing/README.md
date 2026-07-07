@@ -26,7 +26,7 @@ z42 测试分四层，各层独立运行：
 
 ## GREEN 门禁
 
-CI 全绿门禁（`cargo build`（z42vm）+ `./xtask test`（内部串联 vm / cross-zpkg / lib / compiler））的定义见 [`../ci.md`](../ci.md)；规则在 [`.claude/rules/workflow.md`](../../../.claude/rules/workflow.md) 阶段 8。
+CI 全绿门禁（`cargo build`（z42vm）+ `./xtask test`（内部串联 e2e / cross-zpkg / stdlib / compiler））的定义见 [`../ci.md`](../ci.md)；规则在 [`.claude/rules/workflow.md`](../../../.claude/rules/workflow.md) 阶段 8。
 
 ## 一键全跑
 
