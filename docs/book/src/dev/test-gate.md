@@ -22,7 +22,7 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 完整 gate 的内容 | cargo build (z42vm) + vm / cross-zpkg / stdlib / compiler 四 stage | 每个 stage 守一类回归面：VM 语义、跨包行为、库正确性、编译器自举 |
+| 完整 gate 的内容 | cargo build (z42vm) + e2e（goldens + cross-zpkg）/ stdlib / compiler stage | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、编译器自举（Rust VM 单测独立于 gate，见 `test runtime`） |
 | 加速机制分两种 | `--scope`（stage 级）与 `test changed`（命令级） | scope 按子系统粗切、心智简单；changed 按文件精确到单库命令，适合小步迭代 |
 | changed 的保守坍缩 | 任一改动文件映射为 full → 整个计划坍缩为 `test all` | 宁可多跑不可漏跑；xtask 自身与 workspace 配置改动一律 full |
 | 计划执行方式 | 逻辑命令 in-process 重入 CLI 路由（不 shell out） | 免去每命令一次进程启动；cargo 命令例外走子进程 |
@@ -35,17 +35,19 @@
 ```mermaid
 graph LR
     R[regen 构建波<br/>stdlib + z42c 自建<br/>+ cargo release z42vm<br/>+ golden .zbc] --> D[debug z42vm<br/>+ compression cdylib]
-    D --> S1[vm goldens<br/>interp]
-    S1 --> S2[cross-zpkg e2e]
+    D --> S1[e2e goldens<br/>interp]
+    S1 --> S2[e2e cross-zpkg]
     S2 --> S3[stdlib Test 用例]
     S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
     S4 --> G((GREEN))
 ```
 
 先一次性备齐工具链与基线（regen 构建波），再依序跑四个验证 stage；任一步失败立即终止。
+（`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
+在信号受限的沙箱里会挂;改由每条 CI 腿单独一步 + 本地 `xtask test runtime` 按需跑。）
 设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的
 `test-host` 正是先经 bootstrap 集中构建、再 `test all --no-build` 消费的形态。
-JIT 一致性不在本地默认路径内，由 CI `test-vm-jit` 专腿覆盖（本地可用 `test vm jit` 手动跑）。
+JIT 一致性不在本地默认路径内，由 CI `test-vm-jit` 专腿覆盖（本地可用 `test e2e --mode jit` 手动跑）。
 
 ### `--scope`：stage 级缩窄
 
@@ -65,13 +67,13 @@ JIT 一致性不在本地默认路径内，由 CI `test-vm-jit` 专腿覆盖（�
 
 | 改动路径 | 映射命令 |
 |---------|---------|
-| `src/libraries/<lib>/src/` | `test lib <lib>` + `test vm` |
+| `src/libraries/<lib>/src/` | `test lib <lib>` + `test e2e` |
 | `src/libraries/<lib>/tests/` 或该库 `.toml` | `test lib <lib>` |
-| `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `cargo test` + `test vm` |
-| `src/runtime/tests/` | `cargo test` |
-| `src/tests/cross-zpkg/` | `test cross-zpkg` |
-| 其余 `src/tests/` | `test vm` |
-| `src/compiler/` | `test compiler` + `test vm` |
+| `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` |
+| `src/runtime/tests/` | `test runtime` |
+| `src/tests/cross-zpkg/` | `test e2e --dir cross-zpkg` |
+| 其余 `src/tests/` | `test e2e` |
+| `src/compiler/` | `test compiler` + `test e2e` |
 | `src/toolchain/` | `test lib`（工具链影响 [Test] 执行方式，全库扫） |
 | `scripts/xtask*`、`*.workspace.toml`、未识别路径 | **full**（坍缩为 `test all`） |
 | 文档 / `.claude/` / examples / bench / artifacts | 跳过 |

@@ -15,13 +15,13 @@ Z42_TEST_CHANGED_BASE=origin/main ./xtask test changed
 
 | 改动 | 触发 |
 |------|------|
-| `src/libraries/<lib>/src/*` | `./xtask test stdlib <lib>` + `./xtask test vm` |
+| `src/libraries/<lib>/src/*` | `./xtask test stdlib <lib>` + `./xtask test e2e` |
 | `src/libraries/<lib>/tests/*` | `./xtask test stdlib <lib>` |
-| `src/runtime/src/*` / `Cargo.toml` / `build.rs` | `cargo test` + `./xtask test vm` |
+| `src/runtime/src/*` / `Cargo.toml` / `build.rs` | `cargo test` + `./xtask test e2e` |
 | `src/runtime/tests/*` | `cargo test` |
-| `src/tests/cross-zpkg/*` | `./xtask test cross-zpkg` |
-| `src/tests/*` | `./xtask test vm` |
-| `src/compiler/*` | `./xtask test compiler` + `./xtask test vm` |
+| `src/tests/cross-zpkg/*` | `./xtask test e2e --dir cross-zpkg` |
+| `src/tests/*` | `./xtask test e2e` |
+| `src/compiler/*` | `./xtask test compiler` + `./xtask test e2e` |
 | `src/toolchain/*` | runner cargo test + `./xtask test stdlib` |
 | `*.md` / `docs/**` / `.claude/**` | 不触发 |
 | `*.workspace.toml` / `build.rs` / `scripts/xtask*.z42` | 全套 `./xtask test` |

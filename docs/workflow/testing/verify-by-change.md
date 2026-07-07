@@ -12,7 +12,7 @@
 | **编译器 `src/compiler/`** | `xtask test changed`（→ compiler + vm） | 触及 lexer/parser/codegen/格式 writer，或 z42c 源用了新写法 → `xtask test bootstrap` | 每腿 ci-bootstrap（种子编当前源）、`verify-selfhost`、JIT 分片腿 |
 | **标准库 `src/libraries/`（加 API / 改实现）** | `xtask test changed`（→ lib <lib> + vm）或 `xtask test stdlib <lib> --filter=K` | — | `test-stdlib-jit` 分片、各平台腿 |
 | **标准库（删/改 xtask 或 z42c 在用的 API）** | 同上 + 迁移调用点 | ⚠️ **两步舞**：nightly N 先加新 API（旧暂留）→ N 发布后切调用点+删旧。**完整操作剧本见下**"stdlib 破坏性 API 变更" | ci-bootstrap step 2/3（用**种子** stdlib 编 xtask/z42c 源） |
-| **VM `src/runtime/`（Rust）** | `cargo test --manifest-path src/runtime/Cargo.toml` + `xtask test vm` | — | 4 OS 腿、JIT 分片、feature-matrix |
+| **VM `src/runtime/`（Rust）** | `cargo test --manifest-path src/runtime/Cargo.toml` + `xtask test e2e` | — | 4 OS 腿、JIT 分片、feature-matrix |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建 → 随便跑条命令冒烟 | changed 映射对 `scripts/xtask*` = **full**（完整 gate） | ci-bootstrap step 2（种子编 xtask 源） |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask test bootstrap` | 格式 bump 另跑 [version-bumping checklist](../../../.claude/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
 | **打包 `scripts/package/` / `packages.toml`** | `xtask test packages` | `xtask build package release` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |

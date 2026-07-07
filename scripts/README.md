@@ -3,7 +3,7 @@
 ## 职责
 
 仓库的开发 CLI 与启动引导。绝大多数开发命令（build / test / package / deps /
-regen / audit / bench / release）都已收敛到一个自举的 z42 程序 **xtask**：源码是本目录的
+bench）都已收敛到一个自举的 z42 程序 **xtask**：源码是本目录的
 `xtask*.z42`（按命令分子目录组织，见末尾），构建为**原生 apphost 可执行**（仓库根 `./xtask`，
 内嵌 launcher + `xtask.zpkg`）：
 
@@ -76,18 +76,16 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（7 个自建成员） |
 | `build workload` | 改了 `src/toolchain/workload` 源 | z42c/stdlib（缺则自建） | 4 个 workload lib → `artifacts/build/libraries/dist/release/z42.workload.*.zpkg`（launcher 依赖） |
 | `build toolchain` | 改了 launcher/z42b/z42d/z42i 源 | 同上 + 自动 `build workload` | 4 个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码） |
-| `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（= `regen` 的 golden 编译，不重建工具链） |
+| `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（golden 编译，不重建工具链；含 `regen` 命令旧职能） |
 | `build sdk [--out D] [--no-build]` | 组装完整可运行 SDK | z42c/stdlib/z42vm + `build toolchain` | `.z42` 布局：`bin/{z42vm,z42c,z42b,z42d,z42i}` + `z42`(launcher 根) + `programs/*` + `libs/*`；apphost 从各 publish_dir 合并 |
 | `package sdk [--profile] [--no-build]` | 打 host SDK 发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<host>-release/{bin,libs,native}`（末尾 SHA-256 invariant） |
 | `package runtime [--rid R]` | runtime 包（native+stdlib，平台随 rid） | `cargo` + z42c | host: `z42-runtime-<ver>-<rid>`；平台: `z42-<ver>-<rid>-release` |
 | `package workload [--rid R] \| <label> [dist]` | `--rid`/无参：建 per-RID desktop workload；`<label>`：合并 4 个 per-RID → 单 archive | `cargo` | workload 包 / 合并 archive |
 | `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
-| `regen` | 编译器变更使 `.zbc` 基线漂移 | z42c + z42vm | run-golden 按组件镜像到 `artifacts/build/`（gitignored，不污染 src）；committed 字节基线 `src/tests/zbc-format/*/source.zbc` 就地重写 |
-| `audit` | 新增 test `source.z42` | `z42.regex` | 自动补缺失的 `using` 声明 |
 | `bench [--diff]` | 性能基准 / 回归对比 | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果 |
-| `test` | **每次 commit / 归档前必跑** | 下面各 stage | 串联全部 GREEN 验证 |
-| `test vm [interp\|jit]` | 跑 VM 端到端 golden（最常用） | `cargo build` + regen 产物 | interp / jit 通过率 |
-| `test cross-zpkg` | 跨包路径 / 元数据相关变更 | `cargo build` + z42c | target/ext/main 三方协作通过率 |
+| `test` | **每次 commit / 归档前必跑** | 下面各 stage | 串联 GREEN 验证（e2e + stdlib + compiler；不含 runtime——见下） |
+| `test runtime` | 改了 Rust VM (`src/runtime/`) | `cargo` | Rust VM 单测/集成（`cargo test --test-threads=1`；含 zbc/zpkg format 基线）。**不在 `test` gate 内**（signal 测试在受限沙箱会挂）；CI 每腿单独一步 + 按需本地跑 |
+| `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
 | `test compiler` | z42c 编译器变动 | z42c 自建 | 7/7 自举不动点（gen1==gen2）+ [Test] units + e2e |
 | `test dist` | 验证打包后发行版能独立工作 | `build package` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
@@ -112,8 +110,8 @@ test ──► _testAll
   │       └ build stdlib + z42c + cargo release z42vm + golden .zbc
   │  ② 额外工具链                         _buildDebugVmAndCompression
   │       └ cargo debug z42vm + z42-compression cdylib（runner = z42b，由各 stage 自建）
-  ├─► stage VM goldens (interp)          _testVmCore   → test/xtask_test_vm.z42
-  ├─► stage cross-zpkg                   _testCrossZpkgCore → test/xtask_test_cross.z42
+  ├─► stage e2e goldens (interp)         _testE2eCore  → test/xtask_test_vm.z42
+  ├─► stage e2e cross-zpkg               _testCrossZpkgCore → test/xtask_test_cross.z42
   ├─► stage stdlib [Test]                _testLibCore  → test/xtask_test_lib.z42
   └─► stage compiler                     _testCompiler → build/xtask_compiler.z42
           └ 自举不动点 7/7 + [Test] units + e2e (build/xtask_compiler_e2e.z42)
@@ -133,18 +131,21 @@ build stdlib ──► _buildStdlibCore
   ⑤ verify 产物 + flat view (hard-link)    _assembleStdlibFlatView → libraries/dist/release
 ```
 
-### `regen`（`xtask_regen.z42 :: _regenCore → _regenGolden`）
+### `build test`（`build/xtask_test_assets.z42 :: _buildTest → _regenGolden`）
 
 ```
-regen [release] [--no-stdlib] ──► _regenCore
-  ① (除非 --no-stdlib) build stdlib          _buildStdlib
-  ② cargo build release z42vm                 _buildRuntime
-  ③ _regenGolden:
+build test ──► _buildTest
+  ① _ensureToolchainDeps: 缺则自建 z42c/stdlib/z42vm（build-if-missing）
+  ② _regenGolden:
        枚举 golden 三种布局 (src/tests/<cat>/<name>/source.z42 · stdlib tests · flat *.z42)
        └ 排除 errors/parse/cross-zpkg (预期失败) + [Test]/[Benchmark] 目录
        并行批量 (8/批) z42vm 跑 z42c.driver --emit-zbc → .zbc
        └ zbc-format 类就地覆盖 (git diff = 格式漂移)；其余 → artifacts 镜像
 ```
+
+> `regen` 命令已并入 `build test`（redesign-xtask-test）。`_regenCore`（rebuild
+> stdlib+runtime+goldens）仍作为 `test` gate 的 build-wave（`_regenForTest`）保留。
+> 格式 bump 后重生 fixture：`build compiler && build stdlib && build test`。
 
 ### `build package`（`package/xtask_package.z42 :: _buildPackageCore`）
 
@@ -191,15 +192,15 @@ xtask test               # 串联 vm + cross-zpkg + stdlib + compiler 全 stage
 
 **日常开发循环（最高频）**：
 ```bash
-xtask regen              # 改了编译器后重生 .zbc 基线
-xtask test vm            # 跑 VM 端到端（interp + jit）
+xtask build test              # 改了编译器后重生 .zbc 基线
+xtask test e2e            # 跑 VM 端到端（interp + jit）
 xtask test changed       # 或只测受改动影响的 stage
 ```
 
 **改了 stdlib `.z42` 源**：
 ```bash
 xtask build stdlib       # 重编 stdlib zpkg（扁平视图，无 namespace 索引）
-xtask test vm
+xtask test e2e
 ```
 
 **完整发行验证**：
@@ -219,29 +220,28 @@ scripts/
 ├── xtask.z42.toml       工程清单（glob include；output → artifacts/xtask/）
 ├── xtask_cli.z42        Std.Cli 命令树构建 + dispatch（每层 -h 自动生成）
 ├── xtask_deps.z42       deps check 版本漂移检查
-├── xtask_regen.z42      regen 重生 .zbc 基线
-├── xtask_audit.z42      audit 补缺失 using
 ├── xtask_bench.z42      bench 基准 / --diff 回归对比
-├── xtask_release.z42    release 打包编排（assemble-desktop-workload / gen-release-index）
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/path/cargo/toolchain 选择器
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
-│   └── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + regen 复用）
-├── build/              build stdlib / compiler + 自举边界检查
+│   └── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
+├── build/              build stdlib / compiler / test-assets + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
 │   ├── xtask_compiler_e2e.z42   z42c 自举 e2e oracle 套件（div-by-zero 验证）
+│   ├── xtask_test_assets.z42    build test（golden .zbc 编译；_buildTest / _regenGolden；供 test gate）
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族
-│   ├── xtask_test.z42           vm/cross/dist/all 编排 + shard 解析
+│   ├── xtask_test.z42           runtime/e2e/dist/all 编排 + shard 解析
 │   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] harness（发现/依赖/批量编译运行）
-│   ├── xtask_test_vm.z42        VM golden 跑分
-│   ├── xtask_test_cross.z42     cross-zpkg e2e
+│   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
+│   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_dist.z42      发行包 e2e
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
 │   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
-├── package/            build package 各 RID 类别
-│   └── xtask_package{,_desktop,_ios,_android,_wasm}.z42
+├── package/            build package 各 RID 类别 + 发行档组装
+│   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42
+│   └── xtask_release.z42        package workload(merge)/index 发行档组装
 └── install/            deps install 各平台 / SDK 安装
     └── xtask_install{,_android}.z42
 ```

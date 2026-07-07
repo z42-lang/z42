@@ -1,4 +1,7 @@
-// xtask — `release` subcommands (script-zero port of scripts/release/*.sh).
+// xtask — release-archive assembly for `package workload <label>` (merge per-RID
+// pieces → one archive) + `package index` (release-index.json). Called from the
+// `package` router (_dispatchPackage). (Was scripts/xtask_release.z42; the standalone
+// `release` command was merged into `package` — merge-package-release, 2026-07-06.)
 //
 // Release-time packaging glue, shared by release.yml (tagged) + ci.yml
 // publish-nightly (rolling). tar / unzip are driven as external subprocesses
@@ -10,14 +13,14 @@ using Std.IO;
 using Std.Json;
 using Std.Time;
 
-// `xtask release assemble-desktop-workload <LABEL> [<dist>]`
+// `xtask package workload <LABEL> [<dist>]` (merge mode)
 // Merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
 // into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz so any host can
 // `publish --rid <target>`. Removes the per-RID intermediates.
 int _releaseAssembleDesktop(string label, string dist) {
     Stopwatch sw = _procStart("release assemble-desktop-workload");
     if (label.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask release assemble-desktop-workload <LABEL> [dist]");
+        ConsoleError.WriteLine("usage: xtask package workload <LABEL> [dist]");
         return 2;
     }
     if (dist.Length == 0) { dist = "dist"; }
@@ -91,14 +94,14 @@ void _deleteGlob(string dir, string pattern) {
     while (i < hits.Length) { File.Delete(hits[i]); i = i + 1; }
 }
 
-// `xtask release gen-release-index <LABEL> [<dist>] [<channel>] [<tag>] [<version>]`
+// `xtask package index <LABEL> [<dist>] [<channel>] [<tag>] [<version>]`
 // Generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
 // contract (z42 install / workload install read it). Shared by release.yml (tagged)
 // and ci.yml publish-nightly (rolling), so the schema lives in ONE place.
 int _releaseGenIndex(string label, string dist, string channel, string tag, string version) {
     Stopwatch sw = _procStart("release gen-release-index");
     if (label.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask release gen-release-index <LABEL> [dist] [channel] [tag] [version]");
+        ConsoleError.WriteLine("usage: xtask package index <LABEL> [dist] [channel] [tag] [version]");
         return 2;
     }
     if (dist.Length == 0)    { dist = "dist"; }

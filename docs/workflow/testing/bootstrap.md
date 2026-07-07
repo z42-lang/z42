@@ -74,14 +74,14 @@ bash scripts/install-z42.sh          # 下载 SDK → .z42/
 
 # warm（已有 artifacts/.z42 的 Current）：
 xtask test                  # GREEN gate（用 Current）
-xtask test vm jit           # 单独 jit
+xtask test e2e --mode jit           # 单独 jit
 xtask build sdk             # 重建 Current toolchain
 ```
 
 - **无非-z42 兜底**：fresh checkout **必须**先下载 SDK 才能起步（需 gh auth + 网络）——工具链没有任何非-z42 的逃生编译器。
   无 warm 种子时 `xtask build` 明确报错引导跑 `install-z42` / 下载流程。
 - **GREEN gate**：`xtask test` = cargo z42vm + 用 Current 跑 vm(interp)/cross-zpkg/stdlib/
-  compiler。jit 由 `test vm jit` / CI 的 jit 专腿覆盖。详见 [`.claude/rules/workflow.md` 阶段8]。
+  compiler。jit 由 `test e2e --mode jit` / CI 的 jit 专腿覆盖。详见 [`.claude/rules/workflow.md` 阶段8]。
 
 ---
 

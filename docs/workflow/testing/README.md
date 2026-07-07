@@ -36,8 +36,8 @@ CI 全绿门禁（`cargo build`（z42vm）+ `./xtask test`（内部串联 vm / c
 
 ## Scope-aware test-all（add-test-split-by-area, 2026-05-21）
 
-`./xtask test` 默认跑 5 stages（cargo build (z42vm) / test vm /
-test cross-zpkg / test lib / test compiler）≈ 3-5 min。iteration 期常
+`./xtask test` 默认跑 5 stages（cargo build (z42vm) / test e2e /
+test e2e --dir cross-zpkg / test lib / test compiler）≈ 3-5 min。iteration 期常
 只改一个 area；用 `--scope=<value>` 跳过不相关 stages：
 
 | Scope | 跑的 stages | 何时用 |

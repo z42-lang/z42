@@ -60,11 +60,11 @@ flowchart TD
 - 边界：z42c+stdlib 是「成对分代」产物（gen2），发布的就是它；详见 [`testing/bootstrap.md`](testing/bootstrap.md)。
 
 ### ④ 测试资产（同平台共享）
-**做什么**：把测试用的 `.zbc` **编一次**——golden（`xtask regen`）、stdlib `[Test]` 单元、fixture——`.zbc` 平台无关，全平台共享，避免每个测试 job 重复 regen。
+**做什么**：把测试用的 `.zbc` **编一次**——golden（`xtask build test`）、stdlib `[Test]` 单元、fixture——`.zbc` 平台无关，全平台共享，避免每个测试 job 重复 regen。
 
 - **产物**：golden/unit/fixture `.zbc`，bundle 进 `current-sdk-<os>` artifact（`.z42` 布局：`programs/z42c/` + `libs/` + `bin/z42vm` + `tests/`）。
 - **CI job**：**`compile-test-assets(linux-x64 / macos-arm64)`** —— 独立 job（消费 ③ 的 `toolchain-<os>` + 本机 `cargo z42vm`），`regen` 一次 + `build sdk --no-build` 组装 `current-sdk`（✅ golden 已落地；unit/fixture ⬜）。**故意拆出 `compile-toolchain`**：golden regen ~9min 若留在 ③ 内会卡住 `package-*`→`publish-nightly` 关键路径（它们不消费测试资产），独立 job 并行跑、不在关键路径上。
-- **本地**：`xtask build test-assets`（⬜ 目标；现为 `xtask regen`）。
+- **本地**：`xtask build test-assets`（⬜ 目标；现为 `xtask build test`）。
 
 ### ⑤ 运行测试（消费 ③+④）
 **做什么**：下载 host package + 测试资产，**`--no-build` 消费**跑测试——不再自举、不再 regen。
@@ -120,8 +120,8 @@ flowchart TD
 
 ```bash
 cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust）无编译错误
-./xtask test vm            # VM goldens（interp；jit 由 test-vm-jit(linux-x64) 专腿覆盖）
-./xtask test cross-zpkg    # 跨 zpkg 端到端
+./xtask test e2e            # VM goldens（interp；jit 由 test-vm-jit(linux-x64) 专腿覆盖）
+./xtask test e2e --dir cross-zpkg    # 跨 zpkg 端到端
 ./xtask test lib           # stdlib [Test]（全量）
 ./xtask test compiler  # z42c 自举（build 7 子包 + 不动点 + [Test] units）
 ```

@@ -216,7 +216,7 @@ _MapResult _mapSkip() { return new _MapResult(); }
 // lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
 _MapResult _mapLibraryFile(string f) {
     string lib = _segment(f, 2);
-    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test lib " + lib, "xtask test vm" }); }
+    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test lib " + lib, "xtask test e2e" }); }
     if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test lib " + lib }); }
     if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test lib " + lib }); }
     return _mapSkip();
@@ -233,17 +233,17 @@ _MapResult _mapFile(string f) {
     // Runtime (Rust VM).
     if (f.StartsWith("src/runtime/src/") || f == "src/runtime/Cargo.toml"
         || f == "src/runtime/Cargo.lock" || f == "src/runtime/build.rs") {
-        return _mapCmds(new string[]{ "cargo test --manifest-path src/runtime/Cargo.toml", "xtask test vm" });
+        return _mapCmds(new string[]{ "xtask test runtime", "xtask test e2e" });
     }
     if (f.StartsWith("src/runtime/tests/")) {
-        return _mapCmds(new string[]{ "cargo test --manifest-path src/runtime/Cargo.toml" });
+        return _mapCmds(new string[]{ "xtask test runtime" });
     }
-    if (f.StartsWith("src/tests/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test cross-zpkg" }); }
-    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test vm" }); }
+    if (f.StartsWith("src/tests/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
+    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e" }); }
 
     // z42c self-host compiler (src/compiler).
     if (f.StartsWith("src/compiler/")) {
-        return _mapCmds(new string[]{ "xtask test compiler", "xtask test vm" });
+        return _mapCmds(new string[]{ "xtask test compiler", "xtask test e2e" });
     }
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.

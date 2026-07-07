@@ -5,7 +5,7 @@
 ## 命令
 
 ```bash
-./xtask test cross-zpkg
+./xtask test e2e --dir cross-zpkg
 ```
 
 ## 用例布局

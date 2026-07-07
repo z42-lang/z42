@@ -24,9 +24,9 @@
 // strings and printed in original order so the terminal stays readable.
 //
 // Goldens deliberately run against the DEBUG vm binary at
-// artifacts/build/runtime/debug/z42vm (the caller _testVm builds it first).
+// artifacts/build/runtime/debug/z42vm (the caller _testE2e builds it first).
 // `modes` / `jobs` arrive as parameters (the former Z42_VM_MODES / Z42_VM_JOBS
-// env config is now resolved by _testVm in xtask_test.z42).
+// env config is now resolved by _testE2e in xtask_test.z42).
 namespace Z42Xtask;
 
 using Std;
@@ -39,6 +39,12 @@ using Std.Text;
 // run all. The empty-set guard runs on the FULL set so a (legitimately) empty shard
 // is not an error.
 int _runVmGoldens(string[] modes, int jobs, int shardK, int shardN) {
+    return _runVmGoldensF(modes, jobs, shardK, shardN, "", "");
+}
+
+// `test e2e` sub-selection: dirFilter narrows to one src/tests/<cat>; fileFilter
+// matches a case by name or a source-path substring. Both "" = run everything.
+int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirFilter, string fileFilter) {
     string root = _root();
     if (jobs < 1) { jobs = 1; }
 
@@ -76,10 +82,14 @@ int _runVmGoldens(string[] modes, int jobs, int shardK, int shardN) {
         Console.WriteLine(" Mode: " + mode);
         Console.WriteLine("══════════════════════════════════════");
 
-        _Case[] cases = _enumerateCases(root, mode);
+        _Case[] cases = _enumerateCasesF(root, mode, dirFilter, fileFilter);
         if (cases.Length == 0) {
-            ConsoleError.WriteLine("❌ no runnable golden fixtures found.");
-            ConsoleError.WriteLine("   Hint: run `z42 xtask.zpkg regen` first.");
+            if (dirFilter.Length > 0 || fileFilter.Length > 0) {
+                ConsoleError.WriteLine("❌ no golden cases match --dir/--file filter.");
+            } else {
+                ConsoleError.WriteLine("❌ no runnable golden fixtures found.");
+                ConsoleError.WriteLine("   Hint: run `xtask build test` first.");
+            }
             return 1;
         }
         if (shardN > 0) {
@@ -245,7 +255,24 @@ void _printFailLine(_Case c, ProcessResult r) {
 
 // ── Enumeration ──────────────────────────────────────────────────────────
 
+// `test e2e` filter: keep a case iff it passes the --dir (category) and --file
+// (name or source-path substring) narrowing. Both empty = keep all.
+bool _e2eIncluded(string cat, string name, string srcPath, string dirFilter, string fileFilter) {
+    if (dirFilter.Length > 0 && cat != dirFilter) { return false; }
+    if (fileFilter.Length > 0) {
+        if (name == fileFilter) { return true; }
+        string norm = srcPath.Replace("\\", "/");
+        string f = fileFilter.Replace("\\", "/");
+        if (!norm.Contains(f)) { return false; }
+    }
+    return true;
+}
+
 _Case[] _enumerateCases(string root, string mode) {
+    return _enumerateCasesF(root, mode, "", "");
+}
+
+_Case[] _enumerateCasesF(string root, string mode, string dirFilter, string fileFilter) {
     _Case[] cases = new _Case[64];
     int n = 0;
 
@@ -256,11 +283,13 @@ _Case[] _enumerateCases(string root, string mode) {
     while (ci < cats.Length) {
         string catDir = Path.Join(testsDir, cats[ci]);
         if (_isNonRunnableCat(cats[ci])) { ci = ci + 1; continue; }
+        if (dirFilter.Length > 0 && cats[ci] != dirFilter) { ci = ci + 1; continue; }
         string[] names = _enumDirsSorted(catDir);
         int ni = 0;
         while (ni < names.Length) {
             string dir = Path.Join(catDir, names[ni]);
             if (_isExcludedDirName(cats[ci], names[ni])) { ni = ni + 1; continue; }
+            if (!_e2eIncluded(cats[ci], names[ni], Path.Join(dir, "source.z42"), dirFilter, fileFilter)) { ni = ni + 1; continue; }
             // run-golden .zbc lives in the artifacts mirror, not beside source.z42
             // (redirect-golden-zbc-to-artifacts). Sidecars (expected_output.txt,
             // interp_only, source.z42 for entry derivation) stay in src `dir`.
@@ -283,9 +312,10 @@ _Case[] _enumerateCases(string root, string mode) {
         ci = ci + 1;
     }
 
-    // Dir mode part 2: src/libraries/<lib>/tests/<name>/
+    // Dir mode part 2: src/libraries/<lib>/tests/<name>/ — library golden tests are
+    // not a src/tests category, so a --dir <cat> filter excludes them entirely.
     string libsRoot = Path.Join(root, "src/libraries");
-    string[] libs = _enumDirsSorted(libsRoot);
+    string[] libs = (dirFilter.Length > 0) ? new string[0] : _enumDirsSorted(libsRoot);
     int li = 0;
     while (li < libs.Length) {
         string libTests = Path.Join(libsRoot, libs[li] + "/tests");
@@ -294,6 +324,7 @@ _Case[] _enumerateCases(string root, string mode) {
             int ni = 0;
             while (ni < names.Length) {
                 string dir = Path.Join(libTests, names[ni]);
+                if (fileFilter.Length > 0 && !_e2eIncluded("", names[ni], Path.Join(dir, "source.z42"), "", fileFilter)) { ni = ni + 1; continue; }
                 // [Test]/[Benchmark] dir tests (e.g. z42.crypto/tests/secp256k1)
                 // have no Main and are run by `test lib` via z42-test-runner — the
                 // golden runner must skip them (else "entry function …Main not
@@ -326,6 +357,7 @@ _Case[] _enumerateCases(string root, string mode) {
     ci = 0;
     while (ci < cats.Length) {
         if (_isNonRunnableCat(cats[ci])) { ci = ci + 1; continue; }
+        if (dirFilter.Length > 0 && cats[ci] != dirFilter) { ci = ci + 1; continue; }
         string catDir = Path.Join(testsDir, cats[ci]);
         // flat run-golden .zbc → artifacts mirror; sidecars (.interp_only,
         // .expected_output.txt, .z42) stay in src `catDir`.
@@ -335,6 +367,7 @@ _Case[] _enumerateCases(string root, string mode) {
         while (hi < hits.Length) {
             string artifact = hits[hi];
             string name = Path.GetFileNameWithoutExtension(artifact);
+            if (fileFilter.Length > 0 && !_e2eIncluded(cats[ci], name, Path.Join(catDir, name + ".z42"), dirFilter, fileFilter)) { hi = hi + 1; continue; }
             string interpMarker = Path.Join(catDir, name + ".interp_only");
             if (mode == "jit" && File.Exists(interpMarker)) {
                 hi = hi + 1;

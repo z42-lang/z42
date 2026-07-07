@@ -317,7 +317,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - dotnet test
-      - ./xtask test vm        # interp + jit
+      - ./xtask test e2e        # interp + jit
       - ./xtask test lib
       - tar artifacts/test-zbcs/*.zbc → upload-artifact
 

@@ -427,7 +427,7 @@ z42c --assemble foo.zasm -o foo.zbc
 
 **Strict-pin 政策**（与 [`philosophy.md` "不为旧版本提供兼容"](../../../.claude/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）：
 
-- Reader 仅接受 `major == ZbcWriter.VersionMajor && minor == ZbcWriter.VersionMinor`。pre-1.0 z42 阶段**不为旧 zbc minor 提供向前 / 向后兼容**；每次 minor bump = 所有现存 zbc artifacts 必须 regen（`./xtask regen`）。
+- Reader 仅接受 `major == ZbcWriter.VersionMajor && minor == ZbcWriter.VersionMinor`。pre-1.0 z42 阶段**不为旧 zbc minor 提供向前 / 向后兼容**；每次 minor bump = 所有现存 zbc artifacts 必须 regen（`./xtask build test`）。
 - **当前版本**：`major=1, minor=5`（详见下方 minor changelog）
 - **触发 minor bump** 的事项：新增 opcode / 新增 section id / 已定义 section 内部字段语义变化 / Flag 位语义变化
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header 字段宽度或排列 / 改 section directory 12B 条目格式 / 重划 Token 编码空间（IMPORT_BASE / UNRESOLVED 等）

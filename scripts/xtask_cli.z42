@@ -9,7 +9,7 @@
 // `test` and `bench` are "default-action" commands (no subcommand = run
 // all / e2e) which the plain router doesn't model — _runCli handles those
 // two default cases before Resolve. They are still registered in the tree
-// so `xtask -h` lists them and `xtask test vm -h` etc. work via Resolve.
+// so `xtask -h` lists them and `xtask test e2e -h` etc. work via Resolve.
 namespace Z42Xtask;
 
 using Std;
@@ -167,14 +167,6 @@ SubcommandRouter _cliRoot() {
     root.AddRouter("deps", "toolchain deps", _depsRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
-    ArgParser regen = new ArgParser("xtask regen", "regenerate golden .zbc fixtures");
-    regen.AddFlag("no-stdlib", "", "skip stdlib rebuild");
-    regen.AddOptionalPositional("profile", "release (default debug)");
-    root.Add("regen", "regenerate golden .zbc fixtures", regen);
-
-    root.Add("audit", "scan src/ + insert missing 'using' directives",
-        new ArgParser("xtask audit", "scan src/ + insert missing 'using' directives"));
-
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
     clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
@@ -258,7 +250,7 @@ SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
     ArgParser allP = new ArgParser("xtask test all", "full gate");
     allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
-    t.Add("all", "compiler + vm + cross-zpkg + stdlib", allP);
+    t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
     ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
     stdlib.AddFlag("no-build", "", "skip tooling rebuild");
     stdlib.AddOption("filter", "k", "test-name filter", "");
@@ -267,16 +259,17 @@ SubcommandRouter _testRouter() {
     stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
-    ArgParser vm = new ArgParser("xtask test vm", "golden VM tests");
-    vm.AddFlag("no-rebuild", "", "skip rebuild before run");
-    vm.AddFlag("no-build", "", "regen goldens only — skip z42c+stdlib rebuild (consume bootstrap output)");
-    vm.AddOption("jobs", "", "parallel jobs", "");
-    vm.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
-    vm.AddOptionalPositional("mode", "interp|jit (default: both)");
-    t.Add("vm", "golden VM tests", vm);
-    ArgParser cross = new ArgParser("xtask test cross-zpkg", "cross-zpkg e2e");
-    cross.AddOptionalPositional("mode", "interp|jit (default: interp)");
-    t.Add("cross-zpkg", "cross-zpkg e2e", cross);
+    t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
+        new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
+    ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
+    e2e.AddFlag("no-rebuild", "", "skip rebuild before run");
+    e2e.AddFlag("no-build", "", "regen goldens only — skip z42c+stdlib rebuild (consume bootstrap output)");
+    e2e.AddOption("dir", "", "run only src/tests/<cat> (e.g. classes, cross-zpkg)", "");
+    e2e.AddOption("file", "", "run one case (name or source-path substring)", "");
+    e2e.AddOption("mode", "", "interp|jit (default: both)", "");
+    e2e.AddOption("jobs", "", "parallel jobs", "");
+    e2e.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
+    t.Add("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)", e2e);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
     dist.AddOptionalPositional("mode", "interp|jit (default: interp)");
     t.Add("dist", "distribution verification", dist);
@@ -401,8 +394,6 @@ int _dispatch(CommandResolution res) {
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
-    if (top == "regen")          { return _regen(r); }
-    if (top == "audit")          { return _auditRun(); }
     if (top == "clean")          { return _clean(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.
     return 2;
@@ -430,8 +421,8 @@ int _dispatchTest(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
     if (sub == "all")          { return _testAll(r.GetFlag("no-build")); }
     if (sub == "stdlib")       { return _testLib(r, "test"); }
-    if (sub == "vm")           { return _testVm(r); }
-    if (sub == "cross-zpkg")   { return _testCrossZpkg(r); }
+    if (sub == "runtime")      { return _testRuntime(); }
+    if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "dist")         { return _testDist(r); }
     if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
     if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检

@@ -52,7 +52,7 @@ TestUnit[] _discoverTestUnits(string testsDir, string[] entries, string filter) 
             string sourceZ42 = Path.Join(full, "source.z42");
             // A tests/<name>/source.z42 dir is a [Test] unit ONLY when it
             // actually declares [Test] methods. Main-based dirs (source.z42 with
-            // void Main()) are VM golden cases — run by `test vm` from
+            // void Main()) are VM golden cases — run by `test e2e` from
             // src/libraries/<lib>/tests/<name>/source.zbc, NOT [Test] units. The
             // z42-test-runner reports "no tests found" (exit 3) on a Main-based
             // zpkg, which _testLib would otherwise miscount as a failure.

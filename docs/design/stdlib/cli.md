@@ -80,7 +80,7 @@ suggestion.
 
 `ArgParser.AddOptionalPositional(name, help)` —— 可选 positional。由 xtask/launcher
 迁移 Std.Cli（migrate-xtask-launcher-to-std-cli）的 dogfood 暴露：其命令遍地
-`test vm [interp|jit]` / `build stdlib [lib]` / `package [release|debug]` 等可选 positional，
+`test e2e [interp|jit]` / `build stdlib [lib]` / `package [release|debug]` 等可选 positional，
 而原 `AddPositional` 严格必填、`AllowExtras` 不覆盖 positional。
 
 - 缺省：`GetPositional(i)` 返回 `""`（声明槽位默认空串）；`PositionalCount()` 仍为实际提供数。

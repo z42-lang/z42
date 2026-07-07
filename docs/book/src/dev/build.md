@@ -93,7 +93,7 @@ z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`
 - 改 wire 格式（新 opcode / section / 字段语义）→ **writer + reader 版本常量必须同一 commit 一起 bump**，
   否则 strict-pin 校验失败。完整同步清单（zbc 5 处 / zpkg 9 处 + fixture regen）见
   [version-bumping.md](../../../.claude/rules/version-bumping.md)。
-- strict-pin 让所有旧 `.zbc`/`.zpkg` artifact **立即失效**——所以 bump 后必须 `xtask regen` 重生
+- strict-pin 让所有旧 `.zbc`/`.zpkg` artifact **立即失效**——所以 bump 后必须 `xtask build test` 重生
   golden 基线 + 重截 z42c golden hex 单测（header 的 minor 字段会变）。
 - `zbc_reader_tests.rs::zpkg_version_constants_pinned` 钉住 reader 常量当前值，防止 writer/reader
   单边漂移悄悄溜过（曾漏改一侧 → fresh 构建炸、cache 命中蒙混）。

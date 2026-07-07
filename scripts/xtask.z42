@@ -102,7 +102,7 @@ int _buildStdlib() {
 // The test command tree (vm / cross-zpkg / dist / stdlib / compiler /
 // compiler / changed / all) + the "no subcommand = full gate" default
 // live in xtask_cli.z42 (_runCli / _dispatchTest). The leaf handlers
-// (_testVm / _testLib / _testCrossZpkg / _testDist / _testChanged) read
+// (_testE2e / _testRuntime / _testLib / _testDist / _testChanged) read
 // their args from a Std.Cli ParseResult.
 
 // `test changed` — native, bash-free, in-process. Reads base-ref positional +
@@ -136,22 +136,13 @@ int _depsCheck() {
     return __rc;
 }
 
-// `audit` is dispatched directly to `_auditRun` (xtask_audit.z42) from
-// _dispatch — no wrapper needed.
-
-// ── regen-golden ────────────────────────────────────────────────────────────
-
-// `regen` — native, bash-free (migrate-scripts-to-z42). Rebuild stdlib (unless
-// --no-stdlib) + compiler driver + runtime, then regen the golden .zbc
-// fixtures. `release` positional → release config. Args from ParseResult.
-int _regen(ParseResult r) {
-    bool release = r.GetPositional(0) == "release";
-    bool rebuildStdlib = !r.GetFlag("no-stdlib");
-    Stopwatch sw = _procStart("regen");
-    int __rc = _regenCore(release, rebuildStdlib);
-    if (__rc == 0) { _procEnd("regen", sw); }
-    return __rc;
-}
+// ── golden-asset rebuild (shared by `build test` + the gate build-wave) ─────
+//
+// The standalone `regen` command was folded into `build test` (redesign-xtask-test):
+// `build test` (_buildTest) = ensure deps (build-if-missing) + _regenGolden. These
+// functions remain as the shared golden-asset machinery — _regenForTest (test gate
+// build-wave) and _buildTest both call them. Post-format-bump fixture regen is now
+// `xtask build stdlib && xtask build test`.
 
 int _regenCore(bool release, bool rebuildStdlib) {
     // replace-csharp Phase C：golden 编译走 z42c（不再 dotnet build C# driver）。

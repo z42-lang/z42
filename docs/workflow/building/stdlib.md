@@ -9,7 +9,7 @@
 - zbc / zpkg 格式 bump（compiler 端 minor 升级）
 - 编译器有 codegen / TypeChecker 行为变更
 
-**注**：`./xtask test vm` 默认会自动重建 stdlib，开发场景**不必手动**跑 `./xtask build stdlib`。
+**注**：`./xtask test e2e` 默认会自动重建 stdlib，开发场景**不必手动**跑 `./xtask build stdlib`。
 
 ## 直接构建
 

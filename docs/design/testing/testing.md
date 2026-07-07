@@ -149,12 +149,12 @@ src/
 | `src/compiler/z42.Tests/` | C# xUnit project (`.csproj`) | `dotnet test` | 编译器单元测试 (Lexer/Parser/TypeCheck/IRGen) + walks `src/tests/` + `src/libraries/<lib>/tests/` 跑 GoldenTests |
 | `src/runtime/src/<mod>_tests.rs` | Rust 单元测试 | `cargo test` | VM 模块单测（GC / interp / decoder ...） |
 | `src/runtime/tests/*.rs` | Rust 集成测试 | `cargo test` | 跨语言契约 + native interop e2e（cargo 框架硬约定位置） |
-| `src/libraries/<lib>/tests/<name>/` | `.z42` source + expected_output.txt | `./xtask test vm` + xUnit GoldenTests | 库 API 行为校验（与 [Test] 文件共居）|
+| `src/libraries/<lib>/tests/<name>/` | `.z42` source + expected_output.txt | `./xtask test e2e` + xUnit GoldenTests | 库 API 行为校验（与 [Test] 文件共居）|
 | `src/libraries/<lib>/tests/*.z42` | 单文件，含 `[Test]` 注解 | z42-test-runner | 库 [Test] 单元测试 |
-| `src/tests/<category>/<name>/` | `.z42` source + expected_output.txt | `./xtask test vm` + xUnit GoldenTests | VM e2e 按特性分类 |
+| `src/tests/<category>/<name>/` | `.z42` source + expected_output.txt | `./xtask test e2e` + xUnit GoldenTests | VM e2e 按特性分类 |
 | `src/compiler/z42.Tests/Fixtures/parse/<name>/` | `.z42` + expected.zasm | xUnit GoldenTests::ParseTests | IR/ZASM 匹配（无 VM 执行）|
 | `src/compiler/z42.Tests/Fixtures/errors/<name>/` | `.z42` + expected_error.txt | xUnit GoldenTests::ErrorTests | 编译失败诊断匹配 |
-| `src/tests/cross-zpkg/<name>/` | target/ext/main 三 toml 工程 | `./xtask test cross-zpkg` | 多 zpkg 链接 + 跨包 IR/TSIG 解析 |
+| `src/tests/cross-zpkg/<name>/` | target/ext/main 三 toml 工程 | `./xtask test e2e --dir cross-zpkg` | 多 zpkg 链接 + 跨包 IR/TSIG 解析 |
 
 ### 添加新测试时的归属规则
 
@@ -172,7 +172,7 @@ src/
 | 文件 | 何时存在 | 含义 |
 |------|---------|------|
 | `source.z42` | 必须 | z42 源码 |
-| `source.zbc` | 可执行测试 | 由 `./xtask regen` 生成；**不与 `source.z42` 同处**——run-golden 编译产物按组件镜像 src 布局到 `artifacts/build/`：`src/tests/X`→`artifacts/build/tests/X`，`src/libraries/<lib>/tests/X`→`artifacts/build/libraries/<lib>/tests/X`（gitignored，不污染 src；与 stdlib/z42c 包构建落点一致）。唯一例外 `src/tests/zbc-format/*/source.zbc` 是 check-in 的字节基线，就地重写（`git diff` = 格式漂移） |
+| `source.zbc` | 可执行测试 | 由 `./xtask build test` 生成；**不与 `source.z42` 同处**——run-golden 编译产物按组件镜像 src 布局到 `artifacts/build/`：`src/tests/X`→`artifacts/build/tests/X`，`src/libraries/<lib>/tests/X`→`artifacts/build/libraries/<lib>/tests/X`（gitignored，不污染 src；与 stdlib/z42c 包构建落点一致）。唯一例外 `src/tests/zbc-format/*/source.zbc` 是 check-in 的字节基线，就地重写（`git diff` = 格式漂移） |
 | `source.zasm` | 可选 | 调试用 ZASM 文本 |
 | `expected_output.txt` | run 用例 | stdout 期望（**空文件 = 用 `Assert.*` 自验，删除即可**）|
 | `expected_error.txt` | error 用例 | 编译诊断期望 |
@@ -182,9 +182,9 @@ src/
 
 ### `expected_output.txt` 处置（2026-05-05）
 
-- **非空文件**保留，`./xtask test vm` 用于 stdout 比对（103 个用例）
+- **非空文件**保留，`./xtask test e2e` 用于 stdout 比对（103 个用例）
 - **空文件**已删除（16 个），那些用例完全靠内置 `Assert.Equal` 自验：成功 = 跑通无 stdout 输出
-- 测试 runner（xtask test vm / GoldenTests.cs / ./xtask test dist）在文件缺失时把期望视为空字符串
+- 测试 runner（xtask test e2e / GoldenTests.cs / ./xtask test dist）在文件缺失时把期望视为空字符串
 - 等 R3 z42-test-runner 落地后，由独立 spec 评估是否把 stdout 比对全部转为 [Test]+Assert
 
 ---
@@ -403,18 +403,18 @@ untracked 文件（`git ls-files --others --exclude-standard`）也纳入变更�
 
 | 变更路径 | 触发命令 |
 |---------|---------|
-| `src/libraries/<lib>/src/**` | `./xtask test lib <lib>` + `./xtask test vm` |
+| `src/libraries/<lib>/src/**` | `./xtask test lib <lib>` + `./xtask test e2e` |
 | `src/libraries/<lib>/tests/**` | `./xtask test lib <lib>` |
 | `src/libraries/<lib>/<lib>.toml` | `./xtask test lib <lib>` |
-| `src/runtime/src/**`、`src/runtime/Cargo.toml` | `cargo test runtime` + `./xtask test vm` |
+| `src/runtime/src/**`、`src/runtime/Cargo.toml` | `cargo test runtime` + `./xtask test e2e` |
 | `src/runtime/tests/**` | `cargo test --manifest-path src/runtime/Cargo.toml` |
-| `src/tests/cross-zpkg/**` | `./xtask test cross-zpkg` |
-| `src/tests/**`（其他） | `./xtask test vm` |
-| `src/compiler/**` | `./xtask test compiler` + `./xtask test vm` |
+| `src/tests/cross-zpkg/**` | `./xtask test e2e --dir cross-zpkg` |
+| `src/tests/**`（其他） | `./xtask test e2e` |
+| `src/compiler/**` | `./xtask test compiler` + `./xtask test e2e` |
 | `src/toolchain/**` | `cargo test test-runner` + `./xtask test lib` |
-| `src/toolchain/xtask` 的 vm / regen 命令 | `./xtask test vm` |
+| `src/toolchain/xtask` 的 vm / regen 命令 | `./xtask test e2e` |
 | `src/toolchain/xtask` 的 lib 命令 | `./xtask test lib` |
-| `src/toolchain/xtask` 的 cross-zpkg 命令 | `./xtask test cross-zpkg` |
+| `src/toolchain/xtask` 的 cross-zpkg 命令 | `./xtask test e2e --dir cross-zpkg` |
 | `scripts/xtask*.z42`、`*.workspace.toml`、`src/runtime/build.rs` | 全套 `./xtask test` |
 | `*.md`、`docs/**`、`.claude/**`、`README*` | 不触发 |
 | 其他 `src/**` 或未识别的根级文件 | 全套 `./xtask test`（防御性） |
@@ -949,7 +949,7 @@ not ok 3 - MyTests.test_arithmetic
 > 共用同一 `VmContext.call_stack`（unify-frame-chain），codegen 在每个
 > call site / throw site 预先 stamp `(line, col)` 常量。golden test
 > `src/tests/exceptions/stack_trace_field.z42`（断言 trace 含
-> `Demo.Inner/Outer/Main`）在 `./xtask test vm` 的 **jit pass** 下通过，证明
+> `Demo.Inner/Outer/Main`）在 `./xtask test e2e` 的 **jit pass** 下通过，证明
 > JIT-executed throw 的 StackTrace 正确填充。**早先版本此处误标"未覆盖"
 > —— 实为已实现，本次更正。**
 >
@@ -1122,8 +1122,8 @@ dotnet test src/compiler/z42.Tests/z42.Tests.csproj
 ```bash
 # 1. 选好类别：src/tests/<category>/<name>/source.z42 (按归属规则)
 # 2. 写 src/tests/<category>/<name>/expected_output.txt（可选；空 = 用 Assert.* 自验）
-# 3. ./xtask regen 编译 source.zbc
-# 4. ./xtask test vm 验证
+# 3. ./xtask build test 编译 source.zbc
+# 4. ./xtask test e2e 验证
 ```
 
 ### Stdlib 库本地（R3 runner 落地后）

@@ -146,10 +146,8 @@ PackageCompiler 把每个源文件作为一个 CU 处理：
 - `Z42.Pipeline.SingleFileCompiler.LocateImportedSymbols(path, userUsings)` —
   单文件路径
 
-**迁移工具**：
-
-`./xtask audit` — 扫描 source.z42 按使用类型推断需要的
-using，自动 patch（一次性工具）。
+**补 using**：z42c 的 strict-using 报错会精确点名缺失的 `using`，按提示手动补一行即可。
+（旧 `xtask audit` 正则启发式自动补齐工具已移除 —— redesign-xtask-test，2026-07-07。）
 
 ---
 

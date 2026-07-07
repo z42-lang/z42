@@ -1,8 +1,8 @@
 // xtask — shared golden-test infrastructure (unify-scripts-into-xtask, 2026-06-05).
-// Generic enumeration/array helpers that the folded test commands (regen / test vm
-// / test cross-zpkg / test dist) all need — defined ONCE here instead of a private
-// copy per script. Golden-walk + entry-derivation helpers (added when test-vm /
-// test-dist fold in) also live here. Same Z42Xtask namespace.
+// Generic enumeration/array helpers that the folded test commands (build test / test
+// e2e / test dist) all need — defined ONCE here instead of a private
+// copy per script. Golden-walk + entry-derivation helpers also live here.
+// Same Z42Xtask namespace.
 namespace Z42Xtask;
 
 using Std;
@@ -84,7 +84,7 @@ bool _isNonRunnableCat(string cat) {
 //   src/tests/<rel>            → artifacts/build/tests/<rel>
 //   src/libraries/<lib>/<rel>  → artifacts/build/libraries/<lib>/<rel>
 // i.e. strip the leading `src/` and re-root under `artifacts/build/`. regen
-// writes here; the `test vm` golden runner + Rust `zbc_compat` read here.
+// writes here; the `test e2e` golden runner + Rust `zbc_compat` read here.
 //
 // ONE exception (handled by the caller, not this helper): the byte-baseline
 // goldens under `src/tests/zbc-format/` are checked in and regen overwrites them

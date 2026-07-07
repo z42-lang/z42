@@ -1,16 +1,15 @@
-// xtask — `regen` golden-fixture rebuild (unify-scripts-into-xtask, 2026-06-05).
-// Folded from the former standalone scripts/regen-golden-tests.z42 into xtask so
-// it runs as in-process logic (no per-invocation dotnet-run-build + z42vm-run).
+// xtask — `build test` golden test-asset compilation. Impl of the `build test`
+// command (_buildTest) + the shared golden-regen machinery (_regenGolden) used by
+// the `test` gate build-wave (_regenForTest → _regenCore in xtask_test.z42).
+// (Was scripts/xtask_regen.z42; the standalone `regen` command was folded into
+// `build test` — redesign-xtask-test, 2026-07-07.)
 //
 // Recompiles golden test source.z42 → source.zbc in two layouts:
 //   Dir mode:  <root>/<cat>/<name>/source.z42 → <...>/source.zbc
 //   Flat mode: src/tests/<cat>/<name>.z42     → src/tests/<cat>/<name>.zbc
 // where <root> ∈ {src/tests, src/libraries/<lib>/tests}; excluded categories
 // under src/tests: errors / parse / cross-zpkg. Tally + return 1 on any failure.
-//
-// Called by _regenCore (xtask.z42), which already builds stdlib + the z42.Driver
-// (so the driver-build-if-missing block + the --release arg parsing from the old
-// standalone are dropped). Shared enumeration helpers come from xtask_golden.z42.
+// Shared enumeration helpers come from common/xtask_golden.z42.
 namespace Z42Xtask;
 
 using Std;

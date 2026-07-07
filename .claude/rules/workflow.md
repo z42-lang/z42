@@ -346,7 +346,7 @@ docs/spec/changes/<change-name>/
 ## 阶段 3: 验证
 - [ ] 3.1 cargo build (z42vm) —— 无编译错误（z42c + stdlib 由 xtask test 用 z42c 自建）
 - [ ] 3.2 xtask test compiler —— z42c 自举全绿
-- [ ] 3.3 xtask test vm —— 全绿
+- [ ] 3.3 xtask test e2e —— 全绿
 - [ ] 3.4 spec scenarios 逐条覆盖确认
 - [ ] 3.5 文档同步（按阶段 9 触发矩阵：目录 README / `docs/book/` / workflow）
 - [ ] 3.6 docs/roadmap.md 进度表更新（若有特性完成某 pipeline 阶段）
@@ -491,10 +491,10 @@ iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄 scope 跳过
 cargo build --manifest-path src/runtime/Cargo.toml --release
 
 # 2. VM goldens（interp；JIT 由 CI test-vm-jit(linux-x64) 专腿覆盖，job key: vm-jit-consistency）
-xtask test vm
+xtask test e2e
 
 # 3. 跨 zpkg 端到端（catch / vcall / 元数据跨包行为）
-xtask test cross-zpkg
+xtask test e2e --dir cross-zpkg
 
 # 4. stdlib [Test] dogfood（全量 [Test] 用例）
 xtask test lib
@@ -530,8 +530,8 @@ xtask test compiler
 
 逐 stage（出现失败时展开）：
 - ✅ cargo build (release) —— z42vm
-- ✅ xtask test vm: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test vm jit` 覆盖）
-- ✅ xtask test cross-zpkg: K/K
+- ✅ xtask test e2e: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test e2e --mode jit` 覆盖）
+- ✅ xtask test e2e --dir cross-zpkg: K/K
 - ✅ xtask test lib: 22/22 lib
 - ✅ xtask test compiler: 7/7 zpkg + units（z42c 自举）
 - （可选）✅ xtask test dist: P/P

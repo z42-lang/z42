@@ -40,7 +40,7 @@ paths:
 1. **`ZbcFormat.z42`**（`src/compiler/z42c.ir/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了 section 布局，`ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/design/runtime/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
-4. **regen zbc-format fixture** — 跑 `xtask regen`，原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta。
+4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta。
 5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 247B hex 串（header 的 `minor` 字段会随 bump 变化）。从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
@@ -50,12 +50,13 @@ paths:
 提交前自检：
 
 ```bash
-xtask regen            # zbc-format 6 fixture 原地 regen + run-golden zbc 重生
+xtask build compiler && xtask build stdlib   # 用新格式重建 z42c + stdlib（fixture 须由新 writer emit）
+xtask build test       # zbc-format 6 fixture 原地重生 + run-golden zbc 重生
 cargo test --test zbc_compat    # Rust reader 读 committed zbc 字节基线
 xtask test compiler    # z42c golden hex 单测
 ```
 
-由于 strict-pin，minor bump 必然让所有现存 `.zbc` artifacts 失效；`xtask regen` 把 fixture + run-golden zbc 一并 regen。这是预期行为，不需要兼容代码。
+由于 strict-pin，minor bump 必然让所有现存 `.zbc` artifacts 失效；`xtask build test` 把 fixture + run-golden zbc 一并重生。这是预期行为，不需要兼容代码。
 
 > 只修 reader / writer 的非格式 bug（不改 wire layout）— **不要** bump minor；strict-pin 仍通过。
 
@@ -70,7 +71,7 @@ xtask test compiler    # z42c golden hex 单测
 8. **`docs/design/runtime/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
 
-   > ⚠️ **zpkg-format 暂无一键 regen**：`xtask regen` 目前只覆盖 zbc-format，zpkg fixture 需手工用 `z42c build` 逐个重生覆写（见 `src/tests/zpkg-format/README.md` TODO）。
+   > ⚠️ **zpkg-format 暂无一键 regen**：`xtask build test` 目前只覆盖 zbc-format，zpkg fixture 需手工用 `z42c build` 逐个重生覆写（见 `src/tests/zpkg-format/README.md` TODO）。
 
 提交前自检扩展：
 
