@@ -59,11 +59,11 @@ artifacts/build/libraries/
 ## 分发链端到端
 
 ```bash
-./xtask package release   # 1. 打 z42c + z42vm 到 artifacts/build/runtime/release/
+./xtask package sdk       # 1. 打 host SDK 包（z42c + z42vm + stdlib）
 ./xtask test dist               # 2. 用分发版 z42c 重编译 stdlib 并跑 goldens（interp + jit）
 ./xtask test dist interp        # 仅 interp 模式
 ```
 
 ## 与 stdlib 内 `[Test]` 测试的关系
 
-`./xtask build stdlib` 只编译 lib 本身的源码（不跑测试）；stdlib 内 `[Test]` 测试由 [`../testing/stdlib-tests.md`](../testing/stdlib-tests.md) 描述的 `./xtask test lib` + z42-test-runner 跑。
+`./xtask build stdlib` 只编译 lib 本身的源码（不跑测试）；stdlib 内 `[Test]` 测试由 [`../testing/stdlib-tests.md`](../testing/stdlib-tests.md) 描述的 `./xtask test stdlib` + z42b 跑。

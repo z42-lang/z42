@@ -5,9 +5,9 @@
 ## 本地打 SDK package
 
 ```bash
-./xtask package release                       # host RID
-./xtask package release --rid ios-arm64       # 任一 9 RID 之一
-./xtask package --help                        # RID 矩阵 + 选项
+./xtask package sdk                           # 桌面 RID（含 host）→ host SDK 包
+./xtask package runtime --rid ios-arm64       # 平台 RID（ios-*/android-*/browser-wasm）
+./xtask -h                                    # RID 矩阵 + 选项
 ```
 
 9 RID 矩阵 + 平台前置 + 验证 + 失败排查见 [`packaging.md`](packaging.md)。
@@ -46,7 +46,7 @@ git push origin v0.2.0
 `.github/workflows/release.yml` 在 tag push 后跑 3 阶段：
 
 1. **verify** — 校验 `tag.strip_prefix('v') == versions.toml [project].version`；drift fail-fast
-2. **package** (matrix × 9 RID) — 每个 RID 一台 runner，跑 `xtask build stdlib` + `xtask package release --rid <rid>` + release.yml 的内联 tar/shasum 归档步骤
+2. **package** (matrix × 9 RID) — 每个 RID 一台 runner，跑 `xtask build stdlib` + 打包命令（桌面 RID → `xtask package sdk`；平台 RID `ios-*`/`android-*`/`browser-wasm` → `xtask package runtime --rid <rid>`）+ release.yml 的内联 tar/shasum 归档步骤
 3. **publish** — 汇总 9 个 archive，生成 `SHA256SUMS`，调 `gh release create v<version>` 上传
 
 ### Artifact 命名
@@ -122,13 +122,13 @@ cd z42-0.2.0-macos-arm64-release/
 
 `z42up` 跨平台安装器（rustup 等价物）启用，用户走 `z42up install stable` 而非手工下载 tarball。详见 [`docs/roadmap.md`](../roadmap.md) §1.0.x charter。
 
-## 发布打包：release 子命令（脚本归零，2026-06-28）
+## 发布打包：package 子命令（脚本归零，2026-06-28）
 
-release-time 打包胶水已搬进 `xtask release`（源 `scripts/xtask_release.z42`），原 `scripts/release/*.sh` 已删：
+release-time 打包胶水已搬进 `xtask package`（源 `scripts/package/xtask_release.z42`），原 `scripts/release/*.sh` 已删：
 
 | 命令 | 功能 |
 |------|------|
-| `xtask release assemble-desktop-workload <LABEL> [dist]` | 合并 4 个 per-RID desktop workload 产物为单一 RID-agnostic archive + manifest |
-| `xtask release gen-release-index <LABEL> [dist] [channel] [tag] [version]` | 从 `SHA256SUMS` 生成 `release-index.json`（launcher 供给契约；JSON 经 z42.json 构建）|
+| `xtask package workload <LABEL> [dist]` | 合并 4 个 per-RID desktop workload 产物为单一 RID-agnostic archive + manifest |
+| `xtask package index <LABEL> [dist] [channel] [tag] [version]` | 从 `SHA256SUMS` 生成 `release-index.json`（launcher 供给契约；JSON 经 z42.json 构建）|
 
-tar/unzip/date 作外部子进程；逻辑在 z42。两条命令在 `release.yml`（tagged）+ `ci.yml` publish-nightly（rolling）调用——这两个 job 现各自 provision z42vm + xtask.zpkg（publish-nightly 经 `xtask-bootstrap-artifact` action 消费 toolchain artifact；release.yml publish 经 `ci-bootstrap` action 自举），再 `xtask release …`。
+tar/unzip/date 作外部子进程；逻辑在 z42。两条命令在 `release.yml`（tagged）+ `ci.yml` publish-nightly（rolling）调用——这两个 job 现各自 provision z42vm + xtask.zpkg（publish-nightly 经 `xtask-bootstrap-artifact` action 消费 toolchain artifact；release.yml publish 经 `ci-bootstrap` action 自举），再 `xtask package …`。

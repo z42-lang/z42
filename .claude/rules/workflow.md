@@ -475,12 +475,13 @@ docs/spec/changes/<change-name>/
 xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 ```
 
-**Scope-aware 加速（add-test-split-by-area, 2026-05-21）**：
-iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄 scope 跳过
-不相关 stage。但 **commit 前最终 GREEN 必须 `--scope=full`**（或
-`--scope=auto` 没有缩窄到比变更范围窄）。Partial scope 验证只算 dev 期
-快速 iterate，不替代 commit 门禁。详细 scope 说明见
-[`docs/workflow/testing/README.md`](../../docs/workflow/testing/README.md)。
+**iteration 期加速**：dev 期可用 `xtask test changed`（按改动文件挑 stage）或
+单跑某 stage（`xtask test e2e --dir/--file` / `test stdlib <lib>` / `--no-build`
+跳过重建波）缩窄。但 **commit 前最终 GREEN 必须跑完整 `xtask test`**——partial
+验证只算 dev 期快速 iterate，不替代 commit 门禁。
+（注：`--scope`/`--parallel` 是 C# 版 xtask 的旧机制，z42 版尚未实现——见
+[`docs/workflow/testing/README.md`](../../docs/workflow/testing/README.md)；当前只有
+上述 `test changed` / 单 stage / `--no-build` 三种缩窄手段。）
 
 裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM；
 `--no-build` 可跳过），随后按顺序跑以下 stage（任一失败立刻停）：
@@ -497,7 +498,7 @@ xtask test e2e
 xtask test e2e --dir cross-zpkg
 
 # 4. stdlib [Test] dogfood（全量 [Test] 用例）
-xtask test lib
+xtask test stdlib
 
 # 5. z42c 自举（编译器正确性：build 7 子包 + 产物存在 + [Test] units）
 xtask test compiler
@@ -511,8 +512,8 @@ xtask test vscode-syntax
 > spec 验证都漏跑。该 lesson 现在以 `xtask test` 形式固化；编译器正确性
 > 由 stage 5（z42c 自举）保证。
 
-打包发行验证：发行版变更（xtask build package / 跨平台 / 嵌入接口）追加跑
-`xtask test dist`（要求先跑 `xtask build package release`
+打包发行验证：发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑
+`xtask test dist`（要求先跑 `xtask package sdk`
 产 host-RID 包）。
 
 **测试失败处理规则：**
@@ -535,7 +536,7 @@ xtask test vscode-syntax
 - ✅ cargo build (release) —— z42vm
 - ✅ xtask test e2e: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test e2e --mode jit` 覆盖）
 - ✅ xtask test e2e --dir cross-zpkg: K/K
-- ✅ xtask test lib: 22/22 lib
+- ✅ xtask test stdlib: 22/22 lib
 - ✅ xtask test compiler: 7/7 zpkg + units（z42c 自举）
 - ✅ xtask test vscode-syntax（grammar ↔ Lexer 一致）
 - （可选）✅ xtask test dist: P/P

@@ -69,7 +69,7 @@ CI 合并四 RID）。包内布局的用户视角描述见工具链部分（待�
 ## 边界与限制
 
 - 组件落点全局唯一（无 per-package dest override）
-- workload-desktop 单机只产 host RID，四 RID 合并发生在 CI（`release assemble-desktop-workload`）
+- workload-desktop 单机只产 host RID，四 RID 合并发生在 CI（`package workload <label>`）
 - 发行包正确性验证依赖 `test dist`（需先打 host-RID 包）
 
 ## Deferred

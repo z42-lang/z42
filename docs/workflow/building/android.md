@@ -118,7 +118,7 @@ eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 
 ## See also
 
-- **本地打 per-ABI SDK package**（自包含 `kotlin/` + `cpp/` + `native/libz42_platform_android.{a,so}`）：[`../packaging.md`](../packaging.md) — `./xtask package release --rid android-arm64 / android-x64`
+- **本地打 per-ABI SDK package**（自包含 `kotlin/` + `cpp/` + `native/libz42_platform_android.{a,so}`）：[`../packaging.md`](../packaging.md) — `./xtask package runtime --rid android-arm64 / android-x64`
 - Kotlin API + 错误码（spec 落地后补）：`android/README.md`
 - 跨平台契约：[`platform-contract.md`](../../../src/toolchain/workload/platform-contract.md)
 - 设计 + 决策：[spec](../../spec/archive/2026-05-12-add-platform-android/)

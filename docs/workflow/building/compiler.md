@@ -58,8 +58,8 @@ z42c errors                               # 列全部错误码
 把 z42vm + z42c 打到 `artifacts/build/runtime/release/`：
 
 ```bash
-./xtask package debug     # debug
-./xtask package release   # release
+./xtask package sdk --profile debug   # debug
+./xtask package sdk                    # release（默认）
 ```
 
 详见 [`stdlib.md`](stdlib.md) 关于 stdlib 同步的描述。

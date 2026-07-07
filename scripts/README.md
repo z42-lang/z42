@@ -88,7 +88,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
 | `test compiler` | z42c 编译器变动 | z42c 自建 | 7/7 自举不动点（gen1==gen2）+ [Test] units + e2e |
-| `test dist` | 验证打包后发行版能独立工作 | `build package` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
+| `test dist` | 验证打包后发行版能独立工作 | `package sdk` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 
 > **构建输出约定（add-build-toolchain, 2026-07-05）**：
@@ -147,10 +147,11 @@ build test ──► _buildTest
 > stdlib+runtime+goldens）仍作为 `test` gate 的 build-wave（`_regenForTest`）保留。
 > 格式 bump 后重生 fixture：`build compiler && build stdlib && build test`。
 
-### `build package`（`package/xtask_package.z42 :: _buildPackageCore`）
+### `package sdk` / `package runtime`（`package/xtask_package.z42`）
 
 ```
-build package [--rid R] [release|debug] ──► 按 RID 分类 dispatch
+package sdk [--profile P]            ──► host SDK 包（桌面 RID，含 host）
+package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
   ├─ desktop  → package/xtask_package_desktop.z42
   │     z42c 种子 + z42vm + libz42 + C-ABI headers + stdlib zpkg + manifest + 原生 apphost
   ├─ ios      → package/xtask_package_ios.z42      cargo rustc (staticlib) + SwiftPM facade
@@ -185,7 +186,7 @@ xtask deps check --os android       # 严格校验该平台依赖已就位（缺
 
 **commit 前 / 归档前（必跑，workflow 阶段 8 全绿入口）**：
 ```bash
-xtask test               # 串联 vm + cross-zpkg + stdlib + compiler 全 stage
+xtask test               # 串联 e2e + cross-zpkg + stdlib + compiler 全 stage（runtime 独立，见 test runtime）
 ```
 
 > 不要单独只跑其中一个 stage 就当作通过 —— 历史上 cross-zpkg subclass catch
@@ -206,7 +207,7 @@ xtask test e2e
 
 **完整发行验证**：
 ```bash
-xtask build package release   # 打 host-RID 发行包
+xtask package sdk             # 打 host-RID 发行包
 xtask test dist               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
 ```
 
@@ -240,14 +241,14 @@ scripts/
 │   ├── xtask_test_dist.z42      发行包 e2e
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
 │   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
-├── package/            build package 各 RID 类别 + 发行档组装
+├── package/            package 各 RID 类别 + 发行档组装
 │   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42
 │   └── xtask_release.z42        package workload(merge)/index 发行档组装
 └── install/            deps install 各平台 / SDK 安装
     └── xtask_install{,_android}.z42
 ```
 
-每个命令的详细 Usage 见 `xtask --help`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
+每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
 ## 迭代注意点（自举边界与验证）
 
@@ -273,11 +274,12 @@ scripts/
 **commit 前验证**（GREEN 标准）：
 
 ```bash
-xtask test                # 完整 gate（vm / cross-zpkg / lib / compiler 全 stage）
+xtask test                # 完整 gate（e2e / cross-zpkg / stdlib / compiler 全 stage）
 ```
 
-iteration 期可用 `--scope=runtime|compiler|stdlib|auto` 缩窄加速，但 **commit 前必须完整
-gate**。改打包系统时另跑 `test packages`（parse + staging + assembly 三层自检合一）。
+iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`test e2e --dir/--file` /
+`test stdlib <lib>` / `--no-build`）缩窄加速，但 **commit 前必须完整 gate**。改打包系统时
+另跑 `test packages`（parse + staging + assembly 三层自检合一）。
 
 ## 关联文档
 

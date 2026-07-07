@@ -15,7 +15,7 @@
 
 ## 子系统划分
 
-复用已有的 `test --scope` 心智模型（`runtime|compiler|stdlib`），补两个：
+沿用 `test changed` 的子系统划分心智模型（`runtime|compiler|stdlib`——按改动目录挑 stage），补两个：
 
 | 子系统 | 范围 |
 |--------|------|

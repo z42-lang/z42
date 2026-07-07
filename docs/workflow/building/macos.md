@@ -41,7 +41,7 @@ Z42_LIBS="$PWD/.z42/libs" z42c build scripts/xtask.z42.toml --release   # 编 de
 ```bash
 ./xtask build all    # 编译器 + VM + stdlib
 ./xtask test         # 全套测试（GREEN gate）
-./xtask help         # 全部命令
+./xtask -h           # 全部命令
 ```
 
 按组件细分：编译器 [`compiler.md`](compiler.md)、VM [`vm.md`](vm.md)、stdlib [`stdlib.md`](stdlib.md)。

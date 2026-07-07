@@ -34,7 +34,7 @@ needed to run it**:
 
 ./xtask build all     # compiler + runtime + stdlib (from source)
 ./xtask test          # full gate (compiler + vm + cross-zpkg + stdlib)
-./xtask help          # all commands (build / test / deps / regen / bench / package)
+./xtask -h            # all commands (build / test / deps / bench / package)
 ```
 
 > **Don't want the workload?** Run the CLI straight through the launcher instead —

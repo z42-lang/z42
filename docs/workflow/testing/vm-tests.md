@@ -42,8 +42,7 @@ cargo run --manifest-path src/runtime/Cargo.toml -- src/tests/<category>/<name>/
 ## 只重生 zbc（不跑测试）
 
 ```bash
-./xtask build test                 # 重生 golden（内部先 build stdlib + driver）
-./xtask build test --no-stdlib     # 跳过 stdlib 重建（已 build 过）
+./xtask build test                 # 重生 golden（内部先 build stdlib + driver，缺则自建）
 ```
 
 ## 测试目录组织

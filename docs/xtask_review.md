@@ -7,8 +7,14 @@
 
 ---
 
-> **落地状态（2026-07-07）**：#1 / #2 / #4 已由 change `fix-xtask-review-bugs`
-> 修复并归档；#3 复核发现已由 `4e8ea7d9` 提前修好。其余（代码简化 / CI / 文档）待后续变更。
+> **落地状态（2026-07-07）**：
+> - **第一节 bug** #1/#2/#4 → change `fix-xtask-review-bugs` 已修并归档；#3 复核已由 `4e8ea7d9` 提前修好。
+> - **第二节代码收敛** → change `consolidate-xtask-helpers` 落地安全子集（§2.2 `_driverZpkg`、
+>   §2.3 `_compilerMembers`、§2.9 注释腐烂、§2.10 小修）；§2.1 workspace-build helper + §2.5/2.6/2.8
+>   结构性重构留后续独立 change（需 fixpoint/packaging 验证）。
+> - **第四节文档去漂移** → change `fix-xtask-doc-drift` 落地（20 live 手册 + 4 规则文件的死命令/
+>   `--scope` 幽灵/env 校正）；§4.6 design/testing 冻结 + §4.4 GREEN 清单全 SoT 收敛留后续。
+> - **第三节 CI** 尚未开工。
 
 ## 一、必须先修的 bug（4 个）
 

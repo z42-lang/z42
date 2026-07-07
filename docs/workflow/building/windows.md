@@ -87,7 +87,7 @@ cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm + libz42
 ./xtask.exe test
 
 # 打 host (windows-x64) SDK package
-./xtask.exe package release --rid windows-x64
+./xtask.exe package sdk
 ```
 
 xtask 调用的 POSIX 子进程都在 Git Bash 直接跑（shebang `#!/usr/bin/env bash` 生效），无需额外 prefix。
@@ -158,7 +158,7 @@ iOS slice package 需要 Xcode，**永远只在 macOS host 上能跑**。Windows
 ./xtask.exe build stdlib
 
 # 3. 打 windows-x64 package
-./xtask.exe package release --rid windows-x64
+./xtask.exe package sdk
 
 # 4. 验证产物
 ls artifacts/packages/z42-0.1.0-windows-x64-release/

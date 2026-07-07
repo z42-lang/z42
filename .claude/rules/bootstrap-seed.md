@@ -19,14 +19,18 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 | **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c（C#-free） |
 | **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` → `./.z42` / CI `ci-bootstrap` → SDK）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
 
-> **cold 种子的统一解析（2026-07-04）**：`build compiler` / `build stdlib` 冷启动不再报错，
-> 由 `_ensureSeed`（`scripts/common/xtask_common.z42`）按 **`Z42C_DIR` → `--toolchain`/
-> `Z42_TOOLCHAIN` → `Z42_HOME` → 运行 xtask 的 apphost SDK（`Z42_PORTABLE_VM` 反推）→
-> `./.z42`** 找到 SDK，把 `programs/z42c` + `libs` 拷进 in-tree 再自建。**CI 与本地同一条
-> resolver**：CI（`.github/actions/ci-bootstrap`）只设 `Z42_TOOLCHAIN=<下载的 SDK>`，不再手动
-> 拷种子；本地 `install-z42.sh` 后 `xtask build compiler` 开箱即用。warm 树（in-tree 已有种子）
-> **不被覆盖**——gen2 字节不动点靠"第二次从 in-tree gen1 再种"收敛，故 in-tree 必须最高优先。
-> `Z42C_DIR` / `Z42_LIBS` 显式覆盖仅在其确实含 `z42c.driver.zpkg` / `z42.core.zpkg` 时生效。
+> **cold 种子的统一解析（2026-07-04；env 于 2026-07-05 simplify-compiler-build 折叠）**：
+> `build compiler` / `build stdlib` 冷启动不再报错，由 `_ensureSeed`
+> （`scripts/common/xtask_common.z42`，SDK 定位在 `_seedSdkDir`）按 **`Z42_HOME`
+> （`--toolchain` 设它，或 launcher/install 设）→ 运行 xtask 的 apphost SDK
+> （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 找到 SDK，把 `programs/z42c` + `libs` 拷进 in-tree
+> 再自建。**CI 与本地同一条 resolver**：CI（`.github/actions/ci-bootstrap`）只设
+> `Z42_HOME=<下载的 SDK>`，不再手动拷种子；本地 `install-z42.sh` 后 `xtask build compiler`
+> 开箱即用。warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠"第二次从 in-tree
+> gen1 再种"收敛，故 in-tree 必须最高优先。managed 布局的 `Z42_HOME`（`runtimes/`，无
+> `programs/`）不符 SDK-toolchain 布局 → 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其
+> 确实含 `z42.core.zpkg` 时生效。（`Z42C_DIR` / `Z42_TOOLCHAIN` 已于 simplify-compiler-build
+> 折叠进 `Z42_HOME`，不再存在。）
 
 ---
 
@@ -127,7 +131,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 **`xtask test bootstrap [rid]`**：用**已发布 nightly 的 z42c**（下载）和**仓库当前 z42c** 分别编译当前
 z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比已发布 nightly 更新的语法/格式」的越界。
-（gh/tar 作外部子进程，逻辑在 `scripts/xtask_bootstrap_check.z42`；需 `gh` 已登录。）
+（gh/tar 作外部子进程，逻辑在 `scripts/build/xtask_bootstrap_check.z42`；需 `gh` 已登录。）
 
 - ✅ nightly z42c 编通当前源 = 无越界，分阶段纪律守住。
 - ❌ nightly z42c 编不过、仓库 z42c 编得过 = **越界**：当前源用了新语法/新格式，但 nightly 还不支持 →

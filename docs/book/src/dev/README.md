@@ -25,7 +25,7 @@ xtask 编排三条产线：构建（自举链）、测试（GREEN 门禁）、�
 |------|--------|
 | [xtask：自举 dev CLI](xtask.md) | xtask 定位、自举链路、CLI 分发架构、--toolchain 机制 |
 | [构建编排（build / regen）](build.md) | z42c 七包自建拓扑、stdlib 自建三阶段、golden 基线重生 |
-| [测试门禁（test gate）](test-gate.md) | GREEN gate stage 串联、--scope 与 changed 计划、坍缩策略 |
+| [测试门禁（test gate）](test-gate.md) | GREEN gate stage 串联、changed 计划、坍缩策略 |
 | [打包引擎（packages.toml）](packaging.md) | 三层清单、staging→组装两段流水、按 RID 管道 |
 
 基础层（怎么用、命令清单、目录结构、迭代注意点）见 `scripts/README.md` 与 `docs/workflow/`

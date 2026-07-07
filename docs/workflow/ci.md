@@ -122,7 +122,7 @@ flowchart TD
 cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust）无编译错误
 ./xtask test e2e            # VM goldens（interp；jit 由 test-vm-jit(linux-x64) 专腿覆盖）
 ./xtask test e2e --dir cross-zpkg    # 跨 zpkg 端到端
-./xtask test lib           # stdlib [Test]（全量）
+./xtask test stdlib        # stdlib [Test]（全量）
 ./xtask test compiler  # z42c 自举（build 7 子包 + 不动点 + [Test] units）
 ```
 

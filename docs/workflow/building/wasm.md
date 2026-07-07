@@ -113,7 +113,7 @@ node demo/node/run.js
 
 ## See also
 
-- **本地打 browser-wasm SDK package**（自包含 staticlib + cdylib + wasm-bindgen 双 target + npm `package.json`）：[`../packaging.md`](../packaging.md) — `./xtask package release --rid browser-wasm`
+- **本地打 browser-wasm SDK package**（自包含 staticlib + cdylib + wasm-bindgen 双 target + npm `package.json`）：[`../packaging.md`](../packaging.md) — `./xtask package runtime --rid browser-wasm`
 - JS / TS API + 错误码：[`wasm/README.md`](../../../src/toolchain/workload/wasm/README.md)
 - 跨平台契约：[`platform-contract.md`](../../../src/toolchain/workload/platform-contract.md)
 - 设计 + 决策：[spec archive](../../spec/archive/2026-05-12-add-platform-wasm/)

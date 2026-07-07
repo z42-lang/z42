@@ -7,11 +7,15 @@
 ## 统一入口
 
 ```bash
-./xtask package release --rid <rid>  # 见下表选 RID
-./xtask package debug --rid <rid>    # debug profile（dev 用）
-./xtask package release              # 不带 --rid → 自动用 host RID
-./xtask --help                       # 完整选项
+./xtask package runtime --rid <rid>          # 平台 RID（ios-*/android-*/browser-wasm）；见下表
+./xtask package runtime --rid <rid> --profile debug   # debug profile（dev 用）
+./xtask package sdk                          # 桌面 RID（含 host）→ host SDK 包
+./xtask -h                                   # 完整选项
 ```
+
+> 桌面 RID（`linux-*` / `macos-*` / `windows-*`）走 `xtask package sdk`（打 host SDK 包，
+> 只能在同 RID host 上产）；平台 RID（`ios-*` / `android-*` / `browser-wasm`）走
+> `xtask package runtime --rid <rid>`。
 
 产物落到 `artifacts/packages/z42-<version>-<rid>-<profile>/`。
 
@@ -135,7 +139,7 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 
 | 流程 | 入口 | 用途 |
 |------|------|------|
-| **per-arch flat package**（本文）| `./xtask package --rid <rid>` | 给开发者 / Tester / CI 一个独立 SDK ZIP |
+| **per-arch flat package**（本文）| 桌面：`./xtask package sdk`；平台：`./xtask package runtime --rid <rid>` | 给开发者 / Tester / CI 一个独立 SDK ZIP |
 | **in-repo native build** | `./xtask test platform <p> build` | 跑 in-repo 平台测试（emulator / simulator / wasm-pack / desktop）|
 
 两条流程**共存**：`test platform <p> build` 产物供 in-repo 测试用；`./xtask package` 把那些产物 + 共享资源 cp 进一个 self-contained SDK 包。

@@ -96,7 +96,7 @@ R1–R7 嵌入契约测试，跑在**真 iOS Simulator** 上（`xcodebuild test`
 
 ## See also
 
-- **本地打 per-slice SDK package**（自包含 `Package.swift` + `Z42VM.xcframework`）：[`../packaging.md`](../packaging.md) — `./xtask package release --rid ios-arm64 / iossim-arm64`
+- **本地打 per-slice SDK package**（自包含 `Package.swift` + `Z42VM.xcframework`）：[`../packaging.md`](../packaging.md) — `./xtask package runtime --rid ios-arm64 / iossim-arm64`
 - Swift API + 错误码（spec 落地后补）：`ios/README.md`
 - 跨平台契约：[`platform-contract.md`](../../../src/toolchain/workload/platform-contract.md)
 - 设计 + 决策：[spec](../../spec/archive/2026-05-12-add-platform-ios/)

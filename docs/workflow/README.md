@@ -14,7 +14,7 @@
 ./xtask test         # 全部测试
 ```
 
-完整命令：`./xtask help`（源 = [`scripts/xtask*.z42`](../../scripts/)）。
+完整命令：`./xtask -h`（源 = [`scripts/xtask*.z42`](../../scripts/)）。
 
 > 从源码整套构建（不下预编译）见 [`building/`](building/)；冷启动 bootstrap 机制见 [`building/stdlib.md`](building/stdlib.md)；**自举 + 本地/CI 交叉验证的完整流程**（SDK vs Current 两套 toolchain、边界不变量、冗余清单）见 [`testing/bootstrap.md`](testing/bootstrap.md)。
 > 可选环境变量：`Z42_LIBS`（stdlib 扁平目录，默认 `artifacts/build/libraries/dist/release/`）、`Z42_PORTABLE_VM`（z42vm 路径）——CI 显式设置，本地默认即可。
@@ -47,7 +47,7 @@
 ```
 artifacts/
 ├── build/
-│   ├── z42c/<member>/release/dist/      z42c 自举产物（z42c.driver.zpkg + 6 siblings）
+│   ├── compiler/<member>/release/dist/  z42c 自举产物（z42c.driver.zpkg + 6 siblings）
 │   ├── runtime/{debug,release}/         cargo build 产物（z42vm）
 │   └── libraries/
 │       ├── <lib>/release/dist/          per-lib workspace .zpkg
