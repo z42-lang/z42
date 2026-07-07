@@ -11,13 +11,16 @@ A **full-stack systems programming language** designed for productivity and perf
 
 ## Why z42?
 
-| Problem | Solution |
-|---------|----------|
-| C# is bloated, Rust has ownership friction | Clean C# syntax, automatic GC, no lifetimes |
-| Need systems code + scripts in one language | Bytecode runs directly (no VM overhead) or JIT/AOT compiles for speed |
-| Embedding + native interop is painful | Zero-overhead `extern` FFI, C-compatible structs |
-| Can't iterate on code without restart | Hot reload + eval() support (no restart needed) |
-| One-size-fits-all language doesn't fit all | Per-project language customization (forbid features as needed) |
+z42 combines C#'s productivity, Rust's runtime discipline, and Python's iteration speed —
+one language that scales from throwaway scripts to embedded systems components:
+
+| Problem | z42's answer |
+|---------|--------------|
+| Managed languages trade away systems control; systems languages trade away ergonomics | C#-style syntax with static typing + automatic GC — no ownership annotations, direct access to native code |
+| Applications and scripts usually mean two languages | One bytecode, three execution modes: interpret for instant startup, JIT for peak performance, AOT for stable latency — selectable per namespace |
+| Embedding a language runtime and calling native code are painful | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
+| Restart cycles kill iteration speed | Hot reload without restarting; `eval()` for scripting scenarios |
+| One-size-fits-all languages don't fit every team | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
 
 ---
 
@@ -27,7 +30,7 @@ A **full-stack systems programming language** designed for productivity and perf
 - **Bytecode-first:** Source → bytecode → execute/compile (not source → machine code)
 - **Zero-overhead FFI:** `extern` methods call Rust impl directly (≤ 1 indirect jump)
 - **Hot reload:** Update code without restarting (functions only, interpreter mode)
-- **Multi-threaded:** GC-safe concurrency, structured async/await (L3)
+- **Multi-threaded:** GC-safe concurrency; structured async/await planned
 - **Customizable:** Disable features per project (e.g., forbid nullable types, require exhaustive matches)
 - **Type-safe:** Static typing + type inference; errors caught at compile time
 
@@ -49,27 +52,32 @@ git clone https://github.com/z42-lang/z42 && cd z42
 > No desktop workload? Drive the CLI through the launcher instead (what CI does):
 > `.z42/bin/z42c build scripts/xtask.z42.toml --release && .z42/z42 artifacts/xtask/xtask.zpkg -- test`
 
-**Editor support (VSCode ≥1.89)**: `./xtask deps install vscode` installs syntax highlighting
-for `.z42` files as a repo-local workspace extension (`.vscode/extensions/`; TextMate grammar
-generated from the compiler's keyword table). Reload the window and accept the workspace-extension
-prompt. LSP-based diagnostics/navigation are planned.
+**Editor support (VSCode)**: `./xtask deps install vscode` installs `.z42` syntax highlighting
+as a repo-local workspace extension — reload the window and accept the prompt.
 
 ---
 
 ## Documentation
 
-Start here based on what you want to know:
+Start from what you want to do. The knowledge base is consolidating into
+[`docs/book/`](docs/book/) (mdBook); topic links below move there as chapters land.
+
+**Using z42** — language & runtime:
 
 | I want to... | Read this |
 |--------------|-----------|
-| **Understand z42's design** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
-| **See language syntax** | [`docs/design/language/language-overview.md`](docs/design/language/language-overview.md) |
-| **Learn feature specs** | [`docs/features.md`](docs/features.md) |
-| **Understand bytecode/IR** | [`docs/design/runtime/ir.md`](docs/design/runtime/ir.md) |
-| **Understand execution modes** | [`docs/design/runtime/execution-model.md`](docs/design/runtime/execution-model.md) |
-| **Learn native interop** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
-| **Understand hot reload** | [`docs/design/runtime/hot-reload.md`](docs/design/runtime/hot-reload.md) |
-| **See implementation progress** | [`docs/roadmap.md`](docs/roadmap.md) |
+| **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
+| **Learn the language** (syntax, types, semantics) | [`docs/design/language/language-overview.md`](docs/design/language/language-overview.md) |
+| **Understand execution** (interp / JIT / AOT) | [`docs/design/runtime/execution-model.md`](docs/design/runtime/execution-model.md) |
+| **Call native code / embed the VM** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
+
+**Working on z42** — building & contributing:
+
+| I want to... | Read this |
+|--------------|-----------|
+| **Build, test, and package the repo** | [`docs/workflow/`](docs/workflow/) |
+| **Follow the collaboration workflow** | [`docs/agent/`](docs/agent/) |
+| **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/features.md) |
 
 ---
 
@@ -81,24 +89,16 @@ z42/
 │   ├── compiler/          # z42 self-hosting compiler (.z42 source → zpkg)
 │   ├── runtime/           # Rust VM (interp / JIT / AOT)
 │   ├── libraries/         # Standard library (.z42 source)
-│   └── toolchain/         # Companion toolchain (launcher / test-runner / builder / debugger / workload)
+│   └── toolchain/         # Launcher, test runner, workloads
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
-├── docs/design/           # Language design documents
+├── docs/
+│   ├── book/              # Knowledge base (mdBook): language / compiler / runtime / stdlib
+│   ├── design/            # Design documents (migrating into book/)
+│   ├── workflow/          # Build / test / CI / release commands
+│   └── agent/             # Collaboration rules for AI + human contributors
 ├── examples/              # Example programs
-└── .claude/               # Collaboration docs (CLAUDE.md, workflow rules)
+└── .claude/               # Claude Code entry (workflow rules)
 ```
-
----
-
-## Implementation Status
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| **L1** | Core language + pipeline | ✅ Complete |
-| **L2** | Ecosystem, stdlib, VM quality | 🚧 In Progress |
-| **L3** | Generics, async, ADTs, Traits | 📋 Planned |
-
-See [docs/roadmap.md](docs/roadmap.md) for detailed milestones.
 
 ---
 

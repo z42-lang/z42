@@ -38,8 +38,10 @@
 | 4 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/workflow/quickstart.md` |
 | 5 | Documentation | "我想做 X → 读 Y" 索引表 | Y 指向具体页，**不复制**其内容（见 §四） |
 | 6 | Repository Layout | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
-| 7 | Implementation Status | roadmap 摘要（phase 状态表） | 详情链 `docs/roadmap.md` |
-| 8 | License | 许可证 | — |
+| 7 | License | 许可证 | — |
+
+> 实现进度不在门面设段——迭代状态由段 1 的状态提示传达，详情由 Documentation 的
+> roadmap 索引行兑现（进度表变化快，门面复制一份必然过时）。
 
 - 某段暂无内容可**整段省略**，但出现的段**顺序不得变、名字不得改**——门面骨架稳定，读者与 AI
   都靠它定位。
@@ -68,6 +70,9 @@
 
 每条 = `| 我想…… | [目标页](相对路径) |`，一行一意图，目标指向**可解析的具体页**，不指目录笼统带过。
 
+**迁移期规则**：book 章节未落地前，索引行指向该主题**当前实际承载内容的页**（旧 `docs/design/`），
+不指只有规划的空壳页；对应 book 章节迁入后，当次迭代把索引行换到 book（触发见 §五）。
+
 ## 五、根 README 维护触发表（改了什么 → 同步哪段）
 
 | 改了什么 | 同步根 README 哪段 |
@@ -75,7 +80,6 @@
 | 新增顶层特性 / 能力 | Core Features + Documentation 索引 |
 | book 新增部分 / workflow 新增主题 | Documentation 索引加行 |
 | 顶层目录结构变动 | Repository Layout |
-| roadmap phase 状态推进 | Implementation Status（与 `roadmap.md` 保持一致） |
 | Quick Start 涉及的命令变动 | Quick Start（只留最短路径，与 `workflow/quickstart.md` 对齐） |
 
 改动落在上表任一行，**当次迭代内同步 README 对应段**，与 book/workflow 的同步同一触发点完成。
