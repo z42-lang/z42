@@ -249,6 +249,18 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     cmd.stdout(stdio_for_output(stdout_mode, stdout_path.as_deref())?);
     cmd.stderr(stdio_for_output(stderr_mode, stderr_path.as_deref())?);
 
+    // Put the child in its own process group (pgid == child pid) so a run-timeout
+    // can kill the WHOLE tree, not just the direct child. Without this, `sh -c
+    // "sleep 5"` that forks a `sleep` grandchild leaves the orphaned grandchild
+    // holding the inherited stdout/stderr pipe write-ends open — the reader-thread
+    // join below then blocks until the grandchild exits naturally (the timeout is
+    // detected correctly but the call returns ~5s late). See wait_with_optional_timeout.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
     let mut child = match cmd.spawn() {
         Ok(c)  => c,
         Err(e) => return Ok(start_err_result(ctx, &program, &e)),
@@ -308,12 +320,29 @@ fn wait_with_optional_timeout(
     loop {
         if let Some(s) = child.try_wait()? { return Ok((s, false)); }
         if start.elapsed() >= timeout {
-            let _ = child.kill();
+            kill_process_tree(child);
             let status = child.wait()?;
             return Ok((status, true));
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+}
+
+/// SIGKILL the child AND its whole process group (grandchildren included). The
+/// child was spawned with `process_group(0)` (pgid == child pid), so `kill(-pid)`
+/// reaps a forked-grandchild tree (e.g. `sh -c "sleep 5"`). Without the group kill,
+/// killing only the direct child orphans grandchildren that keep the inherited
+/// stdout/stderr pipe write-ends open, blocking the caller's reader-thread joins
+/// until they exit naturally. `child.kill()` is kept as the portable fallback.
+fn kill_process_tree(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // Safe: kill(2) on a negative pid targets the process group; a stale/no-such
+        // group just returns ESRCH, which we ignore (the child.kill() below covers it).
+        let pid = child.id() as i32;
+        unsafe { libc::kill(-pid, libc::SIGKILL); }
+    }
+    let _ = child.kill();
 }
 
 // ── __process_spawn ──────────────────────────────────────────────────────
