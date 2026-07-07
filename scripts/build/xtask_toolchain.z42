@@ -89,6 +89,13 @@ string _selfContainedDriverDir(string root) {
     return Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist");
 }
 
+// The z42c.driver.zpkg inside the self-contained dist — the single z42c seed entry
+// point (z42vm runs it to compile). One SoT for the ~5 sites that used to inline
+// the full literal path (bench / test lib / compiler e2e / bootstrap-check / package).
+string _driverZpkg(string root) {
+    return Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg");
+}
+
 // Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver)
 // EXIST — build only what's missing. Unlike `_buildCompiler`, this does NOT force a
 // z42c `--workspace` rebuild on a warm tree (User "只需要编译就行"): `build workload`/

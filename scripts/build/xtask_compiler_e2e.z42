@@ -43,7 +43,7 @@ int _e2eOracle(string vm, string driverZpkg, string e2eDir, string emitLibs, str
 int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
-    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driverZpkg = _driverZpkg(root);
     string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
     Directory.Create(e2eDir);
 

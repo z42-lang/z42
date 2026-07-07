@@ -33,7 +33,7 @@ int _bench(ParseResult r) {
     string libs = _libsDir(root);
     // alllibs flat (stdlib + z42c 7 siblings) is the single Z42_LIBS dir for the
     // compile — z42c.driver needs its own siblings resolvable at runtime.
-    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driverZpkg = _driverZpkg(root);
     string flat = _assembleAllLibs(root, "release");
     string work = Directory.CreateTempDir("xtask-bench");
 

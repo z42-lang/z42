@@ -106,9 +106,9 @@ int _regenGolden() {
             while (ni < names.Length) {
                 string name = names[ni];
                 string caseDir = Path.Join(libTestsDir, name);
-                // Skip [Test]/[Benchmark] dir tests — run by `test lib`, not golden
-                // regen (no Main → no golden output). Mirrors _enumerateCases +
-                // the C# GoldenTests src/libraries [Test]-dir exclusion (7b2a1b2a).
+                // Skip [Test]/[Benchmark] dir tests — run by `xtask test stdlib`
+                // (z42b), not golden regen (no Main → no golden output). Mirrors
+                // _enumerateCases.
                 if (_dirHasTestMethods(caseDir)) { ni = ni + 1; continue; }
                 string src = Path.Join(caseDir, "source.z42");
                 if (File.Exists(src)) {

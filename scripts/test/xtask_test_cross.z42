@@ -197,10 +197,9 @@ int _testCrossZpkgImpl(string mode) {
 // 返回 driver-home 目录路径；z42c 未构建（缺任一成员 dist）返回 ""。
 string _assembleDriverHome(string root) {
     string baseDir = Path.Join(root, "artifacts/build/compiler");
-    string[] members = new string[7];
-    members[0] = "z42c.core"; members[1] = "z42c.ir"; members[2] = "z42c.project";
-    members[3] = "z42c.syntax"; members[4] = "z42c.semantics"; members[5] = "z42c.pipeline";
-    members[6] = "z42c.driver";
+    // Single SoT: compiler workspace default-members (same source as build/test/
+    // bootstrap-check), so adding a z42c.* member doesn't silently drift this assembly.
+    string[] members = _compilerMembers(root);
     string home = File.CreateTempDir("z42-xpkg-driver-");
     int i = 0;
     while (i < members.Length) {

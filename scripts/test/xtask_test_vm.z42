@@ -326,10 +326,9 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
                 string dir = Path.Join(libTests, names[ni]);
                 if (fileFilter.Length > 0 && !_e2eIncluded("", names[ni], Path.Join(dir, "source.z42"), "", fileFilter)) { ni = ni + 1; continue; }
                 // [Test]/[Benchmark] dir tests (e.g. z42.crypto/tests/secp256k1)
-                // have no Main and are run by `test lib` via z42-test-runner — the
+                // have no Main and are run by `xtask test stdlib` via z42b — the
                 // golden runner must skip them (else "entry function …Main not
-                // found"). Mirrors the C# GoldenTests src/libraries [Test]-dir
-                // exclusion (7b2a1b2a) + xtask test-lib discovery (902ce26c).
+                // found").
                 if (_dirHasTestMethods(dir)) { ni = ni + 1; continue; }
                 // run-golden .zbc → artifacts mirror; sidecars stay in src `dir`.
                 string artifact = Path.Join(

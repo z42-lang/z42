@@ -30,7 +30,7 @@ int _runCli(string[] argvIn) {
 
     // default-action shim: `test` (empty / leading non-help flag) → full gate.
     if (c0 == "test" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
-        return _testAll();
+        return _testAll(false);
     }
     // default-action shim: `bench` (anything but the `stdlib` subcommand) → e2e.
     if (c0 == "bench" && c1 != "stdlib") {
@@ -271,7 +271,7 @@ SubcommandRouter _testRouter() {
     e2e.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
     t.Add("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)", e2e);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
-    dist.AddOptionalPositional("mode", "interp|jit (default: interp)");
+    dist.AddOptionalPositional("mode", "interp|jit (default: both)");
     t.Add("dist", "distribution verification", dist);
     t.Add("compiler", "z42c 自举不动点 + smoke",
         new ArgParser("xtask test compiler", "z42c fixpoint"));

@@ -61,7 +61,7 @@ string[] _shardLibs(string root, int k, int n) {
 }
 
 int _testLib(ParseResult r, string kind) {
-    Stopwatch sw = _procStart("test stdlib");
+    Stopwatch sw = _procStart((kind == "bench") ? "bench stdlib" : "test stdlib");
     string lib = r.GetPositional(0);
     string[] libs;
     int[] sh = _parseShard(r.GetOption("shard"));
@@ -113,7 +113,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // once; threaded through _runUnitsBatched → _compilePrep so every unit
     // compiles via z42c, not `dotnet z42c.dll`.
     string vm = _builtVm(root, "release");
-    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driverZpkg = _driverZpkg(root);
     string libs = _assembleAllLibs(root, "release");
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each

@@ -42,13 +42,13 @@ int _execIn(Process p, string wd) {
 // invocations elsewhere run SPECIFIC committed .sh scripts (install-z42.sh
 // cold-start primer / platform test.sh harnesses), not arbitrary shell.)
 
-// Make xtask's z42vm visible to the child C# Driver (`dotnet -- run/build`),
-// whose FindVm() locates z42vm via (1) Z42VM env, (2) artifacts/build/runtime/...,
-// (3) PATH. The launcher exports Z42_PORTABLE_VM (the vm we run on) but NOT
-// Z42VM, and in download/portable mode there is no z42vm at the default build
-// path before the first build-stdlib — so FindVm fails. Export our own vm as
-// Z42VM (std::env::set_var → inherited by spawned Commands) so every delegated
-// compile/run resolves it. No-op in dev where _z42vm() is a bare name (PATH).
+// Make xtask's z42vm visible to child tool subprocesses whose FindVm() locates
+// z42vm via (1) Z42VM env, (2) artifacts/build/runtime/..., (3) PATH. The launcher
+// exports Z42_PORTABLE_VM (the vm we run on) but NOT Z42VM, and in download/portable
+// mode there is no z42vm at the default build path before the first build-stdlib —
+// so FindVm fails. Export our own vm as Z42VM (inherited by spawned Commands) so
+// every delegated compile/run resolves it. No-op in dev where _z42vm() is a bare
+// name (PATH).
 void _ensureDriverVm() {
     string cur = Environment.GetEnvironmentVariable("Z42VM") ?? "";
     if (cur.Length > 0) { return; }

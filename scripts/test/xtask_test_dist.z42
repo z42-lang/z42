@@ -340,9 +340,9 @@ class _DistCase {
     }
 }
 
-// True if source.z42 declares a z42-test-runner test (a line starts with
-// `[Test]` / `[Benchmark]`) → owned by `z42 xtask.zpkg test lib`, not golden-
-// runnable here. Mirrors GoldenTests.ContainsTestRunnerAttribute (C#).
+// True if source.z42 declares a unit test (a line starts with `[Test]` /
+// `[Benchmark]`) → owned by `xtask test stdlib` (z42b reflection runner), not
+// golden-runnable here.
 bool _isTestRunnerSource(string src) {
     string rest = File.ReadAllText(src);
     while (rest.Length > 0) {
@@ -400,10 +400,9 @@ _DistCase[] _enumerateDistCases(string root, string mode) {
             while (ni < names.Length) {
                 string dir = Path.Join(libTests, names[ni]);
                 string src = Path.Join(dir, "source.z42");
-                // Skip [Test]/[Benchmark]-based lib test dirs — owned by the
-                // z42-test-runner (`z42 xtask.zpkg test lib`), not golden-runnable
-                // (no Main; may be multi-file like secp256k1's source.z42 +
-                // vectors.z42). Mirrors GoldenTests.ContainsTestRunnerAttribute.
+                // Skip [Test]/[Benchmark]-based lib test dirs — owned by
+                // `xtask test stdlib` (z42b), not golden-runnable (no Main; may be
+                // multi-file like secp256k1's source.z42 + vectors.z42).
                 if (File.Exists(src) && !_isTestRunnerSource(src)) {
                     if (!(mode == "jit" && File.Exists(Path.Join(dir, "interp_only")))) {
                         cases = _appendDistCase(cases, n, new _DistCase(names[ni], src, Path.Join(dir, "expected_output.txt"), _deriveEntry(src)));

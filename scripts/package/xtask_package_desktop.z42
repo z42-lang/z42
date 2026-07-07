@@ -30,7 +30,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     if (!noBuild) {
         c = _buildCompiler(); if (c != 0) { return c; }
     } else {
-        string drv = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+        string drv = _driverZpkg(root);
         if (!File.Exists(drv) || File.GetSize(drv) <= 0L) {
             ConsoleError.WriteLine("error: --no-build but no z42c seed at " + drv + " (bootstrap first)");
             return 1;

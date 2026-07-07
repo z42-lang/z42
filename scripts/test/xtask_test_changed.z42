@@ -251,10 +251,12 @@ _MapResult _mapFile(string f) {
         return _mapCmds(new string[]{ "xtask test stdlib" });
     }
 
-    // All xtask CLI source is now ONE compiled xtask.zpkg (test-vm / regen / cross /
-    // dist / stdlib logic all folded in), so any scripts/xtask* change rebuilds the
-    // whole CLI → full sweep. Workspace config too.
-    if (f.StartsWith("scripts/xtask") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
+    // All xtask CLI source is now ONE compiled xtask.zpkg (the command logic is
+    // folded across scripts/{,common,build,test,package,install}/), so any script
+    // change rebuilds the whole CLI → full sweep. Shell install scripts + workspace
+    // config too. (Prefix broadened from `scripts/xtask` after the subdir reorg;
+    // the trailing unknown-file default already full-swept, this makes it explicit.)
+    if (f.StartsWith("scripts/") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }
 

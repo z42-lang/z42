@@ -2,27 +2,26 @@
 // the former standalone scripts/build-stdlib.z42 so the LAST command that still
 // shelled out to a separate .z42 via `dotnet -- run` now runs in-process.
 //
-// Compiles the z42 stdlib workspace and assembles the flat dist view. As of
-// replace-csharp-compiler S3 (dogfood-z42c-stdlib-build, 2026-06-22) the
-// PRODUCTION stdlib is built by z42c (the self-hosting z42 compiler), NOT C#:
+// Compiles the z42 stdlib workspace and assembles the flat dist view. The stdlib
+// is built by z42c (the self-hosting z42 compiler) — C# was fully removed
+// 2026-06-26 (remove-dotnet-from-builds). Flow (_buildStdlibCore):
 //
-//   1. C# seed  — `dotnet -- build --workspace --release` builds stdlib once so
-//      z42c.driver (a z42 program that `using Std.*`) has a runtime to load.
-//      bootstrap-safe: C# stays the seed all the way to S5 (it is never deleted
-//      before an S4 self-hosting seed exists).
-//   2. build z42c — C# driver compiles the 7 z42c.* packages (finds the C# seed).
-//   3. run-libs   — assemble {C#-seed stdlib + z42c 7 pkgs} (copy) so z42c.driver
-//      can run on z42vm.
-//   4. z42c rebuild — z42vm runs z42c.driver `build --workspace --release` (M2
-//      per-member drop-in, NO --output-dir) over src/libraries; the per-member
-//      dist dirs are OVERWRITTEN with z42c-built zpkg + .zsym (strip-symbols).
+//   1. ensure seed — warm tree reuses in-tree z42c.driver.zpkg + stdlib dist; a
+//      cold tree stages them from an SDK toolchain via _ensureSeed (see
+//      common/xtask_common.z42). No dotnet anywhere.
+//   2. build z42c  — z42c self-builds the 7 z42c.* members (_buildCompilerViaZ42c).
+//   3. run-libs    — snapshot stdlib → .stdlib-run so the self-contained z42c.driver
+//      has a stable Std.* copy to load while it recompiles stdlib.
+//   4. z42c rebuild — z42vm runs z42c.driver `build --workspace --release` over
+//      src/libraries; the per-member dist dirs are OVERWRITTEN with z42c-built
+//      zpkg + .zsym (strip-symbols).
 //   5. verify + flat view (hard-link) over the z42c-built products.
 //
 // Cold-bootstrap note: this runs INSIDE xtask.zpkg, so xtask (and the stdlib it
-// depends on) must already exist. The CI/local cold bootstrap therefore keeps a
-// raw `dotnet -- build --workspace` primer (the C# compiler building stdlib with
-// NO z42 program) BEFORE compiling xtask; _buildStdlibCore then re-runs the
-// build (z42c-takeover) + assembles the flat view afterward (no namespace index).
+// depends on) must already exist. The CI/local cold bootstrap downloads the
+// previous nightly's z42c seed and builds xtask FIRST (see .github/actions/
+// ci-bootstrap); _buildStdlibCore's step 1 then stages that seed into the in-tree
+// layout before the z42c-takeover rebuild.
 namespace Z42Xtask;
 
 using Std;
@@ -54,13 +53,10 @@ int _buildStdlibCore() {
     Stopwatch swAll = _procStart("build stdlib (z42c self-build + libs)");
 
     // ── 1+2. Produce the seed: stdlib + z42c, from CURRENT source ─────────
-    //    S5 Phase A — prefer the C#-FREE path: when a z42c.driver.zpkg + a stdlib
-    //    already exist (warm: prior build / S4 nightly seed), rebuild z42c via z42c
-    //    (no dotnet). COLD start (fresh checkout, no seed) falls back to the C#
-    //    driver — the last remaining build-time dotnet dependency, removed once a
-    //    seed is always present (S4 download wired into the bootstrap). `Z42_STDLIB_
-    //    CSHARP_SEED=1` forces the C# path (e.g. the byte-identical oracle lane,
-    //    which wants a C#-built z42c reference).
+    //    Warm tree (prior build / nightly seed present): rebuild z42c via z42c.
+    //    Cold tree (fresh checkout, no seed): _ensureSeed stages a z42c.driver.zpkg
+    //    + stdlib dist from an SDK toolchain first. No dotnet — C# was removed
+    //    2026-06-26 (remove-dotnet-from-builds).
     string[] members = _compilerMembers(root);
     // replace-csharp Phase C：C#-free warm 路径用绝对 release z42vm（_z42vm() 返回裸名 "z42vm"
     // 不在 PATH → warm 自建会 NotFound）。缺则 cargo 建（幂等）。
@@ -144,7 +140,7 @@ string[] _compilerMembers(string root) {
 // 组装 alllibs flat 视图：stdlib dist + z42c 7 成员 dist 全部 hard-link 到
 // artifacts/.scratch/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
 // （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
-// 三处消费共用：test lib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
+// 三处消费共用：test stdlib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
 string _assembleAllLibs(string root, string profile) {
     string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
     Directory.Create(flat);
@@ -284,6 +280,7 @@ int _stageToolchain(string dest) {
     Directory.Create(xtDst);
     _copyIfExists(Path.Join(root, "artifacts/xtask/xtask.zpkg"), Path.Join(xtDst, "xtask.zpkg"));
     Console.WriteLine("staged C#-free toolchain -> " + dest);
+    _procEnd("build stage-toolchain", sw);
     return 0;
 }
 
