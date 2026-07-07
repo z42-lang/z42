@@ -21,6 +21,11 @@ using Z42.Pipeline;
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
+    // 无 file 参数的动词在 argv≥2 守卫之前分发。
+    if (argv.Length >= 1 && argv[0] == "--dump-keywords") {
+        Console.Write(DumpTool.DumpKeywords());
+        return;
+    }
     if (argv.Length < 2) {
         _usage();
         return;
@@ -462,6 +467,7 @@ string _findWorkspaceToml(string startDir) {
 void _usage() {
     Console.WriteLine("z42c (self-host) 0.1.0 — bootstrap (lex/parse/typecheck front-end)");
     Console.WriteLine("usage:");
+    Console.WriteLine("  z42c --dump-keywords                   keyword table (one per line)");
     Console.WriteLine("  z42c --dump-tokens <file.z42>          token stream");
     Console.WriteLine("  z42c --dump-ast    <file.z42>          AST s-expression");
     Console.WriteLine("  z42c --dump-bound  <file.z42>          type-checked Bound tree");

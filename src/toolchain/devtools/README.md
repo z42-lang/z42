@@ -25,6 +25,15 @@ src/toolchain/devtools/core/*.z42  →  z42.devtools.zpkg  →  apphost z42d
 - **VM 级钩子** —— `dbg` 的断点/单步、`prof` 的采样都对接 `runtime/` 的 VM 调试/profiling 钩子
   （读 zbc DBUG 源位置）；z42d 侧只做前端 + 协议适配（DAP），不在此实现 VM 钩子本身。
 
+## 编辑器集成（`vscode/`，非 z42d 子命令）
+
+[`vscode/`](vscode/) 是 **VSCode 编辑器资产包**（add-vscode-syntax-ext，2026-07-07）：
+声明式 TextMate 语法高亮 + language-configuration，安装走 `xtask deps install vscode`
+（生成 grammar + symlink），防漂移检查 = `xtask test vscode-syntax`（GREEN gate）。
+它不进 `z42d` muxer（不是 CLI 工具，是编辑器资产）；**B 期 LSP**（诊断/跳转/语义着色）
+落地时：server = 本目录新增 `lsp` 子命令（调 z42c API，对照 `dbg`/DAP 的前端+协议模式），
+client = `vscode/` 扩展升级为 LSP 宿主。详见 vscode/README + book 编辑器集成页。
+
 ## 核心文件（`core/`，scaffold）
 
 | 文件 | 职责 |

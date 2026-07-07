@@ -501,6 +501,9 @@ xtask test lib
 
 # 5. z42c 自举（编译器正确性：build 7 子包 + 产物存在 + [Test] units）
 xtask test compiler
+
+# 6. VSCode grammar ↔ Lexer 关键字一致性（生成产物防漂移；Lexer 加关键字未重新生成即红）
+xtask test vscode-syntax
 ```
 
 > **不要漏跑 cross-zpkg / lib / compiler**。historic regression：cross-zpkg
@@ -534,6 +537,7 @@ xtask test compiler
 - ✅ xtask test e2e --dir cross-zpkg: K/K
 - ✅ xtask test lib: 22/22 lib
 - ✅ xtask test compiler: 7/7 zpkg + units（z42c 自举）
+- ✅ xtask test vscode-syntax（grammar ↔ Lexer 一致）
 - （可选）✅ xtask test dist: P/P
 
 ### Spec 覆盖（若有 spec）

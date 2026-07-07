@@ -1,7 +1,7 @@
 # 测试门禁（test gate）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/test/`
-> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-07-02
+> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-07-07
 
 ## 概述
 
@@ -22,7 +22,7 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 完整 gate 的内容 | cargo build (z42vm) + e2e（goldens + cross-zpkg）/ stdlib / compiler stage | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、编译器自举（Rust VM 单测独立于 gate，见 `test runtime`） |
+| 完整 gate 的内容 | cargo build (z42vm) + e2e（goldens + cross-zpkg）/ stdlib / compiler / vscode-syntax stage | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、编译器自举、生成产物一致性（Rust VM 单测独立于 gate，见 `test runtime`） |
 | 加速机制分两种 | `--scope`（stage 级）与 `test changed`（命令级） | scope 按子系统粗切、心智简单；changed 按文件精确到单库命令，适合小步迭代 |
 | changed 的保守坍缩 | 任一改动文件映射为 full → 整个计划坍缩为 `test all` | 宁可多跑不可漏跑；xtask 自身与 workspace 配置改动一律 full |
 | 计划执行方式 | 逻辑命令 in-process 重入 CLI 路由（不 shell out） | 免去每命令一次进程启动；cargo 命令例外走子进程 |
@@ -39,10 +39,13 @@ graph LR
     S1 --> S2[e2e cross-zpkg]
     S2 --> S3[stdlib Test 用例]
     S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
-    S4 --> G((GREEN))
+    S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
+    S5 --> G((GREEN))
 ```
 
-先一次性备齐工具链与基线（regen 构建波），再依序跑四个验证 stage；任一步失败立即终止。
+先一次性备齐工具链与基线（regen 构建波），再依序跑五个验证 stage；任一步失败立即终止。
+（`vscode-syntax` 守生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 +
+模板」的重渲染——Lexer 加关键字未 `deps install vscode` 重新生成即红，性质同自举不动点。）
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
 在信号受限的沙箱里会挂;改由每条 CI 腿单独一步 + 本地 `xtask test runtime` 按需跑。）
 设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的

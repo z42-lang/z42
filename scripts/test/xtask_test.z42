@@ -225,7 +225,11 @@ int _testAll(bool noBuild) {
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     Console.WriteLine("\n=== stage: compiler ===");
     c = _testCompiler(true); if (c != 0) { return c; }
-    Console.WriteLine("\n✅ GREEN — all stages passed (e2e + stdlib + compiler; C#-free)");
+    // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
+    // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext, 2026-07-07）
+    Console.WriteLine("\n=== stage: vscode-syntax ===");
+    c = _testVscodeSyntax(); if (c != 0) { return c; }
+    Console.WriteLine("\n✅ GREEN — all stages passed (e2e + stdlib + compiler + vscode-syntax; C#-free)");
     _procEnd("test", sw);
     return 0;
 }

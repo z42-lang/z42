@@ -44,6 +44,7 @@
   - [launcher（z42 命令）]()
   - [workload 与平台发行]()
   - [SDK 与发行包布局]()
+  - [编辑器集成（VSCode）](toolchain/editor-integration.md)
 
 # 第六部分 · 开发基础设施（Dev Infrastructure）
 

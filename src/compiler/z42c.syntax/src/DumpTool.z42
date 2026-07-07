@@ -26,4 +26,18 @@ public static class DumpTool {
         var u = p.ParseCompilationUnit();
         return u.Dump();
     }
+
+    // 关键字表：每行一个，按 Lexer._initKeywords() 注册序。供 `z42c --dump-keywords`
+    // → `xtask deps install vscode` 生成 TextMate grammar（关键字 SoT 单向流出）。
+    public static string DumpKeywords() {
+        var lx = new Lexer("", "<input>");
+        string s = "";
+        int i = 0;
+        int n = lx.KeywordCount();
+        while (i < n) {
+            s = s + lx.KeywordNameAt(i) + "\n";
+            i = i + 1;
+        }
+        return s;
+    }
 }

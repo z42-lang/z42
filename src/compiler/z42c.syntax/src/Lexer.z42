@@ -52,6 +52,10 @@ public sealed class Lexer {
     public int   TokenCount()    { return this._tokCount; }
     public Token TokenAt(int i)  { return this._toks[i]; }
 
+    // 关键字表只读访问器（供 DumpTool.DumpKeywords / 单测；表本体 private，注册序）。
+    public int    KeywordCount()       { return this._kwCount; }
+    public string KeywordNameAt(int i) { return this._kwNames[i]; }
+
     // ── 公开入口 ────────────────────────────────────────────────────────────
     public void Tokenize() {
         while (this._pos < this._src.Length) {

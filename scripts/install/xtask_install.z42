@@ -24,9 +24,16 @@ using Std.IO;
 using Std.Toml;
 using Std.Cli;
 
-// Args from a Std.Cli ParseResult: --os <platform> / --force.
+// Args from a Std.Cli ParseResult: --os <platform> / --force / [component]。
+// component = 主机集成资产（用户显式触发，两层模型外的第三类）：目前唯一项 vscode
+// （编辑器资产，add-vscode-syntax-ext）；缺省 = 平台必备安装。
 int _depsInstall(ParseResult r) {
     bool force = r.GetFlag("force");
+    string component = r.GetPositional(0);
+    if (component == "vscode") { return _depsInstallVscode(); }
+    if (component.Length > 0) {
+        ConsoleError.WriteLine("deps install: unknown component '" + component + "' (vscode)"); return 2;
+    }
     string platform = r.GetOption("os");
     if (platform.Length > 0 && platform != "android" && platform != "ios" && platform != "wasm") {
         ConsoleError.WriteLine("deps install --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;

@@ -280,6 +280,8 @@ SubcommandRouter _testRouter() {
     ArgParser bootstrap = new ArgParser("xtask test bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)");
     bootstrap.AddOptionalPositional("rid", "target RID (default: host)");
     t.Add("bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)", bootstrap);
+    t.Add("vscode-syntax", "VSCode grammar <-> Lexer keyword-table sync check",
+        new ArgParser("xtask test vscode-syntax", "regen grammar in-memory + diff vs committed"));
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
@@ -318,10 +320,11 @@ SubcommandRouter _depsRouter() {
     ArgParser check = new ArgParser("xtask deps check", "presence + versions.toml drift check (read-only)");
     check.AddOption("os", "", "platform: android|ios|wasm (default: all; presence strict only with --os)", "");
     d.Add("check", "toolchain presence + version drift check", check);
-    ArgParser install = new ArgParser("xtask deps install", "install platform-essential deps");
+    ArgParser install = new ArgParser("xtask deps install", "install platform-essential deps / a component");
     install.AddOption("os", "", "platform: android|ios|wasm (default: all)", "");
     install.AddFlag("force", "", "force reinstall");
-    d.Add("install", "install platform-essential deps", install);
+    install.AddOptionalPositional("component", "vscode (editor assets; default: platform essentials)");
+    d.Add("install", "install platform-essential deps / vscode assets", install);
     ArgParser env = new ArgParser("xtask deps env", "print eval-able env exports (android NDK)");
     env.AddOption("os", "", "platform (default: android)", "");
     d.Add("env", "print env exports", env);
@@ -430,6 +433,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
     if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
     if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
+    if (sub == "vscode-syntax") { return _testVscodeSyntax(); }   // grammar ↔ Lexer 关键字一致性
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "platform") {
         string plat = p.Length > 2 ? p[2] : "";

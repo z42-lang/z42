@@ -1,0 +1,27 @@
+{
+  "name": "z42-lang",
+  "displayName": "z42 Language",
+  "description": "Syntax highlighting for the z42 programming language (declarative TextMate grammar; LSP planned)",
+  "version": "0.1.0",
+  "publisher": "z42",
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "z42",
+        "aliases": ["z42"],
+        "extensions": [".z42"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "z42",
+        "scopeName": "source.z42",
+        "path": "./syntaxes/z42.tmLanguage.json"
+      }
+    ]
+  }
+}

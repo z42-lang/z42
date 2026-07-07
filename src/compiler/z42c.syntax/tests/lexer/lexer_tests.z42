@@ -205,3 +205,38 @@ void test_char_literal_tokens() {
     Assert.Equal("'A'", lx.TokenAt(0).Text);
     Assert.Equal(TokenKind.CharLiteral, lx.TokenAt(1).Kind);
 }
+
+[Test]
+void test_keyword_table_accessors() {
+    // 关键字只读访问器（add-vscode-syntax-ext）：计数>0、逐项非空、哨兵关键字在表中。
+    var lx = new Lexer("", "t.z42");
+    Assert.True(lx.KeywordCount() > 0);
+    bool hasFn = false;
+    bool hasParams = false;
+    int i = 0;
+    while (i < lx.KeywordCount()) {
+        string name = lx.KeywordNameAt(i);
+        Assert.True(name.Length > 0);
+        if (name == "fn")     { hasFn = true; }
+        if (name == "params") { hasParams = true; }
+        i = i + 1;
+    }
+    Assert.True(hasFn);
+    Assert.True(hasParams);
+}
+
+[Test]
+void test_dump_keywords_matches_table() {
+    // DumpKeywords 行数 == KeywordCount，且首行 == 表首项（注册序）。
+    var lx = new Lexer("", "t.z42");
+    string dump = DumpTool.DumpKeywords();
+    string[] lines = dump.Split("\n");
+    int nonEmpty = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        if (lines[i].Length > 0) { nonEmpty = nonEmpty + 1; }
+        i = i + 1;
+    }
+    Assert.Equal(lx.KeywordCount(), nonEmpty);
+    Assert.Equal(lx.KeywordNameAt(0), lines[0]);
+}

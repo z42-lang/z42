@@ -1,0 +1,107 @@
+{
+  "__generated__": "z42.tmLanguage.json 由 `xtask deps install vscode` 从 z42.tmLanguage.tpl.json + `z42c --dump-keywords` 生成 — DO NOT EDIT。改高亮规则改 .tpl.json；改关键字改 Lexer.z42（SoT）；改分类改 xtask_install_vscode.z42。",
+  "name": "z42",
+  "scopeName": "source.z42",
+  "fileTypes": ["z42"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#numbers" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.block.z42", "begin": "/\\*", "end": "\\*/" },
+        { "name": "comment.line.double-slash.z42", "match": "//.*$" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.triple.z42", "begin": "\"\"\"", "end": "\"\"\"" },
+        {
+          "name": "string.quoted.double.interpolated.z42",
+          "begin": "\\$\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.z42", "match": "\\\\." },
+            {
+              "name": "meta.embedded.line.z42",
+              "begin": "\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.z42" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.z42" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.z42",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.z42", "match": "\\\\." }]
+        }
+      ]
+    },
+    "chars": {
+      "name": "string.quoted.single.z42",
+      "match": "'(\\\\.|[^'\\\\])'"
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.z42", "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*[LufdmU]?\\b" },
+        { "name": "constant.numeric.binary.z42", "match": "\\b0b[01][01_]*[LufdmU]?\\b" },
+        { "name": "constant.numeric.decimal.z42", "match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?[LufdmU]?\\b" }
+      ]
+    },
+    "attributes": {
+      "name": "meta.attribute.z42",
+      "begin": "#\\[",
+      "beginCaptures": { "0": { "name": "punctuation.definition.attribute.begin.z42" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.definition.attribute.end.z42" } },
+      "patterns": [
+        { "include": "#strings" },
+        { "name": "entity.other.attribute-name.z42", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.z42", "match": "\\b(__KW_CONTROL__)\\b" },
+        { "name": "storage.type.declaration.z42", "match": "\\b(__KW_DECLARATION__)\\b" },
+        { "name": "storage.modifier.z42", "match": "\\b(__KW_MODIFIER__)\\b" },
+        { "name": "keyword.operator.expression.z42", "match": "\\b(__KW_OPERATOR__)\\b" },
+        { "name": "storage.type.primitive.z42", "match": "\\b(__KW_TYPE__)\\b" },
+        { "name": "constant.language.z42", "match": "\\b(__KW_LITERAL__)\\b" }
+      ]
+    },
+    "types": {
+      "name": "entity.name.type.z42",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "functions": {
+      "name": "entity.name.function.z42",
+      "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.z42", "match": "=>|->" },
+        { "name": "keyword.operator.range.z42", "match": "\\.\\." },
+        { "name": "keyword.operator.scope.z42", "match": "::" },
+        { "name": "keyword.operator.null-coalescing.z42", "match": "\\?\\?|\\?\\." },
+        { "name": "keyword.operator.comparison.z42", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.logical.z42", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.assignment.z42", "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|=" },
+        { "name": "keyword.operator.increment.z42", "match": "\\+\\+|--" },
+        { "name": "keyword.operator.arithmetic.z42", "match": "[+\\-*/%]" },
+        { "name": "keyword.operator.bitwise.z42", "match": "<<|>>|[&|^~]" },
+        { "name": "keyword.operator.ternary.z42", "match": "[?:]" }
+      ]
+    }
+  }
+}
