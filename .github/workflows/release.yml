@@ -27,6 +27,7 @@ jobs:
   # ── 1. Verify tag matches versions.toml [project].version ──────────────
   verify:
     name: verify-version(linux-x64)
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract.outputs.version }}
@@ -62,6 +63,7 @@ jobs:
   # ── 2. Build per-RID SDK package + archive ─────────────────────────────
   package:
     name: package-${{ matrix.rid }}
+    timeout-minutes: 60
     needs: verify
     strategy:
       fail-fast: false
@@ -94,7 +96,9 @@ jobs:
       # Android-only: cargo-ndk + NDK r26d
       - name: Install cargo-ndk
         if: startsWith(matrix.rid, 'android-')
-        run: cargo install cargo-ndk --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
 
       # local-cache: false — local-cache: true produced an incomplete
       # ANDROID_NDK_HOME directory (clang missing under toolchains/llvm/prebuilt/),
@@ -111,7 +115,9 @@ jobs:
       # wasm-only: wasm-pack + wasm-tools
       - name: Install wasm-pack + wasm-tools
         if: matrix.rid == 'browser-wasm'
-        run: cargo install wasm-pack wasm-tools --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,wasm-tools
 
       # remove-dotnet: build the host toolchain C#-free from the prev nightly's z42c
       # seed (same path as CI build-and-test), then the package steps below run via
@@ -224,6 +230,7 @@ jobs:
   # ── 3. Publish GitHub Release with all 9 archives + SHA256SUMS ─────────
   publish:
     name: publish-release(linux-x64)
+    timeout-minutes: 45
     needs: [verify, package]
     runs-on: ubuntu-latest
     steps:

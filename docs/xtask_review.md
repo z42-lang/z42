@@ -14,7 +14,10 @@
 >   结构性重构留后续独立 change（需 fixpoint/packaging 验证）。
 > - **第四节文档去漂移** → change `fix-xtask-doc-drift` 落地（20 live 手册 + 4 规则文件的死命令/
 >   `--scope` 幽灵/env 校正）；§4.6 design/testing 冻结 + §4.4 GREEN 清单全 SoT 收敛留后续。
-> - **第三节 CI** 尚未开工。
+> - **第三节 CI** → change `ci-hardening` 落地低风险子集（全 job `timeout-minutes`、`cargo install`→
+>   `taiki-e/install-action`、bench-pr glob 修正 + Swatinem 缓存）；§3.1 JIT shard 消费工件、删
+>   `bench-e2e`（可能是 required check）、§3.4 test dist 进 CI、§3.5 归档 shell 收敛留后续（需 CI 侧
+>   验证 / branch-protection 确认 / User 定 gating）。
 
 ## 一、必须先修的 bug（4 个）
 

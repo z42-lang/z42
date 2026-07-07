@@ -47,6 +47,7 @@ jobs:
   # cancel-in-progress storm from frequent unrelated pushes.
   changes:
     name: detect-changes
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
@@ -84,6 +85,7 @@ jobs:
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
+    timeout-minutes: 60
     # needs: changes so the Windows cargo-test step can gate on the `vm` filter
     # (rule c). The job itself still runs on every non-docs push (changes always
     # succeeds); only the Rust-unit step is conditionally skipped.
@@ -290,6 +292,7 @@ jobs:
   # consumes these uploads.
   host-package:
     name: package-host(${{ matrix.platform }})
+    timeout-minutes: 45
     needs: toolchain-bootstrap
     strategy:
       fail-fast: false
@@ -404,6 +407,7 @@ jobs:
   # Fast: bootstrap only, no test.
   toolchain-bootstrap:
     name: compile-toolchain(${{ matrix.platform }})
+    timeout-minutes: 30
     # Runs unconditionally (like the test jobs) — its artifact roots the package
     # jobs (which always run) + the platform-test jobs, so it must always be present.
     strategy:
@@ -459,6 +463,7 @@ jobs:
   # CI-only path diff, the gating jobs are unaffected (only current-sdk is skipped).
   assemble-current-sdk:
     name: compile-test-assets(${{ matrix.platform }})
+    timeout-minutes: 30
     needs: toolchain-bootstrap
     strategy:
       fail-fast: false
@@ -525,6 +530,7 @@ jobs:
   # while we validate — promote to a gate once proven.
   consume-current-sdk:
     name: test-consume(linux-x64)
+    timeout-minutes: 30
     needs: assemble-current-sdk
     runs-on: ubuntu-latest
     steps:
@@ -607,6 +613,7 @@ jobs:
   # host legs' critical path.
   vm-jit-consistency:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -657,6 +664,7 @@ jobs:
   # behaviour is host-independent (same rationale as vm-jit-consistency).
   stdlib-jit-consistency:
     name: test-stdlib-jit(linux-x64) shard ${{ matrix.shard }}
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -707,6 +715,7 @@ jobs:
   # needs (no deadlock). linux-x64 only.
   verify-selfhost:
     name: verify-selfhost(linux-x64)
+    timeout-minutes: 40
     # change-detect rule (b): the bootstrap boundary check only matters when z42c
     # changes (a stdlib/xtask-only change can't use syntax/format the published
     # nightly lacks without a same-window compiler change). Skip otherwise. Safe
@@ -767,6 +776,7 @@ jobs:
   # bench infra works in CI. Manual download + `xtask bench --diff` for now.
   bench-e2e:
     name: bench-smoke(linux-x64)
+    timeout-minutes: 30
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -868,6 +878,7 @@ jobs:
   # (wasm32-unknown-unknown / aarch64-apple-ios / aarch64-linux-android).
   feature-matrix:
     name: verify-features(linux-x64)
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -905,6 +916,7 @@ jobs:
   # macos-15 arm64) + iOS Rust targets. The source bootstrap also builds z42c.
   package-ios:
     name: package-ios(macos-arm64)
+    timeout-minutes: 45
     needs: toolchain-bootstrap
     runs-on: macos-15
 
@@ -981,6 +993,7 @@ jobs:
   # Packages android-arm64 + android-x64 via cargo-ndk + NDK r26d.
   package-android:
     name: package-android(linux-x64)
+    timeout-minutes: 45
     needs: toolchain-bootstrap
     runs-on: ubuntu-latest
 
@@ -994,7 +1007,9 @@ jobs:
           targets: aarch64-linux-android,x86_64-linux-android
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
 
       # local-cache: false — local-cache produced an incomplete ANDROID_NDK_HOME
       # (clang missing under toolchains/llvm/prebuilt/) causing libffi-sys's
@@ -1081,6 +1096,7 @@ jobs:
   # pkg-nodejs/ before `xtask package` can assemble the wasm SDK package.
   package-wasm:
     name: package-wasm(linux-x64)
+    timeout-minutes: 40
     needs: toolchain-bootstrap
     runs-on: ubuntu-latest
 
@@ -1094,7 +1110,9 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack + wasm-tools
-        run: cargo install wasm-pack wasm-tools --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,wasm-tools
 
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
@@ -1168,6 +1186,7 @@ jobs:
   # Not signed. Marked --prerelease. Skipped on PRs (token + fork-PR limitations).
   publish-nightly:
     name: publish-nightly
+    timeout-minutes: 40
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     # NIGHTLY-SEED DEADLOCK POSTURE: EVERY bootstrap path (build-and-test, host-package,
     # package-*, all via the ci-bootstrap action / toolchain-bootstrap) seeds from the
@@ -1416,6 +1435,7 @@ jobs:
   # (infra-ci-platform-test-dashboard, 2026-06-16)
   test-wasm:
     name: test-wasm-browser(linux-x64)
+    timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
@@ -1431,7 +1451,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -1468,6 +1490,7 @@ jobs:
 
   test-ios:
     name: test-ios-sim(macos-arm64)
+    timeout-minutes: 45
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-15
@@ -1508,6 +1531,7 @@ jobs:
 
   test-android:
     name: test-android-emu(linux-x64)
+    timeout-minutes: 45
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
@@ -1527,7 +1551,9 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
@@ -1575,6 +1601,7 @@ jobs:
 
   test-desktop:
     name: test-desktop-cabi(linux-x64)
+    timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest

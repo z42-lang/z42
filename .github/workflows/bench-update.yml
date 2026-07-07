@@ -30,6 +30,7 @@ concurrency:
 jobs:
   update-baseline:
     name: bench-baseline-update(linux-x64)
+    timeout-minutes: 30
     runs-on: ubuntu-latest
 
     steps:

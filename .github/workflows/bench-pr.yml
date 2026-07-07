@@ -20,7 +20,7 @@ on:
       - 'src/libraries/**'
       - 'src/compiler/**'
       - 'bench/**'
-      - 'scripts/xtask*.z42'
+      - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
 
@@ -31,6 +31,7 @@ concurrency:
 jobs:
   bench-regression:
     name: bench-regression(linux-x64)
+    timeout-minutes: 30
     runs-on: ubuntu-latest
 
     steps:
@@ -48,16 +49,11 @@ jobs:
           wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
           sudo dpkg -i hyperfine_1.20.0_amd64.deb
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/runtime/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src/runtime/Cargo.lock', 'src/runtime/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: host-v2
 
       # C#-free: seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
