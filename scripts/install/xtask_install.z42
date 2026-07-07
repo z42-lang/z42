@@ -2,20 +2,19 @@
 // scripts/setup-tools.sh. Verify/install the toolchain declared in versions.toml.
 // Source-of-truth = versions.toml (parsed with Std.Toml, no python).
 //
-// Two-tier dependency model:
-//   TIER 1 — essential BUILD deps, platform-distinguished (install up front):
-//     deps install                       cross-platform toolchain presence check (rust/dotnet/node)
-//     deps install --os <android|ios|wasm>   + that platform's essential build deps
-//         android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
-//                   + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
-//         ios     = rust targets (+ extra host slice) + Xcode check
-//         wasm    = rust targets + wasm-pack
-//   TIER 2 — step-specific deps (fetched lazily by the step that needs them):
-//     deps install node                  Node LTS (wasm js / playground tests)
-//     deps install android-emulator      emulator + system-image + AVD + Gradle (android instrumentation tests)
+// 依赖两层模型（simplify-xtask-deps, User 裁决 2026-07-07）：
+//   平台必备 — 该平台构建/测试没它就跑不了，`deps install --os <p>` 直接装：
+//     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
+//               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
+//     ios     = rust targets (+ extra host slice) + Xcode check
+//     wasm    = rust targets + wasm-pack + hermetic node（wasm 测试面必备）
+//   用到才装 — 重型/兜底依赖，消费步骤检测缺失后自动装，零命令面：
+//     android emulator tier（emulator + system-image + AVD + Gradle，~4GB）
+//       → `test platform android run`（AndroidBackend.RunTests）自动装
+//     node 兜底 → wasm RunTests hermetic+PATH 均缺时自动装
 //
-// Modifiers:  --check (verify only) | --drift (versions.toml ↔ projection drift)
-//             | --print-env (emit env exports) | --force (reinstall)
+// 只读校验（presence + drift）统一在 `deps check`（xtask_deps.z42）；
+// env 导出在 `deps env`（本文件 _depsEnv）。install 只装，不查不导。
 //
 // Same Z42Xtask namespace; calls _root/_exec/_have... defined here + in xtask.z42.
 namespace Z42Xtask;
@@ -25,26 +24,13 @@ using Std.IO;
 using Std.Toml;
 using Std.Cli;
 
-// Args from a Std.Cli ParseResult: --os <platform> / --check / --drift /
-// --print-env / --force flags + optional [step] positional (node|android-emulator).
+// Args from a Std.Cli ParseResult: --os <platform> / --force.
 int _depsInstall(ParseResult r) {
-    string mode = "install";
-    if (r.GetFlag("check"))     { mode = "check"; }
-    if (r.GetFlag("drift"))     { mode = "drift"; }
-    if (r.GetFlag("print-env")) { mode = "print-env"; }
     bool force = r.GetFlag("force");
     string platform = r.GetOption("os");
     if (platform.Length > 0 && platform != "android" && platform != "ios" && platform != "wasm") {
         ConsoleError.WriteLine("deps install --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;
     }
-    string step = r.GetPositional(0);   // "" | node | android-emulator
-    if (step.Length > 0 && step != "node" && step != "android-emulator") {
-        ConsoleError.WriteLine("deps install: unknown step '" + step + "' (node|android-emulator)"); return 2;
-    }
-    // TIER 2 — step-specific lazy installers (run when you reach the step).
-    if (step == "node")             { return _depsInstallNode(force); }
-    if (step == "android-emulator") { return _depsInstallAndroidEmulator(force); }
-
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
 
@@ -52,38 +38,61 @@ int _depsInstall(ParseResult r) {
     if (platform.Length > 0) { platforms = new string[1]; platforms[0] = platform; }
     else { platforms = new string[3]; platforms[0] = "android"; platforms[1] = "ios"; platforms[2] = "wasm"; }
 
-    if (mode != "print-env" && mode != "drift") {
-        Console.WriteLine("── toolchain (cross-platform) ──");
-        _checkRust(toml);
-        _checkNode(toml);
-    }
+    Console.WriteLine("── toolchain (cross-platform) ──");
+    _checkRust(toml);
+    _checkNode(toml);
 
     int rc = 0;
     int p = 0;
     while (p < platforms.Length) {
         int c = 0;
-        if (platforms[p] == "android")   { c = _setupAndroid(root, toml, mode, force); }
-        else if (platforms[p] == "ios")  { c = _setupIos(root, toml, mode); }
-        else if (platforms[p] == "wasm") { c = _setupWasm(toml, mode); }
+        if (platforms[p] == "android")   { c = _setupAndroid(root, toml, "install", force); }
+        else if (platforms[p] == "ios")  { c = _setupIos(root, toml, "install"); }
+        else if (platforms[p] == "wasm") { c = _setupWasm(root, toml, "install", force); }
         if (c != 0) { rc = c; }
         p = p + 1;
     }
 
-    if (mode == "install") {
+    if (rc == 0) {
         Console.WriteLine("");
         Console.WriteLine("✅ setup complete");
         Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
-        Console.WriteLine("     eval \"$(z42 xtask.zpkg deps install --os android --print-env)\"");
-        Console.WriteLine("   For android emulator/AVD + Gradle (run-tests only):");
-        Console.WriteLine("     z42 xtask.zpkg deps install android-emulator");
+        Console.WriteLine("     eval \"$(z42 xtask.zpkg deps env)\"");
+        Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test platform android run`.");
     }
     return rc;
 }
 
-// ── deps install node (was install-node-local.sh) ───────────────────────────
+// `deps env [--os android]` — eval 用的环境导出：stdout 只输出 export 行（可
+// `eval "$(...)"`)，一切提示/错误走 stderr。目前只有 android 有可导出 env
+// （ANDROID_NDK_HOME）；--os 缺省即 android。
+int _depsEnv(ParseResult r) {
+    string os = r.GetOption("os");
+    if (os.Length == 0) { os = "android"; }
+    if (os == "ios" || os == "wasm") {
+        ConsoleError.WriteLine("# deps env: no env exports for '" + os + "' (android only)");
+        return 0;
+    }
+    if (os != "android") {
+        ConsoleError.WriteLine("deps env --os: unknown platform '" + os + "' (android|ios|wasm)");
+        return 2;
+    }
+    string root = _root();
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
+    string home = _resolveNdkHome(root, toml);
+    if (home.Length == 0) {
+        ConsoleError.WriteLine("# android: NDK not found; run z42 xtask.zpkg deps install --os android");
+        return 1;
+    }
+    Console.WriteLine("export ANDROID_NDK_HOME=\"" + home + "\"");
+    return 0;
+}
+
+// ── node installer (was install-node-local.sh; 现为内部函数，无命令面) ───────
+// 调用方：_setupWasm（wasm 必备直装）+ WasmBackend.RunTests（用到才装兜底）。
 
 // Download Node.js LTS into artifacts/tools/node/ (no system PATH changes).
-// Idempotent; --force redownloads. POSIX-only (.tar.gz); Windows → MSI.
+// Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
 int _depsInstallNode(bool force) {
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
@@ -262,16 +271,9 @@ string _resolveNdkHome(string root, TomlValue toml) {
     return "";
 }
 
+// mode: "install" | "check"（check 供 deps check 复用，verify-only 不装）。
 int _setupAndroid(string root, TomlValue toml, string mode, bool force) {
     Console.WriteLine("── android ──");
-    if (mode == "print-env") {
-        string home = _resolveNdkHome(root, toml);
-        if (home.Length == 0) { ConsoleError.WriteLine("# android: NDK not found; run z42 xtask.zpkg deps install --os android"); return 1; }
-        Console.WriteLine("export ANDROID_NDK_HOME=\"" + home + "\"");
-        return 0;
-    }
-    if (mode == "drift") { return _checkAndroidDrift(root, toml); }
-
     int rc = 0;
     // native cross-compile essentials: rust targets + cargo-ndk
     foreach (var t in _vgetList(toml, "platform.android.rust_targets")) {
@@ -315,28 +317,11 @@ int _checkAndroidBuildSdk(string root, TomlValue toml) {
     return rc;
 }
 
-int _checkAndroidDrift(string root, TomlValue toml) {
-    string wantMin = _vget(toml, "platform.android.min_api");
-    string wantTgt = _vget(toml, "platform.android.target_api");
-    string gradle = Path.Join(root, "src/toolchain/workload/android/platform/z42vm/build.gradle.kts");
-    string text = File.Exists(gradle) ? File.ReadAllText(gradle) : "";
-    string minActual = _firstIntAfter(text, "minSdk");
-    string compileActual = _firstIntAfter(text, "compileSdk");
-    int rc = 0;
-    if (minActual == wantMin) { Console.WriteLine("  ✓ build.gradle.kts minSdk=" + minActual + " = versions.toml min_api"); }
-    else { ConsoleError.WriteLine("  ✗ drift: build.gradle.kts minSdk=" + minActual + " ≠ versions.toml min_api=" + wantMin); rc = 1; }
-    if (compileActual == wantTgt) { Console.WriteLine("  ✓ build.gradle.kts compileSdk=" + compileActual + " = versions.toml target_api"); }
-    else { ConsoleError.WriteLine("  ✗ drift: build.gradle.kts compileSdk=" + compileActual + " ≠ versions.toml target_api=" + wantTgt); rc = 1; }
-    return rc;
-}
-
 // ── ios ────────────────────────────────────────────────────────────────────
 
+// mode: "install" | "check"。
 int _setupIos(string root, TomlValue toml, string mode) {
     Console.WriteLine("── ios ──");
-    if (mode == "print-env") { return 0; }
-    if (mode == "drift") { return _checkIosDrift(root, toml); }
-
     int rc = 0;
     foreach (var t in _vgetList(toml, "platform.ios.rust_targets")) {
         int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
@@ -357,45 +342,45 @@ int _setupIos(string root, TomlValue toml, string mode) {
     return rc;
 }
 
-int _checkIosDrift(string root, TomlValue toml) {
-    string wantIos = _vget(toml, "platform.ios.min_ios");
-    string wantMac = _vget(toml, "platform.ios.min_macos");
-    string pkg = Path.Join(root, "src/toolchain/workload/ios/platform/Package.swift");
-    string text = File.Exists(pkg) ? File.ReadAllText(pkg) : "";
-    string iosActual = _firstIntAfter(text, ".iOS(.v");
-    string macActual = _firstIntAfter(text, ".macOS(.v");
-    int rc = 0;
-    if (iosActual == _nthDot(wantIos, 0)) { Console.WriteLine("  ✓ Package.swift .iOS(.v" + iosActual + ") = versions.toml min_ios=" + wantIos); }
-    else { ConsoleError.WriteLine("  ✗ drift: Package.swift .iOS(.v" + iosActual + ") ≠ versions.toml min_ios=" + wantIos); rc = 1; }
-    if (macActual == _nthDot(wantMac, 0)) { Console.WriteLine("  ✓ Package.swift .macOS(.v" + macActual + ") = versions.toml min_macos=" + wantMac); }
-    else { ConsoleError.WriteLine("  ✗ drift: Package.swift .macOS(.v" + macActual + ") ≠ versions.toml min_macos=" + wantMac); rc = 1; }
-    return rc;
-}
-
 // ── wasm ───────────────────────────────────────────────────────────────────
 
-int _setupWasm(TomlValue toml, string mode) {
+// wasm 平台必备：rust targets + wasm-pack + hermetic node。node 从"用户手动 step"
+// 升为 wasm 必备（simplify-xtask-deps, User 裁决 2026-07-07）——wasm 测试面
+// （pkg-nodejs smoke + Playwright）没有 node 跑不了。mode: "install" | "check"。
+int _setupWasm(string root, TomlValue toml, string mode, bool force) {
     Console.WriteLine("── wasm ──");
-    if (mode == "print-env") { return 0; }
-    if (mode == "drift") { Console.WriteLine("  (wasm has no native-file drift to check)"); return 0; }
     int rc = 0;
     foreach (var t in _vgetList(toml, "platform.wasm.rust_targets")) {
         int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
     }
     int cc = _ensureCargoInstall("wasm-pack", "wasm-pack", mode); if (cc != 0) { rc = cc; }
+    if (mode == "check") {
+        int kc = _checkWasmNode(root, toml); if (kc != 0) { rc = kc; }
+    } else {
+        int nc = _depsInstallNode(force); if (nc != 0) { rc = nc; }
+    }
     return rc;
 }
 
-// First integer appearing after the first occurrence of `marker` (e.g. "minSdk"
-// → the digits in `minSdk = 23`; ".iOS(.v" → the digits in `.iOS(.v16)`).
-string _firstIntAfter(string text, string marker) {
-    int idx = text.IndexOf(marker);
-    if (idx < 0) { return ""; }
-    int i = idx + marker.Length;
-    // skip to first digit
-    while (i < text.Length && !(text.CharAt(i) >= '0' && text.CharAt(i) <= '9')) { i = i + 1; }
-    int start = i;
-    while (i < text.Length && text.CharAt(i) >= '0' && text.CharAt(i) <= '9') { i = i + 1; }
-    if (i == start) { return ""; }
-    return text.Substring(start, i - start);
+// wasm 必备的 node presence 校验：hermetic artifacts/tools/node 优先；PATH node
+// 版本 ≥ toolchain.node.min_version 也接受。两者皆无 → ✗。
+int _checkWasmNode(string root, TomlValue toml) {
+    string hermetic = Path.Join(root, "artifacts/tools/node/bin/node");
+    if (File.Exists(hermetic)) {
+        Console.WriteLine("  ✓ node (hermetic) " + _cmdOut(hermetic, new string[]{ "--version" }));
+        return 0;
+    }
+    string wantMin = _vget(toml, "toolchain.node.min_version");
+    if (_have("node")) {
+        string v = _cmdOut("node", new string[]{ "-v" });   // "v22.11.0"
+        if (v.StartsWith("v")) { v = v.Substring(1); }
+        if (_parseIntOr(_nthDot(v, 0), 0) >= _parseIntOr(wantMin, 0)) {
+            Console.WriteLine("  ✓ node v" + v + " (PATH, ≥ v" + wantMin + ")");
+            return 0;
+        }
+        ConsoleError.WriteLine("  ✗ node v" + v + " < min v" + wantMin + " (run: deps install --os wasm)");
+        return 1;
+    }
+    ConsoleError.WriteLine("  ✗ node missing (run: deps install --os wasm; wasm test run also auto-installs)");
+    return 1;
 }

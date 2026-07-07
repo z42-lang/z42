@@ -35,7 +35,7 @@ miniserve --index demo/web/index.html .        # 然后开 http://127.0.0.1:8080
 # 或：python3 -m http.server 8000               # 同上 URL
 
 # 或跑 Node demo（需要本地 Node — 走 artifacts/tools/node）
-./xtask deps install node                     # 一次性，装到 artifacts/tools/node
+./xtask deps install --os wasm                # 一次性，node 属 wasm 必备，装到 artifacts/tools/node
 PATH="$PWD/../../../../artifacts/tools/node/bin:$PATH" node demo/node/run.js
 # 期望输出：[host] hello, world
 ```
@@ -47,10 +47,8 @@ PATH="$PWD/../../../../artifacts/tools/node/bin:$PATH" node demo/node/run.js
 ## Run tests
 
 ```bash
-# 一次性：本地 Node + chromium 落 artifacts/tools/，不动系统
-./xtask deps install node
-
-# 每次（自动 build + assets + pkg-nodejs Node smoke + Playwright R1–R7）：
+# 每次（自动 build + assets + pkg-nodejs Node smoke + Playwright R1–R7；
+# 本地 Node 缺失时自动装到 artifacts/tools/，不动系统）：
 ./xtask test platform wasm
 ```
 

@@ -59,7 +59,7 @@ z42 的 build / test / package 工具链通过 z42 build CLI（xtask）驱动，
 - `rustup target add aarch64-linux-android x86_64-linux-android`
 - `cargo install cargo-ndk --locked`
 
-⚠️ `./xtask.exe deps install --os android` / `deps install android-emulator` 在 Windows 上**会拒绝执行**（只支持 macOS/Linux 自动下载）；走 Android Studio 这条路。
+⚠️ `./xtask.exe deps install --os android` 在 Windows 上**会拒绝执行**（只支持 macOS/Linux 自动下载；emulator tier 的自动安装同理）；走 Android Studio 这条路。
 
 ### 6.（可选）Node.js —— 用官方 MSI
 
@@ -69,7 +69,7 @@ z42 的 build / test / package 工具链通过 z42 build CLI（xtask）驱动，
 - `cargo install wasm-pack --locked`
 - `rustup target add wasm32-unknown-unknown`
 
-⚠️ `./xtask.exe deps install node` 在 Windows 上也会**拒绝执行**（POSIX .tar.gz 路径）；走 MSI 这条路。
+⚠️ node 的自动安装（`deps install --os wasm` 内含；wasm 测试的用到才装兜底同理）在 Windows 上也会**拒绝执行**（POSIX .tar.gz 路径）；走 MSI 这条路。
 
 ## 日常工作流
 

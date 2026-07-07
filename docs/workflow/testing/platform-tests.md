@@ -61,8 +61,7 @@ Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- build
 **额外前置**：`wasm-pack` + wasm32 target + 本地 node（Playwright 用）。一次性：
 
 ```bash
-./xtask deps install --os wasm   # wasm-pack + wasm32-unknown-unknown
-./xtask deps install node        # 本地 Node LTS → artifacts/tools/node
+./xtask deps install --os wasm   # wasm-pack + wasm32-unknown-unknown + 本地 Node LTS（wasm 必备）
 ```
 
 跑：
@@ -105,17 +104,18 @@ Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- build
 
 ## Android（需 NDK + emulator）
 
-**额外前置**：`cargo-ndk` + NDK + android target + JDK 17 + emulator AVD。一次性：
+**额外前置**：`cargo-ndk` + NDK + android target + JDK 17。一次性：
 
 ```bash
-./xtask deps install --os android       # cargo-ndk + NDK + rust android targets
-./xtask deps install android-emulator   # emulator + system-image + AVD + Gradle（~4 GB / 10-15 min）
+./xtask deps install --os android       # cargo-ndk + NDK + rust android targets（build tier 必备）
+# emulator tier（emulator + system-image + AVD + Gradle，~4 GB / 10-15 min）没有命令：
+# `test platform android` 的 run 步骤检测缺失后自动安装（用到才装）
 ```
 
 跑（③ 桥接 `platforms/android/test.sh`，自动起 emulator）：
 
 ```bash
-eval "$(./xtask deps install --os android --print-env)"   # 设 ANDROID_NDK_HOME / ANDROID_HOME 等
+eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 ./xtask test platform android
 # ① cargo-ndk×ABIs + gradle AAR → ② fixtures+stdlib 进 assets
 # → ③ test.sh：起 emulator + gradlew :z42vm:connectedAndroidTest（R1–R7）

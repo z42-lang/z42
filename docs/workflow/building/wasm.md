@@ -74,8 +74,8 @@ built:
 ### 3.1 R1–R7 嵌入契约（Playwright）
 
 ```bash
-./xtask deps install --os wasm   # wasm-pack + wasm32-unknown-unknown（1.1 已装可跳）
-./xtask deps install node        # 本地 Node LTS → artifacts/tools/node（没装也行，回退 PATH 上的 node）
+./xtask deps install --os wasm   # wasm-pack + wasm32 target + 本地 Node LTS（wasm 必备三件套；已装可跳）
+# node → artifacts/tools/node；PATH 上已有 ≥ min 版的 node 也可用，两者皆缺时测试步骤自动装
 
 ./xtask test platform wasm
 # ① wasm-pack build web+nodejs → ② fixtures+stdlib+files.json

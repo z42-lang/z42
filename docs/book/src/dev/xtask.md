@@ -1,7 +1,7 @@
 # xtask：自举 dev CLI
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/`
-> **相关**: [构建编排](build.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-02
+> **相关**: [构建编排](build.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-07
 
 ## 概述
 
@@ -81,7 +81,25 @@ managed 布局的 `Z42_HOME` 不符 SDK-toolchain 布局时自动回落 build-tr
 | 构建编排 | `scripts/build/` | 见[构建编排](build.md) |
 | 测试编排 | `scripts/test/` | 见[测试门禁](test-gate.md) |
 | 打包引擎 | `scripts/package/` + `scripts/packages.toml` | 见[打包引擎](packaging.md) |
-| 依赖安装 | `scripts/install/` | 跨平台 toolchain 检查/安装（rust/node/android SDK…） |
+| 依赖安装 | `scripts/install/` + `scripts/xtask_deps.z42` | 依赖两层模型 + `deps check/install/env` 三正交子命令（见下节） |
+
+### 依赖两层模型（`deps`，simplify-xtask-deps 2026-07-07）
+
+工具链依赖按"没有它平台的构建/测试能不能跑"分两层：
+
+- **平台必备**：`deps install --os <p>` 直接装——android = rust targets + cargo-ndk +
+  JDK + build-tier SDK；ios = rust targets + Xcode 检查；wasm = rust targets +
+  wasm-pack + **hermetic node**（wasm 测试面必备，从旧"手动 step"升格）。
+- **用到才装**：重型/兜底依赖零命令面，消费步骤检测缺失后自动装——android
+  emulator tier（emulator + system-image + AVD + Gradle，~4GB）由
+  `test platform android run`（`AndroidBackend.RunTests`）安装；node 兜底由 wasm
+  测试步骤安装。安装失败 = 该步骤失败，不吞不跳过。
+
+命令面三正交子命令：`deps check [--os]`（唯一只读校验 = presence + versions.toml↔
+投影 drift 单实现）、`deps install [--os] [--force]`（纯安装）、`deps env`（可 eval
+的 `ANDROID_NDK_HOME` 导出，stdout 纯净）。**check 退出码策略**：drift 与机器无关、
+恒致败；presence 仅显式 `--os <p>` 时致败——CI 的 build-and-test 在无平台 SDK 的
+runner 上裸跑 `deps check` 当 drift 门禁，presence 缺失在那里是预期的（信息性展示）。
 
 ## 边界与限制
 

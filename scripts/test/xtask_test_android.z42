@@ -80,7 +80,24 @@ public class AndroidBackend : IPlatformBackend {
     }
 
     // ③ delegate to test.sh (emulator boot + gradle connectedAndroidTest).
+    // emulator tier（emulator + system-image + AVD + Gradle，~4GB）是"用到才装"
+    // 依赖，零命令面（simplify-xtask-deps, User 裁决 2026-07-07）：在这里检测缺失
+    // 并自动安装，绝不由用户手动触发。安装失败 = 测试失败（不吞不跳过）。
     public int RunTests(string root) {
+        string sdk = this._resolveSdk(root);
+        if (sdk.Length == 0) { return 1; }
+        if (!File.Exists(Path.Join(sdk, "emulator/emulator"))) {
+            TomlValue toml = _vparse(root);
+            string hermetic = Path.Join(root, _vget(toml, "build.android.install_root"));
+            if (sdk != hermetic) {
+                ConsoleError.WriteLine("error: SDK at " + sdk + " (ANDROID_HOME/ANDROID_SDK_ROOT) lacks emulator/;"
+                    + " install it there, or unset the env to use the hermetic SDK (auto-managed)");
+                return 1;
+            }
+            Console.WriteLine("  emulator tier missing — auto-installing (~4GB, one-time)");
+            int ic = _depsInstallAndroidEmulator(false);
+            if (ic != 0) { return ic; }
+        }
         string here = Path.Join(root, "src/toolchain/workload/android/platform");
         Console.WriteLine("  bash test.sh  (emulator + connectedAndroidTest; full port → CI change)");
         return _execIn(new Process("bash").Arg("test.sh"), here);

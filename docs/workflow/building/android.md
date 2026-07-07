@@ -24,7 +24,7 @@ SDK + NDK（含 cmdline-tools / build-tools / platform-34）二选一：
 **(推荐) 仓库内一键装** —— 版本由 [`versions.toml`](../../../versions.toml) `[build.android]` pin，落到 `artifacts/tools/android-sdk`，**不污染系统**：
 
 ```bash
-./xtask deps install --os android        # SDK + NDK（build tier；加 --emulator 连模拟器一并装）
+./xtask deps install --os android        # SDK + NDK（build tier 必备；emulator tier 由 `test platform android run` 用到时自动装）
 ```
 
 直接下载的产物（cmdline-tools / gradle）下载后按 versions.toml 的 `sha256` pin 校验，不符即中止安装；NDK + system-image 走 sdkmanager（对 Google repository manifest 自校验）。
@@ -106,7 +106,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 R1–R7 嵌入契约测试，跑在**真 Android emulator** 上：
 
 ```bash
-eval "$(./xtask deps install --os android --print-env)"   # 设 ANDROID_NDK_HOME / ANDROID_HOME 等
+eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 ./xtask test platform android
 # ① cargo-ndk×ABIs + gradle AAR → ② fixtures+stdlib 进 assets
 # → ③ test.sh：起 emulator + gradlew :z42vm:connectedAndroidTest（R1–R7）

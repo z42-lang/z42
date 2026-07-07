@@ -3,12 +3,13 @@
 // SDK + NDK (+ emulator + AVD + Gradle for the emulator tier) locally into
 // artifacts/tools/ (no system changes). Idempotent; --force redownloads.
 //
-// Two tiers (see the two-tier dependency model in xtask_install.z42):
-//   "build"    — TIER 1 essential build deps: cmdline-tools + platforms +
-//                build-tools + platform-tools + NDK. Driven by `deps install --os android`.
-//   "emulator" — TIER 2 step deps (android instrumentation tests): the build set
-//                PLUS emulator + system-image + AVD + Gradle. Driven by
-//                `deps install android-emulator`. ~4 GB / ~10-15 min.
+// Two tiers (依赖两层模型见 xtask_install.z42 头注释):
+//   "build"    — 平台必备 build deps: cmdline-tools + platforms + build-tools +
+//                platform-tools + NDK. Driven by `deps install --os android`.
+//   "emulator" — 用到才装（零命令面，simplify-xtask-deps 2026-07-07）: the build
+//                set PLUS emulator + system-image + AVD + Gradle. ~4 GB /
+//                ~10-15 min. Auto-installed by `test platform android run`
+//                (AndroidBackend.RunTests) — no user command exposes it.
 //
 // POSIX-only (downloads mac/linux tarballs); Windows → Android Studio. Prereqs:
 // JDK 17+, curl, unzip. NOT used by CI (CI installs cargo-ndk inline) — this is
@@ -21,7 +22,8 @@ using Std.Encoding;
 using Std.Toml;
 using Std.Time;
 
-// TIER 2 entry: full SDK incl emulator/AVD/Gradle for running Android tests.
+// emulator tier 入口（内部函数，无命令面）：full SDK incl emulator/AVD/Gradle。
+// 唯一调用方 = AndroidBackend.RunTests 的用到才装钩子。
 int _depsInstallAndroidEmulator(bool force) { return _depsInstallAndroidSdk(force, "emulator"); }
 
 int _depsInstallAndroidSdk(bool force, string tier) {
@@ -140,7 +142,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     // ── (5) AVD + (6) Gradle — emulator tier only ────────────────────────
     string gradleInstall = Path.Join(gradleDir, "gradle-" + gradleVer);
     if (!wantEmu) {
-        Console.WriteLine("[5-6/6] AVD + Gradle skipped (build tier; run `z42 xtask.zpkg deps install android-emulator` for instrumentation tests)");
+        Console.WriteLine("[5-6/6] AVD + Gradle skipped (build tier; emulator tier auto-installs on `test platform android run`)");
     } else {
         // ── (5) AVD ──────────────────────────────────────────────────────
         string existing = _cmdOut(avdmanager, new string[]{ "list", "avd" });

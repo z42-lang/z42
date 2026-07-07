@@ -159,27 +159,28 @@ build package [--rid R] [release|debug] ──► 按 RID 分类 dispatch
   ──► artifacts/packages/z42-<ver>-<rid>-<config>/ + manifest.toml + SHA-256 invariant
 ```
 
-### `deps install`（`install/xtask_install.z42 :: _depsInstall`）
+### `deps`（三正交子命令；`install/xtask_install.z42` + `xtask_deps.z42`）
 
 ```
-deps install [--os P] [--check] [--print-env] ──► _depsInstall
-  ├─ 无 --os    跨平台 toolchain 存在性检查 (rust / node)
-  ├─ --os android  TIER1: rust targets + cargo-ndk + JDK + 构建 SDK   install/xtask_install_android.z42
-  ├─ --os ios      TIER1: rust targets + Xcode
-  ├─ --os wasm     TIER1: rust targets + wasm-pack
-  ├─ node          TIER2 (惰性): Node LTS (wasm js / playground)
-  └─ android-emulator  TIER2: emulator + system-image + AVD + Gradle
-  --check 只 verify 不装；--print-env 输出可 eval 的 export
+deps check [--os P]     ──► _depsCheckRun    唯一只读校验：presence + versions.toml drift
+                            （presence 仅显式 --os 时计入退出码；drift 恒致败 —— CI 裸跑兼容）
+deps install [--os P] [--force] ──► _depsInstall   纯安装平台必备
+  ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   install/xtask_install_android.z42
+  ├─ --os ios      rust targets + Xcode
+  └─ --os wasm     rust targets + wasm-pack + hermetic node
+deps env [--os android] ──► _depsEnv         可 eval 的 export（ANDROID_NDK_HOME）
 ```
+
+用到才装（零命令面）：android emulator tier（~4GB）由 `test platform android run`
+自动装；node 兜底由 wasm 测试自动装。
 
 ## 典型流程
 
 **首次 clone / 新 dev 环境**：
 ```bash
-xtask deps install --check          # 看缺什么
-xtask deps install                  # 装跨平台 toolchain
+xtask deps check                    # 看缺什么 + 校验投影文件跟 versions.toml 一致
 xtask deps install --os android     # 需要打 android 时再装该平台必备
-xtask deps install --drift          # 校验投影文件跟 versions.toml 一致
+xtask deps check --os android       # 严格校验该平台依赖已就位（缺失即非 0）
 ```
 
 **commit 前 / 归档前（必跑，workflow 阶段 8 全绿入口）**：

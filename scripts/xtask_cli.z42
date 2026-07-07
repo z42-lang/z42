@@ -310,18 +310,21 @@ SubcommandRouter _platformRouter() {
     return pr;
 }
 
+// deps 三正交子命令（simplify-xtask-deps, 2026-07-07）：check = 唯一只读校验
+// （presence + drift）；install = 纯安装平台必备；env = 环境导出。重型依赖
+// （android emulator tier）零命令面——`test platform android run` 用到才自动装。
 SubcommandRouter _depsRouter() {
     SubcommandRouter d = new SubcommandRouter("xtask deps", "toolchain deps");
-    d.Add("check", "versions.toml <-> source-file drift check",
-        new ArgParser("xtask deps check", "version drift check"));
-    ArgParser install = new ArgParser("xtask deps install", "toolchain presence check + install");
-    install.AddOption("os", "", "platform: android|ios|wasm", "");
-    install.AddFlag("check", "", "check only");
-    install.AddFlag("drift", "", "report drift");
-    install.AddFlag("print-env", "", "print env exports");
+    ArgParser check = new ArgParser("xtask deps check", "presence + versions.toml drift check (read-only)");
+    check.AddOption("os", "", "platform: android|ios|wasm (default: all; presence strict only with --os)", "");
+    d.Add("check", "toolchain presence + version drift check", check);
+    ArgParser install = new ArgParser("xtask deps install", "install platform-essential deps");
+    install.AddOption("os", "", "platform: android|ios|wasm (default: all)", "");
     install.AddFlag("force", "", "force reinstall");
-    install.AddOptionalPositional("step", "node|android-emulator (step-specific)");
-    d.Add("install", "cross-platform toolchain presence check", install);
+    d.Add("install", "install platform-essential deps", install);
+    ArgParser env = new ArgParser("xtask deps env", "print eval-able env exports (android NDK)");
+    env.AddOption("os", "", "platform (default: android)", "");
+    d.Add("env", "print env exports", env);
     return d;
 }
 
@@ -437,8 +440,9 @@ int _dispatchTest(string[] p, ParseResult r) {
 
 int _dispatchDeps(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
-    if (sub == "check")   { return _depsCheck(); }
+    if (sub == "check")   { return _depsCheck(r); }
     if (sub == "install") { return _depsInstall(r); }
+    if (sub == "env")     { return _depsEnv(r); }
     return 2;
 }
 

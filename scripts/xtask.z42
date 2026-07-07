@@ -120,18 +120,15 @@ int _testChanged(ParseResult r) {
 
 // ── deps ──────────────────────────────────────────────────────────────────
 //
-// deps check / install routing lives in xtask_cli.z42 (_dispatchDeps).
+// deps check / install / env routing lives in xtask_cli.z42 (_dispatchDeps).
 
-// `deps check` — the versions.toml ↔ projection-file drift check. The logic is
-// folded into xtask itself (xtask_deps.z42 :: _checkVersionsDrift), so this is a
-// direct in-process call — no dotnet-run-build + z42vm-run of a separate zpkg.
-// CI runs it in build-and-test.
-int _depsCheck() {
-    // in-process (unify-scripts-into-xtask): folded from the former standalone
-    // scripts/check-versions-drift.z42 into xtask_deps.z42 (_checkVersionsDrift);
-    // no per-invocation dotnet-run-build + z42vm-run dance.
+// `deps check [--os <p>]` — 唯一只读校验：presence + versions.toml drift（逻辑在
+// xtask_deps.z42 :: _depsCheckRun，in-process 直调）。presence 仅显式 --os 时计入
+// 退出码——CI 的 build-and-test 在无平台 SDK 的 runner 上裸跑本命令（只把 drift
+// 当门禁），语义详见 xtask_deps.z42 头注释。
+int _depsCheck(ParseResult r) {
     Stopwatch sw = _procStart("deps check");
-    int __rc = _checkVersionsDrift();
+    int __rc = _depsCheckRun(r.GetOption("os"));
     if (__rc == 0) { _procEnd("deps check", sw); }
     return __rc;
 }
