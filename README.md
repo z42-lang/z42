@@ -14,25 +14,19 @@ A **full-stack systems programming language** designed for productivity and perf
 z42 combines C#'s productivity, Rust's runtime discipline, and Python's iteration speed —
 one language that scales from throwaway scripts to embedded systems components:
 
-| Problem | z42's answer |
-|---------|--------------|
-| Managed languages trade away systems control; systems languages trade away ergonomics | C#-style syntax with static typing + automatic GC — no ownership annotations, direct access to native code |
-| Applications and scripts usually mean two languages | One bytecode, three execution modes: interpret for instant startup, JIT for peak performance, AOT for stable latency — selectable per namespace |
-| Embedding a language runtime and calling native code are painful | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
-| Restart cycles kill iteration speed | Hot reload without restarting; `eval()` for scripting scenarios |
-| One-size-fits-all languages don't fit every team | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
+| | z42 |
+|---|-----|
+| **Productive by default** | C#-style syntax, static typing + inference, automatic GC — no ownership annotations, errors caught at compile time |
+| **Optimal on every axis** | Memory, CPU, and startup each pushed toward optimal: compact bytecode and object layout, generational low-pause GC, cache-friendly interpreter dispatch, JIT hot paths competitive with C#/Java |
+| **Pick your execution mode** | One bytecode, three modes — interpret (instant startup, small footprint), JIT (peak throughput), AOT (stable latency) — mixed per namespace |
+| **Native & embedding first-class** | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
+| **Iterate without restarting** | Hot reload in interpreter mode, `eval()` for scripting — one language for scripts and systems |
+| **Concurrent** | GC-safe multithreading; structured async/await planned |
+| **Fits your project** | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
+| **Friendly to AI collaborators** | A familiar syntax models already know, compile-time errors as fast agent feedback, and a docs-as-code repo built for human + AI development |
 
----
-
-## Core Features
-
-- **Execution modes:** Interpreter (fast startup), JIT (peak perf), AOT (stable latency) — mix per namespace
-- **Bytecode-first:** Source → bytecode → execute/compile (not source → machine code)
-- **Zero-overhead FFI:** `extern` methods call Rust impl directly (≤ 1 indirect jump)
-- **Hot reload:** Update code without restarting (functions only, interpreter mode)
-- **Multi-threaded:** GC-safe concurrency; structured async/await planned
-- **Customizable:** Disable features per project (e.g., forbid nullable types, require exhaustive matches)
-- **Type-safe:** Static typing + type inference; errors caught at compile time
+Performance goal: production-fast (game engines, servers, embedded) **without unsafe** — see
+[`docs/design/philosophy.md`](docs/design/philosophy.md) for concrete targets and trade-offs.
 
 ---
 

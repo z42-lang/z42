@@ -33,15 +33,15 @@
 | # | 段 | 装什么 | 边界 |
 |---|-----|--------|------|
 | 1 | 标题 + 一句话定位 + 迭代状态提示 | z42 是什么、当前 pre-1.0 不稳定 | — |
-| 2 | Why z42 | 价值主张（问题 → 方案表） | 不展开论证，一格一句 |
-| 3 | Core Features | 能力要点列表 | 每条一句话，机制细节链 book |
-| 4 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/workflow/quickstart.md` |
-| 5 | Documentation | "我想做 X → 读 Y" 索引表 | Y 指向具体页，**不复制**其内容（见 §四） |
-| 6 | Repository Layout | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
-| 7 | License | 许可证 | — |
+| 2 | Why z42 | 价值主张 + 能力要点合一（维度 → 一句话表） | 一格一句，不展开论证；性能等硬指标类主张须有设计文档落点，链接兑现 |
+| 3 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/workflow/quickstart.md` |
+| 4 | Documentation | "我想做 X → 读 Y" 索引表 | Y 指向具体页，**不复制**其内容（见 §四） |
+| 5 | Repository Layout | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
+| 6 | License | 许可证 | — |
 
 > 实现进度不在门面设段——迭代状态由段 1 的状态提示传达，详情由 Documentation 的
 > roadmap 索引行兑现（进度表变化快，门面复制一份必然过时）。
+> 能力要点不单独设段——价值主张与能力要点合并进 Why z42 一张表（分设必然互相重复）。
 
 - 某段暂无内容可**整段省略**，但出现的段**顺序不得变、名字不得改**——门面骨架稳定，读者与 AI
   都靠它定位。
@@ -56,7 +56,7 @@
 
 **禁止反例**：
 
-- ❌ 在 Core Features 里写某特性的实现算法 / 数据结构 → 那是 book 机制页的地盘
+- ❌ 在 Why z42 里写某特性的实现算法 / 数据结构 → 那是 book 机制页的地盘
 - ❌ 在 Quick Start 里堆全部构建/测试命令 → 那是 `docs/workflow/` 的地盘，README 只留最短路径
 - ❌ Documentation 索引表里把目标页的内容摘抄进来 → 索引行只跳转，不复述
 
@@ -77,7 +77,7 @@
 
 | 改了什么 | 同步根 README 哪段 |
 |---------|-----------------|
-| 新增顶层特性 / 能力 | Core Features + Documentation 索引 |
+| 新增顶层特性 / 能力 | Why z42 + Documentation 索引 |
 | book 新增部分 / workflow 新增主题 | Documentation 索引加行 |
 | 顶层目录结构变动 | Repository Layout |
 | Quick Start 涉及的命令变动 | Quick Start（只留最短路径，与 `workflow/quickstart.md` 对齐） |
