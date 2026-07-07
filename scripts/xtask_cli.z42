@@ -321,7 +321,7 @@ SubcommandRouter _depsRouter() {
     check.AddOption("os", "", "platform: android|ios|wasm (default: all; presence strict only with --os)", "");
     d.Add("check", "toolchain presence + version drift check", check);
     ArgParser install = new ArgParser("xtask deps install", "install platform-essential deps / a component");
-    install.AddOption("os", "", "platform: android|ios|wasm (default: all)", "");
+    install.AddOption("os", "", "platform: android|ios|wasm (default: host base only, no cross stacks)", "");
     install.AddFlag("force", "", "force reinstall");
     install.AddOptionalPositional("component", "vscode (editor assets; default: platform essentials)");
     d.Add("install", "install platform-essential deps / vscode assets", install);

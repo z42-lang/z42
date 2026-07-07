@@ -165,10 +165,12 @@ package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
 ```
 deps check [--os P]     ──► _depsCheckRun    唯一只读校验：presence + versions.toml drift
                             （presence 仅显式 --os 时计入退出码；drift 恒致败 —— CI 裸跑兼容）
-deps install [--os P] [--force] ──► _depsInstall   纯安装平台必备
+deps install [--os P] [--force] [vscode] ──► _depsInstall   纯安装
+  ├─ 无 --os       当前 host 基础（跨平台 rust/node 检查，不装交叉栈）
   ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   install/xtask_install_android.z42
   ├─ --os ios      rust targets + Xcode
-  └─ --os wasm     rust targets + wasm-pack + hermetic node
+  ├─ --os wasm     rust targets + wasm-pack + hermetic node
+  └─ vscode        编辑器资产 → <repo>/.vscode/extensions（工作区本地扩展）install/xtask_install_vscode.z42
 deps env [--os android] ──► _depsEnv         可 eval 的 export（ANDROID_NDK_HOME）
 ```
 

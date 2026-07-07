@@ -40,9 +40,11 @@ syntaxes/z42.tmLanguage.json        ← 生成产物，入库（GENERATED 标记
 
 ### 命令面与 gate
 
-- `xtask deps install vscode`：重新生成 grammar → symlink `~/.vscode/extensions/z42.z42-lang`
-  → 指向 repo 内目录（grammar 改动重载窗口即生效）。deps 依赖模型中的第三类：
-  **主机集成，用户显式触发**（编辑器集成无法"用到自动装"）。
+- `xtask deps install vscode`：重新生成 grammar → 相对 symlink
+  `<repo>/.vscode/extensions/z42.z42-lang` → `src/toolchain/devtools/vscode`
+  （**VSCode ≥1.89 工作区本地扩展**；User 裁决 2026-07-08 装项目目录而非用户目录：
+  随仓库走、不污染 `~`、首次加载有信任提示；grammar 改动重载窗口即生效）。
+  deps 依赖模型中的第三类：**主机集成，用户显式触发**（编辑器集成无法"用到自动装"）。
 - `xtask test vscode-syntax`：in-process 调生成器检查函数——重新生成到内存与入库文件
   字节 diff + 分类穷尽校验；挂 `_testAll` 链尾（守跨子系统 SoT 一致性，性质同自举不动点）。
 
@@ -56,7 +58,8 @@ scope 命名循 TextMate 惯例（`keyword.control.z42` 等），主流主题开
 
 ## 边界与限制
 
-- Windows 无自动安装（symlink 需特权）：手动 copy 到 `%USERPROFILE%\.vscode\extensions\`
+- 需 VSCode ≥1.89（工作区本地扩展）；首次打开仓库需在提示中启用 workspace 扩展
+- Windows 无自动安装（symlink 需特权）：手动 copy 到 `<repo>\.vscode\extensions\z42.z42-lang`
 - 无 `.vsix` 打包（需 vsce/node；发行期再议）
 - 语义级能力（诊断/跳转/hover/语义着色）不在 A 期——B 期 `z42d lsp`
 

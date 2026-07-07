@@ -30,6 +30,8 @@ bin/
 
 # IDE
 .vscode/settings.json
+# workspace 本地扩展 symlink（`xtask deps install vscode` 生成，指向 src/toolchain/devtools/vscode）
+.vscode/extensions/z42.z42-lang
 .idea/
 *.swp
 *.swo

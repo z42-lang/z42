@@ -87,9 +87,11 @@ managed 布局的 `Z42_HOME` 不符 SDK-toolchain 布局时自动回落 build-tr
 
 工具链依赖按"没有它平台的构建/测试能不能跑"分两层：
 
-- **平台必备**：`deps install --os <p>` 直接装——android = rust targets + cargo-ndk +
+- **平台必备**：`deps install --os <p>` 显式装——android = rust targets + cargo-ndk +
   JDK + build-tier SDK；ios = rust targets + Xcode 检查；wasm = rust targets +
   wasm-pack + **hermetic node**（wasm 测试面必备，从旧"手动 step"升格）。
+  **无 `--os` = 当前 host 基础**（跨平台 rust/node 检查，不铺开装交叉栈——User 裁决
+  2026-07-08，交叉平台栈一律显式 opt-in）。
 - **用到才装**：重型/兜底依赖零命令面，消费步骤检测缺失后自动装——android
   emulator tier（emulator + system-image + AVD + Gradle，~4GB）由
   `test platform android run`（`AndroidBackend.RunTests`）安装；node 兜底由 wasm

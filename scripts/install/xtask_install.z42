@@ -3,7 +3,8 @@
 // Source-of-truth = versions.toml (parsed with Std.Toml, no python).
 //
 // 依赖两层模型（simplify-xtask-deps, User 裁决 2026-07-07）：
-//   平台必备 — 该平台构建/测试没它就跑不了，`deps install --os <p>` 直接装：
+//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈；User 裁决 2026-07-08）
+//   平台必备 — 该平台构建/测试没它就跑不了，`deps install --os <p>` 显式装：
 //     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
 //               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
 //     ios     = rust targets (+ extra host slice) + Xcode check
@@ -41,31 +42,32 @@ int _depsInstall(ParseResult r) {
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
 
-    string[] platforms;
-    if (platform.Length > 0) { platforms = new string[1]; platforms[0] = platform; }
-    else { platforms = new string[3]; platforms[0] = "android"; platforms[1] = "ios"; platforms[2] = "wasm"; }
-
     Console.WriteLine("── toolchain (cross-platform) ──");
     _checkRust(toml);
     _checkNode(toml);
 
-    int rc = 0;
-    int p = 0;
-    while (p < platforms.Length) {
-        int c = 0;
-        if (platforms[p] == "android")   { c = _setupAndroid(root, toml, "install", force); }
-        else if (platforms[p] == "ios")  { c = _setupIos(root, toml, "install"); }
-        else if (platforms[p] == "wasm") { c = _setupWasm(root, toml, "install", force); }
-        if (c != 0) { rc = c; }
-        p = p + 1;
+    // 无 --os = 当前 host 基础（User 裁决 2026-07-08：默认不铺开装全部平台栈）。
+    // host 开发只需上面的跨平台基础；android/ios/wasm 交叉栈显式 --os 才装。
+    if (platform.Length == 0) {
+        Console.WriteLine("");
+        Console.WriteLine("✅ host toolchain checked (cross-platform base only)");
+        Console.WriteLine("   Platform stacks are opt-in: deps install --os <android|ios|wasm>");
+        return 0;
     }
+
+    int rc = 0;
+    if (platform == "android")   { rc = _setupAndroid(root, toml, "install", force); }
+    else if (platform == "ios")  { rc = _setupIos(root, toml, "install"); }
+    else if (platform == "wasm") { rc = _setupWasm(root, toml, "install", force); }
 
     if (rc == 0) {
         Console.WriteLine("");
         Console.WriteLine("✅ setup complete");
-        Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
-        Console.WriteLine("     eval \"$(z42 xtask.zpkg deps env)\"");
-        Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test platform android run`.");
+        if (platform == "android") {
+            Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
+            Console.WriteLine("     eval \"$(z42 xtask.zpkg deps env)\"");
+            Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test platform android run`.");
+        }
     }
     return rc;
 }

@@ -36,19 +36,20 @@ int _depsInstallVscode() {
     File.WriteAllText(outPath, rendered);
     Console.WriteLine("  grammar → " + outPath);
 
+    // 工作区本地扩展（VSCode ≥1.89：.vscode/extensions/<name>/ 从源码加载；User 裁决
+    // 2026-07-08 装项目目录而非用户目录）。相对 symlink → 仓库整体移动不破链。
     if (Platform.IsWindows()) {
         ConsoleError.WriteLine("error: auto-install is symlink-based (macOS/Linux only). On Windows copy");
-        ConsoleError.WriteLine("       src/toolchain/devtools/vscode to %USERPROFILE%\\.vscode\\extensions\\z42.z42-lang");
+        ConsoleError.WriteLine("       src\\toolchain\\devtools\\vscode to .vscode\\extensions\\z42.z42-lang (repo-local)");
         return 1;
     }
-    string home = Environment.GetEnvironmentVariable("HOME") ?? "";
-    if (home.Length == 0) { ConsoleError.WriteLine("error: HOME not set"); return 1; }
-    string extDir = Path.Join(home, ".vscode/extensions");
+    string extDir = Path.Join(root, ".vscode/extensions");
     Directory.Create(extDir);
     string linkPath = Path.Join(extDir, "z42.z42-lang");
-    int lc = _exec(new Process("ln").Arg("-sfn").Arg(Path.Join(root, "src/toolchain/devtools/vscode")).Arg(linkPath));
+    int lc = _exec(new Process("ln").Arg("-sfn").Arg("../../src/toolchain/devtools/vscode").Arg(linkPath));
     if (lc != 0) { return lc; }
-    Console.WriteLine("  installed → " + linkPath + " (reload VSCode window to activate)");
+    Console.WriteLine("  installed → " + linkPath + " (workspace extension; reload VSCode window,");
+    Console.WriteLine("  first time VSCode asks to trust/enable workspace extensions)");
     _procEnd("deps install vscode", sw);
     return 0;
 }

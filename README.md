@@ -49,9 +49,10 @@ git clone https://github.com/z42-lang/z42 && cd z42
 > No desktop workload? Drive the CLI through the launcher instead (what CI does):
 > `.z42/bin/z42c build scripts/xtask.z42.toml --release && .z42/z42 artifacts/xtask/xtask.zpkg -- test`
 
-**Editor support (VSCode)**: `./xtask deps install vscode` installs syntax highlighting for
-`.z42` files (TextMate grammar generated from the compiler's keyword table; reload the window
-to activate). LSP-based diagnostics/navigation are planned.
+**Editor support (VSCode ≥1.89)**: `./xtask deps install vscode` installs syntax highlighting
+for `.z42` files as a repo-local workspace extension (`.vscode/extensions/`; TextMate grammar
+generated from the compiler's keyword table). Reload the window and accept the workspace-extension
+prompt. LSP-based diagnostics/navigation are planned.
 
 ---
 
