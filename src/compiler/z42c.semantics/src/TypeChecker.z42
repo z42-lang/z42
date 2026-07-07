@@ -28,6 +28,7 @@ public sealed class TypeChecker {
         var model = new SemanticModel(symbols);
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
         this._constraints.Resolve(cu, symbols);   // Pass 0.5：泛型 where 约束解析（2B，镜像 C# ResolveAllWhereConstraints）
+        this._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -155,6 +156,29 @@ public sealed class TypeChecker {
     // （ToString/Equals/GetHashCode/GetType/get_Item/set_Item）不参与 mangle（SymbolCollector 同款
     // 判定），继续维持 first-wins 静默覆盖的现状（如 String.Equals(object)/Equals(string)），
     // 不在此处误报——用同一份 `SymbolCollector.IsProtocolExempt` 跳过，单一豁免名单来源。
+    // 顶层（自由）函数**不重载**：它们以裸名注册进 `SymbolTable.Functions`（名唯一键——
+    // 重载 mangling 仅类方法有）。同名多定义会静默覆盖，随后 `ExportedTypeExtractor._extractFunc`
+    // 用 `GetFunc(name)` 取到错 arity 的符号 → `md.Params` / `sig.ParamTypes` 越界 null → 崩。
+    // 这里在类型检查期显式报重复定义，把那个隐晦崩溃变成清晰诊断（同一 CU 内检测）。
+    private void _checkDuplicateFreeFunctions(CompilationUnit cu) {
+        StrMap seen = new StrMap();
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            if (d is MethodDecl) {
+                MethodDecl m = d as MethodDecl;
+                if (seen.ContainsKey(m.Name)) {
+                    this._diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                        "duplicate top-level function `" + m.Name + "` — free functions do not overload; "
+                        + "give them distinct names", m.Span);
+                } else {
+                    seen.Put(m.Name, "1");
+                }
+            }
+            i = i + 1;
+        }
+    }
+
     private void _checkDuplicateStaticOverloads(ClassDecl c) {
         StrMap seenArity = new StrMap();   // (static|inst)$name$arity → 首次见
         StrMap dupArity  = new StrMap();   // 同键 → 该 arity ≥2 个方法
