@@ -90,3 +90,26 @@ debug 模式下把 test 放大到 **8 workers × 2000 iters × 4000 collect roun
 **结论**：注册封闭改变了"谁成为 collector"的时序——这是对 handshake 协议的非局部影响，远不止"关一个窗口"。在**无法本地复现真 bug、无法本地验证**的前提下，盲推这种 correctness-critical 改动已经实测打破既有并发不变量。已 revert 代码改动（保留本分析）。
 
 **强烈建议**：不要再盲推。正道是引入 **loom/shuttle** 对 alloc/barrier/handshake/注册 的全交错做确定性模型检查（能同时复现 windows race 与本次 deadlock），在模型下设计并验证 fix。这是独立的聚焦工作。短期：windows `#[ignore]` 过渡解封 CI（需 User 豁免 philosophy 的禁 skip）。
+
+## 更新 2026-07-08：平台不对称前提失效 + 阶段 3 开工
+
+**新事实**：`redesign-xtask-test` 今日把 `xtask test runtime`（cargo test）从 Windows-only
+放开到全腿后，`macos-arm64` CI runner 首次真跑此测试，**复现了同一 stale-mark race**
+（`arc_heap.rs` "stale mark bit in region_object after sweep"，run 28869578498）。
+
+这**推翻**了上文"平台不对称：windows(强序 x86) 复现 / macOS-15·ubuntu-arm(弱序 ARM) 通过"
+的核心判据：**弱序 ARM 也会复现**。含义：
+- "强序 x86 现、弱序 ARM 不现 ⇒ 逻辑时序竞争"的推论仍指向**逻辑时序竞争**（注册→首safepoint
+  窗口），但"仅 windows 调度易进窗口"的说法不再成立——ARM CI 调度同样能进窗口。
+- 本地 Apple Silicon 仍无法复现（上文 8×2000×4000 放大在本机过）——是 **CI macOS runner 的
+  调度**能进窗口而本机不能。验证难度不变：fix 仍只能靠 CI 概率性 + loom 模型验证。
+
+**过渡**：ignore 从 `target_os="windows"` 扩到 `any(windows, macos)`（User 2026-07-08 豁免）。
+linux(x64/arm64) 本轮仍过，暂不 ignore、留观察。
+
+**阶段 3 计划（loom-validated fix，开工中）**：
+1. 引入 `loom` 为 dev-dependency，`#[cfg(loom)]` 下用 loom atomics/thread 重建
+   register→safepoint→alloc→barrier→handshake 的最小交错模型（复现 race 与 2026-06-01 deadlock）。
+2. loom 模型下设计并验证：**marking 期 allocate-black**（出生 marked=1，消除"可达新对象被 sweep"）
+   + **注册—首safepoint 窗口封闭**（避开上次改"谁成为 collector"时序的 deadlock）。
+3. 模型绿后落地实现，CI 全腿去 ignore 回归。

@@ -487,7 +487,7 @@ fn dummy_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {
 // linux/macOS where it is stable. Re-enable once the loom-validated fix
 // lands.
 #[test]
-#[cfg_attr(target_os = "windows", ignore = "concurrent GC stale-mark race; tracked in docs/spec/changes/investigate-concurrent-gc-stale-mark-race (phase 3: loom-validated fix)")]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore = "concurrent GC stale-mark race; reproduces on windows-x86 AND macos-arm64 (2026-07-08, surfaced when test runtime went all-legs — the earlier 'windows-only / ARM passes' premise is void); tracked in docs/spec/changes/investigate-concurrent-gc-stale-mark-race (phase 3: loom-validated fix)")]
 fn concurrent_gc_mode_stress_no_race_no_leak() {
     use z42::gc::safepoint::check_safepoint;
     use z42::gc::GcMode;

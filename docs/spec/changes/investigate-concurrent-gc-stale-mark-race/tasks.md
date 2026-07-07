@@ -1,12 +1,16 @@
 # Tasks: 调查 ConcurrentMarkSweep 残留 mark bit race
 
-> 状态：🟡 进行中（根因已定位；正确修复需 loom，待排期）| 创建：2026-05-26 | 更新：2026-06-01
+> 状态：🟡 进行中（根因已定位；正确修复需 loom，阶段 3 开工）| 创建：2026-05-26 | 更新：2026-07-08
 
 ## 进度概览
 - [x] 阶段 1: ~~二分定位退化 commit~~ → 改为代码级根因分析（见 design.md）
-- [x] 阶段 2: 根因分析（design.md：注册→首safepoint 窗口；windows-only；本地不可复现）
+- [x] 阶段 2: 根因分析（design.md：注册→首safepoint 窗口；本地不可复现）
 - [x] 阶段 2.5: 过渡解封 CI —— windows `#[ignore]`（User 2026-06-01 豁免 philosophy 禁 skip）
-- [ ] 阶段 3: loom/shuttle 确定性验证 + 正确修复 + 回归
+- [x] 阶段 2.6: **平台不对称前提失效（2026-07-08）** —— `test runtime` 全腿放开后，
+      `macos-arm64` CI 首次真跑即复现同一 stale-mark race（design 原判"ARM/macOS 通过、
+      windows-only"不成立）。ignore 扩到 `any(windows, macos)`（User 2026-07-08 豁免）。
+      linux（x64/arm64）本轮仍过，暂留观察——若后续 flaky 再扩。
+- [ ] 阶段 3: loom/shuttle 确定性验证 + 正确修复 + 回归（**开工中**）
 
 ## 阶段 1: 二分定位
 
