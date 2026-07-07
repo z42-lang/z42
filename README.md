@@ -20,7 +20,7 @@ one language that scales from throwaway scripts to embedded systems components:
 | **Optimal on every axis** | Memory, CPU, and startup each pushed toward optimal: compact bytecode and object layout, generational low-pause GC, cache-friendly interpreter dispatch, JIT hot paths competitive with C#/Java |
 | **Pick your execution mode** | One bytecode, three modes — interpret (instant startup, small footprint), JIT (peak throughput), AOT (stable latency) — mixed per namespace |
 | **Native & embedding first-class** | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
-| **Iterate without restarting** | Hot reload in interpreter mode, `eval()` for scripting — one language for scripts and systems |
+| **Iterate without restarting** | Hot code reload across execution modes: functions and types are GC-managed runtime objects, so replaced definitions unload naturally; `eval()` for scripting |
 | **Concurrent** | GC-safe multithreading; structured async/await planned |
 | **Fits your project** | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
 | **Friendly to AI collaborators** | A familiar syntax models already know, compile-time errors as fast agent feedback, and a docs-as-code repo built for human + AI development |
