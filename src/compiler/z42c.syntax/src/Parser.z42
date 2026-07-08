@@ -28,6 +28,10 @@ public sealed class Parser {
         this._diags = new DiagnosticBag();
     }
 
+    // 已 lex 的 token 流（add-file-level-incremental D8 性能修正，User 追认 2026-07-08）：
+    // parse 时顺手捕获标识符集（增量失效边输入），消编排层的第二遍 lex。只读访问。
+    public Lexer Tokens() { return this._lx; }
+
     public DiagnosticBag Diagnostics() { return this._diags; }
 
     // ── token 游标 ──────────────────────────────────────────────────────────

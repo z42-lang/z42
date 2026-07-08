@@ -1,0 +1,168 @@
+// xtask — `test incremental` 暴力对账器（add-file-level-incremental D4/D8 硬验收）。
+// 对每个语料工程：全量基线 → 逐文件 append 注释 touch → 增量 build → 与同源态
+// `--no-incremental` 全量 build **逐字节比对** → 还原。任一不等即红并指名文件。
+// 同时输出 D8 计时（增量 vs 全量墙钟，逐工程汇总）——「更快」是被测量的事实。
+//
+// 语料（实施期修订，见 change tasks 备注）：z42c 7 包经 --workspace 路径不落 cache
+// （且已有 gen1==gen2 不动点门禁），单工程语料取：
+//   ① demo —— 合成多特性工程（跨文件类引用/继承/接口/try·catch/switch/数组/闭包/静态），
+//      覆盖 label 残留（多块函数）与 import token 路径；
+//   ② xtask 自身 —— 40 文件真实工程（stdlib-only 依赖，单 Z42_LIBS 可解析）。
+// 运行于 artifacts/.scratch/incr-reconcile/（拷贝源，不动真实工程）。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Time;
+using Std.Cli;
+
+int _testIncremental(ParseResult r) {
+    Stopwatch sw = _procStart("test incremental");
+    string root = _root();
+    // 前置：z42c + stdlib（复用既有 warm/cold 链）。
+    string vm = _builtVm(root, "release");
+    string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+    if (!File.Exists(vm) || !File.Exists(driver)) {
+        int bc = _buildCompiler();
+        if (bc != 0) { return bc; }
+    }
+    string libs = Path.Join(root, "artifacts/build/libraries/dist/release");
+    string scratch = Path.Join(root, "artifacts/.scratch/incr-reconcile");
+    if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
+
+    int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");
+    if (rc != 0) { return rc; }
+    rc = _reconcileProject(vm, driver, libs, _incrXtaskCopy(root, scratch), "xtask");
+    if (rc != 0) { return rc; }
+
+    Console.WriteLine("\n✅ incremental reconciler: all files byte-identical (demo + xtask)");
+    _procEnd("test incremental", sw);
+    return 0;
+}
+
+// 逐文件 touch 对账一个工程。projDir 内须有 t.z42.toml（dist 落 projDir/dist）。
+int _reconcileProject(string vm, string driver, string libs, string projDir, string label) {
+    Console.WriteLine("\n── reconcile: " + label + " (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string zpkg = Path.Join(projDir, "dist/incrpkg.zpkg");
+    string[] srcs = _sortedStrings(Path.GlobRecursive(projDir, "*.z42"));
+    // 初始 build（填 cache）。
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) { ConsoleError.WriteLine("  ✗ initial build failed"); return 1; }
+    double incrMs = 0.0;
+    double fullMs = 0.0;
+    int i = 0;
+    while (i < srcs.Length) {
+        string f = srcs[i];
+        string orig = File.ReadAllText(f);
+        File.WriteAllText(f, orig + "\n// incr-reconcile-touch\n");
+        Stopwatch ti = Stopwatch.StartNew();
+        int c1 = _incrBuild(vm, driver, libs, toml, false);
+        incrMs = incrMs + ti.Elapsed().TotalMilliseconds();
+        if (c1 != 0) { ConsoleError.WriteLine("  ✗ incr build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
+        byte[] incr = File.ReadAllBytes(zpkg);
+        Stopwatch tf = Stopwatch.StartNew();
+        int c2 = _incrBuild(vm, driver, libs, toml, true);
+        fullMs = fullMs + tf.Elapsed().TotalMilliseconds();
+        if (c2 != 0) { ConsoleError.WriteLine("  ✗ full build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
+        byte[] full = File.ReadAllBytes(zpkg);
+        if (!_bytesEq(incr, full)) {
+            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after touching " + f);
+            File.WriteAllText(f, orig);
+            return 1;
+        }
+        File.WriteAllText(f, orig);   // 还原（下轮 hash 回原值 → 该文件重编，正确性不受影响）
+        i = i + 1;
+    }
+    Console.WriteLine("  ✓ " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
+        + " files byte-identical; wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
+        + "ms (D8: per-touch avg " + (incrMs / (double)srcs.Length).ToString() + "ms vs "
+        + (fullMs / (double)srcs.Length).ToString() + "ms)");
+    return 0;
+}
+
+int _incrBuild(string vm, string driver, string libs, string toml, bool noIncremental) {
+    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--").Arg("build").Arg(toml);
+    if (noIncremental) { p = p.Arg("--no-incremental"); }
+    return p.Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+}
+
+bool _bytesEq(byte[] a, byte[] b) {
+    if (a.Length != b.Length) { return false; }
+    int i = 0;
+    while (i < a.Length) {
+        if ((int)a[i] != (int)b[i]) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// 合成 demo 工程：跨文件引用链 + 多块函数（if/switch/try）+ 接口/继承/静态/数组。
+string _incrDemoDir(string scratch) {
+    string d = Path.Join(scratch, "demo");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "shape.z42"),
+        "namespace D;\n"
+        + "public interface IShape { int Area(); }\n"
+        + "public class Rect : IShape {\n"
+        + "    public int W;\n    public int H;\n"
+        + "    public static int Made = 0;\n"
+        + "    public Rect(int w, int h) { this.W = w; this.H = h; Rect.Made = Rect.Made + 1; }\n"
+        + "    public virtual int Area() { return this.W * this.H; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "square.z42"),
+        "namespace D;\n"
+        + "public class Square : Rect {\n"
+        + "    public Square(int s) : base(s, s) { }\n"
+        + "    public override int Area() { return this.W * this.W; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "calc.z42"),
+        "namespace D;\n"
+        + "public class Calc {\n"
+        + "    public int Sum(int n) {\n"
+        + "        int[] xs = new int[]{ 1, 2, 3 };\n"
+        + "        int acc = 0;\n"
+        + "        int i = 0;\n"
+        + "        while (i < xs.Length) { acc = acc + xs[i]; i = i + 1; }\n"
+        + "        switch (n) {\n"
+        + "            case 0: acc = acc + 10;\n"
+        + "            default: acc = acc - 1;\n"
+        + "        }\n"
+        + "        try {\n"
+        + "            var sq = new Square(n);\n"
+        + "            acc = acc + sq.Area();\n"
+        + "        } catch (Exception e) {\n"
+        + "            acc = 0 - 1;\n"
+        + "        }\n"
+        + "        return acc + Rect.Made;\n"
+        + "    }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "strings.z42"),
+        "namespace D;\n"
+        + "string Banner(string who) { string p = \"hi, \"; return p + who + \"!\"; }\n"
+        + "double Ratio(double a) { double k = 2.5; return a / k; }\n");
+    File.WriteAllText(Path.Join(d, "leaf.z42"),
+        "namespace D;\nint LeafOnly() { return 42; }\n");
+    return d;
+}
+
+// 拷贝 xtask 源（真实 40 文件工程）到 scratch，替换独立 toml（dist 落本地，不动真品）。
+string _incrXtaskCopy(string root, string scratch) {
+    string d = Path.Join(scratch, "xtask");
+    Directory.Create(d);
+    string src = Path.Join(root, "scripts");
+    string[] files = _sortedStrings(Path.GlobRecursive(src, "*.z42"));
+    int i = 0;
+    while (i < files.Length) {
+        string rel = files[i].Substring(src.Length + 1);
+        string dst = Path.Join(d, rel);
+        string parent = Path.GetDirectoryName(dst);
+        if (parent.Length > 0) { Directory.Create(parent); }
+        File.Copy(files[i], dst);
+        i = i + 1;
+    }
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n");
+    return d;
+}

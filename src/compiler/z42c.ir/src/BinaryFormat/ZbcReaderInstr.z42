@@ -1,0 +1,384 @@
+// zbc 指令/终结符解码（add-file-level-incremental D5）。镜像 ZbcInstr 的编码布局 +
+// C# ZbcReader.Instructions.cs 的解码骨架，覆盖 z42 ZbcWriter 实际发射的 opcode 子集。
+// 块 label 合成 "entry"/"block_N" 占位（真实 label 是 writer 残留，由 cache meta 回填
+// ——design D5a）。寄存器类型策略（byte-identical 关键）：
+//   dst/cond/val 等「喂 tag 字节」的寄存器 → 解码自指令 tag；REGT[id] 与 tag 兼容
+//   （FromIrType(REGT[id])==tag）时升级为 REGT[id]（恢复 Void 等 tag 有损坍缩）；
+//   纯操作数（只编 id）→ 直取 REGT[id]。Retype 走 writer _regtInstr 同序 → REGT 复现。
+namespace Z42.IR.BinaryFormat;
+
+using Z42.IR;
+using Std;
+
+// 单块解码结果（z42 无 tuple）。
+public sealed class DecodedBlockZ {
+    public IrInstr[]     Instrs;
+    public int           InstrCount;
+    public IrTerminator  Term;
+    public bool          HasTerm;
+    public bool          Ok;
+    public DecodedBlockZ() {
+        this.Instrs = new IrInstr[0]; this.InstrCount = 0;
+        this.Term = null; this.HasTerm = false; this.Ok = true;
+    }
+}
+
+public static class ZbcReaderInstr {
+    // IEEE754 bits → f64（DoubleToBits 的逆；runtime 既有 builtin）。
+    [Native("__double_from_bits")]
+    public static extern double BitsToDouble(long bits);
+
+    // 一个块的字节区间 → 指令 + 终结符。fnNames/clsNames = token 解析表（SIGS/TYPE 序）。
+    public static DecodedBlockZ DecodeBlock(ZbcCursor c, int end, string[] pool,
+                                            string[] fnNames, int fnCount,
+                                            string[] clsNames, int clsCount) {
+        DecodedBlockZ r = new DecodedBlockZ();
+        IrInstr[] instrs = new IrInstr[8];
+        int n = 0;
+        while (c.Pos < end) {
+            int op  = c.U8();
+            int tag = c.U8();
+            int dst = c.U16();
+            if (op == Op.Ret)    { r.Term = new RetTerm(false, null); r.HasTerm = true; break; }
+            if (op == Op.RetVal) { r.Term = new RetTerm(true, ZbcReaderInstr._r(dst, tag)); r.HasTerm = true; break; }
+            if (op == Op.Br)     { r.Term = new BrTerm(ZbcReaderInstr._bl(c.U16())); r.HasTerm = true; break; }
+            if (op == Op.BrCond) {
+                TypedReg cond = ZbcReaderInstr._r(dst, tag);
+                string tl = ZbcReaderInstr._bl(c.U16());
+                string fl = ZbcReaderInstr._bl(c.U16());
+                r.Term = new BrCondTerm(cond, tl, fl); r.HasTerm = true; break;
+            }
+            if (op == Op.Throw)  { r.Term = new ThrowTerm(ZbcReaderInstr._r(dst, tag)); r.HasTerm = true; break; }
+            IrInstr ins = ZbcReaderInstr._decode(op, tag, dst, c, pool, fnNames, fnCount, clsNames, clsCount);
+            if (ins == null) { r.Ok = false; break; }
+            if (n == instrs.Length) {
+                IrInstr[] b = new IrInstr[instrs.Length * 2];
+                int k = 0; while (k < n) { b[k] = instrs[k]; k = k + 1; }
+                instrs = b;
+            }
+            instrs[n] = ins; n = n + 1;
+        }
+        r.Instrs = instrs; r.InstrCount = n;
+        return r;
+    }
+
+    // 单指令解码（op/tag/dst 已消费）。未知 opcode → null（调用方按坏 cache 处理）。
+    private static IrInstr _decode(int op, int tag, int dst, ZbcCursor c, string[] pool,
+                                   string[] fnNames, int fnCount, string[] clsNames, int clsCount) {
+        TypedReg d = ZbcReaderInstr._r(dst, tag);
+        if (op == Op.ConstStr)  { return new ConstStrInstr(d, c.U32()); }
+        if (op == Op.ConstI) {
+            if (tag == Tag.I64) { return new ConstI64Instr(d, ZbcReaderInstr._i64Text(c.I64())); }
+            return new ConstI32Instr(d, ZbcReaderInstr._i32Text(c.U32()));
+        }
+        if (op == Op.ConstF)    { return new ConstF64Instr(d, ZbcReaderInstr._f64Text(c.I64())); }
+        if (op == Op.ConstBool) { return new ConstBoolInstr(d, c.U8() != 0); }
+        if (op == Op.ConstChar) { return new ConstCharInstr(d, (char)c.U32()); }
+        if (op == Op.ConstNull) { return new ConstNullInstr(d); }
+        if (op == Op.DefaultOf) { return new DefaultOfInstr(d, c.U8()); }
+        if (op == Op.Copy)      { return new CopyInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Convert)   { return new ConvertInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.ToStr)     { return new ToStrInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Neg)       { return new NegInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Not)       { return new NotInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.BitNot)    { return new BitNotInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Add) { return new AddInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Sub) { return new SubInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Mul) { return new MulInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Div) { return new DivInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Rem) { return new RemInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Eq)  { return new EqInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Ne)  { return new NeInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Lt)  { return new LtInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Le)  { return new LeInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Gt)  { return new GtInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Ge)  { return new GeInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.BitAnd) { return new BitAndInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.BitOr)  { return new BitOrInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.BitXor) { return new BitXorInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Shl) { return new ShlInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Shr) { return new ShrInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.StrConcat) { return new StrConcatInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.Call) {
+            string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            return new CallInstr(d, fname, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.Builtin) {
+            string name = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            return new BuiltinInstr(d, name, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.CallNative) {
+            string modu = ZbcReaderInstr._p(pool, c.U32());
+            string typ = ZbcReaderInstr._p(pool, c.U32());
+            string sym = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            return new CallNativeInstr(d, modu, typ, sym, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.VCall) {
+            string method = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            return new VCallInstr(d, obj, method, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.FieldGet) {
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            return new FieldGetInstr(d, obj, ZbcReaderInstr._p(pool, c.U32()));
+        }
+        if (op == Op.FieldSet) {
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            string field = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
+            return new FieldSetInstr(obj, field, val);
+        }
+        if (op == Op.StaticGet) { return new StaticGetInstr(d, ZbcReaderInstr._p(pool, c.U32())); }
+        if (op == Op.StaticSet) {
+            string field = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg val = ZbcReaderInstr._r(c.U16(), tag);
+            return new StaticSetInstr(field, val);
+        }
+        if (op == Op.ObjNew) {
+            string cls = ZbcReaderInstr._type(c.U32(), pool, clsNames, clsCount);
+            string ctor = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            int argN = ZbcReaderInstr._argN;
+            int tc = c.U8();
+            string[] targs = new string[tc];
+            int t = 0;
+            while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
+            return new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+        }
+        if (op == Op.Typeof) {
+            string tn = ZbcReaderInstr._p(pool, c.U32());
+            int tc = c.U8();
+            string[] targs = new string[tc];
+            int t = 0;
+            while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
+            return new TypeofInstr(d, tn, targs, tc);
+        }
+        if (op == Op.IsInstance) {
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            return new IsInstanceInstr(d, obj, ZbcReaderInstr._type(c.U32(), pool, clsNames, clsCount));
+        }
+        if (op == Op.AsCast) {
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            return new AsCastInstr(d, obj, ZbcReaderInstr._type(c.U32(), pool, clsNames, clsCount));
+        }
+        if (op == Op.ArrayNew) {
+            TypedReg size = ZbcReaderInstr._ru(c.U16());
+            int elemTag = c.U8();
+            string elemName = ZbcReaderInstr._p(pool, c.U32());
+            return new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
+        }
+        if (op == Op.ArrayNewLit) {
+            TypedReg[] elems = ZbcReaderInstr._args(c);
+            int en = ZbcReaderInstr._argN;
+            string elemName = ZbcReaderInstr._p(pool, c.U32());
+            return new ArrayNewLitInstr(d, elems, en, elemName);
+        }
+        if (op == Op.ArrayGet) { return new ArrayGetInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.ArraySet) {
+            TypedReg arr = ZbcReaderInstr._ru(c.U16());
+            TypedReg idx = ZbcReaderInstr._ru(c.U16());
+            TypedReg val = ZbcReaderInstr._r(c.U16(), tag);
+            return new ArraySetInstr(arr, idx, val);
+        }
+        if (op == Op.ArrayLen) { return new ArrayLenInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        if (op == Op.LoadFn) {
+            return new LoadFnInstr(d, ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount));
+        }
+        if (op == Op.MkClos) {
+            string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
+            bool stackAlloc = c.U8() != 0;
+            TypedReg[] caps = ZbcReaderInstr._args(c);
+            return new MkClosInstr(d, fname, caps, ZbcReaderInstr._argN, stackAlloc);
+        }
+        if (op == Op.CallIndirect) {
+            TypedReg callee = ZbcReaderInstr._ru(c.U16());
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            return new CallIndirectInstr(d, callee, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.LoadLocalAddr) { return new LoadLocalAddrInstr(d, ZbcReaderInstr._ru(c.U16())); }
+        return null;   // 未知 opcode（z42 writer 不发射的 op）→ 坏 cache，按 fresh 处理
+    }
+
+    // ── token / 池 / 文本助手 ────────────────────────────────────────────────
+
+    // token → 函数名：bit31 = import（pool idx），否则本模块 SIGS 序 index。
+    // ⚠ bit31 用显式移位检测——ZbcCursor.U32 以 `a|(b<<16)` 组装，z42 int 移位下
+    // 0x80000000 不为负（e2e 实证：`token < 0` 恒假 → import 名解析成 "" → 池漂移）。
+    private static bool _isImport(int token) { return ((token >> 31) & 1) == 1; }
+
+    private static string _method(int token, string[] pool, string[] names, int count) {
+        if (ZbcReaderInstr._isImport(token)) { return ZbcReaderInstr._p(pool, token & 0x7FFFFFFF); }
+        if (token >= 0 && token < count) { return names[token]; }
+        return "";
+    }
+    private static string _type(int token, string[] pool, string[] names, int count) {
+        if (ZbcReaderInstr._isImport(token)) { return ZbcReaderInstr._p(pool, token & 0x7FFFFFFF); }
+        if (token >= 0 && token < count) { return names[token]; }
+        return "";
+    }
+
+    private static string _p(string[] pool, int idx) {
+        if (idx >= 0 && idx < pool.Length) { return pool[idx]; }
+        return "";
+    }
+
+    // args：count u8 + id u16×。z42 无 out 参 → 长度经 _argN 旁路返回（单线程解码安全）。
+    private static int _argN = 0;
+    private static TypedReg[] _args(ZbcCursor c) {
+        int n = c.U8();
+        TypedReg[] r = new TypedReg[n];
+        int i = 0;
+        while (i < n) { r[i] = ZbcReaderInstr._ru(c.U16()); i = i + 1; }
+        ZbcReaderInstr._argN = n;
+        return r;
+    }
+
+    private static TypedReg _r(int id, int tag) { return new TypedReg(id, ZbcReaderInstr._irTypeFromTag(tag)); }
+    private static TypedReg _ru(int id) { return new TypedReg(id, IrType.Unknown); }
+    private static string _bl(int idx) {
+        if (idx == 0) { return "entry"; }
+        return "block_" + idx.ToString();
+    }
+
+    // zbc tag → IrType（Tag.FromIrType 的逆；Object/Array → Ref）。
+    public static int _irTypeFromTag(int tag) {
+        if (tag == Tag.Bool) { return IrType.Bool; }
+        if (tag == Tag.I8)  { return IrType.I8; }
+        if (tag == Tag.I16) { return IrType.I16; }
+        if (tag == Tag.I32) { return IrType.I32; }
+        if (tag == Tag.I64) { return IrType.I64; }
+        if (tag == Tag.U8)  { return IrType.U8; }
+        if (tag == Tag.U16) { return IrType.U16; }
+        if (tag == Tag.U32) { return IrType.U32; }
+        if (tag == Tag.U64) { return IrType.U64; }
+        if (tag == Tag.F32) { return IrType.F32; }
+        if (tag == Tag.F64) { return IrType.F64; }
+        if (tag == Tag.Char) { return IrType.Char; }
+        if (tag == Tag.Str)  { return IrType.Str; }
+        if (tag == Tag.Object) { return IrType.Ref; }
+        if (tag == Tag.Array)  { return IrType.Ref; }
+        return IrType.Unknown;
+    }
+
+    // i32 字面量重表示：非负 → 十进制；负 →（_parseIntLit 不识负号）u32 位型 hex。
+    private static string _i32Text(int v) {
+        if (v >= 0) { return v.ToString(); }
+        return "0x" + ZbcReaderInstr._hex(((long)v) & 0xFFFFFFFFL, 8);
+    }
+    private static string _i64Text(long v) {
+        if (v >= 0L) { return v.ToString(); }
+        return "0x" + ZbcReaderInstr._hex(v, 16);
+    }
+    private static string _hex(long v, int digits) {
+        string ds = "0123456789ABCDEF";
+        string s = "";
+        int i = 0;
+        while (i < digits) {
+            int nib = (int)((v >> ((digits - 1 - i) * 4)) & 0xFL);
+            s = s + ds.Substring(nib, 1);
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // f64 bits → 可逆十进制文本（Rust Display 最短可逆；Convert.ToDouble 反解同位）。
+    private static string _f64Text(long bits) {
+        double v = ZbcReaderInstr.BitsToDouble(bits);
+        return v.ToString();
+    }
+
+    // ── REGT 类型回填（解码后一遍；走 writer _regtInstr 同序 → BuildRegt 复现同字节）──
+    // _set：纯操作数 → REGT[id]；_up：tag 有损坍缩恢复（tag 兼容才升级，如 Void→tag0）；
+    // ConstI dst 的 tag 是字面常量（非 FromIrType）→ 无条件 _set。
+
+    public static void Retype(IrFunction f) {
+        int[] rt = f.RegTypes;
+        int n = f.RegTypeCount;
+        int b = 0;
+        while (b < f.BlockCount) {
+            IrBlock blk = f.Blocks[b];
+            int i = 0;
+            while (i < blk.InstrCount) { ZbcReaderInstr._retypeInstr(rt, n, blk.Instrs[i]); i = i + 1; }
+            if (blk.HasTerm) {
+                IrTerminator t = blk.Term;
+                if (t is RetTerm) { RetTerm r = t as RetTerm; if (r.HasReg) { ZbcReaderInstr._up(rt, n, r.Reg); } }
+                if (t is BrCondTerm) { ZbcReaderInstr._up(rt, n, (t as BrCondTerm).Cond); }
+                if (t is ThrowTerm) { ZbcReaderInstr._up(rt, n, (t as ThrowTerm).Reg); }
+            }
+            b = b + 1;
+        }
+    }
+
+    private static void _set(int[] rt, int n, TypedReg r) {
+        if (r == null) { return; }
+        if (r.Id >= 0 && r.Id < n) { r.Type = rt[r.Id]; }
+    }
+    private static void _up(int[] rt, int n, TypedReg r) {
+        if (r == null) { return; }
+        if (r.Id < 0 || r.Id >= n) { return; }
+        if (Tag.FromIrType(rt[r.Id]) == Tag.FromIrType(r.Type)) { r.Type = rt[r.Id]; }
+    }
+    private static void _setArgs(int[] rt, int n, TypedReg[] args, int count) {
+        int i = 0;
+        while (i < count) { ZbcReaderInstr._set(rt, n, args[i]); i = i + 1; }
+    }
+
+    private static void _retypeInstr(int[] rt, int n, IrInstr ins) {
+        if (ins is ConstI32Instr) { ZbcReaderInstr._set(rt, n, (ins as ConstI32Instr).Dst); return; }
+        if (ins is ConstI64Instr) { ZbcReaderInstr._set(rt, n, (ins as ConstI64Instr).Dst); return; }
+        if (ins is ConstStrInstr)  { ZbcReaderInstr._up(rt, n, (ins as ConstStrInstr).Dst); return; }
+        if (ins is ConstF64Instr)  { ZbcReaderInstr._up(rt, n, (ins as ConstF64Instr).Dst); return; }
+        if (ins is ConstBoolInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstBoolInstr).Dst); return; }
+        if (ins is ConstCharInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstCharInstr).Dst); return; }
+        if (ins is ConstNullInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstNullInstr).Dst); return; }
+        if (ins is DefaultOfInstr) { ZbcReaderInstr._up(rt, n, (ins as DefaultOfInstr).Dst); return; }
+        if (ins is CopyInstr) { CopyInstr i = ins as CopyInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is AddInstr) { AddInstr i = ins as AddInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is SubInstr) { SubInstr i = ins as SubInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is MulInstr) { MulInstr i = ins as MulInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is DivInstr) { DivInstr i = ins as DivInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is RemInstr) { RemInstr i = ins as RemInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is NegInstr) { NegInstr i = ins as NegInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is NotInstr) { NotInstr i = ins as NotInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is ConvertInstr) { ConvertInstr i = ins as ConvertInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is ToStrInstr) { ToStrInstr i = ins as ToStrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is BitNotInstr) { BitNotInstr i = ins as BitNotInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
+        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is EqInstr) { EqInstr i = ins as EqInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is NeInstr) { NeInstr i = ins as NeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is LtInstr) { LtInstr i = ins as LtInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is LeInstr) { LeInstr i = ins as LeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is GtInstr) { GtInstr i = ins as GtInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is GeInstr) { GeInstr i = ins as GeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is StrConcatInstr) { StrConcatInstr i = ins as StrConcatInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
+        if (ins is CallInstr) { CallInstr i = ins as CallInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is BuiltinInstr) { BuiltinInstr i = ins as BuiltinInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is CallNativeInstr) { CallNativeInstr i = ins as CallNativeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
+        if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; ZbcReaderInstr._set(rt, n, i.Obj); ZbcReaderInstr._up(rt, n, i.Val); return; }
+        if (ins is ObjNewInstr) { ObjNewInstr i = ins as ObjNewInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is IsInstanceInstr) { IsInstanceInstr i = ins as IsInstanceInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
+        if (ins is AsCastInstr) { AsCastInstr i = ins as AsCastInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
+        if (ins is TypeofInstr) { ZbcReaderInstr._up(rt, n, (ins as TypeofInstr).Dst); return; }
+        if (ins is ArrayNewInstr) { ArrayNewInstr i = ins as ArrayNewInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Size); return; }
+        if (ins is ArrayNewLitInstr) { ArrayNewLitInstr i = ins as ArrayNewLitInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Elems, i.ElemCount); return; }
+        if (ins is StaticGetInstr) { ZbcReaderInstr._up(rt, n, (ins as StaticGetInstr).Dst); return; }
+        if (ins is StaticSetInstr) { ZbcReaderInstr._up(rt, n, (ins as StaticSetInstr).Val); return; }
+        if (ins is ArrayLenInstr) { ArrayLenInstr i = ins as ArrayLenInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); return; }
+        if (ins is LoadFnInstr) { ZbcReaderInstr._up(rt, n, (ins as LoadFnInstr).Dst); return; }
+        if (ins is CallIndirectInstr) { CallIndirectInstr i = ins as CallIndirectInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Callee); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
+        if (ins is MkClosInstr) { MkClosInstr i = ins as MkClosInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Captures, i.CaptureCount); return; }
+        if (ins is ArrayGetInstr) { ArrayGetInstr i = ins as ArrayGetInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); return; }
+        if (ins is ArraySetInstr) { ArraySetInstr i = ins as ArraySetInstr; ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); ZbcReaderInstr._up(rt, n, i.Val); return; }
+        if (ins is LoadLocalAddrInstr) { LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Slot); return; }
+    }
+}

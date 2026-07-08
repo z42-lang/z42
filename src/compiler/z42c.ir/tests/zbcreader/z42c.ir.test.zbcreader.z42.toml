@@ -1,0 +1,19 @@
+# ZbcReader 往返单测（add-file-level-incremental D5）：Write→Read→Write 字节相等。
+[project]
+name    = "z42c.ir.test.zbcreader"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42c.ir"        = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.ir/tests/zbcreader → artifacts/build/compiler/z42c.ir/tests/zbcreader
+output_dir = "../../../../../artifacts/build/compiler/z42c.ir/tests/zbcreader"

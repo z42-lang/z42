@@ -117,17 +117,23 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     string[] texts = new string[srcs.Length];
     int ti = 0;
     while (ti < srcs.Length) { texts[ti] = File.ReadAllText(srcs[ti]); ti = ti + 1; }
+    // 源 hash 一次计算三处复用（probe / ZbcFileZ / meta——解释执行的 SHA-256 重复算曾是
+    // D8 增量差价主项，见 IncrementalBuild.ProbeFiles 注）。
+    string[] srcHashes = new string[srcs.Length];
+    ti = 0;
+    while (ti < srcs.Length) { srcHashes[ti] = ZpkgBuilder.Sha256Hex(texts[ti]); ti = ti + 1; }
     bool isExe = pm.Kind == "exe";
     string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
-    // 增量 probe（port-incremental-build-cache；单工程模式）：全命中 → 完全跳过重编/重写
-    // （镜像 C# ed901f01 "preserved existing zpkg"——无任何新信息要写）。exe 的依赖复制仍
-    // 执行，保 dist 内兄弟 zpkg 新鲜（design D3）。workspace/flat（outputDirOverride）不走。
+    // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
+    // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
+    // 其余 IrModule 从 cache 读回（meta 残留已回填）。workspace/flat（outputDirOverride）不走。
+    IncrPrep prep = null;
     if (outputDirOverride.Length == 0 && !noIncremental) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
         string lastZpkg = Path.Join(distDir, pm.Name + ".zpkg");
-        IncrProbeResult probe = IncrementalBuild.Probe(srcs, texts, srcs.Length, projectDir, probeCache, lastZpkg);
-        ConsoleError.WriteLine("cached: " + probe.CachedCount.ToString() + "/" + probe.TotalCount.ToString() + " files");
-        if (probe.AllCached && File.Exists(lastZpkg)) {
+        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache);
+        ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
+        if (prep.Plan.AllCached && File.Exists(lastZpkg)) {
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
@@ -172,9 +178,40 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
                                              allUsings, auc);
     }
-    // 包级编译（PS-1）：全文件先 parse 合并收集符号，再逐文件产物——同包跨文件互引可见
+    // 包级编译（PS-1）：全文件先 parse 合并收集符号，再逐文件产物——同包跨文件互引可见。
+    // 增量：CU 复用 prep 的 parse-all；cached 文件跳过 typecheck/codegen（IrModule 读回件）。
     int i = 0;
-    CompiledModuleZ[] cms = IrDump.BuildPackage(texts, srcs, srcs.Length, depIndex, imported, isRelease);
+    CompilationUnit[] cus;
+    NameListZ[] metaIdents = null;
+    if (prep != null && prep.Cus != null) {
+        cus = prep.Cus;
+        metaIdents = prep.Idents;
+    } else {
+        // 全量路径（--no-incremental / 增量未启）：parse 时捕获标识符供 meta 写盘
+        //（D8 修正——零第二遍 lex）；workspace/flat 不落 cache → 不捕获。
+        bool[] want = null;
+        if (outputDirOverride.Length == 0) {
+            want = new bool[srcs.Length];
+            int wi = 0;
+            while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
+        }
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, srcs.Length, want);
+        cus = pk.Cus;
+        metaIdents = pk.Idents;
+    }
+    IrModule[] cachedMods = prep != null ? prep.Cached : null;
+    CompiledModuleZ[] cms = IrDump.BuildPackageCus(texts, srcs, srcs.Length, cus, depIndex, imported, isRelease, cachedMods);
+    if (cachedMods != null) {
+        // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
+        int ci = 0;
+        while (ci < srcs.Length) {
+            if (cachedMods[ci] != null && prep.Plan.Metas[ci] != null) {
+                cms[ci].UsedDepNs = prep.Plan.Metas[ci].UsedDepNs;
+                cms[ci].UsedDepNsCount = prep.Plan.Metas[ci].UsedDepNsCount;
+            }
+            ci = ci + 1;
+        }
+    }
     ZbcFileZ[] mods = new ZbcFileZ[srcs.Length];
     i = 0;
     while (i < srcs.Length) {
@@ -194,7 +231,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
         string modNs = cm.Namespace;
         if (modNs == "") { modNs = "main"; }   // C# build 路径字节实证：no-ns 单元 ns="main"（EXPT=main.Main / MODS ns=main）
-        mods[i] = new ZbcFileZ(rel, ZpkgBuilder.Sha256Hex(text), modNs,
+        mods[i] = new ZbcFileZ(rel, srcHashes[i], modNs,
                                exports, irm.FuncCount, irm);
         mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
         mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
@@ -243,9 +280,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             string cacheDir = _resolveCacheDir(pm, projectDir, isRelease);
             i = 0;
             while (i < srcs.Length) {
-                _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
+                if (prep == null || prep.Plan.Fresh[i]) {
+                    _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
+                }
                 i = i + 1;
             }
+            // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
+            IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
+                                         cms, mods, prep != null ? prep.Plan : null, metaIdents);
             ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
         } catch (Exception e) {
             ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
@@ -322,24 +364,7 @@ string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
     return Path.IsRooted(cacheExp) ? cacheExp : Path.Join(absProj, cacheExp);
 }
 
-// 单文件 fullMode .zbc 落盘到 cache（增量编译物质基础；镜像 C# BuildTarget 的
-// cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用（workspace/flat
-// 的 outputDirOverride 路径暂不落 cache——布线待 WsPlan 携带 cache 目录）。
-void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
-    // Normalize separators before stripping the projectDir prefix: on Windows `src`
-    // may use `\` while the prefix is built with `/`, so an un-normalized StartsWith
-    // fails → `rel` stays an absolute path (drive letter) → malformed zbcPath →
-    // File.WriteAllBytes "cannot find the path specified" (os error 3).
-    string rel = src.Replace("\\", "/");
-    string projFwd = projectDir.Replace("\\", "/");
-    string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
-    if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
-    if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
-    string zbcPath = Path.Join(cacheDir, rel + ".zbc");
-    string parent = Path.GetDirectoryName(zbcPath);
-    if (parent.Length > 0) { Directory.Create(parent); }
-    File.WriteAllBytes(zbcPath, ZbcWriter.Write(irm).ToBytes());
-}
+// _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
 
 // 解析无 --output-dir override 时的有效 dist 目录。
 //

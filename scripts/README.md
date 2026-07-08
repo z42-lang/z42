@@ -281,7 +281,9 @@ xtask test                # 完整 gate（e2e / cross-zpkg / stdlib / compiler �
 
 iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`test e2e --dir/--file` /
 `test stdlib <lib>` / `--no-build`）缩窄加速，但 **commit 前必须完整 gate**。改打包系统时
-另跑 `test packages`（parse + staging + assembly 三层自检合一）。
+另跑 `test packages`（parse + staging + assembly 三层自检合一）；改增量编译
+（IncrementalBuild / CacheStore / ZbcReader / IncrementalDriver）时另跑
+`test incremental`（暴力对账器：语料逐文件 touch，断言增量产物 == 全量产物逐字节 + 计时）。
 
 ## 关联文档
 

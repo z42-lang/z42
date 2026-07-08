@@ -1,0 +1,91 @@
+// ZbcReader 往返单测（add-file-level-incremental D5）：真实源 → IrGen → ZbcWriter →
+// ZbcReader.Read → ZbcWriter，两次 hex 逐字节相等。
+// 语料限单块函数（label 恒 "entry" = 解码占位命名）——多块模块的真实 label / 池原序是
+// writer 残留，走 cache meta 回填（design D5a），由集成级暴力对账器验收，不在本单测。
+namespace Z42cIrZbcReaderTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 往返断言：hex(Write(m)) == hex(Write(Read(Write(m))))。
+void _assertRoundtrip(string src, string file) {
+    CompiledModuleZ cm = IrDump.BuildModuleD(src, file, null, null);
+    Assert.Equal(0, cm.ErrorCount);
+    IrModule m1 = cm.Module;
+    string hex1 = ZbcWriter.WriteHex(m1);
+    byte[] bytes = ZbcWriter.Write(m1).ToBytes();
+    IrModule m2 = ZbcReader.Read(bytes);
+    Assert.True(m2 != null);
+    Assert.Equal(hex1, ZbcWriter.WriteHex(m2));
+}
+
+// 直线代码：int/long 常量 + 算术 + 局部调用（token intra-module 路径）。
+[Test]
+void test_roundtrip_arith_and_local_call() {
+    _assertRoundtrip("namespace T;\n"
+        + "int Add(int a, int b) { return a + b; }\n"
+        + "int Main() { int x = 40; long y = 2L; int z = Add(x, 2); return z - 0; }\n",
+        "rt1.z42");
+}
+
+// 字符串/bool/char/浮点常量 + 拼接（ConstStr 模块池重建 + ConstF bits 文本可逆）。
+[Test]
+void test_roundtrip_literals() {
+    _assertRoundtrip("namespace T;\n"
+        + "string Msg() { string a = \"hello\"; string b = \"world\"; return a + \" \" + b; }\n"
+        + "double F() { double d = 1.5; return d; }\n"
+        + "bool B() { return true; }\n"
+        + "char C() { return 'A'; }\n",
+        "rt2.z42");
+}
+
+// 类 + 字段 + obj_new + field get/set + 静态字段（TYPE/静态段 + token type 路径）。
+[Test]
+void test_roundtrip_class_and_fields() {
+    _assertRoundtrip("namespace T;\n"
+        + "public class P {\n"
+        + "    public int X;\n"
+        + "    public static int S = 7;\n"
+        + "    public P(int x) { this.X = x; }\n"
+        + "    public int Get() { return this.X; }\n"
+        + "}\n"
+        + "int Use() { var p = new P(3); p.X = 5; P.S = 9; return p.Get() + P.S; }\n",
+        "rt3.z42");
+}
+
+// 数组：new/lit/get/set/len（elem tag+FQ 名操作数）。
+[Test]
+void test_roundtrip_arrays() {
+    _assertRoundtrip("namespace T;\n"
+        + "int Arr() { int[] a = new int[3]; a[0] = 1; int[] b = new int[]{ 4, 5 }; return a[0] + b[1] + a.Length; }\n",
+        "rt4.z42");
+}
+
+// 负字面量往返（ConstI 负值 hex 重表示路径）。
+[Test]
+void test_roundtrip_negative_consts() {
+    _assertRoundtrip("namespace T;\n"
+        + "int N() { int a = 0 - 2147483647; return a; }\n"
+        + "long M() { long b = 0L - 42L; return b; }\n",
+        "rt5.z42");
+}
+
+// strict-pin / 坏输入：坏 magic → null；minor 篡改 → null。
+[Test]
+void test_read_rejects_bad_input() {
+    CompiledModuleZ cm = IrDump.BuildModuleD("namespace T;\nint F() { return 1; }\n", "rt6.z42", null, null);
+    byte[] good = ZbcWriter.Write(cm.Module).ToBytes();
+    byte[] badMagic = new byte[good.Length];
+    int i = 0;
+    while (i < good.Length) { badMagic[i] = good[i]; i = i + 1; }
+    badMagic[0] = (byte)88;   // 'X'
+    Assert.True(ZbcReader.Read(badMagic) == null);
+    byte[] badMinor = new byte[good.Length];
+    i = 0;
+    while (i < good.Length) { badMinor[i] = good[i]; i = i + 1; }
+    badMinor[6] = (byte)255;   // header minor lo-byte
+    Assert.True(ZbcReader.Read(badMinor) == null);
+}

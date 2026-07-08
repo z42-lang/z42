@@ -49,16 +49,19 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 > `dogfood` 工作区——一律落 `artifacts/.scratch/`（gitignored、可重生），不再混进 `build/`。
 > 各自用途见 [自举与种子机制页 / scratch 目录说明]。
 
-### 增量编译（单工程 z42c build，port-incremental-build-cache 2026-07-05）
+### 增量编译（单工程 z42c build；文件级，add-file-level-incremental 2026-07-08）
 
-单工程 `z42c build <toml>` 逐文件写 fullMode `.zbc` 到 cache 目录（`[build].cache_dir` →
-`${output_dir}/.cache` → `<projectDir>/.cache` 级联），并做**整包**级 probe：对每个源文件校验
-「SHA-256 == 上次 zpkg MODS 记录 ∧ cache zbc 存在 ∧ TSIG 含该模块 ns」，全命中 → 完全跳过
-重编/重写（`cached: N/N` + `no changes; preserved`，exe 仍复制依赖），任一变化 → 整包全量重编
-（不做 per-file 混合重建——C# 时代实证有正确性风险后放弃）。`--no-incremental` 强制全量；
-`Z42_INCR_DEBUG=1` 打印逐文件 miss 原因。**workspace/flat 构建（上图阶段一/二）不落 cache、
-不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap Deferred
-`incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
+单工程 `z42c build <toml>` 的判定与组装 SoT = **cache**（`<rel>.zbc` fullMode + `<rel>.meta`
++ 包级源清单；`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。
+粒度**文件级**：种子（hash / 条目缺失·pin / 源清单不一致→全量）→ token 保守边传递闭包
+（标识符 token ∩ 包内定义名）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
+cache 读回（meta 回填 zbc wire 不携带的 writer 残留：块 label 原文/模块池原序/TIDX idx）；
+TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉。全命中 → `no changes; preserved`。
+省下的是失效外文件的 typecheck+codegen（最贵相位）；parse/TSIG/组装恒做（Amdahl 上界）。
+硬验收 = `xtask test incremental` 暴力对账器（逐文件 touch，增量 == 全量逐字节 + 计时）。
+`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 打印种子与传播链。**workspace/flat 构建
+（上图阶段一/二）不落 cache、不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap
+Deferred `incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
 
 ### 不动点验证（test compiler 的核心）
 

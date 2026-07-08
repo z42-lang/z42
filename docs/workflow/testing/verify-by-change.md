@@ -16,6 +16,7 @@
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建 → 随便跑条命令冒烟 | changed 映射对 `scripts/xtask*` = **full**（完整 gate） | ci-bootstrap step 2（种子编 xtask 源） |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask test bootstrap` | 格式 bump 另跑 [version-bumping checklist](../../../.claude/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
 | **打包 `scripts/package/` / `packages.toml`** | `xtask test packages` | `xtask package sdk` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
+| **增量编译（IncrementalBuild / CacheStore / ZbcReader·Instr / IncrementalDriver）** | `xtask test compiler`（含 probe/闭包/meta/往返单测 + 不动点） | `xtask test incremental`（暴力对账器：语料逐文件 touch，增量 == 全量逐字节 + D8 计时） | 完整 gate（自举不动点 7/7） |
 | **纯文档 / `.claude/`** | 无 | 无（不改代码 → 无 stage 可跑） | 不触发 CI（paths-ignore） |
 
 ## 边界为什么管 API（不只是语法）

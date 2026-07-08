@@ -6,19 +6,22 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`（`namespace Z42.Driver`）|
+| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_build`（`namespace Z42.Driver`）|
+| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc` |
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。
 用法：`z42c --dump-tokens|--dump-ast|--dump-bound <file.z42>` / `z42c --emit-zbc <file.z42> <out.zbc>` /
 `z42c build <project.z42.toml> [--release] [--no-incremental]` / `z42c build --workspace [--output-dir <d>]`。
 
-## 增量编译（port-incremental-build-cache，2026-07-05）
-单工程 `build` 逐文件写 fullMode `.zbc` 到 cache 目录（`[build].cache_dir` →
-`${output_dir}/.cache` → `<projectDir>/.cache` 级联），并按「hash + cache zbc + TSIG」
-整包 probe——全命中完全跳过重写（`no changes; preserved`），任一变化整包重编。
-`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看逐文件 miss 原因。workspace/flat
-模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/design/compiler/project.md)）。
+## 增量编译（文件级，add-file-level-incremental 2026-07-08）
+单工程 `build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，
+`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。种子（hash/
+条目/清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck+codegen），其余 IrModule
+经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；
+全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1`
+看种子与传播链。硬验收 = `xtask test incremental` 暴力对账器（增量 == 全量逐字节 + 计时）。
+workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/design/compiler/project.md)）。
 
 ## 依赖关系
 → z42c.syntax, z42c.semantics, z42c.core。stdlib（Std / Std.IO）自动可用。

@@ -17,6 +17,8 @@
 | `src/BinaryFormat/TokenAllocator.z42` | token 分配（ZW-1C）：FromModule 插入序 name→index；跨模块 = `ImportBase(1<<31)\|STRS idx`；VCall/Field 不 token 化 |
 | `src/BinaryFormat/ZbcInstr.z42` | 指令/终结符字节编码（集中 if-is，镜像 C# WriteInstr/WriteTerminator）：const(int/f64[IEEE754 bits]/bool/null/str)/copy/算术/比较/位/一元/concat + call/vcall/field/obj_new/is·as/array + ret/retval/br/brcond/throw + InternStrings 预扫 |
 | `src/BinaryFormat/ZbcWriter.z42` | `IrModule → .zbc 字节`（byte-identical vs C# ZbcWriter）：intern 预扫 + 全 8-section（NSPC/STRS/TYPE/SIGS/IMPT/EXPT/FUNC/REGT）+ header/directory 组装。ZW-1A：trivial 函数（`empty` 逐字节对账通过） |
+| `src/BinaryFormat/ZbcReader.z42` | fullMode `.zbc → IrModule` 读取器（add-file-level-incremental D5；对照 C# 历史版移植）：strict-pin + 段解码（NSPC/STRS/TYPE/SIGS/FUNC/REGT/DBUG/TIDX）+ ConstStr 模块池重建；占位 label（真实 label 等 writer 残留由 cache meta 回填——D5a）；坏输入/未知 op → null。往返单测 `tests/zbcreader/`（Write→Read→Write 字节相等） |
+| `src/BinaryFormat/ZbcReaderInstr.z42` | 指令/终结符解码（镜像 ZbcInstr 布局）+ REGT 类型回填 `Retype`（tag 兼容升级 + 纯操作数取 REGT——BuildRegt 复现同字节）；⚠ token bit31 / u32 哨兵须显式位检测（z42 int 移位下不为负） |
 | `src/IrSkeleton.z42` | B0 占位（暂留：SemanticsSkeleton/ProjectSkeleton/PipelineSkeleton 仍引用；随其移除时清理） |
 
 ## 入口点

@@ -316,35 +316,53 @@ dist_dir   = "/c"
 | `true`  | `false` | `dist/<name>.zpkg` (packed)                  | 发布态，DBUG 内嵌（便于现场 debug）|
 | `true`  | `true`  | `dist/<name>.zpkg` + `dist/<name>.zsym`      | 发布态，最小体积，离线可符号化 |
 
-**增量编译工作方式（C5 2026-04-27 引入；最终形态 `ed901f01` 同日定型；z42c 移植
-port-incremental-build-cache，2026-07-05）：**
+**增量编译工作方式（C5 2026-04-27 引入整包版；文件级 add-file-level-incremental，2026-07-08）：**
 
-判定粒度是**整包**，不做 per-file 混合重建（C# 曾实现「cached CU 经 ZbcReader 重建 +
-fresh 混编」，当天即因正确性放弃——clean build 720/720 通过、no-change 增量重建
-6/720 失败：per-namespace TSIG 重写丢元数据 + fresh/cached string-pool 及 impl 关系
-合并不一致。设计哲学：宁可 fresh，不可错误命中）：
+判定与组装 SoT = **cache**（`<cache>/<rel>.zbc` fullMode + 同名 `.meta`），不再读上次 zpkg
+MODS。粒度是**文件级**：只重编「变化文件 + 包内传递依赖方」，其余文件的 IrModule 从
+cache zbc 读回（ZbcReader）。与 C# 当年被放弃的混合重建的本质区别：**无跨代元数据合并**
+——TSIG/符号每次由当前源 AST 全包重算（每文件 TSIG 天然全包耦合：自由函数兄弟泄漏 +
+全包 AST 依赖），zbc 来自 hash 校验一致的 cache，两来源不一致的根因被结构性消除。
 
 ```
 z42c build <toml> [--release] [--no-incremental]      （单工程模式；workspace/flat 不走）
-  ├─ IncrementalBuild.Probe(srcs, texts, projectDir, cacheDir, lastZpkg)   （z42c.pipeline）
-  │    ├─ dist/<name>.zpkg 不存在 / 不可读（strict-pin 不符）→ 全 fresh
-  │    ├─ zpkg MODS 记录数 != 当前源文件数 → 全 fresh（防删文件后保留陈旧模块）
-  │    ├─ 对每个 .z42：SHA-256 == 记录 ✓ ∧ cache/<rel>.zbc 存在 ✓ ∧ TSIG 含 ns ✓
-  │    └─ any miss → 整包 fresh；全 hit → AllCached
-  ├─ AllCached → 完全跳过重编/重写（保留现有 zpkg 原字节；exe 仍复制非 stdlib 依赖进 dist）
-  └─ 否则全量重编 → 逐文件写 cache/<rel>.zbc（fullMode）→ 写 dist/<name>.zpkg
+  ├─ IncrementalBuild.ProbeFiles（z42c.pipeline）
+  │    ├─ 种子：源 hash != meta / 条目缺失·版本 pin 不符 / 包级源清单不一致（增删文件→全量）
+  │    └─ 全命中 ∧ dist zpkg 在盘 → 完全跳过（preserved；exe 仍复制非 stdlib 依赖）
+  ├─ IrDump.ParseAll（全包 parse，恒做——TSIG/符号全包耦合）
+  ├─ IncrementalBuild.Close：token 保守边闭包（文件 i 标识符 token ∩ 文件 j 包内定义名
+  │    （类型+自由函数+成员名）→ 边 i→j；j fresh → i fresh；边每次从当前源重算）
+  ├─ cached 读回：ZbcReader.Read(cache zbc) + meta 残留回填（块 label 原文改名（含终结符/
+  │    异常表引用）、模块池原序、TIDX idx——wire 不携带的 writer 残留，见 D5a）；失败→降级 fresh
+  ├─ IrDump.BuildPackageCus：仅失效子集跑 typecheck/codegen；TSIG 全包重算
+  ├─ fresh 落 cache（zbc + meta）+ 包级源清单
+  └─ BuildPackedD(全部 IrModule 同构组装) → dist/<name>.zpkg（任一变更即整包重写）
 ```
 
 **编译日志输出**：`cached: N/M files`（stderr）；全命中时 `no changes; preserved -> <zpkg>`。
-`--no-incremental` 强制全量。收益主场景：多包构建里未改动的包整包秒跳过。
+`--no-incremental` 强制全量。**硬验收 = 暴力对账器 `xtask test incremental`**：语料逐文件
+touch，断言增量产物与全量产物**逐字节相等** + D8 计时（增量 vs 全量墙钟）。
 
-**cache zbc 格式**：`<cache>/<rel .z42→.zbc>`，**fullMode**（NSPC/STRS/TYPE/SIGS/IMPT/EXPT/
-FUNC/REGT[/DBUG/TIDX] 全段）——与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出。probe 只校验其
-**存在性**（"上次构建完整落盘"的标记 + 未来细粒度增量的物质基础），当前不读回。
+**cache 条目格式**：`<rel>.zbc`（fullMode，与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出）+
+`<rel>.meta`（z42c 内部行式文本，带 metaVersion/zbc/zpkg 三重版本 pin：源 hash、ns、
+usedDepNs、模块池原序（hex）、每函数块 label 表（hex）——后两者是 zbc wire 不携带、但参与
+STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单）。任何 pin 不符/损坏 → 条目作废
+按 fresh 处理（宁 fresh 不误命中）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
-[self-hosting.md Deferred](self-hosting.md#self-hosting-future-indexed-zpkg)。
+[self-hosting.md Deferred](self-hosting.md#self-hosting-future-indexed-zpkg)；散装自包含
+zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patch/`（DRAFT）。
 
-**调试**：设环境变量 `Z42_INCR_DEBUG=1` 可看到每个文件 cached / miss 详情（miss 原因：no-record / hash-diff / no-zbc / no-export-mod）。
+**调试**：`Z42_INCR_DEBUG=1` 打印失效种子原因（no-entry / hash-diff / src-list）与传播链
+（`A invalidated-by B`）。
+
+### incremental-future-tsig-level-invalidation
+
+- **来源**：add-file-level-incremental design D3（2026-07-08）
+- **触发原因**：第一版失效边取保守粒度（token ∩ 定义名；被引用文件任何变化即失效引用方），
+  过近似只多编不错编；「B 的导出签名（TSIG）不变则不失效 A」的细化需 TSIG 结构化 diff
+- **前置依赖**：per-file TSIG 规范化比较（剥全包自由函数泄漏段）
+- **触发条件**：实测大包增量命中率低 / 对账器计时显示闭包过宽成为主要成本
+- **当前 workaround**：无需——保守边正确性优先
 
 ### incremental-future-workspace-wiring
 

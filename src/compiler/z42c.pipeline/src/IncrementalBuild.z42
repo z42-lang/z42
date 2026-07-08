@@ -1,106 +1,166 @@
-// 增量编译 probe（port-incremental-build-cache）。镜像 C# IncrementalBuild **最终形态**
-// （ed901f01）：any fresh → 整包失效；100% 命中 → 调用方完全跳过重编/重写（保留现有
-// zpkg）。混合 cached/fresh 重建因正确性问题被上游放弃，故本类型只回答「可否整体跳过」，
-// 不携带 per-file 产物。设计哲学：宁可 fresh 不可错误命中。
+// 文件级增量 probe（add-file-level-incremental；前身 = port-incremental-build-cache 的
+// 整包 any-fresh 版）。判定 SoT = cache（zbc+meta，CacheStore），不再读上次 zpkg MODS。
 //
-// 命中条件（每文件全部满足）：
-//   1. 上次 zpkg 存在且可读（版本 strict-pin 一致）
-//   2. zpkg MODS 记录数 == 当前源文件数（防删文件后「全命中」保留陈旧模块——超出 C# 的防御）
-//   3. MODS 含该源文件记录 且 SHA-256(当前文本) == 记录 hash
-//   4. cache/<rel .z42→.zbc> 存在
-//   5. 上次 zpkg TSIG 含该模块 ns
-// Z42_INCR_DEBUG=1 → 逐文件 miss 原因（no-record / hash-diff / no-zbc / no-export-mod）。
+// 两段式：
+//   ① ProbeFiles —— 失效种子：源 hash ≠ meta / 条目缺失·pin 不符 / 包级源清单不一致
+//      （增删文件 → 全量，spec 场景）。
+//   ② Close —— 传递失效闭包：token 保守边（design D3 实现形态）——文件 i 的标识符
+//      token 命中文件 j 的包内定义名（类型/自由函数/成员名）→ 边 i→j；j fresh → i fresh。
+//      边每次 build 从当前源重算（源不变 → 边不变），不入 meta。
+//      过近似只多编不错编（宁 fresh 不误命中）；「TSIG-equal 不失效」细化留 Deferred。
+// Z42_INCR_DEBUG=1 → 种子原因 + 传播链（A invalidated-by B）。
 namespace Z42.Pipeline;
 
 using Std;
 using Std.IO;
 using Z42.Project;
+using Z42.Semantics;
 
-// Probe 结论：AllCached=真 → 调用方跳过（还须自行确认 lastZpkg 在盘）。
-public sealed class IncrProbeResult {
-    public bool AllCached;
-    public int  CachedCount;
-    public int  TotalCount;
-    public IncrProbeResult(bool allCached, int cachedCount, int totalCount) {
-        this.AllCached = allCached; this.CachedCount = cachedCount; this.TotalCount = totalCount;
+// 名字表（token 集 / 定义名集；z42 无嵌套数组字段 → 专用小类）。
+public sealed class NameListZ {
+    public string[] Items;
+    public int      Count;
+    public NameListZ(string[] items, int count) { this.Items = items; this.Count = count; }
+}
+
+// 文件级 probe 结论。Fresh[i] 与 srcs[i] 对齐；Metas[i] 仅 !Fresh[i] 时有效。
+public sealed class IncrFilePlan {
+    public bool        AllCached;
+    public bool[]      Fresh;
+    public int         FreshCount;
+    public CacheMeta[] Metas;
+    public int         Total;
+    public IncrFilePlan(int n) {
+        this.AllCached = false;
+        this.Fresh = new bool[n]; this.FreshCount = 0;
+        this.Metas = new CacheMeta[n];
+        this.Total = n;
     }
 }
 
 public static class IncrementalBuild {
 
-    // texts[i] = srcs[i] 的源文本（调用方已读，共用避免二次 IO）。
-    public static IncrProbeResult Probe(string[] srcs, string[] texts, int n,
-                                        string projectDir, string cacheDir, string lastZpkgPath) {
+    // ① 失效种子（hash/条目/清单级；闭包由 ② Close 在 parse 后补）。
+    // hashes[i] = 源文本 SHA-256（调用方算一次三处复用——probe/ZbcFileZ/meta；解释执行的
+    // SHA-256 每遍 ~3-4s/42 文件，重复计算曾是 D8 差价主项之一）。
+    public static IncrFilePlan ProbeFiles(string[] srcs, string[] hashes, int n,
+                                          string projectDir, string cacheDir) {
         bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
-        if (!File.Exists(lastZpkgPath)) {
-            if (debug) { ConsoleError.WriteLine("  [miss/no-last-zpkg] " + lastZpkgPath); }
-            return new IncrProbeResult(false, 0, n);
-        }
-        ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(lastZpkgPath));
-        if (z == null) {
-            if (debug) { ConsoleError.WriteLine("  [miss/unreadable-zpkg] " + lastZpkgPath); }
-            return new IncrProbeResult(false, 0, n);
-        }
-        ZpkgSourceHash[] hashes = ZpkgReader.ReadSourceHashes(z);
-        if (hashes.Length == 0 || hashes.Length != n) {
-            if (debug) {
-                ConsoleError.WriteLine("  [miss/record-count] zpkg=" + hashes.Length.ToString()
-                    + " sources=" + n.ToString());
+        IncrFilePlan plan = new IncrFilePlan(n);
+        // 包级源清单：数量或任一位置不符（增/删/改名）→ 全量。
+        string[] last = CacheStore.LoadSrcList(cacheDir);
+        bool listOk = last != null && last.Length == n;
+        if (listOk) {
+            int i = 0;
+            while (i < n) {
+                if (last[i] != IncrementalBuild.Rel(projectDir, srcs[i])) { listOk = false; }
+                i = i + 1;
             }
-            return new IncrProbeResult(false, 0, n);
         }
-        ExportedModuleZ[] tsig = ZpkgReader.ReadTsig(z);
-        bool anyMiss = false;
-        int cached = 0;
+        if (!listOk) {
+            if (debug) { ConsoleError.WriteLine("  [seed/src-list] package source set changed -> full"); }
+            int i = 0;
+            while (i < n) { plan.Fresh[i] = true; i = i + 1; }
+            plan.FreshCount = n;
+            return plan;
+        }
+        int fi = 0;
+        while (fi < n) {
+            string rel = IncrementalBuild.Rel(projectDir, srcs[fi]);
+            CacheMeta m = CacheStore.Load(cacheDir, rel);
+            if (m == null) {
+                plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
+                if (debug) { ConsoleError.WriteLine("  [seed/no-entry] " + rel); }
+            } else if (hashes[fi] != m.SourceHash) {
+                plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
+                if (debug) { ConsoleError.WriteLine("  [seed/hash-diff] " + rel); }
+            } else {
+                plan.Metas[fi] = m;
+            }
+            fi = fi + 1;
+        }
+        plan.AllCached = plan.FreshCount == 0;
+        return plan;
+    }
+
+    // ② 传递失效闭包。tokens[i] = 文件 i 标识符 token 集（去重）；defined[i] = 文件 i
+    // 包内定义名集。O(轮数 × N²) 朴素迭代（包内 N 小）；命中边即扩散直至不动。
+    public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
+                             NameListZ[] tokens, NameListZ[] defined) {
+        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+        int n = plan.Total;
+        // 边矩阵一次算好：edge[i*n+j] = i 引用 j 的定义名（i≠j）。
+        // 全局定义名 → 属主文件列表（StrMap 哈希；value = IntBoxZ 链）。
+        StrMap owners = new StrMap();
+        int j = 0;
+        while (j < n) {
+            int k = 0;
+            while (k < defined[j].Count) {
+                string name = defined[j].Items[k];
+                object cur = owners.ContainsKey(name) ? owners.Get(name) : null;
+                owners.Put(name, new OwnerNodeZ(j, cur as OwnerNodeZ));
+                k = k + 1;
+            }
+            j = j + 1;
+        }
+        bool[] edge = new bool[n * n];
         int i = 0;
         while (i < n) {
-            string reason = IncrementalBuild._probeOne(srcs[i], texts[i], projectDir, cacheDir,
-                                                       hashes, tsig);
-            if (reason == "") { cached = cached + 1; }
-            else {
-                anyMiss = true;
-                if (debug) { ConsoleError.WriteLine("  [miss/" + reason + "] " + srcs[i]); }
+            int t = 0;
+            while (t < tokens[i].Count) {
+                if (owners.ContainsKey(tokens[i].Items[t])) {
+                    OwnerNodeZ node = owners.Get(tokens[i].Items[t]) as OwnerNodeZ;
+                    while (node != null) {
+                        if (node.FileIdx != i) { edge[i * n + node.FileIdx] = true; }
+                        node = node.Next;
+                    }
+                }
+                t = t + 1;
             }
             i = i + 1;
         }
-        // any fresh → 整包失效（镜像 C# package-invalidate：报 0/n）
-        if (anyMiss) { return new IncrProbeResult(false, 0, n); }
-        return new IncrProbeResult(true, cached, n);
-    }
-
-    // 单文件判定：命中返回 ""，否则 miss 原因。
-    private static string _probeOne(string src, string text, string projectDir, string cacheDir,
-                                    ZpkgSourceHash[] hashes, ExportedModuleZ[] tsig) {
-        string rel = IncrementalBuild._rel(projectDir, src);
-        ZpkgSourceHash rec = null;
-        int i = 0;
-        while (i < hashes.Length) {
-            if (hashes[i].SourceFile == src
-                || IncrementalBuild._rel(projectDir, hashes[i].SourceFile) == rel) {
-                rec = hashes[i];
+        // 闭包迭代。
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            i = 0;
+            while (i < n) {
+                if (!plan.Fresh[i]) {
+                    j = 0;
+                    while (j < n) {
+                        if (plan.Fresh[j] && edge[i * n + j]) {
+                            plan.Fresh[i] = true;
+                            plan.FreshCount = plan.FreshCount + 1;
+                            plan.Metas[i] = null;
+                            changed = true;
+                            if (debug) {
+                                ConsoleError.WriteLine("  [invalidated] "
+                                    + IncrementalBuild.Rel(projectDir, srcs[i])
+                                    + " invalidated-by " + IncrementalBuild.Rel(projectDir, srcs[j]));
+                            }
+                            j = n;   // break：本文件已失效
+                        } else { j = j + 1; }
+                    }
+                }
+                i = i + 1;
             }
-            i = i + 1;
         }
-        if (rec == null) { return "no-record"; }
-        if (ZpkgBuilder.Sha256Hex(text) != rec.SourceHash) { return "hash-diff"; }
-        string zbcRel = rel;
-        if (zbcRel.EndsWith(".z42")) { zbcRel = zbcRel.Substring(0, zbcRel.Length - 4); }
-        if (!File.Exists(Path.Join(cacheDir, zbcRel + ".zbc"))) { return "no-zbc"; }
-        string ns = rec.Namespace;
-        bool found = false;
-        i = 0;
-        while (i < tsig.Length) {
-            if (tsig[i].Namespace == ns) { found = true; }
-            i = i + 1;
-        }
-        if (!found) { return "no-export-mod"; }
-        return "";
+        plan.AllCached = plan.FreshCount == 0;
     }
 
-    // 源路径 → 项目相对（projectDir 前缀剥离；不匹配则原样）。
-    private static string _rel(string projectDir, string path) {
-        string prefix = projectDir.EndsWith("/") ? projectDir : projectDir + "/";
-        if (path.StartsWith(prefix)) { return path.Substring(prefix.Length); }
-        return path;
+    // 源路径 → 项目相对（fwd-slash 归一 + projectDir 前缀剥离；镜像 driver _writeCacheZbc）。
+    public static string Rel(string projectDir, string path) {
+        string rel = path.Replace("\\", "/");
+        string projFwd = projectDir.Replace("\\", "/");
+        string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
+        if (rel.StartsWith(prefix)) { return rel.Substring(prefix.Length); }
+        return rel;
     }
+}
+
+// 定义名属主链表节点（同名定义可散多文件：partial 风格 / 短名撞名——全都连边，保守）。
+public sealed class OwnerNodeZ {
+    public int        FileIdx;
+    public OwnerNodeZ Next;
+    public OwnerNodeZ(int fileIdx, OwnerNodeZ next) { this.FileIdx = fileIdx; this.Next = next; }
 }

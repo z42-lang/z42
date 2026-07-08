@@ -1,0 +1,402 @@
+// 文件级增量的 driver 侧编排（add-file-level-incremental 阶段 4；Main._build 调用）。
+// 职责：token/定义名提取（D3 保守边输入）→ ProbeFiles+Close → cached zbc 读回 +
+// meta 残留回填（D5a：块 label / 模块池原序 / TIDX idx）→ 失败降级 fresh（含其
+// 依赖方重闭包）→ fresh 落 cache（zbc + meta + 包级源清单）。
+// Main.z42 只留编排调用（500 行硬限）；本文件承载全部增量细节。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Project;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Pipeline;
+
+// 增量准备结论：plan + 复用的 CU + cached IrModule（残留已回填；Fresh[i] 处 null）
+// + fresh 行的标识符集（parse 时捕获，WriteMetas 消费——零第二遍 lex，D8 修正）。
+public sealed class IncrPrep {
+    public IncrFilePlan       Plan;
+    public CompilationUnit[]  Cus;
+    public IrModule[]         Cached;
+    public NameListZ[]        Idents;
+    public IncrPrep(IncrFilePlan plan, CompilationUnit[] cus, IrModule[] cached) {
+        this.Plan = plan; this.Cus = cus; this.Cached = cached;
+        this.Idents = null;
+    }
+}
+
+// parse-all 产物束：CU + 按需捕获的标识符集（want[i] 为真才提取）。
+public sealed class ParsedPkg {
+    public CompilationUnit[] Cus;
+    public NameListZ[]       Idents;
+    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents) {
+        this.Cus = cus; this.Idents = idents;
+    }
+}
+
+public static class IncrementalDriver {
+
+    // 全文件 parse（+ AttributeSynth，镜像 IrDump.ParseAll）+ 按需标识符捕获：
+    // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集（D8 修正——全链路
+    // 零第二遍 lex）；want == null → 全不捕获（workspace 等不落 cache 的路径）。
+    public static ParsedPkg ParseAllTk(string[] texts, string[] srcs, int n, bool[] want) {
+        CompilationUnit[] cus = new CompilationUnit[n];
+        NameListZ[] idents = new NameListZ[n];
+        int i = 0;
+        while (i < n) {
+            var pp = new Parser(texts[i], srcs[i]);
+            CompilationUnit raw = pp.ParseCompilationUnit();
+            if (want != null && want[i]) { idents[i] = IncrementalDriver._identsOf(pp.Tokens()); }
+            cus[i] = AttributeSynth.Run(raw);   // add-attribute-reflection：合成工厂
+            i = i + 1;
+        }
+        return new ParsedPkg(cus, idents);
+    }
+
+    // 全流程：种子 → parse-all（顺手捕获 fresh 行标识符）→ 闭包 → cached 读回+回填
+    //（失败降级 fresh + 重闭包）。noIncremental / workspace 路径由调用方拦截，不进本函数。
+    public static IncrPrep Prepare(string[] srcs, string[] texts, string[] hashes, int n,
+                                   string projectDir, string cacheDir) {
+        IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir);
+        IrModule[] cached = new IrModule[n];
+        if (plan.AllCached) { return new IncrPrep(plan, null, cached); }   // 调用方决定跳过或继续
+
+        // 降级前留存 meta 引用（Close/降级会把 Metas[i] 置 null，而其 token 集是该行
+        // 之后写回 meta 时的零成本来源——源未变，token 集不变）。
+        CacheMeta[] metas0 = new CacheMeta[n];
+        int i = 0;
+        while (i < n) { metas0[i] = plan.Metas[i]; i = i + 1; }
+
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, n, plan.Fresh);
+        CompilationUnit[] cus = pk.Cus;
+        NameListZ[] tokens = new NameListZ[n];
+        NameListZ[] defined = new NameListZ[n];
+        i = 0;
+        while (i < n) {
+            // 闭包只消费 **cached 行**的 token 集（Close 只查 !Fresh[i] 的边）——cached
+            // 文件源未变，token 集从 meta 读（v2 起入 meta），零重 lex；fresh 行给空表。
+            // D8 实测教训：原实现对全部文件独立重 lex（ParseAll 之外的第二遍），42 文件
+            // 语料上增量反比全量慢 17%——lex 恒定成本吃掉全部增量收益。
+            if (plan.Fresh[i]) { tokens[i] = new NameListZ(new string[0], 0); }
+            else { tokens[i] = new NameListZ(plan.Metas[i].Tokens, plan.Metas[i].TokenCount); }
+            defined[i] = IncrementalDriver._definedOf(cus[i]);
+            i = i + 1;
+        }
+        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined);
+
+        // cached 读回 + 残留回填；任一失败 → 该文件 fresh + 重闭包（依赖方连带失效）。
+        bool stable = false;
+        while (!stable) {
+            stable = true;
+            i = 0;
+            while (i < n) {
+                if (!plan.Fresh[i] && cached[i] == null) {
+                    string rel = IncrementalBuild.Rel(projectDir, srcs[i]);
+                    IrModule m = null;
+                    try {
+                        byte[] zbc = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, rel));
+                        m = ZbcReader.Read(zbc);
+                    } catch (Exception e) { m = null; }
+                    if (m != null && !IncrementalDriver._applyResidue(m, plan.Metas[i])) { m = null; }
+                    if (m == null) {
+                        ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh");
+                        plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1;
+                        plan.Metas[i] = null;
+                        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined);
+                        stable = false;
+                    } else {
+                        cached[i] = m;
+                    }
+                }
+                if (plan.Fresh[i] && cached[i] != null) { cached[i] = null; }   // 降级波及后清残影
+                i = i + 1;
+            }
+        }
+        plan.AllCached = plan.FreshCount == 0;
+        // fresh 行标识符汇总（WriteMetas 消费）：种子 fresh = parse 时捕获；闭包/降级
+        // 转 fresh 的行源未变 → 从留存 meta 取（零 lex）。两者皆无 → WriteMetas 兜底 lex。
+        NameListZ[] idents = new NameListZ[n];
+        i = 0;
+        while (i < n) {
+            if (plan.Fresh[i]) {
+                if (pk.Idents[i] != null) { idents[i] = pk.Idents[i]; }
+                else if (metas0[i] != null) { idents[i] = new NameListZ(metas0[i].Tokens, metas0[i].TokenCount); }
+            }
+            i = i + 1;
+        }
+        IncrPrep prep = new IncrPrep(plan, cus, cached);
+        prep.Idents = idents;
+        return prep;
+    }
+
+    // fresh 文件落 cache（zbc 由 Main._writeCacheZbc 已写）：meta（hash/ns/usedDepNs +
+    // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
+    public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
+                                  string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
+                                  IncrFilePlan plan, NameListZ[] idents) {
+        string[] rels = new string[n];
+        int i = 0;
+        while (i < n) {
+            rels[i] = IncrementalBuild.Rel(projectDir, srcs[i]);
+            if (plan == null || plan.Fresh[i]) {
+                CacheMeta m = new CacheMeta(rels[i]);
+                m.SourceHash = hashes[i];
+                m.Namespace = mods[i].Namespace;
+                m.UsedDepNs = cms[i].UsedDepNs; m.UsedDepNsCount = cms[i].UsedDepNsCount;
+                // parse 时已捕获（D8 修正）；无捕获（异常路径）才兜底 lex 一次。
+                NameListZ tk = (idents != null && idents[i] != null)
+                    ? idents[i] : IncrementalDriver._tokensOf(texts[i], srcs[i]);
+                m.Tokens = tk.Items; m.TokenCount = tk.Count;
+                IrModule irm = cms[i].Module;
+                string[] pool = new string[irm.StringCount > 1 ? irm.StringCount - 1 : 0];
+                int p = 1;
+                while (p < irm.StringCount) { pool[p - 1] = irm.StringPool[p]; p = p + 1; }
+                m.Pool = pool; m.PoolCount = pool.Length;
+                string[] fl = new string[irm.FuncCount];
+                int f = 0;
+                while (f < irm.FuncCount) {
+                    IrFunction fd = irm.Functions[f];
+                    string line = "";
+                    int b = 0;
+                    while (b < fd.BlockCount) {
+                        if (b > 0) { line = line + " "; }
+                        line = line + CacheStore.HexEnc(fd.Blocks[b].Label);
+                        b = b + 1;
+                    }
+                    fl[f] = line;
+                    f = f + 1;
+                }
+                m.FnLabels = fl; m.FnLabelsCount = irm.FuncCount;
+                CacheStore.Save(cacheDir, m);
+            }
+            i = i + 1;
+        }
+        CacheStore.SaveSrcList(cacheDir, rels, n);
+    }
+
+    // ── 残留回填（D5a）：占位 label → 真实 label；模块池 → meta 原序；TIDX idx 重映射 ──
+
+    private static bool _applyResidue(IrModule irm, CacheMeta meta) {
+        if (meta == null) { return false; }
+        if (meta.FnLabelsCount != irm.FuncCount) { return false; }
+        // ① 块 label + 终结符/异常表引用改名。
+        int f = 0;
+        while (f < irm.FuncCount) {
+            IrFunction fd = irm.Functions[f];
+            string[] parts = meta.FnLabels[f].Split(" ");
+            if (parts.Length != fd.BlockCount) { return false; }
+            string[] real = new string[fd.BlockCount];
+            int b = 0;
+            while (b < fd.BlockCount) { real[b] = CacheStore.HexDec(parts[b]); b = b + 1; }
+            b = 0;
+            while (b < fd.BlockCount) {
+                IrBlock blk = fd.Blocks[b];
+                blk.Label = real[b];
+                if (blk.HasTerm) {
+                    if (blk.Term is BrTerm) {
+                        BrTerm t = blk.Term as BrTerm;
+                        t.Label = IncrementalDriver._renameBl(t.Label, real, fd.BlockCount);
+                    }
+                    if (blk.Term is BrCondTerm) {
+                        BrCondTerm t = blk.Term as BrCondTerm;
+                        t.TrueLabel = IncrementalDriver._renameBl(t.TrueLabel, real, fd.BlockCount);
+                        t.FalseLabel = IncrementalDriver._renameBl(t.FalseLabel, real, fd.BlockCount);
+                    }
+                }
+                b = b + 1;
+            }
+            int x = 0;
+            while (x < fd.ExcCount) {
+                IrExcEntry e = fd.ExcTable[x];
+                e.TryStart = IncrementalDriver._renameBl(e.TryStart, real, fd.BlockCount);
+                e.TryEnd = IncrementalDriver._renameBl(e.TryEnd, real, fd.BlockCount);
+                e.CatchLabel = IncrementalDriver._renameBl(e.CatchLabel, real, fd.BlockCount);
+                x = x + 1;
+            }
+            f = f + 1;
+        }
+        // ② 模块池 → meta 原序；ConstStr / TIDX idx 按串值重映射（池条目唯一）。
+        string[] newPool = new string[meta.PoolCount + 1];
+        newPool[0] = "";
+        StrMap poolIdx = new StrMap();
+        int p = 0;
+        while (p < meta.PoolCount) {
+            newPool[p + 1] = meta.Pool[p];
+            poolIdx.Put(meta.Pool[p], new IntBoxZ(p + 1));
+            p = p + 1;
+        }
+        f = 0;
+        while (f < irm.FuncCount) {
+            IrFunction fd = irm.Functions[f];
+            int b = 0;
+            while (b < fd.BlockCount) {
+                IrBlock blk = fd.Blocks[b];
+                int k = 0;
+                while (k < blk.InstrCount) {
+                    if (blk.Instrs[k] is ConstStrInstr) {
+                        ConstStrInstr cs = blk.Instrs[k] as ConstStrInstr;
+                        int ni = IncrementalDriver._poolLookup(poolIdx, irm, cs.Idx);
+                        if (ni < 0) { return false; }
+                        cs.Idx = ni;
+                    }
+                    k = k + 1;
+                }
+                b = b + 1;
+            }
+            f = f + 1;
+        }
+        int e2 = 0;
+        while (e2 < irm.TestCount) {
+            IrTestEntry t = irm.TestIndex[e2];
+            t.SkipReasonStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipReasonStrIdx);
+            t.SkipPlatformStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipPlatformStrIdx);
+            t.SkipFeatureStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipFeatureStrIdx);
+            t.ExpectedThrowTypeIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.ExpectedThrowTypeIdx);
+            int tc = 0;
+            while (tc < t.TestCaseCount) {
+                t.TestCases[tc].ArgReprStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.TestCases[tc].ArgReprStrIdx);
+                tc = tc + 1;
+            }
+            e2 = e2 + 1;
+        }
+        irm.StringPool = newPool;
+        irm.StringCount = meta.PoolCount + 1;
+        return true;
+    }
+
+    // 占位 "entry"/"block_N" → real[N]；N==blockCount（TryEnd 哨兵）与其它文本原样保留。
+    private static string _renameBl(string ph, string[] real, int blockCount) {
+        if (ph == "entry") { return real[0]; }
+        if (ph.StartsWith("block_")) {
+            int v = 0;
+            bool ok = ph.Length > 6;
+            int i = 6;
+            while (i < ph.Length) {
+                char ch = ph.CharAt(i);
+                if (ch < '0' || ch > '9') { ok = false; i = ph.Length; }
+                else { v = v * 10 + ((int)ch - 48); i = i + 1; }
+            }
+            if (ok && v < blockCount) { return real[v]; }
+        }
+        return ph;
+    }
+
+    // 读回件当前池 idx → 串 → meta 池 idx；找不到 → -1（残留与 zbc 不一致，降级）。
+    private static int _poolLookup(StrMap poolIdx, IrModule irm, int curIdx) {
+        if (curIdx <= 0 || curIdx >= irm.StringCount) { return 0 - 1; }
+        string v = irm.StringPool[curIdx];
+        if (!poolIdx.ContainsKey(v)) { return 0 - 1; }
+        return (poolIdx.Get(v) as IntBoxZ).Value;
+    }
+    private static int _poolRemapOrZero(StrMap poolIdx, IrModule irm, int curIdx) {
+        if (curIdx <= 0) { return 0; }
+        int ni = IncrementalDriver._poolLookup(poolIdx, irm, curIdx);
+        if (ni < 0) { return 0; }
+        return ni;
+    }
+
+    // ── D3 保守边输入 ────────────────────────────────────────────────────────────
+
+    // 标识符 token 集（去重；Lexer 只取 Identifier——关键字/字面量/符号天然排除）。
+    // 兜底路径（正常路径 = parse 时经 Parser.Tokens() 捕获，见 ParseAllTk）。
+    private static NameListZ _tokensOf(string text, string file) {
+        var lx = new Lexer(text, file);
+        lx.Tokenize();
+        return IncrementalDriver._identsOf(lx);
+    }
+
+    // 从已 lex 的 token 流提取标识符去重集（零额外 lex）。
+    private static NameListZ _identsOf(Lexer lx) {
+        StrMap seen = new StrMap();
+        string[] items = new string[16];
+        int n = 0;
+        int i = 0;
+        while (i < lx.TokenCount()) {
+            Token t = lx.TokenAt(i);
+            if (t.Kind == TokenKind.Identifier && !seen.ContainsKey(t.Text)) {
+                seen.Put(t.Text, t);
+                if (n == items.Length) {
+                    string[] b = new string[items.Length * 2];
+                    int k = 0; while (k < n) { b[k] = items[k]; k = k + 1; }
+                    items = b;
+                }
+                items[n] = t.Text; n = n + 1;
+            }
+            i = i + 1;
+        }
+        return new NameListZ(items, n);
+    }
+
+    // 包内定义名集：类型名（class/struct/interface/record/enum）+ 自由函数名 +
+    // 成员名（方法/字段/枚举成员）。成员名入集是保守边的完备性关键——`var x = c.GetB();
+    // x.Method()` 型推断透传引用只在成员名上露头。
+    private static NameListZ _definedOf(CompilationUnit cu) {
+        string[] items = new string[16];
+        int n = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                n = IncrementalDriver._add(items, n, c.Name); items = IncrementalDriver._last;
+                int m = 0;
+                while (m < c.MemberCount) {
+                    Decl md = c.Members[m];
+                    if (md is AttributedDecl) { md = (md as AttributedDecl).Inner; }
+                    if (md is MethodDecl) { n = IncrementalDriver._add(items, n, (md as MethodDecl).Name); items = IncrementalDriver._last; }
+                    if (md is FieldDecl) { n = IncrementalDriver._add(items, n, (md as FieldDecl).Name); items = IncrementalDriver._last; }
+                    m = m + 1;
+                }
+            }
+            if (d is EnumDecl) {
+                EnumDecl e = d as EnumDecl;
+                n = IncrementalDriver._add(items, n, e.Name); items = IncrementalDriver._last;
+                int m = 0;
+                while (m < e.MemberCount) { n = IncrementalDriver._add(items, n, e.Members[m].Name); items = IncrementalDriver._last; m = m + 1; }
+            }
+            if (d is MethodDecl) { n = IncrementalDriver._add(items, n, (d as MethodDecl).Name); items = IncrementalDriver._last; }
+            i = i + 1;
+        }
+        return new NameListZ(items, n);
+    }
+
+    // 追加（扩容经 _last 旁路返回新数组；z42 无 ref 参）。
+    private static string[] _last = null;
+    private static int _add(string[] items, int n, string v) {
+        if (n == items.Length) {
+            string[] b = new string[items.Length * 2];
+            int k = 0; while (k < n) { b[k] = items[k]; k = k + 1; }
+            items = b;
+        }
+        items[n] = v;
+        IncrementalDriver._last = items;
+        return n + 1;
+    }
+}
+
+// int 装箱（StrMap value 用；z42 object 槽放原生 int 不便）。
+public sealed class IntBoxZ {
+    public int Value;
+    public IntBoxZ(int v) { this.Value = v; }
+}
+
+// 单文件 fullMode .zbc 落盘到 cache（自 Main.z42 迁入，500 行硬限；镜像 C# BuildTarget
+// 的 cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用。
+void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
+    // Normalize separators before stripping the projectDir prefix: on Windows `src`
+    // may use `\` while the prefix is built with `/`, so an un-normalized StartsWith
+    // fails → `rel` stays an absolute path (drive letter) → malformed zbcPath →
+    // File.WriteAllBytes "cannot find the path specified" (os error 3).
+    string rel = src.Replace("\\", "/");
+    string projFwd = projectDir.Replace("\\", "/");
+    string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
+    if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
+    if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
+    string zbcPath = Path.Join(cacheDir, rel + ".zbc");
+    string parent = Path.GetDirectoryName(zbcPath);
+    if (parent.Length > 0) { Directory.Create(parent); }
+    File.WriteAllBytes(zbcPath, ZbcWriter.Write(irm).ToBytes());
+}

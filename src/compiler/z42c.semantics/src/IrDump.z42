@@ -55,10 +55,9 @@ public static class IrDump {
         return IrDump._buildF(src, file);
     }
 
-    // 包级编译（PS-1）：全文件 parse → 全包合并收集 → 逐文件 typecheck/codegen（per-file IrModule）。
-    public static CompiledModuleZ[] BuildPackage(string[] srcs, string[] files, int count,
-                                                 DependencyIndex deps, ImportedSymbols imported,
-                                                 bool isRelease) {
+    // 全文件 parse（+ AttributeSynth 合成工厂）。增量路径先 parse 后闭包 → CU 复用进
+    // BuildPackageCus，避免二次 parse（add-file-level-incremental D2）。
+    public static CompilationUnit[] ParseAll(string[] srcs, string[] files, int count) {
         CompilationUnit[] cus = new CompilationUnit[count];
         int i = 0;
         while (i < count) {
@@ -66,6 +65,26 @@ public static class IrDump {
             cus[i] = AttributeSynth.Run(pp.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
             i = i + 1;
         }
+        return cus;
+    }
+
+    // 包级编译（PS-1）：全文件 parse → 全包合并收集 → 逐文件 typecheck/codegen（per-file IrModule）。
+    public static CompiledModuleZ[] BuildPackage(string[] srcs, string[] files, int count,
+                                                 DependencyIndex deps, ImportedSymbols imported,
+                                                 bool isRelease) {
+        return IrDump.BuildPackageCus(srcs, files, count, IrDump.ParseAll(srcs, files, count),
+                                      deps, imported, isRelease, null);
+    }
+
+    // 增量变体（add-file-level-incremental D2）：cachedModules[i] 非 null → 该文件跳过
+    // typecheck/codegen，IrModule 用 cache 读回件；符号收集 / allFuncs / classNs / classMap /
+    // TSIG（Exported）恒全包重算（每文件 TSIG 全包耦合——自由函数兄弟泄漏 + 全包 AST）。
+    // cached 的 UsedDepNs 是 typecheck 产物 → 由调用方从 cache meta 回填。
+    public static CompiledModuleZ[] BuildPackageCus(string[] srcs, string[] files, int count,
+                                                    CompilationUnit[] cus,
+                                                    DependencyIndex deps, ImportedSymbols imported,
+                                                    bool isRelease, IrModule[] cachedModules) {
+        int i = 0;
         SymbolTable symbols = new SymbolCollector().CollectAll(cus, count, imported);
         // G17b：同包跨-ns 类名解析图（跨-zpkg imported + 包内每个有 ns 的类 短名→声明 ns）。
         // is/as/static-get/ObjNew 引用兄弟 ns 的本地类时限定到声明 ns（镜像 C# ImportedClassNamespaces 含 using 引入的同包类）。
@@ -116,7 +135,16 @@ public static class IrDump {
         CompiledModuleZ[] r = new CompiledModuleZ[count];
         i = 0;
         while (i < count) {
-            r[i] = IrDump._compileCu(cus[i], symbols, deps, imported, classNs, localClasses, isRelease);
+            if (cachedModules != null && cachedModules[i] != null) {
+                // cached：typecheck/codegen 跳过；ns/usings 来自当前 AST/源（与 fresh 同源）。
+                string nsReal = cus[i].HasNamespace ? cus[i].Namespace : "";
+                string[] us = IrDump.ExtractUsings(srcs[i], files[i]);
+                r[i] = new CompiledModuleZ(cachedModules[i], nsReal, us, us.Length,
+                                           new string[0], 0, 0);
+                r[i].DiagMsgs = new string[0]; r[i].DiagCount = 0;
+            } else {
+                r[i] = IrDump._compileCu(cus[i], symbols, deps, imported, classNs, localClasses, isRelease);
+            }
             string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
             if (cus[i].HasNamespace) { ns2 = cus[i].Namespace; }
             r[i].Exported = ExportedTypeExtractor.ExtractP(cus[i], symbols, ns2, allFuncs, afc, pkgClassMap, classNs);
