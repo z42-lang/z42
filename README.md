@@ -16,18 +16,17 @@ a single language spanning ad-hoc scripts to embedded systems components:
 
 | | z42 |
 |---|-----|
-| **Productive by default** | C#-style syntax, static typing + inference, automatic GC — no ownership annotations, errors caught at compile time |
-| **Optimal on every axis** | Memory footprint, CPU efficiency, and startup latency are each optimized: compact bytecode and object layout, generational low-pause GC, cache-friendly interpreter dispatch, JIT hot paths competitive with C#/Java |
-| **Execution mode per workload** | One bytecode, three modes — interpretation (instant startup, small footprint), JIT (peak throughput), AOT (stable latency) — selectable per namespace |
-| **Native & embedding first-class** | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
-| **Iterate without restarting** | Hot patching designed in at every granularity: functions, types, and modules are GC-managed runtime objects, and superseded definitions are unloaded automatically; `eval()` for scripting scenarios |
+| **Productive** | C#-style syntax, static typing with inference, automatic GC — no ownership annotations |
+| **Fast on every axis** | Memory, CPU, and startup all optimized: compact bytecode and objects, low-pause generational GC, JIT competitive with C#/Java |
+| **Three execution modes** | Interpretation (instant startup), JIT (peak throughput), AOT (stable latency) — one bytecode, selectable per namespace |
+| **Native-first** | Embeddable Rust VM, zero-overhead `extern` FFI, C-compatible structs |
+| **Hot patching** | Functions, types, and modules are GC-managed objects — patch at any granularity, superseded definitions unload automatically; `eval()` for scripting |
 | **Concurrent** | GC-safe multithreading; structured async/await planned |
-| **Fits your project** | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
-| **Friendly to AI collaborators** | Syntax familiar to language models, compile-time errors as rapid feedback for AI agents, and a docs-as-code repository structured for human–AI collaboration |
+| **Customizable** | Per-project language rules — forbid features, require exhaustive matches |
+| **AI-friendly** | Familiar syntax, compile-time errors as agent feedback, docs-as-code repository |
 
-Performance goal: fast enough for production systems (game engines, servers, embedded)
-**without unsafe code** — see [`docs/design/philosophy.md`](docs/design/philosophy.md)
-for concrete targets and trade-offs.
+Performance goal: fast enough for production systems **without unsafe code** — targets and
+trade-offs in [`docs/design/philosophy.md`](docs/design/philosophy.md).
 
 ---
 
