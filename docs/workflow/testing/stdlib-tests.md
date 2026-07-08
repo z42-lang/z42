@@ -40,8 +40,6 @@ compile（直接 z42c.driver.zpkg）+ run（仿 VM golden 的 `_runVmBatch`）�
    runner 自身的 `--jobs` 不同（见上"并行"）。
 4. 按 stderr 内容分类 Pass / Skip / Fail
 
-详细设计见 [`docs/design/testing/testing.md`](../../design/testing/testing.md) "R 系列实施进度" 段。
-
 ## Runner 输出格式
 
 ```bash
