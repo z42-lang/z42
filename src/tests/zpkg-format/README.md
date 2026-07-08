@@ -10,7 +10,7 @@
 |---------|------|
 | `packed-minimal/`     | 单 class 单模块；packed mode 基础形态（META + STRS + NSPC + EXPT + DEPS + SIGS + MODS）|
 | `packed-multi-module/`| 多 .z42 → 同一 zpkg；MODS 多条目 + 共享 STRS pool |
-| `indexed-minimal/`    | 增量编译 cache form；FILE section 替代 MODS。**冻结**：z42c 自举重写未实现 indexed/FILE writer/reader（当前管线无消费方），该 fixture 保留 C# 时代 `minor=22` 旧字节、不随后续 minor bump regen，见 [self-hosting-future-indexed-zpkg](../../design/compiler/self-hosting.md#self-hosting-future-indexed-zpkg) |
+| `indexed-minimal/`    | indexed 模式（0.24 重定义，add-indexed-zpkg-min-patch）：主文件 = packed 段面去 MODS 加 FILE；配套散装 `source.zbc`（自包含 fullMode）供 VM indexed 装载测试（`loader_tests.rs::indexed_zpkg_*`）。冻结已解除，随 minor bump 正常 regen |
 | `sym-only-sidecar/`   | `FlagSymOnly` set；只含 META + STRS + MDBG + BLID（sym-only sidecar 形态）|
 
 > `packed-minimal` / `packed-multi-module` 只要 zpkg 内有 ≥1 个模块即触发 TSIG + IMPL section emit（`ZpkgWriterZ._buildSectionList`：`ExportedCount > 0` → secCount=9），故这两个 fixture 已天然覆盖 TSIG/IMPL 布局，不再需要单独的 `with-tsig` fixture。

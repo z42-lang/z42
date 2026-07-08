@@ -238,3 +238,40 @@ void test_read_source_hashes() {
     Assert.Equal("T", hs[0].Namespace);
     Assert.Equal(ZpkgBuilder.Sha256Hex(_src()), hs[0].SourceHash);
 }
+
+// ── indexed 主文件写→读往返（add-indexed-zpkg-min-patch）────────────────────
+
+[Test]
+void test_indexed_main_roundtrip() {
+    CompiledModuleZ cm = IrDump.BuildModuleD(_src(), "t.z42", null, null);
+    string[] exports = new string[cm.Module.FuncCount];
+    int e = 0;
+    while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
+    ZbcFileZ f = new ZbcFileZ("t.z42", ZpkgBuilder.Sha256Hex(_src()), "T",
+                              exports, cm.Module.FuncCount, cm.Module);
+    ZbcFileZ[] mods = new ZbcFileZ[1];
+    mods[0] = f;
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD("idxpkg", "0.1.0", false, false, "",
+                                           mods, 1, new ZpkgDepZ[0], 0);
+    ExportedModuleZ[] ex = new ExportedModuleZ[1];
+    ex[0] = IrDump.ExtractExports(_src(), "t.z42", "T");
+    z.Exported = ex;
+    z.ExportedCount = 1;
+    string[] hashes = new string[1]; hashes[0] = "deadbeefdeadbeefdeadbeefdeadbeef";
+    string[] rels = new string[1];   rels[0] = "t.z42";
+    byte[] main = ZpkgIndexedWriter.WriteIndexedMain(z, hashes, rels).ToBytes();
+    // flags：无 Packed 位（indexed）；读侧放行 + FILE 配对
+    ZpkgInfo zi = ZpkgReader.Open(main);
+    Assert.True(zi != null);
+    Assert.False(zi.Packed);
+    Assert.Equal("idxpkg", zi.Name);
+    Assert.True(zi.HasSection("FILE"));
+    Assert.False(zi.HasSection("MODS"));
+    ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(zi);
+    Assert.Equal(1, sigs.Length);
+    Assert.Equal("T", sigs[0].Namespace);
+    Assert.Equal(cm.Module.FuncCount, sigs[0].FuncCount);
+    ExportedModuleZ[] ts = ZpkgReader.ReadTsig(zi);
+    Assert.Equal(1, ts.Length);
+    Assert.Equal("T", ts[0].Namespace);
+}

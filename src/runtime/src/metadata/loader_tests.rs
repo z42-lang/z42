@@ -792,3 +792,57 @@ fn aggregate_zpkg_tidx_test_case_arg_repr_remap() {
     assert_eq!(result[0].test_cases.len(), 1);
     assert_eq!(result[0].test_cases[0].arg_repr_str_idx, 8);
 }
+
+// ── indexed zpkg load（add-indexed-zpkg-min-patch，zpkg 0.24）─────────────────
+
+/// committed fixture: indexed 主文件 + 散装自包含 zbc（src/tests/zpkg-format/indexed-minimal）。
+fn indexed_fixture_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/zpkg-format/indexed-minimal")
+}
+
+#[test]
+fn indexed_zpkg_loads_via_path() {
+    // 主文件 + source.zbc 拷到临时目录（fixture 目录保持只读语义）。
+    let base = std::env::temp_dir().join("z42-indexed-load-ok");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
+    std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
+
+    let art = crate::metadata::loader::load_artifact(
+        base.join("demo.indexed.zpkg").to_str().unwrap(),
+    )
+    .expect("indexed zpkg loads through the path-aware loader");
+    assert!(!art.module.functions.is_empty(), "scattered zbc functions merged");
+}
+
+#[test]
+fn indexed_zpkg_rejects_hash_mismatch() {
+    let base = std::env::temp_dir().join("z42-indexed-load-bad");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
+    let mut zbc = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
+    zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
+    std::fs::write(base.join("source.zbc"), zbc).unwrap();
+
+    let err = match crate::metadata::loader::load_artifact(
+        base.join("demo.indexed.zpkg").to_str().unwrap(),
+    ) {
+        Ok(_) => panic!("tampered scattered zbc must be rejected"),
+        Err(e) => e,
+    };
+    assert!(format!("{err:#}").contains("hash mismatch"), "error names the mismatch: {err:#}");
+}
+
+#[test]
+fn indexed_zpkg_bytes_only_load_is_rejected() {
+    // 字节 API（embedding）无包目录 → 明确拒绝而非静默。
+    let raw = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
+    let err = match crate::metadata::loader::load_artifact_from_bytes(&raw) {
+        Ok(_) => panic!("indexed from bytes alone must be rejected"),
+        Err(e) => e,
+    };
+    assert!(format!("{err:#}").contains("load it by path"), "{err:#}");
+}

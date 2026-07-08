@@ -36,12 +36,14 @@ public sealed class ZpkgInfo {
     public string        Version;
     public string        Entry;       // "" = lib
     public bool          IsExe;
+    public bool          Packed;      // false = indexed 主文件（FILE 目录，add-indexed-zpkg-min-patch）
     public string[]      Pool;        public int PoolCount;
     public ZpkgSection[] Sections;    public int SectionCount;
     public byte[]        Data;
-    public ZpkgInfo(string name, string version, string entry, bool isExe,
+    public ZpkgInfo(string name, string version, string entry, bool isExe, bool packed,
                     string[] pool, int poolCount, ZpkgSection[] sections, int sectionCount, byte[] data) {
         this.Name = name; this.Version = version; this.Entry = entry; this.IsExe = isExe;
+        this.Packed = packed;
         this.Pool = pool; this.PoolCount = poolCount;
         this.Sections = sections; this.SectionCount = sectionCount; this.Data = data;
     }
@@ -74,7 +76,10 @@ public static class ZpkgReader {
         var c = new ZpkgCursor(data, 8);
         int flags = c.U16();
         int secCount = c.U16();
-        if ((flags & 1) == 0) { return null; }   // 非 packed（indexed 不在消费面）
+        // indexed 主文件放行（add-indexed-zpkg-min-patch）：段面同 packed（MODS→FILE），
+        // 跨包消费面（NSPC/SIGS/TSIG/IMPL）同构可读。SymOnly sidecar 仍拒。
+        if ((flags & 4) != 0) { return null; }
+        bool packed = (flags & 1) != 0;
         bool isExe = (flags & 2) != 0;
         ZpkgSection[] secs = new ZpkgSection[secCount];
         c.Pos = 16;
@@ -121,7 +126,7 @@ public static class ZpkgReader {
             }
             i = i + 1;
         }
-        return new ZpkgInfo(name, version, entry, isExe, pool, poolCount, secs, secCount, data);
+        return new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
     }
 
     // NSPC → ns 名列表。
@@ -136,12 +141,13 @@ public static class ZpkgReader {
         return r;
     }
 
-    // SIGS + MODS 头 → 每模块 (ns, IrFunction 签名 stub 列表)。
+    // SIGS + MODS/FILE 头 → 每模块 (ns, IrFunction 签名 stub 列表)。
     // SIGS 条目布局 = zbc WriteSigEntries（名/арity/retTag/retIdx/exec/static/paramTypes/tp 块/attr 块）。
-    // MODS 只读头（ns/src/hash/fnCount/firstSigIdx）+ 按 len 跳过五个体。
+    // packed：MODS 只读头（ns/src/hash/fnCount/firstSigIdx）+ 按 len 跳过五个体；
+    // indexed：FILE 条目（同五字段 + zbcHash u32，无体）——配对逻辑同构。
     public static ZpkgModuleSigs[] ReadModuleSigs(ZpkgInfo z) {
         ZpkgSection sig = z.Section("SIGS");
-        ZpkgSection mods = z.Section("MODS");
+        ZpkgSection mods = z.Packed ? z.Section("MODS") : z.Section("FILE");
         if (sig == null || mods == null) { return new ZpkgModuleSigs[0]; }
         // 全量 SIGS 平铺
         var c = new ZpkgCursor(z.Data, sig.Offset);
@@ -183,7 +189,7 @@ public static class ZpkgReader {
                                     new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
             i = i + 1;
         }
-        // MODS 头切分
+        // MODS/FILE 头切分
         var m = new ZpkgCursor(z.Data, mods.Offset);
         int modCount = m.U32();
         ZpkgModuleSigs[] r = new ZpkgModuleSigs[modCount];
@@ -194,11 +200,15 @@ public static class ZpkgReader {
             m.U32();                            // hash
             int fnCount = m.U16();
             int firstSig = m.U32();
-            int k = 0;
-            while (k < 5) {                     // func/type/dbug/regt/tidx 五个 len+体
-                int len = m.U32();
-                m.Pos = m.Pos + len;
-                k = k + 1;
+            if (z.Packed) {
+                int k = 0;
+                while (k < 5) {                 // func/type/dbug/regt/tidx 五个 len+体
+                    int len = m.U32();
+                    m.Pos = m.Pos + len;
+                    k = k + 1;
+                }
+            } else {
+                m.U32();                        // FILE：zbcHash idx（消费面不需要）
             }
             IrFunction[] fns = new IrFunction[fnCount];
             int j = 0;

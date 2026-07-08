@@ -17,8 +17,9 @@ use super::test_index::TestEntry;
 use super::name_index::NameIndex;
 use super::types::{FieldSlot, TypeDesc};
 use super::zbc_reader::{
-    parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id, read_test_index_resolved, read_zbc,
-    read_zpkg_meta, read_zpkg_modules, read_zpkg_namespaces,
+    parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id, read_directory_pub,
+    read_test_index_resolved, read_zbc, read_zpkg_file_entries, read_zpkg_meta,
+    read_zpkg_modules, read_zpkg_namespaces,
 };
 
 /// Result of loading a compiler artifact.
@@ -182,6 +183,17 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
     let raw = std::fs::read(path).with_context(|| format!("cannot read `{path}`"))?;
 
+    // add-indexed-zpkg-min-patch (zpkg 0.24): indexed main file (flags bit0
+    // clear, not a SymOnly sidecar) → load scattered self-contained zbc via
+    // the FILE directory. Path-aware only (needs the package directory).
+    if raw.len() >= 10 {
+        let flags = u16::from_le_bytes([raw[8], raw[9]]);
+        if (flags & 0x01) == 0 && (flags & 0x04) == 0 {
+            return load_zpkg_indexed(path, &raw)
+                .with_context(|| format!("cannot load indexed zpkg `{path}`"));
+        }
+    }
+
     // 1.5b split-debug-symbols: probe `<basename>.zsym` adjacent to the main
     // .zpkg and merge per-module debug info into the loaded modules when
     // build_id matches. We do this before merge_modules so that line tables
@@ -191,6 +203,65 @@ fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
 
     load_zpkg_bytes_with_sidecar(&raw, sidecar_raw.as_deref(), Some(&sidecar_path))
         .with_context(|| format!("cannot parse zpkg `{path}`"))
+}
+
+/// Indexed zpkg load (add-indexed-zpkg-min-patch): read the FILE directory,
+/// load each scattered `<stem>.zbc` (self-contained fullMode) relative to the
+/// main file's directory, verify its BLAKE3-128 content hash against the
+/// index, then run the same aggregation pipeline as packed. No `.zsym`
+/// pairing — indexed is dev-mode (DBUG inline in each scattered zbc).
+fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
+    let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
+    let entries = read_zpkg_file_entries(raw).context("cannot read indexed FILE directory")?;
+    let base = Path::new(path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let mut module_triples = Vec::with_capacity(entries.len());
+    for e in &entries {
+        let stem = e.rel.strip_suffix(".z42").unwrap_or(&e.rel);
+        let zbc_path = base.join(format!("{stem}.zbc"));
+        let bytes = std::fs::read(&zbc_path).with_context(|| {
+            format!("indexed zpkg: cannot read scattered zbc `{}`", zbc_path.display())
+        })?;
+        // plain BLAKE3-128（区别于 build_id::compute 的"尾 16B 清零"BLID 语义——
+        // 那是给自含 BLID 段的文件用的；散装 zbc 是内容原样哈希）。
+        let got = hex_lower(&blake3::hash(&bytes).as_bytes()[..16]);
+        if got != e.zbc_hash {
+            bail!(
+                "indexed zpkg: `{}` content hash mismatch (index has {}, file is {}) — \
+                 scattered zbc out of sync with the main index; rebuild the package",
+                zbc_path.display(), e.zbc_hash, got
+            );
+        }
+        let module = read_zbc(&bytes)
+            .with_context(|| format!("decoding scattered zbc `{}`", zbc_path.display()))?;
+        let tidx = zbc_tidx_bytes(&bytes)?;
+        module_triples.push((module, e.namespace.clone(), tidx));
+    }
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
+}
+
+/// Verbatim TIDX section payload of a standalone zbc (empty when absent) —
+/// feeds the same per-module TIDX aggregation as packed MODS bodies.
+fn zbc_tidx_bytes(data: &[u8]) -> Result<Vec<u8>> {
+    if data.len() < 12 {
+        return Ok(Vec::new());
+    }
+    let sec_count = u16::from_le_bytes([data[10], data[11]]);
+    let dir = read_directory_pub(data, sec_count)?;
+    Ok(dir
+        .get(b"TIDX")
+        .map(|&(off, len)| data[off..off + len].to_vec())
+        .unwrap_or_default())
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 fn load_zpkg_bytes_with_sidecar(
@@ -217,6 +288,18 @@ fn load_zpkg_bytes_with_sidecar(
     // offsets that remap `method_id` and `*_str_idx` into the merged
     // module's index space. Empty `tidx_bytes` (modules with no [Test])
     // contribute zero entries but still bump the offset counters.
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
+}
+
+/// Shared tail of every zpkg load path (packed by path / packed by bytes /
+/// indexed): TIDX aggregation → merge → registries/indices → test-string
+/// resolution. Extracted by add-indexed-zpkg-min-patch so indexed reuses the
+/// exact packed pipeline (zero divergence after module_triples).
+fn assemble_zpkg_artifact(
+    entry_hint: Option<String>,
+    dependencies: Vec<ZpkgDep>,
+    module_triples: Vec<(Module, String, Vec<u8>)>,
+) -> Result<LoadedArtifact> {
     let aggregated_test_index =
         aggregate_zpkg_test_index(&module_triples).context("aggregating zpkg TIDX entries")?;
 
@@ -239,8 +322,8 @@ fn load_zpkg_bytes_with_sidecar(
 
     Ok(LoadedArtifact {
         module,
-        entry_hint: meta.entry,
-        dependencies: meta.dependencies,
+        entry_hint,
+        dependencies,
         import_namespaces: vec![],
         test_index,
     })
@@ -355,34 +438,7 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
     let module_triples = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
-
-    // aggregate-zpkg-tidx (2026-06-06): same aggregation as load_zpkg
-    // (the sidecar-aware variant); kept inline because this path has no
-    // sidecar to merge first. See the docs on `aggregate_zpkg_test_index`
-    // for the cumulative-offset semantics.
-    let aggregated_test_index =
-        aggregate_zpkg_test_index(&module_triples).context("aggregating zpkg TIDX entries")?;
-
-    let modules: Vec<Module> = module_triples.into_iter().map(|(m, _, _)| m).collect();
-    let mut module = merge_modules(modules).context("merging zpkg modules")?;
-
-    // interned_strings: populated inside merge_modules.
-    build_type_registry(&mut module);
-    verify_constraints(&module)
-        .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
-    build_block_indices(&mut module);
-    build_func_index(&mut module);
-
-    let mut test_index = aggregated_test_index;
-    super::test_index::resolve_test_index_strings(&mut test_index, &module.string_pool);
-
-    Ok(LoadedArtifact {
-        module,
-        entry_hint: meta.entry,
-        dependencies: meta.dependencies,
-        import_namespaces: vec![],
-        test_index,
-    })
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
 }
 
 // ── Namespace resolution ──────────────────────────────────────────────────────

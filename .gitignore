@@ -46,6 +46,12 @@ Thumbs.db
 *.zbc
 *.zlib
 *.zmod
+
+# 例外：zpkg-format / zbc-format fixture 目录是 checked-in 字节基线（非构建产物），
+# 其 source.zbc/source.zpkg 必须入库供 Rust reader 兼容测试（add-indexed-zpkg-min-patch
+# 的 indexed-minimal/source.zbc 是散装 zbc 装载测试夹具）。
+!src/tests/zpkg-format/**/source.zbc
+!src/tests/zbc-format/**/source.zbc
 *.zasm
 *.z42ir.json
 dist/

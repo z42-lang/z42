@@ -124,14 +124,28 @@ Packed mode 的核心优化：所有模块共享同一 STRS pool，跨模块重�
 )
 ```
 
-#### FILE — 文件路径（仅 indexed mode）
+#### FILE — 散装 zbc 目录（仅 indexed mode；0.24 重定义，add-indexed-zpkg-min-patch）
 
-替代 MODS：每条目指向磁盘上的 `.zbc` 文件路径。
+替代 MODS：每条目描述一个磁盘散装 `.zbc`（自包含 fullMode，位于主文件同目录、
+按源 rel 结构镜像：`<rel 去 .z42>.zbc`）。头五字段镜像 MODS 头（SIGS firstSig 配对
+在 indexed 上同构成立）；`zbc_hash` = 散装文件内容的 BLAKE3-128 hex（装载时校验，
+不符即报错——增量分发的一致性守门）。
 
 ```
 [4]   count
-( N × [4]: path_str_idx + [4]: namespace_str_idx )
+( N ×
+    [4] ns_str_idx
+    [4] src_rel_str_idx      ; 项目相对源路径（.z42，fwd-slash）——装载定位键
+    [4] src_hash_str_idx     ; 源文本 SHA-256 hex
+    [2] fn_count
+    [4] first_sig_idx        ; SIGS 平铺配对（同 MODS 头）
+    [4] zbc_hash_str_idx     ; 散装 .zbc 内容 BLAKE3-128 hex
+)
 ```
+
+主文件其余段（META/STRS/NSPC/EXPT/DEPS/SIGS/TSIG/IMPL）与 packed 完全同构——跨包
+消费方（DepScan 签名/TSIG）零改动读 indexed lib。散装 zbc 自带文件局部 STRS 池 →
+未改动源文件的散装 zbc **逐字节稳定**（最小 patch：更新 = 主文件 + 变更 zbc 子集）。
 
 #### TSIG — 跨包类型签名
 
@@ -161,15 +175,20 @@ Packed mode 的核心优化：所有模块共享同一 STRS pool，跨模块重�
 
 ## Packed vs Indexed mode
 
-| 维度 | Packed | Indexed |
+| 维度 | Packed | Indexed（0.24 起实装）|
 |------|--------|---------|
-| 用途 | 默认分发 / stdlib / runtime 加载 | 增量编译 cache（`.cache/`）|
-| MODS section | 含；模块字节嵌入 | 缺 |
-| FILE section | 缺 | 含；指向独立 .zbc |
-| 模块加载 | 直接解 MODS bytes | 按 FILE 索引读 .zbc |
-| 跨模块 STRS pool | 是 | 否（每个 .zbc 独立 STRS）|
+| 用途 | 发布分发 / stdlib / release 构建 | 开发态构建（debug 默认）；最小 patch 分发 |
+| 产物 | 单文件 `<name>.zpkg`（+release `.zsym`）| 主 `<name>.zpkg` + 每源一个散装 `.zbc` |
+| MODS section | 含；模块字节嵌入 | 缺（FILE 替代）|
+| FILE section | 缺 | 含；散装 zbc 目录 + 内容 hash |
+| 模块加载 | 直接解 MODS bytes | 按 FILE 逐 `.zbc` 装载（hash 校验）|
+| 跨模块 STRS pool | 是（全局池）| 主文件元串池；每 `.zbc` 独立局部池 |
+| strip/.zsym | release 支持 | 不支持（`pack=false ∧ --release` 报错；DBUG 内嵌散装 zbc）|
+| 增量重写面 | 任一变更整包重写 | 仅变更 zbc + 主文件（未变 zbc 字节/mtime 不动）|
 
-切换：`ZpkgFile.Mode = ZpkgMode.Packed | ZpkgMode.Indexed`；`ZpkgWriter.Write` 内部按 mode 走 `WritePacked` / `WriteIndexed`。
+切换：`[project].pack`（z42c 已消费）+ 内置默认 debug→indexed / release→packed；
+writer 分别走 `ZpkgWriterZ.WritePackedWithSidecar` / `ZpkgIndexedWriter.WriteIndexedMain`。
+装载：VM 仅支持**按路径**装载 indexed（散装 zbc 需包目录）；字节 API（embedding）明确拒绝。
 
 ## Sym-only sidecar（`.zsym`）
 
@@ -185,7 +204,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 
 **Strict-pin 政策**：reader 仅接受 `major == ZpkgWriter.VersionMajor && minor == ZpkgWriter.VersionMinor`。pre-1.0 z42 阶段不为旧 zpkg minor 提供兼容；每次 minor bump = 所有现存 zpkg artifacts 必须 regen（`./xtask build stdlib`）。
 
-- **当前版本**：`major=0, minor=23`（详见下方 Minor changelog）
+- **当前版本**：`major=0, minor=24`（详见下方 Minor changelog）
 - **触发 minor bump** 的事项：新增 section id / 已定义 section 字段语义变化 / **任意 zbc minor bump（强耦合）**
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header layout / 改 section directory 12B 条目格式 / 弃用 packed 或 indexed 模式之一
 - **zbc inner 与 zpkg outer minor 强耦合**：zbc minor 任意 bump → zpkg minor 必须同步 +1。历史唯一例外是 zbc 1.4 → 1.5（漏 bump），freeze-zpkg-v0 通过 0.5 → 0.6 catch-up 修正。
@@ -217,6 +236,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.21 | 2026-06-16 | [add-reflection-interface-class-predicates](../../spec/changes/add-reflection-interface-class-predicates/) | inner zbc 1.19（interface emit 最小 TYPE 条目；class_flags bit4 = interface）。zpkg outer 无新字段，纯 minor bump 跟随 zbc 强耦合规则 |
 | 0.22 | 2026-06-16 | [add-reflection-assignable-from](../../spec/changes/add-reflection-assignable-from/) | inner zbc 1.20（TYPE section 接口块存 FQ 名）。zpkg outer 无新字段，纯 minor bump 跟随 zbc 强耦合规则 |
 | 0.23 | 2026-07-01 | [add-params-varargs](../../spec/changes/add-params-varargs/) | zpkg-only（inner zbc 不变）：TSIG 段每条 method/function 记录在既有 `paramCount: u8` 之后追加 `paramsFrom: u8`（0-based 变长形参索引；`0xFF` = 无变长形参），承载跨包 `params T[]` 签名信息 |
+| 0.24 | 2026-07-08 | add-indexed-zpkg-min-patch | zpkg-only（inner zbc 不变；packed 布局字节不变）：indexed 模式重定义——主文件 = packed 段面去 MODS 加 FILE（ns/src_rel/src_hash/fnCount/firstSig/zbc_hash），散装 `.zbc` 为自包含 fullMode（文件局部池，未变文件字节稳定 → 最小 patch）；VM 实装 indexed 按路径装载 + zbc 内容 hash 校验 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

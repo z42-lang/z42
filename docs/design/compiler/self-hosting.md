@@ -310,7 +310,13 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 - **触发条件**：stdlib/用户码出现「子类继承其它包默认参数方法并 re-export」且该方法被第三包省略默认实参调用时（当前 stdlib 未触发，full gate 绿）。
 - **当前 workaround**：此类继承方法在 TSIG 中标全必填；调用方需显式传全部实参（或在定义类直接覆写）。
 
-### self-hosting-future-indexed-zpkg
+### ~~self-hosting-future-indexed-zpkg~~（✅ 已解决 2026-07-08，add-indexed-zpkg-min-patch）
+
+> indexed/FILE 模式已按重定义布局实装（zpkg 0.24）：主文件 FILE 目录 + 自包含散装
+> fullMode zbc + 内容 hash 校验；z42c writer/reader + VM 装载 + fixture 全部落地，
+> `indexed-minimal` fixture 解除 minor=22 搁浅。以下为历史记录：
+
+#### 原条目（历史）
 
 - **来源**：add-params-varargs 5.6（2026-07-01 regen zpkg-format fixture 时发现代码级延后未记录）
 - **触发原因**：`z42c.project` 的 `ZpkgWriter.z42`/`ZpkgReader.z42` 自举重写时未实现 indexed/FILE（增量编译 cache）模式（源码内联注释"延后：indexed/FILE"/"indexed 不在消费面"已如此声明，但从未补记到 design doc）；当前 `z42c.pipeline`（`WorkspaceBuild.z42`/`PipelineSkeleton.z42`）没有任何路径读写 indexed zpkg，Rust `zbc_reader.rs` 对 indexed zpkg 也是显式 `bail!`（"indexed zpkg cannot be loaded directly by the VM"）。

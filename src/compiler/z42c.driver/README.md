@@ -7,12 +7,14 @@
 | 文件 | 职责 |
 |------|------|
 | `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_build`（`namespace Z42.Driver`）|
+| `src/IndexedDist.z42` | indexed dist 投影（add-indexed-zpkg-min-patch）：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
+| `src/BuildPaths.z42` | dist/cache 级联解析 + pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）|
 | `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc` |
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。
 用法：`z42c --dump-tokens|--dump-ast|--dump-bound <file.z42>` / `z42c --emit-zbc <file.z42> <out.zbc>` /
-`z42c build <project.z42.toml> [--release] [--no-incremental]` / `z42c build --workspace [--output-dir <d>]`。
+`z42c build <project.z42.toml> [--release] [--no-incremental]`（`[project].pack` 决议 packed/indexed：debug 默认 indexed——散装 zbc + FILE 主文件，`pack=false ∧ --release` 报错） / `z42c build --workspace [--output-dir <d>]`。
 
 ## 增量编译（文件级，add-file-level-incremental 2026-07-08）
 单工程 `build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，

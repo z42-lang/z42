@@ -1,0 +1,76 @@
+// 构建路径解析（dist/cache 级联 + pack 模式守卫；自 Main.z42 拆出守 500 行硬限）。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Project;
+
+// dist 主文件的 pack 模式位（header flags bit0）是否与本次 pack 决议一致。
+// 读不出（缺文件/太短）按不一致处理 → 走重投影。
+bool _distModeMatches(string zpkgPath, bool isPacked) {
+    try {
+        byte[] d = File.ReadAllBytes(zpkgPath);
+        if (d.Length < 10) { return false; }
+        int flags = (int)d[8] | (((int)d[9]) << 8);
+        bool filePacked = (flags & 1) != 0;
+        return filePacked == isPacked;
+    } catch (Exception e) {
+        return false;
+    }
+}
+
+// 解析 cache 目录（port-incremental-build-cache）。级联镜像 _resolveDistDir：
+//   cache_dir = build.cache_dir ?? "${output_dir}/.cache"（模板同基准）
+// 无任何 [build] 配置 → 历史默认基准 `<projectDir>/.cache`（与 <projectDir>/dist 对仗）。
+string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
+    if (!pm.HasOutputDir && !pm.HasDistDir && !pm.HasCacheDir) {
+        return Path.Join(projectDir, ".cache");
+    }
+    string profile = isRelease ? "release" : "debug";
+    string absProj = Path.IsRooted(projectDir) ? projectDir
+        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Name, profile, "");
+    string outputRaw = pm.HasOutputDir ? pm.OutputDir : "${workspace_dir}/artifacts/${profile}";
+    string outputExp = PathTemplate.Expand(outputRaw, octx);
+    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
+    TemplateContext cctx = new TemplateContext(absProj, absProj, pm.Name, profile, outputAbs);
+    string cacheRaw = pm.HasCacheDir ? pm.CacheDir : "${output_dir}/.cache";
+    string cacheExp = PathTemplate.Expand(cacheRaw, cctx);
+    return Path.IsRooted(cacheExp) ? cacheExp : Path.Join(absProj, cacheExp);
+}
+
+// _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
+
+// 解析无 --output-dir override 时的有效 dist 目录。
+//
+// 当 toml **显式**设 [build].output_dir 或 dist_dir 时，按 C#
+// CentralizedBuildLayout.ResolveSingleProject 级联解析（workloads / launcher /
+// xtask / 测试单元靠它把产物重定向到镜像目录）：
+//   output_dir = build.output_dir ?? "${workspace_dir}/artifacts/${profile}"
+//   dist_dir   = build.dist_dir   ?? "${output_dir}/dist"
+// 单工程模式 ${workspace_dir} = projectDir（toml 所在目录）。projectDir 先转绝对，
+// 使 ${output_dir} 替换后保持 rooted（避免相对 dist 模板被二次 Join 重复前缀）。
+//
+// 当 toml **没有** [build] output_dir/dist_dir 时，保留 z42c 历史默认
+// `<projectDir>/dist`：大量内部调用方（e2e / 临时工程 build 后读 <dir>/dist）硬编码
+// 该路径。此处刻意不切到 C# 的 artifacts/<profile>/dist 默认——那会破坏这些调用方，
+// 且无调用方依赖「经 z42c 得到 C# 默认路径」。本函数的目的只是兑现*显式*配置。
+string _resolveDistDir(ProjectManifest pm, string projectDir, bool isRelease) {
+    if (!pm.HasOutputDir && !pm.HasDistDir) {
+        return Path.Join(projectDir, "dist");
+    }
+    string profile = isRelease ? "release" : "debug";
+    string absProj = Path.IsRooted(projectDir) ? projectDir
+        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+    // output_dir
+    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Name, profile, "");
+    string outputRaw = pm.HasOutputDir ? pm.OutputDir : "${workspace_dir}/artifacts/${profile}";
+    string outputExp = PathTemplate.Expand(outputRaw, octx);
+    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
+    // dist_dir（${output_dir} → outputAbs；rooted 直接透传）
+    TemplateContext dctx = new TemplateContext(absProj, absProj, pm.Name, profile, outputAbs);
+    string distRaw = pm.HasDistDir ? pm.DistDir : "${output_dir}/dist";
+    string distExp = PathTemplate.Expand(distRaw, dctx);
+    return Path.IsRooted(distExp) ? distExp : Path.Join(absProj, distExp);
+}
+

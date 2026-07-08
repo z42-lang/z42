@@ -1,13 +1,16 @@
-// xtask — `test incremental` 暴力对账器（add-file-level-incremental D4/D8 硬验收）。
+// xtask — `test incremental` 暴力对账器（add-file-level-incremental D4/D8 硬验收；
+// add-indexed-zpkg-min-patch 扩展为 dist 全文件对账）。
 // 对每个语料工程：全量基线 → 逐文件 append 注释 touch → 增量 build → 与同源态
-// `--no-incremental` 全量 build **逐字节比对** → 还原。任一不等即红并指名文件。
+// `--no-incremental` 全量 build 的 **dist 全部文件（主 zpkg + 散装 zbc）逐文件字节**
+// 比对 → 还原。任一不等即红并指名文件。语料 toml 无 pack → debug 默认 indexed，
+// 故最小 patch 面（散装 zbc 字节稳定）天然纳入对账。
 // 同时输出 D8 计时（增量 vs 全量墙钟，逐工程汇总）——「更快」是被测量的事实。
 //
 // 语料（实施期修订，见 change tasks 备注）：z42c 7 包经 --workspace 路径不落 cache
 // （且已有 gen1==gen2 不动点门禁），单工程语料取：
 //   ① demo —— 合成多特性工程（跨文件类引用/继承/接口/try·catch/switch/数组/闭包/静态），
 //      覆盖 label 残留（多块函数）与 import token 路径；
-//   ② xtask 自身 —— 40 文件真实工程（stdlib-only 依赖，单 Z42_LIBS 可解析）。
+//   ② xtask 自身 —— 40+ 文件真实工程（stdlib-only 依赖，单 Z42_LIBS 可解析）。
 // 运行于 artifacts/.scratch/incr-reconcile/（拷贝源，不动真实工程）。
 namespace Z42Xtask;
 
@@ -15,6 +18,7 @@ using Std;
 using Std.IO;
 using Std.Time;
 using Std.Cli;
+using Std.Crypto;
 
 int _testIncremental(ParseResult r) {
     Stopwatch sw = _procStart("test incremental");
@@ -35,7 +39,7 @@ int _testIncremental(ParseResult r) {
     rc = _reconcileProject(vm, driver, libs, _incrXtaskCopy(root, scratch), "xtask");
     if (rc != 0) { return rc; }
 
-    Console.WriteLine("\n✅ incremental reconciler: all files byte-identical (demo + xtask)");
+    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + xtask)");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -44,7 +48,6 @@ int _testIncremental(ParseResult r) {
 int _reconcileProject(string vm, string driver, string libs, string projDir, string label) {
     Console.WriteLine("\n── reconcile: " + label + " (" + projDir + ") ──");
     string toml = Path.Join(projDir, "t.z42.toml");
-    string zpkg = Path.Join(projDir, "dist/incrpkg.zpkg");
     string[] srcs = _sortedStrings(Path.GlobRecursive(projDir, "*.z42"));
     // 初始 build（填 cache）。
     if (_incrBuild(vm, driver, libs, toml, false) != 0) { ConsoleError.WriteLine("  ✗ initial build failed"); return 1; }
@@ -59,14 +62,15 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
         int c1 = _incrBuild(vm, driver, libs, toml, false);
         incrMs = incrMs + ti.Elapsed().TotalMilliseconds();
         if (c1 != 0) { ConsoleError.WriteLine("  ✗ incr build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
-        byte[] incr = File.ReadAllBytes(zpkg);
+        DistSnapZ snapA = _distSnapshot(projDir);
         Stopwatch tf = Stopwatch.StartNew();
         int c2 = _incrBuild(vm, driver, libs, toml, true);
         fullMs = fullMs + tf.Elapsed().TotalMilliseconds();
         if (c2 != 0) { ConsoleError.WriteLine("  ✗ full build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
-        byte[] full = File.ReadAllBytes(zpkg);
-        if (!_bytesEq(incr, full)) {
-            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after touching " + f);
+        DistSnapZ snapB = _distSnapshot(projDir);
+        string mism = _snapshotDiff(snapA, snapB);
+        if (mism.Length > 0) {
+            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after touching " + f + " (" + mism + ")");
             File.WriteAllText(f, orig);
             return 1;
         }
@@ -74,7 +78,7 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
         i = i + 1;
     }
     Console.WriteLine("  ✓ " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
-        + " files byte-identical; wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
+        + " files byte-identical (whole dist); wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
         + "ms (D8: per-touch avg " + (incrMs / (double)srcs.Length).ToString() + "ms vs "
         + (fullMs / (double)srcs.Length).ToString() + "ms)");
     return 0;
@@ -86,14 +90,57 @@ int _incrBuild(string vm, string driver, string libs, string toml, bool noIncrem
     return p.Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
 }
 
-bool _bytesEq(byte[] a, byte[] b) {
-    if (a.Length != b.Length) { return false; }
+// ── dist 快照（rel 排序列表 + blake3-128 指纹并行数组；z42 无交错 byte[][]）────────
+
+public sealed class DistSnapZ {
+    public string[] Rels;
+    public string[] Hashes;
+    public int      N;
+    public DistSnapZ(string[] rels, string[] hashes, int n) {
+        this.Rels = rels; this.Hashes = hashes; this.N = n;
+    }
+}
+
+DistSnapZ _distSnapshot(string projDir) {
+    string dist = Path.Join(projDir, "dist");
+    string[] a = Path.GlobRecursive(dist, "*.zpkg");
+    string[] b = Path.GlobRecursive(dist, "*.zbc");
+    string[] all = new string[a.Length + b.Length];
     int i = 0;
-    while (i < a.Length) {
-        if ((int)a[i] != (int)b[i]) { return false; }
+    while (i < a.Length) { all[i] = a[i]; i = i + 1; }
+    int j = 0;
+    while (j < b.Length) { all[a.Length + j] = b[j]; j = j + 1; }
+    all = _sortedStrings(all);
+    string[] hs = new string[all.Length];
+    i = 0;
+    while (i < all.Length) { hs[i] = _blakeHexOf(all[i]); i = i + 1; }
+    return new DistSnapZ(all, hs, all.Length);
+}
+
+string _blakeHexOf(string path) {
+    byte[] bts = File.ReadAllBytes(path);
+    byte[] h = Blake3.HashLen(bts, 16);
+    string ds = "0123456789abcdef";
+    string r = "";
+    int i = 0;
+    while (i < h.Length) {
+        int v = (int)h[i];
+        r = r + ds.Substring((v >> 4) & 0xF, 1) + ds.Substring(v & 0xF, 1);
         i = i + 1;
     }
-    return true;
+    return r;
+}
+
+// 逐文件（rel 与指纹）比较；返回首个不一致描述（"" = 全等）。
+string _snapshotDiff(DistSnapZ a, DistSnapZ b) {
+    if (a.N != b.N) { return "file count " + a.N.ToString() + " vs " + b.N.ToString(); }
+    int i = 0;
+    while (i < a.N) {
+        if (a.Rels[i] != b.Rels[i]) { return "file set differs: " + a.Rels[i] + " vs " + b.Rels[i]; }
+        if (a.Hashes[i] != b.Hashes[i]) { return "bytes differ: " + a.Rels[i]; }
+        i = i + 1;
+    }
+    return "";
 }
 
 // 合成 demo 工程：跨文件引用链 + 多块函数（if/switch/try）+ 接口/继承/静态/数组。
@@ -147,7 +194,7 @@ string _incrDemoDir(string scratch) {
     return d;
 }
 
-// 拷贝 xtask 源（真实 40 文件工程）到 scratch，替换独立 toml（dist 落本地，不动真品）。
+// 拷贝 xtask 源（真实 40+ 文件工程）到 scratch，替换独立 toml（dist 落本地，不动真品）。
 string _incrXtaskCopy(string root, string scratch) {
     string d = Path.Join(scratch, "xtask");
     Directory.Create(d);

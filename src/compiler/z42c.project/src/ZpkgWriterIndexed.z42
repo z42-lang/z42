@@ -1,0 +1,143 @@
+// indexed 主文件写入器（add-indexed-zpkg-min-patch）。与 packed 写入器（ZpkgWriterZ）
+// 同 minor 版本；共享段构建助手（_buildMeta/_buildNspc/…/_assemble，均在 ZpkgWriter.z42）。
+// 拆独立文件守 500 行硬限（code-organization）。
+namespace Z42.Project;
+
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+public static class ZpkgIndexedWriter {
+    // ── indexed 主文件（add-indexed-zpkg-min-patch，开发态 debug-only）────────────
+    // 段面 = packed 去 MODS 加 FILE（段序：META STRS NSPC EXPT DEPS SIGS FILE [TSIG IMPL]）。
+    // 无 BLID / sidecar（与 debug packed 同款——release strip × indexed 由 driver 拦截）。
+    // FILE 条目镜像 MODS 头（ns/src/srcHash/fnCount/firstSig）+ 散装 zbc 内容 hash
+    //（SHA-256 hex，装载时校验散装文件与主文件一致）。zbcHashes[i] 与 Modules[i] 对齐。
+    // 散装 zbc 自包含（fullMode，文件局部池）→ 主文件池只含元串 + TSIG + SIGS 串，
+    // 不做 InternPoolStrings（这正是「未变文件 zbc 字节不动」的格式前提）。
+    // srcRels[i] = 项目相对源路径（.z42，fwd-slash）——FILE 的装载定位键（散装 zbc 在 dist
+    // 的布局 = 同 rel 去 .z42 加 .zbc）。注意与 MODS 的 SourceFile（原样路径，byte-parity
+    // 语义）用途不同，故显式传入。
+    public static ByteWriter WriteIndexedMain(ZpkgFileZ zpkg, string[] zbcHashes, string[] srcRels) {
+        var pool = new ZbcStringPool();
+        // intern 序与 packed _buildSectionList 一致：namespaces → exports → deps → TSIG
+        int i = 0;
+        while (i < zpkg.NsCount) { pool.Intern(zpkg.Namespaces[i]); i = i + 1; }
+        i = 0;
+        while (i < zpkg.ExportCount) { pool.Intern(zpkg.Exports[i].Symbol); i = i + 1; }
+        i = 0;
+        while (i < zpkg.DepCount) {
+            pool.Intern(zpkg.Deps[i].File);
+            int j = 0;
+            while (j < zpkg.Deps[i].NsCount) { pool.Intern(zpkg.Deps[i].Namespaces[j]); j = j + 1; }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < zpkg.ExportedCount) { ZpkgWriterZ._internTsig(pool, zpkg.Exported[i]); i = i + 1; }
+        // SIGS 串（packed 靠 InternPoolStrings 顺带入池；indexed 无 MODS 体 → 显式入池）
+        ZpkgIndexedWriter._internSigStrings(zpkg, pool);
+        // FILE 串（镜像 MODS 头序 ns → src → hash，再 zbc 内容 hash）
+        int mi = 0;
+        while (mi < zpkg.ModuleCount) {
+            ZbcFileZ m = zpkg.Modules[mi];
+            pool.Intern(m.Namespace);
+            pool.Intern(srcRels[mi]);
+            pool.Intern(m.SourceHash);
+            pool.Intern(zbcHashes[mi]);
+            mi = mi + 1;
+        }
+
+        var meta = ZpkgWriterZ._buildMeta(zpkg);
+        var strs = ZbcWriter.BuildStrs(pool);
+        var nspc = ZpkgWriterZ._buildNspc(zpkg, pool);
+        var expt = ZpkgWriterZ._buildExpt(zpkg, pool);
+        var deps = ZpkgWriterZ._buildDeps(zpkg, pool);
+        var sigs = ZpkgWriterZ._buildSigs(zpkg, pool);
+        var file = ZpkgIndexedWriter._buildFile(zpkg, pool, zbcHashes, srcRels);
+
+        int secCount = 7;
+        if (zpkg.ExportedCount > 0) { secCount = 9; }
+        string[]     tags  = new string[secCount];
+        ByteWriter[] datas = new ByteWriter[secCount];
+        tags[0] = "META"; datas[0] = meta;
+        tags[1] = "STRS"; datas[1] = strs;
+        tags[2] = "NSPC"; datas[2] = nspc;
+        tags[3] = "EXPT"; datas[3] = expt;
+        tags[4] = "DEPS"; datas[4] = deps;
+        tags[5] = "SIGS"; datas[5] = sigs;
+        tags[6] = "FILE"; datas[6] = file;
+        if (secCount == 9) {
+            tags[7] = "TSIG"; datas[7] = ZpkgWriterZ._buildTsig(zpkg, pool);
+            tags[8] = "IMPL"; datas[8] = ZpkgWriterZ._buildImpl(zpkg, pool);
+        }
+        int flags = 0;                            // 无 FlagPacked = indexed
+        if (zpkg.IsExe) { flags = flags | 2; }    // FlagExe
+        return ZpkgWriterZ._assemble(tags, datas, secCount, flags);
+    }
+
+    // SIGS 串显式入池——**镜像 ZbcWriter.WriteSigEntries 的 Idx 读取面**（同序：名/RetType/
+    // 参数类型（缺省 "?"）/函数 attr 对/参数 attr 对）。WriteSigEntries 加新串字段时此处必须
+    // 同步（漂移会写出 idx=-1 → 读侧越界，往返单测即炸——tripwire）。
+    private static void _internSigStrings(ZpkgFileZ zpkg, ZbcStringPool pool) {
+        int mi = 0;
+        while (mi < zpkg.ModuleCount) {
+            IrModule m = zpkg.Modules[mi].Module;
+            int fi = 0;
+            while (fi < m.FuncCount) {
+                IrFunction f = m.Functions[fi];
+                pool.Intern(f.Name);
+                pool.Intern(f.RetType);
+                int p = 0;
+                while (p < f.ParamCount) {
+                    string pt = "?";
+                    if (p < f.ParamTypeCount) { pt = f.ParamTypes[p]; }
+                    pool.Intern(pt);
+                    p = p + 1;
+                }
+                int a = 0;
+                while (a < f.AttrCount) {
+                    pool.Intern(f.Attrs[a].TypeName);
+                    pool.Intern(f.Attrs[a].FactoryFunc);
+                    a = a + 1;
+                }
+                int pa = 0;
+                while (pa < f.ParamCount) {
+                    if (pa < f.ParamAttrsLen) {
+                        IrAttrRefList pl = f.ParamAttrs[pa];
+                        int pj = 0;
+                        while (pj < pl.Count) {
+                            pool.Intern(pl.Items[pj].TypeName);
+                            pool.Intern(pl.Items[pj].FactoryFunc);
+                            pj = pj + 1;
+                        }
+                    }
+                    pa = pa + 1;
+                }
+                fi = fi + 1;
+            }
+            mi = mi + 1;
+        }
+    }
+
+    // FILE：u32 count + 每条{ns idx u32, src idx u32, srcHash idx u32, fnCount u16,
+    //        firstSigIdx u32, zbcHash idx u32}。头五项镜像 MODS 头（ReadModuleSigs 的
+    //        SIGS 配对在 indexed 上同构成立），zbcHash 为散装文件一致性校验。
+    private static ByteWriter _buildFile(ZpkgFileZ zpkg, ZbcStringPool pool, string[] zbcHashes, string[] srcRels) {
+        var w = new ByteWriter();
+        w.WriteU32(zpkg.ModuleCount);
+        int firstSigIdx = 0;
+        int mi = 0;
+        while (mi < zpkg.ModuleCount) {
+            ZbcFileZ m = zpkg.Modules[mi];
+            w.WriteU32(pool.Idx(m.Namespace));
+            w.WriteU32(pool.Idx(srcRels[mi]));
+            w.WriteU32(pool.Idx(m.SourceHash));
+            w.WriteU16(m.Module.FuncCount);
+            w.WriteU32(firstSigIdx);
+            w.WriteU32(pool.Idx(zbcHashes[mi]));
+            firstSigIdx = firstSigIdx + m.Module.FuncCount;
+            mi = mi + 1;
+        }
+        return w;
+    }
+
+}

@@ -312,9 +312,14 @@ dist_dir   = "/c"
 
 | pack 值 | strip 值 | 产物 | 说明 |
 |---------|---------|------|------|
-| `false` | `false` | `dist/<name>.zpkg` (indexed) + `.cache/*.zbc` | 开发态，DBUG 内嵌 |
+| `false` | `false` | `dist/<name>.zpkg`（indexed 主文件）+ `dist/<rel>.zbc` 散装 + `.cache/` | 开发态（debug 默认），DBUG 内嵌散装 zbc；未变文件 zbc 字节稳定 → 最小 patch（add-indexed-zpkg-min-patch，zpkg 0.24 实装）|
+| `false` | `true`  | ——（构建报错）| indexed 为开发态，与 `--release` strip 不兼容 |
 | `true`  | `false` | `dist/<name>.zpkg` (packed)                  | 发布态，DBUG 内嵌（便于现场 debug）|
 | `true`  | `true`  | `dist/<name>.zpkg` + `dist/<name>.zsym`      | 发布态，最小体积，离线可符号化 |
+
+> **z42c 实现现状（2026-07-08）**：`pack` 三层中 `[project].pack` + 内置默认已生效；
+> `[profile.*].pack` / `[[exe]].pack` 随 profiles 解析延后线（z42c 尚未解析 profile 段）。
+> z42c 的 strip ≡ `--release`（无独立 `--strip-symbols` flag）。
 
 **增量编译工作方式（C5 2026-04-27 引入整包版；文件级 add-file-level-incremental，2026-07-08）：**
 

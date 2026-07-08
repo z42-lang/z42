@@ -29,6 +29,7 @@ workspace 继承 / include 链 / policy / `[[exe]]` targets / profiles / tests·
 | `src/PackageTypes.z42` | ZbcFileZ / ZpkgExportZ / ZpkgDepZ / ZpkgFileZ（packed 子集模型）|
 | `src/ZpkgBuilder.z42` | 组装：ns 去重 + exports FQ 幂等 + entry 四级自动检测 + Sha256Hex |
 | `src/ZpkgWriter.z42` | packed 七段（META/STRS/NSPC/EXPT/DEPS/SIGS/MODS）；MODS 体复用 z42c.ir 段构建器（单源防漂移）|
+| `src/ZpkgWriterIndexed.z42` | indexed 主文件写入器（add-indexed-zpkg-min-patch，zpkg 0.24）：packed 段面去 MODS 加 FILE（ns/src_rel/src_hash/fnCount/firstSig/zbc_hash）；SIGS 串显式入池（镜像 WriteSigEntries 读取面）|
 | `src/ZpkgReader.z42` | packed 消费面子集：META/NSPC/SIGS/TSIG/IMPL + `ReadSourceHashes`（MODS 头 per-file (src,hash,ns) wire 读取工具；probe 消费已移 cache meta）|
 | `src/CacheStore.z42` | 增量 cache meta 读写（add-file-level-incremental）：`<rel>.meta`（hash/ns/usedDepNs + D5a writer 残留 pool/labels，hex 编码；metaVersion/zbc/zpkg 三重 pin）+ 包级 `package.meta` 源清单；pin 不符/损坏 → null（宁 fresh 不误命中）|
 

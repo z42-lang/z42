@@ -1,0 +1,93 @@
+// indexed dist 投影（add-indexed-zpkg-min-patch；自 IncrementalDriver.z42 拆出守 500 行硬限）。
+// 散装 zbc = cache/内存字节原样落盘 + FILE 目录主文件；详见各函数注释。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Std.Crypto;
+using Z42.Project;
+using Z42.IR.BinaryFormat;
+using Z42.Pipeline;
+
+// ── indexed dist 投影（add-indexed-zpkg-min-patch）────────────────────────────
+// 散装 zbc = cache（cached 行）/ 内存（fresh 行）字节**原样落盘**；与 dist 现有字节相等
+// 则不触碰——「未变文件 zbc 字节 + mtime 不动」的最小 patch 硬保证。主文件 = FILE 目录
+//（每次重写，User 裁定可变）。孤儿 .zbc（源清单缩减残留）按当前文件集 diff 清除。
+int _writeIndexedDist(string distDir, string cacheDir, string projectDir, string[] srcs,
+                      ZpkgFileZ z, ZbcFileZ[] mods, int n, IncrPrep prep) {
+    string[] zbcHashes = new string[n];
+    string[] rels = new string[n];
+    string[] srcRels = new string[n];
+    int i = 0;
+    while (i < n) {
+        string relSrc = IncrementalBuild.Rel(projectDir, srcs[i]);
+        srcRels[i] = relSrc;
+        string stem = relSrc.EndsWith(".z42") ? relSrc.Substring(0, relSrc.Length - 4) : relSrc;
+        rels[i] = stem + ".zbc";
+        byte[] bytes;
+        if (prep != null && !prep.Plan.Fresh[i]) {
+            bytes = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, relSrc));   // cache SoT 原样
+        } else {
+            bytes = ZbcWriter.Write(mods[i].Module).ToBytes();
+        }
+        zbcHashes[i] = _bytesHexZ(Blake3.HashLen(bytes, 16));
+        string dst = Path.Join(distDir, rels[i]);
+        bool needWrite = true;
+        if (File.Exists(dst)) {
+            byte[] cur = File.ReadAllBytes(dst);
+            if (_bytesEqZ(cur, bytes)) { needWrite = false; }   // 相等不触碰（mtime 保持）
+        }
+        if (needWrite) {
+            string parent = Path.GetDirectoryName(dst);
+            if (parent.Length > 0) { Directory.Create(parent); }
+            File.WriteAllBytes(dst, bytes);
+        }
+        i = i + 1;
+    }
+    byte[] main = ZpkgIndexedWriter.WriteIndexedMain(z, zbcHashes, srcRels).ToBytes();
+    File.WriteAllBytes(Path.Join(distDir, z.Name + ".zpkg"), main);
+    Console.WriteLine("wrote -> " + Path.Join(distDir, z.Name + ".zpkg") + " (indexed, " + n.ToString() + " zbc)");
+    _cleanOrphanZbc(distDir, rels, n);
+    return 0;
+}
+
+// dist 下不在当前文件集的 .zbc = 源清单缩减残留 → 删除（FILE 目录是装载 SoT，孤儿不会
+// 被装载，但残留会污染「dist = 当前源的投影」不变量与分发面）。
+void _cleanOrphanZbc(string distDir, string[] rels, int n) {
+    string[] found = Path.GlobRecursive(distDir, "*.zbc");
+    string distFwd = distDir.Replace("\\", "/");
+    string prefix = distFwd.EndsWith("/") ? distFwd : distFwd + "/";
+    int i = 0;
+    while (i < found.Length) {
+        string rel = found[i].Replace("\\", "/");
+        if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
+        bool keep = false;
+        int j = 0;
+        while (j < n) { if (rels[j] == rel) { keep = true; } j = j + 1; }
+        if (!keep) { File.Delete(found[i]); }
+        i = i + 1;
+    }
+}
+
+string _bytesHexZ(byte[] b) {
+    string ds = "0123456789abcdef";
+    string r = "";
+    int i = 0;
+    while (i < b.Length) {
+        int v = (int)b[i];
+        r = r + ds.Substring((v >> 4) & 0xF, 1) + ds.Substring(v & 0xF, 1);
+        i = i + 1;
+    }
+    return r;
+}
+
+bool _bytesEqZ(byte[] a, byte[] b) {
+    if (a.Length != b.Length) { return false; }
+    int i = 0;
+    while (i < a.Length) {
+        if ((int)a[i] != (int)b[i]) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+

@@ -123,6 +123,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     ti = 0;
     while (ti < srcs.Length) { srcHashes[ti] = ZpkgBuilder.Sha256Hex(texts[ti]); ti = ti + 1; }
     bool isExe = pm.Kind == "exe";
+    // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认
+    //（debug→false=indexed / release→true=packed）。[profile]/[[exe]] 层随 profiles
+    // 延后线（z42c 尚未解析 profile 段）。indexed 为开发态：与 release strip 冲突即拦。
+    bool isPacked = pm.HasPack ? pm.Pack : isRelease;
+    if (!isPacked && isRelease) {
+        ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
+        return 2;
+    }
     string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
     // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
     // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
@@ -133,7 +141,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         string lastZpkg = Path.Join(distDir, pm.Name + ".zpkg");
         prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache);
         ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
-        if (prep.Plan.AllCached && File.Exists(lastZpkg)) {
+        // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
+        // 时布局必须重投影，不能拿旧模式的 dist 当"未变"——add-indexed-zpkg-min-patch）。
+        if (prep.Plan.AllCached && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked)) {
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
@@ -260,14 +270,22 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     }
     Directory.Create(distDir);
     string outPath = Path.Join(distDir, pm.Name + ".zpkg");
-    // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
-    ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
-    File.WriteAllBytes(outPath, wres.Main);
-    Console.WriteLine("wrote -> " + outPath);
-    if (wres.HasSidecar) {
-        string symPath = Path.Join(distDir, pm.Name + ".zsym");
-        File.WriteAllBytes(symPath, wres.Sidecar);
-        Console.WriteLine("wrote -> " + symPath);
+    if (!isPacked) {
+        // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
+        // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
+        string idxCache = _resolveCacheDir(pm, projectDir, isRelease);
+        int irc = _writeIndexedDist(distDir, idxCache, projectDir, srcs, z, mods, srcs.Length, prep);
+        if (irc != 0) { return irc; }
+    } else {
+        // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
+        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
+        File.WriteAllBytes(outPath, wres.Main);
+        Console.WriteLine("wrote -> " + outPath);
+        if (wres.HasSidecar) {
+            string symPath = Path.Join(distDir, pm.Name + ".zsym");
+            File.WriteAllBytes(symPath, wres.Sidecar);
+            Console.WriteLine("wrote -> " + symPath);
+        }
     }
     // cache 落盘（port-incremental-build-cache 阶段 1）：单工程模式逐文件写 fullMode
     // .zbc。workspace/flat（outputDirOverride 非空）暂不落——cache 目录须由 workspace
@@ -342,61 +360,6 @@ int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int li
         }
     }
     return 0;
-}
-
-// 解析 cache 目录（port-incremental-build-cache）。级联镜像 _resolveDistDir：
-//   cache_dir = build.cache_dir ?? "${output_dir}/.cache"（模板同基准）
-// 无任何 [build] 配置 → 历史默认基准 `<projectDir>/.cache`（与 <projectDir>/dist 对仗）。
-string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
-    if (!pm.HasOutputDir && !pm.HasDistDir && !pm.HasCacheDir) {
-        return Path.Join(projectDir, ".cache");
-    }
-    string profile = isRelease ? "release" : "debug";
-    string absProj = Path.IsRooted(projectDir) ? projectDir
-        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
-    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Name, profile, "");
-    string outputRaw = pm.HasOutputDir ? pm.OutputDir : "${workspace_dir}/artifacts/${profile}";
-    string outputExp = PathTemplate.Expand(outputRaw, octx);
-    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
-    TemplateContext cctx = new TemplateContext(absProj, absProj, pm.Name, profile, outputAbs);
-    string cacheRaw = pm.HasCacheDir ? pm.CacheDir : "${output_dir}/.cache";
-    string cacheExp = PathTemplate.Expand(cacheRaw, cctx);
-    return Path.IsRooted(cacheExp) ? cacheExp : Path.Join(absProj, cacheExp);
-}
-
-// _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
-
-// 解析无 --output-dir override 时的有效 dist 目录。
-//
-// 当 toml **显式**设 [build].output_dir 或 dist_dir 时，按 C#
-// CentralizedBuildLayout.ResolveSingleProject 级联解析（workloads / launcher /
-// xtask / 测试单元靠它把产物重定向到镜像目录）：
-//   output_dir = build.output_dir ?? "${workspace_dir}/artifacts/${profile}"
-//   dist_dir   = build.dist_dir   ?? "${output_dir}/dist"
-// 单工程模式 ${workspace_dir} = projectDir（toml 所在目录）。projectDir 先转绝对，
-// 使 ${output_dir} 替换后保持 rooted（避免相对 dist 模板被二次 Join 重复前缀）。
-//
-// 当 toml **没有** [build] output_dir/dist_dir 时，保留 z42c 历史默认
-// `<projectDir>/dist`：大量内部调用方（e2e / 临时工程 build 后读 <dir>/dist）硬编码
-// 该路径。此处刻意不切到 C# 的 artifacts/<profile>/dist 默认——那会破坏这些调用方，
-// 且无调用方依赖「经 z42c 得到 C# 默认路径」。本函数的目的只是兑现*显式*配置。
-string _resolveDistDir(ProjectManifest pm, string projectDir, bool isRelease) {
-    if (!pm.HasOutputDir && !pm.HasDistDir) {
-        return Path.Join(projectDir, "dist");
-    }
-    string profile = isRelease ? "release" : "debug";
-    string absProj = Path.IsRooted(projectDir) ? projectDir
-        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
-    // output_dir
-    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Name, profile, "");
-    string outputRaw = pm.HasOutputDir ? pm.OutputDir : "${workspace_dir}/artifacts/${profile}";
-    string outputExp = PathTemplate.Expand(outputRaw, octx);
-    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
-    // dist_dir（${output_dir} → outputAbs；rooted 直接透传）
-    TemplateContext dctx = new TemplateContext(absProj, absProj, pm.Name, profile, outputAbs);
-    string distRaw = pm.HasDistDir ? pm.DistDir : "${output_dir}/dist";
-    string distExp = PathTemplate.Expand(distRaw, dctx);
-    return Path.IsRooted(distExp) ? distExp : Path.Join(absProj, distExp);
 }
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找

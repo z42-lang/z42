@@ -15,6 +15,7 @@ pack    = true
 "z42c.project"   = "0.1.0"   # build：manifest/源发现/zpkg 组装+写出
 "z42c.ir"        = "0.1.0"   # IrModule（build 编译产物流转；镜像 C# driver→ir 边）
 "z42.io"         = "0.1.0"
+"z42.crypto"     = "0.1.0"   # Blake3 —— indexed 散装 zbc 内容 hash（add-indexed-zpkg-min-patch）
 "z42c.pipeline"  = "0.1.0"   # DepScan（CI-4；镜像 C# driver→pipeline 边）
 
 # apphost-as-config: this binary publishes a native desktop apphost.

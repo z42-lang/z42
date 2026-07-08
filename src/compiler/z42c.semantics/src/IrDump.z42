@@ -339,6 +339,12 @@ public static class IrDump {
         int i = 0;
         while (i < cu.DeclCount) {
             if (cu.Decls[i] is UsingDecl) {
+                if (uc == usings.Length) {   // 修存量越界：第 9 个 using 曾直接炸（固定 8 无扩容）
+                    string[] b = new string[usings.Length * 2];
+                    int k = 0;
+                    while (k < uc) { b[k] = usings[k]; k = k + 1; }
+                    usings = b;
+                }
                 usings[uc] = (cu.Decls[i] as UsingDecl).Name;
                 uc = uc + 1;
             }

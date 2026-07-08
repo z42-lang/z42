@@ -34,7 +34,9 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 23;   // 2026-07-01 add-params-varargs：TSIG 方法/函数记录加 paramsFrom 字节（0xFF=无）
+    public static int Minor = 24;   // 2026-07-08 add-indexed-zpkg-min-patch：indexed 重定义（主文件 FILE 段 +
+                                    // 自包含散装 fullMode zbc + zbcHash 校验）；packed 布局字节不变。
+                                    // 前史：0.23 add-params-varargs（TSIG paramsFrom 字节）
 
 
     // 主 zpkg（不含 BLID/sidecar）。debug 单包 / 测试用；release strip 走 WritePackedWithSidecar。
@@ -122,7 +124,7 @@ public static class ZpkgWriterZ {
         return ZpkgWriterZ._assemble(stags, sdatas, 4, sidecarFlags).ToBytes();
     }
 
-    private static ZpkgSectionList _buildSectionList(ZpkgFileZ zpkg, bool isRelease) {
+    public static ZpkgSectionList _buildSectionList(ZpkgFileZ zpkg, bool isRelease) {
         var pool = new ZbcStringPool();
         // ── intern：zpkg 元串（镜像 InternZpkgStrings：namespaces → exports → deps）──
         int i = 0;
@@ -184,7 +186,7 @@ public static class ZpkgWriterZ {
     }
 
     // META：name + version + entry（各 u16 长 + UTF-8；lib entry 空串）。
-    private static ByteWriter _buildMeta(ZpkgFileZ zpkg) {
+    public static ByteWriter _buildMeta(ZpkgFileZ zpkg) {
         var w = new ByteWriter();
         w.WriteStr(zpkg.Name);
         w.WriteStr(zpkg.Version);
@@ -192,7 +194,7 @@ public static class ZpkgWriterZ {
         return w;
     }
 
-    private static ByteWriter _buildNspc(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildNspc(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         w.WriteU32(zpkg.NsCount);
         int i = 0;
@@ -201,7 +203,7 @@ public static class ZpkgWriterZ {
     }
 
     // EXPT：count + (symbol idx u32 + kind u8：func=0/type=1/const=2)。
-    private static ByteWriter _buildExpt(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildExpt(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         w.WriteU32(zpkg.ExportCount);
         int i = 0;
@@ -216,7 +218,7 @@ public static class ZpkgWriterZ {
         return w;
     }
 
-    private static ByteWriter _buildDeps(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildDeps(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         w.WriteU32(zpkg.DepCount);
         int i = 0;
@@ -232,7 +234,7 @@ public static class ZpkgWriterZ {
     }
 
     // SIGS：全模块函数总数 + 平铺条目（条目层复用 zbc WriteSigEntries——单源防漂移）。
-    private static ByteWriter _buildSigs(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildSigs(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         int total = 0;
         int i = 0;
@@ -250,7 +252,7 @@ public static class ZpkgWriterZ {
     // MODS：count + 每模块{ns,src,hash idx + fnCount u16 + firstSigIdx u32 +
     //        func_len+体, type_len+体, dbug_len+体, regt_len+体, tidx_len(0)}。
     // 体复用 zbc 段构建器（全局池 + per-module remap + per-module TokenAllocator）。
-    private static ByteWriter _buildMods(ZpkgFileZ zpkg, ZbcStringPool pool, bool isRelease) {
+    public static ByteWriter _buildMods(ZpkgFileZ zpkg, ZbcStringPool pool, bool isRelease) {
         var w = new ByteWriter();
         w.WriteU32(zpkg.ModuleCount);
         int firstSigIdx = 0;
@@ -295,7 +297,7 @@ public static class ZpkgWriterZ {
     }
 
     // ── TSIG intern（顺序 1:1 C# InternTsigStrings）──────────────────────────────
-    private static void _internTsig(ZbcStringPool pool, ExportedModuleZ em) {
+    public static void _internTsig(ZbcStringPool pool, ExportedModuleZ em) {
         pool.Intern(em.Namespace);
         int c = 0;
         while (c < em.ClassCount) {
@@ -371,7 +373,7 @@ public static class ZpkgWriterZ {
     }
 
     // ── TSIG 段（布局 1:1 C# BuildTsigSection；z42c 无的构造按内建面/0 计数）────────
-    private static ByteWriter _buildTsig(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildTsig(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         w.WriteU16(zpkg.ExportedCount);
         int mi = 0;
@@ -500,7 +502,7 @@ public static class ZpkgWriterZ {
     }
 
     // IMPL 段（L3-Impl2 跨 zpkg `impl Trait for Type`；布局 1:1 C# BuildImplSection）
-    private static ByteWriter _buildImpl(ZpkgFileZ zpkg, ZbcStringPool pool) {
+    public static ByteWriter _buildImpl(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         w.WriteU16(zpkg.ExportedCount);
         int mi = 0;
@@ -527,7 +529,7 @@ public static class ZpkgWriterZ {
     }
 
     // 装配：header("ZPK\0" + major + minor + flags + secCount + reserved) + directory + data。
-    private static ByteWriter _assemble(string[] tags, ByteWriter[] datas, int secCount, int flags) {
+    public static ByteWriter _assemble(string[] tags, ByteWriter[] datas, int secCount, int flags) {
         var w = new ByteWriter();
         w.WriteUtf8Bytes("ZPK");
         w.WriteU8(0);

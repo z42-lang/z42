@@ -1,9 +1,9 @@
 {
   "header": {
     "major": 0,
-    "minor": 22,
+    "minor": 24,
     "flags": [],
-    "section_count": 6
+    "section_count": 9
   },
   "sections": [
     "META",
@@ -11,7 +11,10 @@
     "NSPC",
     "EXPT",
     "DEPS",
-    "FILE"
+    "SIGS",
+    "FILE",
+    "TSIG",
+    "IMPL"
   ],
   "package": {
     "name": "demo.indexed",
@@ -23,9 +26,9 @@
   "is_sym_only": false,
   "has_blid": false,
   "has_mdbg": false,
-  "has_tsig": false,
-  "has_impl": false,
-  "has_sigs": false,
+  "has_tsig": true,
+  "has_impl": true,
+  "has_sigs": true,
   "has_mods": false,
   "has_file": true
 }

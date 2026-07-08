@@ -114,7 +114,13 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-07-01 add-params-varargs: bumped to 0.23 (zpkg-only; inner zbc unchanged).
 // TSIG method/function records gain a trailing paramsFrom byte (0xFF = none)
 // right after the existing paramCount byte, before the per-parameter entries.
-pub const ZPKG_VERSION_MINOR: u16 = 23;
+// 2026-07-08 add-indexed-zpkg-min-patch: bumped to 0.24 (zpkg-only; inner zbc
+// unchanged; packed byte layout unchanged). Indexed mode redefined: main file =
+// packed sections minus MODS plus FILE (per file: ns/src/srcHash pool idx +
+// fnCount u16 + firstSig u32 + zbcHash pool idx — BLAKE3-128 hex of the
+// scattered self-contained fullMode <stem>.zbc). VM loads indexed via the
+// path-aware loader (scattered zbc verified against zbcHash).
+pub const ZPKG_VERSION_MINOR: u16 = 24;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -1508,9 +1514,82 @@ pub fn read_zpkg_modules(data: &[u8]) -> Result<Vec<(Module, String, Vec<u8>)>> 
         // Phase 3 S3c: zpkg 0.2+ exclusive → inner modules always v1.0.
         read_mods_section(mods_sec, &pool, &sigs)
     } else {
-        // Indexed mode: FILE section lists .zbc paths, not loadable directly
-        bail!("indexed zpkg cannot be loaded directly by the VM; use packed mode")
+        // Indexed mode needs the main file's directory to read scattered zbc —
+        // byte-only callers (embedding API) can't resolve them. The path-aware
+        // loader (loader::load_zpkg) handles indexed via read_zpkg_file_entries.
+        bail!(
+            "indexed zpkg cannot be loaded from bytes alone (scattered .zbc need \
+             the package directory); load it by path"
+        )
     }
+}
+
+/// One FILE-section entry of an indexed zpkg (add-indexed-zpkg-min-patch,
+/// zpkg 0.24): source rel path + namespace + content hash of the scattered
+/// self-contained fullMode `<stem>.zbc` (BLAKE3-128 hex). `fn_count` /
+/// `first_sig` mirror the MODS header so SIGS pairing stays isomorphic.
+pub struct ZpkgFileEntry {
+    pub rel: String,
+    pub src_hash: String,
+    pub namespace: String,
+    pub fn_count: u16,
+    pub first_sig: u32,
+    pub zbc_hash: String,
+}
+
+/// Read the FILE directory of an indexed zpkg main file. Bails when the
+/// package is packed (no FILE section), on strict-pin mismatch, or on a
+/// SymOnly sidecar.
+pub fn read_zpkg_file_entries(data: &[u8]) -> Result<Vec<ZpkgFileEntry>> {
+    if data.len() < 16 { bail!("zpkg file too short") }
+    if &data[0..4] != ZPKG_MAGIC { bail!("not a binary zpkg (bad magic)") }
+    let major     = u16::from_le_bytes([data[4], data[5]]);
+    let minor     = u16::from_le_bytes([data[6], data[7]]);
+    let flags     = u16::from_le_bytes([data[8], data[9]]);
+    let sec_count = u16::from_le_bytes([data[10], data[11]]);
+    if major != ZPKG_VERSION_MAJOR {
+        bail!("zpkg major {major} not supported (writer is at {ZPKG_VERSION_MAJOR})");
+    }
+    if minor != ZPKG_VERSION_MINOR {
+        bail!(
+            "zpkg minor {minor} not supported (writer is at \
+             {ZPKG_VERSION_MAJOR}.{ZPKG_VERSION_MINOR}); \
+             regen via xtask build stdlib"
+        );
+    }
+    if (flags & 0x04) != 0 {
+        bail!("zpkg has SymOnly flag set: it is a debug-symbol sidecar (.zsym)");
+    }
+    if (flags & 0x01) != 0 {
+        bail!("packed zpkg has no FILE directory (indexed-only section)");
+    }
+    let dir = read_directory(data, sec_count)?;
+    let pool = get_section(data, &dir, b"STRS")
+        .map(|s| read_strs(s))
+        .transpose()?
+        .unwrap_or_default();
+    let sec = get_section(data, &dir, b"FILE")
+        .ok_or_else(|| anyhow::anyhow!("indexed zpkg missing FILE section"))?;
+    let mut c = Cursor::new(sec);
+    let count = c.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let ns_idx   = c.read_u32()?;
+        let src_idx  = c.read_u32()?;
+        let hash_idx = c.read_u32()?;
+        let fn_count = c.read_u16()?;
+        let first_sig = c.read_u32()?;
+        let zbc_idx  = c.read_u32()?;
+        entries.push(ZpkgFileEntry {
+            rel:       pool_str_owned(&pool, src_idx)?,
+            src_hash:  pool_str_owned(&pool, hash_idx)?,
+            namespace: pool_str_owned(&pool, ns_idx)?,
+            fn_count,
+            first_sig,
+            zbc_hash:  pool_str_owned(&pool, zbc_idx)?,
+        });
+    }
+    Ok(entries)
 }
 
 // ── zpkg section decoders ─────────────────────────────────────────────────────
