@@ -5,28 +5,29 @@ A **full-stack systems programming language** designed for productivity and perf
 - **z** — the last letter, standing for the final evolution
 - **42** — the answer to the ultimate question
 
-> 🚧 **z42 is under active, relentless iteration.** The language, compiler, VM, and toolchain are evolving rapidly and not yet stable for production use. What's landing here is being built with uncompromising taste — expect the final result to be **genuinely stunning**. Star the repo and watch it unfold.
+> 🚧 **z42 is under active development.** The language, compiler, VM, and toolchain are evolving rapidly and are not yet stable for production use. Star the repository to follow progress.
 
 ---
 
 ## Why z42?
 
 z42 combines C#'s productivity, Rust's runtime discipline, and Python's iteration speed —
-one language that scales from throwaway scripts to embedded systems components:
+a single language spanning ad-hoc scripts to embedded systems components:
 
 | | z42 |
 |---|-----|
 | **Productive by default** | C#-style syntax, static typing + inference, automatic GC — no ownership annotations, errors caught at compile time |
-| **Optimal on every axis** | Memory, CPU, and startup each pushed toward optimal: compact bytecode and object layout, generational low-pause GC, cache-friendly interpreter dispatch, JIT hot paths competitive with C#/Java |
-| **Pick your execution mode** | One bytecode, three modes — interpret (instant startup, small footprint), JIT (peak throughput), AOT (stable latency) — mixed per namespace |
+| **Optimal on every axis** | Memory footprint, CPU efficiency, and startup latency are each optimized: compact bytecode and object layout, generational low-pause GC, cache-friendly interpreter dispatch, JIT hot paths competitive with C#/Java |
+| **Execution mode per workload** | One bytecode, three modes — interpretation (instant startup, small footprint), JIT (peak throughput), AOT (stable latency) — selectable per namespace |
 | **Native & embedding first-class** | Embeddable Rust VM, zero-overhead `extern` FFI (≤ 1 indirect jump), C-compatible structs |
-| **Iterate without restarting** | Designed from day one for hot patching at every granularity — functions, types, modules are GC-managed runtime objects, so replaced definitions unload naturally; `eval()` for scripting |
+| **Iterate without restarting** | Hot patching designed in at every granularity: functions, types, and modules are GC-managed runtime objects, and superseded definitions are unloaded automatically; `eval()` for scripting scenarios |
 | **Concurrent** | GC-safe multithreading; structured async/await planned |
 | **Fits your project** | Per-project language customization — forbid features (e.g. nullable types), tighten rules (e.g. exhaustive matches) |
-| **Friendly to AI collaborators** | A familiar syntax models already know, compile-time errors as fast agent feedback, and a docs-as-code repo built for human + AI development |
+| **Friendly to AI collaborators** | Syntax familiar to language models, compile-time errors as rapid feedback for AI agents, and a docs-as-code repository structured for human–AI collaboration |
 
-Performance goal: production-fast (game engines, servers, embedded) **without unsafe** — see
-[`docs/design/philosophy.md`](docs/design/philosophy.md) for concrete targets and trade-offs.
+Performance goal: fast enough for production systems (game engines, servers, embedded)
+**without unsafe code** — see [`docs/design/philosophy.md`](docs/design/philosophy.md)
+for concrete targets and trade-offs.
 
 ---
 
@@ -43,7 +44,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 ./xtask test                                          # ./xtask auto-locates ./.z42 — no PATH export
 ```
 
-> No desktop workload? Drive the CLI through the launcher instead (what CI does):
+> Without the desktop workload, drive the CLI through the launcher instead (as CI does):
 > `.z42/bin/z42c build scripts/xtask.z42.toml --release && .z42/z42 artifacts/xtask/xtask.zpkg -- test`
 
 **Editor support (VSCode)**: `./xtask deps install vscode` installs `.z42` syntax highlighting
