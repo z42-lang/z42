@@ -15,6 +15,20 @@ public sealed class ZpkgCursor {
     public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
     public int U16() { int a = this.U8(); int b = this.U8(); return a | (b << 8); }
     public int U32() { int a = this.U16(); int b = this.U16(); return a | (b << 16); }
+    // 无符号 LEB128（STRS segment-dict）。最多 5 字节防越界死循环。
+    public int Varint() {
+        int result = 0;
+        int shift = 0;
+        int guard = 0;
+        while (guard < 5) {
+            int b = this.U8();
+            result = result | ((b & 0x7F) << shift);
+            if ((b & 0x80) == 0) { return result; }
+            shift = shift + 7;
+            guard = guard + 1;
+        }
+        return result;
+    }
     public long I64() {
         long lo = (long)this.U32();
         long hi = (long)this.U32();
@@ -106,21 +120,37 @@ public static class ZpkgReader {
             }
             i = i + 1;
         }
-        // STRS：count + (off,len)×count + 数据区
+        // STRS segment-dict（zpkg 0.25）：段字典 + 每串段索引序列 → join('.') 还原。
         string[] pool = new string[0];
         int poolCount = 0;
         i = 0;
         while (i < secCount) {
             if (secs[i].Tag == "STRS") {
                 var sc = new ZpkgCursor(data, secs[i].Offset);
+                int segCount = sc.U32();
+                string[] segDict = new string[segCount];
+                int sdi = 0;
+                while (sdi < segCount) {
+                    int segLen = sc.Varint();
+                    segDict[sdi] = ZpkgReader._utf8(data, sc.Pos, segLen);
+                    sc.Pos = sc.Pos + segLen;
+                    sdi = sdi + 1;
+                }
                 poolCount = sc.U32();
                 pool = new string[poolCount];
-                int dataStart = secs[i].Offset + 4 + poolCount * 8;
                 int j = 0;
                 while (j < poolCount) {
-                    int off = sc.U32();
-                    int len = sc.U32();
-                    pool[j] = ZpkgReader._utf8(data, dataStart + off, len);
+                    int segN = sc.Varint();
+                    string poolStr = "";   // 注意：勿用 `name`——与外层 META 包名冲突（会污染 z.Name → 破坏 _isPrelude）
+                    int k = 0;
+                    while (k < segN) {
+                        int segIdx = sc.Varint();
+                        if (segIdx < 0 || segIdx >= segCount) { return null; }   // 越界 → 拒绝（strict）
+                        if (k > 0) { poolStr = poolStr + "."; }
+                        poolStr = poolStr + segDict[segIdx];
+                        k = k + 1;
+                    }
+                    pool[j] = poolStr;
                     j = j + 1;
                 }
             }

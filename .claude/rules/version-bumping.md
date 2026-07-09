@@ -23,10 +23,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 20 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 20 |
-| zpkg writer（z42c） | `src/compiler/z42c.project/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 23 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 23 |
+| zbc writer（z42c） | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 21 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 21 |
+| zpkg writer（z42c） | `src/compiler/z42c.project/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 25 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 25 |
 
 > reader 端（`zbc_reader.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
 > writer 端常量旁也有同样的单行 bump 注释，保持格式一致。
@@ -41,7 +41,7 @@ paths:
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/design/runtime/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta。
-5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 247B hex 串（header 的 `minor` 字段会随 bump 变化）。从 regen 后的 fixture 重截：
+5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 hex 串（zbc 1.21 起 226B；header 的 `minor` 字段 + STRS 段体会随 bump 变化）。从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
    ```

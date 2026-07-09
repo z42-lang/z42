@@ -64,7 +64,7 @@ void test_write_packed_header() {
     ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", true, false, "", mods, 1);
     Assert.Equal("Demo.Main", z.Entry);               // exe 自动检测
     string hex = ZpkgWriterZ.WritePacked(z, false).ToHex();
-    // "ZPK\0" + major 0 + minor 24 + flags 0x03(Packed|Exe) + secCount 7
-    // (0x18=24; add-indexed-zpkg-min-patch bump —— version-bumping golden 同步)
-    Assert.Equal("5a504b0000001800030007000000", hex.Substring(0, 28));
+    // "ZPK\0" + major 0 + minor 25 + flags 0x03(Packed|Exe) + secCount 7
+    // (0x19=25; reencode-strs-segment-dict bump —— version-bumping golden 同步)
+    Assert.Equal("5a504b0000001900030007000000", hex.Substring(0, 28));
 }

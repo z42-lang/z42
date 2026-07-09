@@ -5,7 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 20;   // 2026-06-16 add-reflection-assignable-from：TYPE 段接口块存 FQ 名（原 bare）。结构不变（u16 count + str idx[]），字段语义 bare→FQ。
+    public static int Minor = 21;   // 2026-07-09 reencode-strs-segment-dict：STRS 改 segment-dict 编码（段字典去重 + 名字=段索引序列 join('.')）——删冗余 offset + 前缀去重，−44% STRS。
+                                    // 前史：1.20 add-reflection-assignable-from（TYPE 接口块 bare→FQ）。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。

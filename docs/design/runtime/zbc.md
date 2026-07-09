@@ -268,13 +268,24 @@ Byte 4+:  ...    — 按操作码定义的额外操作数字（u8 / u16 / u32 / 
 [4]  size           section 字节长度
 ```
 
-### STRP（String Pool）
+### STRS（String Pool，segment-dict，zbc 1.21 起）
 
 ```
-[4]  count          字符串数量
-entries: count × { [4] offset_in_data, [4] byte_len }
-data:    UTF-8 字节流（紧密排列，无 NUL 分隔）
+[4]     seg_count                                    唯一段数量
+segs:   seg_count × { varint seg_byte_len, UTF-8 seg_bytes }   段字典（去重,first-seen 序）
+[4]     str_count                                    池串数量
+strs:   str_count × { varint seg_n, seg_n × varint seg_idx }   每串 = 段索引序列
 ```
+
+- 每个池串按 ASCII `.` 切分为段；唯一段在段字典存一次；串本身表示为「段索引序列」，
+  reader 以 `segs.join(".")` 无损还原（切/拼在 `.` 上互逆，不假设串是 FQ 名）。
+- **串索引不变**：`str_count` 顺序 == 旧 `count` 顺序，其它段引用 STRS 仍用同一 0-based 池索引
+  （`const.str` / TYPE / SIGS / cross-zpkg token 等零改动）。
+- 消除了旧编码的两处冗余：可推导的 per-string `offset`（前缀和）+ FQ 名重复前缀
+  （`Std.`/`Std.String.` 等只存一次）。z42.core STRS 40420B→22475B（−44%）。
+- varint = 无符号 LEB128（每字节低 7 位 + 续标志）。段长/段数/段索引均 varint。
+
+> 1.21 前旧布局为 `count + count×{u32 offset, u32 byte_len} + UTF-8 blob`，已废弃（strict-pin 不兼容）。
 
 ### TYPE（类型描述符）
 
@@ -459,6 +470,7 @@ z42c --assemble foo.zasm -o foo.zbc
 | 1.18 | 2026-06-16 | [add-reflection-generic-type-definition](../../spec/changes/add-reflection-generic-type-definition/) | 新 `Typeof` opcode（`0x73`）：`dst` + `TypeName: u32`（STRS idx，定义 FQ 名）+ `type_arg_count: u8` + `type_arg_idx[]: u32`（实例化 arg FQ 名，镜像 `ObjNew` type_args 编码）。所有 `typeof(...)` 统一 emit 它，移除 `__typeof` builtin。背书 `Type.IsGenericTypeDefinition` / `GetGenericTypeDefinition()` + 修 `typeof(Box<int>).GetGenericArguments()`。zpkg 0.20 同步联动。Pre-1.18 zbc 不可读 |
 | 1.19 | 2026-06-16 | [add-reflection-interface-class-predicates](../../spec/changes/add-reflection-interface-class-predicates/) | **interface 现在 emit 一条最小 TYPE 条目**（identity + flags，无 base/字段/方法表），故 `typeof(IFoo)` 解析到真句柄。`class_flags` 字节扩 **bit4 = interface**（bit0-3 不变；bit5 预留 enum）。背书 `Type.IsInterface` + 把接口排除出 `Type.IsClass`。无新字段，仅 flags 语义扩展 + TYPE section 多接口条目。zpkg 0.21 同步联动。Pre-1.19 zbc 不可读 |
 | 1.20 | 2026-06-16 | [add-reflection-assignable-from](../../spec/changes/add-reflection-assignable-from/) | TYPE section 每类的**接口块改存 FQ 名**（`Demo.IShape`，此前 bare `IShape`）。结构不变（`u16 count + str idx[]`），仅字段语义 bare→FQ。`GetInterfaces()` 据此解析到**真接口句柄**；`x is IShape`/`as`/`Type.IsAssignableFrom` 按 FQ 名做 robust 接口身份比较。zpkg 0.22 同步联动。Pre-1.20 zbc 不可读 |
+| 1.21 | 2026-07-09 | [reencode-strs-segment-dict](../../spec/changes/reencode-strs-segment-dict/) | **STRS 段重编码为 segment-dict**：`seg_count + 段字典(varint len + utf8)×seg_count + str_count + (varint seg_n + varint seg_idx×seg_n)×str_count`。按 `.` 切分去重 namespace 段，串=段索引序列（reader `join('.')` 无损还原）。消除旧编码的可推导 offset 冗余 + FQ 名前缀重复（z42.core STRS −44%）。**串索引不变** → 其它段零改动。zpkg 0.25 同步联动。Pre-1.21 zbc 不可读 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `generate-fixtures.sh` regen + commit。Invariant CI 校验三方常量一致。
 

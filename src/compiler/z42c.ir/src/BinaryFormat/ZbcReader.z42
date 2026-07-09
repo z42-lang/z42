@@ -19,6 +19,20 @@ public sealed class ZbcCursor {
     public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
     public int U16() { int a = this.U8(); int b = this.U8(); return a | (b << 8); }
     public int U32() { int a = this.U16(); int b = this.U16(); return a | (b << 16); }
+    // 无符号 LEB128（STRS segment-dict）。最多 5 字节（32-bit）防越界死循环。
+    public int Varint() {
+        int result = 0;
+        int shift = 0;
+        int guard = 0;
+        while (guard < 5) {
+            int b = this.U8();
+            result = result | ((b & 0x7F) << shift);
+            if ((b & 0x80) == 0) { return result; }
+            shift = shift + 7;
+            guard = guard + 1;
+        }
+        return result;
+    }
     public long I64() {
         long lo = (long)this.U32();
         long hi = (long)this.U32();
@@ -199,21 +213,40 @@ public static class ZbcReader {
         return c.Str(len);
     }
 
+    // STRS segment-dict（zbc 1.21）：段字典 + 每串段索引序列 → join('.') 还原。
     private static string[] _readStrs(byte[] data, ZbcSectionZ[] dir) {
         ZbcSectionZ s = ZbcReader._sec(dir, "STRS");
-        if (s == null || s.Size < 4) { return null; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
-        int n = c.U32();
-        int[] offs = new int[n];
-        int[] lens = new int[n];
+        if (s == null || s.Size < 8) { return null; }
+        return ZbcReader.DecodeStrs(data, s.Offset);
+    }
+
+    // STRS segment-dict 解码（从 offset 起）。public：供单测直接对 BuildStrs 输出往返验证。
+    // 段索引越界 → null（strict，与 strict-pin 同风格）。
+    public static string[] DecodeStrs(byte[] data, int offset) {
+        ZbcCursor c = new ZbcCursor(data, offset);
+        int segCount = c.U32();
+        string[] segDict = new string[segCount];
         int i = 0;
-        while (i < n) { offs[i] = c.U32(); lens[i] = c.U32(); i = i + 1; }
-        int dataStart = c.Pos;
-        string[] r = new string[n];
+        while (i < segCount) {
+            int segLen = c.Varint();
+            segDict[i] = c.Str(segLen);
+            i = i + 1;
+        }
+        int strCount = c.U32();
+        string[] r = new string[strCount];
         i = 0;
-        while (i < n) {
-            ZbcCursor sc = new ZbcCursor(data, dataStart + offs[i]);
-            r[i] = sc.Str(lens[i]);
+        while (i < strCount) {
+            int segN = c.Varint();
+            string name = "";
+            int j = 0;
+            while (j < segN) {
+                int segIdx = c.Varint();
+                if (segIdx < 0 || segIdx >= segCount) { return null; }
+                if (j > 0) { name = name + "."; }
+                name = name + segDict[segIdx];
+                j = j + 1;
+            }
+            r[i] = name;
             i = i + 1;
         }
         return r;

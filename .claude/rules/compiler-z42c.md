@@ -13,6 +13,14 @@ paths:
 > **受限写法**：z42c 源码避开 z42 尚未完整支持的特性——无 `enum`（用 `static class` +
 > `int` 常量替代，见 `TokenKind` / `DiagnosticCodes`）、泛型字段倾向用 typed array。
 > 写编译器代码时沿用这套既有写法，不要引入新依赖。
+>
+> **⚠️ 局部变量非块作用域 shadow（2026-07-09 踩坑）**：z42 的局部变量**不做块级 shadow**
+> ——在内层 `while`/`if` 块里 `string name = ""` 会**复用/覆盖**外层同名 `name`，不是新建
+> 影子变量。案例：`ZpkgReader.Open` 内层 STRS 解码循环用了 `name` 逐串拼接，污染了外层
+> META 包名 `name`（→ `z.Name` 变成池里最后一个串）→ `_isPrelude(z.Name)` 恒 false → prelude
+> 包（z42.core）永不激活 → 所有 no-`using`/bare 名（`Assert` 等）解析回 null → 136 个无 using
+> 的 golden 全红。**自举不动点抓不到**（z42c 源码全用显式 using，不走 prelude 路径）。
+> 铁律：**函数内嵌套块里的局部变量，名字不得与外层已声明的局部同名**（编译不报错、静默复用）。
 
 ---
 

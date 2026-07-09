@@ -47,6 +47,21 @@ public sealed class ByteWriter {
         }
     }
 
+    // 无符号 LEB128 变长整数（STRS segment-dict：段长 / 段数 / 段索引，恒非负）。
+    // 每字节低 7 位数据、最高位为「后续续」标志。负值防御性钳到 0（调用点均传非负）。
+    public void WriteVarint(int v) {
+        int u = v;
+        if (u < 0) { u = 0; }
+        int b = u & 0x7F;
+        u = u >> 7;
+        while (u != 0) {
+            this.WriteU8(b | 0x80);
+            b = u & 0x7F;
+            u = u >> 7;
+        }
+        this.WriteU8(b);
+    }
+
     // 串原始字节（无长度前缀；用于 STRS data / section tag）。**UTF-8 编码**——
     // z42 char = Unicode scalar（CharAt 遍历 Length 个 scalar），逐 scalar emit UTF-8 字节序列，
     // 字节数与 `ByteLength`（STRS 长度表/WriteStr 前缀）一致。ZW-1E 补：原 `WriteAsciiBytes` 按

@@ -34,9 +34,9 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 24;   // 2026-07-08 add-indexed-zpkg-min-patch：indexed 重定义（主文件 FILE 段 +
-                                    // 自包含散装 fullMode zbc + zbcHash 校验）；packed 布局字节不变。
-                                    // 前史：0.23 add-params-varargs（TSIG paramsFrom 字节）
+    public static int Minor = 25;   // 2026-07-09 reencode-strs-segment-dict：STRS segment-dict 编码（耦合 inner zbc 1.21）。
+                                    // 前史：0.24 add-indexed-zpkg-min-patch（indexed 主文件 FILE 段 + 散装 zbc）；
+                                    //       0.23 add-params-varargs（TSIG paramsFrom 字节）
 
 
     // 主 zpkg（不含 BLID/sidecar）。debug 单包 / 测试用；release strip 走 WritePackedWithSidecar。

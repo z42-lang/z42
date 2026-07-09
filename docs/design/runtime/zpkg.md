@@ -204,7 +204,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 
 **Strict-pin 政策**：reader 仅接受 `major == ZpkgWriter.VersionMajor && minor == ZpkgWriter.VersionMinor`。pre-1.0 z42 阶段不为旧 zpkg minor 提供兼容；每次 minor bump = 所有现存 zpkg artifacts 必须 regen（`./xtask build stdlib`）。
 
-- **当前版本**：`major=0, minor=24`（详见下方 Minor changelog）
+- **当前版本**：`major=0, minor=25`（详见下方 Minor changelog）
 - **触发 minor bump** 的事项：新增 section id / 已定义 section 字段语义变化 / **任意 zbc minor bump（强耦合）**
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header layout / 改 section directory 12B 条目格式 / 弃用 packed 或 indexed 模式之一
 - **zbc inner 与 zpkg outer minor 强耦合**：zbc minor 任意 bump → zpkg minor 必须同步 +1。历史唯一例外是 zbc 1.4 → 1.5（漏 bump），freeze-zpkg-v0 通过 0.5 → 0.6 catch-up 修正。
@@ -237,6 +237,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.22 | 2026-06-16 | [add-reflection-assignable-from](../../spec/changes/add-reflection-assignable-from/) | inner zbc 1.20（TYPE section 接口块存 FQ 名）。zpkg outer 无新字段，纯 minor bump 跟随 zbc 强耦合规则 |
 | 0.23 | 2026-07-01 | [add-params-varargs](../../spec/changes/add-params-varargs/) | zpkg-only（inner zbc 不变）：TSIG 段每条 method/function 记录在既有 `paramCount: u8` 之后追加 `paramsFrom: u8`（0-based 变长形参索引；`0xFF` = 无变长形参），承载跨包 `params T[]` 签名信息 |
 | 0.24 | 2026-07-08 | add-indexed-zpkg-min-patch | zpkg-only（inner zbc 不变；packed 布局字节不变）：indexed 模式重定义——主文件 = packed 段面去 MODS 加 FILE（ns/src_rel/src_hash/fnCount/firstSig/zbc_hash），散装 `.zbc` 为自包含 fullMode（文件局部池，未变文件字节稳定 → 最小 patch）；VM 实装 indexed 按路径装载 + zbc 内容 hash 校验 |
+| 0.25 | 2026-07-09 | [reencode-strs-segment-dict](../../spec/changes/reencode-strs-segment-dict/) | 耦合 inner zbc 1.21：STRS 段重编码为 segment-dict（段字典去重 + 名字=段索引序列 `join('.')`）。zpkg outer 段面不变；STRS 段体经共享 `ZbcWriter.BuildStrs` 自动跟随（含 `.zsym` sidecar symPool）。删冗余 offset + FQ 名前缀去重，−44% STRS（≈−10% 整包）|
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

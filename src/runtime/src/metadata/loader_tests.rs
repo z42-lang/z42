@@ -66,20 +66,32 @@ fn import_with_no_dot_uses_full_name() {
 fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
     use crate::metadata::formats::ZPKG_MAGIC;
 
-    // Build STRS section: one entry per namespace
-    let encoded: Vec<Vec<u8>> = namespaces.iter().map(|s| s.as_bytes().to_vec()).collect();
-    let mut strs_data: Vec<u8> = Vec::new();
-    // count[4]
-    strs_data.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
-    // entry table: [offset:u32][len:u32]
-    let mut offset = 0u32;
-    for b in &encoded {
-        strs_data.extend_from_slice(&offset.to_le_bytes());
-        strs_data.extend_from_slice(&(b.len() as u32).to_le_bytes());
-        offset += b.len() as u32;
+    // Build STRS section (segment-dict, zbc 1.21): seg_count + (varint len + utf8)×n
+    //   + str_count + (varint segN + varint segIdx×segN)×n. Names split on '.'.
+    fn wv(out: &mut Vec<u8>, mut v: u32) {
+        loop {
+            let b = (v & 0x7f) as u8; v >>= 7;
+            if v != 0 { out.push(b | 0x80); } else { out.push(b); break; }
+        }
     }
-    // raw data
-    for b in &encoded { strs_data.extend_from_slice(b); }
+    let mut seg_dict: Vec<String> = Vec::new();
+    let mut seqs: Vec<Vec<u32>> = Vec::new();
+    for s in namespaces {
+        let mut seq = Vec::new();
+        for part in s.split('.') {
+            let idx = seg_dict.iter().position(|x| x == part).unwrap_or_else(|| {
+                seg_dict.push(part.to_string());
+                seg_dict.len() - 1
+            });
+            seq.push(idx as u32);
+        }
+        seqs.push(seq);
+    }
+    let mut strs_data: Vec<u8> = Vec::new();
+    strs_data.extend_from_slice(&(seg_dict.len() as u32).to_le_bytes());
+    for seg in &seg_dict { wv(&mut strs_data, seg.len() as u32); strs_data.extend_from_slice(seg.as_bytes()); }
+    strs_data.extend_from_slice(&(seqs.len() as u32).to_le_bytes());
+    for seq in &seqs { wv(&mut strs_data, seq.len() as u32); for &i in seq { wv(&mut strs_data, i); } }
 
     // Build NSPC section: count[4] + idx[4] per ns
     let mut nspc_data: Vec<u8> = Vec::new();

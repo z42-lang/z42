@@ -70,7 +70,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // interface block now stores fully-qualified interface names (was bare).
 // Real interface handles from GetInterfaces() + robust interface identity for
 // is/as/IsAssignableFrom. Structure unchanged; field semantics bare→FQ.
-pub const ZBC_VERSION_MINOR: u16 = 20;
+// 2026-07-09 reencode-strs-segment-dict: bumped to 1.21 — STRS re-encoded as a
+// segment dictionary. Layout: segCount u32 + (varint segLen + utf8)×segCount +
+// strCount u32 + (varint segN + varint segIdx×segN)×strCount. Each pooled string
+// is the '.'-join of its segment sequence. Removes the redundant per-string
+// offset field and dedups namespace prefixes (−44% STRS on z42.core). String
+// pool indices (how other sections reference strings) are unchanged.
+pub const ZBC_VERSION_MINOR: u16 = 21;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -120,7 +126,11 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // fnCount u16 + firstSig u32 + zbcHash pool idx — BLAKE3-128 hex of the
 // scattered self-contained fullMode <stem>.zbc). VM loads indexed via the
 // path-aware loader (scattered zbc verified against zbcHash).
-pub const ZPKG_VERSION_MINOR: u16 = 24;
+// 2026-07-09 reencode-strs-segment-dict: bumped to 0.25, coupled with inner zbc
+// 1.21 (STRS segment-dict re-encoding). Outer zpkg section layout unchanged; the
+// STRS section body — shared with .zbc via the same reader — carries the new
+// segment-dict encoding. Also applies to the .zsym sidecar's symPool STRS.
+pub const ZPKG_VERSION_MINOR: u16 = 25;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -252,6 +262,18 @@ impl<'a> Cursor<'a> {
         self.need(n)?;
         let s = &self.data[self.pos..self.pos+n]; self.pos += n; Ok(s)
     }
+    /// Unsigned LEB128 varint (STRS segment-dict). Max 5 bytes for u32.
+    fn read_varint(&mut self) -> Result<u32> {
+        let mut result: u32 = 0;
+        let mut shift: u32 = 0;
+        for _ in 0..5 {
+            let b = self.read_u8()?;
+            result |= ((b & 0x7F) as u32) << shift;
+            if b & 0x80 == 0 { return Ok(result); }
+            shift += 7;
+        }
+        bail!("varint too long (>5 bytes)")
+    }
     fn read_utf8_u16len(&mut self) -> Result<String> {
         let len = self.read_u16()? as usize;
         let b = self.read_bytes(len)?;
@@ -308,22 +330,31 @@ fn get_section<'d>(data: &'d [u8], dir: &HashMap<[u8;4], (usize, usize)>, tag: &
 
 // ── String heap (STRS / BSTR) ─────────────────────────────────────────────────
 
+/// STRS segment-dict (zbc 1.21 / zpkg 0.25): unique `.`-split segments deduped once,
+/// each string = sequence of segment indices, reconstructed via `join('.')`.
 fn read_strs(sec: &[u8]) -> Result<Vec<String>> {
     let mut c = Cursor::new(sec);
-    let count = c.read_u32()? as usize;
-    let mut offsets = Vec::with_capacity(count);
-    for _ in 0..count {
-        let off = c.read_u32()? as usize;
-        let len = c.read_u32()? as usize;
-        offsets.push((off, len));
+    let seg_count = c.read_u32()? as usize;
+    let mut seg_dict: Vec<&str> = Vec::with_capacity(seg_count);
+    for _ in 0..seg_count {
+        let len = c.read_varint()? as usize;
+        let b = c.read_bytes(len)?;
+        seg_dict.push(std::str::from_utf8(b)?);
     }
-    let data_start = c.pos;
-    let mut result = Vec::with_capacity(count);
-    for (off, len) in offsets {
-        let start = data_start + off;
-        let end = start + len;
-        if end > sec.len() { bail!("STRS section: string entry out of bounds") }
-        result.push(std::str::from_utf8(&sec[start..end])?.to_owned());
+    let str_count = c.read_u32()? as usize;
+    let mut result = Vec::with_capacity(str_count);
+    for _ in 0..str_count {
+        let seg_n = c.read_varint()? as usize;
+        let mut name = String::new();
+        for j in 0..seg_n {
+            let seg_idx = c.read_varint()? as usize;
+            let seg = seg_dict.get(seg_idx).ok_or_else(|| {
+                anyhow::anyhow!("STRS segment index {} out of range ({})", seg_idx, seg_count)
+            })?;
+            if j > 0 { name.push('.'); }
+            name.push_str(seg);
+        }
+        result.push(name);
     }
     Ok(result)
 }

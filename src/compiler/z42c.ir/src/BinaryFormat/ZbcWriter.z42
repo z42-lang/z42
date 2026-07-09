@@ -158,23 +158,69 @@ public static class ZbcWriter {
         return w;
     }
 
-    // ── STRS：count + (offset u32, len u32)×count + 拼接 UTF-8 data ────────────────
+    // ── STRS（segment-dict，zbc 1.21 / zpkg 0.25，reencode-strs-segment-dict）─────────
+    //   u32 segCount
+    //   segCount × { varint segByteLen ; utf8 segBytes }     唯一段,first-seen 序,去重
+    //   u32 strCount
+    //   strCount × { varint segN ; segN × varint segIdx }    每串 = 段索引序列
+    // 串 i = join(segDict[segIdx], "."). strCount 顺序 == 旧池序 → 串索引语义不变
+    //（消费端 pool.Idx 零改动）。段序纯由稳定池序派生 → byte-identical 可复现。
     public static ByteWriter BuildStrs(ZbcStringPool pool) {
         var w = new ByteWriter();
         int n = pool.Count();
-        w.WriteU32(n);
-        int offset = 0;
+        // pass 1：建段字典（first-seen 去重；遍历序 = 池序 × 串内左→右）
+        var segDict = new ZbcStringPool();
         int i = 0;
         while (i < n) {
-            int len = pool.At(i).ByteLength;
-            w.WriteU32(offset);
-            w.WriteU32(len);
-            offset = offset + len;
+            string[] segs = ZbcWriter._splitDots(pool.At(i));
+            int j = 0;
+            while (j < segs.Length) { segDict.Intern(segs[j]); j = j + 1; }
             i = i + 1;
         }
+        // 段字典
+        int segCount = segDict.Count();
+        w.WriteU32(segCount);
+        int s = 0;
+        while (s < segCount) {
+            string seg = segDict.At(s);
+            w.WriteVarint(seg.ByteLength);
+            w.WriteUtf8Bytes(seg);
+            s = s + 1;
+        }
+        // strTable（每串段索引序列；Idx 命中已 intern 段）
+        w.WriteU32(n);
         i = 0;
-        while (i < n) { w.WriteUtf8Bytes(pool.At(i)); i = i + 1; }
+        while (i < n) {
+            string[] segs = ZbcWriter._splitDots(pool.At(i));
+            w.WriteVarint(segs.Length);
+            int j = 0;
+            while (j < segs.Length) { w.WriteVarint(segDict.Idx(segs[j])); j = j + 1; }
+            i = i + 1;
+        }
         return w;
+    }
+
+    // 按 ASCII `.`（scalar 46）切分为段（空段保留；无点串→单段；空串→单空段）。
+    // 切/拼在 `.` 上严格互逆 → reader join(".") 双向无损（不依赖「串是 FQ 名」）。
+    public static string[] _splitDots(string str) {
+        int len = str.Length;
+        int dots = 0;
+        int i = 0;
+        while (i < len) { if ((int)str.CharAt(i) == 46) { dots = dots + 1; } i = i + 1; }
+        string[] segs = new string[dots + 1];
+        int segStart = 0;
+        int si = 0;
+        i = 0;
+        while (i < len) {
+            if ((int)str.CharAt(i) == 46) {
+                segs[si] = str.Substring(segStart, i - segStart);
+                si = si + 1;
+                segStart = i + 1;
+            }
+            i = i + 1;
+        }
+        segs[si] = str.Substring(segStart, len - segStart);
+        return segs;
     }
 
     // 字段 attr-ref 块（add-attribute-reflection）：count u16 +（typeName, factoryFunc）对。
