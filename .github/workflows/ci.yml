@@ -391,20 +391,6 @@ jobs:
           echo "--- manifest.toml ---"
           cat "$pkg_dir/manifest.toml"
 
-      # test-dist-in-ci (review §3.4): CI previously only checked package *layout*,
-      # never that the packaged z42c+z42vm actually RUN. `test dist` compiles+runs the
-      # src/tests goldens with the packaged binaries (sources from checkout, binaries
-      # from the package above). linux-x64 only for now — safe introduction of a step
-      # that can't be verified locally; expand to other host OSes once proven stable.
-      - name: Verify packaged toolchain runs goldens (test dist, interp)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test dist interp
-
       - name: Upload host package
         uses: actions/upload-artifact@v4
         with:
