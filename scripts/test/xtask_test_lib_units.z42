@@ -215,6 +215,26 @@ int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] uni
                 Console.Write(cr.Stdout);
                 Console.Write(cr.Stderr);
                 failed = failed + 1;
+            } else if (arts[b].Length > 0 && !File.Exists(arts[b])) {
+                // exit 0 但产物缺失(fix-stdlib-test-missing-artifact-flaky):全 gate 高并发
+                // 负载下偶发,恒命中最重的 crypto 单元。编译在隔离下证明稳定产出、harness 无
+                // 删除路径、非抛异常(z42vm 抛异常退出 1)、非 OOM(exit 137≠0)——负载相关
+                // Heisenbug。串行重编一次;仍缺则当硬编译错误(不进 run 相位报误导性 cannot-read)。
+                string rt = "";
+                string ra = "";
+                Process rp = _compilePrep(root, lib, units[i + b], parentDeps, kind,
+                                          vm, driverZpkg, libs, ref rt, ref ra);
+                ProcessResult rr = rp.WorkingDirectory(root).Run();
+                if (rt.Length > 0) { try { File.Delete(rt); } catch (Exception e) {} }
+                if (rr.ExitCode != 0 || !File.Exists(arts[b])) {
+                    Console.WriteLine("✗ COMPILE ERROR (no artifact after retry): " + units[i + b].UnitName);
+                    Console.Write(rr.Stdout);
+                    Console.Write(rr.Stderr);
+                    okc[b] = false;
+                    failed = failed + 1;
+                } else {
+                    Console.WriteLine("  (retried: " + units[i + b].UnitName + " — 1st compile exited 0 but produced no artifact under load)");
+                }
             }
             b = b + 1;
         }
