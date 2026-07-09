@@ -310,6 +310,34 @@ public sealed class IrGen {
             }
             i = i + 1;
         }
+        // enum 类型（add-enum-type-metadata / unify-type-metadata P1-a）：作特殊 class 追加在 classes/
+        // 接口之后，class_flags bit5=enum + 成员 {name,i64}。供 typeof(EnumType) + 反射 IsEnum/GetNames/
+        // GetValues。值求值同 SymbolCollector._passEnums（cur=0，显式 =N 覆盖，隐式 +1）。
+        i = 0;
+        while (i < cu.DeclCount) {
+            Decl de = this._unwrap(cu.Decls[i]);
+            if (de is EnumDecl) {
+                EnumDecl ed = de as EnumDecl;
+                // FQ 名（_q 加 namespace）——与普通类/接口一致（line 824/890），否则 typeof(Enum)
+                // 按 FQ 查 type_registry 命中不到短名条目 → 无句柄 Type → IsEnum=false。
+                IrClassDesc edesc = new IrClassDesc(this._q(ed.Name), false, "", new IrFieldDesc[0], 0);
+                edesc.Flags = edesc.Flags | 32;   // bit5 = enum
+                string[] mn = new string[ed.MemberCount];
+                long[] mv = new long[ed.MemberCount];
+                long cur = 0;
+                int mi = 0;
+                while (mi < ed.MemberCount) {
+                    EnumMember em = ed.Members[mi];
+                    if (em.HasValue) { cur = this._parseEnumVal(em.Value); }
+                    mn[mi] = em.Name; mv[mi] = cur;
+                    cur = cur + 1;
+                    mi = mi + 1;
+                }
+                edesc.EnumMemberNames = mn; edesc.EnumMemberValues = mv; edesc.EnumMemberCount = ed.MemberCount;
+                classes = this._pushClass(classes, cc, edesc); cc = cc + 1;
+            }
+            i = i + 1;
+        }
         i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -1126,6 +1154,21 @@ public sealed class IrGen {
         }
         arr[count] = cd;
         return arr;
+    }
+
+    // enum 成员显式值解析（十进制 i64，可负）——镜像 SymbolCollector._parseEnumVal，保成员值一致。
+    private long _parseEnumVal(string s) {
+        long r = 0;
+        int i = 0;
+        bool neg = false;
+        if (s.Length > 0 && s.CharAt(0) == '-') { neg = true; i = 1; }
+        while (i < s.Length) {
+            int d = (int)s.CharAt(i) - 48;
+            r = r * 10 + (long)d;
+            i = i + 1;
+        }
+        if (neg) { r = 0 - r; }
+        return r;
     }
 
     private Decl _unwrap(Decl d) {

@@ -76,7 +76,12 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // is the '.'-join of its segment sequence. Removes the redundant per-string
 // offset field and dedups namespace prefixes (−44% STRS on z42.core). String
 // pool indices (how other sections reference strings) are unchanged.
-pub const ZBC_VERSION_MINOR: u16 = 21;
+// 2026-07-09 add-enum-type-metadata (unify-type-metadata P1-a): bumped to 1.22 —
+// enum types now emit a TYPE-section entry with CLASS_FLAG_ENUM (bit5) and a
+// trailing enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n),
+// gated on the flag so non-enum class records are byte-unchanged. Backs
+// Type.IsEnum + Enum.GetNames/GetValues/GetName + typeof(EnumType).
+pub const ZBC_VERSION_MINOR: u16 = 22;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -130,7 +135,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 1.21 (STRS segment-dict re-encoding). Outer zpkg section layout unchanged; the
 // STRS section body — shared with .zbc via the same reader — carries the new
 // segment-dict encoding. Also applies to the .zsym sidecar's symPool STRS.
-pub const ZPKG_VERSION_MINOR: u16 = 25;
+// 2026-07-09 add-enum-type-metadata: bumped to 0.26, coupled with inner zbc 1.22
+// (TYPE-section enum member block). Outer zpkg layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 26;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -437,6 +444,20 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let idx = c.read_u32()?;
             interfaces.push(c.pool_str(pool, idx)?.to_owned());
         }
+        // add-enum-type-metadata (zbc 1.22): trailing enum-member block, present
+        // only when CLASS_FLAG_ENUM is set. member_count:u16 + (name_idx, i64)×n.
+        let enum_members = if class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0 {
+            let em_count = c.read_u16()? as usize;
+            let mut ems = Vec::with_capacity(em_count);
+            for _ in 0..em_count {
+                let nidx = c.read_u32()?;
+                let val = c.read_i64()?;
+                ems.push((c.pool_str(pool, nidx)?.to_owned(), val));
+            }
+            ems.into_boxed_slice()
+        } else {
+            Box::new([]) as Box<[(String, i64)]>
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -447,6 +468,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             class_flags,
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),
+            enum_members,
         });
     }
     Ok(classes)

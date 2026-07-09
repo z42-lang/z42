@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 21, "zbc minor at 1.21 (reencode-strs-segment-dict: STRS segment-dict encoding)");
+    assert_eq!(ZBC_VERSION_MINOR, 22, "zbc minor at 1.22 (add-enum-type-metadata: TYPE enum member block)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 25, "zpkg minor at 0.25 (reencode-strs-segment-dict: STRS segment-dict, coupled inner zbc 1.21)");
+    assert_eq!(ZPKG_VERSION_MINOR, 26, "zpkg minor at 0.26 (add-enum-type-metadata, coupled inner zbc 1.22)");
 }
 
 #[test]

@@ -874,6 +874,64 @@ pub fn builtin_type_is_interface(_ctx: &VmContext, args: &[Value]) -> Result<Val
     )))
 }
 
+/// `__type_is_enum(typeObj) -> bool` — true if the reflected type is an `enum`.
+/// Reads CLASS_FLAG_ENUM from the TYPE-section flags byte. add-enum-type-metadata.
+pub fn builtin_type_is_enum(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    Ok(Value::Bool(class_flag_set(
+        args,
+        crate::metadata::bytecode::CLASS_FLAG_ENUM,
+    )))
+}
+
+/// `__enum_names(typeObj) -> string[]` — enum member names in declaration order.
+/// Empty for non-enum / handle-less Types. add-enum-type-metadata.
+pub fn builtin_enum_names(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let out: Vec<Value> = td
+        .enum_members()
+        .iter()
+        .map(|(n, _)| Value::Str(n.clone().into()))
+        .collect();
+    Ok(ctx.heap().alloc_array(out))
+}
+
+/// `__enum_values(typeObj) -> int[]` — enum member i64 values in declaration order.
+/// Empty for non-enum / handle-less Types. add-enum-type-metadata.
+pub fn builtin_enum_values(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let out: Vec<Value> = td
+        .enum_members()
+        .iter()
+        .map(|(_, v)| Value::I64(*v))
+        .collect();
+    Ok(ctx.heap().alloc_array(out))
+}
+
+/// `__enum_name(typeObj, i64) -> string` — member name for a value, or "" if none.
+/// add-enum-type-metadata.
+pub fn builtin_enum_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(Value::Str(String::new().into())),
+    };
+    let val = match args.get(1) {
+        Some(Value::I64(v)) => *v,
+        _ => return Ok(Value::Str(String::new().into())),
+    };
+    for (n, v) in td.enum_members() {
+        if *v == val {
+            return Ok(Value::Str(n.clone().into()));
+        }
+    }
+    Ok(Value::Str(String::new().into()))
+}
+
 /// `__type_is_assignable_from(this, c) -> bool` — true if an instance of `c`
 /// can be assigned to a variable of `this` type (mirrors C#
 /// `Type.IsAssignableFrom`): `c` is `this`, derives from `this`, or implements

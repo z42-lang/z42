@@ -86,6 +86,11 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_interface")]
     public extern bool IsInterface { get; }
 
+    // True if this type was declared `enum`. Backed by CLASS_FLAG_ENUM in the
+    // TYPE-section flags byte. (add-enum-type-metadata / unify-type-metadata P1-a)
+    [Native("__type_is_enum")]
+    public extern bool IsEnum { get; }
+
     // True for a reference class type (incl. `record`). Mirrors C# Type.IsClass:
     // a real type that is neither a value type (`struct`) nor an interface.
     // Primitives / arrays / enums → false. (add-reflection-interface-class-predicates)

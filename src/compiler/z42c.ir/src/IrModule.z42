@@ -47,10 +47,13 @@ public sealed class IrClassDesc {
     public int           FieldCount;
     public IrFieldDesc[] StaticFields; public int StaticFieldCount;   // zbc 1.13（SA-3）
     public string[] Interfaces; public int InterfaceCount;   // zbc 1.17：TYPE 接口块（bare 名）
-    public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record
+    public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record / bit4 interface / bit5 enum
     public string[]           TypeParams;           public int TypeParamCount;        // zbc L3-G1
     public IrConstraintDesc[] TypeParamConstraints; // aligned with TypeParams（null = empty bundles）
     public IrAttrRef[] Attrs; public int AttrCount;   // zbc 1.10：类 attr-ref（默认空）
+    // enum 类型元数据（zbc 1.21→? add-enum-type-metadata / unify P1-a）：Flags bit5=enum 时，
+    // 成员名+i64 值随 TYPE 记录尾部 emit（供反射 IsEnum/GetNames/GetValues + typeof）。非 enum 空。
+    public string[] EnumMemberNames; public long[] EnumMemberValues; public int EnumMemberCount;
     public IrClassDesc(string name, bool hasBase, string baseName, IrFieldDesc[] fields, int fieldCount) {
         this.Name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = fields; this.FieldCount = fieldCount;
@@ -60,6 +63,7 @@ public sealed class IrClassDesc {
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
         this.TypeParamConstraints = new IrConstraintDesc[0];
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
+        this.EnumMemberNames = new string[0]; this.EnumMemberValues = new long[0]; this.EnumMemberCount = 0;
     }
 }
 

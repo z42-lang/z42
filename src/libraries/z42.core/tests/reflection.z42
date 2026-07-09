@@ -324,3 +324,36 @@ void test_param_custom_attributes() {
     }
     Assert.True(checkedOp);
 }
+
+// add-enum-type-metadata (unify-type-metadata P1-a): enum 作类型实体 + 反射。
+enum Palette {
+    Red = 0,
+    Green = 5,
+    Blue = 6,
+}
+
+[Test]
+void test_enum_is_enum() {
+    Assert.True(typeof(Palette).IsEnum);
+    Assert.Equal(false, typeof(Derived).IsEnum);
+}
+
+[Test]
+void test_enum_get_names_values() {
+    string[] names = Enum.GetNames(typeof(Palette));
+    Assert.Equal(3, names.Length);
+    Assert.Equal("Red", names[0]);
+    Assert.Equal("Green", names[1]);
+    Assert.Equal("Blue", names[2]);
+    long[] vals = Enum.GetValues(typeof(Palette));
+    Assert.Equal(3, vals.Length);
+    Assert.True(vals[0] == 0);
+    Assert.True(vals[1] == 5);
+    Assert.True(vals[2] == 6);
+}
+
+[Test]
+void test_enum_get_name() {
+    Assert.Equal("Green", Enum.GetName(typeof(Palette), 5));
+    Assert.Equal("", Enum.GetName(typeof(Palette), 99));
+}

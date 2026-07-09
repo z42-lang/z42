@@ -102,6 +102,9 @@ public static class ZbcWriter {
             // attr-ref 串（add-attribute-reflection）：TypeName + FactoryFunc 须先入池供 BuildType pool.Idx。
             int cax = 0;
             while (cax < cd.AttrCount) { pool.Intern(cd.Attrs[cax].TypeName); pool.Intern(cd.Attrs[cax].FactoryFunc); cax = cax + 1; }
+            // enum 成员名（add-enum-type-metadata）：须先入池供 BuildType 的 enum 块 pool.Idx。
+            int emi = 0;
+            while (emi < cd.EnumMemberCount) { pool.Intern(cd.EnumMemberNames[emi]); emi = emi + 1; }
             c = c + 1;
         }
         pool.Intern("?");   // SIGS 缺省 param 类型占位
@@ -299,6 +302,17 @@ public static class ZbcWriter {
             w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
             int ifx = 0;
             while (ifx < cd.InterfaceCount) { w.WriteU32(pool.Idx(cd.Interfaces[ifx])); ifx = ifx + 1; }
+            // enum 成员块（add-enum-type-metadata / unify P1-a）：Flags bit5(0x20) 置位时追加
+            // member_count:u16 + (name_idx:u32, value:i64)×n。gated → 非 enum 类零字节、布局不变。
+            if ((cd.Flags & 32) != 0) {
+                w.WriteU16(cd.EnumMemberCount);
+                int emx = 0;
+                while (emx < cd.EnumMemberCount) {
+                    w.WriteU32(pool.Idx(cd.EnumMemberNames[emx]));
+                    w.WriteI64(cd.EnumMemberValues[emx]);
+                    emx = emx + 1;
+                }
+            }
             c = c + 1;
         }
         return w;

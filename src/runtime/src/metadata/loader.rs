@@ -732,6 +732,8 @@ pub fn build_type_registry(module: &mut Module) {
             field_attributes,
             // add-reflection-get-interfaces: carry the class's declared interfaces.
             interfaces:             desc.interfaces.iter().map(|s| s.as_str().into()).collect(),
+            // add-enum-type-metadata: carry the enum's (name, value) members.
+            enum_members:           desc.enum_members.clone(),
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
@@ -741,6 +743,7 @@ pub fn build_type_registry(module: &mut Module) {
             && cold_inner.static_fields.is_empty()
             && cold_inner.field_attributes.is_empty()
             && cold_inner.interfaces.is_empty()
+            && cold_inner.enum_members.is_empty()
         {
             None
         } else {

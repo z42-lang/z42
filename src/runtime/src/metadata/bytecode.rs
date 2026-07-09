@@ -89,6 +89,7 @@ impl Module {
             static_fields:          c.static_fields.clone(),
             field_attributes:       c.field_attributes.clone(),
             interfaces:             c.interfaces.clone(),
+            enum_members:           c.enum_members.clone(),
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),
@@ -122,8 +123,12 @@ pub const CLASS_FLAG_STRUCT: u8 = 1 << 2;
 pub const CLASS_FLAG_RECORD: u8 = 1 << 3;
 /// add-reflection-interface-class-predicates (zbc 1.19): set on the minimal
 /// TYPE entry emitted for an `interface`. Backs `Type.IsInterface`; excluded
-/// from `Type.IsClass`. bit5+ reserved (bit5 = enum, when IsEnum lands).
+/// from `Type.IsClass`.
 pub const CLASS_FLAG_INTERFACE: u8 = 1 << 4;
+/// add-enum-type-metadata (zbc 1.22): set on the TYPE entry emitted for an
+/// `enum`. Backs `Type.IsEnum`; when set, the class record carries a trailing
+/// enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n).
+pub const CLASS_FLAG_ENUM: u8 = 1 << 5;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {
@@ -160,6 +165,12 @@ pub struct ClassDesc {
     /// base-walks for inherited interfaces).
     #[serde(default)]
     pub interfaces: Box<[String]>,
+    /// add-enum-type-metadata (zbc 1.22): enum member (name, i64 value) pairs,
+    /// present only when `class_flags & CLASS_FLAG_ENUM`. Threaded into
+    /// `TypeDesc::enum_members`; surfaced by `Type.IsEnum` / `Enum.GetNames` /
+    /// `Enum.GetValues` / `Enum.GetName`. Empty for non-enum classes.
+    #[serde(default)]
+    pub enum_members: Box<[(String, i64)]>,
 }
 
 /// C3 add-attribute-reflection: one applied attribute — the attribute class's

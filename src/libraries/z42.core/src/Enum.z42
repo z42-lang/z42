@@ -1,0 +1,18 @@
+// enum 反射 API（add-enum-type-metadata / unify-type-metadata P1-a）。
+// 从 Type 的 enum 元数据（TYPE 段 enum 成员块，CLASS_FLAG_ENUM gated）读成员名/值。
+// 值以底层 i64（z42 `long`）返回——不截断；`Type.IsEnum` 判类型是否为 enum。
+namespace Std;
+
+public static class Enum {
+    // enum 成员名（声明序）。非 enum / 无句柄 Type → 空数组。
+    [Native("__enum_names")]
+    public static extern string[] GetNames(Type enumType);
+
+    // enum 成员值（声明序，底层 i64）。非 enum → 空数组。
+    [Native("__enum_values")]
+    public static extern long[] GetValues(Type enumType);
+
+    // 值 → 成员名；未命中返 ""。
+    [Native("__enum_name")]
+    public static extern string GetName(Type enumType, long value);
+}

@@ -187,6 +187,10 @@ pub struct TypeDescCold {
     /// `Type.GetInterfaces()`, which base-walks the `base_name` chain to also
     /// include inherited interfaces (dedup by name). Empty = none.
     pub interfaces: Box<[Box<str>]>,
+    /// add-enum-type-metadata (zbc 1.22): enum member (name, i64 value) pairs.
+    /// Reflection only — surfaced by `Enum.GetNames/GetValues/GetName`; presence
+    /// mirrors `class_flags & CLASS_FLAG_ENUM` (i.e. `Type.IsEnum`). Empty = non-enum.
+    pub enum_members: Box<[(String, i64)]>,
 }
 
 impl TypeDesc {
@@ -211,6 +215,10 @@ impl TypeDesc {
     #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[super::bytecode::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
+    /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
+    #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
+    /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
+    #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & super::bytecode::CLASS_FLAG_ENUM != 0 }
 
     /// Lazy-init the cold side-table for mutation.
     #[inline]

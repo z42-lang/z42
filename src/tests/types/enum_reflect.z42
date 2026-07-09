@@ -1,0 +1,32 @@
+// add-enum-type-metadata (unify-type-metadata P1-a): enum 作 TYPE 段类型实体后，
+// typeof(enum) 解析 + IsEnum + Std.Enum.GetNames/GetValues/GetName 反射。
+// Assert / Type / Enum 均 z42.core（prelude），无需 using。
+namespace Test;
+
+enum Status {
+    Ok = 0,
+    NotFound = 404,
+    ServerError = 500,
+}
+
+class Greeter { }
+
+void main() {
+    Assert.Equal(true, typeof(Status).IsEnum);
+    Assert.Equal(false, typeof(Greeter).IsEnum);
+
+    string[] names = Enum.GetNames(typeof(Status));
+    Assert.Equal(3, names.Length);
+    Assert.Equal("Ok", names[0]);
+    Assert.Equal("NotFound", names[1]);
+    Assert.Equal("ServerError", names[2]);
+
+    long[] vals = Enum.GetValues(typeof(Status));
+    Assert.Equal(3, vals.Length);
+    Assert.Equal(true, vals[0] == 0);
+    Assert.Equal(true, vals[1] == 404);
+    Assert.Equal(true, vals[2] == 500);
+
+    Assert.Equal("NotFound", Enum.GetName(typeof(Status), 404));
+    Assert.Equal("", Enum.GetName(typeof(Status), 999));
+}

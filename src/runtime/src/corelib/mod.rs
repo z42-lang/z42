@@ -228,6 +228,11 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_is_generic_definition", reflection::builtin_type_is_generic_definition),
     ("__type_generic_definition",    reflection::builtin_type_generic_definition),
     ("__type_is_interface",  reflection::builtin_type_is_interface),
+    // add-enum-type-metadata (unify-type-metadata P1-a): enum reflection.
+    ("__type_is_enum",       reflection::builtin_type_is_enum),
+    ("__enum_names",         reflection::builtin_enum_names),
+    ("__enum_values",        reflection::builtin_enum_values),
+    ("__enum_name",          reflection::builtin_enum_name),
     ("__type_is_class",      reflection::builtin_type_is_class),
     ("__type_is_assignable_from", reflection::builtin_type_is_assignable_from),
     ("__type_custom_attributes", reflection::builtin_type_custom_attributes),
