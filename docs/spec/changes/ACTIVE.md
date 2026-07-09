@@ -18,6 +18,7 @@
 
 | change | 子系统（待逐个确认） |
 |--------|---------------------|
+| `fix-bootstrap-format-bump-deadlock` | toolchain —— 🔴 全量 SPEC 已起草 2026-07-09（**不持锁,待 User 6.5**）:两代自举根治格式-bump 的 CI 引导死结(用 SDK 自带旧 VM 跑 Gen1/Gen2→新 VM 接管;版本差 gate 使日常零成本);落地 Deferred `single-vm-bootstrap-gap`。本地不可完整验证,靠人造-bump-分支验闭环 |
 | ~~add-file-level-incremental~~ | compiler + toolchain —— ✅ 已归档 2026-07-08（文件级增量编译落地：对账器 47/47 byte-identical + D8 性能三轮修正持平；见子系统持有表 compiler 行详述）|
 | ~~add-indexed-zpkg-min-patch~~ | compiler + runtime —— ✅ 已归档 2026-07-09（indexed 最小 patch 分发落地：主文件 FILE 段 + 自包含散装 zbc + VM 装载 + zpkg 0.24；见子系统持有表 compiler 行详述）|
 | `add-partial-types` | compiler —— 🔴 DRAFT 已起草 2026-07-08（**排队中，未持锁**）：C# 风格 partial 类型（class/struct/record/interface + partial method C#9 形态）；方案 A 编译期合并单条 TYPE record → 零 zbc/zpkg 格式 bump、零 Rust loader 改动；碎片组增量联动失效、非 partial 文件不受影响。**前置**：`add-indexed-zpkg-min-patch` 释放 compiler 锁 ✅（2026-07-09 已释放，可进阶段 6.5）|
