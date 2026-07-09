@@ -325,7 +325,13 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 - **当前 workaround**：`z42c build` 永远产 packed zpkg；`src/tests/zpkg-format/indexed-minimal/` fixture 保留 C# 时代旧字节基线（`minor=22`），随 add-params-varargs 的 zpkg minor 0.23 bump **不跟随 regen**——该 fixture 当前无法用 z42c 生成，其余 3 个 zpkg-format fixture 已 regen 到 0.23。
 - **范围收窄（port-incremental-build-cache，2026-07-05）**：本条原兼指「增量编译 cache」——packed 模式单文件 fullMode cache `.zbc` 落盘 + 整包级增量 probe 已在该 change 落地（见 [project.md 增量编译节](project.md)），本条仅剩 **indexed/FILE zpkg 模式**本身；workspace 构建的增量布线另见 [project.md#incremental-future-workspace-wiring](project.md#incremental-future-workspace-wiring)。
 
-### self-hosting-future-single-vm-bootstrap-gap
+### ~~self-hosting-future-single-vm-bootstrap-gap~~（✅ 已解决 2026-07-09，fix-bootstrap-format-bump-deadlock）
+
+> ci-bootstrap 加版本差 gate + 两代自举(旧 VM 从 SDK bin/z42vm 跑 gen1/gen2 → 新 VM 接管;
+> runtime/compile stdlib 经 entry-dir vs Z42_LIBS 分离)。已本地用真实种子 + 人造 bump 端到端
+> 验证。格式 bump 从此 CI 自动过、免手动传种子。以下为历史记录:
+
+#### 原条目（历史）
 
 - **来源**：add-params-varargs（2026-07-01，zpkg minor 0.22→0.23 bump 实测触发）
 - **触发原因**：`scripts/build/xtask_compiler.z42:_buildCompiler()` 与 CI `.github/actions/ci-bootstrap/action.yml` 共享同一结构缺陷——都先用**当前源码**新鲜 `cargo build` 出一个 strict-pin 到**新** zpkg/zbc minor 的 z42vm，再立即用这个新 VM 去跑**旧格式**的种子 driver（本地：`artifacts/build/z42c/...z42c.driver.zpkg`；CI：下载的上一个 nightly SDK 种子）。zpkg/zbc 是 strict-pin（无兼容回退），新 VM 天然读不了旧种子 → `zpkg minor 22 not supported (writer is at 0.23)`。`version-bumping.md` "bump 与 xtask↔nightly bootstrap 循环" 段落记载的"自愈设计"（`build-and-test` 全源码 bootstrap，不依赖 download-bootstrap）看来从未在**完全 C#-free**（C# 种子已于 2026-06-26 移除）的条件下针对一次真实 zpkg minor bump 做过验证——本次 bump 是 C# 移除后第一次触发的 minor bump。

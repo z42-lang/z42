@@ -90,20 +90,62 @@ runs:
         cp -f "$work/sdkpkg/libs/"*.zpkg "$seed/"
         echo "   seed: $(ls "$seed"/*.zpkg | wc -l | tr -d ' ') zpkg @ $seed"
 
+        # Native-form (Windows D:\… on windows-x64; unchanged on Unix) copies of every
+        # ABSOLUTE path z42vm must parse. The bash exec position ("$vm" …) keeps the MSYS
+        # form — git-bash launches the .exe fine; only what z42vm itself reads is converted.
+        # (Defined here — before the 1.5 two-gen gate — because the gate references them.)
+        seedw="$(winpath "$seed")"
+        sdkpkgw="$(winpath "$work/sdkpkg")"        # SDK dir → Z42_HOME (seed source)
+        sdklibsw="$(winpath "$work/sdkpkg/libs")"  # nightly stdlib → Z42_LIBS (xtask runtime)
+        driverw="$(winpath "$seed/z42c.driver.zpkg")"
+
+        # ── 1.5 版本差 gate:两代自举根治格式-bump 死结 ────────────────────────────────
+        # (fix-bootstrap-format-bump-deadlock) 种子 zpkg minor 与当前源 writer minor 相等
+        # → 日常 push,种子与新 VM 同版本,直接走下面的单 VM 快路径(零改动)。不等(zpkg/zbc
+        # 格式 bump)→ cargo 新 VM strict-pin 读不了旧种子 stdlib → 单 VM 必炸。改用 nightly SDK
+        # 自带的**旧 VM**(bin/z42vm,与旧种子同版本)做两代自举,把种子推进到当前格式,再交新 VM。
+        # 机理见 docs/spec/archive/…-fix-bootstrap-format-bump-deadlock/design.md(D7,已本地端到端验证)。
+        seed_minor=$(od -An -tu2 -j6 -N2 "$seed/z42c.driver.zpkg" | tr -d ' ')
+        cur_minor=$(grep -oE 'Minor = [0-9]+' "$ROOT/src/compiler/z42c.project/src/ZpkgWriter.z42" | head -1 | grep -oE '[0-9]+')
+        echo "   zpkg minor: seed=$seed_minor  current=$cur_minor"
+        boot_driver="$seed/z42c.driver.zpkg"   # 默认(快路径):用下载的种子 z42c
+        boot_libs="$work/sdkpkg/libs"          # 默认:种子 stdlib
+        if [ -n "$seed_minor" ] && [ -n "$cur_minor" ] && [ "$seed_minor" != "$cur_minor" ]; then
+          echo "── [1.5] 格式 bump 检测(seed $seed_minor ≠ current $cur_minor)→ 两代自举 ──"
+          OLDVM="$work/sdkpkg/bin/z42vm"; case "$RID" in windows-*) OLDVM="$OLDVM.exe";; esac
+          [ -f "$OLDVM" ] || { echo "::error::nightly SDK 缺 bin/z42vm — 两代自举需旧 VM(重发带 bin/z42vm 的 nightly)"; exit 1; }
+          chmod +x "$OLDVM" 2>/dev/null || true
+          # Gen1 z42c: 旧VM + 旧种子 z42c → 编当前源 → gen1(旧壳/新逻辑)。种子+stdlib 全旧,自洽。
+          ( cd "$ROOT/src/compiler" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
+          # Gen1 stdlib: gen1 driver+6兄弟 与 旧 stdlib 同目录(旧VM 运行时加载)→ 产新格式 stdlib。
+          G1RUN="$ROOT/.ci-gen1run"; rm -rf "$G1RUN"; mkdir -p "$G1RUN"
+          cp -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/"*.zpkg "$G1RUN/"
+          cp -f "$work/sdkpkg/libs/"*.zpkg "$G1RUN/"
+          g1runw="$(winpath "$G1RUN")"
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          # 新格式 stdlib flat 视图
+          FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
+          for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$FLAT/"; done
+          flatw="$(winpath "$FLAT")"
+          # Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 供运行时)+ Z42_LIBS=新 stdlib(编译期 TSIG)
+          # → z42c 新壳。per-member topo 序:兄弟本轮先重写为新格式再被依赖。
+          ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          g2_minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" | tr -d ' ')
+          [ "$g2_minor" = "$cur_minor" ] || { echo "::error::两代自举 gen2 z42c minor=$g2_minor ≠ current=$cur_minor"; exit 1; }
+          echo "   ✓ 两代自举完成:gen2 z42c + stdlib 均 minor=$cur_minor(当前格式);新 VM 接管"
+          # 后续 [2]-[4] 改用 gen2 z42c + 新 stdlib(新 VM 可加载);artifacts 已 warm(当前格式)。
+          boot_driver="$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
+          boot_libs="$FLAT"
+        fi
+        boot_driverw="$(winpath "$boot_driver")"
+        boot_libsw="$(winpath "$boot_libs")"
+
         # No hand-copy into the build tree anymore: xtask's `_ensureSeed` stages the
         # in-tree z42c + stdlib seed from the SDK (Z42_HOME) below (steps 3/4) — the
         # SAME resolver `./xtask build compiler` uses locally, so CI and local share one
         # logic. Z42_LIBS points at the SDK's nightly stdlib so xtask.zpkg (built by the
         # seed z42c against THAT stdlib) can LOAD to run; pointing it at the empty in-tree
         # output dir fails with `undefined function Std.IO.…` before _ensureSeed even runs.
-
-        # Native-form (Windows D:\… on windows-x64; unchanged on Unix) copies of every
-        # ABSOLUTE path z42vm must parse. The bash exec position ("$vm" …) keeps the MSYS
-        # form — git-bash launches the .exe fine; only what z42vm itself reads is converted.
-        seedw="$(winpath "$seed")"
-        sdkpkgw="$(winpath "$work/sdkpkg")"        # SDK dir → Z42_HOME (seed source)
-        sdklibsw="$(winpath "$work/sdkpkg/libs")"  # nightly stdlib → Z42_LIBS (xtask runtime)
-        driverw="$(winpath "$seed/z42c.driver.zpkg")"
 
         # Windows can't overwrite a RUNNING .exe. Steps [3]/[4] run xtask, which calls
         # _buildRuntime → `cargo build` targeting the canonical z42vm.exe (cargo's
@@ -130,7 +172,8 @@ runs:
         # SHOULD skip the cache, but the published nightly's z42c ignores it; so we also
         # tolerate the crash and gate on the actual product existing. A real failure
         # (crash before writing xtask.zpkg) still trips the guard.
-        Z42_LIBS="$seedw" "$runvm" "$driverw" --mode interp -- \
+        # boot_driverw/boot_libsw:快路径=下载种子;两代路径=gen2 z42c + 新 stdlib(见 1.5)。
+        Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
           build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
@@ -138,12 +181,15 @@ runs:
         # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
         # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
         # (default is now minimal — ▶/✔ markers only; detailed is what debugs bootstrap).
+        # Z42_LIBS=boot_libsw:两代路径下 artifacts 已 warm(当前格式 z42c+stdlib),此处新 VM
+        # warm 自建;Z42_HOME(冷启动 _ensureSeed 用)在 warm 时不触发,但两代路径它是旧种子,故
+        # 用 boot_libsw(新 stdlib)确保新 VM 能 LOAD 运行 xtask。快路径 boot_libsw==sdklibsw。
         echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_HOME) ──"
-        Z42_HOME="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
+        Z42_HOME="$sdkpkgw" Z42_LIBS="$boot_libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
 
         # ── 4. xtask builds CURRENT stdlib (flat dist + index.json) ──────────────────
         echo "── [4/5] xtask build stdlib ──"
-        Z42_HOME="$sdkpkgw" Z42_LIBS="$sdklibsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
+        Z42_HOME="$sdkpkgw" Z42_LIBS="$boot_libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
 
         # ── 5. sanity: toolchain present ─────────────────────────────────────────────
         echo "── [5/5] verify toolchain ──"

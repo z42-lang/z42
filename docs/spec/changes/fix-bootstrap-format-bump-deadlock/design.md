@@ -71,6 +71,46 @@ minor bump 走两代。major bump(改 magic/header layout,迄今未发生)可能
   `artifacts/build/libraries/dist/release`(现有 [2/5] 之后步骤期望的标准位置)。
 - 保留现有失败信息 + 每代耗时日志,便于 CI 上调试(本地不可完整验)。
 
+### D7: 验证过的精确 recipe + runtime/compile stdlib 分离（本地端到端跑通 2026-07-09）
+
+> ⚠️ **原两代草图(D1-D3)漏了一个会实现错的关键**:z42c 依赖 stdlib,而"用旧 VM 跑
+> 新逻辑 z42c 编 z42c(需新 stdlib 的 TSIG)"时,旧 VM 又得**加载**新 stdlib 来运行 z42c
+> ——旧 VM strict-pin 读不了新 stdlib,看似死锁。**解法**:z42c 的运行时 stdlib 与编译期
+> stdlib 走**不同来源**——z42vm dep 搜索序 = [entry-zpkg 目录, Z42_LIBS],把 gen1 z42c 放在
+> **同目录带旧 stdlib**(旧 VM 运行时加载 ✓),而 `Z42_LIBS` 指**新 stdlib**(gen1 z42c 的
+> 新 ZpkgReader 编译期解析 TSIG ✓)。两者分离,死锁解除。
+
+**已用真实紧邻种子(0.24 nightly)+ 人造 0.25 bump 在本地端到端跑通的命令序列**(build
+一律 per-member `build --workspace --release`,**不用 flat `--output-dir`**——后者破坏编译器
+兄弟包类型解析报 E0402,已知坑):
+
+```
+seed = 0.24 种子 z42c 7 包 + 0.24 stdlib(flat 目录 $SEED)；oldVM = SDK bin/z42vm(0.24)
+
+# Gen1 z42c: 旧VM + 旧种子 z42c → 编当前源 → gen1(旧壳/新逻辑)
+cd src/compiler; Z42_LIBS=$SEED  $oldVM $SEED/z42c.driver.zpkg -- build --workspace --release
+  → artifacts/build/compiler/*  = gen1 z42c(0.24 壳, 0.25 逻辑)   [种子写旧壳; runtime+compile 均旧 stdlib,自洽]
+
+# Gen1 stdlib: 旧VM + gen1 z42c(entry-dir 带旧 stdlib 供运行时)→ 产新 stdlib
+G1RUN = gen1 driver+6兄弟 + 0.24 stdlib(同目录)
+cd src/libraries; Z42_LIBS=$G1RUN  $oldVM $G1RUN/z42c.driver.zpkg -- build --workspace --release
+  → artifacts/build/libraries/* = 0.25 stdlib   [gen1 逻辑写新; stdlib 自包含,兄弟走 per-member dist]
+
+# Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 运行时) + Z42_LIBS=新 stdlib(编译期 TSIG)
+FLAT25 = 0.25 stdlib flat 视图
+cd src/compiler; Z42_LIBS=$FLAT25  $oldVM $G1RUN/z42c.driver.zpkg -- build --workspace --release
+  → artifacts/build/compiler/*  = gen2 z42c(0.25 壳)   [topo 序:兄弟在本轮先被重写为 0.25 再被依赖]
+
+# 切换: 新VM(cargo, 0.25) + gen2 z42c + 0.25 stdlib → 正常 [2/5..5/5]
+Z42_LIBS=$FLAT25  $newVM artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg -- build scripts/xtask.z42.toml ...
+  → 0.25 xtask.zpkg,新 VM 跑通 ✓
+```
+
+要点:①gen1 建 z42c 时种子/stdlib 全旧,自洽;②gen1 建 stdlib 时 stdlib 自包含,不需外部
+stdlib,故 runtime(entry-dir 旧)与 compile(内部兄弟新)不冲突;③gen2 建 z42c 是唯一需要
+"运行时旧 stdlib + 编译期新 stdlib"分离的步骤——靠 entry-dir vs Z42_LIBS 分离达成;④per-member
+topo 序保证兄弟包在被依赖前已重写为新格式。
+
 ## Testing Strategy
 
 - **本地(有限)**:造一个"旧种子"(把当前 0.24 SDK 的 zpkg 降级模拟成 N-1?不可行——需真旧

@@ -91,6 +91,14 @@ cargo test lazy_loader          # Rust reader 读 committed zpkg 字节基线
 
 ## bump 与 xtask↔nightly bootstrap 循环
 
+> **✅ 格式-bump 死结已根治（2026-07-09，fix-bootstrap-format-bump-deadlock）**：ci-bootstrap
+> 加了**版本差 gate + 两代自举**——种子 minor ≠ 当前 writer minor 时,用 nightly SDK 自带的
+> **旧 VM**(bin/z42vm)跑 gen1/gen2 把种子推进到当前格式,再交 cargo 新 VM。所以 **zpkg/zbc
+> minor bump 后 build-and-test / host-package / verify-selfhost 等**从当前源码 bootstrap 的腿
+> **不再全红**,publish-nightly 照常发出新种子,**无需手动传种子**。仅纯 download-bootstrap 的
+> `vm-jit` / `stdlib-jit` / `bench`(用旧 nightly 的旧 VM)仍会 bump 当次一次性红,下一 run 下到
+> 新 nightly 自愈(它们不 feed publish-nightly,不阻塞)。下面描述的是这类**残留一次性红**。
+
 CI 的 `xtask-bootstrap` composite **下载上一次 nightly**（`install-z42` → `.z42/`）来编译 + 运行 xtask（vm-jit / bench 等 job）。所以 zbc/zpkg minor bump 后会短暂出现循环：
 
 - 旧 nightly 的 z42vm 是旧 zbc reader → 跑不了用**新** z42c 编出的 `xtask.zpkg`（strict-pin 失败）；且 xtask 对着 `.z42/libs`（旧 nightly stdlib）编译，新 stdlib API 也可能缺。
