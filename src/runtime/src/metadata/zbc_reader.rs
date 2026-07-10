@@ -85,7 +85,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // blocks (instance + static) gain a trailing visibility:u8 per field; SIGS gains a
 // visibility:u8 after is_static. 0=public/1=private/2=protected. Backs
 // FieldInfo.IsPublic/IsPrivate + MethodInfo.IsPublic/IsPrivate.
-pub const ZBC_VERSION_MINOR: u16 = 23;
+// 2026-07-10 add-method-modifiers (unify P1-c): bumped to 1.24 - SIGS gains a
+// method_flags:u8 after visibility (bit0=virtual/bit1=abstract). Backs
+// MethodInfo.IsVirtual (authoritative) + IsAbstract.
+pub const ZBC_VERSION_MINOR: u16 = 24;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -143,7 +146,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // (TYPE-section enum member block). Outer zpkg layout unchanged.
 // 2026-07-09 add-member-visibility: bumped to 0.27, coupled inner zbc 1.23
 // (TYPE/SIGS member visibility). Outer zpkg layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 27;
+// 2026-07-10 add-method-modifiers: bumped to 0.28, coupled inner zbc 1.24
+// (SIGS +method_flags:u8). Outer zpkg layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 28;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -556,6 +561,9 @@ struct FuncSig {
     /// 1.23 add-member-visibility: 0=public / 1=private / 2=protected. Surfaced by
     /// MethodInfo.IsPublic / IsPrivate.
     visibility: u8,
+    /// 1.24 add-method-modifiers: bit0=virtual / bit1=abstract. Surfaced by
+    /// MethodInfo.IsVirtual (authoritative) / IsAbstract.
+    method_flags: u8,
     /// 1.3 split-debug-symbols: per-parameter type names for trace signature
     /// decoration. Length always equals `param_count` (writer pads unknowns
     /// with "?"). Empty Vec when param_count == 0.
@@ -582,6 +590,7 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
         let mode_byte   = c.read_u8()?;
         let is_static   = if has_is_static { c.read_u8()? != 0 } else { false };
         let visibility  = if has_is_static { c.read_u8()? } else { 0 };  // 1.23 add-member-visibility (after is_static)
+        let method_flags = if has_is_static { c.read_u8()? } else { 0 }; // 1.24 add-method-modifiers (after visibility)
 
         // 1.3 split-debug-symbols: per-param type names (u32 strIdx × param_count).
         let mut param_types = Vec::with_capacity(param_count);
@@ -625,6 +634,7 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
             exec_mode: exec_mode_from_byte(mode_byte),
             is_static,
             visibility,
+            method_flags,
             param_types,
             type_params,
             type_param_constraints,
@@ -1383,6 +1393,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             blocks:          body.blocks,
             is_static:       sig.map(|s| s.is_static).unwrap_or(false),
             visibility:      sig.map(|s| s.visibility).unwrap_or(0),
+            method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
             max_reg:         0,
             cold,
             reg_types,
@@ -1812,6 +1823,7 @@ fn read_mods_section(
                 blocks:          body.blocks,
                 is_static:       sig.map(|s| s.is_static).unwrap_or(false),
                 visibility:      sig.map(|s| s.visibility).unwrap_or(0),
+                method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
                 max_reg:         0,
                 cold,
                 reg_types,

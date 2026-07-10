@@ -65,6 +65,6 @@ void test_write_packed_header() {
     Assert.Equal("Demo.Main", z.Entry);               // exe 自动检测
     string hex = ZpkgWriterZ.WritePacked(z, false).ToHex();
     // "ZPK\0" + major 0 + minor 27 + flags 0x03(Packed|Exe) + secCount 7
-    // (0x1b=27; add-member-visibility bump —— version-bumping golden 同步)
-    Assert.Equal("5a504b0000001b00030007000000", hex.Substring(0, 28));
+    // (0x1c=28; add-method-modifiers bump —— version-bumping golden 同步)
+    Assert.Equal("5a504b0000001c00030007000000", hex.Substring(0, 28));
 }

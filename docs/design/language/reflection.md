@@ -106,7 +106,7 @@ void Demo() {
 | `Type : MemberInfo` | `Std`（z42.core）| `Name`（继承自 MemberInfo）/ `FullName` / `BaseType` / `IsAbstract` / `IsSealed` / `IsValueType` / `IsRecord` / `IsClass` / `IsInterface` / `IsGenericType` / `IsGenericTypeDefinition` / `IsPrimitive` / `IsArray` / `GetFields()` / `GetMethods()` / `GetMembers()` / `GetProperties()` / `GetGenericArguments()` / `GetGenericTypeDefinition()` / `GetInterfaces()` / `GetInterface(name)` / `IsAssignableFrom(Type)` / `GetElementType()` |
 | `MemberInfo` | `Std.Reflection` | `Name`（`Type` / `FieldInfo` / `MethodInfo` / `PropertyInfo` 的基类）|
 | `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
-| `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
+| `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsAbstract` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
 | `ParameterInfo` | `Std.Reflection` | `Name` / `ParameterType : Type` / `Position` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` |
 
@@ -213,6 +213,28 @@ Member / Type 对象**eager 填充**：每个 builtin 用 `ctx.try_lookup_type("
 `FieldInfo` / `MethodInfo` 各带 `IsPublic` / `IsPrivate`（bool），反映成员的声明修饰符。可见性以 **u8**（0=public / 1=private / 2=protected）持久化到两处：字段进 zbc **TYPE section** 每字段块（实例 + 静态，紧接该字段的 attr 块之后），方法进 **SIGS section** 每函数（`is_static` 字节之后）——两者都是 **non-gated**（每成员固定 +1 字节），因 IrGen 对每个成员都算得可见性（缺省 public，镜像 z42 AST `Visibility` 默认）。运行期 reader 把 TYPE 的可见性灌进 `FieldSlot`（实例）/ `FieldDesc`（静态）、把 SIGS 的灌进 `Function.visibility`（与 `is_static` 同源同路径）；`build_field_info` / `build_method_info` 据此设 `IsPublic = (vis==0)` / `IsPrivate = (vis==1)`。`protected` 两者皆 false（镜像 C# `IsFamily`）。
 
 > **unify-type-metadata 语境**：本砖只把可见性**加进** TYPE/SIGS（superset 阶段），编译期仍并存 TSIG 的可见性字段；待 P3 从 TSIG/EXPT 收敛（z42c 改读 TYPE/SIGS）后删 TSIG，实现「运行期反射元数据 = 单一真相」。
+
+### 方法修饰符反射（add-method-modifiers，zbc 1.24 / unify-type-metadata P1-c）
+
+`MethodInfo` 带 `IsVirtual` / `IsAbstract`（bool），反映方法的声明修饰符。修饰符以 **u8
+`method_flags`**（bit0=virtual / bit1=abstract）持久化到 zbc **SIGS section** 每函数（紧接
+`visibility` 之后，non-gated 固定 +1 字节）。`static` **不**入此字节——由既有独立 `is_static`
+字节表达（单一真相，不重复）。IrGen `_methodFlags(mods)`：`virtual`/`override`/`abstract`
+任一 → bit0（三者皆虚派发，镜像 C# `MethodInfo.IsVirtual`）；`abstract` → 另置 bit1。运行期
+reader 把 method_flags 灌进 `Function.method_flags`（与 `is_static`/`visibility` 同源同路径）；
+`build_method_info` 设 `IsVirtual = (flags & bit0) || <vtable 回退>`、`IsAbstract = (flags & bit1)`。
+
+> **`IsVirtual` 权威化**：此前 `IsVirtual` 由「方法是否来自 vtable 迭代」的运行期启发式给出——
+> 现改为读声明 flag（vtable-presence 仅作 flag 缺失的合成函数回退）。绝大多数方法一致（vtable
+> 成员 ≈ virtual/override 方法），差异在于「碰巧进 vtable 但非虚声明」的边界现在如实反映声明。
+
+> **abstract 方法可观测（IrGen `_emitAbstractStub`）**：实例 `abstract` 方法无 body，此前 IrGen
+> （`md.HasBody` 门）完全不 emit → 元数据里没有该方法 → 反射看不到、`IsAbstract` 观测不到 true。
+> P1-c 为实例 abstract 方法发一个 **signature-only 死体桩**（`ret null`/`ret`）进 SIGS/FUNC——
+> abstract 方法只被 override 经 vtable 派发，桩本身（抽象类 slot）是死代码；这样其 `method_flags`
+> 带 abstract 位、进得了 `Function` → 反射 `GetMethods()` 列出它且 `IsAbstract == true`。**限实例
+> abstract**（`static abstract` 接口成员如 `INumber` 是独立的静态抽象接口特性，不在此列）。z42c /
+> stdlib 源无实例 abstract 方法 → 现有 zpkg 零字节漂移、自举不动点不受影响。
 
 ### 类型名规范化
 

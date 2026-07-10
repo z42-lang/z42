@@ -502,8 +502,8 @@ fn build_method_info(
     qualified: &str,
     is_virtual: bool,
 ) -> Result<Value> {
-    let (ret_tag, is_static, params, visibility) = match resolve_func_sig(ctx, qualified) {
-        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis)) => {
+    let (ret_tag, is_static, params, visibility, method_flags, sig_found) = match resolve_func_sig(ctx, qualified) {
+        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf)) => {
             // Instance methods carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             let mut params = Vec::new();
@@ -531,10 +531,21 @@ fn build_method_info(
                     ],
                 )?);
             }
-            (ret_type, fn_is_static, params, vis)
+            (ret_type, fn_is_static, params, vis, mf, true)
         }
-        None => ("void".to_string(), false, Vec::new(), 0),
+        None => ("void".to_string(), false, Vec::new(), 0, 0, false),
     };
+    // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
+    // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
+    // not) in the vtable, so vtable-presence alone over-reports. Fall back to the
+    // vtable-presence hint only for methods with no resolvable SIGS (synthesized).
+    // IsAbstract from bit1.
+    let is_virtual_flag = if sig_found {
+        (method_flags & crate::metadata::bytecode::METHOD_FLAG_VIRTUAL) != 0
+    } else {
+        is_virtual
+    };
+    let is_abstract_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_ABSTRACT) != 0;
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -543,7 +554,9 @@ fn build_method_info(
             ("Name", Value::Str(simple.to_string().into())),
             ("ReturnType", make_type_from_name(ctx, &ret_tag)),
             ("IsStatic", Value::Bool(is_static)),
-            ("IsVirtual", Value::Bool(is_virtual)),
+            ("IsVirtual", Value::Bool(is_virtual_flag)),
+            // add-method-modifiers (unify P1-c): abstract methods (bit1).
+            ("IsAbstract", Value::Bool(is_abstract_flag)),
             // add-member-visibility (unify P1-b): 0=public / 1=private /
             // 2=protected. `protected` reports neither (mirrors C# IsFamily).
             ("IsPublic", Value::Bool(visibility == 0)),
@@ -563,14 +576,14 @@ fn build_method_info(
 fn resolve_func_sig(
     ctx: &VmContext,
     qualified: &str,
-) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8)> {
+) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8, u8)> {
     // reflection-future-parameter-names: parameters occupy registers
     // 0..param_count on entry, so a param's source name is the debug local-var
     // whose `reg` matches its index. Empty string when no debug symbols are
     // present (the builder falls back to `arg{n}`).
     fn extract(
         f: &crate::metadata::bytecode::Function,
-    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8) {
+    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8, u8) {
         let mut names = vec![String::new(); f.param_count];
         for lv in f.local_vars() {
             let r = lv.reg as usize;
@@ -578,7 +591,7 @@ fn resolve_func_sig(
                 names[r] = lv.name.clone();
             }
         }
-        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names, f.visibility)
+        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names, f.visibility, f.method_flags)
     }
     if let Some(m) = ctx.module() {
         if let Some(&i) = m.func_index.get(qualified) {
@@ -665,7 +678,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
     let sig = resolve_func_sig(ctx, qualified);
     if is_get {
         let ty = match &sig {
-            Some((pc, ret, is_static, _, _, _)) => {
+            Some((pc, ret, is_static, _, _, _, _)) => {
                 if pc.saturating_sub(if *is_static { 0 } else { 1 }) != 0 {
                     return; // get_X(args) — a regular method, not a property
                 }
@@ -676,7 +689,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
         upsert_prop(props, prop_name).getter_type = Some(ty);
     } else {
         let ty = match &sig {
-            Some((pc, _, is_static, ptypes, _, _)) => {
+            Some((pc, _, is_static, ptypes, _, _, _)) => {
                 let base = if *is_static { 0 } else { 1 };
                 if pc.saturating_sub(base) != 1 {
                     return; // set_X with != 1 value param — a regular method

@@ -340,6 +340,7 @@ public static class ZbcWriter {
             w.WriteU8(ExecMode.FromName(f.ExecMode));
             if (f.IsStatic) { w.WriteU8(1); } else { w.WriteU8(0); }
             w.WriteU8(f.Visibility);   // add-member-visibility（zbc 1.23）：is_static 后、params 前
+            w.WriteU8(f.MethodFlags);  // add-method-modifiers（zbc 1.24）：visibility 后、params 前
             int p = 0;
             while (p < f.ParamCount) {
                 string pt = "?";

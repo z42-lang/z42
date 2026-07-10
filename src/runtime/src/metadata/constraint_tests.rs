@@ -49,6 +49,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         blocks: vec![],
         is_static: false,
         visibility: 0,
+        method_flags: 0,
         max_reg: 0,
         cold,
         reg_types: Box::new([]),

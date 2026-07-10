@@ -136,6 +136,7 @@ public sealed class IrFunction {
     public string    RetType;
     public bool      IsStatic;
     public int       Visibility;      // add-member-visibility（zbc 1.23）：0=public/1=private/2=protected（IrGen 设，默认 0）
+    public int       MethodFlags;     // add-method-modifiers（zbc 1.24）：bit0=virtual/bit1=abstract（IrGen 设，默认 0）
     public IrBlock[] Blocks;
     public int       BlockCount;
     public int       MaxReg;
@@ -166,6 +167,7 @@ public sealed class IrFunction {
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.ParamAttrs = new IrAttrRefList[0]; this.ParamAttrsLen = 0;
         this.Visibility = 0;   // add-member-visibility：默认 public；IrGen 对显式方法/自由函数按 mods 覆盖
+        this.MethodFlags = 0;  // add-method-modifiers：默认非虚；IrGen 对显式/impl 方法按 mods 覆盖
     }
     public string Dump() {
         string s = "fn @" + this.Name + "(" + this.ParamCount.ToString() + ") -> " + this.RetType + " {";

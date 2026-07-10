@@ -11,8 +11,13 @@ public class MethodInfo : MemberInfo {
     // True for static methods (no implicit `this`).
     public bool IsStatic;
 
-    // True for virtual / inherited (vtable) methods.
+    // True for virtual / override / abstract methods (add-method-modifiers, unify
+    // P1-c: now authoritative from the declared modifier, not a vtable heuristic).
     public bool IsVirtual;
+
+    // True for abstract methods (add-method-modifiers, unify P1-c). Abstract
+    // methods are also virtual (IsVirtual == true).
+    public bool IsAbstract;
 
     // Member visibility (add-member-visibility, unify P1-b). Written by the VM
     // from the method's declared modifier. A `protected` method reports neither

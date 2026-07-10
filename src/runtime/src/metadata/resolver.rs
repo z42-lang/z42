@@ -423,6 +423,7 @@ mod resolver_tests {
                 }],
                 is_static: false,
                 visibility: 0,
+                method_flags: 0,
                 max_reg: 0,
                 cold: None,
                 reg_types: Box::new([]),

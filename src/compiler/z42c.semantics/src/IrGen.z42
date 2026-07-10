@@ -168,6 +168,7 @@ public sealed class IrGen {
                                     irf.Attrs = this._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection：方法 attr-ref
                                     irf.ParamAttrs = this._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
                                     irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
+                                    irf.MethodFlags = this._methodFlags(md.Mods);   // add-method-modifiers
                                     funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
                                 }
                             } else if (this._hasWord(md.Mods, "extern")) {
@@ -178,6 +179,16 @@ public sealed class IrGen {
                                                                            this._hasWord(md.Mods, "static"), rawMem);
                                     funcs = this._pushFunc(funcs, fc, stub); fc = fc + 1;
                                 }
+                            } else if (this._hasWord(md.Mods, "abstract") && !this._hasWord(md.Mods, "static")) {
+                                // add-method-modifiers（unify P1-c）：实例 abstract 方法无 body，此前完全不 emit →
+                                // 反射看不到 → IsAbstract 观测不到。发一个 signature-only 死体桩（override 经 vtable
+                                // 派发，桩永不被调），使其进 SIGS/FUNC → Function.method_flags 带 abstract 位 → 反射可见。
+                                IrFunction astub = this._emitAbstractStub(irName, md);
+                                astub.Attrs = this._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
+                                astub.ParamAttrs = this._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
+                                astub.Visibility = this._visCode(md.Mods);
+                                astub.MethodFlags = this._methodFlags(md.Mods);
+                                funcs = this._pushFunc(funcs, fc, astub); fc = fc + 1;
                             }
                         } else if (mem is PropertyDecl) {
                             // auto-property get_X → builtin 桩（extern）或 field.get __prop_X 桩（非 extern）。
@@ -288,6 +299,7 @@ public sealed class IrGen {
                                     IrFunction iirf = ife.EmitFunction(this._qClass(itn) + "." + imk, imd,
                                                                        model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
                                     iirf.Visibility = this._visCode(imd.Mods);   // add-member-visibility
+                                    iirf.MethodFlags = this._methodFlags(imd.Mods);   // add-method-modifiers
                                     funcs = this._pushFunc(funcs, fc, iirf); fc = fc + 1;
                                 }
                             }
@@ -351,6 +363,7 @@ public sealed class IrGen {
                     IrFunction irf = fe.EmitFunction(this._q(md.Name), md, model.GetBody(md.Name), false, false,
                                                      null, new string[0], 0);
                     irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
+                    irf.MethodFlags = this._methodFlags(md.Mods);   // add-method-modifiers
                     funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
                 }
             }
@@ -1056,6 +1069,38 @@ public sealed class IrGen {
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
     }
 
+    // add-method-modifiers（unify P1-c）：实例 abstract 方法的 signature-only 死体桩。
+    // abstract 方法无 body，override 经 vtable 派发 → 此桩永不被调用（死代码），仅为让方法进
+    // SIGS/FUNC 以便反射（IsAbstract）。桩体：非 void 返回 null 占位（reg 类型 Ref，永不执行故无碍），
+    // void 直接 ret。实例（有 this），ret 类型取声明类型（SIGS 据此报告 ReturnType）。
+    private IrFunction _emitAbstractStub(string name, MethodDecl md) {
+        int totalParams = md.ParamCount + 1;   // 实例 → +this
+        // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
+        // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
+        string retName = this._symbols.ResolveType(md.RetType).Name();
+        bool isVoid = retName == "void";
+        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
+        IrInstr[] instrs;
+        RetTerm term;
+        if (isVoid) {
+            instrs = new IrInstr[0];
+            term = new RetTerm(false, dst);
+        } else {
+            instrs = new IrInstr[1];
+            instrs[0] = new ConstNullInstr(dst);
+            term = new RetTerm(true, dst);
+        }
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
+        // ParamTypes 与 ParamCount 对齐（"?" 占位；SIGS writer 亦以 "?" 兜底缺失）。
+        string[] ptypes = new string[totalParams];
+        int pk = 0;
+        while (pk < totalParams) { ptypes[pk] = "?"; pk = pk + 1; }
+        return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
+                              "Interp", ptypes, totalParams, new int[0], 0,
+                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+
     // 非 extern auto-property getter 桩（镜像 C# SynthesizeClassAutoProp get 路径）：
     // field.get %0 @__prop_X → %1; ret %1。含 .locals(%0=this) + .linetable(line)。
     private IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,
@@ -1167,6 +1212,15 @@ public sealed class IrGen {
         if (this._hasWord(mods, "private"))   { return 1; }
         if (this._hasWord(mods, "protected")) { return 2; }
         return 0;   // public（显式或默认）
+    }
+
+    // add-method-modifiers（zbc 1.24）：方法修饰符 → method_flags（bit0=virtual/bit1=abstract）。
+    // virtual/override/abstract 皆虚派发 → 置 bit0（镜像 C# MethodInfo.IsVirtual）；abstract 另置 bit1。
+    private int _methodFlags(string mods) {
+        int f = 0;
+        if (this._hasWord(mods, "virtual") || this._hasWord(mods, "override") || this._hasWord(mods, "abstract")) { f = f | 1; }
+        if (this._hasWord(mods, "abstract")) { f = f | 2; }
+        return f;
     }
 
     // enum 成员显式值解析（十进制 i64，可负）——镜像 SymbolCollector._parseEnumVal，保成员值一致。

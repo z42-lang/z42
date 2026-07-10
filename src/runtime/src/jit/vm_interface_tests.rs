@@ -29,6 +29,7 @@ fn empty_function(name: &str) -> Function {
         }],
         is_static: false,
         visibility: 0,
+        method_flags: 0,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),

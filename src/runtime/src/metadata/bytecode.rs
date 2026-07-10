@@ -130,6 +130,12 @@ pub const CLASS_FLAG_INTERFACE: u8 = 1 << 4;
 /// enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n).
 pub const CLASS_FLAG_ENUM: u8 = 1 << 5;
 
+/// SIGS `method_flags` bits (add-method-modifiers, unify P1-c). Backs
+/// `MethodInfo.IsVirtual` (authoritative) / `IsAbstract`. `static` is NOT here
+/// — it stays in the dedicated `is_static` byte (single source of truth).
+pub const METHOD_FLAG_VIRTUAL: u8 = 1 << 0;
+pub const METHOD_FLAG_ABSTRACT: u8 = 1 << 1;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {
     pub name: String,
@@ -347,6 +353,13 @@ pub struct Function {
     /// report it via reflection. Defaults to 0 (public) for synthesized funcs.
     #[serde(default)]
     pub visibility: u8,
+    /// Method modifiers (add-method-modifiers, unify P1-c): bit0=virtual /
+    /// bit1=abstract. Populated from the SIGS entry's `method_flags:u8` at
+    /// module load (mirrors `visibility`), so `MethodInfo.IsVirtual`
+    /// (authoritative) / `IsAbstract` can report it via reflection.
+    /// Defaults to 0 (non-virtual) for synthesized funcs.
+    #[serde(default)]
+    pub method_flags: u8,
     /// Total number of registers used (0 = unknown; VM falls back to dynamic sizing).
     #[serde(default)]
     pub max_reg: u32,
