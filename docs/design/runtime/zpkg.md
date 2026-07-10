@@ -163,7 +163,14 @@ Packed mode 的核心优化：所有模块共享同一 STRS pool，跨模块重�
 
 #### IMPL — `impl Trait for Type` 声明（L3-Impl2）
 
-跨 zpkg 的 impl 声明（让 dispatch 器在加载时拿到对应表）。
+跨 zpkg 的 impl 声明。**消费者两个**（add-crosspkg-impl-reflection / unify-type-metadata P1-e
+起，IMPL 由「编译期专用」重定性为统一元数据）：
+
+- **z42c 编译期**：`ZpkgReader._readImpl` / `_mergeImpl` 把 impl 方法并入 imported 目标类
+  （TypeChecker 可见）。
+- **VM 运行期**：`read_zpkg_impl_pairs` 只取 `(target_fq, trait_fq)` 对（方法签名跳过——派发
+  已有 vtable/func_index 机制）→ LazyLoader impls 注册表 → `Type.GetInterfaces()` 含跨包
+  impl 加的 trait。段布局无任何变化（纯新增读取方）。
 
 #### MDBG — 模块 debug 体（仅 sym-only sidecar）
 

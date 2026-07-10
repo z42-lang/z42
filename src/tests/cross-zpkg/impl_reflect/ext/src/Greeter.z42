@@ -1,0 +1,12 @@
+namespace Demo.Greeter;
+
+using Demo.Target;
+
+// Cross-zpkg impl: gives Robot (demo.target) an IGreet implementation.
+// add-crosspkg-impl-reflection: the VM now reads this package's IMPL
+// section, so typeof(Robot).GetInterfaces() includes IGreet at runtime.
+impl IGreet for Robot {
+    public string Hello() {
+        return "hi from " + this.name;
+    }
+}

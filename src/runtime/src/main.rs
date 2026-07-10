@@ -538,6 +538,10 @@ fn main() -> Result<()> {
     // built. Phase 2: lazy_loader will emit synchronously per on-demand load.
     let mut loaded_for_replay: Vec<(String, Option<u64>)> = Vec::new();
 
+    // add-crosspkg-impl-reflection: collect (target_fq, trait_fq) impl pairs
+    // from every eagerly-loaded artifact; seeded into the lazy loader below.
+    let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
+
     // 5.1b — unconditionally try to load z42.core.zpkg if present.
     if let Some(ref dir) = libs_dir {
         let core_path = dir.join("z42.core.zpkg");
@@ -549,6 +553,7 @@ fn main() -> Result<()> {
                     tracing::debug!("loaded stdlib z42.core from {core_str}");
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
                     loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
+                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
                     modules.push(a.module);
                     loaded_paths.insert(core_canonical);
                     initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
@@ -646,6 +651,7 @@ fn main() -> Result<()> {
                     // Enqueue this artifact's own deps for transitive closure.
                     for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
                     for ns in &a.import_namespaces { ns_queue.push_back(ns.clone()); }
+                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
                     modules.push(a.module);
                     initially_loaded_zpkgs.push(file.clone());
                 }
@@ -666,6 +672,7 @@ fn main() -> Result<()> {
     // (merge_modules uses the first module's name, which would be z42.core otherwise).
     let entry_hint = user_artifact.entry_hint.clone();
     let user_module_name = user_artifact.module.name.clone();
+    eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
     modules.push(user_artifact.module);
 
     let final_module = if modules.len() == 1 {
@@ -710,6 +717,8 @@ fn main() -> Result<()> {
     // pass when a subclass-only zpkg is lazy-loaded later.
     let type_registry = ctx.module().unwrap().type_registry.clone();
     ctx.seed_lazy_loader_types(&type_registry);
+    // add-crosspkg-impl-reflection: eagerly-loaded artifacts' impl pairs.
+    ctx.seed_lazy_loader_impls(&eager_impl_pairs);
 
     // add-runtime-observer (2026-05-26): replay-emit ModuleLoaded for every
     // module loaded during boot. Empty registry = no-op. Once embedders

@@ -255,6 +255,26 @@ min_arg`）+ `params_from:u8`（varargs 逻辑 index，0xFF=无，`IsParams = po
 - **运行期**：`Function.min_arg/params_from`（hot）+ `FunctionCold.param_names/param_defaults`
   （cold，与 param_types 同伴）；`build_method_info` 构造 ParameterInfo 时一并写槽。
 
+### 跨包 impl 反射（add-crosspkg-impl-reflection，unify-type-metadata P1-e）
+
+`impl TraitT for TypeA` 声明在包 B（TypeA 在包 A）时，方法**派发**一直可用（vcall 走 vtable +
+func_index 按名解析），但此前 VM 不读 IMPL 段 → `typeof(TypeA).GetInterfaces()` 反射不到 B 加的
+TraitT。现在 VM 读每个已加载 zpkg 的**现有 IMPL 段**（无格式变化）：
+
+- **解析**：`read_zpkg_impl_pairs(raw)` 独立读 dir+STRS+IMPL，只取 `(target_fq, trait_fq)` 对——
+  type_args 与方法签名跳过（派发已有机制，反射只需类型↔trait 关联；方法记录定长
+  `17B + param_count×8` 跳过，镜像 `ZpkgWriterZ._writeMethod`）。
+- **注册表**：`LazyLoader.impls: target_fq → [trait_fq]`（追加语义——不同包各自 impl 不同 trait
+  合法）。lazy 加载的 zpkg 在 `load_zpkg_file` 合并；eager 加载（z42.core / 主 zpkg / 依赖闭包）
+  经 `seed_lazy_loader_impls` 并入（镜像 `seed_types_for_lookup`）。
+- **反射**：`builtin_type_interfaces`（GetInterfaces/GetInterface 共用）沿 base 链每类除声明接口外
+  并入注册表中该类的 impl traits，进同一 BFS 传递闭包（trait 的基接口自动展开、统一去重）。
+- **加载语义**：反射只见**已加载**包的 impl——包 B 未加载则其 impl 方法本也不可调，一致；不为
+  反射强制加载全部 declared zpkg（按需加载哲学不变）。
+
+> **unify-type-metadata 语境**：IMPL 段由「编译期专用」重定性为「统一元数据，z42c + VM 都读」
+> （initiative D2）；P3 删 TSIG/EXPT 时 IMPL 保留。
+
 ### 类型名规范化
 
 VM 内部有两套 tag 词汇：字段槽用 `"int"`/`"long"`，函数签名用 `"i32"`/`"i64"`/`"str"`。反射在 `make_type_from_name` 处统一映射到 C# 风格别名（`i32→int` / `i64→long` / `str→string` / …），让 `FieldType.Name` 与 `ReturnType.Name` 对同一类型给出一致结果。用户类名（非基础 tag）原样透传。

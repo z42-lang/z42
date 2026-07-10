@@ -1,0 +1,10 @@
+[project]
+name    = "demo.app"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.App.Main"
+pack    = true
+
+[dependencies]
+"demo.target"  = "0.1.0"
+"demo.greeter" = "0.1.0"

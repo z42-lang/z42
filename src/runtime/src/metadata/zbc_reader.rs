@@ -1521,6 +1521,61 @@ pub struct ZpkgInfo {
 }
 
 /// Read zpkg header metadata (fast path, no module decode).
+/// add-crosspkg-impl-reflection (unify P1-e): parse the zpkg IMPL section into
+/// `(target_fq, trait_fq)` pairs for the runtime impls registry (backs
+/// `Type.GetInterfaces()` seeing cross-package `impl Trait for Type`).
+///
+/// Reads dir + STRS + IMPL independently from the raw zpkg bytes (packed and
+/// indexed both carry IMPL as a top-level section) — deliberately does NOT
+/// reshape `read_zpkg_modules`. Type args and per-impl method signatures are
+/// skipped: dispatch already works via vtable/func_index; reflection only
+/// needs the type↔trait association. Method record layout mirrors z42c
+/// `ZpkgWriterZ._writeMethod`: name(4)+ret(4)+vis(4)+flags(1)+min_arg(2)
+/// +param_count(1)+params_from(1) = 17 bytes, then param_count×(4+4).
+/// Returns empty for missing/empty IMPL. Version checking is the caller's
+/// concern (load paths already strict-pin before calling).
+pub fn read_zpkg_impl_pairs(data: &[u8]) -> Result<Vec<(String, String)>> {
+    if data.len() < 16 { return Ok(Vec::new()) }
+    if &data[0..4] != ZPKG_MAGIC { return Ok(Vec::new()) }
+    let sec_count = u16::from_le_bytes([data[10], data[11]]);
+    let dir = read_directory(data, sec_count)?;
+    let impl_sec = match get_section(data, &dir, b"IMPL") {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(Vec::new()),
+    };
+    let pool = get_section(data, &dir, b"STRS")
+        .map(read_strs)
+        .transpose()?
+        .unwrap_or_default();
+    let mut c = Cursor::new(impl_sec);
+    let mut pairs = Vec::new();
+    let mod_count = c.read_u16()?;
+    for _ in 0..mod_count {
+        let _ns = c.read_u32()?;
+        let impl_count = c.read_u16()?;
+        for _ in 0..impl_count {
+            let target_idx = c.read_u32()?;
+            let trait_idx = c.read_u32()?;
+            let tac = c.read_u8()? as usize;
+            for _ in 0..tac { c.read_u32()?; }
+            let method_count = c.read_u16()?;
+            for _ in 0..method_count {
+                c.read_u32()?; c.read_u32()?; c.read_u32()?;   // name / ret / visibility
+                c.read_u8()?;                                   // flags
+                c.read_u16()?;                                  // min_arg
+                let pc = c.read_u8()? as usize;                 // param_count
+                c.read_u8()?;                                   // params_from
+                for _ in 0..pc { c.read_u32()?; c.read_u32()?; }
+            }
+            pairs.push((
+                c.pool_str(&pool, target_idx)?.to_owned(),
+                c.pool_str(&pool, trait_idx)?.to_owned(),
+            ));
+        }
+    }
+    Ok(pairs)
+}
+
 pub fn read_zpkg_meta(data: &[u8]) -> Result<ZpkgInfo> {
     if data.len() < 16 { bail!("zpkg file too short") }
     if &data[0..4] != ZPKG_MAGIC { bail!("not a binary zpkg (bad magic)") }

@@ -1158,6 +1158,16 @@ impl VmContext {
         }
     }
 
+    /// add-crosspkg-impl-reflection: seed `(target_fq, trait_fq)` impl pairs
+    /// from an eagerly-loaded artifact (main zpkg / eagerly-loaded deps) into
+    /// the lazy loader's impls registry. Companion of `seed_lazy_loader_types`.
+    pub fn seed_lazy_loader_impls(&self, pairs: &[(String, String)]) {
+        let mut state = self.core.lazy_loader.lock();
+        if let Some(loader) = state.as_mut() {
+            loader.seed_impls(pairs);
+        }
+    }
+
     /// Look up a function by FQ name; triggers lazy load if needed.
     ///
     /// review.md D3 Phase 2 (2026-05-27): emits `RuntimeEvent::ModuleLoaded`
@@ -1207,6 +1217,18 @@ impl VmContext {
             self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
         result
+    }
+
+    /// add-crosspkg-impl-reflection (unify P1-e): traits added to `target_fq`
+    /// via cross-package `impl Trait for Type`, aggregated from every loaded
+    /// package's IMPL section (returns owned Vec — the registry lives behind
+    /// the lazy-loader lock). Empty when no loader / no impls.
+    pub fn impl_traits_for(&self, target_fq: &str) -> Vec<String> {
+        let state = self.core.lazy_loader.lock();
+        match state.as_ref() {
+            Some(loader) => loader.impl_traits_for(target_fq).to_vec(),
+            None => Vec::new(),
+        }
     }
 
     /// Resolve an "overflow" ConstStr index past the main module's pool.

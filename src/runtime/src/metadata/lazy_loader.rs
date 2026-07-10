@@ -110,6 +110,13 @@ pub struct LazyLoader {
     function_table: HashMap<String, Arc<Function>>,
     /// Type descriptors from lazily-resolved zpkgs.
     type_registry:  HashMap<String, Arc<TypeDesc>>,
+    /// add-crosspkg-impl-reflection (unify P1-e): `target_fq → [trait_fq]`
+    /// aggregated from every loaded zpkg's IMPL section (`impl Trait for Type`).
+    /// Appended (not first-wins): distinct packages may each impl different
+    /// traits for the same target. Backs `Type.GetInterfaces()` seeing
+    /// cross-package traits; only loaded packages contribute (an unloaded
+    /// package's impl methods aren't callable either — consistent).
+    impls:          HashMap<String, Vec<String>>,
 }
 
 impl LazyLoader {
@@ -135,6 +142,25 @@ impl LazyLoader {
         }
     }
 
+    /// add-crosspkg-impl-reflection: merge `(target_fq, trait_fq)` pairs into
+    /// the impls registry (from the eagerly-loaded main artifact or a
+    /// lazily-loaded zpkg). Duplicate pairs are dropped; distinct traits for
+    /// the same target accumulate.
+    pub fn seed_impls(&mut self, pairs: &[(String, String)]) {
+        for (target, tr) in pairs {
+            let traits = self.impls.entry(target.clone()).or_default();
+            if !traits.iter().any(|t| t == tr) {
+                traits.push(tr.clone());
+            }
+        }
+    }
+
+    /// add-crosspkg-impl-reflection: traits added to `target_fq` via
+    /// cross-package `impl Trait for Type`, from loaded packages only.
+    pub fn impl_traits_for(&self, target_fq: &str) -> &[String] {
+        self.impls.get(target_fq).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
     pub fn new(
         search_dirs: Vec<PathBuf>,
         main_pool_len: usize,
@@ -154,6 +180,7 @@ impl LazyLoader {
             declared_zpkgs,
             function_table: HashMap::new(),
             type_registry:  HashMap::new(),
+            impls:          HashMap::new(),
         }
     }
 
@@ -309,6 +336,10 @@ impl LazyLoader {
 
         let path_str = file_path.to_string_lossy().into_owned();
         let mut artifact = load_artifact(&path_str)?;
+
+        // add-crosspkg-impl-reflection: register this package's
+        // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
+        self.seed_impls(&artifact.impl_pairs);
 
         let offset = self.main_pool_len + self.string_pool.len();
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());

@@ -1,0 +1,8 @@
+[project]
+name    = "demo.target"
+version = "0.1.0"
+kind    = "lib"
+pack    = true        # required for cross-zpkg TSIG-based reference compilation
+
+[sources]
+include = ["src/**/*.z42"]

@@ -839,6 +839,12 @@ pub fn builtin_type_interfaces(ctx: &VmContext, args: &[Value]) -> Result<Value>
         for iface in c.interfaces() {
             queue.push_back(iface.to_string());
         }
+        // add-crosspkg-impl-reflection (unify P1-e): traits added to this class
+        // via cross-package `impl Trait for Type` (IMPL section of loaded
+        // packages). Same queue → transitive closure + dedup apply uniformly.
+        for tr in ctx.impl_traits_for(&c.name) {
+            queue.push_back(tr);
+        }
         cur = c.base_name.as_ref().and_then(|b| resolve(b));
     }
     let mut out = Vec::new();

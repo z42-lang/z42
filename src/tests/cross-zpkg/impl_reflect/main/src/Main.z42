@@ -1,0 +1,21 @@
+namespace Demo.App;
+
+using Std;
+using Std.IO;
+using Demo.Target;
+using Demo.Greeter;
+
+// add-crosspkg-impl-reflection: reflection sees the trait a cross-zpkg
+// impl added to Robot — GetInterfaces() includes IGreet (from the loaded
+// demo.greeter package's IMPL section). Dispatch (r.Hello) must not regress.
+void Main() {
+    var r = new Robot("R2");
+    Console.WriteLine(r.Hello());
+    Type t = typeof(Robot);
+    bool hasGreet = false;
+    foreach (var i in t.GetInterfaces()) {
+        if (i.Name == "IGreet") { hasGreet = true; }
+    }
+    if (hasGreet) { Console.WriteLine("IGreet: yes"); }
+    else { Console.WriteLine("IGreet: no"); }
+}

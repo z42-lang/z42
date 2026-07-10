@@ -38,6 +38,11 @@ pub struct LoadedArtifact {
     /// `[Test]`/`[Benchmark]`/etc.-decorated functions or the section is absent
     /// (older artifacts). Consumed by R3 z42-test-runner.
     pub test_index: Vec<TestEntry>,
+    /// add-crosspkg-impl-reflection (unify P1-e): `(target_fq, trait_fq)`
+    /// pairs from the zpkg IMPL section (`impl Trait for Type` declared in
+    /// this package). Empty for .zbc. Merged into the lazy loader's impls
+    /// registry so `Type.GetInterfaces()` sees cross-package traits.
+    pub impl_pairs: Vec<(String, String)>,
 }
 
 /// Load a compiler output artifact from `path`, returning a `LoadedArtifact`.
@@ -177,6 +182,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
         dependencies: vec![],
         import_namespaces,
         test_index,
+        impl_pairs: vec![],
     })
 }
 
@@ -239,7 +245,8 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         let tidx = zbc_tidx_bytes(&bytes)?;
         module_triples.push((module, e.namespace.clone(), tidx));
     }
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
 }
 
 /// Verbatim TIDX section payload of a standalone zbc (empty when absent) —
@@ -288,7 +295,8 @@ fn load_zpkg_bytes_with_sidecar(
     // offsets that remap `method_id` and `*_str_idx` into the merged
     // module's index space. Empty `tidx_bytes` (modules with no [Test])
     // contribute zero entries but still bump the offset counters.
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
 }
 
 /// Shared tail of every zpkg load path (packed by path / packed by bytes /
@@ -299,6 +307,7 @@ fn assemble_zpkg_artifact(
     entry_hint: Option<String>,
     dependencies: Vec<ZpkgDep>,
     module_triples: Vec<(Module, String, Vec<u8>)>,
+    impl_pairs: Vec<(String, String)>,
 ) -> Result<LoadedArtifact> {
     let aggregated_test_index =
         aggregate_zpkg_test_index(&module_triples).context("aggregating zpkg TIDX entries")?;
@@ -326,6 +335,7 @@ fn assemble_zpkg_artifact(
         dependencies,
         import_namespaces: vec![],
         test_index,
+        impl_pairs,
     })
 }
 
@@ -438,7 +448,8 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
     let module_triples = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples)
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
 }
 
 // ── Namespace resolution ──────────────────────────────────────────────────────
