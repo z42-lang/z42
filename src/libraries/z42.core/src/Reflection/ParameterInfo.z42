@@ -3,8 +3,8 @@ namespace Std.Reflection;
 // Reflected method parameter. Populated by `MethodInfo.GetParameters()`.
 // Mirrors C# `System.Reflection.ParameterInfo` (read-only subset).
 public class ParameterInfo {
-    // Parameter name. Falls back to "arg{n}" when debug symbols are absent
-    // (z42 only persists parameter names under debug info).
+    // Parameter name (add-param-metadata, unify P1-d: authoritative from the SIGS
+    // section; DBUG guess / "arg{n}" only when SIGS names are absent).
     public string Name;
 
     // The parameter's declared type, e.g. typeof(int).
@@ -12,6 +12,14 @@ public class ParameterInfo {
 
     // Zero-based position in the parameter list.
     public int Position;
+
+    // Member metadata (add-param-metadata, unify P1-d). Written by the VM.
+    // IsOptional: the parameter has a default value (Position >= min_arg).
+    // IsParams: the parameter is a `params` varargs parameter.
+    // DefaultValue: the folded literal default (null when none / non-literal).
+    public bool IsOptional;
+    public bool IsParams;
+    public object DefaultValue;
 
     // ── Custom attributes (add-parameter-attribute-reflection) ──────────────
 

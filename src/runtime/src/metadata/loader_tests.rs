@@ -626,7 +626,7 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
             blocks:       vec![],
             is_static:    false,
             visibility:   0,
-            method_flags: 0,
+            method_flags: 0, min_arg: 0, params_from: 0xFF,
             max_reg:      0,
             cold:         None,
             reg_types:    Box::new([]),

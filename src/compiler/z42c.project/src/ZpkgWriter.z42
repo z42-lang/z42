@@ -34,7 +34,7 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 28;   // 2026-07-10 add-method-modifiers（unify P1-c）：耦合 inner zbc 1.24（SIGS +method_flags:u8）。
+    public static int Minor = 29;   // 2026-07-10 add-param-metadata（unify P1-d）：耦合 inner zbc 1.25（SIGS +min_arg/params_from/参数名/默认值）。
                                     // 前史：0.25 reencode-strs-segment-dict（STRS segment-dict，耦合 zbc 1.21）；
                                     //       0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
 

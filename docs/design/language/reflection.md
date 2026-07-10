@@ -107,7 +107,7 @@ void Demo() {
 | `MemberInfo` | `Std.Reflection` | `Name`（`Type` / `FieldInfo` / `MethodInfo` / `PropertyInfo` 的基类）|
 | `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsAbstract` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
-| `ParameterInfo` | `Std.Reflection` | `Name` / `ParameterType : Type` / `Position` / `GetCustomAttributes()` / `GetAttribute(Type)` |
+| `ParameterInfo` | `Std.Reflection` | `Name`（SIGS 权威） / `ParameterType : Type` / `Position` / `IsOptional` / `IsParams` / `DefaultValue` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` |
 
 `FieldType` / `ReturnType` / `ParameterType` / `BaseType` 返回的都是 `Type` 对象（不是字符串），与 C# 一致。
@@ -235,6 +235,25 @@ reader 把 method_flags 灌进 `Function.method_flags`（与 `is_static`/`visibi
 > 带 abstract 位、进得了 `Function` → 反射 `GetMethods()` 列出它且 `IsAbstract == true`。**限实例
 > abstract**（`static abstract` 接口成员如 `INumber` 是独立的静态抽象接口特性，不在此列）。z42c /
 > stdlib 源无实例 abstract 方法 → 现有 zpkg 零字节漂移、自举不动点不受影响。
+
+### 参数元数据反射（add-param-metadata，zbc 1.25 / unify-type-metadata P1-d）
+
+`ParameterInfo` 带 `IsOptional` / `IsParams` / `DefaultValue`，且 `Name` **权威化**。SIGS 每函数
+在 `method_flags` 后追加 `min_arg:u16`（必填逻辑参数个数——可选参数恒尾随，`IsOptional = pos >=
+min_arg`）+ `params_from:u8`（varargs 逻辑 index，0xFF=无，`IsParams = pos == params_from`）；每
+参数在 `param_type` 后追加 `name_str_idx:u32`（源名；this 槽 = `"this"`）+
+`default_kind:u8 + payload`（0=无 / 1=null / 2=i64 / 3=f64bits / 4=bool / 5=str idx）。
+
+- **Name 权威化**：此前从 DBUG 局部变量表猜（`reg == 参数索引`；无 debug 符号退化 `arg{n}`）——现
+  SIGS name 优先（`resolve_func_sig` 判 SIGS names 齐全即用），DBUG 仅作回退。strip 后的 release
+  包参数名照样可反射。
+- **DefaultValue 字面量折叠**：IrGen `_fillParamMeta` 从 `Param.Default`（AST `Expr`）折出字面量
+  （IntLit/FloatLit/BoolLit/StringLit/CharLit/null）；**非字面量**（常量表达式/enum 成员）→ kind 0，
+  `DefaultValue == null` 但 `IsOptional` 仍 true（见 Deferred）。
+- **口径**：min_arg/params_from/IsOptional/IsParams 均为**逻辑 position**（0-based，不含 this）；
+  SIGS 每参数组（名/默认值）按 wire 索引（含 this 槽）对齐，反射侧 `start = is_static?0:1` 跳过。
+- **运行期**：`Function.min_arg/params_from`（hot）+ `FunctionCold.param_names/param_defaults`
+  （cold，与 param_types 同伴）；`build_method_info` 构造 ParameterInfo 时一并写槽。
 
 ### 类型名规范化
 
@@ -485,3 +504,12 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **试过无效**：① `IsSubclassOf`/`_ancestors` 短名归一(走不到该分支);② 合成 factory 返回类型改限定 `Std.Attribute`(仍回落 PrimType)。均已回退。
 - **当前 workaround**：attribute 类基名写 unqualified `: Attribute`（reflection.z42 即此,绿）。
 - **前置依赖 / 触发条件**：根因在 name-resolution(合成函数如何解析 imported 类型),需较深 compiler 调查;与进行中 `port-z42c-*` 自举移植可能冲突 → 独立 change，自举收口后再做。
+
+### fold-nonliteral-param-defaults — 非字面量参数默认值的值
+
+- **来源**：add-param-metadata（unify P1-d，2026-07-10）Out of Scope。
+- **触发原因**：`ParameterInfo.DefaultValue` 只折**字面量**默认值（Int/Float/Bool/String/Char/null
+  直取）；常量表达式（`1+2`）、enum 成员、命名常量默认值需常量折叠器，本砖未建。
+- **前置依赖**：add-param-metadata（default_kind 编码已落，扩展只需 IrGen 折叠更多 Expr 形态）。
+- **触发条件**：反射需读非字面量默认值的值（named-args 求值 / 文档生成）时。
+- **当前 workaround**：非字面量默认值 `DefaultValue == null`（kind=0），`IsOptional` 仍 true。

@@ -115,6 +115,11 @@ public static class ZbcWriter {
             pool.Intern(fdef.RetType);
             int p = 0;
             while (p < fdef.ParamTypeCount) { pool.Intern(fdef.ParamTypes[p]); p = p + 1; }
+            // add-param-metadata（zbc 1.25）：参数名 + str 默认值（kind 5）入池。
+            int pn = 0;
+            while (pn < fdef.ParamNames.Length) { pool.Intern(fdef.ParamNames[pn]); pn = pn + 1; }
+            int pdk = 0;
+            while (pdk < fdef.ParamDefaultKinds.Length) { if (fdef.ParamDefaultKinds[pdk] == 5) { pool.Intern(fdef.ParamDefaultStrs[pdk]); } pdk = pdk + 1; }
             // SIGS attr-ref 串（add-attribute-reflection）：函数级 + 每参数级。
             int fax = 0;
             while (fax < fdef.AttrCount) { pool.Intern(fdef.Attrs[fax].TypeName); pool.Intern(fdef.Attrs[fax].FactoryFunc); fax = fax + 1; }
@@ -341,11 +346,23 @@ public static class ZbcWriter {
             if (f.IsStatic) { w.WriteU8(1); } else { w.WriteU8(0); }
             w.WriteU8(f.Visibility);   // add-member-visibility（zbc 1.23）：is_static 后、params 前
             w.WriteU8(f.MethodFlags);  // add-method-modifiers（zbc 1.24）：visibility 后、params 前
+            w.WriteU16(f.MinArg);      // add-param-metadata（zbc 1.25）：必填逻辑参数个数
+            w.WriteU8(f.ParamsFrom);   // add-param-metadata：params 变长参数逻辑 index（255=无）
             int p = 0;
             while (p < f.ParamCount) {
                 string pt = "?";
                 if (p < f.ParamTypeCount) { pt = f.ParamTypes[p]; }
                 w.WriteU32(pool.Idx(pt));
+                // add-param-metadata：参数名 str_idx + 默认值 kind+payload。
+                string pname = "?";
+                if (p < f.ParamNames.Length) { pname = f.ParamNames[p]; }
+                w.WriteU32(pool.Idx(pname));
+                int dk = 0;
+                if (p < f.ParamDefaultKinds.Length) { dk = f.ParamDefaultKinds[p]; }
+                w.WriteU8(dk);
+                if (dk == 2 || dk == 3) { w.WriteI64(f.ParamDefaultVals[p]); }        // i64 / f64 bits
+                else if (dk == 4) { w.WriteU8((int)f.ParamDefaultVals[p]); }          // bool
+                else if (dk == 5) { w.WriteU32(pool.Idx(f.ParamDefaultStrs[p])); }    // str idx
                 p = p + 1;
             }
             w.WriteU8(0);    // tpCount（z42c IrFunction 无 typeparam → ZW-2 补）

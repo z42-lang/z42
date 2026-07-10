@@ -324,6 +324,16 @@ pub struct FunctionCold {
     /// (excluding `this`) for `ParameterInfo.GetCustomAttributes()`.
     #[serde(default)]
     pub param_attributes: Box<[Box<[AttributeRef]>]>,
+    /// add-param-metadata (unify P1-d): per-param source name (SIGS
+    /// `name_str_idx`), aligned by index with the SIGS parameter array (this-slot
+    /// = "this"). Backs `ParameterInfo.Name` (authoritative over DBUG guess).
+    #[serde(default)]
+    pub param_names: Box<[String]>,
+    /// add-param-metadata (unify P1-d): per-param default value `(kind, i64, str)`
+    /// (kind 0=none/1=null/2=i64/3=f64bits/4=bool/5=str). Backs
+    /// `ParameterInfo.DefaultValue`. Aligned by SIGS param index.
+    #[serde(default)]
+    pub param_defaults: Box<[(u8, i64, String)]>,
 }
 
 /// A single function.
@@ -333,6 +343,9 @@ pub struct FunctionCold {
 /// methods that return `&[T]` (empty slice when cold is absent). Sidecar
 /// mutations (`loader.rs` debug-symbol overlay) lazy-init via
 /// [`Function::cold_mut`].
+/// serde default for `Function::params_from` (add-param-metadata): 0xFF = no varargs.
+fn default_params_from() -> u8 { 0xFF }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Function {
     pub name: String,
@@ -360,6 +373,14 @@ pub struct Function {
     /// Defaults to 0 (non-virtual) for synthesized funcs.
     #[serde(default)]
     pub method_flags: u8,
+    /// Required (logical) param count (add-param-metadata, unify P1-d): from the
+    /// SIGS `min_arg:u16`. `ParameterInfo.IsOptional` = (logical pos >= min_arg).
+    #[serde(default)]
+    pub min_arg: u16,
+    /// Params-varargs logical index (add-param-metadata): SIGS `params_from:u8`,
+    /// 0xFF = none. `ParameterInfo.IsParams` = (logical pos == params_from).
+    #[serde(default = "default_params_from")]
+    pub params_from: u8,
     /// Total number of registers used (0 = unknown; VM falls back to dynamic sizing).
     #[serde(default)]
     pub max_reg: u32,
@@ -411,6 +432,8 @@ impl Function {
     /// add-parameter-attribute-reflection: per-parameter attributes (SIGS-aligned,
     /// incl. `this` slot). Empty slice when the cold side-table is absent.
     #[inline] pub fn param_attributes(&self)        -> &[Box<[AttributeRef]>] { self.cold_slice(|c| &c.param_attributes) }
+    #[inline] pub fn param_names(&self)             -> &[String]           { self.cold_slice(|c| &c.param_names) }
+    #[inline] pub fn param_defaults(&self)          -> &[(u8, i64, String)] { self.cold_slice(|c| &c.param_defaults) }
 
     /// Lazy-init the cold side-table for mutation. Used by sidecar debug-
     /// symbol overlay in `metadata::loader`.

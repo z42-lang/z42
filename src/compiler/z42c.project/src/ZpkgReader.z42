@@ -192,10 +192,19 @@ public static class ZpkgReader {
             int exec = c.U8();
             int isStatic = c.U8();
             c.U8();                            // visibility（zbc 1.23 add-member-visibility）：is_static 后
-            c.U8();                            // method_flags（zbc 1.24 add-method-modifiers）：visibility 后、params 前
+            c.U8();                            // method_flags（zbc 1.24 add-method-modifiers）：visibility 后
+            c.U16(); c.U8();                   // min_arg + params_from（zbc 1.25 add-param-metadata）：params 前
             string[] ptypes = new string[pc];
             int j = 0;
-            while (j < pc) { ptypes[j] = z.Pool[c.U32()]; j = j + 1; }
+            while (j < pc) {
+                ptypes[j] = z.Pool[c.U32()];
+                c.U32();                       // name_str_idx（zbc 1.25 add-param-metadata）
+                int dk = c.U8();               // default_kind
+                if (dk == 2 || dk == 3) { c.U32(); c.U32(); }   // i64/f64 bits（8B）
+                else if (dk == 4) { c.U8(); }                    // bool
+                else if (dk == 5) { c.U32(); }                   // str idx
+                j = j + 1;
+            }
             int tpc = c.U8();
             j = 0;
             while (j < tpc) {

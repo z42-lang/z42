@@ -88,7 +88,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-07-10 add-method-modifiers (unify P1-c): bumped to 1.24 - SIGS gains a
 // method_flags:u8 after visibility (bit0=virtual/bit1=abstract). Backs
 // MethodInfo.IsVirtual (authoritative) + IsAbstract.
-pub const ZBC_VERSION_MINOR: u16 = 24;
+// 2026-07-10 add-param-metadata (unify P1-d): bumped to 1.25 - SIGS gains min_arg:u16
+// + params_from:u8 after method_flags; each param gains name_str_idx:u32 + default_kind:u8
+// (+payload). Backs ParameterInfo.IsOptional/IsParams/Name/DefaultValue.
+pub const ZBC_VERSION_MINOR: u16 = 25;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -148,7 +151,8 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // (TYPE/SIGS member visibility). Outer zpkg layout unchanged.
 // 2026-07-10 add-method-modifiers: bumped to 0.28, coupled inner zbc 1.24
 // (SIGS +method_flags:u8). Outer zpkg layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 28;
+// 2026-07-10 add-param-metadata: bumped to 0.29, coupled inner zbc 1.25.
+pub const ZPKG_VERSION_MINOR: u16 = 29;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -564,6 +568,16 @@ struct FuncSig {
     /// 1.24 add-method-modifiers: bit0=virtual / bit1=abstract. Surfaced by
     /// MethodInfo.IsVirtual (authoritative) / IsAbstract.
     method_flags: u8,
+    /// 1.25 add-param-metadata: required (logical) param count → ParameterInfo.IsOptional
+    /// (pos >= min_arg); params-varargs logical index (0xFF=none) → IsParams.
+    min_arg: u16,
+    params_from: u8,
+    /// 1.25 add-param-metadata: per-param source name (this-slot = "this") →
+    /// ParameterInfo.Name (authoritative). Length == param_count.
+    param_names: Vec<String>,
+    /// 1.25 add-param-metadata: per-param default value (kind, i64-payload, str-payload)
+    /// → ParameterInfo.DefaultValue. kind 0=none/1=null/2=i64/3=f64bits/4=bool/5=str.
+    param_defaults: Vec<(u8, i64, String)>,
     /// 1.3 split-debug-symbols: per-parameter type names for trace signature
     /// decoration. Length always equals `param_count` (writer pads unknowns
     /// with "?"). Empty Vec when param_count == 0.
@@ -591,12 +605,27 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
         let is_static   = if has_is_static { c.read_u8()? != 0 } else { false };
         let visibility  = if has_is_static { c.read_u8()? } else { 0 };  // 1.23 add-member-visibility (after is_static)
         let method_flags = if has_is_static { c.read_u8()? } else { 0 }; // 1.24 add-method-modifiers (after visibility)
+        let min_arg     = if has_is_static { c.read_u16()? } else { param_count as u16 }; // 1.25 add-param-metadata
+        let params_from = if has_is_static { c.read_u8()? } else { 0xFF };
 
         // 1.3 split-debug-symbols: per-param type names (u32 strIdx × param_count).
+        // 1.25 add-param-metadata: interleaved per-param name_str_idx + default_kind + payload.
         let mut param_types = Vec::with_capacity(param_count);
+        let mut param_names = Vec::with_capacity(param_count);
+        let mut param_defaults = Vec::with_capacity(param_count);
         for _ in 0..param_count {
             let pt_idx = c.read_u32()?;
             param_types.push(c.pool_str(pool, pt_idx)?.to_owned());
+            let name_idx = c.read_u32()?;                       // 1.25 name_str_idx
+            param_names.push(c.pool_str(pool, name_idx)?.to_owned());
+            let dk = c.read_u8()?;                              // 1.25 default_kind
+            let (ival, sval) = match dk {
+                2 | 3 => (c.read_i64()?, String::new()),
+                4 => (c.read_u8()? as i64, String::new()),
+                5 => { let si = c.read_u32()?; (0, c.pool_str(pool, si)?.to_owned()) }
+                _ => (0, String::new()),
+            };
+            param_defaults.push((dk, ival, sval));
         }
 
         // Generic type params (added after is_static) + per-tp constraints (L3-G3a)
@@ -635,6 +664,10 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
             is_static,
             visibility,
             method_flags,
+            min_arg,
+            params_from,
+            param_names,
+            param_defaults,
             param_types,
             type_params,
             type_param_constraints,
@@ -1371,6 +1404,8 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             type_param_constraints: sig.map(|s| s.type_param_constraints.clone()).unwrap_or_default().into_boxed_slice(),
             custom_attributes:      sig.map(|s| s.custom_attributes.clone()).unwrap_or_default().into_boxed_slice(),
             param_attributes:       sig.map(|s| s.param_attributes.clone()).unwrap_or_default().into_boxed_slice(),
+            param_names:            sig.map(|s| s.param_names.clone()).unwrap_or_default().into_boxed_slice(),
+            param_defaults:         sig.map(|s| s.param_defaults.clone()).unwrap_or_default().into_boxed_slice(),
         };
         let cold = if cold_inner.param_types.is_empty()
             && cold_inner.exception_table.is_empty()
@@ -1380,6 +1415,8 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             && cold_inner.type_param_constraints.is_empty()
             && cold_inner.custom_attributes.is_empty()
             && cold_inner.param_attributes.iter().all(|p| p.is_empty())
+            && cold_inner.param_names.is_empty()
+            && cold_inner.param_defaults.is_empty()
         {
             None
         } else {
@@ -1394,6 +1431,8 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             is_static:       sig.map(|s| s.is_static).unwrap_or(false),
             visibility:      sig.map(|s| s.visibility).unwrap_or(0),
             method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
+            min_arg:         sig.map(|s| s.min_arg).unwrap_or(0),
+            params_from:     sig.map(|s| s.params_from).unwrap_or(0xFF),
             max_reg:         0,
             cold,
             reg_types,
@@ -1801,6 +1840,8 @@ fn read_mods_section(
                 type_param_constraints: sig.map(|s| s.type_param_constraints.clone()).unwrap_or_default().into_boxed_slice(),
                 custom_attributes:      sig.map(|s| s.custom_attributes.clone()).unwrap_or_default().into_boxed_slice(),
                 param_attributes:       sig.map(|s| s.param_attributes.clone()).unwrap_or_default().into_boxed_slice(),
+                param_names:            sig.map(|s| s.param_names.clone()).unwrap_or_default().into_boxed_slice(),
+                param_defaults:         sig.map(|s| s.param_defaults.clone()).unwrap_or_default().into_boxed_slice(),
             };
             let cold = if cold_inner.param_types.is_empty()
                 && cold_inner.exception_table.is_empty()
@@ -1810,6 +1851,8 @@ fn read_mods_section(
                 && cold_inner.type_param_constraints.is_empty()
                 && cold_inner.custom_attributes.is_empty()
                 && cold_inner.param_attributes.iter().all(|p| p.is_empty())
+                && cold_inner.param_names.is_empty()
+                && cold_inner.param_defaults.is_empty()
             {
                 None
             } else {
@@ -1824,6 +1867,8 @@ fn read_mods_section(
                 is_static:       sig.map(|s| s.is_static).unwrap_or(false),
                 visibility:      sig.map(|s| s.visibility).unwrap_or(0),
                 method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
+                min_arg:         sig.map(|s| s.min_arg).unwrap_or(0),
+                params_from:     sig.map(|s| s.params_from).unwrap_or(0xFF),
                 max_reg:         0,
                 cold,
                 reg_types,

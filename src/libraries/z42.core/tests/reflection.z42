@@ -97,6 +97,12 @@ class Square : Shape {
     public override int Perimeter() { return 4; }
 }
 
+// add-param-metadata (unify P1-d): ParameterInfo.IsOptional/IsParams/Name/DefaultValue.
+class ParamHolder {
+    public int Blend(int width, int height = 10, string label = "hi", bool flag = true) { return width; }
+    public int Sum(int seed, params int[] rest) { return seed; }
+}
+
 [Test]
 void test_gettype_name_and_fullname() {
     Derived d = new Derived();
@@ -430,4 +436,62 @@ void test_override_is_virtual_not_abstract() {
         if (m.Name == "Area") { Assert.True(m.IsVirtual); Assert.True(!m.IsAbstract); sawArea = true; }
     }
     Assert.True(sawArea);
+}
+
+[Test]
+void test_param_metadata_optional_and_names() {
+    ParamHolder h = new ParamHolder();
+    bool sawBlend = false;
+    foreach (var m in h.GetType().GetMethods()) {
+        if (m.Name == "Blend") {
+            ParameterInfo[] ps = m.GetParameters();
+            Assert.Equal(4, ps.Length);
+            // 参数名权威（SIGS，非 DBUG 猜测）
+            Assert.Equal("width", ps[0].Name);
+            Assert.Equal("height", ps[1].Name);
+            Assert.Equal("label", ps[2].Name);
+            Assert.Equal("flag", ps[3].Name);
+            // IsOptional：width 必填，其余可选
+            Assert.True(!ps[0].IsOptional);
+            Assert.True(ps[1].IsOptional);
+            Assert.True(ps[2].IsOptional);
+            Assert.True(ps[3].IsOptional);
+            sawBlend = true;
+        }
+    }
+    Assert.True(sawBlend);
+}
+
+[Test]
+void test_param_metadata_default_values() {
+    ParamHolder h = new ParamHolder();
+    foreach (var m in h.GetType().GetMethods()) {
+        if (m.Name == "Blend") {
+            ParameterInfo[] ps = m.GetParameters();
+            Assert.True(ps[0].DefaultValue == null);        // 必填 → 无默认值
+            Assert.Equal(10, (int)(long)ps[1].DefaultValue); // i64 默认值
+            // 注：`as string` 对 boxed str 是 pre-existing VM 缺口（as_cast 只认 Object/Array/Null）
+            // → 用 ToString 对账（值本身正确）。
+            object dvs = ps[2].DefaultValue;
+            Assert.Equal("hi", dvs.ToString());
+            Assert.True((bool)ps[3].DefaultValue);
+        }
+    }
+}
+
+[Test]
+void test_param_metadata_is_params() {
+    ParamHolder h = new ParamHolder();
+    bool sawSum = false;
+    foreach (var m in h.GetType().GetMethods()) {
+        if (m.Name == "Sum") {
+            ParameterInfo[] ps = m.GetParameters();
+            Assert.Equal(2, ps.Length);
+            Assert.True(!ps[0].IsParams);
+            Assert.True(ps[1].IsParams);
+            Assert.Equal("rest", ps[1].Name);
+            sawSum = true;
+        }
+    }
+    Assert.True(sawSum);
 }

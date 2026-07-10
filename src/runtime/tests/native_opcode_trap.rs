@@ -24,7 +24,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
             terminator: Terminator::Ret { reg: None },
         }],
         is_static: true,
-        visibility: 0, method_flags: 0,        max_reg: 4,
+        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),

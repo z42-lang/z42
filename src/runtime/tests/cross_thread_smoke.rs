@@ -421,7 +421,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
             terminator:   Terminator::Ret { reg: None },
         }],
         is_static:              true,
-        visibility: 0, method_flags: 0,        max_reg:                1,
+        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg:                1,
         cold: None,
         reg_types: Box::new([]),
         block_index:            std::collections::HashMap::new(),

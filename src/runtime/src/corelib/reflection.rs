@@ -503,20 +503,31 @@ fn build_method_info(
     is_virtual: bool,
 ) -> Result<Value> {
     let (ret_tag, is_static, params, visibility, method_flags, sig_found) = match resolve_func_sig(ctx, qualified) {
-        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf)) => {
+        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
             // Instance methods carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             let mut params = Vec::new();
             for i in start..param_count {
                 let tag = param_types.get(i).map(|s| s.as_str()).unwrap_or("?");
-                let pos = (i - start) as i64;
-                // reflection-future-parameter-names: real source name from debug
-                // symbols when present; `arg{n}` fallback otherwise.
+                let pos = (i - start) as i64;   // logical position (0-based, excludes `this`)
+                // add-param-metadata (unify P1-d): SIGS name preferred (via resolve_func_sig),
+                // `arg{n}` fallback otherwise.
                 let name = param_names
                     .get(i)
                     .filter(|n| !n.is_empty())
                     .cloned()
                     .unwrap_or_else(|| format!("arg{pos}"));
+                // add-param-metadata: IsOptional / IsParams (logical position) + DefaultValue.
+                let is_optional = (pos as u16) >= min_arg;
+                let is_params = params_from != 0xFF && pos as u8 == params_from;
+                let default_value = match param_defaults.get(i) {
+                    Some((1, _, _)) => Value::Null,
+                    Some((2, iv, _)) => Value::I64(*iv),
+                    Some((3, iv, _)) => Value::F64(f64::from_bits(*iv as u64)),
+                    Some((4, iv, _)) => Value::Bool(*iv != 0),
+                    Some((5, _, sv)) => Value::Str(sv.clone().into()),
+                    _ => Value::Null, // kind 0 = no (foldable) default
+                };
                 params.push(alloc_named(
                     ctx,
                     STD_REFLECTION_PARAMINFO,
@@ -524,6 +535,9 @@ fn build_method_info(
                         ("Name", Value::Str(name.into())),
                         ("ParameterType", make_type_from_name(ctx, tag)),
                         ("Position", Value::I64(pos)),
+                        ("IsOptional", Value::Bool(is_optional)),
+                        ("IsParams", Value::Bool(is_params)),
+                        ("DefaultValue", default_value),
                         // add-parameter-attribute-reflection: backing func name so
                         // ParameterInfo.GetCustomAttributes() can resolve the param's
                         // attribute factories (paired with Position).
@@ -576,22 +590,31 @@ fn build_method_info(
 fn resolve_func_sig(
     ctx: &VmContext,
     qualified: &str,
-) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8, u8)> {
+) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8, u8, u16, u8, Vec<(u8, i64, String)>)> {
     // reflection-future-parameter-names: parameters occupy registers
     // 0..param_count on entry, so a param's source name is the debug local-var
     // whose `reg` matches its index. Empty string when no debug symbols are
     // present (the builder falls back to `arg{n}`).
     fn extract(
         f: &crate::metadata::bytecode::Function,
-    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8, u8) {
-        let mut names = vec![String::new(); f.param_count];
-        for lv in f.local_vars() {
-            let r = lv.reg as usize;
-            if r < f.param_count {
-                names[r] = lv.name.clone();
+    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8, u8, u16, u8, Vec<(u8, i64, String)>) {
+        // add-param-metadata (unify P1-d): prefer the authoritative SIGS param
+        // names; fall back to the DBUG local-var guess (empty → `arg{n}` later).
+        let sigs_names = f.param_names();
+        let names = if sigs_names.len() == f.param_count && sigs_names.iter().any(|n| !n.is_empty()) {
+            sigs_names.to_vec()
+        } else {
+            let mut names = vec![String::new(); f.param_count];
+            for lv in f.local_vars() {
+                let r = lv.reg as usize;
+                if r < f.param_count {
+                    names[r] = lv.name.clone();
+                }
             }
-        }
-        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names, f.visibility, f.method_flags)
+            names
+        };
+        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names,
+         f.visibility, f.method_flags, f.min_arg, f.params_from, f.param_defaults().to_vec())
     }
     if let Some(m) = ctx.module() {
         if let Some(&i) = m.func_index.get(qualified) {
@@ -678,7 +701,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
     let sig = resolve_func_sig(ctx, qualified);
     if is_get {
         let ty = match &sig {
-            Some((pc, ret, is_static, _, _, _, _)) => {
+            Some((pc, ret, is_static, _, _, _, _, _, _, _)) => {
                 if pc.saturating_sub(if *is_static { 0 } else { 1 }) != 0 {
                     return; // get_X(args) — a regular method, not a property
                 }
@@ -689,7 +712,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
         upsert_prop(props, prop_name).getter_type = Some(ty);
     } else {
         let ty = match &sig {
-            Some((pc, _, is_static, ptypes, _, _, _)) => {
+            Some((pc, _, is_static, ptypes, _, _, _, _, _, _)) => {
                 let base = if *is_static { 0 } else { 1 };
                 if pc.saturating_sub(base) != 1 {
                     return; // set_X with != 1 value param — a regular method
