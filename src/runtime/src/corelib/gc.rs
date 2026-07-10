@@ -121,7 +121,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
     CACHE.get_or_init(|| {
         let mut field_index = crate::metadata::NameIndex::new();
         field_index.insert("_slot".to_string(), 0usize);
-        let fields = vec![FieldSlot { name: "_slot".to_string().into(), type_tag: "long".to_string().into() }];
+        let fields = vec![FieldSlot { name: "_slot".to_string().into(), type_tag: "long".to_string().into(), visibility: 0 }];
         Arc::new(TypeDesc {
             name: "Std.GCHandle".to_string(),
             base_name: None,
@@ -155,7 +155,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
         let mut fields = Vec::with_capacity(names.len());
         for (i, n) in names.iter().enumerate() {
             field_index.insert(n.to_string(), i);
-            fields.push(FieldSlot { name: n.to_string().into(), type_tag: "long".to_string().into() });
+            fields.push(FieldSlot { name: n.to_string().into(), type_tag: "long".to_string().into(), visibility: 0 });
         }
         Arc::new(TypeDesc {
             name: "Std.HeapStats".to_string(),
@@ -354,7 +354,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
     CACHE.get_or_init(|| {
         let mut field_index = crate::metadata::NameIndex::new();
         field_index.insert("_key".to_string(), 0usize);
-        let fields = vec![FieldSlot { name: "_key".to_string().into(), type_tag: "long".to_string().into() }];
+        let fields = vec![FieldSlot { name: "_key".to_string().into(), type_tag: "long".to_string().into(), visibility: 0 }];
         Arc::new(TypeDesc {
             name: "Std.SoftHandle".to_string(),
             base_name: None,

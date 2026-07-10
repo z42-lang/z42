@@ -167,6 +167,7 @@ public sealed class IrGen {
                                                                      owner, c.TypeParams.Names, c.TypeParams.Count);
                                     irf.Attrs = this._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection：方法 attr-ref
                                     irf.ParamAttrs = this._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
+                                    irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
                                     funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
                                 }
                             } else if (this._hasWord(md.Mods, "extern")) {
@@ -286,6 +287,7 @@ public sealed class IrGen {
                                     var ife = new FunctionEmitter(model.Symbols, this);
                                     IrFunction iirf = ife.EmitFunction(this._qClass(itn) + "." + imk, imd,
                                                                        model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
+                                    iirf.Visibility = this._visCode(imd.Mods);   // add-member-visibility
                                     funcs = this._pushFunc(funcs, fc, iirf); fc = fc + 1;
                                 }
                             }
@@ -348,6 +350,7 @@ public sealed class IrGen {
                     // 自由函数：无 this（isInstance=false）且 IsStatic 标志=false（与 C# 一致）
                     IrFunction irf = fe.EmitFunction(this._q(md.Name), md, model.GetBody(md.Name), false, false,
                                                      null, new string[0], 0);
+                    irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
                     funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
                 }
             }
@@ -783,6 +786,7 @@ public sealed class IrGen {
                     }
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
                     sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
+                    sfdesc.Visibility = this._visCode(fd.Mods);   // add-member-visibility
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
                 } else {
@@ -793,6 +797,7 @@ public sealed class IrGen {
                     }
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
                     fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
+                    fdesc.Visibility = this._visCode(fd.Mods);   // add-member-visibility
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
                 }
@@ -1154,6 +1159,14 @@ public sealed class IrGen {
         }
         arr[count] = cd;
         return arr;
+    }
+
+    // 可见性码（add-member-visibility）：显式 private/protected 取之，否则 public(0)。
+    // 镜像 ExportedTypeExtractor._visibility 的默认 public 语义。
+    private int _visCode(string mods) {
+        if (this._hasWord(mods, "private"))   { return 1; }
+        if (this._hasWord(mods, "protected")) { return 2; }
+        return 0;   // public（显式或默认）
     }
 
     // enum 成员显式值解析（十进制 i64，可负）——镜像 SymbolCollector._parseEnumVal，保成员值一致。

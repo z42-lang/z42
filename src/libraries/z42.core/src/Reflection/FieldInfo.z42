@@ -9,6 +9,12 @@ public class FieldInfo : MemberInfo {
     // True for static fields, false for instance. (add-reflection-static-fields)
     public bool IsStatic;
 
+    // Member visibility (add-member-visibility, unify P1-b). Written by the VM
+    // from the field's declared modifier. A `protected` field reports neither
+    // (IsPublic == IsPrivate == false), mirroring C# `IsPublic` / `IsPrivate`.
+    public bool IsPublic;
+    public bool IsPrivate;
+
     // ── Custom attributes (add-field-attribute-reflection) ──────────────────
 
     // Qualified field name (VM-written, "<Class>.<Field>"), used to resolve

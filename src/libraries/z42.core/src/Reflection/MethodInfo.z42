@@ -14,6 +14,12 @@ public class MethodInfo : MemberInfo {
     // True for virtual / inherited (vtable) methods.
     public bool IsVirtual;
 
+    // Member visibility (add-member-visibility, unify P1-b). Written by the VM
+    // from the method's declared modifier. A `protected` method reports neither
+    // (IsPublic == IsPrivate == false), mirroring C# `IsPublic` / `IsPrivate`.
+    public bool IsPublic;
+    public bool IsPrivate;
+
     // Backing parameter array written by the VM; exposed via GetParameters().
     public ParameterInfo[] __parameters;
 

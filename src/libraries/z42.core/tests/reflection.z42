@@ -76,6 +76,16 @@ class TaggedParams {
     public void Op([FieldTag("first")] int a, int b, [FieldTag("third")] string c) { }
 }
 
+// add-member-visibility (unify P1-b): FieldInfo/MethodInfo IsPublic/IsPrivate
+// reflect the declared member modifier (protected → neither).
+class VisibilityHolder {
+    public int pubField;
+    private int privField;
+    protected int protField;
+    public void PubMethod() { }
+    private void PrivMethod() { }
+}
+
 [Test]
 void test_gettype_name_and_fullname() {
     Derived d = new Derived();
@@ -356,4 +366,30 @@ void test_enum_get_names_values() {
 void test_enum_get_name() {
     Assert.Equal("Green", Enum.GetName(typeof(Palette), 5));
     Assert.Equal("", Enum.GetName(typeof(Palette), 99));
+}
+
+[Test]
+void test_field_visibility() {
+    VisibilityHolder h = new VisibilityHolder();
+    bool sawPub = false; bool sawPriv = false; bool sawProt = false;
+    foreach (var f in h.GetType().GetFields()) {
+        if (f.Name == "pubField") { Assert.True(f.IsPublic); Assert.True(!f.IsPrivate); sawPub = true; }
+        if (f.Name == "privField") { Assert.True(!f.IsPublic); Assert.True(f.IsPrivate); sawPriv = true; }
+        if (f.Name == "protField") { Assert.True(!f.IsPublic); Assert.True(!f.IsPrivate); sawProt = true; }
+    }
+    Assert.True(sawPub);
+    Assert.True(sawPriv);
+    Assert.True(sawProt);
+}
+
+[Test]
+void test_method_visibility() {
+    VisibilityHolder h = new VisibilityHolder();
+    bool sawPub = false; bool sawPriv = false;
+    foreach (var m in h.GetType().GetMethods()) {
+        if (m.Name == "PubMethod") { Assert.True(m.IsPublic); Assert.True(!m.IsPrivate); sawPub = true; }
+        if (m.Name == "PrivMethod") { Assert.True(!m.IsPublic); Assert.True(m.IsPrivate); sawPriv = true; }
+    }
+    Assert.True(sawPub);
+    Assert.True(sawPriv);
 }

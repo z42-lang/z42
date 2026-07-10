@@ -162,6 +162,7 @@ fn static_fields_accessor_reads_cold() {
         name: "count".to_string(),
         type_tag: "int".to_string(),
         attributes: Box::new([]),
+        visibility: 0,
     }]);
     assert_eq!(td.static_fields().len(), 1);
     assert_eq!(td.static_fields()[0].name, "count");

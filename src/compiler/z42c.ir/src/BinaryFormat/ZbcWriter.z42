@@ -253,6 +253,7 @@ public static class ZbcWriter {
                 w.WriteU8(Tag.FromName(cd.Fields[f].Type));
                 w.WriteU32(pool.Idx(cd.Fields[f].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.Fields[f], pool);   // per-field attrCount + refs（zbc 1.14）
+                w.WriteU8(cd.Fields[f].Visibility);   // add-member-visibility（zbc 1.23）：0/1/2
                 f = f + 1;
             }
             // TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）
@@ -297,6 +298,7 @@ public static class ZbcWriter {
                 w.WriteU8(Tag.FromName(cd.StaticFields[sf].Type));
                 w.WriteU32(pool.Idx(cd.StaticFields[sf].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.StaticFields[sf], pool);   // per-field attrCount + refs（zbc 1.14）
+                w.WriteU8(cd.StaticFields[sf].Visibility);   // add-member-visibility（zbc 1.23）
                 sf = sf + 1;
             }
             w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
@@ -337,6 +339,7 @@ public static class ZbcWriter {
             w.WriteU32(pool.Idx(f.RetType));
             w.WriteU8(ExecMode.FromName(f.ExecMode));
             if (f.IsStatic) { w.WriteU8(1); } else { w.WriteU8(0); }
+            w.WriteU8(f.Visibility);   // add-member-visibility（zbc 1.23）：is_static 后、params 前
             int p = 0;
             while (p < f.ParamCount) {
                 string pt = "?";

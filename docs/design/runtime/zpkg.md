@@ -239,6 +239,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.24 | 2026-07-08 | add-indexed-zpkg-min-patch | zpkg-only（inner zbc 不变；packed 布局字节不变）：indexed 模式重定义——主文件 = packed 段面去 MODS 加 FILE（ns/src_rel/src_hash/fnCount/firstSig/zbc_hash），散装 `.zbc` 为自包含 fullMode（文件局部池，未变文件字节稳定 → 最小 patch）；VM 实装 indexed 按路径装载 + zbc 内容 hash 校验 |
 | 0.25 | 2026-07-09 | [reencode-strs-segment-dict](../../spec/changes/reencode-strs-segment-dict/) | 耦合 inner zbc 1.21：STRS 段重编码为 segment-dict（段字典去重 + 名字=段索引序列 `join('.')`）。zpkg outer 段面不变；STRS 段体经共享 `ZbcWriter.BuildStrs` 自动跟随（含 `.zsym` sidecar symPool）。删冗余 offset + FQ 名前缀去重，−44% STRS（≈−10% 整包）|
 | 0.26 | 2026-07-09 | [add-enum-type-metadata](../../spec/changes/add-enum-type-metadata/)（unify-type-metadata P1-a） | 耦合 inner zbc 1.22（TYPE 段 enum 成员块，class_flags bit5=enum）。zpkg outer 段面不变；TYPE 段体经 MODS 自动跟随。首砖：enum 成员值有了 TYPE 的家 |
+| 0.27 | 2026-07-10 | [add-member-visibility](../../spec/changes/add-member-visibility/)（unify-type-metadata P1-b） | 耦合 inner zbc 1.23（TYPE 字段块 + SIGS 每函数追加 `visibility:u8`）。zpkg outer 段面不变；TYPE/SIGS 段体经 MODS 自动跟随。第二砖：成员可见性有了 TYPE/SIGS 的家 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

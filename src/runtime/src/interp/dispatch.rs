@@ -155,6 +155,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
                 fields.push(FieldSlot {
                     name: f.name.clone().into_boxed_str(),
                     type_tag: f.type_tag.clone().into_boxed_str(),
+                    visibility: f.visibility,
                 });
             }
         }

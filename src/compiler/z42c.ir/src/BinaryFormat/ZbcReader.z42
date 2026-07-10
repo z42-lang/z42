@@ -60,12 +60,14 @@ public sealed class SigEntryZ {
     public string   RetType;
     public string   ExecMode;
     public bool     IsStatic;
+    public int      Visibility;   // add-member-visibility（zbc 1.23）：0/1/2
     public string[] ParamTypes; public int ParamTypeCount;
     public IrAttrRef[] Attrs; public int AttrCount;
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;
     public SigEntryZ() {
         this.Name = ""; this.ParamCount = 0; this.RetType = "void"; this.ExecMode = "Interp";
         this.IsStatic = false;
+        this.Visibility = 0;
         this.ParamTypes = new string[0]; this.ParamTypeCount = 0;
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.ParamAttrs = new IrAttrRefList[0]; this.ParamAttrsLen = 0;
@@ -275,6 +277,7 @@ public static class ZbcReader {
                 string ft = ZbcReader._p(pool, c.U32());
                 IrFieldDesc fd = new IrFieldDesc(fname, ft);
                 ZbcReader._readFieldAttrs(c, pool, fd);
+                fd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
                 fields[f] = fd;
                 f = f + 1;
             }
@@ -314,6 +317,7 @@ public static class ZbcReader {
                 string st = ZbcReader._p(pool, c.U32());
                 IrFieldDesc sd = new IrFieldDesc(sn, st);
                 ZbcReader._readFieldAttrs(c, pool, sd);
+                sd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
                 cd.StaticFields[sf] = sd;
                 sf = sf + 1;
             }
@@ -357,6 +361,7 @@ public static class ZbcReader {
             int em = c.U8();
             if (em == 1) { e.ExecMode = "Jit"; } else if (em == 2) { e.ExecMode = "Aot"; } else { e.ExecMode = "Interp"; }
             e.IsStatic = c.U8() != 0;
+            e.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：is_static 后、params 前
             e.ParamTypes = new string[e.ParamCount]; e.ParamTypeCount = e.ParamCount;
             int p = 0;
             while (p < e.ParamCount) { e.ParamTypes[p] = ZbcReader._p(pool, c.U32()); p = p + 1; }

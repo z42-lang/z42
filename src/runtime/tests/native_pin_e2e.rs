@@ -23,7 +23,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
             terminator,
         }],
         is_static: true,
-        max_reg: 8,
+        visibility: 0,        max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),

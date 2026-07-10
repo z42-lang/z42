@@ -242,6 +242,10 @@ pub struct FieldDesc {
     /// indexes these into `TypeDescCold::field_attributes`).
     #[serde(default)]
     pub attributes: Box<[AttributeRef]>,
+    /// add-member-visibility (zbc 1.23): 0=public / 1=private / 2=protected.
+    /// Surfaced by `FieldInfo.IsPublic` / `IsPrivate`. Default 0 (public).
+    #[serde(default)]
+    pub visibility: u8,
 }
 
 /// Format a function's stack-trace display name with parameter signature.
@@ -337,6 +341,12 @@ pub struct Function {
     /// static-only entries in the StdlibCallIndex.
     #[serde(default)]
     pub is_static: bool,
+    /// Member visibility (add-member-visibility, unify P1-b): 0=public /
+    /// 1=private / 2=protected. Populated from the SIGS entry's `visibility:u8`
+    /// at module load (mirrors `is_static`), so `MethodInfo.IsPublic` can
+    /// report it via reflection. Defaults to 0 (public) for synthesized funcs.
+    #[serde(default)]
+    pub visibility: u8,
     /// Total number of registers used (0 = unknown; VM falls back to dynamic sizing).
     #[serde(default)]
     pub max_reg: u32,

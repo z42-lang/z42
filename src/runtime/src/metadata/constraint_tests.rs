@@ -48,6 +48,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         exec_mode: ExecMode::Interp,
         blocks: vec![],
         is_static: false,
+        visibility: 0,
         max_reg: 0,
         cold,
         reg_types: Box::new([]),

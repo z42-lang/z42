@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     let fields = vec![
-        crate::metadata::FieldSlot { name: "head".to_string().into(), type_tag: "object".to_string().into() },
-        crate::metadata::FieldSlot { name: "tail".to_string().into(), type_tag: "object".to_string().into() },
+        crate::metadata::FieldSlot { name: "head".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
+        crate::metadata::FieldSlot { name: "tail".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
     ];
     let mut field_index = crate::metadata::NameIndex::new();
     field_index.insert("head".to_string(), 0usize);

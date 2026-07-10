@@ -91,9 +91,9 @@ mod make_stdlib_exception_tests {
 
     fn exception_type_desc(name: &str, base: Option<&str>) -> Arc<TypeDesc> {
         let fields = vec![
-            FieldSlot { name: "Message".into(),        type_tag: "str".into() },
-            FieldSlot { name: "StackTrace".into(),     type_tag: "str".into() },
-            FieldSlot { name: "InnerException".into(), type_tag: "Std.Exception".into() },
+            FieldSlot { name: "Message".into(),        type_tag: "str".into(), visibility: 0 },
+            FieldSlot { name: "StackTrace".into(),     type_tag: "str".into(), visibility: 0 },
+            FieldSlot { name: "InnerException".into(), type_tag: "Std.Exception".into(), visibility: 0 },
         ];
         let mut field_index = crate::metadata::NameIndex::new();
         for (i, f) in fields.iter().enumerate() {

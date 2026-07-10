@@ -5,7 +5,7 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 22;   // 2026-07-09 add-enum-type-metadata（unify-type-metadata P1-a）：enum 作 TYPE 段类型实体——class_flags bit5=enum + 类记录尾部 enum 成员块（member_count:u16 + (name_idx:u32,value:i64)×n，gated；非 enum 类布局不变）。
+    public static int Minor = 23;   // 2026-07-09 add-member-visibility（unify P1-b）：TYPE 字段块（实例+静态）每字段 +visibility:u8、SIGS 每函数 is_static 后 +visibility:u8（0=public/1=private/2=protected）。
                                     // 前史：1.21 reencode-strs-segment-dict（STRS segment-dict）；1.20 add-reflection-assignable-from。
 }
 

@@ -422,6 +422,7 @@ mod resolver_tests {
                     terminator: Terminator::Ret { reg: None },
                 }],
                 is_static: false,
+                visibility: 0,
                 max_reg: 0,
                 cold: None,
                 reg_types: Box::new([]),

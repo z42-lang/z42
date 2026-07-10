@@ -259,7 +259,7 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // Instance fields (already base-first — cross-zpkg fixup merges inherited
     // instance fields into `td.fields`; IsStatic = false).
     for f in &td.fields {
-        out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false)?);
+        out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false, f.visibility)?);
     }
     // add-reflection-inherited-static-fields: static fields are stored per
     // declaring class (no instance-field-style fixup), so walk the base chain
@@ -272,7 +272,7 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     while let Some(c) = cur {
         for f in c.static_fields() {
             if seen.insert(f.name.clone()) {
-                out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true)?);
+                out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true, f.visibility)?);
             }
         }
         cur = c.base_name.as_ref().and_then(|b| {
@@ -293,6 +293,7 @@ fn build_field_info(
     field: &str,
     type_tag: &str,
     is_static: bool,
+    visibility: u8,
 ) -> Result<Value> {
     let ftype = make_type_from_name(ctx, type_tag);
     alloc_named(
@@ -302,6 +303,10 @@ fn build_field_info(
             ("Name", Value::Str(field.to_string().into())),
             ("FieldType", ftype),
             ("IsStatic", Value::Bool(is_static)),
+            // add-member-visibility (unify P1-b): 0=public / 1=private /
+            // 2=protected. `protected` reports neither (mirrors C# IsFamily).
+            ("IsPublic", Value::Bool(visibility == 0)),
+            ("IsPrivate", Value::Bool(visibility == 1)),
             ("__qualified", Value::Str(format!("{class}.{field}").into())),
         ],
     )
@@ -497,8 +502,8 @@ fn build_method_info(
     qualified: &str,
     is_virtual: bool,
 ) -> Result<Value> {
-    let (ret_tag, is_static, params) = match resolve_func_sig(ctx, qualified) {
-        Some((param_count, ret_type, fn_is_static, param_types, param_names)) => {
+    let (ret_tag, is_static, params, visibility) = match resolve_func_sig(ctx, qualified) {
+        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis)) => {
             // Instance methods carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             let mut params = Vec::new();
@@ -526,9 +531,9 @@ fn build_method_info(
                     ],
                 )?);
             }
-            (ret_type, fn_is_static, params)
+            (ret_type, fn_is_static, params, vis)
         }
-        None => ("void".to_string(), false, Vec::new()),
+        None => ("void".to_string(), false, Vec::new(), 0),
     };
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
@@ -539,6 +544,10 @@ fn build_method_info(
             ("ReturnType", make_type_from_name(ctx, &ret_tag)),
             ("IsStatic", Value::Bool(is_static)),
             ("IsVirtual", Value::Bool(is_virtual)),
+            // add-member-visibility (unify P1-b): 0=public / 1=private /
+            // 2=protected. `protected` reports neither (mirrors C# IsFamily).
+            ("IsPublic", Value::Bool(visibility == 0)),
+            ("IsPrivate", Value::Bool(visibility == 1)),
             ("__parameters", params_arr),
             // C3b: qualified func name so MethodInfo.GetCustomAttributes() can
             // resolve the backing Function's attribute factories.
@@ -554,14 +563,14 @@ fn build_method_info(
 fn resolve_func_sig(
     ctx: &VmContext,
     qualified: &str,
-) -> Option<(usize, String, bool, Vec<String>, Vec<String>)> {
+) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8)> {
     // reflection-future-parameter-names: parameters occupy registers
     // 0..param_count on entry, so a param's source name is the debug local-var
     // whose `reg` matches its index. Empty string when no debug symbols are
     // present (the builder falls back to `arg{n}`).
     fn extract(
         f: &crate::metadata::bytecode::Function,
-    ) -> (usize, String, bool, Vec<String>, Vec<String>) {
+    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8) {
         let mut names = vec![String::new(); f.param_count];
         for lv in f.local_vars() {
             let r = lv.reg as usize;
@@ -569,7 +578,7 @@ fn resolve_func_sig(
                 names[r] = lv.name.clone();
             }
         }
-        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names)
+        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names, f.visibility)
     }
     if let Some(m) = ctx.module() {
         if let Some(&i) = m.func_index.get(qualified) {
@@ -656,7 +665,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
     let sig = resolve_func_sig(ctx, qualified);
     if is_get {
         let ty = match &sig {
-            Some((pc, ret, is_static, _, _)) => {
+            Some((pc, ret, is_static, _, _, _)) => {
                 if pc.saturating_sub(if *is_static { 0 } else { 1 }) != 0 {
                     return; // get_X(args) — a regular method, not a property
                 }
@@ -667,7 +676,7 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
         upsert_prop(props, prop_name).getter_type = Some(ty);
     } else {
         let ty = match &sig {
-            Some((pc, _, is_static, ptypes, _)) => {
+            Some((pc, _, is_static, ptypes, _, _)) => {
                 let base = if *is_static { 0 } else { 1 };
                 if pc.saturating_sub(base) != 1 {
                     return; // set_X with != 1 value param — a regular method

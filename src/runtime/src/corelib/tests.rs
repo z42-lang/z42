@@ -29,8 +29,8 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
         id: TypeId::UNRESOLVED,
         base_name: None,
         fields: vec![
-            FieldSlot { name: "__name".to_string().into(),     type_tag: "str".to_string().into() },
-            FieldSlot { name: "__fullName".to_string().into(), type_tag: "str".to_string().into() },
+            FieldSlot { name: "__name".to_string().into(),     type_tag: "str".to_string().into(), visibility: 0 },
+            FieldSlot { name: "__fullName".to_string().into(), type_tag: "str".to_string().into(), visibility: 0 },
         ],
         field_index: fi,
         vtable: Vec::new(),

@@ -685,6 +685,7 @@ pub fn build_type_registry(module: &mut Module) {
         let own_fields: Vec<FieldSlot> = desc.fields.iter().map(|f| FieldSlot {
             name: f.name.clone().into(),
             type_tag: f.type_tag.clone().into(),
+            visibility: f.visibility,
         }).collect();
 
         // ── Own methods (this class's own declarations) ───────────────────

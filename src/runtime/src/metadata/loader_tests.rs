@@ -419,7 +419,7 @@ fn module_with_one_class(
             name: name.to_owned(),
             base_class: base.map(str::to_owned),
             fields: fields.into_iter().map(|(n, t)| FieldDesc {
-                name: n.to_owned(), type_tag: t.to_owned(), attributes: Box::new([]),
+                name: n.to_owned(), type_tag: t.to_owned(), attributes: Box::new([]), visibility: 0,
             }).collect(),
             type_params: Box::new([]),
             type_param_constraints: Box::new([]),
@@ -625,6 +625,7 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
             exec_mode:    crate::metadata::ExecMode::Interp,
             blocks:       vec![],
             is_static:    false,
+            visibility:   0,
             max_reg:      0,
             cold:         None,
             reg_types:    Box::new([]),

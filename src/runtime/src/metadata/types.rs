@@ -23,6 +23,11 @@ pub struct FieldSlot {
     /// for fields that have no explicit initializer.
     /// 2026-05-02 fix-class-field-default-init.
     pub type_tag: Box<str>,
+    /// Member visibility (add-member-visibility, unify P1-b): 0=public /
+    /// 1=private / 2=protected. Carried from the TYPE section's per-field
+    /// `visibility:u8` so `FieldInfo.IsPublic` can report it via reflection.
+    /// Defaults to 0 (public) for synthesized slots (gc / exception / tests).
+    pub visibility: u8,
 }
 
 /// Returns the default `Value` for a field whose declared type tag is

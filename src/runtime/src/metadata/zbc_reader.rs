@@ -81,7 +81,11 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // trailing enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n),
 // gated on the flag so non-enum class records are byte-unchanged. Backs
 // Type.IsEnum + Enum.GetNames/GetValues/GetName + typeof(EnumType).
-pub const ZBC_VERSION_MINOR: u16 = 22;
+// 2026-07-09 add-member-visibility (unify P1-b): bumped to 1.23 - TYPE field
+// blocks (instance + static) gain a trailing visibility:u8 per field; SIGS gains a
+// visibility:u8 after is_static. 0=public/1=private/2=protected. Backs
+// FieldInfo.IsPublic/IsPrivate + MethodInfo.IsPublic/IsPrivate.
+pub const ZBC_VERSION_MINOR: u16 = 23;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -137,7 +141,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // segment-dict encoding. Also applies to the .zsym sidecar's symPool STRS.
 // 2026-07-09 add-enum-type-metadata: bumped to 0.26, coupled with inner zbc 1.22
 // (TYPE-section enum member block). Outer zpkg layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 26;
+// 2026-07-09 add-member-visibility: bumped to 0.27, coupled inner zbc 1.23
+// (TYPE/SIGS member visibility). Outer zpkg layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 27;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -399,7 +405,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let name = c.pool_str(pool, fnam_idx)?.to_owned();
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
-            fields.push(FieldDesc { name, type_tag, attributes });
+            let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
+            fields.push(FieldDesc { name, type_tag, attributes, visibility });
         }
         // Generic type parameters + per-tp constraints (L3-G3a)
         let tp_count = c.read_u8()? as usize;
@@ -434,7 +441,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let name = c.pool_str(pool, snam_idx)?.to_owned();
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
-            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes });
+            let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
+            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility });
         }
         // add-reflection-get-interfaces (zbc 1.17): per-class interface block —
         // u16 count + interface_name_idx[] u32. Surfaced by Type.GetInterfaces().
@@ -545,6 +553,9 @@ struct FuncSig {
     ret_type: String,
     exec_mode: ExecMode,
     is_static: bool,
+    /// 1.23 add-member-visibility: 0=public / 1=private / 2=protected. Surfaced by
+    /// MethodInfo.IsPublic / IsPrivate.
+    visibility: u8,
     /// 1.3 split-debug-symbols: per-parameter type names for trace signature
     /// decoration. Length always equals `param_count` (writer pads unknowns
     /// with "?"). Empty Vec when param_count == 0.
@@ -570,6 +581,7 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
         let ret_type_idx = c.read_u32()?;            // 1.7 align-zbc-reader-writer-asymmetry: authoritative
         let mode_byte   = c.read_u8()?;
         let is_static   = if has_is_static { c.read_u8()? != 0 } else { false };
+        let visibility  = if has_is_static { c.read_u8()? } else { 0 };  // 1.23 add-member-visibility (after is_static)
 
         // 1.3 split-debug-symbols: per-param type names (u32 strIdx × param_count).
         let mut param_types = Vec::with_capacity(param_count);
@@ -612,6 +624,7 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
             ret_type: c.pool_str(pool, ret_type_idx)?.to_owned(),
             exec_mode: exec_mode_from_byte(mode_byte),
             is_static,
+            visibility,
             param_types,
             type_params,
             type_param_constraints,
@@ -1369,6 +1382,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             exec_mode:       sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
             blocks:          body.blocks,
             is_static:       sig.map(|s| s.is_static).unwrap_or(false),
+            visibility:      sig.map(|s| s.visibility).unwrap_or(0),
             max_reg:         0,
             cold,
             reg_types,
@@ -1797,6 +1811,7 @@ fn read_mods_section(
                 exec_mode:       sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
                 blocks:          body.blocks,
                 is_static:       sig.map(|s| s.is_static).unwrap_or(false),
+                visibility:      sig.map(|s| s.visibility).unwrap_or(0),
                 max_reg:         0,
                 cold,
                 reg_types,

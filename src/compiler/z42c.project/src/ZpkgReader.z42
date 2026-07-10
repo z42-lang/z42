@@ -191,6 +191,7 @@ public static class ZpkgReader {
             string ret = z.Pool[c.U32()];
             int exec = c.U8();
             int isStatic = c.U8();
+            c.U8();                            // visibility（zbc 1.23 add-member-visibility）：is_static 后、params 前
             string[] ptypes = new string[pc];
             int j = 0;
             while (j < pc) { ptypes[j] = z.Pool[c.U32()]; j = j + 1; }

@@ -105,8 +105,8 @@ void Demo() {
 |------|---------|------|
 | `Type : MemberInfo` | `Std`（z42.core）| `Name`（继承自 MemberInfo）/ `FullName` / `BaseType` / `IsAbstract` / `IsSealed` / `IsValueType` / `IsRecord` / `IsClass` / `IsInterface` / `IsGenericType` / `IsGenericTypeDefinition` / `IsPrimitive` / `IsArray` / `GetFields()` / `GetMethods()` / `GetMembers()` / `GetProperties()` / `GetGenericArguments()` / `GetGenericTypeDefinition()` / `GetInterfaces()` / `GetInterface(name)` / `IsAssignableFrom(Type)` / `GetElementType()` |
 | `MemberInfo` | `Std.Reflection` | `Name`（`Type` / `FieldInfo` / `MethodInfo` / `PropertyInfo` 的基类）|
-| `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `GetCustomAttributes()` / `GetAttribute(Type)` |
-| `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
+| `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
+| `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
 | `ParameterInfo` | `Std.Reflection` | `Name` / `ParameterType : Type` / `Position` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` |
 
@@ -207,6 +207,12 @@ Member / Type 对象**eager 填充**：每个 builtin 用 `ctx.try_lookup_type("
 ### 类静态字段反射（add-reflection-static-fields，zbc 1.13）
 
 `Type.GetFields()` 在实例字段（base-first，含继承）之后追加该类的**静态字段**，每个 `FieldInfo` 带 `IsStatic`（实例 false / 静态 true）。根因处理：运行期原本只有 `VmContext.static_fields`（全局按名 key 的 Value 槽，**无 per-type 类型元数据**），故编译期把静态字段 (名, 类型) 持久化进 zbc TYPE section 的**独立静态字段块**（在 flags 字节之后，与实例字段块同形）。静态字段**独立于** `TypeDesc.fields`（实例热路径布局）——存于 `TypeDescCold.static_fields`（cold，反射专用，普通无静态字段的类不分配 cold）。`builtin_type_fields` 合并两者输出。**MVP 仅声明类自身静态字段**——静态字段非继承存储，不走实例字段的 cross-zpkg base-merge fixup；继承静态反射见 Deferred。
+
+### 成员可见性反射（add-member-visibility，zbc 1.23 / unify-type-metadata P1-b）
+
+`FieldInfo` / `MethodInfo` 各带 `IsPublic` / `IsPrivate`（bool），反映成员的声明修饰符。可见性以 **u8**（0=public / 1=private / 2=protected）持久化到两处：字段进 zbc **TYPE section** 每字段块（实例 + 静态，紧接该字段的 attr 块之后），方法进 **SIGS section** 每函数（`is_static` 字节之后）——两者都是 **non-gated**（每成员固定 +1 字节），因 IrGen 对每个成员都算得可见性（缺省 public，镜像 z42 AST `Visibility` 默认）。运行期 reader 把 TYPE 的可见性灌进 `FieldSlot`（实例）/ `FieldDesc`（静态）、把 SIGS 的灌进 `Function.visibility`（与 `is_static` 同源同路径）；`build_field_info` / `build_method_info` 据此设 `IsPublic = (vis==0)` / `IsPrivate = (vis==1)`。`protected` 两者皆 false（镜像 C# `IsFamily`）。
+
+> **unify-type-metadata 语境**：本砖只把可见性**加进** TYPE/SIGS（superset 阶段），编译期仍并存 TSIG 的可见性字段；待 P3 从 TSIG/EXPT 收敛（z42c 改读 TYPE/SIGS）后删 TSIG，实现「运行期反射元数据 = 单一真相」。
 
 ### 类型名规范化
 
