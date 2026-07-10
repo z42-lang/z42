@@ -334,3 +334,44 @@ xtask 的骨架是健康的——common 三件套、toml 驱动的 SoT 意识、
 抽象、CI 的 compile-once 拓扑方向都很好，注释里对设计决策的留痕质量罕见地高。
 债务集中在「快速迭代期的收尾没扫干净」：新 helper 落地后旧调用点不回迁、命令面改名后的尾巴
 （映射表 / help 文案 / 文档）、大重构改了代码没清注释。没有发现架构性问题。
+
+---
+
+## 附录 A：z42c 编译走 JIT 的加速机会（2026-07-11 实测，非原 review 项）
+
+**背景**：xtask 里 **18 个 z42c driver 调用点全部硬编码 `--mode interp`**（`.Arg("--mode").Arg("interp")`，0 处 jit），
+所以 CI 的 `build compiler` / `build stdlib` / golden 重生**全走解释执行**。而 z42vm 默认已是 JIT
+（`make-jit-default` 2026-06-20，`src/runtime/src/main.rs:578`），z42c 也早已 JIT-capable
+（`fix-jit-cross-zpkg-call` 2026-06-20，byte-identical）。问题：z42c 编译改走 JIT 能否加速 CI？
+
+**实测**（本地 macOS，同一 warm `z42c.driver.zpkg`，仅切 `--mode`）：
+
+| 场景 | interp | jit | jit 相对 | 产物 |
+|---|---|---|---|---|
+| 大编译：`build z42.core --no-incremental`（72 文件） | 18.65s ± 0.09 | **5.22s** ± 0.06 | **3.6× 快** | 逐字节相同 ✓ |
+| 小编译：`--emit-zbc <小文件>`（每次全新进程，含 z42c 自身 JIT warmup） | 2.56s ± 0.02 | **1.53s** ± 0.02 | **1.67× 快** | 逐字节相同 ✓ |
+
+**关键发现**：
+
+- **JIT 两个场景都更快**——大编译 3.6×，海量小编译（golden 逐 case spawn 那种）**仍 1.67× 快**。
+  小编译那 1.5–2.5s 主要是 z42c **进程启动 + 加载 7 包 + stdlib**，JIT 把这段热路径也加速了，
+  **warmup 成本远小于收益**。→ 原先"JIT warmup 会拖慢小编译、应大编译切/小编译留"的顾虑被数据**推翻**，
+  很可能是**全切**。
+- **产物两样本 byte-identical**（`z42.core.zpkg` + 小文件 zbc）——对"JIT 不破自举不动点"是好兆头。
+
+**切换前置清单（速度已明确赢，剩下纯粹是确定性/信任验证——切换前必须逐项达成）**：
+
+1. **全平台 × 全包不动点 byte-identity**：7 个 z42c 包 gen1==gen2、全 stdlib、全 golden，在
+   linux-x64 / linux-arm64 / macos / windows 上都 JIT 下逐字节一致。cranelift 是另一条 codegen 路径，
+   单机一致 ≠ 跨平台保证（HashMap/浮点/顺序敏感角落，见 common-pitfalls §1）。
+   → 建议先加 CI 实验腿：z42c 用 JIT 跑 `test compiler` 不动点，全平台稳定几轮。
+2. **「interp = 可信参考」的权衡**：不动点只查 gen1==gen2 一致，**查不出"JIT codegen bug 让两代错得一样"**。
+   interp 更简单、更被信任。换 JIT = 把信任基线移到较新的 cranelift 路径——**属 User 权衡的设计决定，非纯技术验证**。
+3. **时机**：需 toolchain 锁释放 + 格式 bump/WIP 落定的稳定期做（避免红了分不清是 JIT 还是格式引起）。
+
+**改动面**（前置达成后）：`scripts/` 里 18 个 `.Arg("--mode").Arg("interp")` → `jit`（toolchain 子系统，
+需占锁）。粗估 CI 收益：z42c 编译占 CI 相当一块，1.67–3.6× 打下去，每 run 省几分钟量级。
+
+> 落地方式待定：可能不是简单全改字面量，而是给 z42c 调用抽一个 `_z42cRun(vm, driver, mode)` helper
+> + 一个 `Z42C_BUILD_MODE` 环境/开关（默认 jit，格式 bump 期可临时回退 interp），与 §2.1 的
+> `_z42cWorkspaceBuild` 收敛一起做最自然。
