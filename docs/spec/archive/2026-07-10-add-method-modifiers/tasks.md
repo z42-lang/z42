@@ -48,5 +48,13 @@
 - Decision 2：IsVirtual = virtual∪override∪abstract（镜像 C#）；Decision 3：从 vtable 启发式收敛到声明 flag。
 - **IsVirtual 权威化踩坑（3.1）**：z42 把**所有**方法（虚/非虚）都入 vtable，故 `flag ∨ vtable`
   会把非虚方法（如普通 `Sides()`）误报 virtual。修：`sig_found ? (flag&bit0) : vtable`——解析到
-  SIGS 时 flag 权威、无 sig 才回退 vtable。副作用：继承的 Object 方法（未标 virtual）现报
-  IsVirtual=false（无测试断言，属声明权威语义；若要报 true 需 z42.core 给 Object 方法标 virtual，另议）。
+  SIGS 时 flag 权威、无 sig 才回退 vtable。
+- **归档后回归修复（follow-up commit）**：`virtual extern` 方法（`Object.Equals/GetHashCode/
+  ToString`）走 IrGen 的 `_emitNativeStub` 分支，此前**漏设 Visibility + MethodFlags** → IsVirtual
+  权威化后误报 `false`（P1-c 引入的回归，因 P1-c 自身测试未覆盖 Object 方法故 CI 未拦到——User
+  「是不是还没做完」一问逼出）。修：extern 分支补 `stub.Visibility=_visCode` +
+  `stub.MethodFlags=_methodFlags`。纯 codegen、只动 stdlib(Object) 字节、z42c 无 virtual extern
+  故不动点不受影响、无格式 bump。测试补 `test_method_modifiers` 加 ToString(继承 virtual extern)
+  断言。GREEN 全绿 + 不动点 7/7。**教训**：P1-b 加 visibility 时也漏了这个 extern 分支（仅因都
+  public 而 IsPublic 恰对）——**任何往方法元数据加字段的改动，三个发射分支（normal/extern/
+  abstract）都要覆盖**。

@@ -177,6 +177,8 @@ public sealed class IrGen {
                                 if (nat != "") {
                                     IrFunction stub = this._emitNativeStub(irName, md, nat,
                                                                            this._hasWord(md.Mods, "static"), rawMem);
+                                    stub.Visibility = this._visCode(md.Mods);      // add-member-visibility：extern 桩此前漏设
+                                    stub.MethodFlags = this._methodFlags(md.Mods); // add-method-modifiers：virtual extern（如 Object.ToString/Equals/GetHashCode）须带 virtual 位
                                     funcs = this._pushFunc(funcs, fc, stub); fc = fc + 1;
                                 }
                             } else if (this._hasWord(md.Mods, "abstract") && !this._hasWord(md.Mods, "static")) {

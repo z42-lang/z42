@@ -408,15 +408,18 @@ void test_method_visibility() {
 [Test]
 void test_method_modifiers() {
     // typeof(abstract class) — 抽象类不能实例化，用 typeof 取句柄。
-    bool sawArea = false; bool sawPerim = false; bool sawSides = false;
+    bool sawArea = false; bool sawPerim = false; bool sawSides = false; bool sawToStr = false;
     foreach (var m in typeof(Shape).GetMethods()) {
         if (m.Name == "Area") { Assert.True(m.IsVirtual); Assert.True(!m.IsAbstract); sawArea = true; }
         if (m.Name == "Perimeter") { Assert.True(m.IsVirtual); Assert.True(m.IsAbstract); sawPerim = true; }
         if (m.Name == "Sides") { Assert.True(!m.IsVirtual); Assert.True(!m.IsAbstract); sawSides = true; }
+        // 继承的 virtual extern 方法（Object.ToString）——extern 桩须带 virtual 位（否则误报 false）。
+        if (m.Name == "ToString") { Assert.True(m.IsVirtual); Assert.True(!m.IsAbstract); sawToStr = true; }
     }
     Assert.True(sawArea);
     Assert.True(sawPerim);
     Assert.True(sawSides);
+    Assert.True(sawToStr);
 }
 
 [Test]
