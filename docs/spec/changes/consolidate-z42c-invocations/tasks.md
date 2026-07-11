@@ -19,8 +19,10 @@
 
 ## B 步：翻默认到 jit — 前置齐后做
 
-- [ ] B0 **前置核对**（全绿才开）：① toolchain 锁在手 ② `jit-fixpoint-check.yml` 全平台绿
-      ③ User 拍板前置#2 ④ 非格式-bump 周期。
+- [ ] B0 **前置核对**（全绿才开）：① toolchain 锁在手 ② ✅ `jit-fixpoint-check.yml`
+      **全平台绿**（run 29168922905，2026-07-12：linux-x64 / linux-arm64 / windows-x64 /
+      macos-arm64 四平台 z42c workspace 编译 interp==jit 逐字节一致）③ ⏳ User 拍板前置#2
+      （信任基线从 interp 移到 cranelift/JIT）④ 非格式-bump 周期。
 - [ ] B1 `_z42cMode()` 默认 `"interp"` → `"jit"`（一行）。
 - [ ] B2 全 GREEN gate 在 jit 下绿 + 不动点 7/7；CI 全平台绿几轮观察。
 - [ ] B3 `docs/book/src/dev/build.md` + `xtask.md` 记：z42c 编译默认 jit + `Z42C_BUILD_MODE=interp`
