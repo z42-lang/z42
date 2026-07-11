@@ -1,8 +1,0 @@
-// z42c.core 骨架（B0 / scaffold-z42c-selfhost）。占位 —— 真实基础设施
-// （Span / Diagnostic / DiagnosticBag / LanguageFeatures，镜像 C# z42.Core）
-// 由后续子系统 spec 落地。受限写法约定见 docs/design/compiler/self-hosting.md。
-namespace Z42.Core;
-
-public sealed class CoreSkeleton {
-    public string Name() { return "z42c.core"; }
-}

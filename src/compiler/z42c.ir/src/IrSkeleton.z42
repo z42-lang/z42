@@ -1,7 +1,0 @@
-// z42c.ir 骨架（B0）。占位 —— 真实 IR 模型 + lowering + ZbcWriter（寄存器 SSA，
-// 镜像 C# z42.IR）由 0.3.7/0.3.8 spec 落地。
-namespace Z42.IR;
-
-public sealed class IrSkeleton {
-    public string Name() { return "z42c.ir"; }
-}
