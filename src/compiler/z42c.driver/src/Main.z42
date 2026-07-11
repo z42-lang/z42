@@ -19,6 +19,14 @@ using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Pipeline;
 
+// 进程 exit code 契约（compiler-review §三/P2-4：原 0/1/2 魔数无契约、语义靠各函数自觉）。
+// z42 受限写法：static class + int 常量（同 TokenKind 模式）。
+static class ExitCode {
+    public static int Ok = 0;          // 成功
+    public static int BuildError = 1;  // 编译/构建失败（诊断已输出）
+    public static int UsageError = 2;  // 命令行/工程文件用法错误（参数缺失、无 toml、无 workspace）
+}
+
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
     // 无 file 参数的动词在 argv≥2 守卫之前分发。
@@ -56,7 +64,7 @@ void Main() {
     if (cmd == "--emit-zbc") {
         if (argv.Length < 3) {
             ConsoleError.WriteLine("z42c: --emit-zbc requires <file.z42> <out.zbc>");
-            Environment.Exit(2);
+            Environment.Exit(ExitCode.UsageError);
             return;
         }
         string ezText = File.ReadAllText(file);
@@ -79,7 +87,7 @@ void Main() {
     if (cmd != "--dump-tokens" && cmd != "--dump-ast" && cmd != "--dump-bound") {
         ConsoleError.WriteLine("z42c: unknown command '" + cmd + "'");
         _usage();
-        Environment.Exit(2);
+        Environment.Exit(ExitCode.UsageError);
         return;
     }
     string src = File.ReadAllText(file);
@@ -97,7 +105,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     string[] srcs = SourceDiscovery.Discover(projectDir, pm.IncludeGlobs, pm.IncludeCount);
     if (srcs.Length == 0) {
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
-        return 1;
+        return ExitCode.BuildError;
     }
     // ── 跨包依赖（CI-4）：libsDirs 扫描 → DepIndex + nsMap + TSIG 池；usings 聚合决定激活集 ──
     // workspace build 传 libsDirsOverride：Milestone 1 = [flat dist]（单元素）；
@@ -129,7 +137,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     bool isPacked = pm.HasPack ? pm.Pack : isRelease;
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
-        return 2;
+        return ExitCode.UsageError;
     }
     string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
     // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
@@ -149,7 +157,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
                 if (sbc != 0) { return sbc; }
             }
             Console.WriteLine("no changes; preserved -> " + lastZpkg);
-            return 0;
+            return ExitCode.Ok;
         }
     }
     DepScanResult scan = null;
@@ -231,7 +239,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + srcs[i]);
             int di = 0;
             while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
-            return 1;
+            return ExitCode.BuildError;
         }
         IrModule irm = cm.Module;
         // SourceFile = 发现到的完整路径原样（真 C# CLI 字节实测；fixture 的相对化是测试合成形态）
@@ -262,11 +270,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     z.ExportedCount = srcs.Length;
     if (isExe && z.Entry == "<ambiguous>") {
         ConsoleError.WriteLine("z42c build: multiple Main candidates; set [project].entry explicitly");
-        return 1;
+        return ExitCode.BuildError;
     }
     if (isExe && z.Entry == "") {
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
-        return 1;
+        return ExitCode.BuildError;
     }
     Directory.Create(distDir);
     string outPath = Path.Join(distDir, pm.Name + ".zpkg");
@@ -316,7 +324,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         int bc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
         if (bc != 0) { return bc; }
     }
-    return 0;
+    return ExitCode.Ok;
 }
 
 // 自包含 exe 依赖复制（镜像 z42b publish `_pubBundleProjectDeps`）。把 exe 直接声明的
@@ -356,10 +364,10 @@ int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int li
         if (!copied) {
             ConsoleError.WriteLine("z42c build: exe dep '" + dep
                 + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace）");
-            return 1;
+            return ExitCode.BuildError;
         }
     }
-    return 0;
+    return ExitCode.Ok;
 }
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
@@ -376,7 +384,7 @@ int _buildWorkspace(bool isRelease, string outputDir) {
     string wsToml = _findWorkspaceToml(cwd);
     if (wsToml == "") {
         ConsoleError.WriteLine("z42c build --workspace: no z42.workspace.toml from CWD upward (" + cwd + ")");
-        return 2;
+        return ExitCode.UsageError;
     }
     if (outputDir != "") {
         return _buildWorkspaceFlat(wsToml, isRelease, outputDir);
@@ -402,7 +410,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir) {
         i = i + 1;
     }
     Console.WriteLine("workspace build OK -> " + outputDir);
-    return 0;
+    return ExitCode.Ok;
 }
 
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
@@ -411,7 +419,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease) {
     WsPlan plan = WorkspaceBuild.PlanLayout(wsToml, profile);
     if (plan == null) {
         ConsoleError.WriteLine("z42c build --workspace: no --output-dir and no [workspace.build].output_dir in " + wsToml);
-        return 2;
+        return ExitCode.UsageError;
     }
     // libsDirs = 全成员 dist + Z42_LIBS（外部 stdlib，如 z42c.* → z42.core）。
     string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
@@ -436,7 +444,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease) {
         i = i + 1;
     }
     Console.WriteLine("workspace build OK (per-member layout)");
-    return 0;
+    return ExitCode.Ok;
 }
 
 // 从 startDir 向上找 z42.workspace.toml；返回路径或 ""（镜像 C# DiscoverWorkspaceRoot）。
