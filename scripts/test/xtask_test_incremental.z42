@@ -85,7 +85,7 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
 }
 
 int _incrBuild(string vm, string driver, string libs, string toml, bool noIncremental) {
-    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--").Arg("build").Arg(toml);
+    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml);
     if (noIncremental) { p = p.Arg("--no-incremental"); }
     return p.Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
 }

@@ -152,7 +152,7 @@ int _compileFixture(string vm, string driverZpkg, string stdlibDist, string root
     string outFile = Path.Join(destDir, name + ".zbc");
     Console.WriteLine("  z42c " + name + ".z42 -> " + outFile);
     // z42vm 跑 z42c.driver.zpkg --emit-zbc（Std.IO 依赖经 Z42_LIBS 解析；driver 兄弟 colocated）。
-    return _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
+    return _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("--emit-zbc").Arg(srcFile).Arg(outFile)
         .Env("Z42_LIBS", stdlibDist));
 }

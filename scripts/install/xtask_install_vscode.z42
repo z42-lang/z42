@@ -113,7 +113,7 @@ string _vscodeDumpKeywords(string root) {
     }
     string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
     try {
-        ProcessResult pr = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
+        ProcessResult pr = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
             .Arg("--dump-keywords")
             .Env("Z42_LIBS", stdlibFlat).Stderr(Stdio.Inherit()).Run();
         if (pr.ExitCode != 0) {

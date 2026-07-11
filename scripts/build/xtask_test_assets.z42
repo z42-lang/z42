@@ -232,7 +232,7 @@ bool _isNonRegenCat(string cat) {
 // Wait() across `jobs` concurrent handles. Output .zbc paths are unique per case.
 ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output) {
     return new Process(vmBin)
-        .Arg(driverZpkg).Arg("--mode").Arg("interp")
+        .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("--emit-zbc").Arg(source).Arg(output)
         .Env("Z42_LIBS", stdlibDist)
         .Stdout(Stdio.Null())

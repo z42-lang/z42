@@ -83,15 +83,10 @@ int _buildStdlibCore() {
 
     // ── 4. z42c rebuild stdlib per-member (M2 drop-in; overwrites seed) ──
     //    CWD=src/libraries → workspace discovery + per-member output_dir template;
-    //    --mode interp (jit has cross-zpkg undefined-fn on compiler workloads);
     //    Z42_LIBS=stdlibRun：稳定 stdlib 快照供 driver 运行期 Std.*（fresh member 从
-    //    workspace dist 解析、优先于快照，故重建自洽）。
-    _vNormal("  z42c build --workspace (CWD=src/libraries, interp) → per-member dist");
-    int bc = new Process(vm).Arg(z42cDriver).Arg("--mode").Arg("interp").Arg("--")
-        .Arg("build").Arg("--workspace").Arg("--release")
-        .WorkingDirectory(Path.Join(root, "src/libraries"))
-        .Env("Z42_LIBS", stdlibRun)
-        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    //    workspace dist 解析、优先于快照，故重建自洽）。mode 经 _z42cMode()（默认 interp）。
+    _vNormal("  z42c build --workspace (CWD=src/libraries) → per-member dist");
+    int bc = _z42cWorkspaceBuild(vm, z42cDriver, Path.Join(root, "src/libraries"), stdlibRun);
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42c build --workspace stdlib failed (" + bc.ToString() + ")"); return 1; }
 
     // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────

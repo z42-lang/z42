@@ -320,7 +320,7 @@ string _quotedExisting(string dir, string a, string b) {
 // itself carries its dist_dir, so emit location is unchanged from the C# path.
 int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
     return _exec(new Process(vm)
-        .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg("interp")
+        .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(toml).Arg("--release")
         .Env("Z42_LIBS", libs));
 }
@@ -333,7 +333,7 @@ int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
 // forwarding for `z42 publish`, Decision 3.5).
 int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, string toml, string rid, string outputDir) {
     return _exec(new Process(vm)
-        .Arg(z42bZpkg).Arg("--mode").Arg("interp")
+        .Arg(z42bZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(rid).Arg("--output").Arg(outputDir)
         .Env("Z42_LIBS", libs)
         .Env("Z42_APPHOST_TEMPLATE", apphostStub));

@@ -128,7 +128,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // from `libs` (the same flat dir the test units compile against).
     string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
-    int bcRC = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
+    int bcRC = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
         .Env("Z42_LIBS", libs).WorkingDirectory(root));
     if (bcRC != 0) { return bcRC; }

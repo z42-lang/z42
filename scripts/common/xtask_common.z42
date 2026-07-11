@@ -37,6 +37,30 @@ int _execIn(Process p, string wd) {
         .Run().ExitCode;
 }
 
+// ── z42c 编译执行模式 + workspace 构建收敛（consolidate-z42c-invocations）──────
+
+// z42c 编译走 interp 还是 jit 的单一开关。默认 "interp"（行为保持）。实测 jit 比 interp
+// 快 3.6×（大编译）/1.67×（小编译）、产物 byte-identical（docs/xtask_review.md 附录 A）；
+// 翻默认到 jit 是独立的 B 步（前置：jit-fixpoint-check 全平台绿 + User 拍板）。
+// Z42C_BUILD_MODE=interp|jit 环境覆盖（格式-bump 窗口 / 确定性审计 / 调试的逃生舱）。
+string _z42cMode() {
+    string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE") ?? "";
+    if (m == "interp" || m == "jit") { return m; }
+    return "interp";
+}
+
+// z42c `build --workspace --release` 的单一封装（§2.1）：stdlib / compiler gen1 / gen2
+// 三处 workspace 构建共用，把「gen1、gen2 必须完全同参」的自举不动点不变量从注释纪律
+// 固化成代码（三处仅 driver / cwd / libs 不同，mode 恒同经 _z42cMode()）。
+int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs) {
+    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg("--workspace").Arg("--release")
+        .WorkingDirectory(cwd)
+        .Env("Z42_LIBS", libs)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
 // (_sh removed 2026-06-30: the generic shell-string passthrough is gone — its
 // last caller, `run`, is now a native Process spawn. The few remaining bash
 // invocations elsewhere run SPECIFIC committed .sh scripts (install-z42.sh

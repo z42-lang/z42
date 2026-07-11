@@ -239,7 +239,7 @@ bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, st
     bool ok = false;
     try {
         ProcessResult br = new Process(vmBin)
-            .Arg(driverZpkg).Arg("--mode").Arg("interp")
+            .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg("build").Arg(toml)
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)

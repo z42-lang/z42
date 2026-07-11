@@ -1,23 +1,21 @@
 # Tasks: consolidate-z42c-invocations（+ JIT 编译加速）
 
-> 状态：🟡 DRAFT / 排队中（toolchain 锁被 `fix-bootstrap-format-bump-deadlock` 占用）
-> 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
+> 状态：🟢 A 步已落地并验证（2026-07-12）| B 步待前置 | 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
+> toolchain 锁：A 步在锁释放后（fix-bootstrap-format-bump-deadlock 归档）落地；A 是完整行为保持
+> refactor，B（翻 jit）是未来一行改动、待前置齐再作独立 change 重登记锁。
 
-**开工前**：toolchain 锁释放 → 登记 ACTIVE.md toolchain 行 → 走阶段 6.5 确认（A 可直接；B 需前置齐）。
+## A 步：收敛（默认 interp，纯行为保持）✅ 已落地并验证
 
-## A 步：收敛（默认 interp，纯行为保持）— 锁释放后随时可做
-
-- [ ] A1 `common/xtask_common.z42`：加 `_z42cMode()`（读 `Z42C_BUILD_MODE`，默认 `"interp"`）。
-- [ ] A2 加 `_z42cWorkspaceBuild(vm, driver, cwd, libs)`（内部 `_z42cMode()`；统一 stdout/verbosity）。
-- [ ] A3 3 处 workspace 构建改调 A2：`xtask_stdlib.z42:91` / `xtask_compiler.z42:70`（gen1）/ `:308`（gen2）。
-      核对 gen1/gen2 原本同参（simplify-compiler-build 教训），并入后不变量由代码保证。
-- [ ] A4 其余 14 处裸调用点 `.Arg("--mode").Arg("interp")` → `.Arg("--mode").Arg(_z42cMode())`：
-      compiler(3 处非 workspace) / test_assets / test_lib / test_lib_units(2) / test_cross /
-      test_platform / test_incremental / package_desktop(2) / bench / install_vscode。
-- [ ] A5 **例外**：`xtask_bootstrap_check.z42` 保持 interp（D4，不走 `_z42cMode()`）。
-- [ ] A6 重建 xtask.zpkg 41/41 + `test compiler` 不动点 7/7（默认 interp，逐字节等价当前）+ 全 GREEN gate。
-- [ ] A7 smoke 开关：`Z42C_BUILD_MODE=jit xtask build compiler && xtask test compiler` 不动点仍 7/7。
-- [ ] A8 归档 A。
+- [x] A1 `common/xtask_common.z42`：加 `_z42cMode()`（读 `Z42C_BUILD_MODE`，默认 `"interp"`）。
+- [x] A2 加 `_z42cWorkspaceBuild(vm, driver, cwd, libs)`（内部 `_z42cMode()`；统一 stdout/verbosity）。
+- [x] A3 3 处 workspace 构建改调 A2：stdlib / compiler gen1 / gen2。核对同参，不变量现由代码保证。
+- [x] A4 14 处裸调用点 `.Arg("--mode").Arg("interp")` → `.Arg("--mode").Arg(_z42cMode())`（sed 逐文件）。
+- [x] A5 **例外**：`xtask_bootstrap_check.z42:145` 保持 interp（D4）——已确认仅此 1 处残留 interp。
+- [x] A6 重建 xtask.zpkg 42/42 + **`test compiler` 不动点 7/7 gen1==gen2 逐字节 + 19 units + e2e 全绿**
+      （默认 interp，行为保持验证通过）。
+- [x] A7 smoke：`bench --quick`（走 `_z42cMode()` 默认 interp）exit 0、有序选集 01/02。
+      （`Z42C_BUILD_MODE=jit` 全平台不动点验证归 `jit-fixpoint-check.yml` + B 步。）
+- [x] A8 A 步提交（本 change 保持开放待 B；见下）。
 
 ## B 步：翻默认到 jit — 前置齐后做
 

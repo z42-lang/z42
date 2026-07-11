@@ -66,11 +66,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     _vNormal("  building z42c via z42c (--workspace, C#-free)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
     string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    int rc = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
-        .Arg("build").Arg("--workspace").Arg("--release")
-        .WorkingDirectory(Path.Join(root, "src/compiler"))
-        .Env("Z42_LIBS", stdlibFlat)
-        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    int rc = _z42cWorkspaceBuild(vm, driver, Path.Join(root, "src/compiler"), stdlibFlat);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
     return 0;
@@ -182,7 +178,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
     // resolve from `flat`); incremental/cached when already current.
     string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
-    int bc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
+    int bc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
         .Env("Z42_LIBS", flat).WorkingDirectory(root));
     if (bc != 0) { return bc; }
@@ -208,7 +204,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 // compile (release/packed) with z42c（C#-free）；Z42_LIBS=flat 含 stdlib+z42c.* 兄弟，
                 // z42c.driver 依赖与单元 deps 同从 flat 解析；输出落单元 toml 的 [build] output_dir 镜像。
                 ProcessResult br = new Process(vm)
-                    .Arg(driverZpkg).Arg("--mode").Arg("interp").Arg("--")
+                    .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
                     .Arg("build").Arg(tomls[0]).Arg("--release")
                     .Env("Z42_LIBS", flat)
                     .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
@@ -244,7 +240,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 int j = 0;
                 while (j < zps.Length) {
                     int rc = new Process(vm)
-                        .Arg("--mode").Arg("interp").Arg(builderZpkg)
+                        .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
                         .Arg("--").Arg("test").Arg(zps[j])
                         .Env("Z42_LIBS", flat)
                         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
@@ -301,14 +297,11 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
         i = i + 1;
     }
 
-    // gen2：用 gen1 的自包含 driver 再跑 --workspace（与 _buildCompilerViaZ42c 完全同参）→
-    // 覆盖 canonical dist。
+    // gen2：用 gen1 的自包含 driver 再跑 --workspace → 覆盖 canonical dist。与 gen1
+    // （_buildCompilerViaZ42c）**完全同参**由共用的 _z42cWorkspaceBuild 从结构上保证
+    // （不动点 gen1==gen2 的前提）。
     _ensureDriverSelfContained(root, profile, members);
-    int rc = new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp").Arg("--")
-        .Arg("build").Arg("--workspace").Arg("--release")
-        .WorkingDirectory(Path.Join(root, "src/compiler"))
-        .Env("Z42_LIBS", stdlibFlat)
-        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    int rc = _z42cWorkspaceBuild(vm, driverZpkg, Path.Join(root, "src/compiler"), stdlibFlat);
     if (rc != 0) { Console.WriteLine("  ✗ gen2 --workspace 构建失败"); return 1; }
     _ensureDriverSelfContained(root, profile, members);
 

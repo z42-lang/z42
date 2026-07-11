@@ -50,7 +50,7 @@ int _bench(ParseResult r) {
         string ns = _extractNamespace(File.ReadAllText(src));
         if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
         string zbc = Path.Join(work, name + ".zbc");
-        int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp").Arg("--")
+        int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
             .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", flat));
         if (cc != 0) { return cc; }
         string outJson = Path.Join(work, name + "-bench.json");

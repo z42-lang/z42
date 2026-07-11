@@ -303,7 +303,7 @@ Process _compilePrep(string root, string lib, TestUnit u,
         // single-file compiles — JIT would re-warm the whole z42c closure per
         // unit. Z42_LIBS supplies the stdlib the test references (Assert, the
         // lib under test, …).
-        return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
+        return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg("--emit-zbc").Arg(u.SourceFile).Arg(zbc)
             .Env("Z42_LIBS", libs);
     }
@@ -325,7 +325,7 @@ Process _compilePrep(string root, string lib, TestUnit u,
     // to ${output_dir}/dist; synthetic toml omits dist_dir → shared
     // <testsBase>/dist/, cache_dir overridden to a per-unit subdir).
     outArtifact = Path.Join(distDir, projName + ".zpkg");
-    return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg("interp")
+    return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(syntheticToml)
         .Env("Z42_LIBS", libs);
 }
