@@ -87,6 +87,24 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 2. **忽略 BLID**：zpkg 末尾 16B 是 BLAKE3-128 build-id（内容哈希尾），天然每次不同；比对在 section
    级别做、跳过 BLID，只验代码/元数据段一致。
 
+### z42c 编译执行模式：默认 jit（Z42C_BUILD_MODE 逃生舱）
+
+xtask 驱动 z42c（`z42vm z42c.driver --mode <m>`）编 stdlib / 自建 z42c / golden 的执行模式，
+统一由 `_z42cMode()`（`scripts/common/xtask_common.z42`）给出，**默认 `jit`**：
+
+- **为什么 jit 安全当不动点信任基线**：`jit-fixpoint-check.yml`（手动触发，4 平台
+  linux-x64 / linux-arm64 / windows-x64 / macos-arm64）确认 z42c `--workspace` 编译在
+  **interp 与 jit 下产出的 7 包逐字节一致**（忽略 BLID）。既然 jit 输出 == interp 输出、而 interp
+  输出已是 fixpoint-stable，则 gen1(jit)==gen2(jit) 同样成立——jit 只快不改字节。benchmark：jit
+  编译比 interp 快 **1.67×（小包）~3.6×（大包如 z42.core）**。
+- **逃生舱 `Z42C_BUILD_MODE=interp`**：格式-bump 窗口（新 nightly 未发时用旧 VM 走确定的解释路径）/
+  确定性审计 / 调试 codegen 时，随时 `Z42C_BUILD_MODE=interp xtask ...` 回解释器。`=jit` 亦可显式指定。
+- **例外**：`xtask test bootstrap`（`scripts/build/xtask_bootstrap_check.z42`）恒用 interp——它拿上一
+  nightly 的 z42c 编当前源验"越界"，须走该种子最稳的解释路径，不随本默认变。
+
+> 引入：change `consolidate-z42c-invocations`（§2.1 收敛调用面 → B 步翻默认 jit）；证据链（benchmark +
+> 4 平台字节一致）见 `docs/xtask_review.md` 附录 A。
+
 ### strict-pin：为什么改格式必须 bump 版本 + regen
 
 z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`src/runtime/src/metadata/zbc_reader.rs`）

@@ -1,8 +1,8 @@
 # Tasks: consolidate-z42c-invocations（+ JIT 编译加速）
 
-> 状态：🟢 A 步已落地并验证（2026-07-12）| B 步待前置 | 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
-> toolchain 锁：A 步在锁释放后（fix-bootstrap-format-bump-deadlock 归档）落地；A 是完整行为保持
-> refactor，B（翻 jit）是未来一行改动、待前置齐再作独立 change 重登记锁。
+> 状态：🟢 A+B 均已落地并验证（2026-07-12）| 待 CI 全平台观察后归档 | 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
+> toolchain 锁：A 步在锁释放后（fix-bootstrap-format-bump-deadlock 归档）落地；B 步 2026-07-12
+> 前置全齐后占 toolchain 锁翻默认 jit（一行 + docs）。
 
 ## A 步：收敛（默认 interp，纯行为保持）✅ 已落地并验证
 
@@ -19,15 +19,16 @@
 
 ## B 步：翻默认到 jit — 前置齐后做
 
-- [ ] B0 **前置核对**（全绿才开）：① toolchain 锁在手 ② ✅ `jit-fixpoint-check.yml`
-      **全平台绿**（run 29168922905，2026-07-12：linux-x64 / linux-arm64 / windows-x64 /
-      macos-arm64 四平台 z42c workspace 编译 interp==jit 逐字节一致）③ ⏳ User 拍板前置#2
-      （信任基线从 interp 移到 cranelift/JIT）④ 非格式-bump 周期。
-- [ ] B1 `_z42cMode()` 默认 `"interp"` → `"jit"`（一行）。
-- [ ] B2 全 GREEN gate 在 jit 下绿 + 不动点 7/7；CI 全平台绿几轮观察。
-- [ ] B3 `docs/book/src/dev/build.md` + `xtask.md` 记：z42c 编译默认 jit + `Z42C_BUILD_MODE=interp`
-      逃生舱 + 附录 A 证据链接。
-- [ ] B4 归档 B（含 `docs/xtask_review.md` 附录 A 标「已落地」）。
+- [x] B0 **前置核对**（全绿才开）：① ✅ toolchain 锁在手（fix-bootstrap 归档时释放、明指解锁本 change）
+      ② ✅ `jit-fixpoint-check.yml` **全平台绿**（run 29168922905，2026-07-12：linux-x64 / linux-arm64 /
+      windows-x64 / macos-arm64 四平台 z42c workspace 编译 interp==jit 逐字节一致）③ ✅ User 拍板前置#2
+      （信任基线从 interp 移到 cranelift/JIT）④ ✅ 非格式-bump 周期（runtime 锁空闲、末次 bump 0.31 已归档）。
+- [x] B1 `_z42cMode()` 默认 `"interp"` → `"jit"`（一行 + 说明注释；`scripts/common/xtask_common.z42`）。
+- [x] B2 本地 `test compiler`（jit 默认）不动点 **7/7 gen1==gen2** + 19 units + e2e 全绿。全量 gate-under-jit
+      交 clean CI（共享树含他 session stdlib WIP，本地全量不可靠）——**CI 全平台绿几轮观察后归档**。
+- [x] B3 `docs/book/src/dev/build.md`「z42c 编译执行模式」节记默认 jit + `Z42C_BUILD_MODE=interp` 逃生舱 +
+      附录 A 证据链接（bootstrap-check 恒 interp 例外注明）。
+- [ ] B4 归档 B（`docs/xtask_review.md` 附录 A 已标「已落地」）——**待 B 提交后 CI 全平台绿几轮再归档**。
 
 ## 备注
 - A 与 B 分两个 commit（甚至两次归档）；A 是安全 refactor，B 是需前置的开关翻转。
