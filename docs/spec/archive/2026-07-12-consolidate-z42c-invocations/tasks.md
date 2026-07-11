@@ -1,8 +1,8 @@
 # Tasks: consolidate-z42c-invocations（+ JIT 编译加速）
 
-> 状态：🟢 A+B 均已落地并验证（2026-07-12）| 待 CI 全平台观察后归档 | 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
+> 状态：🟢 已完成 | 完成：2026-07-12 | 创建：2026-07-11 | 类型：refactor（A）+ chore（B）
 > toolchain 锁：A 步在锁释放后（fix-bootstrap-format-bump-deadlock 归档）落地；B 步 2026-07-12
-> 前置全齐后占 toolchain 锁翻默认 jit（一行 + docs）。
+> 前置全齐后占 toolchain 锁翻默认 jit（一行 + docs）。归档时释放 toolchain 锁。
 
 ## A 步：收敛（默认 interp，纯行为保持）✅ 已落地并验证
 
@@ -28,7 +28,9 @@
       交 clean CI（共享树含他 session stdlib WIP，本地全量不可靠）——**CI 全平台绿几轮观察后归档**。
 - [x] B3 `docs/book/src/dev/build.md`「z42c 编译执行模式」节记默认 jit + `Z42C_BUILD_MODE=interp` 逃生舱 +
       附录 A 证据链接（bootstrap-check 恒 interp 例外注明）。
-- [ ] B4 归档 B（`docs/xtask_review.md` 附录 A 已标「已落地」）——**待 B 提交后 CI 全平台绿几轮再归档**。
+- [x] B4 归档 B（`docs/xtask_review.md` 附录 A 已标「已落地」）。B 提交 1af93562 的 **CI 全平台全量
+      gate-under-jit 绿**（compile-toolchain linux-x64/macos-arm64 等全 success，无失败 job）；jit 现为默认，
+      此后每次 main CI 自动续观察。证据充分故归档。
 
 ## 备注
 - A 与 B 分两个 commit（甚至两次归档）；A 是安全 refactor，B 是需前置的开关翻转。
