@@ -2,6 +2,7 @@
 // 1A 字段/方法分属各自 StrMap，无混合集合需求；需要混合查找时再引入 ISymbol 基 + Kind tag）。
 // 存入 StrMap（object 值），调用方 `as` 下行到 MethodSymbol / FieldSymbol。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 

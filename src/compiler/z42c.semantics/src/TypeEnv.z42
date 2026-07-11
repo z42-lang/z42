@@ -3,6 +3,7 @@
 //   避免对刚 new 的同型实例做跨实例字段写（z42 此处报 E0402）；PushScope/WithClass 走构造器。
 // Vars: 本层 locals/params（string → Z42Type，StrMap）。LookupVar 走父链。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 

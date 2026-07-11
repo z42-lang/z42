@@ -2,6 +2,7 @@
 // 两阶段：A 先建类 stub（注册名字，使成员类型可解析兄弟类）→ B 填字段/方法签名 + 顶层 func。
 // 1A 范围：class/struct（字段 + 方法签名，跳 ctor[1D] / property[后续]）+ 顶层 func。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 

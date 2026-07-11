@@ -3,14 +3,14 @@
 // ⚠ 无 Remove（开放寻址线性探测删除需墓碑）——需要"剔除"时重建新表。
 namespace Z42.IR;
 
-public sealed class StrMapIr {
+public sealed class StrMap {
     private string[] _keys;
     private object[] _vals;
     private bool[]   _used;
     private int      _count;
     private int      _cap;
 
-    public StrMapIr() {
+    public StrMap() {
         this._cap = 16;
         this._keys = new string[16];
         this._vals = new object[16];

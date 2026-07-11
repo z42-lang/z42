@@ -2,6 +2,7 @@
 // 含 TypeExpr（语法）→ Z42Type（语义）的桥 ResolveType。1A：NamedType（prim/void/class）；
 // Array/Nullable/泛型实参 → Unknown（延后 1D/2A）。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 

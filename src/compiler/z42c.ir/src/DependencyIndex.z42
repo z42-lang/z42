@@ -15,13 +15,13 @@ public sealed class DepCallEntry {
 }
 
 public sealed class DependencyIndex {
-    public StrMapIr Statics;     // "Cls.Method" → DepCallEntry
-    public StrMapIr Instances;   // "Method$N"/"Method" → DepCallEntry
-    public StrMapIr Ambiguous;   // instance 歧义键（Seal 时剔除）
+    public StrMap Statics;     // "Cls.Method" → DepCallEntry
+    public StrMap Instances;   // "Method$N"/"Method" → DepCallEntry
+    public StrMap Ambiguous;   // instance 歧义键（Seal 时剔除）
     public DependencyIndex() {
-        this.Statics = new StrMapIr();
-        this.Instances = new StrMapIr();
-        this.Ambiguous = new StrMapIr();
+        this.Statics = new StrMap();
+        this.Instances = new StrMap();
+        this.Ambiguous = new StrMap();
     }
 
     // 静态查找：先全键 "Cls.Method"，cls 带 ns 前缀则再试短类名键（镜像 TryGetStatic）。
@@ -94,10 +94,10 @@ public sealed class DependencyIndex {
         this.Instances.Put(key, entry);
     }
 
-    // 终结：剔除歧义 instance 键（镜像 C# ambiguous 集过滤）。StrMapIr 无 Remove → 重建。
+    // 终结：剔除歧义 instance 键（镜像 C# ambiguous 集过滤）。StrMap 无 Remove → 重建。
     public void Seal() {
         if (this.Ambiguous.Count() == 0) { return; }
-        var clean = new StrMapIr();
+        var clean = new StrMap();
         string[] keys = this.Instances.Keys();
         int i = 0;
         while (i < keys.Length) {

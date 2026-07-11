@@ -1,6 +1,7 @@
 // 语义模型（port-z42c-semantics 1A-4b）。类型检查产物：符号表 + 各方法/函数体的 Bound 树。
 // Bodies key：类方法 = "Class.Method"，顶层函数 = 函数名。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 public sealed class SemanticModel {
     public SymbolTable Symbols;

@@ -3,6 +3,7 @@
 // 后续增量：Array/Func/Interface/GenericParam/Instantiated/Option/Enum。
 // Z42ClassType 的 Fields/Methods（StrMap 符号）待 1A-2/1A-3（符号就绪后回填）。
 namespace Z42.Semantics;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 public class Z42Type {
     public virtual string Name() { return "?type"; }

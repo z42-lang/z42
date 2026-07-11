@@ -1,5 +1,6 @@
 // z42c.semantics StrMap 单测（1A-2）：put/get/contains/keys/覆盖更新/重散列（object 值 + as 下行）。
 namespace Z42cSemanticsMapTests;
+using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Std;
 using Std.Test;
