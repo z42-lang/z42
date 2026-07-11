@@ -1,0 +1,27 @@
+namespace Z42.IR;
+
+// Object 四协议方法（ToString/Equals/GetHashCode/GetType）的**导出元数据单源**
+// （compiler-review §4.3）。导出侧两处构造它——ExportedTypeExtractor（从 AST 导出）与
+// TsigReconcile（从 TYPE/SIGS 重建，P3 起）——原各写一份 _m0/_m1，字面同构、drift 风险。
+// 二者都在 z42c.ir 之上（ExportedMethodZ 也在此），故抽到此处单源。
+// 注：SymbolCollector 注入的是 MethodSymbol（符号表侧，不同类型），不走此路。
+public static class ObjectMethods {
+    // 非 struct 类的隐式 Object 四方法（顺序 = ToString/Equals/GetHashCode/GetType）。
+    public static ExportedMethodZ[] Four() {
+        ExportedMethodZ[] m = new ExportedMethodZ[4];
+        m[0] = ObjectMethods._m0("ToString", "string", true);
+        m[1] = ObjectMethods._m1("Equals", "bool", "p0", "object", true);
+        m[2] = ObjectMethods._m0("GetHashCode", "int", true);
+        // GetType ret = "Type"（反射类，prelude 可见；C# Object stub 同）；非 virtual。
+        m[3] = ObjectMethods._m0("GetType", "Type", false);
+        return m;
+    }
+    private static ExportedMethodZ _m0(string name, string ret, bool virt) {
+        return new ExportedMethodZ(name, ret, "public", false, virt, false, 0, new ExportedParamZ[0], 0);
+    }
+    private static ExportedMethodZ _m1(string name, string ret, string pn, string pt, bool virt) {
+        ExportedParamZ[] ps = new ExportedParamZ[1];
+        ps[0] = new ExportedParamZ(pn, pt);
+        return new ExportedMethodZ(name, ret, "public", false, virt, false, 1, ps, 1);
+    }
+}

@@ -138,6 +138,8 @@ z42 无泛型/enum 的约束下 visitor 不好做,但至少可以:
 
 ### 4.3 ExportedTypeExtractor 与 SymbolCollector 重复实现 mangle 规则
 
+> 2026-07-12 部分修：Object-4 导出方法（ToString/Equals/GetHashCode/GetType）从 ExportedTypeExtractor + TsigReconcile 两处抽到 `z42c.ir/ObjectMethods.Four()` 单源。剩余（AST 侧 vs IR-binary 侧的完整 class-extraction 逻辑）跨包不同输入，不可共享——保持独立。
+
 ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 SymbolCollector._passClassStubs 的检测逻辑;类骨架扫描、字段/方法收集、接口处理均有平行实现。两处规则不同步时,**TSIG 导出键与运行期虚派发键会不一致**——这类 bug 只在跨包调用时爆,排查困难。
 
 **建议**:提取共用 ClassMetadata/mangle 规则工具,或让 Extractor 直接消费 SymbolTable,不再自建 classMap。

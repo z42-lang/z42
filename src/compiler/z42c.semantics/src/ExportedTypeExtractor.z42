@@ -385,11 +385,8 @@ public static class ExportedTypeExtractor {
         int mc = 0; int seenc = 0;
         // struct 不从 Object 继承方法（镜像 C# ExcludeFromImplicitObject：struct/record 不注入 Object 四方法）。
         if (!isStruct) {
-            methods[0] = ExportedTypeExtractor._m0("ToString", "string", true);
-            methods[1] = ExportedTypeExtractor._m1("Equals", "bool", "p0", "object", true);
-            methods[2] = ExportedTypeExtractor._m0("GetHashCode", "int", true);
-            // GetType ret：C# Object stub 构建时查 _classes["Type"]（反射类，prelude 可见）→ "Type"（2026-06-10 起）。
-            methods[3] = ExportedTypeExtractor._m0("GetType", "Type", false);
+            ExportedMethodZ[] o4 = ObjectMethods.Four();   // compiler-review §4.3：单源
+            methods[0] = o4[0]; methods[1] = o4[1]; methods[2] = o4[2]; methods[3] = o4[3];
             seenName[0] = "ToString"; seenName[1] = "Equals"; seenName[2] = "GetHashCode"; seenName[3] = "GetType";
             seenAt[0] = 0; seenAt[1] = 1; seenAt[2] = 2; seenAt[3] = 3;
             mc = 4; seenc = 4;
@@ -777,14 +774,6 @@ public static class ExportedTypeExtractor {
 
     // ── 内建面（固定 prelude；序与形态 = C# 同源 1199B 字节实测）─────────────────────
 
-    private static ExportedMethodZ _m0(string name, string ret, bool virt) {
-        return new ExportedMethodZ(name, ret, "public", false, virt, false, 0, new ExportedParamZ[0], 0);
-    }
-    private static ExportedMethodZ _m1(string name, string ret, string pn, string pt, bool virt) {
-        ExportedParamZ[] ps = new ExportedParamZ[1];
-        ps[0] = new ExportedParamZ(pn, pt);
-        return new ExportedMethodZ(name, ret, "public", false, virt, false, 1, ps, 1);
-    }
     // 接口方法：public + virtual + abstract（flags=6），minArg=参数数
     private static ExportedMethodZ _im(string name, string ret, string[] paramTypes, int pc) {
         ExportedParamZ[] ps = new ExportedParamZ[pc];
