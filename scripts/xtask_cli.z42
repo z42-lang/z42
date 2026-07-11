@@ -69,78 +69,79 @@ int _runCli(string[] argvIn) {
 bool _isFlag(string a) { return a.Length >= 1 && a.CharAt(0) == '-'; }
 bool _isHelpFlag(string a) { return a == "-h" || a == "--help"; }
 
-// Strip a global `--toolchain <dir>` (two-token form) from argv and stash <dir>
-// in Z42_HOME (the single "SDK root" var, read by _toolchainDir; simplify-compiler-
-// build folded the former Z42_TOOLCHAIN into Z42_HOME). Last occurrence wins. Returns
-// argv unchanged when absent. Two passes (count survivors, then fill) — no List type.
-string[] _applyToolchainOpt(string[] argv) {
+// Result of stripping a two-token global option from argv (last-wins): the last
+// value seen, whether it appeared with a value, and the surviving argv. Shared by
+// the toolchain / verbosity strippers so the two-pass strip lives in one place.
+class _OptStrip {
+    public string value;
+    public bool seen;
+    public string[] kept;
+
+    public _OptStrip() {
+        this.value = "";
+        this.seen = false;
+        this.kept = new string[0];
+    }
+}
+
+// Strip a global two-token option `<name1>|<name2> <value>` from argv, last-wins
+// (name2 == "" → single-name). Two passes (count survivors, then fill) — no List
+// type. Returns argv itself (unstripped) in `kept` when the option never appeared
+// with a value; caller applies the option-specific side effect (env var, validation).
+_OptStrip _stripTwoTokenOpt(string[] argv, string name1, string name2) {
     int n = argv.Length;
-    string tc = "";
+    _OptStrip r = new _OptStrip();
     int keep = 0;
     int i = 0;
     while (i < n) {
-        if (argv[i] == "--toolchain") {
-            if (i + 1 < n) { tc = argv[i + 1]; i = i + 2; } else { i = i + 1; }
+        if (argv[i] == name1 || (name2.Length > 0 && argv[i] == name2)) {
+            if (i + 1 < n) { r.value = argv[i + 1]; r.seen = true; i = i + 2; } else { i = i + 1; }
             continue;
         }
         keep = keep + 1;
         i = i + 1;
     }
-    if (tc.Length == 0) { return argv; }
-    Environment.SetEnvironmentVariable("Z42_HOME", tc);
-    string[] kept = new string[keep];
+    if (!r.seen) { r.kept = argv; return r; }
+    r.kept = new string[keep];
     int j = 0;
     i = 0;
     while (i < n) {
-        if (argv[i] == "--toolchain") {
+        if (argv[i] == name1 || (name2.Length > 0 && argv[i] == name2)) {
             if (i + 1 < n) { i = i + 2; } else { i = i + 1; }
             continue;
         }
-        kept[j] = argv[i];
+        r.kept[j] = argv[i];
         j = j + 1;
         i = i + 1;
     }
-    return kept;
+    return r;
+}
+
+// Strip a global `--toolchain <dir>` (two-token form) from argv and stash <dir>
+// in Z42_HOME (the single "SDK root" var, read by _toolchainDir; simplify-compiler-
+// build folded the former Z42_TOOLCHAIN into Z42_HOME). Last occurrence wins. Returns
+// argv unchanged when absent or the value is empty.
+string[] _applyToolchainOpt(string[] argv) {
+    _OptStrip r = _stripTwoTokenOpt(argv, "--toolchain", "");
+    if (!r.seen || r.value.Length == 0) { return argv; }
+    Environment.SetEnvironmentVariable("Z42_HOME", r.value);
+    return r.kept;
 }
 
 // Strip a global `--verbosity <level>` / `-v <level>` (two-token form) from argv
 // and stash the canonical level name in Z42_VERBOSITY (read by _verbosity). Last
 // occurrence wins; an invalid level → error + exit(2). Mirrors _applyToolchainOpt.
 string[] _applyVerbosityOpt(string[] argv) {
-    int n = argv.Length;
-    string val = "";
-    bool seen = false;
-    int keep = 0;
-    int i = 0;
-    while (i < n) {
-        if (argv[i] == "--verbosity" || argv[i] == "-v") {
-            if (i + 1 < n) { val = argv[i + 1]; seen = true; i = i + 2; } else { i = i + 1; }
-            continue;
-        }
-        keep = keep + 1;
-        i = i + 1;
-    }
-    if (!seen) { return argv; }
-    int lvl = _normVerbosity(val);
+    _OptStrip r = _stripTwoTokenOpt(argv, "--verbosity", "-v");
+    if (!r.seen) { return argv; }
+    int lvl = _normVerbosity(r.value);
     if (lvl < 0) {
-        ConsoleError.WriteLine("xtask: invalid --verbosity '" + val
+        ConsoleError.WriteLine("xtask: invalid --verbosity '" + r.value
             + "' (use q[uiet] | m[inimal] | n[ormal] | d[etailed] | diag[nostic])");
         Environment.Exit(2);
     }
     Environment.SetEnvironmentVariable("Z42_VERBOSITY", _verbName(lvl));
-    string[] kept = new string[keep];
-    int j = 0;
-    i = 0;
-    while (i < n) {
-        if (argv[i] == "--verbosity" || argv[i] == "-v") {
-            if (i + 1 < n) { i = i + 2; } else { i = i + 1; }
-            continue;
-        }
-        kept[j] = argv[i];
-        j = j + 1;
-        i = i + 1;
-    }
-    return kept;
+    return r.kept;
 }
 
 // ── root tree ────────────────────────────────────────────────────────────────

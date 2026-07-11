@@ -126,7 +126,7 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 | 两套字符串排序 | `xtask_common.z42:82-101`（`_sortedStrings` 选择排序）vs `xtask_golden.z42:39-51`（`_sortStrings` 插入排序） | 保留一个，另一个改 3 行包装 |
 | 四个 zpkg 拷贝变体 | cross:261-288、package:243-254、platform:163-174 vs 现成 `_copyAll` | ✅ cross 的 `_copyZpkgs`/`_copyStdlibZpkgs` 已收敛为 `_copyAll` 薄包装（错误处理逐字一致，编译 42/42 + cross-zpkg 4/4 验证）。剩 `_stageCopyExt`（stdlib，用 `_copyIfExists` 语义需单独核）+ package/platform 变体待做 |
 | 两份 `_splitLines` + JUnit writer | `xtask_test_ios.z42:115-153` vs `xtask_test_desktop.z42:94-136` | 骨架上浮 `xtask_test_platform.z42`，backend 只做行解析 |
-| `_applyToolchainOpt`/`_applyVerbosityOpt` 70 行孪生 | `xtask_cli.z42:76-104` vs `:109-144` | 抽共享 strip-opt helper，约 -35 行 |
+| `_applyToolchainOpt`/`_applyVerbosityOpt` 70 行孪生 | `xtask_cli.z42:76-104` vs `:109-144` | ✅ 抽 `_stripTwoTokenOpt` + `_OptStrip` 结果类（L1 无 lambda，用小类返多值，仿 `_MapResult`）；两 pass strip 归一处，两函数改薄。编译 42/42 + verbosity/toolchain 剥离 smoke 验证 |
 | 两套 TempDir API 混用 + temp 泄漏 | cross:204（`File.CreateTempDir` 从不删除）、dist:61 | driver-home 改固定 `artifacts/.scratch/` 路径 |
 | 成员 zpkg verify 循环两份 + verbosity 矛盾 | stdlib:101-121（`_vDetailed`）vs compiler:113-132（无条件打印） | 抽 `_verifyMemberZpkgs`，输出统一门控 |
 | `_ensureSeed` 双重解析 SDK | common:317-318 | 解析一次传入 |
