@@ -1,19 +1,17 @@
 {
   "header": {
     "major": 0,
-    "minor": 30,
+    "minor": 31,
     "flags": [],
-    "section_count": 9
+    "section_count": 7
   },
   "sections": [
     "META",
     "STRS",
     "NSPC",
-    "EXPT",
     "DEPS",
     "SIGS",
     "FILE",
-    "TSIG",
     "IMPL"
   ],
   "package": {
@@ -26,7 +24,7 @@
   "is_sym_only": false,
   "has_blid": false,
   "has_mdbg": false,
-  "has_tsig": true,
+  "has_tsig": false,
   "has_impl": true,
   "has_sigs": true,
   "has_mods": false,

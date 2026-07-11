@@ -400,13 +400,16 @@ my-app/
 
 ---
 
-## TSIG 对账重建（unify-type-metadata P2，2026-07-11）
+## 跨包类型签名：从 TYPE/SIGS/IMPL 重建（unify-type-metadata P2→P3，2026-07-11）
 
 > 背景：zpkg 曾并存两份类型元数据——**运行时段**（`TYPE` ClassDesc + `SIGS` FuncSig，VM 执行 +
 > 反射读）与**编译期段**（`TSIG` ExportedModuleZ + `IMPL`，z42c 跨包解析读）。unify-type-metadata
 > P1 把 TSIG 独有的字段（可见性 / virtual·abstract / min_arg / 参数名·默认值 / enum 值 / delegate /
-> impl）全部补进 TYPE/SIGS/IMPL。**P2 是删 TSIG（P3）前的安全网**：证明 ExportedModuleZ 能从
-> TYPE/SIGS/IMPL **无损重建**。
+> impl）全部补进 TYPE/SIGS/IMPL。**P2** 建 `TsigReconcile.Rebuild`（从 TYPE/SIGS/IMPL 重建
+> ExportedModuleZ）+ 对账器与 TSIG oracle 逐字段验证 29 包 0-DIFF（安全网）。**P3（已落地
+> 2026-07-11，zpkg 0.31）删 TSIG + EXPT 两段**：`DepScan` 跨包解析改走 `Rebuild`，`Rebuild` 是
+> 跨包类型签名的**唯一来源**；对账器 + verb + `ReadTsig` 随 TSIG 一并移除。**每 zpkg ~半：
+> z42.core 193KB→92KB。**
 
 **机制**（`z42c.project/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`）：
 
@@ -445,8 +448,9 @@ rebuilt）是「无信息丢失」安全网的**正确判据**：rebuilt 多出�
 桩返回/参数类型原硬编码 `"object"` → 改真实声明类型；property/indexer/隐式 ctor 合成点补逻辑
 `MinArg`；auto-prop 后备字段可见性 public → private。
 
-**验证**：全 29 包（22 stdlib + 7 z42c）`reconcile-tsig` 全 OK。CI gate 布线待 toolchain 锁释放
-（follow-up）；P3 全面切换后整个 GREEN gate 天然覆盖重建路径。
+**验证**：P2 期全 29 包 `reconcile-tsig` 全 OK；P3 切换后 `Rebuild` 是编译热路径，每次跨包编译都
+经它，自举不动点 + GREEN 天然覆盖。**IMPL 段保留**（跨包 impl Trait for Type 关联，`Rebuild`
+经 `ReadImplInto` 读进 `Impls`——跨包 impl 方法传播/反射靠它）。
 
 ---
 

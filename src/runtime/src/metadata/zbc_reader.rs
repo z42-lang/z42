@@ -156,7 +156,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // (SIGS +method_flags:u8). Outer zpkg layout unchanged.
 // 2026-07-10 add-param-metadata: bumped to 0.29, coupled inner zbc 1.25.
 // 2026-07-11 add-delegate-metadata: bumped to 0.30, coupled inner zbc 1.26.
-pub const ZPKG_VERSION_MINOR: u16 = 30;
+// 2026-07-11 drop-tsig-expt (unify P3): bumped to 0.31 - zpkg top-level EXPT + TSIG sections
+// removed (EXPT write-only; TSIG superseded by TsigReconcile.Rebuild from TYPE/SIGS). IMPL kept.
+pub const ZPKG_VERSION_MINOR: u16 = 31;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

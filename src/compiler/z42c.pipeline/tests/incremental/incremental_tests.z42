@@ -271,7 +271,8 @@ void test_indexed_main_roundtrip() {
     Assert.Equal(1, sigs.Length);
     Assert.Equal("T", sigs[0].Namespace);
     Assert.Equal(cm.Module.FuncCount, sigs[0].FuncCount);
-    ExportedModuleZ[] ts = ZpkgReader.ReadTsig(zi);
-    Assert.Equal(1, ts.Length);
-    Assert.Equal("T", ts[0].Namespace);
+    // drop-tsig-expt（unify P3）：TSIG + EXPT 段已删（跨包解析改走 TsigReconcile.Rebuild
+    // 从 TYPE/SIGS/IMPL 重建）。indexed 主文件不再含这两段；IMPL 保留（本例无 impl → 无 IMPL）。
+    Assert.False(zi.HasSection("TSIG"));
+    Assert.False(zi.HasSection("EXPT"));
 }

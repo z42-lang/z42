@@ -70,6 +70,22 @@ public static class DepScan {
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }
+        // drop-tsig-expt（unify P3）：先预开全部 dep zpkg → world，供 TsigReconcile.Rebuild 解析
+        // 跨包 base 链（imported 祖先字段/方法从 dep 包 TYPE/SIGS 取，替代已删的 TSIG 段）。
+        ZpkgInfo[] world = new ZpkgInfo[paths.Length];
+        string[] worldDirs = new string[paths.Length];
+        int worldCount = 0;
+        int wpi = 0;
+        while (wpi < paths.Length) {
+            ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]));
+            if (wz != null && !wz.IsExe) {
+                world[worldCount] = wz; worldDirs[worldCount] = Path.GetDirectoryName(paths[wpi]);
+                worldCount = worldCount + 1;
+            }
+            wpi = wpi + 1;
+        }
+        // drop-tsig-expt P3：world 解析一次，跨全部 Rebuild 复用（避免 O(deps×world) 次包重解析）。
+        ReconWorldPkg[] wp = TsigReconcile.BuildWorld(world, worldDirs, worldCount);
         int pi = 0;
         while (pi < paths.Length) {
             ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(paths[pi]));
@@ -106,8 +122,8 @@ public static class DepScan {
                             i = i + 1;
                         }
                     }
-                    // TSIG 模块池
-                    ExportedModuleZ[] tsig = ZpkgReader.ReadTsig(z);
+                    // drop-tsig-expt（unify P3）：从 TYPE/SIGS/IMPL 重建（替代已删 TSIG 段）。
+                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), wp, worldCount);
                     i = 0;
                     while (i < tsig.Length) {
                         if (exportedCount == exported.Length) {

@@ -32,41 +32,6 @@ void Main() {
     }
     string cmd  = argv[0];
     string file = argv[1];
-    if (cmd == "reconcile-tsig") {
-        // unify-type-metadata P2：对每个 zpkg 从 TYPE/SIGS 重建 ExportedModuleZ 与 TSIG（oracle）
-        // 对账。全 OK → exit 0；任一差异打印明细 exit 1（P3 删 TSIG 前的安全网）。
-        int rfail = 0;
-        // 先开全 world（跨包 base 链解析：imported 祖先的字段/方法要从 dep 包 TYPE/SIGS 取）。
-        ZpkgInfo[] rworld = new ZpkgInfo[argv.Length];
-        int rwc = 0;
-        int rwi = 1;
-        while (rwi < argv.Length) {
-            byte[] wdata = File.ReadAllBytes(argv[rwi]);
-            ZpkgInfo wz = ZpkgReader.Open(wdata);
-            if (wz != null) { rworld[rwc] = wz; rwc = rwc + 1; }
-            rwi = rwi + 1;
-        }
-        int rai = 1;
-        while (rai < argv.Length) {
-            byte[] rdata = File.ReadAllBytes(argv[rai]);
-            ZpkgInfo rz = ZpkgReader.Open(rdata);
-            if (rz == null) {
-                Console.WriteLine("SKIP (unreadable): " + argv[rai]);
-            } else {
-                string[] rdiffs = TsigReconcile.Reconcile(rz, rworld, rwc);
-                if (rdiffs.Length == 0) { Console.WriteLine("OK:   " + rz.Name); }
-                else {
-                    Console.WriteLine("DIFF: " + rz.Name + " (" + rdiffs.Length.ToString() + ")");
-                    int rdi = 0;
-                    while (rdi < rdiffs.Length && rdi < 20) { Console.WriteLine("  " + rdiffs[rdi]); rdi = rdi + 1; }
-                    rfail = rfail + 1;
-                }
-            }
-            rai = rai + 1;
-        }
-        if (rfail > 0) { Environment.Exit(1); }
-        return;
-    }
     if (cmd == "build") {
         bool isRelease = false;
         bool isWorkspace = false;

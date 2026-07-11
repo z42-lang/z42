@@ -122,7 +122,7 @@ fn zbc_version_constants_pinned() {
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 30, "zpkg minor at 0.30 (add-delegate-metadata, coupled inner zbc 1.26)");
+    assert_eq!(ZPKG_VERSION_MINOR, 31, "zpkg minor at 0.31 (drop-tsig-expt: EXPT+TSIG sections removed)");
 }
 
 #[test]

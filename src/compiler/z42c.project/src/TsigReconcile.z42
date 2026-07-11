@@ -1,9 +1,9 @@
-// TSIG 对账重建（reconcile-tsig-from-runtime-sections / unify-type-metadata P2）。
-// 从 TYPE/SIGS/IMPL（运行时段）重建 ExportedModuleZ，与 ReadTsig（oracle）逐字段对账。
-// 目标 = ReadTsig 的**消费面**（classes/enums/funcs/impls；interfaces/delegates oracle 即空）。
-// 归一化镜像 ExportedTypeExtractor：FQ→裸名、Object 四方法注入（非 struct）、base 链
-// topmost-first 合并（override 保留祖先位）、参数名 "p{i}"、可见性 u8→串。
-// 收敛方法论：v1 尽力镜像 → verb 对 29 包实测 → 差异逐项修（design Open Question）。
+// 从 TYPE/SIGS/IMPL 重建 ExportedModuleZ（unify-type-metadata P2 建、P3 转正）。
+// P3 删 TSIG 后，这是 z42c 跨包类型签名的**唯一来源**（DepScan 消费）——取代已删的 TSIG 段。
+// 重建口径镜像 ExportedTypeExtractor（TSIG 的原生产端）：类 FQ→裸名（剥 arity-mangle）、
+// Object 四方法注入（非 struct）、base 链 topmost-first 合并（override 保留祖先位）、参数名
+// "p{i}"、可见性 u8→串、enum 恒=内建 GCHandleType、自由函数=全包 SIGS、IMPL 段→Impls。
+// （P2 期另有对账器 Compare 与 TSIG oracle 逐字段验证 29 包 0-DIFF，P3 删 TSIG 后随之移除。）
 namespace Z42.Project;
 
 using Std;
@@ -18,25 +18,23 @@ public sealed class ReconWorldPkg {
 
 public static class TsigReconcile {
 
-    // 对账一个 zpkg：返回差异描述（空数组 = OK）。world = 同时打开的全部包
-    // （跨包 base 链解析：imported 祖先的字段/方法在 oracle TSIG 里被展平——
-    // ImportedSymbolLoader 从 dep TSIG 灌 OwnField*/OwnMethod*，重建须同源跨包）。
-    public static string[] Reconcile(ZpkgInfo z, ZpkgInfo[] world, int wc) {
-        ExportedModuleZ[] oracle = ZpkgReader.ReadTsig(z);
-        ExportedModuleZ[] rebuilt = TsigReconcile.Rebuild(z, world, wc);
-        return TsigReconcile._compare(oracle, rebuilt);
-    }
-
     // ── 重建 ────────────────────────────────────────────────────────────────
-    public static ExportedModuleZ[] Rebuild(ZpkgInfo z, ZpkgInfo[] world, int wc) {
-        // world 类型/签名表（跨包 base 链；调用方保证 world 含 z）
+    // world 类型/签名表**一次性**解析（drop-tsig-expt P3：跨包 base 链复用——每次 Rebuild 重解析
+    // 全 world 会 O(deps×world) 次包解析、海量分配拖垮 GC）。调用方（DepScan）建一次，跨全部
+    // Rebuild 复用。worldDirs[wi] 供 indexed 散装 zbc 定位。
+    public static ReconWorldPkg[] BuildWorld(ZpkgInfo[] world, string[] worldDirs, int wc) {
         ReconWorldPkg[] wp = new ReconWorldPkg[wc];
         int wi = 0;
         while (wi < wc) {
-            wp[wi] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(world[wi]), ZpkgReader.ReadModuleSigs(world[wi]));
+            wp[wi] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(world[wi], worldDirs[wi]), ZpkgReader.ReadModuleSigs(world[wi]));
             wi = wi + 1;
         }
-        ZpkgModuleTypes[] types = ZpkgReader.ReadModuleTypes(z);
+        return wp;
+    }
+
+    // 从 TYPE/SIGS/IMPL 重建 z 的 ExportedModuleZ[]（wp = 预建 world，见 BuildWorld）。
+    public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, ReconWorldPkg[] wp, int wc) {
+        ZpkgModuleTypes[] types = ZpkgReader.ReadModuleTypes(z, zDir);
         ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(z);
         int n = types.Length;
         if (sigs.Length < n) { n = sigs.Length; }
@@ -69,6 +67,9 @@ public static class TsigReconcile {
             r[mi] = TsigReconcile._rebuildModule(types[mi], sigs[mi], wp, wc, pkgFuncs, afc);
             mi = mi + 1;
         }
+        // drop-tsig-expt（P3）：IMPL 段（跨包 impl Trait for Type）仍写——读进 Impls
+        // （取代 ReadTsig 的 _readImpl；DepScan 消费侧靠它做跨包 impl 传播）。
+        ZpkgReader.ReadImplInto(z, r, n);
         return r;
     }
 
@@ -261,123 +262,6 @@ public static class TsigReconcile {
         return ps;
     }
 
-    // ── 对账 ────────────────────────────────────────────────────────────────
-    // 测试入口：直接对比两组 ExportedModuleZ（oracle vs rebuilt），复用生产归一化逻辑。
-    public static string[] Compare(ExportedModuleZ[] oracle, ExportedModuleZ[] rebuilt) {
-        return TsigReconcile._compare(oracle, rebuilt);
-    }
-    private static string[] _compare(ExportedModuleZ[] a, ExportedModuleZ[] b) {
-        string[] diffs = new string[8]; int dc = 0;
-        if (a.Length != b.Length) { return TsigReconcile._push1(diffs, dc, "modCount " + a.Length.ToString() + " != " + b.Length.ToString()); }
-        int mi = 0;
-        while (mi < a.Length) {
-            ExportedModuleZ x = a[mi]; ExportedModuleZ y = b[mi];
-            string p = "[" + x.Namespace + "] ";
-            if (x.Namespace != y.Namespace) { diffs = TsigReconcile._push(diffs, dc, p + "ns != " + y.Namespace); dc = dc + 1; }
-            if (x.ClassCount != y.ClassCount) { diffs = TsigReconcile._push(diffs, dc, p + "classCount " + x.ClassCount.ToString() + " != " + y.ClassCount.ToString()); dc = dc + 1; }
-            else {
-                int ci = 0;
-                while (ci < x.ClassCount) {
-                    diffs = TsigReconcile._cmpClass(diffs, dc, p, x.Classes[ci], y.Classes[ci]);
-                    dc = TsigReconcile._count(diffs, dc);
-                    ci = ci + 1;
-                }
-            }
-            if (x.EnumCount != y.EnumCount) { diffs = TsigReconcile._push(diffs, dc, p + "enumCount " + x.EnumCount.ToString() + " != " + y.EnumCount.ToString()); dc = dc + 1; }
-            else {
-                int ei = 0;
-                while (ei < x.EnumCount) {
-                    ExportedEnumZ ex = x.Enums[ei]; ExportedEnumZ ey = y.Enums[ei];
-                    if (ex.Name != ey.Name || ex.MemberCount != ey.MemberCount) { diffs = TsigReconcile._push(diffs, dc, p + "enum " + ex.Name + " != " + ey.Name); dc = dc + 1; }
-                    else {
-                        int mj = 0;
-                        while (mj < ex.MemberCount) {
-                            if (ex.Members[mj].Name != ey.Members[mj].Name || ex.Members[mj].Value != ey.Members[mj].Value) { diffs = TsigReconcile._push(diffs, dc, p + "enum " + ex.Name + " member " + ex.Members[mj].Name); dc = dc + 1; }
-                            mj = mj + 1;
-                        }
-                    }
-                    ei = ei + 1;
-                }
-            }
-            if (x.FunctionCount != y.FunctionCount) { diffs = TsigReconcile._push(diffs, dc, p + "funcCount " + x.FunctionCount.ToString() + " != " + y.FunctionCount.ToString()); dc = dc + 1; }
-            else {
-                int fi = 0;
-                while (fi < x.FunctionCount) {
-                    diffs = TsigReconcile._cmpFunc(diffs, dc, p, x.Functions[fi], y.Functions[fi]);
-                    dc = TsigReconcile._count(diffs, dc);
-                    fi = fi + 1;
-                }
-            }
-            mi = mi + 1;
-        }
-        string[] r = new string[dc];
-        int i2 = 0;
-        while (i2 < dc) { r[i2] = diffs[i2]; i2 = i2 + 1; }
-        return r;
-    }
-
-    private static string[] _cmpClass(string[] diffs, int dc, string p, ExportedClassZ x, ExportedClassZ y) {
-        string cp = p + "class " + x.Name + ": ";
-        if (x.Name != y.Name) { return TsigReconcile._push(diffs, dc, p + "class name " + x.Name + " != " + y.Name); }
-        if (x.HasBase != y.HasBase || x.BaseName != y.BaseName) { return TsigReconcile._push(diffs, dc, cp + "base " + x.BaseName + "/" + x.HasBase.ToString() + " != " + y.BaseName + "/" + y.HasBase.ToString()); }
-        if (x.TpCount != y.TpCount) { return TsigReconcile._push(diffs, dc, cp + "tpCount " + x.TpCount.ToString() + " != " + y.TpCount.ToString()); }
-        if (x.FieldCount != y.FieldCount) { return TsigReconcile._push(diffs, dc, cp + "fieldCount " + x.FieldCount.ToString() + " != " + y.FieldCount.ToString()); }
-        int fi = 0;
-        while (fi < x.FieldCount) {
-            ExportedFieldZ fx = x.Fields[fi]; ExportedFieldZ fy = y.Fields[fi];
-            if (fx.Name != fy.Name || !TsigReconcile._tyEq(fx.TypeName, fy.TypeName) || !TsigReconcile._visEq(fx.Visibility, fy.Visibility) || fx.IsStatic != fy.IsStatic) {
-                return TsigReconcile._push(diffs, dc, cp + "field[" + fi.ToString() + "] " + fx.Name + ":" + fx.TypeName + ":" + fx.Visibility + ":" + fx.IsStatic.ToString()
-                    + " != " + fy.Name + ":" + fy.TypeName + ":" + fy.Visibility + ":" + fy.IsStatic.ToString());
-            }
-            fi = fi + 1;
-        }
-        // 子集语义（P2 安全网正判据）：oracle 每个方法须在 rebuilt 找到同名且逐字段相等的对应
-        // ——证明「TSIG 消费方所见无一丢失」。rebuilt 多出的方法（如属性 private set——TSIG 漏报、
-        // SIGS 齐全）是**信息增益**非重建 bug，不判失败（P3 删 TSIG 反而更全）。
-        int mi = 0;
-        while (mi < x.MethodCount) {
-            ExportedMethodZ mx = x.Methods[mi];
-            int found = 0 - 1;
-            int yj = 0;
-            while (yj < y.MethodCount) {
-                ExportedMethodZ cand = y.Methods[yj];
-                if (cand.Name == mx.Name && cand.IsStatic == mx.IsStatic && cand.ParamCount == mx.ParamCount) { found = yj; yj = y.MethodCount; }
-                else { yj = yj + 1; }
-            }
-            if (found < 0) { return TsigReconcile._push(diffs, dc, cp + "method " + mx.Name + " missing in rebuilt"); }
-            ExportedMethodZ my = y.Methods[found];
-            if (!TsigReconcile._tyEq(mx.ReturnType, my.ReturnType) || !TsigReconcile._visEq(mx.Visibility, my.Visibility)
-                || mx.IsStatic != my.IsStatic || mx.IsVirtual != my.IsVirtual || mx.IsAbstract != my.IsAbstract
-                || mx.MinArgCount != my.MinArgCount || mx.ParamCount != my.ParamCount || mx.ParamsFrom != my.ParamsFrom) {
-                return TsigReconcile._push(diffs, dc, cp + "method " + TsigReconcile._mSig(mx) + " != " + TsigReconcile._mSig(my));
-            }
-            int pi = 0;
-            while (pi < mx.ParamCount) {
-                if (mx.Params[pi].Name != my.Params[pi].Name || !TsigReconcile._tyEq(mx.Params[pi].TypeName, my.Params[pi].TypeName)) {
-                    return TsigReconcile._push(diffs, dc, cp + "method " + mx.Name + " param[" + pi.ToString() + "] " + mx.Params[pi].Name + ":" + mx.Params[pi].TypeName + " != " + my.Params[pi].Name + ":" + my.Params[pi].TypeName);
-                }
-                pi = pi + 1;
-            }
-            mi = mi + 1;
-        }
-        return diffs;
-    }
-
-    private static string[] _cmpFunc(string[] diffs, int dc, string p, ExportedFuncZ x, ExportedFuncZ y) {
-        if (x.Name != y.Name || !TsigReconcile._tyEq(x.ReturnType, y.ReturnType) || x.MinArgCount != y.MinArgCount
-            || x.ParamCount != y.ParamCount || x.ParamsFrom != y.ParamsFrom) {
-            return TsigReconcile._push(diffs, dc, p + "func " + x.Name + " != " + y.Name + " (" + x.ReturnType + "/" + y.ReturnType + " " + x.ParamCount.ToString() + "/" + y.ParamCount.ToString() + ")");
-        }
-        int pi = 0;
-        while (pi < x.ParamCount) {
-            if (x.Params[pi].Name != y.Params[pi].Name || !TsigReconcile._tyEq(x.Params[pi].TypeName, y.Params[pi].TypeName)) {
-                return TsigReconcile._push(diffs, dc, p + "func " + x.Name + " param[" + pi.ToString() + "] " + x.Params[pi].Name + ":" + x.Params[pi].TypeName + " != " + y.Params[pi].Name + ":" + y.Params[pi].TypeName);
-            }
-            pi = pi + 1;
-        }
-        return diffs;
-    }
-
     // ── 助手 ────────────────────────────────────────────────────────────────
     // ns 前缀剥离（不动 $N；用于 free-func "." 检测——method 名 <Class$N>.<m> 须保 "." 判别）。
     private static string _stripNs(string fq, string ns) {
@@ -401,54 +285,6 @@ public static class TsigReconcile {
         while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(i + 1); } i = i - 1; }
         return fq;
     }
-    // 对账归一化①：TSIG "internal"（SymbolCollector 无修饰默认）与 TYPE/SIGS u8 的 0=public
-    // 同价——无任何消费方按 internal 门禁（TypeChecker/ImportedSymbolLoader 均不读），P3 收拢为 public。
-    private static bool _visEq(string a, string b) {
-        string ca = a; if (ca == "internal") { ca = "public"; }
-        string cb = b; if (cb == "internal") { cb = "public"; }
-        return ca == cb;
-    }
-    // 对账归一化②：TSIG 方法面用**解析名**（u8[]/str），SIGS 用**源拼写**（byte[]/string）——
-    // 同一类型双拼写归一后比较（镜像 Tag.FromName 别名表 + VM canonical_type_name）。
-    private static bool _tyEq(string a, string b) {
-        string ca = TsigReconcile._canonType(a);
-        string cb = TsigReconcile._canonType(b);
-        if (ca == cb) { return true; }
-        // 剥同深度尾部 []（数组元素同规则比较）。
-        while (ca.EndsWith("[]") && cb.EndsWith("[]")) { ca = ca.Substring(0, ca.Length - 2); cb = cb.Substring(0, cb.Length - 2); }
-        if (ca == cb) { return true; }
-        // TYPE 段对**点缀无参类型名**（Std.Type 等）写 "unknown"（_typeSourceName 镜像 C# fallback）；
-        // TSIG 解析为短名（Type）。二者对消费方等价（同 ref、同 Null 默认）——unknown ≈ 任一非基本类型。
-        if ((ca == "unknown" && !TsigReconcile._isPrim(cb)) || (cb == "unknown" && !TsigReconcile._isPrim(ca))) { return true; }
-        return false;
-    }
-    private static bool _isPrim(string t) {
-        return t == "u8" || t == "i8" || t == "i16" || t == "u16" || t == "i32" || t == "u32"
-            || t == "i64" || t == "u64" || t == "f32" || t == "f64" || t == "str" || t == "bool" || t == "char" || t == "void";
-    }
-    private static string _canonType(string t) {
-        if (t.EndsWith("[]")) { return TsigReconcile._canonType(t.Substring(0, t.Length - 2)) + "[]"; }
-        if (t.EndsWith("?")) { return TsigReconcile._canonType(t.Substring(0, t.Length - 1)); }   // nullable 擦除（oracle/SIGS 拼写不一）
-        int lt = t.IndexOf("<");
-        if (lt > 0) { return TsigReconcile._canonType(t.Substring(0, lt)); }   // 泛型实参擦除（oracle 解析名丢 args）
-        if (t == "byte") { return "u8"; }
-        if (t == "sbyte") { return "i8"; }
-        if (t == "short") { return "i16"; }
-        if (t == "ushort") { return "u16"; }
-        if (t == "int") { return "i32"; }
-        if (t == "uint") { return "u32"; }
-        if (t == "long") { return "i64"; }
-        if (t == "ulong") { return "u64"; }
-        if (t == "float") { return "f32"; }
-        if (t == "double") { return "f64"; }
-        if (t == "string") { return "str"; }
-        if (t == "Predicate") { return "Func"; }   // oracle 解析名：Predicate<T> = Func<T,bool>
-        // 类名：取短名（TSIG 用短名 "Type"，SIGS 源拼写可能 FQ "Std.Type"）。
-        int dot = t.Length - 1;
-        while (dot >= 0) { if ((int)t.CharAt(dot) == 46) { return t.Substring(dot + 1); } dot = dot - 1; }
-        return t;
-    }
-
     private static string _visStr(int v) {
         if (v == 1) { return "private"; }
         if (v == 2) { return "protected"; }
@@ -499,34 +335,5 @@ public static class TsigReconcile {
         ExportedMethodZ[] r = new ExportedMethodZ[n];
         int i = 0; while (i < n) { r[i] = a[i]; i = i + 1; }
         return r;
-    }
-    private static string[] _push(string[] arr, int n, string s) {
-        if (n == arr.Length) {
-            string[] b = new string[arr.Length * 2];
-            int i = 0; while (i < n) { b[i] = arr[i]; i = i + 1; }
-            arr = b;
-        }
-        arr[n] = s;
-        return arr;
-    }
-    private static string[] _push1(string[] arr, int n, string s) {
-        arr = TsigReconcile._push(arr, n, s);
-        string[] r = new string[n + 1];
-        int i = 0; while (i <= n) { r[i] = arr[i]; i = i + 1; }
-        return r;
-    }
-    private static int _count(string[] arr, int prev) {
-        // _cmpClass/_cmpFunc 每次最多 push 一条；探测 prev 位是否被填。
-        if (prev < arr.Length && arr[prev] != null && arr[prev] != "") { return prev + 1; }
-        return prev;
-    }
-    private static string _names(ExportedMethodZ[] ms, int n) {
-        string s = "";
-        int i = 0;
-        while (i < n) { if (i > 0) { s = s + ","; } s = s + ms[i].Name; i = i + 1; }
-        return s;
-    }
-    private static string _mSig(ExportedMethodZ m) {
-        return m.Name + "/" + m.ReturnType + "/" + m.Visibility + "/s" + m.IsStatic.ToString() + "/v" + m.IsVirtual.ToString() + "/a" + m.IsAbstract.ToString() + "/min" + m.MinArgCount.ToString() + "/pc" + m.ParamCount.ToString() + "/pf" + m.ParamsFrom.ToString();
     }
 }

@@ -19,11 +19,9 @@ public static class ZpkgIndexedWriter {
     // 语义）用途不同，故显式传入。
     public static ByteWriter WriteIndexedMain(ZpkgFileZ zpkg, string[] zbcHashes, string[] srcRels) {
         var pool = new ZbcStringPool();
-        // intern 序与 packed _buildSectionList 一致：namespaces → exports → deps → TSIG
+        // intern 序与 packed _buildSectionList 一致：namespaces → deps → IMPL（drop-tsig-expt P3：删 EXPT/TSIG）
         int i = 0;
         while (i < zpkg.NsCount) { pool.Intern(zpkg.Namespaces[i]); i = i + 1; }
-        i = 0;
-        while (i < zpkg.ExportCount) { pool.Intern(zpkg.Exports[i].Symbol); i = i + 1; }
         i = 0;
         while (i < zpkg.DepCount) {
             pool.Intern(zpkg.Deps[i].File);
@@ -32,7 +30,7 @@ public static class ZpkgIndexedWriter {
             i = i + 1;
         }
         i = 0;
-        while (i < zpkg.ExportedCount) { ZpkgWriterZ._internTsig(pool, zpkg.Exported[i]); i = i + 1; }
+        while (i < zpkg.ExportedCount) { ZpkgWriterZ._internImplStrings(pool, zpkg.Exported[i]); i = i + 1; }
         // SIGS 串（packed 靠 InternPoolStrings 顺带入池；indexed 无 MODS 体 → 显式入池）
         ZpkgIndexedWriter._internSigStrings(zpkg, pool);
         // FILE 串（镜像 MODS 头序 ns → src → hash，再 zbc 内容 hash）
@@ -46,28 +44,26 @@ public static class ZpkgIndexedWriter {
             mi = mi + 1;
         }
 
+        // drop-tsig-expt（P3）：删 EXPT + TSIG（IMPL 保留）。
         var meta = ZpkgWriterZ._buildMeta(zpkg);
         var strs = ZbcWriter.BuildStrs(pool);
         var nspc = ZpkgWriterZ._buildNspc(zpkg, pool);
-        var expt = ZpkgWriterZ._buildExpt(zpkg, pool);
         var deps = ZpkgWriterZ._buildDeps(zpkg, pool);
         var sigs = ZpkgWriterZ._buildSigs(zpkg, pool);
         var file = ZpkgIndexedWriter._buildFile(zpkg, pool, zbcHashes, srcRels);
 
-        int secCount = 7;
-        if (zpkg.ExportedCount > 0) { secCount = 9; }
+        int secCount = 6;
+        if (zpkg.ExportedCount > 0) { secCount = 7; }
         string[]     tags  = new string[secCount];
         ByteWriter[] datas = new ByteWriter[secCount];
         tags[0] = "META"; datas[0] = meta;
         tags[1] = "STRS"; datas[1] = strs;
         tags[2] = "NSPC"; datas[2] = nspc;
-        tags[3] = "EXPT"; datas[3] = expt;
-        tags[4] = "DEPS"; datas[4] = deps;
-        tags[5] = "SIGS"; datas[5] = sigs;
-        tags[6] = "FILE"; datas[6] = file;
-        if (secCount == 9) {
-            tags[7] = "TSIG"; datas[7] = ZpkgWriterZ._buildTsig(zpkg, pool);
-            tags[8] = "IMPL"; datas[8] = ZpkgWriterZ._buildImpl(zpkg, pool);
+        tags[3] = "DEPS"; datas[3] = deps;
+        tags[4] = "SIGS"; datas[4] = sigs;
+        tags[5] = "FILE"; datas[5] = file;
+        if (secCount == 7) {
+            tags[6] = "IMPL"; datas[6] = ZpkgWriterZ._buildImpl(zpkg, pool);
         }
         int flags = 0;                            // 无 FlagPacked = indexed
         if (zpkg.IsExe) { flags = flags | 2; }    // FlagExe

@@ -4,6 +4,7 @@
 namespace Z42.Project;
 
 using Std;
+using Std.IO;
 using Std.Encoding;
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // reconcile: ZbcReader.ReadTypeAt（MODS 内嵌 TYPE 解析）
@@ -273,12 +274,14 @@ public static class ZpkgReader {
         return r;
     }
 
-    // MODS → 每模块 TYPE 段体解析（reconcile-tsig-from-runtime-sections）：MODS 记录第二个
-    // len+体是 TYPE 字节（与 zbc TYPE 段同构）→ ZbcReader.ReadTypeAt。仅 packed（indexed 的
-    // TYPE 在散装 zbc；reconcile verb 只对 release dist 包（恒 packed）跑）。
-    public static ZpkgModuleTypes[] ReadModuleTypes(ZpkgInfo z) {
+    // MODS/FILE → 每模块 TYPE 段体解析（reconcile P2 / drop-tsig-expt P3）。
+    // packed：MODS 记录第二个 len+体是 TYPE 字节（与 zbc TYPE 段同构）→ ZbcReader.ReadTypeAt。
+    // indexed（drop-tsig-expt）：TYPE 在散装 zbc → 经 FILE 目录 + pkgDir 逐个 load 完整 zbc
+    // （各自含局部池）→ ZbcReader.Read → 取 Classes。pkgDir="" 时 indexed 返空（无路径上下文）。
+    public static ZpkgModuleTypes[] ReadModuleTypes(ZpkgInfo z, string pkgDir) {
+        if (!z.Packed) { return ZpkgReader._readIndexedTypes(z, pkgDir); }
         ZpkgSection mods = z.Section("MODS");
-        if (mods == null || !z.Packed) { return new ZpkgModuleTypes[0]; }
+        if (mods == null) { return new ZpkgModuleTypes[0]; }
         var m = new ZpkgCursor(z.Data, mods.Offset);
         int modCount = m.U32();
         ZpkgModuleTypes[] r = new ZpkgModuleTypes[modCount];
@@ -302,6 +305,36 @@ public static class ZpkgReader {
                 int len = m.U32();
                 m.Pos = m.Pos + len;
                 k = k + 1;
+            }
+            r[i] = new ZpkgModuleTypes(ns, classes, classes.Length);
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // indexed 散装 TYPE 读取（drop-tsig-expt P3）：FILE 目录每条 (ns, src_rel) → 散装 zbc 路径
+    // `<pkgDir>/<src_rel 去 .z42>.zbc`（镜像 Rust load_zpkg_indexed）→ ZbcReader.Read → Classes。
+    private static ZpkgModuleTypes[] _readIndexedTypes(ZpkgInfo z, string pkgDir) {
+        ZpkgSection file = z.Section("FILE");
+        if (file == null || pkgDir == "") { return new ZpkgModuleTypes[0]; }
+        var m = new ZpkgCursor(z.Data, file.Offset);
+        int modCount = m.U32();
+        ZpkgModuleTypes[] r = new ZpkgModuleTypes[modCount];
+        int i = 0;
+        while (i < modCount) {
+            string ns = z.Pool[m.U32()];
+            string srcRel = z.Pool[m.U32()];   // 项目相对源路径（.z42, fwd-slash）
+            m.U32();                            // src hash
+            m.U16();                            // fnCount
+            m.U32();                            // firstSig
+            m.U32();                            // zbcHash idx
+            string stem = srcRel;
+            if (stem.EndsWith(".z42")) { stem = stem.Substring(0, stem.Length - 4); }
+            string zbcPath = Path.Join(pkgDir, stem + ".zbc");
+            IrClassDesc[] classes = new IrClassDesc[0];
+            if (File.Exists(zbcPath)) {
+                IrModule mod = ZbcReader.Read(File.ReadAllBytes(zbcPath));
+                if (mod != null) { r[i] = new ZpkgModuleTypes(ns, mod.Classes, mod.ClassCount); i = i + 1; continue; }
             }
             r[i] = new ZpkgModuleTypes(ns, classes, classes.Length);
             i = i + 1;
@@ -336,137 +369,8 @@ public static class ZpkgReader {
         return r;
     }
 
-    // TSIG → ExportedModuleZ[]（镜像写入器逆操作；IMPL 不读——Phase3 延后）。
-    public static ExportedModuleZ[] ReadTsig(ZpkgInfo z) {
-        ZpkgSection s = z.Section("TSIG");
-        if (s == null) { return new ExportedModuleZ[0]; }
-        var c = new ZpkgCursor(z.Data, s.Offset);
-        int modCount = c.U16();
-        ExportedModuleZ[] r = new ExportedModuleZ[modCount];
-        int mi = 0;
-        while (mi < modCount) {
-            string ns = z.Pool[c.U32()];
-            int cc = c.U16();
-            ExportedClassZ[] classes = new ExportedClassZ[cc];
-            int ci = 0;
-            while (ci < cc) {
-                string cname = z.Pool[c.U32()];
-                int baseIdx = c.U32();
-                bool hasBase = baseIdx != (0 - 1) && baseIdx >= 0 && baseIdx < z.PoolCount;
-                string baseName = "";
-                if (hasBase) { baseName = z.Pool[baseIdx]; }
-                c.U8();                          // class flags（MVP 不消费）
-                int fc = c.U16();
-                ExportedFieldZ[] fields = new ExportedFieldZ[fc];
-                int fi = 0;
-                while (fi < fc) {
-                    string fn2 = z.Pool[c.U32()];
-                    string ft = z.Pool[c.U32()];
-                    string fv = z.Pool[c.U32()];
-                    fields[fi] = new ExportedFieldZ(fn2, ft, fv, c.U8() == 1);
-                    fi = fi + 1;
-                }
-                int mc = c.U16();
-                ExportedMethodZ[] methods = new ExportedMethodZ[mc];
-                int mj = 0;
-                while (mj < mc) { methods[mj] = ZpkgReader._method(c, z); mj = mj + 1; }
-                int ifc = c.U16();
-                int x = 0;
-                while (x < ifc) { c.U32(); x = x + 1; }   // 接口名（MVP 不消费）
-                int tpc = c.U8();
-                string[] tps = new string[tpc];
-                x = 0;
-                while (x < tpc) { tps[x] = z.Pool[c.U32()]; x = x + 1; }
-                ZpkgReader._skipTpConstraints(c);
-                classes[ci] = new ExportedClassZ(cname, hasBase, baseName, fields, fc, methods, mc, tps, tpc);
-                ci = ci + 1;
-            }
-            // interfaces（跳过 import 进符号表——会改类型解析→破坏 stdlib byte-identical；
-            // impl trait 校验改为不依赖 imported 接口表，见 ImportedSymbolLoader._mergeImpl）
-            int nif = c.U16();
-            int ii = 0;
-            while (ii < nif) {
-                c.U32();
-                int imc = c.U16();
-                int mj = 0;
-                while (mj < imc) { ZpkgReader._method(c, z); mj = mj + 1; }
-                int itp = c.U8();
-                int x = 0;
-                while (x < itp) { c.U32(); x = x + 1; }
-                ii = ii + 1;
-            }
-            // enums（解码：imported `EnumType.Member` 常量跨包解析；ImportedSymbolLoader 消费）
-            int nen = c.U16();
-            ExportedEnumZ[] enums = new ExportedEnumZ[nen];
-            ii = 0;
-            while (ii < nen) {
-                string enName = z.Pool[c.U32()];
-                int emc = c.U16();
-                ExportedEnumMemberZ[] emems = new ExportedEnumMemberZ[emc];
-                int x = 0;
-                while (x < emc) {
-                    string memName = z.Pool[c.U32()];
-                    long memVal = c.I64();
-                    emems[x] = new ExportedEnumMemberZ(memName, memVal);
-                    x = x + 1;
-                }
-                enums[ii] = new ExportedEnumZ(enName, emems, emc);
-                ii = ii + 1;
-            }
-            // functions
-            int nfn = c.U16();
-            ExportedFuncZ[] funcs = new ExportedFuncZ[nfn];
-            ii = 0;
-            while (ii < nfn) {
-                string fn2 = z.Pool[c.U32()];
-                string ret = z.Pool[c.U32()];
-                int minArg = c.U16();
-                int pc = c.U8();
-                int paramsFrom = ZpkgReader._paramsFromInt(c.U8());
-                ExportedParamZ[] ps = new ExportedParamZ[pc];
-                int x = 0;
-                while (x < pc) {
-                    string pn = z.Pool[c.U32()];
-                    ps[x] = new ExportedParamZ(pn, z.Pool[c.U32()]);
-                    x = x + 1;
-                }
-                int tpc2 = c.U8();
-                x = 0;
-                while (x < tpc2) { c.U32(); x = x + 1; }
-                ZpkgReader._skipTpConstraints(c);
-                ExportedFuncZ ef = new ExportedFuncZ(fn2, ret, minArg, ps, pc);
-                ef.ParamsFrom = paramsFrom;
-                funcs[ii] = ef;
-                ii = ii + 1;
-            }
-            // delegates（跳过）
-            int nd = c.U16();
-            ii = 0;
-            while (ii < nd) {
-                c.U32(); c.U32();
-                int pc = c.U8();
-                int x = 0;
-                while (x < pc) { c.U32(); c.U32(); x = x + 1; }
-                int tpc2 = c.U8();
-                x = 0;
-                while (x < tpc2) { c.U32(); x = x + 1; }
-                c.U32();                         // container
-                ii = ii + 1;
-            }
-            r[mi] = new ExportedModuleZ(ns, classes, cc,
-                                        new ExportedInterfaceZ[0], 0,
-                                        enums, nen,
-                                        funcs, nfn,
-                                        new ExportedDelegateZ[0], 0);
-            mi = mi + 1;
-        }
-        // ── IMPL 段（L3-Impl2：跨 zpkg impl 块；位置匹配 TSIG 模块序）──
-        ZpkgReader._readImpl(z, r, modCount);
-        return r;
-    }
-
     // 读 IMPL → 按位置挂到 r[mi].Impls（镜像 C# ReadImplSection；老 zpkg 无 IMPL → 留空）。
-    private static void _readImpl(ZpkgInfo z, ExportedModuleZ[] r, int modCount) {
+    public static void ReadImplInto(ZpkgInfo z, ExportedModuleZ[] r, int modCount) {
         ZpkgSection s = z.Section("IMPL");
         if (s == null) { return; }
         var c = new ZpkgCursor(z.Data, s.Offset);
@@ -540,22 +444,6 @@ public static class ZpkgReader {
             int j = 0;
             while (j < pc) { c.U32(); j = j + 1; }
             c.U32();
-        }
-    }
-
-    private static void _skipTpConstraints(ZpkgCursor c) {
-        // TSIG WriteTpConstraints：u8 count + {u32 tp, u8 flags, u8 ifc, u32×, [u32], [u32]}
-        int n = c.U8();
-        int i = 0;
-        while (i < n) {
-            c.U32();
-            int flags = c.U8();
-            int k = c.U8();
-            int j = 0;
-            while (j < k) { c.U32(); j = j + 1; }
-            if ((flags & 0x04) != 0) { c.U32(); }
-            if ((flags & 0x08) != 0) { c.U32(); }
-            i = i + 1;
         }
     }
 

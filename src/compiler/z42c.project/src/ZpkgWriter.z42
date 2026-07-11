@@ -34,7 +34,7 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 30;   // 2026-07-11 add-delegate-metadata（unify P1-e②）：耦合 inner zbc 1.26（TYPE bit6=delegate）。
+    public static int Minor = 31;   // 2026-07-11 drop-tsig-expt（unify P3）：删 zpkg 顶层 EXPT + TSIG 段（EXPT 写而不读；TSIG 由 TYPE/SIGS 经 Rebuild 无损重建取代）。IMPL 保留。zbc 不变。
                                     // 前史：0.25 reencode-strs-segment-dict（STRS segment-dict，耦合 zbc 1.21）；
                                     //       0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
 
@@ -129,8 +129,7 @@ public static class ZpkgWriterZ {
         // ── intern：zpkg 元串（镜像 InternZpkgStrings：namespaces → exports → deps）──
         int i = 0;
         while (i < zpkg.NsCount) { pool.Intern(zpkg.Namespaces[i]); i = i + 1; }
-        i = 0;
-        while (i < zpkg.ExportCount) { pool.Intern(zpkg.Exports[i].Symbol); i = i + 1; }
+        // drop-tsig-expt（P3）：EXPT 段已删（写而不读）→ 不再 intern export 符号。
         i = 0;
         while (i < zpkg.DepCount) {
             pool.Intern(zpkg.Deps[i].File);
@@ -138,9 +137,9 @@ public static class ZpkgWriterZ {
             while (j < zpkg.Deps[i].NsCount) { pool.Intern(zpkg.Deps[i].Namespaces[j]); j = j + 1; }
             i = i + 1;
         }
-        // ── intern：TSIG 串（deps 之后、逐模块之前——镜像 C# InternZpkgStrings 时机）──
+        // ── intern：IMPL 串（drop-tsig-expt P3：TSIG 段已删；仅保 IMPL 需要的 target/trait/method 串）──
         i = 0;
-        while (i < zpkg.ExportedCount) { ZpkgWriterZ._internTsig(pool, zpkg.Exported[i]); i = i + 1; }
+        while (i < zpkg.ExportedCount) { ZpkgWriterZ._internImplStrings(pool, zpkg.Exported[i]); i = i + 1; }
         // ── intern：逐模块（ns → src → hash → 模块全量串）。
         // z42 无交错数组 int[][] → per-module remap 不在此持有；_buildMods 内按模块重算
         //（ZbcStringPool.Intern 幂等：全部串已入池 → 重算得到相同索引，零新增）。
@@ -155,29 +154,27 @@ public static class ZpkgWriterZ {
             mi = mi + 1;
         }
 
-        // ── 七段 ──
+        // ── 段（drop-tsig-expt / unify P3：删 EXPT + TSIG——EXPT 写而不读、TSIG 由 TYPE/SIGS
+        //    经 TsigReconcile.Rebuild 无损重建取代。IMPL 保留（D2 跨包 impl 关联））──
         var meta = ZpkgWriterZ._buildMeta(zpkg);
         var strs = ZbcWriter.BuildStrs(pool);
         var nspc = ZpkgWriterZ._buildNspc(zpkg, pool);
-        var expt = ZpkgWriterZ._buildExpt(zpkg, pool);
         var deps = ZpkgWriterZ._buildDeps(zpkg, pool);
         var sigs = ZpkgWriterZ._buildSigs(zpkg, pool);
         var mods = ZpkgWriterZ._buildMods(zpkg, pool, isRelease);
 
-        int secCount = 7;
-        if (zpkg.ExportedCount > 0) { secCount = 9; }   // + TSIG + IMPL（C#：TSIG present ⇒ IMPL present）
+        int secCount = 6;
+        if (zpkg.ExportedCount > 0) { secCount = 7; }   // + IMPL（D2）
         string[]     tags  = new string[secCount];
         ByteWriter[] datas = new ByteWriter[secCount];
         tags[0] = "META"; datas[0] = meta;
         tags[1] = "STRS"; datas[1] = strs;
         tags[2] = "NSPC"; datas[2] = nspc;
-        tags[3] = "EXPT"; datas[3] = expt;
-        tags[4] = "DEPS"; datas[4] = deps;
-        tags[5] = "SIGS"; datas[5] = sigs;
-        tags[6] = "MODS"; datas[6] = mods;
-        if (secCount == 9) {
-            tags[7] = "TSIG"; datas[7] = ZpkgWriterZ._buildTsig(zpkg, pool);
-            tags[8] = "IMPL"; datas[8] = ZpkgWriterZ._buildImpl(zpkg, pool);
+        tags[3] = "DEPS"; datas[3] = deps;
+        tags[4] = "SIGS"; datas[4] = sigs;
+        tags[5] = "MODS"; datas[5] = mods;
+        if (secCount == 7) {
+            tags[6] = "IMPL"; datas[6] = ZpkgWriterZ._buildImpl(zpkg, pool);
         }
 
         int flags = 1;                       // FlagPacked
@@ -199,22 +196,6 @@ public static class ZpkgWriterZ {
         w.WriteU32(zpkg.NsCount);
         int i = 0;
         while (i < zpkg.NsCount) { w.WriteU32(pool.Idx(zpkg.Namespaces[i])); i = i + 1; }
-        return w;
-    }
-
-    // EXPT：count + (symbol idx u32 + kind u8：func=0/type=1/const=2)。
-    public static ByteWriter _buildExpt(ZpkgFileZ zpkg, ZbcStringPool pool) {
-        var w = new ByteWriter();
-        w.WriteU32(zpkg.ExportCount);
-        int i = 0;
-        while (i < zpkg.ExportCount) {
-            w.WriteU32(pool.Idx(zpkg.Exports[i].Symbol));
-            int kind = 0;
-            if (zpkg.Exports[i].Kind == "type") { kind = 1; }
-            else if (zpkg.Exports[i].Kind == "const") { kind = 2; }
-            w.WriteU8(kind);
-            i = i + 1;
-        }
         return w;
     }
 
@@ -297,53 +278,10 @@ public static class ZpkgWriterZ {
     }
 
     // ── TSIG intern（顺序 1:1 C# InternTsigStrings）──────────────────────────────
-    public static void _internTsig(ZbcStringPool pool, ExportedModuleZ em) {
+    // drop-tsig-expt（P3）：IMPL 段串 intern（TSIG 段已删；仅 impl 的 ns/target/trait/type_args/method）。
+    public static void _internImplStrings(ZbcStringPool pool, ExportedModuleZ em) {
         pool.Intern(em.Namespace);
         int c = 0;
-        while (c < em.ClassCount) {
-            ExportedClassZ cl = em.Classes[c];
-            pool.Intern(cl.Name);
-            if (cl.HasBase) { pool.Intern(cl.BaseName); }
-            int i = 0;
-            while (i < cl.InterfaceCount) { pool.Intern(cl.Interfaces[i]); i = i + 1; }   // C# InternTsigStrings：base 后接口
-            i = 0;
-            while (i < cl.FieldCount) {
-                pool.Intern(cl.Fields[i].Name); pool.Intern(cl.Fields[i].TypeName); pool.Intern(cl.Fields[i].Visibility);
-                i = i + 1;
-            }
-            i = 0;
-            while (i < cl.MethodCount) { ZpkgWriterZ._internMethod(pool, cl.Methods[i]); i = i + 1; }
-            i = 0;
-            while (i < cl.TpCount) { pool.Intern(cl.TypeParams[i]); i = i + 1; }
-            c = c + 1;
-        }
-        c = 0;
-        while (c < em.InterfaceCount) {
-            ExportedInterfaceZ ifc = em.Interfaces[c];
-            pool.Intern(ifc.Name);
-            int i = 0;
-            while (i < ifc.MethodCount) { ZpkgWriterZ._internMethod(pool, ifc.Methods[i]); i = i + 1; }
-            i = 0;
-            while (i < ifc.TpCount) { pool.Intern(ifc.TypeParams[i]); i = i + 1; }
-            c = c + 1;
-        }
-        c = 0;
-        while (c < em.EnumCount) {
-            pool.Intern(em.Enums[c].Name);
-            int i = 0;
-            while (i < em.Enums[c].MemberCount) { pool.Intern(em.Enums[c].Members[i].Name); i = i + 1; }
-            c = c + 1;
-        }
-        c = 0;
-        while (c < em.FunctionCount) {
-            ExportedFuncZ fz = em.Functions[c];
-            pool.Intern(fz.Name); pool.Intern(fz.ReturnType);
-            int i = 0;
-            while (i < fz.ParamCount) { pool.Intern(fz.Params[i].Name); pool.Intern(fz.Params[i].TypeName); i = i + 1; }
-            c = c + 1;
-        }
-        // L3-Impl2：impl 串 intern（C# InternTsigStrings 顺序：functions 之后、delegates 之前）。
-        c = 0;
         while (c < em.ImplCount) {
             ExportedImplZ im = em.Impls[c];
             pool.Intern(im.TargetFq); pool.Intern(im.TraitFq);
@@ -353,126 +291,12 @@ public static class ZpkgWriterZ {
             while (mi < im.MethodCount) { ZpkgWriterZ._internMethod(pool, im.Methods[mi]); mi = mi + 1; }
             c = c + 1;
         }
-        c = 0;
-        while (c < em.DelegateCount) {
-            ExportedDelegateZ dz = em.Delegates[c];
-            pool.Intern(dz.Name); pool.Intern(dz.ReturnType);
-            int i = 0;
-            while (i < dz.ParamCount) { pool.Intern(dz.Params[i].Name); pool.Intern(dz.Params[i].TypeName); i = i + 1; }
-            i = 0;
-            while (i < dz.TpCount) { pool.Intern(dz.TypeParams[i]); i = i + 1; }
-            if (dz.HasContainer) { pool.Intern(dz.ContainerClass); }
-            c = c + 1;
-        }
     }
 
     private static void _internMethod(ZbcStringPool pool, ExportedMethodZ m) {
         pool.Intern(m.Name); pool.Intern(m.ReturnType); pool.Intern(m.Visibility);
         int i = 0;
         while (i < m.ParamCount) { pool.Intern(m.Params[i].Name); pool.Intern(m.Params[i].TypeName); i = i + 1; }
-    }
-
-    // ── TSIG 段（布局 1:1 C# BuildTsigSection；z42c 无的构造按内建面/0 计数）────────
-    public static ByteWriter _buildTsig(ZpkgFileZ zpkg, ZbcStringPool pool) {
-        var w = new ByteWriter();
-        w.WriteU16(zpkg.ExportedCount);
-        int mi = 0;
-        while (mi < zpkg.ExportedCount) {
-            ExportedModuleZ em = zpkg.Exported[mi];
-            w.WriteU32(pool.Idx(em.Namespace));
-            w.WriteU16(em.ClassCount);
-            int c = 0;
-            while (c < em.ClassCount) {
-                ExportedClassZ cl = em.Classes[c];
-                w.WriteU32(pool.Idx(cl.Name));
-                if (cl.HasBase) { w.WriteU32(pool.Idx(cl.BaseName)); } else { w.WriteU32(0 - 1); }
-                w.WriteU8(0);                       // flags（abstract/sealed/static——z42c 类暂恒 0，C# 同源实测 0）
-                w.WriteU16(cl.FieldCount);
-                int i = 0;
-                while (i < cl.FieldCount) {
-                    ExportedFieldZ f = cl.Fields[i];
-                    w.WriteU32(pool.Idx(f.Name)); w.WriteU32(pool.Idx(f.TypeName)); w.WriteU32(pool.Idx(f.Visibility));
-                    if (f.IsStatic) { w.WriteU8(1); } else { w.WriteU8(0); }
-                    i = i + 1;
-                }
-                w.WriteU16(cl.MethodCount);
-                i = 0;
-                while (i < cl.MethodCount) { ZpkgWriterZ._writeMethod(w, cl.Methods[i], pool); i = i + 1; }
-                w.WriteU16(cl.InterfaceCount);      // 类接口表（port-z42c-interface）
-                int ifx = 0;
-                while (ifx < cl.InterfaceCount) { w.WriteU32(pool.Idx(cl.Interfaces[ifx])); ifx = ifx + 1; }
-                w.WriteU8(cl.TpCount);
-                int tp = 0;
-                while (tp < cl.TpCount) { w.WriteU32(pool.Idx(cl.TypeParams[tp])); tp = tp + 1; }
-                w.WriteU8(0);                       // constraints (z42c classes have no where constraints)
-                c = c + 1;
-            }
-            w.WriteU16(em.InterfaceCount);
-            c = 0;
-            while (c < em.InterfaceCount) {
-                ExportedInterfaceZ ifc = em.Interfaces[c];
-                w.WriteU32(pool.Idx(ifc.Name));
-                w.WriteU16(ifc.MethodCount);
-                int i = 0;
-                while (i < ifc.MethodCount) { ZpkgWriterZ._writeMethod(w, ifc.Methods[i], pool); i = i + 1; }
-                w.WriteU8(ifc.TpCount);
-                i = 0;
-                while (i < ifc.TpCount) { w.WriteU32(pool.Idx(ifc.TypeParams[i])); i = i + 1; }
-                c = c + 1;
-            }
-            w.WriteU16(em.EnumCount);
-            c = 0;
-            while (c < em.EnumCount) {
-                ExportedEnumZ en = em.Enums[c];
-                w.WriteU32(pool.Idx(en.Name));
-                w.WriteU16(en.MemberCount);
-                int i = 0;
-                while (i < en.MemberCount) {
-                    w.WriteU32(pool.Idx(en.Members[i].Name));
-                    w.WriteI64(en.Members[i].Value);
-                    i = i + 1;
-                }
-                c = c + 1;
-            }
-            w.WriteU16(em.FunctionCount);
-            c = 0;
-            while (c < em.FunctionCount) {
-                ExportedFuncZ fz = em.Functions[c];
-                w.WriteU32(pool.Idx(fz.Name));
-                w.WriteU32(pool.Idx(fz.ReturnType));
-                w.WriteU16(fz.MinArgCount);
-                w.WriteU8(fz.ParamCount);
-                w.WriteU8(ZpkgWriterZ._paramsFromByte(fz.ParamsFrom));
-                int i = 0;
-                while (i < fz.ParamCount) {
-                    w.WriteU32(pool.Idx(fz.Params[i].Name)); w.WriteU32(pool.Idx(fz.Params[i].TypeName));
-                    i = i + 1;
-                }
-                w.WriteU8(0);                       // type params
-                w.WriteU8(0);                       // constraints
-                c = c + 1;
-            }
-            w.WriteU16(em.DelegateCount);
-            c = 0;
-            while (c < em.DelegateCount) {
-                ExportedDelegateZ dz = em.Delegates[c];
-                w.WriteU32(pool.Idx(dz.Name));
-                w.WriteU32(pool.Idx(dz.ReturnType));
-                w.WriteU8(dz.ParamCount);
-                int i = 0;
-                while (i < dz.ParamCount) {
-                    w.WriteU32(pool.Idx(dz.Params[i].Name)); w.WriteU32(pool.Idx(dz.Params[i].TypeName));
-                    i = i + 1;
-                }
-                w.WriteU8(dz.TpCount);
-                i = 0;
-                while (i < dz.TpCount) { w.WriteU32(pool.Idx(dz.TypeParams[i])); i = i + 1; }
-                if (dz.HasContainer) { w.WriteU32(pool.Idx(dz.ContainerClass)); } else { w.WriteU32(0 - 1); }
-                c = c + 1;
-            }
-            mi = mi + 1;
-        }
-        return w;
     }
 
     // 方法定义（共享布局：TSIG 类/接口通用，镜像 C# WriteMethodDef）
