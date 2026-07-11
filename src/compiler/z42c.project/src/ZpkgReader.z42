@@ -6,6 +6,7 @@ namespace Z42.Project;
 using Std;
 using Std.Encoding;
 using Z42.IR;
+using Z42.IR.BinaryFormat;   // reconcile: ZbcReader.ReadTypeAt（MODS 内嵌 TYPE 解析）
 
 // 读取游标（byte[] + pos；LE 助手）。
 public sealed class ZpkgCursor {
@@ -191,18 +192,25 @@ public static class ZpkgReader {
             string ret = z.Pool[c.U32()];
             int exec = c.U8();
             int isStatic = c.U8();
-            c.U8();                            // visibility（zbc 1.23 add-member-visibility）：is_static 后
-            c.U8();                            // method_flags（zbc 1.24 add-method-modifiers）：visibility 后
-            c.U16(); c.U8();                   // min_arg + params_from（zbc 1.25 add-param-metadata）：params 前
+            // P1 元数据（reconcile-tsig-from-runtime-sections 起灌进 stub，此前仅游标对齐消费）。
+            int vis = c.U8();                  // visibility（zbc 1.23）
+            int mflags = c.U8();               // method_flags（zbc 1.24）
+            int minArg = c.U16();              // min_arg（zbc 1.25）
+            int paramsFrom = c.U8();           // params_from（zbc 1.25；255=无）
             string[] ptypes = new string[pc];
+            string[] pnames = new string[pc];
+            int[] pdKinds = new int[pc];
+            long[] pdVals = new long[pc];
+            string[] pdStrs = new string[pc];
             int j = 0;
             while (j < pc) {
                 ptypes[j] = z.Pool[c.U32()];
-                c.U32();                       // name_str_idx（zbc 1.25 add-param-metadata）
+                pnames[j] = z.Pool[c.U32()];   // name_str_idx（zbc 1.25）
                 int dk = c.U8();               // default_kind
-                if (dk == 2 || dk == 3) { c.U32(); c.U32(); }   // i64/f64 bits（8B）
-                else if (dk == 4) { c.U8(); }                    // bool
-                else if (dk == 5) { c.U32(); }                   // str idx
+                pdKinds[j] = dk; pdVals[j] = 0; pdStrs[j] = "";
+                if (dk == 2 || dk == 3) { long lo = (long)c.U32(); long hi = (long)c.U32(); pdVals[j] = lo | (hi << 32); }
+                else if (dk == 4) { pdVals[j] = (long)c.U8(); }
+                else if (dk == 5) { pdStrs[j] = z.Pool[c.U32()]; }
                 j = j + 1;
             }
             int tpc = c.U8();
@@ -222,12 +230,17 @@ public static class ZpkgReader {
                 while (x < pac) { c.U32(); c.U32(); x = x + 1; }
                 j = j + 1;
             }
-            // 签名 stub：体为空（消费侧不需要）；MaxReg/块 0
-            all[i] = new IrFunction(fname, pc, ret, isStatic == 1,
+            // 签名 stub：体为空（消费侧不需要）；MaxReg/块 0。P1 元数据全灌（reconcile 消费）。
+            IrFunction stub = new IrFunction(fname, pc, ret, isStatic == 1,
                                     new IrBlock[0], 0, 0,
                                     ZpkgReader._execName(exec), ptypes, pc,
                                     new int[0], 0,
                                     new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+            stub.Visibility = vis; stub.MethodFlags = mflags;
+            stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
+            stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
+            stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;
+            all[i] = stub;
             i = i + 1;
         }
         // MODS/FILE 头切分
@@ -255,6 +268,42 @@ public static class ZpkgReader {
             int j = 0;
             while (j < fnCount) { fns[j] = all[firstSig + j]; j = j + 1; }
             r[i] = new ZpkgModuleSigs(ns, fns, fnCount);
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // MODS → 每模块 TYPE 段体解析（reconcile-tsig-from-runtime-sections）：MODS 记录第二个
+    // len+体是 TYPE 字节（与 zbc TYPE 段同构）→ ZbcReader.ReadTypeAt。仅 packed（indexed 的
+    // TYPE 在散装 zbc；reconcile verb 只对 release dist 包（恒 packed）跑）。
+    public static ZpkgModuleTypes[] ReadModuleTypes(ZpkgInfo z) {
+        ZpkgSection mods = z.Section("MODS");
+        if (mods == null || !z.Packed) { return new ZpkgModuleTypes[0]; }
+        var m = new ZpkgCursor(z.Data, mods.Offset);
+        int modCount = m.U32();
+        ZpkgModuleTypes[] r = new ZpkgModuleTypes[modCount];
+        int i = 0;
+        while (i < modCount) {
+            string ns = z.Pool[m.U32()];
+            m.U32();                            // src
+            m.U32();                            // hash
+            m.U16();                            // fnCount
+            m.U32();                            // firstSig
+            int funcLen = m.U32();              // ① func 体（跳过）
+            m.Pos = m.Pos + funcLen;
+            int typeLen = m.U32();              // ② TYPE 体
+            IrClassDesc[] classes = new IrClassDesc[0];
+            if (typeLen > 0) {
+                classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, z.Pool);
+                m.Pos = m.Pos + typeLen;
+            }
+            int k = 0;
+            while (k < 3) {                     // ③④⑤ dbug/regt/tidx（跳过）
+                int len = m.U32();
+                m.Pos = m.Pos + len;
+                k = k + 1;
+            }
+            r[i] = new ZpkgModuleTypes(ns, classes, classes.Length);
             i = i + 1;
         }
         return r;
@@ -552,5 +601,15 @@ public sealed class ZpkgModuleSigs {
     public int          FuncCount;
     public ZpkgModuleSigs(string ns, IrFunction[] functions, int funcCount) {
         this.Namespace = ns; this.Functions = functions; this.FuncCount = funcCount;
+    }
+}
+
+// 每模块 TYPE 段解析结果（reconcile-tsig-from-runtime-sections）。
+public sealed class ZpkgModuleTypes {
+    public string        Namespace;
+    public IrClassDesc[] Classes;
+    public int           ClassCount;
+    public ZpkgModuleTypes(string ns, IrClassDesc[] classes, int classCount) {
+        this.Namespace = ns; this.Classes = classes; this.ClassCount = classCount;
     }
 }

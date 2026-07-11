@@ -270,7 +270,13 @@ public static class ZbcReader {
     private static IrClassDesc[] _readType(byte[] data, ZbcSectionZ[] dir, string[] pool) {
         ZbcSectionZ s = ZbcReader._sec(dir, "TYPE");
         if (s == null || s.Size < 4) { ZbcReader._lastN = 0; return new IrClassDesc[0]; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        return ZbcReader.ReadTypeAt(data, s.Offset, pool);
+    }
+
+    // TYPE 段体解析（给定偏移；reconcile-tsig-from-runtime-sections 公开——zpkg MODS 每模块
+    // 记录内嵌的 TYPE 字节与 zbc TYPE 段同构，ZpkgReader.ReadModuleTypes 复用本入口）。
+    public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, string[] pool) {
+        ZbcCursor c = new ZbcCursor(data, offset);
         int n = c.U32();
         IrClassDesc[] classes = new IrClassDesc[n];
         int ci = 0;

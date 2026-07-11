@@ -211,6 +211,7 @@ public sealed class IrGen {
                                                                          new Param[0], 0, false, null, new Expr[0], 0, false, pd.Span);
                                     IrFunction pstub = this._emitNativeStub(this._q(this._classIrShortName(c)) + ".get_" + pd.Name,
                                                                              synthPd, nat2, pdStatic, rawMem);
+                                    this._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
                                     funcs = this._pushFunc(funcs, fc, pstub); fc = fc + 1;
                                 }
                             } else if (pd.HasGet && !pdExtern) {
@@ -220,11 +221,13 @@ public sealed class IrGen {
                                 string retNm = this._typeFieldName(pd.Type);
                                 int retTag = this._irTypeTag(pd.Type);
                                 IrFunction ag = this._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+                                ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
                                 funcs = this._pushFunc(funcs, fc, ag); fc = fc + 1;
                                 // setter（HasSet）：合成 field.set @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp set）。
                                 if (pd.HasSet) {
                                     string setIrNm = this._q(this._classIrShortName(c)) + ".set_" + pd.Name;
                                     IrFunction sg = this._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+                                    sg.MinArg = 1;   // setter 逻辑参数 1
                                     funcs = this._pushFunc(funcs, fc, sg); fc = fc + 1;
                                 }
                             }
@@ -244,6 +247,7 @@ public sealed class IrGen {
                                     var feGet = new FunctionEmitter(model.Symbols, this);
                                     IrFunction getIrf = feGet.EmitFunction(getIrName, synthGet, model.GetBody(getKey),
                                                                             true, false, idxOwner, c.TypeParams.Names, c.TypeParams.Count);
+                                    this._fillParamMeta(getIrf, synthGet, true);   // add-param-metadata（reconcile 补齐）
                                     funcs = this._pushFunc(funcs, fc, getIrf); fc = fc + 1;
                                 }
                             }
@@ -261,6 +265,7 @@ public sealed class IrGen {
                                     var feSet = new FunctionEmitter(model.Symbols, this);
                                     IrFunction setIrf = feSet.EmitFunction(setIrName, synthSet, model.GetBody(setKey),
                                                                             true, false, idxOwner, c.TypeParams.Names, c.TypeParams.Count);
+                                    this._fillParamMeta(setIrf, synthSet, true);   // add-param-metadata（reconcile 补齐）
                                     funcs = this._pushFunc(funcs, fc, setIrf); fc = fc + 1;
                                 }
                             }
@@ -281,6 +286,7 @@ public sealed class IrGen {
                         string synthIr = this._q(this._classIrShortName(c)) + "." + c.Name;
                         IrFunction synthF = synthFe.EmitFunction(synthIr, synthMd, model.GetBody(synthKey),
                                                                  true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
+                        this._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
                         funcs = this._pushFunc(funcs, fc, synthF); fc = fc + 1;
                     }
                 }
@@ -857,14 +863,18 @@ public sealed class IrGen {
                             int k = 0; while (k < sfcount) { b3[k] = sfields[k]; k = k + 1; }
                             sfields = b3;
                         }
-                        sfields[sfcount] = new IrFieldDesc(bfn, bft); sfcount = sfcount + 1;
+                        IrFieldDesc sbf = new IrFieldDesc(bfn, bft);
+                        sbf.Visibility = 1;   // auto-prop 后备字段 = private（reconcile：镜像符号侧 OwnFieldVis）
+                        sfields[sfcount] = sbf; sfcount = sfcount + 1;
                     } else {
                         if (fcount == fields.Length) {
                             IrFieldDesc[] b4 = new IrFieldDesc[fields.Length * 2];
                             int k = 0; while (k < fcount) { b4[k] = fields[k]; k = k + 1; }
                             fields = b4;
                         }
-                        fields[fcount] = new IrFieldDesc(bfn, bft); fcount = fcount + 1;
+                        IrFieldDesc ibf = new IrFieldDesc(bfn, bft);
+                        ibf.Visibility = 1;   // 同上：instance 后备字段 private
+                        fields[fcount] = ibf; fcount = fcount + 1;
                     }
                 }
             }
@@ -1091,10 +1101,23 @@ public sealed class IrGen {
         RetTerm term = new RetTerm(!isVoid, dst);
         IrBlock[] blocks = new IrBlock[1];
         blocks[0] = new IrBlock("entry", instrs, 1, term, true);
-        string retType = "object";
+        // reconcile-tsig-from-runtime-sections（unify P2）：SIGS 携真实声明类型（源拼写），
+        // 不再硬编码 "object"——TSIG oracle 对账要求 + P3 后 SIGS 是唯一来源 + 反射 ReturnType 保真。
+        string retType = this._typeSpell(md.RetType);
         if (isVoid) { retType = "void"; }
+        string[] ptypes = new string[totalParams];
+        int po = 0;
+        if (!isStatic) {
+            // this 槽类型 = 所属类 FQ（name = <FQClass>.<m>）。
+            int lastDot = name.Length - 1;
+            while (lastDot >= 0 && (int)name.CharAt(lastDot) != 46) { lastDot = lastDot - 1; }
+            ptypes[0] = lastDot > 0 ? name.Substring(0, lastDot) : "?";
+            po = 1;
+        }
+        int pp = 0;
+        while (pp < md.ParamCount) { ptypes[pp + po] = this._typeSpell(md.Params[pp].Type); pp = pp + 1; }
         return new IrFunction(name, totalParams, retType, isStatic, blocks, 1, totalParams + 1,
-                              "Interp", new string[0], 0, new int[0], 0,
+                              "Interp", ptypes, totalParams, new int[0], 0,
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
     }
 

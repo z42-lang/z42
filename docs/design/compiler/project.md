@@ -400,6 +400,56 @@ my-app/
 
 ---
 
+## TSIG 对账重建（unify-type-metadata P2，2026-07-11）
+
+> 背景：zpkg 曾并存两份类型元数据——**运行时段**（`TYPE` ClassDesc + `SIGS` FuncSig，VM 执行 +
+> 反射读）与**编译期段**（`TSIG` ExportedModuleZ + `IMPL`，z42c 跨包解析读）。unify-type-metadata
+> P1 把 TSIG 独有的字段（可见性 / virtual·abstract / min_arg / 参数名·默认值 / enum 值 / delegate /
+> impl）全部补进 TYPE/SIGS/IMPL。**P2 是删 TSIG（P3）前的安全网**：证明 ExportedModuleZ 能从
+> TYPE/SIGS/IMPL **无损重建**。
+
+**机制**（`z42c.project/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`）：
+
+```
+world = 全部待对账 zpkg（跨包 base 链：imported 祖先字段/方法从 dep 包 TYPE/SIGS 取）
+每包：
+  oracle   = ZpkgReader.ReadTsig(z)          # 现有 TSIG 段（当基准）
+  rebuilt  = Rebuild(z, world)               # 从 TYPE/SIGS/IMPL 重建 ExportedModuleZ
+  Compare(oracle, rebuilt)                    # 逐字段（归一化后）assert；空差异 = OK
+```
+
+**Rebuild 的口径**（镜像 `ExportedTypeExtractor`——TSIG 的生产端）：
+
+- **类**：TYPE 每条（跳 interface bit4 / delegate bit6 / enum bit5 / 隐式根 `Std.Object`）→ 裸名
+  （剥 ns + 尾部 arity-mangle `$N`）；base 链 topmost-first 展平字段；方法 = Object 四方法（非
+  struct）+ 链实例方法合并（override 替换祖先位、`IsVirtual:=false`）+ 本类 static append。
+  祖先 SIGS 用 **world 全包 (pkg, mod) 精确定位**（非 ns 首中——同 ns 多模块会错配）。
+- **enum**：TSIG 恒 = 内建 `GCHandleType{Weak,Strong}`（本地 enum 不进 TSIG）。
+- **自由函数**：全包 SIGS 中 ns 剥离后**不含 `.`** 的条目（类方法为 `<Class$N>.<m>`——用 `_stripNs`
+  保 `.` 判别，勿用剥 `$N` 的 `_bare` 否则 `Foo$1.Bar` 误判为自由函数）；排除 `__static_init__` /
+  `__lambda` / `__local_` / `[Native]`。
+
+**归一化**（TYPE/SIGS 与 TSIG 是**不同编码**，语义等价即通过——非字节等价）：
+
+| 维度 | TSIG（oracle） | TYPE/SIGS（rebuilt） | 归一 |
+|------|---------------|---------------------|------|
+| 可见性 | `"internal"`（SymbolCollector 无修饰默认）| u8 `0=public` | internal ≈ public（无消费方按 internal 门禁）|
+| 类型拼写 | 解析短名 `Type` / `int` | 源拼写 `Std.Type` / `i32`，点缀名 → `"unknown"` | 短名 + prim 别名（byte↔u8…）+ nullable/泛型实参擦除 + `unknown ≈ 任一非基本类型` |
+| 方法集 | getter-only（**漏报属性 `private set`**）| getter + setter 齐全 | **子集语义**：oracle ⊆ rebuilt（按 name+isStatic+paramCount 匹配）|
+
+**关键发现**：**TSIG 是有损的**——它漏报属性 `private set`，SIGS 更全。故子集语义（oracle ⊆
+rebuilt）是「无信息丢失」安全网的**正确判据**：rebuilt 多出的方法是**信息增益**，非重建 bug。
+⟹ **P3 删 TSIG 零信息损失、反而更完整。**
+
+**对账 gate 揪出的 SIGS 源码精度缺陷**（`IrGen` 根因修，P3「SIGS 作唯一真相」的前置）：native
+桩返回/参数类型原硬编码 `"object"` → 改真实声明类型；property/indexer/隐式 ctor 合成点补逻辑
+`MinArg`；auto-prop 后备字段可见性 public → private。
+
+**验证**：全 29 包（22 stdlib + 7 z42c）`reconcile-tsig` 全 OK。CI gate 布线待 toolchain 锁释放
+（follow-up）；P3 全面切换后整个 GREEN gate 天然覆盖重建路径。
+
+---
+
 ## L4 — 运行时 Profile
 
 区分开发和发布构建，覆盖执行模式和优化级别。

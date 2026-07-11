@@ -368,6 +368,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 继承的静态字段反射 | `GetFields()` 含静态已落地（2026-06-10）但仅声明类自身；继承静态需沿 base 链聚合 `static_fields` | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
 | 嵌套泛型 type-args / 实例 GetGenericArguments | `IsGenericTypeDefinition`/`GetGenericTypeDefinition` + typeof 携 args 已落地（2026-06-16，zbc 1.18 Typeof opcode）；剩 `typeof(Box<Map<K,V>>)` 嵌套递归 + `new Box<int>()` 实例 `obj.GetType()` 两路径统一 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
 | `Type.IsEnum` + 接口成员/transitive | `IsClass`/`IsInterface` 已落地（2026-06-16，zbc 1.19 flags bit4 + 接口产最小 TYPE 条目）；`IsEnum` **已落地**（2026-07-09 add-enum-type-metadata，zbc 1.22 flags bit5 + enum 成员块）；接口成员枚举 / 接口继承接口 / 数组 IsClass 续作 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
+| reconcile-tsig CI gate 布线 | `reconcile-tsig` verb 全 29 包本地 OK（unify P2，2026-07-11）；接入 `xtask test` 需 toolchain 锁（fix-bootstrap 持有）→ P3 全面切换后 GREEN gate 天然覆盖 | [compiler/project.md](design/compiler/project.md#tsig-对账重建unify-type-metadata-p22026-07-11) |
 | 非字面量参数默认值的值 | `ParameterInfo.DefaultValue` 只折字面量（add-param-metadata，2026-07-10，zbc 1.25）；常量表达式/enum 成员默认值需常量折叠器 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
 | Tier 2/3 完整 interop | manifest reader / 源生成 / symbol resolution | [language/interop.md](design/language/interop.md) |
 | 整体 L3 concurrency | async/await / Future / Send-Sync / 调度器 | [runtime/concurrency.md](design/runtime/concurrency.md) |

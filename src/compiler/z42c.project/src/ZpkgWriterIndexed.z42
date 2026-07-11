@@ -93,6 +93,13 @@ public static class ZpkgIndexedWriter {
                     pool.Intern(pt);
                     p = p + 1;
                 }
+                // add-param-metadata（zbc 1.25）：参数名 + str 默认值（kind 5）入池——镜像
+                // packed ZbcWriter.InternPoolStrings（indexed 无 MODS 体，须在此显式入池，
+                // 否则 WriteSigEntries 的 name_str_idx / default str_idx 落 0xFFFFFFFF）。
+                int pn = 0;
+                while (pn < f.ParamNames.Length) { pool.Intern(f.ParamNames[pn]); pn = pn + 1; }
+                int pdk = 0;
+                while (pdk < f.ParamDefaultKinds.Length) { if (f.ParamDefaultKinds[pdk] == 5) { pool.Intern(f.ParamDefaultStrs[pdk]); } pdk = pdk + 1; }
                 int a = 0;
                 while (a < f.AttrCount) {
                     pool.Intern(f.Attrs[a].TypeName);

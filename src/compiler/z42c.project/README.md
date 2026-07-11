@@ -31,6 +31,8 @@ workspace 继承 / include 链 / policy / `[[exe]]` targets / profiles / tests·
 | `src/ZpkgWriter.z42` | packed 七段（META/STRS/NSPC/EXPT/DEPS/SIGS/MODS）；MODS 体复用 z42c.ir 段构建器（单源防漂移）|
 | `src/ZpkgWriterIndexed.z42` | indexed 主文件写入器（add-indexed-zpkg-min-patch，zpkg 0.24）：packed 段面去 MODS 加 FILE（ns/src_rel/src_hash/fnCount/firstSig/zbc_hash）；SIGS 串显式入池（镜像 WriteSigEntries 读取面）|
 | `src/ZpkgReader.z42` | packed 消费面子集：META/NSPC/SIGS/TSIG/IMPL + `ReadSourceHashes`（MODS 头 per-file (src,hash,ns) wire 读取工具；probe 消费已移 cache meta）|
+| `src/ZpkgReader.z42`（续）| `ReadModuleTypes`（MODS 每模块 TYPE 段解析，reconcile P2）；`ReadModuleSigs` 现灌 P1 元数据（visibility/method_flags/min_arg/params_from/参数名/默认值）到 IrFunction stub |
+| `src/TsigReconcile.z42` | **TSIG 对账重建**（unify P2）：从 TYPE/SIGS/IMPL 重建 ExportedModuleZ 与 TSIG oracle 逐字段（归一化后）对账；driver verb `reconcile-tsig`。删 TSIG（P3）前的无损重建安全网。机制见 [project.md](../../../docs/design/compiler/project.md#tsig-对账重建unify-type-metadata-p22026-07-11) |
 | `src/CacheStore.z42` | 增量 cache meta 读写（add-file-level-incremental）：`<rel>.meta`（hash/ns/usedDepNs + D5a writer 残留 pool/labels，hex 编码；metaVersion/zbc/zpkg 三重 pin）+ 包级 `package.meta` 源清单；pin 不符/损坏 → null（宁 fresh 不误命中）|
 
 对真 C# CLI：META/NSPC/EXPT/DEPS 逐字节相等；全段 byte-identical 待 TSIG/IMPL（follow-up）。
