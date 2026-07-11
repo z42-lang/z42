@@ -1,0 +1,92 @@
+name: JIT Fixpoint Check (experimental)
+
+# Manual-only prerequisite check for the z42c-JIT compile switch
+# (docs/xtask_review.md 附录 A, prerequisite #1). Verifies that compiling the
+# z42c 7-package workspace with `--mode jit` produces BYTE-IDENTICAL output
+# (mod the trailing 16B BLID content-hash) to `--mode interp`, per platform —
+# i.e. switching z42c to JIT would not break the self-host byte-identical fixpoint.
+#
+# NOT gating and NOT triggered on push/PR: dispatch it manually when you want the
+# cross-platform data (macos-arm64 already verified locally 2026-07-11). A red here
+# means JIT diverges from interp on that platform → do NOT switch z42c to JIT until
+# the divergence is root-caused (cranelift is a separate codegen path; arch/memory-
+# ordering-sensitive corners can differ — common-pitfalls §1).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jit-fixpoint:
+    name: jit-fixpoint(${{ matrix.rid }})
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64,   os: ubuntu-latest }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: macos-arm64, os: macos-15 }
+          - { rid: windows-x64, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: host-v2
+
+      # Nightly seed → build current z42c + stdlib + xtask (same path as build-and-test).
+      - uses: ./.github/actions/ci-bootstrap
+        with:
+          rid: ${{ matrix.rid }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: z42c interp vs jit — 7-package workspace byte-identity (mod BLID)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
+          driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
+          libs="$PWD/artifacts/build/libraries/dist/release"
+          members="z42c.core z42c.ir z42c.syntax z42c.project z42c.semantics z42c.pipeline z42c.driver"
+
+          fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1"; }
+          snapshot() { # $1 = dest dir
+            mkdir -p "$1"
+            for m in $members; do
+              cp "artifacts/build/compiler/$m/release/dist/$m.zpkg" "$1/$m.zpkg"
+            done
+          }
+          build_ws() { # $1 = mode
+            ( cd src/compiler && Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" \
+                "$vm" "$driver" --mode "$1" -- build --workspace --release --no-incremental )
+          }
+
+          echo "── build z42c workspace (interp) ──"; build_ws interp; snapshot /tmp/z42c_interp
+          echo "── build z42c workspace (jit) ──";    build_ws jit;    snapshot /tmp/z42c_jit
+
+          echo "── compare (ignore trailing 16B BLID) ──"
+          fail=0
+          for m in $members; do
+            I="/tmp/z42c_interp/$m.zpkg"; J="/tmp/z42c_jit/$m.zpkg"
+            si=$(fsize "$I"); sj=$(fsize "$J")
+            if cmp -s <(head -c $((si-16)) "$I") <(head -c $((sj-16)) "$J"); then
+              echo "  ✓ $m: interp==jit (byte-identical mod BLID, $si bytes)"
+            else
+              echo "  ✗ $m: interp != jit (interp=$si jit=$sj) — JIT DIVERGES"; fail=1
+            fi
+          done
+          if [ "$fail" -eq 0 ]; then
+            echo "=== ${{ matrix.rid }}: 7/7 byte-identical → z42c JIT is fixpoint-safe on this platform ==="
+          else
+            echo "=== ${{ matrix.rid }}: JIT diverges from interp — do NOT switch z42c to JIT here until root-caused ==="
+            exit 1
+          fi
