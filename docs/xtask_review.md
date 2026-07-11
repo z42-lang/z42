@@ -361,10 +361,15 @@ xtask 的骨架是健康的——common 三件套、toml 驱动的 SoT 意识、
 
 **切换前置清单（速度已明确赢，剩下纯粹是确定性/信任验证——切换前必须逐项达成）**：
 
-1. **全平台 × 全包不动点 byte-identity**：7 个 z42c 包 gen1==gen2、全 stdlib、全 golden，在
-   linux-x64 / linux-arm64 / macos / windows 上都 JIT 下逐字节一致。cranelift 是另一条 codegen 路径，
-   单机一致 ≠ 跨平台保证（HashMap/浮点/顺序敏感角落，见 common-pitfalls §1）。
-   → 建议先加 CI 实验腿：z42c 用 JIT 跑 `test compiler` 不动点，全平台稳定几轮。
+1. **全平台 × 全包不动点 byte-identity**：7 个 z42c 包、全 stdlib、全 golden，在
+   linux-x64 / linux-arm64 / macos / windows 上都 JIT 编与 interp 编逐字节一致。cranelift 是另一条
+   codegen 路径，单机一致 ≠ 跨平台保证（HashMap/浮点/顺序敏感角落，见 common-pitfalls §1）。
+   - **✅ macos-arm64 已本地验证（2026-07-11，干净 0.30 树）**：`z42c build --workspace`（canonical
+     per-member）分别 `--mode interp` 与 `--mode jit` 编 z42c **7 包全部 byte-identical**（除末尾 16B
+     BLID 内容哈希；core/ir/syntax/project/semantics/pipeline/driver 逐字节相同、size 全同）。
+     另 z42.core（stdlib）+ 小文件 emit 亦 byte-identical。→ **JIT 不破自举不动点，此平台确认。**
+   - **⬜ 剩余**：linux-x64 / linux-arm64 / windows 的同项验证（架构/内存序不同）。
+     → 加 CI 实验腿：z42c 用 JIT 跑 `test compiler` 不动点 + interp/jit 产物对比，全平台稳定几轮。
 2. **「interp = 可信参考」的权衡**：不动点只查 gen1==gen2 一致，**查不出"JIT codegen bug 让两代错得一样"**。
    interp 更简单、更被信任。换 JIT = 把信任基线移到较新的 cranelift 路径——**属 User 权衡的设计决定，非纯技术验证**。
 3. **时机**：需 toolchain 锁释放 + 格式 bump/WIP 落定的稳定期做（避免红了分不清是 JIT 还是格式引起）。
