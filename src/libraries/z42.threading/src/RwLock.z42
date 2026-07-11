@@ -36,16 +36,22 @@ public class RwLock<T> {
     // inside body don't propagate. Export observations via static fields.
     public void Read(Action<T> body) {
         T snapshot = (T)RwLockNative.ReadAcquire(this._slot);
-        body(snapshot);
-        RwLockNative.ReadRelease(this._slot);
+        try {
+            body(snapshot);
+        } finally {
+            RwLockNative.ReadRelease(this._slot);
+        }
     }
 
     // Exclusive writer. body returns the new value to store.
     public void Write(Func<T, T> body) {
         T current = (T)RwLockNative.WriteAcquire(this._slot);
-        T next    = body(current);
-        RwLockNative.WriteStore(this._slot, next);
-        RwLockNative.WriteRelease(this._slot);
+        try {
+            T next = body(current);
+            RwLockNative.WriteStore(this._slot, next);
+        } finally {
+            RwLockNative.WriteRelease(this._slot);
+        }
     }
 
     // Internal slot id — for diagnostics only.
@@ -62,8 +68,11 @@ public class RwLock<T> {
         long kind = (long)result[0];
         if (kind != 0) { return false; }
         T snapshot = (T)result[1];
-        body(snapshot);
-        RwLockNative.ReadRelease(this._slot);
+        try {
+            body(snapshot);
+        } finally {
+            RwLockNative.ReadRelease(this._slot);
+        }
         return true;
     }
 
@@ -76,9 +85,12 @@ public class RwLock<T> {
         long kind = (long)result[0];
         if (kind != 0) { return false; }
         T current = (T)result[1];
-        T next    = body(current);
-        RwLockNative.WriteStore(this._slot, next);
-        RwLockNative.WriteRelease(this._slot);
+        try {
+            T next = body(current);
+            RwLockNative.WriteStore(this._slot, next);
+        } finally {
+            RwLockNative.WriteRelease(this._slot);
+        }
         return true;
     }
 }

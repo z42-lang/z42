@@ -6,11 +6,14 @@ using Std;
 //
 // RAII callback API: `m.Lock((current) => current + 1)` decomposes into
 // `__mutex_lock_acquire` → user callback → `__mutex_store` → `__mutex_unlock`
-// at runtime; the unlock is unconditional, so users cannot forget it. v0
-// uses parking_lot::Mutex underneath which does NOT poison on panic
-// (different from std::sync::Mutex) — a worker thread that throws inside
-// the callback releases the lock cleanly (the z42 throw path unwinds
-// through the native call, hitting the `__thread_join` discriminator).
+// at runtime. The runtime forgets the parking_lot guard on acquire and
+// releases the lock ONLY via an explicit `__mutex_unlock` (see
+// corelib/sync.rs `HELD_MUTEX_GUARDS`) — there is NO unwind-time release.
+// So `Lock` wraps the body in try/finally: if the callback throws, the
+// store is skipped (the stored value stays unchanged) but the unlock still
+// runs in `finally`, so the lock is released rather than held forever.
+// parking_lot::Mutex does NOT poison on panic (unlike std::sync::Mutex),
+// so re-acquiring after a thrown-through `Lock` is safe.
 //
 // Non-reentrant: a thread that has already acquired the Mutex and calls
 // `Lock` again on the same instance from the same thread will deadlock.
@@ -32,9 +35,12 @@ public class Mutex<T> {
     // respect to other threads' Lock calls on the same Mutex.
     public void Lock(Func<T, T> body) {
         T current = (T)MutexNative.LockAcquire(this._slot);
-        T next    = body(current);
-        MutexNative.Store(this._slot, next);
-        MutexNative.Unlock(this._slot);
+        try {
+            T next = body(current);
+            MutexNative.Store(this._slot, next);
+        } finally {
+            MutexNative.Unlock(this._slot);
+        }
     }
 
     // Internal slot id — for diagnostics only.

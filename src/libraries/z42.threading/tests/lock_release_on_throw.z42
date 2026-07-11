@@ -1,0 +1,127 @@
+// fix-sync-lock-release-on-throw (2026-07-12): a callback body that throws
+// must NOT leak the lock. The runtime releases only via explicit unlock
+// (mem::forget'd guard, corelib/sync.rs), so `Mutex.Lock` / `RwLock.*` wrap
+// the body in try/finally. These tests exploit parking_lot's NON-reentrant
+// semantics: if the lock leaked, the second acquire on the same thread would
+// self-deadlock (test would hang → timeout failure). Reaching past it proves
+// the finally released the lock. Stored value must also be unchanged, since
+// the store is skipped when the body throws before returning.
+namespace Z42ThreadingLockReleaseOnThrowTests;
+
+using Std;
+using Std.Test;
+using Std.Threading;
+
+public static class ThrowState {
+    public static long Observed;
+}
+
+[Test]
+void test_mutex_releases_lock_when_body_throws() {
+    var m = new Mutex<long>(0);
+    bool caught = false;
+    try {
+        m.Lock((long v) => {
+            throw new Exception("boom in mutex body");
+        });
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // Non-reentrant re-acquire — would self-deadlock if the lock leaked.
+    // Store was skipped, so the value is still 0.
+    ThrowState.Observed = -1;
+    m.Lock((long v) => {
+        ThrowState.Observed = v;
+        return v + 1;
+    });
+    Assert.Equal((long)0, ThrowState.Observed);
+}
+
+[Test]
+void test_rwlock_write_releases_lock_when_body_throws() {
+    var l = new RwLock<long>(42);
+    bool caught = false;
+    try {
+        l.Write((long v) => {
+            throw new Exception("boom in write body");
+        });
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // Exclusive re-acquire must not deadlock; store skipped → value == 42.
+    ThrowState.Observed = -1;
+    l.Write((long v) => {
+        ThrowState.Observed = v;
+        return v;
+    });
+    Assert.Equal((long)42, ThrowState.Observed);
+}
+
+[Test]
+void test_rwlock_read_releases_lock_when_body_throws() {
+    var l = new RwLock<long>(9);
+    bool caught = false;
+    try {
+        l.Read((long v) => {
+            throw new Exception("boom in read body");
+        });
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // A subsequent writer needs exclusive access — impossible if the read
+    // lock leaked.
+    l.Write((long v) => v + 1);
+    ThrowState.Observed = -1;
+    l.Read((long v) => {
+        ThrowState.Observed = v;
+    });
+    Assert.Equal((long)10, ThrowState.Observed);
+}
+
+[Test]
+void test_trywrite_releases_lock_when_body_throws() {
+    var l = new RwLock<long>(0);
+    bool caught = false;
+    try {
+        l.TryWrite((long v) => {
+            throw new Exception("boom in trywrite body");
+        });
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // Lock must be free: a following TryWrite succeeds (returns true), store
+    // takes effect.
+    bool got = l.TryWrite((long v) => v + 3);
+    Assert.True(got);
+    ThrowState.Observed = -1;
+    l.Read((long v) => {
+        ThrowState.Observed = v;
+    });
+    Assert.Equal((long)3, ThrowState.Observed);
+}
+
+[Test]
+void test_tryread_releases_lock_when_body_throws() {
+    var l = new RwLock<long>(5);
+    bool caught = false;
+    try {
+        l.TryRead((long v) => {
+            throw new Exception("boom in tryread body");
+        });
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // A writer must be able to acquire exclusively afterwards.
+    bool got = l.TryWrite((long v) => v + 1);
+    Assert.True(got);
+    ThrowState.Observed = -1;
+    l.Read((long v) => {
+        ThrowState.Observed = v;
+    });
+    Assert.Equal((long)6, ThrowState.Observed);
+}
