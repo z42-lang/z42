@@ -59,9 +59,18 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    **种子供给的 PR 必须先合并 / 同一 commit 落地，再删兜底**。
 3. **本地不可验的部分（CI / packaging）**：本地只能验 warm 路径；cold 路径只能靠 CI。
    因此删 cold 兜底的 commit **push 后必须盯 CI**，红了立即回滚或补种子（见案例）。
-4. **格式漂移风险**：下载的 nightly 种子，其 zbc / zpkg 格式必须能被当前 z42vm 读。
-   format bump 后旧 nightly 失效 → 须等 `publish-nightly` 重新发布（self-healing 窗口期 CI 会短暂红）。
-   删 cold 兜底**不要踩在 format bump 同一周期**。
+4. **格式漂移风险（格式维度已由两代自举根治，2026-07-09 fix-bootstrap-format-bump-deadlock）**：
+   下载的 nightly 种子其 zbc / zpkg 格式与当前 z42vm 的 strict-pin 不同时，`ci-bootstrap` 的**版本差
+   gate**（读种子 `programs/z42c/z42c.driver.zpkg` header minor vs 源码 `ZpkgWriterZ.Minor`）检测到
+   不等就走**两代自举**：用 SDK 自带的**旧 VM**（`bin/z42vm`，与旧种子同版本、能读旧种子）跑
+   Gen1（旧种子 z42c 编当前源→旧壳/新逻辑）+ Gen2（旧 VM 跑 gen1 z42c→新格式产物），再交新 VM
+   接管。runtime stdlib（entry-dir 旧）与 compile stdlib（`Z42_LIBS` 新）分离解开死锁（design D7）。
+   → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**
+   （实测 0.25→0.30 连续 5+ 次真实 bump 全绿）。机制见
+   [`docs/spec/archive/…-fix-bootstrap-format-bump-deadlock`](../../docs/spec/archive/)。
+   > **残留**：纯 download-bootstrap 的 job（vm-jit / bench 等，不 feed publish-nightly）在 bump 当次
+   > 仍短暂红一跑，等新 nightly 发布自愈——不阻塞发布链。删 cold 兜底照旧**不要踩在 format bump
+   > 同一周期**（该残留窗口期）。
 
 ---
 
