@@ -1,5 +1,7 @@
 # Tasks: compiler review 债务清理（refactor）
 
+> 状态：🟢 已完成 | 完成：2026-07-12 | commits: 1a72c3c2 / 206a6b76 / a861415e
+
 **变更说明：** docs/compiler_review.md 的低风险高确定性债务项批量清理。
 **原因：** 死代码 + 单一 SoT 违反（drift 风险）+ 契约缺口；fixpoint 字节对账兜底，零语义变化。
 **文档影响：** 归档时更新 compiler_review.md 对应项状态 + 目录 README（如文件增删）。

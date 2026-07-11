@@ -193,7 +193,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 | P2-1 | OpcodeRegistry:消灭 ZbcInstr/ZbcWriter 三个平行 if-is 链 | ir | ⬜ |
 | P2-2 | OperatorTable + PrimitiveTypeRegistry + 转换规则表 | semantics | ⬜ |
 | P2-3 | Parser 修饰符/类型关键字/优先级 OpInfo 表 | syntax | ⬜ |
-| P2-4 | Driver 命令表 + exit code 契约常量 | driver | ⬜ |
+| P2-4 | Driver 命令表 + exit code 契约常量 | driver | 🟡 2026-07-12 exit-code 契约常量已做；命令表 if→table 部分未做（低 ROI，Main.z42 待 converge）|
 | P2-5 | ZpkgFormat.z42 + TsigCodec.z42(读写单源) | project | ⬜ |
 | P2-6 | zbc section 描述表 | ir | ⬜(排 P2-1 后) |
 
@@ -201,8 +201,8 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 
 | # | 内容 | 子系统锁 | 状态 |
 |---|------|---------|------|
-| P3-1 | StrMap 统一到公共包 | ir + semantics(+core) | ⬜ |
-| P3-2 | Skeleton 死文件清理 | 各子包 | ⬜ |
+| P3-1 | StrMap 统一到公共包 | ir + semantics | ✅ 2026-07-12（统一到 z42c.ir，semantics 已依赖 ir，无需 z42c.common）|
+| P3-2 | Skeleton 死文件清理 | 各子包 | ✅ 2026-07-12（6 个自引用死簇删除）|
 | P3-3 | ExportedTypeExtractor 与 SymbolCollector 共用 mangle 规则 | semantics | ⬜ |
 | P3-4 | Parser 错误恢复 `_skipToSync`;ManifestLoader 异常捕获;DiagnosticBag.FormatAll | syntax / project / core+driver | ⬜ |
 | P3-5 | 补 OverloadResolver / 环检测测试 | semantics / pipeline | ⬜ |
