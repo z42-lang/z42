@@ -257,33 +257,19 @@ bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, st
 
 // ── Path / file helpers (cross-specific) ─────────────────────────────────
 
+// Thin wrappers over _copyAll (build/xtask_compiler.z42): identical error
+// handling (Directory.Exists guard + try/catch skip), plus a harmless self-copy
+// guard (src≠dst always holds for these fixture-staging callers).
 void _copyZpkgs(string srcDir, string dstDir) {
-    if (!Directory.Exists(srcDir)) return;
-    string[] zpkgs = Path.Glob(srcDir, "*.zpkg");
-    int i = 0;
-    while (i < zpkgs.Length) {
-        string dst = Path.Join(dstDir, Path.GetFileName(zpkgs[i]));
-        try { File.Copy(zpkgs[i], dst); } catch (Exception e) { /* skip */ }
-        i = i + 1;
-    }
+    _copyAll(srcDir, dstDir, "*.zpkg");
 }
 
 // Stdlib artifacts live in the FLAT dist view at
 // artifacts/build/libraries/dist/release (the same layout Z42_LIBS / _z42vm
 // consume). Copy *.zpkg + *.zsym from there.
 void _copyStdlibZpkgs(string distDir, string dstDir) {
-    if (!Directory.Exists(distDir)) return;
-    string[] entries = Directory.Enumerate(distDir);
-    int i = 0;
-    while (i < entries.Length) {
-        string fname = entries[i];
-        if (fname.EndsWith(".zpkg") || fname.EndsWith(".zsym")) {
-            string src = Path.Join(distDir, fname);
-            string dst = Path.Join(dstDir, fname);
-            try { File.Copy(src, dst); } catch (Exception e) { /* skip */ }
-        }
-        i = i + 1;
-    }
+    _copyAll(distDir, dstDir, "*.zpkg");
+    _copyAll(distDir, dstDir, "*.zsym");
 }
 
 string _findToml(string dir) {
