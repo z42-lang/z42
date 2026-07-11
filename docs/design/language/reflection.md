@@ -103,7 +103,7 @@ void Demo() {
 
 | 类型 | 命名空间 | 成员 |
 |------|---------|------|
-| `Type : MemberInfo` | `Std`（z42.core）| `Name`（继承自 MemberInfo）/ `FullName` / `BaseType` / `IsAbstract` / `IsSealed` / `IsValueType` / `IsRecord` / `IsClass` / `IsInterface` / `IsGenericType` / `IsGenericTypeDefinition` / `IsPrimitive` / `IsArray` / `GetFields()` / `GetMethods()` / `GetMembers()` / `GetProperties()` / `GetGenericArguments()` / `GetGenericTypeDefinition()` / `GetInterfaces()` / `GetInterface(name)` / `IsAssignableFrom(Type)` / `GetElementType()` |
+| `Type : MemberInfo` | `Std`（z42.core）| `Name`（继承自 MemberInfo）/ `FullName` / `BaseType` / `IsAbstract` / `IsSealed` / `IsValueType` / `IsRecord` / `IsClass` / `IsInterface` / `IsGenericType` / `IsGenericTypeDefinition` / `IsDelegate` / `IsPrimitive` / `IsArray` / `GetFields()` / `GetMethods()` / `GetMembers()` / `GetProperties()` / `GetGenericArguments()` / `GetGenericTypeDefinition()` / `GetInterfaces()` / `GetInterface(name)` / `IsAssignableFrom(Type)` / `GetElementType()` |
 | `MemberInfo` | `Std.Reflection` | `Name`（`Type` / `FieldInfo` / `MethodInfo` / `PropertyInfo` 的基类）|
 | `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsAbstract` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
@@ -274,6 +274,22 @@ TraitT。现在 VM 读每个已加载 zpkg 的**现有 IMPL 段**（无格式变
 
 > **unify-type-metadata 语境**：IMPL 段由「编译期专用」重定性为「统一元数据，z42c + VM 都读」
 > （initiative D2）；P3 删 TSIG/EXPT 时 IMPL 保留。
+
+### delegate 反射（add-delegate-metadata，zbc 1.26 / unify-type-metadata P1-e ②）
+
+delegate 此前是**纯编译期函数型别名**（运行期实例 FuncRef/Closure，TYPE 无条目）。现在
+**delegate-as-class**（D5，C# 式）：每个 `delegate` 声明（含泛型）emit 一条 TYPE 条目
+（FQ 名 + `class_flags` **bit6=delegate** + TypeParams——泛型 tps 存 TYPE 条目，Invoke 按名
+引用）+ 合成 `<FQ>.Invoke` **死体桩**进 SIGS/FUNC（实例、virtual、参数源拼写类型 + 源名 +
+P1-d 全套参数元数据；真实 delegate 调用走 CallIndirect，桩永不被调）。
+
+- `Type.IsDelegate`（`__type_is_delegate`，读 bit6）；签名经 `GetMethods()` 的 Invoke 反射
+  （own_methods 前缀扫描自动含它，MethodInfo/ParameterInfo 全套面可用）。
+- 反射入口：`Type.GetType("<fq>")`（运行期 registry）。**typeof(MyDelegate) 暂不支持**——
+  delegate 名在 `ResolveTypeP` 必须继续解析为函数类型（改了会破坏 delegate 赋值检查），
+  typeof 路径特判留 Deferred。
+- **P3 前置**：TSIG 携带 delegate 定义（含泛型内建 Action/Func/Predicate）供跨包解析——删
+  TSIG 前 delegate 必须能从 TYPE（名/tps）+ SIGS（Invoke 签名）重建，本砖即该重建的家。
 
 ### 类型名规范化
 
@@ -533,3 +549,13 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **前置依赖**：add-param-metadata（default_kind 编码已落，扩展只需 IrGen 折叠更多 Expr 形态）。
 - **触发条件**：反射需读非字面量默认值的值（named-args 求值 / 文档生成）时。
 - **当前 workaround**：非字面量默认值 `DefaultValue == null`（kind=0），`IsOptional` 仍 true。
+
+
+### reflection-future-typeof-delegate — typeof(委托名) 直达句柄
+
+- **来源**：add-delegate-metadata（unify P1-e ②，2026-07-11）Out of Scope。
+- **触发原因**：delegate 名在 `ResolveTypeP` 解析为 Z42FuncType（delegate 赋值/类型检查依赖），
+  typeof 发射路径需对 delegate 名特判（Z42FuncType → FQ delegate 名 → Typeof opcode）。
+- **前置依赖**：本砖（TYPE 条目已存在，运行期可解析）。
+- **触发条件**：用户需要 `typeof(MyDelegate)` 字面形式时。
+- **当前 workaround**：`Type.GetType("<fq delegate>")`。

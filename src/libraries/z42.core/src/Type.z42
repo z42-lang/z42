@@ -91,6 +91,11 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_enum")]
     public extern bool IsEnum { get; }
 
+    // True for a `delegate` type（delegate-as-class TYPE 条目，class_flags bit6）。
+    // 签名经 GetMethods() 的合成 Invoke 反射。(add-delegate-metadata / unify P1-e)
+    [Native("__type_is_delegate")]
+    public extern bool IsDelegate { get; }
+
     // True for a reference class type (incl. `record`). Mirrors C# Type.IsClass:
     // a real type that is neither a value type (`struct`) nor an interface.
     // Primitives / arrays / enums → false. (add-reflection-interface-class-predicates)

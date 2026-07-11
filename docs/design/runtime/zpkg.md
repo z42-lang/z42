@@ -249,6 +249,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.27 | 2026-07-10 | [add-member-visibility](../../spec/changes/add-member-visibility/)（unify-type-metadata P1-b） | 耦合 inner zbc 1.23（TYPE 字段块 + SIGS 每函数追加 `visibility:u8`）。zpkg outer 段面不变；TYPE/SIGS 段体经 MODS 自动跟随。第二砖：成员可见性有了 TYPE/SIGS 的家 |
 | 0.28 | 2026-07-10 | [add-method-modifiers](../../spec/changes/add-method-modifiers/)（unify-type-metadata P1-c） | 耦合 inner zbc 1.24（SIGS 每函数 visibility 后追加 `method_flags:u8`）。zpkg outer 段面不变；SIGS 段体经 MODS 自动跟随。第三砖：方法 virtual/abstract 有了 SIGS 的家 |
 | 0.29 | 2026-07-10 | [add-param-metadata](../../spec/changes/add-param-metadata/)（unify-type-metadata P1-d） | 耦合 inner zbc 1.25（SIGS +min_arg/params_from + 每参 name_str_idx + default_kind+payload）。zpkg outer 段面不变；SIGS 段体经 MODS 自动跟随。第四砖：参数元数据有了 SIGS 的家 |
+| 0.30 | 2026-07-11 | [add-delegate-metadata](../../spec/changes/add-delegate-metadata/)（unify-type-metadata P1-e ②） | 耦合 inner zbc 1.26（TYPE class_flags bit6=delegate + 每 delegate 一条 TYPE 条目 + Invoke 桩）。zpkg outer 段面不变。P1-e 收尾：delegate 有了 TYPE/SIGS 的家 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

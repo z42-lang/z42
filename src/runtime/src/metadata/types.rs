@@ -224,6 +224,7 @@ impl TypeDesc {
     #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
     #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & super::bytecode::CLASS_FLAG_ENUM != 0 }
+    #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & super::bytecode::CLASS_FLAG_DELEGATE != 0 }
 
     /// Lazy-init the cold side-table for mutation.
     #[inline]

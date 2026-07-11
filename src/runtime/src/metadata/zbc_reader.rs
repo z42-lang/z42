@@ -91,7 +91,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-07-10 add-param-metadata (unify P1-d): bumped to 1.25 - SIGS gains min_arg:u16
 // + params_from:u8 after method_flags; each param gains name_str_idx:u32 + default_kind:u8
 // (+payload). Backs ParameterInfo.IsOptional/IsParams/Name/DefaultValue.
-pub const ZBC_VERSION_MINOR: u16 = 25;
+// 2026-07-11 add-delegate-metadata (unify P1-e): bumped to 1.26 - class_flags
+// bit6=delegate (delegate-as-class TYPE entry + synthesized Invoke stub; no
+// extra payload, semantics-extension bump per the 1.19 interface precedent).
+pub const ZBC_VERSION_MINOR: u16 = 26;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -152,7 +155,8 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-07-10 add-method-modifiers: bumped to 0.28, coupled inner zbc 1.24
 // (SIGS +method_flags:u8). Outer zpkg layout unchanged.
 // 2026-07-10 add-param-metadata: bumped to 0.29, coupled inner zbc 1.25.
-pub const ZPKG_VERSION_MINOR: u16 = 29;
+// 2026-07-11 add-delegate-metadata: bumped to 0.30, coupled inner zbc 1.26.
+pub const ZPKG_VERSION_MINOR: u16 = 30;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

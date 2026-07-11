@@ -130,6 +130,11 @@ pub const CLASS_FLAG_INTERFACE: u8 = 1 << 4;
 /// enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n).
 pub const CLASS_FLAG_ENUM: u8 = 1 << 5;
 
+/// add-delegate-metadata (unify P1-e, zbc 1.26): the class record describes a
+/// `delegate` (delegate-as-class: TYPE entry + synthesized `<FQ>.Invoke` dead
+/// stub carries the signature). Backs `Type.IsDelegate`. No extra payload.
+pub const CLASS_FLAG_DELEGATE: u8 = 1 << 6;
+
 /// SIGS `method_flags` bits (add-method-modifiers, unify P1-c). Backs
 /// `MethodInfo.IsVirtual` (authoritative) / `IsAbstract`. `static` is NOT here
 /// — it stays in the dedicated `is_static` byte (single source of truth).

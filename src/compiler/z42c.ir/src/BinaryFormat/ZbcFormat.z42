@@ -5,7 +5,7 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 25;   // 2026-07-10 add-param-metadata（unify P1-d）：SIGS 每函数 method_flags 后 +min_arg:u16+params_from:u8；每参 param_type 后 +name_str_idx:u32 +default_kind:u8+payload。
+    public static int Minor = 26;   // 2026-07-11 add-delegate-metadata（unify P1-e②）：class_flags bit6=delegate（delegate-as-class TYPE 条目 + 合成 <FQ>.Invoke 死体桩；无额外 payload，沿 1.19 interface 先例 bump）。
                                     // 前史：1.24 add-method-modifiers（SIGS +method_flags:u8）；1.23 add-member-visibility（TYPE/SIGS +visibility:u8）。
 }
 

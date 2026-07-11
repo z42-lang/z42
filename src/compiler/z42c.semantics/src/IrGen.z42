@@ -360,6 +360,26 @@ public sealed class IrGen {
             }
             i = i + 1;
         }
+        // delegate 类型（add-delegate-metadata / unify-type-metadata P1-e ②）：delegate-as-class——
+        // TYPE 条目（FQ 名 + class_flags bit6=delegate + TypeParams（泛型 tps 存 TYPE，Invoke 按名引用））
+        // + 合成 `<FQ>.Invoke` 死体桩（真实调用走 CallIndirect，桩永不被调；供反射签名 + P2/P3 重建）。
+        i = 0;
+        while (i < cu.DeclCount) {
+            Decl dg = this._unwrap(cu.Decls[i]);
+            if (dg is DelegateDecl) {
+                DelegateDecl dd = dg as DelegateDecl;
+                string dfq = this._q(dd.Name);
+                IrClassDesc ddesc = new IrClassDesc(dfq, false, "", new IrFieldDesc[0], 0);
+                ddesc.Flags = ddesc.Flags | 64;   // bit6 = delegate
+                if (dd.TypeParams.Count > 0) {
+                    ddesc.TypeParams = dd.TypeParams.Names; ddesc.TypeParamCount = dd.TypeParams.Count;
+                    ddesc.TypeParamConstraints = new IrConstraintDesc[dd.TypeParams.Count];
+                }
+                classes = this._pushClass(classes, cc, ddesc); cc = cc + 1;
+                funcs = this._pushFunc(funcs, fc, this._emitDelegateInvoke(dfq, dd)); fc = fc + 1;
+            }
+            i = i + 1;
+        }
         i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -1108,6 +1128,63 @@ public sealed class IrGen {
         return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
                               "Interp", ptypes, totalParams, new int[0], 0,
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+
+    // add-delegate-metadata（unify P1-e ②）：delegate 的合成 Invoke 死体桩。
+    // 实例（this 槽=delegate 自身）、virtual（镜像 C# delegate Invoke）、参数用**源拼写**类型 +
+    // 源名 + P1-d 全套元数据。体 = ret null / ret（永不被调——真实 delegate 调用走 CallIndirect）。
+    private IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
+        int totalParams = dd.ParamCount + 1;   // +this
+        string retName = this._typeSpell(dd.RetType);
+        bool isVoid = retName == "void";
+        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
+        IrInstr[] instrs;
+        RetTerm term;
+        if (isVoid) {
+            instrs = new IrInstr[0];
+            term = new RetTerm(false, dst);
+        } else {
+            instrs = new IrInstr[1];
+            instrs[0] = new ConstNullInstr(dst);
+            term = new RetTerm(true, dst);
+        }
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
+        string[] ptypes = new string[totalParams];
+        ptypes[0] = dfq;   // this 槽类型 = delegate 自身
+        int p = 0;
+        while (p < dd.ParamCount) { ptypes[p + 1] = this._typeSpell(dd.Params[p].Type); p = p + 1; }
+        IrFunction inv = new IrFunction(dfq + ".Invoke", totalParams, retName, false, blocks, 1, totalParams + 1,
+                                        "Interp", ptypes, totalParams, new int[0], 0,
+                                        new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+        inv.Visibility = 0;   // public
+        inv.MethodFlags = 1;  // bit0 virtual（C# delegate Invoke 为 virtual）
+        // 参数元数据（P1-d）：合成 MethodDecl 复用 _fillParamMeta（名/必填数/varargs/默认值）。
+        TypeParamList etp = new TypeParamList(new string[0], 0, dd.Span);
+        MethodDecl synth = new MethodDecl("public virtual", false, false, dd.RetType, "Invoke",
+                                          etp, new WhereClause[0], 0,
+                                          dd.Params, dd.ParamCount, false, null, new Expr[0], 0, false, dd.Span);
+        this._fillParamMeta(inv, synth, true);
+        return inv;
+    }
+
+    // TypeExpr → 源拼写类型名（TSIG _sigTypeName 同旨；delegate Invoke 签名用）。
+    private string _typeSpell(TypeExpr t) {
+        if (t is NamedType) {
+            NamedType nt = t as NamedType;
+            if (nt.ArgCount == 0) { return nt.Name; }
+            string s = nt.Name + "<";
+            int a = 0;
+            while (a < nt.ArgCount) {
+                if (a > 0) { s = s + ", "; }
+                s = s + this._typeSpell(nt.Args[a]);
+                a = a + 1;
+            }
+            return s + ">";
+        }
+        if (t is ArrayType) { return this._typeSpell((t as ArrayType).Elem) + "[]"; }
+        if (t is NullableType) { return this._typeSpell((t as NullableType).Inner) + "?"; }
+        return "?";
     }
 
     // 非 extern auto-property getter 桩（镜像 C# SynthesizeClassAutoProp get 路径）：

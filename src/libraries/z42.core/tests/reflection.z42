@@ -97,6 +97,10 @@ class Square : Shape {
     public override int Perimeter() { return 4; }
 }
 
+// add-delegate-metadata (unify P1-e②): delegate-as-class → Type.IsDelegate +
+// synthesized Invoke carries the signature.
+delegate int Adder(int addA, int addB);
+
 // add-param-metadata (unify P1-d): ParameterInfo.IsOptional/IsParams/Name/DefaultValue.
 class ParamHolder {
     public int Blend(int width, int height = 10, string label = "hi", bool flag = true) { return width; }
@@ -494,4 +498,27 @@ void test_param_metadata_is_params() {
         }
     }
     Assert.True(sawSum);
+}
+
+
+[Test]
+void test_delegate_metadata() {
+    Type t = Type.GetType("Z42CoreReflectionTests.Adder");
+    Assert.True(t != null);
+    Assert.True(t.IsDelegate);
+    Assert.True(!typeof(FieldHolder).IsDelegate);
+    bool sawInvoke = false;
+    foreach (var m in t.GetMethods()) {
+        if (m.Name == "Invoke") {
+            sawInvoke = true;
+            Assert.True(m.IsVirtual);
+            Type rt = m.ReturnType;
+            Assert.Equal("int", rt.Name);
+            ParameterInfo[] ps = m.GetParameters();
+            Assert.Equal(2, ps.Length);
+            Assert.Equal("addA", ps[0].Name);
+            Assert.Equal("addB", ps[1].Name);
+        }
+    }
+    Assert.True(sawInvoke);
 }

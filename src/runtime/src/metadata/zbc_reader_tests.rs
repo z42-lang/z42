@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 25, "zbc minor at 1.25 (add-param-metadata: SIGS min_arg/params_from/param name+default)");
+    assert_eq!(ZBC_VERSION_MINOR, 26, "zbc minor at 1.26 (add-delegate-metadata: class_flags bit6=delegate)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 29, "zpkg minor at 0.29 (add-param-metadata, coupled inner zbc 1.25)");
+    assert_eq!(ZPKG_VERSION_MINOR, 30, "zpkg minor at 0.30 (add-delegate-metadata, coupled inner zbc 1.26)");
 }
 
 #[test]

@@ -934,6 +934,16 @@ pub fn builtin_type_is_enum(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     )))
 }
 
+/// `__type_is_delegate(typeObj) -> bool` — true if the reflected type is a
+/// `delegate` (delegate-as-class TYPE entry). Reads CLASS_FLAG_DELEGATE.
+/// add-delegate-metadata (unify P1-e).
+pub fn builtin_type_is_delegate(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    Ok(Value::Bool(class_flag_set(
+        args,
+        crate::metadata::bytecode::CLASS_FLAG_DELEGATE,
+    )))
+}
+
 /// `__enum_names(typeObj) -> string[]` — enum member names in declaration order.
 /// Empty for non-enum / handle-less Types. add-enum-type-metadata.
 pub fn builtin_enum_names(ctx: &VmContext, args: &[Value]) -> Result<Value> {
