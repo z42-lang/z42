@@ -22,4 +22,18 @@ public struct Char : IComparable<char>, IEquatable<char> {
     [Native("__char_is_whitespace")]  public extern bool IsWhiteSpace();
     [Native("__char_to_lower")]       public extern char ToLower();
     [Native("__char_to_upper")]       public extern char ToUpper();
+
+    // add-char-isdigit-isletter (review §2.6): ASCII classification helpers so
+    // callers stop hand-rolling `(int)ch < 48 || (int)ch > 57` (BigInt.Parse,
+    // Decimal.Parse). ASCII rules only — locale-sensitive classification is
+    // deferred to L3 CultureInfo, matching ToLower/ToUpper. Expressed with the
+    // supported char `<` / `>` operators (see CompareTo).
+    public bool IsDigit() {
+        return !(this < '0') && !(this > '9');
+    }
+    public bool IsLetter() {
+        bool lower = !(this < 'a') && !(this > 'z');
+        bool upper = !(this < 'A') && !(this > 'Z');
+        return lower || upper;
+    }
 }

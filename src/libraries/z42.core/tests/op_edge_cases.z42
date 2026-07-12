@@ -151,3 +151,32 @@ void test_double_compareto_normal_unaffected() {
     Assert.Equal(1, (2.0).CompareTo(1.0));
     Assert.Equal(0, (1.5).CompareTo(1.5));
 }
+
+// add-char-isdigit-isletter + add-string-tochararray (review §2.6).
+[Test]
+void test_char_is_digit() {
+    char d0 = '0'; char d9 = '9'; char a = 'a'; char sp = ' ';
+    Assert.True(d0.IsDigit());
+    Assert.True(d9.IsDigit());
+    Assert.False(a.IsDigit());
+    Assert.False(sp.IsDigit());
+}
+
+[Test]
+void test_char_is_letter() {
+    char a = 'a'; char z = 'z'; char aU = 'A'; char zU = 'Z'; char d = '0'; char bang = '!';
+    Assert.True(a.IsLetter());
+    Assert.True(z.IsLetter());
+    Assert.True(aU.IsLetter());
+    Assert.True(zU.IsLetter());
+    Assert.False(d.IsLetter());
+    Assert.False(bang.IsLetter());
+}
+
+[Test]
+void test_string_to_char_array() {
+    char[] cs = "abc".ToCharArray();
+    Assert.Equal(3, cs.Length);
+    Assert.Equal("abc", String.FromChars(cs));   // round-trips through FromChars
+    Assert.Equal(0, "".ToCharArray().Length);
+}

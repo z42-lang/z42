@@ -186,6 +186,18 @@ public static class String : IComparable<string>, IEquatable<string> {
         return String.FromChars(result);
     }
 
+    // add-string-tochararray (review §2.6): inverse of FromChars. Lets callers
+    // materialise the scalar array once and index it O(1), instead of repeated
+    // O(n) CharAt walks (e.g. Levenshtein). Empty string → empty array.
+    public char[] ToCharArray() {
+        int n = this.Length;
+        char[] result = new char[n];
+        for (int i = 0; i < n; i++) {
+            result[i] = this.CharAt(i);
+        }
+        return result;
+    }
+
     // Trim leading + trailing whitespace.
     public string Trim() {
         int n = this.Length;
