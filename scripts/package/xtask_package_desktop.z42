@@ -197,13 +197,7 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
 
     // RID-agnostic manifest (any host; no runtime pack). The single CI-merged
     // package carries every RID's apphost-<rid>; this per-RID piece carries one.
-    string m = "[package]\n";
-    m = m + "name        = \"z42-workload-desktop\"\n";
-    m = m + "kind        = \"workload-tooling\"\n";
-    m = m + "version     = \"" + version + "\"\n";
-    m = m + "abi-version = 1\n";
-    m = m + "profile     = \"" + profile + "\"\n";
-    m = m + "build-date  = \"" + _utcNow() + "\"\n\n";
+    string m = _workloadPkgHeader("z42-workload-desktop", version, "", profile, "");
     m = m + "[contents.platform]\n";
     m = m + "apphost-prefix = \"apphost-\"  # apphost-<rid> per target; cross-platform output\n";
     m = m + "host           = [\"*\"]\n";

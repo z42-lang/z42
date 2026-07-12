@@ -112,6 +112,12 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 `_runtimePkgScaffold` / `_copyAbiHeaders` / `_manifestPkgHeader` / `_desktopReleaseRids()`，
 平台差异留各自文件。约 -80 行；manifest 字段增删 5 处改 1 处。
 
+> **✅ manifest 头已收敛（2026-07-12）**：抽 `_workloadPkgHeader(name, version, rid, profile, buildHost)`
+> → `xtask_package.z42`，desktop/ios/android/wasm **4 个 workload manifest** 各收敛为 1 行（空 rid/
+> buildHost 自动省略）。逐字段核对输出字节匹配。runtime-pkg（desktop:259，无 `kind`）+ merged release
+> 结构不同、留 inline。剩 runtime-pkg scaffold / ABI headers / desktop RID 列表待做。
+> （本地编译验证受并行 session 的 `z42.io.Path.Join` 改动阻塞——CI 打包 job 生成 manifest 验证。）
+
 ### 2.6 golden 枚举器双份 ~110 行
 
 `xtask_test_vm.z42:275-406`（`_enumerateCasesF`）与 `xtask_test_dist.z42:362-466`

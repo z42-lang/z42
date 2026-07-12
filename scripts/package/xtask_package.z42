@@ -205,6 +205,24 @@ void _cargoRustc(bool rel, string target, string crateType) {
 
 // ── file assembly helpers ───────────────────────────────────────────────────
 
+// The shared `[package]` header for the workload manifests (desktop / ios / android
+// / wasm). Empty rid / buildHost are omitted (desktop has neither). Adding a workload
+// manifest field now changes one place instead of four (review §2.5). NOTE: does NOT
+// cover the runtime-pkg manifest (`z42-<rid>`, no `kind`) nor the merged release
+// manifest — those have distinct shapes and stay inline.
+string _workloadPkgHeader(string name, string version, string rid, string profile, string buildHost) {
+    string m = "[package]\n"
+        + "name        = \"" + name + "\"\n"
+        + "kind        = \"workload-tooling\"\n"
+        + "version     = \"" + version + "\"\n"
+        + "abi-version = 1\n";
+    if (rid.Length > 0) { m = m + "rid         = \"" + rid + "\"\n"; }
+    m = m + "profile     = \"" + profile + "\"\n"
+          + "build-date  = \"" + _utcNow() + "\"\n";
+    if (buildHost.Length > 0) { m = m + "build-host  = \"" + buildHost + "\"\n"; }
+    return m + "\n";
+}
+
 void _copyIfExists(string src, string dst) {
     if (File.Exists(src)) { File.Copy(src, dst); }
 }

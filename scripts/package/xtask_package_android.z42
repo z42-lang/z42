@@ -211,15 +211,7 @@ void _pkgCopyKtTree(string src, string dst) {
 void _pkgEmitManifestAndroidTooling(string root, string pkgDir, string rid, string version, string profile, string buildHost) {
     string minApi = _vRead(root, "platform.android.min_api");
     string tgtApi = _vRead(root, "platform.android.target_api");
-    string m = "[package]\n";
-    m = m + "name        = \"z42-workload-android\"\n";
-    m = m + "kind        = \"workload-tooling\"\n";
-    m = m + "version     = \"" + version + "\"\n";
-    m = m + "abi-version = 1\n";
-    m = m + "rid         = \"" + rid + "\"\n";
-    m = m + "profile     = \"" + profile + "\"\n";
-    m = m + "build-date  = \"" + _utcNow() + "\"\n";
-    m = m + "build-host  = \"" + buildHost + "\"\n\n";
+    string m = _workloadPkgHeader("z42-workload-android", version, rid, profile, buildHost);
     m = m + "[contents.platform]\n";
     m = m + "gradle-project = \".\"\n";
     m = m + "gradle-module  = \"z42vm\"\n";

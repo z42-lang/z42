@@ -133,15 +133,7 @@ int _packageIos(string root, string pkgDir, string rid, string version, string p
 
     // [3/3] manifest.toml (tooling — references the separate runtime pack)
     Console.WriteLine("[3/3] manifest.toml");
-    string m = "[package]\n";
-    m = m + "name        = \"z42-workload-ios\"\n";
-    m = m + "kind        = \"workload-tooling\"\n";
-    m = m + "version     = \"" + version + "\"\n";
-    m = m + "abi-version = 1\n";
-    m = m + "rid         = \"" + rid + "\"\n";
-    m = m + "profile     = \"" + profile + "\"\n";
-    m = m + "build-date  = \"" + _utcNow() + "\"\n";
-    m = m + "build-host  = \"" + hostRid + "\"\n\n";
+    string m = _workloadPkgHeader("z42-workload-ios", version, rid, profile, hostRid);
     m = m + "[contents.platform]\n";
     m = m + "swiftpm-manifest = \"Package.swift\"\n";
     m = m + "swift-sources    = \"Sources/Z42VM\"\n";

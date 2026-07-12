@@ -157,15 +157,7 @@ void _pkgEmitManifestWasm(string pkgDir, string rid, string version, string prof
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
     string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "");
     string dynamicList = _quotedExisting(Path.Join(pkgDir, "native"), "z42_wasm_bg.wasm", "");
-    string m = "[package]\n";
-    m = m + "name        = \"z42-workload-wasm\"\n";
-    m = m + "kind        = \"workload-tooling\"\n";
-    m = m + "version     = \"" + version + "\"\n";
-    m = m + "abi-version = 1\n";
-    m = m + "rid         = \"" + rid + "\"\n";
-    m = m + "profile     = \"" + profile + "\"\n";
-    m = m + "build-date  = \"" + _utcNow() + "\"\n";
-    m = m + "build-host  = \"" + buildHost + "\"\n\n";
+    string m = _workloadPkgHeader("z42-workload-wasm", version, rid, profile, buildHost);
     m = m + "[contents]\n";
     m = m + "bin         = [" + binList + "]\n";
     m = m + "libs        = [" + libsList + "]\n\n";
