@@ -787,6 +787,14 @@ jobs:
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
+      # cross-zpkg runs its multi-package fixtures on the DEBUG z42vm (+ compression
+      # cdylib); xtask-bootstrap-artifact only cargo-builds the release vm, so build
+      # the debug one here (target-dir is artifacts/build/runtime → debug/z42vm). The
+      # build-and-test legs got this for free via test-all's _buildDebugVmAndCompression.
+      - name: cargo build debug z42vm + cdylibs (cross-zpkg fixtures)
+        shell: bash
+        run: cargo build --locked -q --manifest-path src/runtime/Cargo.toml
+
       - name: cross-zpkg — INTERP mode
         shell: bash
         run: |
