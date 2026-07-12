@@ -1,0 +1,33 @@
+// fix-crash-cluster (2026-07-12): Dictionary.FindSlot used `if (h<0) h=-h`,
+// which leaves int.MinValue negative (−int.MinValue overflows back to
+// int.MinValue) → negative slot → array trap. Masking with `& 0x7FFFFFFF` is
+// always non-negative. A key whose GetHashCode() == int.MinValue must Set/Get
+// cleanly. review §2.1.
+namespace Z42CoreDictHashEdgeTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+// GetHashCode() == int.MinValue (built as -2147483647 - 1 to avoid relying on
+// an overflowing i32 literal). IEquatable<T> is required by Dictionary<TKey,_>.
+class MinHashKey : IEquatable<MinHashKey> {
+    public int Id;
+    public MinHashKey(int id) { this.Id = id; }
+    public bool Equals(MinHashKey other) { return this.Id == other.Id; }
+    override int GetHashCode() { return -2147483647 - 1; }
+    override bool Equals(object other) {
+        if (other is MinHashKey k) { return this.Id == k.Id; }
+        return false;
+    }
+}
+
+[Test]
+void test_dictionary_int_min_hash_no_trap() {
+    var d = new Dictionary<MinHashKey, int>();
+    var k = new MinHashKey(1);
+    d.Set(k, 42);                                   // FindSlot(int.MinValue) must not trap
+    Assert.Equal(42, d.Get(k));
+    Assert.True(d.ContainsKey(new MinHashKey(1)));  // distinct instance, same Id
+    Assert.Equal(1, d.Count);
+}

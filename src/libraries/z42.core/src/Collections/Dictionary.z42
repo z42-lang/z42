@@ -125,8 +125,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
 
     // 线性探测：返回 key 所在槽（若 occupied）或应放入的空槽。
     public int FindSlot(TKey key) {
-        int h = key.GetHashCode();
-        if (h < 0) h = -h;
+        // Mask off the sign bit rather than negating: `-h` overflows back to a
+        // negative for h == int.MinValue (GetHashCode()==int.MinValue) → negative
+        // slot → trap. `& 0x7FFFFFFF` is always non-negative.
+        int h = key.GetHashCode() & 0x7FFFFFFF;
         int slot = h % this.capacity;
         while (this.occupied[slot] && !this.keys[slot].Equals(key)) {
             slot = (slot + 1) % this.capacity;
