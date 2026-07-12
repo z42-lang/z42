@@ -99,3 +99,14 @@ void test_equals_basic() {
     BigInt c = new BigInt(43);
     Assert.False(a.Equals(c));
 }
+
+[Test]
+void test_equals_wrong_type_and_null() {
+    // Equals(object) must type-check before casting: a non-BigInt arg (or null)
+    // returns false rather than trapping on `(BigInt)other`. review §2.1.
+    BigInt b = BigInt.One;
+    Assert.False(b.Equals("1"));       // different type → false, not a cast trap
+    Assert.False(b.Equals(null));      // null → false
+    Assert.True(b.Equals(BigInt.One));
+    Assert.False(b.Equals(BigInt.Zero));
+}

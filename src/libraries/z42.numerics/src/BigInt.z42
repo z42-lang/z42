@@ -1637,10 +1637,14 @@ public class BigInt {
     }
 
     override bool Equals(object other) {
-        if (other == null) return false;
-        BigInt b = (BigInt)other;
-        if (this._sign != b._sign) return false;
-        return BigInt._magCmp(this._mag, b._mag) == 0;
+        // Type-check before comparing: an unchecked `(BigInt)other` cast traps
+        // when other is a different type (e.g. bigint.Equals("x")); Equals must
+        // return false, not crash. `is` covers null too (null is BigInt → false).
+        if (other is BigInt b) {
+            if (this._sign != b._sign) return false;
+            return BigInt._magCmp(this._mag, b._mag) == 0;
+        }
+        return false;
     }
 
     override int GetHashCode() {
