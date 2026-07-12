@@ -29,7 +29,7 @@
 | 文件 | 行数 | 超限 | 优先级 |
 |------|------|------|--------|
 | ~~`z42c.semantics/src/TypeChecker.z42`~~ | ✅ **1937→257**（拆 6 子绑定器 Overload/Member/Stmt/Expr/TypeFactsTc/DeclBinder，全 <500，change `extract-member-resolver` 2026-07-12）| 已解决 |
-| `z42c.syntax/src/Parser.z42` | 1739 | +1239 | 🔴 P1 |
+| ~~`z42c.syntax/src/Parser.z42`~~ | ✅ **1743→265**（拆 5 子解析器 Type/Expr/Stmt/Decl/Member，全 <500，change `split-parser-class` 2026-07-12）| 已解决 |
 | `z42c.semantics/src/IrGen.z42` | 1153 | +653 | 🔴 P1 |
 | `z42c.semantics/src/ExportedTypeExtractor.z42` | 887 | +387 | 🟠 P2 |
 | `z42c.semantics/src/ExprEmitter.z42` | 874 | +374 | 🟠 P2 |
@@ -197,7 +197,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 | # | 内容 | 子系统锁 | 状态 |
 |---|------|---------|------|
 | P1-1 | 拆 TypeChecker(1937 → 6 子绑定器 + Facade 257) | semantics | ✅ 2026-07-12（OverloadBinder/MemberResolver/StmtBinder/ExprTyper/TypeFactsTc/DeclBinder，全 <500，不动点 7/7）|
-| P1-2 | 拆 Parser(1739 → Expr/Stmt/Decl/Type 四个解析器)+ 其内超 60 行函数 | syntax | ⬜(可与 P1-1 并行) |
+| P1-2 | 拆 Parser(1743 → 5 子解析器 + mediator 265) | syntax | ✅ 2026-07-12（Type/Expr/Stmt/Decl/Member，全 <500，不动点 7/7）|
 | P1-3 | 拆 IrGen(1153)/ ExprEmitter(874)/ FunctionEmitter(633) | semantics | ⬜(排 P1-1 后) |
 
 ### P2 — 表驱动化 + 格式单源

@@ -21,7 +21,9 @@ public sealed class Parser {
     public int   _pendingGt;
     public TypeParser _typeP;             // review P1-2：类型子解析器（mediator backref）
     public ExprParser _exprP;             // review P1-2：表达式子解析器
-    public StmtParser _stmtP;             // review P1-2：语句子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
+    public StmtParser _stmtP;             // review P1-2：语句子解析器
+    public DeclParser _declP;             // review P1-2：声明子解析器
+    public MemberParser _memberP;         // review P1-2：成员子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
 
     public Parser(string src, string file) {
         this._lx = new Lexer(src, file);
@@ -32,6 +34,8 @@ public sealed class Parser {
         this._typeP = new TypeParser(this);
         this._exprP = new ExprParser(this);
         this._stmtP = new StmtParser(this);
+        this._declP = new DeclParser(this);
+        this._memberP = new MemberParser(this);
     }
 
     // 已 lex 的 token 流（add-file-level-incremental D8 性能修正，User 追认 2026-07-08）：
@@ -132,17 +136,17 @@ public sealed class Parser {
         while (this._peek().Kind != TokenKind.Eof) {
             int k = this._peek().Kind;
             if (k == TokenKind.Namespace) {
-                this._advance(); ns = this._parseQualifiedName(); hasNs = true; this._expectSemi();
+                this._advance(); ns = this._declP._parseQualifiedName(); hasNs = true; this._expectSemi();
                 continue;
             }
             if (k == TokenKind.Using) {
                 Span usp = this._peek().Span;
-                this._advance(); string un = this._parseQualifiedName(); this._expectSemi();
-                decls = this._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
+                this._advance(); string un = this._declP._parseQualifiedName(); this._expectSemi();
+                decls = this._declP._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
                 continue;
             }
-            AttrList attrs = this._parseAttributes();
-            string mods = this._parseModifiers();
+            AttrList attrs = this._declP._parseAttributes();
+            string mods = this._declP._parseModifiers();
             int dk = this._peek().Kind;
             Decl d = new UsingDecl("<error>", this._peek().Span);
             bool ok = true;
@@ -150,18 +154,18 @@ public sealed class Parser {
                 string kind = "class";
                 if (dk == TokenKind.Struct) { kind = "struct"; }
                 else if (dk == TokenKind.Interface) { kind = "interface"; }
-                d = this._parseTypeDecl(mods, kind);
+                d = this._declP._parseTypeDecl(mods, kind);
             } else if (dk == TokenKind.Impl) {
-                d = this._parseImplDecl(mods);
+                d = this._declP._parseImplDecl(mods);
             } else if (dk == TokenKind.Enum) {
-                d = this._parseEnum(mods);
+                d = this._declP._parseEnum(mods);
             } else if (dk == TokenKind.Record) {
-                d = this._parseRecord(mods);
+                d = this._declP._parseRecord(mods);
             } else if (dk == TokenKind.Delegate) {
-                d = this._parseDelegate(mods);
+                d = this._declP._parseDelegate(mods);
             } else if (this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
                 // 顶层自由函数：Type Name(params) { body }
-                d = this._parseTopLevelFunc(mods);
+                d = this._declP._parseTopLevelFunc(mods);
             } else {
                 this._diags.Error(DiagnosticCodes.UnexpectedToken, "expected declaration (class/struct/interface/enum/record/delegate/func)", this._peek().Span);
                 this._advance();
@@ -169,211 +173,32 @@ public sealed class Parser {
             }
             if (ok) {
                 if (attrs.Count > 0) { d = new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
-                decls = this._growDecls(decls, n); decls[n] = d; n = n + 1;
+                decls = this._declP._growDecls(decls, n); decls[n] = d; n = n + 1;
             }
         }
         return new CompilationUnit(hasNs, ns, decls, n, cusp);
     }
 
-    private Decl[] _growDecls(Decl[] a, int n) {
-        if (n < a.Length) { return a; }
-        Decl[] b = new Decl[a.Length * 2];
-        int i = 0; while (i < n) { b[i] = a[i]; i = i + 1; }
-        return b;
-    }
 
-    private string _parseQualifiedName() {
-        string s = this._peek().Text;
-        this._advance();
-        while (this._peek().Kind == TokenKind.Dot) {
-            this._advance();
-            s = s + "." + this._peek().Text;
-            this._advance();
-        }
-        return s;
-    }
 
     // 前置 attribute：连续的 `[ Name [(args)] [, Name2 ...] ]` 组（args 为表达式，命名参数即 AssignExpr）。
     // 仅在声明/成员起始位置调用（此处 `[` 不会与索引/数组类型歧义）。
-    private AttrList _parseAttributes() {
-        Span alsp = this._peek().Span;
-        Attr[] items = new Attr[4];
-        int n = 0;
-        while (this._peek().Kind == TokenKind.LBracket) {
-            this._advance();   // [
-            while (true) {
-                Span asp = this._peek().Span;
-                string name = this._parseQualifiedName();
-                // 泛型类型实参 `[Attr<E>]`（镜像 C# attribute TypeArg；dogfood: [ShouldThrow<TestFailure>]）。
-                // 在 (args) 之前——`<` 出现在属性名后即类型实参，非小于运算（声明起始位置无歧义）。
-                string typeArg = "";
-                if (this._peek().Kind == TokenKind.Lt) {
-                    this._advance();   // <
-                    typeArg = this._parseQualifiedName();
-                    this._expect(TokenKind.Gt, ">");
-                }
-                Expr[] args = new Expr[4];
-                int ac = 0;
-                if (this._peek().Kind == TokenKind.LParen) {
-                    this._advance();
-                    if (this._peek().Kind != TokenKind.RParen) {
-                        while (true) {
-                            if (ac == args.Length) {
-                                Expr[] b = new Expr[args.Length * 2];
-                                int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
-                                args = b;
-                            }
-                            // 命名实参 `name: value` → AssignExpr(ident, value)（镜像 C# 属性命名参数；
-                            // bind 期 _adaptArgs 按形参名重排）。peek 两 token：ident 紧跟 ':'。
-                            if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.Colon) {
-                                Span nsp = this._peek().Span;
-                                string argName = this._peek().Text;
-                                this._advance(); this._advance();   // name :
-                                Expr nval = this._exprP._parseExpr(0);
-                                args[ac] = new AssignExpr("=", new IdentExpr(argName, nsp), nval, nsp);
-                            } else {
-                                args[ac] = this._exprP._parseExpr(0);
-                            }
-                            ac = ac + 1;
-                            if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-                        }
-                    }
-                    this._expect(TokenKind.RParen, ")");
-                }
-                if (n == items.Length) {
-                    Attr[] b = new Attr[items.Length * 2];
-                    int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
-                    items = b;
-                }
-                items[n] = new Attr(name, args, ac, asp); items[n].TypeArg = typeArg; n = n + 1;
-                if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-            }
-            this._expect(TokenKind.RBracket, "]");
-        }
-        return new AttrList(items, n, alsp);
-    }
 
-    private string _parseModifiers() {
-        string s = "";
-        while (this._isModifier(this._peek().Kind)) {
-            if (s != "") { s = s + " "; }
-            s = s + this._peek().Text;
-            this._advance();
-        }
-        return s;
-    }
 
-    private bool _isModifier(int k) {
-        if (k == TokenKind.Public || k == TokenKind.Private || k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
-        if (k == TokenKind.Static || k == TokenKind.Abstract || k == TokenKind.Sealed || k == TokenKind.Override) { return true; }
-        if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
-        if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
-        return false;
-    }
 
     // mods 串（空格分隔）是否含指定修饰词。
-    private bool _modsHas(string mods, string w) {
-        if (mods == w) { return true; }
-        if (mods.StartsWith(w + " ")) { return true; }
-        if (mods.EndsWith(" " + w)) { return true; }
-        return mods.IndexOf(" " + w + " ") >= 0;
-    }
 
     // class / struct / interface 共用：消费关键字 + 名字 + 基类/接口列表 + 成员块。
     // 三者结构同构（仅 Kind 不同）；语义差异（struct 值类型、interface 仅签名）留给后端。
-    private Decl _parseTypeDecl(string mods, string kind) {
-        Span sp = this._peek().Span;
-        this._advance();   // class / struct / interface
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected type name", this._peek().Span); }
-        TypeParamList typeParams = this._typeP._parseTypeParams();
-        TypeExpr[] bases = new TypeExpr[0];
-        int bc = 0;
-        if (this._peek().Kind == TokenKind.Colon) {
-            TypeList bl = this._parseBaseList();
-            bases = bl.Items; bc = bl.Count;
-        }
-        WhereList wl = this._typeP._parseWhereClause();
-        this._expect(TokenKind.LBrace, "{");
-        Decl[] members = new Decl[16];
-        int mc = 0;
-        bool isIface = (kind == "interface");
-        while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-            Decl mem = this._parseMember(name);
-            // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
-            // multicast（MulticastAction/Func/Predicate）：add 体 `return this.X.Subscribe(h)`、
-            // remove 体 `this.X.Unsubscribe(h)`。interface：丢 backing field，仅留签名（无 body）。
-            if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
-                && this._isMulticastEventType((mem as FieldDecl).Type)) {
-                FieldDecl ev = mem as FieldDecl;
-                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
-                MethodDecl addM = this._synthEventAccessor(ev, true, !isIface);
-                MethodDecl rmM  = this._synthEventAccessor(ev, false, !isIface);
-                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
-                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
-            } else if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
-                && this._isSinglecastEventType((mem as FieldDecl).Type)) {
-                FieldDecl ev = mem as FieldDecl;
-                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
-                MethodDecl addM = this._synthSinglecastAccessor(ev, true, !isIface);
-                MethodDecl rmM  = this._synthSinglecastAccessor(ev, false, !isIface);
-                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
-                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
-            } else {
-                members = this._growDecls(members, mc); members[mc] = mem; mc = mc + 1;
-            }
-        }
-        this._expect(TokenKind.RBrace, "}");
-        return new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
-    }
 
     // event 字段类型是否多播（MulticastAction/Func/Predicate）→ 走 Subscribe/Unsubscribe 访问器合成。
-    private bool _isMulticastEventType(TypeExpr t) {
-        if (!(t is NamedType)) { return false; }
-        string n = (t as NamedType).Name;
-        return n == "MulticastAction" || n == "MulticastFunc" || n == "MulticastPredicate";
-    }
 
     // 合成单个 event 访问器（add_X / remove_X），multicast（镜像 C# SynthesizeClassEvent）：
     //   add_X(h): IDisposable { return this.X.Subscribe(h); }
     //   remove_X(h): void     { this.X.Unsubscribe(h); }
     // hasBody=false（interface）→ 仅签名。handler 类型 = Action/Func/Predicate<同型参>。
-    private MethodDecl _synthEventAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
-        Span sp = ev.Span;
-        NamedType evt = ev.Type as NamedType;
-        string handlerName = "Action";
-        if (evt.Name == "MulticastFunc") { handlerName = "Func"; }
-        else if (evt.Name == "MulticastPredicate") { handlerName = "Predicate"; }
-        TypeExpr handlerT = new NamedType(handlerName, evt.Args, evt.ArgCount, sp);
-        Param[] ps = new Param[1];
-        ps[0] = new Param(handlerT, "h", sp);
-        string mname = (isAdd ? "add_" : "remove_") + ev.Name;
-        TypeExpr ret = isAdd ? new NamedType("IDisposable", new TypeExpr[0], 0, sp)
-                             : new NamedType("void", new TypeExpr[0], 0, sp);
-        bool body = hasBody;
-        Stmt bodyStmt = null;
-        if (hasBody) {
-            Expr fieldRead = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
-            Expr subMember = new MemberExpr(fieldRead, isAdd ? "Subscribe" : "Unsubscribe", sp);
-            Expr[] callArgs = new Expr[1];
-            callArgs[0] = new IdentExpr("h", sp);
-            Expr call = new CallExpr(subMember, callArgs, 1, sp);
-            Stmt[] stmts = new Stmt[1];
-            if (isAdd) { stmts[0] = new ReturnStmt(true, call, sp); }
-            else { stmts[0] = new ExprStmt(call, sp); }
-            bodyStmt = new BlockStmt(stmts, 1, sp);
-        }
-        return new MethodDecl("public", false, false, ret, mname,
-            this._typeP._emptyTypeParams(), new WhereClause[0], 0, ps, 1, body, bodyStmt, null, 0, false, sp);
-    }
 
     // event 字段类型是否单播（Action/Func/Predicate）。
-    private bool _isSinglecastEventType(TypeExpr t) {
-        if (!(t is NamedType)) { return false; }
-        string n = (t as NamedType).Name;
-        return n == "Action" || n == "Func" || n == "Predicate";
-    }
 
     // 合成单播 event 访问器（D-7，镜像 C# SynthesizeClassEvent 单播分支）：
     //   add_X(h): IDisposable {
@@ -382,464 +207,36 @@ public sealed class Parser {
     //   }
     //   remove_X(h): void { if (DelegateOps.ReferenceEquals(this.X, h)) this.X = null; }
     // handler 类型 = 字段裸类型（Action<T> 自身）。hasBody=false（interface）→ 仅签名。
-    private MethodDecl _synthSinglecastAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
-        Span sp = ev.Span;
-        TypeExpr handlerT = ev.Type;
-        Param[] ps = new Param[1];
-        ps[0] = new Param(handlerT, "h", sp);
-        string mname = (isAdd ? "add_" : "remove_") + ev.Name;
-        TypeExpr ret = isAdd ? new NamedType("IDisposable", new TypeExpr[0], 0, sp)
-                             : new NamedType("void", new TypeExpr[0], 0, sp);
-        Stmt bodyStmt = null;
-        if (hasBody && isAdd) {
-            Expr fr = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
-            Expr nullCmp = new BinaryExpr("!=", fr, new NullLitExpr(sp), sp);
-            Expr[] ioeArgs = new Expr[1];
-            ioeArgs[0] = new StringLitExpr("\"single-cast event already bound\"", sp);
-            Expr ioeNew = new ObjNewExpr(new NamedType("InvalidOperationException", new TypeExpr[0], 0, sp), ioeArgs, 1, sp);
-            Stmt[] thr = new Stmt[1]; thr[0] = new ThrowStmt(ioeNew, sp);
-            Stmt ifThrow = new IfStmt(nullCmp, new BlockStmt(thr, 1, sp), false, new BlockStmt(new Stmt[0], 0, sp), sp);
-            Expr asgn = new AssignExpr("=", new MemberExpr(new IdentExpr("this", sp), ev.Name, sp), new IdentExpr("h", sp), sp);
-            Expr[] lamArgs = new Expr[1]; lamArgs[0] = new IdentExpr("h", sp);
-            Expr lamBody = new CallExpr(new MemberExpr(new IdentExpr("this", sp), "remove_" + ev.Name, sp), lamArgs, 1, sp);
-            Expr lam = new LambdaExpr(new LambdaParam[0], 0, false, lamBody, null, sp);
-            Expr[] fromArgs = new Expr[1]; fromArgs[0] = lam;
-            Expr disp = new CallExpr(new MemberExpr(new IdentExpr("Disposable", sp), "From", sp), fromArgs, 1, sp);
-            Stmt[] stmts = new Stmt[3];
-            stmts[0] = ifThrow;
-            stmts[1] = new ExprStmt(asgn, sp);
-            stmts[2] = new ReturnStmt(true, disp, sp);
-            bodyStmt = new BlockStmt(stmts, 3, sp);
-        } else if (hasBody) {
-            Expr fr = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
-            Expr[] eqArgs = new Expr[2]; eqArgs[0] = fr; eqArgs[1] = new IdentExpr("h", sp);
-            Expr refEq = new CallExpr(new MemberExpr(new IdentExpr("DelegateOps", sp), "ReferenceEquals", sp), eqArgs, 2, sp);
-            Expr asgnNull = new AssignExpr("=", new MemberExpr(new IdentExpr("this", sp), ev.Name, sp), new NullLitExpr(sp), sp);
-            Stmt[] clr = new Stmt[1]; clr[0] = new ExprStmt(asgnNull, sp);
-            Stmt ifClear = new IfStmt(refEq, new BlockStmt(clr, 1, sp), false, new BlockStmt(new Stmt[0], 0, sp), sp);
-            Stmt[] stmts = new Stmt[1]; stmts[0] = ifClear;
-            bodyStmt = new BlockStmt(stmts, 1, sp);
-        }
-        return new MethodDecl("public", false, false, ret, mname,
-            this._typeP._emptyTypeParams(), new WhereClause[0], 0, ps, 1, hasBody, bodyStmt, null, 0, false, sp);
-    }
 
     // impl <Trait> for <Target> { methods }  —— 跨包 trait 实现（port-z42c-impl-block）。
     // 镜像 C# ParseImplDecl：消费 impl → trait 类型 → for → target 类型 → 成员块（方法）。
     // 方法经 _parseMember（owner = target 简名）解析；extern 校验留给 semantics。
-    private Decl _parseImplDecl(string mods) {
-        Span sp = this._peek().Span;
-        this._advance();   // impl
-        TypeExpr traitTy = this._typeP._parseType();
-        this._expect(TokenKind.For, "for");
-        TypeExpr target = this._typeP._parseType();
-        string targetName = "";
-        if (target is NamedType) { targetName = (target as NamedType).Name; }
-        this._expect(TokenKind.LBrace, "{");
-        Decl[] methods = new Decl[8];
-        int mc = 0;
-        while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-            methods = this._growDecls(methods, mc); methods[mc] = this._parseMember(targetName); mc = mc + 1;
-        }
-        this._expect(TokenKind.RBrace, "}");
-        return new ImplDecl(traitTy, target, methods, mc, sp);
-    }
 
     // enum Color [: int] { Red, Green = 5, Blue }  —— 成员 name [= [-]int]；值仅捕获文本，自增/校验留给后端。
-    private Decl _parseEnum(string mods) {
-        Span sp = this._peek().Span;
-        this._advance();   // enum
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum name", this._peek().Span); }
-        bool hasBase = false;
-        TypeExpr baseType = this._typeP._emptyType();
-        if (this._peek().Kind == TokenKind.Colon) {
-            this._advance(); baseType = this._typeP._parseType(); hasBase = true;
-        }
-        this._expect(TokenKind.LBrace, "{");
-        EnumMember[] members = new EnumMember[8];
-        int mc = 0;
-        while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-            Span msp = this._peek().Span;
-            string mName = this._peek().Text;
-            if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-            else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum member name", this._peek().Span); this._advance(); }
-            bool hasValue = false;
-            string value = "";
-            if (this._peek().Kind == TokenKind.Eq) {
-                this._advance();
-                if (this._peek().Kind == TokenKind.Minus) { value = "-"; this._advance(); }
-                value = value + this._peek().Text;
-                if (this._peek().Kind == TokenKind.IntLiteral) { this._advance(); }
-                else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum value", this._peek().Span); }
-                hasValue = true;
-            }
-            if (mc == members.Length) {
-                EnumMember[] b = new EnumMember[members.Length * 2];
-                int i = 0; while (i < mc) { b[i] = members[i]; i = i + 1; }
-                members = b;
-            }
-            members[mc] = new EnumMember(mName, hasValue, value, msp); mc = mc + 1;
-            if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-        }
-        this._expect(TokenKind.RBrace, "}");
-        return new EnumDecl(mods, name, hasBase, baseType, members, mc, sp);
-    }
 
     // delegate R Name<T>(params) where ...;
-    private Decl _parseDelegate(string mods) {
-        Span sp = this._peek().Span;
-        this._advance();   // delegate
-        TypeExpr retType = this._typeP._parseType();
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected delegate name", this._peek().Span); }
-        TypeParamList typeParams = this._typeP._parseTypeParams();
-        ParamList pl = this._parseParamList();
-        WhereList wl = this._typeP._parseWhereClause();
-        this._expectSemi();
-        return new DelegateDecl(mods, retType, name, typeParams, pl.Items, pl.Count, wl.Items, wl.Count, sp);
-    }
 
     // 顶层自由函数：retType Name<T>(params) where ... { body }（命名空间级，无 this）。
-    private Decl _parseTopLevelFunc(string mods) {
-        Span sp = this._peek().Span;
-        TypeExpr retType = this._typeP._parseType();
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected function name", this._peek().Span); }
-        TypeParamList typeParams = this._typeP._parseTypeParams();
-        return this._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
-    }
 
     // record Name<T> [(pos params)] [: base] [where ...] { members }  /  record Name(...) ;
-    private Decl _parseRecord(string mods) {
-        Span sp = this._peek().Span;
-        this._advance();   // record
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected record name", this._peek().Span); }
-        TypeParamList typeParams = this._typeP._parseTypeParams();
-        Param[] pos = new Param[0];
-        int pc = 0;
-        if (this._peek().Kind == TokenKind.LParen) {
-            ParamList pl = this._parseParamList();
-            pos = pl.Items; pc = pl.Count;
-        }
-        TypeExpr[] bases = new TypeExpr[0];
-        int bc = 0;
-        if (this._peek().Kind == TokenKind.Colon) {
-            TypeList bl = this._parseBaseList();
-            bases = bl.Items; bc = bl.Count;
-        }
-        WhereList wl = this._typeP._parseWhereClause();
-        // 记录降级（镜像 C# TopLevelParser 位置式 record）：位置参数 → public 字段
-        // + primary ctor（`this.X = X` 赋值），再接显式块成员。产出 ClassDecl(Kind="record")
-        // 让下游 SymbolCollector/TypeChecker/IrGen 复用 class 机制（含 zbc TYPE 段 record flag）。
-        Decl[] members = new Decl[8];
-        int mc = 0;
-        int pi = 0;
-        while (pi < pc) {
-            members = this._growDecls(members, mc);
-            members[mc] = new FieldDecl("", pos[pi].Type, pos[pi].Name, false, null, pos[pi].Span);
-            mc = mc + 1;
-            pi = pi + 1;
-        }
-        if (pc > 0) {
-            Stmt[] cstmts = new Stmt[pc];
-            int ci = 0;
-            while (ci < pc) {
-                Expr tgt = new MemberExpr(new IdentExpr("this", pos[ci].Span), pos[ci].Name, pos[ci].Span);
-                Expr val = new IdentExpr(pos[ci].Name, pos[ci].Span);
-                cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, pos[ci].Span), pos[ci].Span);
-                ci = ci + 1;
-            }
-            BlockStmt cbody = new BlockStmt(cstmts, pc, sp);
-            members = this._growDecls(members, mc);
-            members[mc] = new MethodDecl("", false, true, this._typeP._emptyType(), name,
-                                         this._typeP._emptyTypeParams(), new WhereClause[0], 0,
-                                         pos, pc, true, cbody, new Expr[0], 0, false, sp);
-            mc = mc + 1;
-        }
-        if (this._peek().Kind == TokenKind.LBrace) {
-            this._advance();
-            while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-                members = this._growDecls(members, mc); members[mc] = this._parseMember(name); mc = mc + 1;
-            }
-            this._expect(TokenKind.RBrace, "}");
-        } else {
-            this._expectSemi();
-        }
-        return new ClassDecl("record", mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
-    }
 
-    private Decl _parseMember(string className) {
-        AttrList attrs = this._parseAttributes();
-        string mods = this._parseModifiers();
-        Decl d = this._parseMemberBody(mods, className);
-        if (attrs.Count > 0) { return new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
-        return d;
-    }
 
-    private Decl _parseMemberBody(string mods, string className) {
-        Span sp = this._peek().Span;
-        // 构造器：标识符(==类名) 紧跟 '('
-        if (this._peek().Kind == TokenKind.Identifier && this._peek().Text == className
-            && this._peekAt(1).Kind == TokenKind.LParen) {
-            string cname = this._peek().Text;
-            this._advance();
-            return this._parseMethodTail(mods, false, true, this._typeP._emptyType(), cname, this._typeP._emptyTypeParams(), sp);
-        }
-        TypeExpr type = this._typeP._parseType();
-        // GS5：索引器 `T this[params] { get {...} set {...} }`（`this` 是标识符不是关键字）
-        if (this._peek().Kind == TokenKind.Identifier && this._peek().Text == "this"
-            && this._peekAt(1).Kind == TokenKind.LBracket) {
-            return this._parseIndexer(mods, type, sp);
-        }
-        // 运算符重载 `public static T operator +(...)` → 方法名 op_Add 等（镜像 C#）。
-        if (this._peek().Kind == TokenKind.Operator) {
-            this._advance();   // 'operator'
-            string opSym = this._peek().Text;
-            this._advance();   // 运算符符号 token（+ - * / %）
-            string opName = Parser._operatorMethodName(opSym);
-            return this._parseMethodTail(mods, false, false, type, opName, this._typeP._emptyTypeParams(), sp);
-        }
-        string name = this._peek().Text;
-        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name", this._peek().Span); }
-        // 泛型方法 `T Make<T>(...)`：成员名后的 `<` 必为类型形参（字段不会有 `<`）。
-        TypeParamList mTypeParams = this._typeP._parseTypeParams();
-        if (this._peek().Kind == TokenKind.LParen) {
-            return this._parseMethodTail(mods, false, false, type, name, mTypeParams, sp);
-        }
-        if (this._peek().Kind == TokenKind.LBrace) {
-            return this._parseProperty(mods, type, name, sp);
-        }
-        bool hasInit = false;
-        Expr init = new NullLitExpr(sp);
-        if (this._peek().Kind == TokenKind.Eq) { this._advance(); init = this._exprP._parseExpr(0); hasInit = true; }
-        this._expectSemi();
-        // multicast event 字段无显式 init → 合成 `new MulticastXxx<...>()`。
-        // 单播 event（Action/Func/Predicate）backing 默认 null（OptionType 语义），不 auto-init。
-        if (!hasInit && this._modsHas(mods, "event") && this._isMulticastEventType(type)) {
-            init = new ObjNewExpr(type, new Expr[0], 0, sp); hasInit = true;
-        }
-        return new FieldDecl(mods, type, name, hasInit, init, sp);
-    }
 
     // 索引器 `T this[params] { get { body } set { body } }`（GS5）。
     // 下游 SymbolCollector/TypeChecker/IrGen/ExportedTypeExtractor 暂跳过——仅防 parse 崩溃。
-    private Decl _parseIndexer(string mods, TypeExpr retType, Span sp) {
-        this._advance();   // consume 'this'
-        this._expect(TokenKind.LBracket, "[");
-        Param[] params_ = new Param[4];
-        int pc = 0;
-        while (this._peek().Kind != TokenKind.RBracket && this._peek().Kind != TokenKind.Eof) {
-            if (pc > 0) { this._expect(TokenKind.Comma, ","); }
-            TypeExpr pt = this._typeP._parseType();
-            string pn = "";
-            if (this._peek().Kind == TokenKind.Identifier) { pn = this._peek().Text; this._advance(); }
-            params_[pc] = new Param(pt, pn, sp);
-            pc = pc + 1;
-        }
-        this._expect(TokenKind.RBracket, "]");
-        this._expect(TokenKind.LBrace, "{");
-        bool hasGet = false; Stmt getBody = new BlockStmt(new Stmt[0], 0, sp);
-        bool hasSet = false; Stmt setBody = new BlockStmt(new Stmt[0], 0, sp);
-        while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-            string acc = this._peek().Text;
-            if (this._peek().Kind == TokenKind.Identifier && acc == "get") {
-                this._advance(); getBody = this._stmtP._parseBlock(); hasGet = true;
-            } else if (this._peek().Kind == TokenKind.Identifier && acc == "set") {
-                this._advance(); setBody = this._stmtP._parseBlock(); hasSet = true;
-            } else {
-                this._diags.Error(DiagnosticCodes.ExpectedToken, "expected 'get' or 'set' in indexer", this._peek().Span);
-                this._advance();
-            }
-        }
-        this._expect(TokenKind.RBrace, "}");
-        return new IndexerDecl(mods, retType, params_, pc, hasGet, getBody, hasSet, setBody, sp);
-    }
 
     // auto-property `{ [vis]? get; [ [vis]? set; ] }` [= init;]。get/set 为上下文标识符（非关键字）。
-    private Decl _parseProperty(string mods, TypeExpr type, string name, Span sp) {
-        this._advance();   // {
-        bool hasGet = false; string getMods = "";
-        bool hasSet = false; string setMods = "";
-        while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-            string accMods = "";
-            while (this._isVisibilityModifier(this._peek().Kind)) {
-                if (accMods != "") { accMods = accMods + " "; }
-                accMods = accMods + this._peek().Text;
-                this._advance();
-            }
-            string acc = this._peek().Text;
-            if (this._peek().Kind == TokenKind.Identifier && (acc == "get" || acc == "set")) {
-                this._advance();
-                this._expectSemi();   // auto；自定义 body 延后
-                if (acc == "get") { hasGet = true; getMods = accMods; }
-                else { hasSet = true; setMods = accMods; }
-            } else {
-                this._diags.Error(DiagnosticCodes.ExpectedToken, "expected 'get' or 'set' accessor", this._peek().Span);
-                this._advance();
-            }
-        }
-        this._expect(TokenKind.RBrace, "}");
-        bool hasInit = false;
-        Expr init = new NullLitExpr(sp);
-        if (this._peek().Kind == TokenKind.Eq) {
-            this._advance(); init = this._exprP._parseExpr(0); hasInit = true; this._expectSemi();
-        }
-        return new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
-    }
 
-    private bool _isVisibilityModifier(int k) {
-        if (k == TokenKind.Public || k == TokenKind.Private) { return true; }
-        if (k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
-        return false;
-    }
 
     // 参数列表 `( T a, T b )`（消费两端括号）。method/ctor/func/delegate/record 位置参数共用。
-    public ParamList _parseParamList() {
-        Span sp = this._peek().Span;
-        this._expect(TokenKind.LParen, "(");
-        Param[] ps = new Param[8];
-        int pc = 0;
-        if (this._peek().Kind != TokenKind.RParen) {
-            while (true) {
-                // add-parameter-attribute-reflection：参数前置 `[Attr(...)]`（在 ref/type 之前）。
-                AttrList pattrs = null;
-                if (this._peek().Kind == TokenKind.LBracket) { pattrs = this._parseAttributes(); }
-                // add-params-varargs：`params` 修饰（在类型前）。末参约束（E0206）在循环外统一检查。
-                bool isParams = false;
-                Span paramsTok = this._peek().Span;
-                if (this._peek().Kind == TokenKind.Params) { this._advance(); isParams = true; }
-                bool isRef = false;
-                if (this._peek().Kind == TokenKind.Ref || this._peek().Kind == TokenKind.Out || this._peek().Kind == TokenKind.In) { this._advance(); isRef = true; }
-                TypeExpr pt = this._typeP._parseType();
-                string pn = this._peek().Text;
-                if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-                else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected parameter name", this._peek().Span); }
-                if (pc == ps.Length) {
-                    Param[] b = new Param[ps.Length * 2];
-                    int i = 0; while (i < pc) { b[i] = ps[i]; i = i + 1; }
-                    ps = b;
-                }
-                Param prm = new Param(pt, pn, pt.Span);
-                prm.IsRef = isRef;
-                prm.IsParams = isParams;
-                if (pattrs != null) { prm.Attrs = pattrs.Items; prm.AttrCount = pattrs.Count; }
-                if (this._peek().Kind == TokenKind.Eq) {   // GS1：默认参数值 `int x = expr`
-                    this._advance();
-                    prm.Default = this._exprP._parseExpr(0);
-                }
-                if (isParams) {
-                    // params 类型必须是数组 T[]（E0207）
-                    if (!(pt is ArrayType)) { this._diags.Error(DiagnosticCodes.ParamsNotArray, "'params' parameter type must be an array 'T[]'", pt.Span); }
-                    // params 不得与 ref/out 或默认值同现（E0208）
-                    if (isRef || prm.Default != null) { this._diags.Error(DiagnosticCodes.ParamsModifierConflict, "'params' cannot combine with 'ref'/'out' or a default value", paramsTok); }
-                }
-                ps[pc] = prm; pc = pc + 1;
-                if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-            }
-        }
-        // params 必须是最后一个参数（E0206）：任何标记 IsParams 但不在末位的报错。
-        int pk = 0;
-        while (pk < pc - 1) {
-            if (ps[pk].IsParams) { this._diags.Error(DiagnosticCodes.ParamsNotLast, "'params' must be the last parameter", ps[pk].Span); }
-            pk = pk + 1;
-        }
-        this._expect(TokenKind.RParen, ")");
-        return new ParamList(ps, pc, sp);
-    }
 
     // 基类/接口列表 `: A, B, C`（假定 peek==Colon）。
-    private TypeList _parseBaseList() {
-        Span sp = this._peek().Span;
-        this._advance();   // :
-        TypeExpr[] items = new TypeExpr[4];
-        int n = 0;
-        items[0] = this._typeP._parseType(); n = 1;
-        while (this._peek().Kind == TokenKind.Comma) {
-            this._advance();
-            if (n == items.Length) {
-                TypeExpr[] b = new TypeExpr[items.Length * 2];
-                int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
-                items = b;
-            }
-            items[n] = this._typeP._parseType(); n = n + 1;
-        }
-        return new TypeList(items, n, sp);
-    }
 
     // ctor 占位返回类型（永不 Dump）。
     // 运算符符号 → 重载方法名（镜像 C#：op_Add/op_Subtract/op_Multiply/op_Divide/op_Modulo）。
-    public static string _operatorMethodName(string op) {
-        if (op == "+") { return "op_Add"; }
-        if (op == "-") { return "op_Subtract"; }
-        if (op == "*") { return "op_Multiply"; }
-        if (op == "/") { return "op_Divide"; }
-        if (op == "%") { return "op_Modulo"; }
-        return "op_" + op;
-    }
 
 
     // method / ctor / 顶层 func 尾部：参数列表 + 可选 where + body（`{}`）或无体（`;`）。
-    public Decl _parseMethodTail(string mods, bool isFree, bool isCtor, TypeExpr retType, string name, TypeParamList typeParams, Span sp) {
-        ParamList pl = this._parseParamList();
-        WhereList wl = this._typeP._parseWhereClause();
-        // ctor 构造器初始化 `: base(args)` / `: this(args)` — 解析并存储（isCtor；
-        // 记录 base vs this：this 委托同类 ctor，base 调用基类 ctor）。
-        Expr[] baseArgs = new Expr[0];
-        int baseArgCount = 0;
-        bool isThisInit = false;
-        if (isCtor && this._peek().Kind == TokenKind.Colon) {
-            this._advance();   // :
-            if (this._peek().Kind == TokenKind.Identifier) {
-                if (this._peek().Text == "this") { isThisInit = true; }
-                this._advance();
-            }  // base / this
-            if (this._peek().Kind == TokenKind.LParen) {
-                this._advance();   // (
-                Expr[] ba = new Expr[4];
-                int ban = 0;
-                if (this._peek().Kind != TokenKind.RParen) {
-                    while (true) {
-                        if (ban == ba.Length) {
-                            Expr[] bg = new Expr[ba.Length * 2];
-                            int bi = 0; while (bi < ban) { bg[bi] = ba[bi]; bi = bi + 1; }
-                            ba = bg;
-                        }
-                        ba[ban] = this._exprP._parseExpr(0); ban = ban + 1;
-                        if (this._peek().Kind == TokenKind.Comma) { this._advance(); }
-                        else { break; }
-                    }
-                }
-                this._expect(TokenKind.RParen, ")");
-                baseArgs = ba; baseArgCount = ban;
-            }
-        }
-        bool hasBody = false;
-        Stmt body = new BlockStmt(new Stmt[0], 0, sp);
-        if (this._peek().Kind == TokenKind.LBrace) { body = this._stmtP._parseBlock(); hasBody = true; }
-        else if (this._peek().Kind == TokenKind.FatArrow) {
-            // 表达式体 `=> expr;`（此前未处理 → hasBody=false → 函数被丢弃）。非 void → `return expr;`；
-            // void → `expr;`（ExprStmt）。包成单语句 block 体，下游统一走 block 路径。
-            this._advance();   // =>
-            Span esp = this._peek().Span;
-            Expr ev = this._exprP._parseExpr(0);
-            this._expectSemi();
-            bool isVoid = !isCtor && retType is NamedType && (retType as NamedType).Name == "void";
-            Stmt[] one = new Stmt[1];
-            if (isVoid) { one[0] = new ExprStmt(ev, esp); }
-            else { one[0] = new ReturnStmt(true, ev, esp); }
-            body = new BlockStmt(one, 1, esp);
-            hasBody = true;
-        }
-        else { this._expectSemi(); }
-        return new MethodDecl(mods, isFree, isCtor, retType, name, typeParams, wl.Items, wl.Count, pl.Items, pl.Count, hasBody, body, baseArgs, baseArgCount, isThisInit, sp);
-    }
 
 
     // 类型形参声明 `<T>` / `<K, V>`（仅名字，单层；closing 单 `>`）。无 → 空 TypeParamList。

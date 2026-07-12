@@ -320,7 +320,7 @@ public sealed class StmtParser {
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
         else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected local function name", this._p._peek().Span); }
         TypeParamList tps = this._p._typeP._parseTypeParams();
-        Decl md = this._p._parseMethodTail("", true, false, type, name, tps, sp);
+        Decl md = this._p._memberP._parseMethodTail("", true, false, type, name, tps, sp);
         return new LocalFunctionStmt(md as MethodDecl, sp);
     }
 

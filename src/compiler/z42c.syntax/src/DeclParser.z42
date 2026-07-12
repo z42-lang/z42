@@ -1,0 +1,337 @@
+// 声明/成员子解析器（compiler-review P1-2：拆 Parser God-Class step4，收官）。
+// 顶层声明 + 类成员 + 参数/方法尾 + 事件合成。持 _p：游标原语 + _p._typeP/_exprP/_stmtP。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class DeclParser {
+    private Parser _p;
+    public DeclParser(Parser p) { this._p = p; }
+
+    private Decl[] _growDecls(Decl[] a, int n) {
+        if (n < a.Length) { return a; }
+        Decl[] b = new Decl[a.Length * 2];
+        int i = 0; while (i < n) { b[i] = a[i]; i = i + 1; }
+        return b;
+    }
+
+    private string _parseQualifiedName() {
+        string s = this._p._peek().Text;
+        this._p._advance();
+        while (this._p._peek().Kind == TokenKind.Dot) {
+            this._p._advance();
+            s = s + "." + this._p._peek().Text;
+            this._p._advance();
+        }
+        return s;
+    }
+
+    public AttrList _parseAttributes() {
+        Span alsp = this._p._peek().Span;
+        Attr[] items = new Attr[4];
+        int n = 0;
+        while (this._p._peek().Kind == TokenKind.LBracket) {
+            this._p._advance();   // [
+            while (true) {
+                Span asp = this._p._peek().Span;
+                string name = this._parseQualifiedName();
+                // 泛型类型实参 `[Attr<E>]`（镜像 C# attribute TypeArg；dogfood: [ShouldThrow<TestFailure>]）。
+                // 在 (args) 之前——`<` 出现在属性名后即类型实参，非小于运算（声明起始位置无歧义）。
+                string typeArg = "";
+                if (this._p._peek().Kind == TokenKind.Lt) {
+                    this._p._advance();   // <
+                    typeArg = this._parseQualifiedName();
+                    this._p._expect(TokenKind.Gt, ">");
+                }
+                Expr[] args = new Expr[4];
+                int ac = 0;
+                if (this._p._peek().Kind == TokenKind.LParen) {
+                    this._p._advance();
+                    if (this._p._peek().Kind != TokenKind.RParen) {
+                        while (true) {
+                            if (ac == args.Length) {
+                                Expr[] b = new Expr[args.Length * 2];
+                                int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                                args = b;
+                            }
+                            // 命名实参 `name: value` → AssignExpr(ident, value)（镜像 C# 属性命名参数；
+                            // bind 期 _adaptArgs 按形参名重排）。peek 两 token：ident 紧跟 ':'。
+                            if (this._p._peek().Kind == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Colon) {
+                                Span nsp = this._p._peek().Span;
+                                string argName = this._p._peek().Text;
+                                this._p._advance(); this._p._advance();   // name :
+                                Expr nval = this._p._exprP._parseExpr(0);
+                                args[ac] = new AssignExpr("=", new IdentExpr(argName, nsp), nval, nsp);
+                            } else {
+                                args[ac] = this._p._exprP._parseExpr(0);
+                            }
+                            ac = ac + 1;
+                            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+                        }
+                    }
+                    this._p._expect(TokenKind.RParen, ")");
+                }
+                if (n == items.Length) {
+                    Attr[] b = new Attr[items.Length * 2];
+                    int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                    items = b;
+                }
+                items[n] = new Attr(name, args, ac, asp); items[n].TypeArg = typeArg; n = n + 1;
+                if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+            }
+            this._p._expect(TokenKind.RBracket, "]");
+        }
+        return new AttrList(items, n, alsp);
+    }
+
+    public string _parseModifiers() {
+        string s = "";
+        while (this._isModifier(this._p._peek().Kind)) {
+            if (s != "") { s = s + " "; }
+            s = s + this._p._peek().Text;
+            this._p._advance();
+        }
+        return s;
+    }
+
+    private bool _isModifier(int k) {
+        if (k == TokenKind.Public || k == TokenKind.Private || k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
+        if (k == TokenKind.Static || k == TokenKind.Abstract || k == TokenKind.Sealed || k == TokenKind.Override) { return true; }
+        if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
+        if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
+        return false;
+    }
+
+    public bool _modsHas(string mods, string w) {
+        if (mods == w) { return true; }
+        if (mods.StartsWith(w + " ")) { return true; }
+        if (mods.EndsWith(" " + w)) { return true; }
+        return mods.IndexOf(" " + w + " ") >= 0;
+    }
+
+    private Decl _parseTypeDecl(string mods, string kind) {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // class / struct / interface
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected type name", this._p._peek().Span); }
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        TypeExpr[] bases = new TypeExpr[0];
+        int bc = 0;
+        if (this._p._peek().Kind == TokenKind.Colon) {
+            TypeList bl = this._parseBaseList();
+            bases = bl.Items; bc = bl.Count;
+        }
+        WhereList wl = this._p._typeP._parseWhereClause();
+        this._p._expect(TokenKind.LBrace, "{");
+        Decl[] members = new Decl[16];
+        int mc = 0;
+        bool isIface = (kind == "interface");
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            Decl mem = this._p._memberP._parseMember(name);
+            // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
+            // multicast（MulticastAction/Func/Predicate）：add 体 `return this.X.Subscribe(h)`、
+            // remove 体 `this.X.Unsubscribe(h)`。interface：丢 backing field，仅留签名（无 body）。
+            if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
+                && this._p._memberP._isMulticastEventType((mem as FieldDecl).Type)) {
+                FieldDecl ev = mem as FieldDecl;
+                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
+                MethodDecl addM = this._p._memberP._synthEventAccessor(ev, true, !isIface);
+                MethodDecl rmM  = this._p._memberP._synthEventAccessor(ev, false, !isIface);
+                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
+                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
+            } else if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
+                && this._p._memberP._isSinglecastEventType((mem as FieldDecl).Type)) {
+                FieldDecl ev = mem as FieldDecl;
+                if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
+                MethodDecl addM = this._p._memberP._synthSinglecastAccessor(ev, true, !isIface);
+                MethodDecl rmM  = this._p._memberP._synthSinglecastAccessor(ev, false, !isIface);
+                members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
+                members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
+            } else {
+                members = this._growDecls(members, mc); members[mc] = mem; mc = mc + 1;
+            }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+    }
+
+
+
+
+
+    private Decl _parseImplDecl(string mods) {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // impl
+        TypeExpr traitTy = this._p._typeP._parseType();
+        this._p._expect(TokenKind.For, "for");
+        TypeExpr target = this._p._typeP._parseType();
+        string targetName = "";
+        if (target is NamedType) { targetName = (target as NamedType).Name; }
+        this._p._expect(TokenKind.LBrace, "{");
+        Decl[] methods = new Decl[8];
+        int mc = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            methods = this._growDecls(methods, mc); methods[mc] = this._p._memberP._parseMember(targetName); mc = mc + 1;
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new ImplDecl(traitTy, target, methods, mc, sp);
+    }
+
+    private Decl _parseEnum(string mods) {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // enum
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum name", this._p._peek().Span); }
+        bool hasBase = false;
+        TypeExpr baseType = this._p._typeP._emptyType();
+        if (this._p._peek().Kind == TokenKind.Colon) {
+            this._p._advance(); baseType = this._p._typeP._parseType(); hasBase = true;
+        }
+        this._p._expect(TokenKind.LBrace, "{");
+        EnumMember[] members = new EnumMember[8];
+        int mc = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            Span msp = this._p._peek().Span;
+            string mName = this._p._peek().Text;
+            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+            else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum member name", this._p._peek().Span); this._p._advance(); }
+            bool hasValue = false;
+            string value = "";
+            if (this._p._peek().Kind == TokenKind.Eq) {
+                this._p._advance();
+                if (this._p._peek().Kind == TokenKind.Minus) { value = "-"; this._p._advance(); }
+                value = value + this._p._peek().Text;
+                if (this._p._peek().Kind == TokenKind.IntLiteral) { this._p._advance(); }
+                else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum value", this._p._peek().Span); }
+                hasValue = true;
+            }
+            if (mc == members.Length) {
+                EnumMember[] b = new EnumMember[members.Length * 2];
+                int i = 0; while (i < mc) { b[i] = members[i]; i = i + 1; }
+                members = b;
+            }
+            members[mc] = new EnumMember(mName, hasValue, value, msp); mc = mc + 1;
+            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new EnumDecl(mods, name, hasBase, baseType, members, mc, sp);
+    }
+
+    private Decl _parseDelegate(string mods) {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // delegate
+        TypeExpr retType = this._p._typeP._parseType();
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected delegate name", this._p._peek().Span); }
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        ParamList pl = this._p._memberP._parseParamList();
+        WhereList wl = this._p._typeP._parseWhereClause();
+        this._p._expectSemi();
+        return new DelegateDecl(mods, retType, name, typeParams, pl.Items, pl.Count, wl.Items, wl.Count, sp);
+    }
+
+    private Decl _parseTopLevelFunc(string mods) {
+        Span sp = this._p._peek().Span;
+        TypeExpr retType = this._p._typeP._parseType();
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected function name", this._p._peek().Span); }
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        return this._p._memberP._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
+    }
+
+    private Decl _parseRecord(string mods) {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // record
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected record name", this._p._peek().Span); }
+        TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        Param[] pos = new Param[0];
+        int pc = 0;
+        if (this._p._peek().Kind == TokenKind.LParen) {
+            ParamList pl = this._p._memberP._parseParamList();
+            pos = pl.Items; pc = pl.Count;
+        }
+        TypeExpr[] bases = new TypeExpr[0];
+        int bc = 0;
+        if (this._p._peek().Kind == TokenKind.Colon) {
+            TypeList bl = this._parseBaseList();
+            bases = bl.Items; bc = bl.Count;
+        }
+        WhereList wl = this._p._typeP._parseWhereClause();
+        // 记录降级（镜像 C# TopLevelParser 位置式 record）：位置参数 → public 字段
+        // + primary ctor（`this.X = X` 赋值），再接显式块成员。产出 ClassDecl(Kind="record")
+        // 让下游 SymbolCollector/TypeChecker/IrGen 复用 class 机制（含 zbc TYPE 段 record flag）。
+        Decl[] members = new Decl[8];
+        int mc = 0;
+        int pi = 0;
+        while (pi < pc) {
+            members = this._growDecls(members, mc);
+            members[mc] = new FieldDecl("", pos[pi].Type, pos[pi].Name, false, null, pos[pi].Span);
+            mc = mc + 1;
+            pi = pi + 1;
+        }
+        if (pc > 0) {
+            Stmt[] cstmts = new Stmt[pc];
+            int ci = 0;
+            while (ci < pc) {
+                Expr tgt = new MemberExpr(new IdentExpr("this", pos[ci].Span), pos[ci].Name, pos[ci].Span);
+                Expr val = new IdentExpr(pos[ci].Name, pos[ci].Span);
+                cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, pos[ci].Span), pos[ci].Span);
+                ci = ci + 1;
+            }
+            BlockStmt cbody = new BlockStmt(cstmts, pc, sp);
+            members = this._growDecls(members, mc);
+            members[mc] = new MethodDecl("", false, true, this._p._typeP._emptyType(), name,
+                                         this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
+                                         pos, pc, true, cbody, new Expr[0], 0, false, sp);
+            mc = mc + 1;
+        }
+        if (this._p._peek().Kind == TokenKind.LBrace) {
+            this._p._advance();
+            while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+                members = this._growDecls(members, mc); members[mc] = this._p._memberP._parseMember(name); mc = mc + 1;
+            }
+            this._p._expect(TokenKind.RBrace, "}");
+        } else {
+            this._p._expectSemi();
+        }
+        return new ClassDecl("record", mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+    }
+
+
+
+
+
+    public bool _isVisibilityModifier(int k) {
+        if (k == TokenKind.Public || k == TokenKind.Private) { return true; }
+        if (k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
+        return false;
+    }
+
+
+    private TypeList _parseBaseList() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // :
+        TypeExpr[] items = new TypeExpr[4];
+        int n = 0;
+        items[0] = this._p._typeP._parseType(); n = 1;
+        while (this._p._peek().Kind == TokenKind.Comma) {
+            this._p._advance();
+            if (n == items.Length) {
+                TypeExpr[] b = new TypeExpr[items.Length * 2];
+                int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                items = b;
+            }
+            items[n] = this._p._typeP._parseType(); n = n + 1;
+        }
+        return new TypeList(items, n, sp);
+    }
+
+
+
+}
