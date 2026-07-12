@@ -105,22 +105,8 @@ int _testCompiler(bool noBuild) {
     string buildRoot = Path.Join(root, "artifacts/build/compiler");
     string[] members = _compilerMembers(root);
 
-    int ok = 0;
-    int fail = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string zpkg = Path.Join(buildRoot,
-            members[i] + "/" + profile + "/dist/" + members[i] + ".zpkg");
-        if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
-            long size = File.GetSize(zpkg);
-            Console.WriteLine("    ✓ " + members[i] + ".zpkg (" + size.ToString() + " bytes)");
-            ok = ok + 1;
-        } else {
-            Console.WriteLine("    ✗ " + members[i] + ".zpkg — workspace product missing at " + zpkg);
-            fail = fail + 1;
-        }
-        i = i + 1;
-    }
+    int fail = _verifyMemberZpkgs(buildRoot, members, profile);
+    int ok = members.Length - fail;
 
     Console.WriteLine("");
     Console.WriteLine("test compiler: " + ok.ToString() + "/"

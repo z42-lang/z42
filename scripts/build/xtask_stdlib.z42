@@ -91,23 +91,8 @@ int _buildStdlibCore() {
 
     // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────
     string[] libs = _stdlibList(root);
-    int ok = 0;
-    int fail = 0;
-    int i = 0;
-    while (i < libs.Length) {
-        string zpkg = Path.Join(buildLibsRoot,
-            libs[i] + "/" + profile + "/dist/" + libs[i] + ".zpkg");
-        if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
-            long size = File.GetSize(zpkg);
-            _vDetailed("    ✓ " + libs[i] + ".zpkg (" + size.ToString() + " bytes)");
-            ok = ok + 1;
-        } else {
-            Console.WriteLine("    ✗ " + libs[i] + ".zpkg — workspace product missing at " + zpkg);
-            fail = fail + 1;
-        }
-        i = i + 1;
-    }
-
+    int fail = _verifyMemberZpkgs(buildLibsRoot, libs, profile);
+    int ok = libs.Length - fail;
     _vlog(1, "  build-stdlib: " + ok.ToString() + " succeeded, " + fail.ToString() + " failed");
     if (fail > 0) { return 1; }
 

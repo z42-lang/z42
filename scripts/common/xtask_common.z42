@@ -65,6 +65,27 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs) {
         .Run().ExitCode;
 }
 
+// Verify each member's canonical workspace product
+// `<buildRoot>/<member>/<profile>/dist/<member>.zpkg` exists + is non-empty.
+// Prints per-member ✓ (verbosity-gated, --detailed) / ✗ (always). Returns the fail
+// count (0 = all present). Shared by `build stdlib` + `test compiler` verify loops.
+int _verifyMemberZpkgs(string buildRoot, string[] members, string profile) {
+    int fail = 0;
+    int i = 0;
+    while (i < members.Length) {
+        string zpkg = Path.Join(buildRoot,
+            members[i] + "/" + profile + "/dist/" + members[i] + ".zpkg");
+        if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
+            _vDetailed("    ✓ " + members[i] + ".zpkg (" + File.GetSize(zpkg).ToString() + " bytes)");
+        } else {
+            Console.WriteLine("    ✗ " + members[i] + ".zpkg — workspace product missing at " + zpkg);
+            fail = fail + 1;
+        }
+        i = i + 1;
+    }
+    return fail;
+}
+
 // (_sh removed 2026-06-30: the generic shell-string passthrough is gone — its
 // last caller, `run`, is now a native Process spawn. The few remaining bash
 // invocations elsewhere run SPECIFIC committed .sh scripts (install-z42.sh
