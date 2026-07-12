@@ -184,7 +184,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 
 | # | 内容 | 子系统锁 | 状态 |
 |---|------|---------|------|
-| P1-1 | 拆 TypeChecker(1844 → 按职责 5 类)+ 其内超 60 行函数 | semantics | ⬜ |
+| P1-1 | 拆 TypeChecker(1937 → 按职责 5 类)+ 其内超 60 行函数 | semantics | 🟡 step1（OverloadBinder 抽出+拆法验证，2026-07-12；剩 Member/Stmt/Expr 三步）|
 | P1-2 | 拆 Parser(1739 → Expr/Stmt/Decl/Type 四个解析器)+ 其内超 60 行函数 | syntax | ⬜(可与 P1-1 并行) |
 | P1-3 | 拆 IrGen(1153)/ ExprEmitter(874)/ FunctionEmitter(633) | semantics | ⬜(排 P1-1 后) |
 

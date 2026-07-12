@@ -1,7 +1,10 @@
 # Tasks: 拆 TypeChecker God-Class（refactor）
 
-> 状态：🟡 进行中（步骤 0+1 已验证并提交）| 创建：2026-07-12
-> 子系统锁：`compiler`（semantics）——已持锁；与队列 change 先后见 proposal Open Questions
+> 状态：🟢 已完成（step 1 里程碑：验证拆法 + 抽 OverloadBinder）| 完成：2026-07-12
+> **本 change 收窄归档为「第一步」**：验证 EmitContext 式 mediator 拆法可行（不动点 7/7）+
+> 抽出 OverloadBinder。**步骤 2–4（MemberResolver / StmtBinder / ExprTyper 收敛 Facade）+ 叶子助手
+> 抽 TypeFactsTc 转后续 change**（P1-1 未完，TypeChecker 仍 1703 行 > 500 硬限）。因 User 将优先级
+> 转向 P2-2 / P3-5（同占 semantics 锁），故在此干净里程碑释放锁。
 
 ## ⚠️ 执行期方案修订（design integrity：择更简路径）
 - **不引入独立 `TypeCheckContext`**：改用 **TypeChecker 自身作 mediator**——子绑定器持 `_tc`
