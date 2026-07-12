@@ -1,5 +1,7 @@
 namespace Std.Collections;
 
+using Std;
+
 // Generic LIFO stack (L3-G4d — stdlib generic export).
 // Backing T[] with amortised O(1) Push/Pop and exponential growth.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
@@ -28,11 +30,17 @@ public class Stack<T> : IBasicCollection<T> {
     public void AddOne(T item) { this.Push(item); }
 
     public T Pop() {
+        if (this.count == 0) {
+            throw new Exception("Stack.Pop: stack is empty");
+        }
         this.count = this.count - 1;
         return this.items[this.count];
     }
 
     public T Peek() {
+        if (this.count == 0) {
+            throw new Exception("Stack.Peek: stack is empty");
+        }
         return this.items[this.count - 1];
     }
 

@@ -14,3 +14,49 @@ using Std.Collections;
 void test_stack_basic_collection_contract() {
     BasicCollectionContract.Run("Stack<int>", new Stack<int>());
 }
+
+// fix-queue-stack-empty-guard (2026-07-12): Pop/Peek on an empty stack used
+// to drive count to -1 and index items[-1] (trap / garbage). They now throw,
+// matching same-package PriorityQueue/LinkedList.
+[Test]
+void test_stack_pop_empty_throws() {
+    var s = new Stack<int>();
+    bool caught = false;
+    try {
+        s.Pop();
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.Equal(0, s.Count());   // count must stay 0, not go negative
+}
+
+[Test]
+void test_stack_peek_empty_throws() {
+    var s = new Stack<int>();
+    bool caught = false;
+    try {
+        s.Peek();
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_stack_drain_then_pop_throws() {
+    var s = new Stack<int>();
+    s.Push(1);
+    s.Push(2);
+    Assert.Equal(2, s.Pop());
+    Assert.Equal(1, s.Pop());
+    Assert.Equal(0, s.Count());
+    bool caught = false;
+    try {
+        s.Pop();   // one past empty — must throw, not underflow
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.Equal(0, s.Count());
+}

@@ -1,5 +1,7 @@
 namespace Std.Collections;
 
+using Std;
+
 // Generic FIFO queue (L3-G4d — stdlib generic export).
 // Ring-buffer over T[] with amortised O(1) Enqueue/Dequeue.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
@@ -33,6 +35,9 @@ public class Queue<T> : IBasicCollection<T> {
     public void AddOne(T item) { this.Enqueue(item); }
 
     public T Dequeue() {
+        if (this.count == 0) {
+            throw new Exception("Queue.Dequeue: queue is empty");
+        }
         T item = this.items[this.head];
         this.head = (this.head + 1) % this.capacity;
         this.count = this.count - 1;
@@ -40,6 +45,9 @@ public class Queue<T> : IBasicCollection<T> {
     }
 
     public T Peek() {
+        if (this.count == 0) {
+            throw new Exception("Queue.Peek: queue is empty");
+        }
         return this.items[this.head];
     }
 

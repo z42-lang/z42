@@ -14,3 +14,49 @@ using Std.Collections;
 void test_queue_basic_collection_contract() {
     BasicCollectionContract.Run("Queue<int>", new Queue<int>());
 }
+
+// fix-queue-stack-empty-guard (2026-07-12): Dequeue/Peek on an empty queue
+// used to read a stale slot and drive count to -1 (silent state corruption).
+// They now throw, matching same-package PriorityQueue/LinkedList.
+[Test]
+void test_queue_dequeue_empty_throws() {
+    var q = new Queue<int>();
+    bool caught = false;
+    try {
+        q.Dequeue();
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.Equal(0, q.Count());   // count must stay 0, not go negative
+}
+
+[Test]
+void test_queue_peek_empty_throws() {
+    var q = new Queue<int>();
+    bool caught = false;
+    try {
+        q.Peek();
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_queue_drain_then_dequeue_throws() {
+    var q = new Queue<int>();
+    q.Enqueue(1);
+    q.Enqueue(2);
+    Assert.Equal(1, q.Dequeue());
+    Assert.Equal(2, q.Dequeue());
+    Assert.Equal(0, q.Count());
+    bool caught = false;
+    try {
+        q.Dequeue();   // one past empty — must throw, not underflow
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.Equal(0, q.Count());
+}
