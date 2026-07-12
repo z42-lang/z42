@@ -68,3 +68,21 @@ void test_array_mixed_numbers() {
     Assert.Equal(-3L, v.At(2).AsLong());
     Assert.EqualApprox(150.0, v.At(3).AsDouble(), 1e-9);
 }
+
+// fix-json-bigint-overflow-fallback (2026-07-12, review §2.2): an integer that
+// is valid JSON but exceeds i64 used to escape as a bare long.Parse overflow
+// exception. It now falls back to a (lossy) double, matching serde_json.
+[Test]
+void test_integer_overflow_falls_back_to_double() {
+    // 10^20 > i64 max (~9.22e18): must parse as double, not throw.
+    var v = JsonValue.Parse("100000000000000000000");
+    Assert.True(v.IsDouble());
+    Assert.EqualApprox(1.0e20, v.AsDouble(), 1.0e6);
+}
+
+[Test]
+void test_max_i64_still_parses_as_long() {
+    // exactly i64 max stays a long (no premature double fallback).
+    var v = JsonValue.Parse("9223372036854775807");
+    Assert.Equal(9223372036854775807L, v.AsLong());
+}

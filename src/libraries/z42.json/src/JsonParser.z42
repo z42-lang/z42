@@ -366,8 +366,15 @@ public sealed class JsonParser {
             return JsonValue.OfDouble(double.Parse(raw));
         }
         // Try i64; on overflow fall back to f64 (lossy — matches serde_json).
-        // long.Parse throws on overflow — wrap in catch to fallback.
-        return JsonValue.OfLong(long.Parse(raw));
+        // long.Parse throws on overflow, so a valid-but-huge JSON integer must
+        // be caught here and re-parsed as double rather than escaping as a bare
+        // exception. `raw` is already validated as an integer, so the only way
+        // long.Parse fails is overflow → double.Parse always succeeds.
+        try {
+            return JsonValue.OfLong(long.Parse(raw));
+        } catch (Exception e) {
+            return JsonValue.OfDouble(double.Parse(raw));
+        }
     }
 
     // ── Object ───────────────────────────────────────────────────────────
