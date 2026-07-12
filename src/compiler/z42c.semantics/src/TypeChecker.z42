@@ -20,6 +20,7 @@ public sealed class TypeChecker {
     public MemberResolver _member;         // God-Class 拆分 step2：成员解析子绑定器
     public StmtBinder _stmt;               // God-Class 拆分 step3：语句绑定子绑定器
     public ExprTyper _expr;                // God-Class 拆分 step4：表达式类型检查子绑定器
+    public DeclBinder _decl;               // God-Class 拆分 step5：声明绑定编排子绑定器
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
@@ -30,131 +31,39 @@ public sealed class TypeChecker {
         this._member = new MemberResolver(this);
         this._stmt = new StmtBinder(this);
         this._expr = new ExprTyper(this);
+        this._decl = new DeclBinder(this);
     }
 
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
         var model = new SemanticModel(symbols);
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
         this._constraints.Resolve(cu, symbols);   // Pass 0.5：泛型 where 约束解析（2B，镜像 C# ResolveAllWhereConstraints）
-        this._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
+        this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") { this._bindClass(model, symbols, c); }
+                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") { this._decl._bindClass(model, symbols, c); }
             } else if (d is MethodDecl) {
                 MethodDecl m = d as MethodDecl;
-                this._bindFreeFunc(model, symbols, m);
+                this._decl._bindFreeFunc(model, symbols, m);
             } else if (d is ImplDecl) {
-                this._bindImpl(model, symbols, d as ImplDecl);   // port-z42c-impl-block 2b
+                this._decl._bindImpl(model, symbols, d as ImplDecl);   // port-z42c-impl-block 2b
             }
             i = i + 1;
         }
-        this._synthCtors(model, symbols, cu);
+        this._decl._synthCtors(model, symbols, cu);
         return model;
     }
 
     // 合成隐式 ctor 体（镜像 C# EmitImplicitCtor + CollectChainFieldInits）：
     // 类无显式实例 ctor 但本类或本地祖先有实例字段 init 时，发 `<ctKey>.<Name>` 体——
     // 沿基类链（root→self）的 `this.field = init` 赋值（无 base 调用，整链内联）。IrGen 据此发函数。
-    private void _synthCtors(SemanticModel model, SymbolTable symbols, CompilationUnit cu) {
-        StrMap clsMap = new StrMap();   // 简单名 → ClassDecl（本地 class/struct/record）
-        int i0 = 0;
-        while (i0 < cu.DeclCount) {
-            Decl d0 = this._unwrap(cu.Decls[i0]);
-            if (d0 is ClassDecl) {
-                ClassDecl cc = d0 as ClassDecl;
-                if (cc.Kind == "class" || cc.Kind == "struct" || cc.Kind == "record") { clsMap.Put(cc.Name, cc); }
-            }
-            i0 = i0 + 1;
-        }
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if ((c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") && !this._hasExplicitInstanceCtor(c)) {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = symbols.GetClass(ctKey);
-                    if (ct != null) {
-                        // 收集祖先链（self→root）
-                        ClassDecl[] chain = new ClassDecl[8]; int chainN = 0;
-                        StrMap seen = new StrMap();
-                        ClassDecl cur = c;
-                        Z42ClassType curCt = ct;
-                        while (cur != null && !seen.ContainsKey(cur.Name)) {
-                            seen.Put(cur.Name, "1");
-                            if (chainN == chain.Length) { ClassDecl[] b = new ClassDecl[chain.Length * 2]; int z = 0; while (z < chainN) { b[z] = chain[z]; z = z + 1; } chain = b; }
-                            chain[chainN] = cur; chainN = chainN + 1;
-                            if (curCt == null || !curCt.HasBase || curCt.BaseName == "" || !clsMap.ContainsKey(curCt.BaseName)) { cur = null; }
-                            else { cur = clsMap.Get(curCt.BaseName) as ClassDecl; curCt = symbols.GetClass(curCt.BaseName); }
-                        }
-                        // 绑定环境：this + 全部字段（含继承，_passInheritFields 已并入）
-                        var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                        env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int fk = 0;
-                        while (fk < fnames.Length) { FieldSymbol fs = ct.Fields.Get(fnames[fk]) as FieldSymbol; env.Define(fnames[fk], fs.FieldType); fk = fk + 1; }
-                        // root→self 顺序绑定字段 init 赋值
-                        BoundStmt[] inits = new BoundStmt[16]; int ic = 0;
-                        int chx = chainN - 1;
-                        while (chx >= 0) {
-                            ClassDecl cd = chain[chx];
-                            Z42ClassType cdCt = symbols.GetClass(cd.Name);
-                            int mj = 0;
-                            while (mj < cd.MemberCount) {
-                                Decl mem = this._unwrap(cd.Members[mj]);
-                                if (mem is FieldDecl) {
-                                    FieldDecl fd = mem as FieldDecl;
-                                    FieldSymbol fsym = (cdCt != null) ? (cdCt.Fields.Get(fd.Name) as FieldSymbol) : null;
-                                    if (fd.HasInit && fsym != null && !fsym.IsStatic) {
-                                        Expr tgt = new MemberExpr(new IdentExpr("this", fd.Span), fd.Name, fd.Span);
-                                        Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
-                                        if (ic == inits.Length) { BoundStmt[] b2 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b2[z] = inits[z]; z = z + 1; } inits = b2; }
-                                        inits[ic] = new BoundExprStmt(this._expr._bindExpr(asn, env), fd.Span); ic = ic + 1;
-                                    }
-                                }
-                                mj = mj + 1;
-                            }
-                            chx = chx - 1;
-                        }
-                        if (ic > 0) { model.AddBody(ctKey + "." + c.Name, new BoundBlock(inits, ic, c.Span)); }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
 
-    private bool _hasExplicitInstanceCtor(ClassDecl c) {
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl m = this._unwrap(c.Members[j]);
-            if (m is MethodDecl) {
-                MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && !this._hasWordTc(md.Mods, "static")) { return true; }
-            }
-            j = j + 1;
-        }
-        return false;
-    }
 
     // 运算符符号 → 重载方法名（与 Parser._operatorMethodName 一致；"" 表不可重载）。
-    public string _operatorMethodNameTc(string op) {
-        if (op == "+") { return "op_Add"; }
-        if (op == "-") { return "op_Subtract"; }
-        if (op == "*") { return "op_Multiply"; }
-        if (op == "/") { return "op_Divide"; }
-        if (op == "%") { return "op_Modulo"; }
-        return "";
-    }
 
-    private bool _hasWordTc(string mods, string w) {
-        if (mods == "") { return false; }
-        return (" " + mods + " ").IndexOf(" " + w + " ") >= 0;
-    }
 
     // add-type-based-overloads 根因修复：SymbolCollector 用 first-wins `ct.Methods.Put(regName, ...)` 注册方法——
     // 同 (name,arity) ≥2 的重载若 Canon 归一后撞出同一个 mangled RegKey（如 f(int) vs f(i32)，或
@@ -168,291 +77,25 @@ public sealed class TypeChecker {
     // 重载 mangling 仅类方法有）。同名多定义会静默覆盖，随后 `ExportedTypeExtractor._extractFunc`
     // 用 `GetFunc(name)` 取到错 arity 的符号 → `md.Params` / `sig.ParamTypes` 越界 null → 崩。
     // 这里在类型检查期显式报重复定义，把那个隐晦崩溃变成清晰诊断（同一 CU 内检测）。
-    private void _checkDuplicateFreeFunctions(CompilationUnit cu) {
-        StrMap seen = new StrMap();
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is MethodDecl) {
-                MethodDecl m = d as MethodDecl;
-                if (seen.ContainsKey(m.Name)) {
-                    this._diags.Error(DiagnosticCodes.DuplicateDeclaration,
-                        "duplicate top-level function `" + m.Name + "` — free functions do not overload; "
-                        + "give them distinct names", m.Span);
-                } else {
-                    seen.Put(m.Name, "1");
-                }
-            }
-            i = i + 1;
-        }
-    }
 
-    private void _checkDuplicateStaticOverloads(ClassDecl c) {
-        StrMap seenArity = new StrMap();   // (static|inst)$name$arity → 首次见
-        StrMap dupArity  = new StrMap();   // 同键 → 该 arity ≥2 个方法
-        int i = 0;
-        while (i < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[i]);
-            if (mem is MethodDecl) {
-                MethodDecl md = mem as MethodDecl;
-                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
-                    string ak = this._dupCheckKey(md);
-                    if (seenArity.ContainsKey(ak)) { dupArity.Put(ak, "1"); }
-                    else { seenArity.Put(ak, "1"); }
-                }
-            }
-            i = i + 1;
-        }
-        StrMap seenKey = new StrMap();
-        i = 0;
-        while (i < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[i]);
-            if (mem is MethodDecl) {
-                MethodDecl md = mem as MethodDecl;
-                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
-                    string ak = this._dupCheckKey(md);
-                    if (dupArity.ContainsKey(ak)) {
-                        if (seenKey.ContainsKey(md.RegKey)) {
-                            this._diags.Error(DiagnosticCodes.DuplicateDeclaration,
-                                "duplicate overload `" + md.Name + "` — parameter types are identical once " +
-                                "aliases (e.g. int/i32) and nullability are normalized", md.Span);
-                        } else {
-                            seenKey.Put(md.RegKey, "1");
-                        }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
 
     // 重复检测的 arity 预扫键：static/instance 分桶前缀，避免同名静态与实例方法（本就非法，见别处检测）
     // 在这里被误判为同一组重载。
-    private string _dupCheckKey(MethodDecl md) {
-        string bucket = this._hasWordTc(md.Mods, "static") ? "s$" : "i$";
-        return bucket + md.Name + "$" + md.ParamCount.ToString();
-    }
 
     // impl-block 方法体绑定（port-z42c-impl-block 2b，镜像 _bindClass 的 MethodDecl 分支）：
     // 方法 this=target、target 字段入 scope；body 键 `<target>.<mkey>`（IrGen 2c 同键发函数）。
-    private void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
-        string targetName = "";
-        if (im.TargetType is NamedType) { targetName = (im.TargetType as NamedType).Name; }
-        if (targetName == "" || !symbols.HasClass(targetName)) { return; }
-        Z42ClassType ct = symbols.GetClass(targetName);
-        int j = 0;
-        while (j < im.MethodCount) {
-            if (im.Methods[j] is MethodDecl) {
-                MethodDecl md = im.Methods[j] as MethodDecl;
-                if (md.HasBody) {
-                    string mkey = md.Name + "$" + md.ParamCount.ToString();
-                    if (md.RegKey != "") { mkey = md.RegKey; }                       // type-based 重载：用注册键
-                    else if (!ct.Methods.ContainsKey(mkey)) { mkey = md.Name; }
-                    MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
-                    int mtpc = md.TypeParams.Count;
-                    string[] allParams = this._mergeParams(new string[0], 0, md.TypeParams.Names, mtpc);
-                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, mtpc);
-                    if (ms != null && !ms.IsStatic) {
-                        env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int k = 0;
-                        while (k < fnames.Length) {
-                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
-                            env.Define(fnames[k], fs.FieldType);
-                            k = k + 1;
-                        }
-                    }
-                    BoundStmt body = this._bindMethodBody(symbols, env, md);
-                    model.AddBody(targetName + "." + mkey, body);
-                }
-            }
-            j = j + 1;
-        }
-    }
 
-    private Decl _unwrap(Decl d) {
+    public Decl _unwrap(Decl d) {
         if (d is AttributedDecl) { AttributedDecl ad = d as AttributedDecl; return ad.Inner; }
         return d;
     }
 
-    private void _bindClass(SemanticModel model, SymbolTable symbols, ClassDecl c) {
-        // Arity-mangle：泛型类若以 Name$N 键注册，优先取该 CT。
-        string ctKey = c.Name;
-        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
-        Z42ClassType ct = symbols.GetClass(ctKey);
-        this._checkDuplicateStaticOverloads(c);
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[j]);
-            if (mem is FieldDecl) {                                  // 静态字段 init（SA-3）
-                FieldDecl fd = mem as FieldDecl;
-                FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
-                if (fd.HasInit && fsym != null && fsym.IsStatic) {
-                    var fenv = TypeEnv.Root(symbols);
-                    model.AddStaticInit(c.Name, fd.Name, this._expr._bindExpr(fd.Init, fenv));
-                }
-            } else if (mem is MethodDecl) {
-                MethodDecl md = mem as MethodDecl;
-                if (md.HasBody) {                       // G11：ctor（IsCtor）也绑体——ms 已收集（名=类名，ret void），this+字段入 scope
-                    // GS3：重载方法以 Name$arity 键存于 ct.Methods；先试 Name$arity，再 bare name（镜像 C# regName 逻辑）。
-                    // add-type-based-overloads：type-based 重载用注册键（md.RegKey）。
-                    string mkey = md.Name + "$" + md.ParamCount.ToString();
-                    if (md.RegKey != "") { mkey = md.RegKey; }
-                    else if (!ct.Methods.ContainsKey(mkey)) { mkey = md.Name; }
-                    MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
-                    // 活跃类型形参 = 类的 + 方法自身的（2A-2）。
-                    int mtpc = md.TypeParams.Count;
-                    string[] allParams = this._mergeParams(c.TypeParams.Names, c.TypeParams.Count, md.TypeParams.Names, mtpc);
-                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, c.TypeParams.Count + mtpc);
-                    if (!ms.IsStatic) {
-                        env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int k = 0;
-                        while (k < fnames.Length) {
-                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
-                            env.Define(fnames[k], fs.FieldType);
-                            k = k + 1;
-                        }
-                    }
-                    BoundStmt body = this._bindMethodBody(symbols, env, md);
-                    // 实例 ctor：注入实例字段初始化器（`int x=1`）到体首（base 调用后、用户体前）。
-                    // 此前完全未注入 → 字段停留类型默认值（got 0/null）。仅 ctor-exists 路径；
-                    // ctor-less 类的合成 ctor 待 follow-up。
-                    if (md.IsCtor && !ms.IsStatic && !md.IsThisInit) { body = this._injectFieldInits(c, ct, env, body); }
-                    model.AddBody(ctKey + "." + mkey, body);   // GS3：body 键用 mkey（重载时=Name$arity）；arity-mangle 时用 ctKey（Name$N）
-                }
-            } else if (mem is IndexerDecl) {
-                // get_Item / set_Item 体绑定（IndexerDecl lowering；镜像 C# IndexerDecl 处理）。
-                IndexerDecl id = mem as IndexerDecl;
-                if (id.HasGet) {
-                    var getEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                    getEnv.Define("this", ct);
-                    string[] gfns = ct.Fields.Keys();
-                    int gfk = 0;
-                    while (gfk < gfns.Length) { FieldSymbol gfs = ct.Fields.Get(gfns[gfk]) as FieldSymbol; getEnv.Define(gfns[gfk], gfs.FieldType); gfk = gfk + 1; }
-                    int gp = 0;
-                    while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
-                    Z42Type gret = getEnv.ResolveType(id.RetType);
-                    model.AddBody(ctKey + ".get_Item", this._stmt._bindStmt(id.GetBody, getEnv, gret));
-                }
-                if (id.HasSet) {
-                    var setEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                    setEnv.Define("this", ct);
-                    string[] sfns = ct.Fields.Keys();
-                    int sfk = 0;
-                    while (sfk < sfns.Length) { FieldSymbol sfs = ct.Fields.Get(sfns[sfk]) as FieldSymbol; setEnv.Define(sfns[sfk], sfs.FieldType); sfk = sfk + 1; }
-                    int sp = 0;
-                    while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
-                    setEnv.Define("value", setEnv.ResolveType(id.RetType));
-                    model.AddBody(ctKey + ".set_Item", this._stmt._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
-                }
-            }
-            j = j + 1;
-        }
-    }
 
-    private void _bindFreeFunc(SemanticModel model, SymbolTable symbols, MethodDecl md) {
-        if (md.HasBody) {
-            // 顶层泛型函数携自身型参（classFlag=false）。
-            var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count);
-            BoundStmt body = this._bindMethodBody(symbols, env, md);
-            model.AddBody(md.Name, body);
-        }
-    }
 
-    private string[] _mergeParams(string[] a, int ac, string[] b, int bc) {
-        string[] r = new string[ac + bc];
-        int i = 0;
-        while (i < ac) { r[i] = a[i]; i = i + 1; }
-        int j = 0;
-        while (j < bc) { r[ac + j] = b[j]; j = j + 1; }
-        return r;
-    }
 
     // 实例字段初始化器注入：把 `this.field = init`（声明序）绑定后前置到 ctor 体首。
     // env 已含 this + 字段（调用方 ctor 绑定时建立）。空则返回原体。
-    private BoundStmt _injectFieldInits(ClassDecl c, Z42ClassType ct, TypeEnv env, BoundStmt body) {
-        BoundStmt[] inits = new BoundStmt[c.MemberCount];
-        int ic = 0;
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[j]);
-            if (mem is FieldDecl) {
-                FieldDecl fd = mem as FieldDecl;
-                FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
-                if (fd.HasInit && fsym != null && !fsym.IsStatic) {
-                    Expr tgt = new MemberExpr(new IdentExpr("this", fd.Span), fd.Name, fd.Span);
-                    Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
-                    inits[ic] = new BoundExprStmt(this._expr._bindExpr(asn, env), fd.Span);
-                    ic = ic + 1;
-                }
-            }
-            j = j + 1;
-        }
-        if (ic == 0) { return body; }
-        BoundStmt[] orig = new BoundStmt[1]; orig[0] = body; int origN = 1;
-        if (body is BoundBlock) { BoundBlock bb = body as BoundBlock; orig = bb.Stmts; origN = bb.Count; }
-        BoundStmt[] merged = new BoundStmt[ic + origN];
-        int m = 0;
-        while (m < ic) { merged[m] = inits[m]; m = m + 1; }
-        int k = 0;
-        while (k < origN) { merged[ic + k] = orig[k]; k = k + 1; }
-        return new BoundBlock(merged, ic + origN, body.Span);
-    }
 
-    private BoundStmt _bindMethodBody(SymbolTable symbols, TypeEnv env, MethodDecl md) {
-        int p = 0;
-        while (p < md.ParamCount) {
-            env.Define(md.Params[p].Name, env.ResolveType(md.Params[p].Type));
-            p = p + 1;
-        }
-        Z42Type ret = env.ResolveType(md.RetType);
-        BoundStmt body = this._stmt._bindStmt(md.Body, env, ret);
-        // ctor 初始化调用：ctor + BaseArgCount > 0 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
-        // IsThisInit → `: this(args)` 委托同类 ctor（TargetCls = curCls）；
-        // 否则 → `: base(args)` 调用基类 ctor（TargetCls = baseCls）。镜像 C# FunctionEmitter
-        // BoundThisCtorArgs / BoundBaseCtorArgs 两分支。
-        if (md.IsCtor && md.BaseArgCount > 0) {
-            Z42Type thisType = env.LookupVar("this");
-            if (thisType is Z42ClassType) {
-                Z42ClassType curCls = thisType as Z42ClassType;
-                Z42ClassType targetCls = null;
-                string targetName = "";
-                if (md.IsThisInit) {
-                    targetCls = curCls;
-                    targetName = curCls.Name();
-                } else if (curCls.HasBase && curCls.BaseName != "") {
-                    targetCls = symbols.GetClass(curCls.BaseName);
-                    targetName = curCls.BaseName;
-                }
-                if (targetCls != null) {
-                    string bKey = this._overload._ctorKey(targetCls, md.BaseArgCount);
-                    BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
-                    callArgs[0] = new BoundIdent("this", thisType, md.Span);
-                    int ba = 0;
-                    while (ba < md.BaseArgCount) { callArgs[ba + 1] = this._expr._bindExpr(md.BaseArgs[ba], env); ba = ba + 1; }
-                    BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, bKey,
-                                                        callArgs, md.BaseArgCount + 1, new Z42VoidType(), md.Span);
-                    BoundExprStmt baseStmt = new BoundExprStmt(baseCall, md.Span);
-                    BoundStmt[] stmts = null;
-                    int sc = 0;
-                    if (body is BoundBlock) {
-                        BoundBlock bb = body as BoundBlock;
-                        stmts = new BoundStmt[bb.Count + 1];
-                        stmts[0] = baseStmt;
-                        int si = 0;
-                        while (si < bb.Count) { stmts[si + 1] = bb.Stmts[si]; si = si + 1; }
-                        sc = bb.Count + 1;
-                    } else {
-                        stmts = new BoundStmt[2];
-                        stmts[0] = baseStmt; stmts[1] = body; sc = 2;
-                    }
-                    return new BoundBlock(stmts, sc, md.Span);
-                }
-            }
-        }
-        return body;
-    }
 
     // _bindForeach（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
 
@@ -539,14 +182,6 @@ public sealed class TypeChecker {
     }
 
     // 浮点字面量类型：f/F 后缀 → float，否则 double（d/D/m/M 归 double）。
-    public Z42Type _floatLitType(string text) {
-        int n = text.Length;
-        if (n > 0) {
-            char last = text.CharAt(n - 1);
-            if (last == 'f' || last == 'F') { return new Z42PrimType("float"); }
-        }
-        return new Z42PrimType("double");
-    }
 
     // ════ 成员字段访问（1C）═══════════════════════════════════════════════════
 
@@ -559,36 +194,6 @@ public sealed class TypeChecker {
     // 字段查找：本类 → base 链（迭代）。
 
     // 赋值兼容（含类继承 subclass→base）。error/unknown 任一侧吸收（防级联）。非 class 走 Z42Type.IsAssignableTo。
-    public bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
-        if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return true; }
-        if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return true; }
-        // GS6: 泛型类型参数（T）类型擦除——仅当恰好一侧是 GenericParamType 时放行（T→concrete 或 concrete→T）。
-        // 两侧均为 GenericParamType（K→V）走 IsAssignableTo 判同名；两侧均为 concrete 走普通路径。
-        if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return true; }
-        // GS6: 任何类型均可赋给 object（通用基类）
-        if ((to is Z42PrimType) && (to.Name() == "object")) { return true; }
-        if (from.IsAssignableTo(to)) { return true; }
-        if ((from is Z42ClassType) && (to is Z42ClassType)) {
-            return symbols.IsSubclassOf(from.Name(), to.Name());
-        }
-        if ((from is Z42ClassType) && (to is Z42InterfaceType)) {   // class→iface（port-z42c-interface；单向）
-            return symbols.Implements(from.Name(), to.Name());
-        }
-        if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {   // generic class instance → iface
-            return symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name());
-        }
-        if ((from is Z42InstantiatedType) && (to is Z42ClassType)) {   // generic class instance → base class
-            return symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name());
-        }
-        if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {   // `this` (bare class) → instantiated return type
-            return from.Name() == (to as Z42InstantiatedType).Def.Name();
-        }
-        // GS6: 数值 prim 互相窄化（int→u8 等，stdlib 二进制格式大量使用）—— 信任程序员，运行期截断
-        if ((from is Z42PrimType) && (to is Z42PrimType)) {
-            if (TypeChecker._isNumericPrim(from.Name()) && TypeChecker._isNumericPrim(to.Name())) { return true; }
-        }
-        return false;
-    }
 
 
 
@@ -597,69 +202,14 @@ public sealed class TypeChecker {
 
     // prim 名 → stdlib 包装类 BCL 简名（镜像 C# WellKnownTypes/TypeRegistry：int→Int32 等，
     // 取代旧 CapitalizeFirst 启发式——`int→Int` 错，真名是 `Int32`；string→String 巧合相同）。
-    public static string _primWrapper(string n) {
-        if (n == "int"    || n == "i32") { return "Int32"; }
-        if (n == "long"   || n == "i64") { return "Int64"; }
-        if (n == "short"  || n == "i16") { return "Int16"; }
-        if (n == "sbyte"  || n == "i8")  { return "SByte"; }
-        if (n == "byte"   || n == "u8")  { return "Byte"; }
-        if (n == "ushort" || n == "u16") { return "UInt16"; }
-        if (n == "uint"   || n == "u32") { return "UInt32"; }
-        if (n == "ulong"  || n == "u64") { return "UInt64"; }
-        if (n == "float"  || n == "f32") { return "Single"; }
-        if (n == "double" || n == "f64") { return "Double"; }
-        if (n == "bool") { return "Boolean"; }
-        if (n == "char") { return "Char"; }
-        if (n == "string") { return "String"; }
-        return TypeChecker._capFirst(n);   // 其它（已是 PascalCase 或未知）→ 首字母大写回退
-    }
 
     // GS6: 判断是否为 prim 关键字（_bindMemberCall 静态路由用）。
-    public static bool _isPrimKeyword(string n) {
-        if (n == "int"    || n == "i32")  { return true; }
-        if (n == "long"   || n == "i64")  { return true; }
-        if (n == "short"  || n == "i16")  { return true; }
-        if (n == "sbyte"  || n == "i8")   { return true; }
-        if (n == "byte"   || n == "u8")   { return true; }
-        if (n == "ushort" || n == "u16")  { return true; }
-        if (n == "uint"   || n == "u32")  { return true; }
-        if (n == "ulong"  || n == "u64")  { return true; }
-        if (n == "float"  || n == "f32")  { return true; }
-        if (n == "double" || n == "f64")  { return true; }
-        if (n == "bool"   || n == "char") { return true; }
-        if (n == "string") { return true; }
-        return false;
-    }
 
     // GS6: 判断是否为数值 prim（_isAssignable 窄化用）。
-    private static bool _isNumericPrim(string n) {
-        if (n == "int"    || n == "i32")  { return true; }
-        if (n == "long"   || n == "i64")  { return true; }
-        if (n == "short"  || n == "i16")  { return true; }
-        if (n == "sbyte"  || n == "i8")   { return true; }
-        if (n == "byte"   || n == "u8")   { return true; }
-        if (n == "ushort" || n == "u16")  { return true; }
-        if (n == "uint"   || n == "u32")  { return true; }
-        if (n == "ulong"  || n == "u64")  { return true; }
-        if (n == "float"  || n == "f32")  { return true; }
-        if (n == "double" || n == "f64")  { return true; }
-        if (n == "char") { return true; }
-        return false;
-    }
 
     // prim 名 → 首字母大写（_primWrapper 的回退）。
-    private static string _capFirst(string name) {
-        if (name.Length == 0) { return name; }
-        string head = name.Substring(0, 1).ToUpper();
-        return head + name.Substring(1, name.Length - 1);
-    }
 
     // 两分支公共类型（三目 / ??）：互为可赋取较宽，否则取左（C# 报错；1E 简化）。
-    public Z42Type _commonType(Z42Type a, Z42Type b, SymbolTable symbols) {
-        if (this._isAssignable(a, b, symbols)) { return b; }
-        if (this._isAssignable(b, a, symbols)) { return a; }
-        return a;
-    }
 
     // default(T)（GS7 / D-8b-3 Phase 2）：泛型类型参数 → BoundDefault(paramIndex)；其他 → BoundDefault(-1)。
 

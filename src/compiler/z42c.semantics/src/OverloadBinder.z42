@@ -198,7 +198,7 @@ public sealed class OverloadBinder {
                 bool ok = true;
                 int t = sig.ParamsFrom;
                 while (t < argCount) {
-                    if (!this._tc._isAssignable(args[t].Type(), at.Elem, symbols)) { ok = false; }
+                    if (!TypeFactsTc._isAssignable(args[t].Type(), at.Elem, symbols)) { ok = false; }
                     t = t + 1;
                 }
                 if (ok) {

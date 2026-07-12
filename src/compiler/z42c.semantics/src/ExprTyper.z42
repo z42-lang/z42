@@ -30,7 +30,7 @@ public sealed class ExprTyper {
         }
         if (e is FloatLitExpr) {
             FloatLitExpr lit = e as FloatLitExpr;
-            return new BoundLitFloat(lit.Value, this._tc._floatLitType(lit.Value), lit.Span);
+            return new BoundLitFloat(lit.Value, TypeFactsTc._floatLitType(lit.Value), lit.Span);
         }
         if (e is StringLitExpr) {
             StringLitExpr lit = e as StringLitExpr;
@@ -93,7 +93,7 @@ public sealed class ExprTyper {
                 string binop = a.Op.Substring(0, a.Op.Length - 1);
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
-            if (!this._tc._isAssignable(value.Type(), target.Type(), env.Symbols)) {
+            if (!TypeFactsTc._isAssignable(value.Type(), target.Type(), env.Symbols)) {
                 this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                     "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
             }
@@ -146,7 +146,7 @@ public sealed class ExprTyper {
                 else { lpts[li] = new Z42UnknownType(); }
                 li = li + 1;
             }
-            return this._bindLambda(lam2, new Z42FuncType(lpts, lam2.ParamCount, new Z42UnknownType()), env);
+            return this._tc._stmt._bindLambda(lam2, new Z42FuncType(lpts, lam2.ParamCount, new Z42UnknownType()), env);
     }
 
     private BoundExpr _bindIndex(IndexExpr ix, TypeEnv env) {
@@ -197,7 +197,7 @@ public sealed class ExprTyper {
             this._tc._requireBool(cond.Type(), "ternary", t.Cond.Span);
             BoundExpr thenE = this._bindExpr(t.Then, env);
             BoundExpr elseE = this._bindExpr(t.Else, env);
-            return new BoundConditional(cond, thenE, elseE, this._tc._commonType(thenE.Type(), elseE.Type(), env.Symbols), t.Span);
+            return new BoundConditional(cond, thenE, elseE, TypeFactsTc._commonType(thenE.Type(), elseE.Type(), env.Symbols), t.Span);
     }
 
     private BoundExpr _bindRefArg(RefArgExpr ra, TypeEnv env) {
@@ -339,7 +339,7 @@ public sealed class ExprTyper {
         }
         // null 合并 a ?? b → 公共类型（不在拓宽表内）。
         if (bin.Op == "??") {
-            return new BoundBinary("??", left, right, this._tc._commonType(lt, rt, env.Symbols), bin.Span);
+            return new BoundBinary("??", left, right, TypeFactsTc._commonType(lt, rt, env.Symbols), bin.Span);
         }
         // 字符串拼接特例（任一侧 string）：先于查表，镜像 C# CheckBinary 前置。
         if (bin.Op == "+") {
@@ -352,7 +352,7 @@ public sealed class ExprTyper {
         // add-type-based-overloads 8.1a：迁移到 _resolveOverload（type-mangled 决议），修复同 arity
         // 多重载操作符（如 op_Add(Vec,Vec) 与 op_Add(Vec,int)）此前走旧 arity-only _overloadKey
         // 查不到 mangled 键、派发失败的遗留空洞（op_X 是静态方法，本就该走与其余 23 处一致的决议）。
-        string opMethod = this._tc._operatorMethodNameTc(bin.Op);
+        string opMethod = TypeFactsTc._operatorMethodNameTc(bin.Op);
         if (opMethod != "" && lt is Z42ClassType) {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
@@ -383,84 +383,6 @@ public sealed class ExprTyper {
         }
         this._tc._checkOperand(rule.Left, rule.Requirement, ot, u.Op, u.Operand.Span);
         return new BoundUnary(u.Op, operand, BinaryTypeTable.ResultType(rule.Out, ot, ot), u.Span);
-    }
-
-    public BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
-        if (lam.ParamCount != expected.ParamCount) {
-            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                "lambda arity " + lam.ParamCount.ToString() + " != expected " + expected.ParamCount.ToString(), lam.Span);
-        }
-        string[] pnames = new string[lam.ParamCount];
-        Z42Type[] ptypes = new Z42Type[lam.ParamCount];
-        TypeEnv lenv = env.PushScope();
-        int i = 0;
-        while (i < lam.ParamCount) {
-            pnames[i] = lam.Params[i].Name;
-            Z42Type pt = new Z42UnknownType();
-            if (lam.Params[i].HasType) { pt = env.ResolveType(lam.Params[i].Type); }
-            else if (i < expected.ParamCount) { pt = expected.ParamTypes[i]; }
-            ptypes[i] = pt;
-            lenv.Define(pnames[i], pt);
-            i = i + 1;
-        }
-        // 嵌套 lambda：保存外层 frame（绑完恢复），并把内层对「外层非局部变量」的捕获
-        // **透传**给外层——外层须把该变量捕获进自己 env，内层经外层 env 间接取
-        // （ExprEmitter._captureEnvIdx）。原共享 _lambdaCaps（无 save/restore）意外做了透传，
-        // 但丢外层自身在内层前/后的捕获；简单 save/restore 修了后者却丢透传（破 closure_l3_capture
-        // case 4：`f=()=>{ g=()=>k2*2; return g() }`，f 不直接用 k2 仅 g 用 → f 必须透传捕获 k2）。
-        // 二者兼顾：save/restore + 透传。
-        bool savedActive = this._tc._lambdaActive;
-        StrMap savedLocals = this._tc._lambdaLocals;
-        BoundCapture[] savedCaps = this._tc._lambdaCaps; int savedCapCount = this._tc._lambdaCapCount;
-        this._tc._lambdaActive = true;
-        this._tc._lambdaLocals = new StrMap();
-        i = 0;
-        while (i < lam.ParamCount) { this._tc._lambdaLocals.Put(pnames[i], ptypes[i]); i = i + 1; }
-        this._tc._lambdaCaps = new BoundCapture[2];
-        this._tc._lambdaCapCount = 0;
-        BoundExpr exprBody = null;
-        BoundStmt blockBody = null;
-        if (lam.HasBlock) { blockBody = this._tc._stmt._bindStmt(lam.BlockBody, lenv, expected.Ret); }
-        else { exprBody = this._bindExpr(lam.ExprBody, lenv); }
-        int thisCapCount = this._tc._lambdaCapCount;
-        BoundCapture[] caps = new BoundCapture[thisCapCount];
-        i = 0;
-        while (i < thisCapCount) { caps[i] = this._tc._lambdaCaps[i]; i = i + 1; }
-        // 恢复外层 frame
-        this._tc._lambdaActive = savedActive;
-        this._tc._lambdaLocals = savedLocals;
-        this._tc._lambdaCaps = savedCaps; this._tc._lambdaCapCount = savedCapCount;
-        // 透传：内层捕获中**不属于外层局部**的变量 → 外层也须捕获（add-if-absent，镜像捕获钩子）。
-        if (savedActive) {
-            int ti = 0;
-            while (ti < thisCapCount) {
-                string cn = caps[ti].Name;
-                if (!this._tc._lambdaLocals.ContainsKey(cn)) {
-                    int hi = 0 - 1; int ci = 0;
-                    while (ci < this._tc._lambdaCapCount) { if (this._tc._lambdaCaps[ci].Name == cn) { hi = ci; } ci = ci + 1; }
-                    if (hi < 0) {
-                        if (this._tc._lambdaCapCount == this._tc._lambdaCaps.Length) {
-                            BoundCapture[] gb = new BoundCapture[this._tc._lambdaCaps.Length * 2];
-                            int gk = 0; while (gk < this._tc._lambdaCapCount) { gb[gk] = this._tc._lambdaCaps[gk]; gk = gk + 1; }
-                            this._tc._lambdaCaps = gb;
-                        }
-                        this._tc._lambdaCaps[this._tc._lambdaCapCount] = new BoundCapture(cn, caps[ti].CapType);
-                        this._tc._lambdaCapCount = this._tc._lambdaCapCount + 1;
-                    }
-                }
-                ti = ti + 1;
-            }
-        }
-        // 返回类型推断（call-arg lambda 无 expected 时 expected.Ret=Unknown，镜像 C#）：
-        // 仅 expr-body 从表达式类型推断（void call 得 void）；block-body 保留 Unknown
-        // （C# 对无 expected 的 block lambda 不推断，如 `=> { throw }`）。
-        Z42FuncType finalSig = expected;
-        if ((expected.Ret is Z42UnknownType) && exprBody != null) {
-            finalSig = new Z42FuncType(expected.ParamTypes, expected.ParamCount, exprBody.Type());
-        }
-        return new BoundLambda(pnames, ptypes, lam.ParamCount,
-                               lam.HasBlock, exprBody, blockBody,
-                               caps, thisCapCount, finalSig, lam.Span);
     }
 
     private BoundExpr _bindDefault(DefaultExpr d, TypeEnv env) {

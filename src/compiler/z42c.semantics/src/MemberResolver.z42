@@ -88,7 +88,7 @@ public sealed class MemberResolver {
         // prim receiver（IC-3，镜像 C#）：prim 名首字母大写 → stdlib 包装类（"string"→"String"，
         // imported 自 z42.core TSIG）→ 取方法 ret 真类型（dst tag 字节实证 Str 非 Unknown）；
         // 查无则松绑定 Unknown（codegen 经 DepIndex 真实解析）。
-        string wrapper = TypeChecker._primWrapper(rt.Name());
+        string wrapper = TypeFactsTc._primWrapper(rt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
             string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
@@ -140,7 +140,7 @@ public sealed class MemberResolver {
         // prim receiver 属性访问（镜像 _bindMemberCall 的 prim 处理）：prim 名首字母大写 →
         // stdlib 包装类（"string"→"String"，imported 自 z42.core TSIG）→ 取字段/属性真类型；
         // 查无则松绑 Unknown（codegen 经 DepIndex/VM builtin 真实解析，如 string.Length）。
-        string wrapper = TypeChecker._primWrapper(tt.Name());
+        string wrapper = TypeFactsTc._primWrapper(tt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
             FieldSymbol wfs = this._findField(env.Symbols, wct, m.Name);
@@ -283,8 +283,8 @@ public sealed class MemberResolver {
         // GS6: prim 关键字静态调用（int.Parse / string.FromChars 等）→ wrapper class 静态方法
         if (mem.Target is IdentExpr) {
             IdentExpr tid2 = mem.Target as IdentExpr;
-            if (env.LookupVar(tid2.Name) == null && TypeChecker._isPrimKeyword(tid2.Name)) {
-                string pwrap2 = TypeChecker._primWrapper(tid2.Name);
+            if (env.LookupVar(tid2.Name) == null && TypeFactsTc._isPrimKeyword(tid2.Name)) {
+                string pwrap2 = TypeFactsTc._primWrapper(tid2.Name);
                 if (env.Symbols.HasClass(pwrap2)) {
                     Z42ClassType wct2 = env.Symbols.GetClass(pwrap2);
                     string wmkey2 = this._tc._overload._overloadKey(env.Symbols, wct2, mem.Name, argCount);

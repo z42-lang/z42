@@ -1,0 +1,124 @@
+// 转换 / 基元分类纯谓词（compiler-review P1-1 step5：拆 TypeChecker God-Class 的
+// 「ConversionChecker」片——无状态叶子助手集中到 static class，供各子绑定器 + Facade 共用。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR.BinaryFormat;
+
+public static class TypeFactsTc {
+
+    public static string _operatorMethodNameTc(string op) {
+        if (op == "+") { return "op_Add"; }
+        if (op == "-") { return "op_Subtract"; }
+        if (op == "*") { return "op_Multiply"; }
+        if (op == "/") { return "op_Divide"; }
+        if (op == "%") { return "op_Modulo"; }
+        return "";
+    }
+
+    public static bool _hasWordTc(string mods, string w) {
+        if (mods == "") { return false; }
+        return (" " + mods + " ").IndexOf(" " + w + " ") >= 0;
+    }
+
+    public static Z42Type _floatLitType(string text) {
+        int n = text.Length;
+        if (n > 0) {
+            char last = text.CharAt(n - 1);
+            if (last == 'f' || last == 'F') { return new Z42PrimType("float"); }
+        }
+        return new Z42PrimType("double");
+    }
+
+    public static bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
+        if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return true; }
+        if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return true; }
+        // GS6: 泛型类型参数（T）类型擦除——仅当恰好一侧是 GenericParamType 时放行（T→concrete 或 concrete→T）。
+        // 两侧均为 GenericParamType（K→V）走 IsAssignableTo 判同名；两侧均为 concrete 走普通路径。
+        if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return true; }
+        // GS6: 任何类型均可赋给 object（通用基类）
+        if ((to is Z42PrimType) && (to.Name() == "object")) { return true; }
+        if (from.IsAssignableTo(to)) { return true; }
+        if ((from is Z42ClassType) && (to is Z42ClassType)) {
+            return symbols.IsSubclassOf(from.Name(), to.Name());
+        }
+        if ((from is Z42ClassType) && (to is Z42InterfaceType)) {   // class→iface（port-z42c-interface；单向）
+            return symbols.Implements(from.Name(), to.Name());
+        }
+        if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {   // generic class instance → iface
+            return symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name());
+        }
+        if ((from is Z42InstantiatedType) && (to is Z42ClassType)) {   // generic class instance → base class
+            return symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name());
+        }
+        if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {   // `this` (bare class) → instantiated return type
+            return from.Name() == (to as Z42InstantiatedType).Def.Name();
+        }
+        // GS6: 数值 prim 互相窄化（int→u8 等，stdlib 二进制格式大量使用）—— 信任程序员，运行期截断
+        if ((from is Z42PrimType) && (to is Z42PrimType)) {
+            if (TypeFactsTc._isNumericPrim(from.Name()) && TypeFactsTc._isNumericPrim(to.Name())) { return true; }
+        }
+        return false;
+    }
+
+    public static string _primWrapper(string n) {
+        if (n == "int"    || n == "i32") { return "Int32"; }
+        if (n == "long"   || n == "i64") { return "Int64"; }
+        if (n == "short"  || n == "i16") { return "Int16"; }
+        if (n == "sbyte"  || n == "i8")  { return "SByte"; }
+        if (n == "byte"   || n == "u8")  { return "Byte"; }
+        if (n == "ushort" || n == "u16") { return "UInt16"; }
+        if (n == "uint"   || n == "u32") { return "UInt32"; }
+        if (n == "ulong"  || n == "u64") { return "UInt64"; }
+        if (n == "float"  || n == "f32") { return "Single"; }
+        if (n == "double" || n == "f64") { return "Double"; }
+        if (n == "bool") { return "Boolean"; }
+        if (n == "char") { return "Char"; }
+        if (n == "string") { return "String"; }
+        return TypeFactsTc._capFirst(n);   // 其它（已是 PascalCase 或未知）→ 首字母大写回退
+    }
+
+    public static bool _isPrimKeyword(string n) {
+        if (n == "int"    || n == "i32")  { return true; }
+        if (n == "long"   || n == "i64")  { return true; }
+        if (n == "short"  || n == "i16")  { return true; }
+        if (n == "sbyte"  || n == "i8")   { return true; }
+        if (n == "byte"   || n == "u8")   { return true; }
+        if (n == "ushort" || n == "u16")  { return true; }
+        if (n == "uint"   || n == "u32")  { return true; }
+        if (n == "ulong"  || n == "u64")  { return true; }
+        if (n == "float"  || n == "f32")  { return true; }
+        if (n == "double" || n == "f64")  { return true; }
+        if (n == "bool"   || n == "char") { return true; }
+        if (n == "string") { return true; }
+        return false;
+    }
+
+    public static bool _isNumericPrim(string n) {
+        if (n == "int"    || n == "i32")  { return true; }
+        if (n == "long"   || n == "i64")  { return true; }
+        if (n == "short"  || n == "i16")  { return true; }
+        if (n == "sbyte"  || n == "i8")   { return true; }
+        if (n == "byte"   || n == "u8")   { return true; }
+        if (n == "ushort" || n == "u16")  { return true; }
+        if (n == "uint"   || n == "u32")  { return true; }
+        if (n == "ulong"  || n == "u64")  { return true; }
+        if (n == "float"  || n == "f32")  { return true; }
+        if (n == "double" || n == "f64")  { return true; }
+        if (n == "char") { return true; }
+        return false;
+    }
+
+    public static string _capFirst(string name) {
+        if (name.Length == 0) { return name; }
+        string head = name.Substring(0, 1).ToUpper();
+        return head + name.Substring(1, name.Length - 1);
+    }
+
+    public static Z42Type _commonType(Z42Type a, Z42Type b, SymbolTable symbols) {
+        if (TypeFactsTc._isAssignable(a, b, symbols)) { return b; }
+        if (TypeFactsTc._isAssignable(b, a, symbols)) { return a; }
+        return a;
+    }
+
+}

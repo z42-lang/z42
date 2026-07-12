@@ -1,0 +1,372 @@
+// 声明绑定编排子绑定器（compiler-review P1-1 step5：拆 TypeChecker God-Class 收官）。
+// 顶层声明的类型检查驱动（类/自由函数/impl/合成 ctor/字段 init/方法体/重复检测）。
+// TypeChecker 降为协调器：Infer 分派 → _decl.*；持 _tc 反向引用触达 _expr/_stmt/_overload/_diags/_unwrap。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR.BinaryFormat;
+
+public sealed class DeclBinder {
+    private TypeChecker _tc;
+    public DeclBinder(TypeChecker tc) { this._tc = tc; }
+
+    private void _synthCtors(SemanticModel model, SymbolTable symbols, CompilationUnit cu) {
+        StrMap clsMap = new StrMap();   // 简单名 → ClassDecl（本地 class/struct/record）
+        int i0 = 0;
+        while (i0 < cu.DeclCount) {
+            Decl d0 = this._tc._unwrap(cu.Decls[i0]);
+            if (d0 is ClassDecl) {
+                ClassDecl cc = d0 as ClassDecl;
+                if (cc.Kind == "class" || cc.Kind == "struct" || cc.Kind == "record") { clsMap.Put(cc.Name, cc); }
+            }
+            i0 = i0 + 1;
+        }
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._tc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if ((c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") && !this._hasExplicitInstanceCtor(c)) {
+                    string ctKey = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
+                    Z42ClassType ct = symbols.GetClass(ctKey);
+                    if (ct != null) {
+                        // 收集祖先链（self→root）
+                        ClassDecl[] chain = new ClassDecl[8]; int chainN = 0;
+                        StrMap seen = new StrMap();
+                        ClassDecl cur = c;
+                        Z42ClassType curCt = ct;
+                        while (cur != null && !seen.ContainsKey(cur.Name)) {
+                            seen.Put(cur.Name, "1");
+                            if (chainN == chain.Length) { ClassDecl[] b = new ClassDecl[chain.Length * 2]; int z = 0; while (z < chainN) { b[z] = chain[z]; z = z + 1; } chain = b; }
+                            chain[chainN] = cur; chainN = chainN + 1;
+                            if (curCt == null || !curCt.HasBase || curCt.BaseName == "" || !clsMap.ContainsKey(curCt.BaseName)) { cur = null; }
+                            else { cur = clsMap.Get(curCt.BaseName) as ClassDecl; curCt = symbols.GetClass(curCt.BaseName); }
+                        }
+                        // 绑定环境：this + 全部字段（含继承，_passInheritFields 已并入）
+                        var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                        env.Define("this", ct);
+                        string[] fnames = ct.Fields.Keys();
+                        int fk = 0;
+                        while (fk < fnames.Length) { FieldSymbol fs = ct.Fields.Get(fnames[fk]) as FieldSymbol; env.Define(fnames[fk], fs.FieldType); fk = fk + 1; }
+                        // root→self 顺序绑定字段 init 赋值
+                        BoundStmt[] inits = new BoundStmt[16]; int ic = 0;
+                        int chx = chainN - 1;
+                        while (chx >= 0) {
+                            ClassDecl cd = chain[chx];
+                            Z42ClassType cdCt = symbols.GetClass(cd.Name);
+                            int mj = 0;
+                            while (mj < cd.MemberCount) {
+                                Decl mem = this._tc._unwrap(cd.Members[mj]);
+                                if (mem is FieldDecl) {
+                                    FieldDecl fd = mem as FieldDecl;
+                                    FieldSymbol fsym = (cdCt != null) ? (cdCt.Fields.Get(fd.Name) as FieldSymbol) : null;
+                                    if (fd.HasInit && fsym != null && !fsym.IsStatic) {
+                                        Expr tgt = new MemberExpr(new IdentExpr("this", fd.Span), fd.Name, fd.Span);
+                                        Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
+                                        if (ic == inits.Length) { BoundStmt[] b2 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b2[z] = inits[z]; z = z + 1; } inits = b2; }
+                                        inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span); ic = ic + 1;
+                                    }
+                                }
+                                mj = mj + 1;
+                            }
+                            chx = chx - 1;
+                        }
+                        if (ic > 0) { model.AddBody(ctKey + "." + c.Name, new BoundBlock(inits, ic, c.Span)); }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private bool _hasExplicitInstanceCtor(ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl m = this._tc._unwrap(c.Members[j]);
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && !TypeFactsTc._hasWordTc(md.Mods, "static")) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    private void _checkDuplicateFreeFunctions(CompilationUnit cu) {
+        StrMap seen = new StrMap();
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._tc._unwrap(cu.Decls[i]);
+            if (d is MethodDecl) {
+                MethodDecl m = d as MethodDecl;
+                if (seen.ContainsKey(m.Name)) {
+                    this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                        "duplicate top-level function `" + m.Name + "` — free functions do not overload; "
+                        + "give them distinct names", m.Span);
+                } else {
+                    seen.Put(m.Name, "1");
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _checkDuplicateStaticOverloads(ClassDecl c) {
+        StrMap seenArity = new StrMap();   // (static|inst)$name$arity → 首次见
+        StrMap dupArity  = new StrMap();   // 同键 → 该 arity ≥2 个方法
+        int i = 0;
+        while (i < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[i]);
+            if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
+                    string ak = this._dupCheckKey(md);
+                    if (seenArity.ContainsKey(ak)) { dupArity.Put(ak, "1"); }
+                    else { seenArity.Put(ak, "1"); }
+                }
+            }
+            i = i + 1;
+        }
+        StrMap seenKey = new StrMap();
+        i = 0;
+        while (i < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[i]);
+            if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
+                    string ak = this._dupCheckKey(md);
+                    if (dupArity.ContainsKey(ak)) {
+                        if (seenKey.ContainsKey(md.RegKey)) {
+                            this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                                "duplicate overload `" + md.Name + "` — parameter types are identical once " +
+                                "aliases (e.g. int/i32) and nullability are normalized", md.Span);
+                        } else {
+                            seenKey.Put(md.RegKey, "1");
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private string _dupCheckKey(MethodDecl md) {
+        string bucket = TypeFactsTc._hasWordTc(md.Mods, "static") ? "s$" : "i$";
+        return bucket + md.Name + "$" + md.ParamCount.ToString();
+    }
+
+    private void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
+        string targetName = "";
+        if (im.TargetType is NamedType) { targetName = (im.TargetType as NamedType).Name; }
+        if (targetName == "" || !symbols.HasClass(targetName)) { return; }
+        Z42ClassType ct = symbols.GetClass(targetName);
+        int j = 0;
+        while (j < im.MethodCount) {
+            if (im.Methods[j] is MethodDecl) {
+                MethodDecl md = im.Methods[j] as MethodDecl;
+                if (md.HasBody) {
+                    string mkey = md.Name + "$" + md.ParamCount.ToString();
+                    if (md.RegKey != "") { mkey = md.RegKey; }                       // type-based 重载：用注册键
+                    else if (!ct.Methods.ContainsKey(mkey)) { mkey = md.Name; }
+                    MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
+                    int mtpc = md.TypeParams.Count;
+                    string[] allParams = this._mergeParams(new string[0], 0, md.TypeParams.Names, mtpc);
+                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, mtpc);
+                    if (ms != null && !ms.IsStatic) {
+                        env.Define("this", ct);
+                        string[] fnames = ct.Fields.Keys();
+                        int k = 0;
+                        while (k < fnames.Length) {
+                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
+                            env.Define(fnames[k], fs.FieldType);
+                            k = k + 1;
+                        }
+                    }
+                    BoundStmt body = this._bindMethodBody(symbols, env, md);
+                    model.AddBody(targetName + "." + mkey, body);
+                }
+            }
+            j = j + 1;
+        }
+    }
+
+    private void _bindClass(SemanticModel model, SymbolTable symbols, ClassDecl c) {
+        // Arity-mangle：泛型类若以 Name$N 键注册，优先取该 CT。
+        string ctKey = c.Name;
+        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
+        Z42ClassType ct = symbols.GetClass(ctKey);
+        this._checkDuplicateStaticOverloads(c);
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {                                  // 静态字段 init（SA-3）
+                FieldDecl fd = mem as FieldDecl;
+                FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
+                if (fd.HasInit && fsym != null && fsym.IsStatic) {
+                    var fenv = TypeEnv.Root(symbols);
+                    model.AddStaticInit(c.Name, fd.Name, this._tc._expr._bindExpr(fd.Init, fenv));
+                }
+            } else if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                if (md.HasBody) {                       // G11：ctor（IsCtor）也绑体——ms 已收集（名=类名，ret void），this+字段入 scope
+                    // GS3：重载方法以 Name$arity 键存于 ct.Methods；先试 Name$arity，再 bare name（镜像 C# regName 逻辑）。
+                    // add-type-based-overloads：type-based 重载用注册键（md.RegKey）。
+                    string mkey = md.Name + "$" + md.ParamCount.ToString();
+                    if (md.RegKey != "") { mkey = md.RegKey; }
+                    else if (!ct.Methods.ContainsKey(mkey)) { mkey = md.Name; }
+                    MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
+                    // 活跃类型形参 = 类的 + 方法自身的（2A-2）。
+                    int mtpc = md.TypeParams.Count;
+                    string[] allParams = this._mergeParams(c.TypeParams.Names, c.TypeParams.Count, md.TypeParams.Names, mtpc);
+                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, c.TypeParams.Count + mtpc);
+                    if (!ms.IsStatic) {
+                        env.Define("this", ct);
+                        string[] fnames = ct.Fields.Keys();
+                        int k = 0;
+                        while (k < fnames.Length) {
+                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
+                            env.Define(fnames[k], fs.FieldType);
+                            k = k + 1;
+                        }
+                    }
+                    BoundStmt body = this._bindMethodBody(symbols, env, md);
+                    // 实例 ctor：注入实例字段初始化器（`int x=1`）到体首（base 调用后、用户体前）。
+                    // 此前完全未注入 → 字段停留类型默认值（got 0/null）。仅 ctor-exists 路径；
+                    // ctor-less 类的合成 ctor 待 follow-up。
+                    if (md.IsCtor && !ms.IsStatic && !md.IsThisInit) { body = this._injectFieldInits(c, ct, env, body); }
+                    model.AddBody(ctKey + "." + mkey, body);   // GS3：body 键用 mkey（重载时=Name$arity）；arity-mangle 时用 ctKey（Name$N）
+                }
+            } else if (mem is IndexerDecl) {
+                // get_Item / set_Item 体绑定（IndexerDecl lowering；镜像 C# IndexerDecl 处理）。
+                IndexerDecl id = mem as IndexerDecl;
+                if (id.HasGet) {
+                    var getEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                    getEnv.Define("this", ct);
+                    string[] gfns = ct.Fields.Keys();
+                    int gfk = 0;
+                    while (gfk < gfns.Length) { FieldSymbol gfs = ct.Fields.Get(gfns[gfk]) as FieldSymbol; getEnv.Define(gfns[gfk], gfs.FieldType); gfk = gfk + 1; }
+                    int gp = 0;
+                    while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
+                    Z42Type gret = getEnv.ResolveType(id.RetType);
+                    model.AddBody(ctKey + ".get_Item", this._tc._stmt._bindStmt(id.GetBody, getEnv, gret));
+                }
+                if (id.HasSet) {
+                    var setEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                    setEnv.Define("this", ct);
+                    string[] sfns = ct.Fields.Keys();
+                    int sfk = 0;
+                    while (sfk < sfns.Length) { FieldSymbol sfs = ct.Fields.Get(sfns[sfk]) as FieldSymbol; setEnv.Define(sfns[sfk], sfs.FieldType); sfk = sfk + 1; }
+                    int sp = 0;
+                    while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
+                    setEnv.Define("value", setEnv.ResolveType(id.RetType));
+                    model.AddBody(ctKey + ".set_Item", this._tc._stmt._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
+                }
+            }
+            j = j + 1;
+        }
+    }
+
+    private void _bindFreeFunc(SemanticModel model, SymbolTable symbols, MethodDecl md) {
+        if (md.HasBody) {
+            // 顶层泛型函数携自身型参（classFlag=false）。
+            var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count);
+            BoundStmt body = this._bindMethodBody(symbols, env, md);
+            model.AddBody(md.Name, body);
+        }
+    }
+
+    private string[] _mergeParams(string[] a, int ac, string[] b, int bc) {
+        string[] r = new string[ac + bc];
+        int i = 0;
+        while (i < ac) { r[i] = a[i]; i = i + 1; }
+        int j = 0;
+        while (j < bc) { r[ac + j] = b[j]; j = j + 1; }
+        return r;
+    }
+
+    private BoundStmt _injectFieldInits(ClassDecl c, Z42ClassType ct, TypeEnv env, BoundStmt body) {
+        BoundStmt[] inits = new BoundStmt[c.MemberCount];
+        int ic = 0;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
+                if (fd.HasInit && fsym != null && !fsym.IsStatic) {
+                    Expr tgt = new MemberExpr(new IdentExpr("this", fd.Span), fd.Name, fd.Span);
+                    Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
+                    inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span);
+                    ic = ic + 1;
+                }
+            }
+            j = j + 1;
+        }
+        if (ic == 0) { return body; }
+        BoundStmt[] orig = new BoundStmt[1]; orig[0] = body; int origN = 1;
+        if (body is BoundBlock) { BoundBlock bb = body as BoundBlock; orig = bb.Stmts; origN = bb.Count; }
+        BoundStmt[] merged = new BoundStmt[ic + origN];
+        int m = 0;
+        while (m < ic) { merged[m] = inits[m]; m = m + 1; }
+        int k = 0;
+        while (k < origN) { merged[ic + k] = orig[k]; k = k + 1; }
+        return new BoundBlock(merged, ic + origN, body.Span);
+    }
+
+    private BoundStmt _bindMethodBody(SymbolTable symbols, TypeEnv env, MethodDecl md) {
+        int p = 0;
+        while (p < md.ParamCount) {
+            env.Define(md.Params[p].Name, env.ResolveType(md.Params[p].Type));
+            p = p + 1;
+        }
+        Z42Type ret = env.ResolveType(md.RetType);
+        BoundStmt body = this._tc._stmt._bindStmt(md.Body, env, ret);
+        // ctor 初始化调用：ctor + BaseArgCount > 0 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
+        // IsThisInit → `: this(args)` 委托同类 ctor（TargetCls = curCls）；
+        // 否则 → `: base(args)` 调用基类 ctor（TargetCls = baseCls）。镜像 C# FunctionEmitter
+        // BoundThisCtorArgs / BoundBaseCtorArgs 两分支。
+        if (md.IsCtor && md.BaseArgCount > 0) {
+            Z42Type thisType = env.LookupVar("this");
+            if (thisType is Z42ClassType) {
+                Z42ClassType curCls = thisType as Z42ClassType;
+                Z42ClassType targetCls = null;
+                string targetName = "";
+                if (md.IsThisInit) {
+                    targetCls = curCls;
+                    targetName = curCls.Name();
+                } else if (curCls.HasBase && curCls.BaseName != "") {
+                    targetCls = symbols.GetClass(curCls.BaseName);
+                    targetName = curCls.BaseName;
+                }
+                if (targetCls != null) {
+                    string bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount);
+                    BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
+                    callArgs[0] = new BoundIdent("this", thisType, md.Span);
+                    int ba = 0;
+                    while (ba < md.BaseArgCount) { callArgs[ba + 1] = this._tc._expr._bindExpr(md.BaseArgs[ba], env); ba = ba + 1; }
+                    BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, bKey,
+                                                        callArgs, md.BaseArgCount + 1, new Z42VoidType(), md.Span);
+                    BoundExprStmt baseStmt = new BoundExprStmt(baseCall, md.Span);
+                    BoundStmt[] stmts = null;
+                    int sc = 0;
+                    if (body is BoundBlock) {
+                        BoundBlock bb = body as BoundBlock;
+                        stmts = new BoundStmt[bb.Count + 1];
+                        stmts[0] = baseStmt;
+                        int si = 0;
+                        while (si < bb.Count) { stmts[si + 1] = bb.Stmts[si]; si = si + 1; }
+                        sc = bb.Count + 1;
+                    } else {
+                        stmts = new BoundStmt[2];
+                        stmts[0] = baseStmt; stmts[1] = body; sc = 2;
+                    }
+                    return new BoundBlock(stmts, sc, md.Span);
+                }
+            }
+        }
+        return body;
+    }
+
+}

@@ -147,7 +147,7 @@ public sealed class StmtBinder {
     private BoundStmt _bindReturn(ReturnStmt r, TypeEnv env, Z42Type ret) {
             if (r.HasValue) {
                 BoundExpr val = this._tc._expr._bindExpr(r.Value, env);
-                if (!this._tc._isAssignable(val.Type(), ret, env.Symbols)) {
+                if (!TypeFactsTc._isAssignable(val.Type(), ret, env.Symbols)) {
                     this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                         "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
                 }
@@ -161,7 +161,7 @@ public sealed class StmtBinder {
             if (v.Init is LambdaExpr) {                              // lambda + 显式 Func 类型 → expected 推导
                 Z42Type declared = env.ResolveType(v.Type);          // `var` → Unknown，自然跳过
                 if (declared is Z42FuncType) {
-                    init = this._tc._expr._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
+                    init = this._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
                 }
             }
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
@@ -262,11 +262,89 @@ public sealed class StmtBinder {
             }
         }
         Z42Type vt = env.ResolveType(v.Type);
-        if (init != null && !this._tc._isAssignable(init.Type(), vt, env.Symbols)) {   // G8：无 init 跳赋值检查
+        if (init != null && !TypeFactsTc._isAssignable(init.Type(), vt, env.Symbols)) {   // G8：无 init 跳赋值检查
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                 "cannot assign " + init.Type().Name() + " to " + vt.Name(), v.Init.Span);
         }
         return vt;
+    }
+
+    public BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
+        if (lam.ParamCount != expected.ParamCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "lambda arity " + lam.ParamCount.ToString() + " != expected " + expected.ParamCount.ToString(), lam.Span);
+        }
+        string[] pnames = new string[lam.ParamCount];
+        Z42Type[] ptypes = new Z42Type[lam.ParamCount];
+        TypeEnv lenv = env.PushScope();
+        int i = 0;
+        while (i < lam.ParamCount) {
+            pnames[i] = lam.Params[i].Name;
+            Z42Type pt = new Z42UnknownType();
+            if (lam.Params[i].HasType) { pt = env.ResolveType(lam.Params[i].Type); }
+            else if (i < expected.ParamCount) { pt = expected.ParamTypes[i]; }
+            ptypes[i] = pt;
+            lenv.Define(pnames[i], pt);
+            i = i + 1;
+        }
+        // 嵌套 lambda：保存外层 frame（绑完恢复），并把内层对「外层非局部变量」的捕获
+        // **透传**给外层——外层须把该变量捕获进自己 env，内层经外层 env 间接取
+        // （ExprEmitter._captureEnvIdx）。原共享 _lambdaCaps（无 save/restore）意外做了透传，
+        // 但丢外层自身在内层前/后的捕获；简单 save/restore 修了后者却丢透传（破 closure_l3_capture
+        // case 4：`f=()=>{ g=()=>k2*2; return g() }`，f 不直接用 k2 仅 g 用 → f 必须透传捕获 k2）。
+        // 二者兼顾：save/restore + 透传。
+        bool savedActive = this._tc._lambdaActive;
+        StrMap savedLocals = this._tc._lambdaLocals;
+        BoundCapture[] savedCaps = this._tc._lambdaCaps; int savedCapCount = this._tc._lambdaCapCount;
+        this._tc._lambdaActive = true;
+        this._tc._lambdaLocals = new StrMap();
+        i = 0;
+        while (i < lam.ParamCount) { this._tc._lambdaLocals.Put(pnames[i], ptypes[i]); i = i + 1; }
+        this._tc._lambdaCaps = new BoundCapture[2];
+        this._tc._lambdaCapCount = 0;
+        BoundExpr exprBody = null;
+        BoundStmt blockBody = null;
+        if (lam.HasBlock) { blockBody = this._bindStmt(lam.BlockBody, lenv, expected.Ret); }
+        else { exprBody = this._tc._expr._bindExpr(lam.ExprBody, lenv); }
+        int thisCapCount = this._tc._lambdaCapCount;
+        BoundCapture[] caps = new BoundCapture[thisCapCount];
+        i = 0;
+        while (i < thisCapCount) { caps[i] = this._tc._lambdaCaps[i]; i = i + 1; }
+        // 恢复外层 frame
+        this._tc._lambdaActive = savedActive;
+        this._tc._lambdaLocals = savedLocals;
+        this._tc._lambdaCaps = savedCaps; this._tc._lambdaCapCount = savedCapCount;
+        // 透传：内层捕获中**不属于外层局部**的变量 → 外层也须捕获（add-if-absent，镜像捕获钩子）。
+        if (savedActive) {
+            int ti = 0;
+            while (ti < thisCapCount) {
+                string cn = caps[ti].Name;
+                if (!this._tc._lambdaLocals.ContainsKey(cn)) {
+                    int hi = 0 - 1; int ci = 0;
+                    while (ci < this._tc._lambdaCapCount) { if (this._tc._lambdaCaps[ci].Name == cn) { hi = ci; } ci = ci + 1; }
+                    if (hi < 0) {
+                        if (this._tc._lambdaCapCount == this._tc._lambdaCaps.Length) {
+                            BoundCapture[] gb = new BoundCapture[this._tc._lambdaCaps.Length * 2];
+                            int gk = 0; while (gk < this._tc._lambdaCapCount) { gb[gk] = this._tc._lambdaCaps[gk]; gk = gk + 1; }
+                            this._tc._lambdaCaps = gb;
+                        }
+                        this._tc._lambdaCaps[this._tc._lambdaCapCount] = new BoundCapture(cn, caps[ti].CapType);
+                        this._tc._lambdaCapCount = this._tc._lambdaCapCount + 1;
+                    }
+                }
+                ti = ti + 1;
+            }
+        }
+        // 返回类型推断（call-arg lambda 无 expected 时 expected.Ret=Unknown，镜像 C#）：
+        // 仅 expr-body 从表达式类型推断（void call 得 void）；block-body 保留 Unknown
+        // （C# 对无 expected 的 block lambda 不推断，如 `=> { throw }`）。
+        Z42FuncType finalSig = expected;
+        if ((expected.Ret is Z42UnknownType) && exprBody != null) {
+            finalSig = new Z42FuncType(expected.ParamTypes, expected.ParamCount, exprBody.Type());
+        }
+        return new BoundLambda(pnames, ptypes, lam.ParamCount,
+                               lam.HasBlock, exprBody, blockBody,
+                               caps, thisCapCount, finalSig, lam.Span);
     }
 
 }
