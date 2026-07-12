@@ -103,3 +103,35 @@ void test_error_has_line_info() {
     }
     Assert.True(false);
 }
+
+// fix-parser-depth-limit (2026-07-12, review §2.2 / item 8): pathological deep
+// nesting must throw a JsonException, not blow the VM stack (DoS).
+[Test]
+void test_deep_nesting_rejected() {
+    string deep = "";
+    int n = 300;                       // > 256 depth cap
+    int i = 0;
+    while (i < n) { deep = deep + "["; i = i + 1; }
+    i = 0;
+    while (i < n) { deep = deep + "]"; i = i + 1; }
+    bool caught = false;
+    try { JsonValue.Parse(deep); } catch (JsonException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_moderate_nesting_ok() {
+    // 100 levels is under the cap and must still parse cleanly.
+    string s = "";
+    int n = 100;
+    int i = 0;
+    while (i < n) { s = s + "["; i = i + 1; }
+    s = s + "7";
+    i = 0;
+    while (i < n) { s = s + "]"; i = i + 1; }
+    var v = JsonValue.Parse(s);
+    var cur = v;
+    i = 0;
+    while (i < n) { cur = cur.At(0); i = i + 1; }
+    Assert.Equal(7L, cur.AsLong());
+}

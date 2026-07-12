@@ -15,6 +15,9 @@ public sealed class JsonParser {
     // niceties (`//` + `/* */` comments, trailing commas in arrays/objects).
     // Strict mode keeps RFC 8259 behaviour unchanged.
     private bool _relaxed;
+    // Recursion-depth guard: malicious deeply-nested input (e.g. thousands of
+    // `[`) would otherwise blow the VM stack. Capped in ParseValue.
+    private int _depth;
 
     public JsonParser(string src) {
         this._src = src;
@@ -22,6 +25,7 @@ public sealed class JsonParser {
         this._line = 1;
         this._col = 1;
         this._relaxed = false;
+        this._depth = 0;
     }
 
     /// Relaxed-mode parser — JSON5-style `//` / `/* */` comments and
@@ -142,20 +146,32 @@ public sealed class JsonParser {
     // ── Value dispatch ───────────────────────────────────────────────────
 
     private JsonValue ParseValue() {
-        this.SkipWhitespace();
-        if (this.Eof()) { throw this.Err("unexpected end of input"); }
-        char c = this.Peek();
-        if (c == '{') { return this.ParseObject(); }
-        if (c == '[') { return this.ParseArray(); }
-        if (c == '"') { return JsonValue.OfString(this.ParseString()); }
-        if (c == 't' || c == 'f') { return this.ParseBool(); }
-        if (c == 'n') { return this.ParseNull(); }
-        // Relaxed-only: NaN / Infinity / -Infinity / -NaN / +Infinity.
-        if (this._relaxed) {
-            JsonValue special = this.TryParseSpecialFloat();
-            if (special != null) { return special; }
+        // Depth guard: every nested container recurses through ParseValue, so
+        // bounding it here caps total nesting (256) and prevents a stack blowout
+        // from pathological input. try/finally decrements on every return path.
+        this._depth = this._depth + 1;
+        if (this._depth > 256) {
+            this._depth = this._depth - 1;
+            throw this.Err("nesting too deep (max 256)");
         }
-        return this.ParseNumber();
+        try {
+            this.SkipWhitespace();
+            if (this.Eof()) { throw this.Err("unexpected end of input"); }
+            char c = this.Peek();
+            if (c == '{') { return this.ParseObject(); }
+            if (c == '[') { return this.ParseArray(); }
+            if (c == '"') { return JsonValue.OfString(this.ParseString()); }
+            if (c == 't' || c == 'f') { return this.ParseBool(); }
+            if (c == 'n') { return this.ParseNull(); }
+            // Relaxed-only: NaN / Infinity / -Infinity / -NaN / +Infinity.
+            if (this._relaxed) {
+                JsonValue special = this.TryParseSpecialFloat();
+                if (special != null) { return special; }
+            }
+            return this.ParseNumber();
+        } finally {
+            this._depth = this._depth - 1;
+        }
     }
 
     /// JSON5-style special float literals (`NaN`, `Infinity`, signed forms).

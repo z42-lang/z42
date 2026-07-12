@@ -70,3 +70,35 @@ void test_error_has_line_info() {
     }
     Assert.True(false);  // should have thrown
 }
+
+// fix-parser-depth-limit (2026-07-12, review §2.2 / item 8): pathological deep
+// nesting must throw a TomlException, not blow the VM stack (DoS).
+[Test]
+void test_deep_nesting_rejected() {
+    string deep = "x = ";
+    int n = 300;                       // > 256 depth cap
+    int i = 0;
+    while (i < n) { deep = deep + "["; i = i + 1; }
+    i = 0;
+    while (i < n) { deep = deep + "]"; i = i + 1; }
+    bool caught = false;
+    try { TomlValue.Parse(deep); } catch (TomlException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_moderate_nesting_ok() {
+    // 50 levels is under the cap and must still parse cleanly.
+    string s = "x = ";
+    int n = 50;
+    int i = 0;
+    while (i < n) { s = s + "["; i = i + 1; }
+    s = s + "7";
+    i = 0;
+    while (i < n) { s = s + "]"; i = i + 1; }
+    var t = TomlValue.Parse(s);
+    var cur = t.Get("x");
+    i = 0;
+    while (i < n) { cur = cur.At(0); i = i + 1; }
+    Assert.Equal(7L, cur.AsLong());
+}

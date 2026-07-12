@@ -28,6 +28,9 @@ public sealed class TomlParser {
     // 通过 [[aot]] 创建的 key（不可再用 [section]）。
     private string[] _aotKeys;
     private int _aotKeysCount;
+    // Recursion-depth guard: deeply-nested arrays / inline tables would blow the
+    // VM stack. Capped in ParseValue.
+    private int _depth;
 
     public TomlParser(string src) {
         this._src = src;
@@ -40,6 +43,7 @@ public sealed class TomlParser {
         this._definedSectionsCount = 0;
         this._aotKeys = new string[8];
         this._aotKeysCount = 0;
+        this._depth = 0;
     }
 
     private bool HasDefinedSection(string fq) {
@@ -406,31 +410,43 @@ public sealed class TomlParser {
     // ── Value parsing ────────────────────────────────────────────────────
 
     private TomlValue ParseValue() {
-        char c = this.Peek();
-        if (c == '"') {
-            // Triple-quoted? Multi-line basic string.
-            if (this.PeekTriple('"')) {
-                return TomlValue.OfString(this.ParseMultiLineBasicString());
+        // Depth guard: arrays / inline tables recurse through ParseValue, so
+        // bounding it here caps nesting (256) and prevents a stack blowout.
+        // try/finally decrements on every return path.
+        this._depth = this._depth + 1;
+        if (this._depth > 256) {
+            this._depth = this._depth - 1;
+            throw this.Err("nesting too deep (max 256)");
+        }
+        try {
+            char c = this.Peek();
+            if (c == '"') {
+                // Triple-quoted? Multi-line basic string.
+                if (this.PeekTriple('"')) {
+                    return TomlValue.OfString(this.ParseMultiLineBasicString());
+                }
+                return TomlValue.OfString(this.ParseBasicString());
             }
-            return TomlValue.OfString(this.ParseBasicString());
-        }
-        if (c == '\'') {
-            if (this.PeekTriple('\'')) {
-                return TomlValue.OfString(this.ParseMultiLineLiteralString());
+            if (c == '\'') {
+                if (this.PeekTriple('\'')) {
+                    return TomlValue.OfString(this.ParseMultiLineLiteralString());
+                }
+                return TomlValue.OfString(this.ParseLiteralString());
             }
-            return TomlValue.OfString(this.ParseLiteralString());
+            if (c == 't' || c == 'f') {
+                return this.ParseBool();
+            }
+            if (c == '[') {
+                return this.ParseArray();
+            }
+            if (c == '{') {
+                return this.ParseInlineTable();
+            }
+            // Numbers (including +/- prefix, nan/inf).
+            return this.ParseNumber();
+        } finally {
+            this._depth = this._depth - 1;
         }
-        if (c == 't' || c == 'f') {
-            return this.ParseBool();
-        }
-        if (c == '[') {
-            return this.ParseArray();
-        }
-        if (c == '{') {
-            return this.ParseInlineTable();
-        }
-        // Numbers (including +/- prefix, nan/inf).
-        return this.ParseNumber();
     }
 
     /// True if the next three characters at `_pos` are all `q`.
