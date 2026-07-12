@@ -149,3 +149,45 @@ void test_leap_second_60_buckets_to_59() {
     DateTime d = DateTime.ParseIso8601("2016-12-31T23:59:60Z");
     Assert.Equal("2016-12-31T23:59:59.000Z", d.ToIso8601());
 }
+
+// fix-iso8601-day-of-month (2026-07-12, review §2.2): day must be validated
+// against the actual month length (like DateTime.Utc), not a flat 1..31 —
+// "2026-02-31" used to silently roll into March.
+[Test]
+void test_reject_feb_31() {
+    bool caught = false;
+    try { DateTime.ParseIso8601("2026-02-31"); } catch (ArgumentException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reject_apr_31() {
+    bool caught = false;
+    try { DateTime.ParseIso8601("2026-04-31"); } catch (ArgumentException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reject_nonleap_feb_29() {
+    bool caught = false;
+    try { DateTime.ParseIso8601("2023-02-29"); } catch (ArgumentException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_accept_leap_feb_29() {
+    // 2024 is a leap year → Feb 29 is valid.
+    DateTime d = DateTime.ParseIso8601("2024-02-29");
+    Assert.Equal("2024-02-29T00:00:00.000Z", d.ToIso8601());
+}
+
+[Test]
+void test_accept_valid_month_ends() {
+    // Boundary-valid days must still parse.
+    DateTime a = DateTime.ParseIso8601("2026-02-28");
+    Assert.Equal("2026-02-28T00:00:00.000Z", a.ToIso8601());
+    DateTime b = DateTime.ParseIso8601("2026-04-30");
+    Assert.Equal("2026-04-30T00:00:00.000Z", b.ToIso8601());
+    DateTime c = DateTime.ParseIso8601("2026-12-31");
+    Assert.Equal("2026-12-31T00:00:00.000Z", c.ToIso8601());
+}

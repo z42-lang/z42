@@ -310,8 +310,13 @@ public sealed class DateTime {
         if (month < 1 || month > 12) {
             throw new ArgumentException("ParseIso8601: month out of range: " + month.ToString());
         }
-        if (day < 1 || day > 31) {
-            throw new ArgumentException("ParseIso8601: day out of range: " + day.ToString());
+        // Validate day against the actual length of the month (mirrors
+        // DateTime.Utc) — "2026-02-31" must be rejected, not silently rolled.
+        int dim = DateTime.DaysInMonth(year, month);
+        if (day < 1 || day > dim) {
+            throw new ArgumentException(
+                "ParseIso8601: day out of range (1.." + dim.ToString() + ") for "
+                + year.ToString() + "-" + month.ToString() + ": " + day.ToString());
         }
 
         long days = _daysFromCivil((long)year, (long)month, (long)day);
