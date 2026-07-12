@@ -144,7 +144,7 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 | 函数 | 位置 | 行数 | 拆法 |
 |------|------|------|------|
 | `_testCompilerE2e` | `xtask_compiler_e2e.z42:43-284` | ~242 | 6 个「写源+toml→build→直跑」工程表驱动化 → ~120 |
-| `_regenGolden` | `xtask_test_assets.z42:29-220` | ~192 | 拆枚举（`_collectGoldenCases`）与批量编译 |
+| `_regenGolden` | `xtask_test_assets.z42:29-220` | ~192 | ✅ 抽 `_collectGoldenCases(root)`→`_GoldenCases`（三布局枚举 ~100 行搬出，纯逐字移动 + struct 返并行数组）；`_regenGolden` 192→~90 行。隔离 libs 重建编译通过；运行时由 CI golden regen（每 test-host）验 |
 | `_testCrossZpkgImpl` | `xtask_test_cross.z42:27-190` | ~164 | 提 `_runOneCrossCase` + `_fixtureDist(dir)` helper |
 | `_depsInstallAndroidSdk` | `xtask_install_android.z42:27-187` | ~161 | 按 [1]-[6] 步骤各提一函数 |
 | `_packageDesktop` | `xtask_package_desktop.z42:16-167` | ~152 | 8 连发 `_z42cBuildToml` + 5 组 `_z42bPublish` 改数组循环，约 -45 行 |

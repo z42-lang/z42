@@ -26,32 +26,24 @@ int _buildTest() {
     return _regenGolden();
 }
 
-int _regenGolden() {
-    string root = _root();
-    // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
-    // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
-    // --toolchain (compile-once P3): compile goldens with the selected toolchain's
-    // z42c + stdlib + z42vm when set; else the build-tree.
-    string tc = _toolchainDir(root);
-    string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _assembleDriverHome(root);
-    if (driverHome.Length == 0) {
-        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
-        ConsoleError.WriteLine("       Build it via stdlib/compiler build first.");
-        return 1;
+// Golden regen cases: parallel growable arrays (name / source .z42 / output .zbc) + count.
+class _GoldenCases {
+    public string[] names;
+    public string[] sources;
+    public string[] outputs;
+    public int count;
+    public _GoldenCases() {
+        this.names   = new string[0];
+        this.sources = new string[0];
+        this.outputs = new string[0];
+        this.count   = 0;
     }
-    string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
-    string stdlibDist = (tc.Length > 0) ? _toolchainLibs(tc) : _libsDir(root);
-    string vmBin = _activeVm(root, "debug");
-    if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "release"); }
-    if (!File.Exists(vmBin)) {
-        ConsoleError.WriteLine("error: z42vm not found (build via cargo build --manifest-path src/runtime/Cargo.toml)");
-        return 1;
-    }
+}
 
-    Console.WriteLine("Regenerating golden test artifacts...");
-    Console.WriteLine("");
-
-    // ── Enumerate cases (parallel growable arrays: name, source, output) ──
+// Enumerate golden cases across the three layouts (dir-mode src/tests + per-library
+// tests, flat-mode src/tests) into parallel arrays. Split out of _regenGolden (was
+// ~100 lines inline) to keep that function within the size limit (review §2.8).
+_GoldenCases _collectGoldenCases(string root) {
     string[] caseNames    = new string[64];
     string[] caseSources  = new string[64];
     string[] caseOutputs  = new string[64];
@@ -153,6 +145,46 @@ int _regenGolden() {
         }
         ci = ci + 1;
     }
+
+    _GoldenCases gc = new _GoldenCases();
+    gc.names   = caseNames;
+    gc.sources = caseSources;
+    gc.outputs = caseOutputs;
+    gc.count   = caseCount;
+    return gc;
+}
+
+int _regenGolden() {
+    string root = _root();
+    // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
+    // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
+    // --toolchain (compile-once P3): compile goldens with the selected toolchain's
+    // z42c + stdlib + z42vm when set; else the build-tree.
+    string tc = _toolchainDir(root);
+    string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _assembleDriverHome(root);
+    if (driverHome.Length == 0) {
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
+        ConsoleError.WriteLine("       Build it via stdlib/compiler build first.");
+        return 1;
+    }
+    string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
+    string stdlibDist = (tc.Length > 0) ? _toolchainLibs(tc) : _libsDir(root);
+    string vmBin = _activeVm(root, "debug");
+    if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "release"); }
+    if (!File.Exists(vmBin)) {
+        ConsoleError.WriteLine("error: z42vm not found (build via cargo build --manifest-path src/runtime/Cargo.toml)");
+        return 1;
+    }
+
+    Console.WriteLine("Regenerating golden test artifacts...");
+    Console.WriteLine("");
+
+    // ── Enumerate cases (three layouts → parallel arrays; split: _collectGoldenCases) ──
+    _GoldenCases gc = _collectGoldenCases(root);
+    string[] caseNames   = gc.names;
+    string[] caseSources = gc.sources;
+    string[] caseOutputs = gc.outputs;
+    int      caseCount   = gc.count;
 
     // ── Compile each case (parallel batches) ─────────────────────────────
     // Each case spawns z42vm + z42c.driver to compile one source.z42 — the cost
