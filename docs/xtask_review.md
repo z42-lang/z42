@@ -401,3 +401,32 @@ xtask 的骨架是健康的——common 三件套、toml 驱动的 SoT 意识、
 > 落地方式待定：可能不是简单全改字面量，而是给 z42c 调用抽一个 `_z42cRun(vm, driver, mode)` helper
 > + 一个 `Z42C_BUILD_MODE` 环境/开关（默认 jit，格式 bump 期可临时回退 interp），与 §2.1 的
 > `_z42cWorkspaceBuild` 收敛一起做最自然。
+
+## 附录 B：test-host 分解 — 分片 stdlib interp + 下放 cross-zpkg（2026-07-12）
+
+**背景**：JIT 翻转（-25%）+ §3.1 消费工件 + cross-zpkg 5×→1× 冗余修复后，CI 总 wall-clock
+仍 ~33min，临界路径是 **build-and-test（test-host）的 4 个 OS 腿**（linux-x64 29m / linux-arm64
+26m / macos 23m / windows 10m），非 vm-jit。每个 `test all` 腿的内部拆解（linux-x64 29m）：
+
+| 阶段 | 时长 | 处理 |
+|------|------|------|
+| Bootstrap（ci-bootstrap） | 6m | 保留（腿仍需 toolchain；含不动点重建） |
+| regen goldens | 3.5m | 保留 |
+| e2e goldens interp | **0.3m** | 保留（几乎不花时间） |
+| cross-zpkg interp | 6m | **下放** → `cross-zpkg-interp` 单 linux job |
+| stdlib [Test] interp（272 串行） | 9m | **分片** → `stdlib-interp-consistency` 每慢 OS × 4 |
+| 编译器不动点 gen1/gen2 | 3m | 保留（地基，不可分） |
+| vscode-syntax | 0s | 保留 |
+
+**落地**：
+- `test all` 加 `--skip <csv>`（`_skipHas` + stage 3/4 守卫；本地 `xtask test` 不传 → 全量 gate 不变）。
+- 3 个慢 OS 腿改 `test all --no-build --skip stdlib,cross-zpkg`（windows 腿走另路径，不动）。
+- 新 `stdlib-interp-consistency`：`[linux-x64, linux-arm64, macos] × shard[1-4]` = 12 job，消费
+  toolchain 工件（.zpkg 平台无关 + cargo build 各自 native z42vm）+ `test stdlib --mode interp --shard`。
+  每慢 OS 各自分片 → host-dependent stdlib（io/net/process/fs）保持本平台覆盖。
+- 新 `cross-zpkg-interp`：单 linux job（cross-zpkg 是字节码派发、host-independent，同 jit 单腿判据）。
+  cross-zpkg jit 仍在 vm-jit shard 1。
+
+**预期**：慢腿 stdlib(-9m) + cross-zpkg(-6m) → linux-x64 29→~14m、arm64 26→~17m、macos 23→~14m。
+新临界路径落到 vm-jit(~16m) 或 arm64 腿，总 wall-clock 目标 ~33→~24m（-27%）。+13 job（public repo
+免费无限分钟，仅并发受限；短 job 排队影响小）。**实际收益以 CI 实测为准**（CI-only 可验）。

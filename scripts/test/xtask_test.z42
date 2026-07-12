@@ -189,7 +189,20 @@ string _latestReleasePkg(string root) {
 // compiler + VM goldens + cross-zpkg + stdlib, short-circuiting on first
 // failure. Mirrors the former scripts/test-all.sh's stage set (the --parallel wave +
 // --scope auto-narrow optimizations are a later increment).
-int _testAll(bool noBuild) {
+// True if the comma/space-separated `skip` list names `stage`. Lets CI decompose
+// the monolithic gate: test-host legs run `test all --skip stdlib,cross-zpkg` while
+// dedicated parallel jobs (stdlib-interp shards / cross-zpkg-interp) cover those
+// stages — cutting the per-leg critical path. Local `xtask test` passes skip="" →
+// full gate, unchanged.
+bool _skipHas(string skip, string stage) {
+    if (skip.Length == 0) { return false; }
+    string[] parts = _splitWords(skip.Replace(",", " "));
+    int i = 0;
+    while (i < parts.Length) { if (parts[i] == stage) { return true; } i = i + 1; }
+    return false;
+}
+
+int _testAll(bool noBuild, string skip) {
     Stopwatch sw = _procStart("test");
     // build wave (once): stdlib + compiler driver + release runtime + golden zbc.
     // compile-once consume: skip the redundant z42c+stdlib rebuild when they're
@@ -221,12 +234,16 @@ int _testAll(bool noBuild) {
     // jit stage off every host leg's critical path.
     Console.WriteLine("\n=== stage: e2e goldens (interp; jit → vm-jit-consistency) ===");
     c = _testE2eCore("interp", false, false, "4", "", "", ""); if (c != 0) { return c; }
-    // stage 3: e2e cross-zpkg
-    Console.WriteLine("\n=== stage: e2e cross-zpkg ===");
-    c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
-    // stage 4: stdlib [Test] (no build)
-    Console.WriteLine("\n=== stage: stdlib [Test] ===");
-    c = _testLibCore("test", new string[0], true, "", "4", "interp"); if (c != 0) { return c; }
+    // stage 3: e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
+    if (!_skipHas(skip, "cross-zpkg")) {
+        Console.WriteLine("\n=== stage: e2e cross-zpkg ===");
+        c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
+    }
+    // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
+    if (!_skipHas(skip, "stdlib")) {
+        Console.WriteLine("\n=== stage: stdlib [Test] ===");
+        c = _testLibCore("test", new string[0], true, "", "4", "interp"); if (c != 0) { return c; }
+    }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     Console.WriteLine("\n=== stage: compiler ===");
     c = _testCompiler(true); if (c != 0) { return c; }

@@ -30,7 +30,7 @@ int _runCli(string[] argvIn) {
 
     // default-action shim: `test` (empty / leading non-help flag) → full gate.
     if (c0 == "test" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
-        return _testAll(false);
+        return _testAll(false, "");
     }
     // default-action shim: `bench` (anything but the `stdlib` subcommand) → e2e.
     if (c0 == "bench" && c1 != "stdlib") {
@@ -251,6 +251,7 @@ SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
     ArgParser allP = new ArgParser("xtask test all", "full gate");
     allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
+    allP.AddOption("skip", "", "skip named stages (csv: stdlib,cross-zpkg) — CI shards them into parallel jobs; local runs omit this for the full gate");
     t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
     ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
     stdlib.AddFlag("no-build", "", "skip tooling rebuild");
@@ -428,7 +429,7 @@ int _dispatchBuild(string[] p, ParseResult r) {
 
 int _dispatchTest(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
-    if (sub == "all")          { return _testAll(r.GetFlag("no-build")); }
+    if (sub == "all")          { return _testAll(r.GetFlag("no-build"), r.GetOption("skip")); }
     if (sub == "stdlib")       { return _testLib(r, "test"); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
