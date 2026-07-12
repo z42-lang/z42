@@ -1,0 +1,307 @@
+// 成员解析 + 调用子绑定器（compiler-review P1-1：拆 TypeChecker God-Class step 2）。
+// 持 TypeChecker 反向引用 _tc：跨界经 _tc._bindExpr（ExprTyper）/_tc._overload（重载决议）/
+// _tc._diags / _tc._currentNs；prim 谓词走 TypeChecker 静态。同组方法互调仍 this._X。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR.BinaryFormat;
+
+public sealed class MemberResolver {
+    private TypeChecker _tc;
+    public MemberResolver(TypeChecker tc) { this._tc = tc; }
+
+    private BoundExpr _bindMember(MemberExpr m, TypeEnv env) {
+        // 裸类名静态字段读（SA-2）：Sev.Error——target 是类名（非变量）→ StaticGet
+        if (m.Target is IdentExpr) {
+            IdentExpr tid = m.Target as IdentExpr;
+            if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
+                Z42ClassType sct = env.Symbols.GetClass(tid.Name);
+                FieldSymbol sfs = sct.Fields.Get(m.Name) as FieldSymbol;
+                if (sfs != null && sfs.IsStatic) {
+                    return new BoundStaticGet(tid.Name, m.Name, sfs.FieldType, m.Span);
+                }
+            }
+            // 枚举常量访问 `EnumType.Member` → BoundLitInt（long）。
+            if (env.LookupVar(tid.Name) == null && env.Symbols.EnumTypes.ContainsKey(tid.Name)) {
+                string ekey = tid.Name + "." + m.Name;
+                if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
+                    StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
+                    return new BoundLitInt(evalBox.Value, new Z42PrimType("long"), m.Span);
+                }
+            }
+        }
+        BoundExpr target = this._tc._bindExpr(m.Target, env);
+        Z42Type tt = target.Type();
+        return this._bindInstanceMember(m, target, tt, env);
+    }
+
+    private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (rt is Z42ClassType) {
+            Z42ClassType ct = rt as Z42ClassType;
+            MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+            if (ms != null) {
+                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                return new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "no method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
+            return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
+        }
+        if (rt is Z42InterfaceType) {                                // 接口收者（port-z42c-interface）
+            Z42InterfaceType it = rt as Z42InterfaceType;
+            MethodSymbol ims = it.Methods.Get(mem.Name) as MethodSymbol;
+            if (ims != null) {
+                return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, ims.Signature.Ret, sp);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "no method `" + mem.Name + "` on interface `" + it.Name() + "`", sp);
+            return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
+        }
+        if ((rt is Z42ErrorType) || (rt is Z42UnknownType)) {
+            return new BoundCall("instance", true, recv, "<?>", mem.Name, args, argCount, new Z42ErrorType(), sp);
+        }
+        // GS6: 泛型实例化类型（LinkedList<T>.Next() 等）→ 查 Def 类方法，返回类型泛型参数松绑 Unknown。
+        if (rt is Z42InstantiatedType) {
+            Z42ClassType itDef2 = (rt as Z42InstantiatedType).Def;
+            MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, sp);
+            if (itms != null) {
+                Z42Type itRet = itms.Signature.Ret;
+                if (itRet is Z42GenericParamType) { itRet = new Z42UnknownType(); }
+                BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
+                return new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
+            }
+            return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+        }
+        // Z42GenericParamType：T.GetHashCode() 等继承自 Object 的方法 → 查 Object 类取真实返回类型。
+        if (rt is Z42GenericParamType) {
+            if (env.Symbols.HasClass("Object")) {
+                Z42ClassType objCt = env.Symbols.GetClass("Object");
+                string gpMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
+                MethodSymbol gpMs = this._tc._overload._findMethod(env.Symbols, objCt, gpMkey);
+                if (gpMs != null) {
+                    return new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp);
+                }
+            }
+            return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+        }
+        // prim receiver（IC-3，镜像 C#）：prim 名首字母大写 → stdlib 包装类（"string"→"String"，
+        // imported 自 z42.core TSIG）→ 取方法 ret 真类型（dst tag 字节实证 Str 非 Unknown）；
+        // 查无则松绑定 Unknown（codegen 经 DepIndex 真实解析）。
+        string wrapper = TypeChecker._primWrapper(rt.Name());
+        if (env.Symbols.HasClass(wrapper)) {
+            Z42ClassType wct = env.Symbols.GetClass(wrapper);
+            string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
+            MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
+            if (wms != null) {
+                return new BoundCall("instance", true, recv, rt.Name(), mkey, args, argCount, wms.Signature.Ret, sp);
+            }
+        }
+        return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+    }
+
+    private BoundExpr _bindInstanceMember(MemberExpr m, BoundExpr target, Z42Type tt, TypeEnv env) {
+        if (tt is Z42ClassType) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
+        // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）。
+        if (tt is Z42InterfaceType) {
+            Z42InterfaceType it = tt as Z42InterfaceType;
+            MethodSymbol ig = it.Methods.Get("get_" + m.Name) as MethodSymbol;
+            if (ig != null && ig.Signature != null) {
+                return new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0, ig.Signature.Ret, m.Span);
+            }
+            return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
+        }
+        // Length on array OR string → int；Count → int（镜像 C# TypeChecker.Exprs.Members 行 161-164：
+        // `m.Member is "Length" && (target.Type is Z42ArrayType || target.Type == Z42Type.String)`）。
+        if (m.Name == "Length" && ((tt is Z42ArrayType) || (tt is Z42PrimType && tt.Name() == "string"))) {
+            return new BoundMember(target, m.Name, new Z42PrimType("int"), m.Span);
+        }
+        if (m.Name == "Count") {
+            return new BoundMember(target, m.Name, new Z42PrimType("int"), m.Span);
+        }
+        if ((tt is Z42ErrorType) || (tt is Z42UnknownType)) {
+            return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
+        }
+        // GS5：泛型类型形参（TKey/TValue 等）上的成员访问松绑到 Unknown（调用方再按 DepIndex 真实解析）。
+        if (tt is Z42GenericParamType) {
+            return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+        }
+        // GS6: 泛型实例化类型（LinkedListNode<T> 等）成员访问 → 查 Def 类字段，泛型字段类型松绑 Unknown。
+        if (tt is Z42InstantiatedType) {
+            Z42ClassType itDef = (tt as Z42InstantiatedType).Def;
+            FieldSymbol itFs = this._findField(env.Symbols, itDef, m.Name);
+            if (itFs != null) {
+                Z42Type fType = itFs.FieldType;
+                if (fType is Z42GenericParamType) { fType = new Z42UnknownType(); }
+                return new BoundMember(target, m.Name, fType, m.Span);
+            }
+            return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+        }
+        // prim receiver 属性访问（镜像 _bindMemberCall 的 prim 处理）：prim 名首字母大写 →
+        // stdlib 包装类（"string"→"String"，imported 自 z42.core TSIG）→ 取字段/属性真类型；
+        // 查无则松绑 Unknown（codegen 经 DepIndex/VM builtin 真实解析，如 string.Length）。
+        string wrapper = TypeChecker._primWrapper(tt.Name());
+        if (env.Symbols.HasClass(wrapper)) {
+            Z42ClassType wct = env.Symbols.GetClass(wrapper);
+            FieldSymbol wfs = this._findField(env.Symbols, wct, m.Name);
+            if (wfs != null) { return new BoundMember(target, m.Name, wfs.FieldType, m.Span); }
+            // 属性 getter 派发（镜像上面 Z42ClassType 分支）：wrapper 类的 extern 属性
+            // （如 String.ByteLength）注册为 get_<Name> 方法而非字段，须同样查 getter
+            // 才能拿到真实返回类型；否则误判 "member access on non-class" 或松绑 Unknown。
+            MethodSymbol wgetter = this._tc._overload._findMethod(env.Symbols, wct, "get_" + m.Name);
+            if (wgetter != null && wgetter.Signature != null) {
+                return new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
+            }
+            return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+        }
+        this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+            "member access on non-class `" + tt.Name() + "`", m.Span);
+        return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
+    }
+
+    private BoundExpr _bindClassMemberAccess(MemberExpr m, BoundExpr target, Z42ClassType ct, TypeEnv env) {
+            FieldSymbol fs = this._findField(env.Symbols, ct, m.Name);
+            if (fs != null) { return new BoundMember(target, m.Name, fs.FieldType, m.Span); }
+            // 属性 getter 派发：无字段但有 get_<Name>(0 参) → 虚调用 getter（镜像 C#）。
+            MethodSymbol getter = this._tc._overload._findMethod(env.Symbols, ct, "get_" + m.Name);
+            if (getter != null && getter.Signature != null) {
+                return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
+            }
+            // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
+            MethodSymbol mg = this._tc._overload._findMethod(env.Symbols, ct, m.Name);
+            if (mg != null && mg.Signature != null) {
+                return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "no field `" + m.Name + "` on `" + ct.Name() + "`", m.Span);
+            return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
+    }
+
+    private FieldSymbol _findField(SymbolTable symbols, Z42ClassType ct, string name) {
+        Z42ClassType cur = ct;
+        bool more = true;
+        while (more) {
+            if (cur.Fields.ContainsKey(name)) { return cur.Fields.Get(name) as FieldSymbol; }
+            if (!cur.HasBase) {
+                // 无显式 base 的 class 隐式继承 Object（struct 不继承，但字段不含在 Object）。
+                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
+                else { more = false; }
+            } else {
+                Z42ClassType b = symbols.GetClass(cur.BaseName);
+                if (b == null) { more = false; } else { cur = b; }
+            }
+        }
+        return null;
+    }
+
+    private BoundExpr _bindCall(CallExpr call, TypeEnv env) {
+        BoundExpr[] args = new BoundExpr[call.ArgCount];
+        int i = 0;
+        while (i < call.ArgCount) { args[i] = this._tc._bindExpr(call.Args[i], env); i = i + 1; }
+        // 顶层自由函数：f(args)
+        if (call.Callee is IdentExpr) {
+            IdentExpr id = call.Callee as IdentExpr;
+            Z42Type vfn = env.LookupVar(id.Name);
+            if (vfn != null && (vfn is Z42FuncType)) {              // Func 值间接调用（port-z42c-closures）
+                BoundExpr callee = this._tc._bindExpr(call.Callee, env);
+                return new BoundIndirectCall(callee, args, call.ArgCount, (vfn as Z42FuncType).Ret, call.Span);
+            }
+            // impl-local-fn-l2：局部函数调用 → BoundCall "free"（local 名；emit 期改写为 lifted 名）。
+            Z42FuncType lfsig = env.LookupLocalFn(id.Name);
+            if (lfsig != null) {
+                return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
+            }
+            if (env.Symbols.HasFunc(id.Name)) {
+                MethodSymbol ms = env.Symbols.GetFunc(id.Name);
+                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
+                return new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
+            }
+            // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
+            if (env.HasClass()) {
+                string cls = env.CurrentClass();
+                if (env.Symbols.HasClass(cls)) {
+                    Z42ClassType sct = env.Symbols.GetClass(cls);
+                    MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.Span);
+                    if (sms != null && sms.IsStatic) {
+                        // add-params-varargs：本路径（同类无限定静态调用）不经 _withDefaults，
+                        // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
+                        BoundExpr[] fa = args;
+                        if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span); }
+                        return new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
+                    }
+                }
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined function: " + id.Name, call.Span);
+            return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, new Z42ErrorType(), call.Span);
+        }
+        // 成员调用：obj.m(args) / Class.m(args)
+        if (call.Callee is MemberExpr) {
+            return this._bindMemberCall(call.Callee as MemberExpr, args, call.ArgCount, call.Args, env, call.Span);
+        }
+        // 通用间接调用：array[i](args) / method()(args) 等 callee 是任意表达式且类型为 Z42FuncType。
+        // Z42GenericParamType：泛型接口方法返回类型参数（如 ISubscription<TD>.Get()→TD）；type-erased，运行期解析。
+        {
+            BoundExpr callee = this._tc._bindExpr(call.Callee, env);
+            Z42Type ct = callee.Type();
+            if (ct is Z42FuncType) {
+                return new BoundIndirectCall(callee, args, call.ArgCount, (ct as Z42FuncType).Ret, call.Span);
+            }
+            if (ct is Z42GenericParamType) {
+                return new BoundIndirectCall(callee, args, call.ArgCount, new Z42UnknownType(), call.Span);
+            }
+        }
+        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported call form", call.Span);
+        return new BoundError("unsupported call", new Z42ErrorType(), call.Span);
+    }
+
+    private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        // fix-namespace-qualified-free-call：`ns.func()` 当 ns=当前命名空间且 func 是自由函数
+        // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。
+        if (mem.Target is IdentExpr) {
+            IdentExpr nsId = mem.Target as IdentExpr;
+            if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
+                && env.LookupVar(nsId.Name) == null && env.Symbols.HasFunc(mem.Name)) {
+                MethodSymbol nfs = env.Symbols.GetFunc(mem.Name);
+                return new BoundCall("free", false, null, "", mem.Name, args, argCount, nfs.Signature.Ret, sp);
+            }
+        }
+        // 静态：target 是裸类名（非局部变量）→ Class.m(args)
+        if (mem.Target is IdentExpr) {
+            IdentExpr tid = mem.Target as IdentExpr;
+            if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
+                Z42ClassType ct = env.Symbols.GetClass(tid.Name);
+                MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+                if (ms != null) {
+                    BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                    return new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                }
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
+                return new BoundCall("static", false, null, tid.Name, mem.Name, args, argCount, new Z42ErrorType(), sp);
+            }
+        }
+        // GS6: prim 关键字静态调用（int.Parse / string.FromChars 等）→ wrapper class 静态方法
+        if (mem.Target is IdentExpr) {
+            IdentExpr tid2 = mem.Target as IdentExpr;
+            if (env.LookupVar(tid2.Name) == null && TypeChecker._isPrimKeyword(tid2.Name)) {
+                string pwrap2 = TypeChecker._primWrapper(tid2.Name);
+                if (env.Symbols.HasClass(pwrap2)) {
+                    Z42ClassType wct2 = env.Symbols.GetClass(pwrap2);
+                    string wmkey2 = this._tc._overload._overloadKey(env.Symbols, wct2, mem.Name, argCount);
+                    MethodSymbol wms2 = this._tc._overload._findMethod(env.Symbols, wct2, wmkey2);
+                    if (wms2 != null) {
+                        return new BoundCall("static", false, null, pwrap2, wmkey2, args, argCount, wms2.Signature.Ret, sp);
+                    }
+                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                        "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
+                    return new BoundCall("static", false, null, pwrap2, mem.Name, args, argCount, new Z42ErrorType(), sp);
+                }
+            }
+        }
+        // 实例：bind target 为值
+        BoundExpr recv = this._tc._bindExpr(mem.Target, env);
+        Z42Type rt = recv.Type();
+        return this._bindInstanceMemberCall(mem, recv, rt, args, argCount, rawArgs, env, sp);
+    }
+
+}
