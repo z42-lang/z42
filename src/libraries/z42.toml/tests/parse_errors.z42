@@ -102,3 +102,43 @@ void test_moderate_nesting_ok() {
     while (i < n) { cur = cur.At(0); i = i + 1; }
     Assert.Equal(7L, cur.AsLong());
 }
+
+// fix-toml-number-scan (2026-07-12, review §2.2): the number scanner used to let
+// malformed shapes through and then throw a bare Parse exception; now they raise
+// a TomlException with line/col, and TOML 1.0 leading zeros are rejected.
+[Test]
+void test_reject_multiple_dots() {
+    bool caught = false;
+    try { TomlValue.Parse("x = 1.2.3"); } catch (TomlException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reject_multiple_exponents() {
+    bool caught = false;
+    try { TomlValue.Parse("x = 1e5e5"); } catch (TomlException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reject_leading_zero_int() {
+    bool caught = false;
+    try { TomlValue.Parse("x = 042"); } catch (TomlException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reject_leading_zero_float() {
+    bool caught = false;
+    try { TomlValue.Parse("x = 01.5"); } catch (TomlException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_accept_valid_zero_forms() {
+    // 0 / 0.x / 0ex / -0 stay valid (only redundant leading zeros are rejected).
+    Assert.Equal(0L, TomlValue.Parse("x = 0").Get("x").AsLong());
+    Assert.EqualApprox(0.5, TomlValue.Parse("x = 0.5").Get("x").AsDouble(), 1e-9);
+    Assert.EqualApprox(0.0, TomlValue.Parse("x = 0e0").Get("x").AsDouble(), 1e-9);
+    Assert.Equal(42L, TomlValue.Parse("x = 42").Get("x").AsLong());
+}

@@ -774,10 +774,40 @@ public sealed class TomlParser {
         }
         string raw = this._src.Substring(start, this._pos - start);
         string clean = this.StripUnderscores(raw);
-        if (isFloat) {
-            return TomlValue.OfDouble(double.Parse(clean));
+        // TOML 1.0: reject leading zeros on decimal integers (`042`); `0`, `0.5`,
+        // `0e0` stay valid. 0x/0o/0b handled above (early return).
+        this.RejectLeadingZeros(clean);
+        // Malformed shapes the scan let through (`1.2.3`, `1e5e5`) make
+        // double/long.Parse throw; re-raise as a TomlException with line/col
+        // instead of a bare exception.
+        try {
+            if (isFloat) {
+                return TomlValue.OfDouble(double.Parse(clean));
+            }
+            return TomlValue.OfLong(long.Parse(clean));
+        } catch (Exception e) {
+            throw this.Err("invalid number: '" + raw + "'");
         }
-        return TomlValue.OfLong(long.Parse(clean));
+    }
+
+    /// Reject a decimal number whose integer part has a redundant leading zero
+    /// (TOML 1.0 §Integer / §Float). `s` is the underscore-stripped token,
+    /// possibly signed. `0`, `0.x`, `0ex` are allowed; `042` / `01.5` are not.
+    private void RejectLeadingZeros(string s) {
+        string mag = s;
+        if (mag.Length > 0) {
+            char c0 = mag.CharAt(0);
+            if (c0 == '+' || c0 == '-') { mag = mag.Substring(1); }
+        }
+        int ip = 0;
+        while (ip < mag.Length) {
+            char mc = mag.CharAt(ip);
+            if (mc == '.' || mc == 'e' || mc == 'E') { break; }
+            ip = ip + 1;
+        }
+        if (ip > 1 && mag.CharAt(0) == '0') {
+            throw this.Err("invalid number: leading zeros not allowed");
+        }
     }
 
     /// Validate the underscore at `_pos` has a digit before and after.
