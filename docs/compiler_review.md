@@ -159,7 +159,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 | ManifestLoader 异常裸奔 | `ManifestLoader.z42:15` | `TomlValue.Parse` 抛异常时无捕获,格式错误直达顶层而非走 DiagnosticBag |
 | Driver 绕过统一诊断渲染 | `Main.z42:155–157` | 直接 `ConsoleError.WriteLine` 遍历诊断;建议 `DiagnosticBag.FormatAll()` 收口(DiagnosticRenderer 本就是 README 待移植项) |
 | Parser 无统一错误恢复 | Parser.z42 全文 30 处 `_diags.Error` | 有的 advance 有的不 advance;建议 `_skipToSync(terminators)` 同步集策略 |
-| 测试缺口 | OverloadResolver(适用性/最具体候选)、WorkspaceBuild 环检测 | 无单测/golden 覆盖 |
+| ~~测试缺口~~ | ✅ OverloadResolver 8 单测（change `add-overload-resolver-tests` 2026-07-12）；WorkspaceBuild 环检测已由 `topo_tests.test_topo_cycle_throws` 覆盖 | 已补 |
 | 诊断消息文案分散 | TypeChecker 等多处字符串字面量 | 码已集中(DiagnosticCodes)、文案未集中;低优先 |
 | Bound.Dump() s-expr 格式无规范 | Bound.z42 | 新节点易格式不一致;在文件头注释或 book 页规范格式 |
 
@@ -207,7 +207,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 | P3-2 | Skeleton 死文件清理 | 各子包 | ✅ 2026-07-12（6 个自引用死簇删除）|
 | P3-3 | ExportedTypeExtractor 与 SymbolCollector 共用 mangle 规则 | semantics | ⬜ |
 | P3-4 | Parser 错误恢复 `_skipToSync`;ManifestLoader 异常捕获;DiagnosticBag.FormatAll | syntax / project / core+driver | ⬜ |
-| P3-5 | 补 OverloadResolver / 环检测测试 | semantics / pipeline | ⬜ |
+| P3-5 | 补 OverloadResolver / 环检测测试 | semantics / pipeline | ✅ 2026-07-12（overload 8 单测；环检测既有 topo_tests 已覆盖）|
 
 **设计完整性讨论点(推进 P1 前建议先裁决)**:
 1. AST/Bound 分派机制——引入 kind-tag 常量表,还是维持 is/as 现状?(影响 P1 拆分时的接口形态)

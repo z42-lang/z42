@@ -1,0 +1,17 @@
+# z42c.semantics OverloadResolver 单测（compiler-review P3-5：补测试缺口）。
+[project]
+name    = "z42c.semantics.test.overload"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.semantics/tests/overload → artifacts/build/compiler/z42c.semantics/tests/overload (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/overload"

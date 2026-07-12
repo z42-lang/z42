@@ -1,0 +1,93 @@
+// z42c.semantics OverloadResolver 单测（compiler-review P3-5：补测试缺口）。
+// 覆盖 MangleKey（签名键派生 + Canon 别名归一）与 Resolve（适用性 / 最具体 / 歧义 / 无匹配）。
+// 直接构造 MethodSymbol + Z42FuncType（平行 type_tests 风格），无需真编译。
+namespace Z42cSemanticsOverloadTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// helper：造一个名 "f" 的候选方法，给定形参类型 + 注册键（用于断言选中项）。
+MethodSymbol _cand(string regkey, Z42Type[] ps, int pc) {
+    var sig = new Z42FuncType(ps, pc, new Z42PrimType("void"));
+    var m = new MethodSymbol("f", "public", sig, true, "Owner", false, null);
+    m.RegKey = regkey;
+    return m;
+}
+
+// ── MangleKey ────────────────────────────────────────────────────────────
+
+// key = Name$arity$T1$T2...；Ti = Canon(paramName)（剥空白）。
+[Test]
+void test_manglekey_two_params() {
+    Z42Type[] ps = new Z42Type[]{ new Z42PrimType("int"), new Z42PrimType("int") };
+    Assert.Equal("Add$2$i32$i32", OverloadResolver.MangleKey("Add", ps, 2));
+}
+
+// arity 0 → 无类型后缀。
+[Test]
+void test_manglekey_arity0() {
+    Assert.Equal("f$0", OverloadResolver.MangleKey("f", new Z42Type[0], 0));
+}
+
+// Canon 归一别名：long→i64、int→i32（跨包 imported 拼写与本地 canonical 一致的关键）。
+[Test]
+void test_manglekey_canon_alias() {
+    Z42Type[] ps = new Z42Type[]{ new Z42PrimType("long") };
+    Assert.Equal("g$1$i64", OverloadResolver.MangleKey("g", ps, 1));
+}
+
+// Canon 剥 nullable "?"：int? → i32。
+[Test]
+void test_manglekey_strips_nullable() {
+    Z42Type[] ps = new Z42Type[]{ new Z42PrimType("int?") };
+    Assert.Equal("h$1$i32", OverloadResolver.MangleKey("h", ps, 1));
+}
+
+// ── Resolve ──────────────────────────────────────────────────────────────
+
+// arity 不匹配 → 无适用 → NoMatch。
+[Test]
+void test_resolve_no_match_arity() {
+    Z42Type[] p2 = new Z42Type[]{ new Z42PrimType("int"), new Z42PrimType("int") };
+    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$2", p2, 2) };
+    Z42Type[] args = new Z42Type[]{ new Z42PrimType("int") };
+    var r = OverloadResolver.Resolve(cands, 1, args, 1);
+    Assert.True(r.IsNoMatch());
+}
+
+// 单个适用候选 → 直接选中（Resolved）。
+[Test]
+void test_resolve_single_applicable() {
+    Z42Type[] p1 = new Z42Type[]{ new Z42PrimType("int") };
+    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$1$i32", p1, 1) };
+    Z42Type[] args = new Z42Type[]{ new Z42PrimType("int") };
+    var r = OverloadResolver.Resolve(cands, 1, args, 1);
+    Assert.True(r.IsResolved());
+    Assert.Equal("f$1$i32", r.Key);
+}
+
+// 精确 int 与装箱 object 皆适用 → 精确形参更具体 → 选 int 候选。
+[Test]
+void test_resolve_most_specific_exact_wins() {
+    Z42Type[] pi = new Z42Type[]{ new Z42PrimType("int") };
+    Z42Type[] po = new Z42Type[]{ new Z42PrimType("object") };
+    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$int", pi, 1), _cand("f$obj", po, 1) };
+    Z42Type[] args = new Z42Type[]{ new Z42PrimType("int") };
+    var r = OverloadResolver.Resolve(cands, 2, args, 1);
+    Assert.True(r.IsResolved());
+    Assert.Equal("f$int", r.Key);
+}
+
+// f(int,object) 与 f(object,int) 对实参 (int,int) 皆适用、互不支配 → 歧义。
+[Test]
+void test_resolve_ambiguous() {
+    var i = new Z42PrimType("int");
+    var o = new Z42PrimType("object");
+    Z42Type[] pa = new Z42Type[]{ i, o };
+    Z42Type[] pb = new Z42Type[]{ o, i };
+    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$io", pa, 2), _cand("f$oi", pb, 2) };
+    Z42Type[] args = new Z42Type[]{ new Z42PrimType("int"), new Z42PrimType("int") };
+    var r = OverloadResolver.Resolve(cands, 2, args, 2);
+    Assert.True(r.IsAmbiguous());
+}
