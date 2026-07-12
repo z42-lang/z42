@@ -1,0 +1,323 @@
+// 类/接口/属性描述符子构建器（compiler-review P1-3 step2）。类元数据 + attr 引用。
+// 持 IrGen 反向引用 _g：_g._symbols/IfaceDecls + 助手 _q/_qClass/_hasWord/_visCode/_unwrap/_classIrShortName。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class ClassDescBuilder {
+    private IrGen _g;
+    public ClassDescBuilder(IrGen g) { this._g = g; }
+
+    private string _typeFieldName(TypeExpr te) {
+        if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem) + "[]"; }
+        if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner); }
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            if (nt.ArgCount == 0 && this._isAliasPrim(nt.Name)) { return nt.Name; }
+            return this._typeSourceName(nt);
+        }
+        return "unknown";
+    }
+
+    private string _typeSourceName(NamedType nt) {
+        if (nt.ArgCount == 0) {
+            if (this._hasDot(nt.Name)) { return "unknown"; }
+            return nt.Name;
+        }
+        string s = nt.Name + "<";
+        int i = 0;
+        while (i < nt.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            if (nt.Args[i] is NamedType) {
+                s = s + this._typeSourceName(nt.Args[i] as NamedType);
+            } else {
+                s = s + this._typeFieldName(nt.Args[i]);
+            }
+            i = i + 1;
+        }
+        return s + ">";
+    }
+
+    private bool _isAliasPrim(string n) {
+        return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
+    }
+
+    private bool _hasDot(string name) {
+        int i = 0;
+        while (i < name.Length) {
+            if (name.CharAt(i) == '.') { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private string[] _expandIfaces(string[] direct, int count) {
+        string[] result = new string[count + 4]; int rc = 0;
+        StrMap seen = new StrMap();
+        string[] queue = new string[count + 4]; int qh = 0; int qt = 0;
+        int i = 0;
+        while (i < count) { queue[qt] = direct[i]; qt = qt + 1; i = i + 1; }
+        while (qh < qt) {
+            string name = queue[qh]; qh = qh + 1;
+            // 裸名（去泛型实参）查 IfaceDecls + 去重
+            string bare = name;
+            int lt = name.IndexOf("<");
+            if (lt >= 0) { bare = name.Substring(0, lt); }
+            if (seen.ContainsKey(bare)) { continue; }
+            seen.Put(bare, "1");
+            if (rc == result.Length) {
+                string[] b2 = new string[result.Length * 2];
+                int z = 0; while (z < rc) { b2[z] = result[z]; z = z + 1; }
+                result = b2;
+            }
+            result[rc] = name; rc = rc + 1;
+            if (this._g.IfaceDecls != null && this._g.IfaceDecls.ContainsKey(bare)) {
+                ClassDecl idecl = this._g.IfaceDecls.Get(bare) as ClassDecl;
+                int bi = 0;
+                while (bi < idecl.BaseCount) {
+                    if (qt == queue.Length) {
+                        string[] q2 = new string[queue.Length * 2];
+                        int z = 0; while (z < qt) { q2[z] = queue[z]; z = z + 1; }
+                        queue = q2;
+                    }
+                    queue[qt] = idecl.Bases[bi].Dump(); qt = qt + 1;
+                    bi = bi + 1;
+                }
+            }
+        }
+        string[] trimmed = new string[rc];
+        int t = 0; while (t < rc) { trimmed[t] = result[t]; t = t + 1; }
+        return trimmed;
+    }
+
+    private bool _hasExplicitInstanceCtor(ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl m = this._g._unwrap(c.Members[j]);
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && !this._g._hasWord(md.Mods, "static")) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    private IrClassDesc _classDesc(ClassDecl c) {
+        // 镜像 C# EmitClassDesc：struct/record 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
+        bool isStructOrRecord = c.Kind == "struct" || c.Kind == "record";
+        bool isRoot = c.Name == "Object";
+        bool hasBase = !(isStructOrRecord || isRoot);
+        string baseName = hasBase ? "Std.Object" : "";
+        int bi2 = 0;
+        while (bi2 < c.BaseCount) {       // 基表判别（port-z42c-interface）：跳过接口，取首个类
+            string bn = c.Bases[bi2].Dump();
+            // HasInterface map 存裸名（无泛型实参）；去掉 <...> 再查。
+            string barebn = bn;
+            int ltIdx = bn.IndexOf("<");
+            if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
+            if (!this._g._symbols.HasInterface(barebn)) {
+                baseName = bn;
+                if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
+                hasBase = true;
+                bi2 = c.BaseCount;        // 取首个类即止
+            }
+            bi2 = bi2 + 1;
+        }
+        IrFieldDesc[] fields = new IrFieldDesc[4];
+        int fcount = 0;
+        IrFieldDesc[] sfields = new IrFieldDesc[4];
+        int sfcount = 0;
+        // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 CT。
+        string ctdKey = c.Name;
+        if (c.TypeParams.Count > 0) { string ctdm = c.Name + "$" + c.TypeParams.Count.ToString(); if (this._g._symbols.HasClass(ctdm)) { ctdKey = ctdm; } }
+        Z42ClassType ctd = this._g._symbols.GetClass(ctdKey) as Z42ClassType;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = this._g._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
+                FieldSymbol fsy = ctd.Fields.Get(fd.Name) as FieldSymbol;
+                bool isStatic = fsy != null && fsy.IsStatic;
+                if (isStatic) {
+                    if (sfcount == sfields.Length) {
+                        IrFieldDesc[] b2 = new IrFieldDesc[sfields.Length * 2];
+                        int k = 0; while (k < sfcount) { b2[k] = sfields[k]; k = k + 1; }
+                        sfields = b2;
+                    }
+                    IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
+                    sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
+                    sfdesc.Visibility = this._g._visCode(fd.Mods);   // add-member-visibility
+                    sfields[sfcount] = sfdesc;
+                    sfcount = sfcount + 1;
+                } else {
+                    if (fcount == fields.Length) {
+                        IrFieldDesc[] bigger = new IrFieldDesc[fields.Length * 2];
+                        int k = 0; while (k < fcount) { bigger[k] = fields[k]; k = k + 1; }
+                        fields = bigger;
+                    }
+                    IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
+                    fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
+                    fdesc.Visibility = this._g._visCode(fd.Mods);   // add-member-visibility
+                    fields[fcount] = fdesc;
+                    fcount = fcount + 1;
+                }
+            } else if (mem is PropertyDecl) {
+                // 非 extern auto-prop → 合成 __prop_X 备份字段（镜像 C# SynthesizeClassAutoProp backing field）。
+                PropertyDecl fpd = mem as PropertyDecl;
+                bool fpdExtern = this._g._hasWord(fpd.Mods, "extern");
+                bool fpdStatic = this._g._hasWord(fpd.Mods, "static");
+                if (!fpdExtern) {
+                    string bfn = "__prop_" + fpd.Name;
+                    string bft = this._typeFieldName(fpd.Type);
+                    if (fpdStatic) {
+                        if (sfcount == sfields.Length) {
+                            IrFieldDesc[] b3 = new IrFieldDesc[sfields.Length * 2];
+                            int k = 0; while (k < sfcount) { b3[k] = sfields[k]; k = k + 1; }
+                            sfields = b3;
+                        }
+                        IrFieldDesc sbf = new IrFieldDesc(bfn, bft);
+                        sbf.Visibility = 1;   // auto-prop 后备字段 = private（reconcile：镜像符号侧 OwnFieldVis）
+                        sfields[sfcount] = sbf; sfcount = sfcount + 1;
+                    } else {
+                        if (fcount == fields.Length) {
+                            IrFieldDesc[] b4 = new IrFieldDesc[fields.Length * 2];
+                            int k = 0; while (k < fcount) { b4[k] = fields[k]; k = k + 1; }
+                            fields = b4;
+                        }
+                        IrFieldDesc ibf = new IrFieldDesc(bfn, bft);
+                        ibf.Visibility = 1;   // 同上：instance 后备字段 private
+                        fields[fcount] = ibf; fcount = fcount + 1;
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        IrClassDesc cd2 = new IrClassDesc(this._g._q(this._g._classIrShortName(c)), hasBase, baseName, fields, fcount);
+        cd2.StaticFields = sfields; cd2.StaticFieldCount = sfcount;
+        if (ctd != null && ctd.InterfaceCount > 0) {   // TYPE 接口块（zbc 1.20：FQ 名，镜像 C# InterfaceTypeName→QualifyClassName）
+            // add-reflection-transitive-interfaces：展开间接继承（IB:IA → 类含 IA）。
+            string[] expanded = this._expandIfaces(ctd.InterfaceNames, ctd.InterfaceCount);
+            string[] ifqs = new string[expanded.Length];
+            int ifi = 0;
+            while (ifi < expanded.Length) { ifqs[ifi] = this._g._qClass(expanded[ifi]); ifi = ifi + 1; }
+            cd2.Interfaces = ifqs;
+            cd2.InterfaceCount = expanded.Length;
+        }
+        // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
+        int flags = 0;
+        if (this._g._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
+        if (this._g._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
+        if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
+        if (c.Kind == "record")  { flags = flags + 8; }                 // bit3
+        cd2.Flags = flags;
+        // TypeParams + constraint bundles（zbc L3-G1/G3a；镜像 C# BuildConstraintList）
+        if (c.TypeParams.Count > 0) {
+            cd2.TypeParams = c.TypeParams.Names;
+            cd2.TypeParamCount = c.TypeParams.Count;
+            IrConstraintDesc[] descs = new IrConstraintDesc[c.TypeParams.Count];
+            int ti = 0;
+            while (ti < c.TypeParams.Count) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
+            int wi = 0;
+            while (wi < c.WhereCount) {
+                WhereClause wc = c.Wheres[wi];
+                int tpi = 0;
+                while (tpi < c.TypeParams.Count) {
+                    if (c.TypeParams.Names[tpi] == wc.TypeParam) { break; }
+                    tpi = tpi + 1;
+                }
+                if (tpi < c.TypeParams.Count) {
+                    string[] ifaces = new string[wc.Count];
+                    int ifc = 0;
+                    int ci = 0;
+                    while (ci < wc.Count) {
+                        WhereConstraint wcon = wc.Constraints[ci];
+                        if (wcon.IsType && wcon.Type is NamedType) {
+                            NamedType wnt = wcon.Type as NamedType;
+                            // `where U: T`：T 是本类型形参 → type-param-ref 约束（zbc bit3），
+                            // 否则按接口/基类约束（裸名进 Interfaces，镜像 C# i.Name）。
+                            bool isTpRef = false;
+                            int tk = 0;
+                            while (tk < c.TypeParams.Count) { if (c.TypeParams.Names[tk] == wnt.Name) { isTpRef = true; } tk = tk + 1; }
+                            if (isTpRef) { descs[tpi].TypeParamConstraint = wnt.Name; }
+                            else { ifaces[ifc] = wnt.Name; ifc = ifc + 1; }
+                        }
+                        ci = ci + 1;
+                    }
+                    descs[tpi].Interfaces = ifaces;
+                    descs[tpi].InterfaceCount = ifc;
+                }
+                wi = wi + 1;
+            }
+            cd2.TypeParamConstraints = descs;
+        }
+        return cd2;
+    }
+
+    private IrClassDesc _interfaceDesc(ClassDecl c) {
+        IrFieldDesc[] empty = new IrFieldDesc[0];
+        IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
+        cd.Flags = 17;
+        // 传递基接口（add-reflection-transitive-interfaces）：typeof(IB).GetInterfaces() 含 IA。
+        if (c.BaseCount > 0) {
+            string[] directBases = new string[c.BaseCount];
+            int dbi = 0;
+            while (dbi < c.BaseCount) { directBases[dbi] = c.Bases[dbi].Dump(); dbi = dbi + 1; }
+            string[] expanded = this._expandIfaces(directBases, c.BaseCount);
+            string[] ifqs = new string[expanded.Length];
+            int ei = 0;
+            while (ei < expanded.Length) { ifqs[ei] = this._g._qClass(expanded[ei]); ei = ei + 1; }
+            cd.Interfaces = ifqs;
+            cd.InterfaceCount = expanded.Length;
+        }
+        if (c.TypeParams.Count > 0) {
+            cd.TypeParams = c.TypeParams.Names;
+            cd.TypeParamCount = c.TypeParams.Count;
+            IrConstraintDesc[] descs = new IrConstraintDesc[c.TypeParams.Count];
+            int ti = 0;
+            while (ti < c.TypeParams.Count) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
+            cd.TypeParamConstraints = descs;
+        }
+        return cd;
+    }
+
+    private IrAttrRef[] _attrRefs(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return new IrAttrRef[0]; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        return this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+    }
+
+    private IrAttrRef[] _attrRefsFromList(Attr[] attrs, int count) {
+        IrAttrRef[] r = new IrAttrRef[count];
+        int n = 0;
+        int a = 0;
+        while (a < count) {
+            Attr at = attrs[a];
+            if (at.FactoryFunc != "") {
+                r[n] = new IrAttrRef(this._g._qClass(at.Name), this._g._q(at.FactoryFunc)); n = n + 1;
+            }
+            a = a + 1;
+        }
+        if (n == count) { return r; }
+        IrAttrRef[] trimmed = new IrAttrRef[n];
+        int k = 0; while (k < n) { trimmed[k] = r[k]; k = k + 1; }
+        return trimmed;
+    }
+
+    private IrAttrRefList[] _paramAttrRefs(MethodDecl md, bool isInstance) {
+        int off = isInstance ? 1 : 0;
+        int total = md.ParamCount + off;
+        IrAttrRefList[] r = new IrAttrRefList[total];
+        if (isInstance) { r[0] = new IrAttrRefList(new IrAttrRef[0], 0); }
+        int j = 0;
+        while (j < md.ParamCount) {
+            IrAttrRef[] pa = this._attrRefsFromList(md.Params[j].Attrs, md.Params[j].AttrCount);
+            r[j + off] = new IrAttrRefList(pa, pa.Length);
+            j = j + 1;
+        }
+        return r;
+    }
+
+}

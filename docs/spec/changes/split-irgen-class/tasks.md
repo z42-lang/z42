@@ -6,7 +6,7 @@
 
 ## 进度概览（每步独立不动点 + 单独 commit）
 - [x] 1. 抽 `TestIndexBuilder`（[Test] 发现 + TIDX 构建 15 方法）—— ✅ 不动点 7/7 + golden 138/138 + TIDX 8 passed（IrGen 1419→1188）
-- [ ] 2. 抽 `ClassDescBuilder`（类/接口/属性描述符 + attr）
+- [x] 2. 抽 `ClassDescBuilder`（类/接口/属性描述符 + attr 11 方法）—— ✅ 不动点 7/7 + golden 138/138（IrGen 1188→890）
 - [ ] 3. 抽 `StubEmitter`（native/abstract/delegate/autoprop 桩）
 - [ ] 4. 拆巨函数 Generate（~317 行）→ 子函数，IrGen <500
 
