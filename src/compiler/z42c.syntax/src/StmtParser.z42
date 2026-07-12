@@ -1,0 +1,343 @@
+// 语句子解析器（compiler-review P1-2：拆 Parser God-Class step3）。递归下降。
+// 持 _p：游标原语 + _p._exprP._parseExpr/_p._typeP._parseType/_p.ParseStatement/_p._isTypeKeyword。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class StmtParser {
+    private Parser _p;
+    public StmtParser(Parser p) { this._p = p; }
+
+    private Stmt _parseForeach() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // foreach
+        this._p._expect(TokenKind.LParen, "(");
+        TypeExpr t = this._p._typeP._parseType();
+        string n = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected loop variable", this._p._peek().Span); }
+        this._p._expect(TokenKind.In, "in");
+        Expr iter = this._p._exprP._parseExpr(0);
+        this._p._expect(TokenKind.RParen, ")");
+        Stmt body = this._p.ParseStatement();
+        return new ForeachStmt(t, n, iter, body, sp);
+    }
+
+    private Stmt _parseFor() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // for
+        this._p._expect(TokenKind.LParen, "(");
+        bool hasInit = false;
+        Stmt init = new ExprStmt(new NullLitExpr(sp), sp);
+        if (this._p._peek().Kind != TokenKind.Semicolon) { init = this._p.ParseStatement(); hasInit = true; }
+        else { this._p._advance(); }   // 空 init：吃掉 ';'
+        bool hasCond = false;
+        Expr cond = new NullLitExpr(sp);
+        if (this._p._peek().Kind != TokenKind.Semicolon) { cond = this._p._exprP._parseExpr(0); hasCond = true; }
+        this._p._expectSemi();
+        bool hasIncr = false;
+        Expr incr = new NullLitExpr(sp);
+        if (this._p._peek().Kind != TokenKind.RParen) { incr = this._p._exprP._parseExpr(0); hasIncr = true; }
+        this._p._expect(TokenKind.RParen, ")");
+        Stmt body = this._p.ParseStatement();
+        return new ForStmt(hasInit, init, hasCond, cond, hasIncr, incr, body, sp);
+    }
+
+    private Stmt _parseDoWhile() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // do
+        Stmt body = this._p.ParseStatement();
+        this._p._expect(TokenKind.While, "while");
+        this._p._expect(TokenKind.LParen, "(");
+        Expr cond = this._p._exprP._parseExpr(0);
+        this._p._expect(TokenKind.RParen, ")");
+        this._p._expectSemi();
+        return new DoWhileStmt(body, cond, sp);
+    }
+
+    private Stmt _parseSwitch() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // switch
+        this._p._expect(TokenKind.LParen, "(");
+        Expr subject = this._p._exprP._parseExpr(0);
+        this._p._expect(TokenKind.RParen, ")");
+        this._p._expect(TokenKind.LBrace, "{");
+        SwitchCase[] cases = new SwitchCase[8];
+        int cc = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            Span csp = this._p._peek().Span;
+            bool hasPattern = false;
+            Expr pattern = new NullLitExpr(csp);
+            if (this._p._peek().Kind == TokenKind.Default) {
+                this._p._advance(); this._p._expect(TokenKind.Colon, ":");
+            } else {
+                this._p._expect(TokenKind.Case, "case");
+                pattern = this._p._exprP._parseExpr(0); hasPattern = true;
+                this._p._expect(TokenKind.Colon, ":");
+            }
+            Stmt[] body = new Stmt[4];
+            int bc = 0;
+            while (this._p._peek().Kind != TokenKind.Case && this._p._peek().Kind != TokenKind.Default
+                && this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+                if (bc == body.Length) {
+                    Stmt[] b = new Stmt[body.Length * 2];
+                    int i = 0; while (i < bc) { b[i] = body[i]; i = i + 1; }
+                    body = b;
+                }
+                body[bc] = this._p.ParseStatement(); bc = bc + 1;
+            }
+            if (cc == cases.Length) {
+                SwitchCase[] bigger = new SwitchCase[cases.Length * 2];
+                int i = 0; while (i < cc) { bigger[i] = cases[i]; i = i + 1; }
+                cases = bigger;
+            }
+            cases[cc] = new SwitchCase(hasPattern, pattern, body, bc, csp); cc = cc + 1;
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new SwitchStmt(subject, cases, cc, sp);
+    }
+
+    private Stmt _parseTry() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // try
+        Stmt tryBody = this._parseBlock();
+        CatchClause[] catches = new CatchClause[4];
+        int cc = 0;
+        while (this._p._peek().Kind == TokenKind.Catch) {
+            Span ksp = this._p._peek().Span;
+            this._p._advance();   // catch
+            bool hasType = false;
+            TypeExpr exType = this._p._typeP._emptyType();
+            bool hasVar = false;
+            string varName = "";
+            if (this._p._peek().Kind == TokenKind.LParen) {
+                this._p._advance();
+                if (this._p._peek().Kind != TokenKind.RParen) {
+                    exType = this._p._typeP._parseType(); hasType = true;
+                    if (this._p._peek().Kind == TokenKind.Identifier) {
+                        varName = this._p._peek().Text; hasVar = true; this._p._advance();
+                    }
+                }
+                this._p._expect(TokenKind.RParen, ")");
+            }
+            Stmt cbody = this._parseBlock();
+            if (cc == catches.Length) {
+                CatchClause[] bigger = new CatchClause[catches.Length * 2];
+                int i = 0; while (i < cc) { bigger[i] = catches[i]; i = i + 1; }
+                catches = bigger;
+            }
+            catches[cc] = new CatchClause(hasType, exType, hasVar, varName, cbody, ksp); cc = cc + 1;
+        }
+        bool hasFinally = false;
+        Stmt finallyBody = new BlockStmt(new Stmt[0], 0, sp);
+        if (this._p._peek().Kind == TokenKind.Finally) {
+            this._p._advance(); finallyBody = this._parseBlock(); hasFinally = true;
+        }
+        return new TryCatchStmt(tryBody, catches, cc, hasFinally, finallyBody, sp);
+    }
+
+    public Stmt _parseBlock() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // {
+        Stmt[] stmts = new Stmt[8];
+        int n = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            if (n == stmts.Length) {
+                Stmt[] bigger = new Stmt[stmts.Length * 2];
+                int i = 0; while (i < n) { bigger[i] = stmts[i]; i = i + 1; }
+                stmts = bigger;
+            }
+            stmts[n] = this._p.ParseStatement(); n = n + 1;
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new BlockStmt(stmts, n, sp);
+    }
+
+    private Stmt _parseReturn() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // return
+        if (this._p._peek().Kind == TokenKind.Semicolon) {
+            this._p._advance();
+            return new ReturnStmt(false, new NullLitExpr(sp), sp);
+        }
+        Expr v = this._p._exprP._parseExpr(0);
+        this._p._expectSemi();
+        return new ReturnStmt(true, v, sp);
+    }
+
+    private Stmt _parseIf() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // if
+        this._p._expect(TokenKind.LParen, "(");
+        Expr cond = this._p._exprP._parseExpr(0);
+        this._p._expect(TokenKind.RParen, ")");
+        Stmt then = this._p.ParseStatement();
+        if (this._p._peek().Kind == TokenKind.Else) {
+            this._p._advance();
+            Stmt els = this._p.ParseStatement();
+            return new IfStmt(cond, then, true, els, sp);
+        }
+        return new IfStmt(cond, then, false, then, sp);
+    }
+
+    private Stmt _parseWhile() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // while
+        this._p._expect(TokenKind.LParen, "(");
+        Expr cond = this._p._exprP._parseExpr(0);
+        this._p._expect(TokenKind.RParen, ")");
+        Stmt body = this._p.ParseStatement();
+        return new WhileStmt(cond, body, sp);
+    }
+
+    private bool _isVarDeclStart() {
+        int k = this._p._peek().Kind;
+        if (k == TokenKind.Var) { return true; }
+        if (this._p._isTypeKeyword(k)) { return true; }
+        // 函数类型 var-decl：`(T,...) -> R name = ...`。判别：`(...)` 后紧跟 `->`（Arrow 仅
+        // 出现在函数类型；lambda 用 `=>` FatArrow），故 `)->` 是干净的函数类型 var-decl 信号。
+        if (k == TokenKind.LParen) {
+            int depth = 0; int o = 0;
+            while (o < 64) {
+                int kk = this._p._peekAt(o).Kind;
+                if (kk == TokenKind.LParen) { depth = depth + 1; }
+                else if (kk == TokenKind.RParen) { depth = depth - 1; if (depth == 0) { o = o + 1; break; } }
+                else if (kk == TokenKind.Eof || kk == TokenKind.Semicolon || kk == TokenKind.LBrace) { return false; }
+                o = o + 1;
+            }
+            if (this._p._peekAt(o).Kind == TokenKind.Arrow) { return true; }
+        }
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Identifier) { return true; }
+        // nullable 类型注解 var-decl：`Name? name`（如 `IPAddress? a = ...`）。区别于三元
+        // `cond ? a : b`——三元的 `?` 后是表达式不是「Identifier 紧跟 = / ;」。peekAt(1)=Question
+        // 且 peekAt(2)=Identifier 且 peekAt(3) ∈ {=, ;} 才是 nullable var-decl（修 fix-nullable-local-decl：
+        // `Box? a` 原 peekAt(1)=Question 不匹配 581 行 → 落表达式 → ternary 误解析 → BrCond Null）。
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Question
+            && this._p._peekAt(2).Kind == TokenKind.Identifier
+            && (this._p._peekAt(3).Kind == TokenKind.Eq || this._p._peekAt(3).Kind == TokenKind.Semicolon)) { return true; }
+        // 数组类型注解 var-decl：`Name[] name`（用户类数组局部声明；`int[]` 等关键字数组已走 _isTypeKeyword 路径）。
+        // 空括号 `[]` + 紧跟标识符区分类型 `Diagnostic[] x` 与下标表达式 `Diagnostic[i]`（后者括号内非空）。
+        // `[]?` nullable 数组（`Diagnostic[]? x`）的 `?` 也在此跳过。
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.LBracket
+            && this._p._peekAt(2).Kind == TokenKind.RBracket) {
+            int an = 3;
+            if (this._p._peekAt(an).Kind == TokenKind.Question) { an = an + 1; }
+            if (this._p._peekAt(an).Kind == TokenKind.Identifier) { return true; }
+        }
+        // 限定类型 var-decl：`Ns.Type name` 或 `Ns.Type[] name =`（如 Std.Attribute[] all = ...）。
+        // 判别：lookahead 跳过 Identifier(Dot Identifier)+ 链，跳可选 []，检查 Identifier 后跟 = 或 ;。
+        // 不与赋值 `obj.prop = val` 混淆——后者 dotted 末尾直接跟 = 无中间 Identifier。
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Dot) {
+            int qo = 1;   // pointing at first Dot
+            bool qok = true;
+            while (qo < 32 && qok) {
+                qo = qo + 1;   // skip Dot → next segment identifier
+                if (this._p._peekAt(qo).Kind != TokenKind.Identifier) { qok = false; }
+                else if (this._p._peekAt(qo + 1).Kind != TokenKind.Dot) { qo = qo + 1; qok = false; }
+                else { qo = qo + 1; }   // advance to next Dot, continue loop
+            }
+            if (!qok && this._p._peekAt(qo - 1).Kind == TokenKind.Identifier) {
+                // qo points past last segment; skip optional [] then optional `?` (nullable)
+                if (this._p._peekAt(qo).Kind == TokenKind.LBracket && this._p._peekAt(qo + 1).Kind == TokenKind.RBracket) { qo = qo + 2; }
+                if (this._p._peekAt(qo).Kind == TokenKind.Question) { qo = qo + 1; }
+                if (this._p._peekAt(qo).Kind == TokenKind.Identifier) {
+                    int ek = this._p._peekAt(qo + 1).Kind;
+                    if (ek == TokenKind.Eq || ek == TokenKind.Semicolon) { return true; }
+                }
+            }
+        }
+        // 泛型类型注解 var-decl：`Name<...> name =`（镜像 C# IsTypeAnnotatedVarDecl 的泛型 lookahead；
+        // 修 2B 期挂账 gap：`Box<int> b = ...` 被误判比较表达式）
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Lt) {
+            int depth = 0;
+            int o = 1;
+            while (o < 64) {
+                int kk = this._p._peekAt(o).Kind;
+                if (kk == TokenKind.Lt) { depth = depth + 1; }
+                else if (kk == TokenKind.Gt) {
+                    depth = depth - 1;
+                    if (depth == 0) {
+                        int ni = o + 1;
+                        // Generic<...>[] 数组：跳过 [] 再找 name =；`Generic<...>?` nullable 跳 `?`
+                        if (this._p._peekAt(ni).Kind == TokenKind.LBracket && this._p._peekAt(ni + 1).Kind == TokenKind.RBracket) { ni = ni + 2; }
+                        if (this._p._peekAt(ni).Kind == TokenKind.Question) { ni = ni + 1; }
+                        return this._p._peekAt(ni).Kind == TokenKind.Identifier
+                            && this._p._peekAt(ni + 1).Kind == TokenKind.Eq;
+                    }
+                }
+                else if (kk == TokenKind.GtGt) {                 // `>>`（嵌套泛型闭合）
+                    depth = depth - 2;
+                    if (depth == 0) {
+                        int ni = o + 1;
+                        if (this._p._peekAt(ni).Kind == TokenKind.LBracket && this._p._peekAt(ni + 1).Kind == TokenKind.RBracket) { ni = ni + 2; }
+                        if (this._p._peekAt(ni).Kind == TokenKind.Question) { ni = ni + 1; }
+                        return this._p._peekAt(ni).Kind == TokenKind.Identifier
+                            && this._p._peekAt(ni + 1).Kind == TokenKind.Eq;
+                    }
+                }
+                else if (kk == TokenKind.Semicolon || kk == TokenKind.Eof || kk == TokenKind.LBrace) { return false; }
+                o = o + 1;
+            }
+        }
+        return false;
+    }
+
+    private bool _isLocalFnStart() {
+        int k = this._p._peek().Kind;
+        if (!this._p._isTypeKeyword(k) && k != TokenKind.Identifier) { return false; }
+        int o = this._skipTypeOffset(0);
+        if (o <= 0) { return false; }
+        return this._p._peekAt(o).Kind == TokenKind.Identifier && this._p._peekAt(o + 1).Kind == TokenKind.LParen;
+    }
+
+    private int _skipTypeOffset(int start) {
+        int first = this._p._peekAt(start).Kind;
+        if (!this._p._isTypeKeyword(first) && first != TokenKind.Identifier) { return 0 - 1; }
+        int o = start + 1;
+        // 泛型 `<...>`（GtGt 计 2 个闭合）
+        if (this._p._peekAt(o).Kind == TokenKind.Lt) {
+            int depth = 1; o = o + 1;
+            while (depth > 0 && this._p._peekAt(o).Kind != TokenKind.Eof) {
+                int kk = this._p._peekAt(o).Kind;
+                if (kk == TokenKind.Lt) { depth = depth + 1; }
+                else if (kk == TokenKind.Gt) { depth = depth - 1; }
+                else if (kk == TokenKind.GtGt) { depth = depth - 2; }
+                o = o + 1;
+            }
+            if (depth != 0) { return 0 - 1; }
+        }
+        // 点路径 `.Ident`
+        while (this._p._peekAt(o).Kind == TokenKind.Dot && this._p._peekAt(o + 1).Kind == TokenKind.Identifier) { o = o + 2; }
+        // 可选 `[]`
+        if (this._p._peekAt(o).Kind == TokenKind.LBracket && this._p._peekAt(o + 1).Kind == TokenKind.RBracket) { o = o + 2; }
+        return o;
+    }
+
+    private Stmt _parseLocalFn() {
+        Span sp = this._p._peek().Span;
+        TypeExpr type = this._p._typeP._parseType();
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected local function name", this._p._peek().Span); }
+        TypeParamList tps = this._p._typeP._parseTypeParams();
+        Decl md = this._p._parseMethodTail("", true, false, type, name, tps, sp);
+        return new LocalFunctionStmt(md as MethodDecl, sp);
+    }
+
+    private Stmt _parseVarDecl() {
+        Span sp = this._p._peek().Span;
+        TypeExpr type = this._p._typeP._parseType();
+        string name = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected variable name", this._p._peek().Span); }
+        // 初始化器可选（G8；`Type name;` = 声明无 init，首次赋值时取默认/绑定，镜像 C#）。
+        Expr init = null;
+        if (this._p._peek().Kind == TokenKind.Eq) {
+            this._p._advance();
+            init = this._p._exprP._parseExpr(0);
+        }
+        this._p._expectSemi();
+        return new VarDeclStmt(type, name, init, sp);
+    }
+
+}

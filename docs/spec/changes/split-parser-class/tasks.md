@@ -7,7 +7,7 @@
 ## 进度概览（每步独立不动点 + 单独 commit）
 - [x] 1. 抽 `TypeParser`（类型解析 8 方法）—— ✅ 不动点 7/7 + golden 138/138（Parser 1743→1607）
 - [x] 2. 抽 `ExprParser`（表达式 Pratt 9 方法）—— ✅ 不动点 7/7 + golden 138/138（Parser 1607→1207）
-- [ ] 3. 抽 `StmtParser`（语句递归下降）
+- [x] 3. 抽 `StmtParser`（语句递归下降 14 方法）—— ✅ 不动点 7/7 + golden 138/138（Parser 1207→868）
 - [ ] 4. 抽 `DeclParser`（顶层声明/成员）→ Parser 收敛为 mediator + 3 公开入口
 
 ## 备注
