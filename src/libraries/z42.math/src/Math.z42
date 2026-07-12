@@ -50,6 +50,32 @@ public static class Math {
         return b;
     }
 
+    // Sign: -1 / 0 / +1. (fix-add-math-sign-clamp, review §2.6). Int + double
+    // variants named apart, mirroring Abs/AbsInt — z42 arity-only mangling can't
+    // carry two same-arity overloads (compiler-future-typed-overload-resolution).
+    public static int Sign(double x) {
+        if (x < 0.0) return -1;
+        if (x > 0.0) return 1;
+        return 0;
+    }
+    public static int SignInt(int x) {
+        if (x < 0) return -1;
+        if (x > 0) return 1;
+        return 0;
+    }
+
+    // Clamp x into [lo, hi]. Assumes lo <= hi.
+    public static double Clamp(double x, double lo, double hi) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+    public static int ClampInt(int x, int lo, int hi) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+
     // ── Native bindings (libm 必需) ─────────────────────────────────────────
     [Native("__math_pow")]    public static extern double Pow(double base, double exp);
     [Native("__math_sqrt")]   public static extern double Sqrt(double x);

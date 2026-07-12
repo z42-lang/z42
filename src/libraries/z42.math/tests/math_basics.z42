@@ -109,3 +109,24 @@ void test_constants_pi() {
     Assert.True(Math.Pi > 3.14);
     Assert.True(Math.Pi < 3.15);
 }
+
+// fix-add-math-sign-clamp (2026-07-12, review §2.6): Sign / Clamp 纯脚本补齐。
+[Test]
+void test_sign() {
+    Assert.Equal(-1, Math.Sign(-2.5));
+    Assert.Equal(1, Math.Sign(0.001));
+    Assert.Equal(0, Math.Sign(0.0));
+    Assert.Equal(-1, Math.SignInt(-7));
+    Assert.Equal(1, Math.SignInt(7));
+    Assert.Equal(0, Math.SignInt(0));
+}
+
+[Test]
+void test_clamp() {
+    Assert.EqualApprox(5.0, Math.Clamp(10.0, 0.0, 5.0), 1e-9);   // above hi
+    Assert.EqualApprox(0.0, Math.Clamp(-3.0, 0.0, 5.0), 1e-9);   // below lo
+    Assert.EqualApprox(3.0, Math.Clamp(3.0, 0.0, 5.0), 1e-9);    // in range
+    Assert.Equal(5, Math.ClampInt(10, 0, 5));
+    Assert.Equal(0, Math.ClampInt(-3, 0, 5));
+    Assert.Equal(3, Math.ClampInt(3, 0, 5));
+}

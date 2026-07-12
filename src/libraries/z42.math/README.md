@@ -11,7 +11,7 @@
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `Math.z42` | `static class Math` | 常量 + 12 个标量函数（4 个脚本 + 8 个 libm bridge） |
+| `Math.z42` | `static class Math` | 常量 + 标量函数（脚本：Abs/Max/Min/Sign/Clamp 含 int 变体 + 8 个 libm bridge） |
 
 ## 入口点
 
@@ -20,9 +20,11 @@
 - `Math.E` (2.718281828459045)
 - `Math.Tau` (6.283185307179586)
 
-### 脚本实现（int / double overload 双签名）
-- `Abs(x)` — 绝对值
-- `Max(a, b)` / `Min(a, b)` — 取大 / 小
+### 脚本实现（int / double 分名变体，`*Int` 后缀）
+- `Abs(x)` / `AbsInt(x)` — 绝对值
+- `Max(a, b)` / `MaxInt` · `Min(a, b)` / `MinInt` — 取大 / 小
+- `Sign(x)` / `SignInt(x)` — 符号 -1 / 0 / +1
+- `Clamp(x, lo, hi)` / `ClampInt(x, lo, hi)` — 夹到 [lo, hi]
 
 ### libm 桥接（仅 double 签名）
 - 幂 / 根：`Pow(base, exp)` / `Sqrt(x)` / `Exp(x)`
