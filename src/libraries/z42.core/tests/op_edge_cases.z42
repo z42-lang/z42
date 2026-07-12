@@ -132,3 +132,22 @@ void test_substring_valid_ranges_ok() {
     Assert.Equal("hello", s.Substring(0, 5));
     Assert.Equal("lo", s.Substring(3));
 }
+
+// fix-double-compareto-nan (2026-07-12, review §2.2): Double.CompareTo must give
+// a total order (NaN sorts first, equals itself) so List<double>.Sort is defined.
+// Plain < / > return false for NaN, which used to collapse CompareTo to 0.
+[Test]
+void test_double_compareto_nan_total_order() {
+    double nan = double.Parse("nan");
+    double one = 1.0;
+    Assert.Equal(0, nan.CompareTo(nan));    // NaN == NaN under CompareTo
+    Assert.Equal(-1, nan.CompareTo(one));   // NaN sorts before non-NaN
+    Assert.Equal(1, one.CompareTo(nan));    // non-NaN sorts after NaN
+}
+
+[Test]
+void test_double_compareto_normal_unaffected() {
+    Assert.Equal(-1, (1.0).CompareTo(2.0));
+    Assert.Equal(1, (2.0).CompareTo(1.0));
+    Assert.Equal(0, (1.5).CompareTo(1.5));
+}

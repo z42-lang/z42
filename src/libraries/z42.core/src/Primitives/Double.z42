@@ -13,6 +13,17 @@ public struct Double : IComparable<double>, IEquatable<double>, INumber<double> 
     // 2026-04-27 wave2-compare-to-script: NaN 自动落到 return 0
     // (`<` / `>` 对 NaN 都返回 false)，与 Rust `partial_cmp.unwrap_or(0)` 等价。
     public int CompareTo(double other) {
+        // Total order (C# semantics) so a List<double> with NaN has a defined
+        // Sort: NaN is the only value not equal to itself; it sorts before every
+        // non-NaN and compares equal to itself. Plain < / > both return false for
+        // NaN, which would otherwise collapse to 0 (== everything) and corrupt sorts.
+        bool thisNaN  = (this != this);
+        bool otherNaN = (other != other);
+        if (thisNaN || otherNaN) {
+            if (thisNaN && otherNaN) return 0;
+            if (thisNaN) return -1;
+            return 1;
+        }
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
