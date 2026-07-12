@@ -95,3 +95,40 @@ void test_int_minus_double_widens() {
     double c = a - b;
     Assert.True(c > 9.49 && c < 9.51);
 }
+
+// ── String.Substring bounds (fix-crash-cluster 2026-07-12, review §2.1) ───
+// Negative length / start / a range past the end used to trap (new char[-1] /
+// CharAt out of range) instead of reporting cleanly.
+
+[Test]
+void test_substring_negative_length_throws() {
+    string s = "hello";
+    bool threw = false;
+    try {
+        string bad = s.Substring(2, -1);
+    } catch (Exception e) {
+        threw = true;
+    }
+    Assert.True(threw);
+}
+
+[Test]
+void test_substring_past_end_throws() {
+    string s = "hi";
+    bool threw = false;
+    try {
+        string bad = s.Substring(1, 5);
+    } catch (Exception e) {
+        threw = true;
+    }
+    Assert.True(threw);
+}
+
+[Test]
+void test_substring_valid_ranges_ok() {
+    string s = "hello";
+    Assert.Equal("ell", s.Substring(1, 3));
+    Assert.Equal("", s.Substring(5, 0));    // empty slice at the end is valid
+    Assert.Equal("hello", s.Substring(0, 5));
+    Assert.Equal("lo", s.Substring(3));
+}

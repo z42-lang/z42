@@ -151,6 +151,12 @@ public static class String : IComparable<string>, IEquatable<string> {
 
     // Substring(start, length): [start, start+length).
     public string Substring(int start, int length) {
+        // Bounds check: negative start/length or a range past the end used to
+        // trap (new char[-1] / CharAt out of range) instead of reporting cleanly.
+        int n = this.Length;
+        if (start < 0 || length < 0 || start > n - length) {
+            throw new Exception($"Substring: out of range (start={start}, length={length}, Length={n})");
+        }
         if (length == 0) return "";
         char[] result = new char[length];
         for (int i = 0; i < length; i++) {
