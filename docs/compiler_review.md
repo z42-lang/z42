@@ -44,8 +44,8 @@
 
 | 函数 | 行数 | 位置 |
 |------|------|------|
-| `TypeChecker._bindExpr` | **278**(约 30 个表达式类型的 if-is 链) | TypeChecker.z42:675 起 |
-| `TypeChecker._bindStmt` | **230**(20+ 语句类型) | TypeChecker.z42:426 起 |
+| ~~`TypeChecker._bindExpr`~~ | ✅ **278 → 43**(纯分派;抽 15 个逐节点 binder,change `split-typechecker-fns` 2026-07-12) | TypeChecker.z42 |
+| ~~`TypeChecker._bindStmt`~~ | ✅ **218 → 38**(纯分派;抽 11 个逐语句 binder,同 change) | TypeChecker.z42 |
 | `Parser._parsePrefix` | **140** | Parser.z42:197 起 |
 | `Parser._parseExpr` | **111** | Parser.z42:52 起 |
 | `TypeChecker._bindMemberCall` | 109 | TypeChecker.z42:1269 起 |
