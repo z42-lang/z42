@@ -58,6 +58,20 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable<T> {
     public LinkedListNode<T> First() { return this.head; }
     public LinkedListNode<T> Last()  { return this.tail; }
 
+    // add-collection-toarray (review §2.6): snapshot head → tail without
+    // modifying the list (nodes stay linked; user gets a plain array to iterate).
+    public T[] ToArray() {
+        T[] result = new T[this.count];
+        var node = this.head;
+        int i = 0;
+        while (node != null) {
+            result[i] = node.Value;
+            node = node.Next();
+            i = i + 1;
+        }
+        return result;
+    }
+
     // ── Insertions ──────────────────────────────────────────────────────────
 
     public LinkedListNode<T> AddFirst(T value) {

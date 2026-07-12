@@ -56,6 +56,23 @@ public class Stream {
         throw new NotSupportedException("Write not supported on this stream");
     }
 
+    // add-stream-readbyte-writebyte (review §2.6): single-byte convenience over
+    // Read/Write so callers stop hand-rolling `new byte[1]` (BinaryReader). The
+    // default allocates a 1-byte scratch; subclasses may override for a hot path.
+    // ReadByte returns 0..255, or -1 at end of stream.
+    public virtual int ReadByte() {
+        byte[] one = new byte[1];
+        int n = this.Read(one, 0, 1);
+        if (n == 0) { return -1; }
+        return (int)one[0] & 0xFF;
+    }
+
+    public virtual void WriteByte(byte b) {
+        byte[] one = new byte[1];
+        one[0] = b;
+        this.Write(one, 0, 1);
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────────
 
     public virtual void Flush() {

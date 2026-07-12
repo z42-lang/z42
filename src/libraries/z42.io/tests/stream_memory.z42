@@ -166,3 +166,18 @@ void test_partial_read_returns_actual_count() {
     int n = s.Read(buf, 0, 10);
     Assert.Equal(2, n);  // only 2 bytes available
 }
+
+// add-stream-readbyte-writebyte (2026-07-12, review §2.6): single-byte convenience
+// over Read/Write. ReadByte returns 0..255 (unsigned) or -1 at EOF.
+[Test]
+void test_readbyte_writebyte_round_trip() {
+    MemoryStream s = new MemoryStream();
+    s.WriteByte((byte)65);
+    s.WriteByte((byte)66);
+    s.WriteByte((byte)200);              // > 127: must come back unsigned
+    s.Seek(0L, SeekOrigin.Begin);
+    Assert.Equal(65, s.ReadByte());
+    Assert.Equal(66, s.ReadByte());
+    Assert.Equal(200, s.ReadByte());     // not sign-extended
+    Assert.Equal(-1, s.ReadByte());      // end of stream
+}
