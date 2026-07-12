@@ -313,6 +313,13 @@ Rust runner 已被 z42b 取代，但 `stdlib-tests.md:3,36-40,52-53,83`（含不
 `testing/README.md:16`、`building/stdlib.md:69`、`src/toolchain/README.md:12`、
 `.claude/CLAUDE.md` 代码库结构行仍在教人用它。
 
+> **✅ 复核后落地（2026-07-12）**：§4.1（死命令）/§4.2（`--scope`/`--parallel`）/§4.3
+> （种子 env 变量）/§4.5（regen/`test lib`/`--no-stdlib`）/§4.8（`xtask help`、死路径）经复核
+> **大体已由 `fix-xtask-doc-drift` 修好**（活手册 + 规则文件），本轮 grep 仅剩少量真残留。§4.7：
+> `src/toolchain/README.md` 的 `test-runner/` 行是**幽灵 + 死链**（目录已删）→ 删行 + builder 行补
+> 「z42b 兼跑 `[Test]`」。**剩 `docs/design/testing/*` 的 `test lib`/`z42-test-runner` 残留属 §4.6**
+> ——那是冻结/迁移的旧文档，按 doc-system 不再内容更新，应迁走被引段后断链（项目级，非本轮快改）。
+
 ### 4.8 死链 / 死路径 / 结构
 
 - `book/dev/build.md:83,95`：`../../../.claude/rules/…` 少一层 `../`（且 book 发布后

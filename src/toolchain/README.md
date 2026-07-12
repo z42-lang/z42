@@ -9,8 +9,7 @@
 | 目录 | 职责 | 状态 |
 |------|------|:----:|
 | [launcher/](launcher/) | `z42` launcher（muxer）：原生 trampoline + `launcher.zpkg`（run/link/list/install/export…）+ per-app 原生 apphost（`apphost.z42` patch 库，经 `z42 publish`）。类比 `dotnet` muxer + `rustup` | ✅ 已实装 |
-| [test-runner/](test-runner/) | `z42-test-runner`：跑 stdlib / 工程的 `[Test]` / `[Benchmark]`，输出 TAP（`xtask test` 内嵌调用） | ✅ 已实装 |
-| [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml`/`--rid` 驱动 `z42.build` 管线（compile→trim→assets→workload），launcher 分发调用（`build`/`publish`/`export`）。取代原 `packager` 占位 | 占位 |
+| [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml`/`--rid` 驱动 `z42.build` 管线（compile→trim→assets→workload），launcher 分发调用（`build`/`publish`/`export`）；**兼跑 stdlib/工程的 `[Test]`/`[Benchmark]` 用例（取代原 Rust `z42-test-runner`，`xtask test` 内嵌调用）**。取代原 `packager` 占位 | 占位 |
 | [devtools/](devtools/) | `z42d` 开发者工具链（muxer apphost）：`fmt`/`doc`/`dbg`/`prof`/`lint` 统一在单 exe + Std.Cli router 下，launcher 分发（`z42 fmt` → `z42d fmt`）。收编原独立 `z42-fmt`/`z42-doc`/`z42-lint` 规划 | 占位 |
 | [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：源码片段 → 编译 → VM 求值 → 打印；0.3.x capstone，前置 `extract-compile-pipeline-api` | 占位 |
 | [workload/](workload/) | 平台相关能力束（consolidate-platform-into-workload）：`host-api/`（Tier 2 `z42-host` crate）+ `platforms/{ios,android,wasm,desktop}/`（facade + 测试）；按需 `z42 workload install`。host/ 解散后承接 | 🚧 实装中 |
