@@ -192,6 +192,12 @@ download-bootstrap gate 在格式 bump 后有 self-heal 红窗。ci.yml:500-501 
 downstream-consume。**建议**：改 `needs: toolchain-bootstrap` + 消费 toolchain 工件，
 彻底消除这两腿的 nightly 漂移 flake（bootstrap-seed.md 的 cold-start 清单可少两项）。
 
+> **✅ 已落地（2026-07-12）**：两个 job（vm-jit-consistency / stdlib-jit-consistency，共 8 shard）
+> 加 `needs: toolchain-bootstrap` + `ci-bootstrap` → `xtask-bootstrap-artifact`（照抄
+> host-package / assemble-current-sdk 已验证的消费模式）。消除 8× 重复 z42c/stdlib 构建 +
+> 8× nightly 下载漂移 flake；工件即 toolchain-bootstrap 从当前源建的（现走 jit），语义等价。
+> 验证以 CI 为准（CI-only 可验）。
+
 ### 3.2 PR bench 双跑
 
 ci.yml `bench-e2e`（:745-747，informational）与 bench-pr.yml（gating，阈值还不一致）重叠，

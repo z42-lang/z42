@@ -615,6 +615,7 @@ jobs:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
     timeout-minutes: 45
     runs-on: ubuntu-latest
+    needs: toolchain-bootstrap
     strategy:
       fail-fast: false
       matrix:
@@ -632,13 +633,11 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: host-v2
 
-      # seed the toolchain from the prev nightly's z42c compiler and build current
-      # source warm — same path as build-and-test.
-      - name: Bootstrap toolchain (nightly z42c seed → current source)
-        uses: ./.github/actions/ci-bootstrap
-        with:
-          rid: linux-x64
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
+      # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
+      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
+      # redundant z42c/stdlib builds + the per-shard nightly-download drift flake
+      # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
+      - uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/4)
         shell: bash
@@ -666,6 +665,7 @@ jobs:
     name: test-stdlib-jit(linux-x64) shard ${{ matrix.shard }}
     timeout-minutes: 45
     runs-on: ubuntu-latest
+    needs: toolchain-bootstrap
     strategy:
       fail-fast: false
       matrix:
@@ -683,13 +683,11 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: host-v2
 
-      # seed from the prev nightly's z42c compiler and build current source warm —
-      # same path as build-and-test.
-      - name: Bootstrap toolchain (nightly z42c seed → current source)
-        uses: ./.github/actions/ci-bootstrap
-        with:
-          rid: linux-x64
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
+      # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
+      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
+      # redundant z42c/stdlib builds + the per-shard nightly-download drift flake
+      # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
+      - uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/4)
         shell: bash
@@ -699,8 +697,9 @@ jobs:
           # (z42b — z42.builder.zpkg — run via z42vm --mode jit; the runner and the
           # loaded tests both execute under JIT). --shard splits the libs balanced
           # by unit count across 4 machines; --jobs 4 parallelizes within the shard.
-          # ci-bootstrap already built z42c+stdlib+z42vm, so --no-build skips that
-          # redundant rebuild; xtask itself builds z42b (a cheap z42c incremental).
+          # xtask-bootstrap-artifact already restored z42c+stdlib+xtask + cargo-built
+          # z42vm, so --no-build skips that rebuild; xtask itself builds z42b (a cheap
+          # z42c incremental).
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/4 --jobs 4
