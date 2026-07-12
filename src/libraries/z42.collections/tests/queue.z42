@@ -60,3 +60,21 @@ void test_queue_drain_then_dequeue_throws() {
     Assert.True(caught);
     Assert.Equal(0, q.Count());
 }
+
+// add-collection-toarray (2026-07-12, review §2.6): non-destructive FIFO snapshot.
+[Test]
+void test_queue_toarray_fifo() {
+    var q = new Queue<int>();
+    q.Enqueue(1); q.Enqueue(2); q.Enqueue(3);
+    int[] a = q.ToArray();
+    Assert.Equal(3, a.Length);
+    Assert.Equal(1, a[0]);
+    Assert.Equal(2, a[1]);
+    Assert.Equal(3, a[2]);
+    Assert.Equal(3, q.Count());          // non-destructive
+    q.Dequeue();                          // head moves; ToArray tracks it
+    int[] b = q.ToArray();
+    Assert.Equal(2, b.Length);
+    Assert.Equal(2, b[0]);
+    Assert.Equal(3, b[1]);
+}

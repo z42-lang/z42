@@ -60,3 +60,16 @@ void test_stack_drain_then_pop_throws() {
     Assert.True(caught);
     Assert.Equal(0, s.Count());
 }
+
+// add-collection-toarray (2026-07-12, review §2.6): non-destructive top-first snapshot.
+[Test]
+void test_stack_toarray_top_first() {
+    var s = new Stack<int>();
+    s.Push(1); s.Push(2); s.Push(3);
+    int[] a = s.ToArray();
+    Assert.Equal(3, a.Length);
+    Assert.Equal(3, a[0]);               // top of stack first
+    Assert.Equal(2, a[1]);
+    Assert.Equal(1, a[2]);
+    Assert.Equal(3, s.Count());          // non-destructive
+}

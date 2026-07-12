@@ -1,0 +1,38 @@
+// add-list-toarray-addrange (2026-07-12, review §2.6): List<T>.ToArray / AddRange.
+// List<T> lives in z42.core; exercised here via the z42.collections test lib.
+namespace Z42CollectionsListApiTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_list_toarray() {
+    var list = new List<int>();
+    list.Add(10); list.Add(20); list.Add(30);
+    int[] a = list.ToArray();
+    Assert.Equal(3, a.Length);
+    Assert.Equal(10, a[0]);
+    Assert.Equal(20, a[1]);
+    Assert.Equal(30, a[2]);
+    Assert.Equal(3, list.Count);         // non-destructive
+}
+
+[Test]
+void test_list_toarray_empty() {
+    var list = new List<int>();
+    Assert.Equal(0, list.ToArray().Length);
+}
+
+[Test]
+void test_list_addrange() {
+    var list = new List<int>();
+    list.Add(1);
+    int[] more = new int[3];
+    more[0] = 2; more[1] = 3; more[2] = 4;
+    list.AddRange(more);
+    Assert.Equal(4, list.Count);
+    Assert.Equal(1, list[0]);
+    Assert.Equal(2, list[1]);
+    Assert.Equal(4, list[3]);
+}

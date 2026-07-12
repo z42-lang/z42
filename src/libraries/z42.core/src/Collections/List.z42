@@ -33,6 +33,26 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
         this.Count = this.Count + 1;
     }
 
+    // add-list-toarray-addrange (review §2.6): append a whole array in order.
+    public void AddRange(T[] items) {
+        int i = 0;
+        while (i < items.Length) {
+            this.Add(items[i]);
+            i = i + 1;
+        }
+    }
+
+    // Snapshot copy of the list's elements (a fresh array, safe to mutate).
+    public T[] ToArray() {
+        T[] result = new T[this.Count];
+        int i = 0;
+        while (i < this.Count) {
+            result[i] = this.items[i];
+            i = i + 1;
+        }
+        return result;
+    }
+
     public void Insert(int index, T item) {
         if (this.Count == this.capacity) this.Grow();
         int i = this.Count;

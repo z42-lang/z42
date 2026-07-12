@@ -57,6 +57,21 @@ public class Queue<T> : IBasicCollection<T> {
         this.count = 0;
     }
 
+    // add-collection-toarray (review §2.6): snapshot in FIFO order (head → tail)
+    // without modifying the queue — otherwise the ring buffer can't be enumerated
+    // non-destructively.
+    public T[] ToArray() {
+        T[] result = new T[this.count];
+        int src = this.head;
+        int i = 0;
+        while (i < this.count) {
+            result[i] = this.items[src];
+            src = (src + 1) % this.capacity;
+            i = i + 1;
+        }
+        return result;
+    }
+
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];
