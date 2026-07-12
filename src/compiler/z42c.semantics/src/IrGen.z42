@@ -117,7 +117,7 @@ public sealed class IrGen {
         this.MgThunks = new StrMap();
         int ifd = 0;
         while (ifd < cu.DeclCount) {
-            Decl dfd = this._unwrap(cu.Decls[ifd]);
+            Decl dfd = IrGenFacts._unwrap(cu.Decls[ifd]);
             if (dfd is ClassDecl) {
                 ClassDecl cfd = dfd as ClassDecl;
                 if (cfd.Kind == "interface") { this.IfaceDecls.Put(cfd.Name, cfd); }
@@ -136,19 +136,19 @@ public sealed class IrGen {
             string stem = this.SourceStem;
             if (stem == null) { stem = "main"; }
             var sfe = new FunctionEmitter(this._symbols, this);
-            funcs = this._pushFunc(funcs, fc, sfe.EmitStaticInit(this._q(stem) + ".__static_init__", model));
+            funcs = IrGenFacts._pushFunc(funcs, fc, sfe.EmitStaticInit(this._q(stem) + ".__static_init__", model));
             fc = fc + 1;
         }
         // 两遍（byte-identical：module.Functions 序 = 类方法（声明序）→ 自由函数（声明序），SIGS 字节实证）。
         int i = 0;
         while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
+            Decl d = IrGenFacts._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
                     IrClassDesc cdesc = this._classDescB._classDesc(c);
                     cdesc.Attrs = this._classDescB._attrRefs(cu.Decls[i]); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection：类 attr-ref
-                    classes = this._pushClass(classes, cc, cdesc); cc = cc + 1;
+                    classes = IrGenFacts._pushClass(classes, cc, cdesc); cc = cc + 1;
                     // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 owner CT。
                     string ownerKey = c.Name;
                     if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
@@ -156,7 +156,7 @@ public sealed class IrGen {
                     int j = 0;
                     while (j < c.MemberCount) {
                         Decl rawMem = c.Members[j];
-                        Decl mem = this._unwrap(rawMem);
+                        Decl mem = IrGenFacts._unwrap(rawMem);
                         if (mem is MethodDecl) {
                             MethodDecl md = mem as MethodDecl;
                             // GS3：重载方法键为 Name$arity，unique 方法为 bare name（镜像 C# EmitMethod 逻辑）。
@@ -168,46 +168,46 @@ public sealed class IrGen {
                             if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
                                 string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
                                 if (model.HasBody(key)) {
-                                    bool isStaticMethod = this._hasWord(md.Mods, "static");
+                                    bool isStaticMethod = IrGenFacts._hasWord(md.Mods, "static");
                                     bool isInstance = !isStaticMethod;   // 实例方法有 this；静态方法无
                                     var fe = new FunctionEmitter(model.Symbols, this);
                                     IrFunction irf = fe.EmitFunction(irName, md, model.GetBody(key), isInstance, isStaticMethod,
                                                                      owner, c.TypeParams.Names, c.TypeParams.Count);
                                     irf.Attrs = this._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection：方法 attr-ref
                                     irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
-                                    irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
-                                    irf.MethodFlags = this._methodFlags(md.Mods);   // add-method-modifiers
-                                    this._fillParamMeta(irf, md, isInstance);       // add-param-metadata
-                                    funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
+                                    irf.Visibility = IrGenFacts._visCode(md.Mods);   // add-member-visibility
+                                    irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                                    IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, irf); fc = fc + 1;
                                 }
-                            } else if (this._hasWord(md.Mods, "extern")) {
+                            } else if (IrGenFacts._hasWord(md.Mods, "extern")) {
                                 // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
                                 string nat = this._stubE._nativeIntrinsic(rawMem);
                                 if (nat != "") {
                                     IrFunction stub = this._stubE._emitNativeStub(irName, md, nat,
-                                                                           this._hasWord(md.Mods, "static"), rawMem);
-                                    stub.Visibility = this._visCode(md.Mods);      // add-member-visibility：extern 桩此前漏设
-                                    stub.MethodFlags = this._methodFlags(md.Mods); // add-method-modifiers：virtual extern（如 Object.ToString/Equals/GetHashCode）须带 virtual 位
-                                    this._fillParamMeta(stub, md, !this._hasWord(md.Mods, "static"));   // add-param-metadata
-                                    funcs = this._pushFunc(funcs, fc, stub); fc = fc + 1;
+                                                                           IrGenFacts._hasWord(md.Mods, "static"), rawMem);
+                                    stub.Visibility = IrGenFacts._visCode(md.Mods);      // add-member-visibility：extern 桩此前漏设
+                                    stub.MethodFlags = IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern（如 Object.ToString/Equals/GetHashCode）须带 virtual 位
+                                    IrGenFacts._fillParamMeta(stub, md, !IrGenFacts._hasWord(md.Mods, "static"));   // add-param-metadata
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, stub); fc = fc + 1;
                                 }
-                            } else if (this._hasWord(md.Mods, "abstract") && !this._hasWord(md.Mods, "static")) {
+                            } else if (IrGenFacts._hasWord(md.Mods, "abstract") && !IrGenFacts._hasWord(md.Mods, "static")) {
                                 // add-method-modifiers（unify P1-c）：实例 abstract 方法无 body，此前完全不 emit →
                                 // 反射看不到 → IsAbstract 观测不到。发一个 signature-only 死体桩（override 经 vtable
                                 // 派发，桩永不被调），使其进 SIGS/FUNC → Function.method_flags 带 abstract 位 → 反射可见。
                                 IrFunction astub = this._stubE._emitAbstractStub(irName, md);
                                 astub.Attrs = this._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
                                 astub.ParamAttrs = this._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
-                                astub.Visibility = this._visCode(md.Mods);
-                                astub.MethodFlags = this._methodFlags(md.Mods);
-                                this._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
-                                funcs = this._pushFunc(funcs, fc, astub); fc = fc + 1;
+                                astub.Visibility = IrGenFacts._visCode(md.Mods);
+                                astub.MethodFlags = IrGenFacts._methodFlags(md.Mods);
+                                IrGenFacts._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
+                                funcs = IrGenFacts._pushFunc(funcs, fc, astub); fc = fc + 1;
                             }
                         } else if (mem is PropertyDecl) {
                             // auto-property get_X → builtin 桩（extern）或 field.get __prop_X 桩（非 extern）。
                             PropertyDecl pd = mem as PropertyDecl;
-                            bool pdExtern = this._hasWord(pd.Mods, "extern");
-                            bool pdStatic = this._hasWord(pd.Mods, "static");
+                            bool pdExtern = IrGenFacts._hasWord(pd.Mods, "extern");
+                            bool pdStatic = IrGenFacts._hasWord(pd.Mods, "static");
                             if (pd.HasGet && pdExtern) {
                                 string nat2 = this._stubE._nativeIntrinsic(rawMem);
                                 if (nat2 != "") {
@@ -217,24 +217,24 @@ public sealed class IrGen {
                                                                          new Param[0], 0, false, null, new Expr[0], 0, false, pd.Span);
                                     IrFunction pstub = this._stubE._emitNativeStub(this._q(this._classIrShortName(c)) + ".get_" + pd.Name,
                                                                              synthPd, nat2, pdStatic, rawMem);
-                                    this._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
-                                    funcs = this._pushFunc(funcs, fc, pstub); fc = fc + 1;
+                                    IrGenFacts._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, pstub); fc = fc + 1;
                                 }
                             } else if (pd.HasGet && !pdExtern) {
                                 // 非 extern auto-prop：合成 field.get @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp）。
                                 string backing = "__prop_" + pd.Name;
                                 string getIrNm = this._q(this._classIrShortName(c)) + ".get_" + pd.Name;
                                 string retNm = this._classDescB._typeFieldName(pd.Type);
-                                int retTag = this._irTypeTag(pd.Type);
+                                int retTag = IrGenFacts._irTypeTag(pd.Type);
                                 IrFunction ag = this._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                                 ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
-                                funcs = this._pushFunc(funcs, fc, ag); fc = fc + 1;
+                                funcs = IrGenFacts._pushFunc(funcs, fc, ag); fc = fc + 1;
                                 // setter（HasSet）：合成 field.set @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp set）。
                                 if (pd.HasSet) {
                                     string setIrNm = this._q(this._classIrShortName(c)) + ".set_" + pd.Name;
                                     IrFunction sg = this._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                                     sg.MinArg = 1;   // setter 逻辑参数 1
-                                    funcs = this._pushFunc(funcs, fc, sg); fc = fc + 1;
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, sg); fc = fc + 1;
                                 }
                             }
                         } else if (mem is IndexerDecl) {
@@ -253,8 +253,8 @@ public sealed class IrGen {
                                     var feGet = new FunctionEmitter(model.Symbols, this);
                                     IrFunction getIrf = feGet.EmitFunction(getIrName, synthGet, model.GetBody(getKey),
                                                                             true, false, idxOwner, c.TypeParams.Names, c.TypeParams.Count);
-                                    this._fillParamMeta(getIrf, synthGet, true);   // add-param-metadata（reconcile 补齐）
-                                    funcs = this._pushFunc(funcs, fc, getIrf); fc = fc + 1;
+                                    IrGenFacts._fillParamMeta(getIrf, synthGet, true);   // add-param-metadata（reconcile 补齐）
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, getIrf); fc = fc + 1;
                                 }
                             }
                             if (idx.HasSet) {
@@ -271,8 +271,8 @@ public sealed class IrGen {
                                     var feSet = new FunctionEmitter(model.Symbols, this);
                                     IrFunction setIrf = feSet.EmitFunction(setIrName, synthSet, model.GetBody(setKey),
                                                                             true, false, idxOwner, c.TypeParams.Names, c.TypeParams.Count);
-                                    this._fillParamMeta(setIrf, synthSet, true);   // add-param-metadata（reconcile 补齐）
-                                    funcs = this._pushFunc(funcs, fc, setIrf); fc = fc + 1;
+                                    IrGenFacts._fillParamMeta(setIrf, synthSet, true);   // add-param-metadata（reconcile 补齐）
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, setIrf); fc = fc + 1;
                                 }
                             }
                         }
@@ -292,8 +292,8 @@ public sealed class IrGen {
                         string synthIr = this._q(this._classIrShortName(c)) + "." + c.Name;
                         IrFunction synthF = synthFe.EmitFunction(synthIr, synthMd, model.GetBody(synthKey),
                                                                  true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
-                        this._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
-                        funcs = this._pushFunc(funcs, fc, synthF); fc = fc + 1;
+                        IrGenFacts._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
+                        funcs = IrGenFacts._pushFunc(funcs, fc, synthF); fc = fc + 1;
                     }
                 }
             } else if (d is ImplDecl) {
@@ -313,14 +313,14 @@ public sealed class IrGen {
                                 if (iowner == null || !iowner.Methods.ContainsKey(imk)) { imk = imd.Name; }
                                 string ikey = itn + "." + imk;
                                 if (model.HasBody(ikey)) {
-                                    bool ist = this._hasWord(imd.Mods, "static");
+                                    bool ist = IrGenFacts._hasWord(imd.Mods, "static");
                                     var ife = new FunctionEmitter(model.Symbols, this);
                                     IrFunction iirf = ife.EmitFunction(this._qClass(itn) + "." + imk, imd,
                                                                        model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
-                                    iirf.Visibility = this._visCode(imd.Mods);   // add-member-visibility
-                                    iirf.MethodFlags = this._methodFlags(imd.Mods);   // add-method-modifiers
-                                    this._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
-                                    funcs = this._pushFunc(funcs, fc, iirf); fc = fc + 1;
+                                    iirf.Visibility = IrGenFacts._visCode(imd.Mods);   // add-member-visibility
+                                    iirf.MethodFlags = IrGenFacts._methodFlags(imd.Mods);   // add-method-modifiers
+                                    IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, iirf); fc = fc + 1;
                                 }
                             }
                         }
@@ -335,11 +335,11 @@ public sealed class IrGen {
         // Concat 在 classes 之后 → typeof(IFoo) 解析真句柄 + IsInterface。
         i = 0;
         while (i < cu.DeclCount) {
-            Decl di = this._unwrap(cu.Decls[i]);
+            Decl di = IrGenFacts._unwrap(cu.Decls[i]);
             if (di is ClassDecl) {
                 ClassDecl ic = di as ClassDecl;
                 if (ic.Kind == "interface") {
-                    classes = this._pushClass(classes, cc, this._classDescB._interfaceDesc(ic)); cc = cc + 1;
+                    classes = IrGenFacts._pushClass(classes, cc, this._classDescB._interfaceDesc(ic)); cc = cc + 1;
                 }
             }
             i = i + 1;
@@ -349,7 +349,7 @@ public sealed class IrGen {
         // GetValues。值求值同 SymbolCollector._passEnums（cur=0，显式 =N 覆盖，隐式 +1）。
         i = 0;
         while (i < cu.DeclCount) {
-            Decl de = this._unwrap(cu.Decls[i]);
+            Decl de = IrGenFacts._unwrap(cu.Decls[i]);
             if (de is EnumDecl) {
                 EnumDecl ed = de as EnumDecl;
                 // FQ 名（_q 加 namespace）——与普通类/接口一致（line 824/890），否则 typeof(Enum)
@@ -362,13 +362,13 @@ public sealed class IrGen {
                 int mi = 0;
                 while (mi < ed.MemberCount) {
                     EnumMember em = ed.Members[mi];
-                    if (em.HasValue) { cur = this._parseEnumVal(em.Value); }
+                    if (em.HasValue) { cur = IrGenFacts._parseEnumVal(em.Value); }
                     mn[mi] = em.Name; mv[mi] = cur;
                     cur = cur + 1;
                     mi = mi + 1;
                 }
                 edesc.EnumMemberNames = mn; edesc.EnumMemberValues = mv; edesc.EnumMemberCount = ed.MemberCount;
-                classes = this._pushClass(classes, cc, edesc); cc = cc + 1;
+                classes = IrGenFacts._pushClass(classes, cc, edesc); cc = cc + 1;
             }
             i = i + 1;
         }
@@ -377,7 +377,7 @@ public sealed class IrGen {
         // + 合成 `<FQ>.Invoke` 死体桩（真实调用走 CallIndirect，桩永不被调；供反射签名 + P2/P3 重建）。
         i = 0;
         while (i < cu.DeclCount) {
-            Decl dg = this._unwrap(cu.Decls[i]);
+            Decl dg = IrGenFacts._unwrap(cu.Decls[i]);
             if (dg is DelegateDecl) {
                 DelegateDecl dd = dg as DelegateDecl;
                 string dfq = this._q(dd.Name);
@@ -387,14 +387,14 @@ public sealed class IrGen {
                     ddesc.TypeParams = dd.TypeParams.Names; ddesc.TypeParamCount = dd.TypeParams.Count;
                     ddesc.TypeParamConstraints = new IrConstraintDesc[dd.TypeParams.Count];
                 }
-                classes = this._pushClass(classes, cc, ddesc); cc = cc + 1;
-                funcs = this._pushFunc(funcs, fc, this._stubE._emitDelegateInvoke(dfq, dd)); fc = fc + 1;
+                classes = IrGenFacts._pushClass(classes, cc, ddesc); cc = cc + 1;
+                funcs = IrGenFacts._pushFunc(funcs, fc, this._stubE._emitDelegateInvoke(dfq, dd)); fc = fc + 1;
             }
             i = i + 1;
         }
         i = 0;
         while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
+            Decl d = IrGenFacts._unwrap(cu.Decls[i]);
             if (d is MethodDecl) {
                 MethodDecl md = d as MethodDecl;
                 if (md.HasBody && model.HasBody(md.Name)) {
@@ -402,10 +402,10 @@ public sealed class IrGen {
                     // 自由函数：无 this（isInstance=false）且 IsStatic 标志=false（与 C# 一致）
                     IrFunction irf = fe.EmitFunction(this._q(md.Name), md, model.GetBody(md.Name), false, false,
                                                      null, new string[0], 0);
-                    irf.Visibility = this._visCode(md.Mods);   // add-member-visibility
-                    irf.MethodFlags = this._methodFlags(md.Mods);   // add-method-modifiers
-                    this._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
-                    funcs = this._pushFunc(funcs, fc, irf); fc = fc + 1;
+                    irf.Visibility = IrGenFacts._visCode(md.Mods);   // add-member-visibility
+                    irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                    IrGenFacts._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
+                    funcs = IrGenFacts._pushFunc(funcs, fc, irf); fc = fc + 1;
                 }
             }
             i = i + 1;
@@ -413,7 +413,7 @@ public sealed class IrGen {
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）
         int li2 = 0;
         while (li2 < this.LiftedCount) {
-            funcs = this._pushFunc(funcs, fc, this.Lifted[li2]);
+            funcs = IrGenFacts._pushFunc(funcs, fc, this.Lifted[li2]);
             fc = fc + 1;
             li2 = li2 + 1;
         }
@@ -518,143 +518,23 @@ public sealed class IrGen {
 
     // IrType tag from TypeExpr（prim 名 → tag；string → Str；array → Ref；class/iface → Ref；void → Void）。
     // 镜像 C# ToIrType(Z42Type)：string[] 是 Ref，string 是 Str，class 是 Ref，其他具名 Unknown。
-    private int _irTypeTag(TypeExpr te) {
-        if (te is NamedType) {
-            string nm = (te as NamedType).Name;
-            if (nm == "int" || nm == "uint") { return IrType.I32; }
-            if (nm == "long" || nm == "ulong") { return IrType.I64; }
-            if (nm == "bool") { return IrType.Bool; }
-            if (nm == "float") { return IrType.F32; }
-            if (nm == "double") { return IrType.F64; }
-            if (nm == "byte" || nm == "sbyte" || nm == "short" || nm == "ushort") { return IrType.I32; }
-            if (nm == "string") { return IrType.Str; }
-            if (nm == "char") { return IrType.Char; }
-            if (nm == "void") { return IrType.Void; }
-            return IrType.Ref;   // class / interface / opaque named → Ref（镜像 C#）
-        }
-        if (te is ArrayType) { return IrType.Ref; }   // T[] → Ref
-        return IrType.Unknown;
-    }
 
-    private IrFunction[] _pushFunc(IrFunction[] arr, int count, IrFunction irf) {
-        if (count == arr.Length) {
-            IrFunction[] bigger = new IrFunction[arr.Length * 2];
-            int k = 0; while (k < count) { bigger[k] = arr[k]; k = k + 1; }
-            arr = bigger;
-        }
-        arr[count] = irf;
-        return arr;
-    }
 
-    private IrClassDesc[] _pushClass(IrClassDesc[] arr, int count, IrClassDesc cd) {
-        if (count == arr.Length) {
-            IrClassDesc[] bigger = new IrClassDesc[arr.Length * 2];
-            int k = 0; while (k < count) { bigger[k] = arr[k]; k = k + 1; }
-            arr = bigger;
-        }
-        arr[count] = cd;
-        return arr;
-    }
 
     // 可见性码（add-member-visibility）：显式 private/protected 取之，否则 public(0)。
     // 镜像 ExportedTypeExtractor._visibility 的默认 public 语义。
-    public int _visCode(string mods) {
-        if (this._hasWord(mods, "private"))   { return 1; }
-        if (this._hasWord(mods, "protected")) { return 2; }
-        return 0;   // public（显式或默认）
-    }
 
     // add-method-modifiers（zbc 1.24）：方法修饰符 → method_flags（bit0=virtual/bit1=abstract）。
     // virtual/override/abstract 皆虚派发 → 置 bit0（镜像 C# MethodInfo.IsVirtual）；abstract 另置 bit1。
-    private int _methodFlags(string mods) {
-        int f = 0;
-        if (this._hasWord(mods, "virtual") || this._hasWord(mods, "override") || this._hasWord(mods, "abstract")) { f = f | 1; }
-        if (this._hasWord(mods, "abstract")) { f = f | 2; }
-        return f;
-    }
 
     // add-param-metadata（zbc 1.25）：填参数元数据（min_arg/params_from/参数名/默认值）。
     // 逻辑口径 min_arg/params_from（不含 this）；每参并行数组含 this 槽（index 0="this"）。
     // 默认值只折**字面量**（Int/Float/Bool/String/Char/null）；非字面量 → kind 0（值不可得，IsOptional 仍由 min_arg 表达）。
-    public void _fillParamMeta(IrFunction irf, MethodDecl md, bool isInstance) {
-        int off = 0; if (isInstance) { off = 1; }
-        int total = md.ParamCount + off;
-        string[] names = new string[total];
-        int[] kinds = new int[total];
-        long[] vals = new long[total];
-        string[] strs = new string[total];
-        if (isInstance) { names[0] = "this"; kinds[0] = 0; vals[0] = 0; strs[0] = ""; }
-        int minArg = md.ParamCount;   // 逻辑：默认全必填
-        bool foundDefault = false;
-        int p = 0;
-        while (p < md.ParamCount) {
-            names[p + off] = md.Params[p].Name;
-            int kind = 0; long v = 0; string sv = "";
-            Expr d = md.Params[p].Default;
-            if (d != null) {
-                if (!foundDefault) { minArg = p; foundDefault = true; }   // 首个默认值下标 = 必填数
-                if (d is NullLitExpr) { kind = 1; }
-                else if (d is IntLitExpr) { kind = 2; v = ZbcInstr._parseIntLit((d as IntLitExpr).Value); }
-                else if (d is CharLitExpr) { kind = 2; v = (long)(int)(d as CharLitExpr).Value; }
-                else if (d is BoolLitExpr) { kind = 4; if ((d as BoolLitExpr).Value) { v = 1; } }
-                else if (d is FloatLitExpr) { kind = 3; v = ZbcInstr.DoubleToBits(Convert.ToDouble(this._stripFloatSuffix((d as FloatLitExpr).Value))); }
-                else if (d is StringLitExpr) { kind = 5; sv = Lexer.DecodeString((d as StringLitExpr).Raw); }
-                // 非字面量 → kind 0
-            }
-            kinds[p + off] = kind; vals[p + off] = v; strs[p + off] = sv;
-            p = p + 1;
-        }
-        int paramsFrom = 255;
-        if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { paramsFrom = md.ParamCount - 1; }
-        irf.MinArg = minArg; irf.ParamsFrom = paramsFrom;
-        irf.ParamNames = names; irf.ParamDefaultKinds = kinds; irf.ParamDefaultVals = vals; irf.ParamDefaultStrs = strs;
-    }
 
     // float 字面量去后缀（f/F/d/D）供 Convert.ToDouble（ZbcInstr._cleanFloat 私有，此处内联最简版）。
-    private string _stripFloatSuffix(string t) {
-        int n = t.Length;
-        if (n > 0) {
-            char last = t.CharAt(n - 1);
-            if (last == 'f' || last == 'F' || last == 'd' || last == 'D') { return t.Substring(0, n - 1); }
-        }
-        return t;
-    }
 
     // enum 成员显式值解析（十进制 i64，可负）——镜像 SymbolCollector._parseEnumVal，保成员值一致。
-    private long _parseEnumVal(string s) {
-        long r = 0;
-        int i = 0;
-        bool neg = false;
-        if (s.Length > 0 && s.CharAt(0) == '-') { neg = true; i = 1; }
-        while (i < s.Length) {
-            int d = (int)s.CharAt(i) - 48;
-            r = r * 10 + (long)d;
-            i = i + 1;
-        }
-        if (neg) { r = 0 - r; }
-        return r;
-    }
 
-    public Decl _unwrap(Decl d) {
-        if (d is AttributedDecl) { AttributedDecl ad = d as AttributedDecl; return ad.Inner; }
-        return d;
-    }
 
     // mods 空格分隔逐 token 比较（同 SymbolCollector）。
-    public bool _hasWord(string s, string word) {
-        int n = s.Length;
-        int start = 0;
-        int i = 0;
-        while (i <= n) {
-            if (i == n || s.CharAt(i) == ' ') {
-                if (i > start) {
-                    string tok = s.Substring(start, i - start);
-                    if (tok == word) { return true; }
-                }
-                start = i + 1;
-            }
-            i = i + 1;
-        }
-        return false;
-    }
 }

@@ -166,7 +166,7 @@ public sealed class StubEmitter {
         MethodDecl synth = new MethodDecl("public virtual", false, false, dd.RetType, "Invoke",
                                           etp, new WhereClause[0], 0,
                                           dd.Params, dd.ParamCount, false, null, new Expr[0], 0, false, dd.Span);
-        this._g._fillParamMeta(inv, synth, true);
+        IrGenFacts._fillParamMeta(inv, synth, true);
         return inv;
     }
 

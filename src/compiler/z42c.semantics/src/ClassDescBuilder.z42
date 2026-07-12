@@ -94,10 +94,10 @@ public sealed class ClassDescBuilder {
     private bool _hasExplicitInstanceCtor(ClassDecl c) {
         int j = 0;
         while (j < c.MemberCount) {
-            Decl m = this._g._unwrap(c.Members[j]);
+            Decl m = IrGenFacts._unwrap(c.Members[j]);
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && !this._g._hasWord(md.Mods, "static")) { return true; }
+                if (md.IsCtor && !IrGenFacts._hasWord(md.Mods, "static")) { return true; }
             }
             j = j + 1;
         }
@@ -135,7 +135,7 @@ public sealed class ClassDescBuilder {
         Z42ClassType ctd = this._g._symbols.GetClass(ctdKey) as Z42ClassType;
         int j = 0;
         while (j < c.MemberCount) {
-            Decl mem = this._g._unwrap(c.Members[j]);
+            Decl mem = IrGenFacts._unwrap(c.Members[j]);
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
@@ -149,7 +149,7 @@ public sealed class ClassDescBuilder {
                     }
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
                     sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
-                    sfdesc.Visibility = this._g._visCode(fd.Mods);   // add-member-visibility
+                    sfdesc.Visibility = IrGenFacts._visCode(fd.Mods);   // add-member-visibility
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
                 } else {
@@ -160,15 +160,15 @@ public sealed class ClassDescBuilder {
                     }
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
                     fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
-                    fdesc.Visibility = this._g._visCode(fd.Mods);   // add-member-visibility
+                    fdesc.Visibility = IrGenFacts._visCode(fd.Mods);   // add-member-visibility
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
                 }
             } else if (mem is PropertyDecl) {
                 // 非 extern auto-prop → 合成 __prop_X 备份字段（镜像 C# SynthesizeClassAutoProp backing field）。
                 PropertyDecl fpd = mem as PropertyDecl;
-                bool fpdExtern = this._g._hasWord(fpd.Mods, "extern");
-                bool fpdStatic = this._g._hasWord(fpd.Mods, "static");
+                bool fpdExtern = IrGenFacts._hasWord(fpd.Mods, "extern");
+                bool fpdStatic = IrGenFacts._hasWord(fpd.Mods, "static");
                 if (!fpdExtern) {
                     string bfn = "__prop_" + fpd.Name;
                     string bft = this._typeFieldName(fpd.Type);
@@ -208,8 +208,8 @@ public sealed class ClassDescBuilder {
         }
         // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
         int flags = 0;
-        if (this._g._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
-        if (this._g._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
+        if (IrGenFacts._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
+        if (IrGenFacts._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
         if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
         if (c.Kind == "record")  { flags = flags + 8; }                 // bit3
         cd2.Flags = flags;
