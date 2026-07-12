@@ -19,7 +19,8 @@ public sealed class Parser {
     private int   _pos;
     public DiagnosticBag _diags;
     public int   _pendingGt;
-    public TypeParser _typeP;             // review P1-2：类型子解析器（mediator backref）   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
+    public TypeParser _typeP;             // review P1-2：类型子解析器（mediator backref）
+    public ExprParser _exprP;             // review P1-2：表达式子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
 
     public Parser(string src, string file) {
         this._lx = new Lexer(src, file);
@@ -28,6 +29,7 @@ public sealed class Parser {
         this._pendingGt = 0;
         this._diags = new DiagnosticBag();
         this._typeP = new TypeParser(this);
+        this._exprP = new ExprParser(this);
     }
 
     // 已 lex 的 token 流（add-file-level-incremental D8 性能修正，User 追认 2026-07-08）：
@@ -53,315 +55,12 @@ public sealed class Parser {
     public void _expectSemi() { this._expect(TokenKind.Semicolon, ";"); }
 
     // ════ 表达式 ════════════════════════════════════════════════════════════
-    public Expr ParseExpression() { return this._parseExpr(0); }
+    public Expr ParseExpression() { return this._exprP._parseExpr(0); }
 
-    public Expr _parseExpr(int minBp) {
-        // lambda 检测（port-z42c-closures；镜像 C# IsLambdaStart）：IDENT => / ( … ) =>
-        if (this._isLambdaStart()) { return this._parseLambda(); }
-        Expr left = this._parsePrefix();
-        while (true) {
-            int k = this._peek().Kind;
-            // 后缀（最紧）
-            if (k == TokenKind.Dot) {
-                this._advance();
-                string name = this._peek().Text;
-                if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-                else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '.'", this._peek().Span); }
-                left = new MemberExpr(left, name, left.Span);
-                continue;
-            }
-            if (k == TokenKind.QuestionDot) {
-                this._advance();
-                string nname = this._peek().Text;
-                if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-                else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '?.'", this._peek().Span); }
-                left = new NullCondMemberExpr(left, nname, left.Span);
-                continue;
-            }
-            if (k == TokenKind.LParen) { this._advance(); left = this._parseCall(left); continue; }
-            if (k == TokenKind.LBracket) {
-                this._advance();
-                Expr idx = this._parseExpr(0);
-                this._expect(TokenKind.RBracket, "]");
-                left = new IndexExpr(left, idx, left.Span);
-                continue;
-            }
-            // 后置 ++ / --（无右操作数，结合性同 . / () / []）
-            if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) {
-                string pop = this._peek().Text;
-                this._advance();
-                left = new UnaryExpr(pop, left, left.Span);
-                continue;
-            }
-            // switch 表达式（postfix，bp 85）：`subject switch { p => b, _ => d }`
-            if (k == TokenKind.Switch && minBp <= 85) {
-                Span swsp = this._peek().Span;
-                this._advance();
-                this._expect(TokenKind.LBrace, "{");
-                SwitchArm[] arms = new SwitchArm[8];
-                int ac = 0;
-                while (this._peek().Kind != TokenKind.RBrace && this._peek().Kind != TokenKind.Eof) {
-                    if (ac == arms.Length) {
-                        SwitchArm[] big = new SwitchArm[arms.Length * 2];
-                        int ai = 0; while (ai < ac) { big[ai] = arms[ai]; ai = ai + 1; }
-                        arms = big;
-                    }
-                    Span asp = this._peek().Span;
-                    bool hasPat = true;
-                    Expr pat = null;
-                    if (this._peek().Kind == TokenKind.Underscore) { this._advance(); hasPat = false; }
-                    else { pat = this._parseExpr(11); }
-                    this._expect(TokenKind.FatArrow, "=>");
-                    Expr armBody = this._parseExpr(11);
-                    arms[ac] = new SwitchArm(hasPat, pat, armBody, asp); ac = ac + 1;
-                    if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-                }
-                this._expect(TokenKind.RBrace, "}");
-                left = new SwitchExpr(left, arms, ac, swsp);
-                continue;
-            }
-            // is / as（bp 60，右侧为类型）
-            if ((k == TokenKind.Is || k == TokenKind.As) && minBp <= 60) {
-                bool isIs = (k == TokenKind.Is);
-                this._advance();
-                TypeExpr ty = this._typeP._parseType();
-                if (isIs) {
-                    string bind = "";   // is-pattern：`x is T v` → 绑定变量 v（true 分支可见）
-                    if (this._peek().Kind == TokenKind.Identifier) { bind = this._peek().Text; this._advance(); }
-                    left = new IsExpr(left, ty, bind, left.Span);
-                } else { left = new AsExpr(left, ty, left.Span); }
-                continue;
-            }
-            // ??（右结合，bp 25）
-            if (k == TokenKind.QuestionQuestion && minBp <= 25) {
-                this._advance();
-                Expr rr = this._parseExpr(25);
-                left = new BinaryExpr("??", left, rr, left.Span);
-                continue;
-            }
-            // 三目 ?:（右结合，bp 20）
-            if (k == TokenKind.Question && minBp <= 20) {
-                this._advance();
-                Expr thenE = this._parseExpr(0);
-                this._expect(TokenKind.Colon, ":");
-                Expr elseE = this._parseExpr(20);
-                left = new TernaryExpr(left, thenE, elseE, left.Span);
-                continue;
-            }
-            // 赋值 / 复合赋值（右结合，bp 10）
-            if (this._isAssignOp(k) && minBp <= 10) {
-                string aop = this._peek().Text;
-                this._advance();
-                Expr rhs = this._parseExpr(10);
-                left = new AssignExpr(aop, left, rhs, left.Span);
-                continue;
-            }
-            // 二元
-            int bp = this._infixBp(k);
-            if (bp == 0 || bp < minBp) { break; }
-            string op = this._peek().Text;
-            this._advance();
-            Expr right = this._parseExpr(bp + 1);
-            left = new BinaryExpr(op, left, right, left.Span);
-        }
-        return left;
-    }
 
-    private Expr _parseCall(Expr callee) {
-        Expr[] args = new Expr[8];
-        int n = 0;
-        if (this._peek().Kind != TokenKind.RParen) {
-            while (true) {
-                if (n == args.Length) {
-                    Expr[] bigger = new Expr[args.Length * 2];
-                    int i = 0; while (i < n) { bigger[i] = args[i]; i = i + 1; }
-                    args = bigger;
-                }
-                Expr arg = null;
-                if (this._peek().Kind == TokenKind.Ref || this._peek().Kind == TokenKind.Out || this._peek().Kind == TokenKind.In) {
-                    Token refTok = this._peek(); this._advance();
-                    if (this._peek().Kind == TokenKind.Var) {   // `out var n` 内联声明
-                        this._advance();   // var
-                        string vn = this._peek().Text;
-                        if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
-                        RefArgExpr ova = new RefArgExpr(new IdentExpr(vn, refTok.Span), refTok.Span);
-                        ova.IsVarDecl = true; ova.VarName = vn;
-                        arg = ova;
-                    } else {
-                        arg = new RefArgExpr(this._parseExpr(0), refTok.Span);
-                    }
-                } else { arg = this._parseExpr(0); }
-                args[n] = arg; n = n + 1;
-                if (this._peek().Kind == TokenKind.Comma) { this._advance(); }
-                else { break; }
-            }
-        }
-        this._expect(TokenKind.RParen, ")");
-        return new CallExpr(callee, args, n, callee.Span);
-    }
 
-    private Expr _parsePrefix() {
-        Token t = this._peek();
-        int k = t.Kind;
-        if (k == TokenKind.Minus || k == TokenKind.Bang || k == TokenKind.Tilde || k == TokenKind.Plus) {
-            this._advance();
-            Expr operand = this._parseExpr(85);
-            return new UnaryExpr(t.Text, operand, t.Span);
-        }
-        // 前置 ++/--（此前 prefix 解析未处理 → ++i 无法解析）。用 "pre++"/"pre--" 区别于
-        // 后置 "++"/"--"（emitter 据此返回新值 vs 旧值）。
-        if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) {
-            this._advance();
-            Expr operand = this._parseExpr(85);
-            return new UnaryExpr("pre" + t.Text, operand, t.Span);
-        }
-        // C 风格强制转换 `(Type)expr`：`( 类型关键字 )` 无歧义（类型关键字不能作值）。
-        // 用户类 cast `(C)x` 留 `as`（避免与 `(expr)` 歧义）。操作数按一元优先级（85）绑定。
-        if (k == TokenKind.LParen && this._isTypeKeyword(this._peekAt(1).Kind)
-            && this._peekAt(2).Kind == TokenKind.RParen) {
-            this._advance();
-            TypeExpr ct = this._typeP._parseType();
-            this._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
-            return new CastExpr(ct, operand, t.Span);
-        }
-        // GS6: 数组类型强转 (T[])expr：类型关键字或类名后跟 []，区别于 (T)expr（peek(2) 不同）。
-        if (k == TokenKind.LParen
-            && (this._isTypeKeyword(this._peekAt(1).Kind) || this._peekAt(1).Kind == TokenKind.Identifier)
-            && this._peekAt(2).Kind == TokenKind.LBracket
-            && this._peekAt(3).Kind == TokenKind.RBracket
-            && this._peekAt(4).Kind == TokenKind.RParen) {
-            this._advance();
-            TypeExpr ct = this._typeP._parseType();
-            this._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
-            return new CastExpr(ct, operand, t.Span);
-        }
-        // 泛型类型形参 cast `(TD)expr`：( Identifier ) Identifier → 无歧义（`(val)ident` 在 z42 无效语法）。
-        // 用于 stdlib 中 `return (TD)DelegateOps.MakeClosure(...)` 类型形参强转场景。
-        if (k == TokenKind.LParen && this._peekAt(1).Kind == TokenKind.Identifier
-            && this._peekAt(2).Kind == TokenKind.RParen
-            && this._peekAt(3).Kind == TokenKind.Identifier) {
-            this._advance();
-            TypeExpr ct = this._typeP._parseType();
-            this._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
-            return new CastExpr(ct, operand, t.Span);
-        }
-        if (k == TokenKind.LParen) {
-            this._advance();
-            Expr inner = this._parseExpr(0);
-            this._expect(TokenKind.RParen, ")");
-            return inner;
-        }
-        if (k == TokenKind.Typeof) {
-            this._advance();
-            this._expect(TokenKind.LParen, "(");
-            TypeExpr tty = this._typeP._parseType();
-            this._expect(TokenKind.RParen, ")");
-            return new TypeofExpr(tty, t.Span);
-        }
-        if (k == TokenKind.New) {
-            this._advance();
-            TypeExpr ty = this._typeP._parseType();
-            // 数组初始化 new T[]{v1,...}（SA-2）：_parseType 已吃 T[] 的 []，后跟 { = 字面量初始化器
-            if (this._peek().Kind == TokenKind.LBrace) {
-                TypeExpr elemTy = ty;
-                if (ty is ArrayType) { elemTy = (ty as ArrayType).Elem; }
-                this._advance();   // {
-                Expr[] elems = new Expr[8];
-                int en = 0;
-                if (this._peek().Kind != TokenKind.RBrace) {
-                    while (true) {
-                        if (en == elems.Length) {
-                            Expr[] b = new Expr[elems.Length * 2];
-                            int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
-                            elems = b;
-                        }
-                        elems[en] = this._parseExpr(0); en = en + 1;
-                        // 尾逗号容忍（C# 数组/集合初始化器允许 `{1,2,3,}`）：吃掉逗号后若紧跟 `}`
-                        // 即尾逗号，break——否则会把 `}` 当表达式多解析出一个 null 元素（fix-array-trailing-comma：
-                        // 原 IR `arr.new.lit %0,%1,%2,%3` 第 4 个 const.null → byte[] 长度多 1）。
-                        if (this._peek().Kind == TokenKind.Comma) {
-                            this._advance();
-                            if (this._peek().Kind == TokenKind.RBrace) { break; }
-                        } else { break; }
-                    }
-                }
-                this._expect(TokenKind.RBrace, "}");
-                return new ArrayInitExpr(elemTy, elems, en, t.Span);
-            }
-            // 数组创建 new T[size]（SA-1）：_parseType 只吃 `[]`，带 size 的 `[` 留此处
-            if (this._peek().Kind == TokenKind.LBracket) {
-                this._advance();
-                Expr size = this._parseExpr(0);
-                this._expect(TokenKind.RBracket, "]");
-                return new ArrayNewExpr(ty, size, t.Span);
-            }
-            Expr[] args = new Expr[8];
-            int n = 0;
-            if (this._peek().Kind == TokenKind.LParen) {
-                this._advance();
-                if (this._peek().Kind != TokenKind.RParen) {
-                    while (true) {
-                        if (n == args.Length) {
-                            Expr[] b = new Expr[args.Length * 2];
-                            int i = 0; while (i < n) { b[i] = args[i]; i = i + 1; }
-                            args = b;
-                        }
-                        args[n] = this._parseExpr(0); n = n + 1;
-                        if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
-                    }
-                }
-                this._expect(TokenKind.RParen, ")");
-            }
-            return new ObjNewExpr(ty, args, n, t.Span);
-        }
-        if (k == TokenKind.IntLiteral)    { this._advance(); return new IntLitExpr(t.Text, t.Span); }
-        if (k == TokenKind.CharLiteral)   { this._advance(); return new CharLitExpr(Parser._unescapeChar(t.Text), t.Span); }
-        if (k == TokenKind.FloatLiteral)  { this._advance(); return new FloatLitExpr(t.Text, t.Span); }
-        if (k == TokenKind.StringLiteral) { this._advance(); return new StringLitExpr(t.Text, t.Span); }
-        if (k == TokenKind.RawStringLiteral) { this._advance(); return new StringLitExpr(t.Text, t.Span); }
-        if (k == TokenKind.InterpolatedStringLiteral) { this._advance(); return this._parseInterpolated(t); }
-        if (k == TokenKind.True)          { this._advance(); return new BoolLitExpr(true, t.Span); }
-        if (k == TokenKind.False)         { this._advance(); return new BoolLitExpr(false, t.Span); }
-        if (k == TokenKind.Null)          { this._advance(); return new NullLitExpr(t.Span); }
-        if (k == TokenKind.Default) {
-            this._advance();
-            this._expect(TokenKind.LParen, "(");
-            TypeExpr ty = this._typeP._parseType();
-            this._expect(TokenKind.RParen, ")");
-            return new DefaultExpr(ty, t.Span);
-        }
-        if (k == TokenKind.Identifier)    { this._advance(); return new IdentExpr(t.Text, t.Span); }
-        // GS6: 类型关键字在 primary 表达式位置（int.Parse / string.FromChars 等）→ IdentExpr(keyword)
-        if (this._isTypeKeyword(k)) { this._advance(); return new IdentExpr(t.Text, t.Span); }
-        this._diags.Error(DiagnosticCodes.UnexpectedToken, "unexpected token in expression", t.Span);
-        this._advance();
-        return new IdentExpr("<error>", t.Span);
-    }
 
-    private int _infixBp(int k) {
-        if (k == TokenKind.PipePipe)  { return 30; }
-        if (k == TokenKind.AmpAmp)    { return 40; }
-        if (k == TokenKind.Pipe)      { return 44; }
-        if (k == TokenKind.Caret)     { return 46; }
-        if (k == TokenKind.Ampersand) { return 48; }
-        if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return 50; }
-        if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return 60; }
-        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return 65; }
-        if (k == TokenKind.Plus || k == TokenKind.Minus)  { return 70; }
-        if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return 80; }
-        return 0;
-    }
 
-    private bool _isAssignOp(int k) {
-        if (k == TokenKind.Eq) { return true; }
-        if (k == TokenKind.PlusEq || k == TokenKind.MinusEq || k == TokenKind.StarEq) { return true; }
-        if (k == TokenKind.SlashEq || k == TokenKind.PercentEq) { return true; }
-        if (k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return true; }
-        return false;
-    }
 
     // ════ 语句 ══════════════════════════════════════════════════════════════
     public Stmt ParseStatement() {
@@ -378,10 +77,10 @@ public sealed class Parser {
         if (k == TokenKind.Try)     { return this._parseTry(); }
         if (k == TokenKind.Break)   { this._advance(); this._expectSemi(); return new BreakStmt(st.Span); }
         if (k == TokenKind.Continue){ this._advance(); this._expectSemi(); return new ContinueStmt(st.Span); }
-        if (k == TokenKind.Throw)   { this._advance(); Expr te = this._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span); }
+        if (k == TokenKind.Throw)   { this._advance(); Expr te = this._exprP._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span); }
         if (this._isLocalFnStart()) { return this._parseLocalFn(); }   // impl-local-fn-l2：先于 var-decl 判别
         if (this._isVarDeclStart()) { return this._parseVarDecl(); }
-        Expr e = this._parseExpr(0);
+        Expr e = this._exprP._parseExpr(0);
         this._expectSemi();
         return new ExprStmt(e, st.Span);
     }
@@ -395,7 +94,7 @@ public sealed class Parser {
         if (this._peek().Kind == TokenKind.Identifier) { this._advance(); }
         else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected loop variable", this._peek().Span); }
         this._expect(TokenKind.In, "in");
-        Expr iter = this._parseExpr(0);
+        Expr iter = this._exprP._parseExpr(0);
         this._expect(TokenKind.RParen, ")");
         Stmt body = this.ParseStatement();
         return new ForeachStmt(t, n, iter, body, sp);
@@ -412,11 +111,11 @@ public sealed class Parser {
         else { this._advance(); }   // 空 init：吃掉 ';'
         bool hasCond = false;
         Expr cond = new NullLitExpr(sp);
-        if (this._peek().Kind != TokenKind.Semicolon) { cond = this._parseExpr(0); hasCond = true; }
+        if (this._peek().Kind != TokenKind.Semicolon) { cond = this._exprP._parseExpr(0); hasCond = true; }
         this._expectSemi();
         bool hasIncr = false;
         Expr incr = new NullLitExpr(sp);
-        if (this._peek().Kind != TokenKind.RParen) { incr = this._parseExpr(0); hasIncr = true; }
+        if (this._peek().Kind != TokenKind.RParen) { incr = this._exprP._parseExpr(0); hasIncr = true; }
         this._expect(TokenKind.RParen, ")");
         Stmt body = this.ParseStatement();
         return new ForStmt(hasInit, init, hasCond, cond, hasIncr, incr, body, sp);
@@ -429,7 +128,7 @@ public sealed class Parser {
         Stmt body = this.ParseStatement();
         this._expect(TokenKind.While, "while");
         this._expect(TokenKind.LParen, "(");
-        Expr cond = this._parseExpr(0);
+        Expr cond = this._exprP._parseExpr(0);
         this._expect(TokenKind.RParen, ")");
         this._expectSemi();
         return new DoWhileStmt(body, cond, sp);
@@ -440,7 +139,7 @@ public sealed class Parser {
         Span sp = this._peek().Span;
         this._advance();   // switch
         this._expect(TokenKind.LParen, "(");
-        Expr subject = this._parseExpr(0);
+        Expr subject = this._exprP._parseExpr(0);
         this._expect(TokenKind.RParen, ")");
         this._expect(TokenKind.LBrace, "{");
         SwitchCase[] cases = new SwitchCase[8];
@@ -453,7 +152,7 @@ public sealed class Parser {
                 this._advance(); this._expect(TokenKind.Colon, ":");
             } else {
                 this._expect(TokenKind.Case, "case");
-                pattern = this._parseExpr(0); hasPattern = true;
+                pattern = this._exprP._parseExpr(0); hasPattern = true;
                 this._expect(TokenKind.Colon, ":");
             }
             Stmt[] body = new Stmt[4];
@@ -542,7 +241,7 @@ public sealed class Parser {
             this._advance();
             return new ReturnStmt(false, new NullLitExpr(sp), sp);
         }
-        Expr v = this._parseExpr(0);
+        Expr v = this._exprP._parseExpr(0);
         this._expectSemi();
         return new ReturnStmt(true, v, sp);
     }
@@ -551,7 +250,7 @@ public sealed class Parser {
         Span sp = this._peek().Span;
         this._advance();   // if
         this._expect(TokenKind.LParen, "(");
-        Expr cond = this._parseExpr(0);
+        Expr cond = this._exprP._parseExpr(0);
         this._expect(TokenKind.RParen, ")");
         Stmt then = this.ParseStatement();
         if (this._peek().Kind == TokenKind.Else) {
@@ -566,7 +265,7 @@ public sealed class Parser {
         Span sp = this._peek().Span;
         this._advance();   // while
         this._expect(TokenKind.LParen, "(");
-        Expr cond = this._parseExpr(0);
+        Expr cond = this._exprP._parseExpr(0);
         this._expect(TokenKind.RParen, ")");
         Stmt body = this.ParseStatement();
         return new WhileStmt(cond, body, sp);
@@ -722,13 +421,13 @@ public sealed class Parser {
         Expr init = null;
         if (this._peek().Kind == TokenKind.Eq) {
             this._advance();
-            init = this._parseExpr(0);
+            init = this._exprP._parseExpr(0);
         }
         this._expectSemi();
         return new VarDeclStmt(type, name, init, sp);
     }
 
-    private bool _isTypeKeyword(int k) {
+    public bool _isTypeKeyword(int k) {
         if (k == TokenKind.String || k == TokenKind.Int || k == TokenKind.Long || k == TokenKind.Short) { return true; }
         if (k == TokenKind.Double || k == TokenKind.Float || k == TokenKind.Byte || k == TokenKind.Bool) { return true; }
         if (k == TokenKind.Char || k == TokenKind.Void || k == TokenKind.Object) { return true; }
@@ -846,10 +545,10 @@ public sealed class Parser {
                                 Span nsp = this._peek().Span;
                                 string argName = this._peek().Text;
                                 this._advance(); this._advance();   // name :
-                                Expr nval = this._parseExpr(0);
+                                Expr nval = this._exprP._parseExpr(0);
                                 args[ac] = new AssignExpr("=", new IdentExpr(argName, nsp), nval, nsp);
                             } else {
-                                args[ac] = this._parseExpr(0);
+                                args[ac] = this._exprP._parseExpr(0);
                             }
                             ac = ac + 1;
                             if (this._peek().Kind == TokenKind.Comma) { this._advance(); } else { break; }
@@ -1235,7 +934,7 @@ public sealed class Parser {
         }
         bool hasInit = false;
         Expr init = new NullLitExpr(sp);
-        if (this._peek().Kind == TokenKind.Eq) { this._advance(); init = this._parseExpr(0); hasInit = true; }
+        if (this._peek().Kind == TokenKind.Eq) { this._advance(); init = this._exprP._parseExpr(0); hasInit = true; }
         this._expectSemi();
         // multicast event 字段无显式 init → 合成 `new MulticastXxx<...>()`。
         // 单播 event（Action/Func/Predicate）backing 默认 null（OptionType 语义），不 auto-init。
@@ -1306,7 +1005,7 @@ public sealed class Parser {
         bool hasInit = false;
         Expr init = new NullLitExpr(sp);
         if (this._peek().Kind == TokenKind.Eq) {
-            this._advance(); init = this._parseExpr(0); hasInit = true; this._expectSemi();
+            this._advance(); init = this._exprP._parseExpr(0); hasInit = true; this._expectSemi();
         }
         return new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
     }
@@ -1349,7 +1048,7 @@ public sealed class Parser {
                 if (pattrs != null) { prm.Attrs = pattrs.Items; prm.AttrCount = pattrs.Count; }
                 if (this._peek().Kind == TokenKind.Eq) {   // GS1：默认参数值 `int x = expr`
                     this._advance();
-                    prm.Default = this._parseExpr(0);
+                    prm.Default = this._exprP._parseExpr(0);
                 }
                 if (isParams) {
                     // params 类型必须是数组 T[]（E0207）
@@ -1428,7 +1127,7 @@ public sealed class Parser {
                             int bi = 0; while (bi < ban) { bg[bi] = ba[bi]; bi = bi + 1; }
                             ba = bg;
                         }
-                        ba[ban] = this._parseExpr(0); ban = ban + 1;
+                        ba[ban] = this._exprP._parseExpr(0); ban = ban + 1;
                         if (this._peek().Kind == TokenKind.Comma) { this._advance(); }
                         else { break; }
                     }
@@ -1445,7 +1144,7 @@ public sealed class Parser {
             // void → `expr;`（ExprStmt）。包成单语句 block 体，下游统一走 block 路径。
             this._advance();   // =>
             Span esp = this._peek().Span;
-            Expr ev = this._parseExpr(0);
+            Expr ev = this._exprP._parseExpr(0);
             this._expectSemi();
             bool isVoid = !isCtor && retType is NamedType && (retType as NamedType).Name == "void";
             Stmt[] one = new Stmt[1];
@@ -1472,70 +1171,8 @@ public sealed class Parser {
 
 
     // lambda 检测：单 IDENT => 或括号组后随 =>（有限 lookahead 扫平衡括号）。
-    private bool _isLambdaStart() {
-        if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.FatArrow) { return true; }
-        if (this._peek().Kind == TokenKind.LParen) {
-            int depth = 0;
-            int o = 0;
-            while (o < 64) {
-                int k = this._peekAt(o).Kind;
-                if (k == TokenKind.LParen) { depth = depth + 1; }
-                else if (k == TokenKind.RParen) {
-                    depth = depth - 1;
-                    if (depth == 0) { return this._peekAt(o + 1).Kind == TokenKind.FatArrow; }
-                }
-                else if (k == TokenKind.Eof) { return false; }
-                o = o + 1;
-            }
-        }
-        return false;
-    }
 
     // lambda 解析（镜像 C# ParseLambda）：参数（可带类型）→ => → 表达式体（BpAssign-1 级）或块体。
-    private Expr _parseLambda() {
-        Span sp = this._peek().Span;
-        LambdaParam[] ps = new LambdaParam[4];
-        int pc = 0;
-        if (this._peek().Kind == TokenKind.Identifier) {           // 单参无括号
-            Token t = this._peek();
-            this._advance();
-            ps[0] = new LambdaParam(false, null, t.Text, t.Span);
-            pc = 1;
-        } else {                                                    // ( [Type] name, ... )
-            this._advance();                                        // (
-            bool more = this._peek().Kind != TokenKind.RParen;
-            while (more) {
-                if (pc == ps.Length) {
-                    LambdaParam[] b = new LambdaParam[ps.Length * 2];
-                    int k = 0; while (k < pc) { b[k] = ps[k]; k = k + 1; }
-                    ps = b;
-                }
-                // 类型形态：下一 token 后还有 Identifier → 带类型（镜像 C# 探测）
-                bool typed = this._peekAt(1).Kind == TokenKind.Identifier;
-                if (typed) {
-                    TypeExpr te = this._typeP._parseType();
-                    Token pn = this._peek();
-                    this._expect(TokenKind.Identifier, "lambda param name");
-                    ps[pc] = new LambdaParam(true, te, pn.Text, pn.Span);
-                } else {
-                    Token pn = this._peek();
-                    this._expect(TokenKind.Identifier, "lambda param name");
-                    ps[pc] = new LambdaParam(false, null, pn.Text, pn.Span);
-                }
-                pc = pc + 1;
-                if (this._peek().Kind == TokenKind.Comma) { this._advance(); }
-                else { more = false; }
-            }
-            this._expect(TokenKind.RParen, ")");
-        }
-        this._expect(TokenKind.FatArrow, "=>");
-        if (this._peek().Kind == TokenKind.LBrace) {
-            Stmt blk = this.ParseStatement();
-            return new LambdaExpr(ps, pc, true, null, blk, sp);
-        }
-        Expr body = this._parseExpr(10);                            // 含赋值层（lambda 体 `=> x = y` = `=> (x=y)`，镜像 C#；逗号仍停）
-        return new LambdaExpr(ps, pc, false, body, null, sp);
-    }
 
     // char 字面量解码（镜像 C# UnescapeChar）：剥引号 → 复用 Lexer.DecodeString 还原转义 → 取首字符。
     // GS4：$"...{expr}..." → InterpolatedStringExpr。
@@ -1543,65 +1180,5 @@ public sealed class Parser {
     //   文本段：处理 \n/\t/\r/\\/\" 转义 + {{/}} 字面；
     //   {expr} 洞：深度追踪定位 closing }，子 Parser 解析内部 expr。
     // 镜像 C# ExprParser.Atoms.ParseInterpolatedString 逻辑。
-    private Expr _parseInterpolated(Token t) {
-        string raw = t.Text;
-        // raw 形如 $"body"：skip 2 ($") from front, skip 1 (") from back
-        int bodyEnd = raw.Length - 1;   // 不含末尾 "
-        int i = 2;                       // 跳 $"
-        InterpPart[] parts = new InterpPart[64];
-        int pc = 0;
-        string textBuf = "";
-        while (i < bodyEnd) {
-            char c = raw.CharAt(i);
-            if (c == '\\' && i + 1 < bodyEnd) {
-                char e = raw.CharAt(i + 1);
-                if (e == 'n')  { textBuf = textBuf + "\n"; i = i + 2; continue; }
-                if (e == 't')  { textBuf = textBuf + "\t"; i = i + 2; continue; }
-                if (e == 'r')  { textBuf = textBuf + "\r"; i = i + 2; continue; }
-                if (e == '\\') { textBuf = textBuf + "\\"; i = i + 2; continue; }
-                if (e == '"')  { textBuf = textBuf + "\""; i = i + 2; continue; }
-                if (e == '0')  { textBuf = textBuf + "\0"; i = i + 2; continue; }
-                textBuf = textBuf + "\\"; i = i + 1;
-            } else if (c == '{') {
-                if (i + 1 < bodyEnd && raw.CharAt(i + 1) == '{') {
-                    textBuf = textBuf + "{"; i = i + 2;
-                } else {
-                    // flush text
-                    if (textBuf.Length > 0) {
-                        parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; textBuf = "";
-                    }
-                    i = i + 1;   // skip {
-                    int holeStart = i;
-                    int depth = 1;
-                    while (i < bodyEnd && depth > 0) {
-                        char hc = raw.CharAt(i);
-                        if (hc == '{') { depth = depth + 1; i = i + 1; }
-                        else if (hc == '}') {
-                            depth = depth - 1;
-                            if (depth > 0) { i = i + 1; }
-                        }
-                        else { i = i + 1; }
-                    }
-                    string holeText = raw.Substring(holeStart, i - holeStart);
-                    i = i + 1;   // skip }
-                    var sub = new Parser(holeText, "<interp>");
-                    Expr holeExpr = sub.ParseExpression();
-                    parts[pc] = new InterpHole(holeExpr, t.Span); pc = pc + 1;
-                }
-            } else if (c == '}' && i + 1 < bodyEnd && raw.CharAt(i + 1) == '}') {
-                textBuf = textBuf + "}"; i = i + 2;
-            } else {
-                textBuf = textBuf + c.ToString(); i = i + 1;
-            }
-        }
-        if (textBuf.Length > 0) { parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; }
-        return new InterpolatedStringExpr(parts, pc, t.Span);
-    }
 
-    private static char _unescapeChar(string tokenText) {
-        if (tokenText.Length < 3) { return '?'; }
-        string decoded = Lexer.DecodeString(tokenText);
-        if (decoded.Length > 0) { return decoded.CharAt(0); }
-        return '?';
-    }
 }
