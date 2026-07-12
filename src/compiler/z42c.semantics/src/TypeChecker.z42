@@ -8,7 +8,7 @@ using Z42.Core;
 using Z42.IR.BinaryFormat;
 
 public sealed class TypeChecker {
-    private DiagnosticBag     _diags;
+    public DiagnosticBag      _diags;
     private int               _loopDepth;    // break/continue 越界检查（1B）
     // lambda 捕获 frame（port-z42c-closures）：active 时 Ident 钩子检测外层命中。
     private bool _lambdaActive;
@@ -16,12 +16,14 @@ public sealed class TypeChecker {
     private BoundCapture[] _lambdaCaps; private int _lambdaCapCount;
     private ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
     private string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用）
+    private OverloadBinder _overload;      // review P1-1：重载决议子绑定器（backref mediator）
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
         this._lambdaActive = false;
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";
+        this._overload = new OverloadBinder(this);
     }
 
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
@@ -418,7 +420,7 @@ public sealed class TypeChecker {
                     targetName = curCls.BaseName;
                 }
                 if (targetCls != null) {
-                    string bKey = this._ctorKey(targetCls, md.BaseArgCount);
+                    string bKey = this._overload._ctorKey(targetCls, md.BaseArgCount);
                     BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
                     callArgs[0] = new BoundIdent("this", thisType, md.Span);
                     int ba = 0;
@@ -778,10 +780,10 @@ public sealed class TypeChecker {
                 string recvCls = "";
                 if (ertype is Z42ClassType) {
                     Z42ClassType ec = ertype as Z42ClassType;
-                    acc = this._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
+                    acc = this._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
                 } else if (ertype is Z42InstantiatedType) {
                     Z42ClassType ec = (ertype as Z42InstantiatedType).Def;
-                    acc = this._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
+                    acc = this._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
                 } else if (ertype is Z42InterfaceType) {
                     Z42InterfaceType it = ertype as Z42InterfaceType;
                     acc = it.Methods.Get(accName) as MethodSymbol; if (acc != null) { recvCls = it.Name(); }
@@ -988,7 +990,7 @@ public sealed class TypeChecker {
     }
 
     // ════ 表达式（集中 if-is）═════════════════════════════════════════════════
-    private BoundExpr _bindExpr(Expr e, TypeEnv env) {
+    public BoundExpr _bindExpr(Expr e, TypeEnv env) {
         if (e is IntLitExpr || e is CharLitExpr || e is FloatLitExpr
             || e is StringLitExpr || e is BoolLitExpr || e is NullLitExpr) {
             return this._bindLiteral(e);
@@ -1082,7 +1084,7 @@ public sealed class TypeChecker {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;
-            MethodSymbol opMs = this._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, bin.Span);
+            MethodSymbol opMs = this._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, bin.Span);
             if (opMs != null) {
                 return new BoundCall("static", false, null, lct.Name(), opMs.RegKey, opArgs, 2, opMs.Signature.Ret, bin.Span);
             }
@@ -1169,9 +1171,9 @@ public sealed class TypeChecker {
     private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
         if (rt is Z42ClassType) {
             Z42ClassType ct = rt as Z42ClassType;
-            MethodSymbol ms = this._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+            MethodSymbol ms = this._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
             if (ms != null) {
-                BoundExpr[] fa = this._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                BoundExpr[] fa = this._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
                 return new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
             }
             this._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -1194,11 +1196,11 @@ public sealed class TypeChecker {
         // GS6: 泛型实例化类型（LinkedList<T>.Next() 等）→ 查 Def 类方法，返回类型泛型参数松绑 Unknown。
         if (rt is Z42InstantiatedType) {
             Z42ClassType itDef2 = (rt as Z42InstantiatedType).Def;
-            MethodSymbol itms = this._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, sp);
+            MethodSymbol itms = this._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, sp);
             if (itms != null) {
                 Z42Type itRet = itms.Signature.Ret;
                 if (itRet is Z42GenericParamType) { itRet = new Z42UnknownType(); }
-                BoundExpr[] fa = this._withDefaults(itms, args, rawArgs, argCount, env, sp);
+                BoundExpr[] fa = this._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
                 return new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
             }
             return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
@@ -1207,8 +1209,8 @@ public sealed class TypeChecker {
         if (rt is Z42GenericParamType) {
             if (env.Symbols.HasClass("Object")) {
                 Z42ClassType objCt = env.Symbols.GetClass("Object");
-                string gpMkey = this._overloadKey(env.Symbols, objCt, mem.Name, argCount);
-                MethodSymbol gpMs = this._findMethod(env.Symbols, objCt, gpMkey);
+                string gpMkey = this._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
+                MethodSymbol gpMs = this._overload._findMethod(env.Symbols, objCt, gpMkey);
                 if (gpMs != null) {
                     return new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp);
                 }
@@ -1221,8 +1223,8 @@ public sealed class TypeChecker {
         string wrapper = TypeChecker._primWrapper(rt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
-            string mkey = this._overloadKey(env.Symbols, wct, mem.Name, argCount);
-            MethodSymbol wms = this._findMethod(env.Symbols, wct, mkey);
+            string mkey = this._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
+            MethodSymbol wms = this._overload._findMethod(env.Symbols, wct, mkey);
             if (wms != null) {
                 return new BoundCall("instance", true, recv, rt.Name(), mkey, args, argCount, wms.Signature.Ret, sp);
             }
@@ -1279,7 +1281,7 @@ public sealed class TypeChecker {
             // 属性 getter 派发（镜像上面 Z42ClassType 分支）：wrapper 类的 extern 属性
             // （如 String.ByteLength）注册为 get_<Name> 方法而非字段，须同样查 getter
             // 才能拿到真实返回类型；否则误判 "member access on non-class" 或松绑 Unknown。
-            MethodSymbol wgetter = this._findMethod(env.Symbols, wct, "get_" + m.Name);
+            MethodSymbol wgetter = this._overload._findMethod(env.Symbols, wct, "get_" + m.Name);
             if (wgetter != null && wgetter.Signature != null) {
                 return new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
             }
@@ -1295,12 +1297,12 @@ public sealed class TypeChecker {
             FieldSymbol fs = this._findField(env.Symbols, ct, m.Name);
             if (fs != null) { return new BoundMember(target, m.Name, fs.FieldType, m.Span); }
             // 属性 getter 派发：无字段但有 get_<Name>(0 参) → 虚调用 getter（镜像 C#）。
-            MethodSymbol getter = this._findMethod(env.Symbols, ct, "get_" + m.Name);
+            MethodSymbol getter = this._overload._findMethod(env.Symbols, ct, "get_" + m.Name);
             if (getter != null && getter.Signature != null) {
                 return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
             }
             // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
-            MethodSymbol mg = this._findMethod(env.Symbols, ct, m.Name);
+            MethodSymbol mg = this._overload._findMethod(env.Symbols, ct, m.Name);
             if (mg != null && mg.Signature != null) {
                 return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
             }
@@ -1328,7 +1330,7 @@ public sealed class TypeChecker {
     }
 
     // 赋值兼容（含类继承 subclass→base）。error/unknown 任一侧吸收（防级联）。非 class 走 Z42Type.IsAssignableTo。
-    private bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
+    public bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
         if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return true; }
         if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return true; }
         // GS6: 泛型类型参数（T）类型擦除——仅当恰好一侧是 GenericParamType 时放行（T→concrete 或 concrete→T）。
@@ -1378,7 +1380,7 @@ public sealed class TypeChecker {
             }
             if (env.Symbols.HasFunc(id.Name)) {
                 MethodSymbol ms = env.Symbols.GetFunc(id.Name);
-                BoundExpr[] fa = this._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
+                BoundExpr[] fa = this._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
                 return new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
             }
             // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
@@ -1386,12 +1388,12 @@ public sealed class TypeChecker {
                 string cls = env.CurrentClass();
                 if (env.Symbols.HasClass(cls)) {
                     Z42ClassType sct = env.Symbols.GetClass(cls);
-                    MethodSymbol sms = this._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.Span);
+                    MethodSymbol sms = this._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.Span);
                     if (sms != null && sms.IsStatic) {
                         // add-params-varargs：本路径（同类无限定静态调用）不经 _withDefaults，
                         // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
                         BoundExpr[] fa = args;
-                        if (sms.Signature.ParamsFrom >= 0) { fa = this._withParamsExpansion(sms, args, call.ArgCount, call.Span); }
+                        if (sms.Signature.ParamsFrom >= 0) { fa = this._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span); }
                         return new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
                     }
                 }
@@ -1435,9 +1437,9 @@ public sealed class TypeChecker {
             IdentExpr tid = mem.Target as IdentExpr;
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
                 Z42ClassType ct = env.Symbols.GetClass(tid.Name);
-                MethodSymbol ms = this._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+                MethodSymbol ms = this._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
                 if (ms != null) {
-                    BoundExpr[] fa = this._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                    BoundExpr[] fa = this._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
                     return new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
                 }
                 this._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -1452,8 +1454,8 @@ public sealed class TypeChecker {
                 string pwrap2 = TypeChecker._primWrapper(tid2.Name);
                 if (env.Symbols.HasClass(pwrap2)) {
                     Z42ClassType wct2 = env.Symbols.GetClass(pwrap2);
-                    string wmkey2 = this._overloadKey(env.Symbols, wct2, mem.Name, argCount);
-                    MethodSymbol wms2 = this._findMethod(env.Symbols, wct2, wmkey2);
+                    string wmkey2 = this._overload._overloadKey(env.Symbols, wct2, mem.Name, argCount);
+                    MethodSymbol wms2 = this._overload._findMethod(env.Symbols, wct2, wmkey2);
                     if (wms2 != null) {
                         return new BoundCall("static", false, null, pwrap2, wmkey2, args, argCount, wms2.Signature.Ret, sp);
                     }
@@ -1644,13 +1646,13 @@ public sealed class TypeChecker {
         Z42ClassType cls = null;
         if (t is Z42ClassType) { cls = t as Z42ClassType; }
         if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
-        string ctorName = cls != null ? this._ctorKey(cls, n.ArgCount) : "";
+        string ctorName = cls != null ? this._overload._ctorKey(cls, n.ArgCount) : "";
         // GS1/named-arg：命名实参重排 + 可选参数默认值填充（镜像 C#——工厂体 `new Route("/u", method:"POST")`
         // 及省略可选实参 `new Route("/h")` 须在调用点解析为完整位置实参序）。仅本地有 Decl 的 ctor 适配。
         MethodSymbol cms = null;
-        if (cls != null) { cms = this._findMethod(env.Symbols, cls, ctorName); }
+        if (cls != null) { cms = this._overload._findMethod(env.Symbols, cls, ctorName); }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
-            BoundExpr[] adapted = this._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
+            BoundExpr[] adapted = this._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
             if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
         }
         BoundExpr[] args = new BoundExpr[n.ArgCount];
@@ -1668,96 +1670,13 @@ public sealed class TypeChecker {
     // ImportedSymbolLoader.Phase2）→ 缺省实参用 default(paramType) 填充（stdlib 默认值
     // 多为类型零值 false/0/null，故与声明默认一致，如 MulticastAction.Invoke 的
     // continueOnException=false）。否则原样返回已绑定实参。
-    private BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
-        // add-params-varargs：选中的方法带 params 形参 → 走独立的打包路径（既非默认参数填充，
-        // 也不复用 _adaptArgs 的命名实参匹配；_resolveOverload/_resolveParamsOverload 已选定 ms）。
-        if (ms.Signature != null && ms.Signature.ParamsFrom >= 0) {
-            return this._withParamsExpansion(ms, args, rawArgCount, sp);
-        }
-        if (ms.HasDecl && ms.Decl != null && rawArgCount < ms.Decl.ParamCount) {
-            BoundExpr[] ad = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env);
-            if (ad != null) { return ad; }
-        }
-        if ((!ms.HasDecl || ms.Decl == null) && ms.Signature != null
-            && rawArgCount < ms.Signature.ParamCount) {
-            int pc = ms.Signature.ParamCount;
-            BoundExpr[] filled = new BoundExpr[pc];
-            int i = 0;
-            while (i < rawArgCount) { filled[i] = args[i]; i = i + 1; }
-            while (i < pc) {
-                filled[i] = new BoundDefault(ms.Signature.ParamTypes[i], 0 - 1, sp);
-                i = i + 1;
-            }
-            return filled;
-        }
-        return args;
-    }
 
     // add-params-varargs D1/D4：params 形参实参打包。normal form（恰 ParamsFrom+1 个实参，末位已是
     // 目标数组类型，_resolveParamsOverload 已核验）原样透传；否则 expanded form —— trailing 实参
     // （可能 0 个）打包成 BoundArrayLit 插入 ParamsFrom 槽（object[] 装箱在 codegen 是 no-op，见 design.md）。
-    private BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp) {
-        Z42FuncType sig = ms.Signature;
-        int pf = sig.ParamsFrom;
-        Z42ArrayType at = sig.ParamTypes[pf] as Z42ArrayType;
-        Z42Type elem = at.Elem;
-        if (rawArgCount == sig.ParamCount && args[pf].Type().IsAssignableTo(at)) {
-            return args;
-        }
-        int packCount = rawArgCount - pf;
-        BoundExpr[] packed = new BoundExpr[packCount];
-        int i = 0;
-        while (i < packCount) { packed[i] = args[pf + i]; i = i + 1; }
-        BoundExpr arrLit = new BoundArrayLit(packed, packCount, elem.Name(), new Z42ArrayType(elem), sp);
-        BoundExpr[] finalArgs = new BoundExpr[sig.ParamCount];
-        int k = 0;
-        while (k < pf) { finalArgs[k] = args[k]; k = k + 1; }
-        finalArgs[pf] = arrLit;
-        return finalArgs;
-    }
 
-    private BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env) {
-        int pc = md.ParamCount;
-        if (callArgCount > pc) { return null; }
-        BoundExpr[] slots = new BoundExpr[pc];
-        bool[] filled = new bool[pc];
-        int pos = 0;
-        int i = 0;
-        while (i < callArgCount) {
-            Expr a = callArgs[i];
-            if (a is AssignExpr && (a as AssignExpr).Target is IdentExpr) {
-                AssignExpr ae = a as AssignExpr;
-                string nm = (ae.Target as IdentExpr).Name;
-                int idx = 0 - 1;
-                int p = 0;
-                while (p < pc) { if (md.Params[p].Name == nm) { idx = p; } p = p + 1; }
-                if (idx < 0) { return null; }                 // 命名实参无匹配形参 → 不可适配
-                if (filled[idx]) { return null; }
-                slots[idx] = this._bindExpr(ae.Value, env); filled[idx] = true;
-            } else {
-                if (pos >= pc) { return null; }
-                slots[pos] = this._bindExpr(a, env); filled[pos] = true; pos = pos + 1;
-            }
-            i = i + 1;
-        }
-        int k = 0;
-        while (k < pc) {
-            if (!filled[k]) {
-                if (md.Params[k].Default == null) { return null; }   // 缺实参且无默认 → 不可适配
-                slots[k] = this._bindExpr(md.Params[k].Default, env);
-            }
-            k = k + 1;
-        }
-        return slots;
-    }
 
     // ctor 方法键：重载存 Name$argCount，唯一 ctor 存 bare Name，无显式 ctor → bare Name。
-    private string _ctorKey(Z42ClassType ct, int argCount) {
-        string name = ct.Name();
-        string ak = name + "$" + argCount.ToString();
-        if (ct.Methods.ContainsKey(ak)) { return ak; }
-        return name;
-    }
 
     // 方法查找：本类 → base 链（迭代）。
     // 重载 arity 解析键（镜像 C# instArityKey / BindMemberCallOnPrimitive 的 primArityKey）：
@@ -1765,173 +1684,20 @@ public sealed class TypeChecker {
     // 故 `Name$argCount` 键存在 → 该 overload，发 mangled 名；否则 bare。emit 名须用此键
     // （byte-identical：C# v_call 发 `Split$1` 非 `Split`）。对 unique 方法 arity 键不存在 → 退回 bare，
     // 6 个已 byte-identical 包不受影响（其调用皆 unique 方法）。
-    private string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
-        string ak = name + "$" + argCount.ToString();
-        if (this._findMethod(symbols, ct, ak) != null) { return ak; }
-        return name;
-    }
 
-    private MethodSymbol _findMethod(SymbolTable symbols, Z42ClassType ct, string name) {
-        Z42ClassType cur = ct;
-        bool more = true;
-        while (more) {
-            if (cur.Methods.ContainsKey(name)) { return cur.Methods.Get(name) as MethodSymbol; }
-            if (!cur.HasBase) {
-                // 无显式 base 的 class 隐式继承 Object（mirror C# object root；struct 无 Object 方法）。
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
-                else { more = false; }
-            } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
-                if (b == null) { more = false; } else { cur = b; }
-            }
-        }
-        return null;
-    }
 
     // add-type-based-overloads + add-params-varargs：按实参类型解析重载调用，返回选中 MethodSymbol（含 RegKey）。
     // 行为保持：单 arity 候选 → 直选（不做类型 applicability，镜像旧 arity-only）；同 arity ≥2 → 类型决议。
     // D4：非 params 精确 arity 重载恒优先于任何 params 候选 —— byArity 只收 ParamsFrom<0 的候选，
     // 无该类匹配（na==0）时才落到 _resolveParamsOverload。
     // null = 无匹配（调用方走原 undefined/no-method 诊断）或歧义（已报 E0425）。
-    private MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
-                                          BoundExpr[] args, int argCount, Span sp) {
-        MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
-        if (all.Length == 0) { return null; }
-        // 按 arity 过滤（仅非 params 候选）
-        MethodSymbol[] byArity = new MethodSymbol[all.Length];
-        int na = 0;
-        int i = 0;
-        while (i < all.Length) {
-            if (all[i].Signature.ParamsFrom < 0 && all[i].Signature.ParamCount == argCount) {
-                byArity[na] = all[i]; na = na + 1;
-            }
-            i = i + 1;
-        }
-        if (na == 0) {
-            MethodSymbol viaParams = this._resolveParamsOverload(all, args, argCount, sp, symbols);
-            if (viaParams != null) { return viaParams; }
-            // 无 arity 匹配但全类只有一个同名非 params 方法 → 返回它（镜像旧 _overloadKey 的 bare 兜底：
-            // 忽略 arity，如 `Int32.ToString(cp)` 静态形式调用实例 arity-0 ToString，接收者作首参）。
-            if (all.Length == 1 && all[0].Signature.ParamsFrom < 0) { return all[0]; }
-            return null;
-        }
-        if (na == 1) { return byArity[0]; }   // 单 arity 候选 → 行为保持
-        // 同 arity ≥2 → type-based 决议
-        Z42Type[] argTypes = new Z42Type[argCount];
-        int k = 0;
-        while (k < argCount) { argTypes[k] = args[k].Type(); k = k + 1; }
-        OverloadResult res = OverloadResolver.Resolve(byArity, na, argTypes, argCount);
-        if (res.IsResolved()) { return res.Method; }
-        if (res.IsAmbiguous()) {
-            this._diags.Error(DiagnosticCodes.AmbiguousOverload,
-                "ambiguous call to overloaded `" + name + "`; add an explicit cast to disambiguate", sp);
-        }
-        return null;
-    }
 
     // add-params-varargs D4：params 重载决议（仅当无非 params 精确 arity 匹配时调用）。
     // 优先级：normal form（恰 ParamsFrom+1 个实参、末位已是目标数组类型，直接透传不打包）>
     // expanded form 最具体 element type（非 object 胜 object；每层内部 >1 候选 → 歧义）。
     // 返回 null = 无 params 候选可用（调用方落回旧 bare 兜底或 undefined 诊断）。
-    private MethodSymbol _resolveParamsOverload(MethodSymbol[] all, BoundExpr[] args, int argCount, Span sp, SymbolTable symbols) {
-        MethodSymbol[] cand = new MethodSymbol[all.Length];
-        int nc = 0;
-        int i = 0;
-        while (i < all.Length) {
-            Z42FuncType sig = all[i].Signature;
-            if (sig.ParamsFrom >= 0 && argCount >= sig.ParamsFrom) { cand[nc] = all[i]; nc = nc + 1; }
-            i = i + 1;
-        }
-        if (nc == 0) { return null; }
-        // normal form
-        MethodSymbol[] normalCand = new MethodSymbol[nc];
-        int nn = 0;
-        i = 0;
-        while (i < nc) {
-            Z42FuncType sig = cand[i].Signature;
-            if (argCount == sig.ParamCount && args[sig.ParamsFrom].Type().IsAssignableTo(sig.ParamTypes[sig.ParamsFrom])) {
-                normalCand[nn] = cand[i]; nn = nn + 1;
-            }
-            i = i + 1;
-        }
-        if (nn == 1) { return normalCand[0]; }
-        if (nn > 1) {
-            this._diags.Error(DiagnosticCodes.AmbiguousOverload,
-                "ambiguous call to overloaded params method; add an explicit cast to disambiguate", sp);
-            return null;
-        }
-        // expanded form：非 object element type 胜 object（更具体优先）
-        MethodSymbol[] specific = new MethodSymbol[nc];
-        int ns = 0;
-        MethodSymbol[] objectTier = new MethodSymbol[nc];
-        int no = 0;
-        i = 0;
-        while (i < nc) {
-            Z42FuncType sig = cand[i].Signature;
-            Z42ArrayType at = sig.ParamTypes[sig.ParamsFrom] as Z42ArrayType;
-            if (at != null) {
-                bool ok = true;
-                int t = sig.ParamsFrom;
-                while (t < argCount) {
-                    if (!this._isAssignable(args[t].Type(), at.Elem, symbols)) { ok = false; }
-                    t = t + 1;
-                }
-                if (ok) {
-                    if (at.Elem.Name() == "object") { objectTier[no] = cand[i]; no = no + 1; }
-                    else { specific[ns] = cand[i]; ns = ns + 1; }
-                }
-            }
-            i = i + 1;
-        }
-        if (ns == 1) { return specific[0]; }
-        if (ns > 1) {
-            this._diags.Error(DiagnosticCodes.AmbiguousOverload,
-                "ambiguous call to overloaded params method; add an explicit cast to disambiguate", sp);
-            return null;
-        }
-        if (no == 1) { return objectTier[0]; }
-        if (no > 1) {
-            this._diags.Error(DiagnosticCodes.AmbiguousOverload,
-                "ambiguous call to overloaded params method; add an explicit cast to disambiguate", sp);
-            return null;
-        }
-        return null;
-    }
 
     // 沿 base 链聚合所有源名为 name 的方法，按 RegKey 去重（most-derived 优先 → override 取派生，
     // 不同签名重载全留）。镜像 _findMethod 的 base/Object 行走。
-    private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
-        StrMap seen = new StrMap();
-        MethodSymbol[] acc = new MethodSymbol[8];
-        int n = 0;
-        Z42ClassType cur = ct;
-        bool more = true;
-        while (more) {
-            MethodSymbol[] here = cur.OverloadsOf(name);
-            int i = 0;
-            while (i < here.Length) {
-                if (!seen.ContainsKey(here[i].RegKey)) {
-                    seen.Put(here[i].RegKey, "1");
-                    if (n == acc.Length) {
-                        MethodSymbol[] b = new MethodSymbol[acc.Length * 2];
-                        int q = 0; while (q < n) { b[q] = acc[q]; q = q + 1; }
-                        acc = b;
-                    }
-                    acc[n] = here[i]; n = n + 1;
-                }
-                i = i + 1;
-            }
-            if (!cur.HasBase) {
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
-                else { more = false; }
-            } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
-                if (b == null) { more = false; } else { cur = b; }
-            }
-        }
-        MethodSymbol[] r = new MethodSymbol[n];
-        int z = 0; while (z < n) { r[z] = acc[z]; z = z + 1; }
-        return r;
-    }
 
 }
