@@ -1,0 +1,158 @@
+// 类型子解析器（compiler-review P1-2：拆 Parser God-Class）。
+// 持 Parser 反向引用 _p（mediator）：游标原语 _p._peek/_advance/_expect、共享 _p._pendingGt/_diags；
+// 跨界 _p._parseExpr（表达式）/_p._parseParamList/_p._parseBlock（声明/语句）。同组互调仍 this._X。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class TypeParser {
+    private Parser _p;
+    public TypeParser(Parser p) { this._p = p; }
+
+    private TypeExpr _emptyType() { return new NamedType("", new TypeExpr[0], 0, this._p._peek().Span); }
+
+    private TypeParamList _emptyTypeParams() { return new TypeParamList(new string[0], 0, this._p._peek().Span); }
+
+    private TypeParamList _parseTypeParams() {
+        Span sp = this._p._peek().Span;
+        string[] names = new string[4];
+        int n = 0;
+        if (this._p._peek().Kind == TokenKind.Lt) {
+            this._p._advance();   // <
+            if (this._p._peek().Kind != TokenKind.Gt) {
+                while (true) {
+                    string nm = this._p._peek().Text;
+                    if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+                    else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected type-param name", this._p._peek().Span); this._p._advance(); }
+                    if (n == names.Length) {
+                        string[] b = new string[names.Length * 2];
+                        int i = 0; while (i < n) { b[i] = names[i]; i = i + 1; }
+                        names = b;
+                    }
+                    names[n] = nm; n = n + 1;
+                    if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+                }
+            }
+            this._p._expect(TokenKind.Gt, ">");
+        }
+        return new TypeParamList(names, n, sp);
+    }
+
+    private WhereList _parseWhereClause() {
+        Span sp = this._p._peek().Span;
+        WhereClause[] items = new WhereClause[4];
+        int n = 0;
+        while (this._p._peek().Kind == TokenKind.Where) {
+            Span wsp = this._p._peek().Span;
+            this._p._advance();
+            string tp = this._p._peek().Text;
+            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+            else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected type-param name after 'where'", this._p._peek().Span); }
+            this._p._expect(TokenKind.Colon, ":");
+            WhereConstraint[] cons = new WhereConstraint[4];
+            int cn = 0;
+            cons[0] = this._parseConstraint(); cn = 1;
+            while (this._p._peek().Kind == TokenKind.Plus) {    // z42 用 + 分隔多约束（Rust 风格，见 docs/design/language/generics.md）
+                this._p._advance();
+                if (cn == cons.Length) {
+                    WhereConstraint[] b = new WhereConstraint[cons.Length * 2];
+                    int i = 0; while (i < cn) { b[i] = cons[i]; i = i + 1; }
+                    cons = b;
+                }
+                cons[cn] = this._parseConstraint(); cn = cn + 1;
+            }
+            if (n == items.Length) {
+                WhereClause[] b = new WhereClause[items.Length * 2];
+                int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                items = b;
+            }
+            items[n] = new WhereClause(tp, cons, cn, wsp); n = n + 1;
+        }
+        return new WhereList(items, n, sp);
+    }
+
+    private WhereConstraint _parseConstraint() {
+        Span sp = this._p._peek().Span;
+        int k = this._p._peek().Kind;
+        if (k == TokenKind.New) {
+            this._p._advance();
+            this._p._expect(TokenKind.LParen, "(");
+            this._p._expect(TokenKind.RParen, ")");
+            return new WhereConstraint(false, this._emptyType(), "new()", sp);
+        }
+        if (k == TokenKind.Class)  { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "class", sp); }
+        if (k == TokenKind.Struct) { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "struct", sp); }
+        return new WhereConstraint(true, this._parseType(), "", sp);
+    }
+
+    private TypeExpr _parseType() {
+        Span sp = this._p._peek().Span;
+        // 函数类型 `(T1,...) -> R`（类型位 `(` 只可能是函数类型）。
+        if (this._p._peek().Kind == TokenKind.LParen) { return this._parseFuncType(); }
+        string name = this._p._peek().Text;
+        this._p._advance();
+        while (this._p._peek().Kind == TokenKind.Dot) {
+            this._p._advance();
+            name = name + "." + this._p._peek().Text;
+            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        }
+        TypeExpr[] args = new TypeExpr[4];
+        int ac = 0;
+        if (this._p._peek().Kind == TokenKind.Lt) {
+            this._p._advance();   // <
+            if (!this._tryCloseTypeArgs()) {   // 非空实参列表
+                while (true) {
+                    if (ac == args.Length) {
+                        TypeExpr[] b = new TypeExpr[args.Length * 2];
+                        int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                        args = b;
+                    }
+                    args[ac] = this._parseType(); ac = ac + 1;
+                    if (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
+                    break;
+                }
+                if (!this._tryCloseTypeArgs()) {
+                    this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected '>'", this._p._peek().Span);
+                }
+            }
+        }
+        TypeExpr t = new NamedType(name, args, ac, sp);
+        while (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.LBracket && this._p._peekAt(1).Kind == TokenKind.RBracket) {
+            this._p._advance(); this._p._advance();
+            t = new ArrayType(t, sp);
+        }
+        if (this._p._peek().Kind == TokenKind.Question) { this._p._advance(); t = new NullableType(t, sp); }
+        return t;
+    }
+
+    private TypeExpr _parseFuncType() {
+        Span sp = this._p._peek().Span;
+        this._p._expect(TokenKind.LParen, "(");
+        TypeExpr[] ps = new TypeExpr[4];
+        int pc = 0;
+        if (this._p._peek().Kind != TokenKind.RParen) {
+            while (true) {
+                if (pc == ps.Length) {
+                    TypeExpr[] b = new TypeExpr[ps.Length * 2];
+                    int i = 0; while (i < pc) { b[i] = ps[i]; i = i + 1; }
+                    ps = b;
+                }
+                ps[pc] = this._parseType(); pc = pc + 1;
+                if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
+                break;
+            }
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        this._p._expect(TokenKind.Arrow, "->");
+        TypeExpr ret = this._parseType();
+        return new FuncTypeExpr(ps, pc, ret, sp);
+    }
+
+    private bool _tryCloseTypeArgs() {
+        if (this._p._pendingGt > 0) { this._p._pendingGt = this._p._pendingGt - 1; return true; }
+        if (this._p._peek().Kind == TokenKind.Gt) { this._p._advance(); return true; }
+        if (this._p._peek().Kind == TokenKind.GtGt) { this._p._advance(); this._p._pendingGt = 1; return true; }
+        return false;
+    }
+
+}
