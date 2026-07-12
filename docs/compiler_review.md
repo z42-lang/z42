@@ -48,8 +48,8 @@
 | ~~`TypeChecker._bindStmt`~~ | ✅ **218 → 38**(纯分派;抽 11 个逐语句 binder,同 change) | TypeChecker.z42 |
 | `Parser._parsePrefix` | **140** | Parser.z42:197 起 |
 | `Parser._parseExpr` | **111** | Parser.z42:52 起 |
-| `TypeChecker._bindMemberCall` | 109 | TypeChecker.z42:1269 起 |
-| `TypeChecker._bindMember` | 96 | TypeChecker.z42:1062 起 |
+| ~~`TypeChecker._bindMemberCall`~~ | ✅ **98 → 48**(抽 `_bindInstanceMemberCall`,change `split-typechecker-member-fns` 2026-07-12) | TypeChecker.z42 |
+| ~~`TypeChecker._bindMember`~~ | ✅ **80 → 23**(抽 `_bindInstanceMember`+`_bindClassMemberAccess`,同 change) | TypeChecker.z42 |
 | `Parser._isVarDeclStart` | 91(7 种 var-decl 形式的 lookahead 混合) | Parser.z42:570 起 |
 | `SymbolCollector._fillClass` | 82 | SymbolCollector.z42:497 起 |
 | `FunctionEmitter.EmitFunction` | 82 | FunctionEmitter.z42 |
