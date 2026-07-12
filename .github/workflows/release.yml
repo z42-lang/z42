@@ -178,7 +178,12 @@ jobs:
           _tar() {
             local src="$1" dst="$2"
             if [[ "$rid" == windows-* ]]; then
-              tar -C "artifacts/packages/$src" -a -cf "artifacts/release/${dst}.zip" .
+              # NOTE: `shell: bash` on windows-* is Git Bash → GNU tar, which CANNOT
+              # write ZIP (`--auto-compress` only knows .gz/.xz/.zst/… so `tar -a -cf
+              # x.zip` silently produces a *tar* named .zip → downstream `unzip` fails
+              # with "End-of-central-directory signature not found", and users get a
+              # broken SDK/runtime .zip). Use PowerShell Compress-Archive for a real ZIP.
+              powershell -NoProfile -Command "Compress-Archive -Path 'artifacts/packages/$src/*' -DestinationPath 'artifacts/release/${dst}.zip' -Force"
             else
               tar -C "artifacts/packages/$src" -czf "artifacts/release/${dst}.tar.gz" .
             fi
