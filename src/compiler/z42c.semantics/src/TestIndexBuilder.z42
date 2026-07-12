@@ -1,0 +1,260 @@
+// 测试索引子构建器（compiler-review P1-3：拆 IrGen God-Class）。[Test] 发现 + TIDX 构建。
+// 持 IrGen 反向引用 _g：跨界 _g._symbols/_q/_classIrShortName/Intern。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class TestIndexBuilder {
+    private IrGen _g;
+    public IrTestEntry[] _tiEntries; public int _tiCount;
+    public IrFunction[] _tiFuncs; public int _tiFc;
+    public IrTestEntry[] _lastEntries;
+    public TestIndexBuilder(IrGen g) { this._g = g; }
+
+    private void _buildTestIndex(CompilationUnit cu, IrFunction[] funcs, int fc) {
+        this._tiFuncs = funcs; this._tiFc = fc;   // _lookupFnIndex 用（first-wins 线性查 funcs）
+        IrTestEntry[] entries = new IrTestEntry[4];
+        int n = 0;
+        int di = 0;
+        while (di < cu.DeclCount) {
+            Decl raw = cu.Decls[di];
+            if (raw is AttributedDecl) {
+                AttributedDecl ad = raw as AttributedDecl;
+                Decl inner = ad.Inner;
+                if (inner is MethodDecl) {
+                    // 顶层自由函数（命名空间级）：irName = _q(name)。
+                    MethodDecl md = inner as MethodDecl;
+                    if (md.IsFree && md.HasBody && this._hasTestAttr(ad)) {
+                        int mid = this._lookupFnIndex(this._g._q(md.Name));
+                        if (mid >= 0) {
+                            entries = this._pushTestEntry(entries, n, this._buildTestEntry(mid, ad));
+                            n = n + 1;
+                        }
+                    }
+                } else if (inner is ClassDecl) {
+                    // 类内方法：逐成员看 raw（AttributedDecl）的内建测试 attr。
+                    n = this._scanClassTests(inner as ClassDecl, entries, n);
+                    entries = this._lastEntries;   // 数组可能在内增长 → 取回（z42c 无 ref）
+                }
+            } else if (raw is ClassDecl) {
+                n = this._scanClassTests(raw as ClassDecl, entries, n);
+                entries = this._lastEntries;
+            }
+            di = di + 1;
+        }
+        this._tiEntries = entries;
+        this._tiCount = n;
+    }
+
+    private int _scanClassTests(ClassDecl c, IrTestEntry[] entries, int n) {
+        this._lastEntries = entries;
+        if (c.Kind != "class" && c.Kind != "struct" && c.Kind != "record") { return n; }
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl rawMem = c.Members[j];
+            if (rawMem is AttributedDecl) {
+                AttributedDecl ad = rawMem as AttributedDecl;
+                if (ad.Inner is MethodDecl) {
+                    MethodDecl md = ad.Inner as MethodDecl;
+                    if (md.HasBody && this._hasTestAttr(ad)) {
+                        // emit 同款限定名：_q(classIrShortName).methKey（arity-mangle 或 bare）。
+                        string methKey = md.Name + "$" + md.ParamCount.ToString();
+                        string arityIr = this._g._q(this._g._classIrShortName(c)) + "." + methKey;
+                        string bareIr = this._g._q(this._g._classIrShortName(c)) + "." + md.Name;
+                        int mid = this._lookupFnIndex(arityIr);
+                        if (mid < 0) { mid = this._lookupFnIndex(bareIr); }
+                        if (mid >= 0) {
+                            this._lastEntries = this._pushTestEntry(this._lastEntries, n, this._buildTestEntry(mid, ad));
+                            n = n + 1;
+                        }
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        return n;
+    }
+
+    private int _lookupFnIndex(string name) {
+        int i = 0;
+        while (i < this._tiFc) {
+            if (this._tiFuncs[i].Name == name) { return i; }
+            i = i + 1;
+        }
+        return 0 - 1;
+    }
+
+    private bool _hasTestAttr(AttributedDecl ad) {
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (this._isTestAttrName(ad.Attrs[a].Name)) { return true; }
+            a = a + 1;
+        }
+        return false;
+    }
+
+    private bool _isTestAttrName(string nm) {
+        if (nm == "Test" || nm == "Benchmark" || nm == "Setup" || nm == "Teardown") { return true; }
+        if (nm == "Ignore" || nm == "Skip" || nm == "ShouldThrow" || nm == "Timeout") { return true; }
+        return false;
+    }
+
+    private IrTestEntry _buildTestEntry(int methodId, AttributedDecl ad) {
+        IrTestEntry t = new IrTestEntry(methodId);   // 默认 Kind=Test(1)，无 flag
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            string nm = at.Name;
+            if (nm == "Test") { t.Kind = 1; }
+            else if (nm == "Benchmark") { t.Kind = 2; }
+            else if (nm == "Setup") { t.Kind = 3; }
+            else if (nm == "Teardown") { t.Kind = 4; }
+            else if (nm == "Ignore") { t.Flags = t.Flags | 2; }              // bit1 Ignored
+            else if (nm == "Timeout") {
+                int ms = this._namedIntArg(at, "milliseconds");
+                if (ms > 0) { t.TimeoutMs = ms; }
+            }
+            else if (nm == "Skip") {
+                t.Flags = t.Flags | 1;                                       // bit0 Skipped
+                int r = this._namedStrArg(at, "reason");
+                if (r > 0) { t.SkipReasonStrIdx = r; }
+                int p = this._namedStrArg(at, "platform");
+                if (p > 0) { t.SkipPlatformStrIdx = p; }
+                int fe = this._namedStrArg(at, "feature");
+                if (fe > 0) { t.SkipFeatureStrIdx = fe; }
+            }
+            else if (nm == "ShouldThrow") {
+                t.Flags = t.Flags | 4;                                       // bit2 ShouldThrow
+                // [ShouldThrow<E>]：emit `E;descendant…` 链（镜像 C# BuildShouldThrowChain）。
+                // 链 = E + 全部可见类中 base 链传递到达 E 者的短名；runner split ';' 任一匹配即可
+                // （TestFailure extends Exception → [ShouldThrow<Exception>] 捕 TestFailure）。
+                // intern 必须在 new IrModule 之前（_buildTestIndex 已满足该序约束）。
+                if (at.TypeArg != "") {
+                    t.ExpectedThrowTypeIdx = this._g.Intern(this._buildShouldThrowChain(at.TypeArg));
+                }
+            }
+            a = a + 1;
+        }
+        return t;
+    }
+
+    private string _buildShouldThrowChain(string typeArg) {
+        string chain = typeArg;
+        if (this._g._symbols == null) { return typeArg; }
+        // 确定序：StrMap.Keys() 是 hash-bucket 序（非确定）→ 先按 Ordinal 排序再迭代（common-pitfalls §1）。
+        string[] names = this._g._symbols.Classes.Keys();
+        this._sortOrdinal(names);
+        int i = 0;
+        while (i < names.Length) {
+            string name = names[i];
+            if (name != typeArg && this._isDescendantOf(name, typeArg)) {
+                chain = chain + ";" + name;
+            }
+            i = i + 1;
+        }
+        return chain;
+    }
+
+    private bool _isDescendantOf(string clsName, string ancestorShortName) {
+        string cur = clsName;
+        int hops = 0;
+        while (hops < 32) {
+            if (!this._g._symbols.Classes.ContainsKey(cur)) { return false; }
+            Z42ClassType ct = this._g._symbols.Classes.Get(cur) as Z42ClassType;
+            if (!ct.HasBase || ct.BaseName == "") { return false; }
+            string baseShort = this._shortName(ct.BaseName);
+            if (baseShort == ancestorShortName) { return true; }
+            cur = baseShort;
+            hops = hops + 1;
+        }
+        return false;
+    }
+
+    private string _shortName(string fq) {
+        int lastDot = 0 - 1;
+        int di = 0;
+        while (di < fq.Length) { if (fq.CharAt(di) == '.') { lastDot = di; } di = di + 1; }
+        if (lastDot >= 0) { return fq.Substring(lastDot + 1); }
+        return fq;
+    }
+
+    private void _sortOrdinal(string[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            string key = a[i];
+            int j = i - 1;
+            while (j >= 0 && this._ordLess(key, a[j])) { a[j + 1] = a[j]; j = j - 1; }
+            a[j + 1] = key;
+            i = i + 1;
+        }
+    }
+
+    private bool _ordLess(string x, string y) {
+        int n = x.Length;
+        if (y.Length < n) { n = y.Length; }
+        int i = 0;
+        while (i < n) {
+            int cx = (int)x.CharAt(i);
+            int cy = (int)y.CharAt(i);
+            if (cx != cy) { return cx < cy; }
+            i = i + 1;
+        }
+        return x.Length < y.Length;
+    }
+
+    private int _namedStrArg(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key
+                    && ae.Value is StringLitExpr) {
+                    string v = Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
+                    return this._g.Intern(v);   // z42c Intern 已是 1-based（0=占位 ""）
+                }
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    private int _namedIntArg(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key
+                    && ae.Value is IntLitExpr) {
+                    return this._parseDecimal((ae.Value as IntLitExpr).Value);
+                }
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    private int _parseDecimal(string s) {
+        int v = 0;
+        int i = 0;
+        bool more = i < s.Length;
+        while (more) {
+            char ch = s.CharAt(i);
+            if (ch == '_') { i = i + 1; more = i < s.Length; }
+            else if (ch >= '0' && ch <= '9') { v = v * 10 + ((int)ch - 48); i = i + 1; more = i < s.Length; }
+            else { more = false; }
+        }
+        return v;
+    }
+
+    private IrTestEntry[] _pushTestEntry(IrTestEntry[] arr, int count, IrTestEntry e) {
+        if (count == arr.Length) {
+            IrTestEntry[] b = new IrTestEntry[arr.Length * 2];
+            int k = 0; while (k < count) { b[k] = arr[k]; k = k + 1; }
+            arr = b;
+        }
+        arr[count] = e;
+        return arr;
+    }
+
+}
