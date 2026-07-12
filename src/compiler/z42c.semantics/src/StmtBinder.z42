@@ -13,7 +13,7 @@ public sealed class StmtBinder {
 
     private BoundStmt _bindForeach(ForeachStmt fe, TypeEnv env, Z42Type ret) {
             TypeEnv feScope = env.PushScope();
-            BoundExpr feIter = this._tc._bindExpr(fe.Iter, feScope);
+            BoundExpr feIter = this._tc._expr._bindExpr(fe.Iter, feScope);
             Z42Type feElem = new Z42UnknownType();
             bool feIsVar = (fe.Type is NamedType) && ((fe.Type as NamedType).Name == "var");
             if (feIsVar) {
@@ -51,25 +51,25 @@ public sealed class StmtBinder {
             if (f.HasInit) { finit = this._bindStmt(f.Init, forScope, ret); }
             BoundExpr fcond = null;
             if (f.HasCond) {
-                fcond = this._tc._bindExpr(f.Cond, forScope);
+                fcond = this._tc._expr._bindExpr(f.Cond, forScope);
                 this._tc._requireBool(fcond.Type(), "for", f.Cond.Span);
             }
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt fbody = this._bindStmt(f.Body, forScope, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
             BoundExpr fincr = null;
-            if (f.HasIncr) { fincr = this._tc._bindExpr(f.Incr, forScope); }
+            if (f.HasIncr) { fincr = this._tc._expr._bindExpr(f.Incr, forScope); }
             return new BoundFor(f.HasInit, finit, f.HasCond, fcond, f.HasIncr, fincr, fbody, f.Span);
     }
 
     private BoundStmt _bindSwitchStmt(SwitchStmt sw, TypeEnv env, Z42Type ret) {
-            BoundExpr subj = this._tc._bindExpr(sw.Subject, env);
+            BoundExpr subj = this._tc._expr._bindExpr(sw.Subject, env);
             BoundSwitchCase[] cases = new BoundSwitchCase[sw.CaseCount];
             int ci = 0;
             while (ci < sw.CaseCount) {
                 SwitchCase sc = sw.Cases[ci];
                 BoundExpr pat = null;
-                if (sc.HasPattern) { pat = this._tc._bindExpr(sc.Pattern, env); }
+                if (sc.HasPattern) { pat = this._tc._expr._bindExpr(sc.Pattern, env); }
                 TypeEnv caseScope = env.PushScope();
                 BoundStmt[] cbody = new BoundStmt[sc.BodyCount];
                 int bi = 0;
@@ -84,13 +84,13 @@ public sealed class StmtBinder {
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt dwBody = this._bindStmt(dw.Body, env, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
-            BoundExpr dwCond = this._tc._bindExpr(dw.Cond, env);
+            BoundExpr dwCond = this._tc._expr._bindExpr(dw.Cond, env);
             this._tc._requireBool(dwCond.Type(), "do-while", dw.Cond.Span);
             return new BoundDoWhile(dwBody, dwCond, dw.Span);
     }
 
     private BoundStmt _bindWhile(WhileStmt w, TypeEnv env, Z42Type ret) {
-            BoundExpr cond = this._tc._bindExpr(w.Cond, env);
+            BoundExpr cond = this._tc._expr._bindExpr(w.Cond, env);
             this._tc._requireBool(cond.Type(), "while", w.Cond.Span);
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt body = this._bindStmt(w.Body, env, ret);
@@ -135,7 +135,7 @@ public sealed class StmtBinder {
     }
 
     private BoundStmt _bindIfStmt(IfStmt f, TypeEnv env, Z42Type ret) {
-            BoundExpr cond = this._tc._bindExpr(f.Cond, env);
+            BoundExpr cond = this._tc._expr._bindExpr(f.Cond, env);
             this._tc._requireBool(cond.Type(), "if", f.Cond.Span);
             BoundStmt then = this._bindStmt(f.Then, env, ret);
             if (f.HasElse) {
@@ -146,7 +146,7 @@ public sealed class StmtBinder {
 
     private BoundStmt _bindReturn(ReturnStmt r, TypeEnv env, Z42Type ret) {
             if (r.HasValue) {
-                BoundExpr val = this._tc._bindExpr(r.Value, env);
+                BoundExpr val = this._tc._expr._bindExpr(r.Value, env);
                 if (!this._tc._isAssignable(val.Type(), ret, env.Symbols)) {
                     this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                         "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
@@ -161,10 +161,10 @@ public sealed class StmtBinder {
             if (v.Init is LambdaExpr) {                              // lambda + 显式 Func 类型 → expected 推导
                 Z42Type declared = env.ResolveType(v.Type);          // `var` → Unknown，自然跳过
                 if (declared is Z42FuncType) {
-                    init = this._tc._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
+                    init = this._tc._expr._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
                 }
             }
-            if (init == null && v.Init != null) { init = this._tc._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
+            if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
@@ -220,12 +220,12 @@ public sealed class StmtBinder {
         if (s is ReturnStmt) { return this._bindReturn(s as ReturnStmt, env, ret); }
         if (s is ExprStmt) {
             ExprStmt e = s as ExprStmt;
-            return new BoundExprStmt(this._tc._bindExpr(e.E, env), e.Span);
+            return new BoundExprStmt(this._tc._expr._bindExpr(e.E, env), e.Span);
         }
         if (s is IfStmt) { return this._bindIfStmt(s as IfStmt, env, ret); }
         if (s is ThrowStmt) {
             ThrowStmt th = s as ThrowStmt;
-            return new BoundThrow(this._tc._bindExpr(th.E, env), th.Span);
+            return new BoundThrow(this._tc._expr._bindExpr(th.E, env), th.Span);
         }
         if (s is TryCatchStmt) { return this._bindTryCatch(s as TryCatchStmt, env, ret); }
         if (s is WhileStmt) { return this._bindWhile(s as WhileStmt, env, ret); }

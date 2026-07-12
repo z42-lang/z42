@@ -31,7 +31,7 @@ public sealed class MemberResolver {
                 }
             }
         }
-        BoundExpr target = this._tc._bindExpr(m.Target, env);
+        BoundExpr target = this._tc._expr._bindExpr(m.Target, env);
         Z42Type tt = target.Type();
         return this._bindInstanceMember(m, target, tt, env);
     }
@@ -197,13 +197,13 @@ public sealed class MemberResolver {
     private BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
-        while (i < call.ArgCount) { args[i] = this._tc._bindExpr(call.Args[i], env); i = i + 1; }
+        while (i < call.ArgCount) { args[i] = this._tc._expr._bindExpr(call.Args[i], env); i = i + 1; }
         // 顶层自由函数：f(args)
         if (call.Callee is IdentExpr) {
             IdentExpr id = call.Callee as IdentExpr;
             Z42Type vfn = env.LookupVar(id.Name);
             if (vfn != null && (vfn is Z42FuncType)) {              // Func 值间接调用（port-z42c-closures）
-                BoundExpr callee = this._tc._bindExpr(call.Callee, env);
+                BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (vfn as Z42FuncType).Ret, call.Span);
             }
             // impl-local-fn-l2：局部函数调用 → BoundCall "free"（local 名；emit 期改写为 lifted 名）。
@@ -241,7 +241,7 @@ public sealed class MemberResolver {
         // 通用间接调用：array[i](args) / method()(args) 等 callee 是任意表达式且类型为 Z42FuncType。
         // Z42GenericParamType：泛型接口方法返回类型参数（如 ISubscription<TD>.Get()→TD）；type-erased，运行期解析。
         {
-            BoundExpr callee = this._tc._bindExpr(call.Callee, env);
+            BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
             Z42Type ct = callee.Type();
             if (ct is Z42FuncType) {
                 return new BoundIndirectCall(callee, args, call.ArgCount, (ct as Z42FuncType).Ret, call.Span);
@@ -299,7 +299,7 @@ public sealed class MemberResolver {
             }
         }
         // 实例：bind target 为值
-        BoundExpr recv = this._tc._bindExpr(mem.Target, env);
+        BoundExpr recv = this._tc._expr._bindExpr(mem.Target, env);
         Z42Type rt = recv.Type();
         return this._bindInstanceMemberCall(mem, recv, rt, args, argCount, rawArgs, env, sp);
     }

@@ -74,10 +74,10 @@ public sealed class OverloadBinder {
                 while (p < pc) { if (md.Params[p].Name == nm) { idx = p; } p = p + 1; }
                 if (idx < 0) { return null; }                 // 命名实参无匹配形参 → 不可适配
                 if (filled[idx]) { return null; }
-                slots[idx] = this._tc._bindExpr(ae.Value, env); filled[idx] = true;
+                slots[idx] = this._tc._expr._bindExpr(ae.Value, env); filled[idx] = true;
             } else {
                 if (pos >= pc) { return null; }
-                slots[pos] = this._tc._bindExpr(a, env); filled[pos] = true; pos = pos + 1;
+                slots[pos] = this._tc._expr._bindExpr(a, env); filled[pos] = true; pos = pos + 1;
             }
             i = i + 1;
         }
@@ -85,7 +85,7 @@ public sealed class OverloadBinder {
         while (k < pc) {
             if (!filled[k]) {
                 if (md.Params[k].Default == null) { return null; }   // 缺实参且无默认 → 不可适配
-                slots[k] = this._tc._bindExpr(md.Params[k].Default, env);
+                slots[k] = this._tc._expr._bindExpr(md.Params[k].Default, env);
             }
             k = k + 1;
         }

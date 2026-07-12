@@ -7,7 +7,7 @@
 ## 进度概览（每步独立不动点 + 单独 commit）
 - [x] 2. 抽 `MemberResolver`（成员解析 + 调用 7 方法）—— ✅ 不动点 7/7 + golden 138/138
 - [x] 3. 抽 `StmtBinder`（语句 13 方法）—— ✅ 不动点 7/7 + golden 138/138（TypeChecker 1419→1176）
-- [ ] 4. 抽 `ExprTyper`（表达式 ~20 方法）→ TypeChecker 收敛为 Facade
+- [x] 4. 抽 `ExprTyper`（表达式 22 方法）→ TypeChecker 收敛为 Facade —— ✅ 不动点 7/7 + golden 138/138（TypeChecker 1176→706；4 子绑定器全抽出）
 - [ ] 5. 叶子助手 → TypeFactsTc（收口文件 500 行硬限）+ 文档 + 归档
 
 ## step 2 结果
