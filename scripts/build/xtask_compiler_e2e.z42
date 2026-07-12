@@ -40,16 +40,125 @@ int _e2eOracle(string vm, string driverZpkg, string e2eDir, string emitLibs, str
     return 0;
 }
 
-int _testCompilerE2e(string root, string vm, string flat) {
-    Console.WriteLine("");
-    Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
-    string driverZpkg = _driverZpkg(root);
-    string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
-    Directory.Create(e2eDir);
-
-    string libsRel = Path.Join(root, "artifacts/build/libraries/dist/release");
+// z42c build/import e2e checks（build packed zpkg 直跑 + 6 工程可建 + 跨包 Call 链
+// 可执行）。Split out of _testCompilerE2e（review §2.8）；纯逐字搬移、短路 return 1。
+int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, string flat) {
     int rc = 0;
+    // build e2e（port-z42c-zpkg-build）：z42c build 产 packed zpkg → z42vm 直跑（entry 烤入）。
+    // zpkg 级 byte-compare 对真 C# CLI 还差 TSIG/IMPL（follow-up change）；此处验证可执行性
+    // + 核心七段（META/NSPC/EXPT/DEPS 已与 C# 逐字节一致，SIGS/MODS 同尺寸仅池索引移位）。
+    string bdir = Path.Join(e2eDir, "buildapp");
+    Directory.Create(bdir);
+    string bsrc = Path.Join(bdir, "app.z42");
+    File.WriteAllText(bsrc, "namespace Check.App;\n\nint Twice(int a) { return a + a; }\n\nclass Counter {\n    int v;\n    int Bump(int d) { v = v + d; return v; }\n}\n\nvoid Main() {\n    var c = new Counter();\n    c.Bump(20);\n    c.Bump(1);\n    int x = Twice(c.Bump(0));\n    int ok = 0;\n    if (x == 42) { ok = 1; }\n    int dummy = 100 / ok;\n}\n");
+    string btoml = Path.Join(bdir, "check.app.z42.toml");
+    File.WriteAllText(btoml, "[project]\nname    = \"check.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ z42c build failed"); return 1; }
+    string appZpkg = Path.Join(bdir, "dist/check.app.zpkg");
+    rc = new Process(vm).Arg(appZpkg)
+        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ z42c-built zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
+    Console.WriteLine("  ✓ build e2e: z42c-built check.app.zpkg runs directly on z42vm (entry baked)");
 
+    // zpkg 全文件 byte-compare（port-z42c-tsig）：同工程 z42c vs C# CLI（--strip-symbols=false
+    // 关 sidecar/BLID）→ 逐字节 diff。两工程：check.app（exe，调用/对象/字段）+ demo.minimal
+    // （namespaced 单类，packed-minimal 同构）。这是 .zpkg 包级对账 gate。
+    string ddir = Path.Join(e2eDir, "buildns");
+    Directory.Create(ddir);
+    File.WriteAllText(Path.Join(ddir, "demo.z42"),
+        "namespace Demo.Minimal;\n\nclass Greeter {\n    string Hello() { return \"hi\"; }\n}\n\nvoid Main() {\n    var g = new Greeter();\n    g.Hello();\n}\n");
+    File.WriteAllText(Path.Join(ddir, "demo.minimal.z42.toml"),
+        "[project]\nname    = \"demo.minimal\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    // hello-stdlib（port-z42c-import）：using Std + Console.WriteLine——跨包消费链对账工程。
+    // ⚠ 放 /tmp（仓库外）：C# BuildLibsDirs 会 walk-up 仓库布局并按成员目录字母序扫
+    // （z42.cli < z42.core，两者都声明 ns Std）→ 仓库内 DEPS 解析 Std→z42.cli.zpkg；
+    // /tmp 下只剩 Z42_LIBS 单目录 → prelude-first → Std→z42.core.zpkg，两侧编译器环境等价。
+    string hdir = "/tmp/z42c-e2e-buildhello";
+    Directory.Create(hdir);
+    File.WriteAllText(Path.Join(hdir, "hello.z42"),
+        "using Std;\n\nvoid Main() {\n    Console.WriteLine(\"hi\");\n}\n");
+    File.WriteAllText(Path.Join(hdir, "hello.app.z42.toml"),
+        "[project]\nname    = \"hello.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    // textapp（port-z42c-instance-import）：StringBuilder（imported 类 VCall+DEPS）+
+    // string.Substring（prim receiver → DepIndex instance 捷径 FQ Call）——实例跨包链对账工程
+    string tdir = "/tmp/z42c-e2e-buildtext";
+    Directory.Create(tdir);
+    File.WriteAllText(Path.Join(tdir, "app.z42"),
+        "using Std;\nusing Std.Text;\n\nvoid Main() {\n    var sb = new StringBuilder();\n    sb.Append(\"ab\");\n    sb.Append(\"cd\");\n    string s = sb.ToString();\n    string sub = s.Substring(0, 2);\n    Console.WriteLine(sub);\n}\n");
+    File.WriteAllText(Path.Join(tdir, "text.app.z42.toml"),
+        "[project]\nname    = \"text.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    // closcheck（port-z42c-closures）：无捕获/捕获 lambda + Func 形参 + 间接调用 + oracle。
+    // 注意逃逸形态（Apply 传参）：C# 逃逸分析对非逃逸闭包发 stackAlloc=1（z42c 恒 0 延后）。
+    string cdir = "/tmp/z42c-e2e-buildclos";
+    Directory.Create(cdir);
+    File.WriteAllText(Path.Join(cdir, "app.z42"),
+        "int Apply(Func<int, int> f, int v) {\n"
+        + "    return f(v);\n"
+        + "}\n\n"
+        + "int Main() {\n"
+        + "    Func<int, int> dbl = x => x * 2;\n"
+        + "    int k = 3;\n"
+        + "    Func<int, int> mul = x => x * k;\n"
+        + "    int ok = 0;\n"
+        + "    if (dbl(21) == 42) { if (Apply(mul, 14) == 42) { ok = 1; } }\n"
+        + "    return 100 / ok;\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(cdir, "clos.app.z42.toml"),
+        "[project]\nname    = \"clos.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    // multifile（port-z42c-package-symbols）：同包跨文件互引（namespaced——C# no-ns 多文件互引自身有
+    // pre-existing VCall 缺陷 `main.Pair.Sum not found`，挂账上游）
+    string mdir = "/tmp/z42c-e2e-buildmulti";
+    Directory.Create(mdir);
+    File.WriteAllText(Path.Join(mdir, "types.z42"),
+        "namespace App;\n\nclass Pair {\n    public int A;\n    public int B;\n    public int Sum() { return A + B; }\n}\n");
+    File.WriteAllText(Path.Join(mdir, "main.z42"),
+        "namespace App;\n\nint Main() {\n    var p = new Pair();\n    p.A = 40;\n    p.B = 2;\n    int ok = 0;\n    if (p.Sum() == 42) { ok = 1; }\n    return 100 / ok;\n}\n");
+    File.WriteAllText(Path.Join(mdir, "multi.app.z42.toml"),
+        "[project]\nname    = \"multi.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    string[] cmpTomls = new string[6];
+    cmpTomls[0] = btoml;
+    cmpTomls[1] = Path.Join(ddir, "demo.minimal.z42.toml");
+    cmpTomls[2] = Path.Join(hdir, "hello.app.z42.toml");
+    cmpTomls[3] = Path.Join(tdir, "text.app.z42.toml");
+    cmpTomls[4] = Path.Join(cdir, "clos.app.z42.toml");
+    cmpTomls[5] = Path.Join(mdir, "multi.app.z42.toml");
+    // replace-csharp Phase C：删 zpkg byte-compare-vs-C#（C# 已删）。改为 z42c build 6 工程
+    // 验可建（功能性）；z42c 自身 byte-identical 由 self-host 不动点覆盖。
+    int pi = 0;
+    while (pi < 6) {
+        string pdir = Path.GetDirectoryName(cmpTomls[pi]);
+        rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(cmpTomls[pi])
+            .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        if (rc != 0) { Console.WriteLine("  ✗ z42c build failed: " + cmpTomls[pi]); return 1; }
+        string[] zOut = Path.Glob(Path.Join(pdir, "dist"), "*.zpkg");
+        if (zOut.Length != 1) { Console.WriteLine("  ✗ expected 1 zpkg in " + pdir + "/dist"); return 1; }
+        pi = pi + 1;
+    }
+    Console.WriteLine("  ✓ z42c build: 6/6 projects built (multi-file packages; functional)");
+    // hello-stdlib 直跑（跨包 Call 链可执行性）
+    rc = new Process(vm).Arg(Path.Join(cdir, "dist/clos.app.zpkg"))
+        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ clos.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
+    rc = new Process(vm).Arg(Path.Join(tdir, "dist/text.app.zpkg"))
+        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ text.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
+    rc = new Process(vm).Arg(Path.Join(hdir, "dist/hello.app.zpkg"))
+        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ hello.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
+    Console.WriteLine("  ✓ import e2e: z42c-built hello.app.zpkg (using Std; Console.WriteLine) runs on z42vm");
+    return 0;
+}
+
+// z42c self-compiled oracle checks：一串内联源程序经 z42c→zbc→z42vm，用 div-by-zero
+// oracle 验功能（selfcheck/callcheck/typecheck/charcheck/trycheck/ifacecheck/sacheck +
+// divzero 负向）。Split out of _testCompilerE2e（review §2.8）；纯逐字搬移、短路 return 1。
+int _e2eOracleChecks(string vm, string driverZpkg, string e2eDir, string flat, string libsRel) {
     // 正向：自检程序（const/mul/add/le/eq/copy/div + while 回边 + if 嵌套 = ZW-1A/1B 全 opcode）
     if (_e2eOracle(vm, driverZpkg, e2eDir, flat, flat, "selfcheck", false,
         "int Main() {\n"
@@ -166,119 +275,25 @@ int _testCompilerE2e(string root, string vm, string flat) {
         + "    if (xs[0] + xs[1] == 42) { if (xs.Length == 3) { if (Sev.Warn == 1) { ok = 1; } } }\n"
         + "    return 100 / ok;\n"
         + "}\n") != 0) { return 1; }
+    return 0;
+}
+
+int _testCompilerE2e(string root, string vm, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
+    string driverZpkg = _driverZpkg(root);
+    string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
+    Directory.Create(e2eDir);
+
+    string libsRel = Path.Join(root, "artifacts/build/libraries/dist/release");
+
+    if (_e2eOracleChecks(vm, driverZpkg, e2eDir, flat, libsRel) != 0) { return 1; }
 
     // replace-csharp Phase C：删 per-construct byte-compare-vs-C#（C# 已删，无 oracle）。
     // 功能正确性由上方 div-by-zero e2e oracle（selfcheck/callcheck/typecheck/...）保证；
     // z42c 自身的 byte-identical 由 self-host 不动点（gen1==gen2）覆盖（见 _testSelfHostByteIdentical）。
 
-    // build e2e（port-z42c-zpkg-build）：z42c build 产 packed zpkg → z42vm 直跑（entry 烤入）。
-    // zpkg 级 byte-compare 对真 C# CLI 还差 TSIG/IMPL（follow-up change）；此处验证可执行性
-    // + 核心七段（META/NSPC/EXPT/DEPS 已与 C# 逐字节一致，SIGS/MODS 同尺寸仅池索引移位）。
-    string bdir = Path.Join(e2eDir, "buildapp");
-    Directory.Create(bdir);
-    string bsrc = Path.Join(bdir, "app.z42");
-    File.WriteAllText(bsrc, "namespace Check.App;\n\nint Twice(int a) { return a + a; }\n\nclass Counter {\n    int v;\n    int Bump(int d) { v = v + d; return v; }\n}\n\nvoid Main() {\n    var c = new Counter();\n    c.Bump(20);\n    c.Bump(1);\n    int x = Twice(c.Bump(0));\n    int ok = 0;\n    if (x == 42) { ok = 1; }\n    int dummy = 100 / ok;\n}\n");
-    string btoml = Path.Join(bdir, "check.app.z42.toml");
-    File.WriteAllText(btoml, "[project]\nname    = \"check.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
-    if (rc != 0) { Console.WriteLine("  ✗ z42c build failed"); return 1; }
-    string appZpkg = Path.Join(bdir, "dist/check.app.zpkg");
-    rc = new Process(vm).Arg(appZpkg)
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
-        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-    if (rc != 0) { Console.WriteLine("  ✗ z42c-built zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    Console.WriteLine("  ✓ build e2e: z42c-built check.app.zpkg runs directly on z42vm (entry baked)");
-
-    // zpkg 全文件 byte-compare（port-z42c-tsig）：同工程 z42c vs C# CLI（--strip-symbols=false
-    // 关 sidecar/BLID）→ 逐字节 diff。两工程：check.app（exe，调用/对象/字段）+ demo.minimal
-    // （namespaced 单类，packed-minimal 同构）。这是 .zpkg 包级对账 gate。
-    string ddir = Path.Join(e2eDir, "buildns");
-    Directory.Create(ddir);
-    File.WriteAllText(Path.Join(ddir, "demo.z42"),
-        "namespace Demo.Minimal;\n\nclass Greeter {\n    string Hello() { return \"hi\"; }\n}\n\nvoid Main() {\n    var g = new Greeter();\n    g.Hello();\n}\n");
-    File.WriteAllText(Path.Join(ddir, "demo.minimal.z42.toml"),
-        "[project]\nname    = \"demo.minimal\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    // hello-stdlib（port-z42c-import）：using Std + Console.WriteLine——跨包消费链对账工程。
-    // ⚠ 放 /tmp（仓库外）：C# BuildLibsDirs 会 walk-up 仓库布局并按成员目录字母序扫
-    // （z42.cli < z42.core，两者都声明 ns Std）→ 仓库内 DEPS 解析 Std→z42.cli.zpkg；
-    // /tmp 下只剩 Z42_LIBS 单目录 → prelude-first → Std→z42.core.zpkg，两侧编译器环境等价。
-    string hdir = "/tmp/z42c-e2e-buildhello";
-    Directory.Create(hdir);
-    File.WriteAllText(Path.Join(hdir, "hello.z42"),
-        "using Std;\n\nvoid Main() {\n    Console.WriteLine(\"hi\");\n}\n");
-    File.WriteAllText(Path.Join(hdir, "hello.app.z42.toml"),
-        "[project]\nname    = \"hello.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    // textapp（port-z42c-instance-import）：StringBuilder（imported 类 VCall+DEPS）+
-    // string.Substring（prim receiver → DepIndex instance 捷径 FQ Call）——实例跨包链对账工程
-    string tdir = "/tmp/z42c-e2e-buildtext";
-    Directory.Create(tdir);
-    File.WriteAllText(Path.Join(tdir, "app.z42"),
-        "using Std;\nusing Std.Text;\n\nvoid Main() {\n    var sb = new StringBuilder();\n    sb.Append(\"ab\");\n    sb.Append(\"cd\");\n    string s = sb.ToString();\n    string sub = s.Substring(0, 2);\n    Console.WriteLine(sub);\n}\n");
-    File.WriteAllText(Path.Join(tdir, "text.app.z42.toml"),
-        "[project]\nname    = \"text.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    // closcheck（port-z42c-closures）：无捕获/捕获 lambda + Func 形参 + 间接调用 + oracle。
-    // 注意逃逸形态（Apply 传参）：C# 逃逸分析对非逃逸闭包发 stackAlloc=1（z42c 恒 0 延后）。
-    string cdir = "/tmp/z42c-e2e-buildclos";
-    Directory.Create(cdir);
-    File.WriteAllText(Path.Join(cdir, "app.z42"),
-        "int Apply(Func<int, int> f, int v) {\n"
-        + "    return f(v);\n"
-        + "}\n\n"
-        + "int Main() {\n"
-        + "    Func<int, int> dbl = x => x * 2;\n"
-        + "    int k = 3;\n"
-        + "    Func<int, int> mul = x => x * k;\n"
-        + "    int ok = 0;\n"
-        + "    if (dbl(21) == 42) { if (Apply(mul, 14) == 42) { ok = 1; } }\n"
-        + "    return 100 / ok;\n"
-        + "}\n");
-    File.WriteAllText(Path.Join(cdir, "clos.app.z42.toml"),
-        "[project]\nname    = \"clos.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    // multifile（port-z42c-package-symbols）：同包跨文件互引（namespaced——C# no-ns 多文件互引自身有
-    // pre-existing VCall 缺陷 `main.Pair.Sum not found`，挂账上游）
-    string mdir = "/tmp/z42c-e2e-buildmulti";
-    Directory.Create(mdir);
-    File.WriteAllText(Path.Join(mdir, "types.z42"),
-        "namespace App;\n\nclass Pair {\n    public int A;\n    public int B;\n    public int Sum() { return A + B; }\n}\n");
-    File.WriteAllText(Path.Join(mdir, "main.z42"),
-        "namespace App;\n\nint Main() {\n    var p = new Pair();\n    p.A = 40;\n    p.B = 2;\n    int ok = 0;\n    if (p.Sum() == 42) { ok = 1; }\n    return 100 / ok;\n}\n");
-    File.WriteAllText(Path.Join(mdir, "multi.app.z42.toml"),
-        "[project]\nname    = \"multi.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    string[] cmpTomls = new string[6];
-    cmpTomls[0] = btoml;
-    cmpTomls[1] = Path.Join(ddir, "demo.minimal.z42.toml");
-    cmpTomls[2] = Path.Join(hdir, "hello.app.z42.toml");
-    cmpTomls[3] = Path.Join(tdir, "text.app.z42.toml");
-    cmpTomls[4] = Path.Join(cdir, "clos.app.z42.toml");
-    cmpTomls[5] = Path.Join(mdir, "multi.app.z42.toml");
-    // replace-csharp Phase C：删 zpkg byte-compare-vs-C#（C# 已删）。改为 z42c build 6 工程
-    // 验可建（功能性）；z42c 自身 byte-identical 由 self-host 不动点覆盖。
-    int pi = 0;
-    while (pi < 6) {
-        string pdir = Path.GetDirectoryName(cmpTomls[pi]);
-        rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(cmpTomls[pi])
-            .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
-        if (rc != 0) { Console.WriteLine("  ✗ z42c build failed: " + cmpTomls[pi]); return 1; }
-        string[] zOut = Path.Glob(Path.Join(pdir, "dist"), "*.zpkg");
-        if (zOut.Length != 1) { Console.WriteLine("  ✗ expected 1 zpkg in " + pdir + "/dist"); return 1; }
-        pi = pi + 1;
-    }
-    Console.WriteLine("  ✓ z42c build: 6/6 projects built (multi-file packages; functional)");
-    // hello-stdlib 直跑（跨包 Call 链可执行性）
-    rc = new Process(vm).Arg(Path.Join(cdir, "dist/clos.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
-        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-    if (rc != 0) { Console.WriteLine("  ✗ clos.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    rc = new Process(vm).Arg(Path.Join(tdir, "dist/text.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
-        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-    if (rc != 0) { Console.WriteLine("  ✗ text.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    rc = new Process(vm).Arg(Path.Join(hdir, "dist/hello.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
-        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-    if (rc != 0) { Console.WriteLine("  ✗ hello.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    Console.WriteLine("  ✓ import e2e: z42c-built hello.app.zpkg (using Std; Console.WriteLine) runs on z42vm");
+    if (_e2eBuildChecks(root, vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }
