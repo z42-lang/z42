@@ -16,12 +16,14 @@ public sealed class IrGen {
 
     public TestIndexBuilder _testIx;
     public ClassDescBuilder _classDescB;
+    public StubEmitter _stubE;
     public IrGen() {
         this._pool = new string[8];
         this._pool[0] = "";
         this._poolCount = 1;
         this._testIx = new TestIndexBuilder(this);
         this._classDescB = new ClassDescBuilder(this);
+        this._stubE = new StubEmitter(this);
     }
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
@@ -180,9 +182,9 @@ public sealed class IrGen {
                                 }
                             } else if (this._hasWord(md.Mods, "extern")) {
                                 // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
-                                string nat = this._nativeIntrinsic(rawMem);
+                                string nat = this._stubE._nativeIntrinsic(rawMem);
                                 if (nat != "") {
-                                    IrFunction stub = this._emitNativeStub(irName, md, nat,
+                                    IrFunction stub = this._stubE._emitNativeStub(irName, md, nat,
                                                                            this._hasWord(md.Mods, "static"), rawMem);
                                     stub.Visibility = this._visCode(md.Mods);      // add-member-visibility：extern 桩此前漏设
                                     stub.MethodFlags = this._methodFlags(md.Mods); // add-method-modifiers：virtual extern（如 Object.ToString/Equals/GetHashCode）须带 virtual 位
@@ -193,7 +195,7 @@ public sealed class IrGen {
                                 // add-method-modifiers（unify P1-c）：实例 abstract 方法无 body，此前完全不 emit →
                                 // 反射看不到 → IsAbstract 观测不到。发一个 signature-only 死体桩（override 经 vtable
                                 // 派发，桩永不被调），使其进 SIGS/FUNC → Function.method_flags 带 abstract 位 → 反射可见。
-                                IrFunction astub = this._emitAbstractStub(irName, md);
+                                IrFunction astub = this._stubE._emitAbstractStub(irName, md);
                                 astub.Attrs = this._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
                                 astub.ParamAttrs = this._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
                                 astub.Visibility = this._visCode(md.Mods);
@@ -207,13 +209,13 @@ public sealed class IrGen {
                             bool pdExtern = this._hasWord(pd.Mods, "extern");
                             bool pdStatic = this._hasWord(pd.Mods, "static");
                             if (pd.HasGet && pdExtern) {
-                                string nat2 = this._nativeIntrinsic(rawMem);
+                                string nat2 = this._stubE._nativeIntrinsic(rawMem);
                                 if (nat2 != "") {
                                     TypeParamList emptyTpP = new TypeParamList(new string[0], 0, pd.Span);
                                     MethodDecl synthPd = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
                                                                          emptyTpP, new WhereClause[0], 0,
                                                                          new Param[0], 0, false, null, new Expr[0], 0, false, pd.Span);
-                                    IrFunction pstub = this._emitNativeStub(this._q(this._classIrShortName(c)) + ".get_" + pd.Name,
+                                    IrFunction pstub = this._stubE._emitNativeStub(this._q(this._classIrShortName(c)) + ".get_" + pd.Name,
                                                                              synthPd, nat2, pdStatic, rawMem);
                                     this._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
                                     funcs = this._pushFunc(funcs, fc, pstub); fc = fc + 1;
@@ -224,13 +226,13 @@ public sealed class IrGen {
                                 string getIrNm = this._q(this._classIrShortName(c)) + ".get_" + pd.Name;
                                 string retNm = this._classDescB._typeFieldName(pd.Type);
                                 int retTag = this._irTypeTag(pd.Type);
-                                IrFunction ag = this._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+                                IrFunction ag = this._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                                 ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
                                 funcs = this._pushFunc(funcs, fc, ag); fc = fc + 1;
                                 // setter（HasSet）：合成 field.set @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp set）。
                                 if (pd.HasSet) {
                                     string setIrNm = this._q(this._classIrShortName(c)) + ".set_" + pd.Name;
-                                    IrFunction sg = this._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+                                    IrFunction sg = this._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                                     sg.MinArg = 1;   // setter 逻辑参数 1
                                     funcs = this._pushFunc(funcs, fc, sg); fc = fc + 1;
                                 }
@@ -386,7 +388,7 @@ public sealed class IrGen {
                     ddesc.TypeParamConstraints = new IrConstraintDesc[dd.TypeParams.Count];
                 }
                 classes = this._pushClass(classes, cc, ddesc); cc = cc + 1;
-                funcs = this._pushFunc(funcs, fc, this._emitDelegateInvoke(dfq, dd)); fc = fc + 1;
+                funcs = this._pushFunc(funcs, fc, this._stubE._emitDelegateInvoke(dfq, dd)); fc = fc + 1;
             }
             i = i + 1;
         }
@@ -489,262 +491,30 @@ public sealed class IrGen {
 
     // 每参数 attr-ref 列表，按 SIGS 参数序对齐（实例方法 this 槽=index 0=空）。
 
-    private string _nativeIntrinsic(Decl rawMem) {
-        if (!(rawMem is AttributedDecl)) { return ""; }
-        AttributedDecl ad = rawMem as AttributedDecl;
-        int a = 0;
-        while (a < ad.AttrCount) {
-            Attr at = ad.Attrs[a];
-            if (at.Name == "Native" && at.ArgCount >= 1) {
-                // ① positional 字符串
-                if (at.Args[0] is StringLitExpr) {
-                    return Lexer.DecodeString((at.Args[0] as StringLitExpr).Raw);
-                }
-                // ② named：扫 `entry = "..."`
-                int ai = 0;
-                while (ai < at.ArgCount) {
-                    if (at.Args[ai] is AssignExpr) {
-                        AssignExpr ae = at.Args[ai] as AssignExpr;
-                        if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == "entry"
-                            && ae.Value is StringLitExpr) {
-                            return Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
-                        }
-                    }
-                    ai = ai + 1;
-                }
-            }
-            a = a + 1;
-        }
-        return "";
-    }
 
     // `[Native(lib="L", type="T", ...)]` named 形的 lib + type。返回 [lib, type]，缺则 ""。
     // type != "" → typed native call（CallNative）；否则 builtin 桩。
-    private string[] _nativeLibType(Decl rawMem) {
-        string[] r = new string[2]; r[0] = ""; r[1] = "";
-        if (!(rawMem is AttributedDecl)) { return r; }
-        AttributedDecl ad = rawMem as AttributedDecl;
-        int a = 0;
-        while (a < ad.AttrCount) {
-            Attr at = ad.Attrs[a];
-            if (at.Name == "Native") {
-                int ai = 0;
-                while (ai < at.ArgCount) {
-                    if (at.Args[ai] is AssignExpr) {
-                        AssignExpr ae = at.Args[ai] as AssignExpr;
-                        if (ae.Target is IdentExpr && ae.Value is StringLitExpr) {
-                            string key = (ae.Target as IdentExpr).Name;
-                            string val = Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
-                            if (key == "lib")  { r[0] = val; }
-                            if (key == "type") { r[1] = val; }
-                        }
-                    }
-                    ai = ai + 1;
-                }
-            }
-            a = a + 1;
-        }
-        return r;
-    }
 
     // native 桩函数（镜像 C# EmitNativeStub legacy 路径）：单块 entry，体 = builtin(__name) + ret。
     // args r0..r(N-1)、dst rN（void→Void 否则 Unknown）；RetType="object"/"void"、ExecMode="Interp"、
     // ParamTypes 空（SIGS 补 "?"，镜像 C# ParamTypes=null）；MaxReg=N+1。
-    private IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
-        int totalParams = md.ParamCount;
-        if (!isStatic) { totalParams = totalParams + 1; }
-        bool isVoid = this._symbols.ResolveType(md.RetType).Name() == "void";
-        TypedReg[] args = new TypedReg[totalParams];
-        int i = 0;
-        while (i < totalParams) { args[i] = new TypedReg(i, IrType.Unknown); i = i + 1; }
-        int dstTag = IrType.Unknown;
-        if (isVoid) { dstTag = IrType.Void; }
-        TypedReg dst = new TypedReg(totalParams, dstTag);
-        IrInstr[] instrs = new IrInstr[1];
-        // `[Native(lib="L", type="T", entry="E")]` 带 type= → typed native call（CallNative，Tier 1 C ABI
-        // 经 z42_register_type 直接符号分派）；否则（positional / 仅 entry=）→ builtin 桩（ext_builtins 表）。
-        string[] lt = this._nativeLibType(rawMem);
-        if (lt[1] != "") {
-            instrs[0] = new CallNativeInstr(dst, lt[0], lt[1], nat, args, totalParams);
-        } else {
-            instrs[0] = new BuiltinInstr(dst, nat, args, totalParams);
-        }
-        RetTerm term = new RetTerm(!isVoid, dst);
-        IrBlock[] blocks = new IrBlock[1];
-        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
-        // reconcile-tsig-from-runtime-sections（unify P2）：SIGS 携真实声明类型（源拼写），
-        // 不再硬编码 "object"——TSIG oracle 对账要求 + P3 后 SIGS 是唯一来源 + 反射 ReturnType 保真。
-        string retType = this._typeSpell(md.RetType);
-        if (isVoid) { retType = "void"; }
-        string[] ptypes = new string[totalParams];
-        int po = 0;
-        if (!isStatic) {
-            // this 槽类型 = 所属类 FQ（name = <FQClass>.<m>）。
-            int lastDot = name.Length - 1;
-            while (lastDot >= 0 && (int)name.CharAt(lastDot) != 46) { lastDot = lastDot - 1; }
-            ptypes[0] = lastDot > 0 ? name.Substring(0, lastDot) : "?";
-            po = 1;
-        }
-        int pp = 0;
-        while (pp < md.ParamCount) { ptypes[pp + po] = this._typeSpell(md.Params[pp].Type); pp = pp + 1; }
-        return new IrFunction(name, totalParams, retType, isStatic, blocks, 1, totalParams + 1,
-                              "Interp", ptypes, totalParams, new int[0], 0,
-                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
-    }
 
     // add-method-modifiers（unify P1-c）：实例 abstract 方法的 signature-only 死体桩。
     // abstract 方法无 body，override 经 vtable 派发 → 此桩永不被调用（死代码），仅为让方法进
     // SIGS/FUNC 以便反射（IsAbstract）。桩体：非 void 返回 null 占位（reg 类型 Ref，永不执行故无碍），
     // void 直接 ret。实例（有 this），ret 类型取声明类型（SIGS 据此报告 ReturnType）。
-    private IrFunction _emitAbstractStub(string name, MethodDecl md) {
-        int totalParams = md.ParamCount + 1;   // 实例 → +this
-        // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
-        // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
-        string retName = this._symbols.ResolveType(md.RetType).Name();
-        bool isVoid = retName == "void";
-        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
-        IrInstr[] instrs;
-        RetTerm term;
-        if (isVoid) {
-            instrs = new IrInstr[0];
-            term = new RetTerm(false, dst);
-        } else {
-            instrs = new IrInstr[1];
-            instrs[0] = new ConstNullInstr(dst);
-            term = new RetTerm(true, dst);
-        }
-        IrBlock[] blocks = new IrBlock[1];
-        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
-        // ParamTypes 与 ParamCount 对齐（"?" 占位；SIGS writer 亦以 "?" 兜底缺失）。
-        string[] ptypes = new string[totalParams];
-        int pk = 0;
-        while (pk < totalParams) { ptypes[pk] = "?"; pk = pk + 1; }
-        return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
-                              "Interp", ptypes, totalParams, new int[0], 0,
-                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
-    }
 
     // add-delegate-metadata（unify P1-e ②）：delegate 的合成 Invoke 死体桩。
     // 实例（this 槽=delegate 自身）、virtual（镜像 C# delegate Invoke）、参数用**源拼写**类型 +
     // 源名 + P1-d 全套元数据。体 = ret null / ret（永不被调——真实 delegate 调用走 CallIndirect）。
-    private IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
-        int totalParams = dd.ParamCount + 1;   // +this
-        string retName = this._typeSpell(dd.RetType);
-        bool isVoid = retName == "void";
-        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
-        IrInstr[] instrs;
-        RetTerm term;
-        if (isVoid) {
-            instrs = new IrInstr[0];
-            term = new RetTerm(false, dst);
-        } else {
-            instrs = new IrInstr[1];
-            instrs[0] = new ConstNullInstr(dst);
-            term = new RetTerm(true, dst);
-        }
-        IrBlock[] blocks = new IrBlock[1];
-        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
-        string[] ptypes = new string[totalParams];
-        ptypes[0] = dfq;   // this 槽类型 = delegate 自身
-        int p = 0;
-        while (p < dd.ParamCount) { ptypes[p + 1] = this._typeSpell(dd.Params[p].Type); p = p + 1; }
-        IrFunction inv = new IrFunction(dfq + ".Invoke", totalParams, retName, false, blocks, 1, totalParams + 1,
-                                        "Interp", ptypes, totalParams, new int[0], 0,
-                                        new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
-        inv.Visibility = 0;   // public
-        inv.MethodFlags = 1;  // bit0 virtual（C# delegate Invoke 为 virtual）
-        // 参数元数据（P1-d）：合成 MethodDecl 复用 _fillParamMeta（名/必填数/varargs/默认值）。
-        TypeParamList etp = new TypeParamList(new string[0], 0, dd.Span);
-        MethodDecl synth = new MethodDecl("public virtual", false, false, dd.RetType, "Invoke",
-                                          etp, new WhereClause[0], 0,
-                                          dd.Params, dd.ParamCount, false, null, new Expr[0], 0, false, dd.Span);
-        this._fillParamMeta(inv, synth, true);
-        return inv;
-    }
 
     // TypeExpr → 源拼写类型名（TSIG _sigTypeName 同旨；delegate Invoke 签名用）。
-    private string _typeSpell(TypeExpr t) {
-        if (t is NamedType) {
-            NamedType nt = t as NamedType;
-            if (nt.ArgCount == 0) { return nt.Name; }
-            string s = nt.Name + "<";
-            int a = 0;
-            while (a < nt.ArgCount) {
-                if (a > 0) { s = s + ", "; }
-                s = s + this._typeSpell(nt.Args[a]);
-                a = a + 1;
-            }
-            return s + ">";
-        }
-        if (t is ArrayType) { return this._typeSpell((t as ArrayType).Elem) + "[]"; }
-        if (t is NullableType) { return this._typeSpell((t as NullableType).Inner) + "?"; }
-        return "?";
-    }
 
     // 非 extern auto-property getter 桩（镜像 C# SynthesizeClassAutoProp get 路径）：
     // field.get %0 @__prop_X → %1; ret %1。含 .locals(%0=this) + .linetable(line)。
-    private IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,
-                                           bool isStatic, int line) {
-        int totalParams = isStatic ? 0 : 1;
-        TypedReg thisReg = new TypedReg(0, IrType.Ref);
-        TypedReg dst = new TypedReg(totalParams, retTag);
-        IrInstr[] instrs = new IrInstr[1];
-        instrs[0] = new FieldGetInstr(dst, thisReg, backingField);
-        RetTerm term = new RetTerm(true, dst);
-        IrBlock[] blocks = new IrBlock[1];
-        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
-        string[] paramTypes = new string[totalParams];
-        int[] regTypes = new int[totalParams + 1];
-        if (!isStatic) { paramTypes[0] = "?"; regTypes[0] = IrType.Unknown; }
-        regTypes[totalParams] = retTag;
-        // Release 模式：strip debug info（镜像 C# stripSymbols：不写 .linetable/.locals）。
-        IrLineEntry[] lineTable = new IrLineEntry[0];
-        int lineCount = 0;
-        IrLocalVarEntry[] locals = new IrLocalVarEntry[0];
-        if (!this.IsRelease) {
-            lineTable = new IrLineEntry[1];
-            lineTable[0] = new IrLineEntry(0, 0, line, false, null, 0);
-            lineCount = 1;
-            locals = new IrLocalVarEntry[1];
-            locals[0] = new IrLocalVarEntry("this", 0);
-        }
-        return new IrFunction(name, totalParams, retTypeName, isStatic, blocks, 1, totalParams + 1,
-                              "Interp", paramTypes, totalParams, regTypes, totalParams + 1,
-                              lineTable, lineCount, locals, locals.Length);
-    }
 
     // 非 extern auto-property setter 桩（镜像 C# SynthesizeClassAutoProp set 路径）：
     // field.set %0 @__prop_X %1; ret。含 .locals(%0=this, %1=value) + .linetable(line)。
-    private IrFunction _emitAutoPropSetter(string name, string backingField, string valTypeName, int valTag,
-                                           bool isStatic, int line) {
-        int totalParams = isStatic ? 1 : 2;   // static: (value); instance: (this, value)
-        TypedReg thisReg = new TypedReg(0, IrType.Ref);
-        TypedReg valReg  = new TypedReg(isStatic ? 0 : 1, valTag);
-        IrInstr[] instrs = new IrInstr[1];
-        instrs[0] = new FieldSetInstr(thisReg, backingField, valReg);
-        RetTerm term = new RetTerm(false, null);
-        IrBlock[] blocks = new IrBlock[1];
-        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
-        string[] paramTypes = new string[totalParams];
-        int[] regTypes = new int[totalParams];
-        if (!isStatic) { paramTypes[0] = "?"; regTypes[0] = IrType.Unknown; }
-        paramTypes[isStatic ? 0 : 1] = valTypeName;
-        regTypes[isStatic ? 0 : 1] = valTag;
-        IrLineEntry[] lineTable = new IrLineEntry[0];
-        int lineCount = 0;
-        IrLocalVarEntry[] locals = new IrLocalVarEntry[0];
-        if (!this.IsRelease) {
-            lineTable = new IrLineEntry[1];
-            lineTable[0] = new IrLineEntry(0, 0, line, false, null, 0);
-            lineCount = 1;
-            locals = isStatic ? new IrLocalVarEntry[1] : new IrLocalVarEntry[2];
-            if (!isStatic) { locals[0] = new IrLocalVarEntry("this", 0); }
-            locals[isStatic ? 0 : 1] = new IrLocalVarEntry("value", isStatic ? 0 : 1);
-        }
-        return new IrFunction(name, totalParams, "void", isStatic, blocks, 1, totalParams,
-                              "Interp", paramTypes, totalParams, regTypes, totalParams,
-                              lineTable, lineCount, locals, locals.Length);
-    }
 
     // IrType tag from TypeExpr（prim 名 → tag；string → Str；array → Ref；class/iface → Ref；void → Void）。
     // 镜像 C# ToIrType(Z42Type)：string[] 是 Ref，string 是 Str，class 是 Ref，其他具名 Unknown。
@@ -806,7 +576,7 @@ public sealed class IrGen {
     // add-param-metadata（zbc 1.25）：填参数元数据（min_arg/params_from/参数名/默认值）。
     // 逻辑口径 min_arg/params_from（不含 this）；每参并行数组含 this 槽（index 0="this"）。
     // 默认值只折**字面量**（Int/Float/Bool/String/Char/null）；非字面量 → kind 0（值不可得，IsOptional 仍由 min_arg 表达）。
-    private void _fillParamMeta(IrFunction irf, MethodDecl md, bool isInstance) {
+    public void _fillParamMeta(IrFunction irf, MethodDecl md, bool isInstance) {
         int off = 0; if (isInstance) { off = 1; }
         int total = md.ParamCount + off;
         string[] names = new string[total];

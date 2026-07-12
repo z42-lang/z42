@@ -1,0 +1,252 @@
+// 桩发射子构建器（compiler-review P1-3 step3）。native/abstract/delegate-invoke/autoprop 死体桩。
+// 持 IrGen 反向引用 _g：_g._symbols/IsRelease/_fillParamMeta。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class StubEmitter {
+    private IrGen _g;
+    public StubEmitter(IrGen g) { this._g = g; }
+
+    private string _nativeIntrinsic(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return ""; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (at.Name == "Native" && at.ArgCount >= 1) {
+                // ① positional 字符串
+                if (at.Args[0] is StringLitExpr) {
+                    return Lexer.DecodeString((at.Args[0] as StringLitExpr).Raw);
+                }
+                // ② named：扫 `entry = "..."`
+                int ai = 0;
+                while (ai < at.ArgCount) {
+                    if (at.Args[ai] is AssignExpr) {
+                        AssignExpr ae = at.Args[ai] as AssignExpr;
+                        if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == "entry"
+                            && ae.Value is StringLitExpr) {
+                            return Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
+                        }
+                    }
+                    ai = ai + 1;
+                }
+            }
+            a = a + 1;
+        }
+        return "";
+    }
+
+    private string[] _nativeLibType(Decl rawMem) {
+        string[] r = new string[2]; r[0] = ""; r[1] = "";
+        if (!(rawMem is AttributedDecl)) { return r; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (at.Name == "Native") {
+                int ai = 0;
+                while (ai < at.ArgCount) {
+                    if (at.Args[ai] is AssignExpr) {
+                        AssignExpr ae = at.Args[ai] as AssignExpr;
+                        if (ae.Target is IdentExpr && ae.Value is StringLitExpr) {
+                            string key = (ae.Target as IdentExpr).Name;
+                            string val = Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
+                            if (key == "lib")  { r[0] = val; }
+                            if (key == "type") { r[1] = val; }
+                        }
+                    }
+                    ai = ai + 1;
+                }
+            }
+            a = a + 1;
+        }
+        return r;
+    }
+
+    private IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
+        int totalParams = md.ParamCount;
+        if (!isStatic) { totalParams = totalParams + 1; }
+        bool isVoid = this._g._symbols.ResolveType(md.RetType).Name() == "void";
+        TypedReg[] args = new TypedReg[totalParams];
+        int i = 0;
+        while (i < totalParams) { args[i] = new TypedReg(i, IrType.Unknown); i = i + 1; }
+        int dstTag = IrType.Unknown;
+        if (isVoid) { dstTag = IrType.Void; }
+        TypedReg dst = new TypedReg(totalParams, dstTag);
+        IrInstr[] instrs = new IrInstr[1];
+        // `[Native(lib="L", type="T", entry="E")]` 带 type= → typed native call（CallNative，Tier 1 C ABI
+        // 经 z42_register_type 直接符号分派）；否则（positional / 仅 entry=）→ builtin 桩（ext_builtins 表）。
+        string[] lt = this._nativeLibType(rawMem);
+        if (lt[1] != "") {
+            instrs[0] = new CallNativeInstr(dst, lt[0], lt[1], nat, args, totalParams);
+        } else {
+            instrs[0] = new BuiltinInstr(dst, nat, args, totalParams);
+        }
+        RetTerm term = new RetTerm(!isVoid, dst);
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
+        // reconcile-tsig-from-runtime-sections（unify P2）：SIGS 携真实声明类型（源拼写），
+        // 不再硬编码 "object"——TSIG oracle 对账要求 + P3 后 SIGS 是唯一来源 + 反射 ReturnType 保真。
+        string retType = this._typeSpell(md.RetType);
+        if (isVoid) { retType = "void"; }
+        string[] ptypes = new string[totalParams];
+        int po = 0;
+        if (!isStatic) {
+            // this 槽类型 = 所属类 FQ（name = <FQClass>.<m>）。
+            int lastDot = name.Length - 1;
+            while (lastDot >= 0 && (int)name.CharAt(lastDot) != 46) { lastDot = lastDot - 1; }
+            ptypes[0] = lastDot > 0 ? name.Substring(0, lastDot) : "?";
+            po = 1;
+        }
+        int pp = 0;
+        while (pp < md.ParamCount) { ptypes[pp + po] = this._typeSpell(md.Params[pp].Type); pp = pp + 1; }
+        return new IrFunction(name, totalParams, retType, isStatic, blocks, 1, totalParams + 1,
+                              "Interp", ptypes, totalParams, new int[0], 0,
+                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+
+    private IrFunction _emitAbstractStub(string name, MethodDecl md) {
+        int totalParams = md.ParamCount + 1;   // 实例 → +this
+        // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
+        // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
+        string retName = this._g._symbols.ResolveType(md.RetType).Name();
+        bool isVoid = retName == "void";
+        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
+        IrInstr[] instrs;
+        RetTerm term;
+        if (isVoid) {
+            instrs = new IrInstr[0];
+            term = new RetTerm(false, dst);
+        } else {
+            instrs = new IrInstr[1];
+            instrs[0] = new ConstNullInstr(dst);
+            term = new RetTerm(true, dst);
+        }
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
+        // ParamTypes 与 ParamCount 对齐（"?" 占位；SIGS writer 亦以 "?" 兜底缺失）。
+        string[] ptypes = new string[totalParams];
+        int pk = 0;
+        while (pk < totalParams) { ptypes[pk] = "?"; pk = pk + 1; }
+        return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
+                              "Interp", ptypes, totalParams, new int[0], 0,
+                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+
+    private IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
+        int totalParams = dd.ParamCount + 1;   // +this
+        string retName = this._typeSpell(dd.RetType);
+        bool isVoid = retName == "void";
+        TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
+        IrInstr[] instrs;
+        RetTerm term;
+        if (isVoid) {
+            instrs = new IrInstr[0];
+            term = new RetTerm(false, dst);
+        } else {
+            instrs = new IrInstr[1];
+            instrs[0] = new ConstNullInstr(dst);
+            term = new RetTerm(true, dst);
+        }
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
+        string[] ptypes = new string[totalParams];
+        ptypes[0] = dfq;   // this 槽类型 = delegate 自身
+        int p = 0;
+        while (p < dd.ParamCount) { ptypes[p + 1] = this._typeSpell(dd.Params[p].Type); p = p + 1; }
+        IrFunction inv = new IrFunction(dfq + ".Invoke", totalParams, retName, false, blocks, 1, totalParams + 1,
+                                        "Interp", ptypes, totalParams, new int[0], 0,
+                                        new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+        inv.Visibility = 0;   // public
+        inv.MethodFlags = 1;  // bit0 virtual（C# delegate Invoke 为 virtual）
+        // 参数元数据（P1-d）：合成 MethodDecl 复用 _fillParamMeta（名/必填数/varargs/默认值）。
+        TypeParamList etp = new TypeParamList(new string[0], 0, dd.Span);
+        MethodDecl synth = new MethodDecl("public virtual", false, false, dd.RetType, "Invoke",
+                                          etp, new WhereClause[0], 0,
+                                          dd.Params, dd.ParamCount, false, null, new Expr[0], 0, false, dd.Span);
+        this._g._fillParamMeta(inv, synth, true);
+        return inv;
+    }
+
+    private string _typeSpell(TypeExpr t) {
+        if (t is NamedType) {
+            NamedType nt = t as NamedType;
+            if (nt.ArgCount == 0) { return nt.Name; }
+            string s = nt.Name + "<";
+            int a = 0;
+            while (a < nt.ArgCount) {
+                if (a > 0) { s = s + ", "; }
+                s = s + this._typeSpell(nt.Args[a]);
+                a = a + 1;
+            }
+            return s + ">";
+        }
+        if (t is ArrayType) { return this._typeSpell((t as ArrayType).Elem) + "[]"; }
+        if (t is NullableType) { return this._typeSpell((t as NullableType).Inner) + "?"; }
+        return "?";
+    }
+
+    private IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,
+                                           bool isStatic, int line) {
+        int totalParams = isStatic ? 0 : 1;
+        TypedReg thisReg = new TypedReg(0, IrType.Ref);
+        TypedReg dst = new TypedReg(totalParams, retTag);
+        IrInstr[] instrs = new IrInstr[1];
+        instrs[0] = new FieldGetInstr(dst, thisReg, backingField);
+        RetTerm term = new RetTerm(true, dst);
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
+        string[] paramTypes = new string[totalParams];
+        int[] regTypes = new int[totalParams + 1];
+        if (!isStatic) { paramTypes[0] = "?"; regTypes[0] = IrType.Unknown; }
+        regTypes[totalParams] = retTag;
+        // Release 模式：strip debug info（镜像 C# stripSymbols：不写 .linetable/.locals）。
+        IrLineEntry[] lineTable = new IrLineEntry[0];
+        int lineCount = 0;
+        IrLocalVarEntry[] locals = new IrLocalVarEntry[0];
+        if (!this._g.IsRelease) {
+            lineTable = new IrLineEntry[1];
+            lineTable[0] = new IrLineEntry(0, 0, line, false, null, 0);
+            lineCount = 1;
+            locals = new IrLocalVarEntry[1];
+            locals[0] = new IrLocalVarEntry("this", 0);
+        }
+        return new IrFunction(name, totalParams, retTypeName, isStatic, blocks, 1, totalParams + 1,
+                              "Interp", paramTypes, totalParams, regTypes, totalParams + 1,
+                              lineTable, lineCount, locals, locals.Length);
+    }
+
+    private IrFunction _emitAutoPropSetter(string name, string backingField, string valTypeName, int valTag,
+                                           bool isStatic, int line) {
+        int totalParams = isStatic ? 1 : 2;   // static: (value); instance: (this, value)
+        TypedReg thisReg = new TypedReg(0, IrType.Ref);
+        TypedReg valReg  = new TypedReg(isStatic ? 0 : 1, valTag);
+        IrInstr[] instrs = new IrInstr[1];
+        instrs[0] = new FieldSetInstr(thisReg, backingField, valReg);
+        RetTerm term = new RetTerm(false, null);
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, 1, term, true);
+        string[] paramTypes = new string[totalParams];
+        int[] regTypes = new int[totalParams];
+        if (!isStatic) { paramTypes[0] = "?"; regTypes[0] = IrType.Unknown; }
+        paramTypes[isStatic ? 0 : 1] = valTypeName;
+        regTypes[isStatic ? 0 : 1] = valTag;
+        IrLineEntry[] lineTable = new IrLineEntry[0];
+        int lineCount = 0;
+        IrLocalVarEntry[] locals = new IrLocalVarEntry[0];
+        if (!this._g.IsRelease) {
+            lineTable = new IrLineEntry[1];
+            lineTable[0] = new IrLineEntry(0, 0, line, false, null, 0);
+            lineCount = 1;
+            locals = isStatic ? new IrLocalVarEntry[1] : new IrLocalVarEntry[2];
+            if (!isStatic) { locals[0] = new IrLocalVarEntry("this", 0); }
+            locals[isStatic ? 0 : 1] = new IrLocalVarEntry("value", isStatic ? 0 : 1);
+        }
+        return new IrFunction(name, totalParams, "void", isStatic, blocks, 1, totalParams,
+                              "Interp", paramTypes, totalParams, regTypes, totalParams,
+                              lineTable, lineCount, locals, locals.Length);
+    }
+
+}
