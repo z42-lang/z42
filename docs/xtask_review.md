@@ -197,6 +197,13 @@ downstream-consume。**建议**：改 `needs: toolchain-bootstrap` + 消费 tool
 > host-package / assemble-current-sdk 已验证的消费模式）。消除 8× 重复 z42c/stdlib 构建 +
 > 8× nightly 下载漂移 flake；工件即 toolchain-bootstrap 从当前源建的（现走 jit），语义等价。
 > 验证以 CI 为准（CI-only 可验）。
+>
+> **✅ 顺带修 cross-zpkg 5× 冗余（2026-07-12）**：日志分析发现 vm-jit 每 shard 的默认
+> `test e2e`（无 --dir）跑完 goldens 后**无条件再跑 cross-zpkg**（`_testE2e` line 42 不看 --shard）
+> → 4 shard 各跑一遍（4×）+ shard 1 显式命令第 5 遍（且没 --no-build 又重建 z42c+runtime）。
+> cross-zpkg 是固定 4-test 集、非分片，只需跑 1 遍。修：`_testE2e` 分片时跳过默认 cross-zpkg
+> （`shardOpt.Length==0` 守卫；本地全量 `test e2e` 不受影响仍跑）+ CI 显式命令加 `--no-build`。
+> vm-jit shard1 25→~16m、shards2-4 18→~12m（省算力，非临界路径故不动总时长——见附录 B）。
 
 ### 3.2 PR bench 双跑
 

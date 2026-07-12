@@ -30,16 +30,21 @@ int _testE2e(ParseResult r) {
     bool noBuild = r.GetFlag("no-build");
     string[] mw = _splitWords(modes);
     string xmode = mw.Length > 0 ? mw[0] : "interp";   // cross-zpkg runs a single mode
+    string shardOpt = r.GetOption("shard");
     int __rc;
     if (dir == "cross-zpkg") {
         // cross-zpkg only: build unless the caller opted out (--no-rebuild/--no-build)
         __rc = _testCrossZpkgCore(xmode, noBuild || !rebuild);
     } else {
-        __rc = _testE2eCore(modes, rebuild, noBuild, r.GetOption("jobs"), r.GetOption("shard"), dir, file);
-        // default (no --dir/--file narrowing) also runs the cross-zpkg harness; the
-        // golden run above already built the toolchain (or --no-rebuild was set), so
-        // cross-zpkg consumes it (noBuild=true) rather than rebuilding.
-        if (__rc == 0 && dir.Length == 0 && file.Length == 0) {
+        __rc = _testE2eCore(modes, rebuild, noBuild, r.GetOption("jobs"), shardOpt, dir, file);
+        // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg
+        // harness once; the golden run above already built the toolchain (or --no-rebuild
+        // was set), so cross-zpkg consumes it (noBuild=true) rather than rebuilding.
+        // When sharded (CI vm-jit `--shard N/4`), skip it here: cross-zpkg is a fixed
+        // multi-package set, NOT sharded, so running it per-shard is Nx redundant — the
+        // CI drives it once via an explicit `--dir cross-zpkg` step. Local full runs
+        // (`xtask test e2e`, unsharded) still get it.
+        if (__rc == 0 && dir.Length == 0 && file.Length == 0 && shardOpt.Length == 0) {
             __rc = _testCrossZpkgCore(xmode, true);
         }
     }

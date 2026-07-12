@@ -647,10 +647,13 @@ jobs:
           # cranelift JIT per-case compile is the slow part → split across 4 shards.
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
+          # Sharded `test e2e` runs goldens ONLY (cross-zpkg is skipped when --shard is
+          # set — it's not sharded, so per-shard runs would be Nx redundant).
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-build --shard ${{ matrix.shard }}/4 --jobs=4
           # cross-zpkg jit is small (a few cases) — run it once, on shard 1 only.
+          # --no-build: the toolchain artifact already provides z42c+stdlib+z42vm.
           if [ "${{ matrix.shard }}" = "1" ]; then
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode jit
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode jit --no-build
           fi
 
   # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
