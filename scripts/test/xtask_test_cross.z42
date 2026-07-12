@@ -200,7 +200,12 @@ string _assembleDriverHome(string root) {
     // Single SoT: compiler workspace default-members (same source as build/test/
     // bootstrap-check), so adding a z42c.* member doesn't silently drift this assembly.
     string[] members = _compilerMembers(root);
-    string home = File.CreateTempDir("z42-xpkg-driver-");
+    // Fixed scratch path (not a /tmp TempDir): the returned home lives for the whole
+    // cross-zpkg run and had no deleter → every run leaked a /tmp dir. artifacts/.scratch
+    // is gitignored + reused; delete+recreate makes it self-cleaning across runs.
+    string home = Path.Join(root, "artifacts/.scratch/xpkg-driver");
+    if (Directory.Exists(home)) { Directory.Delete(home, true); }
+    Directory.Create(home);
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
