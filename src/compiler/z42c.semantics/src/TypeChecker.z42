@@ -9,15 +9,16 @@ using Z42.IR.BinaryFormat;
 
 public sealed class TypeChecker {
     public DiagnosticBag      _diags;
-    private int               _loopDepth;    // break/continue 越界检查（1B）
+    public int                _loopDepth;    // break/continue 越界检查（1B）
     // lambda 捕获 frame（port-z42c-closures）：active 时 Ident 钩子检测外层命中。
-    private bool _lambdaActive;
-    private StrMap _lambdaLocals;
-    private BoundCapture[] _lambdaCaps; private int _lambdaCapCount;
+    public bool _lambdaActive;
+    public StrMap _lambdaLocals;
+    public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     private ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用）
     public OverloadBinder _overload;      // review P1-1：重载决议子绑定器（backref mediator）
     private MemberResolver _member;         // God-Class 拆分 step2：成员解析子绑定器
+    private StmtBinder _stmt;               // God-Class 拆分 step3：语句绑定子绑定器
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
@@ -26,6 +27,7 @@ public sealed class TypeChecker {
         this._currentNs = "";
         this._overload = new OverloadBinder(this);
         this._member = new MemberResolver(this);
+        this._stmt = new StmtBinder(this);
     }
 
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
@@ -329,7 +331,7 @@ public sealed class TypeChecker {
                     int gp = 0;
                     while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
                     Z42Type gret = getEnv.ResolveType(id.RetType);
-                    model.AddBody(ctKey + ".get_Item", this._bindStmt(id.GetBody, getEnv, gret));
+                    model.AddBody(ctKey + ".get_Item", this._stmt._bindStmt(id.GetBody, getEnv, gret));
                 }
                 if (id.HasSet) {
                     var setEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
@@ -340,7 +342,7 @@ public sealed class TypeChecker {
                     int sp = 0;
                     while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
                     setEnv.Define("value", setEnv.ResolveType(id.RetType));
-                    model.AddBody(ctKey + ".set_Item", this._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
+                    model.AddBody(ctKey + ".set_Item", this._stmt._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
                 }
             }
             j = j + 1;
@@ -403,7 +405,7 @@ public sealed class TypeChecker {
             p = p + 1;
         }
         Z42Type ret = env.ResolveType(md.RetType);
-        BoundStmt body = this._bindStmt(md.Body, env, ret);
+        BoundStmt body = this._stmt._bindStmt(md.Body, env, ret);
         // ctor 初始化调用：ctor + BaseArgCount > 0 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
         // IsThisInit → `: this(args)` 委托同类 ctor（TargetCls = curCls）；
         // 否则 → `: base(args)` 调用基类 ctor（TargetCls = baseCls）。镜像 C# FunctionEmitter
@@ -451,275 +453,30 @@ public sealed class TypeChecker {
     }
 
     // _bindForeach（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindForeach(ForeachStmt fe, TypeEnv env, Z42Type ret) {
-            TypeEnv feScope = env.PushScope();
-            BoundExpr feIter = this._bindExpr(fe.Iter, feScope);
-            Z42Type feElem = new Z42UnknownType();
-            bool feIsVar = (fe.Type is NamedType) && ((fe.Type as NamedType).Name == "var");
-            if (feIsVar) {
-                if (feIter.Type() is Z42ArrayType) { feElem = (feIter.Type() as Z42ArrayType).Elem; }
-                else if (feIter.Type() is Z42ClassType) {
-                    // class-iter：elem type from get_Item return type（镜像 C# ElemTypeOf）
-                    Z42ClassType feCt = feIter.Type() as Z42ClassType;
-                    if (feCt.Methods.ContainsKey("get_Item")) {
-                        MethodSymbol feMs = feCt.Methods.Get("get_Item") as MethodSymbol;
-                        if (feMs != null && feMs.Signature != null) { feElem = feMs.Signature.Ret; }
-                    }
-                }
-            } else { feElem = feScope.ResolveType(fe.Type); }
-            TypeEnv elemScope = feScope.PushScope();
-            elemScope.Define(fe.Name, feElem);
-            this._loopDepth = this._loopDepth + 1;
-            BoundStmt febody = this._bindStmt(fe.Body, elemScope, ret);
-            this._loopDepth = this._loopDepth - 1;
-            // ClassIterTarget：class with get_Item + Count field or method（镜像 C# ClassIterTarget）
-            bool feIsClassIter = false; bool feCountIsField = false;
-            Z42Type feCollType = feIter.Type();
-            Z42ClassType feClassDef = null;
-            if (feCollType is Z42ClassType) { feClassDef = feCollType as Z42ClassType; }
-            else if (feCollType is Z42InstantiatedType) { feClassDef = (feCollType as Z42InstantiatedType).Def; }
-            if (feClassDef != null && feClassDef.Methods.ContainsKey("get_Item")) {
-                if (feClassDef.Fields.ContainsKey("Count")) { feIsClassIter = true; feCountIsField = true; }
-                else if (feClassDef.Methods.ContainsKey("Count")) { feIsClassIter = true; feCountIsField = false; }
-            }
-            return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, fe.Span);
-    }
 
     // _bindFor（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindFor(ForStmt f, TypeEnv env, Z42Type ret) {
-            TypeEnv forScope = env.PushScope();
-            BoundStmt finit = null;
-            if (f.HasInit) { finit = this._bindStmt(f.Init, forScope, ret); }
-            BoundExpr fcond = null;
-            if (f.HasCond) {
-                fcond = this._bindExpr(f.Cond, forScope);
-                this._requireBool(fcond.Type(), "for", f.Cond.Span);
-            }
-            this._loopDepth = this._loopDepth + 1;
-            BoundStmt fbody = this._bindStmt(f.Body, forScope, ret);
-            this._loopDepth = this._loopDepth - 1;
-            BoundExpr fincr = null;
-            if (f.HasIncr) { fincr = this._bindExpr(f.Incr, forScope); }
-            return new BoundFor(f.HasInit, finit, f.HasCond, fcond, f.HasIncr, fincr, fbody, f.Span);
-    }
 
     // _bindSwitchStmt（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindSwitchStmt(SwitchStmt sw, TypeEnv env, Z42Type ret) {
-            BoundExpr subj = this._bindExpr(sw.Subject, env);
-            BoundSwitchCase[] cases = new BoundSwitchCase[sw.CaseCount];
-            int ci = 0;
-            while (ci < sw.CaseCount) {
-                SwitchCase sc = sw.Cases[ci];
-                BoundExpr pat = null;
-                if (sc.HasPattern) { pat = this._bindExpr(sc.Pattern, env); }
-                TypeEnv caseScope = env.PushScope();
-                BoundStmt[] cbody = new BoundStmt[sc.BodyCount];
-                int bi = 0;
-                while (bi < sc.BodyCount) { cbody[bi] = this._bindStmt(sc.Body[bi], caseScope, ret); bi = bi + 1; }
-                cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, cbody, sc.BodyCount, sc.Span);
-                ci = ci + 1;
-            }
-            return new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
-    }
 
     // _bindDoWhile（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindDoWhile(DoWhileStmt dw, TypeEnv env, Z42Type ret) {
-            this._loopDepth = this._loopDepth + 1;
-            BoundStmt dwBody = this._bindStmt(dw.Body, env, ret);
-            this._loopDepth = this._loopDepth - 1;
-            BoundExpr dwCond = this._bindExpr(dw.Cond, env);
-            this._requireBool(dwCond.Type(), "do-while", dw.Cond.Span);
-            return new BoundDoWhile(dwBody, dwCond, dw.Span);
-    }
 
     // _bindWhile（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindWhile(WhileStmt w, TypeEnv env, Z42Type ret) {
-            BoundExpr cond = this._bindExpr(w.Cond, env);
-            this._requireBool(cond.Type(), "while", w.Cond.Span);
-            this._loopDepth = this._loopDepth + 1;
-            BoundStmt body = this._bindStmt(w.Body, env, ret);
-            this._loopDepth = this._loopDepth - 1;
-            return new BoundWhile(cond, body, w.Span);
-    }
 
     // _bindTryCatch（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindTryCatch(TryCatchStmt ts, TypeEnv env, Z42Type ret) {
-            BoundStmt tryBody = this._bindStmt(ts.TryBody, env, ret);
-            BoundCatchClause[] catches = new BoundCatchClause[ts.CatchCount];
-            int ci = 0;
-            while (ci < ts.CatchCount) {
-                CatchClause cc = ts.Catches[ci];
-                string exName = "";
-                int exArity = 0;
-                Z42Type exType = new Z42UnknownType();
-                if (cc.HasType) {
-                    Z42Type t = env.ResolveType(cc.ExType);
-                    exName = cc.ExType.Dump();           // 解析失败也保留源类型名（imported 异常类经 Unknown 吸收）
-                    if (t is Z42ClassType) { exName = t.Name(); exType = t; }
-                    // 泛型异常（catch (MulticastException<int>)）：存裸 Def 名 + arity，codegen 限定为
-                    // QualifyClass(裸名)+"$"+arity（= Std.MulticastException$1，匹配运行期抛出类型）。
-                    // 否则 Dump() 含 <int> → QualifyClass 误前缀当前 ns（Demo.MulticastException<int>）→ 不匹配。
-                    else if (t is Z42InstantiatedType) {
-                        Z42InstantiatedType it = t as Z42InstantiatedType;
-                        exName = it.Def.Name(); exArity = it.ArgCount; exType = t;
-                    }
-                }
-                TypeEnv cenv = env;
-                if (cc.HasVar) {
-                    cenv = env.PushScope();
-                    cenv.Define(cc.VarName, exType);
-                    if (this._lambdaActive) { this._lambdaLocals.Put(cc.VarName, exType); }
-                }
-                BoundStmt body = this._bindStmt(cc.Body, cenv, ret);
-                catches[ci] = new BoundCatchClause(cc.HasType, exName, exArity, cc.HasVar, cc.VarName, body, cc.Span);
-                ci = ci + 1;
-            }
-            BoundStmt fin = null;
-            if (ts.HasFinally) { fin = this._bindStmt(ts.Finally, env, ret); }
-            return new BoundTry(tryBody, catches, ts.CatchCount, ts.HasFinally, fin, ts.Span);
-    }
 
     // _bindIfStmt（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindIfStmt(IfStmt f, TypeEnv env, Z42Type ret) {
-            BoundExpr cond = this._bindExpr(f.Cond, env);
-            this._requireBool(cond.Type(), "if", f.Cond.Span);
-            BoundStmt then = this._bindStmt(f.Then, env, ret);
-            if (f.HasElse) {
-                return new BoundIf(cond, then, true, this._bindStmt(f.Else, env, ret), f.Span);
-            }
-            return new BoundIf(cond, then, false, new BoundBlock(new BoundStmt[0], 0, f.Span), f.Span);
-    }
 
     // _bindReturn（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindReturn(ReturnStmt r, TypeEnv env, Z42Type ret) {
-            if (r.HasValue) {
-                BoundExpr val = this._bindExpr(r.Value, env);
-                if (!this._isAssignable(val.Type(), ret, env.Symbols)) {
-                    this._diags.Error(DiagnosticCodes.TypeMismatch,
-                        "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
-                }
-                return new BoundReturn(true, val, r.Span);
-            }
-            return new BoundReturn(false, new BoundLitNull(new Z42VoidType(), r.Span), r.Span);
-    }
 
     // _bindVarDecl（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindVarDecl(VarDeclStmt v, TypeEnv env, Z42Type ret) {
-            BoundExpr init = null;
-            if (v.Init is LambdaExpr) {                              // lambda + 显式 Func 类型 → expected 推导
-                Z42Type declared = env.ResolveType(v.Type);          // `var` → Unknown，自然跳过
-                if (declared is Z42FuncType) {
-                    init = this._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
-                }
-            }
-            if (init == null && v.Init != null) { init = this._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
-            Z42Type vt = this._varType(env, v, init);
-            env.Define(v.Name, vt);
-            if (this._lambdaActive) { this._lambdaLocals.Put(v.Name, vt); }
-            return new BoundVarDeclStmt(v.Name, vt, init, v.Span);
-    }
 
     // _bindLocalFunction（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindLocalFunction(LocalFunctionStmt lf, TypeEnv env, Z42Type ret) {
-            MethodDecl lmd = lf.Decl;
-            TypeEnv lscope = env.PushScope();   // 体内可见同级/外层局部函数（递归/前向引用）+ 外层局部变量（L3 捕获）
-            int lpi = 0;
-            while (lpi < lmd.ParamCount) { lscope.Define(lmd.Params[lpi].Name, env.ResolveType(lmd.Params[lpi].Type)); lpi = lpi + 1; }
-            // 捕获分析（复用 lambda 机制）：体内引用外层非参变量 → BoundCapturedIdent + 记 _lambdaCaps。
-            bool savedActive = this._lambdaActive; StrMap savedLocals = this._lambdaLocals;
-            BoundCapture[] savedCaps = this._lambdaCaps; int savedCapCount = this._lambdaCapCount;
-            this._lambdaActive = true;
-            this._lambdaLocals = new StrMap();
-            lpi = 0;
-            while (lpi < lmd.ParamCount) { this._lambdaLocals.Put(lmd.Params[lpi].Name, lscope.LookupVar(lmd.Params[lpi].Name)); lpi = lpi + 1; }
-            this._lambdaCaps = new BoundCapture[2]; this._lambdaCapCount = 0;
-            Z42Type lret = env.ResolveType(lmd.RetType);
-            BoundStmt lbody = this._bindStmt(lmd.Body, lscope, lret);
-            BoundCapture[] lcaps = new BoundCapture[this._lambdaCapCount];
-            int lci = 0; while (lci < this._lambdaCapCount) { lcaps[lci] = this._lambdaCaps[lci]; lci = lci + 1; }
-            int lcapN = this._lambdaCapCount;
-            this._lambdaActive = savedActive; this._lambdaLocals = savedLocals;
-            this._lambdaCaps = savedCaps; this._lambdaCapCount = savedCapCount;
-            return new BoundLocalFunction(lmd.Name, lmd, lbody, lcaps, lcapN, lf.Span);
-    }
 
     // _bindBlock（compiler-review P1：从 _bindStmt 抽出，逐语句 binder）。
-    private BoundStmt _bindBlock(BlockStmt b, TypeEnv env, Z42Type ret) {
-            TypeEnv scope = env.PushScope();
-            // impl-local-fn-l2 pre-pass：先注册块内全部局部函数签名（前向引用 + 递归）。
-            int pp = 0;
-            while (pp < b.Count) {
-                if (b.Stmts[pp] is LocalFunctionStmt) {
-                    MethodDecl lmd = (b.Stmts[pp] as LocalFunctionStmt).Decl;
-                    Z42Type[] pts = new Z42Type[lmd.ParamCount];
-                    int z = 0; while (z < lmd.ParamCount) { pts[z] = scope.ResolveType(lmd.Params[z].Type); z = z + 1; }
-                    scope.DefineLocalFn(lmd.Name, new Z42FuncType(pts, lmd.ParamCount, scope.ResolveType(lmd.RetType)));
-                }
-                pp = pp + 1;
-            }
-            BoundStmt[] outs = new BoundStmt[b.Count];
-            int i = 0;
-            while (i < b.Count) { outs[i] = this._bindStmt(b.Stmts[i], scope, ret); i = i + 1; }
-            return new BoundBlock(outs, b.Count, b.Span);
-    }
 
     // ════ 语句（集中 if-is）═══════════════════════════════════════════════════
-    private BoundStmt _bindStmt(Stmt s, TypeEnv env, Z42Type ret) {
-        if (s is BlockStmt) { return this._bindBlock(s as BlockStmt, env, ret); }
-        if (s is LocalFunctionStmt) { return this._bindLocalFunction(s as LocalFunctionStmt, env, ret); }
-        if (s is VarDeclStmt) { return this._bindVarDecl(s as VarDeclStmt, env, ret); }
-        if (s is ReturnStmt) { return this._bindReturn(s as ReturnStmt, env, ret); }
-        if (s is ExprStmt) {
-            ExprStmt e = s as ExprStmt;
-            return new BoundExprStmt(this._bindExpr(e.E, env), e.Span);
-        }
-        if (s is IfStmt) { return this._bindIfStmt(s as IfStmt, env, ret); }
-        if (s is ThrowStmt) {
-            ThrowStmt th = s as ThrowStmt;
-            return new BoundThrow(this._bindExpr(th.E, env), th.Span);
-        }
-        if (s is TryCatchStmt) { return this._bindTryCatch(s as TryCatchStmt, env, ret); }
-        if (s is WhileStmt) { return this._bindWhile(s as WhileStmt, env, ret); }
-        if (s is DoWhileStmt) { return this._bindDoWhile(s as DoWhileStmt, env, ret); }
-        if (s is SwitchStmt) { return this._bindSwitchStmt(s as SwitchStmt, env, ret); }
-        if (s is BreakStmt) {
-            if (this._loopDepth == 0) {
-                this._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`break` outside of loop", s.Span);
-            }
-            return new BoundBreak(s.Span);
-        }
-        if (s is ContinueStmt) {
-            if (this._loopDepth == 0) {
-                this._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`continue` outside of loop", s.Span);
-            }
-            return new BoundContinue(s.Span);
-        }
-        // for 循环 → BoundFor（独立节点，FunctionEmitter 生成 cond/body/incr/end 四块，
-        // continue 跳 incrL 而非 condL，镜像 C# EmitBoundFor，block 结构 byte-identical）。
-        if (s is ForStmt) { return this._bindFor(s as ForStmt, env, ret); }
-        // GS6: foreach → BoundForeach（镜像 C# TypeChecker：保留语义节点，FunctionEmitter 专用 _emitForeach
-        // 产出 ArrayLen+ConstI32 计数器 byte-identical IR；替代旧脱糖到 while+BoundMember.Length 路径）。
-        if (s is ForeachStmt) { return this._bindForeach(s as ForeachStmt, env, ret); }
-        this._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported statement (1A)", s.Span);
-        return new BoundExprStmt(new BoundError("unsupported stmt", new Z42ErrorType(), s.Span), s.Span);
-    }
 
     // `var x` → 推断 init 类型；显式类型 → 解析 + 检查 init 可赋。
-    private Z42Type _varType(TypeEnv env, VarDeclStmt v, BoundExpr init) {
-        if (v.Type is NamedType) {
-            NamedType nt = v.Type as NamedType;
-            if (nt.Name == "var") {
-                if (init != null) { return init.Type(); }
-                return new Z42UnknownType();              // G8：`var` 无 init 不可推断（实践不出现，防崩）
-            }
-        }
-        Z42Type vt = env.ResolveType(v.Type);
-        if (init != null && !this._isAssignable(init.Type(), vt, env.Symbols)) {   // G8：无 init 跳赋值检查
-            this._diags.Error(DiagnosticCodes.TypeMismatch,
-                "cannot assign " + init.Type().Name() + " to " + vt.Name(), v.Init.Span);
-        }
-        return vt;
-    }
 
     // 字面量绑定（compiler-review P1：从 _bindExpr 抽出的 6 字面量分支）。
     private BoundExpr _bindLiteral(Expr e) {
@@ -1125,7 +882,7 @@ public sealed class TypeChecker {
     }
 
     // 条件必须 bool（if/while）。error/unknown 吸收。镜像 C# RequireBool。
-    private void _requireBool(Z42Type t, string context, Span sp) {
+    public void _requireBool(Z42Type t, string context, Span sp) {
         if ((t is Z42ErrorType) || (t is Z42UnknownType)) { return; }
         if (!TypeFacts.IsBool(t)) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
@@ -1189,7 +946,7 @@ public sealed class TypeChecker {
 
     // lambda 绑定（port-z42c-closures；expected 自声明类型）：参数类型 = 显式或 expected 对位；
     // 体在 frame 下绑定（捕获钩子激活；嵌套 lambda 延后——frame 不重入）。
-    private BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
+    public BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
         if (lam.ParamCount != expected.ParamCount) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
                 "lambda arity " + lam.ParamCount.ToString() + " != expected " + expected.ParamCount.ToString(), lam.Span);
@@ -1224,7 +981,7 @@ public sealed class TypeChecker {
         this._lambdaCapCount = 0;
         BoundExpr exprBody = null;
         BoundStmt blockBody = null;
-        if (lam.HasBlock) { blockBody = this._bindStmt(lam.BlockBody, lenv, expected.Ret); }
+        if (lam.HasBlock) { blockBody = this._stmt._bindStmt(lam.BlockBody, lenv, expected.Ret); }
         else { exprBody = this._bindExpr(lam.ExprBody, lenv); }
         int thisCapCount = this._lambdaCapCount;
         BoundCapture[] caps = new BoundCapture[thisCapCount];
