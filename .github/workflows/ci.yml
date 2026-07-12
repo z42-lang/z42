@@ -654,13 +654,10 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           # Sharded `test e2e` runs goldens ONLY (cross-zpkg is skipped when --shard is
-          # set — it's not sharded, so per-shard runs would be Nx redundant).
+          # set). cross-zpkg jit is covered by the cross-zpkg-consistency job (both
+          # modes there) — keeping it off shard 1 removes ~5.5 min from this lane's
+          # critical-path shard.
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-build --shard ${{ matrix.shard }}/4 --jobs=4
-          # cross-zpkg jit is small (a few cases) — run it once, on shard 1 only.
-          # --no-build: the toolchain artifact already provides z42c+stdlib+z42vm.
-          if [ "${{ matrix.shard }}" = "1" ]; then
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode jit --no-build
-          fi
 
   # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
   # build-and-test runs the 272 stdlib [Test] files under interp (in-process
@@ -728,9 +725,13 @@ jobs:
     needs: toolchain-bootstrap
     strategy:
       fail-fast: false
+      # 2 shards/OS (not 4): each interp shard is only ~3-4 min, so 4-way over-split
+      # and the 12 jobs flooded the ~20-slot concurrency pool — delaying the vm-jit
+      # critical-path shards. 2-way (6 jobs) keeps shards ~6-7 min while easing the
+      # pool so vm-jit starts promptly after toolchain-bootstrap.
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-15]
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
@@ -753,13 +754,13 @@ jobs:
       # linux (x64 AND arm64) resolves toolchain-ubuntu-latest (zpkg is arch-neutral).
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
-      - name: stdlib [Test] — INTERP mode (shard ${{ matrix.shard }}/4)
+      - name: stdlib [Test] — INTERP mode (shard ${{ matrix.shard }}/2)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode interp --no-build --shard ${{ matrix.shard }}/4 --jobs 4
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode interp --no-build --shard ${{ matrix.shard }}/2 --jobs 4
 
   # ── cross-zpkg INTERP — offloaded from the build-and-test legs ───────────────
   # cross-zpkg is a fixed multi-package set exercising zpkg linking + cross-package
@@ -767,8 +768,8 @@ jobs:
   # on one linux job). The legs used to run it under interp on every OS (~6 min/leg);
   # offload to one linux job (`test all --skip cross-zpkg` on the legs). cross-zpkg
   # JIT stays on vm-jit-consistency shard 1.
-  cross-zpkg-interp:
-    name: test-cross-zpkg-interp(linux-x64)
+  cross-zpkg-consistency:
+    name: test-cross-zpkg(linux-x64)
     timeout-minutes: 30
     runs-on: ubuntu-latest
     needs: toolchain-bootstrap
@@ -795,13 +796,16 @@ jobs:
         shell: bash
         run: cargo build --locked -q --manifest-path src/runtime/Cargo.toml
 
-      - name: cross-zpkg — INTERP mode
+      - name: cross-zpkg — INTERP + JIT modes
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
+          # Both modes on one job (was: interp here + jit on vm-jit shard 1). cross-zpkg
+          # is a fixed 4-test set, host-independent — one linux job covers both engines.
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode interp --no-build
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode jit --no-build
 
   # ── self-host bootstrap verification ──────────────
   # Proves z42c can rebuild stdlib + z42c + xtask from CURRENT source using the
