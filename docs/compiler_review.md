@@ -111,8 +111,8 @@ z42 无泛型/enum 的约束下 visitor 不好做,但至少可以:
 |------|------|------|
 | `Parser._infixBp()`(338–350)与 `_isAssignOp()`(352–358) | 语义相关、物理分离的两条 if 链;加新复合赋值运算符要同时改两处 | 合并为单一 `OpInfo` 表(kind / bp / isAssign) |
 | `Parser._isModifier`(877–885,11 个 if)/ `_isTypeKeyword`(725–734,7 个)/ `_isVisibilityModifier`(1283–1290) | if 链 | 并行数组查表(项目已有 `_kwNames`/`_kwKinds` 先例,风格统一) |
-| `TypeChecker._operatorMethodNameTc`(136–143)/ `_bindBinary`(1018–1032)/ `_isAssignable`(1178–1207) | 运算符→方法名、合法操作数、隐式转换规则全是 if 链 | 扩展现有 `BinaryTypeTable` 为完整 OperatorTable(operand-kind / result-kind / method-name);转换规则表格化(ConversionRule 表) |
-| 基元类型别名(`int/i32`、`byte/u8`) | 散在 `TypeFacts._structPrimName`(37–52)、`Z42Type.Canon` 等多处;新增基元类型要改多个位置 | 单一 `PrimitiveTypeRegistry`(keyword → canonical → is-numeric/is-integral → 包装类名) |
+| `_operatorMethodNameTc` / ~~`_bindBinary` 操作数·结果~~ ✅ / `_isAssignable` | 🟡 **合法操作数/结果已表驱动**（`BinaryTypeTable`+`OperandKind`/`ResultKind`/`BinaryRule.Lookup` 已存在，review 时未成熟）。剩：`_operatorMethodNameTc`（运算符→overload 方法名，7 行小 if）低 ROI；`_isAssignable`（转换规则）as-is 更清晰且表格化风险最高 → 不做 | — |
+| 基元类型别名/分类 | 🟡 **已大体集中**：`Z42Type.Canon`（别名归一）+ `TypeFacts`（`_asPrimName`/`IsNumeric`/`IsIntegral`/`_structPrimName`/`_isNumericName` 等）已是事实上的 PrimitiveTypeRegistry。剩 `TypeChecker._isNumericPrim`/`_primWrapper`/`_isPrimKeyword` 与 TypeFacts **语义有别**（`_isNumericPrim` 视 char 为数值、`_isNumericName` 不；`_primWrapper` 是 `_structPrimName` 逆向）→ 合并需行为对账、非机械 dedup，风险>收益 → 暂不做 | — |
 | `Main.z42` 命令分派(21–81) | if 链;exit code 无契约(0/1/2 语义靠各函数自觉,`_build` 与 `_buildWorkspace` 各自约定) | 命令表 + `EXIT_OK / EXIT_BUILD_ERROR / EXIT_USAGE_ERROR / EXIT_INTERNAL_ERROR` 常量,文档化契约 |
 | `Lexer._kwLookup`(417–424) | 关键字 O(n) 线性查 | 低优先;可改二分(z42 无哈希容器) |
 
@@ -193,7 +193,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 | # | 内容 | 子系统锁 | 状态 |
 |---|------|---------|------|
 | P2-1 | OpcodeRegistry:消灭 ZbcInstr/ZbcWriter 三个平行 if-is 链 | ir | ⬜ |
-| P2-2 | OperatorTable + PrimitiveTypeRegistry + 转换规则表 | semantics | ⬜ |
+| P2-2 | OperatorTable + PrimitiveTypeRegistry + 转换规则表 | semantics | 🟡 **大体已存在**（`BinaryTypeTable`/`TypeFacts` 表驱动 operand/result + prim 分类；review 2026-07-05 时未成熟）。剩 `_operatorMethodNameTc`（低 ROI）/ `_isAssignable` 转换表（as-is 更清晰、风险高）/ prim helper 合并（char 语义差、风险>收益）→ 评估后不做，2026-07-12 |
 | P2-3 | Parser 修饰符/类型关键字/优先级 OpInfo 表 | syntax | ⬜ |
 | P2-4 | Driver 命令表 + exit code 契约常量 | driver | 🟡 2026-07-12 exit-code 契约常量已做；命令表 if→table 部分未做（低 ROI，Main.z42 待 converge）|
 | P2-5 | ZpkgFormat.z42 + TsigCodec.z42(读写单源) | project | ⬜ |
