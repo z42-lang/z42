@@ -32,6 +32,11 @@
 
 ### 完整 gate 的 stage 流水
 
+> **本节是 GREEN gate stage 组成的唯一权威清单（SoT，§4.4）。** 其他文档
+> （`scripts/README.md`、`.claude/rules/workflow.md`、`docs/workflow/ci.md`）一律
+> 「跑 `xtask test`，stage 组成见此」+ 链接，不再各自复列（历史上复列 5-6 处、已互相漂移
+> ——有的漏 vscode-syntax、有的把 stdlib 写成 `test lib`）。改 gate 组成 → 只改这里。
+
 ```mermaid
 graph LR
     R[regen 构建波<br/>stdlib + z42c 自建<br/>+ cargo release z42vm<br/>+ golden .zbc] --> D[debug z42vm<br/>+ compression cdylib]

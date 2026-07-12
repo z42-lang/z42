@@ -69,13 +69,21 @@ flowchart TD
 ### ⑤ 运行测试（消费 ③+④）
 **做什么**：下载 host package + 测试资产，**`--no-build` 消费**跑测试——不再自举、不再 regen。
 
-- **CI job**（目标拓扑）：
-  - `test-host(<host-arch>)`（4 OS）：vm goldens(interp) + cross-zpkg + stdlib + compiler。
-  - `test-vm-jit(linux-x64)`（4 shard）：VM goldens jit。
+- **CI job**（拓扑，test-host 分解 2026-07-12：单体 gate 拆成并行管线，CI 43→23min）：
+  - `test-host(<host-arch>)`（4 OS）：`test all --no-build --skip stdlib,cross-zpkg` = e2e goldens(interp)
+    + compiler 自举不动点 + vscode-syntax。stdlib/cross-zpkg 两大 stage **已下放并行 job**（见下），
+    每腿临界路径 ~29→~15min。
+  - `test-stdlib-interp(<os>)`（linux-x64 / linux-arm64 / macos，各 2 shard）：stdlib `[Test]` interp，
+    消费 toolchain 工件（`.zpkg` 平台无关 + cargo 本机 z42vm）。**每慢 OS 各自分片** → host-dependent
+    stdlib（io/net/process/fs）保持本平台覆盖。
   - `test-stdlib-jit(linux-x64)`（4 shard）：stdlib `[Test]` jit。
-  - `test-consume(linux-x64)`：消费 `current-sdk` 跑 cross-zpkg + vm interp（✅ 已落地，跨 job 消费验证）。
-  - `verify-features(linux-x64)`、`test-{wasm-browser,ios-sim,android-emu,desktop-cabi}`、`package-host(<host-arch>)`。
-- **本地**：`xtask test [--toolchain <sdk>] [--no-build]`（✅ cross-zpkg/vm 已通；编排器 ⬜）。
+  - `test-vm-jit(linux-x64)`（4 shard）：VM goldens **jit**（仅 goldens；cranelift 逐 case 编译慢 → 分片）。
+  - `test-cross-zpkg(linux-x64)`：cross-zpkg **interp + jit**（多包字节码派发 host-independent，单腿覆盖两模式）。
+  - `verify-selfhost` / `package-host(<host-arch>)` / `package-{android,ios,wasm}` / `test-{ios-sim,android-emu,...}`。
+  - 上述 stdlib-interp / stdlib-jit / vm-jit / cross-zpkg / package 腿均 `needs: toolchain-bootstrap`，
+    消费其一次构建的 `toolchain-<os>` 工件（去 8× 重复引导 + nightly 漂移 flake）。
+- **本地**：`xtask test [--toolchain <sdk>] [--no-build]` = 完整单体 gate（不分片；stage 组成见
+  [test-gate.md](../../book/src/dev/test-gate.md)）。CI 的 `--skip` 分解只为并行，本地始终整跑。
 - 约束（先简化后修）：① `test-runner` 是 native，暂保留——`xtask test` 接口不变，内部后续换 `z42.build`；② release-vm-jit 有 bug（见 [memory](../../.claude/projects)），jit 跑 debug vm 或延后。
 
 ### ⑥ publish nightly
@@ -115,16 +123,11 @@ flowchart TD
 ./xtask test          # 默认串联全 stage（完整 GREEN gate）
 ```
 
-裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM）——
-`--no-build` 可跳过的正是这段；随后串联以下 stage（任一失败立刻停）：
-
-```bash
-cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust）无编译错误
-./xtask test e2e            # VM goldens（interp；jit 由 test-vm-jit(linux-x64) 专腿覆盖）
-./xtask test e2e --dir cross-zpkg    # 跨 zpkg 端到端
-./xtask test stdlib        # stdlib [Test]（全量）
-./xtask test compiler  # z42c 自举（build 7 子包 + 不动点 + [Test] units）
-```
+裸 `test` 先跑 regen 构建波（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM；`--no-build`
+可跳过），随后按序串联全部必跑 stage（任一失败立刻停）。**stage 组成（唯一权威清单）见
+[test-gate.md](../../book/src/dev/test-gate.md)**——此处不再复列，避免多处漂移（§4.4）。要点：
+e2e goldens(interp) + cross-zpkg + stdlib + compiler 自举 + vscode-syntax；Rust VM 单测
+（`test runtime`）**不在** gate 内（信号沙箱会挂），每条 CI 腿单独一步。
 
 > 编译器正确性由 `test compiler`（z42c 自举不动点）保证。
 > 任何测试失败（含 pre-existing）都不得 commit / push。

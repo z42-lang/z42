@@ -314,7 +314,7 @@ docs/spec/changes/<change-name>/
 ## Testing Strategy
 - 单元测试：[覆盖点]
 - Golden test：[新增场景]
-- VM 验证：xtask test（cargo build z42vm + z42c 自建 + vm/cross-zpkg/stdlib/compiler）
+- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../docs/book/src/dev/test-gate.md)）
 ```
 
 ---

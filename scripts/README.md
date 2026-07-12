@@ -113,9 +113,12 @@ test ──► _testAll
   ├─► stage e2e goldens (interp)         _testE2eCore  → test/xtask_test_vm.z42
   ├─► stage e2e cross-zpkg               _testCrossZpkgCore → test/xtask_test_cross.z42
   ├─► stage stdlib [Test]                _testLibCore  → test/xtask_test_lib.z42
-  └─► stage compiler                     _testCompiler → build/xtask_compiler.z42
-          └ 自举不动点 7/7 + [Test] units + e2e (build/xtask_compiler_e2e.z42)
+  ├─► stage compiler                     _testCompiler → build/xtask_compiler.z42
+  │       └ 自举不动点 7/7 + [Test] units + e2e (build/xtask_compiler_e2e.z42)
+  └─► stage vscode-syntax                _testVscodeSyntax → grammar ↔ Lexer 关键字防漂移
   ──► ✅ GREEN（任一 stage 失败立即停）
+  # CI 只为并行把 stdlib/cross-zpkg 用 `--skip` 下放到独立 shard job（见 workflow/ci.md）；
+  # stage 组成的唯一权威清单见 book/dev/test-gate.md。
 ```
 
 ### `build stdlib`（`build/xtask_stdlib.z42 :: _buildStdlibCore`）

@@ -283,6 +283,13 @@ simplify-compiler-build 已折叠为 `Z42_HOME`（ci-bootstrap/action.yml:104,14
 **建议**：SoT 定为 book test-gate.md（机制）+ scripts/README 命令表（用法）两层，
 其余全部改「跑 `xtask test`，stage 组成见 test-gate.md」一句 + 链接。
 
+> **✅ 已落地（2026-07-12）**：test-gate.md「stage 流水」节加**唯一权威 SoT** 声明；
+> `scripts/README.md` gate tree 补 vscode-syntax stage（原漏）+ 指 test-gate.md；
+> `docs/workflow/ci.md` GREEN 段不再复列 stage、改指 test-gate.md，且 ⑤ 拓扑更新为
+> **test-host 分解**（`--skip stdlib,cross-zpkg` + stdlib-interp/cross-zpkg 独立 job，
+> 顺带补 P1+P2 CI doc-sync）；`.claude/rules/workflow.md` design 模板括号改指 SoT。改 gate
+> 组成从此只改 test-gate.md 一处。
+
 ### 4.5 本轮 redesign-xtask-test 文档同步的漏网
 
 - `regen` 残留：`docs/book/src/dev/build.md:1,3,114,179-180`（标题/页头坐标/节名/实现表仍指
