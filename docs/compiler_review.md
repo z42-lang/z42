@@ -103,6 +103,18 @@ z42 无泛型/enum 的约束下 visitor 不好做,但至少可以:
 
 语义层 74+ 处直接 `new XxxInstr(...)` 构造。若 IrInstr 签名变(字段增删、参数顺序),需同步所有 Emit* 调用点。可选改进:EmitContext 提供 factory 方法(中介),IrInstr 重构只改 factory。优先级低,与 2.1 的 registry 一起做时顺带评估。
 
+### 2.4 派发键稳定化（重载 mangle key 的 bootstrap 敏感性，2026-07-12 记）
+
+**现状**：调用派发走 mangle 名键——`SymbolCollector.regName`(598–611) 给方法算 `RegKey` → `BoundCall.MethodName = ms.RegKey` → emit `CallInstr(dst, "Std.IO.Path.Join$2$string$string", …)` → VM 按字符串名精确查找。（`SIGS` 序列化是**反射**元数据，非派发通道；派发从设计上就走 mangle 名，两者正交。）
+
+**问题**：`RegKey` 规则**兄弟集相关**——唯一→裸 `Name`；多 arity→`Name$arity`；同 arity 重载→`Name$arity$types`。故**给一个「唯一方法」加一个重载，会把它从裸键 re-mangle 成 `Name$arity`**（实证：`Path.Join` 加 params 重载后，`z42.io` 导出键 `Join` → `Join$2`+`Join$1`）。已编译的调用方（288 处，含 9 个 z42c 源文件 + 预编译驱动）指向旧裸键 → 打新库 undefined。这是 bootstrap 敏感变更（`add-params-varargs` 2026-07-01 defer stdlib params 迁移的正因）。
+
+**最终方案 A（稳定键，deferred → roadmap）**：`regName` 改**一律全签名 mangle**（键 = 自身签名纯函数、与兄弟无关；协议豁免名 `ToString`/`Equals`/`GetHashCode`/`GetType`/`get_Item`/`set_Item` 保持裸名——VM 按字面量硬查）→ 键永久稳定，未来加重载零处理。代价：全局改键（巨大字节 diff）+ 自指两代自举过渡（链接约定级、比格式 bump 微妙）+ 硬编码名审计（VM builtin / 反射 by-name / well-known-names / DepIndex / 跨包解析）；且 mangle 本身仍有 Canon 归一碰撞边角（见 TypeChecker:154）。**编译器内、VM 派发不动**。
+
+**2026-07-12 实测关键发现（校正）**：原以为 params 两阶段能「用完整重建 + CI 两代自举吸收 re-mangle」——**错**。实测 `build stdlib` 本地即崩：seed driver（旧、baked 裸 `Join` 直调）跑在新键 z42.io（`Join$2`）上 → `undefined Std.IO.Path.Join`。且 ci-bootstrap 的**两代自举只由格式版本差（zbc/zpkg minor）触发**，纯 key 变更**不 bump 格式 → 触发不了两代 → 不自愈**。「换名兜底」（单 params 重载复用裸键）也不行——seed 的直调 ABI 与 params 打包 ABI 不匹配。
+
+**结论**：给「z42c 消费的 stdlib 方法」加重载是**硬 bootstrap 破坏**，无轻量路径。三条真选项：① **方案 A**（稳定键，本身也要随格式 bump + 两代自举落地）；② **随一次格式 bump 搭两代自举**把 params 一起推（本地不可验、靠 CI）；③ **换名兜底**（变长版另起名如 `Path.JoinAll` / 复用 0-caller 的 `Combine(params)`，`Join` 2-arg 不动 → 零 re-mangle、立即可落）。**2026-07-12 裁决：低频 → 暂缓 params-for-Join，方案 A 记 roadmap「设计期延后」**（它是让这类演进可行的根本解，痛值得时随格式 bump 走 spec-first）。
+
 ---
 
 ## 三、数据驱动缺口:if 链该表驱动的地方
