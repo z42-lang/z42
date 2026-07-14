@@ -92,8 +92,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
 
     // [4/5] C ABI headers
     Console.WriteLine("  [4/5] C ABI headers");
-    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(pkgDir, "native/include/z42_abi.h"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(pkgDir, "native/include/z42_host.h"));
+    _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
     // [5/5] stdlib libs (loaded by the embedded VM; install bakes them into the AAR's assets/stdlib)
     Console.WriteLine("  [5/5] libs/");
@@ -187,8 +186,7 @@ void _pkgEmitAndroidGradleProject(string root, string pkgDir) {
     Directory.Create(Path.Join(sm, "cpp/include"));
     File.Copy(Path.Join(proj, "z42vm/src/main/cpp/z42vm_jni.c"), Path.Join(sm, "cpp/z42vm_jni.c"));
     File.Copy(Path.Join(proj, "z42vm/src/main/cpp/CMakeLists.txt"), Path.Join(sm, "cpp/CMakeLists.txt"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(sm, "cpp/include/z42_abi.h"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(sm, "cpp/include/z42_host.h"));
+    _copyAbiHeaders(root, Path.Join(sm, "cpp/include"));
 
     // empty jniLibs/ + assets/stdlib/ — `z42 workload install android` populates these
     // from the runtime pack (per-ABI .so → jniLibs/<abi>/, stdlib zpkgs → assets/stdlib/).

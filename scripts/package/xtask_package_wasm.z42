@@ -55,8 +55,7 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     string wasmBg = Path.Join(wasmRoot, "pkg-web/z42_wasm_bg.wasm");
     if (!File.Exists(wasmBg)) { ConsoleError.WriteLine("error: " + wasmBg + " missing — run the wasm-pack build first"); return 1; }
     File.Copy(wasmBg, Path.Join(nativeOut, "z42_wasm_bg.wasm"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(pkgDir, "native/include/z42_abi.h"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(pkgDir, "native/include/z42_host.h"));
+    _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
     // pkg-web/ + pkg-nodejs/ (wasm-bindgen output = the runtime binding)
     Console.WriteLine("  [3/4] pkg-web/ + pkg-nodejs/");
