@@ -26,6 +26,12 @@ using Std.Encoding;
 // envelopes). Bulk encryption (>1 MB) wants the cdylib follow-up.
 
 public static class Aes {
+    // FIPS 197 tables — read-only, built once at load time (perf: S-box was
+    // rebuilt 10+ times per block via _subBytes / _keyExpansion).
+    static int[] _SBOX    = Aes._sbox();
+    static int[] _INVSBOX = Aes._invSbox();
+    static int[] _RCON    = Aes._rconTable();
+
     // ── Public API ───────────────────────────────────────────────────────
 
     /// Encrypt one 16-byte block. `key` is 16, 24, or 32 bytes selecting
@@ -827,7 +833,7 @@ public static class Aes {
         // Round constants (Rcon[1..]) — leading high byte of each Rcon
         // word; the lower 3 bytes are zero. Computed as powers of 2 in
         // GF(2^8) per FIPS 197 §5.2.
-        int[] rcon = Aes._rconTable();
+        int[] rcon = Aes._RCON;
 
         int wordIdx = nk;
         while (wordIdx < totalWords) {
@@ -840,13 +846,13 @@ public static class Aes {
                 // RotWord: cyclic left shift by 1 byte.
                 int tmp = t0; t0 = t1; t1 = t2; t2 = t3; t3 = tmp;
                 // SubWord: S-box each byte.
-                int[] sb = Aes._sbox();
+                int[] sb = Aes._SBOX;
                 t0 = sb[t0]; t1 = sb[t1]; t2 = sb[t2]; t3 = sb[t3];
                 // XOR with round constant.
                 t0 = t0 ^ rcon[wordIdx / nk];
             } else if (nk > 6 && wordIdx % nk == 4) {
                 // AES-256 extra SubWord step every Nk=8 words.
-                int[] sb = Aes._sbox();
+                int[] sb = Aes._SBOX;
                 t0 = sb[t0]; t1 = sb[t1]; t2 = sb[t2]; t3 = sb[t3];
             }
 
@@ -895,13 +901,13 @@ public static class Aes {
     }
 
     static void _subBytes(int[] state) {
-        int[] sb = Aes._sbox();
+        int[] sb = Aes._SBOX;
         int i = 0;
         while (i < 16) { state[i] = sb[state[i]]; i = i + 1; }
     }
 
     static void _invSubBytes(int[] state) {
-        int[] isb = Aes._invSbox();
+        int[] isb = Aes._INVSBOX;
         int i = 0;
         while (i < 16) { state[i] = isb[state[i]]; i = i + 1; }
     }

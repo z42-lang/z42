@@ -32,6 +32,12 @@ using Std.Encoding;
 //   - BLAKE3 (Merkle-tree successor)
 
 public static class Blake2b {
+    // Read-only tables built once at load time (perf: were rebuilt per block
+    // in _compress). IV is used read-only here; _initHash keeps its own fresh
+    // copy via _iv() because it mutates h[0] (must not alias the shared table).
+    static long[] _IV    = Blake2b._iv();
+    static int[]  _SIGMA = Blake2b._sigma();
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     /// Default 64-byte (512-bit) digest.
@@ -151,7 +157,7 @@ public static class Blake2b {
     static void _compress(long[] h, byte[] block, int offset, long counterLo, bool isLast) {
         // Working vector v[0..15] = h[0..7] || IV[0..7] (with counter +
         // finalisation flag XORed into v[12]..v[15]).
-        long[] iv = Blake2b._iv();
+        long[] iv = Blake2b._IV;
         long[] v = new long[16];
         int i = 0;
         while (i < 8) { v[i] = h[i]; i = i + 1; }
@@ -169,7 +175,7 @@ public static class Blake2b {
 
         // 12 rounds, each applying G to columns then diagonals with a
         // round-specific permutation of m[].
-        int[] sigma = Blake2b._sigma();
+        int[] sigma = Blake2b._SIGMA;
         int r = 0;
         while (r < 12) {
             int sOff = (r % 10) * 16;

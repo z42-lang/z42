@@ -20,6 +20,10 @@ using Std.Encoding;
 // Tested against NIST FIPS 180-2 test vectors + RFC 4231 §4 vectors
 // for HMAC-SHA-384 / HMAC-SHA-512 (transitively).
 public static class Sha512 {
+    // FIPS 180-4 round constants K[0..79] — read-only, built once at load time
+    // (perf: was rebuilt per 128-byte block in _processBlock).
+    static long[] _K = Sha512._roundConstants();
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     public static byte[] Hash(byte[] data) {
@@ -131,7 +135,7 @@ public static class Sha512 {
     /// Compress one 128-byte block into h[0..7]. Exposed (`_` prefix
     /// signals internal) so Sha384 can reuse with its own IV.
     public static void _compressBlock(long[] h, byte[] block, int offset) {
-        long[] k = Sha512._roundConstants();
+        long[] k = Sha512._K;
         long[] w = new long[80];
 
         // Message schedule W[0..15]: big-endian 8-byte words from the block.

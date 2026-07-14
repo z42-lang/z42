@@ -11,6 +11,10 @@ using Std.Encoding;
 //
 // Tested against NIST FIPS 180-2 test vectors (see tests/sha256_vectors.z42).
 public static class Sha256 {
+    // FIPS 180-4 round constants K[0..63] — read-only, built once at load time
+    // (perf: was rebuilt per 64-byte block in _processBlock).
+    static long[] _K = Sha256._roundConstants();
+
     // ── Public API ───────────────────────────────────────────────────────────
 
     public static byte[] Hash(byte[] data) {
@@ -103,7 +107,7 @@ public static class Sha256 {
     // ── Per-block compression ────────────────────────────────────────────────
 
     static void _processBlock(long[] h, byte[] block, int offset) {
-        long[] k = _roundConstants();
+        long[] k = Sha256._K;
         long[] w = new long[64];
 
         int t = 0;

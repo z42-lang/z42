@@ -43,6 +43,10 @@ public static class Zip {
     private static int _methodStore   = 0;
     private static int _methodDeflate = 8;
 
+    // CRC-32 (IEEE 802.3) lookup table — read-only, built once at load time
+    // (perf: was rebuilt per _crc32 call).
+    private static long[] _crc32TableStatic = Zip._crc32Table();
+
     // ── Read ────────────────────────────────────────────────────────
 
     public static ZipEntry[] Read(byte[] zipBytes) {
@@ -257,7 +261,7 @@ public static class Zip {
     }
 
     private static long _crc32(byte[] data) {
-        long[] t = Zip._crc32Table();
+        long[] t = Zip._crc32TableStatic;
         long crc = 0xFFFFFFFFL;
         int i = 0;
         while (i < data.Length) {
