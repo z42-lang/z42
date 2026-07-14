@@ -12,11 +12,11 @@
 - [x] 1.3 抽 `_crossSummary(...) -> int`（汇总打印 + rc）
 - [x] 1.4 `_testCrossZpkgImpl` 改薄驱动循环；`git diff` 逐路径核对等价（标签/计数/temp 清理序/rc 一致）；三 helper + 主函数均 ≤60 行（53/52/18）
 
-## §2.7 上浮 JUnit 骨架（commit 2 —— 待做）
-- [ ] 2.1 `xtask_test_platform.z42` 加 `JUnitCase` 类 + `_writeJUnitReport(root, platform, suite, cases)` + `_stdoutLines` + `_xmlEscape`（骨架 + 转义 + 写盘 + 日志）
-- [ ] 2.2 `xtask_test_ios.z42`：`_writeJUnit` 改为解析成 `JUnitCase[]` → 调共享；删本地 `_splitLines`
-- [ ] 2.3 `xtask_test_desktop.z42`：同上；删本地 `_splitLines` + `_xmlEscape`
-- [ ] 2.4 `git diff` 核对 XML 字节形状不变；两 backend 输出与原一致
+## §2.7 上浮 JUnit 骨架（commit 2 —— 已实施）
+- [x] 2.1 `xtask_test_platform.z42` 加 `JUnitCase` 类 + `_writeJUnitReport(root, platform, suite, cases)` + `_stdoutLines` + `_xmlEscape`（骨架 + 转义 + 写盘 + 日志），全仓唯一定义
+- [x] 2.2 `xtask_test_ios.z42`：`_writeJUnit` 两遍扫描建 `JUnitCase[]` → 调共享；3 处 `this._splitLines`→`_stdoutLines`；删本地 `_splitLines`
+- [x] 2.3 `xtask_test_desktop.z42`：同上；删本地 `_splitLines` + `_xmlEscape`
+- [x] 2.4 `git diff` 核对：suite==classname 代入后 XML 逐字节同形；写盘路径/日志/计数一致（ios 失败 msg 恒 "failed"、desktop msg 逻辑不变）；brace/paren 平衡；platform 255<300 软限
 
 ## 阶段 3: 验证
 - [ ] 3.1 CI 验证（本环境冷启动无 z42 种子、SDK 下载被出网策略挡 403，无法本地跑 `xtask test`；GREEN 判定以 CI 为准 —— bootstrap-seed.md「cold 路径以 CI 为准」）
