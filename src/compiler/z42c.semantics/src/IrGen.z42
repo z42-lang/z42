@@ -310,7 +310,8 @@ public sealed class IrGen {
                             MethodDecl imd = im.Methods[ij] as MethodDecl;
                             if (imd.HasBody) {
                                 string imk = imd.Name + "$" + imd.ParamCount.ToString();
-                                if (iowner == null || !iowner.Methods.ContainsKey(imk)) { imk = imd.Name; }
+                                if (imd.RegKey != "") { imk = imd.RegKey; }                       // 方案A：单一真相键
+                                else if (iowner == null || !iowner.Methods.ContainsKey(imk)) { imk = imd.Name; }
                                 string ikey = itn + "." + imk;
                                 if (model.HasBody(ikey)) {
                                     bool ist = IrGenFacts._hasWord(imd.Mods, "static");

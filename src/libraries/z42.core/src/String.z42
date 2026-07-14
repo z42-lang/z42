@@ -318,8 +318,11 @@ public static class String : IComparable<string>, IEquatable<string> {
         return result;
     }
 
-    // Static: namespaced as String.Join.
-    public static string Join(string separator, string[] values) {
+    // Static: namespaced as String.Join. stabilize-dispatch-keys 落地 params——
+    // 单一 params 重载同时覆盖 normal form（`Join(sep, arr)` 直传 string[]）与 expanded form
+    // （`Join(sep, a, b, c)` 编译期打包 string[]）。取代此前的 `Join(string, string[])` +
+    // `Join(string, string, string, string)` 双重载（params string[] 与 string[] 同签名，二者不可并存）。
+    public static string Join(string separator, params string[] values) {
         int n = values.Length;
         if (n == 0) return "";
         string result = values[0];
@@ -327,10 +330,6 @@ public static class String : IComparable<string>, IEquatable<string> {
             result = result + separator + values[i];
         }
         return result;
-    }
-
-    public static string Join(string separator, string a, string b, string c) {
-        return a + separator + b + separator + c;
     }
 
     // ── Remaining intrinsic-backed methods (perf-sensitive / 协议依赖) ───────

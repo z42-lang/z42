@@ -38,6 +38,7 @@ public static class Path {
 
     // 拼接两段路径。如果 b 是绝对路径（Unix `/` 或 Windows 根）则替换 a；
     // 否则用 `/` 分隔（a 已有尾随 `/` 或 `\` 时不重复）。
+    // 保留 2-arg 重载：热路径 + params 的 normal-form 直传目标（非 params 精确 arity 重载优先）。
     public static string Join(string a, string b) {
         if (b.Length == 0) return a;
         if (Path.IsRooted(b)) return b;
@@ -45,6 +46,20 @@ public static class Path {
         char last = a.CharAt(a.Length - 1);
         if (last == '/' || last == '\\') return a + b;
         return a + "/" + b;
+    }
+
+    // 多段路径拼接（stabilize-dispatch-keys 落地 params）。逐段左折叠复用 2-arg 语义
+    // （绝对段替换、尾分隔去重）。取代此前 `Path.Join(Path.Join(a,b),c)` 的嵌套写法。
+    // 决议：`Join(x, y)`→2-arg（非 params 精确 arity 优先）；`Join(a,b,c)`→打包；`Join(arr)`→直传。
+    public static string Join(params string[] parts) {
+        if (parts.Length == 0) { return ""; }
+        string r = parts[0];
+        int i = 1;
+        while (i < parts.Length) {
+            r = Path.Join(r, parts[i]);
+            i = i + 1;
+        }
+        return r;
     }
 
     // 返回路径最后一段（filename）。末尾 `/` 视为目录分隔符，被跳过。

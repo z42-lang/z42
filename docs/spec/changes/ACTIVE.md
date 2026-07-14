@@ -4,6 +4,11 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
+> **独立分支 in-flight（2026-07-14，User 授权直接推进，不排队）**：`stabilize-dispatch-keys`
+> （方案A：派发键一律全签名 mangle + `Path.Join`/`String.Join` 落地 `params`；占 `compiler`+`ir`+
+> `runtime`+`stdlib`）在分支 `claude/compiler-params-join-solution-ie04pf` 上开发，与主线 change
+> （`split-irgen-class` 等）物理隔离，合并时按常规解冲突。GREEN 以 CI 为权威（冷环境本地不可验自举链）。
+
 ## 子系统持有表
 
 | 子系统 | 当前持有 change | 起始 | 说明 |

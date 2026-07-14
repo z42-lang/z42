@@ -37,7 +37,7 @@ zpkg 是 zbc 的容器：packed-mode zpkg 把多个 zbc module 的 FUNC + TYPE +
 ```
 [4]  magic:         0x5A 0x50 0x4B 0x00   ("ZPK\0")
 [2]  version_major  当前 0
-[2]  version_minor  当前 31 (详见 minor changelog)
+[2]  version_minor  当前 32 (详见 minor changelog)
 [2]  flags          bit0=Packed, bit1=Exe, bit2=SymOnly
 [2]  section_count
 [4]  reserved
@@ -211,7 +211,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 
 **Strict-pin 政策**：reader 仅接受 `major == ZpkgWriter.VersionMajor && minor == ZpkgWriter.VersionMinor`。pre-1.0 z42 阶段不为旧 zpkg minor 提供兼容；每次 minor bump = 所有现存 zpkg artifacts 必须 regen（`./xtask build stdlib`）。
 
-- **当前版本**：`major=0, minor=31`（详见下方 Minor changelog）
+- **当前版本**：`major=0, minor=32`（详见下方 Minor changelog）
 - **触发 minor bump** 的事项：新增 section id / 已定义 section 字段语义变化 / **任意 zbc minor bump（强耦合）**
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header layout / 改 section directory 12B 条目格式 / 弃用 packed 或 indexed 模式之一
 - **zbc inner 与 zpkg outer minor 强耦合**：zbc minor 任意 bump → zpkg minor 必须同步 +1。历史唯一例外是 zbc 1.4 → 1.5（漏 bump），freeze-zpkg-v0 通过 0.5 → 0.6 catch-up 修正。
@@ -251,6 +251,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.29 | 2026-07-10 | [add-param-metadata](../../spec/changes/add-param-metadata/)（unify-type-metadata P1-d） | 耦合 inner zbc 1.25（SIGS +min_arg/params_from + 每参 name_str_idx + default_kind+payload）。zpkg outer 段面不变；SIGS 段体经 MODS 自动跟随。第四砖：参数元数据有了 SIGS 的家 |
 | 0.30 | 2026-07-11 | [add-delegate-metadata](../../spec/changes/add-delegate-metadata/)（unify-type-metadata P1-e ②） | 耦合 inner zbc 1.26（TYPE class_flags bit6=delegate + 每 delegate 一条 TYPE 条目 + Invoke 桩）。zpkg outer 段面不变。P1-e 收尾：delegate 有了 TYPE/SIGS 的家 |
 | 0.31 | 2026-07-11 | [drop-tsig-expt](../../spec/changes/drop-tsig-expt/)（unify-type-metadata **P3**） | **删 zpkg 顶层 EXPT + TSIG 两段**——EXPT 写而不读（冗余）；TSIG（编译期跨包类型签名）由 TYPE/SIGS/IMPL 经 `TsigReconcile.Rebuild` 无损重建取代（P2 证 29 包 0 DIFF）。z42c 跨包解析（DepScan）改读 TYPE/SIGS/IMPL。IMPL 保留（D2）。zbc 不变。**每 zpkg ~半：z42.core 193KB→92KB**。段面 packed 9→7（有 exports）/ 7→6（无）；indexed 同步 |
+| 0.32 | 2026-07-14 | [stabilize-dispatch-keys](../../spec/changes/stabilize-dispatch-keys/)（方案A） | 耦合 inner zbc 1.27。派发键一律全签名 mangle → 导出方法名 / SIGS / 内嵌 zbc `CallInstr` 操作数**全局重键**（键 = 方法自身签名纯函数，加/删重载不再 re-mangle 现有键 → 根治 params-for-Join 的 bootstrap 破坏）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举整树重编重键（旧种子读旧 runtime stdlib、当前源读新 `Z42_LIBS`，D7 分离）。落地 `Path.Join`/`String.Join` 的 `params` 重载 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

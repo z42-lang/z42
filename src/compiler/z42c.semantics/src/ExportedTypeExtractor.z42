@@ -435,10 +435,13 @@ public static class ExportedTypeExtractor {
                     if (amem is MethodDecl) {
                         MethodDecl amd = amem as MethodDecl;
                         if (!ExportedTypeExtractor._hasWord(amd.Mods, "static")) {     // 实例方法（含 ctor，G11）
-                            // GS3：重载方法以 Name$arity 键存，查找先试 Name$arity，再 bare（unique 方法）。
-                            // seenName 用 amkey（重载时含 $）做去重键，使 F$1/F$2 互不干扰（各自新增而非 override 替换）。
+                            // stabilize-dispatch-keys（方案A）：优先用 SymbolCollector 写入的 md.RegKey（= Methods
+                            // 映射键 = 导出键），emit / export 两端天然同键、不可能漂移。RegKey 空（如未经 regName
+                            // 的 impl/接口方法）时回落既有 Name$arity/bare 探测。seenName 用 amkey 做去重键，
+                            // 使不同签名重载各自新增而非 override 替换。
                             string amkey = amd.Name + "$" + amd.ParamCount.ToString();
-                            if (!chain[mci].Methods.ContainsKey(amkey)) { amkey = amd.Name; }
+                            if (amd.RegKey != "") { amkey = amd.RegKey; }
+                            else if (!chain[mci].Methods.ContainsKey(amkey)) { amkey = amd.Name; }
                             MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
                             if (ams != null) {
                                 ExportedMethodZ em = ExportedTypeExtractor._fromSymbol(amd, ams, false, amkey);

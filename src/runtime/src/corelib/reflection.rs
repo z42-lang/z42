@@ -502,6 +502,12 @@ fn build_method_info(
     qualified: &str,
     is_virtual: bool,
 ) -> Result<Value> {
+    // stabilize-dispatch-keys (方案A, 2026-07-14): dispatch keys now carry a
+    // full `$N$types` mangle suffix for every method (vtable slots + own_methods
+    // keys included), so the derived `simple` name may be e.g. `Foo$1$int`.
+    // Reflection presents the source-level name — strip the mangle suffix for
+    // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
+    let simple = simple.split('$').next().unwrap_or(simple);
     let (ret_tag, is_static, params, visibility, method_flags, sig_found) = match resolve_func_sig(ctx, qualified) {
         Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
             // Instance methods carry `this` at param 0 — skip it.

@@ -5,8 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 26;   // 2026-07-11 add-delegate-metadata（unify P1-e②）：class_flags bit6=delegate（delegate-as-class TYPE 条目 + 合成 <FQ>.Invoke 死体桩；无额外 payload，沿 1.19 interface 先例 bump）。
-                                    // 前史：1.24 add-method-modifiers（SIGS +method_flags:u8）；1.23 add-member-visibility（TYPE/SIGS +visibility:u8）。
+    public static int Minor = 27;   // 2026-07-14 stabilize-dispatch-keys（方案A）：派发键改「一律全签名 mangle」（regName 从兄弟集相关→自身签名纯函数）→ CallInstr/VCall 操作数与 SIGS/导出方法名全局重键。wire 布局不变，仅字符串内容变；随 zpkg 0/32 同 bump 触发 ci-bootstrap 两代自举吸收重键。
+                                    // 前史：1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）；1.23 add-member-visibility（TYPE/SIGS +visibility:u8）。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。

@@ -34,8 +34,8 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 31;   // 2026-07-11 drop-tsig-expt（unify P3）：删 zpkg 顶层 EXPT + TSIG 段（EXPT 写而不读；TSIG 由 TYPE/SIGS 经 Rebuild 无损重建取代）。IMPL 保留。zbc 不变。
-                                    // 前史：0.25 reencode-strs-segment-dict（STRS segment-dict，耦合 zbc 1.21）；
+    public static int Minor = 32;   // 2026-07-14 stabilize-dispatch-keys（方案A）：派发键全局重键（导出方法名/SIGS/内嵌 zbc CallInstr 操作数）。耦合 zbc 1.27。bump 触发 ci-bootstrap 版本差 gate → 两代自举整树重编重键（旧种子读旧 runtime stdlib、当前源读新 Z42_LIBS，D7 分离）。
+                                    // 前史：0.31 drop-tsig-expt（删 EXPT + TSIG 段）；0.25 reencode-strs-segment-dict（耦合 zbc 1.21）；
                                     //       0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
 
 
