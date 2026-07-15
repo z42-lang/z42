@@ -1,6 +1,6 @@
 # Tasks: consolidate-xtask-fns
 
-> 状态：🟡 进行中（代码就绪，待 CI 验证）| 创建：2026-07-14
+> 状态：🟢 已完成 | 创建：2026-07-14 | 完成：2026-07-15
 
 **变更说明：** xtask 超限/重复函数的机械提取收敛（review §2.5 + §2.7 + §2.8）。逐项独立 commit，纯搬移零行为变化。
 **原因：** review §2.8（`_testCrossZpkgImpl` ~164 行超函数硬限 60）、§2.7（ios/desktop backend 复制的 JUnit-XML 骨架 + `_splitLines` + `_xmlEscape`）、§2.5（ABI headers 拷贝对 6 处重复）。
@@ -23,8 +23,8 @@
 - [x] 5.2 替换 6 处 `File.Copy` 对（android×2 / ios×2 / wasm / stage_components）；dest 字符串逐字节等价（`Path.Join(dir,"native/include/z42_abi.h")` == `Path.Join(Path.Join(dir,"native/include"),"z42_abi.h")`）；创建 include 目录的调用未动 → File.Copy 语义不变；brace/paren 平衡
 
 ## 阶段 3: 验证
-- [ ] 3.1 CI 验证（本环境冷启动无 z42 种子、SDK 下载被出网策略挡 403，无法本地跑 `xtask test`；GREEN 判定以 CI 为准 —— bootstrap-seed.md「cold 路径以 CI 为准」）
-- [ ] 3.2 CI 绿后归档 + 释放 toolchain 锁
+- [x] 3.1 CI 验证（本环境冷启动无 z42 种子、SDK 下载被出网策略挡 403，无法本地跑 `xtask test`；GREEN 判定以 CI 为准 —— bootstrap-seed.md「cold 路径以 CI 为准」）→ **PR #6（dbcde969）已合并 main，CI 全绿**
+- [x] 3.2 CI 绿后归档 + 释放 toolchain 锁（本次会话）
 
 ## 备注
 - 本环境为全新冷检出：无 z42 种子，nightly SDK 下载 403（组织出网策略），故 z42c 无法本地编译、xtask test 无法本地运行。本重构为纯机械提取，靠 `git diff` 核对等价性；运行时验证交 CI。

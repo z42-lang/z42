@@ -115,8 +115,12 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 > **✅ manifest 头已收敛（2026-07-12）**：抽 `_workloadPkgHeader(name, version, rid, profile, buildHost)`
 > → `xtask_package.z42`，desktop/ios/android/wasm **4 个 workload manifest** 各收敛为 1 行（空 rid/
 > buildHost 自动省略）。逐字段核对输出字节匹配。runtime-pkg（desktop:259，无 `kind`）+ merged release
-> 结构不同、留 inline。剩 runtime-pkg scaffold / ABI headers / desktop RID 列表待做。
+> 结构不同、留 inline。剩 runtime-pkg scaffold / desktop RID 列表待做。
 > （本地编译验证受并行 session 的 `z42.io.Path.Join` 改动阻塞——CI 打包 job 生成 manifest 验证。）
+>
+> **✅ ABI headers 已收敛（2026-07-15，change `consolidate-xtask-fns`）**：抽 `_copyAbiHeaders(root,
+> destIncludeDir)`→`xtask_stage_components.z42`（`z42_{abi,host}.h` 源路径单一 SoT），替换
+> android×2/ios×2/wasm/stage_components 共 6 处逐字 `File.Copy` 对。dest 字符串逐字节等价。PR #6 CI 绿。
 
 ### 2.6 golden 枚举器双份 ~110 行
 
@@ -131,7 +135,7 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 |------|------|------|
 | 两套字符串排序 | `xtask_common.z42:82-101`（`_sortedStrings` 选择排序）vs `xtask_golden.z42:39-51`（`_sortStrings` 插入排序） | 保留一个，另一个改 3 行包装 |
 | 四个 zpkg 拷贝变体 | cross:261-288、package:243-254、platform:163-174 vs 现成 `_copyAll` | ✅ cross 的 `_copyZpkgs`/`_copyStdlibZpkgs` 已收敛为 `_copyAll` 薄包装（错误处理逐字一致，编译 42/42 + cross-zpkg 4/4 验证）。剩 `_stageCopyExt`（stdlib，用 `_copyIfExists` 语义需单独核）+ package/platform 变体待做 |
-| 两份 `_splitLines` + JUnit writer | `xtask_test_ios.z42:115-153` vs `xtask_test_desktop.z42:94-136` | 骨架上浮 `xtask_test_platform.z42`，backend 只做行解析 |
+| 两份 `_splitLines` + JUnit writer | `xtask_test_ios.z42:115-153` vs `xtask_test_desktop.z42:94-136` | ✅ 骨架上浮 `xtask_test_platform.z42`（`JUnitCase` 类 + `_writeJUnitReport` + 共享 `_stdoutLines`/`_xmlEscape`），两 backend 只留各自 stdout 行解析；suite==classname 代入后 XML 逐字节同形。change `consolidate-xtask-fns` PR #6 CI 绿 |
 | `_applyToolchainOpt`/`_applyVerbosityOpt` 70 行孪生 | `xtask_cli.z42:76-104` vs `:109-144` | ✅ 抽 `_stripTwoTokenOpt` + `_OptStrip` 结果类（L1 无 lambda，用小类返多值，仿 `_MapResult`）；两 pass strip 归一处，两函数改薄。编译 42/42 + verbosity/toolchain 剥离 smoke 验证 |
 | 两套 TempDir API 混用 + temp 泄漏 | cross:204（`File.CreateTempDir` 从不删除）、dist:61 | ✅ cross 的 driver-home（`_assembleDriverHome`，`return home` 用整轮、无 deleter，唯一真泄漏）改固定 `artifacts/.scratch/xpkg-driver`（删+重建自清）。另两处 temp（testLibs/libs）复核发现**已有 `Directory.Delete`**、不漏。dist:61 待核。编译 42/42 + cross-zpkg 4/4 验证 |
 | 成员 zpkg verify 循环两份 + verbosity 矛盾 | stdlib:101-121（`_vDetailed`）vs compiler:113-132（无条件打印） | ✅ 抽 `_verifyMemberZpkgs(buildRoot, members, profile)`→common（返 fail 数）；两处 ~20 行循环各收敛为 2 行；✓ 行统一到 `_vDetailed` 门控（compiler 原无条件 → 与 stdlib 一致）。编译 42/42 + `test compiler` 7/7 不动点 + 20 units 验证 |
@@ -145,7 +149,7 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 |------|------|------|------|
 | `_testCompilerE2e` | `xtask_compiler_e2e.z42:43-284` | ~242 | ✅ 拆 `_e2eOracleChecks`（oracle 内联源检查）+ `_e2eBuildChecks`（build/import e2e）；主分发 **242→19 行**。**机械搬移**（脚本逐字搬 + `git diff` comm 核对删=增零丢失）+ 隔离 libs 编译通过；短路 `return 1` 语义构造保证。两 helper 仍 >60（测试数据固有），但主函数入限、结构清晰 |
 | `_regenGolden` | `xtask_test_assets.z42:29-220` | ~192 | ✅ 抽 `_collectGoldenCases(root)`→`_GoldenCases`（三布局枚举 ~100 行搬出，纯逐字移动 + struct 返并行数组）；`_regenGolden` 192→~90 行。隔离 libs 重建编译通过；运行时由 CI golden regen（每 test-host）验 |
-| `_testCrossZpkgImpl` | `xtask_test_cross.z42:27-190` | ~164 | 提 `_runOneCrossCase` + `_fixtureDist(dir)` helper |
+| `_testCrossZpkgImpl` | `xtask_test_cross.z42:27-190` | ~164 | ✅ 提 `_runOneCrossCase`（stage1-4，返失败标签或空串）+ `_crossSummary` + `_fixtureDist`（去重 7 处三层 `Path.Join`）；主函数 **164→18 行**，三 helper 均 ≤60（53/52/18）。change `consolidate-xtask-fns` PR #6 CI 绿 |
 | `_depsInstallAndroidSdk` | `xtask_install_android.z42:27-187` | ~161 | 按 [1]-[6] 步骤各提一函数 |
 | `_packageDesktop` | `xtask_package_desktop.z42:16-167` | ~152 | 8 连发 `_z42cBuildToml` + 5 组 `_z42bPublish` 改数组循环，约 -45 行 |
 

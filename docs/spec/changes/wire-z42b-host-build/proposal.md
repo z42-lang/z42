@@ -1,8 +1,14 @@
 # Proposal: 接入 z42b —— `z42 new` / `z42 build` 端到端可用
 
-> 状态：DRAFT（前置：toolchain 锁释放 + extract-compile-pipeline-api 落地）
-> 子系统：stdlib（z42.project / z42.build 建清单）+ z42c（Z42cCompiler 适配）+ toolchain（z42b 登记 + launcher 转发）
+> 状态：DRAFT（前置：`converge-z42c-onto-z42-project` 落地 + extract-compile-pipeline-api 落地）
+> 子系统：stdlib（z42.build 建清单）+ z42c（Z42cCompiler 适配）+ toolchain（z42b 登记 + launcher 转发）
 > **不持锁**，开工前按 parallel-development 重新登记。
+>
+> **前置刷新（2026-07-10）**：原前置表已陈旧——`toolchain` 锁已释放（compile-once-toolchain
+> 已归档）、`retire-test-runner` 已完成归档（2026-06-30）。新增关键前置见下「## 前置依赖」：
+> **z42.project 登记为 build member 会与 z42c.project 触发 flat-libs 同名串味**，故 z42.project
+> 的 member 登记 + z42c.project 删除必须先由 `converge-z42c-onto-z42-project` 完成；本变更
+> Scope 里的「workspace 加 z42.project 成员」随之移交 converge，本变更只登记 z42.build。
 
 ## Why
 
@@ -38,20 +44,22 @@ ICompiler 包装 z42c.pipeline 的内存编译）→ launcher 转发动词 → p
 
 ## 前置依赖
 
-| 前置 | 状态 | 原因 |
+| 前置 | 状态（2026-07-10 刷新）| 原因 |
 |------|------|------|
-| `extract-compile-pipeline-api` | 🟡 in-flight（并行）| Z42cCompiler 包装其 `CompileInMemory`/`CompilePackage` |
-| toolchain 子系统锁 | 被 compile-once-toolchain 持有 | z42b 登记 + launcher 改动需 toolchain 锁空闲 |
+| `converge-z42c-onto-z42-project` | 🟡 DRAFT（本轮起草）| z42.project 登记为 build member + 删 z42c.project 的 manifest-model，**根除 flat-libs 同名串味**——否则本变更登记 z42.project 即炸 z42c 自举 |
+| `extract-compile-pipeline-api` | 🟡 DRAFT（**磁盘无容器，仅 ACTIVE.md 挂名，待建**）| Z42cCompiler 包装其 `CompileInMemory`/`CompilePackage` |
+| toolchain 子系统锁 | ✅ 已释放（compile-once-toolchain 已归档）| z42b 登记 + launcher 改动需 toolchain 锁空闲 |
+| `retire-test-runner`（test/bench 划走）| ✅ 已完成归档 2026-06-30 | 本变更 Out of Scope 的 test/bench 已由其落地 |
 | `SubcommandRouter.AddSpawn` | 见 add-workload-command-dispatch（可前借）| launcher 转发机制 |
 
 ## Scope（允许改动的文件）
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/libraries/z42.project/z42.project.z42.toml` | NEW | 包清单（deps: z42.core, z42.toml）|
+| ~~`src/libraries/z42.project/z42.project.z42.toml`~~ | — | **移交 `converge-z42c-onto-z42-project`**（z42.project member 登记必须与 z42c.project 删除同批，否则串味）|
 | `src/libraries/z42.build/z42.build.z42.toml` | NEW | 包清单（deps: z42.core, z42.project）|
 | `src/toolchain/builder/core/z42.builder.z42.toml` | NEW | exe 包清单（deps: z42.build, z42.project, z42c.pipeline, z42.cli）|
-| `src/libraries/z42.workspace.toml` | MODIFY | default-members 加 z42.project / z42.build（拓扑序）|
+| `src/libraries/z42.workspace.toml` | MODIFY | default-members 加 **z42.build**（z42.project 由 converge 先登记）|
 | `src/compiler/z42c.pipeline/src/Z42cCompiler.z42` | NEW | `Z42cCompiler : ICompiler` 包装内存编译 |
 | `src/compiler/z42c.pipeline/z42c.pipeline.z42.toml` | MODIFY | 加 dep z42.build（仅接口）|
 | `src/toolchain/builder/core/builder.z42` | MODIFY | `_hostCompiler()` 返回 `new Z42cCompiler()` |
