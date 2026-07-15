@@ -73,103 +73,103 @@ int _testCrossZpkgImpl(string mode) {
     while (i < names.Length) {
         string name = names[i];
         string dir = Path.Join(testsDir, name);
-        string expectedPath = Path.Join(dir, "expected_output.txt");
-        if (!File.Exists(expectedPath)) {
+        if (!File.Exists(Path.Join(dir, "expected_output.txt"))) {
             i = i + 1;
             continue;
         }
 
         Console.WriteLine("── Test: " + name + " ──");
-
-        string targetDir = Path.Join(dir, "target");
-        string extDir    = Path.Join(dir, "ext");
-        string mainDir   = Path.Join(dir, "main");
-
-        // Stage 1: target (no deps).
-        if (!_buildCompilerPkg(vmBin, driverZpkg, stdlibDist, targetDir, "")) {
-            fail = fail + 1;
-            failures = _append(failures, failCount, name + " (target build)");
-            failCount = failCount + 1;
-            i = i + 1;
-            continue;
-        }
-
-        // Stage 2: ext (deps on target/dist).
-        if (!_buildCompilerPkg(vmBin, driverZpkg, stdlibDist, extDir, Path.Join(Path.Join(Path.Join(targetDir, "artifacts"), "debug"), "dist"))) {
-            fail = fail + 1;
-            failures = _append(failures, failCount, name + " (ext build)");
-            failCount = failCount + 1;
-            i = i + 1;
-            continue;
-        }
-
-        // Stage 3: main (deps on target + ext). _buildCompilerPkg only seeds from a
-        // single dir; main needs both, so populate libs manually here.
-        string mainLibs = Path.Join(mainDir, "libs");
-        if (Directory.Exists(mainLibs)) { Directory.Delete(mainLibs, true); }
-        Directory.Create(mainLibs);
-        _copyZpkgs(Path.Join(Path.Join(Path.Join(targetDir, "artifacts"), "debug"), "dist"), mainLibs);
-        _copyZpkgs(Path.Join(Path.Join(Path.Join(extDir,    "artifacts"), "debug"), "dist"), mainLibs);
-        string mainToml = _findToml(mainDir);
-        if (mainToml.Length == 0 || !_invokeBuildCompiler(vmBin, driverZpkg, stdlibDist, mainDir, mainToml)) {
-            Console.WriteLine("    main build failed");
-            fail = fail + 1;
-            failures = _append(failures, failCount, name + " (main build)");
-            failCount = failCount + 1;
-            i = i + 1;
-            continue;
-        }
-
-        // Stage 4: run main zpkg through z42vm.
-        string mainZpkg = _firstZpkg(Path.Join(Path.Join(Path.Join(mainDir, "artifacts"), "debug"), "dist"));
-        if (mainZpkg.Length == 0) {
-            Console.WriteLine("    main produced no zpkg");
-            fail = fail + 1;
-            failures = _append(failures, failCount, name + " (no zpkg)");
-            failCount = failCount + 1;
-            i = i + 1;
-            continue;
-        }
-
-        // Per-test libs dir: stdlib zpkgs + target + ext.
-        string testLibs = File.CreateTempDir("z42-xpkg-");
-        _copyStdlibZpkgs(stdlibDist, testLibs);
-        _copyZpkgs(Path.Join(Path.Join(Path.Join(targetDir, "artifacts"), "debug"), "dist"), testLibs);
-        _copyZpkgs(Path.Join(Path.Join(Path.Join(extDir,    "artifacts"), "debug"), "dist"), testLibs);
-
-        string actual = "";
-        bool runErr = false;
-        try {
-            ProcessResult vmResult = new Process(vmBin)
-                .Arg(mainZpkg)
-                .Arg("--mode").Arg(mode)
-                .Env("Z42_LIBS", testLibs)
-                .Run();
-            // bash: `$(... 2>&1)` — merge stderr into stdout. We approximate
-            // by concatenating; a passing VM run produces no stderr, so for
-            // successful tests the order doesn't matter.
-            actual = vmResult.Stdout + vmResult.Stderr;
-        } catch (Exception e) {
-            runErr = true;
-        }
-        Directory.Delete(testLibs, true);
-
-        string expected = File.ReadAllText(expectedPath);
-        if (!runErr && actual == expected) {
+        string failLabel = _runOneCrossCase(vmBin, driverZpkg, stdlibDist, dir, name, mode);
+        if (failLabel.Length == 0) {
             pass = pass + 1;
-            Console.WriteLine("  PASS");
         } else {
             fail = fail + 1;
-            failures = _append(failures, failCount, name);
+            failures = _append(failures, failCount, failLabel);
             failCount = failCount + 1;
-            Console.WriteLine("  FAIL");
-            Console.WriteLine("    expected: " + _firstLines(expected, 3));
-            Console.WriteLine("    actual:   " + _firstLines(actual,   3));
         }
 
         i = i + 1;
     }
 
+    return _crossSummary(pass, fail, failures, failCount);
+}
+
+// Build + run one cross-zpkg case: three-stage build in dep order (target → ext
+// → main, each seeding the next one's libs), then run main's zpkg through z42vm
+// and diff stdout against expected_output.txt. Returns "" on pass, else a
+// failure label (containing `name`) for the summary. Extracted from
+// _testCrossZpkgImpl so the driver loop stays a thin pass/fail tally (review §2.8).
+string _runOneCrossCase(string vmBin, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
+    string targetDir = Path.Join(dir, "target");
+    string extDir    = Path.Join(dir, "ext");
+    string mainDir   = Path.Join(dir, "main");
+
+    // Stage 1: target (no deps).
+    if (!_buildCompilerPkg(vmBin, driverZpkg, stdlibDist, targetDir, "")) {
+        return name + " (target build)";
+    }
+
+    // Stage 2: ext (deps on target/dist).
+    if (!_buildCompilerPkg(vmBin, driverZpkg, stdlibDist, extDir, _fixtureDist(targetDir))) {
+        return name + " (ext build)";
+    }
+
+    // Stage 3: main (deps on target + ext). _buildCompilerPkg only seeds from a
+    // single dir; main needs both, so populate libs manually here.
+    string mainLibs = Path.Join(mainDir, "libs");
+    if (Directory.Exists(mainLibs)) { Directory.Delete(mainLibs, true); }
+    Directory.Create(mainLibs);
+    _copyZpkgs(_fixtureDist(targetDir), mainLibs);
+    _copyZpkgs(_fixtureDist(extDir), mainLibs);
+    string mainToml = _findToml(mainDir);
+    if (mainToml.Length == 0 || !_invokeBuildCompiler(vmBin, driverZpkg, stdlibDist, mainDir, mainToml)) {
+        Console.WriteLine("    main build failed");
+        return name + " (main build)";
+    }
+
+    // Stage 4: run main zpkg through z42vm.
+    string mainZpkg = _firstZpkg(_fixtureDist(mainDir));
+    if (mainZpkg.Length == 0) {
+        Console.WriteLine("    main produced no zpkg");
+        return name + " (no zpkg)";
+    }
+
+    // Per-test libs dir: stdlib zpkgs + target + ext.
+    string testLibs = File.CreateTempDir("z42-xpkg-");
+    _copyStdlibZpkgs(stdlibDist, testLibs);
+    _copyZpkgs(_fixtureDist(targetDir), testLibs);
+    _copyZpkgs(_fixtureDist(extDir), testLibs);
+
+    string actual = "";
+    bool runErr = false;
+    try {
+        ProcessResult vmResult = new Process(vmBin)
+            .Arg(mainZpkg)
+            .Arg("--mode").Arg(mode)
+            .Env("Z42_LIBS", testLibs)
+            .Run();
+        // bash: `$(... 2>&1)` — merge stderr into stdout. We approximate
+        // by concatenating; a passing VM run produces no stderr, so for
+        // successful tests the order doesn't matter.
+        actual = vmResult.Stdout + vmResult.Stderr;
+    } catch (Exception e) {
+        runErr = true;
+    }
+    Directory.Delete(testLibs, true);
+
+    string expected = File.ReadAllText(Path.Join(dir, "expected_output.txt"));
+    if (!runErr && actual == expected) {
+        Console.WriteLine("  PASS");
+        return "";
+    }
+    Console.WriteLine("  FAIL");
+    Console.WriteLine("    expected: " + _firstLines(expected, 3));
+    Console.WriteLine("    actual:   " + _firstLines(actual,   3));
+    return name;
+}
+
+// Print the pass/fail tally + any failure list; returns process rc (0 = all pass).
+int _crossSummary(int pass, int fail, string[] failures, int failCount) {
     Console.WriteLine("");
     Console.WriteLine("══════════════════════════════════════");
     Console.WriteLine(" Total: " + pass.ToString() + " passed, "
@@ -236,7 +236,7 @@ bool _buildCompilerPkg(string vmBin, string driverZpkg, string stdlibDist, strin
 // 单次 z42c build。outDir = <pkgDir>/artifacts/debug/dist。Z42_LIBS = temp(stdlib +
 // pkgDir/libs)；z42c.* 由 driver-home 解析。WorkingDirectory=pkgDir（镜像手验）。
 bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
-    string outDir = Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
+    string outDir = _fixtureDist(pkgDir);
     Directory.Create(outDir);
     string libs = File.CreateTempDir("z42-xpkg-libs-");
     _copyStdlibZpkgs(stdlibDist, libs);
@@ -275,6 +275,12 @@ void _copyZpkgs(string srcDir, string dstDir) {
 void _copyStdlibZpkgs(string distDir, string dstDir) {
     _copyAll(distDir, dstDir, "*.zpkg");
     _copyAll(distDir, dstDir, "*.zsym");
+}
+
+// <pkgDir>/artifacts/debug/dist — where a per-package z42c build lands its zpkg
+// (mirrors the former C# path; consumed by run/diff + downstream lib seeding).
+string _fixtureDist(string pkgDir) {
+    return Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
 }
 
 string _findToml(string dir) {

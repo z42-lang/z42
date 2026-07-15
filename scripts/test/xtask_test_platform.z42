@@ -143,6 +143,59 @@ string _reportDir(string root, string platform) {
     return d;
 }
 
+// A single parsed test case for JUnit emission. Backends parse their runner's
+// stdout into JUnitCase[] and hand it to _writeJUnitReport; the XML skeleton
+// lives once here so every platform's junit.xml has the same shape (review §2.7).
+public class JUnitCase {
+    public string name;
+    public bool   passed;
+    public string failMsg;   // only emitted when !passed
+
+    public JUnitCase(string name, bool passed, string failMsg) {
+        this.name    = name;
+        this.passed  = passed;
+        this.failMsg = failMsg;
+    }
+}
+
+// stdout → lines, CRLF-normalised, empty lines kept. Shared by the platform
+// backends' line parsers (formerly a per-backend _splitLines).
+string[] _stdoutLines(string s) {
+    return s.Replace("\r\n", "\n").Split("\n");
+}
+
+string _xmlEscape(string s) {
+    string o = s;
+    o = o.Replace("&", "&amp;");
+    o = o.Replace("<", "&lt;");
+    o = o.Replace(">", "&gt;");
+    o = o.Replace("\"", "&quot;");
+    return o;
+}
+
+// Build a JUnit report from parsed cases and write it to the uniform report dir
+// (artifacts/test-reports/<platform>/junit.xml). `suite` doubles as the testsuite
+// name and each testcase's classname (matches the former per-backend writers).
+void _writeJUnitReport(string root, string platform, string suite, JUnitCase[] cases) {
+    int tests = cases.Length;
+    int failures = 0;
+    string body = "";
+    foreach (var tc in cases) {
+        if (tc.passed) {
+            body = body + "  <testcase name=\"" + tc.name + "\" classname=\"" + suite + "\"/>\n";
+        } else {
+            failures = failures + 1;
+            body = body + "  <testcase name=\"" + tc.name + "\" classname=\"" + suite + "\">\n"
+                 + "    <failure message=\"" + _xmlEscape(tc.failMsg) + "\"/>\n  </testcase>\n";
+        }
+    }
+    string xml = "<testsuites tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
+               + "<testsuite name=\"" + suite + "\" tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
+               + body + "</testsuite>\n</testsuites>\n";
+    File.WriteAllText(Path.Join(_reportDir(root, platform), "junit.xml"), xml);
+    Console.WriteLine("  junit.xml (" + tests + " cases, " + failures + " failed)");
+}
+
 int _compileFixture(string vm, string driverZpkg, string stdlibDist, string root, string name, string destDir) {
     string srcFile = Path.Join(root, "examples/embedding/" + name + ".z42");
     if (!File.Exists(srcFile)) {

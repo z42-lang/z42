@@ -89,49 +89,31 @@ public class DesktopBackend : IPlatformBackend {
         return new string[0];
     }
 
-    // Parse `[Rn] PASS` / `[Rn] FAIL: msg` lines → minimal JUnit at the uniform
-    // report dir, so the future CI desktop job publishes it like the others.
+    // Parse `[Rn] PASS` / `[Rn] FAIL: msg` lines into JUnitCase[] → shared
+    // _writeJUnitReport, so the future CI desktop job publishes it like the others.
     void _writeJUnit(string root, string stdout) {
-        string[] lines = this._splitLines(stdout);
-        int tests = 0; int failures = 0;
-        string cases = "";
-        foreach (var line in lines) {
+        int n = 0;
+        foreach (var line in _stdoutLines(stdout)) {
+            string t = line.Trim();
+            if (!t.StartsWith("[R")) { continue; }
+            if (t.IndexOf("]") < 0) { continue; }
+            n = n + 1;
+        }
+        JUnitCase[] cases = new JUnitCase[n];
+        int idx = 0;
+        foreach (var line in _stdoutLines(stdout)) {
             string t = line.Trim();
             if (!t.StartsWith("[R")) { continue; }
             int rb = t.IndexOf("]");
             if (rb < 0) { continue; }
             string name = t.Substring(1, rb - 1);          // "R1".."R7"
             string rest = t.Substring(rb + 1).Trim();      // "PASS" | "FAIL: msg"
-            tests = tests + 1;
-            if (rest.StartsWith("PASS")) {
-                cases = cases + "  <testcase name=\"" + name + "\" classname=\"desktop.r1_r7\"/>\n";
-            } else {
-                failures = failures + 1;
-                string msg = rest.StartsWith("FAIL:") ? rest.Substring(5).Trim() : rest;
-                cases = cases + "  <testcase name=\"" + name + "\" classname=\"desktop.r1_r7\">\n"
-                      + "    <failure message=\"" + this._xmlEscape(msg) + "\"/>\n  </testcase>\n";
-            }
+            bool passed = rest.StartsWith("PASS");
+            string msg = "";
+            if (!passed) { msg = rest.StartsWith("FAIL:") ? rest.Substring(5).Trim() : rest; }
+            cases[idx] = new JUnitCase(name, passed, msg);
+            idx = idx + 1;
         }
-        string xml = "<testsuites tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
-                   + "<testsuite name=\"desktop.r1_r7\" tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
-                   + cases
-                   + "</testsuite>\n</testsuites>\n";
-        string dir = _reportDir(root, "desktop");
-        File.WriteAllText(Path.Join(dir, "junit.xml"), xml);
-        Console.WriteLine("  junit.xml (" + tests + " cases, " + failures + " failed)");
-    }
-
-    string _xmlEscape(string s) {
-        string o = s;
-        o = o.Replace("&", "&amp;");
-        o = o.Replace("<", "&lt;");
-        o = o.Replace(">", "&gt;");
-        o = o.Replace("\"", "&quot;");
-        return o;
-    }
-
-    string[] _splitLines(string s) {
-        string norm = s.Replace("\r\n", "\n");
-        return norm.Split("\n");
+        _writeJUnitReport(root, "desktop", "desktop.r1_r7", cases);
     }
 }

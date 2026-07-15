@@ -53,9 +53,16 @@ string _pkgStageNative(string root, string cargoOut) {
     string dir = _pkgStageDir(root, "native");
     Directory.Create(Path.Join(dir, "native/include"));
     _copyNativeLibs(cargoOut, dir);
-    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(dir, "native/include/z42_abi.h"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(dir, "native/include/z42_host.h"));
+    _copyAbiHeaders(root, Path.Join(dir, "native/include"));
     return dir;
+}
+
+// Copy the two C ABI headers (z42_abi.h + z42_host.h) from the runtime source
+// tree into a package's include dir. Single source-path SoT for every packaging
+// backend that ships the embed headers (review §2.5). Caller creates destIncludeDir.
+void _copyAbiHeaders(string root, string destIncludeDir) {
+    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
+    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
 }
 
 // [component.stdlib] kind=stdlib-glob, dest="libs/" — stages

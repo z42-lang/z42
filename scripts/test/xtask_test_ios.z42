@@ -88,7 +88,7 @@ public class IosBackend : IPlatformBackend {
         this._writeJUnit(root, r.Stdout);
         if (r.ExitCode != 0) {
             // Surface the failing test-case lines (xcodebuild is verbose).
-            foreach (var line in this._splitLines(r.Stdout)) {
+            foreach (var line in _stdoutLines(r.Stdout)) {
                 if (line.IndexOf("' failed") >= 0 || line.IndexOf(" error:") >= 0) { ConsoleError.WriteLine(line.Trim()); }
             }
         }
@@ -98,7 +98,7 @@ public class IosBackend : IPlatformBackend {
     // First available iPhone simulator UDID (first parenthesised group on the line).
     string _firstSimulatorUdid() {
         ProcessResult r = new Process("xcrun").Arg("simctl").Arg("list").Arg("devices").Arg("available").Run();
-        foreach (var line in this._splitLines(r.Stdout)) {
+        foreach (var line in _stdoutLines(r.Stdout)) {
             string t = line.Trim();
             if (!t.StartsWith("iPhone")) { continue; }
             int lp = t.IndexOf("(");
@@ -110,31 +110,28 @@ public class IosBackend : IPlatformBackend {
         return "";
     }
 
-    // Parse xcodebuild `Test Case '-[Z42VMTests testX]' passed/failed` lines → JUnit
-    // at the uniform report dir (artifacts/test-reports/ios/junit.xml).
+    // Parse xcodebuild `Test Case '-[Z42VMTests testX]' passed/failed` lines into
+    // JUnitCase[] → shared _writeJUnitReport (artifacts/test-reports/ios/junit.xml).
     void _writeJUnit(string root, string stdout) {
-        int tests = 0; int failures = 0; string cases = "";
-        foreach (var line in this._splitLines(stdout)) {
+        int n = 0;
+        foreach (var line in _stdoutLines(stdout)) {
+            string t = line.Trim();
+            if (t.IndexOf("Test Case '") < 0) { continue; }
+            if (t.IndexOf("' passed") < 0 && t.IndexOf("' failed") < 0) { continue; }
+            n = n + 1;
+        }
+        JUnitCase[] cases = new JUnitCase[n];
+        int idx = 0;
+        foreach (var line in _stdoutLines(stdout)) {
             string t = line.Trim();
             if (t.IndexOf("Test Case '") < 0) { continue; }
             bool passed = t.IndexOf("' passed") >= 0;
             bool failed = t.IndexOf("' failed") >= 0;
             if (!passed && !failed) { continue; }
-            string name = this._xcCaseName(t);
-            tests = tests + 1;
-            if (passed) {
-                cases = cases + "  <testcase name=\"" + name + "\" classname=\"ios.Z42VMTests\"/>\n";
-            } else {
-                failures = failures + 1;
-                cases = cases + "  <testcase name=\"" + name + "\" classname=\"ios.Z42VMTests\">\n"
-                      + "    <failure message=\"failed\"/>\n  </testcase>\n";
-            }
+            cases[idx] = new JUnitCase(this._xcCaseName(t), passed, "failed");
+            idx = idx + 1;
         }
-        string xml = "<testsuites tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
-                   + "<testsuite name=\"ios.Z42VMTests\" tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
-                   + cases + "</testsuite>\n</testsuites>\n";
-        File.WriteAllText(Path.Join(_reportDir(root, "ios"), "junit.xml"), xml);
-        Console.WriteLine("  junit.xml (" + tests + " cases, " + failures + " failed)");
+        _writeJUnitReport(root, "ios", "ios.Z42VMTests", cases);
     }
 
     // Extract the test method name from `... '-[Z42VMTests testFoo]' ...`.
@@ -146,10 +143,6 @@ public class IosBackend : IPlatformBackend {
         int sp = inner.IndexOf(" ");
         if (sp >= 0) { return inner.Substring(sp + 1); }
         return inner;
-    }
-
-    string[] _splitLines(string s) {
-        return s.Replace("\r\n", "\n").Split("\n");
     }
 
     int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {
