@@ -41,59 +41,59 @@ public sealed class DateTime {
     /// before year 1; year 0 doesn't exist in Gregorian, see Howard
     /// Hinnant's `civil_from_days`).
     public int Year() {
-        long days = _floorDiv(_unixMs, 86400000L);
-        long[] ymd = _civilFromDays(days);
+        long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
+        long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[0];
     }
 
     /// Month, 1..12.
     public int Month() {
-        long days = _floorDiv(_unixMs, 86400000L);
-        long[] ymd = _civilFromDays(days);
+        long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
+        long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[1];
     }
 
     /// Day of month, 1..31.
     public int Day() {
-        long days = _floorDiv(_unixMs, 86400000L);
-        long[] ymd = _civilFromDays(days);
+        long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
+        long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[2];
     }
 
     /// Hour of day, 0..23 (UTC).
     public int Hour() {
-        return (int)(_floorMod(_unixMs, 86400000L) / 3600000L);
+        return (int)(_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 3600000L);
     }
 
     /// Minute of hour, 0..59 (UTC).
     public int Minute() {
-        return (int)((_floorMod(_unixMs, 86400000L) / 60000L) % 60L);
+        return (int)((_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 60000L) % 60L);
     }
 
     /// Second of minute, 0..59 (UTC).
     public int Second() {
-        return (int)((_floorMod(_unixMs, 86400000L) / 1000L) % 60L);
+        return (int)((_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 1000L) % 60L);
     }
 
     /// Millisecond of second, 0..999.
     public int Millisecond() {
-        return (int)(_floorMod(_unixMs, 1000L));
+        return (int)(_DateTimeHelpers._floorMod(_unixMs, 1000L));
     }
 
     /// Day of week, 0=Sunday .. 6=Saturday (matches .NET / JS `getDay()`).
     /// 1970-01-01 was a Thursday → days mod 7 → 0=Thursday; shift by 4 to
     /// land Sunday at 0.
     public int DayOfWeek() {
-        long days = _floorDiv(_unixMs, 86400000L);
-        long shifted = _floorMod(days + 4L, 7L);
+        long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
+        long shifted = _DateTimeHelpers._floorMod(days + 4L, 7L);
         return (int)shifted;
     }
 
     /// Day of year, 1..366 (366 only on leap-year inputs).
     public int DayOfYear() {
         int y = this.Year();
-        long startOfYear = _daysFromCivil((long)y, 1L, 1L);
-        long thisDay = _floorDiv(_unixMs, 86400000L);
+        long startOfYear = _DateTimeHelpers._daysFromCivil((long)y, 1L, 1L);
+        long thisDay = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
         return (int)(thisDay - startOfYear + 1L);
     }
 
@@ -144,7 +144,7 @@ public sealed class DateTime {
         if (millis < 0 || millis > 999) {
             throw new ArgumentException("DateTime.Utc: millis must be 0..999, got " + millis.ToString());
         }
-        long days = _daysFromCivil((long)year, (long)month, (long)day);
+        long days = _DateTimeHelpers._daysFromCivil((long)year, (long)month, (long)day);
         long ms = days * 86400000L
                 + (long)hour * 3600000L
                 + (long)minute * 60000L
@@ -264,16 +264,16 @@ public sealed class DateTime {
     // offset rendering (`+00:00` vs `Z`).
     public string ToIso8601With(TimeZone tz) {
         long shifted = _unixMs + (long)tz.OffsetMinutes() * 60000L;
-        long days = _floorDiv(shifted, 86400000L);
-        long[] ymd = _civilFromDays(days);
-        long msInDay = _floorMod(shifted, 86400000L);
+        long days = _DateTimeHelpers._floorDiv(shifted, 86400000L);
+        long[] ymd = _DateTimeHelpers._civilFromDays(days);
+        long msInDay = _DateTimeHelpers._floorMod(shifted, 86400000L);
         long hour = msInDay / 3600000L;
         long min  = (msInDay / 60000L) % 60L;
         long sec  = (msInDay / 1000L) % 60L;
         long ms   = msInDay % 1000L;
-        return _pad4(ymd[0]) + "-" + _pad2(ymd[1]) + "-" + _pad2(ymd[2])
-            + "T" + _pad2(hour) + ":" + _pad2(min) + ":" + _pad2(sec)
-            + "." + _pad3(ms) + tz.ToOffsetString();
+        return _DateTimeHelpers._pad4(ymd[0]) + "-" + _DateTimeHelpers._pad2(ymd[1]) + "-" + _DateTimeHelpers._pad2(ymd[2])
+            + "T" + _DateTimeHelpers._pad2(hour) + ":" + _DateTimeHelpers._pad2(min) + ":" + _DateTimeHelpers._pad2(sec)
+            + "." + _DateTimeHelpers._pad3(ms) + tz.ToOffsetString();
     }
 
     // ── ISO-8601 解析 (add-datetime-iso8601-parse 2026-05-27) ───────────────
@@ -302,11 +302,11 @@ public sealed class DateTime {
             throw new ArgumentException("ParseIso8601: input too short: '" + (s ?? "") + "'");
         }
         // YYYY-MM-DD
-        int year  = _parseFixed(s, 0, 4, "year");
-        _expect(s, 4, '-');
-        int month = _parseFixed(s, 5, 2, "month");
-        _expect(s, 7, '-');
-        int day   = _parseFixed(s, 8, 2, "day");
+        int year  = _DateTimeHelpers._parseFixed(s, 0, 4, "year");
+        _DateTimeHelpers._expect(s, 4, '-');
+        int month = _DateTimeHelpers._parseFixed(s, 5, 2, "month");
+        _DateTimeHelpers._expect(s, 7, '-');
+        int day   = _DateTimeHelpers._parseFixed(s, 8, 2, "day");
         if (month < 1 || month > 12) {
             throw new ArgumentException("ParseIso8601: month out of range: " + month.ToString());
         }
@@ -319,7 +319,7 @@ public sealed class DateTime {
                 + year.ToString() + "-" + month.ToString() + ": " + day.ToString());
         }
 
-        long days = _daysFromCivil((long)year, (long)month, (long)day);
+        long days = _DateTimeHelpers._daysFromCivil((long)year, (long)month, (long)day);
         long unixMs = days * 86400000L;
 
         if (s.Length == 10) {
@@ -330,16 +330,16 @@ public sealed class DateTime {
         char sep = s.CharAt(10);
         if (sep != 'T' && sep != 't' && sep != ' ') {
             throw new ArgumentException(
-                "ParseIso8601: expected 'T' or space at position 10, got '" + _charStr(sep) + "'");
+                "ParseIso8601: expected 'T' or space at position 10, got '" + _DateTimeHelpers._charStr(sep) + "'");
         }
         if (s.Length < 19) {
             throw new ArgumentException("ParseIso8601: truncated time component");
         }
-        int hour = _parseFixed(s, 11, 2, "hour");
-        _expect(s, 13, ':');
-        int minute = _parseFixed(s, 14, 2, "minute");
-        _expect(s, 16, ':');
-        int second = _parseFixed(s, 17, 2, "second");
+        int hour = _DateTimeHelpers._parseFixed(s, 11, 2, "hour");
+        _DateTimeHelpers._expect(s, 13, ':');
+        int minute = _DateTimeHelpers._parseFixed(s, 14, 2, "minute");
+        _DateTimeHelpers._expect(s, 16, ':');
+        int second = _DateTimeHelpers._parseFixed(s, 17, 2, "second");
         if (hour > 23 || minute > 59 || second > 60) {
             throw new ArgumentException(
                 "ParseIso8601: time out of range " + hour.ToString() + ":"
@@ -358,7 +358,7 @@ public sealed class DateTime {
         if (pos < s.Length && s.CharAt(pos) == '.') {
             pos = pos + 1;
             int fracStart = pos;
-            while (pos < s.Length && _isDigit(s.CharAt(pos))) { pos = pos + 1; }
+            while (pos < s.Length && _DateTimeHelpers._isDigit(s.CharAt(pos))) { pos = pos + 1; }
             int fracLen = pos - fracStart;
             if (fracLen == 0) {
                 throw new ArgumentException("ParseIso8601: '.' not followed by fractional digits");
@@ -396,14 +396,14 @@ public sealed class DateTime {
         if (tz != '+' && tz != '-') {
             throw new ArgumentException(
                 "ParseIso8601: expected 'Z', '+', or '-' at position "
-                + pos.ToString() + ", got '" + _charStr(tz) + "'");
+                + pos.ToString() + ", got '" + _DateTimeHelpers._charStr(tz) + "'");
         }
         int sign = (tz == '-') ? -1 : 1;
         pos = pos + 1;
         if (pos + 2 > s.Length) {
             throw new ArgumentException("ParseIso8601: offset truncated");
         }
-        int offHours = _parseFixed(s, pos, 2, "offset hours");
+        int offHours = _DateTimeHelpers._parseFixed(s, pos, 2, "offset hours");
         pos = pos + 2;
         int offMinutes = 0;
         if (pos < s.Length) {
@@ -412,7 +412,7 @@ public sealed class DateTime {
             if (pos + 2 > s.Length) {
                 throw new ArgumentException("ParseIso8601: offset minutes truncated");
             }
-            offMinutes = _parseFixed(s, pos, 2, "offset minutes");
+            offMinutes = _DateTimeHelpers._parseFixed(s, pos, 2, "offset minutes");
             pos = pos + 2;
         }
         if (pos != s.Length) {
@@ -430,295 +430,26 @@ public sealed class DateTime {
         return new DateTime(unixMs - offsetMs);
     }
 
-    // Inverse of `_civilFromDays`: convert (y, m, d) → days since 1970-01-01.
-    // Howard Hinnant's `days_from_civil` (matches sibling algorithm).
-    static long _daysFromCivil(long y, long m, long d) {
-        if (m <= 2L) { y = y - 1L; }
-        long era;
-        if (y >= 0L) { era = y / 400L; } else { era = (y - 399L) / 400L; }
-        long yoe = y - era * 400L;
-        long mAdj;
-        if (m > 2L) { mAdj = m - 3L; } else { mAdj = m + 9L; }
-        long doy = (153L * mAdj + 2L) / 5L + d - 1L;
-        long doe = yoe * 365L + yoe / 4L - yoe / 100L + doy;
-        return era * 146097L + doe - 719468L;
-    }
-
-    static int _parseFixed(string s, int start, int width, string fieldName) {
-        if (start + width > s.Length) {
-            throw new ArgumentException("ParseIso8601: " + fieldName + " truncated");
-        }
-        int n = 0;
-        int i = 0;
-        while (i < width) {
-            char c = s.CharAt(start + i);
-            if (!_isDigit(c)) {
-                throw new ArgumentException(
-                    "ParseIso8601: non-digit in " + fieldName + " at position "
-                    + (start + i).ToString() + ": '" + _charStr(c) + "'");
-            }
-            n = n * 10 + ((int)c - (int)'0');
-            i = i + 1;
-        }
-        return n;
-    }
-
-    static void _expect(string s, int pos, char want) {
-        if (pos >= s.Length || s.CharAt(pos) != want) {
-            char got = pos < s.Length ? s.CharAt(pos) : '?';
-            throw new ArgumentException(
-                "ParseIso8601: expected '" + _charStr(want) + "' at position "
-                + pos.ToString() + ", got '" + _charStr(got) + "'");
-        }
-    }
-
-    static bool _isDigit(char c) { return c >= '0' && c <= '9'; }
-
-    static string _charStr(char c) {
-        char[] buf = new char[1];
-        buf[0] = c;
-        return String.FromChars(buf);
-    }
 
     // ── 内部实现 ─────────────────────────────────────────────────────────────
 
     private string _formatIsoDate() {
-        long days = _floorDiv(_unixMs, 86400000L);
-        long[] ymd = _civilFromDays(days);
-        return _pad4(ymd[0]) + "-" + _pad2(ymd[1]) + "-" + _pad2(ymd[2]);
+        long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
+        long[] ymd = _DateTimeHelpers._civilFromDays(days);
+        return _DateTimeHelpers._pad4(ymd[0]) + "-" + _DateTimeHelpers._pad2(ymd[1]) + "-" + _DateTimeHelpers._pad2(ymd[2]);
     }
 
     private string _formatIsoTimeOfDay(bool withMillis) {
-        long msInDay = _floorMod(_unixMs, 86400000L);
+        long msInDay = _DateTimeHelpers._floorMod(_unixMs, 86400000L);
         long hour = msInDay / 3600000L;
         long min  = (msInDay / 60000L) % 60L;
         long sec  = (msInDay / 1000L) % 60L;
         long ms   = msInDay % 1000L;
-        string s = _pad2(hour) + ":" + _pad2(min) + ":" + _pad2(sec);
+        string s = _DateTimeHelpers._pad2(hour) + ":" + _DateTimeHelpers._pad2(min) + ":" + _DateTimeHelpers._pad2(sec);
         if (withMillis) {
-            s = s + "." + _pad3(ms);
+            s = s + "." + _DateTimeHelpers._pad3(ms);
         }
         return s + "Z";
     }
 
-    // Howard Hinnant `civil_from_days` (well-known algorithm; supports negative days).
-    // 输入：days since 1970-01-01；输出：[year, month, day] 其中 month ∈ [1,12], day ∈ [1,31]。
-    static long[] _civilFromDays(long days) {
-        long z = days + 719468L;
-        long era;
-        if (z >= 0L) { era = z / 146097L; } else { era = (z - 146096L) / 146097L; }
-        long doe = z - era * 146097L;                                                       // [0, 146096]
-        long yoe = (doe - doe / 1460L + doe / 36524L - doe / 146096L) / 365L;               // [0, 399]
-        long y = yoe + era * 400L;
-        long doy = doe - (365L * yoe + yoe / 4L - yoe / 100L);                              // [0, 365]
-        long mp  = (5L * doy + 2L) / 153L;                                                  // [0, 11]
-        long d   = doy - (153L * mp + 2L) / 5L + 1L;                                        // [1, 31]
-        long m;
-        if (mp < 10L) { m = mp + 3L; } else { m = mp - 9L; }
-        if (m <= 2L) { y = y + 1L; }
-        long[] result = new long[3];
-        result[0] = y;
-        result[1] = m;
-        result[2] = d;
-        return result;
-    }
-
-    // Floor division / modulo（处理负数向负无穷舍入；Unix epoch 之前的时刻需要）。
-    // C-style `/` 在 z42 跟 .NET 一样 truncates-toward-zero，对负数会算错日界。
-    static long _floorDiv(long a, long b) {
-        long q = a / b;
-        long r = a - q * b;
-        if ((r != 0L) && ((r < 0L) != (b < 0L))) { q = q - 1L; }
-        return q;
-    }
-    static long _floorMod(long a, long b) {
-        long r = a - _floorDiv(a, b) * b;
-        return r;
-    }
-
-    static string _pad2(long n) {
-        if (n < 10L) { return "0" + n.ToString(); }
-        return n.ToString();
-    }
-    static string _pad3(long n) {
-        if (n < 10L)  { return "00" + n.ToString(); }
-        if (n < 100L) { return "0"  + n.ToString(); }
-        return n.ToString();
-    }
-    static string _pad4(long n) {
-        if (n < 0L)     { return "-" + _pad4(-n); }
-        if (n < 10L)    { return "000" + n.ToString(); }
-        if (n < 100L)   { return "00"  + n.ToString(); }
-        if (n < 1000L)  { return "0"   + n.ToString(); }
-        return n.ToString();
-    }
-}
-
-// add-datetime-offset (2026-06-03): canonical (DateTime utc, TimeZone
-// tz) pair — same shape as BCL DateTimeOffset / Java OffsetDateTime
-// / Go time.Time. Lives in DateTime.z42 (not its own file) as a
-// workaround for a z42.time-package-specific TypeChecker E0402 bug
-// triggered by new files referencing sibling cross-file types
-// (TimeZone, TimeSpan). Probe `_BugProbe.z42` confirms even a minimal
-// new class triggers it. Tracked separately.
-public sealed class DateTimeOffset {
-    private DateTime _utc;
-    private TimeZone _tz;
-
-    public DateTimeOffset(DateTime utc, TimeZone tz) {
-        if (utc == null) {
-            throw new ArgumentNullException("DateTimeOffset: utc must not be null");
-        }
-        if (tz == null) {
-            throw new ArgumentNullException("DateTimeOffset: tz must not be null");
-        }
-        this._utc = utc;
-        this._tz  = tz;
-    }
-
-    public static DateTimeOffset Now(TimeZone tz) {
-        return new DateTimeOffset(DateTime.UtcNow(), tz);
-    }
-
-    public static DateTimeOffset FromLocal(int year, int month, int day,
-                                           int hour, int minute, int second,
-                                           int millisecond, TimeZone tz) {
-        if (tz == null) {
-            throw new ArgumentNullException("DateTimeOffset.FromLocal: tz must not be null");
-        }
-        DateTime asUtc = DateTime.Utc(year, month, day, hour, minute, second, millisecond);
-        DateTime utc = asUtc.AddMinutes(-tz.OffsetMinutes());
-        return new DateTimeOffset(utc, tz);
-    }
-
-    /// Parse ISO 8601 with mandatory offset suffix (`Z` / `±HH:MM` /
-    /// `±HHMM`). Throws `FormatException` on missing suffix.
-    public static DateTimeOffset Parse(string s) {
-        if (s == null || s.Length == 0) {
-            throw new FormatException("DateTimeOffset.Parse: empty input");
-        }
-        int suffixPos = -1;
-        char suffixChar = ' ';
-        if (s.Length >= 11) {
-            int i = s.Length - 1;
-            while (i >= 10) {
-                char c = s.CharAt(i);
-                if (c == 'Z' || c == '+' || c == '-') {
-                    suffixPos = i;
-                    suffixChar = c;
-                    i = -1;
-                } else {
-                    i = i - 1;
-                }
-            }
-        }
-        if (suffixPos < 0) {
-            throw new FormatException(
-                "DateTimeOffset.Parse: missing offset suffix in '" + s + "'");
-        }
-        DateTime utc = DateTime.ParseIso8601(s);
-        TimeZone tz;
-        if (suffixChar == 'Z') {
-            tz = TimeZone.Utc();
-        } else {
-            int sign = (suffixChar == '-') ? -1 : 1;
-            string rest = s.Substring(suffixPos + 1, s.Length - (suffixPos + 1));
-            int colonPos = -1;
-            int j = 0;
-            while (j < rest.Length) {
-                if (rest.CharAt(j) == ':') { colonPos = j; j = rest.Length; }
-                else { j = j + 1; }
-            }
-            int hh = 0;
-            int mm = 0;
-            if (colonPos >= 0) {
-                hh = DateTimeOffset._parseInt(rest.Substring(0, colonPos), s);
-                mm = DateTimeOffset._parseInt(rest.Substring(colonPos + 1, rest.Length - (colonPos + 1)), s);
-            } else if (rest.Length == 4) {
-                hh = DateTimeOffset._parseInt(rest.Substring(0, 2), s);
-                mm = DateTimeOffset._parseInt(rest.Substring(2, 2), s);
-            } else if (rest.Length == 2) {
-                hh = DateTimeOffset._parseInt(rest, s);
-            } else {
-                throw new FormatException(
-                    "DateTimeOffset.Parse: malformed offset in '" + s + "'");
-            }
-            tz = TimeZone.FromOffsetMinutes(sign * (hh * 60 + mm));
-        }
-        return new DateTimeOffset(utc, tz);
-    }
-
-    public DateTime UtcDateTime() { return this._utc; }
-
-    public DateTime LocalDateTime() {
-        return this._utc.AddMinutes(this._tz.OffsetMinutes());
-    }
-
-    public TimeZone Offset() { return this._tz; }
-
-    public int Year()        { return this.LocalDateTime().Year();        }
-    public int Month()       { return this.LocalDateTime().Month();       }
-    public int Day()         { return this.LocalDateTime().Day();         }
-    public int Hour()        { return this.LocalDateTime().Hour();        }
-    public int Minute()      { return this.LocalDateTime().Minute();      }
-    public int Second()      { return this.LocalDateTime().Second();      }
-    public int Millisecond() { return this.LocalDateTime().Millisecond(); }
-    public int DayOfWeek()   { return this.LocalDateTime().DayOfWeek();   }
-    public int DayOfYear()   { return this.LocalDateTime().DayOfYear();   }
-
-    public string ToIso8601() {
-        return this._utc.ToIso8601With(this._tz);
-    }
-
-    public override string ToString() {
-        return this.ToIso8601();
-    }
-
-    /// UTC-only equality — same instant, possibly authored in different
-    /// zones (matches BCL `Equals(DateTimeOffset)`).
-    public bool Equals(DateTimeOffset other) {
-        if (other == null) return false;
-        return this._utc.Equals(other._utc);
-    }
-
-    /// UTC AND offset both match (matches BCL `EqualsExact`).
-    public bool EqualsExact(DateTimeOffset other) {
-        if (other == null) return false;
-        if (this._utc.UnixMs() != other._utc.UnixMs()) return false;
-        return this._tz.OffsetMinutes() == other._tz.OffsetMinutes();
-    }
-
-    public bool IsAfter(DateTimeOffset other)  { return this._utc.IsAfter(other._utc);  }
-    public bool IsBefore(DateTimeOffset other) { return this._utc.IsBefore(other._utc); }
-
-    public TimeSpan Subtract(DateTimeOffset other) {
-        return this._utc.Subtract(other._utc);
-    }
-
-    public DateTimeOffset Add(TimeSpan span) {
-        return new DateTimeOffset(this._utc.Add(span), this._tz);
-    }
-
-    public DateTimeOffset SubtractSpan(TimeSpan span) {
-        return new DateTimeOffset(this._utc.SubtractSpan(span), this._tz);
-    }
-
-    static int _parseInt(string s, string original) {
-        if (s.Length == 0) {
-            throw new FormatException(
-                "DateTimeOffset.Parse: empty digit run in offset of '" + original + "'");
-        }
-        int n = 0;
-        int i = 0;
-        while (i < s.Length) {
-            char c = s.CharAt(i);
-            if (c < '0' || c > '9') {
-                throw new FormatException(
-                    "DateTimeOffset.Parse: non-digit in offset of '" + original + "'");
-            }
-            n = n * 10 + ((int)c - (int)'0');
-            i = i + 1;
-        }
-        return n;
-    }
 }

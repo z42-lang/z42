@@ -21,7 +21,9 @@ builtin 拿 OS 时钟，业务逻辑全部脚本化。
 | 文件 | 类型 | 说明 |
 |------|------|------|
 | `TimeSpan.z42`  | `struct TimeSpan`  | 时间段值，内部 i64 ns；factory + 总量访问器 |
-| `DateTime.z42`  | `struct DateTime`  | UTC 时刻值，内部 i64 Unix epoch ms；factory + 解构访问器 + `ToIso8601()` / `ToIso8601Basic()` / `ToIso8601With(tz)` |
+| `DateTime.z42`  | `sealed class DateTime`  | UTC 时刻值，内部 i64 Unix epoch ms；factory + 解构访问器 + `ToIso8601()` / `ToIso8601Basic()` / `ToIso8601With(tz)` |
+| `DateTimeOffset.z42` | `sealed class DateTimeOffset` | 带 UTC 偏移的时刻 + `Parse`（从 DateTime.z42 拆出，review §6） |
+| `_DateTimeHelpers.z42` | `static class _DateTimeHelpers` | 日历换算（civil↔days）/ ISO 解析·格式化 纯静态辅助（从 DateTime.z42 拆出，review §6） |
 | `TimeZone.z42`  | `class TimeZone`   | 固定 offset 时区 + 短代码查表（UTC/GMT/EST/PST/JST/IST/...）；`FromName` / `FromOffsetMinutes` / `Utc` factory。**无 DST、无 IANA tzdata**（详 Deferred） |
 | `Stopwatch.z42` | `class Stopwatch`  | 单调高精度计时器（不受系统时钟跳变影响），基于 `__time_now_mono_ns` |
 

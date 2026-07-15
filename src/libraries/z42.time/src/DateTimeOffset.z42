@@ -1,0 +1,165 @@
+namespace Std.Time;
+
+// DateTimeOffset — 带 UTC 偏移的时刻（从 DateTime.z42 拆出，review §6/§1.8：单文件多类型 + 超 500 行）。
+
+public sealed class DateTimeOffset {
+    private DateTime _utc;
+    private TimeZone _tz;
+
+    public DateTimeOffset(DateTime utc, TimeZone tz) {
+        if (utc == null) {
+            throw new ArgumentNullException("DateTimeOffset: utc must not be null");
+        }
+        if (tz == null) {
+            throw new ArgumentNullException("DateTimeOffset: tz must not be null");
+        }
+        this._utc = utc;
+        this._tz  = tz;
+    }
+
+    public static DateTimeOffset Now(TimeZone tz) {
+        return new DateTimeOffset(DateTime.UtcNow(), tz);
+    }
+
+    public static DateTimeOffset FromLocal(int year, int month, int day,
+                                           int hour, int minute, int second,
+                                           int millisecond, TimeZone tz) {
+        if (tz == null) {
+            throw new ArgumentNullException("DateTimeOffset.FromLocal: tz must not be null");
+        }
+        DateTime asUtc = DateTime.Utc(year, month, day, hour, minute, second, millisecond);
+        DateTime utc = asUtc.AddMinutes(-tz.OffsetMinutes());
+        return new DateTimeOffset(utc, tz);
+    }
+
+    /// Parse ISO 8601 with mandatory offset suffix (`Z` / `±HH:MM` /
+    /// `±HHMM`). Throws `FormatException` on missing suffix.
+    public static DateTimeOffset Parse(string s) {
+        if (s == null || s.Length == 0) {
+            throw new FormatException("DateTimeOffset.Parse: empty input");
+        }
+        int suffixPos = -1;
+        char suffixChar = ' ';
+        if (s.Length >= 11) {
+            int i = s.Length - 1;
+            while (i >= 10) {
+                char c = s.CharAt(i);
+                if (c == 'Z' || c == '+' || c == '-') {
+                    suffixPos = i;
+                    suffixChar = c;
+                    i = -1;
+                } else {
+                    i = i - 1;
+                }
+            }
+        }
+        if (suffixPos < 0) {
+            throw new FormatException(
+                "DateTimeOffset.Parse: missing offset suffix in '" + s + "'");
+        }
+        DateTime utc = DateTime.ParseIso8601(s);
+        TimeZone tz;
+        if (suffixChar == 'Z') {
+            tz = TimeZone.Utc();
+        } else {
+            int sign = (suffixChar == '-') ? -1 : 1;
+            string rest = s.Substring(suffixPos + 1, s.Length - (suffixPos + 1));
+            int colonPos = -1;
+            int j = 0;
+            while (j < rest.Length) {
+                if (rest.CharAt(j) == ':') { colonPos = j; j = rest.Length; }
+                else { j = j + 1; }
+            }
+            int hh = 0;
+            int mm = 0;
+            if (colonPos >= 0) {
+                hh = DateTimeOffset._parseInt(rest.Substring(0, colonPos), s);
+                mm = DateTimeOffset._parseInt(rest.Substring(colonPos + 1, rest.Length - (colonPos + 1)), s);
+            } else if (rest.Length == 4) {
+                hh = DateTimeOffset._parseInt(rest.Substring(0, 2), s);
+                mm = DateTimeOffset._parseInt(rest.Substring(2, 2), s);
+            } else if (rest.Length == 2) {
+                hh = DateTimeOffset._parseInt(rest, s);
+            } else {
+                throw new FormatException(
+                    "DateTimeOffset.Parse: malformed offset in '" + s + "'");
+            }
+            tz = TimeZone.FromOffsetMinutes(sign * (hh * 60 + mm));
+        }
+        return new DateTimeOffset(utc, tz);
+    }
+
+    public DateTime UtcDateTime() { return this._utc; }
+
+    public DateTime LocalDateTime() {
+        return this._utc.AddMinutes(this._tz.OffsetMinutes());
+    }
+
+    public TimeZone Offset() { return this._tz; }
+
+    public int Year()        { return this.LocalDateTime().Year();        }
+    public int Month()       { return this.LocalDateTime().Month();       }
+    public int Day()         { return this.LocalDateTime().Day();         }
+    public int Hour()        { return this.LocalDateTime().Hour();        }
+    public int Minute()      { return this.LocalDateTime().Minute();      }
+    public int Second()      { return this.LocalDateTime().Second();      }
+    public int Millisecond() { return this.LocalDateTime().Millisecond(); }
+    public int DayOfWeek()   { return this.LocalDateTime().DayOfWeek();   }
+    public int DayOfYear()   { return this.LocalDateTime().DayOfYear();   }
+
+    public string ToIso8601() {
+        return this._utc.ToIso8601With(this._tz);
+    }
+
+    public override string ToString() {
+        return this.ToIso8601();
+    }
+
+    /// UTC-only equality — same instant, possibly authored in different
+    /// zones (matches BCL `Equals(DateTimeOffset)`).
+    public bool Equals(DateTimeOffset other) {
+        if (other == null) return false;
+        return this._utc.Equals(other._utc);
+    }
+
+    /// UTC AND offset both match (matches BCL `EqualsExact`).
+    public bool EqualsExact(DateTimeOffset other) {
+        if (other == null) return false;
+        if (this._utc.UnixMs() != other._utc.UnixMs()) return false;
+        return this._tz.OffsetMinutes() == other._tz.OffsetMinutes();
+    }
+
+    public bool IsAfter(DateTimeOffset other)  { return this._utc.IsAfter(other._utc);  }
+    public bool IsBefore(DateTimeOffset other) { return this._utc.IsBefore(other._utc); }
+
+    public TimeSpan Subtract(DateTimeOffset other) {
+        return this._utc.Subtract(other._utc);
+    }
+
+    public DateTimeOffset Add(TimeSpan span) {
+        return new DateTimeOffset(this._utc.Add(span), this._tz);
+    }
+
+    public DateTimeOffset SubtractSpan(TimeSpan span) {
+        return new DateTimeOffset(this._utc.SubtractSpan(span), this._tz);
+    }
+
+    static int _parseInt(string s, string original) {
+        if (s.Length == 0) {
+            throw new FormatException(
+                "DateTimeOffset.Parse: empty digit run in offset of '" + original + "'");
+        }
+        int n = 0;
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (c < '0' || c > '9') {
+                throw new FormatException(
+                    "DateTimeOffset.Parse: non-digit in offset of '" + original + "'");
+            }
+            n = n * 10 + ((int)c - (int)'0');
+            i = i + 1;
+        }
+        return n;
+    }
+}

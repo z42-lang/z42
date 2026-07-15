@@ -1,0 +1,106 @@
+namespace Std.Time;
+
+// 日历换算 / ISO 解析·格式化 的纯静态辅助（从 DateTime.z42 拆出，review §6：文件超 500 行）。
+// 注：z42.time 曾有包内 E0402（新文件引用兄弟跨文件类型），本会话编译器重构已修复（probe 验证）。
+public static class _DateTimeHelpers {
+    // Inverse of `_civilFromDays`: convert (y, m, d) → days since 1970-01-01.
+    // Howard Hinnant's `days_from_civil` (matches sibling algorithm).
+    public static long _daysFromCivil(long y, long m, long d) {
+        if (m <= 2L) { y = y - 1L; }
+        long era;
+        if (y >= 0L) { era = y / 400L; } else { era = (y - 399L) / 400L; }
+        long yoe = y - era * 400L;
+        long mAdj;
+        if (m > 2L) { mAdj = m - 3L; } else { mAdj = m + 9L; }
+        long doy = (153L * mAdj + 2L) / 5L + d - 1L;
+        long doe = yoe * 365L + yoe / 4L - yoe / 100L + doy;
+        return era * 146097L + doe - 719468L;
+    }
+
+    public static int _parseFixed(string s, int start, int width, string fieldName) {
+        if (start + width > s.Length) {
+            throw new ArgumentException("ParseIso8601: " + fieldName + " truncated");
+        }
+        int n = 0;
+        int i = 0;
+        while (i < width) {
+            char c = s.CharAt(start + i);
+            if (!_isDigit(c)) {
+                throw new ArgumentException(
+                    "ParseIso8601: non-digit in " + fieldName + " at position "
+                    + (start + i).ToString() + ": '" + _charStr(c) + "'");
+            }
+            n = n * 10 + ((int)c - (int)'0');
+            i = i + 1;
+        }
+        return n;
+    }
+
+    public static void _expect(string s, int pos, char want) {
+        if (pos >= s.Length || s.CharAt(pos) != want) {
+            char got = pos < s.Length ? s.CharAt(pos) : '?';
+            throw new ArgumentException(
+                "ParseIso8601: expected '" + _charStr(want) + "' at position "
+                + pos.ToString() + ", got '" + _charStr(got) + "'");
+        }
+    }
+
+    public static bool _isDigit(char c) { return c >= '0' && c <= '9'; }
+
+    public static string _charStr(char c) {
+        char[] buf = new char[1];
+        buf[0] = c;
+        return String.FromChars(buf);
+    }
+    // Howard Hinnant `civil_from_days` (well-known algorithm; supports negative days).
+    // 输入：days since 1970-01-01；输出：[year, month, day] 其中 month ∈ [1,12], day ∈ [1,31]。
+    public static long[] _civilFromDays(long days) {
+        long z = days + 719468L;
+        long era;
+        if (z >= 0L) { era = z / 146097L; } else { era = (z - 146096L) / 146097L; }
+        long doe = z - era * 146097L;                                                       // [0, 146096]
+        long yoe = (doe - doe / 1460L + doe / 36524L - doe / 146096L) / 365L;               // [0, 399]
+        long y = yoe + era * 400L;
+        long doy = doe - (365L * yoe + yoe / 4L - yoe / 100L);                              // [0, 365]
+        long mp  = (5L * doy + 2L) / 153L;                                                  // [0, 11]
+        long d   = doy - (153L * mp + 2L) / 5L + 1L;                                        // [1, 31]
+        long m;
+        if (mp < 10L) { m = mp + 3L; } else { m = mp - 9L; }
+        if (m <= 2L) { y = y + 1L; }
+        long[] result = new long[3];
+        result[0] = y;
+        result[1] = m;
+        result[2] = d;
+        return result;
+    }
+
+    // Floor division / modulo（处理负数向负无穷舍入；Unix epoch 之前的时刻需要）。
+    // C-style `/` 在 z42 跟 .NET 一样 truncates-toward-zero，对负数会算错日界。
+    public static long _floorDiv(long a, long b) {
+        long q = a / b;
+        long r = a - q * b;
+        if ((r != 0L) && ((r < 0L) != (b < 0L))) { q = q - 1L; }
+        return q;
+    }
+    public static long _floorMod(long a, long b) {
+        long r = a - _floorDiv(a, b) * b;
+        return r;
+    }
+
+    public static string _pad2(long n) {
+        if (n < 10L) { return "0" + n.ToString(); }
+        return n.ToString();
+    }
+    public static string _pad3(long n) {
+        if (n < 10L)  { return "00" + n.ToString(); }
+        if (n < 100L) { return "0"  + n.ToString(); }
+        return n.ToString();
+    }
+    public static string _pad4(long n) {
+        if (n < 0L)     { return "-" + _pad4(-n); }
+        if (n < 10L)    { return "000" + n.ToString(); }
+        if (n < 100L)   { return "00"  + n.ToString(); }
+        if (n < 1000L)  { return "0"   + n.ToString(); }
+        return n.ToString();
+    }
+}
