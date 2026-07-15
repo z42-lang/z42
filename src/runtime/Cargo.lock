@@ -2206,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "z42"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "z42-abi"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "z42-compression"
@@ -2271,7 +2271,7 @@ version = "0.1.0"
 
 [[package]]
 name = "z42-macros"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -2282,7 +2282,7 @@ dependencies = [
 
 [[package]]
 name = "z42-rs"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "z42-abi",
  "z42-macros",

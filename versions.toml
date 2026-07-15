@@ -38,7 +38,7 @@ schema_version = 1
 #   4. .github/workflows/release.yml 自动触发跨平台 SDK package publish
 
 [project]
-version = "0.3.0"                       # → Cargo.toml [workspace.package].version
+version = "0.4.0"                       # → Cargo.toml [workspace.package].version
 
 # ══════════════════════════════════════════════════════════════════════════
 # TOOLCHAIN: 跨平台 build 工具（每台 dev/CI 机都要装）
