@@ -113,9 +113,13 @@ primitive static override）经 VCall 按运行时类型派发 → base/派生�
 base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)→ VCall 落空。**修**：SymbolCollector `regName` 加
 `staticVirtual = mst && (override||abstract)` 判据 → 静态虚成员走基线键（op_* 唯一→裸）。
 
-**C. e2e golden `string_static_methods`（待观察）**：CI 截断显示 `expected: true / actual: true`（首行相同，
-真实差异行被截断）。分析全部静态调用（IsNullOrEmpty/Join/Concat/Format/Parse）均应正常（params_varargs_*
-/ params_object_mixed 同轮 e2e 已过 → 运行期 params-Join 机制正常；parse_and_string_static 过 → Parse 正常）。
-未定位到运行期破坏点，随本轮 12 项修复一并观察下轮 CI 隔离信号。
+**C. e2e golden `string_static_methods`（根因已定位并修，第六轮）**：a74a8c3 后 e2e 收敛到 196/1，仅剩它。
+harness 只 print `_firstLine`（xtask_test_vm.z42:251），`true/true` 是首行，真实差异在第 4 行 `x-y-z`。
+**根因**：`string.Join("-","x","y","z")`（keyword 静态 + params expanded form）。MemberResolver 的 keyword
+静态路径（site 3）此前**不经 `_withDefaults`**，靠精确 arity 重载兜底；params-for-Join 移除了
+`Join(string,string,string,string)` 精确重载后，expanded form 需 `_withParamsExpansion` 打包成 string[]，
+否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符 → 该行输出错。**修**：site 3 补
+`_withDefaults`（与类限定静态调用 line 280 一致）。非 params 调用（int.Parse 等）`_withDefaults` 原样返回，
+不受影响。
 
 本地不可验 z42c 自举/e2e（冷环境）；Rust 侧本轮未改。

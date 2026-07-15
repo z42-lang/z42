@@ -297,7 +297,12 @@ public sealed class MemberResolver {
                     // 查不到已 mangle 的静态方法 → 必须走 _resolveOverload 拿 RegKey。（prim 实例方法不 mangle，走上方裸键路径。）
                     MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, sp);
                     if (wms2 != null) {
-                        return new BoundCall("static", false, null, pwrap2, wms2.RegKey, args, argCount, wms2.Signature.Ret, sp);
+                        // params 打包 / 默认参数填充（与上方类限定静态调用一致）：keyword 静态调用此前不经
+                        // _withDefaults，靠精确 arity 重载兜底；params-for-Join 移除了 `Join(string,string,string,string)`
+                        // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
+                        // 否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符。
+                        BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp);
+                        return new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp);
                     }
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                         "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
