@@ -100,11 +100,11 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 `_buildPackageCore` → `_packageDesktop` 内部构建完全重复；包已存在路径下预构建三步全部多余。
 删掉预构建波、只留 `if (!_hasReleasePkg) _buildPackageCore(...)`，`test dist` 时间近乎减半。
 
-> **⏸ 暂缓（2026-07-15，同 §2.6 判据）**：这是**行为变更**（删构建步），而 `test dist`
-> **不在任何 CI job**（§3.4 已证）→ 无验证面。冷环境无法本地跑核对「删预构建波后 `_testDistRun`
-> 是否仍拿到所需产物」（它跑**打包后**的 z42c/z42vm，但预构建波还产 release z42vm/golden 基线，
-> 是否被 `_testDistRun` 独立依赖需实跑确认）。**留 warm 环境**：本地 `xtask package sdk && xtask
-> test dist` 删波前后对比通过再落。直连-main + 无 CI 覆盖下不做。
+> **✅ 已落地（2026-07-16）**：复审确认 `_testDistRun` 只消费打包产物（`bin/z42c`/`bin/z42vm`/
+> `libs/`），预构建波（`_buildCompiler`+cargo+`_buildStdlib`）产的**源码树** artifacts 它一概不碰；
+> 而 `_buildPackageCore`→`_packageDesktop` 内部自建 z42c/z42vm/stdlib → 预构建波在两分支都是纯冗余。
+> 删波、只留 `if (!_hasReleasePkg) _buildPackageCore`。compile-toolchain 验证；test dist 运行期非
+> CI 覆盖，等价性由「只用包 + 打包路径不变」保证（非行为变更——包缺自建、包在直测，与原先一致）。
 
 ### 2.5 package 四平台"复制粘贴后各自演化"
 
@@ -308,8 +308,12 @@ ci.yml publish-nightly（:1217-1294）与 release.yml（:145-194）各写一份 
 > （只 checkout + rust + 4 cargo，带 `--locked`），改调 `xtask feature-matrix` 会给这个轻量独立 job
 > 平添整条 xtask bootstrap 依赖 + 丢 `--locked` → 得不偿失，两版各有其用。
 >
-> **剩纯装饰**：test-android emulator 重试（flake 缓解，但 emu 冷环境不可测、天然 flaky）+ 陈旧注释
-> （:205 "bash 理由"、:1159）+ `--jobs=4`/`--jobs 4` 风格不一——低价值，不值单独 CI churn。
+> **✅ 陈旧注释已修（2026-07-16）**：test-host「Test on Unix」注释块的 `--parallel`/`--jobs=4`/
+> `test-lib.sh`/`test-vm.sh` 全是 C#/bash 时代残留（现命令 `xtask test all --skip …` 既无 `--parallel`
+> 也无 `--jobs`）→ 重写为准确描述。
+>
+> **剩不做**：`--jobs=4`/`--jobs 4` 形式统一——两形式均生产在跑，统一是零价值 + parser 等价性尾险
+> （刚出过回归，不为装饰冒险）；test-android emulator 重试——emu 冷环境不可测、天然 flaky。
 
 ---
 
@@ -391,10 +395,10 @@ Rust runner 已被 z42b 取代，但 `stdlib-tests.md:3,36-40,52-53,83`（含不
   `.claude/` 链接本就出站失效，建议 book 内不直链）
 - `docs/workflow/README.md:50`：`artifacts/build/z42c/` 已更名 `artifacts/build/compiler/`
 - `docs/design/runtime/zbc.md:463`：不存在的 `generate-fixtures.sh`（同页 :430 已写对）
-  → **仍在（现 :481），但暂缓（2026-07-15 复核）**：正确命令是 `xtask build test`（version-bumping.md
-  步骤 4）。阻塞两点：① `zbc.md` 属 `docs/design/`（冻结/迁移中，doc-system D2）；② 该文件正被 in-flight
-  `stabilize-dispatch-keys`（zbc 1.27 changelog 行）编辑，parallel-dev「同 md 不同段=串行」→ 待其归档后随
-  compiler 锁一并修。另 `.claude/settings.json:45` 有该幽灵脚本的死 allow-entry，可顺带清。
+  → **✅ 已修（2026-07-16）**：`generate-fixtures.sh regen` → `xtask build test`（version-bumping.md
+  步骤 4；原地重生 6 个 zbc-format fixture）。`stabilize-dispatch-keys` 代码已随 #7 合并、不再并发编辑
+  该文件；虽属 `docs/design/`（冻结），但这是**死命令factual 修正**非内容演进，故落。另
+  `.claude/settings.json:45` 幽灵脚本 allow-entry 属用户 config、未动（低价值）。
 - `book/dev/packaging.md:72`：`release assemble-desktop-workload`（命令已删）
 - 结构：`vm-tests.md` + `cross-zpkg.md` 两页对齐的是旧命令面（现已合并为 `test e2e`），
   建议合并为 `e2e-tests.md`；`bootstrap.md` 与 `ci.md` 是"CI 拓扑双胞胎"且现状描述互相矛盾

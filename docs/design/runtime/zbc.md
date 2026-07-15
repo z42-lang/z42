@@ -478,7 +478,7 @@ z42c --assemble foo.zasm -o foo.zbc
 | 1.26 | 2026-07-11 | [add-delegate-metadata](../../spec/changes/add-delegate-metadata/)（unify-type-metadata P1-e ②） | **delegate-as-class**：`class_flags` 新增 **bit6=delegate**（无额外 payload——沿 1.19 interface「flags 语义扩展 + 新增条目」先例 bump）。每 `delegate` 声明（含泛型）emit 一条 TYPE 条目（FQ 名 + bit6 + TypeParams——泛型 tps 存 TYPE，Invoke 按名引用）+ 合成 `<FQ>.Invoke` 死体桩进 SIGS/FUNC（实例/virtual/参数源拼写+名+P1-d 元数据；真实调用走 CallIndirect，桩永不被调）。背书 `Type.IsDelegate` + Invoke 签名反射；P3 删 TSIG 的 delegate 表前置。zpkg 0.30 同步联动。Pre-1.26 zbc 不可读 |
 | 1.27 | 2026-07-14 | [stabilize-dispatch-keys](../../spec/changes/stabilize-dispatch-keys/)（方案A） | **无 wire-layout 变化**：派发键从「兄弟集相关」改为「方法自身签名纯函数」（`regName` 一律全签名 mangle，协议豁免名 `ToString`/`Equals`/… 保持裸名）→ `CallInstr`/`VCall` 操作数字符串 + SIGS/导出方法名 **全局重键**（内容变、布局不变）。VM vtable 槽键随之保留 `$` 后缀（`derive_simple_method_name` 不再截断）→ VCall 与 vtable 一致 + 重载虚方法各占独立槽。bump 仅为触发 ci-bootstrap 两代自举整树重键（耦合 zpkg 0.32）。Pre-1.27 zbc 不可读 |
 
-> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `generate-fixtures.sh` regen + commit。Invariant CI 校验三方常量一致。
+> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
 
 ### Token 编码（v1.0+）
 

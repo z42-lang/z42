@@ -204,16 +204,12 @@ jobs:
           fi
           echo "release guard (reverse): tests/dist + bench/dist contain only harness zpkgs (OK)"
 
-      # Test on Unix runners (existing scripts are bash).
-      # --parallel: wave-based stage-level concurrency (W1/W2/W3).
-      # --jobs=4: intra-stage parallelism for test-lib.sh and test-vm.sh;
-      #   capped at 4 to stay within the runner's vCPU budget (ubuntu=4,
-      #   macos-15=3) even when two stages run concurrently in a wave.
-      # migrate-scripts-to-z42: the GREEN gate now runs through the native
-      # z42 build CLI (xtask) instead of test-all.sh. Bootstrap = release z42vm
-      # (to run xtask.zpkg) + compile xtask.zpkg; then `xtask test all` (which
-      # itself rebuilds stdlib/compiler/zbc + runs compiler+vm+cross-zpkg+stdlib,
-      # parallelized via --jobs=4). z42c/stdlib from the prior steps are reused.
+      # Test on Unix runners via the native z42 build CLI (xtask). The GREEN gate
+      # runs through `xtask test all` — was test-all.sh (migrate-scripts-to-z42);
+      # `--parallel`/`--jobs`/test-*.sh were C#/bash-era, not in the z42 xtask.
+      # Bootstrap = release z42vm (to run xtask.zpkg) + compile xtask.zpkg; then
+      # `xtask test all` (which itself rebuilds stdlib/compiler/zbc + runs
+      # compiler+vm+cross-zpkg+stdlib). z42c/stdlib from the prior steps are reused.
       # --no-build: the Bootstrap step already built z42c+stdlib+xtask, so `test
       # all` skips its redundant build-wave rebuild (_regenCore) and only regens
       # the goldens against those canonical artifacts (~12-15 min/leg saved). The
