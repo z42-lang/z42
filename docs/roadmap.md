@@ -107,7 +107,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.3.12 | **反射完整化**：~~Method.Invoke（非泛型）~~ ✅ + ~~Type.GetType(fqn)~~ ✅（add-method-invoke-non-generic；builtin 复用 exec_function，异常原类型传播 interp+jit；Activator 无参延后）‖ IsEnum（enum 作类型实体 spec 前置）‖ 嵌套泛型 GetGenericArguments ‖ 接口成员枚举 | 🟡 Invoke/GetType 完成；余项待 | |
 | 0.3.13 | **test-runner 删除**：z42.test 加 TestRunner/BenchRunner（反射驱动 [Test]/[Benchmark] 发现）+ z42b `test`/`bench` verb + 退役 Rust binary（同替两者）‖ **CI 三平台模拟器**：WASM(Playwright) / iOS Simulator(`xcodebuild -destination`) / Android(emulator-runner+KVM) → JUnit → GitHub Checks（stdlib ‖ toolchain 双锁并行）| | |
 | 0.3.14 | **workload B1**（命令发现：launcher 扫目录 → Std.Cli 树合并）+ **B2**（workload 包格式 + `z42 workload install/list/remove`）| | |
-| 0.3.15 | **REPL capstone**（z42 原生：变量 / 表达式 / 类型声明 / 实例化 + 跨 line scope）| | |
+| ~~0.3.15~~ | ~~**REPL capstone**~~ → **上移 0.4.0**（2026-07-15，与 Playground 同批作产品能力；见 0.4.x 段模块整合表）| | |
 | 0.3.16 | 收尾：z42c-selfhost 下全 dotnet/xtask test 绿 + soak + A perf delta report | | |
 
 **‖ = 三主线在该子版本并行推进**。子版本号弹性——本线终点由退出标准定义，自举 dogfood 补特性时插入特性 spec 子版本。
@@ -117,11 +117,13 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - **2026-06-07（全自举）**：原"B 只做 4 子系统（Lexer/Project/Driver/Parser）+ 剩余推 0.5.x"→ 全 7 子系统并入本线；原"REPL 推 0.5.x"→ 本线 capstone；原"byte-identical 推 1.0"→ 本线退出标准；原"compile-perf gate 0.5.x 启用"→ 0.3.10 启用。
 - **2026-06-05（从 0.3.x 移出，仍生效）**：Golden 全 L1 覆盖 + interp/JIT 一致性 CI / 调试符号 / Profiler hooks → 0.4.x 起；热重载 VM 完整实现 → 0.5.x 起；GC v1 → 0.3.0（提前）。
 
-### 0.4.x — 质量与性能线（4 流并行 + G 前置流）（2026-06-23 重定位）
+### 0.4.x — 质量与性能线（4 流并行 + G 前置流）（2026-06-23 重定位；2026-07-15 按模块整合 todo-list）
 
-> **完整规划**见 [`plan-0.4.x-four-streams/proposal.md`](spec/changes/plan-0.4.x-four-streams/proposal.md)。原线性"填 stdlib 包"框架（0.4.0 core → … → 0.4.8 docgen）作废——24 个 stdlib 包已 ship，0.4.x 真实价值是**兑现性能杠杆 + bench 工具 GA + 补齐小语法 + 打磨已有 stdlib**，而非建包。沿用 0.3.x 子系统互斥锁的多主线并行模型。
+> **模块视图（2026-07-15，权威范围）**见 [`replan-0.4.0-by-module/design.md`](spec/changes/replan-0.4.0-by-module/design.md)：以 `docs/todo-list.md` 第 11 行为 0.4.0 权威范围，把下方 four-streams 的 P/B/S/L/G 作为实现细节回填进 6 模块（编译器 / 语法机制 / 标准库 / runtime / 工具链 / 测试·产品·文档）。整合新增/上移项：**REPL 从 0.3.15 上移** + **Playground** + **runtime 组件化 + host/hostrun/main 统一（从 0.9.5 上移）** + **z42c 基础库(metadata/ir)入 stdlib（沿用 `converge-z42c-onto-z42-project` 收敛范式）** + **tier2 平台测试补齐（wasm/ios/android）** + **book 整理**。
+>
+> **完整流规划**见 [`plan-0.4.x-four-streams/`](spec/archive/2026-06-23-plan-0.4.x-four-streams/)（已归档）。原线性"填 stdlib 包"框架（0.4.0 core → … → 0.4.8 docgen）作废——24 个 stdlib 包已 ship，0.4.x 真实价值是**兑现性能杠杆 + bench 工具 GA + 补齐小语法 + 打磨已有 stdlib + 产品能力（REPL/Playground）+ 工具链 GA**，而非建包。沿用 0.3.x 子系统互斥锁的多主线并行模型。
 
-退出标准：（P）P1 JIT 算术拆箱 + P2 inline cache 落地且 bench 证明收益 + 触及库 baseline 化；（B）独立 `z42.bench` 包 + `z42b bench` GA + e2e 硬门禁 + PR 自动 diff 评论；（S）`params`/`init`+表达式体属性/索引器/命名实参/`partial` 全部 GREEN + dogfood 验证；（L）JSON `Deserialize<T>` 泛型 serde + CLI 校验/全局flag/补全 + 模块审计清零 + `z42-doc` 无错；（G）泛型实例化 + 泛型反射三件套（Invoke/MakeGenericType/CreateInstance<T>）落地。
+退出标准：（P）P1 JIT 算术拆箱 + P2 inline cache 落地且 bench 证明收益 + 触及库 baseline 化；（B）独立 `z42.bench` 包 + `z42b bench` GA + e2e 硬门禁 + PR 自动 diff 评论；（S）`params`/`init`+表达式体属性/索引器/命名实参/`partial` 全部 GREEN + dogfood 验证；（L）JSON `Deserialize<T>` 泛型 serde + CLI 校验/全局flag/补全 + 模块审计清零 + `z42-doc` 无错 + z42c 基础库(metadata/ir)入 stdlib；（G）泛型实例化 + 泛型反射三件套（Invoke/MakeGenericType/CreateInstance<T>）落地；（R8）runtime host/hostrun/main 统一 + 组件化 cargo-feature 骨架；（X）REPL + Playground 可用 + tier2 平台（wasm/ios/android）测试流程绿 + book 整理。
 
 | 子版本 | P（perf：Pv VM 侧 ‖ Pc 编译器侧）| B（bench）| S（syntax）| L（lib）| G（泛型前置）|
 |:--:|------|------|------|------|------|
@@ -135,13 +137,25 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 **‖ = 五流（含 G）在子版本并行**；子版本号弹性，由退出标准定义终点，按子系统锁可用性排队。
 
-> **P 流分两侧并行**：**Pv（VM 侧）**吃 `runtime` 锁——JIT 拆箱 / quickening / Frame 表示 / 非原子 refcount，与编译器侧并行；**Pc（编译器侧）**吃 `compiler`+`z42c` 锁——IrPassManager 首批 pass / intrinsic 表 / devirt / 大类拆分，**任何改 codegen 的 pass 必须 C# + z42c 双侧镜像**（否则破坏 0.3.10 byte-identical gate），故 Pc 与 S/G 串行争锁。**已落地基线**（不重复做）：4-slot 多态 IC（FieldIC/VCallIC，2026-05-28）、JIT I64 helper 特化（2026-05-28）、cross-zpkg OnceLock 缓存（2026-06-11）、Instruction enum 96B→32B（2026-06-11）、GC v1 三阶段（2026-05-22）。两侧框架与 perf 杠杆全表见 [`plan-0.4.x-four-streams/design.md`](spec/changes/plan-0.4.x-four-streams/design.md#p-流细化编译器侧--vm-侧框架与性能)。
+> **P 流分两侧并行**：**Pv（VM 侧）**吃 `runtime` 锁——JIT 拆箱 / quickening / Frame 表示 / 非原子 refcount，与编译器侧并行；**Pc（编译器侧）**吃 `compiler`+`z42c` 锁——IrPassManager 首批 pass / intrinsic 表 / devirt / 大类拆分，**任何改 codegen 的 pass 必须 C# + z42c 双侧镜像**（否则破坏 0.3.10 byte-identical gate），故 Pc 与 S/G 串行争锁。**已落地基线**（不重复做）：4-slot 多态 IC（FieldIC/VCallIC，2026-05-28）、JIT I64 helper 特化（2026-05-28）、cross-zpkg OnceLock 缓存（2026-06-11）、Instruction enum 96B→32B（2026-06-11）、GC v1 三阶段（2026-05-22）。两侧框架与 perf 杠杆全表见 [`plan-0.4.x-four-streams/design.md`](spec/archive/2026-06-23-plan-0.4.x-four-streams/design.md#p-流细化编译器侧--vm-侧框架与性能)。
 
 **G 流连锁（2026-06-23 User 裁决"硬上完整泛型 serde"）**：`Deserialize<T>` 自动绑定任意类型依赖运行期泛型实例化 + 泛型反射，原排 0.5.x → 提前到 0.4.x G 流作为 L 流招牌前置。代价：违反"不为单点提前半个 L3"，作显式例外登记；0.5.x 反射条目相应清空。缓解：JSON 两步交付（先非泛型 `JsonSerializer` 保产物，G 就绪再上泛型版）。
 
 **锁协调**：`stdlib` 锁被 L 流 + P6 + B5 三处争用 → 串行排队；`compiler`/`z42c` 被 S 流 + G 流同时吃 → 串行/合并节奏（详见 proposal Open Questions）。
 
 **移除项**（被本线提前，从他处删）：原 0.4.7「z42.bench」并入 B 流 0.4.0；原 0.5.x「反射泛型扩展」上移 G 流。
+
+**模块整合新增项（2026-07-15，todo-list 第 11 行；four-streams 表未含，作 R/X/M 列补入）**：
+
+| 模块 | 项 | 来源 / 现状 |
+|------|----|------|
+| runtime | **R8a host/hostrun/main 统一**（不同平台共享简化）+ **R8b 组件化 cargo-feature 骨架** | 原 0.9.5 上移；R8b 完整裁剪留后续 |
+| 工具链 | **z42b GA**（统一前端）+ publish 脱 desktop + workload 命令自动注册 + xtask 路径读 z42.toml + package 剥离调试符号 | in-flight `wire-z42b-host-build` / `add-workload-command-dispatch`；todo#2/#8/#9/#10 |
+| 编译器 | **增量 + 并发编译** + build 依赖排序 + 版本 hash 触发重编 | todo#1/#4/#7；并入 Pc5 |
+| 标准库 | **z42c 基础库(metadata/ir)入 stdlib** | 沿用 in-flight `converge-z42c-onto-z42-project` 收敛范式（project→`z42.project`，后端拆 `z42c.zpkg`）；metadata/ir 各自出 spec 定边界 |
+| 产品 | **REPL**（原 0.3.15 上移）+ **Playground** | in-flight `add-z42-wasm-playground` |
+| 测试 | **tier2 平台测试补齐**（wasm/ios/android → GitHub Checks）；当前仅全测 tier1 | `versions.toml [platform.*]` tier 定义 |
+| 文档 | **book 整理与内容补充** | docs 不上锁，贯穿 |
 
 ---
 
@@ -192,7 +206,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - 0.5 反射 ◄── 0.10 性能数据自查（type metadata access）
 - 0.6 unmanaged ◄── 0.9.6 C ABI 头文件
 - 0.7 Result ◄── 0.8 async（async fn 通常返回 `Task<Result<T,E>>`）
-- 0.8 GC v3 ◄── 0.9.5 VM 组件化
+- 0.8 GC v3 ◄── VM 组件化（cargo-feature **骨架 + host 统一**已上移 0.4.0 R8，2026-07-15；完整裁剪粒度仍在 0.9.5，Q8 待裁决）
 - 0.10 性能基线 ◄── 1.0 稳定承诺
 - 1.0 删 C# bootstrap ◄── 0.3.x 自举 byte-identical gate 跑稳（自举核心不再等全部 L3；受限写法已规避 match/LINQ/Result）
 
@@ -424,6 +438,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-load-directive) |
 | `repl-future-mobile` | mobile / WASM REPL（iOS W^X 限制，依赖 1.1.x mobile scripting）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-mobile) |
 | `repl-future-debugger` | 调试集成（DAP server + VM 单步支持，0.8.x）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-debugger) |
+| `params-future-empty-array-codegen` | **空 params → 空数组字面量 codegen/VM 缺陷**：零可变实参（`string.Concat()` / `string.Format(fmt)` / `string.Join(sep)`）经 `_withParamsExpansion` 打包成 `ArrayNewLitInstr` elemCount=0 → 运行期崩（interp `undefined register` / jit `Null vs Null`）。#7 的 `Join` 已潜伏、`migrate-stdlib-to-params` 的 Concat/Format 新暴露；非空 params 全绿。归 `compiler`/`runtime`，待锁空闲单列 change（根因：空数组字面量 emit / VM ArrayNewLit 0-elem 执行）| [changes/migrate-stdlib-to-params/proposal.md](spec/changes/migrate-stdlib-to-params/proposal.md) 「已知限制」 |
 | `repl-future-eof-detection` | `Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit`/`.quit` 退出，待 runtime builtin 补 EOF 信号 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-eof-detection) |
 
 ### 实施期延后（D-* 系列）
