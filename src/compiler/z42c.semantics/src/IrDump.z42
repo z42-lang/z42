@@ -252,6 +252,25 @@ public static class IrDump {
         return r;
     }
 
+    // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）。
+    // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
+    private static string[] _activeNamespaces(CompilationUnit cu) {
+        int uc = 0;
+        int i = 0;
+        while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
+        int extra = 0;
+        if (cu.HasNamespace) { extra = 1; }
+        string[] r = new string[uc + extra];
+        int k = 0;
+        i = 0;
+        while (i < cu.DeclCount) {
+            if (cu.Decls[i] is UsingDecl) { r[k] = (cu.Decls[i] as UsingDecl).Name; k = k + 1; }
+            i = i + 1;
+        }
+        if (cu.HasNamespace) { r[k] = cu.Namespace; }
+        return r;
+    }
+
     private static CompiledModuleZ _compileCu(CompilationUnit cu, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease) {
         var diags = new DiagnosticBag();
         var model = new TypeChecker(diags).Infer(cu, symbols);
@@ -264,6 +283,8 @@ public static class IrDump {
         // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
         gen.ImportedClassNs = IrDump._filterShadowed(classNs, cu);
         gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
+        string[] actNs = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
+        gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
         IrModule irm = gen.Generate(cu, model);
         string[] usings = new string[8];
         int uc = 0;
@@ -299,6 +320,8 @@ public static class IrDump {
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
         gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
         if (imported != null) { gen.ImportedClassNs = IrDump._filterShadowed(imported.ClassNamespaces, cu); }
+        string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
+        gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         IrModule irm = gen.Generate(cu, model);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];

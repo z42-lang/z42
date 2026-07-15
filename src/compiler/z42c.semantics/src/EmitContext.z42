@@ -23,6 +23,7 @@ public sealed class EmitContext {
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
     public DependencyIndex Deps;       // 跨包调用索引（CI-4；null=无依赖）
     public StrMap ImportedClassNs;     // imported 短类名 → ns（StrBox；IC-1：VCall 依赖追踪 + ObjNew FQ；**含本包跨-ns 自有类**，G17b）
+    public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包**自有声明**类名集（G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
     public string[] UsedDepNs; public int UsedDepNsCount;   // codegen 期实际命中的依赖 ns（DEPS 用，首现序）
     public IrExcEntry[] ExcTable; public int ExcCount;       // 异常表（port-z42c-try）
@@ -43,6 +44,7 @@ public sealed class EmitContext {
         this.Ns = "";
         this.Deps = null;
         this.ImportedClassNs = null;
+        this.ActiveNs = null; this.ActiveNsCount = 0;
         this.UsedDepNs = new string[4]; this.UsedDepNsCount = 0;
         this.ExcTable = new IrExcEntry[2]; this.ExcCount = 0;
         this.CurFnName = ""; this.LambdaIdx = 0; this.InLambdaEnv = false;

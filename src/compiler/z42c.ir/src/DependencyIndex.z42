@@ -43,6 +43,38 @@ public sealed class DependencyIndex {
         return null;
     }
 
+    // using-scoped 静态查找（path C：namespace-qualified 消歧，根治 common-pitfalls §1 短类名 first-wins 串味）。
+    // 按本 CU 的**活跃命名空间集**（usings + 本 ns，prelude-first 序）逐个尝试全名键
+    // `ns.ShortCls.Method[$arity]`——同短类名跨 ns（如 Z42.Project.SourceDiscovery 与
+    // Z42.Build.Project.SourceDiscovery）各占独立键，只命中调用方 using 到的那份。
+    // 未命中（调用目标 ns 不在活跃集，或该短名只有一份）→ 返回 null，由调用方回落 GetStatic
+    // 短键 first-wins（保持既有行为 → 自举字节不动）。
+    // 语义：**恰好一个**活跃 ns 命中 `ns.ShortCls.Method` 时才返回它（消歧成功）；0 个（目标不在活跃集）
+    // 或 ≥2 个不同实体命中（活跃集内仍歧义，如 Std.Assert 与 Std.Test.Assert 同时激活）→ 返回 null，
+    // 由调用方回落短键 first-wins（prelude-first，既有行为）。→ 既根治「跨 ns 同短名 first-wins 串到未
+    // using 的那份」（converge：只 Z42.Project 活跃、Z42.Build.Project 不活跃 → 唯一命中），又对既有活跃集内
+    // 歧义完全保持原判（字节不动）。
+    public DepCallEntry GetStaticScoped(string[] activeNs, int activeCount, string shortCls, string method) {
+        if (activeNs == null) { return null; }
+        DepCallEntry found = null;
+        int hits = 0;
+        int i = 0;
+        while (i < activeCount) {
+            string ns = activeNs[i];
+            if (ns != null && ns.Length > 0) {
+                string fullKey = ns + "." + shortCls + "." + method;
+                if (this.Statics.ContainsKey(fullKey)) {
+                    DepCallEntry e = this.Statics.Get(fullKey) as DepCallEntry;
+                    if (found == null) { found = e; hits = 1; }
+                    else if (found.QualifiedName != e.QualifiedName) { hits = hits + 1; }
+                }
+            }
+            i = i + 1;
+        }
+        if (hits == 1) { return found; }
+        return null;
+    }
+
     // 实例查找：арity 键优先，bare 兜底（镜像 TryGetInstance）。
     public DepCallEntry GetInstance(string method, int userArgCount) {
         string k = method + "$" + userArgCount.ToString();
@@ -72,6 +104,12 @@ public sealed class DependencyIndex {
                     if (dollar >= 0) {
                         bare = method.Substring(0, dollar);
                         this.Statics.TryAdd(cls + "." + bare, entry);
+                    }
+                    // path C：额外注册全名键 ns.ShortCls.Method[$arity]（供 GetStaticScoped 精确消歧；
+                    // name == ns + "." + local == ns.Cls.Method[$arity]）。同短类名跨 ns 各占独立键，不 first-wins。
+                    this.Statics.TryAdd(name, entry);
+                    if (dollar >= 0) {
+                        this.Statics.TryAdd(ns + "." + cls + "." + bare, entry);
                     }
                     if (!f.IsStatic && cls != "Object" && !DependencyIndex._isProtocol(bare)) {
                         int userArity = f.ParamCount - 1;

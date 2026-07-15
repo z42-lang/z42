@@ -58,6 +58,36 @@ void test_instance_ambiguity_removed() {
 }
 
 [Test]
+void test_scoped_disambiguates_cross_ns_same_shortname() {
+    // path C：同短类名跨 ns（Z42.Project.SourceDiscovery 与 Z42.Build.Project.SourceDiscovery）——
+    // GetStaticScoped 按活跃命名空间集精确消歧，根治 common-pitfalls §1 短键 first-wins 串味。
+    var idx = new DependencyIndex();
+    IrFunction[] a = new IrFunction[1];
+    a[0] = _fn("Z42.Project.SourceDiscovery.Discover$1", 1, true);
+    idx.AddModule(a, 1, "Z42.Project");
+    IrFunction[] b = new IrFunction[1];
+    b[0] = _fn("Z42.Build.Project.SourceDiscovery.Discover$1", 1, true);
+    idx.AddModule(b, 1, "Z42.Build.Project");
+    idx.Seal();
+    // 短键 first-wins 仍返回先注册那份（既有行为保留 → 字节不动的回落路径）
+    Assert.Equal("Z42.Project.SourceDiscovery.Discover$1", idx.GetStatic("SourceDiscovery", "Discover$1").QualifiedName);
+    // scoped：活跃集只含 Z42.Project → 唯一命中该 ns 那份
+    string[] actA = new string[1]; actA[0] = "Z42.Project";
+    Assert.Equal("Z42.Project.SourceDiscovery.Discover$1",
+        idx.GetStaticScoped(actA, 1, "SourceDiscovery", "Discover$1").QualifiedName);
+    // scoped：活跃集只含 Z42.Build.Project → 命中另一份
+    string[] actB = new string[1]; actB[0] = "Z42.Build.Project";
+    Assert.Equal("Z42.Build.Project.SourceDiscovery.Discover$1",
+        idx.GetStaticScoped(actB, 1, "SourceDiscovery", "Discover$1").QualifiedName);
+    // scoped：两 ns 同时活跃 → ≥2 不同实体歧义 → null（回落短键 first-wins，保持原判）
+    string[] actBoth = new string[2]; actBoth[0] = "Z42.Project"; actBoth[1] = "Z42.Build.Project";
+    Assert.True(idx.GetStaticScoped(actBoth, 2, "SourceDiscovery", "Discover$1") == null);
+    // scoped：目标 ns 不在活跃集 → 落空 → null（调用方回落短键）
+    string[] actNone = new string[1]; actNone[0] = "Std";
+    Assert.True(idx.GetStaticScoped(actNone, 1, "SourceDiscovery", "Discover$1") == null);
+}
+
+[Test]
 void test_protocol_methods_skipped() {
     var idx = new DependencyIndex();
     IrFunction[] fns = new IrFunction[1];

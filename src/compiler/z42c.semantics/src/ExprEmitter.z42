@@ -661,8 +661,17 @@ public sealed class ExprEmitter {
         }
         TypedReg[] args = this._emitArgs(c);
         // 静态调用先查 DepIndex（stdlib；арity 键→bare 键，镜像 C# EmitStaticBoundCall）
-        if (c.Kind == "static" && this._ctx.Deps != null) {
-            DepCallEntry de = this._ctx.Deps.GetStatic(c.OwnerClass, c.MethodName + "$" + c.ArgCount.ToString());
+        // path C：本包自有类（LocalClasses）恒走本地 emit，不查 DepIndex——否则当某依赖含**同短类名**
+        // 类（converge 期 z42.project 的 SourceDiscovery/ManifestLoader 与 z42c.project 自有同名）时，
+        // DepIndex 自排除 self → GetStaticScoped 落空 → 短键 fallback 误绑到依赖那份。local-wins 是正解。
+        // （无同名依赖时 DepIndex 本就自排除 self → 落空 → 走本地，与本守卫同果 → 字节不动。）
+        bool ownerIsLocal = this._ctx.LocalClasses != null && this._ctx.LocalClasses.ContainsKey(c.OwnerClass);
+        if (c.Kind == "static" && this._ctx.Deps != null && !ownerIsLocal) {
+            string arityKey = c.MethodName + "$" + c.ArgCount.ToString();
+            // path C：先 using-scoped 精确消歧（arity → bare）；未唯一命中再回落短键 first-wins（既有行为，字节不动）。
+            DepCallEntry de = this._ctx.Deps.GetStaticScoped(this._ctx.ActiveNs, this._ctx.ActiveNsCount, c.OwnerClass, arityKey);
+            if (de == null) { de = this._ctx.Deps.GetStaticScoped(this._ctx.ActiveNs, this._ctx.ActiveNsCount, c.OwnerClass, c.MethodName); }
+            if (de == null) { de = this._ctx.Deps.GetStatic(c.OwnerClass, arityKey); }
             if (de == null) { de = this._ctx.Deps.GetStatic(c.OwnerClass, c.MethodName); }
             if (de != null) {
                 this._ctx.TrackDepNamespace(de.Namespace);

@@ -37,6 +37,12 @@
 - macOS：z42.core 字母序在前 → 用户写 `Assert.Equal(1, 2)` emit 到 `Std.Assert.Equal` ✓
 - Linux/Windows CI：枚举顺序不同 → emit 到 `Std.Test.Assert.Equal` ✗ → zbc 字节漂移 + 测试输出从 "AssertionError" 变成 "values not equal"
 
+> **根治（2026-07-16 fix-crosspkg-static-ns-collision）**：这个「同短类名跨 ns → 短键 first-wins
+> 串味」的**根因**已修——z42c 的 `DependencyIndex.GetStaticScoped` 按调用方**活跃命名空间集**
+> （usings + 本 ns）解析静态调用，只命中调用方 `using` 到的那份 FQN，不再靠排序碰巧选对。sort
+> 仍是**必要的兜底**（活跃集内仍歧义时、以及任何非静态调用的 first-wins 注册仍需确定序），故本
+> §1 的排序规则**不变、继续遵守**；根治只是让「跨包静态调用绑错 ns」这一具体症状不再依赖排序侥幸。
+
 ### 强制规则
 
 写任何"加载 zpkg / 加载 module / 加载 plugin / 注册 builtin"循环时：
