@@ -137,22 +137,20 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 // ── test dist (packaged-distribution e2e) ────────────────────────────────────
 
 // `test dist [interp|jit]` — native port of the former scripts/test-dist.sh.
-// Build the toolchain + a host release package (if absent), then run the
-// in-process dist e2e (_testDistRun, xtask_test_dist.z42) which drives the
-// PACKAGED z42c/z42vm against the goldens + a launcher smoke — no separate
-// compile + zpkg spawn. Not in the default GREEN gate (run on demand).
+// Ensure a host release package exists, then run the in-process dist e2e
+// (_testDistRun, xtask_test_dist.z42) which drives the PACKAGED z42c/z42vm
+// against the goldens + a launcher smoke — no separate compile + zpkg spawn.
+// Not in the default GREEN gate (run on demand).
 int _testDist(ParseResult r) {
     Stopwatch sw = _procStart("test dist");
     string root = _root();
-    int c = _buildCompiler(); if (c != 0) { return c; }   // C#-free 自举编译器（z42c 种子自建）
-    c = _exec(_cargoRelease().Arg("-q")
-        .Arg("--manifest-path").Arg(_runtimeManifest())); if (c != 0) { return c; }
-    if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
-        c = _buildStdlib(); if (c != 0) { return c; }
-    }
-    // Ensure a host release package exists (build it if absent).
+    // Ensure a host release package exists — its internal build (_packageDesktop)
+    // produces z42c + z42vm + stdlib itself. _testDistRun consumes ONLY the package
+    // (bin/z42c, bin/z42vm, libs/), so the former source-tree prebuild wave
+    // (_buildCompiler + cargo + _buildStdlib) was redundant with _buildPackageCore
+    // and unused by the runner (review §2.4 — removed).
     if (!_hasReleasePkg(root)) {
-        c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
+        int c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
     }
     int __rc = _testDistRun(r.GetPositional(0));
     if (__rc == 0) { _procEnd("test dist", sw); }
