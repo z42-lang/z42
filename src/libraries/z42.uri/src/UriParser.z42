@@ -1,0 +1,177 @@
+namespace Std.Uri;
+using Std;
+using Std.Text;
+// RFC 3986 子集 URI 解析器（从 Uri.z42 拆出，review §1.8/§6：单文件多类型 + 超 500 行）。
+
+// ── Parser ──────────────────────────────────────────────────────────────
+
+public sealed class UriParser {
+    private string _src;
+    private int _pos;
+
+    public UriParser(string src) {
+        this._src = src;
+        this._pos = 0;
+    }
+
+    public Uri ParseUri() {
+        // RFC 3986 §3: URI = scheme ":" hier-part [ "?" query ] [ "#" fragment ]
+        string scheme = this.ParseScheme();
+        this.Expect(':', "':' after scheme");
+
+        bool hasAuthority = false;
+        string userInfo = "";
+        string host     = "";
+        int port        = -1;
+        string path     = "";
+
+        // hier-part = "//" authority path-abempty / path-absolute / path-rootless / path-empty
+        if (this.Peek() == '/' && this.PeekAt(1) == '/') {
+            hasAuthority = true;
+            this.Advance(); this.Advance(); // "//"
+            // authority = [ userinfo "@" ] host [ ":" port ]
+            // RFC 3986 §3.2.2 allows empty host (e.g. `file:///path`).
+            int atIdx = this.FindInAuthority('@');
+            if (atIdx >= 0) {
+                userInfo = this._src.Substring(this._pos, atIdx - this._pos);
+                this._pos = atIdx + 1;
+            }
+            int hostStart = this._pos;
+            // add-uri-ipv6-host (2026-06-09): IPv6 / IPvFuture literal hosts are
+            // bracketed (`[::1]`) so their inner ':' separators aren't confused
+            // with the port delimiter (RFC 3986 §3.2.2). Consume through ']'
+            // before the host-terminator scan; the `[...]` (brackets kept) is
+            // the host, and a following ':' is the port.
+            if (this.Peek() == '[') {
+                this.Advance(); // '['
+                while (!this.Eof() && this.Peek() != ']') { this.Advance(); }
+                if (this.Eof()) {
+                    throw new UriException("unterminated IPv6 literal '[' in authority");
+                }
+                this.Advance(); // ']'
+                host = this._src.Substring(hostStart, this._pos - hostStart);
+            } else {
+                // host extends to ':' or '/' or '?' or '#' or EOF
+                while (!this.Eof()) {
+                    char c = this.Peek();
+                    if (c == ':' || c == '/' || c == '?' || c == '#') { break; }
+                    this.Advance();
+                }
+                host = this._src.Substring(hostStart, this._pos - hostStart);
+            }
+            if (this.Peek() == ':') {
+                this.Advance();
+                int portStart = this._pos;
+                while (!this.Eof()) {
+                    char c = this.Peek();
+                    int cc = (int)c;
+                    if (cc < 48 || cc > 57) { break; }
+                    this.Advance();
+                }
+                string portStr = this._src.Substring(portStart, this._pos - portStart);
+                if (portStr.Length == 0) {
+                    throw new UriException("expected port number after ':'");
+                }
+                port = int.Parse(portStr);
+            }
+            // path = "/" path-abempty (starts with '/' or empty)
+            int pathStart = this._pos;
+            while (!this.Eof()) {
+                char c = this.Peek();
+                if (c == '?' || c == '#') { break; }
+                this.Advance();
+            }
+            path = this._src.Substring(pathStart, this._pos - pathStart);
+        } else {
+            // Opaque or path-rootless: e.g. "mailto:foo@bar"
+            int pathStart = this._pos;
+            while (!this.Eof()) {
+                char c = this.Peek();
+                if (c == '?' || c == '#') { break; }
+                this.Advance();
+            }
+            path = this._src.Substring(pathStart, this._pos - pathStart);
+        }
+
+        string query = "";
+        if (this.Peek() == '?') {
+            this.Advance();
+            int qStart = this._pos;
+            while (!this.Eof() && this.Peek() != '#') { this.Advance(); }
+            query = this._src.Substring(qStart, this._pos - qStart);
+        }
+
+        string fragment = "";
+        if (this.Peek() == '#') {
+            this.Advance();
+            int fStart = this._pos;
+            while (!this.Eof()) { this.Advance(); }
+            fragment = this._src.Substring(fStart, this._pos - fStart);
+        }
+
+        return new Uri(scheme, hasAuthority, userInfo, host, port, path, query, fragment);
+    }
+
+    private string ParseScheme() {
+        // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+        int start = this._pos;
+        if (this.Eof()) { throw new UriException("empty URI"); }
+        char first = this.Peek();
+        int fc = (int)first;
+        bool isAlpha = (fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122);
+        if (!isAlpha) { throw new UriException("scheme must start with a letter"); }
+        this.Advance();
+        while (!this.Eof()) {
+            char c = this.Peek();
+            int cc = (int)c;
+            bool ok = (cc >= 65 && cc <= 90)       // A-Z
+                   || (cc >= 97 && cc <= 122)      // a-z
+                   || (cc >= 48 && cc <= 57)       // 0-9
+                   || c == '+' || c == '-' || c == '.';
+            if (!ok) { break; }
+            this.Advance();
+        }
+        return this._src.Substring(start, this._pos - start);
+    }
+
+    /// Find the LAST `@` between current pos and the end of authority
+    /// component (which ends at first `/`, `?`, `#`, or EOF). RFC 3986 says
+    /// userinfo `@` is at the very end of userinfo, but inside it `@` may
+    /// be percent-encoded as `%40`. We use last-`@` since unencoded `@` in
+    /// userinfo is invalid.
+    private int FindInAuthority(char target) {
+        int p = this._pos;
+        int lastAt = -1;
+        while (p < this._src.Length) {
+            char c = this._src.CharAt(p);
+            if (c == '/' || c == '?' || c == '#') { break; }
+            if (c == target) { lastAt = p; }
+            p = p + 1;
+        }
+        return lastAt;
+    }
+
+    private char Peek() {
+        if (this._pos >= this._src.Length) { return '\0'; }
+        return this._src.CharAt(this._pos);
+    }
+    private char PeekAt(int offset) {
+        int p = this._pos + offset;
+        if (p >= this._src.Length) { return '\0'; }
+        return this._src.CharAt(p);
+    }
+    private char Advance() {
+        char c = this.Peek();
+        this._pos = this._pos + 1;
+        return c;
+    }
+    private bool Eof() { return this._pos >= this._src.Length; }
+    private void Expect(char c, string what) {
+        if (this.Peek() != c) {
+            char[] arr = new char[1];
+            arr[0] = this.Peek();
+            throw new UriException("expected " + what + " but got '" + String.FromChars(arr) + "'");
+        }
+        this.Advance();
+    }
+}
