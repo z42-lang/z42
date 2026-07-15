@@ -398,6 +398,10 @@ Rust runner 已被 z42b 取代，但 `stdlib-tests.md:3,36-40,52-53,83`（含不
 
 本次 review 正是靠这一招抓到全部漏网。
 
+> **✅ 已落地（2026-07-15）**：`workflow.md` 阶段 9 **doc-check 清单**加入这条——「删/改/重命名
+> 任何命令面（xtask 子命令 / CLI verb / 工程字段 / 脚本入口）时，`grep -rn "<旧名>" docs/ scripts/
+> .claude/` 必须清零」，作为归档前 commit 门禁的最后一道机械检查。
+
 ---
 
 ## 建议的落地顺序

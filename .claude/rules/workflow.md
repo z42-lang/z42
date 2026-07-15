@@ -582,6 +582,7 @@ xtask test vscode-syntax
    - [ ] 所改目录的 README 六段齐全、与本次改动对齐（六段制见 [code-organization.md](code-organization.md)）
    - [ ] 所改 / 新写 book 页：页头「对齐」日期已刷新、代码路径可解析；新页已挂入 `docs/book/src/SUMMARY.md`
    - [ ] 本次触及文档中的相对链接均可解析（无死链）
+   - [ ] **删 / 改 / 重命名任何命令面（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，`grep -rn "<旧名>" docs/ scripts/ .claude/` 必须清零**（含 workflow 手册 / 死链 / help 文案 / 映射表）——命令面重构的文档半径系统性被低估，这条机械检查是抓漏网的最后一道门
 
    > **规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。**
    > 无文档 = 未完成，不得进入 commit 步骤。

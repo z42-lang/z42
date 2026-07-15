@@ -27,6 +27,11 @@
 - [ ] 2.1 CI 验证（冷检出无法本地跑；GREEN 以 CI 为准）——关键腿：package-ios/android/wasm（scaffold）+ compile-toolchain；已推 main（9a707bff §2.5 / 6b5ee43e §2.10）
 - [ ] 2.2 CI 绿后归档 + 释放 toolchain 锁；红则 revert 对应 commit
 
+## ⚠️ §2.5 回归 + 热修（2026-07-15）
+- `9a707bff` 误删 `xtask_package_android.z42` 的 `bool rel`（判为提取后未用），但它仍被 47/63/77 的 per-ABI cargo `--release` 门用 → `E0401: undefined: rel` 让 **compile-toolchain 在 main 全红**（run 29427650069/29428595684），并行 session 的 push 亦继承此红。
+- 根因：删「未用」变量前的 grep 用了带 `-vE` 过滤的管道，漏掉真实引用。**教训：删变量必须整文件 grep 裸标识符**（冷环境不能本地编译，放大风险）。
+- 热修 `536bcb58` 恢复 `bool rel`（ios/wasm 当初保留其 `rel` 未受影响）。盯 compile-toolchain 转绿。
+
 ## ⚠️ 并行 session 冲突记录（2026-07-15）
 - 原 §2.5 commit `fead63ff` 因并行 session（`migrate-stdlib-to-params` / 0.4.0 stream）重写 main（版本 bump + 归档）被**孤立**；已从 orphan 提取代码等价重落为 `9a707bff`。
 - ACTIVE.md / 工作树被两 session 并发编辑——全程显式 `git add` 只纳本 change 文件、未触其 WIP。
