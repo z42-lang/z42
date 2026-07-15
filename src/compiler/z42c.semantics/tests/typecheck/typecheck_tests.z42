@@ -196,7 +196,7 @@ void test_instance_call_on_param() {
 void test_static_method_call() {
     // Math.Square(...) 静态调用（裸类名 target）
     string src = "class Math { static int Square(int n) { return n; } } class C { int Use() { return Math.Square(4); } }";
-    Assert.Equal("(block (return (call-static Math Square (lit-int 4 :int) :int)))",
+    Assert.Equal("(block (return (call-static Math Square$1$i32 (lit-int 4 :int) :int)))",
                  SemanticDump.DumpBody(src, "C.Use"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }

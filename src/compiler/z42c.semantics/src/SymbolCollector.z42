@@ -592,13 +592,18 @@ public sealed class SymbolCollector {
                 bool mst = this._hasWord(md.Mods, "static");
                 MethodSymbol msym = this._methodSymbol(table, md, c.Name, tp, tpc);
                 // stabilize-dispatch-keys（方案A，静态-only）：
-                // - 静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
+                // - 常规静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
                 //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。
+                // - 静态【虚】成员（INumber 的 static abstract op_* 接口成员 + 各 primitive 的 static override 实现）：
+                //   经 VCall 按运行时类型派发（`x.op_Add(x)` → VCall → Std.Int32.op_Add + arity 重试），base 声明与
+                //   派生实现【必须同键】。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)
+                //   → VCall 落空（`expected object, got I64`）。故与实例虚方法同理，走基线键规则（op_* 唯一 → 裸名）。
                 // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
                 //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量
                 //   硬查，mangle 会断锚点）。实例 / 虚 / 接口 / 泛型 / 委托 / foreach / ctor 派发依赖此基线锚点，不动。
+                bool staticVirtual = mst && (this._hasWord(md.Mods, "override") || this._hasWord(md.Mods, "abstract"));
                 string regName;
-                if (mst) {
+                if (mst && !staticVirtual) {
                     regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
                 } else {
                     string aritK = md.Name + "$" + md.ParamCount.ToString();

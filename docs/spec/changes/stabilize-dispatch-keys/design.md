@@ -20,7 +20,11 @@
 ## D1: 键规则 —— 静态恒 mangle / 实例保持基线
 
 `SymbolCollector.regName`：
-- **静态**（`mst`）：`MangleKey(name, sig.ParamTypes, sig.ParamCount)`，零参 → `name$0`。无条件、不依赖兄弟集。
+- **常规静态**（`mst && !staticVirtual`）：`MangleKey(name, sig.ParamTypes, sig.ParamCount)`，零参 → `name$0`。无条件、不依赖兄弟集。
+- **静态虚成员**（`mst && (override||abstract)`）：走**基线键**——INumber 的 `static abstract op_*` 接口成员 +
+  各 primitive 的 `static override` 实现经 **VCall 按运行时类型派发**（`x.op_Add(x)` → VCall → `Std.Int32.op_Add`
+  + arity 重试），base 声明与派生实现**必须同键**。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生
+  (`op_Add$2$i32$i32`)→ VCall 落空（`expected object, got I64`）。故与实例虚方法同理保基线键（op_* 唯一 → 裸名）。
 - **实例**（`!mst`）：基线规则原样——`IsProtocolExempt(name) ? name`（协议豁免裸）
   `: arityDup[name$arity]==2 ? MangleKey(...)`（type-based 重载全 mangle）
   `: ovldInst[name] ? name$arity`（arity-based 重载）`: name`（unique 裸）。

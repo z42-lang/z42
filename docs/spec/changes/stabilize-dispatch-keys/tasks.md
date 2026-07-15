@@ -97,3 +97,25 @@ OK）、普通 class/静态调用（早已 `_resolveOverload`+RegKey）、操作
 
 **本地验**：`cargo build --release` ✅ / lib 772·0 / compression 21·0 / zbc_compat 3·0 ✅。
 **待 CI**：e2e golden（静态-only 下实例派发回归基线应全绿）+ 两代自举 + 不动点。
+
+## 第五轮（2026-07-15，dc7e869 CI → 静态-only 收尾）
+静态-only（dc7e869）CI：e2e golden 从全 mangle 的 178/19 → **195/2**（修好 17/19）。剩余全是**golden/边界**：
+
+**A. verify-selfhost：11 个 z42c 单测 golden**（静态键 mangle + 格式 bump 副产物，非逻辑 bug）：
+- 格式 hex（漏更，version-bumping.md 仅列了 test_zbc_empty）：`test_zbc_f5_with_dbug_byte_identical` /
+  `test_zbc_selfcheck_program_header`（zbc minor 1a→1b）、`test_write_packed_header`（zpkg 1f→20）。
+- 静态键 mangle：`test_static_call`（Make→Make$0）、`test_static_method_call`（Square→Square$1$i32）、
+  `test_params_*`×5（Sum→Sum$1$int[]、F$2→F$2$i32$i32、Log→Log$1$object[]）、
+  `test_collect_method_signature_and_static`（Methods.Get("Add")→"Add$2$i32$i32"）。
+
+**B. e2e golden `generic_inumber`（真 bug，已修根因）**：`x.op_Add(x)`（INumber static abstract op_* +
+primitive static override）经 VCall 按运行时类型派发 → base/派生须同键。静态-only 误把它们也 mangle →
+base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)→ VCall 落空。**修**：SymbolCollector `regName` 加
+`staticVirtual = mst && (override||abstract)` 判据 → 静态虚成员走基线键（op_* 唯一→裸）。
+
+**C. e2e golden `string_static_methods`（待观察）**：CI 截断显示 `expected: true / actual: true`（首行相同，
+真实差异行被截断）。分析全部静态调用（IsNullOrEmpty/Join/Concat/Format/Parse）均应正常（params_varargs_*
+/ params_object_mixed 同轮 e2e 已过 → 运行期 params-Join 机制正常；parse_and_string_static 过 → Parse 正常）。
+未定位到运行期破坏点，随本轮 12 项修复一并观察下轮 CI 隔离信号。
+
+本地不可验 z42c 自举/e2e（冷环境）；Rust 侧本轮未改。

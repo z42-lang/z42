@@ -13,7 +13,7 @@ void test_params_expanded_form_packs_trailing_args() {
     string src = "class C { public static int Sum(params int[] xs) { return 0; } " +
                  "int Call3() { return Sum(1, 2, 3); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    Assert.Equal("(block (return (call-static C Sum (array-lit int 3 :int[]) :int)))",
+    Assert.Equal("(block (return (call-static C Sum$1$int[] (array-lit int 3 :int[]) :int)))",
                  SemanticDump.DumpBody(src, "C.Call3"));
 }
 
@@ -23,7 +23,7 @@ void test_params_normal_form_passes_array_directly() {
     string src = "class C { public static int Sum(params int[] xs) { return 0; } " +
                  "int CallArr(int[] a) { return Sum(a); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    Assert.Equal("(block (return (call-static C Sum (ident a :int[]) :int)))",
+    Assert.Equal("(block (return (call-static C Sum$1$int[] (ident a :int[]) :int)))",
                  SemanticDump.DumpBody(src, "C.CallArr"));
 }
 
@@ -33,7 +33,7 @@ void test_params_zero_trailing_args_packs_empty_array() {
     string src = "class C { public static int Sum(params int[] xs) { return 0; } " +
                  "int Call0() { return Sum(); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    Assert.Equal("(block (return (call-static C Sum (array-lit int 0 :int[]) :int)))",
+    Assert.Equal("(block (return (call-static C Sum$1$int[] (array-lit int 0 :int[]) :int)))",
                  SemanticDump.DumpBody(src, "C.Call0"));
 }
 
@@ -45,7 +45,7 @@ void test_params_non_params_exact_arity_overload_wins() {
                  "int Call2() { return F(1, 2); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
     // F(int,int) 被选中（未打包成 array-lit），RegKey 因重载 mangle 为 F$2。
-    Assert.Equal("(block (return (call-static C F$2 (lit-int 1 :int) (lit-int 2 :int) :int)))",
+    Assert.Equal("(block (return (call-static C F$2$i32$i32 (lit-int 1 :int) (lit-int 2 :int) :int)))",
                  SemanticDump.DumpBody(src, "C.Call2"));
 }
 
@@ -65,7 +65,7 @@ void test_params_object_array_accepts_mixed_element_types() {
     string src = "class C { public static void Log(params object[] xs) { } " +
                  "void Call() { Log(1, \"hi\"); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    Assert.Equal("(block (expr (call-static C Log (array-lit object 2 :object[]) :void)))",
+    Assert.Equal("(block (expr (call-static C Log$1$object[] (array-lit object 2 :object[]) :void)))",
                  SemanticDump.DumpBody(src, "C.Call"));
 }
 
