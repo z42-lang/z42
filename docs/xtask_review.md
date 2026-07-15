@@ -129,12 +129,21 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 过滤条件（artifact `.zbc` 存在 vs source `.z42` 存在）。可统一为产出双路径 case 的
 共享枚举器，两个 runner 各自按存在性过滤。约 -100 行；新增 golden 布局只改一处。
 
+> **⏸ 暂缓（2026-07-15 复核，事实校正）**：差异**不止过滤条件**——vm 有 `--dir`/`--file`
+> 过滤 + `_isExcludedDirName`；[Test] 检测两边机制不同（`_dirHasTestMethods(dir)` vs
+> `_isTestRunnerSource(src)` 读文件）；flat 源不同（`.zbc` mirror vs `.z42` src + 排除
+> errors/parse）。**两重阻塞**：① **L1 无 lambda/泛型**（CLAUDE.md）→ 无法回调注入过滤 /
+> 泛型化 `_Case`+`_appendCase`，只能 flag 参数化单函数 + union case（分支多易错）；②
+> **CI 抓不住枚举器覆盖回退**——漏枚举 golden case 会让 `test e2e` 少跑但全绿（静默丢覆盖，
+> 踩 §1 坑），冷环境又无法本地跑对比 case 数。**留待 warm 环境**（能本地 `test e2e`/`test dist`
+> 核对 before/after case 数）再做；直连-main + CI-only 下不安全。
+
 ### 2.7 成对小重复
 
 | 重复 | 位置 | 建议 |
 |------|------|------|
 | 两套字符串排序 | `xtask_common.z42:82-101`（`_sortedStrings` 选择排序）vs `xtask_golden.z42:39-51`（`_sortStrings` 插入排序） | 保留一个，另一个改 3 行包装 |
-| 四个 zpkg 拷贝变体 | cross:261-288、package:243-254、platform:163-174 vs 现成 `_copyAll` | ✅ cross 的 `_copyZpkgs`/`_copyStdlibZpkgs` 已收敛为 `_copyAll` 薄包装（错误处理逐字一致，编译 42/42 + cross-zpkg 4/4 验证）。剩 `_stageCopyExt`（stdlib，用 `_copyIfExists` 语义需单独核）+ package/platform 变体待做 |
+| 四个 zpkg 拷贝变体 | cross:261-288、package:243-254、platform:163-174 vs 现成 `_copyAll` | ✅ cross 的 `_copyZpkgs`/`_copyStdlibZpkgs` 已收敛为 `_copyAll` 薄包装（错误处理逐字一致，编译 42/42 + cross-zpkg 4/4 验证）。**剩余 4 变体经复核 2026-07-15 均非 `_copyAll` 等价、不收敛**：`_stageCopyExt`（`_copyIfExists` **传播**拷贝异常，`_copyAll` **吞**）/ `_copyNativeLibs`（多条件过滤 libz42*/扩展名，非单 glob）/ `_pkgCopyLibs`（缺 stdlib 时 `return 1`+报错，`_copyAll` 静默返）/ `_copyZpkgsTo`（先删旧 .zpkg + 计数 + 打印）。各带 `_copyAll` 无法保留的语义 → 收敛=行为变更，作罢 |
 | 两份 `_splitLines` + JUnit writer | `xtask_test_ios.z42:115-153` vs `xtask_test_desktop.z42:94-136` | ✅ 骨架上浮 `xtask_test_platform.z42`（`JUnitCase` 类 + `_writeJUnitReport` + 共享 `_stdoutLines`/`_xmlEscape`），两 backend 只留各自 stdout 行解析；suite==classname 代入后 XML 逐字节同形。change `consolidate-xtask-fns` PR #6 CI 绿 |
 | `_applyToolchainOpt`/`_applyVerbosityOpt` 70 行孪生 | `xtask_cli.z42:76-104` vs `:109-144` | ✅ 抽 `_stripTwoTokenOpt` + `_OptStrip` 结果类（L1 无 lambda，用小类返多值，仿 `_MapResult`）；两 pass strip 归一处，两函数改薄。编译 42/42 + verbosity/toolchain 剥离 smoke 验证 |
 | 两套 TempDir API 混用 + temp 泄漏 | cross:204（`File.CreateTempDir` 从不删除）、dist:61 | ✅ cross 的 driver-home（`_assembleDriverHome`，`return home` 用整轮、无 deleter，唯一真泄漏）改固定 `artifacts/.scratch/xpkg-driver`（删+重建自清）。另两处 temp（testLibs/libs）复核发现**已有 `Directory.Delete`**、不漏。dist:61 待核。编译 42/42 + cross-zpkg 4/4 验证 |
