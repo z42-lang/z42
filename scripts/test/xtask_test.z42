@@ -90,13 +90,16 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     // --toolchain (compile-once P3) / --no-build (compile-once A1): consume an
     // already-built z42c+stdlib → regen goldens only; else full rebuild.
     bool haveTc = _toolchainDir(_root()).Length > 0;
-    if (rebuild) {
-        int c = _regenForTest(haveTc, noBuild);
-        if (c != 0) { return c; }
-    }
+    // Build the debug z42vm BEFORE regen (see _testAll): regen resolves the debug
+    // vm, so a stale one lacking a new builtin panics during regen. Skipped under a
+    // toolchain (its vm is used instead).
     if (!haveTc) {
         int cb = _buildDebugVmAndCompression();
         if (cb != 0) { return cb; }
+    }
+    if (rebuild) {
+        int c = _regenForTest(haveTc, noBuild);
+        if (c != 0) { return c; }
     }
     // modes is a space-separated token string (e.g. "interp jit"); split to the
     // string[] _runVmGoldens expects. jobs parses to int (default 1 on garbage).
@@ -213,12 +216,16 @@ int _testAll(bool noBuild, string skip) {
     // build-wave redundancy (~12-15 min/leg) — `xtask test all` locally still does
     // the full build by default (noBuild=false).
     bool haveTc = _toolchainDir(_root()).Length > 0;
-    int c = _regenForTest(haveTc, noBuild);
+    // Build the debug z42vm + compression cdylib BEFORE regen. golden regen
+    // (_regenGolden) resolves the debug vm via _activeVm(root,"debug"); if it runs
+    // first against a STALE debug vm that predates a newly-added VM builtin, every
+    // golden compile panics ("unknown builtin") and regen returns 1 — which then
+    // early-returns here before the debug vm ever gets rebuilt. Building it first
+    // keeps regen on a current vm. (The [Test]/[Benchmark] runner is now z42b —
+    // z42.builder.zpkg, built by the lib/compiler stages with the current z42c.)
+    int c = _buildDebugVmAndCompression(); if (c != 0) { return c; }
+    c = _regenForTest(haveTc, noBuild);
     if (c != 0) { return c; }
-    // extra tooling the test stages need: debug z42vm + compression cdylib.
-    // (The [Test]/[Benchmark] runner is now z42b — z42.builder.zpkg, built by the
-    // lib/compiler stages themselves with the current z42c — not a cargo binary.)
-    c = _buildDebugVmAndCompression(); if (c != 0) { return c; }
     // NOTE: the Rust VM unit harness (`test runtime` = cargo test) is intentionally
     // NOT a stage here. It spawns signal-crash helpers (signal_handler_e2e) that hang
     // in signal-restricted sandboxes, which would make the always-run gate unusable.

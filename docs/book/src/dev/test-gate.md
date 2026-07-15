@@ -39,8 +39,9 @@
 
 ```mermaid
 graph LR
-    R[regen 构建波<br/>stdlib + z42c 自建<br/>+ cargo release z42vm<br/>+ golden .zbc] --> D[debug z42vm<br/>+ compression cdylib]
-    D --> S1[e2e goldens<br/>interp]
+    B[stdlib + z42c 自建] --> D[debug z42vm<br/>+ compression cdylib]
+    D --> R[regen 构建波<br/>cargo release z42vm<br/>+ golden .zbc]
+    R --> S1[e2e goldens<br/>interp]
     S1 --> S2[e2e cross-zpkg]
     S2 --> S3[stdlib Test 用例]
     S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
@@ -48,7 +49,12 @@ graph LR
     S5 --> G((GREEN))
 ```
 
-先一次性备齐工具链与基线（regen 构建波），再依序跑五个验证 stage；任一步失败立即终止。
+先备工具链与基线，再依序跑五个验证 stage；任一步失败立即终止。
+**debug z42vm 必须先于 regen 构建**（fix-gate-debug-vm-order，2026-07-16）：golden regen 用
+`_activeVm(root,"debug")` 解析 debug vm 去编译各 golden；若 regen 先跑而 debug vm stale（早于某个
+新增 VM builtin），会在 regen 阶段 panic「unknown builtin」→ 全体 golden 假失败、且 regen 返回 1
+早退使 debug vm 那步永远跑不到。故 `_testAll` / `_testE2eCore` 把 `_buildDebugVmAndCompression()`
+排在 `_regenForTest()` 之前。
 （`vscode-syntax` 守生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 +
 模板」的重渲染——Lexer 加关键字未 `deps install vscode` 重新生成即红，性质同自举不动点。）
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
