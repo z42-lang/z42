@@ -32,6 +32,7 @@ using Std.Time;
 int _buildRuntimePackageAndroid(string root, string rid, string version, string profile) {
     string cargoTarget = _ridToCargo(rid);
     string abi = _ridToAndroidAbi(rid);
+    bool rel = (profile == "release");   // per-ABI cargo builds below gate --release on it
     string androidCrate = Path.Join(root, "src/toolchain/workload/android/platform/rust");
     string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
     string nativeOut = Path.Join(pkgDir, "native");
