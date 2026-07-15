@@ -61,6 +61,46 @@ int _depsInstallAndroidSdk(bool force, string tier) {
         : _vget(toml, "build.android.sdk.cmdline_tools_sha256_linux");
 
     // ── JDK 17+ ──────────────────────────────────────────────────────────
+    string javaHome = _androidResolveJdk();
+    if (javaHome.Length == 0) { return 1; }
+
+    if (!_have("curl") || !_have("unzip")) { ConsoleError.WriteLine("error: curl + unzip required."); return 1; }
+    Directory.Create(toolsDir);
+
+    // ── (1) cmdline-tools (sdkmanager / avdmanager) ──────────────────────
+    int c = _androidCmdlineTools(force, sdkDir, cmdlineUrlTmpl, hostOs, cmdlineSha);
+    if (c != 0) { return c; }
+    string cmdlineDir = Path.Join(sdkDir, "cmdline-tools/latest");
+    string sdkmanager = Path.Join(cmdlineDir, "bin/sdkmanager");
+    string avdmanager = Path.Join(cmdlineDir, "bin/avdmanager");
+    string sdkRoot = "--sdk_root=" + sdkDir;   // sdkmanager/avdmanager need JAVA_HOME in the child env.
+
+    // ── (2) accept licenses (yes | sdkmanager --licenses; idempotent) ────
+    // Needs an unbounded "y" stream (multi-page T&Cs) — see `_runJavaYes`.
+    Console.WriteLine("[2/6] accepting SDK licenses");
+    _runJavaYes(sdkmanager, new string[]{ sdkRoot, "--licenses" }, javaHome);
+
+    // ── (3) SDK packages ─────────────────────────────────────────────────
+    c = _androidSdkPackages(wantEmu, sdkmanager, sdkRoot, platformVer, buildToolsVer, sysImage, javaHome);
+    if (c != 0) { return c; }
+
+    // ── (4) NDK + stable symlink ─────────────────────────────────────────
+    c = _androidNdk(sdkmanager, sdkRoot, ndkVer, sdkDir, ndkDirLink, javaHome);
+    if (c != 0) { return c; }
+
+    // ── (5) AVD + (6) Gradle — emulator tier only ────────────────────────
+    c = _androidEmulatorExtras(wantEmu, force, avdmanager, avdName, avdDevice, sysImage, gradleDir, gradleVer, gradleSha, hostOs, javaHome);
+    if (c != 0) { return c; }
+
+    string gradleInstall = Path.Join(gradleDir, "gradle-" + gradleVer);
+    _androidPrintExports(wantEmu, sdkDir, ndkDirLink, javaHome, gradleInstall);
+    _procEnd("deps install android", sw);
+    return 0;
+}
+
+// Resolve a JDK 17+ home (JAVA_HOME, else macOS java_home). Logs the version and
+// returns it, or prints an error and returns "" when none is found / too old.
+string _androidResolveJdk() {
     string javaHome = Environment.GetEnvironmentVariable("JAVA_HOME") ?? "";
     if (javaHome.Length == 0 && File.Exists("/usr/libexec/java_home")) {
         javaHome = _cmdOut("/usr/libexec/java_home", new string[]{ "-v", "17+" });
@@ -68,56 +108,49 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     }
     if (javaHome.Length == 0 || !Directory.Exists(javaHome)) {
         ConsoleError.WriteLine("error: JDK 17+ not found (set JAVA_HOME; macOS: brew install --cask temurin@17).");
-        return 1;
+        return "";
     }
     string javaBin = Path.Join(javaHome, "bin/java");
     int javaMajor = _javaMajor(_cmdOutStderr(javaBin, new string[]{ "-version" }));
     if (javaMajor < 17) {
         ConsoleError.WriteLine("error: JDK " + javaMajor.ToString() + " at " + javaHome + "; need 17+.");
-        return 1;
+        return "";
     }
     Console.WriteLine("using JDK " + javaMajor.ToString() + " at " + javaHome);
+    return javaHome;
+}
 
-    if (!_have("curl") || !_have("unzip")) { ConsoleError.WriteLine("error: curl + unzip required."); return 1; }
-    Directory.Create(toolsDir);
-
-    // ── (1) cmdline-tools (sdkmanager / avdmanager) ──────────────────────
+// [1/6] cmdline-tools (sdkmanager / avdmanager): download + sha-verify + extract
+// to <sdkDir>/cmdline-tools/latest. Idempotent — returns 0 (skip) if present.
+int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, string hostOs, string cmdlineSha) {
     string cmdlineDir = Path.Join(sdkDir, "cmdline-tools/latest");
     string sdkmanager = Path.Join(cmdlineDir, "bin/sdkmanager");
-    string avdmanager = Path.Join(cmdlineDir, "bin/avdmanager");
     if (File.Exists(sdkmanager) && !force) {
         Console.WriteLine("[1/6] cmdline-tools already installed (skip)");
-    } else {
-        Console.WriteLine("[1/6] downloading cmdline-tools");
-        if (Directory.Exists(Path.Join(sdkDir, "cmdline-tools"))) { Directory.Delete(Path.Join(sdkDir, "cmdline-tools"), true); }
-        Directory.Create(Path.Join(sdkDir, "cmdline-tools"));
-        string tmp = Directory.CreateTempDir("android-cmdline");
-        string zip = Path.Join(tmp, "cmdline-tools.zip");
-        string url = cmdlineUrlTmpl.Replace("{os}", hostOs);   // versions.toml pins the version
-        int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(zip).Arg(url));
-        if (dc != 0) { return dc; }
-        if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + hostOs + ")", hostOs) != 0) { return 1; }
-        int uc = _exec(new Process("unzip").Arg("-q").Arg(zip).Arg("-d").Arg(tmp));
-        if (uc != 0) { return uc; }
-        // zip extracts to "cmdline-tools/" — rename to ".../latest".
-        int mc = _exec(new Process("mv").Arg(Path.Join(tmp, "cmdline-tools")).Arg(cmdlineDir));
-        if (mc != 0) { return mc; }
-        if (!File.Exists(sdkmanager)) { ConsoleError.WriteLine("error: " + sdkmanager + " missing after extract"); return 1; }
+        return 0;
     }
+    Console.WriteLine("[1/6] downloading cmdline-tools");
+    if (Directory.Exists(Path.Join(sdkDir, "cmdline-tools"))) { Directory.Delete(Path.Join(sdkDir, "cmdline-tools"), true); }
+    Directory.Create(Path.Join(sdkDir, "cmdline-tools"));
+    string tmp = Directory.CreateTempDir("android-cmdline");
+    string zip = Path.Join(tmp, "cmdline-tools.zip");
+    string url = cmdlineUrlTmpl.Replace("{os}", hostOs);   // versions.toml pins the version
+    int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(zip).Arg(url));
+    if (dc != 0) { return dc; }
+    if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + hostOs + ")", hostOs) != 0) { return 1; }
+    int uc = _exec(new Process("unzip").Arg("-q").Arg(zip).Arg("-d").Arg(tmp));
+    if (uc != 0) { return uc; }
+    // zip extracts to "cmdline-tools/" — rename to ".../latest".
+    int mc = _exec(new Process("mv").Arg(Path.Join(tmp, "cmdline-tools")).Arg(cmdlineDir));
+    if (mc != 0) { return mc; }
+    if (!File.Exists(sdkmanager)) { ConsoleError.WriteLine("error: " + sdkmanager + " missing after extract"); return 1; }
+    return 0;
+}
 
-    string sdkRoot = "--sdk_root=" + sdkDir;
-    // sdkmanager/avdmanager need JAVA_HOME in the child env.
-
-    // ── (2) accept licenses (yes | sdkmanager --licenses; idempotent) ────
-    // A finite StdinBytes blob is NOT enough — sdkmanager scrolls multiple
-    // multi-page T&Cs and needs an unbounded "y" stream, so use coreutils
-    // `yes` via bash (z42 Process has no infinite-stdin primitive).
-    Console.WriteLine("[2/6] accepting SDK licenses");
-    _runJavaYes(sdkmanager, new string[]{ sdkRoot, "--licenses" }, javaHome);
-
-    // ── (3) SDK packages ─────────────────────────────────────────────────
-    // build tier: platforms + build-tools + platform-tools. emulator tier adds
-    // the emulator binary + AVD system-image.
+// [3/6] SDK packages: platforms + build-tools + platform-tools (build tier);
+// emulator tier also pulls emulator + AVD system-image. `yes |` covers per-
+// install license prompts (e.g. NDK) that reappear after step 2.
+int _androidSdkPackages(bool wantEmu, string sdkmanager, string sdkRoot, string platformVer, string buildToolsVer, string sysImage, string javaHome) {
     Console.WriteLine("[3/6] installing SDK packages" + (wantEmu ? " (+ emulator + system-image)" : " (build tier)"));
     string[] pkgs;
     if (wantEmu) {
@@ -125,12 +158,11 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     } else {
         pkgs = new string[]{ sdkRoot, "--install", "platforms;" + platformVer, "build-tools;" + buildToolsVer, "platform-tools" };
     }
-    // `yes |` through install too: a package's per-install license prompt
-    // (e.g. NDK) still appears even after step 2 and needs the unbounded stream.
-    int pc = _runJavaYes(sdkmanager, pkgs, javaHome);
-    if (pc != 0) { return pc; }
+    return _runJavaYes(sdkmanager, pkgs, javaHome);
+}
 
-    // ── (4) NDK + stable symlink ─────────────────────────────────────────
+// [4/6] NDK + a stable android-ndk symlink → <sdkDir>/ndk/<ver>.
+int _androidNdk(string sdkmanager, string sdkRoot, string ndkVer, string sdkDir, string ndkDirLink, string javaHome) {
     Console.WriteLine("[4/6] installing NDK " + ndkVer);
     int nc = _runJavaYes(sdkmanager, new string[]{ sdkRoot, "--install", "ndk;" + ndkVer }, javaHome);
     if (nc != 0) { return nc; }
@@ -138,42 +170,49 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     if (!Directory.Exists(ndkInstall)) { ConsoleError.WriteLine("error: NDK install dir " + ndkInstall + " missing"); return 1; }
     if (File.Exists(ndkDirLink) || Directory.Exists(ndkDirLink)) { _exec(new Process("rm").Arg("-f").Arg(ndkDirLink)); }
     _exec(new Process("ln").Arg("-s").Arg(ndkInstall).Arg(ndkDirLink));
+    return 0;
+}
 
-    // ── (5) AVD + (6) Gradle — emulator tier only ────────────────────────
-    string gradleInstall = Path.Join(gradleDir, "gradle-" + gradleVer);
+// [5/6] AVD + [6/6] Gradle — emulator tier only (build tier prints a skip line).
+int _androidEmulatorExtras(bool wantEmu, bool force, string avdmanager, string avdName, string avdDevice, string sysImage, string gradleDir, string gradleVer, string gradleSha, string hostOs, string javaHome) {
     if (!wantEmu) {
         Console.WriteLine("[5-6/6] AVD + Gradle skipped (build tier; emulator tier auto-installs on `test platform android run`)");
+        return 0;
+    }
+    // (5) AVD
+    string existing = _cmdOut(avdmanager, new string[]{ "list", "avd" });
+    if (existing.Contains(avdName) && !force) {
+        Console.WriteLine("[5/6] AVD " + avdName + " already exists (skip)");
     } else {
-        // ── (5) AVD ──────────────────────────────────────────────────────
-        string existing = _cmdOut(avdmanager, new string[]{ "list", "avd" });
-        if (existing.Contains(avdName) && !force) {
-            Console.WriteLine("[5/6] AVD " + avdName + " already exists (skip)");
-        } else {
-            Console.WriteLine("[5/6] creating AVD " + avdName);
-            if (existing.Contains(avdName)) { _runJava(avdmanager, new string[]{ "delete", "avd", "-n", avdName }, javaHome); }
-            _runWithStdin(avdmanager, new string[]{ "create", "avd", "--name", avdName, "--device", avdDevice, "--package", sysImage, "--force" }, javaHome, "no\n");
-        }
-
-        // ── (6) Gradle ─────────────────────────────────────────────────────
-        string gradleBin = Path.Join(gradleInstall, "bin/gradle");
-        if (File.Exists(gradleBin) && !force) {
-            Console.WriteLine("[6/6] Gradle " + gradleVer + " already installed (skip)");
-        } else {
-            Console.WriteLine("[6/6] downloading Gradle " + gradleVer);
-            string tmp2 = Directory.CreateTempDir("gradle-dl");
-            string gzip = Path.Join(tmp2, "gradle.zip");
-            int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(gzip)
-                .Arg("https://services.gradle.org/distributions/gradle-" + gradleVer + "-bin.zip"));
-            if (dc != 0) { return dc; }
-            if (_verifySha256(gzip, gradleSha, "gradle " + gradleVer, hostOs) != 0) { return 1; }
-            if (Directory.Exists(gradleDir)) { Directory.Delete(gradleDir, true); }
-            Directory.Create(gradleDir);
-            int uc = _exec(new Process("unzip").Arg("-q").Arg(gzip).Arg("-d").Arg(gradleDir));
-            if (uc != 0) { return uc; }
-            if (!File.Exists(gradleBin)) { ConsoleError.WriteLine("error: " + gradleBin + " missing after extract"); return 1; }
-        }
+        Console.WriteLine("[5/6] creating AVD " + avdName);
+        if (existing.Contains(avdName)) { _runJava(avdmanager, new string[]{ "delete", "avd", "-n", avdName }, javaHome); }
+        _runWithStdin(avdmanager, new string[]{ "create", "avd", "--name", avdName, "--device", avdDevice, "--package", sysImage, "--force" }, javaHome, "no\n");
     }
 
+    // (6) Gradle
+    string gradleInstall = Path.Join(gradleDir, "gradle-" + gradleVer);
+    string gradleBin = Path.Join(gradleInstall, "bin/gradle");
+    if (File.Exists(gradleBin) && !force) {
+        Console.WriteLine("[6/6] Gradle " + gradleVer + " already installed (skip)");
+    } else {
+        Console.WriteLine("[6/6] downloading Gradle " + gradleVer);
+        string tmp2 = Directory.CreateTempDir("gradle-dl");
+        string gzip = Path.Join(tmp2, "gradle.zip");
+        int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(gzip)
+            .Arg("https://services.gradle.org/distributions/gradle-" + gradleVer + "-bin.zip"));
+        if (dc != 0) { return dc; }
+        if (_verifySha256(gzip, gradleSha, "gradle " + gradleVer, hostOs) != 0) { return 1; }
+        if (Directory.Exists(gradleDir)) { Directory.Delete(gradleDir, true); }
+        Directory.Create(gradleDir);
+        int uc = _exec(new Process("unzip").Arg("-q").Arg(gzip).Arg("-d").Arg(gradleDir));
+        if (uc != 0) { return uc; }
+        if (!File.Exists(gradleBin)) { ConsoleError.WriteLine("error: " + gradleBin + " missing after extract"); return 1; }
+    }
+    return 0;
+}
+
+// Final "installed" summary + copy-paste env exports (no system PATH changes).
+void _androidPrintExports(bool wantEmu, string sdkDir, string ndkDirLink, string javaHome, string gradleInstall) {
     Console.WriteLine("");
     Console.WriteLine("Android " + (wantEmu ? "toolchain (build + emulator)" : "build SDK") + " installed locally — no system PATH changes.");
     Console.WriteLine("  export ANDROID_HOME=\"" + sdkDir + "\"");
@@ -184,8 +223,6 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     } else {
         Console.WriteLine("  export PATH=\"$ANDROID_HOME/platform-tools:$PATH\"");
     }
-    _procEnd("deps install android", sw);
-    return 0;
 }
 
 // run a JDK-backed tool (sdkmanager/avdmanager) with JAVA_HOME set, stdio inherited.
