@@ -113,7 +113,7 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     string sumsPath = Path.Join(distDir, "SHA256SUMS");
     if (!File.Exists(sumsPath)) { ConsoleError.WriteLine("error: missing " + sumsPath); return 1; }
     string sums = File.ReadAllText(sumsPath);
-    string ts = new Process("date").Arg("-u").Arg("+%Y-%m-%dT%H:%M:%SZ").Run().Stdout.Trim();
+    string ts = _utcNow();   // shared helper (ExitCode-guarded); avoids re-inlining `date`
 
     // desktop ext: windows = .zip, others = .tar.gz
     string[] dRids = new string[4];

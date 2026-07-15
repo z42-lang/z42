@@ -141,7 +141,7 @@ int _depsCheck(ParseResult r) {
 // build-wave) and _buildTest both call them. Post-format-bump fixture regen is now
 // `xtask build stdlib && xtask build test`.
 
-int _regenCore(bool release, bool rebuildStdlib) {
+int _regenCore(bool rebuildStdlib) {
     // replace-csharp Phase C：golden 编译走 z42c（不再 dotnet build C# driver）。
     // _buildStdlib（warm C#-free 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
     if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }

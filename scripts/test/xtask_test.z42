@@ -73,7 +73,7 @@ int _testRuntime() {
 // already present, only regen the golden .zbc (_regenGolden, --toolchain-aware);
 // else full _regenCore (rebuild stdlib + runtime + goldens). Shared: _testE2eCore + _testAll.
 int _regenForTest(bool haveTc, bool noBuild) {
-    return (haveTc || noBuild) ? _regenGolden() : _regenCore(false, true);
+    return (haveTc || noBuild) ? _regenGolden() : _regenCore(true);
 }
 
 // cargo-build the DEBUG z42vm + z42-compression cdylib — the runtime the VM golden

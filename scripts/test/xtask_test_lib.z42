@@ -75,7 +75,7 @@ int _testLib(ParseResult r, string kind) {
         libs = new string[0];
     }
     int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"));
-    if (__rc == 0) { _procEnd("test stdlib", sw); }
+    if (__rc == 0) { _procEnd((kind == "bench") ? "bench stdlib" : "test stdlib", sw); }
     return __rc;
 }
 
