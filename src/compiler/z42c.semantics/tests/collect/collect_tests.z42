@@ -31,7 +31,8 @@ void test_collect_class_members() {
 void test_collect_method_signature_and_static() {
     var table = collect("class Calc { public static int Add(int a, int b) { return a + b; } }");
     var calc = table.GetClass("Calc");
-    var m = calc.Methods.Get("Add") as MethodSymbol;
+    // 方案A 静态-only：静态方法全签名 mangle → 注册键为 Add$2$i32$i32（非裸 Add）。
+    var m = calc.Methods.Get("Add$2$i32$i32") as MethodSymbol;
     Assert.Equal("(int,int)->int", m.Signature.Dump());
     Assert.Equal(true, m.IsStatic);
     Assert.Equal("Calc", m.ContainingTypeName);

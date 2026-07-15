@@ -248,7 +248,7 @@ Byte 4+:  ...    — 按操作码定义的额外操作数字（u8 / u16 / u32 / 
 ```
 [4]  magic:         0x5A 0x42 0x43 0x00   ("ZBC\0")
 [2]  version_major  当前 1
-[2]  version_minor  当前 7 (详见 minor changelog 表)
+[2]  version_minor  当前 27 (详见 minor changelog 表)
 [2]  flags          bit0=Stripped, bit1=HasDebug, bit2=SymOnly
 [2]  section_count
 [4]  reserved
@@ -439,7 +439,7 @@ z42c --assemble foo.zasm -o foo.zbc
 **Strict-pin 政策**（与 [`philosophy.md` "不为旧版本提供兼容"](../../../.claude/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）：
 
 - Reader 仅接受 `major == ZbcWriter.VersionMajor && minor == ZbcWriter.VersionMinor`。pre-1.0 z42 阶段**不为旧 zbc minor 提供向前 / 向后兼容**；每次 minor bump = 所有现存 zbc artifacts 必须 regen（`./xtask build test`）。
-- **当前版本**：`major=1, minor=5`（详见下方 minor changelog）
+- **当前版本**：`major=1, minor=27`（详见下方 minor changelog）
 - **触发 minor bump** 的事项：新增 opcode / 新增 section id / 已定义 section 内部字段语义变化 / Flag 位语义变化
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header 字段宽度或排列 / 改 section directory 12B 条目格式 / 重划 Token 编码空间（IMPORT_BASE / UNRESOLVED 等）
 - **未识别 section**：reader 通过 dict-lookup 自动跳过（不在已知 tag 集合内的 section 不影响其他 section 加载）。这是 v1 内 "加 section 不破坏 reader" 的唯一保留兼容点；但前提是新 section 不携带必须信息（必须信息出现时 minor bump 本身就让旧 reader bail）。
@@ -476,6 +476,7 @@ z42c --assemble foo.zasm -o foo.zbc
 | 1.24 | 2026-07-10 | [add-method-modifiers](../../spec/changes/add-method-modifiers/)（unify-type-metadata P1-c） | **方法修饰符入 SIGS**：SIGS 段每函数在 `visibility` 之后追加 `method_flags:u8`（bit0=virtual / bit1=abstract；`static` 仍由既有 `is_static` 字节表达，不重复；non-gated → 每函数固定 +1 byte）。背书 `MethodInfo.IsVirtual`（**权威化**——从 vtable-presence 启发式改读 flag，virtual/override/abstract 皆置 bit0，镜像 C#）+ 新增 `IsAbstract`（bit1）。reader 把 SIGS method_flags 灌进 `Function.method_flags`（与 `is_static`/`visibility` 同源同路径）。unify-type-metadata 第三砖。zpkg 0.28 同步联动。Pre-1.24 zbc 不可读 |
 | 1.25 | 2026-07-10 | [add-param-metadata](../../spec/changes/add-param-metadata/)（unify-type-metadata P1-d） | **参数元数据入 SIGS**：每函数在 `method_flags` 后追加 `min_arg:u16`（必填逻辑参数个数）+ `params_from:u8`（varargs 逻辑 index，0xFF=无）；每参数在 `param_type` 后追加 `name_str_idx:u32`（源名，this 槽="this"）+ `default_kind:u8 + payload`（0=无/1=null/2=i64 8B/3=f64bits 8B/4=bool 1B/5=str u32 idx；字面量折叠，非字面量默认值 kind=0）。背书 `ParameterInfo.IsOptional/IsParams/DefaultValue` + `Name` **权威化**（SIGS 优先，DBUG 回退）。unify-type-metadata 第四砖。zpkg 0.29 同步联动。Pre-1.25 zbc 不可读 |
 | 1.26 | 2026-07-11 | [add-delegate-metadata](../../spec/changes/add-delegate-metadata/)（unify-type-metadata P1-e ②） | **delegate-as-class**：`class_flags` 新增 **bit6=delegate**（无额外 payload——沿 1.19 interface「flags 语义扩展 + 新增条目」先例 bump）。每 `delegate` 声明（含泛型）emit 一条 TYPE 条目（FQ 名 + bit6 + TypeParams——泛型 tps 存 TYPE，Invoke 按名引用）+ 合成 `<FQ>.Invoke` 死体桩进 SIGS/FUNC（实例/virtual/参数源拼写+名+P1-d 元数据；真实调用走 CallIndirect，桩永不被调）。背书 `Type.IsDelegate` + Invoke 签名反射；P3 删 TSIG 的 delegate 表前置。zpkg 0.30 同步联动。Pre-1.26 zbc 不可读 |
+| 1.27 | 2026-07-14 | [stabilize-dispatch-keys](../../spec/changes/stabilize-dispatch-keys/)（方案A） | **无 wire-layout 变化**：派发键从「兄弟集相关」改为「方法自身签名纯函数」（`regName` 一律全签名 mangle，协议豁免名 `ToString`/`Equals`/… 保持裸名）→ `CallInstr`/`VCall` 操作数字符串 + SIGS/导出方法名 **全局重键**（内容变、布局不变）。VM vtable 槽键随之保留 `$` 后缀（`derive_simple_method_name` 不再截断）→ VCall 与 vtable 一致 + 重载虚方法各占独立槽。bump 仅为触发 ci-bootstrap 两代自举整树重键（耦合 zpkg 0.32）。Pre-1.27 zbc 不可读 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `generate-fixtures.sh` regen + commit。Invariant CI 校验三方常量一致。
 

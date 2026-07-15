@@ -158,9 +158,9 @@ void test_instance_call() {
 
 [Test]
 void test_static_call() {
-    // C.Make() 静态 → 直接 call @C.Make
+    // C.Make() 静态 → 直接 call @C.Make$0（方案A 静态-only：静态方法全签名 mangle）
     string src = "class C { static int Make() { return 5; } int Use() { return C.Make(); } }";
-    Assert.Equal("fn @C.Use(1) -> int {\nentry:\n  %1 = call @C.Make()\n  ret %1\n}",
+    Assert.Equal("fn @C.Use(1) -> int {\nentry:\n  %1 = call @C.Make$0()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "C.Use"));
 }
 

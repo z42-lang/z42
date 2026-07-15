@@ -94,7 +94,12 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-07-11 add-delegate-metadata (unify P1-e): bumped to 1.26 - class_flags
 // bit6=delegate (delegate-as-class TYPE entry + synthesized Invoke stub; no
 // extra payload, semantics-extension bump per the 1.19 interface precedent).
-pub const ZBC_VERSION_MINOR: u16 = 26;
+// 2026-07-14 stabilize-dispatch-keys (方案A): bumped to 1.27 - no wire-layout
+// change; dispatch keys now full-signature mangled for every method, so
+// CallInstr/VCall operand strings + SIGS method names are globally re-keyed.
+// The version bump exists to trigger ci-bootstrap's two-generation self-host
+// (coupled with zpkg 0.32) which rebuilds the whole tree consistently.
+pub const ZBC_VERSION_MINOR: u16 = 27;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -158,7 +163,13 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-07-11 add-delegate-metadata: bumped to 0.30, coupled inner zbc 1.26.
 // 2026-07-11 drop-tsig-expt (unify P3): bumped to 0.31 - zpkg top-level EXPT + TSIG sections
 // removed (EXPT write-only; TSIG superseded by TsigReconcile.Rebuild from TYPE/SIGS). IMPL kept.
-pub const ZPKG_VERSION_MINOR: u16 = 31;
+// 2026-07-14 stabilize-dispatch-keys (方案A): bumped to 0.32, coupled inner zbc 1.27.
+// Dispatch keys are now a pure function of each method's own signature (always
+// full-signature mangled; protocol-exempt names stay bare), so exported method
+// names / SIGS / embedded zbc CallInstr operands are globally re-keyed. Outer
+// zpkg layout unchanged. The bump triggers ci-bootstrap's version-diff gate →
+// two-generation self-host rebuilds the whole tree onto the stable keys.
+pub const ZPKG_VERSION_MINOR: u16 = 32;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

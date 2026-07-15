@@ -91,6 +91,9 @@ public sealed class MemberResolver {
         string wrapper = TypeFactsTc._primWrapper(rt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
+            // stabilize-dispatch-keys（方案A，静态-only）：prim 收者的实例方法（string.StartsWith 等）保持
+            // 基线键规则（bare / Name$arity），故沿用 _overloadKey/_findMethod。静态-only 不 mangle 实例方法，
+            // 无需改此路径。（prim 静态 int.Parse/string.FromChars 走下方独立路径，那里才用 RegKey。）
             string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
             MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
             if (wms != null) {
@@ -168,6 +171,8 @@ public sealed class MemberResolver {
                 return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
             }
             // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
+            // stabilize-dispatch-keys（方案A，静态-only）：实例方法保持基线键 → 沿用 _findMethod 按源名查（unique
+            // bare / arity 重载 Name$arity）。静态-only 不 mangle 实例方法，此路径不变。
             MethodSymbol mg = this._tc._overload._findMethod(env.Symbols, ct, m.Name);
             if (mg != null && mg.Signature != null) {
                 return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
@@ -287,10 +292,17 @@ public sealed class MemberResolver {
                 string pwrap2 = TypeFactsTc._primWrapper(tid2.Name);
                 if (env.Symbols.HasClass(pwrap2)) {
                     Z42ClassType wct2 = env.Symbols.GetClass(pwrap2);
-                    string wmkey2 = this._tc._overload._overloadKey(env.Symbols, wct2, mem.Name, argCount);
-                    MethodSymbol wms2 = this._tc._overload._findMethod(env.Symbols, wct2, wmkey2);
+                    // stabilize-dispatch-keys（方案A，静态-only）：prim 关键字静态调用（int.Parse / string.FromChars）
+                    // 是【静态】方法 → 静态-only 下恒全签名 mangle。旧 _overloadKey/_findMethod（裸名/Name$arity）
+                    // 查不到已 mangle 的静态方法 → 必须走 _resolveOverload 拿 RegKey。（prim 实例方法不 mangle，走上方裸键路径。）
+                    MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, sp);
                     if (wms2 != null) {
-                        return new BoundCall("static", false, null, pwrap2, wmkey2, args, argCount, wms2.Signature.Ret, sp);
+                        // params 打包 / 默认参数填充（与上方类限定静态调用一致）：keyword 静态调用此前不经
+                        // _withDefaults，靠精确 arity 重载兜底；params-for-Join 移除了 `Join(string,string,string,string)`
+                        // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
+                        // 否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符。
+                        BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp);
+                        return new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp);
                     }
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                         "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);

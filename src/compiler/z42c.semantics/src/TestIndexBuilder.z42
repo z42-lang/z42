@@ -58,8 +58,9 @@ public sealed class TestIndexBuilder {
                 if (ad.Inner is MethodDecl) {
                     MethodDecl md = ad.Inner as MethodDecl;
                     if (md.HasBody && this._hasTestAttr(ad)) {
-                        // emit 同款限定名：_q(classIrShortName).methKey（arity-mangle 或 bare）。
+                        // emit 同款限定名：_q(classIrShortName).methKey。方案A：优先 md.RegKey（全签名键）。
                         string methKey = md.Name + "$" + md.ParamCount.ToString();
+                        if (md.RegKey != "") { methKey = md.RegKey; }
                         string arityIr = this._g._q(this._g._classIrShortName(c)) + "." + methKey;
                         string bareIr = this._g._q(this._g._classIrShortName(c)) + "." + md.Name;
                         int mid = this._lookupFnIndex(arityIr);

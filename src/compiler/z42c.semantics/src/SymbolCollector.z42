@@ -502,24 +502,21 @@ public sealed class SymbolCollector {
         Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
         string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
         int tpc = c.TypeParams.Count;
-        // GS3：预扫描检测本地重载（同名多 arity 方法）——镜像 C# methodNameCount[(Name, IsStatic)]>1 判断。
-        // 重载方法注册为 Name$arity 键；unique 方法保留 bare 键（不影响 7 包 byte-identical 门）。
+        // stabilize-dispatch-keys（方案A，静态-only）：静态方法恒全签名 mangle（键稳定，加/删重载不 re-mangle
+        // 现有静态键）；实例方法保持基线键规则（bare / Name$arity / type-overload 全 mangle）。故实例仍需预扫描
+        // 兄弟集（ovldInst 判 arity-based 重载、arityDup 判 type-based 重载）。静态不依赖预扫描（无条件 mangle）。
         StrMap seenInst   = new StrMap();   // 实例方法首次见
-        StrMap seenSt     = new StrMap();   // 静态方法首次见
         StrMap ovldInst   = new StrMap();   // 实例方法重载（>1 arity）
-        StrMap ovldSt     = new StrMap();   // 静态方法重载
         // add-type-based-overloads：同 (name,arity) ≥2 重载检测（type-based）。键 name$arity，值 "1"=见过 / "2"=重复。
+        // arityDup 计入 static+instance 全部方法：实例方法的 wantMangle 判据依赖跨 static/instance 的 name$arity
+        // 碰撞（镜像基线），故必须全量统计才能与基线实例键逐字节一致。
         StrMap arityDup   = new StrMap();
         int pi = 0;
         while (pi < c.MemberCount) {
             Decl pmem = this._unwrap(c.Members[pi]);
             if (pmem is MethodDecl) {
                 MethodDecl pmd = pmem as MethodDecl;
-                bool pst = this._hasWord(pmd.Mods, "static");
-                if (pst) {
-                    if (seenSt.ContainsKey(pmd.Name)) { ovldSt.Put(pmd.Name, "1"); }
-                    else { seenSt.Put(pmd.Name, "1"); }
-                } else {
+                if (!this._hasWord(pmd.Mods, "static")) {
                     if (seenInst.ContainsKey(pmd.Name)) { ovldInst.Put(pmd.Name, "1"); }
                     else { seenInst.Put(pmd.Name, "1"); }
                 }
@@ -593,23 +590,34 @@ public sealed class SymbolCollector {
                 // GS3：重载方法注册 Name$arity；unique 方法 bare name（镜像 C# SymbolCollector.Classes.cs regName 逻辑）。
                 // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
                 bool mst = this._hasWord(md.Mods, "static");
-                bool isOvld = mst ? ovldSt.ContainsKey(md.Name) : ovldInst.ContainsKey(md.Name);
                 MethodSymbol msym = this._methodSymbol(table, md, c.Name, tp, tpc);
-                string aritK = md.Name + "$" + md.ParamCount.ToString();
-                string regName = md.Name;
-                // add-type-based-overloads：静态方法 type-mangle 无条件启用（编译期决议 → emit 精确签名键 → 安全）。
-                // D7（2026-07-01）：实例方法同样启用 mangle，但协议豁免名单内的名字（ToString/Equals/
-                // GetHashCode/GetType/get_Item/set_Item）永不 mangle——它们被 VM/TypeChecker 按裸字符串
-                // 字面量硬编码查找，mangle 会断查找（见 _isProtocolExempt 注释 + design.md D7）。
-                bool wantMangle = arityDup.ContainsKey(aritK) && arityDup.Get(aritK) == "2"
-                    && (mst || !SymbolCollector.IsProtocolExempt(md.Name));
-                if (wantMangle) {
+                // stabilize-dispatch-keys（方案A，静态-only）：
+                // - 常规静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
+                //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。
+                // - 静态【虚】成员（INumber 的 static abstract op_* 接口成员 + 各 primitive 的 static override 实现）：
+                //   经 VCall 按运行时类型派发（`x.op_Add(x)` → VCall → Std.Int32.op_Add + arity 重试），base 声明与
+                //   派生实现【必须同键】。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)
+                //   → VCall 落空（`expected object, got I64`）。故与实例虚方法同理，走基线键规则（op_* 唯一 → 裸名）。
+                // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
+                //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量
+                //   硬查，mangle 会断锚点）。实例 / 虚 / 接口 / 泛型 / 委托 / foreach / ctor 派发依赖此基线锚点，不动。
+                bool staticVirtual = mst && (this._hasWord(md.Mods, "override") || this._hasWord(md.Mods, "abstract"));
+                string regName;
+                if (mst && !staticVirtual) {
                     regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
-                } else if (isOvld) {
-                    regName = aritK;
+                } else {
+                    string aritK = md.Name + "$" + md.ParamCount.ToString();
+                    regName = md.Name;
+                    bool wantMangle = arityDup.ContainsKey(aritK) && arityDup.Get(aritK) == "2"
+                        && !SymbolCollector.IsProtocolExempt(md.Name);
+                    if (wantMangle) {
+                        regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                    } else if (ovldInst.ContainsKey(md.Name)) {
+                        regName = aritK;
+                    }
                 }
                 msym.RegKey = regName;
-                md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen 复用此键（type-based 重载消歧）
+                md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键
                 ct.Methods.Put(regName, msym);
             }
             j = j + 1;
