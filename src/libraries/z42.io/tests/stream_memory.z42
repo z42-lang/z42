@@ -181,3 +181,20 @@ void test_readbyte_writebyte_round_trip() {
     Assert.Equal(200, s.ReadByte());     // not sign-extended
     Assert.Equal(-1, s.ReadByte());      // end of stream
 }
+
+// fix-memorystream-seek-overflow (2026-07-12, review §2.1): a target past
+// int.MaxValue used to wrap to a negative on the (int) cast and silently
+// corrupt the position; it must now throw.
+[Test]
+void test_seek_beyond_int_max_throws() {
+    MemoryStream s = new MemoryStream();
+    s.Write(new byte[] { (byte)1 }, 0, 1);
+    bool caught = false;
+    try {
+        s.Seek(3000000000L, SeekOrigin.Begin);   // > int.MaxValue (~2.15e9)
+    } catch (ArgumentException e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Assert.Equal(1L, s.Position());              // unchanged (still after the 1-byte write)
+}

@@ -117,6 +117,12 @@ public class MemoryStream : Stream {
         if (newPos < 0L) {
             throw new ArgumentException("Seek: resulting position would be negative");
         }
+        // The position is stored as i32; a target past int.MaxValue would wrap
+        // to a negative on the `(int)` cast and silently corrupt the stream.
+        // Reject it instead (2147483647 = int.MaxValue; no Int32.MaxValue const yet).
+        if (newPos > 2147483647L) {
+            throw new ArgumentException("Seek: resulting position exceeds Int32 max: " + newPos.ToString());
+        }
         // Seeking past Length is allowed for writable streams (gap
         // fills with 0 on next Write); for read-only that just lands
         // at EOF. v0 matches .NET: allow it, no eager grow.
