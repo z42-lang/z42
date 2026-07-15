@@ -83,6 +83,12 @@ TestResults/
 # Native, platform-specific — regenerate, don't commit.
 /xtask
 
+# Two-generation bootstrap scratch dirs created at the repo root by
+# .github/actions/ci-bootstrap (seed / gen1 run). Ephemeral (rm -rf'd + recreated
+# each run) — must never be committed (a `git add -A` once swept ~4MB of zpkgs in).
+/.ci-seed/
+/.ci-gen1run/
+
 # Guard against publish output leaking into the source tree (add-build-toolchain,
 # 2026-07-05): publish_dir now defaults to ${output_dir}/publish, but a stray
 # explicit publish into a component dir must never get committed.
