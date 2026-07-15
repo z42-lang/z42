@@ -1,6 +1,6 @@
 # Tasks: split-android-install-fn
 
-> 状态：🟡 进行中（代码就绪，待 CI 验证）| 创建：2026-07-15
+> 状态：🟢 已完成 | 创建：2026-07-15 | 完成：2026-07-15
 
 **变更说明：** 拆 `_depsInstallAndroidSdk`（~161 行超函数硬限 60，review §2.8）为「preamble + 逐步骤 helper」。纯机械搬移零行为变化。
 **原因：** review §2.8 表列「`_depsInstallAndroidSdk` `xtask_install_android.z42:27-187` ~161 | 按 [1]-[6] 步骤各提一函数」。
@@ -17,8 +17,8 @@
   - 注：文件 271→308 行，**越 300 软限 8 行**（advisory，非硬限）——6 helper 的签名/注释固有开销所致；权衡上**消一个 161 行硬限函数违规 > 守一个 8 行软限**（code-organization：软限「建议拆分不强制」，硬限「必须」）。已删冗余注释压至最小溢出。
 
 ## 阶段 2: 验证
-- [ ] 2.1 CI 验证（本环境冷启动无 z42 种子、SDK 下载被出网策略挡 403，无法本地跑 `xtask` 编译/测试；GREEN 判定以 CI 为准 —— bootstrap-seed.md「cold 路径以 CI 为准」）
-- [ ] 2.2 CI 绿后归档 + 释放 toolchain 锁
+- [x] 2.1 CI 验证（本环境冷启动无 z42 种子、SDK 下载被出网策略挡 403，无法本地跑 `xtask` 编译/测试；GREEN 判定以 CI 为准 —— bootstrap-seed.md「cold 路径以 CI 为准」）→ **PR #8（762e3d41）已合并 main，CI 全绿**
+- [x] 2.2 CI 绿后归档 + 释放 toolchain 锁（本次会话）
 
 ## 备注
 - 本环境为全新冷检出：无 z42 种子、nightly SDK 下载 403（组织出网策略），故 z42c 无法本地编译、xtask 无法本地运行。纯机械提取，靠 `git diff` 核对等价性；编译正确性由 CI 的 xtask build 检、运行行为由 diff 保证。

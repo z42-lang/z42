@@ -150,7 +150,7 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 | `_testCompilerE2e` | `xtask_compiler_e2e.z42:43-284` | ~242 | ✅ 拆 `_e2eOracleChecks`（oracle 内联源检查）+ `_e2eBuildChecks`（build/import e2e）；主分发 **242→19 行**。**机械搬移**（脚本逐字搬 + `git diff` comm 核对删=增零丢失）+ 隔离 libs 编译通过；短路 `return 1` 语义构造保证。两 helper 仍 >60（测试数据固有），但主函数入限、结构清晰 |
 | `_regenGolden` | `xtask_test_assets.z42:29-220` | ~192 | ✅ 抽 `_collectGoldenCases(root)`→`_GoldenCases`（三布局枚举 ~100 行搬出，纯逐字移动 + struct 返并行数组）；`_regenGolden` 192→~90 行。隔离 libs 重建编译通过；运行时由 CI golden regen（每 test-host）验 |
 | `_testCrossZpkgImpl` | `xtask_test_cross.z42:27-190` | ~164 | ✅ 提 `_runOneCrossCase`（stage1-4，返失败标签或空串）+ `_crossSummary` + `_fixtureDist`（去重 7 处三层 `Path.Join`）；主函数 **164→18 行**，三 helper 均 ≤60（53/52/18）。change `consolidate-xtask-fns` PR #6 CI 绿 |
-| `_depsInstallAndroidSdk` | `xtask_install_android.z42:27-187` | ~161 | ✅ 拆 preamble + 6 helper（`_androidResolveJdk`/`_androidCmdlineTools`[1]/`_androidSdkPackages`[3]/`_androidNdk`[4]/`_androidEmulatorExtras`[5-6]/`_androidPrintExports`）；主函数 **~161→49 行**。dev-only 路径（CI 只编不跑）→ diff 核对为准。change `split-android-install-fn` |
+| `_depsInstallAndroidSdk` | `xtask_install_android.z42:27-187` | ~161 | ✅ 拆 preamble + 6 helper（`_androidResolveJdk`/`_androidCmdlineTools`[1]/`_androidSdkPackages`[3]/`_androidNdk`[4]/`_androidEmulatorExtras`[5-6]/`_androidPrintExports`）；主函数 **~161→49 行**。dev-only 路径（CI 只编不跑）→ diff 核对为准。change `split-android-install-fn` PR #8 合并 main、CI 绿 |
 | `_packageDesktop` | `xtask_package_desktop.z42:16-167` | ~152 | 8 连发 `_z42cBuildToml` + 5 组 `_z42bPublish` 改数组循环，约 -45 行 |
 
 文件超软限 300：`xtask_test_dist.z42` 466（逼近硬限）、`xtask_cli.z42` 460、
