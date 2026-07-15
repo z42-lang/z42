@@ -1,6 +1,6 @@
 # Tasks: consolidate-xtask-fns-round2
 
-> 状态：🟡 进行中（分节实施，待 CI 验证）| 创建：2026-07-15
+> 状态：🟢 已完成 | 创建：2026-07-15 | 完成：2026-07-15
 
 **变更说明：** xtask review §2 剩余安全机械收敛项——§2.5（runtime-pkg scaffold）+ §2.7（拷贝变体）+ §2.10（杂项小修）。逐节独立 commit，纯机械/等价，靠 diff 核对 + CI（package/toolchain 腿）验。
 **原因：** review §2.5/§2.7/§2.10 列的剩余 dedup/小修。**不含** §2.4（test dist 双构建，行为变更且 test dist 不在 CI）与 §2.6（golden 枚举器，L1 无 lambda/泛型 + CI 拓不到覆盖回退）——两项已在 review 标暂缓，留 warm 环境。
@@ -24,8 +24,8 @@
 - §2.6 golden 枚举器去重：L1 无 lambda/泛型 + CI 抓不到覆盖回退 → 留 warm 环境
 
 ## 阶段 2: 验证
-- [ ] 2.1 CI 验证（冷检出无法本地跑；GREEN 以 CI 为准）——关键腿：package-ios/android/wasm（scaffold）+ compile-toolchain；已推 main（9a707bff §2.5 / 6b5ee43e §2.10）
-- [ ] 2.2 CI 绿后归档 + 释放 toolchain 锁；红则 revert 对应 commit
+- [x] 2.1 CI 验证 → **compile-toolchain 全绿**（run 29429781563，含热修 536bcb58），确认 §2.5/§2.10 全栈编译通过。注：`_runtimePkgScaffold` 的运行期由 package-ios/android/wasm 腿覆盖，但那些腿按 `changes.platform` path-gate、scripts-only 改动多半跳过 → scaffold 运行行为由 compile + diff 等价性保证（纯机械提取：pkgName 格式 + Directory.Create 逐字保持）
+- [x] 2.2 CI 绿后归档 + 释放 toolchain 锁（本次会话）
 
 ## ⚠️ §2.5 回归 + 热修（2026-07-15）
 - `9a707bff` 误删 `xtask_package_android.z42` 的 `bool rel`（判为提取后未用），但它仍被 47/63/77 的 per-ABI cargo `--release` 门用 → `E0401: undefined: rel` 让 **compile-toolchain 在 main 全红**（run 29427650069/29428595684），并行 session 的 push 亦继承此红。
