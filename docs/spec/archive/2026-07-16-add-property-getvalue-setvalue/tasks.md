@@ -1,6 +1,6 @@
 # Tasks: PropertyInfo.GetValue / SetValue
 
-> 状态：🔴 DRAFT | 创建：2026-07-15
+> 状态：🟢 已完成 | 创建：2026-07-15 | 完成：2026-07-16
 > 子系统锁：**runtime**（空闲）+ **stdlib**（现由 DRAFT converge 持有，footprint 零重叠——待 User 授权）
 
 ## 进度概览
@@ -29,7 +29,7 @@
 - [x] 3.4 完整 `./xtask test` 门禁 **GREEN**（隔离验证，XTASK_EXIT=0，0 fail）：e2e 全绿 + stdlib 34/34 reflection + z42c 自举不动点 7/7 byte-identical + z42c [Test] 20/20 + vscode-syntax。**注**：首轮 209 fail 系环境问题——golden regen 用 *debug* z42vm，而门禁仅重建 *release* vm，stale debug vm 不识新 builtin `__property_get_value` → panic；`cargo build`（debug）后全绿。**门禁潜在缺口**：`xtask test` 不重建 debug vm，任何加 VM builtin 的变更都会误报，值得单独修（记 tasks 备注）。
 - [x] 3.5 `reflection.md` PropertyInfo 段更新 + `reflection-future-properties` GetValue/SetValue 标落地 + 订正过期「依赖 0.5.x Invoke」
 - [x] 3.6 README 同步：Reflection/ 为 4 层无 README；z42.core README 不列方法级反射 API → 无需同步
-- [ ] 3.7 归档 + ACTIVE.md 释放锁
+- [x] 3.7 归档到 archive/2026-07-16-add-property-getvalue-setvalue（ACTIVE.md 未登记锁 → 无需释放，见备注）
 
 ## 备注
 - 无 zbc/zpkg 格式 bump（属性运行期派生，隐藏槽不持久化）→ 无 fixture golden 变更。
