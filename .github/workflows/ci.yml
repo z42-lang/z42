@@ -867,110 +867,6 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- test compiler
 
-  # P1.D.2: PR-only bench smoke. Runs `just bench-e2e --quick` on linux,
-  # uploads bench/results/e2e.json as artifact for manual inspection.
-  # No diff/gate yet — that's P1.D.3 (gh-pages baseline + automatic PR diff).
-  # Note: noisy CI runners make 5% gate unreliable; current smoke just verifies
-  # bench infra works in CI. Manual download + `xtask bench --diff` for now.
-  bench-e2e:
-    name: bench-smoke(linux-x64)
-    timeout-minutes: 30
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install hyperfine
-        run: |
-          wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
-          sudo dpkg -i hyperfine_1.20.0_amd64.deb
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
-
-      # seed from the prev nightly's z42c compiler and build current source warm.
-      - name: Bootstrap toolchain (nightly z42c seed → current source)
-        uses: ./.github/actions/ci-bootstrap
-        with:
-          rid: linux-x64
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run e2e bench (quick mode, xtask)
-        shell: bash
-        run: |
-          set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- bench --quick
-
-      - name: Upload bench results
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-e2e-results-${{ runner.os }}
-          path: bench/results/e2e.json
-          retention-days: 30
-          if-no-files-found: error
-
-      # ── P1.D.4: informational diff against main baseline ──
-      # Fetch latest baseline from bench-baselines branch (published by
-      # bench-update.yml on main pushes). Tolerates absence (first PR before
-      # any main push has happened, or fetch failure).
-      - name: Fetch main baseline
-        id: fetch-baseline
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if git fetch origin bench-baselines:bench-baselines 2>/dev/null; then
-            if git show bench-baselines:baselines/e2e-ubuntu-latest.json > /tmp/main-baseline.json 2>/dev/null; then
-              if [[ -s /tmp/main-baseline.json ]]; then
-                echo "BASELINE_AVAILABLE=true" >> "$GITHUB_ENV"
-                echo "→ Fetched main baseline ($(wc -c < /tmp/main-baseline.json) bytes)"
-              fi
-            fi
-          fi
-          if [[ -z "${BASELINE_AVAILABLE:-}" ]]; then
-            echo "→ No main baseline available (yet)"
-          fi
-
-      - name: Diff vs main baseline (informational, never fails)
-        if: env.BASELINE_AVAILABLE == 'true'
-        continue-on-error: true
-        run: |
-          {
-            echo "## Bench diff vs main"
-            echo ""
-            echo '```'
-            "$PWD/.z42/z42" artifacts/xtask/xtask.zpkg -- bench --diff \
-              --current  bench/results/e2e.json \
-              --baseline /tmp/main-baseline.json \
-              --threshold-time   0.15 \
-              --threshold-memory 0.20 \
-              2>&1 || true
-            echo '```'
-            echo ""
-            echo "_Thresholds inflated to 15% (time) / 20% (memory) — CI runners are noisy._"
-            echo "_Informational only: does not fail this check._"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Note when baseline absent
-        if: env.BASELINE_AVAILABLE != 'true'
-        run: |
-          {
-            echo "## Bench diff vs main"
-            echo ""
-            echo "ℹ️ No baseline available on \`bench-baselines\` branch yet."
-            echo ""
-            echo "First push to main triggers \`.github/workflows/bench-update.yml\`,"
-            echo "which seeds the baseline. Subsequent PRs will see auto-diff here."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   # 2026-05-07 add-runtime-feature-flags (P4.1): verify all 4 feature presets
   # compile on host target. P4.2/P4.3/P4.4 will add real cross-compile jobs
   # (wasm32-unknown-unknown / aarch64-apple-ios / aarch64-linux-android).
@@ -1308,7 +1204,7 @@ jobs:
     # nightly → manual recovery. Keep `needs` to the jobs that
     # build + test + package CURRENT source (build-and-test test + windows pkg,
     # host-package unix pkgs, package-* mobile); do NOT add the pure download-bootstrap
-    # gates (vm-jit / stdlib-jit / bench-e2e) — they transiently fail on a bump until a
+    # gates (vm-jit / stdlib-jit) — they transiently fail on a bump until a
     # compatible nightly exists and self-heal next run, and gating publish on them
     # would add a needless deadlock edge. JIT correctness is gated by the dedicated
     # vm-jit-consistency job (build-and-test's `xtask test all` is interp-only).

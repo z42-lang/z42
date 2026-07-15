@@ -9,7 +9,7 @@
 | 文件 | 触发条件 | 职责 |
 |------|---------|------|
 | `ci.yml` (job: `build-and-test`) | `pull_request` 到 main / `push` 到 main | linux/macos/windows 三平台跑 `just build` + `just test`（Windows 退化为 smoke test） |
-| `ci.yml` (job: `bench-e2e`) | `pull_request` 到 main（仅 ubuntu） | 跑 `just bench-e2e --quick`，上传 `bench/results/e2e.json` 为 artifact 供 PR 作者手动 diff（自动 diff 留 P1.D.4） |
+| `bench-pr.yml` (job: `bench-regression`) | `pull_request` 到 main（perf 敏感路径，仅 ubuntu） | 全量 `xtask bench` → diff `bench-baselines` 基线，>10% 时间回归即 fail（gating）。前身 ci.yml `bench-e2e`（informational `--quick`）于 2026-07-16 删除（review §3.2 二留一）|
 | `ci.yml` (job: `publish-nightly`) | `push` 到 main（仅 ubuntu） | 汇总 9 个 RID 的 package artifact → tar.gz / zip → 强制覆盖 `nightly` GitHub Release（unsigned，prerelease，URL 永远稳定）|
 | `bench-update.yml` | `push` 到 main（仅 ubuntu） | 跑 `just bench-e2e` 全量 → 把 `bench/results/e2e.json` 提交到 `bench-baselines` 分支的 `baselines/e2e-ubuntu-latest.json`。首次自动 bootstrap 该分支。 |
 
@@ -22,7 +22,6 @@
 
 ## 后续 workflows（占位）
 
-- P1.D.4：ci.yml `bench-e2e` job 加 fetch `bench-baselines` + 信息性 auto-diff
 - P4.2：`platform-wasm` job 加入 ci.yml
 - P4.3：`platform-android` job
 - P4.4：`platform-ios` job

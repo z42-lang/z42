@@ -252,9 +252,11 @@ ci.yml `bench-e2e`（:745-747，informational）与 bench-pr.yml（gating，阈�
 子目录化重组后只匹配顶层文件，漏掉大部分 xtask 源。**建议**：二留一（建议留 bench-pr.yml），
 glob 改 `scripts/**/*.z42`，缓存统一 Swatinem。
 
-> **部分已修（2026-07-15 复核）**：glob 已改 `scripts/**/*.z42`（`bench-pr.yml:23`）✅。**剩「二留一」**
-> ——`bench-e2e`（`ci.yml:879`，informational）与 bench-pr.yml（gating）仍并存；删哪条涉 gating 判断
-> + 阈值一致性，需 User 定（且 bench-e2e 亦是 format-bump 短暂红窗 gate，见 `ci.yml:1305`）。
+> **✅ 已修（2026-07-16，User 拍板删 bench-e2e）**：glob 早已改 `scripts/**/*.z42`。二留一——删
+> `bench-e2e`（`bench-smoke`，informational `--quick`、`continue-on-error`、never-fails），留 `bench-pr.yml`
+> （`bench-regression`，全量 gating、>10% 回归即 fail）。前置核实：`bench-smoke` **非 required check**
+> （required 仅 test-host×4 / test-compiler-stdlib / verify-features）→ 删不卡 PR；无 job `needs` 它；
+> 其 artifact 无消费方。同步 publish-nightly needs 注释（去 bench-e2e）+ workflows/README。
 
 ### 3.3 `changes` job 的 vm filter 已无消费者
 
