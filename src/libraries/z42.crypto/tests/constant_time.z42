@@ -1,0 +1,52 @@
+// add-constant-time-equals (2026-07-12, review §2.3): public constant-time
+// byte-array comparison for MAC / token verification.
+namespace Z42CryptoConstantTimeTests;
+
+using Std;
+using Std.Test;
+using Std.Crypto;
+
+[Test]
+void test_equal_arrays() {
+    byte[] a = new byte[] { (byte)1, (byte)2, (byte)3, (byte)4 };
+    byte[] b = new byte[] { (byte)1, (byte)2, (byte)3, (byte)4 };
+    Assert.True(ConstantTime.Equals(a, b));
+}
+
+[Test]
+void test_differ_first_byte() {
+    byte[] a = new byte[] { (byte)9, (byte)2, (byte)3 };
+    byte[] b = new byte[] { (byte)1, (byte)2, (byte)3 };
+    Assert.False(ConstantTime.Equals(a, b));
+}
+
+[Test]
+void test_differ_last_byte() {
+    byte[] a = new byte[] { (byte)1, (byte)2, (byte)9 };
+    byte[] b = new byte[] { (byte)1, (byte)2, (byte)3 };
+    Assert.False(ConstantTime.Equals(a, b));
+}
+
+[Test]
+void test_different_lengths_false() {
+    byte[] a = new byte[] { (byte)1, (byte)2, (byte)3 };
+    byte[] b = new byte[] { (byte)1, (byte)2 };
+    Assert.False(ConstantTime.Equals(a, b));
+}
+
+[Test]
+void test_empty_arrays_equal() {
+    byte[] a = new byte[0];
+    byte[] b = new byte[0];
+    Assert.True(ConstantTime.Equals(a, b));
+}
+
+[Test]
+void test_high_bytes_no_sign_extension() {
+    // High bytes (>= 0x80) must compare correctly (no signed-byte artifact).
+    byte[] a = new byte[] { (byte)255, (byte)128, (byte)200 };
+    byte[] b = new byte[] { (byte)255, (byte)128, (byte)200 };
+    Assert.True(ConstantTime.Equals(a, b));
+    byte[] c = new byte[] { (byte)255, (byte)128, (byte)201 };
+    Assert.False(ConstantTime.Equals(a, c));
+}

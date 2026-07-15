@@ -1,0 +1,33 @@
+namespace Std.Crypto;
+
+using Std;
+
+// add-constant-time-equals (review §2.3): a PUBLIC constant-time byte-array
+// comparison. Without it, callers verifying a MAC / auth token / password hash
+// have to use `==` (or a plain loop with early-out), which short-circuits on the
+// first differing byte and leaks — via timing — how many leading bytes matched,
+// enabling byte-at-a-time forgery. The AEAD implementations here already do this
+// internally (ChaCha20Poly1305 / AES-GCM/CCM tag checks); this exposes the same
+// primitive so user code can compare secrets safely too.
+//
+// Mirrors System.Security.Cryptography.CryptographicOperations.FixedTimeEquals.
+public static class ConstantTime {
+    /// Compare two byte arrays without early-out, so the running time depends
+    /// only on the LENGTH (which is not secret), never on WHERE the first
+    /// difference is. A length mismatch returns false immediately — that leaks
+    /// only the length, matching .NET's FixedTimeEquals. For equal lengths every
+    /// byte is always examined and the accumulated difference decides the result.
+    public static bool Equals(byte[] a, byte[] b) {
+        if (a.Length != b.Length) {
+            return false;
+        }
+        int n = a.Length;
+        int diff = 0;
+        int i = 0;
+        while (i < n) {
+            diff = diff | ((int)a[i] ^ (int)b[i]);
+            i = i + 1;
+        }
+        return diff == 0;
+    }
+}
