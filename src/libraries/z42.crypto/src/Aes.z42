@@ -298,13 +298,8 @@ public static class Aes {
             t = t + 1;
         }
         byte[] actual = Aes._ccmComputeTag(key, nonce, aad, plaintext, tagLen);
-        int diff = 0;
-        int u = 0;
-        while (u < tagLen) {
-            diff = diff | ((int)expected[u] ^ (int)actual[u]);
-            u = u + 1;
-        }
-        if (diff != 0) {
+        // Constant-time tag compare via the shared primitive (both tagLen bytes).
+        if (!ConstantTime.Equals(expected, actual)) {
             throw new ArgumentException(
                 "AES.DecryptCcm: authentication tag mismatch — ciphertext or AAD tampered");
         }
@@ -554,14 +549,8 @@ public static class Aes {
         byte[] j0 = Aes._gcmDeriveJ0(h, iv);
 
         byte[] actual = Aes._gcmComputeTag(key, h, j0, aad, ciphertext);
-        // Constant-time compare to avoid leaking position of mismatch.
-        int diff = 0;
-        int t = 0;
-        while (t < 16) {
-            diff = diff | ((int)actual[t] ^ (int)expected[t]);
-            t = t + 1;
-        }
-        if (diff != 0) {
+        // Constant-time tag compare via the shared primitive (both 16 bytes).
+        if (!ConstantTime.Equals(actual, expected)) {
             throw new ArgumentException(
                 "AES.DecryptGcm: authentication tag mismatch — ciphertext or AAD tampered");
         }

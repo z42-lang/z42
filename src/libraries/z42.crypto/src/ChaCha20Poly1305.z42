@@ -76,14 +76,8 @@ public static class ChaCha20Poly1305 {
         int k = 0;
         while (k < 32) { otk[k] = block0[k]; k = k + 1; }
         byte[] actual = ChaCha20Poly1305._computeTag(otk, aad, ciphertext);
-        // Constant-time compare.
-        int diff = 0;
-        int t = 0;
-        while (t < 16) {
-            diff = diff | ((int)actual[t] ^ (int)expected[t]);
-            t = t + 1;
-        }
-        if (diff != 0) {
+        // Constant-time tag compare via the shared primitive (both 16 bytes).
+        if (!ConstantTime.Equals(actual, expected)) {
             throw new ArgumentException(
                 "ChaCha20Poly1305: authentication tag mismatch — ciphertext or AAD tampered");
         }

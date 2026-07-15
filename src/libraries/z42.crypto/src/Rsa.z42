@@ -96,14 +96,8 @@ public static class Rsa {
         // Recompute expected encoding and constant-time compare.
         byte[] hash = Sha256.Hash(message);
         byte[] expected = Rsa._emsaPkcs1v15Sha256(hash, k);
-        if (expected.Length != em.Length) { return false; }
-        int diff = 0;
-        int i = 0;
-        while (i < em.Length) {
-            diff = diff | ((int)em[i] ^ (int)expected[i]);
-            i = i + 1;
-        }
-        return diff == 0;
+        // Constant-time compare via the shared primitive (length mismatch → false).
+        return ConstantTime.Equals(em, expected);
     }
 
     /// EMSA-PKCS1-v1_5 encoding for a SHA-256 hash. Returns the `k`-byte
