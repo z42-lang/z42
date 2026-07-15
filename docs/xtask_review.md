@@ -222,10 +222,18 @@ ci.yml `bench-e2e`（:745-747，informational）与 bench-pr.yml（gating，阈�
 子目录化重组后只匹配顶层文件，漏掉大部分 xtask 源。**建议**：二留一（建议留 bench-pr.yml），
 glob 改 `scripts/**/*.z42`，缓存统一 Swatinem。
 
+> **部分已修（2026-07-15 复核）**：glob 已改 `scripts/**/*.z42`（`bench-pr.yml:23`）✅。**剩「二留一」**
+> ——`bench-e2e`（`ci.yml:879`，informational）与 bench-pr.yml（gating）仍并存；删哪条涉 gating 判断
+> + 阈值一致性，需 User 定（且 bench-e2e 亦是 format-bump 短暂红窗 gate，见 `ci.yml:1305`）。
+
 ### 3.3 `changes` job 的 vm filter 已无消费者
 
 唯一消费者（Windows cargo-test 步）已被本次 diff 删除；`outputs.vm` 零引用，build-and-test
 的 `needs: changes`（:87-90）空挂拖慢 4 条腿 ~20-30s。删 filter 段 + needs + 陈旧注释。
+
+> **⚠️ 已过期（2026-07-15 复核）**：本项前提**不再成立**。`redesign-xtask-test` 恢复 Windows
+> test-host（`build test` + `test runtime`）后，`needs.changes.outputs.vm` **重新有消费者**
+> ——`ci.yml:268`（windows runtime 步）+ `:282`。删 filter 会破坏这两个条件门。**本项作废，不修。**
 
 ### 3.4 CI 覆盖缺口：包只验布局、从不验能跑
 
@@ -249,6 +257,11 @@ ci.yml publish-nightly（:1217-1294）与 release.yml（:145-194）各写一份 
 - 4 处 `cargo install`（cargo-ndk / wasm-pack 等）冷编未缓存，换 taiki-e/install-action 秒级
 - 陈旧注释：:1159（windows pkg 已迁移）、:205（bash 理由）；:621 vs :675 的
   `--jobs=4`/`--jobs 4` 风格不一
+
+> **多数已修（2026-07-15 复核）**：`timeout-minutes`（全 job）+ `cargo install`→`taiki-e/install-action`
+> + bench-pr Swatinem 已由 `ci-hardening` 落地 ✅；Swatinem 缓存现遍布 build/package/feature 各 job
+> （`ci.yml:112/324/433/487…`）。**剩**：test-android emulator 重试、feature-matrix ↔ `xtask
+> feature-matrix` 命令双实现、注释/`--jobs` 风格纯装饰项——低价值，未单独排期。
 
 ---
 
@@ -330,6 +343,10 @@ Rust runner 已被 z42b 取代，但 `stdlib-tests.md:3,36-40,52-53,83`（含不
   `.claude/` 链接本就出站失效，建议 book 内不直链）
 - `docs/workflow/README.md:50`：`artifacts/build/z42c/` 已更名 `artifacts/build/compiler/`
 - `docs/design/runtime/zbc.md:463`：不存在的 `generate-fixtures.sh`（同页 :430 已写对）
+  → **仍在（现 :481），但暂缓（2026-07-15 复核）**：正确命令是 `xtask build test`（version-bumping.md
+  步骤 4）。阻塞两点：① `zbc.md` 属 `docs/design/`（冻结/迁移中，doc-system D2）；② 该文件正被 in-flight
+  `stabilize-dispatch-keys`（zbc 1.27 changelog 行）编辑，parallel-dev「同 md 不同段=串行」→ 待其归档后随
+  compiler 锁一并修。另 `.claude/settings.json:45` 有该幽灵脚本的死 allow-entry，可顺带清。
 - `book/dev/packaging.md:72`：`release assemble-desktop-workload`（命令已删）
 - 结构：`vm-tests.md` + `cross-zpkg.md` 两页对齐的是旧命令面（现已合并为 `test e2e`），
   建议合并为 `e2e-tests.md`；`bootstrap.md` 与 `ci.md` 是"CI 拓扑双胞胎"且现状描述互相矛盾
