@@ -92,3 +92,50 @@ void test_chunked_with_extension_strips_metadata() {
     srv.Join();
     server.Stop();
 }
+
+// fix-http-chunk-size-overflow (2026-07-16, review §2.2): a chunk size that
+// overflows i32 must be rejected, not wrapped. 0x100000000 (2^32) used to wrap
+// to 0 on i32 accumulation → silently treated as "end of body" (truncation);
+// it now surfaces as a protocol error.
+[Test]
+void test_chunked_oversize_chunk_size_rejected() {
+    var server = new TcpListener();
+    server.Bind("127.0.0.1", 0);
+    int port = server.LocalPort();
+    string url = "http://127.0.0.1:" + Int32.ToString(port) + "/";
+
+    Thread srv = Thread.Start(() => {
+        var peer = server.AcceptTcpClient();
+        var s = peer.GetStream();
+        byte[] buf = new byte[4096];
+        int total = 0;
+        while (true) {
+            int got = s.Read(buf, total, buf.Length - total);
+            if (got == 0) break;
+            total = total + got;
+            if (total >= 4
+                && buf[total - 4] == (byte)13 && buf[total - 3] == (byte)10
+                && buf[total - 2] == (byte)13 && buf[total - 1] == (byte)10) {
+                break;
+            }
+        }
+        string resp = "HTTP/1.1 200 OK\r\n"
+            + "Transfer-Encoding: chunked\r\n\r\n"
+            + "100000000\r\nx\r\n"     // 0x100000000 = 2^32 → i32-overflow bait
+            + "0\r\n\r\n";
+        byte[] rb = Utf8.GetBytes(resp);
+        s.Write(rb, 0, rb.Length);
+        peer.Dispose();
+    });
+
+    var client = new HttpClient();
+    bool caught = false;
+    try {
+        HttpResponse r = client.Get(url);
+    } catch (Exception e) {
+        caught = true;   // HttpProtocolException("invalid chunk size")
+    }
+    Assert.True(caught);
+    srv.Join();
+    server.Stop();
+}

@@ -200,7 +200,9 @@ public class _HttpBodyStream : Stream {
 
     static int _parseHex(string s) {
         if (s == null || s.Length == 0) { return -1; }
-        int result = 0;
+        // Long accumulation + reject past int.MaxValue: an 8+ digit chunk-size
+        // header would overflow i32 and wrap to a garbage length (RFC 7230).
+        long result = 0;
         int i = 0;
         while (i < s.Length) {
             int ch = (int)s.CharAt(i);
@@ -209,9 +211,10 @@ public class _HttpBodyStream : Stream {
             else if (ch >= 97 && ch <= 102) { digit = ch - 97 + 10; }
             else if (ch >= 65 && ch <= 70) { digit = ch - 65 + 10; }
             else { return -1; }
-            result = result * 16 + digit;
+            result = result * 16 + (long)digit;
+            if (result > 2147483647L) { return -1; }
             i = i + 1;
         }
-        return result;
+        return (int)result;
     }
 }

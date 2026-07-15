@@ -1260,7 +1260,10 @@ public class HttpClient {
 
     static int _parseHex(string s) {
         if (s == null || s.Length == 0) return -1;
-        int result = 0;
+        // Accumulate in long: a chunk-size header of 8+ hex digits overflows i32
+        // and would wrap to a negative / garbage length (RFC 7230 chunked
+        // framing). Reject sizes past int.MaxValue instead of wrapping.
+        long result = 0;
         int i = 0;
         while (i < s.Length) {
             int ch = (int)s.CharAt(i);
@@ -1274,10 +1277,13 @@ public class HttpClient {
             } else {
                 return -1;
             }
-            result = result * 16 + digit;
+            result = result * 16 + (long)digit;
+            if (result > 2147483647L) {
+                return -1;
+            }
             i = i + 1;
         }
-        return result;
+        return (int)result;
     }
 }
 
