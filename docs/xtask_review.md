@@ -298,9 +298,18 @@ ci.yml publish-nightly（:1217-1294）与 release.yml（:145-194）各写一份 
   `--jobs=4`/`--jobs 4` 风格不一
 
 > **多数已修（2026-07-15 复核）**：`timeout-minutes`（全 job）+ `cargo install`→`taiki-e/install-action`
-> + bench-pr Swatinem 已由 `ci-hardening` 落地 ✅；Swatinem 缓存现遍布 build/package/feature 各 job
-> （`ci.yml:112/324/433/487…`）。**剩**：test-android emulator 重试、feature-matrix ↔ `xtask
-> feature-matrix` 命令双实现、注释/`--jobs` 风格纯装饰项——低价值，未单独排期。
+> + bench-pr Swatinem 已由 `ci-hardening` 落地 ✅。
+>
+> **✅ feature-matrix 缓存已补（2026-07-16）**：`verify-features` job 原**无** Swatinem（4 个 feature
+> combo release 每次全冷编）→ 加 `Swatinem/rust-cache@v2`（`workspaces: src/runtime` 默认 target +
+> 独立 key `feature-matrix-v1`，区别于 bootstrap 腿的重定向 target/`host-v2`）。
+>
+> **⬛ feature-matrix ↔ `xtask feature-matrix` 双实现不去重（事实校正）**：CI 内联版**刻意 bootstrap-free**
+> （只 checkout + rust + 4 cargo，带 `--locked`），改调 `xtask feature-matrix` 会给这个轻量独立 job
+> 平添整条 xtask bootstrap 依赖 + 丢 `--locked` → 得不偿失，两版各有其用。
+>
+> **剩纯装饰**：test-android emulator 重试（flake 缓解，但 emu 冷环境不可测、天然 flaky）+ 陈旧注释
+> （:205 "bash 理由"、:1159）+ `--jobs=4`/`--jobs 4` 风格不一——低价值，不值单独 CI churn。
 
 ---
 

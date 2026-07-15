@@ -988,6 +988,16 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Cache the 4 feature-combo release builds' deps (review §3.6). Plain
+      # `cargo build` here uses the DEFAULT target (src/runtime/target), not the
+      # redirected artifacts/build/runtime the bootstrap jobs use — hence the bare
+      # `src/runtime` workspace + a distinct key (feature combos ≠ the host-v2 cache).
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/runtime
+          shared-key: feature-matrix-v1
+
       # migrate-scripts-to-z42: feature presets are plain cargo feature combos
       # (was `just build-*-feature`) — inlined so this job needs no `just`.
       - name: Build interp-only (no cranelift)
