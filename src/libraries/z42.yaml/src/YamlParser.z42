@@ -59,6 +59,10 @@ public sealed class YamlParser {
     // returns or array re-assignment across helpers.
     private string[] _mergedKeys;
     private int      _mergedCount;
+    // Recursion-depth guard shared by the block (_ParseBlockValue) and flow
+    // (_ParseFlow) funnels: deeply-nested YAML (block indentation or flow
+    // `[[[…]]]` / `{{{…}}}`) would otherwise blow the VM stack. Capped at 256.
+    private int _depth;
 
     public YamlParser(string src) {
         this._src  = src;
@@ -71,6 +75,7 @@ public sealed class YamlParser {
         this._lastKeyQuoted = false;
         this._mergedKeys   = new string[8];
         this._mergedCount  = 0;
+        this._depth        = 0;
     }
 
     // ── Public entry ─────────────────────────────────────────────────────
@@ -163,7 +168,22 @@ public sealed class YamlParser {
     // belong to this block. Returns the parsed YamlValue; on return,
     // `_pos` sits at the start of the line *after* the block (or EOF).
 
+    // Depth-guarded entry to the block funnel (every block nesting level recurses
+    // through here). try/finally decrements on all return paths.
     private YamlValue _ParseBlockValue(int requiredIndent) {
+        this._depth = this._depth + 1;
+        if (this._depth > 256) {
+            this._depth = this._depth - 1;
+            throw this._Err("nesting too deep (max 256)");
+        }
+        try {
+            return this._ParseBlockValueInner(requiredIndent);
+        } finally {
+            this._depth = this._depth - 1;
+        }
+    }
+
+    private YamlValue _ParseBlockValueInner(int requiredIndent) {
         this._SkipBlankLines();
         if (this._pos >= this._src.Length) {
             return YamlValue.OfNull();
@@ -523,10 +543,20 @@ public sealed class YamlParser {
     // ── Flow style ───────────────────────────────────────────────────────
 
     private YamlValue _ParseFlow() {
-        char c = this._src.CharAt(this._pos);
-        if (c == '[') { return this._ParseFlowSequence(); }
-        if (c == '{') { return this._ParseFlowMapping(); }
-        throw this._Err("expected '[' or '{', got '" + c.ToString() + "'");
+        // Depth guard for the flow funnel (nested `[`/`{` recurse through here).
+        this._depth = this._depth + 1;
+        if (this._depth > 256) {
+            this._depth = this._depth - 1;
+            throw this._Err("nesting too deep (max 256)");
+        }
+        try {
+            char c = this._src.CharAt(this._pos);
+            if (c == '[') { return this._ParseFlowSequence(); }
+            if (c == '{') { return this._ParseFlowMapping(); }
+            throw this._Err("expected '[' or '{', got '" + c.ToString() + "'");
+        } finally {
+            this._depth = this._depth - 1;
+        }
     }
 
     private YamlValue _ParseFlowSequence() {
