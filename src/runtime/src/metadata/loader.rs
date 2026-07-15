@@ -708,9 +708,13 @@ pub fn build_type_registry(module: &mut Module) {
         for func in &module.functions {
             if !func.name.starts_with(&prefix) { continue; }
             let method = &func.name[prefix.len()..];
-            // Skip constructors (same name as class simple name) and __static_init__
+            // Skip constructors (same name as class simple name) and __static_init__.
+            // stabilize-dispatch-keys (方案A): ctor names are now full-signature mangled
+            // (e.g. `Foo$1$string`), so compare the demangled leading segment (before `$`)
+            // against the class simple name — otherwise ctors leak into the vtable/reflection.
             let simple_name = class_name.split('.').next_back().unwrap_or(class_name.as_str());
-            if method == simple_name || method.starts_with("__") { continue; }
+            let method_bare = method.split('$').next().unwrap_or(method);
+            if method_bare == simple_name || method.starts_with("__") { continue; }
             own_methods.push(func.name.clone().into_boxed_str());
         }
 

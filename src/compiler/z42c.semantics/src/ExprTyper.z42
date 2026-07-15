@@ -408,22 +408,34 @@ public sealed class ExprTyper {
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
             this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
         }
-        // ctor 重载键（镜像 C# ResolveCtorName：单 ctor bare、重载 Name$argCount）
+        // stabilize-dispatch-keys（方案A）：ctor 键 = 解析到的 ctor 的 RegKey（全签名 mangle）。
+        // 旧 _ctorKey（裸名 / Name$argCount）在 ctor 一律 mangle 后既查不到 ctor（Methods 键已 mangle）、
+        // 又 emit 错的 CtorName → ObjNew 的 func_index 查 fqCtor 落空 → 静默不跑 ctor（exec_object.rs
+        // ctor_fn=None 分支）→ 字段停默认值（如 TomlParser._src=null）→ 运行期 FieldGet-on-null 崩。
+        // 改：按位绑定实参 → 用统一重载决议拿到 ctor MethodSymbol → CtorName = 其 RegKey。
         Z42ClassType cls = null;
         if (t is Z42ClassType) { cls = t as Z42ClassType; }
         if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
-        string ctorName = cls != null ? this._tc._overload._ctorKey(cls, n.ArgCount) : "";
+        // 绑实参用于重载决议：命名实参 `name: value`（parse 为 AssignExpr(IdentExpr, value)）解包绑 value
+        // 取其类型（重排/默认值填充交给下面的 _adaptArgs）；位置实参直绑。
+        BoundExpr[] args = new BoundExpr[n.ArgCount];
+        int i = 0;
+        while (i < n.ArgCount) {
+            Expr ax = n.Args[i];
+            if (ax is AssignExpr && (ax as AssignExpr).Target is IdentExpr) { ax = (ax as AssignExpr).Value; }
+            args[i] = this._bindExpr(ax, env);
+            i = i + 1;
+        }
+        MethodSymbol cms = cls != null
+            ? this._tc._overload._resolveOverload(env.Symbols, cls, cls.Name(), args, n.ArgCount, n.Span)
+            : null;
+        string ctorName = cms != null ? cms.RegKey : (cls != null ? cls.Name() : "");
         // GS1/named-arg：命名实参重排 + 可选参数默认值填充（镜像 C#——工厂体 `new Route("/u", method:"POST")`
         // 及省略可选实参 `new Route("/h")` 须在调用点解析为完整位置实参序）。仅本地有 Decl 的 ctor 适配。
-        MethodSymbol cms = null;
-        if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
             BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
             if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
         }
-        BoundExpr[] args = new BoundExpr[n.ArgCount];
-        int i = 0;
-        while (i < n.ArgCount) { args[i] = this._bindExpr(n.Args[i], env); i = i + 1; }
         return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
     }
 

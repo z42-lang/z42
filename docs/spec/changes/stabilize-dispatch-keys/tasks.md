@@ -36,3 +36,27 @@
   无 CI 自动 regen，版本-patch 即其正解。
 - 中断记录：会话中 change 目录曾被并行 worktree git 竞争清掉（memory reference_shared_worktree_git_race），
   已重建 proposal/design/spec/tasks。
+
+## CI 结果（首轮，2026-07-14，commit e4aece6）
+- ✅ **方案A 核心成立**：`compile-toolchain` / `verify-selfhost` 两代自举**完成**——gen2 z42c + stdlib 均 minor=32、gen1==gen2、新 VM 接管。全局重键 + 格式 bump + 两代自举吸收 = 通过。
+- ❌ 后续步骤 `[2/5] seed z42c builds current xtask.zpkg` 崩：gen2 z42c（跑在**新编译的方案A stdlib**上）解析 xtask manifest 时
+  `FieldGet: not an object or known value type, got Null` @ `Std.Toml.TomlParser.ParseDocument$0` → `TomlValue.Parse$1$string` → `ManifestLoader.ParseText$1$string`。
+  - 已排除：ctor 命名/派发一致（IrGen 用 md.RegKey）、`File.ReadAllText` 缺文件是 throw 非 null、TomlParser 无重载/无继承。
+  - 结论：新 stdlib 某方法被方案A 微妙误编返回 null（"line 0"=无调试信息）。冷环境**本地不可复现**（无 seed / nightly 403）。
+  - 疑点：也可能撞已知 `reference_release_vm_jit_miscompiles_default_params`（release-JIT 误编 → 空输出/null；compile-toolchain 是 release + z42c 默认 JIT）。
+- 其余红 job（test-host ×4 / bench-*）为该步失败的级联 + format-bump 当次 download-bootstrap 一次性红（预期，自愈）。
+
+## 根因 + 修复（第二轮，2026-07-15）
+**根因**：ctor 调用键仍走旧方案（`_ctorKey`：裸名 / `Name$argCount`）。方案A 下 ctor 一律全签名
+mangle（`TomlParser$1$string`），于是 `new C(args)` emit 的 `fqCtor` 与 ctor 函数名不匹配 →
+`ObjNew`（exec_object.rs）`func_index.get(ctor_name)` 落空 → **静默不跑 ctor**（无报错）→ 字段停
+默认值（`TomlParser._src=null`）→ ParseDocument `_src.Length` FieldGet-on-null 崩。
+- **确认是 interp**（ci-bootstrap step [2/5] `--mode interp`）→ 排除 release-JIT，是真误编。
+**修复（3 处）**：
+- `ExprTyper._bindNew`：ctor 解析改走统一重载决议 `_resolveOverload` → `CtorName = ctor.RegKey`
+  （命名实参 AssignExpr 解包绑 value 取类型）；无 MethodSymbol（合成 ctor）回落裸类名（与合成 ctor
+  的裸键 `C.C` 一致）。
+- `DeclBinder`（base/this ctor 委托）：同样 `_resolveOverload` → RegKey，兜底旧 `_ctorKey`。
+- `loader.rs build_type_registry`：ctor-skip 用 demangle（`method` 首段 `$` 前）比 simple_name，
+  防 mangled ctor 泄漏进 vtable/反射。
+- 本地验：`cargo build` ✅ + loader 48/0（z42c 侧 CI 验）。

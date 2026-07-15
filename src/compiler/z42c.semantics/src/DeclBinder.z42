@@ -341,11 +341,19 @@ public sealed class DeclBinder {
                     targetName = curCls.BaseName;
                 }
                 if (targetCls != null) {
-                    string bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount);
+                    // stabilize-dispatch-keys（方案A）：base/this ctor 键 = 解析到的 ctor RegKey（全签名
+                    // mangle）。旧 _ctorKey（裸名 / Name$arity）在 ctor 一律 mangle 后查不到、emit 错键 →
+                    // base_ctor call 落空 → 基类/同类 ctor 不跑 → 字段/基类不初始化。先绑 base 实参 → 统一
+                    // 重载决议拿 ctor RegKey；兜底保留旧 _ctorKey（imported 无 Decl 极少数场景）。
+                    BoundExpr[] rawArgs = new BoundExpr[md.BaseArgCount];
+                    int ra = 0;
+                    while (ra < md.BaseArgCount) { rawArgs[ra] = this._tc._expr._bindExpr(md.BaseArgs[ra], env); ra = ra + 1; }
+                    MethodSymbol tctor = this._tc._overload._resolveOverload(symbols, targetCls, targetCls.Name(), rawArgs, md.BaseArgCount, md.Span);
+                    string bKey = tctor != null ? tctor.RegKey : this._tc._overload._ctorKey(targetCls, md.BaseArgCount);
                     BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
                     callArgs[0] = new BoundIdent("this", thisType, md.Span);
                     int ba = 0;
-                    while (ba < md.BaseArgCount) { callArgs[ba + 1] = this._tc._expr._bindExpr(md.BaseArgs[ba], env); ba = ba + 1; }
+                    while (ba < md.BaseArgCount) { callArgs[ba + 1] = rawArgs[ba]; ba = ba + 1; }
                     BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, bKey,
                                                         callArgs, md.BaseArgCount + 1, new Z42VoidType(), md.Span);
                     BoundExprStmt baseStmt = new BoundExprStmt(baseCall, md.Span);
