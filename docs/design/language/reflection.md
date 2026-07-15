@@ -97,7 +97,7 @@ void Demo() {
 ```
 
 - 访问器方法（`get_X` / `set_X`）**仍出现在 `GetMethods()`**（与 C# 一致）；`GetProperties()` 是叠加的属性视图。
-- 无 `GetValue` / `SetValue`（依赖 0.5.x `Invoke`）。基础类型 / 数组的 Type 返空。
+- **`GetValue(obj)` / `SetValue(obj, value)`**（add-property-getvalue-setvalue，2026-07-15）：反射读写实例属性值——经隐藏槽 `__getterQualified` / `__setterQualified`（VM 在 `__type_properties` 派生时写入访问器限定名）走非泛型 invoke 通路调 `get_<X>` / `set_<X>`。只读属性 `SetValue` / 只写属性 `GetValue` 抛 `Std.Exception`；访问器内 `throw` 原类型传播（与 `MethodInfo.Invoke` 共用 `invoke_qualified` helper）。**无格式 bump、零编译器改动**。按**声明类**访问器调用（不做虚 override 派发，见 Deferred）；静态 / 索引器属性延后。基础类型 / 数组的 Type 返空属性集。
 
 ### API（MVP）
 
@@ -108,7 +108,7 @@ void Demo() {
 | `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsAbstract` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
 | `ParameterInfo` | `Std.Reflection` | `Name`（SIGS 权威） / `ParameterType : Type` / `Position` / `IsOptional` / `IsParams` / `DefaultValue` / `GetCustomAttributes()` / `GetAttribute(Type)` |
-| `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` |
+| `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` / `GetValue(obj)` / `SetValue(obj, value)` |
 
 `FieldType` / `ReturnType` / `ParameterType` / `BaseType` 返回的都是 `Type` 对象（不是字符串），与 C# 一致。
 
@@ -462,7 +462,7 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 
 ### ~~reflection-future-properties~~ — 已落地（2026-06-09）
 - **状态**：`Type.GetProperties()` + `Std.Reflection.PropertyInfo`（`PropertyType` / `CanRead` / `CanWrite`）已落地 2026-06-09（add-reflection-properties）。从 `get_`/`set_` 方法约定**运行期派生**（选了 Deferred 里"从方法名推导"的方案而非持久化元数据——零 zbc 格式变更，不撞自举 port）。见上文「Type.GetProperties()」+「属性派生」。
-- **剩余**：`GetValue`/`SetValue`（需 0.5.x `Invoke`）；properties 纳入 `GetMembers()`；隐藏 auto-property backing field。
+- **剩余**：~~`GetValue`/`SetValue`~~ —— 已落地 2026-07-15（add-property-getvalue-setvalue，复用非泛型 invoke 通路，无格式 bump；虚 override 派发 / 静态属性 / 索引器 延后）；properties 纳入 `GetMembers()`；隐藏 auto-property backing field。
 
 ### ~~reflection-future-gettype-var-inference~~ — 已落地（2026-06-10）
 - **状态**：`var x = obj.GetType(); x.Name` 已落地 2026-06-10（fix-chained-property-dispatch）。原判「根因在反射导入签名解析」**有误**：真根因 = `SymbolCollector` 预注册的 Object stub 的 `GetType()` 返回类型写死 `Z42Type.Unknown`（非导入签名解析）。改为从 `_classes["Type"]` 取真实 `Std.Type` 类后，`var` 推断为 `Type`、`x.Name` 正常。与 `reflection-future-chained-property-dispatch` 同一处修复。

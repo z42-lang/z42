@@ -669,6 +669,14 @@ pub fn builtin_type_properties(ctx: &VmContext, args: &[Value]) -> Result<Value>
             .as_deref()
             .or(p.setter_type.as_deref())
             .unwrap_or("?");
+        let getter_q = match &p.getter_qualified {
+            Some(q) => Value::Str(q.clone().into()),
+            None => Value::Null,
+        };
+        let setter_q = match &p.setter_qualified {
+            Some(q) => Value::Str(q.clone().into()),
+            None => Value::Null,
+        };
         out.push(alloc_named(
             ctx,
             STD_REFLECTION_PROPERTYINFO,
@@ -677,6 +685,8 @@ pub fn builtin_type_properties(ctx: &VmContext, args: &[Value]) -> Result<Value>
                 ("PropertyType", make_type_from_name(ctx, type_tag)),
                 ("CanRead", Value::Bool(p.getter_type.is_some())),
                 ("CanWrite", Value::Bool(p.setter_type.is_some())),
+                ("__getterQualified", getter_q),
+                ("__setterQualified", setter_q),
             ],
         )?);
     }
@@ -688,6 +698,10 @@ struct PropAccum {
     name: String,
     getter_type: Option<String>,
     setter_type: Option<String>,
+    /// Qualified name of the `get_<Name>` accessor (for reflective GetValue).
+    getter_qualified: Option<String>,
+    /// Qualified name of the `set_<Name>` accessor (for reflective SetValue).
+    setter_qualified: Option<String>,
 }
 
 /// Classify one method as a property getter / setter (by `get_` / `set_` prefix)
@@ -715,7 +729,9 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
             }
             None => "?".to_string(),
         };
-        upsert_prop(props, prop_name).getter_type = Some(ty);
+        let p = upsert_prop(props, prop_name);
+        p.getter_type = Some(ty);
+        p.getter_qualified = Some(qualified.to_string());
     } else {
         let ty = match &sig {
             Some((pc, _, is_static, ptypes, _, _, _, _, _, _)) => {
@@ -727,7 +743,9 @@ fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str, props: &m
             }
             None => "?".to_string(),
         };
-        upsert_prop(props, prop_name).setter_type = Some(ty);
+        let p = upsert_prop(props, prop_name);
+        p.setter_type = Some(ty);
+        p.setter_qualified = Some(qualified.to_string());
     }
 }
 
@@ -740,6 +758,8 @@ fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a mut PropAcc
         name: name.to_string(),
         getter_type: None,
         setter_type: None,
+        getter_qualified: None,
+        setter_qualified: None,
     });
     let last = props.len() - 1;
     &mut props[last]
@@ -1148,27 +1168,36 @@ pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
     }
 
-    // Resolve the Function (main module first, then lazy loader) and execute.
+    invoke_qualified(ctx, &qualified, &call_args)
+}
+
+/// Shared reflective-invocation core: resolve `qualified` (main module first,
+/// then lazy loader), arity-check against the already-assembled `call_args`
+/// (receiver-first for instance methods), execute, and normalize the outcome.
+/// A `throw` inside the callee propagates with its ORIGINAL type via
+/// `ctx.set_pending_thrown` (consumed by `exec_call::builtin`). Shared by
+/// `MethodInfo.Invoke` and `PropertyInfo.GetValue` / `SetValue`.
+fn invoke_qualified(ctx: &VmContext, qualified: &str, call_args: &[Value]) -> Result<Value> {
     let module_arc = ctx
         .core
         .module
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("MethodInfo.Invoke: VmCore.module is None"))?
+        .ok_or_else(|| anyhow::anyhow!("reflective invoke: VmCore.module is None"))?
         .clone();
     let module = module_arc.as_ref();
 
-    let outcome = match module.func_index.get(&qualified) {
+    let outcome = match module.func_index.get(qualified) {
         Some(&idx) => {
             let f = &module.functions[idx];
-            invoke_arity_check(&qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f, &call_args)?
+            invoke_arity_check(qualified, f.param_count, call_args.len())?;
+            exec_function(ctx, module, f, call_args)?
         }
         None => {
-            let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
-                anyhow::anyhow!("MethodInfo.Invoke: function `{qualified}` not found")
+            let f = ctx.try_lookup_function(qualified).ok_or_else(|| {
+                anyhow::anyhow!("reflective invoke: function `{qualified}` not found")
             })?;
-            invoke_arity_check(&qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f.as_ref(), &call_args)?
+            invoke_arity_check(qualified, f.param_count, call_args.len())?;
+            exec_function(ctx, module, f.as_ref(), call_args)?
         }
     };
 
@@ -1182,6 +1211,37 @@ pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             bail!("__z42_reflected_throw__")
         }
     }
+}
+
+/// `__property_get_value(prop: PropertyInfo, target: object) -> object`.
+/// Reflectively reads a property by invoking its `get_<Name>` accessor (whose
+/// qualified name the VM stamped onto `__getterQualified` in
+/// `builtin_type_properties`). `target` is the receiver (reg 0). A read-only
+/// property (no getter) raises a catchable `Std.Exception`.
+pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let pi = args.first().cloned().unwrap_or(Value::Null);
+    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    let getter = match read_obj_slot(&pi, "__getterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("PropertyInfo.GetValue: property has no getter (write-only)"),
+    };
+    invoke_qualified(ctx, &getter, &[target])
+}
+
+/// `__property_set_value(prop: PropertyInfo, target: object, value: object)`.
+/// Reflectively writes a property by invoking its `set_<Name>` accessor (whose
+/// qualified name the VM stamped onto `__setterQualified`). `target` is the
+/// receiver (reg 0), `value` the assigned value. A read-only property (no
+/// setter) raises a catchable `Std.Exception`.
+pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let pi = args.first().cloned().unwrap_or(Value::Null);
+    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    let value = args.get(2).cloned().unwrap_or(Value::Null);
+    let setter = match read_obj_slot(&pi, "__setterQualified") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
+    };
+    invoke_qualified(ctx, &setter, &[target, value])
 }
 
 /// `__invoke_static(fqn: str) -> object` — invoke a free / static function by its

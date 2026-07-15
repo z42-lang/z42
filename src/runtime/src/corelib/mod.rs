@@ -243,6 +243,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // add-method-invoke-non-generic (0.3.12): reflective invocation primitives.
     ("__type_get_type",      reflection::builtin_type_get_type),
     ("__method_invoke",      reflection::builtin_method_invoke),
+    // add-property-getvalue-setvalue: reflective property read/write (reuses the
+    // non-generic invoke path via get_<X>/set_<X> accessors).
+    ("__property_get_value", reflection::builtin_property_get_value),
+    ("__property_set_value", reflection::builtin_property_set_value),
     // retire-test-runner: no-arg reflective construction (test-class instantiation).
     ("__activator_create",   reflection::builtin_activator_create),
     // retire-test-runner: load a compiled test module + return its TIDX entries.

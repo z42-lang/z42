@@ -253,6 +253,56 @@ void test_getproperties_includes_inherited() {
     Assert.True(hasOwnActive);
 }
 
+// add-property-getvalue-setvalue: reflective read/write via get_/set_ accessors.
+
+[Test]
+void test_property_getvalue_setvalue_roundtrip() {
+    PropHolder ph = new PropHolder();
+    Type t = typeof(PropHolder);
+    bool checkedSize = false;
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Size") {
+            checkedSize = true;
+            Assert.Equal(0, (int) p.GetValue(ph));   // default
+            p.SetValue(ph, 42);
+            Assert.Equal(42, (int) p.GetValue(ph));  // written value read back
+        }
+    }
+    Assert.True(checkedSize);
+}
+
+[Test]
+void test_property_setvalue_readonly_throws() {
+    PropHolder ph = new PropHolder();
+    Type t = typeof(PropHolder);
+    bool checkedTag = false;
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Tag") {
+            checkedTag = true;
+            Assert.False(p.CanWrite);
+            // read-only property: GetValue works, SetValue raises Std.Exception.
+            p.GetValue(ph);
+            Assert.ThrowsAny(() => p.SetValue(ph, "x"));
+        }
+    }
+    Assert.True(checkedTag);
+}
+
+[Test]
+void test_property_getvalue_setvalue_inherited() {
+    PropChild pc = new PropChild();
+    Type t = typeof(PropChild);
+    bool checkedSize = false;
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Size") {   // inherited from PropHolder
+            checkedSize = true;
+            p.SetValue(pc, 7);
+            Assert.Equal(7, (int) p.GetValue(pc));
+        }
+    }
+    Assert.True(checkedSize);
+}
+
 [Test]
 void test_getproperties_empty_for_no_props() {
     // Base declares only a field (no get_/set_) → no properties.

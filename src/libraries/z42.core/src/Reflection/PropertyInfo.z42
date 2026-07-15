@@ -1,8 +1,10 @@
 namespace Std.Reflection;
 
 // Reflected property. Populated by `Type.GetProperties()` (`__type_properties`).
-// Mirrors C# `System.Reflection.PropertyInfo` (read-only subset; no GetValue /
-// SetValue — those need Invoke, which lands with generic instantiation in 0.5.x).
+// Mirrors C# `System.Reflection.PropertyInfo`. GetValue / SetValue read and write
+// the value by reflectively invoking the `get_<X>` / `set_<X>` accessors through
+// the non-generic invoke path (add-method-invoke-non-generic) — no generic
+// instantiation required.
 //
 // Derived purely at runtime from the `get_<X>` / `set_<X>` accessor-method
 // convention (auto-properties desugar to a field + get_/set_ methods): a getter
@@ -20,4 +22,20 @@ public class PropertyInfo : MemberInfo {
 
     // True if the property has a setter (`set_<Name>`).
     public bool CanWrite;
+
+    // Qualified names of the accessor functions, stamped by the VM in
+    // `__type_properties`. Null when the property lacks that accessor. Used by
+    // GetValue / SetValue to resolve the function to invoke.
+    public string __getterQualified;
+    public string __setterQualified;
+
+    // Read this property's value off `obj` by invoking its getter. Throws
+    // `Std.Exception` for a write-only property (no getter).
+    [Native("__property_get_value")]
+    public extern object GetValue(object obj);
+
+    // Write `value` to this property on `obj` by invoking its setter. Throws
+    // `Std.Exception` for a read-only property (no setter).
+    [Native("__property_set_value")]
+    public extern void SetValue(object obj, object value);
 }
