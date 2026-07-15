@@ -1,0 +1,7 @@
+solo
+abcd
+xyz
+7
+1+2+3
+dup and dup
+age is 42

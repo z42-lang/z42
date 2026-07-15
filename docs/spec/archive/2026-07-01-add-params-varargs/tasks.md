@@ -166,17 +166,19 @@
 > 2. **拓扑事实**：旧种子 z42c 只编 z42c 自身源码 → 新 z42c 编 stdlib（[xtask_stdlib.z42:81-93](../../../src/toolchain)）。
 >    stdlib 的 `params` 定义由新 z42c 编，不死锁；但 z42c **调用**的 API 迁移会改 z42c 自身 call-site codegen → 破不动点（见上）。
 >
-> **候选 API（本次扫描确认）：**
-> - [ ] `String.Join(sep, string a, string b, string c)`（z42.core/String.z42:314）→ 折进 `params string[]`（保留 `Join(sep, string[])` 作 normal form）
-> - [ ] `String.Concat(a,b)` + `Concat(a,b,c)`（String.z42:322,325）→ `params string[]`
-> - [ ] `String.Format(fmt, arg0)` + `Format(fmt, arg0, arg1)`（String.z42:331,334）→ `params object[]`（混类型，借 boxing）
-> - [ ] `Path.Join(string a, string b)`（z42.io/Path.z42:41，仅 2-arg，调用方靠嵌套）→ `params string[]`
-> - [ ] 全库二次扫描其余"同名限-arity 重载 / 编号实参 arg0/arg1"模式
+> **候选 API（本次扫描确认）：** ✅ 全部落地（Join 家族 → `stabilize-dispatch-keys` #7；
+> Concat/Format → `migrate-stdlib-to-params`）
+> - [x] `String.Join(sep, string a, string b, string c)`（z42.core/String.z42）→ 折进 `params string[]`（#7 落地）
+> - [x] `String.Concat(a,b)` + `Concat(a,b,c)` → `params string[]`（migrate-stdlib-to-params）
+> - [x] `String.Format(fmt, arg0)` + `Format(fmt, arg0, arg1)` → `params object[]`（migrate-stdlib-to-params）
+> - [x] `Path.Join(string a, string b)`（保留 2-arg 热路径）→ `params string[]`（#7 落地）
+> - [x] 全库二次扫描其余"同名限-arity 重载 / 编号实参 arg0/arg1"模式（migrate-stdlib-to-params
+>       复核：除 Join/Concat/Format 外无其余；顺带删死别名 `Path.Combine`——0 调用点）
 >
 > **调用点检查（同一 change 内）：**
-> - [ ] `Path.Join(Path.Join(a,b),c)` 等嵌套塌缩为 `Path.Join(a,b,c)`（grep `Path.Join(Path.Join`）
-> - [ ] 现有 `String.Join(sep,a,b,c)` / `Format(fmt,x,y)` 调用点 expanded form 源码兼容，但确认无 arity 溢出依赖
-> - [ ] 删除过渡重载后全库重编，确认无 undefined（跨包 TSIG `paramsFrom` 已就位）
+> - [x] `Path.Join(Path.Join(a,b),c)` 等嵌套塌缩为 `Path.Join(a,b,c)`（#7）
+> - [x] 现有 `String.Join(sep,a,b,c)` / `Format(fmt,x,y)` / `Concat(a,b)` 调用点 expanded form 源码兼容
+> - [x] 删除过渡重载后全库重编，确认无 undefined（跨包 TSIG `paramsFrom` 已就位）
 
 ## 备注
 

@@ -336,21 +336,28 @@ public static class String : IComparable<string>, IEquatable<string> {
     // 2026-04-27 wave3a-str-concat-script: 脚本实现 —— `+` 编译为 IR
     // `StrConcatInstr` 指令（见 FunctionEmitterCalls.EmitConcat），与原
     // `__str_concat` builtin 等价，无需 builtin。
-    public static string Concat(string a, string b) {
-        return a + b;
-    }
-    public static string Concat(string a, string b, string c) {
-        return a + b + c;
+    // migrate-stdlib-to-params：单一 params 重载同时覆盖 normal form（`Concat(arr)` 直传
+    // string[]）与 expanded form（`Concat(a, b, c)` 编译期打包 string[]）。取代此前的
+    // `Concat(a,b)` + `Concat(a,b,c)` 双固定-arity 重载。无分隔符逐段拼接；零实参 → ""。
+    public static string Concat(params string[] values) {
+        int n = values.Length;
+        if (n == 0) return "";
+        string result = values[0];
+        for (int i = 1; i < n; i++) {
+            result = result + values[i];
+        }
+        return result;
     }
     // 2026-04-27 wave3b-str-format-script: 脚本实现，链式 Replace + Convert.ToString。
-    // 与原 builtin 等价（顺序替换 {0} → {1}，未支持 {0:F2} 等格式说明符；
+    // 与原 builtin 等价（顺序替换 {0} → {1} → …，未支持 {0:F2} 等格式说明符；
     // 后者待 IFormattable 协议引入后独立 spec）。
-    public static string Format(string format, object arg0) {
-        return format.Replace("{0}", Convert.ToString(arg0));
-    }
-    public static string Format(string format, object arg0, object arg1) {
-        return format
-            .Replace("{0}", Convert.ToString(arg0))
-            .Replace("{1}", Convert.ToString(arg1));
+    // migrate-stdlib-to-params：`params object[]` 单一重载取代 `Format(fmt,arg0)` +
+    // `Format(fmt,arg0,arg1)`，循环把 `{i}` 替换为 `Convert.ToString(args[i])`（混类型装箱）。
+    public static string Format(string format, params object[] args) {
+        string result = format;
+        for (int i = 0; i < args.Length; i++) {
+            result = result.Replace("{" + Convert.ToString(i) + "}", Convert.ToString(args[i]));
+        }
+        return result;
     }
 }

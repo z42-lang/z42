@@ -438,7 +438,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-load-directive) |
 | `repl-future-mobile` | mobile / WASM REPL（iOS W^X 限制，依赖 1.1.x mobile scripting）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-mobile) |
 | `repl-future-debugger` | 调试集成（DAP server + VM 单步支持，0.8.x）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-debugger) |
-| `params-future-empty-array-codegen` | **空 params → 空数组字面量 codegen/VM 缺陷**：零可变实参（`string.Concat()` / `string.Format(fmt)` / `string.Join(sep)`）经 `_withParamsExpansion` 打包成 `ArrayNewLitInstr` elemCount=0 → 运行期崩（interp `undefined register` / jit `Null vs Null`）。#7 的 `Join` 已潜伏、`migrate-stdlib-to-params` 的 Concat/Format 新暴露；非空 params 全绿。归 `compiler`/`runtime`，待锁空闲单列 change（根因：空数组字面量 emit / VM ArrayNewLit 0-elem 执行）| [changes/migrate-stdlib-to-params/proposal.md](spec/changes/migrate-stdlib-to-params/proposal.md) 「已知限制」 |
+| `params-future-empty-array-codegen` | **纯 params 零实参 → 空数组作唯一实参的 codegen/VM 缺陷**：`string.Concat()`（无固定前缀形参、零可变实参）经 `_withParamsExpansion` 合成 `BoundArrayLit(0)` 作唯一静态调用实参 → 运行期崩（interp `undefined register %0` / jit `Null vs Null`）。**边界实测**：`Join("-")`（有 sep 前缀）/`new string[]{}`/normal-form 空数组直传均正常 → **非** #7 `Join`、**非**一般空数组。`migrate-stdlib-to-params` 的 Concat 新暴露；非空 params 全绿。归 `compiler`/`runtime`，待锁空闲单列 change | [changes/migrate-stdlib-to-params/proposal.md](spec/changes/migrate-stdlib-to-params/proposal.md) 「已知限制」 |
 | `repl-future-eof-detection` | `Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit`/`.quit` 退出，待 runtime builtin 补 EOF 信号 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-eof-detection) |
 
 ### 实施期延后（D-* 系列）
