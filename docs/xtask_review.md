@@ -378,6 +378,13 @@ simplify-compiler-build 已折叠为 `Z42_HOME`（ci-bootstrap/action.yml:104,14
 （vm-tests:63,76、changed-only:30、stdlib-tests:43、unit-tests:36、testing/README:3），
 本轮工作区还在被迫改它。把被引用的「目录组织/归属规则」两段迁走后断链，才能真正冻结。
 
+> **✅ 已落地（2026-07-16）**：复核发现 **5 处"详见"引用已被先前清理清零**（vm-tests/
+> changed-only/stdlib-tests/unit-tests **零** testing.md 引用；README:3 仅泛指 `design/testing/` 目录）
+> ——冻结不再被引用阻塞。剩余价值 = 把「目录组织 + 归属规则」两段的**当前、去 C# 化**版本放进 live
+> 文档：核实当前测试布局（`z42.Tests` xUnit / `dotnet test` / `z42-test-runner` / `Fixtures/{parse,errors}`
+> 均已不存在）后，在 `docs/workflow/testing/README.md` 新写「测试文件归属」节（目录 map + 加新用例归属 +
+> 用例文件约定，全部去 C#）；`testing.md` 两段加「已迁移+冻结、以 live 为准」指针。真冻结完成。
+
 ### 4.7 z42-test-runner 幽灵
 
 Rust runner 已被 z42b 取代，但 `stdlib-tests.md:3,36-40,52-53,83`（含不存在的二进制路径）、

@@ -106,6 +106,11 @@ runner 有两条执行路径，互不相同的两件事（不要混淆）：
 
 ## 测试目录组织（约定，2026-05-05 dotnet/runtime-style）
 
+> **⛔ 已迁移 + 冻结（2026-07-16，review §4.6）**：本节与下方「添加新测试时的归属规则」的
+> **当前、去 C# 化**版本已迁到 live 文档 [`docs/workflow/testing/README.md` §测试文件归属](../../workflow/testing/README.md#测试文件归属放哪--加新用例往哪放)。**以 live 文档为准**——下方原文含 C# 时代残留
+> （`z42.Tests` xUnit / `dotnet test` / `z42-test-runner` / `z42.Tests/Fixtures/{parse,errors}`
+> 均已不存在），仅作历史留存，不再更新。
+
 z42 测试组织对标 [dotnet/runtime](https://github.com/dotnet/runtime/tree/main/src) 的成熟模式 ——「被测对象在哪，测试就在哪」+「中央 VM 测试集按特性分类」。
 
 ```

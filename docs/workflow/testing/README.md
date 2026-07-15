@@ -50,3 +50,37 @@ GREEN**，commit 前必须跑完整 `xtask test`）：
 > **注**：早期 C# 版 xtask 曾有 `--scope=full|runtime|compiler|stdlib|auto` 与 `--parallel`
 > wave 机制；z42 版 xtask **尚未实现**这两者（源码 `scripts/test/xtask_test.z42` 注明是
 > "a later increment"）。当前只有上表三种缩窄手段——不要写 `--scope` / `--parallel`（会报未知 flag）。
+
+## 测试文件归属（放哪 / 加新用例往哪放）
+
+「被测对象在哪，测试就在哪」+「中央 VM e2e 按特性分类」（对标 dotnet/runtime）。
+
+| 目录 | 形态 | 谁运行 |
+|------|------|-------|
+| `src/tests/<category>/<name>/` | `.z42` + `expected_output.txt`（golden） | `xtask test e2e`（interp+jit）|
+| `src/tests/cross-zpkg/<name>/` | target/ext/main 多 toml 工程 | `xtask test e2e --dir cross-zpkg` |
+| `src/tests/{zbc,zpkg}-format/<name>/` | check-in 的 `source.zbc`/`.zpkg` 字节基线 | `cargo test zbc_compat`/`lazy_loader`（`git diff` = 格式漂移）|
+| `src/compiler/z42c.<member>/tests/` | 按特性分（lexer/parser/decl/stmt/dump…）| `xtask test compiler`（z42b 跑 `[Test]` + 不动点）|
+| `src/libraries/<lib>/tests/` | `<name>/source.z42`（golden）+ 顶层 `*.z42`（`[Test]`）| golden→`test e2e`；`[Test]`→`test stdlib`（z42b）|
+| `src/runtime/src/<mod>_tests.rs` | Rust 单元测试 | `xtask test runtime`（`cargo test`）|
+| `src/runtime/tests/*.rs` | Rust 集成测试（跨语言契约 / native e2e） | `xtask test runtime` |
+
+**加新用例的归属（先到先得）**：
+
+1. **库 API 行为** → `src/libraries/<lib>/tests/`（与库源码同居）
+2. **编译器 pipeline 单元**（lexer/parser/typecheck/IR-gen） → `src/compiler/z42c.<member>/tests/`
+3. **VM 内部**（GC/interp/decoder） → `src/runtime/src/<mod>_tests.rs`；**跨语言契约 / native e2e** → `src/runtime/tests/*.rs`
+4. **跨多个 zpkg** → `src/tests/cross-zpkg/<name>/`
+5. **其他 VM / 语言特性 e2e** → `src/tests/<category>/<name>/`（不确定类别先归 `basic/`）
+
+**用例文件约定**（golden 类）：
+
+| 文件 | 何时 | 含义 |
+|------|------|------|
+| `source.z42` | 必须 | z42 源码 |
+| `source.zbc` | 由 `xtask build test` 生成 | **不与 `source.z42` 同处**——镜像到 `artifacts/build/<...>`（gitignored）；唯一例外 `{zbc,zpkg}-format/*` 是 check-in 基线，就地重写 |
+| `expected_output.txt` | run 用例 | stdout 期望；**空 / 缺失 = 靠内置 `Assert.*` 自验**（跑通无输出即过）|
+| `interp_only` | 可选 marker | JIT 模式跳过该用例 |
+| `features.toml` | 可选 | LanguageFeatures override |
+
+> 测试**设计**（attribute 体系 / TIDX section / z42b runner 协议）见 [`docs/design/testing/`](../../design/testing/)（迁移中；`testing.md` 已冻结）。
