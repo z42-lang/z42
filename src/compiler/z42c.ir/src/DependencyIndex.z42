@@ -75,9 +75,6 @@ public sealed class DependencyIndex {
                     }
                     if (!f.IsStatic && cls != "Object" && !DependencyIndex._isProtocol(bare)) {
                         int userArity = f.ParamCount - 1;
-                        // stabilize-dispatch-keys（方案A）：调用方按 md.RegKey（全签名键 `Foo$1$int`）发 VCall，
-                        // GetInstance 的 bare 兜底须能命中该完整键 → 除 bare/bare$arity 外，再注册完整 method 键。
-                        this._regInstance(method, entry);
                         this._regInstance(bare + "$" + userArity.ToString(), entry);
                         this._regInstance(bare, entry);
                     }

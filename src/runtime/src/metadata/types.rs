@@ -232,21 +232,10 @@ impl TypeDesc {
         self.cold.get_or_insert_with(|| Box::new(TypeDescCold::default()))
     }
 
-    /// Derive the vtable slot key from a qualified function name in
-    /// `own_methods`. Strips the owning class's `"<ClassName>."` prefix and
-    /// returns the full method key including any `"$N$types"` mangle suffix
-    /// (so `Foo.Bar.Method$2$int$int` → `Method$2$int$int`).
-    ///
-    /// stabilize-dispatch-keys (方案A, 2026-07-14): the mangle suffix is
-    /// **kept** (previously stripped at `$`). Dispatch keys are now a pure
-    /// function of each method's own signature, so `VCall` emits the full
-    /// mangled key (`ms.RegKey`) and the vtable must key by that same string
-    /// for the lookup to hit. Keeping the suffix also gives overloaded virtual
-    /// methods distinct slots (`Foo$1$int` vs `Foo$1$string`) instead of
-    /// collapsing them onto one bare `Foo` slot. Protocol-exempt names
-    /// (`ToString`/`Equals`/… and property/indexer accessors `get_X`/`set_X`/
-    /// `get_Item`) carry no `$` and are unaffected — their bare slot key still
-    /// matches the bare `VCall` name the compiler emits for them.
+    /// review.md E5.5 (2026-05-27): derive the simple method name (vtable
+    /// slot key) from a qualified function name in `own_methods`. Strips
+    /// the owning class's `"<ClassName>."` prefix, then the arity suffix
+    /// `"$N"` (so `Foo.Bar.Method$2` → `Method`).
     ///
     /// Returns the input unchanged when the prefix doesn't match — a
     /// defensive fallback that should never fire in practice because
@@ -262,7 +251,8 @@ impl TypeDesc {
         {
             return fq;
         }
-        &fq[dot + 1..]
+        let after_prefix = &fq[dot + 1..];
+        after_prefix.split('$').next().unwrap_or(after_prefix)
     }
 }
 

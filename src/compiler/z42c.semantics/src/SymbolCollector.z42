@@ -502,8 +502,30 @@ public sealed class SymbolCollector {
         Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
         string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
         int tpc = c.TypeParams.Count;
-        // stabilize-dispatch-keys（方案A）：派发键改为「方法自身签名的纯函数」后，不再需要预扫描
-        // 兄弟集（seen/ovld/arityDup）——每个方法独立全签名 mangle，键不依赖同名兄弟个数/arity。
+        // stabilize-dispatch-keys（方案A，静态-only）：静态方法恒全签名 mangle（键稳定，加/删重载不 re-mangle
+        // 现有静态键）；实例方法保持基线键规则（bare / Name$arity / type-overload 全 mangle）。故实例仍需预扫描
+        // 兄弟集（ovldInst 判 arity-based 重载、arityDup 判 type-based 重载）。静态不依赖预扫描（无条件 mangle）。
+        StrMap seenInst   = new StrMap();   // 实例方法首次见
+        StrMap ovldInst   = new StrMap();   // 实例方法重载（>1 arity）
+        // add-type-based-overloads：同 (name,arity) ≥2 重载检测（type-based）。键 name$arity，值 "1"=见过 / "2"=重复。
+        // arityDup 计入 static+instance 全部方法：实例方法的 wantMangle 判据依赖跨 static/instance 的 name$arity
+        // 碰撞（镜像基线），故必须全量统计才能与基线实例键逐字节一致。
+        StrMap arityDup   = new StrMap();
+        int pi = 0;
+        while (pi < c.MemberCount) {
+            Decl pmem = this._unwrap(c.Members[pi]);
+            if (pmem is MethodDecl) {
+                MethodDecl pmd = pmem as MethodDecl;
+                if (!this._hasWord(pmd.Mods, "static")) {
+                    if (seenInst.ContainsKey(pmd.Name)) { ovldInst.Put(pmd.Name, "1"); }
+                    else { seenInst.Put(pmd.Name, "1"); }
+                }
+                string ak = pmd.Name + "$" + pmd.ParamCount.ToString();
+                if (arityDup.ContainsKey(ak)) { arityDup.Put(ak, "2"); }   // ≥2 → type-based 重载
+                else { arityDup.Put(ak, "1"); }
+            }
+            pi = pi + 1;
+        }
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._unwrap(c.Members[j]);
@@ -569,17 +591,25 @@ public sealed class SymbolCollector {
                 // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
                 bool mst = this._hasWord(md.Mods, "static");
                 MethodSymbol msym = this._methodSymbol(table, md, c.Name, tp, tpc);
-                // stabilize-dispatch-keys（方案A）：派发键 = 方法自身签名的纯函数（恒全签名 mangle），
-                // 与同名兄弟集无关 → 加/删重载不再 re-mangle 现有键（根治 params-for-Join bootstrap 破坏）。
-                // 唯一例外：实例协议豁免名（ToString/Equals/GetHashCode/GetType/get_Item/set_Item）保持裸名
-                // ——它们被 Rust VM vtable / TypeChecker / DepIndex 按裸字面量硬查，mangle 会断锚点（见
-                // IsProtocolExempt + docs/spec/changes/stabilize-dispatch-keys/design.md D1）。静态豁免名不适用
-                // （静态无 vtable 派发；op_* 操作符本就走全 mangle）。
+                // stabilize-dispatch-keys（方案A，静态-only）：
+                // - 静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
+                //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。
+                // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
+                //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量
+                //   硬查，mangle 会断锚点）。实例 / 虚 / 接口 / 泛型 / 委托 / foreach / ctor 派发依赖此基线锚点，不动。
                 string regName;
-                if (!mst && SymbolCollector.IsProtocolExempt(md.Name)) {
-                    regName = md.Name;
-                } else {
+                if (mst) {
                     regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                } else {
+                    string aritK = md.Name + "$" + md.ParamCount.ToString();
+                    regName = md.Name;
+                    bool wantMangle = arityDup.ContainsKey(aritK) && arityDup.Get(aritK) == "2"
+                        && !SymbolCollector.IsProtocolExempt(md.Name);
+                    if (wantMangle) {
+                        regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                    } else if (ovldInst.ContainsKey(md.Name)) {
+                        regName = aritK;
+                    }
                 }
                 msym.RegKey = regName;
                 md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键

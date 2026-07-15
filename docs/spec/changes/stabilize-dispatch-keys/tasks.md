@@ -1,25 +1,25 @@
 # Tasks: 派发键稳定化 + Join 落地 params
 
-> 状态：🟡 实现完成，CI 验证待确认 | 创建：2026-07-14
+> 状态：🟡 静态-only 重做完成，CI 验证待确认 | 创建：2026-07-14 | 裁决重做：2026-07-15
 > 类型：lang/ir/vm（完整流程）。冷环境本地不可验自举链 → GREEN 以 CI 为权威。
 
 ## 进度概览
 - [x] 阶段 1: 键规则（compiler）
 - [x] 阶段 2: 单一真相键 + 审计对齐
 - [x] 阶段 3: 格式 bump（zbc 1.27 / zpkg 0.32）
-- [x] 阶段 4: VM vtable 键保留 `$` + 反射去 `$`
+- [x] 阶段 4: VM vtable 保持基线（实例不 mangle，derive 去 `$`）+ 反射去 `$`（静态方法名）
 - [x] 阶段 5: Join 落地 params
 - [x] 阶段 6: fixture 版本-patch + 文档
 - [x] 阶段 7: 本地可验测试（cargo build + Rust 单测）
 - [ ] 阶段 8: CI 全绿（push 后盯：ci-bootstrap 两代自举 / bootstrap-no-csharp / golden regen / 不动点）
 
 ## 明细
-- [x] 1.1 `SymbolCollector.regName` 恒 MangleKey（豁免名裸）；删兄弟集预扫描
-- [x] 2.1 `ExportedTypeExtractor`(实例) / `IrGen`(impl) / `TestIndexBuilder` 优先 `md.RegKey`
-- [x] 2.2 `DependencyIndex.AddModule` 注册完整实例键
+- [x] 1.1 `SymbolCollector.regName` 静态恒 MangleKey / 实例基线键（保留兄弟集预扫描；静态-only 裁决第四轮重做）
+- [x] 2.1 `TestIndexBuilder` 优先 `md.RegKey`（静态 [Test]）；`ExportedTypeExtractor`/`IrGen`(impl) 回退基线
+- [x] 2.2 `MemberResolver` prim 静态（int.Parse）用 RegKey；prim 实例/方法组回退基线；`DependencyIndex` 回退基线
 - [x] 3.1 `ZbcFormat.z42` 1.27 + `ZpkgWriter.z42` 0.32 + reader 常量 + version-pin 测试 + changelog
-- [x] 4.1 `types.rs` `derive_simple_method_name` 保留 `$`
-- [x] 4.2 `reflection.rs` `build_method_info` 显示名去 `$`
+- [x] 4.1 `types.rs` `derive_simple_method_name` 保持基线（去 `$`；实例不 mangle）
+- [x] 4.2 `reflection.rs` `build_method_info` 显示名去 `$`（静态方法 demangle）
 - [x] 5.1 `Path.Join(params string[])`（保留 2-arg）
 - [x] 5.2 `String.Join(string, params string[])`（合并取代 string[] + 3-arg）
 - [x] 6.1 `zbc_tests.z42` golden hex minor 1a00→1b00
@@ -72,3 +72,28 @@ VM prim 派发（`Std.String.StartsWith` + `$arity` 重试）都落空（函数�
 - 实例方法组 `obj.M`（委托值）：`_collectOverloads` 按源名收候选、携 `RegKey`（thunk 内 VCall 用它派发）。
 已核对无遗漏的旧方案派发点：Object-exempt（generic param→Object，裸名 OK）、get_X/add_X 访问器（裸注册
 OK）、普通 class/静态调用（早已 `_resolveOverload`+RegKey）、操作符（早已 `_resolveOverload`）。
+
+## 范围裁决 + 重做（第四轮，2026-07-15，全 mangle → 静态-only）
+**触发**：全 mangle（commit 9d0dd85）CI 结果——bootstrap 两代自举**全绿**（证明 export/byte-identity
+自洽），但 **19 个 e2e golden 挂**，全在**实例派发**子系统（interface / 泛型 / 泛型内原始类型 /
+委托·事件 / foreach）。这些子系统多处裸名 emit，全 mangle 后与 mangle 函数不匹配；辐射面横跨 5 个
+此前未预料的子系统，冷环境不可本地验、只能逐轮 CI 打地鼠。
+
+**事实校正 → User 裁决（AskUserQuestion 工具连续失败，改 prose 呈报 + "请你修复啊" 授权）**：
+`Path.Join`/`String.Join` 皆**静态** → 键不稳定只需在静态维度根治。改走**静态-only**：静态恒 mangle、
+实例保持基线键（本变更前独立验证过的绿路径）→ 19 挂点全消、不改 VM、辐射面缩到「静态调用一条路」。
+
+**重做（改哪些）**：
+- `SymbolCollector.regName`：静态→恒 `MangleKey`；实例→**恢复基线**（bare / Name$arity / type-overload
+  全 mangle / 协议豁免裸）。恢复兄弟集预扫描（`ovldInst`+`arityDup`，`arityDup` 计 static+instance 全量以
+  保实例键与基线逐字节一致）。
+- `MemberResolver`：prim 实例（site1）/ 实例方法组（site2）**回退基线**；prim 静态 int.Parse（site3）
+  **保留** `_resolveOverload`→`RegKey`（静态已 mangle，旧裸键查不到）。
+- **回退基线**（git checkout）：`ExprTyper`(ctor) / `DeclBinder`(base·this ctor) / `ExportedTypeExtractor`(实例)
+  / `IrGen`(impl) / `DependencyIndex`(实例注册) / `types.rs`(`derive_simple_method_name` 复位去 `$`) /
+  `loader.rs`(ctor-skip 复位)。
+- **保留**：`reflection.rs`(demangle 显示——静态方法名需去 `$`) / 格式 bump（zbc27/zpkg32 + reader + golden
+  hex + fixture）/ Join params（Path/String）/ `TestIndexBuilder`(RegKey——静态 [Test] 需之)。
+
+**本地验**：`cargo build --release` ✅ / lib 772·0 / compression 21·0 / zbc_compat 3·0 ✅。
+**待 CI**：e2e golden（静态-only 下实例派发回归基线应全绿）+ 两代自举 + 不动点。
