@@ -11,14 +11,25 @@
 - [x] 5.2 ios/android/wasm 三处 6-7 行 scaffold 各收敛为 1 行调用（android/wasm 保留 `nativeOut`；android 顺带删提取后不再用的 `rel`；ios/wasm 的 `rel` 另有用途保留）；brace 平衡，无 `pkgName` 泄漏
 
 ## §2.7 拷贝变体（commit 2 —— 待核）
-- [ ] 7.x package/platform zpkg 拷贝变体 vs `_copyAll` —— 逐个核错误语义（`_copyIfExists` 差异），仅等价者收敛
+- [x] 7.x package/platform zpkg 拷贝变体 vs `_copyAll` —— **复核结论：4 变体均非 `_copyAll` 等价，不收敛**（`_stageCopyExt` 传播异常 vs `_copyAll` 吞 / `_copyNativeLibs` 多条件过滤 / `_pkgCopyLibs` 缺-stdlib `return 1` 守卫 / `_copyZpkgsTo` 预删+计数+日志）。已事实校正标注 review §2.7。
 
-## §2.10 杂项小修（commit 3 —— 待核）
-- [ ] 10.x 复核 §2.10 剩余项当前状态，落地清晰安全的（1 行修）
+## §2.10 杂项小修（commit 2 —— 已实施）
+- [x] 10.1 `_regenCore` 删死参数 `release`（恒 false 未用）+ 唯一调用点 `_regenCore(true)`
+- [x] 10.2 `bench stdlib` ✔ 标签随 `kind` 一致（`_procEnd` 原恒 "test stdlib"，与 ▶ "bench stdlib" 不配对）
+- [x] 10.3 `xtask_release.z42:116` 裸 `date` 进程 → 调共享 `_utcNow()`（含 ExitCode 兜底）
+- [x] 10.4 复核其余 §2.10：`test dist` help/`_testAll(false)`/`_mapFile` 前缀/`_stageToolchain _procEnd` 早已修；`_pkgSha256Check` 改名等低价值项暂留（已在 review §2.10 标注）
+
+## 暂缓项（复核后判定，非本 change 落地）
+- §2.4 test dist 双构建：行为变更 + `test dist` 不在 CI → 无验证面，留 warm 环境
+- §2.6 golden 枚举器去重：L1 无 lambda/泛型 + CI 抓不到覆盖回退 → 留 warm 环境
 
 ## 阶段 2: 验证
-- [ ] 2.1 CI 验证（冷检出无法本地跑；GREEN 以 CI 为准）——关键腿：package-ios/android/wasm（scaffold）+ compile-toolchain
+- [ ] 2.1 CI 验证（冷检出无法本地跑；GREEN 以 CI 为准）——关键腿：package-ios/android/wasm（scaffold）+ compile-toolchain；已推 main（9a707bff §2.5 / 6b5ee43e §2.10）
 - [ ] 2.2 CI 绿后归档 + 释放 toolchain 锁；红则 revert 对应 commit
+
+## ⚠️ 并行 session 冲突记录（2026-07-15）
+- 原 §2.5 commit `fead63ff` 因并行 session（`migrate-stdlib-to-params` / 0.4.0 stream）重写 main（版本 bump + 归档）被**孤立**；已从 orphan 提取代码等价重落为 `9a707bff`。
+- ACTIVE.md / 工作树被两 session 并发编辑——全程显式 `git add` 只纳本 change 文件、未触其 WIP。
 
 ## 备注
 - 直连 main 开发（User 指示）；纯机械/等价，push 后盯 CI，红即 revert。

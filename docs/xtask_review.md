@@ -100,6 +100,12 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 `_buildPackageCore` → `_packageDesktop` 内部构建完全重复；包已存在路径下预构建三步全部多余。
 删掉预构建波、只留 `if (!_hasReleasePkg) _buildPackageCore(...)`，`test dist` 时间近乎减半。
 
+> **⏸ 暂缓（2026-07-15，同 §2.6 判据）**：这是**行为变更**（删构建步），而 `test dist`
+> **不在任何 CI job**（§3.4 已证）→ 无验证面。冷环境无法本地跑核对「删预构建波后 `_testDistRun`
+> 是否仍拿到所需产物」（它跑**打包后**的 z42c/z42vm，但预构建波还产 release z42vm/golden 基线，
+> 是否被 `_testDistRun` 独立依赖需实跑确认）。**留 warm 环境**：本地 `xtask package sdk && xtask
+> test dist` 删波前后对比通过再落。直连-main + 无 CI 覆盖下不做。
+
 ### 2.5 package 四平台"复制粘贴后各自演化"
 
 - runtime-pkg 开场/收尾三处同构（ios:25-30 / android:37-43 / wasm:24-30 逐字同构）
@@ -121,6 +127,12 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
 > **✅ ABI headers 已收敛（2026-07-15，change `consolidate-xtask-fns`）**：抽 `_copyAbiHeaders(root,
 > destIncludeDir)`→`xtask_stage_components.z42`（`z42_{abi,host}.h` 源路径单一 SoT），替换
 > android×2/ios×2/wasm/stage_components 共 6 处逐字 `File.Copy` 对。dest 字符串逐字节等价。PR #6 CI 绿。
+>
+> **✅ runtime-pkg scaffold 已收敛（2026-07-15，change `consolidate-xtask-fns-round2`）**：抽
+> `_runtimePkgScaffold(root, rid, version, profile) -> pkgDir`→`xtask_stage_components.z42`（runtime-pack
+> 名格式 + native/include+libs 布局单一 SoT），ios/android/wasm 三处 6-7 行开场各收敛为 1 行（android
+> 顺带删提取后不再用的 `rel`）。**剩 desktop RID 列表**：`xtask_release.z42` 三处中 :168 顺序与另两处
+> 不同（macos-first，android workload host 列）→ 只 2/3 可合，价值低，暂留。
 
 ### 2.6 golden 枚举器双份 ~110 行
 
@@ -198,6 +210,15 @@ bootstrap_check:89、common:307），stdlib flat dist 手拼 ×9——而 `_libs
   改 `scripts/`
 - deps check 缺 key 时以未捕获异常收场而非整洁 ✗ 报告（`xtask_deps.z42:68-71`；
   wasm 假检查本身已由 simplify-xtask-deps 覆盖）
+
+> **进度（2026-07-15 复核）**：
+> - ✅ **本轮修**（change `consolidate-xtask-fns-round2`）：`_regenCore` 删死参数 `release` + 调用点；
+>   `bench stdlib` ✔ 标签随 `kind` 一致（`_procEnd` 原恒 "test stdlib"）；`xtask_release.z42:116`
+>   裸 `date` → `_utcNow()`（含 ExitCode 兜底）。
+> - ✅ **早前已修**（复核确认）：`test dist` help 已作 "default: both"；`_testAll(false)` 已显式；
+>   `_mapFile` 前缀已 `scripts/`；`_stageToolchain` 已有配对 `_procEnd`。
+> - ⏸ **暂留**：`_pkgSha256Check` 改名（纯 cosmetic，低价值）；`_hasReleasePkg` 派生 / `_buildStdlib`
+>   转发 / `test packages` 硬编码计数 / deps check 缺 key 异常——行为-adjacent 或价值低，未单独排期。
 
 ---
 
