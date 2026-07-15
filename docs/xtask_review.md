@@ -278,6 +278,15 @@ ci.yml publish-nightly（:1217-1294）与 release.yml（:145-194）各写一份 
 （rid 分类 + tar/zip 规则重复维护）。**建议**：加 `xtask package archive <label> <src> <out>`
 两个 workflow 共用，与 bug #2 一并修。
 
+> **⏸ 需 warm 环境（2026-07-15 复核，本 review 最高风险项）**：共享原语确实存在（windows→`zip -r`
+> / unix→`tar -C dir -czf . `，无顶层目录语义），可抽 `xtask package archive <rid> <src> <outNoExt>`。
+> 但落地风险不对称，冷环境 + 直连-main 下**不做**：① **publish-nightly 在 nightly 种子链临界路径**
+> （bootstrap-seed.md）——归档步一错 → nightly 坏 → 全员 cold-bootstrap 断，自愈难；② release.yml
+> 侧**只在版本 tag 跑**，bug 潜伏到下次发布才暴露；③ 新命令 spawn tar/zip 精确 flag，flag 微差产
+> **畸形归档**（CI 照发绿、下游静默坏）；④ 冷环境**无法本地测**该命令。**落地前置**：warm 环境本地
+> `xtask package archive` 对真 package dir 验字节 + `workflow_dispatch` publish-nightly dry-run 确认，
+> 再 wire。与 §2.4/§2.6 同属「留 warm」。
+
 ### 3.6 低垂果实
 
 - 全 ci.yml 无一处 `timeout-minutes`——挂死按 GitHub 默认 6h 计费；重型 job 加 45-60min
