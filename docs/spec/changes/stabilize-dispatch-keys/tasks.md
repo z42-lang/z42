@@ -60,3 +60,15 @@ mangle（`TomlParser$1$string`），于是 `new C(args)` emit 的 `fqCtor` 与 c
 - `loader.rs build_type_registry`：ctor-skip 用 demangle（`method` 首段 `$` 前）比 simple_name，
   防 mangled ctor 泄漏进 vtable/反射。
 - 本地验：`cargo build` ✅ + loader 48/0（z42c 侧 CI 验）。
+
+## 根因 + 修复（第三轮，2026-07-15，commit 7017b41 之后）
+ctor 修复后崩点前移到 `SourceDiscovery._expand` 的 `pattern.StartsWith("**/")`：
+`VCall: expected object, got Str("**/")`。**同类根因**：prim 收者（string/int/…）方法解析仍走旧
+`_overloadKey`/`_findMethod`（裸名/Name$arity），查不到已全签名 mangle 的方法 → 回落 bare emit →
+VM prim 派发（`Std.String.StartsWith` + `$arity` 重试）都落空（函数是 `StartsWith$1$string`）→ 崩。
+**修复（MemberResolver.z42，3 处）**：
+- prim 实例调用（`string.StartsWith`）：`_resolveOverload` → `wms.RegKey` + `_withDefaults`。
+- prim 关键字静态调用（`int.Parse`/`string.FromChars`）：`_resolveOverload` → `wms2.RegKey`。
+- 实例方法组 `obj.M`（委托值）：`_collectOverloads` 按源名收候选、携 `RegKey`（thunk 内 VCall 用它派发）。
+已核对无遗漏的旧方案派发点：Object-exempt（generic param→Object，裸名 OK）、get_X/add_X 访问器（裸注册
+OK）、普通 class/静态调用（早已 `_resolveOverload`+RegKey）、操作符（早已 `_resolveOverload`）。

@@ -91,10 +91,14 @@ public sealed class MemberResolver {
         string wrapper = TypeFactsTc._primWrapper(rt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
-            string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
-            MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
+            // stabilize-dispatch-keys（方案A）：prim 收者（string/int/...）实例方法键 = 解析到方法的
+            // RegKey（全签名 mangle）。旧 _overloadKey/_findMethod（裸名/Name$arity）查不到已 mangle 的
+            // 方法 → 回落 bare emit → VM prim 派发 `Std.String.StartsWith`/`$1` 均落空（函数是
+            // `StartsWith$1$string`）→ `VCall: expected object, got Str` 崩。
+            MethodSymbol wms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, sp);
             if (wms != null) {
-                return new BoundCall("instance", true, recv, rt.Name(), mkey, args, argCount, wms.Signature.Ret, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(wms, args, rawArgs, argCount, env, sp);
+                return new BoundCall("instance", true, recv, rt.Name(), wms.RegKey, fa, fa.Length, wms.Signature.Ret, sp);
             }
         }
         return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
@@ -168,9 +172,12 @@ public sealed class MemberResolver {
                 return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
             }
             // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
-            MethodSymbol mg = this._tc._overload._findMethod(env.Symbols, ct, m.Name);
-            if (mg != null && mg.Signature != null) {
-                return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
+            // stabilize-dispatch-keys（方案A）：方法以全签名键注册 → 按源名收候选、携 RegKey（thunk 内
+            // VCall 用它派发；旧 _findMethod 按裸名查已 mangle 方法必落空）。重载方法组无目标类型消歧 →
+            // 取首候选（罕见边角）。
+            MethodSymbol[] mgc = this._tc._overload._collectOverloads(env.Symbols, ct, m.Name);
+            if (mgc.Length >= 1 && mgc[0].Signature != null) {
+                return new BoundMethodGroup(target, ct.Name(), mgc[0].RegKey, mgc[0].Signature, m.Span);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no field `" + m.Name + "` on `" + ct.Name() + "`", m.Span);
@@ -287,10 +294,11 @@ public sealed class MemberResolver {
                 string pwrap2 = TypeFactsTc._primWrapper(tid2.Name);
                 if (env.Symbols.HasClass(pwrap2)) {
                     Z42ClassType wct2 = env.Symbols.GetClass(pwrap2);
-                    string wmkey2 = this._tc._overload._overloadKey(env.Symbols, wct2, mem.Name, argCount);
-                    MethodSymbol wms2 = this._tc._overload._findMethod(env.Symbols, wct2, wmkey2);
+                    // stabilize-dispatch-keys（方案A）：prim 关键字静态调用（int.Parse / string.FromChars）
+                    // 键 = 解析到方法的 RegKey（全签名 mangle），同 prim 实例路径。
+                    MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, sp);
                     if (wms2 != null) {
-                        return new BoundCall("static", false, null, pwrap2, wmkey2, args, argCount, wms2.Signature.Ret, sp);
+                        return new BoundCall("static", false, null, pwrap2, wms2.RegKey, args, argCount, wms2.Signature.Ret, sp);
                     }
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                         "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
