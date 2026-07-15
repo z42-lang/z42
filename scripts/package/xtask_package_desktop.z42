@@ -2,8 +2,9 @@
 // Extracted from xtask_package.z42 to stay within the 500-line file limit.
 //
 // Functions owned here:
-//   _packageDesktop      — full SDK package ([1/7]–[7/7] pipeline)
-//   _buildRuntimePackage — runtime artifact (layout = runtimes/<ver>/: z42vm+libs)
+//   _packageDesktop                — full SDK package ([1/5]–[5/5] pipeline)
+//   _pkgStageToolchainComponents   — [2c/5]: build + `z42b publish` SDK components
+//   _buildRuntimePackage           — runtime artifact (layout = runtimes/<ver>/: z42vm+libs)
 //   desktop manifest/example/helper functions
 namespace Z42Xtask;
 
@@ -56,91 +57,11 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     string cargoOut = _cargoOutFor(root, rid, profile);
     Console.WriteLine("      ✓ staged z42vm/ + native/ (libz42.* / z42.* / libz42_compression.*)");
 
-    // [2c/5] z42 launcher (apphost → programs/launcher/launcher.zpkg) + workloads,
-    // then z42/z42c/z42b published via `z42b publish` (move-desktop-packaging-to-publish,
-    // add-package-layout-config task ④): each component's `[platform.desktop]
-    // bin`/`payload` (declared in its own toml) drives placement, and z42c.driver's
-    // 6 workspace-sibling zpkgs are colocated into programs/z42c/ by publish's
-    // dependency-bundling — replacing xtask's own copy+inline-apphost-patcher
-    // dance with the single implementation in builder_publish.z42.
-    Console.WriteLine("[2c/5] z42 launcher (apphost + launcher.zpkg)");
-    // apphost stub (z42-apphost crate) — used both by the desktop workload and
-    // as the publish template (Z42_APPHOST_TEMPLATE) for `z42`/`z42c`/`z42b` below.
-    // Lands at cargoOut/apphost (shared target dir).
-    c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
-    // apphost stub is NOT shipped in the SDK anymore (Decision 9 full gating):
-    // it is delivered by the desktop workload (z42-workload-<v>-desktop-<rid>),
-    // installed via `z42 workload install desktop`. See _buildDesktopWorkload.
-    string libs = _libsDir(root);
-    // replace-csharp Phase C: workload + launcher packages built with z42c (z42vm +
-    // colocated z42c.driver.zpkg), NOT `dotnet run z42.Driver`. The driver's 6
-    // siblings resolve from programs/z42c/ (colocated); stdlib + prior workload
-    // zpkgs resolve via Z42_LIBS. The host z42vm (built by _buildCompiler above)
-    // runs the compiler regardless of target rid → RID-independent zpkgs.
-    string hostVm = _builtVm(root, "release");
-    // desktop workload package (apphost producer) — build into Z42_LIBS first so
-    // the launcher's z42c build resolves its `z42.workload.desktop` dependency.
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/workload/desktop/appbuilder/z42.workload.desktop.z42.toml");
+    // [2c/5] build + stage toolchain components (workloads / launcher / z42b /
+    // devtools / interactive) — apphost stub + 8 zpkg builds + 5 `z42b publish`
+    // into per-component staging dirs. Extracted to keep _packageDesktop ≤60 lines.
+    c = _pkgStageToolchainComponents(root, z42cDir, cargoOut, cargoTarget, rid, rel);
     if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml");
-    if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml");
-    if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml");
-    if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/launcher/core/z42.launcher.z42.toml");
-    if (c != 0) { return c; }
-    // z42b itself must be compiled before it can be invoked to publish anything
-    // (bootstrap order — z42b is stdlib-only, so this mirrors the workload/launcher
-    // builds above, not a cross-dependency on programs/z42c/ colocation).
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/builder/core/z42.builder.z42.toml");
-    if (c != 0) { return c; }
-    // devtools (z42d) / interactive (z42i): scaffold placeholders registered in
-    // packages.toml (2026-07-01, User decision) — every subcommand/entry still
-    // just prints "planned", but they build + publish through the same path as
-    // launcher/z42b so the SDK layout is ready once each tool is implemented.
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/devtools/core/z42.devtools.z42.toml");
-    if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, libs, "src/toolchain/interactive/core/z42.interactive.z42.toml");
-    if (c != 0) { return c; }
-
-    bool isWin = rid.StartsWith("windows-");
-    string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
-    // z42b zpkg location read from its toml (SoT: no hardcoded toolchain path —
-    // add-build-toolchain). _toolchainZpkg = [build] dist_dir cascade + project.name.
-    string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
-    // Each `z42b publish` call now targets that component's own staging dir
-    // (artifacts/publish/<comp>/, packages.toml Decision 6) instead of pkgDir
-    // directly — the final [assemble] step merges all of them into pkgDir.
-    // `z42` = apphost stub patched to run programs/launcher/launcher.zpkg (bin/payload
-    // from z42.launcher.z42.toml's [platform.desktop]).
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/launcher/core/z42.launcher.z42.toml", rid, _pkgStageDir(root, "launcher"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged launcher/ (z42 apphost + programs/launcher/launcher.zpkg)");
-    // bin/z42c = apphost trampoline → programs/z42c/z42c.driver.zpkg (z42c-built,
-    // C#-free). publish's dependency-bundling colocates the 6 z42c.* siblings
-    // already built above (_buildCompiler) into programs/z42c/ alongside it — the
-    // VM resolves them colocated and resolves stdlib via libs/.
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/compiler/z42c.driver/z42c.driver.z42.toml", rid, _pkgStageDir(root, "z42c"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42c/ (bin/z42c apphost + programs/z42c/z42c.driver.zpkg + siblings)");
-    // bin/z42b = apphost trampoline → programs/z42b/z42.builder.zpkg (z42b: reflective
-    // [Test]/[Benchmark] runner host; deps z42.test/.core/.io/.cli resolve from libs/).
-    // z42b publishes itself here (the just-built zpkg is already on disk, so this
-    // is deploy-only — no recompile).
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/builder/core/z42.builder.z42.toml", rid, _pkgStageDir(root, "z42b"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42b/ (bin/z42b apphost + programs/z42b/z42.builder.zpkg)");
-    // bin/z42d = apphost trampoline → programs/devtools/z42.devtools.zpkg
-    // (scaffold — every subcommand still prints "planned").
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/devtools/core/z42.devtools.z42.toml", rid, _pkgStageDir(root, "devtools"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged devtools/ (bin/z42d apphost + programs/devtools/z42.devtools.zpkg, scaffold)");
-    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg
-    // (scaffold — entry prints "planned" and exits).
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, _pkgStageDir(root, "interactive"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg, scaffold)");
 
     // stdlib zpkg + zsym — staged to artifacts/publish/stdlib/libs/.
     Console.WriteLine("      staging stdlib zpkg + zsym");
@@ -163,6 +84,72 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     Console.WriteLine("[5/5] manifest.toml");
     _pkgEmitManifest(pkgDir, rid, version, profile, hostRid);
     _procEnd("package desktop", sw);
+    return 0;
+}
+
+// [2c/5] of _packageDesktop — build the apphost stub + 8 toolchain zpkgs, then
+// `z42b publish` each SDK component into its staging dir (artifacts/publish/<comp>/;
+// [assemble] later merges into pkgDir). Self-contained: computes libs / hostVm /
+// apphostStub / z42bZpkg locally (none used by _packageDesktop after this block).
+// move-desktop-packaging-to-publish + add-package-layout-config task ④: each
+// component's `[platform.desktop] bin`/`payload` (its own toml) drives placement;
+// z42c.driver's 6 siblings colocate into programs/z42c/ via publish dependency-bundling.
+int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, string cargoTarget, string rid, bool rel) {
+    Console.WriteLine("[2c/5] z42 launcher (apphost + launcher.zpkg)");
+    // apphost stub (z42-apphost crate) → cargoOut/apphost — desktop workload's
+    // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
+    // NOT shipped in the SDK (Decision 9); delivered via the desktop workload.
+    int c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
+    string libs = _libsDir(root);
+    // replace-csharp Phase C: components built with z42c (host z42vm + colocated
+    // z42c.driver.zpkg), NOT `dotnet run`. Host z42vm compiles regardless of target
+    // rid → RID-independent zpkgs. Built into Z42_LIBS first so later components
+    // resolve their workload/launcher deps (z42b must exist before it can publish).
+    string hostVm = _builtVm(root, "release");
+    string[] buildTomls = new string[]{
+        "src/toolchain/workload/desktop/appbuilder/z42.workload.desktop.z42.toml",
+        "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml",
+        "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml",
+        "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml",
+        "src/toolchain/launcher/core/z42.launcher.z42.toml",
+        "src/toolchain/builder/core/z42.builder.z42.toml",
+        // devtools (z42d) / interactive (z42i): scaffold placeholders (2026-07-01) —
+        // subcommands print "planned" but build+publish through the same path.
+        "src/toolchain/devtools/core/z42.devtools.z42.toml",
+        "src/toolchain/interactive/core/z42.interactive.z42.toml",
+    };
+    int bi = 0;
+    while (bi < buildTomls.Length) {
+        c = _z42cBuildToml(hostVm, z42cDir, libs, buildTomls[bi]);
+        if (c != 0) { return c; }
+        bi = bi + 1;
+    }
+
+    bool isWin = rid.StartsWith("windows-");
+    string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
+    // z42b zpkg from its toml (SoT: no hardcoded path — _toolchainZpkg = [build]
+    // dist_dir cascade + project.name). z42b publishes itself deploy-only (no recompile).
+    string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    // `z42` = apphost stub patched to run programs/launcher/launcher.zpkg.
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/launcher/core/z42.launcher.z42.toml", rid, _pkgStageDir(root, "launcher"));
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged launcher/ (z42 apphost + programs/launcher/launcher.zpkg)");
+    // bin/z42c = apphost trampoline → programs/z42c/z42c.driver.zpkg (+ 6 siblings colocated).
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/compiler/z42c.driver/z42c.driver.z42.toml", rid, _pkgStageDir(root, "z42c"));
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged z42c/ (bin/z42c apphost + programs/z42c/z42c.driver.zpkg + siblings)");
+    // bin/z42b = apphost trampoline → programs/z42b/z42.builder.zpkg.
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/builder/core/z42.builder.z42.toml", rid, _pkgStageDir(root, "z42b"));
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged z42b/ (bin/z42b apphost + programs/z42b/z42.builder.zpkg)");
+    // bin/z42d = apphost trampoline → programs/devtools/z42.devtools.zpkg (scaffold).
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/devtools/core/z42.devtools.z42.toml", rid, _pkgStageDir(root, "devtools"));
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged devtools/ (bin/z42d apphost + programs/devtools/z42.devtools.zpkg, scaffold)");
+    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg (scaffold).
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, _pkgStageDir(root, "interactive"));
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg, scaffold)");
     return 0;
 }
 
