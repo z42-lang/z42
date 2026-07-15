@@ -32,15 +32,9 @@ using Std.Time;
 int _buildRuntimePackageAndroid(string root, string rid, string version, string profile) {
     string cargoTarget = _ridToCargo(rid);
     string abi = _ridToAndroidAbi(rid);
-    bool rel = (profile == "release");
     string androidCrate = Path.Join(root, "src/toolchain/workload/android/platform/rust");
-    string pkgName = "z42-runtime-" + version + "-" + rid + (rel ? "" : "-" + profile);
-    string pkgDir = Path.Join(_packagesDir(root), pkgName);
-    Console.WriteLine("Runtime package: " + pkgName);
-    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
     string nativeOut = Path.Join(pkgDir, "native");
-    Directory.Create(Path.Join(pkgDir, "native/include"));
-    Directory.Create(Path.Join(pkgDir, "libs"));
 
     // tooling: cargo-ndk + ANDROID_NDK_HOME + rust target
     int c = _ensureAndroidNdk(root);

@@ -22,12 +22,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     string cargoTarget = _ridToCargo(rid);
     bool rel = (profile == "release");
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
-    string pkgName = "z42-runtime-" + version + "-" + rid + (rel ? "" : "-" + profile);
-    string pkgDir = Path.Join(_packagesDir(root), pkgName);
-    Console.WriteLine("Runtime package: " + pkgName);
-    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
-    Directory.Create(Path.Join(pkgDir, "native/include"));
-    Directory.Create(Path.Join(pkgDir, "libs"));
+    string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
 
     // libz42.a (iOS slice staticlib)
     Console.WriteLine("  [1/4] libz42.a (cargo " + cargoTarget + ", " + profile + ")");

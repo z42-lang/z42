@@ -65,6 +65,21 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
     File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
 }
 
+// Runtime package (z42-runtime-<ver>-<rid>) scaffold: compute the pkg dir, print
+// the banner, reset it, and create native/include + libs. Returns pkgDir. Single
+// SoT for the runtime-pack name format + base layout (shared by ios/android/wasm
+// runtime builders; review §2.5). Debug profile appends "-<profile>" to the name.
+string _runtimePkgScaffold(string root, string rid, string version, string profile) {
+    bool rel = (profile == "release");
+    string pkgName = "z42-runtime-" + version + "-" + rid + (rel ? "" : "-" + profile);
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Runtime package: " + pkgName);
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(Path.Join(pkgDir, "native/include"));
+    Directory.Create(Path.Join(pkgDir, "libs"));
+    return pkgDir;
+}
+
 // [component.stdlib] kind=stdlib-glob, dest="libs/" — stages
 // artifacts/publish/stdlib/libs/ (every built stdlib *.zpkg + *.zsym).
 int _pkgStageStdlib(string root) {
