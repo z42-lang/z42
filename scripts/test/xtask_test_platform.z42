@@ -160,7 +160,7 @@ public class JUnitCase {
 
 // stdout → lines, CRLF-normalised, empty lines kept. Shared by the platform
 // backends' line parsers (formerly a per-backend _splitLines).
-string _stdoutLines(string s) {
+string[] _stdoutLines(string s) {
     return s.Replace("\r\n", "\n").Split("\n");
 }
 
