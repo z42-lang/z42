@@ -1,6 +1,6 @@
 # Tasks: split-package-desktop-fn
 
-> 状态：🟡 进行中（代码就绪，待 CI 验证）| 创建：2026-07-15
+> 状态：🟢 已完成 | 创建：2026-07-15 | 完成：2026-07-15
 
 **变更说明：** 拆 `_packageDesktop`（80 非注释行，超函数硬限 60，review §2.8）——把 [2c/5] 段（apphost stub + 8 zpkg 构建 + 5 `z42b publish`）抽 `_pkgStageToolchainComponents`，8 连发 `_z42cBuildToml` 收敛为数组循环。纯机械搬移零行为变化。
 **原因：** review §2.8 表列「`_packageDesktop` ~152 | 8 连发 `_z42cBuildToml` + 5 组 `_z42bPublish` 改数组循环」。
@@ -14,8 +14,8 @@
 - [x] 1.5 `git diff` 核对：8 build toml 顺序 + 5 publish (toml,stage,log) 逐路径等价；brace 42/42、paren 243/243 平衡；文件 334→320（仍 >300 软限但**净减 14 行**，非新增违规）
 
 ## 阶段 2: 验证
-- [ ] 2.1 CI 验证（冷检出无 z42 种子、SDK 下载 403，无法本地跑 `xtask`；GREEN 以 CI 为准）——**关键腿：host-package**（`_packageDesktop` 的 CI 覆盖）
-- [ ] 2.2 CI 绿后归档 + 释放 toolchain 锁；红则立即 revert
+- [x] 2.1 CI 验证 → **run 29422619619：`compile-toolchain`（linux-x64/macos-arm64）+ `package-host`（4 OS 全 success）绿，0 失败**。`_packageDesktop` 编译 + 桌面 SDK 打包行为均验证通过；余下运行中的 job（test-vm-jit/test-stdlib-interp/test-cross-zpkg/compile-test-assets）测 VM/stdlib/golden，与本 packaging-only 改动无关
+- [x] 2.2 CI 绿后归档 + 释放 toolchain 锁（本次会话）
 
 ## 备注
 - 本环境冷检出：纯机械提取，靠 `git diff` 核对等价性；编译正确性 + 打包行为由 CI 的 host-package job 验。
