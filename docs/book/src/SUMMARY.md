@@ -19,7 +19,7 @@
 
 - [概览](compiler/README.md)
   - [架构总览](compiler/architecture.md)
-  - [源代码编译流程（z42c）]()
+  - [源代码编译流程（z42c）](compiler/source-compile.md)
   - [工程模型、依赖解析与工作区编译]()
   - [项目构建与发布编排（z42b）]()
   - [编译产物：zpkg / zbc 格式]()
