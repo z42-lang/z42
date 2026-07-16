@@ -248,8 +248,17 @@ pub fn builtin_type_element(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 // ── Field reflection ────────────────────────────────────────────────────────
 
+/// True if `name` is a compiler-synthesized auto-property backing field
+/// (`__prop_<PropName>`, emitted by the IrGen auto-property stubs). These are
+/// hidden from `GetFields()` — the property surfaces via `GetProperties()`,
+/// mirroring C#'s hidden `<Name>k__BackingField`.
+fn is_autoprop_backing(name: &str) -> bool {
+    name.starts_with("__prop_")
+}
+
 /// `__type_fields(typeObj) -> FieldInfo[]` — instance fields (incl. inherited;
-/// base-first), each `FieldInfo { Name, FieldType: Type }`.
+/// base-first), each `FieldInfo { Name, FieldType: Type }`. Auto-property
+/// backing fields (`__prop_*`) are excluded.
 pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let td = match type_handle(args) {
         Some(t) => t,
@@ -257,8 +266,14 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     };
     let mut out = Vec::with_capacity(td.fields.len() + td.static_fields().len());
     // Instance fields (already base-first — cross-zpkg fixup merges inherited
-    // instance fields into `td.fields`; IsStatic = false).
+    // instance fields into `td.fields`; IsStatic = false). Auto-property backing
+    // fields (compiler-synthesized `__prop_<Name>`, see IrGen auto-prop stubs) are
+    // hidden from GetFields, mirroring C# which never surfaces the backing field —
+    // the property is visible via GetProperties instead.
     for f in &td.fields {
+        if is_autoprop_backing(&f.name) {
+            continue;
+        }
         out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false, f.visibility)?);
     }
     // add-reflection-inherited-static-fields: static fields are stored per
@@ -271,6 +286,9 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let mut cur = Some(td.clone());
     while let Some(c) = cur {
         for f in c.static_fields() {
+            if is_autoprop_backing(&f.name) {
+                continue;
+            }
             if seen.insert(f.name.clone()) {
                 out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true, f.visibility)?);
             }

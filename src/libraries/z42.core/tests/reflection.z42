@@ -376,6 +376,23 @@ void test_getfields_includes_static() {
 }
 
 [Test]
+void test_getfields_hides_autoprop_backing() {
+    // hide-autoprop-backing-field: PropHolder declares only auto-properties
+    // (Size, Tag) — their synthesized `__prop_*` backing fields must NOT surface
+    // in GetFields (mirrors C#'s hidden backing field). The properties are still
+    // visible via GetProperties.
+    Type t = typeof(PropHolder);
+    FieldInfo[] fields = t.GetFields();
+    foreach (var f in fields) {
+        // no backing field leaks through
+        Assert.False(f.Name == "__prop_Size");
+        Assert.False(f.Name == "__prop_Tag");
+    }
+    // PropHolder has no real fields → GetFields is empty once backing fields hide.
+    Assert.Equal(0, fields.Length);
+}
+
+[Test]
 void test_field_custom_attributes() {
     Type t = typeof(TaggedFields);
     FieldInfo[] fields = t.GetFields();
