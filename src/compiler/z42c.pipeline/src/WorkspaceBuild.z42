@@ -14,7 +14,7 @@ namespace Z42.Pipeline;
 
 using Std;
 using Std.IO;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 成员发现结果：flat 平行数组（z42 无交错数组）。
 //   Tomls[i] / Names[i] = 成员 i 的 manifest 路径 / [project].name
@@ -112,7 +112,7 @@ public static class WorkspaceBuild {
             if (manifests.Length != 1) { continue; }   // 0 = 非 member；>1 = WS005（暂跳过）
             ProjectManifest pm = ManifestLoader.Load(manifests[0]);
             tomls[count] = manifests[0];
-            names[count] = pm.Name;
+            names[count] = pm.Project.Name;
             count = count + 1;
         }
         // 第二遍：每 member 的 workspace 内依赖（flat）。

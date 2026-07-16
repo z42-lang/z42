@@ -12,3 +12,4 @@ kind    = "lib"
 "z42c.semantics" = "0.1.0"
 "z42c.ir"        = "0.1.0"
 "z42c.project"   = "0.1.0"
+"z42.project"    = "0.1.0"   # 组合式 manifest 模型（converge）

@@ -1,25 +1,24 @@
 # z42c.project
 
 ## 职责
-镜像 C# [z42.Project](../../compiler/z42.Project/README.md)：项目清单（`.z42.toml` 解析 / 源文件发现 / zpkg builder）。**incr 1-2：单清单 + workspace 加载器已落地**（用 stdlib `Std.Toml` 解析，区别于 C# 用 Tomlyn）。占位 `ProjectSkeleton` 暂留（semantics/pipeline 仍引用）。
+**编译器 zpkg 后端**（`Z42.Project` namespace）：`.zpkg` 读写 / builder / 缓存。**manifest 模型
+（`.z42.toml` 解析 / 源文件发现 / 路径模板）已于 converge 阶段 2（2026-07-16）迁往共享库
+`z42.project`（`Z42.Build.Project`），z42c 改引用它**——单一真相 manifest 模型，z42c 与 z42.build 共用。
+占位 `ProjectSkeleton` 暂留（semantics/pipeline 仍引用）。
+> 后端包名仍叫 `z42c.project`；改名 `z42c.zpkg` 是可选后续 refactor（Decision 1，非 converge 必需）。
 
-## 核心文件
+## 核心文件（zpkg 后端 —— zpkg 构建链见下）
 | 文件 | 职责 |
 |------|------|
-| `src/ProjectModel.z42` | 清单模型：`ProjectManifest`（name/version/kind/entry/pack + sources + deps + `[build]` output_dir/cache_dir/dist_dir 原样模板）/ `WorkspaceManifest`（members/exclude/default-members + 共享 version·license + build 路径模板 + workspace deps）/ `DepEntry` / `DepList` |
-| `src/ManifestLoader.z42` | `.z42.toml`→`ProjectManifest`（`ParseText`/`Load`）+ `z42.workspace.toml`→`WorkspaceManifest`（`ParseWorkspaceText`/`LoadWorkspace`）（用 `Std.Toml.TomlValue`）|
-| `src/PathTemplate.z42` | 路径模板展开：`PathTemplate.Expand(tpl, ctx)`（`${member_name}`/`${profile}`/`${output_dir}` 等 + `$$`→`$`）|
 | `src/ProjectSkeleton.z42` | **过渡占位**：semantics/pipeline 仍引用；各自移植时移除 |
 
-## 入口点
-`Z42.Project.ManifestLoader`：`.ParseText(text)`/`.Load(path)` → `ProjectManifest`；`.ParseWorkspaceText(text)`/`.LoadWorkspace(path)` → `WorkspaceManifest`。
+> **已迁往 `z42.project`（本包已删）**：`ProjectModel.z42`（ProjectManifest/WorkspaceManifest/DepEntry）
+> / `ManifestLoader.z42`（toml→模型）/ `SourceDiscovery.z42`（源 glob 发现）/ `PathTemplate.z42`（路径模板）。
+> 消费方（`z42c.driver/Main.z42`、`BuildPaths.z42`、`z42c.pipeline/WorkspaceBuild.z42`）改用
+> `Z42.Build.Project` 的**组合式**模型（`pm.Project.*` / `pm.Sources.*` / `pm.Build.*`）。
 
 ## 依赖关系
-→ z42c.ir, z42.toml（stdlib）。Std / Std.IO 自动可用。
-
-## 待移植（后续增量，见 port-z42c-project tasks）
-workspace 继承 / include 链 / policy / `[[exe]]` targets / profiles / tests·bench / 路径模板 / 源文件 glob 发现；
-**ZpkgReader / ZpkgWriter（byte-identical，依赖 z42c.ir 的 ZbcFile）** / ZpkgBuilder。
+→ z42c.ir, z42.toml, z42.io（stdlib）。Std / Std.IO 自动可用。
 
 ## zpkg 构建链（port-z42c-zpkg-build，2026-06-10）
 

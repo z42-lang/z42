@@ -16,7 +16,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
+using Z42.Build.Project;
 using Z42.Pipeline;
 
 // 进程 exit code 契约（compiler-review §三/P2-4：原 0/1/2 魔数无契约、语义靠各函数自觉）。
@@ -102,7 +102,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
-    string[] srcs = SourceDiscovery.Discover(projectDir, pm.IncludeGlobs, pm.IncludeCount);
+    string[] srcs = SourceDiscovery.Discover(projectDir, pm.Sources.Include, pm.Sources.IncludeCount);
     if (srcs.Length == 0) {
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
         return ExitCode.BuildError;
@@ -130,11 +130,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     string[] srcHashes = new string[srcs.Length];
     ti = 0;
     while (ti < srcs.Length) { srcHashes[ti] = ZpkgBuilder.Sha256Hex(texts[ti]); ti = ti + 1; }
-    bool isExe = pm.Kind == "exe";
+    bool isExe = pm.Project.Kind == "exe";
     // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认
     //（debug→false=indexed / release→true=packed）。[profile]/[[exe]] 层随 profiles
     // 延后线（z42c 尚未解析 profile 段）。indexed 为开发态：与 release strip 冲突即拦。
-    bool isPacked = pm.HasPack ? pm.Pack : isRelease;
+    bool isPacked = pm.Project.HasPack ? pm.Project.Pack : isRelease;
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
         return ExitCode.UsageError;
@@ -146,7 +146,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     IncrPrep prep = null;
     if (outputDirOverride.Length == 0 && !noIncremental) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
-        string lastZpkg = Path.Join(distDir, pm.Name + ".zpkg");
+        string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
         prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache);
         ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
@@ -168,7 +168,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         string[] declaredDeps = new string[pm.DepCount];
         int ddi = 0;
         while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
-        scan = DepScan.ScanDirs(libsDirs, libsDirsN, pm.Name, declaredDeps, pm.DepCount);   // 排除 self-zpkg（包不导入自己）
+        scan = DepScan.ScanDirs(libsDirs, libsDirsN, pm.Project.Name, declaredDeps, pm.DepCount);   // 排除 self-zpkg（包不导入自己）
         depIndex = scan.Index;
         // 全工程 usings 聚合（镜像 C# LoadExternalImported 的跨文件聚合）
         string[] allUsings = new string[8];
@@ -262,9 +262,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     // DEPS 条目（usings ∪ usedDepNs → nsMap）
     ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
     if (scan != null) {
-        depList = ZpkgBuilder.BuildDependencyMap(mods, srcs.Length, scan.NsNames, scan.NsFiles, scan.NsCount, pm.Name + ".zpkg");
+        depList = ZpkgBuilder.BuildDependencyMap(mods, srcs.Length, scan.NsNames, scan.NsFiles, scan.NsCount, pm.Project.Name + ".zpkg");
     }
-    ZpkgFileZ z = ZpkgBuilder.BuildPackedD(pm.Name, pm.Version, isExe, pm.HasEntry, pm.Entry, mods, srcs.Length,
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD(pm.Project.Name, pm.Project.Version, isExe, pm.Project.HasEntry, pm.Project.Entry, mods, srcs.Length,
                                            depList.Items, depList.Count);
     z.Exported = exported;
     z.ExportedCount = srcs.Length;
@@ -277,7 +277,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         return ExitCode.BuildError;
     }
     Directory.Create(distDir);
-    string outPath = Path.Join(distDir, pm.Name + ".zpkg");
+    string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
     if (!isPacked) {
         // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
         // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
@@ -290,7 +290,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         File.WriteAllBytes(outPath, wres.Main);
         Console.WriteLine("wrote -> " + outPath);
         if (wres.HasSidecar) {
-            string symPath = Path.Join(distDir, pm.Name + ".zsym");
+            string symPath = Path.Join(distDir, pm.Project.Name + ".zsym");
             File.WriteAllBytes(symPath, wres.Sidecar);
             Console.WriteLine("wrote -> " + symPath);
         }

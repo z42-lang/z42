@@ -11,9 +11,9 @@
       0.5b：ci-bootstrap fast-path 用 seed-stdlib。→ 前置 `fix-crosspkg-static-ns-collision`（已合并
       main `737e7e82`：using-scoped 解析，VM 零改动）根治共存串味 → converge 不再需 rename/CI 手术。
 - [x] 阶段 1: z42.project 登记 member + 首个 GREEN（2026-07-16，本 commit）
-- [ ] 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（**晚一个 nightly**：种子轴——
-      z42c 源 use z42.project 需种子 stdlib 已含 z42.project.zpkg，即阶段 1 先随一个 nightly 发布）
-      **已 de-risk（2026-07-16，ready-to-execute 剧本见下）**：3 消费者文件、字段完备性、import 策略全核实。
+- [x] 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（2026-07-16，阶段 1 随 nightly
+      发布后执行）。自举不动点 **7/7 byte-identical** + 迁移后 z42c 编全套 stdlib（23，含 z42.project）+
+      golden 套件 53/53 + z42.project round-trip。踩 2 个 z42c 限制并绕过（见备注）。
 - [ ] 阶段 3: z42c 调用点 flat→composed 迁移（并入阶段 2）
 - [ ] 阶段 4: 验证（自举不动点 + 全 gate + 种子边界）+ 文档同步
 
@@ -39,9 +39,14 @@
 - 自举安全：与 `fix-crosspkg-static-ns-collision` 同期实测 with/without z42.project 编出 z42c
   逐字节 **7/7 相同**（z42c 未切引用，z42.project 存在与否零影响）。
 
-> **备注：暴露一个 z42c 缺陷（待独立跟进）**：z42c **未校验 ctor 实参数量**——16 实参传给
-> 12 形参 ctor 未报错、静默按位截断（正是本 ManifestLoader bug 潜伏的原因）。应加 arity 校验
-> 报诊断。属编译器，越出本 change scope，单列跟进。
+> **备注：暴露 3 个 z42c 缺陷（均越界，单列跟进）**：
+> 1. **ctor 实参数量不校验**——16 实参传 12 形参 ctor 未报错、静默按位截断（正是 ManifestLoader
+>    `OutputDir` bug 潜伏的原因）。应加 arity 校验报诊断。
+> 2. **单 CU `using` 数硬编码上限 8**（`IrDump._compileCu` 的 `new string[8]`）——第 9 个 using 致
+>    `array index 8 out of bounds`。阶段 2 中 Main.z42 加 `using Z42.Build.Project` 撞上；绕过=换掉未用的
+>    `Z42.IR.BinaryFormat` using 保持 8。应改动态数组。
+> 3. **不支持全限定静态调用**（`Z42.Build.Project.ManifestLoader.Load(...)` 报 `E0401: undefined: Z42`）
+>    ——`Z42` 被当值解析。类型声明位可全限定，静态调用不行。绕过=靠 `using` 裸名。
 
 ## 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（path C 后；ready-to-execute）
 
