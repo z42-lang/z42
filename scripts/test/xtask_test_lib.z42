@@ -94,10 +94,11 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
         Console.WriteLine("→ Preparing tooling (stdlib + z42vm; release)...");
         int c = _buildStdlib(); if (c != 0) { return c; }
         c = _buildRuntime(); if (c != 0) { return c; }
-        // C#-free (remove-dotnet-from-builds): test units compile through z42c
-        // (z42vm + z42c.driver.zpkg), not `dotnet z42c.dll`. Ensure the z42c
-        // self-build seed is fresh here instead of building the C# driver.
-        c = _buildCompiler(); if (c != 0) { return c; }
+        // _buildStdlib already self-builds z42c (→ _buildStdlibCore →
+        // _buildCompilerViaZ42c: 7 z42c.* members + self-contained driver); test
+        // units compile through that z42c (z42vm + z42c.driver.zpkg). A trailing
+        // _buildCompiler would be a redundant byte-identical gen2 self-build; the
+        // _buildRuntime above already refreshes the release z42vm for format skew.
     }
     // add-tests-bench-manifest-config §6 (2026-06-07): test artifacts persist
     // under each lib's output_dir in a parallel `tests/` subtree

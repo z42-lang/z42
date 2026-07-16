@@ -421,8 +421,8 @@ int _dispatchBuild(string[] p, ParseResult r) {
     if (sub == "test")         { return _buildTest(); }       // 编译 golden 测试资产（src/tests → .zbc）
     if (sub == "all") {
         int c = _buildRuntime();  if (c != 0) { return c; }
-        c = _buildStdlib();       if (c != 0) { return c; }   // warm（z42c builds stdlib + z42c）
-        return _buildCompiler();
+        return _buildStdlib();    // builds z42c (self-build) + stdlib; a trailing
+                                  // _buildCompiler would be a redundant gen2.
     }
     return 2;
 }
