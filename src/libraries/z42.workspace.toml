@@ -24,11 +24,12 @@ members = ["*"]
 #   z42.io         → (needs z42.time for Std.Process.Timeout/TimeSpan)
 #   z42.json       → (needs z42.text for StringBuilder)
 #   z42.test       → (needs z42.io for Bencher.Std.IO.Console)
-# NOTE: z42.project（namespace Z42.Build.Project）/ z42.build（Z42.Build）暂不入 build。
-# 它们的类（SourceDiscovery / ProjectManifest / ManifestLoader …）与编译器内部 z42c.project
-# 的同名类**简单名相同**，两者同处一个 flat Z42_LIBS 时跨 zpkg 方法解析按文件名 first-wins
-# 串味（z42.project < z42c.project）→ 炸 z42c 自举。命名空间已改好(Z42.Build.Project)、
-# 等 wire-z42b-host-build 让 z42c 改引用本库、删掉 z42c.project 自带版（消除重复类）后再入 build。
+# NOTE: z42.project（namespace Z42.Build.Project）已入 build（converge-onto-z42-project 阶段 1，
+# 2026-07-16）。它与编译器内部 z42c.project 的同名类（SourceDiscovery / ProjectManifest /
+# ManifestLoader …）曾因 flat Z42_LIBS 跨 zpkg 短类名 first-wins 串味 → 炸 z42c 自举；已由
+# fix-crosspkg-static-ns-collision（using-scoped 解析）根治，两者安全共存（实测 with/without
+# z42.project 编出 z42c 逐字节 7/7 相同）。阶段 2 让 z42c 改引用本库、删 z42c.project 自带版
+# （消除重复类）后，本库成 manifest 模型唯一真相。z42.build（Z42.Build）仍待 wire-z42b。
 default-members = [
     "z42.core",
     "z42.collections",
@@ -37,6 +38,7 @@ default-members = [
     "z42.text",
     "z42.time",
     "z42.toml",
+    "z42.project",
     "z42.random",
     "z42.uri",
     "z42.threading",

@@ -1,0 +1,42 @@
+// z42.project ManifestLoader 首个 GREEN（converge-onto-z42-project 阶段 1）：
+// .z42.toml → **组合式** ProjectManifest / WorkspaceManifest 模型 round-trip。
+namespace Z42ProjectRoundtripTests;
+
+using Std;
+using Std.Test;
+using Z42.Build.Project;
+
+[Test]
+void test_project_manifest_roundtrip() {
+    string toml = "[project]\nname = \"demo\"\nversion = \"1.2.3\"\nkind = \"exe\"\nentry = \"Main\"\n\n[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = [\"src/gen/**\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    // [project] → 组合式 m.Project.*
+    Assert.Equal("demo", m.Project.Name);
+    Assert.Equal("1.2.3", m.Project.Version);
+    Assert.Equal("exe", m.Project.Kind);
+    Assert.Equal(true, m.Project.HasEntry);
+    Assert.Equal("Main", m.Project.Entry);
+    // [sources] → 组合式 m.Sources.*
+    Assert.Equal(1, m.Sources.IncludeCount);
+    Assert.Equal("src/**/*.z42", m.Sources.Include[0]);
+    Assert.Equal(1, m.Sources.ExcludeCount);
+    Assert.Equal("src/gen/**", m.Sources.Exclude[0]);
+    // [dependencies] → 顶层 m.Deps
+    Assert.Equal(1, m.DepCount);
+    Assert.Equal("z42.core", m.Deps[0].Name);
+    Assert.Equal("0.1.0", m.Deps[0].Version);
+}
+
+[Test]
+void test_workspace_manifest_roundtrip() {
+    string toml = "[workspace]\nmembers = [\"*\"]\ndefault-members = [\"a\", \"b\"]\n\n[workspace.build]\noutput_dir = \"out/${member_name}\"\ncache_dir = \"${output_dir}/cache\"\n";
+    WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(toml);
+    Assert.Equal(1, w.MemberCount);
+    Assert.Equal("*", w.Members[0]);
+    Assert.Equal(2, w.DefaultCount);
+    Assert.Equal("a", w.DefaultMembers[0]);
+    Assert.Equal("b", w.DefaultMembers[1]);
+    Assert.Equal(true, w.HasOutputDir);
+    Assert.Equal("out/${member_name}", w.OutputDir);   // 路径模板原样保留
+    Assert.Equal("${output_dir}/cache", w.CacheDir);
+}

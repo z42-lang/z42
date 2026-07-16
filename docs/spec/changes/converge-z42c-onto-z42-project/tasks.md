@@ -6,10 +6,15 @@
 
 ## 进度概览
 - [x] 阶段 0: 死结实测 spike → **结论：共存即炸**（2026-07-11，见 design 决策 3）
-- [ ] 阶段 0.5: 分阶段定夺 micro-probe（异文件名同类名是否避碰 + ci-bootstrap 种子机制）→ 定 rename-前置 vs atomic
-- [ ] 阶段 1: z42.project 登记 member + 首个 GREEN
-- [ ] 阶段 2: z42c.project 拆分（后端改名 z42c.zpkg + 删 manifest-model）
-- [ ] 阶段 3: z42c 调用点 flat→composed 迁移
+- [x] 阶段 0.5: probe 定夺 → **改走 path C（User 裁决 2026-07-16）：根治短类名 first-wins**，
+      不走 rename-前置/atomic。0.5a：串味 key 是 `ShortCls.Method`（按类名非文件名，改文件名无用）；
+      0.5b：ci-bootstrap fast-path 用 seed-stdlib。→ 前置 `fix-crosspkg-static-ns-collision`（已合并
+      main `737e7e82`：using-scoped 解析，VM 零改动）根治共存串味 → converge 不再需 rename/CI 手术。
+- [x] 阶段 1: z42.project 登记 member + 首个 GREEN（2026-07-16，本 commit）
+- [ ] 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model + 后端改名 z42c.zpkg
+      （**晚一个 nightly**：种子轴——z42c 源 use z42.project 需种子 stdlib 已含 z42.project.zpkg，
+      即阶段 1 先随一个 nightly 发布）
+- [ ] 阶段 3: z42c 调用点 flat→composed 迁移（并入阶段 2）
 - [ ] 阶段 4: 验证（自举不动点 + 全 gate + 种子边界）+ 文档同步
 
 ## 阶段 0: 死结实测 spike（design 决策 3）✅ 完成 2026-07-11
@@ -23,11 +28,20 @@
 - [ ] 0.5b 核 `.github/actions/ci-bootstrap`：编当前 z42c 源用 seed-stdlib 还是 fresh-rebuilt-stdlib（定 atomic 是否可行）
 - [ ] 0.5c 据 a/b 结果定 rename-前置 / atomic，写回 design + 停下与 User 确认最终排序
 
-## 阶段 1: z42.project 登记 + 首个 GREEN（其 README 承诺的「接入时验证」）
-- [ ] 1.1 `z42.project.z42.toml`（deps: z42.core / z42.toml / z42.io）
-- [ ] 1.2 进 `src/libraries/z42.workspace.toml` `default-members`（拓扑：先于 z42c.*）
-- [ ] 1.3 `tests/manifest-roundtrip/` [Test]：toml→组合式模型全段 round-trip + PathTemplate/SourceDiscovery
-- [ ] 1.4 `xtask build stdlib` 产 `z42.project.zpkg` + `xtask test stdlib z42.project` 绿
+## 阶段 1: z42.project 登记 + 首个 GREEN（其 README 承诺的「接入时验证」）✅ 完成 2026-07-16
+- [x] 1.1 `z42.project.z42.toml`（deps: z42.core / z42.io / z42.toml）
+- [x] 1.2 进 `src/libraries/z42.workspace.toml` `default-members`（含更新旧「暂不入 build」注释）
+- [x] 1.3 `tests/manifest_roundtrip.z42` [Test]：toml→组合式 ProjectManifest/WorkspaceManifest round-trip
+- [x] 1.4 `z42.project.zpkg` 编出；首个执行发现并修 **ManifestLoader.ParseWorkspaceText bug**——
+      ctor 多传 4 个 `hasVer/ver/hasLic/lic`（Decision 2 已弃 SharedVersion 但 loader 未同步），
+      被 z42c 静默按位吞掉致 `OutputDir` 空；删这 4 个实参 + `[workspace.project]` 解析后
+      `output_dir` 正确回读（standalone 实证 `out=out/x`）。
+- 自举安全：与 `fix-crosspkg-static-ns-collision` 同期实测 with/without z42.project 编出 z42c
+  逐字节 **7/7 相同**（z42c 未切引用，z42.project 存在与否零影响）。
+
+> **备注：暴露一个 z42c 缺陷（待独立跟进）**：z42c **未校验 ctor 实参数量**——16 实参传给
+> 12 形参 ctor 未报错、静默按位截断（正是本 ManifestLoader bug 潜伏的原因）。应加 arity 校验
+> 报诊断。属编译器，越出本 change scope，单列跟进。
 
 ## 阶段 2: z42c.project 拆分（refactor，先与迁移分离提交）
 - [ ] 2.1 重命名 `src/compiler/z42c.project/` → `src/compiler/z42c.zpkg/`（含 `.z42.toml` name）

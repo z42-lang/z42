@@ -48,8 +48,6 @@ public static class ManifestLoader {
         string[] members = new string[0];
         string[] exclude = new string[0];
         string[] defMembers = new string[0];
-        bool hasVer = false; string ver = "";
-        bool hasLic = false; string lic = "";
         bool hasOut = false; string outDir = "";
         bool hasCache = false; string cacheDir = "";
         DepEntry[] wdeps = new DepEntry[0];
@@ -58,11 +56,8 @@ public static class ManifestLoader {
             if (w.ContainsKey("members"))         { members = ManifestLoader._strArray(w.Get("members")); }
             if (w.ContainsKey("exclude"))         { exclude = ManifestLoader._strArray(w.Get("exclude")); }
             if (w.ContainsKey("default-members")) { defMembers = ManifestLoader._strArray(w.Get("default-members")); }
-            if (w.ContainsKey("project")) {
-                var wp = w.Get("project");
-                if (wp.ContainsKey("version")) { ver = wp.Get("version").AsString(); hasVer = true; }
-                if (wp.ContainsKey("license")) { lic = wp.Get("license").AsString(); hasLic = true; }
-            }
+            // 注：z42.project 的 WorkspaceManifest 按 converge Decision 2 弃 SharedVersion/License
+            // （z42c 无消费者）；故此处不解析 [workspace.project]。
             if (w.ContainsKey("build")) {
                 var wb = w.Get("build");
                 if (wb.ContainsKey("output_dir")) { outDir = wb.Get("output_dir").AsString(); hasOut = true; }
@@ -72,7 +67,7 @@ public static class ManifestLoader {
         }
         return new WorkspaceManifest(members, members.Length, exclude, exclude.Length,
                                      defMembers, defMembers.Length,
-                                     hasVer, ver, hasLic, lic, hasOut, outDir, hasCache, cacheDir,
+                                     hasOut, outDir, hasCache, cacheDir,
                                      wdeps, wdeps.Length);
     }
 

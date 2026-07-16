@@ -1,0 +1,12 @@
+[project]
+name    = "z42.project"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.io"   = "0.1.0"
+"z42.toml" = "0.1.0"
+
+[sources]
+include = ["src/**/*.z42"]
