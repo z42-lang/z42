@@ -252,22 +252,29 @@ public static class IrDump {
         return r;
     }
 
-    // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）。
+    // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）+ **prelude 命名空间**。
     // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
+    // **prelude（z42.core，namespace Std / Std.Runtime）必须纳入**——它免 `using` 恒可见；漏掉会让
+    // 「`using Std.Test` 但裸 `Assert.Equal`（靠 prelude 的 Std.Assert）」被唯一命中误消歧到 Std.Test.Assert
+    // （common-pitfalls §1 的「AssertionError→values not equal」回归）。纳入后 Std.Assert 与 Std.Test.Assert
+    // 同时活跃 → 歧义 → GetStaticScoped 返回 null → 回落短键 prelude-first → Std.Assert（既有行为，字节不动）。
     private static string[] _activeNamespaces(CompilationUnit cu) {
         int uc = 0;
         int i = 0;
         while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
         int extra = 0;
         if (cu.HasNamespace) { extra = 1; }
-        string[] r = new string[uc + extra];
+        // + 2 个 prelude 命名空间（Std / Std.Runtime）——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
+        string[] r = new string[uc + extra + 2];
         int k = 0;
         i = 0;
         while (i < cu.DeclCount) {
             if (cu.Decls[i] is UsingDecl) { r[k] = (cu.Decls[i] as UsingDecl).Name; k = k + 1; }
             i = i + 1;
         }
-        if (cu.HasNamespace) { r[k] = cu.Namespace; }
+        if (cu.HasNamespace) { r[k] = cu.Namespace; k = k + 1; }
+        r[k] = "Std"; k = k + 1;
+        r[k] = "Std.Runtime";
         return r;
     }
 
