@@ -280,14 +280,17 @@ ci.yml publish-nightly（:1217-1294）与 release.yml（:145-194）各写一份 
 （rid 分类 + tar/zip 规则重复维护）。**建议**：加 `xtask package archive <label> <src> <out>`
 两个 workflow 共用，与 bug #2 一并修。
 
-> **⏸ 需 warm 环境（2026-07-15 复核，本 review 最高风险项）**：共享原语确实存在（windows→`zip -r`
-> / unix→`tar -C dir -czf . `，无顶层目录语义），可抽 `xtask package archive <rid> <src> <outNoExt>`。
-> 但落地风险不对称，冷环境 + 直连-main 下**不做**：① **publish-nightly 在 nightly 种子链临界路径**
-> （bootstrap-seed.md）——归档步一错 → nightly 坏 → 全员 cold-bootstrap 断，自愈难；② release.yml
-> 侧**只在版本 tag 跑**，bug 潜伏到下次发布才暴露；③ 新命令 spawn tar/zip 精确 flag，flag 微差产
-> **畸形归档**（CI 照发绿、下游静默坏）；④ 冷环境**无法本地测**该命令。**落地前置**：warm 环境本地
-> `xtask package archive` 对真 package dir 验字节 + `workflow_dispatch` publish-nightly dry-run 确认，
-> 再 wire。与 §2.4/§2.6 同属「留 warm」。
+> **❌ 不做（2026-07-16 复核，事实校正——前提被证伪）**：曾实现 `xtask package archive <rid> <src>
+> <out>`（2ce2e8d7）并接线 publish-nightly，但深查两份 shell 后发现**它们本质不可统一**，已全撤
+> （命令 + 接线，User 拍板方案 B）：
+> - **publish-nightly** 在**单 linux runner** 归档所有 RID → windows-x64 用 `zip`（linux 上有）。
+> - **release.yml** 在**逐-RID runner**（matrix）归档 → windows job 跑在 **Windows runner**，Git Bash
+>   的 GNU tar **写不了 ZIP**，故**刻意用 PowerShell `Compress-Archive`**（release.yml:180-186 明写），
+>   **不是 `zip`**。`zip`-based 命令在 Windows runner 上会失败/产畸形档，且**只在 tag 跑 → 到发版才暴露**。
+>
+> 即 Windows 归档方法本质因 **host OS 上下文不同**（linux-zip vs windows-PowerShell）而分岔——review
+> 「两份 78 行相同 shell」的前提不成立。dedup 核心价值不存在；剩「简化 publish-nightly 内部分支」的小
+> 收益不值动**种子链**（bootstrap-seed.md 临界路径）。**保留现状两份 shell。**
 
 ### 3.6 低垂果实
 

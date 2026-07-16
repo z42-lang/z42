@@ -13,41 +13,6 @@ using Std.IO;
 using Std.Json;
 using Std.Time;
 
-// `xtask package archive <rid> <srcDir> <outNoExt>` — archive srcDir's CONTENTS
-// (no top-level dir) as `<outNoExt>.zip` (windows RID) or `<outNoExt>.tar.gz` (else).
-// Single source for the RID→archive-format rule shared by release.yml (tagged) +
-// ci.yml publish-nightly (rolling) — review §3.5. Byte-equivalent to the shells they
-// replaced: windows = `(cd srcDir && zip -r <out>.zip .)`, else = `tar -C srcDir
-// -czf <out>.tar.gz .`. Windows uses `zip` (GNU tar's zip is incompatible with
-// Windows Expand-Archive). outNoExt is resolved to absolute — zip runs with
-// cwd=srcDir, so a relative out would land inside srcDir.
-int _pkgArchive(string rid, string srcDir, string outNoExt) {
-    if (rid.Length == 0 || srcDir.Length == 0 || outNoExt.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask package archive <rid> <srcDir> <outPathNoExt>");
-        return 2;
-    }
-    if (!Directory.Exists(srcDir)) {
-        ConsoleError.WriteLine("error: package archive: srcDir not found: " + srcDir);
-        return 1;
-    }
-    string outAbs = Path.IsRooted(outNoExt) ? outNoExt : Path.Join(_root(), outNoExt);
-    int rc;
-    string outFile;
-    if (rid.StartsWith("windows-")) {
-        outFile = outAbs + ".zip";
-        rc = _exec(new Process("zip").Arg("-r").Arg(outFile).Arg(".").WorkingDirectory(srcDir));
-    } else {
-        outFile = outAbs + ".tar.gz";
-        rc = _exec(new Process("tar").Arg("-C").Arg(srcDir).Arg("-czf").Arg(outFile).Arg("."));
-    }
-    if (rc != 0) {
-        ConsoleError.WriteLine("error: package archive failed for " + srcDir + " -> " + outFile);
-        return rc;
-    }
-    Console.WriteLine("  ✓ " + Path.GetFileName(outFile));
-    return 0;
-}
-
 // `xtask package workload <LABEL> [<dist>]` (merge mode)
 // Merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
 // into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz so any host can

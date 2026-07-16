@@ -217,12 +217,6 @@ SubcommandRouter _packageRouter() {
     idx.AddOptionalPositional("version", "version (default: <LABEL>)");
     pkg.Add("index", "generate release-index.json (launcher supply contract)", idx);
 
-    ArgParser arch = new ArgParser("xtask package archive", "archive a package dir → .zip (windows rid) / .tar.gz (else)");
-    arch.AddOptionalPositional("rid", "target RID (windows-* → zip, else tar.gz)");
-    arch.AddOptionalPositional("src", "source package dir (its CONTENTS get archived, no top-level dir)");
-    arch.AddOptionalPositional("out", "output path WITHOUT extension (absolute recommended)");
-    pkg.Add("archive", "archive a package dir (rid-driven zip/tar.gz format)", arch);
-
     return pkg;
 }
 
@@ -395,8 +389,7 @@ int _dispatchPackage(string[] p, ParseResult r) {
         return _packageWorkloadBuild(r.GetOption("rid"), r.GetOption("profile"));
     }
     if (sub == "index")   { return _releaseGenIndex(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2), r.GetPositional(3), r.GetPositional(4)); }
-    if (sub == "archive") { return _pkgArchive(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2)); }
-    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index|archive}");
+    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index}");
     return 2;
 }
 
