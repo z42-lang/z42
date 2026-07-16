@@ -1,0 +1,59 @@
+// PackageCompile 单测（extract-compile-pipeline-api）：验证抽出的编译核心
+// 「源+依赖 → 组装好的 ZpkgFileZ + 结构化诊断」，不落盘、诊断结构返回、entry 决议。
+namespace Z42cPipelinePkgCompileTests;
+
+using Std;
+using Std.Test;
+using Z42.Pipeline;
+using Z42.Semantics;
+using Z42.Project;
+
+// 单文件 no-dep 工程 → CompileInputs（LibsDirs 空，Cus 现 parse）。
+CompileInputs _inputs(string src, string kind) {
+    string[] texts = new string[1]; texts[0] = src;
+    string[] files = new string[1]; files[0] = "a.z42";
+    string[] hashes = new string[1]; hashes[0] = "DEADBEEF";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo"; cin.Version = "0.1.0"; cin.Kind = kind;
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = new string[0]; cin.LibsDirsN = 0;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return cin;
+}
+
+[Test]
+void test_exe_with_main_assembles_ok() {
+    CompileArtifacts art = PackageCompile.Compile(_inputs("namespace T;\nint Main() { return 0; }\n", "exe"));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal(1, art.ModCount);
+    Assert.Equal("ok", art.EntryStatus);
+    Assert.Equal("demo", art.Z.Name);
+}
+
+[Test]
+void test_lib_no_entry_ok() {
+    CompileArtifacts art = PackageCompile.Compile(_inputs("namespace T;\nint Add(int a, int b) { return a + b; }\n", "lib"));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal("ok", art.EntryStatus);   // lib 不校验 entry
+}
+
+[Test]
+void test_exe_missing_main_entry_status() {
+    CompileArtifacts art = PackageCompile.Compile(_inputs("namespace T;\nint Helper() { return 1; }\n", "exe"));
+    // exe 无 Main → 组装成功但 EntryStatus=missing（调用方据此报错）；非编译错误
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal("missing", art.EntryStatus);
+}
+
+[Test]
+void test_bad_source_returns_diagnostics_no_assembly() {
+    CompileArtifacts art = PackageCompile.Compile(_inputs("namespace T;\nint Bad() { return zzzUndefined; }\n", "lib"));
+    // 有编译错误 → 不组装（Z=null），诊断结构返回（Cms 携逐文件诊断供调用方呈现）
+    Assert.Equal(true, art.ErrorCount > 0);
+    Assert.Equal(1, art.CmCount);
+    Assert.Equal(true, art.Cms[0].ErrorCount > 0);
+}

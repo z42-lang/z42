@@ -1,8 +1,11 @@
 # Design: 抽取包编译核心为库级 API
 
+> 状态：**已实施**（2026-07-17）——`PackageCompile`（`src/compiler/z42c.pipeline/src/PackageCompile.z42`）
+> 落地，`_build` 委托；self-host 7/7 gen1==gen2 逐字节不变 + 4 单测绿。本 design 即该分层的**实现原理 doc**
+> （docs/design 已冻结，doc-system D2）。
+>
 > 把 [`z42c.driver/_build`](../../../src/compiler/z42c.driver/src/Main.z42) 的纯编译核心
 > 抽到 `z42c.pipeline`，供 driver CLI 与（下游 wire-z42b 的）`Z42cCompiler` 共享。
-> 架构基线见 [compiler-architecture.md](../../../design/compiler/compiler-architecture.md)。
 
 ## 现状：编译核心在哪、耦合了什么
 

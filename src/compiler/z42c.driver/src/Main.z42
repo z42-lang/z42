@@ -160,44 +160,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             return ExitCode.Ok;
         }
     }
-    DepScanResult scan = null;
-    ImportedSymbols imported = null;
-    DependencyIndex depIndex = null;
-    if (libsDirsN > 0) {
-        // 声明依赖名（DepIndex 过滤：只索引 stdlib + 声明依赖，镜像 C# BuildDepIndex allowedPkgs）
-        string[] declaredDeps = new string[pm.DepCount];
-        int ddi = 0;
-        while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
-        scan = DepScan.ScanDirs(libsDirs, libsDirsN, pm.Project.Name, declaredDeps, pm.DepCount);   // 排除 self-zpkg（包不导入自己）
-        depIndex = scan.Index;
-        // 全工程 usings 聚合（镜像 C# LoadExternalImported 的跨文件聚合）
-        string[] allUsings = new string[8];
-        int auc = 0;
-        int ui = 0;
-        while (ui < srcs.Length) {
-            string[] us = IrDump.ExtractUsings(texts[ui], srcs[ui]);
-            int j = 0;
-            while (j < us.Length) {
-                bool seen = false;
-                int k = 0;
-                while (k < auc) { if (allUsings[k] == us[j]) { seen = true; } k = k + 1; }
-                if (!seen) {
-                    if (auc == allUsings.Length) {
-                        string[] b = new string[allUsings.Length * 2];
-                        int m2 = 0; while (m2 < auc) { b[m2] = allUsings[m2]; m2 = m2 + 1; }
-                        allUsings = b;
-                    }
-                    allUsings[auc] = us[j]; auc = auc + 1;
-                }
-                j = j + 1;
-            }
-            ui = ui + 1;
-        }
-        imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
-                                             allUsings, auc);
-    }
-    // 包级编译（PS-1）：全文件先 parse 合并收集符号，再逐文件产物——同包跨文件互引可见。
-    // 增量：CU 复用 prep 的 parse-all；cached 文件跳过 typecheck/codegen（IrModule 读回件）。
+    // ── ⑦ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）：cus 喂编译核心，metaIdents 供 ⑬ cache ──
     int i = 0;
     CompilationUnit[] cus;
     NameListZ[] metaIdents = null;
@@ -217,65 +180,58 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         cus = pk.Cus;
         metaIdents = pk.Idents;
     }
+    // ── 编译核心（PackageCompile：⑥依赖解析 → ⑧包级编译 → ⑩组装；extract-compile-pipeline-api）──
+    //    落盘 / 诊断呈现 / 增量 probe / cache 落盘留本 CLI；核心只吃内存源 + 依赖目录 + manifest 派生标量。
+    string[] declaredDeps = new string[pm.DepCount];
+    int ddi = 0;
+    while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
     IrModule[] cachedMods = prep != null ? prep.Cached : null;
-    CompiledModuleZ[] cms = IrDump.BuildPackageCus(texts, srcs, srcs.Length, cus, depIndex, imported, isRelease, cachedMods);
-    if (cachedMods != null) {
-        // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
-        int ci = 0;
-        while (ci < srcs.Length) {
-            if (cachedMods[ci] != null && prep.Plan.Metas[ci] != null) {
-                cms[ci].UsedDepNs = prep.Plan.Metas[ci].UsedDepNs;
-                cms[ci].UsedDepNsCount = prep.Plan.Metas[ci].UsedDepNsCount;
+    CachedNsMeta[] cachedMetas = null;
+    if (cachedMods != null && prep != null && prep.Plan != null) {
+        cachedMetas = new CachedNsMeta[srcs.Length];
+        int mi = 0;
+        while (mi < srcs.Length) {
+            if (prep.Plan.Metas[mi] != null) {
+                cachedMetas[mi] = new CachedNsMeta(prep.Plan.Metas[mi].UsedDepNs, prep.Plan.Metas[mi].UsedDepNsCount);
             }
-            ci = ci + 1;
+            mi = mi + 1;
         }
     }
-    ZbcFileZ[] mods = new ZbcFileZ[srcs.Length];
-    i = 0;
-    while (i < srcs.Length) {
-        string text = texts[i];
-        CompiledModuleZ cm = cms[i];
-        if (cm.ErrorCount > 0) {
-            ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + srcs[i]);
-            int di = 0;
-            while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
-            return ExitCode.BuildError;
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = srcs; cin.SrcHashes = srcHashes; cin.SrcCount = srcs.Length;
+    cin.Cus = cus; cin.CachedMods = cachedMods; cin.CachedMetas = cachedMetas;
+    cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
+    cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
+    cin.IsRelease = isRelease;
+    cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
+    cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    CompiledModuleZ[] cms = art.Cms;
+    // ⑨ 诊断呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）
+    if (art.ErrorCount > 0) {
+        int ei = 0;
+        while (ei < srcs.Length) {
+            CompiledModuleZ cm = cms[ei];
+            if (cm.ErrorCount > 0) {
+                ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + srcs[ei]);
+                int di = 0;
+                while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
+                return ExitCode.BuildError;
+            }
+            ei = ei + 1;
         }
-        IrModule irm = cm.Module;
-        // SourceFile = 发现到的完整路径原样（真 C# CLI 字节实测；fixture 的相对化是测试合成形态）
-        string rel = srcs[i];
-        string[] exports = new string[irm.FuncCount];
-        int e = 0;
-        while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
-        string modNs = cm.Namespace;
-        if (modNs == "") { modNs = "main"; }   // C# build 路径字节实证：no-ns 单元 ns="main"（EXPT=main.Main / MODS ns=main）
-        mods[i] = new ZbcFileZ(rel, srcHashes[i], modNs,
-                               exports, irm.FuncCount, irm);
-        mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
-        mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
-        i = i + 1;
     }
-    // TSIG：BuildPackage 已产 per-file Exported（PS-1）
-    ExportedModuleZ[] exported = new ExportedModuleZ[srcs.Length];
-    i = 0;
-    while (i < srcs.Length) { exported[i] = cms[i].Exported; i = i + 1; }
-    // DEPS 条目（usings ∪ usedDepNs → nsMap）
-    ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
-    if (scan != null) {
-        depList = ZpkgBuilder.BuildDependencyMap(mods, srcs.Length, scan.NsNames, scan.NsFiles, scan.NsCount, pm.Project.Name + ".zpkg");
-    }
-    ZpkgFileZ z = ZpkgBuilder.BuildPackedD(pm.Project.Name, pm.Project.Version, isExe, pm.Project.HasEntry, pm.Project.Entry, mods, srcs.Length,
-                                           depList.Items, depList.Count);
-    z.Exported = exported;
-    z.ExportedCount = srcs.Length;
-    if (isExe && z.Entry == "<ambiguous>") {
+    // ⑪ entry 校验（exe 专属）
+    if (isExe && art.EntryStatus == "ambiguous") {
         ConsoleError.WriteLine("z42c build: multiple Main candidates; set [project].entry explicitly");
         return ExitCode.BuildError;
     }
-    if (isExe && z.Entry == "") {
+    if (isExe && art.EntryStatus == "missing") {
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
         return ExitCode.BuildError;
     }
+    ZpkgFileZ z = art.Z;
+    ZbcFileZ[] mods = art.Mods;
     Directory.Create(distDir);
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
     if (!isPacked) {

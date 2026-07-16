@@ -1,6 +1,6 @@
 # Proposal: 抽取包编译核心为库级 API（extract-compile-pipeline-api）
 
-> 状态：DRAFT（2026-07-17 起草；仅 design，未实施）
+> 状态：已实施（2026-07-17；PackageCompile 落地，self-host 7/7 逐字节 + 4 单测绿）
 > 子系统：`compiler`（z42c.driver + z42c.pipeline）
 > 前置：无（`converge-z42c-onto-z42-project` 已落地，composed `ProjectManifest` 可用）
 > 下游：`wire-z42b-host-build`（其 D2 的 `Z42cCompiler : ICompiler` 包装本变更抽出的核心）
@@ -52,7 +52,7 @@ PATH、诊断以结构返回而非解析 stdout——见 [`ICompiler.z42`](../..
 | `src/compiler/z42c.driver/src/Main.z42` | MODIFY | `_build` 委托 `PackageCompile.Compile`，只留 CLI 关注点 |
 | `src/compiler/z42c.pipeline/z42c.pipeline.z42.toml` | 可能 MODIFY | 若核心用到 driver 当前独有的 dep（应无——用的都是 semantics/ir 已依赖项）|
 | `src/compiler/z42c.pipeline/tests/**` | NEW | `PackageCompile` 单测（编一个 hello 包 → 断言 mods/entry/诊断）|
-| `docs/design/compiler/compiler-architecture.md` | MODIFY | 记录「核心/CLI 分层」+ 数据流 |
+| ~~`docs/design/compiler/compiler-architecture.md`~~ | — | docs/design 已冻结（doc-system D2，SoT 迁 book）；核心/CLI 分层 + 数据流由本 change 的 [design.md](design.md) 承载（实现原理 doc）|
 | `docs/spec/changes/ACTIVE.md` | MODIFY | 登记 `compiler` 占用 |
 
 ## Out of Scope

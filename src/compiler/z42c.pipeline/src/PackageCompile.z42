@@ -1,0 +1,156 @@
+// 包编译核心（extract-compile-pipeline-api）：源+依赖 → 组装好的 in-memory ZpkgFileZ + 结构化诊断。
+//
+// 从 z42c.driver/_build 抽出的**纯核心**（依赖解析 ⑥ → 包级编译 ⑧ → 组装 ⑩）：不落盘、不写
+// Console、不返回 ExitCode、不做增量 probe。z42c.driver（CLI）与 Z42cCompiler（z42b 进程内编译，
+// wire-z42b 落地）共享本实现。落盘 / 呈现 / 增量策略留调用方（见 design.md D1/D2）。
+//
+// 增量作**输入**（Cus/CachedMods/CachedMetas）——driver 传增量产物，Z42cCompiler 传全量 parse + null。
+// 依赖从磁盘 LibsDirs 解析（design D3；DeclaredDeps 取名字串数组，故本核心不依赖 manifest 模型）。
+namespace Z42.Pipeline;
+
+using Std;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.IR;
+using Z42.Project;
+
+// cached 文件的 UsedDepNs 回填元数据（driver 增量 meta → 本核心；typecheck 本轮跳过时从 meta 补）。
+// 用 pipeline 本地类型承载，避免核心反向依赖 driver 的 IncrementalDriver.Meta（依赖方向：driver→pipeline）。
+public sealed class CachedNsMeta {
+    public string[] UsedDepNs; public int UsedDepNsCount;
+    public CachedNsMeta(string[] usedDepNs, int count) {
+        this.UsedDepNs = usedDepNs; this.UsedDepNsCount = count;
+    }
+}
+
+// 编译核心输入（纯数据；调用方备齐内存源 + 已 parse 的 CU + 依赖目录 + manifest 派生标量）。
+public sealed class CompileInputs {
+    public string[] Texts; public string[] Files; public string[] SrcHashes; public int SrcCount;
+    public CompilationUnit[] Cus;          // 已 parse（driver 增量复用 / Z42cCompiler 全量 ParseAllTk）
+    public IrModule[] CachedMods;          // 增量 cached IrModule（null = 全量）
+    public CachedNsMeta[] CachedMetas;     // 平行 cached UsedDepNs 回填（null / 逐项 null 允许）
+    // manifest 派生标量（composed ProjectManifest → 这些；核心不认 toml，解耦 manifest 模型）
+    public string Name; public string Version; public string Kind;   // "exe" / "lib"
+    public bool HasEntry; public string Entry;
+    public bool IsRelease;
+    // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
+    public string[] LibsDirs; public int LibsDirsN;
+    public string[] DeclaredDeps; public int DepCount;
+    public CompileInputs() { }
+}
+
+// 组装好的 in-memory 包 + 结果状态。ErrorCount>0 时 Z/Mods 为 null，调用方按 Cms 逐文件呈现诊断。
+public sealed class CompileArtifacts {
+    public ZpkgFileZ Z;                                  // 组装好的包（未写盘）；ErrorCount>0 时 null
+    public ZbcFileZ[] Mods; public int ModCount;        // ErrorCount>0 时 null
+    public CompiledModuleZ[] Cms; public int CmCount;   // 恒有（driver 逐文件错误呈现）
+    public int ErrorCount;
+    public string EntryStatus;   // "ok" | "ambiguous" | "missing"（isExe 专属；调用方定报错措辞）
+    public CompileArtifacts(ZpkgFileZ z, ZbcFileZ[] mods, int modCount,
+                            CompiledModuleZ[] cms, int cmCount, int errorCount, string entryStatus) {
+        this.Z = z; this.Mods = mods; this.ModCount = modCount;
+        this.Cms = cms; this.CmCount = cmCount; this.ErrorCount = errorCount; this.EntryStatus = entryStatus;
+    }
+}
+
+public static class PackageCompile {
+
+    // 纯核心：⑥依赖解析 → ⑧包级编译 → ⑩组装。零落盘 / 零 Console / 零 ExitCode。
+    public static CompileArtifacts Compile(CompileInputs inp) {
+        // ── ⑥ 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
+        DepScanResult scan = null;
+        ImportedSymbols imported = null;
+        DependencyIndex depIndex = null;
+        if (inp.LibsDirsN > 0) {
+            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount);   // 排除 self-zpkg
+            depIndex = scan.Index;
+            // 全工程 usings 聚合（首现序去重；镜像 C# LoadExternalImported 跨文件聚合）
+            string[] allUsings = new string[8];
+            int auc = 0;
+            int ui = 0;
+            while (ui < inp.SrcCount) {
+                string[] us = IrDump.ExtractUsings(inp.Texts[ui], inp.Files[ui]);
+                int j = 0;
+                while (j < us.Length) {
+                    bool seen = false;
+                    int k = 0;
+                    while (k < auc) { if (allUsings[k] == us[j]) { seen = true; } k = k + 1; }
+                    if (!seen) {
+                        if (auc == allUsings.Length) {
+                            string[] b = new string[allUsings.Length * 2];
+                            int m2 = 0; while (m2 < auc) { b[m2] = allUsings[m2]; m2 = m2 + 1; }
+                            allUsings = b;
+                        }
+                        allUsings[auc] = us[j]; auc = auc + 1;
+                    }
+                    j = j + 1;
+                }
+                ui = ui + 1;
+            }
+            imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
+                                                 allUsings, auc);
+        }
+
+        // ── ⑧ 包级编译（全文件先 parse 合并收集符号，再逐文件产物；cached 跳过 typecheck/codegen）──
+        IrModule[] cachedMods = inp.CachedMods;
+        CompiledModuleZ[] cms = IrDump.BuildPackageCus(inp.Texts, inp.Files, inp.SrcCount, inp.Cus,
+                                                       depIndex, imported, inp.IsRelease, cachedMods);
+        // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
+        if (cachedMods != null && inp.CachedMetas != null) {
+            int ci = 0;
+            while (ci < inp.SrcCount) {
+                if (cachedMods[ci] != null && inp.CachedMetas[ci] != null) {
+                    cms[ci].UsedDepNs = inp.CachedMetas[ci].UsedDepNs;
+                    cms[ci].UsedDepNsCount = inp.CachedMetas[ci].UsedDepNsCount;
+                }
+                ci = ci + 1;
+            }
+        }
+
+        // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
+        int totalErr = 0;
+        int fi = 0;
+        while (fi < inp.SrcCount) { if (cms[fi].ErrorCount > 0) { totalErr = totalErr + cms[fi].ErrorCount; } fi = fi + 1; }
+        if (totalErr > 0) {
+            return new CompileArtifacts(null, null, 0, cms, inp.SrcCount, totalErr, "");
+        }
+
+        // ── ⑩ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
+        bool isExe = inp.Kind == "exe";
+        ZbcFileZ[] mods = new ZbcFileZ[inp.SrcCount];
+        int i = 0;
+        while (i < inp.SrcCount) {
+            CompiledModuleZ cm = cms[i];
+            IrModule irm = cm.Module;
+            string rel = inp.Files[i];   // SourceFile = 发现到的完整路径原样（C# CLI 字节实证）
+            string[] exports = new string[irm.FuncCount];
+            int e = 0;
+            while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
+            string modNs = cm.Namespace;
+            if (modNs == "") { modNs = "main"; }   // no-ns 单元 ns="main"（C# build 字节实证）
+            mods[i] = new ZbcFileZ(rel, inp.SrcHashes[i], modNs, exports, irm.FuncCount, irm);
+            mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
+            mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
+            i = i + 1;
+        }
+        // TSIG：BuildPackageCus 已产 per-file Exported（PS-1）
+        ExportedModuleZ[] exported = new ExportedModuleZ[inp.SrcCount];
+        i = 0;
+        while (i < inp.SrcCount) { exported[i] = cms[i].Exported; i = i + 1; }
+        // DEPS 条目（usings ∪ usedDepNs → nsMap）
+        ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
+        if (scan != null) {
+            depList = ZpkgBuilder.BuildDependencyMap(mods, inp.SrcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name + ".zpkg");
+        }
+        ZpkgFileZ z = ZpkgBuilder.BuildPackedD(inp.Name, inp.Version, isExe, inp.HasEntry, inp.Entry,
+                                               mods, inp.SrcCount, depList.Items, depList.Count);
+        z.Exported = exported;
+        z.ExportedCount = inp.SrcCount;
+        string entryStatus = "ok";
+        if (isExe) {
+            if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
+            else if (z.Entry == "") { entryStatus = "missing"; }
+        }
+        return new CompileArtifacts(z, mods, inp.SrcCount, cms, inp.SrcCount, 0, entryStatus);
+    }
+}
