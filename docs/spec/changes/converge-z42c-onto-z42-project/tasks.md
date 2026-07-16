@@ -11,9 +11,9 @@
       0.5b：ci-bootstrap fast-path 用 seed-stdlib。→ 前置 `fix-crosspkg-static-ns-collision`（已合并
       main `737e7e82`：using-scoped 解析，VM 零改动）根治共存串味 → converge 不再需 rename/CI 手术。
 - [x] 阶段 1: z42.project 登记 member + 首个 GREEN（2026-07-16，本 commit）
-- [ ] 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model + 后端改名 z42c.zpkg
-      （**晚一个 nightly**：种子轴——z42c 源 use z42.project 需种子 stdlib 已含 z42.project.zpkg，
-      即阶段 1 先随一个 nightly 发布）
+- [ ] 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（**晚一个 nightly**：种子轴——
+      z42c 源 use z42.project 需种子 stdlib 已含 z42.project.zpkg，即阶段 1 先随一个 nightly 发布）
+      **已 de-risk（2026-07-16，ready-to-execute 剧本见下）**：3 消费者文件、字段完备性、import 策略全核实。
 - [ ] 阶段 3: z42c 调用点 flat→composed 迁移（并入阶段 2）
 - [ ] 阶段 4: 验证（自举不动点 + 全 gate + 种子边界）+ 文档同步
 
@@ -43,12 +43,36 @@
 > 12 形参 ctor 未报错、静默按位截断（正是本 ManifestLoader bug 潜伏的原因）。应加 arity 校验
 > 报诊断。属编译器，越出本 change scope，单列跟进。
 
-## 阶段 2: z42c.project 拆分（refactor，先与迁移分离提交）
-- [ ] 2.1 重命名 `src/compiler/z42c.project/` → `src/compiler/z42c.zpkg/`（含 `.z42.toml` name）
-- [ ] 2.2 删 manifest-model 4 文件（ProjectModel / ManifestLoader / SourceDiscovery / PathTemplate）
-- [ ] 2.3 ProjectSkeleton 处置（删用法 / 随后端包留，按 design）
-- [ ] 2.4 `src/compiler/z42.workspace.toml` member 名 + z42c.pipeline/driver deps：去 z42c.project，加 z42.project + z42c.zpkg
-- [ ] 2.5 zpkg 后端引用点改名（DepScan/IncrementalBuild/IndexedDist/IncrementalDriver 的 Zpkg*/CacheStore/PackageTypes）
+## 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（path C 后；ready-to-execute）
+
+> **前置**：阶段 1（z42.project.zpkg）随一个 nightly 发布后才能推——种子轴。path C（namespace 消歧，
+> 5c73c04b/737e7e82 已合并）后**无需 rename-前置、无需 CI 手术**；atomic 删 z42c.project manifest-model
+> 即无共存，纯净切换。**后端改名 z42c.project→z42c.zpkg（旧 2.1）降级为可选后续 refactor**（本阶段不做，
+> 保 z42c.project 名承载纯 zpkg 后端；改名是 Decision 1 的命名洁癖，非 converge 必需）。
+
+**de-risk 核实（2026-07-16）**：
+- 消费者仅 3 文件：`z42c.driver/Main.z42`（模型 + 后端 3 refs）、`z42c.driver/BuildPaths.z42`（纯模型）、
+  `z42c.pipeline/WorkspaceBuild.z42`（纯模型）。
+- z42.project 组合式模型**字段完备**覆盖 z42c 全部 flat 用法：ProjectInfo(Name/Version/Kind/Entry/
+  HasEntry/HasPack/Pack) + Sources(Include/IncludeCount/Exclude/ExcludeCount) + BuildConfig(OutputDir/
+  CacheDir/DistDir + Has*) + Deps(顶层) + WorkspaceManifest(Members/MemberCount/DefaultMembers/OutputDir/
+  CacheDir)。z42c **不消费** SharedVersion/License（Decision 2 弃，安全）。
+
+**执行剧本**：
+- [ ] 2.1 imports：`BuildPaths.z42` / `WorkspaceBuild.z42` 的 `using Z42.Project;` → `using Z42.Build.Project;`；
+      `Main.z42` **保留** `using Z42.Project;`（后端 ZpkgWriter/Reader/…）+ **加** `using Z42.Build.Project;`（模型）。
+- [ ] 2.2 字段迁移 flat→composed（3 文件，~40 处，Field Mapping 逐条）：
+      `pm.{Name,Version,Kind,Entry,HasEntry,HasPack,Pack}`→`pm.Project.*`；
+      `pm.{IncludeGlobs→Sources.Include, IncludeCount→Sources.IncludeCount, ExcludeGlobs→Sources.Exclude, ExcludeCount→Sources.ExcludeCount}`；
+      `pm.{OutputDir,HasOutputDir,CacheDir,HasCacheDir,DistDir,HasDistDir}`→`pm.Build.*`；
+      `pm.{Deps,DepCount}` **不变**；`ws.{MembersPatterns→Members, MembersCount→MemberCount}`；
+      `ws.{OutputDir,HasOutputDir,CacheDir,HasCacheDir}` **不变**。
+      **注**：`WorkspaceBuild.z42` 若 `new ProjectManifest(...)`/`new WorkspaceManifest(...)` 构造，改用组合式 ctor。
+- [ ] 2.3 删 z42c.project manifest-model 4 文件：`ProjectModel.z42`/`ManifestLoader.z42`/`SourceDiscovery.z42`/`PathTemplate.z42`。
+- [ ] 2.4 deps：`z42c.driver.z42.toml` + `z42c.pipeline.z42.toml` 加 `"z42.project" = "0.1.0"`；
+      `src/compiler/z42.workspace.toml` 拓扑确保 z42.project 先于 z42c.*（stdlib libs 已含）。
+- [ ] 2.5 验证（**本次务必跑全 e2e golden 套件，非仅自举**——prelude 回归教训）：cargo build +
+      自举不动点 7/7 byte-identical + `xtask test`（e2e + cross-zpkg + stdlib + compiler + vscode）+ 种子边界。
 
 ## 阶段 3: 调用点 flat→composed 迁移（design Field Mapping 逐条）
 - [ ] 3.1 `z42c.driver/src/Main.z42`（~15 处：`pm.Project.*` / `pm.Sources.*`）
