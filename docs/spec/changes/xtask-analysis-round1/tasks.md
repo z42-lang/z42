@@ -12,8 +12,8 @@
 - [x] 1.2 `xtask_cli.z42:426`（`build all`）删 `_buildCompiler()`——同上（`_buildStdlib` 已建 z42c）
 - [x] 1.3 保留 7 处合法 `_buildCompiler()`（build compiler / test dist / cross-zpkg / vscode / incremental / toolchain-deps / package-desktop——各为独立 standalone，非紧邻 `_buildStdlib` 的冗余）
 
-## CI：bench-update 缓存（commit 2）
-- [ ] 2.1 `bench-update.yml` 手写 cache `src/runtime/target` → 换 Swatinem `host-v2`（`.cargo/config.toml` 把 target 重定向到 `artifacts/build/runtime`，现缓存目录是空的 → 每次 push main 冷编 z42vm ~5-8min）
+## CI：bench-update 缓存（commit 2 —— 已实施）
+- [x] 2.1 `bench-update.yml` 手写 cache `src/runtime/target` → 换 Swatinem `host-v2`（`.cargo/config.toml` 把 target 重定向到 `artifacts/build/runtime`，现缓存目录是空的 → 每次 push main 冷编 z42vm ~5-8min）
 
 ## 阶段 3: 验证
 - [ ] 3.1 CI 验证 → compile-toolchain（编译）+ test-stdlib/test-host（行为）。注：删的 `_buildCompiler` 在 `test stdlib`/`bench` **standalone prepare 波**（noBuild=false），CI 恒 `--no-build` 不走该波 → 运行期非 CI 覆盖，靠亲验 call-graph + compile 保证；bench-update 缓存下次 push main 自验
