@@ -15,12 +15,16 @@
   - [命名空间与访问控制]()
   - [FFI / interop 表面]()
 
-# 第二部分 · 编译器（Compiler）
+# 第二部分 · 编译与构建（Compiler & Build）
 
 - [概览](compiler/README.md)
-  - [自举与种子（self-hosting）]()
-  - [pipeline 各阶段]()
-  - [zpkg 产物与依赖索引]()
+  - [架构总览](compiler/architecture.md)
+  - [源代码编译流程（z42c）]()
+  - [工程模型与依赖解析]()
+  - [工作区编译（z42c workspace）]()
+  - [项目构建与发布编排（z42b）]()
+  - [编译产物：zpkg / zbc 格式]()
+  - [CLI 与诊断工具]()
   - [错误码体系]()
 
 # 第三部分 · 运行时（Runtime / VM）
