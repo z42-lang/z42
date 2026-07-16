@@ -44,18 +44,27 @@ z42.cli）。理由：最小、进程隔离（z42b 崩不连累 launcher）、�
 通用发现）是更大的架构，留 launcher-command-dispatch 推进；C 需 in-process 动态加载（runtime builtin，
 更重）。launcher 显式注册 z42b 的 5 个 verb 为 spawn-leaf，`z42 -h` 自动列出。
 
-### D2: Z42cCompiler 住 z42c.pipeline，包装 CompileInMemory
+### D2: Z42cCompiler 住 z42c.pipeline，包装 PackageCompile
 
 **问题**：ICompiler 实现放哪、调什么？
 
-**决定**：住 `z42c.pipeline`（依赖 z42.build 仅接口，符合 ICompiler.z42 的 DIP）。`Compile(req)`：
-1. `SourceDiscovery.Discover(req.SourceDir, ...)` 取源（或读 manifest include —— req 已是 SourceDir）
-2. 读 dep zpkg 字节 → `ZpkgBlob[]`（extract-compile-pipeline-api 的 provider 抽象）
-3. `CompileInMemory(texts, files, srcCount, blobs, ..., isRelease)` → `CompileResult`
-4. `ErrorCount>0` → 返回 `CompileResult("", "", false, diagnostics 文本)`；否则写 `req.OutputZpkg`、
-   返回 `CompileResult(OutputZpkg, zsym, true, "")`
+> **已精化（2026-07-17，extract-compile-pipeline-api 落地）**：核心 API 定为
+> `PackageCompile.Compile(CompileInputs) -> CompileArtifacts`（住 z42c.pipeline），**依赖从磁盘
+> `LibsDirs` 解析、非内存 blob**（见 extract design D3——依赖 zpkg 恒在磁盘，blob 化收益零风险非零，
+> 降级为后续）。原「`CompileInMemory(depBlobs)`」设想作废，下面已更新。
 
-不 fork z42c 子进程（in-process），不依赖 z42vm 在 PATH。
+**决定**：住 `z42c.pipeline`（依赖 z42.build 仅接口，符合 ICompiler.z42 的 DIP）。`Compile(req)`：
+1. `SourceDiscovery.Discover(req.SourceDir, ...)` 取源 → 读 texts + 算 srcHashes。
+2. `IrDump.ParseAll(texts, files, n)` → `Cus`（全量；无增量 → `CachedMods=null`）。
+3. 构 `CompileInputs`：`LibsDirs` = `req.Deps` 各 zpkg 的**父目录集**（去重）；`DeclaredDeps` = 依赖名；
+   `Name/Version/Kind/HasEntry/Entry` 由 req 隐含（app 编译 kind="exe"）；`IsRelease` = profile=="release"。
+4. `PackageCompile.Compile(inputs)` → `CompileArtifacts`。
+5. `art.ErrorCount>0` → `CompileResult("", "", false, art.Cms 聚合诊断文本)`；否则
+   `ZpkgWriterZ.WritePackedWithSidecar(art.Z, isRelease)` → 写 `req.OutputZpkg`（+`.zsym` sidecar）→
+   `CompileResult(OutputZpkg, zsym, true, "")`。
+
+不 fork z42c 子进程（in-process），不依赖 z42vm 在 PATH。核心已落地（`PackageCompile`），Z42cCompiler
+仅剩「Discover→parse→构 inputs→Compile→写盘」薄适配。
 
 ### D3: z42c 侧只加适配，不收敛 manifest 模型（本变更）
 
