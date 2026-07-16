@@ -889,9 +889,11 @@ pub fn builtin_type_interfaces(ctx: &VmContext, args: &[Value]) -> Result<Value>
     Ok(ctx.heap().alloc_array(out))
 }
 
-/// `__type_members(typeObj) -> MemberInfo[]` — fields then methods. Built in
-/// Rust to sidestep z42 array covariance (the mixed array holds FieldInfo +
-/// MethodInfo, both `MemberInfo` subclasses).
+/// `__type_members(typeObj) -> MemberInfo[]` — fields, then methods, then
+/// properties. Built in Rust to sidestep z42 array covariance (the mixed array
+/// holds FieldInfo + MethodInfo + PropertyInfo, all `MemberInfo` subclasses).
+/// Mirrors C# `GetMembers()`, which surfaces properties alongside their backing
+/// `get_`/`set_` accessor methods (the accessors remain in the methods slice).
 pub fn builtin_type_members(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let mut out = Vec::new();
     if let Value::Array(a) = builtin_type_fields(ctx, args)? {
@@ -899,6 +901,9 @@ pub fn builtin_type_members(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
     if let Value::Array(m) = builtin_type_methods(ctx, args)? {
         out.extend(m.borrow().iter().cloned());
+    }
+    if let Value::Array(p) = builtin_type_properties(ctx, args)? {
+        out.extend(p.borrow().iter().cloned());
     }
     Ok(ctx.heap().alloc_array(out))
 }

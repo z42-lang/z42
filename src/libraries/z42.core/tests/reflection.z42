@@ -195,6 +195,24 @@ void test_getmembers_combines_fields_and_methods() {
 }
 
 [Test]
+void test_getmembers_includes_properties() {
+    // members-include-properties: GetMembers() surfaces PropertyInfo alongside the
+    // field/method members (mirrors C#). PropHolder has properties Size + Tag.
+    Type t = typeof(PropHolder);
+    MemberInfo[] members = t.GetMembers();
+    bool sawSizeProp = false;
+    bool sawTagProp = false;
+    foreach (var m in members) {
+        if (m is PropertyInfo) {
+            if (m.Name == "Size") { sawSizeProp = true; }
+            if (m.Name == "Tag") { sawTagProp = true; }
+        }
+    }
+    Assert.True(sawSizeProp);
+    Assert.True(sawTagProp);
+}
+
+[Test]
 void test_generic_arguments_best_effort() {
     Box<int> box = new Box<int>();
     Type[] args = box.GetType().GetGenericArguments();

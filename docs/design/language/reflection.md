@@ -462,7 +462,7 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 
 ### ~~reflection-future-properties~~ — 已落地（2026-06-09）
 - **状态**：`Type.GetProperties()` + `Std.Reflection.PropertyInfo`（`PropertyType` / `CanRead` / `CanWrite`）已落地 2026-06-09（add-reflection-properties）。从 `get_`/`set_` 方法约定**运行期派生**（选了 Deferred 里"从方法名推导"的方案而非持久化元数据——零 zbc 格式变更，不撞自举 port）。见上文「Type.GetProperties()」+「属性派生」。
-- **剩余**：~~`GetValue`/`SetValue`~~ —— 已落地 2026-07-15（add-property-getvalue-setvalue，复用非泛型 invoke 通路，无格式 bump；虚 override 派发 / 静态属性 / 索引器 延后）；properties 纳入 `GetMembers()`；隐藏 auto-property backing field。
+- **剩余**：~~`GetValue`/`SetValue`~~ —— 已落地 2026-07-15（add-property-getvalue-setvalue，复用非泛型 invoke 通路，无格式 bump；虚 override 派发 / 静态属性 / 索引器 延后）；~~properties 纳入 `GetMembers()`~~ —— 已落地 2026-07-16（members-include-properties，`__type_members` 追加 `__type_properties`，纯运行期无格式 bump；get_/set_ 访问器仍在 methods 切片，与 C# 一致）；隐藏 auto-property backing field。
 
 ### ~~reflection-future-gettype-var-inference~~ — 已落地（2026-06-10）
 - **状态**：`var x = obj.GetType(); x.Name` 已落地 2026-06-10（fix-chained-property-dispatch）。原判「根因在反射导入签名解析」**有误**：真根因 = `SymbolCollector` 预注册的 Object stub 的 `GetType()` 返回类型写死 `Z42Type.Unknown`（非导入签名解析）。改为从 `_classes["Type"]` 取真实 `Std.Type` 类后，`var` 推断为 `Type`、`x.Name` 正常。与 `reflection-future-chained-property-dispatch` 同一处修复。
