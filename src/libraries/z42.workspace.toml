@@ -29,7 +29,10 @@ members = ["*"]
 # ManifestLoader …）曾因 flat Z42_LIBS 跨 zpkg 短类名 first-wins 串味 → 炸 z42c 自举；已由
 # fix-crosspkg-static-ns-collision（using-scoped 解析）根治，两者安全共存（实测 with/without
 # z42.project 编出 z42c 逐字节 7/7 相同）。阶段 2 让 z42c 改引用本库、删 z42c.project 自带版
-# （消除重复类）后，本库成 manifest 模型唯一真相。z42.build（Z42.Build）仍待 wire-z42b。
+# （消除重复类）后，本库成 manifest 模型唯一真相。z42.build（Z42.Build：ICompiler 接口 +
+# 八相位 Pipeline 骨架）已入 build（wire-z42b 阶段 1，2026-07-17）——z42c 暂不引用（seed 轴：
+# z42c.pipeline 引用其 ICompiler 须待本库随一个 nightly 发布）；命名空间 Z42.Build 不在 z42c
+# active 集，对 z42c 自举天然惰性（实测带 z42.build 编 z42c 逐字节 7/7 相同 + 全 [Test] 绿）。
 default-members = [
     "z42.core",
     "z42.collections",
@@ -39,6 +42,7 @@ default-members = [
     "z42.time",
     "z42.toml",
     "z42.project",
+    "z42.build",
     "z42.random",
     "z42.uri",
     "z42.threading",

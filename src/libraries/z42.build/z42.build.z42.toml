@@ -1,0 +1,15 @@
+# z42.build — 构建管线库（Z42.Build）：ICompiler 接口 + 八相位 Pipeline + Hooks/Workload 骨架。
+# z42b 编排器与 z42c.driver 经 ICompiler 共享编译实现（in-process）。wire-z42b 阶段 1：先注册入
+# build/nightly（z42c 暂不引用——seed 轴：z42c.pipeline 引用本库须待本库随一个 nightly 发布）。
+[project]
+name    = "z42.build"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core"    = "0.1.0"
+"z42.io"      = "0.1.0"
+"z42.project" = "0.1.0"
+
+[sources]
+include = ["src/**/*.z42"]
