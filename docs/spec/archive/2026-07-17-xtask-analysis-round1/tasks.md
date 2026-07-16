@@ -1,6 +1,6 @@
 # Tasks: xtask-analysis-round1
 
-> 状态：🟡 进行中（分节实施，待 CI 验证）| 创建：2026-07-17
+> 状态：🟢 已完成 | 创建：2026-07-17 | 完成：2026-07-17
 
 **变更说明：** xtask 二次分析（处理流程 / CI / 配置驱动）的**高价值安全项**落地。
 **原因：** 三代理分析发现的可安全落地项——① 删 2 处冗余 z42c 自建（处理流程）；② bench-update.yml 缓存错目录（CI）。
@@ -16,8 +16,8 @@
 - [x] 2.1 `bench-update.yml` 手写 cache `src/runtime/target` → 换 Swatinem `host-v2`（`.cargo/config.toml` 把 target 重定向到 `artifacts/build/runtime`，现缓存目录是空的 → 每次 push main 冷编 z42vm ~5-8min）
 
 ## 阶段 3: 验证
-- [ ] 3.1 CI 验证 → compile-toolchain（编译）+ test-stdlib/test-host（行为）。注：删的 `_buildCompiler` 在 `test stdlib`/`bench` **standalone prepare 波**（noBuild=false），CI 恒 `--no-build` 不走该波 → 运行期非 CI 覆盖，靠亲验 call-graph + compile 保证；bench-update 缓存下次 push main 自验
-- [ ] 3.2 CI 绿后归档 + 释放 toolchain 锁
+- [x] 3.1 CI 验证 → **compile-toolchain 绿**（run 29518168719，含本轮 commits）。删的 `_buildCompiler` 在 standalone prepare 波（CI 恒 `--no-build` 不走）→ 运行期非 CI 覆盖，靠亲验 call-graph + compile 保证；bench-update 缓存下次 push main 自验
+- [x] 3.2 CI 绿后归档 + 释放 toolchain 锁（本次会话）
 
 ## 备注
 - 直连 main（User 指示）；共享工作树有并行 session WIP，全程显式 `git add`。
