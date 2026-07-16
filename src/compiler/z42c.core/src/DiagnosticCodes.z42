@@ -41,6 +41,7 @@ public static class DiagnosticCodes {
     public static string InvalidDefaultType       = "E0421";
     public static string GenericFuncConstraintViolation = "E0422";
     public static string AmbiguousOverload        = "E0425";   // 重载歧义（add-type-based-overloads）
+    public static string CtorArgMismatch          = "E0426";   // new C(args) 实参与本地 ctor 形参不匹配（防静默按位截断）
     public static string InvalidFuncConstraint    = "E0423";
     public static string IllegalCast              = "E0424";
 

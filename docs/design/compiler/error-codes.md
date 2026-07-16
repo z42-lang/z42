@@ -53,6 +53,7 @@ The canonical source of truth is [`DiagnosticCodes.cs`](../../../src/compiler/z4
 | E0404  | Private member access violation  | `private` field or method accessed outside its class |
 | E0405  | Invalid modifier combination     | `abstract sealed`, modifier on enum member, etc. |
 | E0406  | Integer literal out of range     | Literal exceeds the declared explicit-size type's range (`i8 x = 200`) |
+| E0426  | Constructor argument mismatch    | `new C(args)` where no ctor overload accepts that argument count (params/default-tail aware) — guards silent positional truncation |
 
 ---
 

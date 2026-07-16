@@ -40,13 +40,14 @@
   逐字节 **7/7 相同**（z42c 未切引用，z42.project 存在与否零影响）。
 
 > **备注：暴露 3 个 z42c 缺陷（均越界，单列跟进）**：
-> 1. **ctor 实参数量不校验**——16 实参传 12 形参 ctor 未报错、静默按位截断（正是 ManifestLoader
->    `OutputDir` bug 潜伏的原因）。应加 arity 校验报诊断。
-> 2. **单 CU `using` 数硬编码上限 8**（`IrDump._compileCu` 的 `new string[8]`）——第 9 个 using 致
->    `array index 8 out of bounds`。阶段 2 中 Main.z42 加 `using Z42.Build.Project` 撞上；绕过=换掉未用的
->    `Z42.IR.BinaryFormat` using 保持 8。应改动态数组。
+> 1. ✅ **ctor 实参数量不校验（已修）**——16 实参传 12 形参 ctor 未报错、静默按位截断（正是 ManifestLoader
+>    `OutputDir` bug 潜伏的原因）。`ExprTyper._bindNew` 加 `OverloadsOf(cls.Name())` 枚举本类全部 ctor
+>    的 arity 校验（与 bare/$N 注册键无关），无一接受实参数 → 报 **E0426 CtorArgMismatch**；params 变长
+>    与带默认尾参各按规则计。5 个单测 + self-host 7/7 逐字节不变。
+> 2. ✅ **单 CU `using` 数硬编码上限 8（已修，1ad03ee0）**（`IrDump._compileCu` 的 `new string[8]`）——第 9 个
+>    using 致 `array index 8 out of bounds`。改为容量翻倍扩容的动态数组。
 > 3. **不支持全限定静态调用**（`Z42.Build.Project.ManifestLoader.Load(...)` 报 `E0401: undefined: Z42`）
->    ——`Z42` 被当值解析。类型声明位可全限定，静态调用不行。绕过=靠 `using` 裸名。
+>    ——`Z42` 被当值解析。类型声明位可全限定，静态调用不行。绕过=靠 `using` 裸名。（待做）
 
 ## 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（path C 后；ready-to-execute）
 

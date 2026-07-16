@@ -137,6 +137,44 @@ void test_error_break_outside_loop() {
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
 
+// ── ctor arity 校验（E0426，防实参数不符被 fall-through 静默按位截断）───────────
+[Test]
+void test_error_ctor_too_many_args() {
+    // 1 参 ctor 传 2 实参 → 无重载接受 → E0426（防 ManifestLoader 式 16→12 静默截断）
+    string src = "class C { int x; C(int a) { this.x = a; } void M() { var c = new C(1, 2); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_error_ctor_too_few_args() {
+    // 1 参 ctor 传 0 实参（无默认）→ E0426
+    string src = "class C { int x; C(int a) { this.x = a; } void M() { var c = new C(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ctor_correct_arity_ok() {
+    // 精确匹配 → 无 E0426
+    string src = "class C { int x; C(int a) { this.x = a; } void M() { var c = new C(5); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_params_variadic_ok() {
+    // params ctor 接受任意 ≥ 定长部分实参 → 无 E0426
+    string src = "class P { P(params int[] xs) { } void M() { var p = new P(1, 2, 3); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_default_arg_ok() {
+    // 带默认尾参：少传可接受 → 无 E0426
+    string src = "class C { int x; C(int a, int b = 9) { this.x = a; } void M() { var c = new C(5); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
 // ── 1C-1：成员字段访问 + 继承 ──────────────────────────────────────────────
 [Test]
 void test_member_field_access() {

@@ -144,6 +144,17 @@ public static class SemanticDump {
         return d.Span.Line.ToString() + ":" + d.Span.Column.ToString();
     }
 
+    // 首条诊断的错误码（错误用例精确断言，如 E0426；无诊断 → ""）。
+    public static string FirstErrorCode(string src) {
+        var p = new Parser(src, "<input>");
+        var cu = p.ParseCompilationUnit();
+        var symbols = new SymbolCollector().Collect(cu);
+        var diags = new DiagnosticBag();
+        new TypeChecker(diags).Infer(cu, symbols);
+        if (diags.Count() == 0) { return ""; }
+        return diags.Get(0).Code;
+    }
+
     // 类型检查诊断错误条数（错误用例断言）。
     public static int ErrorCount(string src) {
         var p = new Parser(src, "<input>");

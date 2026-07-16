@@ -421,6 +421,39 @@ public sealed class ExprTyper {
             BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
             if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
         }
+        // ctor arity 校验（根因修复）：枚举本类所有源名 ctor（OverloadsOf——与 bare/$N 注册键无关，
+        // 单 ctor 注册裸名、重载注册 Name$N，_findMethod 单键查会漏），只要存在本地声明 ctor 且无一能
+        // 接受 n.ArgCount 个实参 → 报 E0426，防「实参数与形参数不符被下方 fall-through 静默按位截断/补默认」
+        // （曾致 z42.project ManifestLoader 16 传 12 的 OutputDir 空 bug）。params ctor（变长，接受 ≥ 定长部分）
+        // 与带默认尾参各按其规则计入「可接受」。imported/无 Decl 的 ctor 无法校验 → 跳过（不误报）。
+        if (cls != null) {
+            MethodSymbol[] ctors = cls.OverloadsOf(cls.Name());
+            bool anyDeclared = false;
+            bool accepts = false;
+            int ci = 0;
+            while (ci < ctors.Length) {
+                MethodSymbol cm = ctors[ci];
+                if (cm.HasDecl && cm.Decl != null) {
+                    anyDeclared = true;
+                    int pc = cm.Decl.ParamCount;
+                    bool isParams = pc > 0 && cm.Decl.Params[pc - 1].IsParams;
+                    if (isParams) {
+                        if (n.ArgCount >= pc - 1) { accepts = true; }
+                    } else if (n.ArgCount <= pc) {
+                        bool ok = true;
+                        int p = n.ArgCount;
+                        while (p < pc) { if (cm.Decl.Params[p].Default == null) { ok = false; } p = p + 1; }
+                        if (ok) { accepts = true; }
+                    }
+                }
+                ci = ci + 1;
+            }
+            if (anyDeclared && !accepts) {
+                this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
+                    "constructor `" + cls.Name() + "` has no overload accepting "
+                    + n.ArgCount.ToString() + " argument(s)", n.Span);
+            }
+        }
         BoundExpr[] args = new BoundExpr[n.ArgCount];
         int i = 0;
         while (i < n.ArgCount) { args[i] = this._bindExpr(n.Args[i], env); i = i + 1; }
