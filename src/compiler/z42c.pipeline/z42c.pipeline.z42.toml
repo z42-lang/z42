@@ -13,3 +13,4 @@ kind    = "lib"
 "z42c.ir"        = "0.1.0"
 "z42c.project"   = "0.1.0"
 "z42.project"    = "0.1.0"   # 组合式 manifest 模型（converge）
+"z42.build"      = "0.1.0"   # ICompiler 接口（wire-z42b：Z42cCompiler 实现之）——仅接口，无环

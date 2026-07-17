@@ -46,6 +46,11 @@ z42.cli）。理由：最小、进程隔离（z42b 崩不连累 launcher）、�
 
 ### D2: Z42cCompiler 住 z42c.pipeline，包装 PackageCompile
 
+> **已实施（2026-07-17，阶段 2a）**：`Z42cCompiler : ICompiler`
+> （`src/compiler/z42c.pipeline/src/Z42cCompiler.z42`）落地，z42c.pipeline 加 dep z42.build（仅接口，无环）。
+> 3 个端到端单测（编 hello→app.zpkg / 无 Main 报 missing / 空源报 no-sources）+ self-host 7/7 逐字节绿。
+> seed 轴：本改动 `using Z42.Build` 依赖 e58de18 nightly（已含 z42.build）方能自举——故须在阶段 1 之后。
+
 **问题**：ICompiler 实现放哪、调什么？
 
 > **已精化（2026-07-17，extract-compile-pipeline-api 落地）**：核心 API 定为

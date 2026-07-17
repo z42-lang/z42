@@ -1,0 +1,54 @@
+// Z42cCompiler 端到端单测（wire-z42b D2）：经 ICompiler 契约把 SourceDir 编成 app.zpkg
+// （源发现 + 读盘 + PackageCompile 核心 + 写盘），验证 Ok/Zpkg/诊断 与 entry 决议。
+namespace Z42cPipelineZ42cCompilerTests;
+
+using Std;
+using Std.IO;
+using Z42.Pipeline;
+using Z42.Build;
+
+string _tmpRoot() {
+    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    if (t == "") { t = "/tmp"; }
+    return Path.Join(t, "z42c-z42ccompiler-tests");
+}
+
+// 造一个含单源文件的工程夹具，返回 (dir, outZpkg)。
+string _mkProj(string name, string file, string src) {
+    string dir = Path.Join(_tmpRoot(), name);
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, file), src);
+    return dir;
+}
+
+[Test]
+void test_compiles_hello_exe() {
+    string dir = _mkProj("hello", "main.z42", "int Main() { return 0; }\n");
+    string outZpkg = Path.Join(dir, "app.zpkg");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false);
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal("", res.Diagnostics);
+    Assert.Equal(true, res.Ok);
+    Assert.Equal(outZpkg, res.Zpkg);
+    Assert.Equal(true, File.Exists(outZpkg));
+}
+
+[Test]
+void test_no_main_reports_missing_entry() {
+    string dir = _mkProj("nomain", "lib.z42", "int Helper() { return 1; }\n");
+    string outZpkg = Path.Join(dir, "app.zpkg");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false);
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal(false, res.Ok);
+    Assert.Equal("", res.Zpkg);
+}
+
+[Test]
+void test_empty_sourcedir_reports_no_sources() {
+    string dir = Path.Join(_tmpRoot(), "empty");
+    Directory.Create(dir);
+    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false);
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal(false, res.Ok);
+}

@@ -1,0 +1,113 @@
+// z42c 编译器的 ICompiler 实现（wire-z42b D2）。z42b 构建编排器经 z42.build 的 ICompiler 接口
+// **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回），复用
+// PackageCompile 核心（extract-compile-pipeline-api）。依赖方向：z42c.pipeline → z42.build（仅接口）。
+//
+// 依赖从磁盘解析（design D3）：req.Deps 各 zpkg 的父目录集 → LibsDirs；不做内存 blob。
+// MVP：app 编译恒 kind=exe、name=SourceDir 尾目录名、auto-detect Main（ICompiler.CompileRequest
+// 不携带 name/kind/entry——z42b 面向 app 场景，这些取合理默认；将来 req 扩字段再精化）。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Project;
+using Z42.Build;
+using Z42.Build.Project;
+
+public class Z42cCompiler : ICompiler {
+
+    public CompileResult Compile(CompileRequest req) {
+        // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
+        string[] includes = new string[1]; includes[0] = "**/*.z42";
+        string[] srcs = SourceDiscovery.Discover(req.SourceDir, includes, 1);
+        if (srcs.Length == 0) {
+            return new CompileResult("", "", false, "no .z42 sources under " + req.SourceDir);
+        }
+        // 2. 读源 + hash。
+        string[] texts = new string[srcs.Length];
+        string[] hashes = new string[srcs.Length];
+        int i = 0;
+        while (i < srcs.Length) {
+            texts[i] = File.ReadAllText(srcs[i]);
+            hashes[i] = ZpkgBuilder.Sha256Hex(texts[i]);
+            i = i + 1;
+        }
+        // 3. parse-all（全量；无增量——Z42cCompiler 不参与 driver 的 dev-loop 增量）。
+        CompilationUnit[] cus = IrDump.ParseAll(texts, srcs, srcs.Length);
+        // 4. 依赖：LibsDirs = req.Deps 各 zpkg 父目录（去重）；DeclaredDeps = 依赖名（去 .zpkg 后缀）。
+        string[] libsDirs = new string[req.Deps.Length];
+        int libsN = 0;
+        string[] declaredDeps = new string[req.Deps.Length];
+        int depN = 0;
+        int d = 0;
+        while (d < req.Deps.Length) {
+            string dir = Path.GetDirectoryName(req.Deps[d]);
+            if (dir == "") { dir = "."; }
+            bool seen = false;
+            int k = 0;
+            while (k < libsN) { if (libsDirs[k] == dir) { seen = true; } k = k + 1; }
+            if (!seen) { libsDirs[libsN] = dir; libsN = libsN + 1; }
+            string base = Path.GetFileName(req.Deps[d]);
+            if (base.EndsWith(".zpkg")) { base = base.Substring(0, base.Length - 5); }
+            declaredDeps[depN] = base; depN = depN + 1;
+            d = d + 1;
+        }
+        // 5. 构 CompileInputs（app：kind=exe、name=尾目录名、auto-entry）。
+        CompileInputs inp = new CompileInputs();
+        inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
+        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        string name = Path.GetFileName(req.SourceDir);
+        if (name == "") { name = "app"; }
+        inp.Name = name; inp.Version = "0.0.0"; inp.Kind = "exe";
+        inp.HasEntry = false; inp.Entry = "";
+        inp.IsRelease = req.Profile == "release";
+        inp.LibsDirs = libsDirs; inp.LibsDirsN = libsN;
+        inp.DeclaredDeps = declaredDeps; inp.DepCount = depN;
+        // 6. 编译（PackageCompile 核心）。
+        CompileArtifacts art = PackageCompile.Compile(inp);
+        if (art.ErrorCount > 0) {
+            return new CompileResult("", "", false, Z42cCompiler._diagText(art));
+        }
+        if (art.EntryStatus == "missing") {
+            return new CompileResult("", "", false, "kind=exe but no Main() found in " + req.SourceDir);
+        }
+        if (art.EntryStatus == "ambiguous") {
+            return new CompileResult("", "", false, "multiple Main candidates; set entry explicitly");
+        }
+        // 7. 写盘（packed + 可选 .zsym sidecar，受 req.StripSymbols 门控）。
+        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, inp.IsRelease);
+        File.WriteAllBytes(req.OutputZpkg, wres.Main);
+        string zsym = "";
+        if (wres.HasSidecar && req.StripSymbols) {
+            zsym = Z42cCompiler._zsymPath(req.OutputZpkg);
+            File.WriteAllBytes(zsym, wres.Sidecar);
+        }
+        return new CompileResult(req.OutputZpkg, zsym, true, "");
+    }
+
+    // 逐文件诊断聚合为单串（ICompiler 契约：Ok=false 时 Diagnostics 含错误文本）。
+    private static string _diagText(CompileArtifacts art) {
+        string s = "";
+        int i = 0;
+        while (i < art.CmCount) {
+            CompiledModuleZ cm = art.Cms[i];
+            int di = 0;
+            while (di < cm.DiagCount) {
+                if (s != "") { s = s + "\n"; }
+                s = s + cm.DiagMsgs[di];
+                di = di + 1;
+            }
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // OutputZpkg 的 .zsym 旁挂路径（.zpkg → .zsym；无 .zpkg 后缀则追加）。
+    private static string _zsymPath(string outZpkg) {
+        if (outZpkg.EndsWith(".zpkg")) {
+            return outZpkg.Substring(0, outZpkg.Length - 5) + ".zsym";
+        }
+        return outZpkg + ".zsym";
+    }
+}
