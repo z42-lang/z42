@@ -1,0 +1,96 @@
+// Micro-benchmarks for z42.core hot paths — String ops + List growth. Dogfoods
+// the [Benchmark] + Bencher machinery on the most-exercised core primitives.
+// Modest sample counts keep the correctness wave fast; run via
+// `z42 xtask.zpkg bench stdlib z42.core` (or `z42b bench <compiled.zpkg>`;
+// add `--format json` for structured bench_stats).
+
+namespace Z42CoreBench;
+
+using Std;
+
+[Benchmark]
+void bench_string_concat() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string s = "";
+        int i = 0;
+        while (i < 32) {
+            s = s + "ab";
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(s);
+    });
+    b.printSummary("string_concat");
+}
+
+[Benchmark]
+void bench_string_index_of() {
+    string hay = "the quick brown fox jumps over the lazy dog, then rests";
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        int r = hay.IndexOf("lazy") + hay.IndexOf("fox") + hay.IndexOf("zzz");
+        BenchHelpers.blackBox(r);
+    });
+    b.printSummary("string_index_of");
+}
+
+[Benchmark]
+void bench_string_substring() {
+    string src = "0123456789abcdefghijklmnopqrstuvwxyz";
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string acc = "";
+        int i = 0;
+        while (i < 20) {
+            acc = src.Substring(i, 8);
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(acc);
+    });
+    b.printSummary("string_substring");
+}
+
+[Benchmark]
+void bench_string_split() {
+    string csv = "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p";
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string[] parts = csv.Split(",");
+        BenchHelpers.blackBox(parts.Length);
+    });
+    b.printSummary("string_split");
+}
+
+[Benchmark]
+void bench_list_add_index() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var xs = new List<int>();
+        int i = 0;
+        while (i < 64) {
+            xs.Add(i * 2);
+            i = i + 1;
+        }
+        int sum = 0;
+        int j = 0;
+        while (j < xs.Count) {
+            sum = sum + xs[j];
+            j = j + 1;
+        }
+        BenchHelpers.blackBox(sum);
+    });
+    b.printSummary("list_add_index");
+}
+
+// Smoke [Test] — confirms the benchmark bodies actually run (Bencher wired,
+// samples honoured), independent of timing.
+[Test]
+void test_core_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        string s = "x" + "y";
+        BenchHelpers.blackBox(s);
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}
