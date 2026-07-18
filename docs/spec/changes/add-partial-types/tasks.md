@@ -1,7 +1,10 @@
 # Tasks: partial 类型
 
-> 状态：🔴 DRAFT，排队中（等 `compiler` 锁释放）| 创建：2026-07-08
+> 状态：🔴 DRAFT，排队中（等 `compiler` 锁释放）| 创建：2026-07-08 | 设计定稿：2026-07-19
 > 前置：`add-indexed-zpkg-min-patch` 归档释放 `compiler` 锁 → 阶段 6.5 确认 → 开工。
+> **v1 scope（2026-07-19 定，design D3/D8/D9）**：① 主碎片 = 路径 Ordinal 最小（单一规则）；
+> ② indexed 方法体**默认散留各碎片 zbc**（不合并，零 VM/格式改动）；③ **只做顶层类型 partial**——
+> partial 外层可含嵌套类，但**嵌套类自身 partial → 报错 + Deferred**（嵌套发射链路未接通）。
 
 ## 进度概览
 - [ ] 阶段 1: 词法 + 语法（partial 修饰符）

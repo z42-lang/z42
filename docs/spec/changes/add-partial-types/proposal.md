@@ -75,14 +75,19 @@
 - **加载期合并（方案 B）**：不做。不改 zbc/zpkg 格式、不改 Rust loader、不 bump 格式版本。
 - **单碎片增量（body-only 编辑不牵连兄弟碎片）**：v1 不做，接受 partial 组联动失效；
   若未来有需要，记 Deferred（合成 type-metadata 模块方案）。
-- **partial 与泛型/嵌套类型的交互**：沿用现有 `ClassDecl` 对泛型的处理，不额外为 partial 扩展。
+- **partial 与泛型的交互**：沿用现有 `ClassDecl` 对泛型的处理，不额外为 partial 扩展。
+- **v1 只做顶层类型 partial**（2026-07-19 定，见 design D9）：partial 外层**含**嵌套类允许（嵌套按声明
+  碎片落位）；但**嵌套类自身 partial**（`Outer.Inner` 跨碎片拆）**v1 不做 → 报错 + Deferred**——原因是嵌套
+  发射链路本身未接通，非机制受限（接通后同 min-path 规则递归解禁）。
 
 ## Open Questions
 
 - [ ] **自举能力版本号**：bootstrap-seed.md 提及 z42c 应带"语法能力版本号"，但当前**未实现**
       （只有 Main.z42 一个版本串）。本 change 是否顺带引入该数字并 +1？还是维持现状、
       仅靠 `xtask test bootstrap` 兜底？→ design D-boot 待裁。
-- [ ] **主碎片选定规则**：基类/主构造器所在碎片为主；若都无，取路径 Ordinal 最小碎片。
-      是否需要更显式的规则（如强制主构造器碎片必须存在）？→ design D3 待裁。
+- [x] **主碎片选定规则**（2026-07-19 定）：**路径 Ordinal 最小的碎片，单一规则**，砍掉"基类/ctor 碎片
+      优先"特例（合并 record 内容与发自哪个碎片无关）。→ design D3 已改。
+- [x] **indexed 发布态方法体落点**（2026-07-19 定）：**默认散留各碎片 zbc**（VM `merge_modules` 按名合并，
+      散/合加载后逐字节相同 → 散着零改动 + 保住 cache 字节拷贝）。→ design D8。
 - [ ] **partial method v1 是否真做**：User 倾向"照 C# 全做"，但它是唯一被点名规避的 C# 缺点；
       已定"做但只采 C# 9+ 干净形态"。design D5 复述该裁决，实施前最终确认。

@@ -44,11 +44,21 @@
 该项目已因非确定加载序出过 CI 红 bug）。合并入口在 `SymbolCollector`，排序键复用增量已有的
 `IncrementalBuild.Rel(projectDir, path)`。
 
-### Decision 3: 主碎片选定
-**问题：** 完整 TYPE record 发到哪个碎片的 IrModule？
-**决定：** 携带**基类子句或主构造器**的碎片为主碎片（这些语法至多允许一个碎片声明，天然唯一）；
-若均无，取**路径 Ordinal 最小**的碎片。规则确定性、无需额外元数据。
-`IrGen._classDesc` 判断"本 CU 是否主碎片"：查合并 `Z42ClassType` 记录的主碎片文件 == 当前 CU。
+### Decision 3: 主碎片选定 —— 路径 Ordinal 最小（单一规则，2026-07-19 修订）
+**问题：** 完整 TYPE record（字段布局 / 方法签名表 / vtable / 基类）只能由一个碎片的 IrModule 发**一次**
+（VM `merge_modules` 按名 first-wins 去重；多发会丢成员）。发到哪个碎片？
+**决定：** **主碎片 = 项目相对路径 Ordinal（逐字节）最小的碎片。单一规则，无例外。**
+- **砍掉**早期"基类/主构造器碎片优先"的特例——合并后的 record 内容**取自合并 `Z42ClassType`，与发自哪个
+  碎片无关**（基类即使声明在非主碎片，合并 record 里照样有它），故无语义理由偏好基类碎片；min-path 单条
+  即确定、零特例、零额外元数据。
+- **非 partial 类型**：只有一个声明文件 → 天然就是它，无需选。
+- `IrGen._classDesc` 判断"本 CU 是否主碎片"：查合并 `Z42ClassType` 记录的主碎片文件（min-path）== 当前 CU。
+- **排序键**：项目相对路径、Ordinal 比较，**禁止依赖 SourceDiscovery 文件系统枚举序**
+  （[common-pitfalls 规则 1](../../../.claude/rules/common-pitfalls.md)）。
+
+> **为什么 record 要"选一个"、方法体不用**：partial 是"一条合并 record vs N 个碎片"——record 是**必须去重
+> 合并的单一实体**；方法体是 N 个**不同名**的独立全局函数（`Foo.M1`/`Foo.M2`），`merge_modules` 按 FQ 名
+> 扁平化时既不冲突也不丢，各留各碎片即可，无需选。这也是 D8"方法体默认散留各碎片"的前提。
 
 ### Decision 4: 合并语义与冲突规则（吸 C# 优点 / 规避缺点）
 - **每碎片必写 `partial`**：任一同名声明缺 `partial` → 编译错误（C# 同款防误拆好规则）。
@@ -81,6 +91,34 @@
 **决定：** 本 change **不引入**该数字（避免范围蔓延）；分阶段纪律靠 `xtask test bootstrap`
 （下载上一版 nightly 编当前源）兜底：阶段 1 落 support 后，z42c/stdlib 源**不使用** partial，
 bootstrap 检查即绿。引入能力版本号另立独立 change。→ 关联 Open Question 已在 proposal 标注。
+
+### Decision 8: indexed 发布态 —— 方法体散留各碎片 zbc（默认），不强制合并（2026-07-19）
+**问题：** indexed 布局下，partial 类型的方法体是"散在各碎片 zbc"还是"合并进主碎片一个 zbc"？
+**背景（实证 VM）：** `load_zpkg_indexed`（[loader.rs](../../../src/runtime/src/metadata/loader.rs)）把全部散装
+zbc 读进后走 `merge_modules`（[merge.rs](../../../src/runtime/src/metadata/merge.rs)）——**函数按 FQ 名
+全局扁平化、类按名 dedup、派发按名**（`func_index`）。故 partial 类型"散在多 zbc"与"塞进一个 zbc"，
+**加载合并后是逐字节相同的 Module**，散/合对 VM **完全不可见**。
+**决定：** **默认散**——各碎片方法体留各自 zbc，dist zbc = cache 条目字节原样拷贝（零重序列化，保住
+`add-file-level-incremental` 的字节稳定）。record 仍只由主碎片（D3）发一份。
+- **零 VM/格式改动**：散着发不需要加载期合并（方案 B）、也不需要 per-method 跨 zbc 引用——Plan A 的
+  "零改动"前提在散模式下天然成立（架构图顶部"非主碎片只发本文件方法体"即此形态）。
+- **"一类型一 zbc"是可选磁盘优化，非正确性要求**：若未来要 per-type lazy-load / 按类型符号化，可让主碎片
+  zbc 收全类型方法体（代价：该 zbc 丢字节拷贝、随任一碎片变而重写）。**v1 不做**。
+
+### Decision 9: 嵌套类 —— 扁平限定名 record，按声明文件落位；v1 只做顶层 partial（2026-07-19）
+**背景：** 嵌套类在 zbc 是**扁平独立 record + 限定名**（`Outer.Inner`；`ClassDesc` 无 nesting 字段、反射
+`GetNestedTypes` 仍 Deferred），**非**物理嵌在外层 record 里。故它与顶层类走**同一条放置规则**。
+**决定：**
+- **放置**：任何类型（顶层或嵌套）落在"声明它的源文件"的 zbc。D3 的 min-path **只管 partial 外层自身
+  record 的落点，不牵动其嵌套类型**——嵌套类型各按自己声明碎片放。
+- **(a) partial 外层含嵌套（嵌套只在某碎片声明）**：**允许**。`Outer` 合并 record → 主碎片 zbc；
+  `Inner` record → `Inner` 声明碎片的 zbc；按限定名在加载期各归各位。
+- **(b) 嵌套类自身 partial（`Outer.Inner` 跨碎片拆）**：**v1 报错 + Deferred**。理由**不是"有害"**——机制
+  与顶层同构（同 min-path、同 clique，换个更长的名），而是**嵌套发射/反射链路本身尚未接通**
+  （SymbolCollector 未见显式嵌套收集）。接通"嵌套发为扁平 record"后，partial-nested 递归适用同规则即可解禁。
+  报错文案要精确：「嵌套类型 `X` 暂不支持 partial（v1）」，**勿写成语义禁令**。
+- **v1 scope**：partial **只做顶层类型**；嵌套类发射 + partial-nested 作为独立后续（嵌套支持独立地不成熟，
+  不绑上 partial 一起做）。partial 设计只需**不与未来嵌套模型冲突**。
 
 ## Implementation Notes
 
