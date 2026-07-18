@@ -1,5 +1,7 @@
 # zbc 二进制格式规范
 
+> ⚠️ **已迁移（2026-07-19）**：权威格式参考已移至 book —— [`docs/book/src/compiler/zbc-format.md`](../../book/src/compiler/zbc-format.md)（与当前 z42c 源码逐字节对齐）。本页保留 minor changelog 等历史，不再更新格式细节。
+
 ## 设计目标
 
 1. **二进制 + 文本双形态**：`.zbc` 二进制与 `.zasm` 文本一一对应，可互转，不丢信息

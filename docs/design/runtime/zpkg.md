@@ -1,5 +1,7 @@
 # zpkg — z42 包格式
 
+> ⚠️ **已迁移（2026-07-19）**：权威格式参考已移至 book —— [`docs/book/src/compiler/zpkg-format.md`](../../book/src/compiler/zpkg-format.md)（与当前 z42c 源码逐字节对齐）。本页保留历史，不再更新格式细节。
+
 > 单一来源：[`src/compiler/z42.Project/ZpkgWriter.cs`](../../../src/compiler/z42.Project/ZpkgWriter.cs) 是 wire format 的代码权威；本文档是与之同步的人类可读契约。任何不一致按 [freeze-zpkg-v0 spec](../../spec/archive/2026-05-14-freeze-zpkg-v0/) 流程更新。
 
 ## 设计目标
