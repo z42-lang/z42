@@ -23,10 +23,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 26 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 26 |
-| zpkg writer（z42c） | `src/compiler/z42c.project/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 31 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 31 |
+| zbc writer（z42c） | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 27 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 27 |
+| zpkg writer（z42c） | `src/compiler/z42c.project/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 32 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 32 |
 
 > reader 端（`zbc_reader.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
 > writer 端常量旁也有同样的单行 bump 注释，保持格式一致。
