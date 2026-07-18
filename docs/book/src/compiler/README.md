@@ -14,5 +14,5 @@ z42 "编译相关"的全部：**z42c**（编译器本体，源码 → `.zpkg`）
 | [项目构建与发布编排（z42b）](project-build.md) | 相位管线、ICompiler 进程内调 z42c、z42.build 框架 + WorkloadBase 继承链、launcher 分发 | 🟡 |
 | [zbc 字节码格式](zbc-format.md) | 文件头、section、opcode 表、type tag、token 编码、版本 strict-pin | ✅ |
 | [zpkg 包格式](zpkg-format.md) | packed/indexed 布局、各 section、sidecar、与 zbc 关系 | ✅ |
-| CLI 与诊断工具 | z42c（build/compile/--workspace）+ z42b（build/publish/test…）+ `--dump-*` | ⬜ |
+| [CLI 与诊断工具](tools.md) | z42c（build/--workspace/--emit-zbc）+ z42b（test/publish…）+ `--dump-*` | ✅ |
 | 错误码体系 | Z#### 分段、Diagnostics vs Exceptions | ⬜ |

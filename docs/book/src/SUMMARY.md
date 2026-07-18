@@ -24,7 +24,7 @@
   - [项目构建与发布编排（z42b）](compiler/project-build.md)
   - [编译产物：zbc 字节码格式](compiler/zbc-format.md)
   - [编译产物：zpkg 包格式](compiler/zpkg-format.md)
-  - [CLI 与诊断工具]()
+  - [CLI 与诊断工具](compiler/tools.md)
   - [错误码体系]()
 
 # 第三部分 · 运行时（Runtime / VM）
