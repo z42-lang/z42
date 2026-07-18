@@ -65,11 +65,13 @@ SubcommandRouter _builderRoot() {
     ArgParser test = new ArgParser("z42b test", "run a compiled module's [Test] methods");
     test.AddOptionalPositional("target", "<file.zbc|file.zpkg>");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
+    test.AddOption("format", "", "output format: pretty|json", "pretty");
     root.Add("test", "run [Test] in a compiled module", test);
 
     ArgParser bench = new ArgParser("z42b bench", "run a compiled module's [Benchmark] methods");
     bench.AddOptionalPositional("target", "<file.zbc|file.zpkg>");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
+    bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
     root.Add("bench", "run [Benchmark] in a compiled module", bench);
 
     // clean — remove a project's build artifacts (moved out of z42c: the compiler

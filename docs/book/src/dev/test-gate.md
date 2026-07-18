@@ -99,6 +99,25 @@ changed 是"逐文件求命令并集"（能精确到单个库），任一未识�
 | 发行版 e2e | `scripts/test/xtask_test_dist.z42` | 打包产物跑 goldens + launcher 冒烟 |
 | 平台三段测试 | `scripts/test/xtask_test_platform.z42` + 四平台后端 | build / assets / run |
 
+## 反射 runner 的输出格式（`z42b {test,bench}`）
+
+stdlib / compiler stage 驱动的 `Std.Test.Runner`（`z42b test` / `z42b bench`，取代已退役的 Rust
+`z42-test-runner`）支持两种输出，经 `--format` 选择（默认 `pretty`）：
+
+- **pretty**：逐条 `PASS`/`FAIL`/`SKIP` + `Result:` 汇总，供人眼与 gate 退出码判定。
+- **json**：单个 `TestReport` 对象 `{tool, module, summary{total,passed,failed,skipped}, results[]}`；
+  每条 result 带 `is_benchmark`，benchmark 还带 `bench_stats{label,min_ns,median_ns,max_ns,samples}`。
+
+**bench 结构化数据流**（rebuild-bench-structured-output，跨组件）：benchmark 经
+`Bencher.printSummary` 打出 `bench[<label>] min=… median=… max=… samples=…` 一行 → json 模式下
+`Runner` 用 `TestIO.captureStdout` 捕获该 benchmark 的 stdout → `BenchStats.parse` 解析为结构化
+字段（malformed → `null`，不降级 sentinel）→ 汇入 `TestReport`（手写 JSON，z42.test 无依赖不引
+z42.json）。这是旧 Rust `test-runner` 的 `extract_bench_stats_from_stdout` 契约在 z42 里的纯脚本
+重实现。格式契约两端——产出端 `Bencher.printSummary` ↔ 消费端 `BenchStats.parse`
+（同在 `src/libraries/z42.test/`）——改格式须同提交，`tests/bench_stats.z42` 兜底防漂移。pretty
+模式不捕获、逐字节不变（回归零风险）。捕获 benchmark 返回 `Bencher`（结构化数据结构化流动）需改
+z42c desugar，受 compiler 锁阻断，记为 Deferred。
+
 ## 边界与限制
 
 - 单 stage / `--no-build` 与 changed 计划均**不构成 GREEN**——提交判定只认完整 `xtask test` gate

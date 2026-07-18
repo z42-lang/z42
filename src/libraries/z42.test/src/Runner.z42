@@ -10,17 +10,46 @@
 // Lifecycle per [Test]: same-namespace [Setup] → the test → same-namespace
 // [Teardown] (teardown always runs). Exit code: 0 = all passed (failures=0),
 // 1 = any failure.
+//
+// Output format (rebuild-bench-structured-output): `format` selects
+//   "pretty" (default) — human-readable PASS/FAIL/SKIP lines + Result summary;
+//   "json"             — a single structured `TestReport` object (with per-benchmark
+//                        `bench_stats` parsed from the benchmark's captured stdout).
 namespace Std.Test;
 
 using Std;
 using Std.IO;
 
+// Internal invoke outcome (z42 has no out-params). Carries thrown state + the
+// benchmark's captured stdout (json mode only; "" otherwise / on throw).
+public class InvokeOutcome {
+    public bool Threw;
+    public string ErrType;
+    public string ErrMsg;
+    public string Captured;
+    public InvokeOutcome() {
+        this.Threw = false; this.ErrType = ""; this.ErrMsg = ""; this.Captured = "";
+    }
+}
+
 public static class Runner {
-    // Load + run every [Test] / [Benchmark] in the compiled module at `path`.
-    // Returns a process exit code (0 = no failures, 1 = at least one failure).
-    public static int RunModule(string path) {
+    // Load + run every [Test] / [Benchmark] in the compiled module at `path`,
+    // rendering output in `format` ("pretty" | "json"). Returns a process exit
+    // code (0 = no failures, 1 = at least one failure).
+    public static int RunModule(string path, string format) {
+        bool json = (format == "json");
         TestEntry[] entries = ModuleLoader.Load(path);
+
+        int runnable = 0;
+        int c = 0;
+        while (c < entries.Length) {
+            if (entries[c].IsTest() || entries[c].IsBenchmark()) { runnable = runnable + 1; }
+            c = c + 1;
+        }
+        TestResult[] results = new TestResult[runnable];
+
         int passed = 0; int failed = 0; int skipped = 0;
+        int ri = 0;
         int i = 0;
         while (i < entries.Length) {
             TestEntry e = entries[i];
@@ -28,64 +57,109 @@ public static class Runner {
             // invocation); the benchmark body constructs its own Bencher and
             // self-reports — mirrors the retired Rust runner, which ran both.
             if (e.IsTest() || e.IsBenchmark()) {
-                int r = Runner._runOne(e, entries);
-                if (r == 0)      { passed = passed + 1; }
-                else if (r == 1) { failed = failed + 1; }
-                else             { skipped = skipped + 1; }
+                TestResult tr = Runner._runOne(e, entries, json);
+                results[ri] = tr;
+                ri = ri + 1;
+                if (tr.Status == "passed")      { passed = passed + 1; }
+                else if (tr.Status == "failed") { failed = failed + 1; }
+                else                            { skipped = skipped + 1; }
             }
             i = i + 1;
         }
-        Console.WriteLine("");
-        Console.WriteLine("  Result: " + passed.ToString() + " passed, "
-            + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
+
+        if (json) {
+            // Assemble the report envelope here (not in a TestReport method):
+            // z42c drops many-param brace-bodied static methods from TSIG export,
+            // and array-type params misparse — both avoided by looping the 1-arg
+            // `resultJson` over the local array + building the envelope inline.
+            string body = "";
+            int k = 0;
+            while (k < results.Length) {
+                if (k > 0) { body = body + ","; }
+                body = body + TestReport.resultJson(results[k]);
+                k = k + 1;
+            }
+            string js = "{\"tool\":\"z42b\",\"module\":\"" + TestReport.esc(path) + "\","
+                + "\"summary\":{\"total\":" + results.Length.ToString()
+                + ",\"passed\":" + passed.ToString()
+                + ",\"failed\":" + failed.ToString()
+                + ",\"skipped\":" + skipped.ToString() + "},"
+                + "\"results\":[" + body + "]}";
+            Console.WriteLine(js);
+        } else {
+            Console.WriteLine("");
+            Console.WriteLine("  Result: " + passed.ToString() + " passed, "
+                + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
+        }
         if (failed > 0) { return 1; }
         return 0;
     }
 
-    // 0 = pass, 1 = fail, 2 = skip.
-    static int _runOne(TestEntry e, TestEntry[] all) {
+    // Run one [Test]/[Benchmark]. Returns its TestResult; prints pretty lines only
+    // when `!json` (pretty output stays byte-identical to pre-structured-output).
+    static TestResult _runOne(TestEntry e, TestEntry[] all, bool json) {
+        bool isBench = e.IsBenchmark();
         if (e.IsIgnored()) {
-            Console.WriteLine("  SKIP " + e.Qualified + " (ignored)");
-            return 2;
+            if (!json) { Console.WriteLine("  SKIP " + e.Qualified + " (ignored)"); }
+            return new TestResult(e.Qualified, "skipped", isBench, "ignored", null);
         }
         if (e.IsSkipped() && Runner._skipApplies(e)) {
             string why = (e.SkipReason != null) ? (" (" + e.SkipReason + ")") : "";
-            Console.WriteLine("  SKIP " + e.Qualified + why);
-            return 2;
+            if (!json) { Console.WriteLine("  SKIP " + e.Qualified + why); }
+            string sreason = (e.SkipReason != null) ? e.SkipReason : "skipped";
+            return new TestResult(e.Qualified, "skipped", isBench, sreason, null);
         }
 
         string ns = e.DeclaringType();
         Runner._runLifecycle(all, ns, 3);   // [Setup]
-
-        bool threw = false;
-        string errMsg = "";
-        string errType = "";
-        try {
-            ModuleLoader.Invoke(e.Qualified);
-        } catch (Exception ex) {
-            threw = true;
-            errMsg = ex.Message;
-            errType = ex.GetType().FullName;
-        }
-
+        InvokeOutcome o = Runner._invoke(e, json);
         Runner._runLifecycle(all, ns, 4);   // [Teardown] (always)
 
         if (e.HasShouldThrow()) {
-            if (threw && Runner._typeMatches(errType, e.ShouldThrow)) {
-                Console.WriteLine("  PASS " + e.Qualified);
-                return 0;
+            if (o.Threw && Runner._typeMatches(o.ErrType, e.ShouldThrow)) {
+                if (!json) { Console.WriteLine("  PASS " + e.Qualified); }
+                return Runner._pass(e, isBench, o.Captured, json);
             }
-            string got = threw ? errType : "no throw";
-            Console.WriteLine("  FAIL " + e.Qualified + " (expected throw "
-                + e.ShouldThrow + ", got " + got + ")");
-            return 1;
+            string got = o.Threw ? o.ErrType : "no throw";
+            string freason = "expected throw " + e.ShouldThrow + ", got " + got;
+            if (!json) { Console.WriteLine("  FAIL " + e.Qualified + " (" + freason + ")"); }
+            return new TestResult(e.Qualified, "failed", isBench, freason, null);
         }
-        if (threw) {
-            Console.WriteLine("  FAIL " + e.Qualified + ": " + errType + ": " + errMsg);
-            return 1;
+        if (o.Threw) {
+            string treason = o.ErrType + ": " + o.ErrMsg;
+            if (!json) { Console.WriteLine("  FAIL " + e.Qualified + ": " + treason); }
+            return new TestResult(e.Qualified, "failed", isBench, treason, null);
         }
-        Console.WriteLine("  PASS " + e.Qualified);
-        return 0;
+        if (!json) { Console.WriteLine("  PASS " + e.Qualified); }
+        return Runner._pass(e, isBench, o.Captured, json);
+    }
+
+    // Invoke the entry. In json mode, capture its stdout (so the benchmark's
+    // `bench[...]` line can be parsed and is not echoed into the JSON stream).
+    static InvokeOutcome _invoke(TestEntry e, bool json) {
+        InvokeOutcome o = new InvokeOutcome();
+        if (json) {
+            try {
+                o.Captured = TestIO.captureStdout(() => { ModuleLoader.Invoke(e.Qualified); });
+            } catch (Exception ex) {
+                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+            }
+        } else {
+            try {
+                ModuleLoader.Invoke(e.Qualified);
+            } catch (Exception ex) {
+                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+            }
+        }
+        return o;
+    }
+
+    // Build a passed TestResult; for a benchmark in json mode, parse its captured
+    // summary line into bench_stats (null if the line is absent/malformed).
+    static TestResult _pass(TestEntry e, bool isBench, string captured, bool json) {
+        BenchStats stats = null;
+        if (json && isBench) { stats = BenchStats.parse(captured); }
+        return new TestResult(e.Qualified, "passed", isBench, null, stats);
     }
 
     // Run all [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the

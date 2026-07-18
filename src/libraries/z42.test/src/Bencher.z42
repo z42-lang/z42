@@ -97,17 +97,18 @@ public class Bencher {
 
     // Human-readable single-line summary.
     //
-    // **The output format is part of the runner contract** — z42-test-runner
-    // (subprocess mode) parses this line out of captured stdout and
-    // structurally surfaces the stats as `TestResult.bench_stats` in JSON
-    // output (capture-benchmark-stats-in-testresult, 2026-05-31). Format:
+    // **The output format is part of the runner contract** — `Std.Test.Runner`
+    // (json mode) captures this line out of a benchmark's stdout and parses it
+    // via `BenchStats.parse` into `TestResult.bench_stats`
+    // (rebuild-bench-structured-output; the z42-native successor to the retired
+    // Rust `extract_bench_stats_from_stdout`). Format:
     //
     //   `bench[<label>] min=<n>ns median=<n>ns max=<n>ns samples=<n>`
     //
-    // The runner parses fields in this exact order with `ns` unit suffixes
-    // on the time fields. If you change this format, update
-    // `src/toolchain/test-runner/src/exec.rs::extract_bench_stats_from_stdout`
-    // in the same commit (unit tests `bench_stats_*` will catch a mismatch).
+    // `BenchStats.parse` reads these fields by key (`ns` suffix stripped from the
+    // time fields). If you change this format, update `BenchStats.parse`
+    // (`src/libraries/z42.test/src/BenchStats.z42`) in the same commit — the unit
+    // tests in `tests/bench_stats.z42` will catch a mismatch.
     public void printSummary(string label) {
         Console.WriteLine($"bench[{label}] min={this.MinNs}ns median={this.MedianNs}ns max={this.MaxNs}ns samples={this.Samples}");
     }

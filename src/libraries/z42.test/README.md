@@ -17,7 +17,7 @@ R 系列基础设施已落（R1 / R2 minimal / R2 完整版 / R3 minimal+R3a+R3c
 | TestIO（捕获 console） | ✅ R2 完整版 | captureStdout / captureStderr / captureBoth |
 | Bencher（基准测量） | ✅ R2 完整版 | Bencher.iter(Action) / printSummary / Min·Max·Median·Total·Samples + BenchHelpers.blackBox |
 | Imperative TestRunner（旧） | ✅ v0 保留 | Begin / Fail / Summary（lambda 前的兼容路径）|
-| Runner [Benchmark] 调度 | ✅ add-benchmark-runner-dispatch + add-benchmark-bencher-arg-trampoline | `[Benchmark] void f()` **或** `void f(Bencher b)`（后者编译期 desugar 成前者）；与 `[Test]` 同执行路径；pretty `bench:<name>` 前缀；JSON 含 `is_benchmark: true` + `bench_stats`（全模式，capture-benchmark-stats-in-testresult）|
+| Runner [Benchmark] 调度 | ✅ add-benchmark-runner-dispatch + rebuild-bench-structured-output | `[Benchmark] void f()` **或** `void f(Bencher b)`（后者编译期 desugar 成前者）；与 `[Test]` 同执行路径。默认 pretty（`PASS`/`FAIL`/`SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产结构化报告 `TestReport`：per-entry `is_benchmark` + benchmark 的 `bench_stats`（`Runner` json 模式捕获 benchmark stdout → `BenchStats.parse`）|
 
 ## 推荐用法（lambda 时代）
 

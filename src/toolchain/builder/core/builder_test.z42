@@ -30,8 +30,12 @@ int _runModule(ParseResult r, string verb) {
         ConsoleError.WriteLine("z42b " + verb + ": missing <file.zbc|file.zpkg>");
         return 2;
     }
+    // Output format: pretty (default, human-readable) | json (structured report
+    // with per-benchmark bench_stats) — rebuild-bench-structured-output.
+    string format = r.GetOption("format");
+    if (format.Length == 0) { format = "pretty"; }
     if (target.EndsWith(".zbc") || target.EndsWith(".zpkg")) {
-        return Runner.RunModule(target);
+        return Runner.RunModule(target, format);
     }
     ConsoleError.WriteLine("z42b " + verb + ": building from " + target
         + " is pending wire-z42b-host-build; pass a compiled .zbc/.zpkg");

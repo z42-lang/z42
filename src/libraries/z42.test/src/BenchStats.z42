@@ -1,0 +1,94 @@
+namespace Std.Test;
+
+using Std;
+
+// `Std.Test.BenchStats` — structured form of a benchmark's summary line
+// (rebuild-bench-structured-output). The runner's json mode parses this out of a
+// benchmark's captured stdout and surfaces it as `TestResult.bench_stats`.
+//
+// This is the z42-native successor to the retired Rust
+// `test-runner/src/exec.rs::extract_bench_stats_from_stdout` — same contract, now
+// pure script. The one-line format is produced by `Bencher.printSummary`:
+//
+//   bench[<label>] min=<n>ns median=<n>ns max=<n>ns samples=<n>
+//
+// `parse` is deterministic (input strings, not timings) and hence directly
+// unit-testable (see `tests/bench_stats.z42`). Malformed input returns `null` —
+// never a sentinel; the caller treats null as "this benchmark has no stats"
+// rather than guessing missing fields.
+public class BenchStats {
+    public string Label;
+    public long MinNs;
+    public long MedianNs;
+    public long MaxNs;
+    public long Samples;
+
+    public BenchStats(string label, long minNs, long medianNs, long maxNs, long samples) {
+        this.Label = label;
+        this.MinNs = minNs;
+        this.MedianNs = medianNs;
+        this.MaxNs = maxNs;
+        this.Samples = samples;
+    }
+
+    // Parse the last valid `bench[...]` line out of `text` (a benchmark's captured
+    // stdout, possibly multi-line). Returns null if no line parses. A single
+    // benchmark emits exactly one such line; scanning from the end is the most
+    // robust choice if stray output precedes it (mirrors the retired runner's
+    // "picks last" behaviour).
+    public static BenchStats parse(string text) {
+        string[] lines = text.Split("\n");
+        int i = lines.Length - 1;
+        while (i >= 0) {
+            BenchStats s = BenchStats._parseLine(lines[i]);
+            if (s != null) { return s; }
+            i = i - 1;
+        }
+        return null;
+    }
+
+    // Parse a single line. Returns null unless it is exactly a well-formed
+    // `bench[<label>] min=<n>ns median=<n>ns max=<n>ns samples=<n>` line.
+    static BenchStats _parseLine(string line) {
+        string t = line.Trim();
+        if (!t.StartsWith("bench[")) { return null; }
+        int close = t.IndexOf("]");
+        if (close < 0) { return null; }
+        string label = t.Substring(6, close - 6);   // between "bench[" and "]"
+        string rest = t.Substring(close + 1);
+
+        long min     = BenchStats._pullKv(rest, "min=");
+        long median  = BenchStats._pullKv(rest, "median=");
+        long max     = BenchStats._pullKv(rest, "max=");
+        long samples = BenchStats._pullKv(rest, "samples=");
+
+        // Any missing / non-integer field → whole line malformed (-1 sentinel is
+        // internal to _pullKv; real ns / sample counts are always >= 0).
+        if (min < 0 || median < 0 || max < 0 || samples < 0) { return null; }
+        return new BenchStats(label, min, median, max, samples);
+    }
+
+    // Read the integer immediately following `key` in `s`, ignoring any trailing
+    // unit suffix (e.g. "ns"). Returns -1 if `key` is absent or not followed by
+    // at least one digit, or if the digits overflow long.
+    static long _pullKv(string s, string key) {
+        int at = s.IndexOf(key);
+        if (at < 0) { return -1; }
+        int start = at + key.Length;
+        int j = start;
+        while (j < s.Length && BenchStats._isDigit(s.Substring(j, 1))) {
+            j = j + 1;
+        }
+        if (j == start) { return -1; }   // no digits after key
+        string num = s.Substring(start, j - start);
+        try {
+            return long.Parse(num);
+        } catch (Exception e) {
+            return -1;                    // overflow
+        }
+    }
+
+    static bool _isDigit(string ch) {
+        return ch.Length == 1 && "0123456789".IndexOf(ch) >= 0;
+    }
+}
