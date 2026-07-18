@@ -1,6 +1,7 @@
 # Tasks: partial 类型
 
-> 状态：🔴 DRAFT，排队中（等 `compiler` 锁释放）| 创建：2026-07-08 | 设计定稿：2026-07-19
+> 状态：🔴 DRAFT，**设计封版**、排队中（等 `compiler` 锁释放）| 创建：2026-07-08 | 封版：2026-07-19
+> Open Questions 三条全结（主碎片 D3 / partial method D5 / 能力版本号 D7）；开工无待决设计项。
 > 前置：`add-indexed-zpkg-min-patch` 归档释放 `compiler` 锁 → 阶段 6.5 确认 → 开工。
 > **v1 scope（2026-07-19 定，design D3/D8/D9）**：① 主碎片 = 路径 Ordinal 最小（单一规则）；
 > ② indexed 方法体**默认散留各碎片 zbc**（不合并，零 VM/格式改动）；③ **只做顶层类型 partial**——

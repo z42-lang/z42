@@ -68,14 +68,14 @@
 - **重复成员**：两碎片声明同名字段 / 同签名方法（非 partial method 声明↔实现配对）→ 报错。
 - **Kind 一致**：所有碎片 `Kind`（class/struct/record/interface）必须相同，否则报错。
 
-### Decision 5: partial method —— 做，但只采 C# 9+ 干净形态
+### Decision 5: partial method —— 做，但只采 C# 9+ 干净形态（2026-07-19 User 确认）
 **问题：** partial method 是 C# 里唯一被点名规避的缺点（旧版 void-only + C#9 打补丁的双规则）。
-**决定：** **做**，但**只实现 C# 9+ 统一形态**，丢弃旧版烂规则：
+**决定（已确认，封版）：** **做**，但**只实现 C# 9+ 统一形态**，丢弃旧版烂规则：
 - 声明侧 `partial R M(params)` 无 body；实现侧 `partial R M(params) { ... }` 有 body。
 - **允许任意返回类型、访问修饰符、`out`/`ref` 参数**。
 - **无实现时整体擦除**：不发方法桩，`IrGen` 消解对它的调用点（等价方法不存在）。
 - 声明↔实现签名必须完全一致（含返回类型、参数、修饰符），否则报错；至多一个实现。
-> 若 User 实施前改主意不要 partial method：删本 Decision，`partial` 仅作类型修饰符，工作量更小。
+> 2026-07-19 User 确认「做」——本 Decision 封版，实施照此。
 
 ### Decision 6: 增量失效——partial 碎片组联动
 **问题：** 改一个碎片，如何保证同类型其它碎片一起重编、合并 record 保持一致？

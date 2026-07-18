@@ -82,12 +82,11 @@
 
 ## Open Questions
 
-- [ ] **自举能力版本号**：bootstrap-seed.md 提及 z42c 应带"语法能力版本号"，但当前**未实现**
-      （只有 Main.z42 一个版本串）。本 change 是否顺带引入该数字并 +1？还是维持现状、
-      仅靠 `xtask test bootstrap` 兜底？→ design D-boot 待裁。
+- [x] **自举能力版本号**（design D7/D-boot 定）：本 change **不引入**（避免范围蔓延）；分阶段纪律靠
+      `xtask test bootstrap` 兜底。引入能力版本号另立独立 change。
 - [x] **主碎片选定规则**（2026-07-19 定）：**路径 Ordinal 最小的碎片，单一规则**，砍掉"基类/ctor 碎片
       优先"特例（合并 record 内容与发自哪个碎片无关）。→ design D3 已改。
 - [x] **indexed 发布态方法体落点**（2026-07-19 定）：**默认散留各碎片 zbc**（VM `merge_modules` 按名合并，
       散/合加载后逐字节相同 → 散着零改动 + 保住 cache 字节拷贝）。→ design D8。
-- [ ] **partial method v1 是否真做**：User 倾向"照 C# 全做"，但它是唯一被点名规避的 C# 缺点；
-      已定"做但只采 C# 9+ 干净形态"。design D5 复述该裁决，实施前最终确认。
+- [x] **partial method v1 是否真做**（2026-07-19 User 确认）：**做，只采 C# 9+ 干净形态**
+      （任意返回类型 + 访问修饰符 + out/ref；无实现整体擦除）。design D5 封版。
