@@ -1,0 +1,96 @@
+// rebuild-bench-structured-output — unit coverage for `BenchStats.parse` and
+// `TestReport.toJson`. These inputs are deterministic strings (not timings), so
+// the tests are stable. Mirrors the retired Rust runner's `bench_stats_*` tests.
+
+namespace Z42TestBenchStats;
+
+using Std;
+using Std.Test;
+
+// ── BenchStats.parse ────────────────────────────────────────────────────────
+
+[Test]
+void test_parse_canonical() {
+    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100");
+    Assert.NotNull(s);
+    Assert.Equal("addition", s.Label);
+    Assert.Equal("3875", s.MinNs.ToString());
+    Assert.Equal("3958", s.MedianNs.ToString());
+    Assert.Equal("9042", s.MaxNs.ToString());
+    Assert.Equal("100", s.Samples.ToString());
+}
+
+[Test]
+void test_parse_no_bench_line_returns_null() {
+    Assert.Null(BenchStats.parse("  PASS Foo.bar"));
+    Assert.Null(BenchStats.parse(""));
+}
+
+[Test]
+void test_parse_malformed_returns_null() {
+    // missing median + samples
+    Assert.Null(BenchStats.parse("bench[x] min=1ns max=2ns"));
+    // non-integer value where a number is expected
+    Assert.Null(BenchStats.parse("bench[x] min=abc median=1ns max=2ns samples=3"));
+}
+
+[Test]
+void test_parse_multiline_picks_last() {
+    string text = "bench[first] min=1ns median=1ns max=1ns samples=1\n"
+        + "some noise\n"
+        + "bench[second] min=2ns median=2ns max=2ns samples=2";
+    BenchStats s = BenchStats.parse(text);
+    Assert.NotNull(s);
+    Assert.Equal("second", s.Label);
+    Assert.Equal("2", s.MinNs.ToString());
+}
+
+[Test]
+void test_parse_leading_indent() {
+    // captured stdout may carry indentation before the bench line
+    BenchStats s = BenchStats.parse("   bench[y] min=5ns median=6ns max=7ns samples=8");
+    Assert.NotNull(s);
+    Assert.Equal("y", s.Label);
+    Assert.Equal("8", s.Samples.ToString());
+}
+
+// ── TestReport.toJson ───────────────────────────────────────────────────────
+
+[Test]
+void test_result_json_benchmark_shape() {
+    BenchStats b = BenchStats.parse("bench[add] min=10ns median=20ns max=30ns samples=50");
+    TestResult r = new TestResult("M.bench_add", "passed", true, null, b);
+    string j = TestReport.resultJson(r);
+    Assert.Contains("\"name\":\"M.bench_add\"", j);
+    Assert.Contains("\"status\":\"passed\"", j);
+    Assert.Contains("\"is_benchmark\":true", j);
+    Assert.Contains("\"bench_stats\":{\"label\":\"add\",\"min_ns\":10,\"median_ns\":20,\"max_ns\":30,\"samples\":50}", j);
+}
+
+[Test]
+void test_result_json_plain_test_no_stats() {
+    TestResult r = new TestResult("M.test_ok", "passed", false, null, null);
+    string j = TestReport.resultJson(r);
+    Assert.Contains("\"is_benchmark\":false", j);
+    // no bench_stats / reason keys on a plain passing test
+    Assert.True(!j.Contains("bench_stats"));
+    Assert.True(!j.Contains("reason"));
+}
+
+[Test]
+void test_result_json_escapes_reason() {
+    TestResult r = new TestResult("M.test_fail", "failed", false, "boom: got \"x\"\nline2", null);
+    string j = TestReport.resultJson(r);
+    Assert.Contains("\"status\":\"failed\"", j);
+    // quote and newline in the reason are JSON-escaped
+    Assert.Contains("\\\"x\\\"", j);
+    Assert.Contains("\\n", j);
+    Assert.Contains("line2", j);
+}
+
+[Test]
+void test_esc_escapes_specials() {
+    Assert.Equal("a\\\"b", TestReport.esc("a\"b"));
+    Assert.Equal("a\\\\b", TestReport.esc("a\\b"));
+    Assert.Equal("a\\nb", TestReport.esc("a\nb"));
+}

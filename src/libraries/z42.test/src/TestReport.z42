@@ -1,0 +1,83 @@
+namespace Std.Test;
+
+using Std;
+
+// Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).
+// The z42-native successor to the retired Rust `TestResult`, trimmed to what an
+// in-process runner can produce: no per-test `duration_ms` / `failure_location` /
+// `stack_trace` (no reliable source — omitted rather than fabricated).
+public class TestResult {
+    public string Name;         // fully-qualified "<FQClass>.<Method>"
+    public string Status;       // "passed" | "failed" | "skipped"
+    public bool IsBenchmark;
+    public string Reason;       // null unless failed / skipped
+    public BenchStats Stats;    // null unless a benchmark with a parsed summary line
+
+    public TestResult(string name, string status, bool isBenchmark, string reason, BenchStats stats) {
+        this.Name = name;
+        this.Status = status;
+        this.IsBenchmark = isBenchmark;
+        this.Reason = reason;
+        this.Stats = stats;
+    }
+}
+
+// JSON rendering helpers for the runner's `--format json` mode. z42.test has no
+// dependencies (foundational lib), so JSON is hand-rolled rather than via z42.json.
+// `resultJson` renders one result object; `Runner` (the caller) assembles the outer
+// `{tool,module,summary,results}` envelope inline — see the note below.
+//
+// **API shape — only per-result + escape helpers, no envelope method:** the nightly
+// z42c drops a public static method with many parameters *and* a brace-bearing string
+// body from its TSIG export (an envelope method `report(module,total,passed,failed,
+// skipped,body)` compiled but silently failed to export → "undefined function ..."
+// at load). Single-parameter methods export reliably, so the envelope is assembled by
+// `Runner` (which already holds the counts) using these 1-arg helpers. See design.md
+// Deferred `bench-structured-future-report-envelope` (compiler subsystem is locked).
+public static class TestReport {
+    // Render one result object (no trailing comma; the caller joins with ",").
+    public static string resultJson(TestResult r) {
+        string s = "{";
+        s = s + "\"name\":\"" + TestReport.esc(r.Name) + "\",";
+        s = s + "\"status\":\"" + r.Status + "\",";
+        s = s + "\"is_benchmark\":" + (r.IsBenchmark ? "true" : "false");
+        if (r.Reason != null) {
+            s = s + ",\"reason\":\"" + TestReport.esc(r.Reason) + "\"";
+        }
+        if (r.Stats != null) {
+            s = s + ",\"bench_stats\":" + TestReport._statsJson(r.Stats);
+        }
+        s = s + "}";
+        return s;
+    }
+
+    static string _statsJson(BenchStats b) {
+        return "{"
+            + "\"label\":\"" + TestReport.esc(b.Label) + "\","
+            + "\"min_ns\":" + b.MinNs.ToString() + ","
+            + "\"median_ns\":" + b.MedianNs.ToString() + ","
+            + "\"max_ns\":" + b.MaxNs.ToString() + ","
+            + "\"samples\":" + b.Samples.ToString()
+            + "}";
+    }
+
+    // Minimal JSON string escaping: quote, backslash, and the common control
+    // chars that appear in exception messages / names. Sufficient for the
+    // strings this report carries (names, statuses, reason text). Public so the
+    // envelope assembler in `Runner` can escape the module path too.
+    public static string esc(string str) {
+        string outp = "";
+        int i = 0;
+        while (i < str.Length) {
+            string c = str.Substring(i, 1);
+            if (c == "\"")       { outp = outp + "\\\""; }
+            else if (c == "\\")  { outp = outp + "\\\\"; }
+            else if (c == "\n")  { outp = outp + "\\n"; }
+            else if (c == "\r")  { outp = outp + "\\r"; }
+            else if (c == "\t")  { outp = outp + "\\t"; }
+            else                 { outp = outp + c; }
+            i = i + 1;
+        }
+        return outp;
+    }
+}
