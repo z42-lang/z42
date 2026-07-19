@@ -263,7 +263,13 @@ public sealed class BoundTypeof : BoundExpr {
 public sealed class BoundCast : BoundExpr {
     public BoundExpr E;
     private Z42Type _type;
-    public BoundCast(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; }
+    // AST 原始目标类型名（fix-crosspkg-interface-impl）：cast 目标名用它经 QualifyClass 解析
+    // （镜像 `is` 走 BoundIsExpr.TypeName），不用 resolved 类型——imported 接口/内建类 ResolveType
+    // 得 Unknown → "<unknown>" 会致 as_cast 目标名失配、跨包接口 `as` 恒 null。
+    public string TypeName;
+    public BoundCast(BoundExpr e, Z42Type type, string typeName, Span span) {
+        this.Span = span; this.E = e; this._type = type; this.TypeName = typeName;
+    }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(cast " + this.E.Dump() + " :" + this._type.Name() + ")"; }
 }

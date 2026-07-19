@@ -342,6 +342,47 @@ public static class ZbcReader {
             cd.Interfaces = new string[ifn]; cd.InterfaceCount = ifn;
             int ix = 0;
             while (ix < ifn) { cd.Interfaces[ix] = ZbcReader._p(pool, c.U32()); ix = ix + 1; }
+            // enum 成员块（Flags bit5 gated；add-enum-type-metadata）：此前 z42c 侧未消费——
+            // enum 记录一旦出现会致游标错位（潜伏），随 1.28 一并补齐消费（读入 cd）。
+            if ((cd.Flags & 32) != 0) {
+                int emc = c.U16();
+                cd.EnumMemberNames = new string[emc]; cd.EnumMemberValues = new long[emc]; cd.EnumMemberCount = emc;
+                int emx = 0;
+                while (emx < emc) {
+                    cd.EnumMemberNames[emx] = ZbcReader._p(pool, c.U32());
+                    cd.EnumMemberValues[emx] = c.I64();
+                    emx = emx + 1;
+                }
+            }
+            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；Flags bit4 gated）：
+            // mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n → 平行数组 + 扁平参数表。
+            if ((cd.Flags & 16) != 0) {
+                int imc = c.U16();
+                cd.IfaceMethodNames = new string[imc]; cd.IfaceMethodRets = new string[imc];
+                cd.IfaceMethodParamCounts = new int[imc]; cd.IfaceMethodCount = imc;
+                string[] ipts = new string[8];
+                int iptc = 0;
+                int imr = 0;
+                while (imr < imc) {
+                    cd.IfaceMethodNames[imr] = ZbcReader._p(pool, c.U32());
+                    cd.IfaceMethodRets[imr] = ZbcReader._p(pool, c.U32());
+                    int ipc = c.U8();
+                    cd.IfaceMethodParamCounts[imr] = ipc;
+                    int ipr = 0;
+                    while (ipr < ipc) {
+                        if (iptc == ipts.Length) {
+                            string[] b = new string[ipts.Length * 2];
+                            int k = 0; while (k < iptc) { b[k] = ipts[k]; k = k + 1; }
+                            ipts = b;
+                        }
+                        ipts[iptc] = ZbcReader._p(pool, c.U32());
+                        iptc = iptc + 1;
+                        ipr = ipr + 1;
+                    }
+                    imr = imr + 1;
+                }
+                cd.IfaceMethodParamTypes = ipts; cd.IfaceMethodParamTotal = iptc;
+            }
             classes[ci] = cd;
             ci = ci + 1;
         }

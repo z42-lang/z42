@@ -99,7 +99,12 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // CallInstr/VCall operand strings + SIGS method names are globally re-keyed.
 // The version bump exists to trigger ci-bootstrap's two-generation self-host
 // (coupled with zpkg 0.32) which rebuilds the whole tree consistently.
-pub const ZBC_VERSION_MINOR: u16 = 27;
+// 2026-07-18 fix-crosspkg-interface-impl: bumped to 1.28 - interface TYPE
+// entries gain a trailing method-signature block (CLASS_FLAG_INTERFACE gated:
+// mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n) so the compiler
+// can restore imported interface methods from dep zpkgs (abstract iface methods
+// have no body → absent from SIGS; EXPT was dropped). Coupled with zpkg 0.33.
+pub const ZBC_VERSION_MINOR: u16 = 28;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -169,7 +174,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // names / SIGS / embedded zbc CallInstr operands are globally re-keyed. Outer
 // zpkg layout unchanged. The bump triggers ci-bootstrap's version-diff gate →
 // two-generation self-host rebuilds the whole tree onto the stable keys.
-pub const ZPKG_VERSION_MINOR: u16 = 32;
+// 2026-07-18 fix-crosspkg-interface-impl: bumped to 0.33, coupled inner zbc 1.28
+// (interface TYPE entries gain a method-signature block; see zbc changelog).
+// Outer zpkg layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 33;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -492,6 +500,23 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             Box::new([]) as Box<[(String, i64)]>
         };
+        // fix-crosspkg-interface-impl (zbc 1.28): trailing interface-method block,
+        // present only when CLASS_FLAG_INTERFACE is set. Layout: mcount:u16 +
+        // (name_idx:u32, ret_idx:u32, pcount:u8, ptype_idx:u32×pcount)×n. The block
+        // exists so the COMPILER (TsigReconcile) can restore imported interface
+        // methods from dep zpkgs; the VM resolves interface calls via vtable, so we
+        // parse for cursor correctness and discard (future: surface via reflection).
+        if class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
+            let im_count = c.read_u16()? as usize;
+            for _ in 0..im_count {
+                let _name_idx = c.read_u32()?;
+                let _ret_idx = c.read_u32()?;
+                let pcount = c.read_u8()? as usize;
+                for _ in 0..pcount {
+                    let _ptype_idx = c.read_u32()?;
+                }
+            }
+        }
         classes.push(ClassDesc {
             name,
             base_class,

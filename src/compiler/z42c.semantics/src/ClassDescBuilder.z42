@@ -280,6 +280,42 @@ public sealed class ClassDescBuilder {
             while (ti < c.TypeParams.Count) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
             cd.TypeParamConstraints = descs;
         }
+        // 接口方法签名（zbc 1.28，fix-crosspkg-interface-impl）：从成员 MethodDecl 抽名/返回/参数类型
+        // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。
+        string[] imn = new string[4]; string[] imr = new string[4];
+        int[] imp = new int[4]; int imc = 0;
+        string[] ipt = new string[8]; int iptc = 0;
+        int mj = 0;
+        while (mj < c.MemberCount) {
+            Decl imem = IrGenFacts._unwrap(c.Members[mj]);
+            if (imem is MethodDecl) {
+                MethodDecl imd = imem as MethodDecl;
+                if (imc == imn.Length) {
+                    string[] b1 = new string[imn.Length * 2]; string[] b2 = new string[imn.Length * 2]; int[] b3 = new int[imn.Length * 2];
+                    int k = 0; while (k < imc) { b1[k] = imn[k]; b2[k] = imr[k]; b3[k] = imp[k]; k = k + 1; }
+                    imn = b1; imr = b2; imp = b3;
+                }
+                imn[imc] = imd.Name;
+                imr[imc] = this._typeFieldName(imd.RetType);
+                imp[imc] = imd.ParamCount;
+                int pj = 0;
+                while (pj < imd.ParamCount) {
+                    if (iptc == ipt.Length) {
+                        string[] b = new string[ipt.Length * 2];
+                        int k2 = 0; while (k2 < iptc) { b[k2] = ipt[k2]; k2 = k2 + 1; }
+                        ipt = b;
+                    }
+                    ipt[iptc] = this._typeFieldName(imd.Params[pj].Type);
+                    iptc = iptc + 1;
+                    pj = pj + 1;
+                }
+                imc = imc + 1;
+            }
+            mj = mj + 1;
+        }
+        cd.IfaceMethodNames = imn; cd.IfaceMethodRets = imr;
+        cd.IfaceMethodParamCounts = imp; cd.IfaceMethodCount = imc;
+        cd.IfaceMethodParamTypes = ipt; cd.IfaceMethodParamTotal = iptc;
         return cd;
     }
 

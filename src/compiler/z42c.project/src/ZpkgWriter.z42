@@ -34,9 +34,9 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 32;   // 2026-07-14 stabilize-dispatch-keys（方案A）：派发键全局重键（导出方法名/SIGS/内嵌 zbc CallInstr 操作数）。耦合 zbc 1.27。bump 触发 ci-bootstrap 版本差 gate → 两代自举整树重编重键（旧种子读旧 runtime stdlib、当前源读新 Z42_LIBS，D7 分离）。
-                                    // 前史：0.31 drop-tsig-expt（删 EXPT + TSIG 段）；0.25 reencode-strs-segment-dict（耦合 zbc 1.21）；
-                                    //       0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
+    public static int Minor = 33;   // 2026-07-18 fix-crosspkg-interface-impl：接口 TYPE 条目尾部加方法签名块（耦合 zbc 1.28）——跨包接口实现从依赖 zpkg 恢复接口方法（TsigReconcile 重建）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。
+                                    // 前史：0.32 stabilize-dispatch-keys（派发键全局重键，耦合 zbc 1.27）；0.31 drop-tsig-expt（删 EXPT + TSIG 段）；
+                                    //       0.25 reencode-strs-segment-dict（耦合 zbc 1.21）；0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
 
 
     // 主 zpkg（不含 BLID/sidecar）。debug 单包 / 测试用；release strip 走 WritePackedWithSidecar。

@@ -105,6 +105,11 @@ public static class ZbcWriter {
             // enum 成员名（add-enum-type-metadata）：须先入池供 BuildType 的 enum 块 pool.Idx。
             int emi = 0;
             while (emi < cd.EnumMemberCount) { pool.Intern(cd.EnumMemberNames[emi]); emi = emi + 1; }
+            // 接口方法签名串（zbc 1.28，fix-crosspkg-interface-impl）：名/返回/参数类型入池。
+            int imi = 0;
+            while (imi < cd.IfaceMethodCount) { pool.Intern(cd.IfaceMethodNames[imi]); pool.Intern(cd.IfaceMethodRets[imi]); imi = imi + 1; }
+            int ipt = 0;
+            while (ipt < cd.IfaceMethodParamTotal) { pool.Intern(cd.IfaceMethodParamTypes[ipt]); ipt = ipt + 1; }
             c = c + 1;
         }
         pool.Intern("?");   // SIGS 缺省 param 类型占位
@@ -318,6 +323,24 @@ public static class ZbcWriter {
                     w.WriteU32(pool.Idx(cd.EnumMemberNames[emx]));
                     w.WriteI64(cd.EnumMemberValues[emx]);
                     emx = emx + 1;
+                }
+            }
+            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl）：Flags bit4(0x10) 置位时追加
+            // mcount:u16 + (name_idx:u32, ret_idx:u32, pcount:u8, ptype_idx:u32×pcount)×n。
+            // gated → 非接口零字节（同 enum 块模式）。跨包接口实现从依赖 zpkg 恢复方法签名的唯一载体。
+            if ((cd.Flags & 16) != 0) {
+                w.WriteU16(cd.IfaceMethodCount);
+                int imw = 0;
+                int ipbase = 0;
+                while (imw < cd.IfaceMethodCount) {
+                    w.WriteU32(pool.Idx(cd.IfaceMethodNames[imw]));
+                    w.WriteU32(pool.Idx(cd.IfaceMethodRets[imw]));
+                    int ipc = cd.IfaceMethodParamCounts[imw];
+                    w.WriteU8(ipc);
+                    int ipw = 0;
+                    while (ipw < ipc) { w.WriteU32(pool.Idx(cd.IfaceMethodParamTypes[ipbase + ipw])); ipw = ipw + 1; }
+                    ipbase = ipbase + ipc;
+                    imw = imw + 1;
                 }
             }
             c = c + 1;

@@ -94,6 +94,10 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         r.Interfaces.Put(iz.Name, new Z42InterfaceType(iz.Name));
+                        // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
+                        // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
+                        // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
+                        r.ClassNamespaces.Put(iz.Name, new StrBox(em.Namespace));
                     }
                     ic = ic + 1;
                 }
@@ -145,6 +149,29 @@ public static class ImportedSymbolLoader {
                         r.Functions.Put(fz.Name, new MethodSymbol(fz.Name, "public", sig, false, "", false, null));
                     }
                     f = f + 1;
+                }
+                // imported 接口方法填充（fix-crosspkg-interface-impl）：跨包 `c.Compile(req)` /
+                // `f.Val()` 的接口派发查 Z42InterfaceType.Methods——从 TSIG 重建的
+                // ExportedInterfaceZ 方法灌入（镜像 local _passMembers 的接口方法收集）。
+                int ifi2 = 0;
+                while (ifi2 < em.InterfaceCount) {
+                    ExportedInterfaceZ iz2 = em.Interfaces[ifi2];
+                    Z42InterfaceType it2 = r.Interfaces.Get(iz2.Name) as Z42InterfaceType;
+                    if (it2 != null) {
+                        int im2 = 0;
+                        while (im2 < iz2.MethodCount) {
+                            ExportedMethodZ mz = iz2.Methods[im2];
+                            if (!it2.Methods.ContainsKey(mz.Name)) {
+                                Z42Type[] mps = new Z42Type[mz.ParamCount];
+                                int mj2 = 0;
+                                while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName); mj2 = mj2 + 1; }
+                                var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType));
+                                it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, false, iz2.Name, false, null));
+                            }
+                            im2 = im2 + 1;
+                        }
+                    }
+                    ifi2 = ifi2 + 1;
                 }
             }
             i = i + 1;

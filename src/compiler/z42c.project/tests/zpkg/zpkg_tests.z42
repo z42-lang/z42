@@ -66,5 +66,5 @@ void test_write_packed_header() {
     string hex = ZpkgWriterZ.WritePacked(z, false).ToHex();
     // "ZPK\0" + major 0 + minor 31 + flags 0x03(Packed|Exe) + secCount 6
     // (0x1f=31; drop-tsig-expt：删 EXPT 段 → secCount 7→6)
-    Assert.Equal("5a504b0000002000030006000000", hex.Substring(0, 28));
+    Assert.Equal("5a504b0000002100030006000000", hex.Substring(0, 28));
 }

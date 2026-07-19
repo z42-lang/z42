@@ -77,14 +77,25 @@ public static class TsigReconcile {
                                                   ReconWorldPkg[] wp, int wc,
                                                   ExportedFuncZ[] pkgFuncs, int pkgFuncCount) {
         string ns = mt.Namespace;
-        // classes / enums 拆分（bit4 接口、bit6 delegate 跳过——oracle 消费面为空/无）
+        // classes / interfaces / enums 拆分（bit6 delegate 跳过——oracle 消费面无）
         ExportedClassZ[] classes = new ExportedClassZ[8]; int cc = 0;
+        // 接口重建（fix-crosspkg-interface-impl，zbc 1.28）：TYPE 接口条目携方法签名块 →
+        // 恢复 ExportedInterfaceZ（名+方法）。此前跳过（em.Interfaces 恒空）致跨包
+        // `class X : IFace@其他包` 被当基类、is/as/接口派发全失配。
+        ExportedInterfaceZ[] ifaces = new ExportedInterfaceZ[4]; int ific = 0;
         int i = 0;
         while (i < mt.ClassCount) {
             IrClassDesc cd = mt.Classes[i];
-            if ((cd.Flags & 16) != 0 || (cd.Flags & 64) != 0) { i = i + 1; continue; }   // interface / delegate
+            if ((cd.Flags & 64) != 0) { i = i + 1; continue; }   // delegate：TSIG 消费面无
             if (cd.Name == "Std.Object" || cd.Name == "Object") { i = i + 1; continue; }   // TSIG 不导出隐式根 Object
             if ((cd.Flags & 32) != 0) { i = i + 1; continue; }   // enum：TSIG 不含本地 enum（oracle=恒内建 GCHandleType）
+            if ((cd.Flags & 16) != 0) {                          // 接口：TYPE 方法块 → ExportedInterfaceZ
+                if (ific == ifaces.Length) { ExportedInterfaceZ[] b = new ExportedInterfaceZ[ifaces.Length * 2]; int k = 0; while (k < ific) { b[k] = ifaces[k]; k = k + 1; } ifaces = b; }
+                ifaces[ific] = TsigReconcile._rebuildInterface(cd, ns);
+                ific = ific + 1;
+                i = i + 1;
+                continue;
+            }
             if (cc == classes.Length) { ExportedClassZ[] b = new ExportedClassZ[classes.Length * 2]; int k = 0; while (k < cc) { b[k] = classes[k]; k = k + 1; } classes = b; }
             classes[cc] = TsigReconcile._rebuildClass(cd, ns, wp, wc);
             cc = cc + 1;
@@ -97,10 +108,31 @@ public static class TsigReconcile {
         ExportedEnumZ[] benums = new ExportedEnumZ[1];
         benums[0] = new ExportedEnumZ("GCHandleType", gcMems, 2);
         return new ExportedModuleZ(ns, classes, cc,
-                                   new ExportedInterfaceZ[0], 0,
+                                   ifaces, ific,
                                    benums, 1,
                                    pkgFuncs, pkgFuncCount,
                                    new ExportedDelegateZ[0], 0);
+    }
+
+    // 接口重建（fix-crosspkg-interface-impl）：TYPE 接口条目的方法签名块（zbc 1.28）→
+    // ExportedInterfaceZ（bare 名 + ExportedMethodZ[]）。参数名合成 p0/p1…（TSIG 消费只按位）。
+    private static ExportedInterfaceZ _rebuildInterface(IrClassDesc cd, string ns) {
+        string bare = TsigReconcile._bare(cd.Name, ns);
+        ExportedMethodZ[] methods = new ExportedMethodZ[cd.IfaceMethodCount];
+        int ipbase = 0;
+        int mi = 0;
+        while (mi < cd.IfaceMethodCount) {
+            int ipc = cd.IfaceMethodParamCounts[mi];
+            ExportedParamZ[] ps = new ExportedParamZ[ipc];
+            int pi = 0;
+            while (pi < ipc) { ps[pi] = new ExportedParamZ("p" + pi.ToString(), cd.IfaceMethodParamTypes[ipbase + pi]); pi = pi + 1; }
+            methods[mi] = new ExportedMethodZ(cd.IfaceMethodNames[mi], cd.IfaceMethodRets[mi], "public",
+                                              false, true, true, ipc, ps, ipc);
+            ipbase = ipbase + ipc;
+            mi = mi + 1;
+        }
+        return new ExportedInterfaceZ(bare, methods, cd.IfaceMethodCount,
+                                      cd.TypeParams, cd.TypeParamCount);
     }
 
     private static ExportedClassZ _rebuildClass(IrClassDesc cd, string ns,

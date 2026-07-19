@@ -56,6 +56,14 @@ public sealed class IrClassDesc {
     // enum 类型元数据（zbc 1.21→? add-enum-type-metadata / unify P1-a）：Flags bit5=enum 时，
     // 成员名+i64 值随 TYPE 记录尾部 emit（供反射 IsEnum/GetNames/GetValues + typeof）。非 enum 空。
     public string[] EnumMemberNames; public long[] EnumMemberValues; public int EnumMemberCount;
+    // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl）：Flags bit4=interface 时随 TYPE 记录
+    // 尾部 emit——跨包接口实现（class X : IFace@其他包）须能从依赖 zpkg 恢复接口方法名/签名
+    // （抽象方法无 body 不入 SIGS、EXPT 已删 → TYPE 是唯一载体）。平行数组 + 扁平参数表：
+    // 方法 i 的参数类型段 = IfaceMethodParamTypes[前缀和(counts,i) .. +IfaceMethodParamCounts[i])。
+    // 非接口全空、零字节（flag-gated，同 enum 块模式）。
+    public string[] IfaceMethodNames; public string[] IfaceMethodRets;
+    public int[]    IfaceMethodParamCounts; public int IfaceMethodCount;
+    public string[] IfaceMethodParamTypes;  public int IfaceMethodParamTotal;
     public IrClassDesc(string name, bool hasBase, string baseName, IrFieldDesc[] fields, int fieldCount) {
         this.Name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = fields; this.FieldCount = fieldCount;
@@ -66,6 +74,9 @@ public sealed class IrClassDesc {
         this.TypeParamConstraints = new IrConstraintDesc[0];
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.EnumMemberNames = new string[0]; this.EnumMemberValues = new long[0]; this.EnumMemberCount = 0;
+        this.IfaceMethodNames = new string[0]; this.IfaceMethodRets = new string[0];
+        this.IfaceMethodParamCounts = new int[0]; this.IfaceMethodCount = 0;
+        this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
     }
 }
 

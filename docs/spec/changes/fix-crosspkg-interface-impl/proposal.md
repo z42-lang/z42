@@ -1,6 +1,9 @@
 # Proposal: 修复跨包接口实现（fix-crosspkg-interface-impl）
 
-> 状态：DRAFT（2026-07-18 起草；根因已完整定位 + 原型验证，含一个待定 format 决策）
+> 状态：**已实施（路径 A，User 裁决 2026-07-19）**——zbc 1.28 / zpkg 0.33：接口 TYPE 条目尾部加
+> 方法签名块（bit4 gated），TsigReconcile 重建 imported 接口（名+方法），ImportedSymbolLoader
+> 填充接口 ns + Methods，`as` 目标名走原始名（镜像 `is`）。验证：跨包 2 包 repro
+> `is`/`as`/接口方法调用全绿（IS-IFACE + AS-OK 7）+ 两代自举 gen2==gen3 **7/7 逐字节**不动点。
 > 子系统：`compiler`（semantics + project/TSIG）+ 可能 `runtime`（zbc/zpkg format）
 > 触发：wire-z42b 的 Z42cCompiler 注入——`z42b` 持 `ICompiler c` 调 `c.Compile(req)`，
 > ICompiler 来自另一个包（z42.build）。发现 **z42c 不支持「类实现另一个包的接口」**。

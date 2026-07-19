@@ -233,7 +233,12 @@ public sealed class ExprTyper {
 
     private BoundExpr _bindAsExpr(AsExpr ax, TypeEnv env) {
             BoundExpr operand = this._bindExpr(ax.E, env);
-            return new BoundCast(operand, env.ResolveType(ax.Type), ax.Span);
+            // 目标名用 AST 原始类型名（镜像 `is` → BoundIsExpr.TypeName）：imported 接口/内建类
+            // ResolveType 得 Unknown → "<unknown>" 会致 as_cast 目标失配（跨包接口 `as` 恒 null）。
+            string tn;
+            if (ax.Type is NamedType) { tn = (ax.Type as NamedType).Name; }
+            else { tn = env.ResolveType(ax.Type).Name(); }
+            return new BoundCast(operand, env.ResolveType(ax.Type), tn, ax.Span);
     }
 
     private BoundExpr _bindTypeofExpr(TypeofExpr tox, TypeEnv env) {
