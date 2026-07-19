@@ -22,20 +22,51 @@ public class TestResult {
     }
 }
 
-// JSON rendering helpers for the runner's `--format json` mode. z42.test has no
+// JSON report serialization for the runner's `--format json` mode. z42.test has no
 // dependencies (foundational lib), so JSON is hand-rolled rather than via z42.json.
-// `resultJson` renders one result object; `Runner` (the caller) assembles the outer
-// `{tool,module,summary,results}` envelope inline — see the note below.
+// Contract (rebuild-bench-structured-output):
 //
-// **API shape — only per-result + escape helpers, no envelope method:** the nightly
-// z42c drops a public static method with many parameters *and* a brace-bearing string
-// body from its TSIG export (an envelope method `report(module,total,passed,failed,
-// skipped,body)` compiled but silently failed to export → "undefined function ..."
-// at load). Single-parameter methods export reliably, so the envelope is assembled by
-// `Runner` (which already holds the counts) using these 1-arg helpers. See design.md
-// Deferred `bench-structured-future-report-envelope` (compiler subsystem is locked).
+//   { "tool":"z42b", "module":"<path>",
+//     "summary":{"total":N,"passed":P,"failed":F,"skipped":S},
+//     "results":[ {"name":..,"status":..,"is_benchmark":..[,"reason":..][,"bench_stats":..]} ] }
+//
+// NOTE: `module` is a RESERVED z42 keyword — the artifact-path parameter is named
+// `artifact` here. (Naming it `module` once desynced the parser and, with parse
+// diagnostics dropped, silently miscompiled this very file — both fixed in
+// fix-parse-diags-dropped.)
 public static class TestReport {
-    // Render one result object (no trailing comma; the caller joins with ",").
+    public static string toJson(string artifact, TestResult[] results) {
+        int total = results.Length;
+        int passed = 0; int failed = 0; int skipped = 0;
+        int i = 0;
+        while (i < results.Length) {
+            string st = results[i].Status;
+            if (st == "passed")       { passed = passed + 1; }
+            else if (st == "failed")  { failed = failed + 1; }
+            else                      { skipped = skipped + 1; }
+            i = i + 1;
+        }
+
+        string s = "{";
+        s = s + "\"tool\":\"z42b\",";
+        s = s + "\"module\":\"" + TestReport.esc(artifact) + "\",";
+        s = s + "\"summary\":{"
+            + "\"total\":" + total.ToString() + ","
+            + "\"passed\":" + passed.ToString() + ","
+            + "\"failed\":" + failed.ToString() + ","
+            + "\"skipped\":" + skipped.ToString() + "},";
+        s = s + "\"results\":[";
+        int j = 0;
+        while (j < results.Length) {
+            if (j > 0) { s = s + ","; }
+            s = s + TestReport.resultJson(results[j]);
+            j = j + 1;
+        }
+        s = s + "]}";
+        return s;
+    }
+
+    // Render one result object (no trailing comma; toJson joins with ",").
     public static string resultJson(TestResult r) {
         string s = "{";
         s = s + "\"name\":\"" + TestReport.esc(r.Name) + "\",";
@@ -63,8 +94,7 @@ public static class TestReport {
 
     // Minimal JSON string escaping: quote, backslash, and the common control
     // chars that appear in exception messages / names. Sufficient for the
-    // strings this report carries (names, statuses, reason text). Public so the
-    // envelope assembler in `Runner` can escape the module path too.
+    // strings this report carries (names, statuses, reason text).
     public static string esc(string str) {
         string outp = "";
         int i = 0;
