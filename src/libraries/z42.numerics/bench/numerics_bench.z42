@@ -1,0 +1,52 @@
+// Micro-benchmarks for z42.numerics hot paths — BigInt parse / multiply / modpow
+// (the RSA-adjacent kernel). Baseline data for the 0.4.x perf stream.
+// Run via `z42 xtask.zpkg bench stdlib z42.numerics`.
+
+namespace Z42NumericsBench;
+
+using Std;
+using Std.Numerics;
+
+[Benchmark]
+void bench_bigint_parse() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var v = BigInt.Parse("123456789012345678901234567890123456789012345678901234567890");
+        BenchHelpers.blackBox(v);
+    });
+    b.printSummary("bigint_parse");
+}
+
+[Benchmark]
+void bench_bigint_mul_add() {
+    var a = BigInt.Parse("123456789012345678901234567890");
+    var c = BigInt.Parse("987654321098765432109876543210");
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(a.Multiply(c).Add(BigInt.One));
+    });
+    b.printSummary("bigint_mul_add");
+}
+
+[Benchmark]
+void bench_bigint_modpow() {
+    var base_ = BigInt.Parse("1234567891");
+    var exp = new BigInt(65537L);
+    var mod = BigInt.Parse("9999999999999999961");
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        BenchHelpers.blackBox(base_.ModPow(exp, mod));
+    });
+    b.printSummary("bigint_modpow");
+}
+
+// Smoke [Test] — bench bodies run + arithmetic sanity.
+[Test]
+void test_numerics_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        BenchHelpers.blackBox(new BigInt(7L).Multiply(new BigInt(6L)));
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

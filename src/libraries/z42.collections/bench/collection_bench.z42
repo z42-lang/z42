@@ -51,3 +51,48 @@ void test_collection_bench_bodies_run() {
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
 }
+
+[Benchmark]
+void bench_queue_stack_cycle() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var q = new Queue<int>();
+        var st = new Stack<int>();
+        int i = 0;
+        while (i < 64) { q.Enqueue(i); i = i + 1; }
+        while (q.Count() > 0) { st.Push(q.Dequeue()); }
+        int sum = 0;
+        while (st.Count() > 0) { sum = sum + st.Pop(); }
+        BenchHelpers.blackBox(sum);
+    });
+    b.printSummary("queue_stack_cycle");
+}
+
+[Benchmark]
+void bench_priority_queue() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var pq = new PriorityQueue<int>();
+        int i = 0;
+        while (i < 64) { pq.Enqueue((i * 37) % 101); i = i + 1; }
+        int sum = 0;
+        while (pq.Count() > 0) { sum = sum + pq.Dequeue(); }
+        BenchHelpers.blackBox(sum);
+    });
+    b.printSummary("priority_queue");
+}
+
+[Benchmark]
+void bench_linked_list() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var ll = new LinkedList<int>();
+        int i = 0;
+        while (i < 64) { ll.AddLast(i); i = i + 1; }
+        bool hit = ll.Contains(63);
+        int drained = 0;
+        while (drained < 64) { ll.RemoveFirst(); drained = drained + 1; }
+        BenchHelpers.blackBox(hit);
+    });
+    b.printSummary("linked_list");
+}

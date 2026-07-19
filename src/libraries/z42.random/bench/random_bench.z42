@@ -1,0 +1,55 @@
+// Micro-benchmarks for z42.random hot paths — seeded PRNG int/double streams
+// (deterministic seed → stable workload). Baseline data for the 0.4.x perf stream.
+// Run via `z42 xtask.zpkg bench stdlib z42.random`.
+
+namespace Z42RandomBench;
+
+using Std;
+using Std.Random;
+
+[Benchmark]
+void bench_next_int_range() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var rng = new Random(12345L);
+        int acc = 0;
+        int i = 0;
+        while (i < 256) {
+            acc = acc + rng.NextIntRange(0, 100);
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(acc);
+    });
+    b.printSummary("next_int_range");
+}
+
+[Benchmark]
+void bench_next_double() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var rng = new Random(6789L);
+        double acc = 0.0;
+        int i = 0;
+        while (i < 256) {
+            acc = acc + rng.NextDouble();
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(acc);
+    });
+    b.printSummary("next_double");
+}
+
+// Smoke [Test] — bench bodies run + seeded determinism sanity.
+[Test]
+void test_random_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        var rng = new Random(1L);
+        BenchHelpers.blackBox(rng.NextInt());
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+    var r1 = new Random(99L);
+    var r2 = new Random(99L);
+    Assert.Equal(r1.NextInt(), r2.NextInt());
+}

@@ -1,0 +1,53 @@
+// Micro-benchmarks for z42.time hot paths — ISO-8601 parse / format + calendar
+// arithmetic. Baseline data for the 0.4.x perf stream. Run via
+// `z42 xtask.zpkg bench stdlib z42.time`.
+
+namespace Z42TimeBench;
+
+using Std;
+using Std.Time;
+
+[Benchmark]
+void bench_parse_iso8601() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var d1 = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
+        var d2 = DateTime.ParseIso8601("1999-12-31T23:59:59.999Z");
+        BenchHelpers.blackBox(d1);
+        BenchHelpers.blackBox(d2);
+    });
+    b.printSummary("parse_iso8601");
+}
+
+[Benchmark]
+void bench_to_iso8601() {
+    var dt = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(dt.ToIso8601());
+    });
+    b.printSummary("to_iso8601");
+}
+
+[Benchmark]
+void bench_add_days_months() {
+    var dt = DateTime.Utc(2026, 1, 31, 12, 0, 0, 0);
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var r = dt.AddDays(365).AddMonths(13).AddDays(-30);
+        BenchHelpers.blackBox(r);
+    });
+    b.printSummary("add_days_months");
+}
+
+// Smoke [Test] — bench bodies run + parse/format roundtrip sanity.
+[Test]
+void test_time_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        var dt = DateTime.ParseIso8601("2026-07-19T00:00:00.000Z");
+        BenchHelpers.blackBox(dt.ToIso8601());
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

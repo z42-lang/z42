@@ -1,0 +1,44 @@
+// Micro-benchmark for z42.toml hot path — document parse (tables / arrays /
+// scalars; pure-string entry, no z42.io). Baseline data for the 0.4.x perf stream.
+// Run via `z42 xtask.zpkg bench stdlib z42.toml`.
+
+namespace Z42TomlBench;
+
+using Std;
+using Std.Toml;
+
+string _doc() {
+    return "title = \"bench doc\"\n"
+        + "count = 42\n"
+        + "ratio = 3.5\n"
+        + "on = true\n"
+        + "tags = [\"a\", \"b\", \"c\"]\n"
+        + "[server]\n"
+        + "host = \"127.0.0.1\"\n"
+        + "port = 8080\n"
+        + "[server.limits]\n"
+        + "max_conn = 100\n"
+        + "timeouts = [1, 2, 3, 5, 8]\n";
+}
+
+[Benchmark]
+void bench_toml_parse() {
+    string doc = _doc();
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(TomlValue.Parse(doc));
+    });
+    b.printSummary("toml_parse");
+}
+
+// Smoke [Test] — bench body runs + parse sanity.
+[Test]
+void test_toml_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    string doc = _doc();
+    b.iter(() => {
+        BenchHelpers.blackBox(TomlValue.Parse(doc));
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

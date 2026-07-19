@@ -94,3 +94,41 @@ void test_core_bench_bodies_run() {
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
 }
+
+[Benchmark]
+void bench_dict_set_get() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var d = new Dictionary<string, int>();
+        int i = 0;
+        while (i < 64) {
+            d["key" + i.ToString()] = i * i;
+            i = i + 1;
+        }
+        int hits = 0;
+        int j = 0;
+        while (j < 64) {
+            string k = "key" + j.ToString();
+            if (d.ContainsKey(k)) { hits = hits + d[k]; }
+            j = j + 1;
+        }
+        BenchHelpers.blackBox(hits);
+    });
+    b.printSummary("dict_set_get");
+}
+
+[Benchmark]
+void bench_int_tostring_parse() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        long acc = 0;
+        int i = 0;
+        while (i < 64) {
+            string s = (i * 7919).ToString();
+            acc = acc + long.Parse(s);
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(acc);
+    });
+    b.printSummary("int_tostring_parse");
+}

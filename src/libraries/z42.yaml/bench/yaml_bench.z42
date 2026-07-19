@@ -1,0 +1,47 @@
+// Micro-benchmark for z42.yaml hot path — document parse (mappings / sequences /
+// scalars; pure-string entry, no z42.io). Baseline data for the 0.4.x perf stream.
+// Run via `z42 xtask.zpkg bench stdlib z42.yaml`.
+
+namespace Z42YamlBench;
+
+using Std;
+using Std.Yaml;
+
+string _doc() {
+    return "title: bench doc\n"
+        + "count: 42\n"
+        + "ratio: 3.5\n"
+        + "on: true\n"
+        + "tags:\n"
+        + "  - a\n"
+        + "  - b\n"
+        + "  - c\n"
+        + "server:\n"
+        + "  host: 127.0.0.1\n"
+        + "  port: 8080\n"
+        + "  limits:\n"
+        + "    max_conn: 100\n"
+        + "    timeouts: [1, 2, 3, 5, 8]\n";
+}
+
+[Benchmark]
+void bench_yaml_parse() {
+    string doc = _doc();
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(YamlValue.Parse(doc));
+    });
+    b.printSummary("yaml_parse");
+}
+
+// Smoke [Test] — bench body runs + parse sanity.
+[Test]
+void test_yaml_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    string doc = _doc();
+    b.iter(() => {
+        BenchHelpers.blackBox(YamlValue.Parse(doc));
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

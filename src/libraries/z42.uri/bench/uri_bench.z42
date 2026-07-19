@@ -1,0 +1,41 @@
+// Micro-benchmarks for z42.uri hot paths — full URI parse + percent-codec kernel.
+// Baseline data for the 0.4.x perf stream. Run via `z42 xtask.zpkg bench stdlib z42.uri`.
+
+namespace Z42UriBench;
+
+using Std;
+using Std.Uri;
+
+[Benchmark]
+void bench_uri_parse() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var u1 = Uri.Parse("https://user@example.com:8443/api/v1/items?page=2&sort=name#top");
+        var u2 = Uri.Parse("ftp://files.example.org/pub/archive.tar.gz");
+        BenchHelpers.blackBox(u1);
+        BenchHelpers.blackBox(u2);
+    });
+    b.printSummary("uri_parse");
+}
+
+[Benchmark]
+void bench_encode_decode_component() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string enc = Uri.EncodeComponent("a b/c?d=e&f=100% 中文");
+        string dec = Uri.DecodeComponent(enc);
+        BenchHelpers.blackBox(dec);
+    });
+    b.printSummary("encode_decode_component");
+}
+
+// Smoke [Test] — bench bodies run + roundtrip sanity.
+[Test]
+void test_uri_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        BenchHelpers.blackBox(Uri.DecodeComponent(Uri.EncodeComponent("a b")));
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

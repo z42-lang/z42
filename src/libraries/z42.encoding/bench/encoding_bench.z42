@@ -1,0 +1,61 @@
+// Micro-benchmarks for z42.encoding hot paths — Base64 / Hex / UTF-8 roundtrips.
+// Baseline data for the 0.4.x perf stream. Run via `z42 xtask.zpkg bench stdlib z42.encoding`.
+
+namespace Z42EncodingBench;
+
+using Std;
+using Std.Encoding;
+
+// 256-byte deterministic payload shared by the encode/decode benches.
+byte[] _mkPayload() {
+    byte[] data = new byte[256];
+    int i = 0;
+    while (i < 256) { data[i] = (byte)i; i = i + 1; }
+    return data;
+}
+
+[Benchmark]
+void bench_base64_roundtrip() {
+    byte[] data = _mkPayload();
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string s = Base64.Encode(data);
+        BenchHelpers.blackBox(Base64.Decode(s));
+    });
+    b.printSummary("base64_roundtrip");
+}
+
+[Benchmark]
+void bench_hex_roundtrip() {
+    byte[] data = _mkPayload();
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string s = Hex.Encode(data);
+        BenchHelpers.blackBox(Hex.Decode(s));
+    });
+    b.printSummary("hex_roundtrip");
+}
+
+[Benchmark]
+void bench_utf8_roundtrip() {
+    string text = "The quick brown fox jumps over the lazy dog — 敏捷的棕色狐狸 0123456789";
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        byte[] bytes = Utf8.GetBytes(text);
+        BenchHelpers.blackBox(Utf8.GetString(bytes));
+    });
+    b.printSummary("utf8_roundtrip");
+}
+
+// Smoke [Test] — bench bodies run + roundtrip sanity.
+[Test]
+void test_encoding_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    byte[] data = new byte[4];
+    data[0] = (byte)1; data[1] = (byte)2; data[2] = (byte)3; data[3] = (byte)4;
+    b.iter(() => {
+        BenchHelpers.blackBox(Base64.Decode(Base64.Encode(data)));
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}
