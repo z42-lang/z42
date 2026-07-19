@@ -651,3 +651,21 @@ void test_unique_free_function_no_false_positive() {
     string src = "int bar(int a) { return a; } int baz(int a, int b) { return a + b; }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+[Test]
+void test_parse_diags_surface_in_error_count() {
+    // fix-parse-diags-dropped 回归：parse 错误必须计入编译错误数（此前 Parser 的
+    // DiagnosticBag 被丢弃——`string module` 参数名脱轨解析后 typecheck 恰好不报错
+    // → 静默 miscompile：方法被无声吞掉、构建成功）。`module` 是保留关键字。
+    string src = "class C { string Rep(string module) { return \"x\"; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+
+[Test]
+void test_keyword_param_name_targeted_diag() {
+    // 关键字占参数名 → 单条精准诊断 + 解析不脱轨（同类后续方法不受级联污染）。
+    string src = "class C { int A(string module) { return 1; } int B() { return 2; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+    // B 未被级联撕毁：bound 树仍可取到其方法体。
+    Assert.Equal("(block (return (lit-int 2 :int)))", SemanticDump.DumpBody(src, "C.B"));
+}

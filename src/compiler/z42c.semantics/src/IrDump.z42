@@ -254,6 +254,7 @@ public static class IrDump {
 
     private static CompiledModuleZ _compileCu(CompilationUnit cu, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease) {
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
@@ -292,6 +293,7 @@ public static class IrDump {
         var cu = AttributeSynth.Run(p.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
         var symbols = new SymbolCollector().CollectWithImports(cu, imported);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
@@ -370,6 +372,7 @@ public static class IrDump {
         var cu = AttributeSynth.Run(p.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.SourceStem = IrDump._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致

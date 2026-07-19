@@ -176,7 +176,10 @@ public sealed class Parser {
                 decls = this._declP._growDecls(decls, n); decls[n] = d; n = n + 1;
             }
         }
-        return new CompilationUnit(hasNs, ns, decls, n, cusp);
+        CompilationUnit cu = new CompilationUnit(hasNs, ns, decls, n, cusp);
+        // fix-parse-diags-dropped：把 parse 诊断挂上 CU，供下游 typecheck 汇点合并上浮。
+        cu.ParseDiags = this._diags;
+        return cu;
     }
 
 
