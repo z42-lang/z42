@@ -278,27 +278,35 @@ pub unsafe extern "C" fn jit_field_set(
 pub(super) fn is_subclass_or_eq(
     vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
 ) -> bool {
-    let mut cur: String = derived.to_string();
+    // Fast path: zero-alloc &str walk while every link resolves in the MAIN module
+    // (the overwhelmingly common case — identical to the pre-fallback walk).
+    let mut cur: &str = derived;
     loop {
         if cur == target { return true; }
-        // add-reflection-assignable-from: mirror interp `is_subclass_or_eq_td` —
-        // check declared interfaces (FQ-named, zbc 1.20) at each level so
-        // `x is IShape` / `as IShape` work for interfaces in JIT too.
-        // fix-crosspkg-interface-impl (dynamic-component-registration): fall back to
-        // the lazy loader (`try_lookup_type`) when the class isn't in the MAIN module —
-        // reflectively/lazily loaded types (ModuleLoader.Load + Activator.CreateInstance)
-        // previously never matched under JIT (interp had the fallback; JIT was
-        // intra-module only), so `o as IFace` on an injected component returned null.
+        let Some(c) = module.classes.iter().find(|c| c.name == cur) else { break; };
+        // add-reflection-assignable-from: declared interfaces (FQ-named, zbc 1.20)
+        // checked at each level; add-reflection-transitive-interfaces: direct OR transitive.
+        if c.interfaces.iter().any(|i| iface_reaches_mod(vm, module, i, target)) { return true; }
+        match c.base_class.as_deref() {
+            Some(base) => cur = base,
+            None       => return false,
+        }
+    }
+    // Slow path (fix-crosspkg-interface-impl / dynamic-component-registration):
+    // the chain left the main module — reflectively/lazily loaded types
+    // (ModuleLoader.Load + Activator.CreateInstance) resolve via the lazy loader.
+    // Allocation is confined to this rare branch.
+    let mut cur: String = cur.to_string();
+    loop {
+        if cur == target { return true; }
         let (ifaces, base): (Vec<String>, Option<String>) =
             if let Some(c) = module.classes.iter().find(|c| c.name == cur) {
                 (c.interfaces.iter().map(|s| s.to_string()).collect(), c.base_class.clone())
             } else if let Some(td) = vm.try_lookup_type(cur.as_str()) {
-                (td.interfaces().iter().map(|s| s.to_string()).collect(),
-                 td.base_name.clone())
+                (td.interfaces().iter().map(|s| s.to_string()).collect(), td.base_name.clone())
             } else {
                 return false;
             };
-        // add-reflection-transitive-interfaces: match directly OR transitively.
         if ifaces.iter().any(|i| iface_reaches_mod(vm, module, i, target)) { return true; }
         match base {
             Some(b) => cur = b,
@@ -309,12 +317,13 @@ pub(super) fn is_subclass_or_eq(
 
 /// add-reflection-transitive-interfaces: JIT mirror of `iface_reaches_td` —
 /// true if `iface` equals `target` or reaches it via its transitive base
-/// interfaces (interface entries live in `module.classes` since interfaces
-/// emit a TYPE entry). Lazy-loader fallback for cross-zpkg / reflectively
-/// loaded interfaces (fix-crosspkg-interface-impl), mirroring interp.
+/// interfaces. Lazy-loader fallback only on main-module miss
+/// (fix-crosspkg-interface-impl), mirroring interp.
 fn iface_reaches_mod(
     vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, iface: &str, target: &str,
 ) -> bool {
+    // Fast path: direct hit without any allocation.
+    if iface == target { return true; }
     let mut queue: Vec<String> = vec![iface.to_string()];
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     while let Some(name) = queue.pop() {
