@@ -1,7 +1,7 @@
 // z42b CLI 路由 —— Std.Cli 嵌套 router（对照 launcher_cli.z42）。
 //
-// SCOPE（retire-test-runner）：本编译单元只接 **test / bench** 反射式运行器
-// （取代 Rust z42-test-runner）。new / build / publish / export / run 的编排实现
+// SCOPE：test/bench 反射运行器 + publish + build/new/export 编排（wire-z42b 2b 已接入，
+// 编译器经 _hostCompiler 运行时动态注入——见 builder.z42）。
 // 依赖 Z42.Build / Z42.Project（其 `Z42.Project` 命名空间与编译器内部 z42c.project
 // 在共享 Z42_LIBS 下冲突），属 wire-z42b-host-build —— 这里先登记命令面并给出
 // "pending" 提示，待该变更接入 PARKED 的 builder.z42 / builder_commands.z42 /
@@ -37,13 +37,15 @@ int _runBuilder(string[] argv) {
 SubcommandRouter _builderRoot() {
     SubcommandRouter root = new SubcommandRouter("z42b", "z42 build orchestrator");
 
-    // new / build / publish / export / run — 命令面登记，编排待 wire-z42b-host-build。
-    ArgParser newP = new ArgParser("z42b new", "scaffold a new project (pending wire-z42b-host-build)");
+    // new / build / publish / export / run（wire-z42b 2b：build/new 编排已接入，编译器动态注入）。
+    ArgParser newP = new ArgParser("z42b new", "scaffold a new project");
     newP.AddOptionalPositional("name", "project name (kebab-case)");
     root.Add("new", "scaffold a new project", newP);
 
-    ArgParser build = new ArgParser("z42b build", "compile to app.zpkg (pending wire-z42b-host-build)");
-    build.AddOptionalPositional("project", "<project.z42.toml>");
+    ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");
+    build.AddOptionalPositional("project", "<project.z42.toml> (default: z42.toml)");
+    build.AddOption("rid", "", "target RID (default: host)", "");
+    build.AddFlag("release", "", "release profile (default: debug)");
     root.Add("build", "compile to a platform-agnostic app.zpkg", build);
 
     ArgParser pub = new ArgParser("z42b publish", "produce a release deployable (desktop apphost)");
@@ -52,8 +54,10 @@ SubcommandRouter _builderRoot() {
     pub.AddOption("output", "", "output dir (overrides [platform.desktop].publish_dir)", "");
     root.Add("publish", "produce a release deployable", pub);
 
-    ArgParser exp = new ArgParser("z42b export", "generate a native IDE project (pending wire-z42b-host-build)");
+    ArgParser exp = new ArgParser("z42b export", "generate a native IDE project (ios/android)");
     exp.AddOptionalPositional("project", "<project.z42.toml>");
+    exp.AddOption("rid", "", "target RID (ios-arm64 / android-arm64 / browser-wasm)", "");
+    exp.AddFlag("release", "", "release profile (default: debug)");
     root.Add("export", "generate a native IDE project", exp);
 
     ArgParser runP = new ArgParser("z42b run", "run app.zpkg on host (served by the launcher)");
@@ -119,8 +123,10 @@ int _dispatchBuilder(CommandResolution res) {
         return 2;
     }
     if (top == "publish") { return _cmdPublishZ42b(r); }   // move-publish-to-z42b
-    // new / build / export — pending wire-z42b-host-build.
-    ConsoleError.WriteLine("z42b " + top + ": pending wire-z42b-host-build "
-        + "(needs the in-process compiler API; not yet wired)");
-    return 1;
+    // wire-z42b 2b：build/new/export 编排（编译器经 _hostCompiler 运行时动态注入）。
+    if (top == "build")  { return _cmdBuild(r); }
+    if (top == "new")    { return _cmdNew(r); }
+    if (top == "export") { return _cmdExport(r); }
+    ConsoleError.WriteLine("z42b " + top + ": unknown verb");
+    return 2;
 }

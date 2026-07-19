@@ -77,6 +77,8 @@ public class Z42cCompiler : ICompiler {
         }
         // 7. 写盘（packed + 可选 .zsym sidecar，受 req.StripSymbols 门控）。
         ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, inp.IsRelease);
+        string outDir = Path.GetDirectoryName(req.OutputZpkg);
+        if (outDir.Length > 0) { Directory.Create(outDir); }
         File.WriteAllBytes(req.OutputZpkg, wres.Main);
         string zsym = "";
         if (wres.HasSidecar && req.StripSymbols) {

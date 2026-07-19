@@ -1,4 +1,4 @@
-// z42b — 构建编排器（build orchestrator）。⚠️ PARKED / 未接编译。
+// z42b — 构建编排器（build orchestrator）。wire-z42b 2b 已接入编译。
 //
 // 职责：读 z42.toml/--rid → 构造 z42.build 管线（注入 编译器 + workload + hooks）→ 跑。
 //   build   → tail no-op（产平台无关 app.zpkg）
@@ -7,16 +7,16 @@
 //
 // 关键设计（与 z42c 共享编译实现，见 z42.build/src/ICompiler.z42）：
 //   Compile 头相位经 z42.build 的 `ICompiler` 接口**在进程内**调编译器库——和独立 z42c
-//   CLI 调的是同一份实现，**不 fork z42c 子进程**。z42b 只负责编排 + 注入。
-//
-// ⚠️ 未接编译：无 z42.builder.z42.toml，未登记 workspace/xtask/CI，不影响现有构建。
-//   _hostCompiler 暂返 NoCompiler（真实 z42c `: ICompiler` 适配器待 extract-compile-pipeline-api
-//   落地的 PackageCompiler 封装）；_selectWorkload 暂返 WorkloadBase（真实平台 workload 后续）。
+//   CLI 调的是同一份实现，**不 fork z42c 子进程**。实现由 _hostCompiler **运行时动态注入**
+//   （加载 programs/z42c/z42c.pipeline.zpkg 反射实例化 Z42cCompiler——z42b 编译期零 z42c 依赖，
+//   见 dynamic-component-registration design）。_selectWorkload 暂返 WorkloadBase（平台 workload 后续）。
 // 命令层在 builder_commands.z42 / builder_new.z42；CLI 路由在 builder_cli.z42。
 namespace Z42Builder;
 
 using Std;
 using Std.IO;
+using Std.Test;
+using Std.Reflection;
 using Z42.Build;
 using Z42.Build.Project;
 
@@ -54,12 +54,60 @@ int _runWithProjectBuild(ProjectManifest manifest, Target target, string sourceD
     return 1;
 }
 
-// ── 注入点（实现期接真实实现）─────────────────────────────────────────────────
+// ── 注入点 ───────────────────────────────────────────────────────────────────
 
-// 共享编译实现入口：返回编译器库（z42c）的 ICompiler 实现 —— 与 z42c.driver 同一份。
-// 待 extract-compile-pipeline-api 落地 PackageCompiler/CompileResult 后封装为 Z42cCompiler。
+// 共享编译实现入口（wire-z42b 2b，dynamic-component-registration）：**运行时动态注入**——
+// z42b 编译期只依赖 z42.build 的 ICompiler 接口（零 z42c 编译期依赖，独立 exe +
+// stdlib-only 可构建不破）；此处经 ModuleLoader.Load 把编译器组件 zpkg（z42c.pipeline，
+// 含 Z42cCompiler : ICompiler）加载进 live VM → 反射实例化 → 接口 cast 注入。
+// 与 z42c.driver CLI 共享同一编译实现（PackageCompile 核心），不 fork z42c 子进程。
+// 换/升级编译器 = 替换 zpkg，本文件零改动。组件缺失（runtime-only SDK）→ NoCompiler 兜底。
 ICompiler _hostCompiler() {
-    return new NoCompiler();
+    string zpkg = _findCompilerZpkg();
+    if (zpkg.Length == 0) {
+        ConsoleError.WriteLine("z42b: compiler component not found (Z42_HOME/programs/z42c, SDK via Z42_PORTABLE_VM, or dev artifacts) — build verbs unavailable");
+        return new NoCompiler();
+    }
+    try {
+        ModuleLoader.Load(zpkg);
+        Type t = Type.GetType("Z42.Pipeline.Z42cCompiler");
+        if (t == null) {
+            ConsoleError.WriteLine("z42b: Z42cCompiler type not resolvable after loading " + zpkg);
+            return new NoCompiler();
+        }
+        object o = Activator.CreateInstance(t);
+        ICompiler c = o as ICompiler;
+        if (c == null) {
+            ConsoleError.WriteLine("z42b: loaded Z42cCompiler does not satisfy ICompiler (component/interface version mismatch?)");
+            return new NoCompiler();
+        }
+        return c;
+    } catch (Exception e) {
+        ConsoleError.WriteLine("z42b: compiler component load failed (" + e.Message + "); falling back to NoCompiler");
+        return new NoCompiler();
+    }
+}
+
+// 定位编译器组件 zpkg（z42c.pipeline.zpkg；其 6 个 z42c.* 兄弟须与之同目录——ModuleLoader
+// 依赖闭包按 entry-dir + Z42_LIBS 解析）。探测序：
+//   ① Z42_HOME/programs/z42c/（SDK 安装态；launcher 转发时已设）
+//   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
+//   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
+string _findCompilerZpkg() {
+    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    if (home.Length > 0) {
+        string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
+        if (File.Exists(p1)) { return p1; }
+    }
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (pv.Length > 0) {
+        string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
+        string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
+        if (File.Exists(p2)) { return p2; }
+    }
+    string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
+    if (File.Exists(p3)) { return p3; }
+    return "";
 }
 
 // 按平台族选标准 workload（实现期接各 *.workload 库的 : WorkloadBase 子类）。
@@ -85,9 +133,16 @@ Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
     return new Dirs(sourceDir, cache, inter, dist);
 }
 
-// compile 相位前的初始输入。Deps zpkg 路径解析待实现期（扫 Z42_LIBS / workspace dist）。
+// compile 相位前的初始输入（wire-z42b 2b）：Deps = Z42_LIBS 下 manifest 声明依赖的 zpkg
+// 路径（MVP 单源 Z42_LIBS；workspace 兄弟 dist 多源解析归 wire-z42b-future-deps-resolve）。
+// Z42cCompiler 由这些路径的父目录集推导 LibsDirs（design D3）。
 Inputs _initialInputs(ProjectManifest m) {
-    return new Inputs("", "", new string[0]);
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs.Length == 0) { return new Inputs("", "", new string[0]); }
+    string[] deps = new string[m.DepCount];
+    int i = 0;
+    while (i < m.DepCount) { deps[i] = Path.Join(libs, m.Deps[i].Name + ".zpkg"); i = i + 1; }
+    return new Inputs("", "", deps);
 }
 
 // 工程是否带自定义 build/ 目录（含 z42 文件）。

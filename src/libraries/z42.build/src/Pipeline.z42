@@ -17,9 +17,9 @@ public class Pipeline {
     public ICompiler    Compiler { get; set; }   // Compile 头相位经此调编译器库（in-process）
 
     public Pipeline() {
-        Hooks    = new BuildHooks();      // 默认空 hook
-        Workload = new WorkloadBase();    // 默认 no-op workload（无平台时兜底）
-        Compiler = new NoCompiler();      // 默认空编译器；driver / 编排器注入真实 z42c 实现
+        this.Hooks    = new BuildHooks();      // 默认空 hook
+        this.Workload = new WorkloadBase();    // 默认 no-op workload（无平台时兜底）
+        this.Compiler = new NoCompiler();      // 默认空编译器；driver / 编排器注入真实 z42c 实现
     }
 
     /// 执行整条管线，返回进程退出码。
@@ -57,8 +57,13 @@ public class Pipeline {
             ctx.Target.Profile,
             false,                          // strip 由 profile 决定，实现期接 manifest
             true);                          // 增量
-        CompileResult res = Compiler.Compile(req);
-        ctx.Log("compiled: " + res.Zpkg);  // 实现期：res.Ok 检查 + 记 res.Zpkg/Zsym 入 ctx
+        CompileResult res = this.Compiler.Compile(req);
+        if (!res.Ok) {
+            ctx.Warn("compile failed:");
+            ctx.Warn(res.Diagnostics);
+            throw new Exception("compile failed");
+        }
+        ctx.Log("compiled: " + res.Zpkg);
     }
 
     private void Trim(IPipelineContext ctx)    { }   // 从 entry 可达性裁剪 zpkg（profile 门控）

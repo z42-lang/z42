@@ -1,4 +1,4 @@
-// z42b 命令处理层（build / publish / export / run / test / bench）。⚠️ PARKED。
+// z42b 命令处理层（build / publish / export / run / test / bench）。wire-z42b 2b 已接入。
 //
 // 每个 verb 是薄编排：解析参数 → ManifestLoader.Load → 构造 Target → _orchestrate
 // （builder.z42）。动词语义见 platform-export-lifecycle.md：

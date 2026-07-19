@@ -85,6 +85,39 @@ public sealed class ExprTyper {
                     return new BoundCall("instance", true, erecv, recvCls, accName, sargs, 1, acc.Signature.Ret, a.Span);
                 }
             }
+            // fix-crosspkg-property-assign（wire-z42b 2b 暴露）：imported 类**属性**赋值
+            // `ctx.Target = t`——imported 类无属性名字段（只有 __prop_X 后备 + get_/set_ 方法），
+            // 泛化 _bindExpr(target) 走 _bindMember 的 getter fallback 得 BoundCall → _emitAssign
+            // 认不出（非 BoundMember）→ 赋值**静默丢弃**。此处拦截：receiver 类无字段 X 但有
+            // set_X → 直接绑 setter 调用。本地类属性有 FieldSymbol（BoundMember 路径 + emit 侧
+            // set_ 派发）不进此分支 → 本地 emit 零变化。
+            if (a.Op == "=" && a.Target is MemberExpr) {
+                MemberExpr pmt = a.Target as MemberExpr;
+                // 静态成员赋值（`ZbcReader._lastN = n`——receiver 是类名而非值）不进本分支：
+                // 类名当表达式绑会误报 E0401。类名被同名局部遮蔽时仍走实例路径（LookupVar 先查）。
+                bool staticRecv = false;
+                if (pmt.Target is IdentExpr) {
+                    string prn = (pmt.Target as IdentExpr).Name;
+                    if (env.LookupVar(prn) == null
+                        && (env.Symbols.HasClass(prn) || env.Symbols.HasInterface(prn))) { staticRecv = true; }
+                }
+                if (staticRecv) { }
+                else {
+                BoundExpr precv = this._bindExpr(pmt.Target, env);
+                Z42Type prt = precv.Type();
+                Z42ClassType pcls = null;
+                if (prt is Z42ClassType) { pcls = prt as Z42ClassType; }
+                else if (prt is Z42InstantiatedType) { pcls = (prt as Z42InstantiatedType).Def; }
+                if (pcls != null && !pcls.Fields.ContainsKey(pmt.Name)) {
+                    MethodSymbol setter = this._tc._overload._findMethod(env.Symbols, pcls, "set_" + pmt.Name);
+                    if (setter != null && setter.Signature != null) {
+                        BoundExpr pval = this._bindExpr(a.Value, env);
+                        BoundExpr[] pargs = new BoundExpr[1]; pargs[0] = pval;
+                        return new BoundCall("instance", true, precv, pcls.Name(), "set_" + pmt.Name, pargs, 1, new Z42VoidType(), a.Span);
+                    }
+                }
+                }
+            }
             BoundExpr target = this._bindExpr(a.Target, env);
             BoundExpr value = this._bindExpr(a.Value, env);
             // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →

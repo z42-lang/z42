@@ -275,21 +275,34 @@ pub unsafe extern "C" fn jit_field_set(
 // Both helpers share the `is_subclass_or_eq` walk + the `is_array_isa`
 // hardcoded array-base chain (2026-05-07 add-array-base-class).
 
-pub(super) fn is_subclass_or_eq(module: &crate::metadata::Module, derived: &str, target: &str) -> bool {
-    let mut cur = derived;
+pub(super) fn is_subclass_or_eq(
+    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
+) -> bool {
+    let mut cur: String = derived.to_string();
     loop {
         if cur == target { return true; }
-        let cls = module.classes.iter().find(|c| c.name == cur);
         // add-reflection-assignable-from: mirror interp `is_subclass_or_eq_td` —
         // check declared interfaces (FQ-named, zbc 1.20) at each level so
         // `x is IShape` / `as IShape` work for interfaces in JIT too.
+        // fix-crosspkg-interface-impl (dynamic-component-registration): fall back to
+        // the lazy loader (`try_lookup_type`) when the class isn't in the MAIN module —
+        // reflectively/lazily loaded types (ModuleLoader.Load + Activator.CreateInstance)
+        // previously never matched under JIT (interp had the fallback; JIT was
+        // intra-module only), so `o as IFace` on an injected component returned null.
+        let (ifaces, base): (Vec<String>, Option<String>) =
+            if let Some(c) = module.classes.iter().find(|c| c.name == cur) {
+                (c.interfaces.iter().map(|s| s.to_string()).collect(), c.base_class.clone())
+            } else if let Some(td) = vm.try_lookup_type(cur.as_str()) {
+                (td.interfaces().iter().map(|s| s.to_string()).collect(),
+                 td.base_name.clone())
+            } else {
+                return false;
+            };
         // add-reflection-transitive-interfaces: match directly OR transitively.
-        if let Some(c) = cls {
-            if c.interfaces.iter().any(|i| iface_reaches_mod(module, i, target)) { return true; }
-        }
-        match cls.and_then(|c| c.base_class.as_deref()) {
-            Some(base) => cur = base,
-            None       => return false,
+        if ifaces.iter().any(|i| iface_reaches_mod(vm, module, i, target)) { return true; }
+        match base {
+            Some(b) => cur = b,
+            None    => return false,
         }
     }
 }
@@ -297,8 +310,11 @@ pub(super) fn is_subclass_or_eq(module: &crate::metadata::Module, derived: &str,
 /// add-reflection-transitive-interfaces: JIT mirror of `iface_reaches_td` —
 /// true if `iface` equals `target` or reaches it via its transitive base
 /// interfaces (interface entries live in `module.classes` since interfaces
-/// emit a TYPE entry). Intra-module only, like the rest of the JIT path.
-fn iface_reaches_mod(module: &crate::metadata::Module, iface: &str, target: &str) -> bool {
+/// emit a TYPE entry). Lazy-loader fallback for cross-zpkg / reflectively
+/// loaded interfaces (fix-crosspkg-interface-impl), mirroring interp.
+fn iface_reaches_mod(
+    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, iface: &str, target: &str,
+) -> bool {
     let mut queue: Vec<String> = vec![iface.to_string()];
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     while let Some(name) = queue.pop() {
@@ -306,6 +322,8 @@ fn iface_reaches_mod(module: &crate::metadata::Module, iface: &str, target: &str
         if !seen.insert(name.clone()) { continue; }
         if let Some(c) = module.classes.iter().find(|c| c.name == name) {
             for bi in c.interfaces.iter() { queue.push(bi.to_string()); }
+        } else if let Some(td) = vm.try_lookup_type(name.as_str()) {
+            for bi in td.interfaces() { queue.push(bi.to_string()); }
         }
     }
     false
@@ -326,7 +344,7 @@ pub unsafe extern "C" fn jit_is_instance(
         .unwrap_or("<invalid>");
     let module = &*(*ctx).module;
     let result = match &(*frame).regs[obj as usize] {
-        Value::Object(rc) => is_subclass_or_eq(module, &rc.type_desc().name, class_name),
+        Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
         _ => false,
     };
@@ -343,7 +361,7 @@ pub unsafe extern "C" fn jit_as_cast(
     let module = &*(*ctx).module;
     let val    = (*frame).regs[obj as usize].clone();
     let is_match = match &val {
-        Value::Object(rc) => is_subclass_or_eq(module, &rc.type_desc().name, class_name),
+        Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
         _           => false,

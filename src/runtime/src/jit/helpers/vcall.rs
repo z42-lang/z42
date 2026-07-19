@@ -174,7 +174,7 @@ pub unsafe extern "C" fn jit_vcall(
         }
     };
 
-    let func_name = match resolve_virtual(module, &class_name, method) {
+    let func_name = match resolve_virtual(vm_ctx_ref(ctx), module, &class_name, method) {
         Ok(n)  => n,
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
     };
@@ -204,6 +204,23 @@ pub unsafe extern "C" fn jit_vcall(
             // `cross_zpkg_via_interp` Case 1. Without this an `out`/`ref` virtual
             // method would abort under `--mode jit`.
             let vm_ctx = vm_ctx_ref(ctx);
+            // fix-crosspkg-interface-impl: lazily-loaded function (injected component)
+            // -- not in the main module at all; fetch from the lazy loader and interp-exec.
+            if let Some(lazy_fn) = (!module.func_index.contains_key(&func_name))
+                .then(|| vm_ctx.try_lookup_function(&func_name)).flatten()
+            {
+                let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
+                call_args.push(obj_val);
+                call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
+                return match crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &call_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                        frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
+                        0
+                    }
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
+                };
+            }
             if let Some(callee) = module.func_index.get(&func_name)
                 .and_then(|&idx| module.functions.get(idx))
             {
@@ -239,13 +256,23 @@ pub unsafe extern "C" fn jit_vcall(
     0
 }
 
-fn resolve_virtual(module: &crate::metadata::Module, class_name: &str, method: &str) -> anyhow::Result<String> {
-    let mut cur = class_name;
+fn resolve_virtual(
+    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, class_name: &str, method: &str,
+) -> anyhow::Result<String> {
+    let mut cur: String = class_name.to_string();
     loop {
         let qualified = format!("{}.{}", cur, method);
         if module.functions.iter().any(|f| f.name == qualified) { return Ok(qualified); }
-        match module.classes.iter().find(|c| c.name == cur).and_then(|c| c.base_class.as_deref()) {
-            Some(base) => cur = base,
+        // fix-crosspkg-interface-impl (dynamic-component-registration): lazy-loader
+        // fallback -- reflectively/lazily loaded receivers (ModuleLoader.Load +
+        // Activator) have neither functions nor classes in the MAIN module; without
+        // this the injected component's methods were unreachable under JIT.
+        if vm.try_lookup_function(&qualified).is_some() { return Ok(qualified); }
+        let base = module.classes.iter().find(|c| c.name == cur)
+            .and_then(|c| c.base_class.clone())
+            .or_else(|| vm.try_lookup_type(cur.as_str()).and_then(|td| td.base_name.clone()));
+        match base {
+            Some(b) => cur = b,
             None => anyhow::bail!("VCall: no implementation of `{}` found in hierarchy of `{}`", method, class_name),
         }
     }

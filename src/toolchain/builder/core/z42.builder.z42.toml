@@ -4,17 +4,14 @@
 # forwards `z42 test`/`z42 bench`/`z42 publish` here.
 #
 # SCOPE: test/bench (builder_test) + desktop publish (builder_publish +
-# builder_apphost, move-publish-to-z42b). publish produces the apphost (inlined
-# patcher, NOT z42.workload.desktop — z42b must stay stdlib-only to build in the
-# test-runner stage) around an already-built zpkg + optional build-if-needed via
-# z42c — it does NOT use the in-process compiler API and does NOT import
-# Z42.Build / Z42.Build.Project, so it is safe to wire now. The build/export/new
-# orchestration verbs still live in the PARKED builder.z42 / builder_commands.z42 /
-# builder_new.z42 (they import Z42.Build.Project + need the in-process compiler
-# API) — wired by `wire-z42b-host-build`.
-# (z42.project 仍暂不入 build：其 `Z42.Build.Project` 类与 z42c.project 同名，同 flat libs
-# 会按文件名 first-wins 串味、炸 z42c 自举——见 z42.workspace.toml 注释。publish 不碰
-# z42.project，故不受影响。等 wire-z42b-host-build 让 z42c 改引用本库、删 z42c.project 后再启用。)
+# builder_apphost, move-publish-to-z42b) + build/new/export 编排（wire-z42b 2b：
+# builder.z42 / builder_commands.z42 / builder_new.z42 已接入）。
+#
+# 编译器接入 = **运行时动态注入**（dynamic-component-registration）：z42b 编译期仅依赖
+# z42.build 的 ICompiler 接口（stdlib）——**零 z42c 编译期依赖**，保持独立 exe +
+# stdlib-only 可构建（test-runner 角色不破）。build 动词运行时经 ModuleLoader.Load
+# 加载 programs/z42c/z42c.pipeline.zpkg → 反射实例化 Z42cCompiler → as ICompiler 注入。
+# 换/升级编译器 = 替换 zpkg，z42b 零改动（见 builder.z42 _hostCompiler）。
 [project]
 name    = "z42.builder"
 version = "0.1.0"
@@ -23,17 +20,21 @@ entry   = "Z42Builder.Main"
 pack    = true
 
 [sources]
-include = ["builder_cli.z42", "builder_test.z42", "builder_publish.z42", "builder_apphost.z42"]
+include = ["builder_cli.z42", "builder_test.z42", "builder_publish.z42", "builder_apphost.z42",
+           "builder.z42", "builder_commands.z42", "builder_new.z42"]
 
 [dependencies]
 # stdlib-only — z42b doubles as the reflective test-runner, which the `stdlib [Test]`
 # build stage compiles with ONLY stdlib in Z42_LIBS. publish therefore inlines its
 # apphost patcher (builder_apphost.z42) rather than depending on z42.workload.desktop.
-"z42.core" = "0.1.0"   # String / core / Platform
-"z42.io"   = "0.1.0"   # Console / File / Directory / Path / Process / Environment
-"z42.cli"  = "0.1.0"   # Std.Cli nested router + ArgParser
-"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule — reflective [Test]/[Benchmark] runner
-"z42.toml" = "0.1.0"   # TomlValue.Parse — read [platform.desktop] in `z42b publish` (move-publish-to-z42b)
+# z42.build/z42.project 均为 stdlib（wire-z42b 阶段 1 / converge 已注册）→ 不破 stdlib-only。
+"z42.core"    = "0.1.0"   # String / core / Platform / Std.Reflection (Activator/Type)
+"z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
+"z42.cli"     = "0.1.0"   # Std.Cli nested router + ArgParser
+"z42.test"    = "0.1.0"   # Std.Test.Runner.RunModule + ModuleLoader（反射 runner + 组件动态加载）
+"z42.toml"    = "0.1.0"   # TomlValue.Parse — read [platform.desktop] in `z42b publish`
+"z42.build"   = "0.1.0"   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）
+"z42.project" = "0.1.0"   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 
 [build]
 # Mirror launcher: emit z42.builder.zpkg into the shared artifacts tree
