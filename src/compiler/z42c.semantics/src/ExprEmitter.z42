@@ -639,7 +639,12 @@ public sealed class ExprEmitter {
             if (this._castUnknownChain(c.Receiver)) { itag = IrType.Unknown; }
             // IC-1 反劫持守卫：receiver 类链（local+imported）自有方法 → VCall（vtable 赢）
             bool owns = this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName);
-            if (!owns && this._ctx.Deps != null) {
+            // fix-iface-receiver-depindex-hijack：接口接收者恒 VCall（接口派发本就走 vtable），
+            // 不进 DepIndex instance 捷径——接口不在 LocalClasses（G18 守卫只认 class/struct/record），
+            // 曾致 `IB b; b.Assets(r)` 被依赖包同短名方法（z42.build Pipeline.Assets）劫持成直接
+            // Call → 错函数返 null（z42.build 注册入 stdlib 后 xtask 平台腿全红的根因）。
+            bool ifaceRecv = c.Receiver.Type() is Z42InterfaceType;
+            if (!owns && !ifaceRecv && this._ctx.Deps != null) {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
                 if (de != null) {
