@@ -342,6 +342,9 @@ SubcommandRouter _benchRouter() {
     stdlib.AddOption("filter", "k", "bench-name filter", "");
     stdlib.AddOption("jobs", "", "parallel unit batch width", "");
     stdlib.AddOption("mode", "", "interp|jit (default: interp)", "");
+    // shard 与 test stdlib 同款——_testLib 共用实现、无条件读该选项；漏注册会在
+    // dispatch 即抛 CliException 'shard not registered'（pre-existing，随 bench 用例补充修复）。
+    stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     bn.Add("stdlib", "per-lib [Benchmark]", stdlib);
     return bn;
