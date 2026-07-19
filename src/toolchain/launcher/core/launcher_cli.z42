@@ -35,7 +35,7 @@ void _runLauncher(string[] argv) {
     // z42b owns test / bench / clean (+ future new / build). The launcher owns the
     // command face + runtime resolution; z42b parses the sub-args. Raw passthrough
     // (the `--` / flag tails can't go through a strict ArgParser), mirroring `run`.
-    if (c0 == "test" || c0 == "bench" || c0 == "clean") {
+    if (c0 == "test" || c0 == "bench" || c0 == "clean" || c0 == "new") {
         Environment.Exit(_forwardZ42b(argv));
         return;
     }
@@ -131,7 +131,14 @@ SubcommandRouter _launcherRoot() {
     cleanP.AllowExtras();
     cleanP.AddOptionalPositional("dir", "target dir (default: current dir)");
     root.Add("clean", "remove build artifacts (z42b)", cleanP);
-    // build = compile, forwarded raw to z42c (move-publish-to-z42b). Registered for help.
+    // new = scaffold, forwarded raw to z42b (wire-z42b 2c). Registered for help.
+    ArgParser newFwd = new ArgParser("z42 new", "scaffold a new project (forwarded to z42b)");
+    newFwd.AllowExtras();
+    newFwd.AddOptionalPositional("name", "project name (kebab-case)");
+    root.Add("new", "scaffold a new project (z42b)", newFwd);
+    // build = compile, forwarded raw to z42c（暂留：z42b build 面尚不支持 lib/workspace——
+    // Z42cCompiler MVP 恒 exe；切换待 CompileRequest 携 kind/entry（seed 轴分阶段）。
+    // 编排式 app build 已可用：`z42vm z42.builder.zpkg -- build`。Registered for help.
     ArgParser buildP = new ArgParser("z42 build", "compile a project to a zpkg (forwarded to z42c)");
     buildP.AllowExtras();
     buildP.AddOptionalPositional("project", "<project.z42.toml>");

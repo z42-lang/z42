@@ -139,9 +139,9 @@ Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
 Inputs _initialInputs(ProjectManifest m) {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
     if (libs.Length == 0) { return new Inputs("", "", new string[0]); }
-    string[] deps = new string[m.DepCount];
-    int i = 0;
-    while (i < m.DepCount) { deps[i] = Path.Join(libs, m.Deps[i].Name + ".zpkg"); i = i + 1; }
+    // 镜像 z42c CLI 的 Z42_LIBS 语义：整目录全部 zpkg 供扫（stdlib 恒可用——prelude/Std.IO
+    // 无需在 app 的 toml 里显式声明；非 stdlib 依赖仍受 DepIndex 白名单约束，见 Z42cCompiler）。
+    string[] deps = Path.Glob(libs, "*.zpkg");
     return new Inputs("", "", deps);
 }
 

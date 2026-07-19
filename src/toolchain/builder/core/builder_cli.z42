@@ -40,6 +40,9 @@ SubcommandRouter _builderRoot() {
     // new / build / publish / export / run（wire-z42b 2b：build/new 编排已接入，编译器动态注入）。
     ArgParser newP = new ArgParser("z42b new", "scaffold a new project");
     newP.AddOptionalPositional("name", "project name (kebab-case)");
+    newP.AddFlag("lib", "", "library project (default: exe app)");
+    newP.AddFlag("test", "", "test project");
+    newP.AddOption("path", "", "parent directory (default: current dir)", "");
     root.Add("new", "scaffold a new project", newP);
 
     ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");

@@ -74,13 +74,15 @@ void _writeSource(string dir, string name, string kind) {
 }
 
 string _exeSource(string name) {
+    // z42 惯例：自由函数 Main（entry 自动探测按此；C# 式 class Program.static Main 不被识别）。
     string s = "";
+    s = s + "namespace " + _nsOf(name) + ";\n";
+    s = s + "\n";
+    s = s + "using Std;\n";
     s = s + "using Std.IO;\n";
     s = s + "\n";
-    s = s + "class Program {\n";
-    s = s + "    static void Main() {\n";
-    s = s + "        Console.WriteLine(\"Hello from " + name + "!\");\n";
-    s = s + "    }\n";
+    s = s + "void Main() {\n";
+    s = s + "    Console.WriteLine(\"Hello from " + name + "!\");\n";
     s = s + "}\n";
     return s;
 }
