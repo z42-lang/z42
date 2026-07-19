@@ -68,24 +68,7 @@ public static class Runner {
         }
 
         if (json) {
-            // Assemble the report envelope here (not in a TestReport method):
-            // z42c drops many-param brace-bodied static methods from TSIG export,
-            // and array-type params misparse — both avoided by looping the 1-arg
-            // `resultJson` over the local array + building the envelope inline.
-            string body = "";
-            int k = 0;
-            while (k < results.Length) {
-                if (k > 0) { body = body + ","; }
-                body = body + TestReport.resultJson(results[k]);
-                k = k + 1;
-            }
-            string js = "{\"tool\":\"z42b\",\"module\":\"" + TestReport.esc(path) + "\","
-                + "\"summary\":{\"total\":" + results.Length.ToString()
-                + ",\"passed\":" + passed.ToString()
-                + ",\"failed\":" + failed.ToString()
-                + ",\"skipped\":" + skipped.ToString() + "},"
-                + "\"results\":[" + body + "]}";
-            Console.WriteLine(js);
+            Console.WriteLine(TestReport.toJson(path, results));
         } else {
             Console.WriteLine("");
             Console.WriteLine("  Result: " + passed.ToString() + " passed, "

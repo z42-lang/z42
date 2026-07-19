@@ -68,6 +68,21 @@ void test_result_json_benchmark_shape() {
 }
 
 [Test]
+void test_report_envelope_shape() {
+    // toJson(artifact, TestResult[]) 全量 envelope（自然 API——fix-parse-diags-dropped
+    // 修好 parser 后从 Runner 内联装配收敛回来；数组参数与多参方法均正常）。
+    BenchStats b = BenchStats.parse("bench[add] min=10ns median=20ns max=30ns samples=50");
+    TestResult[] rs = new TestResult[2];
+    rs[0] = new TestResult("M.test_ok", "passed", false, null, null);
+    rs[1] = new TestResult("M.bench_add", "passed", true, null, b);
+    string j = TestReport.toJson("demo.zpkg", rs);
+    Assert.Contains("\"tool\":\"z42b\"", j);
+    Assert.Contains("\"module\":\"demo.zpkg\"", j);
+    Assert.Contains("\"summary\":{\"total\":2,\"passed\":2,\"failed\":0,\"skipped\":0}", j);
+    Assert.Contains("\"results\":[{", j);
+}
+
+[Test]
 void test_result_json_plain_test_no_stats() {
     TestResult r = new TestResult("M.test_ok", "passed", false, null, null);
     string j = TestReport.resultJson(r);

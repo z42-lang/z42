@@ -75,6 +75,15 @@ runner 无逐测计时、失败位置信息也不成熟。
 （`is_benchmark` + `bench_stats` + summary）。`total_ns` 不入（`printSummary` 行不含 total，
 不改该行格式 → 无来源）。pre-1.0 无消费方，精简不破坏兼容（philosophy 不为旧版本兼容）。
 
+> **事后修订（2026-07-19，fix-parse-diags-dropped）**：本节所述「两个 z42c bug」经根因
+> 定位实为**同一根因的两种表象**——参数名用了保留关键字 `module`（TokenKind.Module=65）
+> + parse 诊断被丢弃（Parser 的 DiagnosticBag 无人消费）→ 解析脱轨后要么级联垃圾错误、
+> 要么静默 miscompile。`T[]` 数组参数与多参 brace-body 方法**本身从来没有问题**（探针
+> B/P7/P10 均过——它们只是没用 `module` 作参数名）。修复（诊断上浮 + 关键字占名精准
+> 报错恢复）后，本 workaround（Runner 内联装配 envelope）已收敛回自然 API
+> `TestReport.toJson(string artifact, TestResult[] results)`；下方 Deferred
+> `bench-structured-future-report-envelope` **关闭**。本节保留为误诊过程的历史记录。
+
 ### Decision 5: 规避两个 nightly-z42c bug —— Runner 内联装配 + 仅 1-arg TestReport 助手
 
 **实施期用 nightly z42c 编 z42.test 时撞上两个 z42c 前端 bug**（二分探针 A–S 定位；均属被占的
@@ -128,7 +137,10 @@ GREEN 断言（现有 bench_demo / test_runner golden）完全不受影响。
 
 ## Deferred / Future Work
 
-### bench-structured-future-report-envelope
+### bench-structured-future-report-envelope（已关闭，2026-07-19）
+
+> **CLOSED by fix-parse-diags-dropped**：根因（`module` 保留关键字 + parse 诊断丢失）
+> 已修，自然 API `toJson(string artifact, TestResult[])` 已恢复。保留原文如下。
 
 - **来源**：本 change 实施期（Decision 5）
 - **触发原因**：nightly z42c 两 bug——(1) 数组类型参数 `T[]`（用户类元素）误解析为 `new T[...]`；
