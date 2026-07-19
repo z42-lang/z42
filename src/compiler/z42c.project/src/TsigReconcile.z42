@@ -260,10 +260,20 @@ public static class TsigReconcile {
                 ssi = ssi + 1;
             }
         }
-        return new ExportedClassZ(bare, hasBase, baseName,
+        ExportedClassZ ecz = new ExportedClassZ(bare, hasBase, baseName,
                                   TsigReconcile._trimF(fields, fldc), fldc,
                                   TsigReconcile._trimM(methods, mc), mc,
                                   cd.TypeParams == null ? new string[0] : cd.TypeParams, cd.TypeParamCount);
+        // 实现的接口表（fix-crosspkg-interface-impl 补齐）：TYPE 接口块存 FQ 名 → bare 化
+        // （镜像 local Z42ClassType.InterfaceNames 的裸名约定；SymbolTable.Implements 按裸名匹配）。
+        // 缺此则 imported 类 → 接口的可赋性（`ICompiler c = new NoCompiler()`）恒 E0402。
+        if (cd.InterfaceCount > 0) {
+            string[] ifb = new string[cd.InterfaceCount];
+            int ifi = 0;
+            while (ifi < cd.InterfaceCount) { ifb[ifi] = TsigReconcile._shortName(cd.Interfaces[ifi]); ifi = ifi + 1; }
+            ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
+        }
+        return ecz;
     }
 
     private static ExportedMethodZ _methodFromSig(IrFunction f, string mkey) {
