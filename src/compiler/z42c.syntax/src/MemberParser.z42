@@ -124,6 +124,12 @@ public sealed class MemberParser {
         }
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else if (MemberParser._isWordKeyword(this._p._peek().Kind)) {
+            // 同参数名位置的关键字恢复（见 _parseParamList）：报准 + 消费防脱轨。
+            this._p._diags.Error(DiagnosticCodes.ExpectedToken,
+                "cannot use keyword '" + name + "' as a member name", this._p._peek().Span);
+            this._p._advance();
+        }
         else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name", this._p._peek().Span); }
         // 泛型方法 `T Make<T>(...)`：成员名后的 `<` 必为类型形参（字段不会有 `<`）。
         TypeParamList mTypeParams = this._p._typeP._parseTypeParams();
@@ -227,6 +233,15 @@ public sealed class MemberParser {
                 TypeExpr pt = this._p._typeP._parseType();
                 string pn = this._p._peek().Text;
                 if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+                else if (MemberParser._isWordKeyword(this._p._peek().Kind)) {
+                    // fix-parse-diags-dropped：关键字占了参数名位置（如 `string module`——
+                    // `module` 是保留关键字）→ 精准报错 + 消费该 token 保持解析同步。
+                    // 不消费会从这里脱轨：参数列表提前闭合、方法体被撕成垃圾成员，
+                    // 配合 parse 诊断丢失曾产出静默 miscompile（方法被无声吞掉）。
+                    this._p._diags.Error(DiagnosticCodes.ExpectedToken,
+                        "cannot use keyword '" + pn + "' as a parameter name", this._p._peek().Span);
+                    this._p._advance();
+                }
                 else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected parameter name", this._p._peek().Span); }
                 if (pc == ps.Length) {
                     Param[] b = new Param[ps.Length * 2];
@@ -259,6 +274,15 @@ public sealed class MemberParser {
         }
         this._p._expect(TokenKind.RParen, ")");
         return new ParamList(ps, pc, sp);
+    }
+
+    // 词形关键字判定（名字位置的诊断恢复用）：TokenKind 9..93 是连续的关键字/保留字/
+    // 类型关键字区间（见 TokenKind.z42 布局），另加 true/false/params 三个词形 token。
+    // 标点/字面量/EOF 不在内——它们出现在名字位置时不消费（沿用原恢复策略）。
+    static bool _isWordKeyword(int k) {
+        if (k >= 9 && k <= 93) { return true; }
+        if (k == TokenKind.True || k == TokenKind.False || k == TokenKind.Params) { return true; }
+        return false;
     }
 
     public static string _operatorMethodName(string op) {

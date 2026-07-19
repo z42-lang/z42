@@ -355,8 +355,20 @@ public sealed class CompilationUnit {
     public string Namespace;
     public Decl[] Decls;
     public int    DeclCount;
+    // fix-parse-diags-dropped：Parser 收尾把自己的 DiagnosticBag 挂到 CU 上，
+    // 让下游 typecheck 汇点能上浮 parse 错误。此前 parse 诊断被整体丢弃（各编译
+    // 点只为 TypeChecker 新建 bag）——畸形 parse 的垃圾 AST 流入 codegen，若
+    // typecheck 恰好不报错，就产出**静默 miscompile** 的包（如方法被无声吞掉）。
+    public DiagnosticBag ParseDiags;
     public CompilationUnit(bool hasNs, string ns, Decl[] decls, int dc, Span span) { this.Span = span;
         this.HasNamespace = hasNs; this.Namespace = ns; this.Decls = decls; this.DeclCount = dc;
+        this.ParseDiags = null;
+    }
+    // 把 parse 阶段诊断并入 `into`（typecheck bag），使其计入编译错误数。CU 未携带时 no-op。
+    public void MergeParseDiags(DiagnosticBag into) {
+        if (this.ParseDiags == null) { return; }
+        int i = 0;
+        while (i < this.ParseDiags.Count()) { into.Add(this.ParseDiags.Get(i)); i = i + 1; }
     }
     public string Dump() {
         string s = "(unit";

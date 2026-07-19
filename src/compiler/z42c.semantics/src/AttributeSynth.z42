@@ -51,7 +51,9 @@ public sealed class AttributeSynth {
         while (j < cu.DeclCount) { nd[j] = cu.Decls[j]; j = j + 1; }
         j = 0;
         while (j < this._facCount) { nd[cu.DeclCount + j] = this._fac[j]; j = j + 1; }
-        return new CompilationUnit(cu.HasNamespace, cu.Namespace, nd, cu.DeclCount + this._facCount, cu.Span);
+        CompilationUnit nu = new CompilationUnit(cu.HasNamespace, cu.Namespace, nd, cu.DeclCount + this._facCount, cu.Span);
+        nu.ParseDiags = cu.ParseDiags;   // fix-parse-diags-dropped：重建 CU 时传递 parse 诊断
+        return nu;
     }
 
     private void _processClass(AttributedDecl ad, ClassDecl c) {

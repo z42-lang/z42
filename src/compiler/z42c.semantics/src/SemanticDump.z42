@@ -104,6 +104,7 @@ public static class SemanticDump {
         var cu = p.ParseCompilationUnit();
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         if (model.HasBody(key)) { return model.GetBody(key).Dump(); }
         return "(no-body " + key + ")";
@@ -115,6 +116,7 @@ public static class SemanticDump {
         var cu = p.ParseCompilationUnit();
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         string[] keys = model.Bodies.Keys();
         string s = "";
@@ -138,6 +140,7 @@ public static class SemanticDump {
         var cu = p.ParseCompilationUnit();
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         new TypeChecker(diags).Infer(cu, symbols);
         if (diags.Count() == 0) { return ""; }
         Diagnostic d = diags.Get(0);
@@ -150,6 +153,7 @@ public static class SemanticDump {
         var cu = p.ParseCompilationUnit();
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         new TypeChecker(diags).Infer(cu, symbols);
         if (diags.Count() == 0) { return ""; }
         return diags.Get(0).Code;
@@ -161,6 +165,7 @@ public static class SemanticDump {
         var cu = p.ParseCompilationUnit();
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         new TypeChecker(diags).Infer(cu, symbols);
         return diags.ErrorCount();
     }
