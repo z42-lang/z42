@@ -25,6 +25,7 @@ fn simple_class(name: &str) -> ClassDesc {
         static_fields: vec![].into(),
         interfaces: vec![].into(),
         enum_members: vec![].into(),
+        iface_methods: vec![].into(),
         class_flags: 0,
         name: name.to_owned(),
         base_class: None,

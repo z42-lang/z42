@@ -504,19 +504,32 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // present only when CLASS_FLAG_INTERFACE is set. Layout: mcount:u16 +
         // (name_idx:u32, ret_idx:u32, pcount:u8, ptype_idx:u32×pcount)×n. The block
         // exists so the COMPILER (TsigReconcile) can restore imported interface
-        // methods from dep zpkgs; the VM resolves interface calls via vtable, so we
-        // parse for cursor correctness and discard (future: surface via reflection).
-        if class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
-            let im_count = c.read_u16()? as usize;
-            for _ in 0..im_count {
-                let _name_idx = c.read_u32()?;
-                let _ret_idx = c.read_u32()?;
-                let pcount = c.read_u8()? as usize;
-                for _ in 0..pcount {
-                    let _ptype_idx = c.read_u32()?;
+        // methods from dep zpkgs; the VM resolves interface calls via vtable.
+        // add-interface-member-reflection: read into `iface_methods` (was discarded)
+        // so `Type.GetMethods()` can surface interface method signatures.
+        let iface_methods: Box<[crate::metadata::bytecode::IfaceMethodSig]> =
+            if class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
+                let im_count = c.read_u16()? as usize;
+                let mut ims = Vec::with_capacity(im_count);
+                for _ in 0..im_count {
+                    let name_idx = c.read_u32()?;
+                    let ret_idx = c.read_u32()?;
+                    let pcount = c.read_u8()? as usize;
+                    let mut param_types = Vec::with_capacity(pcount);
+                    for _ in 0..pcount {
+                        let ptype_idx = c.read_u32()?;
+                        param_types.push(c.pool_str(pool, ptype_idx)?.to_owned());
+                    }
+                    ims.push(crate::metadata::bytecode::IfaceMethodSig {
+                        name: c.pool_str(pool, name_idx)?.to_owned(),
+                        ret_type: c.pool_str(pool, ret_idx)?.to_owned(),
+                        param_types: param_types.into_boxed_slice(),
+                    });
                 }
-            }
-        }
+                ims.into_boxed_slice()
+            } else {
+                Box::new([])
+            };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -528,6 +541,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),
             enum_members,
+            iface_methods,
         });
     }
     Ok(classes)

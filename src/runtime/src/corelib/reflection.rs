@@ -509,6 +509,17 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             out.push(build_method_info(ctx, &simple, &q, false)?);
         }
     }
+    // add-interface-member-reflection: an interface carries its declared method
+    // signatures in `iface_methods` (its vtable/own_methods are empty — interface
+    // methods have no backing Function). Build MethodInfo straight from the sigs so
+    // `typeof(IFoo).GetMethods()` surfaces the interface contract. Directly-declared
+    // only (inherited-interface methods reached via GetInterfaces → their GetMethods).
+    for sig in td.iface_methods() {
+        let q = format!("{}.{}", td.name, sig.name);
+        if seen.insert(q) {
+            out.push(build_iface_method_info(ctx, &td.name, sig)?);
+        }
+    }
     Ok(ctx.heap().alloc_array(out))
 }
 
@@ -603,6 +614,54 @@ fn build_method_info(
             // C3b: qualified func name so MethodInfo.GetCustomAttributes() can
             // resolve the backing Function's attribute factories.
             ("__qualified", Value::Str(qualified.to_string().into())),
+        ],
+    )
+}
+
+/// add-interface-member-reflection: build a `MethodInfo` for an interface-declared
+/// method straight from its signature (`IfaceMethodSig`). Interface methods have
+/// NO backing `Function` (no body — not in SIGS/FUNC), so unlike `build_method_info`
+/// this reads the return/param types from the signature block. Interface methods
+/// are implicitly public, instance, abstract, and virtual. Parameters carry types
+/// but no source names (`arg{n}`) — the block records types only.
+fn build_iface_method_info(
+    ctx: &VmContext,
+    iface_fqn: &str,
+    sig: &crate::metadata::bytecode::IfaceMethodSig,
+) -> Result<Value> {
+    let simple = sig.name.split('$').next().unwrap_or(&sig.name);
+    let qualified = format!("{iface_fqn}.{}", sig.name);
+    let mut params = Vec::with_capacity(sig.param_types.len());
+    for (i, ptype) in sig.param_types.iter().enumerate() {
+        let pos = i as i64;
+        params.push(alloc_named(
+            ctx,
+            STD_REFLECTION_PARAMINFO,
+            &[
+                ("Name", Value::Str(format!("arg{pos}").into())),
+                ("ParameterType", make_type_from_name(ctx, ptype)),
+                ("Position", Value::I64(pos)),
+                ("IsOptional", Value::Bool(false)),
+                ("IsParams", Value::Bool(false)),
+                ("DefaultValue", Value::Null),
+                ("__qualified", Value::Str(qualified.clone().into())),
+            ],
+        )?);
+    }
+    let params_arr = ctx.heap().alloc_array(params);
+    alloc_named(
+        ctx,
+        STD_REFLECTION_METHODINFO,
+        &[
+            ("Name", Value::Str(simple.to_string().into())),
+            ("ReturnType", make_type_from_name(ctx, &sig.ret_type)),
+            ("IsStatic", Value::Bool(false)),
+            ("IsVirtual", Value::Bool(true)),
+            ("IsAbstract", Value::Bool(true)),
+            ("IsPublic", Value::Bool(true)),
+            ("IsPrivate", Value::Bool(false)),
+            ("__parameters", params_arr),
+            ("__qualified", Value::Str(qualified.into())),
         ],
     )
 }
