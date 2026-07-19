@@ -15,4 +15,4 @@ z42 "编译相关"的全部：**z42c**（编译器本体，源码 → `.zpkg`）
 | [zbc 字节码格式](zbc-format.md) | 文件头、section、opcode 表、type tag、token 编码、版本 strict-pin | ✅ |
 | [zpkg 包格式](zpkg-format.md) | packed/indexed 布局、各 section、sidecar、与 zbc 关系 | ✅ |
 | [CLI 与诊断工具](tools.md) | z42c（build/--workspace/--emit-zbc）+ z42b（test/publish…）+ `--dump-*` | ✅ |
-| 错误码体系 | Z#### 分段、Diagnostics vs Exceptions | ⬜ |
+| [错误码体系](error-codes.md) | E/W 码按阶段分段、Diagnostic/DiagnosticBag、运行期类型化异常 | ✅ |
