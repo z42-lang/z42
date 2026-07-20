@@ -1,0 +1,118 @@
+// fix-benchmark-bencher-arg-trampoline (2026-07-20) — AST-level desugar restoring
+// the ergonomic `[Benchmark] void f(Bencher b)` signature. Originally a C# bootstrap
+// pass (add-benchmark-bencher-arg-trampoline, 2026-05-31); it was DELETED with the C#
+// compiler (f8ff73d5) and never ported to z42c, so form-2 benchmarks have failed at
+// runtime ever since (`MethodInfo.Invoke: expects 1 argument, got 0` — the runner
+// invokes [Benchmark] entries zero-arg). This ports the pass to z42c.
+//
+//   [Benchmark] void f(Bencher b) { BODY }
+//
+// becomes
+//
+//   void f$impl(Bencher b) { BODY }          // attribute stripped (not a benchmark)
+//   [Benchmark] void f() {                   // synthesized zero-arg wrapper
+//       Bencher b = new Bencher();
+//       f$impl(b);
+//       b.printSummary("f");
+//   }
+//
+// The wrapper is indistinguishable from a hand-written zero-arg benchmark, so it
+// flows through the unchanged TypeChecker / TestIndexBuilder / IrGen / runner. Runs
+// once, before TypeCheck, at the same seam as AttributeSynth.Run. `$` is illegal in
+// user identifiers, so `$impl` cannot collide with user code.
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+public static class BenchmarkDesugar {
+    // Rewrite Bencher-arg benchmarks in `cu`. Returns `cu` unchanged when none match
+    // (common case — avoids rebuilding the decl list).
+    public static CompilationUnit Run(CompilationUnit cu) {
+        bool any = false;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            if (BenchmarkDesugar._isBencherArgBenchmark(cu.Decls[i])) { any = true; i = cu.DeclCount; }
+            else { i = i + 1; }
+        }
+        if (!any) { return cu; }
+
+        Decl[] nd = new Decl[cu.DeclCount * 2];   // each match expands 1 → 2
+        int n = 0;
+        int j = 0;
+        while (j < cu.DeclCount) {
+            Decl d = cu.Decls[j];
+            if (BenchmarkDesugar._isBencherArgBenchmark(d)) {
+                AttributedDecl ad = d as AttributedDecl;
+                MethodDecl md = ad.Inner as MethodDecl;
+                nd[n] = BenchmarkDesugar._demote(md); n = n + 1;
+                nd[n] = BenchmarkDesugar._wrapper(ad, md); n = n + 1;
+            } else {
+                nd[n] = d; n = n + 1;
+            }
+            j = j + 1;
+        }
+        CompilationUnit nu = new CompilationUnit(cu.HasNamespace, cu.Namespace, nd, n, cu.Span);
+        nu.ParseDiags = cu.ParseDiags;   // preserve parse diagnostics (fix-parse-diags-dropped)
+        return nu;
+    }
+
+    // True iff `d` is a top-level [Benchmark] free function with exactly one
+    // parameter of type Bencher (short-name match, shape-only — pre-typecheck).
+    static bool _isBencherArgBenchmark(Decl d) {
+        if (!(d is AttributedDecl)) { return false; }
+        AttributedDecl ad = d as AttributedDecl;
+        if (!(ad.Inner is MethodDecl)) { return false; }
+        MethodDecl md = ad.Inner as MethodDecl;
+        if (!md.IsFree) { return false; }
+        bool hasBench = false;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (ad.Attrs[a].Name == "Benchmark") { hasBench = true; a = ad.AttrCount; }
+            else { a = a + 1; }
+        }
+        if (!hasBench) { return false; }
+        if (md.ParamCount != 1) { return false; }
+        TypeExpr pt = md.Params[0].Type;
+        if (!(pt is NamedType)) { return false; }
+        return (pt as NamedType).Name == "Bencher";
+    }
+
+    // Original body + Bencher param, attribute stripped, renamed `<name>$impl`.
+    static Decl _demote(MethodDecl md) {
+        return new MethodDecl(md.Mods, md.IsFree, md.IsCtor, md.RetType, md.Name + "$impl",
+            md.TypeParams, md.Wheres, md.WhereCount, md.Params, md.ParamCount,
+            md.HasBody, md.Body, md.BaseArgs, md.BaseArgCount, md.IsThisInit, md.Span);
+    }
+
+    // Zero-arg [Benchmark] wrapper: construct a Bencher, invoke the demoted impl,
+    // report via printSummary. Reuses `md.RetType` (void) to avoid respelling it.
+    static Decl _wrapper(AttributedDecl ad, MethodDecl md) {
+        Span s = md.Span;
+        string name = md.Name;
+        string implName = name + "$impl";
+
+        // Bencher b = new Bencher();
+        TypeExpr bencherTy = new NamedType("Bencher", new TypeExpr[0], 0, s);
+        Expr newB = new ObjNewExpr(new NamedType("Bencher", new TypeExpr[0], 0, s), new Expr[0], 0, s);
+        Stmt declB = new VarDeclStmt(bencherTy, "b", newB, s);
+
+        // f$impl(b);
+        Expr[] implArgs = new Expr[1]; implArgs[0] = new IdentExpr("b", s);
+        Stmt callImpl = new ExprStmt(new CallExpr(new IdentExpr(implName, s), implArgs, 1, s), s);
+
+        // b.printSummary("f");  — StringLitExpr.Raw is the raw token (quotes included).
+        Expr[] psArgs = new Expr[1]; psArgs[0] = new StringLitExpr("\"" + name + "\"", s);
+        Stmt callPs = new ExprStmt(
+            new CallExpr(new MemberExpr(new IdentExpr("b", s), "printSummary", s), psArgs, 1, s), s);
+
+        Stmt[] stmts = new Stmt[3];
+        stmts[0] = declB; stmts[1] = callImpl; stmts[2] = callPs;
+        Stmt body = new BlockStmt(stmts, 3, s);
+
+        MethodDecl wrap = new MethodDecl(md.Mods, true, false, md.RetType, name,
+            md.TypeParams, new WhereClause[0], 0, new Param[0], 0, true, body,
+            new Expr[0], 0, false, s);
+        // Re-attach the original attributes ([Benchmark] + any siblings) to the wrapper.
+        return new AttributedDecl(ad.Attrs, ad.AttrCount, wrap, s);
+    }
+}

@@ -49,7 +49,7 @@ public static class IncrementalDriver {
             var pp = new Parser(texts[i], srcs[i]);
             CompilationUnit raw = pp.ParseCompilationUnit();
             if (want != null && want[i]) { idents[i] = IncrementalDriver._identsOf(pp.Tokens()); }
-            cus[i] = AttributeSynth.Run(raw);   // add-attribute-reflection：合成工厂
+            cus[i] = AttributeSynth.Run(BenchmarkDesugar.Run(raw));   // add-attribute-reflection：合成工厂
             i = i + 1;
         }
         return new ParsedPkg(cus, idents);

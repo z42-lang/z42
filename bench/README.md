@@ -69,9 +69,9 @@ z42 xtask.zpkg bench --diff --current /tmp/after.json \
 > `bench-baselines` 分支）+ nightly 宽阈值门禁是后续事项（Deferred
 > `stdlib-bench-baseline-future-ci-nightly`）。
 >
-> **注**：`[Benchmark] void f(Bencher b)`（form-2 arg 形）当前经 z42c trampoline desugar
-> 失败（`MethodInfo.Invoke: expects 1 argument, got 0`，pre-existing）→ 这些条目不入
-> baseline；同模块的 form-1 基准仍正常捕获。新 bench 一律用 form-1（自建 `Bencher`）。
+> **两种 [Benchmark] 签名均可**：form-1（自建 `Bencher`）与 form-2
+> （`void f(Bencher b)`，z42c AST-desugar 成零参 wrapper——fix-benchmark-bencher-arg-trampoline
+> 2026-07-20 移植回 z42c）都正常捕获入 baseline。
 
 ## 目录结构
 

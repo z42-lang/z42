@@ -62,7 +62,7 @@ public static class IrDump {
         int i = 0;
         while (i < count) {
             var pp = new Parser(srcs[i], files[i]);
-            cus[i] = AttributeSynth.Run(pp.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
+            cus[i] = AttributeSynth.Run(BenchmarkDesugar.Run(pp.ParseCompilationUnit()));   // add-attribute-reflection：合成工厂
             i = i + 1;
         }
         return cus;
@@ -327,7 +327,7 @@ public static class IrDump {
     // 公开：带跨包依赖的编译（CI-4）。imported 合并符号表；deps 驱动静态调用 FQ 命中。
     public static CompiledModuleZ BuildModuleD(string src, string file, DependencyIndex deps, ImportedSymbols imported) {
         var p = new Parser(src, file);
-        var cu = AttributeSynth.Run(p.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
+        var cu = AttributeSynth.Run(BenchmarkDesugar.Run(p.ParseCompilationUnit()));   // add-attribute-reflection：合成工厂
         var symbols = new SymbolCollector().CollectWithImports(cu, imported);
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
@@ -408,7 +408,7 @@ public static class IrDump {
 
     private static IrModule _buildF(string src, string file) {
         var p = new Parser(src, file);
-        var cu = AttributeSynth.Run(p.ParseCompilationUnit());   // add-attribute-reflection：合成工厂
+        var cu = AttributeSynth.Run(BenchmarkDesugar.Run(p.ParseCompilationUnit()));   // add-attribute-reflection：合成工厂
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误

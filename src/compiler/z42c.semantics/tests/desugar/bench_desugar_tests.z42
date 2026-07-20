@@ -1,0 +1,81 @@
+// fix-benchmark-bencher-arg-trampoline 单测：BenchmarkDesugar.Run 把
+// `[Benchmark] void f(Bencher b)` 展开为 demoted `f$impl` + 零参 wrapper；
+// 非匹配声明原样透传。
+namespace Z42cSemanticsBenchDesugarTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+
+CompilationUnit desugar(string src) {
+    var p = new Parser(src, "t.z42");
+    return BenchmarkDesugar.Run(p.ParseCompilationUnit());
+}
+
+[Test]
+void test_form2_expands_to_impl_plus_wrapper() {
+    string src = "[Benchmark] void f(Bencher b) { b.iter(() => 1); }";
+    CompilationUnit cu = desugar(src);
+    // 1 声明 → 2（demote + wrapper）
+    Assert.Equal(2, cu.DeclCount);
+    string d = cu.Dump();
+    // demoted impl 保留 Bencher 参数、去掉 [Benchmark]
+    Assert.Contains("f$impl", d);
+    Assert.Contains("Bencher b", d);
+    // 合成的零参 wrapper 带 [Benchmark] + 调 impl + printSummary("f")
+    Assert.Contains("printSummary", d);
+    Assert.Contains("f$impl b", d);   // (call f$impl b)
+}
+
+[Test]
+void test_wrapper_is_zero_arg_and_benchmarked() {
+    string src = "[Benchmark] void bench_x(Bencher b) { }";
+    CompilationUnit cu = desugar(src);
+    // 第二个声明是 wrapper：AttributedDecl 包 [Benchmark]、方法零参。
+    Assert.True(cu.Decls[1] is AttributedDecl);
+    AttributedDecl w = cu.Decls[1] as AttributedDecl;
+    Assert.Equal("Benchmark", w.Attrs[0].Name);
+    Assert.True(w.Inner is MethodDecl);
+    MethodDecl wm = w.Inner as MethodDecl;
+    Assert.Equal("bench_x", wm.Name);
+    Assert.Equal(0, wm.ParamCount);
+    Assert.True(wm.IsFree);
+}
+
+[Test]
+void test_demoted_impl_has_no_attribute() {
+    string src = "[Benchmark] void g(Bencher b) { }";
+    CompilationUnit cu = desugar(src);
+    // 第一个声明是 demoted impl：裸 MethodDecl（无 AttributedDecl 包裹 → 非 benchmark）。
+    Assert.True(cu.Decls[0] is MethodDecl);
+    MethodDecl implFn = cu.Decls[0] as MethodDecl;
+    Assert.Equal("g$impl", implFn.Name);
+    Assert.Equal(1, implFn.ParamCount);
+}
+
+[Test]
+void test_zero_arg_benchmark_passes_through() {
+    // 零参 [Benchmark] 不匹配 → 原样（1 声明）。
+    string src = "[Benchmark] void h() { var b = new Bencher(); }";
+    CompilationUnit cu = desugar(src);
+    Assert.Equal(1, cu.DeclCount);
+    Assert.True(!cu.Dump().Contains("$impl"));
+}
+
+[Test]
+void test_non_bencher_param_passes_through() {
+    // [Benchmark] 但参数非 Bencher → 不匹配（validator 另报 E0912）。
+    string src = "[Benchmark] void k(int n) { }";
+    CompilationUnit cu = desugar(src);
+    Assert.Equal(1, cu.DeclCount);
+    Assert.True(!cu.Dump().Contains("$impl"));
+}
+
+[Test]
+void test_plain_function_untouched() {
+    string src = "void plain(Bencher b) { }";   // 无 [Benchmark] → 不动
+    CompilationUnit cu = desugar(src);
+    Assert.Equal(1, cu.DeclCount);
+    Assert.True(!cu.Dump().Contains("$impl"));
+}
