@@ -121,6 +121,42 @@ public sealed class EmitContext {
         return false;
     }
 
+    // receiver 静态类型的该方法是否**虚**（virtual / abstract / 经 override 参与 vtable）。
+    // 跨 zpkg 具体基类 override 的根因修复：imported 类走 ChainHasMethod 恒 false → 落 DepIndex
+    // instance 直呼捷径（FQ Call `Ns.Base.M`），把基类实现**编译期钉死** → 子类 override 永不
+    // 生效（`BuildHooks h = new ProjectHooks(); h.BeforeAssets()` 只跑基类 no-op）。虚方法必须
+    // VCall 交由运行时按接收者实际 type_desc.vtable 派发。此处独立于 ChainHasMethod（后者刻意
+    // 只认本地类做反劫持），专判「imported 虚方法」这一必须 VCall 的子集。
+    //
+    // imported 类的 OwnMethod*（TSIG 已展开继承方法到每个类）直接携带 virtual/abstract flag，
+    // 故查接收者自身 Z42ClassType 即可命中「接收者静态类型 = 基类本身」的主场景；再沿 BaseName
+    // 走一次链（经 Symbols）兜住「静态类型是某中间类、方法虚自更上层」。prim 接收者（string/int，
+    // Type() 非 Z42ClassType）→ false → 仍走既有 prim 派发，不受影响。
+    public bool ReceiverMethodIsVirtual(Z42Type recvType, string method) {
+        Z42ClassType ct = recvType as Z42ClassType;
+        int hops = 0;
+        while (ct != null && hops < 32) {
+            int i = 0;
+            while (i < ct.OwnMethodCount) {
+                string nm = ct.OwnMethodNames[i];
+                // OwnMethodNames 可能是 arity 后缀键（"M$1"）；bare 前缀匹配。
+                bool hit = nm == method;
+                if (!hit && nm.Length > method.Length && nm.StartsWith(method)
+                    && nm.CharAt(method.Length) == '$') { hit = true; }
+                if (hit && (ct.OwnMethodIsVirtual[i] || ct.OwnMethodIsAbstract[i])) { return true; }
+                i = i + 1;
+            }
+            if (!ct.HasBase || ct.BaseName == "") { return false; }
+            string bare = ct.BaseName;
+            int bi = 0;
+            while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
+            if (this.Symbols == null || !this.Symbols.HasClass(bare)) { return false; }
+            ct = this.Symbols.GetClass(bare);
+            hops = hops + 1;
+        }
+        return false;
+    }
+
     // prim 别名 → 包装类名（镜像 TypeChecker._primWrapper；ChainHasMethod IC-3 映射用）。
     private static string _primWrapper(string n) {
         if (n == "string")              { return "String"; }

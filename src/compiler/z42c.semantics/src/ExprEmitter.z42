@@ -560,6 +560,15 @@ public sealed class ExprEmitter {
         if (a.Target is BoundMember) {
             BoundMember tm = a.Target as BoundMember;
             TypedReg obj = this.Emit(tm.Target);
+            // 接口接收者：成员写定义上就是属性 setter → 恒 VCall set_X（对称 _emitMember
+            // getter；接口无字段，否则落 FieldSet "X" 在实现类找不到同名字段）。
+            if (tm.Target.Type() is Z42InterfaceType) {
+                TypedReg ifVoid = this._ctx.Alloc(IrType.Void);
+                TypedReg[] ifSet = new TypedReg[1];
+                ifSet[0] = val;
+                this._ctx.Emit(new VCallInstr(ifVoid, obj, "set_" + tm.MemberName, ifSet, 1));
+                return val;
+            }
             // auto-property setter dispatch（镜像 _emitMember getter dispatch）：
             // class 有 set_MemberName → v_call（镜像 C# SynthesizeClassAutoProp setter 路径）。
             Z42ClassType setCt = this._receiverClassType(tm.Target.Type());
@@ -601,6 +610,15 @@ public sealed class ExprEmitter {
         int ftag = this._ctx.ToIrType(m.Type());
         if (this._castUnknownChain(m.Target)) { ftag = IrType.Unknown; }
         TypedReg dst = this._ctx.Alloc(ftag);
+        // 接口接收者：接口无字段，成员访问定义上就是属性 getter → 恒 VCall get_X
+        // （fix-crosspkg-virtual-override 同源：接口经 vtable 派发到具体实现的 get_X；
+        // 否则落下方 FieldGet "X" 在实现类找不到同名字段 → 返 Null，如 `IPipelineContext
+        // ctx; ctx.Dirs` 跨 zpkg 读 PipelineContext auto-property Dirs 时崩 FieldGet null）。
+        if (m.Target.Type() is Z42InterfaceType) {
+            TypedReg[] ifArgs = new TypedReg[0];
+            this._ctx.Emit(new VCallInstr(dst, obj, "get_" + m.MemberName, ifArgs, 0));
+            return dst;
+        }
         // Issue B：auto-property getter dispatch — class 有 get_MemberName → VCall（镜像 C#）
         Z42ClassType propCt = this._receiverClassType(m.Target.Type());
         if (propCt != null && propCt.Methods.ContainsKey("get_" + m.MemberName)) {
@@ -644,7 +662,11 @@ public sealed class ExprEmitter {
             // 曾致 `IB b; b.Assets(r)` 被依赖包同短名方法（z42.build Pipeline.Assets）劫持成直接
             // Call → 错函数返 null（z42.build 注册入 stdlib 后 xtask 平台腿全红的根因）。
             bool ifaceRecv = c.Receiver.Type() is Z42InterfaceType;
-            if (!owns && !ifaceRecv && this._ctx.Deps != null) {
+            // fix-crosspkg-virtual-override：imported 虚方法恒 VCall（不进 DepIndex 直呼捷径），
+            // 否则跨 zpkg 具体基类 override 被基类实现钉死（`h.BeforeAssets()` 只跑基类 no-op）。
+            // 详见 EmitContext.ReceiverMethodIsVirtual。
+            bool virtualRecv = this._ctx.ReceiverMethodIsVirtual(c.Receiver.Type(), c.MethodName);
+            if (!owns && !ifaceRecv && !virtualRecv && this._ctx.Deps != null) {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
                 if (de != null) {

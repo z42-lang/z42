@@ -700,6 +700,32 @@ private bool ReceiverChainHasMethod(string receiverClass, string methodName)
 - **Virtual / interface 方法**（`EmitVirtualBoundCall`）：直接走 `v_call`，无 DepIndex 短路，不变。
 - **Free function**（`EmitFreeBoundCall`）：无 receiver，DepIndex 路径合适，不变。
 
+### 跨 zpkg 虚成员必须 VCall（2026-07-20 fix-crosspkg-virtual-override）
+
+`ReceiverChainHasMethod`（z42c：`EmitContext.ChainHasMethod`）刻意**只认本地声明类**——
+imported 类恒返 false，让 imported **非虚**实例方法（`_diags.Error()` 等）走 DepIndex 直呼
+捷径（FQ `Call`，正确且更快）。但对 imported **虚**方法这是错的：接收者的运行时实际类型
+可能是**子类 override**，直呼把基类实现编译期钉死 → override 永不生效。
+
+典型：一个类 `override` 来自依赖 zpkg 的具体基类的虚方法后，经**基类静态类型**接收者调用
+（`BuildHooks h = new ProjectHooks(); h.BeforeAssets()`）→ 跑基类 no-op 而非 override。
+接口属性同源：`IPipelineContext ctx; ctx.Dirs` 落 `FieldGet "Dirs"` 打不到实现类
+（`PipelineContext`）的 auto-property → 读到 Null。
+
+**修复：imported 虚成员恒 VCall，交运行时按接收者实际 `type_desc.vtable` 派发。** 三条 emit 路径：
+
+| 路径 | z42c 位置 | 判据 |
+|------|-----------|------|
+| 实例**方法**调用 | `ExprEmitter._emitCall` instance | `ReceiverMethodIsVirtual(recvType, m)` 真 → 跳 DepIndex 捷径走 VCall |
+| 属性 **getter** | `ExprEmitter._emitMember` | 接口接收者 → 恒 `VCall get_X`（接口无字段，成员访问即属性读） |
+| 属性 **setter** | `ExprEmitter._emitAssign` BoundMember | 接口接收者 → 恒 `VCall set_X` |
+
+`ReceiverMethodIsVirtual`：imported 类经 TSIG 已把继承方法展开进 `OwnMethod*`（带 virtual/abstract
+flag），查接收者自身 `Z42ClassType` 即命中「静态类型 = 基类本身」主场景，再沿 `BaseName` 走链兜
+中间类。prim 接收者（`Type()` 非 `Z42ClassType`）→ false，仍走既有 prim 派发。self-host 7/7
+byte-identical（z42c 自身无受影响调用点）→ blast radius 极小。见
+[fix-crosspkg-virtual-override](../../spec/changes/fix-crosspkg-virtual-override/proposal.md)。
+
 ### 触发 spec
 
 [docs/spec/archive/2026-05-15-fix-instance-method-binding-receiver-aware/](../../spec/archive/2026-05-15-fix-instance-method-binding-receiver-aware/)。
