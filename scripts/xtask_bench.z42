@@ -213,3 +213,54 @@ string _osTag() {
     if (r.ExitCode != 0) { return "unknown"; }
     return r.Stdout.Trim().ToLower().Replace(" ", "-");
 }
+
+// add-stdlib-bench-baseline: aggregate per-module z42b `--format json` bench_stats
+// into one schema-v1 baseline doc. median_ns is the primary metric (value); min/max
+// map to ci_lower/ci_upper. One instance is reused across all libs/modules by
+// `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
+class MicroBenchAgg {
+    string _items;   // comma+newline-joined schema-v1 benchmark objects
+    int    _n;
+    MicroBenchAgg() { this._items = ""; this._n = 0; }
+    int count() { return this._n; }
+
+    // Parse one z42b `--format json` module output; append each benchmark's stats.
+    // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
+    void addModuleJson(string moduleJson, string lib) {
+        JsonValue root = JsonValue.Parse(moduleJson.Trim());
+        if (!root.ContainsKey("results")) { return; }
+        JsonValue results = root.Get("results");
+        int i = 0;
+        while (i < results.Count()) {
+            JsonValue res = results.At(i);
+            if (res.ContainsKey("is_benchmark") && res.Get("is_benchmark").AsBool()
+                && res.ContainsKey("bench_stats")) {
+                JsonValue bs = res.Get("bench_stats");
+                string name = lib + "." + bs.Get("label").AsString();
+                long med = bs.Get("median_ns").AsLong();
+                long lo  = bs.Get("min_ns").AsLong();
+                long hi  = bs.Get("max_ns").AsLong();
+                long smp = bs.Get("samples").AsLong();
+                if (this._n > 0) { this._items = this._items + ",\n"; }
+                this._items = this._items
+                    + "    {\n      \"name\": \"" + name + "\",\n"
+                    + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
+                    + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
+                    + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
+                    + "      \"samples\": " + smp.ToString() + "\n    }";
+                this._n = this._n + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Wrap accumulated items in the schema-v1 envelope (reuses _gitOut/_osTag/_utcNow).
+    string toSchemaV1(string root) {
+        string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
+        string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+        return "{\n  \"schema_version\": 1,\n  \"commit\": \"" + commit
+            + "\",\n  \"branch\": \"" + branch + "\",\n  \"os\": \"" + _osTag()
+            + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
+            + this._items + "\n  ]\n}\n";
+    }
+}

@@ -40,9 +40,38 @@ z42 xtask.zpkg bench stdlib <lib>
 #   → 每个 [Benchmark] 由 z42b 经 z42vm 运行，自报 warmup/samples/min/median/max
 ```
 
-`bench_stats` 来自 `Bencher.printSummary(label)`，全模式（in-process /
-subprocess）均被 runner 捕获（capture-benchmark-stats-in-testresult）。
-人类可读的 `bench[label] min=… median=… max=…` 行同时打到 stderr。
+`bench_stats` 来自 `Bencher.printSummary(label)`，json 模式由 `Std.Test.Runner`
+经 `BenchStats.parse` 捕获（rebuild-bench-structured-output）。人类可读的
+`bench[label] min=… median=… max=…` 行走 pretty 模式。
+
+### stdlib baseline：捕获 → 优化 → diff（本地/nightly，add-stdlib-bench-baseline）
+
+micro-bench 的「优化前基线」可固化成 schema-v1 文件，优化后 diff 量化收益：
+
+```bash
+# 1. 优化前：捕获聚合 baseline（各库 [Benchmark] 走 z42b --format json，median_ns 为主指标）
+z42 xtask.zpkg bench stdlib --json bench/baselines/stdlib-before.json
+#    → {schema_version:1, …, benchmarks:[{name:"<lib>.<label>", tier:"z42-micro",
+#       metric:"time", value:<median_ns>, unit:"ns", ci_lower:<min>, ci_upper:<max>, samples}]}
+#    单库：z42 xtask.zpkg bench stdlib z42.core --json /tmp/core-before.json
+
+# 2. 改优化…
+
+# 3. 优化后：再捕获 + 复用 e2e 的 diff（micro 噪声大 → 阈值放宽到 0.25）
+z42 xtask.zpkg bench stdlib --json /tmp/after.json
+z42 xtask.zpkg bench --diff --current /tmp/after.json \
+    --baseline bench/baselines/stdlib-before.json --threshold-time 0.25
+#    → ↑ 回归(exit 1) / ↓ 改进 / ≈ 持平 / (new)/(removed)
+```
+
+> **不进 CI 硬门禁**：micro 的 ns 级数字在共享 runner 上噪声过大，当 PR 门禁会误报
+> （见「micro vs e2e」）。本能力面向**本地 / nightly** 的优化前后对比。CI 持久化（存
+> `bench-baselines` 分支）+ nightly 宽阈值门禁是后续事项（Deferred
+> `stdlib-bench-baseline-future-ci-nightly`）。
+>
+> **注**：`[Benchmark] void f(Bencher b)`（form-2 arg 形）当前经 z42c trampoline desugar
+> 失败（`MethodInfo.Invoke: expects 1 argument, got 0`，pre-existing）→ 这些条目不入
+> baseline；同模块的 form-1 基准仍正常捕获。新 bench 一律用 form-1（自建 `Bencher`）。
 
 ## 目录结构
 

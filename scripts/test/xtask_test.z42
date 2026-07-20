@@ -247,7 +247,7 @@ int _testAll(bool noBuild, string skip) {
     // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
     if (!_skipHas(skip, "stdlib")) {
         Console.WriteLine("\n=== stage: stdlib [Test] ===");
-        c = _testLibCore("test", new string[0], true, "", "4", "interp"); if (c != 0) { return c; }
+        c = _testLibCore("test", new string[0], true, "", "4", "interp", null); if (c != 0) { return c; }
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     Console.WriteLine("\n=== stage: compiler ===");

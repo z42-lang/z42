@@ -74,12 +74,22 @@ int _testLib(ParseResult r, string kind) {
     } else {
         libs = new string[0];
     }
-    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"));
+    // add-stdlib-bench-baseline: `bench stdlib --json <out>` → capture aggregated
+    // bench_stats into a schema-v1 baseline file (median_ns primary metric). Only
+    // for bench; test path passes null (unchanged pretty behaviour).
+    string jsonOut = (kind == "bench") ? r.GetOption("json") : "";
+    MicroBenchAgg agg = (jsonOut.Length > 0) ? new MicroBenchAgg() : null;
+    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg);
+    if (agg != null) {
+        string outPath = _absUnder(_root(), jsonOut);
+        File.WriteAllText(outPath, agg.toSchemaV1(_root()));
+        Console.WriteLine("wrote baseline -> " + jsonOut + " (" + agg.count().ToString() + " benchmarks)");
+    }
     if (__rc == 0) { _procEnd((kind == "bench") ? "bench stdlib" : "test stdlib", sw); }
     return __rc;
 }
 
-int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode) {
+int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg) {
     // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
     // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/bench/,
     // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/bench/. The
@@ -186,7 +196,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
         // [Teardown] still execute — the parallelism is across units, not
         // within. The per-unit z42.core bootstrap (the dominant cost) overlaps.
         totalFailed = totalFailed + _runUnitsBatched(root, builderZpkg, lib, units, parentDeps, kind, jobsN, mode,
-                                                     vm, driverZpkg, libs);
+                                                     vm, driverZpkg, libs, agg);
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");

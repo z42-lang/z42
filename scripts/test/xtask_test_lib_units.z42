@@ -176,10 +176,14 @@ void _appendDeps(DepBundle b, TomlValue depsTable) {
 /// unit (no --jobs) so [Setup]/[Teardown] still execute.
 int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] units,
                      DepBundle parentDeps, string kind, int jobs, string mode,
-                     string vm, string driverZpkg, string libs) {
+                     string vm, string driverZpkg, string libs, MicroBenchAgg agg) {
     // z42b verb mirrors `kind`: "bench" runs [Benchmark], else "test" runs [Test]
     // (both dispatch through Std.Test.Runner.RunModule, which runs whichever the
     // compiled artifact contains).
+    // add-stdlib-bench-baseline: agg != null → capture mode (bench --json). Ask z42b
+    // for `--format json` and feed each module's output to the aggregator instead of
+    // pretty passthrough. agg == null (all `test` paths + plain `bench`) → unchanged.
+    bool capture = (agg != null);
     string verb = (kind == "bench") ? "bench" : "test";
     int failed = 0;
     int i = 0;
@@ -248,10 +252,10 @@ int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] uni
                 // test functions execute under that mode (interp / jit), so jit
                 // coverage comes from running z42b itself under jit (no per-test
                 // subprocess fork — the old Rust runner forked z42vm for jit).
-                rh[b] = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
-                    .Arg("--").Arg(verb).Arg(arts[b])
-                    .Env("Z42_LIBS", libs)
-                    .WorkingDirectory(root).Spawn();
+                Process pr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+                    .Arg("--").Arg(verb).Arg(arts[b]);
+                if (capture) { pr = pr.Arg("--format").Arg("json"); }
+                rh[b] = pr.Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
             }
             b = b + 1;
         }
@@ -259,9 +263,26 @@ int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] uni
         while (b < bsz) {
             if (okc[b]) {
                 ProcessResult rr = rh[b].Wait();
-                Console.Write(rr.Stdout);
-                if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-                if (rr.ExitCode != 0) { failed = failed + 1; }
+                if (capture) {
+                    // json mode: stdout is one TestReport object even when some benches
+                    // fail (per-result status). Aggregate whenever it parses (addModuleJson
+                    // only keeps passing benchmarks with bench_stats), so a partial-failure
+                    // module still contributes its passing benches. Still count the failure.
+                    string outp = rr.Stdout.Trim();
+                    if (outp.StartsWith("{")) {
+                        agg.addModuleJson(outp, lib);
+                        string note = (rr.ExitCode != 0) ? " (partial: some benches failed)" : "";
+                        Console.WriteLine("  captured " + units[i + b].UnitName + note);
+                    } else {
+                        Console.Write(rr.Stdout);
+                        if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+                    }
+                    if (rr.ExitCode != 0) { failed = failed + 1; }
+                } else {
+                    Console.Write(rr.Stdout);
+                    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+                    if (rr.ExitCode != 0) { failed = failed + 1; }
+                }
             }
             b = b + 1;
         }

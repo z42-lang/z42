@@ -345,6 +345,8 @@ SubcommandRouter _benchRouter() {
     // shard 与 test stdlib 同款——_testLib 共用实现、无条件读该选项；漏注册会在
     // dispatch 即抛 CliException 'shard not registered'（pre-existing，随 bench 用例补充修复）。
     stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
+    // add-stdlib-bench-baseline: 捕获聚合 bench_stats 到 schema-v1 baseline 文件（median_ns 主指标）。
+    stdlib.AddOption("json", "", "capture aggregated bench_stats to a schema-v1 baseline file", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     bn.Add("stdlib", "per-lib [Benchmark]", stdlib);
     return bn;
