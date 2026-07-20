@@ -85,7 +85,12 @@ jobs:
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
-    timeout-minutes: 60
+    # 60→75 (2026-07-21): `xtask test all` (full rebuild + all gates) sits at the
+    # 60m cap on linux-x64 since the 0.4.x bench-suite additions inflated wall-time
+    # (test-vm-jit likewise flaps at its cap — see vm-jit-consistency). Not a
+    # functional regression; give headroom. Sharding is the longer-term fix if it
+    # keeps growing.
+    timeout-minutes: 75
     # needs: changes so the Windows cargo-test step can gate on the `vm` filter
     # (rule c). The job itself still runs on every non-docs push (changes always
     # succeeds); only the Rust-unit step is conditionally skipped.
@@ -615,7 +620,11 @@ jobs:
   # host legs' critical path.
   vm-jit-consistency:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
-    timeout-minutes: 45
+    # 45→55 (2026-07-21): cranelift JIT per-case compile flaps right at the 45m cap
+    # (observed 43m55s green vs 45m15s red on adjacent commits — pre-existing, driven
+    # by golden-suite growth, not any one change). Headroom to stop the flapping;
+    # bump shards 4→N if it climbs again.
+    timeout-minutes: 55
     runs-on: ubuntu-latest
     needs: toolchain-bootstrap
     strategy:
