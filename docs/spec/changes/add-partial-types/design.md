@@ -133,6 +133,25 @@ zbc 读进后走 `merge_modules`（[merge.rs](../../../src/runtime/src/metadata/
   绑定阶段解析为"目标不存在"→ 若被调用即编译错误（与 C# 一致：擦除的 partial method 不可被
   依赖返回值/out 的调用点使用；void 无参无 out 的擦除调用可静默消解）。
 
+### Phase-1 实现约束（2026-07-21 源码勘察）：`partial` 必须作**上下文关键字**，不新增 token
+
+> 勘察 `z42c.syntax` 得出的硬约束——写实现前必须遵守，否则触发大范围不可控改动。
+
+- **不新增 `TokenKind.Partial`**：token 编号 [`TokenKind.z42`](../../../src/compiler/z42c.syntax/src/TokenKind.z42) 是**稠密连续**的——
+  word-keyword 占 `9..93`、符号从 `LParen=94` 起紧接。中间插一个 `Partial` 会**顺移 94 起的所有符号编号**，
+  连带 zbc token 序列化、`Lexer._isWordKeyword` 的**硬编码区间 `9..93`**、及一切按区间判"是否关键字"的逻辑全部漂移
+  → 大范围、易错、且**跨 nightly 的格式/能力边界**（违背分阶段引入纪律）。
+- **改为上下文关键字**（同 C# `partial` 语义）：`partial` 词法上仍是 `Identifier`，仅在**修饰符位置**被识别为修饰符。
+  集成点是 [`DeclParser._parseModifiers()`](../../../src/compiler/z42c.syntax/src/DeclParser.z42)——现循环条件
+  `while (_isModifier(_peek().Kind))` 扩为 `|| _isContextualPartial()`，命中即把 `.Text`（"partial"）并入 mods 串。
+- **消歧用 `_peekAt(int)`**（Parser 已有任意前瞻）：`_isContextualPartial()` = `_peek()` 是 `Identifier "partial"`
+  **且** `_peekAt(1)` 为 `class/struct/record/interface`（partial 类型）或后续构成方法头（partial method）——
+  避免把名为 `partial` 的字段/变量误当修饰符。
+- **下游零特殊化**：`IsPartial` 由 `_modsHas(mods, "partial")` 派生（同 `event`/`sealed` 现有 string-mods 路数），
+  `ClassDecl`/`MethodDecl` 加 `IsPartial` 位即可。**不动 `_isModifier`**（它是 kind-based，Identifier 不进）。
+- **好处**：零 token 新增、零编号顺移、零 `_isWordKeyword` 改动、零格式边界——纯前端、当前 nightly 可编，符合
+  support-先行纪律。
+
 ## Testing Strategy
 
 - **解析单测**（`z42c.syntax/tests/parser/partial/`）：partial class/struct/record/interface
