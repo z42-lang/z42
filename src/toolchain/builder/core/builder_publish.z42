@@ -18,6 +18,7 @@ namespace Z42Builder;
 using Std;
 using Std.IO;
 using Std.Toml;
+using Z42.Build;
 // apphost patching is inlined in builder_apphost.z42 (_pubProduceApphost) so z42b
 // stays on stdlib-only deps and still builds in the test-runner context. NOT
 // `using Z42.Workload.Desktop` (that workload isn't in Z42_LIBS there).
@@ -63,13 +64,21 @@ int _pubDesktop(ParseResult r, string rid) {
         return 2;
     }
 
-    // apphost stub: resolved by the launcher (which owns installed-workload resolution)
-    // and passed via Z42_APPHOST_TEMPLATE (Decision 3.5). No runtime resolution here.
-    string stub = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE") ?? "";
+    // apphost stub 解析序（wire-z42b build-hook 终章）：
+    //   ① 项目 hook 产出：`[build] hooks` 声明 → 动态注入 ProjectHooks → BeforeAssets
+    //      登记 kind="apphost-stub" 的 Output（如本仓 xtask：hook 现场 cargo 编 apphost
+    //      → 免装 desktop workload，去掉下载依赖）
+    //   ② Z42_APPHOST_TEMPLATE：launcher 解析已装 workload 传入（Decision 3.5）
+    //   ③ 皆无 → 报错提示 workload install / hook 两条路。
+    string stub = _pubHookApphostStub(toml, tomlPath, projName, rid);
+    if (stub.Length == 0) {
+        stub = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE") ?? "";
+    }
     if (stub.Length == 0 || !File.Exists(stub)) {
         ConsoleError.WriteLine("z42b publish: desktop apphost not available (the apphost ships with the desktop workload).");
         ConsoleError.WriteLine("       run: z42 workload install desktop");
-        ConsoleError.WriteLine("       (publish via `z42 publish` so the launcher resolves the installed workload apphost.)");
+        ConsoleError.WriteLine("       (publish via `z42 publish` so the launcher resolves the installed workload apphost;");
+        ConsoleError.WriteLine("        or declare `[build] hooks` with a ProjectHooks that registers an apphost-stub output.)");
         return 1;
     }
 
@@ -425,4 +434,47 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
         i = i + 1;
     }
     return 0;
+}
+
+// ── 项目 hook 产出 apphost stub（wire-z42b build-hook 终章）─────────────────────
+//
+// `[build] hooks = "<dir>"` 声明 → _loadProjectHooks（builder_hooks.z42：编译 + 动态
+// 注入 ProjectHooks）→ 构造受限 ctx → BeforeAssets(ctx) → 取 ctx.Outputs() 中
+// kind=="apphost-stub" 的登记路径。无 hooks 声明 / hook 未登记 / 文件不存在 → ""
+// （调用方落回 Z42_APPHOST_TEMPLATE）。
+//
+// hook 中间产物落点：[build] output_dir（projDir 相对）之下的 hooks/；无 output_dir
+// 则 <projDir>/artifacts/<name>/hooks/（镜像 _computeDirs 默认布局）。
+string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, string rid) {
+    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
+    if (hooksRel.Length == 0) { return ""; }
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    string hooksDir = Path.Join(projDir, hooksRel);
+
+    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
+    string baseDir;
+    if (outBase.Length > 0) { baseDir = Path.Join(projDir, outBase); }
+    else { baseDir = Path.Join(Path.Join(projDir, "artifacts"), projName); }
+    string interDir = Path.Join(baseDir, "hooks");
+
+    BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
+    if (h == null) { return ""; }
+
+    PipelineContext ctx = new PipelineContext();
+    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
+    ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);
+    try { h.BeforeAssets(ctx); }
+    catch (Exception e) {
+        ConsoleError.WriteLine("z42b publish: project hook BeforeAssets failed (" + e.Message + ")");
+        return "";
+    }
+    Output[] outs = ctx.Outputs();
+    int i = 0;
+    while (i < outs.Length) {
+        if (outs[i].Kind == "apphost-stub" && File.Exists(outs[i].Path)) { return outs[i].Path; }
+        i = i + 1;
+    }
+    ConsoleError.WriteLine("z42b publish: project hooks ran but registered no usable apphost-stub output — falling back to the workload apphost");
+    return "";
 }

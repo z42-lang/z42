@@ -24,6 +24,10 @@ include = ["**/*.z42"]
 # artifacts/artifacts/xtask. dist_dir = ${output_dir} keeps the flat
 # "artifacts/xtask/xtask.zpkg" layout instead of "${output_dir}/dist/...".
 output_dir = "../artifacts/xtask"
+# build hook（wire-z42b build-hook 终章）：`z42 publish` 时 z42b 动态注入
+# scripts/hooks/ 的 ProjectHooks —— BeforeAssets 现场 cargo 编 apphost stub 并登记，
+# 免装 desktop workload（去掉下载依赖）。目录为 projDir（scripts/）相对。
+hooks      = "hooks"
 dist_dir   = "${output_dir}"
 cache_dir  = "${output_dir}/.cache"
 

@@ -48,6 +48,22 @@
 - [ ] 6.3 端到端 new→build→run 冒烟（阶段 4.4 / 5.4）
 - [ ] 6.4 docs：build-orchestrator.md 更新为已接入；ACTIVE.md 释放锁；roadmap 进度
 
+## 阶段 7: build hook —— 免装 workload 的 apphost（2026-07-20 落地）
+> 目标（需求③）：`z42 publish` 经**项目 build hook** 现场产 apphost stub → 去掉
+> `z42 workload install desktop` 下载依赖。依赖 fix-crosspkg-virtual-override（hook 靠
+> override BuildHooks + 读 IPipelineContext 属性运转，两条派发路径经该修复才生效）。
+- [x] 7.1 `PipelineContext.Exec` 落地 Std.Process（hook 现场跑 cargo）
+- [x] 7.2 z42b `builder_hooks.z42`：manifest `[build] hooks = "<dir>"` → 注入的同一 ICompiler
+      编 hook 目录（合成 no-op 入口满足 exe 编译面）→ ModuleLoader.Load → `Build.ProjectHooks`
+      → Activator → as BuildHooks；`builder.z42 _orchestrate` 挂 p.Hooks（取代旧「生成一次性
+      driver 源码」骨架，也修掉隐式探测 build/ 误判 scripts/build/ 的坑——只认 manifest 显式声明）
+- [x] 7.3 publish stub 解析序：① 项目 hook 产出（`_pubHookApphostStub`：BeforeAssets 登记
+      kind="apphost-stub"）→ ② Z42_APPHOST_TEMPLATE（已装 workload）→ ③ 报错提示两条路
+- [x] 7.4 xtask `scripts/hooks/hooks.z42`（`class ProjectHooks : BuildHooks`，BeforeAssets 现场
+      cargo 编 apphost stub 登记）+ `scripts/xtask.z42.toml` 声明 `[build] hooks = "hooks"`
+- [x] 7.5 e2e：`z42b publish scripts/xtask.z42.toml`（无 workload、Z42_APPHOST_TEMPLATE 未设）
+      → hook cargo 编 apphost → `✅ apphost ready` → apphost 可运行（`xtask -h` 正常）
+
 ## 备注
 - 阶段 1–2 可在 extract-compile-pipeline-api 之前做（清单 + 登记，_hostCompiler 暂 NoCompiler，build 报「no compiler injected」但能编过）；阶段 3 才需该前置。
 - z42c→z42.project 收敛、test/bench、平台 workload、publish 完整迁移 = 各自独立变更（见 proposal Out of Scope）。

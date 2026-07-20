@@ -1,0 +1,75 @@
+// z42b — 项目 build hook 动态注入（wire-z42b：build-hook 终章）。
+//
+// manifest `[build] hooks = "<dir>"`（projDir 相对）→ 用注入的同一 ICompiler 把该目录
+// 编成 <name>.hooks.zpkg → ModuleLoader.Load → Type.GetType("Build.ProjectHooks")
+// → Activator → as BuildHooks。约定：hook 源声明 `namespace Build;` + `class
+// ProjectHooks : BuildHooks`，override 需要的钩子（BeforeAssets 等）。
+//
+// 复用 dynamic-component-registration 的组件注入模式（_hostCompiler 同款三段：
+// Load → GetType → as-cast）——零代码生成、零子进程。旧「生成一次性 driver 源码」
+// 设计（_runWithProjectBuild 骨架）被本机制取代：hook 类直接注入进 z42b 自己的
+// Pipeline，无需为项目生成/编译/运行一个专属 driver。
+//
+// staging + 合成入口：Z42cCompiler 的目录编译面固定 kind=exe（auto-entry），hook 目录
+// 无 Main 会被判 "no Main() found"。z42b 把 hook 源拷到 staging 目录并附一个合成的
+// no-op `Main()` 再编——不动 ICompiler 面、不动 z42c（ModuleLoader.Load 不跑 Main，
+// 合成入口纯粹满足 exe 编译面）。staging 以包名命名（Z42cCompiler：包名 = 目录尾名）。
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Reflection;
+using Z42.Build;
+
+// 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符）→ null，调用方跳过
+// 并已见诊断（L1「空值 + 调用方检查」idiom，对齐 _hostCompiler 的 NoCompiler 兜底风格）。
+//   hooksDir  hook 源目录（已解析为可用路径）
+//   interDir  hook 中间产物落点（staging + zpkg 都写这里）
+//   pkgName   hook 包名（约定 <proj>.hooks；亦是 staging 目录尾名）
+BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
+    if (!Directory.Exists(hooksDir)) {
+        ConsoleError.WriteLine("z42b: [build] hooks dir not found: " + hooksDir);
+        return null;
+    }
+    ICompiler comp = _hostCompiler();
+
+    // staging：拷 hook 源 + 合成 no-op 入口（见文件头）。每次重建（hook 源极小，无增量价值）。
+    string staging = Path.Join(interDir, pkgName);
+    if (Directory.Exists(staging)) { Directory.Delete(staging, true); }
+    Directory.Copy(hooksDir, staging, true);
+    File.WriteAllText(Path.Join(staging, "_z42b_entry.z42"),
+        "// z42b 合成入口：满足目录编译面的 kind=exe auto-entry（ModuleLoader.Load 不执行它）。\n"
+        + "namespace Build;\n\nvoid Main() { }\n");
+
+    // deps：镜像 _initialInputs 的 Z42_LIBS 语义（hook 需要 z42.build / Std.IO 等）。
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
+
+    string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
+    CompileRequest req = new CompileRequest(staging, outZpkg, deps, "release", false, false);
+    CompileResult res = comp.Compile(req);
+    if (!res.Ok) {
+        ConsoleError.WriteLine("z42b: hooks compile failed (" + hooksDir + "):");
+        ConsoleError.WriteLine(res.Diagnostics);
+        return null;
+    }
+
+    try {
+        ModuleLoader.Load(res.Zpkg);
+        Type t = Type.GetType("Build.ProjectHooks");
+        if (t == null) {
+            ConsoleError.WriteLine("z42b: hooks loaded but Build.ProjectHooks not found — hook source must declare `namespace Build;` + `class ProjectHooks : BuildHooks`");
+            return null;
+        }
+        object o = Activator.CreateInstance(t);
+        BuildHooks h = o as BuildHooks;
+        if (h == null) {
+            ConsoleError.WriteLine("z42b: Build.ProjectHooks does not extend Z42.Build.BuildHooks");
+            return null;
+        }
+        return h;
+    } catch (Exception e) {
+        ConsoleError.WriteLine("z42b: hooks load failed (" + e.Message + ")");
+        return null;
+    }
+}

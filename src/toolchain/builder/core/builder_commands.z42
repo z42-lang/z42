@@ -13,6 +13,7 @@ namespace Z42Builder;
 using Std;
 using Std.IO;
 using Std.Cli;
+using Std.Toml;
 using Z42.Build;
 using Z42.Build.Project;
 
@@ -44,7 +45,10 @@ int _runVerb(ParseResult r, string mode) {
         ConsoleError.WriteLine("z42b: unsupported host (" + Platform.OS() + "/" + Platform.Arch() + "); pass --rid");
         return 2;
     }
-    return _orchestrate(m, t, sourceDir);
+    // `[build] hooks`（projDir 相对目录，"" = 无）——ManifestLoader 未建模该键，
+    // 沿 builder_publish 的 TomlValue 直读先例（z42.project 面零改动）。
+    string hooksRel = _pubTomlStr(TomlValue.Parse(File.ReadAllText(tomlPath)), "build", "hooks", "");
+    return _orchestrate(m, t, sourceDir, hooksRel);
 }
 
 // 从 CLI 选项构造 Target。--rid 缺省 = host RID；profile 由 --release 决定。

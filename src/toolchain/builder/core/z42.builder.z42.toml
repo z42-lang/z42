@@ -21,7 +21,7 @@ pack    = true
 
 [sources]
 include = ["builder_cli.z42", "builder_test.z42", "builder_publish.z42", "builder_apphost.z42",
-           "builder.z42", "builder_commands.z42", "builder_new.z42"]
+           "builder.z42", "builder_commands.z42", "builder_new.z42", "builder_hooks.z42"]
 
 [dependencies]
 # stdlib-only — z42b doubles as the reflective test-runner, which the `stdlib [Test]`

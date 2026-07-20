@@ -52,7 +52,12 @@ public class PipelineContext : IPipelineContext {
     public string Hash(string path)                { return ""; }   // 实现期：extern blake3
 
     // —— 子进程（永久脏）——
-    public ExecResult Exec(string cmd, string[] args) { return new ExecResult(0, "", ""); }   // 实现期：Std Process
+    // Std.Process 落地（wire-xtask-build-hook）：stdout/stderr 捕获返回；不抛非零
+    // （调用方 hook 自行判 ExitCode）；程序找不到等启动失败仍抛 ProcessStartException。
+    public ExecResult Exec(string cmd, string[] args) {
+        ProcessResult r = new Process(cmd).Args(args).Run();
+        return new ExecResult(r.ExitCode, r.Stdout, r.Stderr);
+    }
 
     // —— 产物登记 ——
     public void AddOutput(string kind, string path) {

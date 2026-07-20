@@ -20,38 +20,36 @@ using Std.Reflection;
 using Z42.Build;
 using Z42.Build.Project;
 
-// 编排入口：命令层解析出 manifest + target + sourceDir 后调本函数。
-// 按项目是否带自定义 build/ 选路径。
-int _orchestrate(ProjectManifest manifest, Target target, string sourceDir) {
-    // 实现期：探测工程 build/ 目录是否存在且非空 → 走自定义 driver 路径。
-    if (_hasProjectBuild(sourceDir)) { return _runWithProjectBuild(manifest, target, sourceDir); }
-    return _runStandard(manifest, target, sourceDir);
-}
-
-// 标准路径（项目无自定义 build/）：全在进程内组合 —— 零子进程、零代码生成。
-int _runStandard(ProjectManifest manifest, Target target, string sourceDir) {
+// 编排入口：命令层解析出 manifest + target + sourceDir（+ manifest `[build] hooks`
+// 相对目录，"" = 无）后调本函数。全在进程内组合 —— 零子进程、零代码生成。
+//
+// hooks（wire-z42b build-hook 终章）：声明了 hooks 目录 → _loadProjectHooks
+// （builder_hooks.z42：编译 + 动态注入 ProjectHooks）→ 挂到 p.Hooks。旧「探测 build/
+// 目录 → 生成一次性 driver 源码」设计被动态注入取代（也修掉了隐式探测会把 xtask 的
+// scripts/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
+int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel) {
     Pipeline p = new Pipeline();
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
     p.Workload = _selectWorkload(target.Family);   // 标准平台 workload 库
-    // p.Hooks 默认空（无自定义编译前后扩展）
+
+    Dirs dirs = _computeDirs(manifest, sourceDir, target.Profile);
+    if (hooksRel.Length > 0) {
+        BuildHooks h = _loadProjectHooks(
+            Path.Join(sourceDir, hooksRel),
+            Path.Join(dirs.Intermediate, "hooks"),
+            manifest.Project.Name + ".hooks");
+        if (h != null) { p.Hooks = h; }
+        // null → 诊断已打印；hooks 编不过不阻塞主构建（保守降级为无 hook）
+    }
 
     PipelineContext ctx = new PipelineContext();
     ctx.Project     = manifest.Project;
     ctx.Manifest    = manifest;
     ctx.Target      = target;
-    ctx.Dirs        = _computeDirs(manifest, sourceDir, target.Profile);
+    ctx.Dirs        = dirs;
     ctx.Inputs      = _initialInputs(manifest);
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
     return p.Run(ctx);
-}
-
-// 自定义路径（项目带 build/：class ProjectHooks : BuildHooks / class iOSBuild : iOSWorkload）：
-//   生成一次性 driver 源码（链 z42.build + workload + 项目 build/）→ 用**同一 ICompiler**
-//   编译 → 跑产物 zpkg（其 Main 注入 ProjectHooks/自定义 workload 后 Pipeline.Run）。骨架待 spec。
-int _runWithProjectBuild(ProjectManifest manifest, Target target, string sourceDir) {
-    // 实现期：assemble driver.z42 → _hostCompiler().Compile(driverReq) → 跑产物。
-    ConsoleError.WriteLine("z42b: custom build/ path not yet implemented");
-    return 1;
 }
 
 // ── 注入点 ───────────────────────────────────────────────────────────────────
@@ -143,13 +141,6 @@ Inputs _initialInputs(ProjectManifest m) {
     // 无需在 app 的 toml 里显式声明；非 stdlib 依赖仍受 DepIndex 白名单约束，见 Z42cCompiler）。
     string[] deps = Path.Glob(libs, "*.zpkg");
     return new Inputs("", "", deps);
-}
-
-// 工程是否带自定义 build/ 目录（含 z42 文件）。
-bool _hasProjectBuild(string sourceDir) {
-    string buildDir = Path.Join(sourceDir, "build");
-    if (!Directory.Exists(buildDir)) { return false; }
-    return Directory.Enumerate(buildDir).Length > 0;
 }
 
 // ── RID / family 辅助（镜像 launcher 的 _hostRid / _ridCategory）──────────────

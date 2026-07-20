@@ -1,0 +1,46 @@
+// xtask 项目 build hook（wire-z42b build-hook 终章）。
+//
+// 目的：`z42 publish scripts/xtask.z42.toml` 免装 desktop workload——apphost stub 的
+// 源码就在本仓（src/toolchain/workload/desktop/platform/apphost/），hook 现场 cargo
+// 编出来并登记 kind="apphost-stub"，publish 的 stub 解析序取①（见 builder_publish.z42），
+// 去掉 `z42 workload install desktop` 的下载依赖。
+//
+// 注入约定（builder_hooks.z42）：`namespace Build;` + `class ProjectHooks : BuildHooks`，
+// 由 z42b 用注入的同一 ICompiler 编译本目录 → ModuleLoader.Load → 反射实例化。
+// 注意：本文件也会被 xtask 自身的 [sources] `**/*.z42` glob 扫进 xtask.zpkg（多一个
+// 不被调用的类，无害）；hook 生效路径只经 manifest `[build] hooks` 显式声明。
+namespace Build;
+
+using Std;
+using Std.IO;
+using Z42.Build;
+
+public class ProjectHooks : BuildHooks {
+
+    // publish 前编 apphost stub：cargo（release）→ 登记产物路径。失败只 Warn 不抛——
+    // z42b 落回 Z42_APPHOST_TEMPLATE（已装 workload）路径。
+    public override void BeforeAssets(IPipelineContext ctx) {
+        string repo = Path.Join(ctx.Dirs.Source, "..");   // 本 toml 在 scripts/ → 仓根
+        string manifest = Path.Join(repo, "src/toolchain/workload/desktop/platform/apphost/Cargo.toml");
+        if (!ctx.Exists(manifest)) {
+            ctx.Warn("xtask hooks: apphost Cargo.toml not found: " + manifest);
+            return;
+        }
+        string targetDir = Path.Join(ctx.Dirs.Intermediate, "apphost-target");
+        ctx.Log("xtask hooks: cargo build --release (apphost stub)…");
+        string[] args = new string[6];
+        args[0] = "build"; args[1] = "--release";
+        args[2] = "--manifest-path"; args[3] = manifest;
+        args[4] = "--target-dir"; args[5] = targetDir;
+        ExecResult r = ctx.Exec("cargo", args);
+        if (r.ExitCode != 0) {
+            ctx.Warn("xtask hooks: cargo build failed (rc=" + r.ExitCode.ToString() + ")");
+            ctx.Warn(r.Stderr);
+            return;
+        }
+        string stub = Path.Join(targetDir, Path.Join("release", "apphost"));
+        if (!ctx.Exists(stub) && ctx.Exists(stub + ".exe")) { stub = stub + ".exe"; }
+        ctx.AddOutput("apphost-stub", stub);
+        ctx.Log("xtask hooks: apphost stub ready: " + stub);
+    }
+}
