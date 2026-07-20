@@ -196,6 +196,11 @@ pub struct TypeDescCold {
     /// Reflection only — surfaced by `Enum.GetNames/GetValues/GetName`; presence
     /// mirrors `class_flags & CLASS_FLAG_ENUM` (i.e. `Type.IsEnum`). Empty = non-enum.
     pub enum_members: Box<[(String, i64)]>,
+    /// add-interface-member-reflection: the interface's directly-declared method
+    /// signatures (zbc 1.28 block). Reflection only — surfaced by
+    /// `Type.GetMethods()`; presence mirrors `class_flags & CLASS_FLAG_INTERFACE`.
+    /// Empty for non-interface types.
+    pub iface_methods: Box<[super::bytecode::IfaceMethodSig]>,
 }
 
 impl TypeDesc {
@@ -216,6 +221,8 @@ impl TypeDesc {
     #[inline] pub fn custom_attributes(&self)      -> &[super::bytecode::AttributeRef]          { self.cold_slice(|c| &c.custom_attributes) }
     /// add-reflection-static-fields: the class's static fields (reflection only).
     #[inline] pub fn static_fields(&self)          -> &[super::bytecode::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
+    /// add-interface-member-reflection: the interface's declared method signatures.
+    #[inline] pub fn iface_methods(&self)          -> &[super::bytecode::IfaceMethodSig]        { self.cold_slice(|c| &c.iface_methods) }
     /// add-field-attribute-reflection: per-field attr refs (field name → refs).
     #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[super::bytecode::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.

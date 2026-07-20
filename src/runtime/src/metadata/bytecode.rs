@@ -90,6 +90,7 @@ impl Module {
             field_attributes:       c.field_attributes.clone(),
             interfaces:             c.interfaces.clone(),
             enum_members:           c.enum_members.clone(),
+            iface_methods:          c.iface_methods.clone(),
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),
@@ -182,6 +183,28 @@ pub struct ClassDesc {
     /// `Enum.GetValues` / `Enum.GetName`. Empty for non-enum classes.
     #[serde(default)]
     pub enum_members: Box<[(String, i64)]>,
+    /// add-interface-member-reflection (surfaces the zbc 1.28 interface method
+    /// block, previously parsed-and-discarded): the interface's directly-declared
+    /// method signatures, present only when `class_flags & CLASS_FLAG_INTERFACE`.
+    /// Threaded into `TypeDesc::iface_methods`; surfaced by `Type.GetMethods()`.
+    /// Empty for non-interface classes.
+    #[serde(default)]
+    pub iface_methods: Box<[IfaceMethodSig]>,
+}
+
+/// add-interface-member-reflection: one interface-declared method signature,
+/// recovered from the zbc 1.28 interface method block. Interface methods have no
+/// backing `Function` (no body), so reflection builds their `MethodInfo` straight
+/// from this signature (name / return type / parameter types).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IfaceMethodSig {
+    /// Source-level method name (may carry a `$N$types` dispatch-mangle suffix;
+    /// reflection strips it for the user-facing `MethodInfo.Name`).
+    pub name: String,
+    /// Return type name (e.g. "double" / "void" / "geometry.Point").
+    pub ret_type: String,
+    /// Parameter type names, in declaration order (no `this`).
+    pub param_types: Box<[String]>,
 }
 
 /// C3 add-attribute-reflection: one applied attribute — the attribute class's

@@ -107,6 +107,16 @@ class ParamHolder {
     public int Sum(int seed, params int[] rest) { return seed; }
 }
 
+// add-interface-member-reflection: typeof(IFace).GetMethods() surfaces the
+// interface's declared method signatures.
+interface IShape {
+    double Area();
+    void Scale(double factor);
+}
+interface IExtendedShape : IShape {
+    void Reset();
+}
+
 [Test]
 void test_gettype_name_and_fullname() {
     Derived d = new Derived();
@@ -210,6 +220,48 @@ void test_getmembers_includes_properties() {
     }
     Assert.True(sawSizeProp);
     Assert.True(sawTagProp);
+}
+
+[Test]
+void test_interface_getmethods_declared() {
+    // add-interface-member-reflection: typeof(IShape).GetMethods() returns the
+    // interface's declared methods with correct signatures (abstract + virtual).
+    Type t = typeof(IShape);
+    MethodInfo[] methods = t.GetMethods();
+    bool sawArea = false;
+    bool sawScale = false;
+    foreach (var m in methods) {
+        if (m.Name == "Area") {
+            sawArea = true;
+            Assert.Equal("double", m.ReturnType.Name);
+            Assert.Equal(0, m.GetParameters().Length);
+            Assert.True(m.IsAbstract);
+            Assert.True(m.IsVirtual);
+        }
+        if (m.Name == "Scale") {
+            sawScale = true;
+            Assert.Equal(1, m.GetParameters().Length);
+        }
+    }
+    Assert.True(sawArea);
+    Assert.True(sawScale);
+}
+
+[Test]
+void test_interface_getmethods_declared_only() {
+    // IExtendedShape : IShape — GetMethods returns only IExtendedShape's own method
+    // (Reset), NOT inherited IShape methods (aligns with C#; those reached via
+    // GetInterfaces() then each interface's GetMethods()).
+    Type t = typeof(IExtendedShape);
+    MethodInfo[] methods = t.GetMethods();
+    bool sawReset = false;
+    bool sawArea = false;
+    foreach (var m in methods) {
+        if (m.Name == "Reset") { sawReset = true; }
+        if (m.Name == "Area") { sawArea = true; }
+    }
+    Assert.True(sawReset);
+    Assert.False(sawArea);
 }
 
 [Test]
