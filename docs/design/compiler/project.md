@@ -240,6 +240,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 | `dist_dir` | string? | `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。替代了 0.1.x 的 `out_dir`。 |
 | `publish_dir` | string? | `${output_dir}/publish` | `${output_dir}/publish` | 发布分发目录。`z42c build`（exe）和 `z42c publish` 将产物 + 非 stdlib 依赖复制到此目录。lib 默认不复制（需显式 `z42c publish`）。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。 |
+| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见 [build-orchestrator.md](../toolchain/build-orchestrator.md#自定义扩展manifest-声明-hook-目录)（含 `z42 publish` 经 hook 免装 workload 产 apphost）。 |
 
 **模板变量（`${...}`）**：
 

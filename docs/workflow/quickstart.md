@@ -23,19 +23,23 @@ git clone https://github.com/z42-lang/z42 && cd z42
 ## 2. Build the xtask CLI, then drive everything through it
 
 `z42 publish` compiles the project if needed and emits a native `./xtask` apphost.
-The apphost stub ships with the **desktop workload**, not the base SDK, so install
-it once first — match `--version` to your SDK (`nightly` if you took the default).
-The produced `./xtask` auto-locates the `./.z42` runtime, so **no `PATH` export is
-needed to run it**:
+xtask carries a **build hook** (`scripts/hooks/`, declared via `[build] hooks` in
+`scripts/xtask.z42.toml`) that produces the apphost stub on the fly during publish —
+so **no `z42 workload install desktop` is needed**. The produced `./xtask`
+auto-locates the `./.z42` runtime, so **no `PATH` export is needed to run it**:
 
 ```bash
-.z42/z42 workload install desktop --version nightly   # one-time: provides the apphost stub
-.z42/z42 publish scripts/xtask.z42.toml               # build + deploy → ./xtask  (--rid defaults to host)
+.z42/z42 publish scripts/xtask.z42.toml   # build + deploy → ./xtask  (--rid defaults to host; hook makes the stub)
 
 ./xtask build all     # compiler + runtime + stdlib (from source)
 ./xtask test          # full gate (compiler + vm + cross-zpkg + stdlib)
 ./xtask -h            # all commands (build / test / deps / bench / package)
 ```
+
+> A project *without* such a hook still needs the workload apphost stub —
+> `z42 workload install desktop --version nightly` provides it (publish's stub
+> resolution: project hook → installed workload → error). See
+> [build-orchestrator.md](../design/toolchain/build-orchestrator.md#publish-apphosthook-免装-workload-产-stub需求③).
 
 > **Don't want the workload?** Run the CLI straight through the launcher instead —
 > no apphost needed (this is exactly how CI drives xtask):

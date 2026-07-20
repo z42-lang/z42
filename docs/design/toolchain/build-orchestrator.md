@@ -47,44 +47,51 @@ ICompiler (z42.build 定义)
 > **计划重构（Deferred，见下）**：`ICompiler` + CompileRequest/CompileResult 现暂置 `z42.build`，
 > 后续抽到**中立微库**，使编译器核心（z42c）只依赖该微库、不依赖整个 build 框架。
 
-## 两条 driver 路径
+## 项目 hook：动态注入（无代码生成，2026-07-20 落地）
 
 | 路径 | 触发 | 机制 | 代价 |
 |------|------|------|------|
-| **标准** | 项目无自定义 `build/` | **进程内组合**：`new Pipeline()` 注入 `_hostCompiler()` + 标准 workload → `Pipeline.Run(ctx)`。**零子进程、零代码生成** | 无 |
-| **自定义** | 项目有 `build/`（hook / workload 子类）| **生成一次性 driver** 源码（链 `z42.build` + workload + 项目 `build/`）→ 用**同一 `ICompiler`** 编译 → 跑（其 Main 注入项目 Hooks/Workload 后 `Pipeline.Run`）| 首次构建多一次 driver 编译（按输入 hash 缓存）|
+| **标准** | 无 `[build] hooks` | **进程内组合**：`new Pipeline()` 注入 `_hostCompiler()` + 标准 workload → `Pipeline.Run(ctx)`。零子进程、零代码生成 | 无 |
+| **带 hook** | manifest `[build] hooks = "<dir>"` | **动态注入**：用注入的**同一 `ICompiler`** 编 hook 目录 → `ModuleLoader.Load` → `Build.ProjectHooks` 反射实例化 → `as BuildHooks` → 挂 `p.Hooks` | 首次多编一次 hook 目录（极小，按缓存） |
 
-in-process 编译让**标准路径无需生成 driver**——这是「固定通用 driver」与「每项目生成 driver」
-的天然混合：标准项目走进程内快路径，只有项目要插自定义逻辑时才落 driver 生成。
+> **实现取代原「生成一次性 driver」设计**：hook 类**直接注入进 z42b 自己的 `Pipeline`**，
+> 无需为项目生成 / 编译 / 运行一个专属 driver——复用 `_hostCompiler` 同款组件注入模式
+> （`ModuleLoader.Load` → `Type.GetType` → `Activator` → as-cast，见
+> [dynamic-component-registration](../../spec/changes/dynamic-component-registration/)）。
+> 依赖 [跨 zpkg 虚成员派发修复](../compiler/compiler-architecture.md#跨-zpkg-虚成员必须-vcall2026-07-20-fix-crosspkg-virtual-override)——hook 靠 override 依赖 zpkg 里的 `BuildHooks` +
+> 读 `IPipelineContext` 属性运转，两条派发路径经该修复才生效。
 
-## 自定义扩展：`build/` 发现约定
+## 自定义扩展：manifest 声明 hook 目录
 
-项目用一个 `build/` 目录（与 `src/` 平级）放可选的构建扩展 z42 源，**约定优于配置**
-（类比 `build.rs`）：
+**显式声明优于隐式探测**（避免把 xtask 的 `scripts/build/` 源码目录误判为 hook 目录）：
+manifest `[build] hooks = "<dir>"`（projDir 相对）指向 hook 源目录；不声明则走标准路径。
 
 ```
 myapp/
-  z42.toml
+  z42.toml                   # [build] hooks = "hooks"
   src/                       # 应用代码
-  build/                     # ← 可选；构建扩展（编译进自定义 driver）
-    ProjectHooks.z42         #   class ProjectHooks : BuildHooks   —— 平台无关编译前后 hook
-    iOSBuild.z42             #   class iOSBuild : iOSWorkload      —— 平台尾相位 override
+  hooks/                     # ← hook 源目录（manifest 显式声明）
+    hooks.z42                #   namespace Build; class ProjectHooks : BuildHooks
 ```
 
-- **固定类名约定**（静态绑定、不需反射）：`ProjectHooks`（→ `Pipeline.Hooks`）、
-  `<Family>Build`（如 `iOSBuild`/`DesktopBuild`，→ 覆盖该平台标准 workload）。
-  生成的 driver 按这些名字 `new` 并注入；缺则用默认（空 Hooks / 标准 workload）。
-- **`build/` 不存在或为空** → 标准路径（进程内，无 driver 生成）。
-- **编译前/编译后**自定义即 `ProjectHooks` override `BeforeCompile`/`AfterCompile`
-  （及 Before/After × Trim/Assets）；平台专属定制走 `<Family>Build` override + `base.X(ctx)`。
+- **注入约定**（`builder_hooks.z42`）：hook 源声明 `namespace Build;` + `class ProjectHooks :
+  BuildHooks`，override 需要的钩子。z42b 编该目录 → `Type.GetType("Build.ProjectHooks")` →
+  `Activator.CreateInstance` → `as BuildHooks` → `p.Hooks`。
+- **合成入口**：`Z42cCompiler` 的目录编译面固定 `kind=exe`（auto-entry），hook 目录无 `Main`
+  会判「no Main() found」；z42b 拷 hook 源到 staging 目录附一个合成 no-op `Main()` 再编
+  （`ModuleLoader.Load` 不跑 Main，合成入口纯粹满足 exe 编译面）。
+- **hook 编不过不阻塞主构建**：诊断打印后保守降级为无 hook（L1「空值 + 调用方检查」）。
+- **平台 `<Family>Build` workload override 仍为设计未落**（当前只落 `Hooks` 注入）；落地时同款
+  动态注入（`Type.GetType("Build.<Family>Build")` → `as WorkloadBase`）。
 
 > 相位**封闭**（八个，线性，不可增删改序）；所有自定义落在 Hooks / Workload override 上，
 > 不开放注册新相位（确定性 + 缓存模型）。
 
-### 示例：编译前/后 hook + 平台 override
+### 示例：编译前/后 hook
 
 ```z42
-// build/ProjectHooks.z42 —— 平台无关的编译前/后扩展
+// hooks/hooks.z42 —— 平台无关的编译前/后扩展
+namespace Build;                 // ← 固定命名空间约定（z42b 查 Build.ProjectHooks）
 using Z42.Build;
 
 public class ProjectHooks : BuildHooks {
@@ -103,6 +110,36 @@ public class ProjectHooks : BuildHooks {
 }
 ```
 
+### publish apphost：hook 免装 workload 产 stub（需求③）
+
+`z42 publish`（desktop）需要一个 apphost stub（原生启动器壳）。默认由已装的 **desktop
+workload** 提供（`z42 workload install desktop` 下载）。**项目 hook 可现场产出 stub**，从而
+**去掉该下载依赖**——publish 的 stub 解析序：
+
+1. **项目 hook 产出**：`[build] hooks` 声明 → `BeforeAssets` 经 `ctx.Exec` 现场编 stub →
+   `ctx.AddOutput("apphost-stub", <path>)` 登记（`builder_publish.z42 _pubHookApphostStub`）
+2. **`Z42_APPHOST_TEMPLATE`**：launcher 解析已装 workload 传入（Decision 3.5）
+3. 皆无 → 报错提示两条路
+
+本仓 xtask 即用此路：`scripts/hooks/hooks.z42` 的 `BeforeAssets` 现场 `cargo build --release`
+出 apphost stub 并登记，`scripts/xtask.z42.toml` 声明 `[build] hooks = "hooks"` →
+`z42 publish scripts/xtask.z42.toml` **免装 desktop workload** 直接产 apphost。
+
+```z42
+// scripts/hooks/hooks.z42
+namespace Build;
+using Z42.Build;
+
+public class ProjectHooks : BuildHooks {
+    public override void BeforeAssets(IPipelineContext ctx) {
+        // cargo build --release 出 apphost stub（ctx.Exec = Std.Process）
+        ExecResult r = ctx.Exec("cargo", /* build --release --manifest-path … */ args);
+        if (r.ExitCode != 0) { ctx.Warn("cargo failed"); return; }  // 失败降级回 workload 路径
+        ctx.AddOutput("apphost-stub", stubPath);                    // ← publish 解析序①取此
+    }
+}
+```
+
 ```z42
 // build/iOSBuild.z42 —— iOS 平台尾相位定制（override + base.X）
 using Z42.Build;
@@ -116,13 +153,14 @@ public class iOSBuild : iOSWorkload {
 }
 ```
 
-z42b 发现 `build/` 后生成一次性 driver，其 Main 约等于：
-`new Pipeline{ Compiler=hostCompiler, Hooks=new ProjectHooks(), Workload=new iOSBuild() }.Run(ctx)`。
+z42b 读到 `[build] hooks` 后编该目录并动态注入，等价于：
+`new Pipeline{ Compiler=hostCompiler, Hooks=<注入的 ProjectHooks>, Workload=标准 }.Run(ctx)`
+——`Hooks` 由 `ModuleLoader.Load` + `Activator` + `as BuildHooks` 现取，**无生成 driver**。
 
 ## `IPipelineContext` 实现归属
 
 `PipelineContext`（`IPipelineContext` 的 SDK 实现：受限 fs / exec / 平台原语 / 产物登记）
-**暂置 `z42.build` 库**（2026-06-23 决策），使编排器 / 生成的 driver 都能 `import` 它构造 ctx。
+**暂置 `z42.build` 库**（2026-06-23 决策），使编排器 / 注入的 hook 都能 `import` 它构造 ctx。
 随 `ICompiler` 微库抽取一并重新审视分层。
 
 **待补的 native 原语**（`IPipelineContext` 中，经 `extern` 接 toolchain 侧 Rust builtin）：
@@ -141,8 +179,8 @@ z42b 发现 `build/` 后生成一次性 driver，其 Main 约等于：
 |---|------|------|
 | 1 | Compile 经 `ICompiler` **in-process** 调编译器库，不 fork z42c | 类型化、零进程开销、不依赖 PATH；与 z42c.driver 共享实现 |
 | 2 | z42b 与 z42c.driver 引用**同一 `ICompiler` 实现** | 单一编译入口；换实现不动调用方 |
-| 3 | 两条 driver 路径（标准进程内 / 自定义生成 driver）| in-process 让标准项目零生成；仅自定义才付 driver 编译成本 |
-| 4 | `build/` 固定类名约定（`ProjectHooks` / `<Family>Build`）| 静态绑定不需反射；约定优于配置 |
+| 3 | 项目 hook 走**动态注入**（非生成 driver）；标准项目进程内零注入 | 复用 `_hostCompiler` 组件注入模式，无代码生成；仅带 hook 才付一次 hook 目录编译（2026-07-20 取代原「生成一次性 driver」设计）|
+| 4 | hook 目录经 manifest `[build] hooks` **显式声明**（非隐式探测 `build/`）；命名空间约定 `Build.ProjectHooks` | 显式避免把 `scripts/build/` 等源码目录误判为 hook；`namespace Build` + 固定类名供 `Type.GetType` 反射定位 |
 | 5 | 相位封闭，自定义只走 Hooks / Workload override | 确定性 + 缓存模型；不开放新相位 |
 | 6 | `PipelineContext` 暂置 `z42.build`；`ICompiler` 后抽中立微库 | 减 churn；最终让编译器核心不依赖 build 框架 |
 | 7 | 框架库 `z42.build` 不改名；编排器包 `z42.builder` | 框架是公共扩展 API（`z42.<domain>` 族）；包名同构 `z42.launcher` |
