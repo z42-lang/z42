@@ -1,13 +1,23 @@
 namespace Std.Reflection;
 
 // Reflected field. Populated by `Type.GetFields()` (`__type_fields`).
-// Mirrors C# `System.Reflection.FieldInfo` (read-only subset).
+// Mirrors C# `System.Reflection.FieldInfo`. GetValue / SetValue read and write
+// an instance field's slot directly (a field IS a slot — no accessor), powering
+// reflective (de)serialization onto plain public fields.
 public class FieldInfo : MemberInfo {
     // The field's declared type, e.g. typeof(int). Written by the VM.
     public Std.Type FieldType;
 
     // True for static fields, false for instance. (add-reflection-static-fields)
     public bool IsStatic;
+
+    // Read this instance field's value off `obj`.
+    [Native("__field_get_value")]
+    public extern object GetValue(object obj);
+
+    // Write `value` to this instance field on `obj`.
+    [Native("__field_set_value")]
+    public extern void SetValue(object obj, object value);
 
     // Member visibility (add-member-visibility, unify P1-b). Written by the VM
     // from the field's declared modifier. A `protected` field reports neither
