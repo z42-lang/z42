@@ -9,6 +9,11 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
     TKey[] keys;
     TValue[] values;
     bool[] occupied;
+    // 每个 occupied 槽存放其 key 的掩码 hash（`GetHashCode() & 0x7FFFFFFF`）。
+    // 探测比较时先比 int hash，不等直接跳过 `.Equals()`——对 string key
+    // （GetHashCode/Equals 均 O(len)）省下绝大多数 Equals 派发；Grow 也复用
+    // 存好的 hash 免去重算。
+    int[] hashes;
     public int Count;
     int capacity;
 
@@ -17,6 +22,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         this.keys = new TKey[8];
         this.values = new TValue[8];
         this.occupied = new bool[8];
+        this.hashes = new int[8];
         this.Count = 0;
     }
 
@@ -30,13 +36,15 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
     public void Set(TKey key, TValue value) {
         // 负载因子 > 0.75 即扩容（count * 4 > capacity * 3）
         if (this.Count * 4 > this.capacity * 3) this.Grow();
-        int slot = this.FindSlot(key);
+        int h = key.GetHashCode() & 0x7FFFFFFF;
+        int slot = this._findSlotH(key, h);
         if (!this.occupied[slot]) {
             this.occupied[slot] = true;
             this.Count = this.Count + 1;
         }
         this.keys[slot] = key;
         this.values[slot] = value;
+        this.hashes[slot] = h;
     }
 
     public TValue Get(TKey key) {
@@ -56,14 +64,15 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         this.occupied[slot] = false;
         this.Count = this.Count - 1;
         // 重新插入探测链剩余项以避免空洞。
-        int j = (slot + 1) % this.capacity;
+        int mask = this.capacity - 1;
+        int j = (slot + 1) & mask;
         while (this.occupied[j]) {
             TKey k = this.keys[j];
             TValue v = this.values[j];
             this.occupied[j] = false;
             this.Count = this.Count - 1;
             this.Set(k, v);
-            j = (j + 1) % this.capacity;
+            j = (j + 1) & mask;
         }
         return true;
     }
@@ -128,10 +137,17 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         // Mask off the sign bit rather than negating: `-h` overflows back to a
         // negative for h == int.MinValue (GetHashCode()==int.MinValue) → negative
         // slot → trap. `& 0x7FFFFFFF` is always non-negative.
-        int h = key.GetHashCode() & 0x7FFFFFFF;
-        int slot = h % this.capacity;
-        while (this.occupied[slot] && !this.keys[slot].Equals(key)) {
-            slot = (slot + 1) % this.capacity;
+        return this._findSlotH(key, key.GetHashCode() & 0x7FFFFFFF);
+    }
+
+    // 掩码探测 + 存储 hash 短路：h 为掩码后的 hash。capacity 恒为 2 的幂，
+    // 故 `slot & (capacity-1)` 等价 `slot % capacity` 但免去取模。命中要求
+    // 存储 hash 相等 *且* key.Equals——hash 不等即跳过 Equals 派发。
+    int _findSlotH(TKey key, int h) {
+        int mask = this.capacity - 1;
+        int slot = h & mask;
+        while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) {
+            slot = (slot + 1) & mask;
         }
         return slot;
     }
@@ -141,18 +157,33 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         TKey[] newKeys = new TKey[newCap];
         TValue[] newValues = new TValue[newCap];
         bool[] newOccupied = new bool[newCap];
+        int[] newHashes = new int[newCap];
         TKey[] oldKeys = this.keys;
         TValue[] oldValues = this.values;
         bool[] oldOccupied = this.occupied;
+        int[] oldHashes = this.hashes;
         int oldCap = this.capacity;
         this.keys = newKeys;
         this.values = newValues;
         this.occupied = newOccupied;
+        this.hashes = newHashes;
         this.capacity = newCap;
         this.Count = 0;
+        int mask = newCap - 1;
         int i = 0;
         while (i < oldCap) {
-            if (oldOccupied[i]) this.Set(oldKeys[i], oldValues[i]);
+            if (oldOccupied[i]) {
+                // 复用存储 hash：Grow 中 key 必唯一且新表全空，直接线性探测到
+                // 首个空槽即可，无需 Equals 比较、无需重算 hash。
+                int h = oldHashes[i];
+                int slot = h & mask;
+                while (this.occupied[slot]) slot = (slot + 1) & mask;
+                this.occupied[slot] = true;
+                this.keys[slot] = oldKeys[i];
+                this.values[slot] = oldValues[i];
+                this.hashes[slot] = h;
+                this.Count = this.Count + 1;
+            }
             i = i + 1;
         }
     }
