@@ -15,7 +15,23 @@ void Main() {
     Assert.True(b is bool);
     Assert.True(!(b is int));
 
+    object d = 3.14;
+    Assert.True(d is double);
+    Assert.True(!(d is int));            // double ≠ int（F64 ≠ I64）
+
+    object c = 'x';
+    Assert.True(c is char);
+
     // 未命中 → as 返 null
     string s = n as string;
     Assert.True(s == null);
+
+    // 整数宽度：z42 运行时用单一 Value::I64 表示 int/long/short/byte（boxed 后不可辨宽度），
+    // 故 boxed 整数 is-a 任意整数类型——值的声明类型永不假阴。
+    object l = 9L;
+    Assert.True(l is long);              // 曾误判 false
+    Assert.True(l is int);               // I64 表示 → 跨宽度松匹配
+    object by = (byte)7;
+    Assert.True(by is byte);             // 曾误判 false
+    Assert.True(by is int);
 }

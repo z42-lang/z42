@@ -244,10 +244,27 @@ pub(super) fn field_set(
 /// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
 /// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
 pub(crate) fn prim_isa(val: &Value, class_name: &str) -> bool {
-    match super::exec_vcall::primitive_class_name(val) {
-        Some(pc) => pc == class_name || class_name == "Std.Object" || class_name == "Object",
-        None => false,
+    // 所有基元 is-a object。
+    if class_name == "Std.Object" || class_name == "Object" {
+        return super::exec_vcall::primitive_class_name(val).is_some();
     }
+    match val {
+        // 整数宽度不可辨：z42 运行时用单一 Value::I64 表示 int/long/short/byte/…（boxed 后
+        // 无宽度信息），故一个 boxed 整数 is-a **任意整数类型**——值的声明类型永不假阴，
+        // 跨宽度松匹配是该表示的必然（`9L is long` / `(byte)7 is byte` 才不会误判 false）。
+        Value::I64(_) => is_integer_class(class_name),
+        // 非整数基元：精确匹配其 stdlib 类名（string/double/bool/char）。
+        other => super::exec_vcall::primitive_class_name(other) == Some(class_name),
+    }
+}
+
+/// 整数族类名（编译器 QualifyTypeName 发 FQ 形；带非限定形兜底）。
+fn is_integer_class(cn: &str) -> bool {
+    matches!(cn,
+        "Std.Int32" | "Std.Int64" | "Std.Int16" | "Std.SByte"
+        | "Std.Byte" | "Std.UInt16" | "Std.UInt32" | "Std.UInt64"
+        | "Int32" | "Int64" | "Int16" | "SByte"
+        | "Byte" | "UInt16" | "UInt32" | "UInt64")
 }
 
 pub(super) fn is_instance(

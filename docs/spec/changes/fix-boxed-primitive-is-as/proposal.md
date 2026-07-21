@@ -28,8 +28,11 @@ pre-existing（纯 nightly 编译器就这样），z42.ir 收敛的冒烟测试�
 
 1. **编译器**：新增 `EmitContext.QualifyTypeName`——基元别名 → FQ 包装类（`string`→`Std.String`、
    `int`→`Std.Int32`…），否则 `QualifyClass`。`_emitIs`/`_emitCast` 改用它。
-2. **运行时**：`is_instance` / `as_cast` 的 `match` 加基元臂——基元值经 `primitive_class_name`
-   取其 stdlib 类名，匹配 `class_name`（或 `Std.Object` 基类）。
+2. **运行时**：`is_instance` / `as_cast` 的 `match` 加基元臂（`prim_isa`）——非整数基元
+   （string/double/bool/char）精确匹配其 stdlib 类名；**整数**（z42 运行时用单一 `Value::I64`
+   表示 int/long/short/byte，boxed 后**宽度不可辨**）→ is-a **任意整数类型**（值的声明类型永不
+   假阴，如 `9L is long` / `(byte)7 is byte` 才不会误判 false；跨宽度松匹配是该表示的必然）；
+   所有基元 is-a `Std.Object`。interp + jit 两路共用。
 
 ## 验证
 
