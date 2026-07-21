@@ -27,6 +27,17 @@ class Box<T> {
     public T value;
 }
 
+// plan-generic-reflection G1: MakeGenericType + runtime constraint validation.
+interface IEntity {
+    int Id();
+}
+class UserEntity : IEntity {
+    public int Id() { return 1; }
+}
+class Repo<T> where T: IEntity {
+    public T current;
+}
+
 // add-reflection-properties: GetProperties() derives PropertyInfo from the
 // get_/set_ accessor convention.
 class PropHolder {
@@ -262,6 +273,48 @@ void test_interface_getmethods_declared_only() {
     }
     Assert.True(sawReset);
     Assert.False(sawArea);
+}
+
+[Test]
+void test_make_generic_type_roundtrip() {
+    // plan-generic-reflection G1: typeof(Box<>).MakeGenericType(int) == Box<int>.
+    Type def = typeof(Box<int>).GetGenericTypeDefinition();   // open Box<>
+    Type made = def.MakeGenericType(typeof(int));
+    Type[] gargs = made.GetGenericArguments();
+    Assert.Equal(1, gargs.Length);
+    Assert.Equal("int", gargs[0].Name);
+}
+
+[Test]
+void test_make_generic_constraint_satisfied() {
+    // Repo<T> where T : IEntity; UserEntity implements IEntity → OK.
+    Type def = typeof(Repo<UserEntity>).GetGenericTypeDefinition();
+    Type made = def.MakeGenericType(typeof(UserEntity));
+    Assert.Equal(1, made.GetGenericArguments().Length);
+}
+
+[Test]
+void test_make_generic_constraint_violated_throws() {
+    // int does NOT implement IEntity → MakeGenericType must throw (Q3 safety).
+    Type def = typeof(Repo<UserEntity>).GetGenericTypeDefinition();
+    Assert.ThrowsAny(() => def.MakeGenericType(typeof(int)));
+}
+
+[Test]
+void test_make_generic_wrong_arg_count_throws() {
+    Type def = typeof(Box<int>).GetGenericTypeDefinition();   // 1 type param
+    Assert.ThrowsAny(() => def.MakeGenericType(typeof(int), typeof(bool)));
+}
+
+[Test]
+void test_activator_constructed_carries_type_args() {
+    // CreateInstance on a constructed generic Type reifies type_args onto the
+    // instance → obj.GetType().GetGenericArguments() survives.
+    Type made = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(typeof(int));
+    object o = Activator.CreateInstance(made);
+    Type[] gargs = o.GetType().GetGenericArguments();
+    Assert.Equal(1, gargs.Length);
+    Assert.Equal("int", gargs[0].Name);
 }
 
 [Test]

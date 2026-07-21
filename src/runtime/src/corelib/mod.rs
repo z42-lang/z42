@@ -227,6 +227,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_is_primitive",  reflection::builtin_type_is_primitive),
     ("__type_is_generic_definition", reflection::builtin_type_is_generic_definition),
     ("__type_generic_definition",    reflection::builtin_type_generic_definition),
+    // plan-generic-reflection G1: runtime generic instantiation (MakeGenericType,
+    // constraint-validated). Constructed CreateInstance is handled in the existing
+    // __activator_create builtin (reifies __typeArgs onto the new instance).
+    ("__type_make_generic",          reflection::builtin_type_make_generic),
     ("__type_is_interface",  reflection::builtin_type_is_interface),
     // add-enum-type-metadata (unify-type-metadata P1-a): enum reflection.
     ("__type_is_enum",       reflection::builtin_type_is_enum),

@@ -10,8 +10,9 @@ namespace Std;
 // Primitives / arrays (`int`, `T[]`, `string`) return a handle-less `Type`:
 // `Name` / `FullName` are populated, but member queries reflect empty.
 //
-// Mirrors C# `System.Type` (read-only subset; no `Invoke` / `MakeGenericType`
-// — those land with generic instantiation in 0.5.x).
+// Mirrors C# `System.Type`. Runtime generic instantiation via `MakeGenericType`
+// (plan-generic-reflection G1); z42's reified type-erasure means this needs no
+// monomorphization. Generic-method `Invoke` / `MakeGenericMethod` land in G2.
 // align-type-memberinfo-hierarchy (2026-06-11): `Type : MemberInfo` — Type IS-A
 // reflection member (mirrors .NET `System.Type : MemberInfo`), so `typeof(C) is
 // MemberInfo` holds and `Name` comes from the shared `MemberInfo` base (one
@@ -150,6 +151,15 @@ public sealed class Type : MemberInfo {
     // (add-reflection-generic-type-definition)
     [Native("__type_generic_definition")]
     public extern Type GetGenericTypeDefinition();
+
+    // Construct a generic type at runtime from this open definition + type
+    // arguments (`typeof(List<>).MakeGenericType(typeof(int))` -> `List<int>`).
+    // Validates argument count and `where` constraints, throwing `Std.Exception`
+    // on violation (reflection is the escape hatch past compile-time constraint
+    // checking, so it self-polices). Reuses the reified-erasure model — no
+    // monomorphization. (plan-generic-reflection G1)
+    [Native("__type_make_generic")]
+    public extern Type MakeGenericType(params Type[] typeArgs);
 
     // Interfaces this type implements (own declared + inherited from base chain,
     // deduped by name). add-reflection-assignable-from: the interface block now
