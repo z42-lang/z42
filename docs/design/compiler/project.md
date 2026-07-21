@@ -412,7 +412,7 @@ my-app/
 > 跨包类型签名的**唯一来源**；对账器 + verb + `ReadTsig` 随 TSIG 一并移除。**每 zpkg ~半：
 > z42.core 193KB→92KB。**
 
-**机制**（`z42c.project/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`）：
+**机制**（`src/libraries/z42.ir/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`；converge-z42c-ir-metadata：随 zpkg 后端下沉 z42.ir）：
 
 ```
 world = 全部待对账 zpkg（跨包 base 链：imported 祖先字段/方法从 dep 包 TYPE/SIGS 取）

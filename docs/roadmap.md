@@ -152,7 +152,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | runtime | **R8a host/hostrun/main 统一**（不同平台共享简化）+ **R8b 组件化 cargo-feature 骨架** | 原 0.9.5 上移；R8b 完整裁剪留后续 |
 | 工具链 | **z42b GA**（统一前端）+ publish 脱 desktop + workload 命令自动注册 + xtask 路径读 z42.toml + package 剥离调试符号 | in-flight `wire-z42b-host-build` / `add-workload-command-dispatch`；todo#2/#8/#9/#10 |
 | 编译器 | **增量 + 并发编译** + build 依赖排序 + 版本 hash 触发重编 | todo#1/#4/#7；并入 Pc5 |
-| 标准库 | **z42c 基础库(metadata/ir)入 stdlib** | 沿用 in-flight `converge-z42c-onto-z42-project` 收敛范式（project→`z42.project`，后端拆 `z42c.zpkg`）；metadata/ir 各自出 spec 定边界 |
+| 标准库 | ~~**z42c 基础库(metadata/ir)入 stdlib**~~ ✅ 2026-07-21 | 已落地：IR + zbc + zpkg 后端合一入 stdlib 单库 `z42.ir`（converge-z42c-ir-metadata-onto-stdlib；User 定单库 + CacheStore 留构建侧）。z42c 现 5 子包，self-host 5/5。（原「后端拆 z42c.zpkg」更正为下沉 z42.ir） |
 | 产品 | **REPL**（原 0.3.15 上移）+ **Playground** | in-flight `add-z42-wasm-playground` |
 | 测试 | **tier2 平台测试补齐**（wasm/ios/android → GitHub Checks）；当前仅全测 tier1 | `versions.toml [platform.*]` tier 定义 |
 | 文档 | **book 整理与内容补充** | docs 不上锁，贯穿 |
