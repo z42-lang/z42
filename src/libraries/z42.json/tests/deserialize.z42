@@ -1,0 +1,49 @@
+// plan-generic-reflection (serde-driven): JsonSerializer.Deserialize(Type, json)
+// — reflective JSON → object binding (primitives + nested classes).
+namespace Z42JsonDeserializeTests;
+
+using Std;
+using Std.Test;
+using Std.Json;
+
+class Point {
+    public int x;
+    public int y;
+}
+
+// Nested object + a writable auto-property (binds via the property path) + a
+// string field.
+class Person {
+    public string name;
+    public Point loc;
+    public bool active { get; set; }
+}
+
+[Test]
+void test_deserialize_primitives_fields() {
+    object o = JsonSerializer.Deserialize(typeof(Point), "{\"x\": 3, \"y\": 4}");
+    Point p = (Point) o;
+    Assert.Equal(3, p.x);
+    Assert.Equal(4, p.y);
+}
+
+[Test]
+void test_deserialize_nested_object() {
+    object o = JsonSerializer.Deserialize(
+        typeof(Person),
+        "{\"name\": \"ann\", \"loc\": {\"x\": 1, \"y\": 2}, \"active\": true}");
+    Person person = (Person) o;
+    Assert.Equal("ann", person.name);
+    Assert.Equal(1, person.loc.x);
+    Assert.Equal(2, person.loc.y);
+    Assert.True(person.active);
+}
+
+[Test]
+void test_deserialize_missing_key_leaves_default() {
+    // JSON omits `y` → the field keeps its default (0), no error.
+    object o = JsonSerializer.Deserialize(typeof(Point), "{\"x\": 7}");
+    Point p = (Point) o;
+    Assert.Equal(7, p.x);
+    Assert.Equal(0, p.y);
+}
