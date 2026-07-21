@@ -1526,6 +1526,49 @@ pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<Val
     invoke_qualified(ctx, &setter, &[target, value])
 }
 
+/// `__field_get_value(field: FieldInfo, target: object) -> object` — read an
+/// instance field's value straight off the target object's slot (by the field's
+/// `Name` → the object's own `field_index`). Unlike `PropertyInfo.GetValue`
+/// there is no accessor: a field IS a slot. Powers reflective (de)serialization.
+pub fn builtin_field_get_value(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let fi = args.first().cloned().unwrap_or(Value::Null);
+    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    let name = match read_obj_slot(&fi, "Name") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("FieldInfo.GetValue: receiver is not a FieldInfo"),
+    };
+    match &target {
+        Value::Object(rc) => match rc.type_desc().field_index.get(&name).copied() {
+            Some(i) => Ok(rc.borrow().slots.get(i).cloned().unwrap_or(Value::Null)),
+            None => bail!("FieldInfo.GetValue: field `{name}` not present on target instance"),
+        },
+        _ => bail!("FieldInfo.GetValue: target is not an object instance"),
+    }
+}
+
+/// `__field_set_value(field: FieldInfo, target: object, value: object)` — write
+/// an instance field's slot directly (by `Name` → `field_index`). Powers
+/// reflective deserialization (binding JSON members onto plain public fields).
+pub fn builtin_field_set_value(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let fi = args.first().cloned().unwrap_or(Value::Null);
+    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    let value = args.get(2).cloned().unwrap_or(Value::Null);
+    let name = match read_obj_slot(&fi, "Name") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("FieldInfo.SetValue: receiver is not a FieldInfo"),
+    };
+    match &target {
+        Value::Object(rc) => match rc.type_desc().field_index.get(&name).copied() {
+            Some(i) => {
+                rc.borrow_mut().slots[i] = value;
+                Ok(Value::Null)
+            }
+            None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),
+        },
+        _ => bail!("FieldInfo.SetValue: target is not an object instance"),
+    }
+}
+
 /// `__invoke_static(fqn: str) -> object` — invoke a free / static function by its
 /// fully-qualified name with NO arguments (no receiver). This is the path the
 /// reflective test runner uses for `[Test]` / `[Benchmark]` / `[Setup]` /

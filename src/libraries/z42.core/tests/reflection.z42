@@ -481,6 +481,22 @@ void test_getfields_includes_static() {
 }
 
 [Test]
+void test_field_getvalue_setvalue() {
+    // FieldInfo.GetValue/SetValue: direct instance-field read/write (serde-driven).
+    FieldHolder fh = new FieldHolder();
+    Type t = typeof(FieldHolder);
+    bool checkedField = false;
+    foreach (var f in t.GetFields()) {
+        if (f.Name == "instanceVal") {
+            checkedField = true;
+            f.SetValue(fh, 99);
+            Assert.Equal(99, (int) f.GetValue(fh));
+        }
+    }
+    Assert.True(checkedField);
+}
+
+[Test]
 void test_getfields_hides_autoprop_backing() {
     // hide-autoprop-backing-field: PropHolder declares only auto-properties
     // (Size, Tag) — their synthesized `__prop_*` backing fields must NOT surface

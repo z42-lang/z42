@@ -251,6 +251,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // non-generic invoke path via get_<X>/set_<X> accessors).
     ("__property_get_value", reflection::builtin_property_get_value),
     ("__property_set_value", reflection::builtin_property_set_value),
+    // plan-generic-reflection (serde-driven): reflective field read/write (direct
+    // slot access, powers reflective deserialization onto plain public fields).
+    ("__field_get_value",    reflection::builtin_field_get_value),
+    ("__field_set_value",    reflection::builtin_field_set_value),
     // retire-test-runner: no-arg reflective construction (test-class instantiation).
     ("__activator_create",   reflection::builtin_activator_create),
     // retire-test-runner: load a compiled test module + return its TIDX entries.
