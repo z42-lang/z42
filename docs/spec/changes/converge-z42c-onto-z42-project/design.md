@@ -20,9 +20,15 @@ z42.project (Z42.Build.Project)              组合式 ProjectManifest/Workspace
 ## Decisions
 
 ### Decision 1: zpkg 后端独立成 `z42c.zpkg`，不保留 `z42c.project` 名
+> **⚠️ 已被 [converge-z42c-ir-metadata-onto-stdlib](../converge-z42c-ir-metadata-onto-stdlib/proposal.md)
+> 更正（2026-07-21，User 裁决）**：zpkg 后端**不再独立成 compiler-local `z42c.zpkg`**，而是**下沉
+> stdlib 单库 `z42.ir`**（连同 IR 模型），因 REPL 需读写 zpkg → 后端是**格式契约**、天生可共享。
+> `z42c.zpkg` rename 计划作废（本就未落地）；CacheStore（构建工具策略非格式）迁 z42c.pipeline。
+> 下面原文保留作历史。
+
 **问题：** 「删 z42c.project」不可能——它含 `ZpkgWriter`（持 zpkg 版本 pin 0/24）、`ZpkgReader`、`ZpkgBuilder`、`ZpkgWriterIndexed`、`PackageTypes`、`CacheStore`，是编译器产物后端，`z42.project`（纯清单模型）按设计永不含。
 **选项：** A—重命名包 `z42c.project`→`z42c.zpkg`，名副其实；B—保 `z42c.project` 名，只剥 manifest-model 4 文件（包名从此名不副实）。
-**决定：** **A**。剥掉 manifest-model 后该包只剩 zpkg 读写/缓存，`z42c.project` 是误名；按 philosophy「最终方案优先」直接改名，连带 z42c.pipeline/driver 的 dep 声明 + 两个 workspace member 名一次改净。代价=机械更新调用点，pre-1.0 不背破坏顾虑。
+**决定（原）：** A（改名 z42c.zpkg）。**现更正为**：后端下沉 stdlib `z42.ir`（见上框）——「编译器产物机器」是**用法**不是**归属**，格式契约可共享。
 
 ### Decision 2: z42c 采纳组合式 `ProjectManifest`，不回填扁平层
 **问题：** z42c.project 的 `ProjectManifest` 扁平（`Name`/`IncludeGlobs`/`HasOutputDir`…）；z42.project 组合式（`Project.Name`/`Sources.Include`/`Build.HasOutputDir`…）。约 30 调用点访问形态不同。

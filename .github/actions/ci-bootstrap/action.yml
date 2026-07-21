@@ -106,7 +106,7 @@ runs:
         # 自带的**旧 VM**(bin/z42vm,与旧种子同版本)做两代自举,把种子推进到当前格式,再交新 VM。
         # 机理见 docs/spec/archive/…-fix-bootstrap-format-bump-deadlock/design.md(D7,已本地端到端验证)。
         seed_minor=$(od -An -tu2 -j6 -N2 "$seed/z42c.driver.zpkg" | tr -d ' ')
-        cur_minor=$(grep -oE 'Minor = [0-9]+' "$ROOT/src/compiler/z42c.project/src/ZpkgWriter.z42" | head -1 | grep -oE '[0-9]+')
+        cur_minor=$(grep -oE 'Minor = [0-9]+' "$ROOT/src/libraries/z42.ir/src/ZpkgWriter.z42" | head -1 | grep -oE '[0-9]+')
         echo "   zpkg minor: seed=$seed_minor  current=$cur_minor"
         boot_driver="$seed/z42c.driver.zpkg"   # 默认(快路径):用下载的种子 z42c
         boot_libs="$work/sdkpkg/libs"          # 默认:种子 stdlib

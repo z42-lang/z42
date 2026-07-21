@@ -56,7 +56,7 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          members="z42c.core z42c.ir z42c.syntax z42c.project z42c.semantics z42c.pipeline z42c.driver"
+          members="z42c.core z42c.syntax z42c.semantics z42c.pipeline z42c.driver"
 
           fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1"; }
           snapshot() { # $1 = dest dir
