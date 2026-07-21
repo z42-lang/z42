@@ -1,0 +1,21 @@
+// fix-boxed-primitive-is-as：基元值存进 object 后，is/as 该基元类型须正确匹配
+// （曾恒 false/null：编译器把 prim 别名误加 ns 前缀 + 运行时不识别基元值）。
+void Main() {
+    object o = "hi";
+    Assert.True(o is string);            // 基元 string is-a string
+    Assert.Equal("hi", o as string);     // as 取回原值（非 null）
+    Assert.True(o is object);            // 所有基元 is-a object
+
+    object n = 42;
+    Assert.True(n is int);
+    Assert.True(!(n is string));         // int 不是 string
+    Assert.True(n is object);
+
+    object b = true;
+    Assert.True(b is bool);
+    Assert.True(!(b is int));
+
+    // 未命中 → as 返 null
+    string s = n as string;
+    Assert.True(s == null);
+}

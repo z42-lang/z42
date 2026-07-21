@@ -87,6 +87,17 @@ public sealed class EmitContext {
         return this.Qualify(name);
     }
 
+    // is / as / cast 的目标类型名限定（fix-boxed-primitive-is-as）：基元别名（string/int/…）→
+    // FQ 包装类（Std.String / Std.Int32 …），否则 QualifyClass。基元关键字不该被当前 ns 限定
+    // ——`QualifyClass("string")` 曾无 imported 命中 → 误加当前 ns 前缀（"I.string"），致
+    // `is/as <prim>` 运行时永不匹配。
+    public string QualifyTypeName(string name) {
+        if (name == "object") { return "Std.Object"; }   // 万物基类别名（不走 ns 限定）
+        string w = EmitContext._primWrapper(name);
+        if (w != name) { return "Std." + w; }   // 是基元别名 → FQ 包装类
+        return this.QualifyClass(name);
+    }
+
     // receiver 类链是否自有该方法（IC-1 反劫持守卫）。**仅本地声明类**——镜像 C#
     // ReceiverChainHasMethod 走 codegen `ClassRegistry`（只含本包声明/编译的类，不含 imported）。
     // 非本地类（imported / 外部，不在 LocalClasses）→ 停止返回 false，交由 DepIndex instance 捷径

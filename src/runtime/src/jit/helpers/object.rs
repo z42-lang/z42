@@ -355,7 +355,8 @@ pub unsafe extern "C" fn jit_is_instance(
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
-        _ => false,
+        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配（Null → None → false）。
+        other => crate::interp::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
@@ -373,7 +374,8 @@ pub unsafe extern "C" fn jit_as_cast(
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
-        _           => false,
+        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配。
+        other       => crate::interp::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = if is_match { val } else { Value::Null };
 }

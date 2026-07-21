@@ -828,7 +828,7 @@ public sealed class ExprEmitter {
     // 寄存器并登记 Locals（true 分支读 v 命中此寄存器；不匹配时 as 得 null，分支不执行无害）。
     private TypedReg _emitIs(BoundIsExpr e) {
         TypedReg obj = this.Emit(e.E);
-        string qn = this._ctx.QualifyClass(e.TypeName);
+        string qn = this._ctx.QualifyTypeName(e.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
         if (qn == "Array") { qn = "Std.Array"; }       // 内建根类（VM 硬编码 Std.Array/Std.Object）
         else if (qn == "Object") { qn = "Std.Object"; }
         if (e.BindName != "") {
@@ -873,7 +873,7 @@ public sealed class ExprEmitter {
     private TypedReg _emitCast(BoundCast c) {
         TypedReg obj = this.Emit(c.E);
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-        string qn = this._ctx.QualifyClass(c.TypeName);
+        string qn = this._ctx.QualifyTypeName(c.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
         if (qn == "Array") { qn = "Std.Array"; }
         else if (qn == "Object") { qn = "Std.Object"; }
         this._ctx.Emit(new AsCastInstr(dst, obj, qn));

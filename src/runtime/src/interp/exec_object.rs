@@ -239,6 +239,17 @@ pub(super) fn field_set(
     }
 }
 
+/// fix-boxed-primitive-is-as: 基元值是否 is-a `class_name`。z42 不装箱基元，故 `object o = "hi"`
+/// 里 o 仍是裸 `Value::Str` —— `is`/`as` 须按其 stdlib 类名（`primitive_class_name`，如
+/// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
+/// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
+pub(crate) fn prim_isa(val: &Value, class_name: &str) -> bool {
+    match super::exec_vcall::primitive_class_name(val) {
+        Some(pc) => pc == class_name || class_name == "Std.Object" || class_name == "Object",
+        None => false,
+    }
+}
+
 pub(super) fn is_instance(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
 ) -> Result<()> {
@@ -250,7 +261,9 @@ pub(super) fn is_instance(
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => false,
-        _ => false,
+        // fix-boxed-primitive-is-as: 基元值（Value::Str/I64/…）经其 stdlib 类名匹配
+        // （z42 不装箱基元，`object o = "hi"` 里 o 仍是裸 Value::Str）。
+        other => prim_isa(other, class_name),
     };
     frame.set(dst, Value::Bool(result));
     Ok(())
@@ -266,7 +279,8 @@ pub(super) fn as_cast(
         }
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => true,
-        _ => false,
+        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配（同 is_instance）。
+        other => prim_isa(other, class_name),
     };
     frame.set(dst, if is_match { val } else { Value::Null });
     Ok(())
