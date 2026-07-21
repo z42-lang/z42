@@ -267,7 +267,9 @@ public class Regex {
             this.ResetState(input);
             int end = this.Match(this._seq, this._seqCount, 0, from);
             if (end >= 0) {
-                return new Match(input, from, end, this._gStarts, this._gEnds, this._groupCount, this);
+                // R2: give the Match its own copy of the reused slot arrays (null when
+                // no capturing groups — Match never reads them for group 0).
+                return new Match(input, from, end, this.SnapshotStarts(), this.SnapshotEnds(), this._groupCount, this);
             }
             if (anchoredStart) { return null; }
             from = from + 1;
@@ -275,10 +277,17 @@ public class Regex {
         return null;
     }
 
+    // perf (R2): reuse the group-slot arrays across scan positions — allocate once
+    // (or on group-count change) and reset in place, instead of `new int[groupCount]`
+    // ×2 at every start position (O(n) throwaway allocs on an unanchored no-match
+    // scan). A matched Match gets its OWN copy at construction (see FindFrom), so the
+    // reused arrays are never aliased by a returned Match.
     private void ResetState(string input) {
         this._input = input;
-        this._gStarts = new int[this._groupCount];
-        this._gEnds   = new int[this._groupCount];
+        if (this._gStarts == null || this._gStarts.Length != this._groupCount) {
+            this._gStarts = new int[this._groupCount];
+            this._gEnds   = new int[this._groupCount];
+        }
         int i = 0;
         while (i < this._groupCount) {
             this._gStarts[i] = -1;
@@ -482,23 +491,34 @@ public class Regex {
             stop  = posCount;
             step  = 1;
         }
+        // perf (R1): the greedy pass already recorded the end position after every
+        // repetition in `positions[]`. When the pattern has no capturing groups the
+        // child leaves no capture state, so the end after `i` reps is exactly
+        // `positions[i]` — reuse it instead of re-running the child `i` times
+        // (the old inner loop made backtracking O(k²) over the reps). With capturing
+        // groups we must re-run to re-establish the child's capture slots.
+        bool needReMatch = (this._groupCount > 1);
         int i = start;
         while ((step > 0 && i < stop) || (step < 0 && i > stop)) {
             this.RestoreStarts(savS);
             this.RestoreEnds(savE);
-            int rp = pos;
-            int j = 0;
-            bool ok = true;
-            while (j < i) {
-                int np = this.Match(q._childSeq, q._childCount, 0, rp);
-                if (np < 0) { ok = false; break; }
-                rp = np;
-                j = j + 1;
+            int rp;
+            if (needReMatch) {
+                rp = pos;
+                int j = 0;
+                bool ok = true;
+                while (j < i) {
+                    int np = this.Match(q._childSeq, q._childCount, 0, rp);
+                    if (np < 0) { ok = false; break; }
+                    rp = np;
+                    j = j + 1;
+                }
+                if (!ok) { i = i + step; continue; }
+            } else {
+                rp = positions[i];   // recorded end after `i` reps — no re-match
             }
-            if (ok) {
-                int fp = this.Match(seq, count, idx + 1, rp);
-                if (fp >= 0) { return fp; }
-            }
+            int fp = this.Match(seq, count, idx + 1, rp);
+            if (fp >= 0) { return fp; }
             i = i + step;
         }
         this.RestoreStarts(savS);
@@ -506,7 +526,12 @@ public class Regex {
         return -1;
     }
 
+    // perf (R3): with no capturing groups (`_groupCount == 1`, only group 0 which is
+    // sourced from match start/end, never from these arrays) there is nothing to save
+    // or restore — return null and no-op the restore, killing a per-ALT/GROUP/QUANT
+    // (and per-backtrack-step) size-1 allocation on the hottest no-capture patterns.
     private int[] SnapshotStarts() {
+        if (this._groupCount <= 1) { return null; }
         int[] s = new int[this._groupCount];
         int i = 0;
         while (i < this._groupCount) { s[i] = this._gStarts[i]; i = i + 1; }
@@ -514,6 +539,7 @@ public class Regex {
     }
 
     private int[] SnapshotEnds() {
+        if (this._groupCount <= 1) { return null; }
         int[] s = new int[this._groupCount];
         int i = 0;
         while (i < this._groupCount) { s[i] = this._gEnds[i]; i = i + 1; }
@@ -521,11 +547,13 @@ public class Regex {
     }
 
     private void RestoreStarts(int[] s) {
+        if (s == null) { return; }
         int i = 0;
         while (i < this._groupCount) { this._gStarts[i] = s[i]; i = i + 1; }
     }
 
     private void RestoreEnds(int[] s) {
+        if (s == null) { return; }
         int i = 0;
         while (i < this._groupCount) { this._gEnds[i] = s[i]; i = i + 1; }
     }
