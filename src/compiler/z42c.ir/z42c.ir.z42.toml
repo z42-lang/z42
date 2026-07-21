@@ -1,8 +1,0 @@
-# z42c.ir — 镜像 C# z42.IR（IR 模型 + zbc 二进制格式 + 项目类型）。
-# B0 骨架：占位类型，无兄弟依赖（与 C# 一致：IR 是无依赖叶子）。
-[project]
-name    = "z42c.ir"
-version = "0.1.0"
-kind    = "lib"
-
-[dependencies]

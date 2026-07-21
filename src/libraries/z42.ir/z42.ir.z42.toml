@@ -1,0 +1,18 @@
+# z42.ir — 编译栈基础库：IR 模型 + zbc 单模块字节码格式 + zpkg 包格式后端 + 类型导出/依赖索引。
+# converge-z42c-ir-metadata-onto-stdlib：从 z42c.ir + z42c.project(zpkg 后端) 下沉，让 z42c /
+# z42b / REPL / 分析工具共享同一份「emit IR → zbc/zpkg 读写」实现（沿用 z42.project 收敛范式）。
+# namespace: Z42.IR / Z42.IR.BinaryFormat / Z42.Project（纯 MOVE 保持，调用点零改）。
+# CacheStore（增量构建缓存）不在此——构建工具策略，留 z42c.pipeline。
+[project]
+name    = "z42.ir"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core"     = "0.1.0"
+"z42.encoding" = "0.1.0"   # Utf8.GetBytes（zbc/zpkg 串编码）
+"z42.io"       = "0.1.0"   # File/Path（zpkg 读写）
+"z42.crypto"   = "0.1.0"   # Sha256Hex（ZpkgBuilder 构建 id）
+
+[sources]
+include = ["src/**/*.z42"]

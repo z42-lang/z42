@@ -1,0 +1,18 @@
+# z42.ir 冒烟单测（converge-z42c-ir-metadata-onto-stdlib 阶段 A）：自包含单元可用。
+[project]
+name    = "z42.ir.test.smoke"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42.core"     = "0.1.0"
+"z42.encoding" = "0.1.0"
+"z42.test"     = "0.1.0"
+"z42.ir"       = "0.1.0"
+
+[build]
+# mirror-build-output-per-component: → artifacts/build/libraries/z42.ir/tests/smoke
+output_dir = "../../../../../artifacts/build/libraries/z42.ir/tests/smoke"

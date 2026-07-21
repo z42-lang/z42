@@ -9,4 +9,4 @@ kind    = "lib"
 [dependencies]
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
-"z42c.ir"     = "0.1.0"
+"z42.ir"      = "0.1.0"   # IR 模型 + zbc/zpkg 格式（converge-z42c-ir-metadata-onto-stdlib：取代 z42c.ir）

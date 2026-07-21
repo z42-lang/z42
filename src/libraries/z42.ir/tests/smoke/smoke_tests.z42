@@ -1,0 +1,57 @@
+// z42.ir 冒烟单测（converge-z42c-ir-metadata-onto-stdlib 阶段 A）：验证下沉后的库
+// 自包含单元跨 zpkg 可用——不依赖 Z42.Semantics（IrGen 留编译器侧，stdlib 不可反依赖）。
+// 完整 IR→zbc 往返对账由 z42c 侧集成测试覆盖（那里有 IrGen 造模块）。
+// 注：不用 `object as string`（在 boxed 基元上恒 null 是 pre-existing 语言限制，与本收敛无关）。
+namespace Z42IrSmokeTests;
+
+using Std;
+using Std.Test;
+using Std.Encoding;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// StrMap：put / get / contains / count / keys / first-wins（编译器全程用的有序 map util）。
+[Test]
+void test_strmap_ops() {
+    StrMap m = new StrMap();
+    m.Put("a", "1");
+    m.Put("b", "2");
+    Assert.True(m.Count() == 2);
+    Assert.True(m.ContainsKey("a"));
+    Assert.True(!m.ContainsKey("z"));
+    Assert.True(m.Get("b") != null);          // 检索到值（非 null）
+    Assert.True(!m.TryAdd("a", "9"));         // first-wins：已存在 → false
+    Assert.True(m.Count() == 2);              // TryAdd 未新增
+    string[] keys = m.Keys();
+    Assert.True(keys.Length == 2);
+}
+
+// ByteWriter：LE 宽度写入 + varint + patch（zbc 序列化底座）。
+[Test]
+void test_bytewriter_widths_and_patch() {
+    ByteWriter w = new ByteWriter();
+    w.WriteU16(0x1234);
+    int patchPos = w.Len();
+    w.WriteU32(0);            // 占位，稍后回填
+    w.WriteVarint(300);
+    w.Patch32(patchPos, 0xDEADBEEF);
+    byte[] b = w.ToBytes();
+    Assert.Equal(0x34, (int)b[0]);   // U16 LE lo
+    Assert.Equal(0x12, (int)b[1]);   // U16 LE hi
+    Assert.Equal(0xEF, (int)b[2]);   // Patch32 LE byte0
+    Assert.Equal(0xDE, (int)b[5]);   // Patch32 LE byte3
+    Assert.Equal(0xAC, (int)b[6]);   // varint(300) byte0
+    Assert.Equal(0x02, (int)b[7]);   // varint(300) byte1
+}
+
+// UTF-8 串写：ASCII ByteLength == Length，尾随字节正确。
+[Test]
+void test_bytewriter_utf8_str() {
+    ByteWriter w = new ByteWriter();
+    w.WriteStr("ok");
+    byte[] b = w.ToBytes();
+    Assert.Equal(2, (int)b[0]);   // len lo
+    Assert.Equal(0, (int)b[1]);   // len hi
+    Assert.Equal(111, (int)b[2]); // 'o'
+    Assert.Equal(107, (int)b[3]); // 'k'
+}

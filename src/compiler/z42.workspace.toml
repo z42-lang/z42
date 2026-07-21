@@ -18,18 +18,17 @@ members = ["*"]
 # 注：<member>/tests/<unit>/*.z42.toml 是独立 lib 项目（由 `xtask test compiler`
 # 用显式 toml 路径单独构建 + z42-test-runner 运行），非 workspace member。
 # workspace build 会对其报 WS007（orphan manifest）—— 非致命、纯提示，已知可忽略。
-# 拓扑序（叶子 core/ir 在前；z42c 也会 topo-sort，显式序作 fallback）：
-#   z42c.core / z42c.ir   → (无兄弟依赖)
+# 拓扑序（叶子 core 在前；z42c 也会 topo-sort，显式序作 fallback）：
+#   z42c.core             → (无兄弟依赖)
 #   z42c.syntax           → core
-#   z42c.project          → ir
-#   z42c.semantics        → core, syntax, ir
-#   z42c.pipeline         → core, syntax, semantics, ir, project
-#   z42c.driver           → pipeline, ir, core
+#   z42c.semantics        → core, syntax, z42.ir(stdlib)
+#   z42c.pipeline         → core, syntax, semantics, z42.ir(stdlib), z42.project(stdlib)
+#   z42c.driver           → pipeline, z42.ir(stdlib), core
+# 注：z42c.ir + z42c.project 已下沉 stdlib 单库 z42.ir（converge-z42c-ir-metadata-onto-stdlib）；
+#     CacheStore 迁 z42c.pipeline。
 default-members = [
     "z42c.core",
-    "z42c.ir",
     "z42c.syntax",
-    "z42c.project",
     "z42c.semantics",
     "z42c.pipeline",
     "z42c.driver",

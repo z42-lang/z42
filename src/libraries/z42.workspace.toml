@@ -53,6 +53,7 @@ default-members = [
     "z42.cli",
     "z42.json",
     "z42.crypto",
+    "z42.ir",
     "z42.compression",
     "z42.yaml",
     "z42.net",

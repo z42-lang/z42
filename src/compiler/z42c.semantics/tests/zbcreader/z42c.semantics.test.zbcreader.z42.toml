@@ -1,0 +1,14 @@
+# ZbcReader 往返单测（converge-z42c-ir-metadata：随 IrGen 留 semantics 侧；用 z42.ir 格式）。
+[project]
+name    = "z42c.semantics.test.zbcreader"
+version = "0.1.0"
+kind    = "lib"
+[sources]
+include = ["**/*.z42"]
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.ir"         = "0.1.0"
+[build]
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/zbcreader"
