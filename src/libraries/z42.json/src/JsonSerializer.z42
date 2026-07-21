@@ -1,0 +1,71 @@
+namespace Std.Json;
+
+using Std;
+using Std.Reflection;
+
+// Reflective JSON → object binder (plan-generic-reflection, serde-driven). Parses
+// JSON and binds it onto a target type via reflection: constructs with
+// `Activator.CreateInstance` and fills members with `FieldInfo` / `PropertyInfo`
+// `SetValue`. Nested objects recurse. This is the serde 基本盘 end-to-end proof
+// that G1 (MakeGenericType / constructed CreateInstance) + field/property reflection
+// compose into real deserialization.
+//
+// MVP scope: primitives + classes (nested). Collections (`List<E>` / arrays) need
+// reflective element insertion (List.Add via Invoke) and the generic
+// `Deserialize<T>` sugar needs generic-method type args (G2) — both follow.
+public static class JsonSerializer {
+
+    // Parse `json` and bind it onto `t`, returning the constructed object (boxed).
+    public static object Deserialize(Type t, string json) {
+        JsonValue root = JsonValue.Parse(json);
+        return JsonSerializer._bind(t, root);
+    }
+
+    // Bind one JsonValue onto type `t`. Recurses for nested class members.
+    static object _bind(Type t, JsonValue v) {
+        if (v == null) { return null; }
+        if (v.IsNull()) { return null; }
+
+        string name = t.Name;
+        // Integer aliases all map to Value::I64 → AsLong covers them.
+        if (name == "long" || name == "int" || name == "short" || name == "sbyte"
+            || name == "byte" || name == "ushort" || name == "uint" || name == "ulong") {
+            return v.AsLong();
+        }
+        if (name == "double" || name == "float") {
+            if (v.IsLong()) { return (double) v.AsLong(); }
+            return v.AsDouble();
+        }
+        if (name == "bool") { return v.AsBool(); }
+        if (name == "string") { return v.AsString(); }
+
+        // Class: construct, then bind members by JSON key name. Public instance
+        // fields first, then writable properties (auto-property backing fields are
+        // hidden from GetFields, so a class using `{ get; set; }` binds via the
+        // property path — no double-write).
+        object obj = Activator.CreateInstance(t);
+
+        Std.Reflection.FieldInfo[] fields = t.GetFields();
+        int fi = 0;
+        while (fi < fields.Length) {
+            Std.Reflection.FieldInfo f = fields[fi];
+            if (!f.IsStatic && v.ContainsKey(f.Name)) {
+                object fv = JsonSerializer._bind(f.FieldType, v.Get(f.Name));
+                f.SetValue(obj, fv);
+            }
+            fi = fi + 1;
+        }
+
+        Std.Reflection.PropertyInfo[] props = t.GetProperties();
+        int pi = 0;
+        while (pi < props.Length) {
+            Std.Reflection.PropertyInfo p = props[pi];
+            if (p.CanWrite && v.ContainsKey(p.Name)) {
+                object pv = JsonSerializer._bind(p.PropertyType, v.Get(p.Name));
+                p.SetValue(obj, pv);
+            }
+            pi = pi + 1;
+        }
+        return obj;
+    }
+}
