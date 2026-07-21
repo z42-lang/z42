@@ -51,3 +51,14 @@ void test_regex_bench_bodies_run() {
     Assert.True(b.TotalNs > 0L);
     Assert.True(re.IsMatch("x42"));
 }
+
+[Benchmark]
+void bench_regex_replace() {
+    var re = Regex.Compile("[0-9]+");
+    string hay = "id 12 x 345 y 6789 z 10 w 2026 done";
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(re.Replace(hay, "#"));
+    });
+    b.printSummary("regex_replace");
+}

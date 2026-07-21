@@ -132,3 +132,30 @@ void bench_int_tostring_parse() {
     });
     b.printSummary("int_tostring_parse");
 }
+
+[Benchmark]
+void bench_string_join() {
+    string[] parts = new string[16];
+    int i = 0;
+    while (i < 16) { parts[i] = "seg" + i.ToString(); i = i + 1; }
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(String.Join(",", parts));
+    });
+    b.printSummary("string_join");
+}
+
+[Benchmark]
+void bench_string_format() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string acc = "";
+        int i = 0;
+        while (i < 16) {
+            acc = String.Format("{0}={1}/{2}", "key" + i.ToString(), i, i * 2);
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(acc);
+    });
+    b.printSummary("string_format");
+}

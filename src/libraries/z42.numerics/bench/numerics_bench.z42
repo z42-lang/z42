@@ -50,3 +50,13 @@ void test_numerics_bench_bodies_run() {
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
 }
+
+[Benchmark]
+void bench_bigint_tostring() {
+    var n = BigInt.Parse("123456789012345678901234567890123456789012345678901234567890");
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        BenchHelpers.blackBox(n.ToString());
+    });
+    b.printSummary("bigint_tostring");
+}
