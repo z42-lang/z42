@@ -101,18 +101,28 @@ public class BigInt {
         if (i >= s.Length) {
             throw new FormatException("BigInt.Parse: no digits after sign");
         }
-        BigInt result  = BigInt.Zero;
-        BigInt ten     = new BigInt(10);
+        // perf: accumulate up to 9 decimal digits into a machine-word `chunk`, then
+        // fold with ONE BigInt multiply+add per chunk (was: Multiply + Add + 2 new
+        // BigInt per digit → ~5-7 heap allocs/digit). 10^9 fits an i32; a 9-digit
+        // chunk fits a long. Symmetric to ToString's 10^9 chunking.
+        BigInt result = BigInt.Zero;
         int j = i;
         while (j < s.Length) {
-            int ch = (int)s.CharAt(j);
-            if (ch < 48 || ch > 57) {  // not '0'..'9'
-                throw new FormatException("BigInt.Parse: non-digit character at index " + Int32.ToString(j));
+            long chunk = 0;
+            long mul = 1;
+            int cnt = 0;
+            while (j < s.Length && cnt < 9) {
+                int ch = (int)s.CharAt(j);
+                if (ch < 48 || ch > 57) {  // not '0'..'9'
+                    throw new FormatException("BigInt.Parse: non-digit character at index " + Int32.ToString(j));
+                }
+                chunk = chunk * 10 + (long)(ch - 48);
+                mul = mul * 10;
+                cnt = cnt + 1;
+                j = j + 1;
             }
-            int digit = ch - 48;
-            BigInt scaled = result.Multiply(ten);
-            result = scaled.Add(new BigInt(digit));
-            j = j + 1;
+            // result = result * (10^cnt) + chunk
+            result = result.Multiply(new BigInt(mul)).Add(new BigInt(chunk));
         }
         if (result.IsZero()) {
             return BigInt.Zero;   // -0 == 0

@@ -57,6 +57,12 @@ public static class Sha256 {
         return h;
     }
 
+    // perf: the 64 round constants are FIPS-fixed — build once at static init and
+    // read the shared array each block (was: rebuilt via `new long[64]` + 64 stores
+    // on every _processBlock, ~64× over a 4KB input). k[i] is read-only in the round
+    // loop, so a shared immutable array is safe.
+    static long[] _K = Sha256._roundConstants();
+
     static long[] _roundConstants() {
         long[] k = new long[64];
         k[0]  = 0x428A2F98L; k[1]  = 0x71374491L; k[2]  = 0xB5C0FBCFL; k[3]  = 0xE9B5DBA5L;
@@ -103,7 +109,7 @@ public static class Sha256 {
     // ── Per-block compression ────────────────────────────────────────────────
 
     static void _processBlock(long[] h, byte[] block, int offset) {
-        long[] k = _roundConstants();
+        long[] k = Sha256._K;
         long[] w = new long[64];
 
         int t = 0;
