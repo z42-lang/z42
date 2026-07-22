@@ -92,3 +92,28 @@ object/接口→Unbox，数值→Convert。618 处现有 cast 多为②数值，
 3. compiler：Box/Unbox IR + BoundBox/装箱插入 + Unbox 消歧 emit。
 4. gate：self-host 5/5 + cargo + test compiler + is/as 强类型 golden（扩 boxed_primitive_is_as：
    `5 is long`=false / `9L is long`=true / GetType / boxed.ToString / boxed Equals）。
+
+## 实施进度快照（2026-07-22，claude/z42c-ctor-arity 上 smoke 实测）
+
+用 `__box_prim` builtin（非新 opcode，规避格式 bump）+ var-decl 装箱插入，warm z42c 自建后跑
+`object x=5 / object l=9L / object s="hi"` smoke（`--mode interp`）：
+
+| 场景 | 现状 | 判定 |
+|------|------|------|
+| `object x=5; x is int` | `true` | ✅ **整数强类型已通**（boxed Std.Int32，精确 is-a） |
+| `object x=5; x is long` | `false` | ✅ 正确（Int32 ≠ Int64） |
+| `x.GetType().Name` | `Int32` | ✅ interp GetType Boxed 臂通 |
+| `object l=9L; l is long` | `false` ❌ | **缺口①**：`9L` 字面量被判 `int` → 装箱成 Std.Int32（应 Int64）。字面量后缀 `L` 类型化缺失（TypeChecker._bindLit 未按后缀定宽）|
+| JIT 模式跑同 smoke | `VCall: expected object, got Boxed` 崩 ❌ | **缺口②**：`jit/helpers/vcall.rs` 无 Boxed 臂（interp `exec_vcall.rs:90` 已有）。同理 jit is/as/GetType/field 也需 Boxed 臂 |
+| `object s="hi"; s.GetType()` | `VCall: expected object, got Str` 崩 ❌ | **缺口③**：非整数基元（string/bool/char/double）按设计**不装箱**（独立 Value 变体），但其 object-typed 虚派发 `.GetType()` 在 primitive vcall 路径找不到 `Std.Object.GetType` → 落到 220 行 bail。**需 User 定**：是否也给这些基元的 GetType 补 primitive-dispatch 兜底（与装箱正交，疑似 pre-existing）|
+
+**剩余工作（按优先级）**：
+1. **缺口①** 字面量后缀定宽（`9L`→long / `5u`→uint 等），否则 canonical 例 `object l=9L; l is long` 不成立——**装箱正确性的前提**。
+2. **缺口②** JIT Boxed 臂（vcall/is/as/GetType/field），否则默认 mode（含 JIT）全崩——**上 CI 的前提**。
+3. 其余 coercion 插入点（call-arg / return / array-store / 三元）——目前仅 var-decl 一处。
+4. **缺口③** 需 User 裁决（非整数基元 GetType 兜底，或确认 pre-existing 另开 change）。
+5. gate：self-host 5/5 + cargo + test compiler + 更新 `boxed_primitive_is_as` golden（松匹配 → 强匹配：
+   `l is int` 从 true 翻 **false**，需连带更新该 golden 断言 + 归档说明语义变更）。
+
+> **状态**：runtime interp 整数路径 + var-decl 插入 = 可用；但**未达 GREEN**（缺口①②必修、③待裁决）。
+> 分支未破（仅 smoke 验证，无残留改动）。resume 从缺口① 起。
