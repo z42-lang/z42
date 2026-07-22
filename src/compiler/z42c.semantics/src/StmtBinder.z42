@@ -168,6 +168,7 @@ public sealed class StmtBinder {
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
+            init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
             return new BoundVarDeclStmt(v.Name, vt, init, v.Span);
     }
 

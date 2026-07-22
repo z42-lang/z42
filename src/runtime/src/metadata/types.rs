@@ -693,6 +693,11 @@ impl PartialEq for Value {
                  RefKind::Field { gc_ref: g2, field_name: n2 }) => GcRef::ptr_eq(g1, g2) && n1 == n2,
                 _ => false,
             },
+            // add-primitive-value-boxing: 装箱基元按 inner 值相等（class 精确性由 is/as 保证，
+            // 值相等只看载荷）。boxed vs 未装箱基元也按 inner 比较（透明拆箱）。
+            (Value::Boxed(a), Value::Boxed(b)) => a.inner == b.inner,
+            (Value::Boxed(a), other) => &a.inner == other,
+            (other, Value::Boxed(b)) => other == &b.inner,
             _ => false,
         }
     }

@@ -283,6 +283,20 @@ public sealed class BoundConvert : BoundExpr {
     public override string  Dump() { return "(convert " + this.E.Dump() + " :" + this._type.Name() + ")"; }
 }
 
+// add-primitive-value-boxing：基元→object/接口 的隐式装箱。codegen 发 `__box_prim(E, primFQ)`
+// builtin，把裸基元装进带精确类型的 Value::Boxed。结果静态类型 = 目标（object/接口）。
+// PrimFQ = 源基元的 FQ struct 名（Std.Int64 等），运行时据此保留精确类型（强类型 is/as/GetType）。
+public sealed class BoundBox : BoundExpr {
+    public BoundExpr E;
+    public string    PrimFQ;    // 源基元的 FQ 包装类（Std.Int32/Int64/…）
+    private Z42Type  _type;      // 目标类型（object / 接口）
+    public BoundBox(BoundExpr e, string primFQ, Z42Type type, Span span) {
+        this.Span = span; this.E = e; this.PrimFQ = primFQ; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(box " + this.E.Dump() + " :" + this.PrimFQ + ")"; }
+}
+
 // new T(args)（1D）：构造（ctor 签名检查留后续；结果类型 = T）。
 public sealed class BoundNew : BoundExpr {
     public string      TypeName;
