@@ -15,13 +15,28 @@ public sealed class ExprTyper {
     private BoundExpr _bindLiteral(Expr e) {
         if (e is IntLitExpr) {
             IntLitExpr lit = e as IntLitExpr;
-            // 镜像 C# TypeChecker.Exprs：字面量数值越 int 界（> int.MaxValue 或 < int.MinValue）
-            // → 类型 long，否则 int。值解析复用 ZbcInstr._parseIntLit（hex/bin/十进制 + 后缀剥离）。
+            // 字面量定宽（镜像 C#）：① 后缀 L/l → long、U/u → unsigned（UL→ulong）；
+            // ② 无后缀时数值越 int 界（> int.MaxValue 或 < int.MinValue）→ long，否则 int。
+            // 后缀优先于范围（add-primitive-value-boxing：`9L` 须是 long 才能装箱成 Std.Int64
+            // → 强类型 `object l=9L; l is long`=true；不定宽则误装 Std.Int32）。
+            // 值解析复用 ZbcInstr._parseIntLit（hex/bin/十进制 + 后缀剥离）。
             long v = ZbcInstr._parseIntLit(lit.Value);
             long imax = 2147483647;
             long imin = 0 - 2147483647 - 1;
+            bool hasL = false;
+            bool hasU = false;
+            int si = lit.Value.Length - 1;
+            while (si >= 0) {
+                char sc = lit.Value.CharAt(si);
+                if (sc == 'L' || sc == 'l') { hasL = true; si = si - 1; }
+                else if (sc == 'U' || sc == 'u') { hasU = true; si = si - 1; }
+                else { si = 0 - 1; }
+            }
             Z42Type lt = new Z42PrimType("int");
-            if (v > imax || v < imin) { lt = new Z42PrimType("long"); }
+            if (hasL && hasU) { lt = new Z42PrimType("ulong"); }
+            else if (hasL) { lt = new Z42PrimType("long"); }
+            else if (hasU) { lt = new Z42PrimType("uint"); }
+            else if (v > imax || v < imin) { lt = new Z42PrimType("long"); }
             return new BoundLitInt(lit.Value, lt, lit.Span);
         }
         if (e is CharLitExpr) {

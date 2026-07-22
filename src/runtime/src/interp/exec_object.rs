@@ -280,7 +280,12 @@ pub(super) fn is_instance(
         Value::Null => false,
         // add-primitive-value-boxing: 装箱基元走**真 type_desc**（class + base + 接口链）——
         // 精确强类型：`9L`(Std.Int64) is long → true；`5`(Std.Int32) is long → false。
-        Value::Boxed(b) => is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name),
+        // object 短路：所有装箱基元 is-a object（基元类名 Std.Int32 未必在 type_registry 可解析
+        // 到 Std.Object 基链——其真名为 Std.Primitives.Int32——故显式判，镜像 prim_isa）。
+        Value::Boxed(b) => {
+            class_name == "Std.Object" || class_name == "Object"
+                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name)
+        }
         // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
     };
@@ -295,9 +300,10 @@ pub(super) fn as_cast(
     // add-primitive-value-boxing: Boxed 特判——命中**精确基元类** → 拆箱返 inner（`o as long`
     // 拿回裸 long）；命中 base/接口 → 保持 Boxed（多态用）；否则 Null。
     if let Value::Boxed(b) = &val {
+        let is_obj = class_name == "Std.Object" || class_name == "Object";
         let out = if class_name == &*b.class {
             b.inner.clone()
-        } else if is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name) {
+        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name) {
             val.clone()
         } else {
             Value::Null

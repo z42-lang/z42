@@ -355,7 +355,11 @@ pub unsafe extern "C" fn jit_is_instance(
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
-        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配（Null → None → false）。
+        // add-primitive-value-boxing: 装箱基元走真 type_desc（精确强类型，镜像 interp）；
+        // object 短路（基元类名未必可解析到 Std.Object 基链）。
+        Value::Boxed(b)   => class_name == "Std.Object" || class_name == "Object"
+            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name),
+        // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::interp::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = Value::Bool(result);
@@ -370,11 +374,25 @@ pub unsafe extern "C" fn jit_as_cast(
         .unwrap_or("<invalid>");
     let module = &*(*ctx).module;
     let val    = (*frame).regs[obj as usize].clone();
+    // add-primitive-value-boxing: Boxed 特判（镜像 interp as_cast）——精确基元类 → 拆箱返 inner；
+    // base/接口 → 保持 Boxed；否则 Null。
+    if let Value::Boxed(b) = &val {
+        let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let out = if class_name == &*b.class {
+            b.inner.clone()
+        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name) {
+            val.clone()
+        } else {
+            Value::Null
+        };
+        (*frame).regs[dst as usize] = out;
+        return;
+    }
     let is_match = match &val {
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
-        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配。
+        // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
         other       => crate::interp::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = if is_match { val } else { Value::Null };
