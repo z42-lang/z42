@@ -193,9 +193,25 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  ★ 自举环 ★
 | **① 语法** | vN 源用新语法 → vN-1 z42c 编不了 | **纪律**（support/use 隔一 release，bootstrap-seed.md）|
 | **② zbc/zpkg 格式** | vN-1 z42vm 读不了 vN 格式 | **锚点自动断**：z42vm 是 Rust 建的，新格式产物跑新建 vm；旧 z42c 产中间件用旧格式跑旧 vm，再 re-stage 产新格式 |
 | **③ stdlib API** | xtask/源用新 API → 旧 stdlib 没有 | **纪律**（同 ①）|
+| **④ z42c 自依赖的 stdlib 库**（converge-z42c-ir-metadata） | z42c 运行期依赖 `z42.ir`（stdlib 库，含 IR 模型 + `Z42.Project.ZpkgBuilder`），但 `z42.ir` **由 z42c 构建** → 冷启动 flat dist 里还没有它 | **两代自举（种子先编 z42.ir 进 build-libs）**，见下 |
 
 > 关键：**格式轴不需纪律**——z42vm 不自举（Rust 建）是打破格式环的锚点。真正靠纪律约束的只有
 > 语法/API 轴。
+
+**轴 ④ 的破环细节**（`_ensureBootstrapZ42Ir`，`scripts/build/xtask_compiler.z42`）：z42c 把
+IR 模型 + zbc/zpkg 后端下沉到 stdlib 单库 `z42.ir`（收敛自旧 `z42c.ir` + `z42c.project`），于是
+z42c **运行期依赖 `z42.ir`**——它建任何 zpkg 都要调 `Z42.Project.ZpkgBuilder.Sha256Hex` 等。冷启动
+（fresh checkout / CI 新 runner）flat dist 里没有 `z42.ir`，而上一 nightly 种子只把等价代码作
+**`z42c.ir` + `z42c.project`** 两个包携带（包名不同）。若直接建 z42c，编译器只能拿种子的
+`z42c.ir/z42c.project` 作 `Z42.IR/Z42.Project` 的**命名空间兜底**来解析 → fresh z42c emit 的
+`ZpkgBuilder.Sha256Hex` 调用钉在种子包上，运行期加载真正的 `z42.ir` 时**解析不到**
+（`undefined function ...Sha256Hex`，即 main CI 冷启动全红根因）。破环：`_buildCompilerViaZ42c`
+在 workspace build **前**先用当前 driver（冷启动=上一 nightly 种子，自带等价 `ZpkgBuilder`）把
+当前源码的 `z42.ir` **单独编进 build-libs**（`build <toml> --output-dir <flat>`），fresh z42c 就
+对着**真 `z42.ir`** 编译+运行，一致。**幂等**：warm 树（`z42.ir` 已在 flat dist）直接跳过——故
+warm 构建与 byte-identical 不动点**逐字节不受影响**；随后的 `build stdlib` 全量 workspace 构建
+用 fresh z42c 把 `z42.ir` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非
+格式 bump。
 
 ### 分阶段流程（每阶段守哪条不变量）
 

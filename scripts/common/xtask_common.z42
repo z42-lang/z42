@@ -65,6 +65,17 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs) {
         .Run().ExitCode;
 }
 
+// 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
+// （非 workspace 布局）。冷启动破 z42c⇄z42.ir 环用（_ensureBootstrapZ42Ir）：种子 driver
+// 先把当前源码的 z42.ir 编进 build-libs，让 fresh z42c 对着真 z42.ir 编译+运行。
+int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir) {
+    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir)
+        .Env("Z42_LIBS", libs)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
 // Verify each member's canonical workspace product
 // `<buildRoot>/<member>/<profile>/dist/<member>.zpkg` exists + is non-empty.
 // Prints per-member ✓ (verbosity-gated, --detailed) / ✗ (always). Returns the fail

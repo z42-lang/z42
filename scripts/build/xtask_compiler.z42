@@ -66,10 +66,30 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     _vNormal("  building z42c via z42c (--workspace, C#-free)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
     string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    _ensureBootstrapZ42Ir(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.ir 环（须在 workspace build 前）
     int rc = _z42cWorkspaceBuild(vm, driver, Path.Join(root, "src/compiler"), stdlibFlat);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
     return 0;
+}
+
+// 冷启动破环：z42c 运行期依赖 z42.ir（stdlib 库——IR 模型 + zbc/zpkg 后端，含
+// Z42.Project.ZpkgBuilder），但 z42.ir 由 z42c 构建 → 循环。冷启动时（fresh checkout /
+// CI 新 runner）flat dist 里还没有 z42.ir，若直接建 z42c，编译器只能拿**种子**自带的
+// z42c.ir/z42c.project 作 Z42.IR/Z42.Project 的命名空间兜底来解析 —— 于是 fresh z42c emit
+// 的 `Z42.Project.ZpkgBuilder.Sha256Hex` 调用是钉在种子 z42c.project 上的，运行期加载真正
+// 的 z42.ir 时解析不到 → `undefined function ...Sha256Hex`。破环（converge-z42c-ir-metadata
+// 两代自举）：先用当前 driver（冷启动=上一 nightly 种子，自带等价 ZpkgBuilder）把当前源码的
+// z42.ir 单独编进 build-libs，再建 z42c —— fresh z42c 就对着**真 z42.ir** 编译+运行，一致。
+// 幂等：warm 树（z42.ir 已在 flat dist，上次构建/nightly 种子带来）直接跳过；随后的
+// `build stdlib` 全量 workspace 构建会用 fresh z42c 把 z42.ir 覆盖为规范产物。
+void _ensureBootstrapZ42Ir(string root, string vm, string driver, string stdlibFlat) {
+    string flatZ42ir = Path.Join(stdlibFlat, "z42.ir.zpkg");
+    if (File.Exists(flatZ42ir)) { return; }   // warm：z42.ir 已在 build-libs
+    _vNormal("  cold bootstrap: seed-building z42.ir（破 z42c⇄z42.ir 环）");
+    string irToml = Path.Join(root, "src/libraries/z42.ir/z42.ir.z42.toml");
+    int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
+    if (rc != 0) { ConsoleError.WriteLine("  ✗ cold bootstrap: seed-build z42.ir failed (" + rc.ToString() + ")"); }
 }
 
 // 防 zpkg 版本 skew 假失败（2026-06-10）：z42c 测试单元先被 z42c 编成 zpkg，再交

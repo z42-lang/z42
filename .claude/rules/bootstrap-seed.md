@@ -125,6 +125,24 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 [`docs/workflow/testing/verify-by-change.md`](../../docs/workflow/testing/verify-by-change.md)
 「stdlib 破坏性 API 变更」。
 
+### 边界的第三根轴：z42c 运行期自依赖一个 stdlib 库（2026-07-22 补）
+
+比 API 面更隐蔽：**当 z42c 把自身建构期依赖的代码（IR 模型 / zpkg 后端 / 等）下沉进一个
+z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadata` 把 `z42c.ir`+`z42c.project`
+收敛成 stdlib 单库 `z42.ir`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.ir` 的
+`ZpkgBuilder`，而 `z42.ir` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
+等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
+运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只验语法/格式/API
+越界，不跑 z42c 的运行期自依赖**）。
+
+- **判据**：本次改动是否让 z42c 的**源**新 `using` 一个「z42c 运行期就要加载」的 stdlib 库，而该库
+  **上一 nightly 种子里不以同名 zpkg 存在**？是 → 踩轴 ④。
+- **破环**（已实现，非纪律）：`_ensureBootstrapZ42Ir`（`scripts/build/xtask_compiler.z42`）在建 z42c
+  **前**用种子 driver 先把当前源的该库单独编进 build-libs（两代自举，warm 幂等跳过）。机制全文见
+  [`docs/design/compiler/self-hosting.md` 轴 ④](../../docs/design/compiler/self-hosting.md)。
+- **教训**：**新增/收敛「z42c 自依赖的 stdlib 库」的 change，冷启动路径本地必验**（下载上一 nightly
+  作种子跑一遍 cold `build compiler` + `build stdlib`），别只验 warm 就推 main。
+
 **铁律**：当前 main 的源码，**任何时刻都不得使用比「上一个已发布 nightly 的 z42c」更新的语法 / 格式**。
 违反 = 跨版本自举断链 = 被迫退回 C# 种子。
 

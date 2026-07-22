@@ -70,11 +70,19 @@ z42.core ─┬─► z42.encoding ─┐
 ## 决策 6：seed 轴（bootstrap-seed.md）
 
 z42c 源开始 `using` z42.ir 的 API：z42.ir 是**新库**，其 API 必须先随一个 nightly 发布，z42c 源才能用
-——但本 change 里 z42.ir 的内容**就是** z42c.ir 原样搬，API 面零新增（同类同方法）。故种子 z42c
-（不含 z42.ir 但**自带** z42c.ir 逻辑）编当前源时：当前源引用 `z42.ir` 的类 = 种子 stdlib 里必须有
-`z42.ir.zpkg`。**CI ci-bootstrap 先建 stdlib（含 z42.ir）再编 z42c** → 满足。本地同理（先 build stdlib）。
-无「用了比上一 nightly 更新语法/格式」越界（纯包重组，无新语法、无格式 bump）→ `xtask test bootstrap`
-应直接过。
+——但本 change 里 z42.ir 的内容**就是** z42c.ir 原样搬，API 面零新增（同类同方法）。
+
+**⚠ 更正（2026-07-22 fix-cvg-cold-bootstrap，main CI 全红根因）**：上面「CI ci-bootstrap 先建
+stdlib（含 z42.ir）再编 z42c → 满足」的原假设**是错的**。① CI ci-bootstrap 实际是**先** `build
+compiler`（step 3）**后** `build stdlib`（step 4）；② 即便调换，`build stdlib` 也**需要 z42c**，而
+z42c 运行期依赖 `z42.ir`——这正是**自依赖环**（见 self-hosting.md 轴 ④）。冷启动时上一 nightly 种子
+只把等价代码作 **`z42c.ir` + `z42c.project`**（包名不同）携带，没有 `z42.ir.zpkg`。于是 fresh z42c
+被编成钉在种子 `z42c.project.ZpkgBuilder` 上的调用，运行期加载真 `z42.ir` 解析不到 →
+`undefined function Z42.Project.ZpkgBuilder.Sha256Hex`。**破环**：`_ensureBootstrapZ42Ir`
+（`scripts/build/xtask_compiler.z42`）在建 z42c **前**用种子 driver 先把当前源 `z42.ir` 单独编进
+build-libs（两代自举，同构轴 ②），fresh z42c 遂对着真 z42.ir 编译+运行。幂等（warm 跳过 → 不动点
+逐字节不受影响）。完整机制见 [`self-hosting.md` 轴 ④](../../../design/compiler/self-hosting.md)。
+（`xtask test bootstrap` 只验轴 ①/③ 的语法/API 越界，**不覆盖轴 ④ 的运行期自依赖**——故当时漏网。）
 
 ## 风险与回退
 
