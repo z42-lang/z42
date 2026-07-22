@@ -64,6 +64,27 @@ object/接口→Unbox，数值→Convert。618 处现有 cast 多为②数值，
 - **分步验证**：先落 runtime（Value::Boxed + 5 处 handling）编过 + cargo test → 再落 compiler emit →
   每步 self-host 5/5。红则定位单点。
 
+## ⚠️ 格式 bump 影响（实施期发现，2026-07-22）
+
+`Box` / `Unbox` 是**新 IR opcode** → **zbc 格式变更** → 触发 `ZbcVersion.Minor` + `ZpkgWriterZ.Minor`
+bump → 走 `bootstrap-seed.md` 的**两代自举** + strict-pin。这把「纯逻辑改动」升级为**格式维度变更**：
+- z42.ir 的 `ZbcWriter`/`ZbcReader`/`ZbcInstr`/`ZbcReaderInstr` + Rust `bytecode.rs`/`zbc_reader.rs`
+  须同步加 Box/Unbox 编解码，且 minor 同步 bump。
+- CI ci-bootstrap 版本差 gate 自动吸收（fix-bootstrap-format-bump-deadlock）；vm-jit/bench
+  download-bootstrap 腿会短暂红一跑（自愈）。
+- **分阶段引入纪律**（bootstrap-seed.md）：新 opcode 的 support（reader 先能读）与 use（writer 才发）
+  可能须跨 nightly——但本仓 z42vm 与 z42c 同源同步 bump，warm 路径本地即可验；cold 以 CI 为准。
+
+→ 实施复杂度显著高于 fix-boxed-primitive-is-as（那是纯运行时+编译器逻辑，无格式变更）。
+
+## 实施进度（2026-07-22）
+- [x] runtime：`Value::Boxed(Box<BoxedPrim>)` 变体 + trace_children / value_to_str / object_size_bytes
+      三处 exhaustive-match 处理（编过，惰性——无 Box 指令发射前零行为变化）。
+- [ ] Box/Unbox IR opcode（Rust `Instruction` + zbc 编解码 + z42.ir ZbcWriter/Reader；**格式 bump**）
+- [ ] interp/jit：Box/Unbox exec + is/as/GetType/vcall/Equals 的 Boxed 臂
+- [ ] compiler：BoundBox + 装箱插入（TypeChecker 强转兼容处）+ Unbox 消歧 emit
+- [ ] gate：self-host 5/5 + cargo + test compiler + 强类型 golden
+
 ## 分阶段实施（虽「一步」范围，实施仍按依赖序）
 1. runtime：Value::Boxed + Box/Unbox exec + is/as/GetType/vcall/Equals（interp）。
 2. runtime jit：同上 helper。
