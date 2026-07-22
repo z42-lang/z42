@@ -136,10 +136,14 @@ object i = 42;   i is int=true    i is long=false  i.GetType().Name=Int32
 - ✅ 验证：**self-host gen2==gen3 收敛（全 coercion 点）** + stdlib 25 成员重建绿 + coercion
   smoke（return/call-arg/array，interp==jit）+ golden interp/jit 双绿 + runtime 782 单测绿。
 
-**剩余（完整 GREEN 前）**：
-1. params 尾包（`params object[]` 元素）装箱——BoxArgs 只覆盖声明形参位，params 展开的元素未装箱（罕见）。
-2. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 self-host + 目标 golden +
-   coercion smoke + stdlib 重建 + runtime 单测；全量 e2e/test-compiler 由 CI 跑）。
+**已完成（续）**：
+- ✅ **params 尾包元素装箱**：`_withParamsExpansion` 对 `params object[]` 收集的整数实参逐个按
+  元素类型装箱（`firstKind(9L,5)` → `xs[0]` is long / GetType=Int64；`(byte)7` → 强类型 Byte，
+  非 int/long）。self-host gen2==gen3 收敛，interp==jit。**至此全部隐式 prim→object 边界均装箱。**
 
-> **状态**：**整数装箱强类型 + 全 coercion 插入点端到端可用（interp+jit）**，self-host 收敛，
-> stdlib 重建绿，golden + runtime 单测绿。仅 params 尾包 + 全量 CI gate 为剩余项。
+**剩余（完整 GREEN 前）**：
+1. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 self-host + 目标 golden +
+   coercion smoke（含 params）+ stdlib 重建 + runtime 单测；全量 e2e/test-compiler 由 CI 跑）。
+
+> **状态**：**整数装箱强类型 + 全部 coercion 插入点（var-decl / return / array / call-arg / params）
+> 端到端可用（interp+jit）**，self-host 收敛，stdlib 重建绿，golden + runtime 单测绿。仅全量 CI gate 待跑。
