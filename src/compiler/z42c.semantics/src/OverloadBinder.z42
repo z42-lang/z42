@@ -52,7 +52,10 @@ public sealed class OverloadBinder {
         int packCount = rawArgCount - pf;
         BoundExpr[] packed = new BoundExpr[packCount];
         int i = 0;
-        while (i < packCount) { packed[i] = args[pf + i]; i = i + 1; }
+        // add-primitive-value-boxing: params 尾包元素按元素类型装箱（`params object[]` 收整数
+        // 实参 → 逐个装箱成精确宽度）。BoxArgs 在 _withDefaults 入口按 ParamTypes[pf]=数组类型
+        // 判定 → 对尾位 no-op，故此处补按 elem（元素类型）装箱，镜像 _bindArrayInit。
+        while (i < packCount) { packed[i] = this._tc.BoxIfNeeded(args[pf + i], elem); i = i + 1; }
         BoundExpr arrLit = new BoundArrayLit(packed, packCount, elem.Name(), new Z42ArrayType(elem), sp);
         BoundExpr[] finalArgs = new BoundExpr[sig.ParamCount];
         int k = 0;
