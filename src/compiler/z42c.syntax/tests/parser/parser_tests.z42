@@ -158,3 +158,23 @@ void test_type_expr_forms() {
     Assert.Equal("(as c T?)", parse("c as T?"));                               // nullable
     Assert.Equal("(is d List<int>[])", parse("d is List<int>[]"));             // 泛型 + 数组
 }
+
+// ── add-partial-types: partial 修饰符解析（Dump 经 Mods 渲染 "partial"）──────────
+string parseUnit(string src) {
+    var p = new Parser(src, "t.z42");
+    return p.ParseCompilationUnit().Dump();
+}
+
+[Test]
+void test_parse_partial_type_modifiers() {
+    Assert.Equal(true, parseUnit("partial class Foo { }").IndexOf("class partial Foo") >= 0);
+    Assert.Equal(true, parseUnit("partial struct S { }").IndexOf("struct partial S") >= 0);
+    Assert.Equal(true, parseUnit("partial interface I { }").IndexOf("interface partial I") >= 0);
+}
+
+[Test]
+void test_parse_partial_method_no_body() {
+    // partial method 声明侧无 body：解析成功，Dump 显示 "method partial ..." 且无体块。
+    string d = parseUnit("class C { partial void M(); }");
+    Assert.Equal(true, d.IndexOf("method partial void M") >= 0);
+}

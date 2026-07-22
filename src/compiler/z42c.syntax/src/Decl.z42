@@ -127,6 +127,8 @@ public sealed class MethodDecl : Decl {
     public bool          IsThisInit;  // true → init 是 `: this(args)`（ctor 委托同类）；false → `: base(args)`
     public string        RegKey;      // add-type-based-overloads：注册键（Methods 映射键 = body 键 = IR 名）。
                                        // SymbolCollector 收集时填（bare/Name$arity/Name$arity$typesig）；"" = 未填（回落旧逻辑）。
+    public bool          IsPartial;   // add-partial-types：`partial` 修饰（方法碎片；声明侧 HasBody=false，实现侧 HasBody=true）。
+                                       // 由 parser 从 mods 派生（post-construction，镜像 RegKey）；默认 false → 现有方法不变。
     public MethodDecl(string mods, bool isFree, bool isCtor, TypeExpr retType, string name,
                       TypeParamList typeParams, WhereClause[] wheres, int whereCount,
                       Param[] ps, int pc, bool hasBody, Stmt body, Expr[] baseArgs, int baseArgCount,
@@ -136,6 +138,7 @@ public sealed class MethodDecl : Decl {
         this.Params = ps; this.ParamCount = pc; this.HasBody = hasBody; this.Body = body;
         this.BaseArgs = baseArgs; this.BaseArgCount = baseArgCount; this.IsThisInit = isThisInit;
         this.RegKey = "";
+        this.IsPartial = false;
     }
     public override string Dump() {
         string head = this.IsCtor ? "ctor" : (this.IsFree ? "func" : "method");
@@ -202,12 +205,15 @@ public sealed class ClassDecl : Decl {
     public int           WhereCount;
     public Decl[]        Members;
     public int           MemberCount;
+    public bool          IsPartial;   // add-partial-types：`partial` 修饰的类型碎片。由 parser 从 mods 派生
+                                       // （post-construction，镜像 MethodDecl.RegKey）；默认 false → 现有类型不变。
     public ClassDecl(string kind, string mods, string name, TypeParamList typeParams,
                      TypeExpr[] bases, int baseCount, WhereClause[] wheres, int whereCount, Decl[] members, int mc,
                 Span span) { this.Span = span;
         this.Kind = kind; this.Mods = mods; this.Name = name; this.TypeParams = typeParams;
         this.Bases = bases; this.BaseCount = baseCount; this.Wheres = wheres; this.WhereCount = whereCount;
         this.Members = members; this.MemberCount = mc;
+        this.IsPartial = false;
     }
     public override string Dump() {
         string m = (this.Mods == "") ? "" : (this.Mods + " ");

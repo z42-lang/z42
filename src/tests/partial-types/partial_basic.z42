@@ -1,0 +1,25 @@
+// add-partial-types：同文件多碎片 partial class 端到端（合并在 CollectAll 层，同/跨文件语义一致）。
+// 断言顺序按层递进——首个失败即定位缺陷层：
+//   (1) 碎片1字段外部读写  (2) 碎片2字段外部读写（验合并 TYPE record 含碎片2字段）
+//   (3) 碎片1方法内部读两字段（this.X）  (4) 碎片2方法内部读两字段
+namespace PartialTest;
+
+partial class Widget {
+    public int width;
+    public int Area() { return this.width * this.height; }   // 引用碎片 2 的 height
+}
+
+partial class Widget {
+    public int height;
+    public string Describe() { return $"{this.width}x{this.height}"; }   // 引用碎片 1 的 width
+}
+
+void Main() {
+    var w = new Widget();
+    w.width = 3;
+    Assert.Equal(3, w.width);        // (1) 碎片1字段
+    w.height = 4;
+    Assert.Equal(4, w.height);       // (2) 碎片2字段（合并 record 是否含 height）
+    Assert.Equal(12, w.Area());      // (3) 碎片1方法内部 this.width * this.height
+    Assert.Equal("3x4", w.Describe());  // (4) 碎片2方法内部
+}

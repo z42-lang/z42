@@ -99,6 +99,7 @@ public sealed class DeclParser {
         if (k == TokenKind.Static || k == TokenKind.Abstract || k == TokenKind.Sealed || k == TokenKind.Override) { return true; }
         if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
         if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
+        if (k == TokenKind.Partial) { return true; }  // add-partial-types：partial 作类型/方法修饰（Mods 含 "partial"，_modsHas 派生 IsPartial）
         return false;
     }
 
@@ -153,7 +154,9 @@ public sealed class DeclParser {
             }
         }
         this._p._expect(TokenKind.RBrace, "}");
-        return new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+        ClassDecl cd = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+        cd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
+        return cd;
     }
 
 
@@ -300,7 +303,9 @@ public sealed class DeclParser {
         } else {
             this._p._expectSemi();
         }
-        return new ClassDecl("record", mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+        ClassDecl rd = new ClassDecl("record", mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+        rd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
+        return rd;
     }
 
 

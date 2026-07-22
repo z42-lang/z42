@@ -65,6 +65,11 @@ public sealed class Z42ClassType : Z42Type {
     // class-arity-overloading（同名多 arity 同 CU；泛型版注册 Name$N 键，IrName() 返回 Name$N）。
     public bool HasArityMangle;    // true → 此 CT 以 Name$N 键注册
     public int  ArityMangleCount;  // TypeParams.Count when HasArityMangle
+    // add-partial-types：由多个 `partial` 声明碎片合并而成。IsPartial=true 时，PartialMainFile 记录
+    // **主碎片**文件（项目相对路径 Ordinal 最小；SymbolCollector 按发现序即 Ordinal 序，首碎片=主）。
+    // IrGen/ExportedTypeExtractor 据此让**唯一**主碎片 CU 发出/导出完整 TYPE record（其余碎片只发方法体）。
+    public bool   IsPartial;       // false = 普通单声明类型
+    public string PartialMainFile; // 主碎片文件路径（""=非 partial）
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -73,6 +78,7 @@ public sealed class Z42ClassType : Z42Type {
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
         this.OwnFieldNames = new string[0]; this.OwnFieldSpellings = new string[0]; this.OwnFieldVis = new string[0]; this.OwnFieldCount = 0;
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
+        this.IsPartial = false; this.PartialMainFile = "";
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。
@@ -154,7 +160,9 @@ public sealed class Z42ClassType : Z42Type {
 public sealed class Z42InterfaceType : Z42Type {
     private string _name;
     public StrMap Methods;    // name → MethodSymbol
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); }
+    public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
+    public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }

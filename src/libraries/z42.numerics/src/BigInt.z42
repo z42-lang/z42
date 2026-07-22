@@ -76,8 +76,8 @@ public class BigInt {
             // Long.MinValue: negating overflows i64. Build magnitude directly.
             // |Long.MinValue| = 2^63 = limb representation [0, 0, 4] (since 2^63 = 4 * 2^62 = 4 << 62)
             // Compute via magFromLongAbs((value + 1) → -9223372036854775807) then +1.
-            int[] partial = BigInt._magFromLongAbs(9223372036854775807L);
-            this._mag  = BigInt._magAdd(partial, BigInt._oneMag());
+            int[] magPart = BigInt._magFromLongAbs(9223372036854775807L);   // add-partial-types：`partial` 现为关键字，改名
+            this._mag  = BigInt._magAdd(magPart, BigInt._oneMag());
             this._sign = -1;
         } else {
             this._mag  = BigInt._magFromLongAbs(-value);

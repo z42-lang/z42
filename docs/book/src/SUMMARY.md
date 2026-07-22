@@ -13,6 +13,7 @@
   - [内置协议（object protocol）]()
   - [异常与错误处理]()
   - [命名空间与访问控制]()
+  - [partial 类型（跨文件类型定义）](language/partial-types.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

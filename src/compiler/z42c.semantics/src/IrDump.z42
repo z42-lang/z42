@@ -85,7 +85,9 @@ public static class IrDump {
                                                     DependencyIndex deps, ImportedSymbols imported,
                                                     bool isRelease, IrModule[] cachedModules) {
         int i = 0;
-        SymbolTable symbols = new SymbolCollector().CollectAll(cus, count, imported);
+        SymbolCollector coll = new SymbolCollector();
+        SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
+        StrMap partialMerged = IrDump._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
         // G17b：同包跨-ns 类名解析图（跨-zpkg imported + 包内每个有 ns 的类 短名→声明 ns）。
         // is/as/static-get/ObjNew 引用兄弟 ns 的本地类时限定到声明 ns（镜像 C# ImportedClassNamespaces 含 using 引入的同包类）。
         StrMap classNs = IrDump._pkgClassNs(cus, count, imported);
@@ -143,14 +145,103 @@ public static class IrDump {
                                            new string[0], 0, 0);
                 r[i].DiagMsgs = new string[0]; r[i].DiagCount = 0;
             } else {
-                r[i] = IrDump._compileCu(cus[i], symbols, deps, imported, classNs, localClasses, isRelease);
+                r[i] = IrDump._compileCu(cus[i], files[i], symbols, deps, imported, classNs, localClasses, isRelease, partialMerged);
             }
             string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
             if (cus[i].HasNamespace) { ns2 = cus[i].Namespace; }
             r[i].Exported = ExportedTypeExtractor.ExtractP(cus[i], symbols, ns2, allFuncs, afc, pkgClassMap, classNs);
             i = i + 1;
         }
+        // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
+        // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。
+        int pdi = 0;
+        while (pdi < coll.Diags.Count()) {
+            Diagnostic dg = coll.Diags.Get(pdi);
+            int tgt = 0;
+            int fj = 0;
+            while (fj < count) { if (files[fj] == dg.Span.File) { tgt = fj; } fj = fj + 1; }
+            string pmsg = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
+            int oldn = r[tgt].DiagCount;
+            string[] nw = new string[oldn + 1];
+            int q = 0; while (q < oldn) { nw[q] = r[tgt].DiagMsgs[q]; q = q + 1; }
+            nw[oldn] = pmsg;
+            r[tgt].DiagMsgs = nw; r[tgt].DiagCount = oldn + 1;
+            r[tgt].ErrorCount = r[tgt].ErrorCount + 1;   // partial 诊断均为 error（this.Diags.Error）
+            pdi = pdi + 1;
+        }
         return r;
+    }
+
+    // add-partial-types：为每个 partial 类型构建一条**合并 ClassDecl**（全碎片成员按 Ordinal(cus 已 Ordinal 排序)
+    // + 声明序拼接；基表并集按 Dump dedup）。仅主碎片（IrGen 判 min-path）用它发 TYPE record → 单条完整 record，
+    // VM/loader/zbc 格式零改动。非 partial 类型不入表（IrGen 回落本地 ClassDecl）。
+    private static StrMap _buildMergedPartial(CompilationUnit[] cus, int count, SymbolTable symbols) {
+        StrMap merged = new StrMap();
+        StrMap seen = new StrMap();
+        int a = 0;
+        while (a < count) {
+            int di = 0;
+            while (di < cus[a].DeclCount) {
+                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (!seen.ContainsKey(cd.Name)) {
+                        bool isPart = false;
+                        if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
+                            Z42ClassType ct = symbols.GetClass(cd.Name) as Z42ClassType;
+                            isPart = ct != null && ct.IsPartial;
+                        } else if (cd.Kind == "interface") {
+                            Z42InterfaceType it = symbols.Interfaces.Get(cd.Name) as Z42InterfaceType;
+                            isPart = it != null && it.IsPartial;
+                        }
+                        if (isPart) {
+                            seen.Put(cd.Name, "1");
+                            merged.Put(cd.Name, IrDump._mergeFragments(cus, count, cd));
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            a = a + 1;
+        }
+        return merged;
+    }
+
+    // 拼接同名 partial 碎片为一条 ClassDecl：成员（Ordinal(cus)+声明序）+ 基表并集（Dump dedup）；
+    // 壳（kind/mods/name/tps/wheres/span）取 head（=首碎片=主碎片，与 PartialMainFile 一致）。
+    private static ClassDecl _mergeFragments(CompilationUnit[] cus, int count, ClassDecl head) {
+        Decl[] mems = new Decl[8]; int mc = 0;
+        TypeExpr[] bases = new TypeExpr[4]; int bc = 0;
+        int a = 0;
+        while (a < count) {
+            int di = 0;
+            while (di < cus[a].DeclCount) {
+                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (cd.Name == head.Name && cd.Kind == head.Kind) {
+                        int mi = 0;
+                        while (mi < cd.MemberCount) {
+                            if (mc == mems.Length) { Decl[] gb = new Decl[mems.Length * 2]; int k = 0; while (k < mc) { gb[k] = mems[k]; k = k + 1; } mems = gb; }
+                            mems[mc] = cd.Members[mi]; mc = mc + 1; mi = mi + 1;
+                        }
+                        int bii = 0;
+                        while (bii < cd.BaseCount) {
+                            string bnm = cd.Bases[bii].Dump();
+                            bool dup = false; int q = 0; while (q < bc) { if (bases[q].Dump() == bnm) { dup = true; } q = q + 1; }
+                            if (!dup) {
+                                if (bc == bases.Length) { TypeExpr[] gb2 = new TypeExpr[bases.Length * 2]; int k = 0; while (k < bc) { gb2[k] = bases[k]; k = k + 1; } bases = gb2; }
+                                bases[bc] = cd.Bases[bii]; bc = bc + 1;
+                            }
+                            bii = bii + 1;
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            a = a + 1;
+        }
+        return new ClassDecl(head.Kind, head.Mods, head.Name, head.TypeParams, bases, bc, head.Wheres, head.WhereCount, mems, mc, head.Span);
     }
 
     // G17b：构建「短类名 → 声明 ns」图（跨-zpkg imported + 包内每个有 ns 的类/接口）。
@@ -278,7 +369,7 @@ public static class IrDump {
         return r;
     }
 
-    private static CompiledModuleZ _compileCu(CompilationUnit cu, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease) {
+    private static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
@@ -286,6 +377,8 @@ public static class IrDump {
         gen.Deps = deps;
         gen.IsRelease = isRelease;   // 传入 release 标志（strip debug info）
         gen.SourceStem = IrDump._stem(cu);
+        gen.SourceFile = file;           // add-partial-types：主碎片判定（对 Z42ClassType.PartialMainFile）
+        gen.PartialMerged = partialMerged;   // add-partial-types：partial 类型 → 合并 ClassDecl（主碎片发 TYPE record）
         // 本地声明类遮蔽同名 imported（shadowing：用户 `class Stack<T>` 遮蔽 stdlib Std.Collections.Stack）
         // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
         // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
@@ -328,14 +421,21 @@ public static class IrDump {
     public static CompiledModuleZ BuildModuleD(string src, string file, DependencyIndex deps, ImportedSymbols imported) {
         var p = new Parser(src, file);
         var cu = AttributeSynth.Run(BenchmarkDesugar.Run(p.ParseCompilationUnit()));   // add-attribute-reflection：合成工厂
-        var symbols = new SymbolCollector().CollectWithImports(cu, imported);
+        // add-partial-types：单文件路径（--emit-zbc / golden）也须走 file-threading 的 CollectAll（非
+        // CollectWithImports），否则同文件多 partial 碎片的 PartialMainFile 为 ""、SourceFile 为 null →
+        // 主碎片判定失败 → 合并 TYPE record 不发 → new T() 得 <unknown> 类型（无字段/方法）。
+        CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
+        string[] oneFile = new string[1]; oneFile[0] = file;
+        var coll = new SymbolCollector();
+        var symbols = coll.CollectAll(one, oneFile, 1, imported);
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
         gen.SourceStem = IrDump._stem(cu);
-        CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
+        gen.SourceFile = file;                                        // add-partial-types：主碎片判定
+        gen.PartialMerged = IrDump._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
         gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
         if (imported != null) { gen.ImportedClassNs = IrDump._filterShadowed(imported.ClassNamespaces, cu); }
         string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧

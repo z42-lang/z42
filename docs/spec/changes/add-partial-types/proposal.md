@@ -90,3 +90,20 @@
       散/合加载后逐字节相同 → 散着零改动 + 保住 cache 字节拷贝）。→ design D8。
 - [x] **partial method v1 是否真做**（2026-07-19 User 确认）：**做，只采 C# 9+ 干净形态**
       （任意返回类型 + 访问修饰符 + out/ref；无实现整体擦除）。design D5 封版。
+
+## Scope 精化（实施期 2026-07-22，隔离分支）
+
+Scope 表写于 2026-07-08 封版前；实施时代码库已演进，实际改动文件如下（等价映射）：
+
+| 原 Scope 项 | 实际落点 | 原因 |
+|------------|---------|------|
+| `Parser.z42` | `DeclParser.z42` + `MemberParser.z42` | Parser 已被 split-parser-class 拆为子解析器 |
+| `IrGen.z42` | `IrGen.z42` + `IrDump.z42` | 主碎片判定/合并 ClassDecl 构建在 `IrDump.BuildPackageCus`（包级驱动） |
+| `IncrementalBuild.z42` | `IncrementalBuild.z42` + `IncrementalDriver.z42` | `Close` 的调用方 + partial 名收集在 driver |
+| `ExportedTypeExtractor.z42` | **未改动** | drop-tsig-expt 后跨包由 TYPE/SIGS 重建，Phase 3 自动覆盖（见 design 精化）|
+| （新增）`DiagnosticCodes.z42` | +E0430–E0435 | 6 个 partial 校验诊断码 |
+| `z42c.syntax/tests/parser/partial/`（新目录）| 追加进 `parser_tests.z42` | 现有测试为单文件 `[Test]` 制，非子目录 |
+| `z42c.semantics/tests/collect/partial_merge/`（新目录）| 追加进 `collect_tests.z42` | 同上 |
+
+**ACTIVE.md 锁**：本 change 在**隔离分支** `claude/add-partial-types` 开发（User 授权跳队，
+不持 main `compiler` 锁——该锁 split-irgen-class 持有）；合并回 main 时按常规解冲突 + 走锁流程。

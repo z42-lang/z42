@@ -54,6 +54,8 @@ public sealed class IrGen {
     public IrFunction[] Lifted; public int LiftedCount;   // lambda lift（port-z42c-closures；模块尾追加）
     public StrMap IfaceDecls;   // 接口名 → 其 ClassDecl（add-reflection-transitive-interfaces：接口传递闭包展开）
     public StrMap MgThunks;     // 实例方法组 thunk 去重（cacheKey "<qualClass>.<method>$<arity>" → "1"）
+    public string SourceFile;   // add-partial-types：当前 CU 源文件全路径（与 Z42ClassType.PartialMainFile 比对判主碎片）
+    public StrMap PartialMerged; // add-partial-types：partial 类型名 → 合并后 ClassDecl（成员拼接+基表并集）；仅主碎片发其 TYPE record
 
     public void AddLifted(IrFunction f) {
         if (this.Lifted == null) { this.Lifted = new IrFunction[2]; this.LiftedCount = 0; }
@@ -131,6 +133,9 @@ public sealed class IrGen {
         if (cu.HasNamespace) { this.Ns = cu.Namespace; }
         IrFunction[] funcs = new IrFunction[8];   int fc = 0;
         IrClassDesc[] classes = new IrClassDesc[8]; int cc = 0;
+        // add-partial-types：本 CU 内已发过合并 TYPE record 的 partial 类型名（同文件多碎片时防重复 emit：
+        // PartialMainFile 是文件级，同文件两碎片都 ptIsMain → 需此 CU-局部去重只发一次）。
+        StrMap emittedPartial = new StrMap();
         // static_init 首位（SA-3）：有静态字段 init → 合成 `<ns>.<stem>.__static_init__`（fn0，VM 加载期执行）。
         // 名须 namespace 限定（_q）镜像 C# `<namespace>.<filestem>.__static_init__`；无 ns 时 _q 退化为 stem（sacheck 不回归）。
         if (model.SiCount > 0) {
@@ -147,13 +152,25 @@ public sealed class IrGen {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
-                    IrClassDesc cdesc = this._classDescB._classDesc(c);
-                    cdesc.Attrs = this._classDescB._attrRefs(cu.Decls[i]); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection：类 attr-ref
-                    classes = IrGenFacts._pushClass(classes, cc, cdesc); cc = cc + 1;
                     // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 owner CT。
                     string ownerKey = c.Name;
                     if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
                     Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
+                    // add-partial-types：partial 类型仅**主碎片**（min-path）发一条**合并** TYPE record；
+                    // 非主碎片跳过 record（下方方法体照发——各碎片各发自有方法，VM merge_modules 按名扁平化）。
+                    bool ptIsPartial = owner != null && owner.IsPartial;
+                    bool ptIsMain = !ptIsPartial || owner.PartialMainFile == this.SourceFile;
+                    if (ptIsPartial && ptIsMain && emittedPartial.ContainsKey(c.Name)) { ptIsMain = false; }   // 同文件多碎片：只发一次
+                    if (ptIsMain && ptIsPartial) { emittedPartial.Put(c.Name, "1"); }
+                    if (ptIsMain) {
+                        ClassDecl descDecl = c;
+                        if (ptIsPartial && this.PartialMerged != null && this.PartialMerged.ContainsKey(c.Name)) {
+                            descDecl = this.PartialMerged.Get(c.Name) as ClassDecl;   // 合并碎片：全字段有序 + 基表并集
+                        }
+                        IrClassDesc cdesc = this._classDescB._classDesc(descDecl);
+                        cdesc.Attrs = this._classDescB._attrRefs(cu.Decls[i]); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection：类 attr-ref
+                        classes = IrGenFacts._pushClass(classes, cc, cdesc); cc = cc + 1;
+                    }
                     int j = 0;
                     while (j < c.MemberCount) {
                         Decl rawMem = c.Members[j];
@@ -340,7 +357,20 @@ public sealed class IrGen {
             if (di is ClassDecl) {
                 ClassDecl ic = di as ClassDecl;
                 if (ic.Kind == "interface") {
-                    classes = IrGenFacts._pushClass(classes, cc, this._classDescB._interfaceDesc(ic)); cc = cc + 1;
+                    // add-partial-types：partial 接口仅主碎片发一条**合并**接口 TYPE record（含全碎片方法签名块）。
+                    // 变量名 ifOwn（非 iowner）避与 Generate 内 class 循环里 main 的 `Z42ClassType iowner` 函数级同名冲突。
+                    Z42InterfaceType ifOwn = model.Symbols.Interfaces.Get(ic.Name) as Z42InterfaceType;
+                    bool ifPartial = ifOwn != null && ifOwn.IsPartial;
+                    bool ifMain = !ifPartial || ifOwn.PartialMainFile == this.SourceFile;
+                    if (ifPartial && ifMain && emittedPartial.ContainsKey(ic.Name)) { ifMain = false; }   // 同文件多碎片：只发一次
+                    if (ifMain && ifPartial) { emittedPartial.Put(ic.Name, "1"); }
+                    if (ifMain) {
+                        ClassDecl idesc = ic;
+                        if (ifPartial && this.PartialMerged != null && this.PartialMerged.ContainsKey(ic.Name)) {
+                            idesc = this.PartialMerged.Get(ic.Name) as ClassDecl;
+                        }
+                        classes = IrGenFacts._pushClass(classes, cc, this._classDescB._interfaceDesc(idesc)); cc = cc + 1;
+                    }
                 }
             }
             i = i + 1;
