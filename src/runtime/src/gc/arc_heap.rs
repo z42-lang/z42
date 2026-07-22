@@ -1749,6 +1749,10 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Field { field_name, .. } =>
                     size_of::<Value>() + field_name.capacity(),
             },
+            // add-primitive-value-boxing: 装箱基元 = enum tag + 堆 BoxedPrim（class Arc + inner）。
+            Value::Boxed(b) => size_of::<Value>()
+                + size_of::<crate::metadata::types::BoxedPrim>()
+                + b.class.len(),
         }
     }
 

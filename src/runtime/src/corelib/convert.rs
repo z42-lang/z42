@@ -98,6 +98,8 @@ pub fn value_to_str(v: &Value) -> String {
         // deref，不应到达 user-visible 字符串化路径。如果出现，说明代码漏了
         // 一处 deref —— 用占位字串避免 panic，但调试时容易识别。
         Value::Ref(_) => "<ref>".to_string(),
+        // add-primitive-value-boxing: 装箱基元字符串化 = inner 的字符串。
+        Value::Boxed(b) => value_to_str(&b.inner),
     }
 }
 

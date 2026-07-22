@@ -526,6 +526,21 @@ pub enum Value {
     /// Closure. Refs only live in registers for a single call's
     /// duration, so the box alloc is a tiny fraction of the call cost.
     Ref(Box<RefKind>) = 12,
+    /// add-primitive-value-boxing: 基元值装箱——把裸基元（`inner`）连同其**精确基元
+    /// struct 类型名**（`class`，如 `Std.Int64`）装进堆值，使 `object`/接口 槽保留精确
+    /// 类型（强类型 `is`/`as`/`GetType`/`vcall`）。仅在 prim→object/接口 转换点由 `Box`
+    /// 指令创建；`Unbox`（object→prim）取回 `inner`。算术/方法体永远拿拆箱后的 `inner`，
+    /// 故热路径零影响。Box<…> = 8B 指针，不撑大 Value。
+    Boxed(Box<BoxedPrim>) = 13,
+}
+
+/// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
+/// `Std.Int64`/`Std.Byte`/…），供 `is`/`as`/`GetType`/`vcall` 走真 type_desc；`inner` =
+/// 裸基元值（I64/F64/Bool/Char/Str）。
+#[derive(Debug, Clone)]
+pub struct BoxedPrim {
+    pub class: std::sync::Arc<str>,
+    pub inner: Value,
 }
 
 /// Spec impl-ref-out-in-runtime: 描述 `Value::Ref` 指向的底层位置类型。
@@ -640,6 +655,9 @@ impl Value {
                     for slot in &obj.slots { visit(slot); }
                 }
             },
+            // add-primitive-value-boxing: 装箱基元——inner 为裸基元（无 GcRef），
+            // 保守追踪一层（若未来 inner 承载堆值也安全）。
+            Value::Boxed(b) => visit(&b.inner),
             // Primitives — no children.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
