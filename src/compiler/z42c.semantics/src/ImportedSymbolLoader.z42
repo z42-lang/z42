@@ -306,6 +306,16 @@ public static class ImportedSymbolLoader {
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
         if (r.Interfaces.ContainsKey(name)) { return r.Interfaces.Get(name) as Z42InterfaceType; }
+        // 根因修复（fix-crosspkg-fq-type-resolution）：跨命名空间、全限定书写的导入类型名
+        // （如返回类型 `Std.Reflection.FieldInfo[]` 的元素 `Std.Reflection.FieldInfo`）——
+        // Classes/Interfaces 以短名为键，FQ 名直接查会 miss、降级成 Z42PrimType 哨兵，导致消费包
+        // 对反射对象类型（FieldInfo/PropertyInfo/MethodInfo，均在 Std.Reflection 跨命名空间）
+        // 成员访问报 "member access on non-class"。FQ miss 后按短名回退，解析为真类型。
+        string shortN = ImportedSymbolLoader._shortName(name);
+        if (shortN != name) {
+            if (r.Classes.ContainsKey(shortN)) { return r.Classes.Get(shortN) as Z42ClassType; }
+            if (r.Interfaces.ContainsKey(shortN)) { return r.Interfaces.Get(shortN) as Z42InterfaceType; }
+        }
         // GS6: 泛型型参（T/K/V 等）→ Z42GenericParamType，避免降级为 Z42PrimType
         int tp = 0;
         while (tp < tpCount) { if (typeParams[tp] == name) { return new Z42GenericParamType(name); } tp = tp + 1; }
