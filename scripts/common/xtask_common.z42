@@ -375,6 +375,14 @@ int _ensureSeed(string root) {
         }
         i = i + 1;
     }
+    // bootstrap-seed（converge-z42c-ir-metadata 修）：种子 driver 可能是**收敛前**的 nightly
+    // （z42c.ir/z42c.project 尚在其兄弟集、当前 members 已不含）。它运行时按 entry-dir 解析兄弟，
+    // 缺 z42c.project → `ZpkgBuilder.Sha256Hex` 等 undefined（CI bootstrap 全红根因）。故把
+    // driverHome 的**全部 z42c.* 兄弟**（含遗留 z42c.ir/z42c.project）铺到 driver dist，令种子
+    // driver 自包含可跑。gen1 起用当前 5 成员就地覆盖，遗留兄弟无害闲置（当前 z42c 不引用）。
+    string driverDist = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist");
+    Directory.Create(driverDist);
+    _copyAll(driverHome, driverDist, "z42c.*.zpkg");
     Directory.Create(flatDir);
     _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
     if (!File.Exists(inCore)) {
