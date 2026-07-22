@@ -88,6 +88,68 @@ pub unsafe extern "C" fn jit_vcall(
         }
     }
 
+    // add-primitive-value-boxing: 装箱基元方法调用（镜像 interp/exec_vcall.rs Boxed 臂）。
+    // GetType 保留装箱类（不拆箱 this，否则按 inner 默认类报告丢宽度）；其余方法拆箱
+    // `this = inner` 交基元 struct 方法体（+ arity 重载，fallback Std.Object）。
+    if let Value::Boxed(b) = &obj_val {
+        let vm_ctx = vm_ctx_ref(ctx);
+        if method == "GetType" && argc == 0 {
+            match crate::corelib::object::builtin_obj_get_type(vm_ctx, &[obj_val.clone()]) {
+                Ok(ty) => { frame_ref.regs[dst as usize] = ty; return 0; }
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+            }
+        }
+        let class_name = b.class.clone();
+        let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
+        call_args.push(b.inner.clone());
+        call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
+        let arity = argc;
+        let candidates = [
+            format!("{}.{}${}", class_name, method, arity),
+            format!("{}.{}", class_name, method),
+            format!("Std.Object.{}${}", method, arity),
+            format!("Std.Object.{}", method),
+        ];
+        for func_name in &candidates {
+            if let Some(entry) = ctx_ref.fn_entries.get(func_name.as_str()) {
+                let mut callee = JitFrame::new(entry.max_reg, &call_args);
+                let jit_fn: JitFn = std::mem::transmute(entry.ptr);
+                vm_ctx.push_frame(crate::exception::VmFrame::new(
+                    entry.name.clone(), entry.file.clone(),
+                    &callee.regs as *const _, &callee.env_arena as *const _));
+                let r = jit_fn(&mut callee, ctx);
+                vm_ctx.pop_frame();
+                if r != 0 { callee.recycle(); return 1; }
+                frame_ref.regs[dst as usize] = callee.ret.take().unwrap_or(Value::Null);
+                callee.recycle();
+                return 0;
+            }
+            if let Some(callee) = module.func_index
+                .get(func_name.as_str()).and_then(|&idx| module.functions.get(idx))
+            {
+                match crate::interp::exec_function(vm_ctx, module, callee, &call_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                        frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); return 0;
+                    }
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+            if let Some(lazy_fn) = vm_ctx.try_lookup_function(func_name) {
+                match crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &call_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                        frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); return 0;
+                    }
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+        }
+        set_exception(vm_ctx, Value::Str(
+            format!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity).into()));
+        return 1;
+    }
+
     // L3-G4b primitive-as-struct: primitives dispatch through their stdlib struct's
     // method — construct `{Std.Int32 | Std.Double | ...}.{method}` and invoke via the
     // JIT entry cache. Replaces the old hardcoded `(Value, method) → builtin` table.
@@ -107,7 +169,11 @@ pub unsafe extern "C" fn jit_vcall(
         let arity = argc; // exclude `this`
         let primary = format!("{}.{}", class_name, method);
         let overload = format!("{}.{}${}", class_name, method, arity);
-        for func_name in [primary.as_str(), overload.as_str()] {
+        // Std.Object 兜底（镜像 interp）：基元未 override 的协议方法（尤 GetType）走基类实现。
+        let obj_primary = format!("Std.Object.{}", method);
+        let obj_overload = format!("Std.Object.{}${}", method, arity);
+        for func_name in [primary.as_str(), overload.as_str(),
+                          obj_primary.as_str(), obj_overload.as_str()] {
             if let Some(entry) = ctx_ref.fn_entries.get(func_name) {
                 let mut callee = JitFrame::new(entry.max_reg, &call_args);
                 let jit_fn: JitFn = std::mem::transmute(entry.ptr);

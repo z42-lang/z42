@@ -1,6 +1,25 @@
 use crate::metadata::Value;
+use crate::metadata::types::BoxedPrim;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
+
+/// add-primitive-value-boxing: 把裸基元装箱成 `Value::Boxed`，携带其精确基元 struct 类名。
+/// 编译器在 prim→object/接口 转换点发 `builtin __box_prim(%value, %classStr)`。
+/// arg0 = 裸基元值；arg1 = FQ 基元 struct 名（`Std.Int64`/…）。已是 Boxed 则原样返（幂等）。
+pub fn builtin_box_prim(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let inner = match args.first() {
+        Some(v) => v.clone(),
+        None => bail!("__box_prim: missing value arg"),
+    };
+    if matches!(inner, Value::Boxed(_)) {
+        return Ok(inner);
+    }
+    let class = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => bail!("__box_prim: missing/invalid class-name arg"),
+    };
+    Ok(Value::Boxed(Box::new(BoxedPrim { class, inner })))
+}
 
 // ── Typed argument extractors ────────────────────────────────────────────────
 //
@@ -29,6 +48,13 @@ pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> 
 pub fn arg_i64(args: &[Value], idx: usize, ctx: &str) -> Result<i64> {
     match args.get(idx) {
         Some(Value::I64(n)) => Ok(*n),
+        // add-primitive-value-boxing: 装箱整数实参透明拆箱。call-arg 装箱把整数实参装箱成
+        // object（如 Assert.Equal(object,object)），而基元 struct 方法的 native（Equals/CompareTo/
+        // 算术）按裸 long 签名读参 → 装箱值须在此拆回内层 I64。Boxed 恒包整数（_intPrimFQ 只装箱整数）。
+        Some(Value::Boxed(b)) => match &b.inner {
+            Value::I64(n) => Ok(*n),
+            other => bail!("{}: arg {} expected int, got Boxed({:?})", ctx, idx, other),
+        },
         Some(other) => bail!("{}: arg {} expected int, got {:?}", ctx, idx, other),
         None => bail!("{}: missing arg {}", ctx, idx),
     }

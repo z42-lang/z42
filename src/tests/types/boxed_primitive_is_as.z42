@@ -26,12 +26,23 @@ void Main() {
     string s = n as string;
     Assert.True(s == null);
 
-    // 整数宽度：z42 运行时用单一 Value::I64 表示 int/long/short/byte（boxed 后不可辨宽度），
-    // 故 boxed 整数 is-a 任意整数类型——值的声明类型永不假阴。
+    // add-primitive-value-boxing：整数存进 object **装箱**为带精确宽度 type_desc 的堆对象
+    // （Std.Int64 / Std.Byte / Std.Int32…），is/as/GetType 走真 type_desc → **强类型**：
+    // 声明宽度精确匹配、跨宽度 is 为 false（取代 fix-boxed-primitive-is-as 的松匹配过渡）。
     object l = 9L;
-    Assert.True(l is long);              // 曾误判 false
-    Assert.True(l is int);               // I64 表示 → 跨宽度松匹配
+    Assert.True(l is long);              // 9L 定宽 long → 装箱 Std.Int64
+    Assert.True(!(l is int));            // 强类型：Int64 ≠ Int32（曾松匹配 true）
+    Assert.True(l is object);
+    Assert.Equal("Int64", l.GetType().Name);   // GetType 保留装箱宽度（不拆箱 this）
+    Assert.Equal(9L, l as long);         // 精确类 as → 拆箱返 inner
+
     object by = (byte)7;
-    Assert.True(by is byte);             // 曾误判 false
-    Assert.True(by is int);
+    Assert.True(by is byte);             // (byte)7 → 装箱 Std.Byte
+    Assert.True(!(by is int));           // 强类型：Byte ≠ Int32
+    Assert.Equal("Byte", by.GetType().Name);
+
+    object i = 42;                       // 无后缀 + 在 int 界内 → int
+    Assert.True(i is int);
+    Assert.True(!(i is long));           // 强类型：Int32 ≠ Int64
+    Assert.Equal("Int32", i.GetType().Name);
 }

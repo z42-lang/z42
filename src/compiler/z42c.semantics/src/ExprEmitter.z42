@@ -142,6 +142,7 @@ public sealed class ExprEmitter {
         if (e is BoundIsExpr) { return this._emitIs(e as BoundIsExpr); }
         if (e is BoundTypeof) { return this._emitTypeof(e as BoundTypeof); }
         if (e is BoundCast) { return this._emitCast(e as BoundCast); }
+        if (e is BoundBox) { return this._emitBox(e as BoundBox); }
         if (e is BoundConvert) { return this._emitConvert(e as BoundConvert); }
         if (e is BoundConditional) { return this._emitConditional(e as BoundConditional); }
         if (e is BoundSwitchExpr) { return this._emitSwitchExpr(e as BoundSwitchExpr); }
@@ -882,6 +883,20 @@ public sealed class ExprEmitter {
 
     // (T)x 数值转换（G3）→ ConvertInstr。镜像 C# VisitCast：identity（fromIr==toIr）no-op；
     // 目标 Unknown/Ref no-op；源 Unknown/Ref 仍发 Convert（VM 按需 coerce）；否则发 Convert。
+    // add-primitive-value-boxing: 整数→object/接口 装箱 → `__box_prim(value, primFQ)` builtin。
+    // 复用现有 ConstStr + Builtin opcode，无新 IR opcode（不改 zbc 格式）。
+    private TypedReg _emitBox(BoundBox b) {
+        TypedReg val = this.Emit(b.E);
+        int idx = this._ctx.Gen.Intern(b.PrimFQ);
+        TypedReg cls = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(cls, idx));
+        TypedReg[] args = new TypedReg[2];
+        args[0] = val; args[1] = cls;
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);   // Boxed 落 object 槽（引用）
+        this._ctx.Emit(new BuiltinInstr(dst, "__box_prim", args, 2));
+        return dst;
+    }
+
     private TypedReg _emitConvert(BoundConvert c) {
         TypedReg src = this.Emit(c.E);
         int toIr = this._ctx.ToIrType(c.Type());

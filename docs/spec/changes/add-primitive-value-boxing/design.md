@@ -92,3 +92,58 @@ object/接口→Unbox，数值→Convert。618 处现有 cast 多为②数值，
 3. compiler：Box/Unbox IR + BoundBox/装箱插入 + Unbox 消歧 emit。
 4. gate：self-host 5/5 + cargo + test compiler + is/as 强类型 golden（扩 boxed_primitive_is_as：
    `5 is long`=false / `9L is long`=true / GetType / boxed.ToString / boxed Equals）。
+
+## 实施进度快照（2026-07-22，claude/z42c-ctor-arity）
+
+用 `__box_prim` builtin（非新 opcode，规避格式 bump）+ var-decl 装箱插入。**整数强类型
+is/as/GetType 在 interp + jit 两模式实测通过、self-host 收敛、runtime 782 单测绿、golden 更新绿。**
+
+**canonical 例（interp==jit 一致）**：
+```
+object l = 9L;   l is long=true   l is int=false   l.GetType().Name=Int64   l as long=9
+object by=(byte)7; by is byte=true  by is int=false  by.GetType().Name=Byte
+object i = 42;   i is int=true    i is long=false  i.GetType().Name=Int32
+```
+
+**已完成**：
+- ✅ 缺口①：字面量后缀定宽（`ExprTyper._bindLiteral`：`L/l`→long、`U/u`→unsigned、`UL`→ulong；
+  无后缀按 int 界）。`9L`→Std.Int64（曾误判 int→Std.Int32）。**self-host 验证 gen2==gen3
+  逐字节收敛**（z42c 源自带 `0L/1L` 枚举字面量 → gen1 一代过渡差异，gen2 起稳定；旧 nightly
+  仍能编当前源，无越界）。
+- ✅ 缺口④：GetType 保留装箱类——vcall Boxed 臂特判 `GetType`，直接交 `builtin_obj_get_type`
+  （用 `b.class`），不拆箱 `this`（否则按 inner 默认类报告丢宽度 → 曾 Int64 误报 Int32）。
+- ✅ 缺口②：JIT Boxed 臂——`jit/helpers/object.rs`（is_instance/as_cast）+ `jit/helpers/vcall.rs`
+  （vcall + GetType 特判），镜像 interp。interp==jit 一致。
+- ✅ object 短路：装箱基元 `is object` / `as object`——基元类名（`Std.Int32`）在 type_registry
+  未必可解析到 `Std.Object` 基链（真名 `Std.Primitives.Int32`），故 is_instance/as_cast 的 Boxed
+  臂对 object 目标显式判真（interp+jit，镜像 prim_isa）。修 var-decl 装箱引入的 `is object` 回归。
+- ✅ golden：`src/tests/types/boxed_primitive_is_as.z42` 松匹配→强匹配（`l is int` true→**false**
+  + GetType 断言），interp+jit 均绿。
+- ✅ `corelib::tests` 更新：`__obj_get_type` 对裸基元返 Type（不再 error）。
+
+**已完成（续）**：
+- ✅ 缺口③：非整数基元 `object`-typed `.GetType()`（`object s="hi"; s.GetType()`）——primitive
+  vcall 路径补 **Std.Object 兜底候选**（`Std.Object.<method>` / `$arity`），基元未 override 的
+  协议方法（GetType 仅在 Std.Object）走基类实现。interp+jit 同修。GetType=String 通。
+- ✅ **全部 coercion 插入点**：var-decl / return / array-literal / **call-arg**。
+  - return：`StmtBinder._bindReturn` 对返回值 BoxIfNeeded（返回类型 object/接口）。
+  - array：`ExprTyper._bindArrayInit` 对 `object[]` 整数元素装箱。
+  - call-arg：`TypeChecker.BoxArgs` + `OverloadBinder._withDefaults`（5 处调用点公共汇聚步）
+    对实参逐位按形参类型装箱。
+- ✅ **call-arg↔基元方法交互修复**：call-arg 装箱把整数实参装箱成 object（如
+  `Assert.Equal(object,object)`），而基元 struct 方法 native（Equals/CompareTo）按裸 long 读参
+  → `arg_i64`（`corelib/convert.rs` 共享取参助手）**透明拆箱 Boxed(I64)**，一处修全部 int native。
+- ✅ 验证：**self-host gen2==gen3 收敛（全 coercion 点）** + stdlib 25 成员重建绿 + coercion
+  smoke（return/call-arg/array，interp==jit）+ golden interp/jit 双绿 + runtime 782 单测绿。
+
+**已完成（续）**：
+- ✅ **params 尾包元素装箱**：`_withParamsExpansion` 对 `params object[]` 收集的整数实参逐个按
+  元素类型装箱（`firstKind(9L,5)` → `xs[0]` is long / GetType=Int64；`(byte)7` → 强类型 Byte，
+  非 int/long）。self-host gen2==gen3 收敛，interp==jit。**至此全部隐式 prim→object 边界均装箱。**
+
+**剩余（完整 GREEN 前）**：
+1. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 self-host + 目标 golden +
+   coercion smoke（含 params）+ stdlib 重建 + runtime 单测；全量 e2e/test-compiler 由 CI 跑）。
+
+> **状态**：**整数装箱强类型 + 全部 coercion 插入点（var-decl / return / array / call-arg / params）
+> 端到端可用（interp+jit）**，self-host 收敛，stdlib 重建绿，golden + runtime 单测绿。仅全量 CI gate 待跑。

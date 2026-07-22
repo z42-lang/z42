@@ -151,6 +151,7 @@ public sealed class StmtBinder {
                     this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                         "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
                 }
+                val = this._tc.BoxIfNeeded(val, ret);   // add-primitive-value-boxing: return 整数→object/接口 装箱
                 return new BoundReturn(true, val, r.Span);
             }
             return new BoundReturn(false, new BoundLitNull(new Z42VoidType(), r.Span), r.Span);
@@ -168,6 +169,7 @@ public sealed class StmtBinder {
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
+            init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
             return new BoundVarDeclStmt(v.Name, vt, init, v.Span);
     }
 

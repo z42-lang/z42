@@ -34,6 +34,50 @@ public sealed class TypeChecker {
         this._decl = new DeclBinder(this);
     }
 
+    // add-primitive-value-boxing: 整数值 → object/接口 的隐式装箱插入点。仅**整数**需装箱
+    // （int/long/short/byte 运行时同为 I64，装箱才能辨宽度做强类型 is/as/GetType）；
+    // bool/char/double/string 已是独立运行时表示，无需装箱。返回原 expr 或包 BoundBox。
+    // 各强转兼容处（var-decl / return / call-arg / assign / array-store）统一调用本方法保一致。
+    public BoundExpr BoxIfNeeded(BoundExpr value, Z42Type target) {
+        if (value == null || target == null) { return value; }
+        Z42Type vt = value.Type();
+        if (!(vt is Z42PrimType)) { return value; }
+        string fq = TypeChecker._intPrimFQ(vt.Name());
+        if (fq == "") { return value; }                          // 非整数基元 → 不装箱
+        bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+        if (!erases) { return value; }
+        return new BoundBox(value, fq, target, value.Span);
+    }
+
+    // add-primitive-value-boxing: 对已决议方法的实参逐位装箱（整数实参 → object/接口 形参）。
+    // 就地改写 args（BoxIfNeeded 对非整数实参 / 非 object·接口形参是 no-op），返回同数组便于链式。
+    // 仅覆盖声明形参位（i < ParamTypes.Length）；params 尾包的元素装箱另论（罕见，暂不处理）。
+    public BoundExpr[] BoxArgs(BoundExpr[] args, int count, MethodSymbol ms) {
+        if (args == null || ms == null || ms.Signature == null) { return args; }
+        Z42Type[] pts = ms.Signature.ParamTypes;
+        if (pts == null) { return args; }
+        int i = 0;
+        while (i < count && i < pts.Length && i < args.Length) {
+            args[i] = this.BoxIfNeeded(args[i], pts[i]);
+            i = i + 1;
+        }
+        return args;
+    }
+    private static string _intPrimFQ(string n) {
+        if (n == "int"    || n == "i32") { return "Std.Int32"; }
+        if (n == "long"   || n == "i64") { return "Std.Int64"; }
+        if (n == "short"  || n == "i16") { return "Std.Int16"; }
+        if (n == "sbyte"  || n == "i8")  { return "Std.SByte"; }
+        if (n == "byte"   || n == "u8")  { return "Std.Byte"; }
+        if (n == "ushort" || n == "u16") { return "Std.UInt16"; }
+        if (n == "uint"   || n == "u32") { return "Std.UInt32"; }
+        if (n == "ulong"  || n == "u64") { return "Std.UInt64"; }
+        return "";
+    }
+    private static bool _isObjectName(string n) {
+        return n == "object" || n == "Object" || n == "Std.Object";
+    }
+
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
         var model = new SemanticModel(symbols);
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";

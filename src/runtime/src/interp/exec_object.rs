@@ -278,8 +278,15 @@ pub(super) fn is_instance(
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => false,
-        // fix-boxed-primitive-is-as: 基元值（Value::Str/I64/…）经其 stdlib 类名匹配
-        // （z42 不装箱基元，`object o = "hi"` 里 o 仍是裸 Value::Str）。
+        // add-primitive-value-boxing: 装箱基元走**真 type_desc**（class + base + 接口链）——
+        // 精确强类型：`9L`(Std.Int64) is long → true；`5`(Std.Int32) is long → false。
+        // object 短路：所有装箱基元 is-a object（基元类名 Std.Int32 未必在 type_registry 可解析
+        // 到 Std.Object 基链——其真名为 Std.Primitives.Int32——故显式判，镜像 prim_isa）。
+        Value::Boxed(b) => {
+            class_name == "Std.Object" || class_name == "Object"
+                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name)
+        }
+        // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
     };
     frame.set(dst, Value::Bool(result));
@@ -290,13 +297,27 @@ pub(super) fn as_cast(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
 ) -> Result<()> {
     let val = frame.get(obj)?.clone();
+    // add-primitive-value-boxing: Boxed 特判——命中**精确基元类** → 拆箱返 inner（`o as long`
+    // 拿回裸 long）；命中 base/接口 → 保持 Boxed（多态用）；否则 Null。
+    if let Value::Boxed(b) = &val {
+        let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let out = if class_name == &*b.class {
+            b.inner.clone()
+        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name) {
+            val.clone()
+        } else {
+            Value::Null
+        };
+        frame.set(dst, out);
+        return Ok(());
+    }
     let is_match = match &val {
         Value::Object(rc) => {
             is_subclass_or_eq_td(ctx, &module.type_registry, &rc.type_desc().name, class_name)
         }
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => true,
-        // fix-boxed-primitive-is-as: 基元值按其 stdlib 类名匹配（同 is_instance）。
+        // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
     };
     frame.set(dst, if is_match { val } else { Value::Null });

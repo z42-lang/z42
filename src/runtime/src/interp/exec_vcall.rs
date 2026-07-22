@@ -84,6 +84,47 @@ pub(super) fn vcall(
     let obj_val = frame.get(obj)?.clone();
     let mut extra_args = collect_args(&frame.regs, args)?;
 
+    // ── add-primitive-value-boxing: 装箱基元方法调用 ────────────────────
+    // 按 boxed.class 解析方法（+ arity 重载），fallback Std.Object 基类；`this = inner`（拆箱后
+    // 交基元 struct 方法体，与未装箱基元同源）。GetType/ToString/Equals/GetHashCode 皆经此。
+    if let Value::Boxed(b) = &obj_val {
+        // GetType 须保留装箱类：一般方法拆箱 `this=inner` 交基元 struct 方法体，但 GetType
+        // 若也拆箱，其 __get_type 会按 inner 的**默认** primitive_class_name 报告（I64→Int32），
+        // 丢掉 Std.Int64 等精确宽度。故 GetType 直接交 builtin_obj_get_type（Boxed 臂用 b.class）。
+        if method == "GetType" && extra_args.is_empty() {
+            let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
+            frame.set(dst, ty);
+            return Ok(None);
+        }
+        let class_name = b.class.clone();
+        let mut call_args = vec![b.inner.clone()];
+        call_args.append(&mut extra_args);
+        let arity = call_args.len() - 1;
+        let candidates = [
+            format!("{}.{}${}", class_name, method, arity),
+            format!("{}.{}", class_name, method),
+            format!("Std.Object.{}${}", method, arity),
+            format!("Std.Object.{}", method),
+        ];
+        for func_name in &candidates {
+            let callee = module.func_index.get(func_name.as_str())
+                .and_then(|&idx| module.functions.get(idx));
+            if let Some(callee) = callee {
+                return match super::exec_function(ctx, module, callee, &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+            if let Some(lazy_fn) = ctx.try_lookup_function(func_name) {
+                return match super::exec_function(ctx, module, lazy_fn.as_ref(), &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+        }
+        bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity);
+    }
+
     // ── Fast path: IC hit (object OR primitive receiver) ────────────────
     // Fires when (1) caller passed an IC, (2) receiver's TypeId — real for
     // Value::Object, synthetic `PRIM_TYPE_*` for primitives (refactor-vcall-
@@ -137,12 +178,19 @@ pub(super) fn vcall(
         let arity = call_args.len() - 1; // exclude `this`
         let primary = format!("{}.{}", class_name, method);
         let overload = format!("{}.{}${}", class_name, method, arity);
+        // Std.Object 兜底：基元未 override 的协议方法（尤 GetType——仅定义在 Std.Object
+        // 的 [Native("__obj_get_type")]，String/Int32 等不 override）走基类实现，`this=基元`。
+        // 无此兜底则 `object s="hi"; s.GetType()` 落到下方 vtable 路径 bail（expected object）。
+        // 类专属候选优先，故 override 仍解析到子类实现，兜底只补「仅 Std.Object 有」的方法。
+        let obj_primary = format!("Std.Object.{}", method);
+        let obj_overload = format!("Std.Object.{}${}", method, arity);
         // refactor-vcall-ic-primitives (2026-05-17): on intra-module resolve,
         // populate VCallIC so the next call at this site with the same primitive
         // receiver type takes the IC fast path above — skips both format!()
         // calls + the HashMap lookup. Cross-zpkg (lazy_fn) skips populate
         // because IC cached_fn_idx must index into THIS module's functions table.
-        for func_name in [primary.as_str(), overload.as_str()] {
+        for func_name in [primary.as_str(), overload.as_str(),
+                          obj_primary.as_str(), obj_overload.as_str()] {
             if let Some(&idx) = module.func_index.get(func_name) {
                 if let Some(callee) = module.functions.get(idx) {
                     if let (Some(ic), Some(synth_id)) =
