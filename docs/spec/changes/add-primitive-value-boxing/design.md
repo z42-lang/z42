@@ -64,18 +64,19 @@ object/接口→Unbox，数值→Convert。618 处现有 cast 多为②数值，
 - **分步验证**：先落 runtime（Value::Boxed + 5 处 handling）编过 + cargo test → 再落 compiler emit →
   每步 self-host 5/5。红则定位单点。
 
-## ⚠️ 格式 bump 影响（实施期发现，2026-07-22）
+## 格式 bump：**已规避**（改用现有 opcode，2026-07-22 更正）
 
-`Box` / `Unbox` 是**新 IR opcode** → **zbc 格式变更** → 触发 `ZbcVersion.Minor` + `ZpkgWriterZ.Minor`
-bump → 走 `bootstrap-seed.md` 的**两代自举** + strict-pin。这把「纯逻辑改动」升级为**格式维度变更**：
-- z42.ir 的 `ZbcWriter`/`ZbcReader`/`ZbcInstr`/`ZbcReaderInstr` + Rust `bytecode.rs`/`zbc_reader.rs`
-  须同步加 Box/Unbox 编解码，且 minor 同步 bump。
-- CI ci-bootstrap 版本差 gate 自动吸收（fix-bootstrap-format-bump-deadlock）；vm-jit/bench
-  download-bootstrap 腿会短暂红一跑（自愈）。
-- **分阶段引入纪律**（bootstrap-seed.md）：新 opcode 的 support（reader 先能读）与 use（writer 才发）
-  可能须跨 nightly——但本仓 z42vm 与 z42c 同源同步 bump，warm 路径本地即可验；cold 以 CI 为准。
+最初担心 Box/Unbox 是新 IR opcode → zbc 格式 bump。**实测可规避**——复用现有稳定 opcode，**无格式变更**：
 
-→ 实施复杂度显著高于 fix-boxed-primitive-is-as（那是纯运行时+编译器逻辑，无格式变更）。
+- **Box** → `BuiltinInstr`（opcode 0x51，现有）：编译器在 prim→object/接口 点发
+  `const.str %c "Std.Int64"; builtin __box_prim %dst, %value, %c`。运行时新增 `__box_prim`
+  builtin（value + class 串 → `Value::Boxed`）。builtin 是命名 Call，**不改格式**。
+- **Unbox** → 复用现有 `AsCast` opcode：`o as long`（AsCast Std.Int64）对 Boxed 值 → 匹配则返
+  `inner`（拆箱），否则 Null。`(long)o` 硬转同理经 as/convert 消歧。**零新 opcode**。
+- **is / GetType / vcall** → 现有 opcode，只在运行时加 Boxed 臂。
+
+→ **纯运行时 + 编译器逻辑改动，无格式 bump、无两代自举**。复杂度回落到与 fix-boxed-primitive-is-as
+同量级（+ 装箱插入点的类型检查改动）。
 
 ## 实施进度（2026-07-22）
 - [x] runtime：`Value::Boxed(Box<BoxedPrim>)` 变体 + trace_children / value_to_str / object_size_bytes
