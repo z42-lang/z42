@@ -178,12 +178,19 @@ pub(super) fn vcall(
         let arity = call_args.len() - 1; // exclude `this`
         let primary = format!("{}.{}", class_name, method);
         let overload = format!("{}.{}${}", class_name, method, arity);
+        // Std.Object 兜底：基元未 override 的协议方法（尤 GetType——仅定义在 Std.Object
+        // 的 [Native("__obj_get_type")]，String/Int32 等不 override）走基类实现，`this=基元`。
+        // 无此兜底则 `object s="hi"; s.GetType()` 落到下方 vtable 路径 bail（expected object）。
+        // 类专属候选优先，故 override 仍解析到子类实现，兜底只补「仅 Std.Object 有」的方法。
+        let obj_primary = format!("Std.Object.{}", method);
+        let obj_overload = format!("Std.Object.{}${}", method, arity);
         // refactor-vcall-ic-primitives (2026-05-17): on intra-module resolve,
         // populate VCallIC so the next call at this site with the same primitive
         // receiver type takes the IC fast path above — skips both format!()
         // calls + the HashMap lookup. Cross-zpkg (lazy_fn) skips populate
         // because IC cached_fn_idx must index into THIS module's functions table.
-        for func_name in [primary.as_str(), overload.as_str()] {
+        for func_name in [primary.as_str(), overload.as_str(),
+                          obj_primary.as_str(), obj_overload.as_str()] {
             if let Some(&idx) = module.func_index.get(func_name) {
                 if let Some(callee) = module.functions.get(idx) {
                     if let (Some(ic), Some(synth_id)) =

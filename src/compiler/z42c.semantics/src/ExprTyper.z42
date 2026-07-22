@@ -264,7 +264,11 @@ public sealed class ExprTyper {
             Z42Type elem = env.ResolveType(ai.Elem);
             BoundExpr[] elems = new BoundExpr[ai.ElemCount];
             int bi = 0;
-            while (bi < ai.ElemCount) { elems[bi] = this._bindExpr(ai.Elems[bi], env); bi = bi + 1; }
+            while (bi < ai.ElemCount) {
+                BoundExpr be = this._bindExpr(ai.Elems[bi], env);
+                elems[bi] = this._tc.BoxIfNeeded(be, elem);   // add-primitive-value-boxing: object[] 整数元素装箱
+                bi = bi + 1;
+            }
             return new BoundArrayLit(elems, ai.ElemCount, elem.Name(), new Z42ArrayType(elem), ai.Span);
     }
 
