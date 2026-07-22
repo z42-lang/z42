@@ -1,0 +1,25 @@
+// add-partial-types：partial interface 端到端——接口方法签名分处两碎片，合并为单一接口 TYPE record；
+// 实现类经接口引用派发调用两碎片的方法（验证合并接口 record 含全碎片方法签名块）。
+namespace PartialIfaceTest;
+
+partial interface IShape {
+    int Area();
+}
+
+partial interface IShape {
+    string Name();
+}
+
+class Square : IShape {
+    public int side;
+    public int Area() { return this.side * this.side; }
+    public string Name() { return "square"; }
+}
+
+void Main() {
+    var sq = new Square();
+    sq.side = 5;
+    IShape shape = sq;
+    Assert.Equal(25, shape.Area());       // 碎片 1 的接口方法
+    Assert.Equal("square", shape.Name()); // 碎片 2 的接口方法
+}

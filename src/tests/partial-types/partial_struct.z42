@@ -1,0 +1,20 @@
+// add-partial-types：partial struct 端到端（struct 走与 class 同一合并路径，Kind 区分）。
+namespace PartialStructTest;
+
+partial struct Vec2 {
+    public int x;
+    public int Sum() { return this.x + this.y; }   // 引用碎片 2 的 y
+}
+
+partial struct Vec2 {
+    public int y;
+}
+
+void Main() {
+    var v = new Vec2();
+    v.x = 3;
+    v.y = 4;
+    Assert.Equal(3, v.x);
+    Assert.Equal(4, v.y);
+    Assert.Equal(7, v.Sum());
+}
