@@ -1,0 +1,41 @@
+// partial 类型示例（add-partial-types）。
+// 一个类型可由多个 `partial` 声明拼成——合并在编译期完成，运行期与普通类型无异。
+// 主用例：多平台抽象拆分（如 Interop.Unix.z42 / Interop.Windows.z42）。此处同文件演示，
+// 跨文件语义完全一致（合并发生在包级符号收集，不区分同/跨文件）。
+namespace Example;
+
+// ── 碎片 1：核心字段 + 一个方法 ──────────────────────────────────────
+partial class Account {
+    public string owner;
+    public int balance;
+
+    public void Deposit(int amount) { this.balance = this.balance + amount; }
+
+    // partial method 声明：实现可选，放在另一碎片；无实现则整体擦除。
+    partial void OnBalanceChanged(int newBalance);
+}
+
+// ── 碎片 2：更多成员 + partial method 实现 ───────────────────────────
+partial class Account {
+    public bool frozen;
+
+    public bool Withdraw(int amount) {
+        if (this.frozen) { return false; }
+        if (amount > this.balance) { return false; }
+        this.balance = this.balance - amount;
+        this.OnBalanceChanged(this.balance);   // 调用配对实现
+        return true;
+    }
+
+    partial void OnBalanceChanged(int newBalance) {
+        Console.WriteLine($"balance now {newBalance}");
+    }
+}
+
+void Main() {
+    var a = new Account();
+    a.owner = "alice";
+    a.Deposit(100);
+    a.Withdraw(30);                 // 打印 "balance now 70"
+    Console.WriteLine($"{a.owner}: {a.balance}, frozen={a.frozen}");
+}

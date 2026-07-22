@@ -118,7 +118,7 @@ void test_close_chain_propagation() {
     tokens[0] = _names("FromB", "");   defined[0] = _names("FromA", "");
     tokens[1] = _names("own", "");     defined[1] = _names("FromB", "");
     tokens[2] = _names("FromA", "");   defined[2] = _names("FromC", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined);
+    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));   // add-partial-types：无 partial 类型
     Assert.Equal(3, p.FreshCount);
     Assert.True(p.Fresh[0]);
     Assert.True(p.Fresh[2]);
@@ -135,7 +135,7 @@ void test_close_no_edge_keeps_cached() {
     NameListZ[] defined = new NameListZ[2];
     tokens[0] = _names("x", "y");   defined[0] = _names("A1", "");
     tokens[1] = _names("z", "");    defined[1] = _names("B1", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined);
+    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));   // add-partial-types：无 partial 类型
     Assert.Equal(1, p.FreshCount);
     Assert.False(p.Fresh[0]);
 }

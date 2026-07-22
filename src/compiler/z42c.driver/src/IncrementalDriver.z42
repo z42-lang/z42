@@ -84,7 +84,8 @@ public static class IncrementalDriver {
             defined[i] = IncrementalDriver._definedOf(cus[i]);
             i = i + 1;
         }
-        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined);
+        NameListZ partialNames = IncrementalDriver._partialNamesOf(cus, n);   // add-partial-types：碎片 clique 输入
+        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined, partialNames);
 
         // cached 读回 + 残留回填；任一失败 → 该文件 fresh + 重闭包（依赖方连带失效）。
         bool stable = false;
@@ -104,7 +105,7 @@ public static class IncrementalDriver {
                         ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh");
                         plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1;
                         plan.Metas[i] = null;
-                        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined);
+                        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined, partialNames);
                         stable = false;
                     } else {
                         cached[i] = m;
@@ -361,6 +362,27 @@ public static class IncrementalDriver {
             i = i + 1;
         }
         return new NameListZ(items, n);
+    }
+
+    // add-partial-types：全包 partial 类型名集（任一碎片声明 partial 的类型名）。Close 用它给同名
+    // partial 碎片文件连 clique 边——触任一碎片 → 整组 fresh（主碎片据全碎片当前成员发合并 record）。
+    private static NameListZ _partialNamesOf(CompilationUnit[] cus, int n) {
+        string[] items = new string[4];
+        int c = 0;
+        int i = 0;
+        while (i < n) {
+            int di = 0;
+            while (di < cus[i].DeclCount) {
+                Decl d = cus[i].Decls[di];
+                if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+                if (d is ClassDecl && (d as ClassDecl).IsPartial) {
+                    c = IncrementalDriver._add(items, c, (d as ClassDecl).Name); items = IncrementalDriver._last;
+                }
+                di = di + 1;
+            }
+            i = i + 1;
+        }
+        return new NameListZ(items, c);
     }
 
     // 追加（扩容经 _last 旁路返回新数组；z42 无 ref 参）。

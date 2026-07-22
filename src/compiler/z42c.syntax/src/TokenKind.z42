@@ -67,4 +67,5 @@ public static class TokenKind {
     public static int Error_Unknown = 146;
     public static int QuestionDot = 147;   // ?. 空条件成员访问
     public static int Params = 148;        // params 变长参数修饰（add-params-varargs）
+    public static int Partial = 149;       // partial 类型/方法修饰（add-partial-types）
 }

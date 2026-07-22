@@ -1,0 +1,18 @@
+// add-partial-types：partial method 端到端——声明与实现分处两碎片配对；无实现的 partial method 整体擦除。
+namespace PartialMethodTest;
+
+partial class Calc {
+    partial int Double(int n);                              // 声明侧（无 body）
+    public int Quad(int n) { return this.Double(this.Double(n)); }
+    partial void OnUnused();                                // 无实现 → 擦除（下方无调用点）
+}
+
+partial class Calc {
+    partial int Double(int n) { return n * 2; }            // 实现侧（有 body）
+}
+
+void Main() {
+    var c = new Calc();
+    Assert.Equal(20, c.Quad(5));   // Double(Double(5)) = Double(10) = 20
+    Assert.Equal(4, c.Double(2));  // 直接调用配对实现
+}

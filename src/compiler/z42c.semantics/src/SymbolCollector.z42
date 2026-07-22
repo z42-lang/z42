@@ -5,19 +5,31 @@ namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
+using Z42.Core;   // add-partial-types：DiagnosticBag/DiagnosticCodes/Span（partial 合并校验）
 
 public sealed class SymbolCollector {
+    // add-partial-types：partial 合并的包级诊断（CollectAll 收集，BuildPackageCus 按 Span.File 分发到各文件）。
+    // 单文件 Collect/CollectWithImports 路径也复用（同文件多 partial 碎片合并同样走这套）。
+    public DiagnosticBag Diags;
+    // partial method 配对追踪：canonical sig key "Cls#Name(pt,…)" → MethodDecl。decl-only 擦除，impl 需匹配 decl。
+    private StrMap _partialDecls;
+    private StrMap _partialImpls;
+    public SymbolCollector() {
+        this.Diags = new DiagnosticBag();
+        this._partialDecls = new StrMap();
+        this._partialImpls = new StrMap();
+    }
     // imported 符号先 seed，本地声明覆盖（CI-4；镜像 C# SymbolCollector.Collect：MergeImported
     // 在成员收集前——使本地类**字段/方法类型**能解析为兄弟包 imported 类，而非降级 Unknown）。
     // 顺序：本地 interface/class stub → seed imported（guard 跳本地同名，local-wins）→ 成员解析。
     // 接口必须在 _passClassStubs 之前 seed（基表判别：_passClassStubs 查 table.Interfaces 区分 iface vs class base）。
     public SymbolTable CollectWithImports(CompilationUnit cu, ImportedSymbols imported) {
         var t = new SymbolTable();
-        this._passInterfaces(t, cu);
+        this._passInterfaces(t, cu, "");
         this._passEnums(t, cu);
         this._mergeImportedEnums(t, imported);
         this._mergeImportedInterfaces(t, imported);
-        this._passClassStubs(t, cu);
+        this._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
         this._mergeImports(t, imported);
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         this._passDelegates(t, cu);
@@ -104,17 +116,18 @@ public sealed class SymbolCollector {
 
     // 全包合并收集（PS-1）：多 CU 同表（接口 stub 全包 → 类 stub 全包 → 成员/函数全包）。
     // 语义等价 C# sibling-exports（其逐文件+缓存导出形态为增量编译服务）。同名冲突 first-wins（诊断挂账）。
-    public SymbolTable CollectAll(CompilationUnit[] cus, int cuCount, ImportedSymbols imported) {
+    public SymbolTable CollectAll(CompilationUnit[] cus, string[] files, int cuCount, ImportedSymbols imported) {
         var table = new SymbolTable();
         int c = 0;
-        while (c < cuCount) { this._passInterfaces(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._passInterfaces(table, cus[c], files[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._passEnums(table, cus[c]); c = c + 1; }
         this._mergeImportedEnums(table, imported);
         // imported 接口必须在 _passClassStubs 前 seed（基表判别：查 table.Interfaces 区分 iface vs class base）。
         this._mergeImportedInterfaces(table, imported);
         c = 0;
-        while (c < cuCount) { this._passClassStubs(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._passClassStubs(table, cus[c], files[c]); c = c + 1; }
+        this._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
         // seed imported classes + funcs（成员解析前；G18：兄弟包 imported 类字段/方法类型可解析为 Z42ClassType 而非 Unknown）。
         this._mergeImports(table, imported);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
@@ -122,6 +135,7 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._passDelegates(table, cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._passMembers(table, cus[c]); c = c + 1; }
+        this._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
         // add-type-based-overloads D7（阶段 8 修复）：override 方法 regKey 对齐——必须在所有 CU 的
         // _passMembers 全部跑完后再做（跨 CU base/derived 声明序不保证 base 先行，见 _findVirtualOrigin）。
         c = 0;
@@ -169,9 +183,9 @@ public sealed class SymbolCollector {
 
     public SymbolTable Collect(CompilationUnit cu) {
         var table = new SymbolTable();
-        this._passInterfaces(table, cu);
+        this._passInterfaces(table, cu, "");
         this._passEnums(table, cu);
-        this._passClassStubs(table, cu);
+        this._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
         this._passDelegates(table, cu);
         this._passMembers(table, cu);
         this._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
@@ -365,14 +379,27 @@ public sealed class SymbolCollector {
     }
 
     // Pass A0：接口 stub（先于类——基表判别要查 Interfaces）（port-z42c-interface）
-    private void _passInterfaces(SymbolTable table, CompilationUnit cu) {
+    private void _passInterfaces(SymbolTable table, CompilationUnit cu, string file) {
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "interface") {
-                    table.Interfaces.Put(c.Name, new Z42InterfaceType(c.Name));
+                    // add-partial-types：同名接口碎片合并（方法经 _fillInterface 并入首碎片；主碎片=首=min-path）。
+                    if (table.Interfaces.ContainsKey(c.Name)) {
+                        Z42InterfaceType prev = table.Interfaces.Get(c.Name) as Z42InterfaceType;
+                        if (c.IsPartial || prev.IsPartial) {
+                            if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
+                            // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
+                        } else {
+                            table.Interfaces.Put(c.Name, new Z42InterfaceType(c.Name));   // 均非 partial：维持既有 last-wins
+                        }
+                    } else {
+                        Z42InterfaceType it = new Z42InterfaceType(c.Name);
+                        if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
+                        table.Interfaces.Put(c.Name, it);
+                    }
                 }
             }
             i = i + 1;
@@ -380,7 +407,7 @@ public sealed class SymbolCollector {
     }
 
     // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
-    private void _passClassStubs(SymbolTable table, CompilationUnit cu) {
+    private void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
         // ── Pre-scan：检测同 CU 内同名不同 arity 的类，泛型版需 arity-mangle（镜像 C# NeedsMangle 逻辑）。
         // firstArityMap[name] = 首次见到的 arity（字符串）；multiArityMap[name] = "1" 若有多个不同 arity。
         StrMap firstArityMap = new StrMap();
@@ -426,11 +453,26 @@ public sealed class SymbolCollector {
                     }
                     bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
                     string key = needsMangle ? c.Name + "$" + c.TypeParams.Count.ToString() : c.Name;
-                    Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
-                    ct.InterfaceNames = ifaces;
-                    ct.InterfaceCount = ifc;
-                    if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
-                    table.Classes.Put(key, ct);
+                    // add-partial-types：同名碎片合并。保留首碎片（发现序=Ordinal 序，首=主碎片 min-path），
+                    // 并入本碎片的 base/接口；均非 partial 时维持既有 last-wins 覆盖（无回归）。
+                    bool collides = table.Classes.ContainsKey(key);
+                    bool mergePartial = collides && (c.IsPartial || (table.Classes.Get(key) as Z42ClassType).IsPartial);
+                    if (mergePartial) {
+                        Z42ClassType prev = table.Classes.Get(key) as Z42ClassType;
+                        if (hasBase) {
+                            if (prev.HasBase && prev.BaseName != baseName) {
+                                this.Diags.Error(DiagnosticCodes.PartialBaseConflict,
+                                    "partial type `" + c.Name + "` declares a base class in more than one fragment", c.Span);
+                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; }
+                        }
+                        int ii = 0;
+                        while (ii < ifc) { if (!this._ctHasIface(prev, ifaces[ii])) { prev.AddInterfaceName(ifaces[ii]); } ii = ii + 1; }
+                        if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
+                        // 保留 prev（首碎片），不覆盖 → 成员按 Ordinal 序累积进同一 CT（_fillClass 各碎片查同名命中此 CT）。
+                    } else {
+                        // 新键 OR 碰撞但均非 partial（后者维持既有 last-wins 覆盖，无回归）。
+                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file);
+                    }
                 }
             }
             i = i + 1;
@@ -533,6 +575,11 @@ public sealed class SymbolCollector {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
                 bool fstatic = this._hasWord(fd.Mods, "static");
+                // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
+                if (ct.IsPartial && ct.Fields.ContainsKey(fd.Name)) {
+                    this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
+                        "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
+                }
                 ct.Fields.Put(fd.Name, new FieldSymbol(fd.Name, this._vis(fd.Mods), ft, fstatic, c.Name));
                 if (this._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
@@ -586,6 +633,11 @@ public sealed class SymbolCollector {
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
+                // add-partial-types：partial method 配对追踪（canonical sig key，独立于重载 mangle）。
+                if (md.IsPartial) {
+                    string psk = this._partialSigKey(c.Name, md);
+                    if (md.HasBody) { this._partialImpls.Put(psk, md); } else { this._partialDecls.Put(psk, md); }
+                }
                 // ctor（G11）也收集为方法（名=类名，ret void）：使 TypeChecker 能绑其体、IrGen 能发 `<Class>.<Class>` 函数。
                 // GS3：重载方法注册 Name$arity；unique 方法 bare name（镜像 C# SymbolCollector.Classes.cs regName 逻辑）。
                 // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
@@ -616,9 +668,18 @@ public sealed class SymbolCollector {
                         regName = aritK;
                     }
                 }
-                msym.RegKey = regName;
-                md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键
-                ct.Methods.Put(regName, msym);
+                // add-partial-types：decl-only partial method → 擦除（无实现即不存在，不注册桩/体）。
+                if (md.IsPartial && !md.HasBody) {
+                    // 擦除：跳过注册。若某碎片有实现，其 impl 会在自己的碎片正常注册。
+                } else {
+                    if (ct.IsPartial && ct.Methods.ContainsKey(regName)) {
+                        this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
+                            "partial type `" + c.Name + "` defines member `" + md.Name + "` in more than one fragment", md.Span);
+                    }
+                    msym.RegKey = regName;
+                    md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键
+                    ct.Methods.Put(regName, msym);
+                }
             }
             j = j + 1;
         }
@@ -638,6 +699,129 @@ public sealed class SymbolCollector {
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { sig.ParamsFrom = md.ParamCount - 1; }
         return new MethodSymbol(md.Name, this._vis(md.Mods), sig, this._hasWord(md.Mods, "static"), containing, true, md);
+    }
+
+    // ── add-partial-types 辅助 ─────────────────────────────────────────────
+    // 注：SymbolCollector 已超 500 行软/硬限（pre-existing）；本组辅助按项目惯例（God-class 拆分走独立
+    // refactor change，见 split-typechecker/parser/irgen-class）暂随本特性落此，拆分留后续独立 refactor。
+
+    // ct 的接口集是否已含 name（碎片接口并集 dedup 用）。
+    private bool _ctHasIface(Z42ClassType ct, string name) {
+        int i = 0;
+        while (i < ct.InterfaceCount) { if (ct.InterfaceNames[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 建并注册一条类 stub（新键 / 非-partial 碰撞覆盖共用；抽出避免 z42 函数级作用域下 `ct` 重复声明）。
+    private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
+                               string[] ifaces, int ifc, bool needsMangle, string file) {
+        Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.InterfaceNames = ifaces;
+        ct.InterfaceCount = ifc;
+        if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
+        if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
+        table.Classes.Put(key, ct);
+    }
+
+    // partial method 配对用 canonical 签名键（独立于重载 mangle）：Cls#Name(pTypeDump,…)。
+    // 声明与实现签名一致 → 键相同 → 配对；不一致 → impl 键在 decls 查不到 → 报 E0434。
+    private string _partialSigKey(string cls, MethodDecl md) {
+        string s = cls + "#" + md.Name + "(";
+        int i = 0;
+        while (i < md.ParamCount) {
+            if (i > 0) { s = s + ","; }
+            s = s + md.Params[i].Type.Dump();
+            i = i + 1;
+        }
+        return s + ")";
+    }
+
+    // partial 类型校验（AST 级，跨全部 CU 按名分组）：① 全部标 partial ② Kind 一致 ③ 嵌套 partial 报错。
+    // （base 冲突在 _passClassStubs——需接口表分辨 base vs iface；成员重复在 _fillClass。）
+    private void _passValidatePartial(CompilationUnit[] cus, string[] files, int count) {
+        ClassDecl[] frags = new ClassDecl[16];
+        int nf = 0;
+        int c = 0;
+        while (c < count) {
+            int i = 0;
+            while (i < cus[c].DeclCount) {
+                Decl d = this._unwrap(cus[c].Decls[i]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (nf == frags.Length) {
+                        ClassDecl[] bb = new ClassDecl[frags.Length * 2];
+                        int k = 0; while (k < nf) { bb[k] = frags[k]; k = k + 1; }
+                        frags = bb;
+                    }
+                    frags[nf] = cd; nf = nf + 1;
+                    this._checkNestedPartial(cd);
+                }
+                i = i + 1;
+            }
+            c = c + 1;
+        }
+        StrMap seen = new StrMap();
+        int a = 0;
+        while (a < nf) {
+            string nm = frags[a].Name;
+            if (!seen.ContainsKey(nm)) {
+                seen.Put(nm, "1");
+                int total = 0; int partialN = 0; string firstKind = "";
+                bool kindErr = false; ClassDecl kindReport = frags[a];
+                int b = 0;
+                while (b < nf) {
+                    if (frags[b].Name == nm) {
+                        total = total + 1;
+                        if (frags[b].IsPartial) { partialN = partialN + 1; }
+                        if (firstKind == "") { firstKind = frags[b].Kind; }
+                        else if (frags[b].Kind != firstKind) { kindErr = true; kindReport = frags[b]; }
+                    }
+                    b = b + 1;
+                }
+                if (partialN > 0) {
+                    if (partialN != total) {
+                        this.Diags.Error(DiagnosticCodes.PartialModifierMissing,
+                            "type `" + nm + "` has both partial and non-partial declarations; all must be `partial`", frags[a].Span);
+                    }
+                    if (kindErr) {
+                        this.Diags.Error(DiagnosticCodes.PartialKindMismatch,
+                            "partial type `" + nm + "` declared with mismatched kinds (class/struct/record/interface must agree)", kindReport.Span);
+                    }
+                }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 嵌套类型自身 partial（v1 不支持，design D9）：外层 partial 含嵌套允许；嵌套类**自身**标 partial → 报错。
+    private void _checkNestedPartial(ClassDecl outer) {
+        int i = 0;
+        while (i < outer.MemberCount) {
+            Decl m = this._unwrap(outer.Members[i]);
+            if (m is ClassDecl) {
+                ClassDecl inner = m as ClassDecl;
+                if (inner.IsPartial) {
+                    this.Diags.Error(DiagnosticCodes.PartialNestedUnsupported,
+                        "nested type `" + inner.Name + "` cannot be `partial` (v1 supports partial only on top-level types)", inner.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // partial method 配对校验：每个实现必须有匹配声明（同 canonical 签名）；否则=实现无声明/签名不一致。
+    // decl-only（有声明无实现）→ 已在 _fillClass 擦除，此处不报错（合法擦除）。
+    private void _passResolvePartialMethods() {
+        string[] implKeys = this._partialImpls.Keys();
+        int i = 0;
+        while (i < implKeys.Length) {
+            if (!this._partialDecls.ContainsKey(implKeys[i])) {
+                MethodDecl implMd = this._partialImpls.Get(implKeys[i]) as MethodDecl;
+                this.Diags.Error(DiagnosticCodes.PartialMethodSigMismatch,
+                    "partial method `" + implMd.Name + "` implementation has no matching declaration (declaration and implementation signatures must match exactly)", implMd.Span);
+            }
+            i = i + 1;
+        }
     }
 
     private string[] _mergeParams(string[] a, int ac, string[] b, int bc) {

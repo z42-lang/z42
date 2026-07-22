@@ -11,7 +11,7 @@
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |
 | `src/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
-| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func |
+| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）|
 | `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
@@ -22,7 +22,7 @@
 | `src/EmitContext.z42` | **codegen 共享状态 + 低层助手**：寄存器分配 Alloc / Emit / 基本块 StartBlock·EndBlock / Fresh 标签 / 循环标签栈 PushLoop·PopLoop / Z42Type→IrType 映射（叶子 z42c.ir 不引用 Z42Type，映射在此）。FunctionEmitter 与 ExprEmitter 共用一个 ctx（z42 无 partial class，拆 helper 替代 C# 的 partial） |
 | `src/ExprEmitter.z42` | **表达式 lowering**（CG-1A–1E 全）：集中 if-is Emit(BoundExpr)→TypedReg。字面量 / ident·字段 / 二元（算术·比较·位·拼接）/ 一元（!·-·~）/ 赋值 / 成员 / 调用 / new / 数组索引 / is·as / **块化：短路 &&·‖、三目 ?:、??**（中途分块 + 结果寄存器 copy 汇合）|
 | `src/FunctionEmitter.z42` | **codegen 函数入口 + 语句 + 控制流**：EmitFunction（建 ctx + 形参/this/字段绑定 → 出 IrFunction）+ 集中 if-is EmitStmt；if/while/break/continue → 多块 + Br/BrCond（委托 _ctx 块管理 + _expr 表达式） |
-| `src/IrGen.z42` | codegen 模块级驱动：遍历 cu + SemanticModel → 逐函数 FunctionEmitter + StringPool intern + IrClassDesc → IrModule |
+| `src/IrGen.z42` | codegen 模块级驱动：遍历 cu + SemanticModel → 逐函数 FunctionEmitter + StringPool intern + IrClassDesc → IrModule；**partial 主碎片（min-path）发 1 条合并 TYPE record**（class + interface），非主碎片只发方法体 |
 | `src/IrDump.z42` | 纯函数工具：源 → typecheck → IrGen → .zasm-like IR 文本（[Test] + driver `--dump-ir` 后续） |
 
 ## 入口点

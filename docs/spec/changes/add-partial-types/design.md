@@ -164,3 +164,43 @@ zbc 读进后走 `merge_modules`（[merge.rs](../../../src/runtime/src/metadata/
   逐字节；非 partial 文件未被重写（mtime 断言）。
 - **GREEN gate**：`xtask test`（e2e + cross-zpkg + stdlib + compiler 自举 7/7 byte-identical）。
 - **自举边界**：`xtask test bootstrap`——上一版 nightly 仍能编当前源（阶段 1 support-only 期）。
+
+## Deferred / Future Work（实施期 2026-07-22 识别）
+
+### partial-future-cross-fragment-overload-mangle
+- **来源**：实施期（Phase 2/3）。
+- **触发原因**：方法键 mangle 的重载预扫描（`SymbolCollector._fillClass`）是**逐碎片**的
+  （只扫当前碎片成员）。同名方法的多个重载**分处不同碎片**时，各碎片按各自 sibling 集算键 →
+  键可能不一致 → 派发/配对错位。partial method 与同名普通方法同碎片时也受此影响。
+- **当前形态**：碎片间**不共享方法名**的用法（覆盖全部 spec 场景 + 主用例平台拆分）完全正确。
+- **前置依赖**：把 partial 类型的 mangle 预扫描改为**合并集**（先聚合全碎片成员再算键）。
+- **触发条件**：出现「重载方法跨碎片拆分」的真实需求。
+- **当前 workaround**：把同名重载放同一碎片。
+
+### partial-future-interface-method-dup + property/indexer-dup
+- **来源**：实施期。
+- **触发原因**：跨碎片重复成员检测覆盖字段 + 普通方法；**接口方法** / **属性·索引器访问器**的
+  跨碎片重复未检测（静默 last-wins）。
+- **前置依赖**：在 `_fillInterface` / property·indexer 填充处加 `ct.IsPartial` gated dup 检查。
+- **触发条件**：需要严格拒绝这类重复时。
+
+### partial-future-incremental-reconcile-test
+- **来源**：实施期（Phase 6）。
+- **触发原因**：`src/tests/partial-types/incremental/` 逐字节对账夹具未随本 change 落地——需
+  `xtask test incremental` 对账器的语料接入（driver-path，非 CI-GREEN 关键路径）。
+- **前置依赖**：了解 `test incremental` 对账器夹具组织。
+- **当前形态**：Phase 4 clique 代码已实现机制；merge 单测 + code review 覆盖正确性。
+
+## Design 精化（实施期，2026-07-22）
+
+- **D2 精化**：合并顺序确定性由 `SourceDiscovery` 的 **Ordinal 排序**天然达成（`srcs`/`files`
+  数组已 Ordinal 序），无需在合并处额外排序；原设计设想复用 `IncrementalBuild.Rel` 排序键，
+  实测发现 SourceDiscovery 已排 → 直接依赖之。
+- **Phase 5（ExportedTypeExtractor）无需改动**：`drop-tsig-expt` 已删 EXPT+TSIG 段，跨包解析
+  改读 TYPE/SIGS（`TsigReconcile.Rebuild`）。依赖 zpkg 打包全碎片 zbc → 消费方自动重建完整合并
+  类型（主碎片 TYPE record + 各碎片 SIGS）。原 Scope 列 ExportedTypeExtractor 系 drop-tsig-expt 前
+  的设想。
+- **同文件多碎片去重（emittedPartial）**：`PartialMainFile` 是文件级；同一文件内多个碎片都
+  `ptIsMain` → IrGen 加 CU-局部 `emittedPartial` 集，合并 TYPE record 每类型只发一次。
+- **合并机制实际挂载点**：`SymbolCollector.CollectAll`（设计文写作 `CollectWithImports`，实际
+  多-CU 入口是 `CollectAll`）。

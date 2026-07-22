@@ -5,6 +5,7 @@ using Std;
 using Std.Test;
 using Z42.Syntax;
 using Z42.Semantics;
+using Z42.Core;   // add-partial-types：DiagnosticBag/Diagnostic（合并校验断言）
 
 SymbolTable collect(string src) {
     var p = new Parser(src, "t.z42");
@@ -109,4 +110,133 @@ void test_tsig_multilevel_inheritance_and_static_field() {
       + "B(A) F:[a:int,b:int,counter:int(s)] M:[ToString/v,Equals/v,GetHashCode/v,GetType]\n"
       + "C(B) F:[a:int,b:int,c:int] M:[ToString/v,Equals/v,GetHashCode/v,GetType]",
         SemanticDump.DumpExports(src));
+}
+
+// ── add-partial-types: 跨碎片合并（多 CU CollectAll）───────────────────────────
+SymbolTable pmergeTable(string a, string b) {
+    var pa = new Parser(a, "a.z42"); var cua = pa.ParseCompilationUnit();
+    var pb = new Parser(b, "b.z42"); var cub = pb.ParseCompilationUnit();
+    CompilationUnit[] cus = new CompilationUnit[2]; cus[0] = cua; cus[1] = cub;
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    return new SymbolCollector().CollectAll(cus, files, 2, null);
+}
+DiagnosticBag pmergeDiags(string a, string b) {
+    var pa = new Parser(a, "a.z42"); var cua = pa.ParseCompilationUnit();
+    var pb = new Parser(b, "b.z42"); var cub = pb.ParseCompilationUnit();
+    CompilationUnit[] cus = new CompilationUnit[2]; cus[0] = cua; cus[1] = cub;
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    var coll = new SymbolCollector();
+    coll.CollectAll(cus, files, 2, null);
+    return coll.Diags;
+}
+bool hasCode(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return true; } i = i + 1; }
+    return false;
+}
+
+[Test]
+void test_partial_merge_fields_and_methods() {
+    var t = pmergeTable(
+        "partial class Foo { public int X; public int GetX() { return this.X; } }",
+        "partial class Foo { public int Y; public int GetY() { return this.Y; } }");
+    Assert.Equal(true, t.HasClass("Foo"));
+    var foo = t.GetClass("Foo");
+    Assert.Equal(true, foo.Fields.ContainsKey("X"));
+    Assert.Equal(true, foo.Fields.ContainsKey("Y"));
+    Assert.Equal(true, foo.Methods.ContainsKey("GetX"));
+    Assert.Equal(true, foo.Methods.ContainsKey("GetY"));
+    Assert.Equal(true, foo.IsPartial);
+    Assert.Equal("a.z42", foo.PartialMainFile);   // 首碎片=主碎片（Ordinal 最小）
+}
+
+[Test]
+void test_partial_missing_modifier_reports_E0430() {
+    var d = pmergeDiags(
+        "partial class Foo { public int X; }",
+        "class Foo { public int Y; }");
+    Assert.Equal(true, hasCode(d, "E0430"));
+}
+
+[Test]
+void test_partial_kind_mismatch_reports_E0431() {
+    var d = pmergeDiags(
+        "partial class Foo { public int X; }",
+        "partial struct Foo { public int Y; }");
+    Assert.Equal(true, hasCode(d, "E0431"));
+}
+
+[Test]
+void test_partial_base_conflict_reports_E0432() {
+    var d = pmergeDiags(
+        "partial class Foo : Base { public int X; }",
+        "partial class Foo : Other { public int Y; }");
+    Assert.Equal(true, hasCode(d, "E0432"));
+}
+
+[Test]
+void test_partial_duplicate_member_reports_E0433() {
+    var d = pmergeDiags(
+        "partial class Foo { public int X; }",
+        "partial class Foo { public int X; }");
+    Assert.Equal(true, hasCode(d, "E0433"));
+}
+
+[Test]
+void test_partial_interfaces_union() {
+    var t = pmergeTable(
+        "interface IA { } interface IB { } partial class Foo : IA { public int X; }",
+        "partial class Foo : IB { public int Y; }");
+    var foo = t.GetClass("Foo");
+    bool hasIA = false; bool hasIB = false;
+    int i = 0;
+    while (i < foo.InterfaceCount) {
+        if (foo.InterfaceNames[i] == "IA") { hasIA = true; }
+        if (foo.InterfaceNames[i] == "IB") { hasIB = true; }
+        i = i + 1;
+    }
+    Assert.Equal(true, hasIA);
+    Assert.Equal(true, hasIB);
+}
+
+[Test]
+void test_partial_method_paired_registers_impl() {
+    var t = pmergeTable(
+        "partial class Foo { partial int M(int n); }",
+        "partial class Foo { partial int M(int n) { return n; } }");
+    var foo = t.GetClass("Foo");
+    Assert.Equal(true, foo.Methods.ContainsKey("M"));   // 实现注册
+    var d = pmergeDiags(
+        "partial class Foo { partial int M(int n); }",
+        "partial class Foo { partial int M(int n) { return n; } }");
+    Assert.Equal(false, hasCode(d, "E0434"));           // 签名一致 → 无错
+}
+
+[Test]
+void test_partial_method_erased_when_no_impl() {
+    var t = pmergeTable(
+        "partial class Foo { partial void OnInit(); }",
+        "partial class Foo { public int X; }");
+    var foo = t.GetClass("Foo");
+    Assert.Equal(false, foo.Methods.ContainsKey("OnInit"));   // 无实现 → 擦除（不注册）
+}
+
+[Test]
+void test_partial_method_sig_mismatch_reports_E0434() {
+    var d = pmergeDiags(
+        "partial class Foo { partial int M(int a); }",
+        "partial class Foo { partial int M(string a) { return 0; } }");
+    Assert.Equal(true, hasCode(d, "E0434"));
+}
+
+[Test]
+void test_partial_interface_merge_methods() {
+    var t = pmergeTable(
+        "partial interface IFoo { int A(); }",
+        "partial interface IFoo { int B(); }");
+    Assert.Equal(true, t.HasInterface("IFoo"));
+    var ifoo = t.GetInterface("IFoo");
+    Assert.Equal(true, ifoo.Methods.ContainsKey("A"));
+    Assert.Equal(true, ifoo.Methods.ContainsKey("B"));
+    Assert.Equal(true, ifoo.IsPartial);
 }

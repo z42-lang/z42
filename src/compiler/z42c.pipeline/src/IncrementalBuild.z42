@@ -86,7 +86,7 @@ public static class IncrementalBuild {
     // ② 传递失效闭包。tokens[i] = 文件 i 标识符 token 集（去重）；defined[i] = 文件 i
     // 包内定义名集。O(轮数 × N²) 朴素迭代（包内 N 小）；命中边即扩散直至不动。
     public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
-                             NameListZ[] tokens, NameListZ[] defined) {
+                             NameListZ[] tokens, NameListZ[] defined, NameListZ partialNames) {
         bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
         int n = plan.Total;
         // 边矩阵一次算好：edge[i*n+j] = i 引用 j 的定义名（i≠j）。
@@ -118,6 +118,25 @@ public static class IncrementalBuild {
                 t = t + 1;
             }
             i = i + 1;
+        }
+        // add-partial-types：partial 碎片组 clique——同名 partial 类型的全部碎片文件两两互连（双向边）。
+        // 主碎片按**全碎片当前成员**发合并 TYPE record，故触任一碎片必须连带整组重编（否则主碎片 cache
+        // 会残留旧布局）。owners[name] 已含该名全部属主文件（partial 碎片各自 _definedOf 都注册了类名）。
+        int pn = 0;
+        while (pn < partialNames.Count) {
+            string pnm = partialNames.Items[pn];
+            if (owners.ContainsKey(pnm)) {
+                OwnerNodeZ ca = owners.Get(pnm) as OwnerNodeZ;
+                while (ca != null) {
+                    OwnerNodeZ cb = owners.Get(pnm) as OwnerNodeZ;
+                    while (cb != null) {
+                        if (ca.FileIdx != cb.FileIdx) { edge[ca.FileIdx * n + cb.FileIdx] = true; }
+                        cb = cb.Next;
+                    }
+                    ca = ca.Next;
+                }
+            }
+            pn = pn + 1;
         }
         // 闭包迭代。
         bool changed = true;

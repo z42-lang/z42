@@ -1,6 +1,15 @@
 # Tasks: partial 类型
 
-> 状态：🔴 DRAFT，**设计封版**、排队中（等 `compiler` 锁释放）| 创建：2026-07-08 | 封版：2026-07-19
+> 状态：🟡 实现完成，待 CI GREEN（本地 0.32↔0.33 格式缺口不可自建，靠 CI 两代自举验证）
+> | 创建：2026-07-08 | 封版：2026-07-19 | 实现：2026-07-22（隔离分支 `claude/add-partial-types`，User 授权跳队）
+>
+> **实现摘要**：Phase 1 词法/语法 ✅、Phase 2 语义合并+校验 ✅、Phase 3 codegen（合并 TYPE record
+> class+interface + partial method 擦除）✅、Phase 4 增量碎片 clique ✅、Phase 5 跨包导出（drop-tsig-expt
+> 后由 Phase 3 自动覆盖，无需改）✅、Phase 6 测试（merge 11 单测 + parser 2 + e2e 2 + example）✅。
+> **残留**：incremental 逐字节对账夹具（driver-path，见 design Deferred `partial-future-incremental-reconcile-test`）；
+> 跨碎片重载 mangle / 接口方法·属性跨碎片 dup 检测（见 design Deferred）。
+>
+> **前史**：🔴 DRAFT，**设计封版**、排队中（等 `compiler` 锁释放）| 创建：2026-07-08 | 封版：2026-07-19
 > Open Questions 三条全结（主碎片 D3 / partial method D5 / 能力版本号 D7）；开工无待决设计项。
 > 前置：`add-indexed-zpkg-min-patch` 归档释放 `compiler` 锁 → 阶段 6.5 确认 → 开工。
 > **v1 scope（2026-07-19 定，design D3/D8/D9）**：① 主碎片 = 路径 Ordinal 最小（单一规则）；
@@ -8,13 +17,13 @@
 > partial 外层可含嵌套类，但**嵌套类自身 partial → 报错 + Deferred**（嵌套发射链路未接通）。
 
 ## 进度概览
-- [ ] 阶段 1: 词法 + 语法（partial 修饰符）
-- [ ] 阶段 2: 语义合并（SymbolCollector + Z42Type）
-- [ ] 阶段 3: Codegen（合并 TYPE record + partial method 擦除）
-- [ ] 阶段 4: 增量共存（IncrementalBuild 碎片组联动）
-- [ ] 阶段 5: 跨包导出（ExportedTypeExtractor）
-- [ ] 阶段 6: 测试与验证
-- [ ] 阶段 7: 文档同步
+- [x] 阶段 1: 词法 + 语法（partial 修饰符）
+- [x] 阶段 2: 语义合并（SymbolCollector + Z42Type）
+- [x] 阶段 3: Codegen（合并 TYPE record + partial method 擦除；class + interface）
+- [x] 阶段 4: 增量共存（IncrementalBuild 碎片组 clique）
+- [x] 阶段 5: 跨包导出（drop-tsig-expt 后由 Phase 3 自动覆盖，ExportedTypeExtractor 无需改）
+- [x] 阶段 6: 测试与验证（merge/parser/e2e/example；incremental 对账残留见 Deferred）
+- [x] 阶段 7: 文档同步（book partial-types.md + SUMMARY + design Deferred + READMEs）
 
 ## 阶段 1: 词法 + 语法
 - [ ] 1.1 `TokenKind.z42` 新增 `Partial` 常量
