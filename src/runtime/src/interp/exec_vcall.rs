@@ -84,6 +84,39 @@ pub(super) fn vcall(
     let obj_val = frame.get(obj)?.clone();
     let mut extra_args = collect_args(&frame.regs, args)?;
 
+    // ── add-primitive-value-boxing: 装箱基元方法调用 ────────────────────
+    // 按 boxed.class 解析方法（+ arity 重载），fallback Std.Object 基类；`this = inner`（拆箱后
+    // 交基元 struct 方法体，与未装箱基元同源）。GetType/ToString/Equals/GetHashCode 皆经此。
+    if let Value::Boxed(b) = &obj_val {
+        let class_name = b.class.clone();
+        let mut call_args = vec![b.inner.clone()];
+        call_args.append(&mut extra_args);
+        let arity = call_args.len() - 1;
+        let candidates = [
+            format!("{}.{}${}", class_name, method, arity),
+            format!("{}.{}", class_name, method),
+            format!("Std.Object.{}${}", method, arity),
+            format!("Std.Object.{}", method),
+        ];
+        for func_name in &candidates {
+            let callee = module.func_index.get(func_name.as_str())
+                .and_then(|&idx| module.functions.get(idx));
+            if let Some(callee) = callee {
+                return match super::exec_function(ctx, module, callee, &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+            if let Some(lazy_fn) = ctx.try_lookup_function(func_name) {
+                return match super::exec_function(ctx, module, lazy_fn.as_ref(), &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+        }
+        bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity);
+    }
+
     // ── Fast path: IC hit (object OR primitive receiver) ────────────────
     // Fires when (1) caller passed an IC, (2) receiver's TypeId — real for
     // Value::Object, synthetic `PRIM_TYPE_*` for primitives (refactor-vcall-

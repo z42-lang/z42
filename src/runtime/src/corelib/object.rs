@@ -42,6 +42,15 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Some(Value::Str(_)) => {
             Ok(make_type_from_name(ctx, crate::metadata::well_known_names::STD_STRING))
         }
+        // add-primitive-value-boxing: 装箱基元 → 其**精确基元 struct 类型**（Std.Int64/…）。
+        Some(Value::Boxed(b)) => Ok(make_type_from_name(ctx, &b.class)),
+        // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
+        Some(v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))) => {
+            match crate::interp::primitive_class_name(v) {
+                Some(cn) => Ok(make_type_from_name(ctx, cn)),
+                None => bail!("__obj_get_type: expected an object"),
+            }
+        }
         Some(Value::Null) => bail!("__obj_get_type: null reference"),
         _ => bail!("__obj_get_type: expected an object"),
     }

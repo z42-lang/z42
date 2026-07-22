@@ -1,6 +1,25 @@
 use crate::metadata::Value;
+use crate::metadata::types::BoxedPrim;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
+
+/// add-primitive-value-boxing: 把裸基元装箱成 `Value::Boxed`，携带其精确基元 struct 类名。
+/// 编译器在 prim→object/接口 转换点发 `builtin __box_prim(%value, %classStr)`。
+/// arg0 = 裸基元值；arg1 = FQ 基元 struct 名（`Std.Int64`/…）。已是 Boxed 则原样返（幂等）。
+pub fn builtin_box_prim(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let inner = match args.first() {
+        Some(v) => v.clone(),
+        None => bail!("__box_prim: missing value arg"),
+    };
+    if matches!(inner, Value::Boxed(_)) {
+        return Ok(inner);
+    }
+    let class = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => bail!("__box_prim: missing/invalid class-name arg"),
+    };
+    Ok(Value::Boxed(Box::new(BoxedPrim { class, inner })))
+}
 
 // ── Typed argument extractors ────────────────────────────────────────────────
 //

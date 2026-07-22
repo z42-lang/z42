@@ -124,6 +124,7 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__uint64_parse",  convert::builtin_uint64_parse),
     ("__double_parse",  convert::builtin_double_parse),
     ("__to_str",        convert::builtin_to_str),
+    ("__box_prim",      convert::builtin_box_prim),
 
     // ── Primitive IComparable / IEquatable (L3-G4b) ───────────────────────────
     // `__int32_*` underlying routines are shared by all narrow integer wrapper
