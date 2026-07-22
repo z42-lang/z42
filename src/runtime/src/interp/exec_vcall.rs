@@ -88,6 +88,14 @@ pub(super) fn vcall(
     // 按 boxed.class 解析方法（+ arity 重载），fallback Std.Object 基类；`this = inner`（拆箱后
     // 交基元 struct 方法体，与未装箱基元同源）。GetType/ToString/Equals/GetHashCode 皆经此。
     if let Value::Boxed(b) = &obj_val {
+        // GetType 须保留装箱类：一般方法拆箱 `this=inner` 交基元 struct 方法体，但 GetType
+        // 若也拆箱，其 __get_type 会按 inner 的**默认** primitive_class_name 报告（I64→Int32），
+        // 丢掉 Std.Int64 等精确宽度。故 GetType 直接交 builtin_obj_get_type（Boxed 臂用 b.class）。
+        if method == "GetType" && extra_args.is_empty() {
+            let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
+            frame.set(dst, ty);
+            return Ok(None);
+        }
         let class_name = b.class.clone();
         let mut call_args = vec![b.inner.clone()];
         call_args.append(&mut extra_args);

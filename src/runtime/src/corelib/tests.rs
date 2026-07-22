@@ -201,9 +201,12 @@ fn obj_get_type_null_errors() {
 }
 
 #[test]
-fn obj_get_type_non_object_errors() {
+fn obj_get_type_primitive_returns_type() {
+    // add-primitive-value-boxing: 基元现在也有类型标识——`__obj_get_type` 对裸基元
+    // （未装箱 I64 等）返回其基元 Type（Std.Int32…），不再 error。装箱基元走 Boxed 臂
+    // 用精确 b.class；此处覆盖裸基元兜底臂。
     let c = ctx();
-    assert!(exec_builtin(&c, "__obj_get_type", &[i(42)]).is_err());
+    assert!(exec_builtin(&c, "__obj_get_type", &[i(42)]).is_ok());
 }
 
 // ── __obj_ref_eq ──────────────────────────────────────────────────────────────

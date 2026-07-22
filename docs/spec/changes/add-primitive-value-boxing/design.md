@@ -93,27 +93,43 @@ object/接口→Unbox，数值→Convert。618 处现有 cast 多为②数值，
 4. gate：self-host 5/5 + cargo + test compiler + is/as 强类型 golden（扩 boxed_primitive_is_as：
    `5 is long`=false / `9L is long`=true / GetType / boxed.ToString / boxed Equals）。
 
-## 实施进度快照（2026-07-22，claude/z42c-ctor-arity 上 smoke 实测）
+## 实施进度快照（2026-07-22，claude/z42c-ctor-arity）
 
-用 `__box_prim` builtin（非新 opcode，规避格式 bump）+ var-decl 装箱插入，warm z42c 自建后跑
-`object x=5 / object l=9L / object s="hi"` smoke（`--mode interp`）：
+用 `__box_prim` builtin（非新 opcode，规避格式 bump）+ var-decl 装箱插入。**整数强类型
+is/as/GetType 在 interp + jit 两模式实测通过、self-host 收敛、runtime 782 单测绿、golden 更新绿。**
 
-| 场景 | 现状 | 判定 |
-|------|------|------|
-| `object x=5; x is int` | `true` | ✅ **整数强类型已通**（boxed Std.Int32，精确 is-a） |
-| `object x=5; x is long` | `false` | ✅ 正确（Int32 ≠ Int64） |
-| `x.GetType().Name` | `Int32` | ✅ interp GetType Boxed 臂通 |
-| `object l=9L; l is long` | `false` ❌ | **缺口①**：`9L` 字面量被判 `int` → 装箱成 Std.Int32（应 Int64）。字面量后缀 `L` 类型化缺失（TypeChecker._bindLit 未按后缀定宽）|
-| JIT 模式跑同 smoke | `VCall: expected object, got Boxed` 崩 ❌ | **缺口②**：`jit/helpers/vcall.rs` 无 Boxed 臂（interp `exec_vcall.rs:90` 已有）。同理 jit is/as/GetType/field 也需 Boxed 臂 |
-| `object s="hi"; s.GetType()` | `VCall: expected object, got Str` 崩 ❌ | **缺口③**：非整数基元（string/bool/char/double）按设计**不装箱**（独立 Value 变体），但其 object-typed 虚派发 `.GetType()` 在 primitive vcall 路径找不到 `Std.Object.GetType` → 落到 220 行 bail。**需 User 定**：是否也给这些基元的 GetType 补 primitive-dispatch 兜底（与装箱正交，疑似 pre-existing）|
+**canonical 例（interp==jit 一致）**：
+```
+object l = 9L;   l is long=true   l is int=false   l.GetType().Name=Int64   l as long=9
+object by=(byte)7; by is byte=true  by is int=false  by.GetType().Name=Byte
+object i = 42;   i is int=true    i is long=false  i.GetType().Name=Int32
+```
 
-**剩余工作（按优先级）**：
-1. **缺口①** 字面量后缀定宽（`9L`→long / `5u`→uint 等），否则 canonical 例 `object l=9L; l is long` 不成立——**装箱正确性的前提**。
-2. **缺口②** JIT Boxed 臂（vcall/is/as/GetType/field），否则默认 mode（含 JIT）全崩——**上 CI 的前提**。
-3. 其余 coercion 插入点（call-arg / return / array-store / 三元）——目前仅 var-decl 一处。
-4. **缺口③** 需 User 裁决（非整数基元 GetType 兜底，或确认 pre-existing 另开 change）。
-5. gate：self-host 5/5 + cargo + test compiler + 更新 `boxed_primitive_is_as` golden（松匹配 → 强匹配：
-   `l is int` 从 true 翻 **false**，需连带更新该 golden 断言 + 归档说明语义变更）。
+**已完成**：
+- ✅ 缺口①：字面量后缀定宽（`ExprTyper._bindLiteral`：`L/l`→long、`U/u`→unsigned、`UL`→ulong；
+  无后缀按 int 界）。`9L`→Std.Int64（曾误判 int→Std.Int32）。**self-host 验证 gen2==gen3
+  逐字节收敛**（z42c 源自带 `0L/1L` 枚举字面量 → gen1 一代过渡差异，gen2 起稳定；旧 nightly
+  仍能编当前源，无越界）。
+- ✅ 缺口④：GetType 保留装箱类——vcall Boxed 臂特判 `GetType`，直接交 `builtin_obj_get_type`
+  （用 `b.class`），不拆箱 `this`（否则按 inner 默认类报告丢宽度 → 曾 Int64 误报 Int32）。
+- ✅ 缺口②：JIT Boxed 臂——`jit/helpers/object.rs`（is_instance/as_cast）+ `jit/helpers/vcall.rs`
+  （vcall + GetType 特判），镜像 interp。interp==jit 一致。
+- ✅ object 短路：装箱基元 `is object` / `as object`——基元类名（`Std.Int32`）在 type_registry
+  未必可解析到 `Std.Object` 基链（真名 `Std.Primitives.Int32`），故 is_instance/as_cast 的 Boxed
+  臂对 object 目标显式判真（interp+jit，镜像 prim_isa）。修 var-decl 装箱引入的 `is object` 回归。
+- ✅ golden：`src/tests/types/boxed_primitive_is_as.z42` 松匹配→强匹配（`l is int` true→**false**
+  + GetType 断言），interp+jit 均绿。
+- ✅ `corelib::tests` 更新：`__obj_get_type` 对裸基元返 Type（不再 error）。
 
-> **状态**：runtime interp 整数路径 + var-decl 插入 = 可用；但**未达 GREEN**（缺口①②必修、③待裁决）。
-> 分支未破（仅 smoke 验证，无残留改动）。resume 从缺口① 起。
+**剩余（未达完整 GREEN 前）**：
+1. **缺口③（待 User 裁决）**：非整数基元（string/bool/char/double）**按设计不装箱**，其
+   object-typed `.GetType()` 走 primitive vcall 路径找不到 `Std.Object.GetType` → bail
+   `expected object, got Str`。疑似 **pre-existing**（与整数装箱正交）。选项：① 给 primitive vcall
+   路径补 GetType 兜底；② 确认 pre-existing 另开 change。
+2. 其余 coercion 插入点（call-arg / return / array-store / 三元）——目前仅 var-decl 一处；
+   未装箱处走裸基元 prim_isa 松匹配（不破但不一致）。
+3. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 runtime 单测 + 目标
+   golden + self-host；全量 e2e/test-compiler 待跑）。
+
+> **状态**：**整数装箱强类型端到端可用（interp+jit）**，self-host 收敛，目标 golden + runtime 单测绿。
+> 缺口③ 待裁决、其余 coercion 点 + 全量 gate 待补 = 完整 GREEN 的剩余项。
