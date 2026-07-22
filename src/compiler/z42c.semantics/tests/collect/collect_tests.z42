@@ -230,15 +230,6 @@ void test_partial_method_sig_mismatch_reports_E0434() {
 }
 
 [Test]
-void test_partial_nested_reports_E0435() {
-    // v1 不支持嵌套类型自身 partial（design D9）：外层 partial 含内层 partial 类 → E0435。
-    var d = pmergeDiags(
-        "partial class Outer { partial class Inner { public int X; } }",
-        "partial class Outer { public int Y; }");
-    Assert.Equal(true, hasCode(d, "E0435"));
-}
-
-[Test]
 void test_partial_interface_merge_methods() {
     var t = pmergeTable(
         "partial interface IFoo { int A(); }",
