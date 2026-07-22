@@ -48,6 +48,21 @@ public sealed class TypeChecker {
         if (!erases) { return value; }
         return new BoundBox(value, fq, target, value.Span);
     }
+
+    // add-primitive-value-boxing: 对已决议方法的实参逐位装箱（整数实参 → object/接口 形参）。
+    // 就地改写 args（BoxIfNeeded 对非整数实参 / 非 object·接口形参是 no-op），返回同数组便于链式。
+    // 仅覆盖声明形参位（i < ParamTypes.Length）；params 尾包的元素装箱另论（罕见，暂不处理）。
+    public BoundExpr[] BoxArgs(BoundExpr[] args, int count, MethodSymbol ms) {
+        if (args == null || ms == null || ms.Signature == null) { return args; }
+        Z42Type[] pts = ms.Signature.ParamTypes;
+        if (pts == null) { return args; }
+        int i = 0;
+        while (i < count && i < pts.Length && i < args.Length) {
+            args[i] = this.BoxIfNeeded(args[i], pts[i]);
+            i = i + 1;
+        }
+        return args;
+    }
     private static string _intPrimFQ(string n) {
         if (n == "int"    || n == "i32") { return "Std.Int32"; }
         if (n == "long"   || n == "i64") { return "Std.Int64"; }

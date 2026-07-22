@@ -121,15 +121,25 @@ object i = 42;   i is int=true    i is long=false  i.GetType().Name=Int32
   + GetType 断言），interp+jit 均绿。
 - ✅ `corelib::tests` 更新：`__obj_get_type` 对裸基元返 Type（不再 error）。
 
-**剩余（未达完整 GREEN 前）**：
-1. **缺口③（待 User 裁决）**：非整数基元（string/bool/char/double）**按设计不装箱**，其
-   object-typed `.GetType()` 走 primitive vcall 路径找不到 `Std.Object.GetType` → bail
-   `expected object, got Str`。疑似 **pre-existing**（与整数装箱正交）。选项：① 给 primitive vcall
-   路径补 GetType 兜底；② 确认 pre-existing 另开 change。
-2. 其余 coercion 插入点（call-arg / return / array-store / 三元）——目前仅 var-decl 一处；
-   未装箱处走裸基元 prim_isa 松匹配（不破但不一致）。
-3. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 runtime 单测 + 目标
-   golden + self-host；全量 e2e/test-compiler 待跑）。
+**已完成（续）**：
+- ✅ 缺口③：非整数基元 `object`-typed `.GetType()`（`object s="hi"; s.GetType()`）——primitive
+  vcall 路径补 **Std.Object 兜底候选**（`Std.Object.<method>` / `$arity`），基元未 override 的
+  协议方法（GetType 仅在 Std.Object）走基类实现。interp+jit 同修。GetType=String 通。
+- ✅ **全部 coercion 插入点**：var-decl / return / array-literal / **call-arg**。
+  - return：`StmtBinder._bindReturn` 对返回值 BoxIfNeeded（返回类型 object/接口）。
+  - array：`ExprTyper._bindArrayInit` 对 `object[]` 整数元素装箱。
+  - call-arg：`TypeChecker.BoxArgs` + `OverloadBinder._withDefaults`（5 处调用点公共汇聚步）
+    对实参逐位按形参类型装箱。
+- ✅ **call-arg↔基元方法交互修复**：call-arg 装箱把整数实参装箱成 object（如
+  `Assert.Equal(object,object)`），而基元 struct 方法 native（Equals/CompareTo）按裸 long 读参
+  → `arg_i64`（`corelib/convert.rs` 共享取参助手）**透明拆箱 Boxed(I64)**，一处修全部 int native。
+- ✅ 验证：**self-host gen2==gen3 收敛（全 coercion 点）** + stdlib 25 成员重建绿 + coercion
+  smoke（return/call-arg/array，interp==jit）+ golden interp/jit 双绿 + runtime 782 单测绿。
 
-> **状态**：**整数装箱强类型端到端可用（interp+jit）**，self-host 收敛，目标 golden + runtime 单测绿。
-> 缺口③ 待裁决、其余 coercion 点 + 全量 gate 待补 = 完整 GREEN 的剩余项。
+**剩余（完整 GREEN 前）**：
+1. params 尾包（`params object[]` 元素）装箱——BoxArgs 只覆盖声明形参位，params 展开的元素未装箱（罕见）。
+2. gate 补全：`xtask test compiler` [Test] 单元 + e2e 全量 golden（本地已验 self-host + 目标 golden +
+   coercion smoke + stdlib 重建 + runtime 单测；全量 e2e/test-compiler 由 CI 跑）。
+
+> **状态**：**整数装箱强类型 + 全 coercion 插入点端到端可用（interp+jit）**，self-host 收敛，
+> stdlib 重建绿，golden + runtime 单测绿。仅 params 尾包 + 全量 CI gate 为剩余项。

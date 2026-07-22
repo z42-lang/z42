@@ -48,6 +48,13 @@ pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> 
 pub fn arg_i64(args: &[Value], idx: usize, ctx: &str) -> Result<i64> {
     match args.get(idx) {
         Some(Value::I64(n)) => Ok(*n),
+        // add-primitive-value-boxing: 装箱整数实参透明拆箱。call-arg 装箱把整数实参装箱成
+        // object（如 Assert.Equal(object,object)），而基元 struct 方法的 native（Equals/CompareTo/
+        // 算术）按裸 long 签名读参 → 装箱值须在此拆回内层 I64。Boxed 恒包整数（_intPrimFQ 只装箱整数）。
+        Some(Value::Boxed(b)) => match &b.inner {
+            Value::I64(n) => Ok(*n),
+            other => bail!("{}: arg {} expected int, got Boxed({:?})", ctx, idx, other),
+        },
         Some(other) => bail!("{}: arg {} expected int, got {:?}", ctx, idx, other),
         None => bail!("{}: missing arg {}", ctx, idx),
     }

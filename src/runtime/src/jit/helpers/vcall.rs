@@ -169,7 +169,11 @@ pub unsafe extern "C" fn jit_vcall(
         let arity = argc; // exclude `this`
         let primary = format!("{}.{}", class_name, method);
         let overload = format!("{}.{}${}", class_name, method, arity);
-        for func_name in [primary.as_str(), overload.as_str()] {
+        // Std.Object 兜底（镜像 interp）：基元未 override 的协议方法（尤 GetType）走基类实现。
+        let obj_primary = format!("Std.Object.{}", method);
+        let obj_overload = format!("Std.Object.{}${}", method, arity);
+        for func_name in [primary.as_str(), overload.as_str(),
+                          obj_primary.as_str(), obj_overload.as_str()] {
             if let Some(entry) = ctx_ref.fn_entries.get(func_name) {
                 let mut callee = JitFrame::new(entry.max_reg, &call_args);
                 let jit_fn: JitFn = std::mem::transmute(entry.ptr);
