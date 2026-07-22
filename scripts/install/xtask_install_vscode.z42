@@ -21,7 +21,7 @@ using Std.Time;
 // 新关键字进 Lexer 后必须在此恰好归入一组，否则生成/gate 报错（防漂移闭环）。
 string[] _kwControl() { return new string[]{ "return", "if", "else", "while", "for", "foreach", "in", "do", "break", "continue", "switch", "case", "default", "try", "catch", "finally", "throw", "spawn", "await" }; }
 string[] _kwDeclaration() { return new string[]{ "import", "namespace", "using", "var", "class", "struct", "enum", "interface", "record", "delegate", "event", "fn", "let", "trait", "impl", "use", "module", "operator", "where" }; }
-string[] _kwModifier() { return new string[]{ "static", "public", "private", "protected", "internal", "ref", "out", "params", "abstract", "extern", "sealed", "override", "virtual", "async", "mut", "pinned" }; }
+string[] _kwModifier() { return new string[]{ "static", "public", "private", "protected", "internal", "ref", "out", "params", "abstract", "extern", "sealed", "override", "virtual", "async", "mut", "pinned", "partial" }; }
 string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "is", "as" }; }
 string[] _kwPrimType() { return new string[]{ "string", "int", "long", "short", "double", "float", "byte", "uint", "ulong", "ushort", "sbyte", "object", "bool", "char", "void", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64" }; }
 string[] _kwLiteral() { return new string[]{ "null", "true", "false", "none" }; }
