@@ -1,0 +1,18 @@
+// add-partial-types：partial record 端到端（record 走与 class/struct 同一合并路径，Kind 区分）。
+// 碎片 1 带 positional 主构造器 + 一个方法；碎片 2 仅补一个方法，跨碎片读主构造字段。
+namespace PartialRecordTest;
+
+partial record Money(int Cents) {
+    int Doubled() { return this.Cents * 2; }
+}
+
+partial record Money {
+    string Show() { return this.Cents.ToString() + "c"; }   // 引用碎片 1 主构造字段 Cents
+}
+
+void Main() {
+    var m = new Money(50);
+    Assert.Equal(50, m.Cents);
+    Assert.Equal(100, m.Doubled());   // 碎片 1 方法
+    Assert.Equal("50c", m.Show());    // 碎片 2 方法，读碎片 1 的 Cents
+}
