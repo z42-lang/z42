@@ -1,6 +1,6 @@
 # Tasks: z42 原生交互式 REPL
 
-> 状态：🟡 进行中（阶段 1 ✅）| 6.5 通过 2026-07-23（D2=A / D3=A / 结果打印 1 层）| 创建：2026-07-23
+> 状态：🟡 阶段 1 ✅ 里程碑收口；阶段 2/3 暂停待 warm-z42c 环境（见备注）| 6.5 通过 2026-07-23（D2=A / D3=A / 结果打印 1 层）| 创建：2026-07-23
 > 子系统锁（2026-07-23 实测）：`runtime`（被 `lazy-per-function-jit` 占）‖ `stdlib`（被 `converge-z42c-onto-z42-project` 占）‖ `toolchain`（空闲）
 > **隔离分支并行**（User 授权 2026-07-23）：开发在独立 git worktree `../z42-repl-wt` 分支 `claude/z42-repl`，从干净 origin/main 切出，与主工作树的 `lazy-per-function-jit` 未提交 jit WIP 物理隔离。合并时按常规解冲突，GREEN 以 CI 为权威。
 > 实现顺序：runtime（阶段 1 ✅）→ stdlib（阶段 2）→ toolchain（阶段 3）
@@ -54,5 +54,26 @@
 - [ ] 5.5 `docs/spec/changes/ACTIVE.md` 实现期登记三子系统 / 归档释放
 
 ## 备注
-- D2（scripting 构建层级 A/B）、D3（内存加载 builtin A/B）、结果打印深度 —— 6.5 待 User 裁决后再动阶段 2。
+
+### 里程碑收口（2026-07-23，User 裁决）
+阶段 1（VM 地基）+ spec + D7 设计修正作为**已验证里程碑**收口；阶段 2/3 暂停，留待**有 warm z42c、能跑 z42i 的环境**边写边验（不盲写不可验证的 z42）。原因：z42.scripting 是「依赖编译器包的 stdlib 库」（D2），按 bootstrap-seed 轴④冷启动路径本地必验；且下列阶段 2 语义模型决策必须靠跑起来的 REPL 验证对错。
+
+### 阶段 2 待定语义模型（恢复实施前先定，均需运行期验证）
+1. **`var x = 5` → `$ReplVars` 静态字段的类型来源**：字段不能 `static var`，需推断类型。选项：(a) MVP 只支持显式类型 var（`int x = 5`）；(b) 编探针推断。→ 倾向先 (a)，(b) 作 follow-up。
+2. **副作用重放语义**：静态字段模型下仅 var 初始化器随 static-init 重放；纯语句 `$Stmt_N` 一次性、**不累积进 transcript**（否则 `Console.WriteLine` 每轮重打印）。spec 未明确「$Stmt_N 是否累积」——定为**不累积**。
+3. **D7 命名空间/包名唯一**（已定，已实现前提）：每轮 `Repl.R{N}` / `repl_r{N}`，绕开加载器 first-wins 幂等。
+
+### 已确认可复用的 API（阶段 2 恢复时直接用）
+- parse：`Z42.Semantics.IrDump.ParseAll(string[] srcs, string[] files, int count) -> CompilationUnit[]`
+- hash：`Z42.IR.ZpkgBuilder.Sha256Hex(text)`
+- compile：`Z42.Pipeline.PackageCompile.Compile(CompileInputs) -> CompileArtifacts`
+- bytes：`Z42.Project.ZpkgWriter.WritePacked(art.Z, false).ToBytes() -> byte[]`
+- 加载：`[Native("__load_bytecode_in_memory")] extern bool(byte[])`（阶段 1 已落）
+- 调用：`[Native("__invoke_static")] extern object Invoke(string fqn)`（复用 z42.test/ModuleLoader 范式，返回函数结果）
+- 行编辑：`[Native("__repl_readline")]` / `[Native("__repl_readblock")]`（阶段 1 已落）
+- 依赖（z42.scripting.toml）：`z42c.syntax` + `z42c.semantics` + `z42c.pipeline` + `z42.ir`（+ core prelude）
+- 集合/字符串：`Std.Collections.List<T>`（core prelude：`Count`/`this[i]`/`Add`/`ToArray`）、`String.Join/Substring/StartsWith/Split/...`
+
+### 其他
 - 静态依赖 PackageCompile → 不依赖 dynamic-component-registration 的接口 cast 修复。
+- 隔离开发在 worktree `../z42-repl-wt` 分支 `claude/z42-repl`；主工作树的 lazy-per-function-jit jit WIP 未触碰。ACTIVE.md 的 REPL 独立分支登记随本分支走，合并回 main 时生效。
