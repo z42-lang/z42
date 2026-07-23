@@ -1778,6 +1778,45 @@ fn load_module_opt(o: &Option<String>) -> Value {
     }
 }
 
+/// `__load_bytecode_in_memory(bytes: byte[]) -> bool` — load a compiled
+/// artifact (packed zpkg / bare zbc) from an in-memory byte array into the live
+/// VM registries, so its functions become reflectively invocable with zero disk
+/// I/O. Backs `z42.scripting`'s per-eval load (REPL): `PackageCompile` emits the
+/// session package's bytes in memory, this registers them, then `$Eval_N()` is
+/// called via `MethodInfo.Invoke`. Idempotent per module name (first-wins merge,
+/// like `__load_module`). Returns `true` on success; a malformed/empty buffer or
+/// missing lazy loader throws. (add-z42-repl)
+pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let bytes = match args.first() {
+        Some(Value::Array(rc)) => {
+            let borrowed = rc.borrow();
+            let mut out = Vec::with_capacity(borrowed.len());
+            for (i, v) in borrowed.iter().enumerate() {
+                match v {
+                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    other => bail!(
+                        "__load_bytecode_in_memory: byte {} not u8 in 0..=255: {:?}", i, other
+                    ),
+                }
+            }
+            out
+        }
+        Some(other) => bail!(
+            "__load_bytecode_in_memory: expected a byte[] argument, got {:?}", other
+        ),
+        None => bail!("__load_bytecode_in_memory: missing byte[] argument"),
+    };
+    ctx.load_module_bytes_into_vm(&bytes)?;
+    // Re-run static-field initializers for the freshly-loaded module + its
+    // dependency closure — same rationale as `__load_module` (the module is
+    // loaded mid-run, after the VM's startup static-init pass). Idempotent for
+    // value-init statics.
+    if let Some(m) = ctx.module().cloned() {
+        crate::interp::init_static_fields(ctx, &m)?;
+    }
+    Ok(Value::Bool(true))
+}
+
 #[cfg(test)]
 #[path = "reflection_tests.rs"]
 mod reflection_tests;

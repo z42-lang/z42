@@ -27,6 +27,7 @@
 
 pub mod convert;
 pub mod io;
+pub mod repl;
 pub mod string;
 pub mod str_meta;
 pub mod math;
@@ -458,6 +459,13 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── runtime-dynamic-load-call (DEFERRED) — stubs so zpkg loads cleanly ──
     ("__load_zpkg",  builtin_load_zpkg_stub),
     ("__call_static", builtin_call_static_stub),
+
+    // ── add-z42-repl (2026-07-23) — appended to preserve existing BuiltinIds ──
+    // REPL line editor (rustyline) + in-memory bytecode load. Back
+    // `Std.Repl.ReadLine/ReadBlock` and z42.scripting's per-eval module load.
+    ("__repl_readline",           repl::builtin_repl_readline),
+    ("__repl_readblock",          repl::builtin_repl_readblock),
+    ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

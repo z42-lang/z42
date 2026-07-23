@@ -9,6 +9,15 @@
 > `runtime`+`stdlib`）在分支 `claude/compiler-params-join-solution-ie04pf` 上开发，与主线 change
 > （`split-irgen-class` 等）物理隔离，合并时按常规解冲突。GREEN 以 CI 为权威（冷环境本地不可验自举链）。
 
+> **独立分支 in-flight（2026-07-23，User 授权并行推进，不排队）**：`add-z42-repl`
+> （0.4.0 capstone：z42 原生交互式 REPL——VM rustyline 行编辑 + `__load_bytecode_in_memory`
+> builtin ‖ 新 stdlib 库 `z42.scripting`（Form B `Script.Eval`）‖ 填充 `z42.interactive`(z42i)
+> 脚手架 + launcher `repl` 路由；占 `runtime`+`stdlib`+`toolchain`）在分支
+> `claude/z42-repl-capstone` 上开发，与 `lazy-per-function-jit`(runtime) /
+> `converge-z42c-onto-z42-project`(stdlib) 物理隔离，合并时按常规解冲突。6.5 通过
+> 2026-07-23（D1 静态依赖 PackageCompile → 不撞跨包接口 cast bug；D2/D3 皆 A；打印 1 层）。
+> GREEN 以 CI 为权威。spec：`docs/spec/changes/add-z42-repl/`。
+
 ## 子系统持有表
 
 | 子系统 | 当前持有 change | 起始 | 说明 |
