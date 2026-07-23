@@ -1,0 +1,10 @@
+namespace Demo.VarApp;
+
+using Std.IO;
+using Demo.VarLib;
+
+// 跨包 var 字段类型相关操作（infer-var-field-types 修复前均 E0402: got var）。
+void Main() {
+    Console.WriteLine(Config.Count + 100);   // int 算术 → 105
+    Console.WriteLine(Config.Name + "!");     // string 拼接 → z42!
+}

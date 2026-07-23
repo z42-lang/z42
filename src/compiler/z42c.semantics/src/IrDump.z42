@@ -87,6 +87,9 @@ public static class IrDump {
         int i = 0;
         SymbolCollector coll = new SymbolCollector();
         SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
+        // infer-var-field-types：SymbolCollect 后、TSIG Export 前——从初始化器推断 static var
+        // 字段类型、回写 fs.FieldType（消除「var」降级态，使导出 + 跨包消费得真实类型）。
+        VarFieldInfer.Run(cus, count, symbols);
         StrMap partialMerged = IrDump._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
         // G17b：同包跨-ns 类名解析图（跨-zpkg imported + 包内每个有 ns 的类 短名→声明 ns）。
         // is/as/static-get/ObjNew 引用兄弟 ns 的本地类时限定到声明 ns（镜像 C# ImportedClassNamespaces 含 using 引入的同包类）。

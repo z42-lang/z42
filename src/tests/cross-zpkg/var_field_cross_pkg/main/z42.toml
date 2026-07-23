@@ -1,0 +1,9 @@
+[project]
+name    = "demo.varapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.VarApp.Main"
+pack    = true
+
+[dependencies]
+"demo.varlib" = "0.1.0"
