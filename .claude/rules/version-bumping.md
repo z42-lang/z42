@@ -21,12 +21,15 @@ paths:
 
 ## 版本常量坐标（唯一真相表）
 
+> **路径注**：IR/zbc/zpkg 后端已由 `converge-z42c-ir-metadata-onto-stdlib` 从 `src/compiler/z42c.ir`
+> / `z42c.project` 下沉到 stdlib 库 **`src/libraries/z42.ir`**（namespace 不变）。下表已用收敛后真实路径。
+
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 27 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 27 |
-| zpkg writer（z42c） | `src/compiler/z42c.project/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 32 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 32 |
+| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 28 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 28 |
+| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 33 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 33 |
 
 > reader 端（`zbc_reader.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
 > writer 端常量旁也有同样的单行 bump 注释，保持格式一致。
@@ -37,7 +40,7 @@ paths:
 
 修改 `.zbc` wire format（新 opcode / 新 section / 已定义 section 字段语义变化）时，**单次 commit 必须同步以下 5 处**，否则 Rust reader strict-pin 校验、`zbc_compat` 字节基线、或 z42c golden hex 单测任一会 fail：
 
-1. **`ZbcFormat.z42`**（`src/compiler/z42c.ir/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了 section 布局，`ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
+1. **`ZbcFormat.z42`**（`src/libraries/z42.ir/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/design/runtime/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta。
@@ -66,7 +69,7 @@ xtask test compiler    # z42c golden hex 单测
 
 **zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 `docs/design/runtime/zpkg.md`）。在上述 5 步外加：
 
-6. **`ZpkgWriter.z42`**（`src/compiler/z42c.project/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
+6. **`ZpkgWriter.z42`**（`src/libraries/z42.ir/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **`docs/design/runtime/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
