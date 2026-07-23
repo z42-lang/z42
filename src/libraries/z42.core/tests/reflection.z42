@@ -259,10 +259,11 @@ void test_interface_getmethods_declared() {
 }
 
 [Test]
-void test_interface_getmethods_declared_only() {
-    // IExtendedShape : IShape — GetMethods returns only IExtendedShape's own method
-    // (Reset), NOT inherited IShape methods (aligns with C#; those reached via
-    // GetInterfaces() then each interface's GetMethods()).
+void test_interface_getmethods_includes_transitive() {
+    // IExtendedShape : IShape — GetMethods on an interface returns its own method
+    // (Reset) PLUS the (transitive) base-interface methods (IShape's Area), mirroring
+    // C# where GetMethods on an interface surfaces the whole interface set
+    // (add-reflection-transitive-interface-methods, 2026-07-24).
     Type t = typeof(IExtendedShape);
     MethodInfo[] methods = t.GetMethods();
     bool sawReset = false;
@@ -272,7 +273,7 @@ void test_interface_getmethods_declared_only() {
         if (m.Name == "Area") { sawArea = true; }
     }
     Assert.True(sawReset);
-    Assert.False(sawArea);
+    Assert.True(sawArea);   // transitive from IShape (was declared-only pre-2026-07-24)
 }
 
 [Test]
