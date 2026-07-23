@@ -550,11 +550,16 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **当前 workaround**：非字面量默认值 `DefaultValue == null`（kind=0），`IsOptional` 仍 true。
 
 
-### reflection-future-typeof-delegate — typeof(委托名) 直达句柄
+### ~~reflection-future-typeof-delegate~~ — 已落地（2026-07-24）
 
-- **来源**：add-delegate-metadata（unify P1-e ②，2026-07-11）Out of Scope。
-- **触发原因**：delegate 名在 `ResolveTypeP` 解析为 Z42FuncType（delegate 赋值/类型检查依赖），
-  typeof 发射路径需对 delegate 名特判（Z42FuncType → FQ delegate 名 → Typeof opcode）。
-- **前置依赖**：本砖（TYPE 条目已存在，运行期可解析）。
-- **触发条件**：用户需要 `typeof(MyDelegate)` 字面形式时。
-- **当前 workaround**：`Type.GetType("<fq delegate>")`。
+- **状态**：`typeof(MyDelegate)` 直达 delegate 句柄（`IsDelegate==true`、Invoke 可反射）已落地
+  2026-07-24（add-reflection-typeof-delegate），与 `Type.GetType("<fq>")` 一致。
+- **根因**：delegate 名经 `ResolveType` 解析为**结构化 `Z42FuncType`**（`Name()` 返 `"Action"`/
+  `"Func<…>"`），FQ delegate 名丢失 → `_typeofName` 默认 `t.Name()` 产结构名 → 运行期解析不到
+  delegate 的 TYPE 条目。**修复**：`BoundTypeof` 加 `TargetName`（AST 原始名，镜像 `BoundCast.TypeName`
+  / `BoundIsExpr.TypeName` 用原始名而非 resolved 类型的先例），`_bindTypeofExpr` 从 `tox.Type`
+  （`NamedType`）捕获；`_emitTypeof` 对 `Z42FuncType` 目标用 `QualifyClass(TargetName)` 回 FQ
+  delegate 名（其 TYPE 条目 under FQ 名，add-delegate-metadata）。**纯 z42c.semantics 内部**
+  （无 z42.ir/格式/runtime 改动，无 bootstrap 影响）。非 delegate typeof 不变（gated on Z42FuncType）。
+- **剩余**：泛型 delegate（`typeof(MyGenericDel<int>)`）走 Z42InstantiatedType 分支，本变更未特验；
+  匿名 func 类型 `typeof((int)->void)` 无 delegate 名（TargetName 空 → 回落结构名）。

@@ -1,0 +1,40 @@
+// 2026-07-24 add-reflection-typeof-delegate: typeof(MyDelegate) now yields a real
+// delegate Type handle (IsDelegate=true, Invoke method reflectable) — same as
+// Type.GetType("<fq>"). Previously the delegate name resolved to a structural
+// Z42FuncType ("Action"/"Func<…>"), losing the FQ name, so typeof(delegate) didn't
+// reach the delegate's TYPE entry. Fixed by emitting the AST name via QualifyClass.
+
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+delegate int Adder(int a, int b);
+class Plain { public int X; }
+
+void Main() {
+    // ── typeof(delegate) resolves to the delegate handle ───────────────────
+    Type t = typeof(Adder);
+    Assert.True(t.IsDelegate);
+    Assert.True(t.Name == "Adder");
+
+    // ── Matches Type.GetType("<fq>") (the former workaround) ───────────────
+    Type g = Type.GetType("Demo.Adder");
+    Assert.True(g != null);
+    Assert.True(g.IsDelegate == t.IsDelegate);
+    Assert.True(g.Name == t.Name);
+
+    // ── Reflectable Invoke method surfaces (deep Invoke reflection — return
+    //    type / params — is covered by z42.core test_delegate_metadata) ──────
+    MethodInfo[] ms = t.GetMethods();
+    bool sawInvoke = false;
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == "Invoke") { sawInvoke = true; }
+        i = i + 1;
+    }
+    Assert.True(sawInvoke);
+
+    // ── Non-delegate typeof unaffected ─────────────────────────────────────
+    Assert.False(typeof(Plain).IsDelegate);
+}
