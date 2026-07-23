@@ -6,7 +6,8 @@
 
 use crate::metadata::Value;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::{Mutex, OnceLock};
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -159,7 +160,14 @@ unsafe impl Sync for FnEntry {}
 
 // ── JitModuleCtx ─────────────────────────────────────────────────────────────
 
-/// Immutable module-level context threaded through every JIT call.
+/// Module-level context threaded through every JIT call.
+///
+/// lazy-per-function-jit (2026-07-23): the compiled-function table is now filled
+/// **on first call** rather than eagerly at load. `fn_entries_by_id` holds a
+/// per-function `OnceLock` slot (lock-free read on the hot path); a miss routes
+/// through `resolve_fn_by_id`, which compiles the function under `lazy` (the
+/// Mutex-guarded compiler) exactly once. The former by-name `fn_entries` HashMap
+/// is gone — name lookups go through `module.func_index → resolve_fn_by_id`.
 pub struct JitModuleCtx {
     /// Interned string constants (mirrors `Module::interned_strings`).
     /// review.md C3 Phase 1 (2026-06-03, add-string-literal-interning-phase1):
@@ -167,19 +175,22 @@ pub struct JitModuleCtx {
     /// Arc (atomic refcount inc, zero alloc) instead of the prior
     /// `String.clone() + .into::<Arc<str>>()` two-alloc path.
     pub string_pool: Vec<std::sync::Arc<str>>,
-    /// Compiled function table — name → native code entry.
-    pub fn_entries:  HashMap<String, FnEntry>,
-    /// Compiled function table — `MethodId.0` → native code entry
-    /// (introduce-method-token Phase 2.C, 2026-05-08). Indexed in
-    /// `module.functions` order so MethodId matches.
-    /// `None` slot = function couldn't be JIT-compiled (e.g. abstract,
-    /// extern stub) — caller must handle by falling back to the by-name
-    /// HashMap or returning an error. In current builds every function
-    /// in `module.functions` gets a JIT entry, so all slots are `Some`.
-    pub fn_entries_by_id: Vec<Option<FnEntry>>,
-    /// Back-pointer to the bytecode module for class descriptors, etc.
+    /// Compiled function table — slot `i` corresponds to `module.functions[i]`
+    /// (== `MethodId.0` == `module.func_index[name]`). Pre-sized once and never
+    /// resized, so a slot's address is stable and `OnceLock::get()` hands out a
+    /// `&FnEntry` valid for the whole run. An empty slot = "not yet compiled"
+    /// (filled by `resolve_fn_by_id` on first call), and stays empty forever for
+    /// functions that aren't JIT-translatable — those run on the interpreter.
+    pub fn_entries_by_id: Vec<OnceLock<FnEntry>>,
+    /// Back-pointer to the bytecode module for class descriptors, function
+    /// bodies (lazy compile), `func_index`, etc.
     /// SAFETY: the Module must outlive this ctx.
     pub module:      *const crate::metadata::Module,
+    /// Lazy per-function compiler (owns the cranelift `JITModule` + helper ids),
+    /// Mutex-guarded so concurrent first-calls compile each function exactly
+    /// once. SAFETY: the `Mutex<LazyCompiler>` is owned by the `JitModule` that
+    /// outlives this ctx; never null once constructed.
+    pub lazy:        *const Mutex<super::lazy::LazyCompiler>,
     /// Mutable VM state (static fields, pending exception, lazy loader).
     /// Set by `JitModule::run` for the duration of one entry-point invocation;
     /// reset to null on return. JIT helpers reach mutable VM state via this
@@ -188,6 +199,69 @@ pub struct JitModuleCtx {
     /// SAFETY: the VmContext must outlive `JitModule::run` and be unique
     /// (no concurrent JIT entry on the same JitModule).
     pub vm_ctx:      *mut crate::vm_context::VmContext,
+}
+
+impl JitModuleCtx {
+    /// Resolve function slot `idx` to its compiled `FnEntry`, compiling it on
+    /// first demand (compile-on-first-call). Returns `None` when the function
+    /// is not JIT-translatable or compilation fails — the caller then falls back
+    /// to the interpreter (or raises), exactly as it did when the eager table
+    /// simply lacked the entry.
+    ///
+    /// The already-compiled hot path is lock-free (a single `OnceLock::get`);
+    /// only the first compile of each slot takes the compiler mutex, with a
+    /// double-check so racing threads compile it exactly once.
+    ///
+    /// SAFETY: `module` and `lazy` must be valid — they are for the lifetime of
+    /// a `JitModule::run` (set at construction; `lazy` never null).
+    pub unsafe fn resolve_fn_by_id(&self, idx: usize) -> Option<&FnEntry> {
+        let slot = self.fn_entries_by_id.get(idx)?;
+        if let Some(e) = slot.get() {
+            return Some(e);
+        }
+        // Miss: compile on demand iff the function is JIT-translatable.
+        let module = &*self.module;
+        let func = module.functions.get(idx)?;
+        if super::translate::jit_unsupported_reason(func).is_some() {
+            return None; // interp fallback — mirrors eager "absent from table"
+        }
+        // Serialize compilation; re-check the slot after taking the lock in case
+        // another thread compiled it while we waited.
+        let mtx = &*self.lazy;
+        let mut guard = match mtx.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if slot.get().is_none() {
+            let t0 = std::time::Instant::now();
+            match guard.compile_one(idx) {
+                Ok(entry) => {
+                    let _ = slot.set(entry);
+                    // Counters reflect what was ACTUALLY compiled (vs the former
+                    // eager whole-module count). vm_ctx is set for the duration
+                    // of JitModule::run, i.e. whenever a lazy compile can happen.
+                    if !self.vm_ctx.is_null() {
+                        let c = (*self.vm_ctx).counters();
+                        c.jit_methods_compiled.fetch_add(1, Ordering::Relaxed);
+                        c.jit_compile_us_total
+                            .fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
+                    }
+                }
+                Err(_) => return None, // compile failed → interp fallback
+            }
+        }
+        drop(guard);
+        slot.get()
+    }
+
+    /// Name-keyed resolution: `module.func_index[name] → idx → resolve_fn_by_id`.
+    /// Replaces the former by-name `fn_entries` HashMap.
+    /// SAFETY: see [`resolve_fn_by_id`].
+    pub unsafe fn resolve_fn_by_name(&self, name: &str) -> Option<&FnEntry> {
+        let module = &*self.module;
+        let idx = *module.func_index.get(name)?;
+        self.resolve_fn_by_id(idx)
+    }
 }
 
 // SAFETY: raw pointer — caller ensures Module outlives ctx.

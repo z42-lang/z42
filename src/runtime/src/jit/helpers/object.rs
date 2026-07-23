@@ -66,7 +66,8 @@ pub unsafe extern "C" fn jit_obj_new(
     ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
 
     // 直查 ctor_name (TypeChecker 已 overload-resolve)；无名字推断。
-    if let Some(entry) = ctx_ref.fn_entries.get(&ctor_name) {
+    // lazy-per-function-jit: resolve_fn_by_name compiles the ctor on first use.
+    if let Some(entry) = ctx_ref.resolve_fn_by_name(ctor_name.as_str()) {
         let mut callee = JitFrame::new(entry.max_reg, &ctor_args);
         let jit_fn: JitFn = std::mem::transmute(entry.ptr);
         let vm_ctx = vm_ctx_ref(ctx);

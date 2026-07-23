@@ -34,9 +34,11 @@ pub unsafe extern "C" fn jit_call(
     // (don't clone) — it lives in the read-only `ctx_ref`; cloning it copied
     // two `Arc<str>` (name + file) per call that we'd re-clone in push_frame
     // anyway.
+    // lazy-per-function-jit: resolve_fn_by_id compiles the target on first call
+    // (lock-free once compiled); a None means not-JIT-translatable → interp.
     let entry_ref: Option<&FnEntry> =
         if method_id != crate::metadata::tokens::UNRESOLVED {
-            ctx_ref.fn_entries_by_id.get(method_id as usize).and_then(|o| o.as_ref())
+            ctx_ref.resolve_fn_by_id(method_id as usize)
         } else {
             None
         };
@@ -44,10 +46,11 @@ pub unsafe extern "C" fn jit_call(
     let entry: &FnEntry = match entry_ref {
         Some(e) => e,
         None => {
-            // Cross-zpkg / fallback: by-name HashMap lookup.
+            // Cross-zpkg / fallback: by-name resolution (routes through
+            // module.func_index → resolve_fn_by_id).
             let func_name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
                 .unwrap_or("<invalid>");
-            match ctx_ref.fn_entries.get(func_name) {
+            match ctx_ref.resolve_fn_by_name(func_name) {
                 Some(e) => e,
                 // Cross-zpkg lazy-loader fallback: the callee lives in another
                 // zpkg that wasn't JIT-compiled into this module, so there is no

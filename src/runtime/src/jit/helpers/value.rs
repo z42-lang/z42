@@ -135,7 +135,7 @@ pub unsafe extern "C" fn jit_to_str(
             .map(|&slot| type_desc.vtable[slot].1.clone());
         if let Some(func_name) = func_name_opt {
             let ctx_ref = &*ctx;
-            if let Some(entry) = ctx_ref.fn_entries.get(&func_name) {
+            if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
                 let mut callee = JitFrame::new(entry.max_reg, &[val.clone()]);
                 let jit_fn: JitFn = std::mem::transmute(entry.ptr);
                 let vm_ctx = vm_ctx_ref(ctx);

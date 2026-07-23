@@ -19,7 +19,6 @@ use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{FuncId, Module as CraneliftModule};
 use cranelift_jit::JITModule;
-use std::collections::HashMap;
 
 pub use super::helpers::HelperIds;
 
@@ -249,9 +248,8 @@ pub fn translate_function(
     helper_ids:   &HelperIds,
     z42_func:     &Function,
     _func_max_reg: usize,
-    func_ids:     &HashMap<String, FuncId>,
+    func_id:      FuncId,
 ) -> Result<()> {
-    let func_id = func_ids[&z42_func.name];
     let ptr     = jit.target_config().pointer_type();
 
     // Build Cranelift function signature: (frame_ptr, ctx_ptr) -> i8

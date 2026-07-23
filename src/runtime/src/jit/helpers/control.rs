@@ -105,9 +105,10 @@ mod check_safepoint_tests {
         // dereferences it.
         let jit_ctx = JitModuleCtx {
             string_pool:      Vec::new(),
-            fn_entries:       std::collections::HashMap::new(),
             fn_entries_by_id: Vec::new(),
             module:           std::ptr::null(),
+            // safepoint test never resolves a function → lazy stays null.
+            lazy:             std::ptr::null(),
             vm_ctx:           vm_ctx as *const VmContext as *mut VmContext,
         };
         (jit_ctx, JitFrame::new(0, &[]))
