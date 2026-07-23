@@ -1,24 +1,24 @@
 # Tasks: z42 原生交互式 REPL
 
-> 状态：🟠 6.5 已通过（2026-07-23：D2=A / D3=A / 结果打印 1 层），实现待锁释放排队 | 创建：2026-07-23
+> 状态：🟡 进行中（阶段 1 ✅）| 6.5 通过 2026-07-23（D2=A / D3=A / 结果打印 1 层）| 创建：2026-07-23
 > 子系统锁（2026-07-23 实测）：`runtime`（被 `lazy-per-function-jit` 占）‖ `stdlib`（被 `converge-z42c-onto-z42-project` 占）‖ `toolchain`（空闲）
-> **跨子系统 change → 需同时占三把锁；现 runtime+stdlib 被占 → 排队**（或 User 授权隔离分支并行，参照 stabilize-dispatch-keys 先例）。
-> 实现顺序（锁齐后）：runtime（阶段 1）→ stdlib（阶段 2）→ toolchain（阶段 3）
+> **隔离分支并行**（User 授权 2026-07-23）：开发在独立 git worktree `../z42-repl-wt` 分支 `claude/z42-repl`，从干净 origin/main 切出，与主工作树的 `lazy-per-function-jit` 未提交 jit WIP 物理隔离。合并时按常规解冲突，GREEN 以 CI 为权威。
+> 实现顺序：runtime（阶段 1 ✅）→ stdlib（阶段 2）→ toolchain（阶段 3）
 
 ## 进度概览
-- [ ] 阶段 1: VM builtin（runtime 锁）
+- [x] 阶段 1: VM builtin（runtime 锁）— cargo build + 781 lib 单测全绿
 - [ ] 阶段 2: z42.scripting 库（stdlib 锁）
 - [ ] 阶段 3: z42.interactive REPL 宿主 + launcher 路由（toolchain 锁）
 - [ ] 阶段 4: 测试与验证
 - [ ] 阶段 5: 文档同步
 
-## 阶段 1: VM builtin（runtime）
-- [ ] 1.1 `src/runtime/Cargo.toml` 加 rustyline 依赖
-- [ ] 1.2 `src/runtime/src/corelib/repl.rs` 新建：`__repl_readline(prompt)` + `__repl_readblock(prompt, cont)`（rustyline：历史/行编辑/Ctrl-D/多行 Validator 括号平衡）
-- [ ] 1.3 `src/runtime/src/vm_context.rs` 加 `load_module_from_bytes`（内存字节 → live VM，返回句柄）
-- [ ] 1.4 `src/runtime/src/corelib/reflection.rs` 加 `__load_bytecode_in_memory(mods)` builtin（复用 lazy loader 内核）
-- [ ] 1.5 `src/runtime/src/corelib/mod.rs` 注册 3 个 builtin
-- [ ] 1.6 `src/runtime/src/corelib/repl_tests.rs` 括号平衡 + 内存加载往返单测
+## 阶段 1: VM builtin（runtime）✅
+- [x] 1.1 `src/runtime/Cargo.toml` 加 rustyline 依赖（target-gated non-wasm）
+- [x] 1.2 `src/runtime/src/corelib/repl.rs` 新建：`__repl_readline` + `__repl_readblock`（rustyline 历史/行编辑/Ctrl-D；readblock 括号平衡多行，忽略字符串/字符/注释内括号；wasm 回退裸 stdin）
+- [x] 1.3 `src/runtime/src/vm_context.rs` 加 `load_module_bytes_into_vm`（内存字节 → live VM）
+- [x] 1.4 `src/runtime/src/corelib/reflection.rs` 加 `__load_bytecode_in_memory(byte[])` builtin（复用 lazy loader；抽 `register_loaded_artifact` 公共体 + `load_module_from_bytes`）
+- [x] 1.5 `src/runtime/src/corelib/mod.rs` 注册 3 个 builtin
+- [x] 1.6 `src/runtime/src/corelib/repl_tests.rs` 9 个 bracket_depth 单测（内存加载往返留待阶段 4 端到端）
 
 ## 阶段 2: z42.scripting 库（stdlib）
 - [ ] 2.1 `z42.scripting.z42.toml`（deps 按 D2 最终裁决：A=依赖 z42c.pipeline/z42c.syntax）+ README
