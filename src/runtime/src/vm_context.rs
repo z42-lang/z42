@@ -1187,6 +1187,20 @@ impl VmContext {
         loader.load_module_from_path(path)
     }
 
+    /// In-memory sibling of [`load_module_into_vm`]: load a compiled artifact
+    /// from raw bytes (packed zpkg / bare zbc) into the live registries. Backs
+    /// the `__load_bytecode_in_memory` builtin used by `z42.scripting` (REPL) so
+    /// freshly compiled bytecode is invocable with zero disk I/O. (add-z42-repl)
+    pub fn load_module_bytes_into_vm(
+        &self, raw: &[u8],
+    ) -> anyhow::Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
+        let mut state = self.core.lazy_loader.lock();
+        let loader = state.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
+        })?;
+        loader.load_module_from_bytes(raw)
+    }
+
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.lock();
