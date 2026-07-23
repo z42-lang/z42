@@ -416,7 +416,7 @@ typeof(Plain).GetGenericTypeDefinition();  // 抛 InvalidOperationException（�
 - **编译期**：新增 `Typeof` IR 指令（opcode `0x73`），携 `TypeName`（定义 FQ 名）+ 结构化 `TypeArgs`（实例化 arg FQ 名列表，镜像 `ObjNew` 的 count + STRS 索引编码）。所有 `typeof(...)` 统一走它，移除旧 `__typeof` builtin——type args 是编译期类型元数据，编码为指令字段比 materialize 成 `ConstStr` 运行期值更正确。zbc 1.17→1.18 / zpkg 0.19→0.20。
 - **运行期**（interp + jit）：`make_constructed_type` 解析定义型 base，把实例化 args 解析为 `Std.Type[]` 挂到 base 对象的 `__typeArgs` 槽（镜像数组 `__elementName` 先例）。`IsGenericTypeDefinition` = 泛型且 `__typeArgs` 空（未构造）；`GetGenericArguments()` 优先读 `__typeArgs` 槽（回落 `TypeDesc.type_args`）；`GetGenericTypeDefinition()` 返回不带 `__typeArgs` 的定义型 handle（非泛型抛 `Std.Exception`）。**实例侧统一**（2026-06-16 add-reflection-instance-generic-args）：`new Box<int>()` 的 `obj.GetType()`（`__obj_get_type`）对泛型实例同样调 `make_constructed_type`，把 `ScriptObject.type_args` 挂 `__typeArgs` 槽——`obj.GetType()` 与 `typeof` 走同一构造型表示。
 
-**设计选型**：选结构化 wire 编码（新 opcode）而非把 args 拼进类型名字符串（`"Box<int>"` 再 runtime 解析尖括号）——结构化无歧义、与 `ObjNew` 一致、利于将来 `MakeGenericType`。嵌套泛型（`Box<Map<K,V>>`）的 arg 仍是名字符串，递归解析延后（见 Deferred）。
+**设计选型**：**顶层**构造泛型实参选结构化 wire 编码（`Typeof` opcode 携 `string[]` 实参槽）而非把整串拼进类型名——顶层无歧义、与 `ObjNew` 一致。**嵌套层**（`Box<Pair<int,string>>` 的内层 `Pair<int,string>`）由 **add-reflection-nested-generic-args（2026-07-23）** 以**带尖括号的实参串**承载（`_typeofArgName` 递归产 `"Pair<int,string>"`，塞进现有 `string[]` 槽），运行期 `make_type_from_name` 按括号深度递归解析 → `make_constructed_type` 挂 `__typeArgs`，任意深度无损。**无 zbc/zpkg 格式 bump、TypeofInstr 接口不变**——嵌套层用括号串（而非扩展 wire 成递归 tree）是为避开自举「z42c 新用 z42.ir API 晚一 nightly」纪律（见 Deferred `reflection-future-nested-generic-args` 的 A-vs-B 权衡）。括号串匹配无歧义、非启发式，仅嵌套层，顶层仍结构化。
 
 ## 已知限制：链式属性访问需先赋值给局部变量
 
@@ -501,11 +501,10 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **状态**：`Type.IsGenericTypeDefinition` / `GetGenericTypeDefinition()` + 修复 `GetGenericArguments()`-on-typeof 已落地 2026-06-16（add-reflection-generic-type-definition，zbc 1.18 / zpkg 0.20）。新 `Typeof` opcode 携结构化 type args；见上文「构造型泛型」。
 - **剩余**：见 `reflection-future-nested-generic-args` + `reflection-future-instance-generic-args`。
 
-### reflection-future-nested-generic-args
-- **来源**：add-reflection-generic-type-definition design.md Decision 2
-- **触发原因**：嵌套泛型 `typeof(Box<Map<K,V>>)` 的 arg 在 wire 上是扁平名字符串（`"Map<K,V>"`），`GetGenericArguments()` 对该 arg 用 `make_type_from_name` 按名解析会退化为定义型（不递归解析 arg 内的 `<>`）。
-- **前置依赖**：type-arg 的递归结构化编码，或 runtime 泛型名解析器。
-- **触发条件**：需要嵌套泛型的完整 GetGenericArguments 时。
+### ~~reflection-future-nested-generic-args~~ — 已落地（2026-07-23）
+- **状态**：嵌套泛型 `typeof(Box<Pair<int,string>>).GetGenericArguments()[0].GetGenericArguments()` 返 `[int,string]` 已落地 2026-07-23（add-reflection-nested-generic-args，**无格式 bump**）。**根因修在产出端 + runtime 递归解析（方案 A）**：此前 z42c `_typeofName` 把嵌套 instantiated 实参压成**裸定义名 `"Pair"`**（`<int,string>` 在发射时就丢了——比 doc 原记的「扁平串 `"Pair<int,string>"`」更早）。修法：新增 `_typeofArgName`，构造泛型实参递归产**带尖括号的完整名** `Pair<int,string>`（`Box<Pair<int,string>>` 任意深度），塞进 `TypeofInstr` 现有 `string[]` 实参槽——**wire 布局不变、TypeofInstr 签名不变**；运行期 `make_type_from_name` 检测 `<...>` → 按括号深度拆 base + 顶层 args（`split_generic_args`）→ `make_constructed_type`，其逐 arg 解析再回到 `make_type_from_name` → 天然递归到任意深度，每层挂 `__typeArgs`。见上文「构造型泛型」。
+- **为何选 A 而非结构化递归 wire（B）**：B（`Typeof` opcode 携递归 `TypeNode` 树）须改 `TypeofInstr` 的 z42c↔z42.ir 接口 + 格式 bump → 撞自举「z42c 新用 z42.ir API 要晚一个 nightly」纪律（axis ③/④）+ CI 两代自举需先重建 z42.ir。A 保持 z42c↔z42.ir 接口不变（实参仍 `string[]`，仅串内容带括号）、runtime 侧（Rust，无自举约束）解析括号，单变更干净落地。顶层实参仍走结构化 `string[]` 槽，仅**嵌套层**用括号串（匹配无歧义、非启发式）。
+- **剩余**：实例路径嵌套（`new Box<Pair<int,string>>()` 的 `obj.GetType()`）——`ObjNew` 的 `type_args` 是扁平串，`obj.GetType()` 复用 `make_constructed_type`→`make_type_from_name`，故**若实例 arg 串带括号则同样递归**（与 typeof 一致）；本变更 Scope 只验 `typeof` 形式。泛型实参内嵌数组的 `typeof` 语法（`typeof(Box<int[]>)`）同 jagged 数组延后。
 
 ### ~~reflection-future-instance-generic-args~~ — 已落地（2026-06-16）
 - **状态**：`new Box<int>()` 实例的 `obj.GetType().GetGenericArguments()` 返 `[int]` 已落地 2026-06-16（add-reflection-instance-generic-args）。`__obj_get_type` 对泛型实例（`ScriptObject.type_args` 非空）调 `make_constructed_type(td.name, type_args)`——与 `typeof(Box<int>)` 产出**同一构造型 Type**（__typeArgs 槽）。`obj.GetType()` 与 `typeof` 对构造泛型的反射结果（GetGenericArguments / IsGenericTypeDefinition）一致。纯运行期，**无格式 bump**。
