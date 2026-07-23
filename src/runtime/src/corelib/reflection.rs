@@ -41,6 +41,28 @@ pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     build_type(ctx, &simple, &full, NativeData::TypeHandle(td))
 }
 
+/// Split a generic arg list on top-level commas, respecting nested `<>` / `[]`
+/// so `Box<int>,string` → `["Box<int>", "string"]` (not split inside the inner
+/// `<>`). add-reflection-nested-generic-args.
+fn split_generic_args(inner: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0usize;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '<' | '[' => depth += 1,
+            '>' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(inner[start..i].to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(inner[start..].to_string());
+    out
+}
+
 /// Build a `Std.Type` from a type name / type-tag string. Resolves to a real
 /// handle when the name is a loaded class; otherwise yields a handle-less Type
 /// (primitives like `"int"`, arrays, unresolved). Used for
@@ -56,6 +78,19 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
         return build_type_ex(
             ctx, "Array", well_known_names::STD_ARRAY, NativeData::None, true, elem,
         );
+    }
+    // add-reflection-nested-generic-args: a constructed-generic arg name carries angle
+    // brackets (`Box<Pair<int,string>>` — z42c `_typeofArgName` emits the full nested
+    // name). Parse base + top-level args (bracket-depth aware) and build a constructed
+    // Type via `make_constructed_type`, whose per-arg resolution re-enters here → nested
+    // generics resolve to arbitrary depth (each arg keeps its own `__typeArgs`).
+    if let Some(lt) = name.find('<') {
+        if name.ends_with('>') {
+            let base = &name[..lt];
+            let inner = &name[lt + 1..name.len() - 1];
+            let args = split_generic_args(inner);
+            return make_constructed_type(ctx, base, &args);
+        }
     }
     // Main module's own types first: the user program's classes live in the
     // main module's `type_registry`; the lazy loader below only covers

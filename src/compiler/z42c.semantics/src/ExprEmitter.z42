@@ -752,7 +752,10 @@ public sealed class ExprEmitter {
             className = inst.Def.IrName();
             targs = new string[inst.ArgCount];
             int k = 0;
-            while (k < inst.ArgCount) { targs[k] = inst.TypeArgs[k].Name(); k = k + 1; }
+            // 实参用 _typeofArgName（FQ + 递归带尖括号，与 typeof 同款）而非 .Name()（短名 + ", "
+            // 分隔）——让 obj.GetType().GetGenericArguments() 的嵌套实参能解析为真句柄 + 递归，
+            // 与 typeof 一致（add-reflection-instance-nested-generic-args）。基元/泛型形参不变。
+            while (k < inst.ArgCount) { targs[k] = this._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
             tcount = inst.ArgCount;
         }
         // className 已取自 inst.Def.IrName()（arity-overloaded 时 = Name$N）；直接 QualifyClass。
@@ -850,7 +853,7 @@ public sealed class ExprEmitter {
         if (e.Target is Z42InstantiatedType) {
             Z42InstantiatedType it = e.Target as Z42InstantiatedType;
             targs = new string[it.ArgCount];
-            while (targc < it.ArgCount) { targs[targc] = this._typeofName(it.TypeArgs[targc]); targc = targc + 1; }
+            while (targc < it.ArgCount) { targs[targc] = this._typeofArgName(it.TypeArgs[targc]); targc = targc + 1; }
         }
         TypedReg dst = this._ctx.Alloc(IrType.Ref);
         this._ctx.Emit(new TypeofInstr(dst, name, targs, targc));
@@ -866,6 +869,22 @@ public sealed class ExprEmitter {
         if (t is Z42InterfaceType) { return this._ctx.QualifyClass(t.Name()); }
         if (t is Z42InstantiatedType) { return this._ctx.QualifyClass((t as Z42InstantiatedType).Def.Name()); }
         return t.Name();
+    }
+
+    // typeof 实参侧 FQ 名（add-reflection-nested-generic-args）：构造泛型实参递归产**带尖括号**
+    // 的完整名 `Box<Pair<int,string>>`，让 runtime `make_type_from_name` 解析尖括号 → 嵌套构造
+    // Type（其 GetGenericArguments 再递归）。此前 instantiated 实参被 `_typeofName` 压成裸定义名
+    // `"Pair"`、内层 args 丢失。顶层与嵌套实参同款递归；非泛型实参复用 `_typeofName` 叶子名。
+    // 无 zbc/zpkg 格式改动（TypeofInstr 仍携 string[]，仅实参串内容带括号）。
+    private string _typeofArgName(Z42Type t) {
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            string s = this._ctx.QualifyClass(it.Def.Name()) + "<";
+            int k = 0;
+            while (k < it.ArgCount) { if (k > 0) { s = s + ","; } s = s + this._typeofArgName(it.TypeArgs[k]); k = k + 1; }
+            return s + ">";
+        }
+        return this._typeofName(t);
     }
 
     // x as T → as_cast（结果 ref）。目标类型名用 AST 原始名经 QualifyClass 解析（镜像 _emitIs）——
