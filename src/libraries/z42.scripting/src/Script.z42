@@ -1,0 +1,33 @@
+// Script.Eval —— REPL 编译+执行层（scripting-charter Form B）。
+//
+// 状态：骨架 + 已验证机制。完整 Eval 编排（分类 → growing transcript → PackageCompile →
+// ZpkgWriter → Engine.LoadBytes → Engine.Invoke → 格式化）待 **design.md D8 会话状态模型**
+// 由 User 裁决后落地（方案 R 加载器 replace，或方案 T 显式类型推断）。
+//
+// 已用 warm-z42c 端到端验证的可复用 API（见 tasks.md 备注 + design D8）：
+//   parse   Z42.Semantics.IrDump.ParseAll(srcs, files, count) -> CompilationUnit[]
+//   hash    Z42.IR.ZpkgBuilder.Sha256Hex(text)
+//   compile Z42.Pipeline.PackageCompile.Compile(CompileInputs) -> CompileArtifacts
+//   bytes   Z42.Project.ZpkgWriter.WritePacked(art.Z, false).ToBytes() -> byte[]
+//   加载/调用  Std.Scripting.Engine.LoadBytes / Invoke（自由函数 FQN，返回装箱结果）
+namespace Std.Scripting;
+
+using Std;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Pipeline;
+using Z42.IR;
+using Z42.Project;
+
+public static class Script {
+    // 新建空会话。
+    public static ScriptState Create() { return new ScriptState(); }
+
+    // D2 骨架探针：验证 compiler-consuming stdlib 库依赖解析（已编译通过）。
+    // 完整 Eval 待 D8 裁决，见文件头。
+    public static int Probe() {
+        CompileInputs inp = new CompileInputs();
+        inp.SrcCount = 0;
+        return inp.SrcCount;
+    }
+}

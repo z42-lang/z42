@@ -1,0 +1,13 @@
+# z42.scripting — REPL 编译+执行层（scripting-charter Form B）。
+# 依赖编译器包（z42c.*）——「compiler-consuming stdlib 库」（add-z42-repl D2/A）。
+[project]
+name    = "z42.scripting"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core"       = "0.1.0"
+"z42.ir"         = "0.1.0"   # ZpkgWriter / ZpkgBuilder（ZpkgFileZ → bytes）
+"z42c.syntax"    = "0.1.0"   # Lexer / Token / Parser / CompilationUnit
+"z42c.semantics" = "0.1.0"   # IrDump.ParseAll
+"z42c.pipeline"  = "0.1.0"   # PackageCompile
