@@ -547,12 +547,45 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // add-interface-member-reflection: an interface carries its declared method
     // signatures in `iface_methods` (its vtable/own_methods are empty — interface
     // methods have no backing Function). Build MethodInfo straight from the sigs so
-    // `typeof(IFoo).GetMethods()` surfaces the interface contract. Directly-declared
-    // only (inherited-interface methods reached via GetInterfaces → their GetMethods).
+    // `typeof(IFoo).GetMethods()` surfaces the interface contract.
     for sig in td.iface_methods() {
         let q = format!("{}.{}", td.name, sig.name);
         if seen.insert(q) {
             out.push(build_iface_method_info(ctx, &td.name, sig)?);
+        }
+    }
+    // add-reflection-transitive-interface-methods: for an interface, also surface
+    // the methods of its (transitive) base interfaces — `interface IBar : IFoo`
+    // makes `typeof(IBar).GetMethods()` include IFoo's methods (mirrors C#, whose
+    // GetMethods on an interface returns the members of the whole interface set).
+    // Only for interfaces: a class already carries its concrete interface-method
+    // impls in the vtable, so it must not pull in the abstract sigs as extra
+    // MethodInfos. BFS the base-interface closure (same walk as GetInterfaces),
+    // qualifying each method by its *declaring* interface so dedup is per-source.
+    if td.class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
+        let resolve = |name: &str| {
+            ctx.module()
+                .and_then(|m| m.type_registry.get(name).cloned())
+                .or_else(|| ctx.try_lookup_type(name))
+        };
+        let mut queue: VecDeque<String> =
+            td.interfaces().iter().map(|s| s.to_string()).collect();
+        let mut seen_ifaces: HashSet<String> = HashSet::new();
+        while let Some(name) = queue.pop_front() {
+            if !seen_ifaces.insert(name.clone()) {
+                continue;
+            }
+            if let Some(itd) = resolve(&name) {
+                for sig in itd.iface_methods() {
+                    let q = format!("{}.{}", itd.name, sig.name);
+                    if seen.insert(q) {
+                        out.push(build_iface_method_info(ctx, &itd.name, sig)?);
+                    }
+                }
+                for bi in itd.interfaces() {
+                    queue.push_back(bi.to_string());
+                }
+            }
         }
     }
     Ok(ctx.heap().alloc_array(out))

@@ -1,0 +1,54 @@
+// 2026-07-24 add-reflection-transitive-interface-methods: typeof(IBar).GetMethods()
+// on an interface now includes the methods of its (transitive) base interfaces —
+// `interface IBar : IFoo` surfaces IFoo's Foo() alongside IBar's Bar() (mirrors C#).
+// A class's GetMethods is unaffected (its vtable already carries concrete impls).
+
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+interface IFoo { int Foo(); }
+interface IBar : IFoo { int Bar(); }
+interface IBaz : IBar { int Baz(); }
+
+class Impl : IBaz {
+    public int Foo() { return 1; }
+    public int Bar() { return 2; }
+    public int Baz() { return 3; }
+}
+
+bool hasMethod(MethodInfo[] ms, string name) {
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == name) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+void Main() {
+    // ── One level: typeof(IBar) includes IFoo's Foo() ──────────────────────
+    MethodInfo[] bar = typeof(IBar).GetMethods();
+    Assert.True(hasMethod(bar, "Bar"));   // directly declared
+    Assert.True(hasMethod(bar, "Foo"));   // transitive from IFoo
+
+    // ── Two levels: typeof(IBaz) includes IBar's + IFoo's ──────────────────
+    MethodInfo[] baz = typeof(IBaz).GetMethods();
+    Assert.True(hasMethod(baz, "Baz"));
+    Assert.True(hasMethod(baz, "Bar"));
+    Assert.True(hasMethod(baz, "Foo"));   // transitive two levels up
+
+    // ── Base interface itself unaffected ───────────────────────────────────
+    MethodInfo[] foo = typeof(IFoo).GetMethods();
+    Assert.True(hasMethod(foo, "Foo"));
+    Assert.False(hasMethod(foo, "Bar"));  // IFoo has no knowledge of IBar
+
+    // ── A class's GetMethods not polluted by abstract iface sigs ───────────
+    // Impl.GetMethods carries the concrete Foo/Bar/Baz (from the vtable), not
+    // duplicate abstract MethodInfos — each name resolves once.
+    MethodInfo[] implMs = typeof(Impl).GetMethods();
+    Assert.True(hasMethod(implMs, "Foo"));
+    Assert.True(hasMethod(implMs, "Bar"));
+    Assert.True(hasMethod(implMs, "Baz"));
+}
