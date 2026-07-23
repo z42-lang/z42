@@ -752,7 +752,10 @@ public sealed class ExprEmitter {
             className = inst.Def.IrName();
             targs = new string[inst.ArgCount];
             int k = 0;
-            while (k < inst.ArgCount) { targs[k] = inst.TypeArgs[k].Name(); k = k + 1; }
+            // 实参用 _typeofArgName（FQ + 递归带尖括号，与 typeof 同款）而非 .Name()（短名 + ", "
+            // 分隔）——让 obj.GetType().GetGenericArguments() 的嵌套实参能解析为真句柄 + 递归，
+            // 与 typeof 一致（add-reflection-instance-nested-generic-args）。基元/泛型形参不变。
+            while (k < inst.ArgCount) { targs[k] = this._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
             tcount = inst.ArgCount;
         }
         // className 已取自 inst.Def.IrName()（arity-overloaded 时 = Name$N）；直接 QualifyClass。
