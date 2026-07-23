@@ -58,10 +58,14 @@
 ### 里程碑收口（2026-07-23，User 裁决）
 阶段 1（VM 地基）+ spec + D7 设计修正作为**已验证里程碑**收口；阶段 2/3 暂停，留待**有 warm z42c、能跑 z42i 的环境**边写边验（不盲写不可验证的 z42）。原因：z42.scripting 是「依赖编译器包的 stdlib 库」（D2），按 bootstrap-seed 轴④冷启动路径本地必验；且下列阶段 2 语义模型决策必须靠跑起来的 REPL 验证对错。
 
-### 阶段 2 待定语义模型（恢复实施前先定，均需运行期验证）
-1. **`var x = 5` → `$ReplVars` 静态字段的类型来源**：字段不能 `static var`，需推断类型。选项：(a) MVP 只支持显式类型 var（`int x = 5`）；(b) 编探针推断。→ 倾向先 (a)，(b) 作 follow-up。
-2. **副作用重放语义**：静态字段模型下仅 var 初始化器随 static-init 重放；纯语句 `$Stmt_N` 一次性、**不累积进 transcript**（否则 `Console.WriteLine` 每轮重打印）。spec 未明确「$Stmt_N 是否累积」——定为**不累积**。
-3. **D7 命名空间/包名唯一**（已定，已实现前提）：每轮 `Repl.R{N}` / `repl_r{N}`，绕开加载器 first-wins 幂等。
+### 阶段 2 语义模型（部分已用 warm-z42c 验证回路实证，2026-07-23）
+1. ~~**`var x = 5` 字段类型来源**~~ ✅ **已实证：z42 支持 `static var x = 5;` 字段类型推断**（编译通过）——`var`/显式类型都可直接提升为静态字段，**无需推断探针**，mutation 持久。原顾虑消除。
+2. **静态字段引用需限定** ✅ **已实证：`E0401: undefined: x`**——静态方法内**不能**不加限定引用同类静态字段；`ReplVars.x` 限定形式编译通过。⇒ **用户输入里的会话变量引用必须改写成 `$ReplVars.<name>`**（token 级改写，可用 z42c.syntax 的 Lexer 识别标识符 token）。这是 Transcript 的核心工作量，spec/design 原未点明。
+3. **副作用重放语义**：静态字段模型下仅 var 初始化器随 static-init 重放；纯语句 `$Stmt_N` 一次性、**不累积进 transcript**（否则 `Console.WriteLine` 每轮重打印）。定为**不累积**。
+4. **D7 命名空间/包名唯一**（已定）：每轮 `Repl.R{N}` / `repl_r{N}`，绕开加载器 first-wins 幂等。
+
+### 验证回路（已打通，2026-07-23）
+worktree 的 z42vm（含 REPL builtin）+ 主工作树 `artifacts/build/` 的 warm z42c(5 包)+stdlib(25 包，含 z42.ir/project) 组装成单一 Z42_LIBS 目录，直接 `z42vm z42c.driver.zpkg --mode interp -- build <toml> --release --output-dir <out>` 即可编译验证。脚本存 scratchpad `zc.sh`/`zrun.sh`。**阶段 2 恢复时此回路可编译并端到端验证 z42.scripting**。
 
 ### 已确认可复用的 API（阶段 2 恢复时直接用）
 - parse：`Z42.Semantics.IrDump.ParseAll(string[] srcs, string[] files, int count) -> CompilationUnit[]`
