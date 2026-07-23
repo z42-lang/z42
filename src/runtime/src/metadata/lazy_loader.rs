@@ -34,7 +34,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::bytecode::{Function, Instruction};
-use super::loader::load_artifact;
+use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
 use super::test_index::LoadedTestEntry;
 use super::types::TypeDesc;
 use super::zbc_reader::read_zpkg_meta;
@@ -432,7 +432,28 @@ impl LazyLoader {
     /// `load_zpkg_file`'s merge (string-pool offset + `remap_const_str` + first-wins
     /// + inheritance fixup); idempotent per module name. (retire-test-runner)
     pub fn load_module_from_path(&mut self, path: &str) -> Result<Vec<LoadedTestEntry>> {
-        let mut artifact = load_artifact(path)?;
+        let artifact = load_artifact(path)?;
+        self.register_loaded_artifact(artifact)
+    }
+
+    /// In-memory sibling of [`load_module_from_path`]: load a compiled artifact
+    /// from raw bytes (packed zpkg or bare zbc, detected by magic) and merge it
+    /// into the live registries. Backs the `__load_bytecode_in_memory` builtin
+    /// used by `z42.scripting` (REPL): `PackageCompile` produces packed zpkg
+    /// bytes in memory, which are loaded here with zero disk I/O so the freshly
+    /// compiled `$Eval_N()` becomes reflectively invocable. (add-z42-repl)
+    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<Vec<LoadedTestEntry>> {
+        let artifact = load_artifact_from_bytes(raw)?;
+        self.register_loaded_artifact(artifact)
+    }
+
+    /// Shared registration body for [`load_module_from_path`] /
+    /// [`load_module_from_bytes`]: merge functions / types / string pool,
+    /// register dep + namespace candidates, force-load the declared closure,
+    /// run inheritance fixup, and return the artifact's TIDX test entries.
+    fn register_loaded_artifact(
+        &mut self, mut artifact: LoadedArtifact,
+    ) -> Result<Vec<LoadedTestEntry>> {
         let mod_key = format!("__loaded_path__{}", artifact.module.name);
 
         // Capture test entries (FQN resolved via functions[method_id]) before the
