@@ -79,11 +79,6 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__eprintln", io::builtin_eprintln),
     ("__eprint",   io::builtin_eprint),
     ("__readline", io::builtin_readline),
-    // add-z42-repl: interactive line editor (rustyline) — history + editing +
-    // Ctrl-D EOF (null). `__repl_readblock` reads a bracket-balanced multi-line
-    // block. Backs `Std.Repl.ReadLine/ReadBlock`.
-    ("__repl_readline",  repl::builtin_repl_readline),
-    ("__repl_readblock", repl::builtin_repl_readblock),
     ("__concat",   io::builtin_concat),
     ("__len",      io::builtin_len),
     ("__contains", io::builtin_contains),
@@ -266,9 +261,6 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__activator_create",   reflection::builtin_activator_create),
     // retire-test-runner: load a compiled test module + return its TIDX entries.
     ("__load_module",        reflection::builtin_load_module),
-    // add-z42-repl: load a compiled artifact from in-memory bytes (packed zpkg /
-    // bare zbc) — backs z42.scripting's per-eval load (REPL), zero disk I/O.
-    ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
     // retire-test-runner: invoke a free/static [Test]/[Benchmark] function by FQN
     // (zero-arg) — stdlib tests are free functions, not class instance methods.
     ("__invoke_static",      reflection::builtin_invoke_static),
@@ -467,6 +459,13 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── runtime-dynamic-load-call (DEFERRED) — stubs so zpkg loads cleanly ──
     ("__load_zpkg",  builtin_load_zpkg_stub),
     ("__call_static", builtin_call_static_stub),
+
+    // ── add-z42-repl (2026-07-23) — appended to preserve existing BuiltinIds ──
+    // REPL line editor (rustyline) + in-memory bytecode load. Back
+    // `Std.Repl.ReadLine/ReadBlock` and z42.scripting's per-eval module load.
+    ("__repl_readline",           repl::builtin_repl_readline),
+    ("__repl_readblock",          repl::builtin_repl_readblock),
+    ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
