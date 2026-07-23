@@ -43,6 +43,22 @@ z42 repl [-c "expr"]
 ### D4: 状态模型 = Growing Transcript（MVP，repl.md 已定）
 每轮输入追加进累积 session 源整体重编；`var` 昇格为 `$ReplVars` 静态字段。选它因语义正确、实现简单；O(n) 重编在数百行 session 可接受。增量方案 defer（`repl-future-incremental-compilation`）。
 
+### D7: 每轮唯一命名空间 + 唯一包名（阶段 2 实施期发现，2026-07-23）
+**问题（实施期根因）**：阶段 1 的 `__load_bytecode_in_memory` 复用 lazy-loader 的
+`register_loaded_artifact`，它**按模块名 first-wins 幂等**（`if loaded_zpkgs.contains(mod_key)
+return`）+ 函数表 first-wins。而 Growing Transcript **每轮重编同一个会话包再加载**：若每轮包名
+恒为 `$repl`、命名空间恒为 `Repl`，则第 2 轮起 `mod_key` 重复 → 整轮被跳过，新 `$Eval_N` /
+更新后的 `$ReplVars` **不注册** → REPL 从第二条输入起失效。
+**决定**：每轮用**唯一命名空间 `Repl.R{N}` + 唯一包名 `repl_r{N}`**（N=evalCounter）。每轮源 =
+`namespace Repl.R{N};` + 累积 usings + `static class $ReplVars {...}`（本轮全量快照）+ 累积
+fn/class 声明 + `static <ret> $Eval_{N}()`。每轮自包含：函数 FQN（`Repl.R{N}.$Eval_{N}` /
+`Repl.R{N}.$ReplVars.*`）跨轮天然不撞 → 加载即全新注册，static-init 跑本轮 `$ReplVars`
+（重新求值全部 var 字面量/表达式）。
+**权衡**：旧轮命名空间在 VM 里滞留（内存随轮数增长）——与 D4「O(n) 重编」同量级、可接受；
+真正回收留 `repl-future-incremental-compilation`（load-context supersede）。**不改 spec 的
+Growing Transcript 模型**，只是其落地的命名机制。副作用重放（`var x = sideEffect()` 每轮重跑）
+是 Growing Transcript 固有语义，MVP 接受。
+
 ### D5: 行编辑器 = rustyline（User 已定）
 `__repl_readline`/`__repl_readblock` 封装 rustyline：历史、Ctrl-A/E/K/U、Ctrl-D。`__repl_readblock` 在 z42 侧或 Rust 侧做括号平衡续行——**倾向 Rust 侧**（rustyline 的 `Validator` 天然支持多行未闭合续行），z42 侧 `InputClassifier` 仍独立做一次平衡判定用于分类。
 
