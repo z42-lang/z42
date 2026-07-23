@@ -158,8 +158,8 @@ pub unsafe extern "C" fn jit_call_indirect(
         args.push(frame_ref.regs[r as usize].clone());
     }
 
-    // 3) Lookup the callee in the JIT module's compiled function table.
-    let entry: &FnEntry = match ctx_ref.fn_entries.get(fn_name.as_str()) {
+    // 3) Resolve the callee (lazy-compile on first call).
+    let entry: &FnEntry = match ctx_ref.resolve_fn_by_name(fn_name.as_str()) {
         Some(e) => e,
         None => {
             set_exception(vm_ctx,

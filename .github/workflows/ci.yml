@@ -677,6 +677,13 @@ jobs:
     timeout-minutes: 45
     runs-on: ubuntu-latest
     needs: toolchain-bootstrap
+    # DIAGNOSTIC (lazy-per-function-jit): force z42c test-unit compiles to interp.
+    # Tests whether z42c-under-lazy-JIT (per-fn finalize_definitions / mprotect
+    # churn) under the parallel test-build load is what reliably tips the crypto
+    # "exit-0-but-no-artifact" Heisenbug (main green / this branch red). Revert
+    # once the cause is confirmed.
+    env:
+      Z42C_BUILD_MODE: interp
     strategy:
       fail-fast: false
       matrix:
@@ -728,6 +735,11 @@ jobs:
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     needs: toolchain-bootstrap
+    # DIAGNOSTIC (lazy-per-function-jit): force z42c test-unit compiles to interp
+    # (the .zbc compile step; the [Test] RUN stays interp here). See stdlib-jit
+    # job's note — probing the z42c-under-lazy-JIT crypto no-artifact regression.
+    env:
+      Z42C_BUILD_MODE: interp
     strategy:
       fail-fast: false
       # 2 shards/OS (not 4): each interp shard is only ~3-4 min, so 4-way over-split

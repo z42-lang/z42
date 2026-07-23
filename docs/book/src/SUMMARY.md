@@ -32,6 +32,7 @@
 
 - [概览](runtime/README.md)
   - [执行模型（interp / jit / aot）]()
+  - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
   - [嵌入与跨平台（PAL）]()
