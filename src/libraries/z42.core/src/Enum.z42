@@ -15,4 +15,13 @@ public static class Enum {
     // 值 → 成员名；未命中返 ""。
     [Native("__enum_name")]
     public static extern string GetName(Type enumType, long value);
+
+    // 成员名 → 值（GetName 的逆）。未命中抛 Std.Exception（镜像 C# Enum.Parse）。
+    // 大小写敏感（z42 大小写敏感语言，无 ignoreCase 变体）。add-enum-parse-isdefined。
+    [Native("__enum_parse")]
+    public static extern long Parse(Type enumType, string name);
+
+    // 值是否为已定义 enum 成员。非 enum / 无句柄 → false。
+    [Native("__enum_is_defined")]
+    public static extern bool IsDefined(Type enumType, long value);
 }

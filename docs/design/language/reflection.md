@@ -515,11 +515,23 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **状态**：`Type.IsClass` / `Type.IsInterface` 已落地 2026-06-16（add-reflection-interface-class-predicates，zbc 1.19 / zpkg 0.21）。**interface 现在 emit 最小 TYPE 条目**（此前完全不产 → `typeof(IFoo)` 是 name-only），`class_flags` 扩 bit4 = interface。`IsInterface` 读 bit4；`IsClass` = 有句柄且 `!struct && !interface`（记录是 class）。接口隐式 abstract（`typeof(IFoo).IsAbstract == true`）。**根因修**：`Z42TypeName` 此前不处理 `Z42InterfaceType`（落 `ToString` 未限定名）→ 加 `QualifyClassName` 分支，否则 typeof(IFoo) 漏句柄。dotnet 1565/1565 + `interface_class_predicates.z42` e2e（interp+jit）+ cargo 809/0。
 - **剩余**：`IsEnum`（bit5 预留）——见下方 `reflection-future-isenum`。~~接口成员枚举（`typeof(IFoo).GetMethods()`）~~ —— 已落地 2026-07-20（add-interface-member-reflection，纯运行期：surface 现有 zbc 1.28 接口方法块——`fix-crosspkg-interface-impl` 已 emit，reader 原丢弃改存入 `TypeDesc.iface_methods` → GetMethods 从签名直接构建 MethodInfo（IsAbstract/IsVirtual=true，params 带类型无源名）；只返直接声明方法，无 compiler 改动、无格式 bump）。~~接口继承接口方法（transitive）~~ —— 已落地 2026-07-24（add-reflection-transitive-interface-methods，纯运行期：`typeof(IBar).GetMethods()` 对接口 BFS 展开其基接口闭包（复用 `GetInterfaces` 的 `interfaces()` 遍历），并入各基接口的 `iface_methods`（按**声明接口**限定名 dedup）——`interface IBar : IFoo` → `typeof(IBar).GetMethods()` 含 IFoo 的方法，镜像 C#。仅对接口生效（类的具体实现已在 vtable，不重复灌抽象签名）；无 compiler 改动、无格式 bump）。数组 `IsClass==true`（C# 语义，z42 数组 name-only）延后。
 
-### reflection-future-isenum
-- **来源**：add-reflection-interface-class-predicates Out of Scope
-- **触发原因**：`Type.IsEnum` 需 enum **作为类型实体**——z42 enum 当前底层只是 int 常量字典，无类型实体、不产 TYPE 条目。
-- **前置依赖**：enum 类型实体设计（features.md / 独立 design doc）+ enum TYPE 条目（带 bit5 类别位 + underlying type + 成员名/值）。
-- **触发条件**：需要 `IsEnum` / `GetEnumNames` / `GetEnumValues` / `Enum.Parse` 时（独立 change，先做 enum 类型系统设计）。
+### ~~reflection-future-isenum~~ — 已落地（enum 类型实体 + 元数据 API）
+> **本条曾陈旧**：宣称 enum 反射「需先做 enum 类型系统设计」，但 enum 类型实体早已由
+> `add-enum-type-metadata`（2026-07-09）落地。以下为准确现状。
+- **enum 作类型实体 + IsEnum + GetNames/GetValues/GetName** —— ✅ 已落地 2026-07-09
+  （add-enum-type-metadata / unify-type-metadata P1-a）：enum 产 TYPE 条目（`CLASS_FLAG_ENUM` +
+  zbc gated enum 块 {name,i64}），`typeof(enum)` 得真句柄，`Type.IsEnum` 读 bit5，`Std.Enum.GetNames`
+  /`GetValues`/`GetName` 读 `TypeDesc.enum_members`。
+- **`Enum.Parse` / `Enum.IsDefined`** —— ✅ 已落地 2026-07-24（add-enum-parse-isdefined，纯 runtime +
+  Std.Enum，读现有 `enum_members`，**无格式 bump**）：`Parse(type,name)→value`（未命中抛 catchable
+  `Std.Exception`，镜像 C#；**大小写敏感**，无 ignoreCase）；`IsDefined(type,value)→bool`。
+- **剩余**：
+  - **`GetEnumUnderlyingType`**：enum 声明底层类型（`enum E : byte`，`EnumDecl.baseType` 已被 parser
+    捕获）**未持久化**到 TYPE 元数据（只存 {name,i64}）→ 精确实现需**格式 bump**（TYPE enum 块加
+    underlying type）。延后（单独 format-bump change）。
+  - **带类型 enum 值（Tier 2）**：`value.ToString()→名` / `value.GetType().IsEnum`——z42 enum 值底层是
+    裸 i64，不携带 enum 类型标签 → 需 enum 值装箱（与 `primitive-value-boxing` 同框架）。延后，挂 boxing 线。
+  - `[Flags]` 组合名 / `Enum.TryParse`（依赖 `out` 参成熟）延后。
 
 ### reflection-future-method-invoke（0.5.x L3-R）
 - **来源**：roadmap 0.3.x C 主线划界

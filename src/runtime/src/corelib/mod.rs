@@ -466,6 +466,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__repl_readline",           repl::builtin_repl_readline),
     ("__repl_readblock",          repl::builtin_repl_readblock),
     ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
+
+    // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
+    ("__enum_parse",              reflection::builtin_enum_parse),
+    ("__enum_is_defined",         reflection::builtin_enum_is_defined),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
