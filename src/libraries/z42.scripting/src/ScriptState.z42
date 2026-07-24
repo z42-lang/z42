@@ -7,18 +7,20 @@ using Std.Collections;
 
 public class ScriptState {
     public List<string> Usings;    // 生效的 using 命名空间（如 "Std.IO"）
-    public List<string> VarNames;  // 会话变量名（引用改写 / .vars）
-    public List<string> VarDecls;  // 各变量提升为静态字段的源（含推断/显式类型）
+    public List<string> VarNames;  // 会话变量名（引用改写 / carry-forward / .vars）
     public int Counter;            // 最近成功轮次号（下一轮 = Counter+1）
+    public int VarsRound;          // 最近发射 Vars{N} 类的轮次（0=尚无变量；carry-forward 从此轮引）
     // 编译配置（PackageCompile 需要）：依赖目录 + 依赖名白名单。REPL 运行期从 Z42_LIBS 派生。
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
+    // 会话磁盘目录：每轮 zpkg 落盘于此并纳入 LibsDirs，使后续轮编译期可引用前轮（carry-forward）。
+    public string SessionDir;
 
     public ScriptState() {
         this.Usings = new List<string>();
         this.VarNames = new List<string>();
-        this.VarDecls = new List<string>();
         this.Counter = 0;
+        this.VarsRound = 0;
         this.LibsDirs = new string[0]; this.LibsDirsN = 0;
         this.DeclaredDeps = new string[0]; this.DepCount = 0;
     }
