@@ -332,20 +332,30 @@ Process _compilePrep(string root, string lib, TestUnit u,
     // include patterns relative to the manifest's projectDir and doesn't
     // accept `..` or absolute paths in globs. To keep `include = "**/*.z42"`
     // simple and stable, the synthetic toml is written NEXT TO the test
-    // source files (inside `tests/<unit>/`) using a unique name; the
-    // `[build].output_dir` is set to the persistent <lib>/release/tests
-    // subtree so the .zpkg lands in the shared `tests/dist/`. The unique name
-    // `.xtask-<projName>.z42.toml` prefixes a `.` so the file is naturally
-    // git-ignored on most setups and won't collide with user manifests; it is
-    // per-unit unique so parallel-batch compiles don't clobber each other.
+    // source files (inside `tests/<unit>/`) using a unique name. The unique
+    // name `.xtask-<projName>.z42.toml` prefixes a `.` so it's naturally
+    // git-ignored and won't collide with user manifests; per-unit unique so
+    // parallel-batch compiles don't clobber each other's toml.
+    //
+    // fix-crypto-test-artifact-heisenbug (2026-07-24): output_dir is per-unit
+    // (`tests/dm/<projName>`), NOT the shared `tests/dist/`. A dir-mode build's
+    // indexed-dist cleanup (`_cleanOrphanZbc`, IndexedDist.z42) globs its whole
+    // dist for `*.zbc` and File.Deletes any not in ITS build — with a SHARED
+    // dist that deletes sibling single-file units' `.zbc` mid-parallel-compile
+    // (root cause of poly1305_vectors.zbc vanishing between compile & run, deleted
+    // by secp256k1's build). Isolating output_dir confines each build's cleanup
+    // to its own dir. Single-file `--emit-zbc` units keep the shared tests/dist/
+    // (they never run orphan cleanup, so they don't collide).
+    string dmOut  = Path.Join(testsBase, "dm", projName);
+    string dmDist = Path.Join(dmOut, "dist");
+    Directory.Create(dmDist);
     string syntheticToml = Path.Join(u.DirPath, ".xtask-" + projName + ".z42.toml");
     File.WriteAllText(syntheticToml,
-        _renderSyntheticManifest(projName, "**/*.z42", testsBase, u.UnitName, parentDeps));
+        _renderSyntheticManifest(projName, "**/*.z42", dmOut, u.UnitName, parentDeps));
     outToml = syntheticToml;
-    // PackageCompiler emits `<output_dir>/dist/<name>.zpkg` (dist_dir defaults
-    // to ${output_dir}/dist; synthetic toml omits dist_dir → shared
-    // <testsBase>/dist/, cache_dir overridden to a per-unit subdir).
-    outArtifact = Path.Join(distDir, projName + ".zpkg");
+    // PackageCompiler emits `<output_dir>/dist/<name>.zpkg`; per-unit output_dir
+    // keeps the .zpkg (+ any scattered .zbc + orphan cleanup) isolated to dmDist.
+    outArtifact = Path.Join(dmDist, projName + ".zpkg");
     return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(syntheticToml)
         .Env("Z42_LIBS", libs);
