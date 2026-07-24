@@ -1,0 +1,36 @@
+// 2026-07-24 add-reflection-object-assignable: typeof(object).IsAssignableFrom(t)
+// is true for every non-null t — value types box, all reference types /
+// interfaces / arrays derive from object (mirrors C#). Previously object was a
+// handle-less Type ("object"), so IsAssignableFrom fell to FullName equality and
+// wrongly returned false for value types / user classes / interfaces / arrays.
+
+namespace Demo;
+
+using Std;
+
+class Foo { public int X; }
+interface IBar { int B(); }
+
+void Main() {
+    Type o = typeof(object);
+
+    // Everything is assignable to object.
+    Assert.True(o.IsAssignableFrom(typeof(int)));       // value type — boxes
+    Assert.True(o.IsAssignableFrom(typeof(double)));
+    Assert.True(o.IsAssignableFrom(typeof(bool)));
+    Assert.True(o.IsAssignableFrom(typeof(char)));
+    Assert.True(o.IsAssignableFrom(typeof(string)));
+    Assert.True(o.IsAssignableFrom(typeof(Foo)));        // user class
+    Assert.True(o.IsAssignableFrom(typeof(IBar)));       // interface
+    Assert.True(o.IsAssignableFrom(typeof(int[])));      // array
+    Assert.True(o.IsAssignableFrom(typeof(object)));     // itself
+
+    // No over-broadening: object is the ONLY universal target.
+    Assert.False(typeof(int).IsAssignableFrom(typeof(long)));   // distinct value types
+    Assert.False(typeof(int).IsAssignableFrom(typeof(object))); // object NOT assignable to int
+    Assert.True(typeof(int).IsAssignableFrom(typeof(int)));     // identity still holds
+
+    // Existing class/interface assignability unregressed.
+    Assert.True(typeof(Foo).IsAssignableFrom(typeof(Foo)));
+    Assert.False(typeof(Foo).IsAssignableFrom(typeof(IBar)));
+}
