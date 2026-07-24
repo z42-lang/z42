@@ -22,6 +22,7 @@ include = ["interactive_main.z42"]
 [dependencies]
 "z42.core" = "0.1.0"   # String / core
 "z42.io"   = "0.1.0"   # Console / Environment
+"z42.scripting" = "0.1.0"   # Script.Eval + Std.Repl 行编辑（REPL 引擎）
 
 [build]
 # From this toml's dir (src/toolchain/interactive/core) up 4 levels to repo root.
