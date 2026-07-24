@@ -67,58 +67,45 @@ public static class Script {
         ParsedInput p = Script._classify(trimmed);
         bool needVars = (state.VarNames.Count > 0) || p.IsVarDecl;
 
-        // ── build 每轮源 ──
-        string src = "namespace " + ns + ";\n";
+        // ── build prelude（namespace + usings + carry-forward Vars 类）──
+        string prelude = "namespace " + ns + ";\n";
         int u = 0;
-        while (u < state.Usings.Count) { src = src + "using " + state.Usings[u] + ";\n"; u = u + 1; }
-        // carry-forward：引入前轮 Vars 命名空间
+        while (u < state.Usings.Count) { prelude = prelude + "using " + state.Usings[u] + ";\n"; u = u + 1; }
         if (needVars && state.VarsRound > 0) {
-            src = src + "using Repl.R" + state.VarsRound.ToString() + ";\n";
+            prelude = prelude + "using Repl.R" + state.VarsRound.ToString() + ";\n";
         }
-
-        string body = "";
         if (needVars) {
             string carryCls = "Vars" + state.VarsRound.ToString();
-            src = src + "public static class " + cls + " {\n";
-            // carry 全部已有变量
+            prelude = prelude + "public static class " + cls + " {\n";
             int vi = 0;
             while (vi < state.VarNames.Count) {
                 string vn = state.VarNames[vi];
-                src = src + "  public static var " + vn + " = " + carryCls + "." + vn + ";\n";
+                prelude = prelude + "  public static var " + vn + " = " + carryCls + "." + vn + ";\n";
                 vi = vi + 1;
             }
-            // 新变量（rewrite init 里对已有变量的引用 → 本轮 cls）
             if (p.IsVarDecl) {
                 string initR = Rewriter.Rewrite(p.InitExpr, state.VarNames, cls);
-                src = src + "  public static var " + p.VarName + " = " + initR + ";\n";
-                body = "return (" + cls + "." + p.VarName + ");";   // 声明求值 = 新变量值
+                prelude = prelude + "  public static var " + p.VarName + " = " + initR + ";\n";
             }
-            src = src + "}\n";
-            if (!p.IsVarDecl) {
-                // 表达式：rewrite 引用 → 本轮 cls
-                body = "return (" + Rewriter.Rewrite(input, state.VarNames, cls) + ");";
-            }
-        } else {
-            body = "return (" + input + ");";   // 无变量、纯表达式
+            prelude = prelude + "}\n";
         }
-        src = src + "public static object " + efn + "() { " + body + " }\n";
 
-        // ── parse + compile ──
-        string[] texts = new string[1]; texts[0] = src;
-        string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
-        CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
+        // 用户输入对变量的裸引用 → 本轮 cls（有变量时）
+        string rewritten = input;
+        if (needVars) { rewritten = Rewriter.Rewrite(input, state.VarNames, cls); }
 
-        CompileInputs inp = new CompileInputs();
-        inp.Texts = texts; inp.Files = files;
-        string[] hashes = new string[1]; hashes[0] = ZpkgBuilder.Sha256Hex(src);
-        inp.SrcHashes = hashes; inp.SrcCount = 1;
-        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
-        inp.Name = "repl_r" + n.ToString(); inp.Version = "0.0.0"; inp.Kind = "lib";
-        inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
-        inp.LibsDirs = state.LibsDirs; inp.LibsDirsN = state.LibsDirsN;
-        inp.DeclaredDeps = state.DeclaredDeps; inp.DepCount = state.DepCount;
-
-        CompileArtifacts art = PackageCompile.Compile(inp);
+        // ── 编译（表达式优先；非声明失败 → 回退纯语句，支持 void 调用/赋值）──
+        CompileArtifacts art;
+        bool hasValue = true;
+        if (p.IsVarDecl) {
+            art = Script._compileBody(state, n, prelude, efn, "return (" + cls + "." + p.VarName + ");");
+        } else {
+            art = Script._compileBody(state, n, prelude, efn, "return (" + rewritten + ");");
+            if (art.ErrorCount > 0) {
+                CompileArtifacts artS = Script._compileBody(state, n, prelude, efn, rewritten + "; return null;");
+                if (artS.ErrorCount == 0) { art = artS; hasValue = false; }
+            }
+        }
         if (art.ErrorCount > 0) {
             string err = "";
             int di = 0;
@@ -141,7 +128,27 @@ public static class Script {
             while (dk < state.VarNames.Count) { if (state.VarNames[dk] == p.VarName) { dup = true; } dk = dk + 1; }
             if (!dup) { state.VarNames.Add(p.VarName); }
         }
-        return new EvalResult(true, true, result, "", state);
+        object retVal = null;
+        if (hasValue) { retVal = result; }
+        return new EvalResult(true, hasValue, retVal, "", state);
+    }
+
+    // 用给定 eval body 编译本轮包（表达式/语句两种 body 复用）。
+    private static CompileArtifacts _compileBody(ScriptState state, int n, string prelude, string efn, string body) {
+        string src = prelude + "public static object " + efn + "() { " + body + " }\n";
+        string[] texts = new string[1]; texts[0] = src;
+        string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
+        CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
+        CompileInputs inp = new CompileInputs();
+        inp.Texts = texts; inp.Files = files;
+        string[] hashes = new string[1]; hashes[0] = ZpkgBuilder.Sha256Hex(src);
+        inp.SrcHashes = hashes; inp.SrcCount = 1;
+        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        inp.Name = "repl_r" + n.ToString(); inp.Version = "0.0.0"; inp.Kind = "lib";
+        inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
+        inp.LibsDirs = state.LibsDirs; inp.LibsDirsN = state.LibsDirsN;
+        inp.DeclaredDeps = state.DeclaredDeps; inp.DepCount = state.DepCount;
+        return PackageCompile.Compile(inp);
     }
 
     // 分类：识别变量声明 `var x = ...` / `T x = ...`（token 级）。否则视为表达式。
