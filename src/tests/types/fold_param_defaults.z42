@@ -1,0 +1,58 @@
+// 2026-07-24 fold-nonliteral-param-defaults: ParameterInfo.DefaultValue now folds
+// constant expressions (unary -/!/~, binary arithmetic/comparison/logical over
+// int/float/bool), not just literals. -5 / 1+2 / -3.14 / !false / 2*3+1 etc. now
+// surface their value; non-constant defaults (enum members / named constants /
+// string concat) stay null (deferred — need symbol resolution). Reuses the SIGS
+// default_kind encoding — no format bump.
+
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+enum Color { Red, Green }
+
+class H {
+    // folded constant defaults
+    public int Neg(int a, int b = -5) { return a; }
+    public int Arith(int a, int b = 1 + 2, int c = 2 * 3 + 1) { return a; }
+    public double FNeg(double x = -3.14) { return x; }
+    public bool BNot(bool f = !false) { return f; }
+    public int Bits(int a = 1 << 4, int b = 0xF0 & 0x0F) { return a; }
+    public bool Cmp(bool r = 3 > 2) { return r; }
+    // NOT folded (deferred): enum member / string concat (need symbol resolution)
+    public Color Enu(Color c = Color.Green) { return c; }
+    public string Cat(string s = "a" + "b") { return s; }
+}
+
+ParameterInfo pOf(string method, int idx) {
+    H h = new H();
+    foreach (var m in h.GetType().GetMethods()) {
+        if (m.Name == method) {
+            ParameterInfo[] ps = m.GetParameters();
+            return ps[idx];
+        }
+    }
+    return null;
+}
+
+void Main() {
+    // ── Folded constants ───────────────────────────────────────────────────
+    Assert.Equal(-5, (int)(long)pOf("Neg", 1).DefaultValue);
+    Assert.Equal(3, (int)(long)pOf("Arith", 1).DefaultValue);
+    Assert.Equal(7, (int)(long)pOf("Arith", 2).DefaultValue);      // 2*3+1
+    Assert.True((bool)pOf("BNot", 0).DefaultValue);                // !false
+    Assert.Equal(16, (int)(long)pOf("Bits", 0).DefaultValue);      // 1<<4
+    Assert.Equal(0, (int)(long)pOf("Bits", 1).DefaultValue);       // 0xF0 & 0x0F
+    Assert.True((bool)pOf("Cmp", 0).DefaultValue);                 // 3>2
+
+    double fv = (double)pOf("FNeg", 0).DefaultValue;               // -3.14
+    Assert.True(fv < -3.13 && fv > -3.15);
+
+    // ── Deferred (still null): enum member / string concat ─────────────────
+    Assert.True(pOf("Enu", 0).DefaultValue == null);
+    Assert.True(pOf("Cat", 0).DefaultValue == null);
+
+    // ── IsOptional still true even when unfolded (d != null) ────────────────
+    Assert.True(pOf("Enu", 0).IsOptional);
+}
