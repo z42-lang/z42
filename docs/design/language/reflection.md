@@ -495,7 +495,7 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 
 ### ~~reflection-future-get-interface-byname~~ — 已落地（2026-06-16）
 - **状态**：`Type.GetInterface(string)` + `Type.IsAssignableFrom(Type)` 已落地 2026-06-16（add-reflection-assignable-from，zbc 1.20 / zpkg 0.22）。**真实方案**：IsAssignableFrom 复用 VM 权威 `is_subclass_or_eq_td`（真实 TypeDesc FQ 名比较，非合成 Type 字符串）；接口块改存 FQ 名 → `GetInterfaces()` 返真句柄 + 接口身份 robust。**根因修**：扩展 `is_subclass_or_eq_td`（interp）/ `is_subclass_or_eq`（JIT）base 链每层查接口 → `x is IShape`/`as` 对接口生效（此前 false）。见上文「赋值兼容：IsAssignableFrom + 接口 is/as」。
-- **剩余**：大小写不敏感 GetInterface / 泛型变体 / handle-less 装箱语义（`object.IsAssignableFrom(int)`）/ 传递接口 延后。
+- **剩余**：大小写不敏感 GetInterface / 泛型变体 / 传递接口 延后。~~handle-less 装箱语义（`object.IsAssignableFrom(int)`）~~ —— 已落地 2026-07-24（add-reflection-object-assignable，纯 runtime）：`typeof(object)` 是 handle-less Type（名 `"object"`），此前 `IsAssignableFrom` 落 FullName 相等 → 对值类型/用户类/接口/数组恒 false；现特判 `this` 名为 `"object"`/`"Std.Object"` → 对任意非 null `c` 返 true（值类型装箱 + 所有引用类型/接口/数组皆派生自 object，镜像 C#）。不过度放宽——`int.IsAssignableFrom(long)` 仍 false。
 
 ### ~~reflection-future-generic-type-definition~~ — 已落地（2026-06-16）
 - **状态**：`Type.IsGenericTypeDefinition` / `GetGenericTypeDefinition()` + 修复 `GetGenericArguments()`-on-typeof 已落地 2026-06-16（add-reflection-generic-type-definition，zbc 1.18 / zpkg 0.20）。新 `Typeof` opcode 携结构化 type args；见上文「构造型泛型」。

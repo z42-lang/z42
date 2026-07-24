@@ -1385,6 +1385,21 @@ pub fn builtin_type_is_assignable_from(ctx: &VmContext, args: &[Value]) -> Resul
     }
     let this_slot = args;          // .first() == this
     let c_slot = &args[1..];       // .first() == c
+    // C# semantics: everything is assignable to `object` — value types box, all
+    // reference types / interfaces / arrays derive from it. `typeof(object)` is a
+    // handle-less Type named "object" (also accept the FQ "Std.Object"), so the
+    // handle/FullName paths below would wrongly report false for value types etc.
+    // add-reflection-object-assignable. (`c` is already non-null, checked above.)
+    let this_name = match type_handle(this_slot) {
+        Some(td) => td.name.to_string(),
+        None => match read_type_str_slot(this_slot, "__fullName") {
+            Value::Str(s) => s.to_string(),
+            _ => String::new(),
+        },
+    };
+    if this_name == "object" || this_name == STD_OBJECT {
+        return Ok(Value::Bool(true));
+    }
     let result = match (type_handle(this_slot), type_handle(c_slot)) {
         (Some(this_td), Some(c_td)) => match ctx.module() {
             Some(m) => crate::interp::dispatch::is_subclass_or_eq_td(
