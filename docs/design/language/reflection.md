@@ -525,10 +525,13 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **`Enum.Parse` / `Enum.IsDefined`** —— ✅ 已落地 2026-07-24（add-enum-parse-isdefined，纯 runtime +
   Std.Enum，读现有 `enum_members`，**无格式 bump**）：`Parse(type,name)→value`（未命中抛 catchable
   `Std.Exception`，镜像 C#；**大小写敏感**，无 ignoreCase）；`IsDefined(type,value)→bool`。
+- **`Type.GetEnumUnderlyingType()`** —— ✅ 已落地 2026-07-25（add-enum-underlying-type，纯 runtime，
+  **无格式 bump**）：**调查更正**——早先以为需格式 bump 持久化声明底层类型，但 IrGen 的 enum 发射
+  **完全忽略** `EnumDecl.baseType`，z42 一律以 **i64（long）** 背书 enum（成员值 i64、`GetValues` 返
+  `long[]`、声明的 `: byte` 被丢弃）→ 底层类型恒 `long`，返 `typeof(long)` 即准确、无需 bump。非 enum
+  抛 catchable `Std.Exception`（镜像 C#）。（真正**尊重**声明的 `: byte`（改 enum 值宽度）是语言语义
+  改动 + 需格式 bump，另属 enum 类型系统工作，非本反射项。）
 - **剩余**：
-  - **`GetEnumUnderlyingType`**：enum 声明底层类型（`enum E : byte`，`EnumDecl.baseType` 已被 parser
-    捕获）**未持久化**到 TYPE 元数据（只存 {name,i64}）→ 精确实现需**格式 bump**（TYPE enum 块加
-    underlying type）。延后（单独 format-bump change）。
   - **带类型 enum 值（Tier 2）**：`value.ToString()→名` / `value.GetType().IsEnum`——z42 enum 值底层是
     裸 i64，不携带 enum 类型标签 → 需 enum 值装箱（与 `primitive-value-boxing` 同框架）。延后，挂 boxing 线。
   - `[Flags]` 组合名 / `Enum.TryParse`（依赖 `out` 参成熟）延后。

@@ -92,6 +92,12 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_enum")]
     public extern bool IsEnum { get; }
 
+    // enum 的底层整型。z42 一律以 i64（long）背书 enum（值存 i64、GetValues 返 long[]、
+    // 声明的 `: byte` 当前被忽略）→ 恒返 typeof(long)。非 enum 抛 Std.Exception（镜像 C#）。
+    // add-enum-underlying-type。
+    [Native("__type_enum_underlying")]
+    public extern Type GetEnumUnderlyingType();
+
     // True for a `delegate` type（delegate-as-class TYPE 条目，class_flags bit6）。
     // 签名经 GetMethods() 的合成 Invoke 反射。(add-delegate-metadata / unify P1-e)
     [Native("__type_is_delegate")]
