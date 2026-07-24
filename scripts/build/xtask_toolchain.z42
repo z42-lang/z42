@@ -111,6 +111,35 @@ int _ensureToolchainDeps(string root) {
     if (!File.Exists(Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg"))) {
         int r = _buildCompiler(); if (r != 0) { return r; }
     }
+    // z42.scripting（L3 compiler-consuming lib，REPL 引擎）→ libs。它依赖 z42c.* 编译器包，
+    // 不属基 stdlib workspace（那里 Z42_LIBS 只含 stdlib），故专用步在此建（scripting-charter
+    // L3 分层）。z42.interactive 依赖它。(add-z42-repl)
+    int sc = _buildScriptingLib(root, _builtVm(root, "release"), _selfContainedDriverDir(root), _libsDir(root));
+    if (sc != 0) { return sc; }
+    return 0;
+}
+
+// 合并 Z42_LIBS 目录（stdlib z42.* + 编译器 z42c.* + z42.scripting）——driver 的 Z42_LIBS 是
+// 单目录，而 z42.scripting/z42.interactive 要同时解析 stdlib 与 z42c.*，故合并到一处。
+string _scriptingLibsDir(string root) {
+    return Path.Join(root, "artifacts/build/toolchain/.scripting-libs");
+}
+
+// build z42.scripting（依赖 z42c.* + stdlib）→ libs。合并目录 = stdlib + z42c.* dist；
+// 建成后把 z42.scripting.zpkg 也并入合并目录，供 z42.interactive 用同一目录解析。
+int _buildScriptingLib(string root, string vm, string z42cDir, string libs) {
+    string combined = _scriptingLibsDir(root);
+    Directory.Create(combined);
+    _copyAll(libs, combined, "z42.*.zpkg");
+    _copyAll(z42cDir, combined, "z42c.*.zpkg");
+    string toml = "src/libraries/z42.scripting/z42.scripting.z42.toml";
+    _vNormal("  scripting: " + toml + " (Z42_LIBS=stdlib+z42c) → " + libs);
+    int c = _exec(new Process(vm)
+        .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml).Arg("--release").Arg("--output-dir").Arg(libs)
+        .Env("Z42_LIBS", combined));
+    if (c != 0) { ConsoleError.WriteLine("  ✗ z42.scripting build failed (" + c.ToString() + ")"); return c; }
+    _copyAll(libs, combined, "z42.scripting.zpkg");   // 并入合并目录供 z42.interactive 解析
     return 0;
 }
 
@@ -159,7 +188,11 @@ int _buildToolchain() {
     string z42bZpkg = _toolchainZpkg(root, builderToml);
     // compile + publish each apphost → its own publish_dir (from toml).
     foreach (var toml in _toolchainApphostTomls()) {
-        int c = _z42cBuildToml(vm, z42cDir, libs, toml);
+        // z42.interactive 依赖 z42.scripting（→ z42c.*）：用含 stdlib+z42c+scripting 的合并目录
+        // 解析（其余 apphost 用纯 stdlib libs，避免 z42c.* 上路径引入短名串味）。(add-z42-repl)
+        string useLibs = libs;
+        if (toml.Contains("interactive")) { useLibs = _scriptingLibsDir(root); }
+        int c = _z42cBuildToml(vm, z42cDir, useLibs, toml);
         if (c != 0) { ConsoleError.WriteLine("  ✗ compile failed: " + toml); return c; }
         string pubDir = _desktopPublishDir(root, toml);
         _vNormal("  publish: " + toml + " → " + pubDir);
