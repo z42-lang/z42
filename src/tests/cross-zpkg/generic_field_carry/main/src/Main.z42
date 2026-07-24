@@ -1,0 +1,9 @@
+namespace DemoGMain;
+using Std.IO;
+using Std.Collections;
+using DemoGTarget;
+using DemoGExt;
+void Main() {
+    // 导入 DemoGExt（其泛型 var 字段 mirror 必须能解析——即本 fix）+ 用 target 已初始化字段。
+    Console.WriteLine(Store.items.Count);   // 0（空 list，target 自身 new）
+}
