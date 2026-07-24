@@ -540,14 +540,18 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **当前 workaround**：attribute 类基名写 unqualified `: Attribute`（reflection.z42 即此,绿）。
 - **前置依赖 / 触发条件**：根因在 name-resolution(合成函数如何解析 imported 类型),需较深 compiler 调查;与进行中 `port-z42c-*` 自举移植可能冲突 → 独立 change，自举收口后再做。
 
-### fold-nonliteral-param-defaults — 非字面量参数默认值的值
+### ~~fold-nonliteral-param-defaults~~ — 部分落地（2026-07-24，常量表达式）
 
-- **来源**：add-param-metadata（unify P1-d，2026-07-10）Out of Scope。
-- **触发原因**：`ParameterInfo.DefaultValue` 只折**字面量**默认值（Int/Float/Bool/String/Char/null
-  直取）；常量表达式（`1+2`）、enum 成员、命名常量默认值需常量折叠器，本砖未建。
-- **前置依赖**：add-param-metadata（default_kind 编码已落，扩展只需 IrGen 折叠更多 Expr 形态）。
-- **触发条件**：反射需读非字面量默认值的值（named-args 求值 / 文档生成）时。
-- **当前 workaround**：非字面量默认值 `DefaultValue == null`（kind=0），`IsOptional` 仍 true。
+- **状态**：`ParameterInfo.DefaultValue` 现折**常量表达式**——一元 `-`/`!`/`~`/`+` + 二元
+  算术(`+ - * / %`)/位(`& | ^ << >>`)/比较(`== != < <= > >=`)/逻辑(`&& ||`) over 已折
+  int/float/bool 操作数，任意深度递归（`1+2`→3、`-5`、`-3.14`、`!false`、`2*3+1`→7、
+  `1<<4`→16）。已落地 2026-07-24（fold-nonliteral-param-defaults，纯 z42c IrGenFacts 递归
+  折叠器 `_foldDefault`，复用 SIGS `default_kind` 编码——**无格式 bump**）。
+- **实现**：`IrGenFacts._fillParamMeta` 的字面量 inline check 抽成递归 `_foldDefault(Expr)→DefaultFold`；
+  除零 / 越界移位 / 混合类型 → 保守回落 kind 0（`DefaultValue==null`，`IsOptional` 仍 true），
+  **绝不产错值**。仅影响**反射元数据**（call-site 默认值应用走另一路径，语义不变）。
+- **剩余（仍 null）**：enum 成员（`Color.Green`）、命名常量（`const X`）、字符串拼接——需
+  **符号解析 / 常量求值**（不止 AST 折叠），延后。
 
 
 ### ~~reflection-future-typeof-delegate~~ — 已落地（2026-07-24）

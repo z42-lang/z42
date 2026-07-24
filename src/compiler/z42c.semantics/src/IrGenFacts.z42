@@ -4,6 +4,15 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.IR;
 
+// 参数默认值折叠结果（fold-nonliteral-param-defaults）。Kind 语义同 SIGS default_kind
+// （0=未折叠 / 1=null / 2=i64 / 3=f64bits / 4=bool / 5=str）。
+public sealed class DefaultFold {
+    public int    Kind;
+    public long   Val;
+    public string Str;
+    public DefaultFold(int kind, long val, string str) { this.Kind = kind; this.Val = val; this.Str = str; }
+}
+
 public static class IrGenFacts {
 
     public static int _irTypeTag(TypeExpr te) {
@@ -74,13 +83,11 @@ public static class IrGenFacts {
             Expr d = md.Params[p].Default;
             if (d != null) {
                 if (!foundDefault) { minArg = p; foundDefault = true; }   // 首个默认值下标 = 必填数
-                if (d is NullLitExpr) { kind = 1; }
-                else if (d is IntLitExpr) { kind = 2; v = ZbcInstr._parseIntLit((d as IntLitExpr).Value); }
-                else if (d is CharLitExpr) { kind = 2; v = (long)(int)(d as CharLitExpr).Value; }
-                else if (d is BoolLitExpr) { kind = 4; if ((d as BoolLitExpr).Value) { v = 1; } }
-                else if (d is FloatLitExpr) { kind = 3; v = ZbcInstr.DoubleToBits(Convert.ToDouble(IrGenFacts._stripFloatSuffix((d as FloatLitExpr).Value))); }
-                else if (d is StringLitExpr) { kind = 5; sv = Lexer.DecodeString((d as StringLitExpr).Raw); }
-                // 非字面量 → kind 0
+                // 递归常量折叠（fold-nonliteral-param-defaults）：字面量 + 一元/二元常量表达式
+                // （-5 / 1+2 / -3.14 / !false / ...）；不可折叠（enum/命名常量/字符串拼接/混合类型/
+                // 除零）→ kind 0（保守，IsOptional 仍 true 但 DefaultValue null，绝不产错值）。
+                DefaultFold df = IrGenFacts._foldDefault(d);
+                kind = df.Kind; v = df.Val; sv = df.Str;
             }
             kinds[p + off] = kind; vals[p + off] = v; strs[p + off] = sv;
             p = p + 1;
@@ -89,6 +96,87 @@ public static class IrGenFacts {
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { paramsFrom = md.ParamCount - 1; }
         irf.MinArg = minArg; irf.ParamsFrom = paramsFrom;
         irf.ParamNames = names; irf.ParamDefaultKinds = kinds; irf.ParamDefaultVals = vals; irf.ParamDefaultStrs = strs;
+    }
+
+    // ── 参数默认值常量折叠（fold-nonliteral-param-defaults）────────────────────
+    // 递归把参数默认值 Expr 折成 (Kind,Val,Str)，Kind 语义同 default_kind：
+    // 0=未折叠 / 1=null / 2=i64(int/char/bool-as-int 存 Val) / 3=f64bits / 4=bool(0|1) / 5=str。
+    // 只折**确定的常量**（字面量 + 一元 -/!/~/+ + 二元 算术/比较/逻辑/位 over 已折 int/float/bool）。
+    // 任何不确定（enum 成员 / 命名常量 / 字符串拼接 / 混合类型 / 除零 / 越界移位）→ Kind 0：
+    // 保守回落「无默认值」（IsOptional 仍由 d!=null 保证），**绝不产错值**。
+    public static DefaultFold _foldDefault(Expr d) {
+        if (d == null) { return IrGenFacts._noneFold(); }
+        if (d is NullLitExpr) { return new DefaultFold(1, 0, ""); }
+        if (d is IntLitExpr) { return new DefaultFold(2, ZbcInstr._parseIntLit((d as IntLitExpr).Value), ""); }
+        if (d is CharLitExpr) { return new DefaultFold(2, (long)(int)(d as CharLitExpr).Value, ""); }
+        if (d is BoolLitExpr) { long bv = 0; if ((d as BoolLitExpr).Value) { bv = 1; } return new DefaultFold(4, bv, ""); }
+        if (d is FloatLitExpr) { return new DefaultFold(3, ZbcInstr.DoubleToBits(Convert.ToDouble(IrGenFacts._stripFloatSuffix((d as FloatLitExpr).Value))), ""); }
+        if (d is StringLitExpr) { return new DefaultFold(5, 0, Lexer.DecodeString((d as StringLitExpr).Raw)); }
+        if (d is UnaryExpr) { return IrGenFacts._foldUnary(d as UnaryExpr); }
+        if (d is BinaryExpr) { return IrGenFacts._foldBinary(d as BinaryExpr); }
+        return IrGenFacts._noneFold();
+    }
+
+    private static DefaultFold _noneFold() { return new DefaultFold(0, 0, ""); }
+    private static DefaultFold _boolFold(bool b) { long v = 0; if (b) { v = 1; } return new DefaultFold(4, v, ""); }
+
+    private static DefaultFold _foldUnary(UnaryExpr u) {
+        DefaultFold o = IrGenFacts._foldDefault(u.Operand);
+        if (u.Op == "-") {
+            if (o.Kind == 2) { return new DefaultFold(2, 0 - o.Val, ""); }
+            if (o.Kind == 3) { return new DefaultFold(3, ZbcInstr.DoubleToBits(0.0 - ZbcReaderInstr.BitsToDouble(o.Val)), ""); }
+        } else if (u.Op == "+") {
+            if (o.Kind == 2 || o.Kind == 3) { return o; }
+        } else if (u.Op == "!") {
+            if (o.Kind == 4) { return IrGenFacts._boolFold(o.Val == 0); }
+        } else if (u.Op == "~") {
+            if (o.Kind == 2) { return new DefaultFold(2, ~o.Val, ""); }
+        }
+        return IrGenFacts._noneFold();
+    }
+
+    private static DefaultFold _foldBinary(BinaryExpr b) {
+        DefaultFold l = IrGenFacts._foldDefault(b.Left);
+        DefaultFold r = IrGenFacts._foldDefault(b.Right);
+        string op = b.Op;
+        if (l.Kind == 2 && r.Kind == 2) {   // int ⊕ int
+            long a = l.Val; long c = r.Val;
+            if (op == "+") { return new DefaultFold(2, a + c, ""); }
+            if (op == "-") { return new DefaultFold(2, a - c, ""); }
+            if (op == "*") { return new DefaultFold(2, a * c, ""); }
+            if (op == "/") { if (c == 0) { return IrGenFacts._noneFold(); } return new DefaultFold(2, a / c, ""); }
+            if (op == "%") { if (c == 0) { return IrGenFacts._noneFold(); } return new DefaultFold(2, a % c, ""); }
+            if (op == "&") { return new DefaultFold(2, a & c, ""); }
+            if (op == "|") { return new DefaultFold(2, a | c, ""); }
+            if (op == "^") { return new DefaultFold(2, a ^ c, ""); }
+            if (op == "<<") { if (c < 0 || c > 63) { return IrGenFacts._noneFold(); } return new DefaultFold(2, a << (int)c, ""); }
+            if (op == ">>") { if (c < 0 || c > 63) { return IrGenFacts._noneFold(); } return new DefaultFold(2, a >> (int)c, ""); }
+            if (op == "==") { return IrGenFacts._boolFold(a == c); }
+            if (op == "!=") { return IrGenFacts._boolFold(a != c); }
+            if (op == "<") { return IrGenFacts._boolFold(a < c); }
+            if (op == "<=") { return IrGenFacts._boolFold(a <= c); }
+            if (op == ">") { return IrGenFacts._boolFold(a > c); }
+            if (op == ">=") { return IrGenFacts._boolFold(a >= c); }
+        } else if (l.Kind == 3 && r.Kind == 3) {   // float ⊕ float
+            double a = ZbcReaderInstr.BitsToDouble(l.Val); double c = ZbcReaderInstr.BitsToDouble(r.Val);
+            if (op == "+") { return new DefaultFold(3, ZbcInstr.DoubleToBits(a + c), ""); }
+            if (op == "-") { return new DefaultFold(3, ZbcInstr.DoubleToBits(a - c), ""); }
+            if (op == "*") { return new DefaultFold(3, ZbcInstr.DoubleToBits(a * c), ""); }
+            if (op == "/") { return new DefaultFold(3, ZbcInstr.DoubleToBits(a / c), ""); }
+            if (op == "==") { return IrGenFacts._boolFold(a == c); }
+            if (op == "!=") { return IrGenFacts._boolFold(a != c); }
+            if (op == "<") { return IrGenFacts._boolFold(a < c); }
+            if (op == "<=") { return IrGenFacts._boolFold(a <= c); }
+            if (op == ">") { return IrGenFacts._boolFold(a > c); }
+            if (op == ">=") { return IrGenFacts._boolFold(a >= c); }
+        } else if (l.Kind == 4 && r.Kind == 4) {   // bool ⊕ bool
+            bool a = l.Val != 0; bool c = r.Val != 0;
+            if (op == "&&") { return IrGenFacts._boolFold(a && c); }
+            if (op == "||") { return IrGenFacts._boolFold(a || c); }
+            if (op == "==") { return IrGenFacts._boolFold(a == c); }
+            if (op == "!=") { return IrGenFacts._boolFold(a != c); }
+        }
+        return IrGenFacts._noneFold();
     }
 
     public static string _stripFloatSuffix(string t) {
