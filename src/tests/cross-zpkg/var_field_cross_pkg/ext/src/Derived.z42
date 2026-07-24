@@ -1,0 +1,6 @@
+// ext 独立 public static var 字段（推断 string）——测第二个包的 var 字段跨包消费。
+namespace Demo.VarExt;
+
+public static class Extra {
+    public static var Label = "ext";
+}

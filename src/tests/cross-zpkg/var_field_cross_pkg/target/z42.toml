@@ -1,5 +1,5 @@
 [project]
-name    = "demo.varlib"
+name    = "demo.vartarget"
 version = "0.1.0"
 kind    = "lib"
 pack    = true        # required for cross-zpkg TSIG-based reference compilation

@@ -6,4 +6,5 @@ entry   = "Demo.VarApp.Main"
 pack    = true
 
 [dependencies]
-"demo.varlib" = "0.1.0"
+"demo.vartarget" = "0.1.0"
+"demo.varext"    = "0.1.0"
