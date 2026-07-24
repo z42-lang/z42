@@ -1,0 +1,10 @@
+[project]
+name = "demo.gmain"
+version = "0.1.0"
+kind = "exe"
+entry = "DemoGMain.Main"
+pack = true
+[dependencies]
+"z42.collections" = "0.1.0"
+"demo.gtarget" = "0.1.0"
+"demo.gext" = "0.1.0"

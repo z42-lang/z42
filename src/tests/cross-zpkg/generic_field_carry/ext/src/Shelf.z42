@@ -1,0 +1,7 @@
+namespace DemoGExt;
+using Std.Collections;
+using DemoGTarget;
+// 跨包 carry 泛型 var 字段：mirror 类型从 Store.items（List<int>）跨包推断。
+// 修复前：跨包读 Store.items 得垃圾 prim → mirror 导出畸形 → 下游导入 DemoGExt 时 undefined。
+// 修复后：解析为真 Z42InstantiatedType(List,[int]) → mirror 正确导出 → 下游可导入。
+public static class Shelf { public static var mirror = Store.items; }

@@ -306,6 +306,32 @@ public static class ImportedSymbolLoader {
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
         if (r.Interfaces.ContainsKey(name)) { return r.Interfaces.Get(name) as Z42InterfaceType; }
+        // 根因修复（infer-crosspkg-generic-instantiation）：泛型实例化串 `List<int>` /
+        // `Dictionary<string,int>` → 解析基类（r.Classes）+ 递归解析类型参数 → Z42InstantiatedType。
+        // 否则落 fallback prim(name) 垃圾类型；一旦该字段被跨轮 carry-forward（`var v = Other.f;`）
+        // 再导出，TSIG 畸形 → 下游消费包 `undefined: <class>`（add-z42-repl 会话 List<int> 变量的
+        // carry-forward 暴露：round N carry round N-1 的 var 字段，链式失真）。
+        int ltIdx = name.IndexOf("<");
+        if (ltIdx > 0 && name.EndsWith(">")) {
+            string baseN = name.Substring(0, ltIdx);
+            Z42ClassType gdef = null;
+            if (r.Classes.ContainsKey(baseN)) { gdef = r.Classes.Get(baseN) as Z42ClassType; }
+            else {
+                string gbs = ImportedSymbolLoader._shortName(baseN);
+                if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
+            }
+            if (gdef != null) {
+                string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);
+                string[] argStrs = ImportedSymbolLoader._splitTypeArgs(argsStr);
+                Z42Type[] targs = new Z42Type[argStrs.Length];
+                int ai = 0;
+                while (ai < argStrs.Length) {
+                    targs[ai] = ImportedSymbolLoader._resolve(r, argStrs[ai], typeParams, tpCount);
+                    ai = ai + 1;
+                }
+                return new Z42InstantiatedType(gdef, targs, argStrs.Length);
+            }
+        }
         // 根因修复（fix-crosspkg-fq-type-resolution）：跨命名空间、全限定书写的导入类型名
         // （如返回类型 `Std.Reflection.FieldInfo[]` 的元素 `Std.Reflection.FieldInfo`）——
         // Classes/Interfaces 以短名为键，FQ 名直接查会 miss、降级成 Z42PrimType 哨兵，导致消费包
@@ -325,6 +351,31 @@ public static class ImportedSymbolLoader {
     // 无型参上下文（自由函数等）——委托四参版本。
     private static Z42Type _resolve(ImportedSymbols r, string name) {
         return ImportedSymbolLoader._resolve(r, name, new string[0], 0);
+    }
+
+    // 按顶层逗号切分泛型类型参数串（`string,List<int>` → ["string","List<int>"]），尊重嵌套 <>。
+    private static string[] _splitTypeArgs(string s) {
+        string[] parts = new string[2];
+        int n = 0;
+        int depth = 0;
+        int start = 0;
+        int i = 0;
+        while (i < s.Length) {
+            string ch = s.Substring(i, 1);
+            if (ch == "<") { depth = depth + 1; }
+            else if (ch == ">") { depth = depth - 1; }
+            else if (ch == "," && depth == 0) {
+                if (n == parts.Length) { string[] b = new string[parts.Length * 2]; int k = 0; while (k < n) { b[k] = parts[k]; k = k + 1; } parts = b; }
+                parts[n] = s.Substring(start, i - start).Trim(); n = n + 1;
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        if (n == parts.Length) { string[] b = new string[parts.Length * 2]; int k = 0; while (k < n) { b[k] = parts[k]; k = k + 1; } parts = b; }
+        parts[n] = s.Substring(start, s.Length - start).Trim(); n = n + 1;
+        string[] res = new string[n];
+        int j = 0; while (j < n) { res[j] = parts[j]; j = j + 1; }
+        return res;
     }
 
     private static bool _isPrim(string n) {
