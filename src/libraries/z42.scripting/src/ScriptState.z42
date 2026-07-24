@@ -1,5 +1,5 @@
-// REPL 会话累积状态（add-z42-repl 阶段 2，growing transcript）。
-// 每轮成功 eval 后推进；失败时不推进（EvalResult.State = 原状态，会话不破坏）。
+// REPL 会话累积状态（add-z42-repl 阶段 2，growing transcript + D7 每轮唯一命名空间）。
+// 每轮成功 eval 后推进；失败不推进（EvalResult.State = 原状态，会话不破坏）。
 namespace Std.Scripting;
 
 using Std;
@@ -7,16 +7,19 @@ using Std.Collections;
 
 public class ScriptState {
     public List<string> Usings;    // 生效的 using 命名空间（如 "Std.IO"）
-    public List<string> VarNames;  // 会话变量名（.vars / 引用改写用）
-    public List<string> VarDecls;  // 各变量的声明源（提升为静态字段行）
-    public List<string> Decls;     // 顶层 fn/class 声明源（累积）
-    public int Counter;            // 最近一次成功轮次号（下一轮 = Counter+1）
+    public List<string> VarNames;  // 会话变量名（引用改写 / .vars）
+    public List<string> VarDecls;  // 各变量提升为静态字段的源（含推断/显式类型）
+    public int Counter;            // 最近成功轮次号（下一轮 = Counter+1）
+    // 编译配置（PackageCompile 需要）：依赖目录 + 依赖名白名单。REPL 运行期从 Z42_LIBS 派生。
+    public string[] LibsDirs; public int LibsDirsN;
+    public string[] DeclaredDeps; public int DepCount;
 
     public ScriptState() {
         this.Usings = new List<string>();
         this.VarNames = new List<string>();
         this.VarDecls = new List<string>();
-        this.Decls = new List<string>();
         this.Counter = 0;
+        this.LibsDirs = new string[0]; this.LibsDirsN = 0;
+        this.DeclaredDeps = new string[0]; this.DepCount = 0;
     }
 }

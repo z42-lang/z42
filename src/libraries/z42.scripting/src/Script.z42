@@ -1,18 +1,14 @@
 // Script.Eval —— REPL 编译+执行层（scripting-charter Form B）。
 //
-// 状态：骨架 + 已验证机制。完整 Eval 编排（分类 → growing transcript → PackageCompile →
-// ZpkgWriter → Engine.LoadBytes → Engine.Invoke → 格式化）待 **design.md D8 会话状态模型**
-// 由 User 裁决后落地（方案 R 加载器 replace，或方案 T 显式类型推断）。
+// 流程：build 每轮源（D7 唯一命名空间 Repl.R{N}）→ IrDump.ParseAll → PackageCompile.Compile
+// → ZpkgWriter.ToBytes → Engine.LoadBytes（内存加载）→ Engine.Invoke（自由函数 Eval{N}）→
+// EvalResult。编译失败不推进会话（错误恢复）。
 //
-// 已用 warm-z42c 端到端验证的可复用 API（见 tasks.md 备注 + design D8）：
-//   parse   Z42.Semantics.IrDump.ParseAll(srcs, files, count) -> CompilationUnit[]
-//   hash    Z42.IR.ZpkgBuilder.Sha256Hex(text)
-//   compile Z42.Pipeline.PackageCompile.Compile(CompileInputs) -> CompileArtifacts
-//   bytes   Z42.Project.ZpkgWriter.WritePacked(art.Z, false).ToBytes() -> byte[]
-//   加载/调用  Std.Scripting.Engine.LoadBytes / Invoke（自由函数 FQN，返回装箱结果）
+// 阶段 2a：表达式求值（core-only 先行）。var 声明 + carry-forward + 引用改写 = 阶段 2b。
 namespace Std.Scripting;
 
 using Std;
+using Std.Collections;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Pipeline;
@@ -23,11 +19,48 @@ public static class Script {
     // 新建空会话。
     public static ScriptState Create() { return new ScriptState(); }
 
-    // D2 骨架探针：验证 compiler-consuming stdlib 库依赖解析（已编译通过）。
-    // 完整 Eval 待 D8 裁决，见文件头。
-    public static int Probe() {
+    // 求值一段输入。当前：表达式（wrap 成 Eval{N} 自由函数返回 object）。
+    public static EvalResult Eval(ScriptState state, string input) {
+        int n = state.Counter + 1;
+        string ns = "Repl.R" + n.ToString();
+        string efn = "Eval" + n.ToString();
+
+        // ── build 每轮源 ──
+        string src = "namespace " + ns + ";\n";
+        int u = 0;
+        while (u < state.Usings.Count) { src = src + "using " + state.Usings[u] + ";\n"; u = u + 1; }
+        src = src + "public static object " + efn + "() { return (" + input + "); }\n";
+
+        // ── parse ──
+        string[] texts = new string[1]; texts[0] = src;
+        string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
+        CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
+
+        // ── compile ──
         CompileInputs inp = new CompileInputs();
-        inp.SrcCount = 0;
-        return inp.SrcCount;
+        inp.Texts = texts; inp.Files = files;
+        string[] hashes = new string[1]; hashes[0] = ZpkgBuilder.Sha256Hex(src);
+        inp.SrcHashes = hashes; inp.SrcCount = 1;
+        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        inp.Name = "repl_r" + n.ToString(); inp.Version = "0.0.0"; inp.Kind = "lib";
+        inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
+        inp.LibsDirs = state.LibsDirs; inp.LibsDirsN = state.LibsDirsN;
+        inp.DeclaredDeps = state.DeclaredDeps; inp.DepCount = state.DepCount;
+
+        CompileArtifacts art = PackageCompile.Compile(inp);
+        if (art.ErrorCount > 0) {
+            string err = "";
+            int di = 0;
+            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            return new EvalResult(false, false, null, err, state);   // 会话不推进
+        }
+
+        // ── bytes → load → invoke ──
+        byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();
+        Engine.LoadBytes(bytes);
+        object result = Engine.Invoke(ns + "." + efn);
+
+        state.Counter = n;   // 表达式不改 usings/vars；仅推进轮次
+        return new EvalResult(true, true, result, "", state);
     }
 }
