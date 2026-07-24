@@ -1369,6 +1369,43 @@ pub fn builtin_enum_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Str(String::new().into()))
 }
 
+/// `__enum_parse(typeObj, name) -> i64` — member value for a name (inverse of
+/// `__enum_name`). Throws a catchable `Std.Exception` if the name is not a
+/// member (mirrors C# `Enum.Parse` → ArgumentException). **Case-sensitive**
+/// (z42 is a case-sensitive language — no `ignoreCase` variant). Reads the
+/// existing `enum_members` metadata; no format change. add-enum-parse-isdefined.
+pub fn builtin_enum_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => bail!("Enum.Parse: receiver is not a type handle"),
+    };
+    let name = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => bail!("Enum.Parse: expected a string member name"),
+    };
+    for (n, v) in td.enum_members() {
+        if n.as_str() == name.as_ref() {
+            return Ok(Value::I64(*v));
+        }
+    }
+    bail!("Enum.Parse: `{}` is not a member of enum `{}`", name, td.name)
+}
+
+/// `__enum_is_defined(typeObj, i64) -> bool` — true iff the value is a defined
+/// enum member. Non-enum / handle-less / non-int arg → false. Reads
+/// `enum_members`; no format change. add-enum-parse-isdefined.
+pub fn builtin_enum_is_defined(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(Value::Bool(false)),
+    };
+    let val = match args.get(1) {
+        Some(Value::I64(v)) => *v,
+        _ => return Ok(Value::Bool(false)),
+    };
+    Ok(Value::Bool(td.enum_members().iter().any(|(_, v)| *v == val)))
+}
+
 /// `__type_is_assignable_from(this, c) -> bool` — true if an instance of `c`
 /// can be assigned to a variable of `this` type (mirrors C#
 /// `Type.IsAssignableFrom`): `c` is `this`, derives from `this`, or implements
