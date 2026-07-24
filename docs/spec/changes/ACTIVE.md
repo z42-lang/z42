@@ -18,6 +18,14 @@
 > 2026-07-23（D1 静态依赖 PackageCompile → 不撞跨包接口 cast bug；D2/D3 皆 A；打印 1 层）。
 > GREEN 以 CI 为权威。spec：`docs/spec/changes/add-z42-repl/`。
 
+> **独立分支 in-flight（2026-07-24，User 授权并行推进，不排队）**：`infer-var-field-types`
+> （编译器根因 fix：`static var` 字段跨 zpkg 导出丢推断类型 → 消费端 E0402；双通道修——
+> `VarFieldInfer` fixup pass 回写 `fs.FieldType`(TSIG) + `ClassDescBuilder` var 字段用推断类型
+> (TYPE 段)；占 `compiler`）在分支 `claude/infer-var-field-types` 上开发，与 `split-irgen-class`
+> 物理隔离，合并时解冲突。**无回归依据**：只改 var 字段路径，z42c 源 0 处 public static var，
+> A/B 证 z42.collections 字节不变。`add-z42-repl` 的 carry-forward 状态模型依赖它。GREEN 以 CI
+> 为权威。spec：`docs/spec/changes/infer-var-field-types/`。
+
 ## 子系统持有表
 
 | 子系统 | 当前持有 change | 起始 | 说明 |

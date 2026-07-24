@@ -1,0 +1,94 @@
+// var 字段类型推断 fixup pass（infer-var-field-types，根因修复）。
+//
+// 根因：SymbolCollector 对 `static var x = <init>` 字段只 ResolveTypeP("var") → Z42UnknownType
+// 占位，从不从初始化器推断。同包访问靠 Unknown 宽松放过掩盖；跨包导出「var」→ 消费端 E0402。
+//
+// 本 pass 在 SymbolCollect 之后、TSIG Export 之前跑（IrDump.BuildPackageCus）：绑定每个 static
+// var 字段的初始化器、取其类型、回写 FieldSymbol.FieldType（物理消除降级态）。链式引用
+// （`var y = C.x * 2`）迭代到 fixpoint。回写后：Export 写真实类型、同包访问收敛真实类型、
+// 跨包 import 得真实类型。绑定用 throwaway DiagnosticBag（推断失败不污染真实诊断、字段留 Unknown、
+// 无回归）。
+//
+// Scope：static var 字段（REPL 只用 static）。实例 var 字段同缺陷，另立 follow-up。
+namespace Z42.Semantics;
+
+using Std;
+using Z42.Syntax;
+
+public static class VarFieldInfer {
+
+    public static void Run(CompilationUnit[] cus, int count, SymbolTable symbols) {
+        int round = 0;
+        bool changed = true;
+        // fixpoint：链式 var 字段（后者引用前者）分轮收敛；上限防病理循环。
+        while (changed && round < 8) {
+            changed = false;
+            int i = 0;
+            while (i < count) {
+                CompilationUnit cu = cus[i];
+                string ns = "";
+                if (cu.HasNamespace) { ns = cu.Namespace; }
+                int d = 0;
+                while (d < cu.DeclCount) {
+                    Decl decl = cu.Decls[d];
+                    if (decl is AttributedDecl) { decl = (decl as AttributedDecl).Inner; }
+                    if (decl is ClassDecl) {
+                        if (VarFieldInfer._inferClass(decl as ClassDecl, symbols, ns)) { changed = true; }
+                    }
+                    d = d + 1;
+                }
+                i = i + 1;
+            }
+            round = round + 1;
+        }
+    }
+
+    // 对一个类的所有 static var 字段尝试推断；有回写返回 true。
+    private static bool _inferClass(ClassDecl c, SymbolTable symbols, string ns) {
+        // arity-mangle：泛型类以 Name$N 键注册（镜像 DeclBinder._bindClass）。
+        string ctKey = c.Name;
+        if (c.TypeParams.Count > 0) {
+            string mk = c.Name + "$" + c.TypeParams.Count.ToString();
+            if (symbols.HasClass(mk)) { ctKey = mk; }
+        }
+        Z42ClassType ct = symbols.GetClass(ctKey);
+        if (ct == null) { return false; }
+        bool any = false;
+        int m = 0;
+        while (m < c.MemberCount) {
+            Decl mem = c.Members[m];
+            if (mem is AttributedDecl) { mem = (mem as AttributedDecl).Inner; }
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                if (fd.HasInit && VarFieldInfer._isVarSpelled(fd.Type)) {
+                    FieldSymbol fs = ct.Fields.Get(fd.Name) as FieldSymbol;
+                    if (fs != null && fs.IsStatic && (fs.FieldType is Z42UnknownType)) {
+                        Z42Type t = VarFieldInfer._inferInit(fd.Init, symbols, ns);
+                        if (t != null) { fs.FieldType = t; any = true; }
+                    }
+                }
+            }
+            m = m + 1;
+        }
+        return any;
+    }
+
+    // 绑定初始化器取类型；throwaway 诊断。返回可用类型或 null（Unknown/Error/Void → null，不回写）。
+    private static Z42Type _inferInit(Expr init, SymbolTable symbols, string ns) {
+        DiagnosticBag scratch = new DiagnosticBag();
+        TypeChecker tc = new TypeChecker(scratch);
+        tc._currentNs = ns;
+        BoundExpr b = tc._expr._bindExpr(init, TypeEnv.Root(symbols));
+        Z42Type t = b.Type();
+        if (t is Z42UnknownType) { return null; }
+        if (t is Z42ErrorType) { return null; }
+        if (t is Z42VoidType) { return null; }
+        return t;
+    }
+
+    // 字段声明的拼写类型是否字面「var」。
+    private static bool _isVarSpelled(TypeExpr te) {
+        if (te is NamedType) { return (te as NamedType).Name == "var"; }
+        return false;
+    }
+}

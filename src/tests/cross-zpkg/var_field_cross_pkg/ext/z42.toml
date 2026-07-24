@@ -1,0 +1,11 @@
+[project]
+name    = "demo.varext"
+version = "0.1.0"
+kind    = "lib"
+pack    = true
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"demo.vartarget" = "0.1.0"

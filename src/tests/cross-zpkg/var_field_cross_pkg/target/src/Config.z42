@@ -1,0 +1,8 @@
+// infer-var-field-types：public static var 字段的推断类型必须跨 zpkg 正确导出，
+// 消费端才能对其做类型相关操作（算术 / 拼接）。修复前跨包读到「var」→ E0402。
+namespace Demo.VarTarget;
+
+public static class Config {
+    public static var Count = 5;      // 推断 int
+    public static var Name  = "z42";  // 推断 string
+}
