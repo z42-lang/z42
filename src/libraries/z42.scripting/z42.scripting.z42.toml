@@ -7,6 +7,7 @@ kind    = "lib"
 
 [dependencies]
 "z42.core"       = "0.1.0"
+"z42.io"         = "0.1.0"   # Environment.GetEnvironmentVariable（Z42_LIBS）
 "z42.ir"         = "0.1.0"   # ZpkgWriter / ZpkgBuilder（ZpkgFileZ → bytes）
 "z42c.syntax"    = "0.1.0"   # Lexer / Token / Parser / CompilationUnit
 "z42c.semantics" = "0.1.0"   # IrDump.ParseAll

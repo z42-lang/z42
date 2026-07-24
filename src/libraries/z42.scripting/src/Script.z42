@@ -8,6 +8,7 @@
 namespace Std.Scripting;
 
 using Std;
+using Std.IO;
 using Std.Collections;
 using Z42.Syntax;
 using Z42.Semantics;
@@ -17,10 +18,30 @@ using Z42.Project;
 
 public static class Script {
     // 新建空会话。
-    public static ScriptState Create() { return new ScriptState(); }
+    public static ScriptState Create() {
+        ScriptState s = new ScriptState();
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS");
+        if (libs != null && libs.Length > 0) {
+            string[] dirs = libs.Split(":");
+            s.LibsDirs = dirs; s.LibsDirsN = dirs.Length;
+        }
+        return s;
+    }
 
-    // 求值一段输入。当前：表达式（wrap 成 Eval{N} 自由函数返回 object）。
+    // 求值一段输入。using → 累积（不编译）；否则表达式 wrap 成 Eval{N} 自由函数返回 object。
     public static EvalResult Eval(ScriptState state, string input) {
+        string trimmed = input.Trim();
+        // ── using 声明：累积进会话（去重），不编译 ──
+        if (trimmed.StartsWith("using ")) {
+            string nsName = trimmed.Substring(6, trimmed.Length - 6).Trim();
+            if (nsName.EndsWith(";")) { nsName = nsName.Substring(0, nsName.Length - 1).Trim(); }
+            bool seen = false;
+            int k = 0;
+            while (k < state.Usings.Count) { if (state.Usings[k] == nsName) { seen = true; } k = k + 1; }
+            if (!seen) { state.Usings.Add(nsName); }
+            return new EvalResult(true, false, null, "", state);
+        }
+
         int n = state.Counter + 1;
         string ns = "Repl.R" + n.ToString();
         string efn = "Eval" + n.ToString();
