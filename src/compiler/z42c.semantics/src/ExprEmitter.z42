@@ -847,7 +847,16 @@ public sealed class ExprEmitter {
 
     // typeof(T) → Typeof 指令（reflection Std.Type 句柄）。FQ 名镜像 C# Z42TypeName。
     private TypedReg _emitTypeof(BoundTypeof e) {
-        string name = this._typeofName(e.Target);
+        // typeof(delegate)：delegate 名解析成结构化 Z42FuncType（"Action"/"Func<…>"），丢了 FQ
+        // delegate 名 → 用 AST 原始名 QualifyClass 回 FQ delegate 名（其 TYPE 条目 under FQ 名，
+        // add-delegate-metadata），使 typeof(MyDelegate) 得真句柄（IsDelegate=true），与
+        // Type.GetType("<fq>") 一致。非 delegate 走既有 _typeofName（add-reflection-typeof-delegate）。
+        string name;
+        if (e.Target is Z42FuncType && e.TargetName != "") {
+            name = this._ctx.QualifyClass(e.TargetName);
+        } else {
+            name = this._typeofName(e.Target);
+        }
         string[] targs = new string[0];
         int targc = 0;
         if (e.Target is Z42InstantiatedType) {

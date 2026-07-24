@@ -297,7 +297,10 @@ public sealed class ExprTyper {
             Z42Type toTarget = env.ResolveType(tox.Type);
             // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
             Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
-            return new BoundTypeof(toTarget, toType, tox.Span);
+            // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
+            // 发射时用它 QualifyClass 回 FQ delegate 名。
+            string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
+            return new BoundTypeof(toTarget, targetName, toType, tox.Span);
     }
 
     private BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {

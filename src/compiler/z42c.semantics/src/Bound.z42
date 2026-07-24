@@ -254,8 +254,13 @@ public sealed class BoundIsExpr : BoundExpr {
 // FQ 运行期名由 ExprEmitter 算（prim→name / array→elem[] / class·iface→QualifyClass）。
 public sealed class BoundTypeof : BoundExpr {
     public Z42Type Target;
+    // AST 原始类型名（typeof-delegate）：delegate 名经 ResolveType 解析为结构化 Z42FuncType
+    // （"Action"/"Func<…>"），丢失 FQ delegate 名。发射时对 Z42FuncType 目标用它经 QualifyClass
+    // 回 FQ delegate 名（delegate 有 TYPE 条目 under FQ 名，add-delegate-metadata）。镜像
+    // BoundCast.TypeName / BoundIsExpr.TypeName 用 AST 原始名而非 resolved 类型。
+    public string  TargetName;
     private Z42Type _t;
-    public BoundTypeof(Z42Type target, Z42Type t, Span span) { this.Span = span; this.Target = target; this._t = t; }
+    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
 }
