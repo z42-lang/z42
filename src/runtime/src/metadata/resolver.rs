@@ -48,6 +48,19 @@ pub struct ResolvedTokens {
     /// Empty cell for intra-module-only sites. `OnceLock` (write-once) because
     /// FQ-name → target is stable within a run; `Sync`-safe for future MT.
     pub cross_module_targets: Vec<OnceLock<Arc<Function>>>,
+    /// `Call` sites, JIT only (make-vm-loading-lazy): per-site inline cache of the
+    /// resolved **function id** for the JIT `resolve_fn_by_id` fast path. Parallel
+    /// to `method_tokens`. A merged-module target's id is baked as the `Call`'s
+    /// `method_id` constant at translate time, so this cell stays `UNRESOLVED` for
+    /// those; it caches only **lazily-loaded** targets (absent from `module.functions`
+    /// at translate time → baked `method_id = UNRESOLVED`). On first dispatch
+    /// `jit_call` resolves the name to a synthetic lazy-slot id, compiles the
+    /// function once, and stores the id here so subsequent calls skip the name hash
+    /// (mirrors `cross_module_targets` for interp, but caches the id the JIT
+    /// `resolve_fn_by_id` consumes). `u32` (not the jit `FnEntry`) to avoid a
+    /// metadata→jit dependency cycle; the id maps to a per-run compiled entry in
+    /// `JitModuleCtx`'s lazy slot table.
+    pub call_jit_ic: Vec<AtomicU32>,
     /// `Builtin` sites: `BuiltinId` resolved at load (closed set —
     /// panic if a builtin name is unknown).
     pub builtin_tokens: Vec<u32>,
@@ -330,6 +343,9 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
         // sites resolve via `method_tokens` and leave their cell untouched.
         let cross_module_targets: Vec<OnceLock<Arc<Function>>> =
             method_site_names.iter().map(|_| OnceLock::new()).collect();
+        // make-vm-loading-lazy: per-Call-site JIT id cache (see field docs).
+        let call_jit_ic: Vec<AtomicU32> =
+            method_site_names.iter().map(|_| AtomicU32::new(UNRESOLVED)).collect();
 
         let builtin_tokens: Vec<u32> = builtin_site_names.iter()
             .map(|name| {
@@ -371,6 +387,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
         let resolved = ResolvedTokens {
             method_tokens,
             cross_module_targets,
+            call_jit_ic,
             builtin_tokens,
             type_tokens,
             vcall_ic,

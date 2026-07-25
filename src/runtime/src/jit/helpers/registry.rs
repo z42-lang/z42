@@ -249,11 +249,13 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         shr:           decl!("jit_shr",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
         str_concat:    decl!("jit_str_concat", [ptr, ptr, i32t, i32t, i32t],              [i8t]),
         to_str:        decl!("jit_to_str",     [ptr, ptr, i32t, i32t],                    [i8t]),
-        // jit_call(frame, ctx, dst, method_id, name_ptr, name_len, args_ptr, argc, caller_line, caller_col) -> u8
+        // jit_call(frame, ctx, dst, method_id, name_ptr, name_len, args_ptr, argc, ic_ptr, caller_line, caller_col) -> u8
         // formalize-jit-method-token Phase 2.C (2026-05-08): id-first dispatch
         // with name fallback for cross-zpkg UNRESOLVED targets.
         // span-column-propagate (2026-05-10): trailing `i32t` adds caller column.
-        call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, i32t, i32t], [i8t]),
+        // make-vm-loading-lazy: `ic_ptr` (before line/col) caches the resolved
+        // lazy/merged fn id per call site → lock-free by-id fast path.
+        call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t], [i8t]),
         // jit_builtin(frame, ctx, dst, builtin_id, args_ptr, argc) -> u8
         // formalize-jit-method-token (2026-05-08): id-based dispatch (no hash).
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t],         [i8t]),

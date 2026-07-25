@@ -6,6 +6,7 @@
 
 use crate::metadata::Value;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
 
@@ -158,6 +159,32 @@ pub struct FnEntry {
 unsafe impl Send for FnEntry {}
 unsafe impl Sync for FnEntry {}
 
+// ── Lazy slot table (make-vm-loading-lazy) ──────────────────────────────────
+//
+// Functions materialized by the lazy loader (`try_lookup_function`) are NOT in
+// the merged `module.functions`, so they have no pre-sized `fn_entries_by_id`
+// slot. They get a **synthetic id** `merged_len + i`; `resolve_fn_by_id` routes
+// ids ≥ `merged_len` here. Boxed slots keep each entry's address stable across
+// `Vec` growth (the pre-sized `fn_entries_by_id` can't grow; this can). Guarded by
+// a `Mutex` — cold path only: the per-Call-site `call_jit_ic` caches the synthetic
+// id so steady-state calls read the slot's lock-free `OnceLock` directly via
+// `resolve_fn_by_id`.
+
+struct LazySlot {
+    /// FQ name — re-`try_lookup_function`'d to get the `Arc<Function>` to compile.
+    name:  String,
+    /// Compiled native entry, filled on first call to this slot (compile-once).
+    entry: OnceLock<FnEntry>,
+}
+
+/// Growable, address-stable table of lazily-loaded functions. `by_name` assigns a
+/// stable index; `slots[i]` (boxed → stable address) holds the compiled entry.
+#[derive(Default)]
+pub struct LazyTable {
+    by_name: HashMap<String, usize>,
+    slots:   Vec<Box<LazySlot>>,
+}
+
 // ── JitModuleCtx ─────────────────────────────────────────────────────────────
 
 /// Module-level context threaded through every JIT call.
@@ -191,6 +218,13 @@ pub struct JitModuleCtx {
     /// once. SAFETY: the `Mutex<LazyCompiler>` is owned by the `JitModule` that
     /// outlives this ctx; never null once constructed.
     pub lazy:        *const Mutex<super::lazy::LazyCompiler>,
+    /// `module.functions.len()` — the boundary between merged-module slot ids
+    /// (`< merged_len` → `fn_entries_by_id`) and synthetic lazy ids
+    /// (`≥ merged_len` → `lazy_table`). make-vm-loading-lazy.
+    pub merged_len:  usize,
+    /// Lazily-loaded functions' compiled entries (see `LazyTable`). Cold-path
+    /// Mutex; steady state hits the per-Call-site `call_jit_ic` → lock-free slot.
+    pub lazy_table:  Mutex<LazyTable>,
     /// Mutable VM state (static fields, pending exception, lazy loader).
     /// Set by `JitModule::run` for the duration of one entry-point invocation;
     /// reset to null on return. JIT helpers reach mutable VM state via this
@@ -214,19 +248,27 @@ impl JitModuleCtx {
     ///
     /// SAFETY: `module` and `lazy` must be valid — they are for the lifetime of
     /// a `JitModule::run` (set at construction; `lazy` never null).
-    pub unsafe fn resolve_fn_by_id(&self, idx: usize) -> Option<&FnEntry> {
+    pub unsafe fn resolve_fn_by_id(&self, id: usize) -> Option<&FnEntry> {
+        if id < self.merged_len {
+            self.resolve_merged_slot(id)
+        } else {
+            // make-vm-loading-lazy: synthetic id → lazily-loaded function.
+            self.resolve_lazy_slot(id - self.merged_len)
+        }
+    }
+
+    /// Merged-module path: slot `idx` in the pre-sized `fn_entries_by_id`. Compiles
+    /// `module.functions[idx]` on first call (hot path = lock-free `OnceLock::get`).
+    unsafe fn resolve_merged_slot(&self, idx: usize) -> Option<&FnEntry> {
         let slot = self.fn_entries_by_id.get(idx)?;
         if let Some(e) = slot.get() {
             return Some(e);
         }
-        // Miss: compile on demand iff the function is JIT-translatable.
         let module = &*self.module;
         let func = module.functions.get(idx)?;
         if super::translate::jit_unsupported_reason(func).is_some() {
             return None; // interp fallback — mirrors eager "absent from table"
         }
-        // Serialize compilation; re-check the slot after taking the lock in case
-        // another thread compiled it while we waited.
         let mtx = &*self.lazy;
         let mut guard = match mtx.lock() {
             Ok(g) => g,
@@ -235,18 +277,7 @@ impl JitModuleCtx {
         if slot.get().is_none() {
             let t0 = std::time::Instant::now();
             match guard.compile_one(idx) {
-                Ok(entry) => {
-                    let _ = slot.set(entry);
-                    // Counters reflect what was ACTUALLY compiled (vs the former
-                    // eager whole-module count). vm_ctx is set for the duration
-                    // of JitModule::run, i.e. whenever a lazy compile can happen.
-                    if !self.vm_ctx.is_null() {
-                        let c = (*self.vm_ctx).counters();
-                        c.jit_methods_compiled.fetch_add(1, Ordering::Relaxed);
-                        c.jit_compile_us_total
-                            .fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
-                    }
-                }
+                Ok(entry) => { let _ = slot.set(entry); self.bump_compile_counters(t0); }
                 Err(_) => return None, // compile failed → interp fallback
             }
         }
@@ -254,13 +285,84 @@ impl JitModuleCtx {
         slot.get()
     }
 
-    /// Name-keyed resolution: `module.func_index[name] → idx → resolve_fn_by_id`.
-    /// Replaces the former by-name `fn_entries` HashMap.
+    /// Lazy path (make-vm-loading-lazy): slot `i` in the growable `lazy_table`, for a
+    /// function materialized by the lazy loader. Compiles it on first call. The slot's
+    /// `OnceLock` (in a boxed `LazySlot` → stable address) hands out a `&FnEntry`
+    /// valid for the run; the compile is deduped under the compiler lock.
+    unsafe fn resolve_lazy_slot(&self, i: usize) -> Option<&FnEntry> {
+        // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
+        // table lock is released before the (slow) compile.
+        let (name_ptr, entry_ptr): (*const String, *const OnceLock<FnEntry>) = {
+            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            let slot = table.slots.get(i)?;
+            (&slot.name as *const String, &slot.entry as *const OnceLock<FnEntry>)
+        };
+        let entry_lock = &*entry_ptr;
+        if let Some(e) = entry_lock.get() {
+            return Some(e);
+        }
+        if self.vm_ctx.is_null() { return None; }
+        let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
+        let mtx = &*self.lazy;
+        let mut guard = match mtx.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+        if entry_lock.get().is_none() {
+            let t0 = std::time::Instant::now();
+            match guard.compile_fn(&func) {
+                Ok(entry) => { let _ = entry_lock.set(entry); self.bump_compile_counters(t0); }
+                Err(_) => return None,
+            }
+        }
+        drop(guard);
+        entry_lock.get()
+    }
+
+    /// Counters reflect what was ACTUALLY compiled (vs the former eager whole-module
+    /// count). `vm_ctx` is set for the duration of `JitModule::run`.
+    fn bump_compile_counters(&self, t0: std::time::Instant) {
+        if !self.vm_ctx.is_null() {
+            let c = unsafe { (*self.vm_ctx).counters() };
+            c.jit_methods_compiled.fetch_add(1, Ordering::Relaxed);
+            c.jit_compile_us_total
+                .fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// Resolve a function NAME to a slot id — merged (`< merged_len`) or synthetic
+    /// lazy (`≥ merged_len`). Registers a new lazy slot on first sight (materializing
+    /// the function via the lazy loader to confirm it's JIT-translatable). The
+    /// per-Call-site `call_jit_ic` caches this id so subsequent calls skip the hash.
+    /// Returns None if the name resolves to nothing or an untranslatable function
+    /// (caller then falls back to `cross_zpkg_via_interp`).
+    /// SAFETY: see [`resolve_fn_by_id`].
+    pub unsafe fn resolve_id_by_name(&self, name: &str) -> Option<u32> {
+        if let Some(&idx) = (*self.module).func_index.get(name) {
+            return Some(idx as u32);
+        }
+        {
+            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            if let Some(&i) = table.by_name.get(name) {
+                return Some((self.merged_len + i) as u32);
+            }
+        }
+        // Materialize + verify translatable before assigning an id.
+        if self.vm_ctx.is_null() { return None; }
+        let func = (*self.vm_ctx).try_lookup_function(name)?;
+        if super::translate::jit_unsupported_reason(&func).is_some() { return None; }
+        let mut table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+        if let Some(&i) = table.by_name.get(name) {
+            return Some((self.merged_len + i) as u32); // registered while we materialized
+        }
+        let i = table.slots.len();
+        table.slots.push(Box::new(LazySlot { name: name.to_string(), entry: OnceLock::new() }));
+        table.by_name.insert(name.to_string(), i);
+        Some((self.merged_len + i) as u32)
+    }
+
+    /// Name-keyed `&FnEntry` resolution: `resolve_id_by_name` → `resolve_fn_by_id`.
     /// SAFETY: see [`resolve_fn_by_id`].
     pub unsafe fn resolve_fn_by_name(&self, name: &str) -> Option<&FnEntry> {
-        let module = &*self.module;
-        let idx = *module.func_index.get(name)?;
-        self.resolve_fn_by_id(idx)
+        let id = self.resolve_id_by_name(name)?;
+        self.resolve_fn_by_id(id as usize)
     }
 }
 

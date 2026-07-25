@@ -19,6 +19,10 @@ mod translate;
 /// helpers still reach Module via raw pointer (Phase 2 territory).
 pub(crate) mod vm_interface;
 
+#[cfg(test)]
+#[path = "lazy_load_tests.rs"]
+mod lazy_load_tests;
+
 use crate::metadata::Module;
 use vm_interface::JitVm;
 use anyhow::Result;
@@ -63,6 +67,11 @@ impl JitModule {
             fn_entries_by_id,
             module: module as *const Module,
             lazy: &*lazy_box as *const Mutex<LazyCompiler>,
+            // make-vm-loading-lazy: functions with id < merged_len live in the
+            // pre-sized `fn_entries_by_id`; ids ≥ merged_len are synthetic slots
+            // for lazily-loaded (not-yet-merged) functions in `lazy_table`.
+            merged_len: n,
+            lazy_table: Mutex::new(frame::LazyTable::default()),
             // Set by JitModule::run for the duration of an entry call; null
             // outside that window.
             vm_ctx: std::ptr::null_mut(),
@@ -100,10 +109,22 @@ impl JitModule {
                 // interpreted. SAFETY: `module` outlives the JitModule.
                 self.ctx.vm_ctx = std::ptr::null_mut();
                 let module = unsafe { &*self.ctx.module };
-                let func = module.func_index.get(entry_name)
+                // make-vm-loading-lazy: the entry may be an untranslatable
+                // function in a lazily-loaded zpkg (e.g. a dep's
+                // `__static_init__`) that is NOT in the merged module — resolve
+                // it through the lazy loader, mirroring interp's path.
+                if let Some(func) = module.func_index.get(entry_name)
                     .and_then(|&idx| module.functions.get(idx))
+                {
+                    return match crate::interp::exec_function(ctx, module, func, &[])? {
+                        crate::interp::ExecOutcome::Returned(_) => Ok(()),
+                        crate::interp::ExecOutcome::Thrown(val) =>
+                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
+                    };
+                }
+                let func = ctx.try_lookup_function(entry_name)
                     .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
-                return match crate::interp::exec_function(ctx, module, func, &[])? {
+                return match crate::interp::exec_function(ctx, module, func.as_ref(), &[])? {
                     crate::interp::ExecOutcome::Returned(_) => Ok(()),
                     crate::interp::ExecOutcome::Thrown(val) =>
                         Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
@@ -152,7 +173,14 @@ impl JitModule {
         // skipped by `compile_module` (interp-only opcode) is still run — via
         // `run_fn`'s interp fallback. Matches interp's `init_static_fields`,
         // which also scans `module.functions`. SAFETY: see `run_fn`.
-        let init_names: Vec<String> = {
+        //
+        // make-vm-loading-lazy: this now mirrors interp's `init_static_fields`
+        // in TWO steps — dep zpkgs are no longer eagerly merged, so their inits
+        // are only reachable via the lazy loader:
+        //   1. eager inits present in the merged module (main + z42.core), sorted;
+        //   2. lazy inits from every declared-but-unloaded zpkg (force-loaded).
+        // `run_fn` compiles each to native (or interp-fallback if untranslatable).
+        let eager_init_names: Vec<String> = {
             let module = unsafe { &*self.ctx.module };
             let mut v: Vec<String> = module.functions.iter()
                 .map(|f| f.name.clone())
@@ -161,8 +189,14 @@ impl JitModule {
             v.sort();
             v
         };
-
-        for init_name in init_names {
+        for init_name in &eager_init_names {
+            self.run_fn(ctx, init_name)?;
+        }
+        // Step 2: force-load declared zpkgs + run their inits (parity with interp
+        // `init_static_fields` step 2). `collect_lazy_static_init_names` returns
+        // only declared (not initially-loaded) packages' inits → no overlap with
+        // the eager set above.
+        for init_name in ctx.collect_lazy_static_init_names() {
             self.run_fn(ctx, &init_name)?;
         }
 

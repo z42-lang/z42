@@ -185,6 +185,22 @@ fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
         .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
 
+/// make-vm-loading-lazy helper: stable raw pointer to the per-Call-site
+/// `call_jit_ic` slot (an `AtomicU32` caching the resolved lazy/merged fn id)
+/// for the `Call` site at `(block_idx, instr_idx)`. Returns null when
+/// `Function.resolved` is unset (jit_call degrades to the by-name slow path).
+/// The IC lives inside `Function.resolved` (inside Module) → valid for the
+/// whole JitModule lifetime, like `vcall_ic_ptr_at`.
+fn call_jit_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicU32 {
+    func.resolved.get()
+        .and_then(|r| {
+            let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+            r.call_jit_ic.get(site as usize)
+        })
+        .map(|ic| ic as *const _)
+        .unwrap_or(std::ptr::null())
+}
+
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to
 /// the `VCallIC` slot for the VCall site at `(block_idx, instr_idx)`.
 /// Returns null when `Function.resolved` is unset (helper degrades to
@@ -830,13 +846,18 @@ pub fn translate_function(
                     let (ap, al) = regs_val!(args);
                     let mid = method_id_at(z42_func, block_idx, instr_idx);
                     let mid_val = builder.ins().iconst(types::I32, mid as i64);
+                    // make-vm-loading-lazy: per-site IC caching the resolved
+                    // lazy/merged fn id, so a cross-zpkg call resolves the name
+                    // once then hits the lock-free by-id fast path thereafter.
+                    let ic_ptr = call_jit_ic_ptr_at(z42_func, block_idx, instr_idx);
+                    let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
                     // 2026-05-10 jit-stack-trace + span-column-propagate: pass
                     // current source (line, col) so jit_call can stamp the
                     // caller's frame info before descending into the callee.
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, line_val, col_val]);
+                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived

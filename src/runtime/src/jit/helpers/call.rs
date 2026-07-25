@@ -24,45 +24,67 @@ pub unsafe extern "C" fn jit_call(
     method_id: u32,
     fn_name_ptr: *const u8, fn_name_len: usize,
     args_ptr: *const u32, argc: usize,
+    ic_ptr: *const std::sync::atomic::AtomicU32,
     caller_line: u32,
     caller_col:  u32,
 ) -> u8 {
+    use crate::metadata::tokens::UNRESOLVED;
     let ctx_ref   = &*ctx;
     let frame_ref = &mut *frame;
 
-    // Hot path: direct Vec[id] index when token resolved. Borrow the FnEntry
-    // (don't clone) — it lives in the read-only `ctx_ref`; cloning it copied
-    // two `Arc<str>` (name + file) per call that we'd re-clone in push_frame
-    // anyway.
-    // lazy-per-function-jit: resolve_fn_by_id compiles the target on first call
-    // (lock-free once compiled); a None means not-JIT-translatable → interp.
-    let entry_ref: Option<&FnEntry> =
-        if method_id != crate::metadata::tokens::UNRESOLVED {
-            ctx_ref.resolve_fn_by_id(method_id as usize)
+    // Resolve the callee to a slot id, then to its (lazily-compiled) FnEntry.
+    // Three tiers, cheapest first:
+    //   1. `method_id` resolved at codegen (intra-module) → by-id, lock-free.
+    //   2. per-site IC hit (make-vm-loading-lazy) → cached id, by-id, lock-free.
+    //   3. cold: resolve the name (registers a lazy slot if cross-zpkg), then
+    //      cache the id in the IC so tiers 2 wins next time.
+    // Borrow the FnEntry (don't clone): it lives in the read-only `ctx_ref`;
+    // cloning copied two `Arc<str>` (name + file) per call re-cloned in
+    // push_frame anyway.
+    let entry_ref: Option<&FnEntry> = if method_id != UNRESOLVED {
+        ctx_ref.resolve_fn_by_id(method_id as usize)
+    } else {
+        // Tier 2: per-site inline cache.
+        let cached = if ic_ptr.is_null() {
+            UNRESOLVED
         } else {
-            None
+            (*ic_ptr).load(std::sync::atomic::Ordering::Relaxed)
         };
+        if cached != UNRESOLVED {
+            ctx_ref.resolve_fn_by_id(cached as usize)
+        } else {
+            // Tier 3: resolve by name (may register a synthetic lazy id), then
+            // populate the IC. `resolve_id_by_name` returns None for a target
+            // that is untranslatable or reachable only via the interpreter.
+            let func_name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
+                .unwrap_or("<invalid>");
+            match ctx_ref.resolve_id_by_name(func_name) {
+                Some(id) => {
+                    if !ic_ptr.is_null() {
+                        (*ic_ptr).store(id, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    ctx_ref.resolve_fn_by_id(id as usize)
+                }
+                None => None,
+            }
+        }
+    };
 
     let entry: &FnEntry = match entry_ref {
         Some(e) => e,
         None => {
-            // Cross-zpkg / fallback: by-name resolution (routes through
-            // module.func_index → resolve_fn_by_id).
+            // Cross-zpkg lazy-loader fallback: the callee is untranslatable or
+            // lives in another zpkg not JIT-compiled into this module, so there
+            // is no `FnEntry`. Resolve it via the VM context and run it through
+            // the interpreter — mirrors interp `exec_call::call`'s
+            // `try_lookup_function` path and `jit_vcall`'s lazy fallback.
+            // Without this, a static cross-package call (e.g.
+            // `Std.Toml.TomlValue.Parse`) aborts under `--mode jit` while
+            // working under interp.
             let func_name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
                 .unwrap_or("<invalid>");
-            match ctx_ref.resolve_fn_by_name(func_name) {
-                Some(e) => e,
-                // Cross-zpkg lazy-loader fallback: the callee lives in another
-                // zpkg that wasn't JIT-compiled into this module, so there is no
-                // `FnEntry`. Resolve it via the VM context and run it through the
-                // interpreter — mirrors interp `exec_call::call`'s
-                // `try_lookup_function` path and `jit_vcall`'s lazy fallback.
-                // Without this, a static cross-package call (e.g.
-                // `Std.Toml.TomlValue.Parse`) aborts the whole program under
-                // `--mode jit` while working under interp.
-                None => return cross_zpkg_via_interp(
-                    frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col),
-            }
+            return cross_zpkg_via_interp(
+                frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col);
         }
     };
 

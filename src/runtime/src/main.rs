@@ -362,7 +362,9 @@ fn log_module_paths(module_paths: &[PathBuf]) {
 ///      `libs_dir` for zpkgs declaring each namespace
 ///
 /// Entries whose file name is already in `initially_loaded` (e.g. `z42.core.zpkg`
-/// eager-loaded at startup, or JIT-mode deps already merged) are excluded.
+/// eager-loaded at startup, or — AOT only — deps already merged by the BFS) are
+/// excluded. make-vm-loading-lazy: JIT now populates this set like interp (only
+/// z42.core is pre-loaded), so JIT lazily loads deps on first cross-zpkg call.
 fn build_declared_candidates(
     user_artifact: &z42::metadata::LoadedArtifact,
     search_dirs:   &[PathBuf],
@@ -595,15 +597,20 @@ fn main() -> Result<()> {
     };
 
     // 5.1d — dependency loading strategy:
-    //   Interp mode → pure lazy. Zpkgs are loaded on demand when the
-    //     interpreter encounters a Call to an unresolved function
-    //     (see interp/exec_instr.rs + metadata/lazy_loader.rs).
-    //   JIT/AOT mode → eager (transitive BFS). JIT requires all callee
-    //     functions to be pre-compiled, so we pre-load the whole dep closure.
-    let is_eager = matches!(
-        effective_mode,
-        z42::metadata::ExecMode::Jit | z42::metadata::ExecMode::Aot
-    );
+    //   Interp / JIT mode → pure lazy. Zpkgs are loaded on demand when a Call
+    //     to an unresolved function is hit: interp via exec_instr, JIT via
+    //     `jit_call` → `resolve_id_by_name` → `try_lookup_function` →
+    //     `compile_fn` (native). See metadata/lazy_loader.rs.
+    //   AOT mode → eager (transitive BFS): the whole program is compiled ahead
+    //     of time, so every callee must be merged up front.
+    //
+    // make-vm-loading-lazy (2026-07-24): JIT dropped its eager BFS merge and now
+    // shares interp's lazy loader — a short-lived program compiles only the
+    // functions it actually calls (from only the zpkgs it actually touches),
+    // instead of the entire transitive stdlib closure. Cross-zpkg calls, static
+    // init (see `JitModule::run`), and ConstStr overflow (see `jit_const_str`)
+    // all route through the lazy loader now.
+    let is_eager = matches!(effective_mode, z42::metadata::ExecMode::Aot);
     if is_eager {
         // Eager + TRANSITIVE: BFS over the whole dependency graph so indirectly
         // declared zpkgs are merged too — not just the entry's direct deps.
@@ -695,10 +702,9 @@ fn main() -> Result<()> {
     // lived in thread_local slots scattered across interp/ and jit/.
     //
     // Lazy-loaded zpkgs will have their ConstStr indices offset past this
-    // module's string-pool length. In interp mode `declared_candidates`
-    // drives on-demand loading; in JIT mode deps are already merged into
-    // `modules` during 5.1d so `declared` is typically empty and the lazy
-    // loader is effectively a no-op.
+    // module's string-pool length. In interp AND JIT mode `declared_candidates`
+    // drives on-demand loading (make-vm-loading-lazy unified the two); only AOT
+    // pre-merges the closure into `modules` during 5.1d, leaving `declared` empty.
     // add-threading-stdlib (2026-05-20): module moves into VmCore (shared
     // across threads); Vm becomes a thin run-config wrapper.
     let string_pool_len = final_module.string_pool.len();
