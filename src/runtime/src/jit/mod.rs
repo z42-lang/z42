@@ -174,30 +174,34 @@ impl JitModule {
         // `run_fn`'s interp fallback. Matches interp's `init_static_fields`,
         // which also scans `module.functions`. SAFETY: see `run_fn`.
         //
-        // make-vm-loading-lazy: this now mirrors interp's `init_static_fields`
-        // in TWO steps — dep zpkgs are no longer eagerly merged, so their inits
-        // are only reachable via the lazy loader:
-        //   1. eager inits present in the merged module (main + z42.core), sorted;
-        //   2. lazy inits from every declared-but-unloaded zpkg (force-loaded).
+        // make-vm-loading-lazy: dep zpkgs are no longer eagerly merged, so their
+        // `__static_init__` functions are reachable only via the lazy loader. We
+        // gather BOTH sources, then run them in ONE globally-sorted order:
+        //   • eager: inits in the merged module (main + z42.core);
+        //   • lazy:  inits in every declared-but-unloaded zpkg (force-loaded).
+        //
+        // The union MUST be sorted together (not eager-then-lazy), to reproduce
+        // the pre-lazy JIT order exactly: the old eager-BFS merged every dep into
+        // one `module.functions` and sorted the whole set. A two-phase order
+        // (all eager before all lazy) runs a dep's init AFTER main's — breaking
+        // any main-side init that reads a static field a dep init sets (observed:
+        // xtask crashes `I64(0) vs Null` on the first cross-package static read).
         // `run_fn` compiles each to native (or interp-fallback if untranslatable).
-        let eager_init_names: Vec<String> = {
+        let init_names: Vec<String> = {
             let module = unsafe { &*self.ctx.module };
             let mut v: Vec<String> = module.functions.iter()
                 .map(|f| f.name.clone())
                 .filter(|n| n.ends_with(".__static_init__"))
                 .collect();
+            // Lazy inits force-load every declared zpkg; the returned names are
+            // disjoint from the eager set (declared excludes initially-loaded).
+            v.extend(ctx.collect_lazy_static_init_names());
             v.sort();
+            v.dedup();
             v
         };
-        for init_name in &eager_init_names {
+        for init_name in &init_names {
             self.run_fn(ctx, init_name)?;
-        }
-        // Step 2: force-load declared zpkgs + run their inits (parity with interp
-        // `init_static_fields` step 2). `collect_lazy_static_init_names` returns
-        // only declared (not initially-loaded) packages' inits → no overlap with
-        // the eager set above.
-        for init_name in ctx.collect_lazy_static_init_names() {
-            self.run_fn(ctx, &init_name)?;
         }
 
         self.run_fn(ctx, entry_name)
