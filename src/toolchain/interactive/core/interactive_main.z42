@@ -60,14 +60,15 @@ void _help() {
 }
 
 void _vars(ScriptState s) {
-    string[] vs = s.VarNamesArray();
+    // #34 后：List<string>.ToArray() 跨包正确返回 string[]（不再需 ScriptState 侧绕过访问器）。
+    string[] vs = s.VarNames.ToArray();
     if (vs.Length == 0) { Console.WriteLine("  (无会话变量)"); return; }
     int i = 0;
     while (i < vs.Length) { Console.WriteLine("  " + vs[i]); i = i + 1; }
 }
 
 void _usings(ScriptState s) {
-    string[] us = s.UsingsArray();
+    string[] us = s.Usings.ToArray();
     int i = 0;
     while (i < us.Length) { Console.WriteLine("  using " + us[i] + ";"); i = i + 1; }
 }
