@@ -20,6 +20,20 @@ class Outer {
 
 class Plain { public int n; }
 
+// followup：嵌套类型的 base / 接口为兄弟或祖先嵌套类型（裸名 `Base` 或限定 `Inh.Base`）。
+class Inh {
+    public interface IPing { int ping(); }
+    public class Base { public int b; public virtual int who() { return 1; } }
+    public class Derived : Base {                 // 裸名兄弟嵌套基类
+        public int d;
+        public override int who() { return 2; }
+    }
+    public class QualDerived : Inh.Base { public int q; }   // 限定名 `Inh.Base` 基类
+    public class Pinger : IPing {                 // 实现兄弟嵌套接口
+        public int ping() { return 7; }
+    }
+}
+
 void main() {
     // ── 实例化 + 嵌套实例方法 + 字段 ──
     Outer.Inner ni = new Outer.Inner();
@@ -85,4 +99,23 @@ void main() {
         i = i + 1;
     }
     Assert.True(sawDeep);
+
+    // ── base 为兄弟嵌套类型（裸名）：继承字段 + 虚派发 + 上转型 ──
+    Inh.Derived dv = new Inh.Derived();
+    dv.b = 10; dv.d = 20;
+    Assert.Equal(30, dv.b + dv.d);          // 继承字段 b + 自有 d
+    Assert.Equal(2, dv.who());              // override
+    Inh.Base bp = dv;                        // 上转型到嵌套基类
+    Assert.Equal(2, bp.who());              // 虚派发
+
+    // ── base 为限定名嵌套类型（`Inh.Base`）──
+    Inh.QualDerived qd = new Inh.QualDerived();
+    qd.b = 3; qd.q = 4;
+    Assert.Equal(7, qd.b + qd.q);
+
+    // ── 实现兄弟嵌套接口：上转型 + GetInterfaces ──
+    Inh.Pinger pg = new Inh.Pinger();
+    Inh.IPing ip = pg;                       // 接口上转型
+    Assert.Equal(7, ip.ping());
+    Assert.Equal(1, typeof(Inh.Pinger).GetInterfaces().Length);
 }
