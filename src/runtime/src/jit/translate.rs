@@ -185,6 +185,22 @@ fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
         .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
 
+/// make-vm-loading-lazy helper: stable raw pointer to the per-Call-site
+/// `call_jit_ic` slot (an `AtomicU32` caching the resolved lazy/merged fn id)
+/// for the `Call` site at `(block_idx, instr_idx)`. Returns null when
+/// `Function.resolved` is unset (jit_call degrades to the by-name slow path).
+/// The IC lives inside `Function.resolved` (inside Module) → valid for the
+/// whole JitModule lifetime, like `vcall_ic_ptr_at`.
+fn call_jit_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicU32 {
+    func.resolved.get()
+        .and_then(|r| {
+            let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+            r.call_jit_ic.get(site as usize)
+        })
+        .map(|ic| ic as *const _)
+        .unwrap_or(std::ptr::null())
+}
+
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to
 /// the `VCallIC` slot for the VCall site at `(block_idx, instr_idx)`.
 /// Returns null when `Function.resolved` is unset (helper degrades to
@@ -216,10 +232,17 @@ fn field_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *cons
 
 /// formalize-jit-method-token Phase 2 helper: look up the resolved
 /// `StaticFieldId.0` for a `StaticGet` / `StaticSet` site at
-/// `(block_idx, instr_idx)`. Falls back to a direct lookup for tests
-/// that bypass `Vm::run` (which is the only path that populates
-/// `Function.resolved`). Field name is captured for the fallback.
-fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: usize, _field: &str) -> u32 {
+/// `(block_idx, instr_idx)`, or `UNRESOLVED` when `Function.resolved` is unset.
+///
+/// make-vm-loading-lazy: a lazily-loaded function is JIT-compiled WITHOUT its
+/// `resolved` token table (it never went through `resolve_module` — resolving
+/// its method/type tokens against the lazy module would bind them to the wrong
+/// indices; interp likewise leaves lazy functions unresolved). So this now
+/// degrades to `UNRESOLVED` instead of panicking, and `jit_static_get/set`
+/// resolve the field by NAME at runtime — mirroring interp's `exec_object`
+/// `field_id: None` fallback. Static field ids are ctx-global (allocated by
+/// name), so the by-name path is correct regardless of which module owns the fn.
+fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
     func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
@@ -227,20 +250,7 @@ fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: usize, _fiel
         })
         .map(|atom| atom.load(std::sync::atomic::Ordering::Relaxed))
         .filter(|&id| id != crate::metadata::tokens::UNRESOLVED)
-        .unwrap_or_else(|| {
-            // Fallback: resolver hadn't run (only relevant for direct
-            // compile_module callers in tests). Allocate id eagerly so
-            // jit_static_get/set's by_id call doesn't see UNRESOLVED.
-            // Note: this needs ctx; fallback is a corner case so we use
-            // a sentinel that helper detects... but we can't reach ctx
-            // here. Tests using this path either don't exist or run via
-            // Vm::run. If this assertion fires, fix the test setup.
-            panic!(
-                "JIT codegen for StaticGet/Set at {:?}#{}.{} — Function.resolved missing. \
-                 Caller must invoke metadata::resolver::resolve_module before JIT compile.",
-                func.name, block_idx, instr_idx
-            )
-        })
+        .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
 
 pub fn translate_function(
@@ -830,13 +840,18 @@ pub fn translate_function(
                     let (ap, al) = regs_val!(args);
                     let mid = method_id_at(z42_func, block_idx, instr_idx);
                     let mid_val = builder.ins().iconst(types::I32, mid as i64);
+                    // make-vm-loading-lazy: per-site IC caching the resolved
+                    // lazy/merged fn id, so a cross-zpkg call resolves the name
+                    // once then hits the lock-free by-id fast path thereafter.
+                    let ic_ptr = call_jit_ic_ptr_at(z42_func, block_idx, instr_idx);
+                    let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
                     // 2026-05-10 jit-stack-trace + span-column-propagate: pass
                     // current source (line, col) so jit_call can stamp the
                     // caller's frame info before descending into the callee.
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, line_val, col_val]);
+                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived
@@ -980,22 +995,24 @@ pub fn translate_function(
 
                 // Static fields
                 // formalize-jit-method-token Phase 2 (2026-05-08): emit
-                // pre-resolved StaticFieldId directly. Resolver populates
-                // static_field_tokens at load via lazy ID allocation
-                // (always succeeds), so id is never UNRESOLVED here.
+                // pre-resolved StaticFieldId directly. make-vm-loading-lazy: a
+                // lazily-loaded fn has no resolved table → id is UNRESOLVED and
+                // the helper resolves the field by NAME (passed as ptr+len).
                 Instruction::StaticGet(insn) => {
                     let StaticGetInsn { dst, field } = &**insn;
                     let d = ri!(*dst);
-                    let field_id = static_field_id_at(z42_func, block_idx, instr_idx, field);
+                    let (fp, fl) = str_val!(field);
+                    let field_id = static_field_id_at(z42_func, block_idx, instr_idx);
                     let id_val = builder.ins().iconst(types::I32, field_id as i64);
-                    builder.ins().call(hr_static_get, &[frame_val, ctx_val, d, id_val]);
+                    builder.ins().call(hr_static_get, &[frame_val, ctx_val, d, id_val, fp, fl]);
                 }
                 Instruction::StaticSet(insn) => {
                     let StaticSetInsn { field, val } = &**insn;
                     let v = ri!(*val);
-                    let field_id = static_field_id_at(z42_func, block_idx, instr_idx, field);
+                    let (fp, fl) = str_val!(field);
+                    let field_id = static_field_id_at(z42_func, block_idx, instr_idx);
                     let id_val = builder.ins().iconst(types::I32, field_id as i64);
-                    builder.ins().call(hr_static_set, &[frame_val, ctx_val, id_val, v]);
+                    builder.ins().call(hr_static_set, &[frame_val, ctx_val, id_val, v, fp, fl]);
                 }
 
                 // C1 native interop scaffold: JIT translation lands in

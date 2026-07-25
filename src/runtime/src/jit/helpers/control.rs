@@ -109,6 +109,8 @@ mod check_safepoint_tests {
             module:           std::ptr::null(),
             // safepoint test never resolves a function → lazy stays null.
             lazy:             std::ptr::null(),
+            merged_len:       0,
+            lazy_table:       std::sync::Mutex::new(crate::jit::frame::LazyTable::default()),
             vm_ctx:           vm_ctx as *const VmContext as *mut VmContext,
         };
         (jit_ctx, JitFrame::new(0, &[]))

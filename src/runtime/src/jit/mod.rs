@@ -19,6 +19,10 @@ mod translate;
 /// helpers still reach Module via raw pointer (Phase 2 territory).
 pub(crate) mod vm_interface;
 
+#[cfg(test)]
+#[path = "lazy_load_tests.rs"]
+mod lazy_load_tests;
+
 use crate::metadata::Module;
 use vm_interface::JitVm;
 use anyhow::Result;
@@ -63,6 +67,11 @@ impl JitModule {
             fn_entries_by_id,
             module: module as *const Module,
             lazy: &*lazy_box as *const Mutex<LazyCompiler>,
+            // make-vm-loading-lazy: functions with id < merged_len live in the
+            // pre-sized `fn_entries_by_id`; ids ≥ merged_len are synthetic slots
+            // for lazily-loaded (not-yet-merged) functions in `lazy_table`.
+            merged_len: n,
+            lazy_table: Mutex::new(frame::LazyTable::default()),
             // Set by JitModule::run for the duration of an entry call; null
             // outside that window.
             vm_ctx: std::ptr::null_mut(),
@@ -100,10 +109,22 @@ impl JitModule {
                 // interpreted. SAFETY: `module` outlives the JitModule.
                 self.ctx.vm_ctx = std::ptr::null_mut();
                 let module = unsafe { &*self.ctx.module };
-                let func = module.func_index.get(entry_name)
+                // make-vm-loading-lazy: the entry may be an untranslatable
+                // function in a lazily-loaded zpkg (e.g. a dep's
+                // `__static_init__`) that is NOT in the merged module — resolve
+                // it through the lazy loader, mirroring interp's path.
+                if let Some(func) = module.func_index.get(entry_name)
                     .and_then(|&idx| module.functions.get(idx))
+                {
+                    return match crate::interp::exec_function(ctx, module, func, &[])? {
+                        crate::interp::ExecOutcome::Returned(_) => Ok(()),
+                        crate::interp::ExecOutcome::Thrown(val) =>
+                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
+                    };
+                }
+                let func = ctx.try_lookup_function(entry_name)
                     .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
-                return match crate::interp::exec_function(ctx, module, func, &[])? {
+                return match crate::interp::exec_function(ctx, module, func.as_ref(), &[])? {
                     crate::interp::ExecOutcome::Returned(_) => Ok(()),
                     crate::interp::ExecOutcome::Thrown(val) =>
                         Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
@@ -152,18 +173,35 @@ impl JitModule {
         // skipped by `compile_module` (interp-only opcode) is still run — via
         // `run_fn`'s interp fallback. Matches interp's `init_static_fields`,
         // which also scans `module.functions`. SAFETY: see `run_fn`.
+        //
+        // make-vm-loading-lazy: dep zpkgs are no longer eagerly merged, so their
+        // `__static_init__` functions are reachable only via the lazy loader. We
+        // gather BOTH sources, then run them in ONE globally-sorted order:
+        //   • eager: inits in the merged module (main + z42.core);
+        //   • lazy:  inits in every declared-but-unloaded zpkg (force-loaded).
+        //
+        // The union MUST be sorted together (not eager-then-lazy), to reproduce
+        // the pre-lazy JIT order exactly: the old eager-BFS merged every dep into
+        // one `module.functions` and sorted the whole set. A two-phase order
+        // (all eager before all lazy) runs a dep's init AFTER main's — breaking
+        // any main-side init that reads a static field a dep init sets (observed:
+        // xtask crashes `I64(0) vs Null` on the first cross-package static read).
+        // `run_fn` compiles each to native (or interp-fallback if untranslatable).
         let init_names: Vec<String> = {
             let module = unsafe { &*self.ctx.module };
             let mut v: Vec<String> = module.functions.iter()
                 .map(|f| f.name.clone())
                 .filter(|n| n.ends_with(".__static_init__"))
                 .collect();
+            // Lazy inits force-load every declared zpkg; the returned names are
+            // disjoint from the eager set (declared excludes initially-loaded).
+            v.extend(ctx.collect_lazy_static_init_names());
             v.sort();
+            v.dedup();
             v
         };
-
-        for init_name in init_names {
-            self.run_fn(ctx, &init_name)?;
+        for init_name in &init_names {
+            self.run_fn(ctx, init_name)?;
         }
 
         self.run_fn(ctx, entry_name)

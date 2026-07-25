@@ -19,7 +19,7 @@ use cranelift_module::{Linkage, Module as CraneliftModule};
 use super::frame::FnEntry;
 use super::helpers::{self, HelperIds};
 use super::translate;
-use crate::metadata::Module;
+use crate::metadata::{bytecode::Function, Module};
 
 /// Mutable JIT compilation state: compiles z42 functions to native code lazily.
 pub struct LazyCompiler {
@@ -75,11 +75,20 @@ impl LazyCompiler {
     /// Caller (`resolve_fn_by_id`) holds the mutex and has already verified the
     /// function is JIT-translatable and its slot is empty.
     pub fn compile_one(&mut self, idx: usize) -> Result<FnEntry> {
-        // SAFETY: module outlives this compiler (see field docs).
+        // SAFETY: module outlives this compiler (see field docs). The `&Function`
+        // comes from a raw-pointer deref (not a borrow of `self`), so passing it to
+        // `compile_fn(&mut self, ...)` is sound.
         let module = unsafe { &*self.module };
         let func = module.functions.get(idx)
             .ok_or_else(|| anyhow::anyhow!("lazy JIT: function index {} out of range", idx))?;
+        self.compile_fn(func)
+    }
 
+    /// Compile an arbitrary `&Function` to native code. Used for functions in the
+    /// merged module (`compile_one`) and — make-vm-loading-lazy — for functions
+    /// materialized by the lazy loader (`resolve_fn_by_id` compiles a not-yet-merged
+    /// stdlib function here instead of falling back to the interpreter).
+    pub fn compile_fn(&mut self, func: &Function) -> Result<FnEntry> {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
         sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
