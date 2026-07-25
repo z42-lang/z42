@@ -7,6 +7,11 @@
 // TYPE·SIGS·FUNC 发射），复用全部机制。名解析侧 `Outer.Inner`（点串）由 SymbolTable.ResolveTypeP
 // 的 dots→`+` 兜底命中 `Outer+Inner` 键（见该处）。
 //
+// **base/接口引用限定**（followup）：嵌套类型的 base 或接口若为兄弟 / 祖先嵌套类型（源码写裸名
+// `Base` 或限定 `Outer.Base`），在 AST 上把该 base TypeExpr 的名改写为 `+` 全名（`Outer+Base`）——
+// stub 的 iface-vs-base 判别与 IrGen 的 base_name 发射**都读 AST**，故须在此统一限定，否则裸名查不到
+// → 继承字段 / 上转型断链、嵌套接口被误判为基类。
+//
 // 幂等（cu.NestedFlattened 守卫）：多入口（CollectAll / Collect / CollectWithImports / IrGen.Generate）
 // 共享同一 cu，只展平一次。z42c / stdlib 源不含嵌套类型 → _ec==0 → cu 零改动 → 自举不动点零扰动。
 
@@ -16,10 +21,11 @@ using Z42.Syntax;
 using Z42.Core;
 
 public sealed class NestedFlatten {
-    private Decl[] _extra;
-    private int    _ec;
+    private Decl[]   _extra;
+    private string[] _prefix;   // 每个 _extra[i] 的 enclosing 前缀（`Outer` / `Outer+Inner` / ...）
+    private int      _ec;
 
-    public NestedFlatten() { this._extra = new Decl[8]; this._ec = 0; }
+    public NestedFlatten() { this._extra = new Decl[8]; this._prefix = new string[8]; this._ec = 0; }
 
     public static void Flatten(CompilationUnit cu) {
         if (cu.NestedFlattened) { return; }
@@ -35,6 +41,7 @@ public sealed class NestedFlatten {
             i = i + 1;
         }
         if (f._ec == 0) { return; }   // 无嵌套类型：cu 不动（自举零扰动）
+        f._rewriteNestedBases();      // AST base/接口引用限定到 `+` 名（收集完再改写，处理前向引用）
         int total = cu.DeclCount + f._ec;
         Decl[] merged = new Decl[total];
         int k = 0;
@@ -46,8 +53,8 @@ public sealed class NestedFlatten {
     }
 
     // 遍历 outer 的成员，把嵌套 class/enum 提升为顶层。prefix = outer 的 `+` 累积名（如 "A" / "A+B"）。
-    // 嵌套 decl 就地改名为 `<prefix>+<short>` 并 push 到 _extra；仍留在 outer.Members（成员处理阶段
-    // 忽略 ClassDecl/EnumDecl 成员，无害），递归深层。
+    // 嵌套 decl 就地改名为 `<prefix>+<short>` 并 push 到 _extra（连同其 enclosing 前缀），仍留在
+    // outer.Members（成员处理阶段忽略 ClassDecl/EnumDecl 成员，无害），递归深层。
     private void _walkClass(ClassDecl outer, string prefix) {
         int i = 0;
         while (i < outer.MemberCount) {
@@ -56,15 +63,77 @@ public sealed class NestedFlatten {
                 ClassDecl inner = m as ClassDecl;
                 string fq = prefix + "+" + inner.Name;
                 inner.Name = fq;                    // 就地改名（原始 wrapper 引用同一对象，改名生效）
-                this._push(outer.Members[i]);       // push 原始（可能含 AttributedDecl）以保留嵌套类型上的 attribute
+                this._push(outer.Members[i], prefix);
                 this._walkClass(inner, fq);         // 递归深层嵌套 A+B+C
             } else if (m is EnumDecl) {
                 EnumDecl ie = m as EnumDecl;
                 ie.Name = prefix + "+" + ie.Name;
-                this._push(outer.Members[i]);
+                this._push(outer.Members[i], prefix);
             }
             i = i + 1;
         }
+    }
+
+    // 把每个展平嵌套类型的 base/接口 TypeExpr 名限定到嵌套 `+` 名（引用兄弟/祖先嵌套类型时）。
+    // 收集完全部嵌套名后再跑，故支持前向引用（base 声明在后）。
+    private void _rewriteNestedBases() {
+        int i = 0;
+        while (i < this._ec) {
+            Decl d = this._unwrap(this._extra[i]);
+            if (d is ClassDecl) {
+                ClassDecl cd = d as ClassDecl;
+                string encl = this._prefix[i];
+                int b = 0;
+                while (b < cd.BaseCount) {
+                    if (cd.Bases[b] is NamedType) {
+                        NamedType nt = cd.Bases[b] as NamedType;
+                        string q = this._qualifyBaseName(nt.Name, encl);
+                        if (q != "") { nt.Name = q; }
+                    }
+                    b = b + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // name（base/接口引用）在 encl 的 `+` 链上溯限定到某已展平嵌套类型名；否则 ""（不改写，留原名）。
+    // 限定 `Outer.Base` → `Outer+Base`（若为嵌套）；裸 `Base` → 沿 encl 链试 `<p>+Base`；已含 `+` 跳过。
+    private string _qualifyBaseName(string name, string encl) {
+        if (name.IndexOf(".") >= 0) {
+            string plus = name.Replace(".", "+");
+            if (this._isNested(plus)) { return plus; }
+            return "";
+        }
+        if (name.IndexOf("+") >= 0) { return ""; }   // 已限定
+        string p = encl;
+        while (p != "") {
+            string cand = p + "+" + name;
+            if (this._isNested(cand)) { return cand; }
+            p = this._enclPrefix(p);
+        }
+        return "";
+    }
+
+    // fq 是否为本 cu 展平出的某个嵌套类型名（线性查，嵌套类型通常寥寥）。
+    private bool _isNested(string fq) {
+        int i = 0;
+        while (i < this._ec) {
+            Decl d = this._unwrap(this._extra[i]);
+            if (d is ClassDecl) { if ((d as ClassDecl).Name == fq) { return true; } }
+            else if (d is EnumDecl) { if ((d as EnumDecl).Name == fq) { return true; } }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 去掉 `s` 最后一个 `+` 段（`Outer+Inner`→`Outer`；`Outer`→""）。
+    private string _enclPrefix(string s) {
+        int lp = -1;
+        int i = 0;
+        while (i < s.Length) { if (s.CharAt(i) == '+') { lp = i; } i = i + 1; }
+        if (lp < 0) { return ""; }
+        return s.Substring(0, lp);
     }
 
     private Decl _unwrap(Decl d) {
@@ -72,14 +141,17 @@ public sealed class NestedFlatten {
         return d;
     }
 
-    private void _push(Decl d) {
+    private void _push(Decl d, string prefix) {
         if (this._ec >= this._extra.Length) {
             Decl[] b = new Decl[this._extra.Length * 2];
+            string[] p = new string[this._extra.Length * 2];
             int k = 0;
-            while (k < this._ec) { b[k] = this._extra[k]; k = k + 1; }
+            while (k < this._ec) { b[k] = this._extra[k]; p[k] = this._prefix[k]; k = k + 1; }
             this._extra = b;
+            this._prefix = p;
         }
         this._extra[this._ec] = d;
+        this._prefix[this._ec] = prefix;
         this._ec = this._ec + 1;
     }
 }
