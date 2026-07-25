@@ -1,0 +1,30 @@
+// Test: imported generic method return — 跨包泛型方法/字段返回类型必须按 receiver 的 TypeArgs
+// 替换类形参（T→concrete）。修复前：List<string>.ToArray() 跨包（List 自 z42.collections 导入）
+// 返回未替换的 `T[]` → E0402「return type T[] not assignable to string[]」。
+// fix-imported-generic-method-return：MemberResolver._substGeneric 按 Def.GenericParamNames 递归替换
+// （裸 T→arg、T[]→arg[]、嵌套泛型），配合 Z42ClassType.GenericParamNames（本地 AST + 导入 TSIG 回填）。
+using Std.Collections;
+
+class Bag {
+    List<string> items;
+    Bag() { this.items = new List<string>(); }
+    void Add(string s) { this.items.Add(s); }
+    // 方法返回轴：List<string>.ToArray() → string[]（本 fix 的核心场景）。
+    string[] Names() { return this.items.ToArray(); }
+}
+
+void Main() {
+    Bag b = new Bag();
+    b.Add("z"); b.Add("42");
+    string[] a = b.Names();
+    Assert.Equal(2, a.Length);
+    Assert.Equal("z", a[0]);
+    Assert.Equal("42", a[1]);
+
+    // 直接跨包 List<int>.ToArray() → int[]（不同类型实参，同一替换路径）。
+    List<int> nums = new List<int>();
+    nums.Add(10); nums.Add(20);
+    int[] arr = nums.ToArray();
+    Assert.Equal(2, arr.Length);
+    Assert.Equal(30, arr[0] + arr[1]);
+}
