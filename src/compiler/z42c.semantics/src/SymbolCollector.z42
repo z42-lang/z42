@@ -25,6 +25,7 @@ public sealed class SymbolCollector {
     // 接口必须在 _passClassStubs 之前 seed（基表判别：_passClassStubs 查 table.Interfaces 区分 iface vs class base）。
     public SymbolTable CollectWithImports(CompilationUnit cu, ImportedSymbols imported) {
         var t = new SymbolTable();
+        NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
         this._passInterfaces(t, cu, "");
         this._passEnums(t, cu);
         this._mergeImportedEnums(t, imported);
@@ -118,6 +119,8 @@ public sealed class SymbolCollector {
     // 语义等价 C# sibling-exports（其逐文件+缓存导出形态为增量编译服务）。同名冲突 first-wins（诊断挂账）。
     public SymbolTable CollectAll(CompilationUnit[] cus, string[] files, int cuCount, ImportedSymbols imported) {
         var table = new SymbolTable();
+        int nf = 0;
+        while (nf < cuCount) { NestedFlatten.Flatten(cus[nf]); nf = nf + 1; }   // add-nested-types（幂等，每 cu）
         int c = 0;
         while (c < cuCount) { this._passInterfaces(table, cus[c], files[c]); c = c + 1; }
         c = 0;
@@ -183,6 +186,7 @@ public sealed class SymbolCollector {
 
     public SymbolTable Collect(CompilationUnit cu) {
         var table = new SymbolTable();
+        NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
         this._passInterfaces(table, cu, "");
         this._passEnums(table, cu);
         this._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪

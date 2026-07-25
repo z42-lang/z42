@@ -101,6 +101,18 @@ public sealed class MemberParser {
 
     private Decl _parseMemberBody(string mods, string className) {
         Span sp = this._p._peek().Span;
+        // add-nested-types：嵌套类型声明（class/struct/interface/enum/record）作为成员 → 委托 DeclParser
+        // 的类型声明解析（其成员体再递归 _parseMember，故深层嵌套天然支持）。NestedFlatten 稍后把它们
+        // 提升为顶层 `Outer+Inner`。须在 `_parseType()` 之前拦截，否则 `class Inner` 被误解析为属性。
+        int nk = this._p._peek().Kind;
+        if (nk == TokenKind.Class || nk == TokenKind.Struct || nk == TokenKind.Interface) {
+            string nkind = "class";
+            if (nk == TokenKind.Struct) { nkind = "struct"; }
+            else if (nk == TokenKind.Interface) { nkind = "interface"; }
+            return this._p._declP._parseTypeDecl(mods, nkind);
+        }
+        if (nk == TokenKind.Enum)   { return this._p._declP._parseEnum(mods); }
+        if (nk == TokenKind.Record) { return this._p._declP._parseRecord(mods); }
         // 构造器：标识符(==类名) 紧跟 '('
         if (this._p._peek().Kind == TokenKind.Identifier && this._p._peek().Text == className
             && this._p._peekAt(1).Kind == TokenKind.LParen) {

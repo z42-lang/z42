@@ -129,6 +129,34 @@ public sealed class SymbolTable {
                 }
                 return def;
             }
+            // add-nested-types：嵌套类型 `Outer.Inner`（点串）→ `+` 键（展平已按 `Outer+Inner` 短键注册）。
+            // 只命中真注册的嵌套键；namespace-qualified（`Std.Console`→`Std+Console` 未注册）自然跳过、
+            // 落到下方限定名回退。任意深度（`A.B.C`→`A+B+C`）。
+            if (n.IndexOf(".") >= 0) {
+                string plusKey = n.Replace(".", "+");
+                if (this.EnumTypes.ContainsKey(plusKey)) { return new Z42ClassType(plusKey, false, ""); }
+                if (this.Interfaces.ContainsKey(plusKey)) { return this.Interfaces.Get(plusKey) as Z42InterfaceType; }
+                if (nt.ArgCount > 0) {
+                    string pm = plusKey + "$" + nt.ArgCount.ToString();
+                    if (this.Classes.ContainsKey(pm)) {
+                        Z42ClassType pgdef = this.Classes.Get(pm) as Z42ClassType;
+                        Z42Type[] pta = new Z42Type[nt.ArgCount];
+                        int pa = 0;
+                        while (pa < nt.ArgCount) { pta[pa] = this.ResolveTypeP(nt.Args[pa], paramNames, paramCount); pa = pa + 1; }
+                        return new Z42InstantiatedType(pgdef, pta, nt.ArgCount);
+                    }
+                }
+                if (this.Classes.ContainsKey(plusKey)) {
+                    Z42ClassType pdef = this.Classes.Get(plusKey) as Z42ClassType;
+                    if (nt.ArgCount > 0) {
+                        Z42Type[] pta2 = new Z42Type[nt.ArgCount];
+                        int pa2 = 0;
+                        while (pa2 < nt.ArgCount) { pta2[pa2] = this.ResolveTypeP(nt.Args[pa2], paramNames, paramCount); pa2 = pa2 + 1; }
+                        return new Z42InstantiatedType(pdef, pta2, nt.ArgCount);
+                    }
+                    return pdef;
+                }
+            }
             // 限定名回退（G19b）：源码写 "Std.Attribute" 时 NamedType.Name 保含点串；
             // 类注册用裸名（SymbolCollector line 139），点串查不到 → 取最后段重查。
             // 镜像 C# MemberType→类型系统能按最后段找到类；SIGS 仍输出 "unknown"（TypeName 不处理 MemberType）。

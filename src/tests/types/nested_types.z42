@@ -1,0 +1,88 @@
+// add-nested-types：嵌套类型作语言特性——注册 / 名解析 `Outer.Inner` / 实例化 / typeof /
+// 反射（GetNestedTypes / GetDeclaringType / IsNested / GetMembers 纳入）。源码用 `.`、元数据 FQ
+// 用 `+`（`Test.Outer+Inner`）→ Name=简单名、FullName 带 `+`、反射纯字符串派生（无 format bump）。
+// Assert / Type 均 z42.core（prelude）。
+namespace Test;
+
+class Outer {
+    public int X;
+
+    public class Inner {
+        public int Y;
+        public int twice() { return this.Y * 2; }
+        public class Deep { public int Z; }        // 多层嵌套 Outer.Inner.Deep
+    }
+
+    public struct Point { public int px; public int py; }
+    public enum Color { Red = 1, Green = 2 }
+    public interface IShow { int show(); }
+}
+
+class Plain { public int n; }
+
+void main() {
+    // ── 实例化 + 嵌套实例方法 + 字段 ──
+    Outer.Inner ni = new Outer.Inner();
+    ni.Y = 21;
+    Assert.Equal(42, ni.twice());
+
+    // ── 多层嵌套 ──
+    Outer.Inner.Deep d = new Outer.Inner.Deep();
+    d.Z = 7;
+    Assert.Equal(7, d.Z);
+
+    // ── 嵌套 struct ──
+    Outer.Point p = new Outer.Point();
+    p.px = 3; p.py = 4;
+    Assert.Equal(7, p.px + p.py);
+
+    // ── typeof + Name / FullName ──
+    Type ti = typeof(Outer.Inner);
+    Assert.Equal("Inner", ti.Name);                       // 简单名（split `.` 与 `+`）
+    Assert.Equal("Test.Outer+Inner", ti.FullName);        // FQ 用 `+`
+    Assert.True(ti.IsNested);
+
+    Type deep = typeof(Outer.Inner.Deep);
+    Assert.Equal("Deep", deep.Name);
+    Assert.Equal("Test.Outer+Inner+Deep", deep.FullName);
+
+    // ── GetDeclaringType ──
+    Type dt = ti.GetDeclaringType();
+    Assert.Equal("Outer", dt.Name);
+    Assert.True(!dt.IsNested);
+    Assert.True(dt.GetDeclaringType() == null);           // 顶层：无外层
+
+    // 多层：Deep 的外层是 Inner
+    Assert.Equal("Inner", deep.GetDeclaringType().Name);
+
+    // ── 顶层类型：非嵌套 ──
+    Assert.True(!typeof(Plain).IsNested);
+    Assert.True(typeof(Plain).GetNestedTypes().Length == 0);
+
+    // ── GetNestedTypes（直接子嵌套，有序 Color/IShow/Inner/Point）──
+    Type[] nested = typeof(Outer).GetNestedTypes();
+    Assert.Equal(4, nested.Length);
+    Assert.Equal("Color", nested[0].Name);
+    Assert.Equal("IShow", nested[1].Name);
+    Assert.Equal("Inner", nested[2].Name);
+    Assert.Equal("Point", nested[3].Name);
+    // 只返直接子（不含更深的 Deep）
+    Assert.Equal(1, typeof(Outer.Inner).GetNestedTypes().Length);
+    Assert.Equal("Deep", typeof(Outer.Inner).GetNestedTypes()[0].Name);
+
+    // ── 嵌套 enum / interface / struct 谓词 ──
+    Assert.True(typeof(Outer.Color).IsEnum);
+    Assert.Equal("Color", typeof(Outer.Color).Name);
+    Assert.True(typeof(Outer.IShow).IsInterface);
+    Assert.True(typeof(Outer.Point).IsValueType);
+
+    // ── GetMembers 纳入嵌套类型（Inner 的成员含 Deep）──
+    bool sawDeep = false;
+    Std.Reflection.MemberInfo[] ims = typeof(Outer.Inner).GetMembers();
+    int i = 0;
+    while (i < ims.Length) {
+        if (ims[i].Name == "Deep") { sawDeep = true; }
+        i = i + 1;
+    }
+    Assert.True(sawDeep);
+}

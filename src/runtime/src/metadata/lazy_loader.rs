@@ -315,6 +315,12 @@ impl LazyLoader {
         self.function_table.keys()
     }
 
+    /// Iterator over all currently-loaded type names (add-nested-types: used by
+    /// `GetNestedTypes` to find `<outer>+<simple>` members among loaded types).
+    pub fn iter_type_names(&self) -> impl Iterator<Item = &String> + '_ {
+        self.type_registry.keys()
+    }
+
     /// Load a zpkg file, merge its functions / types / strings, and expand
     /// its own `ZpkgDep` list into `declared_zpkgs` for future transitive
     /// lookups.

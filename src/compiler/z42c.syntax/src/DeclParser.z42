@@ -110,7 +110,7 @@ public sealed class DeclParser {
         return mods.IndexOf(" " + w + " ") >= 0;
     }
 
-    private Decl _parseTypeDecl(string mods, string kind) {
+    public Decl _parseTypeDecl(string mods, string kind) {   // add-nested-types：MemberParser 嵌套类型也调用
         Span sp = this._p._peek().Span;
         this._p._advance();   // class / struct / interface
         string name = this._p._peek().Text;
@@ -181,7 +181,7 @@ public sealed class DeclParser {
         return new ImplDecl(traitTy, target, methods, mc, sp);
     }
 
-    private Decl _parseEnum(string mods) {
+    public Decl _parseEnum(string mods) {   // add-nested-types：MemberParser 嵌套 enum 也调用
         Span sp = this._p._peek().Span;
         this._p._advance();   // enum
         string name = this._p._peek().Text;
@@ -246,7 +246,7 @@ public sealed class DeclParser {
         return this._p._memberP._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
     }
 
-    private Decl _parseRecord(string mods) {
+    public Decl _parseRecord(string mods) {   // add-nested-types：MemberParser 嵌套 record 也调用
         Span sp = this._p._peek().Span;
         this._p._advance();   // record
         string name = this._p._peek().Text;

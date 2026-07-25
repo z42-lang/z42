@@ -50,7 +50,33 @@ public sealed class TypeEnv {
 
     // 类型解析（携本 scope 的活跃类型形参）。
     public Z42Type ResolveType(TypeExpr te) {
-        return this.Symbols.ResolveTypeP(te, this.TypeParamNames, this.TypeParamCount);
+        Z42Type t = this.Symbols.ResolveTypeP(te, this.TypeParamNames, this.TypeParamCount);
+        // add-nested-types：内层非限定引用——`Inner`（无限定）在 `Outer` 体内应解析到嵌套类型
+        // `Outer+Inner`。主解析未命中且为裸名时，沿 enclosing 类的 `+` 链上溯尝试 `<encl>+<name>`
+        // （深层：`Outer+Inner` 体内引用 `X` → 试 `Outer+Inner+X` 再 `Outer+X`）。顶层类型优先
+        // （主解析先行），故不改既有解析；仅补裸名未命中时的嵌套 scope 兜底。
+        if ((t is Z42UnknownType) && (te is NamedType) && this.ClassName != "") {
+            NamedType nt = te as NamedType;
+            if (nt.Name.IndexOf(".") < 0 && nt.Name.IndexOf("+") < 0) {
+                string encl = this.ClassName;
+                while (encl != "") {
+                    NamedType cand = new NamedType(encl + "+" + nt.Name, nt.Args, nt.ArgCount, nt.Span);
+                    Z42Type ct = this.Symbols.ResolveTypeP(cand, this.TypeParamNames, this.TypeParamCount);
+                    if (!(ct is Z42UnknownType)) { return ct; }
+                    encl = TypeEnv._stripLastNestSeg(encl);   // 上溯一层
+                }
+            }
+        }
+        return t;
+    }
+
+    // enclosing `+` 链上溯：去掉最后一个 `+` 段（`Outer+Inner` → `Outer`；`Outer` → ""）。
+    private static string _stripLastNestSeg(string s) {
+        int lp = -1;
+        int i = 0;
+        while (i < s.Length) { if (s.CharAt(i) == '+') { lp = i; } i = i + 1; }
+        if (lp < 0) { return ""; }
+        return s.Substring(0, lp);
     }
 
     public void Define(string name, Z42Type type) { this.Vars.Put(name, type); }
