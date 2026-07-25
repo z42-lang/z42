@@ -620,13 +620,17 @@ jobs:
   # host legs' critical path.
   vm-jit-consistency:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
-    # 45→55 (2026-07-21): cranelift JIT per-case compile flaps right at the 45m cap
-    # (observed 43m55s green vs 45m15s red on adjacent commits — pre-existing, driven
-    # by golden-suite growth, not any one change). Headroom to stop the flapping;
-    # bump shards 4→N if it climbs again.
+    # 45→55 (2026-07-21): cranelift JIT per-case compile flaps right at the 45m cap.
+    # 2026-07-25 (share-goldens-no-regen): the shard no longer regenerates all ~222
+    # goldens itself — it downloads the golden .zbc compiled ONCE by
+    # assemble-current-sdk and runs its slice with --no-rebuild. Golden regen (z42c
+    # compiling every case, ~85% of the old wall-clock, and done redundantly in all 4
+    # shards) is eliminated → each shard is just "run my slice", well under the cap.
+    # Coverage identical: same .zbc (deterministic z42c output), same build-tree z42vm,
+    # same JIT execution — only the redundant per-shard recompile is removed.
     timeout-minutes: 55
     runs-on: ubuntu-latest
-    needs: toolchain-bootstrap
+    needs: [toolchain-bootstrap, assemble-current-sdk]
     strategy:
       fail-fast: false
       matrix:
@@ -650,19 +654,44 @@ jobs:
       # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
+      # Golden .zbc are compiled ONCE by assemble-current-sdk (build test) and bundled
+      # into current-sdk. Extract them to the canonical mirror so the run below uses
+      # --no-rebuild (NO per-shard regen). Mirrors consume-current-sdk's "Extract
+      # bundled goldens" — .zbc are execution-mode-agnostic and z42c output is
+      # deterministic, so the shared asset is byte-equivalent to a local regen.
+      - name: Download shared golden .zbc (compiled once)
+        uses: actions/download-artifact@v4
+        with:
+          name: current-sdk-ubuntu-latest
+          path: .z42-dl
+      - name: Extract bundled goldens
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d .z42-dl/tests ]; then
+            mkdir -p artifacts/build/tests
+            cp -r .z42-dl/tests/. artifacts/build/tests/
+          else
+            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
+          fi
+
       - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/4)
         shell: bash
         run: |
           set -euo pipefail
           # warm toolchain; xtask runs this shard of the JIT goldens on z42vm.
-          # cranelift JIT per-case compile is the slow part → split across 4 shards.
+          # --no-rebuild: run the shared .zbc as-is — it skips _regenForTest ENTIRELY
+          # (no golden regen AND no toolchain rebuild), so the former --no-build (which
+          # only picks the lighter regen path) is redundant and dropped (matches the
+          # consume-current-sdk job). cranelift JIT per-case compile still happens at
+          # RUN time (that's what this gate measures), split across 4 shards.
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           # Sharded `test e2e` runs goldens ONLY (cross-zpkg is skipped when --shard is
           # set). cross-zpkg jit is covered by the cross-zpkg-consistency job (both
           # modes there) — keeping it off shard 1 removes ~5.5 min from this lane's
           # critical-path shard.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-build --shard ${{ matrix.shard }}/4 --jobs=4
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/4 --jobs=4
 
   # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
   # build-and-test runs the 272 stdlib [Test] files under interp (in-process
