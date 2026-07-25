@@ -113,10 +113,11 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml",
         "src/toolchain/launcher/core/z42.launcher.z42.toml",
         "src/toolchain/builder/core/z42.builder.z42.toml",
-        // devtools (z42d) / interactive (z42i): scaffold placeholders (2026-07-01) —
-        // subcommands print "planned" but build+publish through the same path.
+        // devtools (z42d): scaffold placeholder — subcommand prints "planned" but
+        // builds+publishes through the same path. interactive (z42i) is built
+        // separately below: it depends on z42.scripting (→ z42c.*), so it needs a
+        // combined Z42_LIBS (stdlib + z42c + scripting), not plain stdlib `libs`.
         "src/toolchain/devtools/core/z42.devtools.z42.toml",
-        "src/toolchain/interactive/core/z42.interactive.z42.toml",
     };
     int bi = 0;
     while (bi < buildTomls.Length) {
@@ -124,6 +125,14 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         if (c != 0) { return c; }
         bi = bi + 1;
     }
+    // z42.scripting（REPL 引擎，L3 compiler-consuming）→ 写入 libs（供 SDK 装载、z42i 运行时
+    // lazy-load）并并入合并 Z42_LIBS；再用「stdlib + z42c + scripting」合并目录编 z42.interactive
+    // （z42cDir = programs/z42c 已含 z42c.*.zpkg）。见 xtask_toolchain.z42:_buildScriptingLib。
+    c = _buildScriptingLib(root, hostVm, z42cDir, libs);
+    if (c != 0) { return c; }
+    c = _z42cBuildToml(hostVm, z42cDir, _scriptingLibsDir(root),
+                       "src/toolchain/interactive/core/z42.interactive.z42.toml");
+    if (c != 0) { return c; }
 
     bool isWin = rid.StartsWith("windows-");
     string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");

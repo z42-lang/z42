@@ -1,6 +1,6 @@
 # z42 REPL
 
-> 状态：📋 规划（0.3.15 capstone）
+> 状态：🟢 已实现（0.4.0；求值引擎 z42.scripting + 宿主 z42.interactive + launcher `z42 repl`）
 >
 > 相关：[scripting-charter.md](../compiler/scripting-charter.md) · [launcher.md](../runtime/launcher.md) · [self-hosting.md](../compiler/self-hosting.md)
 
@@ -9,7 +9,7 @@
 `z42 repl` 是 z42 原生交互式求值环境——输入 z42 代码、即时求值、打印结果、状态跨行持久。
 
 设计准则：
-- **REPL 本身是 z42 程序**（`z42.repl.zpkg`），运行在 VM 上，完整 dogfood
+- **REPL 本身是 z42 程序**（`z42.interactive.zpkg`），运行在 VM 上，完整 dogfood
 - **z42c 不参与 eval/run**：编译器 zpkg 被 REPL 当库加载，不是入口
 - **`z42 repl` 命令驱动**：由 launcher 路由；`z42`（无参数）显示 help，不自动进 REPL
 
@@ -20,14 +20,34 @@ z42 repl              # 进入 REPL
 z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
 ```
 
+## 实现落地（0.4.0，add-z42-repl）
+
+实测可运行：`z42 repl` 交互循环 + `z42 repl -c "expr"` 单次求值。相对原设计的落地要点：
+
+- **求值编排**：`Std.Scripting.Script.Eval(state, input)` —— 分类（using / var 声明 / 表达式/语句）
+  → 每轮 build 唯一命名空间 `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes`
+  → `__load_bytecode_in_memory` 内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果。
+- **状态模型（D7 + D8）**：会话变量提升为 `Vars{N}` 类静态字段；每轮 carry 前轮全部变量
+  （`public static var v = Vars{prev}.v;`）+ 新变量；用户裸引用经 `Rewriter`（Lexer 基）改写为
+  `Vars{N}.v`。**每轮 zpkg 落盘于会话临时目录并纳入 LibsDirs**——in-memory 轮次对 PackageCompile
+  磁盘 DepScan 不可见，落盘使后续轮编译期可 carry-forward 引用前轮 Vars 类。
+- **依赖 [`infer-var-field-types`](../../spec/archive/)（#24）**：`var` 字段跨 zpkg 保型，carry-forward
+  的跨轮 `var` 变量算术/拼接才成立（原为 E0402）。
+- **错误恢复**：编译失败 `EvalResult.Success=false`、会话不推进。
+- **调用是自由函数**：`Eval{N}` emit 为自由函数（非类方法），经 `__invoke_static` 按 FQN 调；
+  入口/eval 均自由函数（实证类方法作 entry 不解析）。
+
+follow-up（未接）：多行输入（`__repl_readblock` builtin 已在，宿主未接）、`ResultFormatter`
+对象反射展示（当前 `"" + v` ToString）、`.reset`/`.save`/`.history` 等元指令、fn/class 顶层声明累积。
+
 ## 架构
 
 ```
 z42 repl
   │
   └── launcher.zpkg 路由 repl 命令
-        │  Z42_LIBS = libs/ + programs/z42c/ + programs/repl/
-        └── z42vm programs/repl/z42.repl.zpkg
+        │  Z42_LIBS = libs/ + programs/z42c/ + programs/interactive/
+        └── z42vm programs/interactive/z42.interactive.zpkg
               ├── LineEditor      — __readline native builtin（Rust rustyline）
               ├── InputClassifier — 区分表达式 / 声明 / 语句
               ├── ReplSession     — 会话状态（growing transcript）
@@ -191,7 +211,7 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
 Rust 侧 `rustyline` 实现，通过 native builtin 暴露给 REPL 程序：
 
 ```z42
-// z42.repl 内部调用
+// z42.interactive 内部调用
 string line  = Std.Repl.ReadLine(">>> ");
 string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检测）
 ```
@@ -203,15 +223,15 @@ string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检�
 | 包 | 位置 | 说明 |
 |----|------|------|
 | `z42.scripting.zpkg` | `libs/` | stdlib，用户也可 import |
-| `z42.repl.zpkg` | `programs/repl/` | REPL 主程序（exe zpkg）|
+| `z42.interactive.zpkg` | `programs/interactive/` | REPL 主程序（exe zpkg）|
 
 `z42 repl` 运行时 Z42_LIBS：
 
 ```
-libs/ + programs/z42c/ + programs/repl/
+libs/ + programs/z42c/ + programs/interactive/
 ```
 
-`programs/z42c/` 含编译器 7 个 zpkg，是 `z42.scripting` 运行期动态加载的依赖。
+`programs/z42c/` 含编译器 5 个 zpkg（IR 收敛后），是 `z42.scripting` 运行期动态加载的依赖。
 
 ## 前置依赖
 

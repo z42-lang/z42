@@ -1191,9 +1191,12 @@ impl VmContext {
     /// from raw bytes (packed zpkg / bare zbc) into the live registries. Backs
     /// the `__load_bytecode_in_memory` builtin used by `z42.scripting` (REPL) so
     /// freshly compiled bytecode is invocable with zero disk I/O. (add-z42-repl)
+    /// Returns the freshly-loaded module's own `*.__static_init__` function names
+    /// so the caller runs only this round's static init (REPL carry-forward — a full
+    /// clear+rerun would wipe prior rounds' mutated static state).
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
-    ) -> anyhow::Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
+    ) -> anyhow::Result<Vec<String>> {
         let mut state = self.core.lazy_loader.lock();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")

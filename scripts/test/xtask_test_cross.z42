@@ -127,8 +127,21 @@ string _runOneCrossCase(string vmBin, string driverZpkg, string stdlibDist, stri
         return name + " (main build)";
     }
 
-    // Stage 4: run main zpkg through z42vm.
-    string mainZpkg = _firstZpkg(_fixtureDist(mainDir));
+    // Stage 4: run the MAIN APP's zpkg (by project name) through z42vm.
+    // A packed exe build can leave dependency zpkgs alongside main.zpkg in the
+    // dist dir; the former `_firstZpkg` (sorted glob[0]) then intermittently
+    // picked a *dependency* that sorts before the app — e.g. generic_field_carry
+    // (app `demo.gmain`, dep `demo.gext` < `demo.gmain`) → the dep has no baked
+    // entry → "no entry point" (flaky; only that case is vulnerable). Select the
+    // app zpkg by name so the run is correct regardless of what else is in dist.
+    // (fix-crosszpkg-run-app-by-name)
+    string appName = _tomlName(mainToml);
+    string mainZpkg = "";
+    if (appName.Length > 0) {
+        string cand = Path.Join(_fixtureDist(mainDir), appName + ".zpkg");
+        if (File.Exists(cand)) { mainZpkg = cand; }
+    }
+    if (mainZpkg.Length == 0) { mainZpkg = _firstZpkg(_fixtureDist(mainDir)); }   // fallback
     if (mainZpkg.Length == 0) {
         Console.WriteLine("    main produced no zpkg");
         return name + " (no zpkg)";
@@ -295,6 +308,31 @@ string _firstZpkg(string dir) {
     string[] hits = Path.Glob(dir, "*.zpkg");
     if (hits.Length == 0) return "";
     return hits[0];
+}
+
+// [project] `name` from a z42.toml (the bare `name = "..."` line; dependency
+// entries are quoted-key `"pkg" = "ver"`, so their key != "name"). Empty on miss.
+// Used to pick the app zpkg by name in Stage 4 (fix-crosszpkg-run-app-by-name).
+string _tomlName(string tomlPath) {
+    if (!File.Exists(tomlPath)) return "";
+    string txt = File.ReadAllText(tomlPath);
+    string[] lines = txt.Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i].Trim();
+        int eq = ln.IndexOf("=");
+        if (eq > 0 && ln.Substring(0, eq).Trim() == "name") {
+            string rest = ln.Substring(eq + 1);
+            int q1 = rest.IndexOf("\"");
+            if (q1 >= 0) {
+                string after = rest.Substring(q1 + 1);
+                int q2 = after.IndexOf("\"");
+                if (q2 >= 0) { return after.Substring(0, q2); }
+            }
+        }
+        i = i + 1;
+    }
+    return "";
 }
 
 // Return first `n` lines joined by '|' — matches bash `head -3 | tr '\n' '|'`.

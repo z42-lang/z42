@@ -1,16 +1,16 @@
 # Tasks: z42 原生交互式 REPL
 
-> 状态：🟡 阶段 1 ✅ 里程碑收口；阶段 2/3 暂停待 warm-z42c 环境（见备注）| 6.5 通过 2026-07-23（D2=A / D3=A / 结果打印 1 层）| 创建：2026-07-23
-> 子系统锁（2026-07-23 实测）：`runtime`（被 `lazy-per-function-jit` 占）‖ `stdlib`（被 `converge-z42c-onto-z42-project` 占）‖ `toolchain`（空闲）
-> **隔离分支并行**（User 授权 2026-07-23）：开发在独立 git worktree `../z42-repl-wt` 分支 `claude/z42-repl`，从干净 origin/main 切出，与主工作树的 `lazy-per-function-jit` 未提交 jit WIP 物理隔离。合并时按常规解冲突，GREEN 以 CI 为权威。
-> 实现顺序：runtime（阶段 1 ✅）→ stdlib（阶段 2）→ toolchain（阶段 3）
+> 状态：🟢 全阶段实现完成（求值引擎 + 宿主 + 路由，端到端可运行）| 分三 PR：阶段1(#19 已合) / infer-var-field-types(#24 已合) / 本 PR（引擎+宿主+路由）| 创建：2026-07-23
+> **隔离分支并行**（User 授权）：阶段1 在 `claude/z42-repl`（#19 已合）；var 字段修复在 `claude/infer-var-field-types`（#24 已合）；引擎+宿主+路由在 `claude/z42-repl-scripting`。GREEN 以 CI 为权威。
+> 实现顺序：runtime（阶段 1 ✅ #19）→ compiler 前置 var 字段修复（#24）→ stdlib z42.scripting（阶段 2 ✅）→ toolchain z42.interactive + launcher（阶段 3 ✅）
 
 ## 进度概览
-- [x] 阶段 1: VM builtin（runtime 锁）— cargo build + 781 lib 单测全绿
-- [ ] 阶段 2: z42.scripting 库（stdlib 锁）
-- [ ] 阶段 3: z42.interactive REPL 宿主 + launcher 路由（toolchain 锁）
-- [ ] 阶段 4: 测试与验证
-- [ ] 阶段 5: 文档同步
+- [x] 阶段 1: VM builtin（#19 合并）— cargo build + 781 lib 单测全绿
+- [x] 前置: infer-var-field-types（#24 合并）— carry-forward 跨轮 var 字段保型
+- [x] 阶段 2: z42.scripting 求值引擎 — 表达式/var carry-forward/using-stdlib/语句/错误恢复（warm-z42c 回路端到端）
+- [x] 阶段 3: z42.interactive REPL 宿主 + launcher `z42 repl` 路由 — 交互 + `-c` 模式实测
+- [x] 阶段 4: 端到端验证（warm-z42c 回路；full GREEN 以 CI 为权威）
+- [x] 阶段 5: 文档同步（repl.md 实现落地 + stale 校正）
 
 ## 阶段 1: VM builtin（runtime）✅
 - [x] 1.1 `src/runtime/Cargo.toml` 加 rustyline 依赖（target-gated non-wasm）
@@ -49,7 +49,7 @@
 ## 阶段 5: 文档同步（按阶段 9 触发矩阵）
 - [ ] 5.1 `docs/design/toolchain/repl.md` 校正 stale（包名/路径/zpkg 数/内存加载/静态依赖决策）
 - [ ] 5.2 `src/toolchain/interactive/README.md` 去 scaffold、改六段制
-- [ ] 5.3 `src/libraries/z42.scripting/README.md` 六段制
+- [ ] 5.3 `src/toolchain/scripting/README.md` 六段制
 - [ ] 5.4 `docs/roadmap.md` 0.4.0 REPL 状态
 - [ ] 5.5 `docs/spec/changes/ACTIVE.md` 实现期登记三子系统 / 归档释放
 

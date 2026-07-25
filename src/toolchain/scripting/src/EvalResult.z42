@@ -1,0 +1,15 @@
+// 一次 Script.Eval 的结果（add-z42-repl 阶段 2）。
+namespace Std.Scripting;
+
+public class EvalResult {
+    public bool Success;         // 编译 + 执行是否成功
+    public bool HasValue;        // 表达式 → true；声明 / 纯语句 / using → false（不打印）
+    public object Value;         // HasValue 时的求值结果（装箱）
+    public string Error;         // Success=false 时的诊断文本；否则 ""
+    public ScriptState State;    // 成功 → 新状态；失败 → 传入的原状态（会话不破坏）
+
+    public EvalResult(bool success, bool hasValue, object value, string error, ScriptState state) {
+        this.Success = success; this.HasValue = hasValue; this.Value = value;
+        this.Error = error; this.State = state;
+    }
+}
