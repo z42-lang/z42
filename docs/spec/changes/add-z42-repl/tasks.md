@@ -49,7 +49,7 @@
 ## 阶段 5: 文档同步（按阶段 9 触发矩阵）
 - [ ] 5.1 `docs/design/toolchain/repl.md` 校正 stale（包名/路径/zpkg 数/内存加载/静态依赖决策）
 - [ ] 5.2 `src/toolchain/interactive/README.md` 去 scaffold、改六段制
-- [ ] 5.3 `src/libraries/z42.scripting/README.md` 六段制
+- [ ] 5.3 `src/toolchain/scripting/README.md` 六段制
 - [ ] 5.4 `docs/roadmap.md` 0.4.0 REPL 状态
 - [ ] 5.5 `docs/spec/changes/ACTIVE.md` 实现期登记三子系统 / 归档释放
 

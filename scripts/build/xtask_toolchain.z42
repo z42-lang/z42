@@ -132,7 +132,7 @@ int _buildScriptingLib(string root, string vm, string z42cDir, string libs) {
     Directory.Create(combined);
     _copyAll(libs, combined, "z42.*.zpkg");
     _copyAll(z42cDir, combined, "z42c.*.zpkg");
-    string toml = "src/libraries/z42.scripting/z42.scripting.z42.toml";
+    string toml = "src/toolchain/scripting/z42.scripting.z42.toml";
     _vNormal("  scripting: " + toml + " (Z42_LIBS=stdlib+z42c) → " + libs);
     int c = _exec(new Process(vm)
         .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
