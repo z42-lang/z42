@@ -53,6 +53,8 @@ jobs:
       platform: ${{ steps.filter.outputs.platform }}
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
+      stdlib: ${{ steps.filter.outputs.stdlib }}
+      tests: ${{ steps.filter.outputs.tests }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -71,16 +73,30 @@ jobs:
               - 'versions.toml'
               - '.github/workflows/ci.yml'
             # change-detect rule (b): gates the bootstrap boundary check
-            # (verify-selfhost). Only a z42c change can make the prev nightly's
-            # z42c unable to compile current source. The ci.yml fallback forces a
-            # full run on any CI-config edit (保底全跑).
+            # (verify-selfhost) + compiler-checks (self-host fixpoint + vscode).
+            # Only a z42c change can make the prev nightly's z42c unable to compile
+            # current source, or change the self-host fixpoint / vscode grammar.
+            # ci.yml fallback = 保底全跑.
             compiler:
               - 'src/compiler/**'
               - '.github/workflows/ci.yml'
-            # change-detect rule (c): gates the Rust VM unit harness (cargo test).
-            # Only a src/runtime change can affect it. ci.yml fallback = 保底全跑.
+            # change-detect rule (c): gates the Rust VM unit harness (cargo test)
+            # + JIT consistency. Only a src/runtime change can affect it.
+            # ci.yml fallback = 保底全跑.
             vm:
               - 'src/runtime/**'
+              - '.github/workflows/ci.yml'
+            # change-detect rule (d): gates stdlib [Test] consistency (interp+jit).
+            # Only a stdlib or runtime change can affect it.
+            stdlib:
+              - 'src/libraries/**'
+              - '.github/workflows/ci.yml'
+            # change-detect rule (e): gates e2e golden suites. Test case changes
+            # affect golden expected output; xtask/script changes can affect the
+            # harness itself.
+            tests:
+              - 'src/tests/**'
+              - 'scripts/**'
               - '.github/workflows/ci.yml'
 
   build-and-test:
@@ -220,21 +236,24 @@ jobs:
       # the goldens against those canonical artifacts (~12-15 min/leg saved). The
       # consume path (_regenGolden + --no-build stages) is the same one the
       # test-consume job already exercises green.
-      - name: Test (z42 xtask.zpkg test all --no-build --skip stdlib,cross-zpkg)
+      - name: Test (z42 xtask.zpkg test all --no-build --skip stdlib,cross-zpkg,compiler,vscode)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/ci-logs
-          # --skip stdlib,cross-zpkg: these two stages are offloaded to dedicated
-          # parallel jobs (stdlib-interp-consistency shards per OS + cross-zpkg-interp)
-          # so this per-leg gate keeps only the un-shardable bedrock (goldens interp +
-          # compiler self-host fixpoint + vscode-syntax), cutting each leg's critical
-          # path ~15 min. Coverage is preserved: stdlib-interp shards run per slow OS,
-          # cross-zpkg (bytecode dispatch, host-independent) runs once on linux.
+          # --skip stdlib,cross-zpkg,compiler,vscode: all four stages are offloaded
+          # to dedicated parallel jobs:
+          #   stdlib  → stdlib-interp-consistency shards (per slow OS)
+          #   cross-zpkg → cross-zpkg-consistency (linux, interp+jit)
+          #   compiler → compiler-checks (linux, 1×; host-independent fixpoint)
+          #   vscode   → compiler-checks (linux, 1×; host-independent keyword sync)
+          # This per-leg gate keeps ONLY the host-dependent bedrock: e2e goldens
+          # (interp). Coverage preserved: each offloaded stage runs in its own
+          # dedicated job with proper module gating.
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip stdlib,cross-zpkg 2>&1 | tee artifacts/ci-logs/test-all.log
+            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip stdlib,cross-zpkg,compiler,vscode 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
       # diag-ci-test-log-upload (2026-05-30): the wave-failed stage prints
@@ -630,7 +649,11 @@ jobs:
     # same JIT execution — only the redundant per-shard recompile is removed.
     timeout-minutes: 55
     runs-on: ubuntu-latest
-    needs: [toolchain-bootstrap, assemble-current-sdk]
+    needs: [changes, toolchain-bootstrap, assemble-current-sdk]
+    # change-detect rule (c): JIT execution behaviour only changes when the Rust VM
+    # changes — z42c/stdlib/test-case changes affect the .zbc bytecode (caught by
+    # test-host's interp goldens), not the JIT codegen path. Schedule/dispatch = 全跑.
+    if: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -705,7 +728,11 @@ jobs:
     name: test-stdlib-jit(linux-x64) shard ${{ matrix.shard }}
     timeout-minutes: 45
     runs-on: ubuntu-latest
-    needs: toolchain-bootstrap
+    needs: [changes, toolchain-bootstrap]
+    # change-detect rule (d+c): stdlib [Test] JIT divergence can arise from a VM
+    # change (JIT codegen) or a stdlib change (test content). Skip when neither
+    # changed. Schedule/dispatch = 全跑.
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -756,7 +783,10 @@ jobs:
     name: test-stdlib-interp(${{ matrix.platform }}) shard ${{ matrix.shard }}
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
-    needs: toolchain-bootstrap
+    needs: [changes, toolchain-bootstrap]
+    # change-detect rule (d+c): stdlib [Test] interp can diverge on VM change
+    # (interp dispatch) or stdlib change (test content/API). Schedule/dispatch = 全跑.
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       # 2 shards/OS (not 4): each interp shard is only ~3-4 min, so 4-way over-split
@@ -806,7 +836,11 @@ jobs:
     name: test-cross-zpkg(linux-x64)
     timeout-minutes: 30
     runs-on: ubuntu-latest
-    needs: toolchain-bootstrap
+    needs: [changes, toolchain-bootstrap]
+    # change-detect: cross-zpkg exercises zpkg linking + cross-package dispatch.
+    # Affected by VM (interp/JIT), compiler (codegen/zpkg writer), stdlib (API surface),
+    # or test case changes. Schedule/dispatch = 全跑.
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.tests == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -905,12 +939,62 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- test compiler
 
+  # ── compiler checks (host-independent, 1× linux) ──────────────────────────
+  # z42c self-host fixpoint (gen1==gen2 byte-identical) + z42c [Test] units +
+  # vscode-syntax keyword consistency. These are HOST-INDEPENDENT: z42c output
+  # is deterministic regardless of OS → running on all 4 test-host legs was 4×
+  # redundant (~5 min/leg wasted). Offloaded here as a single linux job; test-host
+  # skips them (`--skip compiler,vscode`). Gated on compiler changes (rule b) —
+  # only z42c source can change the fixpoint or the keyword table.
+  # Distinct from verify-selfhost: that job tests the NIGHTLY-SEED bootstrap path
+  # (prev nightly compiles current source); this job tests the IN-TREE fixpoint
+  # (current z42c compiles itself, gen1==gen2). Both are compiler-gated; together
+  # they cover the two self-host dimensions.
+  compiler-checks:
+    name: compiler-checks(linux-x64)
+    timeout-minutes: 30
+    needs: [changes, toolchain-bootstrap]
+    if: ${{ needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: host-v2
+
+      - uses: ./.github/actions/xtask-bootstrap-artifact
+
+      - name: z42c self-host fixpoint (xtask test compiler)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$vm" artifacts/xtask/xtask.zpkg -- test compiler
+
+      - name: VSCode grammar ↔ Lexer keyword sync (xtask test vscode-syntax)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$vm" artifacts/xtask/xtask.zpkg -- test vscode-syntax
+
   # 2026-05-07 add-runtime-feature-flags (P4.1): verify all 4 feature presets
   # compile on host target. P4.2/P4.3/P4.4 will add real cross-compile jobs
   # (wasm32-unknown-unknown / aarch64-apple-ios / aarch64-linux-android).
   feature-matrix:
     name: verify-features(linux-x64)
     timeout-minutes: 40
+    needs: changes
+    if: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1249,7 +1333,9 @@ jobs:
     needs:
       - build-and-test
       - host-package
-      - feature-matrix
+      # feature-matrix: removed from needs (no artifact produced; pure compile-check
+      # now gated on vm changes — a skip would block publish). It still gates
+      # correctness independently.
       - package-ios
       - package-android
       - package-wasm
