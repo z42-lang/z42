@@ -24,4 +24,22 @@ public class ScriptState {
         this.LibsDirs = new string[0]; this.LibsDirsN = 0;
         this.DeclaredDeps = new string[0]; this.DepCount = 0;
     }
+
+    // string[] 访问器（供跨包消费者，如 z42.interactive 的 .vars/.usings）。
+    // 用 Count + 索引器手工物化，而非 List.ToArray()：List 自 z42.collections 导入，
+    // 其 `T[] ToArray()` 的返回类型在导入侧不替换 T→string（E0402 T[]↔string[]，
+    // 与 #30 的「导入泛型字段类型」修复同族、方法返回轴待后续根治）。索引器 `[i]` 已正确
+    // 返回具体 string（Script.z42 多处依赖），故物化循环可行、不触发该缺陷。
+    public string[] UsingsArray() {
+        string[] r = new string[this.Usings.Count];
+        int i = 0;
+        while (i < this.Usings.Count) { r[i] = this.Usings[i]; i = i + 1; }
+        return r;
+    }
+    public string[] VarNamesArray() {
+        string[] r = new string[this.VarNames.Count];
+        int i = 0;
+        while (i < this.VarNames.Count) { r[i] = this.VarNames[i]; i = i + 1; }
+        return r;
+    }
 }

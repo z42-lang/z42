@@ -60,14 +60,14 @@ void _help() {
 }
 
 void _vars(ScriptState s) {
-    string[] vs = s.VarNames.ToArray();
+    string[] vs = s.VarNamesArray();
     if (vs.Length == 0) { Console.WriteLine("  (无会话变量)"); return; }
     int i = 0;
     while (i < vs.Length) { Console.WriteLine("  " + vs[i]); i = i + 1; }
 }
 
 void _usings(ScriptState s) {
-    string[] us = s.Usings.ToArray();
+    string[] us = s.UsingsArray();
     int i = 0;
     while (i < us.Length) { Console.WriteLine("  using " + us[i] + ";"); i = i + 1; }
 }
