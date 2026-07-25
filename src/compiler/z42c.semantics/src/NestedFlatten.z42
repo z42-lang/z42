@@ -1,0 +1,85 @@
+// add-nested-types：嵌套类型展平——把嵌套 class/struct/interface/enum 提升为顶层 Decl，
+// 名改 `Outer+Inner`（任意深度 `A+B+C`）。源码用 `.`（`Outer.Inner ni = new Outer.Inner()`），
+// 元数据 FQ 用 `+`（`Ns.Outer+Inner`，由 IrGen `_q` 前缀 namespace）——反射 GetNestedTypes /
+// GetDeclaringType / IsNested 纯字符串派生（找 `+`），**无 zbc/zpkg format bump**。
+//
+// 展平后，现有 SymbolCollector / IrGen 各 pass 把嵌套类型当**普通顶层类型**处理（注册 / 名解析 /
+// TYPE·SIGS·FUNC 发射），复用全部机制。名解析侧 `Outer.Inner`（点串）由 SymbolTable.ResolveTypeP
+// 的 dots→`+` 兜底命中 `Outer+Inner` 键（见该处）。
+//
+// 幂等（cu.NestedFlattened 守卫）：多入口（CollectAll / Collect / CollectWithImports / IrGen.Generate）
+// 共享同一 cu，只展平一次。z42c / stdlib 源不含嵌套类型 → _ec==0 → cu 零改动 → 自举不动点零扰动。
+
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class NestedFlatten {
+    private Decl[] _extra;
+    private int    _ec;
+
+    public NestedFlatten() { this._extra = new Decl[8]; this._ec = 0; }
+
+    public static void Flatten(CompilationUnit cu) {
+        if (cu.NestedFlattened) { return; }
+        cu.NestedFlattened = true;
+        NestedFlatten f = new NestedFlatten();
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = f._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl cd = d as ClassDecl;
+                f._walkClass(cd, cd.Name);
+            }
+            i = i + 1;
+        }
+        if (f._ec == 0) { return; }   // 无嵌套类型：cu 不动（自举零扰动）
+        int total = cu.DeclCount + f._ec;
+        Decl[] merged = new Decl[total];
+        int k = 0;
+        while (k < cu.DeclCount) { merged[k] = cu.Decls[k]; k = k + 1; }
+        int e = 0;
+        while (e < f._ec) { merged[cu.DeclCount + e] = f._extra[e]; e = e + 1; }
+        cu.Decls = merged;
+        cu.DeclCount = total;
+    }
+
+    // 遍历 outer 的成员，把嵌套 class/enum 提升为顶层。prefix = outer 的 `+` 累积名（如 "A" / "A+B"）。
+    // 嵌套 decl 就地改名为 `<prefix>+<short>` 并 push 到 _extra；仍留在 outer.Members（成员处理阶段
+    // 忽略 ClassDecl/EnumDecl 成员，无害），递归深层。
+    private void _walkClass(ClassDecl outer, string prefix) {
+        int i = 0;
+        while (i < outer.MemberCount) {
+            Decl m = this._unwrap(outer.Members[i]);
+            if (m is ClassDecl) {
+                ClassDecl inner = m as ClassDecl;
+                string fq = prefix + "+" + inner.Name;
+                inner.Name = fq;                    // 就地改名（原始 wrapper 引用同一对象，改名生效）
+                this._push(outer.Members[i]);       // push 原始（可能含 AttributedDecl）以保留嵌套类型上的 attribute
+                this._walkClass(inner, fq);         // 递归深层嵌套 A+B+C
+            } else if (m is EnumDecl) {
+                EnumDecl ie = m as EnumDecl;
+                ie.Name = prefix + "+" + ie.Name;
+                this._push(outer.Members[i]);
+            }
+            i = i + 1;
+        }
+    }
+
+    private Decl _unwrap(Decl d) {
+        if (d is AttributedDecl) { return (d as AttributedDecl).Inner; }
+        return d;
+    }
+
+    private void _push(Decl d) {
+        if (this._ec >= this._extra.Length) {
+            Decl[] b = new Decl[this._extra.Length * 2];
+            int k = 0;
+            while (k < this._ec) { b[k] = this._extra[k]; k = k + 1; }
+            this._extra = b;
+        }
+        this._extra[this._ec] = d;
+        this._ec = this._ec + 1;
+    }
+}

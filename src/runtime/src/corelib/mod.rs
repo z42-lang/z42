@@ -473,6 +473,11 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── add-enum-underlying-type (2026-07-25) — appended to preserve BuiltinIds ──
     ("__type_enum_underlying",    reflection::builtin_type_enum_underlying),
+
+    // ── add-nested-types (2026-07-25) — appended to preserve BuiltinIds ──
+    ("__type_is_nested",          reflection::builtin_type_is_nested),
+    ("__type_declaring_type",     reflection::builtin_type_declaring_type),
+    ("__type_nested_types",       reflection::builtin_type_nested_types),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

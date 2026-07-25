@@ -453,7 +453,7 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 ### ~~reflection-future-type-memberinfo-hierarchy~~ — 已落地（2026-06-11，层级对齐部分）
 - **状态**：`Std.Type : Std.Reflection.MemberInfo` 已落地 2026-06-11（align-type-memberinfo-hierarchy）。`typeof(C) is MemberInfo` 为真；`Name` 由 `MemberInfo` 基类字段统一提供（移除 Type 的 `[Native("__type_name")]` getter + `__type_name` builtin；`build_type` 把简单名写入继承的 `Name` 槽，同 FieldInfo/MethodInfo）。`__name`/`__fullName` 字段 + `FullName` native getter 保留（低层 golden / z42.test 兼容；MemberInfo 无 FullName）。
 - **实现要点（更正原前置依赖判断）**：① **无需跨命名空间限定基类**——base 解析是全局短名 `_classes.TryGetValue`（SymbolCollector.Classes.cs:370），`class Type : MemberInfo`（短名）直接命中同包 z42.core 的 MemberInfo；② **无 `TypeDesc` 布局 / zbc 格式改动**——TypeDesc 已支持 `base_name`(FQN) + 继承字段 cross-zpkg fixup，纯 stdlib 重编 + runtime `build_type` 调整；③ `Type.BaseType` 语义不变（反射被反射类型的基类，与 Type-类自身 `MemberInfo` 基类无关）。dotnet GoldenTests 1557/1557 + `type_is_memberinfo.z42` e2e + cargo 759+21。
-- **剩余**：嵌套类型纳入 `GetMembers()` / `GetNestedTypes()`——见 `reflection-future-nested-types`（层级地基已就位）。
+- **剩余**：~~嵌套类型纳入 `GetMembers()` / `GetNestedTypes()`~~ —— ✅ 已落地 2026-07-25（add-nested-types，作完整语言特性；见 `reflection-future-nested-types`）。
 
 ### ~~reflection-future-type-flags~~ — 已落地（2026-06-10）
 - **状态**：`Type.IsAbstract` / `Type.IsSealed` 已落地 2026-06-10（add-reflection-type-flags）。zbc TYPE section 每类追加 `flags: u8`（zbc 1.12 / zpkg 0.14），运行期载入 `TypeDesc.class_flags`。见上文「Type.IsAbstract / IsSealed」+「类修饰符标志」。
@@ -535,6 +535,13 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
   - **带类型 enum 值（Tier 2）**：`value.ToString()→名` / `value.GetType().IsEnum`——z42 enum 值底层是
     裸 i64，不携带 enum 类型标签 → 需 enum 值装箱（与 `primitive-value-boxing` 同框架）。延后，挂 boxing 线。
   - `[Flags]` 组合名 / `Enum.TryParse`（依赖 `out` 参成熟）延后。
+
+### ~~reflection-future-nested-types~~ — 已落地（2026-07-25，作完整语言特性）
+- **状态**：嵌套类型 `class Outer { class Inner {} }` 从**根本不可用**（此前 parser 把 `class Inner` 误解析为属性 → 不注册 / `Outer.Inner` 解析为 `<unknown>` / 不实例化 / 不发 TYPE）**升级为可用语言特性** + 反射，2026-07-25（add-nested-types，**无 zbc/zpkg format bump**）。嵌套 **class/struct/interface/enum**、**任意深度**（`Outer.Inner.Deep`）：`Outer.Inner ni = new Outer.Inner()` 可编、`typeof(Outer.Inner)` 得真句柄、字段/实例方法正常。反射：`Type.GetNestedTypes()`（直接子嵌套，有序）/ `GetDeclaringType()` / `IsNested` + 嵌套类型纳入 `GetMembers()`（`MemberTypes.NestedType`）。
+- **实现（`+` 名约定，纯派生、无格式字段）**：源码用 `.`（`Outer.Inner`），**元数据 FQ 名用 `+`**（`Ns.Outer+Inner`，C# 约定）——`Type.Name`=简单名 `Inner`（runtime `type_simple_name` split `.` 再 split `+`）、`FullName`=`Ns.Outer+Inner`；`GetNestedTypes`/`GetDeclaringType`/`IsNested` **纯字符串派生**（找 `+`），**不加 TYPE section 字段** → 无 format bump（与数组 `[]` 后缀、嵌套泛型 `<>` 括号串同一路数）。
+  - **编译器**：① parser `MemberParser._parseMemberBody` 拦截 `class/struct/interface/enum/record` 关键字 → 委托 `DeclParser._parseTypeDecl/_parseEnum/_parseRecord`（其成员体递归 `_parseMember` → 深层嵌套天然支持）；② `NestedFlatten`（新 pass，幂等 `cu.NestedFlattened`）把嵌套 decl 提升为**顶层** Decl、名改 `Outer+Inner`（任意深度），后续 SymbolCollector/IrGen 各 pass 当普通顶层类型处理（注册/发射），复用全部机制；③ `SymbolTable.ResolveTypeP` 对点串 `Outer.Inner` → `Outer+Inner` 键兜底命中（namespace-qualified 如 `Std.Console`→`Std+Console` 未注册自然跳过）。z42c/stdlib 源不含嵌套类型 → `NestedFlatten` `_ec==0` cu 零改动 → **自举不动点零扰动**。
+  - **runtime**：`__type_nested_types` 扫 `loaded_type_names`（entry 模块 + lazy loader 已加载类型；嵌套类型与外层同包，外层句柄在手即已加载）过滤 `<this>+<simple>`（无更深 `+`）；`__type_declaring_type`（rfind `+`）；`__type_is_nested`（含 `+`）；`GetMembers` 追加嵌套类型切片。
+- **剩余（Deferred，真实卡点）**：**泛型外层** `Outer<T>.Inner` —— 卡两处：① parser 类型位置不接受 `Generic<Args>.Nested` 语法（`Box<int>` 后不消费 `.Tag`）；② 内层引用外层 `T` 的嵌套类型需 generic instantiation 做 T 替换（0.5.x L3-R，与 `reflection-future-method-invoke` 同前置）。已「试做」验证到此边界、如实标出，非静默延后。嵌套类型的 base 若为**另一嵌套类型**（`class Inner : Outer.Other`）解析未接（`_passClassStubs` 基表查裸名，非 `+` 键）；跨包**限定名**引用嵌套（`geo.Shape.Corner`）当前只解析包内 `Outer.Inner`；嵌套 partial 仍不支持（E0435 保留，design D9）。
 
 ### reflection-future-method-invoke（0.5.x L3-R）
 - **来源**：roadmap 0.3.x C 主线划界

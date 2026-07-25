@@ -115,6 +115,7 @@ public sealed class IrGen {
 
     public IrModule Generate(CompilationUnit cu, SemanticModel model) {
         this._symbols = model.Symbols;
+        NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等；Collect 通常已展平过）
         // 接口名 → ClassDecl 映射（接口传递闭包展开用：IB:IA → Widget:IB 也含 IA）。
         this.IfaceDecls = new StrMap();
         this.MgThunks = new StrMap();
