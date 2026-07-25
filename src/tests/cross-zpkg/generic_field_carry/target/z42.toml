@@ -1,0 +1,9 @@
+[project]
+name = "demo.gtarget"
+version = "0.1.0"
+kind = "lib"
+pack = true
+[sources]
+include = ["src/**/*.z42"]
+[dependencies]
+"z42.collections" = "0.1.0"

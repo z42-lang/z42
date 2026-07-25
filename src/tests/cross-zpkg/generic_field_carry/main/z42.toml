@@ -1,0 +1,11 @@
+[project]
+name = "demo.gapp"   # 命名为 *app 使其在 dist glob 中排在 demo.gext/demo.gtarget 之前
+                     # ——cross-zpkg 驱动 _firstZpkg 取字母序首个 zpkg 当 exe 运行（约定：exe 排首）
+version = "0.1.0"
+kind = "exe"
+entry = "DemoGMain.Main"
+pack = true
+[dependencies]
+"z42.collections" = "0.1.0"
+"demo.gtarget" = "0.1.0"
+"demo.gext" = "0.1.0"

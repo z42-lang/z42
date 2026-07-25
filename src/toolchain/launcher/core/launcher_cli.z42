@@ -44,6 +44,11 @@ void _runLauncher(string[] argv) {
         Environment.Exit(_forwardZ42c(argv));
         return;
     }
+    // `repl` = interactive REPL → forward to z42i (programs/interactive). add-z42-repl.
+    if (c0 == "repl") {
+        Environment.Exit(_forwardRepl(_tail(argv, 1)));
+        return;
+    }
 
     SubcommandRouter root = _launcherRoot();
     CommandResolution res;
@@ -91,6 +96,33 @@ int _forwardZ42bEnv(string[] argv, string extraKey, string extraVal) {
     while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
     proc = proc.Env("Z42_LIBS", libs);
     if (extraKey.Length > 0) { proc = proc.Env(extraKey, extraVal); }
+    return proc.Run().ExitCode;
+}
+
+// Forward `repl` to z42i (the interactive REPL, programs/interactive/). Runs
+// `z42vm <z42.interactive.zpkg> -- <argv...>` with Z42_LIBS = libs/ (stdlib incl.
+// z42.scripting) + programs/z42c/ (compiler pkgs z42.scripting loads at runtime)
+// + programs/interactive/ (z42i itself). argv is the tail after `repl` (so
+// `z42 repl -c "1+2"` passes `-c "1+2"` through). add-z42-repl.
+int _forwardRepl(string[] argv) {
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (vm.Length == 0) {
+        ConsoleError.WriteLine("z42: cannot locate the bundled runtime (Z42_PORTABLE_VM unset) to run the REPL");
+        return 2;
+    }
+    string home = _home();
+    string z42i = Path.Join(home, "programs/interactive/z42.interactive.zpkg");
+    if (!File.Exists(z42i)) {
+        ConsoleError.WriteLine("z42: REPL not found at " + z42i + " — reinstall the SDK (programs/interactive/ missing)");
+        return 2;
+    }
+    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
+    string replLibs = libs + ":" + Path.Join(home, "programs/z42c") + ":" + Path.Join(home, "programs/interactive");
+    Process proc = new Process(vm).Arg(z42i).Arg("--")
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
+    int i = 0;
+    while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
+    proc = proc.Env("Z42_LIBS", replLibs);
     return proc.Run().ExitCode;
 }
 
@@ -143,6 +175,10 @@ SubcommandRouter _launcherRoot() {
     buildP.AllowExtras();
     buildP.AddOptionalPositional("project", "<project.z42.toml>");
     root.Add("build", "compile a project (z42c)", buildP);
+    // repl = interactive REPL, forwarded raw to z42i. add-z42-repl. Registered for help.
+    ArgParser replP = new ArgParser("z42 repl", "start the interactive REPL (z42i)");
+    replP.AllowExtras();
+    root.Add("repl", "start the interactive REPL (z42i)", replP);
 
     root.Add("info", "show Z42_HOME / default / counts",
         new ArgParser("z42 info", "show Z42_HOME / default / counts"));

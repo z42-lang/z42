@@ -433,7 +433,8 @@ impl LazyLoader {
     /// + inheritance fixup); idempotent per module name. (retire-test-runner)
     pub fn load_module_from_path(&mut self, path: &str) -> Result<Vec<LoadedTestEntry>> {
         let artifact = load_artifact(path)?;
-        self.register_loaded_artifact(artifact)
+        let (entries, _static_inits) = self.register_loaded_artifact(artifact)?;
+        Ok(entries)
     }
 
     /// In-memory sibling of [`load_module_from_path`]: load a compiled artifact
@@ -442,9 +443,13 @@ impl LazyLoader {
     /// used by `z42.scripting` (REPL): `PackageCompile` produces packed zpkg
     /// bytes in memory, which are loaded here with zero disk I/O so the freshly
     /// compiled `$Eval_N()` becomes reflectively invocable. (add-z42-repl)
-    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<Vec<LoadedTestEntry>> {
+    /// Returns the freshly-loaded module's own `*.__static_init__` function names,
+    /// so the caller runs only THIS round's static init (not a full clear+rerun that
+    /// would wipe prior rounds' mutated state — REPL carry-forward).
+    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<Vec<String>> {
         let artifact = load_artifact_from_bytes(raw)?;
-        self.register_loaded_artifact(artifact)
+        let (_entries, static_inits) = self.register_loaded_artifact(artifact)?;
+        Ok(static_inits)
     }
 
     /// Shared registration body for [`load_module_from_path`] /
@@ -453,8 +458,13 @@ impl LazyLoader {
     /// run inheritance fixup, and return the artifact's TIDX test entries.
     fn register_loaded_artifact(
         &mut self, mut artifact: LoadedArtifact,
-    ) -> Result<Vec<LoadedTestEntry>> {
+    ) -> Result<(Vec<LoadedTestEntry>, Vec<String>)> {
         let mod_key = format!("__loaded_path__{}", artifact.module.name);
+        // Names of THIS module's own `*.__static_init__` functions — returned so the
+        // caller can run only the freshly-loaded module's static init (without the
+        // full clear+rerun of `init_static_fields`, which would wipe already-loaded
+        // modules' mutated static state). Backs REPL carry-forward. (add-z42-repl)
+        let mut static_inits: Vec<String> = Vec::new();
 
         // Capture test entries (FQN resolved via functions[method_id]) before the
         // functions are moved into the table.
@@ -533,7 +543,7 @@ impl LazyLoader {
 
         // Idempotent: a re-load of the same module just returns its entries.
         if self.loaded_zpkgs.contains(&mod_key) {
-            return Ok(entries);
+            return Ok((entries, static_inits));
         }
         self.loaded_zpkgs.insert(mod_key);
 
@@ -543,6 +553,9 @@ impl LazyLoader {
         for mut fn_ in artifact.module.functions {
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
+            if name.ends_with(".__static_init__") {
+                static_inits.push(name.clone());
+            }
             if self.function_table.contains_key(&name) {
                 continue; // first-wins
             }
@@ -574,7 +587,7 @@ impl LazyLoader {
             }
         }
 
-        Ok(entries)
+        Ok((entries, static_inits))
     }
 }
 

@@ -59,6 +59,60 @@ fn/class 声明 + `static <ret> $Eval_{N}()`。每轮自包含：函数 FQN（`R
 Growing Transcript 模型**，只是其落地的命名机制。副作用重放（`var x = sideEffect()` 每轮重跑）
 是 Growing Transcript 固有语义，MVP 接受。
 
+### D8: 会话状态模型 —— 需 User 裁决（阶段 2 实施期用验证回路实证，2026-07-24）
+
+阶段 2 实施期用「worktree z42vm + warm z42c」端到端回路把 eval 机制**逐一实证**，锁定了 D7
+命名方案的一个硬约束，需要 User 在两个方案里裁决。
+
+**已实证可用的机制（端到端跑通）：**
+- `__load_bytecode_in_memory(byte[])` 内存加载编译产物 → live VM ✅
+- `__invoke_static("<ns>.<free-fn>")` 调自由函数取返回值（**入口/eval 必须是自由函数，不是类方法**）✅
+- boxing：`object __Eval() { return (1+2); }` 原始类型自动装箱 → 打印 15 ✅
+- `static var x = 5;` 字段**类型推断**（同包内）✅
+- 跨命名空间 + `using` 后引用另一 zpkg 的 `public static` 字段 ✅（**同命名空间跨 zpkg / 全限定
+  `A.B.C` 路径均不解析** → 必须「不同 ns + using 导入」）
+
+**锁定的硬约束：`static var` 字段跨 zpkg 导出丢失推断类型**（导出为 `var`）→ 跨轮
+`PrevVars.x + 100` 报 `E0402: 需数值操作数，得 var`。同包内 var 正常。⇒ D7 的「每轮独立包 +
+carry-forward 引用前轮字段」**做算术会失败**（除非字段用显式类型，而推断类型需二次编译探针）。
+
+**两个候选（择一，需 User 裁决）：**
+- **方案 R（推荐）——加载器 replace 模式**：单命名空间 `Repl` + **同一包名**（`repl_session`）每轮
+  growing-transcript 全量重编，给 `__load_bytecode_in_memory` 加 **replace 语义**（按模块名先摘除
+  旧函数/类再注册，取代 first-wins）。→ 所有 var 在**同一包**内，`var` 类型推断正常、mutation
+  自然持久（同包静态字段跨轮不变）。代价：**一个 VM 改动**（loader 加 replace 路径，建议独立小 PR
+  评审，因 loader 逻辑精细）。这是 REPL 加载器的正确形态。
+- **方案 T——显式类型推断**：保留 D7 每轮独立包 + carry-forward，但字段发 `static <inferred> x`
+  而非 `static var x`。需先编一个「探针」拿到 `var x = <init>` 的推断类型（PackageCompile 目前只返
+  CompileArtifacts，不暴露 per-expr 类型 → 要扩 API 或二次编译）。无 VM 改动但每 var 多一次编译 +
+  编译器 API 扩面。
+
+**结论（2026-07-24，刨到根因后）：R / T 都是 workaround，最佳方案是第三条——编译器根因修复。**
+
+**根因（已定位到行）**：`SymbolCollector.z42:576` 对 `var` 字段直接
+`ft = table.ResolveTypeP(fd.Type,...)` → 得「var」类型存进 `FieldSymbol`，**从不从初始化器推断**。
+同包内 `var` 字段算术能编，是 `ExprTyper` 在**访问点**从初始化器**重新推断**（同包初始化器可见）；
+跨包只有导出的「var」类型、无初始化器 → `E0402`。即：**字段类型在符号层降级为「var」，消费端
+（同包访问）靠 ad-hoc 重推断掩盖，跨包消费端无从掩盖**。
+
+**方案 F（最佳，采纳）——编译器根因修复**：加一个 **post-binding fixup pass**，对 `var` 字段
+从其（此时已可 bind 的）初始化器推断真实类型，**回填进 `FieldSymbol.FieldType` +
+`AddOwnField` 导出元数据**（物理消除「var」降级态）。→ 同包访问不再需重推断、导出 TSIG 写真实
+类型、跨包 import 得真实类型。这**修的是通用语言缺陷**（public `var` 字段跨包对任何类型相关操作
+都坏，不止 REPL），且**字面吻合 philosophy.md「跨阶段类型降级 → Phase 2 fixup pass 升级回，禁止
+消费端 `if(降级) 容错`」**。
+
+- **为何不是 R（loader replace）**：那是 REPL 专属的 VM 范式转移，**留着字段类型缺陷不修**，其他
+  跨包 `var` 字段消费仍坏——违反「改产出端不改消费端」。
+- **为何不是 T（探针）**：纯消费侧症状补丁（每 var 二次编译 + 扩编译器 API），同样不修根因。
+
+**落地路径**：F 作为**独立 `compiler` change**（`infer-var-field-types`，有独立语言价值，触 self-host
+byte-identical gate），add-z42-repl 依赖它 → 之后 REPL 用 **D7 每轮独立包 + carry-forward**（csi 风格）
+状态模型天然成立：无 VM loader hack、无探针，类型与 mutation 语义全对（跨轮 carry 前轮字段现在带真实
+类型 → 算术正常；mutation 经 carry-forward 持久）。
+
+> 在 F 落地前，z42.scripting 只落**已 D2 验证的骨架** + 上述验证结论；Script.Eval 全量待 F 之后。
+
 ### D5: 行编辑器 = rustyline（User 已定）
 `__repl_readline`/`__repl_readblock` 封装 rustyline：历史、Ctrl-A/E/K/U、Ctrl-D。`__repl_readblock` 在 z42 侧或 Rust 侧做括号平衡续行——**倾向 Rust 侧**（rustyline 的 `Validator` 天然支持多行未闭合续行），z42 侧 `InputClassifier` 仍独立做一次平衡判定用于分类。
 

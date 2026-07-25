@@ -1909,13 +1909,29 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
         ),
         None => bail!("__load_bytecode_in_memory: missing byte[] argument"),
     };
-    ctx.load_module_bytes_into_vm(&bytes)?;
-    // Re-run static-field initializers for the freshly-loaded module + its
-    // dependency closure — same rationale as `__load_module` (the module is
-    // loaded mid-run, after the VM's startup static-init pass). Idempotent for
-    // value-init statics.
-    if let Some(m) = ctx.module().cloned() {
-        crate::interp::init_static_fields(ctx, &m)?;
+    let static_inits = ctx.load_module_bytes_into_vm(&bytes)?;
+    // Run ONLY the freshly-loaded module's own `__static_init__` functions — NOT the
+    // full `init_static_fields` (which clears ALL static fields then reruns every
+    // module's init). A full clear+rerun would wipe prior REPL rounds' mutated static
+    // state (e.g. a `List` a user `.Add`ed to), breaking carry-forward. Running just
+    // this round's init sets the new round's `Vars{N}` from the still-live prior round.
+    // (add-z42-repl)
+    if !static_inits.is_empty() {
+        let module_arc = ctx.core.module.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("__load_bytecode_in_memory: VmCore.module is None"))?
+            .clone();
+        let module = module_arc.as_ref();
+        for name in &static_inits {
+            if let Some(f) = ctx.try_lookup_function(name) {
+                match exec_function(ctx, module, f.as_ref(), &[])? {
+                    ExecOutcome::Returned(_) => {}
+                    ExecOutcome::Thrown(val) => {
+                        ctx.set_pending_thrown(val);
+                        bail!("__z42_reflected_throw__");
+                    }
+                }
+            }
+        }
     }
     Ok(Value::Bool(true))
 }
