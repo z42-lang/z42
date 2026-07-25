@@ -1,0 +1,27 @@
+// 2026-07-25 add-enum-underlying-type: Type.GetEnumUnderlyingType() returns the
+// enum's underlying integer type. z42 backs every enum with i64 (long) — member
+// values are i64, GetValues returns long[], declared `: byte` is ignored — so it
+// uniformly returns typeof(long). Non-enum throws (mirrors C#). No format bump.
+
+namespace Test;
+
+using Std;
+
+enum Status { Ok = 0, NotFound = 404 }
+class Plain { public int X; }
+
+void Main() {
+    Type ut = typeof(Status).GetEnumUnderlyingType();
+    Assert.Equal("long", ut.Name);
+    Assert.True(!ut.IsEnum);   // the underlying type itself is not an enum
+
+    // consistent with GetValues returning long[]
+    long[] vals = Enum.GetValues(typeof(Status));
+    Assert.Equal(2, vals.Length);
+
+    // non-enum type throws (C# GetEnumUnderlyingType → ArgumentException)
+    bool threw = false;
+    try { Type bad = typeof(Plain).GetEnumUnderlyingType(); }
+    catch (Exception e) { threw = true; }
+    Assert.True(threw);
+}

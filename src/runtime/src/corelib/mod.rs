@@ -470,6 +470,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
     ("__enum_parse",              reflection::builtin_enum_parse),
     ("__enum_is_defined",         reflection::builtin_enum_is_defined),
+
+    // ── add-enum-underlying-type (2026-07-25) — appended to preserve BuiltinIds ──
+    ("__type_enum_underlying",    reflection::builtin_type_enum_underlying),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

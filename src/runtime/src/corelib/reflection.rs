@@ -1406,6 +1406,24 @@ pub fn builtin_enum_is_defined(_ctx: &VmContext, args: &[Value]) -> Result<Value
     Ok(Value::Bool(td.enum_members().iter().any(|(_, v)| *v == val)))
 }
 
+/// `__type_enum_underlying(typeObj) -> Type` — the underlying integer type of an
+/// enum. z42 backs every enum with **i64** (`long`): IrGen emits enum member
+/// values as i64 and discards any declared `: byte` base, and `Enum.GetValues`
+/// returns `long[]` — so the honest underlying type is uniformly `long`. Throws a
+/// catchable `Std.Exception` for a non-enum type (mirrors C#
+/// `GetEnumUnderlyingType` → ArgumentException). add-enum-underlying-type.
+/// (Accurately reflecting a *declared* `: byte` would need persisting it in the
+/// TYPE enum block — a format bump — and z42 honoring it; deferred.)
+pub fn builtin_type_enum_underlying(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let is_enum = type_handle(args)
+        .map(|td| td.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0)
+        .unwrap_or(false);
+    if !is_enum {
+        bail!("GetEnumUnderlyingType: type is not an enum");
+    }
+    Ok(make_type_from_name(ctx, "long"))
+}
+
 /// `__type_is_assignable_from(this, c) -> bool` — true if an instance of `c`
 /// can be assigned to a variable of `this` type (mirrors C#
 /// `Type.IsAssignableFrom`): `c` is `this`, derives from `this`, or implements
