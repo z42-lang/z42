@@ -169,8 +169,17 @@ int _regenGolden() {
     }
     string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
     string stdlibDist = (tc.Length > 0) ? _toolchainLibs(tc) : _libsDir(root);
-    string vmBin = _activeVm(root, "debug");
-    if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "release"); }
+    // Golden regen z42c-compiles EVERY case — prefer the RELEASE z42vm: z42c runs
+    // many× faster optimized than the debug vm, and regen dominated the build-and-
+    // test critical path (~39 min/leg on slow arm64 runners with the debug vm). This
+    // is safe because _regenGolden is only reached on the CI-warm / --toolchain path
+    // (_regenForTest gates on haveTc||noBuild; the local full build uses _regenCore),
+    // where a CURRENT release/toolchain vm exists (ci-bootstrap cargo-builds it, or
+    // the toolchain supplies it). Fall back to the debug vm only if release is absent.
+    // NOTE: regen just COMPILES the .zbc (deterministic z42c output); the golden RUN
+    // still resolves its own vm (_runVmGoldensF), so this doesn't change what's tested.
+    string vmBin = _activeVm(root, "release");
+    if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "debug"); }
     if (!File.Exists(vmBin)) {
         ConsoleError.WriteLine("error: z42vm not found (build via cargo build --manifest-path src/runtime/Cargo.toml)");
         return 1;
