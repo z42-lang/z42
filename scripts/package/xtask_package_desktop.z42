@@ -155,10 +155,15 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/devtools/core/z42.devtools.z42.toml", rid, _pkgStageDir(root, "devtools"));
     if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged devtools/ (bin/z42d apphost + programs/devtools/z42.devtools.zpkg, scaffold)");
-    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg (scaffold).
+    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg.
+    // NOTE（fix-repl-sdk-layout / 待 converge-z42c-onto-z42-project）：z42i 运行期需要 z42.scripting
+    // 传递依赖的 z42c.*（Lexer/PackageCompile 等），当前它们在 programs/z42c/、不在 libs/，故 z42i
+    // 目前**跑不完整**（求值报 undefined Z42.Syntax.Lexer.Tokenize）。正解不是把 z42c.* colocate 进
+    // 这里（分层欠债），而是把 z42.scripting 依赖的 z42c 基础能力抽象成正式标准库（如 z42.ir 先例，
+    // 0.4.0「z42c 基础库入 libraries」），届时整条依赖链都在 libs/、z42i 自然自洽。见 add-z42-repl 遗留。
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, _pkgStageDir(root, "interactive"));
     if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg, scaffold)");
+    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg)");
     return 0;
 }
 
