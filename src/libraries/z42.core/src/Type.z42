@@ -98,6 +98,22 @@ public sealed class Type : MemberInfo {
     [Native("__type_enum_underlying")]
     public extern Type GetEnumUnderlyingType();
 
+    // ── Nested types (add-nested-types) ──────────────────────────────────────
+    // 源码写 `Outer.Inner`；元数据 FQ 名用 `+`（`Ns.Outer+Inner`）承载嵌套关系，
+    // 反射纯字符串派生（无 format bump）。Name=简单名 `Inner`、FullName=`Ns.Outer+Inner`。
+
+    // True if this type is nested inside another type (its FQ 名含 `+`)。
+    [Native("__type_is_nested")]
+    public extern bool IsNested { get; }
+
+    // 直接外层类型（嵌套时），否则 null。`typeof(Outer.Inner).GetDeclaringType()` → typeof(Outer)。
+    [Native("__type_declaring_type")]
+    public extern Type GetDeclaringType();
+
+    // 直接嵌套于本类型的类型（不含更深层 / 继承的嵌套），镜像 C# GetNestedTypes()。有序。
+    [Native("__type_nested_types")]
+    public extern Type[] GetNestedTypes();
+
     // True for a `delegate` type（delegate-as-class TYPE 条目，class_flags bit6）。
     // 签名经 GetMethods() 的合成 Invoke 反射。(add-delegate-metadata / unify P1-e)
     [Native("__type_is_delegate")]

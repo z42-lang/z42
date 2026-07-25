@@ -366,9 +366,13 @@ public sealed class CompilationUnit {
     // 点只为 TypeChecker 新建 bag）——畸形 parse 的垃圾 AST 流入 codegen，若
     // typecheck 恰好不报错，就产出**静默 miscompile** 的包（如方法被无声吞掉）。
     public DiagnosticBag ParseDiags;
+    // add-nested-types：嵌套类型展平幂等标志。NestedFlatten.Flatten 把嵌套 class/struct/interface/enum
+    // 提升为顶层 Decl（名改 `Outer+Inner`），置本标志防重复展平（SymbolCollector/IrGen 多入口共享同一 cu）。
+    public bool NestedFlattened;
     public CompilationUnit(bool hasNs, string ns, Decl[] decls, int dc, Span span) { this.Span = span;
         this.HasNamespace = hasNs; this.Namespace = ns; this.Decls = decls; this.DeclCount = dc;
         this.ParseDiags = null;
+        this.NestedFlattened = false;
     }
     // 把 parse 阶段诊断并入 `into`（typecheck bag），使其计入编译错误数。CU 未携带时 no-op。
     public void MergeParseDiags(DiagnosticBag into) {

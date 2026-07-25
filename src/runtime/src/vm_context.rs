@@ -1248,6 +1248,30 @@ impl VmContext {
         }
     }
 
+    /// All currently-loaded type names — entry module's `type_registry` plus the
+    /// lazy loader's already-loaded types. add-nested-types: `GetNestedTypes`
+    /// scans these for `<outer>+<simple>` members. A type's nested types live in
+    /// the same package as their declaring type, so resolving the declaring type
+    /// (its handle is in hand) has already force-loaded the package — no need to
+    /// force-load everything. Deduped across both sources.
+    pub fn loaded_type_names(&self) -> Vec<String> {
+        let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if let Some(m) = self.module() {
+            for name in m.type_registry.keys() {
+                set.insert(name.clone());
+            }
+        }
+        {
+            let state = self.core.lazy_loader.lock();
+            if let Some(loader) = state.as_ref() {
+                for name in loader.iter_type_names() {
+                    set.insert(name.clone());
+                }
+            }
+        }
+        set.into_iter().collect()
+    }
+
     /// Resolve an "overflow" ConstStr index past the main module's pool.
     /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
     /// wrap directly into `Value::Str` without a second allocation.

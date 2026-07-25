@@ -37,8 +37,16 @@ const STD_REFLECTION_PROPERTYINFO: &str = "Std.Reflection.PropertyInfo";
 /// z42.core's `Std.Type` isn't loaded (shouldn't happen in practice).
 pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     let full = td.name.clone();
-    let simple = full.rsplit('.').next().unwrap_or(&full).to_string();
+    let simple = type_simple_name(&full).to_string();
     build_type(ctx, &simple, &full, NativeData::TypeHandle(td))
+}
+
+/// Simple (unqualified) type name for `Type.Name`: strip the namespace (`.`)
+/// then, for nested types, the declaring-type prefix (`+`) — so
+/// `Nest.Outer+Inner` → `Inner`, mirroring C#. add-nested-types.
+pub fn type_simple_name(full: &str) -> &str {
+    let after_dot = full.rsplit('.').next().unwrap_or(full);
+    after_dot.rsplit('+').next().unwrap_or(after_dot)
 }
 
 /// Split a generic arg list on top-level commas, respecting nested `<>` / `[]`
@@ -109,7 +117,7 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     // signatures carry `"i32"`/`"i64"`/`"str"` — so reflection normalizes both
     // to the C#-style aliases for a consistent surface.
     let canon = canonical_type_name(name);
-    let simple = canon.rsplit('.').next().unwrap_or(&canon).to_string();
+    let simple = type_simple_name(&canon).to_string();
     build_type(ctx, &simple, &canon, NativeData::None)
 }
 
@@ -1250,6 +1258,60 @@ pub fn builtin_type_members(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if let Value::Array(p) = builtin_type_properties(ctx, args)? {
         out.extend(p.borrow().iter().cloned());
     }
+    // add-nested-types: C# GetMembers() surfaces nested types (MemberTypes.NestedType)
+    // alongside fields/methods/properties (Type : MemberInfo, so covariance holds).
+    if let Value::Array(n) = builtin_type_nested_types(ctx, args)? {
+        out.extend(n.borrow().iter().cloned());
+    }
+    Ok(ctx.heap().alloc_array(out))
+}
+
+// ── Nested types (add-nested-types) ─────────────────────────────────────────
+// Nested types carry a `+` separator in their FQ name (`Ns.Outer+Inner`, source
+// spelling `Outer.Inner`). Relationships are derived purely from the name — no
+// zbc/zpkg format field — mirroring the array-`[]` and generic-`<>` conventions.
+
+/// `__type_is_nested(typeObj) -> bool` — true if this type is nested (its FQ
+/// name carries a `+` declaring-type separator). Handle-less types → false.
+pub fn builtin_type_is_nested(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let nested = type_handle(args)
+        .map(|td| td.name.contains('+'))
+        .unwrap_or(false);
+    Ok(Value::Bool(nested))
+}
+
+/// `__type_declaring_type(typeObj) -> Type | null` — for a nested type, the
+/// enclosing type (FQ name minus the trailing `+segment`, resolved back to a
+/// real handle); null for a top-level (non-nested) or handle-less type.
+pub fn builtin_type_declaring_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(Value::Null),
+    };
+    match td.name.rfind('+') {
+        Some(i) => Ok(make_type_from_name(ctx, &td.name[..i])),
+        None => Ok(Value::Null),
+    }
+}
+
+/// `__type_nested_types(typeObj) -> Type[]` — the types directly nested in this
+/// type: loaded types whose FQ name is `<this>+<simple>` with no further `+`
+/// (direct children only, mirroring C# `GetNestedTypes()` which excludes deeper
+/// and inherited nesting). Deterministic (sorted). Handle-less → empty.
+pub fn builtin_type_nested_types(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let prefix = format!("{}+", td.name);
+    let mut names: Vec<String> = ctx
+        .loaded_type_names()
+        .into_iter()
+        .filter(|n| n.starts_with(&prefix) && !n[prefix.len()..].contains('+'))
+        .collect();
+    names.sort();
+    names.dedup();
+    let out: Vec<Value> = names.iter().map(|n| make_type_from_name(ctx, n)).collect();
     Ok(ctx.heap().alloc_array(out))
 }
 
