@@ -35,12 +35,14 @@ flowchart TD
 | 规则 | 行为 | 状态 |
 |------|------|------|
 | (a) 非代码改动（`docs/**` / `**/*.md` / `.claude/**`）| **不触发 CI**（`on.paths-ignore`）→ 不发起、不取消在跑的 CI；`ci.yml` + `bench-update.yml` 都覆盖 | ✅ |
-| (b) 未改 z42c（`src/compiler/**`）| 跳过阶段 ② 自举边界检查（`verify-selfhost` job `if: compiler`）| ✅ |
-| (c) 未改 VM（`src/runtime/**`）| 跳过 Rust VM 单测（`build-and-test` Windows leg 的 `cargo test` step `if: vm`）| ✅ |
+| (b) 未改 z42c（`src/compiler/**`）| 跳过 `verify-selfhost` + `compiler-checks`（自举不动点 + vscode 关键字）| ✅ |
+| (c) 未改 VM（`src/runtime/**`）| 跳过 `test-vm-jit` / `verify-features` / Rust VM 单测；stdlib-* 仅在 stdlib 也未改时跳过 | ✅ |
+| (d) 未改 stdlib（`src/libraries/**`）| 跳过 `test-stdlib-jit` / `test-stdlib-interp`（vm 也未改时）| ✅ |
+| (e) 未改测试用例（`src/tests/**` / `scripts/**`）| 跳过 `test-cross-zpkg`（vm/compiler/stdlib 也未改时）| ✅ |
 | (现有) 未改平台相关 | 跳过 wasm/ios/android/desktop 平台测试 | ✅ |
 
-- **CI job**：`detect-changes`（`dorny/paths-filter`，输出 `platform`/`compiler`/`vm` flag；下游 job `needs: changes` + `if:` gate）。`.github/workflows/ci.yml` 进每个 filter → CI 自身改动**保底全跑**。
-- **本地**：不适用（CI 专属；本地直接跑你要的 `xtask` 阶段）。
+- **CI job**：`detect-changes`（`dorny/paths-filter`，输出 `platform`/`compiler`/`vm`/`stdlib`/`tests` flag；下游 job `needs: changes` + `if:` gate）。`.github/workflows/ci.yml` 进每个 filter → CI 自身改动**保底全跑**。`schedule` / `workflow_dispatch` 事件**无条件全跑**（nightly 全量覆盖）。
+- **本地**：不适用（CI 专属；本地直接跑你要的 `xtask` 阶段，或用 `xtask test changed` 按 diff 自动选）。
 
 ### ② bootstrap 边界检查
 **做什么**：验证「**上一版已发布 nightly 的 z42c 能编译当前 z42c 源**」——守住 support-before-use 纪律（新语法/格式分两 release 引入），确保跨版本自举不断链。
@@ -69,19 +71,19 @@ flowchart TD
 ### ⑤ 运行测试（消费 ③+④）
 **做什么**：下载 host package + 测试资产，**`--no-build` 消费**跑测试——不再自举、不再 regen。
 
-- **CI job**（拓扑，test-host 分解 2026-07-12：单体 gate 拆成并行管线，CI 43→23min）：
-  - `test-host(<host-arch>)`（4 OS）：`test all --no-build --skip stdlib,cross-zpkg` = e2e goldens(interp)
-    + compiler 自举不动点 + vscode-syntax。stdlib/cross-zpkg 两大 stage **已下放并行 job**（见下），
-    每腿临界路径 ~29→~15min。
-  - `test-stdlib-interp(<os>)`（linux-x64 / linux-arm64 / macos，各 2 shard）：stdlib `[Test]` interp，
-    消费 toolchain 工件（`.zpkg` 平台无关 + cargo 本机 z42vm）。**每慢 OS 各自分片** → host-dependent
-    stdlib（io/net/process/fs）保持本平台覆盖。
-  - `test-stdlib-jit(linux-x64)`（4 shard）：stdlib `[Test]` jit。
-  - `test-vm-jit(linux-x64)`（4 shard）：VM goldens **jit**（仅 goldens；cranelift 逐 case 编译慢 → 分片）。
-  - `test-cross-zpkg(linux-x64)`：cross-zpkg **interp + jit**（多包字节码派发 host-independent，单腿覆盖两模式）。
-  - `verify-selfhost` / `package-host(<host-arch>)` / `package-{android,ios,wasm}` / `test-{ios-sim,android-emu,...}`。
-  - 上述 stdlib-interp / stdlib-jit / vm-jit / cross-zpkg / package 腿均 `needs: toolchain-bootstrap`，
-    消费其一次构建的 `toolchain-<os>` 工件（去 8× 重复引导 + nightly 漂移 flake）。
+- **CI job**（拓扑，模块门控 2026-07-26：按改动模块只跑受影响的 job，CI 43→23min→进一步削减）：
+  - `test-host(<host-arch>)`（4 OS）：`test all --no-build --skip stdlib,cross-zpkg,compiler,vscode`
+    = **仅 e2e goldens(interp)**——唯一 host-dependent 的 stage。stdlib/cross-zpkg/compiler/vscode
+    四个 stage 全部下放为独立并行 job（各自有模块门控）。
+  - `compiler-checks(linux-x64)`（1×，**compiler 门控**）：z42c 自举不动点 + vscode-syntax。
+    host-independent → 从 4 OS 腿的冗余降为 1× 单跑，节省 ~5min×3 = ~15min CPU。
+  - `test-stdlib-interp(<os>)`（3 OS × 2 shard，**vm‖stdlib 门控**）：stdlib `[Test]` interp。
+  - `test-stdlib-jit(linux-x64)`（4 shard，**vm‖stdlib 门控**）：stdlib `[Test]` jit。
+  - `test-vm-jit(linux-x64)`（4 shard，**vm 门控**）：VM goldens **jit**。
+  - `test-cross-zpkg(linux-x64)`（**vm‖compiler‖stdlib‖tests 门控**）：cross-zpkg interp+jit。
+  - `verify-selfhost`（**compiler 门控**，已有）/ `verify-features`（**vm 门控**）。
+  - `package-host` / `package-{android,ios,wasm}` / `test-{ios-sim,android-emu,...}`。
+  - 上述 job 均 `needs: toolchain-bootstrap`（消费一次构建的 `toolchain-<os>` 工件）+ `needs: changes`（门控条件）。`schedule` / `workflow_dispatch` 无条件全跑。
 - **本地**：`xtask test [--toolchain <sdk>] [--no-build]` = 完整单体 gate（不分片；stage 组成见
   [test-gate.md](../../book/src/dev/test-gate.md)）。CI 的 `--skip` 分解只为并行，本地始终整跑。
 - 约束（先简化后修）：① `test-runner` 是 native，暂保留——`xtask test` 接口不变，内部后续换 `z42.build`；② release-vm-jit 有 bug（见 [memory](../../.claude/projects)），jit 跑 debug vm 或延后。
@@ -96,14 +98,22 @@ flowchart TD
 
 ## CI job → 阶段映射
 
-| 阶段 | CI job（display 名）| 矩阵 |
-|------|--------------|------|
-| ① | `detect-changes` | — |
-| ② | `verify-selfhost(linux-x64)` | linux |
-| ③ | `compile-toolchain(<host-arch>)` / `package-host(<host-arch>)` | linux-x64, macos-arm64（pkg 含 +arm64/+windows）|
-| ④ | `compile-test-assets(<host-arch>)`（独立 job：regen + bundle 进 current-sdk）| linux-x64, macos-arm64 |
-| ⑤ | `test-host(<host-arch>)` / `test-vm-jit(linux-x64)` / `test-stdlib-jit(linux-x64)` / `test-consume(linux-x64)` / `verify-features(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}(<host-arch>)` / `package-{ios,android,wasm}(<host-arch>)` | 见各 job |
-| ⑥ | `publish-nightly` | linux |
+| 阶段 | CI job（display 名）| 模块门控 | 矩阵 |
+|------|--------------|---------|------|
+| ① | `detect-changes` | — | — |
+| ② | `verify-selfhost(linux-x64)` | compiler | linux |
+| ③ | `compile-toolchain(<host-arch>)` / `package-host(<host-arch>)` | — (always) | linux-x64, macos-arm64（pkg 含 +arm64/+windows）|
+| ④ | `compile-test-assets(<host-arch>)`（独立 job：regen + bundle 进 current-sdk）| — (always) | linux-x64, macos-arm64 |
+| ⑤ | `test-host(<host-arch>)`（e2e goldens interp only） | — (always) | 4 OS |
+|  | `compiler-checks(linux-x64)`（自举不动点 + vscode-syntax） | compiler | linux |
+|  | `test-vm-jit(linux-x64)` | vm | 4 shard |
+|  | `test-stdlib-jit(linux-x64)` | vm‖stdlib | 4 shard |
+|  | `test-stdlib-interp(<os>)` | vm‖stdlib | 3 OS × 2 shard |
+|  | `test-cross-zpkg(linux-x64)` | vm‖compiler‖stdlib‖tests | linux |
+|  | `verify-features(linux-x64)` | vm | linux |
+|  | `test-consume(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}` | platform / — | 见各 job |
+|  | `package-{ios,android,wasm}(<host-arch>)` | — (always) | 见各 job |
+| ⑥ | `publish-nightly` | — (push to main) | linux |
 
 > **job 命名约定**：`<动作>-<目标>[-<scope>](<host-arch>)`。**每个 job 都带目标**（含通用 host gate → `host`），命名统一无例外。
 > - `<动作>`：detect / compile / package / test / verify / bench / publish。

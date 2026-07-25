@@ -28,6 +28,24 @@ z42 测试分四层，各层独立运行：
 
 CI 全绿门禁（`cargo build`（z42vm）+ `./xtask test`（内部串联 e2e / cross-zpkg / stdlib / compiler））的定义见 [`../ci.md`](../ci.md)；规则在 [`.claude/rules/workflow.md`](../../../.claude/rules/workflow.md) 阶段 8。
 
+## CI 模块门控
+
+CI 按模块变更检测（`dorny/paths-filter`）有条件地跳过无关 job，减少冗余运行。
+`schedule`/`workflow_dispatch` 事件始终跑全量（nightly 完整覆盖）。
+
+| CI job | 门控条件（任一为 true 触发） | 主要 stage |
+|--------|---------------------------|-----------|
+| `test-host`(×4 OS) | 始终运行 | e2e goldens（interp），跳过 compiler/vscode/stdlib/cross-zpkg |
+| `compiler-checks`(linux) | compiler 改动 | z42c 自举不动点 + vscode-syntax（原 test-host 4× 冗余→1× 集中） |
+| `vm-jit`(×4 shard) | vm 改动 | JIT 模式 goldens |
+| `stdlib-interp` | vm \|\| stdlib 改动 | stdlib `[Test]` interp 模式 |
+| `stdlib-jit` | vm \|\| stdlib 改动 | stdlib `[Test]` JIT 模式 |
+| `cross-zpkg` | vm \|\| compiler \|\| stdlib \|\| tests 改动 | 跨 zpkg 端到端 |
+| `verify-features` | vm 改动 | feature-matrix 编译检查 |
+
+本地 `xtask test` 始终跑全量 gate；CI 门控仅影响远端 job 调度。
+按改动类型的完整验证速查见 [`verify-by-change.md`](verify-by-change.md)。
+
 ## 一键全跑
 
 ```bash
