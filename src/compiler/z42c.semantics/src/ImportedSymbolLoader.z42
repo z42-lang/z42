@@ -82,6 +82,7 @@ public static class ImportedSymbolLoader {
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
+                        if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }
                         // fix-crosspkg-interface-impl：imported 类带上实现接口表（bare 名，TSIG 恢复）——
                         // SymbolTable.Implements 据此判 class→iface 可赋性（`ICompiler c = new NoCompiler()`）。

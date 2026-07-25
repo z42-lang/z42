@@ -96,6 +96,19 @@ z42 缺少交互式求值环境。REPL 是 0.3.x/0.4.0 招牌产品能力：输�
 - [ ] D3：内存加载走新 builtin（推荐）vs 临时 zpkg 落盘复用 `__load_module`。
 - [ ] MVP 结果打印对未重写 `ToString()` 的对象，反射展示深度（1 层字段 vs 递归）。
 
+## 遗留（收官后，2026-07-25）
+
+- **[已根治] 导入泛型方法返回类型不替换**：`z42.interactive` 的 `.vars`/`.usings` 曾因
+  `List<string>.ToArray()` 跨包返回未替换 `T[]`（E0402）而在 `ScriptState` 侧加 string[] 访问器绕过。
+  根因（`MemberResolver` 对 instantiated receiver 只松绑 `Unknown`、漏 `T[]`）由独立 change
+  **`fix-imported-generic-method-return`** 修复（占 `compiler` 锁，User 授权隔离 worktree 预抢）。
+- **[暂不做，cosmetic] REPL 运行期 `repl_r{N}.zpkg not found` WARN**：carry-forward 每轮 zpkg **已落盘**
+  于 `SessionDir`（`Script.z42` `File.WriteAllBytes`），但 `__load_bytecode_in_memory` 走内存加载路径，
+  **未把 `SessionDir` 注册进 VM 运行期搜索目录**；后续轮引用前轮 `Vars{N-1}` 时 lazy_loader 先按磁盘
+  搜索未果 → WARN，但前轮模块已 in-memory resident、符号仍解析成功 → **求值结果正确，纯 cosmetic**。
+  根治属 `runtime`（`lazy_loader.rs`：内存加载时补登 SessionDir 到搜索目录，或「dep 已 resident 则不 warn」）。
+  当前 `runtime` 子系统被 `lazy-per-function-jit` 占用，且非阻塞 → 暂缓，待锁释放后并入或单独 change。
+
 ## GREEN 判据
 - `cargo build --release`（z42vm）无错。
 - `xtask test stdlib`（含 z42.scripting 新 `[Test]`）全绿。

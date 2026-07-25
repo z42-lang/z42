@@ -61,13 +61,15 @@ public sealed class MemberResolver {
         if ((rt is Z42ErrorType) || (rt is Z42UnknownType)) {
             return new BoundCall("instance", true, recv, "<?>", mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
-        // GS6: 泛型实例化类型（LinkedList<T>.Next() 等）→ 查 Def 类方法，返回类型泛型参数松绑 Unknown。
+        // GS6: 泛型实例化类型（List<string>.ToArray() / LinkedList<T>.Next() 等）→ 查 Def 类方法，
+        // 返回类型里的**类泛型形参**按 receiver 的 TypeArgs 替换（T→string；T[]→string[]；嵌套递归）。
+        // 形参名不在 Def.GenericParamNames 中（方法级泛型形参）→ 松绑 Unknown（沿用旧行为）。
         if (rt is Z42InstantiatedType) {
-            Z42ClassType itDef2 = (rt as Z42InstantiatedType).Def;
+            Z42InstantiatedType instRecv = rt as Z42InstantiatedType;
+            Z42ClassType itDef2 = instRecv.Def;
             MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, sp);
             if (itms != null) {
-                Z42Type itRet = itms.Signature.Ret;
-                if (itRet is Z42GenericParamType) { itRet = new Z42UnknownType(); }
+                Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
                 return new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
             }
@@ -129,13 +131,14 @@ public sealed class MemberResolver {
         if (tt is Z42GenericParamType) {
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
         }
-        // GS6: 泛型实例化类型（LinkedListNode<T> 等）成员访问 → 查 Def 类字段，泛型字段类型松绑 Unknown。
+        // GS6: 泛型实例化类型（LinkedListNode<T> 等）成员访问 → 查 Def 类字段，字段类型里的类形参
+        // 按 receiver TypeArgs 替换（与方法返回同一 _substGeneric）；形参名不在 Def 形参表 → Unknown。
         if (tt is Z42InstantiatedType) {
-            Z42ClassType itDef = (tt as Z42InstantiatedType).Def;
+            Z42InstantiatedType instT = tt as Z42InstantiatedType;
+            Z42ClassType itDef = instT.Def;
             FieldSymbol itFs = this._findField(env.Symbols, itDef, m.Name);
             if (itFs != null) {
-                Z42Type fType = itFs.FieldType;
-                if (fType is Z42GenericParamType) { fType = new Z42UnknownType(); }
+                Z42Type fType = MemberResolver._substGeneric(itFs.FieldType, instT);
                 return new BoundMember(target, m.Name, fType, m.Span);
             }
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
@@ -197,6 +200,39 @@ public sealed class MemberResolver {
             }
         }
         return null;
+    }
+
+    // 把类型 t 里出现的**类泛型形参**（按 inst.Def.GenericParamNames 匹配名）替换为 inst 对应的 TypeArgs。
+    // 递归：裸 T→arg；T[]→subst(T)[]；嵌套 List<T>→List<subst(T)>。形参名不在 Def 形参表中
+    //（如方法级泛型形参 U）→ 松绑 Unknown（沿用旧 GS6 行为，避免误绑）。inst 无形参信息（种子旧 TSIG
+    // 未带 GenericParamNames / 非泛型）→ 保守返回 t 原样（不劣化既有解析）。
+    private static Z42Type _substGeneric(Z42Type t, Z42InstantiatedType inst) {
+        if (t is Z42GenericParamType) {
+            int idx = MemberResolver._paramIndex(inst.Def, t.Name());
+            if (idx >= 0 && idx < inst.ArgCount) { return inst.TypeArgs[idx]; }
+            return new Z42UnknownType();
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(MemberResolver._substGeneric((t as Z42ArrayType).Elem, inst));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it2.ArgCount];
+            int i = 0;
+            while (i < it2.ArgCount) { na[i] = MemberResolver._substGeneric(it2.TypeArgs[i], inst); i = i + 1; }
+            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
+        }
+        return t;
+    }
+
+    // Def 的有序泛型形参名里查 name 的下标（与 Z42InstantiatedType.TypeArgs 按索引对齐）；无则 -1。
+    private static int _paramIndex(Z42ClassType def, string name) {
+        int i = 0;
+        while (i < def.GenericParamCount) {
+            if (def.GenericParamNames[i] == name) { return i; }
+            i = i + 1;
+        }
+        return -1;
     }
 
     private BoundExpr _bindCall(CallExpr call, TypeEnv env) {

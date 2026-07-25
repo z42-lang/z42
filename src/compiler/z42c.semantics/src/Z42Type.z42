@@ -70,6 +70,11 @@ public sealed class Z42ClassType : Z42Type {
     // IrGen/ExportedTypeExtractor 据此让**唯一**主碎片 CU 发出/导出完整 TYPE record（其余碎片只发方法体）。
     public bool   IsPartial;       // false = 普通单声明类型
     public string PartialMainFile; // 主碎片文件路径（""=非 partial）
+    // 泛型形参名（有序，如 List→["T"]、Dictionary→["K","V"]），SymbolCollector（本地 AST）与
+    // ImportedSymbolLoader（TSIG ExportedClassZ.TypeParams）两处回填。供成员类型替换：instantiated
+    // receiver（List<string>）调方法/取字段时，把签名里的类形参 T 按名映射到 receiver 的 TypeArgs
+    // （T→string），修复 `list.ToArray()` 返回 `T[]` 不替换致 E0402（导入泛型「方法返回轴」缺陷）。
+    public string[] GenericParamNames; public int GenericParamCount;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -79,6 +84,7 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnFieldNames = new string[0]; this.OwnFieldSpellings = new string[0]; this.OwnFieldVis = new string[0]; this.OwnFieldCount = 0;
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsPartial = false; this.PartialMainFile = "";
+        this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。
