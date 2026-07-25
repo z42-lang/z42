@@ -402,24 +402,41 @@ pub unsafe extern "C" fn jit_as_cast(
 // ── Static fields ────────────────────────────────────────────────────────────
 
 /// `jit_static_get` after formalize-jit-method-token Phase 2 (2026-05-08):
-/// receives pre-resolved `StaticFieldId` directly. Resolver populates
-/// `Function.resolved.static_field_tokens` at load via lazy ID allocation
-/// (always succeeds), so JIT codegen embeds the id as i32 const.
+/// receives pre-resolved `StaticFieldId` directly. make-vm-loading-lazy: a
+/// lazily-loaded function is JIT-compiled without its resolved token table, so
+/// `field_id` may be `UNRESOLVED` — then resolve the field by NAME
+/// (`field_ptr`/`field_len`) at runtime, mirroring interp's `exec_object`
+/// `field_id: None` fallback (`ctx.static_get(name)` allocates the id lazily).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_get(
     frame: *mut JitFrame, _ctx: *const JitModuleCtx,
     dst: u32, field_id: u32,
+    field_ptr: *const u8, field_len: usize,
 ) {
-    let id = crate::metadata::tokens::StaticFieldId(field_id);
-    (*frame).regs[dst as usize] = vm_ctx_ref(_ctx).static_get_by_id(id);
+    let vm = vm_ctx_ref(_ctx);
+    let v = if field_id != crate::metadata::tokens::UNRESOLVED {
+        vm.static_get_by_id(crate::metadata::tokens::StaticFieldId(field_id))
+    } else {
+        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
+            .unwrap_or("<invalid>");
+        vm.static_get(field)
+    };
+    (*frame).regs[dst as usize] = v;
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_set(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     field_id: u32, val: u32,
+    field_ptr: *const u8, field_len: usize,
 ) {
-    let id = crate::metadata::tokens::StaticFieldId(field_id);
+    let vm = vm_ctx_ref(ctx);
     let v = (*frame).regs[val as usize].clone();
-    vm_ctx_ref(ctx).static_set_by_id(id, v);
+    if field_id != crate::metadata::tokens::UNRESOLVED {
+        vm.static_set_by_id(crate::metadata::tokens::StaticFieldId(field_id), v);
+    } else {
+        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
+            .unwrap_or("<invalid>");
+        vm.static_set(field, v);
+    }
 }
