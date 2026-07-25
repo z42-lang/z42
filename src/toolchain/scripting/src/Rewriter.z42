@@ -1,0 +1,46 @@
+// 会话变量引用改写（add-z42-repl 阶段 2b）。
+//
+// REPL 把会话变量提升为 Vars{N} 类的静态字段（D8 根因修复后跨轮 carry 类型正确）。用户输入
+// 里对会话变量的裸引用（`x`）必须改写成限定形式 `Vars{N}.x`——因 z42 静态方法/初始化器不能
+// 不加限定引用类静态字段（实证 E0401）。用 z42c.syntax 的 Lexer 做 token 级改写：identifier
+// token 若匹配会话变量名、且前一 token 非 `.`（排除成员访问 obj.x），就在其前插入 `Vars{N}.`。
+namespace Std.Scripting;
+
+using Std;
+using Std.Collections;
+using Z42.Syntax;
+using Z42.Core;
+
+public static class Rewriter {
+
+    // 把 input 里对 varNames 的裸引用改写为 `className.<name>`。保留原文其余部分（含空白/字符串/注释）。
+    public static string Rewrite(string input, List<string> varNames, string className) {
+        Lexer lx = new Lexer(input, "<repl>");
+        lx.Tokenize();
+        string result = "";
+        int prevEnd = 0;
+        int prevKind = 0 - 1;
+        int i = 0;
+        while (i < lx.TokenCount()) {
+            Token t = lx.TokenAt(i);
+            if (t.Kind == TokenKind.Eof) { i = i + 1; continue; }
+            // token 之前的原文（空白/注释等）原样保留
+            if (t.Span.Start > prevEnd) {
+                result = result + input.Substring(prevEnd, t.Span.Start - prevEnd);
+            }
+            // identifier 匹配会话变量、且非成员访问位（前 token 非 Dot）→ 前缀限定
+            bool isVarRef = false;
+            if (t.Kind == TokenKind.Identifier && prevKind != TokenKind.Dot) {
+                int k = 0;
+                while (k < varNames.Count) { if (varNames[k] == t.Text) { isVarRef = true; } k = k + 1; }
+            }
+            if (isVarRef) { result = result + className + "."; }
+            result = result + input.Substring(t.Span.Start, t.Span.End - t.Span.Start);
+            prevEnd = t.Span.End;
+            prevKind = t.Kind;
+            i = i + 1;
+        }
+        if (input.Length > prevEnd) { result = result + input.Substring(prevEnd, input.Length - prevEnd); }
+        return result;
+    }
+}
