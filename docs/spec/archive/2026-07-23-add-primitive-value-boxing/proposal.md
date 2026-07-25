@@ -1,6 +1,9 @@
 # add-primitive-value-boxing — 基元装箱：`object` 保留基元的精确类型（强类型 is/as/GetType）
 
-> 状态：**DRAFT（设计待 User 裁决，未实施）** | 创建：2026-07-22
+> 状态：**✅ 已实施并归档 2026-07-25**（整数/基元强类型装箱 + 全部 coercion 插入点端到端可用，interp+jit；
+> 自举 gen2==gen3 收敛、stdlib 重建绿、golden + 782 runtime 单测绿；design.md:148 详列。设计文档
+> `docs/design/language/boxing.md` 已同步更新为现行 `Value::Boxed` 设计。enum 精度装箱仍 Deferred——见
+> boxing.md `add-boxing-future-enum-precise`）| 创建：2026-07-22
 > 触发：`fix-boxed-primitive-is-as` 的整数宽度松匹配（`5 is long` 也返 true）不符「简单强类型」诉求。
 > 类型：lang / vm 设计——**规范先行**。占用 `compiler` + `runtime`。
 
