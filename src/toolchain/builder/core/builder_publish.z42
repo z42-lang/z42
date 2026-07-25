@@ -511,8 +511,12 @@ string _pubFindFileRec(string dir, string fname) {
     string[] entries = Directory.Enumerate(dir);
     int i = 0;
     while (i < entries.Length) {
-        if (Directory.Exists(entries[i])) {
-            string r = _pubFindFileRec(entries[i], fname);
+        // Directory.Enumerate 返回 **basename**（非全路径）——须与 dir 拼接才能 Directory.Exists /
+        // 递归（否则相对 CWD 判定恒 false，toolchain/ 下的 z42.scripting 永远搜不到 → 其传递依赖
+        // z42c.* 不被 colocate → z42i shipped 求值报 undefined Lexer.Tokenize）。fix-pubfindfilerec-basename。
+        string full = Path.Join(dir, entries[i]);
+        if (Directory.Exists(full)) {
+            string r = _pubFindFileRec(full, fname);
             if (r.Length > 0) { return r; }
         }
         i = i + 1;
