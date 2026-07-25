@@ -1,0 +1,15 @@
+// 脚本引擎底层原语（add-z42-repl 阶段 2，端到端验证通过）：
+//   LoadBytes —— 把 PackageCompile 产出的 packed-zpkg 字节加载进 live VM（零落盘）。
+//   Invoke    —— 按 FQN 调用一个自由函数（如 Repl.__Eval_N），返回其（装箱的）结果。
+// 二者组合 = 「编译一轮会话 → 加载 → 求值」的运行期骨架。
+namespace Std.Scripting;
+
+using Std;
+
+public static class Engine {
+    [Native("__load_bytecode_in_memory")]
+    public static extern bool LoadBytes(byte[] bytes);
+
+    [Native("__invoke_static")]
+    public static extern object Invoke(string fqn);
+}

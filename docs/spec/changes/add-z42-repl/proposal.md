@@ -53,18 +53,18 @@ z42 缺少交互式求值环境。REPL 是 0.3.x/0.4.0 招牌产品能力：输�
 ### stdlib（`stdlib` 锁，现被 converge-z42c-onto-z42-project 占 → 实现排队）
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/libraries/z42.scripting/z42.scripting.z42.toml` | NEW | 库清单（依赖 z42.core + z42c 编译器包，见 design D2）|
-| `src/libraries/z42.scripting/README.md` | NEW | 六段制 |
-| `src/libraries/z42.scripting/src/Script.z42` | NEW | `Script.Create` / `Script.Eval` |
-| `src/libraries/z42.scripting/src/ScriptState.z42` | NEW | 会话状态（sessionSource + evalCounter + vars/types/usings 台账）|
-| `src/libraries/z42.scripting/src/EvalResult.z42` | NEW | `Success`/`Value`/`ErrorMessage`/`NextState` |
-| `src/libraries/z42.scripting/src/InputClassifier.z42` | NEW | 分类 + 括号平衡 |
-| `src/libraries/z42.scripting/src/Transcript.z42` | NEW | Growing Transcript + `$ReplVars` 昇格 |
-| `src/libraries/z42.scripting/src/ResultFormatter.z42` | NEW | 结果打印 |
-| `src/libraries/z42.scripting/src/Repl.z42` | NEW | `Std.Repl.ReadLine/ReadBlock` native 绑定 |
-| `src/libraries/z42.scripting/tests/eval_expr/` | NEW | eval 表达式端到端 |
-| `src/libraries/z42.scripting/tests/eval_var_persist/` | NEW | 变量跨行持久 |
-| `src/libraries/z42.scripting/tests/eval_error_recovery/` | NEW | 编译失败保留会话 |
+| `src/toolchain/scripting/z42.scripting.z42.toml` | NEW | 库清单（依赖 z42.core + z42c 编译器包，见 design D2）|
+| `src/toolchain/scripting/README.md` | NEW | 六段制 |
+| `src/toolchain/scripting/src/Script.z42` | NEW | `Script.Create` / `Script.Eval` |
+| `src/toolchain/scripting/src/ScriptState.z42` | NEW | 会话状态（sessionSource + evalCounter + vars/types/usings 台账）|
+| `src/toolchain/scripting/src/EvalResult.z42` | NEW | `Success`/`Value`/`ErrorMessage`/`NextState` |
+| `src/toolchain/scripting/src/InputClassifier.z42` | NEW | 分类 + 括号平衡 |
+| `src/toolchain/scripting/src/Transcript.z42` | NEW | Growing Transcript + `$ReplVars` 昇格 |
+| `src/toolchain/scripting/src/ResultFormatter.z42` | NEW | 结果打印 |
+| `src/toolchain/scripting/src/Repl.z42` | NEW | `Std.Repl.ReadLine/ReadBlock` native 绑定 |
+| `src/toolchain/scripting/tests/eval_expr/` | NEW | eval 表达式端到端 |
+| `src/toolchain/scripting/tests/eval_var_persist/` | NEW | 变量跨行持久 |
+| `src/toolchain/scripting/tests/eval_error_recovery/` | NEW | 编译失败保留会话 |
 
 ### toolchain（`toolchain` 锁，空闲）
 | 文件 | 变更 | 说明 |
@@ -91,7 +91,8 @@ z42 缺少交互式求值环境。REPL 是 0.3.x/0.4.0 招牌产品能力：输�
 - 修改 `scripts/packages.toml`（interactive 组件已登记）。
 
 ## Open Questions（design.md 展开）
-- [ ] D2：`z42.scripting` 依赖编译器包（z42c.*），构建层级/顺序如何安排（stdlib lib 依赖 compiler pkg 是非常规分层）。
+- [x] D2：`z42.scripting` 依赖编译器包（z42c.*），构建层级/顺序如何安排（stdlib lib 依赖 compiler pkg 是非常规分层）。
+  **落定**：物理移出 `src/libraries/`（其 `members=["*"]` 会把子目录当基 stdlib 成员、用「仅 stdlib」的 `build --workspace` 编，撞 `E0401 undefined Lexer/TokenKind`），改置 `src/toolchain/scripting/`，由 `xtask_toolchain.z42:_buildScriptingLib` 以「stdlib + z42c 合并 Z42_LIBS」专步构建。zpkg 名仍 `z42.scripting`（import 按名解析，与源码位置无关）。
 - [ ] D3：内存加载走新 builtin（推荐）vs 临时 zpkg 落盘复用 `__load_module`。
 - [ ] MVP 结果打印对未重写 `ToString()` 的对象，反射展示深度（1 层字段 vs 递归）。
 

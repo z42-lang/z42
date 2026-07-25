@@ -1,0 +1,16 @@
+// REPL native bindings（add-z42-repl 阶段 2）。行编辑 = Std.Repl.Repl；
+// 脚本引擎内部原语（内存加载 / 反射调用）= Std.Scripting.Engine。均由 z42vm builtin 承载。
+namespace Std.Repl;
+
+using Std;
+
+// 交互式行编辑器（rustyline，见 z42vm corelib/repl.rs）。EOF/Ctrl-D → null。
+public static class Repl {
+    // 读一行（历史 / emacs 键 / Ctrl-D）。返回 null 表示 EOF（调用方据此退出）。
+    [Native("__repl_readline")]
+    public static extern string ReadLine(string prompt);
+
+    // 读一个「括号平衡」的多行块（未闭合 () [] {} 时用 cont 提示符续读）。EOF → null。
+    [Native("__repl_readblock")]
+    public static extern string ReadBlock(string prompt, string cont);
+}
