@@ -155,10 +155,16 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/devtools/core/z42.devtools.z42.toml", rid, _pkgStageDir(root, "devtools"));
     if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged devtools/ (bin/z42d apphost + programs/devtools/z42.devtools.zpkg, scaffold)");
-    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg (scaffold).
+    // bin/z42i = apphost trampoline → programs/interactive/z42.interactive.zpkg。
+    // KNOWN LIMITATION（fix-repl-sdk-layout）：z42i 运行期需要 z42.scripting 的**传递依赖** z42c.*
+    // （interactive → z42.scripting → z42c.core/syntax/semantics/pipeline），它们在 programs/z42c/、
+    // 不在 libs/，而 publish 的依赖 colocation 只跟同-workspace 成员、跟不进这条跨-workspace 传递链
+    // → z42i 目前 shipped 求值报 `undefined Z42.Syntax.Lexer.Tokenize`。正解 = 让 z42b publish 支持
+    // **通用传递闭包复制**（把「不在 libs/ 的传递依赖」自动 colocate 进 app 的 payload dir，参 .NET
+    // dotnet publish；须谨慎不回归 launcher 的 z42.workload.* 等），作为独立 change 落地。见 add-z42-repl 遗留。
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, _pkgStageDir(root, "interactive"));
     if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg, scaffold)");
+    Console.WriteLine("      ✓ staged interactive/ (bin/z42i apphost + programs/interactive/z42.interactive.zpkg)");
     return 0;
 }
 

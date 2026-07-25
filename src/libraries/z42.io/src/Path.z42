@@ -57,18 +57,23 @@ public static class Path {
         return r;
     }
 
-    // 返回路径最后一段（filename）。末尾 `/` 视为目录分隔符，被跳过。
-    // 路径全是 `/` 时返回 ""。
+    // 目录分隔符判定：`/`（POSIX）与 `\`（Windows）都算。GetDirectoryName/GetFileName
+    // 解析路径段时须两者兼认——否则 Windows 反斜杠绝对路径（如 Z42_PORTABLE_VM=
+    // `C:\z42\bin\z42vm.exe`）会被当成「无分隔符」，父目录解析失败（fix-repl-sdk-layout）。
+    private static bool _isSep(char c) { return c == '/' || c == '\\'; }
+
+    // 返回路径最后一段（filename）。末尾分隔符（`/` 或 `\`）视为目录分隔符，被跳过。
+    // 路径全是分隔符时返回 ""。
     public static string GetFileName(string path) {
         int n = path.Length;
         if (n == 0) return "";
         int end = n;
-        while (end > 0 && path.CharAt(end - 1) == '/') {
+        while (end > 0 && Path._isSep(path.CharAt(end - 1))) {
             end = end - 1;
         }
         if (end == 0) return "";
         int start = end;
-        while (start > 0 && path.CharAt(start - 1) != '/') {
+        while (start > 0 && !Path._isSep(path.CharAt(start - 1))) {
             start = start - 1;
         }
         return Path.Slice(path, start, end);
@@ -105,22 +110,22 @@ public static class Path {
         return Path.Slice(name, 0, dot);
     }
 
-    // 返回路径父目录。无 `/` 时返回 ""；以 `/` 开头时根目录返回 "/"。
+    // 返回路径父目录。无分隔符（`/` 或 `\`）时返回 ""；以分隔符开头时根目录返回其分隔符段。
     public static string GetDirectoryName(string path) {
         int n = path.Length;
         if (n == 0) return "";
         int end = n;
-        while (end > 0 && path.CharAt(end - 1) == '/') {
+        while (end > 0 && Path._isSep(path.CharAt(end - 1))) {
             end = end - 1;
         }
         if (end == 0) return "";
         int sep = end - 1;
-        while (sep >= 0 && path.CharAt(sep) != '/') {
+        while (sep >= 0 && !Path._isSep(path.CharAt(sep))) {
             sep = sep - 1;
         }
         if (sep < 0) return "";
         int dirEnd = sep;
-        while (dirEnd > 0 && path.CharAt(dirEnd - 1) == '/') {
+        while (dirEnd > 0 && Path._isSep(path.CharAt(dirEnd - 1))) {
             dirEnd = dirEnd - 1;
         }
         if (dirEnd == 0) return "/";

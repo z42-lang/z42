@@ -108,6 +108,28 @@ z42 缺少交互式求值环境。REPL 是 0.3.x/0.4.0 招牌产品能力：输�
   搜索未果 → WARN，但前轮模块已 in-memory resident、符号仍解析成功 → **求值结果正确，纯 cosmetic**。
   根治属 `runtime`（`lazy_loader.rs`：内存加载时补登 SessionDir 到搜索目录，或「dep 已 resident 则不 warn」）。
   当前 `runtime` 子系统被 `lazy-per-function-jit` 占用，且非阻塞 → 暂缓，待锁释放后并入或单独 change。
+- **[待 converge-z42c-onto-z42-project] shipped SDK 里 z42i 跑不完整——分层欠债**（2026-07-25，Windows nightly
+  实测）：`z42i` / `z42 repl` 求值报 `undefined Z42.Syntax.Lexer.Tokenize`。根因是**分层错位**：z42.scripting 是
+  L3（compiler-consuming）库，却被 ship 进 `libs/`（`_buildScriptingLib`），而它传递依赖的 z42c.\*
+  （声明链 `interactive → z42.scripting → z42c.core/syntax/semantics/pipeline`）只在 `programs/z42c/`、**不在
+  `libs/`**；z42i 运行期 search_dirs=[entry-dir, libs/] 够不着 → 找不到 z42c.\*。
+  **正解（User 裁决，2026-07-25 更新）＝ z42b publish 支持「间接依赖复制」通用能力**：让 `z42b publish` 把
+  app 声明依赖的**传递闭包**里「**不在 `libs/`（框架）**」的 zpkg 自动 colocate 进 payload dir（app 的 entry-dir），
+  参 .NET `dotnet publish`（复制非-framework 闭包）+ `.deps.json`（显式清单）。这样 z42i 的 z42c.\* 自动进
+  `programs/interactive/`、运行期 search_dirs 可解析；且**任何**声明非-stdlib 依赖的 app 都自动受益（通用，非 z42i 特例）。
+  > **实现须谨慎（本 change 未做，留独立 change）**：`_pubBundleProjectDeps` 为 **launcher/z42c/z42b/devtools publish
+  > 共享**——分类必须用「**已在 shipped `libs/`**」判框架（**不能**用「是否 src/libraries 成员」，否则 launcher 的
+  > `z42.workload.*`（非 src/libraries、非 libs/）会被误拷、回归）；递归须穿透 shipped-但-越界的 lib（如 z42.scripting
+  > 在 libs/ 却依赖 z42c.\*）才能触达 z42c.\*。须全量 package 构建 + launcher/z42c 非回归验证（本地不足，以 CI 为准）。
+  > **stdlib 抽象**（把 z42c 基础能力抽进标准库，让 z42.scripting 回归标准库）仍是更干净的长期方向，但会让标准库变臃肿，
+  > 故先走「间接依赖复制」、抽象与否另议（对应 `converge-z42c-onto-z42-project`）。
+  > **编译器纪律确认**：「标准库只能依赖标准库、否则报错」**已是现状行为**——z42.scripting 放进 `src/libraries` 会
+  > `E0401 undefined Lexer`，故 #27 将它移出。
+- **[本 change fix-repl-sdk-layout 已修] Windows 路径两 bug**：① `Path.GetDirectoryName`/`GetFileName` 只认 `/`
+  不认 `\` → Windows 上 `Z42_PORTABLE_VM=C:\…\z42vm.exe` 令 launcher `_home()` 解析失败、退到 `.z42` 相对兜底
+  → `z42 repl` 报「programs/interactive/ 缺失」（其实文件在，路径算错）。② launcher `_forwardRepl` 用 `:` 拼多目录塞
+  `Z42_LIBS`——但 `Z42_LIBS` 是**单目录**（VM config PathBuf），且 `:` 在 Windows 撞盘符 `C:\`。改为单目录 `libs/`。
+  两者皆跨平台真 bug、与分层演进正交，先行修复。
 
 ## GREEN 判据
 - `cargo build --release`（z42vm）无错。
