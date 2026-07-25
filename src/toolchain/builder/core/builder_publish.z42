@@ -420,20 +420,104 @@ string[] _pubProjectDepNames(string tomlPath, TomlValue toml) {
 // break that hard acceptance bar. Offline symbolication of the SDK's own bundled
 // z42c.* is not a served use case today; revisit as a deliberate opt-in if that
 // changes.
+// 通用「间接依赖复制」（fix-repl-sdk-layout）：把本组件声明依赖的**传递闭包**中「**不在 shipped
+// `libs/`（框架）**」的 zpkg colocate 进 payloadDir（app 的 entry-dir），使运行期无需扫散落目录即
+// 解析间接依赖（参 .NET `dotnet publish` 复制非-framework 闭包）。框架（stdlib + 一切已 ship 进 libs/
+// 的库）不复制——由共享 libs/ 提供、省体积。
+//
+// 关键分类（勿混）：
+//  · **复制判定** = 「不在 shipped libs/」（Z42_LIBS 目录无同名 zpkg）。**不能**用「是否 src/libraries
+//    成员」——否则 launcher 的 z42.workload.*（非 src/libraries、也不在 libs/）会漏拷。
+//  · **递归穿透** = 除**真·stdlib 成员**（src/libraries 下有同名目录，只依赖框架）外，一律递归——
+//    这样才能穿透「已 ship 进 libs/ 却越界依赖非框架」的 lib（如 z42.scripting 在 libs/ 却依赖 z42c.*），
+//    触达其隐藏的传递非框架依赖（z42c.*）。
+//
+// 取代原「仅同-workspace 成员」逻辑（跟不进跨-workspace 传递链，z42i 因此丢 z42c.*）。
 int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
-    string wsRoot = _pubFindWorkspaceRoot(tomlPath);
-    string[] depNames = _pubProjectDepNames(tomlPath, toml);
-    int i = 0;
-    while (i < depNames.Length) {
-        string depName = depNames[i];
-        string depTomlPath = _pubMemberTomlPath(wsRoot, depName);
+    string srcRoot = _pubSrcRoot(tomlPath);
+    string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string ownName = _pubTomlStr(toml, "project", "name", "");
+    string[] seen  = new string[1024]; int seenN = 0;
+    string[] queue = new string[1024]; int qh = 0; int qt = 0;
+    // seed：直接声明依赖。
+    string[] direct = _pubDepNames(toml);
+    int di = 0;
+    while (di < direct.Length) {
+        string d = direct[di]; di = di + 1;
+        if (d != ownName && !_pubContains(seen, seenN, d)) { seen[seenN] = d; seenN = seenN + 1; queue[qt] = d; qt = qt + 1; }
+    }
+    while (qh < qt) {
+        string name = queue[qh]; qh = qh + 1;
+        // 真·stdlib 成员：框架、只依赖框架 → 不复制、不递归（省遍历）。
+        if (srcRoot.Length > 0 && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), name))) { continue; }
+        // 定位依赖 toml（读它的依赖以递归 + resolve zpkg）。
+        string depTomlPath = (srcRoot.Length > 0) ? _pubLocateDepToml(srcRoot, name) : "";
+        if (depTomlPath.Length == 0) { continue; }   // 无源 toml → 保守跳过，不阻断 publish。
         TomlValue depToml = TomlValue.Parse(File.ReadAllText(depTomlPath));
-        string depZpkg = _pubEnsureBuilt(depTomlPath, depToml, depName);
-        if (depZpkg.Length == 0) { return 1; }
-        File.Copy(depZpkg, Path.Join(payloadDir, depName + ".zpkg"));
-        i = i + 1;
+        // 复制判定：不在 shipped libs/ 才复制。
+        bool inLibs = (libsDir.Length > 0) && File.Exists(Path.Join(libsDir, name + ".zpkg"));
+        if (!inLibs) {
+            string depZpkg = _pubEnsureBuilt(depTomlPath, depToml, name);
+            if (depZpkg.Length == 0) { return 1; }
+            string dst = Path.Join(payloadDir, name + ".zpkg");
+            if (depZpkg != dst && !File.Exists(dst)) { File.Copy(depZpkg, dst); }
+        }
+        // 递归本依赖的依赖（穿透越界 lib）。
+        string[] sub = _pubDepNames(depToml);
+        int si = 0;
+        while (si < sub.Length) {
+            string s = sub[si]; si = si + 1;
+            if (s != ownName && !_pubContains(seen, seenN, s)) { seen[seenN] = s; seenN = seenN + 1; queue[qt] = s; qt = qt + 1; }
+        }
     }
     return 0;
+}
+
+// src 根：从 tomlPath 上溯，找同时含 libraries/ 与 compiler/ 的目录。
+string _pubSrcRoot(string tomlPath) {
+    string dir = Path.GetDirectoryName(tomlPath);
+    while (dir.Length > 0) {
+        if (Directory.Exists(Path.Join(dir, "libraries")) && Directory.Exists(Path.Join(dir, "compiler"))) { return dir; }
+        string parent = Path.GetDirectoryName(dir);
+        if (parent.Length == 0 || parent == dir) { return ""; }
+        dir = parent;
+    }
+    return "";
+}
+
+// 在 src 根下按名定位依赖 toml：先直查常见布局 <area>/<name>/<name>.z42.toml（libraries/compiler），
+// 再递归搜 toolchain（布局多样：scripting/、<comp>/core/），最后递归兜底 libraries/compiler。
+string _pubLocateDepToml(string srcRoot, string name) {
+    string fname = name + ".z42.toml";
+    string[] areas = new string[]{ "libraries", "compiler" };
+    int a = 0;
+    while (a < areas.Length) {
+        string p = Path.Join(Path.Join(Path.Join(srcRoot, areas[a]), name), fname);
+        if (File.Exists(p)) { return p; }
+        a = a + 1;
+    }
+    string r = _pubFindFileRec(Path.Join(srcRoot, "toolchain"), fname);
+    if (r.Length > 0) { return r; }
+    r = _pubFindFileRec(Path.Join(srcRoot, "libraries"), fname);
+    if (r.Length > 0) { return r; }
+    return _pubFindFileRec(Path.Join(srcRoot, "compiler"), fname);
+}
+
+// 递归找 dir 下名为 fname 的文件（子目录深度优先）。
+string _pubFindFileRec(string dir, string fname) {
+    if (!Directory.Exists(dir)) { return ""; }
+    string direct = Path.Join(dir, fname);
+    if (File.Exists(direct)) { return direct; }
+    string[] entries = Directory.Enumerate(dir);
+    int i = 0;
+    while (i < entries.Length) {
+        if (Directory.Exists(entries[i])) {
+            string r = _pubFindFileRec(entries[i], fname);
+            if (r.Length > 0) { return r; }
+        }
+        i = i + 1;
+    }
+    return "";
 }
 
 // ── 项目 hook 产出 apphost stub（wire-z42b build-hook 终章）─────────────────────
