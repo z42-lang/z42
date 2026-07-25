@@ -81,6 +81,8 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 **延后（Deferred，见 reflection.md `reflection-future-nested-types`）**：
 - **泛型外层** `Outer<T>.Inner`：parser 类型位置尚不接受 `Generic<Args>.Nested` 语法；内层引用外层 `T`
   的嵌套类型需 generic instantiation 做 `T` 替换（0.5.x L3-R）。
-- 嵌套类型的 base 为**另一嵌套类型**（`class Inner : Outer.Other`）。
+- ~~嵌套类型的 base 为**另一嵌套类型**（`class Inner : Outer.Other`）~~ —— ✅ 已落地 2026-07-25
+  （nested-types-followup）：`NestedFlatten` 在 AST 上把嵌套 base/接口引用限定到 `+` 全名（兄弟裸名 /
+  限定 `Outer.Base` / 兄弟嵌套接口 impl 全通——继承字段·虚派发·上转型·GetInterfaces）。
 - 跨包**限定名**引用嵌套（`geo.Shape.Corner`）——当前解析包内 `Outer.Inner`。
 - 嵌套 `partial`（E0435 保留，design D9）。
