@@ -35,7 +35,14 @@ pub unsafe extern "C" fn jit_obj_new(
     // Other helpers stay on concrete-field access for now; Phase 2 spec
     // migrates the remaining ~10 sites.
     use super::super::vm_interface::JitVm;
+    // make-vm-loading-lazy: an imported class (e.g. Std.Cli.SubcommandRouter) is
+    // NOT in the merged module's type registry until first use — it lives in the
+    // lazy loader. Probe it there before the blank-descriptor fallback, mirroring
+    // interp's `exec_object::obj_new`. Without this, `new SubcommandRouter()` gets
+    // a zero-field TypeDesc → zero slots → every field read returns Null (observed:
+    // `this._count` reads Null → `I64(0) vs Null` in SubcommandRouter.Add).
     let type_desc = module.type_lookup(&class_name).cloned()
+        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(&class_name))
         .unwrap_or_else(|| std::sync::Arc::new(crate::metadata::TypeDesc {
             name: class_name.clone(), base_name: None,
             class_flags: 0,
