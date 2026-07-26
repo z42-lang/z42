@@ -251,7 +251,7 @@ SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
     ArgParser allP = new ArgParser("xtask test all", "full gate");
     allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
-    allP.AddOption("skip", "", "skip named stages (csv: stdlib,cross-zpkg,compiler,vscode) — CI offloads them to dedicated parallel jobs; local runs omit this for the full gate");
+    allP.AddOption("skip", "", "skip named stages (csv: stdlib,cross-zpkg,compiler,vscode) — CI uses per-leg skip lists to offload stages to parallel jobs; local runs omit this for the full gate");
     t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
     ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
     stdlib.AddFlag("no-build", "", "skip tooling rebuild");

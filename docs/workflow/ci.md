@@ -38,7 +38,7 @@ flowchart TD
 | (b) 未改 z42c（`src/compiler/**`）| 跳过 `verify-selfhost` + `compiler-checks`（自举不动点 + vscode 关键字）| ✅ |
 | (c) 未改 VM（`src/runtime/**`）| 跳过 `test-vm-jit` / `verify-features` / Rust VM 单测；stdlib-* 仅在 stdlib 也未改时跳过 | ✅ |
 | (d) 未改 stdlib（`src/libraries/**`）| 跳过 `test-stdlib-jit` / `test-stdlib-interp`（vm 也未改时）| ✅ |
-| (e) 未改测试用例（`src/tests/**` / `scripts/**`）| 跳过 `test-cross-zpkg`（vm/compiler/stdlib 也未改时）| ✅ |
+| (e) 未改测试用例（`src/tests/**` / `scripts/**`）| 不影响门控（cross-zpkg 已折入 test-host(linux)） | ✅ |
 | (现有) 未改平台相关 | 跳过 wasm/ios/android/desktop 平台测试 | ✅ |
 
 - **CI job**：`detect-changes`（`dorny/paths-filter`，输出 `platform`/`compiler`/`vm`/`stdlib`/`tests` flag；下游 job `needs: changes` + `if:` gate）。`.github/workflows/ci.yml` 进每个 filter → CI 自身改动**保底全跑**。`schedule` / `workflow_dispatch` 事件**无条件全跑**（nightly 全量覆盖）。
@@ -71,16 +71,14 @@ flowchart TD
 ### ⑤ 运行测试（消费 ③+④）
 **做什么**：下载 host package + 测试资产，**`--no-build` 消费**跑测试——不再自举、不再 regen。
 
-- **CI job**（拓扑，模块门控 2026-07-26：按改动模块只跑受影响的 job，CI 43→23min→进一步削减）：
-  - `test-host(<host-arch>)`（4 OS）：`test all --no-build --skip stdlib,cross-zpkg,compiler,vscode`
-    = **仅 e2e goldens(interp)**——唯一 host-dependent 的 stage。stdlib/cross-zpkg/compiler/vscode
-    四个 stage 全部下放为独立并行 job（各自有模块门控）。
+- **CI job**（拓扑，2026-07-26 v2：去分片 + 折叠 cross-zpkg → ~30-35min wall clock 目标）：
+  - `test-host(<host-arch>)`（4 OS）：`test all --no-build --skip stdlib,compiler,vscode`
+    （linux-x64 包含 cross-zpkg；其他 OS 额外 skip cross-zpkg）。
+    = **e2e goldens(interp) + cross-zpkg(linux-x64 only)**——host-dependent bedrock。
   - `compiler-checks(linux-x64)`（1×，**compiler 门控**）：z42c 自举不动点 + vscode-syntax。
-    host-independent → 从 4 OS 腿的冗余降为 1× 单跑，节省 ~5min×3 = ~15min CPU。
-  - `test-stdlib-interp(<os>)`（3 OS × 2 shard，**vm‖stdlib 门控**）：stdlib `[Test]` interp。
-  - `test-stdlib-jit(linux-x64)`（4 shard，**vm‖stdlib 门控**）：stdlib `[Test]` jit。
-  - `test-vm-jit(linux-x64)`（4 shard，**vm 门控**）：VM goldens **jit**。
-  - `test-cross-zpkg(linux-x64)`（**vm‖compiler‖stdlib‖tests 门控**）：cross-zpkg interp+jit。
+  - `test-stdlib-interp(<os>)`（3 OS，**vm‖stdlib 门控**）：stdlib `[Test]` interp（不分片，每 OS ~12-14min）。
+  - `test-stdlib-jit(linux-x64)`（2 shard，**vm‖stdlib 门控**）：stdlib `[Test]` jit。
+  - `test-vm-jit(linux-x64)`（2 shard，**vm 门控**）：VM goldens **jit**。
   - `verify-selfhost`（**compiler 门控**，已有）/ `verify-features`（**vm 门控**）。
   - `package-host` / `package-{android,ios,wasm}` / `test-{ios-sim,android-emu,...}`。
   - 上述 job 均 `needs: toolchain-bootstrap`（消费一次构建的 `toolchain-<os>` 工件）+ `needs: changes`（门控条件）。`schedule` / `workflow_dispatch` 无条件全跑。
@@ -106,10 +104,9 @@ flowchart TD
 | ④ | `compile-test-assets(<host-arch>)`（独立 job：regen + bundle 进 current-sdk）| — (always) | linux-x64, macos-arm64 |
 | ⑤ | `test-host(<host-arch>)`（e2e goldens interp only） | — (always) | 4 OS |
 |  | `compiler-checks(linux-x64)`（自举不动点 + vscode-syntax） | compiler | linux |
-|  | `test-vm-jit(linux-x64)` | vm | 4 shard |
-|  | `test-stdlib-jit(linux-x64)` | vm‖stdlib | 4 shard |
-|  | `test-stdlib-interp(<os>)` | vm‖stdlib | 3 OS × 2 shard |
-|  | `test-cross-zpkg(linux-x64)` | vm‖compiler‖stdlib‖tests | linux |
+|  | `test-vm-jit(linux-x64)` | vm | 2 shard |
+|  | `test-stdlib-jit(linux-x64)` | vm‖stdlib | 2 shard |
+|  | `test-stdlib-interp(<os>)` | vm‖stdlib | 3 OS |
 |  | `verify-features(linux-x64)` | vm | linux |
 |  | `test-consume(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}` | platform / — | 见各 job |
 |  | `package-{ios,android,wasm}(<host-arch>)` | — (always) | 见各 job |
