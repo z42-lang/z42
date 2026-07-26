@@ -17,12 +17,16 @@ public sealed class DepScanResult {
     public string[]          NsFiles;
     public ExportedModuleZ[] Exported;     public int ExportedCount; // 全部 TSIG 模块
     public string[]          ExportedPkg;                            // 平行：每模块来源包名
+    // 保留 TsigReconcile world（perf-optimize-repl-eval ②）：供 ExtendWithPackage 增量并入
+    // 新包时复用（跨包 base 链解析），避免重建。ScanDirs 填；一次性调用方可忽略。
+    public ReconWorldPkg[]   Wp;           public int WpCount;
     public DepScanResult(DependencyIndex index,
                          string[] nsNames, string[] nsFiles, int nsCount,
                          ExportedModuleZ[] exported, string[] exportedPkg, int exportedCount) {
         this.Index = index;
         this.NsNames = nsNames; this.NsFiles = nsFiles; this.NsCount = nsCount;
         this.Exported = exported; this.ExportedPkg = exportedPkg; this.ExportedCount = exportedCount;
+        this.Wp = null; this.WpCount = 0;
     }
     // ns → zpkg basename（未知 → ""）。
     public string FileOf(string ns) {
@@ -72,12 +76,17 @@ public static class DepScan {
         }
         // drop-tsig-expt（unify P3）：先预开全部 dep zpkg → world，供 TsigReconcile.Rebuild 解析
         // 跨包 base 链（imported 祖先字段/方法从 dep 包 TYPE/SIGS 取，替代已删的 TSIG 段）。
+        // perf（perf-optimize-repl-eval ①）：每个 zpkg 只 `File.ReadAllBytes + ZpkgReader.Open`
+        // 一次——解码结果存进平行 `opened[]`，下面主循环直接复用，不再重读重解一遍（原双读在
+        // REPL 每轮全量 DepScan 里成倍放大，是 ~3.5s/eval 的一部分）。
+        ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
         ZpkgInfo[] world = new ZpkgInfo[paths.Length];
         string[] worldDirs = new string[paths.Length];
         int worldCount = 0;
         int wpi = 0;
         while (wpi < paths.Length) {
             ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]));
+            opened[wpi] = wz;
             if (wz != null && !wz.IsExe) {
                 world[worldCount] = wz; worldDirs[worldCount] = Path.GetDirectoryName(paths[wpi]);
                 worldCount = worldCount + 1;
@@ -88,7 +97,7 @@ public static class DepScan {
         ReconWorldPkg[] wp = TsigReconcile.BuildWorld(world, worldDirs, worldCount);
         int pi = 0;
         while (pi < paths.Length) {
-            ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(paths[pi]));
+            ZpkgInfo z = opened[pi];   // perf ①：复用预开阶段的解码结果，不重读 paths[pi]
             string basename = Path.GetFileName(paths[pi]);
             if (z != null && !z.IsExe) {  // lib-kind only
                 // nsMap：NSPC 全名单 first-wins（**含 self**；BuildDependencyMap 用 selfZpkgFile 过滤自依赖
@@ -143,7 +152,63 @@ public static class DepScan {
             pi = pi + 1;
         }
         index.Seal();
-        return new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
+        DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
+        res.Wp = wp; res.WpCount = worldCount;   // 保留 world 供 ExtendWithPackage（perf ②）
+        return res;
+    }
+
+    // perf-optimize-repl-eval ②：把「刚编出的一个包」增量并入已建 scan（不重扫全世界）。
+    // 用于 REPL carry-forward——每轮 emit 的 Repl.R{N} 包（含 Vars{N} 静态类）并进缓存的静态
+    // scan，使下一轮编译期能引用 Vars{N}，而无需把它落盘再全量重扫（DepScan 占每轮 ~98%）。
+    // 复用 scan.Wp（静态 world）做 TsigReconcile.Rebuild——repl 包无跨包 base 链，静态 world 足够。
+    // scan 被**原地修改**（Index / 平行数组增长）；返回同一对象方便链式。
+    public static DepScanResult ExtendWithPackage(DepScanResult scan, byte[] bytes, string pkgName) {
+        ZpkgInfo z = ZpkgReader.Open(bytes);
+        if (z == null || z.IsExe) { return scan; }
+        string basename = pkgName + ".zpkg";
+        // ① namespaces：新 ns 追加到 nsMap（first-wins，已存在则跳过）
+        string[] nss = ZpkgReader.ReadNamespaces(z);
+        int i = 0;
+        while (i < nss.Length) {
+            if (DepScan._nsIndexOf(scan.NsNames, scan.NsCount, nss[i]) < 0) {
+                if (scan.NsCount == scan.NsNames.Length) {
+                    string[] b1 = new string[scan.NsNames.Length * 2];
+                    string[] b2 = new string[scan.NsNames.Length * 2];
+                    int k = 0;
+                    while (k < scan.NsCount) { b1[k] = scan.NsNames[k]; b2[k] = scan.NsFiles[k]; k = k + 1; }
+                    scan.NsNames = b1; scan.NsFiles = b2;
+                }
+                scan.NsNames[scan.NsCount] = nss[i];
+                scan.NsFiles[scan.NsCount] = basename;
+                scan.NsCount = scan.NsCount + 1;
+            }
+            i = i + 1;
+        }
+        // ② DepIndex：本包 SIGS 注册（repl 包非 self，无需 exclude）
+        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
+        i = 0;
+        while (i < mods.Length) {
+            scan.Index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
+            i = i + 1;
+        }
+        scan.Index.Seal();
+        // ③ Exported（TSIG 重建）：复用静态 world；repl 包无跨包 base 链故 world 无需扩展
+        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, "", scan.Wp, scan.WpCount);
+        i = 0;
+        while (i < tsig.Length) {
+            if (scan.ExportedCount == scan.Exported.Length) {
+                ExportedModuleZ[] b1 = new ExportedModuleZ[scan.Exported.Length * 2];
+                string[] b2 = new string[scan.Exported.Length * 2];
+                int k = 0;
+                while (k < scan.ExportedCount) { b1[k] = scan.Exported[k]; b2[k] = scan.ExportedPkg[k]; k = k + 1; }
+                scan.Exported = b1; scan.ExportedPkg = b2;
+            }
+            scan.Exported[scan.ExportedCount] = tsig[i];
+            scan.ExportedPkg[scan.ExportedCount] = z.Name;
+            scan.ExportedCount = scan.ExportedCount + 1;
+            i = i + 1;
+        }
+        return scan;
     }
 
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。

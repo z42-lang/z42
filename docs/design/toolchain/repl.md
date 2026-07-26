@@ -27,10 +27,17 @@ z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
 - **求值编排**：`Std.Scripting.Script.Eval(state, input)` —— 分类（using / var 声明 / 表达式/语句）
   → 每轮 build 唯一命名空间 `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes`
   → `__load_bytecode_in_memory` 内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果。
-- **状态模型（D7 + D8）**：会话变量提升为 `Vars{N}` 类静态字段；每轮 carry 前轮全部变量
-  （`public static var v = Vars{prev}.v;`）+ 新变量；用户裸引用经 `Rewriter`（Lexer 基）改写为
-  `Vars{N}.v`。**每轮 zpkg 落盘于会话临时目录并纳入 LibsDirs**——in-memory 轮次对 PackageCompile
-  磁盘 DepScan 不可见，落盘使后续轮编译期可 carry-forward 引用前轮 Vars 类。
+- **状态模型（D7 + D8；2026-07-26 perf ⑤ 精简）**：会话变量提升为 `Vars{N}` 类静态字段。
+  **只有 var 声明轮**发新的 `Vars{N}` 类（carry 前轮全部变量 `public static var v = Vars{prev}.v;`
+  + 新变量）；**非声明轮**（表达式 / 语句 / 赋值）直接引用现有 `Vars{VarsRound}` 类——赋值就地改其
+  静态字段（值在 VM 静态存储中持久，后续轮可见），无需发新类。用户裸引用经 `Rewriter`（Lexer 基）
+  改写为对应 `Vars` 类的成员访问。
+- **carry-forward 机制（2026-07-26 perf ②/⑤ 从磁盘改为内存增量）**：曾**每轮 zpkg 落盘**于会话临时目录
+  并纳入 LibsDirs（使后续轮 DepScan 能引用前轮 Vars 类），但那让每轮重扫整个世界（~3.5s）。现改为：
+  首轮建一次静态 `DepScanResult` 缓存于 `ScriptState.CachedScan`；每个 var 声明轮把刚编出的 `Vars{N}`
+  包经 `DepScan.ExtendWithPackage` **增量并入缓存 scan**（不落盘、不重扫）；后续轮经
+  `CompileInputs.CachedScan` 复用。详见 [self-hosting.md] 邻近的 compile-pipeline 说明与
+  `bench/repl/BASELINE.md`。
 - **依赖 [`infer-var-field-types`](../../spec/archive/)（#24）**：`var` 字段跨 zpkg 保型，carry-forward
   的跨轮 `var` 变量算术/拼接才成立（原为 E0402）。
 - **错误恢复**：编译失败 `EvalResult.Success=false`、会话不推进。
@@ -258,7 +265,26 @@ libs/ + programs/z42c/ + programs/interactive/
 - **触发原因**：Growing Transcript 是 O(n) 重编译；小 session 可接受，大 session 慢
 - **前置依赖**：增量模块加载 + 跨模块静态状态共享 VM 能力 —— 即 [load-context.md](../runtime/load-context.md)（每轮输入 = 一个加载上下文，重定义 = 新版 supersede 旧版 + 旧版无引用时回收 `whyRetained`）+ [componentized-runtime.md](../runtime/componentized-runtime.md)（运行时编译器作为可加载组件）。该增量方案 = "每行 = 一个 context" 模型，其使能基建已在 2026-06-21 运行时设计弧中落定（DESIGN）。
 - **触发条件**：session 规模成为实际性能瓶颈时（benchmark 驱动）
-- **当前 workaround**：Growing Transcript（session 历史通常不超过几百行）
+- **当前状态（2026-07-26 perf-optimize-repl-eval 大幅缓解）**：曾是每轮 ~3.5s 全量重编译
+  （几乎不可用）。诊断发现瓶颈 = 每轮 `PackageCompile → DepScan` 在解释器上重解整个 stdlib+
+  编译器世界（占 ~98%）。已落地 ②跨轮缓存 `DepScanResult`（首轮建一次，后续经
+  `CompileInputs.CachedScan` 复用）+ ⑤仅 var 声明轮发新 `Vars` 类（非声明轮引用现有类、赋值就地
+  改静态）→ 每表达式轮从 ~3500ms 降到 **~72ms 恒定**、抹平了原 O(n) 增长。剩余仅：(a) 首轮
+  一次性 ~3.3s 静态 scan 构建（见 `repl-future-persist-static-scan`）、(b) 每轮 ~72ms 中约 50ms 是
+  `ImportedSymbolLoader.Load` 遍历全导出集（可进一步缓存）。真·增量（每行=一个 context、旧版
+  supersede）仍是这两项的终极解，但已非「不可用」级瓶颈。bench：`bench/repl/`。
+
+### repl-future-persist-static-scan
+
+- **来源**：perf-optimize-repl-eval ④（2026-07-26 profiling）
+- **触发原因**：首轮 eval 的 ~3.3s 是一次性构建静态库 `DepScanResult`（解释器扫 ~30 个 stdlib
+  zpkg + `TsigReconcile` 重建类型世界）。跨会话不变，可持久化到磁盘一次、后续会话 mmap/反序列化复用。
+- **前置依赖**：`DepScanResult` 的序列化格式 —— 需序列化 `DependencyIndex`（StrMap of DepCallEntry）
+  + `Exported`（深层嵌套 `ExportedModuleZ` 树）+ `Wp`（`ReconWorldPkg`）+ 失效校验（lib zpkg 集合
+  hash / mtime）。工作量≈重实现半个 zpkg 读写面。
+- **触发条件**：首轮 3.3s 成为实际痛点时（用户反馈 / 高频冷启动场景）。当前一次性成本，交互中常被
+  用户敲第一行的耗时掩盖，故 ROI 暂低、defer。
+- **当前 workaround**：无（首轮照付 3.3s，之后每行 ~72ms）。
 
 ### repl-future-load-directive
 

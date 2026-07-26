@@ -3,10 +3,12 @@
 namespace Z42cPipelinePkgCompileTests;
 
 using Std;
+using Std.IO;
 using Std.Test;
 using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Project;
+using Z42.IR;
 
 // 单文件 no-dep 工程 → CompileInputs（LibsDirs 空，Cus 现 parse）。
 CompileInputs _inputs(string src, string kind) {
@@ -22,6 +24,14 @@ CompileInputs _inputs(string src, string kind) {
     cin.IsRelease = false;
     cin.LibsDirs = new string[0]; cin.LibsDirsN = 0;
     cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return cin;
+}
+
+// 同上但指定 LibsDirs（真实依赖世界）+ 包名 —— CachedScan / ExtendWithPackage 测试用。
+CompileInputs _inputsLibs(string ns, string fname, string[] dirs, string name) {
+    CompileInputs cin = _inputs("namespace " + ns + ";\nint " + fname + "() { return 1; }\n", "lib");
+    cin.Name = name;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
     return cin;
 }
 
@@ -56,4 +66,40 @@ void test_bad_source_returns_diagnostics_no_assembly() {
     Assert.Equal(true, art.ErrorCount > 0);
     Assert.Equal(1, art.CmCount);
     Assert.Equal(true, art.Cms[0].ErrorCount > 0);
+}
+
+// perf-optimize-repl-eval ②：LibsDirsN>0 时 Compile 建 scan 并回显 art.Scan；
+// 把它作 CachedScan 传回第二次编译 → 跳过 DepScan、结果照常。（REPL 每轮复用的核心路径）
+[Test]
+void test_cached_scan_reused() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
+    string[] dirs = libs.Split(":");
+    CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("R1", "F1", dirs, "repl_r1"));
+    Assert.Equal(0, a1.ErrorCount);
+    Assert.Equal(true, a1.Scan != null);          // scan 建好且回显
+    // 第二次：传 CachedScan → 直接复用（不再 DepScan.ScanDirs），编译照常成功
+    CompileInputs in2 = _inputsLibs("R2", "F2", dirs, "repl_r2");
+    in2.CachedScan = a1.Scan;
+    CompileArtifacts a2 = PackageCompile.Compile(in2);
+    Assert.Equal(0, a2.ErrorCount);
+    Assert.Equal(1, a2.ModCount);
+    Assert.Equal(true, a2.Scan != null);           // 复用路径也回显 scan（= 传入的 CachedScan）
+}
+
+// perf-optimize-repl-eval ⑤：ExtendWithPackage 把一个刚编出的包增量并入已建 scan
+//（REPL carry-forward 的机制）——并入后该包的命名空间在 scan 里可见。
+[Test]
+void test_extend_with_package_adds_namespace() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string[] dirs = libs.Split(":");
+    CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("ExtNs", "F", dirs, "repl_ext"));
+    Assert.Equal(0, a1.ErrorCount);
+    int before = a1.Scan.NsCount;
+    byte[] bytes = ZpkgWriterZ.WritePacked(a1.Z, false).ToBytes();
+    DepScan.ExtendWithPackage(a1.Scan, bytes, "repl_ext");
+    // 新包命名空间 ExtNs 并入 → NsCount 增长，且能 FileOf 命中
+    Assert.Equal(true, a1.Scan.NsCount > before);
+    Assert.Equal("repl_ext.zpkg", a1.Scan.FileOf("ExtNs"));
 }

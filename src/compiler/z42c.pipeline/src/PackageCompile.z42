@@ -36,7 +36,11 @@ public sealed class CompileInputs {
     // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
-    public CompileInputs() { }
+    // scan-provider（perf-optimize-repl-eval ②，realize extract 延后的 scan-provider）：
+    // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
+    // 静态 scan（+ ExtendWithPackage 增量并入前轮 Vars）→ 消除 ~98% 的每轮开销。null = 现状（磁盘扫描）。
+    public DepScanResult CachedScan;
+    public CompileInputs() { this.CachedScan = null; }
 }
 
 // 组装好的 in-memory 包 + 结果状态。ErrorCount>0 时 Z/Mods 为 null，调用方按 Cms 逐文件呈现诊断。
@@ -46,10 +50,14 @@ public sealed class CompileArtifacts {
     public CompiledModuleZ[] Cms; public int CmCount;   // 恒有（driver 逐文件错误呈现）
     public int ErrorCount;
     public string EntryStatus;   // "ok" | "ambiguous" | "missing"（isExe 专属；调用方定报错措辞）
+    // 本次编译用到的依赖 scan（perf ②）：CachedScan 为 null 时是本核心新建的、非 null 时回显传入的。
+    // REPL 首轮据此缓存静态 scan；后续轮把它作 CachedScan 传回 + ExtendWithPackage 增量并入本轮包。
+    public DepScanResult Scan;
     public CompileArtifacts(ZpkgFileZ z, ZbcFileZ[] mods, int modCount,
                             CompiledModuleZ[] cms, int cmCount, int errorCount, string entryStatus) {
         this.Z = z; this.Mods = mods; this.ModCount = modCount;
         this.Cms = cms; this.CmCount = cmCount; this.ErrorCount = errorCount; this.EntryStatus = entryStatus;
+        this.Scan = null;
     }
 }
 
@@ -58,11 +66,16 @@ public static class PackageCompile {
     // 纯核心：⑥依赖解析 → ⑧包级编译 → ⑩组装。零落盘 / 零 Console / 零 ExitCode。
     public static CompileArtifacts Compile(CompileInputs inp) {
         // ── ⑥ 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
+        // perf ②：inp.CachedScan 非 null → 跳过 DepScan.ScanDirs，直接复用（REPL 每轮省 ~98%）。
         DepScanResult scan = null;
         ImportedSymbols imported = null;
         DependencyIndex depIndex = null;
-        if (inp.LibsDirsN > 0) {
+        if (inp.CachedScan != null) {
+            scan = inp.CachedScan;                                    // 复用（scan-provider）
+        } else if (inp.LibsDirsN > 0) {
             scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount);   // 排除 self-zpkg
+        }
+        if (scan != null) {
             depIndex = scan.Index;
             // 全工程 usings 聚合（首现序去重；镜像 C# LoadExternalImported 跨文件聚合）
             string[] allUsings = new string[8];
@@ -112,7 +125,9 @@ public static class PackageCompile {
         int fi = 0;
         while (fi < inp.SrcCount) { if (cms[fi].ErrorCount > 0) { totalErr = totalErr + cms[fi].ErrorCount; } fi = fi + 1; }
         if (totalErr > 0) {
-            return new CompileArtifacts(null, null, 0, cms, inp.SrcCount, totalErr, "");
+            CompileArtifacts errArt = new CompileArtifacts(null, null, 0, cms, inp.SrcCount, totalErr, "");
+            errArt.Scan = scan;   // perf ②：回显 scan（首轮出错也让调用方缓存已建 scan）
+            return errArt;
         }
 
         // ── ⑩ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
@@ -151,6 +166,8 @@ public static class PackageCompile {
             if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
             else if (z.Entry == "") { entryStatus = "missing"; }
         }
-        return new CompileArtifacts(z, mods, inp.SrcCount, cms, inp.SrcCount, 0, entryStatus);
+        CompileArtifacts okArt = new CompileArtifacts(z, mods, inp.SrcCount, cms, inp.SrcCount, 0, entryStatus);
+        okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
+        return okArt;
     }
 }
