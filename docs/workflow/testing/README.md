@@ -35,12 +35,11 @@ CI 按模块变更检测（`dorny/paths-filter`）有条件地跳过无关 job�
 
 | CI job | 门控条件（任一为 true 触发） | 主要 stage |
 |--------|---------------------------|-----------|
-| `test-host`(×4 OS) | 始终运行 | e2e goldens（interp），跳过 compiler/vscode/stdlib/cross-zpkg |
-| `compiler-checks`(linux) | compiler 改动 | z42c 自举不动点 + vscode-syntax（原 test-host 4× 冗余→1× 集中） |
-| `vm-jit`(×4 shard) | vm 改动 | JIT 模式 goldens |
-| `stdlib-interp` | vm \|\| stdlib 改动 | stdlib `[Test]` interp 模式 |
-| `stdlib-jit` | vm \|\| stdlib 改动 | stdlib `[Test]` JIT 模式 |
-| `cross-zpkg` | vm \|\| compiler \|\| stdlib \|\| tests 改动 | 跨 zpkg 端到端 |
+| `test-host`(×4 OS) | 始终运行 | e2e goldens（interp）+ cross-zpkg（仅 linux-x64） |
+| `compiler-checks`(linux) | compiler 改动 | z42c 自举不动点 + vscode-syntax |
+| `vm-jit`(×2 shard) | vm 改动 | JIT 模式 goldens |
+| `stdlib-interp`(×3 OS) | vm \|\| stdlib 改动 | stdlib `[Test]` interp 模式（不分片） |
+| `stdlib-jit`(×2 shard) | vm \|\| stdlib 改动 | stdlib `[Test]` JIT 模式 |
 | `verify-features` | vm 改动 | feature-matrix 编译检查 |
 
 本地 `xtask test` 始终跑全量 gate；CI 门控仅影响远端 job 调度。

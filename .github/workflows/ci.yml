@@ -236,24 +236,25 @@ jobs:
       # the goldens against those canonical artifacts (~12-15 min/leg saved). The
       # consume path (_regenGolden + --no-build stages) is the same one the
       # test-consume job already exercises green.
-      - name: Test (z42 xtask.zpkg test all --no-build --skip stdlib,cross-zpkg,compiler,vscode)
+      - name: Test (z42 xtask.zpkg test all --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/ci-logs
-          # --skip stdlib,cross-zpkg,compiler,vscode: all four stages are offloaded
-          # to dedicated parallel jobs:
-          #   stdlib  → stdlib-interp-consistency shards (per slow OS)
-          #   cross-zpkg → cross-zpkg-consistency (linux, interp+jit)
+          # Stages offloaded to dedicated parallel jobs:
+          #   stdlib   → stdlib-interp-consistency (per OS)
           #   compiler → compiler-checks (linux, 1×; host-independent fixpoint)
           #   vscode   → compiler-checks (linux, 1×; host-independent keyword sync)
-          # This per-leg gate keeps ONLY the host-dependent bedrock: e2e goldens
-          # (interp). Coverage preserved: each offloaded stage runs in its own
-          # dedicated job with proper module gating.
+          # cross-zpkg: runs on linux-x64 only (host-independent, bytecode-level
+          # zpkg linking — one OS is sufficient). Other legs skip it.
+          SKIP="stdlib,compiler,vscode"
+          if [ "${{ matrix.platform }}" != "linux-x64" ]; then
+            SKIP="stdlib,cross-zpkg,compiler,vscode"
+          fi
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip stdlib,cross-zpkg,compiler,vscode 2>&1 | tee artifacts/ci-logs/test-all.log
+            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
       # diag-ci-test-log-upload (2026-05-30): the wave-failed stage prints
@@ -632,21 +633,17 @@ jobs:
   # ── VM cross-mode consistency (0.3.0 退出标准) ───────────────────────────
   # split-interp-jit: `xtask test all` in build-and-test runs the golden suites in
   # INTERP only (on every host OS). This job is the SOLE JIT gate — it runs the VM
-  # goldens + cross-zpkg under JIT here, catching interp/JIT divergence (opcode
-  # handling, codegen bugs) before main. Single linux-x64 lane is enough — cranelift
-  # JIT behaviour is host-independent, so running jit on every build-and-test OS leg
-  # was redundant (5× the slow per-case cranelift compile) and is now removed from the
+  # goldens under JIT here, catching interp/JIT divergence (opcode handling, codegen
+  # bugs) before main. Single linux-x64 lane is enough — cranelift JIT behaviour is
+  # host-independent, so running jit on every build-and-test OS leg was redundant
+  # (5× the slow per-case cranelift compile) and is now removed from the
   # host legs' critical path.
   vm-jit-consistency:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
-    # 45→55 (2026-07-21): cranelift JIT per-case compile flaps right at the 45m cap.
-    # 2026-07-25 (share-goldens-no-regen): the shard no longer regenerates all ~222
-    # goldens itself — it downloads the golden .zbc compiled ONCE by
-    # assemble-current-sdk and runs its slice with --no-rebuild. Golden regen (z42c
-    # compiling every case, ~85% of the old wall-clock, and done redundantly in all 4
-    # shards) is eliminated → each shard is just "run my slice", well under the cap.
-    # Coverage identical: same .zbc (deterministic z42c output), same build-tree z42vm,
-    # same JIT execution — only the redundant per-shard recompile is removed.
+    # 2026-07-25 (share-goldens-no-regen): shards download golden .zbc compiled
+    # ONCE by assemble-current-sdk and run their slice with --no-rebuild — no
+    # per-shard golden regen. 2026-07-26: 4→2 shards (each ~5-6 min); 4-way
+    # over-split flooded the runner pool while each shard was only ~3 min.
     timeout-minutes: 55
     runs-on: ubuntu-latest
     needs: [changes, toolchain-bootstrap, assemble-current-sdk]
@@ -657,7 +654,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
 
     steps:
       - uses: actions/checkout@v4
@@ -698,23 +695,17 @@ jobs:
             echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
           fi
 
-      - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/4)
+      - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
         run: |
           set -euo pipefail
           # warm toolchain; xtask runs this shard of the JIT goldens on z42vm.
-          # --no-rebuild: run the shared .zbc as-is — it skips _regenForTest ENTIRELY
-          # (no golden regen AND no toolchain rebuild), so the former --no-build (which
-          # only picks the lighter regen path) is redundant and dropped (matches the
-          # consume-current-sdk job). cranelift JIT per-case compile still happens at
-          # RUN time (that's what this gate measures), split across 4 shards.
+          # --no-rebuild: run the shared .zbc as-is (no golden regen, no toolchain
+          # rebuild). cranelift JIT per-case compile still happens at RUN time
+          # (that's what this gate measures), split across 2 shards.
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          # Sharded `test e2e` runs goldens ONLY (cross-zpkg is skipped when --shard is
-          # set). cross-zpkg jit is covered by the cross-zpkg-consistency job (both
-          # modes there) — keeping it off shard 1 removes ~5.5 min from this lane's
-          # critical-path shard.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/4 --jobs=4
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/2 --jobs=4
 
   # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
   # build-and-test runs the 272 stdlib [Test] files under interp (in-process
@@ -736,7 +727,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
 
     steps:
       - uses: actions/checkout@v4
@@ -751,36 +742,28 @@ jobs:
           shared-key: host-v2
 
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
-      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
-      # redundant z42c/stdlib builds + the per-shard nightly-download drift flake
-      # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
+      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
-      - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/4)
+      - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
         run: |
           set -euo pipefail
-          # warm toolchain; xtask runs this shard's stdlib [Test] units under JIT
-          # (z42b — z42.builder.zpkg — run via z42vm --mode jit; the runner and the
-          # loaded tests both execute under JIT). --shard splits the libs balanced
-          # by unit count across 4 machines; --jobs 4 parallelizes within the shard.
-          # xtask-bootstrap-artifact already restored z42c+stdlib+xtask + cargo-built
-          # z42vm, so --no-build skips that rebuild; xtask itself builds z42b (a cheap
-          # z42c incremental).
+          # xtask runs this shard's stdlib [Test] units under JIT (z42b via
+          # z42vm --mode jit). --shard splits the libs balanced by unit count
+          # across 2 machines; --jobs 4 parallelizes within the shard.
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/4 --jobs 4
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/2 --jobs 4
 
-  # ── stdlib [Test] INTERP consistency — sharded across the slow OS legs ───────
-  # The build-and-test (test-host) legs used to run the full 272-test stdlib [Test]
-  # suite serially under interp (~9 min/leg). This job shards it 4-way PER slow OS
-  # and runs in parallel; the legs drop that stage (`test all --skip stdlib`), cutting
-  # each leg's critical path. INTERP only — jit is covered by stdlib-jit-consistency
-  # (linux). All slow OS (linux-x64/arm64, macos) are sharded so per-OS host-dependent
-  # stdlib (io/net/process/fs/threading) keeps its own-platform coverage. Consumes the
-  # toolchain artifact (arch-independent .zpkg) + cargo-builds the native z42vm.
+  # ── stdlib [Test] INTERP consistency — one job per OS ─────────────────────────
+  # The build-and-test (test-host) legs skip stdlib [Test] (`--skip stdlib`); this
+  # job runs the full suite under interp on each OS so per-OS host-dependent stdlib
+  # (io/net/process/fs/threading) keeps its own-platform coverage. INTERP only —
+  # jit is covered by stdlib-jit-consistency (linux). Consumes the toolchain
+  # artifact (arch-independent .zpkg) + cargo-builds the native z42vm.
   stdlib-interp-consistency:
-    name: test-stdlib-interp(${{ matrix.platform }}) shard ${{ matrix.shard }}
+    name: test-stdlib-interp(${{ matrix.platform }})
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     needs: [changes, toolchain-bootstrap]
@@ -789,13 +772,11 @@ jobs:
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
-      # 2 shards/OS (not 4): each interp shard is only ~3-4 min, so 4-way over-split
-      # and the 12 jobs flooded the ~20-slot concurrency pool — delaying the vm-jit
-      # critical-path shards. 2-way (6 jobs) keeps shards ~6-7 min while easing the
-      # pool so vm-jit starts promptly after toolchain-bootstrap.
+      # No sharding: each OS runs the full stdlib [Test] suite (~12-14 min). The
+      # prior 2-shard/OS split (6 jobs) flooded the ~20-slot runner pool — the queue
+      # delay dwarfed the per-shard savings. Unsharded (3 jobs) frees 3 slots and
+      # each job still finishes well within the 45m cap.
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15]
-        shard: [1, 2]
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
@@ -818,62 +799,21 @@ jobs:
       # linux (x64 AND arm64) resolves toolchain-ubuntu-latest (zpkg is arch-neutral).
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
-      - name: stdlib [Test] — INTERP mode (shard ${{ matrix.shard }}/2)
+      - name: stdlib [Test] — INTERP mode (full)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode interp --no-build --shard ${{ matrix.shard }}/2 --jobs 4
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode interp --no-build --jobs 4
 
-  # ── cross-zpkg INTERP — offloaded from the build-and-test legs ───────────────
-  # cross-zpkg is a fixed multi-package set exercising zpkg linking + cross-package
-  # dispatch (bytecode-level, host-independent — same rationale as vm-jit running jit
-  # on one linux job). The legs used to run it under interp on every OS (~6 min/leg);
-  # offload to one linux job (`test all --skip cross-zpkg` on the legs). cross-zpkg
-  # JIT stays on vm-jit-consistency shard 1.
-  cross-zpkg-consistency:
-    name: test-cross-zpkg(linux-x64)
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    needs: [changes, toolchain-bootstrap]
-    # change-detect: cross-zpkg exercises zpkg linking + cross-package dispatch.
-    # Affected by VM (interp/JIT), compiler (codegen/zpkg writer), stdlib (API surface),
-    # or test case changes. Schedule/dispatch = 全跑.
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.tests == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
-
-      - uses: ./.github/actions/xtask-bootstrap-artifact
-
-      # cross-zpkg runs its multi-package fixtures on the DEBUG z42vm (+ compression
-      # cdylib); xtask-bootstrap-artifact only cargo-builds the release vm, so build
-      # the debug one here (target-dir is artifacts/build/runtime → debug/z42vm). The
-      # build-and-test legs got this for free via test-all's _buildDebugVmAndCompression.
-      - name: cargo build debug z42vm + cdylibs (cross-zpkg fixtures)
-        shell: bash
-        run: cargo build --locked -q --manifest-path src/runtime/Cargo.toml
-
-      - name: cross-zpkg — INTERP + JIT modes
-        shell: bash
-        run: |
-          set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          # Both modes on one job (was: interp here + jit on vm-jit shard 1). cross-zpkg
-          # is a fixed 4-test set, host-independent — one linux job covers both engines.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode interp --no-build
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --dir cross-zpkg --mode jit --no-build
+  # ── cross-zpkg coverage ─────────────────────────────────────────────────────
+  # cross-zpkg (zpkg linking + cross-package dispatch) is folded back into
+  # test-host(linux-x64): that leg's `_testAll` runs the cross-zpkg stage under
+  # interp (only linux-x64 — other legs skip it; host-independent). The debug
+  # z42vm needed by cross-zpkg fixtures is built by _buildDebugVmAndCompression
+  # inside _testAll. JIT cross-zpkg is dropped: zpkg linking is bytecode-level,
+  # and JIT execution correctness is already covered by vm-jit goldens (~222 cases).
 
   # ── self-host bootstrap verification ──────────────
   # Proves z42c can rebuild stdlib + z42c + xtask from CURRENT source using the
