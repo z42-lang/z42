@@ -1,13 +1,13 @@
 # Tasks: unify-run-modes
 
 > 状态：🔴 DRAFT（待 User 审批）| 见 [proposal.md](proposal.md)
+> 更新：2026-07-27（简化：取消单文件，源码运行仅工程 = build+run；四阶段）
 > 每阶段独立可 commit + 可全绿；IMPL 起步前逐阶段查 ACTIVE.md 排锁。
 
-## 锁现状（2026-07-26）
+## 锁现状（2026-07-27）
 - `runtime` 空闲 → **P0 可立即起**
-- `toolchain` 空闲 → P1/P3/P4 可起
+- `toolchain` 空闲 → P1 / P3 可起
 - `compiler` 被 `nested-types-followup` 占 → P2 排队
-- `stdlib` 被 `converge-z42c-onto-z42-project` 占 → P4 物理迁移排队（若做）
 
 ## P0 — 设置 SoT 收敛 + VM 端 [runtime] 解析（runtime 单锁）
 > design: [design.md](design.md) | spec: [specs/runtime-settings/spec.md](specs/runtime-settings/spec.md)
@@ -33,21 +33,15 @@
 - [ ] 运行路径消费 `mode`
 - [ ] 自举不动点验证（gen1==gen2）
 
-## P3 — 统一分发器（toolchain）
-- [ ] `RunEngine`：设置解析 + vm/libs 定位 + 派发
-- [ ] `_cmdRun` 前门分类器（.zpkg/.zbc / .z42 / 目录 / 省略）
-- [ ] ①③ 收敛到单一前门
-
-## P4 — 源码运行（toolchain + stdlib）
-- [ ] `SourceRunEngine`：合成 manifest（单文件）/ 加载 manifest（工程）
-- [ ] `z42.scripting` 加 `CompileFile` / `CompileProject`
-- [ ] 依赖 provider 注入接口（D6）：host 扫 `Z42_LIBS` / embed 显式注入
-- [ ] 进程内 load/invoke（复用 `__load_bytecode_in_memory`）+ hash 增量缓存，缓存**随文件 `.cache/`**（D7）
-- [ ] ~~z42.scripting 物理迁 stdlib~~ 不做（D8：依赖 z42c.* 仍在 compiler 树，随 (B) 一起动）
+## P3 — 统一前门 + 源码工程 build+run 编排（toolchain）
+- [ ] `_cmdRun` 前门分类器（`.zpkg`/`.zbc` → 跑产物；`<目录>`/省略 → 找 manifest）
+- [ ] `z42 run <dir>`：调现有 `z42 build`（增量，已新鲜则跳过）→ 跑产出 `.zpkg`
+- [ ] 无 manifest → 明确报错；workspace 目录支持 `-p`
+- [ ] 单元/e2e 测试：源码工程运行、增量跳过、报错路径
 
 ## 文档（归档前必须落地）
 - [ ] `docs/design/runtime/runtime-settings.md`（NEW）
-- [ ] launcher.md / project.md / repl.md / features.md / roadmap.md 更新
+- [ ] launcher.md / project.md / features.md / roadmap.md 更新
 
 ## 未决
-全部已敲定（2026-07-27）：D6 依赖注入接口 / D7 随文件缓存 / D8 暂不迁移。
+无。设计已简化定稿（2026-07-27，取消单文件源码运行）。
