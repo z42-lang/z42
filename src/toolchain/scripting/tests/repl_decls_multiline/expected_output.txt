@@ -1,0 +1,15 @@
+ok
+49
+ok
+ok
+12
+ok
+10
+ok
+ok
+1
+error: 'square' is already declared in this session (redefinition not supported)
+49
+10
+ok
+11

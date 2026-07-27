@@ -1,0 +1,92 @@
+// REPL 输入分类（add-repl-decls-multiline）。token 级判别一段输入属于哪类：
+//   var 声明   `var x = ...` / `T x = ...`（T=标识符或内建类型）
+//   顶层声明   自由函数 `[修饰符] RetType Name(...)` / 类型 `[修饰符] class|struct|record|interface|enum Name`
+//   其余        表达式 / 语句（交给 Script.Eval 的表达式-优先路径）
+//
+// 判别只看头部 token（跳过前导修饰符）：区分 var(`=`) 与 函数(`(`) 靠第三 token；类型靠关键字。
+// 保守——漏判（如泛型返回 `List<int> f()`）退回表达式路径（自然报错），不误判纯表达式为声明。
+namespace Std.Scripting;
+
+using Std;
+using Std.Collections;
+using Z42.Syntax;
+
+// 分类结果。IsVarDecl / IsDecl 互斥；都为 false = 表达式/语句。
+public class ParsedInput {
+    public bool IsVarDecl;   // var 声明：VarName/InitExpr 有效
+    public string VarName;
+    public string InitExpr;
+    public bool IsDecl;      // 顶层函数/类型声明：DeclName = 声明的符号名（重定义查重用）
+    public string DeclName;
+    public ParsedInput() {
+        this.IsVarDecl = false; this.VarName = ""; this.InitExpr = "";
+        this.IsDecl = false; this.DeclName = "";
+    }
+}
+
+public static class Classifier {
+
+    // 主分类入口。
+    public static ParsedInput Classify(string trimmed) {
+        ParsedInput p = new ParsedInput();
+        Lexer lx = new Lexer(trimmed, "<repl>");
+        lx.Tokenize();
+        int cnt = lx.TokenCount();
+        // 跳过前导修饰符（public/private/static/abstract/...）到首个实义 token
+        int mi = 0;
+        while (mi < cnt && Classifier._isModifier(lx.TokenAt(mi).Kind)) { mi = mi + 1; }
+        if (mi >= cnt) { return p; }
+        int k0 = lx.TokenAt(mi).Kind;
+
+        // ── 类型声明：class / struct / enum / interface / record（TokenKind 19..23）──
+        if (k0 >= TokenKind.Class && k0 <= TokenKind.Record) {
+            p.IsDecl = true;
+            if (mi + 1 < cnt && lx.TokenAt(mi + 1).Kind == TokenKind.Identifier) {
+                p.DeclName = lx.TokenAt(mi + 1).Text;
+            }
+            return p;
+        }
+
+        // 函数/var 需要至少 `<t0> <ident> (|=` 三 token
+        if (mi + 2 >= cnt) { return p; }
+        int k1 = lx.TokenAt(mi + 1).Kind;
+        int k2 = lx.TokenAt(mi + 2).Kind;
+        bool typeTok = Classifier._isTypeToken(k0);
+
+        // ── 自由函数声明：<type> <ident> ( ──
+        if (typeTok && k1 == TokenKind.Identifier && k2 == TokenKind.LParen) {
+            p.IsDecl = true;
+            p.DeclName = lx.TokenAt(mi + 1).Text;
+            return p;
+        }
+
+        // ── var 声明：(var | <type>) <ident> = ──
+        if ((k0 == TokenKind.Var || typeTok) && k1 == TokenKind.Identifier && k2 == TokenKind.Eq) {
+            p.IsVarDecl = true;
+            p.VarName = lx.TokenAt(mi + 1).Text;
+            int eqEnd = lx.TokenAt(mi + 2).Span.End;
+            string init = trimmed.Substring(eqEnd, trimmed.Length - eqEnd).Trim();
+            if (init.EndsWith(";")) { init = init.Substring(0, init.Length - 1).Trim(); }
+            p.InitExpr = init;
+            return p;
+        }
+
+        return p;
+    }
+
+    // 前导修饰符 token（声明可带、跳过后再判类型/函数关键字）。
+    private static bool _isModifier(int kind) {
+        return kind == TokenKind.Static || kind == TokenKind.Public || kind == TokenKind.Private
+            || kind == TokenKind.Protected || kind == TokenKind.Internal || kind == TokenKind.Abstract
+            || kind == TokenKind.Sealed || kind == TokenKind.Override || kind == TokenKind.Virtual
+            || kind == TokenKind.New || kind == TokenKind.Extern || kind == TokenKind.Async
+            || kind == TokenKind.Partial;
+    }
+
+    // 可作类型名的 token：标识符，或内建类型关键字（string/int/.../f64，TokenKind 69..93）。
+    private static bool _isTypeToken(int kind) {
+        if (kind == TokenKind.Identifier) { return true; }
+        if (kind >= TokenKind.String && kind <= TokenKind.F64) { return true; }
+        return false;
+    }
+}

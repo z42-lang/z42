@@ -1,0 +1,46 @@
+// 驱动测试：REPL 函数/类型声明累积 + 多行（add-repl-decls-multiline）。
+// 直接驱动 Std.Scripting.Script.Eval 跨轮，打印每步结果，与 expected_output.txt 对账。
+// 经 warm-z42c 回路运行（Z42_LIBS = z42.scripting + z42c.* + stdlib）。
+//
+// 覆盖：多行自由函数声明→裸调、后声明引先声明、类声明→构造+字段+实例方法、enum 声明→
+// 声明体内跨轮使用（enum 成员=long 常量）、重定义 ERROR 且旧定义存活、会话变量与声明正交。
+namespace ReplDeclsMultilineTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    ScriptState s = Script.Create();
+
+    // 1) 多行自由函数声明 → 无值成功
+    _step(s, "int square(int x) {\n    return x * x;\n}");
+    // 2) 声明后裸调
+    _step(s, "square(7)");
+    // 3) 后声明引用先声明（quad 体内裸调 dbl）
+    _step(s, "int dbl(int x) { return x + x; }");
+    _step(s, "int quad(int x) { return dbl(dbl(x)); }");
+    _step(s, "quad(3)");
+    // 4) 类声明 + 构造 + 字段（默认 0）+ 实例方法
+    _step(s, "class Adder { public int b; public int add(int y) { return this.b + y; } }");
+    _step(s, "new Adder().add(10)");
+    // 5) enum 声明 + 跨轮在声明体内使用（enum 成员 = long 常量）
+    _step(s, "enum Color { Red, Green, Blue }");
+    _step(s, "long pickColor() { return Color.Green; }");
+    _step(s, "pickColor()");
+    // 6) 重定义 = ERROR，旧定义存活
+    _step(s, "int square(int x) { return 0; }");
+    _step(s, "square(7)");
+    // 7) 会话变量 + 声明正交共存
+    _step(s, "var n = 10;");
+    _step(s, "int inc(int x) { return x + 1; }");
+    _step(s, "inc(n)");
+}
+
+// 打印一步结果：失败 → 错误文本（去空白）；有值 → 值；否则 → "ok"。
+void _step(ScriptState s, string input) {
+    EvalResult r = Script.Eval(s, input);
+    if (!r.Success) { Console.WriteLine(r.Error.Trim()); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine("" + r.Value); return; }
+    Console.WriteLine("ok");
+}

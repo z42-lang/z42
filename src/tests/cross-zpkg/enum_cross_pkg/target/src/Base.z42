@@ -1,0 +1,7 @@
+namespace Demo.EnumBase;
+
+// A namespace-level enum, exported and consumed across zpkg.
+// Regression for add-repl-decls-multiline: before the TsigReconcile fix, local
+// enums were excluded from the reconstructed export metadata, so a consumer
+// package importing this enum saw `undefined: Color`.
+enum Color { Red, Green, Blue }

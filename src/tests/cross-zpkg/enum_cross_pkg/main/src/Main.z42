@@ -1,0 +1,17 @@
+namespace Demo.EnumApp;
+
+using Std.IO;
+using Demo.EnumBase;
+using Demo.EnumExt;
+
+// Cross-zpkg enum use (regression for add-repl-decls-multiline TsigReconcile fix):
+//   Color.Green   : app -> base directly (imported enum member = long constant)
+//   greenValue()  : app -> ext -> base (ext's own cross-zpkg enum access re-exposed)
+// Before the fix, imported enums were excluded from export metadata -> undefined.
+void Main() {
+    long g = Color.Green;
+    Console.WriteLine(g);                              // 1
+    Console.WriteLine("" + greenValue());              // 1
+    Console.WriteLine("" + Color.Blue);                // 2
+    Console.WriteLine("" + (Color.Red == Color.Red));  // true
+}
