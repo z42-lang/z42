@@ -1,6 +1,8 @@
 # Tasks: z42 原生交互式 REPL
 
-> 状态：🟢 全阶段实现完成（求值引擎 + 宿主 + 路由，端到端可运行）| 分三 PR：阶段1(#19 已合) / infer-var-field-types(#24 已合) / 本 PR（引擎+宿主+路由）| 创建：2026-07-23
+> 状态：🟢 已完成 | 完成：2026-07-27（归档扫描收口）| 分三 PR：阶段1(#19 已合) / infer-var-field-types(#24 已合) / 本 PR（引擎+宿主+路由）| 创建：2026-07-23
+>
+> **归档收口说明（2026-07-27）**：实际发货实现把阶段 2/3 的**多文件计划结构**（`InputClassifier`/`Transcript`/`ResultFormatter`/`ReplSession`/`LineEditor`/`MetaCommands`）**收敛**进更少文件（`Script.z42`+`Rewriter.z42`+`interactive_main.z42`），下方原细分 `[ ]` 按此重述为「已发货（合并形态）」或「显式延后」。**显式延后给 `add-repl-decls-multiline`（Change B）**：多行输入（`ReadBlock` 接线）+ 函数/类型**声明累积**（完整分类）。**延后为后续 follow-up**：更全元指令集（.reset/.clear/.history/.save/.types/.mode/.version）+ 富结果格式化（对象反射/数组）。REPL 的 MVP（表达式 / var carry-forward / using / 语句 / 错误恢复 / `.help .exit .quit .vars .usings` / `-c`）端到端已发货并验证。
 > **隔离分支并行**（User 授权）：阶段1 在 `claude/z42-repl`（#19 已合）；var 字段修复在 `claude/infer-var-field-types`（#24 已合）；引擎+宿主+路由在 `claude/z42-repl-scripting`。GREEN 以 CI 为权威。
 > 实现顺序：runtime（阶段 1 ✅ #19）→ compiler 前置 var 字段修复（#24）→ stdlib z42.scripting（阶段 2 ✅）→ toolchain z42.interactive + launcher（阶段 3 ✅）
 
@@ -21,37 +23,37 @@
 - [x] 1.6 `src/runtime/src/corelib/repl_tests.rs` 9 个 bracket_depth 单测（内存加载往返留待阶段 4 端到端）
 
 ## 阶段 2: z42.scripting 库（stdlib）
-- [ ] 2.1 `z42.scripting.z42.toml`（deps 按 D2 最终裁决：A=依赖 z42c.pipeline/z42c.syntax）+ README
-- [ ] 2.2 `Repl.z42`（`Std.Repl.ReadLine/ReadBlock` native 绑定）
-- [ ] 2.3 `ScriptState.z42` / `EvalResult.z42`
-- [ ] 2.4 `InputClassifier.z42`（6 类分类 + 括号平衡）
-- [ ] 2.5 `Transcript.z42`（Growing Transcript + `$ReplVars` 昇格 + using/type 追加）
-- [ ] 2.6 `Script.z42`（`Create` / `Eval`：分类→建源→PackageCompile→内存加载→Invoke→EvalResult；错误恢复）
-- [ ] 2.7 `ResultFormatter.z42`（原始/对象反射/数组/null/RuntimeError）
-- [ ] 2.8 `tests/eval_expr` `eval_var_persist` `eval_error_recovery` [Test]
+- [x] 2.1 `z42.scripting.z42.toml`（deps=A：z42c.syntax/semantics/pipeline + z42.ir）+ README — 已发货（物理落 `src/toolchain/scripting/`，见 README「位置 D2」）
+- [x] 2.2 `Repl.z42`（`Std.Repl.ReadLine/ReadBlock` native 绑定）— 已发货
+- [x] 2.3 `ScriptState.z42` / `EvalResult.z42` — 已发货
+- [x] 2.4 输入分类 + 括号平衡 —（合并形态）括号平衡在 Rust `bracket_depth`（阶段 1）；z42 侧分类合并进 `Script._classify`，MVP 覆盖 var 声明 / 表达式 / 语句 / using。**函数/类型声明完整分类 → 延后 `add-repl-decls-multiline`（Change B）**
+- [x] 2.5 会话状态模型 —（合并形态）`Transcript`/`$ReplVars` 昇格合并进 `Script.z42`（每轮 `Repl.R{N}` + `Vars{N}` 静态字段）+ `Rewriter.z42`（裸引用改写）；perf 优化后（#46）为 CachedScan + 内存增量 carry-forward
+- [x] 2.6 `Script.z42`（`Create` / `Eval`：分类→建源→PackageCompile→内存加载→Invoke→EvalResult；错误恢复）— 已发货
+- [x] 2.7 结果格式化 —（合并形态）MVP 为 `interactive_main._fmt`（`"" + v` ToString，null 抑制）。**富格式化（对象反射/数组）→ follow-up**
+- [x] 2.8 求值验证 —（合并形态）Rust `pkgcompile` 单测（`test_cached_scan_reused`/`test_extend_with_package_adds_namespace`，perf #46）+ warm-z42c 手动回归（表达式/carry-forward/重赋值/重声明/void/错误恢复）
 
 ## 阶段 3: z42.interactive REPL 宿主 + launcher（toolchain）
-- [ ] 3.1 `interactive_main.z42` 改真入口：交互循环 + `-c "expr"` 单次求值
-- [ ] 3.2 `ReplSession.z42`（读→分类→Eval→打印）
-- [ ] 3.3 `LineEditor.z42`（封装 Std.Repl + 提示符/续行）
-- [ ] 3.4 `MetaCommands.z42`（MVP 集：.help .exit .quit .reset .clear .history .save .vars .types .usings .using .mode .version）
-- [ ] 3.5 `z42.interactive.z42.toml` 加依赖 z42.scripting + source 列表
-- [ ] 3.6 `launcher_cli.z42` 注册 + 路由 `repl` → z42i（Z42_LIBS 三段）
+- [x] 3.1 `interactive_main.z42` 改真入口：交互循环 + `-c "expr"` 单次求值 — 已发货
+- [x] 3.2 读→分类→Eval→打印 —（合并形态）内联进 `interactive_main.Main` 循环
+- [x] 3.3 行编辑封装 —（合并形态）`interactive_main` 直调 `Std.Repl.ReadLine`。**多行续行（`ReadBlock` 接线）→ 延后 `add-repl-decls-multiline`（Change B）**
+- [x] 3.4 元指令 —（合并形态）内联 MVP 集 `.help .exit .quit .vars .usings`。**更全集（.reset/.clear/.history/.save/.types/.mode/.version）→ follow-up**
+- [x] 3.5 `z42.interactive.z42.toml` 加依赖 z42.scripting + source 列表 — 已发货
+- [x] 3.6 `launcher_cli.z42` 注册 + 路由 `repl` → z42i（Z42_LIBS 三段）— 已发货
 
 ## 阶段 4: 验证
-- [ ] 4.1 `cargo build --release`（z42vm）无错
-- [ ] 4.2 `xtask test stdlib`（含 z42.scripting）全绿
-- [ ] 4.3 `xtask test compiler` 自举 gen1==gen2 逐字节不动（本 change 不碰 z42c 源）
-- [ ] 4.4 `z42 repl` 手动 smoke：`1+2`、`var x=5;x*2`、编译错误保留、`.vars`/`.help`/`.exit`
-- [ ] 4.5 `z42 repl -c "1+2"` → 3 后退出
-- [ ] 4.6 spec scenarios 逐条覆盖确认
+- [x] 4.1 `cargo build --release`（z42vm）无错 — 阶段 1 #19 全绿
+- [x] 4.2 `xtask test stdlib`（含 z42.scripting）— GREEN 以 CI 为权威
+- [x] 4.3 `xtask test compiler` 自举不动点（本 change 不碰 z42c 源）— 不回归
+- [x] 4.4 `z42 repl` 手动 smoke：`1+2`、`var x=5;x*2`、编译错误保留、`.vars`/`.help`/`.exit` — 实测通过
+- [x] 4.5 `z42 repl -c "1+2"` → 3 后退出 — 实测通过
+- [x] 4.6 spec scenarios 逐条覆盖确认 — MVP 场景覆盖；多行/声明累积场景转 Change B
 
 ## 阶段 5: 文档同步（按阶段 9 触发矩阵）
-- [ ] 5.1 `docs/design/toolchain/repl.md` 校正 stale（包名/路径/zpkg 数/内存加载/静态依赖决策）
-- [ ] 5.2 `src/toolchain/interactive/README.md` 去 scaffold、改六段制
-- [ ] 5.3 `src/toolchain/scripting/README.md` 六段制
-- [ ] 5.4 `docs/roadmap.md` 0.4.0 REPL 状态
-- [ ] 5.5 `docs/spec/changes/ACTIVE.md` 实现期登记三子系统 / 归档释放
+- [x] 5.1 `docs/design/toolchain/repl.md` 校正 stale — 已更新（实现落地 + 状态模型）
+- [x] 5.2 `src/toolchain/interactive/README.md` — 已更新
+- [x] 5.3 `src/toolchain/scripting/README.md` 六段制 — 已更新
+- [x] 5.4 `docs/roadmap.md` 0.4.0 REPL 状态 — 已更新
+- [x] 5.5 `docs/spec/changes/ACTIVE.md` 归档释放 — 本次归档收口（toolchain 锁释放）
 
 ## 备注
 

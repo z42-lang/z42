@@ -16,14 +16,14 @@
 > `runtime`+`stdlib`）在分支 `claude/compiler-params-join-solution-ie04pf` 上开发，与主线 change
 > （`split-irgen-class` 等）物理隔离，合并时按常规解冲突。GREEN 以 CI 为权威（冷环境本地不可验自举链）。
 
-> **独立分支 in-flight（2026-07-23，User 授权并行推进，不排队）**：`add-z42-repl`
-> （0.4.0 capstone：z42 原生交互式 REPL——VM rustyline 行编辑 + `__load_bytecode_in_memory`
-> builtin ‖ 新 stdlib 库 `z42.scripting`（Form B `Script.Eval`）‖ 填充 `z42.interactive`(z42i)
-> 脚手架 + launcher `repl` 路由；占 `runtime`+`stdlib`+`toolchain`）在分支
-> `claude/z42-repl-capstone` 上开发，与 `lazy-per-function-jit`(runtime) /
-> `converge-z42c-onto-z42-project`(stdlib) 物理隔离，合并时按常规解冲突。6.5 通过
-> 2026-07-23（D1 静态依赖 PackageCompile → 不撞跨包接口 cast bug；D2/D3 皆 A；打印 1 层）。
-> GREEN 以 CI 为权威。spec：`docs/spec/changes/add-z42-repl/`。
+> **~~add-z42-repl~~** ✅ 已归档 2026-07-27（0.4.0 capstone：z42 原生交互式 REPL——VM rustyline
+> 行编辑 + `__load_bytecode_in_memory` builtin ‖ 新库 `z42.scripting`（Form B `Script.Eval`，物理
+> 落 `src/toolchain/scripting/`）‖ `z42.interactive`(z42i) 宿主 + launcher `repl` 路由。发货实现把
+> 计划的多文件结构收敛进 `Script.z42`+`Rewriter.z42`+`interactive_main.z42`；MVP（表达式/var
+> carry-forward/using/语句/错误恢复/`.help .exit .quit .vars .usings`/`-c`）端到端已验证。**多行输入
+> + 函数/类型声明累积显式延后给 `add-repl-decls-multiline`**（本次开工的后继 change）；富元指令集 +
+> 富结果格式化留 follow-up。archive：`archive/2026-07-27-add-z42-repl`，释放 runtime+stdlib+toolchain
+> 锁。perf 收口见已归档 `perf-optimize-repl-eval`(#46 每轮 3.5s→70ms)。
 
 > **独立分支 in-flight（2026-07-24，User 授权并行推进，不排队）**：`infer-var-field-types`
 > （编译器根因 fix：`static var` 字段跨 zpkg 导出丢推断类型 → 消费端 E0402；双通道修——
