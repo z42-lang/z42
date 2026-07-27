@@ -48,6 +48,7 @@ public sealed class IrGen {
     public string SourceStem;   // 文件 stem（SA-3：__static_init__ 名前缀，镜像 C# _cuStem）
     public DependencyIndex Deps;       // 跨包索引（CI-4；调用方 Generate 前设置，null=无）
     public StrMap ImportedClassNs;     // imported 短类名 → ns（IC-1；含本包跨-ns 自有类，G17b）
+    public StrMap ImportedFuncNs;      // imported 自由函数名 → 源 ns（fix-imported-free-func-namespace；与 ImportedClassNs 对称）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包自有声明类名集（G18：ChainHasMethod 反劫持守卫仅认本地类）
     public bool IsRelease;   // release 模式：strip debug info（不 emit .locals/.linetable），镜像 C# stripSymbols=true

@@ -396,6 +396,26 @@ TSIG 解码失败、namespace 过滤不含其 namespace 等），fallback 到
 `QualifyName(className)`（用当前文件 namespace）→ 生成 bare 名 → 运行时
 `function not found`。
 
+### QualifyFreeFunc（自由函数的对称限定，fix-imported-free-func-namespace 2026-07-27）
+
+**问题**：类有 `ImportedClassNs` 记跨包导入类的**源 ns**，`QualifyClass` 据此把简名限定到声明 ns；
+但**命名空间级自由函数**长期缺此机制——`ImportedSymbolLoader` seed 导入自由函数时丢弃源 ns，
+`ExprEmitter` 对 `Kind=="free"` 的调用只能 `Qualify(当前 ns)`。于是**跨包裸调导入自由函数**
+（`using A; foo()` 其中 `foo` 是 A 包 ns 级自由函数）被误限定到**调用方 ns** → 运行期
+`undefined function`。REPL 每轮独立包 + 唯一 ns `Repl.R{N}`，跨轮调上一轮定义的自由函数即命中此坑。
+
+**修复（与类对称）**：
+- `ImportedSymbols.FunctionNamespaces`（自由函数名 → 源 ns）——镜像 `ClassNamespaces`，seed 时从
+  `em.Namespace` 记录。
+- `EmitContext.QualifyFreeFunc(name)`——命中 `ImportedFuncNs` → `<源 ns>.<name>` + `TrackDepNamespace`；
+  否则回落 `Qualify`（当前 ns）。`ExprEmitter` 的 free 调用分支改用它（static 走 `QualifyClass`、
+  局部 lifted 函数优先，均不受影响）。
+- `IrDump._filterShadowedFuncs`——local-wins：本 CU 顶层声明的同名自由函数从 `ImportedFuncNs` 剔除
+  （镜像 `_filterShadowed` 对类的处理），防本地 `foo` 误绑到某依赖包的同名 `foo`。
+
+**字节不动点**：全 compiler + stdlib 源 0 个命名空间级自由函数被跨包裸调 → `FunctionNamespaces` 对现存
+编译恒空 → z42c 自举 gen1==gen2 逐字节不变、stdlib 零字节漂移；修复纯粹解锁一个此前坏掉的行为。
+
 ---
 
 ## pseudo-class 策略与迁移

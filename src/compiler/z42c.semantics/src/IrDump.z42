@@ -372,6 +372,33 @@ public static class IrDump {
         return r;
     }
 
+    // 自由函数版遮蔽剔除（fix-imported-free-func-namespace，镜像 _filterShadowed）：本 CU 顶层
+    // 声明的自由函数遮蔽同名 imported —— 从 FunctionNamespaces 剔除，使 QualifyFreeFunc 回落当前 ns
+    // （local-wins：本地 `foo` 不误绑到某依赖包的 public `foo`）。
+    private static StrMap _filterShadowedFuncs(StrMap imported, CompilationUnit cu) {
+        if (imported == null) { return imported; }
+        StrMap exclude = new StrMap();
+        int di = 0;
+        while (di < cu.DeclCount) {
+            Decl dd = cu.Decls[di];
+            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+            if (dd is MethodDecl) {
+                string fname = (dd as MethodDecl).Name;
+                if (imported.ContainsKey(fname)) { exclude.Put(fname, "1"); }
+            }
+            di = di + 1;
+        }
+        if (exclude.Keys().Length == 0) { return imported; }
+        StrMap r = new StrMap();
+        string[] ks = imported.Keys();
+        int i = 0;
+        while (i < ks.Length) {
+            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
+            i = i + 1;
+        }
+        return r;
+    }
+
     private static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
@@ -386,6 +413,7 @@ public static class IrDump {
         // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
         // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
         gen.ImportedClassNs = IrDump._filterShadowed(classNs, cu);
+        if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
         string[] actNs = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
@@ -441,6 +469,7 @@ public static class IrDump {
         gen.PartialMerged = IrDump._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
         gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
         if (imported != null) { gen.ImportedClassNs = IrDump._filterShadowed(imported.ClassNamespaces, cu); }
+        if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         IrModule irm = gen.Generate(cu, model);

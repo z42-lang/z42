@@ -4,6 +4,13 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
+> **~~fix-imported-free-func-namespace~~** ✅ 已归档 2026-07-27（隔离 worktree 预抢，User 授权；
+> compiler 根因 fix：导入自由函数跨包裸调误限定当前 ns → 补 `ImportedSymbols.FunctionNamespaces` +
+> `EmitContext.QualifyFreeFunc` + `IrDump._filterShadowedFuncs`，与类 `ImportedClassNs` 对称。
+> 自举不动点 5/5 gen1==gen2 + stdlib 25/25 + 新 cross-zpkg `free_func_cross_pkg`（旧 z42c 复现 undefined /
+> 新 z42c 25·36）。字节不动点安全：全 compiler+stdlib 0 个跨包裸调自由函数。解锁 `add-repl-decls-multiline`。
+> 与 `nested-types-followup`(compiler 锁持有者) 物理隔离；archive：`archive/2026-07-27-fix-imported-free-func-namespace`）。
+
 > **独立分支 in-flight（2026-07-14，User 授权直接推进，不排队）**：`stabilize-dispatch-keys`
 > （方案A：派发键一律全签名 mangle + `Path.Join`/`String.Join` 落地 `params`；占 `compiler`+`ir`+
 > `runtime`+`stdlib`）在分支 `claude/compiler-params-join-solution-ie04pf` 上开发，与主线 change
