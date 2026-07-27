@@ -10,24 +10,29 @@
 - `compiler` 被 `nested-types-followup` 占 → P2 / P3 排队
 - 依赖顺序：P3（多 exe 构建 build 侧）必须先于 P4（`--bin` run 侧）
 
-## P0 — 设置 SoT 收敛 + VM 端 [runtime] 解析（runtime 单锁）
+## P0 — 设置 SoT 收敛 + VM 端 [runtime] 解析（runtime 单锁）✅ 已落地（#48，2026-07-28）
 > design: [design.md](design.md) | spec: [specs/runtime-settings/spec.md](specs/runtime-settings/spec.md)
-- [ ] 0.1 `KnobSpec` 加 `toml_key` 字段（config.rs）
-- [ ] 0.2 KNOWN_KNOBS 补 `Z42_JIT_PROFILE` / `Z42_TARGET`(reserved) / `Z42_CONFIG`（字母序插入）+ 为每条填 `toml_key`
-- [ ] 0.3 修 `Z42_GC_MINOR_THRESHOLD` 描述失真（读 parse+arc_heap 确认措辞 → 存活率 0.75）
-- [ ] 0.4 `RuntimeConfig::resolve(env, runtime_table)` 分层：env > 文件 > 默认；`from_env()` 退化为 `resolve(env, None)`
-- [ ] 0.5 `Z42_CONFIG` 加载：读 TOML `[runtime]` 段（缺失→None+warn，解析错→显式 error）
-- [ ] 0.6 `Z42_JIT_PROFILE` 去 straggler：`jit/lazy.rs` 改读 `runtime_config().jit_profile`
-- [ ] 0.7 `--info`（main.rs）枚举 `name|toml_key|default|consumed_by` + 生效 Z42_CONFIG 路径
-- [ ] 0.8 单测（config 测试现有位置）：非破坏等价 / 优先级 / 文件缺失不 panic / 不变式保持
-- [ ] 0.9 GREEN：`cargo build --release` 无告警 + `xtask test`（e2e/golden 逐字节不变作非破坏证据）
+- [x] 0.1 `KnobSpec` 加 `toml_key` 字段（config.rs）
+- [x] 0.2 KNOWN_KNOBS 补 `Z42_JIT_PROFILE` / `Z42_TARGET`(reserved) / `Z42_CONFIG`（字母序插入）+ 为每条填 `toml_key`
+- [x] 0.3 修 `Z42_GC_MINOR_THRESHOLD` 描述失真（照 struct 字段文档 → 存活率 0.75）
+- [x] 0.4 `RuntimeConfig::resolve(env, runtime_table)` 分层：env > 文件 > 默认；`from_getter` 退化为 `resolve(_, None)`
+- [x] 0.5 `Z42_CONFIG` 加载：`load_runtime_toml` 读 `[runtime]` 段（缺失→None+warn，解析错→显式 error）
+- [x] 0.6 `Z42_JIT_PROFILE` 去 straggler：`jit/lazy.rs` 改读 `runtime_config().jit_profile`
+- [x] 0.7 `--info`（main.rs）枚举 `name/toml_key` + 生效 Z42_CONFIG 路径 + 逐旋钮 [env]/[config]/[default]
+- [x] 0.8 单测 42 全绿（非破坏等价 / 优先级 / 文件缺失不 panic / 坏 TOML 显式报错 / 字母序不变式）
+- [x] 0.9 GREEN：release 无告警 + runtime 917 测试 + config 42 + `--info` e2e；冷启动 CI 全 gate 绿（#48）
 
-**P0 Scope（文件）**：`src/runtime/src/config.rs`(MODIFY) · `src/runtime/src/main.rs`(MODIFY，--info) · `src/runtime/src/jit/lazy.rs`(MODIFY) · config 测试文件(MODIFY/NEW，随现有位置)
+**P0 Scope（文件）**：`src/runtime/src/config.rs` · `src/runtime/src/main.rs` · `src/runtime/src/jit/lazy.rs` · config tests（同文件 mod tests）
 
-## P1 — 侧车 JSON→TOML（toolchain）
-- [ ] launcher 读 `.runtimeconfig.toml`（Std.Toml），退役 JSON 读取
-- [ ] `~/.z42/config.toml` 换 Std.Toml（消手写单行解析）
-- [ ] `z42 publish` 侧车产出改 TOML
+## P1 — 侧车 JSON→TOML（toolchain）🟡 IMPL（2026-07-28）
+- [x] launcher `_cmdRun` 读 `.runtimeconfig.toml`（Std.Toml），退役 JSON 读取（顶层 `version`）
+- [x] **弃 configProperties 注入** → 改设 `Z42_CONFIG=sidecar`，由 z42vm 端 P0 分层解析读 `[runtime]`（尊重用户显式 Z42_CONFIG）
+- [x] `~/.z42/config.toml` 的 `_defaultVersion` 换 Std.Toml（消手写单行扫描）
+- [x] ~~`z42 publish` 侧车产出改 TOML~~ **空操作**：侧车是 .NET 风格手写文件，全仓无生成器/无实体样例（探查确认）
+- [x] 文档：launcher.md runtimeconfig 段 JSON→TOML + Z42_CONFIG 机制；apphost 注释；依赖注释
+- [ ] GREEN：冷启动 CI（compile-toolchain 编 launcher + test-host e2e）——本地 cold worktree 不可编 z42，以 CI 为权威
+
+**P1 Scope（文件）**：`src/toolchain/launcher/core/launcher.z42` · `.../z42.launcher.z42.toml`(注释) · `docs/design/runtime/launcher.md`
 
 ## P2 — profile.mode 打通（compiler，排队）
 - [ ] z42c 解析 `[profile.*]` 段（Main.z42 现延后项）

@@ -191,21 +191,24 @@ libs/            # stdlib zpkg
 
 这是 `bootstrap → xtask` 链路的第一环:`install-z42.sh` → `.z42/z42 xtask.zpkg build/test/...`。
 
-## app `runtimeconfig.json`（版本声明 + 动态配置 — add-runtimeconfig-json, 2026-06-03）
+## app `runtimeconfig.toml`（版本声明 + 运行时旋钮 — add-runtimeconfig-json 2026-06-03；JSON→TOML unify-run-modes P1 2026-07-28）
 
-app 可在 **`<app>.runtimeconfig.json`** sidecar(.NET 同款,独立于 zpkg,可编辑/动态)声明所需运行时版本 + 运行时旋钮:
+app 可在 **`<app>.runtimeconfig.toml`** sidecar(.NET 同款,独立于 zpkg,可编辑)声明所需运行时版本 + 运行时旋钮:
 
-```json
-{
-  "runtime": { "version": "0.3.4", "rollForward": "exact" },
-  "configProperties": { "Z42_GC_MODE": "concurrent", "Z42_SAFEPOINT_THROTTLE": 1024 }
-}
+```toml
+version = "0.4.0"            # 运行时版本 pin（launcher 消费）
+
+[runtime]                    # z42vm 旋钮表（z42vm 自己经 Z42_CONFIG 读，见下）
+gc-mode = "concurrent"
+safepoint-throttle = 1024
 ```
 
-`z42 run <app.zpkg>` 时,launcher 核心(`Std.Json` 解析):
-- `runtime.version` 进入版本解析,**优先级**:`--runtime` > runtimeconfig `runtime.version` > `config.toml` default > 唯一已装。
-- `configProperties` 的**任意** key/value 作为 env 设到被 spawn 的 z42vm(`Std.IO.Process.Env`)——支持任何 `Z42_*` 旋钮(GC 模式 / safepoint throttle / …),动态生效。
-- `rollForward`:P1 只认 `exact`。
+`z42 run <app.zpkg>` 时,launcher 核心(`Std.Toml` 解析):
+- 顶层 `version` 进入版本解析,**优先级**:`--runtime` > runtimeconfig `version` > `config.toml` default > 唯一已装。
+- `[runtime]` 表**不再由 launcher 注入 env**——launcher 改为把 sidecar 路径设进 `Z42_CONFIG`,由 **z42vm 自己**按 [runtime-settings.md](runtime-settings.md) 的分层链(`env > [runtime] 文件 > 默认`)解析该表。旋钮键用 KNOWN_KNOBS 的 `toml_key`(kebab-case，如 `gc-mode`)。用户显式设的 `Z42_CONFIG` 优先(不被 sidecar 覆盖)。
+- **弃用 `configProperties`**(旧 JSON 的任意 `Z42_*` 注入):旋钮走 `[runtime]` 表 + VM 端解析取代;需要任意 env 请在环境里设。这也让 apphost 直跑路径将来能用同一 `Z42_CONFIG` 机制拿到 `[runtime]`(现 apphost 仍不读 sidecar，见下)。
+
+> **格式迁移(unify-run-modes P1)**:sidecar 由 `.runtimeconfig.json` 改为 `.runtimeconfig.toml`,与全仓 `Std.Toml` 栈一致;pre-1.0 不留 JSON 兼容(旧 JSON sidecar 需改写为 TOML)。`config.toml`(default 版本)也由手写单行扫描改走 `Std.Toml`。
 
 > 独立 sidecar 的好处:版本无关的 launcher 读它**不需解析带版本的 zpkg 格式**;可手改、可被工具生成。这也是 P2(下载即用)的前置——"声明需要的版本 → 没装自动拉"(自动拉 = P2)。
 
@@ -252,7 +255,7 @@ patch 同一段占位符的逻辑有**两个调用方**：
 
 **这样设计更加灵活，也避免以后循环依赖带来更多问题**（xtask 自包含、不被 workload 反向拖住）。代价是 MAGIC 字符串现有三处副本（Rust stub 嵌入端＝权威 / workload `apphost.z42` / xtask 内联），改 MAGIC 须三处同步；后续若嫌重复，可把 `PatchBytes` 抽成**编译期共享库**（z42.io 或新建 z42.apphost）让 workload 与 xtask 共用一份——但仍是共享库、不是"下载 workload"。
 
-> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.json`**（版本 pin + `configProperties` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 stub 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
+> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.toml`**（版本 pin + `[runtime]` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 apphost（z42-hostrun）也设 `Z42_CONFIG=sidecar`（unify-run-modes 后续）/ 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
 
 ### 运行时解析：z42vm 探测（统一 apphost 唯一真相，2026-06-21）
 

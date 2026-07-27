@@ -15,7 +15,7 @@ namespace Z42Launcher;
 
 using Std;
 using Std.IO;
-using Std.Json;
+using Std.Toml;
 using Std.Cli;
 
 // migrate-xtask-launcher-to-std-cli (2026-06-10): Main delegates to the Std.Cli
@@ -104,14 +104,14 @@ string? _libsPath(string dir) {
 string? _defaultVersion() {
     string p = _configPath();
     if (!File.Exists(p)) { return null; }
-    string text = File.ReadAllText(p);
-    // single line: default = "<ver>"
-    int q1 = text.IndexOf("\"");
-    if (q1 < 0) { return null; }
-    string afterQ1 = text.Substring(q1 + 1);
-    int q2 = afterQ1.IndexOf("\"");
-    if (q2 < 0) { return null; }
-    return afterQ1.Substring(0, q2);
+    // `default = "<ver>"` — parsed via Std.Toml (was a hand-rolled quote scan;
+    // unify-run-modes P1 folds it onto the one TOML parser).
+    TomlValue t = TomlValue.Parse(File.ReadAllText(p));
+    if (t.IsTable() && t.ContainsKey("default")) {
+        TomlValue v = t.Get("default");
+        if (v.IsString()) { return v.AsString(); }
+    }
+    return null;
 }
 
 void _setDefaultVersion(string ver) {
@@ -247,23 +247,19 @@ void _cmdRun(string[] rest) {
         return;
     }
 
-    // runtimeconfig.json (add-runtimeconfig-json): <app>.runtimeconfig.json
-    // declares the runtime version + per-app config knobs.
+    // <app>.runtimeconfig.toml (unify-run-modes P1; was .json) declares the
+    // runtime version pin (top-level `version`, launcher-consumed) and a
+    // `[runtime]` knob table (gc-mode / log / ... — consumed by z42vm itself
+    // via Z42_CONFIG, see below; replaces the old configProperties→env inject).
     string rcPath = _runtimeConfigPath(app);
-    bool hasCfg = false;
-    JsonValue cfg = JsonValue.OfNull();
-    if (File.Exists(rcPath)) {
-        cfg = JsonValue.Parse(File.ReadAllText(rcPath));
-        hasCfg = true;
-    }
-    // Effective version: --runtime > runtimeconfig runtime.version.
+    bool hasCfg = File.Exists(rcPath);
+    TomlValue cfg = TomlValue.OfTable();
+    if (hasCfg) { cfg = TomlValue.Parse(File.ReadAllText(rcPath)); }
+    // Effective version: --runtime > runtimeconfig `version`.
     string effVer = ver ?? "";
-    if (effVer.Length == 0 && hasCfg && cfg.IsObject() && cfg.ContainsKey("runtime")) {
-        JsonValue rt = cfg.Get("runtime");
-        if (rt.IsObject() && rt.ContainsKey("version")) {
-            JsonValue vv = rt.Get("version");
-            if (vv.IsString()) { effVer = vv.AsString(); }
-        }
+    if (effVer.Length == 0 && hasCfg && cfg.IsTable() && cfg.ContainsKey("version")) {
+        TomlValue vv = cfg.Get("version");
+        if (vv.IsString()) { effVer = vv.AsString(); }
     }
 
     // Portable mode (bundle-launcher-in-release): the trampoline set
@@ -300,22 +296,13 @@ void _cmdRun(string[] rest) {
         .Stdout(Stdio.Inherit())
         .Stderr(Stdio.Inherit());
     if (libs.Length > 0) { proc = proc.Env("Z42_LIBS", libs); }
-    // Apply configProperties (arbitrary Z42_* knobs) to the spawned z42vm.
-    if (hasCfg && cfg.IsObject() && cfg.ContainsKey("configProperties")) {
-        JsonValue cp = cfg.Get("configProperties");
-        if (cp.IsObject()) {
-            string[] ks = cp.Keys();
-            int k = 0;
-            while (k < ks.Length) {
-                JsonValue val = cp.Get(ks[k]);
-                string sv = "";
-                if (val.IsString()) { sv = val.AsString(); }
-                else if (val.IsLong()) { sv = val.AsLong().ToString(); }
-                else if (val.IsBool()) { sv = val.AsBool() ? "true" : "false"; }
-                if (sv.Length > 0) { proc = proc.Env(ks[k], sv); }
-                k = k + 1;
-            }
-        }
+    // Point z42vm at the sidecar so it resolves the `[runtime]` knob table
+    // itself (unify-run-modes P1 — replaces the old configProperties→env
+    // injection with VM-side [runtime] resolution, P0). Respect an explicit
+    // user Z42_CONFIG (env wins over the sidecar pointer).
+    if (hasCfg) {
+        string existingCfg = Environment.GetEnvironmentVariable("Z42_CONFIG") ?? "";
+        if (existingCfg.Length == 0) { proc = proc.Env("Z42_CONFIG", rcPath); }
     }
     // Forward the program's own args after `--`.
     if (appArgs.Length > 0) {
@@ -377,9 +364,10 @@ string? _flagValue(string[] arr, string flag) {
     return null;
 }
 
-// `<dir>/<name>.runtimeconfig.json` next to the app (.NET-style sidecar).
+// `<dir>/<name>.runtimeconfig.toml` next to the app (.NET-style sidecar;
+// unify-run-modes P1 migrated the format JSON→TOML).
 string _runtimeConfigPath(string app) {
     string dir = Path.GetDirectoryName(app);
-    string fname = Path.GetFileNameWithoutExtension(app) + ".runtimeconfig.json";
+    string fname = Path.GetFileNameWithoutExtension(app) + ".runtimeconfig.toml";
     return dir.Length > 0 ? Path.Join(dir, fname) : fname;
 }
