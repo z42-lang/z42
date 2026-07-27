@@ -32,7 +32,7 @@
 
 use crate::gc::GcMode;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 /// Metadata for a single `Z42_*` knob. Used by `--info` + future docgen
 /// to enumerate every runtime knob in one place. Keep `KNOWN_KNOBS`
@@ -41,6 +41,11 @@ use std::sync::LazyLock;
 pub struct KnobSpec {
     /// Env var name (e.g. `"Z42_LIBS"`).
     pub name: &'static str,
+    /// Key under a `[runtime]` TOML table this knob maps to — kebab-case,
+    /// `Z42_` prefix dropped and lowercased (`Z42_GC_MODE` → `"gc-mode"`).
+    /// Empty string means "meta pointer, not a `[runtime]` value key" (e.g.
+    /// `Z42_CONFIG` names the file itself, so it can't live inside it).
+    pub toml_key: &'static str,
     /// One-line human description shown by `--info` / docgen.
     pub description: &'static str,
     /// Hint string for the default when unset (e.g. `"unset; falls back to ..."`).
@@ -57,70 +62,102 @@ pub struct KnobSpec {
 /// to catch stragglers.
 pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
+        name: "Z42_CONFIG",
+        toml_key: "",
+        description: "path to a TOML file whose `[runtime]` table supplies knob defaults (env still wins)",
+        default_hint: "unset; no config file layer (env / built-in defaults only)",
+        consumed_by: "config.rs (load_runtime_toml) + main.rs",
+    },
+    KnobSpec {
         name: "Z42_CRASH_DIR",
+        toml_key: "crash-dir",
         description: "directory for panic + signal crash report files",
         default_hint: "unset; reports go to stderr only",
         consumed_by: "main.rs (panic hook) + signal_handler.rs",
     },
     KnobSpec {
         name: "Z42_GC_MINOR_THRESHOLD",
-        description: "bytes of allocation before auto-trigger minor GC",
-        default_hint: "unset; defaults to 64 KiB",
+        toml_key: "gc-minor-threshold",
+        description: "fraction (0.0–1.0) of young entries surviving minor GC above which the next collect escalates to major immediately",
+        default_hint: "unset; defaults to 0.75 (survival ratio)",
         consumed_by: "gc/arc_heap.rs",
     },
     KnobSpec {
         name: "Z42_GC_MODE",
+        toml_key: "gc-mode",
         description: "GC algorithm: `stw` / `concurrent` / `generational` (with `-mark-sweep` aliases)",
         default_hint: "unset; defaults to `stw-mark-sweep`",
         consumed_by: "gc/mode.rs",
     },
     KnobSpec {
         name: "Z42_GC_PAUSE_WINDOW",
-        description: "rolling window (ms) for GC pause statistics",
-        default_hint: "unset; defaults to 60_000 ms",
+        toml_key: "gc-pause-window",
+        description: "capacity (entries) of the per-heap rolling GC pause-time deque, clamped to [1, 65536]",
+        default_hint: "unset; defaults to 1024",
         consumed_by: "gc/types.rs",
     },
     KnobSpec {
         name: "Z42_GC_SOFT_THRESHOLD",
+        toml_key: "gc-soft-threshold",
         description: "heap pressure ratio (0.0–1.0) above which SoftHandle refs become GC-eligible",
         default_hint: "unset; defaults to 0.80",
         consumed_by: "gc/soft_registry.rs",
     },
     KnobSpec {
+        name: "Z42_JIT_PROFILE",
+        toml_key: "jit-profile",
+        description: "enable JIT compilation profiling (any non-empty value turns it on)",
+        default_hint: "unset; JIT profiling off",
+        consumed_by: "jit/lazy.rs",
+    },
+    KnobSpec {
         name: "Z42_LIBS",
+        toml_key: "libs",
         description: "stdlib zpkg search directory",
         default_hint: "unset; falls back to artifacts/build/libraries/dist/release relative to z42vm binary",
         consumed_by: "main.rs",
     },
     KnobSpec {
         name: "Z42_LOG",
+        toml_key: "log",
         description: "tracing-subscriber EnvFilter directive (e.g. z42::jit=debug,z42=warn)",
         default_hint: "unset; defaults to z42=warn (or z42=info under --verbose)",
         consumed_by: "main.rs (init_tracing)",
     },
     KnobSpec {
         name: "Z42_NATIVE_PATH",
+        toml_key: "native-path",
         description: "search path for native .dylib/.so/.dll modules (colon-separated)",
         default_hint: "unset; falls back to package-relative search",
         consumed_by: "native/ext.rs",
     },
     KnobSpec {
         name: "Z42_PATH",
+        toml_key: "path",
         description: "module search paths (colon-separated)",
         default_hint: "unset; falls back to <cwd>, <cwd>/modules",
         consumed_by: "main.rs",
     },
     KnobSpec {
         name: "Z42_SAFEPOINT_THROTTLE",
+        toml_key: "safepoint-throttle",
         description: "per-thread safepoint check throttle (skip N safepoints between heap polls)",
         default_hint: "unset; defaults to 1024",
         consumed_by: "gc/safepoint.rs",
     },
     KnobSpec {
         name: "Z42_STRESS_ITERS",
+        toml_key: "stress-iters",
         description: "iteration count for GC stress tests (test code only)",
         default_hint: "unset; defaults to 100",
         consumed_by: "gc/arc_heap_tests/stress.rs",
+    },
+    KnobSpec {
+        name: "Z42_TARGET",
+        toml_key: "target",
+        description: "reserved: cross-compilation / execution target selector (not yet implemented)",
+        default_hint: "unset; reserved",
+        consumed_by: "reserved (not yet implemented)",
     },
 ];
 
@@ -175,6 +212,9 @@ pub struct RuntimeConfig {
     /// `Z42_NATIVE_PATH` — pre-split search paths for native modules.
     /// Empty list = no override (consumer applies SDK-relative fallback).
     pub native_search_paths: Vec<PathBuf>,
+    /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. Any non-empty
+    /// value turns it on; `false` = off. Read by `jit/lazy.rs`.
+    pub jit_profile: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -190,6 +230,7 @@ impl Default for RuntimeConfig {
             gc_soft_threshold: 0.80,
             safepoint_throttle: 1024,
             native_search_paths: Vec::new(),
+            jit_profile: false,
         }
     }
 }
@@ -204,30 +245,84 @@ impl RuntimeConfig {
     /// Build using an injectable env getter. Test-friendly form —
     /// avoids `std::env::set_var` global races when running cargo test in
     /// parallel. The getter returns `Some(string)` if "set" (any value),
-    /// `None` if "unset".
+    /// `None` if "unset". Equivalent to `resolve(get, None)` (env-only, no
+    /// config-file layer).
     pub fn from_getter<F>(get: F) -> Self
     where
         F: Fn(&str) -> Option<String>,
     {
+        Self::resolve(get, None)
+    }
+
+    /// Layered resolution — the single precedence chain for `Z42_*` knobs:
+    /// **explicit env value (`get`) > `[runtime]` TOML value > built-in
+    /// default**. Each knob is matched to its TOML key via [`KNOWN_KNOBS`]
+    /// (`toml_key`). `resolve(get, None)` is exactly the env-only form and is
+    /// byte-for-byte the pre-existing [`from_getter`] behaviour — the
+    /// non-breaking guarantee: with no config-file layer, nothing changes.
+    ///
+    /// CLI flags (e.g. `--mode`) sit *above* this chain and are applied by
+    /// `main.rs`, not here. Project `[profile.*]` sits *below* env and above
+    /// defaults; wiring that in is a later phase and does not touch this fn.
+    pub fn resolve<F>(get: F, runtime_table: Option<&toml::Table>) -> Self
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        // A getter that layers the `[runtime]` table under the real env:
+        // a non-empty env value wins; otherwise the knob's `toml_key` is
+        // looked up in the table; otherwise `None` → each parser's default.
+        let layered = |name: &str| -> Option<String> {
+            if let Some(v) = get(name) {
+                if !v.trim().is_empty() {
+                    return Some(v);
+                }
+            }
+            let table = runtime_table?;
+            let key = toml_key_for(name)?;
+            if key.is_empty() {
+                return None; // meta pointer (e.g. Z42_CONFIG) — never a table value
+            }
+            table.get(key).and_then(toml_scalar_to_string)
+        };
+
         Self {
             // ── Phase 1 startup knobs ─────────────────────────────────────
-            libs_dir:    get("Z42_LIBS")    .filter(|s| !s.trim().is_empty()).map(PathBuf::from),
-            module_path: get("Z42_PATH")    .filter(|s| !s.trim().is_empty()).map(|s| split_paths(&s)).unwrap_or_default(),
-            log_filter:  get("Z42_LOG")     .filter(|s| !s.trim().is_empty()),
-            crash_dir:   get("Z42_CRASH_DIR").filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+            libs_dir:    layered("Z42_LIBS")    .filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+            module_path: layered("Z42_PATH")    .filter(|s| !s.trim().is_empty()).map(|s| split_paths(&s)).unwrap_or_default(),
+            log_filter:  layered("Z42_LOG")     .filter(|s| !s.trim().is_empty()),
+            crash_dir:   layered("Z42_CRASH_DIR").filter(|s| !s.trim().is_empty()).map(PathBuf::from),
 
             // ── Phase 2 subsystem knobs ──────────────────────────────────
             // Each parser absorbs its own validation: missing / empty
             // / invalid → default with an `eprintln!` warning so misconfigured
             // production runs surface the problem in one stderr line at
             // process start rather than silent-degrading per-subsystem.
-            gc_mode:             parse_gc_mode(&get),
-            gc_minor_threshold:  parse_gc_minor_threshold(&get),
-            gc_pause_window:     parse_gc_pause_window(&get),
-            gc_soft_threshold:   parse_gc_soft_threshold(&get),
-            safepoint_throttle:  parse_safepoint_throttle(&get),
-            native_search_paths: parse_native_search_paths(&get),
+            gc_mode:             parse_gc_mode(&layered),
+            gc_minor_threshold:  parse_gc_minor_threshold(&layered),
+            gc_pause_window:     parse_gc_pause_window(&layered),
+            gc_soft_threshold:   parse_gc_soft_threshold(&layered),
+            safepoint_throttle:  parse_safepoint_throttle(&layered),
+            native_search_paths: parse_native_search_paths(&layered),
+            jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
         }
+    }
+}
+
+/// Look up a knob's `[runtime]` TOML key from its env name via [`KNOWN_KNOBS`].
+/// Returns `None` for names not in the table (defensive; all real knobs are).
+fn toml_key_for(env_name: &str) -> Option<&'static str> {
+    KNOWN_KNOBS.iter().find(|k| k.name == env_name).map(|k| k.toml_key)
+}
+
+/// Render a scalar TOML value the way the env-string parsers expect. Non-scalar
+/// values (array / table / datetime) are not valid knob values → `None`.
+fn toml_scalar_to_string(v: &toml::Value) -> Option<String> {
+    match v {
+        toml::Value::String(s)  => Some(s.clone()),
+        toml::Value::Integer(i) => Some(i.to_string()),
+        toml::Value::Float(f)   => Some(f.to_string()),
+        toml::Value::Boolean(b) => Some(b.to_string()),
+        _ => None,
     }
 }
 
@@ -314,20 +409,64 @@ where F: Fn(&str) -> Option<String> {
         .unwrap_or_default()
 }
 
+// ── Config-file (`[runtime]`) loading ────────────────────────────────────────
+
+/// Read the `[runtime]` table from the TOML file named by `Z42_CONFIG`, if any.
+///
+/// - `Z42_CONFIG` unset / empty → `Ok(None)` (no config-file layer; env + defaults).
+/// - file missing → `Ok(None)` + a `warn` (not fatal — env / defaults still apply).
+/// - malformed TOML, or `[runtime]` present but not a table → `Err(msg)`
+///   (**explicit** — the caller surfaces it and exits; never silently defaults).
+/// - present but no `[runtime]` table → `Ok(None)`.
+pub fn load_runtime_toml<F>(get: F) -> Result<Option<toml::Table>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let Some(path) = get("Z42_CONFIG").filter(|s| !s.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // eprintln (not tracing) — this runs before the subscriber is
+            // installed, and matches the other one-line boot warnings here.
+            eprintln!("z42: Z42_CONFIG={path:?} not found; ignoring config-file layer");
+            return Ok(None);
+        }
+        Err(e) => return Err(format!("Z42_CONFIG={path:?}: {e}")),
+    };
+    let doc: toml::Table =
+        toml::from_str(&text).map_err(|e| format!("Z42_CONFIG={path:?}: invalid TOML: {e}"))?;
+    match doc.get("runtime") {
+        Some(toml::Value::Table(t)) => Ok(Some(t.clone())),
+        Some(_) => Err(format!("Z42_CONFIG={path:?}: [runtime] must be a table")),
+        None => Ok(None),
+    }
+}
+
 // ── Process-global accessor ──────────────────────────────────────────────────
 
-/// Process-wide singleton, populated on first access by reading the env.
-/// Subsystems use [`runtime_config()`] to access already-parsed values;
-/// tests can still construct independent [`RuntimeConfig`] instances via
-/// [`RuntimeConfig::from_getter`].
-static RUNTIME_CONFIG: LazyLock<RuntimeConfig> = LazyLock::new(RuntimeConfig::from_env);
+/// Process-wide resolved config. Populated either by [`init_runtime_config`]
+/// (main.rs, with the layered `[runtime]` config-file applied) or — if never
+/// initialised (tests / embedders) — lazily from the env alone on first read.
+static RUNTIME_CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
 
-/// Read the process-wide [`RuntimeConfig`]. First call parses env; subsequent
-/// calls return the cached value. Use this from any subsystem that needs a
-/// `Z42_*` knob without threading the config through its constructor.
+/// Install the process-wide resolved config. Call **once, early in `main()`,
+/// before any subsystem reads [`runtime_config()`]** (so the `[runtime]`
+/// config-file layer is visible to GC / JIT / native). Returns `Err(cfg)` if a
+/// read already raced the init in (leaving the env-only fallback installed) —
+/// the caller may warn but must not retry.
+pub fn init_runtime_config(cfg: RuntimeConfig) -> Result<(), RuntimeConfig> {
+    RUNTIME_CONFIG.set(cfg)
+}
+
+/// Read the process-wide [`RuntimeConfig`]. Returns the value installed by
+/// [`init_runtime_config`]; if none was installed, initialises lazily from the
+/// env alone (the pre-existing behaviour — no config-file layer). Use this from
+/// any subsystem that needs a `Z42_*` knob without threading it through.
 #[inline]
 pub fn runtime_config() -> &'static RuntimeConfig {
-    &RUNTIME_CONFIG
+    RUNTIME_CONFIG.get_or_init(RuntimeConfig::from_env)
 }
 
 fn split_paths(s: &str) -> Vec<PathBuf> {
@@ -581,5 +720,137 @@ mod tests {
         assert!(cfg.libs_dir.is_none());
         assert!(cfg.log_filter.is_none());
         assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
+    }
+
+    // ── unify-run-modes P0: layered resolution + [runtime] config file ────────
+
+    fn rt_table(src: &str) -> toml::Table {
+        toml::from_str(src).expect("test TOML must parse")
+    }
+
+    /// Unique temp path per (pid, name) — no global env mutation, parallel-safe.
+    fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir()
+            .join(format!("z42-p0cfg-{}-{name}.toml", std::process::id()));
+        std::fs::write(&p, content).expect("write temp config");
+        p
+    }
+
+    #[test]
+    fn resolve_none_equals_from_getter_nonbreaking() {
+        // The non-breaking guarantee: with no config-file layer, resolve is
+        // byte-for-byte the old env-only behaviour.
+        let env = &[("Z42_LIBS", "/l"), ("Z42_GC_MODE", "concurrent"), ("Z42_JIT_PROFILE", "1")];
+        let a = RuntimeConfig::resolve(fake_env(env), None);
+        let b = RuntimeConfig::from_getter(fake_env(env));
+        assert_eq!(a.libs_dir, b.libs_dir);
+        assert_eq!(a.gc_mode, b.gc_mode);
+        assert_eq!(a.jit_profile, b.jit_profile);
+        assert_eq!(a.gc_minor_threshold, b.gc_minor_threshold);
+    }
+
+    #[test]
+    fn resolve_env_wins_over_table() {
+        let t = rt_table("gc-mode = \"stw\"\ngc-minor-threshold = 0.5");
+        let cfg = RuntimeConfig::resolve(fake_env(&[("Z42_GC_MODE", "concurrent")]), Some(&t));
+        assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "env beats table");
+        assert_eq!(cfg.gc_minor_threshold, 0.5, "table used where env absent");
+    }
+
+    #[test]
+    fn resolve_table_wins_over_default() {
+        let t = rt_table("gc-mode = \"generational\"\ngc-pause-window = 4096\njit-profile = true");
+        let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
+        assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep);
+        assert_eq!(cfg.gc_pause_window, 4096);
+        assert!(cfg.jit_profile, "table boolean jit-profile=true → on");
+    }
+
+    #[test]
+    fn resolve_all_unset_uses_defaults() {
+        let t = rt_table("");
+        let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
+        assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
+        assert_eq!(cfg.gc_minor_threshold, 0.75);
+        assert!(!cfg.jit_profile);
+    }
+
+    #[test]
+    fn resolve_empty_env_falls_to_table() {
+        // Empty env value = unset (config-wide convention) → table consulted.
+        let t = rt_table("gc-mode = \"generational\"");
+        let cfg = RuntimeConfig::resolve(fake_env(&[("Z42_GC_MODE", "")]), Some(&t));
+        assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep);
+    }
+
+    #[test]
+    fn new_knobs_registered_with_toml_keys() {
+        for name in ["Z42_JIT_PROFILE", "Z42_TARGET", "Z42_CONFIG"] {
+            assert!(KNOWN_KNOBS.iter().any(|k| k.name == name), "{name} must be registered");
+        }
+        assert_eq!(toml_key_for("Z42_GC_MODE"), Some("gc-mode"));
+        assert_eq!(toml_key_for("Z42_GC_MINOR_THRESHOLD"), Some("gc-minor-threshold"));
+        // Z42_CONFIG is a meta pointer — no [runtime] value key.
+        assert_eq!(toml_key_for("Z42_CONFIG"), Some(""));
+    }
+
+    #[test]
+    fn gc_minor_threshold_hint_not_stale() {
+        // Regression: the KNOWN_KNOBS entry used to say "64 KiB" / "bytes of
+        // allocation", contradicting the actual survival-ratio 0.75 semantics.
+        let k = KNOWN_KNOBS.iter().find(|k| k.name == "Z42_GC_MINOR_THRESHOLD").unwrap();
+        assert!(!k.default_hint.contains("64 KiB"));
+        assert!(!k.description.contains("bytes of allocation"));
+        assert!(k.default_hint.contains("0.75"));
+    }
+
+    #[test]
+    fn jit_profile_from_env() {
+        assert!(RuntimeConfig::from_getter(fake_env(&[("Z42_JIT_PROFILE", "1")])).jit_profile);
+        assert!(!RuntimeConfig::from_getter(fake_env(&[])).jit_profile);
+        assert!(!RuntimeConfig::from_getter(fake_env(&[("Z42_JIT_PROFILE", "")])).jit_profile,
+            "empty = unset (config convention)");
+    }
+
+    #[test]
+    fn load_runtime_toml_unset_is_none() {
+        let out = load_runtime_toml(fake_env(&[])).unwrap();
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn load_runtime_toml_missing_file_is_none_not_panic() {
+        let out = load_runtime_toml(fake_env(&[("Z42_CONFIG", "/no/such/z42-cfg-xyz.toml")])).unwrap();
+        assert!(out.is_none(), "missing file → None (warn), not error/panic");
+    }
+
+    #[test]
+    fn load_runtime_toml_reads_runtime_section() {
+        let p = write_temp("reads", "[runtime]\ngc-mode = \"concurrent\"\n[other]\nx = 1\n");
+        let pstr = p.to_string_lossy().into_owned();
+        let table = load_runtime_toml(fake_env(&[("Z42_CONFIG", &pstr)])).unwrap().unwrap();
+        assert_eq!(table.get("gc-mode").and_then(|v| v.as_str()), Some("concurrent"));
+        // end-to-end through resolve
+        let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&table));
+        assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn load_runtime_toml_no_runtime_section_is_none() {
+        let p = write_temp("noruntime", "[other]\nx = 1\n");
+        let pstr = p.to_string_lossy().into_owned();
+        let out = load_runtime_toml(fake_env(&[("Z42_CONFIG", &pstr)])).unwrap();
+        assert!(out.is_none(), "no [runtime] table → None");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn load_runtime_toml_malformed_errors_explicitly() {
+        let p = write_temp("malformed", "this is = = not toml [[[");
+        let pstr = p.to_string_lossy().into_owned();
+        let out = load_runtime_toml(fake_env(&[("Z42_CONFIG", &pstr)]));
+        assert!(out.is_err(), "malformed TOML → explicit error, not silent default");
+        let _ = std::fs::remove_file(&p);
     }
 }
