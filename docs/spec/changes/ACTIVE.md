@@ -54,7 +54,7 @@
 | ~~add-method-invoke-non-generic~~ | runtime + stdlib + toolchain(harness) —— ✅ 已归档 2026-06-30（非泛型 MethodInfo.Invoke + Type.GetType：__method_invoke/__type_get_type builtin 复用 exec_function/make_type_from_name；异常原类型经 pending_thrown 透出 interp+jit；Activator 延后。root-cause 修 golden runner 继承陈旧 Z42_LIBS → xtask_test_vm 钉 fresh stdlib。GREEN：vm interp 190/0 含 method_invoke + jit 直验。解锁 retire-test-runner）|
 | ~~add-type-based-overloads~~ | compiler（src/compiler/）—— ✅ 已归档 2026-07-01（type-based 方法重载决议，静态+实例，见 ACTIVE.md 子系统持有表 compiler 行详述；解锁 add-params-varargs 阶段 4）|
 | ~~add-params-varargs~~ | compiler（src/compiler/）—— ✅ 已归档 2026-07-01（`params` 变长参数：typed `T[]`/`object[]` + normal/expanded 重载决议 + 跨包 TSIG，见 ACTIVE.md 子系统持有表 compiler 行详述；stdlib API 迁移归独立 follow-up）|
-| `extract-compile-pipeline-api` | compiler（src/compiler/z42c.pipeline）—— 🟡 SPEC DRAFT，0/30 从未开工；编译编排下沉到 z42c.pipeline 库 API（REPL/playground 前置）：CompileResult + PackageCompiler + DepScan provider 抽象；**不持锁**，开工前重新登记 compiler 锁 |
+| ~~`extract-compile-pipeline-api`~~ | compiler —— ✅ 已归档 2026-07-26（核心 `PackageCompile` 库级 API 实际 2026-07-17 commit `1f3f9229` 落地、proposal/design 头标「已实施」，但当时漏补 tasks/漏 mv/漏更新本表 → 归档扫描补齐。DepScan scan-provider（CachedScan 复用）转 follow-up `perf-optimize-repl-eval` ②）|
 | ~~restructure-publish-output-dirs~~ | compiler —— ✅ 已归档 2026-06-19 |
 | ~~scaffold-z42c-selfhost~~ | z42c + compiler —— ✅ 已归档 2026-06-19（骨架完成；实现通过 port-z42c-* 系列）|
 | ~~port-z42c-core~~ | z42c + toolchain —— ✅ 已归档 2026-06-07（见 spec/archive/2026-06-07-port-z42c-core）|

@@ -4,6 +4,7 @@ namespace Std.Scripting;
 
 using Std;
 using Std.Collections;
+using Z42.Pipeline;   // DepScanResult（perf-optimize-repl-eval ②：跨轮缓存依赖世界）
 
 public class ScriptState {
     public List<string> Usings;    // 生效的 using 命名空间（如 "Std.IO"）
@@ -13,8 +14,10 @@ public class ScriptState {
     // 编译配置（PackageCompile 需要）：依赖目录 + 依赖名白名单。REPL 运行期从 Z42_LIBS 派生。
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
-    // 会话磁盘目录：每轮 zpkg 落盘于此并纳入 LibsDirs，使后续轮编译期可引用前轮（carry-forward）。
-    public string SessionDir;
+    // 依赖世界缓存（perf-optimize-repl-eval ②）：首轮对静态库建一次 DepScan（~98% 的每轮开销），
+    // 之后逐轮作 CompileInputs.CachedScan 复用 + ExtendWithPackage 增量并入本轮 Repl.R{N} 包（carry-
+    // forward 改为全内存增量，不再落盘/不再全量重扫）。null = 尚未建。
+    public DepScanResult CachedScan;
 
     public ScriptState() {
         this.Usings = new List<string>();
@@ -23,5 +26,6 @@ public class ScriptState {
         this.VarsRound = 0;
         this.LibsDirs = new string[0]; this.LibsDirsN = 0;
         this.DeclaredDeps = new string[0]; this.DepCount = 0;
+        this.CachedScan = null;
     }
 }
