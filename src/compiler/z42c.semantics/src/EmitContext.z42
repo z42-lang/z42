@@ -23,6 +23,7 @@ public sealed class EmitContext {
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
     public DependencyIndex Deps;       // 跨包调用索引（CI-4；null=无依赖）
     public StrMap ImportedClassNs;     // imported 短类名 → ns（StrBox；IC-1：VCall 依赖追踪 + ObjNew FQ；**含本包跨-ns 自有类**，G17b）
+    public StrMap ImportedFuncNs;      // imported 自由函数名 → 源 ns（StrBox；fix-imported-free-func-namespace：跨包裸调按源 ns 限定，与 ImportedClassNs 对称）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包**自有声明**类名集（G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
     public string[] UsedDepNs; public int UsedDepNsCount;   // codegen 期实际命中的依赖 ns（DEPS 用，首现序）
@@ -44,6 +45,7 @@ public sealed class EmitContext {
         this.Ns = "";
         this.Deps = null;
         this.ImportedClassNs = null;
+        this.ImportedFuncNs = null;
         this.ActiveNs = null; this.ActiveNsCount = 0;
         this.UsedDepNs = new string[4]; this.UsedDepNsCount = 0;
         this.ExcTable = new IrExcEntry[2]; this.ExcCount = 0;
@@ -83,6 +85,17 @@ public sealed class EmitContext {
         if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(name)) {
             StrBox b = this.ImportedClassNs.Get(name) as StrBox;
             if (b != null) { return b.Value + "." + name; }
+        }
+        return this.Qualify(name);
+    }
+
+    // 自由函数名限定（fix-imported-free-func-namespace，镜像 QualifyClass）：跨包 imported 自由函数
+    // → 其源 ns 前缀（并追踪依赖 ns，使 DEPS 收录、加载器能解析）；否则回落 Qualify（当前 ns）。
+    // ImportedFuncNs 已由 _filterShadowedFuncs 剔除本地遮蔽名（local-wins：本地同名函数不误绑到导入份）。
+    public string QualifyFreeFunc(string name) {
+        if (this.ImportedFuncNs != null && this.ImportedFuncNs.ContainsKey(name)) {
+            StrBox b = this.ImportedFuncNs.Get(name) as StrBox;
+            if (b != null) { this.TrackDepNamespace(b.Value); return b.Value + "." + name; }
         }
         return this.Qualify(name);
     }

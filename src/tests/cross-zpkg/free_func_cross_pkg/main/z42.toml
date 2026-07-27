@@ -1,0 +1,10 @@
+[project]
+name    = "demo.freeapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.FreeFuncApp.Main"
+pack    = true
+
+[dependencies]
+"demo.freebase" = "0.1.0"
+"demo.freeext"  = "0.1.0"

@@ -1,0 +1,9 @@
+namespace Demo.FreeFuncBase;
+
+// A namespace-level (free) function, exported and bare-called across zpkg.
+// Regression for fix-imported-free-func-namespace: a bare call to an imported
+// free function must be qualified to THIS declaring ns (Demo.FreeFuncBase),
+// not the caller's ns.
+int Square(int x) {
+    return x * x;
+}
