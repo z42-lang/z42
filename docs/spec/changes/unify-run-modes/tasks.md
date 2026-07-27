@@ -1,13 +1,14 @@
 # Tasks: unify-run-modes
 
 > 状态：🔴 DRAFT（待 User 审批）| 见 [proposal.md](proposal.md)
-> 更新：2026-07-27（简化：取消单文件，源码运行仅工程 = build+run；四阶段）
+> 更新：2026-07-28（取消单文件 + 合并多 exe 目标；六阶段，build 侧先于 run 侧）
 > 每阶段独立可 commit + 可全绿；IMPL 起步前逐阶段查 ACTIVE.md 排锁。
 
-## 锁现状（2026-07-27）
+## 锁现状（2026-07-28）
 - `runtime` 空闲 → **P0 可立即起**
-- `toolchain` 空闲 → P1 / P3 可起
-- `compiler` 被 `nested-types-followup` 占 → P2 排队
+- `toolchain` 空闲 → P1 / P4 / P5 可起
+- `compiler` 被 `nested-types-followup` 占 → P2 / P3 排队
+- 依赖顺序：P3（多 exe 构建 build 侧）必须先于 P4（`--bin` run 侧）
 
 ## P0 — 设置 SoT 收敛 + VM 端 [runtime] 解析（runtime 单锁）
 > design: [design.md](design.md) | spec: [specs/runtime-settings/spec.md](specs/runtime-settings/spec.md)
@@ -33,15 +34,30 @@
 - [ ] 运行路径消费 `mode`
 - [ ] 自举不动点验证（gen1==gen2）
 
-## P3 — 统一前门 + 源码工程 build+run 编排（toolchain）
+## P3 — 多 exe 构建 build 侧（compiler + z42b，排队）
+> spec: [specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md) | design: design.md「多 exe 目标」节
+- [ ] `ManifestLoader` + `ProjectInfo` 解析 `default-run` 字段
+- [ ] `Main.z42`：`ExeCount>0` 遍历 `pm.Exes` 各产 `dist/<name>.zpkg`（entry=exe.Entry, 源集=exe.Src‖[sources]）；`ExeCount==0` 走现有单入口
+- [ ] `PackageCompile` 按 exe 目标 entry/源集各编一次（若需）
+- [ ] z42b `_orchestrate` 多目标（或下沉 driver、z42b 透传）
+- [ ] 单测/e2e：双 exe→两 zpkg entry 正确、专属 src 只编子集、ExeCount==0 产物不变
+- [ ] **自举不动点 gen1==gen2**（非破坏关键证据）
+
+## P4 — 统一前门 + run 选择 run 侧（toolchain）
 - [ ] `_cmdRun` 前门分类器（`.zpkg`/`.zbc` → 跑产物；`<目录>`/省略 → 找 manifest）
 - [ ] `z42 run <dir>`：调现有 `z42 build`（增量，已新鲜则跳过）→ 跑产出 `.zpkg`
+- [ ] `--bin X` → 跑 `dist/X.zpkg`；无 --bin → default-run 否则报错列名；--bin 名不存在报错
 - [ ] 无 manifest → 明确报错；workspace 目录支持 `-p`
-- [ ] 单元/e2e 测试：源码工程运行、增量跳过、报错路径
+- [ ] 单元/e2e：源码工程运行、增量跳过、--bin 选择、各报错路径
+
+## P5 — publish 每 main 一 app（toolchain）
+- [ ] `z42 publish` 遍历 `[[exe]]` 各配 apphost（复用 per-zpkg，不改 payload）
+- [ ] 修 `examples/hello.z42.toml` 等装饰性 `[[exe]]` 为真可跑（补 kind/entry）
+- [ ] e2e：双 exe→两 apphost 各可独立跑
 
 ## 文档（归档前必须落地）
 - [ ] `docs/design/runtime/runtime-settings.md`（NEW）
-- [ ] launcher.md / project.md / features.md / roadmap.md 更新
+- [ ] launcher.md / project.md（+`[[exe]]`/default-run）/ features.md / roadmap.md 更新
 
 ## 未决
-无。设计已简化定稿（2026-07-27，取消单文件源码运行）。
+无。设计定稿（2026-07-28）：取消单文件（Option 3）+ 合并多 exe 目标（接回归档特性）。

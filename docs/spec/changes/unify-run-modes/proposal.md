@@ -1,7 +1,7 @@
 # Proposal: 运行模式统一——统一启动入口 + 统一运行时设置（unify-run-modes）
 
-> 状态：🔴 DRAFT（待 User 审批）| 创建：2026-07-26 | 更新：2026-07-27（简化：取消单文件源码运行）| 类型：`vm` + `toolchain` → 完整流程
-> 子系统：`runtime`（设置解析）‖ `toolchain`（launcher 前门 + build+run 编排）‖ `compiler`（`[profile.*]` 解析）
+> 状态：🔴 DRAFT（待 User 审批）| 创建：2026-07-26 | 更新：2026-07-28（取消单文件 + 合并多 exe 目标）| 类型：`vm` + `toolchain` + `lang/工程模型` → 完整流程
+> 子系统：`runtime`（设置解析）‖ `toolchain`（launcher 前门 + build/publish 编排）‖ `compiler`（`[profile.*]` + `[[exe]]` 消费）
 > 设计 SoT（落地时同步）：新增 `docs/design/runtime/runtime-settings.md`（设置优先级链 + 旋钮 SoT）、`docs/design/runtime/launcher.md`（前门分类）、`docs/design/compiler/project.md`（`[runtime]` 段 + profile.mode 消费）
 > 前置：REPL 底座（`add-z42-repl` ✅ 已在 main）、现有 `z42 build` 编排
 
@@ -56,16 +56,45 @@ z42 目前的运行形态各走各的入口、各用各的设置来源，缺一�
 ## 前门分类器（launcher `_cmdRun` 扩展）
 
 ```
-z42 run <target> [-- args]     分类:
+z42 run <target> [--bin <name>] [-- args]     分类:
   *.zpkg / *.zbc   → 加载产物直接跑                    (host + embed)
   <目录> / 省略     → 找 manifest（*.z42.toml / z42.workspace.toml）:
       有 → build(增量) + 跑产出 .zpkg                  (host)
+           多 exe 目标时按 --bin 选（见下）
       无 → 明确报错（不猜）
 z42 repl                       → REPL                  (host + embed)
 ```
 
 - 保留 `z42 app.zpkg` 裸简写；`z42 run <dir>` 为源码工程便利命令。
 - workspace 目录需 `-p` 选成员（或 default-members）。
+
+---
+
+## 多 exe 目标：一个 manifest 多 main → 每 main 一产物
+
+**现状（探查确认 2026-07-27）**：`[[exe]]` 在 z42 里是**"解析了但没人用"（dead）**——[ManifestLoader](../../../../src/libraries/z42.project/src/ManifestLoader.z42) 完整解析成 `ProjectManifest.Exes`，但全仓零消费方，driver/z42b/launcher 全走 `ProjectInfo.Entry` 单入口硬编码。多 exe 的构建循环 + `--exe` flag + 产物命名在**旧 C# 代码库有**（[archive/2026-04-04-add-multi-exe-target](../../archive/2026-04-04-add-multi-exe-target/)），自举迁移时**只搬了模型+解析器，消费逻辑没搬**。故本 change 是**接回丢失特性**，不是从零发明。
+
+**manifest（已可解析）**：
+```toml
+[[exe]]
+name  = "server"
+entry = "App.Server.Main"        # 该 main 的 FQ 函数名
+src   = ["src/server/*.z42"]      # 可选：本 exe 专属源集；省略=沿用 [sources]
+[[exe]]
+name  = "cli"
+entry = "App.Cli.Main"
+default-run = "server"            # 可选（[project] 段）：多 exe 无 --bin 时的默认
+```
+
+**三个场景全部复用现成机制**（entry 已烤进 zpkg META 段，[ZpkgWriter](../../../../src/compiler/z42c.core/src/ZpkgWriter.z42)）：
+
+| 场景 | 实现 | 复用 |
+|---|---|---|
+| **build 产多产物** | driver 遍历 `pm.Exes` → 每 exe 编译（entry=exe.Entry, sources=exe.Src‖[sources]）→ `dist/<name>.zpkg` | 现有 entry 烘焙链，从"调一次"变"循环调"；`ExeCount==0` 走现有单入口（非破坏）|
+| **`z42 run --bin X`** | 跑 `dist/X.zpkg`（entry 已烤好）| 直接跑产物，**不用入口覆盖 / 不改 apphost** |
+| **`z42 publish` 每 main 一 app** | 每个 `dist/<name>.zpkg` 各配一 apphost | 现有 apphost-per-zpkg，**不改 payload** |
+
+**"一个 main ↔ 一个 zpkg" 物理直接成立。** 多 exe 无 `--bin` 且无 `default-run` → 报错列出所有 exe 名（不猜）。
 
 ---
 
@@ -99,6 +128,11 @@ CLI flag  >  环境变量  >  运行配置文件  >  工程 profile  >  SDK 全�
 | D2 | 源码工程缓存 | **复用现有增量 build 缓存**（`.cache`/`cache_dir`）| 不新造；已新鲜则跳过 build |
 | D-build | build 步实现 | **复用现有 `z42 build` 编排**（launcher 拼 `build` + `_cmdRun`）| 不新写编译逻辑 |
 | D5 | 运行时设置 | **统一 TOML + 分层优先级**，KNOWN_KNOBS 为旋钮 SoT，env 不废弃 | 单一 SoT + 单一优先级链，收编 JSON 侧车；VM 端解析覆盖双启动路径 |
+| D-exe1 | 多 exe 定性 | **接回归档特性**（`add-multi-exe-target` 迁移时丢失的消费逻辑），非新发明 | 模型+解析器已在（`ProjectManifest.Exes`），只补消费层 |
+| D-exe2 | 多产物构建 | **per-exe zpkg**：driver 遍历 `[[exe]]` 各产 `dist/<name>.zpkg`（entry 烤入）；`ExeCount==0` 走现有单入口 | 物理 1:1，复用现有单入口烘焙链，非破坏 |
+| D-exe3 | 共享代码去重 | **暂不去重**：共享 `[sources]` 的 exe 各带一份编译产物；lib+bins 去重留 future | 多数多-bin 工程体量小；exe 声明不相交 `src` 时天然不重复 |
+| D-exe4 | run 选择 | `z42 run <dir> --bin X` → 跑 `dist/X.zpkg`（**不用入口覆盖**）；多 exe 无 `--bin`+无 `default-run` → 报错列名 | 产物 entry 已烤好，直跑即可；不猜默认 |
+| D-exe5 | publish 每 main 一 app | 每 `dist/<name>.zpkg` 各配一 apphost（**不改 payload**）| 复用现有 apphost-per-zpkg |
 
 > 早期 D3/D4/D6/D7/D8（z42.scripting 作源码运行共享核心 / 单文件合成 manifest / 依赖 provider 注入接口 / 单文件缓存 / 物理迁移）随"取消单文件"整体移除。
 
@@ -110,18 +144,21 @@ CLI flag  >  环境变量  >  运行配置文件  >  工程 profile  >  SDK 全�
 - **源码运行的进程内编译底座 / z42.scripting 复用**：不做——工程 build 到盘再跑产物，REPL 的 z42.scripting 保持专用不动。
 - **编译器 pipeline stdlib 化**：本 change 不碰，留独立长期方向。
 - **Embed 上的源码运行**：host-only；Embed 仅编译产物 + REPL。
+- **多 exe 共享代码去重（lib+bins）**：本 change 用 per-exe zpkg（共享源集时各带一份编译产物）；lib+bins 去重留 future 优化。
 - **top-level-statements 脚本语法 / mobile·WASM 源码运行**：不在本 change。
 
 ---
 
-## 四阶段迭代（每阶段独立可 commit + 可全绿）
+## 六阶段迭代（每阶段独立可 commit + 可全绿；build 侧先于 run 侧）
 
 | 阶段 | 内容 | 子系统锁 | 风险 |
 |---|---|---|---|
 | **P0** | 设置 SoT 收敛：补齐 KNOWN_KNOBS 漏网旋钮、修描述、`RuntimeConfig` 加 `[runtime]` TOML 输入 + 优先级链 | `runtime` | 最低（不改入口行为，纯地基）|
 | **P1** | 侧车 JSON→TOML：launcher 读 `.runtimeconfig.toml`（Std.Toml）；`~/.z42/config.toml` 换 Std.Toml；`z42 publish` 侧车产出同步换 | `toolchain` | 低 |
 | **P2** | `[profile.*]` 打通：z42c 解析 profile 段，运行路径消费 `mode` | `compiler` | 中（碰自举，需不动点验证）|
-| **P3** | 统一前门 `RunEngine`：分类派发 + 设置解析 + `z42 run <dir>` = build（增量）+ run 编排 | `toolchain` | 中 |
+| **P3** | **多 exe 构建（build 侧）**：driver 遍历 `pm.Exes` 各产 `dist/<name>.zpkg`（`ExeCount==0` 走现有单入口）；z42b 编排支持多目标；`default-run` 字段 | `compiler`(+`toolchain` z42b) | 中（碰自举，需不动点验证）|
+| **P4** | **统一前门 + run 选择（run 侧）**：`z42 run <dir>` = build（增量）+ run；多 exe 按 `--bin` 选 `dist/<name>.zpkg`；无 --bin 用 default-run 否则报错 | `toolchain` | 中 |
+| **P5** | **publish 每 main 一 app**：遍历 `[[exe]]` 各配 apphost；修 `examples/*.z42.toml` 装饰性 `[[exe]]` 为真可跑 | `toolchain` | 低 |
 
 ---
 
@@ -136,36 +173,42 @@ CLI flag  >  环境变量  >  运行配置文件  >  工程 profile  >  SDK 全�
 | `src/runtime/src/main.rs` | MODIFY | `--info` 枚举 schema；`Z42_CONFIG` 生效路径 |
 | `src/runtime/src/jit/lazy.rs` | MODIFY | `Z42_JIT_PROFILE` 纳入 RuntimeConfig（去 straggler）|
 
-### toolchain（P1/P3）
+### toolchain（P1/P4/P5）
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/toolchain/launcher/core/launcher.z42` | MODIFY | `_cmdRun` 分类器；`.runtimeconfig.toml`（Std.Toml）；`config.toml` 换 Std.Toml；`z42 run <dir>` = build+run 编排 |
-| `src/toolchain/launcher/core/launcher_cli.z42` | MODIFY | 前门分类派发（目录 / 省略）|
+| `src/toolchain/launcher/core/launcher.z42` | MODIFY | `_cmdRun` 分类器；`.runtimeconfig.toml`（Std.Toml）；`config.toml` 换 Std.Toml；`z42 run <dir>` = build+run 编排；`--bin` 选择 |
+| `src/toolchain/launcher/core/launcher_cli.z42` | MODIFY | 前门分类派发（目录 / 省略）；`--bin` 转发 |
+| `src/toolchain/builder/core/builder_commands.z42` | MODIFY | z42b `_orchestrate` 支持多 exe 目标（P3）；publish 遍历 `[[exe]]`（P5）|
+| `examples/hello.z42.toml` 等 | MODIFY | 装饰性 `[[exe]]` 改为真可跑（补 kind/entry）（P5）|
 
-### compiler（P2）
+### compiler（P2/P3）
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/compiler/z42c.driver/src/Main.z42` | MODIFY | 解析 `[profile.*]` 段（现延后项）|
-| `src/libraries/z42.project/src/ManifestLoader.z42` | MODIFY（若需）| profile 段解析补完 |
+| `src/compiler/z42c.driver/src/Main.z42` | MODIFY | 解析 `[profile.*]` 段（P2）；遍历 `pm.Exes` 多产物循环（P3，`ExeCount==0` 走现有单入口）|
+| `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY（若需）| 每 exe 目标按 entry/源集各编一次（P3）|
+| `src/libraries/z42.project/src/ManifestLoader.z42` | MODIFY | profile 段解析补完（P2）；`default-run` 字段解析（P3）|
+| `src/libraries/z42.project/src/ProjectInfo.z42` | MODIFY | 加 `default-run` 字段（P3）|
 
 ### docs
 | 文件 | 变更 |
 |------|------|
 | `docs/design/runtime/runtime-settings.md` | NEW（设置优先级链 + 旋钮 SoT，配 mermaid）|
 | `docs/design/runtime/launcher.md` | MODIFY（前门分类 + build+run 编排）|
-| `docs/design/compiler/project.md` | MODIFY（`[runtime]` 段 + profile.mode 消费）|
-| `docs/features.md` | MODIFY（设置优先级表）|
-| `docs/roadmap.md` | MODIFY（源码工程运行能力状态）|
+| `docs/design/compiler/project.md` | MODIFY（`[runtime]` 段 + profile.mode 消费 + `[[exe]]` 多目标构建 + `default-run`）|
+| `docs/features.md` | MODIFY（设置优先级表 + 多 exe 目标）|
+| `docs/roadmap.md` | MODIFY（源码工程运行 + 多 exe 能力状态）|
 
 ---
 
 ## 协调
 
-- **锁排队**：P2 需 `compiler`（现被 `nested-types-followup` 占）。P0（runtime）/P1·P3（toolchain）现可起。IMPL 分阶段各自排锁，不一次性占多锁。
+- **锁排队**：P2/P3 需 `compiler`（现被 `nested-types-followup` 占）。P0（runtime）/P1（toolchain）现可起。IMPL 分阶段各自排锁，不一次性占多锁。
+- **build 侧先于 run 侧**：P3（多产物构建）必须先于 P4（`--bin` 选择），否则 run 侧无产物可选。
 - REPL 内核（z42.scripting / z42i）本 change 不动，与 `perf-optimize-repl-eval` 等 REPL 相关 change 无 Scope 重叠。
 
 ---
 
 ## 未决
 
-无。设计已简化定稿（2026-07-27，取消单文件）。P0 的 design/spec（[design.md](design.md) / [specs/runtime-settings/spec.md](specs/runtime-settings/spec.md)）不受简化影响，待 User 批准进 IMPL。
+无。设计定稿（2026-07-28）：取消单文件（Option 3）+ 合并多 exe 目标（接回归档特性）。
+spec：[design.md](design.md)（P0 设置 + 多 exe 设计）/ [specs/runtime-settings/spec.md](specs/runtime-settings/spec.md)（P0）/ [specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md)（P3–P5）。待 User 批准进 IMPL（P0 先起）。
