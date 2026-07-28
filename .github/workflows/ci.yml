@@ -377,6 +377,24 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$runner" artifacts/xtask/xtask.zpkg -- package workload
 
+      - name: Launcher run smoke (z42 run <dir> --bin — unify-run-modes P4)
+        # Linux + macOS only: the dist-test preflight + launcher-smoke path has
+        # pre-existing Windows `.exe`-suffix gaps (bin/z42c[.exe] / z42[.exe]) that
+        # predate P4 and are a separate fix; the P4 run-front-door itself compiles
+        # + is exercised on the other RIDs.
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
+          runner="$vm"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
+          # Runs only the launcher smoke (portable `z42 which` + `z42 run <dir> --bin`),
+          # skipping the heavier desktop-publish/golden legs (DIST_SMOKE_ONLY=launcher).
+          # Consumes the SDK package produced above (auto-resolved via _latestReleasePkg).
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" DIST_SMOKE_ONLY=launcher \
+            "$runner" artifacts/xtask/xtask.zpkg -- test dist
+
       - name: Verify package manifest + native artifacts
         shell: bash
         run: |

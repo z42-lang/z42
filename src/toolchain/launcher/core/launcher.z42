@@ -17,6 +17,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;
+using Z42.Build.Project;   // ManifestLoader / ProjectManifest / ExeTarget — `z42 run <dir>` (P4)
 
 // migrate-xtask-launcher-to-std-cli (2026-06-10): Main delegates to the Std.Cli
 // nested router in launcher_cli.z42 (_runLauncher). The command tree, per-level
@@ -231,20 +232,32 @@ void _cmdWhich(ParseResult r) {
 // z42 run [--runtime V] <app.zpkg> [-- <app args>]
 void _cmdRun(string[] rest) {
     string? ver = _flagValue(rest, "--runtime");
+    string? binOpt = _flagValue(rest, "--bin");   // (P4) select an [[exe]] target
     string app = "";
     string[] appArgs = new string[0];
     int i = 0;
     while (i < rest.Length) {
         string a = rest[i];
         if (a == "--runtime") { i = i + 2; continue; }   // skip flag + value
+        if (a == "--bin") { i = i + 2; continue; }        // skip flag + value (P4)
         if (a == "--") { appArgs = _tail(rest, i + 1); break; }
         if (app.Length == 0) { app = a; }
         i = i + 1;
     }
     if (app.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 run [--runtime <ver>] <app.zpkg> [-- <args>]");
+        ConsoleError.WriteLine("usage: z42 run [--runtime <ver>] [--bin <name>] <app.zpkg | project-dir | project.z42.toml> [-- <args>]");
         Environment.Exit(2);
         return;
+    }
+
+    // (unify-run-modes P4) source-project run: if `app` is a directory or a
+    // *.z42.toml manifest (not a compiled .zpkg/.zbc), build it via z42c then run
+    // the produced zpkg. `--bin <name>` picks among multiple [[exe]] targets.
+    // On any error the helper prints the message; we exit non-zero.
+    if (_isSourceProject(app)) {
+        string built = _buildAndResolveRun(app, binOpt ?? "");
+        if (built.Length == 0) { Environment.Exit(1); return; }
+        app = built;
     }
 
     // <app>.runtimeconfig.toml (unify-run-modes P1; was .json) declares the
@@ -362,6 +375,104 @@ string? _flagValue(string[] arr, string flag) {
         i = i + 1;
     }
     return null;
+}
+
+// ── source-project run (unify-run-modes P4) ──────────────────────────────────
+
+// A run target that is *source to build*, not a compiled artifact: a directory,
+// or a manifest file — both `z42.toml` (Cargo-style) and `<name>.z42.toml` are
+// accepted. `.zpkg`/`.zbc` are compiled → run directly.
+bool _isSourceProject(string app) {
+    if (app.EndsWith(".zpkg") || app.EndsWith(".zbc")) { return false; }
+    if (app.EndsWith("z42.toml")) { return true; }   // z42.toml or <name>.z42.toml
+    return Directory.Exists(app);
+}
+
+// Build the source project (via z42c) then resolve the zpkg to run:
+//   - no `[[exe]]`      → the single `dist/<project.name>.zpkg`
+//   - `[[exe]]` + --bin → `dist/<bin>.zpkg` (validated against declared targets)
+//   - `[[exe]]`, no --bin → error listing the targets (no default-run yet — P3
+//     首切边界，default-run 占 stdlib 锁后置)
+// Returns "" (after printing an error) on any failure.
+// 首切边界：默认 dist（`<projDir>/dist`）；`[build].dist_dir` 覆盖 + workspace/本地依赖
+// 拓扑构建后置。
+string _buildAndResolveRun(string app, string binName) {
+    // `app` may be a manifest file (`z42.toml` / `<name>.z42.toml`) or a directory.
+    string manifest = app.EndsWith("z42.toml") ? app : _findProjectToml(app);
+    if (manifest.Length == 0) {
+        ConsoleError.WriteLine("z42 run: no z42.toml / <name>.z42.toml manifest found in " + app);
+        return "";
+    }
+    // Build via z42c. Its progress ("wrote -> …") goes to stdout — route it to
+    // null so it does NOT pollute the program's own stdout (cargo-run-like: build
+    // noise stays off the program's output stream). Errors go to stderr (Inherit).
+    string z42c = Path.Join(_home(), "bin/z42c");
+    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
+    if (!File.Exists(z42c)) {
+        ConsoleError.WriteLine("z42 run: z42c not found (SDK bin/z42c) — reinstall the SDK");
+        return "";
+    }
+    int bc = new Process(z42c).Arg("build").Arg(manifest)
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+    if (bc != 0) {
+        ConsoleError.WriteLine("z42 run: build failed (" + manifest + ")");
+        return "";
+    }
+
+    ProjectManifest pm = ManifestLoader.Load(manifest);
+    string projDir = Path.GetDirectoryName(manifest);
+    string distDir = Path.Join(projDir, "dist");
+
+    if (pm.ExeCount == 0) {
+        string single = Path.Join(distDir, pm.Project.Name + ".zpkg");
+        if (!File.Exists(single)) {
+            ConsoleError.WriteLine("z42 run: build produced no " + single);
+            return "";
+        }
+        return single;
+    }
+    // multi-exe: must pick one.
+    if (binName.Length == 0) {
+        ConsoleError.WriteLine("z42 run: project declares multiple [[exe]] targets; select one with --bin <name>:");
+        _listExes(pm);
+        return "";
+    }
+    bool found = false;
+    int j = 0;
+    while (j < pm.ExeCount) { if (pm.Exes[j].Name == binName) { found = true; } j = j + 1; }
+    if (!found) {
+        ConsoleError.WriteLine("z42 run: --bin " + binName + " is not a declared [[exe]] target; valid:");
+        _listExes(pm);
+        return "";
+    }
+    string binZpkg = Path.Join(distDir, binName + ".zpkg");
+    if (!File.Exists(binZpkg)) {
+        ConsoleError.WriteLine("z42 run: build produced no " + binZpkg);
+        return "";
+    }
+    return binZpkg;
+}
+
+void _listExes(ProjectManifest pm) {
+    int i = 0;
+    while (i < pm.ExeCount) { ConsoleError.WriteLine("    - " + pm.Exes[i].Name); i = i + 1; }
+}
+
+// The manifest directly in `dir` (source-project run target). Prefers a bare
+// `dir/z42.toml` (Cargo-style, as most fixtures/projects use), else the top-level
+// `*.z42.toml`. "" if none.
+string _findProjectToml(string dir) {
+    string bare = Path.Join(dir, "z42.toml");
+    if (File.Exists(bare)) { return bare; }
+    string[] tomls = Path.GlobRecursive(dir, "*.z42.toml");
+    if (tomls.Length == 0) { return ""; }
+    int i = 0;
+    while (i < tomls.Length) {
+        if (Path.GetDirectoryName(tomls[i]) == dir) { return tomls[i]; }
+        i = i + 1;
+    }
+    return tomls[0];
 }
 
 // `<dir>/<name>.runtimeconfig.toml` next to the app (.NET-style sidecar;
