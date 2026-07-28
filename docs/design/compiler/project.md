@@ -750,8 +750,10 @@ test = true                       # 破例纳入 xtask test 执行（默认 exam
 
 ### 具名选择运行
 
-统一 `xtask <kind> <name>` 只跑一个：`xtask test <name>` / `xtask bench <name>` /
-`xtask example <name>`。名不存在 → 报错列出可用目标名，非零退出（不静默）。
+`xtask test targets <name>` / `xtask bench targets <name>` / `xtask example <name>` 只跑一个
+（裸 `test`/`bench` 是全量 gate / e2e 默认动作，故 test/bench 走 `targets <name>` 子动作）。名不存在
+→ 报错列出可用目标名，非零退出（不静默）。**注**：自定义段 `include` glob 运行期暂只扫约定目录
+（`tests/`·`bench/`·`examples/`），见归档 spec「Known Limitations」。
 
 ### 三层依赖合并
 
@@ -798,7 +800,7 @@ artifacts/build/libraries/<lib>/<profile>/
 |------|------|----------|
 | `./xtask test stdlib [lib]`  | `<lib>/<profile>/tests/{cache/<unit>,dist}/` | `[dependencies]` + `[tests.dependencies]` |
 | `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
-| `./xtask test/bench/example <name>` | 同上（具名单目标）| 三层合并 |
+| `./xtask test targets <name>` / `bench targets <name>` / `example <name>` | 同上（具名单目标）| 三层合并 |
 | `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 聚合 `libraries/dist/`（**保留** tests/bench） | — |
 | `./xtask clean tests`        | 删每个 `<lib>/<profile>/tests/` | — |
 | `./xtask clean bench`        | 删每个 `<lib>/<profile>/bench/` | — |
