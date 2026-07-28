@@ -276,14 +276,41 @@ fn print_build_info() {
     #[cfg(feature = "aot")] modes.push("aot");
     println!("exec modes: {}", modes.join(", "));
 
-    // Runtime knobs — enumerate from KNOWN_KNOBS so this stays automatically
-    // in sync as new env vars get registered. Read raw env directly (not via
-    // RuntimeConfig.from_env) so subsystem-local knobs surface too.
+    // Effective [runtime] config-file layer (Z42_CONFIG). Loaded the same way
+    // boot does so --info reflects what a real run would see. A malformed file
+    // reports the error here instead of a value. Loaded once and reused for the
+    // per-knob provenance below.
+    let runtime_table = match std::env::var("Z42_CONFIG") {
+        Ok(p) if !p.trim().is_empty() => match z42::config::load_runtime_toml(|n| std::env::var(n).ok()) {
+            Ok(t @ Some(_)) => { println!("config file: {p} ([runtime] applied)"); t }
+            Ok(None)        => { println!("config file: {p} (no [runtime] table)"); None }
+            Err(e)          => { println!("config file: {p} (error: {e})"); None }
+        },
+        _ => { println!("config file: (unset; env + built-in defaults only)"); None }
+    };
+
+    // Runtime knobs — enumerate from KNOWN_KNOBS so this stays automatically in
+    // sync as new env vars get registered. Each line shows the env name, its
+    // [runtime] TOML key, and the *effective* value with provenance following
+    // the real precedence chain: [env] > [config] > [default].
     println!("--- runtime knobs ({}) ---", KNOWN_KNOBS.len());
     for knob in KNOWN_KNOBS {
+        let toml = if knob.toml_key.is_empty() { "-".to_string() } else { format!("[runtime].{}", knob.toml_key) };
         match std::env::var(knob.name) {
-            Ok(v) if !v.trim().is_empty() => println!("{}: {v}", knob.name),
-            _                              => println!("{}: ({})", knob.name, knob.default_hint),
+            Ok(v) if !v.trim().is_empty() => println!("{} ({toml}): {v} [env]", knob.name),
+            _ => {
+                let from_cfg = (!knob.toml_key.is_empty())
+                    .then(|| runtime_table.as_ref().and_then(|t| t.get(knob.toml_key)))
+                    .flatten()
+                    .map(|v| match v {
+                        toml::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    });
+                match from_cfg {
+                    Some(val) => println!("{} ({toml}): {val} [config]", knob.name),
+                    None => println!("{} ({toml}): ({}) [default]", knob.name, knob.default_hint),
+                }
+            }
         }
     }
     println!("---");
@@ -437,9 +464,23 @@ fn main() -> Result<()> {
 
     // Centralized runtime config — single source of truth for Z42_* env vars
     // consumed at boot (docs/review.md Part 4 D1, 2026-05-26). Subsystem
-    // OnceLock-cached env reads (Z42_GC_* / Z42_NATIVE_PATH / ...) stay
-    // inline until their Phase 2 migration.
-    let cfg = z42::config::RuntimeConfig::from_env();
+    // reads go through the process-global runtime_config().
+    //
+    // Precedence chain (unify-run-modes P0): env > [runtime] TOML file > default.
+    // The optional config-file layer is named by Z42_CONFIG; a malformed file
+    // is fatal (explicit error, never silent-default). Install the resolved
+    // config as the global BEFORE tracing / subsystems read it, so the
+    // [runtime] layer is visible everywhere. Z42_CONFIG unset → resolve(env,
+    // None) == the previous env-only from_env() (non-breaking).
+    let runtime_table = z42::config::load_runtime_toml(|n| std::env::var(n).ok())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let cfg = z42::config::RuntimeConfig::resolve(
+        |n| std::env::var(n).ok(),
+        runtime_table.as_ref(),
+    );
+    if z42::config::init_runtime_config(cfg.clone()).is_err() {
+        eprintln!("z42: runtime config already initialised before main(); [runtime] layer may be ignored");
+    }
 
     init_tracing(cli.verbose, &cfg);
     install_panic_hook();
