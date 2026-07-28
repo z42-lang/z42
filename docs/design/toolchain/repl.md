@@ -299,13 +299,34 @@ libs/ + programs/z42c/ + programs/interactive/
 - **触发条件**：交互式迭代重定义成为高频诉求
 - **当前 workaround**：`.reset` 重开会话（`.reset` 本身亦 follow-up）
 
-### repl-future-tab-completion
+### repl-future-tab-completion（已解耦 LSP，作用域级已落地——add-completion-query-api）
 
 - **来源**：0.3.15 设计讨论
-- **触发原因**：Tab 补全候选列表需要 LSP server 提供语义信息
-- **前置依赖**：0.5.x LSP v1（`z42-lsp`）
-- **触发条件**：LSP 落地后
-- **当前 workaround**：无补全，依赖历史记录导航
+- **重新定位（2026-07-28 add-completion-query-api）**：原判「前置 0.5.x LSP」把耦合画粗了。补全
+  与 IDE/LSP 是**同一语义内核 + 两个前端**，共享的是「补全查询 API」这一层、**不是整个 LSP**；REPL
+  进程内 + live VM，不需 LSP 协议栈，可先于完整 LSP 落地。
+- **已落地（Phase 1，作用域级）**：`Std.Scripting.Completer.replComplete` 读当前 `ScriptState`
+  （`VarNames` + `DeclNames`）返回作用域候选；rustyline `Completer` 经 `__repl_set_completer` +
+  thread-local `&VmContext` 回调（机制见 `corelib/repl.rs`，`complete_via_callback`）。前缀过滤 +
+  大小写敏感 + 去重。**REPL 自持数据，不依赖 compiler。**
+- **未落地（后续阶段）**：① `obj.` 成员补全（D2 混合：会话变量走 live 反射——读 `Vars{N}.x` 静态字段
+  值 + `GetType().GetMembers()`，零副作用；任意 `expr.` 需静态类型推断 defer）② 类型名静态成员 + ns
+  导出补全（`CompletionQuery` 内核，`z42c.semantics`，排队等 compiler 锁）③ LSP 客户端复用同一内核。
+- **前置依赖**：②③ 依赖「补全查询 API」内核（非整个 LSP）；spec：`docs/spec/changes/add-completion-query-api/`。
+
+### repl-future-syntax-highlight（REPL 输入行 / 输出语法着色）
+
+- **来源**：2026-07-28 User 需求（REPL console 文本语法颜色显示）——**明确暂缓、先记录**。
+- **触发原因**：交互输入行与求值输出目前是单色纯文本；语法着色（关键字 / 字面量 / 类型 / 标点分色）
+  提升可读性，与主流 REPL（IPython / node）对齐。
+- **实现路径（已就位的钩子）**：rustyline 的 **`Highlighter` trait** 正是输入行着色的钩子——
+  `ReplHelper`（`corelib/repl.rs`，add-completion-query-api 阶段 0 已建）当前用**默认空实现**；着色
+  只需实现 `Highlighter::highlight(line, pos)`：用 `Z42.Syntax.Lexer` 对行 tokenize（Rewriter 已用
+  同一 Lexer）→ 按 `TokenKind` 包 ANSI 色码返回。与补全共用同一 `ReplHelper` + 同一 Lexer，无新基建。
+  **输出着色**（求值结果 / 错误）另在宿主 `_fmt` / 错误打印处按类型上色，独立小项。
+- **前置依赖**：无（纯 runtime `Highlighter` + 宿主输出格式化）；可随时做。
+- **当前 workaround**：单色纯文本。
+- **注意**：非终端（管道 / 重定向）与 `NO_COLOR` 环境下须禁用色码（同 `.clear` 的 `IsTerminal()` 守卫）。
 
 ### repl-future-incremental-compilation
 

@@ -1,0 +1,38 @@
+// REPL 作用域补全测试（add-completion-query-api Phase 1）：经 __repl_complete_probe 按 FQN
+// 运行期回调 Std.Scripting.replComplete——**与 rustyline Tab 完全同一条查找路径**（免 PTY）。
+// 种入会话变量 + 声明名，验按前缀过滤 + 去重 + 顺序（VarNames 先、DeclNames 后）。
+namespace ReplCompletionTest;
+
+using Std;
+using Std.IO;
+using Std.Collections;
+using Std.Scripting;
+
+class Native {
+    // 与 rustyline ReplHelper 走同一 complete_via_callback 运行期 FQN 查找。
+    [Native("__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
+}
+
+void Main() {
+    ScriptState s = Script.Create();
+    s.VarNames.Add("banana");
+    s.VarNames.Add("band");
+    s.VarNames.Add("apple");
+    s.DeclNames.Add("Bandit");
+    Completer.SetActive(s);
+
+    _show("ban");   // banana, band, Bandit
+    _show("app");   // apple
+    _show("xyz");   // (无)
+    _show("EMPTY"); // 全部（空前缀）
+}
+
+void _show(string label) {
+    string line = label;
+    int pos = label.Length;
+    if (label == "EMPTY") { line = ""; pos = 0; }
+    string[] r = Native.Probe("Std.Scripting.replComplete", line, pos);
+    Console.WriteLine(label + " -> " + r.Length.ToString());
+    int i = 0;
+    while (i < r.Length) { Console.WriteLine("  " + r[i]); i = i + 1; }
+}
