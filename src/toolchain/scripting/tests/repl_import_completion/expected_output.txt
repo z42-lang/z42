@@ -1,0 +1,3 @@
+scope_has_Console=1
+static_has_WriteLine=1
+empty_no_Console=1
