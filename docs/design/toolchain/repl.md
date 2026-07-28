@@ -39,6 +39,12 @@ z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
   定位不到类自身、读不到 SIGS 方法）：`ExtendWithPackage` 现在 Rebuild 前把本包并入 `scan.Wp`；
   ② **enum 类型** `undefined`（`TsigReconcile._rebuildModule` 恒排除本地 enum）：现从 TYPE 段成员块重建
   `ExportedEnumZ` 导出（亦修**一般跨包 enum 导入**）。均无格式 bump。
+- **默认 using（隐式导入；add-completion-query-api）**：`Script.Create` 给新会话种一组默认
+  `Usings`（`Std.IO` / `Std.Collections` / `Std.Text` / `Std.Math`），对齐 C# `ImplicitUsings` /
+  Kotlin·Scala REPL 默认 import——`Console` / `List` / `StringBuilder` / `Math` 开箱即用，无需手动
+  `using`。保守集（避跨命名空间同名类型歧义）；其余按需 `using`，`.usings` 元指令列出全部（含默认）。
+  **不加重首轮 scan**：默认 using 只是把命名空间放进解析作用域，包仍在符号被真正引用时才进世界
+  （现为全量 scan，惰性化后更明显——见 `repl-future-persist-static-scan` 邻域的惰性方向）。
 - **状态模型（D7 + D8；2026-07-26 perf ⑤ 精简）**：会话变量提升为 `Vars{N}` 类静态字段。
   **只有 var 声明轮**发新的 `Vars{N}` 类（carry 前轮全部变量 `public static var v = Vars{prev}.v;`
   + 新变量）；**非声明轮**（表达式 / 语句 / 赋值）直接引用现有 `Vars{VarsRound}` 类——赋值就地改其
