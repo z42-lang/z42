@@ -7,11 +7,12 @@
 - [ ] 补真实形态宏基准：对象重 / 字符串重 / 混合小解析器（现有场景过合成）
 
 ## Phase 1 — 调用路径去锁去分配（根因 B）
-- [ ] 惰性帧名/文件名：只存 func 引用 + line，异常展开时才 format（省 2× Arc/调用）【先做，探针】
-- [ ] 调用栈改 per-VM-thread 无锁结构（消除 push/pop/update_line 3 把锁）
-- [ ] regs Vec 池化 / frame arena
-- [ ] `collect_args` 改传 slice 免分配
-- [ ] JIT `jit_call` 同步复用（去 per-call JitFrame 分配 + push/pop）
+> 分析发现:`call_stack` 是 GC root 且有并发标记线程 → 去锁需 GC 并发裁决。见 design.md。
+- [ ] **Decision 1（待 User 裁决 A/B/C）**：`call_stack` 锁策略——取决于 GC root 扫描是否 STW 快照
+- [ ] **Decision 3（安全自主）**：regs Vec 池化（VmContext 单线程 free-list）【下一步实施】
+- [ ] **Decision 3（安全自主）**：`collect_args` 改 scratch buffer / SmallVec 免分配
+- [ ] interp 帧名：⚠️ 记忆记录 OnceLock 缓存曾 −7%；若做放 boxed FunctionCold + harness 实测（低优先，interp-only）
+- [ ] JIT `jit_call` 同步复用（去 per-call JitFrame 分配 + push/pop）——依赖 Decision 1
 
 ## Phase 2 — per-object 锁消除（根因 A / F1）— 需 DRAFT 设计
 - [ ] 设计与 GC safepoint 协调的单线程无锁快路（仅并发 mark 时 park）
