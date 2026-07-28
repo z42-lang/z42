@@ -1,0 +1,6 @@
+hasW=1
+hasH=1
+count_ge_2=1
+dot_hasW=1
+bW_exact=1
+nonvar_empty=1
