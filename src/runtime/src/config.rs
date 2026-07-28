@@ -125,6 +125,13 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "main.rs (init_tracing)",
     },
     KnobSpec {
+        name: "Z42_MODE",
+        toml_key: "mode",
+        description: "default execution mode: `interp` / `jit` / `aot` (below `--mode` CLI, above the build default)",
+        default_hint: "unset; build default (jit if compiled in, else interp)",
+        consumed_by: "main.rs (effective_mode)",
+    },
+    KnobSpec {
         name: "Z42_NATIVE_PATH",
         toml_key: "native-path",
         description: "search path for native .dylib/.so/.dll modules (colon-separated)",
@@ -215,6 +222,10 @@ pub struct RuntimeConfig {
     /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. Any non-empty
     /// value turns it on; `false` = off. Read by `jit/lazy.rs`.
     pub jit_profile: bool,
+    /// `Z42_MODE` — default execution mode (`interp` / `jit` / `aot`), raw
+    /// (unvalidated) string. `None` = unset. Sits below `--mode` CLI and above
+    /// the build default; `main.rs` validates the value + feature-gates jit/aot.
+    pub mode: Option<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -231,6 +242,7 @@ impl Default for RuntimeConfig {
             safepoint_throttle: 1024,
             native_search_paths: Vec::new(),
             jit_profile: false,
+            mode: None,
         }
     }
 }
@@ -304,6 +316,7 @@ impl RuntimeConfig {
             safepoint_throttle:  parse_safepoint_throttle(&layered),
             native_search_paths: parse_native_search_paths(&layered),
             jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
+            mode:                layered("Z42_MODE").filter(|s| !s.trim().is_empty()),
         }
     }
 }
@@ -852,5 +865,41 @@ mod tests {
         let out = load_runtime_toml(fake_env(&[("Z42_CONFIG", &pstr)]));
         assert!(out.is_err(), "malformed TOML → explicit error, not silent default");
         let _ = std::fs::remove_file(&p);
+    }
+
+    // ── unify-run-modes P2: Z42_MODE / [runtime].mode knob ────────────────────
+
+    #[test]
+    fn mode_registered_with_toml_key() {
+        assert!(KNOWN_KNOBS.iter().any(|k| k.name == "Z42_MODE"));
+        assert_eq!(toml_key_for("Z42_MODE"), Some("mode"));
+    }
+
+    #[test]
+    fn mode_unset_is_none() {
+        assert!(RuntimeConfig::from_getter(fake_env(&[])).mode.is_none());
+        assert!(RuntimeConfig::from_getter(fake_env(&[("Z42_MODE", "")])).mode.is_none(),
+            "empty = unset");
+    }
+
+    #[test]
+    fn mode_from_env_raw_string() {
+        // config.rs stores the raw value (main.rs validates + feature-gates).
+        assert_eq!(RuntimeConfig::from_getter(fake_env(&[("Z42_MODE", "jit")])).mode.as_deref(), Some("jit"));
+        assert_eq!(RuntimeConfig::from_getter(fake_env(&[("Z42_MODE", "interp")])).mode.as_deref(), Some("interp"));
+    }
+
+    #[test]
+    fn mode_env_wins_over_runtime_table() {
+        let t = rt_table("mode = \"interp\"");
+        let cfg = RuntimeConfig::resolve(fake_env(&[("Z42_MODE", "jit")]), Some(&t));
+        assert_eq!(cfg.mode.as_deref(), Some("jit"), "env beats [runtime].mode");
+    }
+
+    #[test]
+    fn mode_from_runtime_table_when_env_unset() {
+        let t = rt_table("mode = \"aot\"");
+        let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
+        assert_eq!(cfg.mode.as_deref(), Some("aot"), "[runtime].mode used when env unset");
     }
 }
