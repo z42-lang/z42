@@ -77,6 +77,19 @@ JIT 列不变（用 JitFrame 非 Frame,池化 interp-only）。每 call 省一�
 > 注:这是 interp-only 改动;默认 JIT 模式的等价收益要等 Decision 1（call_stack 去锁）
 > + jit_call 的 JitFrame 池化,均依赖 GC 并发裁决。
 
+## Phase 1 结果:interp 直接填 callee frame（2026-07-29，Decision 3，已落地）
+
+直接调用路径（`exec_call::call`）原本 `collect_args` 分配 args Vec + 参数双 clone
+（caller reg→args Vec→callee reg）。新增 `exec_function_from_regs` / `Frame::new_from_regs`
+直接从 caller regs+indices 填 callee 帧——零 args Vec、单 clone（镜像 JIT `new_args_from`）。
+
+| Fib 25（interp 计算，扣启动） | baseline | +regs 池化 | +direct-fill |
+|--|------:|------:|------:|
+| | 117ms | 80ms | **68ms** |
+| 累计 | — | −32% | **−42%** |
+
+poly 不变（vcall 路径 prepend `this`,非纯 index-fill,未在本次 scope;留后续）。JIT 列不变。
+
 ## 复现
 
 ```bash

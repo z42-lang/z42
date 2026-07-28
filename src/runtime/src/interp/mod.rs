@@ -237,6 +237,29 @@ impl Frame {
         }
     }
 
+    /// perf-vm-iteration Phase 1 (Decision 3): build a frame filling the
+    /// register file directly from `caller_regs[arg_indices[i]]` — one clone per
+    /// arg, no intermediate args `Vec`. Same pooling as `new`. Returns an error
+    /// (not a panic) on an out-of-range register index, matching `collect_args`.
+    pub fn new_from_regs(caller_regs: &[Value], arg_indices: &[u32], max_reg: u32) -> Result<Self> {
+        let argc = arg_indices.len();
+        let size = if max_reg > 0 { max_reg as usize } else { argc };
+        let need = size.max(argc);
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            env_arena: Vec::new(),
+            ref_writebacks: Vec::new(),
+        })
+    }
+
     /// Set a register's raw value (no deref). For ref-aware store-through
     /// (transparently writing through `Value::Ref` to the underlying
     /// caller slot / array elem / object field), use `set_thru_ref`
@@ -430,9 +453,27 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     // immediately respects a pending GC request. A worker thread spawned
     // mid-collect parks here before touching any roots.
     crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new(args, func.max_reg);
+    exec_function_body(ctx, module, func, frame)
+}
 
-    let mut frame = Frame::new(args, func.max_reg);
+/// perf-vm-iteration Phase 1 (Decision 3): hot direct-call entry that fills the
+/// callee register file **directly** from the caller's registers + argument
+/// indices — no intermediate `collect_args` `Vec<Value>` alloc, and each arg is
+/// cloned **once** (caller reg → callee reg) instead of twice (caller reg →
+/// args Vec → callee reg). Mirrors the JIT's `JitFrame::new_args_from`
+/// (jit/helpers/call.rs). Used by the non-virtual `Call` path (exec_call::call),
+/// which passes plain register indices with no receiver prepend.
+pub(crate) fn exec_function_from_regs(
+    ctx: &VmContext, module: &Module, func: &Function,
+    caller_regs: &[Value], arg_indices: &[u32],
+) -> Result<ExecOutcome> {
+    crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    exec_function_body(ctx, module, func, frame)
+}
 
+fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut frame: Frame) -> Result<ExecOutcome> {
     // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：
     //   1. 通过 RefKind 解引用得到底层值
