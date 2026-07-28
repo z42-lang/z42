@@ -17,12 +17,14 @@ using Std.IO;
 using Z42.Build.Project;
 
 // Resolved toolchain for a manifest-target run (release build-tree paths).
+// Auto-properties (+ implicit default ctor) so `new TargetTooling()` works, per
+// the TestUnit / DepBundle pattern in this codebase.
 class TargetTooling {
-    public string Vm;
-    public string DriverZpkg;
-    public string Libs;         // flat alllibs dir (stdlib + z42c siblings)
-    public string BuilderZpkg;  // z42b reflective runner
-    public bool   Ok;
+    public string Vm { get; set; }
+    public string DriverZpkg { get; set; }
+    public string Libs { get; set; }         // flat alllibs dir (stdlib + z42c siblings)
+    public string BuilderZpkg { get; set; }  // z42b reflective runner
+    public bool   Ok { get; set; }
 }
 
 // Root dir holding the e2e manifest-target fixtures.
