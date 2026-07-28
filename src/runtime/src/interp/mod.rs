@@ -178,10 +178,55 @@ pub(crate) struct Frame {
     pub ref_writebacks: Vec<(u32, crate::metadata::types::RefKind)>,
 }
 
+thread_local! {
+    /// Per-thread free-list of register-file Vecs (perf-vm-iteration Phase 1).
+    /// LIFO reuse across `Frame::new` / `Drop for Frame`. Bounded so deep-then-
+    /// shallow recursion doesn't pin memory forever. Thread-local ⇒ no lock, no
+    /// GC-root visibility (returned Vecs are cleared before parking, and are
+    /// never registered as roots — only a *live* frame's regs are scanned).
+    static REGS_POOL: std::cell::RefCell<Vec<Vec<Value>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Max Vecs retained in the per-thread pool. Caps idle memory; excess frees
+/// normally.
+const REGS_POOL_CAP: usize = 512;
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        // Return the register-file allocation to the per-thread pool for reuse.
+        // `clear()` drops every held `Value` (Arc<str> refcount dec, GcRef drop
+        // is a no-op) BEFORE parking the Vec, so no stale heap ref lingers in an
+        // unscanned location. Runs only after `FrameGuard` popped the VmFrame
+        // (drop order), so the regs pointer is no longer a GC root here.
+        let mut regs = std::mem::take(&mut self.regs);
+        regs.clear();
+        if regs.capacity() > 0 {
+            REGS_POOL.with(|p| {
+                let mut pool = p.borrow_mut();
+                if pool.len() < REGS_POOL_CAP {
+                    pool.push(regs);
+                }
+            });
+        }
+    }
+}
+
 impl Frame {
     pub fn new(args: &[Value], max_reg: u32) -> Self {
         let size = if max_reg > 0 { max_reg as usize } else { args.len() };
-        let mut regs = vec![Value::Null; size.max(args.len())];
+        let need = size.max(args.len());
+        // perf-vm-iteration Phase 1 (Decision 3): reuse a register-file Vec from
+        // a per-thread free-list instead of `vec![Null; need]` every call. The
+        // pool is thread-local (one mutator thread per VmContext today), so it
+        // has no GC / cross-thread coupling — unlike the call_stack Mutex. The
+        // matching `Drop for Frame` returns the (cleared) Vec to the pool AFTER
+        // `FrameGuard` has already popped this frame's VmFrame root (drop order:
+        // `_frame_guard`/`_vm_guard` are declared after `frame` in exec_function,
+        // so they drop first). Saves one malloc+free per call on call-heavy code.
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
         for (i, v) in args.iter().enumerate() {
             regs[i] = v.clone();
         }

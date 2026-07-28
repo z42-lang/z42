@@ -61,6 +61,22 @@ speed 档零计算提升,只多 ~4-5ms 冷编译。根因:JIT 的成本在 **opa
 杠杆是结构性去箱 + 内联 helper（Phase 4 剩余项）,不是调 opt 档。** 已保留默认档
 （`src/runtime/src/jit/lazy.rs`）。这条负结果正是"先度量再改"的价值。
 
+## Phase 1 结果:regs Vec 池化（2026-07-29，Decision 3，已落地）
+
+`Frame::new` 每 call `vec![Null; n]` 一次 malloc+free。改为 per-thread free-list 复用
+（`Drop for Frame` 归还已 clear 的 Vec；drop 序保证 VmFrame root 先被 pop,无 GC 耦合）。
+
+| 场景（interp 计算，扣启动） | 池化前 | 池化后 | 提升 |
+|--|------:|------:|-----:|
+| Fib 25 | 117ms | 80ms | **−32%** |
+| poly_dispatch 10M | 4670ms | 3804ms | **−19%** |
+| arith_loop（单帧,无 call） | 646ms | ~680ms | 噪声（无 call → 池化不参与） |
+
+JIT 列不变（用 JitFrame 非 Frame,池化 interp-only）。每 call 省一次 malloc/free 的收益
+远超预期——poly 做 10M call,分配器往返是真实热点。GREEN 全绿 + 自举不动点 5/5。
+> 注:这是 interp-only 改动;默认 JIT 模式的等价收益要等 Decision 1（call_stack 去锁）
+> + jit_call 的 JitFrame 池化,均依赖 GC 并发裁决。
+
 ## 复现
 
 ```bash
