@@ -13,3 +13,6 @@ error: 'square' is already declared in this session (redefinition not supported)
 10
 ok
 11
+types=2
+type: Adder
+type: Color
