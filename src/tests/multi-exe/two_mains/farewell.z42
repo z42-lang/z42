@@ -1,0 +1,8 @@
+namespace App.Farewell;
+
+using Std.IO;
+
+// The other main; built into dist/farewell.zpkg (entry App.Farewell.Main).
+void Main() {
+    Console.WriteLine("farewell-main");
+}

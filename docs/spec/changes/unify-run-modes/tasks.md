@@ -49,7 +49,7 @@
   - [ ] `ProjectInfo`/`ManifestLoader` `default-run` 字段（占 stdlib 锁，现被 converge-z42c 占 → 后置；当前多 exe 无 --bin 由 P4 报错列名）
   - [ ] exe 专属 `src` 子集（当前声明 `src` → 显式报错「尚未支持」）
   - [ ] 多 exe 增量 preserved（当前一律全量）
-- [ ] 单测/e2e：双 exe→两 zpkg entry 正确、ExeCount==0 产物不变 —— **无现成 harness 跑「一工程→N zpkg→各跑」；待定：新 e2e runner vs 随 P4 run --bin 落地**
+- [x] e2e：新增 multi-exe runner（`scripts/test/xtask_test_multiexe.z42`，仿 cross-zpkg）+ fixture `src/tests/multi-exe/two_mains/`（一工程双 [[exe]]→build 产两 zpkg→各跑→比对）；wire 进 `xtask test`（主 gate + `--dir multi-exe`）；两处非 golden 排除（`_isNonRegenCat`/`_isNonRunnableCat`）。**CI 权威**（cold worktree 不可本地跑）
 - [ ] **自举不动点 gen1==gen2**（非破坏关键证据）—— CI 权威（cold worktree 不可本地验）
 
 ## P4 — 统一前门 + run 选择 run 侧（toolchain）

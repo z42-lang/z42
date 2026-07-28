@@ -1,0 +1,8 @@
+namespace App.Greet;
+
+using Std.IO;
+
+// One of two mains in this package; built into dist/greet.zpkg (entry App.Greet.Main).
+void Main() {
+    Console.WriteLine("greet-main");
+}
