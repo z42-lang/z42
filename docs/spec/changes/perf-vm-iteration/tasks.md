@@ -23,7 +23,8 @@
 - [ ] 热操作 borrow 语义、减 `frame.get` 的 Result/clone
 
 ## Phase 4 — JIT 质量（根因 C）
-- [ ] `opt_level=speed`（一行，先测）
+- [x] `opt_level=speed`（一行，先测）→ **负收益,已保留默认档**（零计算提升 +4-5ms 冷编译；
+      根因:helper call + 24B load/store Cranelift 无法跨 op 去箱。见 MODE-COMPARISON.md）
 - [ ] safepoint 快路内联
 - [ ] 单态 FieldGet/Set + Array 内联
 - [ ] Div/Rem 内联 + 零检查冷边

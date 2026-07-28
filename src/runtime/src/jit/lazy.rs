@@ -45,6 +45,12 @@ impl LazyCompiler {
     /// to `module.functions.len()`; functions are translated later, on first
     /// call, by [`compile_one`](Self::compile_one).
     pub fn setup(module: &Module) -> Result<Self> {
+        // NB(perf-vm-iteration Phase 4)：实测 `opt_level=speed` 对本 VM 无收益——
+        // 紧循环/派发的成本在 opaque helper call + 每 op 24B Value load/store，
+        // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译
+        // （arith compute 50.4→52.9ms、poly 1024→1028ms flat、startup 54→59ms）。
+        // 真正的 JIT 杠杆是结构性去箱 + 内联 helper,不是让 Cranelift 更用力优化
+        // 现有形状。故保留默认档。详见 bench/results/MODE-COMPARISON.md。
         let isa = cranelift_native::builder()
             .map_err(|e| anyhow::anyhow!("native ISA unavailable: {}", e))?
             .finish(cranelift_codegen::settings::Flags::new(

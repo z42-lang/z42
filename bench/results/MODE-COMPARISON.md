@@ -46,6 +46,21 @@
    - → 印证 Phase 4「`opt_level` 一行 + safepoint 内联 + 分层/OSR」的必要性;`opt_level=speed`
      与惰性编译收益需要一并测。
 
+## 探针结果:`opt_level=speed` 是负收益（2026-07-29，Phase 4）
+
+初始分析假设 Cranelift 默认档偏低,设 `opt_level=speed` 是"零成本 JIT 加速"。**实测证伪**:
+
+| | jit 默认档 | jit speed 档 |
+|--|--------:|----------:|
+| startup（冷编译） | 54.3ms | 58.9ms(+4.6) |
+| arith 计算 | 50.4ms | 52.9ms |
+| poly 计算 | 1024ms | 1028ms |
+
+speed 档零计算提升,只多 ~4-5ms 冷编译。根因:JIT 的成本在 **opaque helper call +
+每 op 的 24B `Value` load/store**,这两者 Cranelift 都无法跨 op 去箱消除。→ **真正的 JIT
+杠杆是结构性去箱 + 内联 helper（Phase 4 剩余项）,不是调 opt 档。** 已保留默认档
+（`src/runtime/src/jit/lazy.rs`）。这条负结果正是"先度量再改"的价值。
+
 ## 复现
 
 ```bash
