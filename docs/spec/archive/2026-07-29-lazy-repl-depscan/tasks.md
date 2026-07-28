@@ -1,6 +1,6 @@
 # Tasks: REPL 依赖世界惰性扫描
 
-> 状态：🟢 IMPL 安全版（User 授权直接实现）| 创建：2026-07-29
+> 状态：✅ 已归档 2026-07-29（PR #65 合并 d8f67641）｜安全版 IMPL| 创建：2026-07-29
 > 占子系统：`compiler`(z42c.pipeline DepScan) + `toolchain`(Script.z42)
 
 ## 已实现（安全版：eager BuildWorld + 惰性 Rebuild）
