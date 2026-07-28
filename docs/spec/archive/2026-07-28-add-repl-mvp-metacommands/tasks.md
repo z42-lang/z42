@@ -1,6 +1,6 @@
 # Tasks: REPL MVP 元指令补齐
 
-> 状态：🟢 IMPL（轻量变更，User 已授权方向）| 创建：2026-07-28 | 占用子系统：`toolchain` + `stdlib`
+> 状态：✅ 已归档 2026-07-28（PR #53 合并 a139cb8e）| 创建：2026-07-28 | 占用子系统：`toolchain` + `stdlib`
 
 ## 进度
 - [x] scripting 库：`Classifier` 加 `IsTypeDecl`；`ScriptState` 加 `DeclTypeNames`；`Script` 记类型名 + `FormatVersion()`
@@ -8,7 +8,7 @@
 - [x] 文档：`repl.md` 元指令落地状态刷新（消除 doc-vs-code 冲突）+ scripting README 功能索引
 - [x] 测试：扩 `repl_decls_multiline` 驱动断言 `DeclTypeNames`（`.types` 数据源；类型 Adder/Color，排除自由函数）
 - [x] 验证：warm 手动构建 scripting + interactive → `-c "1+2"=3`；管道会话逐指令实测（见下表）
-- [ ] commit + push（GREEN 冷路径以 CI 为权威）
+- [x] commit + push（92ed3121）→ PR #53 → 合并 a139cb8e，CI GREEN
 
 ## 本地验证（管道 stdin 实测）
 | 指令 | 结果 |
