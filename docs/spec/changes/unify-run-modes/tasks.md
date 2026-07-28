@@ -34,10 +34,15 @@
 
 **P1 Scope（文件）**：`src/toolchain/launcher/core/launcher.z42` · `.../z42.launcher.z42.toml`(注释) · `docs/design/runtime/launcher.md`
 
-## P2 — profile.mode 打通（compiler，排队）
-- [ ] z42c 解析 `[profile.*]` 段（Main.z42 现延后项）
-- [ ] 运行路径消费 `mode`
-- [ ] 自举不动点验证（gen1==gen2）
+## P2 — config 驱动执行模式（runtime；方向 B）🟡 IMPL（2026-07-28）
+> 方向 (B)：mode 走 `[runtime]` 配置驱动，不烤 zpkg 格式（User 定 2026-07-28）。
+> **P2a（runtime，本 PR）**——mode 成为分层链的一等旋钮：
+- [x] `Z42_MODE` 旋钮进 KNOWN_KNOBS（toml_key `mode`，字母序 LOG<MODE<NATIVE）；`RuntimeConfig.mode: Option<String>`（raw，main.rs 校验+feature-gate）
+- [x] main.rs `effective_mode` 的 `None` 臂（无 `--mode` CLI）→ `resolve_config_mode(runtime_config().mode)` → 落 build 默认；优先级 `--mode CLI > Z42_MODE/[runtime].mode > build 默认`
+- [x] `resolve_config_mode`：interp/jit/aot 校验 + jit/aot feature-gate（未编入则 warn + 落默认）；未知值 warn + 落默认
+- [x] 单测 5（注册/unset/env raw/env>table/table>默认）+ 全 config 47 全绿（字母序不变式保持）+ `--info` e2e（`[runtime].mode=interp` → `[config]` 生效）+ runtime 全量无回归
+- **P2b（follow-on，launcher）**：`z42 run <dir>` 读 manifest `[profile.*].mode` → 设 `Z42_MODE`（源码工程运行时 profile 驱动 mode，遵守优先级）
+  - [ ] launcher 读 profile.mode 并注入 Z42_MODE（profile 在 env/config 之下由 VM 端保序——或 launcher 以 profile 身份注入，不占 --mode CLI 位）
 
 ## P3 — 多 exe 构建 build 侧（compiler）🟡 IMPL（2026-07-28）
 > spec: [specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md) | design: design.md「多 exe 目标」节

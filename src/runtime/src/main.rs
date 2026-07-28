@@ -459,6 +459,34 @@ fn build_declared_candidates(
     declared
 }
 
+/// Resolve the config-driven default execution mode (`Z42_MODE` / `[runtime].mode`,
+/// unify-run-modes P2). Sits below the `--mode` CLI flag and above the build
+/// default. Returns `None` to fall through to the build default when: unset, an
+/// unrecognized value, or a feature-gated mode (jit / aot) not compiled into this
+/// build — each non-empty invalid case warns once on stderr so it isn't silent.
+fn resolve_config_mode(mode: Option<&str>) -> Option<z42::metadata::ExecMode> {
+    match mode {
+        None => None,
+        Some("interp") => Some(z42::metadata::ExecMode::Interp),
+        Some("jit") => {
+            #[cfg(feature = "jit")]
+            { Some(z42::metadata::ExecMode::Jit) }
+            #[cfg(not(feature = "jit"))]
+            { eprintln!("z42: Z42_MODE/[runtime].mode=jit but this build has no jit feature; using build default"); None }
+        }
+        Some("aot") => {
+            #[cfg(feature = "aot")]
+            { Some(z42::metadata::ExecMode::Aot) }
+            #[cfg(not(feature = "aot"))]
+            { eprintln!("z42: Z42_MODE/[runtime].mode=aot but this build has no aot feature; using build default"); None }
+        }
+        Some(other) => {
+            eprintln!("z42: Z42_MODE/[runtime].mode={other:?} not recognized (interp/jit/aot); using build default");
+            None
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -629,12 +657,16 @@ fn main() -> Result<()> {
         #[cfg(feature = "aot")]
         Some(ExecMode::Aot) => z42::metadata::ExecMode::Aot,
         Some(ExecMode::Interp) => z42::metadata::ExecMode::Interp,
-        None => {
-            #[cfg(feature = "jit")]
-            { z42::metadata::ExecMode::Jit }
-            #[cfg(not(feature = "jit"))]
-            { z42::metadata::ExecMode::Interp }
-        }
+        // No `--mode` CLI → config-driven default (unify-run-modes P2):
+        // `Z42_MODE` / `[runtime].mode` (below CLI, above build default), else
+        // the build default (jit if compiled in, else interp).
+        None => resolve_config_mode(z42::config::runtime_config().mode.as_deref())
+            .unwrap_or_else(|| {
+                #[cfg(feature = "jit")]
+                { z42::metadata::ExecMode::Jit }
+                #[cfg(not(feature = "jit"))]
+                { z42::metadata::ExecMode::Interp }
+            }),
     };
 
     // 5.1d — dependency loading strategy:

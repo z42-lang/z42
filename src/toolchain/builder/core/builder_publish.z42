@@ -97,6 +97,11 @@ int _pubDesktop(ParseResult r, string rid) {
     string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
     if (zpkgSrc.Length == 0) { return 1; }   // ensure failed (compile error / still missing)
 
+    // Colocate non-stdlib transitive deps into dist/ so `z42 run dist/<name>.zpkg` works.
+    string distDir = Path.GetDirectoryName(zpkgSrc);
+    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
+    if (brc != 0) { return brc; }
+
     // deploy layout (add-package-layout-config): optional bin/payload.
     string binRel     = _pubPlatformStr(toml, "desktop", "bin", "");
     string payloadRel = _pubPlatformStr(toml, "desktop", "payload", "");
@@ -109,23 +114,15 @@ int _pubDesktop(ParseResult r, string rid) {
         outPath = Path.Join(root, isWin ? (projName + ".exe") : projName);
     }
 
-    // payload zpkg: if set, copy the built zpkg into the layout so the subtree is
-    // self-contained; Apphost.Produce embeds it relative to outPath. If unset, embed
-    // the built zpkg in place (no copy) — preserves legacy behavior.
+    // payload zpkg: if set, copy the built zpkg + colocated deps into the layout
+    // so the subtree is self-contained. If unset, embed the built zpkg in place.
     string appZpkg = zpkgSrc;
     if (payloadRel.Length > 0) {
         appZpkg = Path.Join(root, payloadRel);
         string payloadDir = Path.GetDirectoryName(appZpkg);
         if (payloadDir.Length > 0) { Directory.Create(payloadDir); }
         File.Copy(zpkgSrc, appZpkg);
-
-        // add-package-layout-config (2026-07-01): colocate this component's
-        // non-stdlib workspace-sibling dependencies (e.g. z42c.driver's 6 z42c.*
-        // libs) into the same payload dir — publish emits a self-contained
-        // subtree, not just the single entry zpkg. Generic: any z42 app that
-        // depends on a sibling project in its workspace gets this for free.
-        int dc = _pubBundleProjectDeps(tomlPath, toml, payloadDir);
-        if (dc != 0) { return dc; }
+        _pubCopyDistDeps(distDir, projName, payloadDir);
     }
 
     string outDir = Path.GetDirectoryName(outPath);
@@ -471,6 +468,23 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
         }
     }
     return 0;
+}
+
+// Copy non-app zpkgs from distDir into targetDir (used by publish to populate
+// payload from already-colocated dist/).
+void _pubCopyDistDeps(string distDir, string projName, string targetDir) {
+    string[] entries = Directory.Enumerate(distDir);
+    string mainZpkg = projName + ".zpkg";
+    int i = 0;
+    while (i < entries.Length) {
+        string name = entries[i];
+        if (name.EndsWith(".zpkg") && name != mainZpkg) {
+            string src = Path.Join(distDir, name);
+            string dst = Path.Join(targetDir, name);
+            if (src != dst && !File.Exists(dst)) { File.Copy(src, dst); }
+        }
+        i = i + 1;
+    }
 }
 
 // src 根：从 tomlPath 上溯，找同时含 libraries/ 与 compiler/ 的目录。
