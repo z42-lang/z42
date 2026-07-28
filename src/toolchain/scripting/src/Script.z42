@@ -19,13 +19,7 @@ using Z42.Pipeline;
 using Z42.IR;
 using Z42.Project;
 
-// 分类结果（内部）。
-public class ParsedInput {
-    public bool IsVarDecl;
-    public string VarName;
-    public string InitExpr;
-    public ParsedInput() { this.IsVarDecl = false; this.VarName = ""; this.InitExpr = ""; }
-}
+// 分类结果 `ParsedInput` + 分类器 `Classifier` 见 Classifier.z42。
 
 public static class Script {
     // 新建空会话。从 Z42_LIBS 派生编译依赖目录；DeclaredDeps 留空 → DepScan 放行全部包。
@@ -59,7 +53,16 @@ public static class Script {
         string efn = "Eval" + n.ToString();
         string cls = "Vars" + n.ToString();
 
-        ParsedInput p = Script._classify(trimmed);
+        ParsedInput p = Classifier.Classify(trimmed);
+
+        // perf ②：首轮对静态库建一次 DepScan 并缓存（decl / var / expr 各路径均需）。
+        if (state.CachedScan == null) {
+            state.CachedScan = DepScan.ScanDirs(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+        }
+
+        // ── 顶层声明轮（函数 / 类型）：编入 Repl.R{n}、登记 ns，后续轮 `using` 可见（零壳类/零改写）──
+        if (p.IsDecl) { return Script._evalDecl(state, trimmed, p, n, ns); }
+
         bool isDecl = p.IsVarDecl;
         bool hasVars = state.VarNames.Count > 0;
         bool useVarsClass = isDecl || hasVars;
@@ -69,20 +72,8 @@ public static class Script {
         // 本轮用户引用/声明 init 所指向的 Vars 类：声明轮 = 本轮新类；否则 = 现有 VarsRound 类。
         string refCls = isDecl ? cls : ("Vars" + state.VarsRound.ToString());
 
-        // perf ②：首轮对静态库建一次 DepScan 并缓存（~98% 的每轮开销一次性付清）；
-        // 后续轮经 _compileBody 作 CompileInputs.CachedScan 复用（DepScan.ScanDirs 完全跳过）。
-        if (state.CachedScan == null) {
-            state.CachedScan = DepScan.ScanDirs(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
-        }
-
-        // ── build prelude（namespace + usings + [声明轮] carry-forward Vars 类）──
-        string prelude = "namespace " + ns + ";\n";
-        int u = 0;
-        while (u < state.Usings.Count) { prelude = prelude + "using " + state.Usings[u] + ";\n"; u = u + 1; }
-        // 声明轮 carry-from / 非声明轮 reference —— 都要能看到现有 Vars{VarsRound} 类
-        if (useVarsClass && state.VarsRound > 0) {
-            prelude = prelude + "using Repl.R" + state.VarsRound.ToString() + ";\n";
-        }
+        // ── build prelude（namespace + usings + 声明 ns + 现有 Vars 类；+ [var 声明轮] carry-forward）──
+        string prelude = Script._basePrelude(state, ns);
         if (isDecl) {
             string carryCls = "Vars" + state.VarsRound.ToString();
             prelude = prelude + "public static class " + cls + " {\n";
@@ -147,9 +138,60 @@ public static class Script {
         return new EvalResult(true, hasValue, retVal, "", state);
     }
 
+    // prelude：namespace + 累积 usings + 全部声明 ns（后续轮见已声明 fn/type）+ 现有 Vars{VarsRound} 类。
+    // 声明 ns 的 `using` 使自由函数（fix-imported-free-func-namespace）与类型（ImportedClassNs）跨包裸调解析。
+    private static string _basePrelude(ScriptState state, string ns) {
+        string prelude = "namespace " + ns + ";\n";
+        int u = 0;
+        while (u < state.Usings.Count) { prelude = prelude + "using " + state.Usings[u] + ";\n"; u = u + 1; }
+        int d = 0;
+        while (d < state.DeclNamespaces.Count) { prelude = prelude + "using " + state.DeclNamespaces[d] + ";\n"; d = d + 1; }
+        if (state.VarsRound > 0) { prelude = prelude + "using Repl.R" + state.VarsRound.ToString() + ";\n"; }
+        return prelude;
+    }
+
+    // 顶层声明轮：声明原样作 Repl.R{n} 命名空间成员编译，并入缓存 scan + 内存加载，登记 ns/名。
+    // 不 Invoke（无 Eval{n}）。重定义（同名）→ ERROR、会话不推进（MVP，不 supersede）。
+    private static EvalResult _evalDecl(ScriptState state, string declText, ParsedInput p, int n, string ns) {
+        if (p.DeclName.Length > 0) {
+            int i = 0;
+            while (i < state.DeclNames.Count) {
+                if (state.DeclNames[i] == p.DeclName) {
+                    return new EvalResult(false, false, null,
+                        "error: '" + p.DeclName + "' is already declared in this session (redefinition not supported)\n", state);
+                }
+                i = i + 1;
+            }
+        }
+        string prelude = Script._basePrelude(state, ns);
+        CompileArtifacts art = Script._compileRaw(state, n, prelude + declText + "\n");
+        if (art.ErrorCount > 0) {
+            string err = "";
+            int di = 0;
+            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            return new EvalResult(false, false, null, err, state);
+        }
+        byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();
+        DepScan.ExtendWithPackage(state.CachedScan, bytes, "repl_r" + n.ToString());
+        Engine.LoadBytes(bytes);
+        state.Counter = n;
+        state.DeclNamespaces.Add(ns);
+        if (p.DeclName.Length > 0) { state.DeclNames.Add(p.DeclName); }
+        return new EvalResult(true, false, null, "", state);
+    }
+
     // 用给定 eval body 编译本轮包（表达式/语句两种 body 复用）。
     private static CompileArtifacts _compileBody(ScriptState state, int n, string prelude, string efn, string body) {
-        string src = prelude + "public static object " + efn + "() { " + body + " }\n";
+        return Script._compileSrc(state, n, prelude + "public static object " + efn + "() { " + body + " }\n");
+    }
+
+    // 编译一整段裸源（顶层声明轮直接把声明附在 prelude 后，不包裹 Eval 函数）。
+    private static CompileArtifacts _compileRaw(ScriptState state, int n, string src) {
+        return Script._compileSrc(state, n, src);
+    }
+
+    // 单文件源 → PackageCompile（复用缓存依赖世界，跳过每轮 DepScan）。
+    private static CompileArtifacts _compileSrc(ScriptState state, int n, string src) {
         string[] texts = new string[1]; texts[0] = src;
         string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
         CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
@@ -195,29 +237,5 @@ public static class Script {
             i = i + 1;
         }
         return false;
-    }
-
-    // 分类：识别变量声明 `var x = ...` / `T x = ...`（token 级）。否则视为表达式。
-    private static ParsedInput _classify(string trimmed) {
-        ParsedInput p = new ParsedInput();
-        Lexer lx = new Lexer(trimmed, "<repl>");
-        lx.Tokenize();
-        if (lx.TokenCount() < 3) { return p; }
-        Token t0 = lx.TokenAt(0);
-        Token t1 = lx.TokenAt(1);
-        Token t2 = lx.TokenAt(2);
-        bool isDecl = false;
-        // `var x =`  或  `T x =`（T=标识符类型名）
-        if (t0.Kind == TokenKind.Var && t1.Kind == TokenKind.Identifier && t2.Kind == TokenKind.Eq) { isDecl = true; }
-        else if (t0.Kind == TokenKind.Identifier && t1.Kind == TokenKind.Identifier && t2.Kind == TokenKind.Eq) { isDecl = true; }
-        if (!isDecl) { return p; }
-        p.IsVarDecl = true;
-        p.VarName = t1.Text;
-        // init = `=` 之后到末尾（去尾 `;`）
-        int eqEnd = t2.Span.End;
-        string init = trimmed.Substring(eqEnd, trimmed.Length - eqEnd).Trim();
-        if (init.EndsWith(";")) { init = init.Substring(0, init.Length - 1).Trim(); }
-        p.InitExpr = init;
-        return p;
     }
 }

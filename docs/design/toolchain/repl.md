@@ -24,9 +24,21 @@ z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
 
 实测可运行：`z42 repl` 交互循环 + `z42 repl -c "expr"` 单次求值。相对原设计的落地要点：
 
-- **求值编排**：`Std.Scripting.Script.Eval(state, input)` —— 分类（using / var 声明 / 表达式/语句）
-  → 每轮 build 唯一命名空间 `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes`
-  → `__load_bytecode_in_memory` 内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果。
+- **求值编排**：`Std.Scripting.Script.Eval(state, input)` —— 分类（using / var 声明 / **顶层
+  函数/类型声明** / 表达式/语句；分类器 `Classifier.z42` token 级判别）→ 每轮 build 唯一命名空间
+  `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes` → `__load_bytecode_in_memory`
+  内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果（声明轮无 `Eval{N}`、不 Invoke）。
+- **声明累积（add-repl-decls-multiline）**：顶层函数/类型声明**原样**作 `Repl.R{N}` 命名空间成员编译
+  （不裹壳类、不改写函数体），`ExtendWithPackage` 并入 CachedScan + `LoadBytes` 进 VM，记 `Repl.R{N}`
+  到 `ScriptState.DeclNamespaces`；**每后续轮** prelude 追加 `using Repl.R{N};`——自由函数经
+  `fix-imported-free-func-namespace`、类型（含实例方法）经 `ImportedClassNs` + **增量导入 world-extension**
+  （见下）、enum 经 **TsigReconcile enum 导出**（见下）跨包裸调/裸用解析。重定义同名 → ERROR
+  （`DeclNames` 查重，不 supersede）。声明体**不**捕获会话变量（Deferred `repl-future-decl-capture-vars`）。
+- **增量导入的两处 compiler 修复（同 change）**：REPL 靠 `DepScan.ExtendWithPackage` 增量并入声明包，
+  此前不完整重建类型元数据 → ① 类**实例方法** `no method`（world 不含增量包 → `TsigReconcile._rebuildClass`
+  定位不到类自身、读不到 SIGS 方法）：`ExtendWithPackage` 现在 Rebuild 前把本包并入 `scan.Wp`；
+  ② **enum 类型** `undefined`（`TsigReconcile._rebuildModule` 恒排除本地 enum）：现从 TYPE 段成员块重建
+  `ExportedEnumZ` 导出（亦修**一般跨包 enum 导入**）。均无格式 bump。
 - **状态模型（D7 + D8；2026-07-26 perf ⑤ 精简）**：会话变量提升为 `Vars{N}` 类静态字段。
   **只有 var 声明轮**发新的 `Vars{N}` 类（carry 前轮全部变量 `public static var v = Vars{prev}.v;`
   + 新变量）；**非声明轮**（表达式 / 语句 / 赋值）直接引用现有 `Vars{VarsRound}` 类——赋值就地改其
@@ -43,9 +55,12 @@ z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
 - **错误恢复**：编译失败 `EvalResult.Success=false`、会话不推进。
 - **调用是自由函数**：`Eval{N}` emit 为自由函数（非类方法），经 `__invoke_static` 按 FQN 调；
   入口/eval 均自由函数（实证类方法作 entry 不解析）。
+- **多行输入（add-repl-decls-multiline）**：宿主 `interactive_main` 用 `Std.Repl.ReadBlock(">>> ", "... ")`
+  读**括号平衡多行块**（未闭合 `(){}[]` → `... ` 续行；native `__repl_readblock` 忽略串/注释内括号）；
+  整块交 `Script.Eval`，故多行 fn/class 整体到达分类器。元指令单行无括号即时返回；EOF→null 退出不变。
 
-follow-up（未接）：多行输入（`__repl_readblock` builtin 已在，宿主未接）、`ResultFormatter`
-对象反射展示（当前 `"" + v` ToString）、`.reset`/`.save`/`.history` 等元指令、fn/class 顶层声明累积。
+follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` ToString）、`.reset`/`.save`/`.history`
+等更全元指令。（多行输入 + fn/class/enum 顶层声明累积已由 add-repl-decls-multiline 落地。）
 
 ## 架构
 
@@ -95,16 +110,22 @@ static int $Eval_3() { return $ReplVars.x + $ReplVars.y; }
 
 ## 输入分类
 
-| 类型 | 特征 | 处理 |
-|------|------|------|
-| 表达式 | 非声明、非控制流语句 | wrap → `$Eval_N()` → 打印返回值 |
-| 变量声明 | `var x = ...` / `T x = ...` | 提升为 `$ReplVars` 静态字段 |
-| 函数声明 | `fn name(...) { ... }` | 追加到顶层声明区 |
-| 类声明 | `class Foo { ... }` | 追加到顶层声明区 |
-| using | `using Std.IO;` | 追加到 using 列表 |
-| 纯语句 | 赋值、有副作用调用 | wrap → `$Stmt_N()` → 执行不打印 |
+分类器 `Classifier.z42`（token 级，跳过前导修饰符）。实际落地为 `Repl.R{N}` 每轮唯一 ns 模型
+（非旧 Growing-Transcript「顶层声明区」叙述）：
 
-**多行检测**：未闭合的 `{` / `(` / `[` → 显示 `...` 提示符继续读取，直到括号平衡。
+| 类型 | 特征（token） | 处理 |
+|------|------|------|
+| 表达式 | 非声明、非控制流语句 | wrap → `Eval{N}()` → 打印返回值 |
+| 变量声明 | `(var\|T) x =`（token2=`=`） | 提升为 `Vars{N}` 静态字段（carry-forward） |
+| 函数声明 | `[修饰符] RetType Name (`（token2=`(`） | 原样入 `Repl.R{N}` ns，`DeclNamespaces` 登记，后续轮 `using` |
+| 类型声明 | `[修饰符] class\|struct\|record\|interface\|enum Name` | 同上（enum 靠 TsigReconcile 导出、类实例方法靠 world-extension 跨轮解析） |
+| using | `using Std.IO;` | 追加到 using 列表 |
+| 纯语句 | 赋值、有副作用调用（顶层 `=`/语句关键字） | wrap → `Eval{N}()` `; return null;` 执行不打印 |
+
+重定义同名函数/类型 → ERROR（`DeclNames` 查重，不 supersede）。
+
+**多行检测**：`interactive_main` 用 `Std.Repl.ReadBlock`；未闭合的 `{` / `(` / `[` → `... ` 续行提示
+继续读取，直到括号平衡（native `__repl_readblock`，忽略串/字符/注释内括号）。
 
 ## z42.scripting API
 
@@ -250,6 +271,25 @@ libs/ + programs/z42c/ + programs/interactive/
 | programs/ 目录布局 + z42 apphost 化 | 0.3.15 spec 前置（launcher 布局修订）|
 
 ## Deferred / Future Work
+
+### repl-future-decl-capture-vars
+
+- **来源**：add-repl-decls-multiline（Decision 5）
+- **触发原因**：REPL 声明的函数/类型体内裸引用会话变量（`Vars{N}` 在另一 ns、需限定），而声明累积
+  不对声明体做 Rewriter（保「零改写」）→ 自然 `E0401`
+- **前置依赖**：会话变量→声明的注入机制（参数化 / 闭包捕获）设计
+- **触发条件**：「REPL 里定义的函数想用之前定义的变量」成为高频诉求
+- **当前 workaround**：把会话变量作为参数显式传入声明的函数
+
+### repl-future-decl-supersede
+
+- **来源**：add-repl-decls-multiline（Decision 4）
+- **触发原因**：MVP 同名重定义报错（`DeclNames` 查重）；supersede（新定义遮蔽旧）需会话内符号版本化
+  + 旧包退役（避免 first-wins 串味）
+- **前置依赖**：会话内符号版本化 / 最新-ns-wins 解析（与 repl-future-incremental-compilation 的
+  load-context supersede 模型同源）
+- **触发条件**：交互式迭代重定义成为高频诉求
+- **当前 workaround**：`.reset` 重开会话（`.reset` 本身亦 follow-up）
 
 ### repl-future-tab-completion
 
