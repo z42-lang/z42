@@ -1,0 +1,16 @@
+// Explicit [[test]] harness=false target — a self-driving Main whose exit code is
+// the verdict (non-zero = failure). Run as `z42vm <zpkg> MtExit.Main`.
+namespace MtExit;
+
+using Std.IO;
+
+void Main() {
+    int sum = 0;
+    int i = 1;
+    while (i <= 4) { sum = sum + i; i = i + 1; }
+    if (sum != 10) {
+        Console.WriteLine("exit_ok: FAIL sum=" + sum.ToString());
+        Environment.Exit(1);
+    }
+    Console.WriteLine("exit_ok: pass");
+}

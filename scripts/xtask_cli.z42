@@ -32,8 +32,8 @@ int _runCli(string[] argvIn) {
     if (c0 == "test" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
         return _testAll(false, "");
     }
-    // default-action shim: `bench` (anything but the `stdlib` subcommand) → e2e.
-    if (c0 == "bench" && c1 != "stdlib") {
+    // default-action shim: `bench` (anything but the `stdlib`/`targets` subcommands) → e2e.
+    if (c0 == "bench" && c1 != "stdlib" && c1 != "targets") {
         return _benchE2e(argv);
     }
     // `run` is a raw passthrough to the launcher (forwards `<app> [-- args]`
@@ -168,6 +168,12 @@ SubcommandRouter _cliRoot() {
     root.AddRouter("deps", "toolchain deps", _depsRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
+    // add-tests-bench-manifest-config P3: `example [name]` — compile + run
+    // manifest [[example]] targets (compile-gate always; run test=true / <name>).
+    ArgParser example = new ArgParser("xtask example", "compile + run example targets (exit-code judged)");
+    example.AddOptionalPositional("name", "single example name (default: all test=true)");
+    root.Add("example", "compile + run example targets (all test=true, or <name>)", example);
+
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
     clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
@@ -261,6 +267,10 @@ SubcommandRouter _testRouter() {
     stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
+    ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/tests/manifest-targets)");
+    targets.AddFlag("no-build", "", "skip tooling rebuild");
+    targets.AddOptionalPositional("name", "single target name (default: all)");
+    t.Add("targets", "manifest [[test]] target fixtures (all or one by name)", targets);
     t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
         new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
     ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
@@ -349,6 +359,10 @@ SubcommandRouter _benchRouter() {
     stdlib.AddOption("json", "", "capture aggregated bench_stats to a schema-v1 baseline file", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     bn.Add("stdlib", "per-lib [Benchmark]", stdlib);
+    ArgParser btargets = new ArgParser("xtask bench targets", "manifest [[bench]] target fixtures (src/tests/manifest-targets)");
+    btargets.AddFlag("no-build", "", "skip tooling rebuild");
+    btargets.AddOptionalPositional("name", "single target name (default: all)");
+    bn.Add("targets", "manifest [[bench]] target fixtures (all or one by name)", btargets);
     return bn;
 }
 
@@ -409,6 +423,7 @@ int _dispatch(CommandResolution res) {
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
+    if (top == "example")        { return _testExample(r.GetPositional(0)); }
     if (top == "clean")          { return _clean(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.
     return 2;
@@ -436,6 +451,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
     if (sub == "all")          { return _testAll(r.GetFlag("no-build"), r.GetOption("skip")); }
     if (sub == "stdlib")       { return _testLib(r, "test"); }
+    if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "dist")         { return _testDist(r); }
@@ -463,6 +479,7 @@ int _dispatchDeps(string[] p, ParseResult r) {
 int _dispatchBench(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
     if (sub == "stdlib") { return _testLib(r, "bench"); }
+    if (sub == "targets") { return _testTargetsCore("bench", r.GetPositional(0), r.GetFlag("no-build")); }
     return 2;
 }
 

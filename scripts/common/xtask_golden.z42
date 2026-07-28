@@ -72,7 +72,8 @@ string[] _append(string[] arr, int count, string v) {
 // own runners; zbc-format / zpkg-format are byte-format goldens (no stdout).
 // Distinct from regen's _isNonRegenCat, which excludes a different set.
 bool _isNonRunnableCat(string cat) {
-    return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format";
+    return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format"
+        || cat == "manifest-targets";
 }
 
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─

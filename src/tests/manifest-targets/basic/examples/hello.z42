@@ -1,0 +1,10 @@
+// [[example]] test=true target — compiled by the `xtask test` example gate and,
+// because test=true, also executed (exit-code judged). Also runnable directly via
+// `xtask example hello`.
+namespace MtHello;
+
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("hello from the manifest-target example");
+}
