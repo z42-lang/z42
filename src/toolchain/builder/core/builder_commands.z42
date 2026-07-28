@@ -47,8 +47,21 @@ int _runVerb(ParseResult r, string mode) {
     }
     // `[build] hooks`（projDir 相对目录，"" = 无）——ManifestLoader 未建模该键，
     // 沿 builder_publish 的 TomlValue 直读先例（z42.project 面零改动）。
-    string hooksRel = _pubTomlStr(TomlValue.Parse(File.ReadAllText(tomlPath)), "build", "hooks", "");
-    return _orchestrate(m, t, sourceDir, hooksRel);
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
+    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
+    int rc = _orchestrate(m, t, sourceDir, hooksRel);
+    if (rc != 0) { return rc; }
+    if (mode != BuildMode.Export) {
+        Dirs dirs = _computeDirs(m, sourceDir, t.Profile);
+        string builtZpkg = Path.Join(dirs.Intermediate, "app.zpkg");
+        if (File.Exists(builtZpkg)) {
+            Directory.Create(dirs.Dist);
+            string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
+            File.Copy(builtZpkg, distZpkg);
+            rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist);
+        }
+    }
+    return rc;
 }
 
 // 从 CLI 选项构造 Target。--rid 缺省 = host RID；profile 由 --release 决定。
