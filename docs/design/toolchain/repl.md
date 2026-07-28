@@ -59,8 +59,14 @@ z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
   读**括号平衡多行块**（未闭合 `(){}[]` → `... ` 续行；native `__repl_readblock` 忽略串/注释内括号）；
   整块交 `Script.Eval`，故多行 fn/class 整体到达分类器。元指令单行无括号即时返回；EOF→null 退出不变。
 
-follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` ToString）、`.reset`/`.save`/`.history`
-等更全元指令。（多行输入 + fn/class/enum 顶层声明累积已由 add-repl-decls-multiline 落地。）
+元指令落地状态（`interactive_main`）：已接 `.help .exit .quit .reset .clear .vars .types .usings
+.using <ns> .version`（`.version` 打印 zbc/zpkg **格式**版本——z42vm 运行时版本串未经 builtin 暴露给
+z42，留 follow-up）。仍未接：`.history` / `.save`（需宿主存 transcript）、`.mode`（需 `ExecMode` 接口）；
+`.type`/`.members` 随反射、`.time`/`.counters`/`.trace` 随 diagnostics 并入（见下表标注）。
+
+follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` ToString）、`.history`/`.save`/`.mode`
+等余下元指令。（多行输入 + fn/class/enum 顶层声明累积、`.reset`/`.clear`/`.using`/`.types`/`.version`
+已落地。）
 
 ## 架构
 
@@ -229,10 +235,12 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
   (.type/.members 需反射；.time/.counters/.trace 需 diagnostics)
 ```
 
-> **MVP 指令集**（0.3.15 首发）：`.help .exit .quit .reset .clear .history .save
-> .vars .types .usings .using .mode .version`。`.type`/`.members` 随反射就绪并入；
-> `.time`/`.counters`/`.trace` 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；
-> `.load` 见 Deferred。
+> **MVP 指令集**（目标）：`.help .exit .quit .reset .clear .history .save
+> .vars .types .usings .using .mode .version`。
+> **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .version`
+> （`.version` 仅格式版本）。**未接**：`.history` / `.save`（需 transcript 存储）、`.mode`
+> （需 `ExecMode` 接口）。`.type`/`.members` 随反射就绪并入；`.time`/`.counters`/`.trace`
+> 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；`.load` 见 Deferred。
 
 ## 行编辑器
 
