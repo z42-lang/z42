@@ -34,8 +34,8 @@ public static class Script {
         s.LibsDirs = envDirs; s.LibsDirsN = envDirs.Length;
         // 默认 using（隐式导入，对齐 C# ImplicitUsings / Kotlin·Scala REPL 默认 import）：常用命名空间
         // 开箱即用（Console / List / StringBuilder / Math），无需手动 using。保守集——避开跨命名空间
-        // 同名类型歧义；其余（Std.Net / Std.Json …）按需 `using`。声明可用 ≠ 立即加载：包仍在某符号
-        // 被真正引用时才进世界（惰性），故默认集不加重首轮 scan。（add-completion-query-api）
+        // 同名类型歧义；其余（Std.Net / Std.Json …）按需 `using`。lazy-repl-depscan：首轮即时
+        // eager-load 这些包（见 Eval → _loadUsingsPackages），使常用类型/导入补全即时可用。
         s.Usings.Add("Std.IO");
         s.Usings.Add("Std.Collections");
         s.Usings.Add("Std.Text");
@@ -72,8 +72,14 @@ public static class Script {
         ParsedInput p = Classifier.Classify(trimmed);
 
         // perf ②：首轮对静态库建一次 DepScan 并缓存（decl / var / expr 各路径均需）。
+        // lazy-repl-depscan：改惰性——首轮只建 prelude world + 全量 nsMap（~1.4s vs 全量 ~4.3s）；
+        // 引用到的包在编译失败后按 using 按需加载（见 _compileSrc 的 load-and-retry）。
         if (state.CachedScan == null) {
-            state.CachedScan = DepScan.ScanDirs(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+            state.CachedScan = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+            // 默认 using（#64：Std.IO/Collections/Text/Math）语义 = "始终可用"，故即时加载其包——
+            // 常用类型开箱可用 + 导入补全（#62 读 CachedScan.Exported）对常用类型即时生效。其余包
+            // 惰性（引用失败后按 using 加载，见 _compileSrc）。首轮 ~1.4s + 默认 4 包 ≈ ~1.8s（vs 全量 4.3s）。
+            Script._loadUsingsPackages(state);
         }
 
         // ── 顶层声明轮（函数 / 类型）：编入 Repl.R{n}、登记 ns，后续轮 `using` 可见（零壳类/零改写）──
@@ -209,8 +215,30 @@ public static class Script {
         return Script._compileSrc(state, n, src);
     }
 
-    // 单文件源 → PackageCompile（复用缓存依赖世界，跳过每轮 DepScan）。
+    // 单文件源 → PackageCompile。lazy-repl-depscan：惰性 scan 下，引用未加载包的符号会编译失败
+    // （E0401）；此时按当前 using 集加载尚未加载的包（namespace 已知，绕开 E0401 只有短名的问题），
+    // 若有新包加载则重编一次。`1+2` 不失败 → 不加载 → 保住首轮 ~1.4s；首次引用某包才付其 ~120ms。
     private static CompileArtifacts _compileSrc(ScriptState state, int n, string src) {
+        CompileArtifacts art = Script._compileSrcOnce(state, n, src);
+        if (art.ErrorCount > 0 && Script._loadUsingsPackages(state)) {
+            art = Script._compileSrcOnce(state, n, src);
+        }
+        return art;
+    }
+
+    // 加载 state.Usings 里所有尚未加载的包（幂等）。返回 true = 有新包并入（值得重编）。
+    private static bool _loadUsingsPackages(ScriptState state) {
+        if (state.CachedScan == null) { return false; }
+        int before = state.CachedScan.ExportedCount;
+        int i = 0;
+        while (i < state.Usings.Count) {
+            DepScan.EnsurePackageLoaded(state.CachedScan, state.Usings[i]);
+            i = i + 1;
+        }
+        return state.CachedScan.ExportedCount > before;
+    }
+
+    private static CompileArtifacts _compileSrcOnce(ScriptState state, int n, string src) {
         string[] texts = new string[1]; texts[0] = src;
         string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
         CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
