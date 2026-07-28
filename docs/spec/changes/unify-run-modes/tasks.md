@@ -70,10 +70,13 @@
 - **CI 抓到并修的 2 个真 P4 bug**（compile 阶段抓不到）：① `_findProjectToml` 漏裸 `z42.toml` ② build 进度 `wrote ->` 污染程序 stdout（改 Stdout(Null)）
 - **遗留**（另开）：`_testDistRun` 预检 + `_launcherSmoke` 的 Windows `.exe` 后缀处理（预存 debt，与 P4 无关）
 
-## P5 — publish 每 main 一 app（toolchain）
-- [ ] `z42 publish` 遍历 `[[exe]]` 各配 apphost（复用 per-zpkg，不改 payload）
-- [ ] 修 `examples/hello.z42.toml` 等装饰性 `[[exe]]` 为真可跑（补 kind/entry）
-- [ ] e2e：双 exe→两 apphost 各可独立跑
+## P5 — publish 每 main 一 app（toolchain / z42b）🟡 IMPL（2026-07-28）
+- [x] `builder_publish.z42` `_pubDesktop`：`ExeCount>0` 遍历 `[[exe]]` → 每 exe `_pubEnsureBuilt(ex.name)`（首次 build 全部、余者 resolve）→ `_pubProduceApphost(dist/<ex>.zpkg, root/<ex>, stub)`；`ExeCount==0` 走现有单 app 路径（非破坏）
+- [x] `_pubExes(toml)` helper（TomlValue 直读 `[[exe]]` 名，仿 `_parseExes`，零新依赖、保 stdlib-only）；三个 `_pub*` helper 已按 name 参数化无需改
+- [x] 多 exe 忽略 `[platform.desktop]` bin/payload 单值布局 → `root/<ex.name>`；deps bundle 一次（共享 dist）
+- [x] e2e：`_apphostSmoke` 加多 exe publish smoke（2 `[[exe]]`→断言 aexe+bexe 两 apphost 产出）
+- **CI 覆盖**：per-PR CI = compile-toolchain 验 z42b 编译；**功能 smoke 在 `xtask test dist`（local/release）跑**（_apphostSmoke 被 DIST_SMOKE_ONLY=launcher gate 掉）——如需进 per-PR CI 另议（会首次在 CI 跑 publish 路径）
+- [ ] ~~examples/hello.z42.toml 装饰性 [[exe]]~~ 延后（examples 不进 CI，纯装饰）
 
 ## 文档（归档前必须落地）
 - [ ] `docs/design/runtime/runtime-settings.md`（NEW）
