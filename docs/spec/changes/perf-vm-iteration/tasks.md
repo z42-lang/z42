@@ -11,7 +11,10 @@
 - [ ] **Decision 1（待 User 裁决 A/B/C）**：`call_stack` 锁策略——取决于 GC root 扫描是否 STW 快照
 - [x] **Decision 3（安全自主）**：regs Vec 池化（per-thread free-list + Drop for Frame）✅
       → interp: fib 计算 −32%、poly −19%；GREEN 全绿 + 自举 5/5。见 MODE-COMPARISON.md
-- [ ] **Decision 3（安全自主）**：`collect_args` 改 scratch buffer / SmallVec 免分配
+- [ ] **Decision 3（安全自主，下一步）**：interp 直接从 caller regs+indices 填 callee frame
+      （新增 exec_function 变体,消除 args Vec 分配 + 参数双 clone → 单 clone）。**镜像 JIT
+      的 `new_args_from`**（call.rs:91「no intermediate Vec, cloned once instead of twice」）。
+      比 SmallVec 更优（零分配 + 半 clone,无新依赖）。中等 refactor,单列迭代 + 全 GREEN。
 - [ ] interp 帧名：⚠️ 记忆记录 OnceLock 缓存曾 −7%；若做放 boxed FunctionCold + harness 实测（低优先，interp-only）
 - [ ] JIT `jit_call` 同步复用（去 per-call JitFrame 分配 + push/pop）——依赖 Decision 1
 
