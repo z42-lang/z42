@@ -52,12 +52,13 @@
 - [x] e2e：新增 multi-exe runner（`scripts/test/xtask_test_multiexe.z42`，仿 cross-zpkg）+ fixture `src/tests/multi-exe/two_mains/`（一工程双 [[exe]]→build 产两 zpkg→各跑→比对）；wire 进 `xtask test`（主 gate + `--dir multi-exe`）；两处非 golden 排除（`_isNonRegenCat`/`_isNonRunnableCat`）。**CI 权威**（cold worktree 不可本地跑）
 - [ ] **自举不动点 gen1==gen2**（非破坏关键证据）—— CI 权威（cold worktree 不可本地验）
 
-## P4 — 统一前门 + run 选择 run 侧（toolchain）
-- [ ] `_cmdRun` 前门分类器（`.zpkg`/`.zbc` → 跑产物；`<目录>`/省略 → 找 manifest）
-- [ ] `z42 run <dir>`：调现有 `z42 build`（增量，已新鲜则跳过）→ 跑产出 `.zpkg`
-- [ ] `--bin X` → 跑 `dist/X.zpkg`；无 --bin → default-run 否则报错列名；--bin 名不存在报错
-- [ ] 无 manifest → 明确报错；workspace 目录支持 `-p`
-- [ ] 单元/e2e：源码工程运行、增量跳过、--bin 选择、各报错路径
+## P4 — 统一前门 + run 选择 run 侧（toolchain）🟡 IMPL（2026-07-28）
+- [x] `_cmdRun` 源码工程分类：`_isSourceProject`（目录 / `*.z42.toml` → build+run；`.zpkg`/`.zbc` 走现有产物路径）
+- [x] `z42 run <dir>`：`_buildAndResolveRun` 调 `_forwardZ42c build <manifest>` → 用 `ManifestLoader.Load` 定位产物 zpkg → 落到现有 run 逻辑
+- [x] `--bin X` → 跑 `dist/<X>.zpkg`（校验是已声明 [[exe]]）；无 --bin 多 exe → 报错列名；--bin 不存在 → 报错列名；单 exe → `dist/<name>.zpkg`
+- [x] 无 manifest → 明确报错；launcher 加 `z42.project` 依赖 + `using Z42.Build.Project`
+- **首切边界（deferred）**：default-run（占 stdlib 锁）；`[build].dist_dir` 覆盖（默认 `<dir>/dist`）；workspace/本地依赖拓扑构建；`-p` workspace 成员选择
+- [ ] e2e：`z42 run <dir> --bin` 走 `_launcherSmoke`（dist 打包阶段，需 `package sdk`）——**待定测试深度**（同 P3 的 (a)/(b) 抉择）；compile-toolchain 验 launcher 编译
 
 ## P5 — publish 每 main 一 app（toolchain）
 - [ ] `z42 publish` 遍历 `[[exe]]` 各配 apphost（复用 per-zpkg，不改 payload）
