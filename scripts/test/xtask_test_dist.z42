@@ -187,8 +187,10 @@ int[] _launcherSmoke(string distDir, string work) {
         ProcessResult r = new Process(launcher).Arg("which")
             .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
             .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-        string got = r.Stdout.Trim();
-        if (got == wantVm) {
+        // Normalize path separators: on Windows `z42 which` prints native `\`
+        // while Path.Join here yields `/`. Compare separator-agnostically.
+        string got = r.Stdout.Trim().Replace("\\", "/");
+        if (got == wantVm.Replace("\\", "/")) {
             Console.WriteLine("  ✓ z42 which (portable) → bundled z42vm");
             pass = pass + 1;
         } else {
@@ -277,7 +279,7 @@ int[] _launcherSmoke(string distDir, string work) {
                 got = new Process(Path.Join(ih, "z42")).Arg("which").Env("Z42_HOME", ih).EnvRemove("Z42_PORTABLE_VM")
                     .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run().Stdout.Trim();
             }
-            if (ic == 0 && got == wantInstalled) {
+            if (ic == 0 && got.Replace("\\", "/") == wantInstalled.Replace("\\", "/")) {
                 Console.WriteLine("  ✓ install.sh → installed-mode z42 which");
                 pass = pass + 1;
             } else {
