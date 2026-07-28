@@ -10,13 +10,18 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 行编辑（rustyline）| `Std.Repl.Repl.ReadLine/ReadBlock`（`Repl.z42` → z42vm builtin）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
-| 会话状态 / 结果 | `ScriptState.z42` / `EvalResult.z42` |
-| 编译+执行编排 | `Script.z42`（`Create` 就绪；`Eval` 待 design D8 裁决）|
+| 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclNamespaces`）/ `EvalResult.z42` |
+| 输入分类（using/var/顶层声明/表达式/语句）| `Classifier.z42`（`Classify` + `ParsedInput`）|
+| 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
+| 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR |
+| 多行输入 | `Std.Repl.ReadBlock`（括号平衡；宿主 `interactive_main` 接线）|
 
 ## 基础用法
 ```z42
 ScriptState s = Script.Create();
-// EvalResult r = Script.Eval(s, "1 + 2");   // 待 D8 落地
+EvalResult r = Script.Eval(s, "1 + 2");            // 表达式 → r.Value = 3
+Script.Eval(s, "int add(int a, int b){ return a+b; }");  // 声明累积
+EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value = 9
 ```
 
 ## 如何测试验证
@@ -40,7 +45,9 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定 |
+| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine` / `ReadBlock`）|
 | `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用原语 |
-| `ScriptState.z42` / `EvalResult.z42` | 会话状态 / eval 结果 |
-| `Script.z42` | `Script.Create` / `Eval`（编排；Eval 待 D8）|
+| `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |
+| `Classifier.z42` | 输入分类：using / var / 顶层函数·类型声明 / 表达式·语句 |
+| `Rewriter.z42` | 会话变量裸引用 → `Vars{N}.x` 限定改写 |
+| `Script.z42` | `Script.Create` / `Eval`（分类→建源→编译→加载→求值；声明累积）|

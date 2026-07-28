@@ -1,0 +1,9 @@
+namespace Demo.EnumExt;
+
+using Demo.EnumBase;
+
+// ext package cross-uses the imported enum's member (a cross-zpkg enum access,
+// ext -> base). Before the TsigReconcile fix this was `undefined: Color`.
+long greenValue() {
+    return Color.Green;   // 1
+}

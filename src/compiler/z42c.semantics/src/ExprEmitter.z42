@@ -717,15 +717,20 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new CallIndirectInstr(cidst, callee, args, c.ArgCount));
             return cidst;
         }
-        // 调用目标限定（BP-0）：自由函数经当前 ns 前缀；静态类用 QualifyClass（imported/
-        // 同包跨-ns aware，查 ImportedClassNs；镜像 C# QualifyClassName）——否则同包跨-ns
-        // 静态调用（如 Std.Archive.Zip → Std.Compression.Deflate.Compress）被误限定当前 ns。
-        // 未命中 ImportedClassNs → QualifyClass 回落 Qualify（当前 ns），同-ns 调用不变。
-        string func = this._ctx.Qualify(c.MethodName);
-        // impl-local-fn-l2：局部函数调用 → lifted 名（StrBox 包装；已 FQ，不再 Qualify）。
+        // 调用目标限定（BP-0）：静态类用 QualifyClass（imported/同包跨-ns aware，查 ImportedClassNs；
+        // 镜像 C# QualifyClassName）——否则同包跨-ns 静态调用（如 Std.Archive.Zip →
+        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用 QualifyFreeFunc（imported 自由函数
+        // → 源 ns；fix-imported-free-func-namespace）——否则跨包裸调（如 REPL 跨轮 Repl.R{N} 定义的函数）
+        // 被误限定当前 ns → undefined。QualifyFreeFunc 只在 free 分支调用（其 TrackDepNamespace 副作用不误扰
+        // static 路径）。局部函数（lifted）优先，已 FQ、不再 Qualify。
+        string func;
         if (c.Kind != "static" && this._ctx.LocalFnNames.ContainsKey(c.MethodName)) {
             func = (this._ctx.LocalFnNames.Get(c.MethodName) as StrBox).Value;
-        } else if (c.Kind == "static") { func = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName; }
+        } else if (c.Kind == "static") {
+            func = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName;
+        } else {
+            func = this._ctx.QualifyFreeFunc(c.MethodName);
+        }
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
         this._ctx.Emit(new CallInstr(dst, func, args, c.ArgCount));
         return dst;

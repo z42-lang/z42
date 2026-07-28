@@ -1,0 +1,10 @@
+namespace Demo.FreeFuncExt;
+
+using Demo.FreeFuncBase;
+
+// ext package bare-calls the imported free function `Square` (a cross-zpkg
+// free call, ext -> base). Before the fix this emitted `Demo.FreeFuncExt.Square`
+// (the caller's ns) instead of `Demo.FreeFuncBase.Square` -> undefined.
+int SquareViaExt(int x) {
+    return Square(x);
+}

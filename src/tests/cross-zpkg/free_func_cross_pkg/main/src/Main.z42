@@ -1,0 +1,15 @@
+namespace Demo.FreeFuncApp;
+
+using Std.IO;
+using Demo.FreeFuncBase;
+using Demo.FreeFuncExt;
+
+// Exercises cross-zpkg bare free-function calls (fix-imported-free-func-namespace):
+//   Square(5)       : app -> base directly (bare call, no receiver/class)
+//   SquareViaExt(6) : app -> ext -> base (ext's own bare cross-zpkg call re-exposed)
+// Before the fix both bare calls were qualified to the CALLER's ns
+// (Demo.FreeFuncApp.Square / Demo.FreeFuncExt.Square) -> undefined at load.
+void Main() {
+    Console.WriteLine(Square(5));
+    Console.WriteLine(SquareViaExt(6));
+}

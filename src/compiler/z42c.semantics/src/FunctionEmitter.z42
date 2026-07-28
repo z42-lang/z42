@@ -29,6 +29,7 @@ public sealed class FunctionEmitter {
         this._ctx.Ns = this._gen.Ns;   // BP-0：emitter 侧名字限定（ObjNew/is/as 类引用）
         this._ctx.Deps = this._gen.Deps;   // CI-4：跨包调用索引
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;   // IC-1
+        this._ctx.ImportedFuncNs = this._gen.ImportedFuncNs;     // fix-imported-free-func-namespace
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;                               // lift 命名（port-z42c-closures）
@@ -137,6 +138,7 @@ public sealed class FunctionEmitter {
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ImportedFuncNs = this._gen.ImportedFuncNs;     // fix-imported-free-func-namespace
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
@@ -174,6 +176,7 @@ public sealed class FunctionEmitter {
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ImportedFuncNs = this._gen.ImportedFuncNs;     // fix-imported-free-func-namespace
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;

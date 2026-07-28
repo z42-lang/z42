@@ -1,0 +1,18 @@
+# unify-run-modes P3: one project, two [[exe]] targets sharing [sources].
+# `z42c build` must produce dist/greet.zpkg + dist/farewell.zpkg, each with its
+# own baked entry. No local deps (stdlib only). pack=true → packed zpkgs.
+[project]
+name    = "multiexe.demo"
+version = "0.1.0"
+pack    = true
+
+[sources]
+include = ["*.z42"]
+
+[[exe]]
+name  = "greet"
+entry = "App.Greet.Main"
+
+[[exe]]
+name  = "farewell"
+entry = "App.Farewell.Main"

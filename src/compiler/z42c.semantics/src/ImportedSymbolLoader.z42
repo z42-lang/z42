@@ -17,6 +17,7 @@ public sealed class ImportedSymbols {
     public StrMap Classes;          // 短名 → Z42ClassType（成员已填）
     public StrMap Functions;        // 名 → MethodSymbol（自由函数）
     public StrMap ClassNamespaces;  // 短名 → 原 ns（QualifyClassName / 诊断用；值存 StrBox）
+    public StrMap FunctionNamespaces; // 自由函数名 → 原 ns（QualifyFreeFunc：跨包裸调按源 ns 限定；值存 StrBox）
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
     public StrMap EnumConsts;       // "EnumType.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts）
@@ -24,6 +25,7 @@ public sealed class ImportedSymbols {
         this.Classes = new StrMap();
         this.Functions = new StrMap();
         this.ClassNamespaces = new StrMap();
+        this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
         this.EnumTypeNames = new StrMap();
         this.EnumConsts = new StrMap();
@@ -154,6 +156,8 @@ public static class ImportedSymbolLoader {
                         var sig = new Z42FuncType(ps, fz.ParamCount, ImportedSymbolLoader._resolve(r, fz.ReturnType));
                         sig.ParamsFrom = fz.ParamsFrom;
                         r.Functions.Put(fz.Name, new MethodSymbol(fz.Name, "public", sig, false, "", false, null));
+                        // 记源 ns（与 ClassNamespaces 对称）→ 发射期 QualifyFreeFunc 跨包裸调按源 ns 限定。
+                        r.FunctionNamespaces.Put(fz.Name, new StrBox(em.Namespace));
                     }
                     f = f + 1;
                 }

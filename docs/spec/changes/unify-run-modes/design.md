@@ -1,6 +1,6 @@
-# Design: 运行时设置解析（P0 — settings-resolution）
+# Design: 运行时设置解析（P0）+ 多 exe 目标（P3–P5）
 
-> 范围：本 design 覆盖 **P0（设置 SoT 收敛 + VM 端 `[runtime]` 解析地基）**。P1–P4 的分发器 / 源码运行各自补 design。
+> 范围：本 design 覆盖 **P0（设置 SoT 收敛 + VM 端 `[runtime]` 解析）**（下文主体）与 **多 exe 目标（P3–P5，末节）**。P1（侧车迁移）/ P4 前门编排的细节各自实施时补。
 > 父提案：[proposal.md](proposal.md)。
 
 ## Architecture
@@ -73,5 +73,58 @@
 ## Out of Scope（P0 明确不做）
 - CLI flag 层（`--mode` 等）改造：仍在 main.rs，P0 不动。
 - 工程 `[profile.*].mode` 消费：P2。
-- JSON 侧车 → TOML 迁移、`Z42_CONFIG` 由谁设置 / 侧车自动发现：P1/P3。
+- JSON 侧车 → TOML 迁移、`Z42_CONFIG` 由谁设置 / 侧车自动发现：P1/P4。
 - launcher / apphost 端任何改动：P1+。
+
+---
+
+# Design: 多 exe 目标（P3–P5）
+
+> spec：[specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md)。接回归档特性 [add-multi-exe-target](../../archive/2026-04-04-add-multi-exe-target/)（自举迁移时丢了消费逻辑）。
+
+## Architecture
+
+```
+manifest [[exe]]  ──解析(已现成)──►  ProjectManifest.Exes[{name,entry,src}]
+                                          │
+   P3 build:  Main.z42  ExeCount==0 ─► 现有单入口路径（不变）
+                        ExeCount>0  ─► for e in Exes:
+                                          PackageCompile(entry=e.Entry, sources=e.Src‖[sources])
+                                          → ZpkgWriter META entry=e.Entry
+                                          → dist/<e.Name>.zpkg          （复用现有单入口烘焙链）
+   P4 run:    launcher  --bin X ─► 跑 dist/X.zpkg（entry 已烤好，不覆盖）
+                        无 --bin ─► default-run ‖ 报错列名
+   P5 publish: 每 dist/<name>.zpkg ─► apphost（现有 per-zpkg 机制，payload 不改）
+```
+
+## Decisions
+
+### Decision E1：多产物 = per-exe zpkg（非 lib+bins 去重）
+**问题**：多 exe 如何映射产物？共享 `[sources]` 时代码是否去重？
+**选项**：A — per-exe zpkg，每 exe 编一份（共享源集则各带一份编译产物，重复）；B — lib+bins，共享码编成一个 lib zpkg，exe 薄壳依赖它（无重复，但引入"包既 lib 又有依赖它的 exe"结构）。
+**决定**：**A**。物理 1:1、复用现有单入口烘焙链（只把"调一次"变"循环调"）、非破坏（`ExeCount==0` 走原路径）。B 的去重留 future 优化——多数多-bin 工程体量小；exe 声明不相交 `src` 时本就不重复。
+
+### Decision E2：run 选择靠产物 entry，不靠入口覆盖
+**问题**：`z42 run --bin X` 怎么跑对入口？
+**决定**：直接跑 `dist/X.zpkg`——其 META entry 已在 build 时烤成 `X.Entry`，VM 加载即用 baked hint（`main.rs:742`），**无需 CLI 入口覆盖**。入口覆盖（`z42vm <f> <Entry>`）保留作 zbc / 测试的既有用途，不进本路径。
+
+### Decision E3：多 exe 默认选择 = default-run 否则报错
+**问题**：多 exe 且无 `--bin` 跑哪个？
+**决定**：读 `[project].default-run`；无则**报错列出所有 exe 名**（Rust 同款），不静默取第一个（避免"改了 exe 顺序就换了默认程序"的隐患）。
+
+### Decision E4：publish 复用 apphost-per-zpkg，不改 payload
+**问题**：每 main 一个可发 app 怎么产？
+**决定**：per-exe zpkg 已各带 baked entry，故每个 `dist/<name>.zpkg` 直接走**现有** apphost-per-zpkg 打包（apphost payload 仍只需嵌 zpkg 路径，entry 在 zpkg 内），**零 payload 改动**。
+
+## Implementation Notes
+- **非破坏红线**：`ExeCount==0` 分支 = 现有单入口路径原样；z42c 自身源码无 `[[exe]]`，故自举不动点（gen1==gen2）必须保持——P3 GREEN 以此为强证据。
+- **源集切分**：`e.Src`（SrcCount>0）时 discover 只该子集；否则复用 `[sources]` 的 discovery 结果。多 exe 各自 `PackageCompile` 一次（共享源集时可缓存 discovery，编译各出各产物）。
+- **z42b 编排**：`builder_commands._orchestrate` 现为单 `Target`；多 exe 时遍历 `pm.Exes` 生成多个构建请求（或把"多目标"下沉进 z42c driver，z42b 只透传 —— 实施时二选一，倾向 driver 内循环，z42b 不必懂多目标）。
+- **format（zbc vs zpkg）**：默认 `.zpkg`；`.zbc`（无依赖单编译单元）留作后续按 exe 推断的优化，本 change 一律 zpkg。
+
+## Testing Strategy（多 exe）
+- z42c 单测/e2e：双 exe manifest → 产两 zpkg，各 entry 正确；exe 专属 src 只编子集；`ExeCount==0` 产物不变。
+- 自举不动点 gen1==gen2（关键非破坏证据）。
+- launcher e2e：`run --bin` 选对产物；无 --bin+default-run；无 --bin 无 default-run 报错列名；--bin 名不存在报错。
+- publish：双 exe → 两 apphost 各可独立跑。
+- `examples/hello.z42.toml` 修为真可跑后纳入 e2e。

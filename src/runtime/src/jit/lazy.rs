@@ -60,7 +60,9 @@ impl LazyCompiler {
             jit,
             helper_ids,
             module: module as *const Module,
-            profile: std::env::var("Z42_JIT_PROFILE").is_ok(),
+            // `Z42_JIT_PROFILE` now flows through the central RuntimeConfig
+            // (de-straggler) so it appears in `--info` and the [runtime] layer.
+            profile: crate::config::runtime_config().jit_profile,
         })
     }
 

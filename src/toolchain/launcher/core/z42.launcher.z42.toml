@@ -13,7 +13,7 @@ include = ["*.z42"]
 [dependencies]
 "z42.core"        = "0.1.0"   # String / Console-adjacent core
 "z42.io"          = "0.1.0"   # Environment / Directory / Path / File / Process / Console / Platform
-"z42.json"        = "0.1.0"   # parse <app>.runtimeconfig.json
+"z42.json"        = "0.1.0"   # parse network manifests (nightly / workload)
 "z42.net"         = "0.1.0"   # HttpClient — download release assets
 "z42.compression" = "0.1.0"   # Gzip + Tar — unpack .tar.gz
 "z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS

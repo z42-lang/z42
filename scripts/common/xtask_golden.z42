@@ -67,12 +67,12 @@ string[] _append(string[] arr, int count, string v) {
 
 // ── golden-walk exclusions (added by test-vm fold) ───────────────────────────
 
-// Categories whose golden is NOT "run z42vm and diff stdout": cross-zpkg is a
-// multi-package e2e run handled separately; zbc-format / zpkg-format are
-// byte-format goldens (no stdout). Distinct from regen's _isNonRegenCat, which
-// excludes a different set (errors / parse / cross-zpkg).
+// Categories whose golden is NOT "run z42vm and diff stdout": cross-zpkg and
+// multi-exe are multi-package / multi-target project e2e runs handled by their
+// own runners; zbc-format / zpkg-format are byte-format goldens (no stdout).
+// Distinct from regen's _isNonRegenCat, which excludes a different set.
 bool _isNonRunnableCat(string cat) {
-    return cat == "cross-zpkg" || cat == "zbc-format" || cat == "zpkg-format";
+    return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format";
 }
 
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─

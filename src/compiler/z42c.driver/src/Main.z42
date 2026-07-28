@@ -130,10 +130,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     string[] srcHashes = new string[srcs.Length];
     ti = 0;
     while (ti < srcs.Length) { srcHashes[ti] = ZpkgBuilder.Sha256Hex(texts[ti]); ti = ti + 1; }
-    bool isExe = pm.Project.Kind == "exe";
+    // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
+    bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
     // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认
-    //（debug→false=indexed / release→true=packed）。[profile]/[[exe]] 层随 profiles
-    // 延后线（z42c 尚未解析 profile 段）。indexed 为开发态：与 release strip 冲突即拦。
+    //（debug→false=indexed / release→true=packed）。[profile] 层随 profiles 延后线
+    //（z42c 尚未解析 profile 段）；`[[exe]]` 多目标已由本函数下方多产物分支消费。
+    // indexed 为开发态：与 release strip 冲突即拦。
     bool isPacked = pm.Project.HasPack ? pm.Project.Pack : isRelease;
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
@@ -151,7 +153,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
         // 时布局必须重投影，不能拿旧模式的 dist 当"未变"——add-indexed-zpkg-min-patch）。
-        if (prep.Plan.AllCached && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked)) {
+        // 多目标（ExeCount>0）不走 preserved：其产物是 dist/<exe>.zpkg（非 <Name>.zpkg），
+        // 增量 preserved 尚未建模多产物，多 exe 一律全量（unify-run-modes P3）。
+        if (pm.ExeCount == 0 && prep.Plan.AllCached && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked)) {
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
@@ -221,18 +225,61 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             ei = ei + 1;
         }
     }
-    // ⑪ entry 校验（exe 专属）
-    if (isExe && art.EntryStatus == "ambiguous") {
+    // ⑪ entry 校验（单产物 exe 专属）。多目标（ExeCount>0）用各自 [[exe]].entry 显式指定，
+    // 共享编译的自动探测 ambiguous/missing 与其无关 → 跳过（unify-run-modes P3）。
+    if (isExe && pm.ExeCount == 0 && art.EntryStatus == "ambiguous") {
         ConsoleError.WriteLine("z42c build: multiple Main candidates; set [project].entry explicitly");
         return ExitCode.BuildError;
     }
-    if (isExe && art.EntryStatus == "missing") {
+    if (isExe && pm.ExeCount == 0 && art.EntryStatus == "missing") {
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
         return ExitCode.BuildError;
     }
     ZpkgFileZ z = art.Z;
     ZbcFileZ[] mods = art.Mods;
     Directory.Create(distDir);
+    // ── 多 exe 多产物（unify-run-modes P3）：一个 manifest 声明 N 个 [[exe]] → N 个
+    //    dist/<name>.zpkg。[sources] 已在上方编译一次；此处按 exe 重烤 name/entry（共享
+    //    字节，只改 META）后各写一份，复用现有单入口烘焙链。非破坏：ExeCount==0 落到下方
+    //    未改动的单产物路径（z42c 自身源无 [[exe]] → 自举 gen1==gen2 不受扰）。
+    //    首切：exe 专属 src 子集 + 增量 preserved 后置，多 exe 一律全量、共享 [sources]。
+    if (pm.ExeCount > 0) {
+        int xi = 0;
+        while (xi < pm.ExeCount) {
+            ExeTarget ex = pm.Exes[xi];
+            if (ex.SrcCount > 0) {
+                ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 声明了独立 `src` 子集——per-exe 源集尚未支持（当前所有 exe 共享 [sources]）；移除 `src` 或拆成独立工程");
+                return ExitCode.UsageError;
+            }
+            if (ex.Entry.Length == 0) {
+                ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 缺少 `entry`（全限定 Main 函数名）");
+                return ExitCode.UsageError;
+            }
+            z.Name = ex.Name;      // 产物文件名 + 包内标识
+            z.IsExe = true;
+            z.Entry = ex.Entry;    // 重烤 baked entry
+            if (!isPacked) {
+                string idxCacheX = _resolveCacheDir(pm, projectDir, isRelease);
+                int ircX = _writeIndexedDist(distDir, idxCacheX, projectDir, srcs, z, mods, srcs.Length, prep);
+                if (ircX != 0) { return ircX; }
+            } else {
+                ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
+                string outX = Path.Join(distDir, ex.Name + ".zpkg");
+                File.WriteAllBytes(outX, wresX.Main);
+                Console.WriteLine("wrote -> " + outX);
+                if (wresX.HasSidecar) {
+                    string symX = Path.Join(distDir, ex.Name + ".zsym");
+                    File.WriteAllBytes(symX, wresX.Sidecar);
+                    Console.WriteLine("wrote -> " + symX);
+                }
+            }
+            xi = xi + 1;
+        }
+        // 依赖 bundling 一次（各 exe 共享同一 dist）。
+        int mbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+        if (mbc != 0) { return mbc; }
+        return ExitCode.Ok;
+    }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
     if (!isPacked) {
         // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
