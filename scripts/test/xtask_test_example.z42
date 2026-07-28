@@ -1,0 +1,201 @@
+// xtask — example target runner (add-tests-bench-manifest-config P3).
+// Same Z42Xtask namespace. Examples are a first-class dev target that DEFAULT to
+// "compile-only" (design D4): `xtask test` compiles every declared example as a
+// gate (must always build), runs only those marked `test = true`; `xtask example
+// [name]` compiles + runs one (or all test=true when name omitted), exit-code
+// judged. example targets are always Main programs — `harness` is ignored; the
+// entry is the explicit `[[example]].entry` or, for convention files, the source
+// file's `namespace` + ".Main".
+//
+// Discovery scans every project (stdlib libs + manifest-target fixtures) that
+// declares examples: section `[examples]` auto glob (convention dir `examples/`)
+// + explicit `[[example]]`. Reuses the exit-target compiler (_runExitTarget,
+// xtask_test_targets.z42) and the fixture tooling prep (_prepFixtureTooling).
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Z42.Build.Project;
+
+// `xtask test` example gate: compile ALL examples across every project (fail the
+// stage if any won't build), run those with `test = true`. noBuild → reuse the
+// already-prepared release toolchain. Returns 0 (pass) / 1 (fail) / 2 (setup).
+int _testExampleGate(bool noBuild) {
+    string root = _root();
+    if (noBuild && !_releaseStdlibReady(root)) {
+        Console.WriteLine("(skip examples: release stdlib not built on this leg)");
+        return 0;
+    }
+    TargetTooling tt = _prepFixtureTooling(root, noBuild);
+    if (!tt.Ok) { return 2; }
+    return _exampleRun(root, tt, "", true);   // gate: compile all, run test=true
+}
+
+// `xtask example [name]` — compile + run one example by name, or (no name) every
+// example marked test=true. Always builds tooling first (dev convenience).
+int _testExample(string name) {
+    string root = _root();
+    TargetTooling tt = _prepFixtureTooling(root, false);
+    if (!tt.Ok) { return 2; }
+    return _exampleRun(root, tt, name, false);
+}
+
+// Core: iterate every project dir under src/libraries + src/tests/manifest-targets,
+// discover its example targets, compile all (gate), and run the selected ones.
+// gate=true → run only RunInTest targets; gate=false → run `name` (exact) or all
+// RunInTest when name=="". A name matching nothing → error listing available.
+int _exampleRun(string root, TargetTooling tt, string name, bool gate) {
+    string[] roots = new string[2];
+    roots[0] = Path.Join(root, "src/libraries");
+    roots[1] = _fixturesRoot(root);
+    int failed = 0;
+    int compiled = 0;
+    int ran = 0;
+    string avail = "";
+    int ri = 0;
+    while (ri < roots.Length) {
+        if (Directory.Exists(roots[ri])) {
+            string[] projs = _sortedStrings(Directory.Enumerate(roots[ri]));
+            int pi = 0;
+            while (pi < projs.Length) {
+                string projDir = Path.Join(roots[ri], projs[pi]);
+                string toml = _findToml(projDir);
+                if (toml.Length > 0 && Directory.Exists(projDir)) {
+                    int[] cref = new int[3]; cref[0] = compiled; cref[1] = ran; cref[2] = failed;
+                    _exampleRunProject(root, projDir, projs[pi], toml, tt, name, gate, cref, ref avail);
+                    compiled = cref[0]; ran = cref[1]; failed = cref[2];
+                }
+                pi = pi + 1;
+            }
+        }
+        ri = ri + 1;
+    }
+    if (!gate && name.Length > 0 && ran == 0 && failed == 0) {
+        ConsoleError.WriteLine("error: no example named '" + name + "'");
+        if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
+        return 2;
+    }
+    Console.WriteLine("");
+    if (failed > 0) {
+        Console.WriteLine("  ❌ examples: " + failed.ToString() + " failure(s) (" + compiled.ToString() + " compiled, " + ran.ToString() + " ran)");
+        return 1;
+    }
+    Console.WriteLine("  ✅ examples: " + compiled.ToString() + " compiled, " + ran.ToString() + " ran");
+    return 0;
+}
+
+// Discover + compile/run one project's examples. Updates cref[0]=compiled,
+// cref[1]=ran, cref[2]=failed; appends names to `avail`.
+void _exampleRunProject(string root, string projDir, string projName, string toml,
+                        TargetTooling tt, string name, bool gate, int[] cref, ref string avail) {
+    ProjectManifest man = _loadManifestOr(toml);
+    RunTarget[] tgts = _explicitTargets(man, "example");
+    string verr = _validateRunTargets(tgts, tgts.Length, "example");
+    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); cref[2] = cref[2] + 1; return; }
+    RunTarget[] examples = _discoverExamples(projDir, man, tgts);
+    int i = 0;
+    while (i < examples.Length) {
+        RunTarget ex = examples[i];
+        avail = _appendName(avail, ex.Name);
+        // run decision: gate → run iff RunInTest; explicit `xtask example name` →
+        // run iff name matches (any name); `xtask example` (no name) → RunInTest.
+        bool selected = (name.Length > 0) ? (ex.Name == name) : ex.RunInTest;
+        bool runAfter = selected;
+        // gate compiles EVERYTHING; `xtask example <name>` only touches the match.
+        if (!gate && name.Length > 0 && ex.Name != name) { i = i + 1; continue; }
+        DepBundle deps = _targetDeps(man, "example", ex);
+        int rc = _runExitTarget(root, projDir, projName + ".example", "examples", ex, deps,
+                                tt.Vm, tt.DriverZpkg, tt.Libs, runAfter);
+        cref[0] = cref[0] + 1;
+        if (runAfter) { cref[1] = cref[1] + 1; }
+        if (rc != 0) { cref[2] = cref[2] + 1; }
+        i = i + 1;
+    }
+}
+
+// All example targets for a project: convention auto (section [examples] auto,
+// dir `examples/`) overlaid by explicit [[example]] (same name overrides). Auto
+// examples derive entry = <namespace>.Main from their source file.
+RunTarget[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
+    RunTarget[] auto = new RunTarget[0];
+    if (_sectionAuto(man, "example")) { auto = _autoExamples(projDir); }
+    RunTarget[] acc = new RunTarget[auto.Length + explicitTgts.Length];
+    int n = 0;
+    int i = 0;
+    while (i < auto.Length) { acc[n] = auto[i]; n = n + 1; i = i + 1; }
+    int ti = 0;
+    while (ti < explicitTgts.Length) {
+        RunTarget t = explicitTgts[ti];
+        int at = _indexOfTarget(acc, n, t.Name);
+        RunTarget norm = _normalizeExample(projDir, t);
+        if (at >= 0) { acc[at] = norm; } else { acc[n] = norm; n = n + 1; }
+        ti = ti + 1;
+    }
+    RunTarget[] r = new RunTarget[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}
+
+int _indexOfTarget(RunTarget[] a, int n, string name) {
+    int i = 0;
+    while (i < n) { if (a[i].Name == name) { return i; } i = i + 1; }
+    return -1;
+}
+
+// Convention examples under <projDir>/examples/: single-file *.z42 (name=stem)
+// and dir */source.z42 (name=dir). Entry = source namespace + ".Main".
+RunTarget[] _autoExamples(string projDir) {
+    string dir = Path.Join(projDir, "examples");
+    if (!Directory.Exists(dir)) { return new RunTarget[0]; }
+    string[] entries = _sortedStrings(Directory.Enumerate(dir));
+    RunTarget[] tmp = new RunTarget[entries.Length];
+    int c = 0;
+    int i = 0;
+    while (i < entries.Length) {
+        string e = entries[i];
+        string full = Path.Join(dir, e);
+        if (Directory.Exists(full)) {
+            string src = Path.Join(full, "source.z42");
+            if (File.Exists(src)) {
+                string[] inc = new string[1]; inc[0] = "examples/" + e + "/**/*.z42";
+                tmp[c] = _mkExample(e, _fileEntry(src), inc); c = c + 1;
+            }
+        } else if (e.EndsWith(".z42")) {
+            string stem = e.Substring(0, e.Length - 4);
+            string[] inc = new string[1]; inc[0] = "examples/" + e;
+            tmp[c] = _mkExample(stem, _fileEntry(full), inc); c = c + 1;
+        }
+        i = i + 1;
+    }
+    RunTarget[] r = new RunTarget[c];
+    int k = 0;
+    while (k < c) { r[k] = tmp[k]; k = k + 1; }
+    return r;
+}
+
+// Fill in a derived entry for an explicit example lacking one (convention lookup).
+RunTarget _normalizeExample(string projDir, RunTarget t) {
+    if (t.HasEntry) { return t; }
+    string single = Path.Join(Path.Join(projDir, "examples"), t.Name + ".z42");
+    string dsrc = Path.Join(Path.Join(Path.Join(projDir, "examples"), t.Name), "source.z42");
+    string entry = "";
+    if (File.Exists(single)) { entry = _fileEntry(single); }
+    else if (File.Exists(dsrc)) { entry = _fileEntry(dsrc); }
+    return new RunTarget(t.Name, t.Harness, entry.Length > 0, entry, t.Sources, t.SrcCount,
+                         t.Deps, t.DepCount, t.RunInTest);
+}
+
+// A convention example RunTarget: Main program, harness ignored, entry derived.
+RunTarget _mkExample(string name, string entry, string[] inc) {
+    return new RunTarget(name, false, entry.Length > 0, entry, inc, inc.Length,
+                         new DepEntry[0], 0, false);
+}
+
+// <namespace>.Main from a source file (or "Main" when no namespace is declared).
+string _fileEntry(string file) {
+    string ns = "";
+    try { ns = _extractNamespace(File.ReadAllText(file)); } catch (Exception e) { ns = ""; }
+    if (ns.Length > 0) { return ns + ".Main"; }
+    return "Main";
+}
