@@ -380,10 +380,11 @@ string? _flagValue(string[] arr, string flag) {
 // ── source-project run (unify-run-modes P4) ──────────────────────────────────
 
 // A run target that is *source to build*, not a compiled artifact: a directory,
-// or a `*.z42.toml` manifest. `.zpkg`/`.zbc` are compiled → run directly.
+// or a manifest file — both `z42.toml` (Cargo-style) and `<name>.z42.toml` are
+// accepted. `.zpkg`/`.zbc` are compiled → run directly.
 bool _isSourceProject(string app) {
     if (app.EndsWith(".zpkg") || app.EndsWith(".zbc")) { return false; }
-    if (app.EndsWith(".z42.toml")) { return true; }
+    if (app.EndsWith("z42.toml")) { return true; }   // z42.toml or <name>.z42.toml
     return Directory.Exists(app);
 }
 
@@ -396,9 +397,10 @@ bool _isSourceProject(string app) {
 // 首切边界：默认 dist（`<projDir>/dist`）；`[build].dist_dir` 覆盖 + workspace/本地依赖
 // 拓扑构建后置。
 string _buildAndResolveRun(string app, string binName) {
-    string manifest = app.EndsWith(".z42.toml") ? app : _findProjectToml(app);
+    // `app` may be a manifest file (`z42.toml` / `<name>.z42.toml`) or a directory.
+    string manifest = app.EndsWith("z42.toml") ? app : _findProjectToml(app);
     if (manifest.Length == 0) {
-        ConsoleError.WriteLine("z42 run: no <name>.z42.toml manifest found in " + app);
+        ConsoleError.WriteLine("z42 run: no z42.toml / <name>.z42.toml manifest found in " + app);
         return "";
     }
     string[] buildArgv = new string[2];
@@ -449,10 +451,12 @@ void _listExes(ProjectManifest pm) {
     while (i < pm.ExeCount) { ConsoleError.WriteLine("    - " + pm.Exes[i].Name); i = i + 1; }
 }
 
-// The top-level `*.z42.toml` manifest directly in `dir` (source-project run
-// target). Prefers a manifest whose parent is `dir`; falls back to the first
-// found. "" if none.
+// The manifest directly in `dir` (source-project run target). Prefers a bare
+// `dir/z42.toml` (Cargo-style, as most fixtures/projects use), else the top-level
+// `*.z42.toml`. "" if none.
 string _findProjectToml(string dir) {
+    string bare = Path.Join(dir, "z42.toml");
+    if (File.Exists(bare)) { return bare; }
     string[] tomls = Path.GlobRecursive(dir, "*.z42.toml");
     if (tomls.Length == 0) { return ""; }
     int i = 0;
