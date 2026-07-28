@@ -643,9 +643,33 @@ strip    = true
 
 ---
 
-## L5b — 测试与 Bench 配置（add-tests-bench-manifest-config, 2026-06-06）
+## L5b — 测试 / Bench / Example 目标配置（add-tests-bench-manifest-config, 2026-07-29 落地）
 
-声明测试和 benchmark 编译单元的位置、共享依赖、产物布局。设计原则与 Cargo 同代际但更精简：约定优先 + 显式覆盖 + dev-deps 隔离。
+> **本节 2026-07-29 重写**（原 2026-06-06 纸面设计从未实现）。落地形态与旧稿的四处差异见节末
+> 「与 2026-06-06 旧稿的差异」。设计参照 Cargo target 模型（`[[test]]`/`[[bench]]`/`[[example]]`
+> + auto-discovery），按 z42 自举子集精简。
+
+声明 test / bench / **example** 运行目标的位置、驱动方式、共享依赖、产物布局。设计原则：**约定优先
+（glob 批量发现）+ 显式覆盖（`[[target]]` 具名）+ dev-deps 隔离**。三类目标结构同构，共用模型
+（`RunTarget` / `TargetSection`，见 `src/libraries/z42.project/`）。
+
+### 两层模型（批量 vs 逐个）
+
+- **段配置**（`[tests]`/`[benches]`/`[examples]`）= 约定扫描：一条 `include` glob 把匹配到的每个
+  文件/目录变成一个**自动具名**目标（名从路径推导），零配置即批量覆盖。
+- **显式目标**（`[[test]]`/`[[bench]]`/`[[example]]`）= 具名声明：仅当需要多文件合并 / 自定义 entry /
+  独享 dep / `harness` 覆盖时才写；同名时**覆盖**约定扫出的 auto 目标。
+
+### 驱动方式：`harness` 布尔（借 Cargo）
+
+| `harness` | 谁驱动 | 判定 |
+|-----------|--------|------|
+| `true`（默认）| z42b 反射跑本单元的 `[Test]` / `[Benchmark]` 自由函数 | assert 失败 / 非零退出 |
+| `false` | 跑目标 `entry`（FQ 函数名）指定的 Main | **退出码**（非零即失败；**无 golden / expected 比对**）|
+
+> **golden（`expected_output.txt` stdout 比对）不进本模型**——它由 `src/tests/**` 的独立约定
+> harness（`scripts/test/xtask_test_vm.z42`）承载，与清单目标正交并存。清单目标一律 exit-code 语义。
+> example 恒 Main 程序，`harness` 对其无意义（发现方一律按 `entry` Main 跑）。
 
 ### 约定（自动发现）
 
@@ -657,68 +681,92 @@ strip    = true
 │   ├── foo_basic.z42                 ← 单文件测试（独立编译单元）
 │   ├── bar_errors.z42                ← 同上
 │   └── integration_roundtrip/        ← 多文件测试（dir-mode）
-│       ├── source.z42                ← 入口（约定名，不可改）；含 Main()
+│       ├── source.z42                ← 入口（约定名，不可改）
 │       ├── _helpers.z42              ← 同 dir 内任意 *.z42 递归 include
 │       └── data/                     ← 非 .z42 数据文件；运行时相对路径读取
 ├── bench/                            ← 与 tests/ 同构
-│   ├── lexer_throughput.z42
-│   └── e2e_pipeline/
-│       └── source.z42
-└── examples/                          ← 约定预留（future iteration）
+│   └── lexer_throughput.z42
+└── examples/                          ← 与 tests/ 同构（默认只编不跑，见下）
+    └── hello.z42
 ```
 
 **约定规则**：
 
-1. `tests/*.z42` 顶层文件 → 各自独立测试程序
-2. `tests/<name>/source.z42` 入口 + 同目录递归 `*.z42` → 合成一个多文件测试程序
-3. `bench/*.z42` 与 `bench/<name>/source.z42` → 同 1/2 规则
-4. 子目录内非 `.z42` 文件（fixture / data）随测试产物打包，运行时 cwd 切到 `<test_dir>`，相对路径读取
-5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是 test/bench 入口
+1. `tests/*.z42` 顶层文件 → 各自独立目标（auto 名 = 文件 stem）
+2. `tests/<name>/source.z42` 入口 + 同目录递归 `*.z42` → 合成一个多文件目标（auto 名 = 目录名）
+3. `bench/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `bench/` `examples/`）
+4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
+5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
+6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)——
+   first-wins 禁止依赖 FS 枚举序）
 
-### `[tests]` / `[bench]` 段
+### `[tests]` / `[benches]` / `[examples]` 段
 
-共享配置 + dev-deps 隔离。Cargo 的 `[dev-dependencies]` 等价物。
+共享配置 + dev-deps 隔离（Cargo `[dev-dependencies]` 等价物）。**段名一律复数**——与单数
+`[[test]]`/`[[bench]]`/`[[example]]` array-of-tables key 区分开（同名 key 既是 table 又是 AoT 是
+非法 TOML）。
 
 ```toml
 [tests]
 # 字段全可省 → 走约定：tests/*.z42 + tests/*/source.z42
 # include = ["tests/*.z42", "tests/*/source.z42"]
 # exclude = ["tests/_skip/*"]
-
+# auto    = true          # false → 关闭约定扫描，只认 [[test]]
 [tests.dependencies]
-"z42.test" = "0.1.0"   # 仅测试合入；release zpkg 元数据不含
+"z42.test" = "0.1.0"      # 仅测试合入；release zpkg 元数据不含
 
-[bench]
-[bench.dependencies]
-"z42.test" = "0.1.0"   # Bencher 在 z42.test 包内
+[benches]
+[benches.dependencies]
+"z42.test" = "0.1.0"      # Bencher 在 z42.test 包内
+
+[examples]
+# 默认发现 examples/*.z42 + examples/*/source.z42
 ```
 
-### `[[test]]` / `[[bench]]` 数组（显式覆盖）
+### `[[test]]` / `[[bench]]` / `[[example]]` 数组（显式覆盖）
 
-当一个测试 / bench 路径不规则或独享 dep 时：
+字段对齐 `[[exe]]`（`entry` = FQ 函数名，`sources` = glob 集）：
 
 ```toml
 [[test]]
-name = "compile_perf_e2e"        # 必填；filter 用 + 合成包名
-src  = "tests/perf/runner.z42"    # 必填；入口
-sources = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]   # 可选；显式 include 集
-[test.dependencies]               # 该 test 独享 dev-dep（Cargo `[[test]]` 没有的能力）
+name    = "compile_perf"          # 必填；filter 用 + 合成包名
+harness = false                   # 默认 true（反射）；false → 自带 Main 退出码判定
+entry   = "Perf.Runner.Main"      # harness=false 必填（FQ 函数名）
+sources = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]   # 可选；省略=沿用约定单元文件集
+[test.dependencies]               # 该 target 独享 dev-dep（三层合并优先级最高）
 "z42.compression" = "0.1.0"
+
+[[example]]
+name = "streaming"
+entry = "Ex.Streaming.Main"
+test = true                       # 破例纳入 xtask test 执行（默认 example 只编不跑）
 ```
+
+### example 的执行语义（借 Cargo）
+
+- `xtask test`：**编译**所有 example 当门禁（确保永远编得过），**默认不执行**。
+- `xtask example <name>`：显式编译并运行单个 example（退出码判定）。
+- 目标写 `test = true` → 纳入 `xtask test` 执行（编 + 跑）。
+
+### 具名选择运行
+
+统一 `xtask <kind> <name>` 只跑一个：`xtask test <name>` / `xtask bench <name>` /
+`xtask example <name>`。名不存在 → 报错列出可用目标名，非零退出（不静默）。
 
 ### 三层依赖合并
 
-测试编译时合并三层依赖：
+编译目标时合并三层依赖：
 
 ```
-final_deps = parent.[dependencies]
-          ∪ parent.[tests.dependencies]    (测试时；bench 时合 [bench.dependencies])
-          ∪ this_[[test]].dependencies     (若有匹配 [[test]] 块)
+final_deps = [dependencies]
+          ∪ [<plural>.dependencies]      (test→[tests]，bench→[benches]，example→[examples])
+          ∪ [[target]].dependencies      (若该目标声明了独享 dep)
 ```
 
-冲突解决优先级：`[[test]]` > `[tests]` > `[dependencies]`（精确覆盖广泛）。
+冲突解决优先级：`[[target]]` > `[<plural>]` > `[dependencies]`（精确覆盖广泛）。
 
-**Release 产物**：`xtask build`（非 test 路径）忽略所有 `[tests]` / `[bench]` / `[[test]]` / `[[bench]]` 字段；release zpkg 元数据只含 `[dependencies]`。
+**Release 产物**：`xtask build`（非 test 路径）忽略所有 `[tests]`/`[benches]`/`[examples]`/
+`[[test]]`/`[[bench]]`/`[[example]]` 字段；release zpkg 元数据只含 `[dependencies]`。
 
 ### 编译产物布局
 
@@ -749,7 +797,8 @@ artifacts/build/libraries/<lib>/<profile>/
 | 命令 | 写入 | 读取 deps |
 |------|------|----------|
 | `./xtask test stdlib [lib]`  | `<lib>/<profile>/tests/{cache/<unit>,dist}/` | `[dependencies]` + `[tests.dependencies]` |
-| `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[bench.dependencies]` |
+| `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
+| `./xtask test/bench/example <name>` | 同上（具名单目标）| 三层合并 |
 | `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 聚合 `libraries/dist/`（**保留** tests/bench） | — |
 | `./xtask clean tests`        | 删每个 `<lib>/<profile>/tests/` | — |
 | `./xtask clean bench`        | 删每个 `<lib>/<profile>/bench/` | — |
@@ -762,16 +811,28 @@ artifacts/build/libraries/<lib>/<profile>/
 | 码 | 严重度 | 触发 |
 |---|:---:|------|
 | WS012 | warning | test-only dep 出现在 `[dependencies]`（leak 提示）|
-| WS040 | error | `[[test]]` / `[[bench]]` 缺 `name` |
-| WS041 | error | `[[test]]` / `[[bench]]` 缺 `src` |
-| WS042 | error | 同一 kind（test 或 bench）内 name 重复 |
-| WS043 | error | `[[test]].src` / `[[bench]].src` 路径不存在 |
+| WS040 | error | `[[test]]` / `[[bench]]` / `[[example]]` 缺 `name` |
+| WS041 | error | `harness = false` 的目标缺 `entry`（反射目标 harness=true 无需 entry）|
+| WS042 | error | 同一 kind 内 name 重复（含 auto 与显式撞名以显式为准，不报错）|
+| WS043 | error | 目标 `sources` glob 无匹配文件 |
 
-`KnownTestOnlyDeps` 当前为 `{ "z42.test" }`，curated set，不靠启发式。Test / bench 命名 namespace 独立 — `[[test]] name = "x"` 与 `[[bench]] name = "x"` 可共存。
+> 校验在 **xtask 发现层**做（`ManifestLoader` 只忠实解析、不校验语义）。
+> `KnownTestOnlyDeps` 当前为 `{ "z42.test" }`，curated set，不靠启发式。三类 kind 命名 namespace 独立
+> —— `[[test]] name = "x"` / `[[bench]] name = "x"` / `[[example]] name = "x"` 可共存。
 
 **WS012 例外**：`[project].name` 含 `.test.` 或 `.bench.` infix 时抑制。xtask dir-mode 生成的 synthetic mini-manifest（`<lib>.test.<unit>` / `<lib>.bench.<unit>`）合法在 `[dependencies]` 写 z42.test —— harness 项目本质是测试程序，不存在 leak。用户 zpkg 命名应避免该 infix。
 
-详见 [add-tests-bench-manifest-config spec](../../spec/changes/add-tests-bench-manifest-config/proposal.md)。
+### 与 2026-06-06 旧稿的差异（落地时修订）
+
+| 维度 | 旧稿（纸面，未实现）| 落地（2026-07-29）|
+|------|------|------|
+| 目标入口字段 | `src`（单入口**文件**，必填）| `entry`（FQ **函数**名）+ `sources[]`（glob），对齐 `[[exe]]` |
+| 驱动方式 | 无区分（隐含 Main + golden）| `harness` 布尔（true=z42b 反射 / false=Main 退出码）|
+| 验证 | dir-mode 隐含 golden 比对 | harness=false 一律**退出码**；golden 归 `xtask_test_vm` 独立 harness |
+| example | 「future iteration」无配置 | **一等目标**：默认只编不跑，`test=true` 才跑，`xtask example <name>` 显式跑 |
+| 段名 | `[bench]`（与 `[[bench]]` 撞 key，非法 TOML）| 复数 `[benches]`/`[examples]`（避撞）|
+
+详见归档 spec `docs/spec/archive/*-add-tests-bench-manifest-config/`。
 
 ---
 
