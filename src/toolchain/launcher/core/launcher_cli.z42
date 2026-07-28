@@ -121,12 +121,34 @@ int _forwardRepl(string[] argv) {
     // 解析，无需再拼 programs/z42c。**Z42_LIBS 是单目录**（VM config 按 PathBuf 解析），旧版用 `:`
     // 拼三段在 Windows 上会被盘符冒号（C:\）截断——此处只传单目录，跨平台正确。
     string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
-    Process proc = new Process(vm).Arg(z42i).Arg("--")
+    // Consistent with `z42 run` (repl-run-config): `--config <file>` / `--mode
+    // <mode>` are launcher-level — set Z42_CONFIG / z42vm `--mode` on the REPL's
+    // z42vm; everything else passes through to z42i as its own args (e.g. `-c`).
+    string? cfgOpt = _flagValue(argv, "--config");
+    string? modeOpt = _flagValue(argv, "--mode");
+    string[] z42iArgs = _stripFlag(_stripFlag(argv, "--config"), "--mode");
+    Process proc = new Process(vm);
+    if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
+    proc = proc.Arg(z42i).Arg("--")
         .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
     int i = 0;
-    while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
+    while (i < z42iArgs.Length) { proc = proc.Arg(z42iArgs[i]); i = i + 1; }
     proc = proc.Env("Z42_LIBS", libs);
+    if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
     return proc.Run().ExitCode;
+}
+
+// Return a copy of `argv` with `flag` and its following value removed (launcher-
+// level flag extraction; repl-run-config).
+string[] _stripFlag(string[] argv, string flag) {
+    string[] tmp = new string[argv.Length];
+    int n = 0;
+    int i = 0;
+    while (i < argv.Length) {
+        if (argv[i] == flag) { i = i + 2; continue; }   // skip flag + its value
+        tmp[n] = argv[i]; n = n + 1; i = i + 1;
+    }
+    return _trimArr(tmp, n);
 }
 
 // Forward `build` to z42c (the compiler). Runs the SDK's `bin/z42c` apphost, which

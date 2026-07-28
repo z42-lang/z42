@@ -210,6 +210,20 @@ safepoint-throttle = 1024
 
 > **格式迁移(unify-run-modes P1)**:sidecar 由 `.runtimeconfig.json` 改为 `.runtimeconfig.toml`,与全仓 `Std.Toml` 栈一致;pre-1.0 不留 JSON 兼容(旧 JSON sidecar 需改写为 TOML)。`config.toml`(default 版本)也由手写单行扫描改走 `Std.Toml`。
 
+### 显式 `--config` / `--mode`（repl-run-config，run 与 repl 一致）
+
+`z42 run` 和 `z42 repl` 都接受两个 launcher 级旗标（**从 launcher 拦下，不透传给程序/z42i**）：
+
+- `--config <file>`：给该次运行的 z42vm 设 `Z42_CONFIG`，其 `[runtime]` 段经 P0 分层链应用。**"用哪个文件"优先级**：`--config` > 用户 env `Z42_CONFIG` > app 侧车 `.runtimeconfig.toml`（run 专有）。
+- `--mode <interp|jit|aot>`：作为 z42vm 的 `--mode`（执行模式最高优先级，高于 `Z42_MODE`/`[runtime].mode`）。
+
+```bash
+z42 run app.zpkg --config prod.toml --mode jit
+z42 repl --config dev.toml --mode interp        # REPL 同款；-c/其余参数照传 z42i
+```
+
+> REPL 本就通过环境变量（`Z42_CONFIG` / `Z42_*` 由 `_forwardRepl` 继承）可配；本旗标补齐**显式 CLI** 途径，与 `run` 对齐。
+
 > 独立 sidecar 的好处:版本无关的 launcher 读它**不需解析带版本的 zpkg 格式**;可手改、可被工具生成。这也是 P2(下载即用)的前置——"声明需要的版本 → 没装自动拉"(自动拉 = P2)。
 
 ## apphost：每-app 原生可执行文件（add-apphost, 2026-06-09）

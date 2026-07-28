@@ -233,6 +233,8 @@ void _cmdWhich(ParseResult r) {
 void _cmdRun(string[] rest) {
     string? ver = _flagValue(rest, "--runtime");
     string? binOpt = _flagValue(rest, "--bin");   // (P4) select an [[exe]] target
+    string? cfgOpt = _flagValue(rest, "--config"); // (repl-run-config) explicit Z42_CONFIG
+    string? modeOpt = _flagValue(rest, "--mode");  // (repl-run-config) z42vm exec mode
     string app = "";
     string[] appArgs = new string[0];
     int i = 0;
@@ -240,12 +242,14 @@ void _cmdRun(string[] rest) {
         string a = rest[i];
         if (a == "--runtime") { i = i + 2; continue; }   // skip flag + value
         if (a == "--bin") { i = i + 2; continue; }        // skip flag + value (P4)
+        if (a == "--config") { i = i + 2; continue; }     // skip flag + value
+        if (a == "--mode") { i = i + 2; continue; }       // skip flag + value
         if (a == "--") { appArgs = _tail(rest, i + 1); break; }
         if (app.Length == 0) { app = a; }
         i = i + 1;
     }
     if (app.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 run [--runtime <ver>] [--bin <name>] <app.zpkg | project-dir | project.z42.toml> [-- <args>]");
+        ConsoleError.WriteLine("usage: z42 run [--runtime <ver>] [--bin <name>] [--config <file>] [--mode <interp|jit|aot>] <app.zpkg | project-dir | project.z42.toml> [-- <args>]");
         Environment.Exit(2);
         return;
     }
@@ -303,17 +307,21 @@ void _cmdRun(string[] rest) {
         libs = _libsPath(dir) ?? "";
     }
 
-    Process proc = new Process(vm)
-        .Arg(app)
+    Process proc = new Process(vm);
+    // Explicit `--mode` (repl-run-config): a z42vm flag → must precede the app
+    // positional. Highest exec-mode precedence (above Z42_MODE / [runtime]).
+    if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
+    proc = proc.Arg(app)
         .Stdin(Stdio.Inherit())
         .Stdout(Stdio.Inherit())
         .Stderr(Stdio.Inherit());
     if (libs.Length > 0) { proc = proc.Env("Z42_LIBS", libs); }
-    // Point z42vm at the sidecar so it resolves the `[runtime]` knob table
-    // itself (unify-run-modes P1 — replaces the old configProperties→env
-    // injection with VM-side [runtime] resolution, P0). Respect an explicit
-    // user Z42_CONFIG (env wins over the sidecar pointer).
-    if (hasCfg) {
+    // Point z42vm at a `[runtime]` config file (P0 resolution). Precedence for
+    // "which file": explicit `--config` (repl-run-config) > user's env
+    // Z42_CONFIG > the app's `.runtimeconfig.toml` sidecar (P1).
+    if (cfgOpt != null && cfgOpt.Length > 0) {
+        proc = proc.Env("Z42_CONFIG", cfgOpt);
+    } else if (hasCfg) {
         string existingCfg = Environment.GetEnvironmentVariable("Z42_CONFIG") ?? "";
         if (existingCfg.Length == 0) { proc = proc.Env("Z42_CONFIG", rcPath); }
     }
