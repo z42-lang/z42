@@ -33,7 +33,19 @@ void Main() {
             if (t == ".exit" || t == ".quit") { break; }
             else if (t == ".help") { _help(); }
             else if (t == ".vars") { _vars(s); }
+            else if (t == ".types") { _types(s); }
             else if (t == ".usings") { _usings(s); }
+            else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
+            else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
+            else if (t == ".clear") { _clear(); }
+            else if (t == ".reset") {
+                // 清空变量/using/声明，回到空白会话。保持 Counter 单调递增——VM 已加载的
+                // Repl.R{N} 模块仍在进程内，归零会让新一轮 R1 与旧 R1 撞名，故承接旧计数继续往后。
+                int keep = s.Counter;
+                s = Script.Create();
+                s.Counter = keep;
+                Console.WriteLine("会话已重置（变量 / using / 声明已清空）。");
+            }
             else { Console.WriteLine("unknown command '" + t + "'; try .help"); }
             continue;
         }
@@ -55,8 +67,14 @@ void _help() {
     Console.WriteLine("z42 REPL:");
     Console.WriteLine("  .help          显示帮助");
     Console.WriteLine("  .exit / .quit  退出（或 Ctrl-D）");
+    Console.WriteLine("  .reset         清空会话（变量 / using / 声明）");
+    Console.WriteLine("  .clear         清屏（不清会话状态）");
     Console.WriteLine("  .vars          列出会话变量");
+    Console.WriteLine("  .types         列出会话内声明的类型");
     Console.WriteLine("  .usings        列出生效的 using");
+    Console.WriteLine("  .using <ns>    追加一个 using <ns>;");
+    Console.WriteLine("  .version       显示 zbc / zpkg 格式版本");
+    Console.WriteLine("提示：未闭合的 (){}[] 会自动进入多行续读（... 提示符）；可定义 fn / class 并在后续轮使用。");
 }
 
 void _vars(ScriptState s) {
@@ -67,8 +85,32 @@ void _vars(ScriptState s) {
     while (i < vs.Length) { Console.WriteLine("  " + vs[i]); i = i + 1; }
 }
 
+void _types(ScriptState s) {
+    string[] ts = s.DeclTypeNames.ToArray();
+    if (ts.Length == 0) { Console.WriteLine("  (无会话类型)"); return; }
+    int i = 0;
+    while (i < ts.Length) { Console.WriteLine("  " + ts[i]); i = i + 1; }
+}
+
 void _usings(ScriptState s) {
     string[] us = s.Usings.ToArray();
     int i = 0;
     while (i < us.Length) { Console.WriteLine("  using " + us[i] + ";"); i = i + 1; }
+}
+
+// .using <ns> —— 复用 Script.Eval 的 `using X;` 累积路径（含去重）。
+void _addUsing(ScriptState s, string t) {
+    string ns = t.Substring(7, t.Length - 7).Trim();   // ".using " 占 7 字符
+    if (ns.Length == 0) { Console.WriteLine("用法: .using <namespace>"); return; }
+    Script.Eval(s, "using " + ns + ";");
+    Console.WriteLine("已添加 using " + ns + ";");
+}
+
+// .clear —— ANSI 清屏 + 光标归位。z42 词法器不支持 \x1b/\u 转义，故用 (char)27 构造 ESC。
+// 非终端（管道/重定向）下跳过，避免污染输出。
+void _clear() {
+    if (!Console.IsTerminal()) { return; }
+    char[] e = new char[1]; e[0] = (char)27;   // ESC；String.FromChars 是 char→string 的既定 idiom
+    string esc = String.FromChars(e);
+    Console.Write(esc + "[2J" + esc + "[H");
 }
