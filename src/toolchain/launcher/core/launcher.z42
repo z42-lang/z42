@@ -403,10 +403,18 @@ string _buildAndResolveRun(string app, string binName) {
         ConsoleError.WriteLine("z42 run: no z42.toml / <name>.z42.toml manifest found in " + app);
         return "";
     }
-    string[] buildArgv = new string[2];
-    buildArgv[0] = "build";
-    buildArgv[1] = manifest;
-    int bc = _forwardZ42c(buildArgv);
+    // Build via z42c. Its progress ("wrote -> …") goes to stdout — route it to
+    // null so it does NOT pollute the program's own stdout (cargo-run-like: build
+    // noise stays off the program's output stream). Errors go to stderr (Inherit).
+    string z42c = Path.Join(_home(), "bin/z42c");
+    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
+    if (!File.Exists(z42c)) {
+        ConsoleError.WriteLine("z42 run: z42c not found (SDK bin/z42c) — reinstall the SDK");
+        return "";
+    }
+    int bc = new Process(z42c).Arg("build").Arg(manifest)
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
     if (bc != 0) {
         ConsoleError.WriteLine("z42 run: build failed (" + manifest + ")");
         return "";
