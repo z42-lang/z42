@@ -33,6 +33,28 @@ GC 设计意图的 User 裁决,Claude 不擅自改**（CLAUDE.md 设计完整性
 
 ## 需要裁决的决策
 
+### 🔎 GC 并发调查结论（2026-07-29，为 Decision 1 定性）
+
+读 `arc_heap.rs` + `vm_context.rs` root scanner 后**已确证 root 扫描是 STW**:
+
+1. `snapshot_roots_into_mark_queue`（arc_heap.rs:1034）注释明写「**Must be called under
+   STW**（GcPhase::Marking，request_gc_pause 之后 / ConcurrentMarking 之前）…**no mutator
+   can add/remove roots**」。external root scanner（迭代 `call_stack`）在此被调用。
+2. 并发标记阶段（P4 mark 线程）只 drain 已快照进 `mark_queue` 的 Value,**不再重读
+   `call_stack`**。
+3. **决定性证据**：同一 scanner 里 `frame.regs` 是 `*const Vec<Value>` 裸指针、**无锁**读
+   （vm_context.rs:633-635),它已经只靠「STW + safepoint 让 owner 线程 park」这个不变量。
+   `call_stack` 的 `Mutex` 只保护 Vec 结构不被并发 realloc 撞见——而 STW 下 owner 已 park、
+   不会 realloc → **该 Mutex 与 regs 已依赖的不变量冗余,是 vestigial。**
+
+**结论**：`call_stack` 只被 owner 线程 mutate、只被 scanner 在 STW（owner parked）下读。
+→ **选项 A（改 per-thread 无锁 cell）在当前 GC 设计下正确**,安全性与 regs 现状同源。
+safepoint handshake（park/resume 的原子 acquire/release）提供必要的 happens-before。
+
+> 仍建议 User 确认后再实施:GC race 属静默 heisenbug 类,改 GC 边界需掌门人点头;但事实已摆清,
+> 不再是信息不对称下的裁决。实施时全量跑 `cargo test gc`（concurrent_mark/safepoint stress）+
+> 自举不动点作回归网。
+
 ### Decision 1：`call_stack` 的锁策略
 
 **问题**：单线程执行下每 call 付 3 把 uncontended 锁（ARM 上每把是带内存序的原子 RMW，约数 ns），
