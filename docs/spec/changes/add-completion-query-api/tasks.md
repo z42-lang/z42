@@ -23,7 +23,12 @@
   - 注：`repl_decls_multiline` 本地 warm 失败是**陈旧种子 z42c**（2026-07-26，早于 #49 的 fix-imported-free-func-namespace 2026-07-28）所致，非本 change——去掉 `Completer.z42` 同样复现；CI（fresh z42c）为权威。
 - [ ] 阶段 1 — `CompletionQuery`（`z42c.semantics`）：LSP 共享内核 + `TypeMembers`（类型名静态成员）。**排队等 compiler 锁**。作用域级已由阶段 3 用 REPL 自持数据先行交付；此阶段服务 LSP + 静态类型成员。
 - [ ] 阶段 2 — 语义透出通道（D3）：`PackageCompile.Compile` → `CompileArtifacts` 加 SemanticModel/context 视图。**排队等 compiler 锁**。
-- [ ] 阶段 3b — `obj.` 成员补全（D2 混合）：会话变量走 live 反射（读 `Vars{N}` 字段值 + `GetType` + `GetMembers`，零副作用）；任意 `expr.` defer。
+- [ ] 阶段 3b — `obj.` 成员补全（D2 混合，**地基已勘定，可直接实施**）：会话变量走 live 反射，零副作用。
+  - **静态字段 key 格式已确认**：`Repl.R{VarsRound}.Vars{VarsRound}.{varName}`（loader.rs:571，`Ns.Class.Field`）。
+  - **runtime 读值**：`ctx.static_get(&key)`（vm_context.rs:1037，按 key 读 static field Value，未设为 Null）。
+  - **成员枚举**：`builtin_type_members`（reflection.rs:1250，Type→fields+methods+properties+nested 名）；需 Value→Type（`make_type_from_name` / GetType 路径）。
+  - **待做**：新 builtin `__repl_member_names(fqn)→string[]`（static_get + value→type→members）；completer 侧检测 `recv.prefix`、`recv∈VarNames` 时构 key 调 builtin、按 dot 后前缀过滤。任意 `expr.` defer（需静态类型推断）。
+- [ ] 阶段 6b — REPL 语法着色（`repl-future-syntax-highlight`，**User 2026-07-28 暂缓、已记录**）：rustyline `Highlighter`（`ReplHelper` 已建、当前默认空实现）+ `Z42.Syntax.Lexer` 分色；无前置，随时可做。见 repl.md + roadmap Deferred Index。
 - [ ] 阶段 6 — 文档：补全机制页（`docs/design/`）；`repl-future-tab-completion` 前置改"补全查询 API"；roadmap Deferred Index 更新；标注 LSP 为未来第二客户端（架构预留）
 
 ## 前置 / 阻塞
