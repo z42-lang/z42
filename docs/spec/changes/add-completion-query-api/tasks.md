@@ -8,9 +8,12 @@
 - D3=接受透出通道｜D4=轻量 CompletionItem 绕过 ISymbol｜D5=spike 先行
 
 ## 阶段
-- [ ] **阶段 0 — D5 spike（最大未知，先做）**：验 rustyline `Completer` ↔ VM 回调可行性
-  - `corelib/repl.rs`：能否在 rustyline Completer 里回调进 VM 跑一个 z42 补全函数取候选？形态（callback 注册 / raw 模式）？
-  - 出口判据：跑通"Tab → z42 侧返回固定候选列表 → rustyline 显示"最小闭环；否则回 proposal 调整 D5。
+- [x] **阶段 0 — D5 spike ✅ 通过（2026-07-28，runtime 锁空闲下完成）**：rustyline `Completer` ↔ VM 回调**可行**
+  - **风险 A（VM 重入回调）✅**：新 builtin `__repl_complete_probe(fqn,line,pos)` 经 `complete_via_callback` → `exec_function` 回调 z42 完成器，真实 VM 跑 `Spike.MyComplete("Co",2)` → 返回 `[Console,Convert,Contains,Copy]`（正确排除 Zebra）。无需 PTY。
+  - **风险 B（rustyline 接线）✅**：`Editor<ReplHelper,DefaultHistory>` + `ReplHelper` 实现 `Completer`（Hinter/Highlighter/Validator 用默认）；`__repl_set_completer(fqn)` 注册；**thread-local `ACTIVE_CTX` 原始指针**在 `ed.readline()` 前后 set/clear 把 live `&VmContext` 递给 Completer（sound：同线程、仅该 readline 跨度）。PTY 驱动实测：输入 `Conso`+Tab → rustyline 补成 `Console` → 程序读到 `GOT:Console`。
+  - **落地形态（定型，供阶段 3/4 复用）**：`complete_via_callback(ctx, fqn, line, pos) -> string[]` 共享核 + `__repl_set_completer` 注册 + rustyline Completer（thread-local ctx）。完成器契约：`string[] complete(string line, int pos)`。
+  - 文件：`src/runtime/src/corelib/repl.rs`（+ mod.rs 注册 2 个 builtin）。**只动 runtime**（scratch z42 程序自带 extern，不碰锁住的 toolchain/stdlib）。
+  - 结论：**D5 无需回退 proposal**；rustyline↔VM 机制成立，Phase 1 可照此接线。
 - [ ] 阶段 1 — `CompletionQuery`（`z42c.semantics`）：三查询面（ScopeSymbols / TypeMembers / NamespaceExports），封装 StrMap 枚举 + visibility 过滤 + 前缀过滤
 - [ ] 阶段 2 — 语义透出通道（D3）：`PackageCompile.Compile` → `CompileArtifacts` 加 SemanticModel/context 视图
 - [ ] 阶段 3 — REPL completer（`toolchain/scripting` + host）：组 CompletionContext（VarNames/Usings/DeclNames/DeclTypeNames/CachedScan + 透出的语义模型）→ 调 query；会话变量 `.` 走 live 反射（读 Vars{N} 字段值 + GetType + GetMembers，零副作用）
