@@ -465,6 +465,8 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // `Std.Repl.ReadLine/ReadBlock` and z42.scripting's per-eval module load.
     ("__repl_readline",           repl::builtin_repl_readline),
     ("__repl_readblock",          repl::builtin_repl_readblock),
+    ("__repl_complete_probe",     repl::builtin_repl_complete_probe),
+    ("__repl_set_completer",      repl::builtin_repl_set_completer),
     ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
 
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──

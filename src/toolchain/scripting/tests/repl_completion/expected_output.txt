@@ -1,0 +1,11 @@
+ban -> 2
+  banana
+  band
+app -> 1
+  apple
+xyz -> 0
+EMPTY -> 4
+  banana
+  band
+  apple
+  Bandit

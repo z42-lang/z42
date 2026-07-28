@@ -1,0 +1,52 @@
+// REPL 作用域 Tab 补全（add-completion-query-api Phase 1 / 阶段 3）。
+//
+// 数据源 = 当前会话 `ScriptState`（会话变量 `VarNames` + 声明名 `DeclNames`）——REPL **自持**，
+// 不经 compiler 的 `CompletionQuery`（那是 LSP 共享内核，Phase 1 先不依赖）。Phase 1 只做
+// **作用域级**候选（标识符前缀过滤）；`obj.` 类型成员补全（D2 混合：会话变量走 live 反射）见后续阶段。
+//
+// rustyline Tab 经 `Std.Repl.Repl.SetCompleter` 注册的自由函数 `replComplete` 回调本模块
+// （机制见 z42vm `corelib/repl.rs`：`__repl_set_completer` + `ReplHelper::complete`）。
+// 完成器契约（与 corelib/repl.rs 对齐）：`string[] replComplete(string line, int pos)`。
+namespace Std.Scripting;
+
+using Std;
+using Std.Collections;
+
+// 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
+public static class Completer {
+    private static ScriptState Active;
+    public static void SetActive(ScriptState s) { Completer.Active = s; }
+    public static ScriptState GetActive() { return Completer.Active; }
+}
+
+// rustyline Tab 回调：返回作用域候选（会话变量 + 声明的函数/类型），按当前标识符前缀过滤 + 去重。
+string[] replComplete(string line, int pos) {
+    ScriptState s = Completer.GetActive();
+    if (s == null) { return new string[0]; }
+    string prefix = _wordPrefix(line, pos);
+    List<string> cands = new List<string>();
+    int i = 0;
+    while (i < s.VarNames.Count)  { _addCand(cands, s.VarNames[i],  prefix); i = i + 1; }
+    i = 0;
+    while (i < s.DeclNames.Count) { _addCand(cands, s.DeclNames[i], prefix); i = i + 1; }
+    return cands.ToArray();
+}
+
+// 前缀匹配 + 去重后加入候选。
+void _addCand(List<string> cands, string name, string prefix) {
+    if (!name.StartsWith(prefix)) { return; }
+    int j = 0;
+    while (j < cands.Count) { if (cands[j] == name) { return; } j = j + 1; }
+    cands.Add(name);
+}
+
+// 提取 line[..pos] 末尾的标识符前缀（字母 / 数字 / `_`）；无标识符字符则为空串（列全部）。
+string _wordPrefix(string line, int pos) {
+    int start = pos;
+    while (start > 0) {
+        char c = line.CharAt(start - 1);
+        bool ident = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        if (ident) { start = start - 1; } else { break; }
+    }
+    return line.Substring(start, pos - start);
+}

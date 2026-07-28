@@ -435,7 +435,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | TLS 后续（streaming / system-roots / keepalive-pool / server）| `add-z42-net-tls` (2026-06-03) 客户端落地后的 4 项：https `SendStreaming`、honour 系统 CA、TLS 连接池、服务端 TLS | [stdlib/net.md](design/stdlib/net.md#net-future-tls--已落地-2026-06-03-add-z42-net-tls) |
 | `repl-future-decl-capture-vars` | REPL 声明的函数/类型体内引用会话变量（需注入机制；MVP 不捕获）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-capture-vars) |
 | `repl-future-decl-supersede` | 同名重定义 supersede（MVP 报错；需会话内符号版本化）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-supersede) |
-| `repl-future-tab-completion` | Tab 补全候选列表（依赖 LSP server 语义信息，0.5.x）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-tab-completion) |
+| `repl-future-tab-completion` | Tab 补全：作用域级已落地（add-completion-query-api）；余 `obj.` 成员 + 类型名/ns（补全查询 API 内核，**已解耦 LSP**）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-tab-completion) |
+| `repl-future-syntax-highlight` | REPL 输入行 / 输出语法着色（rustyline `Highlighter` 钩子 + Lexer 分色；无前置，暂缓）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-syntax-highlight) |
 | `repl-future-incremental-compilation` | Growing Transcript O(n) 重编译 → 增量模块加载（大 session 性能，benchmark 驱动）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-incremental-compilation) |
 | `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-load-directive) |
 | `repl-future-mobile` | mobile / WASM REPL（iOS W^X 限制，依赖 1.1.x mobile scripting）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-mobile) |

@@ -24,7 +24,9 @@ void Main() {
 
     Console.WriteLine("z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令（.help / .exit）。");
     ScriptState s = Script.Create();
+    Repl.SetCompleter("Std.Scripting.replComplete");   // Tab → 作用域补全（会话变量 / 声明名）
     while (true) {
+        Completer.SetActive(s);   // 每轮把当前会话交给补全器（.reset 会重建 s → 必须重设）
         string line = Repl.ReadBlock(">>> ", "... ");   // 括号平衡多行块（未闭合 (){}[] → 续读）
         if (line == null) { Console.WriteLine(""); break; }   // Ctrl-D / EOF
         string t = line.Trim();
