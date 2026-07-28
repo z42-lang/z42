@@ -89,28 +89,37 @@ DepBundle _newBundle() {
     return b;
 }
 
-// Append DepEntry[] into a bundle, first-wins dedup by name (grows on demand).
+// Insert one (name, version) into a bundle, first-wins dedup by name (grows on
+// demand). "" version → "*".
+void _bundlePut(DepBundle b, string name, string ver) {
+    int j = 0;
+    while (j < b.Count) { if (b.Names[j] == name) { return; } j = j + 1; }
+    if (b.Count == b.Names.Length) {
+        int cap = b.Names.Length * 2;
+        string[] nn = new string[cap]; string[] nv = new string[cap];
+        int k = 0;
+        while (k < b.Count) { nn[k] = b.Names[k]; nv[k] = b.Versions[k]; k = k + 1; }
+        b.Names = nn; b.Versions = nv;
+    }
+    if (ver.Length == 0) { ver = "*"; }
+    b.Names[b.Count] = name; b.Versions[b.Count] = ver; b.Count = b.Count + 1;
+}
+
+// Append DepEntry[] into a bundle (first-wins dedup).
 void _bundleAddDeps(DepBundle b, DepEntry[] deps, int n) {
     int i = 0;
-    while (i < n) {
-        string name = deps[i].Name;
-        bool seen = false;
-        int j = 0;
-        while (j < b.Count) { if (b.Names[j] == name) { seen = true; } j = j + 1; }
-        if (!seen) {
-            if (b.Count == b.Names.Length) {
-                int cap = b.Names.Length * 2;
-                string[] nn = new string[cap]; string[] nv = new string[cap];
-                int k = 0;
-                while (k < b.Count) { nn[k] = b.Names[k]; nv[k] = b.Versions[k]; k = k + 1; }
-                b.Names = nn; b.Versions = nv;
-            }
-            string ver = deps[i].Version;
-            if (ver.Length == 0) { ver = "*"; }
-            b.Names[b.Count] = name; b.Versions[b.Count] = ver; b.Count = b.Count + 1;
-        }
-        i = i + 1;
-    }
+    while (i < n) { _bundlePut(b, deps[i].Name, deps[i].Version); i = i + 1; }
+}
+
+// Three-layer merge from raw (name, version) pairs instead of a DepEntry[] — for
+// the example runner, whose local ExampleUnit carries deps as primitive string
+// arrays (avoids an imported-type field). Priority: pairs > section > project.
+DepBundle _targetDepsPairs(ProjectManifest m, string kind, string[] names, string[] versions, int n) {
+    DepBundle b = _newBundle();
+    int i = 0;
+    while (i < n) { _bundlePut(b, names[i], versions[i]); i = i + 1; }
+    if (m != null) { _bundleAddSection(b, m, kind); _bundleAddDeps(b, m.Deps, m.DepCount); }
+    return b;
 }
 
 // ── explicit-target validation (design D5/D6 error codes; discovery layer) ─────
@@ -180,7 +189,7 @@ int _runReflectTarget(string root, string projDir, string projPrefix, string sub
                       string builderZpkg, string vm, string driverZpkg, string libs) {
     string projName = projPrefix + "." + t.Name;
     DepBundle deps = _targetDeps(man, kind, t);
-    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, t, deps, "lib", t.Name, libs);
+    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, t.Name, t.HasEntry, t.Entry, t.Sources, t.SrcCount, deps, "lib", t.Name, libs);
     if (zpkg.Length == 0) { return 1; }
     string verb = (kind == "bench") ? "bench" : "test";
     ProcessResult rr = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
@@ -199,7 +208,7 @@ int _runExitTargets(string root, string projDir, string projPrefix, string subdi
     int i = 0;
     while (i < n) {
         DepBundle deps = _targetDeps(man, kind, tgts[i]);
-        if (_runExitTarget(root, projDir, projPrefix, subdir, tgts[i], deps, vm, driverZpkg, libs, true) != 0) {
+        if (_runExitTarget(root, projDir, projPrefix, subdir, tgts[i].Name, tgts[i].HasEntry, tgts[i].Entry, tgts[i].Sources, tgts[i].SrcCount, deps, vm, driverZpkg, libs, true) != 0) {
             failed = failed + 1;
         }
         i = i + 1;
@@ -211,20 +220,21 @@ int _runExitTargets(string root, string projDir, string projPrefix, string subdi
 // runAfter) run `z42vm <zpkg> [entry]`. Returns 0 pass / 1 fail. runAfter=false →
 // compile-only gate (example default: build failure fails, no execution).
 int _runExitTarget(string root, string projDir, string projPrefix, string subdir,
-                   RunTarget t, DepBundle deps, string vm, string driverZpkg, string libs,
+                   string tName, bool tHasEntry, string tEntry, string[] tSources, int tSrcCount,
+                   DepBundle deps, string vm, string driverZpkg, string libs,
                    bool runAfter) {
-    string projName = projPrefix + "." + t.Name;
-    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, t, deps, "exe", t.Name, libs);
+    string projName = projPrefix + "." + tName;
+    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, tName, tHasEntry, tEntry, tSources, tSrcCount, deps, "exe", tName, libs);
     if (zpkg.Length == 0) { return 1; }
-    if (!runAfter) { Console.WriteLine("✓ " + t.Name + " (compiled)"); return 0; }
-    // The exe zpkg bakes [project].entry (== t.Entry) → run it directly, no CLI
+    if (!runAfter) { Console.WriteLine("✓ " + tName + " (compiled)"); return 0; }
+    // The exe zpkg bakes [project].entry (== tEntry) → run it directly, no CLI
     // entry arg (matches the proven multi-exe run path; z42vm dispatches the baked
     // entry). exit-code is the verdict (design D3: non-zero = fail, no golden).
     ProcessResult rr = new Process(vm).Arg(zpkg).Env("Z42_LIBS", libs).Run();
     Console.Write(rr.Stdout);
     if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + t.Name + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
-    Console.WriteLine("✓ " + t.Name);
+    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + tName + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
+    Console.WriteLine("✓ " + tName);
     return 0;
 }
 
@@ -233,19 +243,20 @@ int _runExitTarget(string root, string projDir, string projPrefix, string subdir
 // no-source-match / compile error (message printed). Writes the synth toml at
 // projDir (globs resolve relative to it) and deletes it afterwards.
 string _compileTarget(string root, string vm, string driverZpkg, string projDir,
-                      string projName, string subdir, RunTarget t, DepBundle deps,
+                      string projName, string subdir, string tName, bool tHasEntry,
+                      string tEntry, string[] tSources, int tSrcCount, DepBundle deps,
                       string kindStr, string label, string libs) {
     string outDir = Path.Join(root, "artifacts/.scratch/targets/" + projName);
     if (Directory.Exists(outDir)) { try { Directory.Delete(outDir, true); } catch (Exception e) {} }
     Directory.Create(Path.Join(outDir, "dist"));
-    string[] inc = _targetIncludes(projDir, subdir, t);
+    string[] inc = _targetIncludes(projDir, subdir, tName, tSources, tSrcCount);
     if (inc.Length == 0) {
         ConsoleError.WriteLine("✗ " + label + ": no source files match (sources glob / convention empty)");
         return "";
     }
     string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
-    bool wantEntry = (kindStr == "exe") && t.HasEntry;
-    File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, t.Entry, wantEntry, inc, inc.Length, outDir, deps));
+    bool wantEntry = (kindStr == "exe") && tHasEntry;
+    File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, tEntry, wantEntry, inc, inc.Length, outDir, deps));
     ProcessResult br = new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(synth).Env("Z42_LIBS", libs).Run();
     try { File.Delete(synth); } catch (Exception e) {}
@@ -265,18 +276,18 @@ string _compileTarget(string root, string vm, string driverZpkg, string projDir,
 // Resolve a target's source globs to projDir-relative include patterns. Explicit
 // sources verbatim; else convention <subdir>/<name>.z42 (single) or
 // <subdir>/<name>/**/*.z42 (dir). Absent → empty (caller errors "no match").
-string[] _targetIncludes(string projDir, string subdir, RunTarget t) {
-    if (t.SrcCount > 0) {
-        if (_countMatches(projDir, t.Sources, t.SrcCount) == 0) { return new string[0]; }
-        string[] r = new string[t.SrcCount];
+string[] _targetIncludes(string projDir, string subdir, string tName, string[] tSources, int tSrcCount) {
+    if (tSrcCount > 0) {
+        if (_countMatches(projDir, tSources, tSrcCount) == 0) { return new string[0]; }
+        string[] r = new string[tSrcCount];
         int i = 0;
-        while (i < t.SrcCount) { r[i] = t.Sources[i]; i = i + 1; }
+        while (i < tSrcCount) { r[i] = tSources[i]; i = i + 1; }
         return r;
     }
-    string single = Path.Join(Path.Join(projDir, subdir), t.Name + ".z42");
-    if (File.Exists(single)) { string[] r = new string[1]; r[0] = subdir + "/" + t.Name + ".z42"; return r; }
-    string dir = Path.Join(Path.Join(projDir, subdir), t.Name);
-    if (Directory.Exists(dir)) { string[] r = new string[1]; r[0] = subdir + "/" + t.Name + "/**/*.z42"; return r; }
+    string single = Path.Join(Path.Join(projDir, subdir), tName + ".z42");
+    if (File.Exists(single)) { string[] r = new string[1]; r[0] = subdir + "/" + tName + ".z42"; return r; }
+    string dir = Path.Join(Path.Join(projDir, subdir), tName);
+    if (Directory.Exists(dir)) { string[] r = new string[1]; r[0] = subdir + "/" + tName + "/**/*.z42"; return r; }
     return new string[0];
 }
 

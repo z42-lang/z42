@@ -92,10 +92,10 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     RunTarget[] tgts = _explicitTargets(man, "example");
     string verr = _validateRunTargets(tgts, tgts.Length, "example");
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); cref[2] = cref[2] + 1; return; }
-    RunTarget[] examples = _discoverExamples(projDir, man, tgts);
+    ExampleUnit[] examples = _discoverExamples(projDir, man, tgts);
     int i = 0;
     while (i < examples.Length) {
-        RunTarget ex = examples[i];
+        ExampleUnit ex = examples[i];
         avail = _appendName(avail, ex.Name);
         // run decision: gate → run iff RunInTest; explicit `xtask example name` →
         // run iff name matches (any name); `xtask example` (no name) → RunInTest.
@@ -103,8 +103,9 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
         bool runAfter = selected;
         // gate compiles EVERYTHING; `xtask example <name>` only touches the match.
         if (!gate && name.Length > 0 && ex.Name != name) { i = i + 1; continue; }
-        DepBundle deps = _targetDeps(man, "example", ex);
-        int rc = _runExitTarget(root, projDir, projName + ".example", "examples", ex, deps,
+        DepBundle deps = _targetDepsPairs(man, "example", ex.DepNames, ex.DepVersions, ex.DepCount);
+        int rc = _runExitTarget(root, projDir, projName + ".example", "examples",
+                                ex.Name, ex.HasEntry, ex.Entry, ex.Sources, ex.SrcCount, deps,
                                 tt.Vm, tt.DriverZpkg, tt.Libs, runAfter);
         cref[0] = cref[0] + 1;
         if (runAfter) { cref[1] = cref[1] + 1; }
@@ -113,13 +114,29 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     }
 }
 
+// Local example unit. xtask can reference/read the imported RunTarget (z42.project)
+// but CANNOT `new` it (constructing an all-libs-indexed type errors E0401), so
+// synthesised/normalised examples use this local type instead. Carries raw
+// DepEntry[] (reading imported DepEntry fields is fine; only construction fails).
+class ExampleUnit {
+    public string   Name        { get; set; }
+    public string   Entry       { get; set; }
+    public bool     HasEntry    { get; set; }
+    public string[] Sources     { get; set; }
+    public int      SrcCount    { get; set; }
+    public string[] DepNames    { get; set; }   // raw dep (name, version) pairs — primitive
+    public string[] DepVersions { get; set; }   // arrays only (no imported DepEntry field)
+    public int      DepCount    { get; set; }
+    public bool     RunInTest   { get; set; }
+}
+
 // All example targets for a project: convention auto (section [examples] auto,
 // dir `examples/`) overlaid by explicit [[example]] (same name overrides). Auto
 // examples derive entry = <namespace>.Main from their source file.
-RunTarget[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
-    RunTarget[] auto = new RunTarget[0];
+ExampleUnit[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
+    ExampleUnit[] auto = new ExampleUnit[0];
     if (_sectionAuto(man, "example")) { auto = _autoExamples(projDir); }
-    RunTarget[] acc = new RunTarget[auto.Length + explicitTgts.Length];
+    ExampleUnit[] acc = new ExampleUnit[auto.Length + explicitTgts.Length];
     int n = 0;
     int i = 0;
     while (i < auto.Length) { acc[n] = auto[i]; n = n + 1; i = i + 1; }
@@ -127,17 +144,17 @@ RunTarget[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] e
     while (ti < explicitTgts.Length) {
         RunTarget t = explicitTgts[ti];
         int at = _indexOfTarget(acc, n, t.Name);
-        RunTarget norm = _normalizeExample(projDir, t);
+        ExampleUnit norm = _normalizeExample(projDir, t);
         if (at >= 0) { acc[at] = norm; } else { acc[n] = norm; n = n + 1; }
         ti = ti + 1;
     }
-    RunTarget[] r = new RunTarget[n];
+    ExampleUnit[] r = new ExampleUnit[n];
     int k = 0;
     while (k < n) { r[k] = acc[k]; k = k + 1; }
     return r;
 }
 
-int _indexOfTarget(RunTarget[] a, int n, string name) {
+int _indexOfTarget(ExampleUnit[] a, int n, string name) {
     int i = 0;
     while (i < n) { if (a[i].Name == name) { return i; } i = i + 1; }
     return -1;
@@ -145,11 +162,11 @@ int _indexOfTarget(RunTarget[] a, int n, string name) {
 
 // Convention examples under <projDir>/examples/: single-file *.z42 (name=stem)
 // and dir */source.z42 (name=dir). Entry = source namespace + ".Main".
-RunTarget[] _autoExamples(string projDir) {
+ExampleUnit[] _autoExamples(string projDir) {
     string dir = Path.Join(projDir, "examples");
-    if (!Directory.Exists(dir)) { return new RunTarget[0]; }
+    if (!Directory.Exists(dir)) { return new ExampleUnit[0]; }
     string[] entries = _sortedStrings(Directory.Enumerate(dir));
-    RunTarget[] tmp = new RunTarget[entries.Length];
+    ExampleUnit[] tmp = new ExampleUnit[entries.Length];
     int c = 0;
     int i = 0;
     while (i < entries.Length) {
@@ -168,28 +185,43 @@ RunTarget[] _autoExamples(string projDir) {
         }
         i = i + 1;
     }
-    RunTarget[] r = new RunTarget[c];
+    ExampleUnit[] r = new ExampleUnit[c];
     int k = 0;
     while (k < c) { r[k] = tmp[k]; k = k + 1; }
     return r;
 }
 
-// Fill in a derived entry for an explicit example lacking one (convention lookup).
-RunTarget _normalizeExample(string projDir, RunTarget t) {
-    if (t.HasEntry) { return t; }
-    string single = Path.Join(Path.Join(projDir, "examples"), t.Name + ".z42");
-    string dsrc = Path.Join(Path.Join(Path.Join(projDir, "examples"), t.Name), "source.z42");
-    string entry = "";
-    if (File.Exists(single)) { entry = _fileEntry(single); }
-    else if (File.Exists(dsrc)) { entry = _fileEntry(dsrc); }
-    return new RunTarget(t.Name, t.Harness, entry.Length > 0, entry, t.Sources, t.SrcCount,
-                         t.Deps, t.DepCount, t.RunInTest);
+// Convert an explicit [[example]] RunTarget → ExampleUnit, deriving entry from the
+// convention source when the target omits one. (Reads imported RunTarget fields;
+// never `new`s it.)
+ExampleUnit _normalizeExample(string projDir, RunTarget t) {
+    string entry = t.Entry;
+    bool hasEntry = t.HasEntry;
+    if (!hasEntry) {
+        string single = Path.Join(Path.Join(projDir, "examples"), t.Name + ".z42");
+        string dsrc = Path.Join(Path.Join(Path.Join(projDir, "examples"), t.Name), "source.z42");
+        if (File.Exists(single)) { entry = _fileEntry(single); }
+        else if (File.Exists(dsrc)) { entry = _fileEntry(dsrc); }
+        hasEntry = entry.Length > 0;
+    }
+    string[] dn = new string[t.DepCount];
+    string[] dv = new string[t.DepCount];
+    int di = 0;
+    while (di < t.DepCount) { dn[di] = t.Deps[di].Name; dv[di] = t.Deps[di].Version; di = di + 1; }
+    ExampleUnit u = new ExampleUnit();
+    u.Name = t.Name; u.Entry = entry; u.HasEntry = hasEntry;
+    u.Sources = t.Sources; u.SrcCount = t.SrcCount;
+    u.DepNames = dn; u.DepVersions = dv; u.DepCount = t.DepCount; u.RunInTest = t.RunInTest;
+    return u;
 }
 
-// A convention example RunTarget: Main program, harness ignored, entry derived.
-RunTarget _mkExample(string name, string entry, string[] inc) {
-    return new RunTarget(name, false, entry.Length > 0, entry, inc, inc.Length,
-                         new DepEntry[0], 0, false);
+// A convention example unit: Main program, harness ignored, entry derived.
+ExampleUnit _mkExample(string name, string entry, string[] inc) {
+    ExampleUnit u = new ExampleUnit();
+    u.Name = name; u.Entry = entry; u.HasEntry = entry.Length > 0;
+    u.Sources = inc; u.SrcCount = inc.Length;
+    u.DepNames = new string[0]; u.DepVersions = new string[0]; u.DepCount = 0; u.RunInTest = false;
+    return u;
 }
 
 // <namespace>.Main from a source file (or "Main" when no namespace is declared).
