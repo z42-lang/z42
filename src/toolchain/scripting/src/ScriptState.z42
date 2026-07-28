@@ -11,6 +11,9 @@ public class ScriptState {
     public List<string> VarNames;  // 会话变量名（引用改写 / carry-forward / .vars）
     public int Counter;            // 最近成功轮次号（下一轮 = Counter+1）
     public int VarsRound;          // 最近发射 Vars{N} 类的轮次（0=尚无变量；carry-forward 从此轮引）
+    // 顶层声明累积（add-repl-decls-multiline）：函数/类型声明进各自 ns Repl.R{N}，后续轮 `using` 可见。
+    public List<string> DeclNames;       // 已声明的函数/类型名（重定义查重，ERROR 不 supersede）
+    public List<string> DeclNamespaces;  // 声明所在 ns（"Repl.R{N}"），每后续轮 prelude 追加 `using`
     // 编译配置（PackageCompile 需要）：依赖目录 + 依赖名白名单。REPL 运行期从 Z42_LIBS 派生。
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
@@ -24,6 +27,8 @@ public class ScriptState {
         this.VarNames = new List<string>();
         this.Counter = 0;
         this.VarsRound = 0;
+        this.DeclNames = new List<string>();
+        this.DeclNamespaces = new List<string>();
         this.LibsDirs = new string[0]; this.LibsDirsN = 0;
         this.DeclaredDeps = new string[0]; this.DepCount = 0;
         this.CachedScan = null;

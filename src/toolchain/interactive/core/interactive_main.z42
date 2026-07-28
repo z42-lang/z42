@@ -1,6 +1,6 @@
 // z42i —— z42 交互式 REPL 入口（add-z42-repl 阶段 3）。
 //
-// read-eval-print 循环：Std.Repl.ReadLine 读行 → `.` 元指令 or Script.Eval 求值 →
+// read-eval-print 循环：Std.Repl.ReadBlock 读括号平衡多行块 → `.` 元指令 or Script.Eval 求值 →
 // 打印结果（null 抑制）。`-c "expr"` 单次求值后退出。求值引擎 = z42.scripting
 // （编译每轮源 → 内存加载 → 反射调用；跨轮 var carry-forward）。
 namespace Z42Interactive;
@@ -25,7 +25,7 @@ void Main() {
     Console.WriteLine("z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令（.help / .exit）。");
     ScriptState s = Script.Create();
     while (true) {
-        string line = Repl.ReadLine(">>> ");
+        string line = Repl.ReadBlock(">>> ", "... ");   // 括号平衡多行块（未闭合 (){}[] → 续读）
         if (line == null) { Console.WriteLine(""); break; }   // Ctrl-D / EOF
         string t = line.Trim();
         if (t.Length == 0) { continue; }

@@ -1,0 +1,10 @@
+[project]
+name    = "demo.enumapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.EnumApp.Main"
+pack    = true
+
+[dependencies]
+"demo.enumbase" = "0.1.0"
+"demo.enumext"  = "0.1.0"

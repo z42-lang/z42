@@ -192,7 +192,19 @@ public static class DepScan {
             i = i + 1;
         }
         scan.Index.Seal();
-        // ③ Exported（TSIG 重建）：复用静态 world；repl 包无跨包 base 链故 world 无需扩展
+        // ③ 先把本包并入 world（perf ② 增量）：TsigReconcile._rebuildClass 按 FQ 名在 world 里
+        // `_locate` 类自身 + base 链再读 SIGS 方法。REPL 声明的类/enum 只在本增量包里，不入 world
+        // 就定位不到自身 → 导出 0 方法（`no method` / undefined enum）。并入后，本包及后续增量包
+        // 的类型元数据（含实例方法、enum、跨声明 base 链）都能完整重建。
+        if (scan.WpCount == scan.Wp.Length) {
+            ReconWorldPkg[] wb = new ReconWorldPkg[scan.Wp.Length * 2 + 1];
+            int wk = 0;
+            while (wk < scan.WpCount) { wb[wk] = scan.Wp[wk]; wk = wk + 1; }
+            scan.Wp = wb;
+        }
+        scan.Wp[scan.WpCount] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(z, ""), ZpkgReader.ReadModuleSigs(z));
+        scan.WpCount = scan.WpCount + 1;
+        // ④ Exported（TSIG 重建）：world 现含本包 → 类型/方法/enum 完整重建。
         ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, "", scan.Wp, scan.WpCount);
         i = 0;
         while (i < tsig.Length) {

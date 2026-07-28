@@ -83,12 +83,25 @@ public static class TsigReconcile {
         // 恢复 ExportedInterfaceZ（名+方法）。此前跳过（em.Interfaces 恒空）致跨包
         // `class X : IFace@其他包` 被当基类、is/as/接口派发全失配。
         ExportedInterfaceZ[] ifaces = new ExportedInterfaceZ[4]; int ific = 0;
+        // 本地 enum：从 TYPE 段的 enum 成员（add-enum-type-metadata，zbc 1.22）重建 ExportedEnumZ，
+        // 使跨包 `using` 能 resolve 用户 enum 类型（add-repl-decls-multiline：REPL 声明累积；亦修
+        // 一般跨包 enum 导入——此前恒被排除、只留内建 GCHandleType）。无格式 bump（数据已在 zbc）。
+        ExportedEnumZ[] enums = new ExportedEnumZ[4]; int ec = 0;
         int i = 0;
         while (i < mt.ClassCount) {
             IrClassDesc cd = mt.Classes[i];
             if ((cd.Flags & 64) != 0) { i = i + 1; continue; }   // delegate：TSIG 消费面无
             if (cd.Name == "Std.Object" || cd.Name == "Object") { i = i + 1; continue; }   // TSIG 不导出隐式根 Object
-            if ((cd.Flags & 32) != 0) { i = i + 1; continue; }   // enum：TSIG 不含本地 enum（oracle=恒内建 GCHandleType）
+            if ((cd.Flags & 32) != 0) {                          // enum：TYPE 成员块 → ExportedEnumZ
+                ExportedEnumMemberZ[] mems = new ExportedEnumMemberZ[cd.EnumMemberCount];
+                int em = 0;
+                while (em < cd.EnumMemberCount) { mems[em] = new ExportedEnumMemberZ(cd.EnumMemberNames[em], cd.EnumMemberValues[em]); em = em + 1; }
+                if (ec == enums.Length) { ExportedEnumZ[] b = new ExportedEnumZ[enums.Length * 2]; int k = 0; while (k < ec) { b[k] = enums[k]; k = k + 1; } enums = b; }
+                enums[ec] = new ExportedEnumZ(TsigReconcile._bare(cd.Name, ns), mems, cd.EnumMemberCount);
+                ec = ec + 1;
+                i = i + 1;
+                continue;
+            }
             if ((cd.Flags & 16) != 0) {                          // 接口：TYPE 方法块 → ExportedInterfaceZ
                 if (ific == ifaces.Length) { ExportedInterfaceZ[] b = new ExportedInterfaceZ[ifaces.Length * 2]; int k = 0; while (k < ific) { b[k] = ifaces[k]; k = k + 1; } ifaces = b; }
                 ifaces[ific] = TsigReconcile._rebuildInterface(cd, ns);
@@ -101,15 +114,10 @@ public static class TsigReconcile {
             cc = cc + 1;
             i = i + 1;
         }
-        // enums：oracle 恒 = 内建 [GCHandleType{Weak,Strong}]（本地 enum 不入 TSIG）。
-        ExportedEnumMemberZ[] gcMems = new ExportedEnumMemberZ[2];
-        gcMems[0] = new ExportedEnumMemberZ("Weak", 0L);
-        gcMems[1] = new ExportedEnumMemberZ("Strong", 1L);
-        ExportedEnumZ[] benums = new ExportedEnumZ[1];
-        benums[0] = new ExportedEnumZ("GCHandleType", gcMems, 2);
+        // enums：本地 enum（上面重建）→ 导出，使跨包 `using` resolve 用户 enum 类型。
         return new ExportedModuleZ(ns, classes, cc,
                                    ifaces, ific,
-                                   benums, 1,
+                                   enums, ec,
                                    pkgFuncs, pkgFuncCount,
                                    new ExportedDelegateZ[0], 0);
     }
