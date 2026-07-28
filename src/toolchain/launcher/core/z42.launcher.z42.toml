@@ -19,6 +19,7 @@ include = ["*.z42"]
 "z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS
 "z42.encoding"    = "0.1.0"   # Utf8.GetBytes — patch apphost placeholder
 "z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
+"z42.project"     = "0.1.0"   # ManifestLoader: `z42 run <dir>` source-project build+run + --bin (P4)
 "z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
 "z42.workload.desktop" = "0.1.0"   # desktop publish: Z42.Workload.Desktop.Apphost.Produce (workload-owned)
 "z42.workload.ios"     = "0.1.0"   # iOS export: Z42.Workload.Ios.IosExport.Generate (workload-owned)

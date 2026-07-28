@@ -32,6 +32,11 @@ using Std.IO;
 // modes ("interp jit").
 int _testDistRun(string modeArg) {
     string root = _root();
+    // DIST_SMOKE_ONLY=launcher → run only the launcher smoke (portable which +
+    // `z42 run <dir> --bin`), skipping the heavier desktop-publish + golden legs.
+    // CI uses this to give the P4 run-front-door smoke per-PR coverage without
+    // the flakier apphost/publish path (unify-run-modes P4).
+    string smokeOnly = _envOpt("DIST_SMOKE_ONLY", "");
 
     // ── Resolve the packaged distribution dir ────────────────────────────
     string distDir = _envOpt("DIST_DIR", "");
@@ -68,21 +73,23 @@ int _testDistRun(string modeArg) {
     overallPass = overallPass + smoke[0];
     overallFail = overallFail + smoke[1];
 
-    // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
-    int[] ah = _apphostSmoke(distDir, work);
-    overallPass = overallPass + ah[0];
-    overallFail = overallFail + ah[1];
+    if (smokeOnly != "launcher") {
+        // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
+        int[] ah = _apphostSmoke(distDir, work);
+        overallPass = overallPass + ah[0];
+        overallFail = overallFail + ah[1];
 
-    // ── Golden cases per mode ────────────────────────────────────────────
-    // The optional mode positional (formerly Z42_DIST_MODES); empty → both.
-    if (modeArg.Length == 0) { modeArg = "interp jit"; }
-    string[] modes = _splitWords(modeArg);
-    int mi = 0;
-    while (mi < modes.Length) {
-        int[] mres = _runDistMode(modes[mi], root, z42c, z42vm, libsDir, work);
-        overallPass = overallPass + mres[0];
-        overallFail = overallFail + mres[1];
-        mi = mi + 1;
+        // ── Golden cases per mode ────────────────────────────────────────────
+        // The optional mode positional (formerly Z42_DIST_MODES); empty → both.
+        if (modeArg.Length == 0) { modeArg = "interp jit"; }
+        string[] modes = _splitWords(modeArg);
+        int mi = 0;
+        while (mi < modes.Length) {
+            int[] mres = _runDistMode(modes[mi], root, z42c, z42vm, libsDir, work);
+            overallPass = overallPass + mres[0];
+            overallFail = overallFail + mres[1];
+            mi = mi + 1;
+        }
     }
 
     Console.WriteLine("══════════════════════════════════════");
@@ -187,6 +194,36 @@ int[] _launcherSmoke(string distDir, string work) {
     } catch (Exception e) {
         Console.WriteLine("  FAIL: z42 which (portable) spawn: " + e.Message);
         fail = fail + 1;
+    }
+    // (unify-run-modes P4) `z42 run <dir> --bin`: build a source project with the
+    // packaged z42c and run the selected [[exe]] target — real end-to-end of the
+    // run front door + multi-exe selection. Copy the multi-exe fixture into a
+    // writable temp first (build writes dist/ there). Skips if bin/z42c or the
+    // fixture is absent.
+    string z42cBin = Path.Join(distDir, "bin/z42c");
+    if (!File.Exists(z42cBin)) { z42cBin = z42cBin + ".exe"; }
+    string mexeSrc = Path.Join(_root(), "src/tests/multi-exe/two_mains");
+    if (File.Exists(z42cBin) && Directory.Exists(mexeSrc)) {
+        string mexeWork = Path.Join(work, "mexe-run");
+        Directory.Copy(mexeSrc, mexeWork, true);
+        try {
+            ProcessResult rr = new Process(launcher).Arg("run").Arg(mexeWork).Arg("--bin").Arg("greet")
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            string got = rr.Stdout.Trim();
+            if (got == "greet-main") {
+                Console.WriteLine("  ✓ z42 run <dir> --bin greet → greet-main");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: z42 run <dir> --bin greet → '" + got + "' (stderr: " + rr.Stderr.Trim() + ")");
+                fail = fail + 1;
+            }
+        } catch (Exception e) {
+            Console.WriteLine("  FAIL: z42 run --bin smoke: " + e.Message);
+            fail = fail + 1;
+        }
+    } else {
+        Console.WriteLine("  SKIP: z42 run <dir> --bin (bin/z42c or multi-exe fixture missing)");
     }
     // Installed: install.sh --system into a temp $DEST.
     // unify-launcher-apphost (2026-06-21): managed install is now extract-in-
