@@ -93,6 +93,38 @@ int _pubDesktop(ParseResult r, string rid) {
     if (publishDir.Length == 0) { root = _pubDefaultPublishDir(tomlPath, toml, projName); }
     else { root = (projDir.Length > 0) ? Path.Join(projDir, publishDir) : publishDir; }
 
+    // (unify-run-modes P5) multi-exe publish: a manifest with N `[[exe]]` targets
+    // → N apphosts, each embedding `dist/<exe.name>.zpkg` (produced by P3) and named
+    // `<exe.name>`. Reuses the per-zpkg apphost patcher (D-exe5 — payload unchanged;
+    // one apphost ↔ one zpkg). The first `_pubEnsureBuilt` compiles the whole project
+    // (every exe's zpkg); the rest just resolve. Multi-exe ignores `[platform.desktop]`
+    // bin/payload (a single-value layout can't name N apps) → emit to `root/<exe.name>`.
+    // No `[[exe]]` → falls through to the existing single-app path below (non-breaking).
+    string[] exeNames = _pubExes(toml);
+    if (exeNames.Length > 0) {
+        bool bundled = false;
+        int xi = 0;
+        while (xi < exeNames.Length) {
+            string exName = exeNames[xi];
+            string exZpkg = _pubEnsureBuilt(tomlPath, toml, exName);
+            if (exZpkg.Length == 0) { return 1; }
+            if (!bundled) {   // deps are shared across exes in the one dist/ — bundle once
+                int bc2 = _pubBundleProjectDeps(tomlPath, toml, Path.GetDirectoryName(exZpkg));
+                if (bc2 != 0) { return bc2; }
+                bundled = true;
+            }
+            string exOut = Path.Join(root, isWin ? (exName + ".exe") : exName);
+            string exOutDir = Path.GetDirectoryName(exOut);
+            if (exOutDir.Length > 0) { Directory.Create(exOutDir); }
+            Console.WriteLine("z42 publish (" + rid + ") → " + exOut);
+            int prc2 = _pubProduceApphost(exZpkg, exOut, stub, rid);
+            if (prc2 != 0) { return prc2; }
+            Console.WriteLine("✅ apphost ready: " + exOut);
+            xi = xi + 1;
+        }
+        return 0;
+    }
+
     // build-if-needed: ensure the expected zpkg exists (compile via z42c if missing).
     string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
     if (zpkgSrc.Length == 0) { return 1; }   // ensure failed (compile error / still missing)
@@ -146,6 +178,35 @@ string _pubRidCategory(string rid) {
 }
 
 // Read root.[section].[key] as a string (string and long values).
+// `[[exe]]` target names (unify-run-modes P5). Mirrors ManifestLoader._parseExes
+// but TomlValue-direct to keep builder_publish stdlib-only (no z42.project dep).
+// Empty array if no `[[exe]]`. Two passes → exact-size array (no trim helper).
+string[] _pubExes(TomlValue toml) {
+    if (!toml.IsTable() || !toml.ContainsKey("exe")) { return new string[0]; }
+    TomlValue arr = toml.Get("exe");
+    if (!arr.IsArray()) { return new string[0]; }
+    int n = arr.Length();
+    int cnt = 0;
+    int i = 0;
+    while (i < n) {
+        TomlValue e = arr.At(i);
+        if (e.IsTable() && e.ContainsKey("name") && e.Get("name").IsString()) { cnt = cnt + 1; }
+        i = i + 1;
+    }
+    string[] names = new string[cnt];
+    int k = 0;
+    i = 0;
+    while (i < n) {
+        TomlValue e = arr.At(i);
+        if (e.IsTable() && e.ContainsKey("name") && e.Get("name").IsString()) {
+            names[k] = e.Get("name").AsString();
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return names;
+}
+
 string _pubTomlStr(TomlValue root, string section, string key, string dflt) {
     if (!root.ContainsKey(section)) { return dflt; }
     TomlValue s = root.Get(section);

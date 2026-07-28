@@ -385,6 +385,42 @@ int[] _apphostSmoke(string distDir, string work) {
         Console.WriteLine("  FAIL: desktop-publish smoke: " + e.Message);
         fail = fail + 1;
     }
+    // (unify-run-modes P5) multi-exe publish: a 2-[[exe]] project → 2 apphosts.
+    // Reuses the same packaged launcher/z42c/apphost-stub as the single-app smoke;
+    // asserts both `aexe` and `bexe` apphosts are produced (one per [[exe]]).
+    try {
+        string mpd = Path.Join(work, "mexe-pub");
+        Directory.Create(mpd);
+        File.WriteAllText(Path.Join(mpd, "a.z42"),
+            "namespace App.A;\nusing Std;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"A_OK\"); Environment.Exit(0); }\n");
+        File.WriteAllText(Path.Join(mpd, "b.z42"),
+            "namespace App.B;\nusing Std;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"B_OK\"); Environment.Exit(0); }\n");
+        File.WriteAllText(Path.Join(mpd, "app.z42.toml"),
+            "[project]\nname = \"mexeapp\"\nversion = \"0.1.0\"\npack = true\n" +
+            "[sources]\ninclude = [\"*.z42\"]\n" +
+            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n" +
+            "[build]\ndist_dir = \"dist\"\n" +
+            "[platform.desktop]\napphost = true\npublish_dir = \".\"\n" +
+            "[[exe]]\nname = \"aexe\"\nentry = \"App.A.Main\"\n" +
+            "[[exe]]\nname = \"bexe\"\nentry = \"App.B.Main\"\n");
+        int pcm = new Process(launcher).Arg("publish").Arg(Path.Join(mpd, "app.z42.toml"))
+            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
+        bool winPkg = distDir.IndexOf("windows-") >= 0;
+        string aexe = Path.Join(mpd, winPkg ? "aexe.exe" : "aexe");
+        string bexe = Path.Join(mpd, winPkg ? "bexe.exe" : "bexe");
+        if (pcm == 0 && File.Exists(aexe) && File.Exists(bexe)) {
+            Console.WriteLine("  ✓ z42 publish multi-exe → aexe + bexe apphosts");
+            pass = pass + 1;
+        } else {
+            Console.WriteLine("  FAIL: z42 publish multi-exe (rc=" + pcm.ToString()
+                + " aexe=" + (File.Exists(aexe) ? "y" : "n") + " bexe=" + (File.Exists(bexe) ? "y" : "n") + ")");
+            fail = fail + 1;
+        }
+    } catch (Exception e) {
+        Console.WriteLine("  FAIL: multi-exe publish smoke: " + e.Message);
+        fail = fail + 1;
+    }
     Console.WriteLine("");
     int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;
 }
