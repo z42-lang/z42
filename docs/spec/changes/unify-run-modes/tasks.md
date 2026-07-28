@@ -41,8 +41,10 @@
 - [x] main.rs `effective_mode` 的 `None` 臂（无 `--mode` CLI）→ `resolve_config_mode(runtime_config().mode)` → 落 build 默认；优先级 `--mode CLI > Z42_MODE/[runtime].mode > build 默认`
 - [x] `resolve_config_mode`：interp/jit/aot 校验 + jit/aot feature-gate（未编入则 warn + 落默认）；未知值 warn + 落默认
 - [x] 单测 5（注册/unset/env raw/env>table/table>默认）+ 全 config 47 全绿（字母序不变式保持）+ `--info` e2e（`[runtime].mode=interp` → `[config]` 生效）+ runtime 全量无回归
-- **P2b（follow-on，launcher）**：`z42 run <dir>` 读 manifest `[profile.*].mode` → 设 `Z42_MODE`（源码工程运行时 profile 驱动 mode，遵守优先级）
-  - [ ] launcher 读 profile.mode 并注入 Z42_MODE（profile 在 env/config 之下由 VM 端保序——或 launcher 以 profile 身份注入，不占 --mode CLI 位）
+- **P2b（launcher）🟡 IMPL（2026-07-28）**：`z42 run <dir>` 读 manifest `[profile.debug].mode` → 设 `Z42_MODE`（源码工程运行时 profile 驱动 mode）
+  - [x] `_buildAndResolveRun` 读 `_profileMode(pm, "debug")`，`Z42_MODE` 未设时注入（尊重用户显式 Z42_MODE；`--mode` CLI 仍最高）；z42vm 子进程经 P2a 层消费
+  - [x] fixture two_mains 加 `[profile.debug].mode=interp`（z42c 忽略 profile，launcher smoke 的 `z42 run --bin` 路径 exercise 之）
+  - **观测局限**：mode 切换对 stdout 不可见（interp/jit 都出 "greet-main"）→ smoke 验「profile-read 路径不崩 + run 仍对」；mode 解析本身由 P2a 单测覆盖
 
 ## P3 — 多 exe 构建 build 侧（compiler）🟡 IMPL（2026-07-28）
 > spec: [specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md) | design: design.md「多 exe 目标」节

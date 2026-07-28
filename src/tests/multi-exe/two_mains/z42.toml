@@ -16,3 +16,9 @@ entry = "App.Greet.Main"
 [[exe]]
 name  = "farewell"
 entry = "App.Farewell.Main"
+
+# P2b: `z42 run <dir>` reads this profile's mode → sets Z42_MODE (below --mode CLI)
+# so the debug run defaults to interp. z42c ignores [profile.*]; exercised by the
+# launcher smoke's `z42 run --bin` path.
+[profile.debug]
+mode = "interp"

@@ -421,6 +421,16 @@ string _buildAndResolveRun(string app, string binName) {
     }
 
     ProjectManifest pm = ManifestLoader.Load(manifest);
+    // (unify-run-modes P2b) profile-driven default mode: when neither `--mode`
+    // (z42vm CLI) nor `Z42_MODE` is set by the user, use the debug profile's
+    // `mode` as the run's default — the child z42vm reads it via the P2a
+    // `Z42_MODE`/[runtime] layer (below `--mode` CLI). z42c built debug (no
+    // `--release`), so the [profile.debug] mode applies. User `Z42_MODE` wins.
+    string existingMode = Environment.GetEnvironmentVariable("Z42_MODE") ?? "";
+    if (existingMode.Length == 0) {
+        string pmode = _profileMode(pm, "debug");
+        if (pmode.Length > 0) { Environment.SetEnvironmentVariable("Z42_MODE", pmode); }
+    }
     string projDir = Path.GetDirectoryName(manifest);
     string distDir = Path.Join(projDir, "dist");
 
@@ -452,6 +462,17 @@ string _buildAndResolveRun(string app, string binName) {
         return "";
     }
     return binZpkg;
+}
+
+// The `mode` (interp/jit/aot) of the named `[profile.<name>]`, "" if absent
+// (unify-run-modes P2b).
+string _profileMode(ProjectManifest pm, string profName) {
+    int i = 0;
+    while (i < pm.ProfileCount) {
+        if (pm.Profiles[i].Name == profName) { return pm.Profiles[i].Mode; }
+        i = i + 1;
+    }
+    return "";
 }
 
 void _listExes(ProjectManifest pm) {
