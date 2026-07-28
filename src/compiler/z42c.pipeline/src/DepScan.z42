@@ -20,6 +20,15 @@ public sealed class DepScanResult {
     // 保留 TsigReconcile world（perf-optimize-repl-eval ②）：供 ExtendWithPackage 增量并入
     // 新包时复用（跨包 base 链解析），避免重建。ScanDirs 填；一次性调用方可忽略。
     public ReconWorldPkg[]   Wp;           public int WpCount;
+    // 惰性扫描（lazy-repl-depscan）：ScanDirsLazy 只对 prelude 做 Rebuild/DepIndex，但 **eager
+    // BuildWorld 全部**（world 完整 → base 链天然可解，无闭包风险）。下列保留每个已 Open 的包，供
+    // EnsurePackageLoaded 按需 Rebuild + DepIndex（world 已全，正确性有保障）。ScanDirs（非惰性）
+    // 不填这些（Loaded 全 true 语义 = 全量已加载，EnsurePackageLoaded no-op）。
+    public ZpkgInfo[] Opened;      // 已 Open 的 lib 包（与 OpenedDirs/OpenedNames/Loaded 平行）
+    public string[]   OpenedDirs;  // 各包所在目录（Rebuild 的 pkgDir，indexed 包读散装 zbc 需要）
+    public string[]   OpenedNames; // 各包 basename（"z42.io.zpkg"）——FileOf(ns) 定位后据此找索引
+    public bool[]     Loaded;      // 各包是否已产出 Exported/DepIndex
+    public int        OpenedCount;
     public DepScanResult(DependencyIndex index,
                          string[] nsNames, string[] nsFiles, int nsCount,
                          ExportedModuleZ[] exported, string[] exportedPkg, int exportedCount) {
@@ -27,6 +36,8 @@ public sealed class DepScanResult {
         this.NsNames = nsNames; this.NsFiles = nsFiles; this.NsCount = nsCount;
         this.Exported = exported; this.ExportedPkg = exportedPkg; this.ExportedCount = exportedCount;
         this.Wp = null; this.WpCount = 0;
+        this.Opened = new ZpkgInfo[0]; this.OpenedDirs = new string[0];
+        this.OpenedNames = new string[0]; this.Loaded = new bool[0]; this.OpenedCount = 0;
     }
     // ns → zpkg basename（未知 → ""）。
     public string FileOf(string ns) {
@@ -221,6 +232,159 @@ public static class DepScan {
             i = i + 1;
         }
         return scan;
+    }
+
+    // ── 惰性扫描（lazy-repl-depscan）─────────────────────────────────────────────
+    // 首轮只对 prelude 做昂贵的 Rebuild/DepIndex，但 **eager BuildWorld 全部**（world 完整 →
+    // base 链天然可解、零闭包风险）+ 全量廉价 nsMap。其余包在 `EnsurePackageLoaded` 按需产出
+    // Exported/DepIndex。实测：全量 4343ms → 首轮 ~1s（open+BuildWorld）+ 每新引用包 ~120ms。
+    // 仅用于 REPL 交互路径；build/test 全量编译仍走 ScanDirs（byte-identical 不受影响）。
+    public static DepScanResult ScanDirsLazy(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount) {
+        var index = new DependencyIndex();
+        string[] nsNames = new string[8];
+        string[] nsFiles = new string[8];
+        int nsCount = 0;
+        ExportedModuleZ[] exported = new ExportedModuleZ[8];
+        string[] exportedPkg = new string[8];
+        int exportedCount = 0;
+        string excludeZpkg = excludeName + ".zpkg";
+        string[] paths = DepScan._sortedZpkgsMulti(dirs, dirCount);
+        if (paths.Length == 0) {
+            return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
+        }
+        // Open 全部 → world（eager BuildWorld 需完整 world）；同时留存 lib 包供按需 Rebuild。
+        ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
+        ZpkgInfo[] world = new ZpkgInfo[paths.Length];
+        string[] worldDirs = new string[paths.Length];
+        int worldCount = 0;
+        // lib-only 平行留存
+        ZpkgInfo[] libOpened = new ZpkgInfo[paths.Length];
+        string[] libDirs = new string[paths.Length];
+        string[] libNames = new string[paths.Length];
+        bool[] libLoaded = new bool[paths.Length];
+        int libCount = 0;
+        int wpi = 0;
+        while (wpi < paths.Length) {
+            ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]));
+            opened[wpi] = wz;
+            if (wz != null && !wz.IsExe) {
+                world[worldCount] = wz; worldDirs[worldCount] = Path.GetDirectoryName(paths[wpi]);
+                worldCount = worldCount + 1;
+            }
+            wpi = wpi + 1;
+        }
+        // eager：全 world 一次性解析（TYPE/SIGS）——base 链完整、按需 Rebuild 正确。
+        ReconWorldPkg[] wp = TsigReconcile.BuildWorld(world, worldDirs, worldCount);
+        int pi = 0;
+        while (pi < paths.Length) {
+            ZpkgInfo z = opened[pi];
+            string basename = Path.GetFileName(paths[pi]);
+            if (z != null && !z.IsExe) {
+                // nsMap：全量（触发时靠它 FileOf(ns) 定位包）
+                string[] nss = ZpkgReader.ReadNamespaces(z);
+                int i = 0;
+                while (i < nss.Length) {
+                    if (DepScan._nsIndexOf(nsNames, nsCount, nss[i]) < 0) {
+                        if (nsCount == nsNames.Length) {
+                            string[] b1 = new string[nsNames.Length * 2];
+                            string[] b2 = new string[nsNames.Length * 2];
+                            int k = 0;
+                            while (k < nsCount) { b1[k] = nsNames[k]; b2[k] = nsFiles[k]; k = k + 1; }
+                            nsNames = b1; nsFiles = b2;
+                        }
+                        nsNames[nsCount] = nss[i];
+                        nsFiles[nsCount] = basename;
+                        nsCount = nsCount + 1;
+                    }
+                    i = i + 1;
+                }
+                // 留存该 lib 包供按需加载（记录目录/名/初始未加载）
+                libOpened[libCount] = z; libDirs[libCount] = Path.GetDirectoryName(paths[pi]);
+                libNames[libCount] = basename;
+                // prelude：现在就 Rebuild + DepIndex（首轮可用）；其余：留待 EnsurePackageLoaded。
+                bool isPrelude = DepScan.IsPrelude(z.Name);
+                libLoaded[libCount] = isPrelude;
+                libCount = libCount + 1;
+                if (isPrelude && basename != excludeZpkg) {
+                    if (declaredCount == 0 || DepScan._allowedForIndex(z.Name, declaredDeps, declaredCount)) {
+                        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
+                        i = 0;
+                        while (i < mods.Length) {
+                            index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
+                            i = i + 1;
+                        }
+                    }
+                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), wp, worldCount);
+                    i = 0;
+                    while (i < tsig.Length) {
+                        if (exportedCount == exported.Length) {
+                            ExportedModuleZ[] g1 = new ExportedModuleZ[exported.Length * 2];
+                            string[] g2 = new string[exported.Length * 2];
+                            int k = 0;
+                            while (k < exportedCount) { g1[k] = exported[k]; g2[k] = exportedPkg[k]; k = k + 1; }
+                            exported = g1; exportedPkg = g2;
+                        }
+                        exported[exportedCount] = tsig[i];
+                        exportedPkg[exportedCount] = z.Name;
+                        exportedCount = exportedCount + 1;
+                        i = i + 1;
+                    }
+                }
+            }
+            pi = pi + 1;
+        }
+        index.Seal();
+        DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
+        res.Wp = wp; res.WpCount = worldCount;
+        res.Opened = libOpened; res.OpenedDirs = libDirs; res.OpenedNames = libNames;
+        res.Loaded = libLoaded; res.OpenedCount = libCount;
+        return res;
+    }
+
+    // 按需加载命名空间 `ns` 所在的**全部**包：对每个做 Rebuild（world 已完整 → base 链正确）+
+    // DepIndex。**不是 first-wins**——多个包可共享同一 ns（如 Std），全量 ScanDirs 会把它们都
+    // Rebuild、其符号都进 Exported（ImportedSymbolLoader 按 ns 激活全部匹配模块）；故惰性必须
+    // 加载所有声明该 ns 的包，否则与全量不一致（漏共享 ns 的次包符号）。幂等；未知 ns / 非惰性
+    // scan（OpenedCount==0）no-op。lazy-repl-depscan。
+    public static void EnsurePackageLoaded(DepScanResult scan, string ns) {
+        int i = 0;
+        while (i < scan.OpenedCount) {
+            if (!scan.Loaded[i]) {
+                string[] nss = ZpkgReader.ReadNamespaces(scan.Opened[i]);
+                if (DepScan._nsIndexOf(nss, nss.Length, ns) >= 0) {
+                    DepScan._loadOpenedPackage(scan, i);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 把第 idx 个已 Open 的 lib 包产出 Exported/DepIndex 并并入 scan（对完整 world 重建）。
+    private static void _loadOpenedPackage(DepScanResult scan, int idx) {
+        ZpkgInfo z = scan.Opened[idx];
+        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
+        int i = 0;
+        while (i < mods.Length) {
+            scan.Index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
+            i = i + 1;
+        }
+        scan.Index.Seal();
+        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, scan.OpenedDirs[idx], scan.Wp, scan.WpCount);
+        i = 0;
+        while (i < tsig.Length) {
+            if (scan.ExportedCount == scan.Exported.Length) {
+                ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
+                string[] g2 = new string[scan.Exported.Length * 2 + 1];
+                int k = 0;
+                while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
+                scan.Exported = g1; scan.ExportedPkg = g2;
+            }
+            scan.Exported[scan.ExportedCount] = tsig[i];
+            scan.ExportedPkg[scan.ExportedCount] = z.Name;
+            scan.ExportedCount = scan.ExportedCount + 1;
+            i = i + 1;
+        }
+        scan.Loaded[idx] = true;
     }
 
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
