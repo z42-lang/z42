@@ -17,6 +17,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Pipeline;
 using Z42.IR;
+using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）
 using Z42.Project;
 
 // 分类结果 `ParsedInput` + 分类器 `Classifier` 见 Classifier.z42。
@@ -32,6 +33,13 @@ public static class Script {
         if (libs != null && libs.Length > 0) { envDirs = libs.Split(":"); }
         s.LibsDirs = envDirs; s.LibsDirsN = envDirs.Length;
         return s;
+    }
+
+    // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
+    // 运行时（z42vm）版本串未经 builtin 暴露给 z42 → 留待 follow-up（repl-future-runtime-version）。
+    public static string FormatVersion() {
+        return "zbc " + ZbcVersion.Major.ToString() + "." + ZbcVersion.Minor.ToString()
+             + ", zpkg " + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();
     }
 
     public static EvalResult Eval(ScriptState state, string input) {
@@ -176,7 +184,10 @@ public static class Script {
         Engine.LoadBytes(bytes);
         state.Counter = n;
         state.DeclNamespaces.Add(ns);
-        if (p.DeclName.Length > 0) { state.DeclNames.Add(p.DeclName); }
+        if (p.DeclName.Length > 0) {
+            state.DeclNames.Add(p.DeclName);
+            if (p.IsTypeDecl) { state.DeclTypeNames.Add(p.DeclName); }   // .types 只列类型（非自由函数）
+        }
         return new EvalResult(true, false, null, "", state);
     }
 

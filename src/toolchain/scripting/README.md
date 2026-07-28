@@ -10,10 +10,11 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 行编辑（rustyline）| `Std.Repl.Repl.ReadLine/ReadBlock`（`Repl.z42` → z42vm builtin）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
-| 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclNamespaces`）/ `EvalResult.z42` |
-| 输入分类（using/var/顶层声明/表达式/语句）| `Classifier.z42`（`Classify` + `ParsedInput`）|
+| 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
+| 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
-| 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR |
+| 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）|
+| 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |
 | 多行输入 | `Std.Repl.ReadBlock`（括号平衡；宿主 `interactive_main` 接线）|
 
 ## 基础用法

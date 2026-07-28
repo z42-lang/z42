@@ -35,6 +35,13 @@ void Main() {
     _step(s, "var n = 10;");
     _step(s, "int inc(int x) { return x + 1; }");
     _step(s, "inc(n)");
+
+    // 8) DeclTypeNames（.types 元指令数据源）：只含类型声明（Adder / Color），不含自由函数
+    //    （square/dbl/quad/inc）——重定义失败的 square 也不重复计入。
+    string[] types = s.DeclTypeNames.ToArray();
+    Console.WriteLine("types=" + types.Length.ToString());
+    int ti = 0;
+    while (ti < types.Length) { Console.WriteLine("type: " + types[ti]); ti = ti + 1; }
 }
 
 // 打印一步结果：失败 → 错误文本（去空白）；有值 → 值；否则 → "ok"。
