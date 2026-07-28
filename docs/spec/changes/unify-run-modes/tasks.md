@@ -59,7 +59,9 @@
 - [x] 无 manifest → 明确报错；launcher 加 `z42.project` 依赖 + `using Z42.Build.Project`
 - **首切边界（deferred）**：default-run（占 stdlib 锁）；`[build].dist_dir` 覆盖（默认 `<dir>/dist`）；workspace/本地依赖拓扑构建；`-p` workspace 成员选择
 - [x] e2e（选 a）：`_launcherSmoke` 加 `z42 run <fixture> --bin greet → greet-main`（打包 launcher → z42c build → 跑选中 exe，真端到端；复用 P3 的 two_mains fixture，`Directory.Copy` 进 temp 避免污染源树）
-- [x] **CI 覆盖**（选 i）：`_testDistRun` 加 `DIST_SMOKE_ONLY=launcher` env 门（只跑 launcher smoke，跳过 desktop-publish/golden 重腿）；ci.yml package-host job 加一步 `test dist`（各 OS）跑该 smoke → P4 run 前门有真 CI 覆盖
+- [x] **CI 覆盖**（选 i）：`_testDistRun` 加 `DIST_SMOKE_ONLY=launcher` env 门（只跑 launcher smoke）；ci.yml package-host 加一步 `test dist` 跑该 smoke（**linux+macos**，Windows 因 dist-test 预存 `.exe` 后缀缺口 gate 掉，另修）→ P4 `z42 run --bin greet → greet-main` 真端到端 CI 绿（linux-arm64/x64 + macos）
+- **CI 抓到并修的 2 个真 P4 bug**（compile 阶段抓不到）：① `_findProjectToml` 漏裸 `z42.toml` ② build 进度 `wrote ->` 污染程序 stdout（改 Stdout(Null)）
+- **遗留**（另开）：`_testDistRun` 预检 + `_launcherSmoke` 的 Windows `.exe` 后缀处理（预存 debt，与 P4 无关）
 
 ## P5 — publish 每 main 一 app（toolchain）
 - [ ] `z42 publish` 遍历 `[[exe]]` 各配 apphost（复用 per-zpkg，不改 payload）
