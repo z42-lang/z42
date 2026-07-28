@@ -18,4 +18,9 @@ public static class Repl {
     // rustyline Completer 在每次 Tab 回调它取候选（见 z42vm corelib/repl.rs）。add-completion-query-api。
     [Native("__repl_set_completer")]
     public static extern void SetCompleter(string fqn);
+
+    // 读会话变量活值（静态字段 FQN = `Repl.R{N}.Vars{N}.{var}`）的运行时类型成员名（字段/方法/属性）。
+    // 零副作用（读已存静态字段，不重求值）。null / 基元 / 未加载 → 空。add-completion-query-api 阶段 3b。
+    [Native("__repl_member_names")]
+    public static extern string[] MemberNames(string staticFieldFqn);
 }

@@ -11,6 +11,7 @@ namespace Std.Scripting;
 
 using Std;
 using Std.Collections;
+using Std.Repl;   // Repl.MemberNames（会话变量 obj. 成员反射）
 
 // 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
 public static class Completer {
@@ -19,17 +20,52 @@ public static class Completer {
     public static ScriptState GetActive() { return Completer.Active; }
 }
 
-// rustyline Tab 回调：返回作用域候选（会话变量 + 声明的函数/类型），按当前标识符前缀过滤 + 去重。
+// rustyline Tab 回调。两种上下文（按光标前缀 token 判）：
+//   ① `recv.mem`——`recv` 是会话变量 → 对其 **live 值**反射列成员（D2；零副作用，见 corelib/repl.rs）。
+//   ② 裸标识符 `pre` → 作用域候选（会话变量 + 声明的函数/类型）。
+// 均按当前前缀过滤 + 去重。任意非会话变量 receiver 的 `expr.` Phase 1 不补（需静态类型推断，defer）。
 string[] replComplete(string line, int pos) {
     ScriptState s = Completer.GetActive();
     if (s == null) { return new string[0]; }
-    string prefix = _wordPrefix(line, pos);
+
+    int wordStart = _wordStart(line, pos);
+    string word = line.Substring(wordStart, pos - wordStart);
+
+    // ① 成员访问：word 前紧邻一个 '.'，且 '.' 前是标识符（receiver）。
+    if (wordStart > 0 && line.CharAt(wordStart - 1) == '.') {
+        int dotPos = wordStart - 1;
+        int rStart = _wordStart(line, dotPos);
+        string receiver = line.Substring(rStart, dotPos - rStart);
+        if (receiver.Length > 0 && _isSessionVar(s, receiver)) {
+            return _memberComplete(s, receiver, word);
+        }
+        return new string[0];   // 非会话变量 receiver → Phase 1 不补
+    }
+
+    // ② 作用域候选。
     List<string> cands = new List<string>();
     int i = 0;
-    while (i < s.VarNames.Count)  { _addCand(cands, s.VarNames[i],  prefix); i = i + 1; }
+    while (i < s.VarNames.Count)  { _addCand(cands, s.VarNames[i],  word); i = i + 1; }
     i = 0;
-    while (i < s.DeclNames.Count) { _addCand(cands, s.DeclNames[i], prefix); i = i + 1; }
+    while (i < s.DeclNames.Count) { _addCand(cands, s.DeclNames[i], word); i = i + 1; }
     return cands.ToArray();
+}
+
+// 会话变量 obj. 成员补全：构静态字段 FQN → Repl.MemberNames 反射 live 值类型成员 → 前缀过滤。
+string[] _memberComplete(ScriptState s, string receiver, string prefix) {
+    string vr = s.VarsRound.ToString();
+    string key = "Repl.R" + vr + ".Vars" + vr + "." + receiver;   // 见 loader.rs 静态字段 FQN 约定
+    string[] members = Repl.MemberNames(key);
+    List<string> cands = new List<string>();
+    int i = 0;
+    while (i < members.Length) { _addCand(cands, members[i], prefix); i = i + 1; }
+    return cands.ToArray();
+}
+
+bool _isSessionVar(ScriptState s, string name) {
+    int i = 0;
+    while (i < s.VarNames.Count) { if (s.VarNames[i] == name) { return true; } i = i + 1; }
+    return false;
 }
 
 // 前缀匹配 + 去重后加入候选。
@@ -40,13 +76,13 @@ void _addCand(List<string> cands, string name, string prefix) {
     cands.Add(name);
 }
 
-// 提取 line[..pos] 末尾的标识符前缀（字母 / 数字 / `_`）；无标识符字符则为空串（列全部）。
-string _wordPrefix(string line, int pos) {
+// 标识符词（字母 / 数字 / `_`）在 pos 处的起始下标；无标识符字符则返回 pos（空词）。
+int _wordStart(string line, int pos) {
     int start = pos;
     while (start > 0) {
         char c = line.CharAt(start - 1);
         bool ident = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
         if (ident) { start = start - 1; } else { break; }
     }
-    return line.Substring(start, pos - start);
+    return start;
 }

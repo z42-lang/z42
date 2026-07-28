@@ -14,6 +14,7 @@
 //! rustyline dep is cfg-gated out) falls back to a plain stdin read so the
 //! builtins still resolve. The REPL itself is host-only (scripting-charter 2b).
 
+use crate::corelib::reflection::{builtin_type_members, make_type_from_name};
 use crate::interp::{exec_function, ExecOutcome};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -141,6 +142,53 @@ fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> R
             bail!("__z42_reflected_throw__")
         }
     }
+}
+
+/// `__repl_member_names(staticFieldFqn: string) -> string[]` — D2 live-reflection
+/// member completion (add-completion-query-api 阶段 3b). Reads a REPL session
+/// variable's **live value** from its static-field slot (key
+/// `Repl.R{N}.Vars{N}.{var}`, see loader.rs static-field FQN convention), then
+/// returns the names of its runtime type's members (fields/methods/properties/
+/// nested — same set as `Type.GetMembers()`). Reading a stored static field is
+/// side-effect-free (no expression re-evaluation), which is why session-variable
+/// `obj.` completion is safe here (D2). Null / primitive / unloaded → empty.
+pub fn builtin_repl_member_names(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let fqn = match args.first() {
+        Some(Value::Str(s)) => s.to_string(),
+        _ => bail!("__repl_member_names: arg 0 must be the static-field FQN (string)"),
+    };
+    let v = ctx.static_get(&fqn);
+    let tname = match &v {
+        Value::Object(rc) => rc.type_desc().name.clone(),
+        // Phase 1: only class instances (heap objects). Primitive-typed session
+        // vars (int/string/…) → no member completion yet (refinement: map to their
+        // primitive type name).
+        _ => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let type_val = make_type_from_name(ctx, &tname);
+    let members = builtin_type_members(ctx, &[type_val])?;
+    let mut names: Vec<Value> = Vec::new();
+    if let Value::Array(a) = members {
+        for m in a.borrow().iter() {
+            if let Some(n) = member_name_of(m) {
+                names.push(Value::Str(n.into()));
+            }
+        }
+    }
+    Ok(ctx.heap().alloc_array(names))
+}
+
+/// Read the `Name` slot of a reflection `MemberInfo` (or subclass) object.
+fn member_name_of(v: &Value) -> Option<String> {
+    if let Value::Object(rc) = v {
+        let idx = rc.type_desc().field_index.get("Name").copied();
+        if let Some(i) = idx {
+            if let Some(Value::Str(s)) = rc.borrow().slots.get(i) {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// The completer must take exactly `(string line, int pos)` — 2 params, no receiver.

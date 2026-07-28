@@ -1,0 +1,44 @@
+// REPL obj. 成员补全测试（add-completion-query-api 阶段 3b）。两条路径：
+//  ① 直接 __repl_member_names 读会话变量 live 值反射类型成员；
+//  ② 经 __repl_complete_probe 走 replComplete 的 `recv.prefix` 分支（与 rustyline Tab 同一路径）。
+namespace ReplMemberTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+class Native {
+    [Native("__repl_member_names")]   public static extern string[] M(string fqn);
+    [Native("__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
+}
+
+void Main() {
+    ScriptState s = Script.Create();
+    EvalResult r1 = Script.Eval(s, "class Box { public int W; public int H; }");
+    if (!r1.Success) { Console.WriteLine("DECL FAIL: " + r1.Error.Trim()); return; }
+    EvalResult r2 = Script.Eval(s, "var b = new Box()");
+    if (!r2.Success) { Console.WriteLine("VAR FAIL: " + r2.Error.Trim()); return; }
+    Completer.SetActive(s);
+
+    // ① 直接反射
+    string vr = s.VarsRound.ToString();
+    string[] m = Native.M("Repl.R" + vr + ".Vars" + vr + ".b");
+    Console.WriteLine("hasW=" + (_has(m, "W") ? "1" : "0"));
+    Console.WriteLine("hasH=" + (_has(m, "H") ? "1" : "0"));
+    Console.WriteLine("count_ge_2=" + ((m.Length >= 2) ? "1" : "0"));
+
+    // ② 经 completer：`b.` 列全部成员（含 W/H）；`b.W` 前缀过滤到 [W]
+    string[] dot = Native.Probe("Std.Scripting.replComplete", "b.", 2);
+    Console.WriteLine("dot_hasW=" + (_has(dot, "W") ? "1" : "0"));
+    string[] bw = Native.Probe("Std.Scripting.replComplete", "b.W", 3);
+    Console.WriteLine("bW_exact=" + ((bw.Length == 1 && bw[0] == "W") ? "1" : "0"));
+    // 非会话变量 receiver → 不补
+    string[] nv = Native.Probe("Std.Scripting.replComplete", "zzz.W", 5);
+    Console.WriteLine("nonvar_empty=" + ((nv.Length == 0) ? "1" : "0"));
+}
+
+bool _has(string[] a, string name) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == name) { return true; } i = i + 1; }
+    return false;
+}
