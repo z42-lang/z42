@@ -14,11 +14,16 @@
   - **落地形态（定型，供阶段 3/4 复用）**：`complete_via_callback(ctx, fqn, line, pos) -> string[]` 共享核 + `__repl_set_completer` 注册 + rustyline Completer（thread-local ctx）。完成器契约：`string[] complete(string line, int pos)`。
   - 文件：`src/runtime/src/corelib/repl.rs`（+ mod.rs 注册 2 个 builtin）。**只动 runtime**（scratch z42 程序自带 extern，不碰锁住的 toolchain/stdlib）。
   - 结论：**D5 无需回退 proposal**；rustyline↔VM 机制成立，Phase 1 可照此接线。
-- [ ] 阶段 1 — `CompletionQuery`（`z42c.semantics`）：三查询面（ScopeSymbols / TypeMembers / NamespaceExports），封装 StrMap 枚举 + visibility 过滤 + 前缀过滤
-- [ ] 阶段 2 — 语义透出通道（D3）：`PackageCompile.Compile` → `CompileArtifacts` 加 SemanticModel/context 视图
-- [ ] 阶段 3 — REPL completer（`toolchain/scripting` + host）：组 CompletionContext（VarNames/Usings/DeclNames/DeclTypeNames/CachedScan + 透出的语义模型）→ 调 query；会话变量 `.` 走 live 反射（读 Vars{N} 字段值 + GetType + GetMembers，零副作用）
-- [ ] 阶段 4 — 接线 Tab（`interactive_main` + repl.rs 钩子）
-- [ ] 阶段 5 — 测试：CompletionQuery 单测（scope/成员/ns + 前缀）；REPL 补全 e2e（scope 名 / 类型名静态 / 会话变量成员）
+- [x] **阶段 3（先做，作用域级）✅**：REPL 作用域 completer 落地（`toolchain/scripting`，隔离分支并行）
+  - `Completer.z42`：自由函数 `replComplete(line,pos)` + `Completer.SetActive/GetActive`。数据源 = 当前 `ScriptState`（`VarNames` + `DeclNames`），**REPL 自持、不经 compiler**（Phase 1 洞察：作用域候选 REPL 已握，无需 `CompletionQuery`）。前缀提取 + 大小写敏感过滤 + 去重。
+  - `Repl.z42`：加 `SetCompleter(fqn)` 绑定（`__repl_set_completer`）。
+  - `interactive_main.z42`：注册 `Std.Scripting.replComplete` + 每轮 `Completer.SetActive(s)`（`.reset` 重建 s 亦覆盖）。
+- [x] **阶段 4（作用域级）✅**：Tab 接线 = 阶段 0 的 rustyline 机制 + 阶段 3 注册，已通。**真实 REPL PTY 实测**：`var banana=42` → 输入 `ban`+Tab → 补成 `banana` → 求值 42。
+- [x] **阶段 5（部分）✅**：`tests/repl_completion/`（driver + expected）——经 `__repl_complete_probe` 走**与 rustyline 同一运行期 FQN 查找**，验前缀过滤/去重/顺序（VarNames 先 DeclNames 后）+ 大小写敏感。PASS。
+  - 注：`repl_decls_multiline` 本地 warm 失败是**陈旧种子 z42c**（2026-07-26，早于 #49 的 fix-imported-free-func-namespace 2026-07-28）所致，非本 change——去掉 `Completer.z42` 同样复现；CI（fresh z42c）为权威。
+- [ ] 阶段 1 — `CompletionQuery`（`z42c.semantics`）：LSP 共享内核 + `TypeMembers`（类型名静态成员）。**排队等 compiler 锁**。作用域级已由阶段 3 用 REPL 自持数据先行交付；此阶段服务 LSP + 静态类型成员。
+- [ ] 阶段 2 — 语义透出通道（D3）：`PackageCompile.Compile` → `CompileArtifacts` 加 SemanticModel/context 视图。**排队等 compiler 锁**。
+- [ ] 阶段 3b — `obj.` 成员补全（D2 混合）：会话变量走 live 反射（读 `Vars{N}` 字段值 + `GetType` + `GetMembers`，零副作用）；任意 `expr.` defer。
 - [ ] 阶段 6 — 文档：补全机制页（`docs/design/`）；`repl-future-tab-completion` 前置改"补全查询 API"；roadmap Deferred Index 更新；标注 LSP 为未来第二客户端（架构预留）
 
 ## 前置 / 阻塞
