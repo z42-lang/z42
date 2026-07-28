@@ -90,6 +90,20 @@ JIT 列不变（用 JitFrame 非 Frame,池化 interp-only）。每 call 省一�
 
 poly 不变（vcall 路径 prepend `this`,非纯 index-fill,未在本次 scope;留后续）。JIT 列不变。
 
+## Phase 1 结果:vcall 接收者直接填帧（2026-07-29，Decision 3，已落地）
+
+vcall 对象/基元 IC 命中的稳态热路径原本 `vec![obj_val]` + `collect_args` 两次 Vec 分配
++ 参数双 clone。`collect_args` 从无条件位置下移到冷路径（boxing / 基元名 / vtable 各自
+局部 materialize）,IC 命中路径改 `exec_function_from_receiver_regs` / `new_from_receiver_regs`
+直接填 regs[0]=receiver、regs[1+i]=caller args——零 Vec、单 clone。
+
+| poly_dispatch 10M（interp 计算，扣启动） | baseline | +regs 池化 | +vcall 直接填 |
+|--|------:|------:|------:|
+| | 4670ms | 3804ms | **3247ms** |
+| 累计 | — | −19% | **−30%** |
+
+JIT 列不变（interp-only）。GREEN 全绿 + 自举 5/5。
+
 ## 复现
 
 ```bash

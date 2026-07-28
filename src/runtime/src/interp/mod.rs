@@ -260,6 +260,34 @@ impl Frame {
         })
     }
 
+    /// perf-vm-iteration Phase 1 (Decision 3): like `new_from_regs` but with a
+    /// prepended receiver (`this`) in slot 0 — for the virtual-call hot path
+    /// (`exec_vcall`), which passes `regs[0] = receiver`, `regs[1+i] = args[i]`.
+    /// Eliminates the vcall path's `vec![receiver]` + `collect_args` Vecs and the
+    /// arg double-clone; receiver + each arg cloned exactly once.
+    pub fn new_from_receiver_regs(
+        receiver: &Value, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+    ) -> Result<Self> {
+        let argc = arg_indices.len();
+        let total = argc + 1; // + receiver in slot 0
+        let size = if max_reg > 0 { max_reg as usize } else { total };
+        let need = size.max(total);
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
+        regs[0] = receiver.clone();
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i + 1] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            env_arena: Vec::new(),
+            ref_writebacks: Vec::new(),
+        })
+    }
+
     /// Set a register's raw value (no deref). For ref-aware store-through
     /// (transparently writing through `Value::Ref` to the underlying
     /// caller slot / array elem / object field), use `set_thru_ref`
@@ -470,6 +498,19 @@ pub(crate) fn exec_function_from_regs(
 ) -> Result<ExecOutcome> {
     crate::gc::safepoint::check_safepoint(ctx);
     let frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    exec_function_body(ctx, module, func, frame)
+}
+
+/// perf-vm-iteration Phase 1 (Decision 3): virtual-call hot-path entry. Fills
+/// `regs[0] = receiver`, `regs[1+i] = caller_regs[arg_indices[i]]` directly —
+/// no `vec![receiver]` / `collect_args` Vecs, each value cloned once. Used by
+/// the `exec_vcall` object/primitive IC fast path.
+pub(crate) fn exec_function_from_receiver_regs(
+    ctx: &VmContext, module: &Module, func: &Function,
+    receiver: &Value, caller_regs: &[Value], arg_indices: &[u32],
+) -> Result<ExecOutcome> {
+    crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
     exec_function_body(ctx, module, func, frame)
 }
 

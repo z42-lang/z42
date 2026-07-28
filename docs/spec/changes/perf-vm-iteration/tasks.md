@@ -13,7 +13,10 @@
       → interp: fib 计算 −32%、poly −19%；GREEN 全绿 + 自举 5/5。见 MODE-COMPARISON.md
 - [x] **Decision 3（安全自主）**：interp 直接填 callee frame ✅ → `exec_function_from_regs`
       + `Frame::new_from_regs`,直接调用路径消 args Vec + 半 clone。fib 计算 80→68ms
-      （累计 −42%）。vcall 路径 prepend `this` 未在 scope,留后续。GREEN 验证中。
+      （累计 −42%）。vcall 路径 prepend `this` 未在 scope,留后续。GREEN 全绿。
+- [x] **Decision 3（安全自主）**：vcall 接收者直接填帧 ✅ → `exec_function_from_receiver_regs`
+      + `Frame::new_from_receiver_regs`,IC 命中路径消两 Vec + 半 clone。poly 计算
+      3804→3247ms（累计 −30%）。GREEN 验证中。
 - [ ] interp 帧名：⚠️ 记忆记录 OnceLock 缓存曾 −7%；若做放 boxed FunctionCold + harness 实测（低优先，interp-only）
 - [ ] JIT `jit_call` 同步复用（去 per-call JitFrame 分配 + push/pop）——依赖 Decision 1
 
