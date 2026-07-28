@@ -188,6 +188,36 @@ int[] _launcherSmoke(string distDir, string work) {
         Console.WriteLine("  FAIL: z42 which (portable) spawn: " + e.Message);
         fail = fail + 1;
     }
+    // (unify-run-modes P4) `z42 run <dir> --bin`: build a source project with the
+    // packaged z42c and run the selected [[exe]] target — real end-to-end of the
+    // run front door + multi-exe selection. Copy the multi-exe fixture into a
+    // writable temp first (build writes dist/ there). Skips if bin/z42c or the
+    // fixture is absent.
+    string z42cBin = Path.Join(distDir, "bin/z42c");
+    if (!File.Exists(z42cBin)) { z42cBin = z42cBin + ".exe"; }
+    string mexeSrc = Path.Join(_root(), "src/tests/multi-exe/two_mains");
+    if (File.Exists(z42cBin) && Directory.Exists(mexeSrc)) {
+        string mexeWork = Path.Join(work, "mexe-run");
+        Directory.Copy(mexeSrc, mexeWork, true);
+        try {
+            ProcessResult rr = new Process(launcher).Arg("run").Arg(mexeWork).Arg("--bin").Arg("greet")
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            string got = rr.Stdout.Trim();
+            if (got == "greet-main") {
+                Console.WriteLine("  ✓ z42 run <dir> --bin greet → greet-main");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: z42 run <dir> --bin greet → '" + got + "' (stderr: " + rr.Stderr.Trim() + ")");
+                fail = fail + 1;
+            }
+        } catch (Exception e) {
+            Console.WriteLine("  FAIL: z42 run --bin smoke: " + e.Message);
+            fail = fail + 1;
+        }
+    } else {
+        Console.WriteLine("  SKIP: z42 run <dir> --bin (bin/z42c or multi-exe fixture missing)");
+    }
     // Installed: install.sh --system into a temp $DEST.
     // unify-launcher-apphost (2026-06-21): managed install is now extract-in-
     // place (no separate launcher/ runtime), so the installed z42 is `$ih/z42`
