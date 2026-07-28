@@ -261,10 +261,11 @@ int _regenGolden() {
 }
 
 // Categories with no single-source golden .zbc to regenerate: errors / parse
-// expect compile/parse failure (no .zbc), cross-zpkg is multi-package.
-// Distinct from golden's _isNonRunnableCat (cross-zpkg / zbc-format / zpkg-format).
+// expect compile/parse failure (no .zbc), cross-zpkg / multi-exe are multi-
+// package / multi-target project builds handled by their own runners.
+// Distinct from golden's _isNonRunnableCat (cross-zpkg / multi-exe / zbc-format / zpkg-format).
 bool _isNonRegenCat(string cat) {
-    return cat == "errors" || cat == "parse" || cat == "cross-zpkg";
+    return cat == "errors" || cat == "parse" || cat == "cross-zpkg" || cat == "multi-exe";
 }
 
 // z42c 编译单个 golden（z42vm 跑 z42c.driver.zpkg --emit-zbc）。golden 的 stdlib 依赖

@@ -35,6 +35,9 @@ int _testE2e(ParseResult r) {
     if (dir == "cross-zpkg") {
         // cross-zpkg only: build unless the caller opted out (--no-rebuild/--no-build)
         __rc = _testCrossZpkgCore(xmode, noBuild || !rebuild);
+    } else if (dir == "multi-exe") {
+        // multi-exe only (unify-run-modes P3): same build/consume prep as cross-zpkg.
+        __rc = _testMultiExeCore(xmode, noBuild || !rebuild);
     } else {
         __rc = _testE2eCore(modes, rebuild, noBuild, r.GetOption("jobs"), shardOpt, dir, file);
         // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg
@@ -46,6 +49,7 @@ int _testE2e(ParseResult r) {
         // (`xtask test e2e`, unsharded) still get it.
         if (__rc == 0 && dir.Length == 0 && file.Length == 0 && shardOpt.Length == 0) {
             __rc = _testCrossZpkgCore(xmode, true);
+            if (__rc == 0) { __rc = _testMultiExeCore(xmode, true); }
         }
     }
     if (__rc == 0) { _procEnd("test e2e", sw); }
@@ -243,6 +247,11 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "cross-zpkg")) {
         Console.WriteLine("\n=== stage: e2e cross-zpkg ===");
         c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
+    }
+    // stage 3b: e2e multi-exe (unify-run-modes P3 — one project → N exe zpkgs)
+    if (!_skipHas(skip, "multi-exe")) {
+        Console.WriteLine("\n=== stage: e2e multi-exe ===");
+        c = _testMultiExeCore("interp", true); if (c != 0) { return c; }
     }
     // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
     if (!_skipHas(skip, "stdlib")) {

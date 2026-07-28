@@ -39,14 +39,18 @@
 - [ ] 运行路径消费 `mode`
 - [ ] 自举不动点验证（gen1==gen2）
 
-## P3 — 多 exe 构建 build 侧（compiler + z42b，排队）
+## P3 — 多 exe 构建 build 侧（compiler）🟡 IMPL（2026-07-28）
 > spec: [specs/multi-exe-targets/spec.md](specs/multi-exe-targets/spec.md) | design: design.md「多 exe 目标」节
-- [ ] `ManifestLoader` + `ProjectInfo` 解析 `default-run` 字段
-- [ ] `Main.z42`：`ExeCount>0` 遍历 `pm.Exes` 各产 `dist/<name>.zpkg`（entry=exe.Entry, 源集=exe.Src‖[sources]）；`ExeCount==0` 走现有单入口
-- [ ] `PackageCompile` 按 exe 目标 entry/源集各编一次（若需）
-- [ ] z42b `_orchestrate` 多目标（或下沉 driver、z42b 透传）
-- [ ] 单测/e2e：双 exe→两 zpkg entry 正确、专属 src 只编子集、ExeCount==0 产物不变
-- [ ] **自举不动点 gen1==gen2**（非破坏关键证据）
+- [x] `Main.z42`：`ExeCount>0` 遍历 `pm.Exes` 重烤 name/entry 各产 `dist/<name>.zpkg`（compile-once-restamp，packed+indexed）；`ExeCount==0` 走现有单产物路径（自包含 early-return，字节不变）
+- [x] `isExe` 纳入 `ExeCount>0`；preserved 快路径 + entry 自动探测校验按 `ExeCount==0` 门控（多 exe 全量 + 用显式 entry）
+- [x] ~~`PackageCompile` 按 exe 各编一次~~ 首切用 compile-once-restamp（共享 [sources]），无需改 PackageCompile
+- [x] ~~z42b _orchestrate~~ 不需要：`z42 build`→`_forwardZ42c` 直跑 z42c，多 exe 全在 driver
+- **首切边界（deferred）**：
+  - [ ] `ProjectInfo`/`ManifestLoader` `default-run` 字段（占 stdlib 锁，现被 converge-z42c 占 → 后置；当前多 exe 无 --bin 由 P4 报错列名）
+  - [ ] exe 专属 `src` 子集（当前声明 `src` → 显式报错「尚未支持」）
+  - [ ] 多 exe 增量 preserved（当前一律全量）
+- [x] e2e：新增 multi-exe runner（`scripts/test/xtask_test_multiexe.z42`，仿 cross-zpkg）+ fixture `src/tests/multi-exe/two_mains/`（一工程双 [[exe]]→build 产两 zpkg→各跑→比对）；wire 进 `xtask test`（主 gate + `--dir multi-exe`）；两处非 golden 排除（`_isNonRegenCat`/`_isNonRunnableCat`）。**CI 权威**（cold worktree 不可本地跑）
+- [ ] **自举不动点 gen1==gen2**（非破坏关键证据）—— CI 权威（cold worktree 不可本地验）
 
 ## P4 — 统一前门 + run 选择 run 侧（toolchain）
 - [ ] `_cmdRun` 前门分类器（`.zpkg`/`.zbc` → 跑产物；`<目录>`/省略 → 找 manifest）

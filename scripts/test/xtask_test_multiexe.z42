@@ -1,0 +1,137 @@
+// xtask — multi-exe e2e runner (unify-run-modes P3). Each case under
+// src/tests/multi-exe/<name>/ is ONE project whose z42.toml declares N `[[exe]]`
+// targets sharing `[sources]`. We build it once (z42c produces dist/<exe>.zpkg
+// per target — the compile-once-restamp path), then run EACH produced zpkg
+// through z42vm, concatenate stdout in sorted (by zpkg path) order, and diff
+// against expected_output.txt. Reuses the cross-zpkg build/run helpers
+// (_invokeBuildCompiler / _findToml / _fixtureDist / _copyStdlibZpkgs /
+// _enumDirsSorted / _append / _crossSummary / _firstLines) — same Z42Xtask
+// namespace, cross-file (see scripts/test/xtask_test_cross.z42).
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// Build prep mirror of _testCrossZpkgCore: ensure z42vm + z42c + stdlib exist,
+// then run the cases. `noBuild` skips the build wave (toolchain/consume path or
+// an earlier golden run already built everything).
+int _testMultiExeCore(string mode, bool noBuild) {
+    bool haveTc = _toolchainDir(_root()).Length > 0;
+    if (!noBuild && !haveTc) {
+        int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
+            .Arg("--manifest-path").Arg(_runtimeManifest()));
+        if (cr != 0) { return cr; }
+        string root = _root();
+        if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
+            int cs = _buildStdlib(); if (cs != 0) { return cs; }
+        }
+        int cz = _buildCompiler(); if (cz != 0) { return cz; }
+    }
+    return _testMultiExeImpl(mode);
+}
+
+// Returns 0 if every multi-exe case passes, 1 on any failure (or setup error).
+int _testMultiExeImpl(string mode) {
+    string root = _root();
+    string testsDir = Path.Join(root, "src/tests/multi-exe");
+    if (!Directory.Exists(testsDir)) { return 0; }   // no cases → clean skip
+
+    // Tool resolution (mirror cross-zpkg setup: --toolchain consume vs build-tree).
+    string tc = _toolchainDir(root);
+    string stdlibDist;
+    string driverHome;
+    string vmBin;
+    if (tc.Length > 0) {
+        stdlibDist = _toolchainLibs(tc);
+        driverHome = _toolchainDriverHome(tc);
+        vmBin = _toolchainVm(tc);
+    } else {
+        stdlibDist = _libsDir(root);
+        driverHome = _assembleDriverHome(root);
+        vmBin = _builtVm(root, "debug");
+    }
+    if (driverHome.Length == 0) {
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
+        ConsoleError.WriteLine("       Build it via: ./xtask test compiler  (or build stdlib)");
+        return 1;
+    }
+    string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
+    if (!File.Exists(vmBin)) {
+        ConsoleError.WriteLine("error: z42vm not found at " + vmBin);
+        return 1;
+    }
+
+    string[] names = _enumDirsSorted(testsDir);
+    int pass = 0;
+    int fail = 0;
+    string[] failures = new string[8];
+    int failCount = 0;
+    int i = 0;
+    while (i < names.Length) {
+        string name = names[i];
+        string dir = Path.Join(testsDir, name);
+        if (File.Exists(Path.Join(dir, "expected_output.txt"))) {
+            Console.WriteLine("── MultiExe: " + name + " ──");
+            string failLabel = _runOneMultiExe(vmBin, driverZpkg, stdlibDist, dir, name, mode);
+            if (failLabel.Length == 0) {
+                pass = pass + 1;
+            } else {
+                fail = fail + 1;
+                failures = _append(failures, failCount, failLabel);
+                failCount = failCount + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return _crossSummary(pass, fail, failures, failCount);
+}
+
+// Build the ONE project (→ dist/<exe>.zpkg per `[[exe]]`), then run each produced
+// zpkg and diff the concatenated (sorted-by-path) stdout against expected. The
+// expected file lists each exe's output in sorted-by-zpkg-name order.
+string _runOneMultiExe(string vmBin, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
+    string toml = _findToml(dir);
+    if (toml.Length == 0 || !_invokeBuildCompiler(vmBin, driverZpkg, stdlibDist, dir, toml)) {
+        Console.WriteLine("    build failed");
+        return name + " (build)";
+    }
+    string distDir = _fixtureDist(dir);
+    string[] zpkgs = Path.GlobRecursive(distDir, "*.zpkg");
+    if (zpkgs.Length < 2) {
+        Console.WriteLine("    expected ≥2 exe zpkgs (one per [[exe]]), got " + zpkgs.Length.ToString());
+        return name + " (zpkg count)";
+    }
+    _sortStrings(zpkgs);   // deterministic run order = sorted by path
+
+    // Per-run libs dir: stdlib only (multi-exe fixtures declare no local deps).
+    string testLibs = File.CreateTempDir("z42-mexe-");
+    _copyStdlibZpkgs(stdlibDist, testLibs);
+
+    string actual = "";
+    bool runErr = false;
+    int zi = 0;
+    while (zi < zpkgs.Length) {
+        try {
+            ProcessResult vr = new Process(vmBin)
+                .Arg(zpkgs[zi])
+                .Arg("--mode").Arg(mode)
+                .Env("Z42_LIBS", testLibs)
+                .Run();
+            actual = actual + vr.Stdout + vr.Stderr;
+        } catch (Exception e) {
+            runErr = true;
+        }
+        zi = zi + 1;
+    }
+    Directory.Delete(testLibs, true);
+
+    string expected = File.ReadAllText(Path.Join(dir, "expected_output.txt"));
+    if (!runErr && actual == expected) {
+        Console.WriteLine("  PASS (" + zpkgs.Length.ToString() + " exe)");
+        return "";
+    }
+    Console.WriteLine("  FAIL");
+    Console.WriteLine("    expected: " + _firstLines(expected, 4));
+    Console.WriteLine("    actual:   " + _firstLines(actual, 4));
+    return name;
+}
