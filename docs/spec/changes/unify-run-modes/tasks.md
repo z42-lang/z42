@@ -68,7 +68,7 @@
 - [x] e2e（选 a）：`_launcherSmoke` 加 `z42 run <fixture> --bin greet → greet-main`（打包 launcher → z42c build → 跑选中 exe，真端到端；复用 P3 的 two_mains fixture，`Directory.Copy` 进 temp 避免污染源树）
 - [x] **CI 覆盖**（选 i）：`_testDistRun` 加 `DIST_SMOKE_ONLY=launcher` env 门（只跑 launcher smoke）；ci.yml package-host 加一步 `test dist` 跑该 smoke（**linux+macos**，Windows 因 dist-test 预存 `.exe` 后缀缺口 gate 掉，另修）→ P4 `z42 run --bin greet → greet-main` 真端到端 CI 绿（linux-arm64/x64 + macos）
 - **CI 抓到并修的 2 个真 P4 bug**（compile 阶段抓不到）：① `_findProjectToml` 漏裸 `z42.toml` ② build 进度 `wrote ->` 污染程序 stdout（改 Stdout(Null)）
-- **遗留**（另开）：`_testDistRun` 预检 + `_launcherSmoke` 的 Windows `.exe` 后缀处理（预存 debt，与 P4 无关）
+- [x] **~~遗留~~ 已清（P5 顺带）**：`_testDistRun` 预检 + `_launcherSmoke`/`_apphostSmoke` 的 Windows `.exe` 后缀（z42c/z42vm/z42/apphost + produced exe）补齐；移除 launcher smoke 步的 `runner.os != 'Windows'` gate → 该 smoke（which/run --bin/repl --config）现在 Windows 也跑
 
 ## P5 — publish 每 main 一 app（toolchain / z42b）🟡 IMPL（2026-07-28）
 - [x] `builder_publish.z42` `_pubDesktop`：`ExeCount>0` 遍历 `[[exe]]` → 每 exe `_pubEnsureBuilt(ex.name)`（首次 build 全部、余者 resolve）→ `_pubProduceApphost(dist/<ex>.zpkg, root/<ex>, stub)`；`ExeCount==0` 走现有单 app 路径（非破坏）

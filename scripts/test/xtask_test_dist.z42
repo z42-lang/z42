@@ -47,7 +47,9 @@ int _testDistRun(string modeArg) {
         return 1;
     }
     string z42c    = Path.Join(distDir, "bin/z42c");
+    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }     // Windows: bin/z42c.exe
     string z42vm   = Path.Join(distDir, "bin/z42vm");
+    if (!File.Exists(z42vm)) { z42vm = z42vm + ".exe"; }  // Windows: bin/z42vm.exe
     string libsDir = Path.Join(distDir, "libs");
 
     // ── Preflight ────────────────────────────────────────────────────────
@@ -167,6 +169,7 @@ int[] _launcherSmoke(string distDir, string work) {
     int pass = 0;
     int fail = 0;
     string launcher = Path.Join(distDir, "z42");
+    if (!File.Exists(launcher)) { launcher = launcher + ".exe"; }   // Windows: z42.exe
     // unify-launcher-apphost (2026-06-21): z42 is an apphost; its launcher.zpkg
     // payload lives at programs/launcher/ (was the package root).
     if (!File.Exists(launcher) || !File.Exists(Path.Join(distDir, "programs/launcher/launcher.zpkg"))) {
@@ -176,6 +179,7 @@ int[] _launcherSmoke(string distDir, string work) {
     }
     Console.WriteLine("Launcher smoke (portable): " + launcher);
     string wantVm = Path.Join(distDir, "bin/z42vm");
+    if (!File.Exists(wantVm)) { wantVm = wantVm + ".exe"; }   // Windows: bin/z42vm.exe
     // Portable: drop Z42_HOME + Z42_PORTABLE_VM so resolution uses the
     // package-relative bin/z42vm. (xtask runs us with Z42_PORTABLE_VM set to the
     // build-tree vm, which would otherwise win and mask the package's own vm.)
@@ -298,8 +302,11 @@ int[] _apphostSmoke(string distDir, string work) {
     int pass = 0;
     int fail = 0;
     string launcher = Path.Join(distDir, "z42");
+    if (!File.Exists(launcher)) { launcher = launcher + ".exe"; }   // Windows
     string z42c = Path.Join(distDir, "bin/z42c");
+    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }               // Windows
     string tmpl = Path.Join(distDir, "bin/apphost");
+    if (!File.Exists(tmpl)) { tmpl = tmpl + ".exe"; }               // Windows
     string libs = Path.Join(distDir, "libs");
     if (!File.Exists(launcher) || !File.Exists(z42c) || !File.Exists(tmpl)) {
         Console.WriteLine("desktop-publish smoke: SKIP (z42 / bin/z42c / bin/apphost not in package)");
@@ -339,7 +346,7 @@ int[] _apphostSmoke(string distDir, string work) {
     File.WriteAllText(Path.Join(ad, "app.z42"), appSrc);
     File.WriteAllText(Path.Join(ad, "app.z42.toml"), appToml);
     string appZpkg = Path.Join(ad, "app.zpkg");
-    string producedExe = Path.Join(ad, "app");
+    string producedExe = Path.Join(ad, (distDir.IndexOf("windows-") >= 0) ? "app.exe" : "app");  // Windows apphost .exe
 
     try {
         // 1. build app.zpkg with the packaged z42c (deps from package libs).
