@@ -1,0 +1,35 @@
+// REPL 导入符号补全测试（add-completion-query-api）：作用域补全含导入类型名 + `Type.` 静态成员。
+// 数据源 = CachedScan（DepScanResult）——首轮 eval 后建成。经 __repl_complete_probe 走 replComplete。
+namespace ReplImportTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+class Native {
+    [Native("__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
+}
+
+void Main() {
+    ScriptState s = Script.Create();
+    Script.Eval(s, "1");   // 触发首轮 DepScan → 建 CachedScan（导入世界）
+    Completer.SetActive(s);
+
+    // ③ 作用域候选含导入类型名：`Con` → Console
+    string[] con = Native.Probe("Std.Scripting.replComplete", "Con", 3);
+    Console.WriteLine("scope_has_Console=" + (_has(con, "Console") ? "1" : "0"));
+
+    // ② `Type.` 静态成员：`Console.Wr` → WriteLine
+    string[] cw = Native.Probe("Std.Scripting.replComplete", "Console.Wr", 10);
+    Console.WriteLine("static_has_WriteLine=" + (_has(cw, "WriteLine") ? "1" : "0"));
+
+    // 空前缀不刷屏导入类型（作用域分支 word.Length==0 时不并入 imported）
+    string[] empty = Native.Probe("Std.Scripting.replComplete", "", 0);
+    Console.WriteLine("empty_no_Console=" + (_has(empty, "Console") ? "0_BAD" : "1"));
+}
+
+bool _has(string[] a, string name) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == name) { return true; } i = i + 1; }
+    return false;
+}

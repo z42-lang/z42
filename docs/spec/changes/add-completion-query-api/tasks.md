@@ -21,8 +21,18 @@
 - [x] **阶段 4（作用域级）✅**：Tab 接线 = 阶段 0 的 rustyline 机制 + 阶段 3 注册，已通。**真实 REPL PTY 实测**：`var banana=42` → 输入 `ban`+Tab → 补成 `banana` → 求值 42。
 - [x] **阶段 5（部分）✅**：`tests/repl_completion/`（driver + expected）——经 `__repl_complete_probe` 走**与 rustyline 同一运行期 FQN 查找**，验前缀过滤/去重/顺序（VarNames 先 DeclNames 后）+ 大小写敏感。PASS。
   - 注：`repl_decls_multiline` 本地 warm 失败是**陈旧种子 z42c**（2026-07-26，早于 #49 的 fix-imported-free-func-namespace 2026-07-28）所致，非本 change——去掉 `Completer.z42` 同样复现；CI（fresh z42c）为权威。
-- [ ] 阶段 1 — `CompletionQuery`（`z42c.semantics`）：LSP 共享内核 + `TypeMembers`（类型名静态成员）。**排队等 compiler 锁**。作用域级已由阶段 3 用 REPL 自持数据先行交付；此阶段服务 LSP + 静态类型成员。
-- [ ] 阶段 2 — 语义透出通道（D3）：`PackageCompile.Compile` → `CompileArtifacts` 加 SemanticModel/context 视图。**排队等 compiler 锁**。
+- [x] **阶段 3c — 导入符号补全（类型名 + `Type.` 静态成员 + ns 导出）✅**：**REPL 自持数据交付**，从
+  `CachedScan`（`DepScanResult`）枚举各命名空间 `Exported[].Classes/Interfaces/Enums/Functions` →
+  ③ 作用域候选并入导入类型/枚举/自由函数名（前缀非空时，避免刷屏）；② `Type.` → 该类型 public 静态
+  方法/字段 或枚举成员。派发 mangle（`WriteLine$1$object`）截首个 `$` 显示源名（`_cleanName`）。
+  - 测试 `tests/repl_import_completion`：`Con`→Console ✓、`Console.Wr`→WriteLine ✓、空前缀不刷屏 ✓。
+  - PTY 实测：`Conso`+Tab → `Console` ✓。scope/member 三测并存无回归。
+  - **关键结论**：REPL 的**全部**补全面（作用域 / 实例成员 / 类型名 / 静态成员 / ns 导出）均由 REPL
+    自持数据（`ScriptState` + `CachedScan` + 运行期反射）交付，**不需 compiler 的 `CompletionQuery`**。
+    → 阶段 1/2 的 `CompletionQuery` 内核**纯为 LSP**（静态源分析）服务，非 REPL 所需，可完全随 LSP 排期。
+- [ ] 阶段 1 —（**重定位为 LSP-only**）`CompletionQuery`（`z42c.semantics`）：LSP 客户端的静态源补全内核。
+  REPL 已不依赖它（见阶段 3c 结论）。随 0.5.x LSP 排期，**排队等 compiler 锁**。
+- [ ] 阶段 2 —（LSP-only）语义透出通道（D3）：`CompileArtifacts` 加 SemanticModel 视图，供 LSP server。**等 compiler 锁**。
 - [x] **阶段 3b — `obj.` 成员补全（D2 混合）✅**：会话变量走 live 反射，零副作用。
   - runtime：`__repl_member_names(fqn)→string[]`（repl.rs）——`ctx.static_get("Repl.R{N}.Vars{N}.{var}")` 读活值 → `make_type_from_name(value.type)` → `builtin_type_members` → 提取各 MemberInfo `Name`。null/基元→空。
   - toolchain：`Repl.MemberNames` 绑定；`Completer.replComplete` 加 `recv.prefix` 检测——`recv∈VarNames` 时构 key 调 builtin + dot 后前缀过滤；非会话变量 receiver → 不补（任意 `expr.` defer，需静态类型推断）。

@@ -1,17 +1,24 @@
-// REPL 作用域 Tab 补全（add-completion-query-api Phase 1 / 阶段 3）。
+// REPL Tab 补全（add-completion-query-api）。数据源全部 **REPL 自持**、不经 compiler 的
+// `CompletionQuery`（那层是 LSP 共享内核）：
+//   · 会话变量 `VarNames` + 声明名 `DeclNames`（`ScriptState`）；
+//   · 导入世界 `CachedScan`（`DepScanResult`）——各命名空间的导出类型 / 接口 / 枚举 / 自由函数名 +
+//     类型的 public 静态成员（`Exported[].Classes/Interfaces/Enums/Functions`）；
+//   · 会话变量 live 值的实例成员（`Repl.MemberNames` 运行期反射）。
 //
-// 数据源 = 当前会话 `ScriptState`（会话变量 `VarNames` + 声明名 `DeclNames`）——REPL **自持**，
-// 不经 compiler 的 `CompletionQuery`（那是 LSP 共享内核，Phase 1 先不依赖）。Phase 1 只做
-// **作用域级**候选（标识符前缀过滤）；`obj.` 类型成员补全（D2 混合：会话变量走 live 反射）见后续阶段。
+// 三种上下文（按光标前缀 token 判）：
+//   ① `var.mem`（var 是会话变量）→ live 值实例成员（D2；零副作用）。
+//   ② `Type.mem`（Type 是导入/声明的类型或枚举）→ CachedScan 里该类型的 public 静态成员 / 枚举成员。
+//   ③ 裸标识符 `pre` → 作用域候选（会话变量 + 声明名 + 导入类型/枚举/自由函数名）。
 //
 // rustyline Tab 经 `Std.Repl.Repl.SetCompleter` 注册的自由函数 `replComplete` 回调本模块
-// （机制见 z42vm `corelib/repl.rs`：`__repl_set_completer` + `ReplHelper::complete`）。
-// 完成器契约（与 corelib/repl.rs 对齐）：`string[] replComplete(string line, int pos)`。
+// （机制见 z42vm `corelib/repl.rs`）。契约：`string[] replComplete(string line, int pos)`。
 namespace Std.Scripting;
 
 using Std;
 using Std.Collections;
-using Std.Repl;   // Repl.MemberNames（会话变量 obj. 成员反射）
+using Std.Repl;      // Repl.MemberNames（会话变量 obj. 实例成员反射）
+using Z42.Pipeline;  // DepScanResult（CachedScan）
+using Z42.IR;        // ExportedModuleZ / ExportedClassZ / ExportedEnumZ …（导入世界枚举）
 
 // 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
 public static class Completer {
@@ -31,23 +38,85 @@ string[] replComplete(string line, int pos) {
     int wordStart = _wordStart(line, pos);
     string word = line.Substring(wordStart, pos - wordStart);
 
-    // ① 成员访问：word 前紧邻一个 '.'，且 '.' 前是标识符（receiver）。
+    // 成员访问：word 前紧邻一个 '.'，且 '.' 前是标识符（receiver）。
     if (wordStart > 0 && line.CharAt(wordStart - 1) == '.') {
         int dotPos = wordStart - 1;
         int rStart = _wordStart(line, dotPos);
         string receiver = line.Substring(rStart, dotPos - rStart);
-        if (receiver.Length > 0 && _isSessionVar(s, receiver)) {
-            return _memberComplete(s, receiver, word);
-        }
-        return new string[0];   // 非会话变量 receiver → Phase 1 不补
+        if (receiver.Length == 0) { return new string[0]; }
+        // ① 会话变量 → live 实例成员
+        if (_isSessionVar(s, receiver)) { return _memberComplete(s, receiver, word); }
+        // ② 导入/声明的类型或枚举 → CachedScan 里的 public 静态成员 / 枚举成员
+        return _typeStaticMembers(s, receiver, word);
     }
 
-    // ② 作用域候选。
+    // ③ 作用域候选：会话变量 + 声明名（空前缀也列，数量少）+ 导入类型/枚举/自由函数名（仅前缀非空，避免刷屏）。
     List<string> cands = new List<string>();
     int i = 0;
     while (i < s.VarNames.Count)  { _addCand(cands, s.VarNames[i],  word); i = i + 1; }
     i = 0;
     while (i < s.DeclNames.Count) { _addCand(cands, s.DeclNames[i], word); i = i + 1; }
+    if (word.Length > 0) { _addImportedNames(cands, s, word); }
+    return cands.ToArray();
+}
+
+// ③ 导入世界的顶层可命名符号：各命名空间的类 / 接口 / 枚举 / 自由函数名（裸名，前缀过滤 + 去重）。
+void _addImportedNames(List<string> cands, ScriptState s, string prefix) {
+    DepScanResult sc = s.CachedScan;
+    if (sc == null) { return; }   // 首轮 eval 前尚未建 scan
+    int mi = 0;
+    while (mi < sc.ExportedCount) {
+        ExportedModuleZ m = sc.Exported[mi];
+        int c = 0;
+        while (c < m.ClassCount)     { _addCand(cands, m.Classes[c].Name,    prefix); c = c + 1; }
+        int f = 0;
+        while (f < m.InterfaceCount) { _addCand(cands, m.Interfaces[f].Name, prefix); f = f + 1; }
+        int e = 0;
+        while (e < m.EnumCount)      { _addCand(cands, m.Enums[e].Name,      prefix); e = e + 1; }
+        int gi = 0;
+        while (gi < m.FunctionCount) { _addCand(cands, _cleanName(m.Functions[gi].Name), prefix); gi = gi + 1; }
+        mi = mi + 1;
+    }
+}
+
+// ② `Type.` 静态成员：CachedScan 里名为 typeName 的类的 public 静态方法/字段，或枚举的成员。
+string[] _typeStaticMembers(ScriptState s, string typeName, string prefix) {
+    List<string> cands = new List<string>();
+    DepScanResult sc = s.CachedScan;
+    if (sc == null) { return cands.ToArray(); }
+    int mi = 0;
+    while (mi < sc.ExportedCount) {
+        ExportedModuleZ m = sc.Exported[mi];
+        int ci = 0;
+        while (ci < m.ClassCount) {
+            ExportedClassZ cl = m.Classes[ci];
+            if (cl.Name == typeName) {
+                int j = 0;
+                while (j < cl.MethodCount) {
+                    ExportedMethodZ mm = cl.Methods[j];
+                    if (mm.IsStatic && mm.Visibility == "public") { _addCand(cands, _cleanName(mm.Name), prefix); }
+                    j = j + 1;
+                }
+                int fj = 0;
+                while (fj < cl.FieldCount) {
+                    ExportedFieldZ fd = cl.Fields[fj];
+                    if (fd.IsStatic && fd.Visibility == "public") { _addCand(cands, fd.Name, prefix); }
+                    fj = fj + 1;
+                }
+            }
+            ci = ci + 1;
+        }
+        int ei = 0;
+        while (ei < m.EnumCount) {
+            ExportedEnumZ en = m.Enums[ei];
+            if (en.Name == typeName) {
+                int k = 0;
+                while (k < en.MemberCount) { _addCand(cands, en.Members[k].Name, prefix); k = k + 1; }
+            }
+            ei = ei + 1;
+        }
+        mi = mi + 1;
+    }
     return cands.ToArray();
 }
 
@@ -66,6 +135,14 @@ bool _isSessionVar(ScriptState s, string name) {
     int i = 0;
     while (i < s.VarNames.Count) { if (s.VarNames[i] == name) { return true; } i = i + 1; }
     return false;
+}
+
+// 去派发 mangle：导出方法/自由函数名带 `$arity$type…` 重载后缀（如 `WriteLine$1$object`）；
+// 补全展示源名——截到首个 `$`。类型/字段/枚举成员名本就是干净的（无 `$`，原样返回）。
+string _cleanName(string name) {
+    int d = name.IndexOf("$");
+    if (d < 0) { return name; }
+    return name.Substring(0, d);
 }
 
 // 前缀匹配 + 去重后加入候选。
