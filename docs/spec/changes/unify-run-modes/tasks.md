@@ -59,7 +59,7 @@
 - [x] 无 manifest → 明确报错；launcher 加 `z42.project` 依赖 + `using Z42.Build.Project`
 - **首切边界（deferred）**：default-run（占 stdlib 锁）；`[build].dist_dir` 覆盖（默认 `<dir>/dist`）；workspace/本地依赖拓扑构建；`-p` workspace 成员选择
 - [x] e2e（选 a）：`_launcherSmoke` 加 `z42 run <fixture> --bin greet → greet-main`（打包 launcher → z42c build → 跑选中 exe，真端到端；复用 P3 的 two_mains fixture，`Directory.Copy` 进 temp 避免污染源树）
-- [ ] **CI 覆盖缺口**：CI 跑 `package sdk` 但**不跑 `xtask test dist`**（_launcherSmoke 所在）→ 该 smoke 仅本地 + release 验证跑；进 CI 需加一步（config 变更，待 User 定）。compile-toolchain 已验 smoke + launcher 编译
+- [x] **CI 覆盖**（选 i）：`_testDistRun` 加 `DIST_SMOKE_ONLY=launcher` env 门（只跑 launcher smoke，跳过 desktop-publish/golden 重腿）；ci.yml package-host job 加一步 `test dist`（各 OS）跑该 smoke → P4 run 前门有真 CI 覆盖
 
 ## P5 — publish 每 main 一 app（toolchain）
 - [ ] `z42 publish` 遍历 `[[exe]]` 各配 apphost（复用 per-zpkg，不改 payload）
