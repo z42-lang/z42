@@ -225,6 +225,34 @@ int[] _launcherSmoke(string distDir, string work) {
     } else {
         Console.WriteLine("  SKIP: z42 run <dir> --bin (bin/z42c or multi-exe fixture missing)");
     }
+    // (repl-run-config) `z42 repl --config <file> -c <expr>`: verify the launcher
+    // consumes `--config` (sets Z42_CONFIG on the REPL's z42vm) and passes `-c`
+    // through to z42i, which evals. Needs the interactive host in the package.
+    string z42i = Path.Join(distDir, "programs/interactive/z42.interactive.zpkg");
+    if (File.Exists(z42i)) {
+        string rcfg = Path.Join(work, "repl-cfg.toml");
+        File.WriteAllText(rcfg, "[runtime]\ngc-mode = \"stw\"\n");
+        try {
+            ProcessResult rp = new Process(launcher).Arg("repl").Arg("--config").Arg(rcfg).Arg("-c").Arg("1 + 2")
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            string got = rp.Stdout.Trim();
+            // mode/gc effect isn't observable in stdout; assert eval works with the
+            // flag present (proves --config didn't leak to z42i as a bad arg).
+            if (got.Contains("3")) {
+                Console.WriteLine("  ✓ z42 repl --config <file> -c '1 + 2' → 3");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: z42 repl --config -c → '" + got + "' (stderr: " + rp.Stderr.Trim() + ")");
+                fail = fail + 1;
+            }
+        } catch (Exception e) {
+            Console.WriteLine("  FAIL: z42 repl --config smoke: " + e.Message);
+            fail = fail + 1;
+        }
+    } else {
+        Console.WriteLine("  SKIP: z42 repl --config (programs/interactive not in package)");
+    }
     // Installed: install.sh --system into a temp $DEST.
     // unify-launcher-apphost (2026-06-21): managed install is now extract-in-
     // place (no separate launcher/ runtime), so the installed z42 is `$ih/z42`
