@@ -32,6 +32,14 @@ public static class Script {
         string[] envDirs = new string[0];
         if (libs != null && libs.Length > 0) { envDirs = libs.Split(":"); }
         s.LibsDirs = envDirs; s.LibsDirsN = envDirs.Length;
+        // 默认 using（隐式导入，对齐 C# ImplicitUsings / Kotlin·Scala REPL 默认 import）：常用命名空间
+        // 开箱即用（Console / List / StringBuilder / Math），无需手动 using。保守集——避开跨命名空间
+        // 同名类型歧义；其余（Std.Net / Std.Json …）按需 `using`。声明可用 ≠ 立即加载：包仍在某符号
+        // 被真正引用时才进世界（惰性），故默认集不加重首轮 scan。（add-completion-query-api）
+        s.Usings.Add("Std.IO");
+        s.Usings.Add("Std.Collections");
+        s.Usings.Add("Std.Text");
+        s.Usings.Add("Std.Math");
         return s;
     }
 

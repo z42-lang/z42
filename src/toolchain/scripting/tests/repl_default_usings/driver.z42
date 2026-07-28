@@ -1,0 +1,16 @@
+// 默认 using 测试（add-completion-query-api）：Script.Create 种常用命名空间，
+// 用户无需手动 using 即可用 Console / StringBuilder / Math / List 等。
+namespace ReplDefaultUsingsTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    ScriptState s = Script.Create();
+    EvalResult r1 = Script.Eval(s, "Math.AbsInt(0 - 5)");                                   // Std.Math
+    Console.WriteLine("math=" + (r1.Success ? ("" + r1.Value) : ("FAIL:" + r1.Error.Trim())));
+    EvalResult r2 = Script.Eval(s, "new StringBuilder().Append(\"ab\").Append(\"c\").ToString()"); // Std.Text
+    Console.WriteLine("sb=" + (r2.Success ? ("" + r2.Value) : ("FAIL:" + r2.Error.Trim())));
+    Console.WriteLine("default_usings=" + s.Usings.Count.ToString());
+}
