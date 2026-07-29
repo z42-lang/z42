@@ -14,9 +14,14 @@
 - D2 z42c 打包：lazy fetch(A,推荐) vs 全 bundle(B)｜D3 compile 入口：暴露 Script.Eval(推荐) vs 新 compile
 
 ## 阶段（D2=A/D3=前者，待确认后回填）
-- [ ] 阶段 1 — **fs 平台隔离重构**：`corelib/fs.rs` → `corelib/fs/{mod,backend,native,memory,glob}.rs`；
-  32 个 builtin 改调 `backend()`（无 inline std::fs / wasm 分支）；cfg 默认 + `set_backend` 覆盖；
-  memory.rs 由 spike 的 vfs.rs 演进；非只读 op 在 memory 后端优雅降级（明确 not-supported）。
+- [x] **阶段 1 — fs 平台隔离重构 ✅**：`corelib/fs_backend/{mod,native,memory}.rs`——path-based fs op
+  的 builtin 改调 `active().X`（无 inline std::fs / wasm 分支）；`FsBackend` enum + cfg 默认
+  （wasm→Memory）+ `set_backend` 运行时覆盖；native.rs=std::fs（byte-identical），memory.rs=VFS
+  （spike vfs.rs 演进 + mount/enable builtin）。删 vfs.rs。
+  - 覆盖：read/write/exists/dir(create/delete/enumerate/recursive)/glob/atomic/size/mtime/copy/rename（~19 builtin）。
+  - **验证**：VFS DepScan 经隔离后端 `VFS_DEPSCAN_OK=1`（ns=43 modules=374）；native fs_tests 3/3 绿。
+  - 未纳入后端（native-only / follow-up）：FileStream slot 流式 op（handle-based）、create_temp、symlink/link/
+    make_executable、env/process/time/console——非 path-fs 或非编译关键，wasm 降级另处理。
 - [ ] 阶段 2 — wasm facade：`Z42VM.mountZpkg(path,bytes)` + `eval(source)→输出`；Z42_LIBS=/vfs
 - [ ] 阶段 3 — 打包：wasm 分发加 z42c.* + z42.scripting zpkg 静态产物（package-wasm）
 - [ ] 阶段 4 — 测试：VFS DepScan 一致性（内存 vs 磁盘）+ wasm eval e2e（Playwright，编译一段 z42 源→输出）

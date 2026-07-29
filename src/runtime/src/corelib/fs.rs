@@ -2,81 +2,66 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 use super::convert::arg_str;
+use super::fs_backend::active;
 
 // ── File I/O ──────────────────────────────────────────────────────────────────
+//
+// add-wasm-vfs-backend：path-based fs op **平台无关**——只调 `active().X`，平台差异
+// （native std::fs / wasm 内存 VFS）隔离在 `fs_backend/{native,memory}.rs`。builtin 层
+// 不再有 `std::fs` / `if wasm`。
 
 pub fn builtin_file_read_text(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_read_text")?;
-    let text = std::fs::read_to_string(path)?;
-    Ok(Value::Str(text.into()))
+    Ok(Value::Str(active().read_to_string(path)?.into()))
 }
 pub fn builtin_file_write_text(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path    = arg_str(args, 0, "__file_write_text")?;
     let content = arg_str(args, 1, "__file_write_text")?;
-    std::fs::write(path, content)?;
+    active().write(path, content.as_bytes())?;
     Ok(Value::Null)
 }
 pub fn builtin_file_append_text(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use std::io::Write;
     let path    = arg_str(args, 0, "__file_append_text")?;
     let content = arg_str(args, 1, "__file_append_text")?;
-    let mut file = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
-    file.write_all(content.as_bytes())?;
+    active().append(path, content.as_bytes())?;
     Ok(Value::Null)
 }
 pub fn builtin_file_exists(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_exists")?;
-    Ok(Value::Bool(std::path::Path::new(path).exists()))
+    Ok(Value::Bool(active().exists(path)))
 }
 pub fn builtin_file_delete(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_delete")?;
-    std::fs::remove_file(path)?;
+    active().remove_file(path)?;
     Ok(Value::Null)
 }
 pub fn builtin_file_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let src = arg_str(args, 0, "__file_copy")?;
     let dst = arg_str(args, 1, "__file_copy")?;
-    std::fs::copy(src, dst)?;
+    active().copy(src, dst)?;
     Ok(Value::Null)
 }
 pub fn builtin_file_move(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let src = arg_str(args, 0, "__file_move")?;
     let dst = arg_str(args, 1, "__file_move")?;
-    std::fs::rename(src, dst)?;
+    active().rename(src, dst)?;
     Ok(Value::Null)
 }
 
 // add-file-last-write-time (2026-06-09): 文件 mtime，返回 unix epoch 毫秒 (i64)。
 // 单位对齐 `__time_now_ms`；stdlib 侧 `File.GetLastWriteTime` 用 `DateTime.FromUnixMs`
-// 包装成 `DateTime`。这是 freshness / incremental / cache 检查的硬依赖
-// （migrate-scripts-to-z42 标注的 P0 stdlib gap）。文件不存在 / 无权限 →
-// `metadata()` 失败，anyhow 错误上抛为 z42 Exception（沿用本模块 IO 错误约定）。
+// 包装成 `DateTime`。freshness / incremental / cache 检查的硬依赖。
 pub fn builtin_file_last_write_time_ms(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use std::time::UNIX_EPOCH;
     let path = arg_str(args, 0, "__file_last_write_time_ms")?;
-    let modified = std::fs::metadata(path)?.modified()?;
-    let millis = modified
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);   // pre-epoch mtime（极罕见）→ 0（freshness 视作最旧）
-    Ok(Value::I64(millis))
+    Ok(Value::I64(active().modified_ms(path)?))
 }
 
 // add-z42-io-ergonomics-bytes-glob (2026-05-27): one-shot binary IO.
-// Slot-based FileStream covers streaming; these natives are the
-// `byte[]`-in/out fast path matching BCL `File.ReadAllBytes` /
-// `WriteAllBytes`. Used by every script that pipes a file into a
-// compressor / hasher / archive without needing slot-table bookkeeping.
+// `byte[]`-in/out fast path matching BCL `File.ReadAllBytes` / `WriteAllBytes`.
 
 pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_read_bytes")?;
-    // wasm-vfs-spike: route to in-memory VFS when enabled (no real fs on wasm).
-    let bytes = if super::vfs::enabled() {
-        super::vfs::read(path)
-            .ok_or_else(|| anyhow::anyhow!("__file_read_bytes: `{path}` not in vfs"))?
-    } else {
-        std::fs::read(path)?
-    };
+    let bytes = active().read(path)?;
     let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
     Ok(ctx.heap().alloc_array(elems))
 }
@@ -84,62 +69,25 @@ pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value>
 pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_write_bytes")?;
     let data = require_byte_array(args, 1, "__file_write_bytes")?;
-    std::fs::write(path, data)?;
+    active().write(path, &data)?;
     Ok(Value::Null)
 }
 
-// add-file-atomic-write (2026-05-27): write to a tmp sibling, fsync,
-// then POSIX rename → target. Guarantees a crash mid-write never
-// leaves the target half-written; reader either sees the prior
-// content or the new content. Same-directory tmp keeps the rename
-// in-FS (EXDEV is impossible).
+// add-file-atomic-write (2026-05-27): tmp sibling + fsync + rename（crash-safe）。
+// 原子保证是 native 后端职责（fsync）；memory 后端降级为普通写。
 
 pub fn builtin_file_write_text_atomic(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_write_text_atomic")?;
     let content = arg_str(args, 1, "__file_write_text_atomic")?;
-    write_atomic_bytes(path, content.as_bytes())?;
+    active().write_atomic(path, content.as_bytes())?;
     Ok(Value::Null)
 }
 
 pub fn builtin_file_write_bytes_atomic(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_write_bytes_atomic")?;
     let data = require_byte_array(args, 1, "__file_write_bytes_atomic")?;
-    write_atomic_bytes(path, &data)?;
+    active().write_atomic(path, &data)?;
     Ok(Value::Null)
-}
-
-fn write_atomic_bytes(target: &str, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let target_path = std::path::Path::new(target);
-    let parent = target_path.parent().unwrap_or(std::path::Path::new("."));
-    let basename = target_path.file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "atomic".to_string());
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id();
-    let tmp = parent.join(format!(".{}.{}.{}.tmp", basename, nanos, pid));
-
-    // Write + fsync + rename. On any failure, best-effort remove tmp
-    // so retries don't accumulate orphans; original error propagates.
-    let result: Result<()> = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, target_path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result
 }
 
 // 2026-04-27 wave1-path-script: 5 builtin_path_* removed.
@@ -148,49 +96,30 @@ fn write_atomic_bytes(target: &str, bytes: &[u8]) -> Result<()> {
 
 // ── Directory ─────────────────────────────────────────────────────────────────
 //
-// add-std-io-directory (2026-05-13)：Std.IO.Directory 模块。语义遵循 BCL
-// `System.IO.Directory`：
-//   - Create 等价 `mkdir -p`（递归建中间目录，已存在不报错）
-//   - Delete recursive=true → 类似 `rm -rf`
-//   - Enumerate 仅直接子项 basename（含文件 + 子目录）
-//   - EnumerateRecursive 深度优先全展开，路径相对 root
+// add-std-io-directory (2026-05-13)：Std.IO.Directory 模块（语义遵循 BCL）。
+// path-based → 走 active() 后端（native / memory VFS）。
 
 pub fn builtin_dir_exists(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__dir_exists")?;
-    let exists = if super::vfs::enabled() {
-        super::vfs::dir_exists(path)
-    } else {
-        std::path::Path::new(path).is_dir()
-    };
-    Ok(Value::Bool(exists))
+    Ok(Value::Bool(active().is_dir(path)))
 }
 
 pub fn builtin_dir_create(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__dir_create")?;
-    std::fs::create_dir_all(path)?;
+    active().create_dir_all(path)?;
     Ok(Value::Null)
 }
 
 pub fn builtin_dir_delete(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__dir_delete")?;
     let recursive = matches!(args.get(1), Some(Value::Bool(true)));
-    if recursive {
-        std::fs::remove_dir_all(path)?;
-    } else {
-        std::fs::remove_dir(path)?;
-    }
+    active().remove_dir(path, recursive)?;
     Ok(Value::Null)
 }
 
 pub fn builtin_dir_enumerate(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__dir_enumerate")?;
-    let mut names: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(path)? {
-        let e = entry?;
-        if let Some(name) = e.file_name().to_str() {
-            names.push(name.to_string());
-        }
-    }
+    let mut names = active().read_dir(path)?;
     names.sort();
     let list: Vec<Value> = names.into_iter().map(|s| Value::Str(s.into())).collect();
     Ok(ctx.heap().alloc_array(list))
@@ -198,28 +127,27 @@ pub fn builtin_dir_enumerate(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 pub fn builtin_dir_enumerate_recursive(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let root = arg_str(args, 0, "__dir_enumerate_recursive")?;
-    let root_path = std::path::Path::new(root).to_path_buf();
     let mut out: Vec<String> = Vec::new();
-    walk_dir(&root_path, &root_path, &mut out)?;
+    walk_dir(root, "", &mut out)?;
     out.sort();
     let list: Vec<Value> = out.into_iter().map(|s| Value::Str(s.into())).collect();
     Ok(ctx.heap().alloc_array(list))
 }
 
-fn walk_dir(
-    root: &std::path::Path,
-    cur: &std::path::Path,
-    out: &mut Vec<String>,
-) -> Result<()> {
-    for entry in std::fs::read_dir(cur)? {
-        let e = entry?;
-        let p = e.path();
-        let rel = p.strip_prefix(root).unwrap_or(&p);
-        if let Some(s) = rel.to_str() {
-            out.push(s.to_string());
-        }
-        if e.file_type()?.is_dir() {
-            walk_dir(root, &p, out)?;
+// 相对 root 的深度优先展开，backend-无关（用 active().read_dir + is_dir）。
+// `rel` = cur 相对 root 的路径（""=root 自身）。
+fn walk_dir(root: &str, rel: &str, out: &mut Vec<String>) -> Result<()> {
+    let cur = if rel.is_empty() {
+        root.trim_end_matches('/').to_string()
+    } else {
+        format!("{}/{}", root.trim_end_matches('/'), rel)
+    };
+    for name in active().read_dir(&cur)? {
+        let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+        out.push(child_rel.clone());
+        let child_path = format!("{cur}/{name}");
+        if active().is_dir(&child_path) {
+            walk_dir(root, &child_rel, out)?;
         }
     }
     Ok(())
@@ -296,30 +224,7 @@ pub fn builtin_time_now_ms(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
 pub fn builtin_path_glob(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let dir     = arg_str(args, 0, "__path_glob")?;
     let pattern = arg_str(args, 1, "__path_glob")?;
-    // wasm-vfs-spike: glob the in-memory VFS when enabled.
-    if super::vfs::enabled() {
-        let hits = super::vfs::glob(dir, pattern);
-        let list: Vec<Value> = hits.into_iter().map(|s| Value::Str(s.into())).collect();
-        return Ok(ctx.heap().alloc_array(list));
-    }
-    let mut hits: Vec<String> = Vec::new();
-    if !std::path::Path::new(dir).is_dir() {
-        return Ok(ctx.heap().alloc_array(Vec::new()));
-    }
-    for entry in std::fs::read_dir(dir)? {
-        let e = entry?;
-        if let Some(name) = e.file_name().to_str() {
-            if glob_match(pattern, name) {
-                // Join dir + '/' + name without re-allocating the dir twice.
-                let mut full = String::with_capacity(dir.len() + name.len() + 1);
-                full.push_str(dir);
-                if !dir.ends_with('/') { full.push('/'); }
-                full.push_str(name);
-                hits.push(full);
-            }
-        }
-    }
-    hits.sort();
+    let hits = active().glob(dir, pattern)?;
     let list: Vec<Value> = hits.into_iter().map(|s| Value::Str(s.into())).collect();
     Ok(ctx.heap().alloc_array(list))
 }
@@ -414,11 +319,7 @@ pub fn builtin_file_symlink(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// 文件字节数（dir 错误）。
 pub fn builtin_file_get_size(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_get_size")?;
-    let meta = std::fs::metadata(path)?;
-    if meta.is_dir() {
-        anyhow::bail!("File.GetSize: '{}' is a directory", path);
-    }
-    Ok(Value::I64(meta.len() as i64))
+    Ok(Value::I64(active().file_len(path)? as i64))
 }
 
 /// stdout 是否连接 tty（颜色 / 进度条决策）。
