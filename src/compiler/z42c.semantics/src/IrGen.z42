@@ -457,6 +457,7 @@ public sealed class IrGen {
         this._testIx._buildTestIndex(cu, funcs, fc);
         IrModule irm = new IrModule(modName, this._pool, this._poolCount, classes, cc, funcs, fc);
         irm.TestIndex = this._testIx._tiEntries; irm.TestCount = this._testIx._tiCount;
+        IrOptPipeline.Run(irm);   // 编译期 IR 优化管线（optimization-pipeline，interp-first）
         return irm;
     }
 

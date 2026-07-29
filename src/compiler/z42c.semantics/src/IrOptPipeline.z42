@@ -1,0 +1,85 @@
+// IrOptPipeline —— 编译期 IR 优化管线（处理流程骨架）。
+// 引入 change：optimization-pipeline。挂载点：IrGen.Generate 末尾（emit 后、写 zbc 前）。
+//
+// 流程（见 docs/book/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
+//   Run(module) → 逐函数 _optFunc：
+//     ① 建读计数 reads[reg]（全函数扫一遍：每指令 AddReads + 每块终结子 AddTermReads）——两引擎共享的
+//        基础分析（此处 JIT/interp 都受益，因为它精简的是两者共读的 IR）。
+//     ② 跑 pass：v1 只含 temp-DCE（删「纯 + Dst 零读」的死指令）。后续 copy-prop / const-fold 作为
+//        新 pass 插进 _optFunc（框架可扩展）。
+//
+// 安全边界：只删 IrOptInfo.IsPure 白名单内、且 Dst 全函数零读的指令。未知/有副作用 opcode 一律保留。
+// 单趟、不级联（删 X 不回收 X 的读操作数）——保守正确，收益留后续「迭代到不动点」增强。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrOptPipeline {
+
+    public static void Run(IrModule m) {
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            IrOptPipeline._optFunc(m.Functions[fi]);
+            fi = fi + 1;
+        }
+    }
+
+    private static void _optFunc(IrFunction f) {
+        if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
+        // ① 读计数（size = MaxReg+2 冗余一格；_n 内有越界守卫）
+        int[] reads = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddReads(reads, blk.Instrs[ii]); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.AddTermReads(reads, blk.Term); }
+            bi = bi + 1;
+        }
+        // ①b 参数寄存器 live-out：out/ref 参数的最终值由调用方读取（跨函数 escape），
+        //     函数内看不到这个读 → 必须显式标活，否则 DCE 会删掉写 out 参数的指令（out_var 回归）。
+        //     保守上界 [0, ParamCount] 含一格：实例方法/lambda 精确（reg0=this/env + ParamCount 参数），
+        //     静态/自由函数多护一格（首个 temp）——安全，只少优化一格。
+        int pr = 0;
+        while (pr <= f.ParamCount && pr < reads.Length) { reads[pr] = reads[pr] + 1; pr = pr + 1; }
+        // ② pass: temp-DCE
+        IrOptPipeline._passTempDce(f, reads);
+    }
+
+    // temp-DCE：逐块重建 Instrs，丢弃「纯 + Dst 零读」的指令。
+    private static void _passTempDce(IrFunction f, int[] reads) {
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrOptPipeline._dceBlock(f.Blocks[bi], reads);
+            bi = bi + 1;
+        }
+    }
+
+    private static void _dceBlock(IrBlock blk, int[] reads) {
+        // 先数存活
+        int keep = 0;
+        int i = 0;
+        while (i < blk.InstrCount) {
+            if (!IrOptPipeline._isDead(blk.Instrs[i], reads)) { keep = keep + 1; }
+            i = i + 1;
+        }
+        if (keep == blk.InstrCount) { return; }   // 无删除 → 原样（保 byte-identical）
+        IrInstr[] nw = new IrInstr[keep];
+        int j = 0;
+        i = 0;
+        while (i < blk.InstrCount) {
+            if (!IrOptPipeline._isDead(blk.Instrs[i], reads)) { nw[j] = blk.Instrs[i]; j = j + 1; }
+            i = i + 1;
+        }
+        blk.Instrs = nw;
+        blk.InstrCount = keep;
+    }
+
+    // 死 = 纯（可删白名单）+ 有 Dst + Dst 全函数零读。
+    private static bool _isDead(IrInstr ins, int[] reads) {
+        if (!IrOptInfo.IsPure(ins)) { return false; }
+        int d = IrOptInfo.DstId(ins);
+        if (d < 0 || d >= reads.Length) { return false; }
+        return reads[d] == 0;
+    }
+}

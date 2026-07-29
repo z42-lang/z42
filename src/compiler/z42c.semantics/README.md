@@ -24,6 +24,8 @@
 | `src/FunctionEmitter.z42` | **codegen 函数入口 + 语句 + 控制流**：EmitFunction（建 ctx + 形参/this/字段绑定 → 出 IrFunction）+ 集中 if-is EmitStmt；if/while/break/continue → 多块 + Br/BrCond（委托 _ctx 块管理 + _expr 表达式） |
 | `src/IrGen.z42` | codegen 模块级驱动：遍历 cu + SemanticModel → 逐函数 FunctionEmitter + StringPool intern + IrClassDesc → IrModule；**partial 主碎片（min-path）发 1 条合并 TYPE record**（class + interface），非主碎片只发方法体 |
 | `src/IrDump.z42` | 纯函数工具：源 → typecheck → IrGen → .zasm-like IR 文本（[Test] + driver `--dump-ir` 后续） |
+| `src/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId` / 读寄存器 `AddReads`+`AddTermReads`（镜像 ZbcWriter._regtInstr 保完整）/ 可删性 `IsPure`（白名单，未知 opcode 保留）。optimization-pipeline |
+| `src/IrOptPipeline.z42` | **编译期 IR 优化管线**（IrGen.Generate 末尾）：逐函数建读计数（含参数寄存器 live-out）→ 跑 pass。v1=temp-DCE（删纯+Dst零读的死指令）；copy-prop/const-fold 后续插入。interp-first，见 book optimization-pipeline |
 
 ## 入口点
 `new TypeChecker(diags).Infer(cu, symbols)` → `SemanticModel`（先 `new SymbolCollector().Collect(cu)` 出 `SymbolTable`）。便捷封装见 `SemanticDump.DumpBody(src, key)` / `ErrorCount(src)`。

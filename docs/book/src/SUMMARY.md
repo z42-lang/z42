@@ -33,6 +33,7 @@
 - [概览](runtime/README.md)
   - [执行模型（interp / jit / aot）]()
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
+  - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
