@@ -188,6 +188,86 @@ fn park_until_idle(ctx: &VmContext) {
     drop(phase);
 }
 
+// ── add-repl-prewarm (2026-07-29): GC-safe park around a blocking native call ──
+//
+// A mutator that blocks in a native call (REPL rustyline `readline`) never
+// reaches a bytecode safepoint, so a background collector on another thread
+// would wait forever for it to park. These helpers let such a thread count as
+// "parked" for the whole blocking span — its z42 roots are frozen while it sits
+// in native code, so the collector can scan them safely (the classic
+// JVM `_thread_in_native` / Go `entersyscall` transition). Same `parked_count`
+// + `gc_phase_cv` machinery as `park_until_idle`; no new synchronization.
+
+/// Enter the parked state: count this ctx toward `parked_count` and wake any
+/// collector waiting for its target. Caller must NOT mutate z42 roots or
+/// allocate until the matching [`native_park_decr`].
+fn native_park_incr(ctx: &VmContext) {
+    ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
+    // Hold the phase lock across notify_all — same lost-wakeup discipline as
+    // park_until_idle: a collector spinning in its wait loop must observe our
+    // increment.
+    let _phase = ctx.core.gc_phase.lock();
+    ctx.core.gc_phase_cv.notify_all();
+}
+
+/// Leave the parked state. If a STW window is in progress, wait it out BEFORE
+/// resuming mutation (else we'd race the collector scanning our roots), then
+/// drop our parked count. Decrement under the phase lock closes the same
+/// `request_handshake_pause` race documented in `park_until_idle`.
+fn native_park_decr(ctx: &VmContext) {
+    let mut phase = ctx.core.gc_phase.lock();
+    while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
+        ctx.core.gc_phase_cv.wait(&mut phase);
+    }
+    ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
+    drop(phase);
+}
+
+/// RAII: marks the calling `VmContext` GC-safe for the duration of a blocking
+/// native call. Wrap the outermost native read (`builtin_repl_readline` /
+/// `builtin_repl_readblock`) so a background prewarm thread's GC can proceed
+/// while the main thread blocks on stdin. Drop restores the running-mutator
+/// state, waiting out any in-flight STW pause first.
+pub struct NativeParkGuard<'a> {
+    ctx: &'a VmContext,
+}
+
+impl<'a> NativeParkGuard<'a> {
+    pub fn enter(ctx: &'a VmContext) -> Self {
+        native_park_incr(ctx);
+        NativeParkGuard { ctx }
+    }
+}
+
+impl Drop for NativeParkGuard<'_> {
+    fn drop(&mut self) {
+        native_park_decr(self.ctx);
+    }
+}
+
+/// RAII inverse of [`NativeParkGuard`]: temporarily leaves the parked state so a
+/// ctx already inside a `NativeParkGuard` region can re-enter the VM. Used for
+/// the REPL Tab-completer, which rustyline fires synchronously from inside the
+/// blocking `readline` — the completer runs z42 as a normal mutator (parking at
+/// its own safepoints if a GC is requested), then Drop re-parks for the
+/// remaining blocking read.
+pub struct NativeUnparkGuard<'a> {
+    ctx: &'a VmContext,
+}
+
+impl<'a> NativeUnparkGuard<'a> {
+    pub fn exit(ctx: &'a VmContext) -> Self {
+        native_park_decr(ctx);
+        NativeUnparkGuard { ctx }
+    }
+}
+
+impl Drop for NativeUnparkGuard<'_> {
+    fn drop(&mut self) {
+        native_park_incr(self.ctx);
+    }
+}
+
 /// RAII guard returned by [`request_gc_pause`]. While held, the collector
 /// is in the `Marking` phase and all *other* VmContexts are parked. Drop
 /// releases everyone.

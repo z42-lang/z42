@@ -379,6 +379,54 @@ fn requested_phase_still_parks_mutators_after_concurrent_added() {
     handle.join().expect("worker panicked");
 }
 
+// ── add-repl-prewarm (2026-07-29): native-park guards ────────────────────────
+
+#[test]
+fn native_park_guard_satisfies_collector_without_safepoint() {
+    // The crux of REPL prewarm: a thread blocked in a native call (REPL
+    // readline) enters NativeParkGuard and NEVER calls check_safepoint, yet a
+    // background collector must still be able to pause. `parked` simulates that
+    // main thread; the collector's request_gc_pause (need = 2 ctxs - 1 = 1)
+    // must proceed immediately, satisfied by the native-parked ctx.
+    let collector = VmContext::new();
+    let parked = VmContext::new_with_core(collector.core_arc());
+
+    let guard = NativeParkGuard::enter(&parked);
+    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 1,
+        "entering the native-park guard must count toward parked_count");
+
+    // Would hang forever if the native-parked ctx did NOT count (the collector
+    // would wait for `parked` to reach a safepoint, which it never will).
+    let g = request_gc_pause(&collector)
+        .expect("uncontended CAS should succeed");
+    assert_eq!(*collector.core.gc_phase.lock(), GcPhase::Marking,
+        "collector should reach Marking without waiting on the native-parked ctx");
+    drop(g); // world → Idle
+
+    drop(guard); // Idle phase → no wait → parked_count back to 0
+    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
+    drop(parked);
+}
+
+#[test]
+fn native_unpark_guard_round_trips_parked_count() {
+    // The completer fires mid-readline (inside a NativeParkGuard region) and
+    // must temporarily un-park to run z42, then re-park. Single-threaded, Idle
+    // throughout, so no waits — purely the increment/decrement balance.
+    let ctx = VmContext::new();
+    let park = NativeParkGuard::enter(&ctx);
+    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 1);
+    {
+        let _unpark = NativeUnparkGuard::exit(&ctx);
+        assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0,
+            "un-park must drop the parked count so the completer runs as a mutator");
+    }
+    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 1,
+        "leaving the completer must re-park");
+    drop(park);
+    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
+}
+
 #[test]
 fn release_re_enables_next_collector() {
     // After the active collector drops its guard, a fresh

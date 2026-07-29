@@ -10,6 +10,7 @@ using Std.IO;
 using Std.Collections;
 using Std.Scripting;
 using Std.Repl;
+using Std.Threading;   // Thread（add-repl-prewarm：启动即 spawn 预热 worker）
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
@@ -24,6 +25,10 @@ void Main() {
 
     Console.WriteLine("z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令（.help / .exit）。");
     ScriptState s = Script.Create();
+    // add-repl-prewarm：启动即 spawn 后台 worker 构建依赖世界（首次 eval 的 ~3.4s 一次性开销），
+    // 与用户在提示符打字并行。主线程随即阻塞在 ReadBlock（其原生读取期 GC-safe park，见 corelib/
+    // repl.rs），worker 触发的 GC 不会死等主线程。首次 Eval 顶部 _ensureWarm 会 Join 汇合。
+    s.PrewarmThread = Thread.Start(() => { Script.Prewarm(s); });
     Repl.SetCompleter("Std.Scripting.replComplete");   // Tab → 作用域补全（会话变量 / 声明名）
     while (true) {
         Completer.SetActive(s);   // 每轮把当前会话交给补全器（.reset 会重建 s → 必须重设）

@@ -92,6 +92,46 @@ z42 repl
 - REPL 通过 `z42.scripting` 调用已加载的编译器 zpkg（`programs/z42c/`），不直接依赖 `z42c` 命令
 - 行编辑器由 Rust 侧实现（rustyline），通过 native builtin `__readline` 暴露给 z42 程序
 
+## 启动预热（后台线程，add-repl-prewarm 2026-07-29）
+
+**问题**：首次 `Eval` 要一次性构建依赖世界（`DepScan.ScanDirsLazy` 扫全 stdlib+编译器 zpkg 世界
++ 加载默认 using 包，实测 ~1.9–3.4s），与用户输入**零相关**，却懒到用户敲完第一行回车后才在
+`Script.Eval` 里同步跑 → 首次 eval「回车后干等」。
+
+**方案**：启动即把这份 input-independent 的工作 spawn 到后台线程，与用户在提示符打字并行。
+
+```
+interactive_main.Main()  [主线程]                worker  [Std.Threading.Thread]
+  s = Script.Create()          ── spawn ──▶   Script.Prewarm(s):
+  s.PrewarmThread = Thread.Start(…)              scan = DepScan.ScanDirsLazy(…)   ~1.4s
+  Repl.SetCompleter(…)                           for u in Usings: EnsurePackageLoaded(scan,u)
+  loop:                                          state.CachedScan = scan   ◀── 末尾原子发布
+    line = Repl.ReadBlock(">>> ")  ← 主线程阻塞在原生 readline（GC-safe park，见下）
+    r = Script.Eval(s, line)
+        └─ _ensureWarm(s): PrewarmThread.Join()  ← 首次消费前汇合（已完成则瞬回）
+```
+
+- **handoff 无锁**：`Prewarm` 全程操作**本地** `DepScanResult`，仅**末尾**一次 `state.CachedScan = scan`
+  原子发布（64 位指针写）。并发读该字段的补全器只见 `null`（既有 null 分支返回空）或完全成品，绝不见
+  半构造 / 正被 `EnsurePackageLoaded` 变异的中间态。故无需锁、无需 gate flag。
+- **汇合与兜底**：`Eval` 顶部 `_ensureWarm` —— 有 worker 则 `Join`（已完成瞬回；打字极快则阻塞到完成，
+  退化为同步、不更差）；worker 异常 / 无 worker（`.reset` 重建 s / `-c` 单次求值）→ inline `Prewarm` 兜底。
+- **等价性**：预热构建的 `CachedScan` 与旧「首轮 Eval 内同步构建」语义等价，求值结果 / 错误 / 补全候选不变。
+
+### GC-safe park（关键前置，corelib/repl.rs + gc/safepoint.rs）
+
+z42 是单线程协作式 GC：停顿收集器要等所有其它线程主动停到 safepoint（命中 `check_safepoint`），而线程
+只在**执行字节码**时命中。主线程阻塞在原生 rustyline `readline` 里**永不命中** → 若后台 worker 分配触发
+GC，收集器会死等主线程 park（要到用户回车才解）→ 预热在首次 GC 卡死。
+
+解法（等价 JVM `_thread_in_native` / Go `entersyscall`）：主线程进入阻塞原生读取前把自己登记为
+「已 park」（`parked_count += 1`），离开时按 STW 相位等到安全再解除（`NativeParkGuard`）。其 z42 根在原生
+调用期间冻结、可被收集器安全扫描。Tab 补全回调在 readline 内重入 VM，对称地临时 un-park（`NativeUnparkGuard`：
+`exit → 跑 z42 → enter`）作正常 mutator 参与 safepoint。复用既有 `parked_count` + `gc_phase_cv`，无新同步原语。
+
+> 引入：change `add-repl-prewarm`（`docs/spec/archive/…-add-repl-prewarm`）。冷启动/无间隙仍付一次构建，
+> 彻底消除见 Deferred `repl-future-persist-static-scan`（磁盘持久化，正交可叠加）。
+
 ## 状态模型：Growing Transcript
 
 会话维护一个累积的"会话源文件"，每轮输入追加后整体重编译：
@@ -359,7 +399,11 @@ libs/ + programs/z42c/ + programs/interactive/
   hash / mtime）。工作量≈重实现半个 zpkg 读写面。
 - **触发条件**：首轮 3.3s 成为实际痛点时（用户反馈 / 高频冷启动场景）。当前一次性成本，交互中常被
   用户敲第一行的耗时掩盖，故 ROI 暂低、defer。
-- **当前 workaround**：无（首轮照付 3.3s，之后每行 ~72ms）。
+- **当前 workaround（2026-07-29 add-repl-prewarm 落地）**：**后台线程预热**已把这份一次性成本从
+  「用户回车后干等」移到「与用户打字并行」——REPL 启动即 spawn worker 跑 `Script.Prewarm` 构建
+  `DepScanResult`，首次 `Eval` 前 Join 汇合（见本页「启动预热」节）。真实 PTY 下打字间隙 ≥ 预热时长
+  时首轮近瞬时；piped/无间隙时退化为同步、不更差。**本 Deferred 仍成立**——预热只是把成本藏进打字
+  间隙，冷启动（无间隙）与首次-ever 仍需构建一次；持久化到磁盘才能彻底消除。两者正交、可叠加。
 
 ### repl-future-load-directive
 

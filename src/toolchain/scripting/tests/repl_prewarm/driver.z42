@@ -1,0 +1,30 @@
+// 预热回归（add-repl-prewarm）：Script.Prewarm 显式构建依赖世界后，后续 Eval 命中已建缓存
+// （_ensureWarm 快路），结果与惰性路径**等价**——首轮表达式、var carry-forward、幂等重入。
+// REPL 启动时这份 Prewarm 由后台线程跑（interactive_main spawn），首次 Eval 前 Join 汇合；
+// 此单测在单线程内直接调用 Prewarm，验证「预热 + 消费」路径的结果正确性（并发/GC-safe park
+// 由 z42vm gc/safepoint_tests.rs 的 native-park 单测覆盖）。
+namespace ReplPrewarmTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    ScriptState s = Script.Create();
+    // 显式预热：构建 CachedScan（等价于后台 worker 完成后的状态）。
+    Script.Prewarm(s);
+    Console.WriteLine("prewarmed=" + (s.CachedScan != null ? "true" : "false"));
+
+    // 首次 Eval 命中已建缓存（_ensureWarm 直接返回），结果正确。
+    EvalResult r1 = Script.Eval(s, "1 + 2");
+    Console.WriteLine("expr=" + (r1.Success ? ("" + r1.Value) : ("FAIL:" + r1.Error.Trim())));
+
+    // var 声明 + carry-forward 仍工作（预热不改变会话语义）。
+    Script.Eval(s, "var y = 20");
+    EvalResult r2 = Script.Eval(s, "y + 22");
+    Console.WriteLine("carry=" + (r2.Success ? ("" + r2.Value) : ("FAIL:" + r2.Error.Trim())));
+
+    // 幂等：再次 Prewarm 不重建（CachedScan 已非 null → 直接返回）。
+    Script.Prewarm(s);
+    Console.WriteLine("idempotent_ok=" + (s.CachedScan != null ? "true" : "false"));
+}

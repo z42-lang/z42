@@ -13,3 +13,4 @@ kind    = "lib"
 "z42c.syntax"    = "0.1.0"   # Lexer / Token / Parser / CompilationUnit
 "z42c.semantics" = "0.1.0"   # IrDump.ParseAll
 "z42c.pipeline"  = "0.1.0"   # PackageCompile
+"z42.threading"  = "0.1.0"   # Thread（add-repl-prewarm：后台预热依赖世界的 worker 句柄）
