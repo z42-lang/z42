@@ -443,13 +443,18 @@ pub fn translate_function(
         let mut cands: Vec<(u32, &str)> = Vec::new();
         for b in &z42_func.blocks {
             for ins in &b.instructions {
-                if let Instruction::FieldGet(insn) = ins {
-                    let FieldGetInsn { dst, obj, field_name } = &**insn;
-                    if prim_elem_tag(z42_func, *dst).is_some()
-                        && !written.contains(obj)
-                        && !cands.iter().any(|(o, f)| *o == *obj && *f == field_name.as_str())
-                    {
-                        cands.push((*obj, field_name.as_str()));
+                // Both FieldGet (primitive dst) and FieldSet (primitive val) on a
+                // never-reassigned object read the loop-invariant slots ptr + slot.
+                let hit = match ins {
+                    Instruction::FieldGet(insn) =>
+                        prim_elem_tag(z42_func, insn.dst).is_some().then_some((insn.obj, insn.field_name.as_str())),
+                    Instruction::FieldSet(insn) =>
+                        prim_elem_tag(z42_func, insn.val).is_some().then_some((insn.obj, insn.field_name.as_str())),
+                    _ => None,
+                };
+                if let Some((obj, fname)) = hit {
+                    if !written.contains(&obj) && !cands.iter().any(|(o, f)| *o == obj && *f == fname) {
+                        cands.push((obj, fname));
                     }
                 }
             }
@@ -1224,13 +1229,53 @@ pub fn translate_function(
                 }
                 Instruction::FieldSet(insn) => {
                     let FieldSetInsn { obj, field_name, val } = &**insn;
-                    let o = ri!(*obj);
-                    let (fp, fl) = str_val!(field_name);
-                    let v = ri!(*val);
-                    let ic_ptr = field_ic_ptr_at(z42_func, block_idx, instr_idx);
-                    let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
-                    let inst = builder.ins().call(hr_field_set, &[frame_val, ctx_val, o, fp, fl, v, ic_val]);
-                    let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    // Primitive field value on a hoisted object → native slot store
+                    // (no write barrier: primitive is not a heap ref, and a
+                    // type-correct primitive field's old value is also primitive).
+                    // slot<0 / heap-ref value → jit_field_set (write barrier).
+                    let hoisted = hoisted_fields.get(&(*obj, field_name.clone())).copied();
+                    if let (Some(elem_tag), Some((slots_ptr, slot))) =
+                        (prim_elem_tag(z42_func, *val), hoisted)
+                    {
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        const STRIDE: i64 = 24;
+                        const PAYLOAD: i32 = 8;
+                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, slot, 0);
+                        let fb_blk = builder.create_block();
+                        let native_blk = builder.create_block();
+                        let cont_blk = builder.create_block();
+                        builder.ins().brif(bad, fb_blk, &[], native_blk, &[]);
+                        builder.switch_to_block(fb_blk);
+                        let o = ri!(*obj);
+                        let (fp, fl) = str_val!(field_name);
+                        let v = ri!(*val);
+                        let ic_ptr = field_ic_ptr_at(z42_func, block_idx, instr_idx);
+                        let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
+                        let inst = builder.ins().call(hr_field_set, &[frame_val, ctx_val, o, fp, fl, v, ic_val]);
+                        let ret = builder.inst_results(inst)[0];
+                        check!(ret);
+                        builder.ins().jump(cont_blk, &[]);
+                        builder.switch_to_block(native_blk);
+                        let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
+                        let val_addr = builder.ins().iadd(regs_base, val_off);
+                        let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
+                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        let slot_off = builder.ins().imul(slot, stride_c);
+                        let elem_addr = builder.ins().iadd(slots_ptr, slot_off);
+                        let tag_c = builder.ins().iconst(types::I8, elem_tag);
+                        builder.ins().store(MemFlags::trusted(), tag_c, elem_addr, 0);
+                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
+                        builder.ins().jump(cont_blk, &[]);
+                        builder.switch_to_block(cont_blk);
+                    } else {
+                        let o = ri!(*obj);
+                        let (fp, fl) = str_val!(field_name);
+                        let v = ri!(*val);
+                        let ic_ptr = field_ic_ptr_at(z42_func, block_idx, instr_idx);
+                        let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
+                        let inst = builder.ins().call(hr_field_set, &[frame_val, ctx_val, o, fp, fl, v, ic_val]);
+                        let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    }
                 }
                 // Phase 2.E: emit VCallIC pointer as trailing helper arg.
                 Instruction::VCall(insn) => {
