@@ -63,6 +63,34 @@ Mutex<ArrayObj>→Vec` 这条链里,`parking_lot::Mutex` 与 std `Vec` 的字段
 - **full GREEN**：`xtask test`（含 `test e2e --mode jit` JIT 腿）+ 自举不动点 + `cargo test gc`。
 - **JIT==interp 等价**：jit-fixpoint-check（JIT 产物与 interp byte-identical / 结果一致）。
 
+## 方案 B 具体设计（安全 loop-invariant 提指针，逼近 3.3×）—— 待实施
+
+方案 A 实测 1.27×（每 get 一次 `jit_array_data` 调用无法被 Cranelift 提出循环）。方案 B 把
+指针提到入口块一次取、循环体内纯原生 load。**关键是避免 null 数组的异常时机漂移**：
+
+1. **非抛出提取 helper** `jit_array_data_opt(frame, ctx, arr, out_ptr, out_len)`：`regs[arr]`
+   是数组 → 写 ptr/len；不是数组（含 null）→ `*out_ptr = null`（**不抛异常**）。
+2. **可提取判定**：数组寄存器 `arr` 在函数内**从不被重新赋值**（从不作任何指令的 dst）。
+   参数或 entry 块 set-once 满足。需一个 `written_reg(instr)->Option<u32>` 扫描（从 `max_reg`
+   的 dst 匹配抽出复用）收集全部 dst 集合;`arr ∉ dst 集` ⇒ 可提取。
+3. **入口块提取**：对每个可提取的 `arr`，在 cl_blocks[0]（支配全图）emit `jit_array_data_opt`
+   → SSA `(ptr, len)`。SSA 定义在支配块 → 全函数可直接用，无需 Cranelift Variable。
+4. **ArrayGet 内联改造**：`arr` 可提取时用提取的 `(ptr,len)`：
+   - `ptr == null`（数组无效/null）→ 回退 `jit_array_get`（在**正确的访问点**抛异常，0 次迭代
+     不误抛 → 无时机漂移）。
+   - `ptr != null` → 纯原生 bounds + load + 去箱（**零 per-iteration 调用** → 逼近 3.3×）。
+   - `arr` 不可提取（被重新赋值）→ 退回方案 A（per-get `jit_array_data`）。
+
+**GC 安全性论证**：提取的 `ptr` 指向数组的 Vec 堆缓冲。z42 数组定长（ArraySet 原地写不 realloc）
+→ 缓冲地址稳定；GC 是 mark-sweep **非移动** → 对象不搬迁；RegionEntry chunk Box 拥有、稳定。
+故提取的 ptr 在函数执行期（跨 GC、跨 ArraySet 元素写）始终有效。len 同理（定长）。
+
+**验证要求（实施时）**：jit==interp 逐字节（含被重赋值数组、null 数组 0 迭代、OOB）+ full GREEN
++ `test e2e --mode jit` + jit-fixpoint CI（byte-identical）+ `cargo test gc`（提取 ptr 跨 GC）。
+
+**为何单列**：属高风险 codegen（支配/SSA/GC-ptr 有效性/重赋值分析），需专注实施 + 厚验证，
+不在方案 A 同批草率合入。
+
 ## Deferred
 
 - **jit-inline-B-hoist**：loop-invariant 数组指针提升（逼近 3.3× 上限）。触发:A 收益不足且循环密集。
