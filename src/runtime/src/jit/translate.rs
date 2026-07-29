@@ -390,16 +390,22 @@ pub fn translate_function(
             }
         }
         let mut candidates: Vec<u32> = Vec::new();
+        let mut consider = |arr: &u32, ok: bool, candidates: &mut Vec<u32>| {
+            if ok && !written.contains(arr) && !candidates.contains(arr) {
+                candidates.push(*arr);
+            }
+        };
         for b in &z42_func.blocks {
             for ins in &b.instructions {
-                if let Instruction::ArrayGet { dst, arr, idx } = ins {
-                    if is_typed(z42_func, *dst, IrType::I64)
-                        && is_typed(z42_func, *idx, IrType::I64)
-                        && !written.contains(arr)
-                        && !candidates.contains(arr)
-                    {
-                        candidates.push(*arr);
-                    }
+                match ins {
+                    Instruction::ArrayGet { dst, arr, idx } => consider(arr,
+                        is_typed(z42_func, *dst, IrType::I64) && is_typed(z42_func, *idx, IrType::I64),
+                        &mut candidates),
+                    // i64 ArraySet also reads the loop-invariant data ptr/len.
+                    Instruction::ArraySet { arr, idx, val } => consider(arr,
+                        is_typed(z42_func, *val, IrType::I64) && is_typed(z42_func, *idx, IrType::I64),
+                        &mut candidates),
+                    _ => {}
                 }
             }
         }
@@ -1015,9 +1021,65 @@ pub fn translate_function(
                     }
                 }
                 Instruction::ArraySet { arr, idx, val } => {
-                    let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
-                    let inst = builder.ins().call(hr_array_set, &[frame_val, ctx_val, a, i, v]);
-                    let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    // jit-inline-fastpaths: i64 element store → native bounds-check
+                    // + native store (no write barrier needed — i64 is drop-free
+                    // and a type-correct `long[]` slot's old value is also i64).
+                    // Data ptr+len from the hoist (方案 B) or per-set `jit_array_data`.
+                    // Cold OOB / null reuses `jit_array_set` (identical exception,
+                    // + write barrier for the heap-ref-value case that stays here).
+                    if is_typed(z42_func, *val, IrType::I64) && is_typed(z42_func, *idx, IrType::I64) {
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+                        const STRIDE: i64 = 24;
+                        const PAYLOAD: i32 = 8;
+                        let (data_ptr, len) = if let Some(&(hptr, hlen)) = hoisted_arrays.get(arr) {
+                            (hptr, hlen)
+                        } else {
+                            let ss_ptr = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ss_len = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+                            let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+                            let a_c = builder.ins().iconst(types::I32, *arr as i64);
+                            let inst = builder.ins().call(hr_array_data,
+                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+                            let ret = builder.inst_results(inst)[0];
+                            check!(ret);
+                            let dp = builder.ins().stack_load(ptr, ss_ptr, 0);
+                            let dl = builder.ins().stack_load(types::I64, ss_len, 0);
+                            (dp, dl)
+                        };
+                        let idx_off = builder.ins().iconst(types::I64, (*idx as i64) * STRIDE);
+                        let idx_addr = builder.ins().iadd(regs_base, idx_off);
+                        let idx_v = builder.ins().load(types::I64, MemFlags::trusted(), idx_addr, PAYLOAD);
+                        let oob = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx_v, len);
+                        let oob_blk = builder.create_block();
+                        let in_blk  = builder.create_block();
+                        builder.ins().brif(oob, oob_blk, &[], in_blk, &[]);
+                        // cold OOB/null: reuse jit_array_set (identical exception).
+                        builder.switch_to_block(oob_blk);
+                        let a_c2 = builder.ins().iconst(types::I32, *arr as i64);
+                        let i_c = builder.ins().iconst(types::I32, *idx as i64);
+                        let v_c = builder.ins().iconst(types::I32, *val as i64);
+                        builder.ins().call(hr_array_set, &[frame_val, ctx_val, a_c2, i_c, v_c]);
+                        emit_dispatch_to_catch_or_return!();
+                        // in-bounds: native store (tag I64 + i64 payload).
+                        builder.switch_to_block(in_blk);
+                        let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
+                        let val_addr = builder.ins().iadd(regs_base, val_off);
+                        let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
+                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        let elem_off = builder.ins().imul(idx_v, stride_c);
+                        let elem_addr = builder.ins().iadd(data_ptr, elem_off);
+                        let tag0 = builder.ins().iconst(types::I8, 0); // TAG_I64
+                        builder.ins().store(MemFlags::trusted(), tag0, elem_addr, 0);
+                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
+                    } else {
+                        let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
+                        let inst = builder.ins().call(hr_array_set, &[frame_val, ctx_val, a, i, v]);
+                        let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    }
                 }
                 Instruction::ArrayLen { dst, arr } => {
                     let d = ri!(*dst); let a = ri!(*arr);
