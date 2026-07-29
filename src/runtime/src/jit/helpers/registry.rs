@@ -87,6 +87,7 @@ pub struct HelperIds {
     pub array_new:      FuncId,
     pub array_new_lit:  FuncId,
     pub array_get:      FuncId,
+    pub array_data:     FuncId,
     pub array_set:      FuncId,
     pub array_len:      FuncId,
     // object
@@ -170,6 +171,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_array_new",     array::jit_array_new);
     reg!("jit_array_new_lit", array::jit_array_new_lit);
     reg!("jit_array_get",     array::jit_array_get);
+    reg!("jit_array_data",    array::jit_array_data);
     reg!("jit_array_set",     array::jit_array_set);
     reg!("jit_array_len",     array::jit_array_len);
     // object
@@ -262,6 +264,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i64t], [i8t]),
         array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], []),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
+        // jit_array_data(frame, ctx, arr, out_ptr, out_len) -> u8 (0 ok / 1 exc)
+        array_data:    decl!("jit_array_data",    [ptr, ptr, i32t, ptr, ptr],             [i8t]),
         array_set:     decl!("jit_array_set",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         array_len:     decl!("jit_array_len",     [ptr, ptr, i32t, i32t],                 [i8t]),
         // jit_obj_new(frame, ctx, dst, cls_ptr, cls_len, ctor_ptr, ctor_len, args_ptr, argc,

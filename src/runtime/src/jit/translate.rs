@@ -327,6 +327,7 @@ pub fn translate_function(
     let hr_array_new     = imp!(helper_ids.array_new);
     let hr_array_new_lit = imp!(helper_ids.array_new_lit);
     let hr_array_get     = imp!(helper_ids.array_get);
+    let hr_array_data    = imp!(helper_ids.array_data);
     let hr_array_set     = imp!(helper_ids.array_set);
     let hr_array_len     = imp!(helper_ids.array_len);
     let hr_obj_new       = imp!(helper_ids.obj_new);
@@ -899,9 +900,62 @@ pub fn translate_function(
                     builder.ins().call(hr_array_new_lit, &[frame_val, ctx_val, d, ep, el, etp, etl]);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
-                    let d = ri!(*dst); let a = ri!(*arr); let i = ri!(*idx);
-                    let inst = builder.ins().call(hr_array_get, &[frame_val, ctx_val, d, a, i]);
-                    let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    // jit-inline-fastpaths Phase 4a: when the element (`dst`) and
+                    // index are statically i64, fetch the array's data ptr+len via
+                    // `jit_array_data` then do a NATIVE bounds-check + element load
+                    // + unboxed store — no per-element `Value` round-trip through
+                    // the `jit_array_get` helper. Cold OOB path reuses
+                    // `jit_array_get` so the exception message/type is identical.
+                    if is_typed(z42_func, *dst, IrType::I64) && is_typed(z42_func, *idx, IrType::I64) {
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+                        const STRIDE: i64 = 24;
+                        const PAYLOAD: i32 = 8;
+                        let ss_ptr = builder.create_sized_stack_slot(
+                            StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                        let ss_len = builder.create_sized_stack_slot(
+                            StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                        let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+                        let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+                        let a_c = builder.ins().iconst(types::I32, *arr as i64);
+                        let inst = builder.ins().call(hr_array_data,
+                            &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+                        let ret = builder.inst_results(inst)[0];
+                        check!(ret); // not-an-array → exception exit
+                        let data_ptr = builder.ins().stack_load(ptr, ss_ptr, 0);
+                        let len = builder.ins().stack_load(types::I64, ss_len, 0);
+                        // idx payload (i64) from regs[idx]
+                        let idx_off = builder.ins().iconst(types::I64, (*idx as i64) * STRIDE);
+                        let idx_addr = builder.ins().iadd(regs_base, idx_off);
+                        let idx_v = builder.ins().load(types::I64, MemFlags::trusted(), idx_addr, PAYLOAD);
+                        // bounds: (u64)idx >= (u64)len → OOB (also catches negative)
+                        let oob = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx_v, len);
+                        let oob_blk = builder.create_block();
+                        let in_blk  = builder.create_block();
+                        builder.ins().brif(oob, oob_blk, &[], in_blk, &[]);
+                        // cold OOB: reuse jit_array_get to set the identical exception.
+                        builder.switch_to_block(oob_blk);
+                        let d_c = builder.ins().iconst(types::I32, *dst as i64);
+                        let a_c2 = builder.ins().iconst(types::I32, *arr as i64);
+                        let i_c = builder.ins().iconst(types::I32, *idx as i64);
+                        builder.ins().call(hr_array_get, &[frame_val, ctx_val, d_c, a_c2, i_c]);
+                        emit_dispatch_to_catch_or_return!();
+                        // in-bounds: native element load + unboxed store.
+                        builder.switch_to_block(in_blk);
+                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        let elem_off = builder.ins().imul(idx_v, stride_c);
+                        let elem_addr = builder.ins().iadd(data_ptr, elem_off);
+                        let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, PAYLOAD);
+                        let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
+                        let dst_addr = builder.ins().iadd(regs_base, dst_off);
+                        let tag0 = builder.ins().iconst(types::I8, 0); // TAG_I64
+                        builder.ins().store(MemFlags::trusted(), tag0, dst_addr, 0);
+                        builder.ins().store(MemFlags::trusted(), elem, dst_addr, PAYLOAD);
+                    } else {
+                        let d = ri!(*dst); let a = ri!(*arr); let i = ri!(*idx);
+                        let inst = builder.ins().call(hr_array_get, &[frame_val, ctx_val, d, a, i]);
+                        let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    }
                 }
                 Instruction::ArraySet { arr, idx, val } => {
                     let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
