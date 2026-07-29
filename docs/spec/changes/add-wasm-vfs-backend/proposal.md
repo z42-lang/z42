@@ -36,9 +36,15 @@ WASM playground（网站在**别的仓库**，本仓库只做**基础支持**：
 
 ## 待 User 裁决（6.5 gate）
 
-- **D1｜fs 后端形态**：
-  - **(A, 推荐先做)** `cfg(wasm32)` 默认 VFS（简单，native 零改动，spike 已是这形态的雏形）。
-  - (B) `FsBackend` trait（native/memory/js-callback）——更通用（按需 fetch），但工作量大；可作后续。
+- **D1｜fs 后端形态 → 定为平台隔离后端（User 2026-07-29：按平台拆分、隔离不同实现）**：
+  采纳 **Rust std `sys/` 模式**——`corelib/fs/` 拆成平台无关 builtin 层（`mod.rs`）+ 隔离的平台实现
+  （`native.rs` std::fs / `memory.rs` path→bytes VFS / 未来 wasi·mobile）+ 后端选择（`backend.rs`）。
+  - builtin 层平台无关：只调 `backend().read/write/exists/glob`，无 inline `std::fs` / `if wasm`。
+  - **cfg 选默认 + 运行时可覆盖**：`cfg(wasm32)`→MemoryVfs，否则 NativeFs；保留 `set_backend()` 供
+    一致性测试在 native 强制 MemoryVfs（内存 vs 磁盘一致，快 CI），wasm 内亦可切 Memory/JsCallback。
+  - enum（`Native/Memory/JsCallback` + 方法内 match，无 vtable）或 trait 皆可；fs I/O 密集低频，开销忽略。
+  - **spike 的 inline `vfs::enabled()` 分支是临时糙形**（native 快速验证用）→ IMPL 第一步重构成本隔离结构。
+  - ~~(A) inline cfg~~ 弃：32 个 builtin 全塞平台分支太乱。
 - **D2｜z42c 打包 vs lazy fetch**：编译器 zpkg 几 MB。
   - **(A, 推荐)** lazy fetch：首次编译时才从网站拉 z42c zpkg（配 JsCallbackFs 或前端预取）。
   - (B) 全 bundle 进 wasm 包（简单但首屏下载大）。

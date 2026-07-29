@@ -8,13 +8,15 @@
 - [x] `fs.rs` 3 个 DepScan builtin（read_bytes/dir_exists/path_glob）路由 VFS
 - [x] **实测证明**：native 挂 36 zpkg → DepScan.ScanDirs("/vfs") → ns=43 modules=374（与磁盘一致）VFS_DEPSCAN_OK=1
 
-## 决策待定（见 proposal.md）
-- D1 fs 后端：cfg(wasm32) 默认 VFS(A,推荐) vs FsBackend trait(B)
-- D2 z42c 打包：lazy fetch(A,推荐) vs 全 bundle(B)
-- D3 compile 入口：直接暴露 Script.Eval(推荐) vs 新做 compile(source)
+## 决策
+- **D1 已定（User 2026-07-29）**：平台隔离后端（Rust std `sys/` 模式）——`corelib/fs/` 拆平台无关
+  builtin 层 + 隔离的 native/memory 实现 + cfg-默认·运行时可覆盖。**不用** inline cfg。
+- D2 z42c 打包：lazy fetch(A,推荐) vs 全 bundle(B)｜D3 compile 入口：暴露 Script.Eval(推荐) vs 新 compile
 
-## 阶段（D1=A/D2=A/D3=前者，待确认后回填）
-- [ ] 阶段 1 — fs.rs 全量路由：32 个 fs builtin 按 cfg(wasm32) 走 VFS；非只读 op 优雅降级（明确 not-supported）
+## 阶段（D2=A/D3=前者，待确认后回填）
+- [ ] 阶段 1 — **fs 平台隔离重构**：`corelib/fs.rs` → `corelib/fs/{mod,backend,native,memory,glob}.rs`；
+  32 个 builtin 改调 `backend()`（无 inline std::fs / wasm 分支）；cfg 默认 + `set_backend` 覆盖；
+  memory.rs 由 spike 的 vfs.rs 演进；非只读 op 在 memory 后端优雅降级（明确 not-supported）。
 - [ ] 阶段 2 — wasm facade：`Z42VM.mountZpkg(path,bytes)` + `eval(source)→输出`；Z42_LIBS=/vfs
 - [ ] 阶段 3 — 打包：wasm 分发加 z42c.* + z42.scripting zpkg 静态产物（package-wasm）
 - [ ] 阶段 4 — 测试：VFS DepScan 一致性（内存 vs 磁盘）+ wasm eval e2e（Playwright，编译一段 z42 源→输出）
