@@ -70,7 +70,13 @@ pub fn builtin_file_last_write_time_ms(_ctx: &VmContext, args: &[Value]) -> Resu
 
 pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_read_bytes")?;
-    let bytes = std::fs::read(path)?;
+    // wasm-vfs-spike: route to in-memory VFS when enabled (no real fs on wasm).
+    let bytes = if super::vfs::enabled() {
+        super::vfs::read(path)
+            .ok_or_else(|| anyhow::anyhow!("__file_read_bytes: `{path}` not in vfs"))?
+    } else {
+        std::fs::read(path)?
+    };
     let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
     Ok(ctx.heap().alloc_array(elems))
 }
@@ -151,7 +157,12 @@ fn write_atomic_bytes(target: &str, bytes: &[u8]) -> Result<()> {
 
 pub fn builtin_dir_exists(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__dir_exists")?;
-    Ok(Value::Bool(std::path::Path::new(path).is_dir()))
+    let exists = if super::vfs::enabled() {
+        super::vfs::dir_exists(path)
+    } else {
+        std::path::Path::new(path).is_dir()
+    };
+    Ok(Value::Bool(exists))
 }
 
 pub fn builtin_dir_create(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -285,6 +296,12 @@ pub fn builtin_time_now_ms(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
 pub fn builtin_path_glob(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let dir     = arg_str(args, 0, "__path_glob")?;
     let pattern = arg_str(args, 1, "__path_glob")?;
+    // wasm-vfs-spike: glob the in-memory VFS when enabled.
+    if super::vfs::enabled() {
+        let hits = super::vfs::glob(dir, pattern);
+        let list: Vec<Value> = hits.into_iter().map(|s| Value::Str(s.into())).collect();
+        return Ok(ctx.heap().alloc_array(list));
+    }
     let mut hits: Vec<String> = Vec::new();
     if !std::path::Path::new(dir).is_dir() {
         return Ok(ctx.heap().alloc_array(Vec::new()));
@@ -309,7 +326,7 @@ pub fn builtin_path_glob(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 /// `*` / `?` glob matcher — recursion-free, backtracking via two cursors
 /// (same idea as the classic K&R wildcard match).
-fn glob_match(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
     let mut pi = 0usize;
