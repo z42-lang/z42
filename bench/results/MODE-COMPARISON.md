@@ -104,6 +104,23 @@ vcall 对象/基元 IC 命中的稳态热路径原本 `vec![obj_val]` + `collect
 
 JIT 列不变（interp-only）。GREEN 全绿 + 自举 5/5。
 
+## Phase 3 结果:块标签哈希消除（2026-07-29，剖析驱动，已落地）
+
+macOS `sample` 剖析数组重循环发现 **~25% interp 时间在 SipHash**：每条 `Br`/`BrCond`
+用块标签字符串查 `block_index: HashMap<String,usize>`（std 默认 SipHash），循环里每
+迭代一次。修复：`loader::build_block_indices` 把分支标签**一次性解析成块索引**
+（新 `Function.branch_targets: Vec<BranchTargets>`），interp 分支变直接整数跳转、零哈希
+（未预解析时回退标签表，保留 undefined-block 错误路径）。
+
+| interp 场景 | 修复前 | 修复后 | 提升 |
+|------|------:|------:|-----:|
+| 数组重循环 50M 读 | 4.49s | **2.21s** | **−51%** |
+| arith 紧循环 10M | 688ms | **466ms** | **−32%** |
+| poly_dispatch | 3247ms | 2902ms | −11% |
+
+比剖析预测的 25% 更大（标签字符串存取一并消除）。**JIT 不变**（Cranelift 原生分支）。
+锁是红鲱鱼、剖析一次即定位此 25% 热点——先剖析再动手的价值。GREEN 全绿 + 自举不动点。
+
 ## 复现
 
 ```bash

@@ -430,6 +430,13 @@ pub struct Function {
     /// Precomputed block label → index mapping. Not serialized; populated after module load.
     #[serde(skip)]
     pub block_index: std::collections::HashMap<String, usize>,
+    /// perf-vm-iteration: per-block pre-resolved branch targets (indices),
+    /// parallel to `blocks`. Lets `Br`/`BrCond` jump by index instead of
+    /// SipHashing the label string every back-edge (~25% of interp loop time).
+    /// Not serialized; populated by `loader::build_block_indices`. Empty ⇒
+    /// runtime falls back to `block_index` (hand-built test functions).
+    #[serde(skip)]
+    pub branch_targets: Vec<BranchTargets>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
@@ -988,6 +995,22 @@ pub enum Terminator {
     Throw {
         #[serde(with = "typed_reg_serde")] reg: Reg,
     },
+}
+
+/// perf-vm-iteration: a block terminator's branch target(s) pre-resolved to
+/// block **indices** at load time, so `Br`/`BrCond` become direct integer jumps
+/// instead of a per-branch `HashMap<String,usize>` SipHash lookup on the label.
+/// Profiling showed ~25% of interp loop time was SipHashing block labels on
+/// every back-edge. Populated by `loader::build_block_indices`; runtime falls
+/// back to the label `HashMap` when absent (e.g. hand-built test functions).
+#[derive(Debug, Clone, Copy)]
+pub enum BranchTargets {
+    /// Ret / Throw — not a branch (this block's terminator never indexes here).
+    NoBranch,
+    /// `Br` → resolved target block index.
+    Br(usize),
+    /// `BrCond` → (true_label idx, false_label idx).
+    BrCond(usize, usize),
 }
 
 #[cfg(test)]

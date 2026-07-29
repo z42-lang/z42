@@ -30,7 +30,7 @@ pub(crate) use exec_vcall::primitive_class_name;
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;
-use crate::metadata::{Function, Module, Terminator, Value};
+use crate::metadata::{BranchTargets, Function, Module, Terminator, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -655,8 +655,14 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 return Ok(ExecOutcome::Returned(Some(ret_val)));
             }
             Terminator::Br  { label }          => {
-                let target = *block_map.get(label.as_str())
-                    .with_context(|| format!("undefined block `{label}`"))?;
+                // perf-vm-iteration: jump by pre-resolved index (no per-branch
+                // SipHash on the label); fall back to the label map if the
+                // targets weren't precomputed (hand-built test functions).
+                let target = match func.branch_targets.get(block_idx) {
+                    Some(BranchTargets::Br(t)) => *t,
+                    _ => *block_map.get(label.as_str())
+                        .with_context(|| format!("undefined block `{label}`"))?,
+                };
                 // add-gc-safepoint (2026-05-20): backward branch heuristic
                 // — block index decreasing is a loop back-edge. Check
                 // safepoint so long-running loops park promptly.
@@ -670,9 +676,14 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     Value::Bool(b) => *b,
                     other => bail!("BrCond expects bool, got {:?}", other),
                 };
-                let label = if go_true { true_label } else { false_label };
-                let target = *block_map.get(label.as_str())
-                    .with_context(|| format!("undefined block `{label}`"))?;
+                let target = match func.branch_targets.get(block_idx) {
+                    Some(BranchTargets::BrCond(t, f)) => if go_true { *t } else { *f },
+                    _ => {
+                        let label = if go_true { true_label } else { false_label };
+                        *block_map.get(label.as_str())
+                            .with_context(|| format!("undefined block `{label}`"))?
+                    }
+                };
                 if target <= block_idx {
                     crate::gc::safepoint::check_safepoint(ctx);
                 }
