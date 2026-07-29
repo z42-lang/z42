@@ -169,6 +169,35 @@ pub unsafe extern "C" fn jit_convert(
 
 // ── Field access ─────────────────────────────────────────────────────────────
 
+/// jit-inline-fastpaths (FieldGet 方案 B): **non-throwing** field-slot resolver
+/// for the loop-invariant hoist. Emitted ONCE in the JIT entry block for an
+/// object register proven never-reassigned (e.g. `this`) + a fixed field name.
+/// Object → writes `slots.as_ptr()` (Box<[Value]> is fixed-size ⇒ ptr stable)
+/// and the resolved slot index; non-object / null / field-not-found → writes
+/// `ptr=null, slot=-1` and does NOT throw. The per-`FieldGet` inline detects
+/// `slot < 0` and falls back to `jit_field_get` (correct exception / Str.Length /
+/// Array.Length semantics at the real access site). GC-safe: non-moving
+/// collector + fixed slot count ⇒ the returned ptr stays valid for the frame.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_obj_field_slot(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    obj: u32, field_name_ptr: *const u8, field_name_len: usize,
+    out_slots_ptr: *mut *const Value, out_slot: *mut i64,
+) {
+    let field_name = std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len))
+        .unwrap_or("<invalid>");
+    if let Value::Object(rc) = &(*frame).regs[obj as usize] {
+        let b = rc.borrow();
+        if let Some(&slot) = b.type_desc.field_index.get(field_name) {
+            *out_slots_ptr = b.slots.as_ptr();
+            *out_slot = slot as i64;
+            return;
+        }
+    }
+    *out_slots_ptr = std::ptr::null();
+    *out_slot = -1;
+}
+
 /// `jit_field_get` after formalize-jit-method-token Phase 2.E (2026-05-08):
 /// per-site `FieldIC` is threaded in (stable raw pointer baked at codegen).
 /// Mirrors interp `field_get` — IC hit fetches `slots[cached_slot]` directly;
