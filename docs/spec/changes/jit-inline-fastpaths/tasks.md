@@ -23,9 +23,23 @@
 - [ ] 4a.9 文档：jit 机制页记录内联快路 / 去箱边界 / fallback（归档前）
 - [ ] 4a.10 f64 元素内联（后续）
 
-> **方案 A 收益 1.27× 低于设计 ~2× 目标** → 按 design Decision 1 触发「评估方案 B」。方案 B
-> （loop-invariant 提指针）逼近 3.3×,但需 dominance/null-safety 分析（naive 提到 entry 会让
-> null 数组异常时机漂移）,是独立设计任务。方案 A 作为正确的原生 load/去箱/OOB 基础先落地。
+> **方案 A 收益 1.27×** → 触发方案 B。
+
+## 方案 B: loop-invariant 提指针 ✅ 已落地（2026-07-29）
+- [x] B.1 `written_reg(instr)` 抽出（从 max_reg），单一真相；`max_reg` 复用
+- [x] B.2 非抛出 helper `jit_array_data_opt`（null/非数组 → ptr=null,len=0，不抛）
+- [x] B.3 入口块提取:never-reassigned 数组寄存器（indexed by i64-eligible ArrayGet 且从不作 dst）
+      → cl_blocks[0] emit `jit_array_data_opt` → SSA (ptr,len)（支配全图，全函数可用）；sort 确定序
+- [x] B.4 ArrayGet 内联:hoisted 时用 (ptr,len)、per-get 时走方案 A；无符号 bounds 检查同时兜住
+      OOB **与** null（hoisted null→len=0→恒 OOB→回退 jit_array_get，在真实访问点抛正确异常）
+- [x] B.5 实测:数组循环 **834→388ms = 2.15×**（= 含内存 load 的原生真实上限;252ms 是无 load 下界）
+- [x] B.6 正确性 jit==interp:in-bounds / OOB / **重赋值数组(不提取)** / **null 数组 0 迭代(不误抛)**
+      / **null 访问(抛同异常)** / **GC-stress(64M 分配下提指针跨 GC 存活)** —— 全部逐字节一致
+- [ ] B.7 综合 gate:all-targets + cargo test gc + full GREEN + jit e2e（验证中）
+- [ ] B.8 文档:jit 机制页记录提指针机制 + GC 安全论证（归档前）
+
+> GC 安全性实测确认:非移动 mark-sweep + 定长数组（无 realloc）→ 提取的 buffer ptr 在函数执行期
+> （跨多次 GC、跨 ArraySet 元素写）始终有效。empirical:arrgc 用例 64M 分配强制大量 GC,jit==interp。
 
 ## 中断/停止条件（沿用纪律）
 - 4a.7 实测收益 < ~1.3× → 停,记录,评估方案 B 或放弃（不硬上）

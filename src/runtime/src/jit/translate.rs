@@ -26,84 +26,80 @@ pub use super::helpers::HelperIds;
 // max_reg — largest register index used in a function
 // ═════════════════════════════════════════════════════════════════════════════
 
+/// The register an instruction writes (its `dst`), or `None` for stores that
+/// write no register (`ArraySet` / `FieldSet` / `StaticSet` / `UnpinPtr`).
+/// Single source of truth for "what does this op define" — used by `max_reg`
+/// and the jit-inline-fastpaths never-reassigned scan.
+pub fn written_reg(instr: &Instruction) -> Option<u32> {
+    match instr {
+        Instruction::ConstStr  { dst, .. } => Some(*dst),
+        Instruction::ConstI32  { dst, .. } => Some(*dst),
+        Instruction::ConstI64  { dst, .. } => Some(*dst),
+        Instruction::ConstF64  { dst, .. } => Some(*dst),
+        Instruction::ConstBool { dst, .. } => Some(*dst),
+        Instruction::ConstChar { dst, .. } => Some(*dst),
+        Instruction::ConstNull { dst }      => Some(*dst),
+        Instruction::Copy      { dst, .. }  => Some(*dst),
+        Instruction::Add       { dst, .. }  => Some(*dst),
+        Instruction::Sub       { dst, .. }  => Some(*dst),
+        Instruction::Mul       { dst, .. }  => Some(*dst),
+        Instruction::Div       { dst, .. }  => Some(*dst),
+        Instruction::Rem       { dst, .. }  => Some(*dst),
+        Instruction::Eq        { dst, .. }  => Some(*dst),
+        Instruction::Ne        { dst, .. }  => Some(*dst),
+        Instruction::Lt        { dst, .. }  => Some(*dst),
+        Instruction::Le        { dst, .. }  => Some(*dst),
+        Instruction::Gt        { dst, .. }  => Some(*dst),
+        Instruction::Ge        { dst, .. }  => Some(*dst),
+        Instruction::And       { dst, .. }  => Some(*dst),
+        Instruction::Or        { dst, .. }  => Some(*dst),
+        Instruction::Not       { dst, .. }  => Some(*dst),
+        Instruction::Neg       { dst, .. }  => Some(*dst),
+        Instruction::BitAnd    { dst, .. }  => Some(*dst),
+        Instruction::BitOr     { dst, .. }  => Some(*dst),
+        Instruction::BitXor    { dst, .. }  => Some(*dst),
+        Instruction::BitNot    { dst, .. }  => Some(*dst),
+        Instruction::Shl       { dst, .. }  => Some(*dst),
+        Instruction::Shr       { dst, .. }  => Some(*dst),
+        Instruction::StrConcat { dst, .. }  => Some(*dst),
+        Instruction::ToStr     { dst, .. }  => Some(*dst),
+        Instruction::Call(insn)              => Some(insn.dst),
+        Instruction::LoadLocalAddr { dst, .. } => Some(*dst),
+        Instruction::LoadElemAddr  { dst, .. } => Some(*dst),
+        Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
+        Instruction::DefaultOf     { dst, .. } => Some(*dst),
+        Instruction::Builtin(insn)          => Some(insn.dst),
+        Instruction::ArrayNew(insn)          => Some(insn.dst),
+        Instruction::ArrayNewLit(insn)       => Some(insn.dst),
+        Instruction::ArrayGet    { dst, .. } => Some(*dst),
+        Instruction::ArraySet    { .. }      => None,
+        Instruction::ArrayLen    { dst, .. } => Some(*dst),
+        Instruction::ObjNew(insn)           => Some(insn.dst),
+        Instruction::Typeof(insn)           => Some(insn.dst),
+        Instruction::FieldGet(insn)         => Some(insn.dst),
+        Instruction::FieldSet(_)            => None,
+        Instruction::VCall(insn)            => Some(insn.dst),
+        Instruction::IsInstance(insn)       => Some(insn.dst),
+        Instruction::AsCast(insn)           => Some(insn.dst),
+        Instruction::StaticGet(insn)        => Some(insn.dst),
+        Instruction::StaticSet(_)           => None,
+        Instruction::CallNative(insn)             => Some(insn.dst),
+        Instruction::CallNativeVtable { dst, .. } => Some(*dst),
+        Instruction::PinPtr           { dst, .. } => Some(*dst),
+        Instruction::UnpinPtr         { .. }      => None,
+        Instruction::LoadFn(insn)             => Some(insn.dst),
+        Instruction::LoadFnCached(insn)       => Some(insn.dst),
+        Instruction::CallIndirect { dst, .. } => Some(*dst),
+        Instruction::MkClos(insn)             => Some(insn.dst),
+        Instruction::Convert      { dst, .. } => Some(*dst),
+    }
+}
+
 pub fn max_reg(func: &Function) -> usize {
     let mut max = func.param_count.saturating_sub(1);
     for block in &func.blocks {
         for instr in &block.instructions {
-            let dst: Option<u32> = match instr {
-                Instruction::ConstStr  { dst, .. } => Some(*dst),
-                Instruction::ConstI32  { dst, .. } => Some(*dst),
-                Instruction::ConstI64  { dst, .. } => Some(*dst),
-                Instruction::ConstF64  { dst, .. } => Some(*dst),
-                Instruction::ConstBool { dst, .. } => Some(*dst),
-                Instruction::ConstChar { dst, .. } => Some(*dst),
-                Instruction::ConstNull { dst }      => Some(*dst),
-                Instruction::Copy      { dst, .. }  => Some(*dst),
-                Instruction::Add       { dst, .. }  => Some(*dst),
-                Instruction::Sub       { dst, .. }  => Some(*dst),
-                Instruction::Mul       { dst, .. }  => Some(*dst),
-                Instruction::Div       { dst, .. }  => Some(*dst),
-                Instruction::Rem       { dst, .. }  => Some(*dst),
-                Instruction::Eq        { dst, .. }  => Some(*dst),
-                Instruction::Ne        { dst, .. }  => Some(*dst),
-                Instruction::Lt        { dst, .. }  => Some(*dst),
-                Instruction::Le        { dst, .. }  => Some(*dst),
-                Instruction::Gt        { dst, .. }  => Some(*dst),
-                Instruction::Ge        { dst, .. }  => Some(*dst),
-                Instruction::And       { dst, .. }  => Some(*dst),
-                Instruction::Or        { dst, .. }  => Some(*dst),
-                Instruction::Not       { dst, .. }  => Some(*dst),
-                Instruction::Neg       { dst, .. }  => Some(*dst),
-                Instruction::BitAnd    { dst, .. }  => Some(*dst),
-                Instruction::BitOr     { dst, .. }  => Some(*dst),
-                Instruction::BitXor    { dst, .. }  => Some(*dst),
-                Instruction::BitNot    { dst, .. }  => Some(*dst),
-                Instruction::Shl       { dst, .. }  => Some(*dst),
-                Instruction::Shr       { dst, .. }  => Some(*dst),
-                Instruction::StrConcat { dst, .. }  => Some(*dst),
-                Instruction::ToStr     { dst, .. }  => Some(*dst),
-                Instruction::Call(insn)              => Some(insn.dst),
-                // Spec impl-ref-out-in-runtime: address-load opcodes (interp
-                // only; JIT body match further down emits unimplemented).
-                Instruction::LoadLocalAddr { dst, .. } => Some(*dst),
-                Instruction::LoadElemAddr  { dst, .. } => Some(*dst),
-                Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
-                Instruction::DefaultOf     { dst, .. } => Some(*dst),
-                Instruction::Builtin(insn)          => Some(insn.dst),
-                Instruction::ArrayNew(insn)          => Some(insn.dst),
-                Instruction::ArrayNewLit(insn)       => Some(insn.dst),
-                Instruction::ArrayGet    { dst, .. } => Some(*dst),
-                Instruction::ArraySet    { .. }      => None,
-                Instruction::ArrayLen    { dst, .. } => Some(*dst),
-                Instruction::ObjNew(insn)           => Some(insn.dst),
-                Instruction::Typeof(insn)           => Some(insn.dst),
-                Instruction::FieldGet(insn)         => Some(insn.dst),
-                Instruction::FieldSet(_)            => None,
-                Instruction::VCall(insn)            => Some(insn.dst),
-                Instruction::IsInstance(insn)       => Some(insn.dst),
-                Instruction::AsCast(insn)           => Some(insn.dst),
-                Instruction::StaticGet(insn)        => Some(insn.dst),
-                Instruction::StaticSet(_)           => None,
-
-                // C1 native interop scaffold — JIT path lands in L3.M16; for
-                // now compute dst register correctly so reg-allocator stays
-                // sound when these opcodes appear in interp-mode bytecode.
-                Instruction::CallNative(insn)             => Some(insn.dst),
-                Instruction::CallNativeVtable { dst, .. } => Some(*dst),
-                Instruction::PinPtr           { dst, .. } => Some(*dst),
-                Instruction::UnpinPtr         { .. }      => None,
-
-                // impl-lambda-l2: JIT path lands in L3+. For now compute dst
-                // correctly so reg-allocation stays sound; translation falls
-                // back to interp mode (see translate.rs match below).
-                Instruction::LoadFn(insn)             => Some(insn.dst),
-                Instruction::LoadFnCached(insn)       => Some(insn.dst),
-                Instruction::CallIndirect { dst, .. } => Some(*dst),
-                Instruction::MkClos(insn)             => Some(insn.dst),
-
-                // spec fix-numeric-cast-lowering (2026-05-13)
-                Instruction::Convert      { dst, .. } => Some(*dst),
-            };
+            let dst: Option<u32> = written_reg(instr);
             if let Some(d) = dst {
                 if d as usize > max { max = d as usize; }
             }
@@ -328,6 +324,7 @@ pub fn translate_function(
     let hr_array_new_lit = imp!(helper_ids.array_new_lit);
     let hr_array_get     = imp!(helper_ids.array_get);
     let hr_array_data    = imp!(helper_ids.array_data);
+    let hr_array_data_opt = imp!(helper_ids.array_data_opt);
     let hr_array_set     = imp!(helper_ids.array_set);
     let hr_array_len     = imp!(helper_ids.array_len);
     let hr_obj_new       = imp!(helper_ids.obj_new);
@@ -372,6 +369,58 @@ pub fn translate_function(
     // C2 P1 fast-path layout constants live inside `emit_i64_binop` (the sole
     // consumer today); when comparison + logical ops are specialized in the
     // next chunk they'll move to module scope.
+
+    // ── jit-inline-fastpaths 方案 B: hoist loop-invariant array data ptr/len ──
+    // For array registers that are (a) indexed by an i64-inline-eligible
+    // `ArrayGet` and (b) NEVER written (never a `dst`) anywhere in the function,
+    // the array Value in `regs[arr]` is stable for the whole activation, so its
+    // element-buffer pointer + length are loop-invariant. Fetch them ONCE here in
+    // the entry block (which dominates every block ⇒ the SSA values are usable
+    // everywhere) via the NON-throwing `jit_array_data_opt`. The per-`ArrayGet`
+    // inline then does a pure native bounds-check + load with ZERO per-iteration
+    // helper call — approaching the fully-native ceiling. Null/invalid arrays
+    // yield `ptr=null,len=0`, so the unsigned bounds check routes every access to
+    // the `jit_array_get` cold path (correct exception at the real access site;
+    // no spurious throw when the loop runs 0 times).
+    let hoisted_arrays: std::collections::HashMap<u32, (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
+        let mut written: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for b in &z42_func.blocks {
+            for ins in &b.instructions {
+                if let Some(d) = written_reg(ins) { written.insert(d); }
+            }
+        }
+        let mut candidates: Vec<u32> = Vec::new();
+        for b in &z42_func.blocks {
+            for ins in &b.instructions {
+                if let Instruction::ArrayGet { dst, arr, idx } = ins {
+                    if is_typed(z42_func, *dst, IrType::I64)
+                        && is_typed(z42_func, *idx, IrType::I64)
+                        && !written.contains(arr)
+                        && !candidates.contains(arr)
+                    {
+                        candidates.push(*arr);
+                    }
+                }
+            }
+        }
+        candidates.sort_unstable(); // deterministic codegen order
+        let mut map = std::collections::HashMap::new();
+        for arr in candidates {
+            use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+            let ss_ptr = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ss_len = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+            let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+            let a_c = builder.ins().iconst(types::I32, arr as i64);
+            builder.ins().call(hr_array_data_opt, &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+            let dptr = builder.ins().stack_load(ptr, ss_ptr, 0);
+            let dlen = builder.ins().stack_load(types::I64, ss_len, 0);
+            map.insert(arr, (dptr, dlen));
+        }
+        map
+    };
 
     // ── Translate each z42 block ──────────────────────────────────────────────
     for (block_idx, z42_block) in z42_func.blocks.iter().enumerate() {
@@ -900,30 +949,38 @@ pub fn translate_function(
                     builder.ins().call(hr_array_new_lit, &[frame_val, ctx_val, d, ep, el, etp, etl]);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
-                    // jit-inline-fastpaths Phase 4a: when the element (`dst`) and
-                    // index are statically i64, fetch the array's data ptr+len via
-                    // `jit_array_data` then do a NATIVE bounds-check + element load
-                    // + unboxed store — no per-element `Value` round-trip through
-                    // the `jit_array_get` helper. Cold OOB path reuses
-                    // `jit_array_get` so the exception message/type is identical.
+                    // jit-inline-fastpaths: when the element (`dst`) and index are
+                    // statically i64, do a NATIVE bounds-check + element load +
+                    // unboxed store — no per-element `Value` round-trip through the
+                    // `jit_array_get` helper. The array data ptr+len come either
+                    // from the loop-invariant HOIST (方案 B: never-reassigned array
+                    // ⇒ zero per-iteration call, approaching the native ceiling) or
+                    // a per-get `jit_array_data` (方案 A). Cold OOB path reuses
+                    // `jit_array_get` so the exception is identical; for a hoisted
+                    // null/invalid array `len==0` routes every access there too.
                     if is_typed(z42_func, *dst, IrType::I64) && is_typed(z42_func, *idx, IrType::I64) {
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
                         const STRIDE: i64 = 24;
                         const PAYLOAD: i32 = 8;
-                        let ss_ptr = builder.create_sized_stack_slot(
-                            StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                        let ss_len = builder.create_sized_stack_slot(
-                            StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                        let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
-                        let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
-                        let a_c = builder.ins().iconst(types::I32, *arr as i64);
-                        let inst = builder.ins().call(hr_array_data,
-                            &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
-                        let ret = builder.inst_results(inst)[0];
-                        check!(ret); // not-an-array → exception exit
-                        let data_ptr = builder.ins().stack_load(ptr, ss_ptr, 0);
-                        let len = builder.ins().stack_load(types::I64, ss_len, 0);
+                        let (data_ptr, len) = if let Some(&(hptr, hlen)) = hoisted_arrays.get(arr) {
+                            (hptr, hlen) // 方案 B: loop-invariant, hoisted in entry block
+                        } else {
+                            let ss_ptr = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ss_len = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+                            let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+                            let a_c = builder.ins().iconst(types::I32, *arr as i64);
+                            let inst = builder.ins().call(hr_array_data,
+                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+                            let ret = builder.inst_results(inst)[0];
+                            check!(ret); // not-an-array → exception exit (方案 A)
+                            let dp = builder.ins().stack_load(ptr, ss_ptr, 0);
+                            let dl = builder.ins().stack_load(types::I64, ss_len, 0);
+                            (dp, dl)
+                        };
                         // idx payload (i64) from regs[idx]
                         let idx_off = builder.ins().iconst(types::I64, (*idx as i64) * STRIDE);
                         let idx_addr = builder.ins().iadd(regs_base, idx_off);
