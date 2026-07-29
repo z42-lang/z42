@@ -1,0 +1,26 @@
+namespace Z42.Build.Project;
+
+/// `[tests]` / `[bench]` / `[example]` 段配置（约定扫描 + dev-deps 隔离）。
+///
+/// - `Include` / `Exclude`：约定发现的 glob 集（发现方扫描前须按稳定键 sort，见 common-pitfalls §1）。
+///   段缺失或无 `include` 键时回落到 kind 专属默认（见 ManifestLoader._parseTargetSection）。
+/// - `Auto == true`（默认）：启用约定扫描；`false` → 只认显式 `[[target]]`，不扫 glob。
+/// - `Deps`：该 kind 的 dev-dependencies（`[tests.dependencies]` 等）；仅编译 test/bench/example
+///   时合入，release zpkg 元数据不含（三层合并见 design D6）。
+///
+/// 受限自举子集写法：sealed class + 构造函数、array+count 替泛型。
+public sealed class TargetSection {
+    public string[]   Include;
+    public int        IncCount;
+    public string[]   Exclude;
+    public int        ExcCount;
+    public bool       Auto;
+    public DepEntry[] Deps;
+    public int        DepCount;
+    public TargetSection(string[] include, int incCount, string[] exclude, int excCount,
+                         bool auto, DepEntry[] deps, int depCount) {
+        this.Include = include; this.IncCount = incCount;
+        this.Exclude = exclude; this.ExcCount = excCount;
+        this.Auto = auto; this.Deps = deps; this.DepCount = depCount;
+    }
+}

@@ -16,15 +16,35 @@ public sealed class ProjectManifest {
     public ExeTarget[] Exes;           // [[exe]]（单 exe 时 ExeCount == 0）
     public int         ExeCount;
     public PlatformSet Platform;       // [platform.*]
+    // ── dev 目标（test / bench / example；release 构建忽略）──────────────────
+    public TargetSection TestsSection;   // [tests]
+    public TargetSection BenchSection;   // [bench]
+    public TargetSection ExampleSection; // [example]
+    public RunTarget[] Tests;          // [[test]]
+    public int         TestCount;
+    public RunTarget[] Benches;        // [[bench]]
+    public int         BenchCount;
+    public RunTarget[] Examples;       // [[example]]
+    public int         ExampleCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
                            ExeTarget[] exes, int exeCount,
-                           PlatformSet platform) {
+                           PlatformSet platform,
+                           TargetSection testsSection, TargetSection benchSection,
+                           TargetSection exampleSection,
+                           RunTarget[] tests, int testCount,
+                           RunTarget[] benches, int benchCount,
+                           RunTarget[] examples, int exampleCount) {
         this.Project = project; this.Sources = sources; this.Build = build;
         this.Profiles = profiles; this.ProfileCount = profileCount;
         this.Deps = deps; this.DepCount = depCount;
         this.Exes = exes; this.ExeCount = exeCount;
         this.Platform = platform;
+        this.TestsSection = testsSection; this.BenchSection = benchSection;
+        this.ExampleSection = exampleSection;
+        this.Tests = tests; this.TestCount = testCount;
+        this.Benches = benches; this.BenchCount = benchCount;
+        this.Examples = examples; this.ExampleCount = exampleCount;
     }
 }

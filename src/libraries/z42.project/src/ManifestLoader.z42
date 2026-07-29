@@ -30,11 +30,22 @@ public static class ManifestLoader {
         DepEntry[]  deps     = ManifestLoader._parseDeps(root, "dependencies");
         ExeTarget[] exes     = ManifestLoader._parseExes(root);
         PlatformSet platform = ManifestLoader._parsePlatform(root);
+        // dev 目标段（复数名，避免与单数 [[test]]/[[bench]]/[[example]] array key 撞）
+        TargetSection testsSec = ManifestLoader._parseTargetSection(root, "tests",    ManifestLoader._defaultInclude("tests"));
+        TargetSection benchSec = ManifestLoader._parseTargetSection(root, "benches",  ManifestLoader._defaultInclude("bench"));
+        TargetSection exSec    = ManifestLoader._parseTargetSection(root, "examples", ManifestLoader._defaultInclude("examples"));
+        RunTarget[] tests    = ManifestLoader._parseRunTargets(root, "test");
+        RunTarget[] benches  = ManifestLoader._parseRunTargets(root, "bench");
+        RunTarget[] examples = ManifestLoader._parseRunTargets(root, "example");
         return new ProjectManifest(project, sources, build,
                                    profiles, profiles.Length,
                                    deps, deps.Length,
                                    exes, exes.Length,
-                                   platform);
+                                   platform,
+                                   testsSec, benchSec, exSec,
+                                   tests, tests.Length,
+                                   benches, benches.Length,
+                                   examples, examples.Length);
     }
 
     /// 从文件路径加载 workspace 清单。
@@ -172,6 +183,58 @@ public static class ManifestLoader {
             if (e.ContainsKey("entry")) { entry = e.Get("entry").AsString(); }
             if (e.ContainsKey("src"))   { src = ManifestLoader._strArray(e.Get("src")); }
             r[i] = new ExeTarget(name, entry, src, src.Length);
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // ── [tests] / [benches] / [examples] 段（约定扫描 + dev-deps）──────────────
+    // 段缺失或无 include 键 → 回落 defaultInclude；auto 默认 true；deps 读子表 dependencies。
+    private static TargetSection _parseTargetSection(TomlValue root, string key, string[] defaultInclude) {
+        string[] inc = defaultInclude;
+        string[] exc = new string[0];
+        bool auto = true;
+        DepEntry[] deps = new DepEntry[0];
+        if (root.ContainsKey(key)) {
+            var s = root.Get(key);
+            if (s.ContainsKey("include")) { inc = ManifestLoader._strArray(s.Get("include")); }
+            if (s.ContainsKey("exclude")) { exc = ManifestLoader._strArray(s.Get("exclude")); }
+            if (s.ContainsKey("auto"))    { auto = s.Get("auto").AsBool(); }
+            deps = ManifestLoader._parseDeps(s, "dependencies");
+        }
+        return new TargetSection(inc, inc.Length, exc, exc.Length, auto, deps, deps.Length);
+    }
+
+    // kind 专属默认发现 glob：<dir>/*.z42（单文件单元）+ <dir>/*/source.z42（dir-mode 合并单元）。
+    private static string[] _defaultInclude(string dir) {
+        string[] r = new string[2];
+        r[0] = dir + "/*.z42";
+        r[1] = dir + "/*/source.z42";
+        return r;
+    }
+
+    // ── [[test]] / [[bench]] / [[example]]（array-of-tables）────────────────────
+    // harness 默认 true（z42b 反射）；harness=false 用 entry Main 退出码判定。
+    // example 忽略 harness（发现方按 entry Main 跑）；test 字段默认 false（仅 example：true→纳入 xtask test 执行）。
+    private static RunTarget[] _parseRunTargets(TomlValue root, string key) {
+        if (!root.ContainsKey(key)) { return new RunTarget[0]; }
+        var arr = root.Get(key);
+        int n = arr.Length();
+        RunTarget[] r = new RunTarget[n];
+        int i = 0;
+        while (i < n) {
+            var t = arr.At(i);
+            string name = ""; bool harness = true;
+            bool hasEntry = false; string entry = "";
+            string[] src = new string[0];
+            bool runInTest = false;
+            if (t.ContainsKey("name"))    { name = t.Get("name").AsString(); }
+            if (t.ContainsKey("harness")) { harness = t.Get("harness").AsBool(); }
+            if (t.ContainsKey("entry"))   { entry = t.Get("entry").AsString(); hasEntry = true; }
+            if (t.ContainsKey("sources")) { src = ManifestLoader._strArray(t.Get("sources")); }
+            if (t.ContainsKey("test"))    { runInTest = t.Get("test").AsBool(); }
+            DepEntry[] deps = ManifestLoader._parseDeps(t, "dependencies");
+            r[i] = new RunTarget(name, harness, hasEntry, entry, src, src.Length, deps, deps.Length, runInTest);
             i = i + 1;
         }
         return r;

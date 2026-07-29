@@ -1,0 +1,105 @@
+// add-tests-bench-manifest-config P1：清单声明式 test / bench / example 目标解析单测。
+// 覆盖：段默认值 / include-exclude-auto-deps / [[target]] 字段 / harness 两态 /
+//       example test=true / per-target dev-deps 三层 / 多目标顺序保留。
+namespace Z42ProjectTargetsTests;
+
+using Std;
+using Std.Test;
+using Z42.Build.Project;
+
+// 段缺失 → kind 专属默认 include + auto=true + 无 dev-deps；无显式目标。
+[Test]
+void test_target_sections_default_when_absent() {
+    string toml = "[project]\nname = \"d\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(2, m.TestsSection.IncCount);
+    Assert.Equal("tests/*.z42", m.TestsSection.Include[0]);
+    Assert.Equal("tests/*/source.z42", m.TestsSection.Include[1]);
+    Assert.Equal(true, m.TestsSection.Auto);
+    Assert.Equal(0, m.TestsSection.DepCount);
+    Assert.Equal("bench/*.z42", m.BenchSection.Include[0]);
+    Assert.Equal("examples/*.z42", m.ExampleSection.Include[0]);
+    Assert.Equal(0, m.TestCount);
+    Assert.Equal(0, m.BenchCount);
+    Assert.Equal(0, m.ExampleCount);
+}
+
+// [tests] include/exclude/auto + [tests.dependencies] dev-deps。
+[Test]
+void test_tests_section_include_exclude_auto_deps() {
+    string toml = "[tests]\ninclude = [\"it/**/*.z42\"]\nexclude = [\"it/_skip/**\"]\nauto = false\n\n[tests.dependencies]\n\"z42.test\" = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.TestsSection.IncCount);
+    Assert.Equal("it/**/*.z42", m.TestsSection.Include[0]);
+    Assert.Equal(1, m.TestsSection.ExcCount);
+    Assert.Equal("it/_skip/**", m.TestsSection.Exclude[0]);
+    Assert.Equal(false, m.TestsSection.Auto);
+    Assert.Equal(1, m.TestsSection.DepCount);
+    Assert.Equal("z42.test", m.TestsSection.Deps[0].Name);
+    Assert.Equal("0.1.0", m.TestsSection.Deps[0].Version);
+}
+
+// [[test]] 默认 harness=true（反射），无 entry，无 sources，非 runInTest。
+[Test]
+void test_explicit_test_harness_default_true() {
+    string toml = "[[test]]\nname = \"unit_math\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.TestCount);
+    Assert.Equal("unit_math", m.Tests[0].Name);
+    Assert.Equal(true, m.Tests[0].Harness);
+    Assert.Equal(false, m.Tests[0].HasEntry);
+    Assert.Equal(0, m.Tests[0].SrcCount);
+    Assert.Equal(false, m.Tests[0].RunInTest);
+}
+
+// [[test]] harness=false + entry（Main）+ sources（glob 合并集）。
+[Test]
+void test_explicit_test_harness_false_with_entry() {
+    string toml = "[[test]]\nname = \"perf\"\nharness = false\nentry = \"Perf.Runner.Main\"\nsources = [\"tests/perf/*.z42\", \"tests/perf/_lib/*.z42\"]\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.TestCount);
+    Assert.Equal("perf", m.Tests[0].Name);
+    Assert.Equal(false, m.Tests[0].Harness);
+    Assert.Equal(true, m.Tests[0].HasEntry);
+    Assert.Equal("Perf.Runner.Main", m.Tests[0].Entry);
+    Assert.Equal(2, m.Tests[0].SrcCount);
+    Assert.Equal("tests/perf/*.z42", m.Tests[0].Sources[0]);
+    Assert.Equal("tests/perf/_lib/*.z42", m.Tests[0].Sources[1]);
+}
+
+// [[bench]] 与 [[example]]（example test=true → RunInTest）。
+[Test]
+void test_bench_and_example_targets() {
+    string toml = "[[bench]]\nname = \"throughput\"\n\n[[example]]\nname = \"streaming\"\nentry = \"Ex.Streaming.Main\"\ntest = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.BenchCount);
+    Assert.Equal("throughput", m.Benches[0].Name);
+    Assert.Equal(true, m.Benches[0].Harness);
+    Assert.Equal(1, m.ExampleCount);
+    Assert.Equal("streaming", m.Examples[0].Name);
+    Assert.Equal("Ex.Streaming.Main", m.Examples[0].Entry);
+    Assert.Equal(true, m.Examples[0].RunInTest);
+    Assert.Equal(true, m.Examples[0].HasEntry);
+}
+
+// per-target dev-dep：[test.dependencies] 绑定到最后一个 [[test]] 元素。
+[Test]
+void test_per_target_dev_deps() {
+    string toml = "[[test]]\nname = \"t\"\nharness = false\nentry = \"T.Main\"\n[test.dependencies]\n\"z42.compression\" = \"0.2.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.TestCount);
+    Assert.Equal(1, m.Tests[0].DepCount);
+    Assert.Equal("z42.compression", m.Tests[0].Deps[0].Name);
+    Assert.Equal("0.2.0", m.Tests[0].Deps[0].Version);
+}
+
+// 多目标：数组顺序按声明保留（发现方另做稳定 sort，此处只验解析忠实）。
+[Test]
+void test_multiple_targets_order_preserved() {
+    string toml = "[[test]]\nname = \"a\"\n\n[[test]]\nname = \"b\"\n\n[[test]]\nname = \"c\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(3, m.TestCount);
+    Assert.Equal("a", m.Tests[0].Name);
+    Assert.Equal("b", m.Tests[1].Name);
+    Assert.Equal("c", m.Tests[2].Name);
+}

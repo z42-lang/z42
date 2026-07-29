@@ -1,0 +1,32 @@
+namespace Z42.Build.Project;
+
+/// 一个 test / bench / example 运行目标（三类共用；`[[test]]` / `[[bench]]` / `[[example]]`）。
+///
+/// - `Harness == true`（默认）：由 z42b 反射跑本单元的 `[Test]` / `[Benchmark]` 自由函数，
+///   assert 失败即非零；`HasEntry` 忽略。
+/// - `Harness == false`：跑 `Entry` 指定的 Main（FQ 函数名），**退出码判定**（无 golden 比对）。
+/// - example 恒 Main 程序，`Harness` 对其无意义（发现方一律按 `Entry` Main 跑）。
+///
+/// `SrcCount == 0` 表示沿用约定单元的文件集（对齐 `ExeTarget` 的 `Src` 省略语义）。
+/// `Deps` 是该目标独享的 dev-dependency（三层合并中优先级最高，见 ManifestLoader / design D6）。
+/// `RunInTest` 仅 example 用：true → 纳入 `xtask test` 执行；false（默认）→ 只编不跑。
+///
+/// 受限自举子集写法：sealed class + 构造函数、bool HasX 替 nullable、array+count 替泛型。
+public sealed class RunTarget {
+    public string    Name;
+    public bool      Harness;
+    public bool      HasEntry;
+    public string    Entry;
+    public string[]  Sources;
+    public int       SrcCount;
+    public DepEntry[] Deps;
+    public int       DepCount;
+    public bool      RunInTest;
+    public RunTarget(string name, bool harness, bool hasEntry, string entry,
+                     string[] sources, int srcCount,
+                     DepEntry[] deps, int depCount, bool runInTest) {
+        this.Name = name; this.Harness = harness; this.HasEntry = hasEntry; this.Entry = entry;
+        this.Sources = sources; this.SrcCount = srcCount;
+        this.Deps = deps; this.DepCount = depCount; this.RunInTest = runInTest;
+    }
+}
