@@ -32,6 +32,7 @@ pub mod string;
 pub mod str_meta;
 pub mod math;
 pub mod fs;
+pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native / memory VFS）
 pub mod object;
 pub mod reflection;
 pub mod array;
@@ -410,6 +411,8 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── add-z42-io-ergonomics-bytes-glob (2026-05-27) — one-shot binary IO ──
     ("__file_read_bytes",  fs::builtin_file_read_bytes),
+    ("__vfs_mount",         fs_backend::memory::builtin_vfs_mount),
+    ("__vfs_enable",        fs_backend::memory::builtin_vfs_enable),
     ("__file_write_bytes", fs::builtin_file_write_bytes),
 
     // ── add-file-atomic-write (2026-05-27) — write-fsync-rename for durable config ──
