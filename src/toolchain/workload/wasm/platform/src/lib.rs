@@ -128,6 +128,17 @@ impl Z42VM {
         Ok(value_to_js(result))
     }
 
+    /// Mount a zpkg (or any file) into the in-memory VFS at `path`
+    /// (add-wasm-vfs-backend). The VFS is the default fs backend on wasm, so once
+    /// the stdlib + z42c compiler zpkgs are mounted under (say) `/libs`, setting
+    /// `Z42_LIBS=/libs` lets `DepScan` / z42c / `Script.Eval` **compile z42 source
+    /// in the browser** — `File.ReadAllBytes` / `Path.Glob` route here, no real fs.
+    /// (Runtime module loading is served separately by the `zpkgResolver`.)
+    #[wasm_bindgen(js_name = mountFile)]
+    pub fn mount_file(&self, path: &str, bytes: &[u8]) {
+        z42::corelib::fs_backend::memory::mount(path, bytes.to_vec());
+    }
+
     /// Explicitly tear down the VM. After this, all `Z42VMModule` /
     /// `Z42VMEntry` instances issued by this VM are invalid; subsequent
     /// method calls will throw `Z42VMNotInit`.

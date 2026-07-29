@@ -18,6 +18,14 @@ fn store() -> &'static RwLock<HashMap<String, Vec<u8>>> {
     VFS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// Mount a virtual file (path → bytes). Host-facing API — the wasm facade calls
+/// this to populate the VFS with stdlib + z42c zpkgs before compiling, so
+/// `DepScan`'s `File.ReadAllBytes`/`Path.Glob` (routed here) find them. Also
+/// backs the `__vfs_mount` builtin.
+pub fn mount(path: &str, bytes: Vec<u8>) {
+    store().write().insert(path.to_string(), bytes);
+}
+
 pub fn read(path: &str) -> Result<Vec<u8>> {
     store()
         .read()

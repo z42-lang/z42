@@ -22,7 +22,11 @@
   - **验证**：VFS DepScan 经隔离后端 `VFS_DEPSCAN_OK=1`（ns=43 modules=374）；native fs_tests 3/3 绿。
   - 未纳入后端（native-only / follow-up）：FileStream slot 流式 op（handle-based）、create_temp、symlink/link/
     make_executable、env/process/time/console——非 path-fs 或非编译关键，wasm 降级另处理。
-- [ ] 阶段 2 — wasm facade：`Z42VM.mountZpkg(path,bytes)` + `eval(source)→输出`；Z42_LIBS=/vfs
+- [~] 阶段 2 — wasm facade（部分 ✅）：`Z42VM.mountFile(path, bytes)` 落地——JS 把 stdlib + z42c zpkg
+  灌进 VFS（compile 路径读它）。runtime 加载由既有 `zpkgResolver` 服务。`fs_backend::memory::mount`
+  pub API + wasm-bindgen `mountFile`；**wasm32 实际编译通过**（wasm-pack build web，`mountFile` 进
+  生成 .d.ts）。剩：`eval(source)→输出` 编排（可 JS 侧用 mountFile + loadZbc(interactive) + invoke(-c)
+  实现，或加一个 facade 便捷方法）；VFS-backed resolver 统一 compile+runtime 单次挂载（D2 邻域）。
 - [ ] 阶段 3 — 打包：wasm 分发加 z42c.* + z42.scripting zpkg 静态产物（package-wasm）
 - [ ] 阶段 4 — 测试：VFS DepScan 一致性（内存 vs 磁盘）+ wasm eval e2e（Playwright，编译一段 z42 源→输出）
 - [ ] 阶段 5 — 文档：VFS 后端机制页 + wasm.md 基础支持接口 + 取代过时的 add-z42-wasm-playground
