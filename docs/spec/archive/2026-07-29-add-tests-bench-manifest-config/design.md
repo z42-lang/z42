@@ -70,3 +70,17 @@ final_deps = [dependencies] ∪ [<kind>.dependencies] ∪ [[target]].dependencie
 - **单元（解析）**：`z42.project/tests/tests_bench_example_targets.z42`——段默认值 / include-exclude / auto 开关 / `[[target]]` 字段 / harness 默认 / dev-deps 三层 / 缺 name / harness=false 缺 entry / 重名。
 - **端到端**：一个含 `[[test]]`(harness=true)+`[[test]]`(harness=false)+`[[bench]]`+`[[example]]`(test=true) 的工程夹具 → `xtask test <name>` 选中单个、`xtask example <name>` 跑单个、退出码判定、约定 glob 兜底。
 - **GREEN**：`xtask test` 全 stage（含新 example 编译门禁）+ stdlib z42.project 单测 + 自举不动点（z42.project 改动不得漂移 z42c 字节——它是 stdlib，由自建 z42c 编，A/B 验证）。CI 权威（cold worktree 本地不可验自举链）。
+
+## 实施定稿差异（2026-07-29，落地时确定）
+
+1. **CLI 形态：`xtask test targets <name>` / `bench targets <name>` / `example <name>`**。裸 `test`/`bench`
+   已是全量 gate / e2e 默认动作，无法重载为具名选择，故 test/bench 走 `targets <name>` 子动作；`example`
+   如原设计。spec「具名选择运行」已同步。
+2. **xtask 不加 `[dependencies]` 段消费 z42.project**（事实校正）。z42c 的 `DepScan`（`DepScan.z42:126`）：
+   工程声明 0 依赖时**索引全部 `Z42_LIBS`**；加一个部分 `[dependencies]` 块会翻成「仅声明可见」→ 破坏
+   `Std.Cli`/`Std.IO`/`Z42.Build` 解析（precedent：`scripts/hooks/hooks.z42` 用 `using Z42.Build;` 且无 deps 块）。
+   故 xtask 直接 `using Z42.Build.Project;`，z42.project.zpkg 从 flat alllibs 目录解析，**不改 xtask.z42.toml**。
+3. **harness=false 运行路径**：合成 `kind=exe` mini-manifest（`[project].entry` 烤入 target.Entry）→ `z42c build`
+   → `z42vm <zpkg>`（跑烤入 entry，不传 CLI entry 参数，对齐 multi-exe 已验证路径），退出码判定。
+4. **自定义段 `include` glob 运行期暂不展开**（仅约定 dir `tests/`·`bench/`·`examples/`）——见 spec「Known
+   Limitations」。解析层已支持，发现层后续接入 `SourceDiscovery`。

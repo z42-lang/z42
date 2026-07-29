@@ -172,31 +172,18 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // mode forwarded to z42b: "" / "interp" → in-process interp;
     // "jit" → runner forces subprocess fork of z42vm --mode jit.
     if (mode.Length == 0) { mode = "interp"; }
+    // add-tests-bench-manifest-config P2: discovery is now manifest-aware. Each
+    // lib's [tests]/[benches] section (Auto → convention scan, byte-identical to
+    // the legacy path for the many libs declaring no section) + explicit
+    // [[test]]/[[bench]] targets (harness=true → z42b reflection; harness=false →
+    // exit-code) drive _runLibKind (xtask_test_targets.z42). 3-layer dev-deps
+    // (target > section > project) via ManifestLoader replace the raw-toml harvest.
     foreach (var lib in libList) {
-        string testsDir = Path.Join(libsRoot, lib + "/" + subdir);
-        if (!Directory.Exists(testsDir)) { continue; }
-        // Phase 3.1.1: discover BOTH single-file tests (tests/*.z42) and
-        // dir-mode tests (tests/<name>/source.z42). Sort for determinism.
-        string[] rawEntries = _sortedStrings(Directory.Enumerate(testsDir));
-        TestUnit[] units = _discoverTestUnits(testsDir, rawEntries, filter);
-        if (units.Length == 0) { continue; }
-        libsTested = libsTested + 1;
-        Console.WriteLine("");
-        Console.WriteLine("════════════════════════════════════════════════");
-        Console.WriteLine("  " + lib + "  (" + units.Length.ToString() + " " + label + " unit(s))");
-        Console.WriteLine("════════════════════════════════════════════════");
-        // Phase 3.1.3: read parent <lib>.z42.toml once to harvest [dependencies]
-        // + [<subdir>.dependencies] for synthetic manifest dep merge.
-        string parentToml = Path.Join(libsRoot, lib + "/" + lib + ".z42.toml");
-        DepBundle parentDeps = _harvestParentDeps(parentToml, subdir);
-        totalFiles = totalFiles + units.Length;
-        // parallelize-and-jit-stdlib-tests A: this lib's units compile+run in
-        // batches of `jobsN` (unit-level parallelism, mirrors _runVmBatch).
-        // Each runner runs serially within its unit (no --jobs) so [Setup]/
-        // [Teardown] still execute — the parallelism is across units, not
-        // within. The per-unit z42.core bootstrap (the dominant cost) overlaps.
-        totalFailed = totalFailed + _runUnitsBatched(root, builderZpkg, lib, units, parentDeps, kind, jobsN, mode,
-                                                     vm, driverZpkg, libs, agg);
+        int f = _runLibKind(root, libsRoot, lib, subdir, kind, label, filter,
+                            builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
+                            ref totalFiles, ref libsTested);
+        if (f < 0) { return 2; }
+        totalFailed = totalFailed + f;
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");

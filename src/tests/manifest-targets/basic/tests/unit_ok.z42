@@ -1,0 +1,15 @@
+// Explicit [[test]] harness=true target — z42b reflects these [Test] functions.
+namespace MtUnit;
+
+using Std.Test;
+
+[Test]
+void unit_ok_add() {
+    Assert.Equal(4, 2 + 2);
+}
+
+[Test]
+void unit_ok_bool() {
+    Assert.True(3 > 2);
+    Assert.False(2 > 3);
+}

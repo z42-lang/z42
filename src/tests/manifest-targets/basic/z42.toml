@@ -1,0 +1,43 @@
+# add-tests-bench-manifest-config P4 — end-to-end fixture exercising every
+# manifest-declared dev-target shape in one project:
+#   [[test]] harness=true  (unit_ok)  → z42b reflection over [Test]
+#   [[test]] harness=false (exit_ok)  → z42vm <zpkg> <entry>, exit-code judged
+#   [[bench]] harness=true (micro)    → z42b reflection over [Benchmark]
+#   [[example]] test=true  (hello)    → compile gate + run (exit-code)
+# Plus tests/auto_conv.z42 — NOT declared explicitly → auto convention discovery
+# (section [tests] Auto default). unit_ok/exit_ok share a name with their file so
+# the explicit target OVERRIDES the auto unit (spec "显式覆盖同名 auto").
+#
+# Run by: `xtask test targets`, `xtask bench targets`, `xtask example`, and the
+# `manifest targets` / `examples` stages of `xtask test`. NOT built into stdlib
+# dist (lives under src/tests/, excluded from golden regen/run + packaging).
+[project]
+name    = "mt-basic"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.test" = "0.1.0"
+
+# harness defaults true → reflective [Test] run via z42b.
+[[test]]
+name    = "unit_ok"
+sources = ["tests/unit_ok.z42"]
+
+# harness=false → self-driving Main, exit code is the verdict (no golden).
+[[test]]
+name    = "exit_ok"
+harness = false
+entry   = "MtExit.Main"
+sources = ["tests/exit_ok.z42"]
+
+[[bench]]
+name    = "micro"
+sources = ["bench/micro.z42"]
+
+[[example]]
+name    = "hello"
+test    = true
+entry   = "MtHello.Main"
+sources = ["examples/hello.z42"]
