@@ -39,6 +39,60 @@ pub unsafe extern "C" fn jit_array_new_lit(
     (*frame).regs[dst as usize] = vm_ctx_ref(ctx).heap().alloc_array_typed(element_type, vals);
 }
 
+/// Phase 4a (jit-inline-fastpaths): expose the array's element data pointer +
+/// length so the JIT can do a **native** bounds-check + element load, instead of
+/// the full `jit_array_get` round-trip through a boxed `Value`. Safe: uses real
+/// types; the returned `*const Value` points into the array's `Vec` heap buffer,
+/// which stays put for the duration of the calling instruction (single-threaded
+/// read; the array isn't reallocated mid-read). Returns 0 + writes
+/// `*out_ptr`/`*out_len` on success; 1 (exception set) if the reg isn't an array.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_data(
+    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64,
+) -> u8 {
+    match &(*frame).regs[arr as usize] {
+        Value::Array(rc) => {
+            let borrowed = rc.borrow();
+            *out_ptr = borrowed.as_ptr();
+            *out_len = borrowed.len() as i64;
+            0
+        }
+        other => {
+            set_exception(vm_ctx_ref(ctx), Value::Str(
+                format!("ArrayGet: expected array, got {:?}", other).into()));
+            1
+        }
+    }
+}
+
+/// Phase 4b (jit-inline-fastpaths 方案 B): **non-throwing** array-data fetch for
+/// the loop-invariant hoist. Emitted ONCE in the JIT entry block for array
+/// registers proven never-reassigned. On success writes ptr+len; if the reg
+/// isn't an array (incl. null) it writes `*out_ptr = null` and **does not throw**
+/// — the per-`ArrayGet` inline detects the null ptr and falls back to
+/// `jit_array_get`, so the exception fires at the real access point (no
+/// spurious throw when the array is never actually indexed / loop runs 0 times).
+/// GC-safe: z42 arrays are fixed-length (no realloc) and the collector is
+/// non-moving, so the returned buffer ptr stays valid for the function's life.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_data_opt(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64,
+) {
+    match &(*frame).regs[arr as usize] {
+        Value::Array(rc) => {
+            let borrowed = rc.borrow();
+            *out_ptr = borrowed.as_ptr();
+            *out_len = borrowed.len() as i64;
+        }
+        _ => {
+            *out_ptr = std::ptr::null();
+            *out_len = 0;
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_get(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,

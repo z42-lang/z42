@@ -121,6 +121,22 @@ macOS `sample` 剖析数组重循环发现 **~25% interp 时间在 SipHash**：�
 比剖析预测的 25% 更大（标签字符串存取一并消除）。**JIT 不变**（Cranelift 原生分支）。
 锁是红鲱鱼、剖析一次即定位此 25% 热点——先剖析再动手的价值。GREEN 全绿 + 自举不动点。
 
+## Phase 4 结果:JIT 单态 i64 数组读内联去箱（2026-07-29，系统级，`jit-inline-fastpaths` 分支）
+
+针对「JIT 本质是穿线解释器、每操作跨 extern-C helper」的系统级瓶颈。上限 spike:同 50M 循环
+`total += a[j]`（helper）834ms vs `total += j`（原生）252ms = 3.31×（无 load 下界）。
+
+| JIT 数组重循环 50M 读 | 耗时 | 说明 |
+|--|-----:|------|
+| baseline（每 get 走 `jit_array_get`） | 834ms | boxed Value 往返 + C 边界 |
+| 方案 A（per-get `jit_array_data` + 原生 load） | 655ms（1.27×） | 每 get 仍一次取指针 helper |
+| **方案 B（loop-invariant 提指针到入口）** | **388ms（2.15×）** | **零 per-iteration 调用;= 含 load 的原生真实上限** |
+
+方案 B:never-reassigned 数组寄存器的 buffer ptr+len 在入口块一次取（非抛出 `jit_array_data_opt`），
+循环体内纯原生 bounds+load+去箱。null/无效数组 → len=0 → 无符号 bounds 恒 OOB → 回退 helper
+在真实访问点抛正确异常（0 迭代不误抛）。正确性 jit==interp 覆盖 in-bounds/OOB/重赋值/null-0迭代/
+null访问/**GC-stress(64M 分配跨 GC 提指针存活)**。GC 安全:非移动 GC + 定长数组 → ptr 稳定。
+
 ## 复现
 
 ```bash
