@@ -29,7 +29,6 @@ pub(super) fn call(
     cross_cell: Option<&OnceLock<Arc<Function>>>,
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
-    let arg_vals = collect_args(&frame.regs, args)?;
 
     // Hot path: direct index into module.functions if cache hit.
     let callee_fn = if let Some(slot) = method_token {
@@ -51,8 +50,10 @@ pub(super) fn call(
         module.func_index.get(fname).and_then(|&idx| module.functions.get(idx))
     };
 
+    // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly
+    // from caller regs + arg indices — no `collect_args` Vec, args cloned once.
     let outcome = if let Some(callee) = callee_fn {
-        super::exec_function(ctx, module, callee, &arg_vals)?
+        super::exec_function_from_regs(ctx, module, callee, &frame.regs, args)?
     } else if let Some(cell) = cross_cell {
         // Cross-zpkg: borrow the cached Arc<Function> on hit (zero hash);
         // resolve via the lazy loader once on first miss and backfill the cell.
@@ -68,10 +69,10 @@ pub(super) fn call(
                 cell.get().expect("cell was just set")
             }
         };
-        super::exec_function(ctx, module, target.as_ref(), &arg_vals)?
+        super::exec_function_from_regs(ctx, module, target.as_ref(), &frame.regs, args)?
     } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
         // No cross cell (back-compat): pure lazy-loader lookup, uncached.
-        super::exec_function(ctx, module, lazy_fn.as_ref(), &arg_vals)?
+        super::exec_function_from_regs(ctx, module, lazy_fn.as_ref(), &frame.regs, args)?
     } else {
         bail!("undefined function `{fname}`");
     };

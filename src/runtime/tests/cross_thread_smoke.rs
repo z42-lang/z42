@@ -425,6 +425,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
         cold: None,
         reg_types: Box::new([]),
         block_index:            std::collections::HashMap::new(),
+        branch_targets:         Vec::new(),
         resolved:               std::sync::OnceLock::new(),
     };
     let mut func_index = std::collections::HashMap::new();
