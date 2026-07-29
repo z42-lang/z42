@@ -55,6 +55,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         cold,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     }
 }

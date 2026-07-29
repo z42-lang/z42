@@ -27,6 +27,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
+        branch_targets: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     };
     Module {
