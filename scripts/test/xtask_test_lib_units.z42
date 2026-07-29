@@ -10,7 +10,6 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-using Std.Toml;
 
 /// One test compilation unit. UnitName = produced zpkg basename suffix
 /// (`<lib>.test.<UnitName>`); SourceFile = entry .z42 (single-file mode)
@@ -103,70 +102,10 @@ bool _dirHasTestMethods(string dir) {
     return false;
 }
 
-/// Read parent `<lib>.z42.toml` and harvest the union of
-/// `[dependencies]` + `[tests.dependencies]` as a single merged list.
-/// Returns an empty bundle when the toml is missing or has no dep
-/// sections (z42.test stdlib itself doesn't depend on anything).
-DepBundle _harvestParentDeps(string tomlPath, string section) {
-    DepBundle b = new DepBundle();
-    b.Names = new string[32];
-    b.Versions = new string[32];
-    b.Count = 0;
-    if (!File.Exists(tomlPath)) { return b; }
-    TomlValue root;
-    try {
-        root = TomlValue.Parse(File.ReadAllText(tomlPath));
-    } catch (TomlException) {
-        return b;
-    }
-    if (root.ContainsKey("dependencies")) {
-        _appendDeps(b, root.Get("dependencies"));
-    }
-    // section = "tests" → merge [tests.dependencies]; "bench" → [bench.dependencies].
-    if (root.ContainsKey(section)) {
-        TomlValue sec = root.Get(section);
-        if (sec.ContainsKey("dependencies")) {
-            _appendDeps(b, sec.Get("dependencies"));
-        }
-    }
-    return b;
-}
-
-/// Append a `[X.dependencies]` sub-table into the bundle, deduping by
-/// name so a key appearing in both [dependencies] and [tests.dependencies]
-/// keeps the first version seen.
-void _appendDeps(DepBundle b, TomlValue depsTable) {
-    string[] keys = depsTable.Keys();
-    int i = 0;
-    while (i < keys.Length) {
-        string name = keys[i];
-        bool seen = false;
-        int j = 0;
-        while (j < b.Count) {
-            if (b.Names[j] == name) { seen = true; }
-            j = j + 1;
-        }
-        if (!seen) {
-            // Grow if at capacity.
-            if (b.Count == b.Names.Length) {
-                int newCap = b.Names.Length * 2;
-                string[] nn = new string[newCap];
-                string[] nv = new string[newCap];
-                int k = 0;
-                while (k < b.Count) { nn[k] = b.Names[k]; nv[k] = b.Versions[k]; k = k + 1; }
-                b.Names = nn;
-                b.Versions = nv;
-            }
-            TomlValue v = depsTable.Get(name);
-            string ver = "*";
-            if (v.IsString()) { ver = v.AsString(); }
-            b.Names[b.Count] = name;
-            b.Versions[b.Count] = ver;
-            b.Count = b.Count + 1;
-        }
-        i = i + 1;
-    }
-}
+// Parent-toml dep harvest moved to xtask_test_targets.z42 (_baseDeps / _targetDeps,
+// ManifestLoader-based 3-layer merge; add-tests-bench-manifest-config P2). DepBundle
+// (above) stays here — it's the merged (name,version) shape both the harness=true
+// synthetic-manifest writer and the new exit-target compiler consume.
 
 /// Run a lib's test units in batches of `jobs`, parallelizing the dominant
 /// per-unit z42.core bootstrap across units (parallelize-and-jit-stdlib-tests
