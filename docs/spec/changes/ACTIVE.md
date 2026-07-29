@@ -14,6 +14,16 @@
 > 不存在（→手写 _lastSlash）、z42c SourceDiscovery 不认 `<dir>/<file>`（→`_z42cInclude` 转 `**/`）。
 > 归档释放 stdlib+toolchain 锁。archive：`archive/2026-07-29-add-tests-bench-manifest-config`。
 
+> **~~add-repl-prewarm~~** ✅ 已归档 2026-07-29（隔离 worktree `z42-replprewarm-wt` off HEAD
+> 920d223f，User 授权预抢，归档即释放 runtime+toolchain 锁）：REPL 启动即后台线程预热依赖世界，
+> 利用打字间隙盖住首次 eval 的 ~2–3.4s `DepScan`。**runtime**：`gc/safepoint.rs` native-park 原语
+> `NativeParkGuard`/`NativeUnparkGuard`（阻塞原生 readline 期 GC-safe park，复用 `parked_count`+
+> `gc_phase_cv`）+ `corelib/repl.rs` readline/completer 接线。**toolchain**：`z42.scripting`
+> `Script.Prewarm`/`_ensureWarm`（本地建 `DepScanResult` 末尾原子发布）+ `interactive_main` spawn +
+> 两 toml 加 `z42.threading`。GREEN：`xtask test` 全绿（e2e 424/0 + cross-zpkg 8/0 + runtime 865/0
+> 含 native-park 2/2 + compiler 自举 5/5 gen1==gen2 + stdlib 279file/23lib + vscode-syntax）+ 端到端
+> 打字间隙重叠实测（回车后首 eval ~2.3s→~0.44s）。archive：`archive/2026-07-29-add-repl-prewarm`。
+
 > **~~fix-imported-free-func-namespace~~** ✅ 已归档 2026-07-27（隔离 worktree 预抢，User 授权；
 > compiler 根因 fix：导入自由函数跨包裸调误限定当前 ns → 补 `ImportedSymbols.FunctionNamespaces` +
 > `EmitContext.QualifyFreeFunc` + `IrDump._filterShadowedFuncs`，与类 `ImportedClassNs` 对称。

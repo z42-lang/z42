@@ -32,6 +32,9 @@ fn prompt_arg(args: &[Value], idx: usize) -> String {
 /// Returns null on Ctrl-D (EOF) / Ctrl-C (interrupt).
 pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
+    // add-repl-prewarm: GC-safe park for the blocking read so a background
+    // prewarm thread's GC can proceed while this thread waits on stdin.
+    let _park = crate::gc::NativeParkGuard::enter(ctx);
     read_one_line(ctx, &prompt)
 }
 
@@ -61,6 +64,10 @@ static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<Strin
 pub fn builtin_repl_readblock(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
     let cont = prompt_arg(args, 1);
+    // add-repl-prewarm: one park guard spans the whole multi-line read (incl.
+    // the pure-Rust bracket-balance logic between lines). RAII → exits on every
+    // return path, including the `?` early-returns below.
+    let _park = crate::gc::NativeParkGuard::enter(ctx);
     let mut buf = match read_one_line(ctx, &prompt)? {
         Value::Str(s) => s.to_string(),
         _ => return Ok(Value::Null), // EOF on first line
@@ -309,6 +316,11 @@ impl rustyline::completion::Completer for ReplHelper {
         // `read_one_line`, cleared right after; `complete` only runs during that span
         // on this thread.
         let ctx: &VmContext = unsafe { &*ctx_ptr };
+        // add-repl-prewarm: this callback fires mid-`readline`, i.e. inside the
+        // outer NativeParkGuard. Temporarily un-park so the completer runs as a
+        // normal mutator (parking at its own safepoints if a background GC is
+        // requested); re-parks on drop before returning to the blocking read.
+        let _unpark = crate::gc::NativeUnparkGuard::exit(ctx);
         let start = word_start(line, pos);
         let line_val = Value::Str(line.into());
         match complete_via_callback(ctx, &fqn, line_val, pos as i64) {

@@ -13,6 +13,7 @@ namespace Std.Scripting;
 using Std;
 using Std.IO;
 using Std.Collections;
+using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Pipeline;
@@ -43,6 +44,39 @@ public static class Script {
         return s;
     }
 
+    // add-repl-prewarm：构建依赖世界（首次 eval 的 ~3.4s 一次性开销：ScanDirsLazy 扫全 stdlib+
+    // 编译器世界 + 加载默认 using 包）。REPL 启动即 spawn 一个 worker 线程跑它，与用户打字并行，
+    // 首次 Eval 消费前 Join 汇合 → 首次 eval 从「回车后干等 3.4s」变「近乎瞬时」。
+    //
+    // 并发安全（design Decision 4）：全程操作**本地** scan，**末尾**才 `state.CachedScan = scan`
+    // 原子发布。并发读该字段的补全器只见 null（既有 null 分支返回空）或完全成品，绝不见半构造/
+    // 正被 EnsurePackageLoaded 变异的中间态。幂等：已建则直接返回。
+    public static void Prewarm(ScriptState state) {
+        if (state.CachedScan != null) { return; }
+        DepScanResult scan = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+        // 默认 using（#64：Std.IO/Collections/Text/Math）语义 = "始终可用" → 即时加载其包到本地
+        // scan（与旧同步路径等价；EnsurePackageLoaded 幂等）。其余包惰性（见 _compileSrc 的按需加载）。
+        int i = 0;
+        while (i < state.Usings.Count) {
+            DepScan.EnsurePackageLoaded(scan, state.Usings[i]);
+            i = i + 1;
+        }
+        state.CachedScan = scan;   // 原子发布（64 位指针写）——见上并发安全说明
+    }
+
+    // add-repl-prewarm：Eval 顶部汇合点。有后台 worker → Join（已完成则瞬回；打字极快则阻塞到
+    // 完成，退化为同步、不更差）。worker 异常 / 无 worker（.reset 重建 s / -c 单次求值）→ inline
+    // Prewarm 兜底，行为与预热前一致。
+    private static void _ensureWarm(ScriptState state) {
+        if (state.CachedScan != null) { return; }
+        if (state.PrewarmThread != null) {
+            Thread t = state.PrewarmThread;
+            state.PrewarmThread = null;   // 只 Join 一次
+            try { t.Join(); } catch (Exception e) { }   // worker 异常 → 下面 inline 兜底重建
+        }
+        if (state.CachedScan == null) { Script.Prewarm(state); }
+    }
+
     // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
     // 运行时（z42vm）版本串未经 builtin 暴露给 z42 → 留待 follow-up（repl-future-runtime-version）。
     public static string FormatVersion() {
@@ -52,6 +86,11 @@ public static class Script {
 
     public static EvalResult Eval(ScriptState state, string input) {
         string trimmed = input.Trim();
+
+        // add-repl-prewarm：确保依赖世界就绪。放在最顶——含下面 `using` 累积路径也先汇合，
+        // 避免后台 worker 读 state.Usings 与主线程改 state.Usings 竞争（Join 是内存屏障）。
+        // worker 已完成 → Join 瞬回；无 worker（.reset / -c）→ inline Prewarm 兜底。
+        Script._ensureWarm(state);
 
         // ── using 声明：累积（去重），不编译 ──
         if (trimmed.StartsWith("using ")) {
@@ -70,17 +109,7 @@ public static class Script {
         string cls = "Vars" + n.ToString();
 
         ParsedInput p = Classifier.Classify(trimmed);
-
-        // perf ②：首轮对静态库建一次 DepScan 并缓存（decl / var / expr 各路径均需）。
-        // lazy-repl-depscan：改惰性——首轮只建 prelude world + 全量 nsMap（~1.4s vs 全量 ~4.3s）；
-        // 引用到的包在编译失败后按 using 按需加载（见 _compileSrc 的 load-and-retry）。
-        if (state.CachedScan == null) {
-            state.CachedScan = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
-            // 默认 using（#64：Std.IO/Collections/Text/Math）语义 = "始终可用"，故即时加载其包——
-            // 常用类型开箱可用 + 导入补全（#62 读 CachedScan.Exported）对常用类型即时生效。其余包
-            // 惰性（引用失败后按 using 加载，见 _compileSrc）。首轮 ~1.4s + 默认 4 包 ≈ ~1.8s（vs 全量 4.3s）。
-            Script._loadUsingsPackages(state);
-        }
+        // 依赖世界已由顶部 _ensureWarm 就绪（CachedScan != null）。
 
         // ── 顶层声明轮（函数 / 类型）：编入 Repl.R{n}、登记 ns，后续轮 `using` 可见（零壳类/零改写）──
         if (p.IsDecl) { return Script._evalDecl(state, trimmed, p, n, ns); }

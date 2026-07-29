@@ -13,6 +13,7 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
+| 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs`+`gc/safepoint.rs`（add-repl-prewarm）|
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）|
 | 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |
 | 多行输入 | `Std.Repl.ReadBlock`（括号平衡；宿主 `interactive_main` 接线）|
@@ -51,4 +52,4 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 | `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |
 | `Classifier.z42` | 输入分类：using / var / 顶层函数·类型声明 / 表达式·语句 |
 | `Rewriter.z42` | 会话变量裸引用 → `Vars{N}.x` 限定改写 |
-| `Script.z42` | `Script.Create` / `Eval`（分类→建源→编译→加载→求值；声明累积）|
+| `Script.z42` | `Script.Create` / `Eval`（分类→建源→编译→加载→求值；声明累积）+ `Prewarm`/`_ensureWarm`（启动后台预热依赖世界 + 首次 Eval 汇合）|

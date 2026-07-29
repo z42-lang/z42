@@ -49,7 +49,9 @@ pub use heap::MagrGC;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
 pub use refs::{GcRef, WeakGcRef};
-pub use safepoint::{check_safepoint, request_gc_pause, GcPauseGuard, GcPhase};
+pub use safepoint::{
+    check_safepoint, request_gc_pause, GcPauseGuard, GcPhase, NativeParkGuard, NativeUnparkGuard,
+};
 pub use snapshot::{
     build_graph_snapshot, serialize_v8_heapsnapshot, EdgeType, GraphSnapshot, NodeType,
 };
