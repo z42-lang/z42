@@ -1,0 +1,17 @@
+// Explicit [[bench]] harness=true target — z42b reflects [Benchmark] functions
+// (dispatched via the `bench` verb). Modest sample counts keep the gate fast.
+namespace MtBench;
+
+using Std;
+using Std.Test;
+
+[Benchmark]
+void micro_add() {
+    var b = new Bencher(1, 5);
+    b.iter(() => {
+        int x = 0;
+        int i = 0;
+        while (i < 100) { x = x + i; i = i + 1; }
+    });
+    b.printSummary("micro_add");
+}

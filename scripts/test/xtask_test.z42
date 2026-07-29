@@ -258,6 +258,19 @@ int _testAll(bool noBuild, string skip) {
         Console.WriteLine("\n=== stage: stdlib [Test] ===");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null); if (c != 0) { return c; }
     }
+    // stage 4b: manifest-target fixtures (add-tests-bench-manifest-config P4 —
+    // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:
+    // the wave + stdlib stage already prepared the release toolchain.
+    if (!_skipHas(skip, "targets")) {
+        Console.WriteLine("\n=== stage: manifest targets ([[test]]) ===");
+        c = _testTargetsCore("test", "", true); if (c != 0) { return c; }
+    }
+    // stage 4c: example compile-gate (design D4): compile ALL examples across
+    // projects (build failure = stage failure), run those marked test=true.
+    if (!_skipHas(skip, "examples")) {
+        Console.WriteLine("\n=== stage: examples (compile gate + test=true run) ===");
+        c = _testExampleGate(true); if (c != 0) { return c; }
+    }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)
     // — running on all 4 OS legs was 4× redundant (host-independent output).

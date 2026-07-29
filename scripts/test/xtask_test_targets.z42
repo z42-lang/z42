@@ -1,0 +1,446 @@
+// xtask — manifest-driven test/bench/example target engine
+// (add-tests-bench-manifest-config P2/P3). Same Z42Xtask namespace; consumed by
+// the stdlib per-lib flow (_testLibCore, xtask_test_lib.z42), the fixture flow
+// (xtask_test_fixtures.z42) and the example runner (xtask_test_example.z42).
+// Reads a project's `<name>.z42.toml` via the shared stdlib ManifestLoader
+// (Z42.Build.Project) — no hand-rolled TOML — and turns the declared
+// `[tests]`/`[benches]`/`[examples]` sections + `[[test]]`/`[[bench]]`/
+// `[[example]]` targets into runnable units:
+//
+//   auto convention units (section.Auto, default true)      → proven batched z42b
+//     directory scan of tests/·bench/ (_runUnitsBatched)      reflection path
+//   explicit [[target]] harness=true (default)              → compile a lib zpkg
+//     over the target's sources + reflect via z42b            (_runReflectTarget)
+//   explicit [[target]] harness=false + entry               → compile an exe zpkg
+//                                                              + `z42vm <zpkg>
+//                                                              <entry>`, exit-code
+//                                                              (_runExitTarget)
+//
+// Every existing stdlib lib declares no sections/targets, so it keeps the exact
+// convention scan (byte-identical behaviour). Explicit targets overlay it: an
+// auto unit is dropped when an explicit target of the same name exists.
+//
+// NOTE (xtask deps): xtask.z42.toml declares NO [dependencies] block on purpose
+// (DepScan.z42: declaredCount==0 → index ALL of Z42_LIBS), so `using
+// Z42.Build.Project` resolves z42.project.zpkg from the flat alllibs dir with no
+// manifest change. Adding a partial [dependencies] block would flip z42c to
+// "declared-only" indexing and break Std.Cli / Std.Io / Z42.Build resolution.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Z42.Build.Project;
+
+// ── manifest access (null-tolerant: missing/broken toml → convention defaults) ──
+
+// Load a project manifest, or null when the toml is absent / unparsable. Callers
+// treat null as "auto convention scan, no explicit targets, no dev-deps".
+ProjectManifest _loadManifestOr(string tomlPath) {
+    if (!File.Exists(tomlPath)) { return null; }
+    try { return ManifestLoader.Load(tomlPath); }
+    catch (Exception e) { return null; }
+}
+
+// section.Auto for a kind ("test"/"bench"/"example"); null manifest → true.
+bool _sectionAuto(ProjectManifest m, string kind) {
+    if (m == null) { return true; }
+    if (kind == "bench")   { return m.BenchSection.Auto; }
+    if (kind == "example") { return m.ExampleSection.Auto; }
+    return m.TestsSection.Auto;
+}
+
+// Explicit [[test]]/[[bench]]/[[example]] targets for a kind (empty when none).
+RunTarget[] _explicitTargets(ProjectManifest m, string kind) {
+    if (m == null) { return new RunTarget[0]; }
+    if (kind == "bench")   { return m.Benches; }
+    if (kind == "example") { return m.Examples; }
+    return m.Tests;
+}
+
+// ── three-layer dev-dep merge (design D6: target > section > project) ──────────
+
+// Base deps for convention/auto units: section ∪ project, section wins on clash.
+DepBundle _baseDeps(ProjectManifest m, string kind) {
+    DepBundle b = _newBundle();
+    if (m == null) { return b; }
+    _bundleAddSection(b, m, kind);
+    _bundleAddDeps(b, m.Deps, m.DepCount);
+    return b;
+}
+
+// Full three-layer for one explicit target: target ∪ section ∪ project; first
+// added wins → target beats section beats project (design D6 priority).
+DepBundle _targetDeps(ProjectManifest m, string kind, RunTarget t) {
+    DepBundle b = _newBundle();
+    if (t != null) { _bundleAddDeps(b, t.Deps, t.DepCount); }
+    if (m != null) { _bundleAddSection(b, m, kind); _bundleAddDeps(b, m.Deps, m.DepCount); }
+    return b;
+}
+
+void _bundleAddSection(DepBundle b, ProjectManifest m, string kind) {
+    if (kind == "bench")        { _bundleAddDeps(b, m.BenchSection.Deps, m.BenchSection.DepCount); }
+    else if (kind == "example") { _bundleAddDeps(b, m.ExampleSection.Deps, m.ExampleSection.DepCount); }
+    else                        { _bundleAddDeps(b, m.TestsSection.Deps, m.TestsSection.DepCount); }
+}
+
+DepBundle _newBundle() {
+    DepBundle b = new DepBundle();
+    b.Names = new string[16]; b.Versions = new string[16]; b.Count = 0;
+    return b;
+}
+
+// Insert one (name, version) into a bundle, first-wins dedup by name (grows on
+// demand). "" version → "*".
+void _bundlePut(DepBundle b, string name, string ver) {
+    int j = 0;
+    while (j < b.Count) { if (b.Names[j] == name) { return; } j = j + 1; }
+    if (b.Count == b.Names.Length) {
+        int cap = b.Names.Length * 2;
+        string[] nn = new string[cap]; string[] nv = new string[cap];
+        int k = 0;
+        while (k < b.Count) { nn[k] = b.Names[k]; nv[k] = b.Versions[k]; k = k + 1; }
+        b.Names = nn; b.Versions = nv;
+    }
+    if (ver.Length == 0) { ver = "*"; }
+    b.Names[b.Count] = name; b.Versions[b.Count] = ver; b.Count = b.Count + 1;
+}
+
+// Append DepEntry[] into a bundle (first-wins dedup).
+void _bundleAddDeps(DepBundle b, DepEntry[] deps, int n) {
+    int i = 0;
+    while (i < n) { _bundlePut(b, deps[i].Name, deps[i].Version); i = i + 1; }
+}
+
+// Three-layer merge from raw (name, version) pairs instead of a DepEntry[] — for
+// the example runner, whose local ExampleUnit carries deps as primitive string
+// arrays (avoids an imported-type field). Priority: pairs > section > project.
+DepBundle _targetDepsPairs(ProjectManifest m, string kind, string[] names, string[] versions, int n) {
+    DepBundle b = _newBundle();
+    int i = 0;
+    while (i < n) { _bundlePut(b, names[i], versions[i]); i = i + 1; }
+    if (m != null) { _bundleAddSection(b, m, kind); _bundleAddDeps(b, m.Deps, m.DepCount); }
+    return b;
+}
+
+// ── explicit-target validation (design D5/D6 error codes; discovery layer) ─────
+
+// Returns "" when the kind's explicit targets are valid, else an error message.
+// Rules: [[target]] missing name → error; harness=false missing entry → error;
+// duplicate name within a kind → error. (example ignores harness — always Main.)
+string _validateRunTargets(RunTarget[] t, int n, string kind) {
+    int i = 0;
+    while (i < n) {
+        RunTarget x = t[i];
+        if (x.Name.Length == 0) {
+            return "[[" + kind + "]] #" + (i + 1).ToString() + " missing required `name`";
+        }
+        if (kind != "example" && !x.Harness && !x.HasEntry) {
+            return "[[" + kind + "]] '" + x.Name + "' has harness=false but no `entry`";
+        }
+        int j = i + 1;
+        while (j < n) {
+            if (t[j].Name == x.Name) { return "duplicate [[" + kind + "]] name '" + x.Name + "'"; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// ── auto (harness=true) convention discovery ──────────────────────────────────
+
+// Convention auto units for a project: directory-scan <projDir>/<subdir> exactly
+// as the legacy path (single-file *.z42 + dir-mode */source.z42 with [Test]).
+// Empty when section.Auto is off or the dir is absent. LIMITATION: honors the
+// default `tests/`·`bench/` convention dir only; a custom `[tests] include=[...]`
+// glob outside that dir is not expanded here (no stdlib lib uses one — follow-up).
+TestUnit[] _autoUnits(string projDir, string subdir, bool auto, string filter) {
+    if (!auto) { return new TestUnit[0]; }
+    string dir = Path.Join(projDir, subdir);
+    if (!Directory.Exists(dir)) { return new TestUnit[0]; }
+    return _discoverTestUnits(dir, _sortedStrings(Directory.Enumerate(dir)), filter);
+}
+
+// Drop auto units whose name is claimed by an explicit target (explicit overrides
+// same-name auto, spec "显式目标覆盖同名 auto").
+TestUnit[] _dropOverridden(TestUnit[] auto, RunTarget[] tgts, int nTgts) {
+    TestUnit[] tmp = new TestUnit[auto.Length];
+    int c = 0;
+    int i = 0;
+    while (i < auto.Length) {
+        bool overridden = false;
+        int j = 0;
+        while (j < nTgts) { if (tgts[j].Name == auto[i].UnitName) { overridden = true; } j = j + 1; }
+        if (!overridden) { tmp[c] = auto[i]; c = c + 1; }
+        i = i + 1;
+    }
+    TestUnit[] r = new TestUnit[c];
+    int k = 0;
+    while (k < c) { r[k] = tmp[k]; k = k + 1; }
+    return r;
+}
+
+// ── explicit target execution (reflect harness=true / exit-code harness=false) ─
+
+// Run an explicit harness=true target: compile its sources (or convention) into a
+// lib zpkg, then reflect [Test]/[Benchmark] via z42b. Returns 0 pass / 1 fail.
+int _runReflectTarget(string root, string projDir, string projPrefix, string subdir,
+                      ProjectManifest man, string kind, RunTarget t,
+                      string builderZpkg, string vm, string driverZpkg, string libs) {
+    string projName = projPrefix + "." + t.Name;
+    DepBundle deps = _targetDeps(man, kind, t);
+    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, t.Name, t.HasEntry, t.Entry, t.Sources, t.SrcCount, deps, "lib", t.Name, libs);
+    if (zpkg.Length == 0) { return 1; }
+    string verb = (kind == "bench") ? "bench" : "test";
+    ProcessResult rr = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+        .Arg("--").Arg(verb).Arg(zpkg).Env("Z42_LIBS", libs).Run();
+    Console.Write(rr.Stdout);
+    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + t.Name + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
+    return 0;
+}
+
+// Run every harness=false target of a kind; returns the failure count.
+int _runExitTargets(string root, string projDir, string projPrefix, string subdir,
+                    ProjectManifest man, string kind, RunTarget[] tgts, int n,
+                    string vm, string driverZpkg, string libs) {
+    int failed = 0;
+    int i = 0;
+    while (i < n) {
+        DepBundle deps = _targetDeps(man, kind, tgts[i]);
+        if (_runExitTarget(root, projDir, projPrefix, subdir, tgts[i].Name, tgts[i].HasEntry, tgts[i].Entry, tgts[i].Sources, tgts[i].SrcCount, deps, vm, driverZpkg, libs, true) != 0) {
+            failed = failed + 1;
+        }
+        i = i + 1;
+    }
+    return failed;
+}
+
+// One harness=false / example target: compile to a runnable exe zpkg, and (when
+// runAfter) run `z42vm <zpkg> [entry]`. Returns 0 pass / 1 fail. runAfter=false →
+// compile-only gate (example default: build failure fails, no execution).
+int _runExitTarget(string root, string projDir, string projPrefix, string subdir,
+                   string tName, bool tHasEntry, string tEntry, string[] tSources, int tSrcCount,
+                   DepBundle deps, string vm, string driverZpkg, string libs,
+                   bool runAfter) {
+    string projName = projPrefix + "." + tName;
+    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, tName, tHasEntry, tEntry, tSources, tSrcCount, deps, "exe", tName, libs);
+    if (zpkg.Length == 0) { return 1; }
+    if (!runAfter) { Console.WriteLine("✓ " + tName + " (compiled)"); return 0; }
+    // The exe zpkg bakes [project].entry (== tEntry) → run it directly, no CLI
+    // entry arg (matches the proven multi-exe run path; z42vm dispatches the baked
+    // entry). exit-code is the verdict (design D3: non-zero = fail, no golden).
+    ProcessResult rr = new Process(vm).Arg(zpkg).Env("Z42_LIBS", libs).Run();
+    Console.Write(rr.Stdout);
+    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + tName + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
+    Console.WriteLine("✓ " + tName);
+    return 0;
+}
+
+// Compile one target's sources into a zpkg (kindStr "exe"/"lib") via a synthetic
+// mini-manifest + `z42c build`. Returns the produced zpkg path, or "" on a
+// no-source-match / compile error (message printed). Writes the synth toml at
+// projDir (globs resolve relative to it) and deletes it afterwards.
+string _compileTarget(string root, string vm, string driverZpkg, string projDir,
+                      string projName, string subdir, string tName, bool tHasEntry,
+                      string tEntry, string[] tSources, int tSrcCount, DepBundle deps,
+                      string kindStr, string label, string libs) {
+    string outDir = Path.Join(root, "artifacts/.scratch/targets/" + projName);
+    if (Directory.Exists(outDir)) { try { Directory.Delete(outDir, true); } catch (Exception e) {} }
+    Directory.Create(Path.Join(outDir, "dist"));
+    string[] inc = _targetIncludes(projDir, subdir, tName, tSources, tSrcCount);
+    if (inc.Length == 0) {
+        ConsoleError.WriteLine("✗ " + label + ": no source files match (sources glob / convention empty)");
+        return "";
+    }
+    string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
+    bool wantEntry = (kindStr == "exe") && tHasEntry;
+    File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, tEntry, wantEntry, inc, inc.Length, outDir, deps));
+    ProcessResult br = new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(synth).Env("Z42_LIBS", libs).Run();
+    try { File.Delete(synth); } catch (Exception e) {}
+    if (br.ExitCode != 0) {
+        ConsoleError.WriteLine("✗ COMPILE ERROR: " + label);
+        Console.Write(br.Stdout); Console.Write(br.Stderr);
+        return "";
+    }
+    string zpkg = Path.Join(Path.Join(outDir, "dist"), projName + ".zpkg");
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("✗ " + label + ": no zpkg produced at " + zpkg);
+        return "";
+    }
+    return zpkg;
+}
+
+// Resolve a target's source globs to projDir-relative include patterns. Explicit
+// sources verbatim; else convention <subdir>/<name>.z42 (single) or
+// <subdir>/<name>/**/*.z42 (dir). Absent → empty (caller errors "no match").
+string[] _targetIncludes(string projDir, string subdir, string tName, string[] tSources, int tSrcCount) {
+    if (tSrcCount > 0) {
+        if (_countMatches(projDir, tSources, tSrcCount) == 0) { return new string[0]; }
+        string[] r = new string[tSrcCount];
+        int i = 0;
+        while (i < tSrcCount) { r[i] = _z42cInclude(tSources[i]); i = i + 1; }
+        return r;
+    }
+    string single = Path.Join(Path.Join(projDir, subdir), tName + ".z42");
+    if (File.Exists(single)) { string[] r = new string[1]; r[0] = _z42cInclude(subdir + "/" + tName + ".z42"); return r; }
+    string dir = Path.Join(Path.Join(projDir, subdir), tName);
+    if (Directory.Exists(dir)) { string[] r = new string[1]; r[0] = subdir + "/" + tName + "/**/*.z42"; return r; }
+    return new string[0];
+}
+
+// Rewrite a source include so z42c's SourceDiscovery._expand matches it. That
+// matcher only handles `**/<g>`, `<prefix>/**/<g>`, or a bare single-level `<g>`
+// (Path.Glob over projDir basenames) — a plain `<dir>/<g>` (one subdir level, no
+// `**`) matches NOTHING. So `<dir>/<base>` → `<dir>/**/<base>` (GlobRecursive from
+// <dir>, which includes depth 0). Patterns already using `**` / bare basenames pass through.
+string _z42cInclude(string pattern) {
+    if (pattern.IndexOf("/**/") >= 0) { return pattern; }
+    if (pattern.StartsWith("**/")) { return pattern; }
+    int slash = _lastSlash(pattern);
+    if (slash < 0) { return pattern; }
+    string dir = pattern.Substring(0, slash);
+    string base = pattern.Substring(slash + 1, pattern.Length - slash - 1);
+    return dir + "/**/" + base;
+}
+
+// Count files matching any projDir-relative glob (for no-match validation).
+int _countMatches(string projDir, string[] patterns, int n) {
+    int total = 0;
+    int i = 0;
+    while (i < n) { total = total + _expandGlob(projDir, patterns[i]).Length; i = i + 1; }
+    return total;
+}
+
+// Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
+// (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
+// Index of the last '/' in s, or -1. Hand-rolled: z42 String has no LastIndexOf
+// (only IndexOf/Substring are builtins — a virtual LastIndexOf call VCall-crashes
+// on a Str receiver at runtime), so scan forward with IndexOf over the tail.
+int _lastSlash(string s) {
+    int last = -1;
+    int base = 0;
+    while (base < s.Length) {
+        int rel = s.Substring(base, s.Length - base).IndexOf("/");
+        if (rel < 0) { break; }
+        last = base + rel;
+        base = last + 1;
+    }
+    return last;
+}
+
+string[] _expandGlob(string projDir, string pattern) {
+    int mid = pattern.IndexOf("/**/");
+    if (mid >= 0) {
+        string prefix = pattern.Substring(0, mid);
+        string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
+        return Path.GlobRecursive(Path.Join(projDir, prefix), suffix);
+    }
+    if (pattern.StartsWith("**/")) {
+        return Path.GlobRecursive(projDir, pattern.Substring(3, pattern.Length - 3));
+    }
+    int slash = _lastSlash(pattern);
+    if (slash >= 0) {
+        string d = pattern.Substring(0, slash);
+        string basePat = pattern.Substring(slash + 1, pattern.Length - slash - 1);
+        return Path.Glob(Path.Join(projDir, d), basePat);
+    }
+    return Path.Glob(projDir, pattern);
+}
+
+// Hand-rolled mini-manifest: [project] name/kind (+entry for exe), [sources]
+// include globs (projDir-relative), packed both profiles, merged [dependencies].
+string _renderTargetManifest(string projName, string kindStr, string entry, bool hasEntry,
+                             string[] inc, int n, string outputDir, DepBundle deps) {
+    string body = "# Auto-generated by xtask (add-tests-bench-manifest-config P2/P3).\n"
+        + "[project]\n"
+        + "name    = \"" + projName + "\"\n"
+        + "version = \"0.1.0\"\n"
+        + "kind    = \"" + kindStr + "\"\n";
+    if (hasEntry) { body = body + "entry   = \"" + entry + "\"\n"; }
+    body = body + "\n[sources]\ninclude = [";
+    int i = 0;
+    while (i < n) {
+        if (i > 0) { body = body + ", "; }
+        body = body + "\"" + inc[i] + "\"";
+        i = i + 1;
+    }
+    body = body + "]\n\n[build]\noutput_dir = \"" + outputDir + "\"\n"
+        + "dist_dir   = \"${output_dir}/dist\"\n"
+        + "cache_dir  = \"${output_dir}/cache\"\n\n"
+        + "[profile.debug]\npack = true\n[profile.release]\npack = true\n";
+    if (deps.Count > 0) {
+        body = body + "\n[dependencies]\n";
+        i = 0;
+        while (i < deps.Count) {
+            body = body + "\"" + deps.Names[i] + "\" = \"" + deps.Versions[i] + "\"\n";
+            i = i + 1;
+        }
+    }
+    return body;
+}
+
+// ── stdlib per-lib driver (called by _testLibCore, xtask_test_lib.z42) ─────────
+
+// Discover + run one lib's `kind` targets (manifest-aware). Returns this lib's
+// failure count, or -1 on a target-validation error (caller aborts the stage).
+// Updates totalFiles / libsTested by ref. Preserves the legacy convention scan
+// (auto sections) for every existing stdlib lib while overlaying any explicit
+// `[[test]]`/`[[bench]]` targets (harness=true reflect / harness=false exit-code).
+int _runLibKind(string root, string libsRoot, string lib, string subdir, string kind,
+                string label, string filter, string builderZpkg, int jobsN, string mode,
+                string vm, string driverZpkg, string libs, MicroBenchAgg agg,
+                ref int totalFiles, ref int libsTested) {
+    string projDir = Path.Join(libsRoot, lib);
+    string parentToml = Path.Join(projDir, lib + ".z42.toml");
+    ProjectManifest man = _loadManifestOr(parentToml);
+    RunTarget[] tgts = _explicitTargets(man, kind);
+    string verr = _validateRunTargets(tgts, tgts.Length, kind);
+    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }
+    TestUnit[] units = _dropOverridden(_autoUnits(projDir, subdir, _sectionAuto(man, kind), filter),
+                                       tgts, tgts.Length);
+    RunTarget[] reflectT = _explicitByHarness(tgts, tgts.Length, true, filter);
+    RunTarget[] falseT   = _explicitByHarness(tgts, tgts.Length, false, filter);
+    int shown = units.Length + reflectT.Length + falseT.Length;
+    if (shown == 0) { return 0; }
+    libsTested = libsTested + 1;
+    Console.WriteLine("");
+    Console.WriteLine("════════════════════════════════════════════════");
+    Console.WriteLine("  " + lib + "  (" + shown.ToString() + " " + label + " unit(s))");
+    Console.WriteLine("════════════════════════════════════════════════");
+    totalFiles = totalFiles + shown;
+    int failed = 0;
+    if (units.Length > 0) {
+        failed = failed + _runUnitsBatched(root, builderZpkg, lib, units, _baseDeps(man, kind), kind,
+                                           jobsN, mode, vm, driverZpkg, libs, agg);
+    }
+    int ri = 0;
+    while (ri < reflectT.Length) {
+        failed = failed + _runReflectTarget(root, projDir, lib + "." + kind, subdir, man, kind,
+                                            reflectT[ri], builderZpkg, vm, driverZpkg, libs);
+        ri = ri + 1;
+    }
+    if (falseT.Length > 0) {
+        failed = failed + _runExitTargets(root, projDir, lib + "." + kind, subdir,
+                                          man, kind, falseT, falseT.Length, vm, driverZpkg, libs);
+    }
+    return failed;
+}
+
+// Explicit targets filtered by harness mode + substring name filter ("" = all).
+RunTarget[] _explicitByHarness(RunTarget[] tgts, int n, bool harness, string filter) {
+    RunTarget[] tmp = new RunTarget[n];
+    int c = 0;
+    int i = 0;
+    while (i < n) {
+        RunTarget t = tgts[i];
+        if (t.Harness == harness && (filter.Length == 0 || t.Name.Contains(filter))) { tmp[c] = t; c = c + 1; }
+        i = i + 1;
+    }
+    RunTarget[] r = new RunTarget[c];
+    int k = 0;
+    while (k < c) { r[k] = tmp[k]; k = k + 1; }
+    return r;
+}
