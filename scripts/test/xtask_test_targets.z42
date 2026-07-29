@@ -301,6 +301,21 @@ int _countMatches(string projDir, string[] patterns, int n) {
 
 // Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
 // (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
+// Index of the last '/' in s, or -1. Hand-rolled: z42 String has no LastIndexOf
+// (only IndexOf/Substring are builtins — a virtual LastIndexOf call VCall-crashes
+// on a Str receiver at runtime), so scan forward with IndexOf over the tail.
+int _lastSlash(string s) {
+    int last = -1;
+    int base = 0;
+    while (base < s.Length) {
+        int rel = s.Substring(base, s.Length - base).IndexOf("/");
+        if (rel < 0) { break; }
+        last = base + rel;
+        base = last + 1;
+    }
+    return last;
+}
+
 string[] _expandGlob(string projDir, string pattern) {
     int mid = pattern.IndexOf("/**/");
     if (mid >= 0) {
@@ -311,7 +326,7 @@ string[] _expandGlob(string projDir, string pattern) {
     if (pattern.StartsWith("**/")) {
         return Path.GlobRecursive(projDir, pattern.Substring(3, pattern.Length - 3));
     }
-    int slash = pattern.LastIndexOf("/");
+    int slash = _lastSlash(pattern);
     if (slash >= 0) {
         string d = pattern.Substring(0, slash);
         string basePat = pattern.Substring(slash + 1, pattern.Length - slash - 1);
