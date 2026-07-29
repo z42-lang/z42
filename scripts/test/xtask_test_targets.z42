@@ -281,14 +281,29 @@ string[] _targetIncludes(string projDir, string subdir, string tName, string[] t
         if (_countMatches(projDir, tSources, tSrcCount) == 0) { return new string[0]; }
         string[] r = new string[tSrcCount];
         int i = 0;
-        while (i < tSrcCount) { r[i] = tSources[i]; i = i + 1; }
+        while (i < tSrcCount) { r[i] = _z42cInclude(tSources[i]); i = i + 1; }
         return r;
     }
     string single = Path.Join(Path.Join(projDir, subdir), tName + ".z42");
-    if (File.Exists(single)) { string[] r = new string[1]; r[0] = subdir + "/" + tName + ".z42"; return r; }
+    if (File.Exists(single)) { string[] r = new string[1]; r[0] = _z42cInclude(subdir + "/" + tName + ".z42"); return r; }
     string dir = Path.Join(Path.Join(projDir, subdir), tName);
     if (Directory.Exists(dir)) { string[] r = new string[1]; r[0] = subdir + "/" + tName + "/**/*.z42"; return r; }
     return new string[0];
+}
+
+// Rewrite a source include so z42c's SourceDiscovery._expand matches it. That
+// matcher only handles `**/<g>`, `<prefix>/**/<g>`, or a bare single-level `<g>`
+// (Path.Glob over projDir basenames) — a plain `<dir>/<g>` (one subdir level, no
+// `**`) matches NOTHING. So `<dir>/<base>` → `<dir>/**/<base>` (GlobRecursive from
+// <dir>, which includes depth 0). Patterns already using `**` / bare basenames pass through.
+string _z42cInclude(string pattern) {
+    if (pattern.IndexOf("/**/") >= 0) { return pattern; }
+    if (pattern.StartsWith("**/")) { return pattern; }
+    int slash = _lastSlash(pattern);
+    if (slash < 0) { return pattern; }
+    string dir = pattern.Substring(0, slash);
+    string base = pattern.Substring(slash + 1, pattern.Length - slash - 1);
+    return dir + "/**/" + base;
 }
 
 // Count files matching any projDir-relative glob (for no-match validation).
