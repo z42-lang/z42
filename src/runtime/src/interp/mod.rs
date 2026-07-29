@@ -30,7 +30,7 @@ pub(crate) use exec_vcall::primitive_class_name;
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;
-use crate::metadata::{Function, Module, Terminator, Value};
+use crate::metadata::{BranchTargets, Function, Module, Terminator, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -178,10 +178,55 @@ pub(crate) struct Frame {
     pub ref_writebacks: Vec<(u32, crate::metadata::types::RefKind)>,
 }
 
+thread_local! {
+    /// Per-thread free-list of register-file Vecs (perf-vm-iteration Phase 1).
+    /// LIFO reuse across `Frame::new` / `Drop for Frame`. Bounded so deep-then-
+    /// shallow recursion doesn't pin memory forever. Thread-local ⇒ no lock, no
+    /// GC-root visibility (returned Vecs are cleared before parking, and are
+    /// never registered as roots — only a *live* frame's regs are scanned).
+    static REGS_POOL: std::cell::RefCell<Vec<Vec<Value>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Max Vecs retained in the per-thread pool. Caps idle memory; excess frees
+/// normally.
+const REGS_POOL_CAP: usize = 512;
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        // Return the register-file allocation to the per-thread pool for reuse.
+        // `clear()` drops every held `Value` (Arc<str> refcount dec, GcRef drop
+        // is a no-op) BEFORE parking the Vec, so no stale heap ref lingers in an
+        // unscanned location. Runs only after `FrameGuard` popped the VmFrame
+        // (drop order), so the regs pointer is no longer a GC root here.
+        let mut regs = std::mem::take(&mut self.regs);
+        regs.clear();
+        if regs.capacity() > 0 {
+            REGS_POOL.with(|p| {
+                let mut pool = p.borrow_mut();
+                if pool.len() < REGS_POOL_CAP {
+                    pool.push(regs);
+                }
+            });
+        }
+    }
+}
+
 impl Frame {
     pub fn new(args: &[Value], max_reg: u32) -> Self {
         let size = if max_reg > 0 { max_reg as usize } else { args.len() };
-        let mut regs = vec![Value::Null; size.max(args.len())];
+        let need = size.max(args.len());
+        // perf-vm-iteration Phase 1 (Decision 3): reuse a register-file Vec from
+        // a per-thread free-list instead of `vec![Null; need]` every call. The
+        // pool is thread-local (one mutator thread per VmContext today), so it
+        // has no GC / cross-thread coupling — unlike the call_stack Mutex. The
+        // matching `Drop for Frame` returns the (cleared) Vec to the pool AFTER
+        // `FrameGuard` has already popped this frame's VmFrame root (drop order:
+        // `_frame_guard`/`_vm_guard` are declared after `frame` in exec_function,
+        // so they drop first). Saves one malloc+free per call on call-heavy code.
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
         for (i, v) in args.iter().enumerate() {
             regs[i] = v.clone();
         }
@@ -190,6 +235,57 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
         }
+    }
+
+    /// perf-vm-iteration Phase 1 (Decision 3): build a frame filling the
+    /// register file directly from `caller_regs[arg_indices[i]]` — one clone per
+    /// arg, no intermediate args `Vec`. Same pooling as `new`. Returns an error
+    /// (not a panic) on an out-of-range register index, matching `collect_args`.
+    pub fn new_from_regs(caller_regs: &[Value], arg_indices: &[u32], max_reg: u32) -> Result<Self> {
+        let argc = arg_indices.len();
+        let size = if max_reg > 0 { max_reg as usize } else { argc };
+        let need = size.max(argc);
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            env_arena: Vec::new(),
+            ref_writebacks: Vec::new(),
+        })
+    }
+
+    /// perf-vm-iteration Phase 1 (Decision 3): like `new_from_regs` but with a
+    /// prepended receiver (`this`) in slot 0 — for the virtual-call hot path
+    /// (`exec_vcall`), which passes `regs[0] = receiver`, `regs[1+i] = args[i]`.
+    /// Eliminates the vcall path's `vec![receiver]` + `collect_args` Vecs and the
+    /// arg double-clone; receiver + each arg cloned exactly once.
+    pub fn new_from_receiver_regs(
+        receiver: &Value, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+    ) -> Result<Self> {
+        let argc = arg_indices.len();
+        let total = argc + 1; // + receiver in slot 0
+        let size = if max_reg > 0 { max_reg as usize } else { total };
+        let need = size.max(total);
+        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        regs.clear();
+        regs.resize(need, Value::Null);
+        regs[0] = receiver.clone();
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i + 1] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            env_arena: Vec::new(),
+            ref_writebacks: Vec::new(),
+        })
     }
 
     /// Set a register's raw value (no deref). For ref-aware store-through
@@ -385,9 +481,40 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     // immediately respects a pending GC request. A worker thread spawned
     // mid-collect parks here before touching any roots.
     crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new(args, func.max_reg);
+    exec_function_body(ctx, module, func, frame)
+}
 
-    let mut frame = Frame::new(args, func.max_reg);
+/// perf-vm-iteration Phase 1 (Decision 3): hot direct-call entry that fills the
+/// callee register file **directly** from the caller's registers + argument
+/// indices — no intermediate `collect_args` `Vec<Value>` alloc, and each arg is
+/// cloned **once** (caller reg → callee reg) instead of twice (caller reg →
+/// args Vec → callee reg). Mirrors the JIT's `JitFrame::new_args_from`
+/// (jit/helpers/call.rs). Used by the non-virtual `Call` path (exec_call::call),
+/// which passes plain register indices with no receiver prepend.
+pub(crate) fn exec_function_from_regs(
+    ctx: &VmContext, module: &Module, func: &Function,
+    caller_regs: &[Value], arg_indices: &[u32],
+) -> Result<ExecOutcome> {
+    crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    exec_function_body(ctx, module, func, frame)
+}
 
+/// perf-vm-iteration Phase 1 (Decision 3): virtual-call hot-path entry. Fills
+/// `regs[0] = receiver`, `regs[1+i] = caller_regs[arg_indices[i]]` directly —
+/// no `vec![receiver]` / `collect_args` Vecs, each value cloned once. Used by
+/// the `exec_vcall` object/primitive IC fast path.
+pub(crate) fn exec_function_from_receiver_regs(
+    ctx: &VmContext, module: &Module, func: &Function,
+    receiver: &Value, caller_regs: &[Value], arg_indices: &[u32],
+) -> Result<ExecOutcome> {
+    crate::gc::safepoint::check_safepoint(ctx);
+    let frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
+    exec_function_body(ctx, module, func, frame)
+}
+
+fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut frame: Frame) -> Result<ExecOutcome> {
     // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：
     //   1. 通过 RefKind 解引用得到底层值
@@ -528,8 +655,14 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
                 return Ok(ExecOutcome::Returned(Some(ret_val)));
             }
             Terminator::Br  { label }          => {
-                let target = *block_map.get(label.as_str())
-                    .with_context(|| format!("undefined block `{label}`"))?;
+                // perf-vm-iteration: jump by pre-resolved index (no per-branch
+                // SipHash on the label); fall back to the label map if the
+                // targets weren't precomputed (hand-built test functions).
+                let target = match func.branch_targets.get(block_idx) {
+                    Some(BranchTargets::Br(t)) => *t,
+                    _ => *block_map.get(label.as_str())
+                        .with_context(|| format!("undefined block `{label}`"))?,
+                };
                 // add-gc-safepoint (2026-05-20): backward branch heuristic
                 // — block index decreasing is a loop back-edge. Check
                 // safepoint so long-running loops park promptly.
@@ -543,9 +676,14 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
                     Value::Bool(b) => *b,
                     other => bail!("BrCond expects bool, got {:?}", other),
                 };
-                let label = if go_true { true_label } else { false_label };
-                let target = *block_map.get(label.as_str())
-                    .with_context(|| format!("undefined block `{label}`"))?;
+                let target = match func.branch_targets.get(block_idx) {
+                    Some(BranchTargets::BrCond(t, f)) => if go_true { *t } else { *f },
+                    _ => {
+                        let label = if go_true { true_label } else { false_label };
+                        *block_map.get(label.as_str())
+                            .with_context(|| format!("undefined block `{label}`"))?
+                    }
+                };
                 if target <= block_idx {
                     crate::gc::safepoint::check_safepoint(ctx);
                 }

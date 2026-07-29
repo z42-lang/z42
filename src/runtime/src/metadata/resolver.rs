@@ -445,6 +445,7 @@ mod resolver_tests {
                 cold: None,
                 reg_types: Box::new([]),
                 block_index: std::collections::HashMap::new(),
+                branch_targets: Vec::new(),
                 resolved: OnceLock::new(),
             })
         };

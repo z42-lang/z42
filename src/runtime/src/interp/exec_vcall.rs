@@ -82,12 +82,16 @@ pub(super) fn vcall(
     vcall_ic: Option<&crate::metadata::resolver::VCallIC>,
 ) -> Result<Option<Value>> {
     let obj_val = frame.get(obj)?.clone();
-    let mut extra_args = collect_args(&frame.regs, args)?;
+    // perf-vm-iteration Phase 1 (Decision 3): `collect_args` is no longer
+    // unconditional — the object/primitive IC fast path below fills the callee
+    // frame directly from caller regs + arg indices (zero args Vec). The cold
+    // boxing / primitive-name / vtable paths materialize `extra_args` locally.
 
     // ── add-primitive-value-boxing: 装箱基元方法调用 ────────────────────
     // 按 boxed.class 解析方法（+ arity 重载），fallback Std.Object 基类；`this = inner`（拆箱后
     // 交基元 struct 方法体，与未装箱基元同源）。GetType/ToString/Equals/GetHashCode 皆经此。
     if let Value::Boxed(b) = &obj_val {
+        let mut extra_args = collect_args(&frame.regs, args)?;
         // GetType 须保留装箱类：一般方法拆箱 `this=inner` 交基元 struct 方法体，但 GetType
         // 若也拆箱，其 __get_type 会按 inner 的**默认** primitive_class_name 报告（I64→Int32），
         // 丢掉 Std.Int64 等精确宽度。故 GetType 直接交 builtin_obj_get_type（Boxed 臂用 b.class）。
@@ -143,9 +147,10 @@ pub(super) fn vcall(
         {
             if fn_idx != crate::metadata::tokens::UNRESOLVED {
                 if let Some(callee) = module.functions.get(fn_idx as usize) {
-                    let mut call_args = vec![obj_val.clone()];
-                    call_args.append(&mut extra_args);
-                    let outcome = super::exec_function(ctx, module, callee, &call_args)?;
+                    // Direct fill: regs[0]=receiver, regs[1+i]=caller args. No
+                    // vec![receiver] / collect_args allocation on the hot path.
+                    let outcome = super::exec_function_from_receiver_regs(
+                        ctx, module, callee, &obj_val, &frame.regs, args)?;
                     return match outcome {
                         ExecOutcome::Returned(ret) => {
                             frame.set(dst, ret.unwrap_or(Value::Null));
@@ -172,6 +177,9 @@ pub(super) fn vcall(
     // when the unmangled lookup misses — covers `Equals` (arity 1) and any
     // other overloaded primitive method without per-Value-type special cases.
     // This subsumes the legacy `Value::Str` hardcoded block (review2 §2.2).
+    // IC fast path missed — materialize args for the cold primitive-name /
+    // vtable dispatch paths below (both consume `extra_args`).
+    let mut extra_args = collect_args(&frame.regs, args)?;
     if let Some(class_name) = primitive_class_name(&obj_val) {
         let mut call_args = vec![obj_val.clone()];
         call_args.append(&mut extra_args);

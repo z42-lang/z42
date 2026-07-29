@@ -1057,11 +1057,33 @@ fn check_one(
 /// Precompute block label → index mapping for all functions in the module.
 /// This eliminates the O(n) HashMap construction in every exec_function call.
 pub fn build_block_indices(module: &mut Module) {
+    use crate::metadata::bytecode::{BranchTargets, Terminator};
     for func in &mut module.functions {
         func.block_index = func.blocks
             .iter()
             .enumerate()
             .map(|(i, b)| (b.label.clone(), i))
+            .collect();
+        // perf-vm-iteration: pre-resolve each block's branch terminator labels
+        // to block indices so the interp jumps by index (no per-branch SipHash).
+        // NoBranch when a label is undefined — runtime then falls back to the
+        // label HashMap, preserving the existing "undefined block" error path.
+        let idx = &func.block_index;
+        func.branch_targets = func.blocks
+            .iter()
+            .map(|b| match &b.terminator {
+                Terminator::Br { label } => idx
+                    .get(label.as_str())
+                    .map(|&t| BranchTargets::Br(t))
+                    .unwrap_or(BranchTargets::NoBranch),
+                Terminator::BrCond { true_label, false_label, .. } => {
+                    match (idx.get(true_label.as_str()), idx.get(false_label.as_str())) {
+                        (Some(&t), Some(&f)) => BranchTargets::BrCond(t, f),
+                        _ => BranchTargets::NoBranch,
+                    }
+                }
+                _ => BranchTargets::NoBranch,
+            })
             .collect();
     }
 }

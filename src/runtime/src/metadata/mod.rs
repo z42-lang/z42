@@ -63,7 +63,7 @@ pub use types::{default_value_for, ClosureData, ExecMode, FieldSlot, NativeData,
 pub use types::ObjectData;
 
 // Re-exports: bytecode IR structures
-pub use bytecode::{BasicBlock, ClassDesc, ExceptionEntry, FieldDesc, Function, Instruction, Module, Terminator};
+pub use bytecode::{BasicBlock, BranchTargets, ClassDesc, ExceptionEntry, FieldDesc, Function, Instruction, Module, Terminator};
 pub use bytecode::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFieldAddrInsn, LoadFnCachedInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
