@@ -399,11 +399,11 @@ pub fn translate_function(
             for ins in &b.instructions {
                 match ins {
                     Instruction::ArrayGet { dst, arr, idx } => consider(arr,
-                        is_typed(z42_func, *dst, IrType::I64) && is_typed(z42_func, *idx, IrType::I64),
+                        prim_elem_tag(z42_func, *dst).is_some() && is_typed(z42_func, *idx, IrType::I64),
                         &mut candidates),
-                    // i64 ArraySet also reads the loop-invariant data ptr/len.
+                    // i64/f64 ArraySet also reads the loop-invariant data ptr/len.
                     Instruction::ArraySet { arr, idx, val } => consider(arr,
-                        is_typed(z42_func, *val, IrType::I64) && is_typed(z42_func, *idx, IrType::I64),
+                        prim_elem_tag(z42_func, *val).is_some() && is_typed(z42_func, *idx, IrType::I64),
                         &mut candidates),
                     _ => {}
                 }
@@ -964,7 +964,9 @@ pub fn translate_function(
                     // a per-get `jit_array_data` (方案 A). Cold OOB path reuses
                     // `jit_array_get` so the exception is identical; for a hoisted
                     // null/invalid array `len==0` routes every access there too.
-                    if is_typed(z42_func, *dst, IrType::I64) && is_typed(z42_func, *idx, IrType::I64) {
+                    if let (Some(elem_tag), true) =
+                        (prim_elem_tag(z42_func, *dst), is_typed(z42_func, *idx, IrType::I64))
+                    {
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
                         const STRIDE: i64 = 24;
@@ -1011,8 +1013,8 @@ pub fn translate_function(
                         let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, PAYLOAD);
                         let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
                         let dst_addr = builder.ins().iadd(regs_base, dst_off);
-                        let tag0 = builder.ins().iconst(types::I8, 0); // TAG_I64
-                        builder.ins().store(MemFlags::trusted(), tag0, dst_addr, 0);
+                        let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
+                        builder.ins().store(MemFlags::trusted(), tag_c, dst_addr, 0);
                         builder.ins().store(MemFlags::trusted(), elem, dst_addr, PAYLOAD);
                     } else {
                         let d = ri!(*dst); let a = ri!(*arr); let i = ri!(*idx);
@@ -1027,7 +1029,9 @@ pub fn translate_function(
                     // Data ptr+len from the hoist (方案 B) or per-set `jit_array_data`.
                     // Cold OOB / null reuses `jit_array_set` (identical exception,
                     // + write barrier for the heap-ref-value case that stays here).
-                    if is_typed(z42_func, *val, IrType::I64) && is_typed(z42_func, *idx, IrType::I64) {
+                    if let (Some(elem_tag), true) =
+                        (prim_elem_tag(z42_func, *val), is_typed(z42_func, *idx, IrType::I64))
+                    {
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
                         const STRIDE: i64 = 24;
@@ -1072,8 +1076,8 @@ pub fn translate_function(
                         let stride_c = builder.ins().iconst(types::I64, STRIDE);
                         let elem_off = builder.ins().imul(idx_v, stride_c);
                         let elem_addr = builder.ins().iadd(data_ptr, elem_off);
-                        let tag0 = builder.ins().iconst(types::I8, 0); // TAG_I64
-                        builder.ins().store(MemFlags::trusted(), tag0, elem_addr, 0);
+                        let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
+                        builder.ins().store(MemFlags::trusted(), tag_c, elem_addr, 0);
                         builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
                     } else {
                         let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
@@ -1777,6 +1781,19 @@ fn emit_bool_not(
 #[inline]
 fn is_typed(func: &Function, reg: u32, expected: IrType) -> bool {
     func.reg_types.get(reg as usize).copied() == Some(expected)
+}
+
+/// jit-inline-fastpaths: for a register statically typed as a **drop-free
+/// primitive** array element (i64 / f64), return its `Value` discriminant tag
+/// (I64=0, F64=1) — both store an opaque 8-byte payload, so the inline native
+/// load/store is identical bar the tag byte. `None` for any other type (element
+/// may be a heap ref → keep the helper for Drop/write-barrier correctness).
+fn prim_elem_tag(func: &Function, reg: u32) -> Option<i64> {
+    match func.reg_types.get(reg as usize).copied() {
+        Some(IrType::I64) => Some(0),
+        Some(IrType::F64) => Some(1),
+        _ => None,
+    }
 }
 
 /// Emit native `frame.regs[dst] = Value::I64(val)` — store TAG_I64 + i64
