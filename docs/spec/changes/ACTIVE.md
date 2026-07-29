@@ -4,14 +4,15 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
-> **隔离 worktree 预抢 in-flight（2026-07-29，User 授权，不排队）**：`add-tests-bench-manifest-config`
-> （清单声明式 test/bench/example 目标：`[tests]`/`[bench]`/`[example]` 段 + `[[test]]`/`[[bench]]`/
-> `[[example]]` 显式目标，`harness` 布尔 + harness=false 退出码判定 + example 默认只编不跑；重写
-> project.md L5b）占 **stdlib**（z42.project 模型+ManifestLoader）+ **toolchain**（xtask 发现/运行/过滤）。
-> 在 worktree `z42-tbe-wt`（分支同名，叠在 unify-run-modes HEAD）开发，与锁持有者
-> `converge-z42c-onto-z42-project`(stdlib) / `unify-run-modes`(toolchain) 物理隔离，合并解冲突。
-> **compiler 不占**（dev-only，xtask 合成 mini-manifest 调 z42c 子进程，driver 零改）。GREEN 以 CI 权威
-> （cold worktree 不可本地验自举链）。spec：`docs/spec/changes/add-tests-bench-manifest-config/`。
+> **~~add-tests-bench-manifest-config~~** ✅ 已归档 2026-07-29（隔离 worktree `z42-tbe-wt` 预抢，
+> User 授权）：清单声明式 test/bench/example 目标——`[tests]`/`[benches]`/`[examples]` 段 +
+> `[[test]]`/`[[bench]]`/`[[example]]` 显式目标，`harness` 布尔 + harness=false 退出码判定 +
+> example 默认只编不跑；重写 project.md L5b。占 **stdlib**（z42.project 模型+ManifestLoader）+
+> **toolchain**（xtask 发现/运行/过滤）；compiler 不占（dev-only，driver 零改）。**两 PR 交付**
+> （bootstrap 轴② 两-nightly）：P1 schema #66 合入 main → nightly 带字段重发 → runner #71 CI 全绿。
+> 实施期修三坑：E0401（xtask 不能 new imported RunTarget→本地 ExampleUnit）、`String.LastIndexOf`
+> 不存在（→手写 _lastSlash）、z42c SourceDiscovery 不认 `<dir>/<file>`（→`_z42cInclude` 转 `**/`）。
+> 归档释放 stdlib+toolchain 锁。archive：`archive/2026-07-29-add-tests-bench-manifest-config`。
 
 > **~~fix-imported-free-func-namespace~~** ✅ 已归档 2026-07-27（隔离 worktree 预抢，User 授权；
 > compiler 根因 fix：导入自由函数跨包裸调误限定当前 ns → 补 `ImportedSymbols.FunctionNamespaces` +

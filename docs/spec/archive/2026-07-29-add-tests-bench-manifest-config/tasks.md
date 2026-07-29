@@ -1,14 +1,14 @@
 # Tasks: add-tests-bench-manifest-config
 
-> 状态：🔴 DRAFT（待 User 6.5 审批）| 创建：2026-07-29 | 见 [proposal.md](proposal.md) / [design.md](design.md)
-> 锁：stdlib + toolchain（均被占 → **User 授权隔离 worktree 预抢**，合并解冲突）
-> 分三阶段，每阶段独立可 commit + 可全绿。GREEN 以 CI 权威（cold worktree 不可本地验自举链）。
+> 状态：🟢 已完成 | 创建：2026-07-29 | 完成：2026-07-29 | 见 [proposal.md](proposal.md) / [design.md](design.md)
+> 锁：stdlib + toolchain（User 授权隔离 worktree 预抢，归档释放）
+> 交付：**两个 PR**（bootstrap 两-nightly 纪律，轴②）——P1 schema = **#66（合入 main）** → nightly 带字段重发 → runner = **#71（CI 全绿，合入 main）**。GREEN 以 CI 权威。
 
 ## 进度概览
-- [ ] P1: 清单 schema（stdlib：模型 + 解析器 + 单测）
-- [x] P2: toolchain test/bench runner（清单发现 + harness 分派 + 退出码 + 具名过滤）✅ 代码落地（GREEN 待 CI）
-- [x] P3: example runner（编译门禁 + `xtask example` + test=true 执行）✅ 代码落地（GREEN 待 CI）
-- [x] P4: 端到端夹具 + wire（文档 project.md L5b 已 P4.1；余文档由 owner 收尾）✅ 代码落地（GREEN 待 CI）
+- [x] P1: 清单 schema（stdlib：模型 + 解析器 + 单测）✅ #66
+- [x] P2: toolchain test/bench runner（清单发现 + harness 分派 + 退出码 + 具名过滤）✅ #71
+- [x] P3: example runner（编译门禁 + `xtask example` + test=true 执行）✅ #71
+- [x] P4: 文档 + 端到端夹具 + GREEN ✅ #71（compile-toolchain + test-host 全平台 + 夹具 manifest targets/examples）
 
 ## P1 — 清单 schema（stdlib 锁）✅ 代码落地（2026-07-29，GREEN 待 CI）
 - [x] 1.1 NEW `RunTarget.z42`：`Name`/`Harness`/`HasEntry`/`Entry`/`Sources[]`/`SrcCount`/`Deps[]`/`DepCount`/`RunInTest`
