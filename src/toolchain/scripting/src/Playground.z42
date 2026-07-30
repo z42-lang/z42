@@ -1,0 +1,23 @@
+// WASM playground 入口（add-wasm-vfs-backend 阶段 2）。
+//
+// 浏览器内"编译一段 z42 源 → 输出"的单入口。**不跨 facade 传字符串**（facade 暂无 string
+// 编组）：源码经 VFS 字节入、输出经 Console → HostSink → JS `stdoutHandler` 出。
+//
+// 约定的 VFS 布局（宿主 `Z42VM.mountFile` 挂载）：
+//   /libs/*.zpkg   ← stdlib + z42c 编译器 + z42.scripting（编译期 DepScan 从此扫）
+//   /input.z42     ← 本次源码（facade `evalIn` 写入）
+//
+// 调用方（facade）：`loadZbc(z42.scripting)` → `resolveEntry("Std.Scripting.evalFromVfs")`
+// → `invoke([])`（零参）。运行期模块加载由 `zpkgResolver` 服务；编译期 fs 读由 VFS 服务。
+namespace Std.Scripting;
+
+using Std;
+using Std.IO;
+
+void evalFromVfs() {
+    string source = File.ReadAllText("/input.z42");
+    ScriptState s = Script.CreateWithLibs("/libs");
+    EvalResult r = Script.Eval(s, source);
+    if (!r.Success) { ConsoleError.Write(r.Error); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine("" + r.Value); }
+}
