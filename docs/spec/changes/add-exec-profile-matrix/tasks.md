@@ -1,15 +1,19 @@
 # Tasks: 统一 test / bench 的执行画像矩阵
 
-> 状态：🔴 DRAFT（待 User 确认 proposal+design 后进入实施）| 创建：2026-07-23
-> 占用子系统：`stdlib`（`Std.Platform` 能力函数）+ `runtime`（`__platform_caps` builtin）+ `toolchain`（scripts/）。`bench/` schema、`docs/` 不上锁。**锁状态见文末调度约束。**
+> 状态：🟡 进行中（阶段 0-2 已实施+提交）| 创建：2026-07-23 | 实施起：2026-07-31
+> 占用子系统：`stdlib`（`Std.Platform` 能力函数）+ `runtime`（`__platform_caps` builtin）+ `toolchain`（scripts/）。`bench/` schema、`docs/` 不上锁。**独立分支 `add-exec-profile-matrix`（off origin/main），GREEN 以 CI 为权威。**
 
 ## 进度概览
-- [ ] 阶段 0: 标准库运行时能力查询（caps 地面真值）
-- [ ] 阶段 1: 共享 SoT 模块 + schema v2
-- [ ] 阶段 2: bench e2e 模式扫描 + 打标
+- [x] 阶段 0: 标准库运行时能力查询（caps 地面真值）—— commit cc567052，探针端到端验证
+- [x] 阶段 1: 共享 SoT 模块 + schema v2 —— commit 64aeeffa
+- [x] 阶段 2: bench e2e 模式扫描 + 打标 —— commit 1d30ce28（micro v2 迁移残留，见 2.7）
 - [ ] 阶段 3: 线程场景 + 平台 bench 接入
 - [ ] 阶段 4: CI 腿 + 文档 + 死引用清理
 - [ ] 阶段 5: 验证与归档
+
+> **本地验证限制（冷环境）**：本 worktree 无匹配 origin/main 期的 z42c 种子（sibling 种子过旧、
+> 无法编 origin/main 的 z42.scripting）→ 完整 `xtask bench` 端到端跑不通；已验证：Rust 单测 8/8、
+> 探针端到端（caps 正确）、xtask.zpkg 全量编译（阶段0-2 改动）通过、bench 入口可达。完整 GREEN 以 CI 为准。
 
 ## 阶段 0: 标准库运行时能力查询（caps 地面真值）
 - [ ] 0.1 `src/runtime/src/corelib/platform.rs`：加 `__platform_caps`（返回 `string[]`）+
