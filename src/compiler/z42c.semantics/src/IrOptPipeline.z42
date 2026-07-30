@@ -26,14 +26,58 @@ public sealed class IrOptPipeline {
 
     private static void _optFunc(IrFunction f) {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
-        // pass 1: copy-prop —— 用原始读计数（含终结子读）+ 写计数
+        // pass 1: const-fold —— 折叠两 int 常量的运算/比较（放最前，产出的 const 供后续 copy-prop 传播）
+        int[] defs0 = IrOptPipeline._computeDefs(f);
+        IrOptPipeline._passConstFold(f, defs0);
+        // pass 2: copy-prop —— const-fold 改了 IR，重算读/写计数（含终结子读）
         int[] reads = IrOptPipeline._computeReads(f);
         int[] defs = IrOptPipeline._computeDefs(f);
         IrOptPipeline._passCopyProp(f, reads, defs);
-        // pass 2: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
+        // pass 3: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
         int[] reads2 = IrOptPipeline._computeReads(f);
         IrOptPipeline._seedParams(reads2, f.ParamCount);
         IrOptPipeline._passTempDce(f, reads2);
+    }
+
+    // ── pass 1: const-fold ─────────────────────────────────────────────────────────
+    // 建 int 常量表（单赋值 ConstI64）→ 前向扫，两操作数皆常量的运算/比较就地折成 Const 指令，
+    // 并把折出的新 const 登记回表（前向传播链式 const）。单赋值 → temp 位置无关，可全量先播种。
+    private static void _passConstFold(IrFunction f, int[] defs) {
+        bool[] cint = new bool[f.MaxReg + 2];
+        long[] cval = new long[f.MaxReg + 2];
+        // 播种：单赋值 ConstI64
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                IrInstr ins = blk.Instrs[ii];
+                if (IrOptInfo.IsConstI64(ins)) {
+                    int d = IrOptInfo.DstId(ins);
+                    if (d >= 0 && d < cint.Length && defs[d] == 1) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(ins); }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        // 前向折叠
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                IrInstr folded = IrOptInfo.TryConstFold(blk.Instrs[ii], cint, cval);
+                if (folded != null) {
+                    blk.Instrs[ii] = folded;
+                    if (IrOptInfo.IsConstI64(folded)) {
+                        int d = IrOptInfo.DstId(folded);
+                        if (d >= 0 && d < cint.Length) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(folded); }
+                    }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
     }
 
     // ── 计数助手 ──────────────────────────────────────────────────────────────────

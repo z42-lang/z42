@@ -71,11 +71,22 @@ public 字段 type-switch，零 bootstrap API-face 延迟）。挂 `IrGen.Genera
 **读/写计数**：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读，镜像 ZbcWriter._regtInstr 保完整）、
 `defs[reg]`（每指令 Dst）。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
 
-**pass 1 copy-prop**：SSA-lite lowering 系统性 emit `t = expr; copy local, t`（每个命名局部赋值一条 Copy）。
+**pass 1 const-fold**：`TryConstFold(ins, cint, cval)` —— 建单赋值 int 常量表(`ConstI64`→`_parseIntLit`)，
+前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令，并把折出的新 const 登记回表(链式传播
+`1+2→3`、`3+3→6`)。放最前 → 产出的 const 供 copy-prop 传播、死源 const 供 temp-DCE 清理。
+**这是"加规则 = 插一条 rule"的样例**：`TryConstFold` 是一张 opcode→折叠规则表,后续加**常量字符串长度、
+常量数组长度、`x*1→x`、`x+0→x`** 等只是往这张表加分支,pass 框架不动。收益本身偏低(真实代码字面量
+运算少),价值在**证明管线可持续扩展**。
+> **安全边界(规则扩展时必守)**：整数算术**仅非负结果才折**(`_parseIntLit` 编码不了负数,负值保守跳过)；
+> div/rem 防除零、shift 防越界(镜像 `IrGenFacts._foldBinary` 的 `long` 语义——它在 long 里算、对全宽度
+> emit,是被生产验证过的做法)。float 暂不折(文本化影响自举字节一致)。每条新规则配「折叠生效 + 安全不折」
+> 双向用例(见 `codegen_tests.z42` const-fold 段)。
+
+**pass 2 copy-prop**：SSA-lite lowering 系统性 emit `t = expr; copy local, t`（每个命名局部赋值一条 Copy）。
 相邻 producer→copy 且 t 单赋值(defs==1)单读(reads==1，那唯一读即本 Copy)、t≠local 时,把 producer 的 Dst
 retarget 成 local、删 Copy → `local = expr`。interp 每个赋值少一次 dispatch（热路收益大头）。
 
-**pass 2 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
+**pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
 
 **正确性边界**：只碰单赋值 temp（命名局部重赋值需 def-use，留后）；单趟不级联（保守）。一个寄存器值 escape

@@ -448,3 +448,62 @@ void test_var_decl_reuses_register_across_branches() {
     Assert.Equal("fn @C.Pick(2) -> int {\nentry:\n  br.cond %1, then_0, else_1\nthen_0:\n  %3 = const.i64 10\n  ret %3\nelse_1:\n  %3 = const.i64 20\n  ret %3\nend_2:\n  ret\n}",
                  IrDump.DumpFunc(src, "C.Pick"));
 }
+
+// ── const-fold（optimization-pipeline）：折叠两 int 常量的运算/比较 ──────────────────
+// 规则可扩展（后续加常量字符串长度 / 数组长度 / x*1→x 等）；每条规则配「折叠生效」+「安全不折」用例。
+// 折叠后源常量变死码 → temp-DCE 顺带清掉，故只剩折叠结果 + ret。
+
+[Test]
+void test_constfold_add() {
+    // %0 常量留存：_seedParams 对无参函数保守把 reg0 标活（this/env 上界+1），故 reg0 的死常量不被
+    // temp-DCE 清掉——安全的过近似（只多留一条），不影响正确性。
+    string src = "int F() { return 1 + 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_mul() {
+    string src = "int F() { return 2 * 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 2\n  %2 = const.i64 6\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_chain() {
+    // 链式：(1+2)→3 登记回常量表，再 (3+3)→6（前向传播）
+    string src = "int F() { return 1 + 2 + 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %4 = const.i64 6\n  ret %4\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_div() {
+    string src = "int F() { return 6 / 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 6\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_compare() {
+    string src = "bool F() { return 1 < 2; }";
+    Assert.Equal("fn @F(0) -> bool {\nentry:\n  %0 = const.i64 1\n  %2 = const.bool true\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// 安全边界（防未来规则回归）：以下**不折**
+[Test]
+void test_constfold_skip_negative() {
+    // 1 - 2 = -1 < 0：_parseIntLit 编码不了负数 → 保守不折，sub 原样保留
+    string src = "int F() { return 1 - 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %1 = const.i64 2\n  %2 = sub i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_skip_nonconst() {
+    // a 非常量 → 不折
+    string src = "int F(int a) { return a + 1; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = add i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}

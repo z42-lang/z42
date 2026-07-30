@@ -33,8 +33,11 @@
 - [x] 4.1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`）。
       条件：相邻 producer→copy + t 单赋值单读（含终结子读）+ t≠local。全绿（e2e 424/0 interp+jit
       + 自举 5/5 + stdlib 279 + 20 units）。**暴露并修复一个潜伏 JIT bug**（见下）。
-- [ ] 4.2 const-fold：折叠常量 temp 链
-- [ ] 4.3 评估迭代到不动点 / MaxReg 下调重编号
+- [x] 4.2 const-fold：`TryConstFold` 规则表（两 int 常量的运算/比较→Const，非负守卫 + div/shift 守卫，
+      镜像 _foldBinary 的 long 语义）。放 pass 1（产出 const 供 copy-prop 传播）。**收益偏低（真实代码字面量
+      运算少）但管线可扩展是目的** —— 后续加常量字符串/数组长度、`x*1→x` 等只往规则表加分支。配 7 个
+      [Test]（5 折叠 + 2 安全不折）。全绿（e2e 424/0 + 自举 5/5 + 25 units）。
+- [ ] 4.3 后续规则：常量字符串长度、常量数组长度、`x*1→x`/`x+0→x` 代数化简；评估迭代到不动点 / MaxReg 下调
 
 ## 实施期发现：JIT 帧寄存器数漏算异常表 catch_reg（跨子系统）
 copy-prop 删掉「最后一条引用某寄存器的指令」后，JIT 的 `max_reg`（给 frame.regs 定尺寸，只数指令
