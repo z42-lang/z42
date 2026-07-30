@@ -4,6 +4,15 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
+> **~~lazy-type-world~~** ✅ 已归档 2026-07-30（隔离 worktree `z42-replscan-wt` off origin/main，User
+> 授权预抢，归档即释放 compiler 锁）：惰性化跨包类型世界——`DepScan.BuildWorld` 一次性全量 TYPE/SIGS
+> 解析 → `LazyReconWorld` 按包懒填 + 命名空间路由（`EnsureFq`），`Rebuild` 基类链只解析引用闭包。
+> 首次 eval **O(引用闭包)**（实测 `1+2` 解析 14/34 包 = prelude+默认 using 闭包，不随库总量增长）。
+> 占 **compiler**（z42c.pipeline `DepScan`）+ 借道 **z42.ir**（`TsigReconcile`）。零格式 bump、零 VM 改动。
+> GREEN：**自举字节不动点 5/5 gen1==gen2**（= eager==lazy 铁证）+ z42c 20/20 units + cross-zpkg 8/0 +
+> stdlib 279/23。踩坑：改 Rebuild 签名踩 bootstrap 轴④ → 保旧 4-arg+BuildWorld 作 eager 包装给种子；
+> AppendPackage 扩容越界（测试抓出）。archive：`archive/2026-07-30-lazy-type-world`。
+
 > **~~add-tests-bench-manifest-config~~** ✅ 已归档 2026-07-29（隔离 worktree `z42-tbe-wt` 预抢，
 > User 授权）：清单声明式 test/bench/example 目标——`[tests]`/`[benches]`/`[examples]` 段 +
 > `[[test]]`/`[[bench]]`/`[[example]]` 显式目标，`harness` 布尔 + harness=false 退出码判定 +
