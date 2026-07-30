@@ -81,15 +81,19 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // 的 z42.ir 时解析不到 → `undefined function ...Sha256Hex`。破环（converge-z42c-ir-metadata
 // 两代自举）：先用当前 driver（冷启动=上一 nightly 种子，自带等价 ZpkgBuilder）把当前源码的
 // z42.ir 单独编进 build-libs，再建 z42c —— fresh z42c 就对着**真 z42.ir** 编译+运行，一致。
-// 幂等：warm 树（z42.ir 已在 flat dist，上次构建/nightly 种子带来）直接跳过；随后的
-// `build stdlib` 全量 workspace 构建会用 fresh z42c 把 z42.ir 覆盖为规范产物。
+// **不 warm-skip**（lazy-type-world 2026-07-30 修）：早先「z42.ir 已在 flat dist 就跳过」的
+// 幂等假设 = 「z42c 不消费 z42.ir 的**新** API」。当 z42c 自身源码用到当前源 z42.ir 里新增的
+// 类型/方法（如 `LazyReconWorld`），而 flat dist 里躺的是**上一 nightly 种子带来的旧 z42.ir**
+// （CI 冷启动 stage 的就是它）时，warm-skip 会让 z42c 的 workspace self-build 对着旧 z42.ir 编
+// z42c.pipeline → `unknown type LazyReconWorld` 编译失败。故**总是**用当前 driver 把当前源 z42.ir
+// 建进 build-libs（覆盖种子旧版）——z42c 永远对着**当前源** z42.ir 编译，破了 z42c⇄z42.ir 的
+// 「新 API 需晚一 nightly」轴④约束。warm dev 代价：z42c build 增量缓存命中下近零（源未变 → probe
+// 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
 void _ensureBootstrapZ42Ir(string root, string vm, string driver, string stdlibFlat) {
-    string flatZ42ir = Path.Join(stdlibFlat, "z42.ir.zpkg");
-    if (File.Exists(flatZ42ir)) { return; }   // warm：z42.ir 已在 build-libs
-    _vNormal("  cold bootstrap: seed-building z42.ir（破 z42c⇄z42.ir 环）");
+    _vNormal("  bootstrap: (re)building current-source z42.ir into build-libs（破 z42c⇄z42.ir 环）");
     string irToml = Path.Join(root, "src/libraries/z42.ir/z42.ir.z42.toml");
     int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
-    if (rc != 0) { ConsoleError.WriteLine("  ✗ cold bootstrap: seed-build z42.ir failed (" + rc.ToString() + ")"); }
+    if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.ir failed (" + rc.ToString() + ")"); }
 }
 
 // 防 zpkg 版本 skew 假失败（2026-06-10）：z42c 测试单元先被 z42c 编成 zpkg，再交

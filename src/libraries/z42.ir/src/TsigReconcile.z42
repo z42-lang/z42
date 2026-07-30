@@ -16,6 +16,110 @@ public sealed class ReconWorldPkg {
     public ReconWorldPkg(ZpkgModuleTypes[] types, ZpkgModuleSigs[] sigs) { this.Types = types; this.Sigs = sigs; }
 }
 
+// 惰性跨包类型世界（lazy-type-world）：取代 BuildWorld 的一次性全量解析。Wp 按包懒填——
+// 基类链重建遇到导入祖先 FQ 时，取其命名空间路由到「声明该 ns 的所有包」，只解析那几个包
+// （spike 实证：闭包 max=3、avg=1，路由 230/230 与全量扫描一致）。首次 eval O(引用闭包)，
+// 不随标准库增大恶化。产物与 eager 全量逐字节相同（解析确定 + 路由等价，见 design）。
+public sealed class LazyReconWorld {
+    public ZpkgInfo[]      World;       // world 包（非 exe），与 WorldDirs / Wp 平行
+    public string[]        WorldDirs;   // 各包目录（indexed 散装 zbc 定位）
+    public int             Wc;
+    public ReconWorldPkg[] Wp;          // 懒填：null = 未解析
+    // ns → world 索引（扁平 (ns, idx) 对；z42 无 int[][]，故平行数组 + 线性查）
+    private string[] _pairNs; private int[] _pairIdx; private int _pairN;
+
+    public LazyReconWorld(ZpkgInfo[] world, string[] worldDirs, int wc) {
+        this.World = world; this.WorldDirs = worldDirs; this.Wc = wc;
+        this.Wp = new ReconWorldPkg[wc];
+        // 从每包 NSPC 建 (ns, world索引) 对表（廉价；不碰 TYPE/SIGS）。
+        string[] pn = new string[16]; int[] pidx = new int[16]; int cnt = 0;
+        int p = 0;
+        while (p < wc) {
+            string[] nss = ZpkgReader.ReadNamespaces(world[p]);
+            int a = 0;
+            while (a < nss.Length) {
+                if (cnt == pn.Length) {
+                    string[] b1 = new string[pn.Length * 2]; int[] b2 = new int[pn.Length * 2];
+                    int k = 0; while (k < cnt) { b1[k] = pn[k]; b2[k] = pidx[k]; k = k + 1; }
+                    pn = b1; pidx = b2;
+                }
+                pn[cnt] = nss[a]; pidx[cnt] = p; cnt = cnt + 1;
+                a = a + 1;
+            }
+            p = p + 1;
+        }
+        this._pairNs = pn; this._pairIdx = pidx; this._pairN = cnt;
+    }
+
+    // 幂等填第 i 包（读 TYPE/SIGS）。
+    public ReconWorldPkg EnsureIdx(int i) {
+        if (this.Wp[i] == null) {
+            this.Wp[i] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(this.World[i], this.WorldDirs[i]),
+                                           ZpkgReader.ReadModuleSigs(this.World[i]));
+        }
+        return this.Wp[i];
+    }
+
+    // 路由：解析**所有**声明 fq 命名空间的包（Decision 1/2：非 first-wins，与全量扫描等价）。
+    public void EnsureFq(string fq) {
+        string ns = LazyReconWorld._nsOf(fq);
+        int j = 0;
+        while (j < this._pairN) {
+            if (this._pairNs[j] == ns) { this.EnsureIdx(this._pairIdx[j]); }
+            j = j + 1;
+        }
+    }
+
+    // 填满全部（差分/eager 等价：EnsureAll 后 == 旧 BuildWorld 全量）。
+    public void EnsureAll() {
+        int i = 0; while (i < this.Wc) { this.EnsureIdx(i); i = i + 1; }
+    }
+
+    // eager 包装：已全量解析的 wp[]（旧 4-arg Rebuild / 种子 z42c 运行期兼容）。Wp 全填、无路由
+    // （_pairN=0 → EnsureFq no-op；扫描无 null 条目，行为 == 旧 BuildWorld 全量 world）。
+    public static LazyReconWorld FromEager(ReconWorldPkg[] wp, int wc) {
+        LazyReconWorld w = new LazyReconWorld(new ZpkgInfo[0], new string[0], 0);
+        w.Wp = wp; w.Wc = wc;
+        return w;
+    }
+
+    // 向 world 追加一个包（REPL 增量 Repl.R{N}：使其类能被 `_locate` 自身定位 + 后续轮引用）。
+    // 立即解析并登记其命名空间到路由表。返回新包索引。
+    public int AppendPackage(ZpkgInfo z, string dir) {
+        // Wp 是最紧的数组（构造时 = wc，而 World/WorldDirs 可能 = paths.Length 更大）——按 Wp 判扩容，
+        // 三者同步扩到一致容量，避免 Wp[Wc] 越界（旧 bug：按 World.Length 判 → Wp 溢出）。
+        if (this.Wc == this.Wp.Length) {
+            int cap = this.Wp.Length * 2 + 1;
+            ZpkgInfo[] w2 = new ZpkgInfo[cap]; string[] d2 = new string[cap]; ReconWorldPkg[] p2 = new ReconWorldPkg[cap];
+            int k = 0; while (k < this.Wc) { w2[k] = this.World[k]; d2[k] = this.WorldDirs[k]; p2[k] = this.Wp[k]; k = k + 1; }
+            this.World = w2; this.WorldDirs = d2; this.Wp = p2;
+        }
+        int idx = this.Wc;
+        this.World[idx] = z; this.WorldDirs[idx] = dir; this.Wp[idx] = null;
+        this.Wc = idx + 1;
+        string[] nss = ZpkgReader.ReadNamespaces(z);
+        int a = 0;
+        while (a < nss.Length) { this._addPair(nss[a], idx); a = a + 1; }
+        return idx;
+    }
+
+    private void _addPair(string ns, int idx) {
+        if (this._pairN == this._pairNs.Length) {
+            string[] b1 = new string[this._pairNs.Length * 2]; int[] b2 = new int[this._pairIdx.Length * 2];
+            int k = 0; while (k < this._pairN) { b1[k] = this._pairNs[k]; b2[k] = this._pairIdx[k]; k = k + 1; }
+            this._pairNs = b1; this._pairIdx = b2;
+        }
+        this._pairNs[this._pairN] = ns; this._pairIdx[this._pairN] = idx; this._pairN = this._pairN + 1;
+    }
+
+    // ns = fq 最后一个 '.'(46) 之前——嵌套 '+' / 泛型 '$' 不含 '.'，故切分隔离命名空间。
+    private static string _nsOf(string fq) {
+        int i = fq.Length - 1;
+        while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(0, i); } i = i - 1; }
+        return "";
+    }
+}
+
 public static class TsigReconcile {
 
     // ── 重建 ────────────────────────────────────────────────────────────────
@@ -32,8 +136,15 @@ public static class TsigReconcile {
         return wp;
     }
 
-    // 从 TYPE/SIGS/IMPL 重建 z 的 ExportedModuleZ[]（wp = 预建 world，见 BuildWorld）。
+    // 兼容重载（4-arg + BuildWorld）：种子 z42c 运行期的旧 DepScan 仍调此路径——包装为 eager
+    // LazyReconWorld（Wp 全填）。本 change 的新 DepScan 走下面 3-arg 的惰性 Rebuild；跨一版种子后
+    // 此 4-arg + BuildWorld 可删（bootstrap-seed 轴④：改 z42c 运行期自依赖函数签名，保旧一版给种子）。
     public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, ReconWorldPkg[] wp, int wc) {
+        return TsigReconcile.Rebuild(z, zDir, LazyReconWorld.FromEager(wp, wc));
+    }
+
+    // 从 TYPE/SIGS/IMPL 重建 z 的 ExportedModuleZ[]（world = 惰性跨包类型世界，见 LazyReconWorld）。
+    public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, LazyReconWorld world) {
         ZpkgModuleTypes[] types = ZpkgReader.ReadModuleTypes(z, zDir);
         ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(z);
         int n = types.Length;
@@ -64,7 +175,7 @@ public static class TsigReconcile {
         ExportedModuleZ[] r = new ExportedModuleZ[n];
         int mi = 0;
         while (mi < n) {
-            r[mi] = TsigReconcile._rebuildModule(types[mi], sigs[mi], wp, wc, pkgFuncs, afc);
+            r[mi] = TsigReconcile._rebuildModule(types[mi], sigs[mi], world, pkgFuncs, afc);
             mi = mi + 1;
         }
         // drop-tsig-expt（P3）：IMPL 段（跨包 impl Trait for Type）仍写——读进 Impls
@@ -74,7 +185,7 @@ public static class TsigReconcile {
     }
 
     private static ExportedModuleZ _rebuildModule(ZpkgModuleTypes mt, ZpkgModuleSigs ms,
-                                                  ReconWorldPkg[] wp, int wc,
+                                                  LazyReconWorld world,
                                                   ExportedFuncZ[] pkgFuncs, int pkgFuncCount) {
         string ns = mt.Namespace;
         // classes / interfaces / enums 拆分（bit6 delegate 跳过——oracle 消费面无）
@@ -110,7 +221,7 @@ public static class TsigReconcile {
                 continue;
             }
             if (cc == classes.Length) { ExportedClassZ[] b = new ExportedClassZ[classes.Length * 2]; int k = 0; while (k < cc) { b[k] = classes[k]; k = k + 1; } classes = b; }
-            classes[cc] = TsigReconcile._rebuildClass(cd, ns, wp, wc);
+            classes[cc] = TsigReconcile._rebuildClass(cd, ns, world);
             cc = cc + 1;
             i = i + 1;
         }
@@ -144,16 +255,17 @@ public static class TsigReconcile {
     }
 
     private static ExportedClassZ _rebuildClass(IrClassDesc cd, string ns,
-                                                ReconWorldPkg[] wp, int wc) {
+                                                LazyReconWorld world) {
         bool isStruct = (cd.Flags & 4) != 0;
         string bare = TsigReconcile._bare(cd.Name, ns);
-        // base 链（world 全包 TYPE 按 FQ 名索引；记录 (pkg, mod) 供祖先 SIGS 精确定位）
+        // base 链（惰性 world：遇祖先 FQ 先 EnsureFq 路由填充其包，再按 FQ 名在已填包中定位；
+        // 记录 (pkg, mod) 供祖先 SIGS 精确定位）。lazy-type-world：跳过未填充（null）条目。
         IrClassDesc[] chain = new IrClassDesc[32];
         int[] chainPkg = new int[32]; int[] chainMod = new int[32];
         int chainLen = 0;
         IrClassDesc walk = cd;
         int walkPkg = 0 - 1; int walkMod = 0 - 1;
-        TsigReconcile._locate(cd.Name, wp, wc, chainPkg, chainMod, 0);   // 定位自身
+        TsigReconcile._locate(cd.Name, world, chainPkg, chainMod, 0);   // 定位自身（内含 EnsureFq）
         walkPkg = chainPkg[0]; walkMod = chainMod[0];
         int guard = 0;
         while (walk != null && guard < 32) {
@@ -162,16 +274,19 @@ public static class TsigReconcile {
             string bn = walk.HasBase ? walk.BaseName : "";
             walk = null;
             if (bn != "" && bn != "Std.Object" && bn != "Object") {
+                world.EnsureFq(bn);   // 路由填充声明 bn 命名空间的所有包
                 int p2 = 0;
-                while (p2 < wc && walk == null) {
-                    int m2 = 0;
-                    while (m2 < wp[p2].Types.Length && walk == null) {
-                        int t2 = 0;
-                        while (t2 < wp[p2].Types[m2].ClassCount && walk == null) {
-                            if (wp[p2].Types[m2].Classes[t2].Name == bn) { walk = wp[p2].Types[m2].Classes[t2]; walkPkg = p2; walkMod = m2; }
-                            t2 = t2 + 1;
+                while (p2 < world.Wc && walk == null) {
+                    if (world.Wp[p2] != null) {
+                        int m2 = 0;
+                        while (m2 < world.Wp[p2].Types.Length && walk == null) {
+                            int t2 = 0;
+                            while (t2 < world.Wp[p2].Types[m2].ClassCount && walk == null) {
+                                if (world.Wp[p2].Types[m2].Classes[t2].Name == bn) { walk = world.Wp[p2].Types[m2].Classes[t2]; walkPkg = p2; walkMod = m2; }
+                                t2 = t2 + 1;
+                            }
+                            m2 = m2 + 1;
                         }
-                        m2 = m2 + 1;
                     }
                     p2 = p2 + 1;
                 }
@@ -219,7 +334,7 @@ public static class TsigReconcile {
         while (ci >= 0) {
             IrClassDesc anc = chain[ci];
             ZpkgModuleSigs ancSigs = null;
-            if (chainPkg[ci] >= 0 && chainMod[ci] >= 0) { ancSigs = wp[chainPkg[ci]].Sigs[chainMod[ci]]; }
+            if (chainPkg[ci] >= 0 && chainMod[ci] >= 0) { ancSigs = world.Wp[chainPkg[ci]].Sigs[chainMod[ci]]; }
             if (ancSigs != null) {
                 string prefix = anc.Name + ".";
                 int si = 0;
@@ -250,7 +365,7 @@ public static class TsigReconcile {
         }
         // pass 2：本类 static 方法（oracle：own-class only、声明序 append、不与实例 seen 合并）。
         ZpkgModuleSigs selfSigs = null;
-        if (chainPkg[0] >= 0 && chainMod[0] >= 0) { selfSigs = wp[chainPkg[0]].Sigs[chainMod[0]]; }
+        if (chainPkg[0] >= 0 && chainMod[0] >= 0) { selfSigs = world.Wp[chainPkg[0]].Sigs[chainMod[0]]; }
         if (selfSigs != null) {
             string sprefix = cd.Name + ".";
             int ssi = 0;
@@ -344,19 +459,23 @@ public static class TsigReconcile {
         while (i < f.AttrCount) { if (f.Attrs[i].TypeName.EndsWith("Native") || f.Attrs[i].TypeName.EndsWith("NativeAttribute")) { return true; } i = i + 1; }
         return false;
     }
-    // 在 world 中定位 FQ 类型所属的 (pkg, mod)，写入 outPkg/outMod[slot]（未找到 = -1）。
-    private static void _locate(string fq, ReconWorldPkg[] wp, int wc, int[] outPkg, int[] outMod, int slot) {
+    // 在惰性 world 中定位 FQ 类型所属的 (pkg, mod)（未找到 = -1）。先 EnsureFq 路由填充该 FQ
+    // 命名空间的包，再扫描已填充条目（跳过 null 的未解析包——它们与 fq 无关，否则已被 EnsureFq 填）。
+    private static void _locate(string fq, LazyReconWorld world, int[] outPkg, int[] outMod, int slot) {
         outPkg[slot] = 0 - 1; outMod[slot] = 0 - 1;
+        world.EnsureFq(fq);
         int p = 0;
-        while (p < wc) {
-            int m = 0;
-            while (m < wp[p].Types.Length) {
-                int t = 0;
-                while (t < wp[p].Types[m].ClassCount) {
-                    if (wp[p].Types[m].Classes[t].Name == fq) { outPkg[slot] = p; outMod[slot] = m; return; }
-                    t = t + 1;
+        while (p < world.Wc) {
+            if (world.Wp[p] != null) {
+                int m = 0;
+                while (m < world.Wp[p].Types.Length) {
+                    int t = 0;
+                    while (t < world.Wp[p].Types[m].ClassCount) {
+                        if (world.Wp[p].Types[m].Classes[t].Name == fq) { outPkg[slot] = p; outMod[slot] = m; return; }
+                        t = t + 1;
+                    }
+                    m = m + 1;
                 }
-                m = m + 1;
             }
             p = p + 1;
         }
