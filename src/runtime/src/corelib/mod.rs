@@ -484,6 +484,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_is_nested",          reflection::builtin_type_is_nested),
     ("__type_declaring_type",     reflection::builtin_type_declaring_type),
     ("__type_nested_types",       reflection::builtin_type_nested_types),
+
+    // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
+    ("__platform_caps",           platform::builtin_platform_caps),
+    ("__platform_exec_modes",     platform::builtin_platform_exec_modes),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

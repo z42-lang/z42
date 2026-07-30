@@ -1,0 +1,44 @@
+// add-exec-profile-matrix (2026-07-31): Std.Platform runtime capability query.
+//
+// The concrete capability set is build-dependent (desktop reports jit+threads;
+// wasm reports neither), so these assert platform-independent INVARIANTS —
+// interp is always available, and each HasX() predicate agrees with the
+// corresponding Capabilities()/ExecModes() array — rather than specific values.
+namespace Z42CorePlatformCapabilitiesTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_exec_modes_always_has_interp() {
+    // interp is the universal fallback backend — present in every build.
+    Assert.True(_contains(Platform.ExecModes(), "interp"));
+}
+
+[Test]
+void test_has_threads_matches_capabilities() {
+    Assert.True(_contains(Platform.Capabilities(), "threads") == Platform.HasThreads());
+}
+
+[Test]
+void test_has_jit_matches_capabilities() {
+    Assert.True(_contains(Platform.Capabilities(), "jit") == Platform.HasJit());
+}
+
+[Test]
+void test_has_native_interop_matches_capabilities() {
+    Assert.True(_contains(Platform.Capabilities(), "native-interop") == Platform.HasNativeInterop());
+}
+
+[Test]
+void test_has_aot_matches_exec_modes() {
+    // AOT is reported via exec-modes (compiled-in), not the capability set.
+    Assert.True(_contains(Platform.ExecModes(), "aot") == Platform.HasAot());
+}
+
+bool _contains(string[] arr, string v) {
+    for (int i = 0; i < arr.Length; i = i + 1) {
+        if (arr[i] == v) { return true; }
+    }
+    return false;
+}
