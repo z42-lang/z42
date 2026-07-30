@@ -162,6 +162,67 @@ public sealed class IrOptInfo {
         return false;
     }
 
+    // 写计数：counts[DstId] += 1（copy-prop 需 defs[t]==1 判 t 单赋值）。
+    public static void AddDef(int[] counts, IrInstr ins) {
+        int d = IrOptInfo.DstId(ins);
+        if (d >= 0 && d < counts.Length) { counts[d] = counts[d] + 1; }
+    }
+
+    // 把指令的 Dst 改写为 nd（copy-prop retarget producer）。成功 true；无 Dst/不支持 false（→ 跳过该优化，安全）。
+    // 覆盖全部 Dst-bearing opcode（镜像 DstId 的正例）。
+    public static bool SetDst(IrInstr ins, TypedReg nd) {
+        if (ins is ConstI32Instr)  { (ins as ConstI32Instr).Dst = nd; return true; }
+        if (ins is ConstI64Instr)  { (ins as ConstI64Instr).Dst = nd; return true; }
+        if (ins is ConstF64Instr)  { (ins as ConstF64Instr).Dst = nd; return true; }
+        if (ins is ConstBoolInstr) { (ins as ConstBoolInstr).Dst = nd; return true; }
+        if (ins is ConstCharInstr) { (ins as ConstCharInstr).Dst = nd; return true; }
+        if (ins is ConstStrInstr)  { (ins as ConstStrInstr).Dst = nd; return true; }
+        if (ins is ConstNullInstr) { (ins as ConstNullInstr).Dst = nd; return true; }
+        if (ins is DefaultOfInstr) { (ins as DefaultOfInstr).Dst = nd; return true; }
+        if (ins is CopyInstr)      { (ins as CopyInstr).Dst = nd; return true; }
+        if (ins is AddInstr)       { (ins as AddInstr).Dst = nd; return true; }
+        if (ins is SubInstr)       { (ins as SubInstr).Dst = nd; return true; }
+        if (ins is MulInstr)       { (ins as MulInstr).Dst = nd; return true; }
+        if (ins is DivInstr)       { (ins as DivInstr).Dst = nd; return true; }
+        if (ins is RemInstr)       { (ins as RemInstr).Dst = nd; return true; }
+        if (ins is NegInstr)       { (ins as NegInstr).Dst = nd; return true; }
+        if (ins is NotInstr)       { (ins as NotInstr).Dst = nd; return true; }
+        if (ins is BitNotInstr)    { (ins as BitNotInstr).Dst = nd; return true; }
+        if (ins is ConvertInstr)   { (ins as ConvertInstr).Dst = nd; return true; }
+        if (ins is ToStrInstr)     { (ins as ToStrInstr).Dst = nd; return true; }
+        if (ins is BitAndInstr)    { (ins as BitAndInstr).Dst = nd; return true; }
+        if (ins is BitOrInstr)     { (ins as BitOrInstr).Dst = nd; return true; }
+        if (ins is BitXorInstr)    { (ins as BitXorInstr).Dst = nd; return true; }
+        if (ins is ShlInstr)       { (ins as ShlInstr).Dst = nd; return true; }
+        if (ins is ShrInstr)       { (ins as ShrInstr).Dst = nd; return true; }
+        if (ins is EqInstr)        { (ins as EqInstr).Dst = nd; return true; }
+        if (ins is NeInstr)        { (ins as NeInstr).Dst = nd; return true; }
+        if (ins is LtInstr)        { (ins as LtInstr).Dst = nd; return true; }
+        if (ins is LeInstr)        { (ins as LeInstr).Dst = nd; return true; }
+        if (ins is GtInstr)        { (ins as GtInstr).Dst = nd; return true; }
+        if (ins is GeInstr)        { (ins as GeInstr).Dst = nd; return true; }
+        if (ins is StrConcatInstr) { (ins as StrConcatInstr).Dst = nd; return true; }
+        if (ins is CallInstr)      { (ins as CallInstr).Dst = nd; return true; }
+        if (ins is BuiltinInstr)   { (ins as BuiltinInstr).Dst = nd; return true; }
+        if (ins is CallNativeInstr){ (ins as CallNativeInstr).Dst = nd; return true; }
+        if (ins is VCallInstr)     { (ins as VCallInstr).Dst = nd; return true; }
+        if (ins is FieldGetInstr)  { (ins as FieldGetInstr).Dst = nd; return true; }
+        if (ins is ObjNewInstr)    { (ins as ObjNewInstr).Dst = nd; return true; }
+        if (ins is IsInstanceInstr){ (ins as IsInstanceInstr).Dst = nd; return true; }
+        if (ins is AsCastInstr)    { (ins as AsCastInstr).Dst = nd; return true; }
+        if (ins is TypeofInstr)    { (ins as TypeofInstr).Dst = nd; return true; }
+        if (ins is ArrayNewInstr)  { (ins as ArrayNewInstr).Dst = nd; return true; }
+        if (ins is ArrayNewLitInstr){ (ins as ArrayNewLitInstr).Dst = nd; return true; }
+        if (ins is StaticGetInstr) { (ins as StaticGetInstr).Dst = nd; return true; }
+        if (ins is ArrayLenInstr)  { (ins as ArrayLenInstr).Dst = nd; return true; }
+        if (ins is LoadFnInstr)    { (ins as LoadFnInstr).Dst = nd; return true; }
+        if (ins is CallIndirectInstr){ (ins as CallIndirectInstr).Dst = nd; return true; }
+        if (ins is MkClosInstr)    { (ins as MkClosInstr).Dst = nd; return true; }
+        if (ins is ArrayGetInstr)  { (ins as ArrayGetInstr).Dst = nd; return true; }
+        if (ins is LoadLocalAddrInstr){ (ins as LoadLocalAddrInstr).Dst = nd; return true; }
+        return false;
+    }
+
     // 计一次读（防越界：超出 counts 范围的寄存器不计 → 保守，不会误删）。
     private static void _n(int[] counts, TypedReg r) {
         if (r.Id >= 0 && r.Id < counts.Length) { counts[r.Id] = counts[r.Id] + 1; }

@@ -3,13 +3,13 @@
 //
 // 流程（见 docs/book/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
 //   Run(module) → 逐函数 _optFunc：
-//     ① 建读计数 reads[reg]（全函数扫一遍：每指令 AddReads + 每块终结子 AddTermReads）——两引擎共享的
-//        基础分析（此处 JIT/interp 都受益，因为它精简的是两者共读的 IR）。
-//     ② 跑 pass：v1 只含 temp-DCE（删「纯 + Dst 零读」的死指令）。后续 copy-prop / const-fold 作为
-//        新 pass 插进 _optFunc（框架可扩展）。
+//     pass 1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`），
+//                       砍 interp 每个赋值的一次 dispatch（interp 热路大头）。
+//     pass 2 temp-DCE：删「纯 + Dst 零读」的死指令（含参数寄存器 live-out 保护）。
+//   两 pass 间重算读计数（copy-prop 改了 IR）。
 //
-// 安全边界：只删 IrOptInfo.IsPure 白名单内、且 Dst 全函数零读的指令。未知/有副作用 opcode 一律保留。
-// 单趟、不级联（删 X 不回收 X 的读操作数）——保守正确，收益留后续「迭代到不动点」增强。
+// 安全：copy-prop 只在**相邻** producer→copy、且 t 单赋值(defs==1)单读(reads==1，含终结子读)、t≠local
+//       时 retarget；temp-DCE 只删 IsPure 白名单 + Dst 零读 + 非参数寄存器。保守正确，单趟不级联。
 namespace Z42.Semantics;
 
 using Z42.IR;
@@ -26,7 +26,18 @@ public sealed class IrOptPipeline {
 
     private static void _optFunc(IrFunction f) {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
-        // ① 读计数（size = MaxReg+2 冗余一格；_n 内有越界守卫）
+        // pass 1: copy-prop —— 用原始读计数（含终结子读）+ 写计数
+        int[] reads = IrOptPipeline._computeReads(f);
+        int[] defs = IrOptPipeline._computeDefs(f);
+        IrOptPipeline._passCopyProp(f, reads, defs);
+        // pass 2: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
+        int[] reads2 = IrOptPipeline._computeReads(f);
+        IrOptPipeline._seedParams(reads2, f.ParamCount);
+        IrOptPipeline._passTempDce(f, reads2);
+    }
+
+    // ── 计数助手 ──────────────────────────────────────────────────────────────────
+    private static int[] _computeReads(IrFunction f) {
         int[] reads = new int[f.MaxReg + 2];
         int bi = 0;
         while (bi < f.BlockCount) {
@@ -36,17 +47,72 @@ public sealed class IrOptPipeline {
             if (blk.HasTerm) { IrOptInfo.AddTermReads(reads, blk.Term); }
             bi = bi + 1;
         }
-        // ①b 参数寄存器 live-out：out/ref 参数的最终值由调用方读取（跨函数 escape），
-        //     函数内看不到这个读 → 必须显式标活，否则 DCE 会删掉写 out 参数的指令（out_var 回归）。
-        //     保守上界 [0, ParamCount] 含一格：实例方法/lambda 精确（reg0=this/env + ParamCount 参数），
-        //     静态/自由函数多护一格（首个 temp）——安全，只少优化一格。
+        return reads;
+    }
+    private static int[] _computeDefs(IrFunction f) {
+        int[] defs = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
+            bi = bi + 1;
+        }
+        return defs;
+    }
+    // 参数寄存器 live-out：out/ref 参数最终值由调用方读取（跨函数 escape，函数内看不到）。
+    // 上界 [0, ParamCount] 含一格：实例/lambda 精确（reg0=this/env），静态/自由多护一格——安全。
+    private static void _seedParams(int[] reads, int paramCount) {
         int pr = 0;
-        while (pr <= f.ParamCount && pr < reads.Length) { reads[pr] = reads[pr] + 1; pr = pr + 1; }
-        // ② pass: temp-DCE
-        IrOptPipeline._passTempDce(f, reads);
+        while (pr <= paramCount && pr < reads.Length) { reads[pr] = reads[pr] + 1; pr = pr + 1; }
     }
 
-    // temp-DCE：逐块重建 Instrs，丢弃「纯 + Dst 零读」的指令。
+    // ── pass 1: copy-prop ────────────────────────────────────────────────────────
+    private static void _passCopyProp(IrFunction f, int[] reads, int[] defs) {
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrOptPipeline._copyPropBlock(f.Blocks[bi], reads, defs);
+            bi = bi + 1;
+        }
+    }
+
+    private static void _copyPropBlock(IrBlock blk, int[] reads, int[] defs) {
+        bool[] removed = new bool[blk.InstrCount];
+        int removedCount = 0;
+        int i = 0;
+        while (i + 1 < blk.InstrCount) {
+            IrInstr x = blk.Instrs[i];
+            IrInstr c = blk.Instrs[i + 1];
+            if (c is CopyInstr) {
+                CopyInstr cc = c as CopyInstr;
+                int t = cc.Src.Id;
+                int local = cc.Dst.Id;
+                // 条件：t≠local；t 由 x 写（x.Dst==t）；t 全函数单赋值、单读（那唯一读即本 Copy）
+                if (t != local && t >= 0 && t < reads.Length
+                    && IrOptInfo.DstId(x) == t && defs[t] == 1 && reads[t] == 1) {
+                    if (IrOptInfo.SetDst(x, cc.Dst)) {   // 把 x 的 Dst 换成 local 的 TypedReg（带类型）
+                        removed[i + 1] = true;
+                        removedCount = removedCount + 1;
+                        i = i + 2;   // 跳过已消的 Copy
+                        continue;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        if (removedCount == 0) { return; }
+        IrInstr[] nw = new IrInstr[blk.InstrCount - removedCount];
+        int j = 0;
+        int k = 0;
+        while (k < blk.InstrCount) {
+            if (!removed[k]) { nw[j] = blk.Instrs[k]; j = j + 1; }
+            k = k + 1;
+        }
+        blk.Instrs = nw;
+        blk.InstrCount = blk.InstrCount - removedCount;
+    }
+
+    // ── pass 2: temp-DCE ─────────────────────────────────────────────────────────
     private static void _passTempDce(IrFunction f, int[] reads) {
         int bi = 0;
         while (bi < f.BlockCount) {
@@ -56,14 +122,13 @@ public sealed class IrOptPipeline {
     }
 
     private static void _dceBlock(IrBlock blk, int[] reads) {
-        // 先数存活
         int keep = 0;
         int i = 0;
         while (i < blk.InstrCount) {
             if (!IrOptPipeline._isDead(blk.Instrs[i], reads)) { keep = keep + 1; }
             i = i + 1;
         }
-        if (keep == blk.InstrCount) { return; }   // 无删除 → 原样（保 byte-identical）
+        if (keep == blk.InstrCount) { return; }
         IrInstr[] nw = new IrInstr[keep];
         int j = 0;
         i = 0;
@@ -75,7 +140,7 @@ public sealed class IrOptPipeline {
         blk.InstrCount = keep;
     }
 
-    // 死 = 纯（可删白名单）+ 有 Dst + Dst 全函数零读。
+    // 死 = 纯（可删白名单）+ 有 Dst + Dst 全函数零读（reads 已含参数 live-out 种子 → 参数不会判死）。
     private static bool _isDead(IrInstr ins, int[] reads) {
         if (!IrOptInfo.IsPure(ins)) { return false; }
         int d = IrOptInfo.DstId(ins);

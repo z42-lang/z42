@@ -65,8 +65,28 @@ z42 源码 ──z42c──> z42 IR
 
 ## 机制 / 实现
 
-> 待各 pass 落地后补:copy-prop / temp-DCE / const-fold 的算法、单赋值 temp vs 重赋值局部变量的处理差异、
-> 分层升级触发条件与旧表示回收路径、编译期分析如何伴随 zbc 传给运行时。
+**位置**：`z42c.semantics/src/IrOpt{Info,Pipeline}.z42`（compiler 源码，非 stdlib z42.ir —— 只用 z42.ir 现有
+public 字段 type-switch，零 bootstrap API-face 延迟）。挂 `IrGen.Generate` 末尾，逐函数跑 pass。
+
+**读/写计数**：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读，镜像 ZbcWriter._regtInstr 保完整）、
+`defs[reg]`（每指令 Dst）。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
+
+**pass 1 copy-prop**：SSA-lite lowering 系统性 emit `t = expr; copy local, t`（每个命名局部赋值一条 Copy）。
+相邻 producer→copy 且 t 单赋值(defs==1)单读(reads==1，那唯一读即本 Copy)、t≠local 时,把 producer 的 Dst
+retarget 成 local、删 Copy → `local = expr`。interp 每个赋值少一次 dispatch（热路收益大头）。
+
+**pass 2 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
+Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
+
+**正确性边界**：只碰单赋值 temp（命名局部重赋值需 def-use，留后）；单趟不级联（保守）。一个寄存器值 escape
+函数的途径 = 返回 / out·ref 参数 / 有副作用指令读，三者齐全 DCE 才安全（out_var 回归即漏 out 参数 live-out）。
+
+> **⚠️ 跨子系统坑（runtime）**：编译期删指令会改变「哪些寄存器被指令引用」。JIT 的 `max_reg`（给 frame.regs
+> 定尺寸）曾只从指令流反推 dst，漏了异常表 catch_reg → copy-prop 删掉最后引用该 reg 的指令后 JIT 帧越界 panic
+> （interp 因 frame.set 自动扩容免疫）。已修（`translate.rs` max_reg 补扫 catch_reg + 折入 func.max_reg）。
+> **教训：任何从指令流反推寄存器集的运行时分析，遇到 IR 优化都可能暴露不完整 —— 以编译器权威 reg 数/显式表为准。**
+
+> 待补:const-fold；分层升级触发条件与旧表示回收路径（准则 2 运行时面，change `runtime-jit-tiering`）。
 
 ### z42c 寄存器模型对优化的影响（关键前提）
 

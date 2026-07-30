@@ -29,10 +29,20 @@
 - [ ] 3.7 文档同步：z42.ir/README 或 semantics/README 功能索引加 IrOpt；book 补机制节
 - [ ] 3.8 归档 + commit（.claude/ + docs/spec/ 纳入）
 
-## 阶段 4: 后续 pass（独立 change 或续作）
-- [ ] 4.1 copy-prop：消 SSA-lite 拷回冗余 Copy（interp 热路大头）+ interp 前后基准
+## 阶段 4: 后续 pass
+- [x] 4.1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`）。
+      条件：相邻 producer→copy + t 单赋值单读（含终结子读）+ t≠local。全绿（e2e 424/0 interp+jit
+      + 自举 5/5 + stdlib 279 + 20 units）。**暴露并修复一个潜伏 JIT bug**（见下）。
 - [ ] 4.2 const-fold：折叠常量 temp 链
 - [ ] 4.3 评估迭代到不动点 / MaxReg 下调重编号
+
+## 实施期发现：JIT 帧寄存器数漏算异常表 catch_reg（跨子系统）
+copy-prop 删掉「最后一条引用某寄存器的指令」后，JIT 的 `max_reg`（给 frame.regs 定尺寸，只数指令
+写过的 dst）不再覆盖异常表 catch_reg → `frame.regs[catch_reg]` 越界 panic（interp 因 frame.set
+自动扩容而免疫）。**根因是潜伏 JIT bug（帧尺寸计算不完整），非 copy-prop 错误**（copy-prop 的 IR
+interp 214/214 全对）。修复独立提交 `fix(runtime): max_reg 补扫 catch_reg`（739e9564，runtime 子系统）。
+教训：编译期 IR 优化删指令会改变「哪些寄存器被指令引用」，任何**从指令流反推寄存器集**的运行时分析
+都可能被暴露不完整 —— 应以编译器权威 reg 数 / 显式表（异常表等）为准。
 
 ## 备注
 - 正确性不变量：一个寄存器值 escape 函数的途径 = 返回 / out·ref 参数 / 有副作用指令读；三者齐全 DCE 才安全（见 design.md）。
