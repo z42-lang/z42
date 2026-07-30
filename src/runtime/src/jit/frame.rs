@@ -7,7 +7,7 @@
 use crate::metadata::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
@@ -159,6 +159,20 @@ pub struct FnEntry {
 unsafe impl Send for FnEntry {}
 unsafe impl Sync for FnEntry {}
 
+impl FnEntry {
+    /// Negative-cache marker (runtime-jit-tiering Phase 1): a null-`ptr` entry
+    /// meaning "this function is not JIT-translatable (or compile failed) — run
+    /// it on the interpreter". Filling the slot with this avoids re-running
+    /// `jit_unsupported_reason` (a full instruction walk) on every subsequent
+    /// call. `resolve_merged_slot` maps it back to `None` so callers fall through
+    /// to `cross_zpkg_via_interp` exactly as they did for an empty slot.
+    pub fn rejected() -> Self {
+        FnEntry { ptr: std::ptr::null(), max_reg: 0, name: "".into(), file: "".into() }
+    }
+    #[inline]
+    pub fn is_rejected(&self) -> bool { self.ptr.is_null() }
+}
+
 // ── Lazy slot table (make-vm-loading-lazy) ──────────────────────────────────
 //
 // Functions materialized by the lazy loader (`try_lookup_function`) are NOT in
@@ -233,6 +247,16 @@ pub struct JitModuleCtx {
     /// SAFETY: the VmContext must outlive `JitModule::run` and be unique
     /// (no concurrent JIT entry on the same JitModule).
     pub vm_ctx:      *mut crate::vm_context::VmContext,
+    /// runtime-jit-tiering Phase 1: per-merged-function call counter, parallel to
+    /// `fn_entries_by_id` (pre-sized `merged_len`, zero per-call heap alloc). A
+    /// function compiles only once its count reaches `jit_threshold`; below that
+    /// it runs on the interpreter (cold tier). Frozen once the slot is filled
+    /// (Compiled/Rejected), so it never overflows in practice.
+    pub call_counts: Vec<AtomicU32>,
+    /// Tier-up threshold: compile a merged function on its `jit_threshold`-th call
+    /// (N=1 → compile-on-first-call = pre-tiering behavior). From
+    /// `Z42_JIT_THRESHOLD` (default 2), clamped ≥ 1.
+    pub jit_threshold: u32,
 }
 
 impl JitModuleCtx {
@@ -250,24 +274,55 @@ impl JitModuleCtx {
     /// a `JitModule::run` (set at construction; `lazy` never null).
     pub unsafe fn resolve_fn_by_id(&self, id: usize) -> Option<&FnEntry> {
         if id < self.merged_len {
-            self.resolve_merged_slot(id)
+            self.resolve_merged_slot(id, false)
         } else {
             // make-vm-loading-lazy: synthetic id → lazily-loaded function.
             self.resolve_lazy_slot(id - self.merged_len)
         }
     }
 
+    /// Tiered variant (runtime-jit-tiering Phase 1): apply the call-count threshold
+    /// so only HOT functions compile; cold ones return `None` → caller runs them on
+    /// the interpreter. Used ONLY by `jit_call` (static/free calls), whose
+    /// `cross_zpkg_via_interp` cold-tier fallback is proven for arbitrary functions.
+    /// The method/closure/ctor helpers keep `resolve_fn_by_id` (compile-on-first-call)
+    /// — their `None`-fallbacks are not yet robust for arbitrary cold callees (Phase 1b).
+    /// The tri-state negative cache applies in BOTH variants.
+    pub unsafe fn resolve_fn_by_id_tiered(&self, id: usize) -> Option<&FnEntry> {
+        if id < self.merged_len {
+            self.resolve_merged_slot(id, true)
+        } else {
+            self.resolve_lazy_slot(id - self.merged_len)
+        }
+    }
+
     /// Merged-module path: slot `idx` in the pre-sized `fn_entries_by_id`. Compiles
     /// `module.functions[idx]` on first call (hot path = lock-free `OnceLock::get`).
-    unsafe fn resolve_merged_slot(&self, idx: usize) -> Option<&FnEntry> {
+    unsafe fn resolve_merged_slot(&self, idx: usize, tier: bool) -> Option<&FnEntry> {
         let slot = self.fn_entries_by_id.get(idx)?;
         if let Some(e) = slot.get() {
+            // runtime-jit-tiering Phase 1 tri-state: filled slot is Compiled or
+            // Rejected (negative cache). Rejected → interp, WITHOUT re-scanning.
+            // Applies in BOTH tier modes.
+            if e.is_rejected() { return None; }
             return Some(e);
         }
+        // Tiered path only: count this call; below threshold → cold tier (interp via
+        // jit_call's fallback), don't compile/scan yet. Non-tiered callers
+        // (vcall/closure/ctor/entry) compile on first call as before.
+        if tier {
+            if let Some(cnt) = self.call_counts.get(idx) {
+                let n = cnt.fetch_add(1, Ordering::Relaxed) + 1;
+                if n < self.jit_threshold { return None; }
+            }
+        }
+        // Threshold reached: scan translatability ONCE, then compile or cache
+        // Rejected so future calls skip both the scan and the counter.
         let module = &*self.module;
         let func = module.functions.get(idx)?;
         if super::translate::jit_unsupported_reason(func).is_some() {
-            return None; // interp fallback — mirrors eager "absent from table"
+            let _ = slot.set(FnEntry::rejected()); // negative-cache the verdict
+            return None;
         }
         let mtx = &*self.lazy;
         let mut guard = match mtx.lock() {
@@ -278,11 +333,12 @@ impl JitModuleCtx {
             let t0 = std::time::Instant::now();
             match guard.compile_one(idx) {
                 Ok(entry) => { let _ = slot.set(entry); self.bump_compile_counters(t0); }
-                Err(_) => return None, // compile failed → interp fallback
+                // Compile is deterministic → cache Rejected so we don't re-attempt.
+                Err(_) => { let _ = slot.set(FnEntry::rejected()); return None; }
             }
         }
         drop(guard);
-        slot.get()
+        slot.get().filter(|e| !e.is_rejected())
     }
 
     /// Lazy path (make-vm-loading-lazy): slot `i` in the growable `lazy_table`, for a

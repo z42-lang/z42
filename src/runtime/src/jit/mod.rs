@@ -59,6 +59,15 @@ impl JitModule {
         let n = module.functions().len();
         let mut fn_entries_by_id = Vec::with_capacity(n);
         fn_entries_by_id.resize_with(n, std::sync::OnceLock::new);
+        // runtime-jit-tiering Phase 1: per-function call counters (pre-sized, zero
+        // per-call alloc) + tier-up threshold from `Z42_JIT_THRESHOLD` (default 2,
+        // clamped ≥ 1; N=1 = compile-on-first-call = pre-tiering behavior).
+        let mut call_counts = Vec::with_capacity(n);
+        call_counts.resize_with(n, std::sync::atomic::AtomicU32::default);
+        let jit_threshold = std::env::var("Z42_JIT_THRESHOLD").ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(2)
+            .max(1);
         let ctx = Box::new(JitModuleCtx {
             // review.md C3 Phase 1 (2026-06-03): copy the pre-interned Arc<str>
             // pool (cheap — Arc::clone per slot) so `jit_const_str` avoids the
@@ -75,6 +84,8 @@ impl JitModule {
             // Set by JitModule::run for the duration of an entry call; null
             // outside that window.
             vm_ctx: std::ptr::null_mut(),
+            call_counts,
+            jit_threshold,
         });
         Ok(JitModule { _lazy: lazy_box, ctx })
     }
@@ -204,6 +215,10 @@ impl JitModule {
             self.run_fn(ctx, init_name)?;
         }
 
+        // runtime-jit-tiering Phase 1: the entry (and static-inits) run via
+        // `run_fn` → `resolve_fn_by_id` (non-tiered) → compile-on-first-call, so no
+        // threshold exemption is needed. Only `jit_call` (static/free calls from
+        // within JIT'd code) applies the tier-up threshold.
         self.run_fn(ctx, entry_name)
     }
 }

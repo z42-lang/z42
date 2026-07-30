@@ -42,7 +42,7 @@ pub unsafe extern "C" fn jit_call(
     // cloning copied two `Arc<str>` (name + file) per call re-cloned in
     // push_frame anyway.
     let entry_ref: Option<&FnEntry> = if method_id != UNRESOLVED {
-        ctx_ref.resolve_fn_by_id(method_id as usize)
+        ctx_ref.resolve_fn_by_id_tiered(method_id as usize)
     } else {
         // Tier 2: per-site inline cache.
         let cached = if ic_ptr.is_null() {
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn jit_call(
             (*ic_ptr).load(std::sync::atomic::Ordering::Relaxed)
         };
         if cached != UNRESOLVED {
-            ctx_ref.resolve_fn_by_id(cached as usize)
+            ctx_ref.resolve_fn_by_id_tiered(cached as usize)
         } else {
             // Tier 3: resolve by name (may register a synthetic lazy id), then
             // populate the IC. `resolve_id_by_name` returns None for a target
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn jit_call(
                     if !ic_ptr.is_null() {
                         (*ic_ptr).store(id, std::sync::atomic::Ordering::Relaxed);
                     }
-                    ctx_ref.resolve_fn_by_id(id as usize)
+                    ctx_ref.resolve_fn_by_id_tiered(id as usize)
                 }
                 None => None,
             }

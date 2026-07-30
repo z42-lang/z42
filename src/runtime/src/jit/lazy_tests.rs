@@ -143,9 +143,36 @@ fn caller_lazily_compiles_callee_mid_execution() {
     let module = module_of("M", vec![caller_of("A", "B"), empty_fn("B")]);
     let vm = VmContext::new();
     let mut jm = JitModule::setup(&module).expect("setup");
+    // runtime-jit-tiering: this test is about the mid-execution compile property
+    // (orthogonal to tiering), so force threshold=1 → B compiles on its first
+    // jit_call. (Deterministic regardless of Z42_JIT_THRESHOLD in the env.)
+    jm.ctx.jit_threshold = 1;
     jm.run_fn(&vm, "A").expect("run A, which calls (and lazily compiles) B");
     assert_eq!(compiled_count(&vm), 2,
         "the caller A and its callee B — lazily compiled mid-call — are both compiled");
+}
+
+#[test]
+fn tiering_cold_jit_call_callee_stays_interp() {
+    // runtime-jit-tiering Phase 1a: a jit_call'd callee below the threshold does
+    // NOT compile — it runs on the interpreter (cold tier). Here A (entry, always
+    // compiled) calls B once with threshold=2 → B stays uncompiled.
+    let module = module_of("M", vec![caller_of("A", "B"), empty_fn("B")]);
+    let vm = VmContext::new();
+    let mut jm = JitModule::setup(&module).expect("setup");
+    jm.ctx.jit_threshold = 2;
+    jm.run_fn(&vm, "A").expect("run A");
+    assert_eq!(compiled_count(&vm), 1,
+        "only entry A compiles; B (1 jit_call < threshold 2) stays on the interpreter");
+}
+
+#[test]
+fn tiering_rejected_marker_is_negative_cache() {
+    // The tri-state slot: a null-ptr FnEntry means Rejected (not JIT-translatable
+    // / compile-failed), cached so `jit_unsupported_reason` isn't re-run every call.
+    let r = crate::jit::frame::FnEntry::rejected();
+    assert!(r.is_rejected(), "null-ptr FnEntry is the Rejected marker");
+    assert!(r.ptr.is_null());
 }
 
 #[test]

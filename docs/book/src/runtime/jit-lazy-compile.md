@@ -127,3 +127,26 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 `Z42_JIT_PROFILE=1` 运行单个 golden，打印的「lazy-compile <fn>」行数 = 实际编译函数数，
 应从「整套 stdlib（数千）」降到「该用例实际调用（数十）」。CI `test-vm-jit` shard 墙钟随之
 从 ~55 分钟大幅回落。
+
+## 分层：热度阈值 + 三态负缓存（runtime-jit-tiering Phase 1a，准则 2）
+
+lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数
+未达阈值）留在解释器（省编译时间 + code 页，准则 2「只有热函数值得升级」）。
+
+**机制**（`jit/frame.rs`）：
+- **调用计数**：`JitModuleCtx.call_counts: Vec<AtomicU32>`（setup 预分配 `merged_len`，lock-free
+  `fetch_add`，零 per-call 堆分配）。
+- **三态槽**：`FnEntry.ptr==null` = **Rejected**（不可编/编译失败的负缓存）；`ptr≠null` = Compiled；
+  `OnceLock` 空 = Unknown。Rejected 一次判定后缓存 → **消除不可编函数每次调用重扫 `jit_unsupported_reason`**
+  （整函数指令走一遍）的浪费。两条 resolve 路径通用。
+- **阈值**：`Z42_JIT_THRESHOLD`（默认 2，clamp≥1；N=1 = 首 call 即编 = 分层前行为）。第 N 次调用时编译，
+  前 N-1 次解释。
+
+**收窄到 `jit_call`（Phase 1a）**：阈值只作用于静态/自由调用（`jit_call` → `resolve_fn_by_id_tiered`），
+其 `cross_zpkg_via_interp` 冷兜底对任意函数已证通用。方法/闭包/构造（`jit_vcall`/`jit_call_indirect`/
+`jit_obj_new`）保持 compile-on-first-call（`resolve_fn_by_id` 非 tiered）——它们的 `None`-兜底臂对任意
+冷 callee 尚不健壮（改前 `None` 只意味罕见「不可编」；全冷→`None` 会暴露 86 个 jit golden 挂）。扩展到
+这三者是 **Phase 1b**（先让其兜底健壮 + 结果一致测试）。三态负缓存不受收窄影响，两路径通用。
+
+**验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值默认 2 时，调 1 次的冷函数
+留 interp）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。
