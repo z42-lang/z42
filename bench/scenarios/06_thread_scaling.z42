@@ -1,0 +1,59 @@
+// add-exec-profile-matrix (2026-07-31): multi-thread scalability scenario.
+//
+// Spawns N worker threads that each run an identical CPU loop, then joins them
+// and sums their partials through a Channel. Exercises Std.Threading spawn/join
+// + the concurrent-GC-safe shared VmCore + cross-thread Channel — the "threads"
+// runtime capability. On a build that reports caps=[...,threads] (desktop /
+// mobile) this runs; the harness records profile.caps including "threads".
+//
+// Determinism: every worker computes the SAME partial (Work(ITERS)), so
+// total = N * Work(ITERS) regardless of completion order — a stable output that
+// also guards against compiler/threading drift.
+//
+// Workers capture NO stack locals (that cannot escape to a worker thread); all
+// shared inputs/outputs go through the static Shared class.
+//
+// Expected output (deterministic): 4 * sum_{i=0..1999999}(i % 7)
+namespace Bench.ThreadScaling;
+
+using Std;
+using Std.IO;
+using Std.Threading;
+
+public static class Shared {
+    public static Channel<long> Out;
+    public static long Iters;
+}
+
+// Fixed CPU workload; result is a pure function of `iters` (deterministic).
+long Work(long iters) {
+    long acc = 0;
+    long i = 0;
+    while (i < iters) {
+        acc = acc + (i % 7);
+        i = i + 1;
+    }
+    return acc;
+}
+
+void Main() {
+    int nthreads = 4;
+    Shared.Iters = 2000000;
+    Shared.Out = new Channel<long>(nthreads);
+
+    Thread[] ts = new Thread[nthreads];
+    for (int k = 0; k < nthreads; k = k + 1) {
+        ts[k] = Thread.Start(() => {
+            Shared.Out.Send(Work(Shared.Iters));
+        });
+    }
+    for (int k = 0; k < nthreads; k = k + 1) {
+        ts[k].Join();
+    }
+
+    long total = 0;
+    for (int k = 0; k < nthreads; k = k + 1) {
+        total = total + Shared.Out.Recv();
+    }
+    Console.WriteLine(total);
+}
