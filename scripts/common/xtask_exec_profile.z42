@@ -115,6 +115,61 @@ string _epProfileJson(string[] tiers, string[] aotPkgs, VmCaps vm) {
         + _epNormArch(vm.Arch) + "\"}, \"caps\": " + _epJsonStrArr(vm.Caps) + "}";
 }
 
+// ── mode sweep (bench/test `--mode` option → composition list) ───────────────
+
+// Expand a `--mode interp|jit|both` option into the measured-run mode names to
+// sweep (each becomes one z42vm `--mode <m>` + one profile-tagged result).
+string[] _epModesToSweep(string opt) {
+    if (opt == "both") {
+        string[] two = new string[2];
+        two[0] = "interp"; two[1] = "jit";
+        return two;
+    }
+    string one = opt;
+    if (one.Length == 0) { one = "jit"; }   // default: measure jit (VM default backend)
+    string[] r = new string[1];
+    r[0] = one;
+    return r;
+}
+
+// The tier set a measured-run mode corresponds to. interp = [interp]; jit adds
+// the jit tier over the interp fallback. (aot compositions are M9; not produced
+// here — aot_pkgs stays empty.)
+string[] _epTiersForMode(string m) {
+    if (m == "jit") {
+        string[] t = new string[2];
+        t[0] = "interp"; t[1] = "jit";
+        return t;
+    }
+    string[] t = new string[1];
+    t[0] = "interp";
+    return t;
+}
+
+// z42vm version string from `vm --info` (first line "z42vm X.Y.Z"), for the
+// schema v2 `z42vm_version` field. Empty if unavailable.
+string _epVmVersion(string vm) {
+    ProcessResult r = new Process(vm).Arg("--info").Run();
+    if (r.ExitCode != 0) { return ""; }
+    string[] lines = r.Stdout.Split("\n");
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        string ln = lines[i].Trim();
+        if (ln.StartsWith("z42vm ")) { return ln.Substring(6, ln.Length - 6).Trim(); }
+    }
+    return "";
+}
+
+// Profile discriminator for diff matching: "<mode_label>@<os>/<arch>" from a
+// schema-v2 benchmark object's `profile`. Empty if the object has no profile
+// (defensive — v2 always has one), so pre-profile rows still match by name only.
+string _epBenchModeKey(JsonValue b) {
+    if (!b.ContainsKey("profile")) { return ""; }
+    JsonValue p = b.Get("profile");
+    JsonValue plat = p.Get("platform");
+    return p.Get("mode_label").AsString() + "@" + plat.Get("os").AsString()
+        + "/" + plat.Get("arch").AsString();
+}
+
 // ── probing the target VM ────────────────────────────────────────────────────
 
 // Compile bench/probe/capabilities.z42 to a cached .zbc (idempotent), return path.
