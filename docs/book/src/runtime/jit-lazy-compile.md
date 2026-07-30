@@ -142,11 +142,15 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
 - **阈值**：`Z42_JIT_THRESHOLD`（默认 2，clamp≥1；N=1 = 首 call 即编 = 分层前行为）。第 N 次调用时编译，
   前 N-1 次解释。
 
-**收窄到 `jit_call`（Phase 1a）**：阈值只作用于静态/自由调用（`jit_call` → `resolve_fn_by_id_tiered`），
-其 `cross_zpkg_via_interp` 冷兜底对任意函数已证通用。方法/闭包/构造（`jit_vcall`/`jit_call_indirect`/
-`jit_obj_new`）保持 compile-on-first-call（`resolve_fn_by_id` 非 tiered）——它们的 `None`-兜底臂对任意
-冷 callee 尚不健壮（改前 `None` 只意味罕见「不可编」；全冷→`None` 会暴露 86 个 jit golden 挂）。扩展到
-这三者是 **Phase 1b**（先让其兜底健壮 + 结果一致测试）。三态负缓存不受收窄影响，两路径通用。
+**分阶段接入各调用点**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
+- **Phase 1a — `jit_call`（静态/自由）**：其 `cross_zpkg_via_interp` 冷兜底已证通用,直接切 tiered。
+- **Phase 1b — `jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：改前把**所有**冷函数→`None`
+  会暴露这三者兜底不健壮（86 个 jit golden 挂）。逐一补齐后切 tiered：
+  - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
+    `resolve_fn_by_id_tiered` / `resolve_fn_by_name_tiered`。
+  - `jit_call_indirect`：`None`-臂原本只报「undefined function」（无兜底）→ 补 interp（env 前置 + args）。
+  - `jit_obj_new`：`None`-臂原本**静默跳过 ctor**（字段未初始化）→ 补 interp 跑 ctor（原地改 `this`）。
+  三态负缓存两路径通用,不受接入阶段影响。
 
 **验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值默认 2 时，调 1 次的冷函数
 留 interp）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。

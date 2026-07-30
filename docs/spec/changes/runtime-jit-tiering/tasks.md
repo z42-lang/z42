@@ -18,10 +18,16 @@
 - [ ] 1.8 基准：多冷静态函数程序编译时间↓ + 热循环不回归
 - [ ] 1.9 文档：jit-lazy-compile.md 补分层节
 
-## Phase 1b: 扩展分层到 vcall/closure/ctor（后续）
-- [ ] 让 `jit_vcall`/`jit_call_indirect`/`jit_obj_new` 的 None-臂健壮 interp 任意冷 callee
-- [ ] 各切到 `resolve_fn_by_id_tiered` + 结果一致测试
-- [ ] 入口/热方法从 interp 帧的 tier-up（可能需 Phase 1.5 混合模式配合）
+## Phase 1b: 扩展分层到 vcall/closure/ctor —— 已完成
+- [x] `jit_vcall`：PIC(68) + vtable(262) 两 resolve site 切 tiered；vtable None-臂已有健壮 interp 兜底
+      （receiver + args）→ 冷方法留 interp。profile 实证：冷方法 Bar 留 interp、热方法 Baz 编译。
+- [x] `jit_call_indirect`（闭包）：None-臂原本只报错(无兜底) → 补 interp 兜底（env 前置 + args），切 tiered。
+- [x] `jit_obj_new`（构造）：None-臂原本**静默跳过 ctor**（字段未初始化,is_pattern_binding 5→0）→ 补 interp
+      兜底（interp 跑 ctor 原地改 `this`=obj_val），切 tiered。
+- [x] 新增 `resolve_fn_by_name_tiered`；三 helper 各自 interp 兜底对任意冷 callee 健壮。
+- [x] GREEN：e2e 424/0（含 delegate/class/closure）+ 全门禁。
+- 备注：入口/热方法从 **interp 帧**调用仍不回跳 JIT（interp 的 Call 不感知 JIT）——真正混合模式是 Phase 1.5，
+  Phase 1b 只让「从 JIT'd 码发起的」方法/闭包/构造调用分层。
 
 ## Phase 1.5: 混合模式（依赖 Phase 1）
 - [ ] 1.5.1 interp Call/VCall 分发查 FnEntry：Compiled → 原生

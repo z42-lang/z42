@@ -420,6 +420,14 @@ impl JitModuleCtx {
         let id = self.resolve_id_by_name(name)?;
         self.resolve_fn_by_id(id as usize)
     }
+
+    /// Tiered by-name resolve (runtime-jit-tiering Phase 1b): applies the tier-up
+    /// threshold. Used by `jit_vcall`'s vtable path, whose `None`-arm robustly
+    /// interps the resolved method (receiver + args) for cold callees.
+    pub unsafe fn resolve_fn_by_name_tiered(&self, name: &str) -> Option<&FnEntry> {
+        let id = self.resolve_id_by_name(name)?;
+        self.resolve_fn_by_id_tiered(id as usize)
+    }
 }
 
 // SAFETY: raw pointer — caller ensures Module outlives ctx.
