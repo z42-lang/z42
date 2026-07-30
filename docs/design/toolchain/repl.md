@@ -132,6 +132,31 @@ GC，收集器会死等主线程 park（要到用户回车才解）→ 预热在
 > 引入：change `add-repl-prewarm`（`docs/spec/archive/…-add-repl-prewarm`）。冷启动/无间隙仍付一次构建，
 > 彻底消除见 Deferred `repl-future-persist-static-scan`（磁盘持久化，正交可叠加）。
 
+## 惰性类型世界（lazy-type-world，2026-07-30）
+
+**问题**：预热/首次 eval 的主导成本是 `TsigReconcile.BuildWorld`——它一次性把全部 ~34 个 stdlib+编译器包
+的**完整 TYPE/SIGS 元数据**解析进 `Wp`，**无论输入引用了什么**。这是 **O(标准库总量)**：库越大首轮越慢。
+
+**方案**：`Wp` 改为 `LazyReconWorld` **按包懒填**。`TsigReconcile.Rebuild` 重建类的基类链时，遇导入祖先
+FQ → 取其命名空间（最后一个 `.` 之前）→ 经 NSPC 建的路由表定位到**声明该 ns 的所有包** → 只解析那几个
+（`EnsureFq`）。递归覆盖传递闭包；扫描跳过未填充（null）条目。
+
+```
+首次 eval "1+2"（不引用外部）→ 解析 prelude + 默认 using 闭包（实测 14/34 包），非全部 34
+加载一个包 → 只解析它 + 基类链祖先闭包（spike 实测 max=3、avg=1）
+标准库变多 → 首轮解析量不变（O(引用闭包)，不随总量增长）——根治「库变多更卡」
+```
+
+- **正确性**：路由定位与「扫遍全量 world」等价（spike 230/230 基类链 0 不匹配）；每包解析确定性 → 懒填与
+  eager 全量产出**逐字节相同**。自举字节不动点 **5/5 gen1==gen2**（gen1=旧 eager 编译器、gen2=新惰性
+  编译器，二者字节相同即证 eager==lazy）+ cross-zpkg 8/0 + stdlib 279/23。
+- **零格式 bump、零 VM 改动**。`build/test` 全量编译走 `ScanDirs`（同惰性 world，Rebuild 全部包 → 填满）。
+- **种子兼容**：改 `Rebuild` 签名踩 bootstrap 轴④（z42c 运行期自依赖 z42.ir）——保留旧 4-arg `Rebuild`
+  + `BuildWorld` 作 eager 包装重载给种子，跨一版种子后可删。
+
+> 引入：change `lazy-type-world`（`docs/spec/archive/…-lazy-type-world`）。残余优化（不预加载默认 using +
+> 后台符号名字索引、延后 `Open`/STRS）见该 change 的 design Deferred。
+
 ## 状态模型：Growing Transcript
 
 会话维护一个累积的"会话源文件"，每轮输入追加后整体重编译：
@@ -402,8 +427,14 @@ libs/ + programs/z42c/ + programs/interactive/
 - **当前 workaround（2026-07-29 add-repl-prewarm 落地）**：**后台线程预热**已把这份一次性成本从
   「用户回车后干等」移到「与用户打字并行」——REPL 启动即 spawn worker 跑 `Script.Prewarm` 构建
   `DepScanResult`，首次 `Eval` 前 Join 汇合（见本页「启动预热」节）。真实 PTY 下打字间隙 ≥ 预热时长
-  时首轮近瞬时；piped/无间隙时退化为同步、不更差。**本 Deferred 仍成立**——预热只是把成本藏进打字
-  间隙，冷启动（无间隙）与首次-ever 仍需构建一次；持久化到磁盘才能彻底消除。两者正交、可叠加。
+  时首轮近瞬时；piped/无间隙时退化为同步、不更差。
+- **大幅缩减（2026-07-30 lazy-type-world 落地）**：`TsigReconcile.BuildWorld` 的**一次性全量 TYPE/SIGS
+  解析**改为 `LazyReconWorld` 按包懒填——Rebuild 基类链遇祖先按命名空间路由只解析引用闭包（见本页
+  「惰性类型世界」节）。实测 `1+2` 首轮解析 **14/34 包**（prelude + 默认 using 闭包）而非全部，且**不随
+  标准库总量增长**（O(引用闭包) 而非 O(总量)）——根治「库越大首轮越慢」。自举字节不动点 5/5 gen1==gen2 证等价。
+- **本 Deferred 仍成立**：懒填把成本降到「prelude + 默认 using + 引用闭包」的解析（`1+2` 的 14 包主要是
+  4 个默认 using——不预加载它们 + 后台符号名字索引是正交 follow-up，见 `lazy-type-world` design 的 Deferred），
+  且残余 O(包数) 的 `Open`(STRS) 头部扫描仍在；持久化到磁盘才能连这些也跨会话消除。诸项正交、可叠加。
 
 ### repl-future-load-directive
 

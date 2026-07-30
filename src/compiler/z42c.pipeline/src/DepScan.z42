@@ -17,13 +17,14 @@ public sealed class DepScanResult {
     public string[]          NsFiles;
     public ExportedModuleZ[] Exported;     public int ExportedCount; // 全部 TSIG 模块
     public string[]          ExportedPkg;                            // 平行：每模块来源包名
-    // 保留 TsigReconcile world（perf-optimize-repl-eval ②）：供 ExtendWithPackage 增量并入
-    // 新包时复用（跨包 base 链解析），避免重建。ScanDirs 填；一次性调用方可忽略。
-    public ReconWorldPkg[]   Wp;           public int WpCount;
-    // 惰性扫描（lazy-repl-depscan）：ScanDirsLazy 只对 prelude 做 Rebuild/DepIndex，但 **eager
-    // BuildWorld 全部**（world 完整 → base 链天然可解，无闭包风险）。下列保留每个已 Open 的包，供
-    // EnsurePackageLoaded 按需 Rebuild + DepIndex（world 已全，正确性有保障）。ScanDirs（非惰性）
-    // 不填这些（Loaded 全 true 语义 = 全量已加载，EnsurePackageLoaded no-op）。
+    // 惰性跨包类型世界（lazy-type-world）：取代 eager `ReconWorldPkg[] Wp`。Wp 按包懒填、基类链
+    // 遇祖先按 ns 路由解析（world 不再一次性全量解析 → 首次 eval O(引用闭包)）。供 ExtendWithPackage /
+    // EnsurePackageLoaded 复用。
+    public LazyReconWorld    World;
+    // 惰性扫描（lazy-repl-depscan）：ScanDirsLazy 只对 prelude 做 Rebuild/DepIndex；其余包按需
+    // Rebuild（lazy-type-world：Rebuild 内部经 World.EnsureFq 只解析引用到的祖先包）。下列保留每个
+    // 已 Open 的包，供 EnsurePackageLoaded 按需 Rebuild + DepIndex。ScanDirs（非惰性）不填这些
+    // （Loaded 全 true 语义 = 全量已加载，EnsurePackageLoaded no-op）。
     public ZpkgInfo[] Opened;      // 已 Open 的 lib 包（与 OpenedDirs/OpenedNames/Loaded 平行）
     public string[]   OpenedDirs;  // 各包所在目录（Rebuild 的 pkgDir，indexed 包读散装 zbc 需要）
     public string[]   OpenedNames; // 各包 basename（"z42.io.zpkg"）——FileOf(ns) 定位后据此找索引
@@ -35,7 +36,7 @@ public sealed class DepScanResult {
         this.Index = index;
         this.NsNames = nsNames; this.NsFiles = nsFiles; this.NsCount = nsCount;
         this.Exported = exported; this.ExportedPkg = exportedPkg; this.ExportedCount = exportedCount;
-        this.Wp = null; this.WpCount = 0;
+        this.World = null;
         this.Opened = new ZpkgInfo[0]; this.OpenedDirs = new string[0];
         this.OpenedNames = new string[0]; this.Loaded = new bool[0]; this.OpenedCount = 0;
     }
@@ -104,8 +105,9 @@ public static class DepScan {
             }
             wpi = wpi + 1;
         }
-        // drop-tsig-expt P3：world 解析一次，跨全部 Rebuild 复用（避免 O(deps×world) 次包重解析）。
-        ReconWorldPkg[] wp = TsigReconcile.BuildWorld(world, worldDirs, worldCount);
+        // lazy-type-world：惰性 world（不再一次性全量解析）。ScanDirs 仍 Rebuild 全部包，故 Wp 经
+        // 各 Rebuild 的 EnsureFq 按需填满——总解析量不变、消除 BuildWorld 与 Rebuild 的双重解析。
+        LazyReconWorld lazyWorld = new LazyReconWorld(world, worldDirs, worldCount);
         int pi = 0;
         while (pi < paths.Length) {
             ZpkgInfo z = opened[pi];   // perf ①：复用预开阶段的解码结果，不重读 paths[pi]
@@ -143,7 +145,7 @@ public static class DepScan {
                         }
                     }
                     // drop-tsig-expt（unify P3）：从 TYPE/SIGS/IMPL 重建（替代已删 TSIG 段）。
-                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), wp, worldCount);
+                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld);
                     i = 0;
                     while (i < tsig.Length) {
                         if (exportedCount == exported.Length) {
@@ -164,14 +166,14 @@ public static class DepScan {
         }
         index.Seal();
         DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
-        res.Wp = wp; res.WpCount = worldCount;   // 保留 world 供 ExtendWithPackage（perf ②）
+        res.World = lazyWorld;   // 保留惰性 world 供 ExtendWithPackage / EnsurePackageLoaded 复用
         return res;
     }
 
     // perf-optimize-repl-eval ②：把「刚编出的一个包」增量并入已建 scan（不重扫全世界）。
     // 用于 REPL carry-forward——每轮 emit 的 Repl.R{N} 包（含 Vars{N} 静态类）并进缓存的静态
     // scan，使下一轮编译期能引用 Vars{N}，而无需把它落盘再全量重扫（DepScan 占每轮 ~98%）。
-    // 复用 scan.Wp（静态 world）做 TsigReconcile.Rebuild——repl 包无跨包 base 链，静态 world 足够。
+    // 把 repl 包 AppendPackage 进惰性 world 再 Rebuild——使其类可 _locate 自身 + 跨声明 base 链解析。
     // scan 被**原地修改**（Index / 平行数组增长）；返回同一对象方便链式。
     public static DepScanResult ExtendWithPackage(DepScanResult scan, byte[] bytes, string pkgName) {
         ZpkgInfo z = ZpkgReader.Open(bytes);
@@ -203,20 +205,13 @@ public static class DepScan {
             i = i + 1;
         }
         scan.Index.Seal();
-        // ③ 先把本包并入 world（perf ② 增量）：TsigReconcile._rebuildClass 按 FQ 名在 world 里
+        // ③ 先把本包并入惰性 world（lazy-type-world）：TsigReconcile._rebuildClass 按 FQ 名在 world 里
         // `_locate` 类自身 + base 链再读 SIGS 方法。REPL 声明的类/enum 只在本增量包里，不入 world
-        // 就定位不到自身 → 导出 0 方法（`no method` / undefined enum）。并入后，本包及后续增量包
-        // 的类型元数据（含实例方法、enum、跨声明 base 链）都能完整重建。
-        if (scan.WpCount == scan.Wp.Length) {
-            ReconWorldPkg[] wb = new ReconWorldPkg[scan.Wp.Length * 2 + 1];
-            int wk = 0;
-            while (wk < scan.WpCount) { wb[wk] = scan.Wp[wk]; wk = wk + 1; }
-            scan.Wp = wb;
-        }
-        scan.Wp[scan.WpCount] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(z, ""), ZpkgReader.ReadModuleSigs(z));
-        scan.WpCount = scan.WpCount + 1;
-        // ④ Exported（TSIG 重建）：world 现含本包 → 类型/方法/enum 完整重建。
-        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, "", scan.Wp, scan.WpCount);
+        // 就定位不到自身 → 导出 0 方法（`no method` / undefined enum）。AppendPackage 并入 + 登记其
+        // 命名空间到路由表，本包及后续增量包的类型元数据（含实例方法、enum、跨声明 base 链）都能完整重建。
+        scan.World.AppendPackage(z, "");
+        // ④ Exported（TSIG 重建）：world 现含本包 → 类型/方法/enum 完整重建（EnsureFq 按需解析祖先）。
+        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, "", scan.World);
         i = 0;
         while (i < tsig.Length) {
             if (scan.ExportedCount == scan.Exported.Length) {
@@ -234,11 +229,12 @@ public static class DepScan {
         return scan;
     }
 
-    // ── 惰性扫描（lazy-repl-depscan）─────────────────────────────────────────────
-    // 首轮只对 prelude 做昂贵的 Rebuild/DepIndex，但 **eager BuildWorld 全部**（world 完整 →
-    // base 链天然可解、零闭包风险）+ 全量廉价 nsMap。其余包在 `EnsurePackageLoaded` 按需产出
-    // Exported/DepIndex。实测：全量 4343ms → 首轮 ~1s（open+BuildWorld）+ 每新引用包 ~120ms。
-    // 仅用于 REPL 交互路径；build/test 全量编译仍走 ScanDirs（byte-identical 不受影响）。
+    // ── 惰性扫描（lazy-repl-depscan + lazy-type-world）───────────────────────────
+    // 首轮只对 prelude 做 Rebuild/DepIndex + 全量廉价 nsMap；其余包在 `EnsurePackageLoaded` 按需
+    // 产出 Exported/DepIndex。**lazy-type-world**：类型世界 `LazyReconWorld` 按包懒填——不再一次性
+    // 全量解析 world 的 TYPE/SIGS，Rebuild 基类链遇祖先按命名空间路由只解析引用闭包（实测 `1+2`
+    // 解析 14/34 包 = prelude + 默认 using 闭包，且**不随库总量增长**）。仅用于 REPL 交互路径；
+    // build/test 全量编译走 ScanDirs（同惰性 world，Rebuild 全部包 → 填满，byte-identical 不受影响）。
     public static DepScanResult ScanDirsLazy(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount) {
         var index = new DependencyIndex();
         string[] nsNames = new string[8];
@@ -252,7 +248,7 @@ public static class DepScan {
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }
-        // Open 全部 → world（eager BuildWorld 需完整 world）；同时留存 lib 包供按需 Rebuild。
+        // Open 全部 → world（建惰性 LazyReconWorld + nsMap 路由）；同时留存 lib 包供按需 Rebuild。
         ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
         ZpkgInfo[] world = new ZpkgInfo[paths.Length];
         string[] worldDirs = new string[paths.Length];
@@ -273,8 +269,9 @@ public static class DepScan {
             }
             wpi = wpi + 1;
         }
-        // eager：全 world 一次性解析（TYPE/SIGS）——base 链完整、按需 Rebuild 正确。
-        ReconWorldPkg[] wp = TsigReconcile.BuildWorld(world, worldDirs, worldCount);
+        // lazy-type-world：惰性 world（不再 eager 全量 BuildWorld）。prelude Rebuild + 后续按需
+        // Rebuild 时经 World.EnsureFq 只解析引用到的祖先包（首次 eval O(引用闭包)）。
+        LazyReconWorld lazyWorld = new LazyReconWorld(world, worldDirs, worldCount);
         int pi = 0;
         while (pi < paths.Length) {
             ZpkgInfo z = opened[pi];
@@ -314,7 +311,7 @@ public static class DepScan {
                             i = i + 1;
                         }
                     }
-                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), wp, worldCount);
+                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld);
                     i = 0;
                     while (i < tsig.Length) {
                         if (exportedCount == exported.Length) {
@@ -335,7 +332,7 @@ public static class DepScan {
         }
         index.Seal();
         DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
-        res.Wp = wp; res.WpCount = worldCount;
+        res.World = lazyWorld;
         res.Opened = libOpened; res.OpenedDirs = libDirs; res.OpenedNames = libNames;
         res.Loaded = libLoaded; res.OpenedCount = libCount;
         return res;
@@ -369,7 +366,7 @@ public static class DepScan {
             i = i + 1;
         }
         scan.Index.Seal();
-        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, scan.OpenedDirs[idx], scan.Wp, scan.WpCount);
+        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, scan.OpenedDirs[idx], scan.World);
         i = 0;
         while (i < tsig.Length) {
             if (scan.ExportedCount == scan.Exported.Length) {
