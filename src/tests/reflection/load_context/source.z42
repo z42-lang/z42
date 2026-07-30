@@ -1,0 +1,30 @@
+// add-load-context-model：LoadContext + Assembly + Type.IsCollectible 端到端。
+// 覆盖无需外部 zpkg 的 z42 API；collectible-Load→GetTypes→IsCollectible==true
+// 由 Rust 单测（corelib/loadcontext_tests.rs）覆盖（golden 拿不到可加载 zpkg 路径）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Runtime;
+using Std.Reflection;
+
+void Main() {
+    LoadContext def = LoadContext.Default();
+    Console.WriteLine(def.Name);                    // root
+    Console.WriteLine(def.IsCollectible);           // false
+
+    LoadContext ctx = LoadContext.CreateCollectible("plugin-a");
+    Console.WriteLine(ctx.Name);                    // plugin-a
+    Console.WriteLine(ctx.IsCollectible);           // true
+    Console.WriteLine(ctx.GetAssemblies().Length);  // 0
+
+    Console.WriteLine(typeof(int).IsCollectible);   // false
+    Assembly rootAsm = typeof(string).Assembly;
+    Console.WriteLine(rootAsm.IsCollectible);       // false
+
+    try {
+        ctx.Unload();
+        Console.WriteLine("NO-THROW");
+    } catch (NotSupportedException e) {
+        Console.WriteLine("unload-not-supported");
+    }
+}

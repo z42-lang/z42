@@ -1,0 +1,48 @@
+// Std.Runtime.LoadContext — z42 的加载上下文（dotnet AssemblyLoadContext 对标）。
+//
+// 把 zpkg 载入可界定边界的**上下文**：root（core/stdlib/主程序所在，永驻不可回收）
+// + collectible（按需创建，各自独立 arena，日后可卸载 / 热重载）。
+//
+// **Phase 1（add-load-context-model）：只建边界 + 反射身份**。collectible 上下文
+// 载入的 zpkg 反射可见（GetTypes / Assembly / Type.IsCollectible），但**暂不可
+// 跨上下文调用其函数**，`Unload()` 也**尚未实现**（抛 NotSupportedException，回收
+// 机制留待后续 change）。
+//
+// native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
+// 设计见 docs/spec/changes/add-load-context-model/design.md。
+namespace Std.Runtime;
+
+public sealed class LoadContext {
+    // 永驻 root 上下文（core / stdlib / 主程序所在）。IsCollectible == false。
+    // 注：z42 stdlib 无静态属性先例，静态成员一律 extern 方法（与 Std.GC 一致）。
+    [Native("__lctx_default")]
+    public static extern LoadContext Default();
+
+    // 创建一个可回收（collectible）上下文。载入其中的代码日后可整体卸载 / 回收。
+    [Native("__lctx_create_collectible")]
+    public static extern LoadContext CreateCollectible(string name);
+
+    // 上下文名字（root 恒为 "root"）。
+    [Native("__lctx_name")]
+    public extern string Name { get; }
+
+    // 是否可回收。root → false；CreateCollectible 建的 → true。
+    [Native("__lctx_is_collectible")]
+    public extern bool IsCollectible { get; }
+
+    // 把一个 zpkg 载入本上下文，返回其运行时 Assembly 投影。
+    // Phase 1：反射可见；其函数尚不可跨上下文调用（后续 change）。
+    [Native("__lctx_load")]
+    public extern Std.Reflection.Assembly Load(string zpkgPath);
+
+    // 本上下文已载入的 assembly 列表。
+    [Native("__lctx_assemblies")]
+    public extern Std.Reflection.Assembly[] GetAssemblies();
+
+    // 卸载本上下文并回收其内存。**Phase 1 尚未实现** —— 抛 NotSupportedException。
+    // 回收机制（惰性 + 强制 tombstone/trap + whyRetained 诊断）在后续 change 落地。
+    public void Unload() {
+        throw new Std.NotSupportedException(
+            "LoadContext.Unload 尚未实现：回收 / 卸载机制将在 add-load-context-model 的后续 change 落地");
+    }
+}

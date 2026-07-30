@@ -1,0 +1,27 @@
+// Std.Reflection.Assembly — 一个 zpkg 的运行时反射投影（mirrors .NET System.Reflection.Assembly）。
+//
+// z42 运行时以往把所有 zpkg merge 成一个扁平 Module，zpkg 身份被销毁。加载上下文模型
+// （add-load-context-model）把载入 collectible 上下文的 zpkg 身份保留为 Assembly，可反射
+// 其类型、查其所属 LoadContext、判其是否可回收。
+//
+// native 句柄（AssemblyId）存于 VM 的 NativeData；本类无数据字段。不可用户构造——由
+// LoadContext.Load / Type.Assembly / LoadContext.GetAssemblies 产出。
+namespace Std.Reflection;
+
+public sealed class Assembly {
+    // zpkg 的逻辑名。
+    [Native("__asm_name")]
+    public extern string Name { get; }
+
+    // 是否在可回收上下文（== 其 LoadContext.IsCollectible）。
+    [Native("__asm_is_collectible")]
+    public extern bool IsCollectible { get; }
+
+    // 所属加载上下文。
+    [Native("__asm_loadcontext")]
+    public extern Std.Runtime.LoadContext LoadContext { get; }
+
+    // 本 assembly 定义的类型（按 FQ 名有序）。
+    [Native("__asm_get_types")]
+    public extern Std.Type[] GetTypes();
+}

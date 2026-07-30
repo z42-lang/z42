@@ -35,6 +35,7 @@
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
+  - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
 

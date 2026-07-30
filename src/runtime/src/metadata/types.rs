@@ -286,6 +286,13 @@ pub enum NativeData {
     /// `__type_base` / `__type_generic_args`）据此枚举成员。基础类型/数组的
     /// synthetic Type 无此句柄（`NativeData::None`），成员查询退化为空。
     TypeHandle(Arc<TypeDesc>),
+    /// 2026-07-30 add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
+    /// 上下文句柄（root = `ContextId::ROOT`）。`__lctx_*` builtins 据此查
+    /// `VmCore.context_registry`。
+    LoadContextHandle(super::context::ContextId),
+    /// 2026-07-30 add-load-context-model：`Std.Reflection.Assembly` 对象携带的
+    /// 程序集句柄（zpkg 运行时投影）。`__asm_*` builtins 据此查注册表。
+    AssemblyHandle(super::context::AssemblyId),
     // 2026-04-26 script-first-stringbuilder: removed `StringBuilder(String)` —
     // `Std.Text.StringBuilder` is now a pure z42 script. Variant slot kept open
     // for future native-backed types (Stream / FileHandle / etc.).

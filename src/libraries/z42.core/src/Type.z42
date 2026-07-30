@@ -33,6 +33,12 @@ public sealed class Type : MemberInfo {
     public bool IsArray;
     public string __elementName;
 
+    // add-load-context-model (2026-07-30): VM-written. The AssemblyId of the
+    // assembly defining this type (0 = root). Stamped by `Assembly.GetTypes()`;
+    // left unset (→ root) by `typeof(T)` / `obj.GetType()`. Backs
+    // `IsCollectible` / `Assembly` — internal (`__`-prefixed), not user-read.
+    public long __asmId;
+
     // add-reflection-generic-type-definition (2026-06-16): VM-written. For a
     // *constructed* generic type (`typeof(Box<int>)`) this holds the resolved
     // instantiation arguments as `Type`s (`[typeof(int)]`); null for the open
@@ -212,6 +218,19 @@ public sealed class Type : MemberInfo {
     // null → false. (add-reflection-assignable-from)
     [Native("__type_is_assignable_from")]
     public extern bool IsAssignableFrom(Type c);
+
+    // ── Load context (add-load-context-model) ───────────────────────────────
+
+    // True if this type was loaded into a collectible LoadContext (mirrors .NET
+    // Type.IsCollectible). Types in the永驻 root context (all core/stdlib/main
+    // program types, and primitive/array synthetic Types) → false.
+    [Native("__type_is_collectible")]
+    public extern bool IsCollectible { get; }
+
+    // The assembly (zpkg runtime projection) that defines this type. Mirrors
+    // .NET Type.Assembly. Root types report the synthetic root assembly.
+    [Native("__type_assembly")]
+    public extern Std.Reflection.Assembly Assembly { get; }
 
     // ── Custom attributes (C3 add-attribute-reflection) ─────────────────────
 

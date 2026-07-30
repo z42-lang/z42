@@ -35,6 +35,7 @@ pub mod fs;
 pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native / memory VFS）
 pub mod object;
 pub mod reflection;
+pub mod loadcontext;
 pub mod array;
 pub mod char;
 pub mod gc;
@@ -484,6 +485,20 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_is_nested",          reflection::builtin_type_is_nested),
     ("__type_declaring_type",     reflection::builtin_type_declaring_type),
     ("__type_nested_types",       reflection::builtin_type_nested_types),
+
+    // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
+    ("__lctx_default",            loadcontext::builtin_lctx_default),
+    ("__lctx_create_collectible", loadcontext::builtin_lctx_create_collectible),
+    ("__lctx_load",               loadcontext::builtin_lctx_load),
+    ("__lctx_name",               loadcontext::builtin_lctx_name),
+    ("__lctx_is_collectible",     loadcontext::builtin_lctx_is_collectible),
+    ("__lctx_assemblies",         loadcontext::builtin_lctx_assemblies),
+    ("__asm_name",                loadcontext::builtin_asm_name),
+    ("__asm_is_collectible",      loadcontext::builtin_asm_is_collectible),
+    ("__asm_loadcontext",         loadcontext::builtin_asm_loadcontext),
+    ("__asm_get_types",           loadcontext::builtin_asm_get_types),
+    ("__type_is_collectible",     loadcontext::builtin_type_is_collectible),
+    ("__type_assembly",           loadcontext::builtin_type_assembly),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
