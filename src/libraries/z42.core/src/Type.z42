@@ -221,7 +221,7 @@ public sealed class Type : MemberInfo {
 
     // ── Load context (add-load-context-model) ───────────────────────────────
 
-    // True if this type was loaded into a collectible LoadContext (mirrors .NET
+    // True if this type was loaded into a collectible AssemblyLoadContext (mirrors .NET
     // Type.IsCollectible). Types in the永驻 root context (all core/stdlib/main
     // program types, and primitive/array synthetic Types) → false.
     [Native("__type_is_collectible")]

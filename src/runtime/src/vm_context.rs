@@ -140,8 +140,8 @@ pub struct VmCore {
     pub(crate) lazy_loader:        Mutex<Option<LazyLoader>>,
     /// **add-load-context-model (2026-07-30)**: registry of load contexts +
     /// assemblies (dotnet ALC 地基). Root context (id 0) + root assembly (id 0)
-    /// pre-populated. `collectible` contexts created via `LoadContext.CreateCollectible`;
-    /// `LoadContext.Load` registers assemblies with private `Module` arenas.
+    /// pre-populated. `collectible` contexts created via `AssemblyLoadContext.CreateCollectible`;
+    /// `AssemblyLoadContext.Load` registers assemblies with private `Module` arenas.
     /// Phase 1: boundary + reflection identity only (no unload / execution).
     pub(crate) context_registry:   Mutex<crate::metadata::context::ContextRegistry>,
     /// Native interop Tier 1 — registered native types keyed by `(module, type)`.

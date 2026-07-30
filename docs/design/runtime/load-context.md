@@ -2,7 +2,7 @@
 
 > **状态：Phase 1 地基已落地（`add-load-context-model`，2026-07-30）；卸载 / 回收 / 诊断仍 DESIGN** · 创建 2026-06-21
 >
-> **已落地（Phase 1）**：`LoadContext` 运行时模型（root 永驻 + collectible 独立 arena）+ zpkg 运行时身份
+> **已落地（Phase 1）**：`AssemblyLoadContext` 运行时模型（root 永驻 + collectible 独立 arena）+ zpkg 运行时身份
 > `Std.Reflection.Assembly` + `Std.Type.IsCollectible` / `.Assembly`。用户视角机制页见
 > [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。**未落地**：卸载（惰性 +
 > 强制）、回收、`whyRetained` 诊断、跨 context 执行、hot-reload——见本文余下设计。

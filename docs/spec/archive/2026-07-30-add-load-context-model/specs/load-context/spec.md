@@ -1,11 +1,11 @@
-# Spec: LoadContext 模型（Phase 1 地基）
+# Spec: AssemblyLoadContext 模型（Phase 1 地基）
 
 ## ADDED Requirements
 
 ### Requirement: Root 上下文默认存在且不可回收
 
 #### Scenario: 默认上下文即 root
-- **WHEN** z42 程序调用 `Std.Runtime.LoadContext.Default()`（静态方法——z42 stdlib 无静态属性先例，静态成员一律 extern 方法，实例 getter 才用 extern 属性）
+- **WHEN** z42 程序调用 `Std.Runtime.AssemblyLoadContext.Default()`（静态方法——z42 stdlib 无静态属性先例，静态成员一律 extern 方法，实例 getter 才用 extern 属性）
 - **THEN** 返回非 null 的 root 上下文，其 `Name == "root"`，`IsCollectible == false`
 
 #### Scenario: 现有代码的类型不可回收
@@ -19,12 +19,12 @@
 ### Requirement: 可创建 collectible 上下文并把 zpkg 载入其中
 
 #### Scenario: 创建 collectible 上下文
-- **WHEN** 调用 `LoadContext.CreateCollectible("plugin-a")`（静态方法）
+- **WHEN** 调用 `AssemblyLoadContext.CreateCollectible("plugin-a")`（静态方法）
 - **THEN** 返回一个新上下文，其 `Name == "plugin-a"`，`IsCollectible == true`，`ContextId` 与 root 不同
 
 #### Scenario: 载入 zpkg 到 collectible 上下文
 - **WHEN** 对该上下文调用 `ctx.Load("<path>/dep.zpkg")`
-- **THEN** 返回一个 `Std.Reflection.Assembly`，`asm.IsCollectible == true`，`asm.LoadContext` 即该 `ctx`，且 `asm` 出现在 `ctx.GetAssemblies()` 中
+- **THEN** 返回一个 `Std.Reflection.Assembly`，`asm.IsCollectible == true`，`asm.AssemblyLoadContext` 即该 `ctx`，且 `asm` 出现在 `ctx.GetAssemblies()` 中
 
 #### Scenario: collectible 上下文里的类型标记为可回收
 - **WHEN** 对上一步载入的 assembly 调用 `asm.GetTypes()`，取其中任一用户类型 `t`
@@ -40,9 +40,9 @@
 - **WHEN** 访问一个 collectible 上下文载入的 `Assembly` 的 `Name`
 - **THEN** 返回该 zpkg 的逻辑名（非空）
 
-#### Scenario: Type ↔ Assembly ↔ LoadContext 三者链路自洽
+#### Scenario: Type ↔ Assembly ↔ AssemblyLoadContext 三者链路自洽
 - **WHEN** 从 `ctx.Load(...)` 得到 `asm`，`asm.GetTypes()[i]` 得到 `t`
-- **THEN** `t.Assembly == asm` 且 `asm.LoadContext == ctx` 且 `t.IsCollectible == asm.IsCollectible == ctx.IsCollectible`（三者一致）
+- **THEN** `t.Assembly == asm` 且 `asm.AssemblyLoadContext == ctx` 且 `t.IsCollectible == asm.IsCollectible == ctx.IsCollectible`（三者一致）
 
 ### Requirement: Unload() Phase 1 声明但不生效
 
@@ -51,7 +51,7 @@
 - **THEN** 抛出 `Std.NotSupportedException`（或既有等价异常类型），消息明确指向"回收机制将在后续 change 落地"，且**不**破坏上下文状态（后续 `IsCollectible` / `GetAssemblies` 仍可正常访问）
 
 #### Scenario: 对 Default（root）调用 Unload
-- **WHEN** 对 `LoadContext.Default` 调用 `Unload()`
+- **WHEN** 对 `AssemblyLoadContext.Default` 调用 `Unload()`
 - **THEN** 抛异常（root 永不可卸载；Phase 1 统一 `NotSupportedException`，语义上 root 更是 `InvalidOperation`——实现取其一并在 message 说明）
 
 ## IR Mapping
@@ -68,5 +68,5 @@
 - [ ] Parser / AST —— 不涉及
 - [ ] TypeChecker —— 不涉及（新类是普通 stdlib 类 + extern 方法）
 - [ ] IR Codegen —— 不涉及
-- [x] VM interp —— 新 builtins + LoadContext 运行时模型 + 加载路径分叉（**核心**）
-- [x] stdlib —— 新 z42 类 `LoadContext` / `Assembly` + `Type` 加成员
+- [x] VM interp —— 新 builtins + AssemblyLoadContext 运行时模型 + 加载路径分叉（**核心**）
+- [x] stdlib —— 新 z42 类 `AssemblyLoadContext` / `Assembly` + `Type` 加成员

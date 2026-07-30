@@ -1,9 +1,9 @@
-//! Load-context builtins — backing `Std.Runtime.LoadContext`,
+//! Load-context builtins — backing `Std.Runtime.AssemblyLoadContext`,
 //! `Std.Reflection.Assembly`, and the `Std.Type` collectibility surface
 //! (add-load-context-model, 2026-07-30).
 //!
 //! Mechanism:
-//!   - `LoadContext` / `Assembly` z42 objects carry a `ContextId` / `AssemblyId`
+//!   - `AssemblyLoadContext` / `Assembly` z42 objects carry a `ContextId` / `AssemblyId`
 //!     in `NativeData` (like `Std.Type`'s `TypeHandle`). The builtins here read
 //!     that handle and consult `VmCore.context_registry`.
 //!   - `Std.Type.IsCollectible` / `.Assembly` resolve via the Type object's
@@ -22,7 +22,7 @@ use crate::metadata::types::NativeData;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
-const STD_LOADCONTEXT: &str = "Std.Runtime.LoadContext";
+const STD_LOADCONTEXT: &str = "Std.Runtime.AssemblyLoadContext";
 const STD_ASSEMBLY: &str = "Std.Reflection.Assembly";
 const ASM_ID_SLOT: &str = "__asmId";
 
@@ -52,9 +52,9 @@ fn ctx_handle(args: &[Value]) -> Result<ContextId> {
     match args.first() {
         Some(Value::Object(rc)) => match &rc.borrow().native {
             NativeData::LoadContextHandle(cid) => Ok(*cid),
-            _ => bail!("expected a Std.Runtime.LoadContext receiver"),
+            _ => bail!("expected a Std.Runtime.AssemblyLoadContext receiver"),
         },
-        _ => bail!("expected a Std.Runtime.LoadContext receiver"),
+        _ => bail!("expected a Std.Runtime.AssemblyLoadContext receiver"),
     }
 }
 
@@ -110,14 +110,14 @@ fn assembly_name_from_path(path: &str) -> String {
         .to_string()
 }
 
-// ── LoadContext builtins ─────────────────────────────────────────────────────
+// ── AssemblyLoadContext builtins ─────────────────────────────────────────────
 
-/// `LoadContext.Default` (static) → the永驻 root context.
+/// `AssemblyLoadContext.Default` (static) → the永驻 root context.
 pub fn builtin_lctx_default(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     build_loadcontext(ctx, ContextId::ROOT)
 }
 
-/// `LoadContext.CreateCollectible(string name)` (static) → a new collectible context.
+/// `AssemblyLoadContext.CreateCollectible(string name)` (static) → a new collectible context.
 pub fn builtin_lctx_create_collectible(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let name = str_arg(args, 0)?;
     let cid = ctx.core.context_registry.lock().create_collectible(name);
@@ -131,7 +131,7 @@ pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let cid = ctx_handle(args)?;
     let path = str_arg(args, 1)?;
     let artifact = crate::metadata::loader::load_artifact(path)
-        .map_err(|e| anyhow::anyhow!("LoadContext.Load(\"{path}\"): {e}"))?;
+        .map_err(|e| anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}"))?;
     let name = assembly_name_from_path(path);
     let aid = ctx
         .core
@@ -239,5 +239,5 @@ pub fn builtin_type_assembly(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 #[cfg(test)]
-#[path = "loadcontext_tests.rs"]
-mod loadcontext_tests;
+#[path = "assemblyloadcontext_tests.rs"]
+mod assemblyloadcontext_tests;

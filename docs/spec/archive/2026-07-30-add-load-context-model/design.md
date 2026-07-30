@@ -1,4 +1,4 @@
-# Design: 加载上下文模型（LoadContext / ALC 地基）
+# Design: 加载上下文模型（AssemblyLoadContext / ALC 地基）
 
 > 上位设计：[load-context.md](../../../design/runtime/load-context.md)（ALC 全景，本 change 落其 §3 上下文模型的 Phase 1 地基）。
 > 本 change **不含**卸载/回收/诊断——那些是后续 change。
@@ -47,7 +47,7 @@ root 永驻不回收，无需边界；只有"想卸载/重载"的代码才付独
 **问题：** z42 无 `Assembly` 类型，`IsCollectible` 该挂哪？
 **决定：** 新增 `Std.Reflection.Assembly`，native 句柄背书，仿 `Type`（`NativeData::AssemblyHandle`）。
 理由：Phase 1 命题就是"运行时保留 zpkg 身份"，Assembly 正是这身份的反射投影；`Type.Assembly.IsCollectible`
-与 .NET 对齐；给 `IsCollectible`/`LoadContext` 干净的家。`Type` 加 `Assembly` 属性接上链路。
+与 .NET 对齐；给 `IsCollectible`/`AssemblyLoadContext` 干净的家。`Type` 加 `Assembly` 属性接上链路。
 
 ### D3: Unload() 声明但抛 NotSupportedException（FC2=(ii)）
 **问题：** Phase 1 不做回收机制，`Unload()` API 出不出现？
@@ -59,7 +59,7 @@ root 永驻不回收，无需边界；只有"想卸载/重载"的代码才付独
 
 ### D4: LoadZpkg/CallStatic stub 不动，Default 路径保兼容（FC3）
 **问题：** 既有 `Std.Runtime.Runtime.LoadZpkg/CallStatic`（DEFERRED stub）怎么处理？
-**决定：** Phase 1 不动。`LoadContext.Load` 是动态加载能力的正确设计归宿（context-scoped），
+**决定：** Phase 1 不动。`AssemblyLoadContext.Load` 是动态加载能力的正确设计归宿（context-scoped），
 等本 change 落地后单开小 change 删 stub（pre-1.0 无兼容负担）。Phase 1 一切加载默认经 root/Default
 （现有 merge 路径），**确保零回归**。
 
@@ -88,17 +88,17 @@ loader build 路径时补，届时的破坏面用同一迭代清零（pre-1.0 �
 **问题：** `Default` / `CreateCollectible` 用静态属性还是静态方法？
 **实施期事实校正：** z42 stdlib **全库无静态属性**先例（`Std.GC` 等静态成员一律 extern 方法），
 静态 extern 属性在编译器/语言中未验证。**决定：** 静态成员（`Default()` / `CreateCollectible()`）
-落为**静态 extern 方法**，实例 getter（`Name` / `IsCollectible` / `Assembly` / `LoadContext`）落为
-**实例 extern 属性**（proven）。与现有 stdlib 完全一致。API 由 `LoadContext.Default` 微调为
-`LoadContext.Default()`——.NET 的 property 语义在 z42 当前能力下以方法承载。
+落为**静态 extern 方法**，实例 getter（`Name` / `IsCollectible` / `Assembly` / `AssemblyLoadContext`）落为
+**实例 extern 属性**（proven）。与现有 stdlib 完全一致。API 由 `AssemblyLoadContext.Default` 微调为
+`AssemblyLoadContext.Default()`——.NET 的 property 语义在 z42 当前能力下以方法承载。
 
 ## Implementation Notes
 
 - **绑定范式**（照抄 `Std.GC`）：z42 `[Native("__snake")] extern` → Rust
-  `builtin_<name>(ctx, args) -> Result<Value>` 于 `corelib/loadcontext.rs` → `corelib/mod.rs`
+  `builtin_<name>(ctx, args) -> Result<Value>` 于 `corelib/assemblyloadcontext.rs` → `corelib/mod.rs`
   的 `BUILTINS` 表按序注册（顺序即 `BuiltinId`，追加到表尾，勿插中间以免扰动既有 id）。
 - **Value 句柄**：`NativeData`（`metadata/types.rs`）加 `LoadContextHandle(ContextId)` +
-  `AssemblyHandle(...)` 变体；`LoadContext` / `Assembly` z42 实例经 `NativeData` 携句柄，与
+  `AssemblyHandle(...)` 变体；`AssemblyLoadContext` / `Assembly` z42 实例经 `NativeData` 携句柄，与
   `Type` 的 `TypeHandle` 同构，不可用户构造。
 - **ContextRegistry**：`VmCore` 持 `context_registry: ContextRegistry`（root 于 VM 初始化即建，
   ContextId(0)）。`CreateCollectible` 分配新 ContextId + 空 arena。线程安全按现有 `VmCore` 锁范式
@@ -112,12 +112,12 @@ loader build 路径时补，届时的破坏面用同一迭代清零（pre-1.0 �
 
 ## Testing Strategy
 
-- **Rust 单测**（`corelib/loadcontext_tests.rs`）：ContextRegistry root=ContextId(0)/IsCollectible=false；
+- **Rust 单测**（`corelib/assemblyloadcontext_tests.rs`）：ContextRegistry root=ContextId(0)/IsCollectible=false；
   CreateCollectible 分配新 id/IsCollectible=true；`__type_is_collectible` 对 root TypeDesc 返 false；
   `Unload` builtin 返/抛 NotSupported。
 - **e2e golden**（`src/tests/load-context/collectible-reflection/`）：一个小 dep zpkg（源在
   `dep/`，e2e 框架预编）→ 主程序 `CreateCollectible` → `Load` → `GetAssemblies`/`GetTypes` →
-  断言 `IsCollectible==true` + `t.Assembly==asm` + `asm.LoadContext==ctx`；对比
+  断言 `IsCollectible==true` + `t.Assembly==asm` + `asm.AssemblyLoadContext==ctx`；对比
   `typeof(int).IsCollectible==false`；`ctx.Unload()` catch `NotSupportedException`。
 - **兼容回归**：`xtask test`（完整 GREEN gate）——root 路径逐字节不变由 e2e/stdlib/compiler
   全绿 + 自举 gen1==gen2 保证。

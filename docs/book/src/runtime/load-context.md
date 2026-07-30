@@ -1,4 +1,4 @@
-# 加载上下文（LoadContext / ALC 地基）
+# 加载上下文（AssemblyLoadContext / ALC 地基）
 
 > 对齐：2026-07-30（change `add-load-context-model`，Phase 1 地基）。
 > 目标架构全景（卸载 / 回收 / 强制清理 / whyRetained 诊断）见
@@ -39,13 +39,13 @@ z42 运行时以往**没有任何代码边界**：`metadata::merge::merge_module
 
 | 类型 | 成员 | 说明 |
 |------|------|------|
-| `Std.Runtime.LoadContext` | `Default()`（静态） | 永驻 root 上下文 |
+| `Std.Runtime.AssemblyLoadContext` | `Default()`（静态） | 永驻 root 上下文 |
 | | `CreateCollectible(name)`（静态） | 建可回收上下文 |
 | | `Name` / `IsCollectible`（实例属性） | 名字 / 是否可回收 |
 | | `Load(zpkgPath) -> Assembly`（实例） | 载入 zpkg（Phase 1 反射可见，暂不可跨 context 调用） |
 | | `GetAssemblies()`（实例） | 已载入的 assembly |
 | | `Unload()`（实例） | **Phase 1 抛 `NotSupportedException`**（回收机制留待后续 change） |
-| `Std.Reflection.Assembly` | `Name` / `IsCollectible` / `LoadContext` / `GetTypes()` | zpkg 的运行时反射投影 |
+| `Std.Reflection.Assembly` | `Name` / `IsCollectible` / `AssemblyLoadContext` / `GetTypes()` | zpkg 的运行时反射投影 |
 | `Std.Type` | `IsCollectible` / `Assembly`（新增） | 镜像 .NET `Type.IsCollectible` / `Type.Assembly`；root 类型恒 `false` |
 
 > **语言约束**：z42 stdlib 无静态属性先例，静态成员（`Default` / `CreateCollectible`）用
@@ -57,7 +57,7 @@ z42 运行时以往**没有任何代码边界**：`metadata::merge::merge_module
 `VmCore.context_registry: Mutex<ContextRegistry>` 持两张表：`contexts`（按 `ContextId` 索引：
 name / is_collectible / assemblies）+ `assemblies`（按 `AssemblyId` 索引：name / context /
 owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new()` 预置。
-`LoadContext` / `Assembly` z42 对象经 `NativeData::LoadContextHandle` / `AssemblyHandle`
+`AssemblyLoadContext` / `Assembly` z42 对象经 `NativeData::LoadContextHandle` / `AssemblyHandle`
 携句柄（仿 `Std.Type` 的 `TypeHandle`），不可用户构造。
 
 ### 关键决策：关联放注册表 + Type 对象 `__asmId` 槽，不 mutate TypeDesc
@@ -73,7 +73,7 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 `type identity = (context, type)`（版本共存）留出可达路径（Type → asmId → context）。
 
 ### 加载路径分叉（`metadata/loader.rs`）
-root 走现有 `merge_modules`（不动）；collectible 走 `LoadContext.Load` →
+root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContext.Load` →
 `loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
 root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 
@@ -81,7 +81,7 @@ root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 Ha
 
 - **Phase 1 不含**：卸载 / 回收（惰性 + 强制 tombstone/trap + `whyRetained` 诊断）、细粒度
   hot-reload、**跨 context 执行**（collectible zpkg 只保证反射可见，其函数暂不可跨 context 调用）。
-- 既有 `Std.Runtime.Runtime.LoadZpkg` / `CallStatic`（DEFERRED stub）保留不动；`LoadContext.Load`
+- 既有 `Std.Runtime.Runtime.LoadZpkg` / `CallStatic`（DEFERRED stub）保留不动；`AssemblyLoadContext.Load`
   是动态加载能力的正确归宿，后续单开小 change 收敛。
 
 ## 关联

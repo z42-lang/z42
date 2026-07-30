@@ -1,4 +1,4 @@
-// Std.Runtime.LoadContext — z42 的加载上下文（dotnet AssemblyLoadContext 对标）。
+// Std.Runtime.AssemblyLoadContext — z42 的加载上下文（dotnet System.Runtime.Loader.AssemblyLoadContext 对标）。
 //
 // 把 zpkg 载入可界定边界的**上下文**：root（core/stdlib/主程序所在，永驻不可回收）
 // + collectible（按需创建，各自独立 arena，日后可卸载 / 热重载）。
@@ -9,18 +9,18 @@
 // 机制留待后续 change）。
 //
 // native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
-// 设计见 docs/spec/changes/add-load-context-model/design.md。
+// 设计见 docs/spec/archive/2026-07-30-add-load-context-model/design.md。
 namespace Std.Runtime;
 
-public sealed class LoadContext {
+public sealed class AssemblyLoadContext {
     // 永驻 root 上下文（core / stdlib / 主程序所在）。IsCollectible == false。
     // 注：z42 stdlib 无静态属性先例，静态成员一律 extern 方法（与 Std.GC 一致）。
     [Native("__lctx_default")]
-    public static extern LoadContext Default();
+    public static extern AssemblyLoadContext Default();
 
     // 创建一个可回收（collectible）上下文。载入其中的代码日后可整体卸载 / 回收。
     [Native("__lctx_create_collectible")]
-    public static extern LoadContext CreateCollectible(string name);
+    public static extern AssemblyLoadContext CreateCollectible(string name);
 
     // 上下文名字（root 恒为 "root"）。
     [Native("__lctx_name")]
@@ -43,6 +43,6 @@ public sealed class LoadContext {
     // 回收机制（惰性 + 强制 tombstone/trap + whyRetained 诊断）在后续 change 落地。
     public void Unload() {
         throw new Std.NotSupportedException(
-            "LoadContext.Unload 尚未实现：回收 / 卸载机制将在 add-load-context-model 的后续 change 落地");
+            "AssemblyLoadContext.Unload 尚未实现：回收 / 卸载机制将在 add-load-context-model 的后续 change 落地");
     }
 }
