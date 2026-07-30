@@ -233,8 +233,13 @@ diff（`--diff`）改为**同 profile 内**对比：`(name, metric, mode_label, 
 - **当前 workaround**：mode 组合已能**表示** AOT（`aot_pkgs` 字段），但 harness 恒发 `[]`；非空组合
   `cellStatus` 返 `skipped-not-yet`，报告显式打印跳过原因。
 
-### exec-profile-matrix-future-platform-bench-gating
-- **来源**：本 proposal 决策 5
-- **触发原因**：移动端/wasm 基准在共享 CI runner 噪声大，暂不做回归门禁
-- **触发条件**：有稳定专用基准硬件（self-hosted runner）后，可把平台 bench 纳入 nightly 宽阈值门禁
-- **当前 workaround**：平台 bench informational / opt-in，只上传 artifact
+### exec-profile-matrix-future-platform-bench
+- **来源**：本 proposal 决策 5 + 实施期（2026-07-31）
+- **触发原因**：① wasm/ios/android 下跑基准的 **harness 编排未接**——`xtask_test_platform.z42` 是
+  255 行接口驱动框架，加各平台 bench 采集是大面且**冷环境完全不可验**（需 wasm-pack/xcode/emulator）；
+  ② 移动端/wasm 基准在共享 CI runner 噪声大，即便接了也**不做回归门禁**（informational）。
+- **前置依赖**：各平台重型工具链就位以本地验证；（门禁化还需）稳定专用基准硬件（self-hosted runner）。
+- **触发条件**：需要跨平台性能可见性时，给各 `IPlatformBackend` 加 bench 采集 + profile 打标。
+- **已就绪**：profile 机制**平台无关**——探针在任意平台 VM 下调 `Std.Platform.Capabilities()` 报真实
+  caps，`_epProfileJson` 已能产任意 platform 的 profile。缺的只是「在平台 VM 下跑场景 + 收时间」的编排。
+- **当前 workaround**：平台 bench 未接；desktop 的 interp/jit e2e 是主对比路径。

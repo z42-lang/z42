@@ -6,10 +6,12 @@
 ## 进度概览
 - [x] 阶段 0: 标准库运行时能力查询（caps 地面真值）—— commit cc567052，探针端到端验证
 - [x] 阶段 1: 共享 SoT 模块 + schema v2 —— commit 64aeeffa
-- [x] 阶段 2: bench e2e 模式扫描 + 打标 —— commit 1d30ce28（micro v2 迁移残留，见 2.7）
-- [ ] 阶段 3: 线程场景 + 平台 bench 接入
-- [ ] 阶段 4: CI 腿 + 文档 + 死引用清理
-- [ ] 阶段 5: 验证与归档
+- [x] 阶段 2: bench e2e 模式扫描 + 打标 —— commit 1d30ce28 + micro v2 收尾 d6734c9a
+- [x] 阶段 3.1: 多线程场景 06_thread_scaling —— commit 17b9b2fb（编译+运行验证：输出 23999980）
+- [~] 阶段 3.2: 平台 bench 接入 —— **Deferred**（exec-profile-matrix-future-platform-bench）：
+      冷环境不可验 + 大面 + informational 非门禁；profile 机制已平台就绪，缺平台 harness 编排
+- [x] 阶段 4: CI 腿（bench-pr/update 跑 `--mode both`）+ 文档（README 去死引用 + 设计doc）—— commit 7337bbff+
+- [ ] 阶段 5: 验证与归档（GREEN 以 CI 为权威）
 
 > **本地验证限制（冷环境）**：本 worktree 无匹配 origin/main 期的 z42c 种子（sibling 种子过旧、
 > 无法编 origin/main 的 z42.scripting）→ 完整 `xtask bench` 端到端跑不通；已验证：Rust 单测 8/8、
