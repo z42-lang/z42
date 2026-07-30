@@ -18,7 +18,15 @@
 ```bash
 z42 repl              # 进入 REPL
 z42 repl -c "1 + 2"   # 单次求值，输出结果后退出（类 python -c）
+z42 repl -h           # 显示帮助（参数 + 元指令列表；不进 REPL）
+z42 repl --mode interp -c "1+2"   # 指定执行模式（默认 jit；也可 Z42_MODE / [runtime].mode）
+z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
 ```
+
+> **`-h`/`--help` 由 launcher 直接处理**（add-repl-help）：`repl` 在 launcher 里是特判命令，绕过
+> 生成式 help 路由——若不拦截，`-h` 会被原样透传给 z42i（不识别 → 照常启动 REPL，看不到帮助）。
+> 故 `_forwardRepl` 入口显式拦 `-h`/`--help` 打印帮助（跳过 `-c` 的值，`z42 repl -c "-h"` 仍求值该串）。
+> 帮助里的选项须与 `_forwardRepl` 的 launcher 级 flag（`--mode`/`--config`）+ z42i 自身参数（`-c`）同步。
 
 ## 实现落地（0.4.0，add-z42-repl）
 
