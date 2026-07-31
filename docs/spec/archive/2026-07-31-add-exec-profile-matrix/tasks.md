@@ -1,6 +1,6 @@
 # Tasks: 统一 test / bench 的执行画像矩阵
 
-> 状态：🟡 进行中（阶段 0-2 已实施+提交）| 创建：2026-07-23 | 实施起：2026-07-31
+> 状态：🟢 已完成 | 创建：2026-07-23 | 实施起：2026-07-31 | 完成：2026-07-31（PR #83 合并，commit 7beb78ac）
 > 占用子系统：`stdlib`（`Std.Platform` 能力函数）+ `runtime`（`__platform_caps` builtin）+ `toolchain`（scripts/）。`bench/` schema、`docs/` 不上锁。**独立分支 `add-exec-profile-matrix`（off origin/main），GREEN 以 CI 为权威。**
 
 ## 进度概览
@@ -11,7 +11,13 @@
 - [~] 阶段 3.2: 平台 bench 接入 —— **Deferred**（exec-profile-matrix-future-platform-bench）：
       冷环境不可验 + 大面 + informational 非门禁；profile 机制已平台就绪，缺平台 harness 编排
 - [x] 阶段 4: CI 腿（bench-pr/update 跑 `--mode both`）+ 文档（README 去死引用 + 设计doc）—— commit 7337bbff+
-- [ ] 阶段 5: 验证与归档（GREEN 以 CI 为权威）
+- [x] 阶段 5: 验证与归档 —— PR #83 CI 全绿合并（GREEN 以 CI 为权威）；归档本 change
+
+## 未竟（后续独立 change）
+- **jit/interp 加速比派生指标**（Decision 6，原 task 2.5 未落地）：diff 已分模式对比，但未计算
+  「同 name 同 platform 下 interp/jit 的加速比」并展示。作独立 follow-up。
+- 平台 bench 实现（Deferred `exec-profile-matrix-future-platform-bench`）。
+- AOT 组合执行 + 配置（M9，Deferred `exec-profile-matrix-future-aot-composition-cells`）。
 
 > **本地验证限制（冷环境）**：本 worktree 无匹配 origin/main 期的 z42c 种子（sibling 种子过旧、
 > 无法编 origin/main 的 z42.scripting）→ 完整 `xtask bench` 端到端跑不通；已验证：Rust 单测 8/8、
