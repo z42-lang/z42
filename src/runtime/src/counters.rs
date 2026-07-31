@@ -56,6 +56,12 @@ pub struct RuntimeCounters {
     /// Total wallclock JIT compile time, microseconds. Phase 2: ditto.
     pub jit_compile_us_total: AtomicU64,
 
+    /// runtime-jit-tiering Phase 1.5 (mixed-mode): calls where an INTERP frame
+    /// routed an already-compiled callee to its native code instead of
+    /// interpreting it. Incremented in `interp::exec_call::try_native_static_call`
+    /// / `exec_vcall::try_native_method_call`. >0 confirms mixed-mode is active.
+    pub jit_native_from_interp: AtomicU64,
+
     /// User exceptions thrown (z42 `throw expr` statements + VM-raised
     /// arithmetic / type errors that bubble as exceptions).
     /// Phase 2: increment in `exception::*`.
@@ -79,6 +85,7 @@ impl RuntimeCounters {
             native_calls:         self.native_calls.load(Ordering::Relaxed),
             jit_methods_compiled: self.jit_methods_compiled.load(Ordering::Relaxed),
             jit_compile_us_total: self.jit_compile_us_total.load(Ordering::Relaxed),
+            jit_native_from_interp: self.jit_native_from_interp.load(Ordering::Relaxed),
             exceptions_thrown:    self.exceptions_thrown.load(Ordering::Relaxed),
             exceptions_caught:    self.exceptions_caught.load(Ordering::Relaxed),
         }
@@ -94,6 +101,7 @@ pub struct Snapshot {
     pub native_calls:         u64,
     pub jit_methods_compiled: u64,
     pub jit_compile_us_total: u64,
+    pub jit_native_from_interp: u64,
     pub exceptions_thrown:    u64,
     pub exceptions_caught:    u64,
 }
@@ -105,6 +113,7 @@ impl std::fmt::Display for Snapshot {
         writeln!(f, "native_calls:         {}", self.native_calls)?;
         writeln!(f, "jit_methods_compiled: {}", self.jit_methods_compiled)?;
         writeln!(f, "jit_compile_us_total: {}", self.jit_compile_us_total)?;
+        writeln!(f, "jit_native_from_interp: {}", self.jit_native_from_interp)?;
         writeln!(f, "exceptions_thrown:    {}", self.exceptions_thrown)?;
         writeln!(f, "exceptions_caught:    {}", self.exceptions_caught)?;
         write!(f,   "---")
@@ -157,6 +166,7 @@ mod tests {
             native_calls:         50,
             jit_methods_compiled: 10,
             jit_compile_us_total: 12345,
+            jit_native_from_interp: 42,
             exceptions_thrown:    5,
             exceptions_caught:    3,
         };

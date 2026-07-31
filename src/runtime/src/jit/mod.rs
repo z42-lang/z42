@@ -9,7 +9,7 @@
 /// * `translate.rs` — Cranelift IR translation
 /// * `mod.rs`       — top-level compile_module / JitModule::run
 
-mod frame;
+pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame/JitModuleCtx
 pub(crate) mod helpers;
 /// Lazy per-function compilation state (lazy-per-function-jit, 2026-07-23).
 mod lazy;
@@ -107,6 +107,13 @@ impl JitModule {
         // entry so the entry's own lazy compile is counted (resolve reaches the
         // counters through `vm_ctx`).
         self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
+        // runtime-jit-tiering Phase 1.5 (mixed-mode): publish the JitModuleCtx
+        // forward pointer (type-erased) so interp frames spawned under this run
+        // (cold-tier callees / fallbacks) can route an already-compiled callee back
+        // to its native code instead of re-interpreting the whole subtree. Cleared
+        // in lockstep with `vm_ctx` below (they must be valid together — native
+        // code reaches `vm_ctx` through `(*jit_ctx).vm_ctx`).
+        ctx.set_jit_ctx(&*self.ctx as *const JitModuleCtx as usize);
         // Resolve (and lazily compile on first call) the entry function.
         // SAFETY: module/lazy valid for the JitModule's lifetime.
         let entry = match unsafe { self.ctx.resolve_fn_by_name(entry_name) } {
@@ -119,6 +126,7 @@ impl JitModule {
                 // re-enters JIT code, so the whole call subtree runs
                 // interpreted. SAFETY: `module` outlives the JitModule.
                 self.ctx.vm_ctx = std::ptr::null_mut();
+                ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
                 let module = unsafe { &*self.ctx.module };
                 // make-vm-loading-lazy: the entry may be an untranslatable
                 // function in a lazily-loaded zpkg (e.g. a dep's
@@ -159,6 +167,7 @@ impl JitModule {
         ctx.pop_frame();
         frame.recycle();
         self.ctx.vm_ctx = std::ptr::null_mut();
+        ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
         if r != 0 {
             // SAFETY: ctx.module set in compile_module from a &Module that
             // outlives the JitModule (caller-owned). Deref is safe here.
