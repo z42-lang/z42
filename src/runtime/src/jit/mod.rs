@@ -60,13 +60,17 @@ impl JitModule {
         let mut fn_entries_by_id = Vec::with_capacity(n);
         fn_entries_by_id.resize_with(n, std::sync::OnceLock::new);
         // runtime-jit-tiering Phase 1: per-function call counters (pre-sized, zero
-        // per-call alloc) + tier-up threshold from `Z42_JIT_THRESHOLD` (default 2,
-        // clamped ≥ 1; N=1 = compile-on-first-call = pre-tiering behavior).
+        // per-call alloc) + tier-up threshold from `Z42_JIT_THRESHOLD` (default
+        // 1000, clamped ≥ 1; N=1 = compile-on-first-call = pre-tiering behavior).
+        // Default is deliberately high: only genuinely hot functions earn a compile,
+        // so the long cold tail stays in the interpreter (准则 2 — save compile time
+        // + code pages). Mixed-mode (Phase 1.5) still routes the few hot compiled
+        // callees to native even when reached from cold interp frames.
         let mut call_counts = Vec::with_capacity(n);
         call_counts.resize_with(n, std::sync::atomic::AtomicU32::default);
         let jit_threshold = std::env::var("Z42_JIT_THRESHOLD").ok()
             .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(2)
+            .unwrap_or(1000)
             .max(1);
         let ctx = Box::new(JitModuleCtx {
             // review.md C3 Phase 1 (2026-06-03): copy the pre-interned Arc<str>

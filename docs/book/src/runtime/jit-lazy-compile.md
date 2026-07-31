@@ -139,8 +139,9 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
 - **三态槽**：`FnEntry.ptr==null` = **Rejected**（不可编/编译失败的负缓存）；`ptr≠null` = Compiled；
   `OnceLock` 空 = Unknown。Rejected 一次判定后缓存 → **消除不可编函数每次调用重扫 `jit_unsupported_reason`**
   （整函数指令走一遍）的浪费。两条 resolve 路径通用。
-- **阈值**：`Z42_JIT_THRESHOLD`（默认 2，clamp≥1；N=1 = 首 call 即编 = 分层前行为）。第 N 次调用时编译，
-  前 N-1 次解释。
+- **阈值**：`Z42_JIT_THRESHOLD`（默认 **1000**，clamp≥1；N=1 = 首 call 即编 = 分层前行为）。第 N 次调用时编译，
+  前 N-1 次解释。默认刻意取高：只有真正的热函数才值得编译，冷长尾全留解释器（准则 2 省编译时间+code 页）；
+  混合模式（Phase 1.5）保证少数已编译的热 callee 即便被冷 interp 帧调到也走原生。
 
 **分阶段接入各调用点**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
 - **Phase 1a — `jit_call`（静态/自由）**：其 `cross_zpkg_via_interp` 冷兜底已证通用,直接切 tiered。
@@ -152,8 +153,8 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
   - `jit_obj_new`：`None`-臂原本**静默跳过 ctor**（字段未初始化）→ 补 interp 跑 ctor（原地改 `this`）。
   三态负缓存两路径通用,不受接入阶段影响。
 
-**验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值默认 2 时，调 1 次的冷函数
-留 interp）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。
+**验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（默认阈值 1000 时，调用不足 1000 次的
+冷函数留 interp；调试可 `Z42_JIT_THRESHOLD=1` 强制首调即编）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。
 
 ## 混合模式：interp 帧回跳 JIT（runtime-jit-tiering Phase 1.5）
 

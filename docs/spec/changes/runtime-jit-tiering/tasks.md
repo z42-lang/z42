@@ -11,7 +11,7 @@
 - [x] 1.1 `JitModuleCtx.call_counts: Vec<AtomicU32>`（setup 预分配 merged_len,零 per-call 分配）
 - [x] 1.2 三态槽：`FnEntry::rejected()`（null ptr）+ resolve 稳态读判定（两路径通用负缓存）
 - [x] 1.3 `resolve_fn_by_id_tiered`（阈值）仅 jit_call 用;`resolve_fn_by_id`（非 tiered）其余调用点不变
-- [x] 1.4 `Z42_JIT_THRESHOLD` 配置（env,默认 2,clamp≥1;N=1=现状）
+- [x] 1.4 `Z42_JIT_THRESHOLD` 配置（env,默认 1000,clamp≥1;N=1=现状）—— 默认取高：只有真正热函数才编译，冷长尾留 interp
 - [x] 1.5 收窄实证：全冷→None 使 vcall/indirect/objnew 兜底不健壮(86 fail)→ 只 jit_call tiered
 - [ ] 1.6 GREEN：e2e(interp+jit) + cross-zpkg + stdlib + 自举 + vscode-syntax
 - [ ] 1.7 Rust 单测：三态(Compiled/Rejected/Unknown) + 阈值(冷 interp / 热编译) + 结果一致
