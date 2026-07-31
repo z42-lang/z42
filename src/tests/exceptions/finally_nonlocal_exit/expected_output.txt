@@ -1,0 +1,25 @@
+A: in try
+A: finally
+A ret=1
+B: finally x=99
+B ret=10
+C: i=0
+C: finally i=0
+C: i=1
+C: finally i=1
+C: after loop
+D: body i=1
+D: finally i=1
+D: finally i=2
+D: body i=3
+D: finally i=3
+E: inner finally
+E: outer finally
+E ret=5
+F: finally overrides
+F ret=2
+G: i=0
+G: i=1
+G: after inner loop
+G: finally once
+done
