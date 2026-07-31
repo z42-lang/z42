@@ -73,8 +73,13 @@ pub unsafe extern "C" fn jit_obj_new(
     ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
 
     // 直查 ctor_name (TypeChecker 已 overload-resolve)；无名字推断。
-    // lazy-per-function-jit: resolve_fn_by_name compiles the ctor on first use.
-    if let Some(entry) = ctx_ref.resolve_fn_by_name(ctor_name.as_str()) {
+    // runtime-jit-tiering Phase 1b: tiered ctor. A cold (below-threshold) or
+    // interp-only ctor resolves to None and is run on the INTERPRETER — it mutates
+    // `this` (== ctor_args[0] == obj_val, a shared GcRef) in place. Without this the
+    // old code silently skipped the ctor for None, leaving fields uninitialized
+    // (observed: `is_pattern_binding` field 5→0). A type with no ctor resolves to
+    // nothing → both paths skip and the already-default-initialised object is used.
+    if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name.as_str()) {
         let mut callee = JitFrame::new(entry.max_reg, &ctor_args);
         let jit_fn: JitFn = std::mem::transmute(entry.ptr);
         let vm_ctx = vm_ctx_ref(ctx);
@@ -85,6 +90,25 @@ pub unsafe extern "C" fn jit_obj_new(
         vm_ctx.pop_frame();
         callee.recycle();
         if r != 0 { return 1; }
+    } else {
+        let vm_ctx = vm_ctx_ref(ctx);
+        let module = &*ctx_ref.module;
+        let oc = if let Some(callee) = module.func_index.get(ctor_name.as_str())
+            .and_then(|&idx| module.functions.get(idx))
+        {
+            Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
+        } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name.as_str()) {
+            Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
+        } else {
+            None // ctor-less type → skip (object already default-initialised)
+        };
+        if let Some(outcome) = oc {
+            match outcome {
+                Ok(crate::interp::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
+                Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+            }
+        }
     }
     frame_ref.regs[dst as usize] = obj_val;
     0

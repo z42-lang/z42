@@ -22,9 +22,10 @@ void test_binary_add_instance_method() {
 
 [Test]
 void test_var_decl_and_assign() {
-    // var x = 1; x = x + 2; return x; —— 赋值回写 copy 进 x 的寄存器（SSA-lite）
+    // var x = 1; x = x + 2; return x; —— SSA-lite 拷回被 copy-prop 折叠（optimization-pipeline）：
+    // const/add 直接写 x 的寄存器 %1，冗余 copy 消除。
     string src = "int F() { var x = 1; x = x + 2; return x; }";
-    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %1 = copy %0\n  %2 = const.i64 2\n  %3 = add i32 %1, %2\n  %1 = copy %3\n  ret %1\n}",
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = const.i64 2\n  %1 = add i32 %1, %2\n  ret %1\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -80,7 +81,7 @@ void test_if_then_return() {
 void test_if_else_merge() {
     // if/else 两分支写 x，汇合 end 块读 x
     string src = "int F(bool c) { int x = 0; if (c) { x = 1; } else { x = 2; } return x; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %1\n  br.cond %0, then_0, else_1\nthen_0:\n  %3 = const.i64 1\n  %2 = copy %3\n  br end_2\nelse_1:\n  %4 = const.i64 2\n  %2 = copy %4\n  br end_2\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br.cond %0, then_0, else_1\nthen_0:\n  %2 = const.i64 1\n  br end_2\nelse_1:\n  %2 = const.i64 2\n  br end_2\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -104,7 +105,7 @@ void test_while_continue() {
 void test_body_assign() {
     // body 非空，末尾回边 br cond
     string src = "int F(bool c) { int x = 0; while (c) { x = 1; } return x; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %1\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %3 = const.i64 1\n  %2 = copy %3\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = const.i64 1\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -251,7 +252,7 @@ void test_string_concat() {
 void test_loop_with_comparison() {
     // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边
     string src = "int F(int n) { int i = 0; while (i < n) { i = i + 1; } return i; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %1\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %4 = const.i64 1\n  %5 = add i32 %2, %4\n  %2 = copy %5\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %4 = const.i64 1\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -269,7 +270,7 @@ void test_ternary() {
 void test_logical_and() {
     // a && b：a 假 → false（不求 b）
     string src = "bool F(bool a, bool b) { return a && b; }";
-    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, and_rhs_0, and_short_1\nand_rhs_0:\n  %2 = copy %1\n  br and_end_2\nand_short_1:\n  %3 = const.bool false\n  %2 = copy %3\n  br and_end_2\nand_end_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, and_rhs_0, and_short_1\nand_rhs_0:\n  %2 = copy %1\n  br and_end_2\nand_short_1:\n  %2 = const.bool false\n  br and_end_2\nand_end_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -277,7 +278,7 @@ void test_logical_and() {
 void test_logical_or() {
     // a || b：a 真 → true（不求 b）
     string src = "bool F(bool a, bool b) { return a || b; }";
-    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, or_short_1, or_rhs_0\nor_rhs_0:\n  %2 = copy %1\n  br or_end_2\nor_short_1:\n  %3 = const.bool true\n  %2 = copy %3\n  br or_end_2\nor_end_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, or_short_1, or_rhs_0\nor_rhs_0:\n  %2 = copy %1\n  br or_end_2\nor_short_1:\n  %2 = const.bool true\n  br or_end_2\nor_end_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -343,7 +344,7 @@ void test_throw_lowering() {
 void test_lambda_lift_loadfn() {
     // 无捕获 → lift + load_fn；lift 函数追加在模块尾
     string src = "int Use() { Func<int, int> f = x => x + 1; return f(1); }";
-    Assert.Equal("fn @Use(0) -> int {\nentry:\n  %0 = load_fn @Use__lambda_0\n  %1 = copy %0\n  %2 = const.i64 1\n  %3 = call_ind %1(%2)\n  ret %3\n}",
+    Assert.Equal("fn @Use(0) -> int {\nentry:\n  %1 = load_fn @Use__lambda_0\n  %2 = const.i64 1\n  %3 = call_ind %1(%2)\n  ret %3\n}",
                  IrDump.DumpFunc(src, "Use"));
 }
 
@@ -360,7 +361,7 @@ void test_array_len_lowering() {
 void test_cstyle_cast_convert() {
     // (int)v：long→int 跨类型 → convert i32（identity/Unknown/Ref no-op，镜像 C# VisitCast）
     string src = "int F() { long v = 255; return (int)v; }";
-    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 255\n  %1 = copy %0\n  %2 = convert i32 %1\n  ret %2\n}",
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 255\n  %2 = convert i32 %1\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -371,7 +372,7 @@ void test_var_decl_no_init() {
     // 首赋值 `new TypedReg(_nextReg++, valReg.Type)` + copy，非直接绑 rhs 寄存器——
     // z42c.semantics `ExportedMethodZ[] m; m = new[3]` dual-build 实证 C# 发 copy）。
     string src = "int F() { int x; x = 5; return x; }";
-    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 5\n  %1 = copy %0\n  ret %1\n}",
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 5\n  ret %1\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -434,7 +435,7 @@ void test_array_init_empty() {
 void test_ref_arg_emits_load_local_addr() {
     string src = "void Inc(ref int x) { } void Main() { int c = 0; Inc(ref c); }";
     string ir = IrDump.DumpFunc(src, "Main");
-    Assert.Equal("fn @Main(0) -> void {\nentry:\n  %0 = const.i64 0\n  %1 = copy %0\n  %2 = load_local_addr %1\n  %3 = call @Inc(%2)\n  ret\n}",
+    Assert.Equal("fn @Main(0) -> void {\nentry:\n  %1 = const.i64 0\n  %2 = load_local_addr %1\n  %3 = call @Inc(%2)\n  ret\n}",
                  ir);
 }
 
@@ -444,6 +445,65 @@ void test_ref_arg_emits_load_local_addr() {
 [Test]
 void test_var_decl_reuses_register_across_branches() {
     string src = "class C { int Pick(bool b) { if (b) { int x = 10; return x; } else { int x = 20; return x; } } }";
-    Assert.Equal("fn @C.Pick(2) -> int {\nentry:\n  br.cond %1, then_0, else_1\nthen_0:\n  %2 = const.i64 10\n  %3 = copy %2\n  ret %3\nelse_1:\n  %4 = const.i64 20\n  %3 = copy %4\n  ret %3\nend_2:\n  ret\n}",
+    Assert.Equal("fn @C.Pick(2) -> int {\nentry:\n  br.cond %1, then_0, else_1\nthen_0:\n  %3 = const.i64 10\n  ret %3\nelse_1:\n  %3 = const.i64 20\n  ret %3\nend_2:\n  ret\n}",
                  IrDump.DumpFunc(src, "C.Pick"));
+}
+
+// ── const-fold（optimization-pipeline）：折叠两 int 常量的运算/比较 ──────────────────
+// 规则可扩展（后续加常量字符串长度 / 数组长度 / x*1→x 等）；每条规则配「折叠生效」+「安全不折」用例。
+// 折叠后源常量变死码 → temp-DCE 顺带清掉，故只剩折叠结果 + ret。
+
+[Test]
+void test_constfold_add() {
+    // %0 常量留存：_seedParams 对无参函数保守把 reg0 标活（this/env 上界+1），故 reg0 的死常量不被
+    // temp-DCE 清掉——安全的过近似（只多留一条），不影响正确性。
+    string src = "int F() { return 1 + 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_mul() {
+    string src = "int F() { return 2 * 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 2\n  %2 = const.i64 6\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_chain() {
+    // 链式：(1+2)→3 登记回常量表，再 (3+3)→6（前向传播）
+    string src = "int F() { return 1 + 2 + 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %4 = const.i64 6\n  ret %4\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_div() {
+    string src = "int F() { return 6 / 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 6\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_compare() {
+    string src = "bool F() { return 1 < 2; }";
+    Assert.Equal("fn @F(0) -> bool {\nentry:\n  %0 = const.i64 1\n  %2 = const.bool true\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// 安全边界（防未来规则回归）：以下**不折**
+[Test]
+void test_constfold_skip_negative() {
+    // 1 - 2 = -1 < 0：_parseIntLit 编码不了负数 → 保守不折，sub 原样保留
+    string src = "int F() { return 1 - 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %1 = const.i64 2\n  %2 = sub i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_skip_nonconst() {
+    // a 非常量 → 不折
+    string src = "int F(int a) { return a + 1; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = add i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
 }

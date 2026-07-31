@@ -97,6 +97,26 @@ pub fn written_reg(instr: &Instruction) -> Option<u32> {
 
 pub fn max_reg(func: &Function) -> usize {
     let mut max = func.param_count.saturating_sub(1);
+    // The compiler-authoritative reg count (`func.max_reg`, from zbc REGT) covers
+    // EVERY register the function uses — including exception-table catch registers
+    // (written by the runtime at `jit_install_catch`, never by an instruction) and
+    // any read-only reg. The instruction scan below misses those: a catch reg only
+    // shows up because some instruction happens to reference it, and an IR
+    // optimization (e.g. compile-time copy-prop / DCE) can remove the last such
+    // instruction — shrinking this recompute below the catch reg and OOB-panicking
+    // `frame.regs[catch_reg]`. `func.max_reg` is a COUNT → max index = count - 1.
+    if func.max_reg > 0 {
+        max = max.max(func.max_reg as usize - 1);
+    }
+    // Exception-table catch registers are written by the runtime at
+    // `jit_install_catch` (a direct `frame.regs[catch_reg] = ..` index, unlike
+    // the interpreter's auto-resizing `frame.set`). A catch reg only otherwise
+    // surfaces if some instruction happens to reference it, so IR optimizations
+    // (copy-prop / DCE) that remove that last instruction leave the frame too
+    // small → OOB panic. Fold every catch reg in so the frame always covers it.
+    for e in func.exception_table() {
+        if e.catch_reg as usize > max { max = e.catch_reg as usize; }
+    }
     for block in &func.blocks {
         for instr in &block.instructions {
             let dst: Option<u32> = written_reg(instr);

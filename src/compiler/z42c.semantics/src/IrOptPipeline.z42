@@ -1,0 +1,194 @@
+// IrOptPipeline —— 编译期 IR 优化管线（处理流程骨架）。
+// 引入 change：optimization-pipeline。挂载点：IrGen.Generate 末尾（emit 后、写 zbc 前）。
+//
+// 流程（见 docs/book/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
+//   Run(module) → 逐函数 _optFunc：
+//     pass 1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`），
+//                       砍 interp 每个赋值的一次 dispatch（interp 热路大头）。
+//     pass 2 temp-DCE：删「纯 + Dst 零读」的死指令（含参数寄存器 live-out 保护）。
+//   两 pass 间重算读计数（copy-prop 改了 IR）。
+//
+// 安全：copy-prop 只在**相邻** producer→copy、且 t 单赋值(defs==1)单读(reads==1，含终结子读)、t≠local
+//       时 retarget；temp-DCE 只删 IsPure 白名单 + Dst 零读 + 非参数寄存器。保守正确，单趟不级联。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrOptPipeline {
+
+    public static void Run(IrModule m) {
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            IrOptPipeline._optFunc(m.Functions[fi]);
+            fi = fi + 1;
+        }
+    }
+
+    private static void _optFunc(IrFunction f) {
+        if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
+        // pass 1: const-fold —— 折叠两 int 常量的运算/比较（放最前，产出的 const 供后续 copy-prop 传播）
+        int[] defs0 = IrOptPipeline._computeDefs(f);
+        IrOptPipeline._passConstFold(f, defs0);
+        // pass 2: copy-prop —— const-fold 改了 IR，重算读/写计数（含终结子读）
+        int[] reads = IrOptPipeline._computeReads(f);
+        int[] defs = IrOptPipeline._computeDefs(f);
+        IrOptPipeline._passCopyProp(f, reads, defs);
+        // pass 3: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
+        int[] reads2 = IrOptPipeline._computeReads(f);
+        IrOptPipeline._seedParams(reads2, f.ParamCount);
+        IrOptPipeline._passTempDce(f, reads2);
+    }
+
+    // ── pass 1: const-fold ─────────────────────────────────────────────────────────
+    // 建 int 常量表（单赋值 ConstI64）→ 前向扫，两操作数皆常量的运算/比较就地折成 Const 指令，
+    // 并把折出的新 const 登记回表（前向传播链式 const）。单赋值 → temp 位置无关，可全量先播种。
+    private static void _passConstFold(IrFunction f, int[] defs) {
+        bool[] cint = new bool[f.MaxReg + 2];
+        long[] cval = new long[f.MaxReg + 2];
+        // 播种：单赋值 ConstI64
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                IrInstr ins = blk.Instrs[ii];
+                if (IrOptInfo.IsConstI64(ins)) {
+                    int d = IrOptInfo.DstId(ins);
+                    if (d >= 0 && d < cint.Length && defs[d] == 1) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(ins); }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        // 前向折叠
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                IrInstr folded = IrOptInfo.TryConstFold(blk.Instrs[ii], cint, cval);
+                if (folded != null) {
+                    blk.Instrs[ii] = folded;
+                    if (IrOptInfo.IsConstI64(folded)) {
+                        int d = IrOptInfo.DstId(folded);
+                        if (d >= 0 && d < cint.Length) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(folded); }
+                    }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+    }
+
+    // ── 计数助手 ──────────────────────────────────────────────────────────────────
+    private static int[] _computeReads(IrFunction f) {
+        int[] reads = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddReads(reads, blk.Instrs[ii]); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.AddTermReads(reads, blk.Term); }
+            bi = bi + 1;
+        }
+        return reads;
+    }
+    private static int[] _computeDefs(IrFunction f) {
+        int[] defs = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
+            bi = bi + 1;
+        }
+        return defs;
+    }
+    // 参数寄存器 live-out：out/ref 参数最终值由调用方读取（跨函数 escape，函数内看不到）。
+    // 上界 [0, ParamCount] 含一格：实例/lambda 精确（reg0=this/env），静态/自由多护一格——安全。
+    private static void _seedParams(int[] reads, int paramCount) {
+        int pr = 0;
+        while (pr <= paramCount && pr < reads.Length) { reads[pr] = reads[pr] + 1; pr = pr + 1; }
+    }
+
+    // ── pass 1: copy-prop ────────────────────────────────────────────────────────
+    private static void _passCopyProp(IrFunction f, int[] reads, int[] defs) {
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrOptPipeline._copyPropBlock(f.Blocks[bi], reads, defs);
+            bi = bi + 1;
+        }
+    }
+
+    private static void _copyPropBlock(IrBlock blk, int[] reads, int[] defs) {
+        bool[] removed = new bool[blk.InstrCount];
+        int removedCount = 0;
+        int i = 0;
+        while (i + 1 < blk.InstrCount) {
+            IrInstr x = blk.Instrs[i];
+            IrInstr c = blk.Instrs[i + 1];
+            if (c is CopyInstr) {
+                CopyInstr cc = c as CopyInstr;
+                int t = cc.Src.Id;
+                int local = cc.Dst.Id;
+                // 条件：t≠local；t 由 x 写（x.Dst==t）；t 全函数单赋值、单读（那唯一读即本 Copy）
+                if (t != local && t >= 0 && t < reads.Length
+                    && IrOptInfo.DstId(x) == t && defs[t] == 1 && reads[t] == 1) {
+                    if (IrOptInfo.SetDst(x, cc.Dst)) {   // 把 x 的 Dst 换成 local 的 TypedReg（带类型）
+                        removed[i + 1] = true;
+                        removedCount = removedCount + 1;
+                        i = i + 2;   // 跳过已消的 Copy
+                        continue;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        if (removedCount == 0) { return; }
+        IrInstr[] nw = new IrInstr[blk.InstrCount - removedCount];
+        int j = 0;
+        int k = 0;
+        while (k < blk.InstrCount) {
+            if (!removed[k]) { nw[j] = blk.Instrs[k]; j = j + 1; }
+            k = k + 1;
+        }
+        blk.Instrs = nw;
+        blk.InstrCount = blk.InstrCount - removedCount;
+    }
+
+    // ── pass 2: temp-DCE ─────────────────────────────────────────────────────────
+    private static void _passTempDce(IrFunction f, int[] reads) {
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrOptPipeline._dceBlock(f.Blocks[bi], reads);
+            bi = bi + 1;
+        }
+    }
+
+    private static void _dceBlock(IrBlock blk, int[] reads) {
+        int keep = 0;
+        int i = 0;
+        while (i < blk.InstrCount) {
+            if (!IrOptPipeline._isDead(blk.Instrs[i], reads)) { keep = keep + 1; }
+            i = i + 1;
+        }
+        if (keep == blk.InstrCount) { return; }
+        IrInstr[] nw = new IrInstr[keep];
+        int j = 0;
+        i = 0;
+        while (i < blk.InstrCount) {
+            if (!IrOptPipeline._isDead(blk.Instrs[i], reads)) { nw[j] = blk.Instrs[i]; j = j + 1; }
+            i = i + 1;
+        }
+        blk.Instrs = nw;
+        blk.InstrCount = keep;
+    }
+
+    // 死 = 纯（可删白名单）+ 有 Dst + Dst 全函数零读（reads 已含参数 live-out 种子 → 参数不会判死）。
+    private static bool _isDead(IrInstr ins, int[] reads) {
+        if (!IrOptInfo.IsPure(ins)) { return false; }
+        int d = IrOptInfo.DstId(ins);
+        if (d < 0 || d >= reads.Length) { return false; }
+        return reads[d] == 0;
+    }
+}
