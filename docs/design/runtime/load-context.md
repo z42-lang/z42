@@ -1,6 +1,16 @@
 # 加载上下文（Load Context）：zpkg 重载 / 卸载 / 内存回收
 
-> **状态：DESIGN（目标架构，未实施）** · 创建 2026-06-21
+> **状态：Phase 1 地基已落地（`add-load-context-model`，2026-07-30）；卸载 / 回收 / 诊断仍 DESIGN** · 创建 2026-06-21
+>
+> **已落地（Phase 1）**：`AssemblyLoadContext` 运行时模型（root 永驻 + collectible 独立 arena）+ zpkg 运行时身份
+> `Std.Reflection.Assembly` + `Std.Type.IsCollectible` / `.Assembly`。用户视角机制页见
+> [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。**未落地**：卸载（惰性 +
+> 强制）、回收、`whyRetained` 诊断、跨 context 执行、hot-reload——见本文余下设计。
+>
+> **决策修订（2026-07-27，与 User 讨论）**：§9 决策 (b)"不做确定性强制卸载"已翻转——目标新增**强制内存清理**
+> 轴（tombstone/trap 模型：STW → 间接槽改陷阱 + 活对象类型降 tombstone → 确定性 free 码/元数据大头，
+> 类型身份 tombstone 随活实例惰性收尾）。§3 "整体卸载"放宽为**粒度可调**（context 单元大小由用户决定，
+> 可细至单 zpkg / 单类型的 micro-context）。这两条在后续 change 落地。
 >
 > 本文设计 z42 的 **AssemblyLoadContext（ALC）式机制**：把 zpkg 加载进可卸载的上下文，实现代码重载更新，并对不再使用的已加载 zpkg **卸载、回收内存**（含运行时内部 metadata / 缓存池）。
 >

@@ -35,6 +35,7 @@ pub mod fs;
 pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native / memory VFS）
 pub mod object;
 pub mod reflection;
+pub mod assemblyloadcontext;
 pub mod array;
 pub mod char;
 pub mod gc;
@@ -484,6 +485,20 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_is_nested",          reflection::builtin_type_is_nested),
     ("__type_declaring_type",     reflection::builtin_type_declaring_type),
     ("__type_nested_types",       reflection::builtin_type_nested_types),
+
+    // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
+    ("__lctx_default",            assemblyloadcontext::builtin_lctx_default),
+    ("__lctx_create_collectible", assemblyloadcontext::builtin_lctx_create_collectible),
+    ("__lctx_load",               assemblyloadcontext::builtin_lctx_load),
+    ("__lctx_name",               assemblyloadcontext::builtin_lctx_name),
+    ("__lctx_is_collectible",     assemblyloadcontext::builtin_lctx_is_collectible),
+    ("__lctx_assemblies",         assemblyloadcontext::builtin_lctx_assemblies),
+    ("__asm_name",                assemblyloadcontext::builtin_asm_name),
+    ("__asm_is_collectible",      assemblyloadcontext::builtin_asm_is_collectible),
+    ("__asm_loadcontext",         assemblyloadcontext::builtin_asm_loadcontext),
+    ("__asm_get_types",           assemblyloadcontext::builtin_asm_get_types),
+    ("__type_is_collectible",     assemblyloadcontext::builtin_type_is_collectible),
+    ("__type_assembly",           assemblyloadcontext::builtin_type_assembly),
 
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           platform::builtin_platform_caps),
