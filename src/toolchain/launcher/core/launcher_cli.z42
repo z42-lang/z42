@@ -99,12 +99,45 @@ int _forwardZ42bEnv(string[] argv, string extraKey, string extraVal) {
     return proc.Run().ExitCode;
 }
 
+// Help for `z42 repl` (add-repl-help). `repl` bypasses the SubcommandRouter (it is
+// special-cased in _runLauncher before Resolve), so its `-h`/`--help` never reaches
+// generated help — without this, `z42 repl -h` would silently *launch* the REPL
+// (z42i ignores the unknown `-h`). Keep the option list in sync with _forwardRepl's
+// launcher-level flags (`--mode` / `--config`) and z42i's own args (`-c`).
+void _printReplHelp() {
+    Console.WriteLine("z42 repl — start the interactive REPL (z42i)");
+    Console.WriteLine("");
+    Console.WriteLine("usage: z42 repl [--mode <interp|jit|aot>] [--config <file>] [-c <expr>]");
+    Console.WriteLine("");
+    Console.WriteLine("options:");
+    Console.WriteLine("  --mode <interp|jit|aot>  execution mode for the REPL's z42vm");
+    Console.WriteLine("                           (default: jit; also via Z42_MODE / [runtime].mode)");
+    Console.WriteLine("  --config <file>          runtime config file (sets Z42_CONFIG)");
+    Console.WriteLine("  -c <expr>                evaluate <expr> once, print it, and exit (non-interactive)");
+    Console.WriteLine("  -h, --help               show this help");
+    Console.WriteLine("");
+    Console.WriteLine("meta-commands (inside the REPL, prefixed with `.`):");
+    Console.WriteLine("  .help    list meta-commands            .usings         show active usings");
+    Console.WriteLine("  .vars    show bound variables          .using <ns>     add a using");
+    Console.WriteLine("  .types   show declared types           .version        show version");
+    Console.WriteLine("  .clear   clear the screen              .reset          reset session state");
+    Console.WriteLine("  .exit / .quit  quit the REPL (or Ctrl-D)");
+}
+
 // Forward `repl` to z42i (the interactive REPL, programs/interactive/). Runs
 // `z42vm <z42.interactive.zpkg> -- <argv...>` with Z42_LIBS = libs/ (stdlib incl.
 // z42.scripting) + programs/z42c/ (compiler pkgs z42.scripting loads at runtime)
 // + programs/interactive/ (z42i itself). argv is the tail after `repl` (so
 // `z42 repl -c "1+2"` passes `-c "1+2"` through). add-z42-repl.
 int _forwardRepl(string[] argv) {
+    // `-h`/`--help` → print help instead of launching (add-repl-help). Skip `-c`'s
+    // value so `z42 repl -c "-h"` evaluates the expr rather than showing help.
+    int hi = 0;
+    while (hi < argv.Length) {
+        if (argv[hi] == "-c") { hi = hi + 2; continue; }
+        if (argv[hi] == "-h" || argv[hi] == "--help") { _printReplHelp(); return 0; }
+        hi = hi + 1;
+    }
     string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
     if (vm.Length == 0) {
         ConsoleError.WriteLine("z42: cannot locate the bundled runtime (Z42_PORTABLE_VM unset) to run the REPL");

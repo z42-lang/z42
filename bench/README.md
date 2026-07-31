@@ -6,14 +6,30 @@
 
 | 层 | 工具 | 位置 | 状态 |
 |----|------|------|------|
-| Rust 微基准 | criterion | `src/runtime/benches/` | ✅ P1.A |
-| C# 编译器吞吐 | BenchmarkDotNet | `src/compiler/z42.Bench/` | ✅ P1.B |
-| z42 端到端 | hyperfine + 自建 harness | `bench/scenarios/` + `z42 xtask.zpkg bench` | ✅ P1.C |
-| **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（test-runner 派发）** | **各 lib `tests/*_bench.z42`** | **✅ 2026-05-31** |
-| 基线对比 | `z42 xtask.zpkg bench --diff` | `bench/baselines/` | ✅ P1.D.1 |
-| CI bench smoke (artifact) | `.github/workflows/ci.yml` (`bench-e2e` job) | — | ✅ P1.D.2 |
-| 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` → `bench-baselines` 分支 | — | ✅ P1.D.3 |
-| PR auto-diff (informational) | ci.yml fetch + `bench --diff` | — | ⏳ P1.D.4 |
+| Rust 微基准 | criterion | `src/runtime/benches/` | ✅（未接入 xtask，直接 `cargo bench`） |
+| z42 端到端 | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | ✅ |
+| **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（z42b 派发）** | **各 lib `bench/*_bench.z42`** | **✅** |
+| 基线对比 | `xtask bench --diff` | `bench/baselines/` | ✅ |
+| 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` | — | ✅ |
+
+> **C# 编译器吞吐（BenchmarkDotNet / `z42.Bench`）已随 C# bootstrap 移除**（2026-06-26）——
+> 该 tier 不复存在；schema 不再有 `csharp-throughput`。
+
+### 执行画像（mode × platform × capability）——add-exec-profile-matrix
+
+每条基准结果都带一个 **profile**（schema v2），标明它是在什么执行画像下测的，避免不同模式 /
+平台 / 能力的数字互相误比：
+
+- **mode**（执行组合，非标量）：`{tiers, aot_pkgs}`。`tiers` = 活跃后端（`interp` 恒在，可 `+jit`）；
+  `aot_pkgs` = 预编 AOT 的 zpkg 子集（**今天恒空**；非空的部分/全 AOT、AOT+JIT 混合 = `skipped-not-yet`，
+  待 roadmap M9）。`mode_label`：`interp` / `jit` / （未来）`jit+aot[z42.core]`。
+- **platform**：`{os, arch}`（arch 归一化 `x64`/`arm64`/`wasm`）。
+- **caps**：由 `Std.Platform.Capabilities()` 在**被测 VM 二进制**下探测（`bench/probe/capabilities.z42`）
+  ——`jit` / `native-interop` / `threads` 等真实能力，非静态推断。
+
+`xtask bench --mode interp|jit|both` 扫描测量模式；`both` 每场景各测 interp 与 jit（各一条
+profile 结果）。非可跑格子（如 interp-only VM 上请求 jit）显式跳过并打印原因。`--diff` 按
+`(name, metric, mode_label@os/arch)` 匹配。
 
 ### micro vs e2e — 何时用哪个
 
@@ -21,10 +37,10 @@
 |--|---------------------------|------------------------------|
 | 粒度 | 单个操作（`String.Replace` / `SortedSet.Add` / `JsonValue.Parse`），ns 级 | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 |
 | 用途 | 把回归**定位到具体函数**；守护 stdlib 热路径；量化单操作优化 | 捕获**全管线**回归（启动开销 / dispatch / 整体吞吐）|
-| 运行 | `z42 xtask.zpkg bench stdlib <lib>`（本地/按需）| `just bench-e2e`（本地 + CI）|
+| 运行 | `xtask bench stdlib <lib>`（本地/按需）| `xtask bench`（本地 + CI）|
 | CI | **不进 CI** — ns 量级对共享 runner 噪声过敏感，假阳性多 | ✅ informational diff（粗粒度，噪声可容忍）|
 
-> **为何 micro 不进 CI**：与 Rust criterion / C# BDN 两个微基准 tier 一致 ——
+> **为何 micro 不进 CI**：与 Rust criterion 微基准 tier 一致 ——
 > 它们同样只做本地/按需，不进 CI 门禁。微基准的价值在**稳定硬件上的本地对比**；
 > CI 共享 runner 噪声会让 ns 级测量产生大量假回归。CI 门禁留给粗粒度 e2e。
 
@@ -46,14 +62,15 @@ z42 xtask.zpkg bench stdlib <lib>
 
 ### stdlib baseline：捕获 → 优化 → diff（本地/nightly，add-stdlib-bench-baseline）
 
-micro-bench 的「优化前基线」可固化成 schema-v1 文件，优化后 diff 量化收益：
+micro-bench 的「优化前基线」可固化成 schema-v2 文件（每项带 profile），优化后 diff 量化收益：
 
 ```bash
 # 1. 优化前：捕获聚合 baseline（各库 [Benchmark] 走 z42b --format json，median_ns 为主指标）
-z42 xtask.zpkg bench stdlib --json bench/baselines/stdlib-before.json
-#    → {schema_version:1, …, benchmarks:[{name:"<lib>.<label>", tier:"z42-micro",
-#       metric:"time", value:<median_ns>, unit:"ns", ci_lower:<min>, ci_upper:<max>, samples}]}
-#    单库：z42 xtask.zpkg bench stdlib z42.core --json /tmp/core-before.json
+xtask bench stdlib --json bench/baselines/stdlib-before.json
+#    → {schema_version:2, …, benchmarks:[{name:"<lib>.<label>", tier:"z42-micro",
+#       metric:"time", value:<median_ns>, unit:"ns", ci_lower:<min>, ci_upper:<max>, samples,
+#       profile:{mode,mode_label,platform,caps}}]}  ← profile 由被测 VM 探针填（mode 随 --mode）
+#    单库：xtask bench stdlib z42.core --json /tmp/core-before.json
 
 # 2. 改优化…
 
@@ -82,7 +99,11 @@ bench/
 ├── scenarios/                 # 端到端场景 (.z42 → .zbc → 测时)
 │   ├── 01_fibonacci.z42       # 递归 (~ms 量级)
 │   ├── 02_math_loop.z42       # 整数循环 (~ms)
-│   └── 03_startup.z42         # 最小启动 baseline
+│   ├── 03_startup.z42         # 最小启动 baseline
+│   ├── 04_c2_p1_arith_loop.z42 # 算术循环
+│   ├── 05_polymorphic_dispatch.z42 # 多态派发 (PIC)
+│   └── 06_thread_scaling.z42  # 多线程 spawn/join (caps=threads)
+├── probe/                     # capabilities.z42 — 被测 VM 能力探针（profile.caps 来源）
 ├── baselines/                 # main 分支的历史基线（gitignored，CI 上传到 gh-pages）
 │   └── .gitkeep
 └── results/                   # 当前 run 输出（gitignored）
@@ -91,19 +112,24 @@ bench/
 
 ## 使用
 
+> 注：仓库无 `justfile`；下列是实际命令（旧 `just bench-*` 别名已不存在）。
+
 ```bash
-# 全跑（criterion + BDN + e2e；约 5-10 min 完成）
-just bench-rust              # Rust criterion 微基准
-just bench-compiler-all      # C# 编译器 BDN（4 stage × 2 input）
-just bench-e2e               # z42 端到端（hyperfine on .zbc）
+# z42 端到端（hyperfine on .zbc）——默认测 jit，加 --mode 扫描
+xtask bench                       # 全场景，jit
+xtask bench --mode both           # 每场景各测 interp 与 jit（各一条 profile 结果）
+xtask bench stdlib <lib>          # 某 lib 的 [Benchmark] 微基准（本地/按需）
 
 # 快速 sanity（< 60s）
-just bench-e2e --quick       # 只跑 startup + fibonacci，少 iter
+xtask bench --quick               # 只跑前 2 个场景，少 iter
+
+# Rust criterion 微基准（未接入 xtask）
+cargo bench --manifest-path src/runtime/Cargo.toml
 ```
 
 ## CI 集成（PR）
 
-PR 到 main 时，`.github/workflows/ci.yml` 的 `bench-e2e` job 自动跑 `just bench-e2e --quick`（仅 ubuntu），把 `bench/results/e2e.json` 上传为 artifact `bench-e2e-results-Linux`。**当前不做自动 diff/门禁** —— 因为：
+PR 到 main 时，`.github/workflows/bench-pr.yml` 自动跑 `xtask bench --quick --mode both`（仅 ubuntu），把 `bench/results/e2e.json` 上传为 artifact。**当前不做自动 diff/门禁** —— 因为：
 
 - CI runner 噪声大（共享 VM），5% 阈值会大量假阳性
 - 还没有持久化的 main baseline 可对比
@@ -163,11 +189,11 @@ z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 ba
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "commit": "9dde4ec",
   "branch": "main",
-  "os": "darwin-arm64",
-  "timestamp": "2026-04-29T12:00:00Z",
+  "z42vm_version": "0.4.0",
+  "timestamp": "2026-07-31T12:00:00Z",
   "benchmarks": [
     {
       "name": "01_fibonacci",
@@ -177,7 +203,13 @@ z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 ba
       "unit": "ms",
       "ci_lower": 31.8,
       "ci_upper": 33.1,
-      "samples": 10
+      "samples": 10,
+      "profile": {
+        "mode": { "tiers": ["interp", "jit"], "aot_pkgs": [] },
+        "mode_label": "jit",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
     }
   ]
 }

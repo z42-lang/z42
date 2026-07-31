@@ -1,0 +1,38 @@
+// Capability probe (add-exec-profile-matrix, 2026-07-31).
+//
+// Emits THIS VM binary's runtime execution capabilities as a single JSON line.
+// The exec-profile harness (scripts/common/xtask_exec_profile.z42) runs this
+// under the *target* VM binary it is about to benchmark/test, and parses the
+// output — so every result carries the caps that binary actually reports, never
+// a static guess. Backed by Std.Platform.Capabilities()/ExecModes(), i.e. the
+// __platform_caps / __platform_exec_modes builtins (corelib/platform.rs).
+//
+// Output (one line, e.g.):
+//   {"os":"macos","arch":"aarch64","exec_modes":["interp","jit"],"caps":["jit","native-interop","threads"]}
+//
+// os/arch are the raw Rust target-triple values (Std.Platform.OS()/Arch()); the
+// harness normalises them into schema {os,arch}. z42vm version is captured
+// separately by the harness (not available via stdlib).
+namespace Bench.Probe.Capabilities;
+using Std;
+using Std.IO;
+
+void Main() {
+    Console.WriteLine(
+        "{\"os\":\"" + Platform.OS()
+        + "\",\"arch\":\"" + Platform.Arch()
+        + "\",\"exec_modes\":" + JsonArr(Platform.ExecModes())
+        + ",\"caps\":" + JsonArr(Platform.Capabilities())
+        + "}");
+}
+
+// Render a string[] as a JSON array literal. Values are known-safe identifiers
+// (feature/mode names), so no escaping beyond the surrounding quotes is needed.
+string JsonArr(string[] items) {
+    string s = "[";
+    for (int i = 0; i < items.Length; i = i + 1) {
+        if (i > 0) { s = s + ","; }
+        s = s + "\"" + items[i] + "\"";
+    }
+    return s + "]";
+}

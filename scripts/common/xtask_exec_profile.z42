@@ -1,0 +1,207 @@
+// xtask — execution-profile vocabulary + support matrix (add-exec-profile-matrix,
+// 2026-07-31). The single home shared by `test` and `bench` for describing WHICH
+// {mode × platform × capability} cell a run exercises, and whether that cell is
+// runnable / skipped-not-yet / never on the target VM binary.
+//
+// mode is an execution COMPOSITION, not a scalar (design Decision 8):
+//   tiers    — active backends this run uses; interp is always present, +jit.
+//   aot_pkgs — zpkgs precompiled to AOT. Empty today; a non-empty set (partial
+//              or full AOT, AOT+JIT hybrid) is `skipped-not-yet` until roadmap
+//              M9 implements AOT execution + its per-zpkg config. This change
+//              only MODELS the shape so results tag it and the matrix reserves it.
+//
+// caps come from the target VM itself: the harness runs bench/probe/capabilities.z42
+// (→ Std.Platform.Capabilities()/ExecModes()) under the binary being measured, so
+// each result carries real caps — never a static guess.
+//
+// Same Z42Xtask namespace; callers use these `_ep*` helpers by bare name.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Json;
+
+// Ground-truth capability snapshot of a VM binary, from the probe.
+class VmCaps {
+    public string Os;            // raw Std.Platform.OS()   (linux/macos/windows/wasm/ios/android)
+    public string Arch;          // raw Std.Platform.Arch() (x86_64/aarch64/wasm32/x86)
+    public string[] ExecModes;   // ["interp"(, "jit")(, "aot")]
+    public string[] Caps;        // ["jit","native-interop","threads",...]
+
+    public VmCaps() {
+        this.Os = "";
+        this.Arch = "";
+        this.ExecModes = new string[0];
+        this.Caps = new string[0];
+    }
+}
+
+// ── membership + array helpers ───────────────────────────────────────────────
+
+bool _epHas(string[] arr, string v) {
+    for (int i = 0; i < arr.Length; i = i + 1) {
+        if (arr[i] == v) { return true; }
+    }
+    return false;
+}
+
+string _epJsonStrArr(string[] items) {
+    string s = "[";
+    for (int i = 0; i < items.Length; i = i + 1) {
+        if (i > 0) { s = s + ", "; }
+        s = s + "\"" + items[i] + "\"";
+    }
+    return s + "]";
+}
+
+string[] _epJsonToStrArr(JsonValue arr) {
+    int n = arr.Count();
+    string[] res = new string[n];
+    for (int i = 0; i < n; i = i + 1) { res[i] = arr.At(i).AsString(); }
+    return res;
+}
+
+// Normalise the raw Rust arch name into the schema's .NET-style short form
+// (matches Std.ArchKind names used elsewhere).
+string _epNormArch(string raw) {
+    if (raw == "x86_64")  { return "x64"; }
+    if (raw == "aarch64") { return "arm64"; }
+    if (raw == "wasm32")  { return "wasm"; }
+    return raw;
+}
+
+// ── mode composition ─────────────────────────────────────────────────────────
+
+// Canonical, human-readable + diff-key label for a mode composition:
+//   {[interp],[]}                       -> "interp"
+//   {[interp,jit],[]}                   -> "jit"
+//   {[interp,jit],[z42.core,z42.math]}  -> "jit+aot[z42.core,z42.math]"
+// aot_pkgs are sorted so the label is stable regardless of input order.
+string _epModeLabel(string[] tiers, string[] aotPkgs) {
+    string baseLabel = "interp";
+    if (_epHas(tiers, "jit")) { baseLabel = "jit"; }
+    if (aotPkgs.Length == 0) { return baseLabel; }
+    string[] sorted = _sortedStrings(aotPkgs);
+    string joined = "";
+    for (int i = 0; i < sorted.Length; i = i + 1) {
+        if (i > 0) { joined = joined + ","; }
+        joined = joined + sorted[i];
+    }
+    return baseLabel + "+aot[" + joined + "]";
+}
+
+// Status of a {mode, platform} cell against a probed VM's real capabilities:
+//   "runnable"         — can run now, record the result.
+//   "skipped-not-yet"  — framework models it but execution is unimplemented (M9).
+//   "never"            — this VM binary physically cannot run it (e.g. wasm+jit).
+// Policy overlay: ANY aot presence (aot_pkgs non-empty, or "aot" listed as a
+// tier) is skipped-not-yet regardless of platform / whether the aot feature was
+// compiled in — aot.rs is a stub until M9. Otherwise a requested jit tier the VM
+// did not compile in is `never` for that binary; a bare interp/jit tier it does
+// have is runnable.
+string _epCellStatus(string[] tiers, string[] aotPkgs, string[] vmExecModes) {
+    if (aotPkgs.Length > 0 || _epHas(tiers, "aot")) { return "skipped-not-yet"; }
+    if (_epHas(tiers, "jit") && !_epHas(vmExecModes, "jit")) { return "never"; }
+    return "runnable";
+}
+
+// Full `profile` JSON object (schema v2) for a benchmark result. arch is
+// normalised; caps/os come straight from the probe.
+string _epProfileJson(string[] tiers, string[] aotPkgs, VmCaps vm) {
+    return "{\"mode\": {\"tiers\": " + _epJsonStrArr(tiers)
+        + ", \"aot_pkgs\": " + _epJsonStrArr(aotPkgs)
+        + "}, \"mode_label\": \"" + _epModeLabel(tiers, aotPkgs)
+        + "\", \"platform\": {\"os\": \"" + vm.Os + "\", \"arch\": \""
+        + _epNormArch(vm.Arch) + "\"}, \"caps\": " + _epJsonStrArr(vm.Caps) + "}";
+}
+
+// ── mode sweep (bench/test `--mode` option → composition list) ───────────────
+
+// Expand a `--mode interp|jit|both` option into the measured-run mode names to
+// sweep (each becomes one z42vm `--mode <m>` + one profile-tagged result).
+string[] _epModesToSweep(string opt) {
+    if (opt == "both") {
+        string[] two = new string[2];
+        two[0] = "interp"; two[1] = "jit";
+        return two;
+    }
+    string one = opt;
+    if (one.Length == 0) { one = "jit"; }   // default: measure jit (VM default backend)
+    string[] r = new string[1];
+    r[0] = one;
+    return r;
+}
+
+// The tier set a measured-run mode corresponds to. interp = [interp]; jit adds
+// the jit tier over the interp fallback. (aot compositions are M9; not produced
+// here — aot_pkgs stays empty.)
+string[] _epTiersForMode(string m) {
+    if (m == "jit") {
+        string[] t = new string[2];
+        t[0] = "interp"; t[1] = "jit";
+        return t;
+    }
+    string[] t = new string[1];
+    t[0] = "interp";
+    return t;
+}
+
+// z42vm version string from `vm --info` (first line "z42vm X.Y.Z"), for the
+// schema v2 `z42vm_version` field. Empty if unavailable.
+string _epVmVersion(string vm) {
+    ProcessResult r = new Process(vm).Arg("--info").Run();
+    if (r.ExitCode != 0) { return ""; }
+    string[] lines = r.Stdout.Split("\n");
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        string ln = lines[i].Trim();
+        if (ln.StartsWith("z42vm ")) { return ln.Substring(6, ln.Length - 6).Trim(); }
+    }
+    return "";
+}
+
+// Profile discriminator for diff matching: "<mode_label>@<os>/<arch>" from a
+// schema-v2 benchmark object's `profile`. Empty if the object has no profile
+// (defensive — v2 always has one), so pre-profile rows still match by name only.
+string _epBenchModeKey(JsonValue b) {
+    if (!b.ContainsKey("profile")) { return ""; }
+    JsonValue p = b.Get("profile");
+    JsonValue plat = p.Get("platform");
+    return p.Get("mode_label").AsString() + "@" + plat.Get("os").AsString()
+        + "/" + plat.Get("arch").AsString();
+}
+
+// ── probing the target VM ────────────────────────────────────────────────────
+
+// Compile bench/probe/capabilities.z42 to a cached .zbc (idempotent), return path.
+string _epEnsureProbe(string root, string vm, string driver, string libs) {
+    string src = Path.Join(root, "bench/probe/capabilities.z42");
+    string outDir = Path.Join(root, "artifacts/.scratch/exec-profile");
+    Directory.Create(outDir);
+    string zbc = Path.Join(outDir, "capabilities.zbc");
+    new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", libs)
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+    return zbc;
+}
+
+// Run the compiled probe under `vm` (the binary being measured) and parse its
+// one-line JSON into a VmCaps. Scans for the line starting with '{' so leader
+// warnings (lazy_loader on stderr are already separate) never trip parsing.
+VmCaps _epProbe(string vm, string libs, string probeZbc) {
+    ProcessResult r = new Process(vm).Arg(probeZbc).Arg("Bench.Probe.Capabilities.Main")
+        .Env("Z42_LIBS", libs).Run();
+    string[] lines = r.Stdout.Split("\n");
+    string json = "";
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        string ln = lines[i].Trim();
+        if (ln.StartsWith("{")) { json = ln; }
+    }
+    VmCaps c = new VmCaps();
+    if (json.Length == 0) { return c; }
+    JsonValue v = JsonValue.Parse(json);
+    c.Os = v.Get("os").AsString();
+    c.Arch = v.Get("arch").AsString();
+    c.ExecModes = _epJsonToStrArr(v.Get("exec_modes"));
+    c.Caps = _epJsonToStrArr(v.Get("caps"));
+    return c;
+}

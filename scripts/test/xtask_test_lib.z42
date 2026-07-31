@@ -82,7 +82,7 @@ int _testLib(ParseResult r, string kind) {
     int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg);
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
-        File.WriteAllText(outPath, agg.toSchemaV1(_root()));
+        File.WriteAllText(outPath, agg.toSchemaV2(_root()));
         Console.WriteLine("wrote baseline -> " + jsonOut + " (" + agg.count().ToString() + " benchmarks)");
     }
     if (__rc == 0) { _procEnd((kind == "bench") ? "bench stdlib" : "test stdlib", sw); }

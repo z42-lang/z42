@@ -63,13 +63,16 @@ jobs:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run full e2e bench (xtask)
+      - name: Run full e2e bench (xtask, interp + jit)
         shell: bash
         run: |
           set -euo pipefail
+          # add-exec-profile-matrix: --mode both measures each scenario under
+          # interp AND jit (two profile-tagged results); the diff below matches
+          # per (name, metric, mode_label@os/arch) so the two never cross-compare.
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- bench
+            "$vm" artifacts/xtask/xtask.zpkg -- bench --mode both
 
       - name: Fetch baseline from bench-baselines branch
         id: baseline

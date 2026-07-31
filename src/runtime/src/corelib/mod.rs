@@ -499,6 +499,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__asm_get_types",           assemblyloadcontext::builtin_asm_get_types),
     ("__type_is_collectible",     assemblyloadcontext::builtin_type_is_collectible),
     ("__type_assembly",           assemblyloadcontext::builtin_type_assembly),
+
+    // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
+    ("__platform_caps",           platform::builtin_platform_caps),
+    ("__platform_exec_modes",     platform::builtin_platform_exec_modes),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

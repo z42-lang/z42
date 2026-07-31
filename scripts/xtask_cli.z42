@@ -370,6 +370,9 @@ SubcommandRouter _benchRouter() {
 ArgParser _benchE2eParser() {
     ArgParser p = new ArgParser("xtask bench", "e2e hyperfine scenarios (no subcommand; subcommand: stdlib [lib])");
     p.AddFlag("quick", "", "fewer runs/warmup");
+    // add-exec-profile-matrix: sweep the measured VM's execution mode. `both`
+    // runs each scenario under interp AND jit (two profile-tagged results).
+    p.AddOption("mode", "", "interp|jit|both (default: jit; measured-run mode)", "");
     p.AddFlag("diff", "", "compare two result sets");
     p.AddOption("current", "", "current result path", "");
     p.AddOption("baseline", "", "baseline result path", "");

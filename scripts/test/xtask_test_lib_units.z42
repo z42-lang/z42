@@ -123,6 +123,15 @@ int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] uni
     // for `--format json` and feed each module's output to the aggregator instead of
     // pretty passthrough. agg == null (all `test` paths + plain `bench`) → unchanged.
     bool capture = (agg != null);
+    // add-exec-profile-matrix: when capturing a baseline, tag it with the profile
+    // of the VM the runner executes under — probed once from that binary. mode
+    // (interp|jit) drives the tier set; caps/version come from the probe.
+    if (capture) {
+        string epMode = (mode.Length > 0) ? mode : "interp";
+        string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
+        VmCaps epVm = _epProbe(vm, libs, epProbe);
+        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(vm));
+    }
     string verb = (kind == "bench") ? "bench" : "test";
     int failed = 0;
     int i = 0;
