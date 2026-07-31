@@ -26,6 +26,16 @@ fn try_native_static_call(
 ) -> Option<Result<Option<Value>>> {
     let p = ctx.jit_ctx_ptr();
     if p == 0 { return None; }
+    // runtime-jit-tiering Phase 1.5 safety: an INTERP frame can hold a
+    // `Ref(Stack)` (an out/ref-param address from `LoadLocalAddr`) in a register;
+    // a JIT frame never can (ref-using functions are untranslatable). Native code
+    // treats registers as plain values, so passing a Ref into a native callee
+    // corrupts it (later surfaces as "Ref vs I64" in arithmetic). This cannot arise
+    // from `jit_call` (JIT callers hold no Refs) — it is mixed-mode-specific. Never
+    // route when an arg is a Ref; stay on the interpreter (always correct).
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+        return None;
+    }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
     // lockstep with `vm_ctx`). Copy the small entry fields out immediately so no

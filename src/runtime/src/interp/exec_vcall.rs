@@ -26,6 +26,13 @@ fn try_native_method_call(
 ) -> Option<Result<Option<Value>>> {
     let p = ctx.jit_ctx_ptr();
     if p == 0 { return None; }
+    // runtime-jit-tiering Phase 1.5 safety: never marshal a `Ref(Stack)` (out/ref
+    // address, which only an INTERP frame can hold) into native code — see
+    // `exec_call::try_native_static_call` for the full rationale. Guard receiver + args.
+    if matches!(receiver, Value::Ref(_))
+        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+        return None;
+    }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     let (max_reg, ptr, name, file) = {
         let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
