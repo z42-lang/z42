@@ -26,17 +26,22 @@ using Z42.Project;
 public static class Script {
     // 新建空会话。从 Z42_LIBS 派生编译依赖目录；DeclaredDeps 留空 → DepScan 放行全部包。
     public static ScriptState Create() {
-        ScriptState s = new ScriptState();
-        // LibsDirs = Z42_LIBS 各目录（**仅静态库**）。DeclaredDeps 留空 → DepScan 放行全部包。
-        // perf ②：不再建会话磁盘目录——carry-forward 改为 CachedScan 的内存增量并入（见 Eval）。
+        // LibsDirs = Z42_LIBS 各目录（**仅静态库**）。
         string libs = Environment.GetEnvironmentVariable("Z42_LIBS");
+        return Script.CreateWithLibs(libs != null ? libs : "");
+    }
+
+    // 显式给依赖目录（`:` 分隔）建会话，**不读环境变量**。wasm/playground 无 env 时用：
+    // 传虚拟 VFS 目录（如 "/libs"），DepScan 从 VFS 扫已挂载的 zpkg。native 的 Create 委托到此。
+    public static ScriptState CreateWithLibs(string libsCsv) {
+        ScriptState s = new ScriptState();
+        // perf ②：不再建会话磁盘目录——carry-forward 改为 CachedScan 的内存增量并入（见 Eval）。
         string[] envDirs = new string[0];
-        if (libs != null && libs.Length > 0) { envDirs = libs.Split(":"); }
+        if (libsCsv != null && libsCsv.Length > 0) { envDirs = libsCsv.Split(":"); }
         s.LibsDirs = envDirs; s.LibsDirsN = envDirs.Length;
         // 默认 using（隐式导入，对齐 C# ImplicitUsings / Kotlin·Scala REPL 默认 import）：常用命名空间
-        // 开箱即用（Console / List / StringBuilder / Math），无需手动 using。保守集——避开跨命名空间
-        // 同名类型歧义；其余（Std.Net / Std.Json …）按需 `using`。lazy-repl-depscan：首轮即时
-        // eager-load 这些包（见 Eval → _loadUsingsPackages），使常用类型/导入补全即时可用。
+        // 开箱即用（Console / List / StringBuilder / Math），无需手动 using。lazy-repl-depscan：首轮
+        // eager-load 这些包（见 Eval → _loadUsingsPackages）。
         s.Usings.Add("Std.IO");
         s.Usings.Add("Std.Collections");
         s.Usings.Add("Std.Text");
