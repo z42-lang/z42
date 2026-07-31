@@ -158,13 +158,34 @@ pub unsafe extern "C" fn jit_call_indirect(
         args.push(frame_ref.regs[r as usize].clone());
     }
 
-    // 3) Resolve the callee (lazy-compile on first call).
-    let entry: &FnEntry = match ctx_ref.resolve_fn_by_name(fn_name.as_str()) {
+    // 3) Resolve the callee. runtime-jit-tiering Phase 1b: tiered — a cold
+    //    (below-threshold) or interp-only lambda resolves to None and is run on the
+    //    interpreter with the already-assembled `args` (env prepended for closures,
+    //    exactly as the native path receives it). At the threshold it compiles and
+    //    subsequent indirect calls take the native path.
+    let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name.as_str()) {
         Some(e) => e,
         None => {
-            set_exception(vm_ctx,
-                Value::Str(format!("CallIndirect: undefined function `{}`", fn_name).into()));
-            return 1;
+            vm_ctx.update_top_frame_pos(caller_line, caller_col);
+            let module = &*ctx_ref.module;
+            let outcome = if let Some(callee) = module.func_index.get(fn_name.as_str())
+                .and_then(|&idx| module.functions.get(idx))
+            {
+                crate::interp::exec_function(vm_ctx, module, callee, &args)
+            } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(fn_name.as_str()) {
+                crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &args)
+            } else {
+                set_exception(vm_ctx,
+                    Value::Str(format!("CallIndirect: undefined function `{}`", fn_name).into()));
+                return 1;
+            };
+            return match outcome {
+                Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                    frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
+                }
+                Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
+            };
         }
     };
 

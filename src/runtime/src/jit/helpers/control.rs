@@ -112,6 +112,8 @@ mod check_safepoint_tests {
             merged_len:       0,
             lazy_table:       std::sync::Mutex::new(crate::jit::frame::LazyTable::default()),
             vm_ctx:           vm_ctx as *const VmContext as *mut VmContext,
+            call_counts:      Vec::new(),
+            jit_threshold:    1,
         };
         (jit_ctx, JitFrame::new(0, &[]))
     }

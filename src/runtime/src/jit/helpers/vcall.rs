@@ -65,7 +65,9 @@ pub unsafe extern "C" fn jit_vcall(
                 crate::metadata::resolver::vcall_ic_lookup(&*ic_ptr, recv_type)
             {
                 if fn_idx != crate::metadata::tokens::UNRESOLVED {
-                    if let Some(entry) = ctx_ref.resolve_fn_by_id(fn_idx as usize) {
+                    // runtime-jit-tiering Phase 1b: tiered — cold method → None →
+                    // fall through to the vtable path (262), whose None-arm interps it.
+                    if let Some(entry) = ctx_ref.resolve_fn_by_id_tiered(fn_idx as usize) {
                         // Move `obj_val` in — this branch always returns, so the
                         // primitive / vtable fall-through paths never observe the
                         // move (conditional-move-into-diverging-branch).
@@ -259,9 +261,13 @@ pub unsafe extern "C" fn jit_vcall(
         }
     }
 
-    let entry = match ctx_ref.resolve_fn_by_name(func_name.as_str()) {
+    let entry = match ctx_ref.resolve_fn_by_name_tiered(func_name.as_str()) {
         Some(e) => e,
         None => {
+            // runtime-jit-tiering Phase 1b: tiered — a cold (below-threshold) method
+            // resolves to None here and runs on the interpreter via the arms below
+            // (receiver + args), exactly like an untranslatable method. At the
+            // threshold it compiles and subsequent calls take the native path.
             // fix-jit-cross-zpkg-transitive-eager (2026-06-20): the resolved
             // virtual method lives in the merged module but was not JIT-compiled
             // (it contains an interp-only opcode such as `LoadLocalAddr`, so
