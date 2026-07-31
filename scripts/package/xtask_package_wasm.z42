@@ -56,12 +56,24 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     Console.WriteLine("  [3/4] pkg-web/ + pkg-nodejs/");
     c = _pkgCopyWasmBindgen(pkgDir, wasmRoot); if (c != 0) { return c; }
 
-    // libs/ = stdlib（含 z42.scripting）+ z42c 编译器（浏览器内编译，add-wasm-vfs-backend 阶段 3）
-    Console.WriteLine("  [4/4] libs/ (stdlib + z42c compiler)");
+    // libs/ = stdlib + z42.scripting + z42c 编译器（浏览器内编译，add-wasm-vfs-backend 阶段 3）
+    Console.WriteLine("  [4/4] libs/ (stdlib + z42.scripting + z42c compiler)");
+    c = _pkgEnsureScripting(root); if (c != 0) { return c; }
     c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
     c = _pkgCopyCompiler(root, pkgDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
     return 0;
+}
+
+// z42.scripting 是 compiler-consuming 的 toolchain lib（REPL/Eval 引擎，evalFromVfs 在此），
+// 不属 stdlib workspace，故精简的 stage-toolchain CI 产物不携带它（ci-bootstrap 只建 stdlib+z42c）。
+// 浏览器内 Script.Eval 依赖它 → 打包前若 flat dist 缺失就现建（deps 全在：恢复的 z42c.driver dist
+// + stdlib flat dist + cargo 建的 z42vm）。warm 树已有则跳过。
+int _pkgEnsureScripting(string root) {
+    string libs = _libsDir(root);
+    if (File.Exists(Path.Join(libs, "z42.scripting.zpkg"))) { return 0; }
+    Console.WriteLine("        scripting: building z42.scripting (absent from flat dist)");
+    return _buildScriptingLib(root, _builtVm(root, "release"), _selfContainedDriverDir(root), libs);
 }
 
 // 把 z42c 编译器 zpkg（~716K：core/syntax/semantics/pipeline/driver）拷进包的 libs/，供浏览器内
