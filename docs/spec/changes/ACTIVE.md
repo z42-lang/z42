@@ -4,6 +4,12 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
+> **独立分支 in-flight（2026-07-31，User 授权，不排队）**：`add-bench-speedup-cap-gating`
+> （exec-profile-matrix 两处补齐）：① `bench --diff` 加 jit/interp 加速比派生行（设计 Decision 6
+> 漏做）② 场景 `// requires-caps:` 能力门控（无 threads VM 安全跳过 `06_thread_scaling`）。占
+> `toolchain`（scripts/xtask_bench + 共享 profile 模块）。分支 off origin/main，与主线物理隔离。
+> GREEN 以 CI 为权威。
+
 > **~~lazy-type-world~~** ✅ 已归档 2026-07-30（隔离 worktree `z42-replscan-wt` off origin/main，User
 > 授权预抢，归档即释放 compiler 锁）：惰性化跨包类型世界——`DepScan.BuildWorld` 一次性全量 TYPE/SIGS
 > 解析 → `LazyReconWorld` 按包懒填 + 命名空间路由（`EnsureFq`），`Rebuild` 基类链只解析引用闭包。

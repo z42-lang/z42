@@ -14,6 +14,10 @@
 // shared inputs/outputs go through the static Shared class.
 //
 // Expected output (deterministic): 4 * sum_{i=0..1999999}(i % 7)
+//
+// requires-caps: threads
+// (add-bench-speedup-cap-gating: the harness skips this scenario on a VM whose
+// probed caps lack "threads" — e.g. wasm/interp-only — instead of crashing.)
 namespace Bench.ThreadScaling;
 
 using Std;
