@@ -1,0 +1,101 @@
+using Std.IO;
+
+// fix-finally-nonlocal-exit：return/break/continue 离开 try 必经 finally。
+
+int retInTry() {
+    try {
+        Console.WriteLine("A: in try");
+        return 1;
+    } finally {
+        Console.WriteLine("A: finally");
+    }
+}
+
+// finally 改到返回涉及的局部，不得污染已定返回值（值在 finally 前捕获）。
+int retValuePreserved() {
+    int x = 10;
+    try {
+        return x;
+    } finally {
+        x = 99;
+        Console.WriteLine("B: finally x=" + x.ToString());
+    }
+}
+
+// break：循环在 try 外 → 退出 try 时跑 finally。
+void breakInTryFinally() {
+    int i = 0;
+    while (i < 3) {
+        try {
+            Console.WriteLine("C: i=" + i.ToString());
+            if (i == 1) { break; }
+        } finally {
+            Console.WriteLine("C: finally i=" + i.ToString());
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("C: after loop");
+}
+
+// continue：退出 try 到循环续接前跑 finally。
+void continueInTryFinally() {
+    int i = 0;
+    while (i < 3) {
+        i = i + 1;
+        try {
+            if (i == 2) { continue; }
+            Console.WriteLine("D: body i=" + i.ToString());
+        } finally {
+            Console.WriteLine("D: finally i=" + i.ToString());
+        }
+    }
+}
+
+// 嵌套：return 内→外依次跑内层再外层 finally。
+int nestedReturn() {
+    try {
+        try {
+            return 5;
+        } finally {
+            Console.WriteLine("E: inner finally");
+        }
+    } finally {
+        Console.WriteLine("E: outer finally");
+    }
+}
+
+// finally 内 return 覆盖 try 的 return。
+int returnInFinallySupersedes() {
+    try {
+        return 1;
+    } finally {
+        Console.WriteLine("F: finally overrides");
+        return 2;
+    }
+}
+
+// 循环在 try 内 → break 只退循环，finally 仅在 try 正常退出时跑一次。
+void breakLoopInsideTry() {
+    try {
+        int i = 0;
+        while (i < 5) {
+            if (i == 2) { break; }
+            Console.WriteLine("G: i=" + i.ToString());
+            i = i + 1;
+        }
+        Console.WriteLine("G: after inner loop");
+    } finally {
+        Console.WriteLine("G: finally once");
+    }
+}
+
+void Main() {
+    Console.WriteLine("A ret=" + retInTry().ToString());
+    Console.WriteLine("B ret=" + retValuePreserved().ToString());
+    breakInTryFinally();
+    continueInTryFinally();
+    Console.WriteLine("E ret=" + nestedReturn().ToString());
+    Console.WriteLine("F ret=" + returnInFinallySupersedes().ToString());
+    breakLoopInsideTry();
+    Console.WriteLine("done");
+}
