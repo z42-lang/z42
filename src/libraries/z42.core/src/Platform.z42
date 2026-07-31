@@ -59,6 +59,52 @@ public static class Platform {
             || k == OSKind.Android
             || k == OSKind.FreeBSD;
     }
+
+    // ── add-exec-profile-matrix (2026-07-31) — runtime capability query ──
+    //
+    // Capabilities THIS VM binary was compiled with — the ground truth of
+    // "what this binary can do", queried at runtime (not guessed from the
+    // platform). The exec-profile bench/test harness probes the *target* VM
+    // binary with these so each measurement carries its real caps. Backed by
+    // __platform_caps / __platform_exec_modes (corelib/platform.rs), which read
+    // the same cfg flags used elsewhere.
+
+    // Capability set: "jit" / "native-interop" / "bundled-compression" (cargo
+    // features) + "threads" (real OS-thread support, present wherever
+    // std::thread exists — everywhere except wasm; not a build feature).
+    [Native("__platform_caps")]
+    public static extern string[] Capabilities();
+
+    // Execution backends this binary can dispatch: always includes "interp",
+    // plus "jit" / "aot" when those features are compiled in.
+    // NOTE: an aot-feature build lists "aot" even though AOT execution is still
+    // a stub (roadmap M9) — this reports "compiled in", not "runnable".
+    [Native("__platform_exec_modes")]
+    public static extern string[] ExecModes();
+
+    // Convenience predicates (mirror the IsLinux() style). Each scans the array
+    // once — callers doing repeated checks can cache Capabilities()/ExecModes().
+    public static bool HasJit() {
+        return _contains(Capabilities(), "jit");
+    }
+    public static bool HasNativeInterop() {
+        return _contains(Capabilities(), "native-interop");
+    }
+    public static bool HasThreads() {
+        return _contains(Capabilities(), "threads");
+    }
+    // Whether the AOT backend is compiled in. AOT execution itself is not
+    // implemented yet (M9) — this is "compiled in", not "runnable".
+    public static bool HasAot() {
+        return _contains(ExecModes(), "aot");
+    }
+
+    private static bool _contains(string[] arr, string v) {
+        for (int i = 0; i < arr.Length; i = i + 1) {
+            if (arr[i] == v) { return true; }
+        }
+        return false;
+    }
 }
 
 // OSKind / ArchKind integer constants. Values must match the int returned by

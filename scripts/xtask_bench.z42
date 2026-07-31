@@ -37,7 +37,17 @@ int _bench(ParseResult r) {
     string flat = _assembleAllLibs(root, "release");
     string work = Directory.CreateTempDir("xtask-bench");
 
+    // add-exec-profile-matrix: probe the measured VM's real capabilities once,
+    // and expand --mode into the modes to sweep (each → one z42vm --mode run +
+    // one profile-tagged result). Non-runnable cells (e.g. jit on an interp-only
+    // VM) are skipped with a printed reason — never silently dropped.
+    string modeOpt = r.GetOption("mode");
+    string probeZbc = _epEnsureProbe(root, vm, driverZpkg, flat);
+    VmCaps vmc = _epProbe(vm, libs, probeZbc);
+    string[] modes = _epModesToSweep(modeOpt);
+
     string benchmarks = "";
+    int nb = 0;
     int count = 0;
     // Sort before iterating: filesystem enumeration order is non-deterministic
     // across OSes, and both --quick's "first 2" selection and the benchmarks
@@ -49,31 +59,45 @@ int _bench(ParseResult r) {
         string src = Path.Join(scenDir, f);
         string ns = _extractNamespace(File.ReadAllText(src));
         if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
+        // Compile once — the .zbc is mode-agnostic; only the measured run differs.
         string zbc = Path.Join(work, name + ".zbc");
         int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
             .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", flat));
         if (cc != 0) { return cc; }
-        string outJson = Path.Join(work, name + "-bench.json");
-        Console.WriteLine("→ Benchmarking " + name + " (warmup=" + warmup + ", runs=" + runs + ")...");
-        int hc = _exec(new Process("hyperfine")
-            .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
-            .Arg("--export-json").Arg(outJson).Arg("--shell=none").Arg("--command-name").Arg(name)
-            .Arg(vm + " " + zbc + " " + ns + ".Main").Env("Z42_LIBS", libs));
-        if (hc != 0) { return hc; }
-        if (benchmarks.Length > 0) { benchmarks = benchmarks + ",\n"; }
-        benchmarks = benchmarks + _benchObj(outJson, name, runs);
+        for (int mi = 0; mi < modes.Length; mi = mi + 1) {
+            string m = modes[mi];
+            string[] tiers = _epTiersForMode(m);
+            string status = _epCellStatus(tiers, new string[0], vmc.ExecModes);
+            if (status != "runnable") {
+                Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: " + status
+                    + " (VM exec_modes=" + _epJsonStrArr(vmc.ExecModes) + ")");
+                continue;
+            }
+            string outJson = Path.Join(work, name + "-" + m + "-bench.json");
+            Console.WriteLine("→ Benchmarking " + name + " [" + m
+                + "] (warmup=" + warmup + ", runs=" + runs + ")...");
+            int hc = _exec(new Process("hyperfine")
+                .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
+                .Arg("--export-json").Arg(outJson).Arg("--shell=none")
+                .Arg("--command-name").Arg(name + "-" + m)
+                .Arg(vm + " " + zbc + " " + ns + ".Main --mode " + m).Env("Z42_LIBS", libs));
+            if (hc != 0) { return hc; }
+            if (nb > 0) { benchmarks = benchmarks + ",\n"; }
+            benchmarks = benchmarks + _benchObj(outJson, name, runs, tiers, vmc);
+            nb = nb + 1;
+        }
         count = count + 1;
     }
 
     string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
     string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-    string doc = "{\n  \"schema_version\": 1,\n  \"commit\": \"" + commit
-        + "\",\n  \"branch\": \"" + branch + "\",\n  \"os\": \"" + _osTag()
+    string doc = "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
+        + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + _epVmVersion(vm)
         + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
         + benchmarks + "\n  ]\n}\n";
     string outFile = Path.Join(resultsDir, "e2e.json");
     File.WriteAllText(outFile, doc);
-    Console.WriteLine("✅ E2E bench complete. Results: " + outFile);
+    Console.WriteLine("✅ E2E bench complete (" + nb.ToString() + " results). Results: " + outFile);
     return 0;
 }
 
@@ -108,8 +132,8 @@ int _benchDiff(ParseResult r) {
 
     if (!quiet) {
         Console.WriteLine("Comparing:");
-        Console.WriteLine("  current:  " + cur.Get("commit").AsString() + " on " + cur.Get("os").AsString() + "  (" + current + ")");
-        Console.WriteLine("  baseline: " + base_.Get("commit").AsString() + " on " + base_.Get("os").AsString() + " (" + baseline + ")");
+        Console.WriteLine("  current:  " + cur.Get("commit").AsString() + "  (" + current + ")");
+        Console.WriteLine("  baseline: " + base_.Get("commit").AsString() + "  (" + baseline + ")");
         Console.WriteLine("  thresholds: time>" + thrTime.ToString() + "=fail, memory>" + thrMem.ToString() + "=fail");
         Console.WriteLine("");
     }
@@ -124,9 +148,10 @@ int _benchDiff(ParseResult r) {
         string metric = c.Get("metric").AsString();
         double curV   = c.Get("value").AsDouble();
         string unit   = c.Get("unit").AsString();
+        string mkey   = _epBenchModeKey(c);
         total = total + 1;
-        string label = name + " [" + metric + "]";
-        double baseV = _findBenchValue(baseBs, name, metric);
+        string label = name + " [" + metric + " " + mkey + "]";
+        double baseV = _findBenchValue(baseBs, name, metric, mkey);
         if (baseV < 0.0) {
             if (!quiet) { Console.WriteLine("  " + label + "  (new)  " + curV.ToString() + " " + unit); }
             j = j + 1; continue;
@@ -154,8 +179,9 @@ int _benchDiff(ParseResult r) {
             JsonValue b = baseBs.At(k);
             string name   = b.Get("name").AsString();
             string metric = b.Get("metric").AsString();
-            if (_findBenchValue(curBs, name, metric) < 0.0) {
-                Console.WriteLine("  " + name + " [" + metric + "]  (removed)  "
+            string mkey   = _epBenchModeKey(b);
+            if (_findBenchValue(curBs, name, metric, mkey) < 0.0) {
+                Console.WriteLine("  " + name + " [" + metric + " " + mkey + "]  (removed)  "
                     + b.Get("value").AsDouble().ToString() + " " + b.Get("unit").AsString());
             }
             k = k + 1;
@@ -171,12 +197,15 @@ int _benchDiff(ParseResult r) {
     return 0;
 }
 
-// value of the benchmark with matching name+metric, or -1.0 if absent.
-double _findBenchValue(JsonValue benchmarks, string name, string metric) {
+// value of the benchmark matching name+metric+mode-key, or -1.0 if absent.
+// add-exec-profile-matrix: mkey ("<mode_label>@<os>/<arch>") keeps interp-vs-jit
+// and cross-platform results from ever comparing against each other.
+double _findBenchValue(JsonValue benchmarks, string name, string metric, string mkey) {
     int i = 0;
     while (i < benchmarks.Count()) {
         JsonValue b = benchmarks.At(i);
-        if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric) {
+        if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric
+            && _epBenchModeKey(b) == mkey) {
             return b.Get("value").AsDouble();
         }
         i = i + 1;
@@ -191,7 +220,9 @@ string _absUnder(string root, string p) {
 }
 
 // one benchmark object from a hyperfine export JSON (time values are seconds → ms).
-string _benchObj(string hjson, string name, string runs) {
+// add-exec-profile-matrix: carries the schema-v2 `profile` (mode composition +
+// platform + probed caps) so interp/jit results never compare against each other.
+string _benchObj(string hjson, string name, string runs, string[] tiers, VmCaps vm) {
     JsonValue r0 = JsonValue.Parse(File.ReadAllText(hjson)).Get("results").At(0);
     string val = (r0.Get("mean").AsDouble() * 1000.0).ToString();
     string lo  = (r0.Get("min").AsDouble()  * 1000.0).ToString();
@@ -199,7 +230,8 @@ string _benchObj(string hjson, string name, string runs) {
     return "    {\n      \"name\": \"" + name + "\",\n      \"tier\": \"z42-e2e\""
         + ",\n      \"metric\": \"time\",\n      \"value\": " + val
         + ",\n      \"unit\": \"ms\",\n      \"ci_lower\": " + lo
-        + ",\n      \"ci_upper\": " + hi + ",\n      \"samples\": " + runs + "\n    }";
+        + ",\n      \"ci_upper\": " + hi + ",\n      \"samples\": " + runs
+        + ",\n      \"profile\": " + _epProfileJson(tiers, new string[0], vm) + "\n    }";
 }
 
 string _gitOut(string root, string a, string b, string c) {
@@ -219,10 +251,30 @@ string _osTag() {
 // map to ci_lower/ci_upper. One instance is reused across all libs/modules by
 // `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
 class MicroBenchAgg {
-    string _items;   // comma+newline-joined schema-v1 benchmark objects
+    string _items;   // comma+newline-joined schema-v2 benchmark objects
     int    _n;
-    MicroBenchAgg() { this._items = ""; this._n = 0; }
+    // add-exec-profile-matrix: the profile every micro result is tagged with.
+    // Probed once (setProfileOnce) from the VM the z42b runner executes under, so
+    // interp vs jit micro baselines never compare against each other. Defaults to
+    // an interp/empty profile until set.
+    string[] _tiers;
+    VmCaps   _vm;
+    string   _vmVersion;
+    bool     _profSet;
+    MicroBenchAgg() {
+        this._items = ""; this._n = 0;
+        this._tiers = new string[1]; this._tiers[0] = "interp";
+        this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;
+    }
     int count() { return this._n; }
+
+    // Record the execution profile (idempotent — first call wins). tiers comes
+    // from the micro `--mode`; vm/vmVersion from probing the runner's VM binary.
+    void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
+        if (this._profSet) { return; }
+        this._tiers = tiers; this._vm = vm; this._vmVersion = vmVersion;
+        this._profSet = true;
+    }
 
     // Parse one z42b `--format json` module output; append each benchmark's stats.
     // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
@@ -247,19 +299,20 @@ class MicroBenchAgg {
                     + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
                     + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
                     + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
-                    + "      \"samples\": " + smp.ToString() + "\n    }";
+                    + "      \"samples\": " + smp.ToString() + ",\n"
+                    + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
                 this._n = this._n + 1;
             }
             i = i + 1;
         }
     }
 
-    // Wrap accumulated items in the schema-v1 envelope (reuses _gitOut/_osTag/_utcNow).
-    string toSchemaV1(string root) {
+    // Wrap accumulated items in the schema-v2 envelope (reuses _gitOut/_utcNow).
+    string toSchemaV2(string root) {
         string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
         string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-        return "{\n  \"schema_version\": 1,\n  \"commit\": \"" + commit
-            + "\",\n  \"branch\": \"" + branch + "\",\n  \"os\": \"" + _osTag()
+        return "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
+            + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + this._vmVersion
             + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
             + this._items + "\n  ]\n}\n";
     }

@@ -1,34 +1,61 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://z42.dev/schemas/bench-baseline-v1.json",
-  "title": "z42 Benchmark Baseline v1",
-  "description": "Schema for z42 benchmark baseline / current-run results. Produced by `z42 xtask.zpkg bench`; consumed by `z42 xtask.zpkg bench --diff` (P1.D).",
+  "$id": "https://z42.dev/schemas/bench-baseline-v2.json",
+  "title": "z42 Benchmark Baseline v2",
+  "description": "Schema for z42 benchmark baseline / current-run results. Produced by `xtask bench`; consumed by `xtask bench --diff`. v2 (add-exec-profile-matrix): every benchmark carries a structured `profile` {mode, platform, caps} so results from different execution modes / platforms / capability sets never compare against each other. v1 (top-level `os` string, `csharp-throughput` tier, `dotnet_version`) is not read — regenerate old baselines with `xtask bench`.",
   "type": "object",
-  "required": ["schema_version", "commit", "branch", "os", "timestamp", "benchmarks"],
+  "required": ["schema_version", "commit", "branch", "timestamp", "benchmarks"],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "commit":         { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
     "branch":         { "type": "string", "minLength": 1 },
-    "os":             { "type": "string", "minLength": 1 },
     "timestamp":      { "type": "string", "format": "date-time" },
     "rustc_version":  { "type": ["string", "null"] },
-    "dotnet_version": { "type": ["string", "null"] },
+    "z42vm_version":  { "type": ["string", "null"] },
     "benchmarks": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "tier", "metric", "value", "unit"],
+        "required": ["name", "tier", "metric", "value", "unit", "profile"],
         "additionalProperties": false,
         "properties": {
           "name":     { "type": "string", "minLength": 1 },
-          "tier":     { "enum": ["rust-micro", "csharp-throughput", "z42-e2e", "z42-micro"] },
+          "tier":     { "enum": ["rust-micro", "z42-e2e", "z42-micro"] },
           "metric":   { "enum": ["time", "throughput", "memory"] },
           "value":    { "type": "number" },
           "unit":     { "enum": ["ns", "us", "ms", "s", "ops/sec", "bytes", "KB", "MB"] },
           "ci_lower": { "type": ["number", "null"] },
           "ci_upper": { "type": ["number", "null"] },
-          "samples":  { "type": ["integer", "null"], "minimum": 1 }
+          "samples":  { "type": ["integer", "null"], "minimum": 1 },
+          "profile": {
+            "type": "object",
+            "description": "Execution profile the measurement was taken under. `mode` is an execution COMPOSITION (not a scalar): `tiers` = active backends (interp always present), `aot_pkgs` = zpkgs precompiled to AOT (empty today; non-empty is skipped until roadmap M9). `caps` come from Std.Platform.Capabilities() probed on the target VM binary — never a static guess.",
+            "required": ["mode", "mode_label", "platform", "caps"],
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "object",
+                "required": ["tiers", "aot_pkgs"],
+                "additionalProperties": false,
+                "properties": {
+                  "tiers":    { "type": "array", "items": { "enum": ["interp", "jit", "aot"] }, "minItems": 1 },
+                  "aot_pkgs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                }
+              },
+              "mode_label": { "type": "string", "minLength": 1, "description": "Canonical, human-readable + diff-key form of `mode`, e.g. \"interp\" / \"jit\" / \"jit+aot[z42.core,z42.math]\"." },
+              "platform": {
+                "type": "object",
+                "required": ["os", "arch"],
+                "additionalProperties": false,
+                "properties": {
+                  "os":   { "type": "string", "minLength": 1 },
+                  "arch": { "type": "string", "minLength": 1 }
+                }
+              },
+              "caps": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            }
+          }
         }
       }
     }

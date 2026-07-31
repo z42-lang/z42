@@ -69,3 +69,48 @@ fn arch_kind_matches_current_arch() {
     #[cfg(target_arch = "x86")]
     assert_eq!(kind, 4);
 }
+
+/// Extract a `Vec<String>` from a builtin that returns `string[]`.
+fn str_array(v: Value) -> Vec<String> {
+    let Value::Array(rc) = v else { panic!("expected Array"); };
+    let arr = rc.borrow();
+    arr.elems
+        .iter()
+        .map(|e| match e {
+            Value::Str(s) => s.to_string(),
+            other => panic!("expected Str element, got {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn caps_reports_threads_off_wasm() {
+    let ctx = VmContext::new();
+    let caps = str_array(builtin_platform_caps(&ctx, &[]).unwrap());
+    // threads = real OS-thread support, compiled in everywhere except wasm.
+    #[cfg(not(target_arch = "wasm32"))]
+    assert!(caps.contains(&"threads".to_string()), "non-wasm build must report threads: {caps:?}");
+    #[cfg(target_arch = "wasm32")]
+    assert!(!caps.contains(&"threads".to_string()), "wasm build must not report threads: {caps:?}");
+}
+
+#[test]
+fn caps_reports_jit_when_feature_enabled() {
+    let ctx = VmContext::new();
+    let caps = str_array(builtin_platform_caps(&ctx, &[]).unwrap());
+    #[cfg(feature = "jit")]
+    assert!(caps.contains(&"jit".to_string()), "jit build must report jit cap: {caps:?}");
+    #[cfg(not(feature = "jit"))]
+    assert!(!caps.contains(&"jit".to_string()), "non-jit build must not report jit cap: {caps:?}");
+}
+
+#[test]
+fn exec_modes_always_has_interp_and_matches_features() {
+    let ctx = VmContext::new();
+    let modes = str_array(builtin_platform_exec_modes(&ctx, &[]).unwrap());
+    assert!(modes.contains(&"interp".to_string()), "interp is always available: {modes:?}");
+    #[cfg(feature = "jit")]
+    assert!(modes.contains(&"jit".to_string()), "jit build lists jit mode: {modes:?}");
+    #[cfg(not(feature = "jit"))]
+    assert!(!modes.contains(&"jit".to_string()), "non-jit build omits jit mode: {modes:?}");
+}

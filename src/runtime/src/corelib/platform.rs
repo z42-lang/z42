@@ -55,6 +55,44 @@ pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value
     Ok(Value::I64(kind))
 }
 
+/// `__platform_caps() -> string[]` — runtime capability set of THIS binary.
+///
+/// add-exec-profile-matrix (2026-07-31): the exec-profile bench/test harness
+/// probes the target VM binary with `Std.Platform.Capabilities()` and tags each
+/// result with the caps the binary actually reports — never a static guess. The
+/// values are the ground truth of "what was compiled in":
+///   - cargo-feature caps (`jit` / `native-interop` / `bundled-compression`) via cfg.
+///   - `threads`: real OS-thread support (`corelib::threading`) is compiled in
+///     wherever `std::thread` exists — i.e. everywhere except wasm. It is *not*
+///     a cargo feature, so it is gated on `target_arch` directly (mirrors the
+///     wasm `interp-only` preset which also has no threads).
+/// Order is stable (feature declaration order) so probe output is deterministic.
+pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
+    let mut caps: Vec<&str> = Vec::new();
+    #[cfg(feature = "jit")]                 caps.push("jit");
+    #[cfg(feature = "native-interop")]      caps.push("native-interop");
+    #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
+    #[cfg(not(target_arch = "wasm32"))]     caps.push("threads");
+    let list: Vec<Value> = caps.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
+    Ok(ctx.heap().alloc_array(list))
+}
+
+/// `__platform_exec_modes() -> string[]` — execution backends this binary can
+/// dispatch. `interp` is always present; `jit` / `aot` are cfg-gated. Mirrors
+/// the `exec modes:` line of `main.rs::print_build_info`.
+///
+/// NOTE: an `aot`-feature build lists `"aot"` here even though `aot.rs` is a
+/// stub — this reports "compiled in", not "executable". The exec-profile support
+/// matrix's *policy overlay* is what marks any `aot_pkgs ≠ []` composition as
+/// `skipped-not-yet` (M9), independent of this list.
+pub fn builtin_platform_exec_modes(ctx: &VmContext, _: &[Value]) -> Result<Value> {
+    let mut modes: Vec<&str> = vec!["interp"];
+    #[cfg(feature = "jit")] modes.push("jit");
+    #[cfg(feature = "aot")] modes.push("aot");
+    let list: Vec<Value> = modes.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
+    Ok(ctx.heap().alloc_array(list))
+}
+
 #[cfg(test)]
 #[path = "platform_tests.rs"]
 mod platform_tests;

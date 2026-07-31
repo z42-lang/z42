@@ -4,6 +4,17 @@
 > **一个子系统同一时刻只允许一个 in-flight change 持有。** 开 change（阶段 2）前查此表，被占则排队；归档（阶段 9）后释放。
 > `docs` 不上锁（见协议）。
 
+> **独立分支 in-flight（2026-07-30，User 授权新开分支，不排队）**：`add-exec-profile-matrix`
+> （🔴 DRAFT，proposal+design+spec+tasks 已出）：统一 test/bench **执行画像矩阵**——共享
+> `{mode,platform,caps}` 词汇 + 支持矩阵 SoT（策略覆盖层：runnable/skipped-not-yet/never）。`mode`
+> 建成**执行组合 `{tiers,aot_pkgs}`** 统一 partial-AOT（aot.md D2：AOT 按 zpkg 为单位、与 JIT/interp
+> 共存；本 change **只建模不实现**，`aot_pkgs≠[]` 一律占位 skipped，AOT 执行+配置面归 M9）。caps =
+> **stdlib 运行时函数** `Std.Platform.Capabilities()`（背书 builtin `__platform_caps`，补 threads）。
+> bench schema v2（带 `profile`）+ e2e `--mode` 扫描 + 多线程场景 + 平台 informational bench。占
+> `stdlib`+`runtime`+`toolchain`（后二者 main 上已空闲；`stdlib` 被 `converge-z42c-onto-z42-project` 占）。
+> 分支 `add-exec-profile-matrix`（worktree `z42-benchmatrix`，off origin/main），与主线物理隔离，
+> 合并解冲突（stdlib 侧仅动 `Platform.z42`，不与 z42c 收敛重叠）。GREEN 以 CI 为权威。
+
 > **~~lazy-type-world~~** ✅ 已归档 2026-07-30（隔离 worktree `z42-replscan-wt` off origin/main，User
 > 授权预抢，归档即释放 compiler 锁）：惰性化跨包类型世界——`DepScan.BuildWorld` 一次性全量 TYPE/SIGS
 > 解析 → `LazyReconWorld` 按包懒填 + 命名空间路由（`EnsureFq`），`Rebuild` 基类链只解析引用闭包。
