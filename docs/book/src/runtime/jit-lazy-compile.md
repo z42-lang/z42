@@ -184,5 +184,27 @@ push/pop_frame 复制即安全。
 （`--print-stats-on-exit`）= interp 帧路由到原生的次数,>0 即混合模式生效（实测:冷 Driver 循环调热 Hot,
 编译后 99 次调用全路由原生）。`test e2e --mode jit` 全绿（语义不变）。
 
-> **解锁 Phase 2**：混合模式扩到全部 interp 调用点后,「已编译函数永不被 interp 执行」成立 → 其 IR blocks
-> 可安全回收（Phase 2:内存半）。当前覆盖 static `Call` + `VCall`;闭包/构造的 interp 路由待补。
+### 集中拦截 backstop（Phase 1.5.2 —— 保证「已编译函数永不被 interp 执行」）
+
+上面的 per-site hook（`try_native_static_call` / `try_native_method_call`）只覆盖 interp 的**静态 Call +
+IC 虚 VCall 热路径**。审计所有「interp 会执行函数体」的入口后发现还有多条绕过它们、直接经 `exec_function`
+跑函数体：**构造函数**（`exec_object`）、**闭包/委托**（CallIndirect）、**`ToString` 派发**
+（`interp/dispatch.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
+**builtin 回调**（传给 stdlib 原生方法的比较器/谓词，被调够多次编译后又经 `exec_function` 解释执行）。
+
+只靠逐点补全，「已编译函数永不被 interp 执行」这条 Phase 2 前提**并不成立**——任何新增调用点都可能重开缺口。
+解法是**单一 choke point**：三个入口变体（`exec_function` / `exec_function_from_regs` /
+`exec_function_from_receiver_regs`）都汇到 `exec_function_body`，且每个 `&Function` 带 `.name` +
+已有 `resolve_fn_by_name_tiered`。故在 `exec_function` 入口加 `try_native_exec`（name-based
+resolve → Compiled 即建 `JitFrame::new` 调原生、marshal 成 `ExecOutcome`），**一拦对所有路径成立**。
+两 `_from_regs` 变体只被已 hook 的热路径以**冷 callee** 调用（compiled 的先被 per-site hook 拦走），故
+backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）。
+
+- **代价**：每次经 `exec_function` 进入函数体多一次 `func_index` 名查（相对解释整个函数体可忽略）。
+- **分工**：per-site idx hook = 热路径快车道（无名查）；`exec_function` name backstop = 其余全部路径 +
+  不变量保证。二者对同一调用互斥（hook 命中即 return，不到 `exec_function`），无重复执行。
+
+> **解锁 Phase 2**：Phase 1.5.2 后「已编译函数永不被 interp 执行」对**全部** interp 路径成立 →
+> 已编译函数的 IR `blocks` 可安全回收（Phase 2:内存半）。**注意**默认阈值 1000 下只有少数热函数编译，
+> 故 Phase 2 回收量本身有限（冷长尾 IR 仍需保留供 interp 执行）;回收机制的收益随「实际 tier-up 的函数数」
+> 增长（低阈值 / 编译密集 workload 更显著）。

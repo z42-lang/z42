@@ -30,9 +30,14 @@
   Phase 1b 只让「从 JIT'd 码发起的」方法/闭包/构造调用分层。
 
 ## Phase 1.5: 混合模式（依赖 Phase 1）
-- [ ] 1.5.1 interp Call/VCall 分发查 FnEntry：Compiled → 原生
-- [ ] 1.5.2 保证已编译函数永不被 interp 执行（Phase 2 前提）
-- [ ] 1.5.3 测试：interp 帧调已编译函数走原生 + GREEN
+- [x] 1.5.1 interp Call/VCall 分发查 FnEntry：Compiled → 原生（#86：`try_native_static_call` /
+      `try_native_method_call` per-site idx hook，热路径快车道）
+- [x] 1.5.2 保证已编译函数永不被 interp 执行（Phase 2 前提）——**集中拦截**：`exec_function`
+      入口 `try_native_exec`（name-based `resolve_fn_by_name_tiered`）。审计发现 #86 逐点 Call/VCall
+      不够：ctor / closure / `ToString` 派发 / 非 IC·vtable·base vcall / 跨包静态调用 / builtin 回调都
+      经 `exec_function` 执行函数体 → 单一 choke point 拦一次即对所有路径（现在+将来）成立。两 `_from_regs`
+      变体只被已 hook 的热路径以冷 callee 调用，故 backstop 完备。（User 裁决：集中拦截优于逐点补全）
+- [x] 1.5.3 测试：e2e --mode jit 219/0 byte-identical（含 ctor/closure/delegate/ToString/ref-out 路径）
 
 ## Phase 2: IR 回收 + 池化（依赖 Phase 1.5）
 - [ ] 2.1 `Function.blocks` 所有权粒度（可单独释放容器）
