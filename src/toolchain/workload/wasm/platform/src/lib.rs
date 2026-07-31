@@ -139,6 +139,24 @@ impl Z42VM {
         z42::corelib::fs_backend::memory::mount(path, bytes.to_vec());
     }
 
+    /// Compile + run a z42 **source string** in the browser (add-wasm-vfs-backend
+    /// 阶段 2). `module` is the loaded `z42.scripting` zpkg (`loadZbc` it once).
+    /// The source goes in via the VFS (`/input.z42`, bytes — no string marshaling
+    /// needed) and the program's output comes out via the configured
+    /// `stdoutHandler`/`stderrHandler` (the eval result value / errors are printed
+    /// there). Prereq: stdlib + z42c zpkgs mounted under `/libs` (`mountFile`).
+    #[wasm_bindgen(js_name = evalIn)]
+    pub fn eval_in(&self, module: &Z42VMModule, source: &str) -> Result<(), JsValue> {
+        z42::corelib::fs_backend::memory::mount("/input.z42", source.as_bytes().to_vec());
+        let entry = self
+            .host
+            .resolve_entry(&module.inner, "Std.Scripting.evalFromVfs")
+            .map_err(to_js_error)?;
+        let no_args: [Value; 0] = [];
+        self.host.invoke(&entry, &no_args).map_err(to_js_error)?;
+        Ok(())
+    }
+
     /// Explicitly tear down the VM. After this, all `Z42VMModule` /
     /// `Z42VMEntry` instances issued by this VM are invalid; subsequent
     /// method calls will throw `Z42VMNotInit`.
