@@ -1240,7 +1240,10 @@ jobs:
           test -d "$rt_dir/pkg-web"                      || { echo "missing pkg-web/"; exit 1; }
           test -d "$rt_dir/pkg-nodejs"                   || { echo "missing pkg-nodejs/"; exit 1; }
           test -d "$rt_dir/libs"                         || { echo "missing runtime libs/"; exit 1; }
-          echo "✓ browser-wasm layout OK"
+          # in-browser compile (add-wasm-vfs-backend 阶段 3): z42c 编译器 + scripting 必须随包
+          test -f "$rt_dir/libs/z42c.driver.zpkg"        || { echo "missing z42c compiler in libs/"; exit 1; }
+          test -f "$rt_dir/libs/z42.scripting.zpkg"      || { echo "missing z42.scripting in libs/"; exit 1; }
+          echo "✓ browser-wasm layout OK (stdlib + z42c compiler bundled)"
           # WebAssembly spec validation via wasm-tools (Bytecode Alliance).
           # Validates binary encoding + all active wasm proposals; no JS runtime needed.
           wasm="$rt_dir/native/z42_wasm_bg.wasm"

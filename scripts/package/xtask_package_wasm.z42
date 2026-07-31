@@ -56,10 +56,28 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     Console.WriteLine("  [3/4] pkg-web/ + pkg-nodejs/");
     c = _pkgCopyWasmBindgen(pkgDir, wasmRoot); if (c != 0) { return c; }
 
-    // stdlib libs
-    Console.WriteLine("  [4/4] libs/");
+    // libs/ = stdlib（含 z42.scripting）+ z42c 编译器（浏览器内编译，add-wasm-vfs-backend 阶段 3）
+    Console.WriteLine("  [4/4] libs/ (stdlib + z42c compiler)");
     c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
+    c = _pkgCopyCompiler(root, pkgDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
+    return 0;
+}
+
+// 把 z42c 编译器 zpkg（~716K：core/syntax/semantics/pipeline/driver）拷进包的 libs/，供浏览器内
+// 编译（`Script.Eval` 的依赖世界 = stdlib + z42c；从 VFS 挂载读）。z42.scripting 已随 stdlib libs
+// 覆盖，故只需 z42c.*。尺寸小到不值得单独 lazy-fetch（stdlib 1.5M + z42c 716K，全 bundle）。
+int _pkgCopyCompiler(string root, string pkgDir) {
+    string z42cDir = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist");
+    if (!Directory.Exists(z42cDir)) {
+        ConsoleError.WriteLine("error: z42c not built at " + z42cDir + "; run build compiler");
+        return 1;
+    }
+    foreach (var f in Directory.Enumerate(z42cDir)) {
+        if (f.StartsWith("z42c.") && (f.EndsWith(".zpkg") || f.EndsWith(".zsym"))) {
+            File.Copy(Path.Join(z42cDir, f), Path.Join(pkgDir, "libs/" + f));
+        }
+    }
     return 0;
 }
 

@@ -27,7 +27,11 @@
   pub API + wasm-bindgen `mountFile`；**wasm32 实际编译通过**（wasm-pack build web，`mountFile` 进
   生成 .d.ts）。剩：`eval(source)→输出` 编排（可 JS 侧用 mountFile + loadZbc(interactive) + invoke(-c)
   实现，或加一个 facade 便捷方法）；VFS-backed resolver 统一 compile+runtime 单次挂载（D2 邻域）。
-- [ ] 阶段 3 — 打包：wasm 分发加 z42c.* + z42.scripting zpkg 静态产物（package-wasm）
+- [x] **阶段 3 — 打包 ✅**：`_pkgCopyCompiler`（`xtask_package_wasm.z42`）把 z42c 自包含 driver dist
+  的全部 z42c.*.zpkg 拷进 runtime pack 的 `libs/`（z42.scripting 已随 stdlib flat dist 覆盖，故只补
+  z42c.*）。布局 **D-a**（全放 `libs/`，manifest 自动 glob 收录）。CI `package-wasm` verify 步骤加断言
+  `libs/z42c.driver.zpkg` + `libs/z42.scripting.zpkg` 存在。z42c 源在该 job 由 `xtask-bootstrap-artifact`
+  恢复到 `artifacts/build/compiler/z42c.driver/release/dist`（`_stageMembers` 保留自包含 driver dist）。
 - [ ] 阶段 4 — 测试：VFS DepScan 一致性（内存 vs 磁盘）+ wasm eval e2e（Playwright，编译一段 z42 源→输出）
 - [ ] 阶段 5 — 文档：VFS 后端机制页 + wasm.md 基础支持接口 + 取代过时的 add-z42-wasm-playground
 - [ ] 阶段 6 — 取代 `add-z42-wasm-playground`：标注过时（C# server 已删），指向本 change
