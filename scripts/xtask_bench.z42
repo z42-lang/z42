@@ -57,8 +57,19 @@ int _bench(ParseResult r) {
         if (quick && count >= 2) { break; }
         string name = f.Substring(0, f.Length - 4);
         string src = Path.Join(scenDir, f);
-        string ns = _extractNamespace(File.ReadAllText(src));
+        string srcText = File.ReadAllText(src);
+        string ns = _extractNamespace(srcText);
         if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
+        // add-bench-speedup-cap-gating: skip scenarios whose declared
+        // `// requires-caps:` are not all present on the measured VM (e.g. a
+        // threads scenario on a wasm/interp-only build) — explicit skip, no crash.
+        string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), vmc.Caps);
+        if (missing.Length > 0) {
+            Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing)
+                + " (VM caps=" + _epJsonStrArr(vmc.Caps) + ")");
+            count = count + 1;
+            continue;
+        }
         // Compile once — the .zbc is mode-agnostic; only the measured run differs.
         string zbc = Path.Join(work, name + ".zbc");
         int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
@@ -188,6 +199,9 @@ int _benchDiff(ParseResult r) {
         }
     }
 
+    // add-bench-speedup-cap-gating: derive interp/jit speedup where both were measured.
+    _printSpeedups(curBs);
+
     Console.WriteLine("");
     if (regressions > 0) {
         Console.WriteLine("❌ " + regressions.ToString() + " regression(s) above threshold (out of " + total.ToString() + " benchmarks)");
@@ -211,6 +225,39 @@ double _findBenchValue(JsonValue benchmarks, string name, string metric, string 
         i = i + 1;
     }
     return -1.0;
+}
+
+// add-bench-speedup-cap-gating: for each (name, metric, platform) measured under
+// BOTH interp and jit, print the interp/jit speedup (>1 = jit faster). Iterates
+// the jit-labelled entries and looks up the matching interp entry. Informational
+// only — not a schema field, never a regression signal.
+void _printSpeedups(JsonValue benchmarks) {
+    bool header = false;
+    int i = 0;
+    while (i < benchmarks.Count()) {
+        JsonValue b = benchmarks.At(i);
+        if (b.ContainsKey("profile")) {
+            JsonValue p = b.Get("profile");
+            if (p.Get("mode_label").AsString() == "jit") {
+                string name    = b.Get("name").AsString();
+                string metric  = b.Get("metric").AsString();
+                JsonValue plat = p.Get("platform");
+                string suffix  = "@" + plat.Get("os").AsString() + "/" + plat.Get("arch").AsString();
+                double jitV    = b.Get("value").AsDouble();
+                double interpV = _findBenchValue(benchmarks, name, metric, "interp" + suffix);
+                if (interpV > 0.0 && jitV > 0.0) {
+                    if (!header) {
+                        Console.WriteLine("");
+                        Console.WriteLine("Speedup (interp/jit, >1 = jit faster):");
+                        header = true;
+                    }
+                    double ratio = interpV / jitV;
+                    Console.WriteLine("  " + name + " [" + metric + suffix + "]  " + ratio.ToString() + "x");
+                }
+            }
+        }
+        i = i + 1;
+    }
 }
 
 // resolve a possibly-relative path under the repo root (absolute paths unchanged).

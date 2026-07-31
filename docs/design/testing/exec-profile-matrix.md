@@ -98,8 +98,16 @@ harness 对**要测量的那个 VM 二进制**跑一次探针，缓存 `VmCaps`�
 `bench/baseline-schema.json`（`schema_version:2`）：顶层去 `os` 串、加 `z42vm_version`；每条
 benchmark 必带 `profile{ mode{tiers,aot_pkgs}, mode_label, platform{os,arch}, caps }`。删除 C#
 时代残留（`csharp-throughput` tier、`dotnet_version`）。`--diff` 按
-`(name, metric, mode_label@os/arch)` 匹配——interp-vs-jit / 跨平台**绝不互比**；jit/interp
-加速比可由同 name 同 platform 的两条派生。
+`(name, metric, mode_label@os/arch)` 匹配——interp-vs-jit / 跨平台**绝不互比**。
+
+**jit/interp 加速比**（add-bench-speedup-cap-gating）：`--diff` 尾部对同一 `(name, metric,
+platform)` 下同时有 interp 与 jit 结果的场景，派生打印 `Speedup (interp/jit, >1 = jit faster)`
+一节（`interp.value / jit.value`）。派生展示，不入 schema、非回归信号。
+
+**场景能力门控**（add-bench-speedup-cap-gating）：场景可在源码顶部注释 `// requires-caps: <csv>`
+声明所需能力（`_epScenarioRequiredCaps` 解析）。e2e `_bench` 探到被测 VM caps 后，
+`_epCapsMissing(required, vmCaps.caps)` 非空 → **显式跳过该场景**（不静默、不崩）——让无线程 VM
+（wasm/mobile）安全略过 `06_thread_scaling` 等能力相关场景，为平台 bench 铺垫。
 
 ## 6. Deferred
 
