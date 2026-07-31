@@ -14,6 +14,56 @@ use std::sync::Arc;
 
 use super::dispatch::resolve_virtual;
 use super::ops::collect_args;
+
+/// runtime-jit-tiering Phase 1.5 (mixed-mode): receiver-aware analogue of
+/// `exec_call::try_native_static_call`. If method `idx` is already JIT-compiled,
+/// invoke it natively (receiver in reg 0 via `new_method_args_from`) and marshal the
+/// result. `None` → not published / cold / untranslatable → caller stays interp.
+#[cfg(feature = "jit")]
+fn try_native_method_call(
+    ctx: &VmContext, frame: &mut Frame, dst: u32, idx: usize,
+    receiver: &Value, args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }
+    // runtime-jit-tiering Phase 1.5 safety: never marshal a `Ref(Stack)` (out/ref
+    // address, which only an INTERP frame can hold) into native code — see
+    // `exec_call::try_native_static_call` for the full rationale. Guard receiver + args.
+    if matches!(receiver, Value::Ref(_))
+        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+        return None;
+    }
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    let (max_reg, ptr, name, file) = {
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
+        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+    };
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut callee = crate::jit::frame::JitFrame::new_method_args_from(
+        max_reg, receiver.clone(), &frame.regs, args);
+    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
+    ctx.push_frame(crate::exception::VmFrame::new(
+        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
+    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
+    ctx.pop_frame();
+    if r != 0 {
+        callee.recycle();
+        return Some(Ok(Some(ctx.take_exception().unwrap_or(Value::Null))));
+    }
+    let ret = callee.ret.take().unwrap_or(Value::Null);
+    callee.recycle();
+    frame.set(dst, ret);
+    Some(Ok(None))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_native_method_call(
+    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _idx: usize,
+    _receiver: &Value, _args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    None
+}
 use super::{ExecOutcome, Frame};
 
 /// L3-G4b primitive-as-struct: maps a primitive `Value` variant to its stdlib
@@ -146,6 +196,13 @@ pub(super) fn vcall(
             crate::metadata::resolver::vcall_ic_lookup(ic, recv_type)
         {
             if fn_idx != crate::metadata::tokens::UNRESOLVED {
+                // runtime-jit-tiering Phase 1.5: route an already-compiled method to
+                // native (receiver-aware). No-op when cold/untranslatable/interp-only.
+                if let Some(res) = try_native_method_call(
+                    ctx, frame, dst, fn_idx as usize, &obj_val, args)
+                {
+                    return res;
+                }
                 if let Some(callee) = module.functions.get(fn_idx as usize) {
                     // Direct fill: regs[0]=receiver, regs[1+i]=caller args. No
                     // vec![receiver] / collect_args allocation on the hot path.

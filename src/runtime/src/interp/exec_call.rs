@@ -12,6 +12,65 @@ use std::sync::{Arc, OnceLock};
 use super::ops::collect_args;
 use super::{ExecOutcome, Frame};
 
+/// runtime-jit-tiering Phase 1.5 (mixed-mode): if merged-module function `idx` has
+/// already-compiled native code, invoke it directly (mirroring `jit_call`) — set
+/// `frame.regs[dst]` from the result, or propagate a throw as `Ok(Some(val))`.
+/// Returns `None` when no JIT ctx is published (interp-only run) or the callee is
+/// cold / untranslatable (`resolve_fn_by_id_tiered` → None) → the caller then stays
+/// on the interpreter. This is what lets an interp frame (a JIT cold-tier callee /
+/// fallback) route a hot compiled callee back to native instead of interpreting the
+/// whole subtree.
+#[cfg(feature = "jit")]
+fn try_native_static_call(
+    ctx: &VmContext, frame: &mut Frame, dst: u32, idx: usize, args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }
+    // runtime-jit-tiering Phase 1.5 safety: an INTERP frame can hold a
+    // `Ref(Stack)` (an out/ref-param address from `LoadLocalAddr`) in a register;
+    // a JIT frame never can (ref-using functions are untranslatable). Native code
+    // treats registers as plain values, so passing a Ref into a native callee
+    // corrupts it (later surfaces as "Ref vs I64" in arithmetic). This cannot arise
+    // from `jit_call` (JIT callers hold no Refs) — it is mixed-mode-specific. Never
+    // route when an arg is a Ref; stay on the interpreter (always correct).
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+        return None;
+    }
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
+    // lockstep with `vm_ctx`). Copy the small entry fields out immediately so no
+    // borrow of `*jit_ctx` is held across the native call. `resolve_fn_by_id_tiered`
+    // uses interior mutability (OnceLock/Mutex) and may compile-on-threshold — same
+    // as `jit_call`.
+    let (max_reg, ptr, name, file) = {
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
+        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+    };
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut callee = crate::jit::frame::JitFrame::new_args_from(max_reg, &frame.regs, args);
+    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
+    ctx.push_frame(crate::exception::VmFrame::new(
+        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
+    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
+    ctx.pop_frame();
+    if r != 0 {
+        callee.recycle();
+        return Some(Ok(Some(ctx.take_exception().unwrap_or(Value::Null))));
+    }
+    let ret = callee.ret.take().unwrap_or(Value::Null);
+    callee.recycle();
+    frame.set(dst, ret);
+    Some(Ok(None))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_native_static_call(
+    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _idx: usize, _args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    None
+}
+
 pub(super) fn call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, fname: &str, args: &[u32],
@@ -30,25 +89,35 @@ pub(super) fn call(
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
 
-    // Hot path: direct index into module.functions if cache hit.
-    let callee_fn = if let Some(slot) = method_token {
+    // Hot path: resolve the intra-module callee's index into module.functions.
+    let callee_idx: Option<usize> = if let Some(slot) = method_token {
         let cached = slot.load(Ordering::Relaxed);
         if cached != crate::metadata::tokens::UNRESOLVED {
-            module.functions.get(cached as usize)
+            Some(cached as usize)
         } else {
             // Miss: resolve via func_index + write back.
             match module.func_index.get(fname).copied() {
                 Some(idx) => {
                     slot.store(idx as u32, Ordering::Relaxed);
-                    module.functions.get(idx)
+                    Some(idx)
                 }
                 None => None,
             }
         }
     } else {
         // No token (back-compat): old path.
-        module.func_index.get(fname).and_then(|&idx| module.functions.get(idx))
+        module.func_index.get(fname).copied()
     };
+
+    // runtime-jit-tiering Phase 1.5 (mixed-mode): route an already-compiled callee
+    // to native code instead of interpreting the whole subtree. No-op when there is
+    // no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
+    if let Some(idx) = callee_idx {
+        if let Some(res) = try_native_static_call(ctx, frame, dst, idx, args) {
+            return res;
+        }
+    }
+    let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
 
     // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly
     // from caller regs + arg indices — no `collect_args` Vec, args cloned once.
