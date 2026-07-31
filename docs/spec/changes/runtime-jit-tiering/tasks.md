@@ -3,9 +3,20 @@
 > 状态：🟡 规划完成,待 User 确认范围/阈值 | 创建：2026-07-30 | 类型：vm
 
 ## 进度概览
-- [ ] Phase 1: 阈值分层 + 三态负缓存（时间开销）
-- [ ] Phase 1.5: 混合模式（interp 感知 JIT）
-- [ ] Phase 2: IR 回收 + 池化（内存开销）
+- [x] Phase 1: 阈值分层 + 三态负缓存（时间开销）—— #84 合并
+- [x] Phase 1.5: 混合模式（interp 感知 JIT）—— #86（Call/VCall per-site）+ 1.5.2 集中拦截（fe2e8a01）
+- [x] Phase 1c: 阈值门控 lazy 函数 + 一次性 static-init 走 interp（编译 −88…−98%，运行时零回归）
+- [ ] Phase 2: IR 回收 + 池化（内存开销）—— **重评估：阈值 1000 下仅 ~1–6 函数编译，回收面小；缓做**
+
+## Phase 1c: 阈值门控 lazy 函数 + 一次性 static-init（时间/内存开销）
+- [x] 发现：`resolve_lazy_slot` 无条件首调即编,绕过阈值 → 实测 ~73% 编译是一次性 dep static-init
+- [x] `LazySlot.count: AtomicU32` + `resolve_lazy_slot(i, tier)`：tiered 计数 <阈值 return None（复用
+      既有 lazy None 兜底）；非 tiered（entry）不变
+- [x] `run_static_init_interp`：init 循环走 `exec_function`（tiered 集中拦截）→ 一次性 init 留 interp
+- [x] 实测（阈值 1000）：编译 44→1/49→6/45→2/46→2；compile_us −83…−94%；A/B 运行时零回归
+- [x] GREEN：完整门禁全绿（e2e/stdlib 280/compiler 20+自举/vscode）+ e2e --mode jit byte-identical
+- 备注：**call-count 分层固有局限**——被调一次但内部大循环的函数（SumSquares 10M）任何阈值 ≥2 都留
+      interp（04_arith 阈值 1000 比阈值 1 慢 4.2×）。真解=循环回边/OSR（独立未来特性）。
 
 ## Phase 1a: 阈值分层（jit_call）+ 三态负缓存 —— 本次
 - [x] 1.1 `JitModuleCtx.call_counts: Vec<AtomicU32>`（setup 预分配 merged_len,零 per-call 分配）

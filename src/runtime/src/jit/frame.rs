@@ -189,6 +189,14 @@ struct LazySlot {
     name:  String,
     /// Compiled native entry, filled on first call to this slot (compile-once).
     entry: OnceLock<FnEntry>,
+    /// runtime-jit-tiering Phase 1c: per-lazy-function call counter, the lazy-slot
+    /// analogue of `JitModuleCtx.call_counts` (merged path). A lazily-loaded
+    /// dep-zpkg function compiles only once its count reaches `jit_threshold`;
+    /// below that it stays on the interpreter. Without this, `resolve_lazy_slot`
+    /// compiled EVERY reached lazy function on first call, bypassing the threshold
+    /// entirely — so one-shot dep `__static_init__` (force-loaded at startup) and
+    /// any cold dep function always compiled (measured: ~73% of all compiles).
+    count: AtomicU32,
 }
 
 /// Growable, address-stable table of lazily-loaded functions. `by_name` assigns a
@@ -277,7 +285,7 @@ impl JitModuleCtx {
             self.resolve_merged_slot(id, false)
         } else {
             // make-vm-loading-lazy: synthetic id → lazily-loaded function.
-            self.resolve_lazy_slot(id - self.merged_len)
+            self.resolve_lazy_slot(id - self.merged_len, false)
         }
     }
 
@@ -292,7 +300,7 @@ impl JitModuleCtx {
         if id < self.merged_len {
             self.resolve_merged_slot(id, true)
         } else {
-            self.resolve_lazy_slot(id - self.merged_len)
+            self.resolve_lazy_slot(id - self.merged_len, true)
         }
     }
 
@@ -345,17 +353,31 @@ impl JitModuleCtx {
     /// function materialized by the lazy loader. Compiles it on first call. The slot's
     /// `OnceLock` (in a boxed `LazySlot` → stable address) hands out a `&FnEntry`
     /// valid for the run; the compile is deduped under the compiler lock.
-    unsafe fn resolve_lazy_slot(&self, i: usize) -> Option<&FnEntry> {
+    unsafe fn resolve_lazy_slot(&self, i: usize, tier: bool) -> Option<&FnEntry> {
         // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
         // table lock is released before the (slow) compile.
-        let (name_ptr, entry_ptr): (*const String, *const OnceLock<FnEntry>) = {
+        let (name_ptr, entry_ptr, count_ptr):
+            (*const String, *const OnceLock<FnEntry>, *const AtomicU32) = {
             let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
             let slot = table.slots.get(i)?;
-            (&slot.name as *const String, &slot.entry as *const OnceLock<FnEntry>)
+            (&slot.name as *const String,
+             &slot.entry as *const OnceLock<FnEntry>,
+             &slot.count as *const AtomicU32)
         };
         let entry_lock = &*entry_ptr;
         if let Some(e) = entry_lock.get() {
             return Some(e);
+        }
+        // runtime-jit-tiering Phase 1c: tiered callers count this call; below the
+        // threshold → cold tier (return None → caller interprets via its lazy
+        // `None`-fallback, the SAME arm already taken for untranslatable lazy
+        // funcs). Non-tiered callers (entry / static-init resolve) compile on
+        // first call as before. `resolve_id_by_name` already verified the function
+        // is translatable before registering this slot, so a cold return here just
+        // defers a definitely-compilable function, never hides an error.
+        if tier {
+            let n = (*count_ptr).fetch_add(1, Ordering::Relaxed) + 1;
+            if n < self.jit_threshold { return None; }
         }
         if self.vm_ctx.is_null() { return None; }
         let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
@@ -409,7 +431,9 @@ impl JitModuleCtx {
             return Some((self.merged_len + i) as u32); // registered while we materialized
         }
         let i = table.slots.len();
-        table.slots.push(Box::new(LazySlot { name: name.to_string(), entry: OnceLock::new() }));
+        table.slots.push(Box::new(LazySlot {
+            name: name.to_string(), entry: OnceLock::new(), count: AtomicU32::new(0),
+        }));
         table.by_name.insert(name.to_string(), i);
         Some((self.merged_len + i) as u32)
     }
