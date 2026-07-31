@@ -373,6 +373,14 @@ pub struct VmContext {
     /// interp + paired `push_frame` / `pop_frame` in JIT helpers ensure
     /// the pop runs before the owner returns.
     pub(crate) call_stack:        Arc<Mutex<Vec<crate::exception::VmFrame>>>,
+    /// runtime-jit-tiering Phase 1.5 (mixed-mode): forward pointer to the active
+    /// `JitModuleCtx`, mirroring the existing `JitModuleCtx.vm_ctx` back-pointer.
+    /// Type-erased as `usize` (the `jit` module is `cfg`-gated; this field is not)
+    /// — cast back to `*const jit::frame::JitModuleCtx` at the interp dispatch hook.
+    /// Set by `JitModule::run_fn` for the duration of one entry call, 0 outside it.
+    /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
+    /// already-compiled callee to its native code instead of re-interpreting.
+    pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
     /// 2026-05-02 add-method-group-conversion (D1b): module-level FuncRef cache
     /// slots. `LoadFnCached { slot_id }` 首次执行时把 `Value::FuncRef(name)`
     /// 写入 `func_ref_slots[slot_id]`；后续命中直接 load。
@@ -503,6 +511,7 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
@@ -663,6 +672,7 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
@@ -1109,6 +1119,18 @@ impl VmContext {
     /// Pop the pending exception (called once per `extern "C"` failure).
     pub fn take_exception(&self) -> Option<Value> {
         self.pending_exception.lock().take()
+    }
+
+    /// runtime-jit-tiering Phase 1.5 (mixed-mode): publish/clear the active
+    /// `JitModuleCtx` forward pointer (type-erased `usize`). Set by
+    /// `JitModule::run_fn` around each entry call; 0 outside it.
+    #[inline]
+    pub(crate) fn set_jit_ctx(&self, p: usize) {
+        self.jit_ctx.store(p, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[inline]
+    pub(crate) fn jit_ctx_ptr(&self) -> usize {
+        self.jit_ctx.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Peek at the pending exception without removing it. Used by JIT catch-type
