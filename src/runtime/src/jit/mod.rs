@@ -181,6 +181,45 @@ impl JitModule {
         Ok(())
     }
 
+    /// runtime-jit-tiering Phase 1c: run a `__static_init__` on the interpreter
+    /// instead of compiling it. Static initialisers execute exactly once, so a
+    /// cranelift compile + native code page is pure overhead. Resolves the function
+    /// (through the lazy loader for dep zpkgs, mirroring `run_fn`'s interp fallback)
+    /// and runs it via `interp::exec_function`, whose tiered central divert keeps a
+    /// cold one-shot on the interpreter (count 1 < threshold) while still routing any
+    /// *already-compiled* callee it reaches to native. The JIT ctx forward pointer
+    /// stays published for the duration so that divert can fire; static fields land
+    /// in the shared `VmContext`, identical to the native path. Cleared in lockstep
+    /// with `vm_ctx` on every exit path.
+    fn run_static_init_interp(&mut self, ctx: &VmContext, name: &str) -> Result<()> {
+        // SAFETY: module/self.ctx valid for the JitModule's lifetime; the raw
+        // pointers published here are cleared before returning.
+        self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
+        ctx.set_jit_ctx(&*self.ctx as *const JitModuleCtx as usize);
+        let module = unsafe { &*self.ctx.module };
+        let outcome = if let Some(func) = module.func_index.get(name)
+            .and_then(|&idx| module.functions.get(idx))
+        {
+            crate::interp::exec_function(ctx, module, func, &[])
+        } else if let Some(func) = ctx.try_lookup_function(name) {
+            // Lazily-loaded dep zpkg init not present in the merged module.
+            crate::interp::exec_function(ctx, module, func.as_ref(), &[])
+        } else {
+            // Name came from enumerating inits, so this should be unreachable;
+            // skip defensively rather than hard-fail.
+            self.ctx.vm_ctx = std::ptr::null_mut();
+            ctx.set_jit_ctx(0);
+            return Ok(());
+        };
+        self.ctx.vm_ctx = std::ptr::null_mut();
+        ctx.set_jit_ctx(0);
+        match outcome? {
+            crate::interp::ExecOutcome::Returned(_) => Ok(()),
+            crate::interp::ExecOutcome::Thrown(val) =>
+                Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
+        }
+    }
+
     /// Run with static initialisation: clears static fields, calls **all**
     /// `*.__static_init__` functions (sorted) — including imported zpkgs —
     /// then calls the given entry function.
@@ -225,13 +264,25 @@ impl JitModule {
             v
         };
         for init_name in &init_names {
-            self.run_fn(ctx, init_name)?;
+            // runtime-jit-tiering Phase 1c: `__static_init__` functions run EXACTLY
+            // once (class initialization). Compiling a one-shot function is pure
+            // overhead — a cranelift compile (~100µs) + a native code page paid to
+            // run the body a single time, where the interpreter would have run it
+            // outright. Measured: ~73% of all compiled functions on a typical
+            // startup were `*.__static_init__`. Run them on the interpreter (via
+            // `exec_function`, whose tiered central divert routes any *already*-hot
+            // callee to native but keeps this cold one-shot on the interpreter);
+            // static fields land in the shared `VmContext`, identical to native.
+            // NB: this must go through the *tiered* path — `run_fn` uses the
+            // non-tiered `resolve_fn_by_name`, which would compile the init anyway.
+            // The entry (below) stays compiled — it may carry the program's hot loop.
+            self.run_static_init_interp(ctx, init_name)?;
         }
 
-        // runtime-jit-tiering Phase 1: the entry (and static-inits) run via
-        // `run_fn` → `resolve_fn_by_id` (non-tiered) → compile-on-first-call, so no
-        // threshold exemption is needed. Only `jit_call` (static/free calls from
-        // within JIT'd code) applies the tier-up threshold.
+        // runtime-jit-tiering Phase 1: the entry runs via `run_fn` →
+        // `resolve_fn_by_id` (non-tiered) → compile-on-first-call. Only tiered call
+        // sites (`jit_call`/vcall/closure/ctor + the interp central divert) apply
+        // the tier-up threshold.
         self.run_fn(ctx, entry_name)
     }
 }

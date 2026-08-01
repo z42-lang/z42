@@ -481,8 +481,70 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     // immediately respects a pending GC request. A worker thread spawned
     // mid-collect parks here before touching any roots.
     crate::gc::safepoint::check_safepoint(ctx);
+    // runtime-jit-tiering Phase 1.5.2 (mixed-mode invariant backstop): if `func`
+    // is already JIT-compiled, run its native code instead of interpreting it.
+    // `exec_function` is the SINGLE choke point every non-hot-Call/VCall interp
+    // path funnels through — constructors, closures, `ToString` dispatch, the
+    // non-IC / vtable / base-fallback vcall paths, cross-zpkg static calls, and
+    // builtin callbacks. Diverting here guarantees Decision 5's invariant — "a
+    // compiled function is never interp-executed" — for ALL of them at once
+    // (present and future), which is the hard precondition for Phase 2 IR reclaim.
+    // The idx-based per-site hooks (`try_native_static_call` /
+    // `try_native_method_call`) remain the hot-path fast lane; the two
+    // `exec_function_from_*regs` variants are only reached from those hooked paths
+    // (cold callees only), so this name-based backstop completes the coverage.
+    if let Some(outcome) = try_native_exec(ctx, func, args) {
+        return outcome;
+    }
     let frame = Frame::new(args, func.max_reg);
     exec_function_body(ctx, module, func, frame)
+}
+
+/// runtime-jit-tiering Phase 1.5.2: name-based mixed-mode divert used as the
+/// universal backstop at `exec_function`. Returns `None` (→ interpret) when no JIT
+/// ctx is published (interp-only run), when an argument is a `Ref` (a stack address
+/// can't cross into native code — see `exec_call::try_native_static_call`; a
+/// compiled fn never has ref params anyway, so this is defensive), or when the
+/// function is cold / untranslatable (`resolve_fn_by_name_tiered` → None). On a
+/// compiled hit it runs the native code and marshals the result into an
+/// `ExecOutcome`, mirroring `try_native_static_call`.
+#[cfg(feature = "jit")]
+fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<Result<ExecOutcome>> {
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }
+    if args.iter().any(|a| matches!(a, Value::Ref(_))) { return None; }
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
+    // lockstep with `vm_ctx`). Copy the small entry fields out before the native
+    // call so no borrow of `*jit_ctx` is held across it.
+    // Phase 1.5.2: peek (already-compiled?) — NOT the tiered resolve. The divert
+    // only ROUTES already-hot functions to native; tier-up counting belongs to the
+    // primary call sites. The tiered resolve here double-counted a cold callee
+    // (jit_call's counter, then this fallback's) — halving the effective threshold.
+    let (max_reg, ptr, name, file) = {
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?;
+        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+    };
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut callee = crate::jit::frame::JitFrame::new(max_reg, args);
+    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
+    ctx.push_frame(crate::exception::VmFrame::new(
+        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
+    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
+    ctx.pop_frame();
+    if r != 0 {
+        callee.recycle();
+        return Some(Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null))));
+    }
+    let ret = callee.ret.take();
+    callee.recycle();
+    Some(Ok(ExecOutcome::Returned(ret)))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value]) -> Option<Result<ExecOutcome>> {
+    None
 }
 
 /// perf-vm-iteration Phase 1 (Decision 3): hot direct-call entry that fills the

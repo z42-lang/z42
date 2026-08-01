@@ -3,9 +3,20 @@
 > 状态：🟡 规划完成,待 User 确认范围/阈值 | 创建：2026-07-30 | 类型：vm
 
 ## 进度概览
-- [ ] Phase 1: 阈值分层 + 三态负缓存（时间开销）
-- [ ] Phase 1.5: 混合模式（interp 感知 JIT）
-- [ ] Phase 2: IR 回收 + 池化（内存开销）
+- [x] Phase 1: 阈值分层 + 三态负缓存（时间开销）—— #84 合并
+- [x] Phase 1.5: 混合模式（interp 感知 JIT）—— #86（Call/VCall per-site）+ 1.5.2 集中拦截（fe2e8a01）
+- [x] Phase 1c: 阈值门控 lazy 函数 + 一次性 static-init 走 interp（编译 −88…−98%，运行时零回归）
+- [ ] Phase 2: IR 回收 + 池化（内存开销）—— **重评估：阈值 1000 下仅 ~1–6 函数编译，回收面小；缓做**
+
+## Phase 1c: 阈值门控 lazy 函数 + 一次性 static-init（时间/内存开销）
+- [x] 发现：`resolve_lazy_slot` 无条件首调即编,绕过阈值 → 实测 ~73% 编译是一次性 dep static-init
+- [x] `LazySlot.count: AtomicU32` + `resolve_lazy_slot(i, tier)`：tiered 计数 <阈值 return None（复用
+      既有 lazy None 兜底）；非 tiered（entry）不变
+- [x] `run_static_init_interp`：init 循环走 `exec_function`（tiered 集中拦截）→ 一次性 init 留 interp
+- [x] 实测（阈值 1000）：编译 44→1/49→6/45→2/46→2；compile_us −83…−94%；A/B 运行时零回归
+- [x] GREEN：完整门禁全绿（e2e/stdlib 280/compiler 20+自举/vscode）+ e2e --mode jit byte-identical
+- 备注：**call-count 分层固有局限**——被调一次但内部大循环的函数（SumSquares 10M）任何阈值 ≥2 都留
+      interp（04_arith 阈值 1000 比阈值 1 慢 4.2×）。真解=循环回边/OSR（独立未来特性）。
 
 ## Phase 1a: 阈值分层（jit_call）+ 三态负缓存 —— 本次
 - [x] 1.1 `JitModuleCtx.call_counts: Vec<AtomicU32>`（setup 预分配 merged_len,零 per-call 分配）
@@ -30,9 +41,14 @@
   Phase 1b 只让「从 JIT'd 码发起的」方法/闭包/构造调用分层。
 
 ## Phase 1.5: 混合模式（依赖 Phase 1）
-- [ ] 1.5.1 interp Call/VCall 分发查 FnEntry：Compiled → 原生
-- [ ] 1.5.2 保证已编译函数永不被 interp 执行（Phase 2 前提）
-- [ ] 1.5.3 测试：interp 帧调已编译函数走原生 + GREEN
+- [x] 1.5.1 interp Call/VCall 分发查 FnEntry：Compiled → 原生（#86：`try_native_static_call` /
+      `try_native_method_call` per-site idx hook，热路径快车道）
+- [x] 1.5.2 保证已编译函数永不被 interp 执行（Phase 2 前提）——**集中拦截**：`exec_function`
+      入口 `try_native_exec`（name-based `resolve_fn_by_name_tiered`）。审计发现 #86 逐点 Call/VCall
+      不够：ctor / closure / `ToString` 派发 / 非 IC·vtable·base vcall / 跨包静态调用 / builtin 回调都
+      经 `exec_function` 执行函数体 → 单一 choke point 拦一次即对所有路径（现在+将来）成立。两 `_from_regs`
+      变体只被已 hook 的热路径以冷 callee 调用，故 backstop 完备。（User 裁决：集中拦截优于逐点补全）
+- [x] 1.5.3 测试：e2e --mode jit 219/0 byte-identical（含 ctor/closure/delegate/ToString/ref-out 路径）
 
 ## Phase 2: IR 回收 + 池化（依赖 Phase 1.5）
 - [ ] 2.1 `Function.blocks` 所有权粒度（可单独释放容器）
