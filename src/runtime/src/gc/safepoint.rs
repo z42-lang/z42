@@ -92,18 +92,29 @@ pub enum GcPhase {
 
 /// Fast-path safepoint check called from interp hot path.
 ///
-/// **add-gc-safepoint-counter-throttling (2026-05-21)**: this fast path
-/// is one `AtomicU32::fetch_sub(1, Relaxed) + compare + branch` (~3-5ns).
-/// The Mutex-lock + phase-check + auto-collect-drain logic only runs every
-/// [`throttle_n()`] th call (default 1024). Worker liveness under a GC
-/// request is bounded by N iterations × per-iter cost — at typical z42
-/// hot-loop iter (~50ns) this caps GC pause latency at ~50us, far below
-/// actual collect time.
+/// **add-gc-safepoint-counter-throttling (2026-05-21)**: the Mutex-lock +
+/// phase-check + auto-collect-drain logic only runs every [`throttle_n()`] th
+/// call (default 1024). Worker liveness under a GC request is bounded by N
+/// iterations × per-iter cost — at typical z42 hot-loop iter (~50ns) this caps
+/// GC pause latency at ~50us, far below actual collect time.
+///
+/// **inline-jit-safepoint-check (2026-08-01)**: the fast path is a plain
+/// `load + store` decrement (NOT `fetch_sub`). `safepoint_skip` is
+/// **single-writer per mutator** — only the owning thread reads/writes it in
+/// production; the sole cross-thread writer is [`VmContext::force_safepoint`],
+/// which is test/embedder-only. So the read-modify-write atomicity is
+/// unnecessary for correctness, and dropping it lets the JIT inline this fast
+/// path as two bare `mov`s (see `jit::translate::emit_safepoint_check`) instead
+/// of a helper call — the RMW form couldn't inline (`atomic_rmw` panicked on
+/// x86_64) and cost a `LOCK`-prefixed instruction per hot-loop back-edge.
+/// A missed cross-thread `force_safepoint` poke is bounded by throttle N, the
+/// same latency ceiling the throttle already imposes.
 #[inline]
 pub fn check_safepoint(ctx: &VmContext) {
-    // Fast path: relaxed decrement; if counter was > 1 before, we still
-    // have work to do before probing the real state.
-    let prev = ctx.safepoint_skip.fetch_sub(1, Ordering::Relaxed);
+    // Fast path: plain (non-RMW) relaxed decrement. If the counter was > 1
+    // before, we still have work to do before probing the real state.
+    let prev = ctx.safepoint_skip.load(Ordering::Relaxed);
+    ctx.safepoint_skip.store(prev.wrapping_sub(1), Ordering::Relaxed);
     if prev > 1 {
         return;
     }
@@ -124,8 +135,12 @@ pub fn check_safepoint(ctx: &VmContext) {
 /// If multiple threads see the flag, only the first swap-true claims;
 /// the rest see false and skip (subsequent allocs that still trip pressure
 /// re-set the flag).
+///
+/// **inline-jit-safepoint-check (2026-08-01)**: `pub(crate)` so the JIT's
+/// `jit_check_safepoint_slow` helper (the rare slow branch of the inlined
+/// fast path) can call it directly after resetting the throttle counter.
 #[inline(never)]
-fn check_safepoint_slow(ctx: &VmContext) {
+pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     let phase = *ctx.core.gc_phase.lock();
     // add-concurrent-gc P1: `ConcurrentMarking` is observable but mutators
     // do NOT park — concurrent mark requires mutators to keep running so
