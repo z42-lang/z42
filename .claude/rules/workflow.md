@@ -604,7 +604,7 @@ xtask test vscode-syntax
    - **其余一切**：走 **PR**——
      ```bash
      git push origin <branch>
-     gh pr create --fill                      # 或补写 PR body
+     gh pr create                             # body 按 parallel-development.md §1.1 三段 + Claude Code 页脚
      # 合并前：并入 main 最新改动 + 重跑完整 GREEN（防版本落后 + 兜住语义耦合）
      git fetch origin && git rebase origin/main
      xtask test                               # rebase 后必须全绿才合

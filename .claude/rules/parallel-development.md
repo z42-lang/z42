@@ -30,6 +30,25 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 **分支命名**：沿用 change 名（`docs/spec/changes/<change-name>/` 的 kebab-case 名），如
 `add-for-loop`、`fix-type-check-crash`。大改在 worktree 里开（物理隔离并行流），小 PR 可原地开分支。
 
+### §1.1 PR body 约定（必须遵守）
+
+`gh pr create` 的 body 至少含以下三段，末尾附页脚：
+
+```markdown
+## What / Why
+[一句话：本 PR 做什么、为什么]
+
+## 验证
+[GREEN 状态：`xtask test` 全绿，或列关键 stage 结果 / 对账证据（如自举字节不动点 gen1==gen2）]
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+- **标题**沿用 commit summary 格式 `type(scope): 描述`（见 [commit-log.md](commit-log.md)），与首个 / 主 commit 一致。
+- **页脚 `🤖 Generated with [Claude Code](https://claude.com/claude-code)` 是 PR body 必附项**——与
+  commit 的 `Co-Authored-By: Claude …` 页脚（[commit-log.md](commit-log.md)）对称：一个标记提交、一个标记 PR。
+- 多 commit 的 PR，body 的 What/Why 概述整条 PR，不复述每个 commit。
+
 ---
 
 ## §2 PR 合并顺序：先来后到，不排队
