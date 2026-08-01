@@ -28,6 +28,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     };
     Module {

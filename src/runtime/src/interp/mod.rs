@@ -700,7 +700,15 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             .get(block_idx)
             .with_context(|| format!("block index {block_idx} out of range"))?;
 
-        for (instr_idx, instr) in block.instructions.iter().enumerate() {
+        // interp-superinstr-fusion: if this block ends in a recognized fused tail
+        // (v1: `cmp`+`BrCond` → `CmpBr`), run all-but-the-last instruction in the
+        // loop below, then the fused step after it — skipping one instruction
+        // dispatch + the bool reload per hot-loop iteration. Empty `fused_tails`
+        // (hand-built test fns) ⇒ `None` ⇒ normal execution.
+        let fused = func.fused_tails.get(block_idx).and_then(|o| o.as_ref());
+        let n_instr = block.instructions.len() - if fused.is_some() { 1 } else { 0 };
+
+        for (instr_idx, instr) in block.instructions[..n_instr].iter().enumerate() {
             // exec_instr returns:
             //   Ok(None)       — normal instruction completion
             //   Ok(Some(val))  — a callee threw an exception (value-based propagation)
@@ -765,6 +773,24 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     return Err(anyhow::anyhow!("{}\n  at {} ({})", e, func.name, loc_str));
                 }
             }
+        }
+
+        // interp-superinstr-fusion: run the recognized fused tail in place of the
+        // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
+        // primitive the standalone cmp handlers use). Preserves the back-edge
+        // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
+        if let Some(crate::metadata::superinstr::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk }) = fused {
+            let cond = ops::eval_cmp(*op, &frame.regs, *a, *b)?;
+            frame.set(*dst, Value::Bool(cond)); // keep dst written — safe for any other reader
+            let target = if cond { *t_blk } else { *f_blk };
+            if target <= block_idx {
+                crate::gc::safepoint::check_safepoint(ctx);
+                if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
+                    return outcome;
+                }
+            }
+            block_idx = target;
+            continue 'exec;
         }
 
         match &block.terminator {

@@ -437,6 +437,14 @@ pub struct Function {
     /// runtime falls back to `block_index` (hand-built test functions).
     #[serde(skip)]
     pub branch_targets: Vec<BranchTargets>,
+    /// interp-superinstr-fusion (2026-08-01): per-block fused-tail super-instruction
+    /// (e.g. `cmp`+`BrCond` → `CmpBr`), parallel to `blocks`. Recognized once at
+    /// load by `superinstr::compute_fused_tails`; the interp reads
+    /// `fused_tails[block_idx]` (O(1)) to run the fused step and skip a dispatch on
+    /// hot loops. `None`/empty ⇒ no fusion for that block (normal execution).
+    /// Not serialized (pure runtime optimization; no zbc/format impact).
+    #[serde(skip)]
+    pub fused_tails: Vec<Option<super::superinstr::SuperInstr>>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,

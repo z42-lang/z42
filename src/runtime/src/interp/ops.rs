@@ -74,6 +74,29 @@ pub(super) fn int_bitop(
 /// auto-widens Char to I64 (matches how the parallel Eq path treats
 /// chars). Pre-fix, every char range check (yaml `_LooksLikeInt` etc.)
 /// bailed with "type mismatch in comparison: Char vs Char".
+/// interp-superinstr-fusion: the SHARED comparison primitive. Evaluates a
+/// [`CmpOp`](crate::metadata::superinstr::CmpOp) over two registers to a `bool`.
+/// Used by BOTH the standalone `Lt`/`Le`/`Gt`/`Ge`/`Eq`/`Ne` handlers (via
+/// `exec_value`) AND the fused `CmpBr` super-instruction, so the comparison logic
+/// lives in exactly one place (no interp/fusion duplication).
+#[inline]
+pub(super) fn eval_cmp(op: crate::metadata::superinstr::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
+    use crate::metadata::superinstr::CmpOp;
+    Ok(match op {
+        CmpOp::Lt => numeric_lt(regs, a, b)?,
+        CmpOp::Le => !numeric_lt(regs, b, a)?,
+        CmpOp::Gt => numeric_lt(regs, b, a)?,
+        CmpOp::Ge => !numeric_lt(regs, a, b)?,
+        CmpOp::Eq => reg_ref(regs, a)? == reg_ref(regs, b)?,
+        CmpOp::Ne => reg_ref(regs, a)? != reg_ref(regs, b)?,
+    })
+}
+
+#[inline]
+fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
+    regs.get(r as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))
+}
+
 pub(super) fn numeric_lt(regs: &[Value], a: u32, b: u32) -> Result<bool> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
