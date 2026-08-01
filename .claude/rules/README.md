@@ -12,7 +12,7 @@ AI 与协作者干活的行为规范（文档四类中的**③ 开发规范**，
 |------|--------|
 | [workflow.md](workflow.md) | 协作流程主线：阶段 0–9、Scope、GREEN 门禁、归档 |
 | [philosophy.md](philosophy.md) | 实现哲学：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 延后管理 |
-| [parallel-development.md](parallel-development.md) | 多 change 并行：子系统互斥锁 + ACTIVE.md 账本 |
+| [parallel-development.md](parallel-development.md) | 多 change 并行：PR 隔离模型（分支/worktree + 先来后到合并 + 合并前并入 main·重跑 GREEN + 合并后删分支） |
 
 ## 产出规范（代码/提交/文档长什么样）
 
