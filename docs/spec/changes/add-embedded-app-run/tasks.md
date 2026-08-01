@@ -15,9 +15,9 @@
       C 符号（`z42_host_run_app`）延后到 mobile 壳需要时（desktop 参考走 Rust wrapper 直调）
 
 ## 阶段 2: z42 test-agent(共享字节码)
-- [ ] 2.1 `src/toolchain/testhost/agent/`:agent.z42(Main:命令 → Std.Test.Runner.RunModule → JSON)+ toml
-- [ ] 2.2 testhost/README.md(六段)
-- [ ] 2.3 编译 agent → app.zpkg(seed z42c)验证
+- [x] 2.1 `src/toolchain/testhost/agent/`:agent.z42(Main:命令 → Std.Test.Runner.RunModule → JSON)+ toml
+- [x] 2.2 testhost/README.md(六段)
+- [x] 2.3 编译 agent → app.zpkg 验证 + 端到端跑 sample test → JSON（2/2 passed）
 
 ## 阶段 3: desktop 参考(端到端)
 - [ ] 3.1 `workload/desktop/shell/main.rs`:链 libz42(static)+ 调 z42_run_app 跑 agent
