@@ -301,11 +301,25 @@ impl Frame {
     /// (transparently writing through `Value::Ref` to the underlying
     /// caller slot / array elem / object field), use `set_thru_ref`
     /// (spec impl-ref-out-in-runtime).
+    /// Write a register. The frame is pre-sized to `max_reg` at construction, so
+    /// the in-bounds path is overwhelmingly hot — keep it inlinable into the exec
+    /// loop (this is one of the two hottest interp functions, per profiling). The
+    /// grow path (a reg beyond the pre-sized file, e.g. hand-built test functions)
+    /// is `#[cold]` + out-of-line so it doesn't bloat the hot path.
+    #[inline]
     pub fn set(&mut self, reg: u32, val: Value) {
         let idx = reg as usize;
-        if idx >= self.regs.len() {
-            self.regs.resize(idx + 1, Value::Null);
+        if idx < self.regs.len() {
+            self.regs[idx] = val;
+        } else {
+            self.set_grow(idx, val);
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn set_grow(&mut self, idx: usize, val: Value) {
+        self.regs.resize(idx + 1, Value::Null);
         self.regs[idx] = val;
     }
 
