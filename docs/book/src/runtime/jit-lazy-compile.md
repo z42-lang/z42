@@ -239,3 +239,76 @@ backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）�
 > 已编译函数的 IR `blocks` 可安全回收（Phase 2:内存半）。**注意**默认阈值 1000 下只有少数热函数编译，
 > 故 Phase 2 回收量本身有限（冷长尾 IR 仍需保留供 interp 执行）;回收机制的收益随「实际 tier-up 的函数数」
 > 增长（低阈值 / 编译密集 workload 更显著）。
+
+## OSR / 循环回边分层（add-osr-loop-tiering）
+
+> 对齐：2026-08-01。代码：`interp/mod.rs`（`try_osr` + `Frame.back_edge_count`）、
+> `jit/translate.rs`（`osr_entry`）、`jit/lazy.rs`（`compile_fn_osr`）、
+> `jit/frame.rs`（`from_interp_regs` / `resolve_osr_entry`）。
+
+### 为什么
+
+call-count 分层（上文）只看「函数被调几次」，分不清**一次性函数**与**被调一次但内部循环极热**的
+函数——两者调用数都是 1。后者（如 `SumSquares(10M 循环)` 被 `Main` 只调一次）在任何阈值 ≥ 2 下都
+永不升级、全程解释执行：实测 04_arith 阈值 1000 比阈值 1 慢 **4.2×**。
+
+OSR（On-Stack Replacement）按**循环回边数**分层：解释器执行热循环到一定迭代数时，**就地**把函数
+编成原生码、把当前活跃寄存器交给它、**从循环头继续跑**（不等下次调用）。
+
+### 为什么 z42 做 OSR 特别简单
+
+两个既有性质直接使能：
+1. **寄存器在 `frame.regs`（内存），非 SSA**：JIT 原生码逐指令 load/store `frame.regs[i]`
+   （`translate.rs` 缓存 `regs_base = frame.regs.as_mut_ptr()`）。故从循环头 block K 进入时，
+   block `0..K` 计算的中间值**已在 `frame.regs` 内存里**（解释器写的），原生码直接读——无需把
+   SSA 值重建。
+2. **interp 与 JIT 寄存器模型同构**：都是 `Vec<Value>` 按 IR reg 号索引、同一 `Value` 类型。状态
+   交接就是 `JitFrame::from_interp_regs(&interp.regs, max_reg)` 一次拷贝。
+
+### 机制
+
+```mermaid
+flowchart TD
+    A[interp exec 循环<br/>Terminator::Br/BrCond] --> B{target ≤ block_idx?<br/>向后跳转=回边}
+    B -- 否(前向) --> A
+    B -- 是 --> C[check_safepoint<br/>frame.back_edge_count += 1]
+    C --> D{count == osr_threshold?<br/>恰好一次}
+    D -- 否 --> E[block_idx = target; 继续解释]
+    D -- 是 --> F[resolve_osr_entry&#40;id, target&#41;<br/>编译/复用 OSR 变体]
+    F -- None&#40;不可翻译/lazy&#41; --> E
+    F -- Some&#40;entry&#41; --> G[JitFrame::from_interp_regs&#40;frame.regs&#41;<br/>push_frame → native → pop_frame]
+    G --> H[marshal ExecOutcome<br/>return 出 exec_function_body]
+```
+
+- **回边计数**：per-activation（`Frame.back_edge_count`，每次调用归零）——语义正好是「这次执行的
+  循环够热就升级」；per-function 累加会误触发「多次调用、每次循环几下」的函数（那是 call-count 的活）。
+  复用已有的 `target <= block_idx` 回边检测点（原本给 GC safepoint 用），前向跳转零开销。
+- **OSR 编译**（`translate_function(osr_entry: Some(K))`）：新建一个专用入口 cranelift block，跑
+  正常 prologue（safepoint + `regs_base` + 数组指针 hoist——都是需支配全函数的 SSA 值），然后
+  `jump cl_blocks[K]`。block `0..K` 变不可达，`seal_all_blocks` 时被 DCE。**非 OSR 路径（`None`）
+  字节不变**——专用入口块只在 `Some` 时创建。
+- **跳过 prologue 的正确性**：OSR 只作用**可翻译**函数（带 `ref`/`out` 的函数含 `LoadLocalAddr`
+  → 不可翻译 → 不 OSR），故无入口 ref copy-in、无出口 copy-out 要补；safepoint 刚在回边点查过。
+- **缓存**：`JitModuleCtx.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(函数 id, 循环头 K)`
+  键（一函数两循环可在不同 K OSR）。OSR 是稀有事件，用普通 Mutex（非热路径 lock-free 槽表）够。
+- **v1 简化**：交接时解释器自身的 VmFrame 仍在栈上，OSR 原生帧再 push 一个——GC 双扫（interp regs
+  是 OSR regs 的克隆，同一批 heap 引用，保守正确）；崩溃 trace 该函数出现两次（仅美观）。
+
+### 配置 + 效果
+
+- `Z42_OSR_THRESHOLD`（默认 10000，clamp ≥ 1）：回边达此数触发。高到滤掉短循环、低到让 10M 循环在
+  头 0.1% 迭代内升级。
+- 实测 04_arith（阈值 1000）：`SumSquares` OSR@block1，输出正确，**476 → 96ms（~5×**，甚至快过
+  阈值 1 基线 114ms，因为除头 10000 次解释外整个循环走原生）。
+- 验证：`e2e --mode jit` 且 `Z42_OSR_THRESHOLD=1`（每个循环首回边即 OSR，最大压测）**219/0
+  byte-identical**——OSR 的状态交接 + 跳 prologue 对全部 golden 循环形态都语义不变。
+
+### 三条分层线的分工
+
+| 机制 | 管什么 |
+|------|--------|
+| call-count 阈值（Phase 1/1c） | 「被调够多次」的函数升级；冷/一次性函数留 interp |
+| 混合模式（Phase 1.5/1.5.2） | 冷 interp 调用者路由到已编译的热 callee |
+| **OSR（本节）** | **「被调少但循环热」的函数就地升级——call-count 够不到的一类** |
+
+三者合起来：分层真正按「热度 = 实际执行工作量」决策，不多编一个、不漏编一个。

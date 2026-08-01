@@ -275,6 +275,14 @@ pub fn translate_function(
     z42_func:     &Function,
     _func_max_reg: usize,
     func_id:      FuncId,
+    // add-osr-loop-tiering: `Some(K)` compiles an **OSR variant** whose entry runs
+    // the normal prologue (safepoint + cached `frame.regs` ptr + hoisted array
+    // ptrs — all SSA values that must dominate the loop) and then jumps straight to
+    // z42 block `K` (the hot loop header), skipping blocks `0..K` (already executed
+    // by the interpreter, whose register state we inherit via `frame.regs` memory).
+    // `None` = normal entry at block 0 (unchanged). The dedicated OSR entry block is
+    // created only in the `Some` case, so the non-OSR path is byte-for-byte identical.
+    osr_entry:    Option<usize>,
 ) -> Result<()> {
     let ptr     = jit.target_config().pointer_type();
 
@@ -296,12 +304,18 @@ pub fn translate_function(
         .map(|_| builder.create_block())
         .collect();
 
-    // Entry: append function parameters to cl_blocks[0].
-    builder.append_block_params_for_function_params(cl_blocks[0]);
-    builder.switch_to_block(cl_blocks[0]);
+    // Entry: the block that carries the function params + prologue. Normally that
+    // is z42 block 0; for an OSR variant it is a dedicated block that jumps to the
+    // loop header after the prologue (add-osr-loop-tiering).
+    let entry_blk = match osr_entry {
+        None    => cl_blocks[0],
+        Some(_) => builder.create_block(),
+    };
+    builder.append_block_params_for_function_params(entry_blk);
+    builder.switch_to_block(entry_blk);
 
-    let frame_val = builder.block_params(cl_blocks[0])[0];
-    let ctx_val   = builder.block_params(cl_blocks[0])[1];
+    let frame_val = builder.block_params(entry_blk)[0];
+    let ctx_val   = builder.block_params(entry_blk)[1];
 
     // Import all helpers as FuncRef (per-function, valid for this function only).
     macro_rules! imp {
@@ -501,9 +515,21 @@ pub fn translate_function(
         map
     };
 
+    // add-osr-loop-tiering: OSR variant — after the prologue (which cached
+    // `regs_base` etc. into SSA values that now dominate every block), jump into the
+    // hot loop header. Blocks `0..K` become unreachable and cranelift DCEs them at
+    // `seal_all_blocks`. The interpreter has already run them and left their results
+    // in `frame.regs`, which the native code reads back through `regs_base`.
+    if let Some(k) = osr_entry {
+        builder.ins().jump(cl_blocks[k], &[]);
+    }
+
     // ── Translate each z42 block ──────────────────────────────────────────────
     for (block_idx, z42_block) in z42_func.blocks.iter().enumerate() {
-        if block_idx != 0 {
+        // Non-OSR: block 0 is the entry block (already switched to, prologue emitted
+        // there) so we don't re-switch. OSR: the entry is a dedicated block, so we
+        // must switch to cl_blocks[0] like any other body block.
+        if block_idx != 0 || osr_entry.is_some() {
             builder.switch_to_block(cl_blocks[block_idx]);
         }
 

@@ -72,6 +72,14 @@ impl JitModule {
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(1000)
             .max(1);
+        // add-osr-loop-tiering: back-edge count that triggers OSR of the running
+        // interp activation. Default 10_000 — high enough that short loops finish in
+        // the interpreter before paying a compile, low enough that a genuinely hot
+        // loop (millions of iterations) upgrades within its first fraction of a %.
+        let osr_threshold = std::env::var("Z42_OSR_THRESHOLD").ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(10_000)
+            .max(1);
         let ctx = Box::new(JitModuleCtx {
             // review.md C3 Phase 1 (2026-06-03): copy the pre-interned Arc<str>
             // pool (cheap — Arc::clone per slot) so `jit_const_str` avoids the
@@ -90,6 +98,8 @@ impl JitModule {
             vm_ctx: std::ptr::null_mut(),
             call_counts,
             jit_threshold,
+            osr_entries: Mutex::new(std::collections::HashMap::new()),
+            osr_threshold,
         });
         Ok(JitModule { _lazy: lazy_box, ctx })
     }
