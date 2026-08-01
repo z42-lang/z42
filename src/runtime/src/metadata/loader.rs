@@ -1087,7 +1087,7 @@ pub fn build_block_indices(module: &mut Module) {
             .collect();
         // interp-superinstr-fusion: recognize fused block tails once, parallel to
         // branch_targets (needs the index-resolved targets above).
-        func.fused_tails = super::superinstr::compute_fused_tails(&func.blocks, &func.branch_targets);
+        func.fused_tails = super::superinstr::compute_fused_tails(&func.blocks, &func.branch_targets, &func.reg_types);
     }
 }
 

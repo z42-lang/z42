@@ -34,6 +34,7 @@
 //!   (cheap) so any other reader of it is unaffected — no liveness analysis needed.
 
 use super::bytecode::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
+use super::ir_type::IrType;
 
 /// A comparison operator, shared by the fused recognizer and the interp's
 /// standalone cmp handlers (via `interp::ops::eval_cmp`).
@@ -47,27 +48,50 @@ pub enum SuperInstr {
     /// `BrCond(dst)`. Fused execution: evaluate the comparison and jump to
     /// `t_blk`/`f_blk` directly, skipping the separate `BrCond` dispatch + the
     /// bool re-read. `dst` is still written so unrelated readers are unaffected.
-    CmpBr { op: CmpOp, a: Reg, b: Reg, dst: Reg, t_blk: usize, f_blk: usize },
+    ///
+    /// interp-typed-superinstr (2026-08-01): `typed` is set when `reg_types`
+    /// confirm both operands are `I64` — the interpreter then compares via
+    /// unchecked i64 extraction (no discriminant branch). This is the loop
+    /// condition (`i < n`) fast path.
+    CmpBr { op: CmpOp, a: Reg, b: Reg, dst: Reg, t_blk: usize, f_blk: usize, typed: bool },
 }
 
 impl SuperInstr {
     /// Recognizer rule table. `targets` is the block's pre-resolved branch targets
     /// (must be index-resolved — fusion is skipped for label-fallback blocks, which
-    /// are cold/hand-built). Returns the fused tail or `None`.
-    pub fn recognize(block: &BasicBlock, targets: &BranchTargets) -> Option<SuperInstr> {
+    /// are cold/hand-built). `reg_types` is the function's per-register static type
+    /// table (empty when unavailable → all fusions stay untyped). Returns the fused
+    /// tail or `None`.
+    pub fn recognize(block: &BasicBlock, targets: &BranchTargets, reg_types: &[IrType]) -> Option<SuperInstr> {
         // ── rule: cmp + BrCond → CmpBr ──────────────────────────────────────
         if let (Terminator::BrCond { cond, .. }, BranchTargets::BrCond(t, f)) =
             (&block.terminator, targets)
         {
             if let Some((op, dst, a, b)) = as_cmp(block.instructions.last()?) {
                 if dst == *cond {
-                    return Some(SuperInstr::CmpBr { op, a, b, dst, t_blk: *t, f_blk: *f });
+                    // interp-typed-superinstr: both operands statically integer →
+                    // interp compares via unchecked i64 (skips tag branch). Uses
+                    // `is_integer` (I8..U64), NOT `is_i64`: the VM stores every
+                    // narrow integer as `Value::I64`, so `as_i64_unchecked` is
+                    // sound for all of them — and loop counters are emitted as
+                    // I32 by the compiler, so an I64-only gate would never fire.
+                    // Comparison stays signed-i64, exactly as the untyped
+                    // `numeric_lt` path already does (byte-identical).
+                    let typed = is_int(reg_types, a) && is_int(reg_types, b);
+                    return Some(SuperInstr::CmpBr { op, a, b, dst, t_blk: *t, f_blk: *f, typed });
                 }
             }
         }
-        // (future rules go here: LoadArith, ArithStore, …)
+        // (future rules go here: ArithChain, LoadArith, …)
         None
     }
+}
+
+/// True iff `reg_types[r]` is an integer type (I8..U64) — all stored as
+/// `Value::I64` at runtime (out-of-range / unavailable → false).
+#[inline]
+fn is_int(reg_types: &[IrType], r: Reg) -> bool {
+    reg_types.get(r as usize).copied().map(|t| t.is_integer()).unwrap_or(false)
 }
 
 /// If `ins` is a comparison, return `(op, dst, a, b)` (all `Reg` = `u32`).
@@ -85,7 +109,7 @@ fn as_cmp(ins: &Instruction) -> Option<(CmpOp, Reg, Reg, Reg)> {
 
 /// Precompute the fused-tail side table for a function's blocks (parallel to
 /// `branch_targets`). Called once at load. Blocks with no fusable tail get `None`.
-pub fn compute_fused_tails(blocks: &[BasicBlock], branch_targets: &[BranchTargets]) -> Vec<Option<SuperInstr>> {
+pub fn compute_fused_tails(blocks: &[BasicBlock], branch_targets: &[BranchTargets], reg_types: &[IrType]) -> Vec<Option<SuperInstr>> {
     // Kill-switch / A/B knob: `Z42_NO_FUSION` disables recognition so the interp
     // takes the un-fused path — lets an operator turn the optimization off without a
     // rebuild (e.g. to isolate a suspected regression), and is how the framework's
@@ -94,11 +118,16 @@ pub fn compute_fused_tails(blocks: &[BasicBlock], branch_targets: &[BranchTarget
         return vec![None; blocks.len()];
     }
     let out: Vec<Option<SuperInstr>> = blocks.iter().zip(branch_targets.iter())
-        .map(|(b, t)| SuperInstr::recognize(b, t))
+        .map(|(b, t)| SuperInstr::recognize(b, t, reg_types))
         .collect();
     if std::env::var("Z42_FUSION_DEBUG").is_ok() {
         let n = out.iter().filter(|o| o.is_some()).count();
-        if n > 0 { eprintln!("[FUSION] {} of {} blocks fused (CmpBr)", n, blocks.len()); }
+        let typed = out.iter().filter(|o| matches!(o, Some(SuperInstr::CmpBr { typed: true, .. }))).count();
+        if n > 0 { eprintln!("[FUSION] {} of {} blocks fused (CmpBr; {} typed i64)", n, blocks.len(), typed); }
     }
     out
 }
+
+#[cfg(test)]
+#[path = "superinstr_tests.rs"]
+mod superinstr_tests;
