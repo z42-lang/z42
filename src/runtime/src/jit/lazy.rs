@@ -109,7 +109,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id)?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None)?;
         // Finalize just this function's definition (relocations + mprotect).
         // Earlier finalized functions keep their code pages — cranelift-jit
         // allocates each function separately, so their pointers stay valid.
@@ -118,6 +118,44 @@ impl LazyCompiler {
         let ptr_raw = self.jit.get_finalized_function(func_id);
         // Precompute name + file Arcs so jit_call / jit_vcall can push FrameInfo
         // without a reverse lookup (mirrors the former eager path).
+        let file_str: std::sync::Arc<str> = func.line_table().first()
+            .and_then(|e| e.file.as_deref())
+            .unwrap_or("")
+            .into();
+        let frame_name: std::sync::Arc<str> =
+            std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func).as_str());
+        Ok(FnEntry {
+            ptr:     ptr_raw as *const u8,
+            max_reg: max_r,
+            name:    frame_name,
+            file:    file_str,
+        })
+    }
+
+    /// add-osr-loop-tiering: compile an **OSR variant** of `func` whose entry runs
+    /// the prologue and then jumps to z42 block `k` (the hot loop header). Declared
+    /// under a distinct linkage name (`<name>$osr<k>`) so it coexists with the normal
+    /// entry. Called at most once per (function, header) — the interpreter hands the
+    /// running activation over to the returned native code (register state inherited
+    /// via `frame.regs` memory). Structurally mirrors `compile_fn`.
+    pub fn compile_fn_osr(&mut self, func: &Function, k: usize) -> Result<FnEntry> {
+        let ptr = self.jit.target_config().pointer_type();
+        let mut sig = self.jit.make_signature();
+        sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
+        sig.params.push(AbiParam::new(ptr));        // ctx   *const JitModuleCtx
+        sig.returns.push(AbiParam::new(types::I8)); // 0 = ok, 1 = exception
+        let osr_name = format!("{}$osr{}", func.name, k);
+        let func_id = self.jit.declare_function(&osr_name, Linkage::Local, &sig)?;
+
+        if self.profile {
+            eprintln!("[JIT PROFILE] osr-compile {} @block{}", func.name, k);
+        }
+
+        let max_r = translate::max_reg(func);
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k))?;
+        self.jit.finalize_definitions()?;
+
+        let ptr_raw = self.jit.get_finalized_function(func_id);
         let file_str: std::sync::Arc<str> = func.line_table().first()
             .and_then(|e| e.file.as_deref())
             .unwrap_or("")

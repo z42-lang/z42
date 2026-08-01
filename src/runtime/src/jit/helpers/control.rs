@@ -114,6 +114,8 @@ mod check_safepoint_tests {
             vm_ctx:           vm_ctx as *const VmContext as *mut VmContext,
             call_counts:      Vec::new(),
             jit_threshold:    1,
+            osr_entries:      std::sync::Mutex::new(std::collections::HashMap::new()),
+            osr_threshold:    10_000,
         };
         (jit_ctx, JitFrame::new(0, &[]))
     }

@@ -40,6 +40,22 @@ impl JitFrame {
         JitFrame { regs, ret: None, env_arena: Vec::new() }
     }
 
+    /// add-osr-loop-tiering: build a JitFrame from an interpreter frame's live
+    /// register file at an OSR hand-off. Interp and JIT share the exact same
+    /// register model (`Vec<Value>` indexed by IR reg number), so this is a straight
+    /// copy of the live state — the native OSR entry resumes the hot loop reading
+    /// these values back through `regs_base`. Sized to the JIT function's
+    /// `max_reg + 1`; interp slots beyond that are dropped (same function → same
+    /// max_reg), missing ones stay `Null`.
+    pub fn from_interp_regs(interp_regs: &[Value], max_reg: usize) -> Self {
+        let size = max_reg + 1;
+        let mut regs = take_pooled_regs(size);
+        for (i, v) in interp_regs.iter().enumerate() {
+            if i < size { regs[i] = v.clone(); }
+        }
+        JitFrame { regs, ret: None, env_arena: Vec::new() }
+    }
+
     /// Allocate a frame and fill its first registers directly from the caller's
     /// register file, indexed by `arg_indices`. Avoids the intermediate
     /// `Vec<Value>` collect + the resulting double-clone that `new(_, &args)`
@@ -265,6 +281,16 @@ pub struct JitModuleCtx {
     /// (N=1 → compile-on-first-call = pre-tiering behavior). From
     /// `Z42_JIT_THRESHOLD` (default 2), clamped ≥ 1.
     pub jit_threshold: u32,
+    /// add-osr-loop-tiering: cache of compiled OSR entries, keyed by
+    /// `(merged function id, loop-header block K)`. Keyed by K too because a
+    /// function with two loops can OSR at different headers — a K1 entry must not be
+    /// reused for a K2 hand-off. Populated at most once per key (OSR is rare); the
+    /// `FnEntry` is cloned out (owned) so callers don't hold the lock across the
+    /// native call. `rejected()` marks untranslatable / compile-failed.
+    pub osr_entries: Mutex<std::collections::HashMap<(usize, usize), FnEntry>>,
+    /// add-osr-loop-tiering: OSR trigger threshold (loop back-edges in the interp).
+    /// From `Z42_OSR_THRESHOLD`, clamped ≥ 1.
+    pub osr_threshold: u32,
 }
 
 impl JitModuleCtx {
@@ -479,6 +505,44 @@ impl JitModuleCtx {
         };
         let e = (*entry_ptr).get()?;
         if e.is_rejected() { None } else { Some(e) }
+    }
+
+    /// add-osr-loop-tiering: resolve (compiling on first sight) the **OSR entry** of
+    /// merged function `id` at loop-header block `k`. Returns an OWNED `FnEntry`
+    /// clone (so the caller doesn't hold the cache lock across the native call), or
+    /// `None` if the function is lazy (v1 skips OSR for not-yet-merged funcs),
+    /// untranslatable, or the compile failed. Cached per `(id, k)` — a second hot
+    /// activation of the same loop reuses it. OSR is a rare event, so a plain
+    /// `Mutex<HashMap>` (vs the hot-path lock-free slot tables) is fine.
+    pub unsafe fn resolve_osr_entry(&self, id: usize, k: usize) -> Option<FnEntry> {
+        if id >= self.merged_len { return None; } // v1: OSR only for merged funcs
+        {
+            let map = match self.osr_entries.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            if let Some(e) = map.get(&(id, k)) {
+                return if e.is_rejected() { None } else { Some(e.clone()) };
+            }
+        }
+        // Not cached — compile the OSR variant (translatable check first).
+        let module = &*self.module;
+        let func = module.functions.get(id)?;
+        let compiled: FnEntry = if super::translate::jit_unsupported_reason(func).is_some() {
+            FnEntry::rejected()
+        } else {
+            let mut guard = match (*self.lazy).lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            match guard.compile_fn_osr(func, k) {
+                Ok(e) => {
+                    if !self.vm_ctx.is_null() {
+                        (*self.vm_ctx).counters().jit_methods_compiled
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    e
+                }
+                Err(_) => FnEntry::rejected(),
+            }
+        };
+        let mut map = match self.osr_entries.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+        let e = map.entry((id, k)).or_insert(compiled);
+        if e.is_rejected() { None } else { Some(e.clone()) }
     }
 }
 
