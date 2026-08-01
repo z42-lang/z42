@@ -27,6 +27,7 @@ pub mod name_index;
 pub mod ir_type;
 pub mod bytecode;
 mod bytecode_serde;
+pub mod superinstr;
 pub mod context;
 pub mod project;
 pub mod formats;

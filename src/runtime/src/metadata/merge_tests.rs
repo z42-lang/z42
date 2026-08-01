@@ -32,6 +32,7 @@ fn make_module_with(
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     }];
     functions.extend(extra_functions);
@@ -166,6 +167,7 @@ fn merge_deduplicates_functions_by_name() {
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     };
     let m0 = make_module("A", &["hello"], 0);

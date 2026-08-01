@@ -1494,6 +1494,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             reg_types,
             block_index:     std::collections::HashMap::new(),
             branch_targets:  Vec::new(),
+            fused_tails:     Vec::new(),
             resolved:        std::sync::OnceLock::new(),
         }
     }).collect();
@@ -1986,6 +1987,7 @@ fn read_mods_section(
                 reg_types,
                 block_index:     std::collections::HashMap::new(),
             branch_targets:  Vec::new(),
+            fused_tails:     Vec::new(),
                 resolved:        std::sync::OnceLock::new(),
             }
         }).collect();
