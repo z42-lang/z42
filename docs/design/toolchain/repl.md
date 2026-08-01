@@ -165,6 +165,40 @@ FQ → 取其命名空间（最后一个 `.` 之前）→ 经 NSPC 建的路由�
 > 引入：change `lazy-type-world`（`docs/spec/archive/…-lazy-type-world`）。残余优化（不预加载默认 using +
 > 后台符号名字索引、延后 `Open`/STRS）见该 change 的 design Deferred。
 
+## 惰性 prelude + ns 索引（repl-scan-nsindex-cache，2026-08-01）
+
+**动机（对照 Python）**：`z42 repl -c "1+1"` = 1.7s，Python `1+1` = 0.01s，z42 VM 裸启动 = 0.00s。差距全在
+「每次求值都跑整个 AOT 编译器 + **eager reconcile 整个 prelude+usings 类型世界**」——`1+1` 只需内建 `int`+
+算子，却拖动整个 stdlib（lazy-type-world 已把类型世界惰性化，但**首次 eval 仍 eager reconcile prelude(z42.core)
++ 预载 4 个默认 using**，其 base 链级联把整个 stdlib 都开+读了）。Python 快在**解释 + 运行期惰性名字解析**，
+对 `1+1` 根本不干这些活。
+
+**T1 惰性 prelude（核心）**：`ScanDirsLazy` **不再 eager reconcile prelude**、`Script.Prewarm` **不再预载默认
+usings**——worker 只建**骨架**（nsMap 路由 + 惰性 world）→ 秒发布。`1+1` 类纯表达式**零包加载**：
+- **1.72s → 0.40s（4.3×，秒回车也不卡）**。
+- 首次引用 Std 符号时 `Script._compileSrc` 既有的 **E0401 回退**按需加载 prelude+usings（默认 using
+  `Std.Collections` 由 z42.core 声明 → 加载它即把 prelude 一并 reconcile；`object`/算术为编译器内建，`1+1`
+  连 prelude 都不碰）。
+- **不后台 reconcile**：本 VM 的 GC 安全点协作会让计算密集的**后台线程阻塞主线程 eval**（主线程 `1+1`
+  编译分配 → 触发 GC → 死等后台 reconcile 到安全点 ~3s），故放弃「后台预热完整世界」（旧 prewarm 能藏住
+  reconcile 仅因 readline 是 native-park 释放 GC；计算不 park）。**权衡**：首次**符号** eval（Console/List）
+  走前台 E0401 ≈ 1.7s（不再被间隙隐藏）——彻底解由 **T2 按符号 reconcile** 承接（见下 Deferred）。
+
+**B ns 索引持久化（辅）**：`ScanDirsLazy` 把「每 zpkg → 命名空间列表」落盘缓存 `.z42-nsindex`（按 libs
+指纹 `basename:size:mtime` key）；命中则从缓存建 nsMap + `LazyReconWorld` 路由（`LazyFromPairs`），**不再
+open-all 全部 ~26 个包**，只按需 `Open` 引用闭包（`LazyReconWorld.EnsureIdx` 惰性 open + `EnsurePackageLoaded`
+惰性 open）。使骨架 scan 从 ~0.4s（open-all）→ ~0.05s（命中），**是 Windows 的对症解**（消除 20+ 次被
+Defender 逐个扫的文件打开）。指纹变 → 索引自动重建；不可写 libs → 回退 open-all（不坏）。
+
+- **零格式 bump、零 VM 改动**；非惰性 `ScanDirs`（build/test 路径）**零改** → 自举 byte-identical 不受影响。
+- **正确性**：命中 vs 未命中（open-all）产出的 nsMap/Exported 一致；skip-prelude 后表达式/字符串/Console/
+  List/Math/Convert/Environment/声明/跨轮 var 全对。GREEN：自举字节不动点 + e2e 215/0 + cross-zpkg 8/0。
+
+> 引入：change `repl-scan-nsindex-cache`（`docs/spec/changes/…`）。**Deferred → T2 按符号 reconcile**：用
+> `Console` 只 materialize `Console` 一个类型（+基类链），不 reconcile 整个 Std.IO+prelude 闭包 → 首次符号
+> eval ~0.5s、且不需后台线程（避开 GC 坑）。调研：这是**编译器名字解析核心**改动（`SymbolTable` 惰性 miss
+> 回调 + 按类型 zpkg 读 + arity-mangle/impl 合并/接口顺序等不按类型分解的整包问题），需独立 spec + 门禁。
+
 ## 状态模型：Growing Transcript
 
 会话维护一个累积的"会话源文件"，每轮输入追加后整体重编译：
