@@ -176,6 +176,12 @@ pub(crate) struct Frame {
     /// `ref`/`out` lvalue, identical to true cross-frame refs but without
     /// requiring 80+ instruction handlers to be deref-aware.
     pub ref_writebacks: Vec<(u32, crate::metadata::types::RefKind)>,
+    /// add-osr-loop-tiering: loop back-edges taken in THIS activation. When it
+    /// reaches `JitModuleCtx.osr_threshold` (jit mode only), the running loop is
+    /// hot enough to hand off to native code (OSR). Per-activation (reset each
+    /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
+    /// loops a little" does not (that's the call-count path's job).
+    pub back_edge_count: u32,
 }
 
 thread_local! {
@@ -234,6 +240,7 @@ impl Frame {
             regs,
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
+            back_edge_count: 0,
         }
     }
 
@@ -257,6 +264,7 @@ impl Frame {
             regs,
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
+            back_edge_count: 0,
         })
     }
 
@@ -285,6 +293,7 @@ impl Frame {
             regs,
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
+            back_edge_count: 0,
         })
     }
 
@@ -481,9 +490,123 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     // immediately respects a pending GC request. A worker thread spawned
     // mid-collect parks here before touching any roots.
     crate::gc::safepoint::check_safepoint(ctx);
+    // runtime-jit-tiering Phase 1.5.2 (mixed-mode invariant backstop): if `func`
+    // is already JIT-compiled, run its native code instead of interpreting it.
+    // `exec_function` is the SINGLE choke point every non-hot-Call/VCall interp
+    // path funnels through — constructors, closures, `ToString` dispatch, the
+    // non-IC / vtable / base-fallback vcall paths, cross-zpkg static calls, and
+    // builtin callbacks. Diverting here guarantees Decision 5's invariant — "a
+    // compiled function is never interp-executed" — for ALL of them at once
+    // (present and future), which is the hard precondition for Phase 2 IR reclaim.
+    // The idx-based per-site hooks (`try_native_static_call` /
+    // `try_native_method_call`) remain the hot-path fast lane; the two
+    // `exec_function_from_*regs` variants are only reached from those hooked paths
+    // (cold callees only), so this name-based backstop completes the coverage.
+    if let Some(outcome) = try_native_exec(ctx, func, args) {
+        return outcome;
+    }
     let frame = Frame::new(args, func.max_reg);
     exec_function_body(ctx, module, func, frame)
 }
+
+/// runtime-jit-tiering Phase 1.5.2: name-based mixed-mode divert used as the
+/// universal backstop at `exec_function`. Returns `None` (→ interpret) when no JIT
+/// ctx is published (interp-only run), when an argument is a `Ref` (a stack address
+/// can't cross into native code — see `exec_call::try_native_static_call`; a
+/// compiled fn never has ref params anyway, so this is defensive), or when the
+/// function is cold / untranslatable (`resolve_fn_by_name_tiered` → None). On a
+/// compiled hit it runs the native code and marshals the result into an
+/// `ExecOutcome`, mirroring `try_native_static_call`.
+#[cfg(feature = "jit")]
+fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<Result<ExecOutcome>> {
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }
+    if args.iter().any(|a| matches!(a, Value::Ref(_))) { return None; }
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
+    // lockstep with `vm_ctx`). Copy the small entry fields out before the native
+    // call so no borrow of `*jit_ctx` is held across it.
+    // Phase 1.5.2: peek (already-compiled?) — NOT the tiered resolve. The divert
+    // only ROUTES already-hot functions to native; tier-up counting belongs to the
+    // primary call sites. The tiered resolve here double-counted a cold callee
+    // (jit_call's counter, then this fallback's) — halving the effective threshold.
+    let (max_reg, ptr, name, file) = {
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?;
+        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+    };
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut callee = crate::jit::frame::JitFrame::new(max_reg, args);
+    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
+    ctx.push_frame(crate::exception::VmFrame::new(
+        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
+    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
+    ctx.pop_frame();
+    if r != 0 {
+        callee.recycle();
+        return Some(Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null))));
+    }
+    let ret = callee.ret.take();
+    callee.recycle();
+    Some(Ok(ExecOutcome::Returned(ret)))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value]) -> Option<Result<ExecOutcome>> {
+    None
+}
+
+/// add-osr-loop-tiering: on a hot loop back-edge, hand the running interp
+/// activation over to native code (On-Stack Replacement). Called at every backward
+/// branch; bumps the per-activation back-edge counter and, **exactly when** it
+/// reaches `osr_threshold`, compiles (or reuses) an OSR entry at `loop_header` and
+/// resumes there with the live register state. Returns `Some(outcome)` if OSR took
+/// over (the function ran to completion natively), `None` to keep interpreting.
+///
+/// OSR only applies to translatable functions (guaranteed no `ref`/`out` params →
+/// no `LoadLocalAddr` → no exit copy-out to skip), so returning here without the
+/// interpreter's normal exit path is correct. `frame.regs` is cloned into the OSR
+/// frame; block `0..K` results the interpreter already computed live there.
+#[cfg(feature = "jit")]
+fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize)
+    -> Option<Result<ExecOutcome>>
+{
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }                        // interp-only mode: no OSR
+    frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    // SAFETY: jit_ctx is valid for the whole JitModule::run_fn (set/cleared in
+    // lockstep with vm_ctx). Only touched through &-methods / Copy field reads.
+    let threshold = unsafe { (*jit_ctx).osr_threshold };
+    if frame.back_edge_count != threshold { return None; }   // fire exactly once
+    // v1: OSR only merged functions — resolve this function's merged id by name.
+    let id = unsafe { (*(*jit_ctx).module).func_index.get(&func.name).copied() }?;
+    let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut osr = crate::jit::frame::JitFrame::from_interp_regs(&frame.regs, entry.max_reg);
+    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(entry.ptr) };
+    // NB v1 simplification: the interpreter's own VmFrame for this activation is
+    // still on the stack; we push a second one for the OSR native frame. GC scans
+    // both — the interp regs are clones of the OSR regs (same heap refs), so the
+    // double-scan is conservatively correct. A crash trace shows the frame twice
+    // (cosmetic). Popped here; the interp frame's guard pops on the `return` below.
+    ctx.push_frame(crate::exception::VmFrame::new(
+        entry.name, entry.file, &osr.regs as *const _, &osr.env_arena as *const _));
+    let r = unsafe { jit_fn(&mut osr, jit_ctx) };
+    ctx.pop_frame();
+    if r != 0 {
+        osr.recycle();
+        return Some(Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null))));
+    }
+    let ret = osr.ret.take();
+    osr.recycle();
+    Some(Ok(ExecOutcome::Returned(ret)))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_osr(_ctx: &VmContext, _frame: &mut Frame, _func: &Function, _loop_header: usize)
+    -> Option<Result<ExecOutcome>> { None }
 
 /// perf-vm-iteration Phase 1 (Decision 3): hot direct-call entry that fills the
 /// callee register file **directly** from the caller's registers + argument
@@ -668,6 +791,10 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 // safepoint so long-running loops park promptly.
                 if target <= block_idx {
                     crate::gc::safepoint::check_safepoint(ctx);
+                    // add-osr-loop-tiering: hot loop → hand off to native (OSR).
+                    if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
+                        return outcome;
+                    }
                 }
                 block_idx = target;
             }
@@ -686,6 +813,10 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 };
                 if target <= block_idx {
                     crate::gc::safepoint::check_safepoint(ctx);
+                    // add-osr-loop-tiering: hot loop → hand off to native (OSR).
+                    if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
+                        return outcome;
+                    }
                 }
                 block_idx = target;
             }

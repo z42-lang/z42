@@ -28,14 +28,14 @@ examples/       # .z42 示例源文件
 
 ## 协作工作流（必须遵守）
 
-完整流程见 [`workflow.md`](rules/workflow.md)（流程主线 / Scope / commit）+ [`philosophy.md`](rules/philosophy.md)（实现哲学 / 设计完整性 / 延后管理）+ [`version-bumping.md`](rules/version-bumping.md)（zbc / zpkg version bump checklist）+ [`parallel-development.md`](rules/parallel-development.md)（多 change 并行：子系统互斥锁 + `docs/spec/changes/ACTIVE.md` 账本）+ [`bootstrap-seed.md`](rules/bootstrap-seed.md)（自举种子鸡蛋问题：删构建期种子/兜底前必须先为所有 cold-start 入口供种，删+供种是同一原子变更；**新语法/格式分阶段引入纪律——support 先行、晚一个 nightly 再 use，让上一版 z42c 永远能编当前源码 → 彻底删 C# 种子的前提**）。核心要点：
+完整流程见 [`workflow.md`](rules/workflow.md)（流程主线 / Scope / commit）+ [`philosophy.md`](rules/philosophy.md)（实现哲学 / 设计完整性 / 延后管理）+ [`version-bumping.md`](rules/version-bumping.md)（zbc / zpkg version bump checklist）+ [`parallel-development.md`](rules/parallel-development.md)（多 change 并行：**PR 隔离模型**——每 change 一分支/worktree，PR 先来后到合并，合并前必并入 main 最新改动+重跑 GREEN，合并后删分支/worktree；子系统锁 + ACTIVE.md 账本已废除）+ [`bootstrap-seed.md`](rules/bootstrap-seed.md)（自举种子鸡蛋问题：删构建期种子/兜底前必须先为所有 cold-start 入口供种，删+供种是同一原子变更；**新语法/格式分阶段引入纪律——support 先行、晚一个 nightly 再 use，让上一版 z42c 永远能编当前源码 → 彻底删 C# 种子的前提**）。核心要点：
 
 - **每次新对话**：Claude 自动读取 `.claude/projects/<project>/memory/MEMORY.md` 和当前阶段，主动说明状态和下一步
 - **需规范先行**（lang / ir / vm 类变更）：DRAFT → User 确认 → IMPL → GREEN → COMMIT
 - **轻量变更**（fix / refactor / test）：直接 IMPL → GREEN → COMMIT
 - **全绿（GREEN）标准**：定义见 [workflow.md 阶段 8](rules/workflow.md)；任何测试失败（含 pre-existing）都不得 commit / push
 - **提交格式**：`type(scope): 描述`，每个逻辑单元单独提交
-- **自动提交**：每次迭代完成后 Claude 自动 commit + push，`.claude/` 和 `docs/spec/` 必须纳入，无需 User 二次确认
+- **自动提交 + 落地**：每次迭代完成后 Claude 自动 commit，`.claude/` 和 `docs/spec/` 必须纳入，无需 User 二次确认；落地走 **PR 优先**——很小的改动可直推 main，其余开 PR（合并前并入 main 最新改动 + 重跑 GREEN，合并后删分支/worktree）。详见 [`parallel-development.md`](rules/parallel-development.md)
 
 ## 文档同步（必须遵守）
 

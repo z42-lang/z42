@@ -115,6 +115,49 @@ string _epProfileJson(string[] tiers, string[] aotPkgs, VmCaps vm) {
         + _epNormArch(vm.Arch) + "\"}, \"caps\": " + _epJsonStrArr(vm.Caps) + "}";
 }
 
+// ── scenario capability gating ───────────────────────────────────────────────
+
+// Parse a scenario's `// requires-caps: a, b` declaration → the capability names
+// it needs. Empty if none declared. Lets the harness skip a scenario on a VM
+// that lacks a capability (e.g. `threads` on wasm) instead of crashing.
+string[] _epScenarioRequiredCaps(string src) {
+    string[] lines = src.Split("\n");
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        string ln = lines[i].Trim();
+        if (ln.Contains("requires-caps:")) {
+            string[] kv = ln.Split(":");
+            if (kv.Length < 2) { return new string[0]; }
+            string[] raw = kv[1].Split(",");
+            int n = 0;
+            for (int j = 0; j < raw.Length; j = j + 1) {
+                if (raw[j].Trim().Length > 0) { n = n + 1; }
+            }
+            string[] res = new string[n];
+            int k = 0;
+            for (int j = 0; j < raw.Length; j = j + 1) {
+                string c = raw[j].Trim();
+                if (c.Length > 0) { res[k] = c; k = k + 1; }
+            }
+            return res;
+        }
+    }
+    return new string[0];
+}
+
+// Capabilities in `required` absent from `have` (empty = all present).
+string[] _epCapsMissing(string[] required, string[] have) {
+    int n = 0;
+    for (int i = 0; i < required.Length; i = i + 1) {
+        if (!_epHas(have, required[i])) { n = n + 1; }
+    }
+    string[] res = new string[n];
+    int k = 0;
+    for (int i = 0; i < required.Length; i = i + 1) {
+        if (!_epHas(have, required[i])) { res[k] = required[i]; k = k + 1; }
+    }
+    return res;
+}
+
 // ── mode sweep (bench/test `--mode` option → composition list) ───────────────
 
 // Expand a `--mode interp|jit|both` option into the measured-run mode names to

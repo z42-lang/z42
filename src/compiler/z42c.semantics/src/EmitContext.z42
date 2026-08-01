@@ -18,6 +18,10 @@ public sealed class EmitContext {
     public string      CurLabel; public bool Ended;       // 当前块已终结
     public int         NextReg;  public int MaxReg;  public int LabelSeq;
     public string[]    ContLabels; public string[] BreakLabels; public int LoopDepth;  // 循环标签栈
+    // fix-finally-nonlocal-exit：每层「循环/switch」入栈时的 finally 栈深，break/continue 各一个——
+    // break 目标 = 本层结束（floor=本层入栈深）；continue 目标对 switch 是**外层循环**（floor 继承外层），
+    // 故二者可不同。退出该层时只跑 floor..当前深 之间的 finally（跨越本层边界的那些）。
+    public int[]       BreakFinFloor; public int[] ContFinFloor;
     public int[]       RegTags;   public int RegTagCount;   // reg id → IrType 标签（REGT，byte-identical）
     public IrLineEntry[] Lines;  public int LineCount;  public int LastLine;   // DBUG 行表（同行去重，镜像 C# TrackLine）
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
@@ -39,7 +43,8 @@ public sealed class EmitContext {
         this.Locals = new StrMap(); this.Fields = new StrMap();
         this.Blocks = new IrBlock[4]; this.BlockCount = 0;
         this.NextReg = 0; this.MaxReg = 0; this.LabelSeq = 0;
-        this.ContLabels = new string[4]; this.BreakLabels = new string[4]; this.LoopDepth = 0;
+        this.ContLabels = new string[4]; this.BreakLabels = new string[4];
+        this.BreakFinFloor = new int[4]; this.ContFinFloor = new int[4]; this.LoopDepth = 0;
         this.RegTags = new int[8]; this.RegTagCount = 0;
         this.Lines = new IrLineEntry[8]; this.LineCount = 0; this.LastLine = 0;
         this.Ns = "";
@@ -337,22 +342,33 @@ public sealed class EmitContext {
         return r;
     }
 
-    public void PushLoop(string contL, string breakL) {
+    // breakFloor/contFloor = 分别在 break/continue 退出本层时应跑到的 finally 底深（FunctionEmitter
+    // 传入）。真循环两者相等（=入栈时 finally 深）；switch 的 continue 转发外层循环，contFloor 继承外层。
+    public void PushLoop(string contL, string breakL, int breakFloor, int contFloor) {
         if (this.LoopDepth == this.ContLabels.Length) {
             string[] bc = new string[this.ContLabels.Length * 2];
             string[] bb = new string[this.BreakLabels.Length * 2];
+            int[]    kf = new int[this.BreakFinFloor.Length * 2];
+            int[]    cf = new int[this.ContFinFloor.Length * 2];
             int i = 0;
-            while (i < this.LoopDepth) { bc[i] = this.ContLabels[i]; bb[i] = this.BreakLabels[i]; i = i + 1; }
-            this.ContLabels = bc; this.BreakLabels = bb;
+            while (i < this.LoopDepth) {
+                bc[i] = this.ContLabels[i]; bb[i] = this.BreakLabels[i];
+                kf[i] = this.BreakFinFloor[i]; cf[i] = this.ContFinFloor[i]; i = i + 1;
+            }
+            this.ContLabels = bc; this.BreakLabels = bb; this.BreakFinFloor = kf; this.ContFinFloor = cf;
         }
         this.ContLabels[this.LoopDepth] = contL;
         this.BreakLabels[this.LoopDepth] = breakL;
+        this.BreakFinFloor[this.LoopDepth] = breakFloor;
+        this.ContFinFloor[this.LoopDepth] = contFloor;
         this.LoopDepth = this.LoopDepth + 1;
     }
     public void   PopLoop()     { this.LoopDepth = this.LoopDepth - 1; }
     public bool   InLoop()      { return this.LoopDepth > 0; }
     public string CurBreak()    { return this.BreakLabels[this.LoopDepth - 1]; }
     public string CurContinue() { return this.ContLabels[this.LoopDepth - 1]; }
+    public int    CurBreakFinFloor() { return this.BreakFinFloor[this.LoopDepth - 1]; }
+    public int    CurContFinFloor()  { return this.ContFinFloor[this.LoopDepth - 1]; }
 
     // Z42Type → IrType 标签（z42c.ir 是无依赖叶子不能引用 Z42Type，故映射在 semantics 侧）。
     public int ToIrType(Z42Type t) {

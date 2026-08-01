@@ -40,6 +40,22 @@ impl JitFrame {
         JitFrame { regs, ret: None, env_arena: Vec::new() }
     }
 
+    /// add-osr-loop-tiering: build a JitFrame from an interpreter frame's live
+    /// register file at an OSR hand-off. Interp and JIT share the exact same
+    /// register model (`Vec<Value>` indexed by IR reg number), so this is a straight
+    /// copy of the live state — the native OSR entry resumes the hot loop reading
+    /// these values back through `regs_base`. Sized to the JIT function's
+    /// `max_reg + 1`; interp slots beyond that are dropped (same function → same
+    /// max_reg), missing ones stay `Null`.
+    pub fn from_interp_regs(interp_regs: &[Value], max_reg: usize) -> Self {
+        let size = max_reg + 1;
+        let mut regs = take_pooled_regs(size);
+        for (i, v) in interp_regs.iter().enumerate() {
+            if i < size { regs[i] = v.clone(); }
+        }
+        JitFrame { regs, ret: None, env_arena: Vec::new() }
+    }
+
     /// Allocate a frame and fill its first registers directly from the caller's
     /// register file, indexed by `arg_indices`. Avoids the intermediate
     /// `Vec<Value>` collect + the resulting double-clone that `new(_, &args)`
@@ -189,6 +205,14 @@ struct LazySlot {
     name:  String,
     /// Compiled native entry, filled on first call to this slot (compile-once).
     entry: OnceLock<FnEntry>,
+    /// runtime-jit-tiering Phase 1c: per-lazy-function call counter, the lazy-slot
+    /// analogue of `JitModuleCtx.call_counts` (merged path). A lazily-loaded
+    /// dep-zpkg function compiles only once its count reaches `jit_threshold`;
+    /// below that it stays on the interpreter. Without this, `resolve_lazy_slot`
+    /// compiled EVERY reached lazy function on first call, bypassing the threshold
+    /// entirely — so one-shot dep `__static_init__` (force-loaded at startup) and
+    /// any cold dep function always compiled (measured: ~73% of all compiles).
+    count: AtomicU32,
 }
 
 /// Growable, address-stable table of lazily-loaded functions. `by_name` assigns a
@@ -257,6 +281,16 @@ pub struct JitModuleCtx {
     /// (N=1 → compile-on-first-call = pre-tiering behavior). From
     /// `Z42_JIT_THRESHOLD` (default 2), clamped ≥ 1.
     pub jit_threshold: u32,
+    /// add-osr-loop-tiering: cache of compiled OSR entries, keyed by
+    /// `(merged function id, loop-header block K)`. Keyed by K too because a
+    /// function with two loops can OSR at different headers — a K1 entry must not be
+    /// reused for a K2 hand-off. Populated at most once per key (OSR is rare); the
+    /// `FnEntry` is cloned out (owned) so callers don't hold the lock across the
+    /// native call. `rejected()` marks untranslatable / compile-failed.
+    pub osr_entries: Mutex<std::collections::HashMap<(usize, usize), FnEntry>>,
+    /// add-osr-loop-tiering: OSR trigger threshold (loop back-edges in the interp).
+    /// From `Z42_OSR_THRESHOLD`, clamped ≥ 1.
+    pub osr_threshold: u32,
 }
 
 impl JitModuleCtx {
@@ -277,7 +311,7 @@ impl JitModuleCtx {
             self.resolve_merged_slot(id, false)
         } else {
             // make-vm-loading-lazy: synthetic id → lazily-loaded function.
-            self.resolve_lazy_slot(id - self.merged_len)
+            self.resolve_lazy_slot(id - self.merged_len, false)
         }
     }
 
@@ -292,7 +326,7 @@ impl JitModuleCtx {
         if id < self.merged_len {
             self.resolve_merged_slot(id, true)
         } else {
-            self.resolve_lazy_slot(id - self.merged_len)
+            self.resolve_lazy_slot(id - self.merged_len, true)
         }
     }
 
@@ -345,17 +379,31 @@ impl JitModuleCtx {
     /// function materialized by the lazy loader. Compiles it on first call. The slot's
     /// `OnceLock` (in a boxed `LazySlot` → stable address) hands out a `&FnEntry`
     /// valid for the run; the compile is deduped under the compiler lock.
-    unsafe fn resolve_lazy_slot(&self, i: usize) -> Option<&FnEntry> {
+    unsafe fn resolve_lazy_slot(&self, i: usize, tier: bool) -> Option<&FnEntry> {
         // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
         // table lock is released before the (slow) compile.
-        let (name_ptr, entry_ptr): (*const String, *const OnceLock<FnEntry>) = {
+        let (name_ptr, entry_ptr, count_ptr):
+            (*const String, *const OnceLock<FnEntry>, *const AtomicU32) = {
             let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
             let slot = table.slots.get(i)?;
-            (&slot.name as *const String, &slot.entry as *const OnceLock<FnEntry>)
+            (&slot.name as *const String,
+             &slot.entry as *const OnceLock<FnEntry>,
+             &slot.count as *const AtomicU32)
         };
         let entry_lock = &*entry_ptr;
         if let Some(e) = entry_lock.get() {
             return Some(e);
+        }
+        // runtime-jit-tiering Phase 1c: tiered callers count this call; below the
+        // threshold → cold tier (return None → caller interprets via its lazy
+        // `None`-fallback, the SAME arm already taken for untranslatable lazy
+        // funcs). Non-tiered callers (entry / static-init resolve) compile on
+        // first call as before. `resolve_id_by_name` already verified the function
+        // is translatable before registering this slot, so a cold return here just
+        // defers a definitely-compilable function, never hides an error.
+        if tier {
+            let n = (*count_ptr).fetch_add(1, Ordering::Relaxed) + 1;
+            if n < self.jit_threshold { return None; }
         }
         if self.vm_ctx.is_null() { return None; }
         let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
@@ -409,7 +457,9 @@ impl JitModuleCtx {
             return Some((self.merged_len + i) as u32); // registered while we materialized
         }
         let i = table.slots.len();
-        table.slots.push(Box::new(LazySlot { name: name.to_string(), entry: OnceLock::new() }));
+        table.slots.push(Box::new(LazySlot {
+            name: name.to_string(), entry: OnceLock::new(), count: AtomicU32::new(0),
+        }));
         table.by_name.insert(name.to_string(), i);
         Some((self.merged_len + i) as u32)
     }
@@ -427,6 +477,72 @@ impl JitModuleCtx {
     pub unsafe fn resolve_fn_by_name_tiered(&self, name: &str) -> Option<&FnEntry> {
         let id = self.resolve_id_by_name(name)?;
         self.resolve_fn_by_id_tiered(id as usize)
+    }
+
+    /// runtime-jit-tiering Phase 1.5.2: **side-effect-free** "is this function
+    /// ALREADY compiled?" check for the interp central divert (`try_native_exec`).
+    /// Returns `Some(entry)` only when the slot is already filled with a compiled
+    /// (non-rejected) entry — **never increments the tier counter, never compiles,
+    /// never registers a lazy slot**. The divert's job is to ROUTE an already-hot
+    /// function to native, NOT to tier it up (counting belongs to the primary call
+    /// sites: `jit_call` / per-site interp hooks / `jit_obj_new` / vtable). Using
+    /// the *tiered* resolve here double-counted a cold callee — once at `jit_call`,
+    /// again at its interp fallback's `exec_function` — halving the effective
+    /// threshold and prematurely compiling cold functions.
+    pub unsafe fn resolve_fn_by_name_peek(&self, name: &str) -> Option<&FnEntry> {
+        // Merged path: pre-sized OnceLock slot, stable address.
+        if let Some(&idx) = (*self.module).func_index.get(name) {
+            let e = self.fn_entries_by_id.get(idx)?.get()?;
+            return if e.is_rejected() { None } else { Some(e) };
+        }
+        // Lazy path: peek an already-registered slot WITHOUT registering a new one.
+        // Boxed slot → stable heap address, so the borrow outlives the table lock
+        // (same invariant `resolve_lazy_slot` relies on).
+        let entry_ptr: *const OnceLock<FnEntry> = {
+            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            let &i = table.by_name.get(name)?;
+            &table.slots.get(i)?.entry as *const OnceLock<FnEntry>
+        };
+        let e = (*entry_ptr).get()?;
+        if e.is_rejected() { None } else { Some(e) }
+    }
+
+    /// add-osr-loop-tiering: resolve (compiling on first sight) the **OSR entry** of
+    /// merged function `id` at loop-header block `k`. Returns an OWNED `FnEntry`
+    /// clone (so the caller doesn't hold the cache lock across the native call), or
+    /// `None` if the function is lazy (v1 skips OSR for not-yet-merged funcs),
+    /// untranslatable, or the compile failed. Cached per `(id, k)` — a second hot
+    /// activation of the same loop reuses it. OSR is a rare event, so a plain
+    /// `Mutex<HashMap>` (vs the hot-path lock-free slot tables) is fine.
+    pub unsafe fn resolve_osr_entry(&self, id: usize, k: usize) -> Option<FnEntry> {
+        if id >= self.merged_len { return None; } // v1: OSR only for merged funcs
+        {
+            let map = match self.osr_entries.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            if let Some(e) = map.get(&(id, k)) {
+                return if e.is_rejected() { None } else { Some(e.clone()) };
+            }
+        }
+        // Not cached — compile the OSR variant (translatable check first).
+        let module = &*self.module;
+        let func = module.functions.get(id)?;
+        let compiled: FnEntry = if super::translate::jit_unsupported_reason(func).is_some() {
+            FnEntry::rejected()
+        } else {
+            let mut guard = match (*self.lazy).lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            match guard.compile_fn_osr(func, k) {
+                Ok(e) => {
+                    if !self.vm_ctx.is_null() {
+                        (*self.vm_ctx).counters().jit_methods_compiled
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    e
+                }
+                Err(_) => FnEntry::rejected(),
+            }
+        };
+        let mut map = match self.osr_entries.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+        let e = map.entry((id, k)).or_insert(compiled);
+        if e.is_rejected() { None } else { Some(e.clone()) }
     }
 }
 

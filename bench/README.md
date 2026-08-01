@@ -31,6 +31,14 @@
 profile 结果）。非可跑格子（如 interp-only VM 上请求 jit）显式跳过并打印原因。`--diff` 按
 `(name, metric, mode_label@os/arch)` 匹配。
 
+**jit/interp 加速比**（add-bench-speedup-cap-gating）：`--diff` 对同一 `(name, metric, platform)`
+下同时测了 interp 与 jit 的场景，尾部派生一节 `Speedup (interp/jit, >1 = jit faster)`，逐条打印
+`<name> [time@os/arch]  N.Nx`（= interp.value / jit.value）。纯派生展示，不入 schema、不触发回归。
+
+**场景能力门控**（add-bench-speedup-cap-gating）：场景顶部可声明 `// requires-caps: <csv>`（如
+`threads`）。harness 探到被测 VM 的 caps 后，缺任一所需 cap → **显式跳过该场景**（不崩），供
+wasm/mobile 等无线程 VM 安全略过 `06_thread_scaling` 之类场景。
+
 ### micro vs e2e — 何时用哪个
 
 | | **micro (`[Benchmark]`)** | **e2e (`bench/scenarios`)** |

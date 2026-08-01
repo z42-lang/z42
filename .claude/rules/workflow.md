@@ -125,13 +125,12 @@ docs/spec/
 发现可归档 change 时：
 - 将被覆盖的 stale `[ ]` 改为 `[x]`（注明由哪个后续任务解决）
 - 更新 tasks.md 头部状态为 `🟢 已完成 | 完成：YYYY-MM-DD`
-- 执行阶段 9 归档动作（mv + ACTIVE.md 更新）
+- 执行阶段 9 归档动作（mv 到 archive/ + 文档同步）
 - 归档提交并入当次会话第一个 commit，不单独占新对话
 
 **检测来源（无需逐行细读，粗扫就够）：**
 - tasks.md 头部状态标志（🟢 / 🟡 / 🔴）
 - `grep -c '^\- \[ \]' tasks.md` 的未勾数 vs tasks.md 末尾 G/子任务的"完成声明"
-- `docs/spec/changes/ACTIVE.md` 子系统持有表是否有与 `spec/changes/` 不符的陈旧条目
 
 Claude 读到以下关键词时自动触发对应动作：
 
@@ -185,7 +184,9 @@ docs/spec/changes/<change-name>/
 
 命名：动词开头，kebab-case，≤ 5 词。如 `add-for-loop`、`fix-type-check-crash`。
 
-**并行占用登记（必做）**：创建容器同时，按 [`parallel-development.md`](parallel-development.md) 声明本 change 占用的子系统，逐个查 `docs/spec/changes/ACTIVE.md`——任一被占则**停下排队**，全部空闲才登记为持有者并继续。
+**开分支（必做，小改例外）**：除"很小的改动"可直接在 main 上做外，创建容器同时按同名开一条分支
+（大改走 worktree 物理隔离），后续实施 / commit 都在该分支上。**不再有子系统锁 / 占用登记 / 排队**——
+多个 change 并行时各走各的分支，合并顺序先来后到。策略见 [`parallel-development.md`](parallel-development.md)。
 
 ---
 
@@ -232,7 +233,9 @@ docs/spec/changes/<change-name>/
 
 > 拿不准时按冲突处理（串行实施），代价远低于事后 merge 冲突排查。
 
-> **并行执行（src 代码）**：上表是 docs/markdown 的细则；`src/` 代码的并行判定改用**子系统互斥锁**——见 [`parallel-development.md`](parallel-development.md) + `docs/spec/changes/ACTIVE.md` 账本。开 change 前查账本，子系统被占则排队。
+> **并行执行（src 代码）**：上表是 docs/markdown 的段级冲突细则；`src/` 代码不再上子系统锁——每个
+> change 一条分支物理隔离，PR 先来后到合并，文本冲突交给 git rebase、语义冲突交给合并前的强制
+> rebase + 完整 GREEN。见 [`parallel-development.md`](parallel-development.md)。
 
 ## Out of Scope
 - [明确排除，防止范围蔓延]
@@ -431,7 +434,7 @@ docs/spec/changes/<change-name>/
 ### 批量授权的边界声明
 
 - **批量授权 ≠ 自动扩张授权**：授权范围**严格限于一开始展示并被 User 明确确认的 spec 名单**；新发现的需求必须重新走"提议 + 单 spec 确认"或"扩展批量名单 + 重新确认"
-- 批量授权对"代码实施 + commit + push"生效；对**外部影响动作**（如 force-push、删除分支、改 CI 配置）仍需单独确认
+- 批量授权对"代码实施 + commit + push + 开 PR / 合并 PR / 删自己这条已合并 PR 的分支·worktree"生效；对**其余外部影响动作**（force-push、删他人分支、改 CI 配置）仍需单独确认（删自己已合并分支属默认授权，见 [`parallel-development.md`](parallel-development.md) §5）
 - User 任何时候说"停"、"暂停"、"不要继续了" → 立即终止批量授权，进入交互模式
 
 ---
@@ -559,7 +562,6 @@ xtask test vscode-syntax
 
 1. 将 tasks.md 状态改为 `🟢 已完成`，更新日期
 2. 移动目录：`docs/spec/changes/<name>/` → `docs/spec/archive/YYYY-MM-DD-<name>/`
-   - **释放子系统锁**：从 `docs/spec/changes/ACTIVE.md` 摘除本 change 持有的全部子系统行（见 [`parallel-development.md`](parallel-development.md)）
 3. **文档同步（统一维护触发矩阵）**：下表是"改了什么 → 必须同步哪些文档"的**唯一 SoT**——
    其他规范只链接此表，不另立分表；"同步到哪一段"的段级展开见各写作规范。逐行核对，
    本次改动命中的行全部落实。知识类内容一律落 `docs/book/`（旧 `docs/design/` 不再更新；
@@ -593,10 +595,27 @@ xtask test vscode-syntax
            .claude/ \
            .gitignore *.md
    git commit -m "type(scope): 描述"
-   git push origin main
    ```
    - `.claude/`（workflow、memory、规则变更）和 `docs/spec/`（proposal、design、spec、tasks、archive；已被 `docs/` 覆盖）**必须纳入提交**，不得遗漏。
    - 每个逻辑单元单独提交，不积压。
+
+5. **落地到 main（PR 优先，小改例外）**——策略见 [`parallel-development.md`](parallel-development.md)：
+   - **很小的改动**（单行 fix / typo / 一处文档 / 显然无耦合）：走完整 GREEN 后可 `git push origin main` 直推。
+   - **其余一切**：走 **PR**——
+     ```bash
+     git push origin <branch>
+     gh pr create                             # body 按 parallel-development.md §1.1 三段 + Claude Code 页脚
+     # 合并前：并入 main 最新改动 + 重跑完整 GREEN（防版本落后 + 兜住语义耦合）
+     git fetch origin && git rebase origin/main
+     xtask test                               # rebase 后必须全绿才合
+     gh pr merge --squash --delete-branch     # 合并即删远程分支
+     ```
+   - **合并后清理（必做）**：删本地分支 + worktree（远程分支由 `--delete-branch` 或手动 `git push origin --delete` 删）：
+     ```bash
+     git worktree remove <worktree-path>      # 若走了 worktree
+     git branch -d <branch>
+     ```
+   - 删自己这条已合并 PR 的分支 / worktree 属**默认授权**；force-push / 删他人分支仍需单独确认。
 
 ---
 

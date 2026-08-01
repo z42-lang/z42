@@ -12,6 +12,10 @@ public sealed class FunctionEmitter {
     private EmitContext _ctx;
     private ExprEmitter _expr;
     private StrMap      _seedLocalFns;   // impl-local-fn-l2：lifted 体继承父函数的 local-fn→lifted 名映射（兄弟/递归调用解析）
+    // 活跃 finally 栈（fix-finally-nonlocal-exit）：词法上包裹当前发射点的 try-with-finally 体，
+    // 内层在 _finDepth-1。return/break/continue 离开这些 try 前，须内→外内联跑对应 finally。
+    private BoundStmt[] _finBodies;
+    private int         _finDepth;
 
     public FunctionEmitter(SymbolTable symbols, IrGen gen) { this._symbols = symbols; this._gen = gen; this._seedLocalFns = null; }
 
@@ -26,6 +30,7 @@ public sealed class FunctionEmitter {
     public IrFunction EmitFunction(string name, MethodDecl md, BoundStmt body, bool isInstance, bool isStaticMethod,
                                    Z42ClassType owner, string[] classTp, int classTpCount) {
         this._ctx = new EmitContext(this._symbols, this._gen);
+        this._finBodies = null; this._finDepth = 0;   // 每函数重置 finally 栈
         this._ctx.Ns = this._gen.Ns;   // BP-0：emitter 侧名字限定（ObjNew/is/as 类引用）
         this._ctx.Deps = this._gen.Deps;   // CI-4：跨包调用索引
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;   // IC-1
@@ -260,6 +265,35 @@ public sealed class FunctionEmitter {
         }
     }
 
+    // ── finally 栈（非局部退出经 finally；fix-finally-nonlocal-exit）──────────────
+    private void _pushFinally(BoundStmt fin) {
+        if (this._finBodies == null) { this._finBodies = new BoundStmt[4]; }
+        if (this._finDepth == this._finBodies.Length) {
+            BoundStmt[] g = new BoundStmt[this._finBodies.Length * 2];
+            int i = 0; while (i < this._finDepth) { g[i] = this._finBodies[i]; i = i + 1; }
+            this._finBodies = g;
+        }
+        this._finBodies[this._finDepth] = fin;
+        this._finDepth = this._finDepth + 1;
+    }
+    private void _popFinally() { this._finDepth = this._finDepth - 1; }
+
+    // 在一个非局部退出（return/break/continue）离开若干 try-with-finally 前，把它们的 finally 体
+    // 内→外内联发射到当前块。floor = 停在哪层（return→0 跑全部；break/continue→本循环 FinFloor）。
+    // 发射 finally[i] 时把活跃栈临时截断到 i（只余 [0..i-1]），故 finally 内的 return 只跑更外层、
+    // 绝不自我重入。任一 finally 自身做了非局部退出（块已 Ended）即停止后续。
+    private void _emitPendingFinallys(int floor) {
+        int saved = this._finDepth;
+        int i = saved - 1;
+        while (i >= floor) {
+            if (this._ctx.Ended) { break; }
+            this._finDepth = i;
+            this._emitBlockChildren(this._finBodies[i]);
+            i = i - 1;
+        }
+        this._finDepth = saved;
+    }
+
     // try/catch/finally lowering（port-z42c-try；1:1 镜像 C# EmitBoundTryCatch）。
     private void _emitTry(BoundTry t) {
         string tryStartL = this._ctx.Fresh("try_start");
@@ -267,6 +301,10 @@ public sealed class FunctionEmitter {
         string afterL = this._ctx.Fresh("after_try");
         string finallyL = afterL;
         if (t.HasFinally) { finallyL = this._ctx.Fresh("finally"); }
+        // finally 活跃于 try 体 + 各 catch 体内：其内的 return/break/continue 退出前经此 finally。
+        // 发射 finally 体的三处副本（内联退出 / 合成 catch-all / fall-through）本身不含自己，故在
+        // catch 循环后、发射 finally 副本前弹出。
+        if (t.HasFinally) { this._pushFinally(t.Finally); }
 
         this._ctx.EndBlock(new BrTerm(tryStartL));
         this._ctx.StartBlock(tryStartL);
@@ -309,6 +347,7 @@ public sealed class FunctionEmitter {
             if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(finallyL)); }
             ci = ci + 1;
         }
+        if (t.HasFinally) { this._popFinally(); }   // finally 体副本发射前弹出（副本不含自身）
         // 无 catch 有 finally → 合成 catch-all "*" + rethrow（镜像 C#）
         if (t.CatchCount == 0 && t.HasFinally) {
             TypedReg allReg = this._ctx.Alloc(IrType.Ref);
@@ -422,8 +461,22 @@ public sealed class FunctionEmitter {
             }
         } else if (s is BoundReturn) {
             BoundReturn ret = s as BoundReturn;
-            if (ret.HasValue) { TypedReg r = this._expr.Emit(ret.Value); this._ctx.EndBlock(new RetTerm(true, r)); }
-            else { this._ctx.EndBlock(new RetTerm(false, null)); }
+            // 返回值须在 finally 运行前求值（finally 改到的变量不影响已定的返回值，镜像 C#/Java）。
+            bool hasV = ret.HasValue;
+            TypedReg rv = null;
+            if (hasV) {
+                rv = this._expr.Emit(ret.Value);
+                // Emit 对裸局部返回其活寄存器别名；有 finally 待跑时先物化到独立寄存器，
+                // 否则 finally 若改到该局部会污染返回值。仅在 _finDepth>0 时插 Copy——无 finally
+                // 路径字节不变（z42c 自身零 try/finally → 自举不动点不破）。
+                if (this._finDepth > 0) {
+                    TypedReg keep = this._ctx.Alloc(rv.Type);
+                    this._ctx.Emit(new CopyInstr(keep, rv));
+                    rv = keep;
+                }
+            }
+            this._emitPendingFinallys(0);   // return 退出整个函数 → 跑全部外层 finally（内→外）
+            if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(hasV, rv)); }
         } else if (s is BoundExprStmt) {
             BoundExprStmt e = s as BoundExprStmt;
             this._expr.Emit(e.E);                         // 结果弃
@@ -446,9 +499,15 @@ public sealed class FunctionEmitter {
         } else if (s is BoundSwitch) {
             this._emitSwitch(s as BoundSwitch);
         } else if (s is BoundBreak) {
-            if (this._ctx.InLoop()) { this._ctx.EndBlock(new BrTerm(this._ctx.CurBreak())); }
+            if (this._ctx.InLoop()) {
+                this._emitPendingFinallys(this._ctx.CurBreakFinFloor());   // 跑本层内的 finally
+                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(this._ctx.CurBreak())); }
+            }
         } else if (s is BoundContinue) {
-            if (this._ctx.InLoop()) { this._ctx.EndBlock(new BrTerm(this._ctx.CurContinue())); }
+            if (this._ctx.InLoop()) {
+                this._emitPendingFinallys(this._ctx.CurContFinFloor());
+                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(this._ctx.CurContinue())); }
+            }
         }
     }
 
@@ -488,7 +547,7 @@ public sealed class FunctionEmitter {
         } else {
             this._ctx.EndBlock(new BrTerm(bodyL));
         }
-        this._ctx.PushLoop(incrL, endL);
+        this._ctx.PushLoop(incrL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
         this._ctx.StartBlock(bodyL);
         this._emitStmt(f.Body);
         if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(incrL)); }
@@ -508,7 +567,7 @@ public sealed class FunctionEmitter {
         this._ctx.StartBlock(condL);
         TypedReg cond = this._expr.Emit(w.Cond);
         this._ctx.EndBlock(new BrCondTerm(cond, bodyL, endL));
-        this._ctx.PushLoop(condL, endL);
+        this._ctx.PushLoop(condL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
         this._ctx.StartBlock(bodyL);
         this._emitStmt(w.Body);
         if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(condL)); }
@@ -523,7 +582,7 @@ public sealed class FunctionEmitter {
         string condL = this._ctx.Fresh("do_cond");
         string endL = this._ctx.Fresh("do_end");
         this._ctx.EndBlock(new BrTerm(bodyL));
-        this._ctx.PushLoop(condL, endL);
+        this._ctx.PushLoop(condL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
         this._ctx.StartBlock(bodyL);
         this._emitStmt(dw.Body);
         if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(condL)); }
@@ -540,7 +599,10 @@ public sealed class FunctionEmitter {
         TypedReg subj = this._expr.Emit(sw.Subject);
         string endL = this._ctx.Fresh("sw_end");
         string outerCont = this._ctx.InLoop() ? this._ctx.CurContinue() : endL;
-        this._ctx.PushLoop(outerCont, endL);
+        // switch：break→本 sw_end（floor=当前深）；continue 转发外层循环 → floor 继承外层 continue-floor
+        // （无外层则同当前深），确保 switch 内 continue 跨越 switch 与外层循环间的 try-finally 时跑其 finally。
+        int swContFloor = this._ctx.InLoop() ? this._ctx.CurContFinFloor() : this._finDepth;
+        this._ctx.PushLoop(outerCont, endL, this._finDepth, swContFloor);
         int ci = 0;
         while (ci < sw.CaseCount) {
             BoundSwitchCase c = sw.Cases[ci];
@@ -612,7 +674,7 @@ public sealed class FunctionEmitter {
         TypedReg cmpReg = this._ctx.Alloc(IrType.Bool);
         this._ctx.Emit(new LtInstr(cmpReg, iReg, lenReg));
         this._ctx.EndBlock(new BrCondTerm(cmpReg, bodyL, endL));
-        this._ctx.PushLoop(incrL, endL);
+        this._ctx.PushLoop(incrL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
         this._ctx.StartBlock(bodyL);
         TypedReg idxReg = this._ctx.Locals.Get(idxVar) as TypedReg;
         TypedReg elemReg = this._ctx.Alloc(this._ctx.ToIrType(fe.VarType));
