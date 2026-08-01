@@ -53,20 +53,17 @@ public static class Script {
     // 编译器世界 + 加载默认 using 包）。REPL 启动即 spawn 一个 worker 线程跑它，与用户打字并行，
     // 首次 Eval 消费前 Join 汇合 → 首次 eval 从「回车后干等 3.4s」变「近乎瞬时」。
     //
-    // 并发安全（design Decision 4）：全程操作**本地** scan，**末尾**才 `state.CachedScan = scan`
-    // 原子发布。并发读该字段的补全器只见 null（既有 null 分支返回空）或完全成品，绝不见半构造/
-    // 正被 EnsurePackageLoaded 变异的中间态。幂等：已建则直接返回。
+    // repl-lazy-prelude：worker 只建依赖世界**骨架**（nsMap 路由 + 惰性 world），**不 reconcile prelude、
+    // 不预载 usings** → 立即发布。`1+1` 类纯表达式零包加载（1.72s→~0.40s），秒回车也不卡。首次引用 Std
+    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性，~1.7s——留待 T2 按符号
+    // reconcile 降到 ~0.5s）。**不后台 reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
+    // 主线程 eval，后台预热反而把 `1+1` 拖慢（实测双缓冲 Phase 2 下秒回车 `1+1`=3s）。
+    // 并发安全：worker 建完 skel 即原子发布（64 位指针写）、随即退出——绝无「发布后继续变异 scan」，
+    // 与主线程 eval / 补全器无数据竞争；补全器并发读只见 null 或完全成品。幂等：已建则直接返回。
     public static void Prewarm(ScriptState state) {
         if (state.CachedScan != null) { return; }
-        DepScanResult scan = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
-        // 默认 using（#64：Std.IO/Collections/Text/Math）语义 = "始终可用" → 即时加载其包到本地
-        // scan（与旧同步路径等价；EnsurePackageLoaded 幂等）。其余包惰性（见 _compileSrc 的按需加载）。
-        int i = 0;
-        while (i < state.Usings.Count) {
-            DepScan.EnsurePackageLoaded(scan, state.Usings[i]);
-            i = i + 1;
-        }
-        state.CachedScan = scan;   // 原子发布（64 位指针写）——见上并发安全说明
+        DepScanResult skel = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+        state.CachedScan = skel;
     }
 
     // add-repl-prewarm：Eval 顶部汇合点。有后台 worker → Join（已完成则瞬回；打字极快则阻塞到
@@ -260,7 +257,10 @@ public static class Script {
         return art;
     }
 
-    // 加载 state.Usings 里所有尚未加载的包（幂等）。返回 true = 有新包并入（值得重编）。
+    // 加载首次引用符号所需的包（幂等）。返回 true = 有新包并入（值得重编）。
+    // repl-lazy-prelude：lazy-prelude 后 prelude(z42.core) 不再于 scan 预 reconcile。默认 using
+    // `Std.Collections` 由 z42.core 声明 → 加载它即把 prelude（z42.core 的 `Std` 免-using 命名空间：
+    // Object/Convert/Environment 等）一并 reconcile 进 scan，故无需显式补 "Std"（实测 Convert/Environment 正确）。
     private static bool _loadUsingsPackages(ScriptState state) {
         if (state.CachedScan == null) { return false; }
         int before = state.CachedScan.ExportedCount;

@@ -7,6 +7,7 @@
 namespace Z42.Project;
 
 using Std;
+using Std.IO;   // repl-scan-nsindex-cache：LazyReconWorld.EnsureIdx 惰性 open（File.ReadAllBytes）
 using Z42.IR;
 
 // world 每包的 TYPE/SIGS 解析缓存（z42 无交错数组 → 包装类）。
@@ -21,15 +22,19 @@ public sealed class ReconWorldPkg {
 // （spike 实证：闭包 max=3、avg=1，路由 230/230 与全量扫描一致）。首次 eval O(引用闭包)，
 // 不随标准库增大恶化。产物与 eager 全量逐字节相同（解析确定 + 路由等价，见 design）。
 public sealed class LazyReconWorld {
-    public ZpkgInfo[]      World;       // world 包（非 exe），与 WorldDirs / Wp 平行
+    public ZpkgInfo[]      World;       // world 包（非 exe），与 WorldDirs / Wp 平行；惰性 open 模式下初始 null
     public string[]        WorldDirs;   // 各包目录（indexed 散装 zbc 定位）
     public int             Wc;
     public ReconWorldPkg[] Wp;          // 懒填：null = 未解析
+    // repl-scan-nsindex-cache：惰性 open 模式——World[i]==null 时按 WorldPaths[i] 现开（ns 索引命中路径下，
+    // ScanDirsLazy 不再 open-all，只在 EnsureIdx 真正需要该包 TYPE/SIGS 时才开）。null = eager 模式（World 已全开）。
+    public string[]        WorldPaths;
     // ns → world 索引（扁平 (ns, idx) 对；z42 无 int[][]，故平行数组 + 线性查）
     private string[] _pairNs; private int[] _pairIdx; private int _pairN;
 
     public LazyReconWorld(ZpkgInfo[] world, string[] worldDirs, int wc) {
         this.World = world; this.WorldDirs = worldDirs; this.Wc = wc;
+        this.WorldPaths = null;   // eager 模式（现有调用方 + 种子 z42c）：World 已全开
         this.Wp = new ReconWorldPkg[wc];
         // 从每包 NSPC 建 (ns, world索引) 对表（廉价；不碰 TYPE/SIGS）。
         string[] pn = new string[16]; int[] pidx = new int[16]; int cnt = 0;
@@ -51,13 +56,32 @@ public sealed class LazyReconWorld {
         this._pairNs = pn; this._pairIdx = pidx; this._pairN = cnt;
     }
 
-    // 幂等填第 i 包（读 TYPE/SIGS）。
+    // 幂等填第 i 包（读 TYPE/SIGS）。repl-scan-nsindex-cache：惰性 open——World[i]==null 且有 WorldPaths
+    // → 现开该包（缓存回 World[i]，避免 EnsureIdx 重复触发时重开）。eager 模式（World[i] 非 null）行为不变。
     public ReconWorldPkg EnsureIdx(int i) {
         if (this.Wp[i] == null) {
-            this.Wp[i] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(this.World[i], this.WorldDirs[i]),
-                                           ZpkgReader.ReadModuleSigs(this.World[i]));
+            ZpkgInfo z = this.World[i];
+            if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
+                z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
+                this.World[i] = z;
+            }
+            this.Wp[i] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(z, this.WorldDirs[i]),
+                                           ZpkgReader.ReadModuleSigs(z));
         }
         return this.Wp[i];
+    }
+
+    // repl-scan-nsindex-cache：惰性 open 工厂——不 open 任何包、路由由传入的 (ns,idx) 对直接给定
+    // （来自持久化 ns 索引），World 全 null 待 EnsureIdx 现开。与 3-arg 构造器（eager，World 已全开 +
+    // 现场 ReadNamespaces 建路由）互补；两者产出的路由语义一致（同一 sorted 包序 + 同一 ns 列表）。
+    public static LazyReconWorld LazyFromPairs(string[] worldPaths, string[] worldDirs, int wc,
+                                               string[] pairNs, int[] pairIdx, int pairN) {
+        LazyReconWorld w = new LazyReconWorld(new ZpkgInfo[0], new string[0], 0);
+        w.World = new ZpkgInfo[wc];          // 全 null → 惰性 open
+        w.WorldPaths = worldPaths; w.WorldDirs = worldDirs; w.Wc = wc;
+        w.Wp = new ReconWorldPkg[wc];
+        w._pairNs = pairNs; w._pairIdx = pairIdx; w._pairN = pairN;
+        return w;
     }
 
     // 路由：解析**所有**声明 fq 命名空间的包（Decision 1/2：非 first-wins，与全量扫描等价）。
