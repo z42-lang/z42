@@ -125,6 +125,21 @@ TYPE 体头部：typeCount:varint + 每类 (fqStrIdx:varint 走 STRS 池, bodyOf
 - **PR-2（Phase 2+3，高风险）**：`SymbolTable` completer + 三难点索引 + REPL 接入 + 差分/延迟门禁。
 - **PR-3（④，可选）**：紧凑 per-type 索引（若需）。
 
+## 10. 已评估并否决的 Phase 2 捷径（2026-08-01，避免下轮重走）
+
+试图绕开「SymbolTable completer」核心改动的两条捷径都不成立：
+
+- **①（否决）解析 E0401 错误文本提未解析类型名 → 只 ReconcileOne 那一个 + 重试**：诊断措辞多样
+  （`unknown type in \`new\`: X` / 成员访问失败 / `unknown type parameter` …，散落 ExprTyper/
+  ConstraintChecker 等多处），无单一干净格式可靠提取类型名。即便加整包回退保正确性，也基本退化成整包
+  加载，无净收益。
+- **②（否决）逐个 using 增量加载 + 每次重编**：为用到第 N 个 using 的求值需编译 N 次（每次 ~0.2-0.4s），
+  比「一次全载 + 重编一次」更慢；且 `Console`→`Object` 基类链仍整包拉 z42.core，省不掉大头。
+
+**结论**：真正的 per-type 只能走 **③ SymbolTable completer**（编译器自身在类型解析点 miss → 回调
+`ReconcileOne` 精确补一个类型）。这是名字解析核心改动，须专门一轮做：miss 回调 + arity/impl/顺序按类型解
++ REPL-only 双路径 + 逐类差分 + 自举不动点。**Phase 1 基础设施（`ReconcileOne` 等）已就位、编译通过。**
+
 ## 待 User 裁决
 1. 分阶段交付（PR-1 先落 Phase 1）认可？
 2. Phase 2 的「REPL-only 惰性、build 保持整包」双路径策略认可？（守自举的代价是 Load 维护两条路径。）
