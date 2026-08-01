@@ -507,3 +507,27 @@ void test_constfold_skip_nonconst() {
     Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = add i32 %0, %1\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
+
+// ── 代数恒等式（optimization-pipeline，单操作数常量）──────────────────────
+// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的死常量由 temp-DCE 清掉。
+[Test]
+void test_identity_add_zero() {
+    // a + 0 → copy a（死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害）
+    string src = "int F(int a) { return a + 0; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %0\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+[Test]
+void test_identity_mul_one() {
+    // a * 1 → copy a
+    string src = "int F(int a) { return a * 1; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = copy %0\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+[Test]
+void test_identity_mul_zero() {
+    // a * 0 → const 0（a 变死；若 a 有副作用其 producer 仍由 temp-DCE 的 IsPure 守护保留）
+    string src = "int F(int a) { return a * 0; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = const.i64 0\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}

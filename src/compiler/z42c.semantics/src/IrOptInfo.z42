@@ -25,16 +25,19 @@ public sealed class IrOptInfo {
     // Const 指令（保 Dst）；否则 null。整数算术**仅非负结果才折**（负值 _parseIntLit 编码不了，保守跳过）；
     // div/rem 防除零、shift 防越界（镜像 IrGenFacts._foldBinary 的 long 语义）。比较恒安全 → ConstBool。
     public static IrInstr TryConstFold(IrInstr ins, bool[] cint, long[] cval) {
-        if (ins is AddInstr) { AddInstr i = ins as AddInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] + cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is SubInstr) { SubInstr i = ins as SubInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] - cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is MulInstr) { MulInstr i = ins as MulInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] * cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is DivInstr) { DivInstr i = ins as DivInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c != 0) { long r = cval[i.A.Id] / c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } return null; }
-        if (ins is RemInstr) { RemInstr i = ins as RemInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c != 0) { long r = cval[i.A.Id] % c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } return null; }
-        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] & cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] | cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] ^ cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } return null; }
-        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c >= 0 && c <= 63) { long r = cval[i.A.Id] << (int)c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } return null; }
-        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c >= 0 && c <= 63) { long r = cval[i.A.Id] >> (int)c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } return null; }
+        // 每条：先试双常量折叠（→ Const）；不成再试单操作数代数恒等式（→ Copy 或 Const 0）。
+        // 恒等式安全性：→Copy 保留另一操作数的读（不新增死值）；→Const 0 让操作数可能变死，
+        // 但 temp-DCE 只删 IsPure 指令，故有副作用的 producer 仍保留。皆 int 语义、无溢出/抛出顾虑。
+        if (ins is AddInstr) { AddInstr i = ins as AddInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] + cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.A, 0L)) { return new CopyInstr(i.Dst, i.B); } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is SubInstr) { SubInstr i = ins as SubInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] - cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is MulInstr) { MulInstr i = ins as MulInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] * cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.A, 0L) || IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new ConstI64Instr(i.Dst, "0"); } if (IrOptInfo._cvIs(cint, cval, i.A, 1L)) { return new CopyInstr(i.Dst, i.B); } if (IrOptInfo._cvIs(cint, cval, i.B, 1L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is DivInstr) { DivInstr i = ins as DivInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c != 0) { long r = cval[i.A.Id] / c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } if (IrOptInfo._cvIs(cint, cval, i.B, 1L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is RemInstr) { RemInstr i = ins as RemInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c != 0) { long r = cval[i.A.Id] % c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } if (IrOptInfo._cvIs(cint, cval, i.B, 1L)) { return new ConstI64Instr(i.Dst, "0"); } return null; }
+        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] & cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.A, 0L) || IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new ConstI64Instr(i.Dst, "0"); } return null; }
+        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] | cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.A, 0L)) { return new CopyInstr(i.Dst, i.B); } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long r = cval[i.A.Id] ^ cval[i.B.Id]; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } if (IrOptInfo._cvIs(cint, cval, i.A, 0L)) { return new CopyInstr(i.Dst, i.B); } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c >= 0 && c <= 63) { long r = cval[i.A.Id] << (int)c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
+        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { long c = cval[i.B.Id]; if (c >= 0 && c <= 63) { long r = cval[i.A.Id] >> (int)c; if (r >= 0) { return new ConstI64Instr(i.Dst, r.ToString()); } } } if (IrOptInfo._cvIs(cint, cval, i.B, 0L)) { return new CopyInstr(i.Dst, i.A); } return null; }
         if (ins is EqInstr) { EqInstr i = ins as EqInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { return new ConstBoolInstr(i.Dst, cval[i.A.Id] == cval[i.B.Id]); } return null; }
         if (ins is NeInstr) { NeInstr i = ins as NeInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { return new ConstBoolInstr(i.Dst, cval[i.A.Id] != cval[i.B.Id]); } return null; }
         if (ins is LtInstr) { LtInstr i = ins as LtInstr; if (IrOptInfo._cc(cint, i.A, i.B)) { return new ConstBoolInstr(i.Dst, cval[i.A.Id] < cval[i.B.Id]); } return null; }
@@ -46,6 +49,12 @@ public sealed class IrOptInfo {
 
     private static bool _cc(bool[] cint, TypedReg a, TypedReg b) {
         return a.Id >= 0 && a.Id < cint.Length && b.Id >= 0 && b.Id < cint.Length && cint[a.Id] && cint[b.Id];
+    }
+
+    // 代数恒等式助手：reg 是否为已知 int 常量且值 == v（越界安全）。
+    // 用于单操作数恒等折叠（x+0→x、x*1→x、x*0→0 等），操作数皆 int（Add/Mul/… 只对 int 发射）。
+    private static bool _cvIs(bool[] cint, long[] cval, TypedReg r, long v) {
+        return r.Id >= 0 && r.Id < cint.Length && cint[r.Id] && cval[r.Id] == v;
     }
 
     // 该指令写入的寄存器 id；无 Dst（FieldSet/StaticSet/ArraySet 及所有终结子）返回 -1。
