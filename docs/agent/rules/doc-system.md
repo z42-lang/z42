@@ -18,7 +18,7 @@ docs/
 └── agent/       【面向大模型的协作材料】
     └── rules/     开发规范（流程/风格/提交…；后续可在 agent/ 下新建其它分类子目录）
 
-docs/spec/changes/     【变更工作区】进行中 change + ACTIVE.md 账本 —— 保留
+docs/spec/changes/     【变更工作区】进行中 change —— 保留（ACTIVE.md 账本已废除，改 PR 隔离）
 README.md              【仓库门面】首页 + 快速索引 —— 分流到 book / workflow / rules / roadmap
 src/**/README.md       【目录说明】6 段制 —— 人 review 的落点
 CLAUDE.md / AGENTS.md  【瘦入口】让任意大模型 import 上面的文件 —— 最后一步才配
