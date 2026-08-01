@@ -208,6 +208,29 @@ public static class TsigReconcile {
         return r;
     }
 
+    // repl-per-symbol-reconcile（T2 Phase 1）：**只 reconcile 一个 fq 类型**（不整包 Rebuild）。
+    // 读其命名空间模块的 TYPE（ReadOneModuleTypes，只读该 ns）→ 找到 IrClassDesc → 复用已按单类型的
+    // `_rebuildClass`（基类链经 `world.EnsureFq` 按需）。产出 == 整包 Rebuild 里该类那条（同 `_rebuildClass`
+    // 同 IrClassDesc 同 world → byte-identical）。供 T2 Phase 2 的 SymbolTable completer 按引用类型调用。
+    // 未找到（该包不声明 fq / ns 无此类）→ null。
+    public static ExportedClassZ ReconcileOne(ZpkgInfo z, string zDir, string fq, LazyReconWorld world) {
+        string ns = TsigReconcile._nsOfFq(fq);
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, zDir, ns);
+        int t = 0;
+        while (t < mt.ClassCount) {
+            if (mt.Classes[t].Name == fq) { return TsigReconcile._rebuildClass(mt.Classes[t], ns, world); }
+            t = t + 1;
+        }
+        return null;
+    }
+
+    // fq 的命名空间（最后一个 '.' 之前；镜像 LazyReconWorld._nsOf）。嵌套 '+' / 泛型 '$' 不含 '.'。
+    private static string _nsOfFq(string fq) {
+        int i = fq.Length - 1;
+        while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(0, i); } i = i - 1; }
+        return "";
+    }
+
     private static ExportedModuleZ _rebuildModule(ZpkgModuleTypes mt, ZpkgModuleSigs ms,
                                                   LazyReconWorld world,
                                                   ExportedFuncZ[] pkgFuncs, int pkgFuncCount) {

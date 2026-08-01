@@ -312,6 +312,51 @@ public static class ZpkgReader {
         return r;
     }
 
+    // repl-per-symbol-reconcile（T2 Phase 1）：只读**一个命名空间模块**的 TYPE——packed 模式经 MODS 目录
+    // 各段**长度前缀**跳过非目标模块，只对目标 `ns` 那条 `ReadTypeAt`。产出 == `ReadModuleTypes(z)` 中 ns
+    // 那条（同一 ReadTypeAt 同位置 → byte-identical），但不解其余模块。**零格式改动**（复用现有 MODS 目录）。
+    // 用于按符号 reconcile（ReconcileOne）：`Object`→只读 `Std` 模块，不碰 z42.core 其余 3 模块。
+    public static ZpkgModuleTypes ReadOneModuleTypes(ZpkgInfo z, string pkgDir, string targetNs) {
+        if (!z.Packed) {
+            // indexed：散装 TYPE 已按 FILE(≈命名空间) 分——复用整读后筛（indexed 是 dev 态，非 stdlib 发布态）。
+            ZpkgModuleTypes[] all = ZpkgReader._readIndexedTypes(z, pkgDir);
+            int a = 0;
+            while (a < all.Length) { if (all[a].Namespace == targetNs) { return all[a]; } a = a + 1; }
+            return new ZpkgModuleTypes(targetNs, new IrClassDesc[0], 0);
+        }
+        ZpkgSection mods = z.Section("MODS");
+        if (mods == null) { return new ZpkgModuleTypes(targetNs, new IrClassDesc[0], 0); }
+        var m = new ZpkgCursor(z.Data, mods.Offset);
+        int modCount = m.U32();
+        int i = 0;
+        while (i < modCount) {
+            string ns = z.Pool[m.U32()];
+            m.U32(); m.U32(); m.U16(); m.U32();   // src / hash / fnCount / firstSig（跳过头）
+            int funcLen = m.U32();                 // ① func 体
+            m.Pos = m.Pos + funcLen;
+            int typeLen = m.U32();                 // ② TYPE 体
+            if (ns == targetNs) {
+                IrClassDesc[] classes = new IrClassDesc[0];
+                if (typeLen > 0) { classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, z.Pool); }
+                return new ZpkgModuleTypes(ns, classes, classes.Length);
+            }
+            m.Pos = m.Pos + typeLen;               // 跳过 TYPE 体
+            int k = 0;
+            while (k < 3) { int len = m.U32(); m.Pos = m.Pos + len; k = k + 1; }   // ③④⑤ dbug/regt/tidx
+            i = i + 1;
+        }
+        return new ZpkgModuleTypes(targetNs, new IrClassDesc[0], 0);   // 未声明该 ns
+    }
+
+    // repl-per-symbol-reconcile（T2 Phase 1）：只读**一个命名空间模块**的 SIGS——SIGS 全量平铺，MODS 给每
+    // 模块 firstSig/fnCount 范围 → 找到 targetNs 的范围切片。产出 == `ReadModuleSigs(z)` 中 ns 那条。
+    public static ZpkgModuleSigs ReadOneModuleSigs(ZpkgInfo z, string targetNs) {
+        ZpkgModuleSigs[] all = ZpkgReader.ReadModuleSigs(z);   // SIGS 平铺解一次（廉价，无 FUNC 体）；切 targetNs
+        int i = 0;
+        while (i < all.Length) { if (all[i].Namespace == targetNs) { return all[i]; } i = i + 1; }
+        return new ZpkgModuleSigs(targetNs, new IrFunction[0], 0);
+    }
+
     // indexed 散装 TYPE 读取（drop-tsig-expt P3）：FILE 目录每条 (ns, src_rel) → 散装 zbc 路径
     // `<pkgDir>/<src_rel 去 .z42>.zbc`（镜像 Rust load_zpkg_indexed）→ ZbcReader.Read → Classes。
     private static ZpkgModuleTypes[] _readIndexedTypes(ZpkgInfo z, string pkgDir) {
