@@ -75,9 +75,12 @@ public 字段 type-switch，零 bootstrap API-face 延迟）。挂 `IrGen.Genera
 **pass 1 const-fold**：`TryConstFold(ins, cint, cval)` —— 建单赋值 int 常量表(`ConstI64`→`_parseIntLit`)，
 前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令，并把折出的新 const 登记回表(链式传播
 `1+2→3`、`3+3→6`)。放最前 → 产出的 const 供 copy-prop 传播、死源 const 供 temp-DCE 清理。
-**这是"加规则 = 插一条 rule"的样例**：`TryConstFold` 是一张 opcode→折叠规则表,后续加**常量字符串长度、
-常量数组长度、`x*1→x`、`x+0→x`** 等只是往这张表加分支,pass 框架不动。收益本身偏低(真实代码字面量
-运算少),价值在**证明管线可持续扩展**。
+**这是"加规则 = 插一条 rule"的样例**：`TryConstFold` 是一张 opcode→折叠规则表,加规则只是往这张表加
+分支,pass 框架不动。**已扩展：单操作数代数恒等式**(2026-08-01)——双常量折不成时再试:`x+0`/`0+x`/`x-0`/
+`x*1`/`1*x`/`x/1`/`x|0`/`x^0`/`x<<0`/`x>>0` → `copy` 另一操作数;`x*0`/`0*x`/`x&0`/`x%1` → `const 0`
+(经 `_cvIs(cint,cval,r,v)` 判"是否已知常量 == v")。`→copy` 不新增死值;`→const 0` 让操作数可能变死,
+但 temp-DCE 只删 `IsPure` 指令,有副作用的 producer 仍保留。**后续可继续加**:常量字符串长度、常量数组
+长度等。收益本身偏低(真实代码字面量运算少),价值在**证明管线可持续扩展**。
 > **安全边界(规则扩展时必守)**：整数算术**仅非负结果才折**(`_parseIntLit` 编码不了负数,负值保守跳过)；
 > div/rem 防除零、shift 防越界(镜像 `IrGenFacts._foldBinary` 的 `long` 语义——它在 long 里算、对全宽度
 > emit,是被生产验证过的做法)。float 暂不折(文本化影响自举字节一致)。每条新规则配「折叠生效 + 安全不折」
