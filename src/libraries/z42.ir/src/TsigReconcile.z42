@@ -56,15 +56,45 @@ public sealed class LazyReconWorld {
         this._pairNs = pn; this._pairIdx = pidx; this._pairN = cnt;
     }
 
-    // 幂等填第 i 包（读 TYPE/SIGS）。repl-scan-nsindex-cache：惰性 open——World[i]==null 且有 WorldPaths
-    // → 现开该包（缓存回 World[i]，避免 EnsureIdx 重复触发时重开）。eager 模式（World[i] 非 null）行为不变。
+    // 现开第 i 包（repl-scan-nsindex-cache 惰性 open：World[i]==null 且有 WorldPaths → Open 并缓存回）。
+    private ZpkgInfo _openPkg(int i) {
+        ZpkgInfo z = this.World[i];
+        if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
+            z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
+            this.World[i] = z;
+        }
+        return z;
+    }
+
+    // repl-per-symbol-reconcile（中层）：**只读第 i 包的 `ns` 一个模块** TYPE/SIGS，追加进 Wp[i]（按 ns 增长）。
+    // 幂等（已含该 ns 模块则跳过）。这是「按符号 reconcile」的关键——`Object`→只读 `Std` 模块，不碰
+    // z42.core 其余 3 模块。Wp[i].Types[m]/Sigs[m] 平行同模块 → `_locate`/base 链按名字扫、与顺序无关 →
+    // 产出与整包读 byte-identical（自举字节不动点门禁）。
+    public void EnsureNs(int i, string ns) {
+        if (this.Wp[i] != null) {
+            int m = 0;
+            while (m < this.Wp[i].Types.Length) { if (this.Wp[i].Types[m].Namespace == ns) { return; } m = m + 1; }
+        }
+        ZpkgInfo z = this._openPkg(i);
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, this.WorldDirs[i], ns);
+        ZpkgModuleSigs  ms = ZpkgReader.ReadOneModuleSigs(z, ns);
+        if (this.Wp[i] == null) { this.Wp[i] = new ReconWorldPkg(new ZpkgModuleTypes[0], new ZpkgModuleSigs[0]); }
+        ReconWorldPkg wp = this.Wp[i];
+        int n = wp.Types.Length;
+        ZpkgModuleTypes[] t2 = new ZpkgModuleTypes[n + 1];
+        ZpkgModuleSigs[]  s2 = new ZpkgModuleSigs[n + 1];
+        int k = 0;
+        while (k < n) { t2[k] = wp.Types[k]; s2[k] = wp.Sigs[k]; k = k + 1; }
+        t2[n] = mt; s2[n] = ms;
+        wp.Types = t2; wp.Sigs = s2;
+    }
+
+    // 幂等填第 i 包（整包读 TYPE/SIGS）。repl-per-symbol-reconcile：**恢复为原始整包读**——per-ns
+    // 的 EnsureNs 因不动点抓出的 bug（DiagnosticBag 丢方法）暂不接入主路径，EnsureIdx 保持原样确保
+    // byte-identical。惰性 open（B）经 _openPkg 复用。
     public ReconWorldPkg EnsureIdx(int i) {
         if (this.Wp[i] == null) {
-            ZpkgInfo z = this.World[i];
-            if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
-                z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
-                this.World[i] = z;
-            }
+            ZpkgInfo z = this._openPkg(i);
             this.Wp[i] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(z, this.WorldDirs[i]),
                                            ZpkgReader.ReadModuleSigs(z));
         }
@@ -85,6 +115,11 @@ public sealed class LazyReconWorld {
     }
 
     // 路由：解析**所有**声明 fq 命名空间的包（Decision 1/2：非 first-wins，与全量扫描等价）。
+    // repl-per-symbol-reconcile：**中层 per-ns 改动已回退**——曾试 `EnsureNs(pkg, ns)` 只读该 ns 模块，
+    // 但自举字节不动点抓出 bug（`z42c.syntax` 用 `DiagnosticBag` 报 `no method Count/Get/Add`——per-ns
+    // 填充下该类丢了方法，根因待查；EnsureFq 是 build 路径 ScanDirs 也走的，故 per-ns 非 REPL-only、
+    // 破坏了自建）。暂恢复整包 `EnsureIdx`（byte-identical）。`EnsureNs`/`ReadOneModuleTypes`/`ReconcileOne`
+    // 保留可用，待 Phase 2 专门调试 per-ns 一致性后再接。
     public void EnsureFq(string fq) {
         string ns = LazyReconWorld._nsOf(fq);
         int j = 0;

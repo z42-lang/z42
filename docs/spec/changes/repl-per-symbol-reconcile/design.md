@@ -140,6 +140,24 @@ TYPE 体头部：typeCount:varint + 每类 (fqStrIdx:varint 走 STRS 池, bodyOf
 `ReconcileOne` 精确补一个类型）。这是名字解析核心改动，须专门一轮做：miss 回调 + arity/impl/顺序按类型解
 + REPL-only 双路径 + 逐类差分 + 自举不动点。**Phase 1 基础设施（`ReconcileOne` 等）已就位、编译通过。**
 
+## 11. 实测尝试记录 + worktree 环境态告警（2026-08-01/02）
+
+试过**中层** per-ns：`LazyReconWorld.EnsureFq` 从整包 `EnsureIdx` 改为按命名空间 `EnsureNs`（只读引用的 ns
+模块）。跑自举字节不动点 → 报 `z42c.syntax: no method Count/Get/Add on DiagnosticBag`（DiagnosticBag 丢
+方法）+ `no static method ToDouble on Convert`（z42.ir bootstrap）。
+
+**但把 EnsureFq/EnsureIdx 完全回退到原始整包读后（`git diff origin/main` 证 reconcile 路径已 == origin/main、
+改动全是新增未接入方法），本地不动点仍报同样错误、且错误集在增多。** → 判定为**本 worktree 的构建环境态
+损坏**（被数十次 build/cargo/手动拷贝/stash 循环 churn 坏；早先 stdlib [Test] 的 `FieldGet Null` 环境态崩溃
+是同一征兆的前奏）。**推论**：① 本 worktree 的本地不动点/构建结果已不可信，validate T2 须换**全新 clean
+worktree**；② 之前「per-ns 致 DiagnosticBag 丢方法」的诊断**不能坐实**（回退后同样报错，很可能一直是环境
+态）——per-ns 中层的真实正确性**需在 clean worktree 重验**。
+
+**当前安全态（本 change 分支）**：`ReadOneModuleTypes`/`ReadOneModuleSigs`/`ReconcileOne`/`EnsureNs`/
+`_openPkg` 均为**新增、未接入主 reconcile 路径**（EnsureFq/EnsureIdx == origin/main、byte-identical）。
+Phase 2 下一步（clean worktree）：先在干净环境跑通不动点确认基线，再逐步接 per-ns（先 EnsureFq→EnsureNs
++ 差分），最后上 completer。
+
 ## 待 User 裁决
 1. 分阶段交付（PR-1 先落 Phase 1）认可？
 2. Phase 2 的「REPL-only 惰性、build 保持整包」双路径策略认可？（守自举的代价是 Load 维护两条路径。）
