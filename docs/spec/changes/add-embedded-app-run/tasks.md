@@ -26,8 +26,8 @@
 - [x] 3.3 static/dynamic **两侧均验证**：static=显式 libz42.a、dynamic=-lz42/libz42.dylib，C 壳 testhost.c 各跑通 → JSON
 
 ## 阶段 4: 文档 + 验证归档
-- [ ] 4.1 `docs/design/testing/embedded-app-run.md`(嵌入 run + 静/动链接 + 4 平台共享路径)
-- [ ] 4.2 cargo build + desktop e2e 绿
+- [x] 4.1 `docs/design/testing/embedded-app-run.md`（核心/三前端/test-agent/静动链接/desktop 参考/后续）
+- [x] 4.2 cargo build 绿 + desktop e2e（static+dynamic C 壳 + Rust 嵌入 + z42vm 三前端均 JSON 2/2）；全 golden 以 CI 为权威
 - [ ] 4.3 归档 + PR(GREEN 以 CI 为权威)
 
 ## 备注
