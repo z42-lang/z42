@@ -11,7 +11,8 @@
       —— 把 main.rs 的 load→lazy-loader→libs→vm.run 序列（~250 行核心启动路径）搬进来
 - [x] 1.4 `main.rs` 重构调 `z42::app::run`（**behavior-preserving**）+ cargo build
 - [x] 1.5 **全 golden 套件绿**（CI 权威；本地 e2e：refactored z42vm 跑 xtask.zpkg -h 干净退出，load→deps→entry 路径验证）（`xtask test e2e`）—— 核心路径回归网，重构不动点
-- [ ] 1.6 `z42-host::run_app` 调 `z42::app::run`；`z42-abi::z42_run_app` C 包装；cargo build 绿
+- [x] 1.6 `z42-host::run_app` 调 `z42::app::run`（+ `z42::app::default_mode`）；cargo check 绿。
+      C 符号（`z42_host_run_app`）延后到 mobile 壳需要时（desktop 参考走 Rust wrapper 直调）
 
 ## 阶段 2: z42 test-agent(共享字节码)
 - [ ] 2.1 `src/toolchain/testhost/agent/`:agent.z42(Main:命令 → Std.Test.Runner.RunModule → JSON)+ toml

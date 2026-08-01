@@ -194,6 +194,33 @@ pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
     Ok(keys)
 }
 
+/// One-shot: load a z42 app (`.zbc` / `.zpkg`) at `file` and run its entry
+/// (`entry` overrides the artifact's baked-in entry hint; `None` uses it).
+///
+/// add-embedded-app-run: shares z42vm's own app-run core (`z42::app::run`), so
+/// desktop self-contained + wasm / iOS / Android + any user cross-platform app
+/// run identically embedded. `libs_dir` is the stdlib `libs/` dir (deps resolve
+/// from the app's own directory first, then here). `mode = None` → build default
+/// (JIT if compiled in, else Interp). Returns `Ok(())` when the program ran
+/// (a z42-level failure surfaces as the program's own output / a thrown
+/// exception → `Err(VmException)`), so callers reading structured results (e.g.
+/// the test-agent's JSON) use that output, not an exit code.
+pub fn run_app(
+    file: &str,
+    entry: Option<&str>,
+    libs_dir: Option<PathBuf>,
+    mode: Option<z42::metadata::ExecMode>,
+    args: Vec<String>,
+) -> Result<(), HostError> {
+    let opts = z42::app::RunOpts {
+        mode: mode.unwrap_or_else(z42::app::default_mode),
+        libs_dir,
+        program_args: args,
+        print_stats: false,
+    };
+    z42::app::run(file, entry, opts).map_err(|e| HostError::VmException(format!("{e:#}")))
+}
+
 /// Errors surfaced by every `z42-host` API. `message` carries the
 /// runtime's diagnostic from `z42_host_last_error`.
 #[derive(Debug, Clone)]

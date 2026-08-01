@@ -19,6 +19,16 @@ use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// Build-default execution mode: JIT when compiled in (make-jit-default),
+/// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
+/// without an explicit mode (embedding one-shot) use this.
+pub fn default_mode() -> ExecMode {
+    #[cfg(feature = "jit")]
+    { ExecMode::Jit }
+    #[cfg(not(feature = "jit"))]
+    { ExecMode::Interp }
+}
+
 /// Resolved options for [`run`]. The caller resolves execution mode, the stdlib
 /// `libs` dir, program args, and stat-printing; `run` performs the load + execute.
 pub struct RunOpts {
