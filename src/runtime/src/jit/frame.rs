@@ -452,6 +452,34 @@ impl JitModuleCtx {
         let id = self.resolve_id_by_name(name)?;
         self.resolve_fn_by_id_tiered(id as usize)
     }
+
+    /// runtime-jit-tiering Phase 1.5.2: **side-effect-free** "is this function
+    /// ALREADY compiled?" check for the interp central divert (`try_native_exec`).
+    /// Returns `Some(entry)` only when the slot is already filled with a compiled
+    /// (non-rejected) entry — **never increments the tier counter, never compiles,
+    /// never registers a lazy slot**. The divert's job is to ROUTE an already-hot
+    /// function to native, NOT to tier it up (counting belongs to the primary call
+    /// sites: `jit_call` / per-site interp hooks / `jit_obj_new` / vtable). Using
+    /// the *tiered* resolve here double-counted a cold callee — once at `jit_call`,
+    /// again at its interp fallback's `exec_function` — halving the effective
+    /// threshold and prematurely compiling cold functions.
+    pub unsafe fn resolve_fn_by_name_peek(&self, name: &str) -> Option<&FnEntry> {
+        // Merged path: pre-sized OnceLock slot, stable address.
+        if let Some(&idx) = (*self.module).func_index.get(name) {
+            let e = self.fn_entries_by_id.get(idx)?.get()?;
+            return if e.is_rejected() { None } else { Some(e) };
+        }
+        // Lazy path: peek an already-registered slot WITHOUT registering a new one.
+        // Boxed slot → stable heap address, so the borrow outlives the table lock
+        // (same invariant `resolve_lazy_slot` relies on).
+        let entry_ptr: *const OnceLock<FnEntry> = {
+            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
+            let &i = table.by_name.get(name)?;
+            &table.slots.get(i)?.entry as *const OnceLock<FnEntry>
+        };
+        let e = (*entry_ptr).get()?;
+        if e.is_rejected() { None } else { Some(e) }
+    }
 }
 
 // SAFETY: raw pointer — caller ensures Module outlives ctx.

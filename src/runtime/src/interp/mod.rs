@@ -517,8 +517,12 @@ fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<R
     // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
     // lockstep with `vm_ctx`). Copy the small entry fields out before the native
     // call so no borrow of `*jit_ctx` is held across it.
+    // Phase 1.5.2: peek (already-compiled?) — NOT the tiered resolve. The divert
+    // only ROUTES already-hot functions to native; tier-up counting belongs to the
+    // primary call sites. The tiered resolve here double-counted a cold callee
+    // (jit_call's counter, then this fallback's) — halving the effective threshold.
     let (max_reg, ptr, name, file) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_name_tiered(&func.name) }?;
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?;
         (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
