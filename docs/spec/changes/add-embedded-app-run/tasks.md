@@ -23,7 +23,7 @@
 - [x] 3.1 嵌入路径参考：`z42-host/examples/run_app_smoke.rs`（标准原生宿主嵌入 VM 调 z42-host::run_app）。
       productionized `workload/desktop/shell` + 静/动 libz42 C 壳 = 剩余（embedding 路径本身已证）
 - [x] 3.2 端到端：run_app_smoke 嵌入跑 test-agent + sample test → JSON（total:2 passed:2）✅ 全链验证
-- [ ] 3.3 static/dynamic 各验证一次(desktop 可切)
+- [x] 3.3 static/dynamic **两侧均验证**：static=显式 libz42.a、dynamic=-lz42/libz42.dylib，C 壳 testhost.c 各跑通 → JSON
 
 ## 阶段 4: 文档 + 验证归档
 - [ ] 4.1 `docs/design/testing/embedded-app-run.md`(嵌入 run + 静/动链接 + 4 平台共享路径)
