@@ -10,9 +10,9 @@
 
 ## 1. 现状（`gc/safepoint.rs`，add-gc-safepoint 2026-05-20，已实施）
 - **协作轮询**：mutator 每次 `check_safepoint` 读 `gc_phase`，GC 要 STW 时 park（condvar + parked 计数）。
-- **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。
+- **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要（inline-jit-safepoint-check 2026-08-01）。
 - **两模式**：STW mark+sweep（默认）+ 并发（mutator 跑、写屏障、仅短 STW handshake）。
-- **JIT 插桩**：有过 inline safepoint fast-path（`atomic_rmw sub + branch`，后 revert，待重做）。
+- **JIT 插桩**：fast-path 已**内联**（inline-jit-safepoint-check，2026-08-01）——`translate::emit_safepoint_check` 在 5 处 site（function entry / 后向 Br / BrCond / Call·CallIndirect 返回）emit 原生 `load + iadd_imm(-1) + store + brif`，替代 `jit_check_safepoint` helper call（~10ns→~1-2ns）；仅 counter 归零的 slow 分支调 `jit_check_safepoint_slow`。用普通 load/store（非 `atomic_rmw`）是关键：前一版 `atomic_rmw sub` 在 x86_64 Cranelift lowering panic 被 revert，load/store 形式从根因绕开。
 
 → 机制可用，但**硬绑 GC**（单一 `gc_phase`），且**无显式线程状态**。
 
@@ -46,7 +46,7 @@ enum Target { All, Thread(ThreadId) }   // 全局 handshake / 单线程
 
 ## 5. 轮询覆盖
 - **interp**：循环回边 + call/return（回边是 OSR 的天然点）。
-- **JIT**：插桩 poll（复用 reverted fast-path 思路：`atomic sub + branch`）；OSR entry 点 = 循环头 poll。
+- **JIT**：内联 poll（`load + sub + store + brif`，非原子 RMW；见 §1 JIT 插桩）；OSR entry 点 = 循环头 poll。
 - **native 边界**：进出 FFI 切 `InVm`↔`InNative`。
 
 ## 6. 并发 GC 共存 + 请求并发（D4）
