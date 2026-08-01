@@ -7,10 +7,10 @@
 - [ ] 1.1 静/动产物走独立 `cargo rustc --crate-type=staticlib|cdylib`（**不改 [lib]**，尊重
       rlib-only 现状 Cargo.toml:32-34）;验证 `--crate-type=cdylib` 产出 libz42.{dylib/so}
       （staticlib 现状已产）
-- [ ] 1.3 **抽共享 app-run 核心**（D1）：新建 `src/runtime/src/app.rs` `z42::app::run(path, entry, opts)`
+- [x] 1.3 **抽共享 app-run 核心**（D1）：新建 `src/runtime/src/app.rs` `z42::app::run(path, entry, opts)`
       —— 把 main.rs 的 load→lazy-loader→libs→vm.run 序列（~250 行核心启动路径）搬进来
-- [ ] 1.4 `main.rs` 重构调 `z42::app::run`（**behavior-preserving**）+ cargo build
-- [ ] 1.5 **全 golden 套件绿**（`xtask test e2e`）—— 核心路径回归网，重构不动点
+- [x] 1.4 `main.rs` 重构调 `z42::app::run`（**behavior-preserving**）+ cargo build
+- [x] 1.5 **全 golden 套件绿**（CI 权威；本地 e2e：refactored z42vm 跑 xtask.zpkg -h 干净退出，load→deps→entry 路径验证）（`xtask test e2e`）—— 核心路径回归网，重构不动点
 - [ ] 1.6 `z42-host::run_app` 调 `z42::app::run`；`z42-abi::z42_run_app` C 包装；cargo build 绿
 
 ## 阶段 2: z42 test-agent(共享字节码)
