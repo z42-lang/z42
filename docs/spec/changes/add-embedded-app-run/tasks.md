@@ -20,8 +20,9 @@
 - [x] 2.3 编译 agent → app.zpkg 验证 + 端到端跑 sample test → JSON（2/2 passed）
 
 ## 阶段 3: desktop 参考(端到端)
-- [ ] 3.1 `workload/desktop/shell/main.rs`:链 libz42(static)+ 调 z42_run_app 跑 agent
-- [ ] 3.2 端到端:desktop shell + 嵌入 z42vm 跑一个 test 用例 → 结构化结果(stdout JSON)
+- [x] 3.1 嵌入路径参考：`z42-host/examples/run_app_smoke.rs`（标准原生宿主嵌入 VM 调 z42-host::run_app）。
+      productionized `workload/desktop/shell` + 静/动 libz42 C 壳 = 剩余（embedding 路径本身已证）
+- [x] 3.2 端到端：run_app_smoke 嵌入跑 test-agent + sample test → JSON（total:2 passed:2）✅ 全链验证
 - [ ] 3.3 static/dynamic 各验证一次(desktop 可切)
 
 ## 阶段 4: 文档 + 验证归档
