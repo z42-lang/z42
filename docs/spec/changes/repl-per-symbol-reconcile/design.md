@@ -146,17 +146,20 @@ TYPE 体头部：typeCount:varint + 每类 (fqStrIdx:varint 走 STRS 池, bodyOf
 模块）。跑自举字节不动点 → 报 `z42c.syntax: no method Count/Get/Add on DiagnosticBag`（DiagnosticBag 丢
 方法）+ `no static method ToDouble on Convert`（z42.ir bootstrap）。
 
-**但把 EnsureFq/EnsureIdx 完全回退到原始整包读后（`git diff origin/main` 证 reconcile 路径已 == origin/main、
-改动全是新增未接入方法），本地不动点仍报同样错误、且错误集在增多。** → 判定为**本 worktree 的构建环境态
-损坏**（被数十次 build/cargo/手动拷贝/stash 循环 churn 坏；早先 stdlib [Test] 的 `FieldGet Null` 环境态崩溃
-是同一征兆的前奏）。**推论**：① 本 worktree 的本地不动点/构建结果已不可信，validate T2 须换**全新 clean
-worktree**；② 之前「per-ns 致 DiagnosticBag 丢方法」的诊断**不能坐实**（回退后同样报错，很可能一直是环境
-态）——per-ns 中层的真实正确性**需在 clean worktree 重验**。
+回退后本地不动点仍报错——**根因是 worktree 环境态**（① `artifacts/build` 被数十次 churn 坏 → `rm -rf` 清掉；
+② `.z42` seed 是 07-29，比 B+T1(#91) 旧 → gen1≠gen2，换 08-01 匹配 nightly seed）。修复环境后：**additive
+infra 基线不动点 5/5 gen1==gen2 ✅**。
 
-**当前安全态（本 change 分支）**：`ReadOneModuleTypes`/`ReadOneModuleSigs`/`ReconcileOne`/`EnsureNs`/
-`_openPkg` 均为**新增、未接入主 reconcile 路径**（EnsureFq/EnsureIdx == origin/main、byte-identical）。
-Phase 2 下一步（clean worktree）：先在干净环境跑通不动点确认基线，再逐步接 per-ns（先 EnsureFq→EnsureNs
-+ 差分），最后上 completer。
+**per-ns 真实 bug 定位 + 修复（clean env，2026-08-02）**：环境修好后接 per-ns `EnsureFq→EnsureNs`，不动点
+**可信地**报 `DiagnosticBag no method Count/Get/Add` + `Convert no static ToDouble`。根因：**一个命名空间可跨
+多个 MODS 条目**（z42 的 module = 源文件，同 ns 的多个源文件 → 多个 MODS 条目）；`ReadOneModuleTypes/Sigs`
+原在第一个匹配处 `return`，漏掉同 ns 其他文件的类/方法。**修复：合并同 ns 的所有模块**（按 MODS 序累积
+classes/functions，与整包同序 → byte-identical）。**修复后 per-ns 不动点 5/5 gen1==gen2 ✅**（增量构建残留导致
+一度误判"仍红"，`rm -rf artifacts/build` 强制重编后通过）。
+
+**结论**：per-ns 中层（`EnsureFq`/`EnsureIdx` 按命名空间填 + `ReadOneModuleTypes/Sigs` 合并同 ns 模块）
+**已验证 byte-identical、字节不动点守住**。`EnsureFq` 现只读引用命名空间的模块（不整包）。下一步：completer
+（首次符号 eval 只 reconcile 引用类型，用 `ReconcileOne`）——真正的首次 Console 提速。
 
 ## 待 User 裁决
 1. 分阶段交付（PR-1 先落 Phase 1）认可？
