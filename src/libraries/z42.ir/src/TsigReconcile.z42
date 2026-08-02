@@ -256,6 +256,12 @@ public static class TsigReconcile {
         return null;
     }
 
+    // repl-per-symbol-reconcile（completer 批量）：从**已读的 IrClassDesc** 直接 reconcile 一个类型
+    // （不重读模块）。供 DepScan.ReconcileCandidatesInNs：读一次 ns 模块、对多个匹配候选各 reconcile。
+    public static ExportedClassZ ReconcileOneFromDesc(IrClassDesc cd, string ns, LazyReconWorld world) {
+        return TsigReconcile._rebuildClass(cd, ns, world);
+    }
+
     // fq 的命名空间（最后一个 '.' 之前；镜像 LazyReconWorld._nsOf）。嵌套 '+' / 泛型 '$' 不含 '.'。
     private static string _nsOfFq(string fq) {
         int i = fq.Length - 1;

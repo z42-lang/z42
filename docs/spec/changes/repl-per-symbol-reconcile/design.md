@@ -161,7 +161,45 @@ classes/functions，与整包同序 → byte-identical）。**修复后 per-ns �
 **已验证 byte-identical、字节不动点守住**。`EnsureFq` 现只读引用命名空间的模块（不整包）。下一步：completer
 （首次符号 eval 只 reconcile 引用类型，用 `ReconcileOne`）——真正的首次 Console 提速。
 
-## 待 User 裁决
-1. 分阶段交付（PR-1 先落 Phase 1）认可？
-2. Phase 2 的「REPL-only 惰性、build 保持整包」双路径策略认可？（守自举的代价是 Load 维护两条路径。）
-3. ④ 的紧凑索引格式（varint 偏移 + STRS 池名字）在「最小化」约束下认可作为 deferred 备选？
+## 12. 落地：REPL completer（per-type reconcile on E0401）——**已完成、GREEN，2026-08-02**
+
+否决了 §10 的 ①（解析错误文本）②（逐 using 增量），也没走编译器内核 SymbolTable-miss 回调（改动面
+过大）。最终落地一条**更简、REPL-only、零编译器内核改动**的 completer，装在 `Script._compileSrc` 的
+错误恢复路径：
+
+**流程**（`Script.z42`）：`_compileSrcOnce` 报错（ErrorCount>0）→
+1. `_loadReferencedTypes(state, src)`：`_typeCandidates` 字符扫源取首字母大写标识符（PascalCase 类型候选，
+   去重，不依赖 Lexer）→ 对每个**活跃命名空间**（用户/默认 usings + prelude `Std` / `Std.Runtime`）调
+   `DepScan.ReconcileCandidatesInNs(scan, ns, cands)`。有新类型并入 → 重编一次。
+2. 仍报错 → 回退整包 `_loadUsingsPackages` 再重编（**保正确性**，completer 只是快路）。
+
+**批量按 ns（关键提速）**（`DepScan.ReconcileCandidatesInNs`）：**每个活跃 ns 只读一次模块**
+（`ReadOneModuleTypes`），对其中短名 ∈ 候选集且未在 `Exported` 的类各 `TsigReconcile.ReconcileOneFromDesc`
+（从已读 `IrClassDesc` 直接 reconcile、不重读）追加进 `scan.Exported`。取代了早期「每候选 × 每 ns 各读一次」
+（首次 Console 候选多、大 `Std` 模块被重读十余次 → 1.9s）。`_typeInExported` 去重保幂等（一个 ns 可有多个
+单类 `ExportedModuleZ` 条目，与 §11 的「同 ns 跨多 MODS」不变量一致）。
+
+**守自举**：completer 全部新增代码（`ReconcileCandidatesInNs`/`ReconcileOneFromDesc`/`_typeCandidates` 等）
+**只在 REPL 错误恢复路径调用**，build 的 `ScanDirs`/整包 `Rebuild` 路径**一字未改**；`ReconcileOneFromDesc`
+只是 `_rebuildClass` 的公开壳（per-type 结果 == 整包对该类的结果）。→ **自举字节不动点 5/5 gen1==gen2 守住**。
+
+**实测**（clean build，08-02）：
+
+| 场景 | 落地前 | completer 后 |
+|------|--------|-------------|
+| `1+2`（无类型引用） | 0.40s（B+T1） | **0.12s** |
+| 首次 `Console.WriteLine` | ~1.7s | **0.33s**（5×） |
+| 首次 `new List<int>()` | ~1.7s | **0.38s** |
+
+正确性抽样全过：`Console`/`Math.Max`/`Convert.ToInt32`/`List.Add·Count`/`Dictionary`/`String.ToUpper·Length·Join`/
+`Math.Sqrt`/跨轮 `var`/声明。**全 GREEN：`✅ z42c self-host 不动点 5/5 gen1==gen2` + all stages passed（C#-free）**。
+
+**方法学教训**：`nohup ./xtask test &` 会把进程从 harness 追踪里双重脱钩 → 过早收到「exit 0」假完成信号
+（进程实际仍在跑，且多个并发 run 互踩 `artifacts/build`）。长测须用 harness 自身后台（不加 `nohup`/`&`），
+或轮询 sentinel，**不可轻信过早的完成通知**。
+
+## 待 User 裁决（Phase 1 时提出，现多已由 §12 落地覆盖）
+1. 分阶段交付（PR-1 先落 Phase 1）认可？→ 已合并 a3241143（中层），本 PR 落 completer。
+2. Phase 2 的「REPL-only 惰性、build 保持整包」双路径策略认可？→ **已按此落地**（completer 仅 REPL 路径）。
+3. ④ 的紧凑索引格式（varint 偏移 + STRS 池名字）在「最小化」约束下认可作为 deferred 备选？→ 未采用，
+   completer 无需改 zpkg 格式即达标，索引格式仍 deferred。
