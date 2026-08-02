@@ -62,7 +62,7 @@ impl SuperInstr {
     /// are cold/hand-built). `reg_types` is the function's per-register static type
     /// table (empty when unavailable → all fusions stay untyped). Returns the fused
     /// tail or `None`.
-    pub fn recognize(block: &BasicBlock, targets: &BranchTargets, reg_types: &[IrType]) -> Option<SuperInstr> {
+    pub fn recognize(block: &BasicBlock, targets: &BranchTargets, reg_types: &[IrType], typing_enabled: bool) -> Option<SuperInstr> {
         // ── rule: cmp + BrCond → CmpBr ──────────────────────────────────────
         if let (Terminator::BrCond { cond, .. }, BranchTargets::BrCond(t, f)) =
             (&block.terminator, targets)
@@ -77,7 +77,12 @@ impl SuperInstr {
                     // I32 by the compiler, so an I64-only gate would never fire.
                     // Comparison stays signed-i64, exactly as the untyped
                     // `numeric_lt` path already does (byte-identical).
-                    let typed = is_int(reg_types, a) && is_int(reg_types, b);
+                    //
+                    // `typing_enabled` is the `Z42_NO_TYPED_FUSION` A/B knob
+                    // (parallel to `Z42_NO_FUSION`), read once at load — forces the
+                    // untyped path so the typed win can be measured on the same
+                    // binary without a rebuild.
+                    let typed = typing_enabled && is_int(reg_types, a) && is_int(reg_types, b);
                     return Some(SuperInstr::CmpBr { op, a, b, dst, t_blk: *t, f_blk: *f, typed });
                 }
             }
@@ -117,8 +122,10 @@ pub fn compute_fused_tails(blocks: &[BasicBlock], branch_targets: &[BranchTarget
     if std::env::var("Z42_NO_FUSION").is_ok() {
         return vec![None; blocks.len()];
     }
+    // Read the typing A/B knob once (not per block).
+    let typing_enabled = std::env::var("Z42_NO_TYPED_FUSION").is_err();
     let out: Vec<Option<SuperInstr>> = blocks.iter().zip(branch_targets.iter())
-        .map(|(b, t)| SuperInstr::recognize(b, t, reg_types))
+        .map(|(b, t)| SuperInstr::recognize(b, t, reg_types, typing_enabled))
         .collect();
     if std::env::var("Z42_FUSION_DEBUG").is_ok() {
         let n = out.iter().filter(|o| o.is_some()).count();

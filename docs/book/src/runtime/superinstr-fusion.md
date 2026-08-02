@@ -59,7 +59,11 @@ metadata/superinstr.rs
   故 unchecked i64 提取对全部整型安全；比较仍是 signed-i64，与既有 `numeric_lt` 逐字节一致。
 - **诚实边界**：interp 的 `Value` 是 tagged 枚举，拿不到 JIT「丢 tag、裸 i64」的大头；typed 只省掉
   可预测的判别分支，故是 single-digit% 量级。移动端（iOS/Android/WASM 纯 interp）是主要受益方。
-- **调试**：`Z42_FUSION_DEBUG=1` 现同时打印 `N typed i64` 计数。
+- **实测**（`04_c2_p1_arith_loop`，interp，同二进制 best-of-7，macOS aarch64）：typed **337.7→327.5ms
+  ≈ 3%**（最热的紧算术循环，最有利场景）；整个融合框架（#93 untyped + typed）vs 无融合 = 368.0→
+  327.5ms ≈ 11%。一般代码循环更少更冷，收益低于此。
+- **调试 / A-B**：`Z42_FUSION_DEBUG=1` 打印 `N typed i64` 计数；`Z42_NO_TYPED_FUSION=1` 强制走
+  untyped 路径（load 期读一次，与 `Z42_NO_FUSION` 平行），用于同二进制测 typed 净收益。
 
 > **算术链融合（deferred）**：把 `t=a+b; d=t*c`（`t` 单用）这类中间值链融成一步——需把 per-block
 > tail 结构扩成 per-instruction 融合表 + 重构 dispatch 热循环 + 单用 reads 分析，ROI（single-digit%）
