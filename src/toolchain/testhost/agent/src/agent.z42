@@ -1,0 +1,37 @@
+// z42 test-agent (add-embedded-app-run, 2026-08-02).
+//
+// The SINGLE, platform-independent on-device test runner. Packaged as an
+// app.zpkg and embedded (via z42-host::run_app → z42::app::run) into every
+// platform's test host (desktop self-contained / wasm / iOS / android). Because
+// it is z42 bytecode, ALL platforms run the exact same runner — no per-language
+// re-implementation (retires the 4× R1–R7 native drivers).
+//
+// It is a thin front for Std.Test.Runner.RunModule: receive a command (which
+// test module + output format), run it, emit the structured report. z42b is the
+// BUILD tool; this is the RUN tool — same Runner, different host.
+//
+// Command (one-shot, via forwarded `-- <args>`):
+//   <target-zbc-path> [format]      format = "json" (default) | "pretty" | "tap"
+// The report (json → one JSON object) goes to stdout; the harness captures it.
+// A future persistent-agent form will accept commands on a live channel.
+namespace Z42.TestHost.Agent;
+
+using Std;
+using Std.IO;
+using Std.Test;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    if (args.Length < 1) {
+        ConsoleError.WriteLine("test-agent: usage: <target.zbc> [format=json|pretty|tap]");
+        return;
+    }
+    string target = args[0];
+    string format = "json";
+    if (args.Length >= 2) { format = args[1]; }
+    // RunModule discovers [Test]/[Benchmark] in the module, runs them, and
+    // renders the report in `format` (json → a JSON object on stdout). Its int
+    // return (0 all-pass / 1 any-fail) is a convenience; the authoritative
+    // result is the emitted report the harness parses.
+    Runner.RunModule(target, format);
+}
