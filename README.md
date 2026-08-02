@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo/z42-icon.svg" width="112" alt="z42 logo">
+  <img src="docs/assets/logo/z42-icon.svg" width="112" alt="z42 logo">
 </p>
 
 # z42
