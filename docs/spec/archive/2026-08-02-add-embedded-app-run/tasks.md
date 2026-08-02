@@ -1,6 +1,6 @@
 # Tasks: 嵌入式 app 运行基座 + desktop 参考
 
-> 状态：🟡 进行中 | 创建：2026-08-02 | 分支：add-embedded-app-run(off origin/main)
+> 状态：🟢 已完成 | 创建：2026-08-02 | 完成：2026-08-02（PR #95 合并 405f5717，已归档） | 分支：add-embedded-app-run(off origin/main)
 > 只做「嵌入基座 + desktop 参考」;wasm/ios/android + 完整 harness/命令通道 = 后续 change。
 
 ## 阶段 1: 嵌入基座(runtime，可 cargo 验证)
