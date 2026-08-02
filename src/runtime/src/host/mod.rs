@@ -646,5 +646,68 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
     }
 }
 
+// ── One-shot embedded app run (add-embedded-app-run) ─────────────────────────
+//
+// Run an app.zpkg embedded (self-contained via `crate::app::run` — its own
+// VmContext, independent of the handle-based load/invoke API above). The C entry
+// for native test-host shells (desktop C / Swift / JNI): the same app-run core
+// the z42vm binary and `z42-host::run_app` use, so all platforms run apps
+// identically. Returns a process-style exit code (0 = ran ok; non-zero on
+// load/run error, message on stderr). `entry` / `libs_dir` may be NULL;
+// `argv[0..argc]` are forwarded to the app's `GetCommandLineArgs()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_host_run_app(
+    app_zpkg: *const c_char,
+    entry: *const c_char,
+    libs_dir: *const c_char,
+    argc: std::os::raw::c_int,
+    argv: *const *const c_char,
+) -> i32 {
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let cstr = |p: *const c_char| -> Option<String> {
+            if p.is_null() {
+                None
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(p) }.to_str().ok().map(str::to_owned)
+            }
+        };
+        let app = match cstr(app_zpkg) {
+            Some(s) => s,
+            None => {
+                eprintln!("z42_host_run_app: app_zpkg is NULL");
+                return 2;
+            }
+        };
+        let entry_owned = cstr(entry);
+        let libs = cstr(libs_dir).map(std::path::PathBuf::from);
+        let mut prog_args: Vec<String> = Vec::new();
+        if !argv.is_null() && argc > 0 {
+            for i in 0..argc as isize {
+                let p = unsafe { *argv.offset(i) };
+                if let Some(s) = cstr(p) {
+                    prog_args.push(s);
+                }
+            }
+        }
+        let opts = crate::app::RunOpts {
+            mode: crate::app::default_mode(),
+            libs_dir: libs,
+            program_args: prog_args,
+            print_stats: false,
+        };
+        match crate::app::run(&app, entry_owned.as_deref(), opts) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("z42_host_run_app: {e:#}");
+                1
+            }
+        }
+    }));
+    outcome.unwrap_or_else(|_| {
+        eprintln!("z42_host_run_app: internal panic crossed FFI");
+        70
+    })
+}
+
 #[cfg(test)]
 mod host_tests;
