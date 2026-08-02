@@ -47,22 +47,44 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 > 格式化 / Assert / Path 字符串操作 / 算术辅助）一律脚本实现。
 > 详见 [docs/design/stdlib/organization.md "Primitive vs Feature (BCL/Rust 对标)"](../../docs/design/stdlib/organization.md)。
 
-### 2. VM 接口集中在 z42.core
+### 2. Interop 只允许在 core + 独立平台能力库（平台边界库）
 
-**VM 提供的 extern / intrinsic 接口只能出现在 `z42.core`。**
+> **取代旧规则**「VM extern 只能在 z42.core，仅 z42.io 例外」——该表述过窄且早已被现实违反
+> （math / time / threading / net / compression / crypto / io.binary / test 都含 interop）。
+> 唯一 SoT：[docs/design/stdlib/organization.md「平台边界库 vs 全平台共享库」](../../docs/design/stdlib/organization.md)。
 
-其他包（`z42.collections` / `z42.math` / `z42.text` / ...）**一律不允许**
-声明任何 VM extern，必须通过调用 `z42.core` 的公开 API 间接使用 VM 能力。
+**interop（`extern` / `[Native]`，含 VM intrinsic 与 host FFI 两条通道）只允许出现在两类库：**
 
-**唯一例外：`z42.io`。**
-`z42.io` 依赖**另一个** native 库（文件系统 / 控制台 / 环境变量等操作系统
-能力），该 native 接口与 "VM corelib intrinsic" 是两套独立通道——它不占
-用 VM intrinsic 预算，走的是 host function (FFI) 机制。除 `z42.io` 外，
-其他包禁止引入任何 native 依赖。
+1. **`z42.core`** —— 承载**全平台通用的基础机制原语**（cross-cutting：Object / String / 数值等
+   类型系统协议、libm 数学、时钟、位转换、数值 parse/format）。这些能力每个平台的 VM 都能提供，
+   属"到处都在、人人都用"的底座。
+2. **独立平台能力库** —— 承载**平台相关、某些平台可能缺失或不同**的能力，各自封装自己的 interop：
+   `z42.io`（文件 / 控制台 / 进程 / 环境）、`z42.net`（socket / TLS / DNS）、`z42.threading`
+   （线程 / 锁 / channel —— 如 browser 平台无多线程）、`z42.compression`（native codec 库）等。
+   这类库本身就**不保证全平台可用**。
 
-> 目的：保持 VM 表面最小、可审计；stdlib 绝大部分逻辑由脚本驱动，便于
-> 自举、调试和演进。新增 VM extern 视同新增语言原语，需走 vm 类型完整
-> 变更流程。
+**其余所有库一律纯脚本、零 interop** —— 从而**全平台共享、VM 能跑的地方就能跑**（collections /
+math / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random /
+numerics / io.binary / …）。它们要用 native 能力时，一律**通过调用 core 或某个平台能力库的公开
+API 间接使用**。
+
+> **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM 加载期解析"的字符串，**所有 zpkg
+> 本就跨平台字节相同**（core 也是）。本规则收缩 interop 声明面**不是**为了让 zpkg 字节相同（那已
+> 成立），而是为了：① 让"哪些库是平台边界、可能在某平台缺席"一目了然（纯脚本库 = 处处可跑的保证）；
+> ② 单一、可审计的 native ABI 契约；③ 消灭重复声明。
+
+**配套纪律：**
+
+- **Script-First**：逻辑尽量放脚本；interop 只提供**最小基础机制/原语**，不在 native 侧堆高层逻辑。
+- **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
+- **单一声明点**：每个 native 符号在**全仓库只声明一次**（现存 `__double_to_bits` / `__single_*` /
+  `__time_now_ms` / `__time_now_mono_ns` 多库重复声明属违规，待收敛）。cross-cutting 原语归 core；
+  平台能力原语归其能力库。
+- **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
+  VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
+
+> 目的：保持 VM / native 表面最小、可审计；stdlib 绝大部分逻辑由脚本驱动，便于自举、调试和演进。
+> 新增 VM extern 视同新增语言原语，需走 vm 类型完整变更流程。
 
 ---
 

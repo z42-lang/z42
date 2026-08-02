@@ -12,11 +12,76 @@
 
 1. **每个 zpkg 是分发单元，对应 `[project] name = "z42.<domain>"`**；命名空间可跨 zpkg。
 2. **z42.core 是隐式 prelude** — 所有程序自动加载 + 不可声明依赖。
-3. **VM extern 只能在 z42.core**（lock-in 规则，见 `libraries/README.md`）；`z42.io` 是仅有的 host FFI 例外（OS 能力走单独通道）。
+3. **interop（extern/[Native]）只允许在 `z42.core` + 独立平台能力库**（io / net / threading / compression 等承载平台相关、某平台可能缺席的能力的库）；**其余库一律纯脚本、零 interop → 全平台共享**。详见下「[平台边界库 vs 全平台共享库](#平台边界库-vs-全平台共享库interop-收缩规则)」。（取代旧「VM extern 只能在 core，io 唯一例外」的表述。）
 4. **包按层叠层分类**（L0 → L1 → L2 → L3），上层依赖下层，**禁止反向依赖** —— 这是硬约束，决定了哪些接口必须在 core。stdlib 层级是更通用规则"包依赖必须无环"（见 [project.md L5 — 依赖必须无环](../compiler/project.md#依赖必须无环no-circular-dependencies)）的特化形式：stdlib 不仅要求 DAG，还规定了固定的层级顺序。
 5. **「Extension over Expansion」**：**未来新增**类型方法 / 高层 trait 时，优先用外部包 + `impl Trait for Type` 扩展（L3-Impl2 已支持），而非塞回类型所在包。**已有 core 内容不做回溯迁移**（见规则 #6）。
 6. **不回溯迁移 core 内已有的接口/类型**：core 自身的实现（如 List 的 IEquatable / IComparable 约束、Dictionary 的 IEquatable 约束）以及未来可能添加的策略重载（`Sort(IComparer<T>)` / `Dictionary(IEqualityComparer<K>)`）都需要这些 protocol 在 core scope 内；迁出会让 core → L1 形成反向依赖，违反规则 #4。**这条规则比 #5 优先级高。**
 7. **每个新包必须明确层级 + 依赖闭包 + 是否可纯脚本化**；不满足全部的不开新包，留 backlog。
+
+---
+
+## 平台边界库 vs 全平台共享库（interop 收缩规则）
+
+> **2026-08-03 确立。** 取代旧「VM extern 只能在 z42.core，z42.io 唯一例外」规则——后者过窄
+> （现实中 math / time / threading / net / compression / crypto / io.binary / test 都含 interop）
+> 且基于一个误解（见下「澄清」）。这是 interop 归属的**唯一 SoT**，`libraries/README.md §2` 只摘要 + 链接此节。
+
+### 规则
+
+stdlib 的每个库属于且仅属于以下两类之一：
+
+| 类别 | 允许 interop？ | 全平台可用？ | 成员 |
+|------|:---:|:---:|------|
+| **① 平台边界库** | ✅ | ❌（某平台可能缺席/不同）| `z42.core`（特殊，见下）+ 独立能力库：`z42.io` / `z42.net` / `z42.threading` / `z42.compression` … |
+| **② 全平台共享库** | ❌（纯脚本，零 interop） | ✅（VM 能跑就能跑） | 其余全部：collections / math / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary … |
+
+**① 平台边界库**又分两种角色：
+
+- **`z42.core`** —— 承载**全平台通用的基础机制原语**（cross-cutting：Object/String/数值等类型系统
+  协议、libm 数学、时钟、位转换、数值 parse/format）。这些能力**每个平台的 VM 都能提供**，是"人人都用"
+  的底座。core 是 L0（在所有库之下）且是隐式 prelude，所以**它是唯一能承载 cross-cutting 原语的地方**
+  ——core 之下没有更底的层可放共享 sink。
+- **独立能力库**（io / net / threading / compression …）—— 承载**平台相关、某些平台可能缺失或不同**
+  的能力（OS 文件/进程、socket、线程、native codec）。各自封装自己的 interop，**本身就不保证全平台可用**
+  （如 browser 无多线程 → `z42.threading` 在该平台缺席）。
+
+**② 全平台共享库**要用 native 能力时，一律**通过调用 core 或某个平台能力库的公开 API 间接使用**，
+自身不声明任何 extern/[Native]。
+
+### 归属判据（新库/新方法）
+
+```
+这个 native 能力属于哪里？
+  是 cross-cutting、全平台 VM 都能提供的基础原语
+    （类型系统协议 / libm / 时钟 / 位运算 / parse-format）？   → z42.core
+  是平台相关、某平台可能缺席/不同的能力（OS / socket / 线程 / codec）？
+    → 归入对应的独立能力库（无则按 R3/R4 评估新开一个能力库）
+  两者都不是（纯计算逻辑）？                                    → 纯脚本，放全平台共享库，零 interop
+```
+
+### 配套纪律
+
+1. **Script-First**：逻辑尽量放脚本；interop 只提供**最小基础机制/原语**，不在 native 侧堆高层逻辑。
+2. **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
+3. **单一声明点**：每个 native 符号**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其能力库。
+   （现存违规：`__double_to_bits`/`__single_*`/`__double_from_bits` 在 z42.io.binary + z42.ir 双声明；
+   `__time_now_ms` 在 z42.time/z42.io/z42.net 三声明；`__time_now_mono_ns` 在 z42.time + z42.test 双声明——待收敛。）
+4. **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为 VM 内置实现**。
+   VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制，从而**尽量保持逻辑在脚本层**。
+
+### 澄清：收缩 interop 与「zpkg 跨平台字节相同」的关系
+
+zpkg 是可移植字节码；z42c 把 `[Native]` 只降低成 **按名字（字符串池下标）** 引用的 BuiltinInstr /
+CallNativeInstr，native 函数在 **VM 加载期按名解析**，编码里无任何 target/arch/位宽/字节序信息。stdlib
+源码零条件编译。**因此所有 stdlib zpkg（含 core）本就跨平台字节相同**，与 interop 声明在哪儿无关。真正随
+平台变的是 **Rust VM 二进制 + native 动态库**（如 `libz42_compression.*`），不是 zpkg。
+
+所以本规则收缩 interop 面**不是**为了"让其他库字节相同"（那已成立），而是为了：
+
+1. **可运行性契约显式化**：纯脚本库 = "VM 能跑的地方就能跑"的保证；平台能力库 = "可能在某平台缺席"的显式边界
+   （这是"不同平台实现不同"——如 browser 无线程——真正落点的地方）。
+2. **单一、可审计的 native ABI 契约**：native 表面集中、可数、可 review。
+3. **消灭重复声明**（纪律 3）。
 
 ---
 
