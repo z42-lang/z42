@@ -272,13 +272,20 @@ public static class Script {
         if (state.CachedScan == null) { return false; }
         int before = state.CachedScan.ExportedCount;
         string[] cands = Script._typeCandidates(src);
-        // 每个活跃命名空间**只读一次模块**、批量匹配候选（ReconcileCandidatesInNs）——避免候选×ns 次重复读。
-        // 活跃命名空间：默认/用户 usings + prelude（Std / Std.Runtime 免-using 可见）。
+        DepScanResult scan = state.CachedScan;
+        // repl-type-nsindex：只对「类型索引显示声明了某候选类型」的活跃 ns 读模块 + reconcile，跳过其余
+        // （首次 Console 原本全扫 6 个活跃 ns/~100ms，现只读 Std.IO/~55ms）。索引空（旧缓存/无索引）→
+        // NsMayHaveCandidate 恒 true → 退化为全扫（旧行为，正确性不变）。活跃 ns：usings + prelude Std/Std.Runtime。
         int u = 0;
-        while (u < state.Usings.Count) { DepScan.ReconcileCandidatesInNs(state.CachedScan, state.Usings[u], cands, cands.Length); u = u + 1; }
-        DepScan.ReconcileCandidatesInNs(state.CachedScan, "Std", cands, cands.Length);
-        DepScan.ReconcileCandidatesInNs(state.CachedScan, "Std.Runtime", cands, cands.Length);
-        return state.CachedScan.ExportedCount > before;
+        while (u < state.Usings.Count) {
+            if (scan.NsMayHaveCandidate(state.Usings[u], cands, cands.Length)) {
+                DepScan.ReconcileCandidatesInNs(scan, state.Usings[u], cands, cands.Length);
+            }
+            u = u + 1;
+        }
+        if (scan.NsMayHaveCandidate("Std", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std", cands, cands.Length); }
+        if (scan.NsMayHaveCandidate("Std.Runtime", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std.Runtime", cands, cands.Length); }
+        return scan.ExportedCount > before;
     }
 
     // 首字母大写的标识符（类型名候选；PascalCase 约定）。去重。字符扫描（不依赖 Lexer，够用且快）。
