@@ -301,11 +301,25 @@ impl Frame {
     /// (transparently writing through `Value::Ref` to the underlying
     /// caller slot / array elem / object field), use `set_thru_ref`
     /// (spec impl-ref-out-in-runtime).
+    /// Write a register. The frame is pre-sized to `max_reg` at construction, so
+    /// the in-bounds path is overwhelmingly hot — keep it inlinable into the exec
+    /// loop (this is one of the two hottest interp functions, per profiling). The
+    /// grow path (a reg beyond the pre-sized file, e.g. hand-built test functions)
+    /// is `#[cold]` + out-of-line so it doesn't bloat the hot path.
+    #[inline]
     pub fn set(&mut self, reg: u32, val: Value) {
         let idx = reg as usize;
-        if idx >= self.regs.len() {
-            self.regs.resize(idx + 1, Value::Null);
+        if idx < self.regs.len() {
+            self.regs[idx] = val;
+        } else {
+            self.set_grow(idx, val);
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn set_grow(&mut self, idx: usize, val: Value) {
+        self.regs.resize(idx + 1, Value::Null);
         self.regs[idx] = val;
     }
 
@@ -700,7 +714,15 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             .get(block_idx)
             .with_context(|| format!("block index {block_idx} out of range"))?;
 
-        for (instr_idx, instr) in block.instructions.iter().enumerate() {
+        // interp-superinstr-fusion: if this block ends in a recognized fused tail
+        // (v1: `cmp`+`BrCond` → `CmpBr`), run all-but-the-last instruction in the
+        // loop below, then the fused step after it — skipping one instruction
+        // dispatch + the bool reload per hot-loop iteration. Empty `fused_tails`
+        // (hand-built test fns) ⇒ `None` ⇒ normal execution.
+        let fused = func.fused_tails.get(block_idx).and_then(|o| o.as_ref());
+        let n_instr = block.instructions.len() - if fused.is_some() { 1 } else { 0 };
+
+        for (instr_idx, instr) in block.instructions[..n_instr].iter().enumerate() {
             // exec_instr returns:
             //   Ok(None)       — normal instruction completion
             //   Ok(Some(val))  — a callee threw an exception (value-based propagation)
@@ -765,6 +787,31 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     return Err(anyhow::anyhow!("{}\n  at {} ({})", e, func.name, loc_str));
                 }
             }
+        }
+
+        // interp-superinstr-fusion: run the recognized fused tail in place of the
+        // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
+        // primitive the standalone cmp handlers use). Preserves the back-edge
+        // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
+        if let Some(crate::metadata::superinstr::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
+            // interp-typed-superinstr: `typed` ⇒ both operands statically I64 →
+            // unchecked i64 compare (no discriminant branch). Else the dynamic
+            // `eval_cmp` (same primitive the standalone cmp handlers use).
+            let cond = if *typed {
+                ops::eval_cmp_i64(*op, &frame.regs, *a, *b)
+            } else {
+                ops::eval_cmp(*op, &frame.regs, *a, *b)?
+            };
+            frame.set(*dst, Value::Bool(cond)); // keep dst written — safe for any other reader
+            let target = if cond { *t_blk } else { *f_blk };
+            if target <= block_idx {
+                crate::gc::safepoint::check_safepoint(ctx);
+                if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
+                    return outcome;
+                }
+            }
+            block_idx = target;
+            continue 'exec;
         }
 
         match &block.terminator {

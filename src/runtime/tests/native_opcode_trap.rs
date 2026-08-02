@@ -29,6 +29,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
         resolved: std::sync::OnceLock::new(),
     };
 

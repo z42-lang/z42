@@ -404,6 +404,15 @@ pub struct VmContext {
     pub(crate) safepoint_skip:    std::sync::atomic::AtomicU32,
 }
 
+/// Byte offset of [`VmContext::safepoint_skip`] within `VmContext`.
+///
+/// **inline-jit-safepoint-check (2026-08-01)**: the JIT emits a native
+/// load/store of the throttle counter (`jit::translate::emit_safepoint_check`)
+/// instead of a helper call. `offset_of!` is compile-time and independent of
+/// field reordering / `#[repr(Rust)]`, so it always yields the actual offset.
+pub const VM_CONTEXT_SAFEPOINT_SKIP_OFFSET: usize =
+    std::mem::offset_of!(VmContext, safepoint_skip);
+
 // `Default` removed: `new()` now returns `Pin<Box<VmContext>>`, which
 // cannot satisfy `Default::default() -> Self`. Test helpers that
 // previously used `VmContext::default()` should call `VmContext::new()`

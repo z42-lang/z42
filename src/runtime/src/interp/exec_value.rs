@@ -7,7 +7,7 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 use super::dispatch::{obj_to_string, value_to_str};
-use super::ops::{bool_val, int_binop, int_bitop, numeric_lt, str_val};
+use super::ops::{bool_val, int_binop, int_bitop, str_val};
 use super::Frame;
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -127,33 +127,37 @@ fn check_int_div_by_zero(
 
 // ── Comparison ───────────────────────────────────────────────────────────
 
+// interp-superinstr-fusion: all six comparisons route through the shared
+// `ops::eval_cmp` primitive (also used by the fused `CmpBr` super-instruction).
+use crate::metadata::superinstr::CmpOp;
+
 pub(super) fn eq(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(frame.get(a)? == frame.get(b)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Eq, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn ne(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(frame.get(a)? != frame.get(b)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Ne, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn lt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(numeric_lt(&frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Lt, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn le(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(!numeric_lt(&frame.regs, b, a)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Le, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn gt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(numeric_lt(&frame.regs, b, a)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Gt, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn ge(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(!numeric_lt(&frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Ge, &frame.regs, a, b)?));
     Ok(())
 }
 
