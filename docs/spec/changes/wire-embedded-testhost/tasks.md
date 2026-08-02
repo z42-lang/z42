@@ -20,3 +20,13 @@
 
 ## 备注
 - 复用 #95：z42_host_run_app / libz42.a / z42.testagent。desktop 先行,mobile 复用 agent 构建。
+
+## 归一模型（User 定调，见 design.md；MVP 之上的完整目标）
+- [x] 设计定稿：清单驱动命名用例 + 打包一个/全部 + 跑一个/全部 + golden 归一 [Test]（design.md）
+- [ ] G1 golden→[Test] wrapper 生成器（build 期：读 ns+expected → 生成 wrapper → 同编）
+      + 可能给 Std.Test 补 `CaptureStdout(Action)` 便捷 API
+- [ ] G2 清单生成 + bundle（全语料 → zbc + 清单 name→zbc + stdlib）；`--case` 单个
+- [ ] G3 agent 加清单 + `--filter`（逐 zbc RunModule）→ 汇总 JSON
+- [ ] G4 `xtask test embedded --case/--filter` 重构走 bundle；Rust 内部测试仍 `test runtime`
+- [ ] G5 端到端（一个 golden + 一个 [Test] 单元 → bundle → agent → 汇总）；GREEN 以 CI 为权威
+- [ ] G6 mobile（后续 change）：bundle 作 asset 打进 app + 各平台壳复用 z42_host_run_app
