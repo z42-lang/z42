@@ -3,19 +3,19 @@
 > 状态：🟡 进行中 | 创建：2026-08-02 | 分支：wire-embedded-testhost(off origin/main)
 
 ## 阶段 1: 构建助手
-- [ ] 1.1 `scripts/test/xtask_test_embedded.z42`：`_ensureTestAgent(root)` —— z42c build
+- [x] 1.1 `scripts/test/xtask_test_embedded.z42`：`_ensureTestAgent(root)` —— z42c build
       testhost/agent → z42.testagent.zpkg（缺则建），返回路径
-- [ ] 1.2 `_ensureDesktopTesthost(root)` —— cc workload/desktop/shell/testhost.c + 链 libz42.a
+- [x] 1.2 `_ensureDesktopTesthost(root)` —— cc workload/desktop/shell/testhost.c + 链 libz42.a
       （+ _nativeLibs；缺 libz42.a 则 cargo rustc staticlib）→ testhost 可执行，返回路径
 
 ## 阶段 2: 命令 + 端到端
-- [ ] 2.1 `_testEmbedded(r)`：ensure agent + testhost → 跑 `testhost agent.zpkg <target> <format>` → 输出
-- [ ] 2.2 `xtask_cli.z42` 注册 `test embedded <target.zbc> [format]`
-- [ ] 2.3 端到端：`xtask test embedded <sample_tests.zbc> json` → JSON 报告（复现手动 cc 的结果）
+- [x] 2.1 `_testEmbedded(r)`：ensure agent + testhost → 跑 `testhost agent.zpkg <target> <format>` → 输出
+- [x] 2.2 `xtask_cli.z42` 注册 `test embedded <target.zbc> [format]`
+- [x] 2.3 端到端：`xtask test embedded <sample_tests.zbc> --format json` → JSON（total:2 passed:2）✅ 本地验证（工具链修复后）
 
 ## 阶段 3: 文档 + 验证归档
 - [ ] 3.1 embedded-app-run.md 补 xtask 用法
-- [ ] 3.2 xtask.zpkg 编译 + `test embedded` 端到端绿
+- [x] 3.2 xtask.zpkg 编译（49 文件，含 xtask_test_embedded）+ `test embedded` 端到端绿 ✅
 - [ ] 3.3 归档 + PR
 
 ## 备注
