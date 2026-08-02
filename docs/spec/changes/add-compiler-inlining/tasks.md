@@ -1,7 +1,9 @@
 # Tasks: 编译期函数内联 + 可独立开关的 OptSet
 
-> 状态：🟡 待确认（6.5 gate） | 类型：lang/ir 边缘（新优化 pass + 配置面）走完整流程 | 创建：2026-08-01
-> proposal / design / spec 见同目录。分两阶段两 commit：先 OptSet 门控(低风险)、再内联(触自举不动点)。
+> 状态：🟢 Phase 1 完成（本 PR #100 = OptSet 门控 + CLI 配置，内联**地基**）；
+> **Phase 2（函数内联 pass）拆为后续独立 change**（IR 逐指令寄存器重映射 + 块拼接 + 自举不动点，
+> 规模较大，值得专注实现）。 | 类型：feat（compiler，优化门控 + 配置面） | 创建：2026-08-01
+> proposal / design / spec 见同目录（含 Phase 2 完整设计，供后续 change 复用）。
 
 ## 进度概览
 - [x] 阶段 1a: OptSet 门控（逐 pass 门控 + profile 默认；debug=None/-O0）—— 本地 + CI #100 绿
@@ -24,14 +26,12 @@
 - [ ] 1.7 配置解析单测(优先级/加减/未知名报错) + **独立性单测**(每 pass 单独开跑 golden 正确)
 - [ ] 1.8 `cargo build` + `xtask test e2e`（debug=None、release=All 现状不变，逐字节一致）
 
-## 阶段 2: 函数内联 pass（commit 2）
-- [ ] 2.1 `IrInline.z42`（NEW）：资格判定(直接调用/同模块/非递归/小或单调用点/无阻断特征)
-- [ ] 2.2 展开:寄存器重命名 + reg_types 扩展 + 参数绑定 + 单块/多块拼接 + 稳定序
-- [ ] 2.3 预算 + 内联深度上限
-- [ ] 2.4 line table 映射 callee 源行
-- [ ] 2.5 `IrOptPipeline`：`Has(optSet, Inline)` 时调 `IrInline.Run`（顺序靠前）
-- [ ] 2.6 内联单测(小函数/单调用点/递归拒绝/VCall·跨包·异常表·ref-out 跳过/reg_types 保留/**Inline 单独开逐字节一致**)
-- [ ] 2.7 golden：内联前后执行逐字节一致(interp+jit)
+## 阶段 2: 函数内联 pass —— **拆为后续独立 change**（设计已在 design.md D4/D5/D7）
+> 规模评估（2026-08-02）：z42 IR **无统一「重映射一条指令的寄存器」操作**，每种指令（~40 种）各有
+> 自己的 `TypedReg` 字段 → 内联要逐指令类型克隆+重命名。v1 可裁 curated 指令集（const/arith/cmp/
+> logical/copy/fieldget/ret，遇不支持指令跳过该 callee）控规模。这是一次专注实现，故从本 PR 拆出。
+> `Inline` 优化位（OptSet）已就位，Phase 2 change 只需实现 `IrInline.z42` + 在 IrOptPipeline 接线。
+- [ ] 2.1–2.7 → 后续 change `add-compiler-inlining-pass`（或延用本名的 follow-up）
 
 ## 阶段 3: 验证 + 文档 + 归档
 - [ ] 3.1 `cargo build` + `xtask test`（e2e / cross-zpkg / stdlib / compiler 自举）全绿
