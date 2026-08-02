@@ -147,26 +147,112 @@ string _buildGoldenCase(string root, string caseDir) {
     return zbc;
 }
 
-// `xtask test embedded <target.zbc | golden-case-dir> [--format json|pretty|tap]`
+// ── test-bundle 构建 (G2) ────────────────────────────────────────────────────
+//
+// Enumerate the corpus → compile each case to a .zbc (golden→[Test] wrapped;
+// stdlib [Test] unit→direct emit) → copy into a bundle dir + write manifest.json
+// (name→zbc). Build-time `filter` (substring; empty=all) bounds what's compiled
+// so `--case`/`--filter` don't compile the whole corpus for a single run.
+
+string _bundleSafeName(string name) {
+    return name.Replace("/", "__").Replace(".", "_");
+}
+
+// Emit a stdlib [Test] unit (single .z42) → .zbc in `bundleDir`. Returns "" on fail.
+string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) {
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    string zbc = Path.Join(bundleDir, safe + ".zbc");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// Build the test bundle. Returns the manifest.json path ("" if no cases matched).
+string _buildTestBundle(string root, string filter) {
+    string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
+    Directory.Create(bundleDir);
+    _cleanGlob(bundleDir, "*.zbc");
+    string items = "";
+    int count = 0;
+
+    // 1. golden e2e (src/tests/<cat>/<name>/source.z42) — VM 行为测试，归一为 [Test]
+    string testsRoot = Path.Join(root, "src/tests");
+    foreach (var cat in _sortedStrings(Directory.Enumerate(testsRoot))) {
+        string catDir = Path.Join(testsRoot, cat);
+        if (!Directory.Exists(catDir)) { continue; }
+        if (cat == "cross-zpkg" || cat == "manifest-targets") { continue; }  // 多包/清单，另处理
+        foreach (var name in _sortedStrings(Directory.Enumerate(catDir))) {
+            string caseDir = Path.Join(catDir, name);
+            if (!File.Exists(Path.Join(caseDir, "source.z42"))) { continue; }
+            string caseName = cat + "/" + name;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string zbc = _buildGoldenCase(root, caseDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
+            string safe = _bundleSafeName(caseName);
+            File.Copy(zbc, Path.Join(bundleDir, safe + ".zbc"), true);
+            if (count > 0) { items = items + ",\n"; }
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\"}";
+            count = count + 1;
+        }
+    }
+
+    // 2. stdlib [Test] units (src/libraries/<lib>/tests/*.z42)
+    string libsRoot = Path.Join(root, "src/libraries");
+    foreach (var lib in _sortedStrings(Directory.Enumerate(libsRoot))) {
+        string tdir = Path.Join(libsRoot, lib, "tests");
+        if (!Directory.Exists(tdir)) { continue; }
+        foreach (var f in _sortedStrings(Directory.Enumerate(tdir))) {
+            if (!f.EndsWith(".z42")) { continue; }
+            string caseName = lib + "/" + f.Substring(0, f.Length - 4);
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string safe = _bundleSafeName(caseName);
+            string zbc = _emitUnitZbc(root, Path.Join(tdir, f), safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\"}";
+            count = count + 1;
+        }
+    }
+
+    if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
+    string mpath = Path.Join(bundleDir, "manifest.json");
+    File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
+    Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
+    return mpath;
+}
+
+// `xtask test embedded [target.zbc | golden-case-dir] [--case <name>] [--filter <pat>] [--format ...]`
 int _testEmbedded(ParseResult r) {
     string root = _root();
     string target = r.GetPositional(0);
-    if (target.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask test embedded <target.zbc> [--format json|pretty|tap]");
-        return 2;
-    }
+    string caseOpt = r.GetOption("case");
+    string filterOpt = r.GetOption("filter");
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "json"; }
 
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
 
-    // Target resolution: a golden case dir (has source.z42) is wrapped into a
-    // [Test] .zbc (G1 归一); a plain path is used as the .zbc directly.
-    string zbc = target;
-    if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
+    // Run-target resolution:
+    //   --case/--filter, or no positional → build a test-bundle (all/subset) and
+    //     run every case in its manifest, aggregating into one report (G2/G3/G4).
+    //   golden case dir (has source.z42) → wrap into a [Test] .zbc (G1).
+    //   plain path → use as the .zbc directly.
+    string runArg = "";
+    if (caseOpt.Length > 0 || filterOpt.Length > 0 || target.Length == 0) {
+        string filter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+        Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+        string manifest = _buildTestBundle(root, filter);
+        if (manifest.Length == 0) { return 1; }
+        runArg = manifest;
+    } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
         Console.WriteLine("→ golden case → [Test] wrap: " + target);
-        zbc = _buildGoldenCase(root, target);
-        if (zbc.Length == 0) { ConsoleError.WriteLine("error: wrap/build golden case failed"); return 1; }
+        runArg = _buildGoldenCase(root, target);
+        if (runArg.Length == 0) { ConsoleError.WriteLine("error: wrap/build golden case failed"); return 1; }
+    } else {
+        runArg = target;
     }
 
     string agent = _ensureTestAgent(root);
@@ -175,8 +261,8 @@ int _testEmbedded(ParseResult r) {
     if (host.Length == 0) { ConsoleError.WriteLine("error: build desktop testhost failed"); return 1; }
 
     string libs = _libsDir(root);
-    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + zbc + " " + format);
-    ProcessResult res = new Process(host).Arg(agent).Arg(zbc).Arg(format)
+    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + runArg + " " + format);
+    ProcessResult res = new Process(host).Arg(agent).Arg(runArg).Arg(format)
         .Env("Z42_LIBS", libs).Run();
     Console.Write(res.Stdout);
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }

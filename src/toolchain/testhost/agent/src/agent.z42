@@ -19,19 +19,45 @@ namespace Z42.TestHost.Agent;
 using Std;
 using Std.IO;
 using Std.Test;
+using Std.Json;
 
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
     if (args.Length < 1) {
-        ConsoleError.WriteLine("test-agent: usage: <target.zbc> [format=json|pretty|tap]");
+        ConsoleError.WriteLine("test-agent: usage: <target.zbc|manifest.json> [format=json|pretty|tap]");
         return;
     }
     string target = args[0];
     string format = "json";
     if (args.Length >= 2) { format = args[1]; }
-    // RunModule discovers [Test]/[Benchmark] in the module, runs them, and
-    // renders the report in `format` (json → a JSON object on stdout). Its int
-    // return (0 all-pass / 1 any-fail) is a convenience; the authoritative
-    // result is the emitted report the harness parses.
-    Runner.RunModule(target, format);
+    // A `.json` target = a test-bundle manifest → run ALL its cases, aggregating
+    // into one report (wire-embedded-testhost G3). Otherwise a single module.
+    if (target.EndsWith(".json")) {
+        _runBundle(target);
+    } else {
+        // RunModule discovers [Test]/[Benchmark], runs them, renders `format`
+        // (json → one JSON object on stdout). Its int return is a convenience;
+        // the authoritative result is the emitted report the harness parses.
+        Runner.RunModule(target, format);
+    }
+}
+
+// Bundle mode: read manifest `{cases:[{name,zbc}]}` (zbc paths relative to the
+// manifest dir), run each module via RunModuleResults, and emit ONE aggregate
+// TestReport JSON. z42 has no jagged arrays → grow the result array manually.
+void _runBundle(string manifestPath) {
+    string dir = Path.GetDirectoryName(manifestPath);
+    JsonValue m = JsonValue.Parse(File.ReadAllText(manifestPath));
+    JsonValue cases = m.Get("cases");
+    int n = cases.Count();
+    TestResult[] all = new TestResult[0];
+    for (int i = 0; i < n; i = i + 1) {
+        string zbc = Path.Join(dir, cases.At(i).Get("zbc").AsString());
+        TestResult[] rs = Runner.RunModuleResults(zbc);
+        TestResult[] merged = new TestResult[all.Length + rs.Length];
+        for (int a = 0; a < all.Length; a = a + 1) { merged[a] = all[a]; }
+        for (int b = 0; b < rs.Length; b = b + 1) { merged[all.Length + b] = rs[b]; }
+        all = merged;
+    }
+    Console.WriteLine(TestReport.toJson("bundle", all));
 }

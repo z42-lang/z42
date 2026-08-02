@@ -28,8 +28,8 @@
       `Std.Test.captureStdout` 已存在无需补。验证：`xtask test embedded <golden-dir>` 对
       zlib_format(无 ns) + default_params(有 ns) 均 passed。踩坑：FQ Std.Test.TestIO 解析成
       field-chain→Null，改用 using+短名
-- [ ] G2 清单生成 + bundle（全语料 → zbc + 清单 name→zbc + stdlib）；`--case` 单个
-- [ ] G3 agent 加清单 + `--filter`（逐 zbc RunModule）→ 汇总 JSON
-- [ ] G4 `xtask test embedded --case/--filter` 重构走 bundle；Rust 内部测试仍 `test runtime`
-- [ ] G5 端到端（一个 golden + 一个 [Test] 单元 → bundle → agent → 汇总）；GREEN 以 CI 为权威
+- [x] G2 bundle 构建（_buildTestBundle：goldens 归一 + stdlib [Test] units → zbc + manifest.json name→zbc；build 期 filter）
+- [x] G3 agent manifest 模式（读 manifest → 逐 zbc Runner.RunModuleResults → 手动拼 TestResult[] → TestReport.toJson 一次汇总）；+ Runner.RunModuleResults(z42.test)
+- [x] G4 `xtask test embedded [--case/--filter | golden-dir | .zbc]`（CLI 注册 --case/--filter）；Rust 内部测试仍 test runtime
+- [x] G5 端到端验证：--filter zlib_format(golden→[Test]) 1/1；--filter split_options(stdlib unit) 7/7；--filter assert 43/43 多用例汇总（module=bundle 一次报告）。GREEN 全量以 CI 为权威
 - [ ] G6 mobile（后续 change）：bundle 作 asset 打进 app + 各平台壳复用 z42_host_run_app
