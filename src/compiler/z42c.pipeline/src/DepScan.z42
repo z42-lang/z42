@@ -568,6 +568,75 @@ public static class DepScan {
         scan.Loaded[idx] = true;
     }
 
+    // repl-per-symbol-reconcile（completer 批量）：**读 `ns` 模块一次**，把其中短名 ∈ cands 的类型各 reconcile
+    // （ReconcileOneFromDesc，不重读）追加进 scan.Exported。比「每候选各调 EnsureTypeLoaded 各读一次模块」快得多
+    // （首次 Console：每活跃 ns 只读一次，而非候选×ns 次重复读大 Std 模块）。声明 ns 的包经 FileOf 定位 + 惰性
+    // open。找到并追加任一 → true。幂等：已在 Exported 的同类跳过。找不到包/无匹配 → false（调用方回退整包）。
+    public static bool ReconcileCandidatesInNs(DepScanResult scan, string ns, string[] cands, int candCount) {
+        string basename = scan.FileOf(ns);
+        if (basename.Length == 0) { return false; }
+        int idx = 0 - 1;
+        int i = 0;
+        while (i < scan.OpenedCount) { if (scan.OpenedNames[i] == basename) { idx = i; } i = i + 1; }
+        if (idx < 0) { return false; }
+        ZpkgInfo z = scan.Opened[idx];
+        if (z == null && idx < scan.OpenedPaths.Length) {
+            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
+            scan.Opened[idx] = z;
+        }
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, scan.OpenedDirs[idx], ns);   // 读一次
+        string pkgName = DepScan._nameOfBasename(basename);
+        bool added = false;
+        int t = 0;
+        while (t < mt.ClassCount) {
+            string fq = mt.Classes[t].Name;
+            string shortName = DepScan._shortOf(fq);
+            if (DepScan._inCands(shortName, cands, candCount) && !DepScan._typeInExported(scan, ns, shortName, fq)) {
+                ExportedClassZ cls = TsigReconcile.ReconcileOneFromDesc(mt.Classes[t], ns, scan.World);
+                if (cls != null) { DepScan._appendExportedClass(scan, ns, pkgName, cls); added = true; }
+            }
+            t = t + 1;
+        }
+        return added;
+    }
+
+    private static string _shortOf(string fq) {
+        int i = fq.Length - 1;
+        while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(i + 1); } i = i - 1; }
+        return fq;
+    }
+    private static bool _inCands(string name, string[] cands, int candCount) {
+        int i = 0; while (i < candCount) { if (cands[i] == name) { return true; } i = i + 1; } return false;
+    }
+    private static bool _typeInExported(DepScanResult scan, string ns, string shortName, string fq) {
+        int e = 0;
+        while (e < scan.ExportedCount) {
+            ExportedModuleZ em = scan.Exported[e];
+            if (em.Namespace == ns) {
+                int c = 0;
+                while (c < em.ClassCount) { if (em.Classes[c].Name == shortName || em.Classes[c].Name == fq) { return true; } c = c + 1; }
+            }
+            e = e + 1;
+        }
+        return false;
+    }
+    private static void _appendExportedClass(DepScanResult scan, string ns, string pkgName, ExportedClassZ cls) {
+        ExportedClassZ[] one = new ExportedClassZ[1]; one[0] = cls;
+        ExportedModuleZ mod = new ExportedModuleZ(ns, one, 1,
+            new ExportedInterfaceZ[0], 0, new ExportedEnumZ[0], 0,
+            new ExportedFuncZ[0], 0, new ExportedDelegateZ[0], 0);
+        if (scan.ExportedCount == scan.Exported.Length) {
+            ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
+            string[] g2 = new string[scan.Exported.Length * 2 + 1];
+            int k = 0;
+            while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
+            scan.Exported = g1; scan.ExportedPkg = g2;
+        }
+        scan.Exported[scan.ExportedCount] = mod;
+        scan.ExportedPkg[scan.ExportedCount] = pkgName;
+        scan.ExportedCount = scan.ExportedCount + 1;
+    }
+
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
     // 不存在的目录跳过（per-member 布局下后续成员 dist 在建本成员时尚空）。
     private static string[] _sortedZpkgsMulti(string[] dirs, int dirCount) {

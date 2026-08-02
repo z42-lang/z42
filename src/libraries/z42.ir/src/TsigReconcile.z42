@@ -56,18 +56,47 @@ public sealed class LazyReconWorld {
         this._pairNs = pn; this._pairIdx = pidx; this._pairN = cnt;
     }
 
-    // 幂等填第 i 包（读 TYPE/SIGS）。repl-scan-nsindex-cache：惰性 open——World[i]==null 且有 WorldPaths
-    // → 现开该包（缓存回 World[i]，避免 EnsureIdx 重复触发时重开）。eager 模式（World[i] 非 null）行为不变。
-    public ReconWorldPkg EnsureIdx(int i) {
-        if (this.Wp[i] == null) {
-            ZpkgInfo z = this.World[i];
-            if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
-                z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
-                this.World[i] = z;
-            }
-            this.Wp[i] = new ReconWorldPkg(ZpkgReader.ReadModuleTypes(z, this.WorldDirs[i]),
-                                           ZpkgReader.ReadModuleSigs(z));
+    // 现开第 i 包（repl-scan-nsindex-cache 惰性 open：World[i]==null 且有 WorldPaths → Open 并缓存回）。
+    private ZpkgInfo _openPkg(int i) {
+        ZpkgInfo z = this.World[i];
+        if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
+            z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
+            this.World[i] = z;
         }
+        return z;
+    }
+
+    // repl-per-symbol-reconcile（中层）：**只读第 i 包的 `ns` 一个模块** TYPE/SIGS，追加进 Wp[i]（按 ns 增长）。
+    // 幂等（已含该 ns 模块则跳过）。这是「按符号 reconcile」的关键——`Object`→只读 `Std` 模块，不碰
+    // z42.core 其余 3 模块。Wp[i].Types[m]/Sigs[m] 平行同模块 → `_locate`/base 链按名字扫、与顺序无关 →
+    // 产出与整包读 byte-identical（自举字节不动点门禁）。
+    public void EnsureNs(int i, string ns) {
+        if (this.Wp[i] != null) {
+            int m = 0;
+            while (m < this.Wp[i].Types.Length) { if (this.Wp[i].Types[m].Namespace == ns) { return; } m = m + 1; }
+        }
+        ZpkgInfo z = this._openPkg(i);
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, this.WorldDirs[i], ns);
+        ZpkgModuleSigs  ms = ZpkgReader.ReadOneModuleSigs(z, ns);
+        if (this.Wp[i] == null) { this.Wp[i] = new ReconWorldPkg(new ZpkgModuleTypes[0], new ZpkgModuleSigs[0]); }
+        ReconWorldPkg wp = this.Wp[i];
+        int n = wp.Types.Length;
+        ZpkgModuleTypes[] t2 = new ZpkgModuleTypes[n + 1];
+        ZpkgModuleSigs[]  s2 = new ZpkgModuleSigs[n + 1];
+        int k = 0;
+        while (k < n) { t2[k] = wp.Types[k]; s2[k] = wp.Sigs[k]; k = k + 1; }
+        t2[n] = mt; s2[n] = ms;
+        wp.Types = t2; wp.Sigs = s2;
+    }
+
+    // 整包填满（eager / EnsureAll / 差分）：对第 i 包每个命名空间 EnsureNs（结果 == 旧整包读，byte-identical
+    // ——_locate/base 链按名字扫、与模块顺序无关）。repl-per-symbol-reconcile：与 EnsureFq 的 per-ns 一致。
+    public ReconWorldPkg EnsureIdx(int i) {
+        ZpkgInfo z = this._openPkg(i);
+        string[] nss = ZpkgReader.ReadNamespaces(z);
+        int a = 0;
+        while (a < nss.Length) { this.EnsureNs(i, nss[a]); a = a + 1; }
+        if (this.Wp[i] == null) { this.Wp[i] = new ReconWorldPkg(new ZpkgModuleTypes[0], new ZpkgModuleSigs[0]); }
         return this.Wp[i];
     }
 
@@ -85,11 +114,14 @@ public sealed class LazyReconWorld {
     }
 
     // 路由：解析**所有**声明 fq 命名空间的包（Decision 1/2：非 first-wins，与全量扫描等价）。
+    // repl-per-symbol-reconcile（中层）：按命名空间填——`EnsureNs(pkg, ns)` **只读该 ns 模块**，不再整包
+    // `EnsureIdx`。`Object`→只填 z42.core 的 `Std` 模块，不碰其余 3 模块。产出与整包填 byte-identical
+    // （同数据、_locate/base 链按名字扫）→ 自举字节不动点门禁守住。
     public void EnsureFq(string fq) {
         string ns = LazyReconWorld._nsOf(fq);
         int j = 0;
         while (j < this._pairN) {
-            if (this._pairNs[j] == ns) { this.EnsureIdx(this._pairIdx[j]); }
+            if (this._pairNs[j] == ns) { this.EnsureNs(this._pairIdx[j], ns); }
             j = j + 1;
         }
     }
@@ -206,6 +238,35 @@ public static class TsigReconcile {
         // （取代 ReadTsig 的 _readImpl；DepScan 消费侧靠它做跨包 impl 传播）。
         ZpkgReader.ReadImplInto(z, r, n);
         return r;
+    }
+
+    // repl-per-symbol-reconcile（T2 Phase 1）：**只 reconcile 一个 fq 类型**（不整包 Rebuild）。
+    // 读其命名空间模块的 TYPE（ReadOneModuleTypes，只读该 ns）→ 找到 IrClassDesc → 复用已按单类型的
+    // `_rebuildClass`（基类链经 `world.EnsureFq` 按需）。产出 == 整包 Rebuild 里该类那条（同 `_rebuildClass`
+    // 同 IrClassDesc 同 world → byte-identical）。供 T2 Phase 2 的 SymbolTable completer 按引用类型调用。
+    // 未找到（该包不声明 fq / ns 无此类）→ null。
+    public static ExportedClassZ ReconcileOne(ZpkgInfo z, string zDir, string fq, LazyReconWorld world) {
+        string ns = TsigReconcile._nsOfFq(fq);
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, zDir, ns);
+        int t = 0;
+        while (t < mt.ClassCount) {
+            if (mt.Classes[t].Name == fq) { return TsigReconcile._rebuildClass(mt.Classes[t], ns, world); }
+            t = t + 1;
+        }
+        return null;
+    }
+
+    // repl-per-symbol-reconcile（completer 批量）：从**已读的 IrClassDesc** 直接 reconcile 一个类型
+    // （不重读模块）。供 DepScan.ReconcileCandidatesInNs：读一次 ns 模块、对多个匹配候选各 reconcile。
+    public static ExportedClassZ ReconcileOneFromDesc(IrClassDesc cd, string ns, LazyReconWorld world) {
+        return TsigReconcile._rebuildClass(cd, ns, world);
+    }
+
+    // fq 的命名空间（最后一个 '.' 之前；镜像 LazyReconWorld._nsOf）。嵌套 '+' / 泛型 '$' 不含 '.'。
+    private static string _nsOfFq(string fq) {
+        int i = fq.Length - 1;
+        while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(0, i); } i = i - 1; }
+        return "";
     }
 
     private static ExportedModuleZ _rebuildModule(ZpkgModuleTypes mt, ZpkgModuleSigs ms,
