@@ -199,6 +199,37 @@ Defender 逐个扫的文件打开）。指纹变 → 索引自动重建；不可
 > eval ~0.5s、且不需后台线程（避开 GC 坑）。调研：这是**编译器名字解析核心**改动（`SymbolTable` 惰性 miss
 > 回调 + 按类型 zpkg 读 + arity-mangle/impl 合并/接口顺序等不按类型分解的整包问题），需独立 spec + 门禁。
 
+## T2 按符号 reconcile（completer）+ type→ns 索引（repl-per-symbol-reconcile / repl-type-nsindex，2026-08-02）
+
+**T2 completer（PR #98）**：没走「编译器名字解析核心」的 SymbolTable-miss 回调（改动面过大），而是在
+`Script._compileSrc` 的 **E0401 错误恢复路径**装一个 completer——REPL-only、零编译器内核改动：
+
+1. `_compileSrcOnce` 报 E0401 → `_loadReferencedTypes`：`_typeCandidates` 字符扫源取首字母大写标识符（类型
+   候选）→ 对每个活跃命名空间调 `DepScan.ReconcileCandidatesInNs`（每 ns 读一次模块、批量 reconcile 命中的
+   候选类型，`TsigReconcile.ReconcileOneFromDesc` 从已读 `IrClassDesc` 直接 reconcile，不整包）。
+2. 仍失败 → 回退整包 `_loadUsingsPackages`（保正确性）。
+
+**守自举**：completer 全部新增代码只在 REPL 错误恢复路径调用，build 的 `ScanDirs`/整包 `Rebuild` 一字未改
+→ 字节不动点守住。首次 `Console.WriteLine` **1.7s → 0.33s（5×）**。
+
+**type→ns 索引（repl-type-nsindex）——去掉「全扫活跃 ns」**：completer 起初对**每个**活跃命名空间都读一次
+模块找候选类型（首次 Console 全扫 6 个活跃 ns/~100ms，其中只有 Std.IO 真的含 Console，其余全白读）。根因：
+`.z42-nsindex` 只记「包→命名空间」，不知道 `Console` 在哪个 ns。**解**：把 ns 索引升级 `NSIDX1→NSIDX2`，每
+ns 字段由 `ns` 变 `ns=T1,T2`（该 ns 声明的**类型短名**）；completer 经 `DepScanResult.NsMayHaveCandidate`
+只读「索引显示声明了某候选类型」的活跃 ns。
+
+- **数据流**：cold-start（cache-miss）的 open-all 顺带 `ReadModuleTypes` 提取每 ns 类型短名（**一次性
+  ~159ms/490 类型/26 包**，落盘 `.z42-nsindex`）→ warm 命中路径 `_scanFromIndex` 从落盘 `NsTypes` 直接建
+  `TypeShort[]/TypeNs[]` 映射（不重读模块）→ completer `NsMayHaveCandidate` O(候选×映射) 过滤活跃 ns。
+- **效果**：Math.Max **0.26→0.18（-31%，Math 在第 4 个 using，索引跳过前 3 个白读）**、Console 0.34→0.29、
+  List/Dict ~-10%。**剩余下限 = 那一个必要的 reconcile**（List reconcile ~150ms，索引消不掉）。
+- **索引空（旧缓存/写失败/非惰性路径）→ `NsMayHaveCandidate` 恒 true → 退化为全扫**（旧行为，正确性不变）。
+- **零格式 bump（zpkg 不动，只动 `.z42-nsindex` 本地缓存，+~5KB）、零 VM 改动**；`ScanDirs`（build/test）零改
+  → 自举字节不动点 5/5 不受影响。
+
+> 引入：change `repl-per-symbol-reconcile`（completer）+ `repl-type-nsindex`（索引）。**已知未覆盖**：完全
+> 限定名 `Std.IO.Console.WriteLine`（`undefined: Std`）是 REPL **既有**限制（completer 前后一致），非本改动引入。
+
 ## 状态模型：Growing Transcript
 
 会话维护一个累积的"会话源文件"，每轮输入追加后整体重编译：
