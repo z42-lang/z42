@@ -282,6 +282,12 @@ SubcommandRouter _testRouter() {
     e2e.AddOption("jobs", "", "parallel jobs", "");
     e2e.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
     t.Add("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)", e2e);
+    // wire-embedded-testhost: run a compiled test module through the embedded
+    // test-host (build agent + desktop testhost shell + run → structured result).
+    ArgParser embedded = new ArgParser("xtask test embedded", "run a .zbc through the embedded test-host (desktop)");
+    embedded.AddOption("format", "", "json|pretty|tap (default: json)", "");
+    embedded.AddOptionalPositional("target", "compiled test module (.zbc)");
+    t.Add("embedded", "run a .zbc through the embedded test-agent (agent + testhost shell + run)", embedded);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
     dist.AddOptionalPositional("mode", "interp|jit (default: both)");
     t.Add("dist", "distribution verification", dist);
@@ -457,6 +463,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
+    if (sub == "embedded")     { return _testEmbedded(r); }   // 嵌入式 test-host 跑 .zbc（desktop harness）
     if (sub == "dist")         { return _testDist(r); }
     if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
     if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检

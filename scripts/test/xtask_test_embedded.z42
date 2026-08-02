@@ -1,0 +1,94 @@
+// xtask — embedded test-host (wire-embedded-testhost, 2026-08-02).
+//
+// Productionizes the desktop harness flow proven manually in add-embedded-app-run
+// (#95): build the shared test-agent (z42.testagent.zpkg) + the desktop testhost
+// shell (cc testhost.c + link libz42.a) → run a test module THROUGH the embedded
+// VM (testhost → z42_host_run_app → z42::app::run → agent → Std.Test.Runner) →
+// structured result. Same core the z42vm binary uses; desktop self-contained
+// embedding is the template mobile shells reuse (same z42_host_run_app C symbol).
+//
+// `xtask test embedded <target.zbc> [--format json|pretty|tap]`
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
+string _ensureTestAgent(string root) {
+    string toml = Path.Join(root, "src/toolchain/testhost/agent/z42.testagent.z42.toml");
+    string zpkg = Path.Join(root, "src/toolchain/testhost/agent/dist/z42.testagent.zpkg");
+    if (File.Exists(zpkg)) { return zpkg; }
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    Console.WriteLine("  build test-agent → z42.testagent.zpkg");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zpkg;
+}
+
+// Build the desktop testhost shell: cc testhost.c + STATIC-link libz42.a (explicit
+// .a — `-lz42` would prefer a stale .dylib). Builds libz42.a first if missing.
+string _ensureDesktopTesthost(string root) {
+    string libDir = Path.Join(root, "artifacts/build/runtime/release");
+    string libA = Path.Join(libDir, "libz42.a");
+    if (!File.Exists(libA)) {
+        Console.WriteLine("  cargo rustc --crate-type=staticlib → libz42.a");
+        int rc = _exec(new Process("cargo").Arg("rustc").Arg("--release")
+            .Arg("--manifest-path").Arg("src/runtime/Cargo.toml").Arg("--lib")
+            .Arg("--crate-type=staticlib"));
+        if (rc != 0 || !File.Exists(libA)) { return ""; }
+    }
+    string outDir = Path.Join(root, "artifacts/build/desktop-test");
+    Directory.Create(outDir);
+    string bin = Path.Join(outDir, "testhost");
+    string src = Path.Join(root, "src/toolchain/workload/desktop/shell/testhost.c");
+    Console.WriteLine("  cc testhost.c + libz42.a → testhost");
+    Process cc = new Process("cc").Arg("-O2").Arg("-o").Arg(bin).Arg(src).Arg(libA);
+    foreach (var l in _embeddedNativeLibs()) { cc = cc.Arg(l); }
+    int c = _exec(cc);
+    if (c != 0 || !File.Exists(bin)) { return ""; }
+    return bin;
+}
+
+// Native libs a Rust staticlib needs at link time (mirrors DesktopBackend._nativeLibs).
+string[] _embeddedNativeLibs() {
+    if (Platform.IsMacOS()) {
+        string[] m = new string[3]; m[0] = "-liconv"; m[1] = "-lc"; m[2] = "-lm";
+        return m;
+    }
+    if (Platform.IsLinux()) {
+        string[] l = new string[6];
+        l[0] = "-lc"; l[1] = "-lm"; l[2] = "-lpthread"; l[3] = "-ldl"; l[4] = "-lrt"; l[5] = "-lgcc_s";
+        return l;
+    }
+    return new string[0];
+}
+
+// `xtask test embedded <target.zbc> [--format json|pretty|tap]`
+int _testEmbedded(ParseResult r) {
+    string root = _root();
+    string target = r.GetPositional(0);
+    if (target.Length == 0) {
+        ConsoleError.WriteLine("usage: xtask test embedded <target.zbc> [--format json|pretty|tap]");
+        return 2;
+    }
+    string format = r.GetOption("format");
+    if (format.Length == 0) { format = "json"; }
+
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
+    string host = _ensureDesktopTesthost(root);
+    if (host.Length == 0) { ConsoleError.WriteLine("error: build desktop testhost failed"); return 1; }
+
+    string libs = _libsDir(root);
+    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + target + " " + format);
+    ProcessResult res = new Process(host).Arg(agent).Arg(target).Arg(format)
+        .Env("Z42_LIBS", libs).Run();
+    Console.Write(res.Stdout);
+    if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
+    return res.ExitCode;
+}
