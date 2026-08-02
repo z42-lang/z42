@@ -1,6 +1,7 @@
 # Tasks: 解释器类型化超级指令（Lever 2）
 
-> 状态：🟡 进行中 | 类型：perf | 创建：2026-08-01
+> 状态：🟢 已完成（PR #97 已合并 2026-08-02；main CI 全绿；typed CmpBr 实测 ~3% 隔离净收益
+> best-of-7；算术链融合按 User 裁决 deferred） | 类型：perf | 创建：2026-08-01
 > 提案见 [`proposal.md`](proposal.md)。扩展 #93 的超级指令框架（`metadata/superinstr.rs`）。
 
 ## 设计要点
