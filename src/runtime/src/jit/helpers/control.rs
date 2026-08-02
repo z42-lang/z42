@@ -88,6 +88,35 @@ pub unsafe extern "C" fn jit_check_safepoint(
     crate::gc::safepoint::check_safepoint(vm_ctx);
 }
 
+/// `jit_check_safepoint_slow` (inline-jit-safepoint-check, 2026-08-01): the
+/// rare slow branch of the JIT-inlined safepoint fast path. When the inlined
+/// `load/store` decrement observes the throttle counter reaching 0, native code
+/// branches here to (1) reset the counter to [`throttle_n`] and (2) run the
+/// real Mutex + phase-check + auto-collect-drain via [`check_safepoint_slow`].
+///
+/// This mirrors the tail of [`crate::gc::safepoint::check_safepoint`] (the part
+/// after the `prev > 1` early return) — the fast decrement itself is emitted
+/// inline by `jit::translate::emit_safepoint_check`, so this helper is called
+/// only ~0.1% of the time (once per [`throttle_n`] back-edges).
+///
+/// `_frame` is unused (kept for ABI uniformity: every JIT helper is
+/// `(frame, ctx, ...)`).
+///
+/// Safety: same contract as [`jit_check_safepoint`] — `ctx` must point to a
+/// valid `JitModuleCtx` whose `vm_ctx` is a live `VmContext`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_check_safepoint_slow(
+    _frame: *mut JitFrame,
+    ctx:    *const JitModuleCtx,
+) {
+    let vm_ctx = vm_ctx_ref(ctx);
+    vm_ctx.safepoint_skip.store(
+        crate::gc::safepoint::throttle_n(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::gc::safepoint::check_safepoint_slow(vm_ctx);
+}
+
 #[cfg(test)]
 mod check_safepoint_tests {
     //! add-gc-safepoint-jit (2026-05-21): inline tests for the
