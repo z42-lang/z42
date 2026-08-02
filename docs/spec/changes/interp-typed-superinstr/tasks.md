@@ -22,8 +22,8 @@ interp 消费：typed 走 `eval_cmp_i64_unchecked`（无 `Result`、无 tag 分�
 
 ## 进度概览
 - [x] 阶段 1: 类型化 CmpBr（commit 1）
-- [ ] 阶段 2: 算术链融合（commit 2）
-- [ ] 阶段 3: 验证 + 文档 + 归档
+- [~] 阶段 2: 算术链融合 —— **不做**（User 裁决 2026-08-01：结构改动/单用分析风险 vs single-digit% 不值；见备注）
+- [x] 阶段 3: 验证 + 文档 + 归档
 
 ## 阶段 1: 类型化 CmpBr
 - [x] 1.1 `types.rs`：`Value::as_i64_unchecked` / `as_bool_unchecked`
@@ -33,11 +33,12 @@ interp 消费：typed 走 `eval_cmp_i64_unchecked`（无 `Result`、无 tag 分�
 - [x] 1.5 `mod.rs`：typed CmpBr 消费
 - [x] 1.6 `cargo test --lib`（854 + 4 recognizer 单测）+ `xtask test e2e --mode interp`（217+8 逐字节一致）
 
-## 阶段 2: 算术链融合
-- [ ] 2.1 `superinstr.rs`：per-function 单用 reads 扫描 + `ArithChain` 识别
-- [ ] 2.2 `ops.rs`：链求值（typed unchecked / generic）
-- [ ] 2.3 `mod.rs`：ArithChain 消费（跳过链内指令）
-- [ ] 2.4 验证
+## 阶段 2: 算术链融合 —— 不做（deferred）
+> User 裁决（2026-08-01）：通用算术链融合需重构 interp 最热 dispatch 循环（for→while+skip）+
+> 新增 per-instruction 融合表 + 单用 reads 分析（分析错=破坏逐字节正确性），~100-150 行在最关键
+> 路径，仅换 single-digit%。Lever 1（safepoint inline，2.1×）+ typed CmpBr 已交付主要价值，
+> 算术链 ROI 不抵热路径重构风险 → 不做。将来若要，落 `docs/book/` 的 superinstr 页 future 段。
+- [~] 2.1–2.4 不做（见上）
 
 ## 阶段 3: 验证 + 文档 + 归档
 - [ ] 3.1 `cargo test --lib` 全过 + `xtask test`（受 stale-seed 限本地跑 runtime 相关 stage）
