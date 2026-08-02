@@ -70,6 +70,8 @@ jobs:
               - 'scripts/test/xtask_test_ios.z42'
               - 'scripts/test/xtask_test_android.z42'
               - 'scripts/test/xtask_test_desktop.z42'
+              - 'scripts/test/xtask_test_embedded.z42'
+              - 'src/toolchain/testhost/**'
               - 'versions.toml'
               - '.github/workflows/ci.yml'
             # change-detect rule (b): gates the bootstrap boundary check
@@ -1555,6 +1557,22 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm
+      # add-wasm-testhost G6: same runner + primed Playwright — build the embedded
+      # deployable (agent+bundle+libs → artifacts/build/wasm-test/) and run the
+      # bundled corpus in-browser (distinct config rooted at that dir).
+      - name: test embedded --rid browser-wasm (build deployable)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          libs="$PWD/artifacts/build/libraries/dist/release"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm
+      - name: Playwright — embedded corpus runs green in-browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src/toolchain/workload/wasm/platform/tests
+          npx playwright test --config playwright.embedded.config.ts
       - name: Publish wasm test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()
@@ -1587,15 +1605,23 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
       - uses: ./.github/actions/xtask-bootstrap-artifact
-      - name: test platform ios (xcframework + assets + iOS Simulator R1–R7)
+      - name: test platform ios + embedded (one simulator run, R1–R7 + embedded corpus)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          # IosBackend.RunTests now drives xcodebuild on a simctl-discovered
-          # iOS Simulator and writes JUnit itself (no xcbeautify needed).
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform ios
+          run() { Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- "$@"; }
+          # add-wasm-testhost G6: fold the embedded corpus into the SAME
+          # xcodebuild/simulator run as R1–R7 (no second job, no second sim boot).
+          #  1) embedded → builds the xcframework (sim+host slices) + populates
+          #     Resources/embedded (the Z42EmbeddedTests corpus).
+          #  2) platform ios assets → R1–R7 fixtures + stdlib into Resources.
+          #  3) platform ios run → ONE `xcodebuild test -scheme Z42VM` runs both
+          #     Z42VMTests (R1–R7) and Z42EmbeddedTests, writes the JUnit below.
+          run test embedded --rid iossim-arm64
+          run test platform ios assets
+          run test platform ios run
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()
@@ -1658,7 +1684,11 @@ jobs:
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android build
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android assets
-      - name: connectedAndroidTest on emulator (R1–R7)
+          # add-wasm-testhost G6: build the embedded corpus (x86_64 .so — matches
+          # the emulator ABI — + androidTest/assets/embedded) so the single
+          # connectedAndroidTest below runs Z42EmbeddedInstrumentedTest too.
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid android-x64
+      - name: connectedAndroidTest on emulator (R1–R7 + embedded corpus)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34

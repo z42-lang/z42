@@ -142,10 +142,24 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 - Android:cargo-ndk 建 `.so`(arm64-v8a + x86_64)全绿(fs_backend 改动跨编 android 通过);JNI C
   经 NDK clang 语法校验通过。AAR(gradle)+ emulator RUN(`connectedAndroidTest`)为 CI/emulator 门。
 
-## 6. Deferred / 后续
+## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
-- **接入 CI**:desktop 已可跑;wasm 挂 Playwright、iOS 挂 `xcodebuild test`(sim)、android 挂
-  `connectedAndroidTest`(emulator tier)——各平台 RUN gate 落 CI job。
+嵌入式 RUN **折叠进现有 `test-{wasm,ios,android}` job**(`.github/workflows/ci.yml`),复用同一
+runner + 工具链 + **单次 emulator/sim 启动**——不新开并行 job(避免重复 setup / 二次 emulator 启动)。
+R1–R7(嵌入 API 契约:错误码/句柄生命周期)**保留**,与嵌入 corpus 测的是不同表面,不冗余。
+
+| job | 折叠方式 |
+|-----|---------|
+| test-wasm | `test platform wasm`(R1–R7 Playwright)后加 `test embedded --rid browser-wasm` + 独立 `playwright.embedded.config.ts` 跑 deployable(读 `window.__report`) |
+| test-ios | 一次 sim 跑双份:`test embedded --rid iossim-arm64`(建 xcframework sim+host + 装配 Resources/embedded)→ `test platform ios assets`(R1–R7 资产)→ `test platform ios run`(**单个 `xcodebuild test -scheme Z42VM`** 同时跑 Z42VMTests + Z42EmbeddedTests) |
+| test-android | `test platform android build/assets` 后加 `test embedded --rid android-x64`(x86_64 .so 配 emulator ABI + androidTest assets),**同一个 `connectedAndroidTest`** 跑 R1–R7 + Z42EmbeddedInstrumentedTest |
+
+paths-filter 的 `platform` 组已含 `src/toolchain/workload/**`,另补 `xtask_test_embedded.z42` +
+`src/toolchain/testhost/**`。
+
+## 7. Deferred / 后续
+
+- **接入 desktop CI**:desktop 嵌入(`test embedded` 无 rid)本地已跑,尚未挂进 test-desktop job。
 - **完整命令通道**(persistent agent)+ 结果汇总(统一 schema → 单 GitHub Check)。
 - **接入 xtask test platform**:用嵌入式 agent 取代 R1–R7 的 4 语言 native driver。
 - **WorkloadBase 5 相位补齐**:让 `z42b publish --rid <rid>` 成为用户构建跨平台 app 的入口
