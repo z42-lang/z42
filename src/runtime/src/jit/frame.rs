@@ -293,6 +293,14 @@ pub struct JitModuleCtx {
     pub osr_threshold: u32,
 }
 
+/// Byte offset of [`JitModuleCtx::vm_ctx`] within `JitModuleCtx`.
+///
+/// **inline-jit-safepoint-check (2026-08-01)**: the inlined safepoint check
+/// loads the `*mut VmContext` from `ctx_val + this offset` before touching the
+/// throttle counter. Compile-time via `offset_of!`, layout-reorder-safe.
+pub const JIT_MODULE_CTX_VM_CTX_OFFSET: usize =
+    std::mem::offset_of!(JitModuleCtx, vm_ctx);
+
 impl JitModuleCtx {
     /// Resolve function slot `idx` to its compiled `FnEntry`, compiling it on
     /// first demand (compile-on-first-call). Returns `None` when the function
