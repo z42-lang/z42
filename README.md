@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo/svg/z42-icon.svg" width="112" alt="z42 logo">
+</p>
+
 # z42
 
 A **full-stack systems programming language** designed for productivity and performance.
