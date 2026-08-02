@@ -1,0 +1,42 @@
+// E2E benchmark scenario: dictionary insert + lookup with string keys.
+//
+// Exercises the Dictionary hot path (perf finding #6): hashing + open-
+// addressing probe + per-probe `key.Equals(...)`, each a full VCall.
+// String keys make GetHashCode / Equals non-trivial (per-char dispatch).
+// Also stresses int→string formatting for key generation.
+//
+// Insert N entries, then do M lookups (mostly hits, some misses),
+// summing found values for a deterministic checksum.
+// Expected output (deterministic): 24656667
+namespace Bench.DictHeavy;
+
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    var d = new Dictionary<string, int>();
+
+    // Insert phase: N string keys "k<i>" → i  (hash + resize + probe).
+    int n = 3000;
+    int i = 0;
+    while (i < n) {
+        d.Set("k" + i.ToString(), i);
+        i = i + 1;
+    }
+
+    // Lookup phase: M probes, ~75% hits / 25% misses (miss = full probe
+    // chain to empty slot). Sums hit values.
+    long acc = 0L;
+    int rounds = 22000;
+    int r = 0;
+    while (r < rounds) {
+        int key = (r * 3) % (n + n / 3);   // spills past n → some misses
+        string ks = "k" + key.ToString();
+        if (d.ContainsKey(ks)) {
+            acc = acc + (long)d.Get(ks);
+        }
+        r = r + 1;
+    }
+
+    Console.WriteLine(acc.ToString());
+}
