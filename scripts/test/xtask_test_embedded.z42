@@ -322,17 +322,24 @@ void _assembleEmbeddedCorpus(string root, string bundleDir, string agent, string
     }
 }
 
-// Build libz42_platform_ios.a for device+sim+macOS slices → xcframework
-// (mirrors IosBackend.BuildProject; targets = versions.toml defaults). The
-// embedded XCTest links this via SwiftPM's Z42VMBinary.
-int _buildIosXcframework(string root, string here) {
+// Build the iOS xcframework for the slices `rid` implies. The macOS-host slice
+// (aarch64-apple-darwin) is ALWAYS built so `swift test` can run the embedded
+// test on the host; the rid adds its deploy slice — `ios-arm64` → device,
+// `iossim-arm64` → simulator, "" → both (fat). Mirrors IosBackend.BuildProject.
+int _buildIosXcframework(string root, string here, string rid) {
     string manifest = Path.Join(here, "rust/Cargo.toml");
     string targetDir = Path.Join(root, "artifacts/build/runtime");
     string libName = "libz42_platform_ios.a";
+    bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
+    bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
+    // Build set: always the host slice, plus whichever deploy slice(s) the rid asks for.
     string[] targets = new string[3];
-    targets[0] = "aarch64-apple-ios"; targets[1] = "aarch64-apple-ios-sim"; targets[2] = "aarch64-apple-darwin";
+    int n = 0;
+    targets[n] = "aarch64-apple-darwin"; n = n + 1;              // host (swift test)
+    if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
+    if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
     int i = 0;
-    while (i < targets.Length) {
+    while (i < n) {
         Console.WriteLine("  cargo build --release --target " + targets[i]);
         int c = _exec(new Process("cargo").Arg("build").Arg("--release")
             .Arg("--manifest-path").Arg(manifest)
@@ -342,21 +349,21 @@ int _buildIosXcframework(string root, string here) {
         if (c != 0) { return c; }
         i = i + 1;
     }
-    string dev = Path.Join(targetDir, "aarch64-apple-ios/release/" + libName);
-    string sim = Path.Join(targetDir, "aarch64-apple-ios-sim/release/" + libName);
-    string mac = Path.Join(targetDir, "aarch64-apple-darwin/release/" + libName);
     string xcf = Path.Join(here, "Z42VM.xcframework");
     if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
     Console.WriteLine("  xcodebuild -create-xcframework → " + xcf);
-    return _exec(new Process("xcodebuild").Arg("-create-xcframework")
-        .Arg("-library").Arg(dev).Arg("-library").Arg(sim).Arg("-library").Arg(mac)
-        .Arg("-output").Arg(xcf));
+    Process xb = new Process("xcodebuild").Arg("-create-xcframework");
+    xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-darwin/release/" + libName));
+    if (wantDev) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios/release/" + libName)); }
+    if (wantSim) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios-sim/release/" + libName)); }
+    return _exec(xb.Arg("-output").Arg(xcf));
 }
 
 // iOS: assemble the embedded corpus into the XCTest bundle Resources + build the
-// xcframework. The embedded runner is Z42EmbeddedTests.testEmbeddedBundle (in
-// the Z42VM scheme) — RUN via `xcodebuild test` on a simulator (CI-gated).
-string _buildIosTesthost(string root, string filter) {
+// xcframework for `rid`'s slice(s). The embedded runner is
+// Z42EmbeddedTests.testEmbeddedBundle (in the Z42VM scheme) — RUN via
+// `xcodebuild test` on a simulator (CI-gated) or `swift test` on the host.
+string _buildIosTesthost(string root, string filter, string rid) {
     if (Process.Which("xcodebuild") == null) {
         ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS)"); return "";
     }
@@ -372,7 +379,7 @@ string _buildIosTesthost(string root, string filter) {
     _assembleEmbeddedCorpus(root, bundleDir, agent, resDir);
     Console.WriteLine("  embedded corpus → " + resDir);
 
-    int xc = _buildIosXcframework(root, here);
+    int xc = _buildIosXcframework(root, here, rid);
     if (xc != 0) { ConsoleError.WriteLine("error: xcframework build failed"); return ""; }
 
     Console.WriteLine("  iOS embedded test-host ready.");
@@ -399,19 +406,31 @@ string _resolveAndroidNdk(string root) {
     return "";
 }
 
+// Map an android RID to its cargo-ndk ABI name (gradle naming). Empty rid → "".
+string _androidRidAbi(string rid) {
+    if (rid == "android-arm64") { return "arm64-v8a"; }
+    if (rid == "android-x64")   { return "x86_64"; }
+    return "";
+}
+
 // Android: assemble the embedded corpus into the androidTest assets + build
-// libz42_platform_android.so per ABI via cargo-ndk (compile-once for the rust
-// cdylib). The embedded runner is Z42EmbeddedInstrumentedTest (in the z42vm
-// test apk) — the AAR build (gradle) + RUN (`connectedAndroidTest` on an
-// emulator) are CI/emulator-gated. Real filesystem → no VFS, same
-// z42_host_run_app core.
-string _buildAndroidTesthost(string root, string filter) {
+// libz42_platform_android.so via cargo-ndk (compile-once for the rust cdylib).
+// `rid` selects the ABI — `android-x64` builds only x86_64 (e.g. for an x64
+// emulator), `android-arm64` only arm64-v8a. The embedded runner is
+// Z42EmbeddedInstrumentedTest (in the z42vm test apk) — the AAR build (gradle) +
+// RUN (`connectedAndroidTest` on an emulator) are CI/emulator-gated. Real
+// filesystem → no VFS, same z42_host_run_app core.
+string _buildAndroidTesthost(string root, string filter, string rid) {
     if (Process.Which("cargo-ndk") == null) {
         ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
     }
     string ndk = _resolveAndroidNdk(root);
     if (ndk.Length == 0) {
         ConsoleError.WriteLine("error: Android NDK not found — run `xtask deps install --os android`"); return "";
+    }
+    string abi = _androidRidAbi(rid);
+    if (abi.Length == 0) {
+        ConsoleError.WriteLine("error: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter);
@@ -425,19 +444,19 @@ string _buildAndroidTesthost(string root, string filter) {
     _assembleEmbeddedCorpus(root, bundleDir, agent, assetsDir);
     Console.WriteLine("  embedded corpus → " + assetsDir);
 
-    // cargo-ndk → libz42_platform_android.so per ABI into jniLibs. All three
+    // cargo-ndk → libz42_platform_android.so for this ABI into jniLibs. All three
     // NDK env vars set (the cmake C-dep cross-build reads NDK/NDK_ROOT too).
     string rustDir = Path.Join(here, "rust");
     string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
-    Console.WriteLine("  cargo ndk -t arm64-v8a -t x86_64 build --release");
+    Console.WriteLine("  cargo ndk -t " + abi + " build --release");
     int c = _execIn(new Process("cargo").Arg("ndk")
-        .Arg("-t").Arg("arm64-v8a").Arg("-t").Arg("x86_64")
+        .Arg("-t").Arg(abi)
         .Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
         .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk),
         rustDir);
     if (c != 0) { ConsoleError.WriteLine("error: cargo-ndk build failed"); return ""; }
 
-    Console.WriteLine("  Android embedded test-host ready (.so per ABI + androidTest assets).");
+    Console.WriteLine("  Android embedded test-host ready (" + abi + " .so + androidTest assets).");
     Console.WriteLine("  RUN (emulator/CI): cd " + here + " && ./gradlew :z42vm:connectedAndroidTest");
     Console.WriteLine("    → Z42EmbeddedInstrumentedTest.embeddedBundle (embedded corpus) + R1–R7.");
     return here;
@@ -452,27 +471,34 @@ int _testEmbedded(ParseResult r) {
     string filterOpt = r.GetOption("filter");
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "json"; }
-    string platform = r.GetOption("platform");
+    string rid = r.GetOption("rid");
 
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
 
-    // Platform target: `wasm` builds + assembles the browser test-host deployable
-    // (compile-once; RUN is Playwright/CI-gated). Default/`desktop` runs in-process.
-    if (platform == "wasm") {
-        string wfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
-        string wout = _buildWasmTesthost(root, wfilter);
+    // Target RID: the arch suffix selects the actual slice / ABI to build (via
+    // the shared _ridCategory from the packaging path), so e.g. `android-x64`
+    // builds only the x86_64 .so — not both. An empty rid (or any desktop RID)
+    // runs in-process on the host. RUN of the mobile/wasm hosts is
+    // Playwright / xcodebuild-sim / emulator-gated (CI).
+    string tfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+    string cat = (rid.Length == 0) ? "desktop" : _ridCategory(rid);
+    if (cat == "wasm") {
+        string wout = _buildWasmTesthost(root, tfilter);
         return (wout.Length > 0) ? 0 : 1;
     }
-    if (platform == "ios") {
-        string ifilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
-        string iout = _buildIosTesthost(root, ifilter);
+    if (cat == "ios") {
+        string iout = _buildIosTesthost(root, tfilter, rid);
         return (iout.Length > 0) ? 0 : 1;
     }
-    if (platform == "android") {
-        string afilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
-        string aout = _buildAndroidTesthost(root, afilter);
+    if (cat == "android") {
+        string aout = _buildAndroidTesthost(root, tfilter, rid);
         return (aout.Length > 0) ? 0 : 1;
     }
+    if (cat == "unknown") {
+        ConsoleError.WriteLine("error: unknown --rid '" + rid + "' (try browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64, or omit for host desktop)");
+        return 1;
+    }
+    // cat == "desktop" → fall through to the in-process desktop path below.
 
     // Run-target resolution:
     //   --case/--filter, or no positional → build a test-bundle (all/subset) and

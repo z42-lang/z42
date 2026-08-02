@@ -110,7 +110,7 @@ readAsset(path) -> bytes    // 读回报告文件
 `files.json` → 逐个 `mountAsset` → `runTestApp(agent, "", "/libs", [manifest,"json","/out/report.json"])`
 → `readAsset` → `window.__report`(Playwright/CI 读)。
 
-构建:`xtask test embedded --platform wasm [--filter …]` —— 复用 desktop 的 bundle builder +
+构建:`xtask test embedded --rid browser-wasm [--filter …]` —— 复用 desktop 的 bundle builder +
 test-agent,加 `wasm-pack build` + 资产装配(pkg + harness + app/libs/bundle + files.json)到
 `artifacts/build/wasm-test/`。**编译已本地验证**(native `cargo check` + `wasm-pack build` 全绿);
 **RUN 是浏览器/Playwright 门(CI)**——本机无 node/浏览器不跑,与冷启动路径同理以 CI 为准。
@@ -125,11 +125,16 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 - **iOS**:Swift 门面 `Z42TestHost.runApp`(marshal argv → C 符号);嵌入 XCTest
   `Z42EmbeddedTests.testEmbeddedBundle`(bundled agent+libs+bundle 作 `Resources/embedded/`,报告
   写 temp 文件后断言 `failed==0`),随 `Z42VM` scheme 走既有 `xcodebuild test`。
-  `xtask test embedded --platform ios`:装配 Resources + 建 xcframework(3 slice)。
+  `xtask test embedded --rid ios-arm64|iossim-arm64`:装配 Resources + 建 xcframework(rid 选
+  deploy slice,host slice 恒建以便 `swift test`)。
 - **Android**:JNI `Java_..._Z42TestHost_nativeRunApp`(z42vm_jni.c)+ Kotlin `Z42TestHost.runApp`
   + instrumented test `Z42EmbeddedInstrumentedTest`(assets `embedded/` 拷到 cacheDir → 路径调用 →
-  读报告)。`xtask test embedded --platform android`:装配 androidTest assets + cargo-ndk 建
-  `libz42_platform_android.so`(每 ABI)。
+  读报告)。`xtask test embedded --rid android-arm64|android-x64`:装配 androidTest assets +
+  cargo-ndk 建 `libz42_platform_android.so`(rid 选 ABI)。
+
+> RID 与打包链一致(`_ridCategory`/`_ridToCargo`,packaging 复用):arch 后缀选实际 slice/ABI,
+> 故 `--rid android-x64` 只编 x86_64、`--rid iossim-arm64` 只编 sim slice——CI 按需单编,不浪费。
+> 省略 `--rid`(或桌面 RID)= 本机进程内跑。
 
 **验证**:
 - iOS:staticlib 三 slice + xcframework + `swift build --build-tests` 编过,**`swift test` 在
@@ -139,12 +144,9 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 
 ## 6. Deferred / 后续
 
-- **完整命令通道**(persistent agent)+ 结果汇总(统一 schema → 单 GitHub Check)。
 - **接入 CI**:desktop 已可跑;wasm 挂 Playwright、iOS 挂 `xcodebuild test`(sim)、android 挂
   `connectedAndroidTest`(emulator tier)——各平台 RUN gate 落 CI job。
-- **WorkloadBase 5 相位补齐**:`z42b publish --rid <platform>` 成为用户构建跨平台 app 的入口
-  (test-agent 只是其一)。
-- **WorkloadBase 5 相位补齐**:让 `z42b publish --rid <platform>` 成为用户构建跨平台 app 的入口
-  (test-agent 只是其中一个 app)。workload 面向用户的里程碑。
-- **接入 xtask test platform**:用嵌入式 agent 取代 R1–R7 的 4 语言 native driver。
 - **完整命令通道**(persistent agent)+ 结果汇总(统一 schema → 单 GitHub Check)。
+- **接入 xtask test platform**:用嵌入式 agent 取代 R1–R7 的 4 语言 native driver。
+- **WorkloadBase 5 相位补齐**:让 `z42b publish --rid <rid>` 成为用户构建跨平台 app 的入口
+  (test-agent 只是其中一个 app)。workload 面向用户的里程碑。
