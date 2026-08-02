@@ -17,21 +17,33 @@ So the whole mark spells `z² = 4 → z42` with a single letter and a single box
 | Paper | `#FFFFFF` | Reversed mark on dark backgrounds |
 | Accent (vermilion) | `#F0522E` | Brand accent — optional accent frame, UI highlights |
 
-## Files
+## Layout
+
+```
+docs/assets/logo/
+├── svg/   vector marks (the source of truth)
+├── png/   raster renders of the mark
+└── web/   standards-compliant website icon package
+```
+
+### `svg/` — vector marks
 
 | File | What | Where to use |
 |------|------|--------------|
 | `z42-logo.svg` | Ink outline mark, transparent | Light backgrounds, docs, sites |
 | `z42-logo-reverse.svg` | White outline mark, transparent | Dark backgrounds |
 | `z42-logo-accent.svg` | Vermilion frame + ink z | Brand-colored contexts |
-| `z42-glyph.svg` | The z only, `currentColor` | Inline text, monochrome, favicons-in-text |
-| `z42-icon.svg` | Filled tile (dark square, white z) | App icon / favicon source — reads on any background |
-| `z42-icon-16/32/180/512.png` | Rasterized filled icon | favicon (16/32), Apple touch (180), stores (512) |
-| `z42-logo-512.png` | Rasterized outline mark, transparent | Slide decks, READMEs |
+| `z42-glyph.svg` | The z only, `currentColor` | Inline text, monochrome |
+| `z42-icon.svg` | Filled tile (dark square, white z) | App icon — reads on any background |
 
-## Web / favicon set (standard)
+### `png/` — raster renders
 
-A complete, standards-compliant set for a website is included:
+| File | What |
+|------|------|
+| `z42-logo-512.png` | Outline mark, transparent |
+| `z42-logo-reverse-512.png` | White outline mark, transparent |
+
+### `web/` — website icon package (standard)
 
 | File | Purpose |
 |------|---------|
@@ -45,8 +57,8 @@ A complete, standards-compliant set for a website is included:
 | `og-image.png` (1200×630) | Open Graph / Twitter social share card |
 | `HEAD.html` | Ready-to-paste `<head>` link/meta snippet |
 
-**Deploy:** copy these to your site root (or adjust the paths in `HEAD.html` /
-`site.webmanifest`), then paste `HEAD.html` into your page `<head>`.
+**Deploy:** copy the contents of `web/` to your site root (or adjust the paths in
+`web/HEAD.html` / `web/site.webmanifest`), then paste `web/HEAD.html` into your page `<head>`.
 
 ## Usage notes
 
