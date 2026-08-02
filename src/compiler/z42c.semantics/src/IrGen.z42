@@ -114,7 +114,7 @@ public sealed class IrGen {
         return this._q(name);
     }
 
-    public IrModule Generate(CompilationUnit cu, SemanticModel model) {
+    public IrModule Generate(CompilationUnit cu, SemanticModel model, int optSet) {
         this._symbols = model.Symbols;
         NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等；Collect 通常已展平过）
         // 接口名 → ClassDecl 映射（接口传递闭包展开用：IB:IA → Widget:IB 也含 IA）。
@@ -457,7 +457,7 @@ public sealed class IrGen {
         this._testIx._buildTestIndex(cu, funcs, fc);
         IrModule irm = new IrModule(modName, this._pool, this._poolCount, classes, cc, funcs, fc);
         irm.TestIndex = this._testIx._tiEntries; irm.TestCount = this._testIx._tiCount;
-        IrOptPipeline.Run(irm);   // 编译期 IR 优化管线（optimization-pipeline，interp-first）
+        IrOptPipeline.Run(irm, optSet);   // 编译期 IR 优化管线（可独立开关的 OptSet，interp-first）
         return irm;
     }
 

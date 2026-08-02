@@ -16,27 +16,37 @@ using Z42.IR;
 
 public sealed class IrOptPipeline {
 
-    public static void Run(IrModule m) {
+    // add-compiler-inlining：optSet 决定跑哪些 pass（可独立开关，见 OptSet.z42）。
+    // optSet==None（debug 默认）→ 整体跳过（-O0，忠实可调试）。每个 pass 各自从当前 IR
+    // 重算 reads/defs → 单独开启也正确（design D2 独立性约束）。
+    public static void Run(IrModule m, int optSet) {
+        if (optSet == Opt.None) { return; }
         int fi = 0;
         while (fi < m.FuncCount) {
-            IrOptPipeline._optFunc(m.Functions[fi]);
+            IrOptPipeline._optFunc(m.Functions[fi], optSet);
             fi = fi + 1;
         }
     }
 
-    private static void _optFunc(IrFunction f) {
+    private static void _optFunc(IrFunction f, int optSet) {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
-        // pass 1: const-fold —— 折叠两 int 常量的运算/比较（放最前，产出的 const 供后续 copy-prop 传播）
-        int[] defs0 = IrOptPipeline._computeDefs(f);
-        IrOptPipeline._passConstFold(f, defs0);
-        // pass 2: copy-prop —— const-fold 改了 IR，重算读/写计数（含终结子读）
-        int[] reads = IrOptPipeline._computeReads(f);
-        int[] defs = IrOptPipeline._computeDefs(f);
-        IrOptPipeline._passCopyProp(f, reads, defs);
-        // pass 3: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
-        int[] reads2 = IrOptPipeline._computeReads(f);
-        IrOptPipeline._seedParams(reads2, f.ParamCount);
-        IrOptPipeline._passTempDce(f, reads2);
+        // pass: const-fold —— 折叠两 int 常量的运算/比较 + 代数恒等式（放最前，产出的 const 供后续传播）
+        if (Opt.Has(optSet, Opt.ConstFold)) {
+            int[] defs0 = IrOptPipeline._computeDefs(f);
+            IrOptPipeline._passConstFold(f, defs0);
+        }
+        // pass: copy-prop —— 从当前 IR 重算读/写计数（含终结子读）
+        if (Opt.Has(optSet, Opt.CopyProp)) {
+            int[] reads = IrOptPipeline._computeReads(f);
+            int[] defs = IrOptPipeline._computeDefs(f);
+            IrOptPipeline._passCopyProp(f, reads, defs);
+        }
+        // pass: temp-DCE —— 从当前 IR 重算读计数；参数寄存器 live-out
+        if (Opt.Has(optSet, Opt.Dce)) {
+            int[] reads2 = IrOptPipeline._computeReads(f);
+            IrOptPipeline._seedParams(reads2, f.ParamCount);
+            IrOptPipeline._passTempDce(f, reads2);
+        }
     }
 
     // ── pass 1: const-fold ─────────────────────────────────────────────────────────
