@@ -27,3 +27,7 @@ demo/fixtures/*.zbc
 Tests/Z42VMTests/Resources/test-fixtures/*.zbc
 Tests/Z42VMTests/Resources/stdlib/*.zpkg
 Tests/Z42VMTests/Resources/stdlib/index.json
+
+# Embedded test-host corpus (produced by `xtask test embedded --platform ios`:
+# agent app.zpkg + flat stdlib zpkgs + test bundle). Re-generated per build.
+Tests/Z42VMTests/Resources/embedded/
