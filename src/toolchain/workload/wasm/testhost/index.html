@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>z42 embedded test-host (wasm)</title>
+  <style>
+    body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; }
+    h1 { font-size: 1.1rem; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }
+    .ok { color: #157f3b; } .fail { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>z42 embedded test-host — WebAssembly</h1>
+  <p>Runs the shared z42 test-agent over the bundled corpus, entirely in-browser
+     (<code>runTestApp</code> → <code>z42::app::run</code>, in-memory VFS).</p>
+  <pre id="out">running…</pre>
+  <script type="module" src="./run.js"></script>
+</body>
+</html>

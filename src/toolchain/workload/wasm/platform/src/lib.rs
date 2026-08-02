@@ -177,6 +177,74 @@ pub fn read_namespaces(bytes: &[u8]) -> Result<Vec<String>, JsValue> {
     z42_host::read_zpkg_namespaces(bytes).map_err(to_js_error)
 }
 
+// ── Embedded test-host (add-wasm-testhost G6) ─────────────────────────────
+//
+// A self-contained "run a bundled app entirely from the in-memory VFS" surface,
+// distinct from the `Z42VM` handle API. It mirrors the desktop `z42_host_run_app`
+// C entry — same `z42::app::run` core — but sources every artifact from the VFS
+// (there is no filesystem on wasm) and returns the app's output through a VFS
+// file the caller reads back (there is no process stdout on wasm).
+//
+// Host flow:
+//   1. `mountAsset("/app/z42.testagent.zpkg", agentBytes)`
+//      `mountAsset("/libs/z42.core.zpkg", …)` + every dep zpkg
+//      `mountAsset("/bundle/manifest.json", …)` + every test `.zbc`
+//   2. `runTestApp("/app/z42.testagent.zpkg", "", "/libs",
+//                  ["/bundle/manifest.json", "json", "/out/report.json"])`
+//   3. `const json = new TextDecoder().decode(readAsset("/out/report.json"))`
+//
+// Because loader / lazy-loader / app-run reads route through the fs backend
+// (loader.rs, lazy_loader.rs, app.rs — all VFS on wasm), the mounted zpkgs and
+// test zbcs load exactly as files would on desktop; the runner is the same z42
+// bytecode agent.
+
+/// Mount a file (zpkg / zbc / manifest) into the in-memory VFS at `path`. The
+/// VFS is process-global, so this needs no VM instance — call it before
+/// [`run_test_app`]. Bytes are copied; the caller may reuse the buffer.
+#[wasm_bindgen(js_name = mountAsset)]
+pub fn mount_asset(path: &str, bytes: &[u8]) {
+    z42::corelib::fs_backend::memory::mount(path, bytes.to_vec());
+}
+
+/// Read a file back out of the in-memory VFS (e.g. the agent's report file).
+/// Returns the raw bytes; decode as UTF-8 on the JS side.
+#[wasm_bindgen(js_name = readAsset)]
+pub fn read_asset(path: &str) -> Result<Vec<u8>, JsValue> {
+    z42::corelib::fs_backend::active()
+        .read(path)
+        .map_err(|e| js_error("IoError", 30, &format!("{e:#}")))
+}
+
+/// Run a self-contained app (`.zbc` / `.zpkg`) already mounted in the VFS,
+/// through the shared [`z42::app::run`] core (interp on wasm — no JIT).
+///
+/// - `app_path`  VFS path of the app (e.g. the test-agent app.zpkg)
+/// - `entry`     entry FQN override, or `""` for the app's baked-in entry
+/// - `libs_dir`  VFS dir holding `z42.core.zpkg` + deps, or `""` for none
+/// - `args`      program args → `GetCommandLineArgs()` (target, format, out-path)
+#[wasm_bindgen(js_name = runTestApp)]
+pub fn run_test_app(
+    app_path: &str,
+    entry: &str,
+    libs_dir: &str,
+    args: Vec<String>,
+) -> Result<(), JsValue> {
+    let entry_opt = if entry.is_empty() { None } else { Some(entry) };
+    let libs = if libs_dir.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(libs_dir))
+    };
+    let opts = z42::app::RunOpts {
+        mode: z42::app::default_mode(),
+        libs_dir: libs,
+        program_args: args,
+        print_stats: false,
+    };
+    z42::app::run(app_path, entry_opt, opts)
+        .map_err(|e| js_error("VmException", 40, &format!("{e:#}")))
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 fn read_property(obj: &JsValue, key: &str) -> Option<JsValue> {

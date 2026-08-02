@@ -76,10 +76,50 @@ z42-host/examples/run_app_smoke (Rust 嵌入)                                   
 三前端(z42vm 二进制 / Rust run_app / C z42_host_run_app)、两链接(static/dynamic)全跑通,
 出同一结构化 JSON —— desktop 自包含嵌入,与 mobile 同模型,是其模板。
 
+## 5.5 wasm 嵌入 test-host(add-wasm-testhost G6)
+
+wasm 没有文件系统、也没有进程 stdout,所以它**不能**直接复用 desktop 的
+`z42_host_run_app`(std::fs)+ stdout 捕获。两点适配,其余全共享:
+
+**(a) 加载走 fs backend(不是 std::fs)。** 运行期工件读取原本硬编 `std::fs`,现改走
+`corelib::fs_backend::active()`——native 仍是 `std::fs`(字节不变),wasm 是内存 VFS。改动点:
+
+- `metadata/loader.rs`:`load_zbc` / `load_zpkg`(主体 + `.zsym` sidecar)、indexed-zpkg 散装读、
+  `find_namespace_in_{zbc,zpkg}_dirs`(命名空间目录扫描)。
+- `metadata/lazy_loader.rs`:`ZpkgCandidate::build`(读 zpkg meta)、`build_in_dirs`(is_file)。
+- `app.rs`:`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`(`metadata`/`canonicalize` 只喂
+  replay 字节数 / 符号链接去重,缺失即优雅降级,wasm 无需改)。
+
+于是宿主先把 agent app.zpkg + stdlib zpkgs + bundle(manifest + 各 case zbc)`mountAsset` 进
+VFS,`z42::app::run` 就能像在磁盘上一样加载它们——**同一 app-run 核心**。
+
+**(b) 报告经 VFS 文件回传(不是 stdout)。** test-agent 收可选第 3 个参数 `out-path`:给了就把
+JSON 报告 `File.WriteAllText` 到该文件,否则 `Console.WriteLine`。desktop 不传→stdout(不变);
+wasm/mobile 传一个 VFS 路径,再 `readAsset` 读回。**一份 agent,全平台同一 runner**,只是取报告
+的通道不同。
+
+wasm-bindgen 面(`workload/wasm/platform/src/lib.rs`,与 `Z42VM` handle API 并列的自足 3 函数):
+
+```
+mountAsset(path, bytes)     // 挂进全局内存 VFS(app.zpkg / zpkg / zbc / manifest)
+runTestApp(app, entry, libs, args)   // → z42::app::run(interp;wasm 无 JIT)
+readAsset(path) -> bytes    // 读回报告文件
+```
+
+浏览器 harness(`workload/wasm/testhost/{index.html,run.js}`,静态、签入):`init()` → fetch
+`files.json` → 逐个 `mountAsset` → `runTestApp(agent, "", "/libs", [manifest,"json","/out/report.json"])`
+→ `readAsset` → `window.__report`(Playwright/CI 读)。
+
+构建:`xtask test embedded --platform wasm [--filter …]` —— 复用 desktop 的 bundle builder +
+test-agent,加 `wasm-pack build` + 资产装配(pkg + harness + app/libs/bundle + files.json)到
+`artifacts/build/wasm-test/`。**编译已本地验证**(native `cargo check` + `wasm-pack build` 全绿);
+**RUN 是浏览器/Playwright 门(CI)**——本机无 node/浏览器不跑,与冷启动路径同理以 CI 为准。
+
 ## 6. Deferred / 后续
 
-- **mobile 壳**(wasm/ios/android):绑同一 `z42_host_run_app` C 符号 + 各平台打包 —— 复用本
-  change 的核心 + agent,只加薄壳 + 传输。独立 change。
+- **ios/android 壳**:同 wasm 的两点适配(fs backend 加载已就绪、报告经文件回传),各加 Swift+C /
+  Kotlin+JNI 薄壳 + 各平台打包(bundle 作 app asset)。复用本节的核心 + agent + 文件回传契约。
+  独立 change(需 xcode / NDK 环境验证)。
 - **WorkloadBase 5 相位补齐**:让 `z42b publish --rid <platform>` 成为用户构建跨平台 app 的入口
   (test-agent 只是其中一个 app)。workload 面向用户的里程碑。
 - **接入 xtask test platform**:用嵌入式 agent 取代 R1–R7 的 4 语言 native driver。

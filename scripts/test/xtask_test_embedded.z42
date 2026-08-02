@@ -224,7 +224,78 @@ string _buildTestBundle(string root, string filter) {
     return mpath;
 }
 
-// `xtask test embedded [target.zbc | golden-case-dir] [--case <name>] [--filter <pat>] [--format ...]`
+// ── wasm embedded test-host (add-wasm-testhost G6) ───────────────────────────
+//
+// Assemble a browser-servable dir that runs the SAME test bundle through the
+// wasm-embedded VM (z42_wasm.runTestApp → z42::app::run → agent). Reuses the
+// desktop bundle builder + test-agent; adds the wasm crate build + asset
+// assembly + the static harness. RUN is browser/Playwright-gated (CI); this
+// command builds + assembles the deployable dir (compile-once, per platform).
+string _buildWasmTesthost(string root, string filter) {
+    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle.
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    string manifest = _buildTestBundle(root, filter);
+    if (manifest.Length == 0) { return ""; }
+    string bundleDir = Path.GetDirectoryName(manifest);
+
+    // 2. shared test-agent app.zpkg (same bytecode runner as desktop).
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
+
+    // 3. wasm crate → pkg-web (z42_wasm.js + z42_wasm_bg.wasm).
+    string wasmCrate = Path.Join(root, "src/toolchain/workload/wasm/platform");
+    Console.WriteLine("  wasm-pack build --target web");
+    int wc = _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
+        .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"),
+        wasmCrate);
+    if (wc != 0) { ConsoleError.WriteLine("error: wasm-pack build failed"); return ""; }
+
+    // 4. assemble the servable dir: pkg + static harness + assets + files.json.
+    string outDir = Path.Join(root, "artifacts/build/wasm-test");
+    Directory.Create(outDir);
+    string pkgWeb = Path.Join(wasmCrate, "pkg-web");
+    File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"), true);
+    File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"), true);
+    string thDir = Path.Join(root, "src/toolchain/workload/wasm/testhost");
+    File.Copy(Path.Join(thDir, "index.html"), Path.Join(outDir, "index.html"), true);
+    File.Copy(Path.Join(thDir, "run.js"), Path.Join(outDir, "run.js"), true);
+
+    string files = "";
+    // app/ — the test-agent.
+    string appDir = Path.Join(outDir, "app"); Directory.Create(appDir);
+    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
+    files = _appendFileEntry(files, "/app/z42.testagent.zpkg", "app/z42.testagent.zpkg");
+    // libs/ — all flat stdlib zpkgs (every agent + case dep resolves from here).
+    string flat = _assembleAllLibs(root, "release");
+    string libsOut = Path.Join(outDir, "libs"); Directory.Create(libsOut);
+    foreach (var z in _sortedStrings(Directory.Enumerate(flat))) {
+        if (!z.EndsWith(".zpkg")) { continue; }
+        File.Copy(Path.Join(flat, z), Path.Join(libsOut, z), true);
+        files = _appendFileEntry(files, "/libs/" + z, "libs/" + z);
+    }
+    // bundle/ — manifest.json + every case zbc.
+    string bundleOut = Path.Join(outDir, "bundle"); Directory.Create(bundleOut);
+    foreach (var f in _sortedStrings(Directory.Enumerate(bundleDir))) {
+        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
+        files = _appendFileEntry(files, "/bundle/" + f, "bundle/" + f);
+    }
+    File.WriteAllText(Path.Join(outDir, "files.json"), "[\n" + files + "\n]\n");
+
+    Console.WriteLine("  wasm test-host → " + outDir);
+    Console.WriteLine("  serve that dir (e.g. `python3 -m http.server`) and open index.html;");
+    Console.WriteLine("  Playwright/CI reads window.__report (the JSON report) once window.__done.");
+    return outDir;
+}
+
+// Append one files.json `{vfs,url}` entry (comma-separated).
+string _appendFileEntry(string acc, string vfs, string url) {
+    string e = "  {\"vfs\": \"" + vfs + "\", \"url\": \"" + url + "\"}";
+    if (acc.Length == 0) { return e; }
+    return acc + ",\n" + e;
+}
+
+// `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]
+//                      [--case <name>] [--filter <pat>] [--format ...]`
 int _testEmbedded(ParseResult r) {
     string root = _root();
     string target = r.GetPositional(0);
@@ -232,8 +303,17 @@ int _testEmbedded(ParseResult r) {
     string filterOpt = r.GetOption("filter");
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "json"; }
+    string platform = r.GetOption("platform");
 
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+
+    // Platform target: `wasm` builds + assembles the browser test-host deployable
+    // (compile-once; RUN is Playwright/CI-gated). Default/`desktop` runs in-process.
+    if (platform == "wasm") {
+        string wfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+        string wout = _buildWasmTesthost(root, wfilter);
+        return (wout.Length > 0) ? 0 : 1;
+    }
 
     // Run-target resolution:
     //   --case/--filter, or no positional → build a test-bundle (all/subset) and

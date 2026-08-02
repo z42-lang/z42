@@ -11,9 +11,14 @@
 // BUILD tool; this is the RUN tool — same Runner, different host.
 //
 // Command (one-shot, via forwarded `-- <args>`):
-//   <target-zbc-path> [format]      format = "json" (default) | "pretty" | "tap"
-// The report (json → one JSON object) goes to stdout; the harness captures it.
-// A future persistent-agent form will accept commands on a live channel.
+//   <target-zbc-path> [format] [out-path]
+//     format   = "json" (default) | "pretty" | "tap"
+//     out-path = optional. When given, the JSON report is WRITTEN to this file
+//                instead of stdout. Desktop omits it → report to stdout (the
+//                harness captures the process stdout). Embedded hosts with no
+//                process stdout (wasm / iOS / Android, add-wasm-testhost G6)
+//                pass a VFS/temp path and read the file back — one agent, every
+//                platform, differing only in how the report is retrieved.
 namespace Z42.TestHost.Agent;
 
 using Std;
@@ -24,28 +29,44 @@ using Std.Json;
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
     if (args.Length < 1) {
-        ConsoleError.WriteLine("test-agent: usage: <target.zbc|manifest.json> [format=json|pretty|tap]");
+        ConsoleError.WriteLine("test-agent: usage: <target.zbc|manifest.json> [format=json|pretty|tap] [out-path]");
         return;
     }
     string target = args[0];
     string format = "json";
     if (args.Length >= 2) { format = args[1]; }
+    string outPath = "";
+    if (args.Length >= 3) { outPath = args[2]; }
+
     // A `.json` target = a test-bundle manifest → run ALL its cases, aggregating
     // into one report (wire-embedded-testhost G3). Otherwise a single module.
     if (target.EndsWith(".json")) {
-        _runBundle(target);
+        string report = _runBundleReport(target);
+        _emit(report, outPath);
+    } else if (outPath != "") {
+        // Single module, file output: capture results → aggregate JSON → file.
+        TestResult[] rs = Runner.RunModuleResults(target);
+        _emit(TestReport.toJson(target, rs), outPath);
     } else {
-        // RunModule discovers [Test]/[Benchmark], runs them, renders `format`
-        // (json → one JSON object on stdout). Its int return is a convenience;
-        // the authoritative result is the emitted report the harness parses.
+        // Single module, stdout: RunModule discovers [Test]/[Benchmark], runs
+        // them, and renders `format` directly to stdout (json → one object).
         Runner.RunModule(target, format);
     }
 }
 
+// Route the report to a file (embedded hosts) or stdout (desktop harness).
+void _emit(string report, string outPath) {
+    if (outPath != "") {
+        File.WriteAllText(outPath, report);
+    } else {
+        Console.WriteLine(report);
+    }
+}
+
 // Bundle mode: read manifest `{cases:[{name,zbc}]}` (zbc paths relative to the
-// manifest dir), run each module via RunModuleResults, and emit ONE aggregate
+// manifest dir), run each module via RunModuleResults, and RETURN ONE aggregate
 // TestReport JSON. z42 has no jagged arrays → grow the result array manually.
-void _runBundle(string manifestPath) {
+string _runBundleReport(string manifestPath) {
     string dir = Path.GetDirectoryName(manifestPath);
     JsonValue m = JsonValue.Parse(File.ReadAllText(manifestPath));
     JsonValue cases = m.Get("cases");
@@ -59,5 +80,5 @@ void _runBundle(string manifestPath) {
         for (int b = 0; b < rs.Length; b = b + 1) { merged[all.Length + b] = rs[b]; }
         all = merged;
     }
-    Console.WriteLine(TestReport.toJson("bundle", all));
+    return TestReport.toJson("bundle", all);
 }

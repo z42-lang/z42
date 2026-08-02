@@ -10,6 +10,12 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
+// add-wasm-testhost (G6): artifact reads route through the platform fs backend
+// (`native` = std::fs, byte-identical; `memory` = in-memory VFS on wasm) so a
+// wasm host that mounts test zbcs / stdlib zpkgs can load them at runtime. On
+// native this is exactly std::fs — no behaviour change.
+use crate::corelib::fs_backend;
+
 use super::bytecode::Module;
 use super::formats::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
 use super::merge::merge_modules;
@@ -93,14 +99,16 @@ pub fn load_artifact_from_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 // ── Format-specific loaders ───────────────────────────────────────────────────
 
 fn load_zbc(path: &str) -> Result<LoadedArtifact> {
-    let raw = std::fs::read(path).with_context(|| format!("cannot read `{path}`"))?;
+    let raw = fs_backend::active().read(path).with_context(|| format!("cannot read `{path}`"))?;
     let mut artifact = load_zbc_bytes(&raw).with_context(|| format!("cannot parse binary zbc `{path}`"))?;
 
     // 1.2 split-debug-symbols: probe `<basename>.zsym` adjacent to the main file
     // and merge debug info when build_id matches.
     let sidecar_path = Path::new(path).with_extension("zsym");
-    if let Ok(sym_raw) = std::fs::read(&sidecar_path) {
-        apply_zbc_sidecar(&mut artifact.module, &raw, &sym_raw, &sidecar_path);
+    if let Some(sp) = sidecar_path.to_str() {
+        if let Ok(sym_raw) = fs_backend::active().read(sp) {
+            apply_zbc_sidecar(&mut artifact.module, &raw, &sym_raw, &sidecar_path);
+        }
     }
 
     Ok(artifact)
@@ -187,7 +195,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 }
 
 fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
-    let raw = std::fs::read(path).with_context(|| format!("cannot read `{path}`"))?;
+    let raw = fs_backend::active().read(path).with_context(|| format!("cannot read `{path}`"))?;
 
     // add-indexed-zpkg-min-patch (zpkg 0.24): indexed main file (flags bit0
     // clear, not a SymOnly sidecar) → load scattered self-contained zbc via
@@ -205,7 +213,7 @@ fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
     // build_id matches. We do this before merge_modules so that line tables
     // land in the right place (before namespace flattening).
     let sidecar_path = Path::new(path).with_extension("zsym");
-    let sidecar_raw = std::fs::read(&sidecar_path).ok();
+    let sidecar_raw = sidecar_path.to_str().and_then(|sp| fs_backend::active().read(sp).ok());
 
     load_zpkg_bytes_with_sidecar(&raw, sidecar_raw.as_deref(), Some(&sidecar_path))
         .with_context(|| format!("cannot parse zpkg `{path}`"))
@@ -227,7 +235,10 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
     for e in &entries {
         let stem = e.rel.strip_suffix(".z42").unwrap_or(&e.rel);
         let zbc_path = base.join(format!("{stem}.zbc"));
-        let bytes = std::fs::read(&zbc_path).with_context(|| {
+        let zbc_path_str = zbc_path.to_str().with_context(|| {
+            format!("indexed zpkg: non-UTF8 scattered zbc path `{}`", zbc_path.display())
+        })?;
+        let bytes = fs_backend::active().read(zbc_path_str).with_context(|| {
             format!("indexed zpkg: cannot read scattered zbc `{}`", zbc_path.display())
         })?;
         // plain BLAKE3-128（区别于 build_id::compute 的"尾 16B 清零"BLID 语义——
@@ -497,15 +508,15 @@ pub fn resolve_dependency(
 
 fn find_namespace_in_zbc_dirs(ns: &str, dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut found: Vec<PathBuf> = Vec::new();
+    let backend = fs_backend::active();
     for dir in dirs {
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        let dir_str = match dir.to_str() { Some(s) => s, None => continue };
+        let names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
+        for name in names {
+            let path = dir.join(&name);
             if path.extension().and_then(|e| e.to_str()) != Some("zbc") { continue; }
-            let data = match std::fs::read(&path) { Ok(d) => d, Err(_) => continue };
+            let path_str = match path.to_str() { Some(s) => s, None => continue };
+            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
             if data.len() < 4 || &data[0..4] != ZBC_MAGIC { continue; }
             let file_ns = match read_zbc_namespace(&data) { Ok(n) => n, Err(_) => continue };
             if file_ns == ns && !found.contains(&path) {
@@ -518,15 +529,15 @@ fn find_namespace_in_zbc_dirs(ns: &str, dirs: &[PathBuf]) -> Result<Vec<PathBuf>
 
 fn find_namespace_in_zpkg_dirs(ns: &str, dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut found: Vec<PathBuf> = Vec::new();
+    let backend = fs_backend::active();
     for dir in dirs {
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        let dir_str = match dir.to_str() { Some(s) => s, None => continue };
+        let names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
+        for name in names {
+            let path = dir.join(&name);
             if path.extension().and_then(|e| e.to_str()) != Some("zpkg") { continue; }
-            let data = match std::fs::read(&path) { Ok(d) => d, Err(_) => continue };
+            let path_str = match path.to_str() { Some(s) => s, None => continue };
+            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
             if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { continue; }
             let namespaces = match read_zpkg_namespaces(&data) { Ok(v) => v, Err(_) => continue };
             if namespaces.iter().any(|n| n == ns) && !found.contains(&path) {
