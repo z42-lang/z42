@@ -793,8 +793,15 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
         // primitive the standalone cmp handlers use). Preserves the back-edge
         // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
-        if let Some(crate::metadata::superinstr::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk }) = fused {
-            let cond = ops::eval_cmp(*op, &frame.regs, *a, *b)?;
+        if let Some(crate::metadata::superinstr::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
+            // interp-typed-superinstr: `typed` ⇒ both operands statically I64 →
+            // unchecked i64 compare (no discriminant branch). Else the dynamic
+            // `eval_cmp` (same primitive the standalone cmp handlers use).
+            let cond = if *typed {
+                ops::eval_cmp_i64(*op, &frame.regs, *a, *b)
+            } else {
+                ops::eval_cmp(*op, &frame.regs, *a, *b)?
+            };
             frame.set(*dst, Value::Bool(cond)); // keep dst written — safe for any other reader
             let target = if cond { *t_blk } else { *f_blk };
             if target <= block_idx {

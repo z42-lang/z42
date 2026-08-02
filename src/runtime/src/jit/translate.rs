@@ -14,6 +14,7 @@ use crate::metadata::{
 use anyhow::{bail, Result};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags};
 use cranelift_codegen::ir::types;
+use cranelift_codegen::ir::condcodes::IntCC;
 use crate::metadata::IrType;
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -383,14 +384,17 @@ pub fn translate_function(
     let hr_default_of     = imp!(helper_ids.default_of);
     let hr_convert        = imp!(helper_ids.convert);
     // add-gc-safepoint-jit (2026-05-21): cooperative GC safepoint trampoline.
-    let hr_check_safepoint = imp!(helper_ids.check_safepoint);
+    // inline-jit-safepoint-check (2026-08-01): the fast-path decrement is now
+    // emitted inline (`emit_safepoint_check`); only the rare slow branch
+    // (counter hit 0) calls a helper. `hr_check_safepoint` is retained for
+    // reference / tests but no longer emitted on the hot path.
+    let hr_check_safepoint_slow = imp!(helper_ids.check_safepoint_slow);
     let hr_regs_ptr        = imp!(helper_ids.regs_ptr);
 
     // add-gc-safepoint-jit (2026-05-21): function-entry safepoint check.
     // A spawned worker that enters JIT-compiled code immediately after
     // spawn must respect a pending GC pause before touching any roots.
-    // Idle fast path is one Mutex lock + one enum compare (~10ns).
-    builder.ins().call(hr_check_safepoint, &[frame_val, ctx_val]);
+    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
 
     // review.md C2 P1 step 1 (2026-05-28): cache `frame.regs.as_mut_ptr()`
     // for typed-arithmetic fast paths. One helper call per function (not per
@@ -1011,7 +1015,7 @@ pub fn translate_function(
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived
                     // partway through; the caller catches it on return.
-                    builder.ins().call(hr_check_safepoint, &[frame_val, ctx_val]);
+                    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
                 }
                 Instruction::Builtin(insn) => {
                     let BuiltinInsn { dst, name, args } = &**insn;
@@ -1495,7 +1499,7 @@ pub fn translate_function(
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
-                    builder.ins().call(hr_check_safepoint, &[frame_val, ctx_val]);
+                    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
                 }
             }
         }
@@ -1519,7 +1523,7 @@ pub fn translate_function(
                 // loop back-edge; check safepoint so long-running JIT
                 // loops park promptly when GC requests a pause.
                 if target <= block_idx {
-                    builder.ins().call(hr_check_safepoint, &[frame_val, ctx_val]);
+                    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
                 }
                 builder.ins().jump(cl_blocks[target], &[]);
             }
@@ -1528,7 +1532,7 @@ pub fn translate_function(
                 // isn't known until cond is evaluated; check unconditionally.
                 // Idle fast path is cheap; this catches loops where the
                 // back-edge is a BrCond rather than a Br.
-                builder.ins().call(hr_check_safepoint, &[frame_val, ctx_val]);
+                emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
 
                 let true_idx  = z42_func.blocks.iter().position(|blk| &blk.label == true_label)
                     .expect("true_label not found");
@@ -1594,6 +1598,56 @@ pub fn translate_function(
 // Predicate + emitter for the I64-typed arithmetic fast path. Pure module-
 // scope functions so translate_function's hot path can call them without the
 // borrow-checker grief of closures-over-mut-builder.
+
+/// inline-jit-safepoint-check (2026-08-01): emit the cooperative-GC safepoint
+/// **fast path** inline as native load/store + branch, replacing a
+/// `jit_check_safepoint` helper call (~10ns) on the hot path. See
+/// `docs/spec/changes/inline-jit-safepoint-check/design.md`.
+///
+/// Mirrors `gc::safepoint::check_safepoint`:
+/// ```text
+///   vm_ctx = *(ctx + JIT_MODULE_CTX_VM_CTX_OFFSET)
+///   prev   = *(vm_ctx + SAFEPOINT_SKIP_OFFSET)      // plain i32 load
+///            *(vm_ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1
+///   if prev u> 1 { fast: continue }                 // ~99.9%
+///   else         { slow: jit_check_safepoint_slow(frame, ctx); continue }
+/// ```
+/// The decrement is a plain (non-atomic) load/store: `safepoint_skip` is
+/// single-writer per mutator (only `force_safepoint`, test-only, writes it
+/// cross-thread), so RMW atomicity is unnecessary — and dropping it is what
+/// makes the fast path inlinable as two bare `mov`s (the `atomic_rmw` form
+/// panicked on x86_64 Cranelift lowering; the load/store form does not).
+///
+/// The current block ends with a `brif`; emission continues in the created
+/// `fast` block, which the caller keeps building into. Blocks are sealed later
+/// by `seal_all_blocks()` (per this file's convention).
+fn emit_safepoint_check(
+    builder:   &mut FunctionBuilder,
+    ptr:       cranelift_codegen::ir::Type,
+    ctx_val:   cranelift_codegen::ir::Value,
+    frame_val: cranelift_codegen::ir::Value,
+    hr_slow:   cranelift_codegen::ir::FuncRef,
+) {
+    let flags = MemFlags::trusted();
+    // vm_ctx pointer lives inside JitModuleCtx.
+    let vm_ctx = builder.ins().load(
+        ptr, flags, ctx_val,
+        crate::jit::frame::JIT_MODULE_CTX_VM_CTX_OFFSET as i32,
+    );
+    let skip_off = crate::vm_context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET as i32;
+    let prev = builder.ins().load(types::I32, flags, vm_ctx, skip_off);
+    let newv = builder.ins().iadd_imm(prev, -1);
+    builder.ins().store(flags, newv, vm_ctx, skip_off);
+    // prev u> 1  ⇒  still throttled, take the fast (skip) path.
+    let cond = builder.ins().icmp_imm(IntCC::UnsignedGreaterThan, prev, 1);
+    let fast_blk = builder.create_block();
+    let slow_blk = builder.create_block();
+    builder.ins().brif(cond, fast_blk, &[], slow_blk, &[]);
+    builder.switch_to_block(slow_blk);
+    builder.ins().call(hr_slow, &[frame_val, ctx_val]);
+    builder.ins().jump(fast_blk, &[]);
+    builder.switch_to_block(fast_blk);
+}
 
 /// True iff `reg_types[dst]`, `reg_types[a]`, `reg_types[b]` are all
 /// `IrType::I64`. Out-of-range or `Unknown` regs fall back to the slow

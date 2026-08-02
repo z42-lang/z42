@@ -46,6 +46,29 @@ metadata/superinstr.rs
 > **未来精化**：`%dst` 若单读（只被这条 BrCond 读，循环条件恒如此）可**跳过 bool 写回**再省一点——
 > 需一次性 per-function reads 扫描（框架已留 `store_dst` 扩展位）。
 
+## 类型化维度（interp-typed-superinstr，2026-08-01）
+
+融合识别接入编译器 emit 的 `reg_types`（`compute_fused_tails` 收 `&func.reg_types`）：`CmpBr` 的
+两操作数若 `reg_types` 确认为**整型**（`is_integer()`：I8..U64——运行期都存成 `Value::I64`）则置
+`typed: true`，interp 用 `ops::eval_cmp_i64` 做 **unchecked i64 比较**，跳过 `Value` 判别分支
+（`Value::as_i64_unchecked`：index 仍 bounds-checked，只 type 提取 unchecked，靠与 JIT
+`is_i64_typed` 同源的 reg_types 不变量）。循环条件 `i<n` 是这条的热路径。
+
+- **为什么用 `is_integer` 而非 `is_i64`**：编译器把 loop counter emit 成 **I32**，用 I64-only 门
+  会让 typed 永不触发（实测：先 `0 typed`，改后每循环 `1 typed`）。narrow int 运行期均 `Value::I64`，
+  故 unchecked i64 提取对全部整型安全；比较仍是 signed-i64，与既有 `numeric_lt` 逐字节一致。
+- **诚实边界**：interp 的 `Value` 是 tagged 枚举，拿不到 JIT「丢 tag、裸 i64」的大头；typed 只省掉
+  可预测的判别分支，故是 single-digit% 量级。移动端（iOS/Android/WASM 纯 interp）是主要受益方。
+- **实测**（`04_c2_p1_arith_loop`，interp，同二进制 best-of-7，macOS aarch64）：typed **337.7→327.5ms
+  ≈ 3%**（最热的紧算术循环，最有利场景）；整个融合框架（#93 untyped + typed）vs 无融合 = 368.0→
+  327.5ms ≈ 11%。一般代码循环更少更冷，收益低于此。
+- **调试 / A-B**：`Z42_FUSION_DEBUG=1` 打印 `N typed i64` 计数；`Z42_NO_TYPED_FUSION=1` 强制走
+  untyped 路径（load 期读一次，与 `Z42_NO_FUSION` 平行），用于同二进制测 typed 净收益。
+
+> **算术链融合（deferred）**：把 `t=a+b; d=t*c`（`t` 单用）这类中间值链融成一步——需把 per-block
+> tail 结构扩成 per-instruction 融合表 + 重构 dispatch 热循环 + 单用 reads 分析，ROI（single-digit%）
+> 不抵热路径重构风险，暂不做（2026-08-01 裁决）。将来要做时在此展开设计。
+
 ## 效果 + 验证
 
 - A/B（同二进制，`Z42_NO_FUSION` 开关，`--mode interp`，best of 7）：**04_arith 504→477ms（~5.4%）**、

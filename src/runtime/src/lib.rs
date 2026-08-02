@@ -26,6 +26,7 @@ pub mod native;
 pub mod host;
 pub mod vm;
 pub mod vm_context;
+pub mod app;
 
 // Runtime configuration registry — single source of truth for every
 // Z42_* env var the runtime reads (docs/review.md Part 4 D1, 2026-05-26).

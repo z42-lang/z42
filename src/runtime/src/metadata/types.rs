@@ -603,6 +603,46 @@ pub struct ClosureData {
 }
 
 impl Value {
+    /// interp-typed-superinstr (2026-08-01): read the `I64` payload **without**
+    /// a discriminant check. The interpreter's typed super-instructions call
+    /// this only when the compiler-emitted `reg_types[r] == IrType::I64` — the
+    /// **same invariant** the JIT's raw-slot arithmetic already trusts
+    /// (`jit::translate::is_i64_typed`). `debug_assert` catches an invariant
+    /// violation in debug builds; in release the `unreachable_unchecked` lets
+    /// LLVM drop the tag branch entirely.
+    ///
+    /// # Safety
+    /// Undefined behavior if `self` is not `Value::I64`. Callers must have
+    /// verified the register's static type is `I64` (via `reg_types`).
+    #[inline(always)]
+    pub unsafe fn as_i64_unchecked(&self) -> i64 {
+        match self {
+            Value::I64(x) => *x,
+            // reg_types guaranteed I64; any other variant is a compiler bug.
+            _ => {
+                debug_assert!(false, "as_i64_unchecked on non-I64: {self:?}");
+                std::hint::unreachable_unchecked()
+            }
+        }
+    }
+
+    /// interp-typed-superinstr (2026-08-01): read the `Bool` payload without a
+    /// discriminant check. See [`Value::as_i64_unchecked`] for the safety
+    /// contract (here the invariant is `reg_types[r] == IrType::Bool`).
+    ///
+    /// # Safety
+    /// Undefined behavior if `self` is not `Value::Bool`.
+    #[inline(always)]
+    pub unsafe fn as_bool_unchecked(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            _ => {
+                debug_assert!(false, "as_bool_unchecked on non-Bool: {self:?}");
+                std::hint::unreachable_unchecked()
+            }
+        }
+    }
+
     /// **add-write-barriers (2026-05-21)**: returns `true` iff writing
     /// this value into a heap slot must dispatch a GC write barrier.
     /// Heap-ref variants: `Object` / `Array` / `Closure` (Closure.env is a

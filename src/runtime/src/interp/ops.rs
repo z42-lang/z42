@@ -97,6 +97,36 @@ fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
     regs.get(r as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))
 }
 
+/// interp-typed-superinstr (2026-08-01): the **typed** comparison primitive for
+/// super-instructions whose operands `reg_types` confirm are both `I64`. Index
+/// access stays bounds-checked (panics, never UB); only the *type* extraction is
+/// unchecked (`as_i64_unchecked`), skipping the discriminant branch that
+/// [`eval_cmp`] / `numeric_lt` pay for the dynamic case. Infallible — an I64/I64
+/// compare can't type-mismatch.
+///
+/// # Panics
+/// If `a` or `b` is out of range (a compiler bug — the index-in-bounds
+/// invariant is implied by `typed`, since `is_i64(reg_types, r)` requires
+/// `r < reg_types.len() == regs.len()`).
+#[inline]
+pub(super) fn eval_cmp_i64(op: crate::metadata::superinstr::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
+    use crate::metadata::superinstr::CmpOp;
+    // SAFETY: the typed super-instruction was recognized only when
+    // `reg_types[a] == reg_types[b] == I64`, the same invariant the JIT's raw
+    // i64 arithmetic trusts. `debug_assert` inside `as_i64_unchecked` catches a
+    // violation in debug builds.
+    let x = unsafe { regs[a as usize].as_i64_unchecked() };
+    let y = unsafe { regs[b as usize].as_i64_unchecked() };
+    match op {
+        CmpOp::Lt => x <  y,
+        CmpOp::Le => x <= y,
+        CmpOp::Gt => x >  y,
+        CmpOp::Ge => x >= y,
+        CmpOp::Eq => x == y,
+        CmpOp::Ne => x != y,
+    }
+}
+
 pub(super) fn numeric_lt(regs: &[Value], a: u32, b: u32) -> Result<bool> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;

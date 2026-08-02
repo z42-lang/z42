@@ -1,0 +1,24 @@
+# z42.testagent — the shared on-device test-agent app (add-embedded-app-run).
+# Built to an app.zpkg, embedded via z42-host::run_app into every platform's
+# test host. One runner (Std.Test.Runner), all platforms.
+[project]
+name    = "z42.testagent"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Z42.TestHost.Agent.Main"
+pack    = true
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"   # prelude / String / Platform
+"z42.io"   = "0.1.0"   # Console / Environment (GetCommandLineArgs)
+"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule (the actual test runner)
+
+[build]
+# cascade defaults (output_dir = this dir; dist/.cache under it)
+
+[profile.release]
+mode     = "interp"    # embedded on-device baseline is interp (mobile/wasm); desktop may override
+optimize = 2

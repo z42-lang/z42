@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
@@ -381,84 +381,6 @@ fn log_module_paths(module_paths: &[PathBuf]) {
     }
 }
 
-/// Build the declared-but-not-loaded zpkg candidate set for the lazy loader.
-///
-/// Sources (in order, deduped by zpkg file name):
-///   1. `.zpkg` main artifact's `dependencies` (DEPS section)
-///   2. `.zbc`  main artifact's `import_namespaces` — reverse-lookup into
-///      `libs_dir` for zpkgs declaring each namespace
-///
-/// Entries whose file name is already in `initially_loaded` (e.g. `z42.core.zpkg`
-/// eager-loaded at startup, or — AOT only — deps already merged by the BFS) are
-/// excluded. make-vm-loading-lazy: JIT now populates this set like interp (only
-/// z42.core is pre-loaded), so JIT lazily loads deps on first cross-zpkg call.
-fn build_declared_candidates(
-    user_artifact: &z42::metadata::LoadedArtifact,
-    search_dirs:   &[PathBuf],
-    initially_loaded: &[String],
-) -> Vec<(String, z42::metadata::lazy_loader::ZpkgCandidate)> {
-    let mut declared: Vec<(String, z42::metadata::lazy_loader::ZpkgCandidate)> = Vec::new();
-    if search_dirs.is_empty() { return declared; }
-
-    let loaded_has = |name: &str| initially_loaded.iter().any(|f| f == name);
-    let declared_has = |d: &[(String, _)], name: &str| d.iter().any(|(f, _)| f == name);
-
-    // Namespace reverse-lookup searches every dep dir (entry-zpkg dir + libs).
-    let libs_paths = search_dirs.to_vec();
-
-    // .zpkg dependencies (DEPS): file field is authoritative; fall back to
-    // the sibling `namespaces` field if the literal filename does not resolve
-    // (e.g. GoldenTests writes `${ns}.zpkg` which will not match real stdlib
-    // package filenames like `z42.collections.zpkg`).
-    for dep in &user_artifact.dependencies {
-        if loaded_has(&dep.file) || declared_has(&declared, &dep.file) { continue; }
-        if let Ok(cand) = z42::metadata::lazy_loader::ZpkgCandidate::build_in_dirs(search_dirs, &dep.file) {
-            declared.push((dep.file.clone(), cand));
-            continue;
-        }
-        // Fallback: reverse lookup by namespaces.
-        for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = z42::metadata::resolve_namespace(ns, &[], &libs_paths) else {
-                continue;
-            };
-            for zpkg_path in zpkg_paths {
-                let Some(file_name) = zpkg_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(str::to_owned)
-                else { continue };
-                if loaded_has(&file_name) || declared_has(&declared, &file_name) { continue; }
-                match z42::metadata::lazy_loader::ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
-                    Ok(cand) => declared.push((file_name, cand)),
-                    Err(e)   => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
-                }
-            }
-        }
-    }
-
-    // .zbc import_namespaces — reverse lookup
-    for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = z42::metadata::resolve_namespace(ns, &[], &libs_paths) else {
-            continue;
-        };
-        for zpkg_path in zpkg_paths {
-            let Some(file_name) = zpkg_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(str::to_owned)
-            else { continue };
-            if loaded_has(&file_name) { continue; }
-            if declared_has(&declared, &file_name) { continue; }
-            match z42::metadata::lazy_loader::ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
-                Ok(cand) => declared.push((file_name, cand)),
-                Err(e)   => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
-            }
-        }
-    }
-
-    declared
-}
-
 /// Resolve the config-driven default execution mode (`Z42_MODE` / `[runtime].mode`,
 /// unify-run-modes P2). Sits below the `--mode` CLI flag and above the build
 /// default. Returns `None` to fall through to the build default when: unset, an
@@ -561,33 +483,7 @@ fn main() -> Result<()> {
         unsafe { std::env::set_var("Z42_LIBS", &val); }
     }
 
-    // Dependency search dirs (support-colocated-zpkg-deps, 2026-06-20): resolve
-    // a dep zpkg from the ENTRY zpkg's own directory first, then the stdlib
-    // `libs/`. This lets an apphost ship its payload + that payload's package
-    // deps together — e.g. `programs/z42c/z42c.driver.zpkg` finds its sibling
-    // `z42c.core.zpkg` even though those aren't in `libs/`. Order is fixed
-    // (entry dir, then libs) so resolution stays deterministic; de-duped so a
-    // self-contained dir doesn't get scanned twice.
-    let search_dirs: Vec<PathBuf> = {
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(entry_dir) = std::path::Path::new(file).parent() {
-            let entry_dir = if entry_dir.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                entry_dir.to_path_buf()
-            };
-            if entry_dir.is_dir() {
-                dirs.push(entry_dir);
-            }
-        }
-        if let Some(libs) = &libs_dir {
-            if !dirs.iter().any(|d| d == libs) {
-                dirs.push(libs.clone());
-            }
-        }
-        dirs
-    };
-
+    // Verbose libs-dir log (was inline before the former run sequence).
     if cli.verbose {
         match &libs_dir {
             Some(dir) => log_libs(dir),
@@ -595,71 +491,16 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut modules: Vec<z42::metadata::Module> = Vec::new();
-    // Track canonical paths of loaded artifact files to prevent duplicate loading.
-    let mut loaded_paths: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
-    // Track zpkg file names loaded eagerly at startup (initially_loaded input
-    // for the lazy loader — these are excluded from on-demand candidate set).
-    let mut initially_loaded_zpkgs: Vec<String> = Vec::new();
-
-    // add-runtime-observer (2026-05-26): collect (name, byte_size) for every
-    // module loaded during boot, then replay-emit as `ModuleLoaded` events
-    // AFTER VmContext::with_module installs the observer registry. We can't
-    // emit at load time because the registry doesn't exist until VmCore is
-    // built. Phase 2: lazy_loader will emit synchronously per on-demand load.
-    let mut loaded_for_replay: Vec<(String, Option<u64>)> = Vec::new();
-
-    // add-crosspkg-impl-reflection: collect (target_fq, trait_fq) impl pairs
-    // from every eagerly-loaded artifact; seeded into the lazy loader below.
-    let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
-
-    // 5.1b — unconditionally try to load z42.core.zpkg if present.
-    if let Some(ref dir) = libs_dir {
-        let core_path = dir.join("z42.core.zpkg");
-        if core_path.exists() {
-            let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
-            let core_str = core_path.to_string_lossy().into_owned();
-            match z42::metadata::load_artifact(&core_str) {
-                Ok(a) => {
-                    tracing::debug!("loaded stdlib z42.core from {core_str}");
-                    let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
-                    loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
-                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    modules.push(a.module);
-                    loaded_paths.insert(core_canonical);
-                    initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
-                }
-                Err(e) => tracing::warn!("failed to load z42.core: {e:#}"),
-            }
-        } else {
-            tracing::debug!("z42.core.zpkg not found in {}", dir.display());
-        }
-    }
-
-    // 5.1c — load the user artifact.
-    let user_artifact = z42::metadata::load_artifact(file)?;
-    // add-runtime-observer: record user artifact for ModuleLoaded replay.
-    {
-        let byte_size = std::fs::metadata(file).ok().map(|m| m.len());
-        loaded_for_replay.push((file.to_string(), byte_size));
-    }
-
-    // Resolve the effective execution mode ONCE so both the dependency-loading
-    // strategy (below) and `Vm::new` (later) agree. Explicit `--mode` wins;
-    // otherwise default to JIT when the feature is compiled in
-    // (make-jit-default, 2026-06-20), falling back to interp for jit-less
-    // builds (e.g. wasm / `--features interp-only`).
-    // P4.1: arms referencing feature-gated CLI variants must themselves be
-    // gated, else the constructor doesn't exist when the feature is off.
+    // Resolve effective execution mode ONCE: explicit `--mode` wins; else
+    // config-driven (`Z42_MODE` / `[runtime].mode`, unify-run-modes P2); else the
+    // build default (jit if compiled in, else interp). Feature-gated arms must
+    // themselves be gated (constructor absent when the feature is off).
     let effective_mode: z42::metadata::ExecMode = match cli.mode {
         #[cfg(feature = "jit")]
         Some(ExecMode::Jit) => z42::metadata::ExecMode::Jit,
         #[cfg(feature = "aot")]
         Some(ExecMode::Aot) => z42::metadata::ExecMode::Aot,
         Some(ExecMode::Interp) => z42::metadata::ExecMode::Interp,
-        // No `--mode` CLI → config-driven default (unify-run-modes P2):
-        // `Z42_MODE` / `[runtime].mode` (below CLI, above build default), else
-        // the build default (jit if compiled in, else interp).
         None => resolve_config_mode(z42::config::runtime_config().mode.as_deref())
             .unwrap_or_else(|| {
                 #[cfg(feature = "jit")]
@@ -669,162 +510,18 @@ fn main() -> Result<()> {
             }),
     };
 
-    // 5.1d — dependency loading strategy:
-    //   Interp / JIT mode → pure lazy. Zpkgs are loaded on demand when a Call
-    //     to an unresolved function is hit: interp via exec_instr, JIT via
-    //     `jit_call` → `resolve_id_by_name` → `try_lookup_function` →
-    //     `compile_fn` (native). See metadata/lazy_loader.rs.
-    //   AOT mode → eager (transitive BFS): the whole program is compiled ahead
-    //     of time, so every callee must be merged up front.
-    //
-    // make-vm-loading-lazy (2026-07-24): JIT dropped its eager BFS merge and now
-    // shares interp's lazy loader — a short-lived program compiles only the
-    // functions it actually calls (from only the zpkgs it actually touches),
-    // instead of the entire transitive stdlib closure. Cross-zpkg calls, static
-    // init (see `JitModule::run`), and ConstStr overflow (see `jit_const_str`)
-    // all route through the lazy loader now.
-    let is_eager = matches!(effective_mode, z42::metadata::ExecMode::Aot);
-    if is_eager {
-        // Eager + TRANSITIVE: BFS over the whole dependency graph so indirectly
-        // declared zpkgs are merged too — not just the entry's direct deps.
-        //
-        // fix-jit-cross-zpkg-call (2026-06-20): JIT requires every callee
-        // pre-compiled into the module, but the previous code loaded only the
-        // entry's direct `dependencies` / `import_namespaces`. A transitive
-        // target (e.g. `Std.Toml.TomlValue.Parse`, reached via
-        // z42c.project → z42.toml) was therefore neither merged nor declared,
-        // so it was unresolvable under `--mode jit` (interp dodged this by being
-        // fully lazy with runtime transitive unfold). We drain a worklist of
-        // dep files + namespaces, enqueuing each loaded artifact's own deps,
-        // until the graph is exhausted. `loaded_paths` dedups by canonical path.
-        if !search_dirs.is_empty() {
-            use std::collections::VecDeque;
-            // Resolve each dep file across all search dirs (entry-zpkg dir +
-            // libs) — colocated package deps merge alongside the stdlib.
-            let libs_paths = search_dirs.clone();
-            let mut file_queue: VecDeque<String> =
-                user_artifact.dependencies.iter().map(|d| d.file.clone()).collect();
-            let mut ns_queue: VecDeque<String> =
-                user_artifact.import_namespaces.iter().cloned().collect();
-            loop {
-                // Resolve pending namespaces to concrete zpkg files first.
-                while let Some(ns) = ns_queue.pop_front() {
-                    let Ok(zpkg_paths) = z42::metadata::resolve_namespace(&ns, &[], &libs_paths)
-                    else { continue };
-                    for zpkg_path in zpkg_paths {
-                        if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
-                            file_queue.push_back(name.to_string());
-                        }
-                    }
-                }
-                let Some(file) = file_queue.pop_front() else { break };
-                // First search dir that actually has this file wins (fixed order
-                // → deterministic; entry dir before libs).
-                let Some(dep_path) = search_dirs.iter()
-                    .map(|d| d.join(&file))
-                    .find(|p| p.exists())
-                else { continue };
-                let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
-                if !loaded_paths.insert(canonical) { continue; }  // already merged
-                let dep_str = dep_path.to_string_lossy().into_owned();
-                if let Ok(a) = z42::metadata::load_artifact(&dep_str) {
-                    // Enqueue this artifact's own deps for transitive closure.
-                    for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
-                    for ns in &a.import_namespaces { ns_queue.push_back(ns.clone()); }
-                    eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    modules.push(a.module);
-                    initially_loaded_zpkgs.push(file.clone());
-                }
-            }
-        }
-    }
-
-    // Build declared-but-not-loaded zpkg candidate set for the lazy loader,
-    // BEFORE moving `user_artifact.module` into `modules` (partial-move).
-    let declared_candidates = build_declared_candidates(
-        &user_artifact,
-        &search_dirs,
-        &initially_loaded_zpkgs,
-    );
-
-    // 5.1e — push user module last, then merge everything.
-    // Preserve the user module's name so entry-point lookup resolves correctly
-    // (merge_modules uses the first module's name, which would be z42.core otherwise).
-    let entry_hint = user_artifact.entry_hint.clone();
-    let user_module_name = user_artifact.module.name.clone();
-    eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
-    modules.push(user_artifact.module);
-
-    let final_module = if modules.len() == 1 {
-        modules.into_iter().next().unwrap()
-    } else {
-        let mut m = z42::metadata::merge_modules(modules)
-            .with_context(|| format!("merging modules for `{}`", file))?;
-        m.name = user_module_name;
-        // interned_strings: populated inside merge_modules.
-        z42::metadata::loader::build_type_registry(&mut m);
-        z42::metadata::loader::verify_constraints(&m)
-            .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        z42::metadata::loader::build_block_indices(&mut m);
-        z42::metadata::loader::build_func_index(&mut m);
-        m
-    };
-
-    // Construct the VmContext (consolidate-vm-state, 2026-04-28). The ctx
-    // owns static-fields / pending-exception / lazy_loader; previously these
-    // lived in thread_local slots scattered across interp/ and jit/.
-    //
-    // Lazy-loaded zpkgs will have their ConstStr indices offset past this
-    // module's string-pool length. In interp AND JIT mode `declared_candidates`
-    // drives on-demand loading (make-vm-loading-lazy unified the two); only AOT
-    // pre-merges the closure into `modules` during 5.1d, leaving `declared` empty.
-    // add-threading-stdlib (2026-05-20): module moves into VmCore (shared
-    // across threads); Vm becomes a thin run-config wrapper.
-    let string_pool_len = final_module.string_pool.len();
-    let ctx = z42::vm_context::VmContext::with_module(final_module);
-    // add-z42-launcher (2026-06-02): forward `-- <args>` to the program's
-    // GetCommandLineArgs(). Done before vm.run so the program sees them.
-    ctx.set_program_args(cli.args.clone());
-    ctx.install_lazy_loader_with_deps(
-        search_dirs.clone(),
-        string_pool_len,
-        declared_candidates,
-        initially_loaded_zpkgs,
-    );
-    // fix-cross-pkg-subclass-fields (2026-05-14): seed lazy loader with merged
-    // module's TypeDescs so cross-zpkg base classes are visible to the fixup
-    // pass when a subclass-only zpkg is lazy-loaded later.
-    let type_registry = ctx.module().unwrap().type_registry.clone();
-    ctx.seed_lazy_loader_types(&type_registry);
-    // add-crosspkg-impl-reflection: eagerly-loaded artifacts' impl pairs.
-    ctx.seed_lazy_loader_impls(&eager_impl_pairs);
-
-    // add-runtime-observer (2026-05-26): replay-emit ModuleLoaded for every
-    // module loaded during boot. Empty registry = no-op. Once embedders
-    // install observers (e.g. via z42.embedding API), they'll see boot loads
-    // as if they had subscribed before startup.
-    for (name, byte_size) in loaded_for_replay.drain(..) {
-        ctx.fire_runtime_event(&z42::observer::RuntimeEvent::ModuleLoaded {
-            name,
-            byte_size,
-        });
-    }
-
-    let vm = z42::vm::Vm::new(effective_mode);
-    // CLI positional `entry` overrides any artifact-supplied entry hint.
-    let effective_entry = cli.entry.as_deref().or(entry_hint.as_deref());
-    let result = vm.run(&*ctx, effective_entry);
-
-    // --print-stats-on-exit (docs/review.md Part 4 D6, 2026-05-26):
-    // snapshot counters AFTER vm.run returns. On error (Err return) we
-    // still print — partial run still has counter activity. Counters are
-    // observation-only so even a failed run's counts are valid.
-    if cli.print_stats_on_exit {
-        let snap = ctx.counters().snapshot();
-        eprintln!("{snap}");
-    }
-
-    result
+    // Shared app-run core (add-embedded-app-run): load the app + execute its
+    // entry — the same core the embedding path (z42-host::run_app) uses.
+    z42::app::run(
+        file,
+        cli.entry.as_deref(),
+        z42::app::RunOpts {
+            mode: effective_mode,
+            libs_dir,
+            program_args: cli.args.clone(),
+            print_stats: cli.print_stats_on_exit,
+        },
+    )
 }
 
 #[cfg(test)]
