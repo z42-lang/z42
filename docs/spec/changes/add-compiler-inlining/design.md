@@ -53,6 +53,12 @@ OptSet 是一个 `int` 位集。**用户自助勾选任意子集**,不是"高档
 > **debug 默认 None**(User 裁决 B):调试构建忠实可调试是原则。用户仍可显式 `--opt inline` 在 debug
 > 上按需开某优化(如复现 release-only bug),这正是「可独立开关」的价值。
 
+> **release = All 是发布默认(User 确认 2026-08-02)**:SDK / runtime 的发布构建一律 `--release` →
+> `ProfileDefault(true)=All`(最高优化,含 inline 落地后)。故:① 发布的 SDK 里的 z42c 本身全优化;
+> ② 用户用它建 release app 默认也全优化;③ z42vm(Rust)另由 cargo `--release` 达最高优化,与 OptSet
+> 正交。本 change **不降低任何 release/发布构建的优化**——release 与 change 前等价(原本无条件跑全部
+> pass,现在 = All + 将来 inline);唯一新增行为是 **debug 变 -O0**。
+
 ### D4: 内联资格(保守 v1)
 `dst = Call callee(args)` 内联当且仅当:① 直接调用(非 `VCall`);② callee 同模块可解析;
 ③ 非递归(callee≠caller 且不在内联栈);④ `callee.instrCount ≤ INLINE_MAX_SIZE(24)` **或**全模块

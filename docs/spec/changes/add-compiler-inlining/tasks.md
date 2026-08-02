@@ -4,9 +4,15 @@
 > proposal / design / spec 见同目录。分两阶段两 commit：先 OptSet 门控(低风险)、再内联(触自举不动点)。
 
 ## 进度概览
-- [ ] 阶段 1: OptSet 门控（config 面 + 逐 pass 门控；debug=None）
+- [x] 阶段 1a: OptSet 门控（逐 pass 门控 + profile 默认；debug=None/-O0）—— 本地 + CI #100 绿
+- [x] 阶段 1b: CLI `--opt`/`--no-opt`（toml `[optimize]` **deferred**：走 z42.project stdlib API，
+      受两-nightly 纪律，待该 API 随 nightly 发布再消费）
 - [ ] 阶段 2: 函数内联 pass（`Inline` 优化）
 - [ ] 阶段 3: 验证 + 文档 + 归档
+
+> **阶段 1 实测**（本地）：`z42c build --opt frobnicate` → 报错退出；`--opt inline`/`--no-opt const-fold`
+> → 解析接受；debug(-O0) vs release(All) 同程序 zpkg **735B vs 413B 字节不同**（优化确实改 codegen），
+> 二者运行输出同为 `5`（语义不变）。codegen golden 64/64 绿（dump 路径保持 Opt.All）。
 
 ## 阶段 1: OptSet 门控（commit 1，低风险）
 - [ ] 1.1 `OptSet.z42`（NEW）：`Opt` 位常量(ConstFold/CopyProp/Dce/Algebraic/Inline/None/All)+ `Has` + `Resolve(profileIsRelease, tomlBits, cliAdd, cliRemove)`
