@@ -328,6 +328,48 @@ Java_io_z42_vm_Z42VM_nativeShutdown(JNIEnv* env, jobject self, jlong handle) {
     free(h);
 }
 
+/* ── one-shot embedded app-run bridge (add-wasm-testhost G6) ──────────────
+ *
+ * `io.z42.vm.Z42TestHost.runApp` → z42_host_run_app: load a bundled app.zpkg
+ * and run its entry (no Z42VM handle — it builds + tears down its own VM),
+ * sourcing the stdlib from `libsDir`. Android has a real filesystem, so the
+ * agent + stdlib + bundle are copied out of assets to cacheDir and referenced
+ * by path (no VFS). The agent writes its JSON report to the out-path arg; the
+ * caller reads it back. Same core (z42::app::run) as desktop / iOS.
+ */
+JNIEXPORT jint JNICALL
+Java_io_z42_vm_Z42TestHost_nativeRunApp(
+    JNIEnv* env, jclass clazz,
+    jstring appPath, jstring entry, jstring libsDir, jobjectArray args
+) {
+    (void)clazz;
+    const char* app  = (*env)->GetStringUTFChars(env, appPath, NULL);
+    const char* ent  = entry   ? (*env)->GetStringUTFChars(env, entry, NULL)   : NULL;
+    const char* libs = libsDir ? (*env)->GetStringUTFChars(env, libsDir, NULL) : NULL;
+
+    jsize argc = args ? (*env)->GetArrayLength(env, args) : 0;
+    size_t slots = (size_t)(argc > 0 ? argc : 1);
+    const char** argv = (const char**)calloc(slots, sizeof(char*));
+    jstring* jargs = (jstring*)calloc(slots, sizeof(jstring));
+    for (jsize i = 0; i < argc; i++) {
+        jargs[i] = (jstring)(*env)->GetObjectArrayElement(env, args, i);
+        argv[i] = (*env)->GetStringUTFChars(env, jargs[i], NULL);
+    }
+
+    int rc = z42_host_run_app(app, ent, libs, (int)argc, argv);
+
+    for (jsize i = 0; i < argc; i++) {
+        (*env)->ReleaseStringUTFChars(env, jargs[i], argv[i]);
+        (*env)->DeleteLocalRef(env, jargs[i]);
+    }
+    free(argv);
+    free(jargs);
+    (*env)->ReleaseStringUTFChars(env, appPath, app);
+    if (ent)  (*env)->ReleaseStringUTFChars(env, entry, ent);
+    if (libs) (*env)->ReleaseStringUTFChars(env, libsDir, libs);
+    return (jint)rc;
+}
+
 /* ── z42_zpkg_read_namespaces bridge (static) ────────────────────────────
  *
  * Stateless: reads a zpkg's NSPC section so AssetZpkgResolver can build a

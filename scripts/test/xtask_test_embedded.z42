@@ -381,6 +381,68 @@ string _buildIosTesthost(string root, string filter) {
     return here;
 }
 
+// Resolve the Android NDK dir: ANDROID_NDK_HOME env, else the highest version
+// installed under versions.toml build.android.install_root/ndk/ (populated by
+// `xtask deps install --os android`).
+string _resolveAndroidNdk(string root) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    string ndkBase = Path.Join(root, "artifacts/tools/android-sdk/ndk");
+    if (!Directory.Exists(ndkBase)) { return ""; }
+    string[] vers = _sortedStrings(Directory.Enumerate(ndkBase));
+    int i = vers.Length - 1;              // highest version dir
+    while (i >= 0) {
+        string d = Path.Join(ndkBase, vers[i]);
+        if (Directory.Exists(d)) { return d; }
+        i = i - 1;
+    }
+    return "";
+}
+
+// Android: assemble the embedded corpus into the androidTest assets + build
+// libz42_platform_android.so per ABI via cargo-ndk (compile-once for the rust
+// cdylib). The embedded runner is Z42EmbeddedInstrumentedTest (in the z42vm
+// test apk) — the AAR build (gradle) + RUN (`connectedAndroidTest` on an
+// emulator) are CI/emulator-gated. Real filesystem → no VFS, same
+// z42_host_run_app core.
+string _buildAndroidTesthost(string root, string filter) {
+    if (Process.Which("cargo-ndk") == null) {
+        ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
+    }
+    string ndk = _resolveAndroidNdk(root);
+    if (ndk.Length == 0) {
+        ConsoleError.WriteLine("error: Android NDK not found — run `xtask deps install --os android`"); return "";
+    }
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    string manifest = _buildTestBundle(root, filter);
+    if (manifest.Length == 0) { return ""; }
+    string bundleDir = Path.GetDirectoryName(manifest);
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
+
+    string here = Path.Join(root, "src/toolchain/workload/android/platform");
+    string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
+    _assembleEmbeddedCorpus(root, bundleDir, agent, assetsDir);
+    Console.WriteLine("  embedded corpus → " + assetsDir);
+
+    // cargo-ndk → libz42_platform_android.so per ABI into jniLibs. All three
+    // NDK env vars set (the cmake C-dep cross-build reads NDK/NDK_ROOT too).
+    string rustDir = Path.Join(here, "rust");
+    string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
+    Console.WriteLine("  cargo ndk -t arm64-v8a -t x86_64 build --release");
+    int c = _execIn(new Process("cargo").Arg("ndk")
+        .Arg("-t").Arg("arm64-v8a").Arg("-t").Arg("x86_64")
+        .Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
+        .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk),
+        rustDir);
+    if (c != 0) { ConsoleError.WriteLine("error: cargo-ndk build failed"); return ""; }
+
+    Console.WriteLine("  Android embedded test-host ready (.so per ABI + androidTest assets).");
+    Console.WriteLine("  RUN (emulator/CI): cd " + here + " && ./gradlew :z42vm:connectedAndroidTest");
+    Console.WriteLine("    → Z42EmbeddedInstrumentedTest.embeddedBundle (embedded corpus) + R1–R7.");
+    return here;
+}
+
 // `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]
 //                      [--case <name>] [--filter <pat>] [--format ...]`
 int _testEmbedded(ParseResult r) {
@@ -405,6 +467,11 @@ int _testEmbedded(ParseResult r) {
         string ifilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
         string iout = _buildIosTesthost(root, ifilter);
         return (iout.Length > 0) ? 0 : 1;
+    }
+    if (platform == "android") {
+        string afilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+        string aout = _buildAndroidTesthost(root, afilter);
+        return (aout.Length > 0) ? 0 : 1;
     }
 
     // Run-target resolution:

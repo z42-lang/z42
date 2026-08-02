@@ -288,7 +288,7 @@ SubcommandRouter _testRouter() {
     embedded.AddOption("format", "", "json|pretty|tap (default: json)", "");
     embedded.AddOption("case", "", "build+run one case by name (e.g. basic/zlib_format)", "");
     embedded.AddOption("filter", "", "build+run cases whose name contains this substring", "");
-    embedded.AddOption("platform", "", "desktop (default, in-process) | wasm | ios (build+assemble platform test-host)", "");
+    embedded.AddOption("platform", "", "desktop (default, in-process) | wasm | ios | android (build+assemble platform test-host)", "");
     embedded.AddOptionalPositional("target", ".zbc / golden-case dir (omit → build+run full bundle)");
     t.Add("embedded", "run tests via the embedded test-agent (bundle all / --case / --filter / single)", embedded);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");

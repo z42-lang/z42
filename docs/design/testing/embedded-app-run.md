@@ -115,11 +115,35 @@ test-agent,加 `wasm-pack build` + 资产装配(pkg + harness + app/libs/bundle 
 `artifacts/build/wasm-test/`。**编译已本地验证**(native `cargo check` + `wasm-pack build` 全绿);
 **RUN 是浏览器/Playwright 门(CI)**——本机无 node/浏览器不跑,与冷启动路径同理以 CI 为准。
 
+## 5.6 iOS / Android 嵌入 test-host(add-wasm-testhost G6)
+
+iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 bundled corpus 引用为路径、调
+**现成的 `z42_host_run_app`**(std::fs),报告仍走 out-path 文件回传。只有原生壳 + 打包不同:
+
+- **公有头**:`z42_host_run_app` 补进 `src/runtime/include/z42_host.h`(iOS modulemap / Android
+  JNI 转发头都指向它),不再靠各壳 extern。
+- **iOS**:Swift 门面 `Z42TestHost.runApp`(marshal argv → C 符号);嵌入 XCTest
+  `Z42EmbeddedTests.testEmbeddedBundle`(bundled agent+libs+bundle 作 `Resources/embedded/`,报告
+  写 temp 文件后断言 `failed==0`),随 `Z42VM` scheme 走既有 `xcodebuild test`。
+  `xtask test embedded --platform ios`:装配 Resources + 建 xcframework(3 slice)。
+- **Android**:JNI `Java_..._Z42TestHost_nativeRunApp`(z42vm_jni.c)+ Kotlin `Z42TestHost.runApp`
+  + instrumented test `Z42EmbeddedInstrumentedTest`(assets `embedded/` 拷到 cacheDir → 路径调用 →
+  读报告)。`xtask test embedded --platform android`:装配 androidTest assets + cargo-ndk 建
+  `libz42_platform_android.so`(每 ABI)。
+
+**验证**:
+- iOS:staticlib 三 slice + xcframework + `swift build --build-tests` 编过,**`swift test` 在
+  macOS host 实跑 `testEmbeddedBundle` PASSED**(端到端;模拟器/设备同一二进制,CI 门)。
+- Android:cargo-ndk 建 `.so`(arm64-v8a + x86_64)全绿(fs_backend 改动跨编 android 通过);JNI C
+  经 NDK clang 语法校验通过。AAR(gradle)+ emulator RUN(`connectedAndroidTest`)为 CI/emulator 门。
+
 ## 6. Deferred / 后续
 
-- **ios/android 壳**:同 wasm 的两点适配(fs backend 加载已就绪、报告经文件回传),各加 Swift+C /
-  Kotlin+JNI 薄壳 + 各平台打包(bundle 作 app asset)。复用本节的核心 + agent + 文件回传契约。
-  独立 change(需 xcode / NDK 环境验证)。
+- **完整命令通道**(persistent agent)+ 结果汇总(统一 schema → 单 GitHub Check)。
+- **接入 CI**:desktop 已可跑;wasm 挂 Playwright、iOS 挂 `xcodebuild test`(sim)、android 挂
+  `connectedAndroidTest`(emulator tier)——各平台 RUN gate 落 CI job。
+- **WorkloadBase 5 相位补齐**:`z42b publish --rid <platform>` 成为用户构建跨平台 app 的入口
+  (test-agent 只是其一)。
 - **WorkloadBase 5 相位补齐**:让 `z42b publish --rid <platform>` 成为用户构建跨平台 app 的入口
   (test-agent 只是其中一个 app)。workload 面向用户的里程碑。
 - **接入 xtask test platform**:用嵌入式 agent 取代 R1–R7 的 4 语言 native driver。
