@@ -251,10 +251,67 @@ public static class Script {
     // 若有新包加载则重编一次。`1+2` 不失败 → 不加载 → 保住首轮 ~1.4s；首次引用某包才付其 ~120ms。
     private static CompileArtifacts _compileSrc(ScriptState state, int n, string src) {
         CompileArtifacts art = Script._compileSrcOnce(state, n, src);
-        if (art.ErrorCount > 0 && Script._loadUsingsPackages(state)) {
-            art = Script._compileSrcOnce(state, n, src);
+        if (art.ErrorCount > 0) {
+            // repl-per-symbol-reconcile（completer）：先只 reconcile 源里引用的**类型**（per-type，
+            // ReconcileOne），比整包 reconcile 快得多（首次 Console：只解 Console+Object，非整个 Std.IO+
+            // 全部默认 usings）。仍失败 → 回退整包 _loadUsingsPackages（保正确性）。
+            if (Script._loadReferencedTypes(state, src)) {
+                art = Script._compileSrcOnce(state, n, src);
+            }
+            if (art.ErrorCount > 0 && Script._loadUsingsPackages(state)) {
+                art = Script._compileSrcOnce(state, n, src);
+            }
         }
         return art;
+    }
+
+    // completer：扫源里首字母大写的标识符（类型候选），对每个活跃命名空间（usings + prelude Std/
+    // Std.Runtime）调 DepScan.ReconcileCandidatesInNs（每 ns 只读一次模块、批量 reconcile 命中的候选）。
+    // 返回是否并入新类型（值得重编）。非类型候选（方法名/局部名）不命中任何类 → 无害。
+    private static bool _loadReferencedTypes(ScriptState state, string src) {
+        if (state.CachedScan == null) { return false; }
+        int before = state.CachedScan.ExportedCount;
+        string[] cands = Script._typeCandidates(src);
+        DepScanResult scan = state.CachedScan;
+        // repl-type-nsindex：只对「类型索引显示声明了某候选类型」的活跃 ns 读模块 + reconcile，跳过其余
+        // （首次 Console 原本全扫 6 个活跃 ns/~100ms，现只读 Std.IO/~55ms）。索引空（旧缓存/无索引）→
+        // NsMayHaveCandidate 恒 true → 退化为全扫（旧行为，正确性不变）。活跃 ns：usings + prelude Std/Std.Runtime。
+        int u = 0;
+        while (u < state.Usings.Count) {
+            if (scan.NsMayHaveCandidate(state.Usings[u], cands, cands.Length)) {
+                DepScan.ReconcileCandidatesInNs(scan, state.Usings[u], cands, cands.Length);
+            }
+            u = u + 1;
+        }
+        if (scan.NsMayHaveCandidate("Std", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std", cands, cands.Length); }
+        if (scan.NsMayHaveCandidate("Std.Runtime", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std.Runtime", cands, cands.Length); }
+        return scan.ExportedCount > before;
+    }
+
+    // 首字母大写的标识符（类型名候选；PascalCase 约定）。去重。字符扫描（不依赖 Lexer，够用且快）。
+    private static string[] _typeCandidates(string src) {
+        string[] outp = new string[16]; int n = 0;
+        int i = 0;
+        while (i < src.Length) {
+            char c = src.CharAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                int j = i;
+                while (j < src.Length) {
+                    char d = src.CharAt(j);
+                    if ((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z') || (d >= '0' && d <= '9') || d == '_') { j = j + 1; }
+                    else { break; }
+                }
+                string w = src.Substring(i, j - i);
+                bool seen = false;
+                int k = 0; while (k < n) { if (outp[k] == w) { seen = true; } k = k + 1; }
+                if (!seen) {
+                    if (n == outp.Length) { string[] b = new string[outp.Length * 2]; int t = 0; while (t < n) { b[t] = outp[t]; t = t + 1; } outp = b; }
+                    outp[n] = w; n = n + 1;
+                }
+                i = j;
+            } else { i = i + 1; }
+        }
+        string[] r = new string[n]; int p = 0; while (p < n) { r[p] = outp[p]; p = p + 1; } return r;
     }
 
     // 加载首次引用符号所需的包（幂等）。返回 true = 有新包并入（值得重编）。

@@ -1,6 +1,7 @@
 # Tasks: Inline JIT safepoint fast-path（load/store 重构版）
 
-> 状态：🟡 进行中（复活） | 类型：refactor + perf | 复活：2026-08-01
+> 状态：🟢 已完成（PR #94 已合并 2026-08-02；x86_64 test-vm-jit 全绿、04_arith jit -53%/2.1×、无 panic——
+> 前一版 atomic_rmw 的 x86_64 lowering 阻塞由 load/store 从根因解除） | 类型：refactor + perf | 复活：2026-08-01
 > 设计见 [`design.md`](design.md)。
 >
 > **历史**：前一版（2026-06-03）用 `atomic_rmw.i32 Sub` 内联，Linux x86_64 上 bench

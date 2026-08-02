@@ -35,6 +35,10 @@ public sealed class DepScanResult {
     // OpenedNsFlat + OpenedNsStart/Len = 每包命名空间列表（来自 ns 索引；EnsurePackageLoaded 不 open 即可判某包是否声明 ns）。
     public string[]   OpenedPaths;
     public string[]   OpenedNsFlat; public int[] OpenedNsStart; public int[] OpenedNsLen;
+    // repl-type-nsindex：类型短名 → 声明它的命名空间（平行数组，同名跨 ns 允许多条）。completer 用它
+    // 判「某活跃 ns 是否声明了某候选类型」，只读命中的模块（不再全扫活跃 ns，省 45-73ms/首次引用）。
+    // 由 open-all（ReadModuleTypes 提取）或索引命中（NsTypes）填充；空（TypeMapCount==0）→ 保守全扫。
+    public string[]   TypeShort; public string[] TypeNs; public int TypeMapCount;
     public DepScanResult(DependencyIndex index,
                          string[] nsNames, string[] nsFiles, int nsCount,
                          ExportedModuleZ[] exported, string[] exportedPkg, int exportedCount) {
@@ -46,6 +50,31 @@ public sealed class DepScanResult {
         this.OpenedNames = new string[0]; this.Loaded = new bool[0]; this.OpenedCount = 0;
         this.OpenedPaths = new string[0];
         this.OpenedNsFlat = new string[0]; this.OpenedNsStart = new int[0]; this.OpenedNsLen = new int[0];
+        this.TypeShort = new string[0]; this.TypeNs = new string[0]; this.TypeMapCount = 0;
+    }
+    // repl-type-nsindex：追加一条 (shortname, ns) 到类型索引（growable）。
+    public void AddTypeNs(string shortName, string ns) {
+        if (this.TypeMapCount == this.TypeShort.Length) {
+            int ncap = this.TypeShort.Length == 0 ? 512 : this.TypeShort.Length * 2;
+            string[] s1 = new string[ncap]; string[] s2 = new string[ncap];
+            int k = 0; while (k < this.TypeMapCount) { s1[k] = this.TypeShort[k]; s2[k] = this.TypeNs[k]; k = k + 1; }
+            this.TypeShort = s1; this.TypeNs = s2;
+        }
+        this.TypeShort[this.TypeMapCount] = shortName; this.TypeNs[this.TypeMapCount] = ns;
+        this.TypeMapCount = this.TypeMapCount + 1;
+    }
+    // repl-type-nsindex：活跃 ns `ns` 是否声明了 cands 里的某个类型？索引空 → true（保守全扫，回退旧行为）。
+    public bool NsMayHaveCandidate(string ns, string[] cands, int candCount) {
+        if (this.TypeMapCount == 0) { return true; }
+        int k = 0;
+        while (k < this.TypeMapCount) {
+            if (this.TypeNs[k] == ns) {
+                int c = 0;
+                while (c < candCount) { if (this.TypeShort[k] == cands[c]) { return true; } c = c + 1; }
+            }
+            k = k + 1;
+        }
+        return false;
     }
     // ns → zpkg basename（未知 → ""）。
     public string FileOf(string ns) {
@@ -62,8 +91,12 @@ public sealed class DepScanResult {
 // 索引按 sorted *.zpkg 顺序逐条存；指纹匹配保证 paths[i] ↔ index[i] 一一对应。
 public sealed class NsIndexEntry {
     public string Basename; public bool IsExe; public string[] Nss;
+    // repl-type-nsindex：与 Nss 平行——NsTypes[i] = Nss[i] 里声明的类型短名（逗号连接）。
+    // completer 据此 shortname→ns 直达，只读含候选类型的那一个模块（不再全扫活跃 ns）。空 = 未知/无类型。
+    public string[] NsTypes;
     public NsIndexEntry(string basename, bool isExe, string[] nss) {
         this.Basename = basename; this.IsExe = isExe; this.Nss = nss;
+        this.NsTypes = new string[0];
     }
 }
 
@@ -110,7 +143,7 @@ public static class DepScan {
         try { content = File.ReadAllText(path); } catch (Exception ex) { return null; }
         string[] lines = content.Split("\n");
         if (lines.Length < 2) { return null; }
-        if (lines[0] != "NSIDX1") { return null; }
+        if (lines[0] != "NSIDX2") { return null; }
         if (lines[1] != fingerprint) { return null; }
         NsIndexEntry[] entries = new NsIndexEntry[expectCount];
         int n = 0;
@@ -119,10 +152,21 @@ public static class DepScan {
             if (lines[li].Length == 0) { li = li + 1; continue; }   // 尾随空行
             string[] f = lines[li].Split("\t");
             if (f.Length < 2) { return null; }
+            // repl-type-nsindex：每 ns 字段为 `ns=T1,T2`——按首个 `=` 切分 ns 名与类型短名列表。
             string[] nss = new string[f.Length - 2];
-            int k = 2; while (k < f.Length) { nss[k - 2] = f[k]; k = k + 1; }
+            string[] nsTypes = new string[f.Length - 2];
+            int k = 2;
+            while (k < f.Length) {
+                string fld = f[k];
+                int eq = fld.IndexOf("=");
+                if (eq < 0) { nss[k - 2] = fld; nsTypes[k - 2] = ""; }   // 兜底（不含 `=` 的旧式字段）
+                else { nss[k - 2] = fld.Substring(0, eq); nsTypes[k - 2] = fld.Substring(eq + 1, fld.Length - eq - 1); }
+                k = k + 1;
+            }
             if (n >= expectCount) { return null; }   // 条目多于预期 → 失效
-            entries[n] = new NsIndexEntry(f[0], f[1] == "1", nss);
+            NsIndexEntry ent = new NsIndexEntry(f[0], f[1] == "1", nss);
+            ent.NsTypes = nsTypes;
+            entries[n] = ent;
             n = n + 1;
             li = li + 1;
         }
@@ -131,14 +175,21 @@ public static class DepScan {
     }
 
     // 写索引（NSIDX1 + 指纹 + 每 *.zpkg 一行 `basename\tisExe\tns...`）。只读 libs 写失败 → 静默。
+    // repl-type-nsindex：NSIDX2——每 ns 字段由 `ns` 升级为 `ns=T1,T2`（T = 该 ns 声明的类型短名）。
+    // completer 据此 shortname→ns 直达。header bump NSIDX1→NSIDX2 让旧缓存自动失效重建。
     private static void _writeNsIndex(string path, string fingerprint, NsIndexEntry[] entries, int count) {
         if (path.Length == 0) { return; }
-        string s = "NSIDX1\n" + fingerprint + "\n";
+        string s = "NSIDX2\n" + fingerprint + "\n";
         int i = 0;
         while (i < count) {
             NsIndexEntry e = entries[i];
             s = s + e.Basename + "\t" + (e.IsExe ? "1" : "0");
-            int k = 0; while (k < e.Nss.Length) { s = s + "\t" + e.Nss[k]; k = k + 1; }
+            bool hasTypes = e.NsTypes.Length == e.Nss.Length;
+            int k = 0;
+            while (k < e.Nss.Length) {
+                s = s + "\t" + e.Nss[k] + "=" + (hasTypes ? e.NsTypes[k] : "");
+                k = k + 1;
+            }
             s = s + "\n";
             i = i + 1;
         }
@@ -389,6 +440,7 @@ public static class DepScan {
         res.Loaded = libLoaded; res.OpenedCount = libCount;
         res.OpenedPaths = libPaths;
         res.OpenedNsFlat = nsFlat; res.OpenedNsStart = nsStart; res.OpenedNsLen = nsLen;
+        DepScan._fillTypeMap(res, idx, paths.Length);   // repl-type-nsindex：从落盘索引填类型→ns（不重读模块）
         // lazy-prelude（repl-lazy-prelude）：**不再 eager reconcile prelude**。首轮 `1+1` 类纯表达式
         // 不引用任何 Std 符号 → 零包加载（实测 1.72s→0.34s）。首次引用 Std 符号时 _compileSrc 的 E0401
         // 回退按需加载（含 prelude，见 Script._loadUsingsPackages 显式补 "Std"）。
@@ -479,7 +531,10 @@ public static class DepScan {
                 libOpened[libCount] = z; libDirs[libCount] = Path.GetDirectoryName(paths[pi]);
                 libNames[libCount] = basename;
                 // repl-scan-nsindex-cache: 回填索引条目（真实 nss）+ 惰性 open/EnsurePackageLoaded 所需 path + ns 列表
-                entries[pi] = new NsIndexEntry(basename, false, nss);
+                // repl-type-nsindex：顺带提取每 ns 的类型短名（cold-start 一次性 ~159ms/26 包，落盘缓存）。
+                NsIndexEntry ent = new NsIndexEntry(basename, false, nss);
+                ent.NsTypes = DepScan._extractNsTypes(z, Path.GetDirectoryName(paths[pi]), nss);
+                entries[pi] = ent;
                 libPaths[libCount] = paths[pi];
                 nsStart[libCount] = nsFlatN; nsLen[libCount] = nss.Length;
                 int nb = 0;
@@ -505,9 +560,52 @@ public static class DepScan {
         res.Loaded = libLoaded; res.OpenedCount = libCount;
         res.OpenedPaths = libPaths;
         res.OpenedNsFlat = nsFlat; res.OpenedNsStart = nsStart; res.OpenedNsLen = nsLen;
+        DepScan._fillTypeMap(res, entries, paths.Length);   // repl-type-nsindex：填类型→ns 索引
         // repl-scan-nsindex-cache: 落盘 ns 索引（下次启动指纹命中 → 跳过 open-all）。只读 libs 写失败静默。
         DepScan._writeNsIndex(idxPath, fp, entries, paths.Length);
         return res;
+    }
+
+    // repl-type-nsindex：读一次包全模块类型 → 按 nss 顺序产出每 ns 的类型短名（逗号连接）。
+    // cold-start（cache-miss）用；warm 命中路径改从落盘的 NsTypes 读，不重跑此提取。
+    private static string[] _extractNsTypes(ZpkgInfo z, string dir, string[] nss) {
+        string[] outp = new string[nss.Length];
+        int i = 0; while (i < nss.Length) { outp[i] = ""; i = i + 1; }
+        ZpkgModuleTypes[] mts = ZpkgReader.ReadModuleTypes(z, dir);
+        int m = 0;
+        while (m < mts.Length) {
+            int ni = DepScan._nsIndexOf(nss, nss.Length, mts[m].Namespace);
+            if (ni >= 0) {
+                int c = 0;
+                while (c < mts[m].ClassCount) {
+                    string sn = DepScan._shortOf(mts[m].Classes[c].Name);
+                    outp[ni] = outp[ni].Length == 0 ? sn : (outp[ni] + "," + sn);
+                    c = c + 1;
+                }
+            }
+            m = m + 1;
+        }
+        return outp;
+    }
+
+    // repl-type-nsindex：把索引条目里的 (类型短名, ns) 填入 res 的类型索引。open-all 与索引命中共用。
+    private static void _fillTypeMap(DepScanResult res, NsIndexEntry[] entries, int count) {
+        int i = 0;
+        while (i < count) {
+            NsIndexEntry e = entries[i];
+            if (!e.IsExe && e.NsTypes.Length == e.Nss.Length) {
+                int a = 0;
+                while (a < e.Nss.Length) {
+                    if (e.NsTypes[a].Length > 0) {
+                        string[] ts = e.NsTypes[a].Split(",");
+                        int t = 0;
+                        while (t < ts.Length) { if (ts[t].Length > 0) { res.AddTypeNs(ts[t], e.Nss[a]); } t = t + 1; }
+                    }
+                    a = a + 1;
+                }
+            }
+            i = i + 1;
+        }
     }
 
     // 按需加载命名空间 `ns` 所在的**全部**包：对每个做 Rebuild（world 已完整 → base 链正确）+
@@ -566,6 +664,75 @@ public static class DepScan {
             i = i + 1;
         }
         scan.Loaded[idx] = true;
+    }
+
+    // repl-per-symbol-reconcile（completer 批量）：**读 `ns` 模块一次**，把其中短名 ∈ cands 的类型各 reconcile
+    // （ReconcileOneFromDesc，不重读）追加进 scan.Exported。比「每候选各调 EnsureTypeLoaded 各读一次模块」快得多
+    // （首次 Console：每活跃 ns 只读一次，而非候选×ns 次重复读大 Std 模块）。声明 ns 的包经 FileOf 定位 + 惰性
+    // open。找到并追加任一 → true。幂等：已在 Exported 的同类跳过。找不到包/无匹配 → false（调用方回退整包）。
+    public static bool ReconcileCandidatesInNs(DepScanResult scan, string ns, string[] cands, int candCount) {
+        string basename = scan.FileOf(ns);
+        if (basename.Length == 0) { return false; }
+        int idx = 0 - 1;
+        int i = 0;
+        while (i < scan.OpenedCount) { if (scan.OpenedNames[i] == basename) { idx = i; } i = i + 1; }
+        if (idx < 0) { return false; }
+        ZpkgInfo z = scan.Opened[idx];
+        if (z == null && idx < scan.OpenedPaths.Length) {
+            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
+            scan.Opened[idx] = z;
+        }
+        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, scan.OpenedDirs[idx], ns);   // 读一次
+        string pkgName = DepScan._nameOfBasename(basename);
+        bool added = false;
+        int t = 0;
+        while (t < mt.ClassCount) {
+            string fq = mt.Classes[t].Name;
+            string shortName = DepScan._shortOf(fq);
+            if (DepScan._inCands(shortName, cands, candCount) && !DepScan._typeInExported(scan, ns, shortName, fq)) {
+                ExportedClassZ cls = TsigReconcile.ReconcileOneFromDesc(mt.Classes[t], ns, scan.World);
+                if (cls != null) { DepScan._appendExportedClass(scan, ns, pkgName, cls); added = true; }
+            }
+            t = t + 1;
+        }
+        return added;
+    }
+
+    private static string _shortOf(string fq) {
+        int i = fq.Length - 1;
+        while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(i + 1); } i = i - 1; }
+        return fq;
+    }
+    private static bool _inCands(string name, string[] cands, int candCount) {
+        int i = 0; while (i < candCount) { if (cands[i] == name) { return true; } i = i + 1; } return false;
+    }
+    private static bool _typeInExported(DepScanResult scan, string ns, string shortName, string fq) {
+        int e = 0;
+        while (e < scan.ExportedCount) {
+            ExportedModuleZ em = scan.Exported[e];
+            if (em.Namespace == ns) {
+                int c = 0;
+                while (c < em.ClassCount) { if (em.Classes[c].Name == shortName || em.Classes[c].Name == fq) { return true; } c = c + 1; }
+            }
+            e = e + 1;
+        }
+        return false;
+    }
+    private static void _appendExportedClass(DepScanResult scan, string ns, string pkgName, ExportedClassZ cls) {
+        ExportedClassZ[] one = new ExportedClassZ[1]; one[0] = cls;
+        ExportedModuleZ mod = new ExportedModuleZ(ns, one, 1,
+            new ExportedInterfaceZ[0], 0, new ExportedEnumZ[0], 0,
+            new ExportedFuncZ[0], 0, new ExportedDelegateZ[0], 0);
+        if (scan.ExportedCount == scan.Exported.Length) {
+            ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
+            string[] g2 = new string[scan.Exported.Length * 2 + 1];
+            int k = 0;
+            while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
+            scan.Exported = g1; scan.ExportedPkg = g2;
+        }
+        scan.Exported[scan.ExportedCount] = mod;
+        scan.ExportedPkg[scan.ExportedCount] = pkgName;
+        scan.ExportedCount = scan.ExportedCount + 1;
     }
 
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
