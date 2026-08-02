@@ -472,7 +472,11 @@ public static class IrDump {
         if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
-        IrModule irm = gen.Generate(cu, model, Opt.None);   // 单模块/dump 路径：不优化
+        // 单模块 / --dump-ir / codegen 单测路径：保持优化（Opt.All）——与本 change 前的
+        // 无条件 IrOptPipeline.Run 行为一致（codegen golden 断言的是优化后的 IR，如
+        // test_constfold_* / test_identity_*）。debug=-O0 的新行为只作用于真正的包构建
+        // （BuildPackageCus 走 profile 默认），不影响这些编译器内部工具路径。
+        IrModule irm = gen.Generate(cu, model, Opt.All);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;
@@ -549,7 +553,7 @@ public static class IrDump {
         gen.SourceStem = IrDump._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
         gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
-        return gen.Generate(cu, model, Opt.None);   // 导出抽取：只要签名，不优化
+        return gen.Generate(cu, model, Opt.All);   // 导出抽取：保持 change 前无条件优化行为（signature 不受影响，但求字节一致）
     }
 }
 
