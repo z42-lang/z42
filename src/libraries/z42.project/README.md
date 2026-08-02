@@ -20,7 +20,7 @@
 ## 核心文件
 | 文件 | 段 | 职责 |
 |------|----|------|
-| `src/ManifestLoader.z42` | — | TOML → 模型 加载器：`Load`/`ParseText`（单项目）、`LoadWorkspace`/`ParseWorkspaceText`（workspace）；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
+| `src/ManifestLoader.z42` | — | TOML → 模型 加载器：`Load`/`ParseText`（单项目）、`LoadWorkspace`/`ParseWorkspaceText`（workspace）；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
 | `src/SourceDiscovery.z42` | — | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重+Ordinal 排序）|
 | `src/PathTemplate.z42` | — | 路径模板展开（`${project_name}`/`${profile}`/`${output_dir}` 等）+ `TemplateContext` |
 | `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目） |
@@ -28,6 +28,7 @@
 | `src/Sources.z42` | `[sources]` | include / exclude glob（array + count） |
 | `src/BuildConfig.z42` | `[build]` | output_dir / cache_dir / dist_dir / incremental |
 | `src/Profile.z42` | `[profile.*]` | pack / strip / mode / optimize / debug |
+| `src/ProjectManifest.z42`（`OptimizeNames`/`Values`/`Count`） | `[optimize]` | 逐 pass 具名开关（`inline=true`/`const-fold=false`…）中性 name/value 对；消费方按名映射编译器 `Opt` 位（add-compiler-inlining；消费受两-nightly 纪律） |
 | `src/DepEntry.z42` | `[dependencies]` | 单项依赖（name / version） |
 | `src/ExeTarget.z42` | `[[exe]]` | 多 exe 目标 |
 | `src/TargetSection.z42` | `[tests]`·`[benches]`·`[examples]` | dev 目标段：约定发现 glob（include/exclude/auto）+ dev-deps 隔离 |

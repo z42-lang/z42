@@ -50,7 +50,10 @@
       内联=代码复制换 dispatch 消除，符合准则 1 interp-first）
 - [x] 3.4 `docs/book/src/runtime/optimization-pipeline.md`：OptSet 门控 + 独立性约束 + 内联机制/资格(D4)/
       展开(D5)/传导内联/不动点(D7)（页在 runtime/ 非 compiler/，随 jit-lowering-pipeline 立项）
-- [ ] 3.5 构建配置文档：`[optimize]`（toml 消费仍 deferred，见备注）+ `--opt`/`--no-opt`（Phase 1 已文档化）
+- [x] 3.5a toml `[optimize]` **解析 support 侧**（z42.project：ManifestLoader `_parseOptimize` +
+      ProjectManifest `OptimizeNames`/`Values`/`Count` + 2 单测，连字符裸键 `const-fold`/`copy-prop` 验证通过）
+- [ ] 3.5b toml `[optimize]` **driver 消费** + book toolchain 用法页 → **延后一 nightly**（两-nightly 纪律，
+      见 proposal Out of Scope）：随本 change 进 nightly 后开 follow-up，driver 读 `pm.OptimizeNames`→`Opt.ByName`→`Resolve`
 - [ ] 3.6 归档 + commit + PR
 
 ## 备注

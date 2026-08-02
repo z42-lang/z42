@@ -37,7 +37,7 @@ public static class ManifestLoader {
         RunTarget[] tests    = ManifestLoader._parseRunTargets(root, "test");
         RunTarget[] benches  = ManifestLoader._parseRunTargets(root, "bench");
         RunTarget[] examples = ManifestLoader._parseRunTargets(root, "example");
-        return new ProjectManifest(project, sources, build,
+        ProjectManifest pm = new ProjectManifest(project, sources, build,
                                    profiles, profiles.Length,
                                    deps, deps.Length,
                                    exes, exes.Length,
@@ -46,6 +46,27 @@ public static class ManifestLoader {
                                    tests, tests.Length,
                                    benches, benches.Length,
                                    examples, examples.Length);
+        ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
+        return pm;
+    }
+
+    // ── [optimize] ───────────────────────────────────────────────────────────
+    // `[optimize]` 段逐项 bool（`inline = true` / `const-fold = false` …）→ 中性 name/value 对。
+    // z42.project 不映射到编译器 Opt 位（避免耦合）；消费方（z42c.driver）按名映射（add-compiler-inlining，
+    // 消费侧受两-nightly 纪律：本解析随 nightly 发布后 driver 才消费）。
+    private static void _parseOptimize(TomlValue root, ProjectManifest pm) {
+        if (!root.ContainsKey("optimize")) { return; }
+        var o = root.Get("optimize");
+        string[] keys = o.Keys();
+        string[] names = new string[keys.Length];
+        bool[]   vals  = new bool[keys.Length];
+        int i = 0;
+        while (i < keys.Length) {
+            names[i] = keys[i];
+            vals[i]  = o.Get(keys[i]).AsBool();
+            i = i + 1;
+        }
+        pm.OptimizeNames = names; pm.OptimizeValues = vals; pm.OptimizeCount = keys.Length;
     }
 
     /// 从文件路径加载 workspace 清单。

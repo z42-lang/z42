@@ -33,8 +33,10 @@ helper),**两个后端 + 移动端(纯 interp)通吃**,且解锁下游优化。�
 | `src/compiler/z42c.semantics/src/IrDump.z42` | MODIFY | 3 处 `Generate` 透传(dump 默认 None) |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | 携 optSet,透传到 IrGen |
 | `src/compiler/z42c.pipeline/src/Z42cCompiler.z42` | MODIFY | 从 req 解析 optSet(profile 默认 + 覆盖) |
-| `src/compiler/z42c.project/` (ProjectManifest) | MODIFY | 解析 toml `[optimize]` 逐项 |
-| `src/compiler/z42c.driver/src/Main.z42` | MODIFY | 解析 CLI `--opt` / `--no-opt` |
+| `src/libraries/z42.project/src/ManifestLoader.z42` | MODIFY | 解析 toml `[optimize]` 逐项 bool（manifest 模型已 converge 到 stdlib z42.project，非旧 `z42c.project`）|
+| `src/libraries/z42.project/src/ProjectManifest.z42` | MODIFY | `OptimizeNames`/`Values`/`Count` 中性 name/value 对（default 空）|
+| `src/libraries/z42.project/tests/manifest_roundtrip.z42` | MODIFY | `[optimize]` 解析单测（含连字符裸键）|
+| `src/compiler/z42c.driver/src/Main.z42` | MODIFY | 解析 CLI `--opt` / `--no-opt`（toml `[optimize]` **消费**延后一 nightly，见 Out of Scope）|
 | `src/compiler/z42c.semantics/tests/inline/` | NEW | 内联 + optSet 解析/门控单测 |
 | `docs/book/src/compiler/optimization-pipeline.md` | MODIFY | OptSet + 独立性约束 + 内联机制/资格/不动点 |
 | `docs/book/src/toolchain/`（构建配置页） | MODIFY | `[optimize]` + `--opt`/`--no-opt` |
@@ -46,6 +48,11 @@ helper),**两个后端 + 移动端(纯 interp)通吃**,且解锁下游优化。�
 - **跨包内联**、**虚调用内联**、**带异常表/ref·out/闭包 callee 的内联**（v1 保守跳过）。
 - **内联帧调试信息**(inline chain)→ v1 只映射 callee 源行。
 - 新优化 pass(LICM / strength-reduction / 逃逸分析)→ 各自独立 spec,届时**各加一个 OptSet 具名开关**。
+- **toml `[optimize]` 的 driver 消费**→ 延后一个 nightly（**两-nightly 纪律**，bootstrap-seed 轴 ②）：
+  z42c.driver 源消费 z42.project 新 API(`OptimizeNames`/`Values`)会让冷启动 CI 用旧 nightly z42.project
+  编当前 driver 源时缺 API 而红。本 change 只落**解析 support 侧**（z42.project）；driver 侧 `Opt.Resolve`
+  的 `tomlBits`/`tomlMask` 已就位（当前传 0/0），随本 change 进 nightly 后再开 follow-up 让 driver 读
+  `pm.OptimizeNames`→`Opt.ByName`→`Resolve`。届时补 `docs/book` toolchain 页的 `[optimize]` 用法。
 
 ## Open Questions
 - [ ] toml 段名 `[optimize]` + 逐项 kebab（`const-fold`/`copy-prop`/`dce`/`algebraic`/`inline`）,OK?
