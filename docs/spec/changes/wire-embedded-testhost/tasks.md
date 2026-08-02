@@ -23,8 +23,11 @@
 
 ## 归一模型（User 定调，见 design.md；MVP 之上的完整目标）
 - [x] 设计定稿：清单驱动命名用例 + 打包一个/全部 + 跑一个/全部 + golden 归一 [Test]（design.md）
-- [ ] G1 golden→[Test] wrapper 生成器（build 期：读 ns+expected → 生成 wrapper → 同编）
-      + 可能给 Std.Test 补 `CaptureStdout(Action)` 便捷 API
+- [x] G1 golden→[Test] wrapper 生成器（_wrapGoldenSource + _buildGoldenCase：读 ns+expected →
+      注入 using Std.Test + 追加 [Test]（TestIO.captureStdout + Assert.Equal，短名）→ 同编）。
+      `Std.Test.captureStdout` 已存在无需补。验证：`xtask test embedded <golden-dir>` 对
+      zlib_format(无 ns) + default_params(有 ns) 均 passed。踩坑：FQ Std.Test.TestIO 解析成
+      field-chain→Null，改用 using+短名
 - [ ] G2 清单生成 + bundle（全语料 → zbc + 清单 name→zbc + stdlib）；`--case` 单个
 - [ ] G3 agent 加清单 + `--filter`（逐 zbc RunModule）→ 汇总 JSON
 - [ ] G4 `xtask test embedded --case/--filter` 重构走 bundle；Rust 内部测试仍 `test runtime`

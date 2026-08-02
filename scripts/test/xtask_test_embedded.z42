@@ -67,7 +67,87 @@ string[] _embeddedNativeLibs() {
     return new string[0];
 }
 
-// `xtask test embedded <target.zbc> [--format json|pretty|tap]`
+// ── golden → [Test] 归一 (wire-embedded-testhost G1) ─────────────────────────
+//
+// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run
+// it through the single Runner path, generate a [Test] wrapper in the SAME
+// module that captures Main()'s stdout and asserts it equals the expected output
+// (or, when there is no expected file, just runs Main — Assert-self-validating).
+// Proven approach: combine golden source + injected `using Std.Test;` + appended
+// [Test] → one module with a [Test] the agent runs like any other.
+
+// Escape a string for embedding as a z42 double-quoted literal.
+string _zEscape(string s) {
+    string o = s.Replace("\\", "\\\\");
+    o = o.Replace("\"", "\\\"");
+    o = o.Replace("\r", "");
+    o = o.Replace("\n", "\\n");
+    return o;
+}
+
+// Build the combined golden+wrapper source. Injects `using Std.Test;` after the
+// `namespace ...;` line if present, else at the top; appends the [Test] wrapper.
+string _wrapGoldenSource(string src, bool hasExpected, string expected) {
+    string inject = "using Std.Test;\n";
+    string body;
+    string[] lines = src.Split("\n");
+    int nsIdx = -1;
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        if (lines[i].Trim().StartsWith("namespace ")) { nsIdx = i; break; }
+    }
+    if (nsIdx < 0) {
+        body = inject + src;
+    } else {
+        string head = "";
+        for (int i = 0; i <= nsIdx; i = i + 1) { head = head + lines[i] + "\n"; }
+        string tail = "";
+        for (int i = nsIdx + 1; i < lines.Length; i = i + 1) {
+            tail = tail + lines[i];
+            if (i + 1 < lines.Length) { tail = tail + "\n"; }
+        }
+        body = head + inject + tail;
+    }
+    // Use short names (TestIO / Assert) via the injected `using Std.Test;` —
+    // fully-qualified `Std.Test.TestIO` parses as a field-access chain (→ Null).
+    string wrapper;
+    if (hasExpected) {
+        wrapper = "\n[Test] void __golden_check() {\n"
+            + "    string __c = TestIO.captureStdout(() => { Main(); });\n"
+            + "    Assert.Equal(\"" + _zEscape(expected.TrimEnd()) + "\", __c.TrimEnd());\n}\n";
+    } else {
+        // Assert-self-validating golden: Main throws on failure.
+        wrapper = "\n[Test] void __golden_check() { Main(); }\n";
+    }
+    return body + wrapper;
+}
+
+// Build a golden case dir (<caseDir>/source.z42 [+ expected_output.txt]) into a
+// [Test]-wrapped .zbc. Returns the .zbc path ("" on failure).
+string _buildGoldenCase(string root, string caseDir) {
+    string src = Path.Join(caseDir, "source.z42");
+    if (!File.Exists(src)) { ConsoleError.WriteLine("error: no source.z42 in " + caseDir); return ""; }
+    string srcText = File.ReadAllText(src);
+    string expPath = Path.Join(caseDir, "expected_output.txt");
+    bool hasExp = File.Exists(expPath);
+    string exp = hasExp ? File.ReadAllText(expPath) : "";
+    string combined = _wrapGoldenSource(srcText, hasExp, exp);
+
+    string outDir = Path.Join(root, "artifacts/build/embedded-test");
+    Directory.Create(outDir);
+    string name = Path.GetFileName(caseDir);
+    string wrappedSrc = Path.Join(outDir, name + ".golden.z42");
+    File.WriteAllText(wrappedSrc, combined);
+    string zbc = Path.Join(outDir, name + ".golden.zbc");
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// `xtask test embedded <target.zbc | golden-case-dir> [--format json|pretty|tap]`
 int _testEmbedded(ParseResult r) {
     string root = _root();
     string target = r.GetPositional(0);
@@ -79,14 +159,24 @@ int _testEmbedded(ParseResult r) {
     if (format.Length == 0) { format = "json"; }
 
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+
+    // Target resolution: a golden case dir (has source.z42) is wrapped into a
+    // [Test] .zbc (G1 归一); a plain path is used as the .zbc directly.
+    string zbc = target;
+    if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
+        Console.WriteLine("→ golden case → [Test] wrap: " + target);
+        zbc = _buildGoldenCase(root, target);
+        if (zbc.Length == 0) { ConsoleError.WriteLine("error: wrap/build golden case failed"); return 1; }
+    }
+
     string agent = _ensureTestAgent(root);
     if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
     string host = _ensureDesktopTesthost(root);
     if (host.Length == 0) { ConsoleError.WriteLine("error: build desktop testhost failed"); return 1; }
 
     string libs = _libsDir(root);
-    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + target + " " + format);
-    ProcessResult res = new Process(host).Arg(agent).Arg(target).Arg(format)
+    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + zbc + " " + format);
+    ProcessResult res = new Process(host).Arg(agent).Arg(zbc).Arg(format)
         .Env("Z42_LIBS", libs).Run();
     Console.Write(res.Stdout);
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
