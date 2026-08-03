@@ -535,6 +535,15 @@ void test_copyprop_cascade_removes_param_copy() {
     Assert.Contains("copy", IrDump.DumpFuncOpt(src, "F", Opt.None));
     Assert.False(IrDump.DumpFuncOpt(src, "F", Opt.CopyProp).Contains("copy"));
 }
+
+// ── CSE 公共子表达式消除（add-cse-pass）───────────────────────────────────
+[Test]
+void test_cse_dedups_repeated_add() {
+    // (a+b)*(a+b)：两个 `a+b`（操作数皆稳定形参）→ CSE 复用首个 → mul 两操作数皆 %2。
+    string src = "int F(int a, int b) { return (a + b) * (a + b); }";
+    Assert.Contains("mul i32 %2, %3", IrDump.DumpFuncOpt(src, "F", Opt.None));   // -O0：两个独立 add
+    Assert.Contains("mul i32 %2, %2", IrDump.DumpFuncOpt(src, "F", Opt.Cse));    // CSE：复用首个 add 结果
+}
 [Test]
 void test_identity_mul_zero() {
     // a * 0 → const 0（a 变死；若 a 有副作用其 producer 仍由 temp-DCE 的 IsPure 守护保留）

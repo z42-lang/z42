@@ -113,6 +113,16 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
   完整镜像 `AddReads` 读枚举）把**全函数** dst 使用点改写为 src、再删这些已死的 copy。
   安全：src 稳定 ⇒ 其值在 dst 每个使用点相同（IR 有效=def 支配 use；src 单赋值故值恒定）。`ReplaceReads` 同为 CSE 复用。
 
+**pass 2b CSE（公共子表达式消除，`Opt.Cse`；跑在 const-fold 后、copy-prop 前）**：**块内** value-number——
+对纯计算 op（arith/cmp/位/一元/convert）建 key `op|操作数ids`，同块同 key 复现即「重复计算」。用
+`IrOptInfo.ReplaceReads`（cascade 引入的读改写基建）把重复结果的所有使用点改写为**首个**结果、删重复指令。
+`(a+b)*(a+b)` → 只算一次 `add`。**块内**限定（同块 firstDst 在前 → 支配 dupDst 及其使用点，值恒等），
+跨块不做（避支配分析）。
+> **安全边界**：① 操作数须**稳定**（单赋值 temp `defs==1` / 从不重写形参 `defs==0`）→ 两次出现同值；
+> dst 须单赋值（remap 有效）。② `Div`/`Rem` 可入——首个在前，若 trap 则控制流到不了第二个，否则同值。
+> ③ 含**分配 / 副作用 / 可空解引用**者（`StrConcat`/`FieldGet`/`ArrayGet`/`Call*`/`*Set`/`ObjNew`/…）**不入**
+> key（值不由操作数唯一决定，或有可观察副作用）。④ `convert` key 含目标类型标签（同 src 不同目标不可复用）。
+
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
 

@@ -38,6 +38,10 @@ public sealed class IrOptPipeline {
             int[] defs0 = IrOptPipeline._computeDefs(f);
             IrOptPipeline._passConstFold(f, defs0);
         }
+        // pass: cse —— 块内公共子表达式消除（放 const-fold 后：常量先折、剩下的纯计算去重）
+        if (Opt.Has(optSet, Opt.Cse)) {
+            IrOptPipeline._passCse(f);
+        }
         // pass: copy-prop —— 从当前 IR 重算读/写计数（含终结子读）
         if (Opt.Has(optSet, Opt.CopyProp)) {
             int[] reads = IrOptPipeline._computeReads(f);
@@ -245,6 +249,76 @@ public sealed class IrOptPipeline {
             }
             bi = bi + 1;
         }
+    }
+
+    // ── pass: CSE 公共子表达式消除（add-cse-pass）──────────────────────────────────
+    // 块内 value-number：`op|操作数ids` 首现记 dst；同 key 复现 → 记 dupDst→firstDst 映射，
+    // 之后用 ReplaceReads 全函数把 dupDst 使用点改写为 firstDst、删重复计算指令。
+    // 块内检测（同块 firstDst 在前 → 支配 dupDst 及其所有使用点，值恒等）；跨块不做（避支配分析）。
+    private static void _passCse(IrFunction f) {
+        int[] defs = IrOptPipeline._computeDefs(f);
+        int pc = f.ParamCount;
+        TypedReg[] remap = new TypedReg[f.MaxReg + 2];   // dupDst id -> firstDst
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            StrMap seen = new StrMap();   // value-number key -> firstDst TypedReg
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                string key = IrOptInfo.CseKey(blk.Instrs[ii], defs, pc);
+                if (key != null) {
+                    if (seen.ContainsKey(key)) {
+                        TypedReg first = seen.Get(key) as TypedReg;
+                        TypedReg dup = IrOptInfo.DstReg(blk.Instrs[ii]);
+                        if (dup != null && first != null && dup.Id != first.Id
+                            && dup.Id >= 0 && dup.Id < remap.Length) {
+                            remap[dup.Id] = first;
+                        }
+                    } else {
+                        seen.Put(key, IrOptInfo.DstReg(blk.Instrs[ii]));
+                    }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        if (!IrOptPipeline._anyNonNull(remap)) { return; }
+        // 改写所有 dupDst 使用点 → firstDst
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.ReplaceReads(blk.Instrs[ii], remap); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.ReplaceTermReads(blk.Term, remap); }
+            bi = bi + 1;
+        }
+        // 删重复计算指令（dst 在 remap = dup）
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int keep = 0;
+            int ii = 0;
+            while (ii < blk.InstrCount) { if (!IrOptPipeline._isRemappedDst(blk.Instrs[ii], remap)) { keep = keep + 1; } ii = ii + 1; }
+            if (keep != blk.InstrCount) {
+                IrInstr[] nw = new IrInstr[keep];
+                int j = 0;
+                ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (!IrOptPipeline._isRemappedDst(blk.Instrs[ii], remap)) { nw[j] = blk.Instrs[ii]; j = j + 1; }
+                    ii = ii + 1;
+                }
+                blk.Instrs = nw;
+                blk.InstrCount = keep;
+            }
+            bi = bi + 1;
+        }
+    }
+
+    // 该指令的 dst（仅 CSE-able op 有）是否为被映射的重复计算 → 应删。
+    private static bool _isRemappedDst(IrInstr ins, TypedReg[] remap) {
+        TypedReg d = IrOptInfo.DstReg(ins);
+        if (d == null) { return false; }
+        return d.Id >= 0 && d.Id < remap.Length && remap[d.Id] != null;
     }
 
     // src 稳定：形参须从不被重写（defs==0）；temp/local 须单赋值（defs==1）。

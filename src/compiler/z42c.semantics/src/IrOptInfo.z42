@@ -231,6 +231,84 @@ public sealed class IrOptInfo {
         while (i < count) { args[i] = IrOptInfo._sub(args[i], remap); i = i + 1; }
     }
 
+    // ── CSE 值编号（add-cse-pass）────────────────────────────────────────────────────
+    // 纯计算 op（arith/cmp/位/一元）的 value-number key：`op|a|b`（正定序，交换律规范化延后）。
+    // 仅当 dst 单赋值(defs==1) + 所有操作数**稳定**（单赋值 temp / 从不重写形参 → 值恒定）才给 key，
+    // 否则 null（不 CSE）：块内两次同 key ⇒ 同操作数、同值 ⇒ 可复用首个结果。Div/Rem 亦安全——首个
+    // 在前，若 trap 则控制流不到第二个；否则同值。含分配/副作用/可空解引用者（StrConcat/FieldGet/Call/…）不入。
+    public static string CseKey(IrInstr ins, int[] defs, int paramCount) {
+        if (ins is AddInstr)    { AddInstr i = ins as AddInstr; return IrOptInfo._binKey("add", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is SubInstr)    { SubInstr i = ins as SubInstr; return IrOptInfo._binKey("sub", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is MulInstr)    { MulInstr i = ins as MulInstr; return IrOptInfo._binKey("mul", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is DivInstr)    { DivInstr i = ins as DivInstr; return IrOptInfo._binKey("div", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is RemInstr)    { RemInstr i = ins as RemInstr; return IrOptInfo._binKey("rem", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is EqInstr)     { EqInstr i = ins as EqInstr; return IrOptInfo._binKey("eq", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is NeInstr)     { NeInstr i = ins as NeInstr; return IrOptInfo._binKey("ne", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is LtInstr)     { LtInstr i = ins as LtInstr; return IrOptInfo._binKey("lt", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is LeInstr)     { LeInstr i = ins as LeInstr; return IrOptInfo._binKey("le", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is GtInstr)     { GtInstr i = ins as GtInstr; return IrOptInfo._binKey("gt", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is GeInstr)     { GeInstr i = ins as GeInstr; return IrOptInfo._binKey("ge", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; return IrOptInfo._binKey("band", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; return IrOptInfo._binKey("bor", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; return IrOptInfo._binKey("bxor", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is ShlInstr)    { ShlInstr i = ins as ShlInstr; return IrOptInfo._binKey("shl", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is ShrInstr)    { ShrInstr i = ins as ShrInstr; return IrOptInfo._binKey("shr", i.Dst, i.A, i.B, defs, paramCount); }
+        if (ins is NegInstr)    { NegInstr i = ins as NegInstr; return IrOptInfo._unKey("neg", i.Dst, i.Src, defs, paramCount); }
+        if (ins is NotInstr)    { NotInstr i = ins as NotInstr; return IrOptInfo._unKey("not", i.Dst, i.Src, defs, paramCount); }
+        if (ins is BitNotInstr) { BitNotInstr i = ins as BitNotInstr; return IrOptInfo._unKey("bnot", i.Dst, i.Src, defs, paramCount); }
+        if (ins is ConvertInstr){ ConvertInstr i = ins as ConvertInstr; return IrOptInfo._unKeyT("conv", i.Dst, i.Src, defs, paramCount); }
+        return null;
+    }
+
+    // CSE-able op 的 dst TypedReg（供 value-number 存首个 / 取重复 dst）；非 CSE-able → null。
+    public static TypedReg DstReg(IrInstr ins) {
+        if (ins is AddInstr)    { return (ins as AddInstr).Dst; }
+        if (ins is SubInstr)    { return (ins as SubInstr).Dst; }
+        if (ins is MulInstr)    { return (ins as MulInstr).Dst; }
+        if (ins is DivInstr)    { return (ins as DivInstr).Dst; }
+        if (ins is RemInstr)    { return (ins as RemInstr).Dst; }
+        if (ins is EqInstr)     { return (ins as EqInstr).Dst; }
+        if (ins is NeInstr)     { return (ins as NeInstr).Dst; }
+        if (ins is LtInstr)     { return (ins as LtInstr).Dst; }
+        if (ins is LeInstr)     { return (ins as LeInstr).Dst; }
+        if (ins is GtInstr)     { return (ins as GtInstr).Dst; }
+        if (ins is GeInstr)     { return (ins as GeInstr).Dst; }
+        if (ins is BitAndInstr) { return (ins as BitAndInstr).Dst; }
+        if (ins is BitOrInstr)  { return (ins as BitOrInstr).Dst; }
+        if (ins is BitXorInstr) { return (ins as BitXorInstr).Dst; }
+        if (ins is ShlInstr)    { return (ins as ShlInstr).Dst; }
+        if (ins is ShrInstr)    { return (ins as ShrInstr).Dst; }
+        if (ins is NegInstr)    { return (ins as NegInstr).Dst; }
+        if (ins is NotInstr)    { return (ins as NotInstr).Dst; }
+        if (ins is BitNotInstr) { return (ins as BitNotInstr).Dst; }
+        if (ins is ConvertInstr){ return (ins as ConvertInstr).Dst; }
+        return null;
+    }
+
+    private static string _binKey(string op, TypedReg dst, TypedReg a, TypedReg b, int[] defs, int pc) {
+        if (!IrOptInfo._dstOk(dst, defs)) { return null; }
+        if (!IrOptInfo._stableR(a, defs, pc) || !IrOptInfo._stableR(b, defs, pc)) { return null; }
+        return op + "|" + a.Id.ToString() + "|" + b.Id.ToString();
+    }
+    private static string _unKey(string op, TypedReg dst, TypedReg s, int[] defs, int pc) {
+        if (!IrOptInfo._dstOk(dst, defs)) { return null; }
+        if (!IrOptInfo._stableR(s, defs, pc)) { return null; }
+        return op + "|" + s.Id.ToString();
+    }
+    // convert 结果类型随 Dst.Type → key 含目标类型标签（同 src 不同目标类型不可复用）。
+    private static string _unKeyT(string op, TypedReg dst, TypedReg s, int[] defs, int pc) {
+        if (!IrOptInfo._dstOk(dst, defs)) { return null; }
+        if (!IrOptInfo._stableR(s, defs, pc)) { return null; }
+        return op + "|" + s.Id.ToString() + "|t" + dst.Type.ToString();
+    }
+    private static bool _dstOk(TypedReg d, int[] defs) { return d.Id >= 0 && d.Id < defs.Length && defs[d.Id] == 1; }
+    private static bool _stableR(TypedReg r, int[] defs, int pc) {
+        int id = r.Id;
+        if (id < 0 || id >= defs.Length) { return false; }
+        if (id < pc) { return defs[id] == 0; }
+        return defs[id] == 1;
+    }
+
     // 可删性白名单：仅明确无副作用（不抛/不调用户码/不写内存/不分配）→ true。
     // 排除：Div/Rem（除零陷阱）、ArrayLen/FieldGet/ArrayGet（NPE/越界）、ToStr（调 ToString）、
     //       Call*/VCall/ObjNew/*Set（副作用）、StaticGet（可能触发静态初始化）、ArrayNew*/MkClos/
