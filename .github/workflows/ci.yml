@@ -662,10 +662,14 @@ jobs:
     timeout-minutes: 55
     runs-on: ubuntu-latest
     needs: [changes, toolchain-bootstrap, assemble-current-sdk]
-    # change-detect rule (c): JIT execution behaviour only changes when the Rust VM
-    # changes — z42c/stdlib/test-case changes affect the .zbc bytecode (caught by
-    # test-host's interp goldens), not the JIT codegen path. Schedule/dispatch = 全跑.
-    if: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # change-detect rule (c): JIT execution behaviour changes when the Rust VM changes
+    # (JIT codegen) OR when a z42c change alters the .zbc the JIT lowers — codegen /
+    # optimization passes (inline/LICM/CSE/…) restructure the IR, so the JIT's INPUT
+    # differs and its lowering of that new IR is exercised. test-host's interp goldens
+    # cover interp of the new .zbc, NOT its JIT lowering. So gate on vm OR compiler.
+    # (2026-08-04: #103's opt-pipeline changes skipped this leg → optimized IR was
+    # never JIT-tested; added `compiler` to close that gap.) Schedule/dispatch = 全跑.
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -738,7 +742,7 @@ jobs:
     # change-detect rule (d+c): stdlib [Test] JIT divergence can arise from a VM
     # change (JIT codegen) or a stdlib change (test content). Skip when neither
     # changed. Schedule/dispatch = 全跑.
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -784,7 +788,7 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     # change-detect rule (d+c): stdlib [Test] interp can diverge on VM change
     # (interp dispatch) or stdlib change (test content/API). Schedule/dispatch = 全跑.
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       # No sharding: each OS runs the full stdlib [Test] suite (~12-14 min). The
