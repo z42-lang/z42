@@ -421,39 +421,61 @@ pub struct ArrayObj {
     /// (Rust-synthesized arrays like reflection result sets; user arrays from
     /// `ArrayNew` always carry it).
     pub element_type: Arc<str>,
-    pub elems: Vec<Value>,
+    /// packed-primitive-arrays: element storage. **Step 1a** introduces this
+    /// enum with only `Boxed` (behaviour-identical refactor). **Step 1b** adds
+    /// packed primitive backings (Bytes/Chars/I32/I64/F64/Bool) — the C#
+    /// value-type-array model (inline packed, no per-element boxing, GC skips).
+    pub backing: ArrayBacking,
+}
+
+/// Array element storage. `Boxed` = C# reference array (`object[]`/`string[]`),
+/// GC-scanned. Step 1b adds packed primitive backings = C# value-type arrays.
+#[derive(Debug, Clone)]
+pub enum ArrayBacking {
+    Boxed(Vec<Value>),
 }
 
 impl ArrayObj {
     /// Untyped array (element type unknown) — for Rust-synthesized arrays.
     #[inline]
     pub fn new(elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(""), elems }
+        Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed(elems) }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
     #[inline]
     pub fn typed(element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), elems }
+        Self { element_type: Arc::from(element_type), backing: ArrayBacking::Boxed(elems) }
+    }
+    /// Boxed element vec. **Step 1a bridge** for the handful of sites that
+    /// accessed `.elems` directly; **Step 1b** replaces these with typed
+    /// accessors (get_boxed / set_boxed / iter_boxed) so packed backings work.
+    #[inline]
+    pub fn elems(&self) -> &Vec<Value> {
+        match &self.backing { ArrayBacking::Boxed(v) => v }
+    }
+    #[inline]
+    pub fn elems_mut(&mut self) -> &mut Vec<Value> {
+        match &mut self.backing { ArrayBacking::Boxed(v) => v }
     }
 }
 
 impl std::ops::Deref for ArrayObj {
     type Target = Vec<Value>;
     #[inline]
-    fn deref(&self) -> &Vec<Value> { &self.elems }
+    fn deref(&self) -> &Vec<Value> { self.elems() }
 }
 impl std::ops::DerefMut for ArrayObj {
     #[inline]
-    fn deref_mut(&mut self) -> &mut Vec<Value> { &mut self.elems }
+    fn deref_mut(&mut self) -> &mut Vec<Value> { self.elems_mut() }
 }
 impl std::ops::Index<usize> for ArrayObj {
     type Output = Value;
     #[inline]
-    fn index(&self, i: usize) -> &Value { &self.elems[i] }
+    fn index(&self, i: usize) -> &Value { &self.elems()[i] }
 }
 impl std::ops::IndexMut<usize> for ArrayObj {
     #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut Value { &mut self.elems[i] }
+    fn index_mut(&mut self, i: usize) -> &mut Value { &mut self.elems_mut()[i] }
 }
 
 #[derive(Debug, Clone)]

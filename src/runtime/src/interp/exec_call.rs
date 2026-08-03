@@ -243,7 +243,7 @@ pub(super) fn call_indirect(
     //   独立于 caller frame，避免 caller 弹出 arena 后 use-after-free）
     let (fname, env_vec_opt): (String, Option<Vec<Value>>) = match frame.get(callee)? {
         Value::FuncRef(name)               => (name.to_string(), None),
-        Value::Closure(c)                  => (c.fn_name.clone(), Some(c.env.borrow().elems.clone())),
+        Value::Closure(c)                  => (c.fn_name.clone(), Some(c.env.borrow().elems().clone())),
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame.env_arena.len() {

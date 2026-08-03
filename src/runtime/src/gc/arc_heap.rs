@@ -1459,7 +1459,7 @@ impl ArcMagrGC {
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
     fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        let elem_count = obj.elems.len();
+        let elem_count = obj.elems().len();
         let (entry_ptr, generation, handle) = {
             let mut region = self.region_array.lock();
             let handle = region.alloc(obj);
