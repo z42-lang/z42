@@ -166,6 +166,71 @@ public sealed class IrOptInfo {
         if (t is ThrowTerm)   { IrOptInfo._n(counts, (t as ThrowTerm).Reg); return; }
     }
 
+    // ── 读操作数重写（improve-copy-prop-cascade）─────────────────────────────────────
+    // 按 remap（TypedReg[] by reg id，null=不改）就地改写一条指令的**读**操作数（不动 Dst）。
+    // 完整镜像 AddReads 的读枚举——漏一个操作数 = copy-prop use-site/CSE 改写不全 → miscompile。
+    // 供 use-site copy-prop（dst→src 映射改所有 dst 使用点）+ CSE（重复计算的操作数改指首个结果）复用。
+    public static void ReplaceReads(IrInstr ins, TypedReg[] remap) {
+        if (ins is CopyInstr)      { CopyInstr i = ins as CopyInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is AddInstr)       { AddInstr i = ins as AddInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is SubInstr)       { SubInstr i = ins as SubInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is MulInstr)       { MulInstr i = ins as MulInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is DivInstr)       { DivInstr i = ins as DivInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is RemInstr)       { RemInstr i = ins as RemInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is EqInstr)        { EqInstr i = ins as EqInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is NeInstr)        { NeInstr i = ins as NeInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is LtInstr)        { LtInstr i = ins as LtInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is LeInstr)        { LeInstr i = ins as LeInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is GtInstr)        { GtInstr i = ins as GtInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is GeInstr)        { GeInstr i = ins as GeInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is BitAndInstr)    { BitAndInstr i = ins as BitAndInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is BitOrInstr)     { BitOrInstr i = ins as BitOrInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is BitXorInstr)    { BitXorInstr i = ins as BitXorInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is ShlInstr)       { ShlInstr i = ins as ShlInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is ShrInstr)       { ShrInstr i = ins as ShrInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is StrConcatInstr) { StrConcatInstr i = ins as StrConcatInstr; i.A = IrOptInfo._sub(i.A, remap); i.B = IrOptInfo._sub(i.B, remap); return; }
+        if (ins is NegInstr)       { NegInstr i = ins as NegInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is NotInstr)       { NotInstr i = ins as NotInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is BitNotInstr)    { BitNotInstr i = ins as BitNotInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is ConvertInstr)   { ConvertInstr i = ins as ConvertInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is ToStrInstr)     { ToStrInstr i = ins as ToStrInstr; i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is CallInstr)      { CallInstr i = ins as CallInstr; IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is BuiltinInstr)   { BuiltinInstr i = ins as BuiltinInstr; IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is CallNativeInstr){ CallNativeInstr i = ins as CallNativeInstr; IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is VCallInstr)     { VCallInstr i = ins as VCallInstr; i.Obj = IrOptInfo._sub(i.Obj, remap); IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; i.Obj = IrOptInfo._sub(i.Obj, remap); return; }
+        if (ins is FieldSetInstr)  { FieldSetInstr i = ins as FieldSetInstr; i.Obj = IrOptInfo._sub(i.Obj, remap); i.Val = IrOptInfo._sub(i.Val, remap); return; }
+        if (ins is ObjNewInstr)    { ObjNewInstr i = ins as ObjNewInstr; IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is IsInstanceInstr){ IsInstanceInstr i = ins as IsInstanceInstr; i.Obj = IrOptInfo._sub(i.Obj, remap); return; }
+        if (ins is AsCastInstr)    { AsCastInstr i = ins as AsCastInstr; i.Obj = IrOptInfo._sub(i.Obj, remap); return; }
+        if (ins is ArrayNewInstr)  { ArrayNewInstr i = ins as ArrayNewInstr; i.Size = IrOptInfo._sub(i.Size, remap); return; }
+        if (ins is ArrayNewLitInstr){ ArrayNewLitInstr i = ins as ArrayNewLitInstr; IrOptInfo._subArgs(i.Elems, i.ElemCount, remap); return; }
+        if (ins is StaticSetInstr) { StaticSetInstr i = ins as StaticSetInstr; i.Val = IrOptInfo._sub(i.Val, remap); return; }
+        if (ins is ArrayLenInstr)  { ArrayLenInstr i = ins as ArrayLenInstr; i.Arr = IrOptInfo._sub(i.Arr, remap); return; }
+        if (ins is CallIndirectInstr){ CallIndirectInstr i = ins as CallIndirectInstr; i.Callee = IrOptInfo._sub(i.Callee, remap); IrOptInfo._subArgs(i.Args, i.ArgCount, remap); return; }
+        if (ins is MkClosInstr)    { MkClosInstr i = ins as MkClosInstr; IrOptInfo._subArgs(i.Captures, i.CaptureCount, remap); return; }
+        if (ins is ArrayGetInstr)  { ArrayGetInstr i = ins as ArrayGetInstr; i.Arr = IrOptInfo._sub(i.Arr, remap); i.Idx = IrOptInfo._sub(i.Idx, remap); return; }
+        if (ins is ArraySetInstr)  { ArraySetInstr i = ins as ArraySetInstr; i.Arr = IrOptInfo._sub(i.Arr, remap); i.Idx = IrOptInfo._sub(i.Idx, remap); i.Val = IrOptInfo._sub(i.Val, remap); return; }
+        if (ins is LoadLocalAddrInstr){ LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; i.Slot = IrOptInfo._sub(i.Slot, remap); return; }
+        // 无读操作数：Const* / DefaultOf / StaticGet / LoadFn / Typeof
+    }
+
+    // 终结子读重写（镜像 AddTermReads）。
+    public static void ReplaceTermReads(IrTerminator t, TypedReg[] remap) {
+        if (t is RetTerm)    { RetTerm r = t as RetTerm; if (r.HasReg) { r.Reg = IrOptInfo._sub(r.Reg, remap); } return; }
+        if (t is BrCondTerm) { BrCondTerm b = t as BrCondTerm; b.Cond = IrOptInfo._sub(b.Cond, remap); return; }
+        if (t is ThrowTerm)  { ThrowTerm th = t as ThrowTerm; th.Reg = IrOptInfo._sub(th.Reg, remap); return; }
+    }
+
+    private static TypedReg _sub(TypedReg r, TypedReg[] remap) {
+        if (r.Id >= 0 && r.Id < remap.Length && remap[r.Id] != null) { return remap[r.Id]; }
+        return r;
+    }
+    private static void _subArgs(TypedReg[] args, int count, TypedReg[] remap) {
+        int i = 0;
+        while (i < count) { args[i] = IrOptInfo._sub(args[i], remap); i = i + 1; }
+    }
+
     // 可删性白名单：仅明确无副作用（不抛/不调用户码/不写内存/不分配）→ true。
     // 排除：Div/Rem（除零陷阱）、ArrayLen/FieldGet/ArrayGet（NPE/越界）、ToStr（调 ToString）、
     //       Call*/VCall/ObjNew/*Set（副作用）、StaticGet（可能触发静态初始化）、ArrayNew*/MkClos/

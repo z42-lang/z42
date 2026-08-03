@@ -102,9 +102,16 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 > emit,是被生产验证过的做法)。float 暂不折(文本化影响自举字节一致)。每条新规则配「折叠生效 + 安全不折」
 > 双向用例(见 `codegen_tests.z42` const-fold 段)。
 
-**pass 2 copy-prop**：SSA-lite lowering 系统性 emit `t = expr; copy local, t`（每个命名局部赋值一条 Copy）。
-相邻 producer→copy 且 t 单赋值(defs==1)单读(reads==1，那唯一读即本 Copy)、t≠local 时,把 producer 的 Dst
-retarget 成 local、删 Copy → `local = expr`。interp 每个赋值少一次 dispatch（热路收益大头）。
+**pass 2 copy-prop**：两相：
+- **① producer-retarget**：SSA-lite lowering 系统性 emit `t = expr; copy local, t`（每个命名局部赋值一条 Copy）。
+  相邻 producer→copy 且 t 单赋值(defs==1)单读(reads==1，那唯一读即本 Copy)、t≠local 时,把 producer 的 Dst
+  retarget 成 local、删 Copy → `local = expr`。interp 每个赋值少一次 dispatch（热路收益大头）。
+- **② use-site 级联传播（improve-copy-prop-cascade）**：producer-retarget 只吃**相邻**模式，`dst = copy src`
+  中 src 无 producer 可 retarget（如 src 是形参 / 非相邻）时留存。级联相：对**单赋值** `dst = copy src`
+  （dst 非形参、`defs[dst]==1`；src **稳定**=单赋值 temp `defs==1` / 从不重写形参 `defs==0`）建 `dst→src` 映射
+  （**链式解析**到最终稳定 src），用 `IrOptInfo.ReplaceReads`（通用「按 remap 改写一条指令/终结子读操作数」，
+  完整镜像 `AddReads` 读枚举）把**全函数** dst 使用点改写为 src、再删这些已死的 copy。
+  安全：src 稳定 ⇒ 其值在 dst 每个使用点相同（IR 有效=def 支配 use；src 单赋值故值恒定）。`ReplaceReads` 同为 CSE 复用。
 
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。

@@ -509,20 +509,31 @@ void test_constfold_skip_nonconst() {
 }
 
 // ── 代数恒等式（optimization-pipeline，单操作数常量）──────────────────────
-// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的死常量由 temp-DCE 清掉。
+// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的 copy 再被 use-site 级联传播消掉（ret 直接用 %0）。
 [Test]
 void test_identity_add_zero() {
-    // a + 0 → copy a（死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害）
+    // a + 0 → copy a → use-site 级联把 `%2=copy %0` 传播掉、ret 直接用 %0（improve-copy-prop-cascade）。
+    // 死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害。
     string src = "int F(int a) { return a + 0; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %0\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  ret %0\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 [Test]
 void test_identity_mul_one() {
-    // a * 1 → copy a
+    // a * 1 → copy a → use-site 级联传播 → ret %0
     string src = "int F(int a) { return a * 1; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = copy %0\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  ret %0\n}",
                  IrDump.DumpFunc(src, "F"));
+}
+
+// ── use-site copy 级联传播（improve-copy-prop-cascade）─────────────────────
+[Test]
+void test_copyprop_cascade_removes_param_copy() {
+    // `int b = a` → `copy b, a`（src=形参，无 producer → 相邻 retarget 够不着）；-O0 保留，
+    // 仅 CopyProp（含 use-site 级联）时 dst 使用点改写为 %0、copy 删除。
+    string src = "int F(int a) { int b = a; return b; }";
+    Assert.Contains("copy", IrDump.DumpFuncOpt(src, "F", Opt.None));
+    Assert.False(IrDump.DumpFuncOpt(src, "F", Opt.CopyProp).Contains("copy"));
 }
 [Test]
 void test_identity_mul_zero() {
