@@ -170,6 +170,33 @@ string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) 
     return zbc;
 }
 
+// Build a DIR-mode stdlib [Test] unit (tests/<name>/ with helper .z42 files, or
+// an own manifest) into a packed .zpkg, then copy it into `bundleDir`. Reuses
+// the host runner's `_renderSyntheticManifest` (same build path as `test lib`,
+// no duplication) with empty deps — Z42_LIBS=flat resolves every `using`, same
+// as single-file `--emit-zbc`. Returns the copied path ("" on failure).
+string _emitDirUnit(string root, string lib, string name, string dirPath, string safe, string bundleDir) {
+    string projName = lib + ".test." + name;
+    string outDir = Path.Join(root, "artifacts/build/embedded-test/dm/" + projName);
+    Directory.Create(outDir);
+    // Synthetic toml written NEXT TO the sources (glob is manifest-relative);
+    // dot-prefixed + unique so it's git-ignored and won't collide.
+    string toml = Path.Join(dirPath, ".xtask-embed-" + projName + ".z42.toml");
+    File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name, _newBundle()));
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    File.Delete(toml);   // clean up the synthetic manifest regardless of outcome
+    if (c != 0) { return ""; }
+    string produced = Path.Join(outDir, "dist/" + projName + ".zpkg");
+    if (!File.Exists(produced)) { return ""; }
+    string dest = Path.Join(bundleDir, safe + ".zpkg");
+    File.Copy(produced, dest, true);
+    return dest;
+}
+
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
 string _buildTestBundle(string root, string filter) {
     string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
@@ -213,6 +240,23 @@ string _buildTestBundle(string root, string filter) {
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + caseName); continue; }
             if (count > 0) { items = items + ",\n"; }
             items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\"}";
+            count = count + 1;
+        }
+        // 2b. dir-mode stdlib [Test] units (tests/<name>/ with [Test] methods;
+        // e.g. z42.crypto/tests/secp256k1, z42.ir/tests/*). source.z42-only dirs
+        // WITHOUT [Test] are goldens (need per-case isolation) → stay on the host
+        // golden runner, not here (unify-host-tests-on-embed §golden).
+        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
+            string dpath = Path.Join(tdir, nm);
+            if (!Directory.Exists(dpath)) { continue; }
+            if (!_dirHasTestMethods(dpath)) { continue; }
+            string caseName = lib + "/" + nm;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string safe = _bundleSafeName(caseName);
+            string zbc = _emitDirUnit(root, lib, nm, dpath, safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zpkg\"}";
             count = count + 1;
         }
     }

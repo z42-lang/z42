@@ -96,3 +96,8 @@ src/**/programs/
 src/**/publish/
 src/toolchain/*/core/z42
 src/toolchain/*/core/bin/
+
+# Synthetic per-test mini-manifests written next to sources by the test
+# runners (`test lib` dir-mode + `test embedded` dir-units); self-deleted after
+# build, ignored defensively in case a build aborts mid-way.
+**/.xtask-*.z42.toml
