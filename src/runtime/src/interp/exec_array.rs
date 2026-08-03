@@ -64,7 +64,7 @@ pub(super) fn array_get(frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Resu
             if i >= borrowed.len() {
                 bail!("array index {} out of bounds (len={})", i, borrowed.len());
             }
-            borrowed[i].clone()
+            borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
         }
         other => bail!("ArrayGet: expected array, got {:?}", other),
     };
@@ -88,7 +88,7 @@ pub(super) fn array_set(ctx: &VmContext, frame: &mut Frame, arr: u32, idx: u32, 
             if i >= borrowed.len() {
                 bail!("array index {} out of bounds (len={})", i, borrowed.len());
             }
-            borrowed[i] = v.clone();
+            borrowed.set_boxed(i, v.clone());   // typed accessor: unboxes into packed
             drop(borrowed);
             if v.is_heap_ref() {
                 ctx.heap().write_barrier_array_elem(&arr_value, i, &v);

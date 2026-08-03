@@ -3,7 +3,7 @@
 > 状态：🟡 进行中 | 创建：2026-08-04 | 类型：vm（核心表示）| 增量 GREEN，每 Step 独立 commit
 
 ## 进度概览（每 Step 编译 + cargo test + xtask test 绿）
-- [ ] Step 1a: ArrayObj→backing 抽象（全 Boxed，纯重构，行为等价）
+- [x] Step 1a: ArrayObj→backing 抽象（全 Boxed，纯重构，行为等价）—— commit aaf3694d，cargo build+test 绿
 - [ ] Step 1b: 逐类型 packed backing（byte/char/int/long/double/bool）
 - [ ] Step 2: GC 跳过 primitive backing + write-barrier 仅 Boxed
 - [ ] Step 3: FFI 直读切片（ext/fs/network/crypto marshal → as_bytes）

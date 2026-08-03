@@ -428,11 +428,21 @@ pub struct ArrayObj {
     pub backing: ArrayBacking,
 }
 
-/// Array element storage. `Boxed` = C# reference array (`object[]`/`string[]`),
-/// GC-scanned. Step 1b adds packed primitive backings = C# value-type arrays.
+/// Array element storage — the C# value-type-vs-reference array distinction.
+/// `Boxed` = reference array (`object[]`/`string[]`/nested), GC-scanned. The
+/// primitive backings are packed value-type arrays (inline `Vec<T>`, no
+/// per-element boxing, GC skips them). box/unbox happens only at the ArrayGet/
+/// ArraySet boundary because interp registers are `Value` (Step 4 removes even
+/// that for the JIT via unboxed access).
 #[derive(Debug, Clone)]
 pub enum ArrayBacking {
     Boxed(Vec<Value>),
+    Bool(Vec<bool>),
+    Bytes(Vec<u8>),      // byte / sbyte（窄整型并入；box 语义按 element_type）
+    I32(Vec<i32>),       // int / uint / short / ushort
+    I64(Vec<i64>),       // long / ulong
+    Chars(Vec<char>),    // char（scalar，与 String.ToCharArray 对齐）
+    F64(Vec<f64>),       // double / float
 }
 
 impl ArrayObj {
@@ -442,20 +452,103 @@ impl ArrayObj {
         Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed(elems) }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
+    /// Step 1b: still constructs `Boxed`; Step 1b-ii selects a packed backing
+    /// by `element_type`.
     #[inline]
     pub fn typed(element_type: &str, elems: Vec<Value>) -> Self {
         Self { element_type: Arc::from(element_type), backing: ArrayBacking::Boxed(elems) }
     }
-    /// Boxed element vec. **Step 1a bridge** for the handful of sites that
-    /// accessed `.elems` directly; **Step 1b** replaces these with typed
-    /// accessors (get_boxed / set_boxed / iter_boxed) so packed backings work.
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.len(),
+            ArrayBacking::Bool(v)  => v.len(),
+            ArrayBacking::Bytes(v) => v.len(),
+            ArrayBacking::I32(v)   => v.len(),
+            ArrayBacking::I64(v)   => v.len(),
+            ArrayBacking::Chars(v) => v.len(),
+            ArrayBacking::F64(v)   => v.len(),
+        }
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    /// Read element `i` as a `Value` (boxes packed primitives). Caller ensures
+    /// `i < len()`.
+    #[inline]
+    pub fn get_boxed(&self, i: usize) -> Value {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v[i].clone(),
+            ArrayBacking::Bool(v)  => Value::Bool(v[i]),
+            ArrayBacking::Bytes(v) => Value::I64(v[i] as i64),
+            ArrayBacking::I32(v)   => Value::I64(v[i] as i64),
+            ArrayBacking::I64(v)   => Value::I64(v[i]),
+            ArrayBacking::Chars(v) => Value::Char(v[i]),
+            ArrayBacking::F64(v)   => Value::F64(v[i]),
+        }
+    }
+    /// Write `Value` into element `i` (unboxes into packed primitives). Caller
+    /// ensures `i < len()`.
+    #[inline]
+    pub fn set_boxed(&mut self, i: usize, val: Value) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v[i] = val,
+            ArrayBacking::Bool(v)  => v[i] = matches!(val, Value::Bool(true)),
+            ArrayBacking::Bytes(v) => v[i] = if let Value::I64(n) = val { n as u8 } else { 0 },
+            ArrayBacking::I32(v)   => v[i] = if let Value::I64(n) = val { n as i32 } else { 0 },
+            ArrayBacking::I64(v)   => v[i] = if let Value::I64(n) = val { n } else { 0 },
+            ArrayBacking::Chars(v) => v[i] = if let Value::Char(c) = val { c } else { '\0' },
+            ArrayBacking::F64(v)   => v[i] = if let Value::F64(f) = val { f } else { 0.0 },
+        }
+    }
+
+    /// Materialise all elements as a `Vec<Value>` (for sites needing a boxed
+    /// snapshot — reflection, conversions). Boxed backing clones; packed boxes.
+    pub fn to_boxed_vec(&self) -> Vec<Value> {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.clone(),
+            _ => (0..self.len()).map(|i| self.get_boxed(i)).collect(),
+        }
+    }
+    /// The boxed element slice iff this is a reference array — GC scans only
+    /// this; packed primitive backings hold no heap refs (`None`).
+    #[inline]
+    pub fn boxed_slice(&self) -> Option<&[Value]> {
+        match &self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+    #[inline]
+    pub fn boxed_slice_mut(&mut self) -> Option<&mut Vec<Value>> {
+        match &mut self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+
+    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
+    /// this to hand native code a contiguous `&[u8]` — no per-byte marshal.
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
+    }
+
+    // ── Step 1b bridge (temporary) ───────────────────────────────────────────
+    // Deref/Index still expose the boxed `Vec<Value>` so the ~50 legacy sites
+    // that iterate/index arrays compile unchanged while all arrays are still
+    // `Boxed`. `unreachable!` guards a packed backing — Step 1b-ii only enables
+    // packing AFTER every packed-array-touching site (opcodes / FromChars / FFI)
+    // is migrated to the typed accessors above, so a packed array never reaches
+    // Deref. Bridge is removed once migration completes.
     #[inline]
     pub fn elems(&self) -> &Vec<Value> {
-        match &self.backing { ArrayBacking::Boxed(v) => v }
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v,
+            _ => unreachable!("ArrayObj::elems() on a packed backing (Step 1b bridge)"),
+        }
     }
     #[inline]
     pub fn elems_mut(&mut self) -> &mut Vec<Value> {
-        match &mut self.backing { ArrayBacking::Boxed(v) => v }
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v,
+            _ => unreachable!("ArrayObj::elems_mut() on a packed backing (Step 1b bridge)"),
+        }
     }
 }
 
