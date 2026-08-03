@@ -95,7 +95,7 @@ CallNativeInstr，native 函数在 **VM 加载期按名解析**，编码里无�
 | `z42.text` | L1 | StringBuilder（纯脚本，2026-04-26 迁移）；Regex 占位 | ❌ 纯脚本 |
 | `z42.encoding` | L1 | Hex、Base64（RFC 4648 §4）、Utf8 | ❌ 纯脚本 |
 | `z42.io` | L2 | Console、File、Path、Environment | ✅ host FFI（仅此包例外） |
-| `z42.time` | L1 | DateTime（UTC 时刻）、TimeSpan（时间段）、Stopwatch（单调计时器） | ✅ VM intrinsic（`__time_now_ms` / `__time_now_mono_ns`，同 z42.math 例外） |
+| `z42.time` | L1 | DateTime（UTC 时刻）、TimeSpan（时间段）、Stopwatch（单调计时器） | ❌ 纯脚本（时钟经 core `Std.Runtime.Clock`——A1 起，不再自声明 `__time_now_*`） |
 | `z42.toml` | L1 | TomlValue（discriminated union）、TomlException、TOML 1.0 subset reader/writer | ❌ 纯脚本 |
 | `z42.json` | L1 | JsonValue（discriminated union）、JsonException、JSON RFC 8259 reader/writer | ❌ 纯脚本 |
 | `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 z42.time） |

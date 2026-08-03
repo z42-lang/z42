@@ -183,16 +183,11 @@ public class BinaryWriter {
     // Single takes/returns `double` (the wide float), serialized to 4-byte f32
     // — mirrors the WriteInt16LE(int)/WriteInt32LE(int) "wide-in, narrow-wire"
     // convention above. Values outside f32 range / precision round on write.
-    public void WriteSingleLE(double v) { this.WriteInt32LE(BinaryWriter._SingleToBits(v)); }
-    public void WriteSingleBE(double v) { this.WriteInt32BE(BinaryWriter._SingleToBits(v)); }
-    public void WriteDoubleLE(double v) { this.WriteInt64LE(BinaryWriter._DoubleToBits(v)); }
-    public void WriteDoubleBE(double v) { this.WriteInt64BE(BinaryWriter._DoubleToBits(v)); }
-
-    [Native("__single_to_bits")]
-    private static extern int _SingleToBits(double v);
-
-    [Native("__double_to_bits")]
-    private static extern long _DoubleToBits(double v);
+    public void WriteSingleLE(double v) { this.WriteInt32LE(BitConverter.SingleToBits(v)); }
+    public void WriteSingleBE(double v) { this.WriteInt32BE(BitConverter.SingleToBits(v)); }
+    public void WriteDoubleLE(double v) { this.WriteInt64LE(BitConverter.DoubleToBits(v)); }
+    public void WriteDoubleBE(double v) { this.WriteInt64BE(BitConverter.DoubleToBits(v)); }
+    // consolidate-core-intrinsics (A1): 位转换 extern 唯一声明在 Std.BitConverter。
 
     // ── Varint (protobuf-style 7-bit; add-io-binary-varint 2026-05-26) ────
     //

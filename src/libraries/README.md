@@ -77,9 +77,9 @@ API 间接使用**。
 
 - **Script-First**：逻辑尽量放脚本；interop 只提供**最小基础机制/原语**，不在 native 侧堆高层逻辑。
 - **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
-- **单一声明点**：每个 native 符号在**全仓库只声明一次**（现存 `__double_to_bits` / `__single_*` /
-  `__time_now_ms` / `__time_now_mono_ns` 多库重复声明属违规，待收敛）。cross-cutting 原语归 core；
-  平台能力原语归其能力库。
+- **单一声明点**：每个 native 符号在**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其
+  能力库。（位转换 `__*_to_bits`/`__*_from_bits` → core `Std.BitConverter`、时钟 `__time_now_*` → core
+  `Std.Runtime.Clock` 的多库重复声明已由 consolidate-core-intrinsics(A1) 收敛。）
 - **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
   VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
 

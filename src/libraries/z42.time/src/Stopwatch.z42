@@ -1,4 +1,5 @@
 namespace Std.Time;
+using Std.Runtime;
 
 // Stopwatch — 单调时钟，匹配 C# System.Diagnostics.Stopwatch 行为。
 // 内部使用 __time_now_mono_ns（单调高精度时钟）。
@@ -8,8 +9,8 @@ public sealed class Stopwatch {
     private long _elapsedNs;
     private bool _running;
 
-    [Native("__time_now_mono_ns")]
-    private static extern long MonoNs();
+    // consolidate-core-intrinsics (A1): __time_now_mono_ns 唯一声明在 Std.Runtime.Clock。
+    private static long MonoNs() { return Clock.MonoNanos(); }
 
     public Stopwatch() {
         _startNs = 0;
