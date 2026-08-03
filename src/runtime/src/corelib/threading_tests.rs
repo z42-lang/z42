@@ -82,8 +82,8 @@ fn thread_join_unknown_slot_returns_discriminator_2() {
     };
     let borrowed = arr.borrow();
     assert_eq!(borrowed.len(), 1, "unknown-slot result is a 1-elem array");
-    assert!(matches!(borrowed[0], Value::I64(2)),
-        "discriminator should be 2 (unknown slot), got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
+        "discriminator should be 2 (unknown slot), got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]

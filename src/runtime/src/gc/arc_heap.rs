@@ -1201,10 +1201,12 @@ impl ArcMagrGC {
             + obj.slots.len() * size_of::<Value>()) as u64
     }
 
-    fn array_size_estimate(arr: &Vec<Value>) -> u64 {
+    fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
         use std::mem::size_of;
-        (size_of::<Value>() + size_of::<Vec<Value>>()
-            + arr.capacity() * size_of::<Value>()) as u64
+        // packed-primitive-arrays: `elem_storage_bytes` is per-backing (byte[] 1B
+        // vs Boxed 24B/elem), so packed arrays report their true smaller size.
+        (size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
+            + arr.elem_storage_bytes()) as u64
     }
 
     /// **add-mark-sweep-collector P3 (2026-05-21)**: test-only entry
@@ -1459,7 +1461,7 @@ impl ArcMagrGC {
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
     fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        let elem_count = obj.elems().len();
+        let elem_count = obj.len();
         let (entry_ptr, generation, handle) = {
             let mut region = self.region_array.lock();
             let handle = region.alloc(obj);
@@ -1710,7 +1712,7 @@ impl MagrGC for ArcMagrGC {
             Value::Str(s) => size_of::<Value>() + s.len(),
             Value::Array(rc) => {
                 size_of::<Value>() + size_of::<Vec<Value>>()
-                    + rc.borrow().capacity() * size_of::<Value>()
+                    + rc.borrow().elem_storage_bytes()
             }
             Value::Object(rc) => {
                 let obj = rc.borrow();
@@ -1731,7 +1733,7 @@ impl MagrGC for ArcMagrGC {
                 size_of::<Value>()
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
-                    + c.env.borrow().capacity() * size_of::<Value>()
+                    + c.env.borrow().elem_storage_bytes()
                     + c.fn_name.capacity()
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
@@ -1764,14 +1766,14 @@ impl MagrGC for ArcMagrGC {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // impl-closure-l3-core: a closure's env owns Value slots that may
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
             // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
@@ -1780,7 +1782,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Stack { .. } => {}
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visitor(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();

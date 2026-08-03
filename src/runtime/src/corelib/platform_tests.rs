@@ -74,7 +74,7 @@ fn arch_kind_matches_current_arch() {
 fn str_array(v: Value) -> Vec<String> {
     let Value::Array(rc) = v else { panic!("expected Array"); };
     let arr = rc.borrow();
-    arr.elems()
+    arr.to_boxed_vec()
         .iter()
         .map(|e| match e {
             Value::Str(s) => s.to_string(),

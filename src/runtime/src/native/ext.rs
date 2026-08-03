@@ -379,9 +379,9 @@ fn require_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<u8>> 
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
-                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
                     other => bail!("{}: arg {} byte {} not u8 in 0..=255: {:?}",
                                    ctx, idx, i, other),
                 }

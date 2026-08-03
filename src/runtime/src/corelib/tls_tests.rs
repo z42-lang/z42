@@ -13,7 +13,7 @@ fn arr(values: Vec<Value>, ctx: &VmContext) -> Value {
 fn kind_of(v: &Value) -> Option<i64> {
     match v {
         Value::Array(rc) => match rc.borrow().first() {
-            Some(Value::I64(k)) => Some(*k),
+            Some(Value::I64(k)) => Some(k),
             _ => None,
         },
         _ => None,
@@ -25,7 +25,7 @@ fn ok_val(v: &Value) -> i64 {
         Value::Array(rc) => {
             let b = rc.borrow();
             assert_eq!(b.len(), 2, "ok-value tuple has 2 elements: {:?}", b);
-            match (&b[0], &b[1]) {
+            match (&b.get_boxed(0), &b.get_boxed(1)) {
                 (Value::I64(0), Value::I64(s)) => *s,
                 _ => panic!("not an ok tuple: {:?}", b),
             }
@@ -131,8 +131,8 @@ fn real_https_handshake_and_get_round_trip() {
     assert!(got > 0, "expected response bytes, got {}", got);
     if let Value::Array(rc) = &read_buf {
         let b = rc.borrow();
-        let head: Vec<u8> = b.iter().take(got as usize).map(|v| match v {
-            Value::I64(x) => *x as u8,
+        let head: Vec<u8> = b.iter_boxed().take(got as usize).map(|v| match v {
+            Value::I64(x) => x as u8,
             _ => 0,
         }).collect();
         assert!(head.starts_with(b"HTTP/"), "response head: {:?}", String::from_utf8_lossy(&head));

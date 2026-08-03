@@ -473,6 +473,13 @@ impl ArrayObj {
     }
     #[inline]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
+    /// Bounds-checked read as owned `Value` (packed-safe `Vec::get` analogue).
+    #[inline]
+    pub fn get(&self, i: usize) -> Option<Value> {
+        if i < self.len() { Some(self.get_boxed(i)) } else { None }
+    }
+    #[inline]
+    pub fn first(&self) -> Option<Value> { self.get(0) }
 
     /// Read element `i` as a `Value` (boxes packed primitives). Caller ensures
     /// `i < len()`.
@@ -529,46 +536,52 @@ impl ArrayObj {
         match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
     }
 
-    // ── Step 1b bridge (temporary) ───────────────────────────────────────────
-    // Deref/Index still expose the boxed `Vec<Value>` so the ~50 legacy sites
-    // that iterate/index arrays compile unchanged while all arrays are still
-    // `Boxed`. `unreachable!` guards a packed backing — Step 1b-ii only enables
-    // packing AFTER every packed-array-touching site (opcodes / FromChars / FFI)
-    // is migrated to the typed accessors above, so a packed array never reaches
-    // Deref. Bridge is removed once migration completes.
+    /// Iterate all elements as owned `Value`s (boxes packed primitives).
+    /// Packed-safe replacement for the old `Deref`→`Vec<Value>` `.iter()`.
     #[inline]
-    pub fn elems(&self) -> &Vec<Value> {
-        match &self.backing {
-            ArrayBacking::Boxed(v) => v,
-            _ => unreachable!("ArrayObj::elems() on a packed backing (Step 1b bridge)"),
-        }
+    pub fn iter_boxed(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).map(move |i| self.get_boxed(i))
     }
-    #[inline]
-    pub fn elems_mut(&mut self) -> &mut Vec<Value> {
-        match &mut self.backing {
-            ArrayBacking::Boxed(v) => v,
-            _ => unreachable!("ArrayObj::elems_mut() on a packed backing (Step 1b bridge)"),
-        }
-    }
-}
 
-impl std::ops::Deref for ArrayObj {
-    type Target = Vec<Value>;
     #[inline]
-    fn deref(&self) -> &Vec<Value> { self.elems() }
-}
-impl std::ops::DerefMut for ArrayObj {
+    pub fn clear(&mut self) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v.clear(),
+            ArrayBacking::Bool(v)  => v.clear(),
+            ArrayBacking::Bytes(v) => v.clear(),
+            ArrayBacking::I32(v)   => v.clear(),
+            ArrayBacking::I64(v)   => v.clear(),
+            ArrayBacking::Chars(v) => v.clear(),
+            ArrayBacking::F64(v)   => v.clear(),
+        }
+    }
     #[inline]
-    fn deref_mut(&mut self) -> &mut Vec<Value> { self.elems_mut() }
-}
-impl std::ops::Index<usize> for ArrayObj {
-    type Output = Value;
+    pub fn capacity(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity(),
+            ArrayBacking::I64(v)   => v.capacity(),
+            ArrayBacking::Chars(v) => v.capacity(),
+            ArrayBacking::F64(v)   => v.capacity(),
+        }
+    }
+    /// Heap bytes for element storage (`capacity × sizeof(element)`) — the
+    /// packed-array memory win shows up here (byte[] 1B vs Boxed 24B/elem).
     #[inline]
-    fn index(&self, i: usize) -> &Value { &self.elems()[i] }
-}
-impl std::ops::IndexMut<usize> for ArrayObj {
-    #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut Value { &mut self.elems_mut()[i] }
+    pub fn elem_storage_bytes(&self) -> usize {
+        use std::mem::size_of;
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity() * size_of::<Value>(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity() * 4,
+            ArrayBacking::I64(v)   => v.capacity() * 8,
+            ArrayBacking::Chars(v) => v.capacity() * 4,
+            ArrayBacking::F64(v)   => v.capacity() * 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -800,17 +813,17 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}
                 RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visit(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
                 }
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();

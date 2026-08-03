@@ -92,9 +92,9 @@ pub fn builtin_str_from_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value>
         Some(other) => bail!("__str_from_chars: expected char[], got {:?}", other),
         None => bail!("__str_from_chars: missing arg 0"),
     };
-    let out: String = arr.borrow().iter()
+    let out: String = arr.borrow().iter_boxed()
         .map(|v| match v {
-            Value::Char(c) => Ok(*c),
+            Value::Char(c) => Ok(c),
             other => Err(anyhow!("__str_from_chars: array element must be char, got {:?}", other)),
         })
         .collect::<Result<String>>()?;

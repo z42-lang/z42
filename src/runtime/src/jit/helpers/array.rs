@@ -54,7 +54,7 @@ pub unsafe extern "C" fn jit_array_data(
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            *out_ptr = borrowed.boxed_slice().map(|s| s.as_ptr()).unwrap_or(std::ptr::null());
             *out_len = borrowed.len() as i64;
             0
         }
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn jit_array_data_opt(
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            *out_ptr = borrowed.boxed_slice().map(|s| s.as_ptr()).unwrap_or(std::ptr::null());
             *out_len = borrowed.len() as i64;
         }
         _ => {
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn jit_array_get(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i].clone()
+            borrowed.get_boxed(i)
         }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: expected array, got {:?}", other).into()));
@@ -154,7 +154,7 @@ pub unsafe extern "C" fn jit_array_set(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i] = v.clone();
+            borrowed.set_boxed(i, v.clone());
             drop(borrowed);
             if v.is_heap_ref() {
                 vm_ctx_ref(ctx).heap().write_barrier_array_elem(&arr_val, i, &v);

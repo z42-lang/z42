@@ -400,7 +400,6 @@ pub(crate) fn deref_ref(
         RefKind::Array { gc_ref, idx } => {
             let arr = gc_ref.borrow();
             arr.get(*idx)
-                .cloned()
                 .ok_or_else(|| anyhow::anyhow!(
                     "ref array index {idx} out of bounds (len={})", arr.len()))
         }
@@ -445,7 +444,7 @@ pub(crate) fn store_thru_ref(
                 anyhow::bail!(
                     "ref array index {idx} out of bounds (len={})", arr.len());
             }
-            arr[*idx] = val;
+            arr.set_boxed(*idx, val);
             Ok(())
         }
         RefKind::Field { gc_ref, field_name } => {

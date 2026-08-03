@@ -512,9 +512,9 @@ fn make_closure_constructs_value_closure() {
             // env[0] 应是同一 receiver
             let env_ref = cd.env.borrow();
             assert_eq!(env_ref.len(), 1);
-            match &env_ref[0] {
+            match &env_ref.get_boxed(0) {
                 Value::Object(_) => {
-                    let upgraded = env_ref[0].clone();
+                    let upgraded = env_ref.get_boxed(0);
                     assert_eq!(
                         exec_builtin(&c, "__obj_ref_eq", &[upgraded, receiver]).unwrap(),
                         Value::Bool(true)
