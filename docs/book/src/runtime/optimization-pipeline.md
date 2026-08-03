@@ -140,6 +140,16 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   兜底 → 不阻塞发布链。
 - **v1 保守边界（后续 spec 放宽）**：跨包内联、单态 `VCall` 内联、多块 callee（重贴标签 + Ret→续延块跳转）、
   放宽阻断特征（异常表 / ref-out）。
+- **只读实参直代入（clean-inline-copies）**：callee 只读形参（body 从不写它）→ body 中直接代入调用方**实参
+  寄存器**、不 emit `copy`；被写形参才 `copy` 材料化。免去每形参一条 copy 给 interp 增回的 per-arg dispatch，
+  且让常量实参的内联算术直接被 const-fold 折叠（`Add(2,3)`→`const 5`）。只读性由**过程内分析**（`_writtenParams`
+  扫 callee body）判定——callee body 全可见时无需注解。
+
+> **未来方向（语言侧使能优化，展望非 spec）**：`readonly` / 不可变注解能在**分析够不到**处解锁更多优化——
+> ① **`readonly` 字段 / 不可变对象** → 跨「不透明调用」的字段 load 提升 / CSE（分析无法证明任意调用后字段不变，
+> `readonly` 契约可）；② **`in`/`readonly` 参数** → **跨包内联**：callee body 不可见时由**签名**携带「不写」保证；
+> ③ **不可变局部（`let`/`val`）** → 更强 copy/const 传播 + 无别名推理。本 change 的只读实参直代入不需要它
+> （过程内分析已够）；`readonly` 的价值点在**字段级 / 跨包**优化成为瓶颈时。属 lang 变更、phase-gated，届时独立 spec。
 
 **正确性边界**：只碰单赋值 temp（命名局部重赋值需 def-use，留后）；单趟不级联（保守）。一个寄存器值 escape
 函数的途径 = 返回 / out·ref 参数 / 有副作用指令读，三者齐全 DCE 才安全（out_var 回归即漏 out 参数 live-out）。
