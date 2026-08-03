@@ -4,7 +4,7 @@
 
 ## 进度概览（每 Step 编译 + cargo test + xtask test 绿）
 - [x] Step 1a: ArrayObj→backing 抽象（全 Boxed，纯重构，行为等价）—— commit aaf3694d，cargo build+test 绿
-- [ ] Step 1b: 逐类型 packed backing（byte/char/int/long/double/bool）
+- [x] Step 1b: 逐类型 packed backing —— packing 已启用（typed 按 element_type 选 backing）；byte[] 24× 内存、long[] 3×；interp+jit 正确
 - [ ] Step 2: GC 跳过 primitive backing + write-barrier 仅 Boxed
 - [ ] Step 3: FFI 直读切片（ext/fs/network/crypto marshal → as_bytes）
 - [ ] Step 4: 去箱访问（JIT 直接 buf[i]；interp typed 快 opcode）——性能超 1.35×

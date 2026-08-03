@@ -452,11 +452,37 @@ impl ArrayObj {
         Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed(elems) }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
-    /// Step 1b: still constructs `Boxed`; Step 1b-ii selects a packed backing
-    /// by `element_type`.
+    /// **Step 1b-ii**: primitive element types get a packed value-type backing
+    /// (C# model); everything else stays `Boxed`. Unknown/FQN element types fall
+    /// back to `Boxed` (safe — no packing, correct behaviour).
     #[inline]
     pub fn typed(element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), backing: ArrayBacking::Boxed(elems) }
+        Self { element_type: Arc::from(element_type), backing: Self::pack_backing(element_type, elems) }
+    }
+
+    /// Select a packed value-type backing for a primitive `element_type`,
+    /// unboxing `elems` into it. Conservative + sign-safe: only widths that
+    /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.
+    fn pack_backing(element_type: &str, elems: Vec<Value>) -> ArrayBacking {
+        match element_type {
+            // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
+            "byte" | "u8" =>
+                ArrayBacking::Bytes(elems.iter().map(|v| if let Value::I64(n) = v { *n as u8 } else { 0 }).collect()),
+            "char" =>
+                ArrayBacking::Chars(elems.iter().map(|v| if let Value::Char(c) = v { *c } else { '\0' }).collect()),
+            "bool" =>
+                ArrayBacking::Bool(elems.iter().map(|v| matches!(v, Value::Bool(true))).collect()),
+            // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" =>
+                ArrayBacking::I32(elems.iter().map(|v| if let Value::I64(n) = v { *n as i32 } else { 0 }).collect()),
+            // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" =>
+                ArrayBacking::I64(elems.iter().map(|v| if let Value::I64(n) = v { *n } else { 0 }).collect()),
+            "double" | "float" | "f32" | "f64" =>
+                ArrayBacking::F64(elems.iter().map(|v| if let Value::F64(f) = v { *f } else { 0.0 }).collect()),
+            // object / string / nested arrays / structs / unknown FQN → reference array.
+            _ => ArrayBacking::Boxed(elems),
+        }
     }
 
     #[inline]
