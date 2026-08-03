@@ -16,9 +16,10 @@
 // ── 资格（D4，逐条见 _eligibleCallee）─────────────────────────────────────────────────
 //   ① 直接 CallInstr（非 VCall——VCall 不入本 pass）；② callee 同模块可解析（IrModule = 单 CU，
 //   函数共享 StringPool → ConstStr idx 内联后仍有效）；③ 非递归（callee.Name ≠ caller.Name；curated 体
-//   无嵌套调用 → 不存在间接递归）；④ callee **单块**且终结子 = RetTerm（v1 不做多块重贴标签/续延块）；
+//   无嵌套调用 → 不存在间接递归）；④ **每块**终结子 ∈ {Ret,Br,BrCond}（Throw 不可内联）+ 全 curated 指令
+//   （单块 Phase A 就地 splice；多块 Phase B 拆 caller 块 + relabel + Ret→续延块，inline-multiblock）；
 //   ⑤ 无异常表 / 无 varargs / 实参数 == 形参数（精确 arity，避开默认值/params 打包）；
-//   ⑥ instrCount ≤ INLINE_MAX_SIZE **或** 全模块单调用点（恒内联）。
+//   ⑥ **总** instrCount ≤ INLINE_MAX_SIZE **或** 全模块单调用点（恒内联）。
 //
 // ── 展开（D5）────────────────────────────────────────────────────────────────────────
 //   offset = caller.MaxReg（fresh reg 区，> 所有 caller reg，无碰撞）；callee reg r → caller reg r+offset。
@@ -27,10 +28,13 @@
 //      → `copy (p+offset), arg[p]` 材料化到可写 fresh reg（body remap 到 p+offset）；② body：单块每条 curated
 //      指令克隆 + 按 ctx 重映射（只读形参→实参 / 其余→+offset）；
 //   ③ Ret：有值 → `copy call.Dst, (retReg+offset)`（绑返回值到调用结果），void → 无（丢弃）；
-//   ④ CallInstr 被上述序列原地取代；⑤ reg_types 同步扩（callee.RegTypes[r] → caller.RegTypes[r+offset]，
-//      否则内联后 typed 指令 / JIT i64 特化失效）；⑥ 稳定序（按 block/instr idx 顺扫）→ 输出确定
-//      （自举不动点前提，D7）；⑦ per-caller 预算（INLINE_CALLER_BUDGET）防爆炸；单块 curated →
-//      展开深度天然 = 1（body 无嵌套调用可再展开）。
+//   ④ 单块：CallInstr 被上述序列原地取代；⑤ reg_types 同步扩（callee.RegTypes[r] → caller.RegTypes[r+offset]，
+//      否则内联后 typed 指令 / JIT i64 特化失效）；⑥ 稳定序（Phase B 唯一标签前缀 `__il<ctr>_` 按处理序
+//      递增）→ 输出确定（自举不动点前提，D7）；⑦ per-caller 预算（INLINE_CALLER_BUDGET）防爆炸；curated
+//      体无嵌套调用 → 内联深度天然 = 1。
+//   **多块展开（Phase B，inline-multiblock）**：拆 caller 块为 head（前半 + 被写形参 copy + `br entry`）与
+//      cont（后半 + 原终结子）；中间插 callee 各块（relabel `prefix+label`、指令 clone+remap、Br/BrCond 目标
+//      relabel、每 Ret → 绑返回值 + `br cont`）。形参 copy 放 head → 只执行一次（loop 安全）。
 namespace Z42.Semantics;
 
 using Z42.IR;
@@ -51,9 +55,25 @@ public sealed class InlineCtx {
     }
 }
 
+// 单 caller 内联过程的可变状态（Phase A 单块 + Phase B 多块共享）：fresh reg 游标 / 预算 /
+// 唯一标签计数（多块 relabel）/ RegTypes 扩展记录 / 是否改动。
+public sealed class InlineState {
+    public int RunningMax;
+    public int Budget;
+    public int LabelCtr;
+    public int[] RecOff;
+    public IrFunction[] RecFn;
+    public int RecCount;
+    public bool Changed;
+    public InlineState(int runningMax) {
+        this.RunningMax = runningMax; this.Budget = 0; this.LabelCtr = 0;
+        this.RecOff = new int[4]; this.RecFn = new IrFunction[4]; this.RecCount = 0; this.Changed = false;
+    }
+}
+
 public sealed class IrInline {
 
-    public static int INLINE_MAX_SIZE      = 24;    // callee 单块指令数上限（超过则仅单调用点才内联）
+    public static int INLINE_MAX_SIZE      = 24;    // callee 总指令数上限（超过则仅单调用点才内联）
     public static int INLINE_CALLER_BUDGET = 256;   // 单 caller 累计内联指令预算（防代码爆炸）
 
     // 模块级入口：逐 caller 展开其内的合格调用点。IrModule = 单 CU，callee 在同模块内解析。
@@ -70,16 +90,19 @@ public sealed class IrInline {
         }
     }
 
-    // 把 caller 内所有合格 CallInstr 就地内联展开。
+    // 把 caller 内所有合格调用点内联：Phase A 单块 callee 就地 splice；Phase B 多块 callee split+insert。
     private static void _inlineInto(IrModule m, IrFunction caller) {
         if (caller.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
-        int runningMax = caller.MaxReg;           // fresh reg 分配游标（单调增）
-        int budget = 0;                           // 已内联指令累计（对 INLINE_CALLER_BUDGET）
-        bool changed = false;
-        // RegTypes 扩展记录：每次内联记 (offset, callee) → 收尾统一重建 caller.RegTypes。
-        int[] recOff = new int[4];
-        IrFunction[] recFn = new IrFunction[4];
-        int recCount = 0;
+        InlineState st = new InlineState(caller.MaxReg);
+        IrInline._inlineSingleBlock(m, caller, st);   // Phase A
+        IrInline._inlineMultiBlock(m, caller, st);    // Phase B
+        if (!st.Changed) { return; }
+        caller.MaxReg = st.RunningMax;
+        IrInline._extendRegTypes(caller, st.RunningMax, st.RecOff, st.RecFn, st.RecCount);
+    }
+
+    // Phase A：单块 callee 就地 splice（每块重建指令列表）。多块 callee 留给 Phase B。
+    private static void _inlineSingleBlock(IrModule m, IrFunction caller, InlineState st) {
         int bi = 0;
         while (bi < caller.BlockCount) {
             IrBlock blk = caller.Blocks[bi];
@@ -89,15 +112,14 @@ public sealed class IrInline {
             int ii = 0;
             while (ii < blk.InstrCount) {
                 IrInstr ins = blk.Instrs[ii];
-                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, budget);
-                if (callee != null) {
+                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, st.Budget);
+                if (callee != null && callee.BlockCount == 1) {
                     CallInstr call = ins as CallInstr;
                     IrBlock cb = callee.Blocks[0];
-                    int offset = runningMax;
-                    bool[] written = IrInline._writtenParams(cb, callee.ParamCount);
+                    int offset = st.RunningMax;
+                    bool[] written = IrInline._writtenParamsAll(callee);
                     InlineCtx ctx = new InlineCtx(callee, call.Args, call.ArgCount, written, offset);
-                    // ① 形参绑定：只对**被写**形参 emit `copy (p+offset)=arg[p]`（须材料化到可写 fresh reg）；
-                    //    **只读**形参不 emit copy——body 中直接代入实参寄存器（见 _rr/ctx，clean-inline-copies）。
+                    // ① 形参绑定：只对**被写**形参 emit `copy (p+offset)=arg[p]`；只读形参 body 中直接代入实参。
                     int p = 0;
                     while (p < callee.ParamCount) {
                         if (written[p]) {
@@ -112,18 +134,12 @@ public sealed class IrInline {
                         outI = IrInline._push(outI, oc, IrInline._cloneRemap(cb.Instrs[ci], ctx)); oc = oc + 1;
                         ci = ci + 1;
                     }
-                    // ③ Ret 绑定：有值 → copy call.Dst = 重映射后的 retReg（只读形参直代入 → 可能就是实参）
+                    // ③ Ret 绑定：有值 → copy call.Dst = 重映射后 retReg
                     RetTerm rt = cb.Term as RetTerm;
                     if (rt.HasReg) {
                         outI = IrInline._push(outI, oc, new CopyInstr(call.Dst, IrInline._rr(rt.Reg, ctx))); oc = oc + 1;
                     }
-                    // ⑤/⑦ 记录 + 游标 + 预算
-                    recOff = IrInline._pushInt(recOff, recCount, offset);
-                    recFn = IrInline._pushFn(recFn, recCount, callee);
-                    recCount = recCount + 1;
-                    runningMax = offset + callee.MaxReg;
-                    budget = budget + cb.InstrCount;
-                    changed = true;
+                    IrInline._record(st, offset, callee, cb.InstrCount);
                     blkChanged = true;
                 } else {
                     outI = IrInline._push(outI, oc, ins); oc = oc + 1;
@@ -136,9 +152,129 @@ public sealed class IrInline {
             }
             bi = bi + 1;
         }
-        if (!changed) { return; }
-        caller.MaxReg = runningMax;
-        IrInline._extendRegTypes(caller, runningMax, recOff, recFn, recCount);
+    }
+
+    // Phase B：多块 callee split+insert。迭代找第一个多块合格调用点 → 拆 caller 块并插入 callee 块，
+    // 直到没有多块调用点或预算耗尽。callee 体 curated（无 call）→ 插入块不含新调用点 → 终止。
+    private static void _inlineMultiBlock(IrModule m, IrFunction caller, InlineState st) {
+        bool progress = true;
+        while (progress) {
+            progress = false;
+            int bi = 0;
+            while (bi < caller.BlockCount && !progress) {
+                IrBlock blk = caller.Blocks[bi];
+                int ii = 0;
+                while (ii < blk.InstrCount && !progress) {
+                    IrFunction callee = IrInline._eligibleCallee(m, caller, blk.Instrs[ii], st.Budget);
+                    if (callee != null && callee.BlockCount > 1) {
+                        IrInline._spliceMultiBlock(caller, bi, ii, blk.Instrs[ii] as CallInstr, callee, st);
+                        progress = true;
+                    }
+                    ii = ii + 1;
+                }
+                bi = bi + 1;
+            }
+        }
+    }
+
+    // 多块内联展开：把 caller.Blocks[blockIdx] 在 instrIdx（调用点）处拆成 head + continuation，
+    // 中间插入 callee 的 relabel+remap 块。head 尾 br 到 callee entry；callee 各 Ret → 绑返回值 + br 到 cont。
+    private static void _spliceMultiBlock(IrFunction caller, int blockIdx, int instrIdx, CallInstr call, IrFunction callee, InlineState st) {
+        IrBlock orig = caller.Blocks[blockIdx];
+        int offset = st.RunningMax;
+        bool[] written = IrInline._writtenParamsAll(callee);
+        InlineCtx ctx = new InlineCtx(callee, call.Args, call.ArgCount, written, offset);
+        int idNum = st.LabelCtr; st.LabelCtr = st.LabelCtr + 1;   // 唯一标签前缀（确定序 → 自举不动点）
+        string prefix = "__il" + idNum.ToString() + "_";
+        string contLabel = "__ilc" + idNum.ToString();
+        string entryLabel = prefix + callee.Blocks[0].Label;
+
+        // head 块：orig 前半 + 被写形参 copy + `br entryLabel`（形参 copy 放 head → 只执行一次，loop 安全）
+        IrInstr[] headI = new IrInstr[instrIdx + callee.ParamCount + 2];
+        int hc = 0;
+        int k = 0;
+        while (k < instrIdx) { headI[hc] = orig.Instrs[k]; hc = hc + 1; k = k + 1; }
+        int p = 0;
+        while (p < callee.ParamCount) {
+            if (written[p]) {
+                TypedReg np = new TypedReg(p + offset, IrInline._calleeRegType(callee, p));
+                headI[hc] = new CopyInstr(np, call.Args[p]); hc = hc + 1;
+            }
+            p = p + 1;
+        }
+        IrBlock head = new IrBlock(orig.Label, IrInline._trim(headI, hc), hc, new BrTerm(entryLabel), true);
+
+        // continuation 块：orig 后半（调用点之后）+ orig 原终结子
+        int rem = orig.InstrCount - (instrIdx + 1);
+        IrInstr[] contI = new IrInstr[rem];
+        int cc = 0;
+        k = instrIdx + 1;
+        while (k < orig.InstrCount) { contI[cc] = orig.Instrs[k]; cc = cc + 1; k = k + 1; }
+        IrBlock cont = new IrBlock(contLabel, contI, cc, orig.Term, orig.HasTerm);
+
+        // callee 块（relabel + remap + Ret→br cont / Br·BrCond 目标 relabel）
+        IrBlock[] cblocks = new IrBlock[callee.BlockCount];
+        int b = 0;
+        while (b < callee.BlockCount) {
+            cblocks[b] = IrInline._cloneCalleeBlock(callee.Blocks[b], ctx, prefix, contLabel, call.Dst);
+            b = b + 1;
+        }
+
+        // 新块列表：[..前.., head, <callee blocks>, cont, ..后..]
+        int newCount = caller.BlockCount + callee.BlockCount + 1;   // -1 orig +head +callee +cont
+        IrBlock[] nb = new IrBlock[newCount];
+        int w = 0;
+        int bb = 0;
+        while (bb < blockIdx) { nb[w] = caller.Blocks[bb]; w = w + 1; bb = bb + 1; }
+        nb[w] = head; w = w + 1;
+        int cbi = 0;
+        while (cbi < callee.BlockCount) { nb[w] = cblocks[cbi]; w = w + 1; cbi = cbi + 1; }
+        nb[w] = cont; w = w + 1;
+        bb = blockIdx + 1;
+        while (bb < caller.BlockCount) { nb[w] = caller.Blocks[bb]; w = w + 1; bb = bb + 1; }
+        caller.Blocks = nb;
+        caller.BlockCount = newCount;
+
+        IrInline._record(st, offset, callee, IrInline._totalInstrs(callee));
+    }
+
+    // 克隆一个 callee 块：新标签 prefix+label；指令 clone+remap；终结子 Ret→(绑返回值)+br cont，
+    // Br/BrCond 目标标签 relabel（prefix+）。
+    private static IrBlock _cloneCalleeBlock(IrBlock cbk, InlineCtx ctx, string prefix, string contLabel, TypedReg callDst) {
+        IrInstr[] ni = new IrInstr[cbk.InstrCount + 1];
+        int nc = 0;
+        int ci = 0;
+        while (ci < cbk.InstrCount) { ni[nc] = IrInline._cloneRemap(cbk.Instrs[ci], ctx); nc = nc + 1; ci = ci + 1; }
+        IrTerminator nt = null;
+        if (cbk.Term is RetTerm) {
+            RetTerm rt = cbk.Term as RetTerm;
+            if (rt.HasReg) { ni[nc] = new CopyInstr(callDst, IrInline._rr(rt.Reg, ctx)); nc = nc + 1; }
+            nt = new BrTerm(contLabel);
+        } else if (cbk.Term is BrTerm) {
+            BrTerm bt = cbk.Term as BrTerm;
+            nt = new BrTerm(prefix + bt.Label);
+        } else {
+            BrCondTerm bc = cbk.Term as BrCondTerm;
+            nt = new BrCondTerm(IrInline._rr(bc.Cond, ctx), prefix + bc.TrueLabel, prefix + bc.FalseLabel);
+        }
+        return new IrBlock(prefix + cbk.Label, IrInline._trim(ni, nc), nc, nt, true);
+    }
+
+    // 记录一次内联（游标 / 预算 / RegTypes 扩展记录 / changed）。
+    private static void _record(InlineState st, int offset, IrFunction callee, int instrCount) {
+        st.RecOff = IrInline._pushInt(st.RecOff, st.RecCount, offset);
+        st.RecFn = IrInline._pushFn(st.RecFn, st.RecCount, callee);
+        st.RecCount = st.RecCount + 1;
+        st.RunningMax = offset + callee.MaxReg;
+        st.Budget = st.Budget + instrCount;
+        st.Changed = true;
+    }
+
+    private static int _totalInstrs(IrFunction callee) {
+        int n = 0;
+        int bi = 0;
+        while (bi < callee.BlockCount) { n = n + callee.Blocks[bi].InstrCount; bi = bi + 1; }
+        return n;
     }
 
     // ── 资格判定（D4）────────────────────────────────────────────────────────────────
@@ -149,25 +285,36 @@ public sealed class IrInline {
         CallInstr call = ins as CallInstr;
         IrFunction callee = IrInline._findFunc(m, call.Func);
         if (callee == null) { return null; }                             // ② 同模块可解析
-        if (callee.Name == caller.Name) { return null; }                 // ③ 非递归
-        if (callee.BlockCount != 1) { return null; }                     // ④ 单块
-        IrBlock cb = callee.Blocks[0];
-        if (!cb.HasTerm) { return null; }
-        if (!(cb.Term is RetTerm)) { return null; }                      // ④ 终结子 = Ret
+        if (callee.Name == caller.Name) { return null; }                 // ③ 非递归（curated 体无嵌套调用 → 无间接递归）
+        if (callee.BlockCount < 1) { return null; }
         if (callee.ExcCount != 0) { return null; }                       // ⑤ 无异常表
         if (callee.ParamsFrom != 255) { return null; }                   // ⑤ 无 varargs
         if (call.ArgCount != callee.ParamCount) { return null; }         // ⑤ 精确 arity
-        // curated 体检查：任一非 curated 指令 → 跳过整个 callee
-        int ci = 0;
-        while (ci < cb.InstrCount) {
-            if (!IrInline._isInlinable(cb.Instrs[ci])) { return null; }
-            ci = ci + 1;
+        // ④ 每块：终结子 ∈ {Ret,Br,BrCond}（Throw 不可内联）+ 全 curated 指令。多块由 Phase B 拆块内联。
+        int total = 0;
+        int bi = 0;
+        while (bi < callee.BlockCount) {
+            IrBlock cbk = callee.Blocks[bi];
+            if (!cbk.HasTerm) { return null; }
+            if (!IrInline._termInlinable(cbk.Term)) { return null; }
+            int ci = 0;
+            while (ci < cbk.InstrCount) {
+                if (!IrInline._isInlinable(cbk.Instrs[ci])) { return null; }
+                ci = ci + 1;
+            }
+            total = total + cbk.InstrCount;
+            bi = bi + 1;
         }
-        // ⑥ 尺寸门：超阈值仅当全模块单调用点才恒内联
-        if (cb.InstrCount > IrInline.INLINE_MAX_SIZE) {
+        // ⑥ 尺寸门（总指令数）：超阈值仅当全模块单调用点才恒内联
+        if (total > IrInline.INLINE_MAX_SIZE) {
             if (IrInline._countCallSites(m, call.Func) != 1) { return null; }
         }
         return callee;
+    }
+
+    // 可内联的终结子：Ret（→绑返回值+br cont）/ Br / BrCond（目标 relabel）。Throw 不可内联。
+    private static bool _termInlinable(IrTerminator t) {
+        return (t is RetTerm) || (t is BrTerm) || (t is BrCondTerm);
     }
 
     // 同模块按名解析 callee（线性；首个匹配，稳定序）。
@@ -236,14 +383,19 @@ public sealed class IrInline {
         return false;
     }
 
-    // callee 形参哪些被 body 写（DstId 命中形参 reg）→ 被写形参不能直代入实参，须材料化。
-    private static bool[] _writtenParams(IrBlock cb, int paramCount) {
-        bool[] w = new bool[paramCount];
-        int i = 0;
-        while (i < cb.InstrCount) {
-            int d = IrOptInfo.DstId(cb.Instrs[i]);
-            if (d >= 0 && d < paramCount) { w[d] = true; }
-            i = i + 1;
+    // callee 形参哪些被 body 写（任一块 DstId 命中形参 reg）→ 被写形参不能直代入实参，须材料化。
+    private static bool[] _writtenParamsAll(IrFunction callee) {
+        bool[] w = new bool[callee.ParamCount];
+        int bi = 0;
+        while (bi < callee.BlockCount) {
+            IrBlock cbk = callee.Blocks[bi];
+            int ci = 0;
+            while (ci < cbk.InstrCount) {
+                int d = IrOptInfo.DstId(cbk.Instrs[ci]);
+                if (d >= 0 && d < callee.ParamCount) { w[d] = true; }
+                ci = ci + 1;
+            }
+            bi = bi + 1;
         }
         return w;
     }
