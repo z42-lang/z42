@@ -85,6 +85,24 @@ CallNativeInstr，native 函数在 **VM 加载期按名解析**，编码里无�
 
 ---
 
+## 用户 stdlib（`Std.*`）vs 工具链库（`Z42.*`）
+
+> **2026-08-03 标注（A4）。** `src/libraries/` 下同时住着两类**用途不同**的库，命名空间是唯一
+> 显式区分——别把它们当同一回事：
+
+| 类别 | 命名空间 | 面向 | 成员 | 说明 |
+|------|---------|------|------|------|
+| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary / net / threading / compression / crypto / test | 本文档全部划分规则（L0–L3、两层 interop、R1–R4）**只约束这一类** |
+| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`） | 编译器内部件（IR 模型 / zbc·zpkg 后端 / manifest 模型 / builder 骨架）**下沉为共享库**，供 z42c 自身、REPL、z42b 复用 |
+
+**为什么工具链库住在 `src/libraries/`**：它们要被 z42c 运行期加载（如 z42.ir 是 zbc/zpkg 后端），
+又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发（见 [self-hosting.md 轴 ④](../compiler/self-hosting.md)、
+converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.*` 命名空间对应用开发者是内部实现，
+不进用户文档，不受本文档 stdlib 划分规则约束（层级 / 两层 interop 等）。新增编译器支撑库 → `Z42.*`；新增
+用户库 → `Std.*`。
+
+---
+
 ## 现状（2026-04-26）
 
 | 包 | 层级 | 内容（节选） | extern？ |

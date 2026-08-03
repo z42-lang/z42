@@ -25,10 +25,11 @@
 - [ ] 3.3 归档 + PR
 
 ## 后续相位（各自开 change，此处仅索引）
-- [ ] A1 去重 cross-cutting 原语进 core
-- [ ] A2 math/time intrinsic 归 core（含 bootstrap-seed 评估）
-- [ ] A3 能力库 interop 单 sink + 最小导出
-- [ ] A4 编译器支撑库标注 toolchain 子层
+- [x] A1 去重 cross-cutting 原语进 core（bit-ops + 时钟；change=consolidate-core-intrinsics，commit f33560f4）
+- [x] A2 math 迁 core（= System.Math；time 时钟已在 A1 顺带完成；change=move-math-to-core，commit ee21a021）
+- [~] A3 能力库 interop 单 sink + 最小导出 —— **跳过**：net/threading 已用 sink；io 直接 extern 已是最小，
+      包成 sink 反增 18 层 wrapper 违「接口最小化」。高价值 interop 收缩已由 A1/A2 完成。
+- [x] A4 编译器支撑库标注 toolchain 子层（docs：organization.md「用户 stdlib vs 工具链库」+ README 注）
 - [ ] B1 调用路径去锁去分配（perf-vm-iteration Ph1）
 - [ ] B2 每对象 Mutex（Ph2）
 - [ ] B3 intrinsic 表 + 去虚化

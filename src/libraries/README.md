@@ -25,6 +25,11 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.cli/` | `z42.cli` | CLI argv 解析：`ArgParser.{AddFlag, AddOption, AddPositional}` + `Parse(argv)` → `ParseResult.{GetFlag, GetOption, GetPositional, ShowHelp}` + auto `-h/--help` |
 | `z42.crypto/` | `z42.crypto` | 加密原语：`Sha1` / `Sha256` (FIPS 180-4) + `HmacSha1` / `HmacSha256` (RFC 2104) + `SecureRandom` OS-CSPRNG (`GetBytes` / `NextInt` / `NextLong` / `NextU32Bounded`) |
 
+> **两类库（别混淆）**：`src/libraries/` 同时住着**用户 stdlib**（`Std.*` 命名空间，面向应用开发者）与
+> **工具链库**（`Z42.*`：`z42.ir` / `z42.project` / `z42.build`——编译器内部件下沉为共享库，供 z42c / REPL /
+> z42b 复用）。下方实现规范与 [organization.md](../../docs/design/stdlib/organization.md) 的划分规则**只约束
+> `Std.*` 用户库**；`Z42.*` 是编译器内部实现、不是用户 API。详见 organization.md「用户 stdlib vs 工具链库」。
+
 ## 实现规范（必须遵守）
 
 ### 1. Script-First：优先脚本实现
