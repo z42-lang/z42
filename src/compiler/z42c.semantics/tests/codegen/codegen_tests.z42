@@ -554,12 +554,22 @@ void test_inline_only_pass_standalone() {
 }
 
 [Test]
-void test_inline_free_call_args() {
-    // 形参绑定：Add(2,3) 内联 → 形参 copy + add 出现在 Main，`call @Add` 消失。
+void test_inline_const_args_fold() {
+    // 常量实参内联：只读形参直代入 → add 操作数就是常量 → const-fold 折成 const 5，call/add 全消失。
     string src = "int Add(int a, int b) { return a + b; } int Main() { return Add(2, 3); }";
     string dump = IrDump.DumpFuncOpt(src, "Main", Opt.All);
     Assert.False(dump.Contains("call @Add"));
-    Assert.Contains("add i32", dump);
+    Assert.Contains("const.i64 5", dump);   // 2+3 折叠
+}
+
+[Test]
+void test_inline_readonly_param_no_copy() {
+    // 只读形参**直代入**实参寄存器（clean-inline-copies）：内联体 add 直接读调用方形参 %0，
+    // 不再 emit `copy paramReg, arg`。用 Opt.Inline 单独看原始展开形态（无清理 pass 干扰）。
+    string src = "int Add(int a, int b) { return a + b; } int F(int x) { return Add(x, x); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @Add"));
+    Assert.Contains("add i32 %0, %0", dump);   // 两操作数皆调用方形参 %0（直代入，无 param copy）
 }
 
 [Test]

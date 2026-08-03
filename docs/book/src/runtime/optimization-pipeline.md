@@ -123,11 +123,14 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   str_concat/...）→ **跳过整个 callee**。curated 集天然排除嵌套调用（无递归展开）、分配、副作用存储、ref/out
   （无地址/存储指令）。`_isInlinable`（判定）与 `_cloneRemap`（克隆）覆盖集**必须一致**。
 - **展开（D5）**：`offset = caller.MaxReg`（fresh reg 区，> 所有 caller reg → 无碰撞）；callee reg `r` → caller
-  reg `r+offset`。① 形参绑定：形参 reg `p`（0..ParamCount-1，静态/自由函数无 this）→ `copy (p+offset), arg[p]`
-  （在调用点，与调用语义同——实参在调用点求值）；② body：单块每条 curated 指令克隆 + reg `+offset`；
-  ③ `Ret` 有值 → `copy call.Dst, (retReg+offset)`（绑返回值到调用结果），void → 无；④ `CallInstr` 被上述
-  序列原地取代；⑤ **reg_types 同步扩**（`callee.RegTypes[r] → caller.RegTypes[r+offset]`，否则内联后 typed
-  指令 / JIT i64 特化失效）；⑥ **稳定序**（按 block/instr idx 顺扫）→ 输出确定（自举不动点前提）。
+  reg `r+offset`。① **形参绑定（clean-inline-copies）**：**只读**形参（body 从不写它）→ body 中直接**代入调用方
+  实参寄存器**、不 emit copy（只读形参只作读操作数、从不是 dst → 代入安全，等价调用点求值）；**被写**形参
+  → `copy (p+offset), arg[p]` 材料化到可写 fresh reg（body remap 到 `p+offset`）。免去 v1 每形参一条 `copy`
+  给 interp 增回的 per-arg dispatch，且让常量实参的内联算术直接被 const-fold 折叠（`Add(2,3)`→`const 5`）；
+  ② body：单块每条 curated 指令克隆 + 按重映射（只读形参→实参 / 其余→`+offset`）；
+  ③ `Ret` 有值 → `copy call.Dst, remap(retReg)`（绑返回值；只读形参直返时 remap 即实参），void → 无；④ `CallInstr`
+  被上述序列原地取代；⑤ **reg_types 同步扩**（`callee.RegTypes[r] → caller.RegTypes[r+offset]`，否则内联后 typed
+  指令 / JIT i64 特化失效）；⑥ **稳定序**（按 block/instr idx 顺扫 + 声明序 remap 确定）→ 输出确定（自举不动点前提）。
 - **传导内联（emergent）**：按声明序逐 caller 就地改写，先定义的 callee 若在其自身处理时被内联成 curated
   直线体，随后的 caller 会看到并可再内联它 → 沿声明序向后自然传导。对声明序确定、每函数处理一次 + 预算
   → 终止有界。

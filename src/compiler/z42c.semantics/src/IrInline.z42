@@ -22,8 +22,10 @@
 //
 // ── 展开（D5）────────────────────────────────────────────────────────────────────────
 //   offset = caller.MaxReg（fresh reg 区，> 所有 caller reg，无碰撞）；callee reg r → caller reg r+offset。
-//   ① 形参绑定：形参 reg p（0..ParamCount-1，静态/自由函数无 this）→ `copy (p+offset), arg[p]`（在调用点，
-//      与调用语义同：实参在调用点求值）；② body：单块每条指令 curated 克隆 + reg +offset；
+//   ① 形参绑定（clean-inline-copies）：**只读**形参（body 未写）→ body 中直接代入调用方**实参寄存器**、
+//      **不 emit copy**（只读形参只作读操作数、从不是 dst → 代入实参安全，等价于调用点求值）；**被写**形参
+//      → `copy (p+offset), arg[p]` 材料化到可写 fresh reg（body remap 到 p+offset）；② body：单块每条 curated
+//      指令克隆 + 按 ctx 重映射（只读形参→实参 / 其余→+offset）；
 //   ③ Ret：有值 → `copy call.Dst, (retReg+offset)`（绑返回值到调用结果），void → 无（丢弃）；
 //   ④ CallInstr 被上述序列原地取代；⑤ reg_types 同步扩（callee.RegTypes[r] → caller.RegTypes[r+offset]，
 //      否则内联后 typed 指令 / JIT i64 特化失效）；⑥ 稳定序（按 block/instr idx 顺扫）→ 输出确定
@@ -32,6 +34,22 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
+
+// 内联展开的寄存器重映射上下文（clean-inline-copies）：
+//   - callee **只读形参**（body 中从不被写）→ 直接代入调用方**实参寄存器**（免 param copy）；
+//   - 被写形参 + 所有非形参寄存器 → `id + Offset` 的 fresh caller reg。
+// 单遍解析：定义在 IrInline 之前（方法体引用同文件后定义的具体类型会 E0402）。
+public sealed class InlineCtx {
+    public IrFunction Callee;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    public bool[]     WrittenParam;   // 形参 p 是否在 callee body 中被写（被写 → 不能直代入）
+    public int        Offset;
+    public InlineCtx(IrFunction callee, TypedReg[] args, int argCount, bool[] writtenParam, int offset) {
+        this.Callee = callee; this.Args = args; this.ArgCount = argCount;
+        this.WrittenParam = writtenParam; this.Offset = offset;
+    }
+}
 
 public sealed class IrInline {
 
@@ -76,23 +94,28 @@ public sealed class IrInline {
                     CallInstr call = ins as CallInstr;
                     IrBlock cb = callee.Blocks[0];
                     int offset = runningMax;
-                    // ① 形参绑定：copy (p+offset) = arg[p]
+                    bool[] written = IrInline._writtenParams(cb, callee.ParamCount);
+                    InlineCtx ctx = new InlineCtx(callee, call.Args, call.ArgCount, written, offset);
+                    // ① 形参绑定：只对**被写**形参 emit `copy (p+offset)=arg[p]`（须材料化到可写 fresh reg）；
+                    //    **只读**形参不 emit copy——body 中直接代入实参寄存器（见 _rr/ctx，clean-inline-copies）。
                     int p = 0;
                     while (p < callee.ParamCount) {
-                        TypedReg np = new TypedReg(p + offset, IrInline._calleeRegType(callee, p));
-                        outI = IrInline._push(outI, oc, new CopyInstr(np, call.Args[p])); oc = oc + 1;
+                        if (written[p]) {
+                            TypedReg np = new TypedReg(p + offset, IrInline._calleeRegType(callee, p));
+                            outI = IrInline._push(outI, oc, new CopyInstr(np, call.Args[p])); oc = oc + 1;
+                        }
                         p = p + 1;
                     }
-                    // ② body：单块每条 curated 指令克隆 + reg +offset
+                    // ② body：单块每条 curated 指令克隆 + 按 ctx 重映射寄存器
                     int ci = 0;
                     while (ci < cb.InstrCount) {
-                        outI = IrInline._push(outI, oc, IrInline._cloneRemap(cb.Instrs[ci], offset)); oc = oc + 1;
+                        outI = IrInline._push(outI, oc, IrInline._cloneRemap(cb.Instrs[ci], ctx)); oc = oc + 1;
                         ci = ci + 1;
                     }
-                    // ③ Ret 绑定：有值 → copy call.Dst = retReg+offset
+                    // ③ Ret 绑定：有值 → copy call.Dst = 重映射后的 retReg（只读形参直代入 → 可能就是实参）
                     RetTerm rt = cb.Term as RetTerm;
                     if (rt.HasReg) {
-                        outI = IrInline._push(outI, oc, new CopyInstr(call.Dst, IrInline._rr(rt.Reg, offset))); oc = oc + 1;
+                        outI = IrInline._push(outI, oc, new CopyInstr(call.Dst, IrInline._rr(rt.Reg, ctx))); oc = oc + 1;
                     }
                     // ⑤/⑦ 记录 + 游标 + 预算
                     recOff = IrInline._pushInt(recOff, recCount, offset);
@@ -213,45 +236,61 @@ public sealed class IrInline {
         return false;
     }
 
-    // 逐指令克隆 + 全寄存器 +offset 重命名。仅 curated 集（_isInlinable 已保证）；其余理论不达，
-    // 兜底返回原指令的 Copy 会破坏，故此处对未覆盖类型返回一个安全占位（const.null 到 dst 不可能达到）。
-    private static IrInstr _cloneRemap(IrInstr ins, int offset) {
-        if (ins is ConstI32Instr)  { ConstI32Instr i = ins as ConstI32Instr; return new ConstI32Instr(IrInline._rr(i.Dst, offset), i.Text); }
-        if (ins is ConstI64Instr)  { ConstI64Instr i = ins as ConstI64Instr; return new ConstI64Instr(IrInline._rr(i.Dst, offset), i.Text); }
-        if (ins is ConstF64Instr)  { ConstF64Instr i = ins as ConstF64Instr; return new ConstF64Instr(IrInline._rr(i.Dst, offset), i.Text); }
-        if (ins is ConstBoolInstr) { ConstBoolInstr i = ins as ConstBoolInstr; return new ConstBoolInstr(IrInline._rr(i.Dst, offset), i.Value); }
-        if (ins is ConstCharInstr) { ConstCharInstr i = ins as ConstCharInstr; return new ConstCharInstr(IrInline._rr(i.Dst, offset), i.Val); }
-        if (ins is ConstStrInstr)  { ConstStrInstr i = ins as ConstStrInstr; return new ConstStrInstr(IrInline._rr(i.Dst, offset), i.Idx); }
-        if (ins is ConstNullInstr) { ConstNullInstr i = ins as ConstNullInstr; return new ConstNullInstr(IrInline._rr(i.Dst, offset)); }
-        if (ins is CopyInstr)      { CopyInstr i = ins as CopyInstr; return new CopyInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Src, offset)); }
-        if (ins is AddInstr)       { AddInstr i = ins as AddInstr; return new AddInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is SubInstr)       { SubInstr i = ins as SubInstr; return new SubInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is MulInstr)       { MulInstr i = ins as MulInstr; return new MulInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is DivInstr)       { DivInstr i = ins as DivInstr; return new DivInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is RemInstr)       { RemInstr i = ins as RemInstr; return new RemInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is NegInstr)       { NegInstr i = ins as NegInstr; return new NegInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Src, offset)); }
-        if (ins is NotInstr)       { NotInstr i = ins as NotInstr; return new NotInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Src, offset)); }
-        if (ins is BitNotInstr)    { BitNotInstr i = ins as BitNotInstr; return new BitNotInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Src, offset)); }
-        if (ins is ConvertInstr)   { ConvertInstr i = ins as ConvertInstr; return new ConvertInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Src, offset)); }
-        if (ins is BitAndInstr)    { BitAndInstr i = ins as BitAndInstr; return new BitAndInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is BitOrInstr)     { BitOrInstr i = ins as BitOrInstr; return new BitOrInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is BitXorInstr)    { BitXorInstr i = ins as BitXorInstr; return new BitXorInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is ShlInstr)       { ShlInstr i = ins as ShlInstr; return new ShlInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is ShrInstr)       { ShrInstr i = ins as ShrInstr; return new ShrInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is EqInstr)        { EqInstr i = ins as EqInstr; return new EqInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is NeInstr)        { NeInstr i = ins as NeInstr; return new NeInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is LtInstr)        { LtInstr i = ins as LtInstr; return new LtInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is LeInstr)        { LeInstr i = ins as LeInstr; return new LeInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is GtInstr)        { GtInstr i = ins as GtInstr; return new GtInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is GeInstr)        { GeInstr i = ins as GeInstr; return new GeInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.A, offset), IrInline._rr(i.B, offset)); }
-        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; return new FieldGetInstr(IrInline._rr(i.Dst, offset), IrInline._rr(i.Obj, offset), i.Field); }
+    // callee 形参哪些被 body 写（DstId 命中形参 reg）→ 被写形参不能直代入实参，须材料化。
+    private static bool[] _writtenParams(IrBlock cb, int paramCount) {
+        bool[] w = new bool[paramCount];
+        int i = 0;
+        while (i < cb.InstrCount) {
+            int d = IrOptInfo.DstId(cb.Instrs[i]);
+            if (d >= 0 && d < paramCount) { w[d] = true; }
+            i = i + 1;
+        }
+        return w;
+    }
+
+    // 逐指令克隆 + 按 ctx 重映射寄存器。仅 curated 集（_isInlinable 已保证）；未覆盖类型不可达，
+    // 兜底返回原指令仅为类型完整（不会执行到）。
+    private static IrInstr _cloneRemap(IrInstr ins, InlineCtx ctx) {
+        if (ins is ConstI32Instr)  { ConstI32Instr i = ins as ConstI32Instr; return new ConstI32Instr(IrInline._rr(i.Dst, ctx), i.Text); }
+        if (ins is ConstI64Instr)  { ConstI64Instr i = ins as ConstI64Instr; return new ConstI64Instr(IrInline._rr(i.Dst, ctx), i.Text); }
+        if (ins is ConstF64Instr)  { ConstF64Instr i = ins as ConstF64Instr; return new ConstF64Instr(IrInline._rr(i.Dst, ctx), i.Text); }
+        if (ins is ConstBoolInstr) { ConstBoolInstr i = ins as ConstBoolInstr; return new ConstBoolInstr(IrInline._rr(i.Dst, ctx), i.Value); }
+        if (ins is ConstCharInstr) { ConstCharInstr i = ins as ConstCharInstr; return new ConstCharInstr(IrInline._rr(i.Dst, ctx), i.Val); }
+        if (ins is ConstStrInstr)  { ConstStrInstr i = ins as ConstStrInstr; return new ConstStrInstr(IrInline._rr(i.Dst, ctx), i.Idx); }
+        if (ins is ConstNullInstr) { ConstNullInstr i = ins as ConstNullInstr; return new ConstNullInstr(IrInline._rr(i.Dst, ctx)); }
+        if (ins is CopyInstr)      { CopyInstr i = ins as CopyInstr; return new CopyInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
+        if (ins is AddInstr)       { AddInstr i = ins as AddInstr; return new AddInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is SubInstr)       { SubInstr i = ins as SubInstr; return new SubInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is MulInstr)       { MulInstr i = ins as MulInstr; return new MulInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is DivInstr)       { DivInstr i = ins as DivInstr; return new DivInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is RemInstr)       { RemInstr i = ins as RemInstr; return new RemInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is NegInstr)       { NegInstr i = ins as NegInstr; return new NegInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
+        if (ins is NotInstr)       { NotInstr i = ins as NotInstr; return new NotInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
+        if (ins is BitNotInstr)    { BitNotInstr i = ins as BitNotInstr; return new BitNotInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
+        if (ins is ConvertInstr)   { ConvertInstr i = ins as ConvertInstr; return new ConvertInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
+        if (ins is BitAndInstr)    { BitAndInstr i = ins as BitAndInstr; return new BitAndInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is BitOrInstr)     { BitOrInstr i = ins as BitOrInstr; return new BitOrInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is BitXorInstr)    { BitXorInstr i = ins as BitXorInstr; return new BitXorInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is ShlInstr)       { ShlInstr i = ins as ShlInstr; return new ShlInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is ShrInstr)       { ShrInstr i = ins as ShrInstr; return new ShrInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is EqInstr)        { EqInstr i = ins as EqInstr; return new EqInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is NeInstr)        { NeInstr i = ins as NeInstr; return new NeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is LtInstr)        { LtInstr i = ins as LtInstr; return new LtInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is LeInstr)        { LeInstr i = ins as LeInstr; return new LeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is GtInstr)        { GtInstr i = ins as GtInstr; return new GtInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is GeInstr)        { GeInstr i = ins as GeInstr; return new GeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
+        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; return new FieldGetInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Obj, ctx), i.Field); }
         // 不可达（_isInlinable 已滤）；返回原指令仅为类型完整（不会执行到）。
         return ins;
     }
 
-    // TypedReg 重命名：id +offset，类型标签保留（callee IR 已正确）。
-    private static TypedReg _rr(TypedReg r, int offset) {
-        return new TypedReg(r.Id + offset, r.Type);
+    // 寄存器重映射（clean-inline-copies）：callee 只读形参 → 直接代入调用方实参寄存器（免 param copy）；
+    // 被写形参 + 非形参 → id+Offset 的 fresh caller reg（类型标签保留）。
+    private static TypedReg _rr(TypedReg r, InlineCtx ctx) {
+        if (r.Id >= 0 && r.Id < ctx.Callee.ParamCount && r.Id < ctx.ArgCount && !ctx.WrittenParam[r.Id]) {
+            return ctx.Args[r.Id];   // 只读形参直代入实参寄存器
+        }
+        return new TypedReg(r.Id + ctx.Offset, r.Type);
     }
 
     // callee reg r 的类型标签（越界 → Unknown）。

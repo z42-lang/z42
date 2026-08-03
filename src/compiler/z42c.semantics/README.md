@@ -27,7 +27,7 @@
 | `src/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId`/`AddDef` / 读寄存器 `AddReads`+`AddTermReads`（镜像 ZbcWriter._regtInstr 保完整）/ 可删性 `IsPure`（白名单，未知 opcode 保留）/ retarget `SetDst`（copy-prop）/ `TryConstFold`（const-fold 规则表，可扩展）。optimization-pipeline |
 | `src/OptSet.z42` | **可独立开关的具名优化位集**（`Opt` static class；add-compiler-inlining）：`ConstFold=1/CopyProp=2/Dce=4/Inline=8/All=15` + `Has`/`ByName`/`ProfileDefault(isRelease)`（debug=None/-O0、release=All）/`Resolve`（CLI>toml>profile）|
 | `src/IrOptPipeline.z42` | **编译期 IR 优化管线**（IrGen.Generate 末尾）：`Run(m, optSet)` 按 `Opt.Has` 门控每 pass（`None`→整体跳过=-O0）。先模块级 inline（`IrInline.Run`，靠前产更多下游机会），再逐函数 const-fold → copy-prop → temp-DCE（各自重算 reads/defs → 单独开也正确，design D2）。interp-first，见 book optimization-pipeline |
-| `src/IrInline.z42` | **函数内联 pass**（`Opt.Inline`；Phase 2）：模块级逐 caller 展开合格直接调用点。v1 curated 集（const/copy/算术/比较/位·一元/convert/field_get），callee 须单块+RetTerm/非递归/无异常表·varargs/精确 arity；offset=caller.MaxReg 重映射寄存器 + reg_types 同步扩 + 稳定序（自举不动点）。资格/展开见 design D4/D5 |
+| `src/IrInline.z42` | **函数内联 pass**（`Opt.Inline`；Phase 2）：模块级逐 caller 展开合格直接调用点。v1 curated 集（const/copy/算术/比较/位·一元/convert/field_get），callee 须单块+RetTerm/非递归/无异常表·varargs/精确 arity；offset=caller.MaxReg 重映射寄存器 + reg_types 同步扩 + 稳定序（自举不动点）。**只读形参直代入实参寄存器**（`InlineCtx`/`_writtenParams`，免 param copy，clean-inline-copies）。资格/展开见 design D4/D5 |
 
 ## 入口点
 `new TypeChecker(diags).Infer(cu, symbols)` → `SemanticModel`（先 `new SymbolCollector().Collect(cu)` 出 `SymbolTable`）。便捷封装见 `SemanticDump.DumpBody(src, key)` / `ErrorCount(src)`。
