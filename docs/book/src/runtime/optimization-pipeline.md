@@ -124,20 +124,25 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 > key（值不由操作数唯一决定，或有可观察副作用）。④ `convert` key 含目标类型标签（同 src 不同目标不可复用）。
 
 **pass 2c LICM（循环不变量外提，`Opt.Licm`；跑在 const-fold 后、cse 前）**：把自然循环体内**纯 + 循环不变**的
-计算提到循环 pre-header（每进循环只算一次），interp 收益大头（循环主导运行时）。
-> **⚠️ 状态：opt-in 实验，不入 `Opt.All`（release/dump 默认不启用）。** 简单单循环正确（`--opt licm` 可开、
-> 有单测），但**复杂 CFG（嵌套循环 + `throw` 退出路径）有已知 miscompile**（症状：运行期 `undefined register`
-> ——自然循环体的 backward-reach 在有多出口/异常退出块时对某些定义识别不全，导致误提）。**根治前不入默认集**；
-> 修复方向见 add-licm-pass tasks.md「已知 bug」。机制（保守 v1，`IrLicm.z42`）：
+计算提到循环 pre-header（每进循环只算一次），interp 收益大头（循环主导运行时）。机制（保守 v1，`IrLicm.z42`）：
+⓪ **有异常表（try/catch/finally，`ExcCount>0`）的函数整体跳过**——CFG 仅从 `Br/BrCond/Ret` 终结子建，
+**不含异常隐式边**（受保护区→handler/finally），支配/循环分析会错 → 误提 → miscompile（event/multicast/
+finally/div-by-zero 等 e2e 曾中招）。异常边入 CFG 后再放开；
 ① CFG（各块终结子取后继 Br→1/BrCond→2/Ret·Throw→0，反转得前驱位阵）；② **支配**（迭代数据流
 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=Blocks[0]）；③ **回边**（边 b→h 且 h 支配 b）→ 自然循环，body =
-h + 从 latch 反向可达（不过 h）；④ **pre-header 保守判定**：h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h`
-→ 干净 pre-header，否则**跳过该循环**（不做 CFG 手术造 pre-header）；⑤ **不变量**：循环体内 IsPure 指令，其
-**所有读操作数在循环外定义**（v1 单层——被提指令互不依赖 → 任意序外提安全；链式不变量留下游/再跑一遍）；
-⑥ 外提到 pre-header 尾（终结子前）、从循环体删。
+h + 从 latch 反向可达（不过 h）（**并**同 header 所有回边体，多 latch 才完整）；④ **pre-header 保守判定**：
+h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h` → 干净 pre-header，否则**跳过该循环**（不做 CFG 手术造
+pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指令，其**所有读操作数不在「循环支配域」定义**
+（"循环支配域" = **被 header 支配的所有块**——含 `throw`/多出口退出块，见下）；⑥ 外提到 pre-header 尾
+（终结子前）、从循环体删（v1 单层——被提指令互不依赖 → 任意序外提安全；链式不变量留下游/再跑一遍）。
+> **⚠️ 支配域判不变（关键正确性）**：判「操作数是否循环内定义」**必须用 header 支配域**（`dom[b*n+h]`）而**非**
+> 「latch 反向可达的自然循环体」——后者**排除**了循环内的**异常/多出口退出块**（`throw` 块无后继、到不了 latch），
+> 而这些块仍受 header 支配。若用反向可达体，退出块里定义的寄存器会被漏判为「循环外」→ 误提到 pre-header →
+> 运行期 `undefined register`（曾在 `TopoOrder` 嵌套循环+throw 触发）。所有真循环块都受 header 支配 ⊆ 支配域，
+> 故用支配域**保守安全**（至多少提循环外后继块的定义，绝不误提）。外提**源**仍用自然循环体（只移真循环内指令）。
 > **安全边界**：仅提 **IsPure** 指令（白名单排除 Div/Rem 除零陷阱、FieldGet/ArrayGet NPE·越界、Call*/*Set 副作用）
-> → 提到「可能零迭代」的 pre-header 也安全（纯值、不触发陷阱/副作用）。单赋值 temp + pre-header 支配循环 →
-> 提前定义仍支配所有使用点，正确。处理序（回边按块序）确定 → 自举不动点收敛。
+> → 提到「可能零迭代」的 pre-header 也安全（纯值、不触发陷阱/副作用）。单赋值 temp（`defsGlobal==1`，多定义局部
+> 提了会丢环内赋值）+ pre-header 支配循环 → 提前定义仍支配所有使用点，正确。处理序（回边按块序）确定 → 不动点收敛。
 
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。

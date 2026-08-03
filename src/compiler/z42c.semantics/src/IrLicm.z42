@@ -23,6 +23,10 @@ public sealed class IrLicm {
     public static void Run(IrFunction f) {
         int n = f.BlockCount;
         if (n < 2) { return; }   // 无循环可能
+        // 有异常表（try/catch/finally）→ 跳过：CFG 仅从 Br/BrCond/Ret 终结子建，**不含异常隐式边**
+        // （受保护区→handler/finally），支配/循环分析会错 → 误提 → miscompile（event/multicast/finally/
+        //  div-by-zero 等 e2e 曾中招）。异常边入 CFG 后再放开。
+        if (f.ExcCount != 0) { return; }
         // ① 后继（s0/s1；-1=无）
         int[] s0 = new int[n];
         int[] s1 = new int[n];
@@ -64,7 +68,7 @@ public sealed class IrLicm {
         while (h < n) {
             if (isHeader[h]) {
                 bool[] inLoop = IrLicm._loopBody(n, h, s0, s1, predMat, dom);
-                IrLicm._tryPreheaderHoist(f, n, h, inLoop, predMat);
+                IrLicm._tryPreheaderHoist(f, n, h, inLoop, predMat, dom);
             }
             h = h + 1;
         }
@@ -97,7 +101,7 @@ public sealed class IrLicm {
     }
 
     // ④ pre-header 保守判定（h 唯一循环外前驱 + 该前驱 `br h`）+ ⑤⑥ 不变量分析 + 外提。
-    private static void _tryPreheaderHoist(IrFunction f, int n, int h, bool[] inLoop, bool[] predMat) {
+    private static void _tryPreheaderHoist(IrFunction f, int n, int h, bool[] inLoop, bool[] predMat, bool[] dom) {
         int ph = -1;
         int cnt = 0;
         int r = 0;
@@ -110,27 +114,31 @@ public sealed class IrLicm {
         if (!phb.HasTerm) { return; }
         if (!(phb.Term is BrTerm)) { return; }
         if (IrLicm._idx(f, (phb.Term as BrTerm).Label) != h) { return; }
-        IrLicm._hoistInvariants(f, n, inLoop, ph);
+        IrLicm._hoistInvariants(f, n, inLoop, ph, h, dom);
     }
 
-    // 不变量不动点 + 外提到 pre-header。
-    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph) {
+    // 不变量分析 + 外提到 pre-header。
+    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom) {
         int rc = f.MaxReg + 2;
-        // defInLoop[reg] = 该 reg **在循环体内任一块**被定义（多定义寄存器只要有一处在环内即非不变——
-        // 用「是否在环内定义」而非「最后定义块」，否则环内+环外双定义的命名局部会被误判可提，导致 miscompile）。
+        // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——
+        // 后者被「latch 反向可达」的循环体排除，但仍受 header 支配。用 header 支配域而非反向可达体，
+        // 才不漏掉退出块里的定义 → 否则误判操作数「循环外」→ 外提到 pre-header 时该操作数未定义（miscompile
+        // ：TopoOrder 嵌套循环+throw 的 undefined register 即此因）。所有真循环块都受 header 支配 ⊆ 支配域，
+        // 故此判定对不变性**保守安全**（可能少提循环外后继块的定义，但绝不误提）。
         bool[] defInLoop = new bool[rc];
         // defsGlobal[reg] = 全函数定义次数。仅提**单赋值**（==1）指令：多定义命名局部若被提，会丢掉环内
         // 某次赋值 → 后续迭代值错（miscompile）。单赋值 temp 提前定义仍支配所有使用点，安全。
         int[] defsGlobal = new int[rc];
         int b = 0;
         while (b < n) {
+            bool headerDom = dom[b * n + h];   // b 受 header 支配 → 属循环支配域
             IrBlock blk = f.Blocks[b];
             int ii = 0;
             while (ii < blk.InstrCount) {
                 int d = IrOptInfo.DstId(blk.Instrs[ii]);
                 if (d >= 0 && d < rc) {
                     defsGlobal[d] = defsGlobal[d] + 1;
-                    if (inLoop[b]) { defInLoop[d] = true; }
+                    if (headerDom) { defInLoop[d] = true; }
                 }
                 ii = ii + 1;
             }

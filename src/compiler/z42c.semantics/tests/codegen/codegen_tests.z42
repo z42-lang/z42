@@ -103,9 +103,10 @@ void test_while_continue() {
 
 [Test]
 void test_body_assign() {
-    // body 非空，末尾回边 br cond（LICM opt-in、不入 dump 默认 All-Inline → 此 golden 无 LICM 外提）
+    // body 非空，末尾回边 br cond。循环不变常量 `1`（单赋值 temp %3）被 LICM 提到 pre-header（entry），
+    // body 剩 `%2 = copy %3`（LICM 后 producer 不再相邻 → copy-prop 不折，add-licm-pass）。
     string src = "int F(bool c) { int x = 0; while (c) { x = 1; } return x; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = const.i64 1\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %3 = const.i64 1\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = copy %3\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -250,9 +251,10 @@ void test_string_concat() {
 
 [Test]
 void test_loop_with_comparison() {
-    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边（LICM opt-in，dump 默认无外提）
+    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边。循环不变增量常量 `1`（单赋值 temp %4）
+    // 被 LICM 提到 pre-header（entry）；body 的 add 直接用 %4（add-licm-pass）。
     string src = "int F(int n) { int i = 0; while (i < n) { i = i + 1; } return i; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %4 = const.i64 1\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %4 = const.i64 1\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
