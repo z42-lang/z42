@@ -21,6 +21,9 @@ public sealed class IrOptPipeline {
     // 重算 reads/defs → 单独开启也正确（design D2 独立性约束）。
     public static void Run(IrModule m, int optSet) {
         if (optSet == Opt.None) { return; }
+        // inline 靠前（模块级，需 callee 跨函数解析）：产出更多下游 const-fold/copy-prop/dce 机会。
+        // 单独开 Inline 也正确（只内联、不清理，留下的 copy 由后续 pass 或下一代自愈）——design D2。
+        if (Opt.Has(optSet, Opt.Inline)) { IrInline.Run(m); }
         int fi = 0;
         while (fi < m.FuncCount) {
             IrOptPipeline._optFunc(m.Functions[fi], optSet);

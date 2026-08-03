@@ -24,6 +24,23 @@ public static class IrDump {
         return IrDump._build(src).Dump();
     }
 
+    // 指定 optSet 的函数 dump（add-compiler-inlining Phase 2：内联/独立性单测用；
+    // 传 Opt.All 开内联、Opt.Inline 单独验内联、Opt.None 验 -O0）。
+    public static string DumpFuncOpt(string src, string funcKey, int optSet) {
+        IrModule m = IrDump._buildFOpt(src, "<input>", optSet);
+        int i = 0;
+        while (i < m.FuncCount) {
+            if (m.Functions[i].Name == funcKey) { return m.Functions[i].Dump(); }
+            i = i + 1;
+        }
+        return "(no-func " + funcKey + ")";
+    }
+
+    // 指定 optSet 的整模块 dump。
+    public static string DumpModuleOpt(string src, int optSet) {
+        return IrDump._buildFOpt(src, "<input>", optSet).Dump();
+    }
+
     // 整模块 → byte-identical .zbc 的小写 hex（golden-hex 断言；port-z42c-zbc-writer）。
     public static string DumpZbcHex(string src) {
         return ZbcWriter.WriteHex(IrDump._build(src));
@@ -472,11 +489,12 @@ public static class IrDump {
         if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
-        // 单模块 / --dump-ir / codegen 单测路径：保持优化（Opt.All）——与本 change 前的
-        // 无条件 IrOptPipeline.Run 行为一致（codegen golden 断言的是优化后的 IR，如
-        // test_constfold_* / test_identity_*）。debug=-O0 的新行为只作用于真正的包构建
-        // （BuildPackageCus 走 profile 默认），不影响这些编译器内部工具路径。
-        IrModule irm = gen.Generate(cu, model, Opt.All);
+        // 单模块 / --dump-ir / codegen 单测 / golden .zbc regen 路径：本地优化但**不内联**
+        // （Opt.All - Inline，add-compiler-inlining Phase 2）。codegen/zbc golden 断言的是优化后 IR
+        // （test_constfold_* / test_identity_*），但内联是跨函数变换、会折叠含直接调用的 golden 且脆弱；
+        // 排除内联 = Phase 2 前 Opt.All 的等价输出，所有既有 golden 逐字节不变。真实 release 包构建
+        // （BuildPackageCus 走 ProfileDefault=All 含内联）+ 内联专项单测覆盖内联行为。
+        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;
@@ -543,6 +561,16 @@ public static class IrDump {
     }
 
     private static IrModule _buildF(string src, string file) {
+        // dump / codegen-golden 默认 optSet = Opt.All **减去 Inline**（add-compiler-inlining Phase 2）：
+        // 单函数 dump / golden 断言的是「单函数本地优化后」的 IR（const-fold/copy-prop/dce），**不含**
+        // 跨函数内联——否则每个含直接调用的 codegen golden 都会被内联折叠、测两件事且脆弱。此值 =
+        // Phase 2 前 Opt.All 的等价输出（内联当时是 no-op），故所有既有 golden 逐字节不变。内联单独由
+        // 真实 release 自建（D7 不动点 / e2e）+ `DumpFuncOpt(...Opt.All)` 专项单测覆盖。
+        return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline);
+    }
+
+    // 带显式 optSet 的 dump 构建（内联 / 独立性单测：传 Opt.All 开内联、传 Opt.Inline 单独验内联）。
+    private static IrModule _buildFOpt(string src, string file, int optSet) {
         var p = new Parser(src, file);
         var cu = AttributeSynth.Run(BenchmarkDesugar.Run(p.ParseCompilationUnit()));   // add-attribute-reflection：合成工厂
         var symbols = new SymbolCollector().Collect(cu);
@@ -553,7 +581,7 @@ public static class IrDump {
         gen.SourceStem = IrDump._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
         gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
-        return gen.Generate(cu, model, Opt.All);   // 导出抽取：保持 change 前无条件优化行为（signature 不受影响，但求字节一致）
+        return gen.Generate(cu, model, optSet);
     }
 }
 

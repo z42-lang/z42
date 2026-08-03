@@ -40,3 +40,31 @@ void test_workspace_manifest_roundtrip() {
     Assert.Equal("out/${member_name}", w.OutputDir);   // 路径模板原样保留
     Assert.Equal("${output_dir}/cache", w.CacheDir);
 }
+
+// ── [optimize] 逐 pass 具名开关（add-compiler-inlining；解析 support 侧，消费受两-nightly 纪律）──
+[Test]
+void test_optimize_section_parsed() {
+    // 用真实带连字符的 pass 名（与编译器 Opt.ByName 串一致）验证连字符裸键解析。
+    string toml = "[project]\nname = \"o\"\nversion = \"0.1.0\"\n\n[optimize]\ninline = true\nconst-fold = false\ncopy-prop = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(3, m.OptimizeCount);
+    // 键序不保证 → 按名查
+    bool sawInline = false; bool sawCf = false; bool sawCp = false;
+    int i = 0;
+    while (i < m.OptimizeCount) {
+        if (m.OptimizeNames[i] == "inline")     { sawInline = true; Assert.Equal(true,  m.OptimizeValues[i]); }
+        if (m.OptimizeNames[i] == "const-fold") { sawCf     = true; Assert.Equal(false, m.OptimizeValues[i]); }
+        if (m.OptimizeNames[i] == "copy-prop")  { sawCp     = true; Assert.Equal(true,  m.OptimizeValues[i]); }
+        i = i + 1;
+    }
+    Assert.True(sawInline);
+    Assert.True(sawCf);
+    Assert.True(sawCp);
+}
+
+[Test]
+void test_optimize_section_absent_empty() {
+    string toml = "[project]\nname = \"o\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.OptimizeCount);   // 缺 [optimize] → 空（消费方回落 profile 默认）
+}
