@@ -91,7 +91,6 @@ CallNativeInstr，native 函数在 **VM 加载期按名解析**，编码里无�
 |----|----|----|----|
 | `z42.core` | L0 | Object、primitive 类型（int/long/double/float/char/bool/string）、Type、Convert、Assert、Exception 树、核心接口（IComparable / IEquatable / IComparer / IEqualityComparer / IFormattable / IDisposable / IEnumerable / INumber）、Collections/{List, Dictionary} | ✅ VM intrinsic |
 | `z42.collections` | L1 | Stack、Queue、LinkedList、SortedSet（计划：SortedDictionary、PriorityQueue） | ❌ 纯脚本 |
-| `z42.math` | L1 | Math 静态方法 | ❌ 纯脚本（包装 z42.core 原语） |
 | `z42.text` | L1 | StringBuilder（纯脚本，2026-04-26 迁移）；Regex 占位 | ❌ 纯脚本 |
 | `z42.encoding` | L1 | Hex、Base64（RFC 4648 §4）、Utf8 | ❌ 纯脚本 |
 | `z42.io` | L2 | Console、File、Path、Environment | ✅ host FFI（仅此包例外） |
@@ -182,7 +181,7 @@ z42 的层级模型把 C#/Rust 两边的精华都拿过来：
 ```
 L0  z42.core              (隐式 prelude，VM intrinsic 唯一来源)
         ↑ 依赖
-L1  z42.collections, z42.math, z42.text, ...
+L1  z42.collections, z42.text, z42.encoding, ...
     （纯脚本，按 domain 分；可任意组合用）
         ↑
 L2  z42.io                (host FFI 例外，OS 能力)
@@ -259,7 +258,7 @@ L1 包的判定：
 | domain → 包 |
 |---|
 | 次级集合（Stack / Queue / LinkedList / PriorityQueue）→ `z42.collections` |
-| 数学（Math / 复杂运算 / 几何）→ `z42.math` |
+| 数学 libm 原语 `Math`（= `System.Math`）→ **`z42.core`**（move-math-to-core A2 迁入，随 CoreLib）；未来非原语数值类型（BigInteger / 矩阵）→ `z42.numerics` |
 | 文本（StringBuilder / Regex / Encoding） → `z42.text` |
 | 数值扩展（BigInteger / Decimal / 复数）→ `z42.numerics`（未来）|
 | 日期时间（DateTime / TimeSpan）→ `z42.time`（未来；纯脚本可行性待评估）|
@@ -315,7 +314,6 @@ L3 包的判定：
 | z42.core | `Std` (primitive + protocols), `Std.Collections` (List, Dictionary) |
 | z42.collections | `Std.Collections` (Stack, Queue, ...) |
 | z42.io | `Std.IO` |
-| z42.math | `Std.Math` |
 | z42.text | `Std.Text` |
 | z42.threading | `Std.Threading` |
 | z42.net | `Std.Net.Sockets` (K1: TCP), `Std` (exceptions: SocketException / SocketClosedException / NetException / NetUnsupportedException) |
@@ -363,7 +361,7 @@ L3 包的判定：
 |---|---|---|
 | `z42.core` | 类型 + 类型系统协议 + 容器策略接口 | ✅ **保持** —— 已有内容不迁出 |
 | `z42.collections` | 次级容器（Stack / Queue / 未来 LinkedList / PriorityQueue）| ✅ 保持 |
-| `z42.math` | 数学函数 | ✅ 保持；新数值类型（BigInteger 等）走 `z42.numerics` 新包 |
+| ~~`z42.math`~~ | 数学函数 | ⟶ **已并入 z42.core**（`Std.Math` = System.Math，move-math-to-core A2）；新数值类型走 `z42.numerics` |
 | `z42.text` | 文本处理（StringBuilder / 未来 Regex）| ✅ 保持 |
 | `z42.io` | OS 服务 | ✅ 保持；Console 走隐式 prelude using（见末尾决策） |
 

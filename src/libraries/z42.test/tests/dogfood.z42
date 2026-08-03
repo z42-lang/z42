@@ -9,7 +9,6 @@ namespace Z42TestDogfood;
 using Std;       // TestFailure / SkipSignal (in Std namespace)
 using Std.Test;  // Assert API + TestIO + Bencher (R2 完整版)
 using Std.IO;    // Console.WriteLine / Error.WriteLine (TestIO capture targets)
-using Std.Math;  // Math.Sqrt（test_bencher_stat_invariants 的 bench body）——显式 import 用到的包；
                  // 先前漏 import，C# 宽松解析侥幸编过，z42c 严格下静默误编成 VCall-null（见 tasks.md
                  // tracked: z42c --emit-zbc 未解析 static 调用应清晰报 E0401 而非崩）。
 

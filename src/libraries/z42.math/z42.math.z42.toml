@@ -1,7 +1,0 @@
-[project]
-name    = "z42.math"
-version = "0.1.0"
-kind    = "lib"
-
-[dependencies]
-"z42.core" = "0.1.0"

@@ -1,4 +1,4 @@
-using Std.Math;
+using Std;
 void Main() {
     // Abs (int-preserving via AbsInt; double via Abs).
     // fix-math-int-overload-collision (2026-05-24): Abs/Min/Max int

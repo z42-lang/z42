@@ -3,7 +3,6 @@ namespace Z42NumericsComplexTests;
 
 using Std;
 using Std.Test;
-using Std.Math;
 using Std.Numerics;
 
 // Tolerance for floating-point comparisons (Sin / Sqrt / Exp don't round

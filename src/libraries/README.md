@@ -11,7 +11,6 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.core/` | `z42.core` | 核心类型 + 隐式 prelude；按子目录组织：`Primitives/`（6 个 primitive 成员方法）/ `Delegates/`（callable + multicast + 订阅）/ `Protocols/`（核心接口）/ `Exceptions/`（Exception 树）/ `Collections/`（List / Dict / KVP）；根留 Object / Type / String / Convert / Assert / GC / Disposable。详见 [src/README.md](z42.core/src/README.md) |
 | `z42.collections/` | `z42.collections` | 次级集合类型：`Queue`、`Stack`（未来 `LinkedList` / `SortedDictionary` / `PriorityQueue`） |
 | `z42.io/` | `z42.io` | IO 类型：`Console`、`File`、`Path`、`Environment` |
-| `z42.math/` | `z42.math` | 数学函数：`Math` |
 | `z42.text/` | `z42.text` | 文本处理：`StringBuilder`、`Regex` |
 | `z42.encoding/` | `z42.encoding` | 字符 ↔ 字节编码：`Hex`、`Base64` (RFC 4648 §4)、`Utf8` |
 | `z42.test/` | `z42.test` | 单元测试运行时（v0 imperative TestRunner；lambda 就绪后升级 v1）|
@@ -132,7 +131,6 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | `z42.core` | `Nullable<T>` 显式类型（暂用语言级 `T?`，独立类型留待系统设计）<br>`KeyValuePair<K,V>`（Dictionary 实现 `IEnumerable` 需要）<br>`Range` / `Index`（C# 8 风切片）<br>`Tuple<...>`（多返回值；当前 z42 无 tuple 类型）|
 | `z42.collections` | `LinkedList<T>` / `SortedDictionary<K,V>` / `PriorityQueue<T>` / `ImmutableArray<T>`<br>List / Dictionary 实现 `IEnumerable<T>`（端到端 foreach IEnumerator 路径）|
 | `z42.io` | `Stream` / `BufferedStream` / `MemoryStream`<br>`TextReader` / `TextWriter` 抽象类<br>`Directory` / `FileInfo` / `DirectoryInfo`<br>`Encoding` (UTF-8 / UTF-16)|
-| `z42.math` | `Random`（PRNG，Mersenne Twister 或 PCG）<br>`Complex` / `Vector*`（如不拆 `z42.numerics`）|
 | `z42.text` | `Encoding` 体系（与 `z42.io` 协调）<br>`StringReader` / `StringWriter`<br>`Regex` 完整实现（当前占位）|
 
 ### 跨包 backlog
@@ -223,7 +221,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
-| ~~`__math_abs` / `__math_max` / `__math_min` (3)~~ | ✅ 已删 | 2026-04-27 wave1-math-script — int + double overload 脚本，见 [z42.math/src/Math.z42](z42.math/src/Math.z42) |
+| ~~`__math_abs` / `__math_max` / `__math_min` (3)~~ | ✅ 已删 | 2026-04-27 wave1-math-script — int + double overload 脚本，见 [z42.core/src/Math.z42](z42.core/src/Math.z42) |
 | `__math_pow` / `__math_sqrt` / `__math_log` / `__math_log10` / `__math_sin` / `__math_cos` / `__math_tan` / `__math_atan2` / `__math_exp` (9) | 🟢 | libm FPU 指令，BCL/Rust 都是 extern |
 | `__math_floor` / `__math_ceiling` / `__math_round` (3) | 🟢 | libm 一致性；技术上脚本可表达，但保 libm 行为以匹配 BCL/Rust |
 

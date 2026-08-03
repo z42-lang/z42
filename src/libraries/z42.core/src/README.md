@@ -20,6 +20,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `Collections/` | 基础泛型集合：`List<T>` / `Dictionary<K,V>` / `KeyValuePair<K,V>` |
 | `Convert.z42` | `Convert.ToInt32` / `ToDouble` / `ToString` 等转换辅助 |
 | `BitConverter.z42` | `Std.BitConverter`：IEEE-754 位重解释 `SingleToBits`/`SingleFromBits`/`DoubleToBits`/`DoubleFromBits`（`__*_to_bits`/`__*_from_bits` 唯一声明点；z42.io.binary / z42.ir 调它——consolidate-core-intrinsics A1）|
+| `Math.z42` | `Std.Math`（= `System.Math`）：libm 原语 `Pow`/`Sqrt`/`Floor`/`Ceiling`/`Round`/`Log`/`Log10`/`Sin`/`Cos`/`Tan`/`Atan2`/`Exp`（`__math_*` 唯一声明点）+ 派生 `Abs`/`Min`/`Max`/`Clamp`/`Sign` + 常量 `Pi`/`E`/`Tau`。move-math-to-core (A2)：整类自 z42.math 迁入，对齐 CoreLib |
 | `Assert.z42` | `Assert.Equal` / `True` / `Null` 等运行时断言 |
 | `GC/` | GC 控制 + 句柄类型（详见 `docs/design/runtime/gc-handle.md`）<br>• `GC.z42` — `Std.GC.*` 静态类（Collect / UsedBytes / ForceCollect / GetStats）<br>• `GCHandle.z42` — `Std.GCHandle` struct + `GCHandleType` enum（C# 风格 weak/strong + 显式 Free，corelib HandleTable backing）<br>• `HeapStats.z42` — `Std.GC.GetStats()` 返回类型（7 long 字段）<br>• `WeakHandle.z42` — 轻量 weak ref primitive（`Delegates/SubscriptionRefs.z42` 内部用）|
 | `Disposable.z42` | `IDisposable` 的通用实现 + `Disposable.From(Action)` 工厂；用于单播 event token、`SubscribeScoped` 返回值等 |
@@ -44,6 +45,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | Collections | Object + Protocols (IEnumerable / IEqualityComparer) |
 | Convert / Assert | Object + Exceptions（抛 ArgumentException 等）|
 | BitConverter / Clock | 无（纯 VM extern 门面，无同包内依赖）|
+| Math | 无（libm extern + 纯脚本派生，仅用 double primitive 算子）|
 | GC | Object（GCHandle 接受 object target；HeapStats 是 class）|
 | Disposable | Object + Protocols (IDisposable) + Delegates (Action) |
 
