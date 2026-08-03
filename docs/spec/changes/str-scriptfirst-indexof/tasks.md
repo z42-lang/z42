@@ -34,4 +34,11 @@
 - 大头是解释器**派发**（57×）非布局；char[] 脚本吃掉 per-char CharAt builtin 派发 = 8.6×。
 - native per-op（__str_index_of，100×）已否决（违 Script-First）；留升级阶梯最后手段。
 - 数组 packed 布局：native scan 仅 1.35× vs 123 处耦合 → 暂不做。
-- follow-up：StartsWith/EndsWith/Replace/Split 同款转 char[]；byte-index 快路 API。
+
+## 扩展（step 1，用户「按顺序推进」）：其余字符串 op
+**关键 nuance**：`ToCharArray` 物化**整串**，故 char[] 只在**扫全串**的 op 上赢，**局部访问**（碰几个字符）反而更慢。
+- [x] `Replace` → char[]（双趟全串扫描）：**9×**（63→7ms，34k 串），UTF-8 正确
+- [x] `Split` → char[]（全串扫描；Substring 提取保留）：**3.1×**（66→21ms），UTF-8 正确
+- [~] `StartsWith`/`EndsWith`/`Substring` → **保持 CharAt**：只碰 prefix/suffix/slice 的几个字符（早退/局部），
+      物化整串会 regress，**不转**（Contains 已经由 IndexOf 获益）。`Join` 亦保持 `+`（构建类，char[] 曾测 4× 慢）。
+- follow-up（后续 step）：byte-index 快路 API（step 2）；开 PR 过完整 gate（step 3）。

@@ -111,9 +111,14 @@ public static class String : IComparable<string>, IEquatable<string> {
         if (oldValue.Length == 0) {
             throw new Exception("Replace: oldValue cannot be empty");
         }
-        int tn = this.Length;
-        int on = oldValue.Length;
-        int nn = newValue.Length;
+        // char[]-script: bulk-materialise once, scan/build over ArrayGet (whole-
+        // string two-pass scan → materialisation amortised; ~9× vs per-char CharAt).
+        char[] t = this.ToCharArray();
+        char[] o = oldValue.ToCharArray();
+        char[] nw = newValue.ToCharArray();
+        int tn = t.Length;
+        int on = o.Length;
+        int nn = nw.Length;
         // Pass 1: count matches to compute result length (no List<T> available:
         // List<T> lives in z42.collections which depends on z42.core).
         int matches = 0;
@@ -121,7 +126,7 @@ public static class String : IComparable<string>, IEquatable<string> {
         while (i <= tn - on) {
             bool hit = true;
             for (int j = 0; j < on; j++) {
-                if (this.CharAt(i + j) != oldValue.CharAt(j)) { hit = false; break; }
+                if (t[i + j] != o[j]) { hit = false; break; }
             }
             if (hit) { matches = matches + 1; i = i + on; }
             else     { i = i + 1; }
@@ -136,14 +141,14 @@ public static class String : IComparable<string>, IEquatable<string> {
             if (k <= tn - on) {
                 hit = true;
                 for (int j = 0; j < on; j++) {
-                    if (this.CharAt(k + j) != oldValue.CharAt(j)) { hit = false; break; }
+                    if (t[k + j] != o[j]) { hit = false; break; }
                 }
             }
             if (hit) {
-                for (int j = 0; j < nn; j++) { result[r] = newValue.CharAt(j); r = r + 1; }
+                for (int j = 0; j < nn; j++) { result[r] = nw[j]; r = r + 1; }
                 k = k + on;
             } else {
-                result[r] = this.CharAt(k);
+                result[r] = t[k];
                 r = r + 1;
                 k = k + 1;
             }
@@ -255,14 +260,18 @@ public static class String : IComparable<string>, IEquatable<string> {
         if (sepLen == 0) {
             throw new Exception("string.Split: separator must not be empty");
         }
-        int n = this.Length;
+        // char[]-script: bulk-materialise once, scan over ArrayGet (whole-string
+        // two-pass scan → materialisation amortised). Substring extraction unchanged.
+        char[] t = this.ToCharArray();
+        char[] sp = separator.ToCharArray();
+        int n = t.Length;
         // Pass 1: count parts (matches + 1)
         int count = 1;
         int i = 0;
         while (i <= n - sepLen) {
             bool hit = true;
             for (int j = 0; j < sepLen; j++) {
-                if (this.CharAt(i + j) != separator.CharAt(j)) { hit = false; break; }
+                if (t[i + j] != sp[j]) { hit = false; break; }
             }
             if (hit) { count = count + 1; i = i + sepLen; }
             else     { i = i + 1; }
@@ -275,7 +284,7 @@ public static class String : IComparable<string>, IEquatable<string> {
         while (k <= n - sepLen) {
             bool hit = true;
             for (int j = 0; j < sepLen; j++) {
-                if (this.CharAt(k + j) != separator.CharAt(j)) { hit = false; break; }
+                if (t[k + j] != sp[j]) { hit = false; break; }
             }
             if (hit) {
                 result[idx] = this.Substring(start, k - start);
