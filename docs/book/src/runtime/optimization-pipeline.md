@@ -155,8 +155,14 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   稳态 gen1==gen2（确定性稳定序）；**引入当次**种子（无内联）编当前源 → gen1 未内联、gen2（gen1 编）已内联
   → gen1≠gen2 破一代，gen2==gen3 自愈。self-host byte-identical 是 opt-in soak（非默认 GREEN gate）+ pair-gen
   兜底 → 不阻塞发布链。
-- **v1 保守边界（后续 spec 放宽）**：跨包内联、单态 `VCall` 内联、多块 callee（重贴标签 + Ret→续延块跳转）、
-  放宽阻断特征（异常表 / ref-out）。
+- **多块 callee（inline-multiblock）**：放宽「单块」限制——含控制流（if/loop → `br`/`br.cond` + 多 `Ret`）的
+  多块 curated callee 也可内联。资格：**每块**终结子 ∈ {Ret,Br,BrCond}（Throw 不可）+ 全 curated 指令 + 总
+  指令数门。展开分两 Phase：**A** 单块 callee 就地 splice（原路径）；**B** 多块 callee **split+insert**——拆 caller
+  块为 `head`（前半 + 被写形参 copy + `br entry`）与 `cont`（后半 + 原终结子），中间插 callee 各块（唯一
+  relabel `__il<ctr>_`、指令 clone+remap、`Br`/`BrCond` 目标 relabel、每 `Ret` → 绑返回值 + `br cont`）。
+  被写形参 copy 放 head（只执行一次 → loop 安全）；只读形参直代入实参。唯一标签前缀按处理序递增 → 确定
+  → 自举不动点收敛（引入当次因多块内联面骤增，gen2 明显大于 gen1、破一代，重建 gen2==gen3 自愈）。
+- **v1 仍保守（后续 spec 放宽）**：跨包内联、单态 `VCall` 内联、放宽阻断特征（异常表 / ref-out）。
 - **只读实参直代入（clean-inline-copies）**：callee 只读形参（body 从不写它）→ body 中直接代入调用方**实参
   寄存器**、不 emit `copy`；被写形参才 `copy` 材料化。免去每形参一条 copy 给 interp 增回的 per-arg dispatch，
   且让常量实参的内联算术直接被 const-fold 折叠（`Add(2,3)`→`const 5`）。只读性由**过程内分析**（`_writtenParams`

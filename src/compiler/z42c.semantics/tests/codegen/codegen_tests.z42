@@ -607,6 +607,17 @@ void test_inline_recursion_refused() {
 }
 
 [Test]
+void test_inline_multiblock_callee() {
+    // 多块 callee（abs 含 if → br.cond + 两 Ret）内联到 F（inline-multiblock）：call 消失，
+    // 控制流（br.cond）+ then-块 neg 被拆块内联进来。用 Opt.Inline 看原始展开。
+    string src = "int abs(int x) { if (x < 0) { return -x; } return x; } int F(int a) { return abs(a); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @abs"));   // 多块内联消除调用
+    Assert.Contains("neg", dump);                // callee then-块的 neg 内联进来
+    Assert.Contains("br.cond", dump);            // callee 控制流内联进来
+}
+
+[Test]
 void test_inline_skips_vcall() {
     // 实例方法经 vcall 分派 → 不入内联 pass（仅直接 CallInstr 才内联）。
     string src = "class C { int Compute() { return 1; } int Get() { return this.Compute(); } }";
