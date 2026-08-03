@@ -110,7 +110,9 @@ bench/
 │   ├── 03_startup.z42         # 最小启动 baseline
 │   ├── 04_c2_p1_arith_loop.z42 # 算术循环
 │   ├── 05_polymorphic_dispatch.z42 # 多态派发 (PIC)
-│   └── 06_thread_scaling.z42  # 多线程 spawn/join (caps=threads)
+│   ├── 06_thread_scaling.z42  # 多线程 spawn/join (caps=threads)
+│   ├── 07_string_heavy.z42    # 字符串搜索/拼接 (per-char VCall 分发税)
+│   └── 08_dict_heavy.z42      # 字典 insert/lookup (string-key hash + Equals 探测)
 ├── probe/                     # capabilities.z42 — 被测 VM 能力探针（profile.caps 来源）
 ├── baselines/                 # main 分支的历史基线（gitignored，CI 上传到 gh-pages）
 │   └── .gitkeep

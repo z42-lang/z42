@@ -1,6 +1,7 @@
 namespace Std.Net.Http;
 
 using Std;
+using Std.Runtime;
 using Std.IO;
 using Std.Collections;
 using Std.Compression;
@@ -948,15 +949,13 @@ public class HttpClient {
         return new HttpResponse(0, "", new HttpHeaders(), new byte[0]);
     }
 
-    /// Unix-seconds for cookie expiry math. Direct `__time_now_ms` builtin
-    /// to avoid `using Std.Time;` — adding that import pulls
-    /// `Std.Time.Stopwatch.Stop` into scope, which collides with
-    /// `HttpServer.Stop()` under z42's name-only method resolution and
-    /// dispatches the wrong method (`compiler-future-typed-overload-
-    /// resolution` Deferred — method resolver doesn't discriminate by
-    /// receiver class). The extern call sidesteps the import entirely.
-    [Native("__time_now_ms")]
-    static extern long _timeNowMs();
+    /// Unix-seconds for cookie expiry math. Delegates to core
+    /// `Clock.WallMillis` by FQN (not `using Std.Time;`) — that
+    /// import would pull `Std.Time.Stopwatch.Stop` into scope and collide with
+    /// `HttpServer.Stop()` under z42's name-only method resolution
+    /// (`compiler-future-typed-overload-resolution` Deferred). The FQN call
+    /// sidesteps the import; __time_now_ms is declared once in core (A1).
+    static long _timeNowMs() { return Clock.WallMillis(); }
 
     static long _unixNow() {
         return HttpClient._timeNowMs() / 1000L;

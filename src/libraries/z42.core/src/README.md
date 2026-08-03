@@ -19,16 +19,19 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `Exceptions/` | `Exception` 基类 + 11 个标准子类（`AggregateException` / `MulticastException` / `ArgumentException` 等）|
 | `Collections/` | 基础泛型集合：`List<T>` / `Dictionary<K,V>` / `KeyValuePair<K,V>` |
 | `Convert.z42` | `Convert.ToInt32` / `ToDouble` / `ToString` 等转换辅助 |
+| `BitConverter.z42` | `Std.BitConverter`：IEEE-754 位重解释 `SingleToBits`/`SingleFromBits`/`DoubleToBits`/`DoubleFromBits`（`__*_to_bits`/`__*_from_bits` 唯一声明点；z42.io.binary / z42.ir 调它——consolidate-core-intrinsics A1）|
+| `Math.z42` | `Std.Math`（= `System.Math`）：libm 原语 `Pow`/`Sqrt`/`Floor`/`Ceiling`/`Round`/`Log`/`Log10`/`Sin`/`Cos`/`Tan`/`Atan2`/`Exp`（`__math_*` 唯一声明点）+ 派生 `Abs`/`Min`/`Max`/`Clamp`/`Sign` + 常量 `Pi`/`E`/`Tau`。move-math-to-core (A2)：整类自 z42.math 迁入，对齐 CoreLib |
 | `Assert.z42` | `Assert.Equal` / `True` / `Null` 等运行时断言 |
 | `GC/` | GC 控制 + 句柄类型（详见 `docs/design/runtime/gc-handle.md`）<br>• `GC.z42` — `Std.GC.*` 静态类（Collect / UsedBytes / ForceCollect / GetStats）<br>• `GCHandle.z42` — `Std.GCHandle` struct + `GCHandleType` enum（C# 风格 weak/strong + 显式 Free，corelib HandleTable backing）<br>• `HeapStats.z42` — `Std.GC.GetStats()` 返回类型（7 long 字段）<br>• `WeakHandle.z42` — 轻量 weak ref primitive（`Delegates/SubscriptionRefs.z42` 内部用）|
 | `Disposable.z42` | `IDisposable` 的通用实现 + `Disposable.From(Action)` 工厂；用于单播 event token、`SubscribeScoped` 返回值等 |
 | `Runtime.z42` | `Std.Runtime` 动态加载 + 静态调用：`LoadZpkg(path)` / `CallStatic(fqn, args)->int`（extern，VM builtins `__load_zpkg` / `__call_static`；实现待反射 + 自举完成后接入） |
+| `Clock.z42` | `Std.Runtime.Clock`：`WallMillis()`（`__time_now_ms`）/ `MonoNanos()`（`__time_now_mono_ns`）时钟原语唯一声明点；z42.time / z42.io / z42.net / z42.test 调它——consolidate-core-intrinsics A1 |
 
 ## 设计原则
 
 详见 [src/libraries/README.md](../../README.md)：
 - **Script-First**：尽可能脚本实现；extern 仅限 syscall / libm / GC barrier / 类型元数据 / UTF-8 codepoint / 数值字面量 parse
-- **VM extern 集中在 z42.core**：其他 stdlib 包不允许声明 extern（z42.io 是唯一 host FFI 例外）
+- **interop 收缩两层模型**：interop 只在 core（全平台通用基础原语）+ 独立平台能力库（io/net/threading/compression 等）；其余库纯脚本零 interop。每 native 符号**单一声明点**（cross-cutting 原语归 core，如 `BitConverter` / `Clock`）。详见 [organization.md「平台边界库 vs 全平台共享库」](../../../../docs/design/stdlib/organization.md)
 
 ## 跨目录依赖（包内 forward ref，无环约束）
 
@@ -41,6 +44,8 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | Exceptions | Object + Collections (MulticastException.Failures) |
 | Collections | Object + Protocols (IEnumerable / IEqualityComparer) |
 | Convert / Assert | Object + Exceptions（抛 ArgumentException 等）|
+| BitConverter / Clock | 无（纯 VM extern 门面，无同包内依赖）|
+| Math | 无（libm extern + 纯脚本派生，仅用 double primitive 算子）|
 | GC | Object（GCHandle 接受 object target；HeapStats 是 class）|
 | Disposable | Object + Protocols (IDisposable) + Delegates (Action) |
 

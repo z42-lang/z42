@@ -24,9 +24,9 @@ public sealed class DecodedBlockZ {
 }
 
 public static class ZbcReaderInstr {
-    // IEEE754 bits → f64（DoubleToBits 的逆；runtime 既有 builtin）。
-    [Native("__double_from_bits")]
-    public static extern double BitsToDouble(long bits);
+    // IEEE754 bits → f64（DoubleToBits 的逆）。consolidate-core-intrinsics (A1)：extern 唯一声明在
+    // Std.BitConverter；保留公开签名（z42c IrGenFacts 在用，改 API 会踩 seed-API 轴），body 委托 core。
+    public static double BitsToDouble(long bits) { return BitConverter.DoubleFromBits(bits); }
 
     // 一个块的字节区间 → 指令 + 终结符。fnNames/clsNames = token 解析表（SIGS/TYPE 序）。
     public static DecodedBlockZ DecodeBlock(ZbcCursor c, int end, string[] pool,

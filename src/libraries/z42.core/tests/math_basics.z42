@@ -13,7 +13,7 @@
 namespace Z42MathTests;
 
 using Std.Test;   // Std.Test.Assert (R2.D)
-using Std.Math;   // 被测库
+using Std;
 
 // ── Abs (int via AbsInt / double via Abs) ───────────────────────────────
 

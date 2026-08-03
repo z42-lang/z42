@@ -213,6 +213,15 @@ warm 构建与 byte-identical 不动点**逐字节不受影响**；随后的 `bu
 用 fresh z42c 把 `z42.ir` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非
 格式 bump。
 
+> **A1 扩展（consolidate-core-intrinsics，2026-08-03）**：`z42.ir` 现调 `Std.BitConverter`（当前源
+> `z42.core` 新增门面，位转换 intrinsic 单一声明点）。冷/首暖构建时 flat 里躺的是种子/上一次的旧
+> `z42.core`（缺 `BitConverter`），若直接单包编 `z42.ir` → `undefined: BitConverter`。故
+> `_ensureBootstrapZ42Ir` 在建 `z42.ir` **前**，用同款「先预建覆盖种子」把**当前源 `z42.core`** 也编进
+> build-libs——即：凡 z42c 运行期自依赖链上、且被当前源新引用了新 API 的库（此处 `z42.core`），都须
+> 先于其消费者（`z42.ir`）进 flat。这不是格式/包结构问题，而是**轴 ④ 在「stdlib 库新增 API」维度的
+> 同一破环**：z42c 运行期自依赖库的新 API，必须在自建前就存在于 flat。实测：老 core 编 `z42.ir` 复现
+> `undefined: BitConverter`，预建当前源 core 后通过。
+
 ### 分阶段流程（每阶段守哪条不变量）
 
 ```

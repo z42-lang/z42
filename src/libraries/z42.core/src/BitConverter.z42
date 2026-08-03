@@ -1,0 +1,21 @@
+namespace Std;
+
+// IEEE-754 bit reinterpretation between floating-point and integer bit patterns.
+// The single declaration site for the __*_to_bits / __*_from_bits VM intrinsics
+// (consolidate-core-intrinsics, A1) — z42.io.binary and z42.ir delegate here
+// rather than re-declaring the externs (rule: 单一声明点).
+//
+// Distinct from Convert (string↔numeric): these are value-preserving bit casts.
+public static class BitConverter {
+    [Native("__single_to_bits")]
+    public static extern int SingleToBits(double v);
+
+    [Native("__single_from_bits")]
+    public static extern double SingleFromBits(int bits);
+
+    [Native("__double_to_bits")]
+    public static extern long DoubleToBits(double v);
+
+    [Native("__double_from_bits")]
+    public static extern double DoubleFromBits(long bits);
+}

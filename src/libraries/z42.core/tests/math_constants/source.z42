@@ -1,5 +1,5 @@
 using Std.IO;
-using Std.Math;
+using Std;
 // Test: Math.Pi / Math.E / Math.Tau 静态字段访问 (fix-static-field-access, 2026-04-27)
 //
 // 修复前：用户代码 `Math.Pi` 编译为 `static.get @Math.Pi`（缺 Std.Math

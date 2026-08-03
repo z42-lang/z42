@@ -10,9 +10,9 @@ using Std;
 public static class ZbcInstr {
     public static int NoReg = 0xFFFF;
 
-    // f64 → IEEE754 bits（runtime 既有 builtin，z42.io.binary BinaryWriter 同款；z42c 自声明免 stdlib 改动）。
-    [Native("__double_to_bits")]
-    public static extern long DoubleToBits(double v);
+    // f64 → IEEE754 bits。consolidate-core-intrinsics (A1)：extern 唯一声明在 Std.BitConverter；
+    // 保留本公开签名（z42c IrGenFacts 常量折叠在用，改 API 会踩 seed-API 轴），body 委托 core。
+    public static long DoubleToBits(double v) { return BitConverter.DoubleToBits(v); }
 
     // 一条指令 → 字节。strRemap：z42c 1-based 池 idx → 最终 STRS idx（ConstStr）；
     // alloc：Call/ObjNew/IsInstance/AsCast 的 token（VCall/Field 不 token 化，直 pool idx）。

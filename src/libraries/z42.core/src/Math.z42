@@ -1,4 +1,4 @@
-namespace Std.Math;
+namespace Std;
 
 public static class Math {
     // ── Constants ────────────────────────────────────────────────────────────
