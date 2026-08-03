@@ -81,17 +81,24 @@ public static class String : IComparable<string>, IEquatable<string> {
     }
 
     // First index of `value` (scalar units), or -1 if not found.
-    // Naive O(n·m) two-pointer scan; acceptable for Phase 1.
+    // Scalar (char-index) IndexOf. Naive O(n·m) two-pointer scan, but over a
+    // bulk-materialised char[] (ToCharArray → one __str_to_chars native call)
+    // scanned with the ArrayGet opcode — ~9× faster than the old per-char
+    // CharAt(builtin) scan (measured: charAt 2128ms → charArr 237ms, interp).
+    // Script-first: one array-view primitive, the algorithm stays in script.
+    // Contains = IndexOf >= 0 auto-benefits.
     public int IndexOf(string value) {
-        int vn = value.Length;
-        int tn = this.Length;
+        char[] h = this.ToCharArray();
+        char[] n = value.ToCharArray();
+        int tn = h.Length;
+        int vn = n.Length;
         if (vn == 0) return 0;
         if (vn > tn) return -1;
         int limit = tn - vn;
         for (int i = 0; i <= limit; i++) {
             bool match = true;
             for (int j = 0; j < vn; j++) {
-                if (this.CharAt(i + j) != value.CharAt(j)) { match = false; break; }
+                if (h[i + j] != n[j]) { match = false; break; }
             }
             if (match) return i;
         }
@@ -186,17 +193,16 @@ public static class String : IComparable<string>, IEquatable<string> {
         return String.FromChars(result);
     }
 
-    // add-string-tochararray (review §2.6): inverse of FromChars. Lets callers
-    // materialise the scalar array once and index it O(1), instead of repeated
-    // O(n) CharAt walks (e.g. Levenshtein). Empty string → empty array.
-    public char[] ToCharArray() {
-        int n = this.Length;
-        char[] result = new char[n];
-        for (int i = 0; i < n; i++) {
-            result[i] = this.CharAt(i);
-        }
-        return result;
-    }
+    // add-string-tochararray (review §2.6): inverse of FromChars. Materialise
+    // the scalar array once and index it O(1) instead of repeated O(n) CharAt
+    // walks. Empty string → empty array.
+    //
+    // Now a BULK native primitive (__str_to_chars): one call collects the whole
+    // char[] in Rust, vs the old per-char CharAt loop (N builtin dispatches).
+    // This is THE array-view primitive that lets string algorithms (IndexOf,
+    // …) run in script over `arr[i]` (ArrayGet opcode) — the C#/Rust "string
+    // ops over a char buffer" model — without a native extern per operation.
+    [Native("__str_to_chars")] public extern char[] ToCharArray();
 
     // Trim leading + trailing whitespace.
     public string Trim() {

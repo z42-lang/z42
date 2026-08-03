@@ -1,7 +1,23 @@
 use crate::metadata::Value;
+use crate::metadata::types::ArrayObj;
+use crate::gc::GcRef;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use super::convert::{arg_str, arg_usize};
+
+/// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
+/// call (vs the per-char `CharAt` loop, which pays a builtin dispatch per
+/// character). args: [this: str]
+///
+/// add-native-str-indexof (script-first experiment): exposes the backing
+/// characters as a single primitive so string algorithms can be written in
+/// SCRIPT over `arr[i]` (the `ArrayGet` opcode) instead of `CharAt` (a builtin
+/// call) — the C# "string ops in managed code over a char buffer" model.
+pub fn builtin_str_to_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let s = arg_str(args, 0, "__str_to_chars")?;
+    let elems: Vec<Value> = s.chars().map(Value::Char).collect();
+    Ok(Value::Array(GcRef::new(ArrayObj::typed("char", elems))))
+}
 
 /// Returns the number of Unicode scalar values (characters) in the string.
 /// O(n) — walks the UTF-8 bytes to count chars. For an O(1) byte count
@@ -131,3 +147,7 @@ pub fn builtin_str_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
 
 // 2026-04-27 wave3b-str-format-script: builtin_str_format removed.
 // `Std.String.Format` 现在是 z42 脚本（用 string.Replace + Convert.ToString）。
+
+#[cfg(test)]
+#[path = "string_tests.rs"]
+mod string_tests;
