@@ -103,7 +103,7 @@ void test_while_continue() {
 
 [Test]
 void test_body_assign() {
-    // body 非空，末尾回边 br cond
+    // body 非空，末尾回边 br cond（LICM opt-in、不入 dump 默认 All-Inline → 此 golden 无 LICM 外提）
     string src = "int F(bool c) { int x = 0; while (c) { x = 1; } return x; }";
     Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = const.i64 1\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
@@ -250,7 +250,7 @@ void test_string_concat() {
 
 [Test]
 void test_loop_with_comparison() {
-    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边
+    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边（LICM opt-in，dump 默认无外提）
     string src = "int F(int n) { int i = 0; while (i < n) { i = i + 1; } return i; }";
     Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %4 = const.i64 1\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
@@ -534,6 +534,17 @@ void test_copyprop_cascade_removes_param_copy() {
     string src = "int F(int a) { int b = a; return b; }";
     Assert.Contains("copy", IrDump.DumpFuncOpt(src, "F", Opt.None));
     Assert.False(IrDump.DumpFuncOpt(src, "F", Opt.CopyProp).Contains("copy"));
+}
+
+// ── LICM 循环不变量外提（add-licm-pass）───────────────────────────────────
+[Test]
+void test_licm_hoists_invariant() {
+    // a*b 循环不变（a,b 形参、循环外定义）→ LICM 提到 pre-header。Opt.Licm 的 IR 应与 -O0 不同（提了）。
+    string src = "int F(int a, int b) { int s = 0; int i = 0; while (i < 10) { s = s + a * b; i = i + 1; } return s; }";
+    string raw = IrDump.DumpFuncOpt(src, "F", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "F", Opt.Licm);
+    Assert.NotEqual(raw, opt);   // LICM 外提改变了块结构（mul 移到 pre-header）
+    Assert.Contains("mul", opt);   // a*b 计算仍在（只是移出循环体）
 }
 
 // ── CSE 公共子表达式消除（add-cse-pass）───────────────────────────────────

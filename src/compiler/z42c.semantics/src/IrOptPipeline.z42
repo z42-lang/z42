@@ -38,6 +38,10 @@ public sealed class IrOptPipeline {
             int[] defs0 = IrOptPipeline._computeDefs(f);
             IrOptPipeline._passConstFold(f, defs0);
         }
+        // pass: licm —— 循环不变量外提（放 const-fold 后、cse 前：常量先折，提到 pre-header 后再被下游清理）
+        if (Opt.Has(optSet, Opt.Licm)) {
+            IrLicm.Run(f);
+        }
         // pass: cse —— 块内公共子表达式消除（放 const-fold 后：常量先折、剩下的纯计算去重）
         if (Opt.Has(optSet, Opt.Cse)) {
             IrOptPipeline._passCse(f);

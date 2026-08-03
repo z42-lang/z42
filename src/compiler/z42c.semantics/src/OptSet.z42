@@ -16,7 +16,9 @@ public static class Opt {
     public static int Dce       = 4;    // bit2：纯指令死代码删除
     public static int Inline    = 8;    // bit3：函数内联
     public static int Cse       = 16;   // bit4：公共子表达式消除
-    public static int All       = 31;   // ConstFold|CopyProp|Dce|Inline|Cse
+    public static int Licm      = 32;   // bit5：循环不变量外提（**opt-in 实验**：复杂 CFG（嵌套循环+throw）
+                                        //        有已知 miscompile bug，暂不入 All；`--opt licm` 显式开启，见 add-licm-pass）
+    public static int All       = 31;   // ConstFold|CopyProp|Dce|Inline|Cse（**不含 Licm**，见上）
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {
@@ -30,6 +32,7 @@ public static class Opt {
         if (name == "dce")        { return Opt.Dce; }
         if (name == "inline")     { return Opt.Inline; }
         if (name == "cse")        { return Opt.Cse; }
+        if (name == "licm")       { return Opt.Licm; }
         if (name == "all")        { return Opt.All; }
         if (name == "none")       { return Opt.None; }
         return -1;
