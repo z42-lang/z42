@@ -980,6 +980,18 @@ impl VmContext {
         }
     }
 
+    /// add-offline-symbolication: stamp the top frame's linearized code offset
+    /// (see `Function::linear_offset`). Recorded alongside `update_top_frame_pos`
+    /// at every call/throw site so a stripped-release trace (no line info) can
+    /// still print `+0x<offset>` — an offline-resolvable key for
+    /// `z42d symbolicate`. Separate from `update_top_frame_pos` so the six JIT
+    /// call sites (which bake line/col constants) can adopt it independently.
+    pub(crate) fn update_top_frame_offset(&self, offset: u32) {
+        if let Some(top) = self.call_stack.lock().last() {
+            top.offset.set(offset);
+        }
+    }
+
     /// Snapshot the entire call stack for stack-trace formatting at a
     /// `throw` site. Cheap clone (small-string + u32 per frame); only
     /// invoked on the throw path so per-instruction overhead is zero.
