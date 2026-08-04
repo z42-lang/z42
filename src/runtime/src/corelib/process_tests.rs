@@ -64,13 +64,13 @@ fn run_args(ctx: &VmContext, program: &str, argv: &[&str]) -> Vec<Value> {
 fn result_kind(v: &Value) -> i64 {
     let Value::Array(rc) = v else { panic!("expected Array, got {v:?}") };
     let borrowed = rc.borrow();
-    let Value::I64(k) = borrowed[0] else { panic!("kind not I64") };
+    let Value::I64(k) = borrowed.get_boxed(0) else { panic!("kind not I64") };
     k
 }
 
 fn result_at(v: &Value, idx: usize) -> Value {
     let Value::Array(rc) = v else { panic!("expected Array") };
-    rc.borrow()[idx].clone()
+    rc.borrow().get_boxed(idx).clone()
 }
 
 /// Spawn args: 13-element shape (no timeout).
@@ -243,8 +243,8 @@ fn run_invalid_utf8_in_stdout_becomes_replacement_char() {
     let Value::Array(rc) = result_at(&r, 4) else { panic!() };
     let bytes = rc.borrow();
     assert_eq!(bytes.len(), 2);
-    assert_eq!(bytes[0], i(0xff));
-    assert_eq!(bytes[1], i(0xfe));
+    assert_eq!(bytes.get_boxed(0), i(0xff));
+    assert_eq!(bytes.get_boxed(1), i(0xfe));
 
     let _ = std::fs::remove_file(&tmp);
 }
@@ -379,7 +379,7 @@ fn handle_invalid_after_drop() {
     // Subsequent ops on the freed slot id are KIND_HANDLE_INVALID.
     let r = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
     let Value::Array(rc) = r else { panic!() };
-    let Value::I64(kind) = rc.borrow()[0] else { panic!() };
+    let Value::I64(kind) = rc.borrow().get_boxed(0) else { panic!() };
     assert_eq!(kind, 3 /* KIND_HANDLE_INVALID */);
 }
 

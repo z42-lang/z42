@@ -264,7 +264,7 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
             }
             Value::Array(gc) => {
                 let arr = gc.borrow();
-                let elems: Vec<Value> = arr.iter().cloned().collect();
+                let elems: Vec<Value> = arr.iter_boxed().collect();
                 drop(arr);
                 for (i, child) in elems.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {

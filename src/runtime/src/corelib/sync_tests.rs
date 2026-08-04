@@ -112,9 +112,9 @@ fn expect_recv_ok(result: Value) -> Value {
         other => panic!("expected Array, got {other:?}"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(0)),
-        "expected discriminator 0 (ok), got {:?}", borrowed[0]);
-    borrowed[1].clone()
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
+        "expected discriminator 0 (ok), got {:?}", borrowed.get_boxed(0));
+    borrowed.get_boxed(1).clone()
 }
 
 #[test]
@@ -162,8 +162,8 @@ fn channel_try_recv_empty_returns_discriminator_1() {
     };
     let borrowed = arr.borrow();
     assert_eq!(borrowed.len(), 1);
-    assert!(matches!(borrowed[0], Value::I64(1)),
-        "empty try_recv should be discriminator 1, got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(1)),
+        "empty try_recv should be discriminator 1, got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]
@@ -181,9 +181,9 @@ fn channel_try_recv_ok_returns_value() {
     };
     let borrowed = arr.borrow();
     assert_eq!(borrowed.len(), 2);
-    assert!(matches!(borrowed[0], Value::I64(0)),
-        "ok try_recv should be discriminator 0, got {:?}", borrowed[0]);
-    match &borrowed[1] {
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
+        "ok try_recv should be discriminator 0, got {:?}", borrowed.get_boxed(0));
+    match &borrowed.get_boxed(1) {
         Value::Str(s) => assert_eq!(&**s, "hi"),
         other => panic!("expected Str, got {other:?}"),
     }
@@ -203,8 +203,8 @@ fn channel_close_then_recv_returns_discriminator_2() {
         _ => panic!("expected Array"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(2)),
-        "disconnected recv should be discriminator 2, got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
+        "disconnected recv should be discriminator 2, got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]
@@ -229,8 +229,8 @@ fn channel_close_drains_remaining_then_disconnects() {
         _ => panic!("expected Array"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(2)),
-        "third recv should be discriminator 2, got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
+        "third recv should be discriminator 2, got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]
@@ -247,8 +247,8 @@ fn channel_try_recv_after_close_drained_returns_discriminator_2() {
         _ => panic!("expected Array"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(2)),
-        "disconnected try_recv should be discriminator 2, got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
+        "disconnected try_recv should be discriminator 2, got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]
@@ -357,8 +357,8 @@ fn channel_bounded_close_then_recv_returns_discriminator_2() {
         _ => panic!("expected Array"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(2)),
-        "disconnected recv on bounded should be discriminator 2, got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
+        "disconnected recv on bounded should be discriminator 2, got {:?}", borrowed.get_boxed(0));
 }
 
 #[test]
@@ -478,7 +478,7 @@ fn try_lock_discriminator(result: Value) -> i64 {
         other => panic!("expected Array, got {other:?}"),
     };
     let borrowed = arr.borrow();
-    match borrowed[0] {
+    match borrowed.get_boxed(0) {
         Value::I64(n) => n,
         ref other => panic!("expected I64 discriminator, got {other:?}"),
     }
@@ -538,7 +538,7 @@ fn rwlock_try_read_uncontended_succeeds() {
         _ => panic!(),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[1], Value::I64(100)));
+    assert!(matches!(borrowed.get_boxed(1), Value::I64(100)));
     drop(borrowed);
     // Must release.
     builtin_rwlock_read_release(&c, &[Value::I64(id)]).unwrap();

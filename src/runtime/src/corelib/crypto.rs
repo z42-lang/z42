@@ -31,8 +31,8 @@ pub fn builtin_crypto_random_bytes(ctx: &VmContext, args: &[Value]) -> Result<Va
     let mut buf = vec![0u8; n as usize];
     getrandom::getrandom(&mut buf)
         .map_err(|e| anyhow::anyhow!("{}: OS CSPRNG failed: {}", NAME, e))?;
-    let elems: Vec<Value> = buf.into_iter().map(|b| Value::I64(b as i64)).collect();
-    Ok(ctx.heap().alloc_array(elems))
+    // packed-primitive-arrays Step 3: pack CSPRNG output straight into `Bytes`.
+    Ok(ctx.heap().alloc_bytes(buf))
 }
 
 #[cfg(target_arch = "wasm32")]

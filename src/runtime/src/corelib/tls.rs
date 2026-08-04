@@ -212,7 +212,7 @@ mod imp {
             Ok(n) => {
                 let mut borrowed = buf_arr.borrow_mut();
                 for i in 0..n {
-                    borrowed[offset + i] = Value::I64(tmp[i] as i64);
+                    borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
                 }
                 Ok(ok_value(ctx, n as i64))
             }
@@ -242,8 +242,8 @@ mod imp {
         {
             let borrowed = buf_arr.borrow();
             for i in 0..count {
-                match &borrowed[offset + i] {
-                    Value::I64(v) => tmp[i] = (*v & 0xFF) as u8,
+                match borrowed.get_boxed(offset + i) {
+                    Value::I64(v) => tmp[i] = (v & 0xFF) as u8,
                     other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
                 }
             }

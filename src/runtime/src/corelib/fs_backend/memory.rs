@@ -132,9 +132,9 @@ pub fn builtin_vfs_mount(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let bytes: Vec<u8> = match args.get(1) {
         Some(Value::Array(a)) => a
             .borrow()
-            .iter()
+            .iter_boxed()
             .map(|v| match v {
-                Value::I64(n) => (*n & 0xff) as u8,
+                Value::I64(n) => (n & 0xff) as u8,
                 _ => 0,
             })
             .collect(),

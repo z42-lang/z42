@@ -10,8 +10,8 @@ fn to_chars_yields_scalars() {
     let out = builtin_str_to_chars(&ctx, &[Value::Str("héllo".into())]).unwrap();
     match out {
         Value::Array(a) => {
-            let got: Vec<char> = a.borrow().iter().map(|v| match v {
-                Value::Char(c) => *c,
+            let got: Vec<char> = a.borrow().iter_boxed().map(|v| match v {
+                Value::Char(c) => c,
                 other => panic!("expected char, got {:?}", other),
             }).collect();
             // "héllo" = 5 scalars (é is one scalar though 2 UTF-8 bytes).
