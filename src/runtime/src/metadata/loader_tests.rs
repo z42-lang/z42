@@ -636,6 +636,7 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
             block_index:  std::collections::HashMap::new(),
             branch_targets: Vec::new(),
             fused_tails: Vec::new(),
+            frame_meta: None,
             resolved:     std::sync::OnceLock::new(),
         })
         .collect();

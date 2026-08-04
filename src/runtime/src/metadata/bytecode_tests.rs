@@ -31,6 +31,7 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
 }
