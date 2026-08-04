@@ -27,6 +27,7 @@ pub unsafe extern "C" fn jit_call(
     ic_ptr: *const std::sync::atomic::AtomicU32,
     caller_line: u32,
     caller_col:  u32,
+    caller_offset: u32, // add-offline-symbolication: linearized code offset
 ) -> u8 {
     use crate::metadata::tokens::UNRESOLVED;
     let ctx_ref   = &*ctx;
@@ -84,7 +85,7 @@ pub unsafe extern "C" fn jit_call(
             let func_name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
                 .unwrap_or("<invalid>");
             return cross_zpkg_via_interp(
-                frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col);
+                frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col, caller_offset);
         }
     };
 
@@ -95,8 +96,8 @@ pub unsafe extern "C" fn jit_call(
     let jit_fn: JitFn = std::mem::transmute(entry.ptr);
     let vm_ctx = vm_ctx_ref(ctx);
 
-    // jit-stack-trace + span-column-propagate: stamp caller's site pos.
-    vm_ctx.update_top_frame_pos(caller_line, caller_col);
+    // jit-stack-trace + span-column-propagate: stamp caller's site pos + offset.
+    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
     // 2026-05-10 unify-frame-chain: one push covering GC roots + trace.
     vm_ctx.push_frame(crate::exception::VmFrame::new(
         entry.name.clone(),
@@ -128,15 +129,15 @@ unsafe fn cross_zpkg_via_interp(
     frame_ref: &mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, func_name: &str,
     args_ptr: *const u32, argc: usize,
-    caller_line: u32, caller_col: u32,
+    caller_line: u32, caller_col: u32, caller_offset: u32,
 ) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = &*(*ctx).module;
 
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
     let args: Vec<Value> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
-    // jit-stack-trace: stamp the caller's site before descending.
-    vm_ctx.update_top_frame_pos(caller_line, caller_col);
+    // jit-stack-trace: stamp the caller's site + offset before descending.
+    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
 
     // Case 1: function present in the merged main module (interp's hot path).
     let outcome = if let Some(callee) = module.func_index.get(func_name)
