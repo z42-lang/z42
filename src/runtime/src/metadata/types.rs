@@ -570,19 +570,35 @@ impl ArrayObj {
         match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
     }
 
-    /// JIT wide-packed fast path (Step 4): `I64`/`F64` backings are contiguous
-    /// **8-byte** slots whose raw bytes are exactly a `Value`'s payload (an f64's
-    /// bit pattern for `F64`). Return the buffer base so the JIT can inline a
-    /// stride-8 load/store — no 24-byte `Value` round-trip, no per-element tag.
-    /// `None` for every other backing (`Boxed`/`Bytes`/`I32`/`Bool`/`Chars`),
-    /// which the JIT never reaches here (only `IrType::I64`/`F64` element regs
-    /// enter the inline path, and those are exactly `long[]`/`double[]`).
+    /// JIT packed-numeric fast path: `I32`/`I64`/`F64` backings are contiguous
+    /// fixed-width slots (4 / 8 / 8 bytes) the JIT can index with a native
+    /// stride-N load/store — no 24-byte `Value` round-trip, no per-element tag.
+    /// Pairs with [`Self::packed_elem_width`]: the ptr is the buffer base, the
+    /// width tells the JIT the slot size (4 → `int[]` sign-extends into the i64
+    /// payload; 8 → raw `long[]`/`double[]` copy). `None` for `Boxed`/`Bytes`/
+    /// `Bool`/`Chars` — the JIT set-path detects width 0 and falls back to the
+    /// `jit_array_set` helper, so those backings never index off this ptr.
     #[inline]
-    pub fn wide_data_ptr(&self) -> Option<*const u8> {
+    pub fn packed_num_ptr(&self) -> Option<*const u8> {
         match &self.backing {
+            ArrayBacking::I32(v) => Some(v.as_ptr() as *const u8),
             ArrayBacking::I64(v) => Some(v.as_ptr() as *const u8),
             ArrayBacking::F64(v) => Some(v.as_ptr() as *const u8),
             _ => None,
+        }
+    }
+
+    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`), 8 (`I64`/
+    /// `F64`), or 0 for any non-packed-numeric backing (`Boxed`/`Bytes`/`Bool`/
+    /// `Chars`). The **runtime** authority the JIT ArraySet inline consults so a
+    /// narrowing store (`int[i] = <i64 value>`) writes the right slot size rather
+    /// than trusting the value register's width. Width 0 → route to the helper.
+    #[inline]
+    pub fn packed_elem_width(&self) -> i64 {
+        match &self.backing {
+            ArrayBacking::I32(_) => 4,
+            ArrayBacking::I64(_) | ArrayBacking::F64(_) => 8,
+            _ => 0,
         }
     }
 
