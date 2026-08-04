@@ -1,6 +1,6 @@
 # Tasks: perf-interp-hot-paths
 
-> 状态：🟡 进行中 | 创建：2026-08-04
+> 状态：🟢 已完成 | 创建：2026-08-04 | 完成：2026-08-04
 > 类型：perf（最小化模式）。不改外部可见行为，仅优化解释器热路径。
 > 纪律：每项**改前后跑 `xtask bench`** 与 baseline 对比（记忆 measure-before-optimizing）；
 > 每项单独 commit；全部完成后一个 PR。
