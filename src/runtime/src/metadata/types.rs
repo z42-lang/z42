@@ -584,19 +584,22 @@ impl ArrayObj {
             ArrayBacking::I32(v) => Some(v.as_ptr() as *const u8),
             ArrayBacking::I64(v) => Some(v.as_ptr() as *const u8),
             ArrayBacking::F64(v) => Some(v.as_ptr() as *const u8),
+            // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` ==
+            // u32); the JIT loads it width-4 and boxes into `Value::Char`.
+            ArrayBacking::Chars(v) => Some(v.as_ptr() as *const u8),
             _ => None,
         }
     }
 
-    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`), 8 (`I64`/
-    /// `F64`), or 0 for any non-packed-numeric backing (`Boxed`/`Bytes`/`Bool`/
-    /// `Chars`). The **runtime** authority the JIT ArraySet inline consults so a
-    /// narrowing store (`int[i] = <i64 value>`) writes the right slot size rather
-    /// than trusting the value register's width. Width 0 → route to the helper.
+    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`/`Chars`), 8
+    /// (`I64`/`F64`), or 0 for a non-packed backing (`Boxed`/`Bytes`/`Bool`).
+    /// The **runtime** authority the JIT ArraySet inline consults so a narrowing
+    /// store (`int[i] = <i64 value>`) writes the right slot size rather than
+    /// trusting the value register's width. Width 0 → route to the helper.
     #[inline]
     pub fn packed_elem_width(&self) -> i64 {
         match &self.backing {
-            ArrayBacking::I32(_) => 4,
+            ArrayBacking::I32(_) | ArrayBacking::Chars(_) => 4,
             ArrayBacking::I64(_) | ArrayBacking::F64(_) => 8,
             _ => 0,
         }
