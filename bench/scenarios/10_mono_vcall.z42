@@ -1,0 +1,37 @@
+// perf-interp-hot-paths microbench (S1/S2a): monomorphic virtual-call loop.
+//
+// A single receiver type calls `b.Get()` in a tight loop — every iteration is a
+// VCall whose body is trivial (returns a field), so the per-VCall dispatch cost
+// dominates. Isolates the S1 change (per-instruction site_idx lookup moved off
+// the hot path into token-bearing arms) and S2a (`resolve_line` binary search in
+// `update_caller_line`, run on every Call/VCall). Monomorphic (not polymorphic
+// like 05) so the inline cache always hits and dispatch overhead — not IC
+// thrash — is what's measured.
+//
+// Expected output (deterministic): 20000000
+
+namespace Bench.MonoVcall;
+
+using Std.IO;
+
+class Box {
+    int v;
+    Box(int v) { this.v = v; }
+    public virtual int Get() { return this.v; }
+}
+
+long Drive(Box b, long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        total = total + (long)b.Get();
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    Box b = new Box(1);
+    long result = Drive(b, 20000000L);
+    Console.WriteLine(result.ToString());
+}
