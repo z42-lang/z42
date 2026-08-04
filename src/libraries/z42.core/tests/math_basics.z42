@@ -1,0 +1,132 @@
+// Spec R5 — z42.math 库本地测试。覆盖 Abs / Max / Min（双精度主形 + int 专用变体）
+// 与基础数学常量。
+//
+// fix-math-int-overload-collision (2026-05-24): API 现在区分双精度主形 + 整型
+// 专用变体 (`Abs` / `AbsInt`、`Max`/`MaxInt`、`Min`/`MinInt`)。理由见 Math.z42
+// 注释 + `compiler-future-typed-overload-resolution` Deferred 条。
+//
+// 编译：
+//   dotnet run --project src/compiler/z42.Driver -- \
+//     src/libraries/z42.math/tests/math_basics.z42 --emit zbc -o /tmp/math.zbc
+// 运行：
+//   cargo run -p z42-test-runner -- /tmp/math.zbc
+namespace Z42MathTests;
+
+using Std.Test;   // Std.Test.Assert (R2.D)
+using Std;
+
+// ── Abs (int via AbsInt / double via Abs) ───────────────────────────────
+
+[Test]
+void test_abs_int_positive() {
+    int x = Math.AbsInt(5);
+    Assert.Equal(5, x);
+}
+
+[Test]
+void test_abs_int_negative() {
+    int x = Math.AbsInt(-5);
+    Assert.Equal(5, x);
+}
+
+[Test]
+void test_abs_int_zero() {
+    int x = Math.AbsInt(0);
+    Assert.Equal(0, x);
+}
+
+[Test]
+void test_abs_double() {
+    double d = Math.Abs(-3.14);
+    Assert.True(d > 3.13 && d < 3.15);
+}
+
+[Test]
+void test_abs_double_negative_zero_stays_zero() {
+    double d = Math.Abs(0.0);
+    Assert.Equal(0.0, d);
+}
+
+// ── Max ─────────────────────────────────────────────────────────────────
+
+[Test]
+void test_max_int() {
+    Assert.Equal(10, Math.MaxInt(3, 10));
+    Assert.Equal(10, Math.MaxInt(10, 3));
+    Assert.Equal(7,  Math.MaxInt(7, 7));
+}
+
+[Test]
+void test_max_double() {
+    double a = Math.Max(3.5, 10.25);
+    Assert.True(a > 10.24 && a < 10.26);
+}
+
+// ── Min ─────────────────────────────────────────────────────────────────
+
+[Test]
+void test_min_int() {
+    Assert.Equal(3, Math.MinInt(3, 10));
+    Assert.Equal(3, Math.MinInt(10, 3));
+    Assert.Equal(7, Math.MinInt(7, 7));
+}
+
+[Test]
+void test_min_double() {
+    double a = Math.Min(3.5, 10.25);
+    Assert.True(a > 3.49 && a < 3.51);
+}
+
+// ── Type discrimination (regression guard for typed-overload-resolution) ──
+//
+// Both forms must return their declared type. Pre-fix, `int x = Math.Abs(-5)`
+// failed at type-check because the int overload was silently dropped in
+// symbol collection — only the double overload survived.
+
+[Test]
+void test_abs_int_assignable_to_int_local() {
+    int x = Math.AbsInt(-7);
+    Assert.Equal(7, x);
+}
+
+[Test]
+void test_max_int_assignable_to_int_local() {
+    int m = Math.MaxInt(3, 10);
+    Assert.Equal(10, m);
+}
+
+[Test]
+void test_min_int_assignable_to_int_local() {
+    int m = Math.MinInt(3, 10);
+    Assert.Equal(3, m);
+}
+
+// ── Constants ───────────────────────────────────────────────────────────
+
+[Test]
+void test_constants_pi() {
+    // π 至少应该在 [3.14, 3.15] 之间（保护防止常量被误改）
+    Assert.True(Math.Pi > 3.14);
+    Assert.True(Math.Pi < 3.15);
+}
+
+// fix-add-math-sign-clamp (2026-07-12, review §2.6): Sign / Clamp 纯脚本补齐。
+[Test]
+void test_sign() {
+    Assert.Equal(-1, Math.Sign(-2.5));
+    Assert.Equal(1, Math.Sign(0.001));
+    Assert.Equal(0, Math.Sign(0.0));
+    Assert.Equal(-1, Math.SignInt(-7));
+    Assert.Equal(1, Math.SignInt(7));
+    Assert.Equal(0, Math.SignInt(0));
+}
+
+[Test]
+void test_clamp() {
+    Assert.EqualApprox(5.0, Math.Clamp(10.0, 0.0, 5.0), 1e-9);   // above hi
+    Assert.EqualApprox(0.0, Math.Clamp(-3.0, 0.0, 5.0), 1e-9);   // below lo
+    Assert.EqualApprox(3.0, Math.Clamp(3.0, 0.0, 5.0), 1e-9);    // in range
+    Assert.Equal(5, Math.ClampInt(10, 0, 5));
+    Assert.Equal(0, Math.ClampInt(-3, 0, 5));
+    Assert.Equal(3, Math.ClampInt(3, 0, 5));
+}

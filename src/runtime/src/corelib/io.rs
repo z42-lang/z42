@@ -247,7 +247,7 @@ pub fn builtin_contains(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
         Some(Value::Array(arr)) => {
             let item = args.get(1).cloned().unwrap_or(Value::Null);
-            Ok(Value::Bool(arr.borrow().iter().any(|v| v == &item)))
+            Ok(Value::Bool(arr.borrow().iter_boxed().any(|v| v == item)))
         }
         _ => bail!("Contains: first argument must be a string or List"),
     }

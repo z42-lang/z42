@@ -176,8 +176,8 @@ pub fn builtin_repl_member_names(ctx: &VmContext, args: &[Value]) -> Result<Valu
     let members = builtin_type_members(ctx, &[type_val])?;
     let mut names: Vec<Value> = Vec::new();
     if let Value::Array(a) = members {
-        for m in a.borrow().iter() {
-            if let Some(n) = member_name_of(m) {
+        for m in a.borrow().iter_boxed() {
+            if let Some(n) = member_name_of(&m) {
                 names.push(Value::Str(n.into()));
             }
         }
@@ -327,7 +327,7 @@ impl rustyline::completion::Completer for ReplHelper {
             Ok(Value::Array(a)) => {
                 let cands = a
                     .borrow()
-                    .iter()
+                    .iter_boxed()
                     .filter_map(|v| match v {
                         Value::Str(s) => Some(s.to_string()),
                         _ => None,

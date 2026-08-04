@@ -1,0 +1,59 @@
+// OptSet —— 可独立开关的具名编译期优化集（add-compiler-inlining）。
+// 受限写法：static class + int 常量（同 TokenKind / DiagnosticCodes 模式，无 enum/const）。
+//
+// 用户自助勾选任意优化子集（不是"高档含低档"的单调档位）。每个优化 pass 必须**自洽、
+// 不依赖其它 pass 才正确**（design D2）——OptSet 只决定"开哪些"，IrOptPipeline 按固定
+// 稳妥顺序跑被勾选的那些。
+//
+// 注：代数恒等式（x+0→copy 等）在 IrOptInfo.TryConstFold 内，与常量折叠同属 ConstFold
+// 一个开关；如需更细粒度，未来拆 TryConstFold 再加一位。
+namespace Z42.Semantics;
+
+public static class Opt {
+    public static int None      = 0;
+    public static int ConstFold = 1;    // bit0：常量折叠 + 代数恒等式
+    public static int CopyProp  = 2;    // bit1：拷回冗余消除 + use-site 级联
+    public static int Dce       = 4;    // bit2：纯指令死代码删除
+    public static int Inline    = 8;    // bit3：函数内联
+    public static int Cse       = 16;   // bit4：公共子表达式消除
+    public static int Licm      = 32;   // bit5：循环不变量外提（defInLoop 用 header 支配域 → 含异常/多出口退出块，
+                                        //        修复复杂 CFG miscompile 后入 All，见 add-licm-pass）
+    public static int All       = 63;   // ConstFold|CopyProp|Dce|Inline|Cse|Licm
+
+    // (set & opt) != 0 —— 某优化是否启用。
+    public static bool Has(int set, int opt) {
+        return (set & opt) != 0;
+    }
+
+    // 优化名 → 位；未知名返回 -1（调用方据此报错，不静默忽略）。
+    public static int ByName(string name) {
+        if (name == "const-fold") { return Opt.ConstFold; }
+        if (name == "copy-prop")  { return Opt.CopyProp; }
+        if (name == "dce")        { return Opt.Dce; }
+        if (name == "inline")     { return Opt.Inline; }
+        if (name == "cse")        { return Opt.Cse; }
+        if (name == "licm")       { return Opt.Licm; }
+        if (name == "all")        { return Opt.All; }
+        if (name == "none")       { return Opt.None; }
+        return -1;
+    }
+
+    // profile 默认：release = 全开，debug = 全关（-O0，忠实可调试；User 裁决 B）。
+    public static int ProfileDefault(bool isRelease) {
+        if (isRelease) { return Opt.All; }
+        return Opt.None;
+    }
+
+    // 解析：以 profile 默认为基，先按 toml 覆盖，再按 CLI 加/减（CLI > toml > profile）。
+    // tomlBits/tomlMask：toml [optimize] 逐项——mask 标记"该项在 toml 里显式写了"，
+    //   bits 是其值；未写的项保持 profile 默认。cliAdd/cliRemove：CLI --opt/--no-opt 累积位。
+    public static int Resolve(bool isRelease, int tomlBits, int tomlMask, int cliAdd, int cliRemove) {
+        int set = Opt.ProfileDefault(isRelease);
+        // toml：仅覆盖显式写了的位
+        set = (set & (Opt.All - tomlMask)) | (tomlBits & tomlMask);
+        // CLI：先加后减
+        set = set | cliAdd;
+        set = set & (Opt.All - cliRemove);
+        return set;
+    }
+}

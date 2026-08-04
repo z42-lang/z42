@@ -118,6 +118,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     args_ptr: *const u32, args_len: usize,
     caller_line: u32,   // 2026-05-10 jit-stack-trace
     caller_col:  u32,   // 2026-05-10 span-column-propagate
+    caller_offset: u32, // add-offline-symbolication: linearized code offset
 ) -> u8 {
     let frame_ref = &mut *frame;
     let ctx_ref   = &*ctx;
@@ -126,9 +127,14 @@ pub unsafe extern "C" fn jit_call_indirect(
     // 1) Resolve callee Value → (fn_name, optional env-as-Vec).
     //    Stack closure 从 caller frame.env_arena 复制内容；callee 内统一拿到
     //    一个新 GcRef Array（避免 callee 持有指向 caller arena 的 lifetime）。
-    let (fn_name, env_vec_opt): (String, Option<Vec<Value>>) = match &frame_ref.regs[callee as usize] {
+    // JIT-S3 (perf, mirrors interp exec_call S3): `Value::Closure` 直接复用已有
+    // env GcRef（Arc +1），不再 `to_boxed_vec()` 深拷 + `alloc_array` 重分配。
+    // 安全性同 interp S3：env 数组 MkClos 时写一次、体内只 array_get 读（编译器
+    // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 GcRef 字节等价。
+    // StackClosure 仍需物化（arena 持裸 Vec，callee lifetime 需独立）。
+    let (fn_name, env_val_opt): (String, Option<Value>) = match &frame_ref.regs[callee as usize] {
         Value::FuncRef(n) => (n.to_string(), None),
-        Value::Closure(c) => (c.fn_name.clone(), Some(c.env.borrow().elems.clone())),
+        Value::Closure(c) => (c.fn_name.clone(), Some(Value::Array(c.env.clone()))),
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame_ref.env_arena.len() {
@@ -137,7 +143,7 @@ pub unsafe extern "C" fn jit_call_indirect(
                     idx, frame_ref.env_arena.len()).into()));
                 return 1;
             }
-            (sc.fn_name.clone(), Some(frame_ref.env_arena[idx].clone()))
+            (sc.fn_name.clone(), Some(vm_ctx.heap().alloc_array(frame_ref.env_arena[idx].clone())))
         }
         other => {
             set_exception(vm_ctx, Value::Str(format!(
@@ -148,10 +154,8 @@ pub unsafe extern "C" fn jit_call_indirect(
 
     // 2) Gather args, prepending env when a closure was invoked.
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
-    let mut args: Vec<Value> = Vec::with_capacity(args_len + env_vec_opt.is_some() as usize);
-    if let Some(env_vec) = env_vec_opt {
-        // 升格为 heap GcRef 给 callee 用（统一 closure dispatch 协议）
-        let env_val = vm_ctx.heap().alloc_array(env_vec);
+    let mut args: Vec<Value> = Vec::with_capacity(args_len + env_val_opt.is_some() as usize);
+    if let Some(env_val) = env_val_opt {
         args.push(env_val);
     }
     for &r in user_regs {
@@ -166,7 +170,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name.as_str()) {
         Some(e) => e,
         None => {
-            vm_ctx.update_top_frame_pos(caller_line, caller_col);
+            vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
             let module = &*ctx_ref.module;
             let outcome = if let Some(callee) = module.func_index.get(fn_name.as_str())
                 .and_then(|&idx| module.functions.get(idx))
@@ -193,7 +197,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let mut callee_frame = JitFrame::new(entry.max_reg, &args);
     let jit_fn: JitFn = std::mem::transmute(entry.ptr);
 
-    vm_ctx.update_top_frame_pos(caller_line, caller_col);
+    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
     vm_ctx.push_frame(crate::exception::VmFrame::new(
         entry.name.clone(),
         entry.file.clone(),

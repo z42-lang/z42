@@ -26,6 +26,11 @@ public sealed class ProjectManifest {
     public int         BenchCount;
     public RunTarget[] Examples;       // [[example]]
     public int         ExampleCount;
+    // ── [optimize] 逐 pass 具名开关（add-compiler-inlining）───────────────────
+    // 中性 name/value 对（如 inline=true / const-fold=false）；消费方（z42c.driver）按名映射到编译器
+    // 的 Opt 位（Opt.ByName）建 tomlBits/tomlMask 交 Opt.Resolve。z42.project **不**耦合 Opt 位值。
+    // 可变公字段（默认空，ManifestLoader 构造后填），避免撑大已 20 参的构造函数。
+    public string[] OptimizeNames; public bool[] OptimizeValues; public int OptimizeCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -46,5 +51,6 @@ public sealed class ProjectManifest {
         this.Tests = tests; this.TestCount = testCount;
         this.Benches = benches; this.BenchCount = benchCount;
         this.Examples = examples; this.ExampleCount = exampleCount;
+        this.OptimizeNames = new string[0]; this.OptimizeValues = new bool[0]; this.OptimizeCount = 0;
     }
 }

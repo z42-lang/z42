@@ -973,10 +973,16 @@ impl VmContext {
     ///
     /// `column = 0` means unknown — the snapshot formats as `(file:line)`
     /// rather than `(file:line:col)`.
-    pub(crate) fn update_top_frame_pos(&self, line: u32, column: u32) {
+    /// add-offline-symbolication: `offset` = the frame's linearized code offset
+    /// (`Function::linear_offset`), stamped in the **same** lock as line/column
+    /// so a stripped-release trace (no line info) can print `+0x<offset>` — an
+    /// offline-resolvable key for `z42d symbolicate` — at zero extra locking
+    /// cost. Pass `u32::MAX` when a caller has no offset to record.
+    pub(crate) fn update_top_frame_pos(&self, line: u32, column: u32, offset: u32) {
         if let Some(top) = self.call_stack.lock().last() {
             top.line.set(line);
             top.column.set(column);
+            top.offset.set(offset);
         }
     }
 

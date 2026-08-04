@@ -42,7 +42,7 @@ fn vm_context_alloc_array_then_read_on_worker_thread() {
     let handle = thread::spawn(move || {
         let guard = arr_gc.borrow();
         assert_eq!(guard.len(), 2);
-        match (&guard[0], &guard[1]) {
+        match (&guard.get_boxed(0), &guard.get_boxed(1)) {
             (Value::I64(a), Value::I64(b)) => (*a, *b),
             other => panic!("unexpected values: {other:?}"),
         }
@@ -119,15 +119,15 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
         other => panic!("expected Value::Array, got {other:?}"),
     };
     let borrowed = arr.borrow();
-    assert!(matches!(borrowed[0], Value::I64(0)),
-        "expected JOIN_OK (0), got {:?}", borrowed[0]);
+    assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
+        "expected JOIN_OK (0), got {:?}", borrowed.get_boxed(0));
 
     // Second join on the same slot → JOIN_UNKNOWN_SLOT (handle consumed).
     let second = corelib::threading::builtin_thread_join(&ctx, &[Value::I64(slot_id)]).unwrap();
     if let Value::Array(rc) = second {
         let b = rc.borrow();
-        assert!(matches!(b[0], Value::I64(2)),
-            "second join on same slot should be JOIN_UNKNOWN_SLOT (2), got {:?}", b[0]);
+        assert!(matches!(b.get_boxed(0), Value::I64(2)),
+            "second join on same slot should be JOIN_UNKNOWN_SLOT (2), got {:?}", b.get_boxed(0));
     } else {
         panic!("expected Array, got {second:?}");
     }
@@ -201,9 +201,9 @@ fn channel_producer_consumer_hand_off_across_threads() {
             other => panic!("expected Array, got {other:?}"),
         };
         let borrowed = arr.borrow();
-        assert!(matches!(borrowed[0], Value::I64(0)),
-            "expected ok discriminator, got {:?}", borrowed[0]);
-        match &borrowed[1] {
+        assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
+            "expected ok discriminator, got {:?}", borrowed.get_boxed(0));
+        match &borrowed.get_boxed(1) {
             Value::I64(n) => got.push(*n),
             other => panic!("expected I64, got {other:?}"),
         }
@@ -427,6 +427,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
         block_index:            std::collections::HashMap::new(),
         branch_targets:         Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved:               std::sync::OnceLock::new(),
     };
     let mut func_index = std::collections::HashMap::new();

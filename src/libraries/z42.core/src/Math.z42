@@ -1,0 +1,92 @@
+namespace Std;
+
+public static class Math {
+    // ── Constants ────────────────────────────────────────────────────────────
+    public static double Pi  = 3.141592653589793;
+    public static double E   = 2.718281828459045;
+    public static double Tau = 6.283185307179586;
+
+    // ── Pure-script helpers ──────────────────────────────────────────────────
+    //
+    // fix-math-int-overload-collision (2026-05-24): pre-fix, these were
+    // declared as `Abs(int)` + `Abs(double)` (and same for Min/Max) pairs.
+    // z42's symbol-collection mangling scheme (`{Name}${Params.Count}`)
+    // silently overwrote the int variants — only the double overload
+    // survived, and any caller assigning the result to an `int` got
+    // "cannot assign `double` to `int`". The math_basics.z42 tests
+    // happened to pass because `Assert.Equal(5, 5.0)` compares loosely,
+    // hiding the bug for ~10 days. Tracked as
+    // `compiler-future-typed-overload-resolution` Deferred (mangling
+    // overhaul required for true overloads).
+    //
+    // Workaround mirror the pattern used elsewhere (`BinaryReader.OverStream`
+    // / `JsonValue.ParseStream` / `StringWriter` no `Write(char)`): keep
+    // ONE primary signature (the double overload — handles int via
+    // widening, suitable when caller already expects float), provide a
+    // distinct named variant for the int-preserving form
+    // (`AbsInt` / `MinInt` / `MaxInt` — returns int, takes int).
+    public static double Abs(double x) {
+        if (x < 0.0) return -x;
+        return x;
+    }
+    public static int AbsInt(int x) {
+        if (x < 0) return -x;
+        return x;
+    }
+    public static double Max(double a, double b) {
+        if (a >= b) return a;
+        return b;
+    }
+    public static int MaxInt(int a, int b) {
+        if (a >= b) return a;
+        return b;
+    }
+    public static double Min(double a, double b) {
+        if (a <= b) return a;
+        return b;
+    }
+    public static int MinInt(int a, int b) {
+        if (a <= b) return a;
+        return b;
+    }
+
+    // Sign: -1 / 0 / +1. (fix-add-math-sign-clamp, review §2.6). Int + double
+    // variants named apart, mirroring Abs/AbsInt — z42 arity-only mangling can't
+    // carry two same-arity overloads (compiler-future-typed-overload-resolution).
+    public static int Sign(double x) {
+        if (x < 0.0) return -1;
+        if (x > 0.0) return 1;
+        return 0;
+    }
+    public static int SignInt(int x) {
+        if (x < 0) return -1;
+        if (x > 0) return 1;
+        return 0;
+    }
+
+    // Clamp x into [lo, hi]. Assumes lo <= hi.
+    public static double Clamp(double x, double lo, double hi) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+    public static int ClampInt(int x, int lo, int hi) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+
+    // ── Native bindings (libm 必需) ─────────────────────────────────────────
+    [Native("__math_pow")]    public static extern double Pow(double base, double exp);
+    [Native("__math_sqrt")]   public static extern double Sqrt(double x);
+    [Native("__math_floor")]  public static extern double Floor(double x);
+    [Native("__math_ceiling")] public static extern double Ceiling(double x);
+    [Native("__math_round")]  public static extern double Round(double x);
+    [Native("__math_log")]    public static extern double Log(double x);
+    [Native("__math_log10")]  public static extern double Log10(double x);
+    [Native("__math_sin")]    public static extern double Sin(double x);
+    [Native("__math_cos")]    public static extern double Cos(double x);
+    [Native("__math_tan")]    public static extern double Tan(double x);
+    [Native("__math_atan2")]  public static extern double Atan2(double y, double x);
+    [Native("__math_exp")]    public static extern double Exp(double x);
+}

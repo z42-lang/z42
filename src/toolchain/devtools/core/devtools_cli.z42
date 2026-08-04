@@ -60,6 +60,15 @@ SubcommandRouter _devtoolsRoot() {
     lint.AddOptionalPositional("project", "<project.z42.toml>");
     root.Add("lint", "static analysis", lint);
 
+    // symbolicate — offline stack-trace symbolication (add-offline-symbolication).
+    // Reads a release-stripped crash trace (`at <fn> +0x<off>`) + archived `.zsym`
+    // symbols (repeatable `--syms <file|dir>`, dirs searched recursively — cf.
+    // Breakpad symbol path / `addr2line -e`) → rewrites frames to file:line:col.
+    ArgParser sym = new ArgParser("z42d symbolicate", "offline-symbolicate a stripped crash trace using .zsym symbols");
+    sym.AddPositional("trace", "crash-trace file (`at <fn> +0x<off>` frames)");
+    sym.AddRepeatedOption("syms", "s", "path to a .zsym file or a directory of .zsym (repeatable; dirs searched recursively)");
+    root.Add("symbolicate", "resolve a stripped crash trace via .zsym symbols", sym);
+
     return root;
 }
 
@@ -69,7 +78,14 @@ int _dispatchDevtools(CommandResolution res) {
     string[] p = res.Path();
     if (p.Length == 0) { return 0; }
     string top = p[0];
-    // scaffold：所有子命令尚未实现，统一报 planned。各工具实现期替换为真实处理。
+    // symbolicate — first real z42d subcommand (add-offline-symbolication).
+    if (top == "symbolicate") {
+        ParseResult pr = res.Result();
+        string trace = pr.GetPositional(0);
+        string[] syms = pr.GetRepeatedOption("syms");
+        return Symbolicate.Run(trace, syms, syms.Length);
+    }
+    // scaffold：其余子命令尚未实现，统一报 planned。各工具实现期替换为真实处理。
     ConsoleError.WriteLine("z42d " + top + ": planned — not yet implemented "
         + "(developer toolchain scaffold; see src/toolchain/devtools/README.md)");
     return 1;

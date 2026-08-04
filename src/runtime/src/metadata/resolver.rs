@@ -447,6 +447,7 @@ mod resolver_tests {
                 block_index: std::collections::HashMap::new(),
                 branch_targets: Vec::new(),
                 fused_tails: Vec::new(),
+                frame_meta: None,
                 resolved: OnceLock::new(),
             })
         };

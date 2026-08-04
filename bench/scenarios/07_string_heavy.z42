@@ -1,0 +1,47 @@
+// E2E benchmark scenario: string search + accumulation.
+//
+// Exercises the per-character VCall dispatch tax that dominates string
+// work today (perf finding #3/#4): building a haystack via `+` concat
+// (StrConcat allocates a fresh String each step — O(n²) accumulation),
+// then running IndexOf / Contains / Substring over it in a hot loop
+// (each CharAt / compare is a full VCall). Deterministic checksum output
+// so the harness can also catch compiler output drift.
+//
+// No IO / allocation-in-loop beyond what's under measurement.
+// Expected output (deterministic): 5175
+namespace Bench.StringHeavy;
+
+using Std.IO;
+
+// O(n²) growing-prefix concat — the pattern String.Join / Concat fall into.
+string BuildHaystack(int reps) {
+    string s = "";
+    int i = 0;
+    while (i < reps) {
+        s = s + "abcdefghijklmnop_";   // 17 chars × reps
+        i = i + 1;
+    }
+    return s;
+}
+
+// Per-round string search: IndexOf (nested CharAt loop), Contains (miss
+// path scans whole string), Substring (allocates + copies). All go
+// through per-char VCall dispatch.
+long Search(string hay, int rounds) {
+    long acc = 0L;
+    int r = 0;
+    while (r < rounds) {
+        acc = acc + (long)hay.IndexOf("mnop");           // constant hit at 12
+        if (hay.Contains("zzz_absent")) { acc = acc + 1L; } // miss → full scan
+        string sub = hay.Substring(r % 16, 8);
+        acc = acc + (long)sub.IndexOf("d");
+        r = r + 1;
+    }
+    return acc;
+}
+
+void Main() {
+    string hay = BuildHaystack(80);     // ~1.4k chars, O(n²) build
+    long result = Search(hay, 400);   // 400 search rounds (Contains miss = full scan)
+    Console.WriteLine(result.ToString());
+}

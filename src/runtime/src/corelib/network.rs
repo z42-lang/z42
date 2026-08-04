@@ -182,7 +182,7 @@ mod imp {
             Ok(n) => {
                 let mut borrowed = buf_arr.borrow_mut();
                 for i in 0..n {
-                    borrowed[offset + i] = Value::I64(tmp[i] as i64);
+                    borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
                 }
                 Ok(ok_value(ctx, n as i64))
             }
@@ -209,10 +209,16 @@ mod imp {
         let mut tmp = vec![0u8; count];
         {
             let borrowed = buf_arr.borrow();
-            for i in 0..count {
-                match &borrowed[offset + i] {
-                    Value::I64(v) => tmp[i] = (*v as i64 & 0xFF) as u8,
-                    other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
+            // packed-primitive-arrays Step 3: packed `Bytes` → slice-copy the send
+            // window in one memcpy, no per-byte unbox.
+            if let Some(b) = borrowed.as_bytes() {
+                tmp.copy_from_slice(&b[offset..offset + count]);
+            } else {
+                for i in 0..count {
+                    match borrowed.get_boxed(offset + i) {
+                        Value::I64(v) => tmp[i] = (v & 0xFF) as u8,
+                        other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
+                    }
                 }
             }
         }
@@ -671,10 +677,15 @@ mod imp {
         let mut tmp = vec![0u8; count];
         {
             let borrowed = buf_arr.borrow();
-            for i in 0..count {
-                match &borrowed[offset + i] {
-                    Value::I64(v) => tmp[i] = (*v as i64 & 0xFF) as u8,
-                    other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
+            // packed-primitive-arrays Step 3: packed `Bytes` → one memcpy.
+            if let Some(b) = borrowed.as_bytes() {
+                tmp.copy_from_slice(&b[offset..offset + count]);
+            } else {
+                for i in 0..count {
+                    match borrowed.get_boxed(offset + i) {
+                        Value::I64(v) => tmp[i] = (v & 0xFF) as u8,
+                        other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
+                    }
                 }
             }
         }
@@ -926,7 +937,7 @@ mod imp {
                 let mut borrowed = buf_arr.borrow_mut();
                 let written = n.min(count);
                 for i in 0..written {
-                    borrowed[offset + i] = Value::I64(tmp[i] as i64);
+                    borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
                 }
                 let host_str = peer.ip().to_string();
                 let port_i64 = peer.port() as i64;

@@ -6,4 +6,3 @@ kind    = "lib"
 [dependencies]
 "z42.core"   = "0.1.0"
 "z42.random" = "0.1.0"   # Miller-Rabin witnesses for BigInt.IsProbablyPrime (add-bigint-prime, 2026-05-25)
-"z42.math"   = "0.1.0"   # Sin/Cos/Sqrt/Exp/Log/Atan2 for Std.Numerics.Complex (add-numerics-complex 2026-05-27)

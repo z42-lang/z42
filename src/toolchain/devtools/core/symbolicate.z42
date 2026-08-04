@@ -1,0 +1,179 @@
+// z42d symbolicate — offline stack-trace symbolication (add-offline-symbolication).
+//
+// A release-stripped crash trace prints frames as `  at <name>(<types>) +0x<off>`
+// (no line info — the .zsym sidecar was archived, not shipped). This tool reads
+// one or more `.zsym` symbol files (files or directories, searched recursively —
+// mirrors Breakpad symbol paths / `addr2line -e`), builds a global
+// frame-name → line-table index, and rewrites each `+0x<off>` frame to
+// `(file:line:col)`. Non-frame lines pass through unchanged; unresolved frames
+// keep their `+0x` form and emit a stderr warning (best-effort, exit 0).
+//
+// offset packs the site as `(block<<16)|instr` (mirrors Rust Function::linear_offset);
+// unpack → walk the func's line table to the last entry whose (block,instr) ≤ site.
+namespace Z42Devtools;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.Project;
+
+public static class Symbolicate {
+
+    // Entry: trace file + list of --syms paths (files or dirs). Returns 0.
+    public static int Run(string traceFile, string[] symsPaths, int symsCount) {
+        if (!File.Exists(traceFile)) {
+            ConsoleError.WriteLine("z42d symbolicate: trace file not found: " + traceFile);
+            return 2;
+        }
+        // 1) Collect + parse all .zsym in the search paths → index.
+        SidecarSyms[] index = Symbolicate._loadSyms(symsPaths, symsCount);
+        if (index.Length == 0) {
+            ConsoleError.WriteLine("z42d symbolicate: warning: no .zsym symbols found in given --syms paths; "
+                + "frames will pass through unresolved");
+        }
+        // 2) Rewrite the trace line by line.
+        string text = File.ReadAllText(traceFile);
+        string[] lines = text.Split("\n");
+        int i = 0;
+        while (i < lines.Length) {
+            Console.WriteLine(Symbolicate._rewrite(lines[i], index));
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    // Gather every `.zsym` under the given paths (file → itself; dir → recursive
+    // *.zsym), parse each via SidecarReader. Corrupt / non-sidecar → skip + warn.
+    private static SidecarSyms[] _loadSyms(string[] paths, int count) {
+        SidecarSyms[] acc = new SidecarSyms[0];
+        int accN = 0;
+        int p = 0;
+        while (p < count) {
+            string path = paths[p];
+            string[] files = Symbolicate._zsymFilesUnder(path);
+            int f = 0;
+            while (f < files.Length) {
+                byte[] data = File.ReadAllBytes(files[f]);
+                SidecarSyms s = SidecarReader.Read(data);
+                if (s == null) {
+                    ConsoleError.WriteLine("z42d symbolicate: warning: not a usable .zsym (skipped): " + files[f]);
+                } else {
+                    SidecarSyms[] grown = new SidecarSyms[accN + 1];
+                    int g = 0;
+                    while (g < accN) { grown[g] = acc[g]; g = g + 1; }
+                    grown[accN] = s;
+                    acc = grown;
+                    accN = accN + 1;
+                }
+                f = f + 1;
+            }
+            p = p + 1;
+        }
+        return acc;
+    }
+
+    // Resolve a path to the list of .zsym files it contributes (file → [itself]
+    // if it ends .zsym; dir → recursive *.zsym; missing → []).
+    private static string[] _zsymFilesUnder(string path) {
+        if (Directory.Exists(path)) {
+            string[] all = Directory.EnumerateRecursive(path);
+            string[] hits = new string[0];
+            int i = 0;
+            while (i < all.Length) {
+                if (all[i].EndsWith(".zsym")) {
+                    string[] grown = new string[hits.Length + 1];
+                    int g = 0;
+                    while (g < hits.Length) { grown[g] = hits[g]; g = g + 1; }
+                    grown[hits.Length] = all[i];
+                    hits = grown;
+                }
+                i = i + 1;
+            }
+            return hits;
+        }
+        if (File.Exists(path)) {
+            string[] one = new string[1];
+            one[0] = path;
+            return one;
+        }
+        ConsoleError.WriteLine("z42d symbolicate: warning: --syms path not found: " + path);
+        return new string[0];
+    }
+
+    // Rewrite a single trace line. A frame line looks like `  at <name> +0x<hex>`;
+    // resolve <name>+offset → `  at <name> (file:line:col)`. Anything else → verbatim.
+    private static string _rewrite(string line, SidecarSyms[] index) {
+        int atPos = line.IndexOf("  at ");
+        int offPos = line.IndexOf(" +0x");
+        if (atPos < 0 || offPos < 0 || offPos < atPos) { return line; }
+        string prefix = line.Substring(0, atPos + 5);          // through "  at "
+        string fname  = line.Substring(atPos + 5, offPos - (atPos + 5)).Trim();
+        string hex    = line.Substring(offPos + 4).Trim();     // after " +0x"
+        int offset = Symbolicate._parseHex(hex);
+        if (offset < 0) { return line; }
+
+        SidecarFuncSym sym = Symbolicate._find(index, fname);
+        if (sym == null) {
+            ConsoleError.WriteLine("z42d symbolicate: warning: no symbols for `" + fname + "` (kept +0x" + hex + ")");
+            return line;
+        }
+        int block = (offset >> 16) & 0xFFFF;
+        int instr = offset & 0xFFFF;
+        int lineNo = 0; int col = 0; string file = "";
+        int k = 0;
+        while (k < sym.LineCount) {
+            IrLineEntry e = sym.Lines[k];
+            // last entry whose (block, instr) <= target (mirrors Rust resolve_line).
+            if (e.BlockIdx > block) { k = sym.LineCount; }        // overshoot → stop
+            else if (e.BlockIdx == block && e.InstrIdx > instr) { k = sym.LineCount; }
+            else { lineNo = e.Line; col = e.Column; if (e.HasFile) { file = e.File; } k = k + 1; }
+        }
+        string loc = Symbolicate._fmtLoc(file, lineNo, col);
+        return prefix + fname + " " + loc;
+    }
+
+    private static string _fmtLoc(string file, int line, int col) {
+        if (file.Length > 0) {
+            string s = "(" + file;
+            if (line > 0) {
+                s = s + ":" + line.ToString();
+                if (col > 0) { s = s + ":" + col.ToString(); }
+            }
+            return s + ")";
+        }
+        if (line > 0) {
+            string s = "(line " + line.ToString();
+            if (col > 0) { s = s + ", col " + col.ToString(); }
+            return s + ")";
+        }
+        return "(unknown)";
+    }
+
+    private static SidecarFuncSym _find(SidecarSyms[] index, string fqn) {
+        int i = 0;
+        while (i < index.Length) {
+            SidecarFuncSym s = index[i].Find(fqn);
+            if (s != null) { return s; }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    // Parse lowercase/uppercase hex → int; -1 on any invalid char.
+    private static int _parseHex(string hex) {
+        if (hex.Length == 0) { return -1; }
+        int v = 0;
+        int i = 0;
+        while (i < hex.Length) {
+            int c = (int)hex.CharAt(i);
+            int d = -1;
+            if (c >= 48 && c <= 57) { d = c - 48; }          // 0-9
+            else if (c >= 97 && c <= 102) { d = c - 97 + 10; } // a-f
+            else if (c >= 65 && c <= 70) { d = c - 65 + 10; }  // A-F
+            if (d < 0) { return -1; }
+            v = (v << 4) | d;
+            i = i + 1;
+        }
+        return v;
+    }
+}

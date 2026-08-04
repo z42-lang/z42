@@ -103,9 +103,10 @@ void test_while_continue() {
 
 [Test]
 void test_body_assign() {
-    // body 非空，末尾回边 br cond
+    // body 非空，末尾回边 br cond。循环不变常量 `1`（单赋值 temp %3）被 LICM 提到 pre-header（entry），
+    // body 剩 `%2 = copy %3`（LICM 后 producer 不再相邻 → copy-prop 不折，add-licm-pass）。
     string src = "int F(bool c) { int x = 0; while (c) { x = 1; } return x; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = const.i64 1\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %3 = const.i64 1\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = copy %3\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -250,9 +251,10 @@ void test_string_concat() {
 
 [Test]
 void test_loop_with_comparison() {
-    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边
+    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边。循环不变增量常量 `1`（单赋值 temp %4）
+    // 被 LICM 提到 pre-header（entry）；body 的 add 直接用 %4（add-licm-pass）。
     string src = "int F(int n) { int i = 0; while (i < n) { i = i + 1; } return i; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %4 = const.i64 1\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %4 = const.i64 1\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 
@@ -509,20 +511,51 @@ void test_constfold_skip_nonconst() {
 }
 
 // ── 代数恒等式（optimization-pipeline，单操作数常量）──────────────────────
-// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的死常量由 temp-DCE 清掉。
+// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的 copy 再被 use-site 级联传播消掉（ret 直接用 %0）。
 [Test]
 void test_identity_add_zero() {
-    // a + 0 → copy a（死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害）
+    // a + 0 → copy a → use-site 级联把 `%2=copy %0` 传播掉、ret 直接用 %0（improve-copy-prop-cascade）。
+    // 死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害。
     string src = "int F(int a) { return a + 0; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = copy %0\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  ret %0\n}",
                  IrDump.DumpFunc(src, "F"));
 }
 [Test]
 void test_identity_mul_one() {
-    // a * 1 → copy a
+    // a * 1 → copy a → use-site 级联传播 → ret %0
     string src = "int F(int a) { return a * 1; }";
-    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = copy %0\n  ret %2\n}",
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  ret %0\n}",
                  IrDump.DumpFunc(src, "F"));
+}
+
+// ── use-site copy 级联传播（improve-copy-prop-cascade）─────────────────────
+[Test]
+void test_copyprop_cascade_removes_param_copy() {
+    // `int b = a` → `copy b, a`（src=形参，无 producer → 相邻 retarget 够不着）；-O0 保留，
+    // 仅 CopyProp（含 use-site 级联）时 dst 使用点改写为 %0、copy 删除。
+    string src = "int F(int a) { int b = a; return b; }";
+    Assert.Contains("copy", IrDump.DumpFuncOpt(src, "F", Opt.None));
+    Assert.False(IrDump.DumpFuncOpt(src, "F", Opt.CopyProp).Contains("copy"));
+}
+
+// ── LICM 循环不变量外提（add-licm-pass）───────────────────────────────────
+[Test]
+void test_licm_hoists_invariant() {
+    // a*b 循环不变（a,b 形参、循环外定义）→ LICM 提到 pre-header。Opt.Licm 的 IR 应与 -O0 不同（提了）。
+    string src = "int F(int a, int b) { int s = 0; int i = 0; while (i < 10) { s = s + a * b; i = i + 1; } return s; }";
+    string raw = IrDump.DumpFuncOpt(src, "F", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "F", Opt.Licm);
+    Assert.NotEqual(raw, opt);   // LICM 外提改变了块结构（mul 移到 pre-header）
+    Assert.Contains("mul", opt);   // a*b 计算仍在（只是移出循环体）
+}
+
+// ── CSE 公共子表达式消除（add-cse-pass）───────────────────────────────────
+[Test]
+void test_cse_dedups_repeated_add() {
+    // (a+b)*(a+b)：两个 `a+b`（操作数皆稳定形参）→ CSE 复用首个 → mul 两操作数皆 %2。
+    string src = "int F(int a, int b) { return (a + b) * (a + b); }";
+    Assert.Contains("mul i32 %2, %3", IrDump.DumpFuncOpt(src, "F", Opt.None));   // -O0：两个独立 add
+    Assert.Contains("mul i32 %2, %2", IrDump.DumpFuncOpt(src, "F", Opt.Cse));    // CSE：复用首个 add 结果
 }
 [Test]
 void test_identity_mul_zero() {
@@ -530,4 +563,86 @@ void test_identity_mul_zero() {
     string src = "int F(int a) { return a * 0; }";
     Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = const.i64 0\n  ret %2\n}",
                  IrDump.DumpFunc(src, "F"));
+}
+
+// ── 函数内联（add-compiler-inlining Phase 2；IrInline，Opt.Inline 位）───────────────
+// 默认 dump 路径不含内联（见 IrDump._buildF 注）；内联单测显式用 DumpFuncOpt/DumpModuleOpt 传 optSet。
+
+[Test]
+void test_inline_free_call() {
+    // Opt.All（含内联）：小 curated callee Helper 被内联到 Main，`call @Helper` 消失、常量值 7 传入。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    string dump = IrDump.DumpFuncOpt(src, "Main", Opt.All);
+    Assert.False(dump.Contains("call @Helper"));   // 调用被内联消除
+    Assert.Contains("const.i64 7", dump);           // 被内联的返回值出现在调用方
+}
+
+[Test]
+void test_inline_only_pass_standalone() {
+    // 独立性（design D2）：**仅** Opt.Inline（不开 const-fold/copy-prop/dce）也正确内联——
+    // offset=Main.MaxReg(=1) → callee body reg +1；ret 绑定 `%0 = copy %1`。不依赖其它 pass。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Equal("fn @Main(0) -> int {\nentry:\n  %1 = const.i64 7\n  %0 = copy %1\n  ret %0\n}",
+                 IrDump.DumpFuncOpt(src, "Main", Opt.Inline));
+}
+
+[Test]
+void test_inline_const_args_fold() {
+    // 常量实参内联：只读形参直代入 → add 操作数就是常量 → const-fold 折成 const 5，call/add 全消失。
+    string src = "int Add(int a, int b) { return a + b; } int Main() { return Add(2, 3); }";
+    string dump = IrDump.DumpFuncOpt(src, "Main", Opt.All);
+    Assert.False(dump.Contains("call @Add"));
+    Assert.Contains("const.i64 5", dump);   // 2+3 折叠
+}
+
+[Test]
+void test_inline_readonly_param_no_copy() {
+    // 只读形参**直代入**实参寄存器（clean-inline-copies）：内联体 add 直接读调用方形参 %0，
+    // 不再 emit `copy paramReg, arg`。用 Opt.Inline 单独看原始展开形态（无清理 pass 干扰）。
+    string src = "int Add(int a, int b) { return a + b; } int F(int x) { return Add(x, x); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @Add"));
+    Assert.Contains("add i32 %0, %0", dump);   // 两操作数皆调用方形参 %0（直代入，无 param copy）
+}
+
+[Test]
+void test_inline_disabled_keeps_call() {
+    // OptSet 门控：Opt.None(-O0) → 内联不跑，`call @Helper` 保留（可调试忠实）。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Contains("call @Helper", IrDump.DumpFuncOpt(src, "Main", Opt.None));
+}
+
+[Test]
+void test_inline_recursion_refused() {
+    // 递归（callee.Name==caller.Name）+ 体含 Call（非 curated）双重阻断 → 自调用保留。
+    string src = "int R(int n) { return R(n); }";
+    Assert.Contains("call @R", IrDump.DumpFuncOpt(src, "R", Opt.All));
+}
+
+[Test]
+void test_inline_multiblock_callee() {
+    // 多块 callee（abs 含 if → br.cond + 两 Ret）内联到 F（inline-multiblock）：call 消失，
+    // 控制流（br.cond）+ then-块 neg 被拆块内联进来。用 Opt.Inline 看原始展开。
+    string src = "int abs(int x) { if (x < 0) { return -x; } return x; } int F(int a) { return abs(a); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @abs"));   // 多块内联消除调用
+    Assert.Contains("neg", dump);                // callee then-块的 neg 内联进来
+    Assert.Contains("br.cond", dump);            // callee 控制流内联进来
+}
+
+[Test]
+void test_inline_skips_vcall() {
+    // 实例方法经 vcall 分派 → 不入内联 pass（仅直接 CallInstr 才内联）。
+    string src = "class C { int Compute() { return 1; } int Get() { return this.Compute(); } }";
+    Assert.Contains("vcall", IrDump.DumpFuncOpt(src, "C.Get", Opt.All));
+}
+
+[Test]
+void test_inline_skips_noncurated_callee() {
+    // callee A 体含 obj_new（分配对象，永久非 curated，不会被任何 pass 消除）→ A 不可内联，`call @A` 保留。
+    // （注：curated 集含 AddInstr——字符串 `+` 也 lower 成 `add str`，属可内联；故这里用 obj_new 作
+    //  稳定非 curated 指令。反例：若 A 体全 curated，模块内按声明序的传导内联会使 A 可内联——见
+    //  IrInline 头注「传导内联」。）
+    string src = "class K { } K A() { return new K(); } K Main2() { return A(); }";
+    Assert.Contains("call @A", IrDump.DumpFuncOpt(src, "Main2", Opt.All));
 }

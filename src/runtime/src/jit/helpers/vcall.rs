@@ -26,6 +26,7 @@ pub unsafe extern "C" fn jit_vcall(
     ic_ptr: *const VCallIC,
     caller_line: u32,   // 2026-05-10 jit-stack-trace
     caller_col:  u32,   // 2026-05-10 span-column-propagate
+    caller_offset: u32, // add-offline-symbolication: linearized code offset
 ) -> u8 {
 
     let method    = std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len))
@@ -34,9 +35,9 @@ pub unsafe extern "C" fn jit_vcall(
     let module    = &*ctx_ref.module;
     let frame_ref = &mut *frame;
 
-    // jit-stack-trace: stamp caller's call-site line once at entry; each
+    // jit-stack-trace: stamp caller's call-site line + offset once at entry; each
     // invoke path below pushes the callee frame info before running.
-    vm_ctx_ref(ctx).update_top_frame_pos(caller_line, caller_col);
+    vm_ctx_ref(ctx).update_top_frame_pos(caller_line, caller_col, caller_offset);
 
     let obj_val = frame_ref.regs[obj as usize].clone();
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);

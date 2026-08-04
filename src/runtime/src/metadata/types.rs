@@ -421,39 +421,236 @@ pub struct ArrayObj {
     /// (Rust-synthesized arrays like reflection result sets; user arrays from
     /// `ArrayNew` always carry it).
     pub element_type: Arc<str>,
-    pub elems: Vec<Value>,
+    /// packed-primitive-arrays: element storage. **Step 1a** introduces this
+    /// enum with only `Boxed` (behaviour-identical refactor). **Step 1b** adds
+    /// packed primitive backings (Bytes/Chars/I32/I64/F64/Bool) — the C#
+    /// value-type-array model (inline packed, no per-element boxing, GC skips).
+    pub backing: ArrayBacking,
+}
+
+/// Array element storage — the C# value-type-vs-reference array distinction.
+/// `Boxed` = reference array (`object[]`/`string[]`/nested), GC-scanned. The
+/// primitive backings are packed value-type arrays (inline `Vec<T>`, no
+/// per-element boxing, GC skips them). box/unbox happens only at the ArrayGet/
+/// ArraySet boundary because interp registers are `Value` (Step 4 removes even
+/// that for the JIT via unboxed access).
+#[derive(Debug, Clone)]
+pub enum ArrayBacking {
+    Boxed(Vec<Value>),
+    Bool(Vec<bool>),
+    Bytes(Vec<u8>),      // byte / sbyte（窄整型并入；box 语义按 element_type）
+    I32(Vec<i32>),       // int / uint / short / ushort
+    I64(Vec<i64>),       // long / ulong
+    Chars(Vec<char>),    // char（scalar，与 String.ToCharArray 对齐）
+    F64(Vec<f64>),       // double / float
 }
 
 impl ArrayObj {
     /// Untyped array (element type unknown) — for Rust-synthesized arrays.
     #[inline]
     pub fn new(elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(""), elems }
+        Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed(elems) }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
+    /// **Step 1b-ii**: primitive element types get a packed value-type backing
+    /// (C# model); everything else stays `Boxed`. Unknown/FQN element types fall
+    /// back to `Boxed` (safe — no packing, correct behaviour).
     #[inline]
     pub fn typed(element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), elems }
+        Self { element_type: Arc::from(element_type), backing: Self::pack_backing(element_type, elems) }
     }
-}
 
-impl std::ops::Deref for ArrayObj {
-    type Target = Vec<Value>;
+    /// FFI return fast-path (packed-primitive-arrays Step 3): build a `byte[]`
+    /// straight from an owned `Vec<u8>` — no per-byte `Value::I64` boxing, no
+    /// re-pack scan. The mirror of `as_bytes()` on the ingest side. This is the
+    /// "简化 extern call" return path: native call → `&[u8]` → `byte[]` directly.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { element_type: Arc::from("byte"), backing: ArrayBacking::Bytes(bytes) }
+    }
+
+    /// Select a packed value-type backing for a primitive `element_type`,
+    /// unboxing `elems` into it. Conservative + sign-safe: only widths that
+    /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.
+    fn pack_backing(element_type: &str, elems: Vec<Value>) -> ArrayBacking {
+        match element_type {
+            // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
+            "byte" | "u8" =>
+                ArrayBacking::Bytes(elems.iter().map(|v| if let Value::I64(n) = v { *n as u8 } else { 0 }).collect()),
+            "char" =>
+                ArrayBacking::Chars(elems.iter().map(|v| if let Value::Char(c) = v { *c } else { '\0' }).collect()),
+            "bool" =>
+                ArrayBacking::Bool(elems.iter().map(|v| matches!(v, Value::Bool(true))).collect()),
+            // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" =>
+                ArrayBacking::I32(elems.iter().map(|v| if let Value::I64(n) = v { *n as i32 } else { 0 }).collect()),
+            // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" =>
+                ArrayBacking::I64(elems.iter().map(|v| if let Value::I64(n) = v { *n } else { 0 }).collect()),
+            "double" | "float" | "f32" | "f64" =>
+                ArrayBacking::F64(elems.iter().map(|v| if let Value::F64(f) = v { *f } else { 0.0 }).collect()),
+            // object / string / nested arrays / structs / unknown FQN → reference array.
+            _ => ArrayBacking::Boxed(elems),
+        }
+    }
+
     #[inline]
-    fn deref(&self) -> &Vec<Value> { &self.elems }
-}
-impl std::ops::DerefMut for ArrayObj {
+    pub fn len(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.len(),
+            ArrayBacking::Bool(v)  => v.len(),
+            ArrayBacking::Bytes(v) => v.len(),
+            ArrayBacking::I32(v)   => v.len(),
+            ArrayBacking::I64(v)   => v.len(),
+            ArrayBacking::Chars(v) => v.len(),
+            ArrayBacking::F64(v)   => v.len(),
+        }
+    }
     #[inline]
-    fn deref_mut(&mut self) -> &mut Vec<Value> { &mut self.elems }
-}
-impl std::ops::Index<usize> for ArrayObj {
-    type Output = Value;
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    /// Bounds-checked read as owned `Value` (packed-safe `Vec::get` analogue).
     #[inline]
-    fn index(&self, i: usize) -> &Value { &self.elems[i] }
-}
-impl std::ops::IndexMut<usize> for ArrayObj {
+    pub fn get(&self, i: usize) -> Option<Value> {
+        if i < self.len() { Some(self.get_boxed(i)) } else { None }
+    }
     #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut Value { &mut self.elems[i] }
+    pub fn first(&self) -> Option<Value> { self.get(0) }
+
+    /// Read element `i` as a `Value` (boxes packed primitives). Caller ensures
+    /// `i < len()`.
+    #[inline]
+    pub fn get_boxed(&self, i: usize) -> Value {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v[i].clone(),
+            ArrayBacking::Bool(v)  => Value::Bool(v[i]),
+            ArrayBacking::Bytes(v) => Value::I64(v[i] as i64),
+            ArrayBacking::I32(v)   => Value::I64(v[i] as i64),
+            ArrayBacking::I64(v)   => Value::I64(v[i]),
+            ArrayBacking::Chars(v) => Value::Char(v[i]),
+            ArrayBacking::F64(v)   => Value::F64(v[i]),
+        }
+    }
+    /// Write `Value` into element `i` (unboxes into packed primitives). Caller
+    /// ensures `i < len()`.
+    #[inline]
+    pub fn set_boxed(&mut self, i: usize, val: Value) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v[i] = val,
+            ArrayBacking::Bool(v)  => v[i] = matches!(val, Value::Bool(true)),
+            ArrayBacking::Bytes(v) => v[i] = if let Value::I64(n) = val { n as u8 } else { 0 },
+            ArrayBacking::I32(v)   => v[i] = if let Value::I64(n) = val { n as i32 } else { 0 },
+            ArrayBacking::I64(v)   => v[i] = if let Value::I64(n) = val { n } else { 0 },
+            ArrayBacking::Chars(v) => v[i] = if let Value::Char(c) = val { c } else { '\0' },
+            ArrayBacking::F64(v)   => v[i] = if let Value::F64(f) = val { f } else { 0.0 },
+        }
+    }
+
+    /// Materialise all elements as a `Vec<Value>` (for sites needing a boxed
+    /// snapshot — reflection, conversions). Boxed backing clones; packed boxes.
+    pub fn to_boxed_vec(&self) -> Vec<Value> {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.clone(),
+            _ => (0..self.len()).map(|i| self.get_boxed(i)).collect(),
+        }
+    }
+    /// The boxed element slice iff this is a reference array — GC scans only
+    /// this; packed primitive backings hold no heap refs (`None`).
+    #[inline]
+    pub fn boxed_slice(&self) -> Option<&[Value]> {
+        match &self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+    #[inline]
+    pub fn boxed_slice_mut(&mut self) -> Option<&mut Vec<Value>> {
+        match &mut self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+
+    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
+    /// this to hand native code a contiguous `&[u8]` — no per-byte marshal.
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
+    }
+
+    /// JIT packed-numeric fast path: `I32`/`I64`/`F64` backings are contiguous
+    /// fixed-width slots (4 / 8 / 8 bytes) the JIT can index with a native
+    /// stride-N load/store — no 24-byte `Value` round-trip, no per-element tag.
+    /// Pairs with [`Self::packed_elem_width`]: the ptr is the buffer base, the
+    /// width tells the JIT the slot size (4 → `int[]` sign-extends into the i64
+    /// payload; 8 → raw `long[]`/`double[]` copy). `None` for `Boxed`/`Bytes`/
+    /// `Bool`/`Chars` — the JIT set-path detects width 0 and falls back to the
+    /// `jit_array_set` helper, so those backings never index off this ptr.
+    #[inline]
+    pub fn packed_num_ptr(&self) -> Option<*const u8> {
+        match &self.backing {
+            ArrayBacking::I32(v) => Some(v.as_ptr() as *const u8),
+            ArrayBacking::I64(v) => Some(v.as_ptr() as *const u8),
+            ArrayBacking::F64(v) => Some(v.as_ptr() as *const u8),
+            // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` ==
+            // u32); the JIT loads it width-4 and boxes into `Value::Char`.
+            ArrayBacking::Chars(v) => Some(v.as_ptr() as *const u8),
+            _ => None,
+        }
+    }
+
+    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`/`Chars`), 8
+    /// (`I64`/`F64`), or 0 for a non-packed backing (`Boxed`/`Bytes`/`Bool`).
+    /// The **runtime** authority the JIT ArraySet inline consults so a narrowing
+    /// store (`int[i] = <i64 value>`) writes the right slot size rather than
+    /// trusting the value register's width. Width 0 → route to the helper.
+    #[inline]
+    pub fn packed_elem_width(&self) -> i64 {
+        match &self.backing {
+            ArrayBacking::I32(_) | ArrayBacking::Chars(_) => 4,
+            ArrayBacking::I64(_) | ArrayBacking::F64(_) => 8,
+            _ => 0,
+        }
+    }
+
+    /// Iterate all elements as owned `Value`s (boxes packed primitives).
+    /// Packed-safe replacement for the old `Deref`→`Vec<Value>` `.iter()`.
+    #[inline]
+    pub fn iter_boxed(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).map(move |i| self.get_boxed(i))
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v.clear(),
+            ArrayBacking::Bool(v)  => v.clear(),
+            ArrayBacking::Bytes(v) => v.clear(),
+            ArrayBacking::I32(v)   => v.clear(),
+            ArrayBacking::I64(v)   => v.clear(),
+            ArrayBacking::Chars(v) => v.clear(),
+            ArrayBacking::F64(v)   => v.clear(),
+        }
+    }
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity(),
+            ArrayBacking::I64(v)   => v.capacity(),
+            ArrayBacking::Chars(v) => v.capacity(),
+            ArrayBacking::F64(v)   => v.capacity(),
+        }
+    }
+    /// Heap bytes for element storage (`capacity × sizeof(element)`) — the
+    /// packed-array memory win shows up here (byte[] 1B vs Boxed 24B/elem).
+    #[inline]
+    pub fn elem_storage_bytes(&self) -> usize {
+        use std::mem::size_of;
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity() * size_of::<Value>(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity() * 4,
+            ArrayBacking::I64(v)   => v.capacity() * 8,
+            ArrayBacking::Chars(v) => v.capacity() * 4,
+            ArrayBacking::F64(v)   => v.capacity() * 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -685,17 +882,17 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}
                 RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visit(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
                 }
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();

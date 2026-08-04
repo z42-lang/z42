@@ -13,7 +13,7 @@ fn extract_strings(v: Value) -> Vec<String> {
     match v {
         Value::Array(rc) => rc
             .borrow()
-            .iter()
+            .iter_boxed()
             .map(|e| match e {
                 Value::Str(s) => s.to_string(),
                 other => panic!("expected Value::Str, got {other:?}"),

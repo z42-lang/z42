@@ -400,7 +400,6 @@ pub(crate) fn deref_ref(
         RefKind::Array { gc_ref, idx } => {
             let arr = gc_ref.borrow();
             arr.get(*idx)
-                .cloned()
                 .ok_or_else(|| anyhow::anyhow!(
                     "ref array index {idx} out of bounds (len={})", arr.len()))
         }
@@ -445,7 +444,7 @@ pub(crate) fn store_thru_ref(
                 anyhow::bail!(
                     "ref array index {idx} out of bounds (len={})", arr.len());
             }
-            arr[*idx] = val;
+            arr.set_boxed(*idx, val);
             Ok(())
         }
         RefKind::Field { gc_ref, field_name } => {
@@ -472,14 +471,17 @@ pub(crate) fn store_thru_ref(
 /// emitter didn't capture it (gracefully degraded by `format_stack_trace`
 /// — `(file:line)` instead of `(file:line:col)`).
 pub(crate) fn resolve_line(table: &[crate::metadata::bytecode::LineEntry], block: u32, instr: u32) -> (u32, u32) {
-    let mut line = 0u32;
-    let mut column = 0u32;
-    for entry in table {
-        if entry.block > block || (entry.block == block && entry.instr > instr) { break; }
-        line = entry.line;
-        column = entry.column;
+    // S2a (perf-interp-hot-paths): the line table is emitted in non-decreasing
+    // (block, instr) order — the previous linear forward-scan already relied on
+    // that (it `break`s on the first overshoot). Binary-search the last entry
+    // whose (block, instr) <= the target site: O(log n) instead of O(n) per
+    // Call / VCall / throw. Behaviour is byte-identical to the linear scan for a
+    // sorted table (which is the only shape the emitter produces).
+    let hi = table.partition_point(|e| (e.block, e.instr) <= (block, instr));
+    match hi.checked_sub(1).and_then(|i| table.get(i)) {
+        Some(e) => (e.line, e.column),
+        None    => (0, 0),
     }
-    (line, column)
 }
 
 // ── Core execution loop ──────────────────────────────────────────────────────
@@ -680,15 +682,26 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // stack; raw pointers stay valid until this function returns.
     // FrameGuard's Drop pops on every exit path (`?` propagation, panic
     // unwind, normal return).
-    let file = func.line_table().first()
-        .and_then(|e| e.file.clone())
-        .unwrap_or_default();
+    // perf-frame-name-precompute: clone the load-time precomputed (name, file)
+    // Arc<str> pair — O(1) refcount bumps — instead of re-formatting the frame
+    // name (String alloc + format) + cloning the file string on every call
+    // (was 40–60% of call-heavy interp time). Hand-built test functions have no
+    // precomputed meta (`None`) → fall back to formatting on the fly.
+    let (frame_name, frame_file) = match &func.frame_meta {
+        Some((name, file)) => (name.clone(), file.clone()),
+        None => {
+            let file = func.line_table().first()
+                .and_then(|e| e.file.clone())
+                .unwrap_or_default();
+            (
+                std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
+                std::sync::Arc::from(file),
+            )
+        }
+    };
     ctx.push_frame(crate::exception::VmFrame::new(
-        // VmFrame stores Arc<str> (perf-jit-frame-strings); interp builds the
-        // owned String once then hands ownership to the Arc (same alloc cost as
-        // the previous String field — no interp regression).
-        std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
-        std::sync::Arc::from(file),
+        frame_name,
+        frame_file,
         &frame.regs as *const Vec<Value>,
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));
@@ -879,7 +892,10 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     block_idx as u32,
                     block.instructions.len() as u32,
                 );
-                ctx.update_top_frame_pos(throw_line, throw_col);
+                // add-offline-symbolication: stamp line/col + throw-site offset
+                // (end-of-block terminator slot) in one lock so stripped traces resolve.
+                ctx.update_top_frame_pos(throw_line, throw_col,
+                    func.linear_offset(block_idx as u32, block.instructions.len() as u32));
                 crate::exception::populate_stack_trace(&val, ctx, module);
 
                 // Phase 2 D3+D6 wiring (2026-05-26): count + emit the throw

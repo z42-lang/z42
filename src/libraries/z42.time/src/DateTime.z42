@@ -1,4 +1,5 @@
 namespace Std.Time;
+using Std.Runtime;
 
 // DateTime — UTC 时刻值，内部单位 Unix epoch ms（i64）。
 // 直接镜像 __time_now_ms；DateTime - DateTime 返回 TimeSpan（ms × 1_000_000 = ns）。
@@ -10,8 +11,8 @@ public sealed class DateTime {
         _unixMs = unixMs;
     }
 
-    [Native("__time_now_ms")]
-    private static extern long NowMs();
+    // consolidate-core-intrinsics (A1): __time_now_ms 唯一声明在 Std.Runtime.Clock。
+    private static long NowMs() { return Clock.WallMillis(); }
 
     // ── 工厂方法 ──────────────────────────────────────────────────────────────
 

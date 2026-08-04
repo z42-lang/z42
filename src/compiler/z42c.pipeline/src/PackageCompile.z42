@@ -33,6 +33,9 @@ public sealed class CompileInputs {
     public string Name; public string Version; public string Kind;   // "exe" / "lib"
     public bool HasEntry; public string Entry;
     public bool IsRelease;
+    // add-compiler-inlining：可独立开关的优化集（OptSet 位）。-1 = 未显式设置 → 取 profile 默认
+    // （release=All / debug=None）。Z42cCompiler 解析 toml/CLI 后显式设置以覆盖。
+    public int OptSet;
     // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
@@ -40,7 +43,7 @@ public sealed class CompileInputs {
     // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
     // 静态 scan（+ ExtendWithPackage 增量并入前轮 Vars）→ 消除 ~98% 的每轮开销。null = 现状（磁盘扫描）。
     public DepScanResult CachedScan;
-    public CompileInputs() { this.CachedScan = null; }
+    public CompileInputs() { this.CachedScan = null; this.OptSet = -1; }
 }
 
 // 组装好的 in-memory 包 + 结果状态。ErrorCount>0 时 Z/Mods 为 null，调用方按 Cms 逐文件呈现诊断。
@@ -106,8 +109,11 @@ public static class PackageCompile {
 
         // ── ⑧ 包级编译（全文件先 parse 合并收集符号，再逐文件产物；cached 跳过 typecheck/codegen）──
         IrModule[] cachedMods = inp.CachedMods;
+        // add-compiler-inlining：OptSet -1（未设）→ 取 profile 默认（release=All / debug=None）。
+        int optSet = inp.OptSet;
+        if (optSet < 0) { optSet = Opt.ProfileDefault(inp.IsRelease); }
         CompiledModuleZ[] cms = IrDump.BuildPackageCus(inp.Texts, inp.Files, inp.SrcCount, inp.Cus,
-                                                       depIndex, imported, inp.IsRelease, cachedMods);
+                                                       depIndex, imported, inp.IsRelease, cachedMods, optSet);
         // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
         if (cachedMods != null && inp.CachedMetas != null) {
             int ci = 0;

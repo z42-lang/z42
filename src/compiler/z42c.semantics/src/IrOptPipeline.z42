@@ -16,27 +16,51 @@ using Z42.IR;
 
 public sealed class IrOptPipeline {
 
-    public static void Run(IrModule m) {
+    // add-compiler-inlining：optSet 决定跑哪些 pass（可独立开关，见 OptSet.z42）。
+    // optSet==None（debug 默认）→ 整体跳过（-O0，忠实可调试）。每个 pass 各自从当前 IR
+    // 重算 reads/defs → 单独开启也正确（design D2 独立性约束）。
+    public static void Run(IrModule m, int optSet) {
+        if (optSet == Opt.None) { return; }
+        // inline 靠前（模块级，需 callee 跨函数解析）：产出更多下游 const-fold/copy-prop/dce 机会。
+        // 单独开 Inline 也正确（只内联、不清理，留下的 copy 由后续 pass 或下一代自愈）——design D2。
+        if (Opt.Has(optSet, Opt.Inline)) { IrInline.Run(m); }
         int fi = 0;
         while (fi < m.FuncCount) {
-            IrOptPipeline._optFunc(m.Functions[fi]);
+            IrOptPipeline._optFunc(m.Functions[fi], optSet);
             fi = fi + 1;
         }
     }
 
-    private static void _optFunc(IrFunction f) {
+    private static void _optFunc(IrFunction f, int optSet) {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
-        // pass 1: const-fold —— 折叠两 int 常量的运算/比较（放最前，产出的 const 供后续 copy-prop 传播）
-        int[] defs0 = IrOptPipeline._computeDefs(f);
-        IrOptPipeline._passConstFold(f, defs0);
-        // pass 2: copy-prop —— const-fold 改了 IR，重算读/写计数（含终结子读）
-        int[] reads = IrOptPipeline._computeReads(f);
-        int[] defs = IrOptPipeline._computeDefs(f);
-        IrOptPipeline._passCopyProp(f, reads, defs);
-        // pass 3: temp-DCE —— copy-prop 改了 IR，重算读计数；参数寄存器 live-out
-        int[] reads2 = IrOptPipeline._computeReads(f);
-        IrOptPipeline._seedParams(reads2, f.ParamCount);
-        IrOptPipeline._passTempDce(f, reads2);
+        // pass: const-fold —— 折叠两 int 常量的运算/比较 + 代数恒等式（放最前，产出的 const 供后续传播）
+        if (Opt.Has(optSet, Opt.ConstFold)) {
+            int[] defs0 = IrOptPipeline._computeDefs(f);
+            IrOptPipeline._passConstFold(f, defs0);
+        }
+        // pass: licm —— 循环不变量外提（放 const-fold 后、cse 前：常量先折，提到 pre-header 后再被下游清理）
+        if (Opt.Has(optSet, Opt.Licm)) {
+            IrLicm.Run(f);
+        }
+        // pass: cse —— 块内公共子表达式消除（放 const-fold 后：常量先折、剩下的纯计算去重）
+        if (Opt.Has(optSet, Opt.Cse)) {
+            IrOptPipeline._passCse(f);
+        }
+        // pass: copy-prop —— 从当前 IR 重算读/写计数（含终结子读）
+        if (Opt.Has(optSet, Opt.CopyProp)) {
+            int[] reads = IrOptPipeline._computeReads(f);
+            int[] defs = IrOptPipeline._computeDefs(f);
+            IrOptPipeline._passCopyProp(f, reads, defs);
+            // use-site 级联（improve-copy-prop-cascade）：清相邻 producer→copy retarget 遗留的
+            // 链式/非相邻 copy——把单赋值 `dst=copy src`（src 稳定）的所有 dst 使用点改写为 src、删死 copy。
+            IrOptPipeline._passCopyPropUse(f);
+        }
+        // pass: temp-DCE —— 从当前 IR 重算读计数；参数寄存器 live-out
+        if (Opt.Has(optSet, Opt.Dce)) {
+            int[] reads2 = IrOptPipeline._computeReads(f);
+            IrOptPipeline._seedParams(reads2, f.ParamCount);
+            IrOptPipeline._passTempDce(f, reads2);
+        }
     }
 
     // ── pass 1: const-fold ─────────────────────────────────────────────────────────
@@ -154,6 +178,172 @@ public sealed class IrOptPipeline {
         }
         blk.Instrs = nw;
         blk.InstrCount = blk.InstrCount - removedCount;
+    }
+
+    // ── pass 1b: use-site copy 级联传播（improve-copy-prop-cascade）──────────────────
+    // 对单赋值 `dst = copy src`（dst 非形参、src 稳定）建 dst→src 映射（链式解析到最终稳定 src），
+    // 用 IrOptInfo.ReplaceReads 改写全函数所有 dst 使用点为 src，再删这些已死的 copy。
+    // 安全：src 稳定（单赋值 temp / 从不重写的形参）→ 其值在 dst 所有使用点相同（IR 有效 = def 支配 use）。
+    private static void _passCopyPropUse(IrFunction f) {
+        int[] defs = IrOptPipeline._computeDefs(f);
+        int pc = f.ParamCount;
+        TypedReg[] map = new TypedReg[f.MaxReg + 2];   // dst id -> src TypedReg（直接映射）
+        // 收集合格 copy
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                if (blk.Instrs[ii] is CopyInstr) {
+                    CopyInstr c = blk.Instrs[ii] as CopyInstr;
+                    int d = c.Dst.Id;
+                    if (d >= pc && d >= 0 && d < map.Length && defs[d] == 1
+                        && d != c.Src.Id && IrOptPipeline._stable(c.Src, defs, pc)) {
+                        map[d] = c.Src;
+                    }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        // 链式解析：map[d] 可能又指向被映射的 id → 跟到最终
+        TypedReg[] res = new TypedReg[map.Length];
+        int r = 0;
+        while (r < map.Length) {
+            if (map[r] != null) {
+                TypedReg cur = map[r];
+                int guard = 0;
+                while (cur.Id >= 0 && cur.Id < map.Length && map[cur.Id] != null && guard < map.Length) {
+                    cur = map[cur.Id]; guard = guard + 1;
+                }
+                res[r] = cur;
+            }
+            r = r + 1;
+        }
+        if (!IrOptPipeline._anyNonNull(res)) { return; }
+        // 改写所有读操作数 + 终结子
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.ReplaceReads(blk.Instrs[ii], res); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.ReplaceTermReads(blk.Term, res); }
+            bi = bi + 1;
+        }
+        // 删已死 copy（dst 被映射的那些——使用点已全改写 → dst 零读）
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int keep = 0;
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                if (!IrOptPipeline._isMappedCopy(blk.Instrs[ii], map)) { keep = keep + 1; }
+                ii = ii + 1;
+            }
+            if (keep != blk.InstrCount) {
+                IrInstr[] nw = new IrInstr[keep];
+                int j = 0;
+                ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (!IrOptPipeline._isMappedCopy(blk.Instrs[ii], map)) { nw[j] = blk.Instrs[ii]; j = j + 1; }
+                    ii = ii + 1;
+                }
+                blk.Instrs = nw;
+                blk.InstrCount = keep;
+            }
+            bi = bi + 1;
+        }
+    }
+
+    // ── pass: CSE 公共子表达式消除（add-cse-pass）──────────────────────────────────
+    // 块内 value-number：`op|操作数ids` 首现记 dst；同 key 复现 → 记 dupDst→firstDst 映射，
+    // 之后用 ReplaceReads 全函数把 dupDst 使用点改写为 firstDst、删重复计算指令。
+    // 块内检测（同块 firstDst 在前 → 支配 dupDst 及其所有使用点，值恒等）；跨块不做（避支配分析）。
+    private static void _passCse(IrFunction f) {
+        int[] defs = IrOptPipeline._computeDefs(f);
+        int pc = f.ParamCount;
+        TypedReg[] remap = new TypedReg[f.MaxReg + 2];   // dupDst id -> firstDst
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            StrMap seen = new StrMap();   // value-number key -> firstDst TypedReg
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                string key = IrOptInfo.CseKey(blk.Instrs[ii], defs, pc);
+                if (key != null) {
+                    if (seen.ContainsKey(key)) {
+                        TypedReg first = seen.Get(key) as TypedReg;
+                        TypedReg dup = IrOptInfo.DstReg(blk.Instrs[ii]);
+                        if (dup != null && first != null && dup.Id != first.Id
+                            && dup.Id >= 0 && dup.Id < remap.Length) {
+                            remap[dup.Id] = first;
+                        }
+                    } else {
+                        seen.Put(key, IrOptInfo.DstReg(blk.Instrs[ii]));
+                    }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        if (!IrOptPipeline._anyNonNull(remap)) { return; }
+        // 改写所有 dupDst 使用点 → firstDst
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.ReplaceReads(blk.Instrs[ii], remap); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.ReplaceTermReads(blk.Term, remap); }
+            bi = bi + 1;
+        }
+        // 删重复计算指令（dst 在 remap = dup）
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int keep = 0;
+            int ii = 0;
+            while (ii < blk.InstrCount) { if (!IrOptPipeline._isRemappedDst(blk.Instrs[ii], remap)) { keep = keep + 1; } ii = ii + 1; }
+            if (keep != blk.InstrCount) {
+                IrInstr[] nw = new IrInstr[keep];
+                int j = 0;
+                ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (!IrOptPipeline._isRemappedDst(blk.Instrs[ii], remap)) { nw[j] = blk.Instrs[ii]; j = j + 1; }
+                    ii = ii + 1;
+                }
+                blk.Instrs = nw;
+                blk.InstrCount = keep;
+            }
+            bi = bi + 1;
+        }
+    }
+
+    // 该指令的 dst（仅 CSE-able op 有）是否为被映射的重复计算 → 应删。
+    private static bool _isRemappedDst(IrInstr ins, TypedReg[] remap) {
+        TypedReg d = IrOptInfo.DstReg(ins);
+        if (d == null) { return false; }
+        return d.Id >= 0 && d.Id < remap.Length && remap[d.Id] != null;
+    }
+
+    // src 稳定：形参须从不被重写（defs==0）；temp/local 须单赋值（defs==1）。
+    private static bool _stable(TypedReg r, int[] defs, int paramCount) {
+        int id = r.Id;
+        if (id < 0 || id >= defs.Length) { return false; }
+        if (id < paramCount) { return defs[id] == 0; }
+        return defs[id] == 1;
+    }
+
+    private static bool _anyNonNull(TypedReg[] a) {
+        int i = 0;
+        while (i < a.Length) { if (a[i] != null) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 是否为「被映射（要删）的 copy」：CopyInstr 且其 Dst 在 map 中。
+    private static bool _isMappedCopy(IrInstr ins, TypedReg[] map) {
+        if (!(ins is CopyInstr)) { return false; }
+        int d = (ins as CopyInstr).Dst.Id;
+        return d >= 0 && d < map.Length && map[d] != null;
     }
 
     // ── pass 2: temp-DCE ─────────────────────────────────────────────────────────

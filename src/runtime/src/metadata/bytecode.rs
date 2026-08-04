@@ -445,6 +445,15 @@ pub struct Function {
     /// Not serialized (pure runtime optimization; no zbc/format impact).
     #[serde(skip)]
     pub fused_tails: Vec<Option<super::superinstr::SuperInstr>>,
+    /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
+    /// + source file as `Arc<str>`, precomputed once at load (like
+    /// `branch_targets`). `exec_function_body` clones these O(1) per call instead
+    /// of re-running `format_frame_name` (String alloc + format) + a file clone
+    /// on **every** call — that was 40–60% of call-heavy interp time (measured).
+    /// `None` for hand-built test functions the loader never post-processes → the
+    /// interp falls back to formatting on the fly.
+    #[serde(skip)]
+    pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
@@ -483,6 +492,43 @@ impl Function {
     #[inline]
     pub fn cold_mut(&mut self) -> &mut FunctionCold {
         self.cold.get_or_insert_with(|| Box::new(FunctionCold::default()))
+    }
+
+    // ── add-offline-symbolication: code-offset ↔ (block, instr) mapping ────────
+    //
+    // z42 IR is a block+intra-block-instruction model with no linear bytecode
+    // address, but offline symbolication (and the stripped-frame stack format
+    // `at <func> +0x<offset>`) needs one stable key per site. We pack the site
+    // into a single u32:
+    //
+    //   offset(block, instr) = (block << 16) | (instr & 0xffff)
+    //
+    // This is **O(1)** — critical because `update_caller_line` computes it on
+    // every Call/VCall (a prefix-sum linearization was measured ~5% slower on
+    // dispatch-heavy loops). The key is opaque but stable and block-major
+    // monotonic; the user only treats `+0x<offset>` as a token to feed
+    // `z42d symbolicate`, which unpacks it back to `(block, instr)` and looks up
+    // the archived `.zsym` line table. `block`/`instr` fit u16 in every real z42
+    // function (a basic block never holds 2^16 instructions, nor a function 2^16
+    // blocks); `debug_assert` guards the invariant. This is the SINGLE source of
+    // truth — the z42-side `z42d symbolicate` mirrors the same pack/unpack.
+
+    /// Packed code offset for a `(block, instr)` site — `(block << 16) | instr`.
+    /// O(1). `block`/`instr` come from the interp/JIT loop state and are trusted
+    /// in range; the u16 bound is a `debug_assert` (see the module note).
+    #[inline]
+    pub fn linear_offset(&self, block: u32, instr: u32) -> u32 {
+        debug_assert!(block <= 0xffff && instr <= 0xffff,
+            "code offset packing overflow: block={block} instr={instr}");
+        (block << 16) | (instr & 0xffff)
+    }
+
+    /// Inverse of [`linear_offset`]: unpack `(block, instr)` from a code offset.
+    /// Used by `z42d symbolicate` (and tests) to map a captured `+0x<offset>`
+    /// back to a site, then to a `LineEntry`.
+    #[inline]
+    pub fn offset_to_site(&self, offset: u32) -> (u32, u32) {
+        (offset >> 16, offset & 0xffff)
     }
 }
 

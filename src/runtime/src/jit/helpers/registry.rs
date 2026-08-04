@@ -266,17 +266,17 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // span-column-propagate (2026-05-10): trailing `i32t` adds caller column.
         // make-vm-loading-lazy: `ic_ptr` (before line/col) caches the resolved
         // lazy/merged fn id per call site → lock-free by-id fast path.
-        call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t], [i8t]),
+        call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t, i32t], [i8t]),
         // jit_builtin(frame, ctx, dst, builtin_id, args_ptr, argc) -> u8
         // formalize-jit-method-token (2026-05-08): id-based dispatch (no hash).
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t],         [i8t]),
         array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i64t], [i8t]),
         array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], []),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
-        // jit_array_data(frame, ctx, arr, out_ptr, out_len) -> u8 (0 ok / 1 exc)
-        array_data:    decl!("jit_array_data",    [ptr, ptr, i32t, ptr, ptr],             [i8t]),
-        // jit_array_data_opt(frame, ctx, arr, out_ptr, out_len) -> () — non-throwing hoist
-        array_data_opt: decl!("jit_array_data_opt", [ptr, ptr, i32t, ptr, ptr],            []),
+        // jit_array_data(frame, ctx, arr, out_ptr, out_len, out_width) -> u8 (0 ok / 1 exc)
+        array_data:    decl!("jit_array_data",    [ptr, ptr, i32t, ptr, ptr, ptr],        [i8t]),
+        // jit_array_data_opt(frame, ctx, arr, out_ptr, out_len, out_width) -> () — non-throwing hoist
+        array_data_opt: decl!("jit_array_data_opt", [ptr, ptr, i32t, ptr, ptr, ptr],       []),
         array_set:     decl!("jit_array_set",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         array_len:     decl!("jit_array_len",     [ptr, ptr, i32t, i32t],                 [i8t]),
         // jit_obj_new(frame, ctx, dst, cls_ptr, cls_len, ctor_ptr, ctor_len, args_ptr, argc,
@@ -295,7 +295,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_vcall(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_line, caller_col) -> u8
         // Phase 2.E: trailing `ptr` arg = `*const VCallIC`.
         // jit-stack-trace (2026-05-10): trailing two `i32t` = caller (line, col).
-        vcall:         decl!("jit_vcall",      [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t], [i8t]),
+        vcall:         decl!("jit_vcall",      [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t, i32t], [i8t]),
         is_instance:   decl!("jit_is_instance",[ptr, ptr, i32t, i32t, ptr, i64t],         []),
         as_cast:       decl!("jit_as_cast",    [ptr, ptr, i32t, i32t, ptr, i64t],         []),
         // formalize-jit-method-token Phase 2 (2026-05-08): id-based
@@ -309,8 +309,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         set_ret:       decl!("jit_set_ret",       [ptr, ptr, i32t],                       []),
         // C2 P1 step 1: jit_regs_ptr(frame) -> *mut Value. Note: NO ctx param.
         regs_ptr:      decl!("jit_regs_ptr",      [ptr],                                  [ptr]),
-        // jit_throw(frame, ctx, reg, throw_line, throw_col) — jit-stack-trace + span-column-propagate
-        throw:         decl!("jit_throw",         [ptr, ptr, i32t, i32t, i32t],           []),
+        // jit_throw(frame, ctx, reg, throw_line, throw_col, throw_offset) — jit-stack-trace + offline-symbolication
+        throw:         decl!("jit_throw",         [ptr, ptr, i32t, i32t, i32t, i32t],     []),
         install_catch: decl!("jit_install_catch", [ptr, ptr, i32t],                       []),
         // jit_match_catch_type(frame, ctx, target_ptr, target_len) -> i8
         match_catch_type: decl!("jit_match_catch_type", [ptr, ptr, ptr, i64t],            [i8t]),
@@ -323,7 +323,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_mk_clos(frame, ctx, dst, name_ptr, name_len, caps_ptr, caps_len, stack_alloc:u8) -> u8
         mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, ptr, i64t, ptr, i64t, i8t], [i8t]),
         // jit_call_indirect(frame, ctx, dst, callee, args_ptr, args_len, caller_line, caller_col) -> u8
-        call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t, i32t], [i8t]),
+        call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t, i32t, i32t], [i8t]),
         // jit_load_fn_cached(frame, ctx, dst, name_ptr, name_len, slot_id) -> u8
         load_fn_cached: decl!("jit_load_fn_cached", [ptr, ptr, i32t, ptr, i64t, i32t],           [i8t]),
         // jit_default_of(frame, ctx, dst, param_index) -> u8

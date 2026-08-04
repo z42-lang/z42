@@ -56,15 +56,18 @@ pub(super) fn array_new_lit(
 }
 
 pub(super) fn array_get(frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Result<()> {
+    // Read the index first so its `frame.get` borrow ends before we borrow the
+    // array — this lets us borrow the `GcRef` through `frame.get(arr)` directly
+    // instead of `rc.clone()`-ing it (saves one Arc refcount atomic per access,
+    // the hot path of interp array-scan loops).
+    let i = to_usize(frame.get(idx)?, "ArrayGet index")?;
     let result = match frame.get(arr)? {
         Value::Array(rc) => {
-            let rc = rc.clone();
-            let i = to_usize(frame.get(idx)?, "ArrayGet index")?;
             let borrowed = rc.borrow();
             if i >= borrowed.len() {
                 bail!("array index {} out of bounds (len={})", i, borrowed.len());
             }
-            borrowed[i].clone()
+            borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
         }
         other => bail!("ArrayGet: expected array, got {:?}", other),
     };
@@ -80,18 +83,21 @@ pub(super) fn array_get(frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Resu
 /// per Decision 1.
 pub(super) fn array_set(ctx: &VmContext, frame: &mut Frame, arr: u32, idx: u32, val: u32) -> Result<()> {
     let v = frame.get(val)?.clone();
-    let arr_value = frame.get(arr)?.clone();
-    match &arr_value {
-        Value::Array(rc) => {
-            let i = to_usize(frame.get(idx)?, "ArraySet index")?;
+    // Read the index first so its borrow ends before we borrow the array; then
+    // borrow the array `Value` through `frame.get(arr)` directly — no
+    // `arr_value.clone()` (Arc atomic) on the hot path. The write barrier (rare,
+    // heap-ref values only) uses the match-bound `&Value` reference in place.
+    let i = to_usize(frame.get(idx)?, "ArraySet index")?;
+    match frame.get(arr)? {
+        arr_val @ Value::Array(rc) => {
             let mut borrowed = rc.borrow_mut();
             if i >= borrowed.len() {
                 bail!("array index {} out of bounds (len={})", i, borrowed.len());
             }
-            borrowed[i] = v.clone();
+            borrowed.set_boxed(i, v.clone());   // typed accessor: unboxes into packed
             drop(borrowed);
             if v.is_heap_ref() {
-                ctx.heap().write_barrier_array_elem(&arr_value, i, &v);
+                ctx.heap().write_barrier_array_elem(arr_val, i, &v);
             }
             Ok(())
         }

@@ -1,4 +1,5 @@
 namespace Std.IO;
+using Std.Runtime;
 
 public static class Environment {
     [Native("__env_get")]
@@ -13,8 +14,8 @@ public static class Environment {
     [Native("__process_exit")]
     public static extern void Exit(int code);
 
-    [Native("__time_now_ms")]
-    public static extern long GetCurrentTimeMs();
+    // consolidate-core-intrinsics (A1): __time_now_ms 唯一声明在 Std.Runtime.Clock。
+    public static long GetCurrentTimeMs() { return Clock.WallMillis(); }
 
     // 2026-05-14 add-platform-os-stdlib: removal + enumeration of env vars.
     [Native("__env_unset")]

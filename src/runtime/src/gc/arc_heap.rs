@@ -585,7 +585,13 @@ impl ArcMagrGC {
     /// WeakRef to `heap_registry`; that field is gone now — the region
     /// itself is the authoritative liveness store, iterated directly
     /// by sweep / iterate_live_objects / snapshot helpers.
-    fn record_alloc(&self, _value: &Value, kind: AllocKind, size: usize) {
+    /// `kind_fn` is a closure so the `AllocKind` — in particular
+    /// `AllocKind::Object`'s **class-name `String` clone** — is materialized
+    /// only when an alloc sampler is actually installed (the rare profiling
+    /// case). On the hot allocation path with no sampler it is never called,
+    /// saving a heap alloc + memcpy per object `new` (measured ~10% on
+    /// allocation-heavy JIT loops).
+    fn record_alloc(&self, _value: &Value, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
         // 1. 更新 stats（先借再放，避免后续触发事件时 borrow 冲突）
         {
             let mut i = self.inner.lock();
@@ -594,11 +600,11 @@ impl ArcMagrGC {
         }
         // 2. 压力检查（可能触发 GcEvent）
         self.check_pressure(size as u64);
-        // 3. Sampler 调度
+        // 3. Sampler 调度（仅采样时构造 AllocKind → 省掉热路径的类名 String clone）
         let sampler = self.inner.lock().alloc_sampler.clone();
         if let Some(s) = sampler {
             s(&AllocSample {
-                kind,
+                kind: kind_fn(),
                 size_bytes: size,
                 timestamp_us: Self::now_us(),
             });
@@ -1201,10 +1207,12 @@ impl ArcMagrGC {
             + obj.slots.len() * size_of::<Value>()) as u64
     }
 
-    fn array_size_estimate(arr: &Vec<Value>) -> u64 {
+    fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
         use std::mem::size_of;
-        (size_of::<Value>() + size_of::<Vec<Value>>()
-            + arr.capacity() * size_of::<Value>()) as u64
+        // packed-primitive-arrays: `elem_storage_bytes` is per-backing (byte[] 1B
+        // vs Boxed 24B/elem), so packed arrays report their true smaller size.
+        (size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
+            + arr.elem_storage_bytes()) as u64
     }
 
     /// **add-mark-sweep-collector P3 (2026-05-21)**: test-only entry
@@ -1459,7 +1467,7 @@ impl ArcMagrGC {
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
     fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        let elem_count = obj.elems.len();
+        let elem_count = obj.len();
         let (entry_ptr, generation, handle) = {
             let mut region = self.region_array.lock();
             let handle = region.alloc(obj);
@@ -1480,7 +1488,7 @@ impl ArcMagrGC {
             });
             return Value::Null;
         }
-        self.record_alloc(&value, AllocKind::Array { elem_count }, size);
+        self.record_alloc(&value, || AllocKind::Array { elem_count }, size);
         self.maybe_auto_collect();
         value
     }
@@ -1515,7 +1523,10 @@ impl MagrGC for ArcMagrGC {
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value {
-        let class = type_desc.name.clone();
+        // Keep a cheap `Arc<TypeDesc>` handle (atomic refcount, no String alloc)
+        // so `record_alloc`'s closure can clone the class name lazily — only when
+        // an alloc sampler is installed, not on every `new`.
+        let td_for_record = Arc::clone(&type_desc);
         // review.md E2.P6 (2026-06-02): `slots` is `Box<[Value]>` now.
         // Vec → Box<[T]> drops excess capacity; for the common case where
         // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
@@ -1555,7 +1566,7 @@ impl MagrGC for ArcMagrGC {
             });
             return Value::Null;
         }
-        self.record_alloc(&value, AllocKind::Object { class }, size);
+        self.record_alloc(&value, || AllocKind::Object { class: td_for_record.name.clone() }, size);
         self.maybe_auto_collect();
         value
     }
@@ -1566,6 +1577,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(element_type, elems))
+    }
+
+    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
@@ -1710,7 +1725,7 @@ impl MagrGC for ArcMagrGC {
             Value::Str(s) => size_of::<Value>() + s.len(),
             Value::Array(rc) => {
                 size_of::<Value>() + size_of::<Vec<Value>>()
-                    + rc.borrow().capacity() * size_of::<Value>()
+                    + rc.borrow().elem_storage_bytes()
             }
             Value::Object(rc) => {
                 let obj = rc.borrow();
@@ -1731,7 +1746,7 @@ impl MagrGC for ArcMagrGC {
                 size_of::<Value>()
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
-                    + c.env.borrow().capacity() * size_of::<Value>()
+                    + c.env.borrow().elem_storage_bytes()
                     + c.fn_name.capacity()
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
@@ -1764,14 +1779,14 @@ impl MagrGC for ArcMagrGC {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // impl-closure-l3-core: a closure's env owns Value slots that may
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
             // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
@@ -1780,7 +1795,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Stack { .. } => {}
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visitor(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
