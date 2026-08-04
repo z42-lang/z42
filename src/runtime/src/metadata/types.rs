@@ -570,6 +570,22 @@ impl ArrayObj {
         match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
     }
 
+    /// JIT wide-packed fast path (Step 4): `I64`/`F64` backings are contiguous
+    /// **8-byte** slots whose raw bytes are exactly a `Value`'s payload (an f64's
+    /// bit pattern for `F64`). Return the buffer base so the JIT can inline a
+    /// stride-8 load/store — no 24-byte `Value` round-trip, no per-element tag.
+    /// `None` for every other backing (`Boxed`/`Bytes`/`I32`/`Bool`/`Chars`),
+    /// which the JIT never reaches here (only `IrType::I64`/`F64` element regs
+    /// enter the inline path, and those are exactly `long[]`/`double[]`).
+    #[inline]
+    pub fn wide_data_ptr(&self) -> Option<*const u8> {
+        match &self.backing {
+            ArrayBacking::I64(v) => Some(v.as_ptr() as *const u8),
+            ArrayBacking::F64(v) => Some(v.as_ptr() as *const u8),
+            _ => None,
+        }
+    }
+
     /// Iterate all elements as owned `Value`s (boxes packed primitives).
     /// Packed-safe replacement for the old `Deref`→`Vec<Value>` `.iter()`.
     #[inline]

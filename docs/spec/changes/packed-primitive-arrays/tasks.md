@@ -7,7 +7,7 @@
 - [x] Step 1b: 逐类型 packed backing —— packing 已启用（typed 按 element_type 选 backing）；byte[] 24× 内存、long[] 3×；interp+jit 正确
 - [ ] Step 2: GC 跳过 primitive backing + write-barrier 仅 Boxed
 - [x] Step 3: FFI 直读切片（ext/fs/network/crypto/PinPtr marshal→as_bytes/alloc_bytes）—— deflate 4MB 往返 x20 **11.8×**（interp 532→45ms）
-- [ ] Step 4: 去箱访问（JIT 直接 buf[i]；interp typed 快 opcode）——性能超 1.35×
+- [x] Step 4: 去箱访问 —— JIT wide(long/double)内联 stride-8 直读/直写(无 tag);修 packed 下 jit_array_data 返 null→段错误的隐藏 bug;long[5M] 扫描 979→457ms **2.1×**,double 562ms
 - [ ] Step 5: 收尾（.elems 残余 + 反射 + 文档 + bench before/after）
 
 ## Step 1a: backing 抽象（纯重构）

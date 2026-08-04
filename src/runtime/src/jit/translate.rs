@@ -1109,11 +1109,18 @@ pub fn translate_function(
                         builder.ins().call(hr_array_get, &[frame_val, ctx_val, d_c, a_c2, i_c]);
                         emit_dispatch_to_catch_or_return!();
                         // in-bounds: native element load + unboxed store.
+                        // packed-primitive-arrays Step 4: the array buffer is a
+                        // WIDE PACKED `long[]`/`double[]` — contiguous 8-byte slots
+                        // with NO per-element tag (unlike the 24-byte register
+                        // file). Load stride-8 at offset 0; the tag is the
+                        // statically-known `elem_tag`.
                         builder.switch_to_block(in_blk);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        const ARR_STRIDE: i64 = 8;
+                        let stride_c = builder.ins().iconst(types::I64, ARR_STRIDE);
                         let elem_off = builder.ins().imul(idx_v, stride_c);
                         let elem_addr = builder.ins().iadd(data_ptr, elem_off);
-                        let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, PAYLOAD);
+                        let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0);
+                        // store into the 24-byte register `Value` (tag + payload).
                         let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
                         let dst_addr = builder.ins().iadd(regs_base, dst_off);
                         let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
@@ -1132,7 +1139,7 @@ pub fn translate_function(
                     // Data ptr+len from the hoist (方案 B) or per-set `jit_array_data`.
                     // Cold OOB / null reuses `jit_array_set` (identical exception,
                     // + write barrier for the heap-ref-value case that stays here).
-                    if let (Some(elem_tag), true) =
+                    if let (Some(_elem_tag), true) =
                         (prim_elem_tag(z42_func, *val), is_typed(z42_func, *idx, IrType::I64))
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
@@ -1171,17 +1178,19 @@ pub fn translate_function(
                         let v_c = builder.ins().iconst(types::I32, *val as i64);
                         builder.ins().call(hr_array_set, &[frame_val, ctx_val, a_c2, i_c, v_c]);
                         emit_dispatch_to_catch_or_return!();
-                        // in-bounds: native store (tag I64 + i64 payload).
+                        // in-bounds: native store into the WIDE PACKED array
+                        // (`long[]`/`double[]`): read the 8-byte payload from the
+                        // 24-byte register `Value`, write it raw into the
+                        // contiguous 8-byte slot — no per-element tag (Step 4).
                         builder.switch_to_block(in_blk);
                         let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
                         let val_addr = builder.ins().iadd(regs_base, val_off);
                         let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        const ARR_STRIDE: i64 = 8;
+                        let stride_c = builder.ins().iconst(types::I64, ARR_STRIDE);
                         let elem_off = builder.ins().imul(idx_v, stride_c);
                         let elem_addr = builder.ins().iadd(data_ptr, elem_off);
-                        let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
-                        builder.ins().store(MemFlags::trusted(), tag_c, elem_addr, 0);
-                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
+                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, 0);
                     } else {
                         let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
                         let inst = builder.ins().call(hr_array_set, &[frame_val, ctx_val, a, i, v]);
