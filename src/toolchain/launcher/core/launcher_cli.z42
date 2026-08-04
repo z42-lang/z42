@@ -49,6 +49,13 @@ void _runLauncher(string[] argv) {
         Environment.Exit(_forwardRepl(_tail(argv, 1)));
         return;
     }
+    // `symbolicate` = offline stack symbolication → forward to z42d (devtools muxer).
+    // Raw passthrough (full argv incl. verb) so z42d's router parses it. Only this
+    // devtools verb is routed today (add-offline-symbolication).
+    if (c0 == "symbolicate") {
+        Environment.Exit(_forwardZ42d(argv));
+        return;
+    }
 
     SubcommandRouter root = _launcherRoot();
     CommandResolution res;
@@ -168,6 +175,34 @@ int _forwardRepl(string[] argv) {
     while (i < z42iArgs.Length) { proc = proc.Arg(z42iArgs[i]); i = i + 1; }
     proc = proc.Env("Z42_LIBS", libs);
     if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
+    return proc.Run().ExitCode;
+}
+
+// Forward a devtools verb to z42d (programs/devtools/z42.devtools.zpkg). Runs
+// `z42vm <z42.devtools.zpkg> -- <argv...>` with the FULL argv (verb included, so
+// z42d's Std.Cli router sees `symbolicate …` first). Z42_LIBS = libs/ (stdlib +
+// z42.ir, which z42d's SidecarReader needs). Mirrors _forwardRepl / _forwardZ42b.
+// add-offline-symbolication: today only `symbolicate` is routed here (the only
+// implemented z42d subcommand); fmt/doc/prof/lint stay unrouted until their
+// engines land.
+int _forwardZ42d(string[] argv) {
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (vm.Length == 0) {
+        ConsoleError.WriteLine("z42: cannot locate the bundled runtime (Z42_PORTABLE_VM unset) to run z42d");
+        return 2;
+    }
+    string home = _home();
+    string z42d = Path.Join(home, "programs/devtools/z42.devtools.zpkg");
+    if (!File.Exists(z42d)) {
+        ConsoleError.WriteLine("z42: z42d not found at " + z42d + " — reinstall the SDK (programs/devtools/ missing)");
+        return 2;
+    }
+    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
+    Process proc = new Process(vm).Arg(z42d).Arg("--")
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
+    int i = 0;
+    while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
+    proc = proc.Env("Z42_LIBS", libs);
     return proc.Run().ExitCode;
 }
 
