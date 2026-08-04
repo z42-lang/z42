@@ -115,12 +115,24 @@ runs:
           OLDVM="$work/sdkpkg/bin/z42vm"; case "$RID" in windows-*) OLDVM="$OLDVM.exe";; esac
           [ -f "$OLDVM" ] || { echo "::error::nightly SDK 缺 bin/z42vm — 两代自举需旧 VM(重发带 bin/z42vm 的 nightly)"; exit 1; }
           chmod +x "$OLDVM" 2>/dev/null || true
-          # Gen1 z42c: 旧VM + 旧种子 z42c → 编当前源 → gen1(旧壳/新逻辑)。种子+stdlib 全旧,自洽。
-          ( cd "$ROOT/src/compiler" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
-          # Gen1 stdlib: gen1 driver+6兄弟 与 旧 stdlib 同目录(旧VM 运行时加载)→ 产新格式 stdlib。
+          # Gen0 stdlib: 旧VM + 旧种子 z42c → 编**当前** stdlib → 产出携带**当前 z42.ir API**
+          # (如本次新增的 IR 字段 StackAlloc)的新 z42.ir(旧格式、旧VM 可读)。这样下面 gen1 z42c
+          # 才对着「有新 API 的 z42.ir」编——否则 z42c 源新用 z42.ir 字段(轴④)在格式-bump 两代路径
+          # 会 `no field` 编译失败(正常路径由 _ensureBootstrapZ42Ir 解,两代路径此前缺此步)。stdlib
+          # 源不引用任何比种子更新的 API(轴② 纪律),故旧种子能编它。add-escape-analysis-stack-alloc。
+          G0LIBS="$ROOT/.ci-gen0libs"; rm -rf "$G0LIBS"; mkdir -p "$G0LIBS"
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
+          for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$G0LIBS/"; done
+          # 种子里 gen0 未产出的库(若有)用种子版兜底,保证种子 driver 运行期依赖齐全。
+          for f in "$work/sdkpkg/libs/"*.zpkg; do [ -f "$G0LIBS/$(basename "$f")" ] || cp -f "$f" "$G0LIBS/"; done
+          g0libsw="$(winpath "$G0LIBS")"
+          # Gen1 z42c: 旧VM + 旧种子 z42c,**对着 gen0 的新 z42.ir 编**(含新 API)→ gen1(旧壳/新逻辑)。
+          ( cd "$ROOT/src/compiler" && Z42_LIBS="$g0libsw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
+          # Gen1 stdlib: gen1 driver + gen0 新 z42.ir 同目录(旧VM 运行时加载——gen1 运行期需新 z42.ir
+          # 的字段如 StackAlloc 才能 emit)→ 产新格式 stdlib。
           G1RUN="$ROOT/.ci-gen1run"; rm -rf "$G1RUN"; mkdir -p "$G1RUN"
           cp -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/"*.zpkg "$G1RUN/"
-          cp -f "$work/sdkpkg/libs/"*.zpkg "$G1RUN/"
+          cp -f "$G0LIBS/"*.zpkg "$G1RUN/"
           g1runw="$(winpath "$G1RUN")"
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
           # 新格式 stdlib flat 视图

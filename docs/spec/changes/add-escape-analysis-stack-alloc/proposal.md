@@ -56,6 +56,7 @@ z42 已经为**闭包**落地过这条完整范式（`impl-closure-l3-escape-sta
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂入新 book 页 |
 | `docs/roadmap.md` | MODIFY | Deferred Backlog Index 登记 future 条目（JIT arena / 跨过程 / scope-reset） |
 | `src/tests/` 下 e2e（栈对象/数组端到端） | NEW | golden：非逃逸对象/数组行为等价、逃逸对象仍堆分配 |
+| `.github/actions/ci-bootstrap/action.yml` | MODIFY | 格式-bump 两代自举 [1.5] 先建 stdlib（产新 z42.ir）再建 gen1 z42c——解「格式 bump + z42c 用新 z42.ir 字段」轴④冲突（2026-08-05 CI 暴露；见 design 本地验证限制段） |
 
 **只读引用**：
 
