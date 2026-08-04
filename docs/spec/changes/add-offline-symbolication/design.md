@@ -27,10 +27,29 @@ z42 是"块 + 块内指令"模型，无线性字节码地址。定义：
 - **实现 SoT**：`metadata::bytecode` 加 `fn linear_offset(func, block, instr) -> u32` +
   `fn offset_to_site(func, off) -> (u32,u32)`；interp/jit/format 与 z42d（z42 侧镜像同公式）共用。
 
-### D2: 不 bump zbc/zpkg 格式
-offset 是 (block,instr) 的**派生量**，`.zsym` 的 MDBG 段已存 (block,instr,line,col)。
-运行期只在 format 时把已记的 (block,instr) 折算成 offset；z42d 用 MDBG 的 (block,instr) 反折。
-→ **无新 section、无 wire 变化、不 bump minor**。change 类型 = `vm`（栈格式行为）+ `toolchain`（z42d）。
+### D2（修订，2026-08-04）: .zsym MDBG 嵌函数 FQN → 自足；bump zpkg minor
+> 原 D2 说"不 bump 格式"。调研发现 **MDBG 按函数 index 存行表、不含函数名**（运行时靠主 zpkg
+> 的 FUNC/SIGS 提供名→index），故 `.zsym` **单独无法**离线映射"函数名→行表"。User 定夺选
+> **B：让 .zsym 自足**——MDBG 每函数嵌其 **FQN**（ns+"."+name 的 string-pool 索引）。
+
+- **写端**（`ZpkgWriter.BuildMdbg`）：per-module 段改为 `{ns_idx, funcCount, per-func {fqn_idx, 行表}}`。
+- **读端**：Rust `parse_zpkg_sidecar`（`read_mdbg_section`）+ z42 侧新 `SidecarReader` 同步读 fqn。
+- **格式代价**：MDBG 是 zpkg section → 改布局 = **bump zpkg minor**（version-bumping.md 步骤 6–9：
+  `ZpkgWriterZ.Minor++`、`zbc_reader.rs ZPKG_VERSION_MINOR`、zpkg.md changelog、regen zpkg fixtures）。
+  zbc 不动（步骤 1–5 跳过）。CI 两代自举吸收 bump（fix-bootstrap-format-bump-deadlock）。
+- offset 仍是 (block,instr) 的 O(1) 派生（打包 `(block<<16)|instr`，见 D1），**不入 wire**。
+- change 类型升为 `ir`（zpkg 格式变更）+ `vm` + `toolchain`。
+
+### D7（新增）: 多目录符号搜索（参考 Breakpad / debuginfod / addr2line）
+崩溃栈可能跨多个 `.zsym`（app + stdlib + 各 lib）。z42d symbolicate 支持**符号搜索路径**：
+
+- `z42d symbolicate <trace> --syms <path>...`（可重复；`<path>` 是 `.zsym` 文件**或目录**，
+  目录递归扫 `*.zsym`）。类比 Breakpad symbol path / `addr2line -e` 的多输入。
+- 扫到的所有 .zsym 建**全局 `FQN → (行表, build_id)` 索引**；每帧 `at <FQN> +0x<off>` 按 FQN 查、
+  offset 解包 (block,instr) → 行表二分 → file:line:col。
+- **build_id 兜底**：同一 FQN 在多个 .zsym 冲突时，若崩溃栈带 module build_id 则据此消歧；
+  v1 崩溃栈暂不带 build_id → 冲突时 warn + 取首个（build_id 入 trace 列 Deferred）。
+- 缺 FQN / .zsym 读失败 → 保留原 `+0x` 行 + stderr warn，不崩（退出码 0）。
 
 ### D3: 行号生成开关
 默认生成（现状）。关闭 = 现有 `--release`（剥内联 DBUG → .zsym）。本 change **不新增 toml 旋钮**——
