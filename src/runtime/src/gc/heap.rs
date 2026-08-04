@@ -75,6 +75,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_array(elems)
     }
 
+    /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
+    /// an owned `Vec<u8>` (FFI return path — no per-byte boxing). Default boxes
+    /// for mock heaps; `ArcHeap` overrides to build a `Bytes` backing in place.
+    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
+        self.alloc_array_typed("byte", bytes.into_iter().map(|b| Value::I64(b as i64)).collect())
+    }
+
     // ── 2. Roots ─────────────────────────────────────────────────────────────
 
     /// 注册一个 **external root scanner** 闭包 —— GC mark 阶段在扫完 pinned

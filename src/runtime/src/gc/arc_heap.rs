@@ -1570,6 +1570,10 @@ impl MagrGC for ArcMagrGC {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(element_type, elems))
     }
 
+    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
+    }
+
     // ── 2. Roots ─────────────────────────────────────────────────────────────
 
     fn pin_root(&self, value: Value) -> RootHandle {

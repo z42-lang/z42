@@ -62,8 +62,8 @@ pub fn builtin_file_last_write_time_ms(_ctx: &VmContext, args: &[Value]) -> Resu
 pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_read_bytes")?;
     let bytes = active().read(path)?;
-    let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
-    Ok(ctx.heap().alloc_array(elems))
+    // packed-primitive-arrays Step 3: File.ReadAllBytes → packed `Bytes` directly.
+    Ok(ctx.heap().alloc_bytes(bytes))
 }
 
 pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -392,6 +392,10 @@ fn require_byte_array(args: &[Value], idx: usize, op: &str) -> Result<Vec<u8>> {
     match args.get(idx) {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
+            // packed-primitive-arrays Step 3: packed `Bytes` → contiguous `&[u8]`.
+            if let Some(b) = borrowed.as_bytes() {
+                return Ok(b.to_vec());
+            }
             let mut out = Vec::with_capacity(borrowed.len());
             for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {

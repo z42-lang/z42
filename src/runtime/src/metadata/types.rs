@@ -460,6 +460,14 @@ impl ArrayObj {
         Self { element_type: Arc::from(element_type), backing: Self::pack_backing(element_type, elems) }
     }
 
+    /// FFI return fast-path (packed-primitive-arrays Step 3): build a `byte[]`
+    /// straight from an owned `Vec<u8>` — no per-byte `Value::I64` boxing, no
+    /// re-pack scan. The mirror of `as_bytes()` on the ingest side. This is the
+    /// "简化 extern call" return path: native call → `&[u8]` → `byte[]` directly.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { element_type: Arc::from("byte"), backing: ArrayBacking::Bytes(bytes) }
+    }
+
     /// Select a packed value-type backing for a primitive `element_type`,
     /// unboxing `elems` into it. Conservative + sign-safe: only widths that
     /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.
