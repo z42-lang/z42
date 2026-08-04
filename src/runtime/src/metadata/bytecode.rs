@@ -484,6 +484,55 @@ impl Function {
     pub fn cold_mut(&mut self) -> &mut FunctionCold {
         self.cold.get_or_insert_with(|| Box::new(FunctionCold::default()))
     }
+
+    // ── add-offline-symbolication: code-offset ↔ (block, instr) mapping ────────
+    //
+    // z42 IR is a block+intra-block-instruction model with no linear bytecode
+    // address, but offline symbolication (and the stripped-frame stack format
+    // `at <func> +0x<offset>`) needs one stable, monotonic key per site. We
+    // define the **linearized instruction position**:
+    //
+    //   offset(block, instr) = Σ_{b<block}(blocks[b].instructions.len() + 1) + instr
+    //
+    // The `+ 1` per block reserves a slot for that block's terminator, so
+    // offsets stay strictly monotonic across the block boundary and every
+    // (block, instr) — including the terminator site (instr == len) — maps to a
+    // distinct value. This is the SINGLE source of truth: the interp/JIT stack
+    // formatter and the z42-side `z42d symbolicate` reader both compute offsets
+    // via this exact formula (the z42 mirror lives in `z42.ir`; a golden
+    // round-trip test pins the two implementations byte-identical).
+
+    /// Linearized code offset for a `(block, instr)` site. See the module note
+    /// above for the formula. `block`/`instr` are trusted to be in range for
+    /// the executing frame (they come from the interp/JIT loop state).
+    #[inline]
+    pub fn linear_offset(&self, block: u32, instr: u32) -> u32 {
+        let mut acc: u32 = 0;
+        for b in &self.blocks[..(block as usize).min(self.blocks.len())] {
+            acc += b.instructions.len() as u32 + 1;
+        }
+        acc + instr
+    }
+
+    /// Inverse of [`linear_offset`]: recover `(block, instr)` from a code
+    /// offset. Used by `z42d symbolicate` (and any offline consumer) to map a
+    /// captured `+0x<offset>` back to a site, then to a `LineEntry`. Returns the
+    /// last site whose base does not exceed `offset` (mirrors how a monotonic
+    /// prefix-sum is inverted); `instr` may equal a block's `instructions.len()`
+    /// (the terminator slot).
+    pub fn offset_to_site(&self, offset: u32) -> (u32, u32) {
+        let mut base: u32 = 0;
+        for (bi, b) in self.blocks.iter().enumerate() {
+            let span = b.instructions.len() as u32 + 1; // + terminator slot
+            if offset < base + span {
+                return (bi as u32, offset - base);
+            }
+            base += span;
+        }
+        // Past the end (malformed / truncated trace): clamp to last block start.
+        let last = self.blocks.len().saturating_sub(1) as u32;
+        (last, 0)
+    }
 }
 
 /// An entry in a function's local variable table: register `reg` holds variable `name`.

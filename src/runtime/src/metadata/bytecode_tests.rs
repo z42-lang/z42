@@ -5,6 +5,69 @@
 //! size invariant and the (unchanged) JSON wire format.
 
 use super::{CallInsn, Instruction, ObjNewInsn, StaticSetInsn, TypeofInsn};
+use super::{BasicBlock, ExecMode, Function, Terminator};
+
+/// add-offline-symbolication: build a bare Function with the given per-block
+/// instruction counts (bodies are dummy `ConstNull`, terminator `Ret`) to
+/// exercise the code-offset ↔ (block, instr) mapping.
+fn fn_with_block_sizes(sizes: &[usize]) -> Function {
+    let blocks = sizes.iter().enumerate().map(|(bi, &n)| BasicBlock {
+        label: format!("b{bi}"),
+        instructions: (0..n).map(|d| Instruction::ConstNull { dst: d as u32 }).collect(),
+        terminator: Terminator::Ret { reg: None },
+    }).collect();
+    Function {
+        name: "T.f".to_string(),
+        param_count: 0,
+        ret_type: "void".to_string(),
+        exec_mode: ExecMode::Interp,
+        blocks,
+        is_static: false,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        resolved: std::sync::OnceLock::new(),
+    }
+}
+
+#[test]
+fn code_offset_roundtrip() {
+    // Blocks of size 2, 1, 3 → per-block span (len + 1 terminator slot) = 3, 2, 4.
+    // Bases: b0@0, b1@3, b2@5. Total span = 9 (offsets 0..8).
+    let f = fn_with_block_sizes(&[2, 1, 3]);
+
+    // Spot-check known sites (instr slots + terminator slots).
+    assert_eq!(f.linear_offset(0, 0), 0);
+    assert_eq!(f.linear_offset(0, 1), 1);
+    assert_eq!(f.linear_offset(0, 2), 2); // b0 terminator slot
+    assert_eq!(f.linear_offset(1, 0), 3);
+    assert_eq!(f.linear_offset(2, 0), 5);
+    assert_eq!(f.linear_offset(2, 2), 7);
+
+    // Full round-trip over every valid (block, instr) including terminator slots.
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for instr in 0..=(b.instructions.len() as u32) {
+            let off = f.linear_offset(bi as u32, instr);
+            assert_eq!(
+                f.offset_to_site(off), (bi as u32, instr),
+                "roundtrip mismatch at block {bi} instr {instr} (offset {off})"
+            );
+        }
+    }
+
+    // Offsets are strictly monotonic across the whole function.
+    let mut prev = None;
+    for bi in 0..f.blocks.len() as u32 {
+        let off = f.linear_offset(bi, 0);
+        if let Some(p) = prev { assert!(off > p, "offset not monotonic across blocks"); }
+        prev = Some(off);
+    }
+}
 
 #[test]
 fn instruction_size_is_slim() {

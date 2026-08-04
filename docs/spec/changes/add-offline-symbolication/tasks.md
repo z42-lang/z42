@@ -4,15 +4,15 @@
 > 类型：vm（栈格式行为）+ toolchain（z42d）。走完整流程。**不 bump 格式**（D2）。
 
 ## 进度概览
-- [ ] 阶段 1：offset 换算 SoT（metadata）
+- [x] 阶段 1：offset 换算 SoT（metadata）
 - [ ] 阶段 2：运行期栈格式（interp + jit + exception）
 - [ ] 阶段 3：z42 侧 .zsym MDBG reader（z42.ir）
 - [ ] 阶段 4：z42d 激活 + symbolicate 引擎
 - [ ] 阶段 5：测试 + 文档
 
 ## 阶段 1：offset 换算 SoT
-- [ ] 1.1 `metadata/bytecode.rs`：`linear_offset(func,block,instr)->u32` + `offset_to_site(func,off)->(u32,u32)`（D1 公式）
-- [ ] 1.2 单测：往返一致（Rust）
+- [x] 1.1 `metadata/bytecode.rs`：`Function::linear_offset` + `offset_to_site`（D1 公式，含终结子槽）
+- [x] 1.2 单测：`code_offset_roundtrip` 往返一致（Rust，pass）
 
 ## 阶段 2：运行期栈格式
 - [ ] 2.1 `exception/mod.rs`：`VmFrame`/`FrameSnapshot` 加 `offset`；`format_stack_trace` line==0&&offset → `+0x<off>`
