@@ -1,14 +1,30 @@
 # Tasks: add-offline-symbolication
 
-> 状态：🟡 待确认（6.5 gate）| 创建：2026-08-04
-> 类型：vm（栈格式行为）+ toolchain（z42d）。走完整流程。**不 bump 格式**（D2）。
+> 状态：🟢 已完成 | 创建：2026-08-04 | 完成：2026-08-04
+> 类型：vm（栈格式行为）+ ir（.zsym MDBG within-minor）+ toolchain（z42d）。走完整流程。
+> **D2 修订（User 选 B）**：.zsym MDBG 嵌 FQN 自足；**不 bump 共享 minor**（within-minor 33，
+> sidecar 临时+读写同版，见 zpkg.md 例外）。
 
 ## 进度概览
-- [x] 阶段 1：offset 换算 SoT（metadata）
+- [x] 阶段 1：offset 换算 SoT（metadata，O(1) 打包 `(block<<16)|instr`）
 - [x] 阶段 2：运行期栈格式 —— interp + JIT + exception 全完成，perf-neutral（同会话 mono_vcall +0.8% 噪声内）
-- [ ] 阶段 3：z42 侧 .zsym MDBG reader（z42.ir）
-- [ ] 阶段 4：z42d 激活 + symbolicate 引擎
-- [ ] 阶段 5：测试 + 文档
+- [x] 阶段 3：.zsym MDBG 嵌 frameName（写端+Rust读端+z42 SidecarReader，within-minor B）
+- [x] 阶段 4：z42d symbolicate 引擎 + 多目录搜索 + launcher 转发
+- [x] 阶段 5：e2e 往返验证（== debug 栈）+ 文档（zpkg.md/book/README）+ 完整 GREEN ✅
+
+## 验证结论
+- **e2e 往返**：`z42c build --release` demo → 剥离栈 `at Demo.Boom(int) +0x10002` →
+  `z42d symbolicate --syms demo.app.zsym` → `at Demo.Boom(int) (main.z42:3:19)` == debug 档栈。
+- **完整 GREEN**（`xtask test`）：e2e 217✓ / cross-zpkg 8✓ / stdlib 全库✓ /
+  compiler self-host 5/5 gen1==gen2（C#-free）✓ / vscode✓。self-host 字节不动点确认 within-minor 格式一致。
+- **性能**：offset 记录 perf-neutral（O(1) 打包 + 折叠进现有单锁；教训见阶段 2 注）。
+
+## Deferred / follow-up
+- **sym-only-sidecar golden fixture**（`src/tests/zpkg-format/sym-only-sidecar/source.zpkg`）字节未 regen：
+  MDBG 内部布局变了但 `expected.json` 结构摘要（header/段列表/minor 33）**仍准确**，且无自动测试比对其字节；
+  该 fixture 无一键 regen（需手工 z42c build，无 toml）。低风险、within-minor，留待 zpkg-format regen
+  工具补齐时一并重生。
+- 崩溃栈携带 module build_id（跨构建更强消歧；v1 靠 FQN + 多 .zsym 首个匹配 + warn）。
 
 ## 阶段 1：offset 换算 SoT
 - [x] 1.1 `metadata/bytecode.rs`：`Function::linear_offset` + `offset_to_site`（D1 公式，含终结子槽）
