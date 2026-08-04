@@ -5,7 +5,7 @@
 
 ## 进度概览
 - [x] 阶段 1：offset 换算 SoT（metadata）
-- [~] 阶段 2：运行期栈格式 —— interp+exception ✅（2.1/2.2/2.4部分）；JIT baking 2.3 待做（不与 #106 重叠）
+- [x] 阶段 2：运行期栈格式 —— interp + JIT + exception 全完成，perf-neutral（同会话 mono_vcall +0.8% 噪声内）
 - [ ] 阶段 3：z42 侧 .zsym MDBG reader（z42.ir）
 - [ ] 阶段 4：z42d 激活 + symbolicate 引擎
 - [ ] 阶段 5：测试 + 文档
@@ -17,9 +17,13 @@
 ## 阶段 2：运行期栈格式
 - [x] 2.1 `exception/mod.rs`：`VmFrame`/`FrameSnapshot` 加 `offset`；`format_stack_trace` line==0&&offset → `+0x<off>`
 - [x] 2.2 `interp/exec_instr.rs`(update_caller_line 体) + `interp/mod.rs`(throw) 记 offset；`vm_context` 加 `update_top_frame_offset`
-- [ ] 2.3 `jit/translate.rs`(4 处 resolve_line 站点 bake offset) + jit/helpers：JIT 帧记 offset（release 走 JIT，必须做）
-- [x] 2.4a 单测：format `+0x` / line 优先（Rust，pass）
+- [x] 2.3 `jit/translate.rs`(4 站点 bake offset) + jit/helpers(call/vcall/call_indirect/throw 加 caller_offset 参数)：JIT 帧记 offset
+- [x] 2.4a 单测：format `+0x` / line 优先（Rust，pass）+ JIT 抛异常 trace sanity（debug 出 file:line）
 - [ ] 2.4b golden：release 剥离 + 无相邻 .zsym → 栈出 `+0x<off>`；回归 debug/sidecar-在旁 不变（放阶段5 一起）
+
+> **性能关键教训（本 change 实测）**：offset 记录必须 ① O(1)（打包 `(block<<16)|instr`，
+> 不用 O(blocks) 前缀和——实测 dispatch ~+5%）② 折叠进 `update_top_frame_pos` 同一把锁
+> （独立第二把锁实测 +8%）。定稿后同会话 mono_vcall +0.8%（噪声内），perf-neutral。
 
 ## 阶段 3：z42 侧 .zsym MDBG reader
 - [ ] 3.1 `z42.ir`：SymOnly sidecar reader（META+STRS+MDBG+BLID）→ `{build_id, fqn→IrLineEntry[]}`
