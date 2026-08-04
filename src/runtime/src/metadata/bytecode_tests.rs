@@ -37,17 +37,16 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
 
 #[test]
 fn code_offset_roundtrip() {
-    // Blocks of size 2, 1, 3 → per-block span (len + 1 terminator slot) = 3, 2, 4.
-    // Bases: b0@0, b1@3, b2@5. Total span = 9 (offsets 0..8).
+    // Packed encoding: offset = (block << 16) | instr.
     let f = fn_with_block_sizes(&[2, 1, 3]);
 
     // Spot-check known sites (instr slots + terminator slots).
     assert_eq!(f.linear_offset(0, 0), 0);
     assert_eq!(f.linear_offset(0, 1), 1);
-    assert_eq!(f.linear_offset(0, 2), 2); // b0 terminator slot
-    assert_eq!(f.linear_offset(1, 0), 3);
-    assert_eq!(f.linear_offset(2, 0), 5);
-    assert_eq!(f.linear_offset(2, 2), 7);
+    assert_eq!(f.linear_offset(0, 2), 2);        // b0 terminator slot
+    assert_eq!(f.linear_offset(1, 0), 0x1_0000); // block 1
+    assert_eq!(f.linear_offset(2, 0), 0x2_0000);
+    assert_eq!(f.linear_offset(2, 2), 0x2_0002);
 
     // Full round-trip over every valid (block, instr) including terminator slots.
     for (bi, b) in f.blocks.iter().enumerate() {

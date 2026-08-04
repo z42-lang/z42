@@ -118,6 +118,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     args_ptr: *const u32, args_len: usize,
     caller_line: u32,   // 2026-05-10 jit-stack-trace
     caller_col:  u32,   // 2026-05-10 span-column-propagate
+    caller_offset: u32, // add-offline-symbolication: linearized code offset
 ) -> u8 {
     let frame_ref = &mut *frame;
     let ctx_ref   = &*ctx;
@@ -166,7 +167,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name.as_str()) {
         Some(e) => e,
         None => {
-            vm_ctx.update_top_frame_pos(caller_line, caller_col);
+            vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
             let module = &*ctx_ref.module;
             let outcome = if let Some(callee) = module.func_index.get(fn_name.as_str())
                 .and_then(|&idx| module.functions.get(idx))
@@ -193,7 +194,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let mut callee_frame = JitFrame::new(entry.max_reg, &args);
     let jit_fn: JitFn = std::mem::transmute(entry.ptr);
 
-    vm_ctx.update_top_frame_pos(caller_line, caller_col);
+    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
     vm_ctx.push_frame(crate::exception::VmFrame::new(
         entry.name.clone(),
         entry.file.clone(),

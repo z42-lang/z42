@@ -1010,7 +1010,9 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val]);
+                    // add-offline-symbolication: bake linearized code offset (caller frame).
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
+                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived
@@ -1339,7 +1341,8 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_vcall, &[frame_val, ctx_val, d, o, mp, ml, ap, al, ic_val, line_val, col_val]);
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
+                    let inst = builder.ins().call(hr_vcall, &[frame_val, ctx_val, d, o, mp, ml, ap, al, ic_val, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                 }
                 Instruction::IsInstance(insn) => {
@@ -1494,8 +1497,9 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
                     let inst = builder.ins().call(hr_call_indirect,
-                        &[frame_val, ctx_val, d, c, ap, al, line_val, col_val]);
+                        &[frame_val, ctx_val, d, c, ap, al, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
@@ -1578,7 +1582,9 @@ pub fn translate_function(
                 );
                 let line_val = builder.ins().iconst(types::I32, line as i64);
                 let col_val  = builder.ins().iconst(types::I32, col as i64);
-                builder.ins().call(hr_throw, &[frame_val, ctx_val, rv, line_val, col_val]);
+                // add-offline-symbolication: bake throw-site offset (terminator slot).
+                let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, z42_block.instructions.len() as u32) as i64);
+                builder.ins().call(hr_throw, &[frame_val, ctx_val, rv, line_val, col_val, off_val]);
                 emit_dispatch_to_catch_or_return!();
             }
         }

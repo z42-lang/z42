@@ -328,9 +328,8 @@ pub fn exec_instr(
 #[inline]
 fn update_caller_line(ctx: &VmContext, func: &Function, block_idx: usize, instr_idx: usize) {
     let (line, column) = super::resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
-    ctx.update_top_frame_pos(line, column);
-    // add-offline-symbolication: also stamp the linearized code offset so a
-    // stripped-release trace (empty line table → line 0) still carries an
-    // offline-resolvable `+0x<offset>` key at this call site.
-    ctx.update_top_frame_offset(func.linear_offset(block_idx as u32, instr_idx as u32));
+    // add-offline-symbolication: stamp line/col + linearized code offset in one
+    // lock so a stripped-release trace (empty line table → line 0) still carries
+    // an offline-resolvable `+0x<offset>` key at this call site (no extra lock).
+    ctx.update_top_frame_pos(line, column, func.linear_offset(block_idx as u32, instr_idx as u32));
 }

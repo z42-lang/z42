@@ -882,10 +882,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     block_idx as u32,
                     block.instructions.len() as u32,
                 );
-                ctx.update_top_frame_pos(throw_line, throw_col);
-                // add-offline-symbolication: stamp offset for the throw site
-                // (end-of-block terminator slot) so stripped traces resolve.
-                ctx.update_top_frame_offset(
+                // add-offline-symbolication: stamp line/col + throw-site offset
+                // (end-of-block terminator slot) in one lock so stripped traces resolve.
+                ctx.update_top_frame_pos(throw_line, throw_col,
                     func.linear_offset(block_idx as u32, block.instructions.len() as u32));
                 crate::exception::populate_stack_trace(&val, ctx, module);
 
