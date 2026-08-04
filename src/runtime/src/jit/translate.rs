@@ -2130,6 +2130,11 @@ fn arr_prim_elem(func: &Function, reg: u32) -> Option<(i64, i64)> {
         Some(IrType::I64) => Some((0, 8)),
         Some(IrType::F64) => Some((1, 8)),
         Some(IrType::I32) => Some((0, 4)),
+        // jit-inline-char-arrays: `char` → `Value::Char` tag (3), width-4 slot.
+        // The width-4 load sign-extends, but a valid `char` (≤ 0x10FFFF) has bit
+        // 31 clear so sext == zext; the register store writes the codepoint into
+        // the low 4 payload bytes + tag 3, mirroring `emit_const_char`.
+        Some(IrType::Char) => Some((3, 4)),
         _ => None,
     }
 }
