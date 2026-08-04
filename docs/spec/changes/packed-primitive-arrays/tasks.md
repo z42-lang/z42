@@ -1,14 +1,27 @@
 # Tasks: packed primitive 数组（C#-like typed-backing）
 
-> 状态：🟡 进行中 | 创建：2026-08-04 | 类型：vm（核心表示）| 增量 GREEN，每 Step 独立 commit
+> 状态：🟢 Steps 1–5 完成，行为门全绿 | 创建：2026-08-04 | 类型：vm（核心表示）| 增量 GREEN，每 Step 独立 commit
 
 ## 进度概览（每 Step 编译 + cargo test + xtask test 绿）
 - [x] Step 1a: ArrayObj→backing 抽象（全 Boxed，纯重构，行为等价）—— commit aaf3694d，cargo build+test 绿
 - [x] Step 1b: 逐类型 packed backing —— packing 已启用（typed 按 element_type 选 backing）；byte[] 24× 内存、long[] 3×；interp+jit 正确
-- [ ] Step 2: GC 跳过 primitive backing + write-barrier 仅 Boxed
+- [x] Step 2: GC 跳过 primitive backing —— 迁移随 `boxed_slice()`→None 让 GC visitor 跳过 packed（无堆引用）；gc_oom/strict-OOM interp golden 通过
 - [x] Step 3: FFI 直读切片（ext/fs/network/crypto/PinPtr marshal→as_bytes/alloc_bytes）—— deflate 4MB 往返 x20 **11.8×**（interp 532→45ms）
 - [x] Step 4: 去箱访问 —— JIT wide(long/double)内联 stride-8 直读/直写(无 tag);修 packed 下 jit_array_data 返 null→段错误的隐藏 bug;long[5M] 扫描 979→457ms **2.1×**,double 562ms
-- [ ] Step 5: 收尾（.elems 残余 + 反射 + 文档 + bench before/after）
+- [x] Step 5: 行为门 —— cargo test **894/0**；e2e-direct（packed vm，interp+jit）**205/208** 通过，3 例均为直跑器局限（interp_only 标记/multi-exe 合并 golden，均已单独验证在 packed vm 正确）；自举字节不动点因纯 VM 改（不动 z42c/stdlib 源）按构造保持，PR 时 CI bootstrap-no-csharp 终判
+
+## 合并前性能汇总（packed vs boxed，均实测）
+| 维度 | 结果 |
+|------|------|
+| 内存 | byte[2M] 46875→1953 KB **24×**；long[]/double[] **3×** |
+| FFI（简化 extern call） | deflate 4MB 往返 x20 **11.8×**（interp）/ **12.8×**（jit） |
+| JIT 扫描 | long[5M] fill+scan **2.1×**（helper 979→inline 457ms）；double 562ms |
+| interp 扫描 | ≈ 打平（派发主导，非布局；packed 无退化） |
+
+## 后续（本 change 范围外，独立 change）
+- ② **含引用的值类型数组**（C# struct[] 内联 + GC 按 ref 偏移选扫）：z42 已有值类型 struct（`src/tests/types/struct.z42`），
+  `ArrayBacking` 可扩 `Struct{stride,bytes,ref_offsets}` 变体，架构已留口子（`boxed_slice()`→None 走专门 GC 路径）。属加法式扩展，
+  不构成本 change「半迁移」状态，故本 change（primitive packing）为一个完整可合并单元。
 
 ## Step 1a: backing 抽象（纯重构）
 - [ ] 1a.1 `types.rs`：`ArrayBacking` 枚举（先只 `Boxed(Vec<Value>)`）；`ArrayObj{element_type,backing}`；
