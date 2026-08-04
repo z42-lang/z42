@@ -204,6 +204,17 @@ pub(super) fn field_get(
             "Length" | "Count" => Value::I64(rc.borrow().len() as i64),
             other => bail!("array has no field `{}`", other),
         },
+        // add-escape-analysis-stack-alloc: a stack array's `.Length`/`.Count`
+        // routes through FieldGet (a neutral use in the escape rules), so it can
+        // reach here — resolve the length via the arena.
+        Value::StackArray { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            let len = ctx.stack_arena.lock().with_arr(idx, frame_id, |a| a.len())?;
+            match field_name {
+                "Length" | "Count" => Value::I64(len as i64),
+                other => bail!("array has no field `{}`", other),
+            }
+        }
         Value::PinnedView(pv) => match field_name {
             // Spec C4 — only `ptr` / `len` are exposed; element type
             // information (kind) stays internal.

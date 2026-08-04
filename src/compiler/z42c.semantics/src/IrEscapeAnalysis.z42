@@ -146,9 +146,14 @@ public sealed class IrEscapeAnalysis {
         // 运行时无需为 IsInstance 补 StackObject 分支，减少改动面/风险。代价：`p is T` 的 p 不栈分配
         // （少量覆盖损失）。放宽 = 运行时补 IsInstance 的栈对象分支后移除本行。
         if (ins is IsInstanceInstr)  { IsInstanceInstr i = ins as IsInstanceInstr; IrEscapeAnalysis._mark(esc, i.Obj); return; }
+        // Convert.Src：标 ESCAPE **有意收窄运行时触达面**——引用类型的恒等 convert（如 `(int[])arr`
+        // / `(object)o` 的 identity 分支）会到 `convert_value`，那里只 match `Value::Array/Object` 不认
+        // 栈变体 → 若栈句柄流到即 bail。数值 convert 的操作数是基元（标了也无害，基元不栈分配）。故此
+        // 栈句柄只会经历 FieldGet/FieldSet/ArrayGet/Set/Len（+ Eq 走 PartialEq），运行时已全覆盖。
+        if (ins is ConvertInstr)     { ConvertInstr i = ins as ConvertInstr; IrEscapeAnalysis._mark(esc, i.Src); return; }
         // 其余皆 neutral（不标）：Copy(Pass B) / FieldGet.Obj / ArrayGet / ArrayLen /
-        //   算术·比较·位·移位·一元·convert·StrConcat 的操作数 / ArrayNew.Size / Const* / StaticGet /
-        //   LoadFn / Typeof / DefaultOf —— 均消费值或读自身，不泄露引用。
+        //   算术·比较·位·移位·一元·StrConcat 的操作数（皆基元/字符串，引用不流入）/ ArrayNew.Size /
+        //   Const* / StaticGet / LoadFn / Typeof / DefaultOf —— 均消费值或读自身，不泄露引用。
     }
 
     // 终结子：返回值 / throw 值逃逸；BrCond.Cond（bool）、Br（无读）neutral。

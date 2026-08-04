@@ -49,14 +49,16 @@ CFG」的坑）。
 | `ArrayNewLit` | 所有 **elems** | — |
 | `Call*` / `VCall` / `CallIndirect` | 所有 args + receiver + callee | — |
 | `MkClos` | 所有捕获 reg | — |
-| `AsCast`（结果别名）/ `ToStr`（调 ToString）/ `LoadLocalAddr`（取址）/ `IsInstance`※ | 其 Obj/Src/Slot | — |
+| `AsCast`（结果别名）/ `ToStr`（调 ToString）/ `LoadLocalAddr`（取址）/ `IsInstance`※ / `Convert`※ | 其 Obj/Src/Slot | — |
 | `FieldGet` / `ArrayGet` / `ArrayLen` | — | target / array / index |
-| 算术·比较·位·移位·一元·convert·StrConcat / `ArrayNew.Size` / Copy(Pass B) | — | 全部读操作数 |
+| 算术·比较·位·移位·一元·StrConcat / `ArrayNew.Size` / Copy(Pass B) | — | 全部读操作数 |
 | **规则表未列的任何指令** | **其所有读操作数（保守兜底）** | — |
 
-> ※ `IsInstance.Obj` 严格说是中性（`is`-check 不泄露引用），但**有意标为逃逸以收窄运行时触达面**——
-> 如此栈对象在 interp 只经历 FieldGet/FieldSet（+ Eq 走 `Value` 的 `PartialEq`），运行时无需为
-> IsInstance 补栈对象分支。代价：`p is T` 的 p 不栈分配（少量覆盖损失）。放宽 = 运行时补分支后移除该标记。
+> ※ `IsInstance.Obj` / `Convert.Src` 严格说中性（is-check / 恒等 convert 不泄露引用），但**有意标为逃逸
+> 以收窄运行时触达面**——如此栈对象只经历 FieldGet/FieldSet、栈数组只经历 ArrayGet/Set/Len +
+> FieldGet(`.Length`/`.Count` 经 FieldGet 路由)（+ Eq 走 `Value::PartialEq`），运行时无需为 IsInstance /
+> `convert_value`（只 match 堆 Array/Object）补栈分支。代价：`p is T` / 引用恒等 cast 的操作数不栈分配
+> （少量覆盖损失）。放宽 = 运行时补对应分支后移除该标记。
 
 **铁律（对齐 LICM 的保守姿态）**：规则表**不认识**的指令读了目标 reg → **默认判逃逸**（over-approximate
 安全兜底）。加精度 = 往规则表加/改一条分支，引擎（两趟）不动 —— 这是「后面可补规则」的落点。
