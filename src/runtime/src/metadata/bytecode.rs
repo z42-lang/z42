@@ -445,6 +445,15 @@ pub struct Function {
     /// Not serialized (pure runtime optimization; no zbc/format impact).
     #[serde(skip)]
     pub fused_tails: Vec<Option<super::superinstr::SuperInstr>>,
+    /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
+    /// + source file as `Arc<str>`, precomputed once at load (like
+    /// `branch_targets`). `exec_function_body` clones these O(1) per call instead
+    /// of re-running `format_frame_name` (String alloc + format) + a file clone
+    /// on **every** call — that was 40–60% of call-heavy interp time (measured).
+    /// `None` for hand-built test functions the loader never post-processes → the
+    /// interp falls back to formatting on the fly.
+    #[serde(skip)]
+    pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,

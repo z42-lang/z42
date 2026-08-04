@@ -75,6 +75,7 @@ fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Termin
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
 }
@@ -389,6 +390,7 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     Module {
@@ -481,6 +483,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     let m = Module {
@@ -538,6 +541,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     let m = Module {

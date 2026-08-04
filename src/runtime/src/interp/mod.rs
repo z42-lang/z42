@@ -682,15 +682,26 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // stack; raw pointers stay valid until this function returns.
     // FrameGuard's Drop pops on every exit path (`?` propagation, panic
     // unwind, normal return).
-    let file = func.line_table().first()
-        .and_then(|e| e.file.clone())
-        .unwrap_or_default();
+    // perf-frame-name-precompute: clone the load-time precomputed (name, file)
+    // Arc<str> pair — O(1) refcount bumps — instead of re-formatting the frame
+    // name (String alloc + format) + cloning the file string on every call
+    // (was 40–60% of call-heavy interp time). Hand-built test functions have no
+    // precomputed meta (`None`) → fall back to formatting on the fly.
+    let (frame_name, frame_file) = match &func.frame_meta {
+        Some((name, file)) => (name.clone(), file.clone()),
+        None => {
+            let file = func.line_table().first()
+                .and_then(|e| e.file.clone())
+                .unwrap_or_default();
+            (
+                std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
+                std::sync::Arc::from(file),
+            )
+        }
+    };
     ctx.push_frame(crate::exception::VmFrame::new(
-        // VmFrame stores Arc<str> (perf-jit-frame-strings); interp builds the
-        // owned String once then hands ownership to the Arc (same alloc cost as
-        // the previous String field — no interp regression).
-        std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
-        std::sync::Arc::from(file),
+        frame_name,
+        frame_file,
         &frame.regs as *const Vec<Value>,
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));

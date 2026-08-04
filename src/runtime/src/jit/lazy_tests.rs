@@ -36,6 +36,7 @@ fn empty_fn(name: &str) -> Function {
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
 }
