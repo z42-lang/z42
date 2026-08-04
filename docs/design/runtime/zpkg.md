@@ -258,6 +258,15 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 
+> **例外：SymOnly（`.zsym`）sidecar 的 within-minor 演进**（add-offline-symbolication, 2026-08-04）。
+> `.zsym` 的 **MDBG** 段布局在 minor 33 内变更（per-module 由 `{ns_idx, dbug_len, dbug}` →
+> `{ns_idx, funcCount, frameName_idx×funcCount, dbug_len, dbug}`，每函数嵌 frame-name(带签名) key，
+> 使 `.zsym` 自足映射 名→行表，供离线 `z42d symbolicate`）。**未 bump 共享 minor**——判据：MDBG **只**
+> 存在于 `.zsym`（临时、每次 release 构建重生、非 nightly 那样分发的稳定件），写端（`ZpkgWriter._buildSidecar`）
+> 与读端（Rust `read_mdbg_section` / z42d `SidecarReader`）在同一 change 同版落地，无跨版本读旧 `.zsym`
+> 的真实场景；**常规 zpkg（含内联 DBUG）字节不变**。故不适用"任意 section 变即 bump 全树"——那条针对
+> 分发稳定件，`.zsym` 不属此列（避免为 sidecar-only 改动触发全树 bump + 两代自举死锁）。
+
 ---
 
 ## Deferred / Future Work

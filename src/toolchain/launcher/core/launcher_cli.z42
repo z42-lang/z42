@@ -49,6 +49,12 @@ void _runLauncher(string[] argv) {
         Environment.Exit(_forwardRepl(_tail(argv, 1)));
         return;
     }
+    // NB: z42d subcommands (symbolicate / fmt / doc / dbg / prof / lint) are NOT
+    // launcher-forwarded — invoke them via `z42d <cmd>` directly. The launcher only
+    // fronts the core-workflow verbs (run/build/test/bench/clean/new/repl); diagnostic
+    // dev-tools live under the z42d muxer and own their own command set. If the project
+    // later decides to surface devtools at top level, do it uniformly for all of them,
+    // not per-verb (add-offline-symbolication kept symbolicate as `z42d symbolicate`).
 
     SubcommandRouter root = _launcherRoot();
     CommandResolution res;

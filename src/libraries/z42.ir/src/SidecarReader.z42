@@ -1,0 +1,204 @@
+// `.zsym` SymOnly sidecar reader (add-offline-symbolication, 2026-08-04).
+//
+// ZpkgReader.Open 拒收 SymOnly（flags&4）——那是"工程包消费面"。本 reader 专读
+// `.zsym`：META + STRS + MDBG(每函数嵌 frame-name key，minor 33 within) + BLID，
+// 建 `frame-name(带签名) → 行表` 索引，供 z42d symbolicate 离线把崩溃栈的
+// `at <name>(<types>) +0x<offset>` 还原成 file:line:col。
+//
+// 复用 ZpkgReader 的 public ZpkgCursor（LE + varint）；IrLineEntry 来自 Z42.IR。
+namespace Z42.Project;
+
+using Std;
+using Std.IO;
+using Std.Encoding;
+using Z42.IR;
+
+// 单函数符号：frame-name key（`ns.Name(t0,t1)`）+ 行表。
+public sealed class SidecarFuncSym {
+    public string        Fqn;
+    public IrLineEntry[] Lines;
+    public int           LineCount;
+    public SidecarFuncSym(string fqn, IrLineEntry[] lines, int lineCount) {
+        this.Fqn = fqn; this.Lines = lines; this.LineCount = lineCount;
+    }
+}
+
+// 一个 .zsym 的解析结果：build_id(16B) + 全函数符号（跨模块扁平）。
+public sealed class SidecarSyms {
+    public byte[]            BuildId;
+    public SidecarFuncSym[]  Funcs;
+    public int               FuncCount;
+    public SidecarSyms(byte[] buildId, SidecarFuncSym[] funcs, int funcCount) {
+        this.BuildId = buildId; this.Funcs = funcs; this.FuncCount = funcCount;
+    }
+    // frame-name key → 行表（线性查；单文件函数数有限）。未命中返回 null。
+    public SidecarFuncSym Find(string fqn) {
+        int i = 0;
+        while (i < this.FuncCount) {
+            if (this.Funcs[i].Fqn == fqn) { return this.Funcs[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
+
+public static class SidecarReader {
+
+    // 解析 .zsym 字节。非 SymOnly zpkg / 坏 magic / 版本不符 / 缺 MDBG|BLID → null（调用方跳过+warn）。
+    public static SidecarSyms Read(byte[] data) {
+        if (data.Length < 16) { return null; }
+        if ((int)data[0] != 90 || (int)data[1] != 80 || (int)data[2] != 75 || (int)data[3] != 0) { return null; }  // "ZPK\0"
+        var vc = new ZpkgCursor(data, 4);
+        int major = vc.U16();
+        int minor = vc.U16();
+        if (major != ZpkgWriterZ.Major || minor != ZpkgWriterZ.Minor) { return null; }
+        var c = new ZpkgCursor(data, 8);
+        int flags = c.U16();
+        int secCount = c.U16();
+        if ((flags & 4) == 0) { return null; }   // 必须是 SymOnly sidecar
+
+        // 目录：secCount×{tag(4B), off(u32), size(u32)}，从 offset 16 起。
+        int strsOff = -1;
+        int mdbgOff = -1;
+        int blidOff = -1; int blidSize = 0;
+        c.Pos = 16;
+        int i = 0;
+        while (i < secCount) {
+            string tag = SidecarReader._tag(data, c.Pos);
+            c.Pos = c.Pos + 4;
+            int off = c.U32();
+            int size = c.U32();
+            if (tag == "STRS") { strsOff = off; }
+            else if (tag == "MDBG") { mdbgOff = off; }
+            else if (tag == "BLID") { blidOff = off; blidSize = size; }
+            i = i + 1;
+        }
+        if (mdbgOff < 0 || blidOff < 0 || blidSize < 16) { return null; }
+
+        string[] pool = SidecarReader._readStrs(data, strsOff);
+
+        byte[] buildId = new byte[16];
+        int b = 0;
+        while (b < 16) { buildId[b] = data[blidOff + b]; b = b + 1; }
+
+        // MDBG：u32 mod_count；每模块 u32 ns_idx + u32 funcCount + funcCount×u32 frameName_idx
+        //        + u32 dbug_len + dbug 体。frameName[i] 对齐 dbug 的 per-func 行表[i]。
+        var mc = new ZpkgCursor(data, mdbgOff);
+        int modCount = mc.U32();
+        // 先扫总函数数以定分配（每模块 funcCount 累加）。简化：动态扩容用两趟——
+        // 第一趟统计，第二趟填充（避免交错数组）。
+        SidecarFuncSym[] funcs = new SidecarFuncSym[0];
+        int total = 0;
+        int m = 0;
+        while (m < modCount) {
+            mc.U32();                       // ns_idx（未用；FQN 已含 ns）
+            int funcCount = mc.U32();
+            int[] fnIdx = new int[funcCount];
+            int f = 0;
+            while (f < funcCount) { fnIdx[f] = mc.U32(); f = f + 1; }
+            int dbugLen = mc.U32();
+            int dbugEnd = mc.Pos + dbugLen;
+            // dbug 体：u32 func_count；每函数 {u16 lineCount; 行×; u16 varCount; 变量×}。
+            SidecarFuncSym[] modFuncs = SidecarReader._readDbug(mc, pool, fnIdx, funcCount);
+            mc.Pos = dbugEnd;               // 跳到下一模块（防解析游标漂移）
+            // 追加 modFuncs 到 funcs。
+            SidecarFuncSym[] grown = new SidecarFuncSym[total + modFuncs.Length];
+            int g = 0;
+            while (g < total) { grown[g] = funcs[g]; g = g + 1; }
+            int h = 0;
+            while (h < modFuncs.Length) { grown[total + h] = modFuncs[h]; h = h + 1; }
+            funcs = grown;
+            total = total + modFuncs.Length;
+            m = m + 1;
+        }
+        return new SidecarSyms(buildId, funcs, total);
+    }
+
+    // dbug 体 → per-func 行表，按 frameName idx 数组配 FQN。dbug 的 func_count 应 == funcCount。
+    private static SidecarFuncSym[] _readDbug(ZpkgCursor c, string[] pool, int[] fnIdx, int funcCount) {
+        int dbFuncCount = c.U32();
+        int n = dbFuncCount;
+        if (funcCount < n) { n = funcCount; }   // 防越界（正常相等）
+        SidecarFuncSym[] syms = new SidecarFuncSym[n];
+        int fi = 0;
+        while (fi < dbFuncCount) {
+            int lineCount = c.U16();
+            IrLineEntry[] lines = new IrLineEntry[lineCount];
+            int li = 0;
+            while (li < lineCount) {
+                int blk = c.U16();
+                int ins = c.U16();
+                int line = c.U32();
+                int fileIdx = c.U32();
+                int col = c.U32();
+                bool hasFile = !SidecarReader._isNone(fileIdx);
+                string file = hasFile ? SidecarReader._p(pool, fileIdx) : "";
+                lines[li] = new IrLineEntry(blk, ins, line, hasFile, file, col);
+                li = li + 1;
+            }
+            int varCount = c.U16();
+            int vi = 0;
+            while (vi < varCount) { c.U32(); c.U16(); vi = vi + 1; }   // 局部变量表：跳过（symbolicate 不需）
+            if (fi < n) {
+                string fqn = (fi < funcCount) ? SidecarReader._p(pool, fnIdx[fi]) : "";
+                syms[fi] = new SidecarFuncSym(fqn, lines, lineCount);
+            }
+            fi = fi + 1;
+        }
+        return syms;
+    }
+
+    // STRS segment-dict 解码（镜像 ZpkgReader.Open）→ pool。strsOff<0 → 空池。
+    private static string[] _readStrs(byte[] data, int strsOff) {
+        if (strsOff < 0) { return new string[0]; }
+        var sc = new ZpkgCursor(data, strsOff);
+        int segCount = sc.U32();
+        string[] segDict = new string[segCount];
+        int sdi = 0;
+        while (sdi < segCount) {
+            int segLen = sc.Varint();
+            segDict[sdi] = SidecarReader._utf8(data, sc.Pos, segLen);
+            sc.Pos = sc.Pos + segLen;
+            sdi = sdi + 1;
+        }
+        int poolCount = sc.U32();
+        string[] pool = new string[poolCount];
+        int j = 0;
+        while (j < poolCount) {
+            int segN = sc.Varint();
+            string s = "";
+            int k = 0;
+            while (k < segN) {
+                int segIdx = sc.Varint();
+                if (segIdx < 0 || segIdx >= segCount) { return new string[0]; }
+                if (k > 0) { s = s + "."; }
+                s = s + segDict[segIdx];
+                k = k + 1;
+            }
+            pool[j] = s;
+            j = j + 1;
+        }
+        return pool;
+    }
+
+    // file-idx none sentinel（镜像 ZbcReader._isNoneU32：0xFFFFFFFF）。
+    private static bool _isNone(int v) {
+        return (v & 0x7FFFFFFF) == 0x7FFFFFFF && ((v >> 31) & 1) == 1;
+    }
+
+    private static string _p(string[] pool, int idx) {
+        if (idx < 0 || idx >= pool.Length) { return ""; }
+        return pool[idx];
+    }
+
+    private static string _tag(byte[] d, int off) {
+        return SidecarReader._utf8(d, off, 4);
+    }
+
+    private static string _utf8(byte[] d, int off, int len) {
+        byte[] b = new byte[len];
+        int i = 0;
+        while (i < len) { b[i] = d[off + i]; i = i + 1; }
+        return Utf8.GetString(b);
+    }
+}

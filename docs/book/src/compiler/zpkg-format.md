@@ -100,7 +100,16 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 
 ### MDBG — 调试信息（仅 sidecar）
 
-`u32 module_count`，每模块 `{ ns_idx; u32 dbug_len; dbug 体 }`（dbug 体同 zbc DBUG，用符号池）。
+`u32 module_count`，每模块 `{ ns_idx; u32 funcCount; frameName_idx × funcCount; u32 dbug_len; dbug 体 }`
+（dbug 体同 zbc DBUG，用符号池）。`frameName_idx[i]` 与 dbug 的第 `i` 个函数行表按 index 对齐，
+存该函数的 **frame-name(带签名) key**（`ns.Name(t0,t1)`，镜像 runtime `format_frame_name`）——使
+`.zsym` **自足**映射「函数名 → 行表」，供离线 `z42d symbolicate` 还原剥离档崩溃栈的
+`at <name>(<types>) +0x<offset>`（offset 打包 `(block<<16)|instr`）为 `file:line:col`。
+
+> **frameName 是 within-minor 33 演进**（add-offline-symbolication, 2026-08-04）：MDBG 只在临时、
+> 每次 release 重生的 `.zsym`（非分发稳定件），写读同版落地，故**不 bump 共享 minor**（依据见
+> [`docs/design/runtime/zpkg.md`](../../../design/runtime/zpkg.md) within-minor 例外）。runtime
+> 加载相邻 .zsym 时按 index merge（跳过 frameName，名来自主包）；z42d 离线时用 frameName 直接查。
 
 ### BLID — Build ID
 
@@ -120,6 +129,12 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 ## sidecar（.zsym）
 
 release strip 时，调试信息剥离到旁挂 `.zsym`：flags = `Packed | SymOnly = 0x05`，段集 `META / STRS(符号串) / MDBG / BLID`。reader 遇 SymOnly 位拒绝作工程包，仅由专门入口按 build id 与主包配对后把调试信息合入。
+
+**两种消费路径**（add-offline-symbolication）：① **运行时自动合并**——loader 探测与主包同目录的
+`.zsym`，build_id 匹配则按 index 把行表 merge 回模块 → 栈跟踪直接出 `file:line:col`（`.zsym`
+不在旁 → 栈出 `at <fn> +0x<offset>`）。② **离线符号化**——部署常不带 `.zsym`；归档 `.zsym` 后用
+`z42d symbolicate <trace> --syms <file|dir>...`（多路径递归，参考 addr2line/Breakpad）据 MDBG 的
+frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.zsym` 见 `z42.ir` 的 `SidecarReader`。
 
 ## zpkg 与 zbc 的关系
 
