@@ -54,7 +54,11 @@ pub unsafe extern "C" fn jit_array_data(
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            // packed-primitive-arrays Step 4: the inline fast path is only emitted
+            // for `IrType::I64`/`F64` element regs → the backing is `long[]`/
+            // `double[]` (wide packed, 8-byte slots). Hand back the packed buffer
+            // base; the JIT loads stride-8 (no boxed `Value` round-trip).
+            *out_ptr = borrowed.wide_data_ptr().unwrap_or(std::ptr::null()) as *const Value;
             *out_len = borrowed.len() as i64;
             0
         }
@@ -83,7 +87,8 @@ pub unsafe extern "C" fn jit_array_data_opt(
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            // Step 4: wide packed buffer base (`long[]`/`double[]`), stride-8.
+            *out_ptr = borrowed.wide_data_ptr().unwrap_or(std::ptr::null()) as *const Value;
             *out_len = borrowed.len() as i64;
         }
         _ => {
@@ -115,7 +120,7 @@ pub unsafe extern "C" fn jit_array_get(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i].clone()
+            borrowed.get_boxed(i)
         }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: expected array, got {:?}", other).into()));
@@ -154,7 +159,7 @@ pub unsafe extern "C" fn jit_array_set(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i] = v.clone();
+            borrowed.set_boxed(i, v.clone());
             drop(borrowed);
             if v.is_heap_ref() {
                 vm_ctx_ref(ctx).heap().write_barrier_array_elem(&arr_val, i, &v);

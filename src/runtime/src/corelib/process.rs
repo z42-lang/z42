@@ -85,7 +85,7 @@ fn require_str_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<String
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
                     Value::Str(s) => out.push(s.to_string()),
                     other => bail!("{}: arg {} element {} expected string, got {:?}", ctx, idx, i, other),
@@ -105,9 +105,9 @@ fn optional_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Option<V
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
-                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
                     other => bail!(
                         "{}: arg {} byte {} not a u8 in 0..=255: {:?}",
                         ctx, idx, i, other),
@@ -701,7 +701,7 @@ fn process_handle_read_impl(
 
     let mut borrowed = buf_arr.borrow_mut();
     for i in 0..n {
-        borrowed[offset + i] = Value::I64(tmp[i] as i64);
+        borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }
     Ok(Value::I64(n as i64))
 }

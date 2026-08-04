@@ -129,7 +129,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     //    一个新 GcRef Array（避免 callee 持有指向 caller arena 的 lifetime）。
     let (fn_name, env_vec_opt): (String, Option<Vec<Value>>) = match &frame_ref.regs[callee as usize] {
         Value::FuncRef(n) => (n.to_string(), None),
-        Value::Closure(c) => (c.fn_name.clone(), Some(c.env.borrow().elems.clone())),
+        Value::Closure(c) => (c.fn_name.clone(), Some(c.env.borrow().to_boxed_vec())),
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame_ref.env_arena.len() {

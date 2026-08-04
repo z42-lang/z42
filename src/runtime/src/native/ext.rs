@@ -378,10 +378,16 @@ fn require_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<u8>> 
     match args.get(idx) {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
+            // packed-primitive-arrays Step 3: a packed `byte[]` (`Bytes` backing)
+            // is already a contiguous `&[u8]` — copy it straight out, no per-byte
+            // unbox (the "简化 extern call" win). Boxed falls back to validation.
+            if let Some(b) = borrowed.as_bytes() {
+                return Ok(b.to_vec());
+            }
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
-                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
                     other => bail!("{}: arg {} byte {} not u8 in 0..=255: {:?}",
                                    ctx, idx, i, other),
                 }
@@ -412,8 +418,9 @@ fn arg_bool(args: &[Value], idx: usize, ctx: &str) -> Result<bool> {
 }
 
 fn bytes_to_value(ctx: &VmContext, bytes: Vec<u8>) -> Value {
-    let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
-    ctx.heap().alloc_array(elems)
+    // packed-primitive-arrays Step 3: pack the native result straight into a
+    // `Bytes` backing — no intermediate `Vec<Value>` boxing.
+    ctx.heap().alloc_bytes(bytes)
 }
 
 fn take_owned_buffer(out_ptr: *mut u8, out_len: usize) -> Vec<u8> {

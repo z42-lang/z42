@@ -9,11 +9,11 @@ fn extract_bytes(v: Value) -> Vec<u8> {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
             borrowed
-                .iter()
+                .iter_boxed()
                 .map(|e| match e {
                     Value::I64(n) => {
-                        assert!((0..=255).contains(n), "byte out of range: {n}");
-                        *n as u8
+                        assert!((0..=255).contains(&n), "byte out of range: {n}");
+                        n as u8
                     }
                     other => panic!("expected I64 byte, got {other:?}"),
                 })

@@ -20,9 +20,9 @@ fn clone_primitives_independent() {
     assert!(!GcRef::ptr_eq(orig_rc, copy_rc), "clone returns a distinct array reference");
     assert_eq!(copy_rc.borrow().len(), 3);
 
-    copy_rc.borrow_mut()[0] = Value::I64(99);
-    assert!(matches!(orig_rc.borrow()[0], Value::I64(1)));
-    assert!(matches!(copy_rc.borrow()[0], Value::I64(99)));
+    copy_rc.borrow_mut().set_boxed(0, Value::I64(99));
+    assert!(matches!(orig_rc.borrow().get_boxed(0), Value::I64(1)));
+    assert!(matches!(copy_rc.borrow().get_boxed(0), Value::I64(99)));
 }
 
 #[test]
@@ -36,8 +36,8 @@ fn clone_shares_reference_elements() {
         (Value::Array(o), Value::Array(c)) => (o, c),
         _ => panic!("expected arrays"),
     };
-    let orig_inner = orig_rc.borrow()[0].clone();
-    let copy_inner = copy_rc.borrow()[0].clone();
+    let orig_inner = orig_rc.borrow().get_boxed(0).clone();
+    let copy_inner = copy_rc.borrow().get_boxed(0).clone();
     match (orig_inner, copy_inner) {
         (Value::Array(a), Value::Array(b)) => assert!(GcRef::ptr_eq(&a, &b),
             "shallow clone shares reference-type elements"),

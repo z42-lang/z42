@@ -110,7 +110,7 @@ pub fn value_to_str(v: &Value) -> String {
         Value::Str(s)  => s.to_string(),
         Value::Null    => "null".to_string(),
         Value::Array(rc) => {
-            let inner: Vec<String> = rc.borrow().iter().map(value_to_str).collect();
+            let inner: Vec<String> = rc.borrow().iter_boxed().map(|v| value_to_str(&v)).collect();
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),

@@ -148,7 +148,7 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     };
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 GcRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 GcRef。
-    let env_vec: Vec<Value> = env_arr.borrow().iter().cloned().collect();
+    let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
     let env_val = ctx.heap().alloc_array(env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,

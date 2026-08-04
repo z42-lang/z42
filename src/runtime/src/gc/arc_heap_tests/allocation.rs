@@ -31,8 +31,8 @@ fn alloc_array_returns_value_array_with_given_elems() {
     let Value::Array(rc) = v else { panic!("expected Value::Array") };
     let b = rc.borrow();
     assert_eq!(b.len(), 3);
-    assert_eq!(b[0], Value::I64(7));
-    assert_eq!(b[2], Value::I64(9));
+    assert_eq!(b.get_boxed(0), Value::I64(7));
+    assert_eq!(b.get_boxed(2), Value::I64(9));
 }
 
 #[test]
