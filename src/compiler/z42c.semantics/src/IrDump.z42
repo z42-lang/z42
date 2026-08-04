@@ -494,7 +494,9 @@ public static class IrDump {
         // （test_constfold_* / test_identity_*），但内联是跨函数变换、会折叠含直接调用的 golden 且脆弱；
         // 排除内联 = Phase 2 前 Opt.All 的等价输出，所有既有 golden 逐字节不变。真实 release 包构建
         // （BuildPackageCus 走 ProfileDefault=All 含内联）+ 内联专项单测覆盖内联行为。
-        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline);
+        // 同理排除 StackAlloc（add-escape-analysis）：逃逸分析是跨函数（ctor this-摘要）+ 模块级变换，
+        // 会给非逃逸分配置标志、改 golden 字节且脆弱 → dump/golden 路径不跑；真实 release 自建 + 专项单测覆盖。
+        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline - Opt.StackAlloc);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;
@@ -566,7 +568,8 @@ public static class IrDump {
         // 跨函数内联——否则每个含直接调用的 codegen golden 都会被内联折叠、测两件事且脆弱。此值 =
         // Phase 2 前 Opt.All 的等价输出（内联当时是 no-op），故所有既有 golden 逐字节不变。内联单独由
         // 真实 release 自建（D7 不动点 / e2e）+ `DumpFuncOpt(...Opt.All)` 专项单测覆盖。
-        return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline);
+        // 同理减去 StackAlloc（add-escape-analysis）：跨函数 + 模块级、会改 golden 字节 → 单函数 dump 路径不跑。
+        return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline - Opt.StackAlloc);
     }
 
     // 带显式 optSet 的 dump 构建（内联 / 独立性单测：传 Opt.All 开内联、传 Opt.Inline 单独验内联）。

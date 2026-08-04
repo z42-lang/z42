@@ -1768,6 +1768,11 @@ impl MagrGC for ArcMagrGC {
             Value::Boxed(b) => size_of::<Value>()
                 + size_of::<crate::metadata::types::BoxedPrim>()
                 + b.class.len(),
+            // add-escape-analysis-stack-alloc: stack objects/arrays live in the
+            // per-context arena, not the GC heap — object_size_bytes is a heap-alloc
+            // accounting hook and is never called on them; the arm exists only for
+            // exhaustiveness. The handle itself is just a (idx, frame_id) pair.
+            Value::StackObject { .. } | Value::StackArray { .. } => size_of::<Value>(),
         }
     }
 

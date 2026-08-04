@@ -373,6 +373,15 @@ pub struct VmContext {
     /// interp + paired `push_frame` / `pop_frame` in JIT helpers ensure
     /// the pop runs before the owner returns.
     pub(crate) call_stack:        Arc<Mutex<Vec<crate::exception::VmFrame>>>,
+    /// add-escape-analysis-stack-alloc: per-thread arena holding escape-analysis
+    /// stack-allocated objects/arrays (`Value::StackObject`/`StackArray` index it).
+    /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC
+    /// roots at safepoint (its slots may hold heap `GcRef`s). Mutex: owner-thread
+    /// accesses uncontended; GC scanner is the only cross-thread reader.
+    pub(crate) stack_arena:       Arc<Mutex<crate::interp::stack_alloc::StackArena>>,
+    /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
+    /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
+    pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): forward pointer to the active
     /// `JitModuleCtx`, mirroring the existing `JitModuleCtx.vm_ctx` back-pointer.
     /// Type-erased as `usize` (the `jit` module is `cfg`-gated; this field is not)
@@ -520,6 +529,8 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            stack_arena: Arc::new(Mutex::new(Default::default())),
+            next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
@@ -673,6 +684,13 @@ impl VmContext {
                     for v in ctx.func_ref_slots.lock().iter() {
                         visit(v);
                     }
+                    // add-escape-analysis-stack-alloc: stack-alloc arena roots.
+                    // A stack object's slots / stack array's elements may hold heap
+                    // GcRefs that must stay marked while the stack object is live.
+                    // (The stack objects themselves are not GC-heap entries and are
+                    // freed by frame-exit truncation, not sweep.) The arena lock is
+                    // never held across a GC trigger, so this cannot deadlock.
+                    ctx.stack_arena.lock().scan_roots(visit);
                 }
             }));
         }
@@ -681,6 +699,8 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            stack_arena: Arc::new(Mutex::new(Default::default())),
+            next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
@@ -958,13 +978,32 @@ impl VmContext {
     /// Push one [`crate::exception::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
-    pub(crate) fn push_frame(&self, frame: crate::exception::VmFrame) {
+    pub(crate) fn push_frame(&self, mut frame: crate::exception::VmFrame) {
+        // add-escape-analysis-stack-alloc: stamp this frame's stack-arena bases so
+        // pop_frame can LIFO-truncate exactly this frame's stack allocations. Lock
+        // stack_arena only briefly (released before locking call_stack) → the two
+        // locks are never held simultaneously (no lock-order inversion vs pop_frame).
+        let (obj_base, arr_base) = self.stack_arena.lock().bases();
+        frame.stack_obj_base = obj_base;
+        frame.stack_arr_base = arr_base;
         self.call_stack.lock().push(frame);
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub(crate) fn pop_frame(&self) {
-        self.call_stack.lock().pop();
+        // add-escape-analysis-stack-alloc: free this frame's stack allocations by
+        // truncating the arena back to its stamped bases (bulk LIFO free). Pop the
+        // call_stack first (release its lock) before touching stack_arena.
+        let popped = self.call_stack.lock().pop();
+        if let Some(f) = popped {
+            self.stack_arena.lock().truncate(f.stack_obj_base, f.stack_arr_base);
+        }
+    }
+
+    /// add-escape-analysis-stack-alloc: allocate a fresh monotonic frame id
+    /// (stamped onto each interp `Frame` at entry; keys stack-arena slots).
+    pub(crate) fn next_frame_id(&self) -> u32 {
+        self.next_frame_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Update the *top* (currently executing) frame's source position.

@@ -29,6 +29,10 @@ public sealed class IrOptPipeline {
             IrOptPipeline._optFunc(m.Functions[fi], optSet);
             fi = fi + 1;
         }
+        // pass: escape-analysis 栈上分配（模块级，最后跑）—— 所有 per-函数变换 + inline 已定型，
+        // 分析匹配最终执行的 IR（inline 把 call 展开后可能解锁更多不逃逸对象）。只置 ObjNew/ArrayNew/
+        // ArrayNewLit 的 StackAlloc 标志、不改指令流 → 不影响其它 pass，单独开也正确（design D2）。
+        if (Opt.Has(optSet, Opt.StackAlloc)) { IrEscapeAnalysis.Run(m); }
     }
 
     private static void _optFunc(IrFunction f, int optSet) {

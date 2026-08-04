@@ -82,6 +82,13 @@ pub struct VmFrame {
     /// Pointer to the frame's stack-closure env arena (or null when the
     /// frame does not host any stack closures).
     pub env_arena: *const Vec<Vec<Value>>,
+    /// add-escape-analysis-stack-alloc: the per-context stack-arena lengths when
+    /// this frame was pushed. `pop_frame` truncates the arena back to these,
+    /// bulk-freeing this frame's stack-allocated objects/arrays (LIFO). Stamped
+    /// by `push_frame` (not the `new()` call sites) → all frame kinds get it for
+    /// free; JIT frames never stack-allocate so their truncate is a no-op.
+    pub stack_obj_base: usize,
+    pub stack_arr_base: usize,
 }
 
 // SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
@@ -108,6 +115,8 @@ impl VmFrame {
             line: Cell::new(0), column: Cell::new(0),
             offset: Cell::new(u32::MAX),
             regs, env_arena,
+            // add-escape-analysis-stack-alloc: overwritten by push_frame.
+            stack_obj_base: 0, stack_arr_base: 0,
         }
     }
 

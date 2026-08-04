@@ -604,6 +604,10 @@ pub struct ArrayNewInsn {
     /// string pool at decode. Stored on the array's `ArrayObj` so
     /// `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
     #[serde(default)] pub element_type: String,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
+    /// array does not escape its creating frame → interp allocates it in the
+    /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::ArrayNewLit`] (add-reflection-array-element-type).
@@ -612,6 +616,8 @@ pub struct ArrayNewLitInsn {
     #[serde(with = "typed_reg_serde")] pub dst: Reg,
     #[serde(with = "typed_reg_vec_serde")] pub elems: Box<[Reg]>,
     #[serde(default)] pub element_type: String,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): non-escaping → frame arena (interp).
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::Builtin`].
@@ -656,6 +662,10 @@ pub struct ObjNewInsn {
     /// Resolved generic type-arguments for this allocation (e.g. `["int"]` for
     /// `new Foo<int>()`); empty for non-generic. `Box<[String]>` (immutable IR).
     #[serde(default)] pub type_args: Box<[String]>,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
+    /// object does not escape AND its ctor does not leak `this` → interp allocates
+    /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::Typeof`].

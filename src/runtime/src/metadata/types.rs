@@ -736,6 +736,19 @@ pub enum Value {
     /// 指令创建；`Unbox`（object→prim）取回 `inner`。算术/方法体永远拿拆箱后的 `inner`，
     /// 故热路径零影响。Box<…> = 8B 指针，不撑大 Value。
     Boxed(Box<BoxedPrim>) = 13,
+    /// add-escape-analysis-stack-alloc: 逃逸分析证明不逃逸的对象，interp 在**每线程
+    /// context 的栈 arena**（`VmContext::stack_obj_arena`）里分配，绕过 GC、随创建帧
+    /// 退出 LIFO 截断释放。句柄（非堆指针）：
+    ///   * `idx` — arena 内条目下标（`ctx.stack_obj_arena[idx]`，任何帧都能直取——ctor
+    ///     子帧因此天然可解 `this`，无需跨帧机制）。
+    ///   * `frame_id` — 创建帧的单调 id（诊断）：解引用时校验 arena 槽的 frame_id 与之
+    ///     相符 + idx 在界内，不符/越界 = 逃逸分析误判、栈句柄活过创建帧 → 明确报错
+    ///     （而非静默 use-after-free）。帧退出 truncate 后槽被后续帧复用 → frame_id 不符即抓。
+    /// JIT 从不产生本变体（D2：JIT 忽略 stack_alloc、照常堆分配），故 JIT 值路径永不遇到。
+    StackObject { idx: u32, frame_id: u32 } = 14,
+    /// add-escape-analysis-stack-alloc: 不逃逸数组的栈 arena 句柄（`VmContext::stack_arr_arena`）。
+    /// 语义同 `StackObject`。
+    StackArray { idx: u32, frame_id: u32 } = 15,
 }
 
 /// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
@@ -903,9 +916,17 @@ impl Value {
             // 保守追踪一层（若未来 inner 承载堆值也安全）。
             Value::Boxed(b) => visit(&b.inner),
             // Primitives — no children.
+            // add-escape-analysis-stack-alloc: StackObject / StackArray are
+            // leaves for the child-traversal — their slots/elems live in the
+            // frame arena and are scanned directly as GC roots by the external
+            // root scanner (mirrors StackClosure's env_arena handling), so
+            // walking them here would double-count. A stack handle appearing in
+            // a heap object's slot would be an escape-analysis bug; the debug
+            // asserts in the store paths (FieldSet/ArraySet/StaticSet) catch it.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
-            | Value::PinnedView(_) | Value::StackClosure(_) => {}
+            | Value::PinnedView(_) | Value::StackClosure(_)
+            | Value::StackObject { .. } | Value::StackArray { .. } => {}
         }
     }
 }
@@ -942,6 +963,13 @@ impl PartialEq for Value {
             (Value::Boxed(a), Value::Boxed(b)) => a.inner == b.inner,
             (Value::Boxed(a), other) => &a.inner == other,
             (other, Value::Boxed(b)) => other == &b.inner,
+            // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,
+            // frame_id) = 同一栈对象/数组（Eq 操作数在逃逸分析里是 neutral，故栈句柄
+            // 可作 `p1==p2` / `p==null` 操作数；`==null` 落 `_ => false` = 正确「非 null」）。
+            (Value::StackObject { idx: i1, frame_id: g1 },
+             Value::StackObject { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
+            (Value::StackArray { idx: i1, frame_id: g1 },
+             Value::StackArray { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             _ => false,
         }
     }

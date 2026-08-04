@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 28, "zbc minor at 1.28 (fix-crosspkg-interface-impl: interface TYPE method-signature block)");
+    assert_eq!(ZBC_VERSION_MINOR, 29, "zbc minor at 1.29 (add-escape-analysis-stack-alloc: ObjNew/ArrayNew/ArrayNewLit trailing stack_alloc u8)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 33, "zpkg minor at 0.33 (fix-crosspkg-interface-impl: coupled zbc 1.28)");
+    assert_eq!(ZPKG_VERSION_MINOR, 34, "zpkg minor at 0.34 (add-escape-analysis-stack-alloc: coupled zbc 1.29)");
 }
 
 #[test]

@@ -1275,7 +1275,9 @@ pub fn translate_function(
 
                 // Objects
                 Instruction::ObjNew(insn) => {
-                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args } = &**insn;
+                    // add-escape-analysis-stack-alloc: JIT ignores stack_alloc in v1
+                    // (heap-allocates); the optimization targets interp (interp-first).
+                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _ } = &**insn;
                     // 2026-05-07 expand-jit-type-args: marshal `Vec<String>` as a
                     // `*const String` + count to `jit_obj_new`. The IR storage
                     // lives for the module lifetime, so the raw pointer is valid

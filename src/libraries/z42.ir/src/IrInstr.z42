@@ -37,8 +37,10 @@ public sealed class ConstF64Instr : IrInstr {
 
 public sealed class ArrayNewInstr : IrInstr {
     public TypedReg Dst; public TypedReg Size; public int ElemTag; public string ElemName;   // zbc 1.16：elem FQ 名
+    public bool StackAlloc;   // zbc 1.29 add-escape-analysis：逃逸分析证明不逃逸 → 帧 arena 栈分配（默认 false=堆）
     public ArrayNewInstr(TypedReg dst, TypedReg size, int elemTag, string elemName) {
         this.Dst = dst; this.Size = size; this.ElemTag = elemTag; this.ElemName = elemName;
+        this.StackAlloc = false;
     }
     public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_new " + this.ElemName + "[%" + this.Size.Id.ToString() + "]"; }
 }
@@ -57,8 +59,10 @@ public sealed class ArrayNewLitInstr : IrInstr {
     public TypedReg[] Elems;
     public int        ElemCount;
     public string     ElemName;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 → 栈分配（默认 false=堆）
     public ArrayNewLitInstr(TypedReg dst, TypedReg[] elems, int elemCount, string elemName) {
         this.Dst = dst; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName;
+        this.StackAlloc = false;
     }
     public override string Dump() {
         string s = "%" + this.Dst.Id.ToString() + " = arr.new.lit";
@@ -337,11 +341,13 @@ public sealed class ObjNewInstr : IrInstr {
     public int        TypeArgCount;
     public TypedReg[] Args;
     public int        ArgCount;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 + ctor 不泄漏 this → 栈分配（默认 false=堆）
     public ObjNewInstr(TypedReg dst, string className, string ctorName, string[] typeArgs, int typeArgCount,
                        TypedReg[] args, int argCount) {
         this.Dst = dst; this.ClassName = className; this.CtorName = ctorName;
         this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
         this.Args = args; this.ArgCount = argCount;
+        this.StackAlloc = false;
     }
     public override string Dump() {
         string s = this.Dst.Dump() + " = obj_new " + this.ClassName;

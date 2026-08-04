@@ -80,6 +80,7 @@ public static class ZbcInstr {
             w.WriteU8(i.TypeArgCount);
             int t = 0;
             while (t < i.TypeArgCount) { w.WriteU32(pool.Idx(i.TypeArgs[t])); t = t + 1; }
+            if (i.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is TypeofInstr) {
@@ -97,6 +98,7 @@ public static class ZbcInstr {
             w.WriteU16(an.Size.Id);
             w.WriteU8(Tag.FromIrType(an.ElemTag));
             w.WriteU32(pool.Idx(an.ElemName));   // zbc 1.16：elem FQ 名
+            if (an.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is ArrayNewLitInstr) {
@@ -104,6 +106,7 @@ public static class ZbcInstr {
             w.WriteU8(Op.ArrayNewLit); w.WriteU8(Tag.FromIrType(al.Dst.Type)); w.WriteU16(al.Dst.Id);
             ZbcInstr._args(w, al.Elems, al.ElemCount);
             w.WriteU32(pool.Idx(al.ElemName));
+            if (al.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is StaticGetInstr) {
