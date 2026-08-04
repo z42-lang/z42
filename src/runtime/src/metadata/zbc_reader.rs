@@ -177,6 +177,14 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-07-18 fix-crosspkg-interface-impl: bumped to 0.33, coupled inner zbc 1.28
 // (interface TYPE entries gain a method-signature block; see zbc changelog).
 // Outer zpkg layout unchanged.
+// add-offline-symbolication (2026-08-04): the SymOnly (.zsym) sidecar MDBG layout
+// changed WITHIN minor 33 (per-module now carries `funcCount + per-func
+// frameName_idx[]` before the dbug blob so `.zsym` self-maps func-name → line
+// table for offline `z42d symbolicate`). NOT a minor bump: MDBG lives only in the
+// ephemeral, co-versioned `.zsym` (regenerated every release build, not a
+// distributed stable artifact); writer + this reader land together; regular zpkg
+// bytes are unchanged. read_mdbg_section skips the frame-name idxs (runtime merges
+// sidecar line tables by index, names come from the main zpkg).
 pub const ZPKG_VERSION_MINOR: u16 = 33;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
@@ -1055,6 +1063,13 @@ fn read_mdbg_section(sec: &[u8], pool: &[String]) -> Result<Vec<(String, Vec<Dbu
     let mut result = Vec::with_capacity(mod_count);
     for _ in 0..mod_count {
         let ns_idx   = c.read_u32()?;
+        // add-offline-symbolication (zpkg 0.34): per-func frame-name key array
+        // precedes the dbug blob. The runtime merges sidecar line tables into the
+        // module BY INDEX (names come from the main zpkg), so it only needs to
+        // SKIP the frame-name idxs to reach the dbug body. `z42d symbolicate`
+        // (offline, z42 side) is the consumer that actually reads the keys.
+        let func_count = c.read_u32()? as usize;
+        for _ in 0..func_count { let _frame_name_idx = c.read_u32()?; }
         let dbug_len = c.read_u32()? as usize;
         let dbug     = c.read_bytes(dbug_len)?;
         let ns = pool_str_owned(pool, ns_idx)?;
