@@ -22,7 +22,9 @@ public static class Opt {
                                         //        interp 消费、绕过 GC；add-escape-analysis-stack-alloc）
     public static int LoopAllocReuse = 128; // bit7：循环内分配 hoist + 对象复用（迭代内可复用 ObjNew/ArrayNew →
                                         //        pre-header 只分配一次 + 循环体重初始化；add-loop-alloc-hoist-reuse）
-    public static int All       = 255;  // ConstFold|CopyProp|Dce|Inline|Cse|Licm|StackAlloc|LoopAllocReuse
+    public static int ReadonlyLoad = 256; // bit8：readonly 字段读优化（同接收者 readonly FieldGet 块内 CSE 消重 +
+                                        //        接收者=this 的读 LICM 外提循环；add-readonly-fields-opt）
+    public static int All       = 511;  // ConstFold|CopyProp|Dce|Inline|Cse|Licm|StackAlloc|LoopAllocReuse|ReadonlyLoad
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {
@@ -39,6 +41,7 @@ public static class Opt {
         if (name == "licm")       { return Opt.Licm; }
         if (name == "stack-alloc"){ return Opt.StackAlloc; }
         if (name == "loop-alloc-reuse") { return Opt.LoopAllocReuse; }
+        if (name == "readonly-load") { return Opt.ReadonlyLoad; }
         if (name == "all")        { return Opt.All; }
         if (name == "none")       { return Opt.None; }
         return -1;

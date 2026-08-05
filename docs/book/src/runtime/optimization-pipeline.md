@@ -1,7 +1,7 @@
 # 优化管线（编译期 IR 优化 + 运行时 JIT/interp 分层）
 
-> 对齐：2026-08-05（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
-> **逃逸分析栈上分配** + OptSet 门控已落地）
+> 对齐：2026-08-06（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
+> **逃逸分析栈上分配** / 循环分配复用 / **readonly 字段读优化** + OptSet 门控已落地）
 > 状态：🟡 编译期 IR 优化已成形（4 pass + 可独立开关 OptSet）；运行时 JIT 分层随 `jit-lowering-pipeline` 续。
 
 z42 有两条优化路径,共用同一份 z42 IR,但优化的位置和消费方式不同:
@@ -76,7 +76,7 @@ z42 源码 ──z42c──> z42 IR
 > 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
 
 **OptSet：可独立开关的具名优化集（add-compiler-inlining）**：`Opt` 位集 `ConstFold=1/CopyProp=2/
-Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/All=255`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
+Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/All=511`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、
 **release=All**（发布最高优化）；解析优先级 CLI（`--opt`/`--no-opt`）> toml `[optimize]` > profile。
 **独立性硬约束（D2）**：每个 pass 单独开启都必须正确——允许「增效依赖」（inline 后 dce 删得更多），
@@ -172,6 +172,21 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 > **v1 未覆盖（design Deferred）**：`ArrayNewLit`（字面量元素需写手术）；嵌套循环只 hoist 到内层 pre-header
 > （处理序决定，仍正确、收益略逊全外提）；数组动态下标 / 变长 Size / 多块使用。与 scope/回边 arena 复位互补。
 
+**pass 2f readonly 字段读优化（`Opt.ReadonlyLoad=256`，change `add-readonly-fields-opt`；piggyback CSE + LICM，`ReadonlyLoad` 单独门控）**：
+`readonly` 字段构造后不变（类型检查强制：仅声明类实例 ctor 内经 `this` 或字段初始化器可赋值，否则 `E0415`），给
+优化器一个可信契约——`FieldGet` 从「不可 CSE/LICM」（`IsPure` 因 NPE/可变排除）解禁为可消重/可外提。
+- **信息通路（无 zbc 格式 bump）**：`FieldGetInstr.Readonly` 是**纯内存标志**，emit 时由 `ExprEmitter` 从
+  `FieldSymbol.IsReadonly` 填；优化器在 `ZbcWriter` **之前**消费，序列化的 `field_get` 字节不变 → 不 bump zbc/zpkg、
+  不触发两代自举。代价：跨 zpkg 导入字段拿不到 readonly（保守当非 readonly，Deferred）。
+- **块内 CSE**（`IrOptInfo.CseKey` 的 `fget|<objId>|<field>` 分支）：同一稳定接收者上对同一 readonly 字段的重复
+  `field_get` ⇒ 同值 ⇒ 复用首个。**失效**：函数内该字段有任何 `field_set`（即 ctor 内多次写）时跳过其 readonly
+  CSE（`_collectWrittenFields`，保守正确——普通方法无 readonly 写 → 全消重）。
+- **LICM 外提**（`IrLicm._isHoistableReadonlyFget`）：仅提**接收者 = `this`（reg0，实例方法恒非空）**的 readonly
+  `field_get` 到 pre-header——`this` 非空杜绝「零迭代时 NPE 时机漂移」；且循环体内该字段无 `field_set`（值不变）。
+  params/locals 接收者留 Deferred（需非空/支配分析）。
+- **正确性主门**：`src/tests/optimization/readonly_field_hoist/`（开/关输出必须一致）。**实测 interp ~1.87×**
+  （热循环每迭代 3 次 `this.x` 读被外提+消重到 ~0；bench `readonly_field_bench.z42`）。
+
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
 
@@ -217,11 +232,11 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   且让常量实参的内联算术直接被 const-fold 折叠（`Add(2,3)`→`const 5`）。只读性由**过程内分析**（`_writtenParams`
   扫 callee body）判定——callee body 全可见时无需注解。
 
-> **未来方向（语言侧使能优化，展望非 spec）**：`readonly` / 不可变注解能在**分析够不到**处解锁更多优化——
-> ① **`readonly` 字段 / 不可变对象** → 跨「不透明调用」的字段 load 提升 / CSE（分析无法证明任意调用后字段不变，
-> `readonly` 契约可）；② **`in`/`readonly` 参数** → **跨包内联**：callee body 不可见时由**签名**携带「不写」保证；
-> ③ **不可变局部（`let`/`val`）** → 更强 copy/const 传播 + 无别名推理。本 change 的只读实参直代入不需要它
-> （过程内分析已够）；`readonly` 的价值点在**字段级 / 跨包**优化成为瓶颈时。属 lang 变更、phase-gated，届时独立 spec。
+> **语言侧使能优化**：`readonly` / 不可变注解在**分析够不到**处解锁更多优化——
+> ① **`readonly` 字段** → 字段 load 提升 / CSE：**同模块已落地**（pass 2f `Opt.ReadonlyLoad`，change
+> `add-readonly-fields-opt`）；**跨 zpkg 导入字段**仍 Deferred（需 zbc/zpkg 格式 bump 把 readonly 位写进
+> `IrFieldDesc`）；② **`in`/`readonly` 参数** → **跨包内联**：callee body 不可见时由**签名**携带「不写」保证（展望）；
+> ③ **不可变局部（`let`/`val`）** → 更强 copy/const 传播 + 无别名推理（展望）。②③ 属 lang 变更、phase-gated，届时独立 spec。
 
 **正确性边界**：只碰单赋值 temp（命名局部重赋值需 def-use，留后）；单趟不级联（保守）。一个寄存器值 escape
 函数的途径 = 返回 / out·ref 参数 / 有副作用指令读，三者齐全 DCE 才安全（out_var 回归即漏 out 参数 live-out）。

@@ -584,7 +584,9 @@ public sealed class SymbolCollector {
                     this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
                         "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
                 }
-                ct.Fields.Put(fd.Name, new FieldSymbol(fd.Name, this._vis(fd.Mods), ft, fstatic, c.Name));
+                FieldSymbol fsym = new FieldSymbol(fd.Name, this._vis(fd.Mods), ft, fstatic, c.Name);
+                fsym.IsReadonly = this._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
+                ct.Fields.Put(fd.Name, fsym);
                 if (this._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
                 // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。

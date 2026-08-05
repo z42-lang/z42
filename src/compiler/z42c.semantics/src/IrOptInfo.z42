@@ -236,7 +236,19 @@ public sealed class IrOptInfo {
     // 仅当 dst 单赋值(defs==1) + 所有操作数**稳定**（单赋值 temp / 从不重写形参 → 值恒定）才给 key，
     // 否则 null（不 CSE）：块内两次同 key ⇒ 同操作数、同值 ⇒ 可复用首个结果。Div/Rem 亦安全——首个
     // 在前，若 trap 则控制流不到第二个；否则同值。含分配/副作用/可空解引用者（StrConcat/FieldGet/Call/…）不入。
-    public static string CseKey(IrInstr ins, int[] defs, int paramCount) {
+    public static string CseKey(IrInstr ins, int[] defs, int paramCount, int optSet) {
+        // add-readonly-fields-opt：readonly 字段读消重（ReadonlyLoad 门控，独立于 arith CSE）。
+        // 同一稳定接收者上对同一 readonly 字段的重复 field_get ⇒ 同值（构造后不变）⇒ 可复用首个。
+        // FieldSet 失效由 _passCse 处理（ctor 内多次写不误合并）。imported 字段 Readonly=false → 不入。
+        if (ins is FieldGetInstr) {
+            FieldGetInstr fg = ins as FieldGetInstr;
+            if (Opt.Has(optSet, Opt.ReadonlyLoad) && fg.Readonly
+                && IrOptInfo._dstOk(fg.Dst, defs) && IrOptInfo._stableR(fg.Obj, defs, paramCount)) {
+                return "fget|" + fg.Obj.Id.ToString() + "|" + fg.Field;
+            }
+            return null;
+        }
+        if (!Opt.Has(optSet, Opt.Cse)) { return null; }   // 以下 arith value-number 仅 Cse 位控
         if (ins is AddInstr)    { AddInstr i = ins as AddInstr; return IrOptInfo._binKey("add", i.Dst, i.A, i.B, defs, paramCount); }
         if (ins is SubInstr)    { SubInstr i = ins as SubInstr; return IrOptInfo._binKey("sub", i.Dst, i.A, i.B, defs, paramCount); }
         if (ins is MulInstr)    { MulInstr i = ins as MulInstr; return IrOptInfo._binKey("mul", i.Dst, i.A, i.B, defs, paramCount); }
@@ -262,6 +274,7 @@ public sealed class IrOptInfo {
 
     // CSE-able op 的 dst TypedReg（供 value-number 存首个 / 取重复 dst）；非 CSE-able → null。
     public static TypedReg DstReg(IrInstr ins) {
+        if (ins is FieldGetInstr) { return (ins as FieldGetInstr).Dst; }   // add-readonly-fields-opt：readonly field_get 消重
         if (ins is AddInstr)    { return (ins as AddInstr).Dst; }
         if (ins is SubInstr)    { return (ins as SubInstr).Dst; }
         if (ins is MulInstr)    { return (ins as MulInstr).Dst; }
