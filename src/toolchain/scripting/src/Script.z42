@@ -55,8 +55,9 @@ public static class Script {
     //
     // repl-lazy-prelude：worker 只建依赖世界**骨架**（nsMap 路由 + 惰性 world），**不 reconcile prelude、
     // 不预载 usings** → 立即发布。`1+1` 类纯表达式零包加载（1.72s→~0.40s），秒回车也不卡。首次引用 Std
-    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性，~1.7s——留待 T2 按符号
-    // reconcile 降到 ~0.5s）。**不后台 reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
+    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性）——**已由 T2 per-type
+    // completer（#98/#101）从 ~1.7s 降到 ~0.33s**（见 _loadReferencedTypes / repl.md T2 节）。**不后台
+    // reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
     // 主线程 eval，后台预热反而把 `1+1` 拖慢（实测双缓冲 Phase 2 下秒回车 `1+1`=3s）。
     // 并发安全：worker 建完 skel 即原子发布（64 位指针写）、随即退出——绝无「发布后继续变异 scan」，
     // 与主线程 eval / 补全器无数据竞争；补全器并发读只见 null 或完全成品。幂等：已建则直接返回。

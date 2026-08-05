@@ -437,7 +437,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | TLS 后续（streaming / system-roots / keepalive-pool / server）| `add-z42-net-tls` (2026-06-03) 客户端落地后的 4 项：https `SendStreaming`、honour 系统 CA、TLS 连接池、服务端 TLS | [stdlib/net.md](design/stdlib/net.md#net-future-tls--已落地-2026-06-03-add-z42-net-tls) |
 | `repl-future-decl-capture-vars` | REPL 声明的函数/类型体内引用会话变量（需注入机制；MVP 不捕获）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-capture-vars) |
 | `repl-future-decl-supersede` | 同名重定义 supersede（MVP 报错；需会话内符号版本化）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-supersede) |
-| `repl-future-tab-completion` | Tab 补全：作用域级已落地（add-completion-query-api）；余 `obj.` 成员 + 类型名/ns（补全查询 API 内核，**已解耦 LSP**）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-tab-completion) |
+| `repl-future-tab-completion` | Tab 补全：作用域级 + `obj.`会话变量成员 + 类型名/`Type.`静态/ns 导出**已落地**（#59/#62）；余 任意 `expr.` receiver（需静态类型推断）+ 基元变量成员 + 关键字/ns 名 + LSP 客户端 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-tab-completion) |
 | `repl-future-syntax-highlight` | REPL 输入行 / 输出语法着色（rustyline `Highlighter` 钩子 + Lexer 分色；无前置，暂缓）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-syntax-highlight) |
 | `repl-future-incremental-compilation` | Growing Transcript O(n) 重编译 → 增量模块加载（大 session 性能，benchmark 驱动）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-incremental-compilation) |
 | `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-load-directive) |
@@ -447,6 +447,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `exec-profile-matrix-future-platform-bench` | **wasm/ios/android 下跑基准的 harness 编排**：profile 机制已平台就绪（探针在任意平台 VM 报真实 caps），缺各 `IPlatformBackend` 的 bench 采集；冷环境不可验 + informational 非门禁 → 待需要跨平台性能可见性时接 | [testing/exec-profile-matrix.md](design/testing/exec-profile-matrix.md#6-deferred) |
 | `params-future-empty-array-codegen` | **纯 params 零实参 → 空数组作唯一实参的 codegen/VM 缺陷**：`string.Concat()`（无固定前缀形参、零可变实参）经 `_withParamsExpansion` 合成 `BoundArrayLit(0)` 作唯一静态调用实参 → 运行期崩（interp `undefined register %0` / jit `Null vs Null`）。**边界实测**：`Join("-")`（有 sep 前缀）/`new string[]{}`/normal-form 空数组直传均正常 → **非** #7 `Join`、**非**一般空数组。`migrate-stdlib-to-params` 的 Concat 新暴露；非空 params 全绿。归 `compiler`/`runtime`，待锁空闲单列 change | [changes/migrate-stdlib-to-params/proposal.md](spec/changes/migrate-stdlib-to-params/proposal.md) 「已知限制」 |
 | `repl-future-eof-detection` | `Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit`/`.quit` 退出，待 runtime builtin 补 EOF 信号 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-eof-detection) |
+| `repl-future-runtime-version` | `.version` 只打印 zbc/zpkg 格式版本；z42vm 运行时版本串（profile/features/target）未经 builtin 暴露，待补（可复用 `--info` 信息面）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-runtime-version) |
 
 ### 实施期延后（D-* 系列）
 
