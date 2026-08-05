@@ -64,6 +64,12 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   包经 `DepScan.ExtendWithPackage` **增量并入缓存 scan**（不落盘、不重扫）；后续轮经
   `CompileInputs.CachedScan` 复用。详见 [self-hosting.md] 邻近的 compile-pipeline 说明与
   `bench/repl/BASELINE.md`。
+  - **内存包的驻留识别（fix-repl-inmemory-dep-warn）**：声明轮的包（`repl_r{N}`）只在内存加载、
+    从不落盘，但后续轮引用其类型时编出的依赖仍按规范文件名 `repl_r{N}.zpkg` 记录。VM lazy loader
+    加载任一包时会把 `<包名>.zpkg` 记进 `loaded_zpkgs`（驻留集），使依赖方的依赖解析循环在驻留集
+    命中即短路——否则会对从不存在的 `repl_r{N}.zpkg` 发起磁盘查找并刷 `WARN: cannot read dep
+    zpkg meta`（引用其实经进程内已加载模块正常解析）。见 `metadata/loader.rs` 的
+    `LoadedArtifact.package_name` 与 `lazy_loader.rs` 的 `register_loaded_artifact`。
 - **依赖 [`infer-var-field-types`](../../spec/archive/)（#24）**：`var` 字段跨 zpkg 保型，carry-forward
   的跨轮 `var` 变量算术/拼接才成立（原为 E0402）。
 - **错误恢复**：编译失败 `EvalResult.Success=false`、会话不推进。

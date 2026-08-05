@@ -43,6 +43,13 @@ pub struct LoadedArtifact {
     /// this package). Empty for .zbc. Merged into the lazy loader's impls
     /// registry so `Type.GetInterfaces()` sees cross-package traits.
     pub impl_pairs: Vec<(String, String)>,
+    /// zpkg package name (`ZpkgFile.name`, e.g. `"repl_r1"`); `None` for a bare
+    /// `.zbc`. On load the lazy loader marks `<package_name>.zpkg` as resident so a
+    /// later-loaded dependent's dep-resolution loop recognises an already-loaded
+    /// package instead of probing disk. Fixes the spurious "cannot read dep zpkg
+    /// meta `repl_rN.zpkg`" WARN for REPL rounds compiled to bytes in memory and
+    /// never written to disk. (fix-repl-inmemory-dep-warn)
+    pub package_name: Option<String>,
 }
 
 /// Load a compiler output artifact from `path`, returning a `LoadedArtifact`.
@@ -183,6 +190,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
         import_namespaces,
         test_index,
         impl_pairs: vec![],
+        package_name: None, // bare .zbc carries no zpkg package name
     })
 }
 
@@ -246,7 +254,8 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         module_triples.push((module, e.namespace.clone(), tidx));
     }
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
-        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        Some(meta.name))
 }
 
 /// Verbatim TIDX section payload of a standalone zbc (empty when absent) —
@@ -296,7 +305,8 @@ fn load_zpkg_bytes_with_sidecar(
     // module's index space. Empty `tidx_bytes` (modules with no [Test])
     // contribute zero entries but still bump the offset counters.
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
-        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        Some(meta.name))
 }
 
 /// Shared tail of every zpkg load path (packed by path / packed by bytes /
@@ -308,6 +318,7 @@ fn assemble_zpkg_artifact(
     dependencies: Vec<ZpkgDep>,
     module_triples: Vec<(Module, String, Vec<u8>)>,
     impl_pairs: Vec<(String, String)>,
+    package_name: Option<String>,
 ) -> Result<LoadedArtifact> {
     let aggregated_test_index =
         aggregate_zpkg_test_index(&module_triples).context("aggregating zpkg TIDX entries")?;
@@ -336,6 +347,7 @@ fn assemble_zpkg_artifact(
         import_namespaces: vec![],
         test_index,
         impl_pairs,
+        package_name,
     })
 }
 
@@ -449,7 +461,8 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
     let module_triples = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
-        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?)
+        crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        Some(meta.name))
 }
 
 // ── Namespace resolution ──────────────────────────────────────────────────────
