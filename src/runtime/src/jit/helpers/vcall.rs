@@ -47,18 +47,22 @@ pub unsafe extern "C" fn jit_vcall(
     // lazy-loader fallback hands a `&[Value]` to the interpreter.
 
     // ── IC fast path ────────────────────────────────────────────────────
-    // Only applies when (1) IC pointer non-null, (2) receiver is an object
-    // (primitives go through the dedicated primitive_class_name path
-    // below), (3) receiver TypeId matches cache, (4) cached_fn_idx
-    // resolves to an entry in `fn_entries_by_id`.
+    // Applies when (1) IC pointer non-null, (2) receiver is an object OR a
+    // primitive — objects key on their real `TypeDesc.id`, primitives on the
+    // synthetic `PRIM_TYPE_*` id (add-jit-primitive-vcall-ic, mirroring interp
+    // exec_vcall.rs); Boxed / Null return None and fall through to the boxed /
+    // primitive_class_name paths below — (3) receiver id matches cache, (4)
+    // cached_fn_idx resolves to an entry in `fn_entries_by_id`. Without this,
+    // a primitive receiver (notably string dict keys calling GetHashCode /
+    // Equals) paid the `format!`×4 + `Vec` slow path on EVERY call.
     if !ic_ptr.is_null() {
-        // Read the receiver TypeId without keeping a borrow into `obj_val`, so
-        // the hit path below can *move* `obj_val` into the callee frame (one
+        // Read the receiver id without keeping a borrow into `obj_val`, so the
+        // hit path below can *move* `obj_val` into the callee frame (one
         // receiver clone per vcall instead of two — `jit_vcall` is the #1
         // hotspot in compiler workloads). `recv_type` is a Copy u32.
         let recv_type = match &obj_val {
             Value::Object(rc) => Some(rc.type_desc().id.0),
-            _ => None,
+            other => crate::interp::value_synthetic_type_id(other),
         };
         if let Some(recv_type) = recv_type {
             // PIC fast path (review.md C5 P2 — 4-slot linear scan).
@@ -178,6 +182,25 @@ pub unsafe extern "C" fn jit_vcall(
         for func_name in [primary.as_str(), overload.as_str(),
                           obj_primary.as_str(), obj_overload.as_str()] {
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name) {
+                // add-jit-primitive-vcall-ic: install (synthetic prim type id →
+                // module fn_idx) so the next call at this site with the same
+                // primitive receiver takes the IC fast path above — skipping the
+                // `format!`×4 candidate names + `Vec` this slow path pays. Only
+                // intra-module funcs (the fast path resolves fn_idx through
+                // `resolve_fn_by_id_tiered`); cross-zpkg / lazy funcs are left
+                // uninstalled, mirroring interp `exec_vcall.rs`.
+                if !ic_ptr.is_null() {
+                    if let (Some(synth_id), Some(&idx)) =
+                        (crate::interp::value_synthetic_type_id(&obj_val),
+                         module.func_index.get(func_name))
+                    {
+                        crate::metadata::resolver::vcall_ic_install(
+                            &*ic_ptr, synth_id,
+                            crate::metadata::tokens::UNRESOLVED,
+                            idx as u32,
+                        );
+                    }
+                }
                 let mut callee = JitFrame::new(entry.max_reg, &call_args);
                 let jit_fn: JitFn = std::mem::transmute(entry.ptr);
                 let vm_ctx = vm_ctx_ref(ctx);

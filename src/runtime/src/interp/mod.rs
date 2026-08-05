@@ -27,6 +27,9 @@ mod ops;
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;
+// JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
+// inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
+pub(crate) use exec_vcall::value_synthetic_type_id;
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;

@@ -49,5 +49,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::primitive_class_name`（vcall 共享判定）+ `interp::dispatch::is_subclass_or_eq_td`（control 共享）
+- 依赖 `interp::primitive_class_name` + `interp::value_synthetic_type_id`（vcall 共享判定 / primitive-receiver IC 键）+ `interp::dispatch::is_subclass_or_eq_td`（control 共享）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`

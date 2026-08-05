@@ -149,6 +149,13 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
   会暴露这三者兜底不健壮（86 个 jit golden 挂）。逐一补齐后切 tiered：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
     `resolve_fn_by_id_tiered` / `resolve_fn_by_name_tiered`。
+    - **primitive 接收者也进 IC（add-jit-primitive-vcall-ic，镜像 interp `refactor-vcall-ic-primitives`）**：
+      IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
+      `value_synthetic_type_id` 的合成 `PRIM_TYPE_*`；primitive 慢路径解析成功后按合成 id 安装 PIC
+      （仅 intra-module fn_idx）。改前 primitive 接收者**每次**调用都走 `primitive_class_name` 慢路径的
+      `format!`×4 候选名 + `Vec`——string-key `Dictionary` 的 `GetHashCode`/`Equals` 首当其冲（实测
+      dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
+      与 interp 一致。
   - `jit_call_indirect`：`None`-臂原本只报「undefined function」（无兜底）→ 补 interp（env 前置 + args）。
   - `jit_obj_new`：`None`-臂原本**静默跳过 ctor**（字段未初始化）→ 补 interp 跑 ctor（原地改 `this`）。
   三态负缓存两路径通用,不受接入阶段影响。
