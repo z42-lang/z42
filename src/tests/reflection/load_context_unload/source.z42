@@ -1,0 +1,46 @@
+// add-lazy-context-unload：AssemblyLoadContext.Unload 惰性卸载端到端。
+//
+// 覆盖 z42 级可观测行为：root 卸载抛 InvalidOperationException、collectible 卸载不抛
+// 且幂等、Unloading context 拒绝 Load、以及 Unload+ForceCollect 的 GC 回收路径端到端
+// 不崩。实际 arena 确定性 free + 保留边判定由 Rust 单测（metadata/context_tests.rs）覆盖
+// ——z42 级无法在不持句柄的情况下观测回收（持句柄本身即保留边，阻止回收）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Runtime;
+
+// 建一个 collectible context、卸载、然后让句柄随作用域退出而 drop（无活引用 → 可回收）。
+void makeUnloadDrop() {
+    AssemblyLoadContext c = AssemblyLoadContext.CreateCollectible("temp");
+    c.Unload();
+}
+
+void Main() {
+    // A. root 卸载 → 抛 InvalidOperationException（永驻不可卸载）。
+    try {
+        AssemblyLoadContext.Default().Unload();
+        Console.WriteLine("root-NO-THROW");
+    } catch (InvalidOperationException e) {
+        Console.WriteLine("root-cannot-unload");
+    }
+
+    // B. collectible 卸载不抛；再卸载幂等。
+    AssemblyLoadContext ctx = AssemblyLoadContext.CreateCollectible("plugin");
+    ctx.Unload();
+    ctx.Unload();
+    Console.WriteLine("unloaded");
+
+    // C. 向 Unloading context 再 Load → 抛（不接受新 assembly）。
+    try {
+        ctx.Load("nonexistent.zpkg");
+        Console.WriteLine("load-NO-THROW");
+    } catch (Exception e) {
+        Console.WriteLine("load-rejected");
+    }
+
+    // D. GC 回收路径端到端：无引用的 Unloading context 在 ForceCollect 时被回收（不崩；
+    //    实际 free 由 Rust 单测断言）。
+    makeUnloadDrop();
+    long freed = GC.ForceCollect();
+    Console.WriteLine("collected");
+}

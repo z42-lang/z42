@@ -1,11 +1,12 @@
 # 加载上下文（Load Context）：zpkg 重载 / 卸载 / 内存回收
 
-> **状态：Phase 1 地基已落地（`add-load-context-model`，2026-07-30）；卸载 / 回收 / 诊断仍 DESIGN** · 创建 2026-06-21
+> **状态：Phase 1 地基 + Phase 2 惰性卸载已落地；强制清理 / 诊断仍 DESIGN** · 创建 2026-06-21
 >
-> **已落地（Phase 1）**：`AssemblyLoadContext` 运行时模型（root 永驻 + collectible 独立 arena）+ zpkg 运行时身份
-> `Std.Reflection.Assembly` + `Std.Type.IsCollectible` / `.Assembly`。用户视角机制页见
-> [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。**未落地**：卸载（惰性 +
-> 强制）、回收、`whyRetained` 诊断、跨 context 执行、hot-reload——见本文余下设计。
+> **已落地**：Phase 1（`add-load-context-model`，2026-07-30）`AssemblyLoadContext` 运行时模型 + zpkg 身份
+> `Std.Reflection.Assembly` + `Std.Type.IsCollectible`/`.Assembly`；Phase 2（`add-lazy-context-unload`，
+> 2026-08-05）**惰性卸载**——`Unload()` 标 Unloading + GC major 回收无引用 context 的 arena（Erlang 等自然死、
+> 反射对象计入保留边）。用户视角机制页见 [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。
+> **未落地**：**强制卸载**（惰性 §8 已落，强制/tombstone 见决策修订）、`whyRetained` 诊断、跨 context 执行、hot-reload。
 >
 > **决策修订（2026-07-27，与 User 讨论）**：§9 决策 (b)"不做确定性强制卸载"已翻转——目标新增**强制内存清理**
 > 轴（tombstone/trap 模型：STW → 间接槽改陷阱 + 活对象类型降 tombstone → 确定性 free 码/元数据大头，

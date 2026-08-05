@@ -33,6 +33,10 @@ public sealed class IrOptPipeline {
         // 分析匹配最终执行的 IR（inline 把 call 展开后可能解锁更多不逃逸对象）。只置 ObjNew/ArrayNew/
         // ArrayNewLit 的 StackAlloc 标志、不改指令流 → 不影响其它 pass，单独开也正确（design D2）。
         if (Opt.Has(optSet, Opt.StackAlloc)) { IrEscapeAnalysis.Run(m); }
+        // pass: loop-alloc-reuse（模块级，**escape 之后**）—— 依赖 StackAlloc 标志判「迭代内可复用」，
+        // 把循环体内可复用的 ObjNew/ArrayNew hoist 到 pre-header（只分配一次）+ 循环体重初始化。
+        // 复用 IrLoopUtil 的 CFG/循环机件；单独开也需 StackAlloc 先跑（否则无候选，安全空转）——design D5。
+        if (Opt.Has(optSet, Opt.LoopAllocReuse)) { IrLoopAllocReuse.Run(m); }
     }
 
     private static void _optFunc(IrFunction f, int optSet) {

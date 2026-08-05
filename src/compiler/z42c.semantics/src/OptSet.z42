@@ -20,7 +20,9 @@ public static class Opt {
                                         //        修复复杂 CFG miscompile 后入 All，见 add-licm-pass）
     public static int StackAlloc = 64;  // bit6：逃逸分析栈上分配（不逃逸 ObjNew/ArrayNew/ArrayNewLit → 帧 arena，
                                         //        interp 消费、绕过 GC；add-escape-analysis-stack-alloc）
-    public static int All       = 127;  // ConstFold|CopyProp|Dce|Inline|Cse|Licm|StackAlloc
+    public static int LoopAllocReuse = 128; // bit7：循环内分配 hoist + 对象复用（迭代内可复用 ObjNew/ArrayNew →
+                                        //        pre-header 只分配一次 + 循环体重初始化；add-loop-alloc-hoist-reuse）
+    public static int All       = 255;  // ConstFold|CopyProp|Dce|Inline|Cse|Licm|StackAlloc|LoopAllocReuse
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {
@@ -36,6 +38,7 @@ public static class Opt {
         if (name == "cse")        { return Opt.Cse; }
         if (name == "licm")       { return Opt.Licm; }
         if (name == "stack-alloc"){ return Opt.StackAlloc; }
+        if (name == "loop-alloc-reuse") { return Opt.LoopAllocReuse; }
         if (name == "all")        { return Opt.All; }
         if (name == "none")       { return Opt.None; }
         return -1;

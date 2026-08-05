@@ -208,9 +208,29 @@ impl std::fmt::Debug for RcHeapInner {
 /// 独立 worker 线程上跑收集。
 pub type ExternalRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value)) + Send + Sync>;
 
+/// **add-lazy-context-unload (2026-08-05)**: lets the GC drive collectible
+/// `AssemblyLoadContext` reclamation. Wired by `VmCore` (captures `Weak<VmCore>`),
+/// routes to `VmCore.context_registry`. On a major STW collect: if `is_unloading`,
+/// the GC takes a `snapshot`, scans marked objects for retained contexts (see
+/// `scan_marked_contexts`), and calls `reclaim` post-sweep to free unreferenced
+/// `Unloading` contexts' arenas. `None` when no reclaimer is wired (tests).
+pub trait ContextReclaim: Send + Sync {
+    /// Cheap gate — true iff ≥1 context is in `Unloading` state (atomic read).
+    fn is_unloading(&self) -> bool;
+    /// Snapshot the context↔object association for this collect (registry lock once).
+    fn snapshot(&self) -> crate::metadata::context::ContextLiveness;
+    /// Free every `Unloading` context NOT in `live` (post-sweep, STW).
+    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>);
+}
+
+pub type ContextReclaimHook = Box<dyn ContextReclaim>;
+
 pub struct ArcMagrGC {
     inner: Mutex<RcHeapInner>,
     external_root_scanner: Mutex<Option<ExternalRootScanner>>,
+    /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
+    /// until wired by `VmCore` (tests leave it None → no context reclamation).
+    context_reclaimer: Mutex<Option<ContextReclaimHook>>,
     /// **add-concurrent-gc P0 (2026-05-22)**: selectable GC algorithm.
     /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
     /// barrier-override hot path and at the entrance of
@@ -276,6 +296,7 @@ impl Default for ArcMagrGC {
         Self {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
+            context_reclaimer: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
             region_object: Mutex::new(super::region::Region::new()),
@@ -1309,10 +1330,52 @@ impl ArcMagrGC {
         // **add-gc-softref (2026-05-26)**: revive soft-ref targets that
         // are unmarked but below the pressure threshold.
         self.revive_soft_refs();
+        // **add-lazy-context-unload (2026-08-05)**: after mark (marks set),
+        // before sweep (which clears them), scan marked objects for retained
+        // collectible contexts. Gated on `is_unloading` → zero cost normally.
+        let ctx_snapshot = {
+            let g = self.context_reclaimer.lock();
+            match g.as_ref() {
+                Some(r) if r.is_unloading() => Some(r.snapshot()),
+                _ => None,
+            }
+        };
+        let live_contexts = ctx_snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
         let freed = self.sweep_phase();
+        // Reclaim Unloading contexts with no live references (post-sweep, STW).
+        if let Some(live) = live_contexts {
+            if let Some(r) = self.context_reclaimer.lock().as_ref() {
+                r.reclaim(&live);
+            }
+        }
         // Prune dead soft-ref entries after sweep.
         self.inner.lock().soft_registry.prune_dead();
         freed
+    }
+
+    /// **add-lazy-context-unload (2026-08-05)**: after mark, walk marked
+    /// `ScriptObject`s and resolve which collectible contexts they retain
+    /// (instance `type_desc` ptr + reflection native handles). Only called when
+    /// an unload is in flight. Marks are still set (sweep clears them next).
+    fn scan_marked_contexts(
+        &self,
+        snap: &crate::metadata::context::ContextLiveness,
+    ) -> std::collections::HashSet<crate::metadata::context::ContextId> {
+        let mut live = std::collections::HashSet::new();
+        if snap.is_empty() {
+            return live;
+        }
+        let region = self.region_object.lock();
+        region.iterate_alive(|_h, entry| {
+            if entry.is_marked() {
+                let obj = entry.value.lock();
+                let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
+                if let Some(cid) = snap.retained_context(td_ptr, &obj.native) {
+                    live.insert(cid);
+                }
+            }
+        });
+        live
     }
 
     /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
@@ -1506,6 +1569,12 @@ impl MagrGC for ArcMagrGC {
     /// 重复调用覆盖之前的 scanner；传 no-op 闭包等价于卸载。
     fn set_external_root_scanner(&self, scanner: ExternalRootScanner) {
         *self.external_root_scanner.lock() = Some(scanner);
+    }
+
+    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// reclaimer. Drives `Unloading` context reclamation on major STW collects.
+    fn set_context_reclaimer(&self, hook: ContextReclaimHook) {
+        *self.context_reclaimer.lock() = Some(hook);
     }
 
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire the

@@ -108,6 +108,32 @@ pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
 use crate::metadata::lazy_loader::{LazyLoader, ZpkgCandidate};
 use crate::metadata::{Function, TypeDesc, Value};
 
+/// **add-lazy-context-unload (2026-08-05)**: routes GC-driven collectible-context
+/// reclamation to `VmCore.context_registry`. Captures `Weak<VmCore>` (cycle
+/// avoidance, like the root scanner) + a clone of the unloading-count flag for a
+/// lock-free `is_unloading` gate. Registered via `heap.set_context_reclaimer`.
+struct CoreContextReclaimer {
+    core: Weak<VmCore>,
+    unloading: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
+    fn is_unloading(&self) -> bool {
+        self.unloading.load(std::sync::atomic::Ordering::Relaxed) > 0
+    }
+    fn snapshot(&self) -> crate::metadata::context::ContextLiveness {
+        self.core
+            .upgrade()
+            .map(|c| c.context_registry.lock().liveness_snapshot())
+            .unwrap_or_default()
+    }
+    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>) {
+        if let Some(c) = self.core.upgrade() {
+            c.context_registry.lock().reclaim(live);
+        }
+    }
+}
+
 /// **`VmCore`** —— state shared across all threads sharing one VM instance
 /// (add-multithreading-foundation, 2026-05-19, Phase 1 / spec
 /// `2026-05-19-add-multithreading-foundation`).
@@ -692,6 +718,17 @@ impl VmContext {
                     // never held across a GC trigger, so this cannot deadlock.
                     ctx.stack_arena.lock().scan_roots(visit);
                 }
+            }));
+        }
+
+        // add-lazy-context-unload: wire the collectible-context reclaimer so a
+        // major GC reclaims `Unloading` AssemblyLoadContexts with no live refs.
+        // Captures `Weak<VmCore>` (cycle avoidance) + the unloading-count flag.
+        {
+            let unloading = core.context_registry.lock().unloading_flag();
+            core.heap.set_context_reclaimer(Box::new(CoreContextReclaimer {
+                core: Arc::downgrade(&core),
+                unloading,
             }));
         }
 
