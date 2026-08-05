@@ -35,7 +35,7 @@ pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // add-repl-prewarm: GC-safe park for the blocking read so a background
     // prewarm thread's GC can proceed while this thread waits on stdin.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
-    read_one_line(ctx, &prompt)
+    read_one_line(ctx, &prompt, "")
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
@@ -68,12 +68,18 @@ pub fn builtin_repl_readblock(ctx: &VmContext, args: &[Value]) -> Result<Value> 
     // the pure-Rust bracket-balance logic between lines). RAII → exits on every
     // return path, including the `?` early-returns below.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
-    let mut buf = match read_one_line(ctx, &prompt)? {
+    let mut buf = match read_one_line(ctx, &prompt, "")? {
         Value::Str(s) => s.to_string(),
         _ => return Ok(Value::Null), // EOF on first line
     };
     while bracket_depth(&buf) > 0 {
-        match read_one_line(ctx, &cont)? {
+        // Python-style auto-indent: pre-fill the continuation line with indentation
+        // matching the still-open bracket depth so fn/class bodies read like an editor
+        // instead of flush-left. The pre-filled text is editable (cursor lands after
+        // it); `readline_with_initial` returns it as part of the line, so the block
+        // source keeps its indentation. (add-repl-multiline-completion)
+        let indent = continuation_indent(&buf);
+        match read_one_line(ctx, &cont, &indent)? {
             Value::Str(s) => {
                 buf.push('\n');
                 buf.push_str(&s);
@@ -82,6 +88,16 @@ pub fn builtin_repl_readblock(ctx: &VmContext, args: &[Value]) -> Result<Value> 
         }
     }
     Ok(Value::Str(buf.into()))
+}
+
+/// Indentation to pre-fill on the next continuation line: four spaces per still-open
+/// bracket level. Whitespace is cosmetic to the parser, so over-/under-indent never
+/// changes semantics — this only makes multi-line entry read like an editor. A line
+/// that *starts by closing* a bracket ends up one level too deep; the user backspaces
+/// once (auto-dedent-on-`}` is a future refinement). (add-repl-multiline-completion)
+pub(crate) fn continuation_indent(buf: &str) -> String {
+    let depth = bracket_depth(buf).max(0) as usize;
+    "    ".repeat(depth)
 }
 
 /// `__repl_complete_probe(fqn: string, line: string, pos: int) -> string[]` —
@@ -293,7 +309,59 @@ thread_local! {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct ReplHelper;
+struct ReplHelper {
+    /// fish-style ghost from prior inputs; the fallback when no live identifier
+    /// completion extends the current word. (add-repl-multiline-completion)
+    history: rustyline::hint::HistoryHinter,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ReplHelper {
+    fn new() -> Self {
+        Self { history: rustyline::hint::HistoryHinter::new() }
+    }
+
+    /// Inline completion hint for the bare identifier under the cursor: ask the
+    /// session completer for candidates and ghost the suffix of the first one that
+    /// *strictly extends* the typed word. Restricted to bare identifiers (no `.`) so
+    /// the per-keystroke path stays on the completer's cheap scope/decl-name matching
+    /// and never triggers the heavier `obj.`-member reflection. Prefix-only filter
+    /// (`starts_with`) means a non-extending candidate list simply yields no hint —
+    /// the ghost is never wrong, at worst absent. (add-repl-multiline-completion)
+    fn identifier_hint(&self, line: &str, pos: usize) -> Option<String> {
+        let start = word_start(line, pos);
+        let word = &line[start..pos];
+        if word.is_empty() || word.contains('.') {
+            return None;
+        }
+        let fqn = REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone())?;
+        let ctx_ptr = ACTIVE_CTX.with(|c| c.get());
+        if ctx_ptr.is_null() {
+            return None;
+        }
+        // SAFETY: same window/thread invariant as `Completer::complete` — ACTIVE_CTX
+        // holds a live `&VmContext` for the duration of `ed.readline()`, and the hinter
+        // only runs during that span on this thread.
+        let ctx: &VmContext = unsafe { &*ctx_ptr };
+        let _unpark = crate::gc::NativeUnparkGuard::exit(ctx);
+        let line_val = Value::Str(line.into());
+        let cands = match complete_via_callback(ctx, &fqn, line_val, pos as i64) {
+            Ok(Value::Array(a)) => a
+                .borrow()
+                .iter_boxed()
+                .filter_map(|v| match v {
+                    Value::Str(s) => Some(s.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<String>>(),
+            _ => return None,
+        };
+        cands
+            .into_iter()
+            .find(|c| c.len() > word.len() && c.starts_with(word))
+            .map(|c| c[word.len()..].to_string())
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 impl rustyline::completion::Completer for ReplHelper {
@@ -340,13 +408,29 @@ impl rustyline::completion::Completer for ReplHelper {
     }
 }
 
-// Hinter/Highlighter/Validator: rustyline's `Helper` supertraits — defaults suffice.
+// Hinter: inline ghost suggestion. Tries live identifier completion first (ghost the
+// unique/first prefix-extending candidate), then falls back to fish-style history.
 #[cfg(not(target_arch = "wasm32"))]
 impl rustyline::hint::Hinter for ReplHelper {
     type Hint = String;
+    fn hint(&self, line: &str, pos: usize, rlctx: &rustyline::Context<'_>) -> Option<String> {
+        // Only at end-of-line on a non-empty buffer (matches rustyline's own ghosting
+        // convention — never hint mid-line where it would collide with existing text).
+        if line.is_empty() || pos != line.len() {
+            return None;
+        }
+        self.identifier_hint(line, pos)
+            .or_else(|| self.history.hint(line, pos, rlctx))
+    }
 }
 #[cfg(not(target_arch = "wasm32"))]
-impl rustyline::highlight::Highlighter for ReplHelper {}
+impl rustyline::highlight::Highlighter for ReplHelper {
+    // Render the inline hint dimmed (ANSI bright-black) so the ghost suggestion reads
+    // as a suggestion, not as text the user typed. (add-repl-multiline-completion)
+    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
+        std::borrow::Cow::Owned(format!("\x1b[90m{hint}\x1b[0m"))
+    }
+}
 #[cfg(not(target_arch = "wasm32"))]
 impl rustyline::validate::Validator for ReplHelper {}
 #[cfg(not(target_arch = "wasm32"))]
@@ -372,7 +456,7 @@ fn word_start(line: &str, pos: usize) -> usize {
 // ── Line source: rustyline on host, plain stdin on wasm / when unavailable ──
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
+fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> {
     use parking_lot::Mutex;
     use rustyline::error::ReadlineError;
     use rustyline::history::DefaultHistory;
@@ -386,7 +470,7 @@ fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
     let mut guard = cell.lock();
     if guard.is_none() {
         if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::new() {
-            ed.set_helper(Some(ReplHelper));
+            ed.set_helper(Some(ReplHelper::new()));
             *guard = Some(ed);
         }
     }
@@ -394,7 +478,13 @@ fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
         Some(ed) => {
             // Publish the live ctx for the completer, strictly for this readline span.
             ACTIVE_CTX.with(|c| c.set(ctx as *const VmContext));
-            let res = ed.readline(prompt);
+            // `initial` (non-empty on auto-indented continuation lines) pre-fills the
+            // edit buffer with the cursor after it; empty → a normal fresh line.
+            let res = if initial.is_empty() {
+                ed.readline(prompt)
+            } else {
+                ed.readline_with_initial(prompt, (initial, ""))
+            };
             ACTIVE_CTX.with(|c| c.set(std::ptr::null()));
             match res {
                 Ok(line) => {
@@ -405,17 +495,19 @@ fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
                 Err(e) => bail!("__repl_readline: {e}"),
             }
         }
-        None => plain_readline(prompt),
+        None => plain_readline(prompt, initial),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Value> {
-    plain_readline(prompt)
+fn read_one_line(_ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> {
+    plain_readline(prompt, initial)
 }
 
 /// Fallback: print the prompt to stderr, read one line from stdin. EOF → null.
-fn plain_readline(prompt: &str) -> Result<Value> {
+/// `initial` (auto-indent pre-fill) is ignored here: a non-interactive / no-tty
+/// stream carries its own literal text and cannot host an editable pre-fill.
+fn plain_readline(prompt: &str, _initial: &str) -> Result<Value> {
     use std::io::Write;
     let mut err = std::io::stderr();
     let _ = err.write_all(prompt.as_bytes());
