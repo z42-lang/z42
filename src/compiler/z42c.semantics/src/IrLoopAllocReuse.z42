@@ -1,0 +1,340 @@
+// IrLoopAllocReuse —— 循环内分配 hoist + 对象复用（add-loop-alloc-hoist-reuse，Opt.LoopAllocReuse）。
+//
+// 目标：循环体内每迭代 `new` 的临时对象 / 数组，若**迭代内可复用**，把分配 hoist 到 pre-header
+// （只分配一次），循环体改为重初始化 → 消除累积 + per-迭代分配。设计见
+// docs/spec/changes/add-loop-alloc-hoist-reuse/design.md（D1–D6）。
+//
+// ── 资格（5 条全满足才变换，任一不足即跳过，安全兜底）──────────────────────────────────
+//   C1 非逃逸：alloc.StackAlloc==true（逃逸分析已证；对象另含「ctor 不泄漏 this」）。可复用 ⟹ 不逃逸。
+//   C2 迭代内局部：alloc 的 dst（单赋值 temp）的**前向 copy 闭包**不含任何多赋值（defs>1）reg
+//      —— 否则对象引用被循环携带（`prev=p`），复用会让携带别名看到改写 → miscompile。
+//   C3 形状固定：ArrayNew.Size 循环不变（不在循环体内定义；LICM 已把不变 const 提到 pre-header）。
+//   C4 重初始化完整：对象 = ctor 单基本块（字段写无条件，每迭代覆写）；数组 = 常量下标「读前写全」（单块线性）。
+//   C5 干净 pre-header 的自然循环（IrLoopUtil）。
+//
+// ── 变换（无格式 bump / 无新指令）──────────────────────────────────────────────────
+//   对象：pre-header 追加 `%r = ObjNew(Cls, ctor="", [])`（空 ctor 名 = 裸分配，运行时 outcome=None 路径）；
+//         循环体原址 → `Call ctor(%r, [args])`（静态调 ctor，this=%r；运行时 obj_new 内部本就这样调）。
+//   数组：`%r = ArrayNew(Size, elem)` 整条移到 pre-header；循环体依赖既有元素写回重初始化。
+//   SSA 铁律：dst 单赋值、定义支配所有使用点 → 变换后 ctor-Call/元素写仍支配所有读 → 每迭代读到重初始化值。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrLoopAllocReuse {
+
+    // 模块入口：逐函数处理。
+    public static void Run(IrModule m) {
+        int fi = 0;
+        while (fi < m.FuncCount) { IrLoopAllocReuse._runFunc(m, m.Functions[fi]); fi = fi + 1; }
+    }
+
+    private static void _runFunc(IrModule m, IrFunction f) {
+        LoopCfg cfg = IrLoopUtil.BuildCfg(f);
+        if (cfg == null) { return; }   // <2 块 / 有异常表
+        int n = cfg.N;
+        int rc = f.MaxReg + 2;
+        int[]    defs      = IrLoopAllocReuse._computeDefs(f, rc);
+        string[] constText = IrLoopAllocReuse._computeConstText(f, rc);
+        bool[] isHeader = IrLoopUtil.Headers(cfg);
+        int h = 0;
+        while (h < n) {
+            if (isHeader[h]) {
+                bool[] inLoop = IrLoopUtil.LoopBody(cfg, h);
+                int ph = IrLoopUtil.CleanPreheader(f, cfg, h, inLoop);
+                if (ph >= 0) { IrLoopAllocReuse._processLoop(m, f, inLoop, ph, defs, constText, rc); }
+            }
+            h = h + 1;
+        }
+    }
+
+    // 处理一个「自然循环 + 干净 pre-header」：判资格 → 变换。
+    private static void _processLoop(IrModule m, IrFunction f, bool[] inLoop, int ph,
+                                     int[] defs, string[] constText, int rc) {
+        int n = f.BlockCount;
+        // 循环体内定义的 reg（C3：Size 不变性用）。
+        bool[] defInLoop = new bool[rc];
+        int b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    int d = IrOptInfo.DstId(blk.Instrs[ii]);
+                    if (d >= 0 && d < rc) { defInLoop[d] = true; }
+                    ii = ii + 1;
+                }
+            }
+            b = b + 1;
+        }
+        // 变换收集：pre-header 追加的裸分配。逐块重写循环体。
+        IrInstr[] hoist = new IrInstr[4];
+        int hc = 0;
+        b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                bool changed = false;
+                // 先判本块每条指令是否变换（objReplace=ctorCall / arrDrop=移除），产出新指令序列。
+                IrInstr[] nw = new IrInstr[blk.InstrCount];
+                int j = 0;
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    IrInstr ins = blk.Instrs[ii];
+                    if (ins is ObjNewInstr
+                        && IrLoopAllocReuse._objQualifies(m, f, ins as ObjNewInstr, inLoop, defs, rc)) {
+                        ObjNewInstr o = ins as ObjNewInstr;
+                        hoist = IrLoopAllocReuse._push(hoist, hc, IrLoopAllocReuse._bareObjNew(o)); hc = hc + 1;
+                        nw[j] = IrLoopAllocReuse._ctorCall(f, o); j = j + 1;
+                        changed = true;
+                    } else if (ins is ArrayNewInstr
+                        && IrLoopAllocReuse._arrQualifies(f, ins as ArrayNewInstr, inLoop, b, ii, defInLoop, defs, constText, rc)) {
+                        ArrayNewInstr a = ins as ArrayNewInstr;
+                        hoist = IrLoopAllocReuse._push(hoist, hc, a); hc = hc + 1;   // 整条移走
+                        changed = true;   // 不写入 nw（丢弃）
+                    } else {
+                        nw[j] = ins; j = j + 1;
+                    }
+                    ii = ii + 1;
+                }
+                if (changed) {
+                    IrInstr[] tight = new IrInstr[j];
+                    int k = 0;
+                    while (k < j) { tight[k] = nw[k]; k = k + 1; }
+                    blk.Instrs = tight;
+                    blk.InstrCount = j;
+                }
+            }
+            b = b + 1;
+        }
+        // 裸分配 append 到 pre-header 终结子之前（append 到指令尾——pre-header 终结子在 Term，非 Instrs）。
+        if (hc > 0) {
+            IrBlock phb = f.Blocks[ph];
+            IrInstr[] merged = new IrInstr[phb.InstrCount + hc];
+            int k = 0;
+            while (k < phb.InstrCount) { merged[k] = phb.Instrs[k]; k = k + 1; }
+            int t = 0;
+            while (t < hc) { merged[phb.InstrCount + t] = hoist[t]; t = t + 1; }
+            phb.Instrs = merged;
+            phb.InstrCount = phb.InstrCount + hc;
+        }
+    }
+
+    // ── 对象资格 ──────────────────────────────────────────────────────────────────────
+    private static bool _objQualifies(IrModule m, IrFunction f, ObjNewInstr o, bool[] inLoop, int[] defs, int rc) {
+        if (!o.StackAlloc) { return false; }                                   // C1
+        if (!IrLoopAllocReuse._iterationLocal(f, o.Dst.Id, defs, rc)) { return false; }   // C2
+        if (!IrLoopAllocReuse._ctorSingleBlock(m, o.CtorName)) { return false; }          // C4-obj
+        return true;
+    }
+
+    // ── 数组资格 ──────────────────────────────────────────────────────────────────────
+    private static bool _arrQualifies(IrFunction f, ArrayNewInstr a, bool[] inLoop, int allocBlk, int allocIi,
+                                       bool[] defInLoop, int[] defs, string[] constText, int rc) {
+        if (!a.StackAlloc) { return false; }                                   // C1
+        if (!IrLoopAllocReuse._iterationLocal(f, a.Dst.Id, defs, rc)) { return false; }   // C2
+        if (a.Size.Id >= 0 && a.Size.Id < rc && defInLoop[a.Size.Id]) { return false; }   // C3：Size 循环不变
+        return IrLoopAllocReuse._arrayReinitSafe(f, inLoop, allocBlk, allocIi, a.Dst.Id, constText, rc);   // C4-arr
+    }
+
+    // C4-arr：单块「常量下标读前写全」。r 的所有使用须在 alloc 块内；线性扫描：ArraySet(常量下标) 记入已写集，
+    // ArrayGet(常量下标) 要求已写；ArrayLen / FieldGet(.Length) 放行；任何动态下标 / 其它读 r 的用法 → 失败。
+    private static bool _arrayReinitSafe(IrFunction f, bool[] inLoop, int allocBlk, int allocIi, int r,
+                                         string[] constText, int rc) {
+        int n = f.BlockCount;
+        // r 不得在 alloc 块之外的循环块被读（保守单块）。
+        int b = 0;
+        while (b < n) {
+            if (inLoop[b] && b != allocBlk) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (IrLoopAllocReuse._reads(blk.Instrs[ii], r, rc)) { return false; }
+                    ii = ii + 1;
+                }
+            }
+            b = b + 1;
+        }
+        // alloc 块内从 alloc 之后线性扫描。
+        string[] written = new string[4];
+        int wc = 0;
+        IrBlock ab = f.Blocks[allocBlk];
+        int ai = allocIi + 1;
+        while (ai < ab.InstrCount) {
+            IrInstr ins = ab.Instrs[ai];
+            if (ins is ArraySetInstr) {
+                ArraySetInstr s = ins as ArraySetInstr;
+                if (s.Arr.Id == r) {
+                    string it = IrLoopAllocReuse._constOf(constText, s.Idx.Id, rc);
+                    if (it == null) { return false; }   // 动态写下标 → 保守失败
+                    written = IrLoopAllocReuse._pushStr(written, wc, it); wc = wc + 1;
+                    ai = ai + 1;
+                    continue;
+                }
+                // s.Val / 其它 == r？值写入别处不涉及 r 作数组；若 r 是 Val → r 逃逸（StackAlloc 本应 false），保守失败
+                if (s.Val.Id == r || s.Idx.Id == r) { return false; }
+            }
+            if (ins is ArrayGetInstr) {
+                ArrayGetInstr g = ins as ArrayGetInstr;
+                if (g.Arr.Id == r) {
+                    string it = IrLoopAllocReuse._constOf(constText, g.Idx.Id, rc);
+                    if (it == null) { return false; }
+                    if (!IrLoopAllocReuse._containsStr(written, wc, it)) { return false; }   // 读前未写 → 失败
+                    ai = ai + 1;
+                    continue;
+                }
+                if (g.Idx.Id == r) { return false; }
+            }
+            if (ins is ArrayLenInstr) {
+                ArrayLenInstr l = ins as ArrayLenInstr;
+                if (l.Arr.Id == r) { ai = ai + 1; continue; }   // 长度不变，放行
+            }
+            if (ins is FieldGetInstr) {
+                FieldGetInstr fg = ins as FieldGetInstr;
+                if (fg.Obj.Id == r) { ai = ai + 1; continue; }   // .Length / .Count 经 FieldGet，放行（不变）
+            }
+            // 其它任何读 r 的用法（含把 r 当算术/调用/copy 操作数）→ 保守失败。
+            if (IrLoopAllocReuse._reads(ins, r, rc)) { return false; }
+            ai = ai + 1;
+        }
+        return true;
+    }
+
+    // ── C2：前向 copy 闭包不含多赋值 reg ─────────────────────────────────────────────────
+    private static bool _iterationLocal(IrFunction f, int r, int[] defs, int rc) {
+        if (r < 0 || r >= rc) { return false; }
+        bool[] seen = new bool[rc];
+        int[] stack = new int[rc];
+        int top = 0;
+        seen[r] = true; stack[top] = r; top = top + 1;
+        while (top > 0) {
+            top = top - 1;
+            int cur = stack[top];
+            if (cur >= 0 && cur < rc && defs[cur] > 1) { return false; }   // 多赋值 → 循环携带
+            // 找 src==cur 的 copy，dst 入栈
+            int b = 0;
+            while (b < f.BlockCount) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (blk.Instrs[ii] is CopyInstr) {
+                        CopyInstr c = blk.Instrs[ii] as CopyInstr;
+                        if (c.Src.Id == cur && c.Dst.Id >= 0 && c.Dst.Id < rc && !seen[c.Dst.Id]) {
+                            seen[c.Dst.Id] = true; stack[top] = c.Dst.Id; top = top + 1;
+                        }
+                    }
+                    ii = ii + 1;
+                }
+                b = b + 1;
+            }
+        }
+        return true;
+    }
+
+    // ── C4-obj：ctor 单基本块（字段写无条件）─────────────────────────────────────────────
+    private static bool _ctorSingleBlock(IrModule m, string ctorName) {
+        IrFunction f = IrLoopAllocReuse._findFunc(m, ctorName);
+        if (f == null) { return false; }        // 跨包 / 找不到 → 保守（StackAlloc=true 时通常找得到）
+        return f.BlockCount == 1;
+    }
+
+    // ── 变换构造 ─────────────────────────────────────────────────────────────────────
+    // 裸分配：空 ctor 名 + 无 args，保留 StackAlloc / TypeArgs（泛型 type_args）。
+    private static ObjNewInstr _bareObjNew(ObjNewInstr o) {
+        ObjNewInstr b = new ObjNewInstr(o.Dst, o.ClassName, "", o.TypeArgs, o.TypeArgCount, new TypedReg[0], 0);
+        b.StackAlloc = o.StackAlloc;
+        return b;
+    }
+
+    // ctor 重初始化：Call ctor(%r, [args...])，this=%r 前置；dummy dst（ctor 返回 void，不得覆写 %r）。
+    private static IrInstr _ctorCall(IrFunction f, ObjNewInstr o) {
+        TypedReg[] callArgs = new TypedReg[o.ArgCount + 1];
+        callArgs[0] = o.Dst;
+        int a = 0;
+        while (a < o.ArgCount) { callArgs[a + 1] = o.Args[a]; a = a + 1; }
+        f.MaxReg = f.MaxReg + 1;
+        TypedReg dummy = new TypedReg(f.MaxReg, IrType.Ref);
+        return new CallInstr(dummy, o.CtorName, callArgs, o.ArgCount + 1);
+    }
+
+    // ── 辅助 ─────────────────────────────────────────────────────────────────────────
+    private static int[] _computeDefs(IrFunction f, int rc) {
+        int[] defs = new int[rc];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock b = f.Blocks[bi];
+            int ii = 0;
+            while (ii < b.InstrCount) { IrOptInfo.AddDef(defs, b.Instrs[ii]); ii = ii + 1; }
+            bi = bi + 1;
+        }
+        return defs;
+    }
+
+    // reg → const 文本（ConstI32/I64 的 Text；非 const 为 null）。
+    private static string[] _computeConstText(IrFunction f, int rc) {
+        string[] ct = new string[rc];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock b = f.Blocks[bi];
+            int ii = 0;
+            while (ii < b.InstrCount) {
+                IrInstr ins = b.Instrs[ii];
+                if (ins is ConstI32Instr) { ConstI32Instr c = ins as ConstI32Instr; if (c.Dst.Id >= 0 && c.Dst.Id < rc) { ct[c.Dst.Id] = c.Text; } }
+                if (ins is ConstI64Instr) { ConstI64Instr c = ins as ConstI64Instr; if (c.Dst.Id >= 0 && c.Dst.Id < rc) { ct[c.Dst.Id] = c.Text; } }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        return ct;
+    }
+
+    private static string _constOf(string[] constText, int id, int rc) {
+        if (id < 0 || id >= rc) { return null; }
+        return constText[id];
+    }
+
+    // 指令是否**读** reg r（复用 IrOptInfo.AddReads 权威读枚举）。
+    private static bool _reads(IrInstr ins, int r, int rc) {
+        int[] counts = new int[rc];
+        IrOptInfo.AddReads(counts, ins);
+        if (r >= 0 && r < rc) { return counts[r] > 0; }
+        return false;
+    }
+
+    private static IrFunction _findFunc(IrModule m, string name) {
+        int i = 0;
+        while (i < m.FuncCount) {
+            if (m.Functions[i].Name == name) { return m.Functions[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    private static IrInstr[] _push(IrInstr[] arr, int count, IrInstr x) {
+        if (count >= arr.Length) {
+            IrInstr[] nw = new IrInstr[arr.Length * 2 + 4];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+
+    private static string[] _pushStr(string[] arr, int count, string x) {
+        if (count >= arr.Length) {
+            string[] nw = new string[arr.Length * 2 + 4];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+
+    private static bool _containsStr(string[] arr, int count, string x) {
+        int i = 0;
+        while (i < count) { if (arr[i] == x) { return true; } i = i + 1; }
+        return false;
+    }
+}

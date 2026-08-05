@@ -223,3 +223,76 @@ fn build_in_dirs_first_dir_wins() {
     let cand = ZpkgCandidate::build_in_dirs(&[dir1.clone(), dir2.clone()], "dup.zpkg").unwrap();
     assert_eq!(cand.file_path, dir1.join("dup.zpkg"), "first search dir wins on conflict");
 }
+
+// ── fix-repl-inmemory-dep-warn ───────────────────────────────────────────────
+// REPL rounds are compiled to zpkg bytes and loaded in memory, never written to
+// disk. A later round referencing an earlier round's type (R2 uses `Repl.R1.A`)
+// records a dep on `repl_r1.zpkg`. The dep-resolution loop must recognise that
+// package as already resident instead of probing disk (which fails → spurious
+// "cannot read dep zpkg meta `repl_r1.zpkg`" WARN, even though the ref resolves
+// in-process). The fix: on load, mark `<package_name>.zpkg` in `loaded_zpkgs`.
+
+fn ll_empty_module(name: &str) -> crate::metadata::bytecode::Module {
+    crate::metadata::bytecode::Module {
+        name: name.to_owned(),
+        string_pool: vec![],
+        classes: vec![],
+        functions: vec![],
+        type_registry: std::collections::HashMap::new(),
+        type_registry_vec: Vec::new(),
+        func_index: std::collections::HashMap::new(),
+        func_ref_cache_slots: 0,
+        interned_strings: Vec::new(),
+    }
+}
+
+fn ll_inmem_artifact(
+    module_name: &str, pkg: Option<&str>, deps: &[&str],
+) -> crate::metadata::loader::LoadedArtifact {
+    crate::metadata::loader::LoadedArtifact {
+        module: ll_empty_module(module_name),
+        entry_hint: None,
+        dependencies: deps
+            .iter()
+            .map(|f| crate::metadata::formats::ZpkgDep { file: (*f).to_string(), namespaces: vec![] })
+            .collect(),
+        import_namespaces: vec![],
+        test_index: vec![],
+        impl_pairs: vec![],
+        package_name: pkg.map(str::to_string),
+    }
+}
+
+#[test]
+fn inmemory_package_registers_zpkg_file_as_resident() {
+    // Non-empty search_dirs → the dep-resolution loop runs (as in a real REPL
+    // loader). The dir need not exist: R1 has no deps, and R2's single dep must
+    // short-circuit on `loaded_zpkgs` before any disk probe.
+    let mut loader = LazyLoader::new(
+        vec![PathBuf::from("/z42-nonexistent-search-dir")], 0, Vec::new(), Vec::new(),
+    );
+
+    // R1: `class A {}` → package `repl_r1` (namespace `Repl.R1`), in memory only.
+    loader
+        .register_loaded_artifact(ll_inmem_artifact("Repl.R1", Some("repl_r1"), &[]))
+        .expect("register R1");
+    assert!(
+        loader.loaded_zpkgs.contains("repl_r1.zpkg"),
+        "an in-memory package must mark its canonical zpkg file name resident \
+         so later dependents recognise it (regression: fix-repl-inmemory-dep-warn)",
+    );
+
+    // R2: `A a = new A()` → dep on `repl_r1.zpkg`. Registers without probing disk;
+    // the dependency stays resolved via `loaded_zpkgs`, not `declared_zpkgs`.
+    loader
+        .register_loaded_artifact(ll_inmem_artifact("Repl.R2", Some("repl_r2"), &["repl_r1.zpkg"]))
+        .expect("register R2");
+    assert!(
+        loader.loaded_zpkgs.contains("repl_r1.zpkg"),
+        "R1 stays resident after R2 loads",
+    );
+    assert!(
+        !loader.declared_zpkgs.contains_key("repl_r1.zpkg"),
+        "the dependent short-circuits on the resident set, never building a disk candidate",
+    );
+}
