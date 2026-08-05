@@ -76,7 +76,7 @@ z42 源码 ──z42c──> z42 IR
 > 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
 
 **OptSet：可独立开关的具名优化集（add-compiler-inlining）**：`Opt` 位集 `ConstFold=1/CopyProp=2/
-Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/All=127`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
+Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/All=255`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、
 **release=All**（发布最高优化）；解析优先级 CLI（`--opt`/`--no-opt`）> toml `[optimize]` > profile。
 **独立性硬约束（D2）**：每个 pass 单独开启都必须正确——允许「增效依赖」（inline 后 dce 删得更多），
@@ -147,6 +147,30 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 > **安全边界**：仅提 **IsPure** 指令（白名单排除 Div/Rem 除零陷阱、FieldGet/ArrayGet NPE·越界、Call*/*Set 副作用）
 > → 提到「可能零迭代」的 pre-header 也安全（纯值、不触发陷阱/副作用）。单赋值 temp（`defsGlobal==1`，多定义局部
 > 提了会丢环内赋值）+ pre-header 支配循环 → 提前定义仍支配所有使用点，正确。处理序（回边按块序）确定 → 不动点收敛。
+
+**pass 2e 循环内分配 hoist + 对象复用（`Opt.LoopAllocReuse=128`，change `add-loop-alloc-hoist-reuse`；模块级，跑在 escape 之后）**：
+把循环体内**每迭代 `new` 的临时对象/数组**——若**迭代内可复用**——hoist 到 pre-header **只分配一次** + 循环体
+**重初始化**，消除 escape-栈分配的**帧 arena 累积**（量测：循环体 stack-alloc 从 1.01× 提到接近 per-call）+ 把
+堆分配的 N 次 malloc+GC 降到 1 次。复用 `IrLoopUtil`（LICM 抽出的 CFG/支配/自然循环/干净 pre-header 机件）。
+机制（保守 v1，`IrLoopAllocReuse.z42`）：
+- **资格 5 条**（任一不足即跳过，安全兜底）：**C1** `StackAlloc==true`（逃逸分析已证不逃逸函数；对象另含
+  「ctor 不泄漏 this」，可复用 ⟹ 不逃逸，故 C1 必要且直接复用已有结果）；**C2 迭代内局部**——alloc 的 dst
+  （单赋值 temp）的**前向 copy 闭包**不含任何**多赋值 reg（defs>1）**，否则对象引用被循环携带（`head=new Node(i,head)`
+  / `prev=p`），复用会让携带别名看到改写 → miscompile；**C3 形状固定**——`ArrayNew.Size` 不在循环体内定义
+  （循环不变；LICM 已把不变 const 提到 pre-header）；**C4 重初始化完整**——对象 = ctor **单基本块**（字段写无条件、
+  每迭代覆写；未被写字段保持裸分配零初始化 = 与 fresh 一致），数组 = 常量下标**读前写全**（单块线性扫：ArraySet
+  常量下标入已写集、ArrayGet 常量下标要求已写、动态下标/其它读 → 失败）；**C5** 干净 pre-header 的自然循环。
+- **变换（无格式 bump、无新指令）**：**对象** `%r = ObjNew(Cls, ctor, [args])` → pre-header 追加 `%r = ObjNew(Cls, ctor="", [])`
+  （**空 ctor 名哨兵 = 裸分配**，走运行时 `obj_new` 的 `outcome=None` 路径：`func_index.get("")` 皆 None → 跳过
+  ctor、只分配），循环体原址 → `Call ctor(%r, [args])`（静态调 ctor，`this=%r` 前置——运行时 obj_new 内部本就
+  `exec_function(ctor,[obj,...args])`；dummy dst 防覆写 `%r`，bump `MaxReg`）；**数组** 整条 `ArrayNew` 移到 pre-header
+  （本就是裸分配，循环体既有元素写回重初始化）。保留 `StackAlloc` 标 → arena 只分配一次、帧退出释放。
+- **正确性（SSA 支配）**：dst 单赋值、定义支配所有使用点 → 变换后 ctor-Call/元素写仍在原址（支配所有读）→ 每迭代
+  「先重初始化再读」，跨迭代无脏值。**主门 = `--no-opt loop-alloc-reuse` 开/关逐字节对拍**（e2e golden）；
+  纯编译期变换，无运行时开关/断言（初稿的运行时旁路已删——运行时拿到的已是变换后 IR）。IR dump 用
+  `Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse` 隔离（golden 稳定）。
+> **v1 未覆盖（design Deferred）**：`ArrayNewLit`（字面量元素需写手术）；嵌套循环只 hoist 到内层 pre-header
+> （处理序决定，仍正确、收益略逊全外提）；数组动态下标 / 变长 Size / 多块使用。与 scope/回边 arena 复位互补。
 
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
