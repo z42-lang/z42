@@ -17,7 +17,7 @@
 use anyhow::{bail, Result};
 
 use super::reflection::make_type_object;
-use crate::metadata::context::{AssemblyId, ContextId};
+use crate::metadata::context::{AssemblyId, ContextId, ContextState, UnloadOutcome};
 use crate::metadata::types::NativeData;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -130,6 +130,10 @@ pub fn builtin_lctx_create_collectible(ctx: &VmContext, args: &[Value]) -> Resul
 pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let cid = ctx_handle(args)?;
     let path = str_arg(args, 1)?;
+    // Phase 2: a context being unloaded no longer accepts new assemblies.
+    if ctx.core.context_registry.lock().context_state(cid) != Some(ContextState::Active) {
+        bail!("AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)");
+    }
     let artifact = crate::metadata::loader::load_artifact(path)
         .map_err(|e| anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}"))?;
     let name = assembly_name_from_path(path);
@@ -139,6 +143,22 @@ pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         .lock()
         .load_into(cid, &name, artifact.module);
     build_assembly(ctx, aid)
+}
+
+/// `ctx.__unload()` (instance) — mark this collectible context `Unloading`
+/// (add-lazy-context-unload). Idempotent. Root is filtered in z42
+/// (`Unload()` throws `InvalidOperationException` before reaching here);
+/// `RootRejected` here is a defensive backstop. Actual arena reclamation is
+/// GC-driven (see `ContextRegistry::reclaim`).
+pub fn builtin_lctx_unload(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let cid = ctx_handle(args)?;
+    match ctx.core.context_registry.lock().unload(cid) {
+        UnloadOutcome::Marked | UnloadOutcome::AlreadyUnloading => Ok(Value::Null),
+        UnloadOutcome::RootRejected => {
+            bail!("AssemblyLoadContext.Unload: the root context cannot be unloaded")
+        }
+        UnloadOutcome::NotFound => bail!("AssemblyLoadContext.Unload: unknown context"),
+    }
 }
 
 /// `ctx.Name` (instance getter).

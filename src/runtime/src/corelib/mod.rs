@@ -504,6 +504,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           platform::builtin_platform_caps),
     ("__platform_exec_modes",     platform::builtin_platform_exec_modes),
+
+    // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
+    ("__lctx_unload",             assemblyloadcontext::builtin_lctx_unload),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
