@@ -553,6 +553,17 @@ impl LazyLoader {
         }
         self.loaded_zpkgs.insert(mod_key);
 
+        // Mark this package's canonical zpkg file name as resident. A later-loaded
+        // dependent records deps by file name (`<pkg>.zpkg`), so without this a
+        // cross-round REPL reference (R2 uses `Repl.R1.A`) makes the dep loop above
+        // probe disk for `repl_r1.zpkg` — which never existed on disk (compiled to
+        // bytes in memory) — and emit a spurious "cannot read dep zpkg meta" WARN.
+        // Registering it here lets the dep loop short-circuit on `loaded_zpkgs`.
+        // (fix-repl-inmemory-dep-warn)
+        if let Some(pkg) = &artifact.package_name {
+            self.loaded_zpkgs.insert(format!("{pkg}.zpkg"));
+        }
+
         let offset = self.main_pool_len + self.string_pool.len();
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());
 
