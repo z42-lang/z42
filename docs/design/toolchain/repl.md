@@ -78,6 +78,11 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
 - **多行输入（add-repl-decls-multiline）**：宿主 `interactive_main` 用 `Std.Repl.ReadBlock(">>> ", "... ")`
   读**括号平衡多行块**（未闭合 `(){}[]` → `... ` 续行；native `__repl_readblock` 忽略串/注释内括号）；
   整块交 `Script.Eval`，故多行 fn/class 整体到达分类器。元指令单行无括号即时返回；EOF→null 退出不变。
+- **续行自动缩进（add-repl-multiline-completion）**：`__repl_readblock` 读每条续行前按当前括号深度
+  预填 `depth × 4 空格`（`continuation_indent` = `bracket_depth.max(0) × 4`，经 rustyline
+  `readline_with_initial(cont,(indent,""))` 预填，光标落缩进后可编辑）→ 写 fn/class 体像编辑器而非顶格。
+  缩进是编辑便利，对 parser 纯空白无语义影响；以闭括号 `}` 起头的行会多缩一级，用户 backspace 一次
+  （auto-dedent-on-`}` 为 follow-up）。非交互路径（管道/no-tty，`plain_readline`）忽略预填——输入自带文本。
 
 元指令落地状态（`interactive_main`）：已接 `.help .exit .quit .reset .clear .vars .types .usings
 .using <ns> .version`（`.version` 打印 zbc/zpkg **格式**版本——z42vm 运行时版本串未经 builtin 暴露给
@@ -402,7 +407,19 @@ string line  = Std.Repl.ReadLine(">>> ");
 string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检测）
 ```
 
-功能：历史记录（上下键）、行编辑（Ctrl-A/E/K/U）、Ctrl-D 退出。Tab 补全 deferred（依赖 LSP）。
+功能：历史记录（上下键）、行编辑（Ctrl-A/E/K/U）、Ctrl-D 退出、多行块续读（`ReadBlock`）。
+
+### 补全与 inline 提示
+
+- **Tab 补全**（`ReplHelper: Completer`，add-completion-query-api）：Tab 触发，经进程全局
+  `REGISTERED_COMPLETER`（z42 `Std.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）回调 VM，
+  返回作用域变量 / 会话声明名 / `obj.` 实例成员（live 反射）候选。回调在 readline 内重入 VM，
+  临时 un-park 参与 safepoint（见上 GC-safe park）。
+- **inline ghost 提示**（`ReplHelper: Hinter`，add-repl-multiline-completion）：**边打字**把补全以灰字
+  幽灵显示（`highlight_hint` = ANSI `\x1b[90m`）。仅行尾提示：先试**标识符 ghost**——裸标识符
+  （无 `.`，跳过每键 `obj.` 成员反射）复用同一 completer，`starts_with` 严格前缀过滤后取首个扩展
+  候选的后缀（非扩展 → 无提示，ghost 永不错）；无则回退 **fish 式历史 ghost**（`HistoryHinter`）。
+- 非交互（管道 / no-tty）走 `plain_readline`：无补全、无 ghost、续行不预填缩进（输入自带文本）。
 
 ## 包位置与 Z42_LIBS
 
