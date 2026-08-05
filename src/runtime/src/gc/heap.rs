@@ -99,6 +99,11 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 仅 `ArcMagrGC` 重载）。
     fn set_external_root_scanner(&self, _scanner: super::arc_heap::ExternalRootScanner) {}
 
+    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// reclaimer hook (drives `AssemblyLoadContext` unload reclamation on major
+    /// GC). Default no-op; only `ArcMagrGC` overrides.
+    fn set_context_reclaimer(&self, _hook: super::arc_heap::ContextReclaimHook) {}
+
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire an external
     /// `Arc<AtomicBool>` flag for the backend to set (instead of calling
     /// `collect_cycles` inline) when an automatic threshold-based collection
