@@ -29,10 +29,8 @@ public static class TokenKind {
     public static int Import = 52; public static int Typeof = 53; public static int Is = 54;
     public static int As = 55; public static int Null = 56; public static int Where = 57;
     public static int Operator = 58;
-    // z42 保留关键字
-    public static int Fn = 59; public static int Let = 60; public static int Mut = 61;
-    public static int Trait = 62; public static int Impl = 63; public static int Use = 64;
-    public static int Module = 65; public static int Spawn = 66; public static int NoneKw = 67;
+    // z42 保留关键字（唯一接线：impl）
+    public static int Impl = 63;
     public static int ErrorKw = 68;
     // 类型关键字
     public static int String = 69; public static int Int = 70; public static int Long = 71;
