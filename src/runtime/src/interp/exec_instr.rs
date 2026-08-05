@@ -189,22 +189,24 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type)? {
+            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type, insn.stack_alloc)? {
                 return Ok(Some(thrown));
             }
         }
         Instruction::ArrayNewLit(insn) => {
-            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, &insn.element_type)? {
+            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, &insn.element_type, insn.stack_alloc)? {
                 return Ok(Some(thrown));
             }
         }
-        Instruction::ArrayGet    { dst, arr, idx }  => exec_array::array_get(frame, *dst, *arr, *idx)?,
+        Instruction::ArrayGet    { dst, arr, idx }  => exec_array::array_get(ctx, frame, *dst, *arr, *idx)?,
         Instruction::ArraySet    { arr, idx, val }  => exec_array::array_set(ctx, frame, *arr, *idx, *val)?,
-        Instruction::ArrayLen    { dst, arr }       => exec_array::array_len(frame, *dst, *arr)?,
+        Instruction::ArrayLen    { dst, arr }       => exec_array::array_len(ctx, frame, *dst, *arr)?,
 
         // ── Objects ──────────────────────────────────────────────────────────
         Instruction::ObjNew(insn) => {
-            let ObjNewInsn { dst, class_name, ctor_name, args, type_args } = &**insn;
+            // add-escape-analysis-stack-alloc: stack_alloc forwarded to obj_new,
+            // which allocates in the per-context arena when set (+ runtime-enabled).
+            let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc } = &**insn;
             let _site_idx = site_idx!();
             // Hot path: pass type_token cache for repopulation. Dispatch via
             // type_registry / lazy_loader unchanged.
@@ -216,6 +218,7 @@ pub fn exec_instr(
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
                 ctx, module, frame, *dst, class_name, ctor_name, args, type_args, type_token,
+                *stack_alloc,
             )? {
                 return Ok(Some(thrown));
             }
@@ -234,7 +237,7 @@ pub fn exec_instr(
             let field_ic = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
                 .and_then(|r| r.field_ic.get(_site_idx as usize));
-            exec_object::field_get(frame, *dst, *obj, field_name, field_ic)?;
+            exec_object::field_get(ctx, frame, *dst, *obj, field_name, field_ic)?;
         }
         Instruction::FieldSet(insn) => {
             let FieldSetInsn { obj, field_name, val } = &**insn;

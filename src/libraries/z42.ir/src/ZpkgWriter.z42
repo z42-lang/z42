@@ -34,7 +34,8 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 33;   // 2026-07-18 fix-crosspkg-interface-impl：接口 TYPE 条目尾部加方法签名块（耦合 zbc 1.28）——跨包接口实现从依赖 zpkg 恢复接口方法（TsigReconcile 重建）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。
+    public static int Minor = 34;   // 2026-08-04 add-escape-analysis-stack-alloc：内嵌 zbc 1.29（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。
+                                    // 前史：0.33 fix-crosspkg-interface-impl（耦合 zbc 1.28）。
     // add-offline-symbolication (2026-08-04)：`.zsym` SymOnly sidecar 的 MDBG 布局在 minor 33 内变更
     //   （per-module 加 funcCount + per-func frameName_idx，见 _buildSidecar）——**不 bump 共享 minor**：
     //   MDBG 只存在于 .zsym（临时、每次 release 重生、非分发稳定件），且写端(此处)+读端(Rust

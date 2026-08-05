@@ -147,7 +147,10 @@ public static class ZbcReaderInstr {
             string[] targs = new string[tc];
             int t = 0;
             while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
-            return new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+            bool saO = c.U8() != 0;   // zbc 1.29 add-escape-analysis：尾 stack_alloc u8
+            ObjNewInstr onI = new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+            onI.StackAlloc = saO;
+            return onI;
         }
         if (op == Op.Typeof) {
             string tn = ZbcReaderInstr._p(pool, c.U32());
@@ -169,13 +172,19 @@ public static class ZbcReaderInstr {
             TypedReg size = ZbcReaderInstr._ru(c.U16());
             int elemTag = c.U8();
             string elemName = ZbcReaderInstr._p(pool, c.U32());
-            return new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
+            bool saA = c.U8() != 0;   // zbc 1.29 add-escape-analysis
+            ArrayNewInstr anI = new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
+            anI.StackAlloc = saA;
+            return anI;
         }
         if (op == Op.ArrayNewLit) {
             TypedReg[] elems = ZbcReaderInstr._args(c);
             int en = ZbcReaderInstr._argN;
             string elemName = ZbcReaderInstr._p(pool, c.U32());
-            return new ArrayNewLitInstr(d, elems, en, elemName);
+            bool saL = c.U8() != 0;   // zbc 1.29 add-escape-analysis
+            ArrayNewLitInstr alI = new ArrayNewLitInstr(d, elems, en, elemName);
+            alI.StackAlloc = saL;
+            return alI;
         }
         if (op == Op.ArrayGet) { return new ArrayGetInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.ArraySet) {

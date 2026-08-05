@@ -5,8 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 28;   // 2026-07-18 fix-crosspkg-interface-impl：接口 TYPE 条目尾部加方法签名块（Flags bit4 gated：mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n）——跨包接口实现须能从依赖 zpkg 恢复接口方法（抽象方法不入 SIGS、EXPT 已删）。随 zpkg 0/33 同 bump。
-                                    // 前史：1.27 stabilize-dispatch-keys（派发键一律全签名 mangle，wire 布局不变）；1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）。
+    public static int Minor = 29;   // 2026-08-04 add-escape-analysis-stack-alloc：ObjNew/ArrayNew/ArrayNewLit 编码尾各加 u8 栈分配标志（1=帧 arena 栈 / 0=堆）。随 zpkg 0/34 同 bump。
+                                    // 前史：1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys（派发键全签名 mangle）；1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。

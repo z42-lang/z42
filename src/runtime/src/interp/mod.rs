@@ -24,6 +24,7 @@ mod exec_object;
 pub(crate) mod exec_value;
 mod exec_vcall;
 mod ops;
+pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;
@@ -185,6 +186,13 @@ pub(crate) struct Frame {
     /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
     /// loops a little" does not (that's the call-count path's job).
     pub back_edge_count: u32,
+    /// add-escape-analysis-stack-alloc: this frame's monotonic id, stamped at
+    /// entry (`exec_function_body`) from `ctx.next_frame_id()`. `ObjNew`/`ArrayNew`
+    /// with `stack_alloc` tag their arena slots with it; a `Value::StackObject`/
+    /// `StackArray` handle carries it so a stale access (after this frame
+    /// truncated the arena) is caught by the frame_id mismatch. 0 = unstamped
+    /// (frames that never stack-allocate; the arena is never keyed on 0).
+    pub frame_id: u32,
 }
 
 thread_local! {
@@ -244,6 +252,7 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
+            frame_id: 0,
         }
     }
 
@@ -268,6 +277,7 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
+            frame_id: 0,
         })
     }
 
@@ -297,6 +307,7 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
+            frame_id: 0,
         })
     }
 
@@ -702,6 +713,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             )
         }
     };
+    // add-escape-analysis-stack-alloc: stamp this frame's monotonic id (keys any
+    // stack-allocated objects/arrays it creates, for stale-handle diagnostics).
+    frame.frame_id = ctx.next_frame_id();
     ctx.push_frame(crate::exception::VmFrame::new(
         frame_name,
         frame_file,

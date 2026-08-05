@@ -1,7 +1,7 @@
 # 优化管线（编译期 IR 优化 + 运行时 JIT/interp 分层）
 
-> 对齐：2026-08-02（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** + OptSet 门控已落地，
-> change `add-compiler-inlining`）
+> 对齐：2026-08-05（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
+> **逃逸分析栈上分配** + OptSet 门控已落地）
 > 状态：🟡 编译期 IR 优化已成形（4 pass + 可独立开关 OptSet）；运行时 JIT 分层随 `jit-lowering-pipeline` 续。
 
 z42 有两条优化路径,共用同一份 z42 IR,但优化的位置和消费方式不同:
@@ -71,8 +71,12 @@ z42 源码 ──z42c──> z42 IR
 非 stdlib z42.ir —— 只用 z42.ir 现有 public 字段 type-switch，零 bootstrap API-face 延迟）。挂
 `IrGen.Generate` 末尾。
 
+> **逃逸分析栈上分配（`Opt.StackAlloc=64`，change `add-escape-analysis-stack-alloc`）**：不逃逸的
+> `ObjNew`/`ArrayNew`/`ArrayNewLit` 改到帧局部 arena 分配、绕过 GC。分析算法（CFG-free 规则表引擎）、
+> 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
+
 **OptSet：可独立开关的具名优化集（add-compiler-inlining）**：`Opt` 位集 `ConstFold=1/CopyProp=2/
-Dce=4/Inline=8/All=15`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
+Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/All=127`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、
 **release=All**（发布最高优化）；解析优先级 CLI（`--opt`/`--no-opt`）> toml `[optimize]` > profile。
 **独立性硬约束（D2）**：每个 pass 单独开启都必须正确——允许「增效依赖」（inline 后 dce 删得更多），

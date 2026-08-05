@@ -104,7 +104,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n) so the compiler
 // can restore imported interface methods from dep zpkgs (abstract iface methods
 // have no body → absent from SIGS; EXPT was dropped). Coupled with zpkg 0.33.
-pub const ZBC_VERSION_MINOR: u16 = 28;
+// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 1.29 - ObjNew / ArrayNew
+// / ArrayNewLit encodings each gain a trailing u8 stack-alloc flag (1 = frame
+// arena / 0 = heap), set by the escape-analysis compiler pass. Coupled with zpkg 0.34.
+pub const ZBC_VERSION_MINOR: u16 = 29;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -185,7 +188,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // distributed stable artifact); writer + this reader land together; regular zpkg
 // bytes are unchanged. read_mdbg_section skips the frame-name idxs (runtime merges
 // sidecar line tables by index, names come from the main zpkg).
-pub const ZPKG_VERSION_MINOR: u16 = 33;
+// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 0.34, coupled inner zbc 1.29
+// (ObjNew/ArrayNew/ArrayNewLit gain a trailing u8 stack-alloc flag). Outer zpkg
+// layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 34;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -1220,7 +1226,9 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             for _ in 0..t_count {
                 type_args.push(pool_str_owned(pool, c.read_u32()?)?);
             }
-            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice() }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice(), stack_alloc }))
         }
         OP_TYPEOF => {
             // add-reflection-generic-type-definition: type_name + structured
@@ -1249,13 +1257,17 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             // add-reflection-array-element-type (zbc 1.16): element type FQ name.
             let et_idx = c.read_u32()?;
             let element_type = c.pool_str(pool, et_idx)?.to_owned();
-            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc }))
         }
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;
             let et_idx = c.read_u32()?;
             let element_type = c.pool_str(pool, et_idx)?.to_owned();
-            Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))
         }
         OP_ARRAY_GET     => {
             let arr = c.read_u16()? as u32;
