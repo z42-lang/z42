@@ -1,13 +1,20 @@
 # Tasks: 逃逸分析驱动的栈上分配
 
-> 状态：🟡 进行中 | 创建：2026-08-04 | 更新：2026-08-05
+> 状态：🟢 已完成 | 创建：2026-08-04 | 完成：2026-08-05（PR #115 squash-merge 9fcc9a8b）
 
 ## 进度概览
-- [x] 阶段 1: IR 字段 + zbc/zpkg 格式 bump（Rust 编译净；种子建 z42.ir 成功）
-- [x] 阶段 2: 逃逸分析 pass（编译器，已写；自举编译验证 CI-gated——见备注）
+- [x] 阶段 1: IR 字段 + zbc/zpkg 格式 bump（zbc 1.29 / zpkg 0.34）
+- [x] 阶段 2: 逃逸分析 pass（IrEscapeAnalysis + OptSet + pipeline）——CI 自举到 0.34 验证
 - [x] 阶段 3: 运行时 arena 消费（interp，B2 per-context + 诊断）
-- [~] 阶段 4: 测试与验证（Rust 全绿；committed fixtures/golden/e2e/自举 = CI-gated）
-- [x] 阶段 5: 文档同步（book/README/roadmap/version-bumping/changelog）
+- [x] 阶段 4: 测试与验证——**CI 全绿**（test-host 全 4 平台 + verify-selfhost + e2e + fixtures 重生）
+- [x] 阶段 5: 文档同步（book/README/roadmap/version-bumping/changelog）+ 归档
+
+> **落地记录（2026-08-05）**：PR #115 全绿合并。CI 侧连修 4 类格式-bump 完整性缺口（本地 Rust 测试
+> 结构上够不到、只有自举 e2e 能暴露）：① ci-bootstrap 两代自举「先建 gen0 stdlib 再建 gen1 z42c」解
+> 「格式 bump + z42c 用新 z42.ir 字段」的轴④冲突；② 运行时 field_get 补 StackArray（`.Length` 经
+> FieldGet）+ Convert.Src 判逃逸；③ z42c 侧 ZbcReaderInstr 补读 stack_alloc（writer/reader 对称）+
+> golden hex + 集成测试构造；④ committed zpkg-format fixture 用 CI 产出的 0.34 工具链重生（本地两代
+> 自举环境性编不出，见 [[escape-stack-format-bump-ci-learnings]]）。
 
 > **本地验证天花板（2026-08-05）**：格式 bump（zbc 1.29/zpkg 0.34）后新 VM 读不了 0.33 种子；两代自举
 > 需旧种子 VM，而本仓 `.z42` 种子（Aug 3）**在 builtin + stdlib API 上均落后当前 main**（`__str_to_chars`
