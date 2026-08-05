@@ -491,51 +491,6 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-      # TEMPORARY (add-escape-analysis-stack-alloc, remove after merge): regen the
-      # committed zpkg-format golden fixtures with the freshly self-hosted 0.34
-      # toolchain and upload them, so they can be committed (version-bumping.md
-      # step 9 = manual; no local 0.34 z42c available). continue-on-error: purely
-      # additive, must never redden compile-toolchain.
-      - name: Regen zpkg-format fixtures (0.34) [temporary]
-        if: matrix.platform == 'linux-x64'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -x
-          VM="$PWD/artifacts/build/runtime/release/z42vm"
-          DRV="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
-          LIBS="$PWD/artifacts/build/libraries/dist/release"
-          OUT="$RUNNER_TEMP/fixregen"; mkdir -p "$OUT"
-          echo "toolchain minor: $(od -An -tu2 -j6 -N2 "$DRV" | tr -d ' ')"
-          mktoml() { { echo '[project]'; echo "name = \"$1\""; echo 'version = "0.1.0"'; echo 'kind = "lib"'; echo '[sources]'; echo 'include = ["*.z42"]'; } > "$2"; }
-          # packed-minimal: lib, packed (release)
-          pm="$RUNNER_TEMP/pm"; mkdir -p "$pm/out"
-          cp src/tests/zpkg-format/packed-minimal/source.z42 "$pm/source.z42"
-          mktoml demo.minimal "$pm/demo.minimal.z42.toml"
-          ( cd "$pm" && Z42_LIBS="$LIBS" "$VM" "$DRV" --mode interp -- build demo.minimal.z42.toml --release --output-dir "$pm/out" )
-          echo "== packed out =="; ls -la "$pm/out"
-          cp "$pm/out/demo.minimal.zpkg" "$OUT/packed-minimal__source.zpkg"
-          # indexed-minimal: lib, indexed (no --release) → main zpkg + scattered .zbc
-          im="$RUNNER_TEMP/im"; mkdir -p "$im/out"
-          cp src/tests/zpkg-format/indexed-minimal/source.z42 "$im/source.z42"
-          mktoml demo.indexed "$im/demo.indexed.z42.toml"
-          ( cd "$im" && Z42_LIBS="$LIBS" "$VM" "$DRV" --mode interp -- build demo.indexed.z42.toml --output-dir "$im/out" )
-          echo "== indexed out =="; ls -laR "$im/out"
-          cp "$im/out/demo.indexed.zpkg" "$OUT/indexed-minimal__source.zpkg"
-          for z in "$im/out/"*.zbc; do [ -f "$z" ] && cp "$z" "$OUT/indexed-minimal__source.zbc" && break; done
-          echo "== collected =="; ls -la "$OUT"
-          for f in "$OUT"/*.zpkg; do echo "$f minor: $(od -An -tu2 -j6 -N2 "$f" | tr -d ' ')"; done
-
-      - name: Upload regenerated fixtures [temporary]
-        if: matrix.platform == 'linux-x64'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: zpkg-fixtures-034
-          path: ${{ runner.temp }}/fixregen/
-          retention-days: 3
-          if-no-files-found: warn
-
   # ── compile-once P2 (additive): assemble current-sdk in a SEPARATE job ──────
   # Builds the `.z42` current-sdk layout (programs/z42c + libs + bin) + bundles
   # the golden .zbc, consumable by `xtask --toolchain <dir>`. SPLIT OUT of
