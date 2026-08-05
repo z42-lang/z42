@@ -461,7 +461,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
                 Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
                 Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
                 Instruction::ConstI64 { dst: 2, val: 0x21 }, // '!'
-                Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 3, elems: vec![0, 1, 2].into(), element_type: String::new() })),
+                Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 3, elems: vec![0, 1, 2].into(), element_type: String::new(), stack_alloc: false })),
                 Instruction::PinPtr { dst: 4, src: 3 },
                 Instruction::FieldGet(Box::new(FieldGetInsn { dst: 5, obj: 4, field_name: "ptr".into() })),
                 Instruction::FieldGet(Box::new(FieldGetInsn { dst: 6, obj: 4, field_name: "len".into() })),
