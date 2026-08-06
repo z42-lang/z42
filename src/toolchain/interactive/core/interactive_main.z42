@@ -47,6 +47,7 @@ void Main() {
             else if (t == ".types") { _types(s); }
             else if (t == ".usings") { _usings(s); }
             else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
+            else if (t.StartsWith(".type ")) { _showType(s, t); }    // 显示表达式类型（注意在 .types 之后判）
             else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
             else if (t == ".clear") { _clear(); }
             else if (t == ".reset") {
@@ -82,6 +83,7 @@ void _help() {
     Console.WriteLine("  .clear         清屏（不清会话状态）");
     Console.WriteLine("  .vars          列出会话变量");
     Console.WriteLine("  .types         列出会话内声明的类型");
+    Console.WriteLine("  .type <expr>   显示表达式的运行期类型（类 python type(x)）");
     Console.WriteLine("  .usings        列出生效的 using");
     Console.WriteLine("  .using <ns>    追加一个 using <ns>;");
     Console.WriteLine("  .version       显示 zbc / zpkg 格式版本");
@@ -115,6 +117,17 @@ void _addUsing(ScriptState s, string t) {
     if (ns.Length == 0) { Console.WriteLine("用法: .using <namespace>"); return; }
     Script.Eval(s, "using " + ns + ";");
     Console.WriteLine("已添加 using " + ns + ";");
+}
+
+// .type <expr> —— 显示表达式的运行期类型名（类 Python `type(x)`）。复用 Script.Eval 求值
+// `(<expr>).GetType().Name`——零新反射管线、对任意表达式都适用（会话变量经 Rewriter 改写）。
+// 表达式被求值一次（与 Python `type(...)` 语义一致，副作用照常发生）。求值失败 → 打印错误。
+void _showType(ScriptState s, string t) {
+    string expr = t.Substring(6, t.Length - 6).Trim();   // ".type " 占 6 字符
+    if (expr.Length == 0) { Console.WriteLine("用法: .type <表达式>"); return; }
+    EvalResult r = Script.Eval(s, "(" + expr + ").GetType().Name");
+    if (!r.Success) { Console.Write(r.Error); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine(_fmt(r.Value)); }
 }
 
 // .clear —— ANSI 清屏 + 光标归位。z42 词法器不支持 \x1b/\u 转义，故用 (char)27 构造 ESC。

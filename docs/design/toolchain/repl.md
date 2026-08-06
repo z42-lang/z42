@@ -85,9 +85,11 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   （auto-dedent-on-`}` 为 follow-up）。非交互路径（管道/no-tty，`plain_readline`）忽略预填——输入自带文本。
 
 元指令落地状态（`interactive_main`）：已接 `.help .exit .quit .reset .clear .vars .types .usings
-.using <ns> .version`（`.version` 打印 zbc/zpkg **格式**版本——z42vm 运行时版本串未经 builtin 暴露给
-z42，留 follow-up）。仍未接：`.history` / `.save`（需宿主存 transcript）、`.mode`（需 `ExecMode` 接口）；
-`.type`/`.members` 随反射、`.time`/`.counters`/`.trace` 随 diagnostics 并入（见下表标注）。
+.using <ns> .type <expr> .version`（`.type` 见 add-repl-type-metacommand：**运行期类型**——`Script.Eval`
+求值 `(<expr>).GetType().Name`，类 Python `type()`；求值一次、副作用照常；`.version` 打印 zbc/zpkg
+**格式**版本——z42vm 运行时版本串未经 builtin 暴露给 z42，留 follow-up）。仍未接：`.history` / `.save`
+（需宿主存 transcript）、`.mode`（需 `ExecMode` 接口）；`.members` 随反射、`.time`/`.counters`/`.trace`
+随 diagnostics 并入（见下表标注）。
 
 follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` ToString）、`.history`/`.save`/`.mode`
 等余下元指令。（多行输入 + fn/class/enum 顶层声明累积、`.reset`/`.clear`/`.using`/`.types`/`.version`
@@ -366,7 +368,7 @@ namespace Std.Scripting {
 | `.types` | 列会话内声明的类型 | [MVP] |
 | `.usings` | 列当前生效的 `using` | [MVP] |
 | `.using <ns>` | 给会话追加一个 `using <ns>;` | [MVP] |
-| `.type <expr>` | 显示表达式的**静态类型**（typecheck，不求值；类 GHCi `:type`）| [refl] |
+| `.type <expr>` | 显示表达式的**运行期类型**（`Script.Eval` 求值 `(<expr>).GetType().Name`，类 Python `type()`；求值一次、副作用照常）| [refl] ✅ |
 | `.members <Type>` | 反射列出类型成员（字段/方法/属性）| [refl] |
 
 ### 执行 / 诊断
@@ -395,10 +397,10 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
 
 > **MVP 指令集**（目标）：`.help .exit .quit .reset .clear .history .save
 > .vars .types .usings .using .mode .version`。
-> **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .version`
-> （`.version` 仅格式版本）。**未接**：`.history` / `.save`（需 transcript 存储）、`.mode`
-> （需 `ExecMode` 接口）。`.type`/`.members` 随反射就绪并入；`.time`/`.counters`/`.trace`
-> 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；`.load` 见 Deferred。
+> **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .type .version`
+> （`.type` = 运行期类型，add-repl-type-metacommand；`.version` 仅格式版本）。**未接**：`.history` /
+> `.save`（需 transcript 存储）、`.mode`（需 `ExecMode` 接口）；`.members` 随反射就绪并入；
+> `.time`/`.counters`/`.trace` 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；`.load` 见 Deferred。
 
 ## 行编辑器
 
@@ -430,9 +432,11 @@ string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检�
     公共前缀、再 Tab 列候选）——替代 rustyline 默认 `Circular`（反复 Tab 循环候选、转一圈**回到原始输入**，
     观感为「Tab 越按越退」）。
 - **inline ghost 提示**（`ReplHelper: Hinter`，add-repl-multiline-completion）：**边打字**把补全以灰字
-  幽灵显示（`highlight_hint` = ANSI `\x1b[90m`）。仅行尾提示：先试**标识符 ghost**——裸标识符
-  （无 `.`，跳过每键 `obj.` 成员反射）复用同一 completer，`starts_with` 严格前缀过滤后取首个扩展
-  候选的后缀（非扩展 → 无提示，ghost 永不错）；无则回退 **fish 式历史 ghost**（`HistoryHinter`）。
+  幽灵显示（`highlight_hint` = ANSI `\x1b[90m`）。仅行尾提示：先试**补全 ghost**——复用同一 completer，
+  **裸标识符与成员上下文均支持**（`Con`→`sole`、`Console.W`→`riteLine`；成员上下文原为省每键反射而跳过，
+  add-repl-type-metacommand 起放开，completer 按需 reconcile 接收者、命中后缓存，成本与 Tab 相当），
+  `starts_with` 严格前缀过滤后取首个扩展候选的后缀（非扩展 → 无提示，ghost 永不错）；无则回退
+  **fish 式历史 ghost**（`HistoryHinter`）。
 - 非交互（管道 / no-tty）走 `plain_readline`：无补全、无 ghost、续行不预填缩进（输入自带文本）。
 
 ## 包位置与 Z42_LIBS
