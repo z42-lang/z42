@@ -196,6 +196,17 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     string host     = Environment.GetEnvironmentVariable("Z42_EMBED_APPHOST") ?? "";
     string libsSrc  = Environment.GetEnvironmentVariable("Z42_EMBED_LIBS") ?? "";
     string dylibSrc = Environment.GetEnvironmentVariable("Z42_EMBED_DYLIB") ?? "";
+    // Auto-provision from the project's [build] hooks when env is unset — the
+    // hook builds + registers the embed apphost (per link) + stdlib libs
+    // (+ dynamic libz42), mirroring the spawn path's apphost-stub. So
+    // `z42 publish --self-contained` works out-of-box in this repo (dev) and via
+    // the desktop workload (user), no manual env.
+    if (host.Length == 0 || libsSrc.Length == 0 || (link == "dynamic" && dylibSrc.Length == 0)) {
+        Output[] hookOuts = _pubRunHooks(toml, tomlPath, projName, rid);
+        if (host.Length == 0)    { host    = _pubFindOutput(hookOuts, "embed-apphost-" + link); }
+        if (libsSrc.Length == 0) { libsSrc = _pubFindOutput(hookOuts, "embed-libs"); }
+        if (link == "dynamic" && dylibSrc.Length == 0) { dylibSrc = _pubFindOutput(hookOuts, "embed-dylib"); }
+    }
     if (host.Length == 0 || !File.Exists(host)) {
         ConsoleError.WriteLine("z42b publish --self-contained: embed apphost not available (ships with the desktop workload).");
         ConsoleError.WriteLine("       run: z42 workload install desktop   (dev: set Z42_EMBED_APPHOST)");
@@ -718,5 +729,43 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
         i = i + 1;
     }
     ConsoleError.WriteLine("z42b publish: project hooks ran but registered no usable apphost-stub output — falling back to the workload apphost");
+    return "";
+}
+
+// Run the project's [build] hooks BeforeAssets and return ALL registered outputs
+// (embed-workload-publish). Same load+run as _pubHookApphostStub, but returns
+// the full output set so --self-contained can harvest its embed-* kinds. Empty
+// array if no [build] hooks / on failure.
+Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string rid) {
+    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
+    if (hooksRel.Length == 0) { return new Output[0]; }
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    string hooksDir = Path.Join(projDir, hooksRel);
+    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
+    string baseDir;
+    if (outBase.Length > 0) { baseDir = Path.Join(projDir, outBase); }
+    else { baseDir = Path.Join(Path.Join(projDir, "artifacts"), projName); }
+    string interDir = Path.Join(baseDir, "hooks");
+    BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
+    if (h == null) { return new Output[0]; }
+    PipelineContext ctx = new PipelineContext();
+    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
+    ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);
+    try { h.BeforeAssets(ctx); }
+    catch (Exception e) {
+        ConsoleError.WriteLine("z42b publish: project hook BeforeAssets failed (" + e.Message + ")");
+        return new Output[0];
+    }
+    return ctx.Outputs();
+}
+
+// First hook output of `kind` (raw path; caller validates file-vs-dir existence).
+string _pubFindOutput(Output[] outs, string kind) {
+    int i = 0;
+    while (i < outs.Length) {
+        if (outs[i].Kind == kind) { return outs[i].Path; }
+        i = i + 1;
+    }
     return "";
 }

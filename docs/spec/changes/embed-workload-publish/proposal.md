@@ -20,8 +20,9 @@ G6(#96)建了**嵌入原语**(`z42::app::run` + `z42_host_run_app` + 四平台 s
 - **static / dynamic**(`[platform.desktop] link`,平台允许才可选):static 把 libz42 编进 apphost;dynamic
   另发 `libz42.<dyn>` 于 exe 旁(apphost rpath `@loader_path`)。
 - **provisioning(A 方案)**:embed apphost + stdlib +(dynamic)libz42 由 **desktop workload 打包**;本仓 dev
-  flow 经 env(`Z42_EMBED_APPHOST` / `Z42_EMBED_LIBS` / `Z42_EMBED_DYLIB`)供给,镜像 spawn 的
-  `Z42_APPHOST_TEMPLATE`。后续接 build-hook 自动供给。
+  flow 经 **build-hook 自动供给**(`scripts/hooks/hooks.z42` 的 `BeforeAssets` 现场建 embed apphost + 复用
+  libz42/flat-libs → `ctx.AddOutput("embed-apphost-<link>"/"embed-libs"/"embed-dylib")`;`_pubRunHooks` 收割),
+  env(`Z42_EMBED_APPHOST/LIBS/DYLIB`)为覆盖兜底。→ **`z42 publish --self-contained` 开箱即用,免手设 env**。
 
 产出 app 目录:`<app>/ { <name>[.exe], app.zpkg, libs/*.zpkg [, libz42.<dyn>] }`。
 
