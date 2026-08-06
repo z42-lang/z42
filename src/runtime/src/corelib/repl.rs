@@ -183,9 +183,20 @@ pub fn builtin_repl_member_names(ctx: &VmContext, args: &[Value]) -> Result<Valu
     let v = ctx.static_get(&fqn);
     let tname = match &v {
         Value::Object(rc) => rc.type_desc().name.clone(),
-        // Phase 1: only class instances (heap objects). Primitive-typed session
-        // vars (int/string/…) → no member completion yet (refinement: map to their
-        // primitive type name).
+        // add-repl-completion-iter2: primitive-typed session vars → the **same** canonical
+        // stdlib class `GetType()` resolves (Std.String / Std.Int32 / boxed's exact class),
+        // so member reflection returns the real member set (string.Length/CharAt,
+        // int.ToString, …). Mirrors `object::builtin_obj_get_type` so the names actually
+        // resolve in `make_type_from_name` (hardcoding "string"/"int" would not).
+        Value::Str(_) => crate::metadata::well_known_names::STD_STRING.to_string(),
+        Value::Boxed(b) => b.class.to_string(),
+        v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
+            match crate::interp::primitive_class_name(v) {
+                Some(cn) => cn.to_string(),
+                None => return Ok(ctx.heap().alloc_array(Vec::new())),
+            }
+        }
+        // Null / arrays / other → no member completion.
         _ => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
     let type_val = make_type_from_name(ctx, &tname);
@@ -478,7 +489,7 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
     use parking_lot::Mutex;
     use rustyline::error::ReadlineError;
     use rustyline::history::DefaultHistory;
-    use rustyline::Editor;
+    use rustyline::{CompletionType, Config, Editor};
     use std::sync::OnceLock;
 
     // One editor for the process → shared history + completer across calls. Lazily
@@ -487,7 +498,12 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
     let cell = EDITOR.get_or_init(|| Mutex::new(None));
     let mut guard = cell.lock();
     if guard.is_none() {
-        if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::new() {
+        // List completion (bash-style: first Tab → longest common prefix, next Tab →
+        // list candidates). rustyline's default is `Circular`, which cycles through
+        // candidates on each Tab and wraps back to the *original* input — read as
+        // Tab "going backward" / losing text. (add-repl-completion-iter2)
+        let config = Config::builder().completion_type(CompletionType::List).build();
+        if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::with_config(config) {
             ed.set_helper(Some(ReplHelper::new()));
             // Load prior sessions' history (best-effort: missing file / parse error is
             // fine — a fresh session just starts empty). (add-repl-history-keyword-completion)

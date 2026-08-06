@@ -421,9 +421,14 @@ string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检�
 - **Tab 补全**（`ReplHelper: Completer`，add-completion-query-api）：Tab 触发，经进程全局
   `REGISTERED_COMPLETER`（z42 `Std.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）回调 VM，
   返回作用域变量 / 会话声明名 / 导入类型名（含 ns 索引未 reconcile 的，`_addIndexedTypeNames`）/
-  `Type.` 静态成员（未 reconcile 则按需 reconcile，`_ensureReconciled`）/ `obj.` 实例成员（live 反射）/
-  **z42 语言关键字**（`_addKeywords`，以 `Z42.Syntax.Lexer` 的 `KeywordCount`/`KeywordNameAt` 为权威源、
-  零漂移）候选。回调在 readline 内重入 VM，临时 un-park 参与 safepoint（见上 GC-safe park）。
+  `Type.` 静态成员（未 reconcile 则按需 reconcile，`_ensureReconciled`）/ `obj.` 实例成员（live 反射，
+  **含基元变量**——`s.`/`n.` 映射到 `GetType()` 同款 canonical 类 `Std.String`/`Std.Int32`… 反射其成员，
+  add-repl-completion-iter2）/ **z42 语言关键字**（`_addKeywords`，以 `Z42.Syntax.Lexer` 的
+  `KeywordCount`/`KeywordNameAt` 为权威源、零漂移）候选。回调在 readline 内重入 VM，临时 un-park
+  参与 safepoint（见上 GC-safe park）。
+  - **List 模式**（add-repl-completion-iter2）：编辑器以 `CompletionType::List` 构造（bash 式：首 Tab 补最长
+    公共前缀、再 Tab 列候选）——替代 rustyline 默认 `Circular`（反复 Tab 循环候选、转一圈**回到原始输入**，
+    观感为「Tab 越按越退」）。
 - **inline ghost 提示**（`ReplHelper: Hinter`，add-repl-multiline-completion）：**边打字**把补全以灰字
   幽灵显示（`highlight_hint` = ANSI `\x1b[90m`）。仅行尾提示：先试**标识符 ghost**——裸标识符
   （无 `.`，跳过每键 `obj.` 成员反射）复用同一 completer，`starts_with` 严格前缀过滤后取首个扩展
