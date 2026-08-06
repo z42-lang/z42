@@ -1,0 +1,29 @@
+// 编译期常量值（add-const-keyword）。const 字段 / 局部常量求值后携带此值，供 codegen 阶段
+// 把引用替换成对应字面量指令（ConstI64 / ConstBool / ConstChar / ConstF64 / ConstStr / ConstNull）。
+// Kind 明确区分 Int / Char / Bool（有别于 DefaultFold 的 Kind 2 混装 i64），emit 才能选对指令。
+namespace Z42.Semantics;
+
+public sealed class ConstValue {
+    // Kind 常量（TokenKind 风格 static int；值仅需互异）。
+    public static int KInt   = 1;   // 整数：IntVal 存 long 值
+    public static int KBool  = 2;   // 布尔：IntVal 存 0 | 1
+    public static int KChar  = 3;   // 字符：IntVal 存码点
+    public static int KFloat = 4;   // 浮点：IntVal 存 f64 bits（DoubleToBits）
+    public static int KStr   = 5;   // 字符串：StrVal 存已解码原文
+    public static int KNull  = 6;   // null
+
+    public int    Kind;
+    public long   IntVal;   // Int 值 / Bool(0|1) / Char 码点 / Float bits
+    public string StrVal;   // Str 时的已解码字符串（否则 ""）
+
+    public ConstValue(int kind, long intVal, string strVal) {
+        this.Kind = kind; this.IntVal = intVal; this.StrVal = strVal;
+    }
+
+    public static ConstValue Int(long v)   { return new ConstValue(ConstValue.KInt, v, ""); }
+    public static ConstValue Bool(bool b)  { long v = 0; if (b) { v = 1; } return new ConstValue(ConstValue.KBool, v, ""); }
+    public static ConstValue Char(long c)  { return new ConstValue(ConstValue.KChar, c, ""); }
+    public static ConstValue Float(long bits) { return new ConstValue(ConstValue.KFloat, bits, ""); }
+    public static ConstValue Str(string s) { return new ConstValue(ConstValue.KStr, 0, s); }
+    public static ConstValue Null()        { return new ConstValue(ConstValue.KNull, 0, ""); }
+}

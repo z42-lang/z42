@@ -1,0 +1,17 @@
+using Std.IO;
+
+// add-const-keyword e2e：const 引用替换为字面量后喂现有 ConstFold —— 折进循环边界与累积。
+// 输出正确即证明常量传播不改语义（优化对结果透明）。
+class K { const int N = 10; }
+
+void Main() {
+    const int step = 5;
+    int total = 0;
+    int i = 0;
+    while (i < K.N) {            // i < 10（N 替换为字面量 10）
+        total = total + step;   // += 5（step 替换为字面量 5）
+        i = i + 1;
+    }
+    Console.WriteLine(total);   // 10 * 5 = 50
+    Console.WriteLine(K.N * step + 1);   // 10*5+1 = 51（全常量表达式）
+}

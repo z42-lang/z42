@@ -11,6 +11,7 @@ public sealed class TypeEnv {
     public bool        HasParent;
     public TypeEnv     Parent;
     public StrMap      Vars;
+    public StrMap      Consts;     // add-const-keyword：本层局部 const 值（name → ConstValue）；LookupConst 走父链
     public StrMap      LocalFns;   // impl-local-fn-l2：本层局部函数签名（name → Z42FuncType）；LookupLocalFn 走父链
     public SymbolTable Symbols;
     public bool        ClassFlag;
@@ -27,6 +28,7 @@ public sealed class TypeEnv {
         this.HasParent = hasParent;
         this.Parent = parent;
         this.Vars = new StrMap();
+        this.Consts = new StrMap();
         this.LocalFns = new StrMap();
         this.ClassFlag = classFlag;
         this.ClassName = className;
@@ -89,6 +91,32 @@ public sealed class TypeEnv {
     }
 
     public void Define(string name, Z42Type type) { this.Vars.Put(name, type); }
+
+    // add-const-keyword：局部 const 值登记 / 父链查找。IsConstName 供赋值检查（不可对 const 赋值）。
+    public void DefineConst(string name, ConstValue cv) { this.Consts.Put(name, cv); }
+    public ConstValue LookupConst(string name) {
+        TypeEnv e = this;
+        bool more = true;
+        while (more) {
+            if (e.Consts.ContainsKey(name)) { return e.Consts.Get(name) as ConstValue; }
+            if (e.HasParent) { e = e.Parent; } else { more = false; }
+        }
+        return null;
+    }
+    public bool IsConstName(string name) { return this.LookupConst(name) != null; }
+    // 收集本层+父链全部 in-scope const（裸名 → ConstValue，内层 first-wins）供 ConstEval 求值局部 const 初始化器。
+    public StrMap CollectConsts() {
+        StrMap acc = new StrMap();
+        TypeEnv e = this;
+        bool more = true;
+        while (more) {
+            string[] ks = e.Consts.Keys();
+            int i = 0;
+            while (i < ks.Length) { acc.TryAdd(ks[i], e.Consts.Get(ks[i])); i = i + 1; }
+            if (e.HasParent) { e = e.Parent; } else { more = false; }
+        }
+        return acc;
+    }
 
     // impl-local-fn-l2：局部函数签名注册 / 父链查找（null = 非局部函数）。
     public void DefineLocalFn(string name, Z42FuncType sig) { this.LocalFns.Put(name, sig); }

@@ -50,6 +50,9 @@ public sealed class IrOptPipeline {
             int[] defs0 = IrOptPipeline._computeDefs(f);
             IrOptPipeline._passConstFold(f, defs0);
         }
+        // pass: dead-branch —— 常量条件死分支消除（放 const-fold 后：折出的 ConstBool 也触发；喂料还来自
+        // const 替换）。先于 licm/cse 简化 CFG（移不可达块 → 下游 pass 处理更小的函数）。独立开也正确（design D2）。
+        if (Opt.Has(optSet, Opt.DeadBranch)) { IrDeadBranch.Run(f); }
         // pass: licm —— 循环不变量外提（放 const-fold 后、cse 前：常量先折，提到 pre-header 后再被下游清理）
         // add-readonly-fields-opt：ReadonlyLoad 也触发（LICM 内 readonly-fget 外提分支由该位单独门控）。
         // add-pure-call-opt：PureCall 也触发 LICM（纯调用外提分支由该位单独门控）。

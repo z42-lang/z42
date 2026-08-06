@@ -26,7 +26,9 @@ public static class Opt {
                                         //        接收者=this 的读 LICM 外提循环；add-readonly-fields-opt）
     public static int PureCall  = 512;  // bit9：纯函数调用优化（自动推断纯度：同 callee+参数纯调用 CSE 消重 +
                                         //        循环不变纯调用 LICM 外提；add-pure-call-opt）
-    public static int All       = 1023; // ...|ReadonlyLoad|PureCall
+    public static int DeadBranch = 1024; // bit10：常量条件死分支消除（br.cond(常量 bool)→br 折叠 + ExcCount==0 时
+                                        //        可达性移除死块；喂料来自 const 替换 / const-fold；add-const-keyword）
+    public static int All       = 2047; // ...|PureCall|DeadBranch
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {
@@ -45,6 +47,7 @@ public static class Opt {
         if (name == "loop-alloc-reuse") { return Opt.LoopAllocReuse; }
         if (name == "readonly-load") { return Opt.ReadonlyLoad; }
         if (name == "pure-call")  { return Opt.PureCall; }
+        if (name == "dead-branch"){ return Opt.DeadBranch; }
         if (name == "all")        { return Opt.All; }
         if (name == "none")       { return Opt.None; }
         return -1;

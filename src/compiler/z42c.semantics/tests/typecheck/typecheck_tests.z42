@@ -745,3 +745,31 @@ void test_nonreadonly_method_assign_ok() {
     string src = "class C { int x; void set(int a) { this.x = a; } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── const 强制诊断（add-const-keyword；E0416–E0419）──────────────────────────────
+// 注：const 字段的 E0416/E0417 属**收集期**（SymbolCollector）诊断 → 在 collect_tests.z42 覆盖
+// （SemanticDump 只跑类型检查期，不含收集期 bag）。此处覆盖类型检查期的赋值 / 引用诊断。
+[Test]
+void test_const_field_assign_error() {
+    // 对 const 字段赋值 → E0418
+    string src = "class C { const int X = 1; void set() { C.X = 5; } }";
+    Assert.Equal("E0418", SemanticDump.FirstErrorCode(src));
+}
+[Test]
+void test_const_local_assign_error() {
+    // 对 const 局部赋值 → E0418
+    string src = "void f() { const int n = 1; n = 2; }";
+    Assert.Equal("E0418", SemanticDump.FirstErrorCode(src));
+}
+[Test]
+void test_const_bad_ref_error() {
+    // const 初始化器引用非 const（普通局部）→ E0419
+    string src = "void f() { int z = 3; const int Y = z; }";
+    Assert.Equal("E0419", SemanticDump.FirstErrorCode(src));
+}
+[Test]
+void test_const_valid_no_error() {
+    // 合法 const：字段引用已定义 const + 局部 const + 混用于普通表达式 → 无错。
+    string src = "class C { const int A = 10; const int B = A * 2; } void f() { const int n = 8; int y = n + C.A; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

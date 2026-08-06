@@ -15,6 +15,7 @@
   - [命名空间与访问控制]()
   - [partial 类型（跨文件类型定义）](language/partial-types.md)
   - [readonly 字段](language/readonly-fields.md)
+  - [const 编译期常量](language/const.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

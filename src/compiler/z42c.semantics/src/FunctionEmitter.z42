@@ -446,6 +446,9 @@ public sealed class FunctionEmitter {
             while (i < b.Count) { this._emitStmt(b.Stmts[i]); i = i + 1; }
         } else if (s is BoundVarDeclStmt) {
             BoundVarDeclStmt v = s as BoundVarDeclStmt;
+            // add-const-keyword：登记局部 const 替换表（存储仍正常发射→引用全替换后 dead store 由 DCE 清；
+            // 保留存储让被 lambda 捕获的 const 局部仍可 lift）。
+            if (v.IsConst && v.ConstVal != null) { this._ctx.ConstLocals.Put(v.Name, v.ConstVal); }
             // 有 init：专用寄存器 + copy（byte-identical：FUNC 指令流/REGT/DBUG instrIdx）。
             // 无 init（G8）：不发 IR——变量首次赋值时 _emitAssign 绑定寄存器（镜像 C# VisitVarDecl）。
             if (v.Init != null) {

@@ -38,6 +38,10 @@ public static class DiagnosticCodes {
     public static string InvalidImpl           = "E0413";
     public static string EventFieldExternalAccess = "E0414";
     public static string ReadonlyAssignment       = "E0415";   // readonly 字段不可在构造函数外赋值（add-readonly-fields-opt）
+    public static string ConstNeedsInit           = "E0416";   // const 声明必须有初始化器（add-const-keyword）
+    public static string ConstNotConstantInit     = "E0417";   // const 初始化器必须是编译期常量（add-const-keyword）
+    public static string ConstAssignment          = "E0418";   // 不可对 const 赋值（add-const-keyword）
+    public static string ConstExprBadRef          = "E0419";   // 常量表达式只能引用已定义的 const（add-const-keyword）
     public static string InvalidCatchType         = "E0420";
     public static string InvalidDefaultType       = "E0421";
     public static string GenericFuncConstraintViolation = "E0422";
