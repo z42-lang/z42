@@ -1,0 +1,23 @@
+using Std.IO;
+
+// add-const-keyword e2e：const 字段（含引用已定义 const 的常量表达式）+ 局部 const 的语义。
+// 引用一律替换为字面量（喂 ConstFold）；输出必须正确。
+class Config {
+    const int Max = 100;
+    const int Doubled = Max * 2;        // 引用同类已定义 const
+    const string Tag = "cfg-" + "v1";   // 编译期字符串拼接
+    const char Sep = '|';
+    const bool On = true;
+}
+
+void Main() {
+    const int n = 8;
+    const int m = n * 4;                 // 局部 const 引用已定义局部 const
+    int y = m + Config.Max;             // 32 + 100 = 132
+    Console.WriteLine(Config.Max);       // 100
+    Console.WriteLine(Config.Doubled);   // 200
+    Console.WriteLine(Config.Tag);       // cfg-v1
+    Console.WriteLine(n);                // 8
+    Console.WriteLine(y);                // 132
+    Console.WriteLine(Config.On);        // true
+}

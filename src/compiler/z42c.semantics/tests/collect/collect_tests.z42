@@ -135,6 +135,31 @@ bool hasCode(DiagnosticBag d, string code) {
     return false;
 }
 
+// add-const-keyword：单 CU 收集期诊断（const 字段求值 / 缺初始化）。
+DiagnosticBag collectDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    return coll.Diags;
+}
+[Test]
+void test_const_field_missing_init_error() {
+    // const 缺初始化器 → E0416（收集期）
+    Assert.Equal(true, hasCode(collectDiags("class C { const int X; }"), "E0416"));
+}
+[Test]
+void test_const_field_nonconstant_init_error() {
+    // 非编译期常量初始化器（函数调用）→ E0417（收集期）
+    Assert.Equal(true, hasCode(collectDiags("int g() { return 1; } class C { const int X = g(); }"), "E0417"));
+}
+[Test]
+void test_const_field_valid_no_error() {
+    // 合法 const 字段（含引用已定义 const 的表达式）→ 无收集期错。
+    Assert.Equal(false, hasCode(collectDiags("class C { const int A = 10; const int B = A * 2; }"), "E0416"));
+    Assert.Equal(false, hasCode(collectDiags("class C { const int A = 10; const int B = A * 2; }"), "E0417"));
+}
+
 [Test]
 void test_partial_merge_fields_and_methods() {
     var t = pmergeTable(

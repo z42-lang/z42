@@ -445,6 +445,7 @@ public sealed class Lexer {
         this._kw("private", TokenKind.Private); this._kw("protected", TokenKind.Protected); this._kw("internal", TokenKind.Internal);
         this._kw("ref", TokenKind.Ref); this._kw("out", TokenKind.Out); this._kw("params", TokenKind.Params);
         this._kw("partial", TokenKind.Partial); this._kw("readonly", TokenKind.Readonly);
+        this._kw("const", TokenKind.Const);
         this._kw("class", TokenKind.Class);
         this._kw("struct", TokenKind.Struct); this._kw("enum", TokenKind.Enum); this._kw("interface", TokenKind.Interface);
         this._kw("record", TokenKind.Record); this._kw("delegate", TokenKind.Delegate); this._kw("event", TokenKind.Event);

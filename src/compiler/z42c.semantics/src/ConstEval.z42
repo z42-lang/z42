@@ -1,0 +1,121 @@
+// 编译期常量表达式求值器（add-const-keyword）。把 const 字段 / 局部常量的初始化器 AST
+// 求成 ConstValue；非编译期常量 → 返回 null（调用方报 ConstNotConstantInit / ConstExprBadRef）。
+//
+// 覆盖：字面量（int/bool/char/float/string/null）+ 一元 `- + ! ~` + 二元 算术/比较/逻辑/位/串接，
+// + **已定义 const 引用**（IdentExpr 裸名 / MemberExpr `Class.FIELD`，经 env 查找）。折叠语义镜像
+// IrGenFacts._foldBinary（除零 / 越界移位 → null 保守拒绝，交由诊断）。env：name → ConstValue。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public static class ConstEval {
+    // 求值 e；env = 当前作用域已定义 const（裸名，及 `Class.FIELD` 限定名）→ ConstValue。
+    // 返回 ConstValue 或 null（非常量）。
+    public static ConstValue Eval(Expr e, StrMap env) {
+        if (e is IntLitExpr)   { return ConstValue.Int(ZbcInstr._parseIntLit((e as IntLitExpr).Value)); }
+        if (e is BoolLitExpr)  { return ConstValue.Bool((e as BoolLitExpr).Value); }
+        if (e is CharLitExpr)  { return ConstValue.Char((long)(int)(e as CharLitExpr).Value); }
+        if (e is FloatLitExpr) { return ConstValue.Float(ZbcInstr.DoubleToBits(Convert.ToDouble(IrGenFacts._stripFloatSuffix((e as FloatLitExpr).Value)))); }
+        if (e is StringLitExpr){ return ConstValue.Str(Lexer.DecodeString((e as StringLitExpr).Raw)); }
+        if (e is NullLitExpr)  { return ConstValue.Null(); }
+        if (e is IdentExpr)    { return ConstEval._lookup(env, (e as IdentExpr).Name); }
+        if (e is MemberExpr)   { return ConstEval._evalMember(e as MemberExpr, env); }
+        if (e is UnaryExpr)    { return ConstEval._evalUnary(e as UnaryExpr, env); }
+        if (e is BinaryExpr)   { return ConstEval._evalBinary(e as BinaryExpr, env); }
+        return null;
+    }
+
+    private static ConstValue _lookup(StrMap env, string key) {
+        object o = env.Get(key);
+        if (o == null) { return null; }
+        return o as ConstValue;
+    }
+
+    // `Class.FIELD`（target 为裸标识符）→ 查限定名。更深的成员链 v1 不支持。
+    private static ConstValue _evalMember(MemberExpr m, StrMap env) {
+        if (m.Target is IdentExpr) {
+            return ConstEval._lookup(env, (m.Target as IdentExpr).Name + "." + m.Name);
+        }
+        return null;
+    }
+
+    private static ConstValue _evalUnary(UnaryExpr u, StrMap env) {
+        ConstValue o = ConstEval.Eval(u.Operand, env);
+        if (o == null) { return null; }
+        if (u.Op == "-") {
+            if (o.Kind == ConstValue.KInt)   { return ConstValue.Int(0 - o.IntVal); }
+            if (o.Kind == ConstValue.KFloat) { return ConstValue.Float(ZbcInstr.DoubleToBits(0.0 - ZbcReaderInstr.BitsToDouble(o.IntVal))); }
+        } else if (u.Op == "+") {
+            if (o.Kind == ConstValue.KInt || o.Kind == ConstValue.KFloat) { return o; }
+        } else if (u.Op == "!") {
+            if (o.Kind == ConstValue.KBool) { return ConstValue.Bool(o.IntVal == 0); }
+        } else if (u.Op == "~") {
+            if (o.Kind == ConstValue.KInt) { return ConstValue.Int(~o.IntVal); }
+        }
+        return null;
+    }
+
+    private static ConstValue _evalBinary(BinaryExpr b, StrMap env) {
+        ConstValue l = ConstEval.Eval(b.Left, env);
+        if (l == null) { return null; }
+        ConstValue r = ConstEval.Eval(b.Right, env);
+        if (r == null) { return null; }
+        if (l.Kind == ConstValue.KInt   && r.Kind == ConstValue.KInt)   { return ConstEval._binInt(b.Op, l.IntVal, r.IntVal); }
+        if (l.Kind == ConstValue.KFloat && r.Kind == ConstValue.KFloat) { return ConstEval._binFloat(b.Op, l.IntVal, r.IntVal); }
+        if (l.Kind == ConstValue.KBool  && r.Kind == ConstValue.KBool)  { return ConstEval._binBool(b.Op, l.IntVal != 0, r.IntVal != 0); }
+        if (l.Kind == ConstValue.KStr   && r.Kind == ConstValue.KStr)   { return ConstEval._binStr(b.Op, l.StrVal, r.StrVal); }
+        return null;
+    }
+
+    private static ConstValue _binInt(string op, long a, long c) {
+        if (op == "+") { return ConstValue.Int(a + c); }
+        if (op == "-") { return ConstValue.Int(a - c); }
+        if (op == "*") { return ConstValue.Int(a * c); }
+        if (op == "/") { if (c == 0) { return null; } return ConstValue.Int(a / c); }
+        if (op == "%") { if (c == 0) { return null; } return ConstValue.Int(a % c); }
+        if (op == "&") { return ConstValue.Int(a & c); }
+        if (op == "|") { return ConstValue.Int(a | c); }
+        if (op == "^") { return ConstValue.Int(a ^ c); }
+        if (op == "<<") { if (c < 0 || c > 63) { return null; } return ConstValue.Int(a << (int)c); }
+        if (op == ">>") { if (c < 0 || c > 63) { return null; } return ConstValue.Int(a >> (int)c); }
+        if (op == "==") { return ConstValue.Bool(a == c); }
+        if (op == "!=") { return ConstValue.Bool(a != c); }
+        if (op == "<")  { return ConstValue.Bool(a < c); }
+        if (op == "<=") { return ConstValue.Bool(a <= c); }
+        if (op == ">")  { return ConstValue.Bool(a > c); }
+        if (op == ">=") { return ConstValue.Bool(a >= c); }
+        return null;
+    }
+
+    private static ConstValue _binFloat(string op, long ab, long cb) {
+        double a = ZbcReaderInstr.BitsToDouble(ab);
+        double c = ZbcReaderInstr.BitsToDouble(cb);
+        if (op == "+") { return ConstValue.Float(ZbcInstr.DoubleToBits(a + c)); }
+        if (op == "-") { return ConstValue.Float(ZbcInstr.DoubleToBits(a - c)); }
+        if (op == "*") { return ConstValue.Float(ZbcInstr.DoubleToBits(a * c)); }
+        if (op == "/") { return ConstValue.Float(ZbcInstr.DoubleToBits(a / c)); }
+        if (op == "==") { return ConstValue.Bool(a == c); }
+        if (op == "!=") { return ConstValue.Bool(a != c); }
+        if (op == "<")  { return ConstValue.Bool(a < c); }
+        if (op == "<=") { return ConstValue.Bool(a <= c); }
+        if (op == ">")  { return ConstValue.Bool(a > c); }
+        if (op == ">=") { return ConstValue.Bool(a >= c); }
+        return null;
+    }
+
+    private static ConstValue _binBool(string op, bool a, bool c) {
+        if (op == "&&") { return ConstValue.Bool(a && c); }
+        if (op == "||") { return ConstValue.Bool(a || c); }
+        if (op == "==") { return ConstValue.Bool(a == c); }
+        if (op == "!=") { return ConstValue.Bool(a != c); }
+        return null;
+    }
+
+    private static ConstValue _binStr(string op, string a, string c) {
+        if (op == "+")  { return ConstValue.Str(a + c); }
+        if (op == "==") { return ConstValue.Bool(a == c); }
+        if (op == "!=") { return ConstValue.Bool(a != c); }
+        return null;
+    }
+}
