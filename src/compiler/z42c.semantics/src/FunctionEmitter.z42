@@ -57,7 +57,13 @@ public sealed class FunctionEmitter {
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;
-                while (fi < fnames.Length) { this._ctx.Fields.Put(fnames[fi], "f"); fi = fi + 1; }
+                while (fi < fnames.Length) {
+                    this._ctx.Fields.Put(fnames[fi], "f");
+                    // add-readonly-fields-opt：记 readonly 字段名 → 裸 ident field_get 打 Readonly 标志
+                    FieldSymbol ofs = owner.Fields.Get(fnames[fi]) as FieldSymbol;
+                    if (ofs != null && ofs.IsReadonly) { this._ctx.ReadonlyFields.Put(fnames[fi], "1"); }
+                    fi = fi + 1;
+                }
             }
         }
         int p = 0;

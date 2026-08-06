@@ -16,7 +16,7 @@ using Z42.IR;
 
 public sealed class IrLicm {
 
-    public static void Run(IrFunction f) {
+    public static void Run(IrFunction f, int optSet) {
         LoopCfg cfg = IrLoopUtil.BuildCfg(f);
         if (cfg == null) { return; }   // <2 块 / 有异常表 → 跳过
         int n = cfg.N;
@@ -26,14 +26,14 @@ public sealed class IrLicm {
             if (isHeader[h]) {
                 bool[] inLoop = IrLoopUtil.LoopBody(cfg, h);
                 int ph = IrLoopUtil.CleanPreheader(f, cfg, h, inLoop);
-                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom); }
+                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, optSet); }
             }
             h = h + 1;
         }
     }
 
     // 不变量分析 + 外提到 pre-header。
-    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom) {
+    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom, int optSet) {
         int rc = f.MaxReg + 2;
         // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——
         // 后者被「latch 反向可达」的循环体排除，但仍受 header 支配。用 header 支配域而非反向可达体，
@@ -62,6 +62,9 @@ public sealed class IrLicm {
         // invariantReg：其定义指令外提（IsPure + **所有操作数在循环外定义**）。
         // v1 只提「操作数全外部」的指令 → 被提指令互不依赖 → 任意序（程序序）外提皆安全；
         // 链式不变量（依赖被提结果）留给后续 pass 或再跑一遍（提后 defBlock 变外部）。
+        // add-readonly-fields-opt：循环体内被 field_set 写过的字段 → 其 readonly 读**不**外提（值可能变，
+        // 仅可能出现在 ctor 内 `for(..){ this.x = i; ..this.x.. }` 这类）。
+        StrMap loopWrittenFields = IrLicm._collectLoopWrittenFields(f, n, inLoop);
         bool[] invariantReg = new bool[rc];
         b = 0;
         while (b < n) {
@@ -71,8 +74,9 @@ public sealed class IrLicm {
                 while (ii < blk.InstrCount) {
                     IrInstr ins = blk.Instrs[ii];
                     int d = IrOptInfo.DstId(ins);
-                    if (d >= 0 && d < rc && defsGlobal[d] == 1 && IrOptInfo.IsPure(ins)
-                        && IrLicm._operandsExternal(ins, defInLoop, rc)) {
+                    if (d >= 0 && d < rc && defsGlobal[d] == 1
+                        && ((IrOptInfo.IsPure(ins) && IrLicm._operandsExternal(ins, defInLoop, rc))
+                            || IrLicm._isHoistableReadonlyFget(ins, f, optSet, defInLoop, rc, loopWrittenFields))) {
                         invariantReg[d] = true;
                     }
                     ii = ii + 1;
@@ -129,6 +133,38 @@ public sealed class IrLicm {
     private static bool _isHoisted(IrInstr ins, bool[] invariantReg, int rc) {
         int d = IrOptInfo.DstId(ins);
         return d >= 0 && d < rc && invariantReg[d];
+    }
+
+    // add-readonly-fields-opt：readonly FieldGet 是否可安全外提（不经 IsPure，独立判定）。
+    //   ReadonlyLoad 开 + fg.Readonly + 实例方法接收者 this（reg0，恒非空→无 NPE 时机漂移）+
+    //   循环体内该字段无 field_set（值不变）+ Obj 循环外定义（循环不变）。params/locals 接收者留 Deferred。
+    private static bool _isHoistableReadonlyFget(IrInstr ins, IrFunction f, int optSet, bool[] defInLoop, int rc, StrMap loopWrittenFields) {
+        if (!Opt.Has(optSet, Opt.ReadonlyLoad)) { return false; }
+        if (!(ins is FieldGetInstr)) { return false; }
+        FieldGetInstr fg = ins as FieldGetInstr;
+        if (!fg.Readonly) { return false; }
+        if (f.IsStatic) { return false; }               // 静态方法无 this → reg0 是形参，可空
+        if (fg.Obj.Id != 0) { return false; }           // 接收者必须是 this（reg0）
+        if (loopWrittenFields.ContainsKey(fg.Field)) { return false; }
+        return IrLicm._operandsExternal(ins, defInLoop, rc);
+    }
+
+    // add-readonly-fields-opt：循环体（inLoop 块）内所有 field_set 写到的字段名集合。
+    private static StrMap _collectLoopWrittenFields(IrFunction f, int n, bool[] inLoop) {
+        StrMap w = new StrMap();
+        int b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (blk.Instrs[ii] is FieldSetInstr) { w.Put((blk.Instrs[ii] as FieldSetInstr).Field, "1"); }
+                    ii = ii + 1;
+                }
+            }
+            b = b + 1;
+        }
+        return w;
     }
 
     // 指令每个读操作数是否都**不在循环内定义**（→ 循环不变）。

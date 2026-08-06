@@ -314,8 +314,11 @@ public sealed class FieldGetInstr : IrInstr {
     public TypedReg Dst;
     public TypedReg Obj;
     public string   Field;
+    // add-readonly-fields-opt：字段声明为 readonly（构造后不变）——**仅内存优化提示**，不序列化到 zbc；
+    // 优化器（CSE/LICM）在 ZbcWriter 之前消费。默认 false；emit 时由 ExprEmitter 从 FieldSymbol 设置。
+    public bool     Readonly;
     public FieldGetInstr(TypedReg dst, TypedReg obj, string field) {
-        this.Dst = dst; this.Obj = obj; this.Field = field;
+        this.Dst = dst; this.Obj = obj; this.Field = field; this.Readonly = false;
     }
     public override string Dump() { return this.Dst.Dump() + " = field_get " + this.Obj.Dump() + "." + this.Field; }
 }

@@ -299,7 +299,9 @@ public sealed class ExprEmitter {
         if (this._ctx.Locals.ContainsKey(id.Name)) { return this._ctx.Locals.Get(id.Name) as TypedReg; }
         if (this._ctx.Fields.ContainsKey(id.Name)) {
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
-            this._ctx.Emit(new FieldGetInstr(dst, new TypedReg(0, IrType.Ref), id.Name));
+            FieldGetInstr bfg = new FieldGetInstr(dst, new TypedReg(0, IrType.Ref), id.Name);
+            if (this._ctx.ReadonlyFields.ContainsKey(id.Name)) { bfg.Readonly = true; }   // add-readonly-fields-opt
+            this._ctx.Emit(bfg);
             return dst;
         }
         TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
@@ -627,7 +629,14 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new VCallInstr(dst, obj, "get_" + m.MemberName, noArgs, 0));
             return dst;
         }
-        this._ctx.Emit(new FieldGetInstr(dst, obj, m.MemberName));
+        FieldGetInstr fg = new FieldGetInstr(dst, obj, m.MemberName);
+        // add-readonly-fields-opt：readonly 字段 → 打内存标志，供 CSE/LICM。本地字段 FieldSymbol 有 IsReadonly；
+        // 导入字段 v1 保守为 false（不跨包）。propCt 为 null（非类接收者）时保持 false。
+        if (propCt != null && propCt.Fields.ContainsKey(m.MemberName)) {
+            FieldSymbol rfs = propCt.Fields.Get(m.MemberName) as FieldSymbol;
+            if (rfs != null) { fg.Readonly = rfs.IsReadonly; }
+        }
+        this._ctx.Emit(fg);
         return dst;
     }
 

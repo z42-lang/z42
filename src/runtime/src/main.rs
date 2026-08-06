@@ -2,6 +2,15 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
+// z42c self-compile is malloc-bound (~31% in the system allocator, profiled).
+// Route the z42vm process's global allocator through mimalloc — cuts z42c
+// compile ~40% and alloc-heavy (string-building) workloads ~3×. Gated on the
+// default-on `mimalloc-alloc` feature so wasm/mobile presets (built
+// `--no-default-features`) fall back to the system allocator.
+#[cfg(feature = "mimalloc-alloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(name = "z42vm", about = "z42 Virtual Machine", version)]
 struct Cli {

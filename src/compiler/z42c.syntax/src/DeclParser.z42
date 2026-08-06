@@ -100,6 +100,7 @@ public sealed class DeclParser {
         if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
         if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
         if (k == TokenKind.Partial) { return true; }  // add-partial-types：partial 作类型/方法修饰（Mods 含 "partial"，_modsHas 派生 IsPartial）
+        if (k == TokenKind.Readonly) { return true; }  // add-readonly-fields-opt：readonly 作字段修饰（Mods 含 "readonly"）
         return false;
     }
 
