@@ -193,7 +193,8 @@ usings**——worker 只建**骨架**（nsMap 路由 + 惰性 world）→ 秒发
 - **不后台 reconcile**：本 VM 的 GC 安全点协作会让计算密集的**后台线程阻塞主线程 eval**（主线程 `1+1`
   编译分配 → 触发 GC → 死等后台 reconcile 到安全点 ~3s），故放弃「后台预热完整世界」（旧 prewarm 能藏住
   reconcile 仅因 readline 是 native-park 释放 GC；计算不 park）。**权衡**：首次**符号** eval（Console/List）
-  走前台 E0401 ≈ 1.7s（不再被间隙隐藏）——彻底解由 **T2 按符号 reconcile** 承接（见下 Deferred）。
+  走前台 E0401 ≈ 1.7s（不再被间隙隐藏）——**已由 T2 按符号 reconcile 承接落地**（见下节 T2/#98/#101：
+  首次 `Console` 1.7s→**0.33s**、`Math` 再 -31%）。
 
 **B ns 索引持久化（辅）**：`ScanDirsLazy` 把「每 zpkg → 命名空间列表」落盘缓存 `.z42-nsindex`（按 libs
 指纹 `basename:size:mtime` key）；命中则从缓存建 nsMap + `LazyReconWorld` 路由（`LazyFromPairs`），**不再
@@ -205,10 +206,12 @@ Defender 逐个扫的文件打开）。指纹变 → 索引自动重建；不可
 - **正确性**：命中 vs 未命中（open-all）产出的 nsMap/Exported 一致；skip-prelude 后表达式/字符串/Console/
   List/Math/Convert/Environment/声明/跨轮 var 全对。GREEN：自举字节不动点 + e2e 215/0 + cross-zpkg 8/0。
 
-> 引入：change `repl-scan-nsindex-cache`（`docs/spec/changes/…`）。**Deferred → T2 按符号 reconcile**：用
-> `Console` 只 materialize `Console` 一个类型（+基类链），不 reconcile 整个 Std.IO+prelude 闭包 → 首次符号
-> eval ~0.5s、且不需后台线程（避开 GC 坑）。调研：这是**编译器名字解析核心**改动（`SymbolTable` 惰性 miss
-> 回调 + 按类型 zpkg 读 + arity-mangle/impl 合并/接口顺序等不按类型分解的整包问题），需独立 spec + 门禁。
+> 引入：change `repl-scan-nsindex-cache`（`docs/spec/changes/…`）。**T2 按符号 reconcile 已落地**（下节，
+> #98/#101 completer 版）：用 `Console` 只 materialize `Console` 一个类型（+基类链），不 reconcile 整个
+> Std.IO+prelude 闭包 → 首次符号 eval 1.7s→0.33s、且不需后台线程（避开 GC 坑）。**仍为 future 的只剩深层变体**：
+> 把它从「REPL E0401 错误恢复路径的 completer」下沉进**编译器名字解析核心**（`SymbolTable` 惰性 miss 回调 +
+> 按类型 zpkg 读 + arity-mangle/impl 合并/接口顺序等不按类型分解的整包问题）——ROI 低（completer 版已达
+> ~150ms List reconcile 下限），需独立 spec + 门禁，暂缓。
 
 ## T2 按符号 reconcile（completer）+ type→ns 索引（repl-per-symbol-reconcile / repl-type-nsindex，2026-08-02）
 
@@ -466,7 +469,7 @@ libs/ + programs/z42c/ + programs/interactive/
 - **触发条件**：交互式迭代重定义成为高频诉求
 - **当前 workaround**：`.reset` 重开会话（`.reset` 本身亦 follow-up）
 
-### repl-future-tab-completion（已解耦 LSP，作用域级已落地——add-completion-query-api）
+### repl-future-tab-completion（已解耦 LSP；作用域级 + obj.会话变量成员 + 类型名/ns 均已落地——只剩任意-expr receiver + LSP）
 
 - **来源**：0.3.15 设计讨论
 - **重新定位（2026-07-28 add-completion-query-api）**：原判「前置 0.5.x LSP」把耦合画粗了。补全
@@ -476,10 +479,13 @@ libs/ + programs/z42c/ + programs/interactive/
   （`VarNames` + `DeclNames`）返回作用域候选；rustyline `Completer` 经 `__repl_set_completer` +
   thread-local `&VmContext` 回调（机制见 `corelib/repl.rs`，`complete_via_callback`）。前缀过滤 +
   大小写敏感 + 去重。**REPL 自持数据，不依赖 compiler。**
-- **未落地（后续阶段）**：① `obj.` 成员补全（D2 混合：会话变量走 live 反射——读 `Vars{N}.x` 静态字段
-  值 + `GetType().GetMembers()`，零副作用；任意 `expr.` 需静态类型推断 defer）② 类型名静态成员 + ns
-  导出补全（`CompletionQuery` 内核，`z42c.semantics`，排队等 compiler 锁）③ LSP 客户端复用同一内核。
-- **前置依赖**：②③ 依赖「补全查询 API」内核（非整个 LSP）；spec：`docs/spec/changes/add-completion-query-api/`。
+- **已落地（Phase 3b/3c，#59/#62）**：① `obj.` 成员补全——**会话变量**走 live 反射（读 `Vars{N}.x` 静态字段
+  值 + `GetType().GetMembers()`，零副作用，`Repl.MemberNames` builtin，#59）；② 类型名 + `Type.` 静态成员 +
+  ns 导出补全（`CachedScan` 查询，#62）。
+- **未落地（后续阶段）**：① **任意 `expr.` receiver** 成员补全（非会话变量的表达式，需静态类型推断，defer）；
+  ② **基元类型会话变量**的 `obj.` 成员（现只对堆对象反射，int/string 返回空，`repl.rs` refinement）；
+  ③ **关键字 / 命名空间名**补全（现补全源不含语言关键字与 ns 本身）；④ LSP 客户端复用同一「补全查询 API」内核。
+- **前置依赖**：①④ 依赖静态类型推断 / 「补全查询 API」内核（非整个 LSP）；②③ 无硬依赖、REPL 侧小改即可。
 
 ### repl-future-syntax-highlight（REPL 输入行 / 输出语法着色）
 
@@ -552,3 +558,21 @@ libs/ + programs/z42c/ + programs/interactive/
 - **触发原因**：调试集成需要 DAP server + VM 单步支持
 - **前置依赖**：0.8.x DAP debugger
 - **触发条件**：DAP 落地后
+
+### repl-future-eof-detection
+
+- **来源**：add-z42-repl（宿主退出机制）
+- **触发原因**：`Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit` / `.quit`（或
+  `Repl.ReadBlock` 返回 `null` 的原生 EOF）退出，宿主级 `Console.ReadLine` 场景收不到 EOF 信号。
+- **前置依赖**：runtime builtin 暴露 EOF 信号（区分「读到 EOF」与「读到空行」）。
+- **触发条件**：需要用 `Console.ReadLine()` 写 EOF 敏感的交互逻辑时。
+- **当前 workaround**：`.exit` / `.quit` 元指令，或 `ReadBlock`/`ReadLine` 原生 EOF→null。
+
+### repl-future-runtime-version
+
+- **来源**：add-repl-mvp-metacommands（`.version` 落地时发现）
+- **触发原因**：`.version` 目前只打印 zbc/zpkg **格式**版本（`Script.FormatVersion`）；z42vm **运行时版本串**
+  （build profile / features / target）未经 builtin 暴露给 z42，`.version` 无法显示。
+- **前置依赖**：runtime builtin 暴露版本串（可复用 `z42vm --info` 的信息面）。
+- **触发条件**：用户需在 REPL 内查看运行时版本 / bug 上报时。
+- **当前 workaround**：`z42vm --info`（进程外）。

@@ -7,46 +7,34 @@
 //   - **流不敏感 may-escape 过近似（CFG-free）**：逃逸是「该 reg 的**任一**使用是否到达逃逸汇点」，
 //     与控制流顺序无关的 may 问题 → 线性扫全函数即安全过近似，无需 CFG / 支配域（区别于 LICM）。
 //   - **角色感知逃逸汇点规则表**（`_markEscaping`，可扩展核心）：逐指令按操作数**角色**分类——
-//     escaping（返回 / 存字段·数组·静态的值 / 传任何调用含 receiver / throw / 闭包捕获 / ToString /
-//     as-cast 别名 / 取址）标记逃逸；neutral（读自身字段·数组·长度 / is-check / 算术等消费值）跳过。
+//     escaping（返回 / 存字段·数组·静态的值 / throw / 闭包捕获 / ToString / as-cast 别名 / 取址）标记逃逸；
+//     neutral（读自身字段·数组·长度 / is-check / 算术等消费值）跳过。
 //     **铁律：完整镜像 IrOptInfo.AddReads 的读枚举**——漏一个 escaping 操作数 = 漏判逃逸 = 悬垂栈引用。
-//     加精度只需改本表的分类，引擎（下面两趟）不动。
-//   - **copy 传递闭包**（Pass B 不动点）：`dst = copy src`，dst 逃逸 ⇒ src 逃逸（对象经 copy 流出）。
-//   - **对象额外前提：ctor 不泄漏 this**（`_ctorLeaksThis`，单函数摘要、不递归）：new 会带 this 调 ctor，
-//     若 ctor 把 this 存静态 / 传给别的调用 / 返回 → 泄漏 → 该对象不合格。跨包 / 找不到 ctor → 保守判泄漏。
-//   - **仅标单赋值 temp**（defs==1）：多定义命名局部保守不标（对齐 copy-prop/CSE 的稳定性口径）。
-//
-// 独立性（OptSet D2）：本 pass 自行从当前 IR 重算 esc/defs，不依赖其它 pass 先跑。
+//   - **跨过程参数逃逸摘要**（add-crossproc-escape-summary）：`CallInstr`/`ObjNew` 的实参**不再一律逃逸**，
+//     而是按 callee 的参数逃逸摘要（`IrEscapeSummary` 算的模块不动点 `ParamEscapeTable`）逐个判——callee
+//     不让参数 i 逃逸 → 该实参不逃逸。无摘要（跨包/无体/VCall/CallIndirect/builtin/闭包）→ 保守全标。
+//   - **copy 传递闭包**（Pass B 不动点）：`dst = copy src`，dst 逃逸 ⇒ src 逃逸。
+//   - **对象额外前提：ctor 不泄漏 this**（= 摘要 `table[ctor][0]`，this=参数槽 0；原 `_ctorLeaksThis` 并入此）。
+//   - **仅标单赋值 temp**（defs==1）：多定义命名局部保守不标。
 namespace Z42.Semantics;
 
 using Z42.IR;
 
 public sealed class IrEscapeAnalysis {
 
-    // ctor this-泄漏摘要缓存（按 ctor FQ 名）——同一 ctor 在多处 new，只算一次。
-    private string[] _ctorNames;
-    private bool[]   _ctorLeaks;
-    private int      _ctorCacheCount;
-
-    public IrEscapeAnalysis() {
-        this._ctorNames = new string[0];
-        this._ctorLeaks = new bool[0];
-        this._ctorCacheCount = 0;
-    }
-
-    // 模块级入口：逐函数标记不逃逸分配。
+    // 模块级入口：先算跨过程参数逃逸摘要（模块不动点），再逐函数用摘要标不逃逸分配。
     public static void Run(IrModule m) {
-        IrEscapeAnalysis ea = new IrEscapeAnalysis();
+        ParamEscapeTable table = IrEscapeSummary.Compute(m);
         int fi = 0;
         while (fi < m.FuncCount) {
-            ea._markFunc(m, m.Functions[fi]);
+            IrEscapeAnalysis._markFunc(m, m.Functions[fi], table);
             fi = fi + 1;
         }
     }
 
-    // 对一个函数：算逃逸集 + 单赋值集，给不逃逸的分配置 StackAlloc。
-    private void _markFunc(IrModule m, IrFunction f) {
-        bool[] esc  = IrEscapeAnalysis._computeEscaped(f);
+    // 对一个函数：算逃逸集（用摘要解析 call 实参）+ 单赋值集，给不逃逸的分配置 StackAlloc。
+    private static void _markFunc(IrModule m, IrFunction f, ParamEscapeTable table) {
+        bool[] esc  = IrEscapeAnalysis.ComputeEscapedRegs(m, f, table);
         int[]  defs = IrEscapeAnalysis._computeDefs(f);
         int bi = 0;
         while (bi < f.BlockCount) {
@@ -64,7 +52,8 @@ public sealed class IrEscapeAnalysis {
                 }
                 if (ins is ObjNewInstr) {
                     ObjNewInstr o = ins as ObjNewInstr;
-                    if (IrEscapeAnalysis._ok(esc, defs, o.Dst.Id) && !this._ctorLeaksThis(m, o.CtorName)) {
+                    if (IrEscapeAnalysis._ok(esc, defs, o.Dst.Id)
+                        && !IrEscapeAnalysis._ctorThisEscapes(m, table, o.CtorName)) {
                         o.StackAlloc = true;
                     }
                 }
@@ -80,8 +69,9 @@ public sealed class IrEscapeAnalysis {
         return (!esc[id]) && defs[id] == 1;
     }
 
-    // ── 逃逸集：Pass A 直接汇点 + Pass B copy 传递闭包 ────────────────────────────────────
-    private static bool[] _computeEscaped(IrFunction f) {
+    // ── 逃逸集：Pass A 直接汇点（吃摘要）+ Pass B copy 传递闭包 ──────────────────────────
+    // public：IrEscapeSummary.Compute 的不动点每轮对每函数调它（用当前摘要），_markFunc 用收敛后摘要再调一次。
+    public static bool[] ComputeEscapedRegs(IrModule m, IrFunction f, ParamEscapeTable table) {
         int n = f.MaxReg + 2;
         bool[] esc = new bool[n];
         // Pass A：逐指令 / 终结子标记 escaping-角色操作数。
@@ -90,7 +80,7 @@ public sealed class IrEscapeAnalysis {
             IrBlock b = f.Blocks[bi];
             int ii = 0;
             while (ii < b.InstrCount) {
-                IrEscapeAnalysis._markEscaping(esc, b.Instrs[ii]);
+                IrEscapeAnalysis._markEscaping(m, table, esc, b.Instrs[ii]);
                 ii = ii + 1;
             }
             if (b.HasTerm) { IrEscapeAnalysis._markTermEscaping(esc, b.Term); }
@@ -121,18 +111,18 @@ public sealed class IrEscapeAnalysis {
     }
 
     // 逃逸汇点规则表（可扩展核心）——完整镜像 IrOptInfo.AddReads 的读枚举，逐操作数分类。
-    // 标记的是 escaping-角色操作数；neutral-角色（读自身字段/数组/长度、is-check、算术消费）不标；
-    // Copy.Src 由 Pass B 传递。**规则表覆盖 AddReads 全部有读操作数的指令**（保证不漏 escaping 用）。
-    private static void _markEscaping(bool[] esc, IrInstr ins) {
-        // 调用：所有实参（VCall / CallIndirect 另含 receiver / callee）逃逸 —— callee 可能捕获。
-        if (ins is CallInstr)        { CallInstr i = ins as CallInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
+    private static void _markEscaping(IrModule m, ParamEscapeTable table, bool[] esc, IrInstr ins) {
+        // 静态直接调用：实参**按 callee 摘要**逐个判（args[i]→callee 参数槽 i）。无摘要→全标。
+        if (ins is CallInstr)        { CallInstr i = ins as CallInstr; IrEscapeAnalysis._markCallArgs(m, table, esc, i.Func, i.Args, i.ArgCount, 0); return; }
+        // ObjNew：实参是 ctor 实参**不含 this**（运行时前置）→ args[i]→ctor 参数槽 i+1。无摘要→全标。
+        if (ins is ObjNewInstr)      { ObjNewInstr i = ins as ObjNewInstr; IrEscapeAnalysis._markCallArgs(m, table, esc, i.CtorName, i.Args, i.ArgCount, 1); return; }
+        // 以下调用形式**无可靠摘要**（动态派发 / 原生 / 闭包捕获）→ 保守全标（soundness 底线）。
         if (ins is BuiltinInstr)     { BuiltinInstr i = ins as BuiltinInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
         if (ins is CallNativeInstr)  { CallNativeInstr i = ins as CallNativeInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
         if (ins is VCallInstr)       { VCallInstr i = ins as VCallInstr; IrEscapeAnalysis._mark(esc, i.Obj); IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
         if (ins is CallIndirectInstr){ CallIndirectInstr i = ins as CallIndirectInstr; IrEscapeAnalysis._mark(esc, i.Callee); IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
-        if (ins is ObjNewInstr)      { ObjNewInstr i = ins as ObjNewInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }        // 作为别的 new 的 ctor 实参
         if (ins is MkClosInstr)      { MkClosInstr i = ins as MkClosInstr; IrEscapeAnalysis._markArgs(esc, i.Captures, i.CaptureCount); return; }
-        // 存储：被存进对象/静态/数组的**值**逃逸；target/array/index 是 neutral（不泄露被写容器本身）。
+        // 存储：被存进对象/静态/数组的**值**逃逸；target/array/index 是 neutral。
         if (ins is FieldSetInstr)    { FieldSetInstr i = ins as FieldSetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
         if (ins is StaticSetInstr)   { StaticSetInstr i = ins as StaticSetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
         if (ins is ArraySetInstr)    { ArraySetInstr i = ins as ArraySetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
@@ -141,47 +131,44 @@ public sealed class IrEscapeAnalysis {
         if (ins is AsCastInstr)      { AsCastInstr i = ins as AsCastInstr; IrEscapeAnalysis._mark(esc, i.Obj); return; }
         if (ins is ToStrInstr)       { ToStrInstr i = ins as ToStrInstr; IrEscapeAnalysis._mark(esc, i.Src); return; }
         if (ins is LoadLocalAddrInstr){ LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; IrEscapeAnalysis._mark(esc, i.Slot); return; }
-        // IsInstance.Obj：`is`-check 本不泄露引用（严格说 neutral），但标 ESCAPE 是**有意收窄
-        // 运行时触达面**——如此栈对象在 interp 只会经历 FieldGet/FieldSet（+ Eq 走 PartialEq），
-        // 运行时无需为 IsInstance 补 StackObject 分支，减少改动面/风险。代价：`p is T` 的 p 不栈分配
-        // （少量覆盖损失）。放宽 = 运行时补 IsInstance 的栈对象分支后移除本行。
+        // IsInstance.Obj / Convert.Src：标 ESCAPE **有意收窄运行时触达面**（非逃逸语义所需）——见
+        // escape-analysis book「运行时触达面」。放宽需运行时补 StackObject 分支（跨过程摘要 v1 不动）。
         if (ins is IsInstanceInstr)  { IsInstanceInstr i = ins as IsInstanceInstr; IrEscapeAnalysis._mark(esc, i.Obj); return; }
-        // Convert.Src：标 ESCAPE **有意收窄运行时触达面**——引用类型的恒等 convert（如 `(int[])arr`
-        // / `(object)o` 的 identity 分支）会到 `convert_value`，那里只 match `Value::Array/Object` 不认
-        // 栈变体 → 若栈句柄流到即 bail。数值 convert 的操作数是基元（标了也无害，基元不栈分配）。故此
-        // 栈句柄只会经历 FieldGet/FieldSet/ArrayGet/Set/Len（+ Eq 走 PartialEq），运行时已全覆盖。
         if (ins is ConvertInstr)     { ConvertInstr i = ins as ConvertInstr; IrEscapeAnalysis._mark(esc, i.Src); return; }
-        // 其余皆 neutral（不标）：Copy(Pass B) / FieldGet.Obj / ArrayGet / ArrayLen /
-        //   算术·比较·位·移位·一元·StrConcat 的操作数（皆基元/字符串，引用不流入）/ ArrayNew.Size /
-        //   Const* / StaticGet / LoadFn / Typeof / DefaultOf —— 均消费值或读自身，不泄露引用。
+        // 其余皆 neutral（不标）：Copy(Pass B) / FieldGet.Obj / ArrayGet / ArrayLen / 算术·比较·位·移位·
+        //   一元·StrConcat 操作数 / ArrayNew.Size / Const* / StaticGet / LoadFn / Typeof / DefaultOf。
+    }
+
+    // 静态调用/ObjNew 的实参按 callee 摘要标逃逸。paramOffset：CallInstr=0（args[i]→槽 i）、ObjNew=1（→槽 i+1）。
+    // callee 找不到 / 无体 / Lookup=null（跨包）/ 实参越出摘要长度（varargs）→ 该实参**保守标逃逸**。
+    private static void _markCallArgs(IrModule m, ParamEscapeTable table, bool[] esc,
+                                      string calleeName, TypedReg[] args, int argCount, int paramOffset) {
+        bool[] pe = null;
+        IrFunction callee = IrEscapeAnalysis._findFunc(m, calleeName);
+        if (callee != null && callee.BlockCount > 0) { pe = table.Lookup(calleeName); }
+        int i = 0;
+        while (i < argCount) {
+            int slot = i + paramOffset;
+            bool leaks = true;   // 默认保守
+            if (pe != null && slot >= 0 && slot < pe.Length) { leaks = pe[slot]; }
+            if (leaks) { IrEscapeAnalysis._mark(esc, args[i]); }
+            i = i + 1;
+        }
+    }
+
+    // 对象合格前提：ctor 不泄漏 this（= 摘要参数槽 0）。跨包/无体/静态(无 this)/无摘要 → 保守判泄漏。
+    private static bool _ctorThisEscapes(IrModule m, ParamEscapeTable table, string ctorName) {
+        IrFunction ctor = IrEscapeAnalysis._findFunc(m, ctorName);
+        if (ctor == null || ctor.BlockCount == 0 || ctor.IsStatic) { return true; }
+        bool[] pe = table.Lookup(ctorName);
+        if (pe == null || pe.Length == 0) { return true; }
+        return pe[0];
     }
 
     // 终结子：返回值 / throw 值逃逸；BrCond.Cond（bool）、Br（无读）neutral。
     private static void _markTermEscaping(bool[] esc, IrTerminator t) {
         if (t is RetTerm)   { RetTerm r = t as RetTerm; if (r.HasReg) { IrEscapeAnalysis._mark(esc, r.Reg); } return; }
         if (t is ThrowTerm) { ThrowTerm th = t as ThrowTerm; IrEscapeAnalysis._mark(esc, th.Reg); return; }
-    }
-
-    // ── ctor this-泄漏单函数摘要（不递归）────────────────────────────────────────────────
-    private bool _ctorLeaksThis(IrModule m, string ctorName) {
-        int ci = 0;
-        while (ci < this._ctorCacheCount) {
-            if (this._ctorNames[ci] == ctorName) { return this._ctorLeaks[ci]; }
-            ci = ci + 1;
-        }
-        bool leaks = IrEscapeAnalysis._computeCtorLeaks(m, ctorName);
-        this._cachePut(ctorName, leaks);
-        return leaks;
-    }
-
-    private static bool _computeCtorLeaks(IrModule m, string ctorName) {
-        IrFunction f = IrEscapeAnalysis._findFunc(m, ctorName);
-        if (f == null) { return true; }        // 跨包 / 找不到 ctor 体 → 保守判泄漏（不见即逃逸）。
-        if (f.IsStatic) { return true; }        // ctor 无 this（不应发生）→ 保守。
-        bool[] esc = IrEscapeAnalysis._computeEscaped(f);
-        // this = reg 0（FunctionEmitter：Locals["this"] = TypedReg(0, Ref)）。
-        if (0 < esc.Length) { return esc[0]; }
-        return true;
     }
 
     // 按 FQ 名解析同模块函数（镜像 IrInline._findFunc）；找不到返回 null。
@@ -214,20 +201,5 @@ public sealed class IrEscapeAnalysis {
     private static void _markArgs(bool[] esc, TypedReg[] args, int count) {
         int i = 0;
         while (i < count) { IrEscapeAnalysis._mark(esc, args[i]); i = i + 1; }
-    }
-
-    private void _cachePut(string name, bool leaks) {
-        if (this._ctorCacheCount == this._ctorNames.Length) {
-            int ncap = this._ctorNames.Length * 2;
-            if (ncap < 4) { ncap = 4; }
-            string[] nn = new string[ncap];
-            bool[]   nl = new bool[ncap];
-            int i = 0;
-            while (i < this._ctorCacheCount) { nn[i] = this._ctorNames[i]; nl[i] = this._ctorLeaks[i]; i = i + 1; }
-            this._ctorNames = nn; this._ctorLeaks = nl;
-        }
-        this._ctorNames[this._ctorCacheCount] = name;
-        this._ctorLeaks[this._ctorCacheCount] = leaks;
-        this._ctorCacheCount = this._ctorCacheCount + 1;
     }
 }
