@@ -36,6 +36,7 @@ pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native /
 pub mod object;
 pub mod reflection;
 pub mod assemblyloadcontext;
+pub mod diagnostics;
 pub mod array;
 pub mod char;
 pub mod gc;
@@ -507,6 +508,10 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
     ("__lctx_unload",             assemblyloadcontext::builtin_lctx_unload),
+
+    // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
+    ("__heap_direct_referrers",   diagnostics::builtin_heap_direct_referrers),
+    ("__heap_retaining_roots",    diagnostics::builtin_heap_retaining_roots),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
