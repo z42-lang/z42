@@ -84,6 +84,33 @@ public static class Script {
     // 时先确保 CachedScan 就绪（否则首命令即 .members 会读到 null scan、返回空）。等价 Eval 顶部的汇合。
     public static void EnsureWarm(ScriptState state) { Script._ensureWarm(state); }
 
+    // add-repl-ns-completion-err-map：诊断行号回映。生成源 = prelude（namespace/usings/[Vars 类]）+ 用户输入，
+    // 故用户输入第一行在生成源里 = prelude 换行数 + 1 → 用户行 = 诊断行 − prelude换行数（表达式轮/声明轮统一）。
+    private static int _countNewlines(string s) {
+        int n = 0; int i = 0;
+        char nl = (char)10;   // z42 词法器不支持 char 转义（见 interactive_main (char)27 idiom）
+        while (i < s.Length) { if (s.CharAt(i) == nl) { n = n + 1; } i = i + 1; }
+        return n;
+    }
+
+    // 把诊断串 `<file>(<L>,<C>): <rest>` 回映：抽 L → 用户行；丢内部生成文件名 + **不可靠的列号**
+    // （Rewriter 会改写用户输入、移动列位置）。用户行 ≤ 1（单行输入 / 落在 prelude）→ 只留 <rest>，
+    // 不加噪声。格式不符（无 `(`/`,`/`): `）→ 原样返回（稳健兜底）。
+    private static string _remapDiag(string msg, int preludeLines) {
+        int lp = msg.IndexOf("(");
+        if (lp < 0) { return msg; }
+        string afterLp = msg.Substring(lp + 1, msg.Length - lp - 1);
+        int comma = afterLp.IndexOf(",");
+        if (comma < 0) { return msg; }
+        int endSeq = msg.IndexOf("): ");
+        if (endSeq < 0 || endSeq < lp) { return msg; }
+        string lStr = msg.Substring(lp + 1, comma);   // afterLp[0,comma) = 行号数字串
+        int userLine = Convert.ToInt32(lStr) - preludeLines;
+        string rest = msg.Substring(endSeq + 3, msg.Length - endSeq - 3);   // "): " 之后
+        if (userLine <= 1) { return rest; }
+        return "第 " + userLine.ToString() + " 行: " + rest;
+    }
+
     // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
     // 运行时（z42vm）版本串未经 builtin 暴露给 z42 → 留待 follow-up（repl-future-runtime-version）。
     public static string FormatVersion() {
@@ -168,9 +195,10 @@ public static class Script {
             }
         }
         if (art.ErrorCount > 0) {
+            int pl = Script._countNewlines(prelude);   // 生成源 = prelude + wrapper+用户输入 → 行号回映基准
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);   // 会话不推进
         }
 
@@ -224,9 +252,10 @@ public static class Script {
         string prelude = Script._basePrelude(state, ns);
         CompileArtifacts art = Script._compileRaw(state, n, prelude + declText + "\n");
         if (art.ErrorCount > 0) {
+            int pl = Script._countNewlines(prelude);   // 声明轮：declText 紧接 prelude，行号回映同理
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);
         }
         byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();
