@@ -161,11 +161,28 @@ pub(super) fn field_get(
     let val = match frame.get(obj)? {
         // add-escape-analysis-stack-alloc: stack object — resolve via the
         // per-context arena (validated: idx in range + frame_id matches, else a
-        // clear stale-handle diagnostic). No PIC (stack field access is not the
-        // mega-hot path; direct field_index lookup keeps it simple + correct).
+        // clear stale-handle diagnostic).
+        // add-stack-field-ic: reuse the same monomorphic FieldIC as the heap path.
+        // Stack objects carry a resolved `type_desc.id`, and `field_index` is
+        // per-type — so the cached `(TypeId → slot)` is identical whether the
+        // receiver is heap or stack. Skipping the per-access `field_index` hashmap
+        // lookup is the win: heavy cross-frame field access (object passed to a
+        // callee that reads its fields many times) was dominated by that lookup,
+        // which made escape/cross-proc stack-alloc lose to heap (heap had the IC).
         Value::StackObject { idx, frame_id } => {
             let (idx, frame_id) = (*idx, *frame_id);
             ctx.stack_arena.lock().with_obj(idx, frame_id, |obj| {
+                if let Some(ic) = field_ic {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        return obj.slots.get(slot as usize).cloned().unwrap_or(Value::Null);
+                    }
+                    if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        field_ic_install(ic, recv_type, slot as u32);
+                        return obj.slots.get(slot).cloned().unwrap_or(Value::Null);
+                    }
+                    return Value::Null;
+                }
                 obj.type_desc.field_index.get(field_name)
                     .and_then(|&slot| obj.slots.get(slot).cloned())
                     .unwrap_or(Value::Null)
@@ -257,7 +274,24 @@ pub(super) fn field_set(
         Value::StackObject { idx, frame_id } => {
             let (idx, frame_id) = (*idx, *frame_id);
             ctx.stack_arena.lock().with_obj_mut(idx, frame_id, |obj| {
-                if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                // add-stack-field-ic: IC on the stack write path (same cache as heap;
+                // no write barrier — stack slots aren't heap slots, heap-ref fields
+                // are kept live by root-scanning the arena). Resolve the slot first
+                // (releases the `field_index` borrow) before the mutable slot write.
+                let slot_opt: Option<usize> = if let Some(ic) = field_ic {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        Some(slot as usize)
+                    } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        field_ic_install(ic, recv_type, slot as u32);
+                        Some(slot)
+                    } else {
+                        None
+                    }
+                } else {
+                    obj.type_desc.field_index.get(field_name).copied()
+                };
+                if let Some(slot) = slot_opt {
                     if slot < obj.slots.len() {
                         obj.slots[slot] = v.clone();
                     }

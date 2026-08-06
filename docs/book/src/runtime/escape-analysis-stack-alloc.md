@@ -117,6 +117,12 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。
 - **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
+  **字段访问接单态 inline cache（`opt-stack-field-ic`）**：栈对象 FieldGet/FieldSet **复用堆路径同款
+  `FieldIC`**（缓存 `TypeId→slot`）——`type_desc.id` 已解析、`field_index` 按类型定 slot，故 `(TypeId→slot)`
+  缓存对堆/栈**同一份有效**。命中即直接 `slots[slot]`，跳过每访问一次的 `field_index` 字符串哈希查找。
+  > 修正早期"栈访问非热路径、直接 hashmap 即可"的判断：对象**传进 callee 反复读字段**时哈希查找主导，使
+  > 栈分配在该模式下反被堆（有 IC）反超；接 IC 后栈字段访问≈堆。实测密集字段访问 8M：**interp +5%**（jit
+  > 不受影响——JIT 忽略 flag、对象走堆、本就用堆 IC）。
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
