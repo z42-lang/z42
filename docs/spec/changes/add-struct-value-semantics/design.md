@@ -198,7 +198,7 @@ rvalue: 传参/返回/整体赋值 → StructCopy
 |---|--------|--------|
 | **1 ⚠️** | 布局数据落哪 | 访问指令（StructCopy/FieldGet/SetPrim）把 byte_offset/size 作为**立即数烘焙**（运行时无需查表）；**GC 引用位图 + struct 总 size 落 zbc TYPE section**（运行时 GC 扫描必需）。跨包布局传播 → zpkg（P4）。故 P1 bump zbc、TYPE section 加"struct 引用位图 + size"字段 |
 | **2 ⚠️** | 基元字节大小/对齐 + 引用叶子表示（**2026-08-06 按实测 VM 表示修正**） | **基元**：`i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`（纯字节，可 memcpy）。char=4（z42 `Value::Char` 是 4B Unicode 标量，非 C#/Java 的 2B 变长 UTF-16 码元）。**引用叶子**：object/array/string/interface/func = **16B 托管句柄**（非 8B！`GcRef`=ptr8+generation4 对齐到 16、[refs.rs:66](../../../../src/runtime/src/gc/refs.rs#L66)；`Arc<str>`=胖指针 16B）——**不可 raw memcpy**。对齐：基元自然对齐、引用 8 对齐；struct 对齐=最大成员对齐，size 向上取整。**不逼 8B**（去 generation 丢 use-after-free 安全 / 句柄表是更大改造），留 Deferred |
-| **3** | struct-ness 查询 | **方案 A**：`IrGen` 新增 `ClassDecls: StrMap`（类名→ClassDecl，仿 `IfaceDecls` 构建），StructLayout 查此 map，`decl.Kind=="struct"/"record"` → 值类型递归展平，否则引用叶子 |
+| **3**（2026-08-07 改 A→B） | struct-ness 查询 | **方案 B**（实现时定）：`Z42ClassType.IsStruct` 字段，`SymbolCollector._putClassStub` 从 `ClassDecl.Kind` 回填。比方案 A（IrGen ClassDecls map）更优——TypeChecker(诊断)+IrGen(codegen) 都要 struct-ness，放类型上人人可查。`StructLayout.BuildFromSymbols(SymbolTable)` 据此抽 struct 字段（OwnFieldNames=名/OwnFieldSpellings=类型名）。**record 暂不算 struct**（引用语义，其值性另议） |
 | **4** | 自引用/递归 struct 报错 | 放 **Pass1**（`TypeChecker` 有 `DiagnosticBag`）；StructLayout 计算时维护"在途类型集"，struct 直接/间接含自身**值**字段 → 报新诊断码（E04xx 段空号，如 `E0416`）。布局结果缓存供 codegen 复用 |
 
 > **byte-size 约定（#2）与"落 zbc 引用位图"（#1）是定 ABI/wire 的**——StructLayout.z42 的**计算**是编译期

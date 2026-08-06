@@ -65,6 +65,9 @@ public sealed class Z42ClassType : Z42Type {
     // class-arity-overloading（同名多 arity 同 CU；泛型版注册 Name$N 键，IrName() 返回 Name$N）。
     public bool HasArityMangle;    // true → 此 CT 以 Name$N 键注册
     public int  ArityMangleCount;  // TypeParams.Count when HasArityMangle
+    // add-struct-value-semantics：值类型标志（Kind=="struct"）。SymbolCollector._putClassStub 从 ClassDecl.Kind
+    // 回填。供 StructLayout 判定字段是否递归展平（值内联）+ 未来 codegen 值语义分流。record 暂不算（引用）。
+    public bool IsStruct;
     // add-partial-types：由多个 `partial` 声明碎片合并而成。IsPartial=true 时，PartialMainFile 记录
     // **主碎片**文件（项目相对路径 Ordinal 最小；SymbolCollector 按发现序即 Ordinal 序，首碎片=主）。
     // IrGen/ExportedTypeExtractor 据此让**唯一**主碎片 CU 发出/导出完整 TYPE record（其余碎片只发方法体）。
@@ -85,6 +88,7 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
+        this.IsStruct = false;
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。

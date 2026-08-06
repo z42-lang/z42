@@ -33,8 +33,11 @@
       嵌套递归展平 + 对齐排布 ✓（纯计算模块，输入 name→StructFieldsDef；6 单测全过）
 - [x] 1.2 引用叶子位图/偏移表（带种类 ArcString/GcRef，供 GC 定位 + StructCopy 分流）✓
 - [~] 1.3 自含值字段（无限大小）编译期报错：**环检测已做**（StructLayout.ErrorType，单测覆盖）；
-      E0416 诊断发射（需 TypeChecker 持 DiagnosticBag 处调用）**留下一 commit**
-- [ ] 1.4 `IrGen`/`ClassDescBuilder`：从 ClassDecls 抽取 StructFieldsDef + 调用 StructLayout（codegen 消费时接线，随 阶段 2）
+      **E0416 诊断发射推迟到值语义生效（阶段 2/3）**——当前 struct 仍是引用语义，`struct Node{next:Node}`
+      合法（Node 堆对象/next 引用），此刻报 E0416 会误杀现有合法程序
+- [x] 1.4 struct-ness（**方案 B**：`Z42ClassType.IsStruct`，SymbolCollector 回填）+
+      `StructLayout.BuildFromSymbols(SymbolTable)` 适配器（抽字段+预计算布局）✓；2 新单测；惰性
+      （IrGen 实际调用随 阶段 2 codegen 消费接线）→ self-host 字节不动
 
 ## P1 阶段 2: 区间分配 + IR 指令
 - [ ] 2.1 `FunctionEmitter.z42`：寄存器分配感知 width（struct 临时/局部/参数/返回占连续区间）

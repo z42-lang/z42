@@ -97,6 +97,34 @@ public sealed class StructLayout {
         this.ErrorCycle = "";
     }
 
+    // 从符号表构建：抽取所有 struct（Z42ClassType.IsStruct）的字段定义（OwnFieldNames=名、
+    // OwnFieldSpellings=类型名，声明序）→ 预计算全部布局。ErrorType 反映任何递归自含。
+    // 尚未被 IrGen 调用（阶段 2 codegen 消费时接线）；诊断（E0416）待值语义生效时再发（避免误杀当前
+    // 合法的引用语义自引用 struct）。
+    public static StructLayout BuildFromSymbols(SymbolTable table) {
+        StrMap defs = new StrMap();
+        string[] keys = table.Classes.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            Z42ClassType ct = table.GetClass(keys[i]);
+            if (ct != null && ct.IsStruct) {
+                StructFieldsDef def = new StructFieldsDef();
+                int j = 0;
+                while (j < ct.OwnFieldCount) {
+                    def.Add(ct.OwnFieldNames[j], ct.OwnFieldSpellings[j]);
+                    j = j + 1;
+                }
+                defs.Put(Z42Type.Canon(keys[i]), def);
+            }
+            i = i + 1;
+        }
+        StructLayout sl = new StructLayout(defs);
+        string[] dkeys = defs.Keys();
+        int k = 0;
+        while (k < dkeys.Length) { sl.LayoutOf(dkeys[k]); k = k + 1; }   // 预计算 + 填缓存
+        return sl;
+    }
+
     // 某类型名是不是 struct（值类型）。
     public bool IsStructType(string typeName) {
         return this._defs.ContainsKey(Z42Type.Canon(typeName));

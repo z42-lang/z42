@@ -107,6 +107,46 @@ void test_layout_nested_ref_flatten() {
 }
 
 [Test]
+void test_build_from_symbols_struct_vs_class() {
+    // BuildFromSymbols 只收 IsStruct 的类；非 struct 类不进 defs（其字段视为 GcRef 引用叶子）。
+    var table = new SymbolTable();
+    var p = new Z42ClassType("P", false, "");
+    p.IsStruct = true;
+    p.AddOwnField("x", "int", "public");
+    p.AddOwnField("y", "int", "public");
+    table.Classes.Put("P", p);
+    var w = new Z42ClassType("Widget", false, "");   // 非 struct（默认 IsStruct=false）
+    table.Classes.Put("Widget", w);
+    var sl = StructLayout.BuildFromSymbols(table);
+    Assert.Equal(true,  sl.IsStructType("P"));
+    Assert.Equal(false, sl.IsStructType("Widget"));
+    var lp = sl.LayoutOf("P");
+    Assert.Equal(8, lp.Size);
+    Assert.Equal(0, lp.RefLeafCount);
+    Assert.Equal("", sl.ErrorType);
+}
+
+[Test]
+void test_build_from_symbols_ref_field() {
+    // struct Box { n:int; w:Widget; } —— Widget 非 struct → GcRef 引用叶子。
+    var table = new SymbolTable();
+    var box = new Z42ClassType("Box", false, "");
+    box.IsStruct = true;
+    box.AddOwnField("n", "int", "public");
+    box.AddOwnField("w", "Widget", "public");
+    table.Classes.Put("Box", box);
+    table.Classes.Put("Widget", new Z42ClassType("Widget", false, ""));
+    var sl = StructLayout.BuildFromSymbols(table);
+    var lb = sl.LayoutOf("Box");
+    Assert.Equal(0,  _fieldOff(lb, "n"));    // int @0
+    Assert.Equal(8,  _fieldOff(lb, "w"));    // Widget 16B align8 → 从 4 对齐到 8
+    Assert.Equal(24, lb.Size);
+    Assert.Equal(1,  lb.RefLeafCount);
+    Assert.Equal(8,  lb.RefLeafOffsets[0]);
+    Assert.Equal(StructLeafKind.GcRef, lb.RefLeafKinds[0]);
+}
+
+[Test]
 void test_layout_cycle_detection() {
     // struct Node { next:Node; } —— 递归自含值字段（无限大小）→ ErrorType 置位。
     var defs = new StrMap();

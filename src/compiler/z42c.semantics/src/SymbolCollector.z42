@@ -722,6 +722,7 @@ public sealed class SymbolCollector {
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
                                string[] ifaces, int ifc, bool needsMangle, string file) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
