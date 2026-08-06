@@ -1,0 +1,21 @@
+// Std.Diagnostics.Heap — 通用堆保留诊断：查询"某对象为什么活着 / 被谁钉住"。
+//
+// z42 自有精确 GC，能回答 .NET GC 回答不了的问题。两层查询：
+//   L1 DirectReferrers —— 哪些**堆对象**直接持有 target 的引用。
+//   L2 RetainingRoots  —— 从 target 反向可达的 **GC 根**（类别级：static 字段/栈帧/…）。
+//
+// 每次查询**先触发一次 full GC**（回收能回收的），之后遍历的存活对象即可达对象，
+// 反向图无浮动垃圾误报。诊断非热路径。完整引用链（L3）留待后续。
+//
+// add-heap-retention-diagnostics。
+namespace Std.Diagnostics;
+
+public static class Heap {
+    // L1：直接引用 target 的堆对象（object/array）。target 非堆对象 → 空。
+    [Native("__heap_direct_referrers")]
+    public static extern Retainer[] DirectReferrers(object target);
+
+    // L2：保留 target 的 GC 根（类别级，去重）。target 非堆对象 → 空。
+    [Native("__heap_retaining_roots")]
+    public static extern RootRef[] RetainingRoots(object target);
+}

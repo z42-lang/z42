@@ -70,3 +70,14 @@ cargo build --workspace --manifest-path src/runtime/Cargo.toml
 cargo test  --workspace --manifest-path src/runtime/Cargo.toml
 z42 xtask.zpkg test vm
 ```
+
+### Cargo features
+
+`default = ["jit", "native-interop", "mimalloc-alloc"]`（桌面）。平台预设经
+`--no-default-features --features <wasm|ios|android>` 裁剪。
+
+| feature | 作用 |
+|---------|------|
+| `jit` | Cranelift JIT 后端（desktop x64/arm64） |
+| `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
+| `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**（profile：系统 malloc ~31%、`--mode jit`≈`interp`），换 mimalloc 后 z42c 编译 −40%、字符串重负载 ~3×。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
