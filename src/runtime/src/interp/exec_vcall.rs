@@ -234,12 +234,19 @@ pub(super) fn vcall(
     // when the unmangled lookup misses — covers `Equals` (arity 1) and any
     // other overloaded primitive method without per-Value-type special cases.
     // This subsumes the legacy `Value::Str` hardcoded block (review2 §2.2).
-    // IC fast path missed — materialize args for the cold primitive-name /
-    // vtable dispatch paths below (both consume `extra_args`).
-    let mut extra_args = collect_args(&frame.regs, args)?;
+    // avoid-vcall-vtable-arg-vec: only the primitive/array path needs a
+    // materialized args `Vec` (it hands a `&[Value]` to `exec_function`). Object
+    // receivers reach the vtable path below, which dispatches through the pooled,
+    // Vec-free `exec_function_from_receiver_regs` (mirrors the IC fast path + the
+    // JIT `jit_vcall`). So `collect_args` is deferred into this block instead of
+    // allocating an args Vec for every object vcall that misses the IC —
+    // megamorphic sites (z42c's visitor dispatch) were the top interp alloc
+    // source after the lazy-lookup clone fix.
     if let Some(class_name) = primitive_class_name(&obj_val) {
-        let mut call_args = vec![obj_val.clone()];
-        call_args.append(&mut extra_args);
+        let extra_args = collect_args(&frame.regs, args)?;
+        let mut call_args = Vec::with_capacity(extra_args.len() + 1);
+        call_args.push(obj_val.clone());
+        call_args.extend(extra_args);
         let arity = call_args.len() - 1; // exclude `this`
         let primary = format!("{}.{}", class_name, method);
         let overload = format!("{}.{}${}", class_name, method, arity);
@@ -290,8 +297,9 @@ pub(super) fn vcall(
                 };
             }
         }
-        // Restore args for fallback paths below (call_args consumed obj_val).
-        extra_args = call_args.into_iter().skip(1).collect();
+        // A primitive/array that resolved none of its candidates falls through
+        // to the vtable path below, which bails on the non-object receiver — no
+        // args carry-over needed.
     }
 
     // O(1) vtable dispatch using pre-computed TypeDesc.
@@ -308,9 +316,8 @@ pub(super) fn vcall(
     //      from cross-zpkg base classes (e.g. `e.GetType()` when
     //      `e: Std.TestFailure` and `GetType` is on Std.Object in z42.core)
     //   4. fallback: `<most-derived>.<method>` (likely fails downstream)
-    let mut call_args = vec![obj_val];
-    call_args.append(&mut extra_args);
-
+    // Object receiver + arg reg indices dispatch through the pooled, Vec-free
+    // frame builder at the invocation below — no `call_args` Vec materialized.
     let mut callee_module_idx: Option<usize> = None;
     let mut callee_lazy: Option<Arc<crate::metadata::Function>> = None;
     let mut chosen_name: Option<String> = None;
@@ -389,9 +396,9 @@ pub(super) fn vcall(
     let func_name = chosen_name.unwrap_or_else(|| format!("{}.{}", type_desc.name, method));
     let outcome = if let Some(idx) = callee_module_idx {
         let callee = &module.functions[idx];
-        super::exec_function(ctx, module, callee, &call_args)?
+        super::exec_function_from_receiver_regs(ctx, module, callee, &obj_val, &frame.regs, args)?
     } else if let Some(lazy_fn) = callee_lazy {
-        super::exec_function(ctx, module, lazy_fn.as_ref(), &call_args)?
+        super::exec_function_from_receiver_regs(ctx, module, lazy_fn.as_ref(), &obj_val, &frame.regs, args)?
     } else {
         bail!("VCall: function `{}` not found", func_name);
     };
