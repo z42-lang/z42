@@ -332,20 +332,21 @@ impl ReplHelper {
         Self { history: rustyline::hint::HistoryHinter::new() }
     }
 
-    /// Inline completion hint for the bare identifier under the cursor: ask the
-    /// session completer for candidates and ghost the suffix of the first one that
-    /// *strictly extends* the typed word. Restricted to bare identifiers (no `.`) so
-    /// the per-keystroke path stays on the completer's cheap scope/decl-name matching
-    /// and never triggers the heavier `obj.`-member reflection. Prefix-only filter
-    /// (`starts_with`) means a non-extending candidate list simply yields no hint —
-    /// the ghost is never wrong, at worst absent. (add-repl-multiline-completion)
+    /// Inline completion hint for the word under the cursor: ask the session completer
+    /// for candidates and ghost the suffix of the first one that *strictly extends* the
+    /// typed word. Works for both bare identifiers (`Con`→`sole`) **and member context**
+    /// (`Console.W`→`riteLine`) — the latter is what the user expects when typing a
+    /// receiver's method. The completer reconciles the receiver type on demand (cached
+    /// after the first hit), so the per-keystroke cost matches Tab's and is no worse than
+    /// the bare-word ghost already does. Prefix-only filter (`starts_with`) means a
+    /// non-extending candidate list simply yields no hint — the ghost is never wrong, at
+    /// worst absent. (add-repl-multiline-completion; member ghost: add-repl-type-metacommand)
     fn identifier_hint(&self, line: &str, pos: usize) -> Option<String> {
         let start = word_start(line, pos);
         let word = &line[start..pos];
-        // Skip empty words and member context (`recv.<word>`): member completion does
-        // live reflection, too heavy for a per-keystroke ghost (Tab still handles it).
-        // word_start now stops at `.`, so a preceding `.` marks a member position.
-        if word.is_empty() || (start > 0 && line.as_bytes()[start - 1] == b'.') {
+        // Only skip the empty word (nothing typed yet after a `.` or at line start) —
+        // hinting all members off an empty prefix would be noise.
+        if word.is_empty() {
             return None;
         }
         let fqn = REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone())?;
