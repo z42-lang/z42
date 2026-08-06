@@ -1,0 +1,25 @@
+using Std.IO;
+
+// add-readonly-fields-opt e2e：readonly 字段在热循环内被反复读（this.factor）——
+//   ① 同迭代两读 → 块内 CSE 消重为一次 field_get；
+//   ② 跨迭代不变（接收者 this、readonly）→ LICM 把 field_get 提到循环 pre-header。
+// **优化前后输出必须一致**（正确性主门；readonly-load 只改 IR 结构、不改语义）。
+class Scaler {
+    readonly int factor;
+    public Scaler(int f) { this.factor = f; }
+    public int Sum(int n) {
+        int s = 0;
+        int i = 0;
+        while (i < n) {
+            s = s + this.factor + this.factor;   // 两读：CSE 内消重；LICM 外提出循环
+            i = i + 1;
+        }
+        return s;
+    }
+}
+
+void Main() {
+    Scaler sc = new Scaler(3);
+    // n=5：每迭代 + (3+3)=6 → 5*6 = 30
+    Console.WriteLine(sc.Sum(5));
+}

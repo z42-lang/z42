@@ -37,6 +37,7 @@ public static class DiagnosticCodes {
     public static string InterfaceMismatch     = "E0412";
     public static string InvalidImpl           = "E0413";
     public static string EventFieldExternalAccess = "E0414";
+    public static string ReadonlyAssignment       = "E0415";   // readonly 字段不可在构造函数外赋值（add-readonly-fields-opt）
     public static string InvalidCatchType         = "E0420";
     public static string InvalidDefaultType       = "E0421";
     public static string GenericFuncConstraintViolation = "E0422";

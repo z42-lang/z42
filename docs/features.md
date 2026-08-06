@@ -262,6 +262,14 @@ The raw `.cache/*.zbc` files (fat) remain unchanged; the packing step produces o
 
 **Phase:** L1 (mutable default) | L3 (`let` immutable, `mut` explicit)
 
+### 14.1 `readonly` fields
+
+**Decision:** L1 supports a `readonly` field modifier — a field assignable only inside the declaring class's instance constructor (via `this.<field>`) or a field initializer; any other assignment is a compile error (`E0415`). This is a **field-level** immutability contract that the optimizer trusts to CSE / hoist field reads (see [optimization-pipeline](book/src/runtime/optimization-pipeline.md), pass 2f). Distinct from the L3 `let`/`mut` *local* immutability above.
+
+**Rationale:** `readonly` is the highest-ROI immutability primitive for the optimizer — it unblocks `FieldGet` from the `IsPure` exclusion (NPE/mutation) so a method reading its own readonly field in a loop hoists the load out (measured interp ~1.87×). Field-slot immutable only (does not deep-freeze the referenced object — same as C# `readonly`).
+
+**Phase:** L1 (same-module; change `add-readonly-fields-opt`). **Deferred:** cross-zpkg imported readonly (needs zbc/zpkg format bump); non-`this` receiver LICM (needs non-null analysis); `readonly struct`.
+
 ---
 
 ## 15. String Model

@@ -134,6 +134,7 @@ public sealed class ExprTyper {
                 }
             }
             BoundExpr target = this._bindExpr(a.Target, env);
+            this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
             BoundExpr value = this._bindExpr(a.Value, env);
             // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →
             // `+=` 退化成 `=`，丢旧值；arr[0]+=5 得 5 非 15）。binop = 去掉末尾 '='。
@@ -146,6 +147,44 @@ public sealed class ExprTyper {
                     "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
             }
             return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    // add-readonly-fields-opt：readonly 字段仅可在声明类实例 ctor 内经 `this` 赋值（含注入的字段初始化器）。
+    // 覆盖两种写法：`recv.field = v`（BoundMember）与裸 `field = v`（BoundIdent，隐式接收者 this）。
+    // 用已绑 target 取字段（不重复绑定接收者，避免双诊断）。裸 ident 经 `this` 类型查字段——
+    // 若同名局部遮蔽 readonly 字段名会误报（极罕见、当前无 readonly 字段故无回归；workaround=重命名局部）。
+    private void _checkReadonlyAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        FieldSymbol fs = null;
+        bool recvIsThis = false;
+        if (target is BoundMember) {
+            BoundMember bm = target as BoundMember;
+            fs = this._fieldOf(bm.Target.Type(), bm.MemberName);
+            if (a.Target is MemberExpr) {
+                Expr rt = (a.Target as MemberExpr).Target;
+                recvIsThis = (rt is IdentExpr) && ((rt as IdentExpr).Name == "this");
+            }
+        } else if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            Z42Type thisT = env.LookupVar("this");
+            if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        }
+        if (fs != null && fs.IsReadonly) {
+            bool ok = recvIsThis && env.InCtor();
+            if (!ok) {
+                this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
+                    "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
+            }
+        }
+    }
+
+    // 从接收者类型取字段符号（class / 泛型实例）；非类或无此字段 → null。
+    private FieldSymbol _fieldOf(Z42Type recvType, string name) {
+        Z42ClassType cls = null;
+        if (recvType is Z42ClassType) { cls = recvType as Z42ClassType; }
+        else if (recvType is Z42InstantiatedType) { cls = (recvType as Z42InstantiatedType).Def; }
+        if (cls == null) { return null; }
+        if (!cls.Fields.ContainsKey(name)) { return null; }
+        return cls.Fields.Get(name) as FieldSymbol;
     }
 
     private BoundExpr _bindIdent(IdentExpr id, TypeEnv env) {
