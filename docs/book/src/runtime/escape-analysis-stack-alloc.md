@@ -1,6 +1,6 @@
 # 逃逸分析与栈上分配
 
-> 对齐：2026-08-05（change `add-escape-analysis-stack-alloc`）
+> 对齐：2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
 > 状态：🟡 编译期分析 + IR 标志 + interp 运行时（对象+数组）已实现；JIT 消费与跨过程精度为 future。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
@@ -35,7 +35,7 @@ z42 源码 ──z42c──> z42 IR ──[IrEscapeAnalysis]──> IR(部分 al
 顺序无关的 may 问题，线性扫全函数即安全过近似，无需 CFG / 支配域（区别于 LICM，也天然规避「异常边不在
 CFG」的坑）。
 
-**引擎 `_computeEscapedRegs(fn)`**（两趟）：
+**引擎 `ComputeEscapedRegs(m, f, table)`**（两趟；`table`=跨过程摘要，解析 call 实参用）：
 1. **Pass A**：逐指令 / 终结子，按操作数**角色**把「经逃逸角色读到的 reg」入种子集。
 2. **Pass B**：copy 传递闭包不动点——`dst = copy src`，dst 逃逸 ⇒ src 逃逸（对象经 copy 流出）。
 
@@ -47,7 +47,8 @@ CFG」的坑）。
 | `RetTerm` / `ThrowTerm` | 返回值 / 异常 reg | — |
 | `FieldSet` / `StaticSet` / `ArraySet` | **value** reg | target / array / index |
 | `ArrayNewLit` | 所有 **elems** | — |
-| `Call*` / `VCall` / `CallIndirect` | 所有 args + receiver + callee | — |
+| `CallInstr`（静态） / `ObjNew` 的实参 | **按 callee 摘要逐判**（跨过程，见下）；无摘要→全标 | callee 摘要说不逃逸的实参 |
+| `VCall` / `CallIndirect` / `Builtin` / `CallNative` | 所有 args + receiver + callee（动态/原生，无摘要→全标） | — |
 | `MkClos` | 所有捕获 reg | — |
 | `AsCast`（结果别名）/ `ToStr`（调 ToString）/ `LoadLocalAddr`（取址）/ `IsInstance`※ / `Convert`※ | 其 Obj/Src/Slot | — |
 | `FieldGet` / `ArrayGet` / `ArrayLen` | — | target / array / index |
@@ -63,13 +64,34 @@ CFG」的坑）。
 **铁律（对齐 LICM 的保守姿态）**：规则表**不认识**的指令读了目标 reg → **默认判逃逸**（over-approximate
 安全兜底）。加精度 = 往规则表加/改一条分支，引擎（两趟）不动 —— 这是「后面可补规则」的落点。
 
-**对象的 ctor this-escape 前提**：`new Foo(a,b)` 的 `ObjNew` 会带 `this` 调 ctor，若按「传给 call 即逃逸」
-则所有对象都判逃逸。故对象合格需额外一条：**`_ctorLeaksThis(m, ctorName)`**——对 ctor 函数体跑同一引擎、
-查 param-0(`this`，reg 0)是否逃逸（**单函数、不递归**：ctor 把 this 传给别的调用 = 保守判逃逸；跨包 /
-找不到 ctor = 保守判逃逸）。缓存按 ctorName。
+### 跨过程参数逃逸摘要（`IrEscapeSummary`，change `add-crossproc-escape-summary`）
 
-**对象完整合格条件**（三者皆满足）：① 结果 reg 本函数内不逃逸；② 单赋值 temp（`defs==1`）；③ ctor 不泄漏
-this。数组无 ctor，只需 ①②。
+**动机**：单函数分析里「传进任何调用的实参」一律判逃逸 → 最常见的「造临时对象传给只读它的辅助函数」
+（`sum += Dist(new Point(i,i))`）享受不到栈分配。跨过程摘要打破这条保守。
+
+**摘要 = 逐函数逐参 bool**：`paramEscapes[f][i]` = 函数 f 的**参数槽 i** 是否逃逸（`ParamEscapeTable`：
+funcName→`ParamFlags(bool[ParamCount])`）。参数槽↔寄存器：`IrFunction.ParamCount` **含 this**、参数槽 i =
+寄存器 i（实例方法 reg0=this=槽0）——故「param i 逃逸」= `ComputeEscapedRegs` 结果的 `esc[i]`。
+
+**模块单调不动点（`Compute(m)`）**：摘要互相依赖（f 调 g）+ 递归 → 乐观初始化全 `false`，反复对每个有体函数跑
+`ComputeEscapedRegs`（用**当前**摘要解析 call 实参）、把逃逸的参数槽置 `true`（**只增不减**），无变化即收敛。
+单调保证终止；混沌迭代序不影响最小不动点。**返回参数天然逃逸**（`RetTerm.Reg` 被标 + copy 闭包传导）。
+
+**消费（`_markEscaping` 精化）**：`CallInstr` 实参 `args[i]→callee 槽 i`、`ObjNew` 实参 `args[i]→ctor 槽 i+1`
+（obj_new 前置 this=槽0）——按 callee 摘要逐个判，摘要说不逃逸即**不标**。**soundness 底线**：callee 找不到
+（跨包）/ 无体 stub / `VCall`·`CallIndirect`·builtin（动态/原生，无可靠摘要）/ 实参越出摘要长度（varargs）
+→ 该实参**保守全标逃逸**。宁可多标绝不漏标（漏标 = 悬垂栈引用）。
+
+**对象的 ctor this-escape 前提**（`_ctorThisEscapes`）：`new Foo(a,b)` 带 `this`(槽0)调 ctor，对象合格需
+ctor 不泄漏 this = 摘要 `table[ctor][0]==false`（跨包/无体/静态 ctor→保守判泄漏）。**这就是原单函数
+`_ctorLeaksThis` 的推广**——ctor 只是「槽0=this」的普通函数，this-泄漏是槽0逃逸的特例，已并入通用摘要。
+
+**对象完整合格条件**（三者皆满足）：① 结果 reg 本函数内不逃逸（用摘要解析 call 实参）；② 单赋值 temp
+（`defs==1`）；③ ctor 摘要槽0不逃逸。数组无 ctor，只需 ①②。
+
+**无运行时改动**：跨过程只让**更多**对象标 `StackAlloc`；`StackObject` 早已跨帧（per-context arena，ctor 子帧
+即先例）→ 传进 callee 帧经 FieldGet 照常解析；非逃逸参数在 callee 内只读/写字段（存出去=逃逸已排除）→ 触达面
+不变。误判（漏标逃逸）由运行时 frame_id 悬垂校验当场报错兜底 + `--no-opt stack-alloc` 开/关对拍在测试期抓。
 
 **接入**（`IrOptPipeline.Run`）：模块级 pass，跑在所有 per-函数变换 + inline **之后**（分析匹配最终执行的
 IR）。只置 `ObjNew/ArrayNew/ArrayNewLit` 的 `StackAlloc` 标志、不改指令流 → 不影响其它 pass，单独开也正确

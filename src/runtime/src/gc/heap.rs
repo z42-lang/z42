@@ -104,6 +104,22 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// GC). Default no-op; only `ArcMagrGC` overrides.
     fn set_context_reclaimer(&self, _hook: super::arc_heap::ContextReclaimHook) {}
 
+    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// root scanner (for retention-query L2). Default no-op; `ArcMagrGC` overrides.
+    fn set_categorized_root_scanner(&self, _scanner: super::arc_heap::CategorizedRootScanner) {}
+
+    /// **add-heap-retention-diagnostics**: L1 direct referrers of a heap object
+    /// (by data ptr). Default empty (backends without a reverse walk).
+    fn retention_direct_referrers(&self, _target: usize) -> Vec<super::retention::RetainerInfo> {
+        Vec::new()
+    }
+
+    /// **add-heap-retention-diagnostics**: L2 retaining roots of a heap object.
+    /// Default empty.
+    fn retention_roots(&self, _target: usize) -> Vec<super::retention::RootInfo> {
+        Vec::new()
+    }
+
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire an external
     /// `Arc<AtomicBool>` flag for the backend to set (instead of calling
     /// `collect_cycles` inline) when an automatic threshold-based collection
