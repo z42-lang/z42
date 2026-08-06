@@ -88,7 +88,7 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
 .using <ns> .type <expr> .version`（`.type` 见 add-repl-type-metacommand：**运行期类型**——`Script.Eval`
 求值 `(<expr>).GetType().Name`，类 Python `type()`；求值一次、副作用照常；`.version` 打印 zbc/zpkg
 **格式**版本——z42vm 运行时版本串未经 builtin 暴露给 z42，留 follow-up）。仍未接：`.history` / `.save`
-（需宿主存 transcript）、`.mode`（需 `ExecMode` 接口）；`.members` 随反射、`.time`/`.counters`/`.trace`
+（需宿主存 transcript）、`.mode`（需 `ExecMode` 接口）；`.time`/`.counters`/`.trace`
 随 diagnostics 并入（见下表标注）。
 
 follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` ToString）、`.history`/`.save`/`.mode`
@@ -369,7 +369,7 @@ namespace Std.Scripting {
 | `.usings` | 列当前生效的 `using` | [MVP] |
 | `.using <ns>` | 给会话追加一个 `using <ns>;` | [MVP] |
 | `.type <expr>` | 显示表达式的**运行期类型**（`Script.Eval` 求值 `(<expr>).GetType().Name`，类 Python `type()`；求值一次、副作用照常）| [refl] ✅ |
-| `.members <Type>` | 反射列出类型成员（字段/方法/属性）| [refl] |
+| `.members <T>` | 列出类型/变量成员（复用 `replComplete("<T>.", …)`：类型→静态成员、变量→live 实例成员）| [refl] ✅ |
 
 ### 执行 / 诊断
 | 指令 | 功能 | |
@@ -392,14 +392,14 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
   内省:   .vars  .types  .usings  .using <ns>  .type <expr>  .members <Type>
   执行:   .mode [interp|jit]  .time <expr>  .counters  .trace [on|off|<cat>]
   元:     .version
-  (.type/.members 需反射；.time/.counters/.trace 需 diagnostics)
+  (.type/.members 已接；.time/.counters/.trace 需 diagnostics)
 ```
 
 > **MVP 指令集**（目标）：`.help .exit .quit .reset .clear .history .save
 > .vars .types .usings .using .mode .version`。
-> **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .type .version`
+> **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .type .members .version`
 > （`.type` = 运行期类型，add-repl-type-metacommand；`.version` 仅格式版本）。**未接**：`.history` /
-> `.save`（需 transcript 存储）、`.mode`（需 `ExecMode` 接口）；`.members` 随反射就绪并入；
+> `.save`（需 transcript 存储）、`.mode`（需 `ExecMode` 接口）；
 > `.time`/`.counters`/`.trace` 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；`.load` 见 Deferred。
 
 ## 行编辑器

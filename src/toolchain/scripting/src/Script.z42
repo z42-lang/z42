@@ -80,6 +80,10 @@ public static class Script {
         if (state.CachedScan == null) { Script.Prewarm(state); }
     }
 
+    // add-repl-members-metacommand：public 汇合入口，供依赖 completer 的元指令（.members）在**无 eval**
+    // 时先确保 CachedScan 就绪（否则首命令即 .members 会读到 null scan、返回空）。等价 Eval 顶部的汇合。
+    public static void EnsureWarm(ScriptState state) { Script._ensureWarm(state); }
+
     // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
     // 运行时（z42vm）版本串未经 builtin 暴露给 z42 → 留待 follow-up（repl-future-runtime-version）。
     public static string FormatVersion() {

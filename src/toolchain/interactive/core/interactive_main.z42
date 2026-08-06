@@ -48,6 +48,7 @@ void Main() {
             else if (t == ".usings") { _usings(s); }
             else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
             else if (t.StartsWith(".type ")) { _showType(s, t); }    // 显示表达式类型（注意在 .types 之后判）
+            else if (t.StartsWith(".members ")) { _showMembers(s, t); }  // 列类型/变量成员
             else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
             else if (t == ".clear") { _clear(); }
             else if (t == ".reset") {
@@ -84,6 +85,7 @@ void _help() {
     Console.WriteLine("  .vars          列出会话变量");
     Console.WriteLine("  .types         列出会话内声明的类型");
     Console.WriteLine("  .type <expr>   显示表达式的运行期类型（类 python type(x)）");
+    Console.WriteLine("  .members <T>   列出类型/变量的成员（类 python dir(x)）");
     Console.WriteLine("  .usings        列出生效的 using");
     Console.WriteLine("  .using <ns>    追加一个 using <ns>;");
     Console.WriteLine("  .version       显示 zbc / zpkg 格式版本");
@@ -128,6 +130,21 @@ void _showType(ScriptState s, string t) {
     EvalResult r = Script.Eval(s, "(" + expr + ").GetType().Name");
     if (!r.Success) { Console.Write(r.Error); return; }
     if (r.HasValue && r.Value != null) { Console.WriteLine(_fmt(r.Value)); }
+}
+
+// .members <类型或变量> —— 列出其成员名。**复用补全器** `replComplete("<arg>.", …)`（类型→静态成员，
+// 会话变量→live 实例成员，含未 reconcile 类型的按需 reconcile）——零新反射管线，与 Tab/ghost 同源。
+// 先 `Script.EnsureWarm` 汇合（.members 可能是首命令、无 eval 触发预热），并把会话交给补全器。
+void _showMembers(ScriptState s, string t) {
+    string arg = t.Substring(9, t.Length - 9).Trim();   // ".members " 占 9 字符
+    if (arg.Length == 0) { Console.WriteLine("用法: .members <类型或变量>"); return; }
+    Script.EnsureWarm(s);
+    Completer.SetActive(s);
+    string probe = arg + ".";
+    string[] ms = replComplete(probe, probe.Length);
+    if (ms.Length == 0) { Console.WriteLine("(无成员，或类型/变量未知)"); return; }
+    int i = 0;
+    while (i < ms.Length) { Console.WriteLine("  " + ms[i]); i = i + 1; }
 }
 
 // .clear —— ANSI 清屏 + 光标归位。z42 词法器不支持 \x1b/\u 转义，故用 (char)27 构造 ESC。
