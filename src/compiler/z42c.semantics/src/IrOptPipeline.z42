@@ -24,9 +24,13 @@ public sealed class IrOptPipeline {
         // inline 靠前（模块级，需 callee 跨函数解析）：产出更多下游 const-fold/copy-prop/dce 机会。
         // 单独开 Inline 也正确（只内联、不清理，留下的 copy 由后续 pass 或下一代自愈）——design D2。
         if (Opt.Has(optSet, Opt.Inline)) { IrInline.Run(m); }
+        // add-pure-call-opt：纯度表在 per-函数 pass 前算一次（inline 已展开 → 分析匹配最终 IR）。
+        // 仅 PureCall 开时算（否则 null，CSE/LICM 的纯调用分支不触发）。
+        PureTable pureTable = null;
+        if (Opt.Has(optSet, Opt.PureCall)) { pureTable = IrPureFunctionTable.Compute(m); }
         int fi = 0;
         while (fi < m.FuncCount) {
-            IrOptPipeline._optFunc(m.Functions[fi], optSet);
+            IrOptPipeline._optFunc(m.Functions[fi], optSet, pureTable);
             fi = fi + 1;
         }
         // pass: escape-analysis 栈上分配（模块级，最后跑）—— 所有 per-函数变换 + inline 已定型，
@@ -39,7 +43,7 @@ public sealed class IrOptPipeline {
         if (Opt.Has(optSet, Opt.LoopAllocReuse)) { IrLoopAllocReuse.Run(m); }
     }
 
-    private static void _optFunc(IrFunction f, int optSet) {
+    private static void _optFunc(IrFunction f, int optSet, PureTable pureTable) {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
         // pass: const-fold —— 折叠两 int 常量的运算/比较 + 代数恒等式（放最前，产出的 const 供后续传播）
         if (Opt.Has(optSet, Opt.ConstFold)) {
@@ -48,13 +52,15 @@ public sealed class IrOptPipeline {
         }
         // pass: licm —— 循环不变量外提（放 const-fold 后、cse 前：常量先折，提到 pre-header 后再被下游清理）
         // add-readonly-fields-opt：ReadonlyLoad 也触发（LICM 内 readonly-fget 外提分支由该位单独门控）。
-        if (Opt.Has(optSet, Opt.Licm) || Opt.Has(optSet, Opt.ReadonlyLoad)) {
-            IrLicm.Run(f, optSet);
+        // add-pure-call-opt：PureCall 也触发 LICM（纯调用外提分支由该位单独门控）。
+        if (Opt.Has(optSet, Opt.Licm) || Opt.Has(optSet, Opt.ReadonlyLoad) || Opt.Has(optSet, Opt.PureCall)) {
+            IrLicm.Run(f, optSet, pureTable);
         }
         // pass: cse —— 块内公共子表达式消除（放 const-fold 后：常量先折、剩下的纯计算去重）
         // add-readonly-fields-opt：ReadonlyLoad 也触发（CSE 内 readonly-fget 消重分支由该位单独门控）。
-        if (Opt.Has(optSet, Opt.Cse) || Opt.Has(optSet, Opt.ReadonlyLoad)) {
-            IrOptPipeline._passCse(f, optSet);
+        // add-pure-call-opt：PureCall 也触发（CSE 内纯调用消重分支由该位单独门控）。
+        if (Opt.Has(optSet, Opt.Cse) || Opt.Has(optSet, Opt.ReadonlyLoad) || Opt.Has(optSet, Opt.PureCall)) {
+            IrOptPipeline._passCse(f, optSet, pureTable);
         }
         // pass: copy-prop —— 从当前 IR 重算读/写计数（含终结子读）
         if (Opt.Has(optSet, Opt.CopyProp)) {
@@ -269,7 +275,7 @@ public sealed class IrOptPipeline {
     // 块内 value-number：`op|操作数ids` 首现记 dst；同 key 复现 → 记 dupDst→firstDst 映射，
     // 之后用 ReplaceReads 全函数把 dupDst 使用点改写为 firstDst、删重复计算指令。
     // 块内检测（同块 firstDst 在前 → 支配 dupDst 及其所有使用点，值恒等）；跨块不做（避支配分析）。
-    private static void _passCse(IrFunction f, int optSet) {
+    private static void _passCse(IrFunction f, int optSet, PureTable pureTable) {
         int[] defs = IrOptPipeline._computeDefs(f);
         int pc = f.ParamCount;
         // add-readonly-fields-opt：readonly-fget 失效——凡函数内被 field_set 写过的字段，跳过其 readonly CSE
@@ -282,7 +288,7 @@ public sealed class IrOptPipeline {
             StrMap seen = new StrMap();   // value-number key -> firstDst TypedReg
             int ii = 0;
             while (ii < blk.InstrCount) {
-                string key = IrOptInfo.CseKey(blk.Instrs[ii], defs, pc, optSet);
+                string key = IrOptInfo.CseKey(blk.Instrs[ii], defs, pc, optSet, pureTable);
                 if (key != null && blk.Instrs[ii] is FieldGetInstr
                     && writtenFields.ContainsKey((blk.Instrs[ii] as FieldGetInstr).Field)) { key = null; }
                 if (key != null) {

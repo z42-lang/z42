@@ -236,7 +236,7 @@ public sealed class IrOptInfo {
     // 仅当 dst 单赋值(defs==1) + 所有操作数**稳定**（单赋值 temp / 从不重写形参 → 值恒定）才给 key，
     // 否则 null（不 CSE）：块内两次同 key ⇒ 同操作数、同值 ⇒ 可复用首个结果。Div/Rem 亦安全——首个
     // 在前，若 trap 则控制流不到第二个；否则同值。含分配/副作用/可空解引用者（StrConcat/FieldGet/Call/…）不入。
-    public static string CseKey(IrInstr ins, int[] defs, int paramCount, int optSet) {
+    public static string CseKey(IrInstr ins, int[] defs, int paramCount, int optSet, PureTable pureTable) {
         // add-readonly-fields-opt：readonly 字段读消重（ReadonlyLoad 门控，独立于 arith CSE）。
         // 同一稳定接收者上对同一 readonly 字段的重复 field_get ⇒ 同值（构造后不变）⇒ 可复用首个。
         // FieldSet 失效由 _passCse 处理（ctor 内多次写不误合并）。imported 字段 Readonly=false → 不入。
@@ -245,6 +245,16 @@ public sealed class IrOptInfo {
             if (Opt.Has(optSet, Opt.ReadonlyLoad) && fg.Readonly
                 && IrOptInfo._dstOk(fg.Dst, defs) && IrOptInfo._stableR(fg.Obj, defs, paramCount)) {
                 return "fget|" + fg.Obj.Id.ToString() + "|" + fg.Field;
+            }
+            return null;
+        }
+        // add-pure-call-opt：纯函数调用消重（PureCall 门控）。同 callee + 全 args 稳定 ⇒ 同结果
+        // （纯 = 不依赖可变外部状态 → 无需失效表，块内恒同值）⇒ 复用首个。callee 非纯/找不到 → 不入。
+        if (ins is CallInstr) {
+            CallInstr c = ins as CallInstr;
+            if (Opt.Has(optSet, Opt.PureCall) && pureTable != null && pureTable.IsPure(c.Func)
+                && IrOptInfo._dstOk(c.Dst, defs) && IrOptInfo._argsStable(c.Args, c.ArgCount, defs, paramCount)) {
+                return "call|" + c.Func + IrOptInfo._argIds(c.Args, c.ArgCount);
             }
             return null;
         }
@@ -274,6 +284,7 @@ public sealed class IrOptInfo {
 
     // CSE-able op 的 dst TypedReg（供 value-number 存首个 / 取重复 dst）；非 CSE-able → null。
     public static TypedReg DstReg(IrInstr ins) {
+        if (ins is CallInstr)     { return (ins as CallInstr).Dst; }       // add-pure-call-opt：纯 call 消重
         if (ins is FieldGetInstr) { return (ins as FieldGetInstr).Dst; }   // add-readonly-fields-opt：readonly field_get 消重
         if (ins is AddInstr)    { return (ins as AddInstr).Dst; }
         if (ins is SubInstr)    { return (ins as SubInstr).Dst; }
@@ -320,6 +331,22 @@ public sealed class IrOptInfo {
         if (id < 0 || id >= defs.Length) { return false; }
         if (id < pc) { return defs[id] == 0; }
         return defs[id] == 1;
+    }
+    // add-pure-call-opt：纯 call 的全部实参都稳定（单赋值 temp / 从不重写形参）→ 值恒定，块内两次同 key 同值。
+    private static bool _argsStable(TypedReg[] args, int argCount, int[] defs, int pc) {
+        int i = 0;
+        while (i < argCount) {
+            if (!IrOptInfo._stableR(args[i], defs, pc)) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+    // 实参 id 串接进 CSE key（正定序，无交换律规范化——调用非交换）。
+    private static string _argIds(TypedReg[] args, int argCount) {
+        string s = "";
+        int i = 0;
+        while (i < argCount) { s = s + "|" + args[i].Id.ToString(); i = i + 1; }
+        return s;
     }
 
     // 可删性白名单：仅明确无副作用（不抛/不调用户码/不写内存/不分配）→ true。

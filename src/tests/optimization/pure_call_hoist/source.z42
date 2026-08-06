@@ -1,0 +1,27 @@
+using Std.IO;
+
+// add-pure-call-opt e2e：热循环内反复调**纯函数**——
+//   ① fib（**递归纯**、不可内联）循环不变调用 → LICM 提到 pre-header（每次进循环算一次，
+//      而非每迭代重算——递归昂贵，收益巨大）；
+//   ② scaled 读**参数对象的 readonly 字段**仍判纯（readonly 值不变，复用 readonly 协同）+
+//      同参两次 → 块内 CSE 消重。
+// **优化前后输出必须一致**（正确性主门；pure-call 只改 IR、不改语义）。
+
+int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }   // 纯（递归+算术+分支）
+
+class Cfg { readonly int factor; public Cfg(int f) { this.factor = f; } }
+int scaled(Cfg c, int k) { return k * c.factor; }                             // 纯（读 readonly 字段+参数）
+
+void Main() {
+    Cfg cfg = new Cfg(3);
+    long total = 0L;
+    int i = 0;
+    int k = 20;
+    while (i < 10) {
+        // fib(20)=6765；scaled(cfg,20)=60，两次=120 → 每迭代 6885
+        total = total + (long)(fib(k) + scaled(cfg, k) + scaled(cfg, k));
+        i = i + 1;
+    }
+    // 10 * 6885 = 68850
+    Console.WriteLine(total);
+}

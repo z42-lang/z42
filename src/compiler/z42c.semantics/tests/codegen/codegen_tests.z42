@@ -589,6 +589,36 @@ void test_readonly_licm_hoists_this_field() {
     Assert.Contains("field_get %0.x", opt);    // 读仍在（只是移到 pre-header）
 }
 
+// ── 纯函数调用优化（add-pure-call-opt；Opt.PureCall 位）───────────────────────────
+[Test]
+void test_pure_call_cse_dedups() {
+    // 纯标量自由函数同参重复调用 → PureCall 消重（第二次复用首个 %1）；-O0 保留两条。
+    string src = "int square(int x) { return x * x; } int F(int a) { return square(a) + square(a); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.None));       // 两次独立 call
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // 消重：复用首个
+}
+[Test]
+void test_pure_call_reads_readonly_field() {
+    // 自由函数读**参数对象的 readonly 字段** → 仍判纯（readonly 值不变）→ 同参调用消重。
+    string src = "class C { readonly int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 纯 → 消重
+}
+[Test]
+void test_impure_call_not_cse() {
+    // 读**非** readonly 字段 → 非纯（字段可变）→ 不消重（保守正确）。
+    string src = "class C { int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 非纯 → 两条 call
+}
+[Test]
+void test_pure_call_licm_hoists() {
+    // 循环不变纯调用 → LICM 提到 pre-header（块结构变化）；调用仍保留。
+    string src = "int square(int x){return x*x;} int G(int n,int k){int s=0;int i=0;while(i<n){s=s+square(k);i=i+1;}return s;}";
+    string raw = IrDump.DumpFuncOpt(src, "G", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "G", Opt.PureCall);
+    Assert.NotEqual(raw, opt);                 // 外提改变块结构（call 移出循环体）
+    Assert.Contains("call @square", opt);      // 调用仍在（移到 pre-header）
+}
+
 // ── 函数内联（add-compiler-inlining Phase 2；IrInline，Opt.Inline 位）───────────────
 // 默认 dump 路径不含内联（见 IrDump._buildF 注）；内联单测显式用 DumpFuncOpt/DumpModuleOpt 传 optSet。
 

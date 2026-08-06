@@ -16,7 +16,7 @@ using Z42.IR;
 
 public sealed class IrLicm {
 
-    public static void Run(IrFunction f, int optSet) {
+    public static void Run(IrFunction f, int optSet, PureTable pureTable) {
         LoopCfg cfg = IrLoopUtil.BuildCfg(f);
         if (cfg == null) { return; }   // <2 块 / 有异常表 → 跳过
         int n = cfg.N;
@@ -26,14 +26,14 @@ public sealed class IrLicm {
             if (isHeader[h]) {
                 bool[] inLoop = IrLoopUtil.LoopBody(cfg, h);
                 int ph = IrLoopUtil.CleanPreheader(f, cfg, h, inLoop);
-                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, optSet); }
+                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, optSet, pureTable); }
             }
             h = h + 1;
         }
     }
 
     // 不变量分析 + 外提到 pre-header。
-    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom, int optSet) {
+    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom, int optSet, PureTable pureTable) {
         int rc = f.MaxReg + 2;
         // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——
         // 后者被「latch 反向可达」的循环体排除，但仍受 header 支配。用 header 支配域而非反向可达体，
@@ -76,7 +76,8 @@ public sealed class IrLicm {
                     int d = IrOptInfo.DstId(ins);
                     if (d >= 0 && d < rc && defsGlobal[d] == 1
                         && ((IrOptInfo.IsPure(ins) && IrLicm._operandsExternal(ins, defInLoop, rc))
-                            || IrLicm._isHoistableReadonlyFget(ins, f, optSet, defInLoop, rc, loopWrittenFields))) {
+                            || IrLicm._isHoistableReadonlyFget(ins, f, optSet, defInLoop, rc, loopWrittenFields)
+                            || IrLicm._isHoistablePureCall(ins, optSet, pureTable, defInLoop, rc))) {
                         invariantReg[d] = true;
                     }
                     ii = ii + 1;
@@ -147,6 +148,18 @@ public sealed class IrLicm {
         if (fg.Obj.Id != 0) { return false; }           // 接收者必须是 this（reg0）
         if (loopWrittenFields.ContainsKey(fg.Field)) { return false; }
         return IrLicm._operandsExternal(ins, defInLoop, rc);
+    }
+
+    // add-pure-call-opt：纯函数调用是否可安全外提（不经 IsPure，独立判定）。
+    //   PureCall 开 + callee 在纯表（纯含 no-throw → 提到可能零迭代 pre-header 无异常时机漂移）+
+    //   全部实参循环外定义（循环不变）。dst 单赋值由外层 defsGlobal==1 守。
+    private static bool _isHoistablePureCall(IrInstr ins, int optSet, PureTable pureTable, bool[] defInLoop, int rc) {
+        if (!Opt.Has(optSet, Opt.PureCall)) { return false; }
+        if (!(ins is CallInstr)) { return false; }
+        if (pureTable == null) { return false; }
+        CallInstr c = ins as CallInstr;
+        if (!pureTable.IsPure(c.Func)) { return false; }
+        return IrLicm._operandsExternal(ins, defInLoop, rc);   // 通用覆盖 call args 全循环不变
     }
 
     // add-readonly-fields-opt：循环体（inLoop 块）内所有 field_set 写到的字段名集合。
