@@ -1,0 +1,41 @@
+// add-readonly-fields-opt bench：readonly 字段热循环，用于**前后性能对比**。
+// 热点 = 实例方法 Sum 的循环体反复读 `this.factor`（readonly）。
+//   - ReadonlyLoad 开：LICM 把 field_get 提到 pre-header（每次进循环只读一次）+ 块内 CSE 消重。
+//   - ReadonlyLoad 关（`--opt -readonly-load`）：每迭代重复读堆。
+// A/B 跑法（编两份产物比时间）：
+//   z42b bench <z42.core-with-readonly-load.zpkg>   --format json   # 后
+//   z42b bench <z42.core-no-readonly-load.zpkg>     --format json   # 前（--opt -readonly-load 编）
+// 或 `z42 xtask.zpkg bench stdlib z42.core`（release 全开 = 后）。
+//
+// 实测（interp，热循环 15000×15000 迭代、每迭代 3 次 this.factor 读；macOS arm64）：
+//   OFF（--no-opt readonly-load）≈ 13.9s   →   ON（默认）≈ 7.43s   ≈ **1.87×**
+//   （field_get 是 Mutex 锁堆读；LICM 把 3 读/迭代 外提 + CSE 消重 → ~0 读/迭代。输出恒 =4725000000）
+namespace Z42ReadonlyBench;
+
+using Std;
+
+class RoScaler {
+    readonly int factor;
+    public RoScaler(int f) { this.factor = f; }
+    // 循环体 3 次读 this.factor（同迭代 CSE 消 2 条 + 跨迭代 LICM 外提）。
+    public long Sum(int n) {
+        long s = 0L;
+        int i = 0;
+        while (i < n) {
+            s = s + (long)(this.factor + this.factor + this.factor);
+            i = i + 1;
+        }
+        return s;
+    }
+}
+
+[Benchmark]
+void bench_readonly_field_hot_loop() {
+    var sc = new RoScaler(7);
+    var b = new Bencher(3, 30);
+    b.iter(() => {
+        long r = sc.Sum(4000);
+        BenchHelpers.blackBox(r);
+    });
+    b.printSummary("readonly_field_hot_loop");
+}

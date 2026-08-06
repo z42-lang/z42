@@ -707,3 +707,41 @@ void test_keyword_param_name_targeted_diag() {
     // B 未被级联撕毁：bound 树仍可取到其方法体。
     Assert.Equal("(block (return (lit-int 2 :int)))", SemanticDump.DumpBody(src, "C.B"));
 }
+
+// ── readonly 字段不变性强制（add-readonly-fields-opt）───────────────────────
+[Test]
+void test_readonly_ctor_assign_ok() {
+    // readonly 字段在声明类 ctor 内经 this 赋值 → 合法。
+    string src = "class C { readonly int x; C(int a) { this.x = a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+[Test]
+void test_readonly_initializer_ok() {
+    // 字段初始化器（注入 ctor）→ 合法。
+    string src = "class C { readonly int x = 5; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+[Test]
+void test_readonly_method_assign_error() {
+    // 非 ctor 方法内 `this.x = ` 写 readonly → E0415。
+    string src = "class C { readonly int x; C(int a){ this.x=a; } void set(int a) { this.x = a; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+[Test]
+void test_readonly_bare_method_assign_error() {
+    // 裸 `x = ` 写 readonly（隐式 this）在非 ctor 方法内 → E0415。
+    string src = "class C { readonly int x; C(int a){ this.x=a; } void set(int a) { x = a; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+[Test]
+void test_readonly_cross_object_ctor_error() {
+    // ctor 内经**另一对象**（非 this）写 readonly → E0415（只允许 this.<field>）。
+    string src = "class C { readonly int x; C(C other) { other.x = 1; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+[Test]
+void test_nonreadonly_method_assign_ok() {
+    // 非 readonly 字段方法内赋值 → 合法（不误伤普通字段）。
+    string src = "class C { int x; void set(int a) { this.x = a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

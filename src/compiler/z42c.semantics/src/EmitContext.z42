@@ -13,6 +13,7 @@ public sealed class EmitContext {
     public IrGen       Gen;          // 字符串 intern
     public StrMap      Locals;       // name → TypedReg（object 下行）
     public StrMap      Fields;       // 实例方法自身字段名集合（裸 ident → field_get reg0）
+    public StrMap      ReadonlyFields; // add-readonly-fields-opt：其中声明为 readonly 的字段名子集（裸 ident field_get 打 Readonly 标志）
     public IrBlock[]   Blocks;   public int BlockCount;
     public IrInstr[]   Cur;      public int CurCount;     // 当前块指令累积
     public string      CurLabel; public bool Ended;       // 当前块已终结
@@ -40,7 +41,7 @@ public sealed class EmitContext {
 
     public EmitContext(SymbolTable symbols, IrGen gen) {
         this.Symbols = symbols; this.Gen = gen;
-        this.Locals = new StrMap(); this.Fields = new StrMap();
+        this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
         this.Blocks = new IrBlock[4]; this.BlockCount = 0;
         this.NextReg = 0; this.MaxReg = 0; this.LabelSeq = 0;
         this.ContLabels = new string[4]; this.BreakLabels = new string[4];
