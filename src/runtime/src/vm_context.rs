@@ -1373,9 +1373,15 @@ impl VmContext {
         let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
-            let before: std::collections::HashSet<String> = loader.loaded_zpkgs.clone();
+            // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
+            // buffer around the resolve, instead of cloning + diffing the whole
+            // `loaded_zpkgs` set on every call (profiled: that per-call clone was
+            // the top interp alloc hotspot in cross-zpkg-heavy workloads such as
+            // z42c self-compile). Common path (no new zpkg loaded) → empty buffer
+            // → `mem::take` of a zero-cap Vec → zero allocation.
+            loader.newly_loaded.clear();
             let result = loader.resolve_function(func_name);
-            let newly: Vec<String> = loader.loaded_zpkgs.difference(&before).cloned().collect();
+            let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
         for name in newly_loaded {
@@ -1390,9 +1396,10 @@ impl VmContext {
         let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
-            let before: std::collections::HashSet<String> = loader.loaded_zpkgs.clone();
+            // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
+            loader.newly_loaded.clear();
             let result = loader.resolve_type(class_name);
-            let newly: Vec<String> = loader.loaded_zpkgs.difference(&before).cloned().collect();
+            let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
         for name in newly_loaded {
