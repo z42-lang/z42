@@ -176,6 +176,23 @@ rvalue: 传参/返回/整体赋值 → StructCopy
 装箱点: box/unbox 指令
 ```
 
+## P1 实现子决策（2026-08-06 探索后定；⚠️ = 落 zbc/wire 前请 User 复核）
+
+探索发现运行时**当前无任何字节布局概念**（`ScriptObject.slots: Box<[Value]>` 按 slot 序号、int 统一
+`Value::I64`），编译器**无基元字节大小表**、`Z42ClassType` **不携带 struct-ness**。故以下为新增：
+
+| # | 子决策 | 采纳解 |
+|---|--------|--------|
+| **1 ⚠️** | 布局数据落哪 | 访问指令（StructCopy/FieldGet/SetPrim）把 byte_offset/size 作为**立即数烘焙**（运行时无需查表）；**GC 引用位图 + struct 总 size 落 zbc TYPE section**（运行时 GC 扫描必需）。跨包布局传播 → zpkg（P4）。故 P1 bump zbc、TYPE section 加"struct 引用位图 + size"字段 |
+| **2 ⚠️** | 基元字节大小/对齐约定 | `i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`、引用/string/array/func=8（指针宽）。对齐=自然对齐（=size）。struct 对齐=最大成员对齐，size 向上取整到对齐。char=4（z42 `Value::Char` 是 4B 码点） |
+| **3** | struct-ness 查询 | **方案 A**：`IrGen` 新增 `ClassDecls: StrMap`（类名→ClassDecl，仿 `IfaceDecls` 构建），StructLayout 查此 map，`decl.Kind=="struct"/"record"` → 值类型递归展平，否则引用叶子 |
+| **4** | 自引用/递归 struct 报错 | 放 **Pass1**（`TypeChecker` 有 `DiagnosticBag`）；StructLayout 计算时维护"在途类型集"，struct 直接/间接含自身**值**字段 → 报新诊断码（E04xx 段空号，如 `E0416`）。布局结果缓存供 codegen 复用 |
+
+> **byte-size 约定（#2）与"落 zbc 引用位图"（#1）是定 ABI/wire 的**——StructLayout.z42 的**计算**是编译期
+> 的（先做不锁格式），但一旦这些 offset/bitmap 进 zbc TYPE section 就成 wire 契约。故实现顺序：先落
+> StructLayout 计算 + 单测（编译期，可改），到"新指令 + TYPE section 落 zbc"步前请 User 复核 #1/#2，
+> 再走 version-bumping.md checklist + 两阶段 nightly。
+
 ## Implementation Notes
 
 - **寄存器分配**：现有分配器按"每临时 1 槽"——需扩展为"struct 临时占 width 连续槽"。这是 P1 的核心
