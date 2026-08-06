@@ -23,6 +23,8 @@ public sealed class ExportedMethodZ {
     // 是自举编译器自身 TSIG 读取机制的调用点，旧种子（未含 ParamsFrom）冻结编译的调用约定
     // 不能被新增必填形参打破，否则自举链上旧种子读新格式 zpkg 时动态解析会 ABI 不匹配崩溃
     // （undefined register）。默认 -1（非变长），需要非默认值时构造后单独赋值。
+    public bool             IsSealed;      // impl-sealed-semantics-devirt：方法级 sealed（METHOD_FLAG_SEALED）。
+    // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
     public ExportedMethodZ(string name, string returnType, string visibility,
                            bool isStatic, bool isVirtual, bool isAbstract, int minArgCount,
                            ExportedParamZ[] params_, int paramCount) {
@@ -30,6 +32,7 @@ public sealed class ExportedMethodZ {
         this.IsStatic = isStatic; this.IsVirtual = isVirtual; this.IsAbstract = isAbstract;
         this.MinArgCount = minArgCount; this.Params = params_; this.ParamCount = paramCount;
         this.ParamsFrom = 0 - 1;
+        this.IsSealed = false;
     }
 }
 
@@ -51,6 +54,8 @@ public sealed class ExportedClassZ {
     public ExportedMethodZ[] Methods;  public int MethodCount;
     public string[] Interfaces; public int InterfaceCount;   // 实现的接口名（port-z42c-interface）
     public string[] TypeParams; public int TpCount;          // 泛型类型参数名（如 "T"/"K"/"V"）
+    public bool     IsSealed;   // impl-sealed-semantics-devirt：sealed class（CLASS_FLAG_SEALED，TYPE Flags bit1）。
+    // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -60,6 +65,7 @@ public sealed class ExportedClassZ {
         this.Methods = methods; this.MethodCount = methodCount;
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.TypeParams = typeParams; this.TpCount = tpCount;
+        this.IsSealed = false;
     }
 }
 

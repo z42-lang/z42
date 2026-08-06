@@ -671,6 +671,8 @@ fn build_method_info(
         is_virtual
     };
     let is_abstract_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_ABSTRACT) != 0;
+    // impl-sealed-semantics-devirt: MethodInfo.IsSealed from METHOD_FLAG_SEALED (bit2).
+    let is_sealed_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_SEALED) != 0;
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -682,6 +684,8 @@ fn build_method_info(
             ("IsVirtual", Value::Bool(is_virtual_flag)),
             // add-method-modifiers (unify P1-c): abstract methods (bit1).
             ("IsAbstract", Value::Bool(is_abstract_flag)),
+            // impl-sealed-semantics-devirt: sealed methods (bit2).
+            ("IsSealed", Value::Bool(is_sealed_flag)),
             // add-member-visibility (unify P1-b): 0=public / 1=private /
             // 2=protected. `protected` reports neither (mirrors C# IsFamily).
             ("IsPublic", Value::Bool(visibility == 0)),
@@ -734,6 +738,8 @@ fn build_iface_method_info(
             ("IsStatic", Value::Bool(false)),
             ("IsVirtual", Value::Bool(true)),
             ("IsAbstract", Value::Bool(true)),
+            // impl-sealed-semantics-devirt: interface methods are never sealed.
+            ("IsSealed", Value::Bool(false)),
             ("IsPublic", Value::Bool(true)),
             ("IsPrivate", Value::Bool(false)),
             ("__parameters", params_arr),

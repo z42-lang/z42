@@ -19,6 +19,11 @@ public class MethodInfo : MemberInfo {
     // methods are also virtual (IsVirtual == true).
     public bool IsAbstract;
 
+    // True for a `sealed override` (or the shorthand `sealed`) method — no further
+    // override permitted (impl-sealed-semantics-devirt). Sealed methods are also
+    // virtual (IsVirtual == true). Written by the VM from METHOD_FLAG_SEALED.
+    public bool IsSealed;
+
     // Member visibility (add-member-visibility, unify P1-b). Written by the VM
     // from the method's declared modifier. A `protected` method reports neither
     // (IsPublic == IsPrivate == false), mirroring C# `IsPublic` / `IsPrivate`.
