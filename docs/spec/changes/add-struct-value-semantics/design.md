@@ -28,11 +28,14 @@ struct Line { var a: P;   var b: P;   }    // size=16B, align=4, {a:@0(P), b:@8(
                                            //   line.b.y → byte 8+4=12
 ```
 
-- 叶子 = 基元字段（字节精确：`int`=4B/`long`=8B/`bool`=1B/`char`=4B/…）或引用类型字段
-  （1 个引用槽/句柄宽度）；嵌套 struct 字段**递归展开**为其叶子字节序列，按对齐排布。
-- 每 struct 类型产出 `{ size: 字节数, align, field_layout: name→(byte_offset, size, kind) }`。
-- **引用叶子的存储**：字节 blob 里的引用字段仍需 GC 追踪 → blob 需记录**引用叶子的 byte offset 位图/表**
-  （GC 扫描据此定位 blob 内的引用，见 Decision ζ）。这是字节打包相对"全 Value 槽"新增的关键机制。
+- 叶子 = 基元字段（字节精确：`int`=4B/`long`=8B/`bool`=1B/`char`=4B/…，纯字节可 memcpy）或**引用叶子**
+  （object/array/string/interface/func = **16B 托管句柄**，见子决策 #2，不可 raw memcpy）；嵌套 struct
+  字段**递归展开**为其叶子字节序列，按对齐排布。
+- 每 struct 类型产出 `{ size: 字节数, align, field_layout: name→(byte_offset, size, kind) }`，
+  其中 `kind` ∈ {基元各类, arc-string, gcref-object}。
+- **引用叶子的存储**：blob 里的引用叶子既需 GC 追踪、又需按种类正确 clone/drop（Arc 计数 / GcRef 屏障）
+  → blob 需记录**带种类的引用叶子偏移表/位图**（GC 扫描 + StructCopy/析构分流据此，见 Decision ζ）。
+  这是字节打包相对"全 Value 槽"新增的关键机制。
 - **禁止递归无限展开**：struct 直接/间接含自身值字段 = 无限大小 → 编译期报错（C# 同款 CS0523）。
 
 ## IR / 运行时操作数模型
@@ -118,7 +121,17 @@ struct / struct 字段的字节区间。帧需要一个**局部字节区**（与
 4. **装箱 struct** 是普通 `Value::Object`，走现有对象扫描 + 屏障。
 
 > **落地要点**：`StructCopy` 不是无脑 `memcpy`——分两路：引用位图为空 → 纯 memcpy 快路径；含引用叶子 →
-> 值字节 memcpy + 引用叶子逐个走读/写屏障。StructLayout 的引用位图是这条分流的依据。
+> 值字节 memcpy + 引用叶子逐个按**种类**正确复制。StructLayout 的引用位图是这条分流的依据。
+>
+> **引用位图必须带种类（2026-08-06 修正）**：引用叶子在 z42 是**托管**的、复制/析构语义按种类不同——
+> 位图不能只标"引用在此"，要标 **arc-string vs gcref-object**：
+> - **string（`Arc<str>`，16B）**：StructCopy 时 `Arc::clone`（引用计数 +1，raw memcpy 会漏计数→
+>   double-free）；blob 析构时 `Arc::drop`（计数 −1）。
+> - **object/array（`GcRef`，16B）**：位拷贝 + **GC 写屏障**（分代/并发追踪）；生命周期由 GC 管，无显式 drop。
+> - **基元叶子**：raw 字节，无 clone/drop/屏障。
+>
+> 故只有**纯基元 struct（引用位图为空）**能走 raw memcpy 快路径；含任何引用叶子必须逐叶子按种类 clone/
+> drop/屏障。这也要求 struct blob 有**确定性析构 hook**（帧退出/容器回收时对引用叶子逐个 drop/release）。
 
 ### ⚠️ Decision η：格式 bump（zbc/zpkg minor + 两阶段 nightly）
 
@@ -184,7 +197,7 @@ rvalue: 传参/返回/整体赋值 → StructCopy
 | # | 子决策 | 采纳解 |
 |---|--------|--------|
 | **1 ⚠️** | 布局数据落哪 | 访问指令（StructCopy/FieldGet/SetPrim）把 byte_offset/size 作为**立即数烘焙**（运行时无需查表）；**GC 引用位图 + struct 总 size 落 zbc TYPE section**（运行时 GC 扫描必需）。跨包布局传播 → zpkg（P4）。故 P1 bump zbc、TYPE section 加"struct 引用位图 + size"字段 |
-| **2 ⚠️** | 基元字节大小/对齐约定 | `i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`、引用/string/array/func=8（指针宽）。对齐=自然对齐（=size）。struct 对齐=最大成员对齐，size 向上取整到对齐。char=4（z42 `Value::Char` 是 4B 码点） |
+| **2 ⚠️** | 基元字节大小/对齐 + 引用叶子表示（**2026-08-06 按实测 VM 表示修正**） | **基元**：`i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`（纯字节，可 memcpy）。char=4（z42 `Value::Char` 是 4B Unicode 标量，非 C#/Java 的 2B 变长 UTF-16 码元）。**引用叶子**：object/array/string/interface/func = **16B 托管句柄**（非 8B！`GcRef`=ptr8+generation4 对齐到 16、[refs.rs:66](../../../../src/runtime/src/gc/refs.rs#L66)；`Arc<str>`=胖指针 16B）——**不可 raw memcpy**。对齐：基元自然对齐、引用 8 对齐；struct 对齐=最大成员对齐，size 向上取整。**不逼 8B**（去 generation 丢 use-after-free 安全 / 句柄表是更大改造），留 Deferred |
 | **3** | struct-ness 查询 | **方案 A**：`IrGen` 新增 `ClassDecls: StrMap`（类名→ClassDecl，仿 `IfaceDecls` 构建），StructLayout 查此 map，`decl.Kind=="struct"/"record"` → 值类型递归展平，否则引用叶子 |
 | **4** | 自引用/递归 struct 报错 | 放 **Pass1**（`TypeChecker` 有 `DiagnosticBag`）；StructLayout 计算时维护"在途类型集"，struct 直接/间接含自身**值**字段 → 报新诊断码（E04xx 段空号，如 `E0416`）。布局结果缓存供 codegen 复用 |
 
