@@ -14,6 +14,7 @@
   - [异常与错误处理]()
   - [命名空间与访问控制]()
   - [partial 类型（跨文件类型定义）](language/partial-types.md)
+  - [readonly 字段](language/readonly-fields.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）
@@ -39,6 +40,7 @@
   - [IR 与 zbc 二进制格式]()
   - [GC]()
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
+  - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
 

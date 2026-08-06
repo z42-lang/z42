@@ -38,6 +38,14 @@ path = "src/lib.rs"
 cc = "1"
 
 [dependencies]
+# Faster global allocator. z42c self-compile is malloc-bound (~31% in the
+# system allocator, profiled): mimalloc cuts z42c compile ~40% and alloc-heavy
+# workloads (string-building) ~3×. Optional + default-on so the `mimalloc-alloc`
+# feature ships in the desktop z42vm binary, while the wasm/ios/android presets
+# (built `--no-default-features`) omit it — mimalloc's C build doesn't belong in
+# the wasm sandbox / size-sensitive mobile staticlibs. Wired via
+# `#[global_allocator]` in main.rs (binary only; embedded lib uses host alloc).
+mimalloc = { version = "0.1", optional = true }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"   # JSON interchange format (legacy .z42ir.json)
@@ -114,7 +122,10 @@ cranelift-native   = { version = "0.115", optional = true }
 # - `aot` is a placeholder for future AOT compilation (M9; no impl yet)
 # - `interp-only` is intent-only (no extra deps); used by platform presets
 # - platform presets are convenience combos for `--no-default-features --features <preset>`
-default              = ["jit", "native-interop"]
+default              = ["jit", "native-interop", "mimalloc-alloc"]
+# mimalloc-alloc: route the z42vm binary's global allocator through mimalloc
+# (default-on desktop; omitted by the --no-default-features wasm/ios/android presets).
+mimalloc-alloc       = ["dep:mimalloc"]
 jit                  = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 native-interop       = ["dep:libffi", "dep:libloading"]
 aot                  = []
