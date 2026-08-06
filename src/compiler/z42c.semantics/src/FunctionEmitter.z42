@@ -43,7 +43,7 @@ public sealed class FunctionEmitter {
             int si = 0;
             while (si < sk.Length) { this._ctx.LocalFnNames.Put(sk[si], this._seedLocalFns.Get(sk[si])); si = si + 1; }
         }
-        this._expr = new ExprEmitter(this._ctx);
+        this._expr = new ExprEmitter(this._ctx, this);
         string[] tp = this._mergeTp(classTp, classTpCount, md.TypeParams.Names, md.TypeParams.Count);
         int tpc = classTpCount + md.TypeParams.Count;
         int paramOffset = 0;
@@ -153,7 +153,7 @@ public sealed class FunctionEmitter {
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
-        this._expr = new ExprEmitter(this._ctx);
+        this._expr = new ExprEmitter(this._ctx, this);
         this._ctx.NextReg = 0; this._ctx.MaxReg = 0;
         this._ctx.StartBlock("entry");
         int i = 0;
@@ -191,7 +191,7 @@ public sealed class FunctionEmitter {
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
-        this._expr = new ExprEmitter(this._ctx);
+        this._expr = new ExprEmitter(this._ctx, this);
         bool hasEnv = lam.CaptureCount > 0;
         int paramOffset = 0;
         if (hasEnv) { paramOffset = 1; }
@@ -434,6 +434,9 @@ public sealed class FunctionEmitter {
         this._ctx.Emit(new MkClosInstr(clos, lifted, caps, lfn.CaptureCount, false));
         this._ctx.Locals.Put(lfn.Name, clos);
     }
+
+    // BoundSeqExpr（集合字面量脱糖）的 prelude 语句发射入口——由 ExprEmitter 反向调用。
+    public void EmitStmt(BoundStmt s) { this._emitStmt(s); }
 
     private void _emitStmt(BoundStmt s) {
         this._ctx.TrackLine(s.Span);   // 每语句记源码行（镜像 C# EmitBoundStmt 入口；同行去重在 ctx）

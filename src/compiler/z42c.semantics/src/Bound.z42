@@ -36,6 +36,20 @@ public sealed class BoundSwitchExpr : BoundExpr {
     public override string Dump() { return "(switch-expr :" + this._type.Name() + ")"; }
 }
 
+// 序列表达式（block-expression）：先按序执行 Prelude 语句，再求值 Value，其值即本表达式的值。
+// 集合字面量脱糖用（new List + 多次 Add + 收尾读 tmp）。发射：依次 emit prelude，再 emit value 返回其寄存器。
+public sealed class BoundSeqExpr : BoundExpr {
+    public BoundStmt[] Prelude;
+    public int         PreludeCount;
+    public BoundExpr   Value;
+    private Z42Type    _type;
+    public BoundSeqExpr(BoundStmt[] prelude, int preludeCount, BoundExpr value, Z42Type type, Span span) { this.Span = span;
+        this.Prelude = prelude; this.PreludeCount = preludeCount; this.Value = value; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string Dump() { return "(seq-expr :" + this._type.Name() + ")"; }
+}
+
 public sealed class BoundLitInt : BoundExpr {
     public string Text;       // 原始字面量文本（数值解析留 codegen）
     private Z42Type _type;

@@ -165,6 +165,13 @@ public sealed class StmtBinder {
                     init = this._bindLambda(v.Init as LambdaExpr, declared as Z42FuncType, env);
                 }
             }
+            // 集合字面量：把声明侧类型作为目标类型传下（`var` → NamedType("var") 非集合类型，_bindCollLit
+            // 走推断路径）。target-typed 让 `List<long> x = {1,2,3}` / 空 `[]`·`{}` 解析出正确元素/容器类型。
+            if (init == null && v.Init != null && ExprTyper.IsCollLit(v.Init)) {
+                TypeExpr collTarget = null;
+                if (!((v.Type is NamedType) && ((v.Type as NamedType).Name == "var"))) { collTarget = v.Type; }
+                init = this._tc._expr._bindCollLit(v.Init, collTarget, env);
+            }
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);
@@ -238,6 +245,9 @@ public sealed class StmtBinder {
             while (i < b.Count) { outs[i] = this._bindStmt(b.Stmts[i], scope, ret); i = i + 1; }
             return new BoundBlock(outs, b.Count, b.Span);
     }
+
+    // 集合字面量脱糖（ExprTyper._bindCollLit）绑定合成语句的入口。
+    public BoundStmt BindStmt(Stmt s, TypeEnv env, Z42Type ret) { return this._bindStmt(s, env, ret); }
 
     private BoundStmt _bindStmt(Stmt s, TypeEnv env, Z42Type ret) {
         if (s is BlockStmt) { return this._bindBlock(s as BlockStmt, env, ret); }

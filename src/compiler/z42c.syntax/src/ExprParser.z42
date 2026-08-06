@@ -156,6 +156,10 @@ public sealed class ExprParser {
     private Expr _parsePrefix() {
         Token t = this._p._peek();
         int k = t.Kind;
+        // 集合字面量：前缀 `[`（数组/重复/spread）与表达式位 `{`（List/Dict/空）。
+        // 位置消歧（D1）：语句位 `{` 在 Parser.ParseStatement 已路由到 block，只有表达式位到此。
+        if (k == TokenKind.LBracket) { return this._parseArrayLit(t); }
+        if (k == TokenKind.LBrace)   { return this._parseBraceLit(t); }
         if (k == TokenKind.Minus || k == TokenKind.Bang || k == TokenKind.Tilde || k == TokenKind.Plus) {
             this._p._advance();
             Expr operand = this._parseExpr(85);
@@ -292,6 +296,95 @@ public sealed class ExprParser {
         this._p._diags.Error(DiagnosticCodes.UnexpectedToken, "unexpected token in expression", t.Span);
         this._p._advance();
         return new IdentExpr("<error>", t.Span);
+    }
+
+    // 前缀 `[` → 数组字面量 `[e0, e1, ..]` / 重复 `[value; count]` / spread `[..a, x, ..b]`。
+    private Expr _parseArrayLit(Token t) {
+        this._p._advance();   // [
+        if (this._p._peek().Kind == TokenKind.RBracket) {   // 空数组 []
+            this._p._advance();
+            return new ArrayLitExpr(new Expr[0], new bool[0], 0, t.Span);
+        }
+        bool firstSpread = false;
+        if (this._p._peek().Kind == TokenKind.DotDot) { firstSpread = true; this._p._advance(); }
+        Expr first = this._parseExpr(0);
+        // 重复填充 `[value; count]`（非 spread 且下一个是 `;`）
+        if (!firstSpread && this._p._peek().Kind == TokenKind.Semicolon) {
+            this._p._advance();   // ;
+            Expr count = this._parseExpr(0);
+            this._p._expect(TokenKind.RBracket, "]");
+            return new ArrayRepeatExpr(first, count, t.Span);
+        }
+        Expr[] elems = new Expr[8];
+        bool[] spreads = new bool[8];
+        int en = 0;
+        elems[0] = first; spreads[0] = firstSpread; en = 1;
+        while (this._p._peek().Kind == TokenKind.Comma) {
+            this._p._advance();   // ,
+            if (this._p._peek().Kind == TokenKind.RBracket) { break; }   // 尾逗号容忍
+            if (en == elems.Length) {
+                Expr[] b = new Expr[elems.Length * 2];
+                bool[] bs = new bool[spreads.Length * 2];
+                int i = 0; while (i < en) { b[i] = elems[i]; bs[i] = spreads[i]; i = i + 1; }
+                elems = b; spreads = bs;
+            }
+            bool sp = false;
+            if (this._p._peek().Kind == TokenKind.DotDot) { sp = true; this._p._advance(); }
+            elems[en] = this._parseExpr(0); spreads[en] = sp; en = en + 1;
+        }
+        this._p._expect(TokenKind.RBracket, "]");
+        return new ArrayLitExpr(elems, spreads, en, t.Span);
+    }
+
+    // 表达式位 `{` → List 字面量 `{e0, ..}`（裸元素）/ Dict `{k0: v0, ..}`（冒号对）/ 空 `{}`。
+    // 内容消歧（D1）：首元素后见 `:` → Dict；否则 List。空 `{}` → 目标类型定（EmptyBraceLitExpr）。
+    private Expr _parseBraceLit(Token t) {
+        this._p._advance();   // {
+        if (this._p._peek().Kind == TokenKind.RBrace) {   // 空 {}
+            this._p._advance();
+            return new EmptyBraceLitExpr(t.Span);
+        }
+        Expr first = this._parseExpr(0);
+        if (this._p._peek().Kind == TokenKind.Colon) {   // Dict：k: v
+            this._p._advance();   // :
+            Expr firstVal = this._parseExpr(0);
+            Expr[] keys = new Expr[8];
+            Expr[] vals = new Expr[8];
+            int dn = 0;
+            keys[0] = first; vals[0] = firstVal; dn = 1;
+            while (this._p._peek().Kind == TokenKind.Comma) {
+                this._p._advance();   // ,
+                if (this._p._peek().Kind == TokenKind.RBrace) { break; }   // 尾逗号容忍
+                if (dn == keys.Length) {
+                    Expr[] bk = new Expr[keys.Length * 2];
+                    Expr[] bv = new Expr[vals.Length * 2];
+                    int i = 0; while (i < dn) { bk[i] = keys[i]; bv[i] = vals[i]; i = i + 1; }
+                    keys = bk; vals = bv;
+                }
+                keys[dn] = this._parseExpr(0);
+                this._p._expect(TokenKind.Colon, ":");
+                vals[dn] = this._parseExpr(0);
+                dn = dn + 1;
+            }
+            this._p._expect(TokenKind.RBrace, "}");
+            return new DictLitExpr(keys, vals, dn, t.Span);
+        }
+        // List：裸元素
+        Expr[] elems = new Expr[8];
+        int en = 0;
+        elems[0] = first; en = 1;
+        while (this._p._peek().Kind == TokenKind.Comma) {
+            this._p._advance();   // ,
+            if (this._p._peek().Kind == TokenKind.RBrace) { break; }   // 尾逗号容忍
+            if (en == elems.Length) {
+                Expr[] b = new Expr[elems.Length * 2];
+                int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
+                elems = b;
+            }
+            elems[en] = this._parseExpr(0); en = en + 1;
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new ListLitExpr(elems, en, t.Span);
     }
 
     private int _infixBp(int k) {
