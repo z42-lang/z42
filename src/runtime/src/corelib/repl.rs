@@ -331,7 +331,10 @@ impl ReplHelper {
     fn identifier_hint(&self, line: &str, pos: usize) -> Option<String> {
         let start = word_start(line, pos);
         let word = &line[start..pos];
-        if word.is_empty() || word.contains('.') {
+        // Skip empty words and member context (`recv.<word>`): member completion does
+        // live reflection, too heavy for a per-keystroke ghost (Tab still handles it).
+        // word_start now stops at `.`, so a preceding `.` marks a member position.
+        if word.is_empty() || (start > 0 && line.as_bytes()[start - 1] == b'.') {
             return None;
         }
         let fqn = REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone())?;
@@ -436,15 +439,19 @@ impl rustyline::validate::Validator for ReplHelper {}
 #[cfg(not(target_arch = "wasm32"))]
 impl rustyline::Helper for ReplHelper {}
 
-/// Start index of the identifier word ending at `pos` (letters/digits/`_`/`.`); the
-/// replacement span for a chosen candidate. `.`-inclusive so `Foo.Ba`→member works.
+/// Start index of the identifier word ending at `pos` (letters/digits/`_`); the
+/// replacement span for a chosen candidate. **Excludes `.`** so a member candidate
+/// (`WriteLine`, returned bare by the z42 completer) replaces only the post-`.` prefix
+/// — not the whole `receiver.prefix`, which would wipe the receiver. Matches the z42
+/// side `_wordStart` (Completer.z42), keeping both ends' replacement spans consistent.
+/// (fix-repl-completion-span-and-index)
 #[cfg(not(target_arch = "wasm32"))]
 fn word_start(line: &str, pos: usize) -> usize {
     let bytes = line.as_bytes();
     let mut i = pos;
     while i > 0 {
         let c = bytes[i - 1];
-        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
+        if c.is_ascii_alphanumeric() || c == b'_' {
             i -= 1;
         } else {
             break;
