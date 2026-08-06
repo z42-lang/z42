@@ -55,6 +55,8 @@ SubcommandRouter _builderRoot() {
     pub.AddOptionalPositional("project", "<project.z42.toml>");
     pub.AddOption("rid", "", "target RID (desktop; run via `z42 publish` to default to host)", "");
     pub.AddOption("output", "", "output dir (overrides [platform.desktop].publish_dir)", "");
+    pub.AddFlag("self-contained", "", "embed the z42 runtime (self-contained app; no external z42vm); "
+        + "static/dynamic link via [platform.desktop] link");
     root.Add("publish", "produce a release deployable", pub);
 
     ArgParser exp = new ArgParser("z42b export", "generate a native IDE project (ios/android)");
