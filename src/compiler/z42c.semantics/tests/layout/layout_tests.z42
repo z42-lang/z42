@@ -1,0 +1,118 @@
+// add-struct-value-semantics P1 阶段 1：StructLayout 字节布局计算单测。
+// 覆盖：基元布局 / 对齐填充 / 引用叶子（string=ArcString、class=GcRef 带种类）/ 嵌套展平 /
+// 嵌套引用叶子偏移平移 / 递归自含值字段环检测（ABI 见 design.md 子决策 #2）。
+namespace Z42cSemanticsLayoutTests;
+using Z42.IR;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 构造一个只含 struct 类型定义的 defs map。
+StructFieldsDef _mkDef(string[] names, string[] types, int n) {
+    var d = new StructFieldsDef();
+    int i = 0;
+    while (i < n) { d.Add(names[i], types[i]); i = i + 1; }
+    return d;
+}
+
+// 在 layout 的直接字段里查某字段的 byte offset（找不到返回 -1）。
+int _fieldOff(StructLayoutInfo info, string name) {
+    int i = 0;
+    while (i < info.FieldCount) {
+        if (info.FieldNames[i] == name) { return info.FieldOffsets[i]; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+[Test]
+void test_layout_simple_prims() {
+    // struct P { x:int; y:int; } → size 8, align 4, offsets 0/4, 无引用叶子。
+    var defs = new StrMap();
+    defs.Put("P", _mkDef(new string[]{"x", "y"}, new string[]{"int", "int"}, 2));
+    var sl = new StructLayout(defs);
+    var p = sl.LayoutOf("P");
+    Assert.Equal(8, p.Size);
+    Assert.Equal(4, p.Align);
+    Assert.Equal(0, _fieldOff(p, "x"));
+    Assert.Equal(4, _fieldOff(p, "y"));
+    Assert.Equal(0, p.RefLeafCount);
+    Assert.Equal("", sl.ErrorType);
+}
+
+[Test]
+void test_layout_alignment_padding() {
+    // struct Q { b:bool; n:int; } → b@0(1B), n@4(对齐填充), size 8, align 4。
+    var defs = new StrMap();
+    defs.Put("Q", _mkDef(new string[]{"b", "n"}, new string[]{"bool", "int"}, 2));
+    var sl = new StructLayout(defs);
+    var q = sl.LayoutOf("Q");
+    Assert.Equal(0, _fieldOff(q, "b"));
+    Assert.Equal(4, _fieldOff(q, "n"));   // 从 offset 1 对齐到 4
+    Assert.Equal(8, q.Size);
+    Assert.Equal(4, q.Align);
+}
+
+[Test]
+void test_layout_reference_leaves_typed() {
+    // struct Box { tag:int; s:string; obj:Widget; } → 引用叶子带种类：s=ArcString、obj=GcRef。
+    var defs = new StrMap();
+    defs.Put("Box", _mkDef(new string[]{"tag", "s", "obj"}, new string[]{"int", "string", "Widget"}, 3));
+    var sl = new StructLayout(defs);
+    var b = sl.LayoutOf("Box");
+    Assert.Equal(0,  _fieldOff(b, "tag"));   // int @0
+    Assert.Equal(8,  _fieldOff(b, "s"));     // string 16B align8 → 从 4 对齐到 8
+    Assert.Equal(24, _fieldOff(b, "obj"));   // GcRef @24
+    Assert.Equal(40, b.Size);                // alignUp(40, 8)
+    Assert.Equal(8,  b.Align);
+    // 引用叶子：2 个，s=(8, ArcString)、obj=(24, GcRef)。
+    Assert.Equal(2, b.RefLeafCount);
+    Assert.Equal(8,  b.RefLeafOffsets[0]);
+    Assert.Equal(StructLeafKind.ArcString, b.RefLeafKinds[0]);
+    Assert.Equal(24, b.RefLeafOffsets[1]);
+    Assert.Equal(StructLeafKind.GcRef, b.RefLeafKinds[1]);
+}
+
+[Test]
+void test_layout_nested_struct() {
+    // struct P{x:int;y:int;}(8B); struct Line{a:P;b:P;} → a@0, b@8, size 16。
+    var defs = new StrMap();
+    defs.Put("P", _mkDef(new string[]{"x", "y"}, new string[]{"int", "int"}, 2));
+    defs.Put("Line", _mkDef(new string[]{"a", "b"}, new string[]{"P", "P"}, 2));
+    var sl = new StructLayout(defs);
+    var line = sl.LayoutOf("Line");
+    Assert.Equal(0,  _fieldOff(line, "a"));
+    Assert.Equal(8,  _fieldOff(line, "b"));
+    Assert.Equal(16, line.Size);
+    Assert.Equal(4,  line.Align);
+    Assert.Equal(0,  line.RefLeafCount);   // P 无引用叶子
+}
+
+[Test]
+void test_layout_nested_ref_flatten() {
+    // struct R{name:string;}(16B, 引用叶子@0); struct Pair{first:R;second:R;} → 引用叶子平移到 0 和 16。
+    var defs = new StrMap();
+    defs.Put("R", _mkDef(new string[]{"name"}, new string[]{"string"}, 1));
+    defs.Put("Pair", _mkDef(new string[]{"first", "second"}, new string[]{"R", "R"}, 2));
+    var sl = new StructLayout(defs);
+    var pair = sl.LayoutOf("Pair");
+    Assert.Equal(0,  _fieldOff(pair, "first"));
+    Assert.Equal(16, _fieldOff(pair, "second"));
+    Assert.Equal(32, pair.Size);
+    Assert.Equal(2,  pair.RefLeafCount);
+    Assert.Equal(0,  pair.RefLeafOffsets[0]);
+    Assert.Equal(StructLeafKind.ArcString, pair.RefLeafKinds[0]);
+    Assert.Equal(16, pair.RefLeafOffsets[1]);
+    Assert.Equal(StructLeafKind.ArcString, pair.RefLeafKinds[1]);
+}
+
+[Test]
+void test_layout_cycle_detection() {
+    // struct Node { next:Node; } —— 递归自含值字段（无限大小）→ ErrorType 置位。
+    var defs = new StrMap();
+    defs.Put("Node", _mkDef(new string[]{"next"}, new string[]{"Node"}, 1));
+    var sl = new StructLayout(defs);
+    var node = sl.LayoutOf("Node");   // 触发环检测；返回空布局，仅验 ErrorType 置位
+    Assert.Equal(0, node.Size);
+    Assert.Equal("Node", sl.ErrorType);
+}
