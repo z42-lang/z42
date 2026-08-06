@@ -1,0 +1,75 @@
+// IrEscapeSummary —— 跨过程参数逃逸摘要（add-crossproc-escape-summary）。
+//
+// 给每个函数算一份「参数逃逸摘要」：paramEscapes[f][i] = 函数 f 的参数槽 i 是否逃逸
+// （被存字段/静态/数组、返回、throw、传给会让它逃逸的调用、闭包捕获）。摘要互相依赖
+// （f 调 g）→ 模块单调不动点。IrEscapeAnalysis._markEscaping 消费它，把「传进静态调用的实参」
+// 从「一律逃逸」精确成「按 callee 摘要逐个判」。设计见
+// docs/spec/changes/add-crossproc-escape-summary/design.md（D1/D4）。
+//
+// 参数槽↔寄存器：IrFunction.ParamCount **含 this**；参数槽 i = 寄存器 i（实例方法 reg0=this）。
+// 故 esc[i]（reg i 是否逃逸）= 参数槽 i 是否逃逸（FunctionEmitter 形参 reg 分配 0..ParamCount-1）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+// bool[] 的类包装——StrMap 存 object，z42c 受限子集无「as bool[]」数组转型先例，故用类转型（as ParamFlags）。
+public sealed class ParamFlags {
+    public bool[] Flags;
+    public ParamFlags(bool[] flags) { this.Flags = flags; }
+}
+
+// 摘要表：函数名 → ParamFlags(bool[ParamCount])（各参数槽是否逃逸）。跨包/找不到 → Lookup 返回 null（调用点保守全标）。
+public sealed class ParamEscapeTable {
+    private StrMap _map;   // funcName → ParamFlags
+
+    public ParamEscapeTable() { this._map = new StrMap(); }
+
+    public void Put(string name, bool[] flags) { this._map.Put(name, new ParamFlags(flags)); }
+
+    // 找不到（跨包 / 无体 stub 未登记）→ null。返回的 bool[] 与存入同一引用（不动点原地翻位）。
+    public bool[] Lookup(string name) {
+        if (!this._map.ContainsKey(name)) { return null; }
+        ParamFlags pf = this._map.Get(name) as ParamFlags;
+        if (pf == null) { return null; }
+        return pf.Flags;
+    }
+}
+
+public sealed class IrEscapeSummary {
+
+    // 模块入口：单调不动点算全模块参数逃逸摘要。
+    public static ParamEscapeTable Compute(IrModule m) {
+        ParamEscapeTable t = new ParamEscapeTable();
+        // init：每个有体函数登记 bool[ParamCount]（全 false=乐观）。无体 stub（abstract/extern）**不登记**
+        //   → Lookup 返回 null → 调用点保守全标（无体不可证非逃逸）。
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            IrFunction f = m.Functions[fi];
+            if (f.BlockCount > 0) { t.Put(f.Name, new bool[f.ParamCount]); }
+            fi = fi + 1;
+        }
+        // 单调不动点：反复扫所有有体函数，用当前摘要算逃逸集 → 把逃逸的参数槽置 true（只增不减）→
+        //   无变化即收敛。单调保证终止（每轮至少翻一位，或停）。混沌迭代序不影响最小不动点正确性。
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            fi = 0;
+            while (fi < m.FuncCount) {
+                IrFunction f = m.Functions[fi];
+                if (f.BlockCount > 0) {
+                    bool[] pe = t.Lookup(f.Name);
+                    if (pe != null) {
+                        bool[] esc = IrEscapeAnalysis.ComputeEscapedRegs(m, f, t);
+                        int pi = 0;
+                        while (pi < f.ParamCount) {
+                            if (pi < esc.Length && esc[pi] && !pe[pi]) { pe[pi] = true; changed = true; }
+                            pi = pi + 1;
+                        }
+                    }
+                }
+                fi = fi + 1;
+            }
+        }
+        return t;
+    }
+}

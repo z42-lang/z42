@@ -431,7 +431,7 @@ public sealed class IrInline {
         if (ins is LeInstr)        { LeInstr i = ins as LeInstr; return new LeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
         if (ins is GtInstr)        { GtInstr i = ins as GtInstr; return new GtInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
         if (ins is GeInstr)        { GeInstr i = ins as GeInstr; return new GeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; return new FieldGetInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Obj, ctx), i.Field); }
+        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; FieldGetInstr ni = new FieldGetInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Obj, ctx), i.Field); ni.Readonly = i.Readonly; return ni; }
         // 不可达（_isInlinable 已滤）；返回原指令仅为类型完整（不会执行到）。
         return ins;
     }

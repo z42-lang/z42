@@ -1,0 +1,25 @@
+using Std.IO;
+
+// add-crossproc-escape-summary e2e（C 安全兜底）：对象经辅助函数**泄漏到静态字段**、且分配它的帧已退出后
+// 才被读。摘要须正确识别 Keep 的 param0 逃逸 → Alloc 里的 a **不栈分配**（堆），否则 Alloc 帧退出后悬垂。
+// 正确输出 = 7（若误栈分配 → frame_id 悬垂校验报错 / 垃圾值）。
+class Box {
+    public int V;
+    public Box(int v) { this.V = v; }
+}
+
+class Holder {
+    public static Box Saved;
+}
+
+void Keep(Box b) { Holder.Saved = b; }        // b 存静态 → param0 逃逸
+
+void Alloc(int n) {
+    Box a = new Box(n);
+    Keep(a);                                   // a 传给逃逸 param → a 逃逸 → 不栈分配
+}
+
+void Main() {
+    Alloc(7);                                  // a 在 Alloc 帧分配、逃逸到 Holder.Saved；Alloc 帧退出
+    Console.WriteLine(Holder.Saved.V);         // Alloc 帧退出后读 a → 须存活 = 7
+}
