@@ -135,6 +135,7 @@ public sealed class ExprTyper {
                 }
             }
             BoundExpr target = this._bindExpr(a.Target, env);
+            this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
             this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
             BoundExpr value = this._bindExpr(a.Value, env);
             // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →
@@ -148,6 +149,27 @@ public sealed class ExprTyper {
                     "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
             }
             return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与
+    // const 字段（BoundStaticGet 指向 IsConst 字段）。const 无存储，赋值无从谈起 → 一律报错。
+    private void _checkConstAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            if (env.IsConstName(nm)) {
+                this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const `" + nm + "`", a.Span);
+                return;
+            }
+        }
+        if (target is BoundStaticGet) {
+            BoundStaticGet sg = target as BoundStaticGet;
+            if (env.Symbols.HasClass(sg.ClassName)) {
+                FieldSymbol fs = env.Symbols.GetClass(sg.ClassName).Fields.Get(sg.FieldName) as FieldSymbol;
+                if (fs != null && fs.IsConst) {
+                    this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const field `" + fs.Name + "`", a.Span);
+                }
+            }
+        }
     }
 
     // add-readonly-fields-opt：readonly 字段仅可在声明类实例 ctor 内经 `this` 赋值（含注入的字段初始化器）。

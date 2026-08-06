@@ -34,10 +34,13 @@ public sealed class FieldSymbol {
     public string  ContainingTypeName;
     public bool    IsReadonly;   // add-readonly-fields-opt：readonly 字段（构造后不变）。默认 false；
                                  // 本地字段由 SymbolCollector 从 Mods 设置；导入字段 v1 保守留 false（不跨包）。
+    public bool       IsConst;   // add-const-keyword：const 编译期常量字段（隐式 static、无存储）。默认 false。
+    public ConstValue ConstVal;  // add-const-keyword：IsConst 时的求值结果（引用替换用）；否则 null。
     public FieldSymbol(string name, string visibility, Z42Type fieldType, bool isStatic, string containingTypeName) {
         this.Name = name; this.Visibility = visibility; this.FieldType = fieldType;
         this.IsStatic = isStatic; this.ContainingTypeName = containingTypeName;
         this.IsReadonly = false;
+        this.IsConst = false; this.ConstVal = null;
     }
     public string Dump() { return "(field " + this.Name + " " + this.FieldType.Dump() + ")"; }
 }

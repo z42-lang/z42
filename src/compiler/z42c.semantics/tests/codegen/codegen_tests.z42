@@ -700,3 +700,45 @@ void test_inline_skips_noncurated_callee() {
     string src = "class K { } K A() { return new K(); } K Main2() { return A(); }";
     Assert.Contains("call @A", IrDump.DumpFuncOpt(src, "Main2", Opt.All));
 }
+
+// ── const 编译期常量替换 + 死分支消除（add-const-keyword）──────────────────────────
+// const 引用在 emit 阶段替换为字面量指令（不发 static_get / 局部加载）→ 喂现有 ConstFold。
+[Test]
+void test_const_field_substituted_and_folded() {
+    // C.K（const 字段）替换为 const.i64 10，与 5 折叠成 50；绝不发 static_get。
+    string src = "class C { const int K = 10; } int F() { return C.K * 5; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));   // const 无静态存储 → 不读
+    Assert.Contains("const.i64 50", dump);        // 10*5 折叠证明 const 值参与 ConstFold
+}
+[Test]
+void test_const_field_expr_initializer() {
+    // const 字段引用已定义 const（Two = Max*2 = 200）；引用 C.Two → const.i64 200。
+    string src = "class C { const int Max = 100; const int Two = Max * 2; } int F() { return C.Two; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));
+    Assert.Contains("const.i64 200", dump);
+}
+[Test]
+void test_const_local_substituted() {
+    // 局部 const n=6 替换为字面量 → n*7 折叠成 42（若 n 未替换、作变量则不会折出 42）。
+    string src = "int F() { const int n = 6; return n * 7; }";
+    Assert.Contains("const.i64 42", IrDump.DumpFunc(src, "F"));
+}
+
+// dead-branch：br.cond(常量 bool)→br 折叠（Opt.DeadBranch 单独门控；默认 dump 路径不含它）。
+[Test]
+void test_dead_branch_folds_const_condition() {
+    // const bool 条件 → 替换为 const.bool；-O0 保留 br.cond；DeadBranch 折成无条件 br + 移死块。
+    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    Assert.Contains("br.cond", IrDump.DumpFuncOpt(src, "G", Opt.None));           // -O0：条件跳转在
+    Assert.False(IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch).Contains("br.cond")); // 折成无条件 br
+}
+[Test]
+void test_dead_branch_removes_unreachable_block() {
+    // 恒假条件 → then 块（return 1）不可达 → 移除；only return 2 存活。
+    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    string db = IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch);
+    Assert.False(db.Contains("const.i64 1"));   // 死块（return 1）连其常量一并移除
+    Assert.Contains("const.i64 2", db);          // 活路径保留
+}

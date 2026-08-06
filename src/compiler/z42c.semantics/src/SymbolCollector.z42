@@ -572,13 +572,15 @@ public sealed class SymbolCollector {
             }
             pi = pi + 1;
         }
+        StrMap classConstEnv = new StrMap();   // add-const-keyword：按声明序累积同类 const（裸名 + `Class.名`），供后续 const 初始化器引用
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._unwrap(c.Members[j]);
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
-                bool fstatic = this._hasWord(fd.Mods, "static");
+                bool fconst = this._hasWord(fd.Mods, "const");   // add-const-keyword：const 隐式 static、无存储
+                bool fstatic = this._hasWord(fd.Mods, "static") || fconst;
                 // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
                 if (ct.IsPartial && ct.Fields.ContainsKey(fd.Name)) {
                     this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
@@ -586,6 +588,7 @@ public sealed class SymbolCollector {
                 }
                 FieldSymbol fsym = new FieldSymbol(fd.Name, this._vis(fd.Mods), ft, fstatic, c.Name);
                 fsym.IsReadonly = this._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
+                if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
                 ct.Fields.Put(fd.Name, fsym);
                 if (this._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
@@ -846,6 +849,38 @@ public sealed class SymbolCollector {
         if (this._hasWord(mods, "protected")) { return "protected"; }
         if (this._hasWord(mods, "internal"))  { return "internal"; }
         return "internal";
+    }
+
+    // add-const-keyword：const 字段求值 + 登记 ConstVal + 诊断。fsym.IsConst 置位；求值成功 →
+    // 存 ConstVal 并把值加进 classConstEnv（裸名 + `Class.名`），供后续同类 const 初始化器引用。
+    private void _collectConstField(FieldDecl fd, FieldSymbol fsym, string className, StrMap classConstEnv) {
+        fsym.IsConst = true;
+        if (!fd.HasInit) {
+            this.Diags.Error(DiagnosticCodes.ConstNeedsInit,
+                "const field `" + fd.Name + "` must have an initializer", fd.Span);
+            return;
+        }
+        ConstValue cv = ConstEval.Eval(fd.Init, classConstEnv);
+        if (cv == null) {
+            if (this._isPureRef(fd.Init)) {
+                this.Diags.Error(DiagnosticCodes.ConstExprBadRef,
+                    "const expression can only reference already-defined const values", fd.Span);
+            } else {
+                this.Diags.Error(DiagnosticCodes.ConstNotConstantInit,
+                    "const field `" + fd.Name + "` initializer must be a compile-time constant", fd.Span);
+            }
+            return;
+        }
+        fsym.ConstVal = cv;
+        classConstEnv.Put(fd.Name, cv);
+        classConstEnv.Put(className + "." + fd.Name, cv);
+    }
+
+    // add-const-keyword：初始化器顶层是否为「裸标识符 / Class.成员」纯引用（决定 BadRef vs NotConstant 诊断）。
+    private bool _isPureRef(Expr e) {
+        if (e is IdentExpr) { return true; }
+        if (e is MemberExpr) { return (e as MemberExpr).Target is IdentExpr; }
+        return false;
     }
 
     // mods 空格分隔；逐 token 比较（不依赖 String.Contains，避免子串误命中）。

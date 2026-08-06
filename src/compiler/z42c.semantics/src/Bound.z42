@@ -375,11 +375,13 @@ public class BoundStmt {
 }
 
 public sealed class BoundVarDeclStmt : BoundStmt {
-    public string    Name;
-    public Z42Type   VarType;
-    public BoundExpr Init;
+    public string     Name;
+    public Z42Type    VarType;
+    public BoundExpr  Init;
+    public bool       IsConst;   // add-const-keyword：局部 const（引用替换为字面量；存储由 DCE 清理）
+    public ConstValue ConstVal;  // add-const-keyword：IsConst 时的求值结果；否则 null
     public BoundVarDeclStmt(string name, Z42Type varType, BoundExpr init, Span span) { this.Span = span;
-        this.Name = name; this.VarType = varType; this.Init = init;
+        this.Name = name; this.VarType = varType; this.Init = init; this.IsConst = false; this.ConstVal = null;
     }
     public override string Dump() {
         string i = "_"; if (this.Init != null) { i = this.Init.Dump(); }   // G8：无 init → "_"

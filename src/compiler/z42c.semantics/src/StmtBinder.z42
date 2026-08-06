@@ -177,7 +177,31 @@ public sealed class StmtBinder {
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
             init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
-            return new BoundVarDeclStmt(v.Name, vt, init, v.Span);
+            BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
+            if (v.IsConst) { this._bindLocalConst(v, env, bvd); }   // add-const-keyword：求值 + 登记 + 诊断
+            return bvd;
+    }
+
+    // add-const-keyword：局部 const —— 求值初始化器，登记进 TypeEnv（供后续 const 引用 + 赋值检查），
+    // 结果挂 BoundVarDeclStmt（emit 阶段登记替换表；存储正常发射，全替换后由 DCE 清理）。
+    private void _bindLocalConst(VarDeclStmt v, TypeEnv env, BoundVarDeclStmt bvd) {
+        bvd.IsConst = true;
+        if (v.Init == null) {
+            this._tc._diags.Error(DiagnosticCodes.ConstNeedsInit, "const `" + v.Name + "` must have an initializer", v.Span);
+            return;
+        }
+        ConstValue cv = ConstEval.Eval(v.Init, env.CollectConsts());
+        if (cv == null) {
+            bool pureRef = (v.Init is IdentExpr) || (v.Init is MemberExpr && (v.Init as MemberExpr).Target is IdentExpr);
+            if (pureRef) {
+                this._tc._diags.Error(DiagnosticCodes.ConstExprBadRef, "const expression can only reference already-defined const values", v.Span);
+            } else {
+                this._tc._diags.Error(DiagnosticCodes.ConstNotConstantInit, "const `" + v.Name + "` initializer must be a compile-time constant", v.Span);
+            }
+            return;
+        }
+        bvd.ConstVal = cv;
+        env.DefineConst(v.Name, cv);
     }
 
     private BoundStmt _bindLocalFunction(LocalFunctionStmt lf, TypeEnv env, Z42Type ret) {

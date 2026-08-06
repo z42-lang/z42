@@ -139,6 +139,7 @@ public sealed class ClassDescBuilder {
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fsy = ctd.Fields.Get(fd.Name) as FieldSymbol;
+                if (fsy != null && fsy.IsConst) { j = j + 1; continue; }   // add-const-keyword：const 无字段布局（不进 zpkg 字段元数据）
                 string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
                 // infer-var-field-types：var 字段源拼写「var」丢类型 → 用推断后的 fs.FieldType
                 // （VarFieldInfer 已回写）；非 var 字段保留源拼写不动（byte[] 语义）。

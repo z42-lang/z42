@@ -123,6 +123,9 @@ public sealed class ExprEmitter {
         }
         if (e is BoundStaticGet) {
             BoundStaticGet sg = e as BoundStaticGet;
+            // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
+            ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
+            if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
             // StaticGet 结果寄存器 = Unknown（C# REGT 字节实证：静态字段读 IR 层擦除）
             TypedReg dst = this._ctx.Alloc(IrType.Unknown);
             // G17b：用 QualifyClass（非 Qualify）→ 同包跨-ns 类（如 IrType@Z42.IR 从
@@ -304,7 +307,65 @@ public sealed class ExprEmitter {
     }
 
     // ident：local/param → 寄存器；裸自身字段 → field_get(reg0=this)；静态字段/未解析 → 占位。
+    // add-const-keyword：class.field 是 const 字段 → 返回其 ConstValue（供字面量替换）；否则 null。
+    private ConstValue _constFieldVal(string className, string fieldName) {
+        if (!this._ctx.Symbols.HasClass(className)) { return null; }
+        Z42ClassType ct = this._ctx.Symbols.GetClass(className);
+        if (ct == null || ct.Fields == null) { return null; }
+        FieldSymbol fs = ct.Fields.Get(fieldName) as FieldSymbol;
+        if (fs != null && fs.IsConst) { return fs.ConstVal; }
+        return null;
+    }
+
+    // add-const-keyword：把 ConstValue 发射为对应字面量指令，返回其寄存器（喂 ConstFold）。
+    // intTag = 引用点类型的 IR 标签（镜像字面量路径 `Alloc(ToIrType(lit.Type()))`——int 字面量恒 ConstI64
+    // 但 dst 按声明类型 i8/i16/i32/i64 tag，保 REGT 与 JIT 特化一致）。
+    // 负整数：ConstI64 不编码负值 → magnitude + neg（镜像源码 `-N` = Neg(ConstI64 N)）。
+    // 浮点：ConstF64Instr 存文本，用 bits→double→ToString（Rust 最短往返表示，Convert.ToDouble 精确还原）。
+    private TypedReg _emitConstVal(ConstValue cv, int intTag) {
+        if (cv == null) { TypedReg r0 = this._ctx.Alloc(IrType.Ref); this._ctx.Emit(new ConstNullInstr(r0)); return r0; }
+        if (cv.Kind == ConstValue.KInt) {
+            if (cv.IntVal >= 0) {
+                TypedReg r = this._ctx.Alloc(intTag);
+                this._ctx.Emit(new ConstI64Instr(r, cv.IntVal.ToString()));
+                return r;
+            }
+            long mag = 0 - cv.IntVal;
+            TypedReg m = this._ctx.Alloc(intTag);
+            this._ctx.Emit(new ConstI64Instr(m, mag.ToString()));
+            TypedReg rn = this._ctx.Alloc(intTag);
+            this._ctx.Emit(new NegInstr(rn, m));
+            return rn;
+        }
+        if (cv.Kind == ConstValue.KBool) {
+            TypedReg r = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new ConstBoolInstr(r, cv.IntVal != 0));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KChar) {
+            TypedReg r = this._ctx.Alloc(IrType.Char);
+            this._ctx.Emit(new ConstCharInstr(r, (char)(int)cv.IntVal));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KFloat) {
+            TypedReg r = this._ctx.Alloc(IrType.F64);
+            this._ctx.Emit(new ConstF64Instr(r, ZbcReaderInstr.BitsToDouble(cv.IntVal).ToString()));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KStr) {
+            int idx = this._ctx.Gen.Intern(cv.StrVal);
+            TypedReg r = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(r, idx));
+            return r;
+        }
+        TypedReg rr = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(rr));
+        return rr;
+    }
+
     private TypedReg _lookupIdent(BoundIdent id) {
+        // add-const-keyword：局部 const 裸引用 → 字面量替换（须先于 Locals：const 也占存储槽，存储由 DCE 清）。
+        if (this._ctx.ConstLocals.ContainsKey(id.Name)) { return this._emitConstVal(this._ctx.ConstLocals.Get(id.Name) as ConstValue, this._ctx.ToIrType(id.Type())); }
         if (this._ctx.Locals.ContainsKey(id.Name)) { return this._ctx.Locals.Get(id.Name) as TypedReg; }
         if (this._ctx.Fields.ContainsKey(id.Name)) {
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
