@@ -77,6 +77,22 @@ string result = maybeNull ?? "default";
 int? len = maybeNull?.Length;
 ```
 
+### 集合字面量（声明与初始化简化，add-collection-literals 2026-08-07）
+
+`[]`＝数组、`{}`＝花括号族（List / Dictionary），借鉴 JSON/JS + C# 集合初始化器 + Rust 重复填充：
+
+```z42
+int[]                  xs = [1, 2, 3];        // 数组（方括号一律数组）
+int[]                  z  = [0; 100];         // Rust 重复填充（value 只求值一次）
+int[]                  c  = [..xs, 99];       // spread 拼接
+List<int>              ys = { 1, 2, 3 };      // 花括号 + 裸元素 → List
+Dictionary<string,int> m  = { "a": 1 };       // 花括号 + k:v → Dictionary
+int[] e = [];  List<int> el = {};             // 空：由目标类型定元素/容器
+```
+
+纯前端脱糖（零新 IR / 零格式 bump）。详见 [arrays.md](arrays.md)（`[]`）与
+[collection-literals.md](collection-literals.md)（`{}`）。
+
 ---
 
 ## 3. 字符串

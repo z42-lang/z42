@@ -34,6 +34,38 @@ arr[1] = 42;
 int len = arr.Length;
 ```
 
+### 集合字面量（add-collection-literals，2026-08-07）
+
+方括号 `[]` 是数组的专属字面量语法（借鉴 JSON/JS `[]`＝数组、C# 集合初始化器、Rust 重复填充）。
+与 `{}`（List / Dictionary，见 [collection-literals.md](collection-literals.md)）互补：**`[]` 一律数组**。
+
+```z42
+// 1. 元素字面量（target-typed 元素类型；var → 元素公共类型）
+int[] xs = [1, 2, 3];               // 等价 new int[]{ 1, 2, 3 }
+var   ys = [10, 20, 30];            // → int[]
+int[] e  = [];                      // 空数组（元素类型来自目标；var 无目标 → 报错）
+
+// 2. 重复填充 [value; count]（Rust 风；value 只求值一次；count 可运行期）
+int[] zeros  = [0; 100];
+int[] sevens = [7; n];
+
+// 3. spread 展开 [..a, x, ..b]（拼接数组片段 + 散元素）
+int[] cat = [..xs, 99, ..ys];       // 本轮 spread 源仅数组
+```
+
+**脱糖（纯前端，零新 IR / 零格式 bump）**：
+
+| 形态 | 脱糖为 |
+|------|--------|
+| `[e0, e1, ..]`（无 spread） | `BoundArrayLit`（同 `new T[]{...}`） |
+| `[v; n]`                    | `$c=n; $a=new T[$c]; for $i<$c { $a[$i]=v }`（`v` hoist 一次） |
+| `[..a, x, ..b]`             | 各 spread 源 hoist → `new T[Σ长度]` → 逐段拷贝循环 |
+
+- 元素公共类型：无目标时取首元素类型（`[1, 2L]` 这类混合数值以目标类型加宽；否则以首元素为准）。
+- 空 `[]`：必须有目标元素类型（`var x = []` 报错）。
+- 实现原理（合成 AST + `BoundSeqExpr` 序列表达式）见
+  [`docs/spec/changes/add-collection-literals/design.md`](../../spec/changes/add-collection-literals/design.md)。
+
 ### 类型表示
 
 | z42 类型 | 描述 |

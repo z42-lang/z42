@@ -8,7 +8,8 @@ using Z42.IR;
 
 public sealed class ExprEmitter {
     private EmitContext _ctx;
-    public ExprEmitter(EmitContext ctx) { this._ctx = ctx; }
+    private FunctionEmitter _fn;   // 反向引用：BoundSeqExpr 的 prelude 语句委托 _fn._emitStmt（含循环/控制流）
+    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; }
 
     public TypedReg Emit(BoundExpr e) {
         // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
@@ -111,6 +112,14 @@ public sealed class ExprEmitter {
             }
             this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
             return dst;
+        }
+        if (e is BoundSeqExpr) {
+            // 序列表达式：依次发射 prelude 语句（委托 FunctionEmitter，支持 var-decl/循环/控制流），
+            // 再发射 value 返回其寄存器。集合字面量脱糖用（new + Add/Set + 填充循环 + 收尾读 tmp）。
+            BoundSeqExpr sq = e as BoundSeqExpr;
+            int si = 0;
+            while (si < sq.PreludeCount) { this._fn.EmitStmt(sq.Prelude[si]); si = si + 1; }
+            return this.Emit(sq.Value);
         }
         if (e is BoundStaticGet) {
             BoundStaticGet sg = e as BoundStaticGet;
