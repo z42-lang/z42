@@ -1,0 +1,12 @@
+// 一个保留 target 的 GC 根（类别级；`Std.Diagnostics.Heap.RetainingRoots` 的元素）。
+// 具体根名（哪个 static 字段 / 哪个局部）留待后续（L3+ 精确标签）。VM-written。
+namespace Std.Diagnostics;
+
+public sealed class RootRef {
+    // 根类别。VM-written（i64 枚举值与 Rust RootKind 对齐）。
+    public RootKind Kind;
+
+    override string ToString() {
+        return "root:" + this.Kind.ToString();
+    }
+}

@@ -732,6 +732,51 @@ impl VmContext {
             }));
         }
 
+        // add-heap-retention-diagnostics: wire the CATEGORIZED root scanner (for
+        // retention-query L2 root reporting). Mirrors the anonymous mark scanner
+        // above but tags each root with its `RootKind`. Called only on-demand by
+        // `retention_roots`, never on the mark hot path.
+        {
+            let core_weak = Arc::downgrade(&core);
+            core.heap.set_categorized_root_scanner(Box::new(move |visit| {
+                use crate::gc::retention::RootKind;
+                let Some(c) = core_weak.upgrade() else { return; };
+                for v in c.static_fields.lock().iter() {
+                    visit(v, RootKind::StaticField);
+                }
+                let registry = c.vm_contexts.lock();
+                for ctx_ptr in registry.iter() {
+                    // SAFETY: same invariant as the anonymous root scanner —
+                    // entries are removed in `VmContext::drop` before dealloc,
+                    // and we hold `vm_contexts.lock()` for the whole walk.
+                    let ctx = unsafe { &*ctx_ptr.0 };
+                    if let Some(v) = ctx.pending_exception.lock().as_ref() {
+                        visit(v, RootKind::StackFrame);
+                    }
+                    for frame in ctx.call_stack.lock().iter() {
+                        unsafe {
+                            for v in (*frame.regs).iter() {
+                                visit(v, RootKind::StackFrame);
+                            }
+                            if !frame.env_arena.is_null() {
+                                for env in (*frame.env_arena).iter() {
+                                    for v in env.iter() {
+                                        visit(v, RootKind::StackFrame);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for v in ctx.func_ref_slots.lock().iter() {
+                        visit(v, RootKind::FuncRefSlot);
+                    }
+                    ctx.stack_arena
+                        .lock()
+                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
+                }
+            }));
+        }
+
         let ctx = Self {
             core,
             pending_exception,

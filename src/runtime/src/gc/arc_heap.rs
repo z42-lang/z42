@@ -225,12 +225,43 @@ pub trait ContextReclaim: Send + Sync {
 
 pub type ContextReclaimHook = Box<dyn ContextReclaim>;
 
+/// **add-heap-retention-diagnostics (2026-08-06)**: like `ExternalRootScanner`
+/// but yields each root **with its category** (`RootKind`). Used only by the
+/// on-demand retention query (`retention_*`) to report retaining roots at the
+/// category level — NOT on the mark hot path (mark uses the anonymous scanner).
+pub type CategorizedRootScanner =
+    Box<dyn Fn(&mut dyn FnMut(&Value, super::retention::RootKind)) + Send + Sync>;
+
+/// **add-heap-retention-diagnostics (2026-08-06)**: the heap identity (data ptr
+/// as usize) of a heap-ref `Value`, or `None` for primitives / stack refs. Used
+/// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
+fn value_heap_ptr(v: &Value) -> Option<usize> {
+    match v {
+        Value::Object(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Closure(c) => Some(c.env.data_ptr_unlocked() as usize),
+        Value::Ref(kind) => match kind.as_ref() {
+            crate::metadata::types::RefKind::Array { gc_ref, .. } => {
+                Some(gc_ref.data_ptr_unlocked() as usize)
+            }
+            crate::metadata::types::RefKind::Field { gc_ref, .. } => {
+                Some(gc_ref.data_ptr_unlocked() as usize)
+            }
+            crate::metadata::types::RefKind::Stack { .. } => None,
+        },
+        _ => None,
+    }
+}
+
 pub struct ArcMagrGC {
     inner: Mutex<RcHeapInner>,
     external_root_scanner: Mutex<Option<ExternalRootScanner>>,
     /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
     /// until wired by `VmCore` (tests leave it None → no context reclamation).
     context_reclaimer: Mutex<Option<ContextReclaimHook>>,
+    /// **add-heap-retention-diagnostics**: categorized root scanner for the
+    /// on-demand retention query. `None` until wired by `VmCore`.
+    categorized_root_scanner: Mutex<Option<CategorizedRootScanner>>,
     /// **add-concurrent-gc P0 (2026-05-22)**: selectable GC algorithm.
     /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
     /// barrier-override hot path and at the entrance of
@@ -297,6 +328,7 @@ impl Default for ArcMagrGC {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
             context_reclaimer: Mutex::new(None),
+            categorized_root_scanner: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
             region_object: Mutex::new(super::region::Region::new()),
@@ -1378,6 +1410,67 @@ impl ArcMagrGC {
         live
     }
 
+    /// **add-heap-retention-diagnostics (2026-08-06)**: build the reverse
+    /// reference graph over the live heap (object + array regions) + categorized
+    /// roots. Callers `force_collect()` first so only reachable objects remain.
+    fn build_retention_graph(&self) -> super::retention::RetentionGraph {
+        use super::retention::{RetainerInfo, RetainerKind};
+        let mut g = super::retention::RetentionGraph::new();
+
+        // Object region → each object's heap-ref slots become reverse edges.
+        {
+            let region = self.region_object.lock();
+            region.iterate_alive(|_h, entry| {
+                let self_ptr = entry.value.data_ptr() as usize;
+                let obj = entry.value.lock();
+                let type_name = obj.type_desc.name.clone();
+                for slot in obj.slots.iter() {
+                    if let Some(child) = value_heap_ptr(slot) {
+                        g.add_edge(
+                            child,
+                            RetainerInfo { kind: RetainerKind::Object, type_name: type_name.clone(), id: self_ptr },
+                        );
+                    }
+                }
+            });
+        }
+        // Array region → each array's heap-ref elements become reverse edges.
+        {
+            let region = self.region_array.lock();
+            region.iterate_alive(|_h, entry| {
+                let self_ptr = entry.value.data_ptr() as usize;
+                let arr = entry.value.lock();
+                let type_name = format!("{}[]", &*arr.element_type);
+                for elem in arr.iter_boxed() {
+                    if let Some(child) = value_heap_ptr(&elem) {
+                        g.add_edge(
+                            child,
+                            RetainerInfo { kind: RetainerKind::Array, type_name: type_name.clone(), id: self_ptr },
+                        );
+                    }
+                }
+            });
+        }
+        // Pinned roots (GC-internal host pins / frame pins).
+        {
+            let inner = self.inner.lock();
+            for v in inner.roots.values() {
+                if let Some(obj) = value_heap_ptr(v) {
+                    g.add_root_edge(obj, super::retention::RootKind::Pinned);
+                }
+            }
+        }
+        // Categorized VmCore roots (static fields / stack frames / func-ref slots).
+        if let Some(scan) = self.categorized_root_scanner.lock().as_ref() {
+            scan(&mut |v, kind| {
+                if let Some(obj) = value_heap_ptr(v) {
+                    g.add_root_edge(obj, kind);
+                }
+            });
+        }
+        g
+    }
+
     /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
     /// soft-ref targets when heap pressure < `Z42_GC_SOFT_THRESHOLD`.
     /// Snapshots the registry entries under the lock, then calls
@@ -1575,6 +1668,26 @@ impl MagrGC for ArcMagrGC {
     /// reclaimer. Drives `Unloading` context reclamation on major STW collects.
     fn set_context_reclaimer(&self, hook: ContextReclaimHook) {
         *self.context_reclaimer.lock() = Some(hook);
+    }
+
+    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// root scanner (for `retention_roots` L2 category-level root reporting).
+    fn set_categorized_root_scanner(&self, scanner: CategorizedRootScanner) {
+        *self.categorized_root_scanner.lock() = Some(scanner);
+    }
+
+    /// **L1**: direct heap referrers of `target` (a heap object's data ptr).
+    /// Forces a full GC first so only reachable objects are reported.
+    fn retention_direct_referrers(&self, target: usize) -> Vec<super::retention::RetainerInfo> {
+        self.force_collect();
+        self.build_retention_graph().direct_referrers(target)
+    }
+
+    /// **L2**: GC roots retaining `target` (category-level), via reverse BFS.
+    /// Forces a full GC first for accuracy.
+    fn retention_roots(&self, target: usize) -> Vec<super::retention::RootInfo> {
+        self.force_collect();
+        self.build_retention_graph().retaining_roots(target)
     }
 
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire the
