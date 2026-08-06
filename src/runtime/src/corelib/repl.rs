@@ -439,6 +439,17 @@ impl rustyline::validate::Validator for ReplHelper {}
 #[cfg(not(target_arch = "wasm32"))]
 impl rustyline::Helper for ReplHelper {}
 
+/// Cross-session REPL history file: `$HOME/.z42_history` (falls back to
+/// `%USERPROFILE%` on Windows). `None` when neither is set — history then stays
+/// in-process only. Kept dependency-free (no `dirs` crate).
+/// (add-repl-history-keyword-completion)
+#[cfg(not(target_arch = "wasm32"))]
+fn history_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|h| std::path::PathBuf::from(h).join(".z42_history"))
+}
+
 /// Start index of the identifier word ending at `pos` (letters/digits/`_`); the
 /// replacement span for a chosen candidate. **Excludes `.`** so a member candidate
 /// (`WriteLine`, returned bare by the z42 completer) replaces only the post-`.` prefix
@@ -478,6 +489,11 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
     if guard.is_none() {
         if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::new() {
             ed.set_helper(Some(ReplHelper::new()));
+            // Load prior sessions' history (best-effort: missing file / parse error is
+            // fine — a fresh session just starts empty). (add-repl-history-keyword-completion)
+            if let Some(p) = history_path() {
+                let _ = ed.load_history(&p);
+            }
             *guard = Some(ed);
         }
     }
@@ -496,6 +512,11 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
             match res {
                 Ok(line) => {
                     let _ = ed.add_history_entry(line.as_str());
+                    // Persist after each line so history survives across sessions (and
+                    // crashes). Best-effort: a write failure never breaks the REPL.
+                    if let Some(p) = history_path() {
+                        let _ = ed.save_history(&p);
+                    }
                     Ok(Value::Str(line.into()))
                 }
                 Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => Ok(Value::Null),

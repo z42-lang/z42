@@ -19,6 +19,7 @@ using Std.Collections;
 using Std.Repl;      // Repl.MemberNames（会话变量 obj. 实例成员反射）
 using Z42.Pipeline;  // DepScanResult（CachedScan）
 using Z42.IR;        // ExportedModuleZ / ExportedClassZ / ExportedEnumZ …（导入世界枚举）
+using Z42.Syntax;    // Lexer（关键字表权威源，KeywordCount/KeywordNameAt）
 
 // 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
 public static class Completer {
@@ -59,8 +60,20 @@ string[] replComplete(string line, int pos) {
     if (word.Length > 0) {
         _addImportedNames(cands, s, word);        // 已 reconcile 世界的类型/枚举/自由函数名
         _addIndexedTypeNames(cands, s, word);     // + ns 索引已知但尚未 reconcile 的类型名（修 Bug 1a）
+        _addKeywords(cands, word);                // + z42 语言关键字（while/return/using/...）
     }
     return cands.ToArray();
+}
+
+// add-repl-history-keyword-completion：z42 语言关键字补全。关键字表以 z42c.syntax 的 `Lexer` 为
+// **权威源**（`KeywordCount`/`KeywordNameAt`，构造即 `_initKeywords`）——不硬编码、零漂移，新增关键字
+// 自动纳入。仅前缀非空时补（空前缀不刷屏 ~85 个关键字）；`_addCand` 前缀过滤 + 去重。
+void _addKeywords(List<string> cands, string prefix) {
+    if (prefix.Length == 0) { return; }
+    Lexer lx = new Lexer("", "<repl>");
+    int n = lx.KeywordCount();
+    int i = 0;
+    while (i < n) { _addCand(cands, lx.KeywordNameAt(i), prefix); i = i + 1; }
 }
 
 // fix-repl-completion-span-and-index（Bug 1a）：`_addImportedNames` 只列**已 reconcile** 的
