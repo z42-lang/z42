@@ -3,6 +3,7 @@
 // _tc._member（成员调用）、_tc._overload（重载）、_tc._constraints、共享状态 _tc._lambda*、
 // 叶子 _tc._isAssignable/_commonType/_checkOperand/_requireBool/_operatorMethodNameTc/_floatLitType/_diags。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

@@ -10,6 +10,7 @@
 //      过近似只多编不错编（宁 fresh 不误命中）；「TSIG-equal 不失效」细化留 Deferred。
 // Z42_INCR_DEBUG=1 → 种子原因 + 传播链（A invalidated-by B）。
 namespace Z42.Pipeline;
+using Z42.IR;
 
 using Std;
 using Std.IO;

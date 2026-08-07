@@ -2,6 +2,7 @@
 // 持 TypeChecker 反向引用 _tc：跨界经 _tc._bindExpr（ExprTyper）/_tc._overload（重载决议）/
 // _tc._diags / _tc._currentNs；prim 谓词走 TypeChecker 静态。同组方法互调仍 this._X。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

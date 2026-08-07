@@ -18,6 +18,7 @@ namespace Z42Builder;
 using Std;
 using Std.IO;
 using Std.Toml;
+using Std.Cli;
 using Z42.Build;
 // apphost patching is inlined in builder_apphost.z42 (_pubProduceApphost) so z42b
 // stays on stdlib-only deps and still builds in the test-runner context. NOT

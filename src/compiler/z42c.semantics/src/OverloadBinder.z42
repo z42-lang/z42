@@ -3,6 +3,7 @@
 // _tc._isAssignable（转换助手）、_tc._diags（共享诊断）。同组方法互调仍 this._X。
 // z42 无 partial class → 抽独立类拆文件（镜像 EmitContext/FunctionEmitter 模式）。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

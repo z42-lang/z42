@@ -13,6 +13,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Time;
+using Std.Cli;
 
 // Count a lib's [Test] units (single-file tests/*.z42 + dir-mode tests/<name>/
 // source.z42) — drives shard load balancing.

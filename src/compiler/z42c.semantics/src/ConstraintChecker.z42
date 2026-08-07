@@ -10,6 +10,7 @@
 // 可行子集（z42c 当前类型模型）：base-class / class / struct / 型参引用 where U:T。
 // 延后（与既有延后一致）：interface / enum / new() / func-type 约束 —— 见 GenericConstraint.z42。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

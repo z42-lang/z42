@@ -1,5 +1,6 @@
 // apps/hello/src/Main.z42 — 调用 greeter 演示跨 member 依赖
 namespace Hello;
+using Std.IO;
 
 using Greeter;
 
