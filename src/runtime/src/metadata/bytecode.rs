@@ -141,6 +141,11 @@ pub const CLASS_FLAG_DELEGATE: u8 = 1 << 6;
 /// — it stays in the dedicated `is_static` byte (single source of truth).
 pub const METHOD_FLAG_VIRTUAL: u8 = 1 << 0;
 pub const METHOD_FLAG_ABSTRACT: u8 = 1 << 1;
+/// impl-sealed-semantics-devirt (zbc 1.30): a `sealed override` (or the shorthand
+/// `sealed`) method — no further override permitted. Backs `MethodInfo.IsSealed`;
+/// consumed by the compiler for `sealed`-receiver devirtualization. A sealed method
+/// is always virtual, so `METHOD_FLAG_VIRTUAL` is set alongside this bit.
+pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {

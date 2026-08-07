@@ -589,6 +589,36 @@ void test_readonly_licm_hoists_this_field() {
     Assert.Contains("field_get %0.x", opt);    // 读仍在（只是移到 pre-header）
 }
 
+// ── 纯函数调用优化（add-pure-call-opt；Opt.PureCall 位）───────────────────────────
+[Test]
+void test_pure_call_cse_dedups() {
+    // 纯标量自由函数同参重复调用 → PureCall 消重（第二次复用首个 %1）；-O0 保留两条。
+    string src = "int square(int x) { return x * x; } int F(int a) { return square(a) + square(a); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.None));       // 两次独立 call
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // 消重：复用首个
+}
+[Test]
+void test_pure_call_reads_readonly_field() {
+    // 自由函数读**参数对象的 readonly 字段** → 仍判纯（readonly 值不变）→ 同参调用消重。
+    string src = "class C { readonly int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 纯 → 消重
+}
+[Test]
+void test_impure_call_not_cse() {
+    // 读**非** readonly 字段 → 非纯（字段可变）→ 不消重（保守正确）。
+    string src = "class C { int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 非纯 → 两条 call
+}
+[Test]
+void test_pure_call_licm_hoists() {
+    // 循环不变纯调用 → LICM 提到 pre-header（块结构变化）；调用仍保留。
+    string src = "int square(int x){return x*x;} int G(int n,int k){int s=0;int i=0;while(i<n){s=s+square(k);i=i+1;}return s;}";
+    string raw = IrDump.DumpFuncOpt(src, "G", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "G", Opt.PureCall);
+    Assert.NotEqual(raw, opt);                 // 外提改变块结构（call 移出循环体）
+    Assert.Contains("call @square", opt);      // 调用仍在（移到 pre-header）
+}
+
 // ── 函数内联（add-compiler-inlining Phase 2；IrInline，Opt.Inline 位）───────────────
 // 默认 dump 路径不含内联（见 IrDump._buildF 注）；内联单测显式用 DumpFuncOpt/DumpModuleOpt 传 optSet。
 
@@ -669,4 +699,80 @@ void test_inline_skips_noncurated_callee() {
     //  IrInline 头注「传导内联」。）
     string src = "class K { } K A() { return new K(); } K Main2() { return A(); }";
     Assert.Contains("call @A", IrDump.DumpFuncOpt(src, "Main2", Opt.All));
+}
+
+// ── const 编译期常量替换 + 死分支消除（add-const-keyword）──────────────────────────
+// const 引用在 emit 阶段替换为字面量指令（不发 static_get / 局部加载）→ 喂现有 ConstFold。
+[Test]
+void test_const_field_substituted_and_folded() {
+    // C.K（const 字段）替换为 const.i64 10，与 5 折叠成 50；绝不发 static_get。
+    string src = "class C { const int K = 10; } int F() { return C.K * 5; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));   // const 无静态存储 → 不读
+    Assert.Contains("const.i64 50", dump);        // 10*5 折叠证明 const 值参与 ConstFold
+}
+[Test]
+void test_const_field_expr_initializer() {
+    // const 字段引用已定义 const（Two = Max*2 = 200）；引用 C.Two → const.i64 200。
+    string src = "class C { const int Max = 100; const int Two = Max * 2; } int F() { return C.Two; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));
+    Assert.Contains("const.i64 200", dump);
+}
+[Test]
+void test_const_local_substituted() {
+    // 局部 const n=6 替换为字面量 → n*7 折叠成 42（若 n 未替换、作变量则不会折出 42）。
+    string src = "int F() { const int n = 6; return n * 7; }";
+    Assert.Contains("const.i64 42", IrDump.DumpFunc(src, "F"));
+}
+
+// dead-branch：br.cond(常量 bool)→br 折叠（Opt.DeadBranch 单独门控；默认 dump 路径不含它）。
+[Test]
+void test_dead_branch_folds_const_condition() {
+    // const bool 条件 → 替换为 const.bool；-O0 保留 br.cond；DeadBranch 折成无条件 br + 移死块。
+    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    Assert.Contains("br.cond", IrDump.DumpFuncOpt(src, "G", Opt.None));           // -O0：条件跳转在
+    Assert.False(IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch).Contains("br.cond")); // 折成无条件 br
+}
+[Test]
+void test_dead_branch_removes_unreachable_block() {
+    // 恒假条件 → then 块（return 1）不可达 → 移除；only return 2 存活。
+    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    string db = IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch);
+    Assert.False(db.Contains("const.i64 1"));   // 死块（return 1）连其常量一并移除
+    Assert.Contains("const.i64 2", db);          // 活路径保留
+}
+
+// ── add-sealed-devirt：基于 sealed 的去虚化（Opt.Devirt 门控） ────────────────
+
+[Test]
+void test_sealed_devirt_declared() {
+    // sealed 类自身声明 virtual 方法 → devirt 为直接 call @A.<M>（非 vcall）
+    string src = "sealed class A { public virtual int M() { return 7; } }"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @A.", on);   // 去虚化为直接 call 到 A 的方法
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);      // devirt 关 → 虚派发
+}
+
+[Test]
+void test_sealed_devirt_inherited() {
+    // sealed 类继承基类方法（不 override）→ 目标解析到基类实现 call @B.<M>
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " sealed class A : B {}"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("call @B.", on);    // 目标是基类 B 的实现
+    Assert.False(on.Contains("vcall"));
+}
+
+[Test]
+void test_nonsealed_stays_vcall() {
+    // 非 sealed receiver → 仍 vcall（即使 Opt.Devirt 开），证明未误去虚化
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " int Main() { B b = new B(); return b.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);
 }

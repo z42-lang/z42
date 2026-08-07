@@ -1,4 +1,5 @@
 namespace Std.Net.WebSockets;
+using Std.Encoding;
 
 using Std;
 

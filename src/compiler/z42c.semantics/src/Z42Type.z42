@@ -78,6 +78,10 @@ public sealed class Z42ClassType : Z42Type {
     // receiver（List<string>）调方法/取字段时，把签名里的类形参 T 按名映射到 receiver 的 TypeArgs
     // （T→string），修复 `list.ToArray()` 返回 `T[]` 不替换致 E0402（导入泛型「方法返回轴」缺陷）。
     public string[] GenericParamNames; public int GenericParamCount;
+    // impl-sealed-semantics-devirt：sealed class（不可被继承）。默认 false；本地由 SymbolCollector 从
+    // Mods 设置，导入由 ImportedSymbolLoader 从 CLASS_FLAG_SEALED 还原。供 ① 继承强制 + ④ receiver
+    // 静态类型为 sealed 类时的去虚化查询。
+    public bool   IsSealed;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -89,6 +93,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
         this.IsStruct = false;
+        this.IsSealed = false;
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。

@@ -50,6 +50,8 @@ public sealed class IrGen {
 
     public string Ns;   // 根命名空间（BP-0 名字限定；""=无）
     public string SourceStem;   // 文件 stem（SA-3：__static_init__ 名前缀，镜像 C# _cuStem）
+    public int OptSet;  // add-sealed-devirt：本次 Generate 的优化集（Generate 顶设）；EmitContext.Gen.OptSet 读，
+                        // 供 emit 时 devirt 门控（Opt.Devirt）。默认 0=None（未走 Generate 的 dump 路径不 devirt，安全）。
     public DependencyIndex Deps;       // 跨包索引（CI-4；调用方 Generate 前设置，null=无）
     public StrMap ImportedClassNs;     // imported 短类名 → ns（IC-1；含本包跨-ns 自有类，G17b）
     public StrMap ImportedFuncNs;      // imported 自由函数名 → 源 ns（fix-imported-free-func-namespace；与 ImportedClassNs 对称）
@@ -120,6 +122,7 @@ public sealed class IrGen {
 
     public IrModule Generate(CompilationUnit cu, SemanticModel model, int optSet) {
         this._symbols = model.Symbols;
+        this.OptSet = optSet;   // add-sealed-devirt：供 emit 时 devirt 门控（EmitContext.Gen.OptSet）
         // add-struct-value-semantics Phase A-use：计算所有 struct 的字节布局（供值 struct 操作翻转查询）。
         // 惰性阶段仅计算不消费；递归自含诊断（E0416）待值语义生效后再发（现引用语义下自引用 struct 合法）。
         this.Layouts = StructLayout.BuildFromSymbols(model.Symbols);

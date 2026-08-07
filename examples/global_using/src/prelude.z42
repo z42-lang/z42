@@ -1,0 +1,4 @@
+// 团队 prelude：一处声明 global using，包内所有文件生效（无需各自 import）。
+namespace Demo;
+global using Std.IO;      // Console
+global using Std.Text;    // StringBuilder

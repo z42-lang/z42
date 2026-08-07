@@ -107,7 +107,12 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-08-04 add-escape-analysis-stack-alloc: bumped to 1.29 - ObjNew / ArrayNew
 // / ArrayNewLit encodings each gain a trailing u8 stack-alloc flag (1 = frame
 // arena / 0 = heap), set by the escape-analysis compiler pass. Coupled with zpkg 0.34.
-pub const ZBC_VERSION_MINOR: u16 = 29;
+// 2026-08-06 impl-sealed-semantics-devirt: bumped to 1.30 - SIGS method_flags:u8
+// gains bit2=sealed (METHOD_FLAG_SEALED) for `sealed override` / `sealed` methods.
+// Byte layout unchanged (bit was reserved-0); semantics-extension bump so a 1.29
+// reader can't silently misread bit2 (strict-pin divergence guard). Backs
+// MethodInfo.IsSealed + compiler sealed-receiver devirtualization. Coupled with zpkg 0.35.
+pub const ZBC_VERSION_MINOR: u16 = 30;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -191,7 +196,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-04 add-escape-analysis-stack-alloc: bumped to 0.34, coupled inner zbc 1.29
 // (ObjNew/ArrayNew/ArrayNewLit gain a trailing u8 stack-alloc flag). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 34;
+// 2026-08-06 impl-sealed-semantics-devirt: bumped to 0.35, coupled inner zbc 1.30
+// (SIGS method_flags bit2=sealed). Outer zpkg layout unchanged; the bump triggers
+// ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 35;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

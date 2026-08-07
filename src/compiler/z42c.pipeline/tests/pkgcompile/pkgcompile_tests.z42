@@ -9,6 +9,7 @@ using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 
 // 单文件 no-dep 工程 → CompileInputs（LibsDirs 空，Cus 现 parse）。
 CompileInputs _inputs(string src, string kind) {

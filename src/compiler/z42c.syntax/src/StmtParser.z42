@@ -192,6 +192,7 @@ public sealed class StmtParser {
 
     private bool _isVarDeclStart() {
         int k = this._p._peek().Kind;
+        if (k == TokenKind.Const) { return true; }   // add-const-keyword：`const T name = <const-expr>;` 局部常量声明前缀
         if (k == TokenKind.Var) { return true; }
         if (this._p._isTypeKeyword(k)) { return true; }
         // 函数类型 var-decl：`(T,...) -> R name = ...`。判别：`(...)` 后紧跟 `->`（Arrow 仅
@@ -326,6 +327,8 @@ public sealed class StmtParser {
 
     private Stmt _parseVarDecl() {
         Span sp = this._p._peek().Span;
+        bool isConst = false;   // add-const-keyword：消费前导 `const`
+        if (this._p._peek().Kind == TokenKind.Const) { isConst = true; this._p._advance(); }
         TypeExpr type = this._p._typeP._parseType();
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
@@ -337,7 +340,9 @@ public sealed class StmtParser {
             init = this._p._exprP._parseExpr(0);
         }
         this._p._expectSemi();
-        return new VarDeclStmt(type, name, init, sp);
+        VarDeclStmt vd = new VarDeclStmt(type, name, init, sp);
+        vd.IsConst = isConst;   // add-const-keyword
+        return vd;
     }
 
 }

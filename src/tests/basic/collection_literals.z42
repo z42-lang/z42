@@ -1,0 +1,73 @@
+// 集合字面量（add-collection-literals）：[] 数组 / {} List·Dict / [v;n] 重复 / [..a] spread。
+// 均为纯前端脱糖到 new T[]{} / new List+Add / new Dictionary+Set / 填充·拷贝循环。
+using Std.Collections;
+
+void Main() {
+    // ── 数组字面量 [] ──────────────────────────────────────────
+    int[] xs = [1, 2, 3];
+    Assert.Equal(3, xs.Length);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(3, xs[2]);
+
+    var ys = [10, 20, 30];            // var → int[]
+    Assert.Equal(20, ys[1]);
+
+    int[] empty = [];                 // 空数组（目标类型）
+    Assert.Equal(0, empty.Length);
+
+    string[] ss = ["a", "b"];
+    Assert.Equal("b", ss[1]);
+
+    // ── 重复填充 [value; count]（value 只求值一次）────────────────
+    int[] r = [7; 4];
+    Assert.Equal(4, r.Length);
+    Assert.Equal(7, r[0]);
+    Assert.Equal(7, r[3]);
+
+    int n = 5;
+    int[] r2 = [0; n];                // 运行期 count
+    Assert.Equal(5, r2.Length);
+    Assert.Equal(0, r2[4]);
+
+    // ── spread [..a, x, ..b] ────────────────────────────────────
+    int[] a = [1, 2];
+    int[] b = [4, 5];
+    int[] cat = [..a, 3, ..b];
+    Assert.Equal(5, cat.Length);
+    Assert.Equal(1, cat[0]);
+    Assert.Equal(2, cat[1]);
+    Assert.Equal(3, cat[2]);
+    Assert.Equal(4, cat[3]);
+    Assert.Equal(5, cat[4]);
+
+    int[] justSpread = [..a, ..b];
+    Assert.Equal(4, justSpread.Length);
+    Assert.Equal(4, justSpread[2]);
+
+    // ── List 字面量 {} ──────────────────────────────────────────
+    List<int> lst = { 1, 2, 3 };
+    Assert.Equal(3, lst.Count);
+    Assert.Equal(1, lst[0]);
+    Assert.Equal(3, lst[2]);
+
+    var lst2 = { 100, 200 };          // var → List<int>
+    Assert.Equal(2, lst2.Count);
+    Assert.Equal(200, lst2[1]);
+
+    List<int> emptyList = {};         // 空 List（目标类型）
+    Assert.Equal(0, emptyList.Count);
+
+    // ── Dict 字面量 {k: v} ──────────────────────────────────────
+    Dictionary<string, int> m = { "a": 1, "b": 2, "c": 3 };
+    Assert.Equal(1, m["a"]);
+    Assert.Equal(2, m["b"]);
+    Assert.Equal(3, m["c"]);
+
+    Dictionary<string, int> emptyDict = {};   // 空 Dict（目标类型）
+    Assert.Equal(0, emptyDict.Count);
+
+    // ── 嵌套：数组的 List ───────────────────────────────────────
+    List<int> fromExpr = { xs[0], xs[1] + xs[2], 42 };
+    Assert.Equal(3, fromExpr.Count);
+    Assert.Equal(5, fromExpr[1]);
+}

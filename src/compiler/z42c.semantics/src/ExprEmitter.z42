@@ -5,10 +5,12 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 
 public sealed class ExprEmitter {
     private EmitContext _ctx;
-    public ExprEmitter(EmitContext ctx) { this._ctx = ctx; }
+    private FunctionEmitter _fn;   // 反向引用：BoundSeqExpr 的 prelude 语句委托 _fn._emitStmt（含循环/控制流）
+    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; }
 
     public TypedReg Emit(BoundExpr e) {
         // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
@@ -112,8 +114,19 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
             return dst;
         }
+        if (e is BoundSeqExpr) {
+            // 序列表达式：依次发射 prelude 语句（委托 FunctionEmitter，支持 var-decl/循环/控制流），
+            // 再发射 value 返回其寄存器。集合字面量脱糖用（new + Add/Set + 填充循环 + 收尾读 tmp）。
+            BoundSeqExpr sq = e as BoundSeqExpr;
+            int si = 0;
+            while (si < sq.PreludeCount) { this._fn.EmitStmt(sq.Prelude[si]); si = si + 1; }
+            return this.Emit(sq.Value);
+        }
         if (e is BoundStaticGet) {
             BoundStaticGet sg = e as BoundStaticGet;
+            // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
+            ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
+            if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
             // StaticGet 结果寄存器 = Unknown（C# REGT 字节实证：静态字段读 IR 层擦除）
             TypedReg dst = this._ctx.Alloc(IrType.Unknown);
             // G17b：用 QualifyClass（非 Qualify）→ 同包跨-ns 类（如 IrType@Z42.IR 从
@@ -295,7 +308,65 @@ public sealed class ExprEmitter {
     }
 
     // ident：local/param → 寄存器；裸自身字段 → field_get(reg0=this)；静态字段/未解析 → 占位。
+    // add-const-keyword：class.field 是 const 字段 → 返回其 ConstValue（供字面量替换）；否则 null。
+    private ConstValue _constFieldVal(string className, string fieldName) {
+        if (!this._ctx.Symbols.HasClass(className)) { return null; }
+        Z42ClassType ct = this._ctx.Symbols.GetClass(className);
+        if (ct == null || ct.Fields == null) { return null; }
+        FieldSymbol fs = ct.Fields.Get(fieldName) as FieldSymbol;
+        if (fs != null && fs.IsConst) { return fs.ConstVal; }
+        return null;
+    }
+
+    // add-const-keyword：把 ConstValue 发射为对应字面量指令，返回其寄存器（喂 ConstFold）。
+    // intTag = 引用点类型的 IR 标签（镜像字面量路径 `Alloc(ToIrType(lit.Type()))`——int 字面量恒 ConstI64
+    // 但 dst 按声明类型 i8/i16/i32/i64 tag，保 REGT 与 JIT 特化一致）。
+    // 负整数：ConstI64 不编码负值 → magnitude + neg（镜像源码 `-N` = Neg(ConstI64 N)）。
+    // 浮点：ConstF64Instr 存文本，用 bits→double→ToString（Rust 最短往返表示，Convert.ToDouble 精确还原）。
+    private TypedReg _emitConstVal(ConstValue cv, int intTag) {
+        if (cv == null) { TypedReg r0 = this._ctx.Alloc(IrType.Ref); this._ctx.Emit(new ConstNullInstr(r0)); return r0; }
+        if (cv.Kind == ConstValue.KInt) {
+            if (cv.IntVal >= 0) {
+                TypedReg r = this._ctx.Alloc(intTag);
+                this._ctx.Emit(new ConstI64Instr(r, cv.IntVal.ToString()));
+                return r;
+            }
+            long mag = 0 - cv.IntVal;
+            TypedReg m = this._ctx.Alloc(intTag);
+            this._ctx.Emit(new ConstI64Instr(m, mag.ToString()));
+            TypedReg rn = this._ctx.Alloc(intTag);
+            this._ctx.Emit(new NegInstr(rn, m));
+            return rn;
+        }
+        if (cv.Kind == ConstValue.KBool) {
+            TypedReg r = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new ConstBoolInstr(r, cv.IntVal != 0));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KChar) {
+            TypedReg r = this._ctx.Alloc(IrType.Char);
+            this._ctx.Emit(new ConstCharInstr(r, (char)(int)cv.IntVal));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KFloat) {
+            TypedReg r = this._ctx.Alloc(IrType.F64);
+            this._ctx.Emit(new ConstF64Instr(r, ZbcReaderInstr.BitsToDouble(cv.IntVal).ToString()));
+            return r;
+        }
+        if (cv.Kind == ConstValue.KStr) {
+            int idx = this._ctx.Gen.Intern(cv.StrVal);
+            TypedReg r = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(r, idx));
+            return r;
+        }
+        TypedReg rr = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(rr));
+        return rr;
+    }
+
     private TypedReg _lookupIdent(BoundIdent id) {
+        // add-const-keyword：局部 const 裸引用 → 字面量替换（须先于 Locals：const 也占存储槽，存储由 DCE 清）。
+        if (this._ctx.ConstLocals.ContainsKey(id.Name)) { return this._emitConstVal(this._ctx.ConstLocals.Get(id.Name) as ConstValue, this._ctx.ToIrType(id.Type())); }
         if (this._ctx.Locals.ContainsKey(id.Name)) { return this._ctx.Locals.Get(id.Name) as TypedReg; }
         if (this._ctx.Fields.ContainsKey(id.Name)) {
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
@@ -676,6 +747,24 @@ public sealed class ExprEmitter {
             // 否则跨 zpkg 具体基类 override 被基类实现钉死（`h.BeforeAssets()` 只跑基类 no-op）。
             // 详见 EmitContext.ReceiverMethodIsVirtual。
             bool virtualRecv = this._ctx.ReceiverMethodIsVirtual(c.Receiver.Type(), c.MethodName);
+            // add-sealed-devirt：receiver 静态类型是本地非泛型 sealed 类 + 目标可解析 → 直接 Call 替
+            // VCall（解锁 IrInline 内联）。cast-to-class Unknown 链 / 接口 receiver 跳过（既有守卫优先）。
+            // 目标解析不确定即返回 "" → 落到下方既有逻辑（VCall），永不 miscall。`Opt.Devirt` 门控供对拍。
+            if (this._ctx.DevirtEnabled() && !ifaceRecv && !this._castUnknownChain(c.Receiver)) {
+                Z42ClassType sc = this._ctx.SealedReceiverClass(c.Receiver.Type());
+                if (sc != null) {
+                    string tgt = this._ctx.ResolveSealedTarget(sc, c.MethodName, c.ArgCount);
+                    if (tgt != "") {
+                        TypedReg[] dfull = new TypedReg[c.ArgCount + 1];
+                        dfull[0] = recv;
+                        int dfi = 0;
+                        while (dfi < c.ArgCount) { dfull[dfi + 1] = iargs[dfi]; dfi = dfi + 1; }
+                        TypedReg dvdst = this._ctx.Alloc(itag);
+                        this._ctx.Emit(new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1));
+                        return dvdst;
+                    }
+                }
+            }
             if (!owns && !ifaceRecv && !virtualRecv && this._ctx.Deps != null) {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);

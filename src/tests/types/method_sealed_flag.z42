@@ -1,0 +1,47 @@
+// impl-sealed-semantics (2026-08): MethodInfo.IsSealed reflects a `sealed override`
+// (or the shorthand `sealed`) method, persisted in the SIGS method_flags byte
+// (zbc 1.30, METHOD_FLAG_SEALED bit2). Sealed methods are also virtual.
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+class Base {
+    public virtual void M() {}
+    public virtual void N() {}
+}
+
+sealed class Derived : Base {
+    public sealed override void M() {}   // sealed override → IsSealed
+    public override void N() {}          // plain override  → not sealed
+}
+
+bool sealedOf(MethodInfo[] ms, string name) {
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == name) { return ms[i].IsSealed; }
+        i = i + 1;
+    }
+    return false;
+}
+
+bool virtualOf(MethodInfo[] ms, string name) {
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == name) { return ms[i].IsVirtual; }
+        i = i + 1;
+    }
+    return false;
+}
+
+void Main() {
+    MethodInfo[] ms = typeof(Derived).GetMethods();
+
+    // `sealed override void M` → IsSealed true; sealed methods are also virtual.
+    Assert.True(sealedOf(ms, "M"));
+    Assert.True(virtualOf(ms, "M"));
+
+    // plain `override void N` → not sealed, still virtual.
+    Assert.False(sealedOf(ms, "N"));
+    Assert.True(virtualOf(ms, "N"));
+}

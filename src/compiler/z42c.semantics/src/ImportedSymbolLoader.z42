@@ -84,6 +84,7 @@ public static class ImportedSymbolLoader {
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
+                        nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
                         if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }
                         // fix-crosspkg-interface-impl：imported 类带上实现接口表（bare 名，TSIG 恢复）——
@@ -224,6 +225,7 @@ public static class ImportedSymbolLoader {
                 var sig = new Z42FuncType(ps, me.ParamCount, ImportedSymbolLoader._resolve(r, me.ReturnType));
                 sig.ParamsFrom = me.ParamsFrom;
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
+                sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 ct.Methods.Put(me.Name, sym);
                 if (!me.IsStatic) { ct.AddOwnMethod(me.Name, me.IsVirtual, me.IsAbstract); }
             }
@@ -276,6 +278,7 @@ public static class ImportedSymbolLoader {
                 string srcName = (srcDol >= 0) ? m.Name.Substring(0, srcDol) : m.Name;
                 var sym = new MethodSymbol(srcName, m.Visibility, sig, m.IsStatic, ct.Name(), false, null);
                 sym.RegKey = m.Name;
+                sym.IsSealed = m.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 ct.Methods.Put(m.Name, sym);
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }

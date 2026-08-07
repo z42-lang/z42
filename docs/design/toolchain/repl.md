@@ -73,6 +73,10 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
 - **依赖 [`infer-var-field-types`](../../spec/archive/)（#24）**：`var` 字段跨 zpkg 保型，carry-forward
   的跨轮 `var` 变量算术/拼接才成立（原为 E0402）。
 - **错误恢复**：编译失败 `EvalResult.Success=false`、会话不推进。
+- **错误行号回映（add-repl-ns-completion-err-map）**：REPL 把用户输入包进生成源（prelude + wrapper），
+  诊断原报生成源坐标 `repl_rN.z42(生成行,列): …`（对用户无意义）。`Script._remapDiag` 把每条诊断的行回映
+  为**用户输入行 = 生成行 − prelude换行数**（表达式轮/声明轮统一），丢内部文件名 + 列号（Rewriter 改写
+  会移列、不可靠）。单行输入 → 只留 `<code>: <msg>`（如 `E0401: undefined: x`）；多行块 → `第 N 行: <msg>`。
 - **调用是自由函数**：`Eval{N}` emit 为自由函数（非类方法），经 `__invoke_static` 按 FQN 调；
   入口/eval 均自由函数（实证类方法作 entry 不解析）。
 - **多行输入（add-repl-decls-multiline）**：宿主 `interactive_main` 用 `Std.Repl.ReadBlock(">>> ", "... ")`
@@ -426,8 +430,9 @@ string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检�
   `Type.` 静态成员（未 reconcile 则按需 reconcile，`_ensureReconciled`）/ `obj.` 实例成员（live 反射，
   **含基元变量**——`s.`/`n.` 映射到 `GetType()` 同款 canonical 类 `Std.String`/`Std.Int32`… 反射其成员，
   add-repl-completion-iter2）/ **z42 语言关键字**（`_addKeywords`，以 `Z42.Syntax.Lexer` 的
-  `KeywordCount`/`KeywordNameAt` 为权威源、零漂移）候选。回调在 readline 内重入 VM，临时 un-park
-  参与 safepoint（见上 GC-safe park）。
+  `KeywordCount`/`KeywordNameAt` 为权威源、零漂移）/ **命名空间名**（`.using ` 上下文，`_namespaceComplete`
+  按 `DepScanResult.NsNames` 返回下一段候选：`.using Std.C`→`Collections`/`Cli`/…，add-repl-ns-completion-err-map）
+  候选。回调在 readline 内重入 VM，临时 un-park 参与 safepoint（见上 GC-safe park）。
   - **List 模式**（add-repl-completion-iter2）：编辑器以 `CompletionType::List` 构造（bash 式：首 Tab 补最长
     公共前缀、再 Tab 列候选）——替代 rustyline 默认 `Circular`（反复 Tab 循环候选、转一圈**回到原始输入**，
     观感为「Tab 越按越退」）。

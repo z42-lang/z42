@@ -7,6 +7,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Time;
+using Std.Cli;
 
 // ── test e2e ────────────────────────────────────────────────────────────────
 

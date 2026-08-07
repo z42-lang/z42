@@ -36,6 +36,10 @@ string[] replComplete(string line, int pos) {
     ScriptState s = Completer.GetActive();
     if (s == null) { return new string[0]; }
 
+    // .using <ns 前缀> —— 命名空间名补全（add-repl-ns-completion-err-map）。返回「下一段」候选，
+    // 由 _wordStart（停在 '.'）给出的最后一段作替换区间——段候选正好替换它（"Std.C"→"Std.Collections"）。
+    if (pos >= 7 && line.StartsWith(".using ")) { return _namespaceComplete(s, line, pos); }
+
     int wordStart = _wordStart(line, pos);
     string word = line.Substring(wordStart, pos - wordStart);
 
@@ -61,6 +65,38 @@ string[] replComplete(string line, int pos) {
         _addImportedNames(cands, s, word);        // 已 reconcile 世界的类型/枚举/自由函数名
         _addIndexedTypeNames(cands, s, word);     // + ns 索引已知但尚未 reconcile 的类型名（修 Bug 1a）
         _addKeywords(cands, word);                // + z42 语言关键字（while/return/using/...）
+    }
+    return cands.ToArray();
+}
+
+// .using 上下文命名空间名补全（add-repl-ns-completion-err-map）。ns-so-far = ".using " 后到 pos；
+// 按 `DepScanResult.NsNames`（全量 ns）前缀匹配，返回 prefixNs（最后一个 '.' 及之前）之后到下一个 '.'
+// 的**段**候选——替换区间是 _wordStart 给的最后一段，段候选正好替换它（"Std.C"→"Std.Collections"、
+// "Std." → 空段位插入 "Collections"）。去重 + 前缀过滤。scan 未就绪 → 空。
+string[] _namespaceComplete(ScriptState s, string line, int pos) {
+    DepScanResult sc = s.CachedScan;
+    if (sc == null) { return new string[0]; }
+    string nsSoFar = line.Substring(7, pos - 7);   // ".using " 占 7 字符
+    int lastDot = 0 - 1;
+    int k = 0;
+    while (k < nsSoFar.Length) { if (nsSoFar.CharAt(k) == '.') { lastDot = k; } k = k + 1; }
+    string prefixNs = "";
+    string lastSeg = nsSoFar;
+    if (lastDot >= 0) {
+        prefixNs = nsSoFar.Substring(0, lastDot + 1);
+        lastSeg = nsSoFar.Substring(lastDot + 1, nsSoFar.Length - lastDot - 1);
+    }
+    List<string> cands = new List<string>();
+    int i = 0;
+    while (i < sc.NsCount) {
+        string ns = sc.NsNames[i];
+        if (ns.Length > prefixNs.Length && ns.StartsWith(prefixNs)) {
+            string rest = ns.Substring(prefixNs.Length, ns.Length - prefixNs.Length);
+            int nd = rest.IndexOf(".");
+            string seg = nd < 0 ? rest : rest.Substring(0, nd);
+            _addCand(cands, seg, lastSeg);
+        }
+        i = i + 1;
     }
     return cands.ToArray();
 }

@@ -2,6 +2,7 @@
 // 顶层声明的类型检查驱动（类/自由函数/impl/合成 ctor/字段 init/方法体/重复检测）。
 // TypeChecker 降为协调器：Infer 分派 → _decl.*；持 _tc 反向引用触达 _expr/_stmt/_overload/_diags/_unwrap。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
@@ -205,7 +206,7 @@ public sealed class DeclBinder {
             if (mem is FieldDecl) {                                  // 静态字段 init（SA-3）
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
-                if (fd.HasInit && fsym != null && fsym.IsStatic) {
+                if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
                     var fenv = TypeEnv.Root(symbols);
                     model.AddStaticInit(c.Name, fd.Name, this._tc._expr._bindExpr(fd.Init, fenv));
                 }

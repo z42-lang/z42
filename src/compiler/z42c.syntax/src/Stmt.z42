@@ -29,12 +29,14 @@ public sealed class VarDeclStmt : Stmt {
     public TypeExpr Type;     // `var` 推断 → NamedType("var")
     public string   Name;
     public Expr     Init;
+    public bool     IsConst;  // add-const-keyword：`const T name = <const-expr>;` 局部编译期常量（无存储，引用替换为字面量）；默认 false
     public VarDeclStmt(TypeExpr type, string name, Expr init, Span span) { this.Span = span;
-        this.Type = type; this.Name = name; this.Init = init;
+        this.Type = type; this.Name = name; this.Init = init; this.IsConst = false;
     }
     public override string Dump() {
         string i = "_"; if (this.Init != null) { i = this.Init.Dump(); }   // G8：无 init → "_"
-        return "(decl " + this.Type.Dump() + " " + this.Name + " " + i + ")";
+        string kw = "decl"; if (this.IsConst) { kw = "decl-const"; }
+        return "(" + kw + " " + this.Type.Dump() + " " + this.Name + " " + i + ")";
     }
 }
 

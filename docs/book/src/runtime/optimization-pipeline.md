@@ -1,7 +1,8 @@
 # 优化管线（编译期 IR 优化 + 运行时 JIT/interp 分层）
 
-> 对齐：2026-08-06（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
-> **逃逸分析栈上分配** / 循环分配复用 / **readonly 字段读优化** + OptSet 门控已落地）
+> 对齐：2026-08-07（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
+> **逃逸分析栈上分配** / 循环分配复用 / **readonly 字段读优化** / **纯函数调用优化** /
+> **const 常量传播 + 死分支消除** + OptSet 门控已落地）
 > 状态：🟡 编译期 IR 优化已成形（4 pass + 可独立开关 OptSet）；运行时 JIT 分层随 `jit-lowering-pipeline` 续。
 
 z42 有两条优化路径,共用同一份 z42 IR,但优化的位置和消费方式不同:
@@ -75,8 +76,15 @@ z42 源码 ──z42c──> z42 IR
 > `ObjNew`/`ArrayNew`/`ArrayNewLit` 改到帧局部 arena 分配、绕过 GC。分析算法（CFG-free 规则表引擎）、
 > 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
 
+> **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
+> 本地非泛型 **sealed 类** → 目标编译期唯一 → `ExprEmitter._emitCall` **emit 时就地**把 `VCallInstr`
+> 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
+> 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../language/sealed.md)。
+> 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，
+> 而 lowering 后的 IR `VCall` 已不携带该信息。
+
 **OptSet：可独立开关的具名优化集（add-compiler-inlining）**：`Opt` 位集 `ConstFold=1/CopyProp=2/
-Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/All=511`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
+Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/Devirt=2048/All=4095`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控（Devirt 例外：emit 时门控）——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、
 **release=All**（发布最高优化）；解析优先级 CLI（`--opt`/`--no-opt`）> toml `[optimize]` > profile。
 **独立性硬约束（D2）**：每个 pass 单独开启都必须正确——允许「增效依赖」（inline 后 dce 删得更多），
@@ -186,6 +194,38 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   params/locals 接收者留 Deferred（需非空/支配分析）。
 - **正确性主门**：`src/tests/optimization/readonly_field_hoist/`（开/关输出必须一致）。**实测 interp ~1.87×**
   （热循环每迭代 3 次 `this.x` 读被外提+消重到 ~0；bench `readonly_field_bench.z42`）。
+
+**pass 2g 纯函数调用优化（`Opt.PureCall=512`，change `add-pure-call-opt`；piggyback CSE + LICM，`PureCall` 单独门控）**：
+`IsPure` 白名单把**任何 `Call` 判为不纯** → 用户函数调用永不进 CSE/LICM。**自动推断**同模块函数纯度
+（`IrPureFunctionTable`），解禁纯调用的消重/外提。**无用户标注**（`pure` 关键字 Deferred）。
+- **纯度推断（模块不动点）**：`IrPureFunctionTable.Compute(m)` 对标 `IrEscapeSummary`，方向相反——**乐观全纯 →
+  发现副作用降级 → 单调收缩收敛**（递归纯函数因乐观初值自然判纯；StrMap 无 Remove → 每轮重建）。
+  `pure(f)` ⟺ f 每条指令是「`IsPure` 白名单内」或「对纯函数的 `CallInstr`」或「**readonly 字段读**
+  （`FieldGetInstr.Readonly`，**复用 readonly change 的标志**——`int scale(C c,int k){return k*c.f;}` 读
+  readonly `c.f` 即纯）」，**且无块以 `throw` 终结**。其余（写字段/静态/数组、读非 readonly 字段·静态·数组、
+  **分配**、`Div/Rem`、IO、`VCall`/动态派发、调非纯）→ 非纯。imported/无体 → 保守非纯。
+- **纯度定义为何这么窄**：CSE/LICM 假设「同参同结果」——读可变外部状态会破坏它，故排除非 readonly 字段/数组读；
+  **分配排除**因 CSE 消重会改对象身份（`==`/GC）；**no-throw** 因 LICM 提到可能零迭代 pre-header，会抛的
+  「纯」函数提前执行 = 异常时机漂移。
+- **CSE**（`IrOptInfo.CseKey` 的 `call|Func|argIds` 分支）：同 callee + 全 args 稳定的纯调用消重（纯 = 不依赖
+  可变状态 → **无需失效表**，比 readonly 简单）。**LICM**（`IrLicm._isHoistablePureCall`）：全 args 循环不变的
+  纯调用提到 pre-header。
+- **与 inline 的分工**：小函数被 `Inline` 抢先消化（展开成算术，常规 CSE/LICM 处理）；pure-call 的价值在
+  **非内联函数**（大 / **递归**）。**正确性主门** `src/tests/optimization/pure_call_hoist/`（开/关一致）。
+  **实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提：OFF 4.24s → ON 0.02s；bench `pure_call_bench.z42`）。
+
+**pass 2h 常量条件死分支消除（`Opt.DeadBranch=1024`，change `add-const-keyword`；跑在 const-fold 后、licm/cse 前）**：
+喂料来自 [`const` 编译期常量](../language/const.md)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
+（常量比较 → `ConstBoolInstr`）。分两步：
+- **① 折叠**：块终结子 `br.cond(cond, T, F)` 且 `cond` 由**单赋值** `ConstBoolInstr` 产出 → 折成无条件
+  `br(命中分支)`。**始终安全**（条件跳转→无条件跳转，不移块）；折掉的 `cond` 读消失，其 `ConstBool`
+  producer 由后续 temp-DCE 清。
+- **② 移块**：**仅 `ExcCount==0`** 的函数，从 entry(block0) 沿 `Br/BrCond` 后继做可达性 BFS，移除不可达块
+  （如恒假 `if` 的 then 块）。
+- **⚠️ CFG 铁律**：z42 IR 的 CFG 只从终结子建、**不含异常隐式边**（try→catch/finally）——故 `ExcCount>0`
+  的函数**只折不移**（贸然移块会删掉 handler 可达的块 → miscompile；镜像 LICM 的 `ExcCount>0` 跳过）。移块
+  安全性：有效 IR 里 def 支配 use → 可达块引用的寄存器其定义块必可达，移不可达块不产生悬垂读。
+- **正确性主门** `src/tests/optimization/const_dead_branch/`（开/关行为一致——死分支本就不该执行）。
 
 **pass 3 temp-DCE**：删「IsPure 白名单内(不抛/不调用户码/不写内存/不分配) + Dst 全函数零读 + 非参数」的死指令。
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
