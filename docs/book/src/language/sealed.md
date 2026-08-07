@@ -85,21 +85,39 @@ sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运�
 - **净增价值 = 解锁内联**，不是派发提速——解释器已有多态内联缓存（`VCallIC`），单态 sealed 调用点派发已近直接调用。
 - **落点**：`ExprEmitter._emitCall`（instance 分支）emit 时就地——天然在 `IrInline` 之前。`Opt.Devirt` 门控
   （release 全开；`--no-opt devirt` 关，供 before/after 逐字节对拍）。
-- **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的本地非泛型类**
+- **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的可限定非泛型类**
   `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
-  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。
-- **v1 边界**：仅 **本地非泛型 sealed 类** receiver + 本地定义类 + 非 abstract 目标。**任何解析不确定即回落
-  `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
-- **正确性铁律**：目标名错 = 静默调错。双保险：① 越界回落 VCall；② `--no-opt devirt` before/after 逐字节对拍
-  + z42c 自举不动点（z42c 自身大量 sealed 类被去虚化编译，gen1==gen2 覆盖全码库）。
+  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(name)`：
+  在 `LocalClasses`（本地，QualifyClass=当前 ns）**或** `ImportedClassNs`（imported，QualifyClass=源 ns）。
+
+### imported sealed 去虚化的坑：TSIG 展平继承方法（extend-sealed-devirt-imported）
+
+imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而 **TSIG 把继承方法展平进每个派生类**。
+于是 `sealed class Leaf : Tagged {}`（Leaf 不 override `Tag`）在 imported 侧 `Leaf.Methods.ContainsKey("Tag")`
+= **true**，naïve 地构造 `QualifyClass(Leaf)+".Tag"` = `Demo.Sld.Leaf.Tag`——**一个从未被任何包发射的函数名**
+（真身是基类包的 `Demo.Base.Tagged.Tag`）→ 运行期 `undefined function`。本地类无此坑（`SymbolCollector` 只填
+**声明于本类**的方法）。
+
+**解法**：imported 定义类候选返回前，用 `Deps.Statics.ContainsKey(FQ)`（`_depHasFunction`）**校验该 FQ 确为
+真实发射函数**——`DependencyIndex.AddModule` 把每个跨包函数按完整 FQ 注册进 `Statics`。命中 → 本类真声明 → 去
+虚化；未命中 → 本类仅继承 → **沿基链继续上溯**到真声明类（其 FQ 命中）。本地类走 `LocalClasses` 分支**先行短
+路返回**（本包函数不入 Deps，不能也不需校验）——本地路径零改动、零回归。从 receiver 精确 sealed 类型向上、
+第一个 FQ 命中即「最近声明」= 对该精确类型对象动态派发的唯一目标。
+
+- **v1 边界**：**本地或 imported 非泛型 sealed 类** receiver + 可限定（本地/imported）非泛型定义类 + 非 abstract
+  目标。**任何解析不确定即回落 `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
+- **正确性铁律**：目标名错 = 静默调错。多保险：① 越界回落 VCall；② imported 定义类必过 Deps FQ 校验；
+  ③ `--no-opt devirt` before/after 逐字节对拍（单源 IR 路径）+ z42c 自举不动点（z42c 自身大量本地/imported
+  sealed 类被去虚化编译，gen1==gen2 覆盖全码库）；④ cross-zpkg e2e `sealed_devirt_imported`（跨包继承基链——
+  正是它抓到上面的 TSIG 展平坑）。
 
 ## Deferred / Future Work
 
 ### sealed-devirt-future: 去虚化 v1 边界外
 
-- **来源**：`add-sealed-devirt` v1。
-- **触发原因**：目标名精确构造在这些情形更易错，v1 保守只覆盖本地非泛型。
-- **待覆盖**：① **imported sealed 类**（跨包目标名 + imported RegKey 约定，DepIndex 路径）；
-  ② **泛型 sealed 类**（`$N` mangle + 类型参数替换）；③ **`sealed override` 方法**（receiver 是基类型——
+- **来源**：`add-sealed-devirt` v1（本地）+ `extend-sealed-devirt-imported`（imported）。
+- **触发原因**：目标名精确构造在这些情形更易错，v1 保守只覆盖非泛型。
+- **待覆盖**：① **泛型 sealed 类**（`$N` mangle + 类型参数替换）；② **`sealed override` 方法**（receiver 是基类型——
   非「receiver 静态即 sealed 类」充分条件，需精确类型/单实现分析）。
-- **当前 workaround**：这些情形回落 VCall（运行期仍正确，走 PIC），只是不内联。
+- **已落地**：**imported sealed 类**（跨包目标名 + Deps FQ 校验，`extend-sealed-devirt-imported`）。
+- **当前 workaround**：剩余情形回落 VCall（运行期仍正确，走 PIC），只是不内联。

@@ -1,0 +1,4 @@
+namespace Demo.Base;
+using Std;
+public class Shape { public virtual int Area() { return 0; } }
+public class Tagged { public virtual int Tag() { return 100; } }
