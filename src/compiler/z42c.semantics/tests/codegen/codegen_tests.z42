@@ -742,3 +742,37 @@ void test_dead_branch_removes_unreachable_block() {
     Assert.False(db.Contains("const.i64 1"));   // 死块（return 1）连其常量一并移除
     Assert.Contains("const.i64 2", db);          // 活路径保留
 }
+
+// ── add-sealed-devirt：基于 sealed 的去虚化（Opt.Devirt 门控） ────────────────
+
+[Test]
+void test_sealed_devirt_declared() {
+    // sealed 类自身声明 virtual 方法 → devirt 为直接 call @A.<M>（非 vcall）
+    string src = "sealed class A { public virtual int M() { return 7; } }"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @A.", on);   // 去虚化为直接 call 到 A 的方法
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);      // devirt 关 → 虚派发
+}
+
+[Test]
+void test_sealed_devirt_inherited() {
+    // sealed 类继承基类方法（不 override）→ 目标解析到基类实现 call @B.<M>
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " sealed class A : B {}"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("call @B.", on);    // 目标是基类 B 的实现
+    Assert.False(on.Contains("vcall"));
+}
+
+[Test]
+void test_nonsealed_stays_vcall() {
+    // 非 sealed receiver → 仍 vcall（即使 Opt.Devirt 开），证明未误去虚化
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " int Main() { B b = new B(); return b.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);
+}

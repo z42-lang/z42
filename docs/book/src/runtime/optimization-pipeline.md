@@ -76,8 +76,15 @@ z42 源码 ──z42c──> z42 IR
 > `ObjNew`/`ArrayNew`/`ArrayNewLit` 改到帧局部 arena 分配、绕过 GC。分析算法（CFG-free 规则表引擎）、
 > 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
 
+> **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
+> 本地非泛型 **sealed 类** → 目标编译期唯一 → `ExprEmitter._emitCall` **emit 时就地**把 `VCallInstr`
+> 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
+> 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../language/sealed.md)。
+> 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，
+> 而 lowering 后的 IR `VCall` 已不携带该信息。
+
 **OptSet：可独立开关的具名优化集（add-compiler-inlining）**：`Opt` 位集 `ConstFold=1/CopyProp=2/
-Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/All=2047`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控——用户自助
+Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/Devirt=2048/All=4095`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控（Devirt 例外：emit 时门控）——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、
 **release=All**（发布最高优化）；解析优先级 CLI（`--opt`/`--no-opt`）> toml `[optimize]` > profile。
 **独立性硬约束（D2）**：每个 pass 单独开启都必须正确——允许「增效依赖」（inline 后 dce 删得更多），

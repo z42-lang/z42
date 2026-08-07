@@ -1,0 +1,51 @@
+// add-sealed-devirt: 基于 sealed 的去虚化端到端正确性。
+// sealed 类 receiver 上的 virtual 调用被去虚化为直接 Call（emit 时，Opt.Devirt）——
+// 本用例断言结果与虚派发一致（去虚化是纯优化）。非 sealed receiver 仍虚派发。
+namespace Demo.SealedDevirt;
+
+using Std;
+
+class Shape {
+    public virtual int Area() { return 0; }
+}
+
+// sealed 类自身声明（override）virtual → 在 Square 静态类型的 receiver 上去虚化
+sealed class Square : Shape {
+    private int s;
+    public Square(int side) { this.s = side; }
+    public override int Area() { return this.s * this.s; }
+}
+
+sealed class Circle : Shape {
+    public override int Area() { return 42; }
+}
+
+// sealed 类继承基类 virtual 方法（不 override）→ 去虚化目标解析到基类实现
+class Base {
+    public virtual int Tag() { return 100; }
+}
+
+sealed class Leaf : Base {
+    public int extra() { return 7; }
+}
+
+void Main() {
+    // ── sealed receiver → 去虚化，结果正确 ──
+    Square sq = new Square(5);
+    Assert.Equal(25, sq.Area());          // devirt → Square.Area
+
+    Circle c = new Circle();
+    Assert.Equal(42, c.Area());           // devirt → Circle.Area
+
+    // sealed 类继承未 override 的方法 → 目标是基类实现
+    Leaf lf = new Leaf();
+    Assert.Equal(100, lf.Tag());          // devirt → Base.Tag（继承）
+    Assert.Equal(7, lf.extra());          // devirt → Leaf.extra（自身，非 virtual 也走直接调用）
+
+    // ── 非 sealed receiver → 仍虚派发，多态正确 ──
+    Shape s = new Square(3);
+    Assert.Equal(9, s.Area());            // s 静态类型 Shape（非 sealed）→ vcall → 实际 Square.Area
+
+    Shape s2 = new Circle();
+    Assert.Equal(42, s2.Area());          // vcall → Circle.Area
+}
