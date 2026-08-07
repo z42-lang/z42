@@ -190,6 +190,56 @@ public sealed class EmitContext {
         return false;
     }
 
+    // ── add-sealed-devirt：基于 sealed 的去虚化 ──────────────────────────────
+    // devirt 是否启用（Opt.Devirt 位；Gen.OptSet 由 IrGen.Generate 顶设）。
+    public bool DevirtEnabled() {
+        if (this.Gen == null) { return false; }
+        return Opt.Has(this.Gen.OptSet, Opt.Devirt);
+    }
+
+    // receiver 静态类型若是**可去虚化的 sealed 类**返回其 Z42ClassType，否则 null。
+    // v1 边界：本地声明（LocalClasses）+ 非泛型 sealed 类——sealed 不可继承 → runtime 类型必是它
+    // 本身 → 方法目标编译期唯一。imported / 泛型 sealed → null（回落 VCall，延后）。
+    public Z42ClassType SealedReceiverClass(Z42Type recvType) {
+        Z42ClassType ct = recvType as Z42ClassType;
+        if (ct == null) { return null; }
+        if (!ct.IsSealed) { return null; }
+        if (ct.GenericParamCount > 0) { return null; }   // v1：非泛型（规避 $N mangle）
+        if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return null; }
+        return ct;
+    }
+
+    // 解析 sealed receiver 上方法调用的**直接目标 FQ 名**（`QualifyClass(定义类)+"."+RegKey`，
+    // 逐字节匹配 IrGen 的 `_q(_classIrShortName)+"."+md.RegKey`）。methodKey = BoundCall.MethodName
+    // （MemberResolver 已置为**解析后 ms.RegKey**，重载已消歧、无需重解析）。沿 startCt→base 链找
+    // **最近声明该键且非 abstract 的本地非泛型类**：命中→FQ；越界（imported/泛型基类/abstract/未找到）
+    // → ""（调用方回落 VCall，永远安全）。
+    public string ResolveSealedTarget(Z42ClassType startCt, string methodKey, int argc) {
+        Z42ClassType ct = startCt;
+        int hops = 0;
+        while (ct != null && hops < 32) {
+            // 只在**本地非泛型**类上构造目标名（QualifyClass 对同-cu 本地类 = 当前 ns 前缀 = IrGen._q）。
+            if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return ""; }
+            if (ct.GenericParamCount > 0) { return ""; }
+            if (ct.Methods.ContainsKey(methodKey)) {
+                MethodSymbol ms = ct.Methods.Get(methodKey) as MethodSymbol;
+                if (ms == null) { return ""; }
+                // abstract 无 body 不可直呼（sealed 具体类应已 override，防御性）。
+                if (ms.HasDecl && ms.Decl != null && IrGenFacts._hasWord(ms.Decl.Mods, "abstract")) { return ""; }
+                return this.QualifyClass(ct.Name()) + "." + methodKey;
+            }
+            // 沿基链上溯（去泛型尖括号，同 ReceiverMethodIsVirtual）。
+            if (!ct.HasBase || ct.BaseName == "") { return ""; }
+            string bare = ct.BaseName;
+            int bi = 0;
+            while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
+            if (this.Symbols == null || !this.Symbols.HasClass(bare)) { return ""; }
+            ct = this.Symbols.GetClass(bare);
+            hops = hops + 1;
+        }
+        return "";
+    }
+
     // prim 别名 → 包装类名（镜像 TypeChecker._primWrapper；ChainHasMethod IC-3 映射用）。
     private static string _primWrapper(string n) {
         if (n == "string")              { return "String"; }

@@ -49,6 +49,10 @@ public static class DiagnosticCodes {
     public static string CtorArgMismatch          = "E0426";   // new C(args) 实参与本地 ctor 形参不匹配（防静默按位截断）
     public static string InvalidFuncConstraint    = "E0423";
     public static string IllegalCast              = "E0424";
+    // impl-sealed-semantics（E0416–E0419 已被 add-const-keyword 占用 → sealed 用 E0427–E0429）
+    public static string SealedInheritance        = "E0427";   // 不能继承 sealed 类
+    public static string SealedOverride           = "E0428";   // 不能 override 一个 sealed（override）方法
+    public static string SealedMethodNoBase       = "E0429";   // 方法级 sealed 必须 override 基类某 virtual 方法
     // partial types (add-partial-types)
     public static string PartialModifierMissing   = "E0430";   // 同名类型某声明未标 partial（须全部标）
     public static string PartialKindMismatch      = "E0431";   // 碎片 Kind（class/struct/record/interface）不一致

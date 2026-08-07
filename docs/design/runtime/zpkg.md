@@ -256,6 +256,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.32 | 2026-07-14 | [stabilize-dispatch-keys](../../spec/changes/stabilize-dispatch-keys/)（方案A） | 耦合 inner zbc 1.27。派发键一律全签名 mangle → 导出方法名 / SIGS / 内嵌 zbc `CallInstr` 操作数**全局重键**（键 = 方法自身签名纯函数，加/删重载不再 re-mangle 现有键 → 根治 params-for-Join 的 bootstrap 破坏）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举整树重编重键（旧种子读旧 runtime stdlib、当前源读新 `Z42_LIBS`，D7 分离）。落地 `Path.Join`/`String.Join` 的 `params` 重载 |
 | 0.33 | 2026-07-18 | [fix-crosspkg-interface-impl](../../spec/changes/fix-crosspkg-interface-impl/) | 耦合 inner zbc 1.28（接口 TYPE 条目加方法签名块，见 zbc changelog）。zpkg outer 段面不变。`TsigReconcile` 重建 imported 接口（名+方法）→ 跨包 `class X : IFace` / `is` / `as` / 接口方法派发全链修复。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.34 | 2026-08-05 | [add-escape-analysis-stack-alloc](../../spec/changes/add-escape-analysis-stack-alloc/) | 耦合 inner zbc 1.29（`ObjNew`/`ArrayNew`/`ArrayNewLit` 尾部 `u8` 栈分配标志，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
+| 0.35 | 2026-08-07 | [impl-sealed-semantics](../../spec/changes/impl-sealed-semantics/) | 耦合 inner zbc 1.30（SIGS method_flags bit2=sealed，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

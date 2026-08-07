@@ -268,3 +268,64 @@ void test_partial_interface_merge_methods() {
     Assert.Equal(true, ifoo.Methods.ContainsKey("B"));
     Assert.Equal(true, ifoo.IsPartial);
 }
+
+// ── impl-sealed-semantics: sealed 语义强制 + 简写 ────────────────────────────
+// 注：sealed 强制诊断由 SymbolCollector 发（进 coll.Diags），故读 coll.Diags 直接断言
+// （复用上方 add-const-keyword 的 `collectDiags` helper；SemanticDump.ErrorCount 只计
+// parse+TypeChecker，不含 collector diags——见 [[semanticdump-errorcount-skips-collector-diags]]）。
+
+[Test]
+void test_sealed_class_marked() {
+    var t = collect("sealed class S { public int X; }");
+    Assert.Equal(true, t.GetClass("S").IsSealed);
+    var t2 = collect("class P {}");
+    Assert.Equal(false, t2.GetClass("P").IsSealed);
+}
+
+[Test]
+void test_sealed_inherit_error() {
+    // 继承 sealed 类 → E0427
+    var d = collectDiags("sealed class A {} class B : A {}");
+    Assert.Equal(true, hasCode(d, "E0427"));
+}
+
+[Test]
+void test_sealed_class_implements_interface_ok() {
+    // sealed 类实现接口合法（sealed 只禁类继承，不禁接口实现）
+    var d = collectDiags("interface IFoo { void F(); } sealed class A : IFoo { public void F() {} }");
+    Assert.Equal(false, hasCode(d, "E0427"));
+}
+
+[Test]
+void test_override_sealed_method_error() {
+    // override 一个 sealed override 方法 → E0428
+    var d = collectDiags("class A { public virtual void M() {} }"
+                       + " class B : A { public sealed override void M() {} }"
+                       + " class C : B { public override void M() {} }");
+    Assert.Equal(true, hasCode(d, "E0428"));
+}
+
+[Test]
+void test_sealed_shorthand_ok() {
+    // 方法单写 sealed == sealed override（有匹配基类 virtual）→ 无 sealed 错
+    var d = collectDiags("class A { public virtual void M() {} }"
+                       + " class B : A { public sealed void M() {} }");
+    Assert.Equal(false, hasCode(d, "E0428"));
+    Assert.Equal(false, hasCode(d, "E0429"));
+}
+
+[Test]
+void test_sealed_shorthand_seals() {
+    // 简写 sealed 确实封死：子类再 override → E0428（证明 shorthand 等价 sealed override）
+    var d = collectDiags("class A { public virtual void M() {} }"
+                       + " class B : A { public sealed void M() {} }"
+                       + " class C : B { public override void M() {} }");
+    Assert.Equal(true, hasCode(d, "E0428"));
+}
+
+[Test]
+void test_sealed_non_override_error() {
+    // 方法 sealed 但无匹配基类 virtual → E0429（封死非 override 方法无意义）
+    var d = collectDiags("class A { public sealed void M() {} }");
+    Assert.Equal(true, hasCode(d, "E0429"));
+}

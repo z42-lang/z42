@@ -28,7 +28,9 @@ public static class Opt {
                                         //        循环不变纯调用 LICM 外提；add-pure-call-opt）
     public static int DeadBranch = 1024; // bit10：常量条件死分支消除（br.cond(常量 bool)→br 折叠 + ExcCount==0 时
                                         //        可达性移除死块；喂料来自 const 替换 / const-fold；add-const-keyword）
-    public static int All       = 2047; // ...|PureCall|DeadBranch
+    public static int Devirt    = 2048; // bit11：基于 sealed 的去虚化（receiver 静态类型是本地非泛型 sealed 类 →
+                                        //        VCall 降级为直接 Call，解锁 IrInline 内联；emit 时就地，add-sealed-devirt）
+    public static int All       = 4095; // ...|DeadBranch|Devirt
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {
@@ -48,6 +50,7 @@ public static class Opt {
         if (name == "readonly-load") { return Opt.ReadonlyLoad; }
         if (name == "pure-call")  { return Opt.PureCall; }
         if (name == "dead-branch"){ return Opt.DeadBranch; }
+        if (name == "devirt")     { return Opt.Devirt; }
         if (name == "all")        { return Opt.All; }
         if (name == "none")       { return Opt.None; }
         return -1;
