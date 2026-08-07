@@ -1,0 +1,13 @@
+namespace Demo.Sld;
+using Demo.Base;
+using Std;
+// sealed 自身 override（devirt 目标=本包 Circle.Area）
+public sealed class Circle : Shape {
+    private int r;
+    public Circle(int radius) { this.r = radius; }
+    public override int Area() { return this.r * this.r; }
+}
+// sealed 继承**另一包**基类方法(不 override)→ devirt 目标=demo.base 的 Tagged.Tag(跨包基类!)
+public sealed class Leaf : Tagged {
+    public int extra() { return 7; }
+}

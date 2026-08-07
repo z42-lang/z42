@@ -198,35 +198,71 @@ public sealed class EmitContext {
     }
 
     // receiver 静态类型若是**可去虚化的 sealed 类**返回其 Z42ClassType，否则 null。
-    // v1 边界：本地声明（LocalClasses）+ 非泛型 sealed 类——sealed 不可继承 → runtime 类型必是它
-    // 本身 → 方法目标编译期唯一。imported / 泛型 sealed → null（回落 VCall，延后）。
+    // 边界：非泛型 sealed 类（本地或 imported）——sealed 不可继承 → runtime 类型必是它本身 → 方法目标
+    // 编译期唯一。泛型 sealed → null（回落 VCall，延后）。imported 支持见 extend-sealed-devirt-imported。
     public Z42ClassType SealedReceiverClass(Z42Type recvType) {
         Z42ClassType ct = recvType as Z42ClassType;
         if (ct == null) { return null; }
         if (!ct.IsSealed) { return null; }
-        if (ct.GenericParamCount > 0) { return null; }   // v1：非泛型（规避 $N mangle）
-        if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return null; }
+        if (ct.GenericParamCount > 0) { return null; }   // 非泛型（规避 $N mangle）
+        // extend-sealed-devirt-imported：本地（QualifyClass=当前 ns）或 imported（QualifyClass 经
+        // ImportedClassNs=源 ns）——两者 QualifyClass 都能给出与发射一致的 FQ；两者皆非则不去虚化。
+        if (!this._devirtQualifiable(ct.Name())) { return null; }
         return ct;
+    }
+
+    // 去虚化目标名可否用 `QualifyClass(name)+"."+RegKey` 精确构造：本地声明类（当前 ns）或 imported 类
+    // （ImportedClassNs 里的源 ns）。两者皆非 → QualifyClass 会误加当前 ns → 不可去虚化（回落 VCall）。
+    private bool _devirtQualifiable(string name) {
+        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(name)) { return true; }
+        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(name)) { return true; }
+        return false;
+    }
+
+    // 全限定名 fq 是否为**依赖包已发射的真实函数**（DependencyIndex.AddModule 把每个跨包函数按其
+    // 完整 FQ 注册进 Statics，行 110）。imported sealed 去虚化用它排除「TSIG 展平的继承方法」——
+    // 派生类 Methods 命中但本类未声明时，`QualifyClass(派生类)+key` 不在 Deps → 回落基链上溯。
+    private bool _depHasFunction(string fq) {
+        return this.Deps != null && this.Deps.Statics.ContainsKey(fq);
     }
 
     // 解析 sealed receiver 上方法调用的**直接目标 FQ 名**（`QualifyClass(定义类)+"."+RegKey`，
     // 逐字节匹配 IrGen 的 `_q(_classIrShortName)+"."+md.RegKey`）。methodKey = BoundCall.MethodName
     // （MemberResolver 已置为**解析后 ms.RegKey**，重载已消歧、无需重解析）。沿 startCt→base 链找
-    // **最近声明该键且非 abstract 的本地非泛型类**：命中→FQ；越界（imported/泛型基类/abstract/未找到）
-    // → ""（调用方回落 VCall，永远安全）。
+    // **最近声明该键且非 abstract 的可限定（本地或 imported）非泛型类**：命中→FQ；越界（不可限定基类/
+    // 泛型基类/abstract/未找到）→ ""（调用方回落 VCall，永远安全）。imported：extend-sealed-devirt-imported。
     public string ResolveSealedTarget(Z42ClassType startCt, string methodKey, int argc) {
         Z42ClassType ct = startCt;
         int hops = 0;
         while (ct != null && hops < 32) {
-            // 只在**本地非泛型**类上构造目标名（QualifyClass 对同-cu 本地类 = 当前 ns 前缀 = IrGen._q）。
-            if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return ""; }
+            // 只在**可限定非泛型**类上构造目标名（QualifyClass 给出与 IrGen 发射一致的 FQ——本地=当前 ns、
+            // imported=ImportedClassNs 源 ns）。
+            if (!this._devirtQualifiable(ct.Name())) { return ""; }
             if (ct.GenericParamCount > 0) { return ""; }
             if (ct.Methods.ContainsKey(methodKey)) {
                 MethodSymbol ms = ct.Methods.Get(methodKey) as MethodSymbol;
                 if (ms == null) { return ""; }
                 // abstract 无 body 不可直呼（sealed 具体类应已 override，防御性）。
                 if (ms.HasDecl && ms.Decl != null && IrGenFacts._hasWord(ms.Decl.Mods, "abstract")) { return ""; }
-                return this.QualifyClass(ct.Name()) + "." + methodKey;
+                string fq = this.QualifyClass(ct.Name()) + "." + methodKey;
+                // 本地类：SymbolCollector 只填**声明于本类**的方法 → Methods 命中即「本类声明」，
+                // 目标就是本类发射的函数（Deps 不含本包函数，不能拿 Deps 校验）。直接返回。
+                if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) {
+                    return fq;
+                }
+                // imported 类：TSIG 把**继承**方法展平进每个派生类的 Methods（ImportedSymbolLoader
+                // _fillClass 行 266-293）→ Methods 命中**不等于**本类声明。若本类只是继承而非声明，
+                // `QualifyClass(派生类)+"."+key` 指向一个从未发射的函数（如 demo.sld.Leaf.Tag，真身是
+                // demo.base.Tagged.Tag）→ 运行期 undefined function。故用 Deps（跨包已发射函数按 FQ 建键，
+                // DependencyIndex.AddModule 行 110）校验该 FQ 确为真实发射函数：命中→本类确有该函数、去虚化；
+                // 未命中→本类仅继承，继续沿基链上溯找真正声明类（其 FQ 会命中 Deps）。
+                if (this._depHasFunction(fq)) {
+                    // 定义类 imported（或跨-ns 自有类）→ 追踪其源 ns 入 DEPS，使加载器能解析这条直接 Call
+                    // （镜像 VCall 路径的 TrackImportedClass）。
+                    this.TrackImportedClass(ct.Name());
+                    return fq;
+                }
+                // 本类仅继承该方法（FQ 非真实发射）→ 不在此返回，继续 while 走基链。
             }
             // 沿基链上溯（去泛型尖括号，同 ReceiverMethodIsVirtual）。
             if (!ct.HasBase || ct.BaseName == "") { return ""; }
