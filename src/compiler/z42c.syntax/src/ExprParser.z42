@@ -298,7 +298,8 @@ public sealed class ExprParser {
         if (k == TokenKind.Identifier)    { this._p._advance(); return new IdentExpr(t.Text, t.Span); }
         // GS6: 类型关键字在 primary 表达式位置（int.Parse / string.FromChars 等）→ IdentExpr(keyword)
         if (this._p._isTypeKeyword(k)) { this._p._advance(); return new IdentExpr(t.Text, t.Span); }
-        this._p._diags.Error(DiagnosticCodes.UnexpectedToken, "unexpected token in expression", t.Span);
+        // EOF 处缺操作数（如 `1 +`）→ 可恢复不完整，供 REPL 续读；否则真正的表达式语法错。
+        this._p._errorOrIncomplete(DiagnosticCodes.UnexpectedToken, "unexpected token in expression");
         this._p._advance();
         return new IdentExpr("<error>", t.Span);
     }

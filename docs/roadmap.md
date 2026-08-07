@@ -357,6 +357,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | L3-G3a 关联类型 | `where T: IAdd<Output=T>` + zbc 扩展 + 运行时校验 | [language/generics.md](design/language/generics.md) |
+| REPL 泛型返回续读（repl-completeness-future-generic-return）| 泛型返回类型函数头 `List<int> foo()` 被 Classifier 漏判为表达式 → 无法多行续读；需 Classifier 泛型感知或 parser submission 模式 | [archive/2026-08-08-add-repl-parser-completeness/design.md](spec/archive/) Deferred 段 |
 | 闭包档 A 完整版 | 任何不逃逸 closure 栈分配（当前仅单变量子集）| [language/closure.md](design/language/closure.md) |
 | 闭包档 B 完整版 | 单态化 + 泛型形参标注（当前仅 alias 子集）| [language/closure.md](design/language/closure.md) |
 | 闭包档 C send 派生 | 与 concurrency 实施一起做 | [language/closure.md](design/language/closure.md) |

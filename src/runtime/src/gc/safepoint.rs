@@ -240,7 +240,7 @@ fn native_park_decr(ctx: &VmContext) {
 
 /// RAII: marks the calling `VmContext` GC-safe for the duration of a blocking
 /// native call. Wrap the outermost native read (`builtin_repl_readline` /
-/// `builtin_repl_readblock`) so a background prewarm thread's GC can proceed
+/// `builtin_repl_readline_indented`) so a background prewarm thread's GC can proceed
 /// while the main thread blocks on stdin. Drop restores the running-mutator
 /// state, waiting out any in-flight STW pause first.
 pub struct NativeParkGuard<'a> {

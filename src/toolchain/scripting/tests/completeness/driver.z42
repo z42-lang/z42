@@ -1,0 +1,33 @@
+// 驱动测试：REPL 输入完整性探针（add-repl-parser-completeness）。
+// 驱动 Std.Scripting.Completeness.IsIncomplete，打印每个输入的判定，与 expected_output.txt 对账。
+// 覆盖：类型声明缺正文、自由函数缺正文、悬挂运算符、未闭合括号/语句块 → incomplete；
+//       完整声明/表达式/语句 → complete；真语法错（非 EOF）→ complete（交 Eval 报错）。
+namespace ReplCompletenessTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    // 不完整 → 应续读
+    _check("class B");
+    _check("class B {");
+    _check("void foo()");
+    _check("enum Color");
+    _check("1 +");
+    _check("f(1,");
+    _check("if (x > 0) {");
+    // 完整 → 交求值
+    _check("class B {}");
+    _check("1 + 2");
+    _check("void foo() {}");
+    _check("var n = 10;");
+    _check("42");
+    // 真语法错但当前非 EOF → complete（交 Eval 正常报错，不误当续读）
+    _check("class 1");
+}
+
+void _check(string src) {
+    if (Completeness.IsIncomplete(src)) { Console.WriteLine(src + " => incomplete"); }
+    else { Console.WriteLine(src + " => complete"); }
+}
