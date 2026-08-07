@@ -147,6 +147,44 @@ pub struct TypeDesc {
 /// generics metadata. Touched only by loader fixup, reflection /
 /// `DefaultOf` opcode, and constraint verification — never by hot
 /// dispatch.
+/// add-struct-value-semantics: reference-leaf kind in a value-struct's reference
+/// bitmap (mirrors the compiler's `StructLeafKind` for the two reference kinds;
+/// primitive leaves are never listed). Both are 16 B managed handles; the kind is
+/// retained so boxing / diagnostics can recover the precise kind. Copy and GC
+/// scan treat all reference leaves uniformly via `Value`, so the value logic does
+/// not branch on kind.
+pub const STRUCT_REF_ARC_STRING: u8 = 1;
+pub const STRUCT_REF_GCREF: u8 = 2;
+
+/// add-struct-value-semantics: runtime byte + reference layout of a value-struct
+/// type, delivered by the zbc TYPE-section struct block (A-use). `size` = the
+/// byte-blob size; `ref_offsets` / `ref_kinds` = the byte offset + kind of each
+/// reference leaf (parallel arrays, bitmap order). Pure-primitive structs have
+/// empty reference arrays. A type with no delivered layout resolves (in
+/// `interp::exec_struct::resolve_layout`) to a `size`-only empty layout, which
+/// reproduces the pre-A-use pure-primitive behavior byte-for-byte.
+#[derive(Debug, Default)]
+pub struct StructTypeLayout {
+    pub size: usize,
+    pub ref_offsets: Box<[u32]>,
+    pub ref_kinds: Box<[u8]>,
+}
+
+impl StructTypeLayout {
+    /// Map a reference-leaf byte offset to its index in `ref_offsets` (and thus a
+    /// blob's `refs` side-slice). Linear scan — reference leaves per struct are few.
+    #[inline]
+    pub fn ref_index(&self, byte_off: u32) -> Option<usize> {
+        self.ref_offsets.iter().position(|&o| o == byte_off)
+    }
+
+    /// Number of reference leaves (= a blob's `refs` length for this type).
+    #[inline]
+    pub fn ref_count(&self) -> usize {
+        self.ref_offsets.len()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
@@ -201,6 +239,12 @@ pub struct TypeDescCold {
     /// `Type.GetMethods()`; presence mirrors `class_flags & CLASS_FLAG_INTERFACE`.
     /// Empty for non-interface types.
     pub iface_methods: Box<[super::bytecode::IfaceMethodSig]>,
+    /// add-struct-value-semantics (A-use): the value-struct byte + reference
+    /// layout (from the zbc TYPE-section struct block, present only when
+    /// `class_flags & CLASS_FLAG_STRUCT`). Shared (`Arc`) so `StructAlloc` can
+    /// hand it to every blob it allocates without recomputing. `None` for
+    /// non-struct types and structs whose module predates the block.
+    pub struct_layout: Option<std::sync::Arc<StructTypeLayout>>,
 }
 
 impl TypeDesc {
@@ -229,6 +273,14 @@ impl TypeDesc {
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
     /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
     #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
+    /// add-struct-value-semantics: the value-struct byte + reference layout, if
+    /// this is a struct with a delivered TYPE-section struct block. Cloned `Arc`
+    /// (cheap) so `StructAlloc` can share one layout across all blobs of the type.
+    #[inline] pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
+        self.cold.as_ref().and_then(|c| c.struct_layout.clone())
+    }
+    /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
+    #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & super::bytecode::CLASS_FLAG_STRUCT != 0 }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
     #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & super::bytecode::CLASS_FLAG_ENUM != 0 }
     #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & super::bytecode::CLASS_FLAG_DELEGATE != 0 }

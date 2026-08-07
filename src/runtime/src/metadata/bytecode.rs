@@ -91,6 +91,7 @@ impl Module {
             interfaces:             c.interfaces.clone(),
             enum_members:           c.enum_members.clone(),
             iface_methods:          c.iface_methods.clone(),
+            struct_layout:          c.struct_layout.clone(),
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),
@@ -195,6 +196,26 @@ pub struct ClassDesc {
     /// Empty for non-interface classes.
     #[serde(default)]
     pub iface_methods: Box<[IfaceMethodSig]>,
+    /// add-struct-value-semantics (A-use): the value-struct byte + reference
+    /// layout, present only when `class_flags & CLASS_FLAG_STRUCT` (parsed from
+    /// the zbc TYPE-section struct block). Threaded into
+    /// `TypeDescCold::struct_layout`; consumed by `StructAlloc` to size + scan
+    /// blobs. `None` for non-struct classes and old zbc without the block.
+    #[serde(default)]
+    pub struct_layout: Option<StructLayoutDesc>,
+}
+
+/// add-struct-value-semantics (A-use): serialized value-struct layout carried in
+/// `ClassDesc` (parsed from the zbc TYPE-section struct block). `size` = byte-blob
+/// size; `ref_offsets` / `ref_kinds` = each reference leaf's byte offset + kind
+/// (`STRUCT_REF_*`), parallel arrays. Pure-primitive structs have empty ref arrays.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StructLayoutDesc {
+    pub size: u32,
+    #[serde(default)]
+    pub ref_offsets: Box<[u32]>,
+    #[serde(default)]
+    pub ref_kinds: Box<[u8]>,
 }
 
 /// add-interface-member-reflection: one interface-declared method signature,

@@ -558,6 +558,11 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             } else {
                 Box::new([])
             };
+        // add-struct-value-semantics: the value-struct byte+ref layout block
+        // (gated on CLASS_FLAG_STRUCT) is parsed here once the format bump lands
+        // (commit 2). Until then no writer emits it, so it stays `None` and old
+        // 1.30 zpkgs (whose struct classes carry no block) keep loading.
+        let struct_layout_desc: Option<crate::metadata::bytecode::StructLayoutDesc> = None;
         classes.push(ClassDesc {
             name,
             base_class,
@@ -570,6 +575,9 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             interfaces: interfaces.into_boxed_slice(),
             enum_members,
             iface_methods,
+            // add-struct-value-semantics: populated by the struct-block parse
+            // below (commit 2 wire); `None` until then / for non-struct classes.
+            struct_layout: struct_layout_desc,
         });
     }
     Ok(classes)

@@ -12,17 +12,38 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
+use crate::metadata::types::StructTypeLayout;
 use super::Frame;
 
 /// `StructAlloc dst, type_name, size` — allocate a zero-initialized blob in the
-/// per-context struct arena; `dst` = `Value::StructRef` handle.
+/// per-context struct arena; `dst` = `Value::StructRef` handle. The blob's byte +
+/// reference layout comes from the type's TYPE-section struct block (via
+/// [`resolve_layout`]); pure-primitive types fall back to a `size`-only layout.
 pub(super) fn struct_alloc(
     ctx: &VmContext, frame: &mut Frame, dst: u32, type_name: &str, size: u32,
 ) -> Result<()> {
     let frame_id = frame.frame_id;
-    let idx = ctx.struct_arena.lock().alloc(frame_id, Arc::from(type_name), size as usize);
+    let layout = resolve_layout(ctx, type_name, size);
+    let idx = ctx.struct_arena.lock().alloc(frame_id, Arc::from(type_name), layout);
     frame.set(dst, Value::StructRef { idx, frame_id });
     Ok(())
+}
+
+/// Resolve a value-struct type's runtime layout (byte size + reference bitmap).
+/// A-use delivers it via the loaded `TypeDesc`; a type without a delivered layout
+/// (or before the TYPE-section block reaches the runtime) falls back to a
+/// `size`-only pure-primitive layout — byte-for-byte the pre-A-use behavior.
+fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
+    if let Some(td) = ctx.try_lookup_type(type_name) {
+        if let Some(layout) = td.struct_layout() {
+            return layout;
+        }
+    }
+    Arc::new(StructTypeLayout {
+        size: size as usize,
+        ref_offsets: Box::new([]),
+        ref_kinds: Box::new([]),
+    })
 }
 
 /// `StructCopy dst, src, size` — copy the `src` blob into the `dst` blob (both
@@ -35,29 +56,47 @@ pub(super) fn struct_copy(
     ctx.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
 }
 
-/// `StructFieldGetPrim dst, base, byte_off, kind` — read the primitive leaf at
-/// `byte_off` of the `base` blob into `dst`, decoded per `kind`.
+/// `StructFieldGetPrim dst, base, byte_off, kind` — read the leaf at `byte_off` of
+/// the `base` blob into `dst`. A primitive `kind` decodes bytes; a reference
+/// `kind` (`string`/object/array) reads the `Value` from the blob's reference
+/// side-slice (see [`super::struct_arena`]).
 pub(super) fn struct_field_get_prim(
     ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, byte_off: u32, kind: u8,
 ) -> Result<()> {
     let (idx, fid) = as_struct_ref(frame.get(base)?, "StructFieldGetPrim base")?;
-    let off = byte_off as usize;
-    let w = prim_width(kind)?;
-    let val = ctx.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))??;
+    let val = if is_ref_tag(kind) {
+        ctx.struct_arena.lock().get_ref(idx, fid, byte_off)?
+    } else {
+        let off = byte_off as usize;
+        let w = prim_width(kind)?;
+        ctx.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))??
+    };
     frame.set(dst, val);
     Ok(())
 }
 
-/// `StructFieldSetPrim base, byte_off, kind, val` — write primitive `val` into the
-/// `base` blob at `byte_off` (in-place; the value-struct lvalue write).
+/// `StructFieldSetPrim base, byte_off, kind, val` — write `val` into the `base`
+/// blob at `byte_off` (in place; the value-struct lvalue write). A primitive
+/// `kind` encodes bytes; a reference `kind` stores the `Value` into the blob's
+/// reference side-slice (no write barrier — the arena is a GC root).
 pub(super) fn struct_field_set_prim(
     ctx: &VmContext, frame: &mut Frame, base: u32, byte_off: u32, kind: u8, val: u32,
 ) -> Result<()> {
     let (idx, fid) = as_struct_ref(frame.get(base)?, "StructFieldSetPrim base")?;
     let v = frame.get(val)?.clone();
+    if is_ref_tag(kind) {
+        return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, v);
+    }
     let off = byte_off as usize;
     let w = prim_width(kind)?;
     ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, &v))?
+}
+
+/// Whether a leaf `TypeTag` denotes a reference leaf (`string` / object / array),
+/// which lives in the blob's `refs` side-slice rather than byte-packed in `bytes`.
+#[inline]
+fn is_ref_tag(kind: u8) -> bool {
+    matches!(kind, ty::TAG_STR | ty::TAG_OBJECT | ty::TAG_ARRAY)
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
