@@ -18,7 +18,7 @@ use super::bytecode::{
 use super::bytecode::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFieldAddrInsn, LoadFnCachedInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
-    StaticSetInsn, TypeofInsn, VCallInsn,
+    StaticSetInsn, StructAllocInsn, TypeofInsn, VCallInsn,
 };
 use super::formats::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC};
 use super::types::ExecMode;
@@ -281,6 +281,12 @@ const OP_LOAD_FIELD_ADDR: u8 = 0xA2;
 const OP_DEFAULT_OF: u8 = 0xB0;
 // fix-numeric-cast-lowering (2026-05-13): explicit numeric type conversion.
 const OP_CONVERT: u8 = 0xB1;
+
+// add-struct-value-semantics Phase A: blob value type instructions (byte-region ops).
+const OP_STRUCT_ALLOC: u8          = 0xC0;
+const OP_STRUCT_COPY: u8           = 0xC1;
+const OP_STRUCT_FIELD_GET_PRIM: u8 = 0xC2;
+const OP_STRUCT_FIELD_SET_PRIM: u8 = 0xC3;
 
 // ── Type tag constants ────────────────────────────────────────────────────────
 
@@ -1223,6 +1229,31 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             let field = pool_str_owned(pool, c.read_u32()?)?;
             let val   = c.read_u16()? as u32;
             Instruction::StaticSet(Box::new(StaticSetInsn { field, val }))
+        }
+        // add-struct-value-semantics Phase A: blob value type instructions
+        // (byte layout mirrors z42 ZbcInstr encode).
+        OP_STRUCT_ALLOC => {
+            let type_name = pool_str_owned(pool, c.read_u32()?)?;
+            let size = c.read_u32()?;
+            Instruction::StructAlloc(Box::new(StructAllocInsn { dst, type_name, size }))
+        }
+        OP_STRUCT_COPY => {
+            let src  = c.read_u16()? as u32;
+            let size = c.read_u32()?;
+            Instruction::StructCopy { dst, src, size }
+        }
+        OP_STRUCT_FIELD_GET_PRIM => {
+            let base     = c.read_u16()? as u32;
+            let byte_off = c.read_u32()?;
+            let kind     = c.read_u8()?;
+            Instruction::StructFieldGetPrim { dst, base, byte_off, kind }
+        }
+        OP_STRUCT_FIELD_SET_PRIM => {
+            let base     = c.read_u16()? as u32;
+            let byte_off = c.read_u32()?;
+            let kind     = c.read_u8()?;
+            let val      = c.read_u16()? as u32;
+            Instruction::StructFieldSetPrim { base, byte_off, kind, val }
         }
         OP_OBJ_NEW => {
             let class_name = id_map.resolve_type(c.read_u32()?)?;

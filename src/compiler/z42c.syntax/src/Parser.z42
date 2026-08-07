@@ -173,9 +173,31 @@ public sealed class Parser {
                 this._advance(); ns = this._declP._parseQualifiedName(); hasNs = true; this._expectSemi();
                 continue;
             }
+            // add-global-using：`global`（上下文 token，非关键字）+ `using` → 包级 using。
+            // 置于普通 using 判定前——`global` 是 Identifier，仅在紧跟 `using` 时特判。
+            if (k == TokenKind.Identifier && this._peek().Text == "global" && this._peekAt(1).Kind == TokenKind.Using) {
+                Span gsp = this._peek().Span;
+                this._advance();   // global
+                this._advance();   // using
+                string gn = this._declP._parseQualifiedName(); this._expectSemi();
+                UsingDecl gu = new UsingDecl(gn, gsp); gu.IsGlobal = true;
+                decls = this._declP._growDecls(decls, n); decls[n] = gu; n = n + 1;
+                continue;
+            }
             if (k == TokenKind.Using) {
                 Span usp = this._peek().Span;
-                this._advance(); string un = this._declP._parseQualifiedName(); this._expectSemi();
+                this._advance();
+                // add-type-alias：`using Id = Type;`——`using` 后 Identifier 紧跟 `=` → 类型别名。
+                if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.Eq) {
+                    Token an = this._peek();
+                    this._advance();   // Id
+                    this._advance();   // =
+                    TypeExpr at = this._typeP._parseType();
+                    this._expectSemi();
+                    decls = this._declP._growDecls(decls, n); decls[n] = new UsingAliasDecl(an.Text, at, usp); n = n + 1;
+                    continue;
+                }
+                string un = this._declP._parseQualifiedName(); this._expectSemi();
                 decls = this._declP._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
                 continue;
             }

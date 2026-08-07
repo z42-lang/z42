@@ -93,6 +93,11 @@ pub fn written_reg(instr: &Instruction) -> Option<u32> {
         Instruction::CallIndirect { dst, .. } => Some(*dst),
         Instruction::MkClos(insn)             => Some(insn.dst),
         Instruction::Convert      { dst, .. } => Some(*dst),
+        // add-struct-value-semantics Phase A: blob value type instructions.
+        Instruction::StructAlloc(insn)              => Some(insn.dst),
+        Instruction::StructCopy { dst, .. }         => Some(*dst),
+        Instruction::StructFieldGetPrim { dst, .. } => Some(*dst),
+        Instruction::StructFieldSetPrim { .. }      => None,
     }
 }
 
@@ -1492,6 +1497,15 @@ pub fn translate_function(
                 }
                 Instruction::LoadFieldAddr(_) => {
                     bail!("JIT cannot translate LoadFieldAddr yet (impl-ref-out-in-runtime; interp only)");
+                }
+                // add-struct-value-semantics Phase A: blob value type instructions
+                // are interp-only (JIT support is Phase D); bail → function falls
+                // back to interp. z42c doesn't emit these until A-use (2c) anyway.
+                Instruction::StructAlloc(_)
+                | Instruction::StructCopy { .. }
+                | Instruction::StructFieldGetPrim { .. }
+                | Instruction::StructFieldSetPrim { .. } => {
+                    bail!("JIT cannot translate struct value-type instructions yet (Phase D; interp only)");
                 }
                 // 2026-05-07 D-8b-3 Phase 2 + switch-multicast-funcpredicate-to-generic-exception:
                 // emit `jit_default_of(frame, ctx, dst, param_index)` helper call.

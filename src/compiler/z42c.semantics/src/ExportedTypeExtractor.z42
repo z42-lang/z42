@@ -13,6 +13,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 
 public static class ExportedTypeExtractor {
 

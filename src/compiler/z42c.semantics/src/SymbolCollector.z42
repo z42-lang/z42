@@ -160,6 +160,7 @@ public sealed class SymbolCollector {
     // 解析 target（NamedType→已注册类）+ trait（接口名）→ 把方法并入 target.Methods、
     // trait 并入 target.InterfaceNames。严格校验（接口方法齐备/arity）留待后续。
     private void _passImpls(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = cu.Decls[i];
@@ -207,6 +208,7 @@ public sealed class SymbolCollector {
     // 读取；此前仅含自有字段 → 派生类裸访问继承字段（`name = n`）解析失败 → 写入幻影局部 → 运行期 null。
     // _classDesc 用 AST c.Members 发 TYPE 段字段，不读此表 → 合并不污染字段布局。
     private void _passInheritFields(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -580,6 +582,7 @@ public sealed class SymbolCollector {
 
     // Pass B：成员 + 顶层 func
     private void _passMembers(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：解析成员类型时本 CU 别名生效
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -822,6 +825,7 @@ public sealed class SymbolCollector {
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
                                string[] ifaces, int ifc, bool needsMangle, string file) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
         ct.IsSealed = this._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;

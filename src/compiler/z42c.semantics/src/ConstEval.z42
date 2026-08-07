@@ -8,6 +8,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 
 public static class ConstEval {
     // 求值 e；env = 当前作用域已定义 const（裸名，及 `Class.FIELD` 限定名）→ ConstValue。

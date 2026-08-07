@@ -749,6 +749,12 @@ pub enum Value {
     /// add-escape-analysis-stack-alloc: 不逃逸数组的栈 arena 句柄（`VmContext::stack_arr_arena`）。
     /// 语义同 `StackObject`。
     StackArray { idx: u32, frame_id: u32 } = 15,
+    /// add-struct-value-semantics Phase A: blob 值类型（多字段 struct）句柄。`idx` 索引 per-context
+    /// 字节 arena（`VmContext::struct_arena`）里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
+    /// guard，同 `StackObject`）。未装箱 struct 值以此句柄在寄存器间流转；字节 blob 存 arena。
+    /// blob 内引用叶子由 arena 的 root scanner 按 TypeDesc 引用位图扫描（trace_children 视为叶子，
+    /// 避免双计）。
+    StructRef { idx: u32, frame_id: u32 } = 16,
 }
 
 /// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
@@ -923,10 +929,14 @@ impl Value {
             // walking them here would double-count. A stack handle appearing in
             // a heap object's slot would be an escape-analysis bug; the debug
             // asserts in the store paths (FieldSet/ArraySet/StaticSet) catch it.
+            // add-struct-value-semantics: StructRef is a leaf here — its blob's
+            // reference leaves are scanned directly by the struct-arena root
+            // scanner (mirrors StackObject), so walking here would double-count.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
             | Value::PinnedView(_) | Value::StackClosure(_)
-            | Value::StackObject { .. } | Value::StackArray { .. } => {}
+            | Value::StackObject { .. } | Value::StackArray { .. }
+            | Value::StructRef { .. } => {}
         }
     }
 }

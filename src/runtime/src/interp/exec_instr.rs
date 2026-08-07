@@ -38,7 +38,7 @@ pub fn exec_instr(
     func: &Function, block_idx: usize, instr_idx: usize,
     instr: &Instruction,
 ) -> Result<Option<Value>> {
-    use super::{exec_address, exec_array, exec_call, exec_object, exec_value, exec_vcall};
+    use super::{exec_address, exec_array, exec_call, exec_object, exec_struct, exec_value, exec_vcall};
     #[cfg(feature = "native-interop")]
     use super::exec_native;
 
@@ -320,6 +320,17 @@ pub fn exec_instr(
                 "native interop opcode encountered in a build with `native-interop` feature disabled"
             );
         }
+        // add-struct-value-semantics Phase A: blob value type instructions,
+        // executed on the per-context byte arena. z42c does not emit these until
+        // A-use (2c); until then they only appear in Rust unit tests.
+        Instruction::StructAlloc(insn) =>
+            exec_struct::struct_alloc(ctx, frame, insn.dst, &insn.type_name, insn.size)?,
+        Instruction::StructCopy { dst, src, size } =>
+            exec_struct::struct_copy(ctx, frame, *dst, *src, *size)?,
+        Instruction::StructFieldGetPrim { dst, base, byte_off, kind } =>
+            exec_struct::struct_field_get_prim(ctx, frame, *dst, *base, *byte_off, *kind)?,
+        Instruction::StructFieldSetPrim { base, byte_off, kind, val } =>
+            exec_struct::struct_field_set_prim(ctx, frame, *base, *byte_off, *kind, *val)?,
     }
     Ok(None)
 }

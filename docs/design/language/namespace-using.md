@@ -108,6 +108,69 @@ PackageCompiler 把每个源文件作为一个 CU 处理：
 
 ---
 
+## file-scoped usings（强制，2026-08-07 add-global-using）
+
+> **历史**：此前 `using` 事实上**包级泄漏**——`allUsings` 跨文件聚合激活依赖包，一个文件
+> `using Std.Text;` 就让整包所有文件都能用 `StringBuilder`。这与 C#/Rust/Python/Go/TS 全部的
+> 文件级作用域相悖，是隐性 footgun（删兄弟的 using → 不相关文件神秘崩）。现改为**强制文件级**。
+
+**规则**：每个源文件**实际用到的跨包依赖 namespace** 必须被本文件的 `using`
+（∪ prelude `{Std, Std.Runtime}` ∪ 本文件 namespace）覆盖，否则报
+`E0436: namespace X is used but not imported in this file; add using X;`。
+
+- **实现**：`IrDump.BuildPackageCus` 每个 CU 编完后 `_enforceFileScope`——比对该 CU 的
+  `UsedDepNs`（codegen 实际命中的依赖 ns，DEPS 用同一份）与本文件 usings。**只读 UsedDepNs +
+  追加诊断，不改任何 emit 字节** → 自举字节不动点不破。
+- **范围**：只管**跨包依赖**（`z42.ir` / `z42.text` 等）；同包跨-ns（workspace 兄弟成员、intraSymbols
+  互见）不受此约束（那由 workspace 链接解析，非 using）。同包严格 file-scope 留 follow-up。
+
+### global using（逃生舱）
+
+`global using X;`（`global` 是**上下文 token**，非新关键字——仅 CU 顶层紧跟 `using` 时识别）
+**包级生效**：注入到包内每个 CU 的 using 集，满足其 file-scope 检查。团队 prelude / 真正处处要的
+ns 一条 `global using` 搞定，file-scope 默认 + global using 可选 = C# 10 的成熟模型。
+
+```z42
+// prelude.z42（一处声明）
+global using Std.IO;
+global using Std.Collections;
+// 包内其它文件无需再 using 即可用 Console / List<T>
+```
+
+- 实现：`UsingDecl.IsGlobal`（Parser 顶层 `global`+`using` 识别）；
+  `IrDump._injectGlobalUsings` 收集全包 global usings 注入每个 CU 的 `Decls`（既有 per-CU using
+  提取点 + `_enforceFileScope` 自动纳入）。
+- 引入见 change `add-global-using`（`docs/spec/changes/` 或归档）。
+
+---
+
+## 类型别名 `using Id = T;`（2026-08-07 add-type-alias）
+
+借鉴 C# `using X = T;`：给类型起一个**文件级**别名，本文件内该名替换为目标类型。用于压缩长泛型
+类型或语义命名。
+
+```z42
+using UserId = int;                       // 基本类型别名
+using Row    = Dictionary<string, int>;   // 压缩长泛型类型
+using Names  = List<string>;
+
+class Account { public UserId Id; }       // 字段/参数/返回/局部/new 位置皆可用
+UserId next(UserId c) { return c + 1; }
+Row r = new Row();                        // 泛型别名作 new 类型
+```
+
+- **语法**：`using` 后紧跟 `Identifier =` → 类型别名（区别于 `using ns;` 导入与 `global using`）。
+  目标是任意 `TypeExpr`（含泛型实参）。
+- **语义**：**文件级**（同 using）——别名只在声明它的文件生效。别名与目标类型**完全互通**
+  （`UserId` 就是 `int`，可互相赋值）。
+- **实现**：`UsingAliasDecl(Name, Target)`；`SymbolTable.CurrentAliases`（per-CU：符号收集
+  `_passMembers/_passImpls/_passInheritFields` + 绑定 `TypeChecker.Infer` 各处设置本 CU 别名表）；
+  `SymbolTable.ResolveTypeP` 对**裸名、0 类型实参**的 `NamedType` 查别名表并递归解析目标（类型形参
+  优先于别名）。别名在类型解析处即被替换 → 下游 codegen 见目标类型，无需改动。
+- 引入见 change `add-type-alias`。
+
+---
+
 ## strict-using-resolution (2026-04-28)
 
 **核心规则**：

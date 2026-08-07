@@ -1,0 +1,10 @@
+// 本文件没有任何 using —— 却能用 Console / StringBuilder，
+// 全靠 prelude.z42 的 global using（file-scoped usings 下，这是唯一能跨文件生效的方式）。
+namespace Demo;
+
+void Main() {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("hello ");
+    sb.Append("global using");
+    Console.WriteLine(sb.ToString());   // hello global using
+}

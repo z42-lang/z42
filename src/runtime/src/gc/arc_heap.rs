@@ -1955,6 +1955,10 @@ impl MagrGC for ArcMagrGC {
             // accounting hook and is never called on them; the arm exists only for
             // exhaustiveness. The handle itself is just a (idx, frame_id) pair.
             Value::StackObject { .. } | Value::StackArray { .. } => size_of::<Value>(),
+            // add-struct-value-semantics: struct blob lives in the per-context
+            // struct arena, not the GC heap — same as stack handles. The handle
+            // itself is just an (idx, frame_id) pair.
+            Value::StructRef { .. } => size_of::<Value>(),
         }
     }
 

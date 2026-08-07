@@ -3,6 +3,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 
 // 参数默认值折叠结果（fold-nonliteral-param-defaults）。Kind 语义同 SIGS default_kind
 // （0=未折叠 / 1=null / 2=i64 / 3=f64bits / 4=bool / 5=str）。

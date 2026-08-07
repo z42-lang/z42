@@ -1,6 +1,9 @@
 // z42c.semantics SymbolCollector 单测（1A-3）：源 → parse → 符号表（类字段/方法签名 + 顶层 func）。
 namespace Z42cSemanticsCollectTests;
 
+using Z42.Project;
+using Z42.IR;
+
 using Std;
 using Std.Test;
 using Z42.Syntax;

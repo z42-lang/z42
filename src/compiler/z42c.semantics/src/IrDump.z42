@@ -102,6 +102,7 @@ public static class IrDump {
                                                     DependencyIndex deps, ImportedSymbols imported,
                                                     bool isRelease, IrModule[] cachedModules, int optSet) {
         int i = 0;
+        IrDump._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
         SymbolCollector coll = new SymbolCollector();
         SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
         // infer-var-field-types：SymbolCollect 后、TSIG Export 前——从初始化器推断 static var
@@ -167,6 +168,7 @@ public static class IrDump {
             } else {
                 r[i] = IrDump._compileCu(cus[i], files[i], symbols, deps, imported, classNs, localClasses, isRelease, partialMerged, optSet);
             }
+            IrDump._enforceFileScope(cus[i], files[i], r[i]);   // add-file-scoped-usings：跨包未-using 报错
             string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
             if (cus[i].HasNamespace) { ns2 = cus[i].Namespace; }
             r[i].Exported = ExportedTypeExtractor.ExtractP(cus[i], symbols, ns2, allFuncs, afc, pkgClassMap, classNs);
@@ -369,6 +371,91 @@ public static class IrDump {
     // 「`using Std.Test` 但裸 `Assert.Equal`（靠 prelude 的 Std.Assert）」被唯一命中误消歧到 Std.Test.Assert
     // （common-pitfalls §1 的「AssertionError→values not equal」回归）。纳入后 Std.Assert 与 Std.Test.Assert
     // 同时活跃 → 歧义 → GetStaticScoped 返回 null → 回落短键 prelude-first → Std.Assert（既有行为，字节不动）。
+    // add-global-using：收集全包 `global using` 名，注入到每个 CU 的 Decls（缺则补），
+    // 使其对每个文件的名字解析生效。既有 per-CU using 提取点（_activeNamespaces 等）自动纳入。
+    // 幂等：注入的 UsingDecl.IsGlobal=false，重复调用时"已存在"检查跳过。
+    private static void _injectGlobalUsings(CompilationUnit[] cus, int count) {
+        string[] globals = new string[8];
+        int gc = 0;
+        int ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int di = 0;
+            while (di < cu.DeclCount) {
+                if (cu.Decls[di] is UsingDecl) {
+                    UsingDecl u = cu.Decls[di] as UsingDecl;
+                    if (u.IsGlobal) {
+                        bool seen = false;
+                        int g = 0; while (g < gc) { if (globals[g] == u.Name) { seen = true; } g = g + 1; }
+                        if (!seen) {
+                            if (gc == globals.Length) {
+                                string[] b = new string[globals.Length * 2];
+                                int m = 0; while (m < gc) { b[m] = globals[m]; m = m + 1; }
+                                globals = b;
+                            }
+                            globals[gc] = u.Name; gc = gc + 1;
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            ci = ci + 1;
+        }
+        if (gc == 0) { return; }
+        ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int g = 0;
+            while (g < gc) {
+                bool has = false;
+                int di = 0;
+                while (di < cu.DeclCount) {
+                    if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == globals[g]) { has = true; }
+                    di = di + 1;
+                }
+                if (!has) {
+                    if (cu.DeclCount == cu.Decls.Length) {
+                        Decl[] nb = new Decl[cu.Decls.Length * 2 + 1];
+                        int m = 0; while (m < cu.DeclCount) { nb[m] = cu.Decls[m]; m = m + 1; }
+                        cu.Decls = nb;
+                    }
+                    cu.Decls[cu.DeclCount] = new UsingDecl(globals[g], cu.Span);
+                    cu.DeclCount = cu.DeclCount + 1;
+                }
+                g = g + 1;
+            }
+            ci = ci + 1;
+        }
+    }
+
+    // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
+    // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime, 本 ns} 覆盖，否则 E0436。
+    // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
+    private static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
+        int u = 0;
+        while (u < cm.UsedDepNsCount) {
+            string ns = cm.UsedDepNs[u];
+            bool allowed = (ns == "Std" || ns == "Std.Runtime");
+            if (cu.HasNamespace && ns == cu.Namespace) { allowed = true; }
+            int di = 0;
+            while (di < cu.DeclCount) {
+                if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == ns) { allowed = true; }
+                di = di + 1;
+            }
+            if (!allowed) {
+                string pmsg = file + "(1,1): " + DiagnosticCodes.MissingUsing
+                    + ": namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
+                int oldn = cm.DiagCount;
+                string[] nw = new string[oldn + 1];
+                int q = 0; while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
+                nw[oldn] = pmsg;
+                cm.DiagMsgs = nw; cm.DiagCount = oldn + 1;
+                cm.ErrorCount = cm.ErrorCount + 1;
+            }
+            u = u + 1;
+        }
+    }
+
     private static string[] _activeNamespaces(CompilationUnit cu) {
         int uc = 0;
         int i = 0;
