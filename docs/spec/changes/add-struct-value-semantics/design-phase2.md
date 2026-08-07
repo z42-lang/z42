@@ -1,7 +1,15 @@
-# Design: P1 阶段 2 —— IR 指令 + 帧字节存储 + zbc 格式 bump（gate）
+# Design: Phase A —— blob 值类型（多字段 struct）IR 指令 + 帧字节存储 + zbc 格式 bump
 
-> 状态：🟡 DRAFT gate — 待 User 确认后才动 zbc writer/reader。基于探索报告（模板 commit =
-> escape-analysis `9fcc9a8b`, zbc 1.29）+ 关键发现（stdlib 基元包装类型是 struct）。
+> 状态：🟡 gate（2026-08-07 并入 B-radical 后重定位）。**本文 = 统一值类型程序的 Phase A（blob 值类型，
+> 多字段 struct）**，见总架构 [design-radical.md](design-radical.md)。
+>
+> **与 radical 的对账**：① Phase A **不碰基元**——基元保持现有 phantom-struct 模型直到 Phase B 整体替换，
+> 故本文 D-γ（基元包装 struct 交互）对 Phase A **不适用/推迟到 B**，无需在此裁决。② **A-support（2a+2b）
+> 不 bump 格式、不 emit**（只加编码/解码/执行能力，z42c 不发射→无 zbc 字节变化→self-host 字节不动）；
+> **A-use（2c）才 bump + emit**（codegen flip）。这比原文"2a 就 bump"更省一次格式窗口。③ D-α（per-context
+> 字节 arena）、D-δ（最小 4 条指令）、指令编码 D-δ 仍有效。
+>
+> 原文（下）保留作 blob 部分的指令/编码/Frame/GC 细节参考；stdlib 基元 struct 段落只在 Phase B 生效。
 
 ## 目标
 
