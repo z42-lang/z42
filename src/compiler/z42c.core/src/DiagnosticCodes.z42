@@ -56,6 +56,7 @@ public static class DiagnosticCodes {
     public static string PartialDuplicateMember   = "E0433";   // 碎片间重复成员（同名字段 / 同签名方法）
     public static string PartialMethodSigMismatch = "E0434";   // partial method 实现无匹配声明 / 声明与实现签名不一致
     public static string PartialNestedUnsupported = "E0435";   // 嵌套类型自身 partial（v1 不支持，design D9）
+    public static string MissingUsing = "E0436";               // 用了某依赖 ns 却未在本文件 using（file-scoped usings）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

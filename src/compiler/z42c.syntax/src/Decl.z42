@@ -85,8 +85,12 @@ public sealed class AttributedDecl : Decl {
 
 public sealed class UsingDecl : Decl {
     public string Name;
-    public UsingDecl(string name, Span span) { this.Span = span; this.Name = name; }
-    public override string Dump() { return "(using " + this.Name + ")"; }
+    public bool   IsGlobal;   // add-global-using：`global using X;` → 包级生效（注入每个 CU）
+    public UsingDecl(string name, Span span) { this.Span = span; this.Name = name; this.IsGlobal = false; }
+    public override string Dump() {
+        if (this.IsGlobal) { return "(global-using " + this.Name + ")"; }
+        return "(using " + this.Name + ")";
+    }
 }
 
 public sealed class FieldDecl : Decl {

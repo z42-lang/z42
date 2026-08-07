@@ -4,6 +4,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.Project;
 
 public sealed class ClassDescBuilder {
     private IrGen _g;

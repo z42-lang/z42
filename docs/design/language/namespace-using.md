@@ -108,6 +108,42 @@ PackageCompiler 把每个源文件作为一个 CU 处理：
 
 ---
 
+## file-scoped usings（强制，2026-08-07 add-global-using）
+
+> **历史**：此前 `using` 事实上**包级泄漏**——`allUsings` 跨文件聚合激活依赖包，一个文件
+> `using Std.Text;` 就让整包所有文件都能用 `StringBuilder`。这与 C#/Rust/Python/Go/TS 全部的
+> 文件级作用域相悖，是隐性 footgun（删兄弟的 using → 不相关文件神秘崩）。现改为**强制文件级**。
+
+**规则**：每个源文件**实际用到的跨包依赖 namespace** 必须被本文件的 `using`
+（∪ prelude `{Std, Std.Runtime}` ∪ 本文件 namespace）覆盖，否则报
+`E0436: namespace X is used but not imported in this file; add using X;`。
+
+- **实现**：`IrDump.BuildPackageCus` 每个 CU 编完后 `_enforceFileScope`——比对该 CU 的
+  `UsedDepNs`（codegen 实际命中的依赖 ns，DEPS 用同一份）与本文件 usings。**只读 UsedDepNs +
+  追加诊断，不改任何 emit 字节** → 自举字节不动点不破。
+- **范围**：只管**跨包依赖**（`z42.ir` / `z42.text` 等）；同包跨-ns（workspace 兄弟成员、intraSymbols
+  互见）不受此约束（那由 workspace 链接解析，非 using）。同包严格 file-scope 留 follow-up。
+
+### global using（逃生舱）
+
+`global using X;`（`global` 是**上下文 token**，非新关键字——仅 CU 顶层紧跟 `using` 时识别）
+**包级生效**：注入到包内每个 CU 的 using 集，满足其 file-scope 检查。团队 prelude / 真正处处要的
+ns 一条 `global using` 搞定，file-scope 默认 + global using 可选 = C# 10 的成熟模型。
+
+```z42
+// prelude.z42（一处声明）
+global using Std.IO;
+global using Std.Collections;
+// 包内其它文件无需再 using 即可用 Console / List<T>
+```
+
+- 实现：`UsingDecl.IsGlobal`（Parser 顶层 `global`+`using` 识别）；
+  `IrDump._injectGlobalUsings` 收集全包 global usings 注入每个 CU 的 `Decls`（既有 per-CU using
+  提取点 + `_enforceFileScope` 自动纳入）。
+- 引入见 change `add-global-using`（`docs/spec/changes/` 或归档）。
+
+---
+
 ## strict-using-resolution (2026-04-28)
 
 **核心规则**：

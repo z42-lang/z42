@@ -11,6 +11,7 @@
 //
 // Scope：static var 字段（REPL 只用 static）。实例 var 字段同缺陷，另立 follow-up。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Std;
 using Z42.Syntax;

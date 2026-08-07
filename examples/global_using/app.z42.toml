@@ -1,0 +1,10 @@
+# global_using 示例：一个文件 `global using` 一次，全包各文件无需再 using（file-scoped usings 的逃生舱）。
+[project]
+name = "global_using_demo"
+version = "0.1.0"
+kind = "exe"
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.text" = "0.1.0"
+[build]
+output_dir = "out"

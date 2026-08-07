@@ -1,4 +1,5 @@
 namespace Demo;
+using Std.IO;
 using Std;
 
 // add-gc-softref: strong ref prevents soft-ref target from being cleared
