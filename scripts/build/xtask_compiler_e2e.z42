@@ -79,7 +79,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     string hdir = "/tmp/z42c-e2e-buildhello";
     Directory.Create(hdir);
     File.WriteAllText(Path.Join(hdir, "hello.z42"),
-        "using Std;\n\nvoid Main() {\n    Console.WriteLine(\"hi\");\n}\n");
+        "using Std;\nusing Std.IO;\n\nvoid Main() {\n    Console.WriteLine(\"hi\");\n}\n");
     File.WriteAllText(Path.Join(hdir, "hello.app.z42.toml"),
         "[project]\nname    = \"hello.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // textapp（port-z42c-instance-import）：StringBuilder（imported 类 VCall+DEPS）+
@@ -87,7 +87,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     string tdir = "/tmp/z42c-e2e-buildtext";
     Directory.Create(tdir);
     File.WriteAllText(Path.Join(tdir, "app.z42"),
-        "using Std;\nusing Std.Text;\n\nvoid Main() {\n    var sb = new StringBuilder();\n    sb.Append(\"ab\");\n    sb.Append(\"cd\");\n    string s = sb.ToString();\n    string sub = s.Substring(0, 2);\n    Console.WriteLine(sub);\n}\n");
+        "using Std;\nusing Std.IO;\nusing Std.Text;\n\nvoid Main() {\n    var sb = new StringBuilder();\n    sb.Append(\"ab\");\n    sb.Append(\"cd\");\n    string s = sb.ToString();\n    string sub = s.Substring(0, 2);\n    Console.WriteLine(sub);\n}\n");
     File.WriteAllText(Path.Join(tdir, "text.app.z42.toml"),
         "[project]\nname    = \"text.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // closcheck（port-z42c-closures）：无捕获/捕获 lambda + Func 形参 + 间接调用 + oracle。
