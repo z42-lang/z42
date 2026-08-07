@@ -221,8 +221,9 @@ public sealed class ExprParser {
         if (k == TokenKind.New) {
             this._p._advance();
             TypeExpr ty = this._p._typeP._parseType();
-            // 数组初始化 new T[]{v1,...}（SA-2）：_parseType 已吃 T[] 的 []，后跟 { = 字面量初始化器
-            if (this._p._peek().Kind == TokenKind.LBrace) {
+            // 数组初始化 new T[]{v1,...}（SA-2）：_parseType 已吃 T[] 的 []，后跟 { = 字面量初始化器。
+            // 仅 ArrayType 走此路；非数组 `new Foo {` 落到下方对象初始化器（add-object-initializers）。
+            if ((ty is ArrayType) && this._p._peek().Kind == TokenKind.LBrace) {
                 TypeExpr elemTy = ty;
                 if (ty is ArrayType) { elemTy = (ty as ArrayType).Elem; }
                 this._p._advance();   // {
@@ -272,6 +273,10 @@ public sealed class ExprParser {
                 }
                 this._p._expect(TokenKind.RParen, ")");
             }
+            // 对象初始化器 new Foo(args?) { F = v, x }（add-object-initializers）：ctor 实参后跟 `{`。
+            if (this._p._peek().Kind == TokenKind.LBrace) {
+                return this._parseObjInit(ty, args, n, t);
+            }
             return new ObjNewExpr(ty, args, n, t.Span);
         }
         if (k == TokenKind.IntLiteral)    { this._p._advance(); return new IntLitExpr(t.Text, t.Span); }
@@ -296,6 +301,48 @@ public sealed class ExprParser {
         this._p._diags.Error(DiagnosticCodes.UnexpectedToken, "unexpected token in expression", t.Span);
         this._p._advance();
         return new IdentExpr("<error>", t.Span);
+    }
+
+    // 对象初始化器体 `{ F1 = v1, x, .. }`（已消费到 `{` 前）。条目：`Ident = expr` 或裸 `Ident`（简写）。
+    private Expr _parseObjInit(TypeExpr ty, Expr[] args, int argCount, Token t) {
+        this._p._advance();   // {
+        string[] names = new string[8];
+        Expr[] values = new Expr[8];
+        int fc = 0;
+        if (this._p._peek().Kind != TokenKind.RBrace) {
+            while (true) {
+                if (this._p._peek().Kind == TokenKind.DotDot) {
+                    // 结构更新 ..base 延后（依赖 struct 值语义）——明确报错而非静默误解析。
+                    this._p._diags.Error(DiagnosticCodes.UnexpectedToken,
+                        "struct update `..base` in object initializer is not yet supported", this._p._peek().Span);
+                    this._p._advance();
+                    this._parseExpr(0);
+                } else {
+                    if (fc == names.Length) {
+                        string[] nb = new string[names.Length * 2];
+                        Expr[] vb = new Expr[values.Length * 2];
+                        int i = 0; while (i < fc) { nb[i] = names[i]; vb[i] = values[i]; i = i + 1; }
+                        names = nb; values = vb;
+                    }
+                    Token fn = this._p._peek();
+                    this._p._expect(TokenKind.Identifier, "field name in object initializer");
+                    names[fc] = fn.Text;
+                    if (this._p._peek().Kind == TokenKind.Eq) {
+                        this._p._advance();   // =
+                        values[fc] = this._parseExpr(0);
+                    } else {
+                        values[fc] = new IdentExpr(fn.Text, fn.Span);   // 字段简写：x ≡ x = x
+                    }
+                    fc = fc + 1;
+                }
+                if (this._p._peek().Kind == TokenKind.Comma) {
+                    this._p._advance();
+                    if (this._p._peek().Kind == TokenKind.RBrace) { break; }   // 尾逗号
+                } else { break; }
+            }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new ObjInitExpr(ty, args, argCount, names, values, fc, t.Span);
     }
 
     // 前缀 `[` → 数组字面量 `[e0, e1, ..]` / 重复 `[value; count]` / spread `[..a, x, ..b]`。

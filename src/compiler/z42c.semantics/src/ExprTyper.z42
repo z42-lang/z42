@@ -596,6 +596,25 @@ public sealed class ExprTyper {
         return new BoundSeqExpr(pre, pc, val, val.Type(), sp);
     }
 
+    // 对象初始化器 new Foo(args) { X = 1, y } → $c = new Foo(args); $c.X = 1; $c.y = y; ⟨$c⟩。
+    // 复用 Change 1 的 BoundSeqExpr；字段赋值走既有 MemberExpr 赋值绑定（校验存在性/可赋值/可见性）。
+    private BoundExpr _bindObjInit(ObjInitExpr oi, TypeEnv env) {
+        Span sp = oi.Span;
+        string tmp = this._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[oi.FieldCount + 1];
+        Stmt declS = new VarDeclStmt(oi.Type, tmp, new ObjNewExpr(oi.Type, oi.Args, oi.ArgCount, sp), sp);
+        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
+        int i = 0;
+        while (i < oi.FieldCount) {
+            Expr assign = new AssignExpr("=", new MemberExpr(new IdentExpr(tmp, sp), oi.FieldNames[i], sp), oi.FieldValues[i], sp);
+            pre[i + 1] = this._tc._stmt.BindStmt(new ExprStmt(assign, sp), env, voidT);
+            i = i + 1;
+        }
+        BoundExpr val = this._bindExpr(new IdentExpr(tmp, sp), env);
+        return new BoundSeqExpr(pre, oi.FieldCount + 1, val, val.Type(), sp);
+    }
+
     private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._bindExpr(cx.E, env);
             return new BoundConvert(operand, env.ResolveType(cx.Type), cx.Span);
@@ -673,6 +692,7 @@ public sealed class ExprTyper {
         if (e is ObjNewExpr) {
             return this._bindNew(e as ObjNewExpr, env);
         }
+        if (e is ObjInitExpr) { return this._bindObjInit(e as ObjInitExpr, env); }
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }

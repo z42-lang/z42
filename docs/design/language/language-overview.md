@@ -93,6 +93,20 @@ int[] e = [];  List<int> el = {};             // 空：由目标类型定元素/
 纯前端脱糖（零新 IR / 零格式 bump）。详见 [arrays.md](arrays.md)（`[]`）与
 [collection-literals.md](collection-literals.md)（`{}`）。
 
+### 对象初始化器 + 字段简写（add-object-initializers 2026-08-07）
+
+`new Type(args?) { ... }` 构造后逐字段赋值（C#），裸标识符为字段简写（Rust/JS）：
+
+```z42
+var p = new Point { X = 1, Y = 2 };        // 对象初始化器
+var q = new Point { x, y };                // 字段简写：x ≡ x = x（同名变量）
+var b = new Box(w, h) { Filled = true };   // 带 ctor 实参
+```
+
+脱糖 `new Foo(args) { X = 1 }` → `$c = new Foo(args); $c.X = 1; $c`（复用集合字面量的 `BoundSeqExpr`，
+零新 IR / 零格式 bump）。结构更新 `..base` 延后到 struct 值语义。详见
+[object-initializers.md](object-initializers.md)。
+
 ---
 
 ## 3. 字符串
