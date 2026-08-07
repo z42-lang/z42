@@ -747,6 +747,17 @@ pub struct CallNativeInsn {
     #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
 }
 
+/// Payload for [`Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructAllocInsn {
+    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    /// FQ value-type name — the arena records it so GC can scan blob reference
+    /// leaves by the type's ref-bitmap, and boxing can recover the precise type.
+    pub type_name: String,
+    /// Blob size in bytes (StructLayout.size).
+    pub size: u32,
+}
+
 /// Payload for [`Instruction::LoadFieldAddr`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoadFieldAddrInsn {
@@ -1038,6 +1049,32 @@ pub enum Instruction {
     /// Release a pinned view created by `PinPtr`.
     UnpinPtr {
         #[serde(with = "typed_reg_serde")] pinned: Reg,
+    },
+
+    // ── blob value types (add-struct-value-semantics Phase A) ────────────────
+    /// Allocate a `size`-byte blob in the per-context struct arena
+    /// (zero-initialized); `dst` = `Value::StructRef` handle.
+    StructAlloc(Box<StructAllocInsn>),
+    /// Copy a struct blob (`size` bytes) from `src` to `dst`. Pure-primitive
+    /// blobs memcpy; blobs with reference leaves clone per the type's ref-bitmap.
+    StructCopy {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        #[serde(with = "typed_reg_serde")] src: Reg,
+        size: u32,
+    },
+    /// Read the primitive leaf at `byte_off` of struct blob `base` into `dst`.
+    StructFieldGetPrim {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        #[serde(with = "typed_reg_serde")] base: Reg,
+        byte_off: u32,
+        kind: u8,
+    },
+    /// Write primitive `val` into struct blob `base` at `byte_off` (in-place lvalue).
+    StructFieldSetPrim {
+        #[serde(with = "typed_reg_serde")] base: Reg,
+        byte_off: u32,
+        kind: u8,
+        #[serde(with = "typed_reg_serde")] val: Reg,
     },
 }
 

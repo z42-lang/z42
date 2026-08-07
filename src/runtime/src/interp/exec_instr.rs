@@ -320,6 +320,16 @@ pub fn exec_instr(
                 "native interop opcode encountered in a build with `native-interop` feature disabled"
             );
         }
+        // add-struct-value-semantics Phase A (A-support): blob value type
+        // instructions. Runtime execution (byte arena + exec_struct) lands in
+        // Chunk R2; z42c does not emit these until A-use (2c), so this bail is
+        // unreachable in current bytecode.
+        Instruction::StructAlloc(_)
+        | Instruction::StructCopy { .. }
+        | Instruction::StructFieldGetPrim { .. }
+        | Instruction::StructFieldSetPrim { .. } => {
+            anyhow::bail!("struct value-type instruction not yet implemented (Phase A Chunk R2)");
+        }
     }
     Ok(None)
 }
