@@ -11,7 +11,7 @@
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |
 | `src/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
-| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）|
+| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）；**sealed 语义强制**（`impl-sealed-semantics`：`_passSealedEnforce` 继承 sealed 类 E0427 / override sealed 方法 E0428 / 方法级 sealed 无匹配基 virtual E0429；方法上单写 `sealed`==`sealed override` 简写，2 处 override 识别点认 sealed 参与槽对齐；本地+跨包 `IsSealed`）。机制见 [book sealed](../../../docs/book/src/language/sealed.md) |
 | `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |

@@ -61,8 +61,11 @@ public static class IrGenFacts {
 
     public static int _methodFlags(string mods) {
         int f = 0;
-        if (IrGenFacts._hasWord(mods, "virtual") || IrGenFacts._hasWord(mods, "override") || IrGenFacts._hasWord(mods, "abstract")) { f = f | 1; }
+        // impl-sealed-semantics-devirt：sealed 方法必是 override（简写 `sealed` == `sealed override`）→ 亦置
+        // virtual 位（bit0），确保裸 `sealed` 无 override 词时虚派发位仍正确。
+        if (IrGenFacts._hasWord(mods, "virtual") || IrGenFacts._hasWord(mods, "override") || IrGenFacts._hasWord(mods, "abstract") || IrGenFacts._hasWord(mods, "sealed")) { f = f | 1; }
         if (IrGenFacts._hasWord(mods, "abstract")) { f = f | 2; }
+        if (IrGenFacts._hasWord(mods, "sealed"))   { f = f | 4; }   // bit2=sealed（METHOD_FLAG_SEALED，zbc 1.30）
         return f;
     }
 

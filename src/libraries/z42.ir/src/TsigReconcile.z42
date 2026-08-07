@@ -481,6 +481,7 @@ public static class TsigReconcile {
             while (ifi < cd.InterfaceCount) { ifb[ifi] = TsigReconcile._shortName(cd.Interfaces[ifi]); ifi = ifi + 1; }
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
+        ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         return ecz;
     }
 
@@ -491,6 +492,7 @@ public static class TsigReconcile {
                                   f.IsStatic, (f.MethodFlags & 1) != 0, (f.MethodFlags & 2) != 0,
                                   f.MinArg, ps, ps.Length);
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
+        em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
         return em;
     }
 
