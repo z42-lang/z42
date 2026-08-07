@@ -653,6 +653,11 @@ public static class ZbcWriter {
         if (ins is ArrayGetInstr) { ArrayGetInstr i = ins as ArrayGetInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Arr); ZbcWriter._regtVis(rt, i.Idx); return; }
         if (ins is ArraySetInstr) { ArraySetInstr i = ins as ArraySetInstr; ZbcWriter._regtVis(rt, i.Arr); ZbcWriter._regtVis(rt, i.Idx); ZbcWriter._regtVis(rt, i.Val); return; }
         if (ins is LoadLocalAddrInstr) { LoadLocalAddrInstr la = ins as LoadLocalAddrInstr; ZbcWriter._regtVis(rt, la.Dst); ZbcWriter._regtVis(rt, la.Slot); return; }
+        // add-struct-value-semantics Phase A：blob 值类型指令的寄存器 walk（易漏点，否则 REGT 缺型）。
+        if (ins is StructAllocInstr) { ZbcWriter._regtVis(rt, (ins as StructAllocInstr).Dst); return; }
+        if (ins is StructCopyInstr) { StructCopyInstr i = ins as StructCopyInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
+        if (ins is StructFieldGetPrimInstr) { StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Base); return; }
+        if (ins is StructFieldSetPrimInstr) { StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr; ZbcWriter._regtVis(rt, i.Base); ZbcWriter._regtVis(rt, i.Val); return; }
     }
 
     private static void _regtTerm(int[] rt, IrTerminator t) {

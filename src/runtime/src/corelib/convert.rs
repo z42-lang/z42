@@ -133,6 +133,10 @@ pub fn value_to_str(v: &Value) -> String {
         // (`value_to_str` has no `ctx` to resolve the arena, by design).
         Value::StackObject { .. } => "<stack object>".to_string(),
         Value::StackArray { .. }  => "<stack array>".to_string(),
+        // add-struct-value-semantics: struct blob lives in the arena; value_to_str
+        // has no ctx to resolve it. ToString on a value struct dispatches through
+        // its type's method (VCall), not this raw path — defensive placeholder.
+        Value::StructRef { .. } => "<struct value>".to_string(),
     }
 }
 

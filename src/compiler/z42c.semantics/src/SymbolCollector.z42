@@ -822,6 +822,7 @@ public sealed class SymbolCollector {
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
                                string[] ifaces, int ifc, bool needsMangle, string file) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
         ct.IsSealed = this._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
