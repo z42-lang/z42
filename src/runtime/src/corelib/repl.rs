@@ -1,10 +1,11 @@
-//! REPL line editor builtins — back `Std.Repl.ReadLine` / `Std.Repl.ReadBlock`
+//! REPL line editor builtins — back `Std.Repl.ReadLine` / `Std.Repl.ReadLineIndented`
 //! used by the native interactive REPL (`z42i`, add-z42-repl).
 //!
 //! `__repl_readline(prompt)`  → one edited line (history, emacs keys, Ctrl-D EOF).
-//! `__repl_readblock(prompt, cont)` → a bracket-balanced multi-line block: keeps
-//! reading continuation lines (with the `cont` prompt) until `()[]{}` are
-//! balanced, so pasting/typing `fn f() {` … `}` reads as a single unit.
+//! `__repl_readline_indented(prompt, buf)` → one continuation line, pre-filled with
+//! indentation matching `buf`'s still-open bracket depth. Multi-line accumulation +
+//! completeness judgment moved script-side (add-repl-parser-completeness): the parser
+//! is the authority on "is the input complete?", this builtin only auto-indents.
 //!
 //! Return convention: `Value::Str` for a line/block; `Value::Null` on EOF
 //! (Ctrl-D) or interrupt (Ctrl-C) so the z42 side can treat null as "exit".
@@ -57,37 +58,23 @@ pub fn builtin_repl_set_completer(_ctx: &VmContext, args: &[Value]) -> Result<Va
 static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 
-/// `__repl_readblock(prompt: string, cont: string) -> string?` — read a
-/// bracket-balanced multi-line block. Returns null if the very first line is EOF.
-/// EOF encountered mid-block returns the (possibly unbalanced) text read so far,
-/// leaving the final balance judgment to the caller's classifier.
-pub fn builtin_repl_readblock(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+/// `__repl_readline_indented(prompt: string, buf: string) -> string?` — read one
+/// continuation line, pre-filling indentation that matches the still-open bracket
+/// depth of `buf` (the text accumulated so far). Returns null on Ctrl-D / Ctrl-C.
+///
+/// Multi-line accumulation + completeness now live in the script layer
+/// (`Std.Scripting.Completeness`, add-repl-parser-completeness): the loop reads one
+/// line at a time, this builtin only supplies the editor-style auto-indent. Indent is
+/// cosmetic (over-/under-indent never changes semantics), so a native bracket count
+/// is fine here — the *authoritative* "is the input complete?" judgment is the
+/// parser's, made script-side.
+pub fn builtin_repl_readline_indented(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
-    let cont = prompt_arg(args, 1);
-    // add-repl-prewarm: one park guard spans the whole multi-line read (incl.
-    // the pure-Rust bracket-balance logic between lines). RAII → exits on every
-    // return path, including the `?` early-returns below.
+    let buf = prompt_arg(args, 1);
+    // add-repl-prewarm: GC-safe park for the blocking read.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
-    let mut buf = match read_one_line(ctx, &prompt, "")? {
-        Value::Str(s) => s.to_string(),
-        _ => return Ok(Value::Null), // EOF on first line
-    };
-    while bracket_depth(&buf) > 0 {
-        // Python-style auto-indent: pre-fill the continuation line with indentation
-        // matching the still-open bracket depth so fn/class bodies read like an editor
-        // instead of flush-left. The pre-filled text is editable (cursor lands after
-        // it); `readline_with_initial` returns it as part of the line, so the block
-        // source keeps its indentation. (add-repl-multiline-completion)
-        let indent = continuation_indent(&buf);
-        match read_one_line(ctx, &cont, &indent)? {
-            Value::Str(s) => {
-                buf.push('\n');
-                buf.push_str(&s);
-            }
-            _ => break, // EOF mid-block: hand back what we have
-        }
-    }
-    Ok(Value::Str(buf.into()))
+    let indent = continuation_indent(&buf);
+    read_one_line(ctx, &prompt, &indent)
 }
 
 /// Indentation to pre-fill on the next continuation line: four spaces per still-open

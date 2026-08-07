@@ -1,0 +1,85 @@
+// z42c.syntax Parser 完整性信号 IncompleteAtEof 单测（add-repl-parser-completeness）。
+// 「期待 token 但当前已是 EOF」= 可恢复不完整（REPL 续读信号），区别于「当前 token 非 EOF」的真语法错。
+namespace Z42cSyntaxIncompleteTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+
+// 走顶层声明入口 parse（Completeness 声明语义）：缺闭合符 或 缺 `;` 都算没写完。
+bool unitIncomplete(string src) {
+    var p = new Parser(src, "t.z42");
+    p.ParseCompilationUnit();
+    return p.Diagnostics().IsIncompleteAtEof() || p.Diagnostics().IsIncompleteSemiAtEof();
+}
+
+// 走表达式入口。
+bool exprIncomplete(string src) {
+    var p = new Parser(src, "t.z42");
+    p.ParseExpression();
+    return p.Diagnostics().IsIncompleteAtEof();
+}
+
+// 走语句入口。
+bool stmtIncomplete(string src) {
+    var p = new Parser(src, "t.z42");
+    p.ParseStatement();
+    return p.Diagnostics().IsIncompleteAtEof();
+}
+
+[Test]
+void test_type_decl_missing_body() {
+    Assert.True(unitIncomplete("class B"));    // 缺 { （_expect(LBrace) 遇 Eof）
+    Assert.True(unitIncomplete("class B {"));   // 缺 } （体循环到 Eof → _expect(RBrace)）
+    Assert.True(unitIncomplete("struct S"));
+    Assert.True(unitIncomplete("enum E"));
+    Assert.True(unitIncomplete("interface I"));
+}
+
+[Test]
+void test_type_decl_complete_not_incomplete() {
+    Assert.False(unitIncomplete("class B {}"));
+    Assert.False(unitIncomplete("enum E { A, B }"));
+}
+
+[Test]
+void test_missing_decl_name() {
+    Assert.True(unitIncomplete("class"));   // 缺类型名（_errorOrIncomplete 遇 Eof）
+    Assert.True(unitIncomplete("enum"));
+}
+
+[Test]
+void test_free_function_body() {
+    Assert.True(unitIncomplete("void foo()"));      // 缺 { 或 ; （_expectSemi 遇 Eof）
+    Assert.False(unitIncomplete("void foo() {}"));
+    Assert.False(unitIncomplete("void foo();"));    // 无体声明合法，非「没写完」
+}
+
+[Test]
+void test_expression_dangling_operator() {
+    Assert.True(exprIncomplete("1 +"));       // 缺右操作数（_parsePrefix fallthrough 遇 Eof）
+    Assert.False(exprIncomplete("1 + 2"));
+    Assert.True(exprIncomplete("f(1,"));      // 缺参数 / )
+}
+
+[Test]
+void test_statement_missing_brace() {
+    Assert.True(stmtIncomplete("if (x > 0) {"));    // 缺 }
+    Assert.False(stmtIncomplete("if (x > 0) { }"));
+}
+
+[Test]
+void test_expression_without_semicolon_is_complete() {
+    // REPL 表达式无分号 → 不算没写完（关键回归：曾因 ParseStatement 要求 `;` 让 `42` 被误判续读，
+    // 无限吃后续输入从不求值）。表达式/语句入口只看 IncompleteAtEof，忽略缺 `;`。
+    Assert.False(stmtIncomplete("42"));
+    Assert.False(stmtIncomplete("1 + 2"));
+    Assert.False(stmtIncomplete("x = 5"));
+    Assert.False(stmtIncomplete("foo()"));
+}
+
+[Test]
+void test_real_error_is_not_incomplete() {
+    // 有语法错但当前 token 不是 EOF → 不是「没写完」，不置 IncompleteAtEof（交求值正常报错）。
+    Assert.False(unitIncomplete("class 1"));   // class 后是 IntLiteral（非 Eof）
+}

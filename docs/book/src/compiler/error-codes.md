@@ -35,6 +35,10 @@
 | `E09xx` | Native / 测试 | `[Native]` FFI 约束、`[Test]` 相关（如 `E0917` 非法 timeout） |
 | `E10xx` | 调用实参绑定 | `E1001` / `E1002` 参数绑定错误 |
 
+> `E0203`（意外 EOF）除标示语法错，还兼作 REPL **可恢复不完整**信号：parser 在「缺 token 且当前 token
+> 为 EOF」时置 `DiagnosticBag.IncompleteAtEof` 并报此码，REPL 完整性探针 `Completeness.IsIncomplete`
+> 据此判「输入没写完、需续读」。机制见 [REPL 输入完整性判定](../toolchain/repl-input-completeness.md)。
+
 完整码表以 `DiagnosticCodes.z42` 的常量为准（每个码是一个命名常量，如 `ExpectedToken = "E0202"`）。
 
 ## 运行期错误

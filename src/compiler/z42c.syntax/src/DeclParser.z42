@@ -117,7 +117,7 @@ public sealed class DeclParser {
         this._p._advance();   // class / struct / interface
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected type name", this._p._peek().Span); }
+        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected type name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
         TypeExpr[] bases = new TypeExpr[0];
         int bc = 0;
@@ -188,7 +188,7 @@ public sealed class DeclParser {
         this._p._advance();   // enum
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum name", this._p._peek().Span); }
+        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected enum name"); }
         bool hasBase = false;
         TypeExpr baseType = this._p._typeP._emptyType();
         if (this._p._peek().Kind == TokenKind.Colon) {
@@ -230,7 +230,7 @@ public sealed class DeclParser {
         TypeExpr retType = this._p._typeP._parseType();
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected delegate name", this._p._peek().Span); }
+        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected delegate name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
         ParamList pl = this._p._memberP._parseParamList();
         WhereList wl = this._p._typeP._parseWhereClause();
@@ -243,7 +243,7 @@ public sealed class DeclParser {
         TypeExpr retType = this._p._typeP._parseType();
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected function name", this._p._peek().Span); }
+        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected function name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
         return this._p._memberP._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
     }
@@ -253,7 +253,7 @@ public sealed class DeclParser {
         this._p._advance();   // record
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected record name", this._p._peek().Span); }
+        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected record name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
         Param[] pos = new Param[0];
         int pc = 0;

@@ -1,0 +1,13 @@
+class B => incomplete
+class B { => incomplete
+void foo() => incomplete
+enum Color => incomplete
+1 + => incomplete
+f(1, => incomplete
+if (x > 0) { => incomplete
+class B {} => complete
+1 + 2 => complete
+void foo() {} => complete
+var n = 10; => complete
+42 => complete
+class 1 => complete

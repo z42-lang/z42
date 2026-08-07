@@ -10,9 +10,11 @@ public static class Repl {
     [Native("__repl_readline")]
     public static extern string ReadLine(string prompt);
 
-    // 读一个「括号平衡」的多行块（未闭合 () [] {} 时用 cont 提示符续读）。EOF → null。
-    [Native("__repl_readblock")]
-    public static extern string ReadBlock(string prompt, string cont);
+    // 读一个续行：按已累积文本 buf 的括号深度预填缩进（编辑器风格）。EOF/Ctrl-C → null。
+    // 多行累积 + 完整性判定已上移脚本层（Std.Scripting.Completeness，add-repl-parser-completeness）——
+    // 主循环逐行读、parser 权威判完整，本原语只负责视觉缩进。
+    [Native("__repl_readline_indented")]
+    public static extern string ReadLineIndented(string prompt, string buf);
 
     // 注册 Tab 补全的自由函数 FQN（契约 `string[] f(string line, int pos)`）；空串清除。
     // rustyline Completer 在每次 Tab 回调它取候选（见 z42vm corelib/repl.rs）。add-completion-query-api。
