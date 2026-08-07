@@ -21,10 +21,12 @@ mod exec_call;
 #[cfg(feature = "native-interop")]
 mod exec_native;
 mod exec_object;
+mod exec_struct;              // add-struct-value-semantics: blob value-type instruction exec
 pub(crate) mod exec_value;
 mod exec_vcall;
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
+pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;

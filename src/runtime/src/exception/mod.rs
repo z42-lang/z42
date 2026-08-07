@@ -89,6 +89,10 @@ pub struct VmFrame {
     /// free; JIT frames never stack-allocate so their truncate is a no-op.
     pub stack_obj_base: usize,
     pub stack_arr_base: usize,
+    /// add-struct-value-semantics: value-struct byte-arena length when this frame
+    /// was pushed; `pop_frame` truncates back to it (LIFO-frees this frame's blobs).
+    /// Stamped by `push_frame`.
+    pub struct_base: usize,
 }
 
 // SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
@@ -117,6 +121,7 @@ impl VmFrame {
             regs, env_arena,
             // add-escape-analysis-stack-alloc: overwritten by push_frame.
             stack_obj_base: 0, stack_arr_base: 0,
+            struct_base: 0,   // add-struct-value-semantics: overwritten by push_frame.
         }
     }
 

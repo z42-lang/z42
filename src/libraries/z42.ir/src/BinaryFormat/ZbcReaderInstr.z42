@@ -132,6 +132,30 @@ public static class ZbcReaderInstr {
             TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
             return new FieldSetInstr(obj, field, val);
         }
+        // add-struct-value-semantics Phase A：blob 值类型指令（镜像 ZbcInstr 编码布局）。
+        if (op == Op.StructAlloc) {
+            string tn = ZbcReaderInstr._p(pool, c.U32());
+            int size = c.U32();
+            return new StructAllocInstr(d, tn, size);
+        }
+        if (op == Op.StructCopy) {
+            TypedReg src = ZbcReaderInstr._ru(c.U16());
+            int size = c.U32();
+            return new StructCopyInstr(d, src, size);
+        }
+        if (op == Op.StructFieldGetPrim) {
+            TypedReg base_ = ZbcReaderInstr._ru(c.U16());
+            int off = c.U32();
+            int kind = c.U8();
+            return new StructFieldGetPrimInstr(d, base_, off, kind);
+        }
+        if (op == Op.StructFieldSetPrim) {
+            TypedReg base_ = ZbcReaderInstr._ru(c.U16());
+            int off = c.U32();
+            int kind = c.U8();
+            TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
+            return new StructFieldSetPrimInstr(base_, off, kind, val);
+        }
         if (op == Op.StaticGet) { return new StaticGetInstr(d, ZbcReaderInstr._p(pool, c.U32())); }
         if (op == Op.StaticSet) {
             string field = ZbcReaderInstr._p(pool, c.U32());
