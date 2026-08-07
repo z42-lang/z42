@@ -221,6 +221,20 @@ public sealed class ClassDescBuilder {
         if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
         if (c.Kind == "record")  { flags = flags + 8; }                 // bit3
         cd2.Flags = flags;
+        // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
+        // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
+        // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
+        // 时 RefLeaf* 非空 → 运行时 GC 扫描 + StructCopy 逐叶子 clone。纯基元 struct 引用位图空。
+        if (c.Kind == "struct" && this._g.Layouts != null) {
+            string layoutKey = this._g._classIrShortName(c);
+            if (this._g.Layouts.IsStructType(layoutKey)) {
+                StructLayoutInfo li = this._g.Layouts.LayoutOf(layoutKey);
+                cd2.StructSize = li.Size;
+                cd2.StructRefOffsets = li.RefLeafOffsets;
+                cd2.StructRefKinds = li.RefLeafKinds;
+                cd2.StructRefCount = li.RefLeafCount;
+            }
+        }
         // TypeParams + constraint bundles（zbc L3-G1/G3a；镜像 C# BuildConstraintList）
         if (c.TypeParams.Count > 0) {
             cd2.TypeParams = c.TypeParams.Names;

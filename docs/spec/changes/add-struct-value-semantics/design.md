@@ -162,9 +162,29 @@ struct / struct 字段的字节区间。帧需要一个**局部字节区**（与
 | **格式 bump 时机** | **P1 只 bump zbc**（新 struct 指令）；**跨包字节布局元数据 zpkg bump 推迟 P4** | P1 同模块，不需跨包布局；提前 emit 跨包元数据是浪费且照样两阶段。每次 bump 各自走两阶段 nightly 纪律 |
 | **P1 收敛面** | **P1 = 纯局部 struct**（局部/参数/返回/嵌套局部 lvalue）；class 的 struct 字段 + `struct[]` → P3 | 纯局部即可端到端验证「字节布局+复制+lvalue+GC 屏障」全机制（局部 struct 含引用叶子已触发 GC 屏障）；对象/数组存储是独立存储介质，P3 专攻 |
 
-> **GC 读写屏障（User 强调）已在 P1 生效**：纯局部 struct 只要**含引用类型叶子**（如局部 struct 里放一个
-> `List` 引用），其 blob 复制/叶子读写就必须过 Decision ζ 的读写屏障 + 引用位图扫描。故 P1 就要把 ζ 的
-> 屏障机制做对，不是留到 P3。
+> **GC 引用叶子扫描（User 强调）已在 P1 生效**：纯局部 struct 只要**含引用类型叶子**（如局部 struct 里放一个
+> `List` 引用），其 blob 复制/叶子读写就必须过 Decision ζ 的引用位图扫描 + 逐叶子正确 clone。P1 就要把
+> ζ 的引用叶子机制做对，不是留到 P3。
+
+## A-use 实现级精化（2026-08-08 User 采纳，覆盖 Decision α/γ/ζ 的实现细节）
+
+落地 A-use 运行时时，两处对上面子决策的**实现级**精化经 User 裁决采纳（不改观察语义/wire 契约，
+只改运行时内部表示 + 澄清屏障归属）：
+
+1. **引用叶子物理表示 = 侧表（精化 Decision α/γ）**：Decision α 原表述「引用叶子作 16B 托管句柄存在
+   `[u8]` 字节 blob 内」在 Rust 是**内存不安全**的——`Arc<str>`/`GcRef` 的裸字节写进 `Vec<u8>` 后其
+   引用计数无人管（drop 泄漏 / double-free）、moving GC 也无法改写。采纳的安全实现：**基元叶子仍字节
+   打包在 `bytes`（γ 密度不变）；引用叶子作真 `Value` 存在并列的 `refs` 侧 slice**（按类型引用位图排序）。
+   复制=字节 memcpy + 逐引用 `Value::clone`（string→`Arc::clone`、object/array→句柄拷）；GC 根扫描=
+   遍历 `refs` slice。**wire 的引用位图（TYPE section）不变**，只是运行时 blob 的内部布局改。
+2. **P1 不需写屏障（精化 Decision ζ）**：struct arena 每次采集都作 **GC 根**整体重扫（`scan_roots`，
+   与 `stack_alloc` arena 同）→ blob 内引用叶子恒被重标记，**写进 arena blob 的引用无需写屏障**。
+   写屏障只对「引用写进**堆对象**」必需（堆对象不作根重扫）——即 struct 内联进对象/数组字段的 **P3**。
+   故 Decision ζ 的写屏障要求**归属 P3，非 P1**；P1 只做引用位图根扫描 + 复制时逐叶子 clone。
+
+> **flip 范围（A-use，2026-08-08 audit 定）**：只有**多叶子复合 struct**翻转到 blob 值语义；
+> **单标量叶子 struct（`GCHandle`）与 phantom 基元（`Int32`…）保持现有模型**（标量塌缩=Phase B）。
+> z42c/stdlib 无任何生产多字段 struct → flip 纯增量，不改现有 self-host 运行时行为。
 
 ## Architecture
 
