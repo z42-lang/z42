@@ -76,16 +76,30 @@ class Dog : Animal {
 - **格式**：加方法级 sealed 位是 zbc 1.29→1.30 / zpkg 34→35 的语义扩展 bump（字节布局不变，bit2 先前保留为 0；
   strict-pin 下仍 bump 以防同版本号语义分歧，见 [version-bumping](../../../.claude/rules/version-bumping.md)）。
 
+## 去虚化（devirtualization，add-sealed-devirt）
+
+sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运行期实际类型**必然是 `A`** → `a.M()` 的
+目标**编译期唯一可知**。编译器据此把 `VCallInstr` 降级为**直接 `CallInstr`**，解锁 `IrInline` 内联
+（virtual 方法的 `VCall` 内联 pass 吃不进）。
+
+- **净增价值 = 解锁内联**，不是派发提速——解释器已有多态内联缓存（`VCallIC`），单态 sealed 调用点派发已近直接调用。
+- **落点**：`ExprEmitter._emitCall`（instance 分支）emit 时就地——天然在 `IrInline` 之前。`Opt.Devirt` 门控
+  （release 全开；`--no-opt devirt` 关，供 before/after 逐字节对拍）。
+- **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的本地非泛型类**
+  `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
+  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。
+- **v1 边界**：仅 **本地非泛型 sealed 类** receiver + 本地定义类 + 非 abstract 目标。**任何解析不确定即回落
+  `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
+- **正确性铁律**：目标名错 = 静默调错。双保险：① 越界回落 VCall；② `--no-opt devirt` before/after 逐字节对拍
+  + z42c 自举不动点（z42c 自身大量 sealed 类被去虚化编译，gen1==gen2 覆盖全码库）。
+
 ## Deferred / Future Work
 
-### sealed-devirt: 基于 sealed 的去虚化
+### sealed-devirt-future: 去虚化 v1 边界外
 
-- **来源**：`impl-sealed-semantics` 拆分（原含此项）。
-- **触发原因**：直接调用目标解析（定义类 + RegKey + abstract 跳过 + 本地/imported 约定）正确性敏感
-  （错=静默 miscall），需独立测试矩阵，与语义强制耦合度低。
-- **前置依赖**：已就绪——类级 `CLASS_FLAG_SEALED`、方法级 `METHOD_FLAG_SEALED`、本地+跨包
-  `Z42ClassType.IsSealed`/`MethodSymbol.IsSealed`（本 change 全部落齐）。
-- **触发条件**：follow-up change `add-sealed-devirt`。落点 `ExprEmitter._emitCall` + `EmitContext`
-  新增目标解析：receiver 静态类型是 sealed 类时把 `VCallInstr` 降级为直接 `CallInstr`，解锁 `IrInline`。
-- **当前 workaround**：无——运行时已有多态内联缓存（`VCallIC`），单态 sealed 调用点派发已近直接调用；
-  去虚化的净增价值是**解锁内联**而非派发提速。
+- **来源**：`add-sealed-devirt` v1。
+- **触发原因**：目标名精确构造在这些情形更易错，v1 保守只覆盖本地非泛型。
+- **待覆盖**：① **imported sealed 类**（跨包目标名 + imported RegKey 约定，DepIndex 路径）；
+  ② **泛型 sealed 类**（`$N` mangle + 类型参数替换）；③ **`sealed override` 方法**（receiver 是基类型——
+  非「receiver 静态即 sealed 类」充分条件，需精确类型/单实现分析）。
+- **当前 workaround**：这些情形回落 VCall（运行期仍正确，走 PIC），只是不内联。

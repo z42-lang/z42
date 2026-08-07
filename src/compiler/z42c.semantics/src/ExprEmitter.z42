@@ -746,6 +746,24 @@ public sealed class ExprEmitter {
             // 否则跨 zpkg 具体基类 override 被基类实现钉死（`h.BeforeAssets()` 只跑基类 no-op）。
             // 详见 EmitContext.ReceiverMethodIsVirtual。
             bool virtualRecv = this._ctx.ReceiverMethodIsVirtual(c.Receiver.Type(), c.MethodName);
+            // add-sealed-devirt：receiver 静态类型是本地非泛型 sealed 类 + 目标可解析 → 直接 Call 替
+            // VCall（解锁 IrInline 内联）。cast-to-class Unknown 链 / 接口 receiver 跳过（既有守卫优先）。
+            // 目标解析不确定即返回 "" → 落到下方既有逻辑（VCall），永不 miscall。`Opt.Devirt` 门控供对拍。
+            if (this._ctx.DevirtEnabled() && !ifaceRecv && !this._castUnknownChain(c.Receiver)) {
+                Z42ClassType sc = this._ctx.SealedReceiverClass(c.Receiver.Type());
+                if (sc != null) {
+                    string tgt = this._ctx.ResolveSealedTarget(sc, c.MethodName, c.ArgCount);
+                    if (tgt != "") {
+                        TypedReg[] dfull = new TypedReg[c.ArgCount + 1];
+                        dfull[0] = recv;
+                        int dfi = 0;
+                        while (dfi < c.ArgCount) { dfull[dfi + 1] = iargs[dfi]; dfi = dfi + 1; }
+                        TypedReg dvdst = this._ctx.Alloc(itag);
+                        this._ctx.Emit(new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1));
+                        return dvdst;
+                    }
+                }
+            }
             if (!owns && !ifaceRecv && !virtualRecv && this._ctx.Deps != null) {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);

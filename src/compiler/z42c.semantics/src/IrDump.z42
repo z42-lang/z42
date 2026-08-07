@@ -498,7 +498,7 @@ public static class IrDump {
         // 会给非逃逸分配置标志、改 golden 字节且脆弱 → dump/golden 路径不跑；真实 release 自建 + 专项单测覆盖。
         // 同理排除 LoopAllocReuse（add-loop-alloc-hoist-reuse）：依赖 StackAlloc、模块级改指令流（hoist+ctor-call），
         // 排除即回到既有 golden 输出；真实 release 自建 + 专项单测覆盖。
-        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch);
+        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;
@@ -571,7 +571,7 @@ public static class IrDump {
         // Phase 2 前 Opt.All 的等价输出（内联当时是 no-op），故所有既有 golden 逐字节不变。内联单独由
         // 真实 release 自建（D7 不动点 / e2e）+ `DumpFuncOpt(...Opt.All)` 专项单测覆盖。
         // 同理减去 StackAlloc（add-escape-analysis）：跨函数 + 模块级、会改 golden 字节 → 单函数 dump 路径不跑。
-        return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch);
+        return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt);
     }
 
     // 带显式 optSet 的 dump 构建（内联 / 独立性单测：传 Opt.All 开内联、传 Opt.Inline 单独验内联）。
