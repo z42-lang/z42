@@ -405,6 +405,10 @@ pub struct VmContext {
     /// roots at safepoint (its slots may hold heap `GcRef`s). Mutex: owner-thread
     /// accesses uncontended; GC scanner is the only cross-thread reader.
     pub(crate) stack_arena:       Arc<Mutex<crate::interp::stack_alloc::StackArena>>,
+    /// add-struct-value-semantics: per-thread byte arena holding value-struct blobs
+    /// (`Value::StructRef` indexes it). Same lifetime model as `stack_arena`
+    /// (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
+    pub(crate) struct_arena:      Arc<Mutex<crate::interp::struct_arena::StructArena>>,
     /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
     /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
     pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
@@ -556,6 +560,7 @@ impl VmContext {
             pending_exception,
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
+            struct_arena: Arc::new(Mutex::new(Default::default())),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -717,6 +722,10 @@ impl VmContext {
                     // freed by frame-exit truncation, not sweep.) The arena lock is
                     // never held across a GC trigger, so this cannot deadlock.
                     ctx.stack_arena.lock().scan_roots(visit);
+                    // add-struct-value-semantics: value-struct blobs' reference
+                    // leaves are GC roots too (no-op for pure-primitive structs;
+                    // ref-leaf scanning by type ref-bitmap lands in A-use).
+                    ctx.struct_arena.lock().scan_roots(visit);
                 }
             }));
         }
@@ -773,6 +782,10 @@ impl VmContext {
                     ctx.stack_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
+                    // add-struct-value-semantics: value-struct blob reference leaves.
+                    ctx.struct_arena
+                        .lock()
+                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                 }
             }));
         }
@@ -782,6 +795,7 @@ impl VmContext {
             pending_exception,
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
+            struct_arena: Arc::new(Mutex::new(Default::default())),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -1068,6 +1082,8 @@ impl VmContext {
         let (obj_base, arr_base) = self.stack_arena.lock().bases();
         frame.stack_obj_base = obj_base;
         frame.stack_arr_base = arr_base;
+        // add-struct-value-semantics: stamp the value-struct byte-arena base too.
+        frame.struct_base = self.struct_arena.lock().base();
         self.call_stack.lock().push(frame);
     }
 
@@ -1079,6 +1095,8 @@ impl VmContext {
         let popped = self.call_stack.lock().pop();
         if let Some(f) = popped {
             self.stack_arena.lock().truncate(f.stack_obj_base, f.stack_arr_base);
+            // add-struct-value-semantics: LIFO-free this frame's value-struct blobs.
+            self.struct_arena.lock().truncate(f.struct_base);
         }
     }
 
