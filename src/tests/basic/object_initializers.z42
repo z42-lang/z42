@@ -1,0 +1,53 @@
+// 对象初始化器 + 字段简写（add-object-initializers）。
+// new Foo(args?) { F = v, x } → 纯前端脱糖 new + 逐字段赋值（复用 BoundSeqExpr）。
+
+class Point {
+    public int X;
+    public int Y;
+}
+
+class Box {
+    public int W;
+    public int H;
+    public bool Filled;
+    public Box(int w, int h) { this.W = w; this.H = h; this.Filled = false; }
+}
+
+void Main() {
+    // 1. 对象初始化器（显式字段）
+    var p = new Point { X = 3, Y = 7 };
+    Assert.Equal(3, p.X);
+    Assert.Equal(7, p.Y);
+
+    // 2. 字段简写（同名局部变量）
+    int X = 10;
+    int Y = 20;
+    var q = new Point { X, Y };
+    Assert.Equal(10, q.X);
+    Assert.Equal(20, q.Y);
+
+    // 3. 混合：显式 + 简写
+    var r = new Point { X, Y = 99 };
+    Assert.Equal(10, r.X);
+    Assert.Equal(99, r.Y);
+
+    // 4. 带 ctor 实参 + 初始化器
+    var b = new Box(4, 6) { Filled = true };
+    Assert.Equal(4, b.W);
+    Assert.Equal(6, b.H);
+    Assert.Equal(true, b.Filled);
+
+    // 5. 空初始化器 == new Foo()
+    var e = new Point { };
+    Assert.Equal(0, e.X);
+
+    // 6. 初始化器值为表达式
+    var s = new Point { X = p.X + q.X, Y = p.Y * 2 };
+    Assert.Equal(13, s.X);
+    Assert.Equal(14, s.Y);
+
+    // 7. 嵌套在集合字面量里（Change 1 × Change 2）
+    var pts = new Point[] { new Point { X = 1, Y = 2 }, new Point { X = 3, Y = 4 } };
+    Assert.Equal(2, pts.Length);
+    Assert.Equal(3, pts[1].X);
+}

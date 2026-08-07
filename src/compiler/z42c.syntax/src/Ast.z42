@@ -339,6 +339,35 @@ public sealed class ObjNewExpr : Expr {
     }
 }
 
+// 对象初始化器 `new Type(args?) { F1 = v1, x }`（add-object-initializers）。
+// 构造后逐字段赋值；字段简写 `x` 由 parser 展开为 FieldValues[i]=IdentExpr("x")。
+// 语义层脱糖为 new + 逐字段 MemberExpr 赋值（复用 BoundSeqExpr）。
+public sealed class ObjInitExpr : Expr {
+    public TypeExpr Type;
+    public Expr[]   Args;          // ctor 实参
+    public int      ArgCount;
+    public string[] FieldNames;
+    public Expr[]   FieldValues;   // 简写时 = IdentExpr(FieldNames[i])
+    public int      FieldCount;
+    public ObjInitExpr(TypeExpr type, Expr[] args, int argCount, string[] fieldNames, Expr[] fieldValues, int fieldCount, Span span) {
+        this.Span = span; this.Type = type; this.Args = args; this.ArgCount = argCount;
+        this.FieldNames = fieldNames; this.FieldValues = fieldValues; this.FieldCount = fieldCount;
+    }
+    public override string Dump() {
+        string s = "(new-init " + this.Type.Dump();
+        int i = 0;
+        while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
+        s = s + " {";
+        i = 0;
+        while (i < this.FieldCount) {
+            if (i > 0) { s = s + " "; }
+            s = s + this.FieldNames[i] + "=" + this.FieldValues[i].Dump();
+            i = i + 1;
+        }
+        return s + "})";
+    }
+}
+
 // GS7：default(T) 表达式（D-8b-3 Phase 2）。Target = 类型表达式（含泛型类型参数）。
 public sealed class DefaultExpr : Expr {
     public TypeExpr Target;
