@@ -1,0 +1,39 @@
+// 类型别名 using Id = T;（add-type-alias）。文件级：别名名 → 目标类型替换。
+using Std.Collections;
+
+using Id    = int;
+using Name  = string;
+using IntBox = List<int>;      // 泛型目标
+
+class Point {
+    public Id X;               // 字段类型用别名
+    public Id Y;
+}
+
+Id add(Id a, Id b) {           // 参数 + 返回类型用别名
+    return a + b;
+}
+
+void Main() {
+    Id x = 40;                 // 局部变量类型用别名
+    Id y = 2;
+    Assert.Equal(42, add(x, y));
+
+    Name s = "hi";             // string 别名
+    Assert.Equal(2, s.Length);
+
+    var p = new Point { X = 3, Y = 4 };
+    Assert.Equal(7, p.X + p.Y);
+
+    IntBox xs = new IntBox();   // 泛型别名作 new 类型
+    xs.Add(10);
+    xs.Add(20);
+    Assert.Equal(2, xs.Count);
+    Assert.Equal(20, xs[1]);
+
+    // 别名与真实类型互通（Id 就是 int）
+    int raw = x;
+    Assert.Equal(40, raw);
+    Id back = raw;
+    Assert.Equal(40, back);
+}

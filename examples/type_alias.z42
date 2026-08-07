@@ -1,0 +1,36 @@
+// 类型别名 using Id = T;（add-type-alias，2026-08-07）。借鉴 C# `using X = T;`。
+// 文件级：别名名在本文件内替换为目标类型（含泛型目标）。用于压缩长泛型类型 / 语义命名。
+namespace Demo.TypeAlias;
+
+using Std.IO;
+using Std.Collections;
+
+using UserId   = int;                          // 基本类型别名（语义命名）
+using Row      = Dictionary<string, int>;      // 压缩长泛型类型
+using Names    = List<string>;
+
+class Account {
+    public UserId Id;                           // 字段类型用别名
+    public string Owner;
+}
+
+UserId nextId(UserId cur) { return cur + 1; }   // 参数 + 返回用别名
+
+void Main() {
+    var a = new Account { Id = 1000, Owner = "alice" };
+    UserId n = nextId(a.Id);                     // 局部变量用别名
+    Console.WriteLine($"{a.Owner}: id={a.Id}, next={n}");   // alice: id=1000, next=1001
+
+    Row scores = new Row();                      // 泛型别名作 new 类型
+    scores.Set("math", 90);
+    scores.Set("art", 85);
+    Console.WriteLine($"math={scores[\"math\"]}, art={scores[\"art\"]}");   // math=90, art=85
+
+    Names ns = new Names();
+    ns.Add("bob");
+    Console.WriteLine($"names.Count={ns.Count}");  // 1
+
+    // 别名与真实类型完全互通（UserId 就是 int）
+    int raw = a.Id;
+    Console.WriteLine($"raw={raw}");             // 1000
+}

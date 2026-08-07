@@ -14,6 +14,7 @@ public sealed class SymbolTable {
     public StrMap EnumTypes;        // name → "enum" 标记（枚举类型名注册）
     public StrMap EnumConsts;       // "EnumName.MemberName" → 整数值字符串
     public StrMap Delegates;        // name → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
+    public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
     public SymbolTable() {
         this.Classes = new StrMap();
         this.Interfaces = new StrMap();
@@ -22,6 +23,22 @@ public sealed class SymbolTable {
         this.EnumTypes = new StrMap();
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
+        this.CurrentAliases = null;
+    }
+
+    // add-type-alias：扫 CU 的 UsingAliasDecl → name → Target TypeExpr（文件级）。无别名返回 null。
+    public static StrMap BuildAliases(CompilationUnit cu) {
+        StrMap m = null;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            if (cu.Decls[i] is UsingAliasDecl) {
+                UsingAliasDecl a = cu.Decls[i] as UsingAliasDecl;
+                if (m == null) { m = new StrMap(); }
+                m.Put(a.Name, a.Target);
+            }
+            i = i + 1;
+        }
+        return m;
     }
 
     public bool          HasClass(string name) { return this.Classes.ContainsKey(name); }
@@ -80,6 +97,12 @@ public sealed class SymbolTable {
             while (i < paramCount) {
                 if (paramNames[i] == n) { return new Z42GenericParamType(n); }
                 i = i + 1;
+            }
+            // add-type-alias：文件级别名替换（裸名、0 类型实参）。类型形参优先（上），别名次之。
+            // 解析目标（可含泛型实参 / 再引别名 → 递归）。
+            if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.ContainsKey(n)) {
+                TypeExpr target = this.CurrentAliases.Get(n) as TypeExpr;
+                if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
             }
             if (n == "void") { return new Z42VoidType(); }
             if (this._isPrim(n)) { return new Z42PrimType(this._canonPrim(n)); }
