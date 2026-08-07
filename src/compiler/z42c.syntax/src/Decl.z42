@@ -93,6 +93,14 @@ public sealed class UsingDecl : Decl {
     }
 }
 
+// 类型别名 `using Id = int;`（add-type-alias）。文件级：Name → Target 类型替换。
+public sealed class UsingAliasDecl : Decl {
+    public string   Name;
+    public TypeExpr Target;
+    public UsingAliasDecl(string name, TypeExpr target, Span span) { this.Span = span; this.Name = name; this.Target = target; }
+    public override string Dump() { return "(using-alias " + this.Name + " = " + this.Target.Dump() + ")"; }
+}
+
 public sealed class FieldDecl : Decl {
     public string   Mods;
     public TypeExpr Type;

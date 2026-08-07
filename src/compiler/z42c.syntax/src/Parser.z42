@@ -152,7 +152,18 @@ public sealed class Parser {
             }
             if (k == TokenKind.Using) {
                 Span usp = this._peek().Span;
-                this._advance(); string un = this._declP._parseQualifiedName(); this._expectSemi();
+                this._advance();
+                // add-type-alias：`using Id = Type;`——`using` 后 Identifier 紧跟 `=` → 类型别名。
+                if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.Eq) {
+                    Token an = this._peek();
+                    this._advance();   // Id
+                    this._advance();   // =
+                    TypeExpr at = this._typeP._parseType();
+                    this._expectSemi();
+                    decls = this._declP._growDecls(decls, n); decls[n] = new UsingAliasDecl(an.Text, at, usp); n = n + 1;
+                    continue;
+                }
+                string un = this._declP._parseQualifiedName(); this._expectSemi();
                 decls = this._declP._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
                 continue;
             }

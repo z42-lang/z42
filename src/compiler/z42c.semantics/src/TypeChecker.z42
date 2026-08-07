@@ -80,6 +80,7 @@ public sealed class TypeChecker {
 
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
         var model = new SemanticModel(symbols);
+        symbols.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：本 CU 文件级别名生效
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
         this._constraints.Resolve(cu, symbols);   // Pass 0.5：泛型 where 约束解析（2B，镜像 C# ResolveAllWhereConstraints）
         this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）

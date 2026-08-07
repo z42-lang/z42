@@ -144,6 +144,33 @@ global using Std.Collections;
 
 ---
 
+## 类型别名 `using Id = T;`（2026-08-07 add-type-alias）
+
+借鉴 C# `using X = T;`：给类型起一个**文件级**别名，本文件内该名替换为目标类型。用于压缩长泛型
+类型或语义命名。
+
+```z42
+using UserId = int;                       // 基本类型别名
+using Row    = Dictionary<string, int>;   // 压缩长泛型类型
+using Names  = List<string>;
+
+class Account { public UserId Id; }       // 字段/参数/返回/局部/new 位置皆可用
+UserId next(UserId c) { return c + 1; }
+Row r = new Row();                        // 泛型别名作 new 类型
+```
+
+- **语法**：`using` 后紧跟 `Identifier =` → 类型别名（区别于 `using ns;` 导入与 `global using`）。
+  目标是任意 `TypeExpr`（含泛型实参）。
+- **语义**：**文件级**（同 using）——别名只在声明它的文件生效。别名与目标类型**完全互通**
+  （`UserId` 就是 `int`，可互相赋值）。
+- **实现**：`UsingAliasDecl(Name, Target)`；`SymbolTable.CurrentAliases`（per-CU：符号收集
+  `_passMembers/_passImpls/_passInheritFields` + 绑定 `TypeChecker.Infer` 各处设置本 CU 别名表）；
+  `SymbolTable.ResolveTypeP` 对**裸名、0 类型实参**的 `NamedType` 查别名表并递归解析目标（类型形参
+  优先于别名）。别名在类型解析处即被替换 → 下游 codegen 见目标类型，无需改动。
+- 引入见 change `add-type-alias`。
+
+---
+
 ## strict-using-resolution (2026-04-28)
 
 **核心规则**：
