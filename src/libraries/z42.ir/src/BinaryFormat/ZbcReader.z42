@@ -383,6 +383,20 @@ public static class ZbcReader {
                 }
                 cd.IfaceMethodParamTypes = ipts; cd.IfaceMethodParamTotal = iptc;
             }
+            // 值 struct 布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2(0x04)=struct 时
+            // 追加 size:u32 + ref_count:u16 + (byte_off:u32, kind:u8)×n。**必须与 ZbcWriter.BuildType 对称**
+            // ——DepScan/TsigReconcile 读依赖 zpkg 的 TYPE 段时不消费此块会致游标错位、后续类字段读越界。
+            if ((cd.Flags & 4) != 0) {
+                cd.StructSize = c.U32();
+                int src = c.U16();
+                cd.StructRefOffsets = new int[src]; cd.StructRefKinds = new int[src]; cd.StructRefCount = src;
+                int srx = 0;
+                while (srx < src) {
+                    cd.StructRefOffsets[srx] = c.U32();
+                    cd.StructRefKinds[srx] = c.U8();
+                    srx = srx + 1;
+                }
+            }
             classes[ci] = cd;
             ci = ci + 1;
         }
