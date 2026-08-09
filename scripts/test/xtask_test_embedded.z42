@@ -205,23 +205,34 @@ string _buildTestBundle(string root, string filter) {
     string items = "";
     int count = 0;
 
-    // 1. golden e2e (src/tests/<cat>/<name>/source.z42) — VM 行为测试，归一为 [Test]
+    // 1. golden e2e (src/tests/<cat>/<name>/source.z42) — 直跑模式(mature-embed-testhost
+    // P1):编译 source.z42(不 wrap)→ manifest golden 条目 {name, zbc, entry, expected}。
+    // agent 经 RunGoldensIsolated 每例全新 VmContext 跑(隔离,不撞名),比 stdout。非可运行
+    // 类(cross-zpkg/multi-exe/zbc-format/zpkg-format/manifest-targets)+ 已知延后例外跳过。
     string testsRoot = Path.Join(root, "src/tests");
     foreach (var cat in _sortedStrings(Directory.Enumerate(testsRoot))) {
         string catDir = Path.Join(testsRoot, cat);
         if (!Directory.Exists(catDir)) { continue; }
-        if (cat == "cross-zpkg" || cat == "manifest-targets") { continue; }  // 多包/清单，另处理
+        if (_isNonRunnableCat(cat)) { continue; }
         foreach (var name in _sortedStrings(Directory.Enumerate(catDir))) {
             string caseDir = Path.Join(catDir, name);
             if (!File.Exists(Path.Join(caseDir, "source.z42"))) { continue; }
+            if (_isExcludedDirName(cat, name)) { continue; }
             string caseName = cat + "/" + name;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
-            string zbc = _buildGoldenCase(root, caseDir);
-            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
+            string src = Path.Join(caseDir, "source.z42");
             string safe = _bundleSafeName(caseName);
-            File.Copy(zbc, Path.Join(bundleDir, safe + ".zbc"), true);
+            string zbc = _emitUnitZbc(root, src, safe, bundleDir);   // compile, no [Test] wrap
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
+            string entry = _deriveEntry(src);
+            // expected_output.txt → sibling <safe>.expected (empty file if none).
+            string expTxt = "";
+            string expPath = Path.Join(caseDir, "expected_output.txt");
+            if (File.Exists(expPath)) { expTxt = File.ReadAllText(expPath); }
+            File.WriteAllText(Path.Join(bundleDir, safe + ".expected"), expTxt);
             if (count > 0) { items = items + ",\n"; }
-            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\"}";
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\", "
+                + "\"entry\": \"" + entry + "\", \"expected\": \"" + safe + ".expected\"}";
             count = count + 1;
         }
     }
