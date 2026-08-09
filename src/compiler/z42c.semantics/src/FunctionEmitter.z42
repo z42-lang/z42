@@ -85,7 +85,24 @@ public sealed class FunctionEmitter {
             paramTypes[p + paramOffset] = this._sigTypeName(md.Params[p].Type, tp, tpc);   // G18f：SIGS 用源拼写（byte[]）
             p = p + 1;
         }
-        this._ctx.NextReg = totalParams;
+        // add-struct-value-semantics A-use sret：函数返回 blob 值 struct → 末尾加隐藏 sret 参数（reg=totalParams，
+        // caller 预留的返回 blob handle）。**不入 SIGS**（内部 ABI，caller 显式在 Call args 末尾传，运行时按 arg
+        // 数 collect_args 填此 reg）→ 反射/跨包签名不受污染。callee `return s`→StructCopy(sret,s)+ret void。
+        // ctor 除外（ctor 填的是传入 handle、隐式返回，不走 sret）。
+        int regCount = totalParams;   // reg 分配总数（含 sret）；totalParams 仍是 SIGS param count（**不含 sret**，
+                                      // 故 paramTypes 数组 len==totalParams 不越界）。
+        if (!md.IsCtor) {
+            Z42Type rt = this._symbols.ResolveTypeP(md.RetType, tp, tpc);
+            string rsn = this._blobStructNameT(rt);
+            if (rsn != "") {
+                this._ctx.RetIsStruct = true;
+                this._ctx.RetStructSize = this._gen.Layouts.StructSize(rsn);
+                this._ctx.SretReg = new TypedReg(totalParams, IrType.Ref);   // sret reg = 末尾（totalParams）
+                this._ctx.RecordReg(totalParams, IrType.Ref);
+                regCount = totalParams + 1;   // sret 占额外 reg，但不计入 SIGS param count
+            }
+        }
+        this._ctx.NextReg = regCount;
         this._ctx.MaxReg = this._ctx.NextReg;
         this._ctx.StartBlock("entry");
         // 顶层方法体：直接循环子语句（镜像 C# EmitFunction 的 foreach EmitBoundStmt——体 block 自身不 TrackLine；
@@ -522,7 +539,15 @@ public sealed class FunctionEmitter {
                 }
             }
             this._emitPendingFinallys(0);   // return 退出整个函数 → 跑全部外层 finally（内→外）
-            if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(hasV, rv)); }
+            // add-struct-value-semantics A-use sret：返回 blob 值 struct → 把返回值 blob 复制进 caller 预留的
+            // sret handle（在本帧截断前完成，避免悬垂），再 ret void。rv 是本函数里的 struct handle（局部/
+            // 参数/new 结果），SretReg 指向 caller 帧的返回 blob。
+            if (this._ctx.RetIsStruct && hasV && rv != null) {
+                this._ctx.Emit(new StructCopyInstr(this._ctx.SretReg, rv, this._ctx.RetStructSize));
+                if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
+            } else if (!this._ctx.Ended) {
+                this._ctx.EndBlock(new RetTerm(hasV, rv));
+            }
         } else if (s is BoundExprStmt) {
             BoundExprStmt e = s as BoundExprStmt;
             this._expr.Emit(e.E);                         // 结果弃
