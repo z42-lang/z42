@@ -169,7 +169,10 @@ public static class Script {
                 vi = vi + 1;
             }
             string initR = Rewriter.Rewrite(p.InitExpr, state.VarNames, cls);
-            prelude = prelude + "  public static var " + p.VarName + " = " + initR + ";\n";
+            // 保留用户写的显式类型（`A a = new()` → `public static A a = ..`），让声明类型能作
+            // target-typed new / 集合字面量的目标；`var a = ..` 仍发 `var`（靠 init 推断 + carry）。
+            string declKw = (p.DeclType.Length > 0) ? p.DeclType : "var";
+            prelude = prelude + "  public static " + declKw + " " + p.VarName + " = " + initR + ";\n";
             prelude = prelude + "}\n";
         }
 
