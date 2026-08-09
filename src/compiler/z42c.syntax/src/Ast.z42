@@ -324,6 +324,7 @@ public sealed class CastExpr : Expr {
     public override string Dump() { return "(cast " + this.Type.Dump() + " " + this.E.Dump() + ")"; }
 }
 
+// add-target-typed-new：`Type == null` 表示 target-typed `new(args)`（省略类名，从目标类型推断）。
 public sealed class ObjNewExpr : Expr {
     public TypeExpr Type;
     public Expr[]   Args;
@@ -332,7 +333,7 @@ public sealed class ObjNewExpr : Expr {
         this.Type = type; this.Args = args; this.ArgCount = argCount;
     }
     public override string Dump() {
-        string s = "(new " + this.Type.Dump();
+        string s = "(new " + (this.Type == null ? "<target>" : this.Type.Dump());
         int i = 0;
         while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
         return s + ")";
@@ -354,7 +355,7 @@ public sealed class ObjInitExpr : Expr {
         this.FieldNames = fieldNames; this.FieldValues = fieldValues; this.FieldCount = fieldCount;
     }
     public override string Dump() {
-        string s = "(new-init " + this.Type.Dump();
+        string s = "(new-init " + (this.Type == null ? "<target>" : this.Type.Dump());
         int i = 0;
         while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
         s = s + " {";

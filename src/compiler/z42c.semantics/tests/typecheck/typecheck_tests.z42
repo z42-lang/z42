@@ -57,6 +57,31 @@ void test_error_undefined_func() {
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
 
+// ── target-typed new（add-target-typed-new）：目标类型可推断则成功，否则 E0437 ──
+
+[Test]
+void test_target_typed_new_var_ok() {
+    // A a = new()：目标 = 声明类型 A → 绑成 (new C)，无错
+    string src = "class C { } class D { void M() { C c = new(); } }";
+    Assert.Equal("(block (decl c :C (new C :C)))", SemanticDump.DumpBody(src, "D.M"));
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_target_typed_new_var_needs_type() {
+    // var a = new()：目标类型不可推断 → E0437
+    string src = "class C { } class D { void M() { var x = new(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0437", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_target_typed_new_overload_ambiguous() {
+    // F(new())：F 有两个 arity-1 重载 → 无类型无法决议 → E0437
+    string src = "class A { } class B { } class C { void F(A a) { } void F(B b) { } void M() { this.F(new()); } }";
+    Assert.Equal("E0437", SemanticDump.FirstErrorCode(src));
+}
+
 // ── 1B：运算 + 控制流端到端 ──────────────────────────────────────────────────────
 
 [Test]

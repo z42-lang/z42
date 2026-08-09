@@ -208,7 +208,8 @@ public sealed class DeclBinder {
                 FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
                 if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
                     var fenv = TypeEnv.Root(symbols);
-                    model.AddStaticInit(c.Name, fd.Name, this._tc._expr._bindExpr(fd.Init, fenv));
+                    // add-target-typed-new：`static A f = new()` 以字段类型为目标。
+                    model.AddStaticInit(c.Name, fd.Name, this._tc._expr.BindWithTarget(fd.Init, fenv.ResolveType(fd.Type), fenv));
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;

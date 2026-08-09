@@ -4,6 +4,7 @@ namespace Z42cSyntaxIncompleteTests;
 
 using Std;
 using Std.Test;
+using Z42.Core;
 using Z42.Syntax;
 using Z42.Core;   // DiagnosticBag（p.Diagnostics() 返回类型）——file-scoped usings E0436 补漏（#146 测试文件遗漏，#143 迁移后合并）
 
