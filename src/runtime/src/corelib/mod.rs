@@ -468,9 +468,11 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── add-z42-repl (2026-07-23) — appended to preserve existing BuiltinIds ──
     // REPL line editor (rustyline) + in-memory bytecode load. Back
-    // `Std.Repl.ReadLine/ReadLineIndented` and z42.scripting's per-eval module load.
+    // `Std.Repl.ReadLine` and z42.scripting's per-eval module load. (BuiltinId is
+    // resolved by name at load, so removing the retired `__repl_readline_indented`
+    // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
+    // persisted id.)
     ("__repl_readline",           repl::builtin_repl_readline),
-    ("__repl_readline_indented",  repl::builtin_repl_readline_indented),
     ("__repl_complete_probe",     repl::builtin_repl_complete_probe),
     ("__repl_set_completer",      repl::builtin_repl_set_completer),
     ("__repl_member_names",       repl::builtin_repl_member_names),

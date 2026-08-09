@@ -1,6 +1,6 @@
 # REPL 输入完整性判定（parser 权威）
 
-> 对齐：2026-08-07（change `add-repl-parser-completeness`）
+> 对齐：2026-08-09（change `add-repl-parser-completeness` + `sink-repl-indent-to-script`）
 > 代码：`src/toolchain/scripting/src/Completeness.z42`、`src/compiler/z42c.syntax/src/Parser.z42`、
 > `src/toolchain/interactive/core/interactive_main.z42`、`src/runtime/src/corelib/repl.rs`
 
@@ -21,7 +21,7 @@ REPL 每读一行都要回答：**当前累积的输入「写完了没」**—�
 flowchart TD
     L[Repl.ReadLine 读一行] --> A[buf += line]
     A --> C{Completeness.IsIncomplete&#40;buf&#41;<br/>裸 parse 原文，不执行}
-    C -->|IncompleteAtEof| I[ReadLineIndented 续读<br/>native 按括号深度预填缩进]
+    C -->|IncompleteAtEof| I[Repl.ReadLine 续读<br/>Completeness.ContinuationIndent 算缩进预填]
     I --> A
     C -->|完整| E[Script.Eval&#40;buf&#41;<br/>包裹 return&#40;…&#41;/函数体 → 编译 → 执行]
     E --> R[打印结果，清空 buf]
@@ -29,6 +29,10 @@ flowchart TD
 
 - **完整性探针**（`Completeness.IsIncomplete`）：对**裸输入原文** parse，只读 parser 的 `IncompleteAtEof`
   标志，不做语义分析 / codegen / 加载依赖 / 执行，不改 `ScriptState`。
+- **续行缩进**（`Completeness.ContinuationIndent`，sink-repl-indent-to-script）：续读一行前，脚本层用**既有
+  Lexer** 数 `buf` 仍未闭合的括号层数，算 `层数×4 空格` 交 `Repl.ReadLine(prompt, initial)` 预填。缩进纯
+  装饰、对 parser 无语义影响（IsIncomplete 才是权威）。**至此 native 侧不再留任何括号状态机**——`repl.rs`
+  只剩「读一行 + 用给定串预填」这一个原语 `__repl_readline`，早期那份含串/注释状态机的 `bracket_depth` 已删。
 - **求值**（`Script.Eval`）：仅在探针判「完整」后调用，内部照旧把输入包进 `return (…)` / 函数体编译执行。
 - 两条路唯一共享 `Classifier`（声明 vs 表达式/语句 分类）。探针**不走** `PackageCompile`，故信号只需挂
   parser 的 `DiagnosticBag`，无须透传到 `CompiledModuleZ` / `CompileArtifacts` / `EvalResult`。

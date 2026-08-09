@@ -163,7 +163,7 @@ socket2 = { version = "0.5", features = ["all"] }
 # compatibility.
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
-# add-z42-repl (2026-07-23): line editor backing `Std.Repl.ReadLine/ReadBlock`
+# add-z42-repl (2026-07-23): line editor backing `Std.Repl.ReadLine`
 # for the native REPL (z42i). History + emacs-style editing + Ctrl-D EOF.
 # Host-only (REPL is host-only per scripting-charter path 2b); wasm32 target
 # cfg-gates repl.rs to a plain-stdin fallback so the builtins still resolve.

@@ -1,11 +1,17 @@
-//! REPL line editor builtins — back `Std.Repl.ReadLine` / `Std.Repl.ReadLineIndented`
-//! used by the native interactive REPL (`z42i`, add-z42-repl).
+//! REPL line editor builtins — back `Std.Repl.ReadLine` used by the native
+//! interactive REPL (`z42i`, add-z42-repl).
 //!
-//! `__repl_readline(prompt)`  → one edited line (history, emacs keys, Ctrl-D EOF).
-//! `__repl_readline_indented(prompt, buf)` → one continuation line, pre-filled with
-//! indentation matching `buf`'s still-open bracket depth. Multi-line accumulation +
-//! completeness judgment moved script-side (add-repl-parser-completeness): the parser
-//! is the authority on "is the input complete?", this builtin only auto-indents.
+//! `__repl_readline(prompt, initial)` → one edited line (history, emacs keys,
+//! Ctrl-D EOF), with the edit buffer pre-filled by `initial` (empty for a fresh
+//! line; a computed indent string for an auto-indented continuation line).
+//!
+//! Multi-line accumulation, completeness judgment, AND the continuation-indent
+//! computation now all live in the script layer (sink-repl-indent-to-script,
+//! following add-repl-parser-completeness): the parser is the authority on "is the
+//! input complete?" and the z42-side `Std.Scripting.Completeness` computes the
+//! indent from the accumulated text (via the existing Lexer). This builtin is a
+//! plain "read one line, pre-filled with the given string" primitive — no bracket
+//! state machine remains Rust-side.
 //!
 //! Return convention: `Value::Str` for a line/block; `Value::Null` on EOF
 //! (Ctrl-D) or interrupt (Ctrl-C) so the z42 side can treat null as "exit".
@@ -29,14 +35,17 @@ fn prompt_arg(args: &[Value], idx: usize) -> String {
     }
 }
 
-/// `__repl_readline(prompt: string) -> string?` — read one edited line.
+/// `__repl_readline(prompt: string, initial: string) -> string?` — read one edited
+/// line, pre-filling the edit buffer with `initial` (empty → a fresh line; a computed
+/// indent string → an auto-indented continuation line, cursor landing after it).
 /// Returns null on Ctrl-D (EOF) / Ctrl-C (interrupt).
 pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
+    let initial = prompt_arg(args, 1);
     // add-repl-prewarm: GC-safe park for the blocking read so a background
     // prewarm thread's GC can proceed while this thread waits on stdin.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
-    read_one_line(ctx, &prompt, "")
+    read_one_line(ctx, &prompt, &initial)
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
@@ -57,35 +66,6 @@ pub fn builtin_repl_set_completer(_ctx: &VmContext, args: &[Value]) -> Result<Va
 /// `Completer` on Tab. Process-global (one REPL per process).
 static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
-
-/// `__repl_readline_indented(prompt: string, buf: string) -> string?` — read one
-/// continuation line, pre-filling indentation that matches the still-open bracket
-/// depth of `buf` (the text accumulated so far). Returns null on Ctrl-D / Ctrl-C.
-///
-/// Multi-line accumulation + completeness now live in the script layer
-/// (`Std.Scripting.Completeness`, add-repl-parser-completeness): the loop reads one
-/// line at a time, this builtin only supplies the editor-style auto-indent. Indent is
-/// cosmetic (over-/under-indent never changes semantics), so a native bracket count
-/// is fine here — the *authoritative* "is the input complete?" judgment is the
-/// parser's, made script-side.
-pub fn builtin_repl_readline_indented(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let prompt = prompt_arg(args, 0);
-    let buf = prompt_arg(args, 1);
-    // add-repl-prewarm: GC-safe park for the blocking read.
-    let _park = crate::gc::NativeParkGuard::enter(ctx);
-    let indent = continuation_indent(&buf);
-    read_one_line(ctx, &prompt, &indent)
-}
-
-/// Indentation to pre-fill on the next continuation line: four spaces per still-open
-/// bracket level. Whitespace is cosmetic to the parser, so over-/under-indent never
-/// changes semantics — this only makes multi-line entry read like an editor. A line
-/// that *starts by closing* a bracket ends up one level too deep; the user backspaces
-/// once (auto-dedent-on-`}` is a future refinement). (add-repl-multiline-completion)
-pub(crate) fn continuation_indent(buf: &str) -> String {
-    let depth = bracket_depth(buf).max(0) as usize;
-    "    ".repeat(depth)
-}
 
 /// `__repl_complete_probe(fqn: string, line: string, pos: int) -> string[]` —
 /// D5 spike (add-completion-query-api): prove the VM re-entrancy path for Tab
@@ -218,76 +198,6 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
         bail!("__repl_complete_probe: completer `{fqn}` must take (string line, int pos) — 2 params, got {param_count}");
     }
     Ok(())
-}
-
-/// Net bracket depth of `s`, ignoring brackets inside string / char literals and
-/// `//` line + `/* */` block comments. Positive = unclosed opens remain.
-///
-/// MVP scope: handles regular `"..."` / `'...'` (with `\` escape) and both
-/// comment forms. Raw/triple-quoted string literals are NOT specially handled —
-/// a rare REPL edge case; the z42-side classifier does the authoritative parse.
-pub(crate) fn bracket_depth(s: &str) -> i64 {
-    #[derive(PartialEq)]
-    enum St {
-        Normal,
-        Str,
-        Char,
-        Line,
-        Block,
-    }
-    let mut st = St::Normal;
-    let mut depth: i64 = 0;
-    let mut escaped = false;
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        match st {
-            St::Normal => match c {
-                '/' if chars.peek() == Some(&'/') => {
-                    chars.next();
-                    st = St::Line;
-                }
-                '/' if chars.peek() == Some(&'*') => {
-                    chars.next();
-                    st = St::Block;
-                }
-                '"' => st = St::Str,
-                '\'' => st = St::Char,
-                '(' | '[' | '{' => depth += 1,
-                ')' | ']' | '}' => depth -= 1,
-                _ => {}
-            },
-            St::Str => {
-                if escaped {
-                    escaped = false;
-                } else if c == '\\' {
-                    escaped = true;
-                } else if c == '"' {
-                    st = St::Normal;
-                }
-            }
-            St::Char => {
-                if escaped {
-                    escaped = false;
-                } else if c == '\\' {
-                    escaped = true;
-                } else if c == '\'' {
-                    st = St::Normal;
-                }
-            }
-            St::Line => {
-                if c == '\n' {
-                    st = St::Normal;
-                }
-            }
-            St::Block => {
-                if c == '*' && chars.peek() == Some(&'/') {
-                    chars.next();
-                    st = St::Normal;
-                }
-            }
-        }
-    }
-    depth
 }
 
 // ── Tab completion (D5 spike, add-completion-query-api) ──────────────────────
