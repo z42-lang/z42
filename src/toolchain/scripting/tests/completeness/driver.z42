@@ -25,9 +25,24 @@ void Main() {
     _check("42");
     // 真语法错但当前非 EOF → complete（交 Eval 正常报错，不误当续读）
     _check("class 1");
+
+    // 续行视觉缩进（sink-repl-indent-to-script）：ContinuationIndent = 未闭合括号层数 × 4 空格。
+    // 打印返回串长度；覆盖平衡/嵌套/负数钳零/串内·注释内括号不计（Lexer 天然处理）。
+    _indent("1 + 2");                   // 0（平衡）
+    _indent("int f() {");               // 4（一层）
+    _indent("class A { int f() {");     // 8（嵌套两层）
+    _indent("f(g(");                    // 8
+    _indent("f() {}");                  // 0（开合抵消）
+    _indent("}}");                      // 0（负数钳到 0）
+    _indent("s = \"{[(\"");             // 0（串内括号不计）
+    _indent("x() // {");                // 0（注释内括号不计）
 }
 
 void _check(string src) {
     if (Completeness.IsIncomplete(src)) { Console.WriteLine(src + " => incomplete"); }
     else { Console.WriteLine(src + " => complete"); }
+}
+
+void _indent(string src) {
+    Console.WriteLine(src + " => indent " + Completeness.ContinuationIndent(src).Length.ToString());
 }

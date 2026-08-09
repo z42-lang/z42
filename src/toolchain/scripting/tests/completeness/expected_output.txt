@@ -11,3 +11,11 @@ void foo() {} => complete
 var n = 10; => complete
 42 => complete
 class 1 => complete
+1 + 2 => indent 0
+int f() { => indent 4
+class A { int f() { => indent 8
+f(g( => indent 8
+f() {} => indent 0
+}} => indent 0
+s = "{[(" => indent 0
+x() // { => indent 0

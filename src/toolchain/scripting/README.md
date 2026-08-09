@@ -7,7 +7,7 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 ## 功能索引
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| 行编辑（rustyline）| `Std.Repl.Repl.ReadLine/ReadLineIndented`（`Repl.z42` → z42vm builtin）|
+| 行编辑（rustyline）| `Std.Repl.Repl.ReadLine(prompt, initial)`（`Repl.z42` → z42vm builtin；`initial` 预填编辑缓冲）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
@@ -17,7 +17,7 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）|
 | 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |
 | 多行输入完整性判定 | `Completeness.IsIncomplete`（`Completeness.z42`）——parser 权威：对**裸输入原文** parse，读 `IncompleteAtEof` 决定续读；宿主 `interactive_main` 逐行累积接线（add-repl-parser-completeness）|
-| 续行视觉缩进 | `Std.Repl.ReadLineIndented`（native 按 buf 括号深度预填；纯装饰，不参与完整性判定）|
+| 续行视觉缩进 | `Completeness.ContinuationIndent`（`Completeness.z42`——脚本层用既有 Lexer 数括号算 `层数×4 空格`，交 `Repl.ReadLine` 的 `initial` 预填；纯装饰，不参与完整性判定。sink-repl-indent-to-script）|
 
 ## 基础用法
 ```z42
@@ -50,8 +50,8 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine` / `ReadLineIndented`）|
-| `Completeness.z42` | 输入完整性探针：`IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）|
+| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine(prompt, initial)`）|
+| `Completeness.z42` | 输入完整性探针 `IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）+ 续行缩进 `ContinuationIndent`（Lexer 数括号）|
 | `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用原语 |
 | `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |
 | `Classifier.z42` | 输入分类：using / var / 顶层函数·类型声明 / 表达式·语句 |

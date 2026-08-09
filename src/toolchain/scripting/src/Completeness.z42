@@ -37,4 +37,28 @@ public static class Completeness {
         parser.ParseStatement();
         return parser.Diagnostics().IsIncompleteAtEof();
     }
+
+    // 续行视觉缩进（sink-repl-indent-to-script）：按已累积文本 buf 仍未闭合的括号层数返回
+    // `层数 × 4 空格`，交 Repl.ReadLine 预填下一续行（编辑器风格）。缩进纯装饰、对 parser 无语义
+    // 影响（IsIncomplete 才是权威判完整）——故这里用既有 Lexer 数括号即可（它天然跳过注释、把串/字符
+    // 字面量内的括号锁在 token 内不计），无需再在 native 侧维护一份括号状态机。以闭括号起头的续行会多
+    // 缩一级，用户 backspace 一次（auto-dedent-on-`}` 属后续细化）。
+    public static string ContinuationIndent(string buf) {
+        Lexer lx = new Lexer(buf, "<repl>");
+        lx.Tokenize();
+        int cnt = lx.TokenCount();
+        int depth = 0;
+        int i = 0;
+        while (i < cnt) {
+            int k = lx.TokenAt(i).Kind;
+            if (k == TokenKind.LParen || k == TokenKind.LBracket || k == TokenKind.LBrace) { depth = depth + 1; }
+            else if (k == TokenKind.RParen || k == TokenKind.RBracket || k == TokenKind.RBrace) { depth = depth - 1; }
+            i = i + 1;
+        }
+        if (depth < 0) { depth = 0; }
+        string ind = "";
+        int j = 0;
+        while (j < depth) { ind = ind + "    "; j = j + 1; }
+        return ind;
+    }
 }

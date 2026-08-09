@@ -79,14 +79,17 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   会移列、不可靠）。单行输入 → 只留 `<code>: <msg>`（如 `E0401: undefined: x`）；多行块 → `第 N 行: <msg>`。
 - **调用是自由函数**：`Eval{N}` emit 为自由函数（非类方法），经 `__invoke_static` 按 FQN 调；
   入口/eval 均自由函数（实证类方法作 entry 不解析）。
-- **多行输入（add-repl-decls-multiline）**：宿主 `interactive_main` 用 `Std.Repl.ReadBlock(">>> ", "... ")`
-  读**括号平衡多行块**（未闭合 `(){}[]` → `... ` 续行；native `__repl_readblock` 忽略串/注释内括号）；
-  整块交 `Script.Eval`，故多行 fn/class 整体到达分类器。元指令单行无括号即时返回；EOF→null 退出不变。
-- **续行自动缩进（add-repl-multiline-completion）**：`__repl_readblock` 读每条续行前按当前括号深度
-  预填 `depth × 4 空格`（`continuation_indent` = `bracket_depth.max(0) × 4`，经 rustyline
-  `readline_with_initial(cont,(indent,""))` 预填，光标落缩进后可编辑）→ 写 fn/class 体像编辑器而非顶格。
-  缩进是编辑便利，对 parser 纯空白无语义影响；以闭括号 `}` 起头的行会多缩一级，用户 backspace 一次
-  （auto-dedent-on-`}` 为 follow-up）。非交互路径（管道/no-tty，`plain_readline`）忽略预填——输入自带文本。
+- **多行输入（add-repl-parser-completeness；早期 add-repl-decls-multiline）**：宿主 `interactive_main`
+  **逐行**读、累积到 `buf`，由 **parser 权威**的 `Std.Scripting.Completeness.IsIncomplete` 判「写完没」——
+  没写完（缺 `}` / 操作数 / 未闭合 `(){}[]` 等）续读，写完才整块交 `Script.Eval`（多行 fn/class 整体到
+  分类器）。元指令单行即时返回；EOF→null 退出不变。完整性机制详见 book 页
+  [`repl-input-completeness.md`](../../book/src/toolchain/repl-input-completeness.md)。
+- **续行自动缩进（sink-repl-indent-to-script；早期 add-repl-multiline-completion）**：续读一行前，**脚本层**
+  用既有 Lexer 数 `buf` 未闭合括号层数，算 `层数 × 4 空格`（`Std.Scripting.Completeness.ContinuationIndent`），
+  交 `Repl.ReadLine(prompt, initial)` 的 `initial` 预填（经 rustyline `readline_with_initial`，光标落缩进后
+  可编辑）→ 写 fn/class 体像编辑器而非顶格。缩进是编辑便利、对 parser 纯空白无语义影响；以闭括号 `}` 起头
+  的行多缩一级，用户 backspace 一次（auto-dedent-on-`}` 为 follow-up）。非交互路径（管道/no-tty，
+  `plain_readline`）忽略预填——输入自带文本。**native 侧不再留括号状态机**（早期 `bracket_depth` 已删）。
 
 元指令落地状态（`interactive_main`）：已接 `.help .exit .quit .reset .clear .vars .types .usings
 .using <ns> .type <expr> .version`（`.type` 见 add-repl-type-metacommand：**运行期类型**——`Script.Eval`
@@ -131,7 +134,7 @@ interactive_main.Main()  [主线程]                worker  [Std.Threading.Threa
   s.PrewarmThread = Thread.Start(…)              scan = DepScan.ScanDirsLazy(…)   ~1.4s
   Repl.SetCompleter(…)                           for u in Usings: EnsurePackageLoaded(scan,u)
   loop:                                          state.CachedScan = scan   ◀── 末尾原子发布
-    line = Repl.ReadBlock(">>> ")  ← 主线程阻塞在原生 readline（GC-safe park，见下）
+    line = Repl.ReadLine(">>> ", "")  ← 主线程阻塞在原生 readline（GC-safe park，见下）
     r = Script.Eval(s, line)
         └─ _ensureWarm(s): PrewarmThread.Join()  ← 首次消费前汇合（已完成则瞬回）
 ```
@@ -294,8 +297,9 @@ static int $Eval_3() { return $ReplVars.x + $ReplVars.y; }
 
 重定义同名函数/类型 → ERROR（`DeclNames` 查重，不 supersede）。
 
-**多行检测**：`interactive_main` 用 `Std.Repl.ReadBlock`；未闭合的 `{` / `(` / `[` → `... ` 续行提示
-继续读取，直到括号平衡（native `__repl_readblock`，忽略串/字符/注释内括号）。
+**多行检测**：`interactive_main` **逐行**读、累积，由 parser 权威的 `Completeness.IsIncomplete` 判「写完没」
+（缺 `}` / 操作数 / 未闭合 `(){}[]` 等）→ 没写完 `... ` 续行、写完才求值。续行缩进由脚本层
+`Completeness.ContinuationIndent`（Lexer 数括号）算好、交 `Repl.ReadLine` 预填；native 无括号状态机。
 
 ## z42.scripting API
 
@@ -411,12 +415,12 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
 Rust 侧 `rustyline` 实现，通过 native builtin 暴露给 REPL 程序：
 
 ```z42
-// z42.interactive 内部调用
-string line  = Std.Repl.ReadLine(">>> ");
-string block = Std.Repl.ReadBlock(">>> ", "... ");  // 多行（括号平衡检测）
+// z42.interactive 内部调用（逐行读，多行累积/完整性/缩进都在脚本层，见「多行输入」节）
+string line = Std.Repl.ReadLine(">>> ", "");                                  // 主行（initial 空）
+string cont = Std.Repl.ReadLine("... ", Completeness.ContinuationIndent(buf)); // 续行（预填缩进）
 ```
 
-功能：历史记录（上下键）、行编辑（Ctrl-A/E/K/U）、Ctrl-D 退出、多行块续读（`ReadBlock`）。
+功能：历史记录（上下键）、行编辑（Ctrl-A/E/K/U）、Ctrl-D 退出、多行续读（逐行读 + 脚本层 parser 完整性判定）。
 
 **历史跨会话持久（add-repl-history-keyword-completion）**：编辑器 init 时 `load_history`、每行后
 `save_history` 到 `$HOME/.z42_history`（Windows 回退 `%USERPROFILE%`）——上一会话的输入下次上箭头可
@@ -583,10 +587,10 @@ libs/ + programs/z42c/ + programs/interactive/
 
 - **来源**：add-z42-repl（宿主退出机制）
 - **触发原因**：`Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit` / `.quit`（或
-  `Repl.ReadBlock` 返回 `null` 的原生 EOF）退出，宿主级 `Console.ReadLine` 场景收不到 EOF 信号。
+  `Repl.ReadLine` 返回 `null` 的原生 EOF）退出，宿主级 `Console.ReadLine` 场景收不到 EOF 信号。
 - **前置依赖**：runtime builtin 暴露 EOF 信号（区分「读到 EOF」与「读到空行」）。
 - **触发条件**：需要用 `Console.ReadLine()` 写 EOF 敏感的交互逻辑时。
-- **当前 workaround**：`.exit` / `.quit` 元指令，或 `ReadBlock`/`ReadLine` 原生 EOF→null。
+- **当前 workaround**：`.exit` / `.quit` 元指令，或 `ReadLine` 原生 EOF→null。
 
 ### repl-future-runtime-version
 
