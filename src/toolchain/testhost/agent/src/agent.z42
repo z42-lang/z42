@@ -106,7 +106,15 @@ string _runBundleReport(string manifestPath) {
             gExpected[gi] = exp;
             gi = gi + 1;
         }
+        // Each golden runs in a fresh isolated VM, so it needs its own stdlib
+        // dir. Desktop passes it via Z42_LIBS; mobile/wasm have no env, but the
+        // deployable stages the stdlib as a sibling of the bundle dir
+        // (<root>/{libs,bundle,app}), so fall back to <bundle>/../libs.
         string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        if (libs.Length == 0) {
+            string cand = Path.Join(Path.GetDirectoryName(dir), "libs");
+            if (Directory.Exists(cand)) { libs = cand; }
+        }
         string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs);
         TestResult[] gr = new TestResult[gN];
         for (int i = 0; i < gN; i = i + 1) {
