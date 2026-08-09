@@ -828,3 +828,28 @@ void test_nonsealed_stays_vcall() {
     string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
     Assert.Contains("vcall", on);
 }
+
+// ── extend-sealed-devirt-more：sealed override 去虚化（非 sealed 类上的 sealed 方法） ──
+
+[Test]
+void test_sealed_override_devirt() {
+    // 非 sealed 类 Mid 上 sealed override 方法 → 目标唯一（其下无人能 override）→ 直接 call @Mid.M
+    string src = "class Base { public virtual int M() { return 1; } }"
+               + " class Mid : Base { public sealed override int M() { return 2; } }"
+               + " int Main() { Mid m = new Mid(); return m.M(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @Mid.", on);   // sealed override → 直接 call 到 Mid 的实现
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);        // devirt 关 → 虚派发
+}
+
+[Test]
+void test_nonsealed_override_stays_vcall() {
+    // 非 sealed 类 Mid 上**非 sealed** override → 子类仍可再 override → 目标不唯一 → 仍 vcall
+    string src = "class Base { public virtual int M() { return 1; } }"
+               + " class Mid : Base { public override int M() { return 2; } }"
+               + " int Main() { Mid m = new Mid(); return m.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);         // 未误去虚化
+}
