@@ -6,8 +6,9 @@
 > 落地：一分支两 commit——commit1=① sealed override，commit2=② 泛型 sealed
 
 ## 进度概览
-- [ ] commit1 ① sealed override：`DevirtReceiverClass` + `ResolveSealedTarget(classSealed)` 方法级门控 + 单测 + e2e
-- [ ] commit2 ② 泛型 sealed：`Z42InstantiatedType` 解包 + `$N` mangle 目标名 + 单测 + e2e
+- [x] commit1 ① sealed override：`DevirtReceiverClass` + `ResolveSealedTarget(classSealed)` 方法级门控 + 单测 + e2e（GREEN 5/5 不动点）
+- [x] commit2 ② 泛型 sealed：`Z42InstantiatedType` 解包 + `_classShortName` `$N` 条件 mangle + 单测（3 PASS）+ e2e
+- [x] commit0 fix：incomplete_at_eof 补 using Z42.Core（pre-existing E0436，#146 遗留，隔离确认非本 change 引入）
 
 ## commit1 ① sealed override
 - [x] 1.1 `SealedReceiverClass`→`DevirtReceiverClass`：删 `!ct.IsSealed` 铁律（接纳非 sealed 类）
@@ -19,12 +20,13 @@
 - [ ] 1.7 commit1
 
 ## commit2 ② 泛型 sealed
-- [ ] 2.1 `DevirtReceiverClass` 接纳 `Z42InstantiatedType` → 解包 `.Def`；删泛型铁律
-- [ ] 2.2 `ResolveSealedTarget` 目标名 `$N` mangle（`QualifyClass(Name)+"$"+GenericParamCount`）；核对 `_devirtQualifiable` 键（Name vs Name$N）
-- [ ] 2.3 imported 泛型 sealed：`_depHasFunction` FQ 用 `$N` 名
-- [ ] 2.4 单测：泛型 sealed receiver → `call @Box$1.`；非 sealed 泛型对照仍 vcall
-- [ ] 2.5 e2e：泛型 sealed 去虚化正确
-- [ ] 2.6 GREEN（含自举不动点 gen1==gen2）
+- [x] 2.1 `DevirtReceiverClass` 接纳 `Z42InstantiatedType` → 解包 `.Def`；删泛型铁律
+- [x] 2.2 新增 `_classShortName(ct)` 镜像 `IrGen._classIrShortName`（**条件** `$N`：仅 `Symbols.HasClass(Name$N)` 多 arity 才 mangle）；`ResolveSealedTarget` 目标名 + `_devirtQualifiable` ImportedClassNs 查键 + `TrackImportedClass` 全用它
+  - **关键发现**：LocalClasses 用**裸名**键、ImportedClassNs 用**条件 mangle 短名**键（`ImportedSymbolLoader` clKey）；泛型 mangle 非「一律 $N」而是「多 arity 才 $N」
+- [x] 2.3 imported 泛型 sealed：`_depHasFunction` FQ 复用 `_classShortName`（同名构造）
+- [x] 2.4 单测：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`（`call @Box$1.`）/ `test_generic_nonsealed_stays_vcall`（3 PASS）
+- [x] 2.5 e2e `sealed_generic_devirt.z42`（`Box<int>`/`Box<string>` 去虚化 + 非 sealed 泛型多态）
+- [ ] 2.6 GREEN（含自举不动点 gen1==gen2）— 完整 xtask test 运行中
 - [ ] 2.7 commit2
 
 ## 阶段 3: 文档 + 归档

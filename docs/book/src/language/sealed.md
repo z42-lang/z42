@@ -128,13 +128,28 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
 - **e2e**：`src/tests/classes/sealed_override_devirt.z42`——sealed override 去虚化结果 == 虚派发、子类继承 sealed
   方法安全、非 sealed override 保持多态。
 
+### 泛型 sealed 去虚化（$N 条件 arity-mangle，extend-sealed-devirt-more）
+
+`sealed class Box<T>` 同样不可继承 → `Box<int>` receiver 运行期类型必是它自身（类型擦除后一份 `Box`）→ 方法
+目标唯一。之前保守回落，本项接纳：
+
+- **receiver 解包**：泛型实例 `Box<int>` 的静态类型是 `Z42InstantiatedType` → `DevirtReceiverClass` 解包 `.Def`
+  拿到泛型定义类。
+- **$N 条件 mangle**：泛型是**类型擦除**，方法一份发射；短名由 `_classShortName` 镜像 `IrGen._classIrShortName`
+  ——泛型类**仅当同名多 arity 重载**（`Symbols.HasClass("Name$N")`）才用 `Name$N`，否则裸 `Name`。目标名
+  `QualifyClass(_classShortName(ct))+"."+RegKey`、`ImportedClassNs` 查键、`TrackImportedClass` 都用它，逐字节匹配
+  IrGen 发射。非泛型下 `_classShortName==Name` → 与 v1 逐字节等价（零回归）。
+- **单测**：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`
+  （`Box`+`Box<T>` → `call @Box$1.`）/ `test_generic_nonsealed_stays_vcall`；e2e `sealed_generic_devirt.z42`
+  （`Box<int>`/`Box<string>` 去虚化结果正确 + 非 sealed 泛型多态）。
+
 ## Deferred / Future Work
 
 ### sealed-devirt-future: 去虚化 v1 边界外
 
 - **来源**：`add-sealed-devirt` v1（本地）+ `extend-sealed-devirt-imported`（imported）+ `extend-sealed-devirt-more`（sealed override / 泛型）。
-- **触发原因**：目标名精确构造在这些情形更易错，早期保守只覆盖非泛型 sealed 类。
-- **待覆盖**：**泛型 sealed 类**（`$N` arity-mangle 条件构造 + 类型参数）——`extend-sealed-devirt-more` commit2 落地中。
-- **已落地**：**imported sealed 类**（`extend-sealed-devirt-imported`）；**sealed override 方法**（非 sealed 类上的
-  sealed 方法，`extend-sealed-devirt-more`——见上「sealed override 去虚化」节）。
-- **当前 workaround**：剩余情形回落 VCall（运行期仍正确，走 PIC），只是不内联。
+- **已落地**：**本地非泛型**（`add-sealed-devirt`）；**imported sealed 类**（`extend-sealed-devirt-imported`）；
+  **sealed override 方法**（非 sealed 类上的 sealed 方法）；**泛型 sealed 类**（`$N` 条件 arity-mangle）
+  ——后两者见上「sealed override 去虚化」「泛型 sealed 去虚化」节（`extend-sealed-devirt-more`）。
+- **剩余（回落 VCall，仍正确、只是不内联）**：非虚方法/接口 receiver/cast-unknown 链（既有守卫优先）；
+  数据流型别精化（`if (x is T)` 后窄化）——仍按静态声明类型，不做流敏感分析。

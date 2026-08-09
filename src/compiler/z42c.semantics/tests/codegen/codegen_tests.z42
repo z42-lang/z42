@@ -853,3 +853,36 @@ void test_nonsealed_override_stays_vcall() {
     string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
     Assert.Contains("vcall", on);         // 未误去虚化
 }
+
+// ── extend-sealed-devirt-more：泛型 sealed 去虚化（$N 条件 arity-mangle） ──
+
+[Test]
+void test_generic_sealed_devirt() {
+    // 单 arity 泛型 sealed 类 → 未 arity 重载 → 短名裸 Box（无 $N）→ 直接 call @Box.Tag
+    string src = "sealed class Box<T> { public virtual int Tag() { return 7; } }"
+               + " int Main() { Box<int> b = new Box<int>(); return b.Tag(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @Box.", on);   // 泛型 sealed 去虚化（单 arity → 裸名）
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);        // devirt 关 → 虚派发
+}
+
+[Test]
+void test_generic_sealed_multiarity_devirt() {
+    // 同名多 arity（Box + Box<T>）→ 泛型版以 Box$1 键注册 → 短名 Box$1 → call @Box$1.Tag
+    string src = "class Box { } sealed class Box<T> { public virtual int Tag() { return 7; } }"
+               + " int Main() { Box<int> b = new Box<int>(); return b.Tag(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("call @Box$1.", on);  // arity-mangle 短名逐字节匹配 IrGen
+    Assert.False(on.Contains("vcall"));
+}
+
+[Test]
+void test_generic_nonsealed_stays_vcall() {
+    // 非 sealed 泛型类 → 可继承 → 目标不唯一 → 仍 vcall
+    string src = "class Bag<T> { public virtual int Tag() { return 1; } }"
+               + " int Main() { Bag<int> g = new Bag<int>(); return g.Tag(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);         // 未误去虚化
+}
