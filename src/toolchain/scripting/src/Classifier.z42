@@ -16,11 +16,13 @@ public class ParsedInput {
     public bool IsVarDecl;   // var 声明：VarName/InitExpr 有效
     public string VarName;
     public string InitExpr;
+    public string DeclType;  // 显式声明类型名（`A a = ..` → "A"）；`var a = ..` → ""（靠 init 推断）。
+                             // 供 REPL 发静态字段时保留类型 → target-typed new 等能从声明类型定型。
     public bool IsDecl;      // 顶层函数/类型声明：DeclName = 声明的符号名（重定义查重用）
     public string DeclName;
     public bool IsTypeDecl;  // IsDecl 中进一步区分：类型声明（class/struct/enum/interface/record）；false = 自由函数。供 .types 只列类型。
     public ParsedInput() {
-        this.IsVarDecl = false; this.VarName = ""; this.InitExpr = "";
+        this.IsVarDecl = false; this.VarName = ""; this.InitExpr = ""; this.DeclType = "";
         this.IsDecl = false; this.DeclName = ""; this.IsTypeDecl = false;
     }
 }
@@ -66,6 +68,9 @@ public static class Classifier {
         if ((k0 == TokenKind.Var || typeTok) && k1 == TokenKind.Identifier && k2 == TokenKind.Eq) {
             p.IsVarDecl = true;
             p.VarName = lx.TokenAt(mi + 1).Text;
+            // 显式类型（非 `var`）保留下来：`A a = new()` 让 REPL 发 `public static A a = ..`
+            // 而非丢成 `var`，从而声明类型能作 target-typed new 的目标（否则 E0437）。
+            if (k0 != TokenKind.Var) { p.DeclType = lx.TokenAt(mi).Text; }
             int eqEnd = lx.TokenAt(mi + 2).Span.End;
             string init = trimmed.Substring(eqEnd, trimmed.Length - eqEnd).Trim();
             if (init.EndsWith(";")) { init = init.Substring(0, init.Length - 1).Trim(); }
