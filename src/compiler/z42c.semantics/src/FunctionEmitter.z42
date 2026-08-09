@@ -54,6 +54,11 @@ public sealed class FunctionEmitter {
             this._ctx.Locals.Put("this", new TypedReg(0, IrType.Ref));
             this._ctx.RecordReg(0, IrType.Ref);
             paramTypes[0] = (owner != null) ? owner.Name() : "?";   // this 槽类型 = 所属类
+            // add-struct-value-semantics A-use：所属类是 blob 值 struct → `this` 是 StructRef 句柄，
+            // 其字段 access（裸 `x` 或 `this.x`）翻转到 StructFieldGet/SetPrim（含 ctor 的 `this.f = a`）。
+            if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(owner.Name())) {
+                this._ctx.OwnerStructName = owner.Name();
+            }
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;
@@ -435,6 +440,16 @@ public sealed class FunctionEmitter {
         this._ctx.Locals.Put(lfn.Name, clos);
     }
 
+    // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其短名（供值语义翻转），否则 ""。
+    private string _blobStructNameT(Z42Type t) {
+        Z42ClassType ct = null;
+        if (t is Z42ClassType) { ct = t as Z42ClassType; }
+        else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }
+        if (ct == null) { return ""; }
+        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(ct.Name())) { return ct.Name(); }
+        return "";
+    }
+
     // BoundSeqExpr（集合字面量脱糖）的 prelude 语句发射入口——由 ExprEmitter 反向调用。
     public void EmitStmt(BoundStmt s) { this._emitStmt(s); }
 
@@ -456,6 +471,25 @@ public sealed class FunctionEmitter {
             // 无 init（G8）：不发 IR——变量首次赋值时 _emitAssign 绑定寄存器（镜像 C# VisitVarDecl）。
             if (v.Init != null) {
                 TypedReg r = this._expr.Emit(v.Init);
+                // add-struct-value-semantics A-use：blob 值 struct 局部。new-rvalue（fresh 句柄）直接别名；
+                // 否则（`P b = a`）新分配 blob + StructCopy（值语义，b 独立于 a）。重声明同名 → StructCopy
+                // 进已有 blob。
+                string bsn = this._blobStructNameT(v.Init.Type());
+                if (bsn != "") {
+                    if (this._ctx.Locals.ContainsKey(v.Name)) {
+                        TypedReg bdst = this._ctx.Locals.Get(v.Name) as TypedReg;
+                        if (bdst.Id != r.Id) { this._ctx.Emit(new StructCopyInstr(bdst, r, this._gen.Layouts.StructSize(bsn))); }
+                    } else if (v.Init is BoundNew) {
+                        this._ctx.Locals.Put(v.Name, r);
+                    } else {
+                        int sz = this._gen.Layouts.StructSize(bsn);
+                        TypedReg bdst = this._ctx.Alloc(IrType.Ref);
+                        this._ctx.Emit(new StructAllocInstr(bdst, this._ctx.QualifyClass(bsn), sz));
+                        this._ctx.Emit(new StructCopyInstr(bdst, r, sz));
+                        this._ctx.Locals.Put(v.Name, bdst);
+                    }
+                    return;
+                }
                 // 镜像 C# WriteBackName：locals 是函数级平表，同名变量（兄弟作用域重声明，
                 // 如大 if-else 各分支 `XxxInstr i = ins as ...`）复用首次分配的寄存器，不新分配
                 // → 寄存器数不随分支膨胀（否则 REGT 多出大量条目，z42c.ir WriteInstr 实证 +73B）。

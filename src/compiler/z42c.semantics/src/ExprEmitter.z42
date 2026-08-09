@@ -369,6 +369,10 @@ public sealed class ExprEmitter {
         if (this._ctx.ConstLocals.ContainsKey(id.Name)) { return this._emitConstVal(this._ctx.ConstLocals.Get(id.Name) as ConstValue, this._ctx.ToIrType(id.Type())); }
         if (this._ctx.Locals.ContainsKey(id.Name)) { return this._ctx.Locals.Get(id.Name) as TypedReg; }
         if (this._ctx.Fields.ContainsKey(id.Name)) {
+            // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
+            if (this._ctx.OwnerStructName != "") {
+                return this._emitStructFieldGet(this._ctx.OwnerStructName, id.Name, new TypedReg(0, IrType.Ref), this._ctx.ToIrType(id.Type()));
+            }
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
             FieldGetInstr bfg = new FieldGetInstr(dst, new TypedReg(0, IrType.Ref), id.Name);
             if (this._ctx.ReadonlyFields.ContainsKey(id.Name)) { bfg.Readonly = true; }   // add-readonly-fields-opt
@@ -616,10 +620,23 @@ public sealed class ExprEmitter {
             BoundIdent tid = a.Target as BoundIdent;
             if (this._ctx.Locals.ContainsKey(tid.Name)) {
                 TypedReg existing = this._ctx.Locals.Get(tid.Name) as TypedReg;
-                if (existing.Id != val.Id) { this._ctx.Emit(new CopyInstr(existing, val)); }
+                if (existing.Id != val.Id) {
+                    // A-use：blob 值 struct 局部整体赋值 `b = a` → StructCopy（值语义，b/a 均已是 blob 句柄）。
+                    if (this._isBlobStruct(a.Target.Type())) {
+                        int scsize = this._ctx.Gen.Layouts.StructSize(this._blobStructName(a.Target.Type()));
+                        this._ctx.Emit(new StructCopyInstr(existing, val, scsize));
+                    } else {
+                        this._ctx.Emit(new CopyInstr(existing, val));
+                    }
+                }
                 return existing;
             }
             if (this._ctx.Fields.ContainsKey(tid.Name)) {
+                // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）写翻转为 StructFieldSetPrim(reg0=句柄)。
+                if (this._ctx.OwnerStructName != "") {
+                    this._emitStructFieldSet(this._ctx.OwnerStructName, tid.Name, new TypedReg(0, IrType.Ref), val);
+                    return val;
+                }
                 this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), tid.Name, val));
                 return val;
             }
@@ -634,6 +651,12 @@ public sealed class ExprEmitter {
         if (a.Target is BoundMember) {
             BoundMember tm = a.Target as BoundMember;
             TypedReg obj = this.Emit(tm.Target);
+            // add-struct-value-semantics A-use：blob 值 struct 字段原地写 → StructFieldSetPrim（3a lvalue，
+            // 叶子字节地址直写）。直接字段无 setter，先于下方接口/属性/FieldSet 分派。
+            if (this._isBlobStruct(tm.Target.Type())) {
+                this._emitStructFieldSet(this._blobStructName(tm.Target.Type()), tm.MemberName, obj, val);
+                return val;
+            }
             // 接口接收者：成员写定义上就是属性 setter → 恒 VCall set_X（对称 _emitMember
             // getter；接口无字段，否则落 FieldSet "X" 在实现类找不到同名字段）。
             if (tm.Target.Type() is Z42InterfaceType) {
@@ -683,6 +706,11 @@ public sealed class ExprEmitter {
         // 同样 Unknown（z42c.semantics·ir 实证），真因是 cast receiver 而非跨-ns。
         int ftag = this._ctx.ToIrType(m.Type());
         if (this._castUnknownChain(m.Target)) { ftag = IrType.Unknown; }
+        // add-struct-value-semantics A-use：blob 值 struct 字段读 → StructFieldGetPrim（叶子 byte offset +
+        // TypeTag 烘焙）。struct 字段是直接字段、无 auto-property getter，故先于下方属性/FieldGet 分派返回。
+        if (this._isBlobStruct(m.Target.Type())) {
+            return this._emitStructFieldGet(this._blobStructName(m.Target.Type()), m.MemberName, obj, ftag);
+        }
         TypedReg dst = this._ctx.Alloc(ftag);
         // 接口接收者：接口无字段，成员访问定义上就是属性 getter → 恒 VCall get_X
         // （fix-crosspkg-virtual-override 同源：接口经 vtable 派发到具体实现的 get_X；
@@ -716,6 +744,31 @@ public sealed class ExprEmitter {
         if (t is Z42ClassType) { return t as Z42ClassType; }
         if (t is Z42InstantiatedType) { return (t as Z42InstantiatedType).Def; }
         return null;
+    }
+
+    // ── add-struct-value-semantics A-use：blob 值 struct 字段 access 翻转助手 ────────────
+    // 某静态类型是否 blob 值 struct（多叶子复合，翻转到字节 blob 值语义）。
+    private bool _isBlobStruct(Z42Type t) {
+        Z42ClassType ct = this._receiverClassType(t);
+        if (ct == null) { return false; }
+        return this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(ct.Name());
+    }
+    // blob struct 短名（调用方已确认 _isBlobStruct）。
+    private string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
+    // blob 字段 lvalue 直写：base=blob 句柄，off/tag 由 StructLayout 烘焙（tag=运行期 TypeTag，
+    // Tag.FromName(字段声明类型名)——ref 类字段(string/object/array)得 Object/Str 标签，运行时按 ref 叶子路由）。
+    private void _emitStructFieldSet(string structName, string fieldName, TypedReg base_, TypedReg val) {
+        int off = this._ctx.Gen.Layouts.FieldByteOffset(structName, fieldName);
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(structName, fieldName));
+        this._ctx.Emit(new StructFieldSetPrimInstr(base_, off, tag, val));
+    }
+    // blob 字段读 → 收值寄存器（dstTag=字段结果 IrType 标签）。
+    private TypedReg _emitStructFieldGet(string structName, string fieldName, TypedReg base_, int dstTag) {
+        int off = this._ctx.Gen.Layouts.FieldByteOffset(structName, fieldName);
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(structName, fieldName));
+        TypedReg dst = this._ctx.Alloc(dstTag);
+        this._ctx.Emit(new StructFieldGetPrimInstr(dst, base_, off, tag));
+        return dst;
     }
 
     // 调用分派：free → call @f / static → call @Class.m / instance → vcall recv.m。
@@ -865,6 +918,23 @@ public sealed class ExprEmitter {
         string qualCls = this._ctx.QualifyClass(className);
         // FQ ctor = "{qualCls}.{ctorKey}"（镜像 C# fqCtor = $"{qualCls}.{n.CtorName}"）
         string fqCtor = qualCls + "." + n.CtorName;
+        // add-struct-value-semantics A-use：blob 值 struct 构造 → StructAlloc(零初始化 blob 句柄) + ctor
+        // Call(this=句柄, args)。ctor body 的 `this.f = a` 已翻转为 StructFieldSetPrim（OwnerStructName 生效），
+        // 在传入句柄上**原地**填字段（句柄携创建帧 frame_id，跨 ctor 子帧仍解同一 arena 槽，同 StackObject）。
+        // 结果=句柄（未装箱值以句柄流转）。ObjNew 那条（堆分配+ctor 一体）不发。
+        if (this._isBlobStruct(n.Type())) {
+            string sname = this._blobStructName(n.Type());
+            int size = this._ctx.Gen.Layouts.StructSize(sname);
+            TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
+            this._ctx.Emit(new StructAllocInstr(handle, qualCls, size));
+            TypedReg[] cargs = new TypedReg[n.ArgCount + 1];
+            cargs[0] = handle;
+            int cai = 0;
+            while (cai < n.ArgCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
+            TypedReg voidr = this._ctx.Alloc(IrType.Void);
+            this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
+            return handle;
+        }
         this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
         return dst;
     }

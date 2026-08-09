@@ -39,6 +39,7 @@
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
   - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
   - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
+  - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()

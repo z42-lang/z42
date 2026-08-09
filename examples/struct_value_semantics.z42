@@ -1,0 +1,33 @@
+// struct 值语义（add-struct-value-semantics A-use，2026-08-09 落地）。
+//   struct = C# 真值类型：赋值/传参复制字段，非共享堆对象引用。
+//   `var b = a;` 复制；改 b 的字段不影响 a（引用语义下二者会串味）。
+// 编译期为每个多字段 struct 算字节精确布局；未装箱值以字节 blob 存在帧局部 arena，
+// 寄存器持 StructRef 句柄。构造=StructAlloc+ctor 原地填；`b=a`=StructCopy；`b.x=v`/`a.x`
+// =StructFieldSet/GetPrim（叶子字节偏移烘焙为立即数）。设计见
+// docs/design/runtime/struct-value-semantics.md。
+namespace Demo.StructValueSemantics;
+
+using Std.IO;
+
+struct Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) { this.x = x; this.y = y; }
+}
+
+void Main() {
+    var a = new Point(1, 2);
+    var b = a;          // 值复制（不是别名）
+    b.x = 99;           // 只改 b
+    var c = b;          // 再复制一份
+    c.y = 55;
+
+    Console.WriteLine($"a=({a.x},{a.y})");   // (1,2)  —— a 不受 b/c 影响
+    Console.WriteLine($"b=({b.x},{b.y})");   // (99,2)
+    Console.WriteLine($"c=({c.x},{c.y})");   // (99,55)
+
+    bool ok = a.x == 1 && a.y == 2
+           && b.x == 99 && b.y == 2
+           && c.x == 99 && c.y == 55;
+    Console.WriteLine(ok ? "value-semantics: OK" : "value-semantics: FAIL");
+}
