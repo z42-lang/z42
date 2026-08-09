@@ -1998,6 +1998,77 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
     Ok(Value::Bool(true))
 }
 
+/// `__run_goldens_isolated(paths: string[], entries: string[], libsDir: string)
+/// -> string[]` — run each golden program (a self-contained app.zpkg/.zbc) in a
+/// FRESH isolated VM and return its captured stdout, in input order
+/// (mature-embed-testhost P1). Each case gets its own `VmContext` via
+/// `z42::app::run` (fresh heap + static-fields + function table), so goldens
+/// that share `Main` / namespaces don't collide and static state doesn't leak
+/// across cases — the isolation the host golden runner gets from spawning a
+/// fresh z42vm per case, but in-process (works on mobile too). stdout is
+/// captured via the thread-local sink stack.
+///
+/// P1: sequential (interp, for parity with the host golden gate). Parallelism
+/// (a `jobs` fan-out over OS threads with disjoint contexts) is P2. On a run
+/// error (the golden's Main threw/aborted) the captured stdout is returned with
+/// a `<z42-run-error: …>` marker appended so the caller's comparison fails
+/// visibly rather than silently matching partial output.
+pub fn builtin_run_goldens_isolated(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let paths = read_str_vec(args.first(), "paths")?;
+    let entries = read_str_vec(args.get(1), "entries")?;
+    let libs_dir = match args.get(2) {
+        Some(Value::Str(s)) => s.to_string(),
+        _ => String::new(),
+    };
+    let libs = if libs_dir.is_empty() { None } else { Some(std::path::PathBuf::from(libs_dir)) };
+
+    let mut out: Vec<Value> = Vec::with_capacity(paths.len());
+    for (i, path) in paths.iter().enumerate() {
+        let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
+        let captured = run_one_golden_isolated(path, entry, libs.clone());
+        out.push(Value::Str(captured.into()));
+    }
+    Ok(ctx.heap().alloc_array(out))
+}
+
+/// Extract a `Vec<String>` from a z42 `string[]` argument.
+fn read_str_vec(v: Option<&Value>, what: &str) -> Result<Vec<String>> {
+    match v {
+        Some(Value::Array(rc)) => {
+            let borrowed = rc.borrow();
+            let mut out = Vec::with_capacity(borrowed.len());
+            for e in borrowed.iter() {
+                match e {
+                    Value::Str(s) => out.push(s.to_string()),
+                    Value::Null => out.push(String::new()),
+                    _ => bail!("__run_goldens_isolated: {what}[] must be strings"),
+                }
+            }
+            Ok(out)
+        }
+        _ => bail!("__run_goldens_isolated: expected {what} as string[]"),
+    }
+}
+
+/// Run one golden in a fresh isolated VM (interp), returning its captured stdout.
+/// Never propagates — a run error is folded into the returned string as a marker.
+fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Option<std::path::PathBuf>) -> String {
+    crate::corelib::io::push_stdout_sink();
+    let opts = crate::app::RunOpts {
+        mode: crate::metadata::ExecMode::Interp,
+        libs_dir: libs,
+        program_args: Vec::new(),
+        print_stats: false,
+    };
+    let res = crate::app::run(path, entry, opts);
+    let captured = crate::corelib::io::take_stdout_sink();
+    let mut s = String::from_utf8_lossy(&captured).into_owned();
+    if let Err(e) = res {
+        s.push_str(&format!("\n<z42-run-error: {e:#}>"));
+    }
+    s
+}
+
 #[cfg(test)]
 #[path = "reflection_tests.rs"]
 mod reflection_tests;

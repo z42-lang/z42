@@ -503,6 +503,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           platform::builtin_platform_caps),
     ("__platform_exec_modes",     platform::builtin_platform_exec_modes),
+
+    // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
+    ("__run_goldens_isolated",    reflection::builtin_run_goldens_isolated),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
