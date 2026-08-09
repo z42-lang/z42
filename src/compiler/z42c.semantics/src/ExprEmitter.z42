@@ -978,12 +978,18 @@ public sealed class ExprEmitter {
             int size = this._ctx.Gen.Layouts.StructSize(sname);
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
             this._ctx.Emit(new StructAllocInstr(handle, qualCls, size));
-            TypedReg[] cargs = new TypedReg[n.ArgCount + 1];
-            cargs[0] = handle;
-            int cai = 0;
-            while (cai < n.ArgCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
-            TypedReg voidr = this._ctx.Alloc(IrType.Void);
-            this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
+            // 仅在 ctor **真实存在**时 Call：_ctorKey 有 ctor→"Name$arity"∈Methods、无 ctor→裸 name∉Methods。
+            // 无 ctor struct（如 partial `new Vec2()`）：StructAlloc 已零初始化 blob，字段随后逐个赋值——
+            // 别 Call 不存在的 `Vec2.Vec2`（undefined function 崩）。
+            Z42ClassType sctor = this._receiverClassType(n.Type());
+            if (sctor != null && sctor.Methods.ContainsKey(n.CtorName)) {
+                TypedReg[] cargs = new TypedReg[n.ArgCount + 1];
+                cargs[0] = handle;
+                int cai = 0;
+                while (cai < n.ArgCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
+                TypedReg voidr = this._ctx.Alloc(IrType.Void);
+                this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
+            }
             return handle;
         }
         this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
