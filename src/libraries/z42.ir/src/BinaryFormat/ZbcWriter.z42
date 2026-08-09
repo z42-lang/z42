@@ -343,6 +343,20 @@ public static class ZbcWriter {
                     imw = imw + 1;
                 }
             }
+            // 值 struct 布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2(0x04)=struct 时追加
+            // size:u32 + ref_leaf_count:u16 + (byte_off:u32, kind:u8)×n。运行时按 type_name 查此块得**引用
+            // 位图**（GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone）；byte 大小/字段偏移由 codegen 烘焙进
+            // 访问指令，不经此块。gated → 非 struct 零字节（同 enum/iface 块模式）。
+            if ((cd.Flags & 4) != 0) {
+                w.WriteU32(cd.StructSize);
+                w.WriteU16(cd.StructRefCount);
+                int srl = 0;
+                while (srl < cd.StructRefCount) {
+                    w.WriteU32(cd.StructRefOffsets[srl]);
+                    w.WriteU8(cd.StructRefKinds[srl]);
+                    srl = srl + 1;
+                }
+            }
             c = c + 1;
         }
         return w;

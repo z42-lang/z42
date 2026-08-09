@@ -1,10 +1,10 @@
-//! add-struct-value-semantics Phase A: per-`VmContext` byte arena for blob value
-//! types (multi-field structs stored inline as byte blobs, not GC heap objects).
+//! add-struct-value-semantics: per-`VmContext` byte arena for blob value types
+//! (multi-field structs stored inline, not as GC heap objects).
 //!
 //! # Model
 //! A value-struct local/temp/param lives as a **byte blob** in this per-context
 //! arena; registers hold a `Value::StructRef { idx, frame_id }` handle into it.
-//! Field access reads/writes primitive leaves at compile-time-baked byte offsets;
+//! Field access reads/writes leaves at compile-time-baked byte offsets;
 //! assignment/param/return copy the blob (value semantics). No GC heap object, no
 //! per-struct allocation lock / mark / sweep.
 //!
@@ -12,25 +12,42 @@
 //! `pop_frame`, `frame_id` staleness guard) — see that module for the rationale
 //! on per-context (not per-frame) arenas and the LIFO lifetime contract.
 //!
-//! ## Reference leaves (Phase A scope note)
-//! A-support handles **pure-primitive** structs (empty reference bitmap): copy is
-//! a raw byte memcpy and GC has nothing to scan. Structs with reference leaves
-//! (`string` / object / array fields) need the type's reference bitmap, which
-//! reaches the runtime via the zbc TYPE section in A-use — `scan_roots` and the
-//! per-kind copy (Arc::clone / GC write barrier) land then.
+//! ## Primitives vs. reference leaves (A-use)
+//! Primitive leaves (`int`/`bool`/`char`/`double`/…) are stored **byte-packed**
+//! in `StructSlot::bytes` at their layout offset — this is the γ byte-density
+//! goal. Reference leaves (`string` / object / array fields) are **not** stored
+//! as raw handle bytes inside the `[u8]` blob (that would be memory-unsafe in
+//! Rust: an `Arc<str>` / `GcRef` is a managed value whose refcount the byte Vec
+//! could not clone/drop, and a moving GC could not rewrite). Instead they live as
+//! real `Value`s in a parallel [`StructSlot::refs`] side-slice, ordered by the
+//! type's reference bitmap ([`StructTypeLayout::ref_offsets`]). This gives:
+//!   * correct per-kind clone/drop on copy (`Value::clone` = `Arc::clone` for
+//!     strings, handle copy for objects/arrays);
+//!   * trivial, safe GC root scanning (walk the `refs` slice — see `scan_roots`).
+//!
+//! ## GC: no write barrier needed (A-use P1 scope)
+//! The struct arena is scanned as a **GC root** every collection (`scan_roots`
+//! is wired into the mark + categorized root scanners in `vm_context`, exactly
+//! like `stack_alloc`). References stored into an arena blob are therefore always
+//! re-marked, so writing one needs no write barrier. Write barriers are only for
+//! references stored into *heap* objects (which are not re-scanned as roots) —
+//! that is P3 (struct inlined into a heap object / array), not P1 local structs.
 
-use crate::metadata::types::Value;
+use crate::metadata::types::{StructTypeLayout, Value};
 use anyhow::Result;
 use std::sync::Arc;
 
 /// One value-struct blob. `frame_id` = creating frame's id (staleness guard);
-/// `type_name` = FQ value-type name (used by the GC reference-bitmap scan and by
-/// boxing to recover the precise type); `bytes` = the byte-precise blob.
+/// `type_name` = FQ value-type name (used by boxing to recover the precise type);
+/// `bytes` = byte-packed primitive leaves; `refs` = reference leaves as `Value`s
+/// (see module docs); `layout` = shared type layout (offset→ref-index + copy).
 pub(crate) struct StructSlot {
     pub frame_id: u32,
-    #[allow(dead_code)] // consumed by GC ref-bitmap scan + boxing in A-use
+    #[allow(dead_code)] // consumed by boxing (A-use P4) to recover the precise type
     pub type_name: Arc<str>,
     pub bytes: Box<[u8]>,
+    pub refs: Box<[Value]>,
+    pub layout: Arc<StructTypeLayout>,
 }
 
 /// Per-`VmContext` value-struct byte arena. Guarded by a `Mutex` on the context
@@ -57,16 +74,15 @@ impl StructArena {
         }
     }
 
-    /// Allocate a zero-initialized `size`-byte blob; returns its arena index
-    /// (paired with `frame_id` into a `Value::StructRef { idx, frame_id }`).
+    /// Allocate a zero-initialized blob for `layout` (bytes zeroed, reference
+    /// leaves defaulted to `Null`); returns its arena index (paired with
+    /// `frame_id` into a `Value::StructRef { idx, frame_id }`).
     #[inline]
-    pub fn alloc(&mut self, frame_id: u32, type_name: Arc<str>, size: usize) -> u32 {
+    pub fn alloc(&mut self, frame_id: u32, type_name: Arc<str>, layout: Arc<StructTypeLayout>) -> u32 {
         let idx = self.slots.len() as u32;
-        self.slots.push(StructSlot {
-            frame_id,
-            type_name,
-            bytes: vec![0u8; size].into_boxed_slice(),
-        });
+        let bytes = vec![0u8; layout.size].into_boxed_slice();
+        let refs = vec![Value::Null; layout.ref_count()].into_boxed_slice();
+        self.slots.push(StructSlot { frame_id, type_name, bytes, refs, layout });
         self.allocs += 1;
         idx
     }
@@ -91,21 +107,44 @@ impl StructArena {
         Ok(f(slot))
     }
 
-    /// Copy `size` bytes from blob `src` into blob `dst` (both pre-allocated).
-    /// A-support scope = pure-primitive blobs → raw byte copy. (Reference-leaf
-    /// blobs need per-kind Arc::clone / GC barrier by the type's ref-bitmap; that
-    /// lands in A-use when the bitmap reaches the runtime.)
+    /// Read a reference leaf (`string`/object/array field) at `byte_off` of blob
+    /// `idx`, returning a clone of the held `Value` (`Arc::clone` / handle copy).
+    pub fn get_ref(&self, idx: u32, frame_id: u32, byte_off: u32) -> Result<Value> {
+        self.with(idx, frame_id, |s| {
+            let ri = s.layout.ref_index(byte_off).ok_or_else(|| {
+                anyhow::anyhow!("struct ref leaf at byte offset {byte_off} not in type layout")
+            })?;
+            Ok(s.refs[ri].clone())
+        })?
+    }
+
+    /// Write a reference leaf at `byte_off` of blob `idx` (in place; the lvalue
+    /// write). No write barrier: the arena is a GC root (see module docs).
+    pub fn set_ref(&mut self, idx: u32, frame_id: u32, byte_off: u32, val: Value) -> Result<()> {
+        self.with_mut(idx, frame_id, |s| {
+            let ri = s.layout.ref_index(byte_off).ok_or_else(|| {
+                anyhow::anyhow!("struct ref leaf at byte offset {byte_off} not in type layout")
+            })?;
+            s.refs[ri] = val;
+            Ok(())
+        })?
+    }
+
+    /// Copy blob `src` into blob `dst` (both pre-allocated, same type): byte-copy
+    /// the primitive leaves + clone each reference leaf (`Value::clone` = per-kind
+    /// `Arc::clone` / handle copy). This is the value-semantics copy point
+    /// (assign/param/return). No write barrier (arena is a GC root).
     pub fn copy_into(&mut self, dst_idx: u32, dst_frame_id: u32,
-                     src_idx: u32, src_frame_id: u32, size: usize) -> Result<()> {
-        // Two indices into the same Vec — read src into a temp, then write dst.
-        let src_bytes: Vec<u8> = {
+                     src_idx: u32, src_frame_id: u32, _size: usize) -> Result<()> {
+        // Two indices into the same Vec — snapshot src (bytes + cloned refs),
+        // then write dst.
+        let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
             let s = self.slots.get(src_idx as usize)
                 .ok_or_else(|| stale_err(src_idx, src_frame_id))?;
             if s.frame_id != src_frame_id {
                 return Err(stale_err(src_idx, src_frame_id));
             }
-            let n = size.min(s.bytes.len());
-            s.bytes[..n].to_vec()
+            (s.bytes.to_vec(), s.refs.to_vec())
         };
         let d = self.slots.get_mut(dst_idx as usize)
             .ok_or_else(|| stale_err(dst_idx, dst_frame_id))?;
@@ -114,13 +153,20 @@ impl StructArena {
         }
         let n = src_bytes.len().min(d.bytes.len());
         d.bytes[..n].copy_from_slice(&src_bytes[..n]);
+        let rn = src_refs.len().min(d.refs.len());
+        d.refs[..rn].clone_from_slice(&src_refs[..rn]);
         Ok(())
     }
 
-    /// GC root scan. Pure-primitive blobs have no heap references → nothing to
-    /// visit. Reference-leaf scanning (by the type's ref-bitmap) lands in A-use.
-    pub fn scan_roots(&self, _visit: &mut dyn FnMut(&Value)) {
-        // A-support: pure-primitive structs only — no reference leaves to scan.
+    /// GC root scan: visit every reference leaf of every live blob so heap refs
+    /// held in value structs stay marked. Pure-primitive blobs have empty `refs`
+    /// → visit nothing.
+    pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
+        for slot in &self.slots {
+            for v in slot.refs.iter() {
+                visit(v);
+            }
+        }
     }
 }
 

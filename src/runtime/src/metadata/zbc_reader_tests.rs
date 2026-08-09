@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 30, "zbc minor at 1.30 (impl-sealed-semantics: SIGS method_flags bit2=sealed)");
+    assert_eq!(ZBC_VERSION_MINOR, 31, "zbc minor at 1.31 (add-struct-value-semantics A-use: TYPE value-struct layout block + blob value-type instruction emission)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 35, "zpkg minor at 0.35 (impl-sealed-semantics: coupled zbc 1.30)");
+    assert_eq!(ZPKG_VERSION_MINOR, 36, "zpkg minor at 0.36 (add-struct-value-semantics A-use: coupled zbc 1.31)");
 }
 
 #[test]
@@ -206,4 +206,55 @@ fn zpkg_sidecar_rejects_wrong_minor() {
     let msg = err.to_string();
     assert!(msg.contains("sidecar"), "unexpected error: {msg}");
     assert!(msg.contains("regen via"), "expected regen hint: {msg}");
+}
+
+// ── add-struct-value-semantics (zbc 1.31): TYPE-section value-struct layout block ──
+
+/// Build a minimal TYPE section holding one struct class with the given struct
+/// layout block (size + reference bitmap). Mirrors the exact `read_type` field
+/// order so the reader round-trips it.
+fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(&1u32.to_le_bytes());        // class count = 1
+    b.extend_from_slice(&0u32.to_le_bytes());        // name_idx → pool[0]
+    b.extend_from_slice(&u32::MAX.to_le_bytes());    // base_idx = none
+    b.extend_from_slice(&0u16.to_le_bytes());        // field count = 0
+    b.push(0u8);                                     // type-param count = 0
+    b.extend_from_slice(&0u16.to_le_bytes());        // class attr count = 0
+    b.push(crate::metadata::bytecode::CLASS_FLAG_STRUCT); // class_flags = struct
+    b.extend_from_slice(&0u16.to_le_bytes());        // static field count = 0
+    b.extend_from_slice(&0u16.to_le_bytes());        // interface count = 0
+    // (no enum block: not CLASS_FLAG_ENUM; no iface-method block: not INTERFACE)
+    // struct block (gated on CLASS_FLAG_STRUCT):
+    b.extend_from_slice(&size.to_le_bytes());        // struct size
+    b.extend_from_slice(&(ref_leaves.len() as u16).to_le_bytes()); // ref leaf count
+    for &(off, kind) in ref_leaves {
+        b.extend_from_slice(&off.to_le_bytes());
+        b.push(kind);
+    }
+    b
+}
+
+#[test]
+fn struct_layout_block_roundtrips_ref_bitmap() {
+    // struct { s: string @0; n: int @16 } → size 20, one ArcString ref leaf @0.
+    let pool = vec!["Demo.R".to_owned()];
+    let sec = build_type_section_one_struct(20, &[(0, crate::metadata::types::STRUCT_REF_ARC_STRING)]);
+    let classes = read_type(&sec, &pool).expect("read_type");
+    assert_eq!(classes.len(), 1);
+    let sl = classes[0].struct_layout.as_ref().expect("struct class must carry a layout block");
+    assert_eq!(sl.size, 20);
+    assert_eq!(&*sl.ref_offsets, &[0u32]);
+    assert_eq!(&*sl.ref_kinds, &[crate::metadata::types::STRUCT_REF_ARC_STRING]);
+}
+
+#[test]
+fn pure_primitive_struct_block_has_no_ref_leaves() {
+    // struct { x: int @0; y: int @4 } → size 8, empty reference bitmap.
+    let pool = vec!["Demo.P".to_owned()];
+    let sec = build_type_section_one_struct(8, &[]);
+    let classes = read_type(&sec, &pool).expect("read_type");
+    let sl = classes[0].struct_layout.as_ref().expect("layout present");
+    assert_eq!(sl.size, 8);
+    assert!(sl.ref_offsets.is_empty(), "pure-primitive struct has no ref leaves");
 }

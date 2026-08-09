@@ -108,7 +108,11 @@ public sealed class IrOptInfo {
         if (ins is MkClosInstr)    { return (ins as MkClosInstr).Dst.Id; }
         if (ins is ArrayGetInstr)  { return (ins as ArrayGetInstr).Dst.Id; }
         if (ins is LoadLocalAddrInstr){ return (ins as LoadLocalAddrInstr).Dst.Id; }
-        // 无 Dst：FieldSetInstr / StaticSetInstr / ArraySetInstr
+        // add-struct-value-semantics A-use：StructAlloc/FieldGetPrim 定义 Dst；StructCopy/FieldSetPrim
+        // 是原地副作用（句柄由 StructAlloc 定义、blob 被写），无纯 Dst 定义 → -1（同 FieldSet 走副作用保留）。
+        if (ins is StructAllocInstr){ return (ins as StructAllocInstr).Dst.Id; }
+        if (ins is StructFieldGetPrimInstr){ return (ins as StructFieldGetPrimInstr).Dst.Id; }
+        // 无 Dst：FieldSetInstr / StaticSetInstr / ArraySetInstr / StructCopyInstr / StructFieldSetPrimInstr
         return -1;
     }
 
@@ -156,7 +160,12 @@ public sealed class IrOptInfo {
         if (ins is ArrayGetInstr)  { ArrayGetInstr i = ins as ArrayGetInstr; IrOptInfo._n(counts, i.Arr); IrOptInfo._n(counts, i.Idx); return; }
         if (ins is ArraySetInstr)  { ArraySetInstr i = ins as ArraySetInstr; IrOptInfo._n(counts, i.Arr); IrOptInfo._n(counts, i.Idx); IrOptInfo._n(counts, i.Val); return; }
         if (ins is LoadLocalAddrInstr){ IrOptInfo._n(counts, (ins as LoadLocalAddrInstr).Slot); return; }
-        // 无读操作数：Const* / DefaultOf / StaticGet / LoadFn / Typeof
+        // add-struct-value-semantics A-use：读操作数（完整性=正确性前提，漏计→DCE 误删喂值的 const）。
+        // StructCopy 读 Dst(目标句柄)+Src；FieldGetPrim 读 Base；FieldSetPrim 读 Base+Val；StructAlloc 无读。
+        if (ins is StructCopyInstr){ StructCopyInstr i = ins as StructCopyInstr; IrOptInfo._n(counts, i.Dst); IrOptInfo._n(counts, i.Src); return; }
+        if (ins is StructFieldGetPrimInstr){ IrOptInfo._n(counts, (ins as StructFieldGetPrimInstr).Base); return; }
+        if (ins is StructFieldSetPrimInstr){ StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr; IrOptInfo._n(counts, i.Base); IrOptInfo._n(counts, i.Val); return; }
+        // 无读操作数：Const* / DefaultOf / StaticGet / LoadFn / Typeof / StructAllocInstr
     }
 
     // 终结子读的寄存器（镜像 _regtTerm）。RetTerm(有值) 读 Reg；BrCond 读 Cond；Throw 读 Reg。
@@ -212,7 +221,11 @@ public sealed class IrOptInfo {
         if (ins is ArrayGetInstr)  { ArrayGetInstr i = ins as ArrayGetInstr; i.Arr = IrOptInfo._sub(i.Arr, remap); i.Idx = IrOptInfo._sub(i.Idx, remap); return; }
         if (ins is ArraySetInstr)  { ArraySetInstr i = ins as ArraySetInstr; i.Arr = IrOptInfo._sub(i.Arr, remap); i.Idx = IrOptInfo._sub(i.Idx, remap); i.Val = IrOptInfo._sub(i.Val, remap); return; }
         if (ins is LoadLocalAddrInstr){ LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; i.Slot = IrOptInfo._sub(i.Slot, remap); return; }
-        // 无读操作数：Const* / DefaultOf / StaticGet / LoadFn / Typeof
+        // add-struct-value-semantics A-use：读操作数重写（copy-prop/inline retarget；对称 AddReads）。
+        if (ins is StructCopyInstr){ StructCopyInstr i = ins as StructCopyInstr; i.Dst = IrOptInfo._sub(i.Dst, remap); i.Src = IrOptInfo._sub(i.Src, remap); return; }
+        if (ins is StructFieldGetPrimInstr){ StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr; i.Base = IrOptInfo._sub(i.Base, remap); return; }
+        if (ins is StructFieldSetPrimInstr){ StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr; i.Base = IrOptInfo._sub(i.Base, remap); i.Val = IrOptInfo._sub(i.Val, remap); return; }
+        // 无读操作数：Const* / DefaultOf / StaticGet / LoadFn / Typeof / StructAllocInstr
     }
 
     // 终结子读重写（镜像 AddTermReads）。
@@ -445,6 +458,9 @@ public sealed class IrOptInfo {
         if (ins is MkClosInstr)    { (ins as MkClosInstr).Dst = nd; return true; }
         if (ins is ArrayGetInstr)  { (ins as ArrayGetInstr).Dst = nd; return true; }
         if (ins is LoadLocalAddrInstr){ (ins as LoadLocalAddrInstr).Dst = nd; return true; }
+        // add-struct-value-semantics A-use：仅 Dst-定义的两条支持 retarget（对称 DstId 正例）。
+        if (ins is StructAllocInstr){ (ins as StructAllocInstr).Dst = nd; return true; }
+        if (ins is StructFieldGetPrimInstr){ (ins as StructFieldGetPrimInstr).Dst = nd; return true; }
         return false;
     }
 

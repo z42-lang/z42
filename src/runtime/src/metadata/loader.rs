@@ -761,6 +761,15 @@ pub fn build_type_registry(module: &mut Module) {
             enum_members:           desc.enum_members.clone(),
             // add-interface-member-reflection: carry the interface's method sigs.
             iface_methods:          desc.iface_methods.clone(),
+            // add-struct-value-semantics: carry the value-struct byte+ref layout
+            // (from the zbc TYPE-section struct block). `map` → shared `Arc`.
+            struct_layout:          desc.struct_layout.as_ref().map(|l| {
+                std::sync::Arc::new(crate::metadata::types::StructTypeLayout {
+                    size:        l.size as usize,
+                    ref_offsets: l.ref_offsets.clone(),
+                    ref_kinds:   l.ref_kinds.clone(),
+                })
+            }),
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()

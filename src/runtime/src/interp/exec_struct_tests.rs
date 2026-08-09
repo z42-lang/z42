@@ -2,7 +2,13 @@
 //! (add-struct-value-semantics Phase A).
 use super::*;
 use crate::interp::struct_arena::StructArena;
+use crate::metadata::types::StructTypeLayout;
 use std::sync::Arc;
+
+/// Pure-primitive layout of `size` bytes (no reference leaves).
+fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
+    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]) })
+}
 
 fn enc(bytes: &mut [u8], off: usize, tag: u8, v: Value) {
     let w = prim_width(tag).unwrap();
@@ -57,8 +63,8 @@ fn out_of_bounds_access_errors() {
 fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
     let mut arena = StructArena::default();
     let ty: Arc<str> = Arc::from("P");
-    let a = arena.alloc(1, ty.clone(), 8);
-    let b = arena.alloc(1, ty, 8);
+    let a = arena.alloc(1, ty.clone(), prim_layout(8));
+    let b = arena.alloc(1, ty, prim_layout(8));
 
     // a.x = 1; a.y = 7
     arena.with_mut(a, 1, |s| { enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(1));

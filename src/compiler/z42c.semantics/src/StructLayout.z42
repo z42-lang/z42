@@ -130,6 +130,52 @@ public sealed class StructLayout {
         return this._defs.ContainsKey(Z42Type.Canon(typeName));
     }
 
+    // A-use codegen flip 谓词：某类型是否翻转到 **blob 值语义**（emit StructAlloc/Copy/FieldGet/SetPrim）。
+    // = IsStruct 且**多叶子复合**（FieldCount>=2）。单标量叶子 struct（GCHandle=1×i64+FFI / 单字段 wrapper）
+    // 与 phantom 基元（int/bool/char=Z42PrimType，根本不到这）保持现有模型（标量塌缩=Phase B）。
+    // z42c/stdlib 零生产多字段 struct → flip 纯增量。
+    public bool IsBlobStruct(string typeName) {
+        if (!this.IsStructType(typeName)) { return false; }
+        StructLayoutInfo li = this.LayoutOf(typeName);
+        if (li.FieldCount < 2) { return false; }
+        // A-use 首版：只翻**扁平** struct（各字段=基元/引用叶子，无嵌套 struct 字段）。嵌套值字段
+        // （Line{a:P,b:P}）的字段读写是区间复制而非 prim/ref 叶子，需 StructFieldGet/Set 区间指令——
+        // 留后续（Deferred）；含嵌套 struct 字段者暂不翻（保持引用语义，避免误当叶子路由）。
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldKinds[i] == StructLeafKind.Struct) { return false; } i = i + 1; }
+        return true;
+    }
+
+    // struct 直接字段的 byte offset（未找到 -1）。供 codegen 烘焙 StructFieldGet/SetPrim 立即数。
+    public int FieldByteOffset(string structName, string fieldName) {
+        StructLayoutInfo li = this.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldOffsets[i]; } i = i + 1; }
+        return -1;
+    }
+
+    // struct 直接字段的声明类型名（未找到 ""）。供 codegen 算运行期 TypeTag（Tag.FromName）。
+    public string FieldTypeName(string structName, string fieldName) {
+        StructLayoutInfo li = this.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldTypeNames[i]; } i = i + 1; }
+        return "";
+    }
+
+    // struct 直接字段是否本身也是 blob struct（嵌套值字段：读/写走区间复制而非 prim；A-use 首版暂不支持嵌套，
+    // 调用方据此回退/报错，避免误当 prim 读单叶子）。
+    public bool FieldIsStruct(string structName, string fieldName) {
+        StructLayoutInfo li = this.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldKinds[i] == StructLeafKind.Struct; } i = i + 1; }
+        return false;
+    }
+
+    // struct 总字节大小（供 StructAlloc 立即数）。
+    public int StructSize(string structName) {
+        return this.LayoutOf(structName).Size;
+    }
+
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。
     public StructLayoutInfo LayoutOf(string typeName) {
         string key = Z42Type.Canon(typeName);

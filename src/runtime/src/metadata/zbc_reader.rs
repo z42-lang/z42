@@ -112,7 +112,11 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Byte layout unchanged (bit was reserved-0); semantics-extension bump so a 1.29
 // reader can't silently misread bit2 (strict-pin divergence guard). Backs
 // MethodInfo.IsSealed + compiler sealed-receiver devirtualization. Coupled with zpkg 0.35.
-pub const ZBC_VERSION_MINOR: u16 = 30;
+//
+// 2026-08-08 add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
+// a value-struct layout block (size + typed reference bitmap, Flags bit2 gated) and
+// z42c begins emitting StructAlloc/Copy/FieldGet/SetPrim. Coupled with zpkg 0.36.
+pub const ZBC_VERSION_MINOR: u16 = 31;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -199,7 +203,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-06 impl-sealed-semantics-devirt: bumped to 0.35, coupled inner zbc 1.30
 // (SIGS method_flags bit2=sealed). Outer zpkg layout unchanged; the bump triggers
 // ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 35;
+//
+// 2026-08-08 add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
+// 1.31 (TYPE value-struct layout block + blob value-type instruction emission).
+pub const ZPKG_VERSION_MINOR: u16 = 36;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -558,6 +565,28 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             } else {
                 Box::new([])
             };
+        // add-struct-value-semantics (zbc 1.31): trailing value-struct layout
+        // block, present only when CLASS_FLAG_STRUCT. Layout: size:u32 +
+        // ref_count:u16 + (byte_off:u32, kind:u8)×n — the reference bitmap the
+        // runtime uses to locate + clone heap refs in a value-struct blob (byte
+        // size / field offsets are baked into the access instructions, not here).
+        let struct_layout_desc = if class_flags & crate::metadata::bytecode::CLASS_FLAG_STRUCT != 0 {
+            let size = c.read_u32()?;
+            let ref_count = c.read_u16()? as usize;
+            let mut ref_offsets = Vec::with_capacity(ref_count);
+            let mut ref_kinds = Vec::with_capacity(ref_count);
+            for _ in 0..ref_count {
+                ref_offsets.push(c.read_u32()?);
+                ref_kinds.push(c.read_u8()?);
+            }
+            Some(crate::metadata::bytecode::StructLayoutDesc {
+                size,
+                ref_offsets: ref_offsets.into_boxed_slice(),
+                ref_kinds: ref_kinds.into_boxed_slice(),
+            })
+        } else {
+            None
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -570,6 +599,9 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             interfaces: interfaces.into_boxed_slice(),
             enum_members,
             iface_methods,
+            // add-struct-value-semantics: populated by the struct-block parse
+            // below (commit 2 wire); `None` until then / for non-struct classes.
+            struct_layout: struct_layout_desc,
         });
     }
     Ok(classes)
