@@ -147,7 +147,8 @@ public sealed class StmtBinder {
 
     private BoundStmt _bindReturn(ReturnStmt r, TypeEnv env, Z42Type ret) {
             if (r.HasValue) {
-                BoundExpr val = this._tc._expr._bindExpr(r.Value, env);
+                // add-target-typed-new：`return new()` 以函数返回类型为目标。
+                BoundExpr val = this._tc._expr.BindWithTarget(r.Value, ret, env);
                 if (!TypeFactsTc._isAssignable(val.Type(), ret, env.Symbols)) {
                     this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
                         "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
@@ -172,6 +173,10 @@ public sealed class StmtBinder {
                 TypeExpr collTarget = null;
                 if (!((v.Type is NamedType) && ((v.Type as NamedType).Name == "var"))) { collTarget = v.Type; }
                 init = this._tc._expr._bindCollLit(v.Init, collTarget, env);
+            }
+            // add-target-typed-new：`A a = new()` 以声明类型为目标（`var a = new()` → Unknown → 报 E0437）。
+            if (init == null && v.Init != null && ExprTyper.IsTargetTypedNew(v.Init)) {
+                init = this._tc._expr.BindWithTarget(v.Init, env.ResolveType(v.Type), env);
             }
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);

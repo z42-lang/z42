@@ -138,7 +138,8 @@ public sealed class ExprTyper {
             BoundExpr target = this._bindExpr(a.Target, env);
             this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
             this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
-            BoundExpr value = this._bindExpr(a.Value, env);
+            // add-target-typed-new：`x = new()` RHS 以 LHS 类型为目标（含实例字段初始化器 `this.f = new()`）。
+            BoundExpr value = this.BindWithTarget(a.Value, target.Type(), env);
             // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →
             // `+=` 退化成 `=`，丢旧值；arr[0]+=5 得 5 非 15）。binop = 去掉末尾 '='。
             if (a.Op != "=") {
@@ -599,12 +600,22 @@ public sealed class ExprTyper {
 
     // 对象初始化器 new Foo(args) { X = 1, y } → $c = new Foo(args); $c.X = 1; $c.y = y; ⟨$c⟩。
     // 复用 Change 1 的 BoundSeqExpr；字段赋值走既有 MemberExpr 赋值绑定（校验存在性/可赋值/可见性）。
-    private BoundExpr _bindObjInit(ObjInitExpr oi, TypeEnv env) {
+    // expected：target-typed（oi.Type == null）时的目标类型；否则传 null。
+    private BoundExpr _bindObjInit(ObjInitExpr oi, TypeEnv env, Z42Type expected) {
         Span sp = oi.Span;
+        TypeExpr oiTy = oi.Type;
+        if (oiTy == null) {   // add-target-typed-new：`new() { ... }` 从目标类型合成类型表达式
+            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
+                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                    "target-typed `new` requires a known target type here", sp);
+                return new BoundError("target-typed new without target", new Z42ErrorType(), sp);
+            }
+            oiTy = this._typeToTypeExpr(expected, sp);
+        }
         string tmp = this._freshColl();
         Z42Type voidT = new Z42VoidType();
         BoundStmt[] pre = new BoundStmt[oi.FieldCount + 1];
-        Stmt declS = new VarDeclStmt(oi.Type, tmp, new ObjNewExpr(oi.Type, oi.Args, oi.ArgCount, sp), sp);
+        Stmt declS = new VarDeclStmt(oiTy, tmp, new ObjNewExpr(oiTy, oi.Args, oi.ArgCount, sp), sp);
         pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
         int i = 0;
         while (i < oi.FieldCount) {
@@ -691,9 +702,9 @@ public sealed class ExprTyper {
         if (ExprTyper.IsCollLit(e)) { return this._bindCollLit(e, null, env); }
         if (e is RefArgExpr) { return this._bindRefArg(e as RefArgExpr, env); }
         if (e is ObjNewExpr) {
-            return this._bindNew(e as ObjNewExpr, env);
+            return this._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
         }
-        if (e is ObjInitExpr) { return this._bindObjInit(e as ObjInitExpr, env); }
+        if (e is ObjInitExpr) { return this._bindObjInit(e as ObjInitExpr, env, null); }
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }
@@ -801,10 +812,21 @@ public sealed class ExprTyper {
         return new BoundDefault(t, -1, d.Span);
     }
 
-    private BoundExpr _bindNew(ObjNewExpr n, TypeEnv env) {
-        Z42Type t = env.ResolveType(n.Type);
-        if (t is Z42UnknownType) {
-            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
+    // expected：target-typed new（n.Type == null）时的目标类型；非 target-typed 时传 null（忽略）。
+    private BoundExpr _bindNew(ObjNewExpr n, TypeEnv env, Z42Type expected) {
+        Z42Type t;
+        if (n.Type == null) {   // add-target-typed-new：从目标类型推断被省略的类名
+            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
+                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                    "target-typed `new` requires a known target type here", n.Span);
+                return new BoundError("target-typed new without target", new Z42ErrorType(), n.Span);
+            }
+            t = expected;
+        } else {
+            t = env.ResolveType(n.Type);
+            if (t is Z42UnknownType) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
+            }
         }
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
             this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
@@ -857,8 +879,30 @@ public sealed class ExprTyper {
         }
         BoundExpr[] args = new BoundExpr[n.ArgCount];
         int i = 0;
-        while (i < n.ArgCount) { args[i] = this._bindExpr(n.Args[i], env); i = i + 1; }
+        // ctor 实参按选中 ctor 的形参类型定型（支持嵌套 target-typed new：`new C(new())`）。
+        // 无可解析 Decl 的 ctor（imported / 无 Decl）→ 目标类型 null，target-typed 实参会报 E0437。
+        while (i < n.ArgCount) {
+            Z42Type ptv = null;
+            if (cms != null && cms.Signature != null && i < cms.Signature.ParamCount) { ptv = cms.Signature.ParamTypes[i]; }
+            args[i] = this.BindWithTarget(n.Args[i], ptv, env);
+            i = i + 1;
+        }
         return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
+    }
+
+    // add-target-typed-new：某表达式是否是省略了类名的 target-typed new / 对象初始化器。
+    public static bool IsTargetTypedNew(Expr e) {
+        if (e is ObjNewExpr)  { return (e as ObjNewExpr).Type == null; }
+        if (e is ObjInitExpr) { return (e as ObjInitExpr).Type == null; }
+        return false;
+    }
+
+    // 目标类型已知的绑定入口：target-typed new/obj-init 用目标类型定型，其余表达式回落普通绑定。
+    // target 为 null 时 target-typed new 会经 _bindNew/_bindObjInit 报 E0437。
+    public BoundExpr BindWithTarget(Expr e, Z42Type target, TypeEnv env) {
+        if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._bindNew(e as ObjNewExpr, env, target); }
+        if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._bindObjInit(e as ObjInitExpr, env, target); }
+        return this._bindExpr(e, env);
     }
 
 }

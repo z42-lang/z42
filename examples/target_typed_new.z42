@@ -1,0 +1,37 @@
+// target-typed new（add-target-typed-new）：目标类型已知时 `new(args)` 省略构造类名。
+// 纯语法糖，与显式 `new T(args)` 产出相同代码。
+using Std;
+
+class Point {
+    int X;
+    int Y;
+    Point() { }
+    Point(int x, int y) { this.X = x; this.Y = y; }
+}
+
+class Box {
+    Point origin = new();          // 字段初始化器：目标 = 字段类型 Point
+
+    Point make() {
+        return new(3, 4);          // return：目标 = 返回类型 Point
+    }
+
+    void take(Point p) {
+        Console.WriteLine(p.X.ToString() + "," + p.Y.ToString());
+    }
+
+    void run() {
+        Point a = new();           // 局部变量：目标 = 声明类型 Point
+        a = new(1, 2);             // 赋值：目标 = 左值类型 Point
+        this.take(new(5, 6));      // 传参：目标 = 形参类型 Point
+        Point b = new() { X = 7, Y = 8 };   // + 对象初始化器
+        Console.WriteLine(a.X.ToString());
+        Console.WriteLine(b.Y.ToString());
+        Console.WriteLine(this.make().Y.ToString());
+    }
+}
+
+void Main() {
+    Box box = new();               // 目标 = 声明类型 Box
+    box.run();
+}

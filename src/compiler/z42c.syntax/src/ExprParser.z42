@@ -220,6 +220,30 @@ public sealed class ExprParser {
         }
         if (k == TokenKind.New) {
             this._p._advance();
+            // target-typed new（add-target-typed-new）：`new` 紧跟 `(` → 省略类名，从目标类型推断。
+            // 类名不可能以 `(` 起头（函数类型 `(T)->R` 无法被 new），故前瞻一个 token 即无歧义。
+            // 产出 Type==null 的 ObjNewExpr / ObjInitExpr，由语义层用目标类型定型。
+            if (this._p._peek().Kind == TokenKind.LParen) {
+                this._p._advance();   // (
+                Expr[] targs = new Expr[8];
+                int tn = 0;
+                if (this._p._peek().Kind != TokenKind.RParen) {
+                    while (true) {
+                        if (tn == targs.Length) {
+                            Expr[] b = new Expr[targs.Length * 2];
+                            int i = 0; while (i < tn) { b[i] = targs[i]; i = i + 1; }
+                            targs = b;
+                        }
+                        targs[tn] = this._parseExpr(0); tn = tn + 1;
+                        if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+                    }
+                }
+                this._p._expect(TokenKind.RParen, ")");
+                if (this._p._peek().Kind == TokenKind.LBrace) {
+                    return this._parseObjInit(null, targs, tn, t);   // target-typed 对象初始化器
+                }
+                return new ObjNewExpr(null, targs, tn, t.Span);
+            }
             TypeExpr ty = this._p._typeP._parseType();
             // 数组初始化 new T[]{v1,...}（SA-2）：_parseType 已吃 T[] 的 []，后跟 { = 字面量初始化器。
             // 仅 ArrayType 走此路；非数组 `new Foo {` 落到下方对象初始化器（add-object-initializers）。

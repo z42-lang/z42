@@ -4,6 +4,7 @@ namespace Z42cSyntaxIncompleteTests;
 
 using Std;
 using Std.Test;
+using Z42.Core;
 using Z42.Syntax;
 
 // 走顶层声明入口 parse（Completeness 声明语义）：缺闭合符 或 缺 `;` 都算没写完。
