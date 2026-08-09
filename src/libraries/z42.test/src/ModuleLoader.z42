@@ -81,7 +81,9 @@ public static class ModuleLoader {
     // static state doesn't leak — the isolation the host golden runner gets from
     // a fresh z42vm per case, but in-process. `entries[i]` is the entry FQN for
     // paths[i] ("" → the artifact's baked-in entry); `libsDir` supplies the
-    // stdlib. Sequential + interp in P1 (parity with the host golden gate).
+    // stdlib. interp (parity with the host golden gate). `jobs` fans out over OS
+    // threads with disjoint contexts (P2): <=0 = auto (cores), 1 = sequential.
+    // Order preserved; results are per-case captured stdout.
     [Native("__run_goldens_isolated")]
-    public static extern string[] RunGoldensIsolated(string[] paths, string[] entries, string libsDir);
+    public static extern string[] RunGoldensIsolated(string[] paths, string[] entries, string libsDir, int jobs);
 }

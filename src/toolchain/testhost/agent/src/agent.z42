@@ -115,7 +115,12 @@ string _runBundleReport(string manifestPath) {
             string cand = Path.Join(Path.GetDirectoryName(dir), "libs");
             if (Directory.Exists(cand)) { libs = cand; }
         }
-        string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs);
+        // Parallelism (P2): Z42_TEST_JOBS (int) → workers; 0/unset = auto (cores),
+        // 1 = sequential. Each golden runs in a disjoint isolated VmContext.
+        int jobs = 0;
+        string jv = Environment.GetEnvironmentVariable("Z42_TEST_JOBS") ?? "";
+        if (jv.Length > 0) { try { jobs = int.Parse(jv); } catch (Exception e) { jobs = 0; } }
+        string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs, jobs);
         TestResult[] gr = new TestResult[gN];
         for (int i = 0; i < gN; i = i + 1) {
             string got = _stripNl(outs[i]);

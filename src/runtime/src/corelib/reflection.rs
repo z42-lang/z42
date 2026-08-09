@@ -2008,11 +2008,15 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
 /// fresh z42vm per case, but in-process (works on mobile too). stdout is
 /// captured via the thread-local sink stack.
 ///
-/// P1: sequential (interp, for parity with the host golden gate). Parallelism
-/// (a `jobs` fan-out over OS threads with disjoint contexts) is P2. On a run
-/// error (the golden's Main threw/aborted) the captured stdout is returned with
-/// a `<z42-run-error: …>` marker appended so the caller's comparison fails
-/// visibly rather than silently matching partial output.
+/// Runs interp (parity with the host golden gate). `jobs` fans out over OS
+/// threads with DISJOINT VmContexts (P2): each golden's heap/static-fields are
+/// its own and stdout capture is thread-local (`STDOUT_SINKS`), so parallel runs
+/// don't interfere and there is no global GC lock to serialize them. The only
+/// invariant — never share a `Value`/`GcRef` across contexts — holds because
+/// workers exchange only Rust `String`s; `Value`s are built in the caller's heap
+/// AFTER join. `jobs <= 0` → auto (available cores); `1` → sequential. Order is
+/// preserved. On a run error the captured stdout gets a `<z42-run-error: …>`
+/// marker so the caller's comparison fails visibly.
 pub fn builtin_run_goldens_isolated(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let paths = read_str_vec(args.first(), "paths")?;
     let entries = read_str_vec(args.get(1), "entries")?;
@@ -2020,14 +2024,67 @@ pub fn builtin_run_goldens_isolated(ctx: &VmContext, args: &[Value]) -> Result<V
         Some(Value::Str(s)) => s.to_string(),
         _ => String::new(),
     };
+    let jobs = match args.get(3) {
+        Some(Value::I64(n)) => *n,
+        _ => 1,
+    };
     let libs = if libs_dir.is_empty() { None } else { Some(std::path::PathBuf::from(libs_dir)) };
+    let n = paths.len();
 
-    let mut out: Vec<Value> = Vec::with_capacity(paths.len());
-    for (i, path) in paths.iter().enumerate() {
-        let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
-        let captured = run_one_golden_isolated(path, entry, libs.clone());
-        out.push(Value::Str(captured.into()));
-    }
+    // Effective worker count: jobs<=0 → cores, capped at n.
+    let workers = if jobs <= 0 {
+        std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1)
+    } else {
+        jobs as usize
+    }.max(1).min(n.max(1));
+
+    let captured: Vec<String> = if workers <= 1 || n <= 1 {
+        // Sequential.
+        (0..n)
+            .map(|i| {
+                let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
+                run_one_golden_isolated(&paths[i], entry, libs.clone())
+            })
+            .collect()
+    } else {
+        // Parallel: `workers` threads pull indices off a shared counter; each runs
+        // its golden in a fresh isolated VmContext. Results slotted by index.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+        let next = Arc::new(AtomicUsize::new(0));
+        let slots: Arc<Vec<Mutex<String>>> =
+            Arc::new((0..n).map(|_| Mutex::new(String::new())).collect());
+        let paths = Arc::new(paths);
+        let entries = Arc::new(entries);
+        let libs = Arc::new(libs);
+        let mut handles = Vec::with_capacity(workers);
+        for _ in 0..workers {
+            let next = next.clone();
+            let slots = slots.clone();
+            let paths = paths.clone();
+            let entries = entries.clone();
+            let libs = libs.clone();
+            handles.push(std::thread::spawn(move || loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= paths.len() {
+                    break;
+                }
+                let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
+                let cap = run_one_golden_isolated(&paths[i], entry, (*libs).clone());
+                *slots[i].lock().unwrap() = cap;
+            }));
+        }
+        for h in handles {
+            let _ = h.join();
+        }
+        Arc::try_unwrap(slots)
+            .unwrap_or_else(|a| (*a).iter().map(|m| Mutex::new(m.lock().unwrap().clone())).collect())
+            .into_iter()
+            .map(|m| m.into_inner().unwrap())
+            .collect()
+    };
+
+    let out: Vec<Value> = captured.into_iter().map(|s| Value::Str(s.into())).collect();
     Ok(ctx.heap().alloc_array(out))
 }
 
