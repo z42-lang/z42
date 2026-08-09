@@ -1,0 +1,73 @@
+// add-struct-nested-fields：嵌套 struct 字段（值语义）端到端。
+//   struct Line { P a; P b; } —— 字段本身是 struct，递归展平为字节 blob。
+//   验证：嵌套 prim 读/写（line.a.x，3a 原地）、整字段值复制独立性、owner 方法内嵌套裸字段读、ref 叶子复制。
+namespace Demo;
+
+struct P {
+    int x;
+    int y;
+    P(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Line {
+    P a;
+    P b;
+    Line(P a, P b) { this.a = a; this.b = b; }   // struct 传参 + 整字段 owner 写（this.a = a）
+    int SumAll() { return a.x + a.y + b.x + b.y; } // 嵌套 owner 裸字段读（a.x == this.a.x）
+}
+
+// 含引用叶子（string）的嵌套 struct —— 验证 _copyRegion 走 ref 叶子分流。
+struct Tagged {
+    P pt;
+    string name;
+    Tagged(P pt, string name) { this.pt = pt; this.name = name; }
+}
+
+void Main() {
+    var p1 = new P(1, 2);
+    var p2 = new P(3, 4);
+    var line = new Line(p1, p2);
+
+    // 嵌套 prim 读（累积 offset：a@0.x@0=0, a.y@4, b@8.x@8, b.y@12）
+    Assert.Equal(1, line.a.x);
+    Assert.Equal(2, line.a.y);
+    Assert.Equal(3, line.b.x);
+    Assert.Equal(4, line.b.y);
+
+    // 嵌套 prim 原地写（3a），兄弟叶子不受影响
+    line.a.x = 10;
+    Assert.Equal(10, line.a.x);
+    Assert.Equal(2, line.a.y);
+    Assert.Equal(3, line.b.x);
+
+    // 整个嵌套 struct 字段读 = 值复制（独立，非别名）
+    P r = line.a;
+    r.x = 99;
+    Assert.Equal(10, line.a.x);   // 原 blob 不受 r 改动影响
+    Assert.Equal(99, r.x);
+
+    // 整个嵌套 struct 字段写 = 值复制进
+    var q = new P(7, 8);
+    line.b = q;
+    Assert.Equal(7, line.b.x);
+    Assert.Equal(8, line.b.y);
+    q.x = 100;                    // q 独立于 line.b
+    Assert.Equal(7, line.b.x);
+
+    // owner 方法内嵌套裸字段读（reg0 根 + 累积 offset）
+    Assert.Equal(10 + 2 + 7 + 8, line.SumAll());
+
+    // 传参独立性：修改传进 ctor 的 p1 不影响 line.a（copy-in）
+    p1.x = 555;
+    Assert.Equal(10, line.a.x);
+
+    // 引用叶子（string）嵌套复制：整字段读复制共享同一 string 引用（值语义对引用叶子=引用复制）
+    var t1 = new Tagged(new P(5, 6), "hello");
+    Assert.Equal(5, t1.pt.x);
+    Assert.True(t1.name == "hello");
+    t1.pt.x = 50;                 // 嵌套 prim 写（pt 在 Tagged 内 offset 0）
+    Assert.Equal(50, t1.pt.x);
+    P tp = t1.pt;                 // 整字段读出
+    Assert.Equal(50, tp.x);
+    Assert.Equal(6, tp.y);
+}

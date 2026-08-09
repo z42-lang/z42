@@ -138,11 +138,11 @@ public sealed class StructLayout {
         if (!this.IsStructType(typeName)) { return false; }
         StructLayoutInfo li = this.LayoutOf(typeName);
         if (li.FieldCount < 2) { return false; }
-        // A-use 首版：只翻**扁平** struct（各字段=基元/引用叶子，无嵌套 struct 字段）。嵌套值字段
-        // （Line{a:P,b:P}）的字段读写是区间复制而非 prim/ref 叶子，需 StructFieldGet/Set 区间指令——
-        // 留后续（Deferred）；含嵌套 struct 字段者暂不翻（保持引用语义，避免误当叶子路由）。
-        int i = 0;
-        while (i < li.FieldCount) { if (li.FieldKinds[i] == StructLeafKind.Struct) { return false; } i = i + 1; }
+        // add-struct-nested-fields：嵌套 struct 字段（Line{a:P,b:P}）现予接受——布局早已递归展平其叶子
+        // （_compute），codegen 沿成员链累积 byte offset 发射 StructFieldGet/SetPrim（整字段走逐叶子复制）。
+        // 防护：自引用/环 struct 的布局是空兜底（Size 0，见 LayoutOf 的 _inProgress 环检测 + E0438 诊断）——
+        // 不准入，避免 0 字节 blob 的字段访问越界。
+        if (li.Size == 0) { return false; }
         return true;
     }
 
