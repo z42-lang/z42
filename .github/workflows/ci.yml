@@ -26,9 +26,11 @@ on:
   # Actions "Run workflow" button or: gh workflow run CI --ref main
   workflow_dispatch:
   # Nightly full platform-test sweep — covers commits the per-push paths filter
-  # skipped (z42c-only, stdlib-only, etc.). 07:00 UTC daily.
+  # skipped (z42c-only, stdlib-only, etc.) AND the slow Tier-2 platform tests
+  # (wasm/iOS-sim/Android-emu), which are nightly-only to keep per-PR iteration
+  # fast (see their `if:` gates). 16:00 UTC = 00:00 UTC+8 (daily, local midnight).
   schedule:
-    - cron: '0 7 * * *'
+    - cron: '0 16 * * *'
 
 # Cancel superseded in-progress runs of the SAME event on the same ref. The
 # event_name in the group keeps push / schedule / workflow_dispatch independent:
@@ -1522,7 +1524,9 @@ jobs:
     name: test-wasm-browser(linux-x64)
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
+    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1593,7 +1597,9 @@ jobs:
     name: test-ios-sim(macos-arm64)
     timeout-minutes: 45
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
+    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-15
     permissions:
       contents: read
@@ -1642,7 +1648,9 @@ jobs:
     name: test-android-emu(linux-x64)
     timeout-minutes: 45
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
+    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1716,6 +1724,8 @@ jobs:
     name: test-desktop-cabi(linux-x64)
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
+    # Tier-1 (desktop C ABI, fast — no emulator/sim/browser): stays per-PR on
+    # platform changes (only Tier-2 wasm/iOS/Android moved to nightly-only).
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
