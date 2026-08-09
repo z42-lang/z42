@@ -207,25 +207,43 @@ public sealed class EmitContext {
         return Opt.Has(this.Gen.OptSet, Opt.Devirt);
     }
 
-    // receiver 静态类型若是**可去虚化的 sealed 类**返回其 Z42ClassType，否则 null。
-    // 边界：非泛型 sealed 类（本地或 imported）——sealed 不可继承 → runtime 类型必是它本身 → 方法目标
-    // 编译期唯一。泛型 sealed → null（回落 VCall，延后）。imported 支持见 extend-sealed-devirt-imported。
-    public Z42ClassType SealedReceiverClass(Z42Type recvType) {
+    // receiver 静态类型若是**可去虚化候选类**返回其 Z42ClassType，否则 null。
+    // 「候选」= 可限定（本地/imported）类——不要求整类 sealed、不再排除泛型（extend-sealed-devirt-more ②）。
+    // 是否真能去虚化由 ResolveSealedTarget 在声明点判定 `classSealed || 方法级 sealed`（sealed override
+    // 使非 sealed 类上的 sealed 方法也唯一）。泛型实例（`Box<int>`，Z42InstantiatedType）解包到 `.Def`——
+    // 泛型是类型擦除 + 条件 arity-mangle，目标名走 `_classShortName`（Name$N or Name）逐字节匹配 IrGen。
+    // 调用方把本类 IsSealed 作 classSealed 传入：sealed 类无条件命中（原 add-sealed-devirt 行为），
+    // 非 sealed 类只在方法本身 sealed 时命中。
+    public Z42ClassType DevirtReceiverClass(Z42Type recvType) {
         Z42ClassType ct = recvType as Z42ClassType;
+        if (ct == null) {
+            Z42InstantiatedType it = recvType as Z42InstantiatedType;   // Box<int> → 解包定义类 Box
+            if (it != null) { ct = it.Def; }
+        }
         if (ct == null) { return null; }
-        if (!ct.IsSealed) { return null; }
-        if (ct.GenericParamCount > 0) { return null; }   // 非泛型（规避 $N mangle）
         // extend-sealed-devirt-imported：本地（QualifyClass=当前 ns）或 imported（QualifyClass 经
         // ImportedClassNs=源 ns）——两者 QualifyClass 都能给出与发射一致的 FQ；两者皆非则不去虚化。
-        if (!this._devirtQualifiable(ct.Name())) { return null; }
+        if (!this._devirtQualifiable(ct)) { return null; }
         return ct;
     }
 
-    // 去虚化目标名可否用 `QualifyClass(name)+"."+RegKey` 精确构造：本地声明类（当前 ns）或 imported 类
-    // （ImportedClassNs 里的源 ns）。两者皆非 → QualifyClass 会误加当前 ns → 不可去虚化（回落 VCall）。
-    private bool _devirtQualifiable(string name) {
-        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(name)) { return true; }
-        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(name)) { return true; }
+    // 类的 IR 短名（镜像 IrGen._classIrShortName）：泛型类若以 `Name$N` 键注册（同名多 arity 重载）→ 返回
+    // `Name$N`，否则裸 `Name`。去虚化目标名 + ImportedClassNs 查键都用它，逐字节匹配 IrGen 发射。
+    private string _classShortName(Z42ClassType ct) {
+        if (ct.GenericParamCount > 0) {
+            string mk = ct.Name() + "$" + ct.GenericParamCount.ToString();
+            if (this.Symbols != null && this.Symbols.HasClass(mk)) { return mk; }
+        }
+        return ct.Name();
+    }
+
+    // 去虚化目标名可否用 `QualifyClass(shortName)+"."+RegKey` 精确构造：本地声明类（LocalClasses 裸名键，
+    // QualifyClass=当前 ns）或 imported 类（ImportedClassNs 条件 mangle 短名键，QualifyClass=源 ns）。
+    // 两者皆非 → QualifyClass 会误加当前 ns → 不可去虚化（回落 VCall）。非泛型下 `_classShortName==Name` →
+    // 与旧 `_devirtQualifiable(name)` 逐字节等价（零回归）。
+    private bool _devirtQualifiable(Z42ClassType ct) {
+        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return true; }
+        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(this._classShortName(ct))) { return true; }
         return false;
     }
 
@@ -239,40 +257,54 @@ public sealed class EmitContext {
     // 解析 sealed receiver 上方法调用的**直接目标 FQ 名**（`QualifyClass(定义类)+"."+RegKey`，
     // 逐字节匹配 IrGen 的 `_q(_classIrShortName)+"."+md.RegKey`）。methodKey = BoundCall.MethodName
     // （MemberResolver 已置为**解析后 ms.RegKey**，重载已消歧、无需重解析）。沿 startCt→base 链找
-    // **最近声明该键且非 abstract 的可限定（本地或 imported）非泛型类**：命中→FQ；越界（不可限定基类/
-    // 泛型基类/abstract/未找到）→ ""（调用方回落 VCall，永远安全）。imported：extend-sealed-devirt-imported。
-    public string ResolveSealedTarget(Z42ClassType startCt, string methodKey, int argc) {
+    // **最近声明该键且非 abstract 的可限定（本地或 imported）类**（= declClass）。泛型类走
+    // `_classShortName` 的条件 arity-mangle（extend-sealed-devirt-more ②）。
+    //
+    // 去虚化安全判据（extend-sealed-devirt-more）：declClass 是 startCt 的自身或某基类
+    // （链向上找），故运行期类型 R ≤ startCt ≤ declClass。命中 declClass 后：
+    //   · classSealed（整类 sealed）：R==startCt，目标必唯一 → 命中（原 add-sealed-devirt）。
+    //   · 否则 ms.IsSealed（sealed override）：declClass 下无人能 override 该方法，R ≤ declClass →
+    //     R 的最派生 M == declClass.M，目标唯一 → 命中。
+    //   · 两者皆非：R 可在 declClass 下再 override → 目标不唯一 → ""（回落 VCall，永远安全）。
+    // 越界（不可限定基类/abstract/未找到）→ ""。imported：extend-sealed-devirt-imported。
+    public string ResolveSealedTarget(Z42ClassType startCt, string methodKey, int argc, bool classSealed) {
         Z42ClassType ct = startCt;
         int hops = 0;
         while (ct != null && hops < 32) {
-            // 只在**可限定非泛型**类上构造目标名（QualifyClass 给出与 IrGen 发射一致的 FQ——本地=当前 ns、
-            // imported=ImportedClassNs 源 ns）。
-            if (!this._devirtQualifiable(ct.Name())) { return ""; }
-            if (ct.GenericParamCount > 0) { return ""; }
+            // 只在**可限定**类上构造目标名（QualifyClass 给出与 IrGen 发射一致的 FQ——本地=当前 ns、
+            // imported=ImportedClassNs 源 ns；泛型经 _classShortName 的 $N 条件 mangle）。
+            if (!this._devirtQualifiable(ct)) { return ""; }
             if (ct.Methods.ContainsKey(methodKey)) {
                 MethodSymbol ms = ct.Methods.Get(methodKey) as MethodSymbol;
                 if (ms == null) { return ""; }
                 // abstract 无 body 不可直呼（sealed 具体类应已 override，防御性）。
                 if (ms.HasDecl && ms.Decl != null && IrGenFacts._hasWord(ms.Decl.Mods, "abstract")) { return ""; }
-                string fq = this.QualifyClass(ct.Name()) + "." + methodKey;
-                // 本地类：SymbolCollector 只填**声明于本类**的方法 → Methods 命中即「本类声明」，
-                // 目标就是本类发射的函数（Deps 不含本包函数，不能拿 Deps 校验）。直接返回。
+                // sealed override 门控：非整类 sealed 时，只有方法本身 sealed 才目标唯一（见上判据）。
+                bool sealedHere = classSealed || ms.IsSealed;
+                // 目标名用 _classShortName（泛型条件 $N mangle）逐字节匹配 IrGen `_q(_classIrShortName)`。
+                string fq = this.QualifyClass(this._classShortName(ct)) + "." + methodKey;
+                // 本地类：SymbolCollector 只填**声明于本类**的方法 → Methods 命中即「本类声明」=declClass，
+                // 目标就是本类发射的函数（Deps 不含本包函数，不能拿 Deps 校验）。sealed 判据成立才去虚化。
                 if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) {
+                    if (!sealedHere) { return ""; }   // declClass 非 sealed → 可再 override → 回落
                     return fq;
                 }
                 // imported 类：TSIG 把**继承**方法展平进每个派生类的 Methods（ImportedSymbolLoader
                 // _fillClass 行 266-293）→ Methods 命中**不等于**本类声明。若本类只是继承而非声明，
                 // `QualifyClass(派生类)+"."+key` 指向一个从未发射的函数（如 demo.sld.Leaf.Tag，真身是
                 // demo.base.Tagged.Tag）→ 运行期 undefined function。故用 Deps（跨包已发射函数按 FQ 建键，
-                // DependencyIndex.AddModule 行 110）校验该 FQ 确为真实发射函数：命中→本类确有该函数、去虚化；
+                // DependencyIndex.AddModule 行 110）校验该 FQ 确为真实发射函数：命中→本类确有该函数=declClass；
                 // 未命中→本类仅继承，继续沿基链上溯找真正声明类（其 FQ 会命中 Deps）。
                 if (this._depHasFunction(fq)) {
+                    // 找到 declClass。sealed 判据不成立 → 目标可再 override → 回落 VCall（不再上溯：
+                    // 更派生声明已定 dispatch，基类的 sealed 与否不影响 R 的目标）。
+                    if (!sealedHere) { return ""; }
                     // 定义类 imported（或跨-ns 自有类）→ 追踪其源 ns 入 DEPS，使加载器能解析这条直接 Call
-                    // （镜像 VCall 路径的 TrackImportedClass）。
-                    this.TrackImportedClass(ct.Name());
+                    // （镜像 VCall 路径的 TrackImportedClass）。泛型用 mangle 短名（ImportedClassNs 键）。
+                    this.TrackImportedClass(this._classShortName(ct));
                     return fq;
                 }
-                // 本类仅继承该方法（FQ 非真实发射）→ 不在此返回，继续 while 走基链。
+                // 本类仅继承该方法（FQ 非真实发射）→ 不在此返回，继续沿基链上溯找 declClass。
             }
             // 沿基链上溯（去泛型尖括号，同 ReceiverMethodIsVirtual）。
             if (!ct.HasBase || ct.BaseName == "") { return ""; }
