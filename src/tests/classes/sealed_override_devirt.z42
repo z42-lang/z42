@@ -1,0 +1,53 @@
+// extend-sealed-devirt-more: sealed override 去虚化端到端正确性。
+// 非 sealed 类上的 sealed override 方法——其下无人能再 override → 目标编译期唯一 →
+// 该方法调用被去虚化为直接 Call（emit 时，Opt.Devirt）。本用例断言去虚化结果与虚派发一致，
+// 且非 sealed override 方法仍保持多态（vcall）。
+namespace Demo.SealedOverrideDevirt;
+
+using Std;
+
+class Animal {
+    public virtual string Sound() { return "?"; }
+}
+
+// 非 sealed 类，但 Sound 是 sealed override → Dog 之下无人能再 override Sound。
+class Dog : Animal {
+    public sealed override string Sound() { return "woof"; }
+}
+
+// Dog 的子类：继承 sealed 的 Sound（不能 override），可加别的方法。
+class Puppy : Dog {
+    public int Age() { return 1; }
+}
+
+// 对照：非 sealed override，子类可再 override → 不该被去虚化。
+class Cat : Animal {
+    public override string Sound() { return "meow"; }
+}
+class Kitten : Cat {
+    public override string Sound() { return "mew"; }
+}
+
+void Main() {
+    // Dog 静态类型 + sealed override → devirt 到 Dog.Sound，结果正确。
+    Dog d = new Dog();
+    Assert.Equal("woof", d.Sound());
+
+    // Puppy 装进 Dog 变量 → declClass=Dog（sealed override），devirt 安全：
+    // Puppy 无法 override sealed Sound → 运行期仍 Dog.Sound。
+    Dog dp = new Puppy();
+    Assert.Equal("woof", dp.Sound());
+
+    // Puppy 静态类型：Puppy 未声明 Sound → 上溯 declClass=Dog（sealed override）→ devirt 仍正确。
+    Puppy pp = new Puppy();
+    Assert.Equal("woof", pp.Sound());
+    Assert.Equal(1, pp.Age());
+
+    // 对照：Cat.Sound 非 sealed override → 保持 vcall，多态正确。
+    Cat ct = new Kitten();
+    Assert.Equal("mew", ct.Sound());      // vcall → Kitten.Sound（未误去虚化）
+
+    // 静态类型 Animal（sealed 方法之上，Animal.Sound 非 sealed）→ vcall，多态正确。
+    Animal a = new Dog();
+    Assert.Equal("woof", a.Sound());      // vcall → Dog.Sound
+}

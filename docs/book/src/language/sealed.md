@@ -104,20 +104,52 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
 路返回**（本包函数不入 Deps，不能也不需校验）——本地路径零改动、零回归。从 receiver 精确 sealed 类型向上、
 第一个 FQ 命中即「最近声明」= 对该精确类型对象动态派发的唯一目标。
 
-- **v1 边界**：**本地或 imported 非泛型 sealed 类** receiver + 可限定（本地/imported）非泛型定义类 + 非 abstract
-  目标。**任何解析不确定即回落 `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
+- **边界**：**可限定（本地/imported）非泛型类** receiver（不再要求整类 sealed，见下 sealed override）+ 可限定
+  非泛型定义类 + 非 abstract 目标。**任何解析不确定即回落 `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
 - **正确性铁律**：目标名错 = 静默调错。多保险：① 越界回落 VCall；② imported 定义类必过 Deps FQ 校验；
   ③ `--no-opt devirt` before/after 逐字节对拍（单源 IR 路径）+ z42c 自举不动点（z42c 自身大量本地/imported
   sealed 类被去虚化编译，gen1==gen2 覆盖全码库）；④ cross-zpkg e2e `sealed_devirt_imported`（跨包继承基链——
   正是它抓到上面的 TSIG 展平坑）。
 
+### sealed override 去虚化（非 sealed 类上的 sealed 方法，extend-sealed-devirt-more）
+
+整类未 sealed，但某方法标 `sealed override`（`sealed` 简写）→ 该**方法**不可再被 override。于是从「能看见
+这个 sealed 方法」的 receiver 静态类型 `S` 起，该方法调用同样目标唯一：
+
+- **判据**：沿 `S` 基链找到 declClass = 最近声明该方法的可限定类。因 walk 向 base 方向 → `S ≤ declClass`；
+  运行期 `R ≤ S ≤ declClass`。declClass 上该方法 `sealed`（语义强制其下无人能 override）→ `R` 的最派生实现
+  = declClass 的 → **唯一**。
+- **实现**：入口 `SealedReceiverClass` 泛化为 `DevirtReceiverClass`（删「整类 sealed」要求，接纳任意可限定非泛型类）；
+  `ResolveSealedTarget` 加 `classSealed` 参数，declClass 处门控 **`classSealed || ms.IsSealed`**（`MethodSymbol.IsSealed`
+  由 #140 本地/跨包序列化）。整类 sealed → 恒真（逐字节复现原 add-sealed-devirt 行为）；非 sealed 类 → 仅方法
+  sealed 才命中；皆非 → `""` 回落 VCall。
+- **反例（必回落）**：`class Mid : Base { override int M(){} }`（**非** sealed override）——`Mid m` 可持 `Leaf : Mid`
+  且 Leaf override M → 目标不唯一 → 门控失败 → VCall。多态保持正确。
+- **e2e**：`src/tests/classes/sealed_override_devirt.z42`——sealed override 去虚化结果 == 虚派发、子类继承 sealed
+  方法安全、非 sealed override 保持多态。
+
+### 泛型 sealed 去虚化（$N 条件 arity-mangle，extend-sealed-devirt-more）
+
+`sealed class Box<T>` 同样不可继承 → `Box<int>` receiver 运行期类型必是它自身（类型擦除后一份 `Box`）→ 方法
+目标唯一。之前保守回落，本项接纳：
+
+- **receiver 解包**：泛型实例 `Box<int>` 的静态类型是 `Z42InstantiatedType` → `DevirtReceiverClass` 解包 `.Def`
+  拿到泛型定义类。
+- **$N 条件 mangle**：泛型是**类型擦除**，方法一份发射；短名由 `_classShortName` 镜像 `IrGen._classIrShortName`
+  ——泛型类**仅当同名多 arity 重载**（`Symbols.HasClass("Name$N")`）才用 `Name$N`，否则裸 `Name`。目标名
+  `QualifyClass(_classShortName(ct))+"."+RegKey`、`ImportedClassNs` 查键、`TrackImportedClass` 都用它，逐字节匹配
+  IrGen 发射。非泛型下 `_classShortName==Name` → 与 v1 逐字节等价（零回归）。
+- **单测**：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`
+  （`Box`+`Box<T>` → `call @Box$1.`）/ `test_generic_nonsealed_stays_vcall`；e2e `sealed_generic_devirt.z42`
+  （`Box<int>`/`Box<string>` 去虚化结果正确 + 非 sealed 泛型多态）。
+
 ## Deferred / Future Work
 
 ### sealed-devirt-future: 去虚化 v1 边界外
 
-- **来源**：`add-sealed-devirt` v1（本地）+ `extend-sealed-devirt-imported`（imported）。
-- **触发原因**：目标名精确构造在这些情形更易错，v1 保守只覆盖非泛型。
-- **待覆盖**：① **泛型 sealed 类**（`$N` mangle + 类型参数替换）；② **`sealed override` 方法**（receiver 是基类型——
-  非「receiver 静态即 sealed 类」充分条件，需精确类型/单实现分析）。
-- **已落地**：**imported sealed 类**（跨包目标名 + Deps FQ 校验，`extend-sealed-devirt-imported`）。
-- **当前 workaround**：剩余情形回落 VCall（运行期仍正确，走 PIC），只是不内联。
+- **来源**：`add-sealed-devirt` v1（本地）+ `extend-sealed-devirt-imported`（imported）+ `extend-sealed-devirt-more`（sealed override / 泛型）。
+- **已落地**：**本地非泛型**（`add-sealed-devirt`）；**imported sealed 类**（`extend-sealed-devirt-imported`）；
+  **sealed override 方法**（非 sealed 类上的 sealed 方法）；**泛型 sealed 类**（`$N` 条件 arity-mangle）
+  ——后两者见上「sealed override 去虚化」「泛型 sealed 去虚化」节（`extend-sealed-devirt-more`）。
+- **剩余（回落 VCall，仍正确、只是不内联）**：非虚方法/接口 receiver/cast-unknown 链（既有守卫优先）；
+  数据流型别精化（`if (x is T)` 后窄化）——仍按静态声明类型，不做流敏感分析。
