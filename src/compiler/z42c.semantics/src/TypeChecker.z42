@@ -48,7 +48,11 @@ public sealed class TypeChecker {
             if (vt is Z42ClassType) {
                 Z42ClassType sct = vt as Z42ClassType;
                 if (sct.IsStruct) {
-                    bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+                    // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界——struct
+                    // 流入容器 type-param 且存堆时装箱（否则裸 StructRef 进容器堆数组 → GetHashCode VCall 崩 +
+                    // 帧作用域句柄悬垂）。真装箱仍由 codegen `_emitBox` 按 IsBlobStruct 决定（非 blob 透传）。
+                    bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
+                                   || (target is Z42GenericParamType);
                     if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
                 }
             }
@@ -59,6 +63,18 @@ public sealed class TypeChecker {
         bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
         if (!erases) { return value; }
         return new BoundBox(value, fq, target, value.Span);
+    }
+
+    // add-struct-generic-boxing (P3a)：泛型方法/索引器返回 type-param（K/V/T），若按实例化 receiver 替换后
+    // 是 **blob 值 struct** → 该返回值是**装箱后的 struct**（存入容器时装箱，见 BoxIfNeeded 的 type-param 分支）
+    // → 调用方需**拆箱**回值 struct。返回目标 struct 类型（供调用点包 `BoundConvert` 触发 `_emitConvert` 的
+    // AsCast 拆箱：内层 call 应以 Unknown 类型构造，使 target=blob struct ∧ src≠blob 命中拆箱臂）；否则返 null。
+    public Z42Type StructUnboxTarget(Z42Type rawRet, Z42Type instRecvOrNull) {
+        if (!(rawRet is Z42GenericParamType)) { return null; }
+        if (!(instRecvOrNull is Z42InstantiatedType)) { return null; }
+        Z42Type s = MemberResolver._substGeneric(rawRet, instRecvOrNull as Z42InstantiatedType);
+        if ((s is Z42ClassType) && (s as Z42ClassType).IsStruct) { return s; }
+        return null;
     }
 
     // add-primitive-value-boxing: 对已决议方法的实参逐位装箱（整数实参 → object/接口 形参）。
