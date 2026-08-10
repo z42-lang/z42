@@ -1324,7 +1324,19 @@ public sealed class ExprEmitter {
     // add-primitive-value-boxing: 整数→object/接口 装箱 → `__box_prim(value, primFQ)` builtin。
     // 复用现有 ConstStr + Builtin opcode，无新 IR opcode（不改 zbc 格式）。
     private TypedReg _emitBox(BoundBox b) {
+        // add-struct-object-boxing: blob 值 struct → `__box_struct`（把帧 arena blob 拷到堆，type_name
+        // 运行时从 arena slot 取，无需 class 参数）。复用 Builtin opcode，无格式 bump。
+        if (this._isBlobStruct(b.E.Type())) {
+            TypedReg sval = this.Emit(b.E);
+            TypedReg[] sargs = new TypedReg[1];
+            sargs[0] = sval;
+            TypedReg sdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", sargs, 1));
+            return sdst;
+        }
         TypedReg val = this.Emit(b.E);
+        // 非基元（如非 blob 单字段 struct 擦除到 object）→ BoundBox 退化为透传，保持现模型。
+        if (!(b.E.Type() is Z42PrimType)) { return val; }
         int idx = this._ctx.Gen.Intern(b.PrimFQ);
         TypedReg cls = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(cls, idx));
@@ -1337,6 +1349,15 @@ public sealed class ExprEmitter {
 
     private TypedReg _emitConvert(BoundConvert c) {
         TypedReg src = this.Emit(c.E);
+        // add-struct-object-boxing (PR2a)：`(P)o`（object/接口 → blob 值 struct 的 C 风格强转）= **拆箱**。
+        // 源不是值 struct（是 object/boxed）、目标是 blob 值 struct → 发 AsCast（VM 对 BoxedStruct 精确
+        // 匹配 → 拷回当前帧 arena StructRef）。类名用 QualifyClass 与 StructAlloc 的 arena type_name 对齐。
+        // （`(P)somePexpr` 源已是值 struct → 不进此支，走下方 Ref==Ref 透传。）
+        if (this._isBlobStruct(c.Type()) && !this._isBlobStruct(c.E.Type())) {
+            TypedReg ud = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new AsCastInstr(ud, src, this._ctx.QualifyClass(this._blobStructName(c.Type()))));
+            return ud;
+        }
         int toIr = this._ctx.ToIrType(c.Type());
         int fromIr = this._ctx.ToIrType(c.E.Type());
         if (fromIr == toIr) { return src; }

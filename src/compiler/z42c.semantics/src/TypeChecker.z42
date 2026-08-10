@@ -41,7 +41,19 @@ public sealed class TypeChecker {
     public BoundExpr BoxIfNeeded(BoundExpr value, Z42Type target) {
         if (value == null || target == null) { return value; }
         Z42Type vt = value.Type();
-        if (!(vt is Z42PrimType)) { return value; }
+        if (!(vt is Z42PrimType)) {
+            // add-struct-object-boxing (PR2a)：值 struct 擦除到 object/接口 → 装箱（否则裸拷帧作用域
+            // StructRef 句柄逃逸创建帧 → use-after-free）。是否真装箱（blob struct）由 codegen `_emitBox`
+            // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传，保持现模型。
+            if (vt is Z42ClassType) {
+                Z42ClassType sct = vt as Z42ClassType;
+                if (sct.IsStruct) {
+                    bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+                    if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
+                }
+            }
+            return value;
+        }
         string fq = TypeChecker._intPrimFQ(vt.Name());
         if (fq == "") { return value; }                          // 非整数基元 → 不装箱
         bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());

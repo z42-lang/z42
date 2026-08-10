@@ -44,6 +44,8 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
         // add-primitive-value-boxing: 装箱基元 → 其**精确基元 struct 类型**（Std.Int64/…）。
         Some(Value::Boxed(b)) => Ok(make_type_from_name(ctx, &b.class)),
+        // add-struct-object-boxing: 装箱 struct → 其 struct 类型（type_name 载于 boxed 载荷）。
+        Some(Value::BoxedStruct(b)) => Ok(make_type_from_name(ctx, &b.type_name)),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         Some(v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))) => {
             match crate::interp::primitive_class_name(v) {

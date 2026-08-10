@@ -1,5 +1,5 @@
 use crate::metadata::Value;
-use crate::metadata::types::BoxedPrim;
+use crate::metadata::types::{BoxedPrim, BoxedStructData};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -19,6 +19,27 @@ pub fn builtin_box_prim(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         _ => bail!("__box_prim: missing/invalid class-name arg"),
     };
     Ok(Value::Boxed(Box::new(BoxedPrim { class, inner })))
+}
+
+/// add-struct-object-boxing (PR2a): 把 blob 值 struct 装箱成堆 `Value::BoxedStruct`——从 arena slot 拷出
+/// `bytes` 快照 + clone `refs` + 类型名（脱离帧生命周期，修裸拷 StructRef 逃逸帧的 use-after-free）。
+/// 编译器在 struct→object/接口 转换点发 `builtin __box_struct(%structHandle)`（arg0=StructRef，装箱点
+/// struct 活、slot 有效）。类型名从 slot 直接取（FQ，`StructAlloc` 时写入），无需额外 class 参数。
+/// 已是 BoxedStruct 幂等返回；非 struct 值原样返回（保守——`BoxIfNeeded` 只对 blob struct 发本 builtin）。
+pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let v = match args.first() {
+        Some(v) => v,
+        None => bail!("__box_struct: missing value arg"),
+    };
+    match v {
+        Value::BoxedStruct(_) => Ok(v.clone()),
+        Value::StructRef { idx, frame_id } => {
+            let (type_name, bytes, refs) = ctx.struct_arena.lock()
+                .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))?;
+            Ok(Value::BoxedStruct(Box::new(BoxedStructData { type_name, bytes, refs })))
+        }
+        other => Ok(other.clone()),
+    }
 }
 
 // ── Typed argument extractors ────────────────────────────────────────────────
@@ -137,6 +158,9 @@ pub fn value_to_str(v: &Value) -> String {
         // has no ctx to resolve it. ToString on a value struct dispatches through
         // its type's method (VCall), not this raw path — defensive placeholder.
         Value::StructRef { .. } => "<struct value>".to_string(),
+        // add-struct-object-boxing: boxed struct 的完整 ToString（值格式）由 PR2b 合成方法经 VCall 提供；
+        // 此原始路径给类型名占位（有 type_name，比 StructRef 占位更具体）。
+        Value::BoxedStruct(b) => format!("{}{{...}}", b.type_name),
     }
 }
 

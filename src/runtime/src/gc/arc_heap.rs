@@ -1959,6 +1959,13 @@ impl MagrGC for ArcMagrGC {
             // struct arena, not the GC heap — same as stack handles. The handle
             // itself is just an (idx, frame_id) pair.
             Value::StructRef { .. } => size_of::<Value>(),
+            // add-struct-object-boxing: boxed struct 堆载荷 = enum tag + Box<BoxedStructData>
+            // (type_name Arc + bytes 快照 + refs 侧表)。
+            Value::BoxedStruct(b) => size_of::<Value>()
+                + size_of::<crate::metadata::types::BoxedStructData>()
+                + b.type_name.len()
+                + b.bytes.len()
+                + b.refs.len() * size_of::<Value>(),
         }
     }
 
@@ -1993,6 +2000,9 @@ impl MagrGC for ArcMagrGC {
                     for slot in &obj.slots { visitor(slot); }
                 }
             },
+            // add-struct-object-boxing: boxed struct 拥有堆上引用叶子——必须扫描，否则存进对象槽的
+            // boxed struct 的 object/array 叶子会被漏标→过早回收（镜像 trace_children 的 BoxedStruct 分支）。
+            Value::BoxedStruct(b) => { for r in b.refs.iter() { visitor(r); } }
             _ => {}
         }
     }

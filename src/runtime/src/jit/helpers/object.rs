@@ -420,6 +420,10 @@ pub unsafe extern "C" fn jit_is_instance(
         // object 短路（基元类名未必可解析到 Std.Object 基链）。
         Value::Boxed(b)   => class_name == "Std.Object" || class_name == "Object"
             || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name),
+        // add-struct-object-boxing: 装箱 struct is-a 精确 struct / object（镜像 interp is_instance）。
+        Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
+            || &*b.type_name == class_name
+            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::interp::prim_isa(other, class_name),
     };
@@ -447,6 +451,17 @@ pub unsafe extern "C" fn jit_as_cast(
             Value::Null
         };
         (*frame).regs[dst as usize] = out;
+        return;
+    }
+    // add-struct-object-boxing: BoxedStruct 命中 struct/object/base/接口 → 保持 boxed；否则 Null。
+    // 注：精确 struct 匹配的**拆箱**（→ arena StructRef 值）是 interp-only（Phase D）——JIT 帧无
+    // frame_id 无法产合法 StructRef，且消费拆箱结果的 struct 指令会使整函数回退 interp（那时走 interp
+    // as_cast 正确拆箱）。故此处命中即保持 boxed，绝不产无效句柄。
+    if let Value::BoxedStruct(b) = &val {
+        let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let matches = &*b.type_name == class_name || is_obj
+            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name);
+        (*frame).regs[dst as usize] = if matches { val } else { Value::Null };
         return;
     }
     let is_match = match &val {
