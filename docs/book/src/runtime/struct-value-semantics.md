@@ -1,6 +1,7 @@
 # struct 值语义（内联字节 blob）
 
-> 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）。本页讲**多字段 struct 的真值语义**
+> 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等落地（2026-08-10，
+> 均无格式 bump）。本页讲**多字段 struct 的真值语义**
 > 如何在编译器 + 运行时实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见
 > `docs/spec/changes/add-struct-value-semantics/`。
 
@@ -98,6 +99,33 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
 环检测置 `ErrorType` 并返回空布局（`Size==0`）→ `IsBlobStruct` 的 `Size==0` 门拒之 → 退化引用语义
 （与今日一致、不崩）。显式 `E0438` 诊断留 follow-up。
 
+## struct 值相等（`==` / `!=`，add-struct-value-equality）
+
+blob 值 struct 的 `==` / `!=` 是**字段级值相等**，而非句柄身份。若不脱糖，两操作数持
+`Value::StructRef{idx, frame_id}` 句柄，VM 的 `Eq` 比 arena 下标 → 字段完全相同的两个 struct 恒判不等。
+
+**脱糖（纯前端、无新指令、无格式 bump）**：`ExprEmitter._emitBinary` 检测 `==`/`!=` 两操作数均
+`IsBlobStruct` 时，分流到 `_emitStructEquality`——操作数**各求值一次**（`a`/`c` 为 blob 句柄，避免
+`f()==g()` 重复求值），`_emitLeafEqChecks` 递归展平叶子（镜像 `_copyRegion`：嵌套 struct 字段递归累积
+offset），每个真叶子发射两条现有 `StructFieldGetPrim` + 一条现有 `Eq` + `BrCond` 短路——任一叶子不等
+即跳共享 `seq_ne` 失败块。结果 `result` 寄存器在「全等」与「fail」两分支各写 `ConstBool`，end 块读汇合
+（镜像三目 `_emitConditional`）。`!=` 只是翻转两分支的 `ConstBool`（全等→false / fail→true）。
+
+**叶子比较语义完全复用现有 `Eq`**——基元→值相等（**float NaN → false**，符合 `==` 运算符语义）；
+`string` 叶子→**内容相等**（`Arc<str>` deref 比较）；`object`/`array` 叶子→**引用相等**（符合 z42 对象
+`==` 默认 + C# `ValueType.Equals` 对引用字段的行为），不递归深比较堆对象。
+
+```
+p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); cmp=eq(la,lc)
+                        br.cond cmp → 下一叶子块 / seq_ne(失败)
+               全叶子相等 → result=const true;  seq_ne → result=const false
+```
+
+> 仅拦截 `==`/`!=` 且两侧均 blob struct；`<`/`<=`/`>`/`>=` 对 struct 无序（类型检查器不允许），非 blob
+> 操作数（基元/引用类型/单叶子 wrapper）走原 `_emitCompare` 不变。**衔接**：`_emitLeafEqChecks` 确立的
+> 逐叶子值相等，就是未来 struct 合成 `Equals`（C# `ValueType.Equals`）/ boxed struct 相等要复用的语义
+> （struct→object 装箱见 Deferred P4）。
+
 ## 与逃逸分析 / packed 数组的关系
 
 - struct 恒内联，**不走** `ObjNew`→堆/`StackObject` arena（Decision θ）；逃逸 arena 是**引用类型**的
@@ -108,6 +136,10 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
 
 - ✅ 局部多字段扁平 struct：构造 / 复制 / 字段 get·set / `this` 字段 / 传参 copy-in / 返回值 sret（A-use）。
 - ✅ **嵌套 struct 字段**（`Line{a:P}`）：累积-offset 叶子读写（3a）+ 整字段逐叶子复制（add-struct-nested-fields）。
-- ⏳ Deferred：**`struct==` 值相等**（逐叶子比较，需新指令）、**单标量叶子 struct 塌缩**（`GCHandle` 保持
-  现有标量模型=Phase B）、**对象内联 struct 字段 / `struct[]`**（P3）、**跨包布局元数据 / 装箱 / 反射**（P4）、
+- ✅ **`struct==` 值相等**（`==` / `!=`）：逐叶子值比较脱糖，复用现有 `StructFieldGetPrim` + `Eq` + `BrCond`
+  短路——**无新指令、无格式 bump**（add-struct-value-equality）。
+- ⏳ Deferred：**struct→object 健全装箱**（blob 拷到堆稳定表示 + boxed struct 的
+  `Equals`/`ToString`/`GetHashCode`/`GetType`/`is`/`as`；当前 struct→object 类型合法但运行期不装箱=裸拷
+  帧作用域 `StructRef` 句柄→悬垂，见 P4/装箱专项）、**单标量叶子 struct 塌缩**（`GCHandle` 保持现有标量
+  模型=Phase B）、**对象内联 struct 字段 / `struct[]`**（P3）、**跨包布局元数据 / 反射**（P4）、
   **JIT 值路径**（P5）、**E0438 自引用诊断**（当前 `Size==0` 兜底防崩）。

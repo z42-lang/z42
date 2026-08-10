@@ -1,0 +1,66 @@
+// add-struct-value-equality：blob 值 struct 的 == / != 值相等（逐叶子脱糖）端到端。
+//   验证：扁平全等/不等、嵌套 struct 递归比较、string 叶子内容相等（非引用）、短路、!= 取反。
+namespace Demo;
+
+struct P {
+    int x;
+    int y;
+    P(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Line {
+    P a;
+    P b;
+    Line(P a, P b) { this.a = a; this.b = b; }
+}
+
+struct Tagged {
+    P pt;
+    string name;
+    Tagged(P pt, string name) { this.pt = pt; this.name = name; }
+}
+
+void Main() {
+    // ── 扁平 struct：全字段相等 ──
+    var a = new P(1, 2);
+    var b = new P(1, 2);
+    Assert.True(a == b);          // 值相等（非句柄身份）
+    Assert.False(a != b);
+
+    // ── 扁平：末字段不等 ──
+    var c = new P(1, 9);
+    Assert.False(a == c);
+    Assert.True(a != c);
+
+    // ── 扁平：首字段不等（短路：首叶子已不等即停）──
+    var d = new P(7, 2);
+    Assert.False(a == d);
+    Assert.True(a != d);
+
+    // ── 嵌套 struct：全 4 叶子相等 ──
+    var l1 = new Line(new P(1, 2), new P(3, 4));
+    var l2 = new Line(new P(1, 2), new P(3, 4));
+    Assert.True(l1 == l2);
+    Assert.False(l1 != l2);
+
+    // ── 嵌套：某嵌套叶子不同（b.y）──
+    var l3 = new Line(new P(1, 2), new P(3, 9));
+    Assert.False(l1 == l3);
+    Assert.True(l1 != l3);
+
+    // ── string 叶子：内容相等（不同 Arc 实例，同内容）──
+    var t1 = new Tagged(new P(5, 6), "hello");
+    var t2 = new Tagged(new P(5, 6), "hel" + "lo");   // 拼接产新 string，内容 == "hello"
+    Assert.True(t1 == t2);        // string 叶子按内容比较
+    Assert.False(t1 != t2);
+
+    // ── string 叶子内容不同 ──
+    var t3 = new Tagged(new P(5, 6), "world");
+    Assert.False(t1 == t3);
+    Assert.True(t1 != t3);
+
+    // ── 基元叶子不同、string 相同 ──
+    var t4 = new Tagged(new P(5, 99), "hello");
+    Assert.False(t1 == t4);
+    Assert.True(t1 != t4);
+}
