@@ -126,6 +126,43 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 > 逐叶子值相等，就是未来 struct 合成 `Equals`（C# `ValueType.Equals`）/ boxed struct 相等要复用的语义
 > （struct→object 装箱见 Deferred P4）。
 
+## struct→object 装箱 + 身份（add-struct-object-boxing PR2a）
+
+值 struct 是 C# 真值类型：不形式继承 `Object`、无 vtable（`z42.core/Object.z42` 契约）。要当 `object`
+用（赋给 `object` 变量 / 参数 / 数组、`is`/`as`/`GetType`）靠**装箱**桥接——把帧作用域 blob 拷到堆稳定
+表示，而非给值类型加 vtable。
+
+**修的真 bug**：`object o = someStruct` 类型合法（`TypeFactsTc._isAssignable` 的「任何类型可赋给 object」
+规则）但装箱缺失时**裸拷帧作用域 `Value::StructRef` 句柄进 object 槽**——创建帧一退出（arena LIFO
+truncate）即 use-after-free。
+
+**堆表示**：新 `Value::BoxedStruct(Box<BoxedStructData{type_name, bytes, refs}>)`——**拥有** blob 字节快照
++ 引用叶子（作真 `Value`，GC 扫描；`is_heap_ref`=true 触发写屏障）+ FQ 类型名。**不**用 ScriptObject
+（那需给 struct 加 base+vtable=反转无-vtable 决定）。`size = bytes.len()`。
+
+**装箱**（`__box_struct` builtin，复用 `Builtin` opcode → 无格式 bump，同 `__box_prim`）：`TypeChecker.BoxIfNeeded`
+对 blob 值 struct 擦除到 `object`/接口插 `BoundBox`；`ExprEmitter._emitBox` 发 `__box_struct(structHandle)`；
+VM 从 arena slot 拷 `bytes`+clone `refs`+类型名（类型名从 slot 取，无需 class 参数）→ 堆 `BoxedStruct`
+（值快照，脱离帧）。
+
+**拆箱**（`(P)o`）：C 风格强转 `(T)x` 绑 `BoundConvert`；`_emitConvert` 见「目标 blob struct ∧ 源非
+struct（object/boxed）」→ 发 `AsCast`（复用现有 opcode）。VM `as_cast` 对 `BoxedStruct` 精确类型匹配 →
+`unbox_struct`：在**当前帧** arena alloc + 拷 bytes/refs → 返回值 struct `StructRef`（独立副本）。
+
+**身份**：`is_instance` / `as_cast` / `builtin_obj_get_type`（interp + JIT helper 对称）加 `BoxedStruct`
+分支——`is P`/`is object` true、`GetType()` → 精确 struct `Type`（type_name 驱动）、`as P` 拆箱 /
+`as object`·base·接口 保持 boxed / 不匹配 Null。`o.GetType()` 经 VCall 的 `BoxedStruct` 分支特判到
+`builtin_obj_get_type`（保留精确类型，不拆箱 this）。
+
+> **JIT**：JIT 对 struct 值指令一律 bail→interp（Phase D），故用 struct 值的函数跑 interp（拆箱在此健全）。
+> JIT 帧无 `frame_id` 不能产 arena `StructRef`，故 `jit_as_cast` 对 boxed struct 命中即保持 boxed、绝不产
+> 无效句柄（可消费的拆箱结果必含 struct 指令 → 整函数回退 interp）；`jit_is_instance`/`jit_vcall`(GetType)
+> 加 `BoxedStruct` 分支（身份，无 alloc）与 interp 对称。
+
+**Deferred → PR2b**：boxed struct 的 `Equals`（复用 [struct 值相等] 的 `_emitLeafEqChecks` 合成 struct 值
+方法）/`GetHashCode`/`ToString` 完整对象协议；`==` on boxed struct 的最终语义（2a 给 `PartialEq` provisional
+值相等）。
+
 ## 与逃逸分析 / packed 数组的关系
 
 - struct 恒内联，**不走** `ObjNew`→堆/`StackObject` arena（Decision θ）；逃逸 arena 是**引用类型**的

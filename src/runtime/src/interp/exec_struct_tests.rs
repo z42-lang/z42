@@ -82,3 +82,30 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
     assert!(matches!(ay, Value::I64(7)), "a.y must stay 7, got {ay:?}");
     assert!(matches!(bx, Value::I64(99)), "b.x must be 99, got {bx:?}");
 }
+
+/// add-struct-object-boxing (PR2a): 装箱把 blob **拷进 owned `BoxedStructData`** → 脱离 arena 生命周期。
+/// arena truncate（模拟创建帧退出）后原 `StructRef` slot 失效，但 boxed 副本仍持有数据（这正是修
+/// `object o = struct` 裸拷帧作用域 StructRef → use-after-free 的健全性性质）。同时验装箱是快照。
+#[test]
+fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
+    use crate::metadata::types::BoxedStructData;
+    let mut arena = StructArena::default();
+    let ty: Arc<str> = Arc::from("Demo.P");
+    let base = arena.base();
+    let a = arena.alloc(1, ty.clone(), prim_layout(8));
+    arena.with_mut(a, 1, |s| { enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(1));
+                               enc(&mut s.bytes, 4, ty::TAG_I32, Value::I64(2)); }).unwrap();
+    // box：把 slot 的 bytes+refs+类型名快照进 owned 堆值（builtin_box_struct 的等价逻辑）。
+    let boxed = arena.with(a, 1, |s| BoxedStructData {
+        type_name: s.type_name.clone(),
+        bytes: s.bytes.clone(),
+        refs: s.refs.clone(),
+    }).unwrap();
+    // 创建帧退出 → arena LIFO 截断；原 StructRef 句柄此刻应 stale。
+    arena.truncate(base);
+    assert!(arena.with(a, 1, |_| ()).is_err(), "arena slot must be stale after truncate");
+    // boxed 副本仍持有数据（owned，无悬垂）。
+    assert_eq!(&*boxed.type_name, "Demo.P");
+    assert!(matches!(dec(&boxed.bytes, 0, ty::TAG_I32), Value::I64(1)));
+    assert!(matches!(dec(&boxed.bytes, 4, ty::TAG_I32), Value::I64(2)));
+}

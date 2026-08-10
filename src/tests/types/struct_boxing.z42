@@ -1,0 +1,55 @@
+// add-struct-object-boxing (PR2a)：blob 值 struct 装箱到 object 的健全性 + 身份端到端。
+//   验证：跨帧存活（修裸拷 StructRef 悬垂）、o is P/object、GetType().Name、(P)o 拆箱值独立、
+//   装箱快照独立、string 叶子 struct 装箱/拆箱内容保真。
+namespace Demo;
+
+struct P {
+    int x;
+    int y;
+    P(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Tagged {
+    int n;
+    string label;
+    Tagged(int n, string label) { this.n = n; this.label = label; }
+}
+
+// 跨帧返回：struct → object 在 return 处装箱到堆；本帧 arena 退出后 boxed 值必须仍存活。
+object MakeBoxed(int a, int b) {
+    var p = new P(a, b);
+    return p;
+}
+
+void Main() {
+    // ── 跨帧存活 + 身份（o 若是裸帧作用域 StructRef 会 use-after-free）──
+    object o = MakeBoxed(1, 2);
+    Assert.True(o is P);
+    Assert.True(o is object);
+    Assert.False(o is Tagged);
+    Assert.Equal("P", o.GetType().Name);
+
+    // ── 拆箱 (P)o → 值 struct ──
+    P q = (P)o;
+    Assert.Equal(1, q.x);
+    Assert.Equal(2, q.y);
+
+    // ── 拆箱值独立：改 q 不影响 o 内 boxed blob（再次拆箱仍原值）──
+    q.x = 100;
+    P r = (P)o;
+    Assert.Equal(1, r.x);
+
+    // ── 装箱快照：装箱后改原 struct 不影响 boxed 副本 ──
+    var p2 = new P(5, 6);
+    object o2 = p2;
+    p2.x = 99;
+    Assert.Equal(5, ((P)o2).x);
+
+    // ── string 叶子 struct 装箱/拆箱内容保真 ──
+    var t = new Tagged(7, "hello");
+    object ot = t;
+    Assert.True(ot is Tagged);
+    Tagged tb = (Tagged)ot;
+    Assert.Equal(7, tb.n);
+    Assert.True(tb.label == "hello");
+}

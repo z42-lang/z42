@@ -179,6 +179,45 @@ pub(super) fn vcall(
         bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity);
     }
 
+    // ── add-struct-object-boxing (PR2a): 装箱 struct 方法调用 ────────────
+    // GetType → builtin_obj_get_type（保留精确 struct 类型，not 拆箱）。其余对象协议方法
+    // （Equals / ToString / GetHashCode）= **PR2b** 合成 struct 值方法；2a 暂 fallback 到
+    // Std.Object 基类实现（this = boxed 值），不在 2a 测试面。
+    if let Value::BoxedStruct(b) = &obj_val {
+        let mut extra_args = collect_args(&frame.regs, args)?;
+        if method == "GetType" && extra_args.is_empty() {
+            let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
+            frame.set(dst, ty);
+            return Ok(None);
+        }
+        let type_name = b.type_name.clone();
+        let mut call_args = vec![obj_val.clone()];
+        call_args.append(&mut extra_args);
+        let arity = call_args.len() - 1;
+        let candidates = [
+            format!("Std.Object.{}${}", method, arity),
+            format!("Std.Object.{}", method),
+        ];
+        for func_name in &candidates {
+            let callee = module.func_index.get(func_name.as_str())
+                .and_then(|&idx| module.functions.get(idx));
+            if let Some(callee) = callee {
+                return match super::exec_function(ctx, module, callee, &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+            if let Some(lazy_fn) = ctx.try_lookup_function(func_name) {
+                return match super::exec_function(ctx, module, lazy_fn.as_ref(), &call_args)? {
+                    ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); Ok(None) }
+                    ExecOutcome::Thrown(v) => Ok(Some(v)),
+                };
+            }
+        }
+        bail!("VCall on boxed struct `{}`: method `{}` (arity {}) — Equals/ToString/GetHashCode 由 PR2b 合成方法提供",
+              type_name, method, arity);
+    }
+
     // ── Fast path: IC hit (object OR primitive receiver) ────────────────
     // Fires when (1) caller passed an IC, (2) receiver's TypeId — real for
     // Value::Object, synthetic `PRIM_TYPE_*` for primitives (refactor-vcall-

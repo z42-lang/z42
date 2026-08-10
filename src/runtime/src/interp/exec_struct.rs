@@ -46,6 +46,22 @@ fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructType
     })
 }
 
+/// add-struct-object-boxing (PR2a): 拆箱——把堆 `BoxedStruct` 的 blob 拷回**当前帧** struct arena，
+/// 返回值 struct `StructRef` 句柄（`(P)o` / `o as P` 用）。alloc 用类型布局（size 兜底自 `bytes.len()`），
+/// 再 memcpy bytes + clone refs。拆出的 struct 是独立副本（改它不影响 boxed 或再次拆箱）。
+pub(super) fn unbox_struct(ctx: &VmContext, frame: &Frame, b: &ty::BoxedStructData) -> Result<Value> {
+    let frame_id = frame.frame_id;
+    let layout = resolve_layout(ctx, &b.type_name, b.bytes.len() as u32);
+    let idx = ctx.struct_arena.lock().alloc(frame_id, b.type_name.clone(), layout);
+    ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
+        let n = b.bytes.len().min(s.bytes.len());
+        s.bytes[..n].copy_from_slice(&b.bytes[..n]);
+        let rn = b.refs.len().min(s.refs.len());
+        s.refs[..rn].clone_from_slice(&b.refs[..rn]);
+    })?;
+    Ok(Value::StructRef { idx, frame_id })
+}
+
 /// `StructCopy dst, src, size` — copy the `src` blob into the `dst` blob (both
 /// already allocated). This is the value-semantics copy point (assign/param/return).
 pub(super) fn struct_copy(

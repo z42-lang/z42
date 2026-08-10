@@ -807,6 +807,24 @@ pub enum Value {
     /// blob 内引用叶子由 arena 的 root scanner 按 TypeDesc 引用位图扫描（trace_children 视为叶子，
     /// 避免双计）。
     StructRef { idx: u32, frame_id: u32 } = 16,
+    /// add-struct-object-boxing (PR2a): 装箱的 blob 值 struct。`object o = someStruct` 擦除到
+    /// `object`/接口时，把帧作用域 arena blob **拷进堆稳定表示**（脱离帧生命周期，修裸拷 `StructRef`
+    /// 句柄逃逸帧的 use-after-free）。载荷拥有 `bytes`（基元叶子字节快照）+ `refs`（引用叶子作真 Value
+    /// → GC 扫描 + 内存安全，镜像 `struct_arena::StructSlot` 去掉 `frame_id`）+ `type_name`（供
+    /// `GetType`/`is`/`as`）。装箱经 `__box_struct` builtin（复用 Builtin opcode，无格式 bump）；`(P)o`
+    /// 拆箱把 blob 拷回当前帧 arena `StructRef`。unboxed struct 仍无 vtable——对象协议由本变体的 VM 分支
+    /// （身份）+ 编译器合成值方法（Equals 等，PR2b）承载。
+    BoxedStruct(Box<BoxedStructData>) = 17,
+}
+
+/// add-struct-object-boxing (PR2a): 装箱 blob 值 struct 的堆载荷。`type_name` = FQ struct 类型名
+/// （`Demo.P`）；`bytes` = 基元叶子字节快照（装箱时从 arena slot 拷出）；`refs` = 引用叶子（string/
+/// object/array）作真 `Value`（GC 扫描）。size = `bytes.len()`（拆箱 alloc arena slot 用）。
+#[derive(Debug, Clone)]
+pub struct BoxedStructData {
+    pub type_name: std::sync::Arc<str>,
+    pub bytes: Box<[u8]>,
+    pub refs: Box<[Value]>,
 }
 
 /// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
@@ -931,6 +949,9 @@ impl Value {
                 kind.as_ref(),
                 RefKind::Array { .. } | RefKind::Field { .. }
             ),
+            // add-struct-object-boxing: 装箱 struct 的引用叶子可含 object/array GcRef——存进堆对象/
+            // 数组时需触发写屏障（保守 true；区别于 Boxed prim 的 inner 恒基元 → false）。
+            Value::BoxedStruct(_) => true,
             _ => false,
         }
     }
@@ -973,6 +994,10 @@ impl Value {
             // add-primitive-value-boxing: 装箱基元——inner 为裸基元（无 GcRef），
             // 保守追踪一层（若未来 inner 承载堆值也安全）。
             Value::Boxed(b) => visit(&b.inner),
+            // add-struct-object-boxing: 装箱 struct **拥有**堆上引用叶子（区别于 arena 扫描的
+            // StructRef 叶子）——必须访问其 refs，否则存进对象槽的 boxed struct 的 object/array 叶子
+            // 会被漏标→过早回收。bytes 纯基元无需扫。
+            Value::BoxedStruct(b) => { for r in b.refs.iter() { visit(r); } }
             // Primitives — no children.
             // add-escape-analysis-stack-alloc: StackObject / StackArray are
             // leaves for the child-traversal — their slots/elems live in the
@@ -1025,6 +1050,12 @@ impl PartialEq for Value {
             (Value::Boxed(a), Value::Boxed(b)) => a.inner == b.inner,
             (Value::Boxed(a), other) => &a.inner == other,
             (other, Value::Boxed(b)) => other == &b.inner,
+            // add-struct-object-boxing (PR2a, provisional，design D5)：装箱 struct 值相等——同类型 ∧
+            // 字节相等 ∧ 引用叶子逐 Value 相等（refs 的 Value::eq 处理 string 内容 / object 引用）。
+            // ⚠️ bytes 比较对 float NaN 会误判等；`==` vs `Equals`（值 vs 引用装箱）最终由 PR2b 与合成
+            // Equals 统一裁定。2a 不依赖此语义正确性通过测试（身份/不悬垂才是 2a 目标）。
+            (Value::BoxedStruct(a), Value::BoxedStruct(b)) =>
+                a.type_name == b.type_name && a.bytes == b.bytes && a.refs == b.refs,
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,
             // frame_id) = 同一栈对象/数组（Eq 操作数在逃逸分析里是 neutral，故栈句柄
             // 可作 `p1==p2` / `p==null` 操作数；`==null` 落 `_ => false` = 正确「非 null」）。

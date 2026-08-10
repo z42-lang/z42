@@ -157,6 +157,67 @@ pub unsafe extern "C" fn jit_vcall(
         return 1;
     }
 
+    // add-struct-object-boxing (PR2a): 装箱 struct 方法调用（镜像 interp/exec_vcall.rs BoxedStruct 臂）。
+    // GetType → builtin_obj_get_type（保留精确 struct 类型）。其余对象协议（Equals/ToString/GetHashCode）
+    // = PR2b 合成 struct 值方法；2a 暂 fallback Std.Object（this=boxed 值），不在 2a 测试面。
+    if let Value::BoxedStruct(b) = &obj_val {
+        let vm_ctx = vm_ctx_ref(ctx);
+        if method == "GetType" && argc == 0 {
+            match crate::corelib::object::builtin_obj_get_type(vm_ctx, &[obj_val.clone()]) {
+                Ok(ty) => { frame_ref.regs[dst as usize] = ty; return 0; }
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+            }
+        }
+        let type_name = b.type_name.clone();
+        let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
+        call_args.push(obj_val.clone());
+        call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
+        let arity = argc;
+        let candidates = [
+            format!("Std.Object.{}${}", method, arity),
+            format!("Std.Object.{}", method),
+        ];
+        for func_name in &candidates {
+            if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
+                let mut callee = JitFrame::new(entry.max_reg, &call_args);
+                let jit_fn: JitFn = std::mem::transmute(entry.ptr);
+                vm_ctx.push_frame(crate::exception::VmFrame::new(
+                    entry.name.clone(), entry.file.clone(),
+                    &callee.regs as *const _, &callee.env_arena as *const _));
+                let r = jit_fn(&mut callee, ctx);
+                vm_ctx.pop_frame();
+                if r != 0 { callee.recycle(); return 1; }
+                frame_ref.regs[dst as usize] = callee.ret.take().unwrap_or(Value::Null);
+                callee.recycle();
+                return 0;
+            }
+            if let Some(callee) = module.func_index
+                .get(func_name.as_str()).and_then(|&idx| module.functions.get(idx))
+            {
+                match crate::interp::exec_function(vm_ctx, module, callee, &call_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                        frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); return 0;
+                    }
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+            if let Some(lazy_fn) = vm_ctx.try_lookup_function(func_name) {
+                match crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &call_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                        frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); return 0;
+                    }
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+        }
+        set_exception(vm_ctx, Value::Str(
+            format!("VCall on boxed struct `{}`: method `{}` (arity {}) — Equals/ToString/GetHashCode 由 PR2b 提供",
+                    type_name, method, arity).into()));
+        return 1;
+    }
+
     // L3-G4b primitive-as-struct: primitives dispatch through their stdlib struct's
     // method — construct `{Std.Int32 | Std.Double | ...}.{method}` and invoke via the
     // JIT entry cache. Replaces the old hardcoded `(Value, method) → builtin` table.
