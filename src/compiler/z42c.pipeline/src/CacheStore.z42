@@ -3,6 +3,7 @@
 // meta 是 **z42c 内部格式**（非 wire 格式，零 zbc/zpkg bump），行式文本：
 //
 //   z42c-meta <metaVersion>
+//   z42c-fp <CompilerFingerprint>   ← 编译器语义指纹 pin：codegen/优化/typecheck 变化即令旧条目作废
 //   zbc <ZbcVersion.Minor>          ← writer 版本 pin：任一不符 → 条目作废（Load 返回 null）
 //   zpkg <ZpkgWriterZ.Minor>
 //   hash <sha256hex(源文本)>
@@ -50,9 +51,17 @@ public sealed class CacheMeta {
 }
 
 public static class CacheStore {
+    // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
     // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    public static int MetaVersion = 2;
+    public static int MetaVersion = 3;
+
+    // 编译器语义指纹：z42c 的 codegen / 优化 / typecheck / lowering 行为变化，但 zbc/zpkg 格式
+    // Minor **不** bump 时，手动 +1。它进 cache key → 编译器语义一变即令旧 .meta 全部失效，堵住
+    // 「源没变 + 格式没 bump 但编译器逻辑变了 → 误命中旧 .zbc 产物」这个正确性漏洞（todo#7）。
+    // 格式 bump（zbc/zpkg Minor++）已自带失效，无需同时动本值；纯 reader/writer bug 修复也不动。
+    // bump 纪律见 .claude/rules/version-bumping.md「编译器语义指纹」。
+    public static int CompilerFingerprint = 1;
 
     // rel（.z42）→ cache 内路径。与 driver `_writeCacheZbc` 同款「去 .z42」规则。
     public static string ZbcPath(string cacheDir, string rel)  { return Path.Join(cacheDir, CacheStore._stem(rel) + ".zbc"); }
@@ -66,6 +75,7 @@ public static class CacheStore {
     // 序列化（行式；集合按传入序写出——调用方保证确定性来源）。
     public static string Serialize(CacheMeta m) {
         string s = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"
+                 + "z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n"
                  + "zbc " + ZbcVersion.Minor.ToString() + "\n"
                  + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"
                  + "hash " + m.SourceHash + "\n"
@@ -85,6 +95,7 @@ public static class CacheStore {
     public static CacheMeta Parse(string text, string rel) {
         CacheMeta m = new CacheMeta(rel);
         bool verOk = false;
+        bool fpOk = false;
         bool zbcOk = false;
         bool zpkgOk = false;
         string[] lines = text.Split("\n");
@@ -98,6 +109,7 @@ public static class CacheStore {
             string key = line.Substring(0, sp);
             string val = line.Substring(sp + 1);
             if (key == "z42c-meta")    { verOk = (val == CacheStore.MetaVersion.ToString()); }
+            else if (key == "z42c-fp") { fpOk = (val == CacheStore.CompilerFingerprint.ToString()); }
             else if (key == "zbc")     { zbcOk = (val == ZbcVersion.Minor.ToString()); }
             else if (key == "zpkg")    { zpkgOk = (val == ZpkgWriterZ.Minor.ToString()); }
             else if (key == "hash")    { m.SourceHash = val; }
@@ -120,7 +132,7 @@ public static class CacheStore {
             }
             else { return null; }   // 未知键 = 未来格式 → 按坏条目处理（宁 fresh 不误命中）
         }
-        if (!verOk || !zbcOk || !zpkgOk) { return null; }
+        if (!verOk || !fpOk || !zbcOk || !zpkgOk) { return null; }
         if (m.SourceHash.Length == 0) { return null; }
         return m;
     }
@@ -192,6 +204,7 @@ public static class CacheStore {
 
     public static void SaveSrcList(string cacheDir, string[] rels, int n) {
         string s = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"
+                 + "z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n"
                  + "zbc " + ZbcVersion.Minor.ToString() + "\n"
                  + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n";
         int i = 0;
@@ -209,7 +222,7 @@ public static class CacheStore {
         string[] lines = text.Split("\n");
         string[] rels = new string[4];
         int n = 0;
-        bool verOk = false; bool zbcOk = false; bool zpkgOk = false;
+        bool verOk = false; bool fpOk = false; bool zbcOk = false; bool zpkgOk = false;
         int i = 0;
         while (i < lines.Length) {
             string line = lines[i];
@@ -220,12 +233,13 @@ public static class CacheStore {
             string key = line.Substring(0, sp);
             string val = line.Substring(sp + 1);
             if (key == "z42c-meta")  { verOk = (val == CacheStore.MetaVersion.ToString()); }
+            else if (key == "z42c-fp") { fpOk = (val == CacheStore.CompilerFingerprint.ToString()); }
             else if (key == "zbc")   { zbcOk = (val == ZbcVersion.Minor.ToString()); }
             else if (key == "zpkg")  { zpkgOk = (val == ZpkgWriterZ.Minor.ToString()); }
             else if (key == "src")   { rels = CacheStore._append(rels, n, val); n = n + 1; }
             else { return null; }
         }
-        if (!verOk || !zbcOk || !zpkgOk) { return null; }
+        if (!verOk || !fpOk || !zbcOk || !zpkgOk) { return null; }
         string[] r = new string[n];
         i = 0;
         while (i < n) { r[i] = rels[i]; i = i + 1; }

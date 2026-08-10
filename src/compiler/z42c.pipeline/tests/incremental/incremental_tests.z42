@@ -200,6 +200,18 @@ void test_cache_meta_pin_and_corrupt() {
 }
 
 [Test]
+void test_cache_meta_fingerprint_pin() {
+    // 编译器语义指纹不符 → 条目作废（源没变 + 格式没 bump 但编译器逻辑变了 → 强制重编，todo#7）。
+    string good = CacheStore.Serialize(_meta());
+    Assert.True(CacheStore.Parse(good, "a.z42") != null);
+    string staleFp = good.Replace("z42c-fp ", "z42c-fp 9");     // 9<fp> ≠ 当前指纹
+    Assert.True(CacheStore.Parse(staleFp, "a.z42") == null);
+    // 缺 z42c-fp 行（旧 v2 条目）→ fpOk 恒 false → 作废（新增指纹次元不放行无指纹的历史条目）。
+    string noFp = good.Replace("z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n", "");
+    Assert.True(CacheStore.Parse(noFp, "a.z42") == null);
+}
+
+[Test]
 void test_src_list_roundtrip_and_pin() {
     string dir = Path.Join(_tmpRoot(), "srclist/cache");
     string[] rels = new string[2];
