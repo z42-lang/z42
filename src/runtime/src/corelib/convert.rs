@@ -42,6 +42,32 @@ pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
 }
 
+/// add-struct-object-methods (PR2b): boxed 值 struct 的 GetHashCode——FNV-1a over 基元字节 blob + 混入
+/// 引用叶子哈希（string 走内容 FNV；object/array 叶子暂贡献常量 = 弱但合法，因 Equals 对引用叶子按引用比较，
+/// 不同引用→不 Equals→哈希可碰撞）。结果 `& 0x7fffffff` 非负（`__str_hash_code` 同款，Dictionary 契约）。
+/// 值相等的 struct → 字节+refs 相同 → 同哈希（契约满足）。⚠️边角：float ±0.0 字节不同→哈希不同，而 Equals
+/// 的浮点 == 判 +0==-0 → 极少数含 ±0 float 的 struct 违反契约（pre-1.0 文档标注，与 C# 历史一致）。
+pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let b = match args.first() {
+        Some(Value::BoxedStruct(b)) => b,
+        _ => bail!("__struct_hash_code: expected a boxed struct"),
+    };
+    let mut h: u32 = 2_166_136_261;
+    for &byte in b.bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
+    for r in b.refs.iter() {
+        let rh: u32 = match r {
+            Value::Str(s) => {
+                let mut sh: u32 = 2_166_136_261;
+                for &x in s.as_bytes() { sh ^= x as u32; sh = sh.wrapping_mul(16_777_619); }
+                sh
+            }
+            _ => 0,   // object/array/null 叶子：弱贡献（引用相等语义下 collisions 合法）
+        };
+        h ^= rh; h = h.wrapping_mul(16_777_619);
+    }
+    Ok(Value::I64((h & 0x7fff_ffff) as i64))
+}
+
 // ── Typed argument extractors ────────────────────────────────────────────────
 //
 // refactor-corelib-typed-extractors (2026-05-17): direct-ABI 优化的第一阶段。

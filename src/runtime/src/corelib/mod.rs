@@ -131,6 +131,7 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__to_str",        convert::builtin_to_str),
     ("__box_prim",      convert::builtin_box_prim),
     ("__box_struct",    convert::builtin_box_struct),
+    ("__struct_hash_code", convert::builtin_struct_hash_code),
 
     // ── Primitive IComparable / IEquatable (L3-G4b) ───────────────────────────
     // `__int32_*` underlying routines are shared by all narrow integer wrapper

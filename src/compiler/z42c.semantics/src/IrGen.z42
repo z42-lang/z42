@@ -325,6 +325,17 @@ public sealed class IrGen {
                         IrGenFacts._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
                         funcs = IrGenFacts._pushFunc(funcs, fc, synthF); fc = fc + 1;
                     }
+                    // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（值语义，复用 PR1
+                    // 叶子比较）——用户未显式声明才合成。GetHashCode/ToString 由 VM boxed-vcall 臂原生处理（native
+                    // FNV / 类型名），无需合成函数。
+                    if (owner != null && this.Layouts != null && this.Layouts.IsBlobStruct(owner.Name())
+                        && !owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
+                        var eqFe = new FunctionEmitter(model.Symbols, this);
+                        string eqIr = this._q(this._classIrShortName(c)) + ".Equals$1";
+                        IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
+                        eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
+                        funcs = IrGenFacts._pushFunc(funcs, fc, eqF); fc = fc + 1;
+                    }
                 }
             } else if (d is ImplDecl) {
                 // port-z42c-impl-block 2c：发 impl 方法为 `<qualTarget>.<m>` 函数。
