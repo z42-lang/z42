@@ -73,4 +73,17 @@ public static class ModuleLoader {
     // original type (catchable). Returns the function's result (void → null).
     [Native("__invoke_static")]
     public static extern object Invoke(string fqn);
+
+    // mature-embed-testhost P1: run each golden program (self-contained
+    // app.zpkg/.zbc) in a FRESH isolated VM, returning its captured stdout in
+    // input order. Each case gets its own VmContext (heap + static-fields +
+    // function table), so goldens sharing `Main`/namespaces don't collide and
+    // static state doesn't leak — the isolation the host golden runner gets from
+    // a fresh z42vm per case, but in-process. `entries[i]` is the entry FQN for
+    // paths[i] ("" → the artifact's baked-in entry); `libsDir` supplies the
+    // stdlib. interp (parity with the host golden gate). `jobs` fans out over OS
+    // threads with disjoint contexts (P2): <=0 = auto (cores), 1 = sequential.
+    // Order preserved; results are per-case captured stdout.
+    [Native("__run_goldens_isolated")]
+    public static extern string[] RunGoldensIsolated(string[] paths, string[] entries, string libsDir, int jobs);
 }

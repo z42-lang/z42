@@ -246,6 +246,23 @@ Z42Error z42_host_last_error(Z42HostRef host);
  */
 Z42HostStatus z42_host_shutdown(Z42HostRef host);
 
+/*
+ * One-shot: load a self-contained app (.zbc / .zpkg) at `app_zpkg` and run its
+ * entry, then tear down. This is the embedded-app-run path (add-embedded-app-run
+ * / add-wasm-testhost G6) shared by every platform's test-host and by workload
+ * apps — desktop C shell, iOS Swift, Android JNI all call this one symbol.
+ *
+ *   app_zpkg  path to the app artifact (required)
+ *   entry     entry FQN override, or NULL for the app's baked-in entry
+ *   libs_dir  stdlib `libs/` dir (holds z42.core.zpkg + deps), or NULL
+ *   argc/argv program args forwarded to the app's GetCommandLineArgs()
+ *
+ * Does NOT use the Z42HostRef handle (it builds + tears down its own VM).
+ * Returns a process-style exit code: 0 ok, 1 run error, 2 null app, 70 panic.
+ */
+int z42_host_run_app(const char* app_zpkg, const char* entry,
+                     const char* libs_dir, int argc, const char* const* argv);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

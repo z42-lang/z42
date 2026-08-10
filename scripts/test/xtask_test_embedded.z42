@@ -1,0 +1,635 @@
+// xtask — embedded test-host (wire-embedded-testhost, 2026-08-02).
+//
+// Productionizes the desktop harness flow proven manually in add-embedded-app-run
+// (#95): build the shared test-agent (z42.testagent.zpkg) + the desktop testhost
+// shell (cc testhost.c + link libz42.a) → run a test module THROUGH the embedded
+// VM (testhost → z42_host_run_app → z42::app::run → agent → Std.Test.Runner) →
+// structured result. Same core the z42vm binary uses; desktop self-contained
+// embedding is the template mobile shells reuse (same z42_host_run_app C symbol).
+//
+// `xtask test embedded <target.zbc> [--format json|pretty|tap]`
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
+string _ensureTestAgent(string root) {
+    string toml = Path.Join(root, "src/toolchain/testhost/agent/z42.testagent.z42.toml");
+    string zpkg = Path.Join(root, "src/toolchain/testhost/agent/dist/z42.testagent.zpkg");
+    if (File.Exists(zpkg)) { return zpkg; }
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    Console.WriteLine("  build test-agent → z42.testagent.zpkg");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zpkg;
+}
+
+// Build the desktop testhost shell: cc testhost.c + STATIC-link libz42.a (explicit
+// .a — `-lz42` would prefer a stale .dylib). Builds libz42.a first if missing.
+string _ensureDesktopTesthost(string root) {
+    string libDir = Path.Join(root, "artifacts/build/runtime/release");
+    string libA = Path.Join(libDir, "libz42.a");
+    if (!File.Exists(libA)) {
+        Console.WriteLine("  cargo rustc --crate-type=staticlib → libz42.a");
+        int rc = _exec(new Process("cargo").Arg("rustc").Arg("--release")
+            .Arg("--manifest-path").Arg("src/runtime/Cargo.toml").Arg("--lib")
+            .Arg("--crate-type=staticlib"));
+        if (rc != 0 || !File.Exists(libA)) { return ""; }
+    }
+    string outDir = Path.Join(root, "artifacts/build/desktop-test");
+    Directory.Create(outDir);
+    string bin = Path.Join(outDir, "testhost");
+    string src = Path.Join(root, "src/toolchain/workload/desktop/shell/testhost.c");
+    Console.WriteLine("  cc testhost.c + libz42.a → testhost");
+    Process cc = new Process("cc").Arg("-O2").Arg("-o").Arg(bin).Arg(src).Arg(libA);
+    foreach (var l in _embeddedNativeLibs()) { cc = cc.Arg(l); }
+    int c = _exec(cc);
+    if (c != 0 || !File.Exists(bin)) { return ""; }
+    return bin;
+}
+
+// Native libs a Rust staticlib needs at link time (mirrors DesktopBackend._nativeLibs).
+string[] _embeddedNativeLibs() {
+    if (Platform.IsMacOS()) {
+        string[] m = new string[3]; m[0] = "-liconv"; m[1] = "-lc"; m[2] = "-lm";
+        return m;
+    }
+    if (Platform.IsLinux()) {
+        string[] l = new string[6];
+        l[0] = "-lc"; l[1] = "-lm"; l[2] = "-lpthread"; l[3] = "-ldl"; l[4] = "-lrt"; l[5] = "-lgcc_s";
+        return l;
+    }
+    return new string[0];
+}
+
+// ── golden → [Test] 归一 (wire-embedded-testhost G1) ─────────────────────────
+//
+// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run
+// it through the single Runner path, generate a [Test] wrapper in the SAME
+// module that captures Main()'s stdout and asserts it equals the expected output
+// (or, when there is no expected file, just runs Main — Assert-self-validating).
+// Proven approach: combine golden source + injected `using Std.Test;` + appended
+// [Test] → one module with a [Test] the agent runs like any other.
+
+// Escape a string for embedding as a z42 double-quoted literal.
+string _zEscape(string s) {
+    string o = s.Replace("\\", "\\\\");
+    o = o.Replace("\"", "\\\"");
+    o = o.Replace("\r", "");
+    o = o.Replace("\n", "\\n");
+    return o;
+}
+
+// Build the combined golden+wrapper source. Injects `using Std.Test;` after the
+// `namespace ...;` line if present, else at the top; appends the [Test] wrapper.
+string _wrapGoldenSource(string src, bool hasExpected, string expected) {
+    string inject = "using Std.Test;\n";
+    string body;
+    string[] lines = src.Split("\n");
+    int nsIdx = -1;
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        if (lines[i].Trim().StartsWith("namespace ")) { nsIdx = i; break; }
+    }
+    if (nsIdx < 0) {
+        body = inject + src;
+    } else {
+        string head = "";
+        for (int i = 0; i <= nsIdx; i = i + 1) { head = head + lines[i] + "\n"; }
+        string tail = "";
+        for (int i = nsIdx + 1; i < lines.Length; i = i + 1) {
+            tail = tail + lines[i];
+            if (i + 1 < lines.Length) { tail = tail + "\n"; }
+        }
+        body = head + inject + tail;
+    }
+    // Use short names (TestIO / Assert) via the injected `using Std.Test;` —
+    // fully-qualified `Std.Test.TestIO` parses as a field-access chain (→ Null).
+    string wrapper;
+    if (hasExpected) {
+        wrapper = "\n[Test] void __golden_check() {\n"
+            + "    string __c = TestIO.captureStdout(() => { Main(); });\n"
+            + "    Assert.Equal(\"" + _zEscape(expected.TrimEnd()) + "\", __c.TrimEnd());\n}\n";
+    } else {
+        // Assert-self-validating golden: Main throws on failure.
+        wrapper = "\n[Test] void __golden_check() { Main(); }\n";
+    }
+    return body + wrapper;
+}
+
+// Build a golden case dir (<caseDir>/source.z42 [+ expected_output.txt]) into a
+// [Test]-wrapped .zbc. Returns the .zbc path ("" on failure).
+string _buildGoldenCase(string root, string caseDir) {
+    string src = Path.Join(caseDir, "source.z42");
+    if (!File.Exists(src)) { ConsoleError.WriteLine("error: no source.z42 in " + caseDir); return ""; }
+    string srcText = File.ReadAllText(src);
+    string expPath = Path.Join(caseDir, "expected_output.txt");
+    bool hasExp = File.Exists(expPath);
+    string exp = hasExp ? File.ReadAllText(expPath) : "";
+    string combined = _wrapGoldenSource(srcText, hasExp, exp);
+
+    string outDir = Path.Join(root, "artifacts/build/embedded-test");
+    Directory.Create(outDir);
+    string name = Path.GetFileName(caseDir);
+    string wrappedSrc = Path.Join(outDir, name + ".golden.z42");
+    File.WriteAllText(wrappedSrc, combined);
+    string zbc = Path.Join(outDir, name + ".golden.zbc");
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// ── test-bundle 构建 (G2) ────────────────────────────────────────────────────
+//
+// Enumerate the corpus → compile each case to a .zbc (golden→[Test] wrapped;
+// stdlib [Test] unit→direct emit) → copy into a bundle dir + write manifest.json
+// (name→zbc). Build-time `filter` (substring; empty=all) bounds what's compiled
+// so `--case`/`--filter` don't compile the whole corpus for a single run.
+
+string _bundleSafeName(string name) {
+    return name.Replace("/", "__").Replace(".", "_");
+}
+
+// Emit a stdlib [Test] unit (single .z42) → .zbc in `bundleDir`. Returns "" on fail.
+string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) {
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    string zbc = Path.Join(bundleDir, safe + ".zbc");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// Build a DIR-mode stdlib [Test] unit (tests/<name>/ with helper .z42 files, or
+// an own manifest) into a packed .zpkg, then copy it into `bundleDir`. Reuses
+// the host runner's `_renderSyntheticManifest` (same build path as `test lib`,
+// no duplication) with empty deps — Z42_LIBS=flat resolves every `using`, same
+// as single-file `--emit-zbc`. Returns the copied path ("" on failure).
+string _emitDirUnit(string root, string lib, string name, string dirPath, string safe, string bundleDir) {
+    string projName = lib + ".test." + name;
+    string outDir = Path.Join(root, "artifacts/build/embedded-test/dm/" + projName);
+    Directory.Create(outDir);
+    // Synthetic toml written NEXT TO the sources (glob is manifest-relative);
+    // dot-prefixed + unique so it's git-ignored and won't collide.
+    string toml = Path.Join(dirPath, ".xtask-embed-" + projName + ".z42.toml");
+    File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name, _newBundle()));
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    File.Delete(toml);   // clean up the synthetic manifest regardless of outcome
+    if (c != 0) { return ""; }
+    string produced = Path.Join(outDir, "dist/" + projName + ".zpkg");
+    if (!File.Exists(produced)) { return ""; }
+    string dest = Path.Join(bundleDir, safe + ".zpkg");
+    File.Copy(produced, dest, true);
+    return dest;
+}
+
+// Read a golden's expected_output.txt (or "" when absent = expect empty stdout).
+string _readExpected(string path) {
+    if (File.Exists(path)) { return File.ReadAllText(path); }
+    return "";
+}
+
+// Compile a golden source (no [Test] wrap) → <safe>.zbc + write <safe>.expected
+// sibling; return its manifest JSON entry, or "" on compile failure (e.g.
+// compile-fail goldens — skipped, they aren't runnable-in-embed). Shared by the
+// dir / flat / lib golden enumerations. Direct-run: agent runs it isolated.
+string _goldenEntry(string root, string caseName, string src, string expTxt, string bundleDir) {
+    string safe = _bundleSafeName(caseName);
+    string zbc = _emitUnitZbc(root, src, safe, bundleDir);
+    if (zbc.Length == 0) { return ""; }
+    string entry = _deriveEntry(src);
+    File.WriteAllText(Path.Join(bundleDir, safe + ".expected"), expTxt);
+    return "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\", "
+        + "\"entry\": \"" + entry + "\", \"expected\": \"" + safe + ".expected\"}";
+}
+
+// Build the test bundle. Returns the manifest.json path ("" if no cases matched).
+string _buildTestBundle(string root, string filter) {
+    string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
+    Directory.Create(bundleDir);
+    _cleanGlob(bundleDir, "*.zbc");
+    string items = "";
+    int count = 0;
+
+    // 1. golden e2e — direct-run mode (mature-embed-testhost P1): compile source
+    // (no [Test] wrap) → {name, zbc, entry, expected}; agent runs each in a fresh
+    // isolated VM (RunGoldensIsolated) + compares stdout. Covers BOTH dir-mode
+    // (<cat>/<name>/source.z42 + expected_output.txt) AND flat-mode
+    // (<cat>/<name>.z42 + <name>.expected_output.txt) — the latter is the corpus
+    // majority. Non-runnable cats + known-deferred dir exclusions skipped.
+    string testsRoot = Path.Join(root, "src/tests");
+    foreach (var cat in _sortedStrings(Directory.Enumerate(testsRoot))) {
+        string catDir = Path.Join(testsRoot, cat);
+        if (!Directory.Exists(catDir)) { continue; }
+        if (_isNonRunnableCat(cat)) { continue; }
+        foreach (var name in _sortedStrings(Directory.Enumerate(catDir))) {
+            string full = Path.Join(catDir, name);
+            string caseName = "";
+            string src = "";
+            string expTxt = "";
+            if (Directory.Exists(full)) {
+                if (!File.Exists(Path.Join(full, "source.z42"))) { continue; }
+                if (_isExcludedDirName(cat, name)) { continue; }
+                caseName = cat + "/" + name;
+                src = Path.Join(full, "source.z42");
+                expTxt = _readExpected(Path.Join(full, "expected_output.txt"));
+            } else if (name.EndsWith(".z42")) {
+                string nm = name.Substring(0, name.Length - 4);
+                caseName = cat + "/" + nm;
+                src = full;
+                expTxt = _readExpected(Path.Join(catDir, nm + ".expected_output.txt"));
+            } else {
+                continue;   // sidecar (.expected_output.txt / .interp_only) or non-source
+            }
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string e = _goldenEntry(root, caseName, src, expTxt, bundleDir);
+            if (e.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + e;
+            count = count + 1;
+        }
+    }
+
+    // 2. stdlib [Test] units (src/libraries/<lib>/tests/*.z42)
+    string libsRoot = Path.Join(root, "src/libraries");
+    foreach (var lib in _sortedStrings(Directory.Enumerate(libsRoot))) {
+        string tdir = Path.Join(libsRoot, lib, "tests");
+        if (!Directory.Exists(tdir)) { continue; }
+        foreach (var f in _sortedStrings(Directory.Enumerate(tdir))) {
+            if (!f.EndsWith(".z42")) { continue; }
+            string caseName = lib + "/" + f.Substring(0, f.Length - 4);
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string safe = _bundleSafeName(caseName);
+            string zbc = _emitUnitZbc(root, Path.Join(tdir, f), safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\"}";
+            count = count + 1;
+        }
+        // 2b. dir-mode stdlib [Test] units (tests/<name>/ with [Test] methods;
+        // e.g. z42.crypto/tests/secp256k1, z42.ir/tests/*). source.z42-only dirs
+        // WITHOUT [Test] are goldens (need per-case isolation) → stay on the host
+        // golden runner, not here (unify-host-tests-on-embed §golden).
+        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
+            string dpath = Path.Join(tdir, nm);
+            if (!Directory.Exists(dpath)) { continue; }
+            if (!_dirHasTestMethods(dpath)) { continue; }
+            string caseName = lib + "/" + nm;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string safe = _bundleSafeName(caseName);
+            string zbc = _emitDirUnit(root, lib, nm, dpath, safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zpkg\"}";
+            count = count + 1;
+        }
+        // 2c. lib-mode goldens: tests/<name>/source.z42 WITHOUT [Test] — VM-behavior
+        // goldens under a stdlib lib (e.g. z42.collections/tests/dict) → direct-run
+        // isolated, same as src/tests goldens.
+        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
+            string dpath = Path.Join(tdir, nm);
+            if (!Directory.Exists(dpath)) { continue; }
+            if (_dirHasTestMethods(dpath)) { continue; }         // [Test] dirs → units (2b)
+            string gsrc = Path.Join(dpath, "source.z42");
+            if (!File.Exists(gsrc)) { continue; }
+            string caseName = lib + "/" + nm;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            string e = _goldenEntry(root, caseName, gsrc,
+                _readExpected(Path.Join(dpath, "expected_output.txt")), bundleDir);
+            if (e.Length == 0) { ConsoleError.WriteLine("  ✗ lib-golden " + caseName); continue; }
+            if (count > 0) { items = items + ",\n"; }
+            items = items + e;
+            count = count + 1;
+        }
+    }
+
+    if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
+    string mpath = Path.Join(bundleDir, "manifest.json");
+    File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
+    Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
+    return mpath;
+}
+
+// ── wasm embedded test-host (add-wasm-testhost G6) ───────────────────────────
+//
+// Assemble a browser-servable dir that runs the SAME test bundle through the
+// wasm-embedded VM (z42_wasm.runTestApp → z42::app::run → agent). Reuses the
+// desktop bundle builder + test-agent; adds the wasm crate build + asset
+// assembly + the static harness. RUN is browser/Playwright-gated (CI); this
+// command builds + assembles the deployable dir (compile-once, per platform).
+string _buildWasmTesthost(string root, string filter) {
+    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle.
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    string manifest = _buildTestBundle(root, filter);
+    if (manifest.Length == 0) { return ""; }
+    string bundleDir = Path.GetDirectoryName(manifest);
+
+    // 2. shared test-agent app.zpkg (same bytecode runner as desktop).
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
+
+    // 3. wasm crate → pkg-web (z42_wasm.js + z42_wasm_bg.wasm).
+    string wasmCrate = Path.Join(root, "src/toolchain/workload/wasm/platform");
+    Console.WriteLine("  wasm-pack build --target web");
+    int wc = _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
+        .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"),
+        wasmCrate);
+    if (wc != 0) { ConsoleError.WriteLine("error: wasm-pack build failed"); return ""; }
+
+    // 4. assemble the servable dir: pkg + static harness + assets + files.json.
+    string outDir = Path.Join(root, "artifacts/build/wasm-test");
+    Directory.Create(outDir);
+    string pkgWeb = Path.Join(wasmCrate, "pkg-web");
+    File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"), true);
+    File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"), true);
+    string thDir = Path.Join(root, "src/toolchain/workload/wasm/testhost");
+    File.Copy(Path.Join(thDir, "index.html"), Path.Join(outDir, "index.html"), true);
+    File.Copy(Path.Join(thDir, "run.js"), Path.Join(outDir, "run.js"), true);
+
+    string files = "";
+    // app/ — the test-agent.
+    string appDir = Path.Join(outDir, "app"); Directory.Create(appDir);
+    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
+    files = _appendFileEntry(files, "/app/z42.testagent.zpkg", "app/z42.testagent.zpkg");
+    // libs/ — all flat stdlib zpkgs (every agent + case dep resolves from here).
+    string flat = _assembleAllLibs(root, "release");
+    string libsOut = Path.Join(outDir, "libs"); Directory.Create(libsOut);
+    foreach (var z in _sortedStrings(Directory.Enumerate(flat))) {
+        if (!z.EndsWith(".zpkg")) { continue; }
+        File.Copy(Path.Join(flat, z), Path.Join(libsOut, z), true);
+        files = _appendFileEntry(files, "/libs/" + z, "libs/" + z);
+    }
+    // bundle/ — manifest.json + every case zbc.
+    string bundleOut = Path.Join(outDir, "bundle"); Directory.Create(bundleOut);
+    foreach (var f in _sortedStrings(Directory.Enumerate(bundleDir))) {
+        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
+        files = _appendFileEntry(files, "/bundle/" + f, "bundle/" + f);
+    }
+    File.WriteAllText(Path.Join(outDir, "files.json"), "[\n" + files + "\n]\n");
+
+    Console.WriteLine("  wasm test-host → " + outDir);
+    Console.WriteLine("  serve that dir (e.g. `python3 -m http.server`) and open index.html;");
+    Console.WriteLine("  Playwright/CI reads window.__report (the JSON report) once window.__done.");
+    return outDir;
+}
+
+// Append one files.json `{vfs,url}` entry (comma-separated).
+string _appendFileEntry(string acc, string vfs, string url) {
+    string e = "  {\"vfs\": \"" + vfs + "\", \"url\": \"" + url + "\"}";
+    if (acc.Length == 0) { return e; }
+    return acc + ",\n" + e;
+}
+
+// ── mobile embedded test-host (add-wasm-testhost G6: ios / android) ───────────
+//
+// iOS/Android have real filesystems (unlike wasm), so they read the bundled
+// corpus straight from paths and call the SAME `z42_host_run_app` C symbol
+// (→ z42::app::run) as desktop — no VFS. The agent writes its JSON report to a
+// file (out-path arg) which the native test reads back. Only the packaging +
+// thin native shell differ per platform.
+
+// Assemble the on-device corpus under destDir/{app,libs,bundle}: the test-agent
+// app.zpkg, all flat stdlib zpkgs, and the test bundle (manifest + case zbcs).
+// This is the layout iOS Resources / Android assets consume.
+void _assembleEmbeddedCorpus(string root, string bundleDir, string agent, string destDir) {
+    if (Directory.Exists(destDir)) { Directory.Delete(destDir, true); }
+    Directory.Create(destDir);
+    string appDir = Path.Join(destDir, "app"); Directory.Create(appDir);
+    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
+    string flat = _assembleAllLibs(root, "release");
+    string libsOut = Path.Join(destDir, "libs"); Directory.Create(libsOut);
+    foreach (var z in _sortedStrings(Directory.Enumerate(flat))) {
+        if (!z.EndsWith(".zpkg")) { continue; }
+        File.Copy(Path.Join(flat, z), Path.Join(libsOut, z), true);
+    }
+    string bundleOut = Path.Join(destDir, "bundle"); Directory.Create(bundleOut);
+    foreach (var f in _sortedStrings(Directory.Enumerate(bundleDir))) {
+        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
+    }
+}
+
+// Build the iOS xcframework for the slices `rid` implies. The macOS-host slice
+// (aarch64-apple-darwin) is ALWAYS built so `swift test` can run the embedded
+// test on the host; the rid adds its deploy slice — `ios-arm64` → device,
+// `iossim-arm64` → simulator, "" → both (fat). Mirrors IosBackend.BuildProject.
+int _buildIosXcframework(string root, string here, string rid) {
+    string manifest = Path.Join(here, "rust/Cargo.toml");
+    string targetDir = Path.Join(root, "artifacts/build/runtime");
+    string libName = "libz42_platform_ios.a";
+    bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
+    bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
+    // Build set: always the host slice, plus whichever deploy slice(s) the rid asks for.
+    string[] targets = new string[3];
+    int n = 0;
+    targets[n] = "aarch64-apple-darwin"; n = n + 1;              // host (swift test)
+    if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
+    if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
+    int i = 0;
+    while (i < n) {
+        Console.WriteLine("  cargo build --release --target " + targets[i]);
+        int c = _exec(new Process("cargo").Arg("build").Arg("--release")
+            .Arg("--manifest-path").Arg(manifest)
+            .Arg("--target-dir").Arg(targetDir)
+            .Arg("--target").Arg(targets[i])
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", "16.0"));
+        if (c != 0) { return c; }
+        i = i + 1;
+    }
+    string xcf = Path.Join(here, "Z42VM.xcframework");
+    if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
+    Console.WriteLine("  xcodebuild -create-xcframework → " + xcf);
+    Process xb = new Process("xcodebuild").Arg("-create-xcframework");
+    xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-darwin/release/" + libName));
+    if (wantDev) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios/release/" + libName)); }
+    if (wantSim) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios-sim/release/" + libName)); }
+    return _exec(xb.Arg("-output").Arg(xcf));
+}
+
+// iOS: assemble the embedded corpus into the XCTest bundle Resources + build the
+// xcframework for `rid`'s slice(s). The embedded runner is
+// Z42EmbeddedTests.testEmbeddedBundle (in the Z42VM scheme) — RUN via
+// `xcodebuild test` on a simulator (CI-gated) or `swift test` on the host.
+string _buildIosTesthost(string root, string filter, string rid) {
+    if (Process.Which("xcodebuild") == null) {
+        ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS)"); return "";
+    }
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    string manifest = _buildTestBundle(root, filter);
+    if (manifest.Length == 0) { return ""; }
+    string bundleDir = Path.GetDirectoryName(manifest);
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
+
+    string here = Path.Join(root, "src/toolchain/workload/ios/platform");
+    string resDir = Path.Join(here, "Tests/Z42VMTests/Resources/embedded");
+    _assembleEmbeddedCorpus(root, bundleDir, agent, resDir);
+    Console.WriteLine("  embedded corpus → " + resDir);
+
+    int xc = _buildIosXcframework(root, here, rid);
+    if (xc != 0) { ConsoleError.WriteLine("error: xcframework build failed"); return ""; }
+
+    Console.WriteLine("  iOS embedded test-host ready.");
+    Console.WriteLine("  RUN (sim/CI): cd " + here + " && xcodebuild test -scheme Z42VM -destination '<sim>'");
+    Console.WriteLine("    → Z42EmbeddedTests.testEmbeddedBundle (embedded corpus) + R1–R7.");
+    return here;
+}
+
+// Resolve the Android NDK dir: ANDROID_NDK_HOME env, else the highest version
+// installed under versions.toml build.android.install_root/ndk/ (populated by
+// `xtask deps install --os android`).
+string _resolveAndroidNdk(string root) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    string ndkBase = Path.Join(root, "artifacts/tools/android-sdk/ndk");
+    if (!Directory.Exists(ndkBase)) { return ""; }
+    string[] vers = _sortedStrings(Directory.Enumerate(ndkBase));
+    int i = vers.Length - 1;              // highest version dir
+    while (i >= 0) {
+        string d = Path.Join(ndkBase, vers[i]);
+        if (Directory.Exists(d)) { return d; }
+        i = i - 1;
+    }
+    return "";
+}
+
+// Map an android RID to its cargo-ndk ABI name (gradle naming). Empty rid → "".
+string _androidRidAbi(string rid) {
+    if (rid == "android-arm64") { return "arm64-v8a"; }
+    if (rid == "android-x64")   { return "x86_64"; }
+    return "";
+}
+
+// Android: assemble the embedded corpus into the androidTest assets + build
+// libz42_platform_android.so via cargo-ndk (compile-once for the rust cdylib).
+// `rid` selects the ABI — `android-x64` builds only x86_64 (e.g. for an x64
+// emulator), `android-arm64` only arm64-v8a. The embedded runner is
+// Z42EmbeddedInstrumentedTest (in the z42vm test apk) — the AAR build (gradle) +
+// RUN (`connectedAndroidTest` on an emulator) are CI/emulator-gated. Real
+// filesystem → no VFS, same z42_host_run_app core.
+string _buildAndroidTesthost(string root, string filter, string rid) {
+    if (Process.Which("cargo-ndk") == null) {
+        ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
+    }
+    string ndk = _resolveAndroidNdk(root);
+    if (ndk.Length == 0) {
+        ConsoleError.WriteLine("error: Android NDK not found — run `xtask deps install --os android`"); return "";
+    }
+    string abi = _androidRidAbi(rid);
+    if (abi.Length == 0) {
+        ConsoleError.WriteLine("error: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return "";
+    }
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    string manifest = _buildTestBundle(root, filter);
+    if (manifest.Length == 0) { return ""; }
+    string bundleDir = Path.GetDirectoryName(manifest);
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
+
+    string here = Path.Join(root, "src/toolchain/workload/android/platform");
+    string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
+    _assembleEmbeddedCorpus(root, bundleDir, agent, assetsDir);
+    Console.WriteLine("  embedded corpus → " + assetsDir);
+
+    // cargo-ndk → libz42_platform_android.so for this ABI into jniLibs. All three
+    // NDK env vars set (the cmake C-dep cross-build reads NDK/NDK_ROOT too).
+    string rustDir = Path.Join(here, "rust");
+    string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
+    Console.WriteLine("  cargo ndk -t " + abi + " build --release");
+    int c = _execIn(new Process("cargo").Arg("ndk")
+        .Arg("-t").Arg(abi)
+        .Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
+        .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk),
+        rustDir);
+    if (c != 0) { ConsoleError.WriteLine("error: cargo-ndk build failed"); return ""; }
+
+    Console.WriteLine("  Android embedded test-host ready (" + abi + " .so + androidTest assets).");
+    Console.WriteLine("  RUN (emulator/CI): cd " + here + " && ./gradlew :z42vm:connectedAndroidTest");
+    Console.WriteLine("    → Z42EmbeddedInstrumentedTest.embeddedBundle (embedded corpus) + R1–R7.");
+    return here;
+}
+
+// `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]
+//                      [--case <name>] [--filter <pat>] [--format ...]`
+int _testEmbedded(ParseResult r) {
+    string root = _root();
+    string target = r.GetPositional(0);
+    string caseOpt = r.GetOption("case");
+    string filterOpt = r.GetOption("filter");
+    string format = r.GetOption("format");
+    if (format.Length == 0) { format = "json"; }
+    string rid = r.GetOption("rid");
+
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+
+    // Target RID: the arch suffix selects the actual slice / ABI to build (via
+    // the shared _ridCategory from the packaging path), so e.g. `android-x64`
+    // builds only the x86_64 .so — not both. An empty rid (or any desktop RID)
+    // runs in-process on the host. RUN of the mobile/wasm hosts is
+    // Playwright / xcodebuild-sim / emulator-gated (CI).
+    string tfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+    string cat = (rid.Length == 0) ? "desktop" : _ridCategory(rid);
+    if (cat == "wasm") {
+        string wout = _buildWasmTesthost(root, tfilter);
+        return (wout.Length > 0) ? 0 : 1;
+    }
+    if (cat == "ios") {
+        string iout = _buildIosTesthost(root, tfilter, rid);
+        return (iout.Length > 0) ? 0 : 1;
+    }
+    if (cat == "android") {
+        string aout = _buildAndroidTesthost(root, tfilter, rid);
+        return (aout.Length > 0) ? 0 : 1;
+    }
+    if (cat == "unknown") {
+        ConsoleError.WriteLine("error: unknown --rid '" + rid + "' (try browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64, or omit for host desktop)");
+        return 1;
+    }
+    // cat == "desktop" → fall through to the in-process desktop path below.
+
+    // Run-target resolution:
+    //   --case/--filter, or no positional → build a test-bundle (all/subset) and
+    //     run every case in its manifest, aggregating into one report (G2/G3/G4).
+    //   golden case dir (has source.z42) → wrap into a [Test] .zbc (G1).
+    //   plain path → use as the .zbc directly.
+    string runArg = "";
+    if (caseOpt.Length > 0 || filterOpt.Length > 0 || target.Length == 0) {
+        string filter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
+        Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+        string manifest = _buildTestBundle(root, filter);
+        if (manifest.Length == 0) { return 1; }
+        runArg = manifest;
+    } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
+        Console.WriteLine("→ golden case → [Test] wrap: " + target);
+        runArg = _buildGoldenCase(root, target);
+        if (runArg.Length == 0) { ConsoleError.WriteLine("error: wrap/build golden case failed"); return 1; }
+    } else {
+        runArg = target;
+    }
+
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
+    string host = _ensureDesktopTesthost(root);
+    if (host.Length == 0) { ConsoleError.WriteLine("error: build desktop testhost failed"); return 1; }
+
+    string libs = _libsDir(root);
+    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + runArg + " " + format);
+    ProcessResult res = new Process(host).Arg(agent).Arg(runArg).Arg(format)
+        .Env("Z42_LIBS", libs).Run();
+    Console.Write(res.Stdout);
+    if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
+    return res.ExitCode;
+}

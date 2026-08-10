@@ -9,6 +9,10 @@ const PORT = 4242;
 
 export default defineConfig({
     testDir: '.',
+    // embedded.spec.ts is the embedded test-host RUN; it has its own server
+    // (playwright.embedded.config.ts) rooted at the deployable dir, so keep it
+    // out of the R1–R7 facade run here.
+    testIgnore: 'embedded.spec.ts',
     fullyParallel: false,
     workers: 1,
     use: {

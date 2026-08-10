@@ -78,6 +78,32 @@ public static class Runner {
         return 0;
     }
 
+    // Run every [Test]/[Benchmark] in the module at `path`, RETURNING the results
+    // without printing. For aggregating across a bundle of modules (embedded
+    // test-host, wire-embedded-testhost): the caller collects results from many
+    // modules and renders one combined TestReport.
+    public static TestResult[] RunModuleResults(string path) {
+        TestEntry[] entries = ModuleLoader.Load(path);
+        int runnable = 0;
+        int c = 0;
+        while (c < entries.Length) {
+            if (entries[c].IsTest() || entries[c].IsBenchmark()) { runnable = runnable + 1; }
+            c = c + 1;
+        }
+        TestResult[] results = new TestResult[runnable];
+        int ri = 0;
+        int i = 0;
+        while (i < entries.Length) {
+            TestEntry e = entries[i];
+            if (e.IsTest() || e.IsBenchmark()) {
+                results[ri] = Runner._runOne(e, entries, true);   // json=true → no pretty print
+                ri = ri + 1;
+            }
+            i = i + 1;
+        }
+        return results;
+    }
+
     // Run one [Test]/[Benchmark]. Returns its TestResult; prints pretty lines only
     // when `!json` (pretty output stays byte-identical to pre-structured-output).
     static TestResult _runOne(TestEntry e, TestEntry[] all, bool json) {

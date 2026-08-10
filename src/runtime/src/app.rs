@@ -13,11 +13,24 @@
 //! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
 //! [`RunOpts`].
 
+use crate::corelib::fs_backend;
 use crate::metadata::lazy_loader::ZpkgCandidate;
 use crate::metadata::{ExecMode, LoadedArtifact};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+// add-wasm-testhost (G6): dir/exists probes go through the platform fs backend
+// so `run` works on wasm (in-memory VFS) as well as native (std::fs). Native is
+// byte-identical. `metadata`/`canonicalize` below stay on std::fs — they only
+// feed replay byte-sizes / symlink dedup and degrade gracefully (None / raw
+// path) when absent, so wasm needs no change there.
+fn be_is_dir(p: &Path) -> bool {
+    p.to_str().map(|s| fs_backend::active().is_dir(s)).unwrap_or(false)
+}
+fn be_exists(p: &Path) -> bool {
+    p.to_str().map(|s| fs_backend::active().exists(s)).unwrap_or(false)
+}
 
 /// Build-default execution mode: JIT when compiled in (make-jit-default),
 /// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
@@ -58,7 +71,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             } else {
                 entry_dir.to_path_buf()
             };
-            if entry_dir.is_dir() {
+            if be_is_dir(&entry_dir) {
                 dirs.push(entry_dir);
             }
         }
@@ -86,7 +99,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // 5.1b — unconditionally try to load z42.core.zpkg if present.
     if let Some(ref dir) = libs_dir {
         let core_path = dir.join("z42.core.zpkg");
-        if core_path.exists() {
+        if be_exists(&core_path) {
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
             match crate::metadata::load_artifact(&core_str) {

@@ -53,14 +53,33 @@ pub struct ZpkgCandidate {
 
 impl ZpkgCandidate {
     /// Build a candidate by reading the zpkg metadata from disk.
+    ///
+    /// add-wasm-testhost (G6): reads via the platform fs backend so a wasm host
+    /// that mounts stdlib zpkgs into the in-memory VFS resolves declared
+    /// candidates too. Byte-identical to `std::fs` on native.
     pub fn build(libs_dir: &Path, file_name: &str) -> Result<Self> {
         let file_path = libs_dir.join(file_name);
-        let data = std::fs::read(&file_path)?;
+        let path_str = file_path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-UTF8 zpkg path `{}`", file_path.display()))?;
+        let data = crate::corelib::fs_backend::active().read(path_str)?;
         let meta = read_zpkg_meta(&data)?;
         Ok(Self {
             file_path,
             namespaces: meta.namespaces,
         })
+    }
+
+    // add-wasm-testhost (G6): `is_file` semantics via the platform fs backend —
+    // exists && !is_dir. Native delegates to std::fs (byte-identical); on wasm a
+    // mounted zpkg exists in the VFS and is not a directory.
+    fn backend_is_file(path: &Path) -> bool {
+        match path.to_str() {
+            Some(s) => {
+                let b = crate::corelib::fs_backend::active();
+                b.exists(s) && !b.is_dir(s)
+            }
+            None => false,
+        }
     }
 
     /// Build a candidate by searching `dirs` in order for `file_name`, using
@@ -72,7 +91,7 @@ impl ZpkgCandidate {
     pub fn build_in_dirs(dirs: &[PathBuf], file_name: &str) -> Result<Self> {
         for dir in dirs {
             let file_path = dir.join(file_name);
-            if file_path.is_file() {
+            if Self::backend_is_file(&file_path) {
                 return Self::build(dir, file_name);
             }
         }

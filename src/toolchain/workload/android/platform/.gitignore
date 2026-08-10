@@ -13,6 +13,10 @@ z42vm/src/main/assets/stdlib/index.json
 # Test fixtures compiled by build.sh from examples/embedding/*.z42.
 z42vm/src/androidTest/assets/test-fixtures/*.zbc
 
+# Embedded test-host corpus (produced by `xtask test embedded --platform android`:
+# agent app.zpkg + flat stdlib zpkgs + test bundle). Re-generated per build.
+z42vm/src/androidTest/assets/embedded/
+
 # Gradle build artifacts.
 .gradle/
 build/

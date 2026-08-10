@@ -514,6 +514,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
     ("__heap_direct_referrers",   diagnostics::builtin_heap_direct_referrers),
     ("__heap_retaining_roots",    diagnostics::builtin_heap_retaining_roots),
+
+    // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
+    ("__run_goldens_isolated",    reflection::builtin_run_goldens_isolated),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

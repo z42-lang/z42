@@ -13,8 +13,9 @@ include = ["src/**/*.z42"]
 
 [dependencies]
 "z42.core" = "0.1.0"   # prelude / String / Platform
-"z42.io"   = "0.1.0"   # Console / Environment (GetCommandLineArgs)
-"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule (the actual test runner)
+"z42.io"   = "0.1.0"   # Console / Environment (GetCommandLineArgs) / Path / File
+"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule / RunModuleResults / TestReport
+"z42.json" = "0.1.0"   # Std.Json — parse the test-bundle manifest
 
 [build]
 # cascade defaults (output_dir = this dir; dist/.cache under it)

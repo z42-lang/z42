@@ -65,6 +65,15 @@ int _pubDesktop(ParseResult r, string rid) {
         return 2;
     }
 
+    // --self-contained (embed-workload-publish): produce a SELF-CONTAINED app that
+    // embeds the z42 runtime (links libz42, runs in-process via z42_host_run_app),
+    // vs the default apphost that spawns an external z42vm. Static/dynamic link per
+    // `[platform.desktop] link`. Distinct output shape (app dir: exe + app.zpkg +
+    // libs/), so it takes its own path and returns before the spawn-stub logic.
+    if (r.GetFlag("self-contained")) {
+        return _pubDesktopSelfContained(r, toml, tomlPath, projName, rid);
+    }
+
     // apphost stub 解析序（wire-z42b build-hook 终章）：
     //   ① 项目 hook 产出：`[build] hooks` 声明 → 动态注入 ProjectHooks → BeforeAssets
     //      登记 kind="apphost-stub" 的 Output（如本仓 xtask：hook 现场 cargo 编 apphost
@@ -164,6 +173,87 @@ int _pubDesktop(ParseResult r, string rid) {
     int prc = _pubProduceApphost(appZpkg, outPath, stub, rid);
     if (prc != 0) { return prc; }
     Console.WriteLine("✅ apphost ready: " + outPath);
+    return 0;
+}
+
+// Self-contained desktop publish (embed-workload-publish): copy the PREBUILT
+// embed apphost + stage app.zpkg + libs so the app embeds the z42 runtime
+// (runs in-process via z42_host_run_app), no external z42vm. `link` (static |
+// dynamic, from [platform.desktop] link) selects which prebuilt host; dynamic
+// also ships libz42.<dyn> beside the exe. The embed apphost + stdlib + (dynamic)
+// shared lib are provisioned by the desktop workload; this repo's dev flow
+// supplies them via env (Z42_EMBED_APPHOST / Z42_EMBED_LIBS / Z42_EMBED_DYLIB),
+// mirroring the spawn stub's Z42_APPHOST_TEMPLATE.
+//
+// Output app dir layout: <appDir>/{<projName>[.exe], app.zpkg, libs/*.zpkg
+// [, libz42.<dyn>]}. The embed apphost resolves these relative to its own path.
+int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, string projName, string rid) {
+    bool isWin = rid.StartsWith("windows-");
+    string link = _pubPlatformStr(toml, "desktop", "link", "static");
+    if (link != "static" && link != "dynamic") {
+        ConsoleError.WriteLine("z42b publish: [platform.desktop] link must be static|dynamic (got '" + link + "')");
+        return 2;
+    }
+    string host     = Environment.GetEnvironmentVariable("Z42_EMBED_APPHOST") ?? "";
+    string libsSrc  = Environment.GetEnvironmentVariable("Z42_EMBED_LIBS") ?? "";
+    string dylibSrc = Environment.GetEnvironmentVariable("Z42_EMBED_DYLIB") ?? "";
+    // Auto-provision from the project's [build] hooks when env is unset — the
+    // hook builds + registers the embed apphost (per link) + stdlib libs
+    // (+ dynamic libz42), mirroring the spawn path's apphost-stub. So
+    // `z42 publish --self-contained` works out-of-box in this repo (dev) and via
+    // the desktop workload (user), no manual env.
+    if (host.Length == 0 || libsSrc.Length == 0 || (link == "dynamic" && dylibSrc.Length == 0)) {
+        Output[] hookOuts = _pubRunHooks(toml, tomlPath, projName, rid);
+        if (host.Length == 0)    { host    = _pubFindOutput(hookOuts, "embed-apphost-" + link); }
+        if (libsSrc.Length == 0) { libsSrc = _pubFindOutput(hookOuts, "embed-libs"); }
+        if (link == "dynamic" && dylibSrc.Length == 0) { dylibSrc = _pubFindOutput(hookOuts, "embed-dylib"); }
+    }
+    if (host.Length == 0 || !File.Exists(host)) {
+        ConsoleError.WriteLine("z42b publish --self-contained: embed apphost not available (ships with the desktop workload).");
+        ConsoleError.WriteLine("       run: z42 workload install desktop   (dev: set Z42_EMBED_APPHOST)");
+        return 1;
+    }
+    if (libsSrc.Length == 0 || !Directory.Exists(libsSrc)) {
+        ConsoleError.WriteLine("z42b publish --self-contained: stdlib libs dir not available (dev: set Z42_EMBED_LIBS).");
+        return 1;
+    }
+    if (link == "dynamic" && (dylibSrc.Length == 0 || !File.Exists(dylibSrc))) {
+        ConsoleError.WriteLine("z42b publish --self-contained --link=dynamic: libz42 shared lib not available (dev: set Z42_EMBED_DYLIB).");
+        return 1;
+    }
+
+    // build app.zpkg + colocate non-stdlib transitive deps into dist/
+    string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
+    if (zpkgSrc.Length == 0) { return 1; }
+    string distDir = Path.GetDirectoryName(zpkgSrc);
+    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
+    if (brc != 0) { return brc; }
+
+    // output app dir (same resolution as the spawn path's `root`)
+    string publishDir = r.GetOption("output");
+    if (publishDir.Length == 0) { publishDir = _pubPlatformStr(toml, "desktop", "publish_dir", ""); }
+    string projDir = Path.GetDirectoryName(tomlPath);
+    string appDir;
+    if (publishDir.Length == 0) { appDir = _pubDefaultPublishDir(tomlPath, toml, projName); }
+    else { appDir = (projDir.Length > 0) ? Path.Join(projDir, publishDir) : publishDir; }
+    Directory.Create(appDir);
+
+    // exe = prebuilt embed apphost; app.zpkg + libs/ beside it
+    string exe = Path.Join(appDir, isWin ? (projName + ".exe") : projName);
+    File.Copy(host, exe, true);
+    if (!isWin) { new Process("chmod").Arg("+x").Arg(exe).Run(); }   // File.Copy drops the mode bit
+    File.Copy(zpkgSrc, Path.Join(appDir, "app.zpkg"), true);
+    string libsOut = Path.Join(appDir, "libs");
+    Directory.Create(libsOut);
+    foreach (var p in Path.Glob(libsSrc, "*.zpkg")) {               // stdlib
+        File.Copy(p, Path.Join(libsOut, Path.GetFileName(p)), true);
+    }
+    _pubCopyDistDeps(distDir, projName, libsOut);                    // + app's transitive deps
+    if (link == "dynamic") {
+        File.Copy(dylibSrc, Path.Join(appDir, Path.GetFileName(dylibSrc)), true);
+    }
+    Console.WriteLine("z42 publish (" + rid + ", self-contained/" + link + ") → " + appDir);
+    Console.WriteLine("✅ self-contained app ready: " + exe);
     return 0;
 }
 
@@ -640,5 +730,43 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
         i = i + 1;
     }
     ConsoleError.WriteLine("z42b publish: project hooks ran but registered no usable apphost-stub output — falling back to the workload apphost");
+    return "";
+}
+
+// Run the project's [build] hooks BeforeAssets and return ALL registered outputs
+// (embed-workload-publish). Same load+run as _pubHookApphostStub, but returns
+// the full output set so --self-contained can harvest its embed-* kinds. Empty
+// array if no [build] hooks / on failure.
+Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string rid) {
+    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
+    if (hooksRel.Length == 0) { return new Output[0]; }
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    string hooksDir = Path.Join(projDir, hooksRel);
+    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
+    string baseDir;
+    if (outBase.Length > 0) { baseDir = Path.Join(projDir, outBase); }
+    else { baseDir = Path.Join(Path.Join(projDir, "artifacts"), projName); }
+    string interDir = Path.Join(baseDir, "hooks");
+    BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
+    if (h == null) { return new Output[0]; }
+    PipelineContext ctx = new PipelineContext();
+    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
+    ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);
+    try { h.BeforeAssets(ctx); }
+    catch (Exception e) {
+        ConsoleError.WriteLine("z42b publish: project hook BeforeAssets failed (" + e.Message + ")");
+        return new Output[0];
+    }
+    return ctx.Outputs();
+}
+
+// First hook output of `kind` (raw path; caller validates file-vs-dir existence).
+string _pubFindOutput(Output[] outs, string kind) {
+    int i = 0;
+    while (i < outs.Length) {
+        if (outs[i].Kind == kind) { return outs[i].Path; }
+        i = i + 1;
+    }
     return "";
 }
