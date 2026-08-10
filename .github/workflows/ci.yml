@@ -1707,7 +1707,29 @@ jobs:
           arch: x86_64
           target: google_apis
           working-directory: src/toolchain/workload/android/platform
-          script: ./gradlew :z42vm:connectedAndroidTest
+          # diagnose-mobile-wasm-embed: the embedded corpus can crash the app
+          # process natively ("Instrumentation run failed due to Process
+          # crashed") — the cause lives in logcat/tombstones, not the JUnit XML.
+          # Capture logcat (SIGSEGV/abort + z42vm native frames) WHILE the
+          # emulator is still up (it's torn down after this step), then propagate
+          # the real exit code. Uploaded by the step below.
+          script: |
+            adb logcat -c || true
+            set +e
+            ./gradlew :z42vm:connectedAndroidTest
+            rc=$?
+            adb logcat -d > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 || true
+            adb pull /data/tombstones "$GITHUB_WORKSPACE/android-tombstones" 2>/dev/null || true
+            exit $rc
+      - name: Upload Android logcat + tombstones (crash diagnostics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-embed-crash-diagnostics
+          path: |
+            android-embed-logcat.txt
+            android-tombstones/**
+          if-no-files-found: warn
       - name: Publish Android test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()
