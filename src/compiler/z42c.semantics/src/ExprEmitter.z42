@@ -371,6 +371,16 @@ public sealed class ExprEmitter {
         if (this._ctx.Fields.ContainsKey(id.Name)) {
             // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
             if (this._ctx.OwnerStructName != "") {
+                // add-struct-nested-fields：裸 owner 字段本身是 struct（`P p = a;`）→ 值复制出（reg0=this，off=字段 offset）。
+                if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, id.Name)) {
+                    string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, id.Name);
+                    int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, id.Name);
+                    int sz = this._ctx.Gen.Layouts.StructSize(fs);
+                    TypedReg cp = this._ctx.Alloc(IrType.Ref);
+                    this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(fs), sz));
+                    this._copyRegion(new TypedReg(0, IrType.Ref), foff, cp, 0, fs);
+                    return cp;
+                }
                 return this._emitStructFieldGet(this._ctx.OwnerStructName, id.Name, new TypedReg(0, IrType.Ref), this._ctx.ToIrType(id.Type()));
             }
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
@@ -634,6 +644,13 @@ public sealed class ExprEmitter {
             if (this._ctx.Fields.ContainsKey(tid.Name)) {
                 // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）写翻转为 StructFieldSetPrim(reg0=句柄)。
                 if (this._ctx.OwnerStructName != "") {
+                    // add-struct-nested-fields：裸 owner struct 字段整写（`a = p;`）→ 逐叶子复制 val 进 this@off。
+                    if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, tid.Name)) {
+                        string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, tid.Name);
+                        int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, tid.Name);
+                        this._copyRegion(val, 0, new TypedReg(0, IrType.Ref), foff, fs);
+                        return val;
+                    }
                     this._emitStructFieldSet(this._ctx.OwnerStructName, tid.Name, new TypedReg(0, IrType.Ref), val);
                     return val;
                 }
@@ -650,13 +667,13 @@ public sealed class ExprEmitter {
         }
         if (a.Target is BoundMember) {
             BoundMember tm = a.Target as BoundMember;
-            TypedReg obj = this.Emit(tm.Target);
-            // add-struct-value-semantics A-use：blob 值 struct 字段原地写 → StructFieldSetPrim（3a lvalue，
-            // 叶子字节地址直写）。直接字段无 setter，先于下方接口/属性/FieldSet 分派。
+            // add-struct-value-semantics（nested-fields）：blob 值 struct 字段原地写（3a lvalue，含嵌套
+            // line.a.x）——先于通用 this.Emit(tm.Target)，理由同 _emitMember。直接字段无 setter。
             if (this._isBlobStruct(tm.Target.Type())) {
-                this._emitStructFieldSet(this._blobStructName(tm.Target.Type()), tm.MemberName, obj, val);
+                this._emitBlobFieldSet(tm, val);
                 return val;
             }
+            TypedReg obj = this.Emit(tm.Target);
             // 接口接收者：成员写定义上就是属性 setter → 恒 VCall set_X（对称 _emitMember
             // getter；接口无字段，否则落 FieldSet "X" 在实现类找不到同名字段）。
             if (tm.Target.Type() is Z42InterfaceType) {
@@ -698,6 +715,12 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new FieldGetInstr(dst0, arr0, "Length"));
             return dst0;
         }
+        // add-struct-value-semantics（nested-fields）：blob 值 struct 字段读（含嵌套 line.a.x）——先于
+        // 通用 this.Emit(m.Target)，否则嵌套 struct 字段（line.a 的 a）会被误当叶子递归发射
+        // StructFieldGetPrim（运行时按 struct tag 解码基元 → 崩）。struct 字段无 auto-property getter。
+        if (this._isBlobStruct(m.Target.Type())) {
+            return this._emitBlobFieldGet(m);
+        }
         TypedReg obj = this.Emit(m.Target);
         // G18i/G19a：receiver 是 `as`-cast 到**类**（Z42ClassType/Z42InstantiatedType，跨-ns 与否
         // 均然）时，字段读结果 tag → Unknown（镜像 C#：cast-to-class 不加载目标类字段 → 字段类型
@@ -706,11 +729,6 @@ public sealed class ExprEmitter {
         // 同样 Unknown（z42c.semantics·ir 实证），真因是 cast receiver 而非跨-ns。
         int ftag = this._ctx.ToIrType(m.Type());
         if (this._castUnknownChain(m.Target)) { ftag = IrType.Unknown; }
-        // add-struct-value-semantics A-use：blob 值 struct 字段读 → StructFieldGetPrim（叶子 byte offset +
-        // TypeTag 烘焙）。struct 字段是直接字段、无 auto-property getter，故先于下方属性/FieldGet 分派返回。
-        if (this._isBlobStruct(m.Target.Type())) {
-            return this._emitStructFieldGet(this._blobStructName(m.Target.Type()), m.MemberName, obj, ftag);
-        }
         TypedReg dst = this._ctx.Alloc(ftag);
         // 接口接收者：接口无字段，成员访问定义上就是属性 getter → 恒 VCall get_X
         // （fix-crosspkg-virtual-override 同源：接口经 vtable 派发到具体实现的 get_X；
@@ -769,6 +787,116 @@ public sealed class ExprEmitter {
         TypedReg dst = this._ctx.Alloc(dstTag);
         this._ctx.Emit(new StructFieldGetPrimInstr(dst, base_, off, tag));
         return dst;
+    }
+
+    // ── add-struct-nested-fields：嵌套 struct 字段读写（沿成员链累积 byte offset） ──────────
+    // blob 值 struct 字段读（含嵌套 line.a.x）：叶子 → 单条累积-offset StructFieldGetPrim；字段本身是
+    // struct（P p = line.a）→ 分配新 blob 逐叶子复制出（值副本，非别名）。
+    private TypedReg _emitBlobFieldGet(BoundMember m) {
+        string cont = this._blobStructName(m.Target.Type());
+        TypedReg base_ = this._structChainRoot(m.Target);
+        int off = this._structChainOffset(m.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, m.MemberName);
+        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, m.MemberName)) {
+            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, m.MemberName);
+            int sz = this._ctx.Gen.Layouts.StructSize(fs);
+            TypedReg cp = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(fs), sz));
+            this._copyRegion(base_, off, cp, 0, fs);
+            return cp;
+        }
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, m.MemberName));
+        TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(m.Type()));
+        this._ctx.Emit(new StructFieldGetPrimInstr(dst, base_, off, tag));
+        return dst;
+    }
+
+    // blob 值 struct 字段原地写（含嵌套 line.a.x=3）：叶子 → 单条累积-offset StructFieldSetPrim；字段本身
+    // 是 struct（line.a = p）→ 逐叶子把 val(P blob) 复制进 base_@off。
+    private void _emitBlobFieldSet(BoundMember tm, TypedReg val) {
+        string cont = this._blobStructName(tm.Target.Type());
+        TypedReg base_ = this._structChainRoot(tm.Target);
+        int off = this._structChainOffset(tm.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, tm.MemberName);
+        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, tm.MemberName)) {
+            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, tm.MemberName);
+            this._copyRegion(val, 0, base_, off, fs);
+            return;
+        }
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, tm.MemberName));
+        this._ctx.Emit(new StructFieldSetPrimInstr(base_, off, tag, val));
+    }
+
+    // 嵌套字段链的根 blob 句柄：沿链下降到根 lvalue，只 Emit 根一次。根 = 局部 ident / 返回 struct 的调用……
+    // 或**拥有者 struct 的裸字段**（`a.x` 即 `this.a.x`，此时根 blob = this 句柄 reg0，偏移见 _structChainOffset）。
+    private TypedReg _structChainRoot(BoundExpr e) {
+        if (e is BoundMember) {
+            BoundMember m = e as BoundMember;
+            if (this._isBlobStruct(m.Target.Type())) { return this._structChainRoot(m.Target); }
+        }
+        if (this._isOwnerStructField(e)) { return new TypedReg(0, IrType.Ref); }
+        return this.Emit(e);
+    }
+
+    // 表达式在其根 blob 内的累积 byte offset（纯 layout 查表，零 codegen——故与 _structChainRoot 两遍不重复发射）。
+    private int _structChainOffset(BoundExpr e) {
+        if (e is BoundMember) {
+            BoundMember m = e as BoundMember;
+            if (this._isBlobStruct(m.Target.Type())) {
+                int parent = this._structChainOffset(m.Target);
+                return parent + this._ctx.Gen.Layouts.FieldByteOffset(this._blobStructName(m.Target.Type()), m.MemberName);
+            }
+        }
+        if (this._isOwnerStructField(e)) {
+            BoundIdent id = e as BoundIdent;
+            return this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, id.Name);
+        }
+        return 0;
+    }
+
+    // e 是否**拥有者 blob struct 的裸字段引用**（`a` 即 `this.a`，非被局部/const 遮蔽）——其根 blob = this(reg0)。
+    private bool _isOwnerStructField(BoundExpr e) {
+        if (!(e is BoundIdent)) { return false; }
+        if (this._ctx.OwnerStructName == "") { return false; }
+        BoundIdent id = e as BoundIdent;
+        if (this._ctx.Locals.ContainsKey(id.Name)) { return false; }
+        if (this._ctx.ConstLocals.ContainsKey(id.Name)) { return false; }
+        return this._ctx.Fields.ContainsKey(id.Name);
+    }
+
+    // 整个 struct 区间逐叶子复制（复用现有 Get/SetPrim，无区间指令）：嵌套 struct 子字段递归，基元/引用叶子
+    // 一读一写。src/dst 为 blob 句柄，srcOff/dstOff 为其内区间起点。
+    private void _copyRegion(TypedReg srcBase, int srcOff, TypedReg dstBase, int dstOff, string structName) {
+        StructLayoutInfo li = this._ctx.Gen.Layouts.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) {
+            int fo = li.FieldOffsets[i];
+            if (li.FieldKinds[i] == StructLeafKind.Struct) {
+                this._copyRegion(srcBase, srcOff + fo, dstBase, dstOff + fo, li.FieldTypeNames[i]);
+            } else {
+                int tag = Tag.FromName(li.FieldTypeNames[i]);
+                TypedReg tmp = this._ctx.Alloc(this._tagToIrType(tag));
+                this._ctx.Emit(new StructFieldGetPrimInstr(tmp, srcBase, srcOff + fo, tag));
+                this._ctx.Emit(new StructFieldSetPrimInstr(dstBase, dstOff + fo, tag, tmp));
+            }
+            i = i + 1;
+        }
+    }
+
+    // zbc tag → IrType（供 _copyRegion 临时寄存器类型；ref 类 Str/Object/Array → Ref）。
+    private int _tagToIrType(int tag) {
+        if (tag == Tag.Bool) { return IrType.Bool; }
+        if (tag == Tag.I8)  { return IrType.I8; }
+        if (tag == Tag.I16) { return IrType.I16; }
+        if (tag == Tag.I32) { return IrType.I32; }
+        if (tag == Tag.I64) { return IrType.I64; }
+        if (tag == Tag.U8)  { return IrType.U8; }
+        if (tag == Tag.U16) { return IrType.U16; }
+        if (tag == Tag.U32) { return IrType.U32; }
+        if (tag == Tag.U64) { return IrType.U64; }
+        if (tag == Tag.F32) { return IrType.F32; }
+        if (tag == Tag.F64) { return IrType.F64; }
+        if (tag == Tag.Char) { return IrType.Char; }
+        if (tag == Tag.Str) { return IrType.Str; }
+        return IrType.Ref;
     }
     // A-use：实参发射 + **struct 实参 copy-in**（值语义：callee 收独立副本，改参数不影响 caller）。
     private TypedReg[] _emitStructAwareArgs(BoundCall c) {
