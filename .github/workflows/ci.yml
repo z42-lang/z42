@@ -1710,16 +1710,24 @@ jobs:
           # diagnose-mobile-wasm-embed: the embedded corpus can crash the app
           # process natively ("Instrumentation run failed due to Process
           # crashed") — the cause lives in logcat/tombstones, not the JUnit XML.
-          # Capture logcat (SIGSEGV/abort + z42vm native frames) WHILE the
-          # emulator is still up (it's torn down after this step), then propagate
-          # the real exit code. Uploaded by the step below.
+          # A post-crash `adb logcat -d` returns nothing (the buffer is gone by
+          # then — the prior run's artifact was empty). Instead capture logcat
+          # CONTINUOUSLY in the background so the SIGSEGV/abort + z42vm native
+          # frames land on disk as they happen, and `tail` it INLINE into the job
+          # log so the cause is visible even if the artifact upload path misses.
           script: |
-            adb logcat -c || true
             set +e
+            adb logcat -c || true
+            adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
+            LOGCAT_PID=$!
             ./gradlew :z42vm:connectedAndroidTest
             rc=$?
-            adb logcat -d > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 || true
+            sleep 3
+            kill "$LOGCAT_PID" 2>/dev/null || true
             adb pull /data/tombstones "$GITHUB_WORKSPACE/android-tombstones" 2>/dev/null || true
+            echo "===== android-embed-logcat.txt (tail 120, inline) ====="
+            tail -120 "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>/dev/null || echo "(no logcat captured)"
+            echo "===== end logcat tail ====="
             exit $rc
       - name: Upload Android logcat + tombstones (crash diagnostics)
         if: always()
