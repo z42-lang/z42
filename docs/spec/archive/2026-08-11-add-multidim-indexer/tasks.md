@@ -22,7 +22,7 @@
 - [x] 3.2 codegen_tests.z42 加 `test_multidim_indexer_dispatch`（get_Item/set_Item IR）
 - [x] 3.3 e2e 断言测试 `src/tests/classes/indexer_multidim.z42`（矩阵 2D + 立方 3D + 单维回归）
 - [x] 3.4 `examples/indexer.z42`（单维 string 键 + 多维矩阵）
-- [x] 3.5 文档同步（新写 `docs/book/src/language/indexers.md` + 挂 SUMMARY）
+- [x] 3.5 文档同步（新写 `docs/book/src/language/member-accessors.md`（属性+索引器合并页）+ 挂 SUMMARY）
 
 ## 阶段 4: GREEN 验证
 - [x] 4.1 cargo build (z42vm) 无错

@@ -29,7 +29,7 @@ z42 已支持 C# 风格索引器**声明** `T this[int r, int c] { get; set; }`�
 | `src/compiler/z42c.semantics/tests/codegen/codegen_tests.z42` | MODIFY | 多下标派发 `get_Item`/`set_Item` 的 IR 用例 |
 | `src/tests/classes/indexer_multidim.z42` | NEW | 端到端断言测试（内联 Assert.Equal，镜像 `indexer_basic.z42` 约定） |
 | `examples/indexer.z42` | NEW | 多维索引器示例 |
-| `docs/book/src/language/indexers.md`（若存在则 MODIFY，否则新写并挂 SUMMARY） | MODIFY/NEW | 使用侧多维支持文档 |
+| `docs/book/src/language/member-accessors.md` | NEW | 属性与索引器（成员访问器）合并页，含多维使用侧；挂 SUMMARY |
 
 **只读引用**：
 
