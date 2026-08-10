@@ -21,6 +21,14 @@ void test_binary_add_instance_method() {
 }
 
 [Test]
+void test_multidim_indexer_dispatch() {
+    // 多维索引器使用侧：this[r,c]=v → set_Item(r,c,v)；this[r,c] → get_Item(r,c)。
+    string src = "class M { int this[int r, int c] { get { return r; } set { } } int Use() { this[0, 1] = 9; return this[2, 3]; } }";
+    Assert.Equal("fn @M.Use(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = const.i64 1\n  %3 = const.i64 9\n  %4 = vcall %0.set_Item(%1, %2, %3)\n  %5 = const.i64 2\n  %6 = const.i64 3\n  %7 = vcall %0.get_Item(%5, %6)\n  ret %7\n}",
+                 IrDump.DumpFunc(src, "M.Use"));
+}
+
+[Test]
 void test_var_decl_and_assign() {
     // var x = 1; x = x + 2; return x; —— SSA-lite 拷回被 copy-prop 折叠（optimization-pipeline）：
     // const/add 直接写 x 的寄存器 %1，冗余 copy 消除。

@@ -1,0 +1,90 @@
+// 索引器（indexer）—— C# 风格 `T this[params] { get; set; }`。
+//
+// 覆盖：
+//   • 单维索引器 obj[i]（任意键类型：int / string）
+//   • 多维索引器 obj[r, c]（add-multidim-indexer：使用侧逗号分隔多下标）
+//   • 读写分别派发 get_Item / set_Item
+namespace Demo.Indexer;
+
+using System;
+
+// ── 单维索引器：string 键（类似字典）────────────────────────────────────────
+public class Env {
+    string[] keys;
+    int[] vals;
+    int n;
+
+    public Env() {
+        this.keys = new string[16];
+        this.vals = new int[16];
+        this.n = 0;
+    }
+
+    // 键类型可以是任意类型，这里用 string。
+    public int this[string k] {
+        get {
+            int i = 0;
+            while (i < this.n) {
+                if (this.keys[i] == k) return this.vals[i];
+                i = i + 1;
+            }
+            return -1;   // 未找到
+        }
+        set {
+            this.keys[this.n] = k;
+            this.vals[this.n] = value;
+            this.n = this.n + 1;
+        }
+    }
+}
+
+// ── 多维索引器：行列二维矩阵 ────────────────────────────────────────────────
+public class Matrix {
+    int[] data;
+    int cols;
+
+    public Matrix(int rows, int cols) {
+        this.cols = cols;
+        this.data = new int[rows * cols];
+    }
+
+    // 双参数索引器：m[r, c] 读派发 get_Item(r,c)，m[r, c]=v 写派发 set_Item(r,c,v)。
+    public int this[int r, int c] {
+        get { return this.data[r * this.cols + c]; }
+        set { this.data[r * this.cols + c] = value; }
+    }
+}
+
+void Main() {
+    // 单维（string 键）
+    var env = new Env();
+    env["width"]  = 800;
+    env["height"] = 600;
+    Console.WriteLine($"width={env["width"]}, height={env["height"]}, missing={env["depth"]}");
+
+    // 多维（行列）
+    var m = new Matrix(2, 3);
+    m[0, 0] = 1;
+    m[0, 1] = 2;
+    m[0, 2] = 3;
+    m[1, 0] = 4;
+    m[1, 1] = 5;
+    m[1, 2] = 6;
+
+    int r = 0;
+    while (r < 2) {
+        string line = "";
+        int c = 0;
+        while (c < 3) {
+            line = line + m[r, c].ToString();
+            if (c < 2) line = line + " ";
+            c = c + 1;
+        }
+        Console.WriteLine(line);
+        r = r + 1;
+    }
+
+    // 读嵌入表达式：对角和
+    int diag = m[0, 0] + m[1, 1];
+    Console.WriteLine($"diag sum = {diag}");
+}

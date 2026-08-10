@@ -225,9 +225,17 @@ public sealed class MemberExpr : Expr {
 
 public sealed class IndexExpr : Expr {
     public Expr Target;
-    public Expr Index;
-    public IndexExpr(Expr target, Expr index, Span span) { this.Span = span; this.Target = target; this.Index = index; }
-    public override string Dump() { return "(index " + this.Target.Dump() + " " + this.Index.Dump() + ")"; }
+    public Expr[] Indices;    // 下标列表：单维 obj[i] 长度 1；多维 obj[a,b] 长度 N
+    public int IndexCount;
+    public IndexExpr(Expr target, Expr[] indices, int count, Span span) {
+        this.Span = span; this.Target = target; this.Indices = indices; this.IndexCount = count;
+    }
+    public override string Dump() {
+        string s = "(index " + this.Target.Dump();
+        int i = 0;
+        while (i < this.IndexCount) { s = s + " " + this.Indices[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
 }
 
 public sealed class AssignExpr : Expr {

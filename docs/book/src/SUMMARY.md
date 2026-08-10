@@ -18,6 +18,7 @@
   - [const 编译期常量](language/const.md)
   - [sealed 修饰符](language/sealed.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
+  - [索引器（indexer）](language/indexers.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

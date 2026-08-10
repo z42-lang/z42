@@ -34,9 +34,17 @@ public sealed class ExprParser {
             if (k == TokenKind.LParen) { this._p._advance(); left = this._parseCall(left); continue; }
             if (k == TokenKind.LBracket) {
                 this._p._advance();
-                Expr idx = this._parseExpr(0);
+                // 逗号分隔的多下标：单维 obj[i]、多维索引器 obj[a, b]（派发 get_Item/set_Item）。
+                // 至少一个下标（obj[] 非法，由首个 _parseExpr 在 ']' 上产出诊断，保持非空不变式）。
+                Expr[] idxs = new Expr[8];
+                int ic = 0;
+                idxs[ic] = this._parseExpr(0); ic = ic + 1;
+                while (this._p._peek().Kind == TokenKind.Comma) {
+                    this._p._advance();
+                    idxs[ic] = this._parseExpr(0); ic = ic + 1;
+                }
                 this._p._expect(TokenKind.RBracket, "]");
-                left = new IndexExpr(left, idx, left.Span);
+                left = new IndexExpr(left, idxs, ic, left.Span);
                 continue;
             }
             // 后置 ++ / --（无右操作数，结合性同 . / () / []）
