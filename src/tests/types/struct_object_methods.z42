@@ -1,0 +1,48 @@
+// add-struct-object-methods (PR2b)：blob 值 struct 的合成对象协议方法端到端。
+//   Equals（值相等，复用 PR1 叶子比较）/ GetHashCode（同值同 hash）/ ToString（类型名）/ == on boxed（D5 值相等）。
+namespace Demo;
+
+struct P {
+    int x;
+    int y;
+    P(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Line {
+    P a;
+    P b;
+    Line(P a, P b) { this.a = a; this.b = b; }
+}
+
+void Main() {
+    var a = new P(1, 2);
+    var b = new P(1, 2);
+    var c = new P(1, 9);
+    object oa = a;
+    object ob = b;
+    object oc = c;
+
+    // ── Equals：值相等（经 boxed 对象协议 → 合成 {P}.Equals$1）──
+    Assert.True(oa.Equals(ob));       // 同值
+    Assert.False(oa.Equals(oc));      // 末字段不同
+    Assert.False(oa.Equals("hi"));    // 异类型 → false（other is P 不成立）
+
+    // ── GetHashCode：同值同 hash（Dictionary/HashSet 契约）──
+    Assert.Equal(oa.GetHashCode(), ob.GetHashCode());
+
+    // ── ToString：类型名（C# ValueType 默认）──
+    Assert.Equal("P", oa.ToString());
+
+    // ── == / != on boxed（D5：值相等，经 PartialEq）──
+    Assert.True(oa == ob);
+    Assert.False(oa == oc);
+    Assert.True(oa != oc);
+
+    // ── 嵌套 struct Equals（递归展平叶子）──
+    object l1 = new Line(new P(1, 2), new P(3, 4));
+    object l2 = new Line(new P(1, 2), new P(3, 4));
+    object l3 = new Line(new P(1, 2), new P(3, 9));
+    Assert.True(l1.Equals(l2));
+    Assert.False(l1.Equals(l3));
+    Assert.Equal(l1.GetHashCode(), l2.GetHashCode());
+}

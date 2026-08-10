@@ -948,6 +948,34 @@ public sealed class ExprEmitter {
             i = i + 1;
         }
     }
+
+    // ── add-struct-object-methods (PR2b)：合成 Equals(object) body 的结果表达式 ──────────────
+    // `(other is P) ? leafEq((P)this, (P)other) : false`。this/other 均为 boxed（vcall 臂传 boxed 值、
+    // 或 static Call 传 boxed）→ 内部 AsCast 拆箱到 **callee 帧** arena StructRef（避开 JIT 帧无 frame_id），
+    // 再复用 PR1 `_emitStructEquality` 逐叶子比较。result-reg 在两分支汇合（镜像三目）。
+    public TypedReg EmitSynthEqualsResult(string structName, TypedReg thisReg, TypedReg otherReg) {
+        string fq = this._ctx.QualifyClass(structName);
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        TypedReg isP = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new IsInstanceInstr(isP, otherReg, fq));
+        string doL = this._ctx.Fresh("seq_eq_do");
+        string elseL = this._ctx.Fresh("seq_eq_no");
+        string endL = this._ctx.Fresh("seq_eq_end");
+        this._ctx.EndBlock(new BrCondTerm(isP, doL, elseL));
+        this._ctx.StartBlock(doL);
+        TypedReg a = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new AsCastInstr(a, thisReg, fq));    // 拆 this → StructRef
+        TypedReg b = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new AsCastInstr(b, otherReg, fq));   // 拆 other → StructRef
+        TypedReg eq = this._emitStructEquality(true, a, b, structName);
+        this._ctx.Emit(new CopyInstr(result, eq));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(elseL);
+        this._ctx.Emit(new ConstBoolInstr(result, false));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(endL);
+        return result;
+    }
     // A-use：实参发射 + **struct 实参 copy-in**（值语义：callee 收独立副本，改参数不影响 caller）。
     private TypedReg[] _emitStructAwareArgs(BoundCall c) {
         TypedReg[] args = new TypedReg[c.ArgCount];
