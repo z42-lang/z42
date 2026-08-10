@@ -70,12 +70,29 @@ pub struct VmFrame {
     pub file:      std::sync::Arc<str>,
     pub line:      Cell<u32>,
     pub column:    Cell<u32>,
+    /// add-offline-symbolication: linearized code offset of the frame's current
+    /// site (see `Function::linear_offset`). Stamped alongside `line`/`column`
+    /// by `update_caller_line` / the throw path. `u32::MAX` = unset. Used by
+    /// `format_stack_trace` to emit `+0x<offset>` for stripped frames (no line
+    /// info) so a captured trace carries an offline-resolvable key.
+    pub offset:    Cell<u32>,
     /// Pointer to the frame's register file. The Vec content is the
     /// canonical place where this frame's z42 values live.
     pub regs:      *const Vec<Value>,
     /// Pointer to the frame's stack-closure env arena (or null when the
     /// frame does not host any stack closures).
     pub env_arena: *const Vec<Vec<Value>>,
+    /// add-escape-analysis-stack-alloc: the per-context stack-arena lengths when
+    /// this frame was pushed. `pop_frame` truncates the arena back to these,
+    /// bulk-freeing this frame's stack-allocated objects/arrays (LIFO). Stamped
+    /// by `push_frame` (not the `new()` call sites) → all frame kinds get it for
+    /// free; JIT frames never stack-allocate so their truncate is a no-op.
+    pub stack_obj_base: usize,
+    pub stack_arr_base: usize,
+    /// add-struct-value-semantics: value-struct byte-arena length when this frame
+    /// was pushed; `pop_frame` truncates back to it (LIFO-frees this frame's blobs).
+    /// Stamped by `push_frame`.
+    pub struct_base: usize,
 }
 
 // SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
@@ -100,7 +117,11 @@ impl VmFrame {
         Self {
             func_name, file,
             line: Cell::new(0), column: Cell::new(0),
+            offset: Cell::new(u32::MAX),
             regs, env_arena,
+            // add-escape-analysis-stack-alloc: overwritten by push_frame.
+            stack_obj_base: 0, stack_arr_base: 0,
+            struct_base: 0,   // add-struct-value-semantics: overwritten by push_frame.
         }
     }
 
@@ -112,6 +133,7 @@ impl VmFrame {
             file:      self.file.clone(),
             line:      self.line.get(),
             column:    self.column.get(),
+            offset:    self.offset.get(),
         }
     }
 }
@@ -129,6 +151,8 @@ pub struct FrameSnapshot {
     pub file:      std::sync::Arc<str>,
     pub line:      u32,
     pub column:    u32,
+    /// add-offline-symbolication: linearized code offset (`u32::MAX` = unset).
+    pub offset:    u32,
 }
 
 /// Format a captured trace as a multi-line string.
@@ -165,6 +189,13 @@ pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
                 out.push_str(&f.column.to_string());
             }
             out.push(')');
+        } else if f.offset != u32::MAX {
+            // add-offline-symbolication: no line info (release-stripped, no
+            // adjacent .zsym merged) — emit the linearized code offset as an
+            // offline-resolvable key. `z42d symbolicate <trace> --syms <.zsym>`
+            // maps `+0x<offset>` back to file:line:col via the archived sidecar.
+            out.push_str(" +0x");
+            out.push_str(&format!("{:x}", f.offset));
         }
         out.push('\n');
     }

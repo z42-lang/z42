@@ -1,6 +1,7 @@
 namespace Std.Test;
 
 using Std;
+using Std.Runtime;
 using Std.IO;
 
 // `Std.Test.Bencher` — measure elapsed nanoseconds of a code segment (R2 完整版).
@@ -130,10 +131,9 @@ public class Bencher {
         }
     }
 
-    // ── Native bindings ───────────────────────────────────────────────────
-
-    [Native("__time_now_mono_ns")]
-    private static extern long __time_now_mono_ns();
+    // consolidate-core-intrinsics (A1): __time_now_mono_ns 唯一声明在 Std.Runtime.Clock；
+    // 保留同名私有方法，body 委托 core，采样调用点不变。
+    private static long __time_now_mono_ns() { return Clock.MonoNanos(); }
 }
 
 public static class BenchHelpers {

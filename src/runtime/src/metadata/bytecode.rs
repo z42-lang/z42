@@ -91,6 +91,7 @@ impl Module {
             interfaces:             c.interfaces.clone(),
             enum_members:           c.enum_members.clone(),
             iface_methods:          c.iface_methods.clone(),
+            struct_layout:          c.struct_layout.clone(),
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),
@@ -141,6 +142,11 @@ pub const CLASS_FLAG_DELEGATE: u8 = 1 << 6;
 /// — it stays in the dedicated `is_static` byte (single source of truth).
 pub const METHOD_FLAG_VIRTUAL: u8 = 1 << 0;
 pub const METHOD_FLAG_ABSTRACT: u8 = 1 << 1;
+/// impl-sealed-semantics-devirt (zbc 1.30): a `sealed override` (or the shorthand
+/// `sealed`) method — no further override permitted. Backs `MethodInfo.IsSealed`;
+/// consumed by the compiler for `sealed`-receiver devirtualization. A sealed method
+/// is always virtual, so `METHOD_FLAG_VIRTUAL` is set alongside this bit.
+pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {
@@ -190,6 +196,26 @@ pub struct ClassDesc {
     /// Empty for non-interface classes.
     #[serde(default)]
     pub iface_methods: Box<[IfaceMethodSig]>,
+    /// add-struct-value-semantics (A-use): the value-struct byte + reference
+    /// layout, present only when `class_flags & CLASS_FLAG_STRUCT` (parsed from
+    /// the zbc TYPE-section struct block). Threaded into
+    /// `TypeDescCold::struct_layout`; consumed by `StructAlloc` to size + scan
+    /// blobs. `None` for non-struct classes and old zbc without the block.
+    #[serde(default)]
+    pub struct_layout: Option<StructLayoutDesc>,
+}
+
+/// add-struct-value-semantics (A-use): serialized value-struct layout carried in
+/// `ClassDesc` (parsed from the zbc TYPE-section struct block). `size` = byte-blob
+/// size; `ref_offsets` / `ref_kinds` = each reference leaf's byte offset + kind
+/// (`STRUCT_REF_*`), parallel arrays. Pure-primitive structs have empty ref arrays.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StructLayoutDesc {
+    pub size: u32,
+    #[serde(default)]
+    pub ref_offsets: Box<[u32]>,
+    #[serde(default)]
+    pub ref_kinds: Box<[u8]>,
 }
 
 /// add-interface-member-reflection: one interface-declared method signature,
@@ -445,6 +471,15 @@ pub struct Function {
     /// Not serialized (pure runtime optimization; no zbc/format impact).
     #[serde(skip)]
     pub fused_tails: Vec<Option<super::superinstr::SuperInstr>>,
+    /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
+    /// + source file as `Arc<str>`, precomputed once at load (like
+    /// `branch_targets`). `exec_function_body` clones these O(1) per call instead
+    /// of re-running `format_frame_name` (String alloc + format) + a file clone
+    /// on **every** call — that was 40–60% of call-heavy interp time (measured).
+    /// `None` for hand-built test functions the loader never post-processes → the
+    /// interp falls back to formatting on the fly.
+    #[serde(skip)]
+    pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
@@ -483,6 +518,43 @@ impl Function {
     #[inline]
     pub fn cold_mut(&mut self) -> &mut FunctionCold {
         self.cold.get_or_insert_with(|| Box::new(FunctionCold::default()))
+    }
+
+    // ── add-offline-symbolication: code-offset ↔ (block, instr) mapping ────────
+    //
+    // z42 IR is a block+intra-block-instruction model with no linear bytecode
+    // address, but offline symbolication (and the stripped-frame stack format
+    // `at <func> +0x<offset>`) needs one stable key per site. We pack the site
+    // into a single u32:
+    //
+    //   offset(block, instr) = (block << 16) | (instr & 0xffff)
+    //
+    // This is **O(1)** — critical because `update_caller_line` computes it on
+    // every Call/VCall (a prefix-sum linearization was measured ~5% slower on
+    // dispatch-heavy loops). The key is opaque but stable and block-major
+    // monotonic; the user only treats `+0x<offset>` as a token to feed
+    // `z42d symbolicate`, which unpacks it back to `(block, instr)` and looks up
+    // the archived `.zsym` line table. `block`/`instr` fit u16 in every real z42
+    // function (a basic block never holds 2^16 instructions, nor a function 2^16
+    // blocks); `debug_assert` guards the invariant. This is the SINGLE source of
+    // truth — the z42-side `z42d symbolicate` mirrors the same pack/unpack.
+
+    /// Packed code offset for a `(block, instr)` site — `(block << 16) | instr`.
+    /// O(1). `block`/`instr` come from the interp/JIT loop state and are trusted
+    /// in range; the u16 bound is a `debug_assert` (see the module note).
+    #[inline]
+    pub fn linear_offset(&self, block: u32, instr: u32) -> u32 {
+        debug_assert!(block <= 0xffff && instr <= 0xffff,
+            "code offset packing overflow: block={block} instr={instr}");
+        (block << 16) | (instr & 0xffff)
+    }
+
+    /// Inverse of [`linear_offset`]: unpack `(block, instr)` from a code offset.
+    /// Used by `z42d symbolicate` (and tests) to map a captured `+0x<offset>`
+    /// back to a site, then to a `LineEntry`.
+    #[inline]
+    pub fn offset_to_site(&self, offset: u32) -> (u32, u32) {
+        (offset >> 16, offset & 0xffff)
     }
 }
 
@@ -558,6 +630,10 @@ pub struct ArrayNewInsn {
     /// string pool at decode. Stored on the array's `ArrayObj` so
     /// `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
     #[serde(default)] pub element_type: String,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
+    /// array does not escape its creating frame → interp allocates it in the
+    /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::ArrayNewLit`] (add-reflection-array-element-type).
@@ -566,6 +642,8 @@ pub struct ArrayNewLitInsn {
     #[serde(with = "typed_reg_serde")] pub dst: Reg,
     #[serde(with = "typed_reg_vec_serde")] pub elems: Box<[Reg]>,
     #[serde(default)] pub element_type: String,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): non-escaping → frame arena (interp).
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::Builtin`].
@@ -610,6 +688,10 @@ pub struct ObjNewInsn {
     /// Resolved generic type-arguments for this allocation (e.g. `["int"]` for
     /// `new Foo<int>()`); empty for non-generic. `Box<[String]>` (immutable IR).
     #[serde(default)] pub type_args: Box<[String]>,
+    /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
+    /// object does not escape AND its ctor does not leak `this` → interp allocates
+    /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.
+    #[serde(default)] pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::Typeof`].
@@ -689,6 +771,17 @@ pub struct CallNativeInsn {
     pub type_name: String,
     pub symbol: String,
     #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+}
+
+/// Payload for [`Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructAllocInsn {
+    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    /// FQ value-type name — the arena records it so GC can scan blob reference
+    /// leaves by the type's ref-bitmap, and boxing can recover the precise type.
+    pub type_name: String,
+    /// Blob size in bytes (StructLayout.size).
+    pub size: u32,
 }
 
 /// Payload for [`Instruction::LoadFieldAddr`].
@@ -982,6 +1075,32 @@ pub enum Instruction {
     /// Release a pinned view created by `PinPtr`.
     UnpinPtr {
         #[serde(with = "typed_reg_serde")] pinned: Reg,
+    },
+
+    // ── blob value types (add-struct-value-semantics Phase A) ────────────────
+    /// Allocate a `size`-byte blob in the per-context struct arena
+    /// (zero-initialized); `dst` = `Value::StructRef` handle.
+    StructAlloc(Box<StructAllocInsn>),
+    /// Copy a struct blob (`size` bytes) from `src` to `dst`. Pure-primitive
+    /// blobs memcpy; blobs with reference leaves clone per the type's ref-bitmap.
+    StructCopy {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        #[serde(with = "typed_reg_serde")] src: Reg,
+        size: u32,
+    },
+    /// Read the primitive leaf at `byte_off` of struct blob `base` into `dst`.
+    StructFieldGetPrim {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        #[serde(with = "typed_reg_serde")] base: Reg,
+        byte_off: u32,
+        kind: u8,
+    },
+    /// Write primitive `val` into struct blob `base` at `byte_off` (in-place lvalue).
+    StructFieldSetPrim {
+        #[serde(with = "typed_reg_serde")] base: Reg,
+        byte_off: u32,
+        kind: u8,
+        #[serde(with = "typed_reg_serde")] val: Reg,
     },
 }
 

@@ -65,6 +65,9 @@ public sealed class Z42ClassType : Z42Type {
     // class-arity-overloading（同名多 arity 同 CU；泛型版注册 Name$N 键，IrName() 返回 Name$N）。
     public bool HasArityMangle;    // true → 此 CT 以 Name$N 键注册
     public int  ArityMangleCount;  // TypeParams.Count when HasArityMangle
+    // add-struct-value-semantics：值类型标志（Kind=="struct"）。SymbolCollector._putClassStub 从 ClassDecl.Kind
+    // 回填。供 StructLayout 判定字段是否递归展平（值内联）+ 未来 codegen 值语义分流。record 暂不算（引用）。
+    public bool IsStruct;
     // add-partial-types：由多个 `partial` 声明碎片合并而成。IsPartial=true 时，PartialMainFile 记录
     // **主碎片**文件（项目相对路径 Ordinal 最小；SymbolCollector 按发现序即 Ordinal 序，首碎片=主）。
     // IrGen/ExportedTypeExtractor 据此让**唯一**主碎片 CU 发出/导出完整 TYPE record（其余碎片只发方法体）。
@@ -75,6 +78,10 @@ public sealed class Z42ClassType : Z42Type {
     // receiver（List<string>）调方法/取字段时，把签名里的类形参 T 按名映射到 receiver 的 TypeArgs
     // （T→string），修复 `list.ToArray()` 返回 `T[]` 不替换致 E0402（导入泛型「方法返回轴」缺陷）。
     public string[] GenericParamNames; public int GenericParamCount;
+    // impl-sealed-semantics-devirt：sealed class（不可被继承）。默认 false；本地由 SymbolCollector 从
+    // Mods 设置，导入由 ImportedSymbolLoader 从 CLASS_FLAG_SEALED 还原。供 ① 继承强制 + ④ receiver
+    // 静态类型为 sealed 类时的去虚化查询。
+    public bool   IsSealed;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -85,6 +92,8 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
+        this.IsStruct = false;
+        this.IsSealed = false;
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。

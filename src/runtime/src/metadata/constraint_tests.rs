@@ -26,6 +26,7 @@ fn simple_class(name: &str) -> ClassDesc {
         interfaces: vec![].into(),
         enum_members: vec![].into(),
         iface_methods: vec![].into(),
+        struct_layout: None,
         class_flags: 0,
         name: name.to_owned(),
         base_class: None,
@@ -57,6 +58,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
 }

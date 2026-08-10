@@ -13,6 +13,7 @@ namespace Z42Launcher;
 using Std;
 using Std.IO;
 using Std.Toml;
+using Std.Cli;
 using Z42.Workload.Desktop;   // Apphost.Produce — desktop publish lives in the workload package
 using Z42.Workload.Ios;       // IosExport.Generate — iOS export lives in the workload package
 using Z42.Workload.Android;   // AndroidExport.Generate — Android export lives in the workload package

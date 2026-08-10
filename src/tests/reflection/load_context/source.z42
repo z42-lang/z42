@@ -21,10 +21,8 @@ void Main() {
     Assembly rootAsm = typeof(string).Assembly;
     Console.WriteLine(rootAsm.IsCollectible);       // false
 
-    try {
-        ctx.Unload();
-        Console.WriteLine("NO-THROW");
-    } catch (NotSupportedException e) {
-        Console.WriteLine("unload-not-supported");
-    }
+    // Phase 2（add-lazy-context-unload）：collectible Unload 标记 Unloading，不再抛异常
+    // （卸载语义详见 load_context_unload 测试）。
+    ctx.Unload();
+    Console.WriteLine("unloaded");
 }

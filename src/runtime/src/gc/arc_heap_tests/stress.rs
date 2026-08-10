@@ -200,7 +200,7 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
                     let len = gc.borrow().len();
                     if len > 0 {
                         let idx = rng.gen_range(0, len);
-                        gc.borrow_mut()[idx] = new.clone();
+                        gc.borrow_mut().set_boxed(idx, new.clone());
                         if new.is_heap_ref() {
                             heap.write_barrier_array_elem(&arr, idx, &new);
                         }

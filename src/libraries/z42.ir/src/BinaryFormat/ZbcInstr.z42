@@ -10,9 +10,9 @@ using Std;
 public static class ZbcInstr {
     public static int NoReg = 0xFFFF;
 
-    // f64 → IEEE754 bits（runtime 既有 builtin，z42.io.binary BinaryWriter 同款；z42c 自声明免 stdlib 改动）。
-    [Native("__double_to_bits")]
-    public static extern long DoubleToBits(double v);
+    // f64 → IEEE754 bits。consolidate-core-intrinsics (A1)：extern 唯一声明在 Std.BitConverter；
+    // 保留本公开签名（z42c IrGenFacts 常量折叠在用，改 API 会踩 seed-API 轴），body 委托 core。
+    public static long DoubleToBits(double v) { return BitConverter.DoubleToBits(v); }
 
     // 一条指令 → 字节。strRemap：z42c 1-based 池 idx → 最终 STRS idx（ConstStr）；
     // alloc：Call/ObjNew/IsInstance/AsCast 的 token（VCall/Field 不 token 化，直 pool idx）。
@@ -71,6 +71,34 @@ public static class ZbcInstr {
             w.WriteU16(i.Obj.Id); w.WriteU32(pool.Idx(i.Field)); w.WriteU16(i.Val.Id);
             return;
         }
+        if (ins is StructAllocInstr) {
+            StructAllocInstr i = ins as StructAllocInstr;
+            // op + tag(dst) + dst | typeName(u32 pool) | size(u32)
+            w.WriteU8(Op.StructAlloc); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+            w.WriteU32(pool.Idx(i.TypeName)); w.WriteU32(i.Size);
+            return;
+        }
+        if (ins is StructCopyInstr) {
+            StructCopyInstr i = ins as StructCopyInstr;
+            // op + tag(dst) + dst | src(u16) | size(u32)
+            w.WriteU8(Op.StructCopy); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+            w.WriteU16(i.Src.Id); w.WriteU32(i.Size);
+            return;
+        }
+        if (ins is StructFieldGetPrimInstr) {
+            StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr;
+            // op + tag(dst) + dst | base(u16) | byte_off(u32) | kind(u8)
+            w.WriteU8(Op.StructFieldGetPrim); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+            w.WriteU16(i.Base.Id); w.WriteU32(i.ByteOff); w.WriteU8(i.Kind);
+            return;
+        }
+        if (ins is StructFieldSetPrimInstr) {
+            StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr;
+            // op + tag(val) + NoReg(无 dst) | base(u16) | byte_off(u32) | kind(u8) | val(u16)
+            w.WriteU8(Op.StructFieldSetPrim); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
+            w.WriteU16(i.Base.Id); w.WriteU32(i.ByteOff); w.WriteU8(i.Kind); w.WriteU16(i.Val.Id);
+            return;
+        }
         if (ins is ObjNewInstr) {
             ObjNewInstr i = ins as ObjNewInstr;
             w.WriteU8(Op.ObjNew); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
@@ -80,6 +108,7 @@ public static class ZbcInstr {
             w.WriteU8(i.TypeArgCount);
             int t = 0;
             while (t < i.TypeArgCount) { w.WriteU32(pool.Idx(i.TypeArgs[t])); t = t + 1; }
+            if (i.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is TypeofInstr) {
@@ -97,6 +126,7 @@ public static class ZbcInstr {
             w.WriteU16(an.Size.Id);
             w.WriteU8(Tag.FromIrType(an.ElemTag));
             w.WriteU32(pool.Idx(an.ElemName));   // zbc 1.16：elem FQ 名
+            if (an.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is ArrayNewLitInstr) {
@@ -104,6 +134,7 @@ public static class ZbcInstr {
             w.WriteU8(Op.ArrayNewLit); w.WriteU8(Tag.FromIrType(al.Dst.Type)); w.WriteU16(al.Dst.Id);
             ZbcInstr._args(w, al.Elems, al.ElemCount);
             w.WriteU32(pool.Idx(al.ElemName));
+            if (al.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
             return;
         }
         if (ins is StaticGetInstr) {
@@ -391,6 +422,7 @@ public static class ZbcInstr {
         if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; pool.Intern(i.Method); return; }
         if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; pool.Intern(i.Field); return; }
         if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; pool.Intern(i.Field); return; }
+        if (ins is StructAllocInstr) { pool.Intern((ins as StructAllocInstr).TypeName); return; }   // 仅 StructAlloc 带类型名串
         if (ins is ObjNewInstr) {
             ObjNewInstr i = ins as ObjNewInstr;
             pool.Intern(i.ClassName); pool.Intern(i.CtorName);

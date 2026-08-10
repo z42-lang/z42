@@ -24,9 +24,9 @@ public sealed class DecodedBlockZ {
 }
 
 public static class ZbcReaderInstr {
-    // IEEE754 bits → f64（DoubleToBits 的逆；runtime 既有 builtin）。
-    [Native("__double_from_bits")]
-    public static extern double BitsToDouble(long bits);
+    // IEEE754 bits → f64（DoubleToBits 的逆）。consolidate-core-intrinsics (A1)：extern 唯一声明在
+    // Std.BitConverter；保留公开签名（z42c IrGenFacts 在用，改 API 会踩 seed-API 轴），body 委托 core。
+    public static double BitsToDouble(long bits) { return BitConverter.DoubleFromBits(bits); }
 
     // 一个块的字节区间 → 指令 + 终结符。fnNames/clsNames = token 解析表（SIGS/TYPE 序）。
     public static DecodedBlockZ DecodeBlock(ZbcCursor c, int end, string[] pool,
@@ -132,6 +132,30 @@ public static class ZbcReaderInstr {
             TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
             return new FieldSetInstr(obj, field, val);
         }
+        // add-struct-value-semantics Phase A：blob 值类型指令（镜像 ZbcInstr 编码布局）。
+        if (op == Op.StructAlloc) {
+            string tn = ZbcReaderInstr._p(pool, c.U32());
+            int size = c.U32();
+            return new StructAllocInstr(d, tn, size);
+        }
+        if (op == Op.StructCopy) {
+            TypedReg src = ZbcReaderInstr._ru(c.U16());
+            int size = c.U32();
+            return new StructCopyInstr(d, src, size);
+        }
+        if (op == Op.StructFieldGetPrim) {
+            TypedReg base_ = ZbcReaderInstr._ru(c.U16());
+            int off = c.U32();
+            int kind = c.U8();
+            return new StructFieldGetPrimInstr(d, base_, off, kind);
+        }
+        if (op == Op.StructFieldSetPrim) {
+            TypedReg base_ = ZbcReaderInstr._ru(c.U16());
+            int off = c.U32();
+            int kind = c.U8();
+            TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
+            return new StructFieldSetPrimInstr(base_, off, kind, val);
+        }
         if (op == Op.StaticGet) { return new StaticGetInstr(d, ZbcReaderInstr._p(pool, c.U32())); }
         if (op == Op.StaticSet) {
             string field = ZbcReaderInstr._p(pool, c.U32());
@@ -147,7 +171,10 @@ public static class ZbcReaderInstr {
             string[] targs = new string[tc];
             int t = 0;
             while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
-            return new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+            bool saO = c.U8() != 0;   // zbc 1.29 add-escape-analysis：尾 stack_alloc u8
+            ObjNewInstr onI = new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+            onI.StackAlloc = saO;
+            return onI;
         }
         if (op == Op.Typeof) {
             string tn = ZbcReaderInstr._p(pool, c.U32());
@@ -169,13 +196,19 @@ public static class ZbcReaderInstr {
             TypedReg size = ZbcReaderInstr._ru(c.U16());
             int elemTag = c.U8();
             string elemName = ZbcReaderInstr._p(pool, c.U32());
-            return new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
+            bool saA = c.U8() != 0;   // zbc 1.29 add-escape-analysis
+            ArrayNewInstr anI = new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
+            anI.StackAlloc = saA;
+            return anI;
         }
         if (op == Op.ArrayNewLit) {
             TypedReg[] elems = ZbcReaderInstr._args(c);
             int en = ZbcReaderInstr._argN;
             string elemName = ZbcReaderInstr._p(pool, c.U32());
-            return new ArrayNewLitInstr(d, elems, en, elemName);
+            bool saL = c.U8() != 0;   // zbc 1.29 add-escape-analysis
+            ArrayNewLitInstr alI = new ArrayNewLitInstr(d, elems, en, elemName);
+            alI.StackAlloc = saL;
+            return alI;
         }
         if (op == Op.ArrayGet) { return new ArrayGetInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.ArraySet) {

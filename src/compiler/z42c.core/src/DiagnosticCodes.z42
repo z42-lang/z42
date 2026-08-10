@@ -37,6 +37,11 @@ public static class DiagnosticCodes {
     public static string InterfaceMismatch     = "E0412";
     public static string InvalidImpl           = "E0413";
     public static string EventFieldExternalAccess = "E0414";
+    public static string ReadonlyAssignment       = "E0415";   // readonly 字段不可在构造函数外赋值（add-readonly-fields-opt）
+    public static string ConstNeedsInit           = "E0416";   // const 声明必须有初始化器（add-const-keyword）
+    public static string ConstNotConstantInit     = "E0417";   // const 初始化器必须是编译期常量（add-const-keyword）
+    public static string ConstAssignment          = "E0418";   // 不可对 const 赋值（add-const-keyword）
+    public static string ConstExprBadRef          = "E0419";   // 常量表达式只能引用已定义的 const（add-const-keyword）
     public static string InvalidCatchType         = "E0420";
     public static string InvalidDefaultType       = "E0421";
     public static string GenericFuncConstraintViolation = "E0422";
@@ -44,6 +49,10 @@ public static class DiagnosticCodes {
     public static string CtorArgMismatch          = "E0426";   // new C(args) 实参与本地 ctor 形参不匹配（防静默按位截断）
     public static string InvalidFuncConstraint    = "E0423";
     public static string IllegalCast              = "E0424";
+    // impl-sealed-semantics（E0416–E0419 已被 add-const-keyword 占用 → sealed 用 E0427–E0429）
+    public static string SealedInheritance        = "E0427";   // 不能继承 sealed 类
+    public static string SealedOverride           = "E0428";   // 不能 override 一个 sealed（override）方法
+    public static string SealedMethodNoBase       = "E0429";   // 方法级 sealed 必须 override 基类某 virtual 方法
     // partial types (add-partial-types)
     public static string PartialModifierMissing   = "E0430";   // 同名类型某声明未标 partial（须全部标）
     public static string PartialKindMismatch      = "E0431";   // 碎片 Kind（class/struct/record/interface）不一致
@@ -51,6 +60,10 @@ public static class DiagnosticCodes {
     public static string PartialDuplicateMember   = "E0433";   // 碎片间重复成员（同名字段 / 同签名方法）
     public static string PartialMethodSigMismatch = "E0434";   // partial method 实现无匹配声明 / 声明与实现签名不一致
     public static string PartialNestedUnsupported = "E0435";   // 嵌套类型自身 partial（v1 不支持，design D9）
+    public static string MissingUsing = "E0436";               // 用了某依赖 ns 却未在本文件 using（file-scoped usings）
+    public static string TargetTypedNewNeedsType = "E0437";    // target-typed `new()` 目标类型不可推断 / 重载歧义（add-target-typed-new）
+    // E0438 预留：值 struct 自引用（struct 直接/间接以自身为值字段）诊断——add-struct-nested-fields 的
+    // follow-up（当前由 StructLayout.IsBlobStruct 的 Size==0 兜底防崩，自引用 struct 退化为引用语义不报错）。
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

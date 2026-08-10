@@ -14,6 +14,10 @@
   - [异常与错误处理]()
   - [命名空间与访问控制]()
   - [partial 类型（跨文件类型定义）](language/partial-types.md)
+  - [readonly 字段](language/readonly-fields.md)
+  - [const 编译期常量](language/const.md)
+  - [sealed 修饰符](language/sealed.md)
+  - [target-typed new（省略构造类名）](language/target-typed-new.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）
@@ -34,10 +38,13 @@
   - [执行模型（interp / jit / aot）]()
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
   - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
+  - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
+  - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
+  - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
 
@@ -54,6 +61,7 @@
   - [workload 与平台发行]()
   - [SDK 与发行包布局]()
   - [编辑器集成（VSCode）](toolchain/editor-integration.md)
+  - [REPL 输入完整性判定](toolchain/repl-input-completeness.md)
 
 # 第六部分 · 开发基础设施（Dev Infrastructure）
 

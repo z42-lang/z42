@@ -11,41 +11,52 @@ public sealed class TypeEnv {
     public bool        HasParent;
     public TypeEnv     Parent;
     public StrMap      Vars;
+    public StrMap      Consts;     // add-const-keyword：本层局部 const 值（name → ConstValue）；LookupConst 走父链
     public StrMap      LocalFns;   // impl-local-fn-l2：本层局部函数签名（name → Z42FuncType）；LookupLocalFn 走父链
     public SymbolTable Symbols;
     public bool        ClassFlag;
     public string      ClassName;
     public string[]    TypeParamNames;   // 活跃类型形参（泛型类/方法 scope，2A）
     public int         TypeParamCount;
+    public bool        InCtorThis;       // add-readonly-fields-opt：当前在声明类的实例 ctor 体内（接收者 this）。
+                                         // readonly 字段仅此上下文可赋值。PushScope 继承（ctor 内嵌套块仍算）；
+                                         // WithClass* 重置为 false；ctor 体绑定用 WithClassGenericCtor 置 true。
 
     public TypeEnv(SymbolTable symbols, bool hasParent, TypeEnv parent, bool classFlag, string className,
-                   string[] typeParamNames, int typeParamCount) {
+                   string[] typeParamNames, int typeParamCount, bool inCtorThis) {
         this.Symbols = symbols;
         this.HasParent = hasParent;
         this.Parent = parent;
         this.Vars = new StrMap();
+        this.Consts = new StrMap();
         this.LocalFns = new StrMap();
         this.ClassFlag = classFlag;
         this.ClassName = className;
         this.TypeParamNames = typeParamNames;
         this.TypeParamCount = typeParamCount;
+        this.InCtorThis = inCtorThis;
     }
 
     public static TypeEnv Root(SymbolTable symbols) {
-        return new TypeEnv(symbols, false, null, false, "", new string[0], 0);
+        return new TypeEnv(symbols, false, null, false, "", new string[0], 0, false);
     }
 
     public TypeEnv PushScope() {
-        return new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount);
+        return new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount, this.InCtorThis);
     }
 
     public TypeEnv WithClass(string className) {
-        return new TypeEnv(this.Symbols, true, this, true, className, new string[0], 0);
+        return new TypeEnv(this.Symbols, true, this, true, className, new string[0], 0, false);
     }
 
     // 泛型类 scope（携类型形参）。
     public TypeEnv WithClassGeneric(string className, string[] typeParamNames, int typeParamCount) {
-        return new TypeEnv(this.Symbols, true, this, true, className, typeParamNames, typeParamCount);
+        return new TypeEnv(this.Symbols, true, this, true, className, typeParamNames, typeParamCount, false);
+    }
+
+    // ctor 体 scope（携类型形参 + InCtorThis=true）：readonly 字段在此可赋值。add-readonly-fields-opt。
+    public TypeEnv WithClassGenericCtor(string className, string[] typeParamNames, int typeParamCount) {
+        return new TypeEnv(this.Symbols, true, this, true, className, typeParamNames, typeParamCount, true);
     }
 
     // 类型解析（携本 scope 的活跃类型形参）。
@@ -81,6 +92,32 @@ public sealed class TypeEnv {
 
     public void Define(string name, Z42Type type) { this.Vars.Put(name, type); }
 
+    // add-const-keyword：局部 const 值登记 / 父链查找。IsConstName 供赋值检查（不可对 const 赋值）。
+    public void DefineConst(string name, ConstValue cv) { this.Consts.Put(name, cv); }
+    public ConstValue LookupConst(string name) {
+        TypeEnv e = this;
+        bool more = true;
+        while (more) {
+            if (e.Consts.ContainsKey(name)) { return e.Consts.Get(name) as ConstValue; }
+            if (e.HasParent) { e = e.Parent; } else { more = false; }
+        }
+        return null;
+    }
+    public bool IsConstName(string name) { return this.LookupConst(name) != null; }
+    // 收集本层+父链全部 in-scope const（裸名 → ConstValue，内层 first-wins）供 ConstEval 求值局部 const 初始化器。
+    public StrMap CollectConsts() {
+        StrMap acc = new StrMap();
+        TypeEnv e = this;
+        bool more = true;
+        while (more) {
+            string[] ks = e.Consts.Keys();
+            int i = 0;
+            while (i < ks.Length) { acc.TryAdd(ks[i], e.Consts.Get(ks[i])); i = i + 1; }
+            if (e.HasParent) { e = e.Parent; } else { more = false; }
+        }
+        return acc;
+    }
+
     // impl-local-fn-l2：局部函数签名注册 / 父链查找（null = 非局部函数）。
     public void DefineLocalFn(string name, Z42FuncType sig) { this.LocalFns.Put(name, sig); }
     public Z42FuncType LookupLocalFn(string name) {
@@ -109,4 +146,5 @@ public sealed class TypeEnv {
     public bool        HasClass()     { return this.ClassFlag; }
     public string      CurrentClass() { return this.ClassName; }
     public SymbolTable GetSymbols()   { return this.Symbols; }
+    public bool        InCtor()       { return this.InCtorThis; }   // add-readonly-fields-opt
 }

@@ -1,4 +1,5 @@
 namespace Demo.Base;
+using Std.IO;
 using Std;
 
 // Base class with multiple virtual methods. Subclasses in other zpkgs

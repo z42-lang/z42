@@ -36,6 +36,7 @@ pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native /
 pub mod object;
 pub mod reflection;
 pub mod assemblyloadcontext;
+pub mod diagnostics;
 pub mod array;
 pub mod char;
 pub mod gc;
@@ -99,6 +100,7 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__str_length",      string::builtin_str_length),
     ("__str_byte_length", string::builtin_str_byte_length),
     ("__str_char_at",     string::builtin_str_char_at),
+    ("__str_to_chars",    string::builtin_str_to_chars),
     ("__str_from_chars", string::builtin_str_from_chars),
     ("__str_to_string",  string::builtin_str_to_string),
     ("__str_equals",     string::builtin_str_equals),
@@ -466,9 +468,11 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── add-z42-repl (2026-07-23) — appended to preserve existing BuiltinIds ──
     // REPL line editor (rustyline) + in-memory bytecode load. Back
-    // `Std.Repl.ReadLine/ReadBlock` and z42.scripting's per-eval module load.
+    // `Std.Repl.ReadLine` and z42.scripting's per-eval module load. (BuiltinId is
+    // resolved by name at load, so removing the retired `__repl_readline_indented`
+    // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
+    // persisted id.)
     ("__repl_readline",           repl::builtin_repl_readline),
-    ("__repl_readblock",          repl::builtin_repl_readblock),
     ("__repl_complete_probe",     repl::builtin_repl_complete_probe),
     ("__repl_set_completer",      repl::builtin_repl_set_completer),
     ("__repl_member_names",       repl::builtin_repl_member_names),
@@ -503,6 +507,13 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           platform::builtin_platform_caps),
     ("__platform_exec_modes",     platform::builtin_platform_exec_modes),
+
+    // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
+    ("__lctx_unload",             assemblyloadcontext::builtin_lctx_unload),
+
+    // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
+    ("__heap_direct_referrers",   diagnostics::builtin_heap_direct_referrers),
+    ("__heap_retaining_roots",    diagnostics::builtin_heap_retaining_roots),
 
     // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
     ("__run_goldens_isolated",    reflection::builtin_run_goldens_isolated),

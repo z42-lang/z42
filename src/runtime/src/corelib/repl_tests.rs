@@ -1,62 +1,33 @@
-//! Unit tests for REPL bracket-balance detection (add-z42-repl).
+//! Unit tests for the REPL Tab-completion replacement span (`word_start`).
+//!
+//! Bracket-balance detection + continuation-indent computation moved to the script
+//! layer (`Std.Scripting.Completeness`, sink-repl-indent-to-script) and are covered
+//! by the z42 golden test `src/toolchain/scripting/tests/completeness/`. This file
+//! keeps only the native-side `word_start` coverage.
 
-use super::bracket_depth;
+use super::word_start;
+
+// ── word_start: replacement span excludes `.` (fix-repl-completion-span-and-index) ──
+// The bug: `.`-inclusive word_start made a member candidate (`WriteLine`) replace the
+// whole `Console.Wr` span → wiping the receiver. It must stop at `.` so only the
+// post-`.` prefix is replaced.
 
 #[test]
-fn balanced_simple() {
-    assert_eq!(bracket_depth("1 + 2"), 0);
-    assert_eq!(bracket_depth("f(1, 2)"), 0);
-    assert_eq!(bracket_depth("a[0] + b[1]"), 0);
+fn word_start_member_stops_after_dot() {
+    // "Console.Wr" → span starts at 'W' (index 8), so `WriteLine` replaces only "Wr".
+    assert_eq!(word_start("Console.Wr", 10), 8);
+    // Nested receiver: "a.b.Wr" → after the LAST dot (index 4).
+    assert_eq!(word_start("a.b.Wr", 6), 4);
+    // Just typed the dot: "Console." → span is the empty word right after the dot.
+    assert_eq!(word_start("Console.", 8), 8);
 }
 
 #[test]
-fn unclosed_opens_positive() {
-    assert_eq!(bracket_depth("int sq(int n) {"), 1);
-    assert_eq!(bracket_depth("f(g("), 2);
-    assert_eq!(bracket_depth("x = {"), 1);
-}
-
-#[test]
-fn closes_across_lines_balance() {
-    // A block opened then closed nets to zero.
-    assert_eq!(bracket_depth("int sq(int n) {\n  return n*n;\n}"), 0);
-}
-
-#[test]
-fn brackets_in_string_ignored() {
-    assert_eq!(bracket_depth("\"a(b\""), 0);
-    assert_eq!(bracket_depth("var s = \"{[(\";"), 0);
-    // escaped quote does not end the string
-    assert_eq!(bracket_depth("\"a\\\"{\""), 0);
-}
-
-#[test]
-fn brackets_in_char_ignored() {
-    assert_eq!(bracket_depth("char c = '('"), 0);
-    assert_eq!(bracket_depth("'\\''"), 0);
-}
-
-#[test]
-fn brackets_in_line_comment_ignored() {
-    assert_eq!(bracket_depth("f(1) // trailing ({["), 0);
-    assert_eq!(bracket_depth("// only a comment ({["), 0);
-}
-
-#[test]
-fn brackets_in_block_comment_ignored() {
-    assert_eq!(bracket_depth("f(1) /* ({[ */"), 0);
-    assert_eq!(bracket_depth("/* ( */ g()"), 0);
-}
-
-#[test]
-fn division_not_treated_as_comment() {
-    // A lone `/` (division) must not start a comment.
-    assert_eq!(bracket_depth("a / b + (c)"), 0);
-    assert_eq!(bracket_depth("(a / b"), 1);
-}
-
-#[test]
-fn extra_closes_go_negative() {
-    // More closes than opens → non-positive (caller stops reading).
-    assert!(bracket_depth("})") < 0);
+fn word_start_bare_identifier_spans_whole_word() {
+    // Bare prefix "Con" → whole word (index 0), `Console` replaces "Con".
+    assert_eq!(word_start("Con", 3), 0);
+    // Leading text then a bare word: "x = Con" → start of "Con" (index 4).
+    assert_eq!(word_start("x = Con", 7), 4);
+    // Digits / underscore are part of the word; stops at the space.
+    assert_eq!(word_start("foo_2", 5), 0);
 }

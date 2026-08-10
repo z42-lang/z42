@@ -53,6 +53,13 @@ void test_fields() {
                  parseUnit("class C { private int x; public string Name = \"a\"; }"));
 }
 
+// add-const-keyword：const 字段修饰进 Mods（含引用已定义 const 的常量表达式初始化器）。
+[Test]
+void test_const_field() {
+    Assert.Equal("(unit (class C (field const int Max 100) (field const int Two (* Max 2))))",
+                 parseUnit("class C { const int Max = 100; const int Two = Max * 2; }"));
+}
+
 [Test]
 void test_method() {
     Assert.Equal("(unit (class C (method public int Add (int a, int b) (block (return (+ a b))))))",

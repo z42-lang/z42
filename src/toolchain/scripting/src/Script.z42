@@ -55,8 +55,9 @@ public static class Script {
     //
     // repl-lazy-prelude：worker 只建依赖世界**骨架**（nsMap 路由 + 惰性 world），**不 reconcile prelude、
     // 不预载 usings** → 立即发布。`1+1` 类纯表达式零包加载（1.72s→~0.40s），秒回车也不卡。首次引用 Std
-    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性，~1.7s——留待 T2 按符号
-    // reconcile 降到 ~0.5s）。**不后台 reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
+    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性）——**已由 T2 per-type
+    // completer（#98/#101）从 ~1.7s 降到 ~0.33s**（见 _loadReferencedTypes / repl.md T2 节）。**不后台
+    // reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
     // 主线程 eval，后台预热反而把 `1+1` 拖慢（实测双缓冲 Phase 2 下秒回车 `1+1`=3s）。
     // 并发安全：worker 建完 skel 即原子发布（64 位指针写）、随即退出——绝无「发布后继续变异 scan」，
     // 与主线程 eval / 补全器无数据竞争；补全器并发读只见 null 或完全成品。幂等：已建则直接返回。
@@ -77,6 +78,37 @@ public static class Script {
             try { t.Join(); } catch (Exception e) { }   // worker 异常 → 下面 inline 兜底重建
         }
         if (state.CachedScan == null) { Script.Prewarm(state); }
+    }
+
+    // add-repl-members-metacommand：public 汇合入口，供依赖 completer 的元指令（.members）在**无 eval**
+    // 时先确保 CachedScan 就绪（否则首命令即 .members 会读到 null scan、返回空）。等价 Eval 顶部的汇合。
+    public static void EnsureWarm(ScriptState state) { Script._ensureWarm(state); }
+
+    // add-repl-ns-completion-err-map：诊断行号回映。生成源 = prelude（namespace/usings/[Vars 类]）+ 用户输入，
+    // 故用户输入第一行在生成源里 = prelude 换行数 + 1 → 用户行 = 诊断行 − prelude换行数（表达式轮/声明轮统一）。
+    private static int _countNewlines(string s) {
+        int n = 0; int i = 0;
+        char nl = (char)10;   // z42 词法器不支持 char 转义（见 interactive_main (char)27 idiom）
+        while (i < s.Length) { if (s.CharAt(i) == nl) { n = n + 1; } i = i + 1; }
+        return n;
+    }
+
+    // 把诊断串 `<file>(<L>,<C>): <rest>` 回映：抽 L → 用户行；丢内部生成文件名 + **不可靠的列号**
+    // （Rewriter 会改写用户输入、移动列位置）。用户行 ≤ 1（单行输入 / 落在 prelude）→ 只留 <rest>，
+    // 不加噪声。格式不符（无 `(`/`,`/`): `）→ 原样返回（稳健兜底）。
+    private static string _remapDiag(string msg, int preludeLines) {
+        int lp = msg.IndexOf("(");
+        if (lp < 0) { return msg; }
+        string afterLp = msg.Substring(lp + 1, msg.Length - lp - 1);
+        int comma = afterLp.IndexOf(",");
+        if (comma < 0) { return msg; }
+        int endSeq = msg.IndexOf("): ");
+        if (endSeq < 0 || endSeq < lp) { return msg; }
+        string lStr = msg.Substring(lp + 1, comma);   // afterLp[0,comma) = 行号数字串
+        int userLine = Convert.ToInt32(lStr) - preludeLines;
+        string rest = msg.Substring(endSeq + 3, msg.Length - endSeq - 3);   // "): " 之后
+        if (userLine <= 1) { return rest; }
+        return "第 " + userLine.ToString() + " 行: " + rest;
     }
 
     // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
@@ -137,7 +169,10 @@ public static class Script {
                 vi = vi + 1;
             }
             string initR = Rewriter.Rewrite(p.InitExpr, state.VarNames, cls);
-            prelude = prelude + "  public static var " + p.VarName + " = " + initR + ";\n";
+            // 保留用户写的显式类型（`A a = new()` → `public static A a = ..`），让声明类型能作
+            // target-typed new / 集合字面量的目标；`var a = ..` 仍发 `var`（靠 init 推断 + carry）。
+            string declKw = (p.DeclType.Length > 0) ? p.DeclType : "var";
+            prelude = prelude + "  public static " + declKw + " " + p.VarName + " = " + initR + ";\n";
             prelude = prelude + "}\n";
         }
 
@@ -163,9 +198,10 @@ public static class Script {
             }
         }
         if (art.ErrorCount > 0) {
+            int pl = Script._countNewlines(prelude);   // 生成源 = prelude + wrapper+用户输入 → 行号回映基准
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);   // 会话不推进
         }
 
@@ -219,9 +255,10 @@ public static class Script {
         string prelude = Script._basePrelude(state, ns);
         CompileArtifacts art = Script._compileRaw(state, n, prelude + declText + "\n");
         if (art.ErrorCount > 0) {
+            int pl = Script._countNewlines(prelude);   // 声明轮：declText 紧接 prelude，行号回映同理
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + art.Cms[0].DiagMsgs[di] + "\n"; di = di + 1; }
+            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);
         }
         byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();

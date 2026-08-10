@@ -5,8 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 28;   // 2026-07-18 fix-crosspkg-interface-impl：接口 TYPE 条目尾部加方法签名块（Flags bit4 gated：mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n）——跨包接口实现须能从依赖 zpkg 恢复接口方法（抽象方法不入 SIGS、EXPT 已删）。随 zpkg 0/33 同 bump。
-                                    // 前史：1.27 stabilize-dispatch-keys（派发键一律全签名 mangle，wire 布局不变）；1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）。
+    public static int Minor = 31;   // 2026-08-08 add-struct-value-semantics A-use：TYPE section 加值 struct 布局块（size:u32+ref_count:u16+(off:u32,kind:u8)×n，Flags bit2 gated）+ z42c 开始 emit StructAlloc/Copy/FieldGet/SetPrim。随 zpkg 0/36 同 bump。
+                                    // 前史：1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys（派发键全签名 mangle）；1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。
@@ -51,6 +51,12 @@ public static class Op {
     public static int LoadLocalAddr = 0xA0;  // ref 参数调用：dst, slot（镜像 C# Opcodes.LoadLocalAddr）
     public static int DefaultOf = 0xB0;  // default(T) 泛型类型参数零值（D-8b-3 Phase 2；镜像 C# Opcodes.DefaultOf）
     public static int Convert = 0xB1;   // (T)expr 数值转换（spec fix-numeric-cast-lowering；镜像 C# Opcodes.Convert）
+    // add-struct-value-semantics Phase A：blob 值类型（多字段 struct 内联字节表示）。z42c 在 A-use（2c）才发射；
+    // A-support（2a/2b）只加编解码/执行能力、不发射 → 无 zbc 字节变化、暂不 bump 版本（bump 在 A-use）。
+    public static int StructAlloc        = 0xC0;  // dst = 在字节 arena 分配 size 字节 blob（零初始化），dst=StructRef 句柄
+    public static int StructCopy         = 0xC1;  // dst = src 的 blob 副本（size 字节；纯基元 memcpy / 含引用叶子按位图分流）
+    public static int StructFieldGetPrim = 0xC2;  // dst_reg = base blob 在 byte_off 处的基元叶子（kind 定字节宽/解码）
+    public static int StructFieldSetPrim = 0xC3;  // base blob 在 byte_off 处原地写基元叶子 = val（lvalue）
 }
 
 // 指令头 type_tag 字节（IrType int 标签 → zbc tag）。

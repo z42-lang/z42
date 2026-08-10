@@ -72,12 +72,12 @@
     },
     "keywords": {
       "patterns": [
-        { "name": "keyword.control.z42", "match": "\\b(return|if|else|while|for|foreach|in|do|break|continue|switch|case|default|try|catch|finally|throw|await|spawn)\\b" },
-        { "name": "storage.type.declaration.z42", "match": "\\b(import|namespace|using|var|class|struct|enum|interface|record|delegate|event|where|operator|fn|let|trait|impl|use|module)\\b" },
-        { "name": "storage.modifier.z42", "match": "\\b(pinned|static|public|private|protected|internal|ref|out|params|partial|abstract|extern|sealed|override|virtual|async|mut)\\b" },
+        { "name": "keyword.control.z42", "match": "\\b(return|if|else|while|for|foreach|in|do|break|continue|switch|case|default|try|catch|finally|throw|await)\\b" },
+        { "name": "storage.type.declaration.z42", "match": "\\b(import|namespace|using|var|class|struct|enum|interface|record|delegate|event|where|operator|impl)\\b" },
+        { "name": "storage.modifier.z42", "match": "\\b(pinned|static|public|private|protected|internal|ref|out|params|partial|readonly|const|abstract|extern|sealed|override|virtual|async)\\b" },
         { "name": "keyword.operator.expression.z42", "match": "\\b(new|typeof|is|as)\\b" },
         { "name": "storage.type.primitive.z42", "match": "\\b(string|int|long|short|double|float|byte|uint|ulong|ushort|sbyte|object|bool|char|void|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64)\\b" },
-        { "name": "constant.language.z42", "match": "\\b(null|true|false|none)\\b" }
+        { "name": "constant.language.z42", "match": "\\b(null|true|false)\\b" }
       ]
     },
     "types": {

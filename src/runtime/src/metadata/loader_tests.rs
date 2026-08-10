@@ -258,6 +258,7 @@ fn type_registry_vec_invariant_after_build() {
                 interfaces: vec![].into(),
                 enum_members: vec![].into(),
                 iface_methods: vec![].into(),
+                struct_layout: None,
                 class_flags: 0,
                 name: "Demo.Aaa".to_owned(),
                 base_class: None,
@@ -271,6 +272,7 @@ fn type_registry_vec_invariant_after_build() {
                 interfaces: vec![].into(),
                 enum_members: vec![].into(),
                 iface_methods: vec![].into(),
+                struct_layout: None,
                 class_flags: 0,
                 name: "Demo.Bbb".to_owned(),
                 base_class: Some("Demo.Aaa".to_owned()),
@@ -418,6 +420,7 @@ fn module_with_one_class(
             interfaces: vec![].into(),
             enum_members: vec![].into(),
             iface_methods: vec![].into(),
+            struct_layout: None,
             class_flags: 0,
             name: name.to_owned(),
             base_class: base.map(str::to_owned),
@@ -636,6 +639,7 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
             block_index:  std::collections::HashMap::new(),
             branch_targets: Vec::new(),
             fused_tails: Vec::new(),
+            frame_meta: None,
             resolved:     std::sync::OnceLock::new(),
         })
         .collect();

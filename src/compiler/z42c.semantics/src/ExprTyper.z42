@@ -3,6 +3,7 @@
 // _tc._member（成员调用）、_tc._overload（重载）、_tc._constraints、共享状态 _tc._lambda*、
 // 叶子 _tc._isAssignable/_commonType/_checkOperand/_requireBool/_operatorMethodNameTc/_floatLitType/_diags。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
@@ -10,7 +11,8 @@ using Z42.IR.BinaryFormat;
 
 public sealed class ExprTyper {
     private TypeChecker _tc;
-    public ExprTyper(TypeChecker tc) { this._tc = tc; }
+    private int _collSeq;   // 集合字面量脱糖的合成局部名计数器（$c0, $c1, ...）
+    public ExprTyper(TypeChecker tc) { this._tc = tc; this._collSeq = 0; }
 
     private BoundExpr _bindLiteral(Expr e) {
         if (e is IntLitExpr) {
@@ -134,7 +136,10 @@ public sealed class ExprTyper {
                 }
             }
             BoundExpr target = this._bindExpr(a.Target, env);
-            BoundExpr value = this._bindExpr(a.Value, env);
+            this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
+            this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
+            // add-target-typed-new：`x = new()` RHS 以 LHS 类型为目标（含实例字段初始化器 `this.f = new()`）。
+            BoundExpr value = this.BindWithTarget(a.Value, target.Type(), env);
             // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →
             // `+=` 退化成 `=`，丢旧值；arr[0]+=5 得 5 非 15）。binop = 去掉末尾 '='。
             if (a.Op != "=") {
@@ -146,6 +151,65 @@ public sealed class ExprTyper {
                     "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
             }
             return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与
+    // const 字段（BoundStaticGet 指向 IsConst 字段）。const 无存储，赋值无从谈起 → 一律报错。
+    private void _checkConstAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            if (env.IsConstName(nm)) {
+                this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const `" + nm + "`", a.Span);
+                return;
+            }
+        }
+        if (target is BoundStaticGet) {
+            BoundStaticGet sg = target as BoundStaticGet;
+            if (env.Symbols.HasClass(sg.ClassName)) {
+                FieldSymbol fs = env.Symbols.GetClass(sg.ClassName).Fields.Get(sg.FieldName) as FieldSymbol;
+                if (fs != null && fs.IsConst) {
+                    this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const field `" + fs.Name + "`", a.Span);
+                }
+            }
+        }
+    }
+
+    // add-readonly-fields-opt：readonly 字段仅可在声明类实例 ctor 内经 `this` 赋值（含注入的字段初始化器）。
+    // 覆盖两种写法：`recv.field = v`（BoundMember）与裸 `field = v`（BoundIdent，隐式接收者 this）。
+    // 用已绑 target 取字段（不重复绑定接收者，避免双诊断）。裸 ident 经 `this` 类型查字段——
+    // 若同名局部遮蔽 readonly 字段名会误报（极罕见、当前无 readonly 字段故无回归；workaround=重命名局部）。
+    private void _checkReadonlyAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        FieldSymbol fs = null;
+        bool recvIsThis = false;
+        if (target is BoundMember) {
+            BoundMember bm = target as BoundMember;
+            fs = this._fieldOf(bm.Target.Type(), bm.MemberName);
+            if (a.Target is MemberExpr) {
+                Expr rt = (a.Target as MemberExpr).Target;
+                recvIsThis = (rt is IdentExpr) && ((rt as IdentExpr).Name == "this");
+            }
+        } else if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            Z42Type thisT = env.LookupVar("this");
+            if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        }
+        if (fs != null && fs.IsReadonly) {
+            bool ok = recvIsThis && env.InCtor();
+            if (!ok) {
+                this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
+                    "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
+            }
+        }
+    }
+
+    // 从接收者类型取字段符号（class / 泛型实例）；非类或无此字段 → null。
+    private FieldSymbol _fieldOf(Z42Type recvType, string name) {
+        Z42ClassType cls = null;
+        if (recvType is Z42ClassType) { cls = recvType as Z42ClassType; }
+        else if (recvType is Z42InstantiatedType) { cls = (recvType as Z42InstantiatedType).Def; }
+        if (cls == null) { return null; }
+        if (!cls.Fields.ContainsKey(name)) { return null; }
+        return cls.Fields.Get(name) as FieldSymbol;
     }
 
     private BoundExpr _bindIdent(IdentExpr id, TypeEnv env) {
@@ -278,6 +342,291 @@ public sealed class ExprTyper {
             return new BoundArrayNew(size, elem.Name(), new Z42ArrayType(elem), an.Span);
     }
 
+    // ── 集合字面量脱糖（add-collection-literals）─────────────────────────────────
+    // [..] → 数组 / 重复 / spread；{..} → List / Dict / 空。target 为声明侧 TypeExpr（可 null）。
+    // 均脱糖为现有构造（BoundArrayLit / new List+Add / new Dictionary+Set / 填充·拷贝循环），
+    // 零新 IR、零格式 bump。非平凡脱糖包进 BoundSeqExpr（前置语句序列 + 值）。
+
+    public static bool IsCollLit(Expr e) {
+        return e is ArrayLitExpr || e is ArrayRepeatExpr || e is ListLitExpr
+            || e is DictLitExpr || e is EmptyBraceLitExpr;
+    }
+
+    private string _freshColl() {
+        string n = "$c" + this._collSeq.ToString();
+        this._collSeq = this._collSeq + 1;
+        return n;
+    }
+
+    // Z42Type → TypeExpr（无目标时从推断出的元素类型合成 `new` 的类型实参）。
+    // 覆盖 prim / 数组 / 泛型实例化（递归）/ 具名类（短名，靠调用方作用域解析）。
+    private TypeExpr _typeToTypeExpr(Z42Type t, Span s) {
+        if (t is Z42ArrayType) { return new ArrayType(this._typeToTypeExpr((t as Z42ArrayType).Elem, s), s); }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            TypeExpr[] args = new TypeExpr[it.ArgCount];
+            int i = 0;
+            while (i < it.ArgCount) { args[i] = this._typeToTypeExpr(it.TypeArgs[i], s); i = i + 1; }
+            return new NamedType(it.Def.Name(), args, it.ArgCount, s);
+        }
+        return new NamedType(t.Name(), new TypeExpr[0], 0, s);
+    }
+
+    public BoundExpr _bindCollLit(Expr e, TypeExpr target, TypeEnv env) {
+        if (e is ArrayLitExpr)      { return this._bindArrayLit(e as ArrayLitExpr, target, env); }
+        if (e is ArrayRepeatExpr)   { return this._bindArrayRepeat(e as ArrayRepeatExpr, target, env); }
+        if (e is ListLitExpr)       { return this._bindListLit(e as ListLitExpr, target, env); }
+        if (e is DictLitExpr)       { return this._bindDictLit(e as DictLitExpr, target, env); }
+        if (e is EmptyBraceLitExpr) { return this._bindEmptyBrace(e as EmptyBraceLitExpr, target, env); }
+        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "not a collection literal", e.Span);
+        return new BoundError("not a collection literal", new Z42ErrorType(), e.Span);
+    }
+
+    // [e0, e1, ..] 数组字面量（含 spread）。无 spread → 直接 BoundArrayLit（同 new T[]{}）。
+    private BoundExpr _bindArrayLit(ArrayLitExpr al, TypeExpr target, TypeEnv env) {
+        Span sp = al.Span;
+        TypeExpr elemTe = null;
+        if (target != null && target is ArrayType) { elemTe = (target as ArrayType).Elem; }
+        bool anySpread = false;
+        int i = 0;
+        while (i < al.ElemCount) { if (al.IsSpread[i]) { anySpread = true; } i = i + 1; }
+        if (anySpread) { return this._bindArraySpread(al, elemTe, env); }
+        // 空 []：需目标元素类型
+        if (al.ElemCount == 0) {
+            if (elemTe == null) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "empty array literal `[]` needs an explicit target type", sp);
+                return new BoundError("empty array literal", new Z42ErrorType(), sp);
+            }
+            Z42Type ee = env.ResolveType(elemTe);
+            return new BoundArrayLit(new BoundExpr[0], 0, ee.Name(), new Z42ArrayType(ee), sp);
+        }
+        BoundExpr[] raw = new BoundExpr[al.ElemCount];
+        int j = 0;
+        while (j < al.ElemCount) { raw[j] = this._bindExpr(al.Elems[j], env); j = j + 1; }
+        Z42Type elem;
+        if (elemTe != null) { elem = env.ResolveType(elemTe); } else { elem = raw[0].Type(); }
+        j = 0;
+        while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); j = j + 1; }
+        return new BoundArrayLit(raw, al.ElemCount, elem.Name(), new Z42ArrayType(elem), sp);
+    }
+
+    // {e0, e1, ..} List 字面量 → new List<T>() + Add（包 BoundSeqExpr）。
+    private BoundExpr _bindListLit(ListLitExpr ll, TypeExpr target, TypeEnv env) {
+        Span sp = ll.Span;
+        TypeExpr listTe;
+        if (target != null) {
+            listTe = target;
+        } else {
+            BoundExpr b0 = this._bindExpr(ll.Elems[0], env);
+            TypeExpr[] a = new TypeExpr[1];
+            a[0] = this._typeToTypeExpr(b0.Type(), sp);
+            listTe = new NamedType("List", a, 1, sp);
+        }
+        string tmp = this._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[ll.ElemCount + 1];
+        Stmt declS = new VarDeclStmt(listTe, tmp, new ObjNewExpr(listTe, new Expr[0], 0, sp), sp);
+        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
+        int i = 0;
+        while (i < ll.ElemCount) {
+            Expr[] args = new Expr[1];
+            args[0] = ll.Elems[i];
+            Expr addC = new CallExpr(new MemberExpr(new IdentExpr(tmp, sp), "Add", sp), args, 1, sp);
+            pre[i + 1] = this._tc._stmt.BindStmt(new ExprStmt(addC, sp), env, voidT);
+            i = i + 1;
+        }
+        BoundExpr val = this._bindExpr(new IdentExpr(tmp, sp), env);
+        return new BoundSeqExpr(pre, ll.ElemCount + 1, val, val.Type(), sp);
+    }
+
+    // {k0: v0, ..} Dict 字面量 → new Dictionary<K,V>() + Set（包 BoundSeqExpr）。
+    private BoundExpr _bindDictLit(DictLitExpr dl, TypeExpr target, TypeEnv env) {
+        Span sp = dl.Span;
+        TypeExpr dictTe;
+        if (target != null) {
+            dictTe = target;
+        } else {
+            BoundExpr bk = this._bindExpr(dl.Keys[0], env);
+            BoundExpr bv = this._bindExpr(dl.Values[0], env);
+            TypeExpr[] a = new TypeExpr[2];
+            a[0] = this._typeToTypeExpr(bk.Type(), sp);
+            a[1] = this._typeToTypeExpr(bv.Type(), sp);
+            dictTe = new NamedType("Dictionary", a, 2, sp);
+        }
+        string tmp = this._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[dl.Count + 1];
+        Stmt declS = new VarDeclStmt(dictTe, tmp, new ObjNewExpr(dictTe, new Expr[0], 0, sp), sp);
+        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
+        int i = 0;
+        while (i < dl.Count) {
+            Expr[] args = new Expr[2];
+            args[0] = dl.Keys[i];
+            args[1] = dl.Values[i];
+            Expr setC = new CallExpr(new MemberExpr(new IdentExpr(tmp, sp), "Set", sp), args, 2, sp);
+            pre[i + 1] = this._tc._stmt.BindStmt(new ExprStmt(setC, sp), env, voidT);
+            i = i + 1;
+        }
+        BoundExpr val = this._bindExpr(new IdentExpr(tmp, sp), env);
+        return new BoundSeqExpr(pre, dl.Count + 1, val, val.Type(), sp);
+    }
+
+    // 空 {}：List 还是 Dict 由目标类型定。target 须为 List<..> / Dictionary<..>。
+    private BoundExpr _bindEmptyBrace(EmptyBraceLitExpr eb, TypeExpr target, TypeEnv env) {
+        Span sp = eb.Span;
+        if (target == null) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "empty `{}` needs an explicit target type (List or Dictionary)", sp);
+            return new BoundError("empty brace literal", new Z42ErrorType(), sp);
+        }
+        bool ok = false;
+        if (target is NamedType) {
+            string nm = (target as NamedType).Name;
+            if (nm == "List" || nm == "Dictionary") { ok = true; }
+        }
+        if (!ok) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "empty `{}` target must be List<..> or Dictionary<..>", sp);
+            return new BoundError("empty brace literal", new Z42ErrorType(), sp);
+        }
+        return this._bindExpr(new ObjNewExpr(target, new Expr[0], 0, sp), env);
+    }
+
+    // [value; count] 重复填充 → $v=value; $c=count; $a=new T[$c]; for $i<$c { $a[$i]=$v } （value 只求值一次）。
+    private BoundExpr _bindArrayRepeat(ArrayRepeatExpr ar, TypeExpr target, TypeEnv env) {
+        Span sp = ar.Span;
+        TypeExpr elemTe = null;
+        if (target != null && target is ArrayType) { elemTe = (target as ArrayType).Elem; }
+        if (elemTe == null) {
+            BoundExpr bv = this._bindExpr(ar.Value, env);
+            elemTe = this._typeToTypeExpr(bv.Type(), sp);
+        }
+        TypeExpr intTe = new NamedType("int", new TypeExpr[0], 0, sp);
+        TypeExpr arrTe = new ArrayType(elemTe, sp);
+        string vn = this._freshColl();
+        string cn = this._freshColl();
+        string an = this._freshColl();
+        string ix = this._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[5];
+        pre[0] = this._tc._stmt.BindStmt(new VarDeclStmt(elemTe, vn, ar.Value, sp), env, voidT);
+        pre[1] = this._tc._stmt.BindStmt(new VarDeclStmt(intTe, cn, ar.Count, sp), env, voidT);
+        pre[2] = this._tc._stmt.BindStmt(new VarDeclStmt(arrTe, an, new ArrayNewExpr(elemTe, new IdentExpr(cn, sp), sp), sp), env, voidT);
+        pre[3] = this._tc._stmt.BindStmt(new VarDeclStmt(intTe, ix, new IntLitExpr("0", sp), sp), env, voidT);
+        // while ($i < $c) { $a[$i] = $v; $i = $i + 1; }
+        Expr cond = new BinaryExpr("<", new IdentExpr(ix, sp), new IdentExpr(cn, sp), sp);
+        Stmt setEl = new ExprStmt(new AssignExpr("=", new IndexExpr(new IdentExpr(an, sp), new IdentExpr(ix, sp), sp), new IdentExpr(vn, sp), sp), sp);
+        Stmt incr = new ExprStmt(new AssignExpr("=", new IdentExpr(ix, sp), new BinaryExpr("+", new IdentExpr(ix, sp), new IntLitExpr("1", sp), sp), sp), sp);
+        Stmt[] bodyStmts = new Stmt[2];
+        bodyStmts[0] = setEl; bodyStmts[1] = incr;
+        Stmt body = new BlockStmt(bodyStmts, 2, sp);
+        pre[4] = this._tc._stmt.BindStmt(new WhileStmt(cond, body, sp), env, voidT);
+        BoundExpr val = this._bindExpr(new IdentExpr(an, sp), env);
+        return new BoundSeqExpr(pre, 5, val, val.Type(), sp);
+    }
+
+    // [..a, x, ..b] spread → 各 spread 源先入临时（只求值一次）→ new T[总长] → 逐段拷贝。
+    // 本轮 spread 源仅数组（用 .Length / 下标）；List 源留后续。
+    private BoundExpr _bindArraySpread(ArrayLitExpr al, TypeExpr elemTe, TypeEnv env) {
+        Span sp = al.Span;
+        // 元素类型推断（无目标）：取首元素类型，spread 首元素取其数组元素类型。
+        if (elemTe == null) {
+            BoundExpr b0 = this._bindExpr(al.Elems[0], env);
+            Z42Type t0 = b0.Type();
+            if (al.IsSpread[0] && t0 is Z42ArrayType) { t0 = (t0 as Z42ArrayType).Elem; }
+            elemTe = this._typeToTypeExpr(t0, sp);
+        }
+        TypeExpr intTe = new NamedType("int", new TypeExpr[0], 0, sp);
+        TypeExpr arrTe = new ArrayType(elemTe, sp);
+        Z42Type voidT = new Z42VoidType();
+        // 先把每个 spread 源 hoist 到临时（只求值一次）；非 spread 元素直接用原 AST。
+        string[] srcTmp = new string[al.ElemCount];
+        int prelen = 0;
+        int i = 0;
+        while (i < al.ElemCount) { if (al.IsSpread[i]) { prelen = prelen + 1; } i = i + 1; }
+        // prelude: srcTmp 声明 + $r 声明 + $k=0 + 逐元素拷贝
+        BoundStmt[] pre = new BoundStmt[prelen + 2 + al.ElemCount];
+        int pc = 0;
+        // 总长表达式：Σ(spread → $sN.Length) + (非 spread → 1)
+        Expr totalLen = null;
+        i = 0;
+        while (i < al.ElemCount) {
+            Expr term;
+            if (al.IsSpread[i]) {
+                string sn = this._freshColl();
+                srcTmp[i] = sn;
+                pre[pc] = this._tc._stmt.BindStmt(new VarDeclStmt(arrTe, sn, al.Elems[i], sp), env, voidT);
+                pc = pc + 1;
+                term = new MemberExpr(new IdentExpr(sn, sp), "Length", sp);
+            } else {
+                srcTmp[i] = "";
+                term = new IntLitExpr("1", sp);
+            }
+            if (totalLen == null) { totalLen = term; } else { totalLen = new BinaryExpr("+", totalLen, term, sp); }
+            i = i + 1;
+        }
+        if (totalLen == null) { totalLen = new IntLitExpr("0", sp); }
+        string rn = this._freshColl();
+        string kn = this._freshColl();
+        pre[pc] = this._tc._stmt.BindStmt(new VarDeclStmt(arrTe, rn, new ArrayNewExpr(elemTe, totalLen, sp), sp), env, voidT); pc = pc + 1;
+        pre[pc] = this._tc._stmt.BindStmt(new VarDeclStmt(intTe, kn, new IntLitExpr("0", sp), sp), env, voidT); pc = pc + 1;
+        // 逐元素拷贝
+        i = 0;
+        while (i < al.ElemCount) {
+            if (al.IsSpread[i]) {
+                // $ji = 0; while ($ji < $sN.Length) { $r[$k] = $sN[$ji]; $k=$k+1; $ji=$ji+1; }
+                string jn = this._freshColl();
+                Stmt jdecl = new VarDeclStmt(intTe, jn, new IntLitExpr("0", sp), sp);
+                Expr jcond = new BinaryExpr("<", new IdentExpr(jn, sp), new MemberExpr(new IdentExpr(srcTmp[i], sp), "Length", sp), sp);
+                Stmt cp = new ExprStmt(new AssignExpr("=", new IndexExpr(new IdentExpr(rn, sp), new IdentExpr(kn, sp), sp), new IndexExpr(new IdentExpr(srcTmp[i], sp), new IdentExpr(jn, sp), sp), sp), sp);
+                Stmt kinc = new ExprStmt(new AssignExpr("=", new IdentExpr(kn, sp), new BinaryExpr("+", new IdentExpr(kn, sp), new IntLitExpr("1", sp), sp), sp), sp);
+                Stmt jinc = new ExprStmt(new AssignExpr("=", new IdentExpr(jn, sp), new BinaryExpr("+", new IdentExpr(jn, sp), new IntLitExpr("1", sp), sp), sp), sp);
+                Stmt[] jbody = new Stmt[3];
+                jbody[0] = cp; jbody[1] = kinc; jbody[2] = jinc;
+                Stmt[] wrap = new Stmt[2];
+                wrap[0] = jdecl; wrap[1] = new WhileStmt(jcond, new BlockStmt(jbody, 3, sp), sp);
+                pre[pc] = this._tc._stmt.BindStmt(new BlockStmt(wrap, 2, sp), env, voidT); pc = pc + 1;
+            } else {
+                // $r[$k] = elem; $k = $k + 1;
+                Stmt setEl = new ExprStmt(new AssignExpr("=", new IndexExpr(new IdentExpr(rn, sp), new IdentExpr(kn, sp), sp), al.Elems[i], sp), sp);
+                Stmt kinc = new ExprStmt(new AssignExpr("=", new IdentExpr(kn, sp), new BinaryExpr("+", new IdentExpr(kn, sp), new IntLitExpr("1", sp), sp), sp), sp);
+                Stmt[] one = new Stmt[2];
+                one[0] = setEl; one[1] = kinc;
+                pre[pc] = this._tc._stmt.BindStmt(new BlockStmt(one, 2, sp), env, voidT); pc = pc + 1;
+            }
+            i = i + 1;
+        }
+        BoundExpr val = this._bindExpr(new IdentExpr(rn, sp), env);
+        return new BoundSeqExpr(pre, pc, val, val.Type(), sp);
+    }
+
+    // 对象初始化器 new Foo(args) { X = 1, y } → $c = new Foo(args); $c.X = 1; $c.y = y; ⟨$c⟩。
+    // 复用 Change 1 的 BoundSeqExpr；字段赋值走既有 MemberExpr 赋值绑定（校验存在性/可赋值/可见性）。
+    // expected：target-typed（oi.Type == null）时的目标类型；否则传 null。
+    private BoundExpr _bindObjInit(ObjInitExpr oi, TypeEnv env, Z42Type expected) {
+        Span sp = oi.Span;
+        TypeExpr oiTy = oi.Type;
+        if (oiTy == null) {   // add-target-typed-new：`new() { ... }` 从目标类型合成类型表达式
+            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
+                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                    "target-typed `new` requires a known target type here", sp);
+                return new BoundError("target-typed new without target", new Z42ErrorType(), sp);
+            }
+            oiTy = this._typeToTypeExpr(expected, sp);
+        }
+        string tmp = this._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[oi.FieldCount + 1];
+        Stmt declS = new VarDeclStmt(oiTy, tmp, new ObjNewExpr(oiTy, oi.Args, oi.ArgCount, sp), sp);
+        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
+        int i = 0;
+        while (i < oi.FieldCount) {
+            Expr assign = new AssignExpr("=", new MemberExpr(new IdentExpr(tmp, sp), oi.FieldNames[i], sp), oi.FieldValues[i], sp);
+            pre[i + 1] = this._tc._stmt.BindStmt(new ExprStmt(assign, sp), env, voidT);
+            i = i + 1;
+        }
+        BoundExpr val = this._bindExpr(new IdentExpr(tmp, sp), env);
+        return new BoundSeqExpr(pre, oi.FieldCount + 1, val, val.Type(), sp);
+    }
+
     private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._bindExpr(cx.E, env);
             return new BoundConvert(operand, env.ResolveType(cx.Type), cx.Span);
@@ -349,10 +698,13 @@ public sealed class ExprTyper {
         if (e is CastExpr) { return this._bindCastExpr(e as CastExpr, env); }
         if (e is ArrayNewExpr) { return this._bindArrayNew(e as ArrayNewExpr, env); }
         if (e is ArrayInitExpr) { return this._bindArrayInit(e as ArrayInitExpr, env); }
+        // 集合字面量（无目标类型上下文 → null；有目标时经 StmtBinder._bindVarDecl 等站点直接调 _bindCollLit）
+        if (ExprTyper.IsCollLit(e)) { return this._bindCollLit(e, null, env); }
         if (e is RefArgExpr) { return this._bindRefArg(e as RefArgExpr, env); }
         if (e is ObjNewExpr) {
-            return this._bindNew(e as ObjNewExpr, env);
+            return this._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
         }
+        if (e is ObjInitExpr) { return this._bindObjInit(e as ObjInitExpr, env, null); }
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }
@@ -460,10 +812,21 @@ public sealed class ExprTyper {
         return new BoundDefault(t, -1, d.Span);
     }
 
-    private BoundExpr _bindNew(ObjNewExpr n, TypeEnv env) {
-        Z42Type t = env.ResolveType(n.Type);
-        if (t is Z42UnknownType) {
-            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
+    // expected：target-typed new（n.Type == null）时的目标类型；非 target-typed 时传 null（忽略）。
+    private BoundExpr _bindNew(ObjNewExpr n, TypeEnv env, Z42Type expected) {
+        Z42Type t;
+        if (n.Type == null) {   // add-target-typed-new：从目标类型推断被省略的类名
+            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
+                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                    "target-typed `new` requires a known target type here", n.Span);
+                return new BoundError("target-typed new without target", new Z42ErrorType(), n.Span);
+            }
+            t = expected;
+        } else {
+            t = env.ResolveType(n.Type);
+            if (t is Z42UnknownType) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
+            }
         }
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
             this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
@@ -516,8 +879,30 @@ public sealed class ExprTyper {
         }
         BoundExpr[] args = new BoundExpr[n.ArgCount];
         int i = 0;
-        while (i < n.ArgCount) { args[i] = this._bindExpr(n.Args[i], env); i = i + 1; }
+        // ctor 实参按选中 ctor 的形参类型定型（支持嵌套 target-typed new：`new C(new())`）。
+        // 无可解析 Decl 的 ctor（imported / 无 Decl）→ 目标类型 null，target-typed 实参会报 E0437。
+        while (i < n.ArgCount) {
+            Z42Type ptv = null;
+            if (cms != null && cms.Signature != null && i < cms.Signature.ParamCount) { ptv = cms.Signature.ParamTypes[i]; }
+            args[i] = this.BindWithTarget(n.Args[i], ptv, env);
+            i = i + 1;
+        }
         return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
+    }
+
+    // add-target-typed-new：某表达式是否是省略了类名的 target-typed new / 对象初始化器。
+    public static bool IsTargetTypedNew(Expr e) {
+        if (e is ObjNewExpr)  { return (e as ObjNewExpr).Type == null; }
+        if (e is ObjInitExpr) { return (e as ObjInitExpr).Type == null; }
+        return false;
+    }
+
+    // 目标类型已知的绑定入口：target-typed new/obj-init 用目标类型定型，其余表达式回落普通绑定。
+    // target 为 null 时 target-typed new 会经 _bindNew/_bindObjInit 报 E0437。
+    public BoundExpr BindWithTarget(Expr e, Z42Type target, TypeEnv env) {
+        if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._bindNew(e as ObjNewExpr, env, target); }
+        if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._bindObjInit(e as ObjInitExpr, env, target); }
+        return this._bindExpr(e, env);
     }
 
 }

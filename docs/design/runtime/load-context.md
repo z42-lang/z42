@@ -1,11 +1,12 @@
 # 加载上下文（Load Context）：zpkg 重载 / 卸载 / 内存回收
 
-> **状态：Phase 1 地基已落地（`add-load-context-model`，2026-07-30）；卸载 / 回收 / 诊断仍 DESIGN** · 创建 2026-06-21
+> **状态：Phase 1 地基 + Phase 2 惰性卸载已落地；强制清理 / 诊断仍 DESIGN** · 创建 2026-06-21
 >
-> **已落地（Phase 1）**：`AssemblyLoadContext` 运行时模型（root 永驻 + collectible 独立 arena）+ zpkg 运行时身份
-> `Std.Reflection.Assembly` + `Std.Type.IsCollectible` / `.Assembly`。用户视角机制页见
-> [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。**未落地**：卸载（惰性 +
-> 强制）、回收、`whyRetained` 诊断、跨 context 执行、hot-reload——见本文余下设计。
+> **已落地**：Phase 1（`add-load-context-model`，2026-07-30）`AssemblyLoadContext` 运行时模型 + zpkg 身份
+> `Std.Reflection.Assembly` + `Std.Type.IsCollectible`/`.Assembly`；Phase 2（`add-lazy-context-unload`，
+> 2026-08-05）**惰性卸载**——`Unload()` 标 Unloading + GC major 回收无引用 context 的 arena（Erlang 等自然死、
+> 反射对象计入保留边）。用户视角机制页见 [`docs/book/src/runtime/load-context.md`](../../book/src/runtime/load-context.md)。
+> **未落地**：**强制卸载**（惰性 §8 已落，强制/tombstone 见决策修订）、`whyRetained` 诊断、跨 context 执行、hot-reload。
 >
 > **决策修订（2026-07-27，与 User 讨论）**：§9 决策 (b)"不做确定性强制卸载"已翻转——目标新增**强制内存清理**
 > 轴（tombstone/trap 模型：STW → 间接槽改陷阱 + 活对象类型降 tombstone → 确定性 free 码/元数据大头，
@@ -78,6 +79,13 @@ context 自己 arena 内的缓存随 arena 整丢，无所谓；跨 context / �
 ---
 
 ## 5. 保留根诊断（核心差异化）
+
+> **已泛化落地（`add-heap-retention-diagnostics`，2026-08-06）**：本节的「保留根诊断」不再绑定
+> AssemblyLoadContext，做成**通用** `Std.Diagnostics.Heap`（任意对象）——见
+> [`docs/book/src/runtime/heap-diagnostics.md`](../../book/src/runtime/heap-diagnostics.md)。已落
+> **第 2 层堆路径路线的 L1（直接引用者）+ L2（保留根，类别级）**（按需反向图堆扫描 + 触发 GC 保准）；
+> **L3 完整引用链 + 具体根名 + 第 1 层框架边常驻注册**延后。context 卸载不回收的诊断 = 对其保留者对象
+> 调用本通用工具。下文为原始设计（含未落地部分）。
 
 ### 为何 z42 能、.NET 不能
 z42 **自有 GC**：可达性扫描时能记录"引用从哪来"；.NET GC 不暴露 root 来源，用户只能外部 profiler 硬挖。z42 做成内建、context-aware。

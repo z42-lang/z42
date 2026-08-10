@@ -62,8 +62,8 @@ pub fn builtin_file_last_write_time_ms(_ctx: &VmContext, args: &[Value]) -> Resu
 pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_read_bytes")?;
     let bytes = active().read(path)?;
-    let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
-    Ok(ctx.heap().alloc_array(elems))
+    // packed-primitive-arrays Step 3: File.ReadAllBytes → packed `Bytes` directly.
+    Ok(ctx.heap().alloc_bytes(bytes))
 }
 
 pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -392,10 +392,14 @@ fn require_byte_array(args: &[Value], idx: usize, op: &str) -> Result<Vec<u8>> {
     match args.get(idx) {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
+            // packed-primitive-arrays Step 3: packed `Bytes` → contiguous `&[u8]`.
+            if let Some(b) = borrowed.as_bytes() {
+                return Ok(b.to_vec());
+            }
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
-                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
                     other => anyhow::bail!("{}: arg {} byte {} not u8 in 0..=255: {:?}",
                                            op, idx, i, other),
                 }
@@ -457,7 +461,7 @@ pub fn builtin_file_read(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // Copy actually-read bytes into the user's array.
     let mut borrowed = buf_arr.borrow_mut();
     for i in 0..n {
-        borrowed[offset + i] = Value::I64(tmp[i] as i64);
+        borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }
     Ok(Value::I64(n as i64))
 }

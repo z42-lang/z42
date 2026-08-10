@@ -3,6 +3,7 @@
 // _tc._isAssignable（转换助手）、_tc._diags（共享诊断）。同组方法互调仍 this._X。
 // z42 无 partial class → 抽独立类拆文件（镜像 EmitContext/FunctionEmitter 模式）。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
@@ -12,7 +13,31 @@ public sealed class OverloadBinder {
     private TypeChecker _tc;
     public OverloadBinder(TypeChecker tc) { this._tc = tc; }
 
+    // add-target-typed-new：回填延迟绑定的 target-typed new 实参（`_bindCall` 留 null 占位）。
+    // 按选中签名 sig 的形参类型定型；params 尾位用元素类型；sig=null 或越界位 → 目标 null → 报 E0437。
+    // 检测靠 args[i]==null（延迟位），rawArgs 提供原始 AST。已绑定位（非 null）跳过，幂等。
+    public BoundExpr[] FillDeferredArgs(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
+        int i = 0;
+        while (i < argCount) {
+            if (args[i] == null) {
+                Z42Type pt = null;
+                if (sig != null) {
+                    if (sig.ParamsFrom >= 0 && i >= sig.ParamsFrom) {
+                        Z42ArrayType at = sig.ParamTypes[sig.ParamsFrom] as Z42ArrayType;
+                        if (at != null) { pt = at.Elem; }
+                    } else if (i < sig.ParamCount) { pt = sig.ParamTypes[i]; }
+                }
+                args[i] = this._tc._expr.BindWithTarget(rawArgs[i], pt, env);
+            }
+            i = i + 1;
+        }
+        return args;
+    }
+
     private BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
+        // add-target-typed-new：先回填延迟的 target-typed new 实参（按 ms 形参类型），再走装箱/默认值。
+        // 必须在 BoxArgs 之前——BoxArgs 遍历 args 会对 null 位崩。
+        args = this.FillDeferredArgs(args, rawArgs, rawArgCount, ms.Signature, env);
         // add-primitive-value-boxing: 实参整数 → object/接口 形参 装箱（本方法是 5 处调用点的
         // 公共汇聚步——就地按 ms 形参类型逐位装箱；BoxArgs 对非整数/非 object·接口位 no-op）。
         // params 尾包（object[]/T[] 元素）不在此覆盖：ParamTypes[pf] 是数组类型 → BoxIfNeeded no-op（罕见）。
@@ -81,10 +106,12 @@ public sealed class OverloadBinder {
                 while (p < pc) { if (md.Params[p].Name == nm) { idx = p; } p = p + 1; }
                 if (idx < 0) { return null; }                 // 命名实参无匹配形参 → 不可适配
                 if (filled[idx]) { return null; }
-                slots[idx] = this._tc._expr._bindExpr(ae.Value, env); filled[idx] = true;
+                // add-target-typed-new：命名实参按对应形参类型绑定（支持 `f(x: new())`）。
+                slots[idx] = this._tc._expr.BindWithTarget(ae.Value, env.ResolveType(md.Params[idx].Type), env); filled[idx] = true;
             } else {
                 if (pos >= pc) { return null; }
-                slots[pos] = this._tc._expr._bindExpr(a, env); filled[pos] = true; pos = pos + 1;
+                // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
+                slots[pos] = this._tc._expr.BindWithTarget(a, env.ResolveType(md.Params[pos].Type), env); filled[pos] = true; pos = pos + 1;
             }
             i = i + 1;
         }
@@ -133,6 +160,10 @@ public sealed class OverloadBinder {
                                           BoundExpr[] args, int argCount, Span sp) {
         MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
         if (all.Length == 0) { return null; }
+        // add-target-typed-new：延迟绑定的 target-typed new 实参（null 位）无类型 → 无法参与基于类型的重载决议。
+        // arity 唯一时（下方 na==1）不需类型可直接选中；否则报 E0437 让用户写显式类名。
+        bool anyDeferred = false;
+        { int d = 0; while (d < argCount) { if (args[d] == null) { anyDeferred = true; } d = d + 1; } }
         // 按 arity 过滤（仅非 params 候选）
         MethodSymbol[] byArity = new MethodSymbol[all.Length];
         int na = 0;
@@ -144,15 +175,27 @@ public sealed class OverloadBinder {
             i = i + 1;
         }
         if (na == 0) {
-            MethodSymbol viaParams = this._resolveParamsOverload(all, args, argCount, sp, symbols);
-            if (viaParams != null) { return viaParams; }
+            // deferred 位无类型 → 跳过基于类型的 params 决议（否则 null.Type() 崩）。
+            if (!anyDeferred) {
+                MethodSymbol viaParams = this._resolveParamsOverload(all, args, argCount, sp, symbols);
+                if (viaParams != null) { return viaParams; }
+            }
             // 无 arity 匹配但全类只有一个同名非 params 方法 → 返回它（镜像旧 _overloadKey 的 bare 兜底：
             // 忽略 arity，如 `Int32.ToString(cp)` 静态形式调用实例 arity-0 ToString，接收者作首参）。
             if (all.Length == 1 && all[0].Signature.ParamsFrom < 0) { return all[0]; }
+            if (anyDeferred) {
+                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                    "target-typed `new` argument to overloaded `" + name + "` needs an explicit type", sp);
+            }
             return null;
         }
-        if (na == 1) { return byArity[0]; }   // 单 arity 候选 → 行为保持
-        // 同 arity ≥2 → type-based 决议
+        if (na == 1) { return byArity[0]; }   // 单 arity 候选 → 行为保持（deferred 位稍后按形参类型回填）
+        // 同 arity ≥2 → type-based 决议；deferred 位无类型无法决议 → 报 E0437 让用户写显式类名。
+        if (anyDeferred) {
+            this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
+                "target-typed `new` argument to overloaded `" + name + "` needs an explicit type", sp);
+            return null;
+        }
         Z42Type[] argTypes = new Z42Type[argCount];
         int k = 0;
         while (k < argCount) { argTypes[k] = args[k].Type(); k = k + 1; }

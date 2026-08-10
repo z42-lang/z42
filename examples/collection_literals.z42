@@ -1,0 +1,57 @@
+// 集合字面量（add-collection-literals，2026-08-07 落地）。
+// 借鉴 JSON/JS（[] 数组、{} 对象）+ C# 集合初始化器 + Rust 重复填充。
+//   [1, 2, 3]        → 数组 T[]（方括号一律数组）
+//   [value; count]   → 重复填充（Rust 风；value 只求值一次）
+//   [..a, x, ..b]    → spread 展开拼接
+//   {1, 2, 3}        → List<T>（花括号 + 裸元素）
+//   {"a": 1}         → Dictionary<K,V>（花括号 + key: value）
+//   []·{}            → 空集合，由目标类型决定元素/容器类型
+// 均为纯前端脱糖：desugar 成 new T[]{} / new List+Add / new Dictionary+Set / 填充·拷贝循环，
+// 零新 IR、零 zbc·zpkg 格式 bump。设计见 docs/design/language/arrays.md。
+namespace Demo.CollectionLiterals;
+
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    // ── 数组 [] ────────────────────────────────────────────────
+    int[] xs = [1, 2, 3];
+    Console.WriteLine($"xs.Length={xs.Length}, xs[0]={xs[0]}");     // 3, 1
+
+    var ys = [10, 20, 30];                 // var → int[]（方括号恒为数组）
+    Console.WriteLine($"ys[1]={ys[1]}");                            // 20
+
+    int[] empty = [];                      // 空数组（元素类型来自目标）
+    Console.WriteLine($"empty.Length={empty.Length}");             // 0
+
+    // ── Rust 重复填充 [value; count] ────────────────────────────
+    int[] zeros = [0; 5];
+    Console.WriteLine($"zeros.Length={zeros.Length}, zeros[4]={zeros[4]}");  // 5, 0
+
+    int[] sevens = [7; 3];
+    Console.WriteLine($"sevens[0]={sevens[0]}, sevens[2]={sevens[2]}");      // 7, 7
+
+    // ── spread 展开 [..a, x, ..b] ───────────────────────────────
+    int[] head = [1, 2];
+    int[] tail = [4, 5];
+    int[] cat = [..head, 3, ..tail];
+    Console.WriteLine($"cat.Length={cat.Length}");                 // 5
+    Console.WriteLine($"cat=[{cat[0]},{cat[1]},{cat[2]},{cat[3]},{cat[4]}]");  // 1,2,3,4,5
+
+    // ── List {} ────────────────────────────────────────────────
+    List<int> nums = { 1, 2, 3 };
+    Console.WriteLine($"nums.Count={nums.Count}, nums[2]={nums[2]}");  // 3, 3
+
+    var more = { 100, 200 };               // var → List<int>（裸元素 → List）
+    Console.WriteLine($"more.Count={more.Count}");                 // 2
+
+    List<int> emptyList = {};              // 空 List（目标类型定）
+    Console.WriteLine($"emptyList.Count={emptyList.Count}");       // 0
+
+    // ── Dict {k: v} ────────────────────────────────────────────
+    Dictionary<string, int> scores = { "alice": 90, "bob": 85 };
+    Console.WriteLine($"alice={scores[\"alice\"]}, bob={scores[\"bob\"]}");   // 90, 85
+
+    Dictionary<string, int> emptyDict = {};   // 空 Dict（目标类型定）
+    Console.WriteLine($"emptyDict.Count={emptyDict.Count}");       // 0
+}

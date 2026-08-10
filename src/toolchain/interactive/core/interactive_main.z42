@@ -1,7 +1,8 @@
 // z42i —— z42 交互式 REPL 入口（add-z42-repl 阶段 3）。
 //
-// read-eval-print 循环：Std.Repl.ReadBlock 读括号平衡多行块 → `.` 元指令 or Script.Eval 求值 →
-// 打印结果（null 抑制）。`-c "expr"` 单次求值后退出。求值引擎 = z42.scripting
+// read-eval-print 循环：逐行读取累积 → parser 权威的 Completeness.IsIncomplete 判「写完没」（没写完
+// 续读）→ `.` 元指令 or Script.Eval 求值 → 打印结果（null 抑制）。`-c "expr"` 单次求值后退出。
+// 求值引擎 = z42.scripting
 // （编译每轮源 → 内存加载 → 反射调用；跨轮 var carry-forward）。
 namespace Z42Interactive;
 
@@ -16,8 +17,14 @@ void Main() {
     string[] argv = Environment.GetCommandLineArgs();
     int ci = _indexOf(argv, "-c");
     if (ci >= 0 && ci + 1 < argv.Length) {
+        string code = argv[ci + 1];
+        // -c 无续读来源：不完整的代码（缺 } / 操作数等）当语法错误直接退出，不挂起等待输入。
+        if (Completeness.IsIncomplete(code)) {
+            ConsoleError.WriteLine("error: unexpected end of input (incomplete code passed to -c)");
+            Environment.Exit(1);
+        }
         ScriptState s0 = Script.Create();
-        EvalResult r0 = Script.Eval(s0, argv[ci + 1]);
+        EvalResult r0 = Script.Eval(s0, code);
         if (!r0.Success) { ConsoleError.WriteLine(r0.Error); Environment.Exit(1); }
         if (r0.HasValue && r0.Value != null) { Console.WriteLine(_fmt(r0.Value)); }
         return;
@@ -26,7 +33,7 @@ void Main() {
     Console.WriteLine("z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令（.help / .exit）。");
     ScriptState s = Script.Create();
     // add-repl-prewarm：启动即 spawn 后台 worker 构建依赖世界（首次 eval 的 ~3.4s 一次性开销），
-    // 与用户在提示符打字并行。主线程随即阻塞在 ReadBlock（其原生读取期 GC-safe park，见 corelib/
+    // 与用户在提示符打字并行。主线程随即阻塞在 ReadLine（其原生读取期 GC-safe park，见 corelib/
     // repl.rs），worker 触发的 GC 不会死等主线程。首次 Eval 顶部 _ensureWarm 会 Join 汇合。
     // repl-lazy-prelude：worker 只建**骨架**（nsMap 路由 + 惰性 world，不 reconcile prelude / 不预载
     // usings）→ 秒发布，`1+1` 类纯表达式立即快（哪怕秒回车 _ensureWarm 也只等这个骨架）。首次引用 Std
@@ -34,35 +41,57 @@ void Main() {
     // 本 VM 的 GC 协作会让计算密集的后台线程阻塞主线程 eval（安全点等待）——后台预热反而拖慢 `1+1`。
     s.PrewarmThread = Thread.Start(() => { Script.Prewarm(s); });
     Repl.SetCompleter("Std.Scripting.replComplete");   // Tab → 作用域补全（会话变量 / 声明名）
+    // 多行累积在脚本层驱动（add-repl-parser-completeness + sink-repl-indent-to-script）：逐行读取，
+    // 累积到 buf，由 parser 权威的 Completeness.IsIncomplete 判「写完没」——没写完（缺 } / 操作数等）
+    // 续读，写完才求值。续行视觉缩进也由脚本层算（Completeness.ContinuationIndent 用既有 Lexer 数
+    // 括号）→ 交 Repl.ReadLine 的 initial 预填；native 只剩「读一行 + 用给定串预填」这一个原语。
+    string buf = "";
     while (true) {
         Completer.SetActive(s);   // 每轮把当前会话交给补全器（.reset 会重建 s → 必须重设）
-        string line = Repl.ReadBlock(">>> ", "... ");   // 括号平衡多行块（未闭合 (){}[] → 续读）
-        if (line == null) { Console.WriteLine(""); break; }   // Ctrl-D / EOF
-        string t = line.Trim();
-        if (t.Length == 0) { continue; }
-        if (t.StartsWith(".")) {
-            if (t == ".exit" || t == ".quit") { break; }
-            else if (t == ".help") { _help(); }
-            else if (t == ".vars") { _vars(s); }
-            else if (t == ".types") { _types(s); }
-            else if (t == ".usings") { _usings(s); }
-            else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
-            else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
-            else if (t == ".clear") { _clear(); }
-            else if (t == ".reset") {
-                // 清空变量/using/声明，回到空白会话。保持 Counter 单调递增——VM 已加载的
-                // Repl.R{N} 模块仍在进程内，归零会让新一轮 R1 与旧 R1 撞名，故承接旧计数继续往后。
-                int keep = s.Counter;
-                s = Script.Create();
-                s.Counter = keep;
-                Console.WriteLine("会话已重置（变量 / using / 声明已清空）。");
-            }
-            else { Console.WriteLine("unknown command '" + t + "'; try .help"); }
-            continue;
+        string line = "";
+        if (buf.Length == 0) { line = Repl.ReadLine(">>> ", ""); }
+        else { line = Repl.ReadLine("... ", Completeness.ContinuationIndent(buf)); }
+        if (line == null) {
+            // Ctrl-D（EOF）/ Ctrl-C（中断）：续读中（buf 非空）放弃当前多行缓冲、回主提示符；
+            // 主提示符处（buf 空）退出 REPL。用「buf 是否空」定语义，无需区分 Ctrl-C/Ctrl-D。
+            Console.WriteLine("");
+            if (buf.Length > 0) { buf = ""; continue; }
+            break;
         }
-        EvalResult r = Script.Eval(s, line);
+        // 元指令（`.` 前缀）只在首行、单行完整，不参与多行累积。
+        if (buf.Length == 0) {
+            string t = line.Trim();
+            if (t.StartsWith(".")) {
+                if (t == ".exit" || t == ".quit") { break; }
+                else if (t == ".help") { _help(); }
+                else if (t == ".vars") { _vars(s); }
+                else if (t == ".types") { _types(s); }
+                else if (t == ".usings") { _usings(s); }
+                else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
+                else if (t.StartsWith(".type ")) { _showType(s, t); }    // 显示表达式类型（注意在 .types 之后判）
+                else if (t.StartsWith(".members ")) { _showMembers(s, t); }  // 列类型/变量成员
+                else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
+                else if (t == ".clear") { _clear(); }
+                else if (t == ".reset") {
+                    // 清空变量/using/声明，回到空白会话。保持 Counter 单调递增——VM 已加载的
+                    // Repl.R{N} 模块仍在进程内，归零会让新一轮 R1 与旧 R1 撞名，故承接旧计数继续往后。
+                    int keep = s.Counter;
+                    s = Script.Create();
+                    s.Counter = keep;
+                    Console.WriteLine("会话已重置（变量 / using / 声明已清空）。");
+                }
+                else { Console.WriteLine("unknown command '" + t + "'; try .help"); }
+                continue;
+            }
+            if (t.Length == 0) { continue; }
+        }
+        // 累积到多行缓冲
+        if (buf.Length == 0) { buf = line; } else { buf = buf + "\n" + line; }
+        if (Completeness.IsIncomplete(buf)) { continue; }   // 没写完 → 续读下一行
+        EvalResult r = Script.Eval(s, buf);
         if (!r.Success) { Console.Write(r.Error); }
         else if (r.HasValue && r.Value != null) { Console.WriteLine(_fmt(r.Value)); }
+        buf = "";
     }
 }
 
@@ -82,10 +111,13 @@ void _help() {
     Console.WriteLine("  .clear         清屏（不清会话状态）");
     Console.WriteLine("  .vars          列出会话变量");
     Console.WriteLine("  .types         列出会话内声明的类型");
+    Console.WriteLine("  .type <expr>   显示表达式的运行期类型（类 python type(x)）");
+    Console.WriteLine("  .members <T>   列出类型/变量的成员（类 python dir(x)）");
     Console.WriteLine("  .usings        列出生效的 using");
     Console.WriteLine("  .using <ns>    追加一个 using <ns>;");
     Console.WriteLine("  .version       显示 zbc / zpkg 格式版本");
-    Console.WriteLine("提示：未闭合的 (){}[] 会自动进入多行续读（... 提示符）；可定义 fn / class 并在后续轮使用。");
+    Console.WriteLine("提示：未写完的输入（缺 } / 操作数 / 未闭合 (){}[] 等）会自动进入多行续读（... 提示符）；");
+    Console.WriteLine("      可定义 fn / class 并在后续轮使用；续读中 Ctrl-C 放弃当前输入。");
 }
 
 void _vars(ScriptState s) {
@@ -115,6 +147,32 @@ void _addUsing(ScriptState s, string t) {
     if (ns.Length == 0) { Console.WriteLine("用法: .using <namespace>"); return; }
     Script.Eval(s, "using " + ns + ";");
     Console.WriteLine("已添加 using " + ns + ";");
+}
+
+// .type <expr> —— 显示表达式的运行期类型名（类 Python `type(x)`）。复用 Script.Eval 求值
+// `(<expr>).GetType().Name`——零新反射管线、对任意表达式都适用（会话变量经 Rewriter 改写）。
+// 表达式被求值一次（与 Python `type(...)` 语义一致，副作用照常发生）。求值失败 → 打印错误。
+void _showType(ScriptState s, string t) {
+    string expr = t.Substring(6, t.Length - 6).Trim();   // ".type " 占 6 字符
+    if (expr.Length == 0) { Console.WriteLine("用法: .type <表达式>"); return; }
+    EvalResult r = Script.Eval(s, "(" + expr + ").GetType().Name");
+    if (!r.Success) { Console.Write(r.Error); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine(_fmt(r.Value)); }
+}
+
+// .members <类型或变量> —— 列出其成员名。**复用补全器** `replComplete("<arg>.", …)`（类型→静态成员，
+// 会话变量→live 实例成员，含未 reconcile 类型的按需 reconcile）——零新反射管线，与 Tab/ghost 同源。
+// 先 `Script.EnsureWarm` 汇合（.members 可能是首命令、无 eval 触发预热），并把会话交给补全器。
+void _showMembers(ScriptState s, string t) {
+    string arg = t.Substring(9, t.Length - 9).Trim();   // ".members " 占 9 字符
+    if (arg.Length == 0) { Console.WriteLine("用法: .members <类型或变量>"); return; }
+    Script.EnsureWarm(s);
+    Completer.SetActive(s);
+    string probe = arg + ".";
+    string[] ms = replComplete(probe, probe.Length);
+    if (ms.Length == 0) { Console.WriteLine("(无成员，或类型/变量未知)"); return; }
+    int i = 0;
+    while (i < ms.Length) { Console.WriteLine("  " + ms[i]); i = i + 1; }
 }
 
 // .clear —— ANSI 清屏 + 光标归位。z42 词法器不支持 \x1b/\u 转义，故用 (char)27 构造 ESC。

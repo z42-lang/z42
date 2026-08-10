@@ -211,17 +211,17 @@ void test_keyword_table_accessors() {
     // 关键字只读访问器（add-vscode-syntax-ext）：计数>0、逐项非空、哨兵关键字在表中。
     var lx = new Lexer("", "t.z42");
     Assert.True(lx.KeywordCount() > 0);
-    bool hasFn = false;
+    bool hasImpl = false;
     bool hasParams = false;
     int i = 0;
     while (i < lx.KeywordCount()) {
         string name = lx.KeywordNameAt(i);
         Assert.True(name.Length > 0);
-        if (name == "fn")     { hasFn = true; }
+        if (name == "impl")   { hasImpl = true; }
         if (name == "params") { hasParams = true; }
         i = i + 1;
     }
-    Assert.True(hasFn);
+    Assert.True(hasImpl);
     Assert.True(hasParams);
 }
 

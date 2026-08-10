@@ -671,6 +671,8 @@ fn build_method_info(
         is_virtual
     };
     let is_abstract_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_ABSTRACT) != 0;
+    // impl-sealed-semantics-devirt: MethodInfo.IsSealed from METHOD_FLAG_SEALED (bit2).
+    let is_sealed_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_SEALED) != 0;
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -682,6 +684,8 @@ fn build_method_info(
             ("IsVirtual", Value::Bool(is_virtual_flag)),
             // add-method-modifiers (unify P1-c): abstract methods (bit1).
             ("IsAbstract", Value::Bool(is_abstract_flag)),
+            // impl-sealed-semantics-devirt: sealed methods (bit2).
+            ("IsSealed", Value::Bool(is_sealed_flag)),
             // add-member-visibility (unify P1-b): 0=public / 1=private /
             // 2=protected. `protected` reports neither (mirrors C# IsFamily).
             ("IsPublic", Value::Bool(visibility == 0)),
@@ -734,6 +738,8 @@ fn build_iface_method_info(
             ("IsStatic", Value::Bool(false)),
             ("IsVirtual", Value::Bool(true)),
             ("IsAbstract", Value::Bool(true)),
+            // impl-sealed-semantics-devirt: interface methods are never sealed.
+            ("IsSealed", Value::Bool(false)),
             ("IsPublic", Value::Bool(true)),
             ("IsPrivate", Value::Bool(false)),
             ("__parameters", params_arr),
@@ -1163,7 +1169,7 @@ pub fn builtin_type_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Valu
         bail!("MakeGenericType: `{}` is not a generic type definition", def_td.name);
     }
     let arg_types: Vec<Value> = match args.get(1) {
-        Some(Value::Array(rc)) => rc.borrow().iter().cloned().collect(),
+        Some(Value::Array(rc)) => rc.borrow().iter_boxed().collect(),
         _ => bail!("MakeGenericType: expected a Type[] of type arguments"),
     };
     if arg_types.len() != type_params.len() {
@@ -1250,18 +1256,18 @@ pub fn builtin_type_interfaces(ctx: &VmContext, args: &[Value]) -> Result<Value>
 pub fn builtin_type_members(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let mut out = Vec::new();
     if let Value::Array(a) = builtin_type_fields(ctx, args)? {
-        out.extend(a.borrow().iter().cloned());
+        out.extend(a.borrow().iter_boxed());
     }
     if let Value::Array(m) = builtin_type_methods(ctx, args)? {
-        out.extend(m.borrow().iter().cloned());
+        out.extend(m.borrow().iter_boxed());
     }
     if let Value::Array(p) = builtin_type_properties(ctx, args)? {
-        out.extend(p.borrow().iter().cloned());
+        out.extend(p.borrow().iter_boxed());
     }
     // add-nested-types: C# GetMembers() surfaces nested types (MemberTypes.NestedType)
     // alongside fields/methods/properties (Type : MemberInfo, so covariance holds).
     if let Value::Array(n) = builtin_type_nested_types(ctx, args)? {
-        out.extend(n.borrow().iter().cloned());
+        out.extend(n.borrow().iter_boxed());
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -1645,7 +1651,7 @@ pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         call_args.push(this_obj);
     }
     if let Value::Array(rc) = &args_arr {
-        for e in rc.borrow().iter() {
+        for e in rc.borrow().iter_boxed() {
             call_args.push(e.clone());
         }
     }
@@ -1851,7 +1857,7 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
     // `Activator.CreateInstance(typeof(Box<>).MakeGenericType(t)).GetType()
     // .GetGenericArguments()` returns the args. Non-generic Type → slot absent → no-op.
     if let Value::Array(rc) = read_type_str_slot(args, "__typeArgs") {
-        let names: Vec<String> = rc.borrow().iter().filter_map(type_arg_name).collect();
+        let names: Vec<String> = rc.borrow().iter_boxed().filter_map(|v| type_arg_name(&v)).collect();
         if !names.is_empty() {
             if let Value::Object(orc) = &obj {
                 orc.borrow_mut().type_args = names.into_boxed_slice();
@@ -1956,9 +1962,9 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter().enumerate() {
+            for (i, v) in borrowed.iter_boxed().enumerate() {
                 match v {
-                    Value::I64(n) if (0..=255).contains(n) => out.push(*n as u8),
+                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
                     other => bail!(
                         "__load_bytecode_in_memory: byte {} not u8 in 0..=255: {:?}", i, other
                     ),
@@ -2094,7 +2100,7 @@ fn read_str_vec(v: Option<&Value>, what: &str) -> Result<Vec<String>> {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             let mut out = Vec::with_capacity(borrowed.len());
-            for e in borrowed.iter() {
+            for e in borrowed.iter_boxed() {
                 match e {
                     Value::Str(s) => out.push(s.to_string()),
                     Value::Null => out.push(String::new()),

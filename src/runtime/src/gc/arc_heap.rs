@@ -208,9 +208,60 @@ impl std::fmt::Debug for RcHeapInner {
 /// 独立 worker 线程上跑收集。
 pub type ExternalRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value)) + Send + Sync>;
 
+/// **add-lazy-context-unload (2026-08-05)**: lets the GC drive collectible
+/// `AssemblyLoadContext` reclamation. Wired by `VmCore` (captures `Weak<VmCore>`),
+/// routes to `VmCore.context_registry`. On a major STW collect: if `is_unloading`,
+/// the GC takes a `snapshot`, scans marked objects for retained contexts (see
+/// `scan_marked_contexts`), and calls `reclaim` post-sweep to free unreferenced
+/// `Unloading` contexts' arenas. `None` when no reclaimer is wired (tests).
+pub trait ContextReclaim: Send + Sync {
+    /// Cheap gate — true iff ≥1 context is in `Unloading` state (atomic read).
+    fn is_unloading(&self) -> bool;
+    /// Snapshot the context↔object association for this collect (registry lock once).
+    fn snapshot(&self) -> crate::metadata::context::ContextLiveness;
+    /// Free every `Unloading` context NOT in `live` (post-sweep, STW).
+    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>);
+}
+
+pub type ContextReclaimHook = Box<dyn ContextReclaim>;
+
+/// **add-heap-retention-diagnostics (2026-08-06)**: like `ExternalRootScanner`
+/// but yields each root **with its category** (`RootKind`). Used only by the
+/// on-demand retention query (`retention_*`) to report retaining roots at the
+/// category level — NOT on the mark hot path (mark uses the anonymous scanner).
+pub type CategorizedRootScanner =
+    Box<dyn Fn(&mut dyn FnMut(&Value, super::retention::RootKind)) + Send + Sync>;
+
+/// **add-heap-retention-diagnostics (2026-08-06)**: the heap identity (data ptr
+/// as usize) of a heap-ref `Value`, or `None` for primitives / stack refs. Used
+/// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
+fn value_heap_ptr(v: &Value) -> Option<usize> {
+    match v {
+        Value::Object(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Closure(c) => Some(c.env.data_ptr_unlocked() as usize),
+        Value::Ref(kind) => match kind.as_ref() {
+            crate::metadata::types::RefKind::Array { gc_ref, .. } => {
+                Some(gc_ref.data_ptr_unlocked() as usize)
+            }
+            crate::metadata::types::RefKind::Field { gc_ref, .. } => {
+                Some(gc_ref.data_ptr_unlocked() as usize)
+            }
+            crate::metadata::types::RefKind::Stack { .. } => None,
+        },
+        _ => None,
+    }
+}
+
 pub struct ArcMagrGC {
     inner: Mutex<RcHeapInner>,
     external_root_scanner: Mutex<Option<ExternalRootScanner>>,
+    /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
+    /// until wired by `VmCore` (tests leave it None → no context reclamation).
+    context_reclaimer: Mutex<Option<ContextReclaimHook>>,
+    /// **add-heap-retention-diagnostics**: categorized root scanner for the
+    /// on-demand retention query. `None` until wired by `VmCore`.
+    categorized_root_scanner: Mutex<Option<CategorizedRootScanner>>,
     /// **add-concurrent-gc P0 (2026-05-22)**: selectable GC algorithm.
     /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
     /// barrier-override hot path and at the entrance of
@@ -276,6 +327,8 @@ impl Default for ArcMagrGC {
         Self {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
+            context_reclaimer: Mutex::new(None),
+            categorized_root_scanner: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
             region_object: Mutex::new(super::region::Region::new()),
@@ -585,7 +638,13 @@ impl ArcMagrGC {
     /// WeakRef to `heap_registry`; that field is gone now — the region
     /// itself is the authoritative liveness store, iterated directly
     /// by sweep / iterate_live_objects / snapshot helpers.
-    fn record_alloc(&self, _value: &Value, kind: AllocKind, size: usize) {
+    /// `kind_fn` is a closure so the `AllocKind` — in particular
+    /// `AllocKind::Object`'s **class-name `String` clone** — is materialized
+    /// only when an alloc sampler is actually installed (the rare profiling
+    /// case). On the hot allocation path with no sampler it is never called,
+    /// saving a heap alloc + memcpy per object `new` (measured ~10% on
+    /// allocation-heavy JIT loops).
+    fn record_alloc(&self, _value: &Value, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
         // 1. 更新 stats（先借再放，避免后续触发事件时 borrow 冲突）
         {
             let mut i = self.inner.lock();
@@ -594,11 +653,11 @@ impl ArcMagrGC {
         }
         // 2. 压力检查（可能触发 GcEvent）
         self.check_pressure(size as u64);
-        // 3. Sampler 调度
+        // 3. Sampler 调度（仅采样时构造 AllocKind → 省掉热路径的类名 String clone）
         let sampler = self.inner.lock().alloc_sampler.clone();
         if let Some(s) = sampler {
             s(&AllocSample {
-                kind,
+                kind: kind_fn(),
                 size_bytes: size,
                 timestamp_us: Self::now_us(),
             });
@@ -1201,10 +1260,12 @@ impl ArcMagrGC {
             + obj.slots.len() * size_of::<Value>()) as u64
     }
 
-    fn array_size_estimate(arr: &Vec<Value>) -> u64 {
+    fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
         use std::mem::size_of;
-        (size_of::<Value>() + size_of::<Vec<Value>>()
-            + arr.capacity() * size_of::<Value>()) as u64
+        // packed-primitive-arrays: `elem_storage_bytes` is per-backing (byte[] 1B
+        // vs Boxed 24B/elem), so packed arrays report their true smaller size.
+        (size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
+            + arr.elem_storage_bytes()) as u64
     }
 
     /// **add-mark-sweep-collector P3 (2026-05-21)**: test-only entry
@@ -1301,10 +1362,113 @@ impl ArcMagrGC {
         // **add-gc-softref (2026-05-26)**: revive soft-ref targets that
         // are unmarked but below the pressure threshold.
         self.revive_soft_refs();
+        // **add-lazy-context-unload (2026-08-05)**: after mark (marks set),
+        // before sweep (which clears them), scan marked objects for retained
+        // collectible contexts. Gated on `is_unloading` → zero cost normally.
+        let ctx_snapshot = {
+            let g = self.context_reclaimer.lock();
+            match g.as_ref() {
+                Some(r) if r.is_unloading() => Some(r.snapshot()),
+                _ => None,
+            }
+        };
+        let live_contexts = ctx_snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
         let freed = self.sweep_phase();
+        // Reclaim Unloading contexts with no live references (post-sweep, STW).
+        if let Some(live) = live_contexts {
+            if let Some(r) = self.context_reclaimer.lock().as_ref() {
+                r.reclaim(&live);
+            }
+        }
         // Prune dead soft-ref entries after sweep.
         self.inner.lock().soft_registry.prune_dead();
         freed
+    }
+
+    /// **add-lazy-context-unload (2026-08-05)**: after mark, walk marked
+    /// `ScriptObject`s and resolve which collectible contexts they retain
+    /// (instance `type_desc` ptr + reflection native handles). Only called when
+    /// an unload is in flight. Marks are still set (sweep clears them next).
+    fn scan_marked_contexts(
+        &self,
+        snap: &crate::metadata::context::ContextLiveness,
+    ) -> std::collections::HashSet<crate::metadata::context::ContextId> {
+        let mut live = std::collections::HashSet::new();
+        if snap.is_empty() {
+            return live;
+        }
+        let region = self.region_object.lock();
+        region.iterate_alive(|_h, entry| {
+            if entry.is_marked() {
+                let obj = entry.value.lock();
+                let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
+                if let Some(cid) = snap.retained_context(td_ptr, &obj.native) {
+                    live.insert(cid);
+                }
+            }
+        });
+        live
+    }
+
+    /// **add-heap-retention-diagnostics (2026-08-06)**: build the reverse
+    /// reference graph over the live heap (object + array regions) + categorized
+    /// roots. Callers `force_collect()` first so only reachable objects remain.
+    fn build_retention_graph(&self) -> super::retention::RetentionGraph {
+        use super::retention::{RetainerInfo, RetainerKind};
+        let mut g = super::retention::RetentionGraph::new();
+
+        // Object region → each object's heap-ref slots become reverse edges.
+        {
+            let region = self.region_object.lock();
+            region.iterate_alive(|_h, entry| {
+                let self_ptr = entry.value.data_ptr() as usize;
+                let obj = entry.value.lock();
+                let type_name = obj.type_desc.name.clone();
+                for slot in obj.slots.iter() {
+                    if let Some(child) = value_heap_ptr(slot) {
+                        g.add_edge(
+                            child,
+                            RetainerInfo { kind: RetainerKind::Object, type_name: type_name.clone(), id: self_ptr },
+                        );
+                    }
+                }
+            });
+        }
+        // Array region → each array's heap-ref elements become reverse edges.
+        {
+            let region = self.region_array.lock();
+            region.iterate_alive(|_h, entry| {
+                let self_ptr = entry.value.data_ptr() as usize;
+                let arr = entry.value.lock();
+                let type_name = format!("{}[]", &*arr.element_type);
+                for elem in arr.iter_boxed() {
+                    if let Some(child) = value_heap_ptr(&elem) {
+                        g.add_edge(
+                            child,
+                            RetainerInfo { kind: RetainerKind::Array, type_name: type_name.clone(), id: self_ptr },
+                        );
+                    }
+                }
+            });
+        }
+        // Pinned roots (GC-internal host pins / frame pins).
+        {
+            let inner = self.inner.lock();
+            for v in inner.roots.values() {
+                if let Some(obj) = value_heap_ptr(v) {
+                    g.add_root_edge(obj, super::retention::RootKind::Pinned);
+                }
+            }
+        }
+        // Categorized VmCore roots (static fields / stack frames / func-ref slots).
+        if let Some(scan) = self.categorized_root_scanner.lock().as_ref() {
+            scan(&mut |v, kind| {
+                if let Some(obj) = value_heap_ptr(v) {
+                    g.add_root_edge(obj, kind);
+                }
+            });
+        }
+        g
     }
 
     /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
@@ -1459,7 +1623,7 @@ impl ArcMagrGC {
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
     fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        let elem_count = obj.elems.len();
+        let elem_count = obj.len();
         let (entry_ptr, generation, handle) = {
             let mut region = self.region_array.lock();
             let handle = region.alloc(obj);
@@ -1480,7 +1644,7 @@ impl ArcMagrGC {
             });
             return Value::Null;
         }
-        self.record_alloc(&value, AllocKind::Array { elem_count }, size);
+        self.record_alloc(&value, || AllocKind::Array { elem_count }, size);
         self.maybe_auto_collect();
         value
     }
@@ -1500,6 +1664,32 @@ impl MagrGC for ArcMagrGC {
         *self.external_root_scanner.lock() = Some(scanner);
     }
 
+    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// reclaimer. Drives `Unloading` context reclamation on major STW collects.
+    fn set_context_reclaimer(&self, hook: ContextReclaimHook) {
+        *self.context_reclaimer.lock() = Some(hook);
+    }
+
+    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// root scanner (for `retention_roots` L2 category-level root reporting).
+    fn set_categorized_root_scanner(&self, scanner: CategorizedRootScanner) {
+        *self.categorized_root_scanner.lock() = Some(scanner);
+    }
+
+    /// **L1**: direct heap referrers of `target` (a heap object's data ptr).
+    /// Forces a full GC first so only reachable objects are reported.
+    fn retention_direct_referrers(&self, target: usize) -> Vec<super::retention::RetainerInfo> {
+        self.force_collect();
+        self.build_retention_graph().direct_referrers(target)
+    }
+
+    /// **L2**: GC roots retaining `target` (category-level), via reverse BFS.
+    /// Forces a full GC first for accuracy.
+    fn retention_roots(&self, target: usize) -> Vec<super::retention::RootInfo> {
+        self.force_collect();
+        self.build_retention_graph().retaining_roots(target)
+    }
+
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire the
     /// AtomicBool that `maybe_auto_collect` should set on pressure trip
     /// (deferring the actual collect to the next safepoint).
@@ -1515,7 +1705,10 @@ impl MagrGC for ArcMagrGC {
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value {
-        let class = type_desc.name.clone();
+        // Keep a cheap `Arc<TypeDesc>` handle (atomic refcount, no String alloc)
+        // so `record_alloc`'s closure can clone the class name lazily — only when
+        // an alloc sampler is installed, not on every `new`.
+        let td_for_record = Arc::clone(&type_desc);
         // review.md E2.P6 (2026-06-02): `slots` is `Box<[Value]>` now.
         // Vec → Box<[T]> drops excess capacity; for the common case where
         // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
@@ -1555,7 +1748,7 @@ impl MagrGC for ArcMagrGC {
             });
             return Value::Null;
         }
-        self.record_alloc(&value, AllocKind::Object { class }, size);
+        self.record_alloc(&value, || AllocKind::Object { class: td_for_record.name.clone() }, size);
         self.maybe_auto_collect();
         value
     }
@@ -1566,6 +1759,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(element_type, elems))
+    }
+
+    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
@@ -1710,7 +1907,7 @@ impl MagrGC for ArcMagrGC {
             Value::Str(s) => size_of::<Value>() + s.len(),
             Value::Array(rc) => {
                 size_of::<Value>() + size_of::<Vec<Value>>()
-                    + rc.borrow().capacity() * size_of::<Value>()
+                    + rc.borrow().elem_storage_bytes()
             }
             Value::Object(rc) => {
                 let obj = rc.borrow();
@@ -1731,7 +1928,7 @@ impl MagrGC for ArcMagrGC {
                 size_of::<Value>()
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
-                    + c.env.borrow().capacity() * size_of::<Value>()
+                    + c.env.borrow().elem_storage_bytes()
                     + c.fn_name.capacity()
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
@@ -1753,6 +1950,15 @@ impl MagrGC for ArcMagrGC {
             Value::Boxed(b) => size_of::<Value>()
                 + size_of::<crate::metadata::types::BoxedPrim>()
                 + b.class.len(),
+            // add-escape-analysis-stack-alloc: stack objects/arrays live in the
+            // per-context arena, not the GC heap — object_size_bytes is a heap-alloc
+            // accounting hook and is never called on them; the arm exists only for
+            // exhaustiveness. The handle itself is just a (idx, frame_id) pair.
+            Value::StackObject { .. } | Value::StackArray { .. } => size_of::<Value>(),
+            // add-struct-value-semantics: struct blob lives in the per-context
+            // struct arena, not the GC heap — same as stack handles. The handle
+            // itself is just an (idx, frame_id) pair.
+            Value::StructRef { .. } => size_of::<Value>(),
         }
     }
 
@@ -1764,14 +1970,14 @@ impl MagrGC for ArcMagrGC {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // impl-closure-l3-core: a closure's env owns Value slots that may
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visitor(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
             // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
@@ -1780,7 +1986,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Stack { .. } => {}
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visitor(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();

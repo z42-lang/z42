@@ -49,13 +49,19 @@ pub unsafe extern "C" fn jit_array_new_lit(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_data(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
-    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64,
+    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
 ) -> u8 {
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            // jit-inline-i32-arrays: hand back the packed buffer base (`int[]`/
+            // `long[]`/`double[]`) plus the runtime slot width (4/8; 0 if the
+            // backing isn't packed-numeric). The ArrayGet inline uses the
+            // compile-time element width; the ArraySet inline consults
+            // `out_width` so a narrowing store writes the right slot size.
+            *out_ptr = borrowed.packed_num_ptr().unwrap_or(std::ptr::null()) as *const Value;
             *out_len = borrowed.len() as i64;
+            *out_width = borrowed.packed_elem_width();
             0
         }
         other => {
@@ -78,17 +84,20 @@ pub unsafe extern "C" fn jit_array_data(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_data_opt(
     frame: *mut JitFrame, _ctx: *const JitModuleCtx,
-    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64,
+    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
 ) {
     match &(*frame).regs[arr as usize] {
         Value::Array(rc) => {
             let borrowed = rc.borrow();
-            *out_ptr = borrowed.as_ptr();
+            // jit-inline-i32-arrays: packed buffer base + runtime slot width.
+            *out_ptr = borrowed.packed_num_ptr().unwrap_or(std::ptr::null()) as *const Value;
             *out_len = borrowed.len() as i64;
+            *out_width = borrowed.packed_elem_width();
         }
         _ => {
             *out_ptr = std::ptr::null();
             *out_len = 0;
+            *out_width = 0;
         }
     }
 }
@@ -115,7 +124,7 @@ pub unsafe extern "C" fn jit_array_get(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i].clone()
+            borrowed.get_boxed(i)
         }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: expected array, got {:?}", other).into()));
@@ -154,7 +163,7 @@ pub unsafe extern "C" fn jit_array_set(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed[i] = v.clone();
+            borrowed.set_boxed(i, v.clone());
             drop(borrowed);
             if v.is_heap_ref() {
                 vm_ctx_ref(ctx).heap().write_barrier_array_elem(&arr_val, i, &v);

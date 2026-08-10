@@ -34,7 +34,13 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 33;   // 2026-07-18 fix-crosspkg-interface-impl：接口 TYPE 条目尾部加方法签名块（耦合 zbc 1.28）——跨包接口实现从依赖 zpkg 恢复接口方法（TsigReconcile 重建）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。
+    public static int Minor = 36;   // 2026-08-08 add-struct-value-semantics A-use：内嵌 zbc 1.31（TYPE 值 struct 布局块 + z42c emit blob 值指令）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。
+                                    // 前史：0.35 impl-sealed-semantics-devirt（耦合 zbc 1.30）；0.34 add-escape-analysis-stack-alloc（耦合 zbc 1.29）；0.33 fix-crosspkg-interface-impl（耦合 zbc 1.28）。
+    // add-offline-symbolication (2026-08-04)：`.zsym` SymOnly sidecar 的 MDBG 布局在 minor 33 内变更
+    //   （per-module 加 funcCount + per-func frameName_idx，见 _buildSidecar）——**不 bump 共享 minor**：
+    //   MDBG 只存在于 .zsym（临时、每次 release 重生、非分发稳定件），且写端(此处)+读端(Rust
+    //   read_mdbg_section / z42d SidecarReader)同 change 同版落地，无跨版本读旧 .zsym 场景；常规 zpkg
+    //   字节不变。避免为 sidecar-only 改动触发全树 bump + 两代自举死锁。
                                     // 前史：0.32 stabilize-dispatch-keys（派发键全局重键，耦合 zbc 1.27）；0.31 drop-tsig-expt（删 EXPT + TSIG 段）；
                                     //       0.25 reencode-strs-segment-dict（耦合 zbc 1.21）；0.24 add-indexed-zpkg-min-patch；0.23 add-params-varargs
 
@@ -78,11 +84,37 @@ public static class ZpkgWriterZ {
         return w;
     }
 
-    // sidecar zpkg：独立 symPool（namespace + DBUG 串）+ MDBG（per-module DBUG）+ BLID。
+    // add-offline-symbolication: build the frame-name key for a function — MUST
+    // mirror Rust `metadata::bytecode::format_frame_name` byte-for-byte so a
+    // crash-trace frame (`at <name>(<types>) +0x…`) matches the .zsym key. Format:
+    // `Name(t0,t1,…)`; when ParamTypes is absent but ParamCount>0, fall back to
+    // `?` placeholders. Pinned by the symbolicate round-trip e2e test.
+    private static string _frameName(IrFunction f) {
+        string s = f.Name + "(";
+        if (f.ParamTypeCount > 0) {
+            int i = 0;
+            while (i < f.ParamTypeCount) {
+                if (i > 0) { s = s + ","; }
+                s = s + f.ParamTypes[i];
+                i = i + 1;
+            }
+        } else if (f.ParamCount > 0) {
+            int i = 0;
+            while (i < f.ParamCount) {
+                if (i > 0) { s = s + ","; }
+                s = s + "?";
+                i = i + 1;
+            }
+        }
+        return s + ")";
+    }
+
+    // sidecar zpkg：独立 symPool（namespace + DBUG 串 + per-func frame-name key）+ MDBG + BLID。
     // flags = Packed|SymOnly（1|4=5）。不可作工程包加载（ZpkgReader.ReadSidecar 专读）。
     private static byte[] _buildSidecar(ZpkgFileZ zpkg, byte[] buildId) {
         var symPool = new ZbcStringPool();
-        // namespaces（全模块）→ DBUG 串（file 路径 + 局部变量名），镜像 C# 顺序。
+        // namespaces（全模块）→ DBUG 串（file 路径 + 局部变量名）+ 每函数 frame-name key
+        //（add-offline-symbolication B：.zsym 自足，per-func 嵌 FQN(带签名) → 离线名→行表）。
         int mi = 0;
         while (mi < zpkg.ModuleCount) { symPool.Intern(zpkg.Modules[mi].Namespace); mi = mi + 1; }
         mi = 0;
@@ -91,6 +123,7 @@ public static class ZpkgWriterZ {
             int fi = 0;
             while (fi < irm.FuncCount) {
                 IrFunction f = irm.Functions[fi];
+                symPool.Intern(ZpkgWriterZ._frameName(f));   // frame-name key（镜像 Rust format_frame_name）
                 int le = 0;
                 while (le < f.LineCount) { if (f.LineTable[le].HasFile) { symPool.Intern(f.LineTable[le].File); } le = le + 1; }
                 int lv = 0;
@@ -99,13 +132,21 @@ public static class ZpkgWriterZ {
             }
             mi = mi + 1;
         }
-        // MDBG：u32 module_count；每模块 u32 ns_idx + u32 dbug_len + dbug 体（用 symPool）。
+        // MDBG（zpkg 0.34，add-offline-symbolication B）：u32 module_count；每模块
+        //   u32 ns_idx + u32 funcCount + (u32 frameName_idx)×funcCount + u32 dbug_len + dbug 体。
+        // frameName 数组与 dbug 的 per-func 行表按 index 对齐；离线 symbolicate 靠它建 名→行表。
         var mdbg = new ByteWriter();
         mdbg.WriteU32(zpkg.ModuleCount);
         mi = 0;
         while (mi < zpkg.ModuleCount) {
             IrModule irm = zpkg.Modules[mi].Module;
             mdbg.WriteU32(symPool.Idx(zpkg.Modules[mi].Namespace));
+            mdbg.WriteU32(irm.FuncCount);
+            int fi = 0;
+            while (fi < irm.FuncCount) {
+                mdbg.WriteU32(symPool.Idx(ZpkgWriterZ._frameName(irm.Functions[fi])));
+                fi = fi + 1;
+            }
             ByteWriter d = ZbcWriter.BuildDbug(irm.Functions, irm.FuncCount, symPool);
             mdbg.WriteU32(d.Len());
             if (d.Len() > 0) { mdbg.AppendWriter(d); }

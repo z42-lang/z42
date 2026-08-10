@@ -21,6 +21,8 @@
 // 包级 `package.meta`：上次构建源清单（增删文件 → 全量，spec 场景）。
 namespace Z42.Project;
 
+using Z42.Project;
+
 using Std;
 using Std.IO;
 using Std.Encoding;

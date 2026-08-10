@@ -110,7 +110,7 @@ pub fn value_to_str(v: &Value) -> String {
         Value::Str(s)  => s.to_string(),
         Value::Null    => "null".to_string(),
         Value::Array(rc) => {
-            let inner: Vec<String> = rc.borrow().iter().map(value_to_str).collect();
+            let inner: Vec<String> = rc.borrow().iter_boxed().map(|v| value_to_str(&v)).collect();
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),
@@ -126,6 +126,17 @@ pub fn value_to_str(v: &Value) -> String {
         Value::Ref(_) => "<ref>".to_string(),
         // add-primitive-value-boxing: 装箱基元字符串化 = inner 的字符串。
         Value::Boxed(b) => value_to_str(&b.inner),
+        // add-escape-analysis-stack-alloc: stack objects/arrays never reach the
+        // user-visible stringify path (ToStr is an escape sink → such objects are
+        // heap-allocated, not stack). This arm is defensive: a placeholder that's
+        // easy to spot in debugging if an analysis bug ever lets one through
+        // (`value_to_str` has no `ctx` to resolve the arena, by design).
+        Value::StackObject { .. } => "<stack object>".to_string(),
+        Value::StackArray { .. }  => "<stack array>".to_string(),
+        // add-struct-value-semantics: struct blob lives in the arena; value_to_str
+        // has no ctx to resolve it. ToString on a value struct dispatches through
+        // its type's method (VCall), not this raw path — defensive placeholder.
+        Value::StructRef { .. } => "<struct value>".to_string(),
     }
 }
 

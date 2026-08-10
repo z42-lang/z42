@@ -11,7 +11,6 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.core/` | `z42.core` | 核心类型 + 隐式 prelude；按子目录组织：`Primitives/`（6 个 primitive 成员方法）/ `Delegates/`（callable + multicast + 订阅）/ `Protocols/`（核心接口）/ `Exceptions/`（Exception 树）/ `Collections/`（List / Dict / KVP）；根留 Object / Type / String / Convert / Assert / GC / Disposable。详见 [src/README.md](z42.core/src/README.md) |
 | `z42.collections/` | `z42.collections` | 次级集合类型：`Queue`、`Stack`（未来 `LinkedList` / `SortedDictionary` / `PriorityQueue`） |
 | `z42.io/` | `z42.io` | IO 类型：`Console`、`File`、`Path`、`Environment` |
-| `z42.math/` | `z42.math` | 数学函数：`Math` |
 | `z42.text/` | `z42.text` | 文本处理：`StringBuilder`、`Regex` |
 | `z42.encoding/` | `z42.encoding` | 字符 ↔ 字节编码：`Hex`、`Base64` (RFC 4648 §4)、`Utf8` |
 | `z42.test/` | `z42.test` | 单元测试运行时（v0 imperative TestRunner；lambda 就绪后升级 v1）|
@@ -25,6 +24,11 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.regex/` | `z42.regex` | 正则：`Regex.Compile(pat)` + `IsMatch / Find / FindAll / Replace / Split` + `Match.Group(i)`（backtracking NFA） |
 | `z42.cli/` | `z42.cli` | CLI argv 解析：`ArgParser.{AddFlag, AddOption, AddPositional}` + `Parse(argv)` → `ParseResult.{GetFlag, GetOption, GetPositional, ShowHelp}` + auto `-h/--help` |
 | `z42.crypto/` | `z42.crypto` | 加密原语：`Sha1` / `Sha256` (FIPS 180-4) + `HmacSha1` / `HmacSha256` (RFC 2104) + `SecureRandom` OS-CSPRNG (`GetBytes` / `NextInt` / `NextLong` / `NextU32Bounded`) |
+
+> **两类库（别混淆）**：`src/libraries/` 同时住着**用户 stdlib**（`Std.*` 命名空间，面向应用开发者）与
+> **工具链库**（`Z42.*`：`z42.ir` / `z42.project` / `z42.build`——编译器内部件下沉为共享库，供 z42c / REPL /
+> z42b 复用）。下方实现规范与 [organization.md](../../docs/design/stdlib/organization.md) 的划分规则**只约束
+> `Std.*` 用户库**；`Z42.*` 是编译器内部实现、不是用户 API。详见 organization.md「用户 stdlib vs 工具链库」。
 
 ## 实现规范（必须遵守）
 
@@ -47,22 +51,44 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 > 格式化 / Assert / Path 字符串操作 / 算术辅助）一律脚本实现。
 > 详见 [docs/design/stdlib/organization.md "Primitive vs Feature (BCL/Rust 对标)"](../../docs/design/stdlib/organization.md)。
 
-### 2. VM 接口集中在 z42.core
+### 2. Interop 只允许在 core + 独立平台能力库（平台边界库）
 
-**VM 提供的 extern / intrinsic 接口只能出现在 `z42.core`。**
+> **取代旧规则**「VM extern 只能在 z42.core，仅 z42.io 例外」——该表述过窄且早已被现实违反
+> （math / time / threading / net / compression / crypto / io.binary / test 都含 interop）。
+> 唯一 SoT：[docs/design/stdlib/organization.md「平台边界库 vs 全平台共享库」](../../docs/design/stdlib/organization.md)。
 
-其他包（`z42.collections` / `z42.math` / `z42.text` / ...）**一律不允许**
-声明任何 VM extern，必须通过调用 `z42.core` 的公开 API 间接使用 VM 能力。
+**interop（`extern` / `[Native]`，含 VM intrinsic 与 host FFI 两条通道）只允许出现在两类库：**
 
-**唯一例外：`z42.io`。**
-`z42.io` 依赖**另一个** native 库（文件系统 / 控制台 / 环境变量等操作系统
-能力），该 native 接口与 "VM corelib intrinsic" 是两套独立通道——它不占
-用 VM intrinsic 预算，走的是 host function (FFI) 机制。除 `z42.io` 外，
-其他包禁止引入任何 native 依赖。
+1. **`z42.core`** —— 承载**全平台通用的基础机制原语**（cross-cutting：Object / String / 数值等
+   类型系统协议、libm 数学、时钟、位转换、数值 parse/format）。这些能力每个平台的 VM 都能提供，
+   属"到处都在、人人都用"的底座。
+2. **独立平台能力库** —— 承载**平台相关、某些平台可能缺失或不同**的能力，各自封装自己的 interop：
+   `z42.io`（文件 / 控制台 / 进程 / 环境）、`z42.net`（socket / TLS / DNS）、`z42.threading`
+   （线程 / 锁 / channel —— 如 browser 平台无多线程）、`z42.compression`（native codec 库）等。
+   这类库本身就**不保证全平台可用**。
 
-> 目的：保持 VM 表面最小、可审计；stdlib 绝大部分逻辑由脚本驱动，便于
-> 自举、调试和演进。新增 VM extern 视同新增语言原语，需走 vm 类型完整
-> 变更流程。
+**其余所有库一律纯脚本、零 interop** —— 从而**全平台共享、VM 能跑的地方就能跑**（collections /
+math / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random /
+numerics / io.binary / …）。它们要用 native 能力时，一律**通过调用 core 或某个平台能力库的公开
+API 间接使用**。
+
+> **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM 加载期解析"的字符串，**所有 zpkg
+> 本就跨平台字节相同**（core 也是）。本规则收缩 interop 声明面**不是**为了让 zpkg 字节相同（那已
+> 成立），而是为了：① 让"哪些库是平台边界、可能在某平台缺席"一目了然（纯脚本库 = 处处可跑的保证）；
+> ② 单一、可审计的 native ABI 契约；③ 消灭重复声明。
+
+**配套纪律：**
+
+- **Script-First**：逻辑尽量放脚本；interop 只提供**最小基础机制/原语**，不在 native 侧堆高层逻辑。
+- **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
+- **单一声明点**：每个 native 符号在**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其
+  能力库。（位转换 `__*_to_bits`/`__*_from_bits` → core `Std.BitConverter`、时钟 `__time_now_*` → core
+  `Std.Runtime.Clock` 的多库重复声明已由 consolidate-core-intrinsics(A1) 收敛。）
+- **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
+  VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
+
+> 目的：保持 VM / native 表面最小、可审计；stdlib 绝大部分逻辑由脚本驱动，便于自举、调试和演进。
+> 新增 VM extern 视同新增语言原语，需走 vm 类型完整变更流程。
 
 ---
 
@@ -110,7 +136,6 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | `z42.core` | `Nullable<T>` 显式类型（暂用语言级 `T?`，独立类型留待系统设计）<br>`KeyValuePair<K,V>`（Dictionary 实现 `IEnumerable` 需要）<br>`Range` / `Index`（C# 8 风切片）<br>`Tuple<...>`（多返回值；当前 z42 无 tuple 类型）|
 | `z42.collections` | `LinkedList<T>` / `SortedDictionary<K,V>` / `PriorityQueue<T>` / `ImmutableArray<T>`<br>List / Dictionary 实现 `IEnumerable<T>`（端到端 foreach IEnumerator 路径）|
 | `z42.io` | `Stream` / `BufferedStream` / `MemoryStream`<br>`TextReader` / `TextWriter` 抽象类<br>`Directory` / `FileInfo` / `DirectoryInfo`<br>`Encoding` (UTF-8 / UTF-16)|
-| `z42.math` | `Random`（PRNG，Mersenne Twister 或 PCG）<br>`Complex` / `Vector*`（如不拆 `z42.numerics`）|
 | `z42.text` | `Encoding` 体系（与 `z42.io` 协调）<br>`StringReader` / `StringWriter`<br>`Regex` 完整实现（当前占位）|
 
 ### 跨包 backlog
@@ -201,7 +226,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
-| ~~`__math_abs` / `__math_max` / `__math_min` (3)~~ | ✅ 已删 | 2026-04-27 wave1-math-script — int + double overload 脚本，见 [z42.math/src/Math.z42](z42.math/src/Math.z42) |
+| ~~`__math_abs` / `__math_max` / `__math_min` (3)~~ | ✅ 已删 | 2026-04-27 wave1-math-script — int + double overload 脚本，见 [z42.core/src/Math.z42](z42.core/src/Math.z42) |
 | `__math_pow` / `__math_sqrt` / `__math_log` / `__math_log10` / `__math_sin` / `__math_cos` / `__math_tan` / `__math_atan2` / `__math_exp` (9) | 🟢 | libm FPU 指令，BCL/Rust 都是 extern |
 | `__math_floor` / `__math_ceiling` / `__math_round` (3) | 🟢 | libm 一致性；技术上脚本可表达，但保 libm 行为以匹配 BCL/Rust |
 

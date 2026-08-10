@@ -19,6 +19,7 @@ namespace Z42Builder;
 using Std;
 using Std.IO;
 using Std.Reflection;
+using Std.Test;
 using Z42.Build;
 
 // 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符）→ null，调用方跳过

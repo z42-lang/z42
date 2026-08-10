@@ -1,0 +1,113 @@
+// 常量条件死分支消除（add-const-keyword，Opt.DeadBranch）。
+//
+// 喂料：const 替换 / const-fold 把恒定的分支条件寄存器变成 ConstBoolInstr。本 pass：
+//   ① 折叠：br.cond(cond, T, F) 且 cond 由单赋值 ConstBoolInstr 产出 → 折成无条件 br(命中分支)。
+//      始终安全（条件跳转→无条件跳转，不移块）；被折掉的 cond 读消失，其 ConstBool producer 由 DCE 清。
+//   ② 移块：仅 ExcCount==0 的函数，从 entry(block0) 沿 Br/BrCond 后继做可达性 BFS，移除不可达块。
+//
+// ⚠️ CFG 铁律（见 IrLicm）：z42 IR 的 CFG 只从终结子建、**不含异常隐式边**（try→catch/finally）。
+//   故 ExcCount>0 的函数只折不移——贸然移块会删掉 handler 可达的块 → miscompile。折叠对异常无影响。
+//   移块安全性：有效 IR 里 def 支配 use → 可达块引用的寄存器其定义块必可达，移不可达块不产生悬垂读。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrDeadBranch {
+    public static void Run(IrFunction f) {
+        if (f.BlockCount == 0) { return; }
+        IrDeadBranch._foldBranches(f);
+        if (f.ExcCount == 0) { IrDeadBranch._removeUnreachable(f); }
+    }
+
+    // 收集单赋值 ConstBoolInstr 的值 → 折恒定 br.cond。
+    private static void _foldBranches(IrFunction f) {
+        int n = f.MaxReg + 2;
+        bool[] known = new bool[n];
+        bool[] bval  = new bool[n];
+        int[] defs = IrDeadBranch._computeDefs(f);
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                if (blk.Instrs[ii] is ConstBoolInstr) {
+                    ConstBoolInstr cb = blk.Instrs[ii] as ConstBoolInstr;
+                    int d = cb.Dst.Id;
+                    if (d >= 0 && d < n && defs[d] == 1) { known[d] = true; bval[d] = cb.Value; }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            if (blk.HasTerm && (blk.Term is BrCondTerm)) {
+                BrCondTerm bc = blk.Term as BrCondTerm;
+                int c = bc.Cond.Id;
+                if (c >= 0 && c < n && known[c]) {
+                    string taken = bc.FalseLabel;
+                    if (bval[c]) { taken = bc.TrueLabel; }
+                    blk.Term = new BrTerm(taken);
+                }
+            }
+            bi = bi + 1;
+        }
+    }
+
+    private static int[] _computeDefs(IrFunction f) {
+        int[] defs = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
+            bi = bi + 1;
+        }
+        return defs;
+    }
+
+    // 从 entry(block0) 可达性 BFS，移除不可达块。仅 ExcCount==0 调用。
+    private static void _removeUnreachable(IrFunction f) {
+        bool[] reach = new bool[f.BlockCount];
+        int[] stack = new int[f.BlockCount];
+        int sp = 0;
+        reach[0] = true; stack[0] = 0; sp = 1;
+        while (sp > 0) {
+            sp = sp - 1;
+            IrBlock blk = f.Blocks[stack[sp]];
+            if (blk.HasTerm) {
+                if (blk.Term is BrTerm) {
+                    sp = IrDeadBranch._visit(f, (blk.Term as BrTerm).Label, reach, stack, sp);
+                } else if (blk.Term is BrCondTerm) {
+                    BrCondTerm bc = blk.Term as BrCondTerm;
+                    sp = IrDeadBranch._visit(f, bc.TrueLabel, reach, stack, sp);
+                    sp = IrDeadBranch._visit(f, bc.FalseLabel, reach, stack, sp);
+                }
+            }
+        }
+        int keep = 0;
+        int bi = 0;
+        while (bi < f.BlockCount) { if (reach[bi]) { keep = keep + 1; } bi = bi + 1; }
+        if (keep == f.BlockCount) { return; }
+        IrBlock[] nw = new IrBlock[keep];
+        int j = 0;
+        bi = 0;
+        while (bi < f.BlockCount) { if (reach[bi]) { nw[j] = f.Blocks[bi]; j = j + 1; } bi = bi + 1; }
+        f.Blocks = nw;
+        f.BlockCount = keep;
+    }
+
+    // 标记 label 对应块可达并入栈（首次）。返回新栈顶。BlockCount 小 → 线性查索引可接受。
+    private static int _visit(IrFunction f, string label, bool[] reach, int[] stack, int sp) {
+        int t = IrDeadBranch._indexOf(f, label);
+        if (t >= 0 && !reach[t]) { reach[t] = true; stack[sp] = t; sp = sp + 1; }
+        return sp;
+    }
+
+    private static int _indexOf(IrFunction f, string label) {
+        int bi = 0;
+        while (bi < f.BlockCount) { if (f.Blocks[bi].Label == label) { return bi; } bi = bi + 1; }
+        return 0 - 1;
+    }
+}

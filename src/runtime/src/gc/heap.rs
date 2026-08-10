@@ -75,6 +75,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_array(elems)
     }
 
+    /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
+    /// an owned `Vec<u8>` (FFI return path — no per-byte boxing). Default boxes
+    /// for mock heaps; `ArcHeap` overrides to build a `Bytes` backing in place.
+    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
+        self.alloc_array_typed("byte", bytes.into_iter().map(|b| Value::I64(b as i64)).collect())
+    }
+
     // ── 2. Roots ─────────────────────────────────────────────────────────────
 
     /// 注册一个 **external root scanner** 闭包 —— GC mark 阶段在扫完 pinned
@@ -91,6 +98,27 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 默认实现 no-op（适合不参与 cycle / external-root 的 backend；当前
     /// 仅 `ArcMagrGC` 重载）。
     fn set_external_root_scanner(&self, _scanner: super::arc_heap::ExternalRootScanner) {}
+
+    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// reclaimer hook (drives `AssemblyLoadContext` unload reclamation on major
+    /// GC). Default no-op; only `ArcMagrGC` overrides.
+    fn set_context_reclaimer(&self, _hook: super::arc_heap::ContextReclaimHook) {}
+
+    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// root scanner (for retention-query L2). Default no-op; `ArcMagrGC` overrides.
+    fn set_categorized_root_scanner(&self, _scanner: super::arc_heap::CategorizedRootScanner) {}
+
+    /// **add-heap-retention-diagnostics**: L1 direct referrers of a heap object
+    /// (by data ptr). Default empty (backends without a reverse walk).
+    fn retention_direct_referrers(&self, _target: usize) -> Vec<super::retention::RetainerInfo> {
+        Vec::new()
+    }
+
+    /// **add-heap-retention-diagnostics**: L2 retaining roots of a heap object.
+    /// Default empty.
+    fn retention_roots(&self, _target: usize) -> Vec<super::retention::RootInfo> {
+        Vec::new()
+    }
 
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire an external
     /// `Arc<AtomicBool>` flag for the backend to set (instead of calling

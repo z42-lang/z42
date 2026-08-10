@@ -2,7 +2,7 @@
 /// to its size). Covers: ObjNew (allocate + ctor), FieldGet / FieldSet,
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
-use crate::metadata::{Module, NativeData, Value};
+use crate::metadata::{Module, NativeData, ScriptObject, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -33,6 +33,7 @@ pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32], type_args: &[String],
     type_token: Option<&std::sync::atomic::AtomicU32>,
+    stack_alloc: bool,
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
     // L3-G4d: for imported classes (e.g. Std.Collections.Stack) the TypeDesc
@@ -65,28 +66,52 @@ pub(super) fn obj_new(
     let slots: Vec<Value> = type_desc.fields.iter()
         .map(|f| crate::metadata::default_value_for(&f.type_tag))
         .collect();
-    let obj_val = ctx.heap().alloc_object(type_desc, slots, NativeData::None);
 
-    // add-gc-oom-exception: alloc_object returns Null only under strict OOM.
-    // Temporarily disable strict OOM so the exception object can be allocated;
-    // since alloc_object only returns Null in strict mode, re-enable is safe.
-    if matches!(obj_val, Value::Null) {
-        ctx.heap().set_strict_oom(false);
-        let exc = crate::exception::make_stdlib_exception(
-            ctx, module, "Std.OutOfMemoryException",
-            format!("cannot allocate `{class_name}`: heap limit exceeded"),
-        ).unwrap_or(Value::Null);
-        ctx.heap().set_strict_oom(true);
-        return Ok(Some(exc));
-    }
+    // add-escape-analysis-stack-alloc: when the compiler proved this `new` does
+    // not escape its frame AND the ctor does not leak `this`, allocate in the
+    // per-context stack arena (no GC region lock / tracking / sweep). The ctor
+    // runs on the stack object exactly as on a heap one — `this` is a
+    // `Value::StackObject { idx, frame_id }` handle that FieldGet/FieldSet resolve
+    // through `ctx.stack_arena`, so the ctor's child frame reaches it fine.
+    // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
+    let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
+        let obj = ScriptObject {
+            type_desc,
+            slots: slots.into_boxed_slice(),
+            native: NativeData::None,
+            type_args: if type_args.is_empty() {
+                Box::new([])
+            } else {
+                Box::<[String]>::from(type_args)
+            },
+        };
+        let idx = ctx.stack_arena.lock().alloc_obj(frame.frame_id, obj);
+        Value::StackObject { idx, frame_id: frame.frame_id }
+    } else {
+        let obj_val = ctx.heap().alloc_object(type_desc, slots, NativeData::None);
 
-    // 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): populate
-    // per-instance type_args from the IR instruction. Read by `DefaultOf`.
-    if !type_args.is_empty() {
-        if let Value::Object(ref rc) = obj_val {
-            rc.borrow_mut().type_args = Box::<[String]>::from(type_args);
+        // add-gc-oom-exception: alloc_object returns Null only under strict OOM.
+        // Temporarily disable strict OOM so the exception object can be allocated;
+        // since alloc_object only returns Null in strict mode, re-enable is safe.
+        if matches!(obj_val, Value::Null) {
+            ctx.heap().set_strict_oom(false);
+            let exc = crate::exception::make_stdlib_exception(
+                ctx, module, "Std.OutOfMemoryException",
+                format!("cannot allocate `{class_name}`: heap limit exceeded"),
+            ).unwrap_or(Value::Null);
+            ctx.heap().set_strict_oom(true);
+            return Ok(Some(exc));
         }
-    }
+
+        // 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): populate
+        // per-instance type_args from the IR instruction. Read by `DefaultOf`.
+        if !type_args.is_empty() {
+            if let Value::Object(ref rc) = obj_val {
+                rc.borrow_mut().type_args = Box::<[String]>::from(type_args);
+            }
+        }
+        obj_val
+    };
 
     // 直查 ctor_name (TypeChecker 已 overload-resolve)；无名字推断。
     // L3-G4d: fall back to lazy loader when the ctor lives in a stdlib zpkg
@@ -129,11 +154,40 @@ pub(super) fn obj_new(
 /// Non-Object receivers (Str / Array / PinnedView) bypass the IC since
 /// their field set is hardcoded (`Length` / `ptr` / `len`).
 pub(super) fn field_get(
-    frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
+    ctx: &VmContext, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
     field_ic: Option<&crate::metadata::resolver::FieldIC>,
 ) -> Result<()> {
     use crate::metadata::resolver::{field_ic_lookup, field_ic_install};
     let val = match frame.get(obj)? {
+        // add-escape-analysis-stack-alloc: stack object — resolve via the
+        // per-context arena (validated: idx in range + frame_id matches, else a
+        // clear stale-handle diagnostic).
+        // add-stack-field-ic: reuse the same monomorphic FieldIC as the heap path.
+        // Stack objects carry a resolved `type_desc.id`, and `field_index` is
+        // per-type — so the cached `(TypeId → slot)` is identical whether the
+        // receiver is heap or stack. Skipping the per-access `field_index` hashmap
+        // lookup is the win: heavy cross-frame field access (object passed to a
+        // callee that reads its fields many times) was dominated by that lookup,
+        // which made escape/cross-proc stack-alloc lose to heap (heap had the IC).
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            ctx.stack_arena.lock().with_obj(idx, frame_id, |obj| {
+                if let Some(ic) = field_ic {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        return obj.slots.get(slot as usize).cloned().unwrap_or(Value::Null);
+                    }
+                    if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        field_ic_install(ic, recv_type, slot as u32);
+                        return obj.slots.get(slot).cloned().unwrap_or(Value::Null);
+                    }
+                    return Value::Null;
+                }
+                obj.type_desc.field_index.get(field_name)
+                    .and_then(|&slot| obj.slots.get(slot).cloned())
+                    .unwrap_or(Value::Null)
+            })?
+        }
         Value::Object(rc) => {
             let borrowed = rc.borrow();
             // PIC fast path: 4-slot linear scan with UNRESOLVED early-exit.
@@ -167,6 +221,17 @@ pub(super) fn field_get(
             "Length" | "Count" => Value::I64(rc.borrow().len() as i64),
             other => bail!("array has no field `{}`", other),
         },
+        // add-escape-analysis-stack-alloc: a stack array's `.Length`/`.Count`
+        // routes through FieldGet (a neutral use in the escape rules), so it can
+        // reach here — resolve the length via the arena.
+        Value::StackArray { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            let len = ctx.stack_arena.lock().with_arr(idx, frame_id, |a| a.len())?;
+            match field_name {
+                "Length" | "Count" => Value::I64(len as i64),
+                other => bail!("array has no field `{}`", other),
+            }
+        }
         Value::PinnedView(pv) => match field_name {
             // Spec C4 — only `ptr` / `len` are exposed; element type
             // information (kind) stays internal.
@@ -194,8 +259,46 @@ pub(super) fn field_set(
 ) -> Result<()> {
     use crate::metadata::resolver::{field_ic_lookup, field_ic_install};
     let v = frame.get(val)?.clone();
+    // add-escape-analysis-stack-alloc (diagnostic #2): FieldSet.val is an escape
+    // sink — the compiler must never let a stack handle be stored into a field
+    // (it would outlive its frame). Assert the analysis kept that invariant.
+    debug_assert!(
+        !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
+        "stack-alloc handle stored into a field — escape analysis unsound (FieldSet.val)"
+    );
     let owner = frame.get(obj)?.clone();
     match &owner {
+        // add-escape-analysis-stack-alloc: stack object — write the slot in the
+        // arena (validated). No GC write barrier: the stack object is not a heap
+        // slot; its heap-ref fields are kept live by root-scanning the arena.
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            ctx.stack_arena.lock().with_obj_mut(idx, frame_id, |obj| {
+                // add-stack-field-ic: IC on the stack write path (same cache as heap;
+                // no write barrier — stack slots aren't heap slots, heap-ref fields
+                // are kept live by root-scanning the arena). Resolve the slot first
+                // (releases the `field_index` borrow) before the mutable slot write.
+                let slot_opt: Option<usize> = if let Some(ic) = field_ic {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        Some(slot as usize)
+                    } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        field_ic_install(ic, recv_type, slot as u32);
+                        Some(slot)
+                    } else {
+                        None
+                    }
+                } else {
+                    obj.type_desc.field_index.get(field_name).copied()
+                };
+                if let Some(slot) = slot_opt {
+                    if slot < obj.slots.len() {
+                        obj.slots[slot] = v.clone();
+                    }
+                }
+            })?;
+            Ok(())
+        }
         Value::Object(rc) => {
             let mut borrowed = rc.borrow_mut();
             // PIC fast path
@@ -343,6 +446,12 @@ pub(super) fn static_set(
     field_id: Option<u32>,
 ) -> Result<()> {
     let v = frame.get(val)?.clone();
+    // add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape
+    // sink — a stack handle stored into a static would outlive its frame.
+    debug_assert!(
+        !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
+        "stack-alloc handle stored into a static field — escape analysis unsound (StaticSet.val)"
+    );
     match field_id {
         Some(id) => ctx.static_set_by_id(crate::metadata::tokens::StaticFieldId(id), v),
         None     => ctx.static_set(field, v),

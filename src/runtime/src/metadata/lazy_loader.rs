@@ -120,6 +120,13 @@ pub struct LazyLoader {
     /// by a previous lazy-load). Used for de-duplication and cycle-cutting
     /// (Decision 4: pre-inserted before load to break cycles).
     pub(crate) loaded_zpkgs:   HashSet<String>,
+    /// Scratch buffer: zpkg file names newly inserted into `loaded_zpkgs` during
+    /// the current resolve. Drained (`mem::take`) by `VmContext::try_lookup_*`
+    /// to fire `ModuleLoaded` events — replaces cloning the whole `loaded_zpkgs`
+    /// set on every lookup just to diff it afterwards (profiled: that per-call
+    /// clone was the top interp alloc hotspot in cross-zpkg-heavy workloads like
+    /// z42c self-compile). Common path (no new load) leaves it empty → zero alloc.
+    pub(crate) newly_loaded:   Vec<String>,
     /// zpkg file names that are declared as dependencies (direct or
     /// transitive) but have not yet been loaded. Lookup candidates.
     pub(crate) declared_zpkgs: HashMap<String, ZpkgCandidate>,
@@ -196,10 +203,21 @@ impl LazyLoader {
             main_pool_len,
             string_pool:    Vec::new(),
             loaded_zpkgs,
+            newly_loaded:   Vec::new(),
             declared_zpkgs,
             function_table: HashMap::new(),
             type_registry:  HashMap::new(),
             impls:          HashMap::new(),
+        }
+    }
+
+    /// Insert `name` into `loaded_zpkgs`; if it was genuinely new (not already
+    /// resident), also record it in `newly_loaded` so a `try_lookup_*` caller can
+    /// fire `ModuleLoaded` without cloning + diffing the whole set. Mirrors the
+    /// old `loaded_zpkgs.difference(&before)` semantics (only genuinely-new keys).
+    fn mark_zpkg_loaded(&mut self, name: String) {
+        if self.loaded_zpkgs.insert(name.clone()) {
+            self.newly_loaded.push(name);
         }
     }
 
@@ -357,7 +375,7 @@ impl LazyLoader {
         };
 
         // Decision 4: pre-insert to break cycles before recursive dep expansion.
-        self.loaded_zpkgs.insert(file_name.to_string());
+        self.mark_zpkg_loaded(file_name.to_string());
 
         let path_str = file_path.to_string_lossy().into_owned();
         let mut artifact = load_artifact(&path_str)?;
@@ -570,7 +588,18 @@ impl LazyLoader {
         if self.loaded_zpkgs.contains(&mod_key) {
             return Ok((entries, static_inits));
         }
-        self.loaded_zpkgs.insert(mod_key);
+        self.mark_zpkg_loaded(mod_key);
+
+        // Mark this package's canonical zpkg file name as resident. A later-loaded
+        // dependent records deps by file name (`<pkg>.zpkg`), so without this a
+        // cross-round REPL reference (R2 uses `Repl.R1.A`) makes the dep loop above
+        // probe disk for `repl_r1.zpkg` — which never existed on disk (compiled to
+        // bytes in memory) — and emit a spurious "cannot read dep zpkg meta" WARN.
+        // Registering it here lets the dep loop short-circuit on `loaded_zpkgs`.
+        // (fix-repl-inmemory-dep-warn)
+        if let Some(pkg) = &artifact.package_name {
+            self.mark_zpkg_loaded(format!("{pkg}.zpkg"));
+        }
 
         let offset = self.main_pool_len + self.string_pool.len();
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());

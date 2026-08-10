@@ -64,6 +64,13 @@ public sealed class IrClassDesc {
     public string[] IfaceMethodNames; public string[] IfaceMethodRets;
     public int[]    IfaceMethodParamCounts; public int IfaceMethodCount;
     public string[] IfaceMethodParamTypes;  public int IfaceMethodParamTotal;
+    // 值 struct 字节+引用布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2=struct 时随 TYPE
+    // 记录尾部 emit。StructSize=字节总数（供反射/装箱/校验）；平行数组 RefLeafOffsets/RefLeafKinds 是**带种类
+    // 引用位图**（种类：1=ArcString/2=GcRef），供运行时 GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone。
+    // 访问指令（StructFieldGet/SetPrim）的 byte_offset/size 由 codegen 直接烘焙为立即数，不经此块。
+    // 非 struct 全空、gated 零字节（同 enum/iface 块模式）。
+    public int StructSize;
+    public int[] StructRefOffsets; public int[] StructRefKinds; public int StructRefCount;
     public IrClassDesc(string name, bool hasBase, string baseName, IrFieldDesc[] fields, int fieldCount) {
         this.Name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = fields; this.FieldCount = fieldCount;
@@ -77,6 +84,7 @@ public sealed class IrClassDesc {
         this.IfaceMethodNames = new string[0]; this.IfaceMethodRets = new string[0];
         this.IfaceMethodParamCounts = new int[0]; this.IfaceMethodCount = 0;
         this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
+        this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
     }
 }
 

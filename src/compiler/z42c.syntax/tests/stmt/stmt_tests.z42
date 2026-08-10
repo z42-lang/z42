@@ -21,6 +21,13 @@ void test_var_decl() {
     Assert.Equal("(decl Foo f bar)", parseStmt("Foo f = bar;"));   // 自定义类型
 }
 
+// add-const-keyword：局部 const 声明前缀 → VarDeclStmt.IsConst（Dump 前缀 decl-const）。
+[Test]
+void test_const_local() {
+    Assert.Equal("(decl-const int n 8)", parseStmt("const int n = 8;"));
+    Assert.Equal("(decl-const int m (* n 2))", parseStmt("const int m = n * 2;"));
+}
+
 [Test]
 void test_return() {
     Assert.Equal("(return)", parseStmt("return;"));

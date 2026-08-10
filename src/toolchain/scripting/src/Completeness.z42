@@ -1,0 +1,64 @@
+// REPL 输入完整性探针（add-repl-parser-completeness）。
+//
+// 回答一个问题：REPL 逐行累积的输入「写完了没」——写完 → 交 Script.Eval 求值；没写完 → 续读下一行。
+// 判定权威是 parser（它才知道语法上还缺什么），不是括号计数这种词法近似。对**裸输入原文** parse
+// （不包裹、不执行），读 parser 的 IncompleteAtEof 标志。
+//
+// 为什么必须裸 parse、不能试编译包裹后的代码（design Decision 1）：
+//   Script.Eval 执行时会把输入包进 `return (…)` / 函数体（z42 无顶层语句语义）。包裹尾部的
+//   ) } ; 会「接住」本该落到 EOF 的缺失点——例 `1 +` 包成 `return (1 +);`，缺右操作数时下一个
+//   token 是 `)` 而非 EOF，IncompleteAtEof 永不置位。故完整性判定与求值解耦成两条路：探针只 parse。
+//
+// 与求值解耦的收益：EvalResult / CompiledModuleZ / CompileArtifacts 均不改，信号只挂 parser 的
+// DiagnosticBag。探针轻量——不做语义分析 / codegen / 加载引用 / 执行，不改 ScriptState。
+namespace Std.Scripting;
+
+using Std;
+using Z42.Syntax;
+using Z42.Core;
+
+public static class Completeness {
+
+    // true = 输入未写完，REPL 应续读下一行；false = 已完整（或是真语法错，交 Eval 正常报错）。
+    public static bool IsIncomplete(string src) {
+        string trimmed = src.Trim();
+        if (trimmed.Length == 0) { return false; }
+        // Classifier 已能区分「声明」vs「表达式/语句」，复用它分派到对应 parser 入口（parser 顶层
+        // 只认声明，故表达式/语句必须走 ParseStatement）。分派错的保守边界（如泛型返回 List<int> f()）
+        // 见 proposal Out of Scope。
+        ParsedInput p = Classifier.Classify(trimmed);
+        Parser parser = new Parser(src, "<repl>");
+        if (p.IsDecl) {
+            // 声明入口：缺闭合符 或 缺 `;`（无体函数 `void foo()` 续读补 body）都算没写完。
+            parser.ParseCompilationUnit();   // class/struct/enum/interface/record/自由函数
+            return parser.Diagnostics().IsIncompleteAtEof() || parser.Diagnostics().IsIncompleteSemiAtEof();
+        }
+        // 表达式/语句入口：只有缺闭合符/操作数才续读；缺 `;` 不算（REPL 表达式 `42` 本就无分号）。
+        parser.ParseStatement();
+        return parser.Diagnostics().IsIncompleteAtEof();
+    }
+
+    // 续行视觉缩进（sink-repl-indent-to-script）：按已累积文本 buf 仍未闭合的括号层数返回
+    // `层数 × 4 空格`，交 Repl.ReadLine 预填下一续行（编辑器风格）。缩进纯装饰、对 parser 无语义
+    // 影响（IsIncomplete 才是权威判完整）——故这里用既有 Lexer 数括号即可（它天然跳过注释、把串/字符
+    // 字面量内的括号锁在 token 内不计），无需再在 native 侧维护一份括号状态机。以闭括号起头的续行会多
+    // 缩一级，用户 backspace 一次（auto-dedent-on-`}` 属后续细化）。
+    public static string ContinuationIndent(string buf) {
+        Lexer lx = new Lexer(buf, "<repl>");
+        lx.Tokenize();
+        int cnt = lx.TokenCount();
+        int depth = 0;
+        int i = 0;
+        while (i < cnt) {
+            int k = lx.TokenAt(i).Kind;
+            if (k == TokenKind.LParen || k == TokenKind.LBracket || k == TokenKind.LBrace) { depth = depth + 1; }
+            else if (k == TokenKind.RParen || k == TokenKind.RBracket || k == TokenKind.RBrace) { depth = depth - 1; }
+            i = i + 1;
+        }
+        if (depth < 0) { depth = 0; }
+        string ind = "";
+        int j = 0;
+        while (j < depth) { ind = ind + "    "; j = j + 1; }
+        return ind;
+    }
+}

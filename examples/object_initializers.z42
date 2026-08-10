@@ -1,0 +1,47 @@
+// 对象初始化器 + 字段简写（add-object-initializers，2026-08-07 落地）。
+// 借鉴 C# 对象初始化器 + Rust/JS 字段简写。声明与初始化简化系列 Change 2。
+//   new Foo { X = 1, Y = 2 }   → 构造后逐字段赋值（C#）
+//   new Foo { x, y }           → 字段简写：x ≡ x = x（Rust/JS 同名）
+//   new Foo(a, b) { F = v }    → 带 ctor 实参
+// 纯前端脱糖：new Foo(args) { X = 1 } → $c = new Foo(args); $c.X = 1; $c
+// 复用集合字面量（Change 1）的 BoundSeqExpr，零新 IR、零格式 bump。
+// 结构更新 ..base 延后到 struct 值语义落地。
+namespace Demo.ObjectInitializers;
+
+using Std.IO;
+
+class Account {
+    public string owner;
+    public int    balance;
+    public bool   frozen;
+}
+
+class Rect {
+    public int W;
+    public int H;
+    public Rect(int w, int h) { this.W = w; this.H = h; }
+    public int Area() { return this.W * this.H; }
+}
+
+void Main() {
+    // 对象初始化器：省去连续字段赋值噪音
+    var a = new Account { owner = "alice", balance = 100, frozen = false };
+    Console.WriteLine($"{a.owner}: {a.balance}, frozen={a.frozen}");   // alice: 100, frozen=false
+
+    // 字段简写：同名局部变量直接填
+    string owner = "bob";
+    int balance = 250;
+    var b = new Account { owner, balance };
+    Console.WriteLine($"{b.owner}: {b.balance}");                      // bob: 250
+
+    // 带 ctor 实参 + 初始化器（这里 Rect 无可设字段，演示 ctor 实参形态）
+    var r = new Rect(4, 5);
+    Console.WriteLine($"area={r.Area()}");                            // area=20
+
+    // 与集合字面量组合（Change 1 × Change 2）
+    var accounts = new Account[] {
+        new Account { owner = "carol", balance = 50 },
+        new Account { owner = "dave",  balance = 75 },
+    };
+    Console.WriteLine($"count={accounts.Length}, [1]={accounts[1].owner}");  // count=2, [1]=dave
+}

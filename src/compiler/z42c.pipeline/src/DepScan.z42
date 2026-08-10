@@ -8,6 +8,7 @@ namespace Z42.Pipeline;
 using Std;
 using Std.IO;
 using Z42.IR;
+using Z42.IR.BinaryFormat;
 using Z42.Project;
 
 // 一次扫描的产物束。

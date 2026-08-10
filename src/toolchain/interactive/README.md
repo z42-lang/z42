@@ -16,7 +16,7 @@ src/toolchain/interactive/core/*.z42  →  z42.interactive.zpkg  →  apphost z4
 
 | 文件 | 职责 |
 |------|------|
-| `core/interactive_main.z42` | REPL 入口（当前仅打印 "planned" 后退出）|
+| `core/interactive_main.z42` | REPL 主循环：逐行读取累积 → `Completeness.IsIncomplete` 判完整性（没写完续读，`... ` 提示符 + 自动缩进）→ `.` 元指令 / `Script.Eval` 求值；`-c` 单次求值（完整性机制见 [book](../../../docs/book/src/toolchain/repl-input-completeness.md)）|
 | `core/z42.interactive.z42.toml` | 包清单（exe / pack / apphost）|
 
 ## 依赖关系

@@ -77,6 +77,36 @@ string result = maybeNull ?? "default";
 int? len = maybeNull?.Length;
 ```
 
+### 集合字面量（声明与初始化简化，add-collection-literals 2026-08-07）
+
+`[]`＝数组、`{}`＝花括号族（List / Dictionary），借鉴 JSON/JS + C# 集合初始化器 + Rust 重复填充：
+
+```z42
+int[]                  xs = [1, 2, 3];        // 数组（方括号一律数组）
+int[]                  z  = [0; 100];         // Rust 重复填充（value 只求值一次）
+int[]                  c  = [..xs, 99];       // spread 拼接
+List<int>              ys = { 1, 2, 3 };      // 花括号 + 裸元素 → List
+Dictionary<string,int> m  = { "a": 1 };       // 花括号 + k:v → Dictionary
+int[] e = [];  List<int> el = {};             // 空：由目标类型定元素/容器
+```
+
+纯前端脱糖（零新 IR / 零格式 bump）。详见 [arrays.md](arrays.md)（`[]`）与
+[collection-literals.md](collection-literals.md)（`{}`）。
+
+### 对象初始化器 + 字段简写（add-object-initializers 2026-08-07）
+
+`new Type(args?) { ... }` 构造后逐字段赋值（C#），裸标识符为字段简写（Rust/JS）：
+
+```z42
+var p = new Point { X = 1, Y = 2 };        // 对象初始化器
+var q = new Point { x, y };                // 字段简写：x ≡ x = x（同名变量）
+var b = new Box(w, h) { Filled = true };   // 带 ctor 实参
+```
+
+脱糖 `new Foo(args) { X = 1 }` → `$c = new Foo(args); $c.X = 1; $c`（复用集合字面量的 `BoundSeqExpr`，
+零新 IR / 零格式 bump）。结构更新 `..base` 延后到 struct 值语义。详见
+[object-initializers.md](object-initializers.md)。
+
 ---
 
 ## 3. 字符串

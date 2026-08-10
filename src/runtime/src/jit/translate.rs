@@ -93,6 +93,11 @@ pub fn written_reg(instr: &Instruction) -> Option<u32> {
         Instruction::CallIndirect { dst, .. } => Some(*dst),
         Instruction::MkClos(insn)             => Some(insn.dst),
         Instruction::Convert      { dst, .. } => Some(*dst),
+        // add-struct-value-semantics Phase A: blob value type instructions.
+        Instruction::StructAlloc(insn)              => Some(insn.dst),
+        Instruction::StructCopy { dst, .. }         => Some(*dst),
+        Instruction::StructFieldGetPrim { dst, .. } => Some(*dst),
+        Instruction::StructFieldSetPrim { .. }      => None,
     }
 }
 
@@ -431,7 +436,9 @@ pub fn translate_function(
         }
         w
     };
-    let hoisted_arrays: std::collections::HashMap<u32, (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
+    // hoisted (ptr, len, width): width is the runtime packed slot width the
+    // ArraySet inline consults (jit-inline-i32-arrays). ArrayGet ignores it.
+    let hoisted_arrays: std::collections::HashMap<u32, (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
         let mut candidates: Vec<u32> = Vec::new();
         let mut consider = |arr: &u32, ok: bool, candidates: &mut Vec<u32>| {
             if ok && !written.contains(arr) && !candidates.contains(arr) {
@@ -442,11 +449,11 @@ pub fn translate_function(
             for ins in &b.instructions {
                 match ins {
                     Instruction::ArrayGet { dst, arr, idx } => consider(arr,
-                        prim_elem_tag(z42_func, *dst).is_some() && is_typed(z42_func, *idx, IrType::I64),
+                        arr_prim_elem(z42_func, *dst).is_some() && idx_int_ok(z42_func, *idx),
                         &mut candidates),
-                    // i64/f64 ArraySet also reads the loop-invariant data ptr/len.
+                    // i32/i64/f64 ArraySet also reads the loop-invariant data ptr/len/width.
                     Instruction::ArraySet { arr, idx, val } => consider(arr,
-                        prim_elem_tag(z42_func, *val).is_some() && is_typed(z42_func, *idx, IrType::I64),
+                        arr_prim_elem(z42_func, *val).is_some() && idx_int_ok(z42_func, *idx),
                         &mut candidates),
                     _ => {}
                 }
@@ -460,13 +467,17 @@ pub fn translate_function(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let ss_len = builder.create_sized_stack_slot(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ss_width = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
             let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+            let width_addr = builder.ins().stack_addr(ptr, ss_width, 0);
             let a_c = builder.ins().iconst(types::I32, arr as i64);
-            builder.ins().call(hr_array_data_opt, &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+            builder.ins().call(hr_array_data_opt, &[frame_val, ctx_val, a_c, ptr_addr, len_addr, width_addr]);
             let dptr = builder.ins().stack_load(ptr, ss_ptr, 0);
             let dlen = builder.ins().stack_load(types::I64, ss_len, 0);
-            map.insert(arr, (dptr, dlen));
+            let dwidth = builder.ins().stack_load(types::I64, ss_width, 0);
+            map.insert(arr, (dptr, dlen, dwidth));
         }
         map
     };
@@ -1010,7 +1021,9 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val]);
+                    // add-offline-symbolication: bake linearized code offset (caller frame).
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
+                    let inst = builder.ins().call(hr_call, &[frame_val, ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived
@@ -1067,36 +1080,60 @@ pub fn translate_function(
                     // a per-get `jit_array_data` (方案 A). Cold OOB path reuses
                     // `jit_array_get` so the exception is identical; for a hoisted
                     // null/invalid array `len==0` routes every access there too.
-                    if let (Some(elem_tag), true) =
-                        (prim_elem_tag(z42_func, *dst), is_typed(z42_func, *idx, IrType::I64))
+                    if let (Some((val_tag, arr_width)), true) =
+                        (arr_prim_elem(z42_func, *dst), idx_int_ok(z42_func, *idx))
                     {
+                        // jit-inline-i32-arrays: `dst`'s IR type reliably equals the
+                        // array element type, so `arr_width` (4=int / 8=long·double)
+                        // is a compile-time constant here — no runtime-width branch.
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
                         const STRIDE: i64 = 24;
                         const PAYLOAD: i32 = 8;
-                        let (data_ptr, len) = if let Some(&(hptr, hlen)) = hoisted_arrays.get(arr) {
-                            (hptr, hlen) // 方案 B: loop-invariant, hoisted in entry block
+                        let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = hoisted_arrays.get(arr) {
+                            (hptr, hlen, hw) // 方案 B: loop-invariant, hoisted in entry block
                         } else {
                             let ss_ptr = builder.create_sized_stack_slot(
                                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                             let ss_len = builder.create_sized_stack_slot(
                                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ss_width = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                             let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
                             let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+                            let width_addr = builder.ins().stack_addr(ptr, ss_width, 0);
                             let a_c = builder.ins().iconst(types::I32, *arr as i64);
                             let inst = builder.ins().call(hr_array_data,
-                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr, width_addr]);
                             let ret = builder.inst_results(inst)[0];
                             check!(ret); // not-an-array → exception exit (方案 A)
                             let dp = builder.ins().stack_load(ptr, ss_ptr, 0);
                             let dl = builder.ins().stack_load(types::I64, ss_len, 0);
-                            (dp, dl)
+                            let dw = builder.ins().stack_load(types::I64, ss_width, 0);
+                            (dp, dl, dw)
                         };
                         // idx payload (i64) from regs[idx]
                         let idx_off = builder.ins().iconst(types::I64, (*idx as i64) * STRIDE);
                         let idx_addr = builder.ins().iadd(regs_base, idx_off);
                         let idx_v = builder.ins().load(types::I64, MemFlags::trusted(), idx_addr, PAYLOAD);
-                        // bounds: (u64)idx >= (u64)len → OOB (also catches negative)
+                        // width==0 → non-packed backing (`Boxed`/`Bytes`/…), e.g. a
+                        // closure env array read with a primitive-typed `dst`, or an
+                        // `object[]` — the fast-path ptr is null there, so route to
+                        // the `jit_array_get` helper (`get_boxed` returns the value).
+                        let width_zero = builder.ins().icmp_imm(IntCC::Equal, width, 0);
+                        let helper_blk = builder.create_block();
+                        let fast_blk   = builder.create_block();
+                        let done_blk   = builder.create_block();
+                        builder.ins().brif(width_zero, helper_blk, &[], fast_blk, &[]);
+                        // helper fallback: identical to the non-inline path.
+                        builder.switch_to_block(helper_blk);
+                        let d = ri!(*dst); let a = ri!(*arr); let i = ri!(*idx);
+                        let hinst = builder.ins().call(hr_array_get, &[frame_val, ctx_val, d, a, i]);
+                        let hret  = builder.inst_results(hinst)[0];
+                        check!(hret);
+                        builder.ins().jump(done_blk, &[]);
+                        // packed fast path: bounds-check, then native element load.
+                        builder.switch_to_block(fast_blk);
                         let oob = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx_v, len);
                         let oob_blk = builder.create_block();
                         let in_blk  = builder.create_block();
@@ -1108,17 +1145,30 @@ pub fn translate_function(
                         let i_c = builder.ins().iconst(types::I32, *idx as i64);
                         builder.ins().call(hr_array_get, &[frame_val, ctx_val, d_c, a_c2, i_c]);
                         emit_dispatch_to_catch_or_return!();
-                        // in-bounds: native element load + unboxed store.
+                        // in-bounds: native element load + unboxed store. The packed
+                        // array buffer is contiguous `arr_width`-byte slots with NO
+                        // per-element tag; when width!=0 the runtime backing matches
+                        // the compile-time `arr_width` (dst = element type). width-4
+                        // (`int[]`) sign-extends into the i64 payload; width-8
+                        // (`long[]`/`double[]`) is a raw load. Tag = static `val_tag`.
                         builder.switch_to_block(in_blk);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
+                        let stride_c = builder.ins().iconst(types::I64, arr_width);
                         let elem_off = builder.ins().imul(idx_v, stride_c);
                         let elem_addr = builder.ins().iadd(data_ptr, elem_off);
-                        let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, PAYLOAD);
+                        let elem = if arr_width == 4 {
+                            let e32 = builder.ins().load(types::I32, MemFlags::trusted(), elem_addr, 0);
+                            builder.ins().sextend(types::I64, e32)
+                        } else {
+                            builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0)
+                        };
+                        // store into the 24-byte register `Value` (tag + payload).
                         let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
                         let dst_addr = builder.ins().iadd(regs_base, dst_off);
-                        let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
+                        let tag_c = builder.ins().iconst(types::I8, val_tag); // I64=0 / F64=1
                         builder.ins().store(MemFlags::trusted(), tag_c, dst_addr, 0);
                         builder.ins().store(MemFlags::trusted(), elem, dst_addr, PAYLOAD);
+                        builder.ins().jump(done_blk, &[]);
+                        builder.switch_to_block(done_blk);
                     } else {
                         let d = ri!(*dst); let a = ri!(*arr); let i = ri!(*idx);
                         let inst = builder.ins().call(hr_array_get, &[frame_val, ctx_val, d, a, i]);
@@ -1132,56 +1182,90 @@ pub fn translate_function(
                     // Data ptr+len from the hoist (方案 B) or per-set `jit_array_data`.
                     // Cold OOB / null reuses `jit_array_set` (identical exception,
                     // + write barrier for the heap-ref-value case that stays here).
-                    if let (Some(elem_tag), true) =
-                        (prim_elem_tag(z42_func, *val), is_typed(z42_func, *idx, IrType::I64))
-                    {
+                    if arr_prim_elem(z42_func, *val).is_some() && idx_int_ok(z42_func, *idx) {
+                        // jit-inline-i32-arrays: the value register's width does NOT
+                        // reliably match the array element width (a narrowing store
+                        // `int[i] = <i64 value>` has an i64 value into a 4-byte slot),
+                        // and the IR carries no element type on the array reg. So the
+                        // store width comes from the RUNTIME backing (`out_width`):
+                        // 4 (`int[]`), 8 (`long[]`/`double[]`), or 0 (non-packed →
+                        // fall back to the helper, which narrows/boxes + write-barriers).
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
                         const STRIDE: i64 = 24;
                         const PAYLOAD: i32 = 8;
-                        let (data_ptr, len) = if let Some(&(hptr, hlen)) = hoisted_arrays.get(arr) {
-                            (hptr, hlen)
+                        let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = hoisted_arrays.get(arr) {
+                            (hptr, hlen, hw)
                         } else {
                             let ss_ptr = builder.create_sized_stack_slot(
                                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                             let ss_len = builder.create_sized_stack_slot(
                                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                            let ss_width = builder.create_sized_stack_slot(
+                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                             let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
                             let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+                            let width_addr = builder.ins().stack_addr(ptr, ss_width, 0);
                             let a_c = builder.ins().iconst(types::I32, *arr as i64);
                             let inst = builder.ins().call(hr_array_data,
-                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr]);
+                                &[frame_val, ctx_val, a_c, ptr_addr, len_addr, width_addr]);
                             let ret = builder.inst_results(inst)[0];
                             check!(ret);
                             let dp = builder.ins().stack_load(ptr, ss_ptr, 0);
                             let dl = builder.ins().stack_load(types::I64, ss_len, 0);
-                            (dp, dl)
+                            let dw = builder.ins().stack_load(types::I64, ss_width, 0);
+                            (dp, dl, dw)
                         };
                         let idx_off = builder.ins().iconst(types::I64, (*idx as i64) * STRIDE);
                         let idx_addr = builder.ins().iadd(regs_base, idx_off);
                         let idx_v = builder.ins().load(types::I64, MemFlags::trusted(), idx_addr, PAYLOAD);
+                        let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
+                        let val_addr = builder.ins().iadd(regs_base, val_off);
+                        let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
+                        // width==0 → non-packed backing (byte[]/Boxed/bool[]/char[]) →
+                        // route to the helper (narrowing/boxing + write barrier).
+                        let width_zero = builder.ins().icmp_imm(IntCC::Equal, width, 0);
+                        let helper_blk = builder.create_block();
+                        let fast_blk   = builder.create_block();
+                        let done_blk   = builder.create_block();
+                        builder.ins().brif(width_zero, helper_blk, &[], fast_blk, &[]);
+                        // helper fallback: identical semantics to the non-inline path.
+                        builder.switch_to_block(helper_blk);
+                        let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
+                        let hinst = builder.ins().call(hr_array_set, &[frame_val, ctx_val, a, i, v]);
+                        let hret  = builder.inst_results(hinst)[0];
+                        check!(hret);
+                        builder.ins().jump(done_blk, &[]);
+                        // packed fast path: bounds-check, then native store by runtime width.
+                        builder.switch_to_block(fast_blk);
                         let oob = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx_v, len);
-                        let oob_blk = builder.create_block();
-                        let in_blk  = builder.create_block();
-                        builder.ins().brif(oob, oob_blk, &[], in_blk, &[]);
-                        // cold OOB/null: reuse jit_array_set (identical exception).
+                        let oob_blk   = builder.create_block();
+                        let store_blk = builder.create_block();
+                        builder.ins().brif(oob, oob_blk, &[], store_blk, &[]);
+                        // cold OOB: reuse jit_array_set (identical exception).
                         builder.switch_to_block(oob_blk);
                         let a_c2 = builder.ins().iconst(types::I32, *arr as i64);
                         let i_c = builder.ins().iconst(types::I32, *idx as i64);
                         let v_c = builder.ins().iconst(types::I32, *val as i64);
                         builder.ins().call(hr_array_set, &[frame_val, ctx_val, a_c2, i_c, v_c]);
                         emit_dispatch_to_catch_or_return!();
-                        // in-bounds: native store (tag I64 + i64 payload).
-                        builder.switch_to_block(in_blk);
-                        let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
-                        let val_addr = builder.ins().iadd(regs_base, val_off);
-                        let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
-                        let elem_off = builder.ins().imul(idx_v, stride_c);
+                        // in-bounds: elem_addr = data_ptr + idx*width; store `width`
+                        // bytes — width-4 truncates the i64 payload, width-8 raw.
+                        builder.switch_to_block(store_blk);
+                        let elem_off = builder.ins().imul(idx_v, width);
                         let elem_addr = builder.ins().iadd(data_ptr, elem_off);
-                        let tag_c = builder.ins().iconst(types::I8, elem_tag); // I64=0 / F64=1
-                        builder.ins().store(MemFlags::trusted(), tag_c, elem_addr, 0);
-                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
+                        let is_w4 = builder.ins().icmp_imm(IntCC::Equal, width, 4);
+                        let store4_blk = builder.create_block();
+                        let store8_blk = builder.create_block();
+                        builder.ins().brif(is_w4, store4_blk, &[], store8_blk, &[]);
+                        builder.switch_to_block(store4_blk);
+                        let v32 = builder.ins().ireduce(types::I32, val_v);
+                        builder.ins().store(MemFlags::trusted(), v32, elem_addr, 0);
+                        builder.ins().jump(done_blk, &[]);
+                        builder.switch_to_block(store8_blk);
+                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, 0);
+                        builder.ins().jump(done_blk, &[]);
+                        builder.switch_to_block(done_blk);
                     } else {
                         let a = ri!(*arr); let i = ri!(*idx); let v = ri!(*val);
                         let inst = builder.ins().call(hr_array_set, &[frame_val, ctx_val, a, i, v]);
@@ -1196,7 +1280,9 @@ pub fn translate_function(
 
                 // Objects
                 Instruction::ObjNew(insn) => {
-                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args } = &**insn;
+                    // add-escape-analysis-stack-alloc: JIT ignores stack_alloc in v1
+                    // (heap-allocates); the optimization targets interp (interp-first).
+                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _ } = &**insn;
                     // 2026-05-07 expand-jit-type-args: marshal `Vec<String>` as a
                     // `*const String` + count to `jit_obj_new`. The IR storage
                     // lives for the module lifetime, so the raw pointer is valid
@@ -1339,7 +1425,8 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
-                    let inst = builder.ins().call(hr_vcall, &[frame_val, ctx_val, d, o, mp, ml, ap, al, ic_val, line_val, col_val]);
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
+                    let inst = builder.ins().call(hr_vcall, &[frame_val, ctx_val, d, o, mp, ml, ap, al, ic_val, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                 }
                 Instruction::IsInstance(insn) => {
@@ -1410,6 +1497,15 @@ pub fn translate_function(
                 }
                 Instruction::LoadFieldAddr(_) => {
                     bail!("JIT cannot translate LoadFieldAddr yet (impl-ref-out-in-runtime; interp only)");
+                }
+                // add-struct-value-semantics Phase A: blob value type instructions
+                // are interp-only (JIT support is Phase D); bail → function falls
+                // back to interp. z42c doesn't emit these until A-use (2c) anyway.
+                Instruction::StructAlloc(_)
+                | Instruction::StructCopy { .. }
+                | Instruction::StructFieldGetPrim { .. }
+                | Instruction::StructFieldSetPrim { .. } => {
+                    bail!("JIT cannot translate struct value-type instructions yet (Phase D; interp only)");
                 }
                 // 2026-05-07 D-8b-3 Phase 2 + switch-multicast-funcpredicate-to-generic-exception:
                 // emit `jit_default_of(frame, ctx, dst, param_index)` helper call.
@@ -1494,8 +1590,9 @@ pub fn translate_function(
                     let (line, col) = crate::interp::resolve_line(z42_func.line_table(), block_idx as u32, instr_idx as u32);
                     let line_val = builder.ins().iconst(types::I32, line as i64);
                     let col_val  = builder.ins().iconst(types::I32, col as i64);
+                    let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, instr_idx as u32) as i64);
                     let inst = builder.ins().call(hr_call_indirect,
-                        &[frame_val, ctx_val, d, c, ap, al, line_val, col_val]);
+                        &[frame_val, ctx_val, d, c, ap, al, line_val, col_val, off_val]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
@@ -1578,7 +1675,9 @@ pub fn translate_function(
                 );
                 let line_val = builder.ins().iconst(types::I32, line as i64);
                 let col_val  = builder.ins().iconst(types::I32, col as i64);
-                builder.ins().call(hr_throw, &[frame_val, ctx_val, rv, line_val, col_val]);
+                // add-offline-symbolication: bake throw-site offset (terminator slot).
+                let off_val = builder.ins().iconst(types::I32, z42_func.linear_offset(block_idx as u32, z42_block.instructions.len() as u32) as i64);
+                builder.ins().call(hr_throw, &[frame_val, ctx_val, rv, line_val, col_val, off_val]);
                 emit_dispatch_to_catch_or_return!();
             }
         }
@@ -2029,6 +2128,38 @@ fn prim_elem_tag(func: &Function, reg: u32) -> Option<i64> {
         Some(IrType::F64) => Some(1),
         _ => None,
     }
+}
+
+/// Array-element classifier for the JIT inline get/set fast path
+/// (jit-inline-i32-arrays). Returns `(val_tag, arr_width)`:
+/// - `val_tag`: the `Value` tag written into the 24-byte register (0=I64, 1=F64).
+///   `int` is stored as `Value::I64`, so I32 uses tag 0.
+/// - `arr_width`: the packed slot width in bytes (4 for I32, 8 for I64/F64).
+///
+/// Reliable **only** for a register whose IR type equals the array element type
+/// — i.e. an ArrayGet `dst` (the compiler types the result as the element type).
+/// It is NOT reliable for an ArraySet `val`, which can be wider than the element
+/// on a narrowing store; the set path consults the runtime width instead and
+/// uses this only as a "worth attempting to inline" gate.
+fn arr_prim_elem(func: &Function, reg: u32) -> Option<(i64, i64)> {
+    match func.reg_types.get(reg as usize).copied() {
+        Some(IrType::I64) => Some((0, 8)),
+        Some(IrType::F64) => Some((1, 8)),
+        Some(IrType::I32) => Some((0, 4)),
+        // jit-inline-char-arrays: `char` → `Value::Char` tag (3), width-4 slot.
+        // The width-4 load sign-extends, but a valid `char` (≤ 0x10FFFF) has bit
+        // 31 clear so sext == zext; the register store writes the codepoint into
+        // the low 4 payload bytes + tag 3, mirroring `emit_const_char`.
+        Some(IrType::Char) => Some((3, 4)),
+        _ => None,
+    }
+}
+
+/// Index-register gate for the array inline fast path: accept `I32` (`int i`)
+/// as well as `I64` (`long i`). Both are stored as a `Value::I64` payload in the
+/// register, so reading the index as an i64 is correct regardless.
+fn idx_int_ok(func: &Function, reg: u32) -> bool {
+    is_typed(func, reg, IrType::I64) || is_typed(func, reg, IrType::I32)
 }
 
 /// Emit native `frame.regs[dst] = Value::I64(val)` — store TAG_I64 + i64

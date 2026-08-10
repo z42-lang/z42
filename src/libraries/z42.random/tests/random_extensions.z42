@@ -4,7 +4,6 @@ namespace Z42RandomExtensionsTests;
 
 using Std;
 using Std.Test;
-using Std.Math;
 using Std.Random;
 
 // ── streamId overload ────────────────────────────────────────────────

@@ -29,6 +29,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     Module {
@@ -109,7 +110,7 @@ fn pin_empty_array_returns_zero_length_view() {
     let m = build_module(
         "pin_empty_array",
         vec![
-            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 0, elems: vec![].into(), element_type: String::new() })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 0, elems: vec![].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 1, src: 0 },
             Instruction::FieldGet(Box::new(FieldGetInsn { dst: 2, obj: 1, field_name: "len".to_string() })),
             Instruction::UnpinPtr { pinned: 1 },
@@ -130,7 +131,7 @@ fn pin_array_u8_snapshots_bytes() {
         vec![
             Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
             Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
-            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 2, elems: vec![0, 1].into(), element_type: String::new() })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 2, elems: vec![0, 1].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 3, src: 2 },
             Instruction::FieldGet(Box::new(FieldGetInsn { dst: 4, obj: 3, field_name: "len".to_string() })),
             Instruction::UnpinPtr { pinned: 3 },
@@ -158,7 +159,7 @@ fn pin_array_with_out_of_range_element_traps() {
         "pin_oor",
         vec![
             Instruction::ConstI64 { dst: 0, val: 256 },          // out of u8 range
-            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new() })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 2, src: 1 },
         ],
         Terminator::Ret { reg: None },
@@ -174,7 +175,7 @@ fn pin_array_with_negative_element_traps() {
         "pin_neg",
         vec![
             Instruction::ConstI64 { dst: 0, val: -1 },
-            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new() })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 2, src: 1 },
         ],
         Terminator::Ret { reg: None },

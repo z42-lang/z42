@@ -11,11 +11,27 @@ namespace Z42.Core;
 public sealed class DiagnosticBag {
     private Diagnostic[] _items;
     private int _count;
+    // 「读到 EOF 还缺 token」= 可恢复的不完整（不是写错、是没写完）。REPL 完整性探针据此续读。
+    // 分两个标志，因为「缺 ;」的续读语义按入口不同：
+    //   _incompleteAtEof     —— 缺闭合符 / 操作数 / 名字（{ } ) ] / 表达式）。任何入口都算没写完。
+    //   _incompleteSemiAtEof —— 仅缺语句结尾 `;`。声明入口（void foo()）算没写完要续读；
+    //                           表达式/语句入口（REPL 的 `42` 无分号）不算——由 Completeness 按入口取舍。
+    private bool _incompleteAtEof;
+    private bool _incompleteSemiAtEof;
 
     public DiagnosticBag() {
         this._items = new Diagnostic[4];
         this._count = 0;
+        this._incompleteAtEof = false;
+        this._incompleteSemiAtEof = false;
     }
+
+    // parser 在「期待 token 但当前已是 EOF」的报错点调用，标记本次 parse 因输入未写完而失败。
+    public void MarkIncompleteAtEof() { this._incompleteAtEof = true; }
+    public bool IsIncompleteAtEof() { return this._incompleteAtEof; }
+    // 专指「仅缺语句结尾 `;`」，与上面分开（REPL 表达式无分号 → 表达式入口不当续读）。
+    public void MarkIncompleteSemiAtEof() { this._incompleteSemiAtEof = true; }
+    public bool IsIncompleteSemiAtEof() { return this._incompleteSemiAtEof; }
 
     public void Add(Diagnostic d) {
         if (this._count == this._items.Length) { this.Grow(); }

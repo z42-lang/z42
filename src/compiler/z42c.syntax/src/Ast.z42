@@ -46,6 +46,77 @@ public sealed class ArrayInitExpr : Expr {
     }
 }
 
+// 集合字面量 `[e0, e1, ..]`（数组，专属方括号）。IsSpread[i]=true → 该元素是 `..expr` 展开。
+// 元素类型在语义层推断（目标类型或元素公共类型）；无显式 Elem TypeExpr（区别于 ArrayInitExpr）。
+public sealed class ArrayLitExpr : Expr {
+    public Expr[] Elems;
+    public bool[] IsSpread;
+    public int    ElemCount;
+    public ArrayLitExpr(Expr[] elems, bool[] isSpread, int elemCount, Span span) {
+        this.Span = span; this.Elems = elems; this.IsSpread = isSpread; this.ElemCount = elemCount;
+    }
+    public override string Dump() {
+        string s = "(array-lit [";
+        int i = 0;
+        while (i < this.ElemCount) {
+            if (i > 0) { s = s + " "; }
+            if (this.IsSpread[i]) { s = s + ".."; }
+            s = s + this.Elems[i].Dump(); i = i + 1;
+        }
+        return s + "])";
+    }
+}
+
+// 重复填充 `[value; count]`（Rust 风）。value 只求值一次。
+public sealed class ArrayRepeatExpr : Expr {
+    public Expr Value;
+    public Expr Count;
+    public ArrayRepeatExpr(Expr value, Expr count, Span span) {
+        this.Span = span; this.Value = value; this.Count = count;
+    }
+    public override string Dump() { return "(array-repeat " + this.Value.Dump() + " " + this.Count.Dump() + ")"; }
+}
+
+// List 字面量 `{e0, e1, ..}`（花括号 + 裸元素）。语义层脱糖为 new List<T>() + Add。
+public sealed class ListLitExpr : Expr {
+    public Expr[] Elems;
+    public int    ElemCount;
+    public ListLitExpr(Expr[] elems, int elemCount, Span span) {
+        this.Span = span; this.Elems = elems; this.ElemCount = elemCount;
+    }
+    public override string Dump() {
+        string s = "(list-lit [";
+        int i = 0;
+        while (i < this.ElemCount) { if (i > 0) { s = s + " "; } s = s + this.Elems[i].Dump(); i = i + 1; }
+        return s + "])";
+    }
+}
+
+// Dict 字面量 `{k0: v0, k1: v1, ..}`（花括号 + 冒号对）。语义层脱糖为 new Dictionary<K,V>() + Set。
+public sealed class DictLitExpr : Expr {
+    public Expr[] Keys;
+    public Expr[] Values;
+    public int    Count;
+    public DictLitExpr(Expr[] keys, Expr[] values, int count, Span span) {
+        this.Span = span; this.Keys = keys; this.Values = values; this.Count = count;
+    }
+    public override string Dump() {
+        string s = "(dict-lit [";
+        int i = 0;
+        while (i < this.Count) {
+            if (i > 0) { s = s + " "; }
+            s = s + "(" + this.Keys[i].Dump() + " " + this.Values[i].Dump() + ")"; i = i + 1;
+        }
+        return s + "])";
+    }
+}
+
+// 空花括号 `{}`：List 还是 Dict 由目标类型定（语义层解析）。
+public sealed class EmptyBraceLitExpr : Expr {
+    public EmptyBraceLitExpr(Span span) { this.Span = span; }
+    public override string Dump() { return "(brace-empty)"; }
+}
+
 public sealed class LambdaParam {
     public Span     Span;
     public bool     HasType;
@@ -253,6 +324,7 @@ public sealed class CastExpr : Expr {
     public override string Dump() { return "(cast " + this.Type.Dump() + " " + this.E.Dump() + ")"; }
 }
 
+// add-target-typed-new：`Type == null` 表示 target-typed `new(args)`（省略类名，从目标类型推断）。
 public sealed class ObjNewExpr : Expr {
     public TypeExpr Type;
     public Expr[]   Args;
@@ -261,10 +333,39 @@ public sealed class ObjNewExpr : Expr {
         this.Type = type; this.Args = args; this.ArgCount = argCount;
     }
     public override string Dump() {
-        string s = "(new " + this.Type.Dump();
+        string s = "(new " + (this.Type == null ? "<target>" : this.Type.Dump());
         int i = 0;
         while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
         return s + ")";
+    }
+}
+
+// 对象初始化器 `new Type(args?) { F1 = v1, x }`（add-object-initializers）。
+// 构造后逐字段赋值；字段简写 `x` 由 parser 展开为 FieldValues[i]=IdentExpr("x")。
+// 语义层脱糖为 new + 逐字段 MemberExpr 赋值（复用 BoundSeqExpr）。
+public sealed class ObjInitExpr : Expr {
+    public TypeExpr Type;
+    public Expr[]   Args;          // ctor 实参
+    public int      ArgCount;
+    public string[] FieldNames;
+    public Expr[]   FieldValues;   // 简写时 = IdentExpr(FieldNames[i])
+    public int      FieldCount;
+    public ObjInitExpr(TypeExpr type, Expr[] args, int argCount, string[] fieldNames, Expr[] fieldValues, int fieldCount, Span span) {
+        this.Span = span; this.Type = type; this.Args = args; this.ArgCount = argCount;
+        this.FieldNames = fieldNames; this.FieldValues = fieldValues; this.FieldCount = fieldCount;
+    }
+    public override string Dump() {
+        string s = "(new-init " + (this.Type == null ? "<target>" : this.Type.Dump());
+        int i = 0;
+        while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
+        s = s + " {";
+        i = 0;
+        while (i < this.FieldCount) {
+            if (i > 0) { s = s + " "; }
+            s = s + this.FieldNames[i] + "=" + this.FieldValues[i].Dump();
+            i = i + 1;
+        }
+        return s + "})";
     }
 }
 

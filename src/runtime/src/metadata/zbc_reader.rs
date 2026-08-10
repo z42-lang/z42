@@ -18,7 +18,7 @@ use super::bytecode::{
 use super::bytecode::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFieldAddrInsn, LoadFnCachedInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
-    StaticSetInsn, TypeofInsn, VCallInsn,
+    StaticSetInsn, StructAllocInsn, TypeofInsn, VCallInsn,
 };
 use super::formats::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC};
 use super::types::ExecMode;
@@ -104,7 +104,19 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n) so the compiler
 // can restore imported interface methods from dep zpkgs (abstract iface methods
 // have no body → absent from SIGS; EXPT was dropped). Coupled with zpkg 0.33.
-pub const ZBC_VERSION_MINOR: u16 = 28;
+// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 1.29 - ObjNew / ArrayNew
+// / ArrayNewLit encodings each gain a trailing u8 stack-alloc flag (1 = frame
+// arena / 0 = heap), set by the escape-analysis compiler pass. Coupled with zpkg 0.34.
+// 2026-08-06 impl-sealed-semantics-devirt: bumped to 1.30 - SIGS method_flags:u8
+// gains bit2=sealed (METHOD_FLAG_SEALED) for `sealed override` / `sealed` methods.
+// Byte layout unchanged (bit was reserved-0); semantics-extension bump so a 1.29
+// reader can't silently misread bit2 (strict-pin divergence guard). Backs
+// MethodInfo.IsSealed + compiler sealed-receiver devirtualization. Coupled with zpkg 0.35.
+//
+// 2026-08-08 add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
+// a value-struct layout block (size + typed reference bitmap, Flags bit2 gated) and
+// z42c begins emitting StructAlloc/Copy/FieldGet/SetPrim. Coupled with zpkg 0.36.
+pub const ZBC_VERSION_MINOR: u16 = 31;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -177,7 +189,24 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-07-18 fix-crosspkg-interface-impl: bumped to 0.33, coupled inner zbc 1.28
 // (interface TYPE entries gain a method-signature block; see zbc changelog).
 // Outer zpkg layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 33;
+// add-offline-symbolication (2026-08-04): the SymOnly (.zsym) sidecar MDBG layout
+// changed WITHIN minor 33 (per-module now carries `funcCount + per-func
+// frameName_idx[]` before the dbug blob so `.zsym` self-maps func-name → line
+// table for offline `z42d symbolicate`). NOT a minor bump: MDBG lives only in the
+// ephemeral, co-versioned `.zsym` (regenerated every release build, not a
+// distributed stable artifact); writer + this reader land together; regular zpkg
+// bytes are unchanged. read_mdbg_section skips the frame-name idxs (runtime merges
+// sidecar line tables by index, names come from the main zpkg).
+// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 0.34, coupled inner zbc 1.29
+// (ObjNew/ArrayNew/ArrayNewLit gain a trailing u8 stack-alloc flag). Outer zpkg
+// layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+// 2026-08-06 impl-sealed-semantics-devirt: bumped to 0.35, coupled inner zbc 1.30
+// (SIGS method_flags bit2=sealed). Outer zpkg layout unchanged; the bump triggers
+// ci-bootstrap's version-diff two-gen self-host.
+//
+// 2026-08-08 add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
+// 1.31 (TYPE value-struct layout block + blob value-type instruction emission).
+pub const ZPKG_VERSION_MINOR: u16 = 36;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -259,6 +288,12 @@ const OP_LOAD_FIELD_ADDR: u8 = 0xA2;
 const OP_DEFAULT_OF: u8 = 0xB0;
 // fix-numeric-cast-lowering (2026-05-13): explicit numeric type conversion.
 const OP_CONVERT: u8 = 0xB1;
+
+// add-struct-value-semantics Phase A: blob value type instructions (byte-region ops).
+const OP_STRUCT_ALLOC: u8          = 0xC0;
+const OP_STRUCT_COPY: u8           = 0xC1;
+const OP_STRUCT_FIELD_GET_PRIM: u8 = 0xC2;
+const OP_STRUCT_FIELD_SET_PRIM: u8 = 0xC3;
 
 // ── Type tag constants ────────────────────────────────────────────────────────
 
@@ -530,6 +565,28 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             } else {
                 Box::new([])
             };
+        // add-struct-value-semantics (zbc 1.31): trailing value-struct layout
+        // block, present only when CLASS_FLAG_STRUCT. Layout: size:u32 +
+        // ref_count:u16 + (byte_off:u32, kind:u8)×n — the reference bitmap the
+        // runtime uses to locate + clone heap refs in a value-struct blob (byte
+        // size / field offsets are baked into the access instructions, not here).
+        let struct_layout_desc = if class_flags & crate::metadata::bytecode::CLASS_FLAG_STRUCT != 0 {
+            let size = c.read_u32()?;
+            let ref_count = c.read_u16()? as usize;
+            let mut ref_offsets = Vec::with_capacity(ref_count);
+            let mut ref_kinds = Vec::with_capacity(ref_count);
+            for _ in 0..ref_count {
+                ref_offsets.push(c.read_u32()?);
+                ref_kinds.push(c.read_u8()?);
+            }
+            Some(crate::metadata::bytecode::StructLayoutDesc {
+                size,
+                ref_offsets: ref_offsets.into_boxed_slice(),
+                ref_kinds: ref_kinds.into_boxed_slice(),
+            })
+        } else {
+            None
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -542,6 +599,9 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             interfaces: interfaces.into_boxed_slice(),
             enum_members,
             iface_methods,
+            // add-struct-value-semantics: populated by the struct-block parse
+            // below (commit 2 wire); `None` until then / for non-struct classes.
+            struct_layout: struct_layout_desc,
         });
     }
     Ok(classes)
@@ -1055,6 +1115,13 @@ fn read_mdbg_section(sec: &[u8], pool: &[String]) -> Result<Vec<(String, Vec<Dbu
     let mut result = Vec::with_capacity(mod_count);
     for _ in 0..mod_count {
         let ns_idx   = c.read_u32()?;
+        // add-offline-symbolication (zpkg 0.34): per-func frame-name key array
+        // precedes the dbug blob. The runtime merges sidecar line tables into the
+        // module BY INDEX (names come from the main zpkg), so it only needs to
+        // SKIP the frame-name idxs to reach the dbug body. `z42d symbolicate`
+        // (offline, z42 side) is the consumer that actually reads the keys.
+        let func_count = c.read_u32()? as usize;
+        for _ in 0..func_count { let _frame_name_idx = c.read_u32()?; }
         let dbug_len = c.read_u32()? as usize;
         let dbug     = c.read_bytes(dbug_len)?;
         let ns = pool_str_owned(pool, ns_idx)?;
@@ -1195,6 +1262,31 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             let val   = c.read_u16()? as u32;
             Instruction::StaticSet(Box::new(StaticSetInsn { field, val }))
         }
+        // add-struct-value-semantics Phase A: blob value type instructions
+        // (byte layout mirrors z42 ZbcInstr encode).
+        OP_STRUCT_ALLOC => {
+            let type_name = pool_str_owned(pool, c.read_u32()?)?;
+            let size = c.read_u32()?;
+            Instruction::StructAlloc(Box::new(StructAllocInsn { dst, type_name, size }))
+        }
+        OP_STRUCT_COPY => {
+            let src  = c.read_u16()? as u32;
+            let size = c.read_u32()?;
+            Instruction::StructCopy { dst, src, size }
+        }
+        OP_STRUCT_FIELD_GET_PRIM => {
+            let base     = c.read_u16()? as u32;
+            let byte_off = c.read_u32()?;
+            let kind     = c.read_u8()?;
+            Instruction::StructFieldGetPrim { dst, base, byte_off, kind }
+        }
+        OP_STRUCT_FIELD_SET_PRIM => {
+            let base     = c.read_u16()? as u32;
+            let byte_off = c.read_u32()?;
+            let kind     = c.read_u8()?;
+            let val      = c.read_u16()? as u32;
+            Instruction::StructFieldSetPrim { base, byte_off, kind, val }
+        }
         OP_OBJ_NEW => {
             let class_name = id_map.resolve_type(c.read_u32()?)?;
             let ctor_name  = id_map.resolve_method(c.read_u32()?)?;
@@ -1205,7 +1297,9 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             for _ in 0..t_count {
                 type_args.push(pool_str_owned(pool, c.read_u32()?)?);
             }
-            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice() }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice(), stack_alloc }))
         }
         OP_TYPEOF => {
             // add-reflection-generic-type-definition: type_name + structured
@@ -1234,13 +1328,17 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             // add-reflection-array-element-type (zbc 1.16): element type FQ name.
             let et_idx = c.read_u32()?;
             let element_type = c.pool_str(pool, et_idx)?.to_owned();
-            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc }))
         }
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;
             let et_idx = c.read_u32()?;
             let element_type = c.pool_str(pool, et_idx)?.to_owned();
-            Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type }))
+            // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
+            let stack_alloc = c.read_u8()? != 0;
+            Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))
         }
         OP_ARRAY_GET     => {
             let arr = c.read_u16()? as u32;
@@ -1495,6 +1593,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             block_index:     std::collections::HashMap::new(),
             branch_targets:  Vec::new(),
             fused_tails:     Vec::new(),
+            frame_meta:     None,
             resolved:        std::sync::OnceLock::new(),
         }
     }).collect();
@@ -1988,6 +2087,7 @@ fn read_mods_section(
                 block_index:     std::collections::HashMap::new(),
             branch_targets:  Vec::new(),
             fused_tails:     Vec::new(),
+            frame_meta:     None,
                 resolved:        std::sync::OnceLock::new(),
             }
         }).collect();

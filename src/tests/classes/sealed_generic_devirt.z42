@@ -1,0 +1,36 @@
+// extend-sealed-devirt-more: 泛型 sealed 类去虚化端到端正确性。
+// sealed class Box<T> 不可继承 → Box<int> / Box<string> 的 receiver 运行期类型必是 Box$erased →
+// 方法目标编译期唯一（类型擦除，一份 Box.Get）→ 去虚化为直接 Call。断言结果与虚派发一致。
+// 非 sealed 泛型类保持虚派发多态。
+namespace Demo.GenericSealedDevirt;
+
+using Std;
+
+sealed class Box<T> {
+    private T val;
+    public Box(T v) { this.val = v; }
+    public virtual T Get() { return this.val; }
+    public virtual int Tag() { return 42; }
+}
+
+// 对照：非 sealed 泛型类 → 可继承 → 保持 vcall 多态。
+class Bag<T> {
+    public virtual int Kind() { return 1; }
+}
+class SubBag<T> : Bag<T> {
+    public override int Kind() { return 2; }
+}
+
+void Main() {
+    // sealed 泛型 receiver → 去虚化，结果正确（类型擦除：同一份 Box.Get/Box.Tag）。
+    Box<int> bi = new Box<int>(7);
+    Assert.Equal(7, bi.Get());        // devirt → Box.Get
+    Assert.Equal(42, bi.Tag());       // devirt → Box.Tag
+
+    Box<string> bs = new Box<string>("hi");
+    Assert.Equal("hi", bs.Get());     // devirt → Box.Get（同一擦除函数）
+
+    // 非 sealed 泛型 receiver → 仍虚派发，多态正确。
+    Bag<int> g = new SubBag<int>();
+    Assert.Equal(2, g.Kind());        // vcall → SubBag.Kind（未误去虚化）
+}

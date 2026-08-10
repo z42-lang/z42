@@ -40,3 +40,6 @@
 ## Phase 5 — 算法级 stdlib（可与 runtime 并行的纯 Regex 部分）
 - [ ] Regex Thompson-NFA 引擎
 - [ ] native `__str_join` / StringBuilder builtin
+- [x] **Script-First 字符串搜索**：char[]-view 单原语（`__str_to_chars`）+ 脚本 IndexOf（scalar，8.6×）
+      —— 见 change `str-scriptfirst-indexof`。剖析否决了 per-op native + 数组 packed 布局（仅 1.35×，
+      大头是解释器派发 57× 非布局）；per-char CharAt builtin 派发才是根因，char[]+ArrayGet 吃掉它。

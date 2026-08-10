@@ -45,6 +45,10 @@ void Main() {
         bool isWorkspace = false;
         bool noIncremental = false;
         string outputDir = "";
+        // add-compiler-inlining：CLI --opt/--no-opt 累积位（可独立开关的优化，见 OptSet.z42）。
+        // 单名可重复：`--opt inline --opt dce` / `--no-opt copy-prop`；`all`/`none` 亦可。
+        int cliAdd = 0;
+        int cliRemove = 0;
         // ai from 1: `build --workspace` 时 argv[1] 是 flag 不是 toml 路径。
         int ai = 1;
         while (ai < argv.Length) {
@@ -52,13 +56,27 @@ void Main() {
             else if (argv[ai] == "--workspace") { isWorkspace = true; }
             else if (argv[ai] == "--no-incremental") { noIncremental = true; }
             else if (argv[ai] == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
+            else if (argv[ai] == "--opt" && ai + 1 < argv.Length) {
+                int b = Opt.ByName(argv[ai + 1]);
+                if (b < 0) { ConsoleError.WriteLine("z42c: unknown optimization `" + argv[ai + 1] + "` (expected: const-fold/copy-prop/dce/inline/all/none)"); Environment.Exit(2); return; }
+                cliAdd = cliAdd | b; ai = ai + 1;
+            }
+            else if (argv[ai] == "--no-opt" && ai + 1 < argv.Length) {
+                int b = Opt.ByName(argv[ai + 1]);
+                if (b < 0) { ConsoleError.WriteLine("z42c: unknown optimization `" + argv[ai + 1] + "` (expected: const-fold/copy-prop/dce/inline/all/none)"); Environment.Exit(2); return; }
+                cliRemove = cliRemove | b; ai = ai + 1;
+            }
             ai = ai + 1;
         }
+        // 解析 optSet：无 CLI 覆盖 → -1（PackageCompile 取 profile 默认：release=All/debug=None）。
+        int optSet = 0 - 1;
+        if (cliAdd != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
+        else if (cliRemove != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
         if (isWorkspace) {
-            Environment.Exit(_buildWorkspace(isRelease, outputDir));
+            Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet));
             return;
         }
-        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental));
+        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental, optSet));
         return;
     }
     if (cmd == "--emit-zbc") {
@@ -98,7 +116,7 @@ void Main() {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental) {
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
@@ -207,6 +225,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
+    cin.OptSet = optSet;   // add-compiler-inlining：-1=profile 默认；否则 CLI 解析后的优化集
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
     CompileArtifacts art = PackageCompile.Compile(cin);
@@ -382,7 +401,7 @@ int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int li
 // per-member 布局（artifacts/.../<name>/<profile>/dist），各成员产物落各自 dist；
 // 兄弟解析扫全成员 dist 列表 + Z42_LIBS（外部 stdlib）。镜像 C# WorkspaceBuildOrchestrator
 // 的 workspaceLibDirs（成员 EffectiveDistDir 透传）。
-int _buildWorkspace(bool isRelease, string outputDir) {
+int _buildWorkspace(bool isRelease, string outputDir, int optSet) {
     string cwd = Environment.GetCurrentDirectory();
     string wsToml = _findWorkspaceToml(cwd);
     if (wsToml == "") {
@@ -390,13 +409,13 @@ int _buildWorkspace(bool isRelease, string outputDir) {
         return ExitCode.UsageError;
     }
     if (outputDir != "") {
-        return _buildWorkspaceFlat(wsToml, isRelease, outputDir);
+        return _buildWorkspaceFlat(wsToml, isRelease, outputDir, optSet);
     }
-    return _buildWorkspacePerMember(wsToml, isRelease);
+    return _buildWorkspacePerMember(wsToml, isRelease, optSet);
 }
 
 // Milestone 1：flat dist（显式 --output-dir）。
-int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir) {
+int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int optSet) {
     Directory.Create(outputDir);
     string[] flat = new string[1];
     flat[0] = outputDir;
@@ -405,7 +424,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir) {
     int i = 0;
     while (i < ordered.Length) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
-        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true);
+        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true, optSet);
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -417,7 +436,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir) {
 }
 
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
-int _buildWorkspacePerMember(string wsToml, bool isRelease) {
+int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet) {
     string profile = isRelease ? "release" : "debug";
     WsPlan plan = WorkspaceBuild.PlanLayout(wsToml, profile);
     if (plan == null) {
@@ -439,7 +458,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease) {
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true);
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true, optSet);
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;

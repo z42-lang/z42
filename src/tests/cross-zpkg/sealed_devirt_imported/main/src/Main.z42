@@ -1,0 +1,14 @@
+namespace Demo.App;
+using Demo.Base;
+using Demo.Sld;
+using Std;
+using Std.IO;
+void Main() {
+    Circle c = new Circle(5);
+    Console.WriteLine(c.Area());       // 25 — devirt → demo.sld.Circle.Area
+    Leaf lf = new Leaf();
+    Console.WriteLine(lf.Tag());       // 100 — devirt → demo.base.Tagged.Tag (跨包基类!)
+    Console.WriteLine(lf.extra());     // 7  — devirt → demo.sld.Leaf.extra
+    Shape s = new Circle(3);
+    Console.WriteLine(s.Area());       // 9  — 非 sealed 静态类型 → VCall → Circle.Area override
+}

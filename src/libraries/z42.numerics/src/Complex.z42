@@ -1,7 +1,6 @@
 namespace Std.Numerics;
 
 using Std;
-using Std.Math;
 
 // add-numerics-complex (2026-05-27): immutable complex number value type
 // over `double` real + imaginary parts. Mirrors .NET BCL

@@ -1,0 +1,205 @@
+// IrLicm —— 循环不变量外提（LICM，Opt.Licm；"全部做" 优化程序 4/4）。
+//
+// 把自然循环体内**纯（IsPure）且循环不变**的计算提到循环 pre-header（每次进循环只算一次）。
+// interp 收益大头（循环主导运行时）。设计见 docs/book/src/runtime/optimization-pipeline.md。
+//
+// CFG / 支配 / 自然循环体 / 干净 pre-header 判定已抽到 IrLoopUtil（与 IrLoopAllocReuse 共用）。
+// ── 本 pass 专属（保守 v1）──────────────────────────────────────────────────────────
+//   ⑤ 不变量：循环体内 IsPure 指令，其**每个读操作数**要么在循环外定义、要么由已判定不变的指令定义
+//      （不动点迭代）。IsPure 白名单已排除 Div/Rem（除零陷阱）/ FieldGet·ArrayGet（NPE/越界）/ Call·*Set
+//      （副作用）→ 提到「可能零迭代」的 pre-header 也安全（纯值、不触发陷阱/副作用）。
+//   ⑥ 外提：不变指令按程序序移到 pre-header 终结子之前（依赖序保留），从循环体删除。
+//   单赋值 temp → 定义唯一、pre-header 支配循环 → 提前定义仍支配所有使用点，正确。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrLicm {
+
+    public static void Run(IrFunction f, int optSet, PureTable pureTable) {
+        LoopCfg cfg = IrLoopUtil.BuildCfg(f);
+        if (cfg == null) { return; }   // <2 块 / 有异常表 → 跳过
+        int n = cfg.N;
+        bool[] isHeader = IrLoopUtil.Headers(cfg);
+        int h = 0;
+        while (h < n) {
+            if (isHeader[h]) {
+                bool[] inLoop = IrLoopUtil.LoopBody(cfg, h);
+                int ph = IrLoopUtil.CleanPreheader(f, cfg, h, inLoop);
+                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, optSet, pureTable); }
+            }
+            h = h + 1;
+        }
+    }
+
+    // 不变量分析 + 外提到 pre-header。
+    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom, int optSet, PureTable pureTable) {
+        int rc = f.MaxReg + 2;
+        // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——
+        // 后者被「latch 反向可达」的循环体排除，但仍受 header 支配。用 header 支配域而非反向可达体，
+        // 才不漏掉退出块里的定义 → 否则误判操作数「循环外」→ 外提到 pre-header 时该操作数未定义（miscompile
+        // ：TopoOrder 嵌套循环+throw 的 undefined register 即此因）。所有真循环块都受 header 支配 ⊆ 支配域，
+        // 故此判定对不变性**保守安全**（可能少提循环外后继块的定义，但绝不误提）。
+        bool[] defInLoop = new bool[rc];
+        // defsGlobal[reg] = 全函数定义次数。仅提**单赋值**（==1）指令：多定义命名局部若被提，会丢掉环内
+        // 某次赋值 → 后续迭代值错（miscompile）。单赋值 temp 提前定义仍支配所有使用点，安全。
+        int[] defsGlobal = new int[rc];
+        int b = 0;
+        while (b < n) {
+            bool headerDom = dom[b * n + h];   // b 受 header 支配 → 属循环支配域
+            IrBlock blk = f.Blocks[b];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                int d = IrOptInfo.DstId(blk.Instrs[ii]);
+                if (d >= 0 && d < rc) {
+                    defsGlobal[d] = defsGlobal[d] + 1;
+                    if (headerDom) { defInLoop[d] = true; }
+                }
+                ii = ii + 1;
+            }
+            b = b + 1;
+        }
+        // invariantReg：其定义指令外提（IsPure + **所有操作数在循环外定义**）。
+        // v1 只提「操作数全外部」的指令 → 被提指令互不依赖 → 任意序（程序序）外提皆安全；
+        // 链式不变量（依赖被提结果）留给后续 pass 或再跑一遍（提后 defBlock 变外部）。
+        // add-readonly-fields-opt：循环体内被 field_set 写过的字段 → 其 readonly 读**不**外提（值可能变，
+        // 仅可能出现在 ctor 内 `for(..){ this.x = i; ..this.x.. }` 这类）。
+        StrMap loopWrittenFields = IrLicm._collectLoopWrittenFields(f, n, inLoop);
+        bool[] invariantReg = new bool[rc];
+        b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    IrInstr ins = blk.Instrs[ii];
+                    int d = IrOptInfo.DstId(ins);
+                    if (d >= 0 && d < rc && defsGlobal[d] == 1
+                        && ((IrOptInfo.IsPure(ins) && IrLicm._operandsExternal(ins, defInLoop, rc))
+                            || IrLicm._isHoistableReadonlyFget(ins, f, optSet, defInLoop, rc, loopWrittenFields)
+                            || IrLicm._isHoistablePureCall(ins, optSet, pureTable, defInLoop, rc))) {
+                        invariantReg[d] = true;
+                    }
+                    ii = ii + 1;
+                }
+            }
+            b = b + 1;
+        }
+        // 收集外提指令（程序序）+ 从循环体删除
+        IrInstr[] hoist = new IrInstr[8];
+        int hc = 0;
+        bool any = false;
+        b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                int keep = 0;
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (!IrLicm._isHoisted(blk.Instrs[ii], invariantReg, rc)) { keep = keep + 1; }
+                    ii = ii + 1;
+                }
+                if (keep != blk.InstrCount) {
+                    IrInstr[] nw = new IrInstr[keep];
+                    int j = 0;
+                    ii = 0;
+                    while (ii < blk.InstrCount) {
+                        if (IrLicm._isHoisted(blk.Instrs[ii], invariantReg, rc)) {
+                            hoist = IrLicm._push(hoist, hc, blk.Instrs[ii]); hc = hc + 1;
+                        } else {
+                            nw[j] = blk.Instrs[ii]; j = j + 1;
+                        }
+                        ii = ii + 1;
+                    }
+                    blk.Instrs = nw;
+                    blk.InstrCount = keep;
+                    any = true;
+                }
+            }
+            b = b + 1;
+        }
+        if (!any) { return; }
+        // 插入 pre-header 终结子之前（append 到指令尾）
+        IrBlock phb = f.Blocks[ph];
+        IrInstr[] merged = new IrInstr[phb.InstrCount + hc];
+        int k = 0;
+        while (k < phb.InstrCount) { merged[k] = phb.Instrs[k]; k = k + 1; }
+        int t = 0;
+        while (t < hc) { merged[phb.InstrCount + t] = hoist[t]; t = t + 1; }
+        phb.Instrs = merged;
+        phb.InstrCount = phb.InstrCount + hc;
+    }
+
+    // 指令是否被判定外提（dst 在 invariantReg）。
+    private static bool _isHoisted(IrInstr ins, bool[] invariantReg, int rc) {
+        int d = IrOptInfo.DstId(ins);
+        return d >= 0 && d < rc && invariantReg[d];
+    }
+
+    // add-readonly-fields-opt：readonly FieldGet 是否可安全外提（不经 IsPure，独立判定）。
+    //   ReadonlyLoad 开 + fg.Readonly + 实例方法接收者 this（reg0，恒非空→无 NPE 时机漂移）+
+    //   循环体内该字段无 field_set（值不变）+ Obj 循环外定义（循环不变）。params/locals 接收者留 Deferred。
+    private static bool _isHoistableReadonlyFget(IrInstr ins, IrFunction f, int optSet, bool[] defInLoop, int rc, StrMap loopWrittenFields) {
+        if (!Opt.Has(optSet, Opt.ReadonlyLoad)) { return false; }
+        if (!(ins is FieldGetInstr)) { return false; }
+        FieldGetInstr fg = ins as FieldGetInstr;
+        if (!fg.Readonly) { return false; }
+        if (f.IsStatic) { return false; }               // 静态方法无 this → reg0 是形参，可空
+        if (fg.Obj.Id != 0) { return false; }           // 接收者必须是 this（reg0）
+        if (loopWrittenFields.ContainsKey(fg.Field)) { return false; }
+        return IrLicm._operandsExternal(ins, defInLoop, rc);
+    }
+
+    // add-pure-call-opt：纯函数调用是否可安全外提（不经 IsPure，独立判定）。
+    //   PureCall 开 + callee 在纯表（纯含 no-throw → 提到可能零迭代 pre-header 无异常时机漂移）+
+    //   全部实参循环外定义（循环不变）。dst 单赋值由外层 defsGlobal==1 守。
+    private static bool _isHoistablePureCall(IrInstr ins, int optSet, PureTable pureTable, bool[] defInLoop, int rc) {
+        if (!Opt.Has(optSet, Opt.PureCall)) { return false; }
+        if (!(ins is CallInstr)) { return false; }
+        if (pureTable == null) { return false; }
+        CallInstr c = ins as CallInstr;
+        if (!pureTable.IsPure(c.Func)) { return false; }
+        return IrLicm._operandsExternal(ins, defInLoop, rc);   // 通用覆盖 call args 全循环不变
+    }
+
+    // add-readonly-fields-opt：循环体（inLoop 块）内所有 field_set 写到的字段名集合。
+    private static StrMap _collectLoopWrittenFields(IrFunction f, int n, bool[] inLoop) {
+        StrMap w = new StrMap();
+        int b = 0;
+        while (b < n) {
+            if (inLoop[b]) {
+                IrBlock blk = f.Blocks[b];
+                int ii = 0;
+                while (ii < blk.InstrCount) {
+                    if (blk.Instrs[ii] is FieldSetInstr) { w.Put((blk.Instrs[ii] as FieldSetInstr).Field, "1"); }
+                    ii = ii + 1;
+                }
+            }
+            b = b + 1;
+        }
+        return w;
+    }
+
+    // 指令每个读操作数是否都**不在循环内定义**（→ 循环不变）。
+    private static bool _operandsExternal(IrInstr ins, bool[] defInLoop, int rc) {
+        int[] counts = new int[rc];
+        IrOptInfo.AddReads(counts, ins);
+        int r = 0;
+        while (r < rc) {
+            if (counts[r] > 0 && r < rc && defInLoop[r]) { return false; }   // 操作数在循环内定义 → 非不变
+            r = r + 1;
+        }
+        return true;
+    }
+
+    private static IrInstr[] _push(IrInstr[] arr, int count, IrInstr x) {
+        if (count >= arr.Length) {
+            IrInstr[] nw = new IrInstr[arr.Length * 2 + 8];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+}

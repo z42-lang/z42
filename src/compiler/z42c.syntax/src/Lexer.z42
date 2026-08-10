@@ -444,7 +444,8 @@ public sealed class Lexer {
         this._kw("var", TokenKind.Var); this._kw("static", TokenKind.Static); this._kw("public", TokenKind.Public);
         this._kw("private", TokenKind.Private); this._kw("protected", TokenKind.Protected); this._kw("internal", TokenKind.Internal);
         this._kw("ref", TokenKind.Ref); this._kw("out", TokenKind.Out); this._kw("params", TokenKind.Params);
-        this._kw("partial", TokenKind.Partial);
+        this._kw("partial", TokenKind.Partial); this._kw("readonly", TokenKind.Readonly);
+        this._kw("const", TokenKind.Const);
         this._kw("class", TokenKind.Class);
         this._kw("struct", TokenKind.Struct); this._kw("enum", TokenKind.Enum); this._kw("interface", TokenKind.Interface);
         this._kw("record", TokenKind.Record); this._kw("delegate", TokenKind.Delegate); this._kw("event", TokenKind.Event);
@@ -461,9 +462,7 @@ public sealed class Lexer {
         this._kw("void", TokenKind.Void); this._kw("i8", TokenKind.I8); this._kw("i16", TokenKind.I16);
         this._kw("i32", TokenKind.I32); this._kw("i64", TokenKind.I64); this._kw("u8", TokenKind.U8);
         this._kw("u16", TokenKind.U16); this._kw("u32", TokenKind.U32); this._kw("u64", TokenKind.U64);
-        this._kw("f32", TokenKind.F32); this._kw("f64", TokenKind.F64); this._kw("fn", TokenKind.Fn);
-        this._kw("let", TokenKind.Let); this._kw("mut", TokenKind.Mut); this._kw("trait", TokenKind.Trait);
-        this._kw("impl", TokenKind.Impl); this._kw("use", TokenKind.Use); this._kw("module", TokenKind.Module);
-        this._kw("spawn", TokenKind.Spawn); this._kw("none", TokenKind.NoneKw);
+        this._kw("f32", TokenKind.F32); this._kw("f64", TokenKind.F64);
+        this._kw("impl", TokenKind.Impl);
     }
 }

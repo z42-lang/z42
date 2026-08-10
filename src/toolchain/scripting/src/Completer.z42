@@ -19,6 +19,7 @@ using Std.Collections;
 using Std.Repl;      // Repl.MemberNames（会话变量 obj. 实例成员反射）
 using Z42.Pipeline;  // DepScanResult（CachedScan）
 using Z42.IR;        // ExportedModuleZ / ExportedClassZ / ExportedEnumZ …（导入世界枚举）
+using Z42.Syntax;    // Lexer（关键字表权威源，KeywordCount/KeywordNameAt）
 
 // 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
 public static class Completer {
@@ -34,6 +35,10 @@ public static class Completer {
 string[] replComplete(string line, int pos) {
     ScriptState s = Completer.GetActive();
     if (s == null) { return new string[0]; }
+
+    // .using <ns 前缀> —— 命名空间名补全（add-repl-ns-completion-err-map）。返回「下一段」候选，
+    // 由 _wordStart（停在 '.'）给出的最后一段作替换区间——段候选正好替换它（"Std.C"→"Std.Collections"）。
+    if (pos >= 7 && line.StartsWith(".using ")) { return _namespaceComplete(s, line, pos); }
 
     int wordStart = _wordStart(line, pos);
     string word = line.Substring(wordStart, pos - wordStart);
@@ -56,8 +61,102 @@ string[] replComplete(string line, int pos) {
     while (i < s.VarNames.Count)  { _addCand(cands, s.VarNames[i],  word); i = i + 1; }
     i = 0;
     while (i < s.DeclNames.Count) { _addCand(cands, s.DeclNames[i], word); i = i + 1; }
-    if (word.Length > 0) { _addImportedNames(cands, s, word); }
+    if (word.Length > 0) {
+        _addImportedNames(cands, s, word);        // 已 reconcile 世界的类型/枚举/自由函数名
+        _addIndexedTypeNames(cands, s, word);     // + ns 索引已知但尚未 reconcile 的类型名（修 Bug 1a）
+        _addKeywords(cands, word);                // + z42 语言关键字（while/return/using/...）
+    }
     return cands.ToArray();
+}
+
+// .using 上下文命名空间名补全（add-repl-ns-completion-err-map）。ns-so-far = ".using " 后到 pos；
+// 按 `DepScanResult.NsNames`（全量 ns）前缀匹配，返回 prefixNs（最后一个 '.' 及之前）之后到下一个 '.'
+// 的**段**候选——替换区间是 _wordStart 给的最后一段，段候选正好替换它（"Std.C"→"Std.Collections"、
+// "Std." → 空段位插入 "Collections"）。去重 + 前缀过滤。scan 未就绪 → 空。
+string[] _namespaceComplete(ScriptState s, string line, int pos) {
+    DepScanResult sc = s.CachedScan;
+    if (sc == null) { return new string[0]; }
+    string nsSoFar = line.Substring(7, pos - 7);   // ".using " 占 7 字符
+    int lastDot = 0 - 1;
+    int k = 0;
+    while (k < nsSoFar.Length) { if (nsSoFar.CharAt(k) == '.') { lastDot = k; } k = k + 1; }
+    string prefixNs = "";
+    string lastSeg = nsSoFar;
+    if (lastDot >= 0) {
+        prefixNs = nsSoFar.Substring(0, lastDot + 1);
+        lastSeg = nsSoFar.Substring(lastDot + 1, nsSoFar.Length - lastDot - 1);
+    }
+    List<string> cands = new List<string>();
+    int i = 0;
+    while (i < sc.NsCount) {
+        string ns = sc.NsNames[i];
+        if (ns.Length > prefixNs.Length && ns.StartsWith(prefixNs)) {
+            string rest = ns.Substring(prefixNs.Length, ns.Length - prefixNs.Length);
+            int nd = rest.IndexOf(".");
+            string seg = nd < 0 ? rest : rest.Substring(0, nd);
+            _addCand(cands, seg, lastSeg);
+        }
+        i = i + 1;
+    }
+    return cands.ToArray();
+}
+
+// add-repl-history-keyword-completion：z42 语言关键字补全。关键字表以 z42c.syntax 的 `Lexer` 为
+// **权威源**（`KeywordCount`/`KeywordNameAt`，构造即 `_initKeywords`）——不硬编码、零漂移，新增关键字
+// 自动纳入。仅前缀非空时补（空前缀不刷屏 ~85 个关键字）；`_addCand` 前缀过滤 + 去重。
+void _addKeywords(List<string> cands, string prefix) {
+    if (prefix.Length == 0) { return; }
+    Lexer lx = new Lexer("", "<repl>");
+    int n = lx.KeywordCount();
+    int i = 0;
+    while (i < n) { _addCand(cands, lx.KeywordNameAt(i), prefix); i = i + 1; }
+}
+
+// fix-repl-completion-span-and-index（Bug 1a）：`_addImportedNames` 只列**已 reconcile** 的
+// `Exported[]`——`Console` 等没被引用/执行过的类型不在里面 → 补不出。ns 索引（`TypeShort`/`TypeNs`，
+// #101 type→ns）在 prewarm 就记全了每个 ns 的类型短名，这里据它补出「索引已知」的类型名，按**活跃
+// using** 过滤（避免列出未 import 的 ns 的类型）。`_addCand` 去重，与 `Exported` 重叠无害。
+// 索引空（`TypeMapCount==0`，冷缓存/非惰性路径）→ 无候选，退化为仅 `Exported`（不坏）。
+void _addIndexedTypeNames(List<string> cands, ScriptState s, string prefix) {
+    DepScanResult sc = s.CachedScan;
+    if (sc == null) { return; }
+    int i = 0;
+    while (i < sc.TypeMapCount) {
+        if (_nsActive(s, sc.TypeNs[i])) { _addCand(cands, sc.TypeShort[i], prefix); }
+        i = i + 1;
+    }
+}
+
+// ns 是否在当前会话活跃（prelude 免-using 的 Std/Std.Runtime + 累积 usings）。
+bool _nsActive(ScriptState s, string ns) {
+    if (ns == "Std" || ns == "Std.Runtime") { return true; }
+    int i = 0;
+    while (i < s.Usings.Count) { if (s.Usings[i] == ns) { return true; } i = i + 1; }
+    return false;
+}
+
+// fix-repl-completion-span-and-index（Bug 1b）：`Type.` 成员补全前，若该类型仅存在于 ns 索引、
+// 尚未 reconcile 进 `Exported`（没执行过）→ 对声明它的活跃 ns 按需 reconcile 一次（复用 E0401
+// 恢复同款 `ReconcileCandidatesInNs`），使其静态成员随即可补。Tab 触发、一次性 ~150ms，可接受。
+void _ensureReconciled(ScriptState s, DepScanResult sc, string typeName) {
+    int mi = 0;
+    while (mi < sc.ExportedCount) {
+        ExportedModuleZ m = sc.Exported[mi];
+        int ci = 0;
+        while (ci < m.ClassCount) { if (m.Classes[ci].Name == typeName) { return; } ci = ci + 1; }
+        int ei = 0;
+        while (ei < m.EnumCount)  { if (m.Enums[ei].Name  == typeName) { return; } ei = ei + 1; }
+        mi = mi + 1;
+    }
+    string[] one = new string[1]; one[0] = typeName;
+    int t = 0;
+    while (t < sc.TypeMapCount) {
+        if (sc.TypeShort[t] == typeName && _nsActive(s, sc.TypeNs[t])) {
+            DepScan.ReconcileCandidatesInNs(sc, sc.TypeNs[t], one, 1);
+            return;
+        }
+        t = t + 1;
+    }
 }
 
 // ③ 导入世界的顶层可命名符号：各命名空间的类 / 接口 / 枚举 / 自由函数名（裸名，前缀过滤 + 去重）。
@@ -84,6 +183,7 @@ string[] _typeStaticMembers(ScriptState s, string typeName, string prefix) {
     List<string> cands = new List<string>();
     DepScanResult sc = s.CachedScan;
     if (sc == null) { return cands.ToArray(); }
+    _ensureReconciled(s, sc, typeName);   // Bug 1b：未 reconcile 的类型先按需 reconcile，成员才补得出
     int mi = 0;
     while (mi < sc.ExportedCount) {
         ExportedModuleZ m = sc.Exported[mi];

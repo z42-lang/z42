@@ -1,0 +1,27 @@
+// add-pure-call-opt bench：纯函数调用热循环，用于**前后性能对比**。
+// 热点 = 循环体反复调**递归纯函数** fib（循环不变参数、不可内联）→ PureCall 把调用 LICM 提到
+// pre-header（每次进循环算一次，而非每迭代重算）。递归昂贵 → 收益巨大。
+//   小函数会被 Inline 抢先消化（那时 pure-call 无额外贡献）；pure-call 的价值正在**非内联函数**。
+// A/B（编两份产物比时间）：
+//   z42b bench <...-no-pure-call.zpkg>  (--opt -pure-call 编 = 前)
+//   z42b bench <...-default.zpkg>       (release 全开 = 后)
+//
+// 实测（interp，fib(23)×400、macOS arm64）：OFF ≈ 4.24s → ON ≈ 0.02s（~200×，输出恒 =11462800）。
+namespace Z42PureCallBench;
+
+using Std;
+
+int rp_fib(int n) { if (n < 2) { return n; } return rp_fib(n - 1) + rp_fib(n - 2); }
+
+[Benchmark]
+void bench_pure_call_hot_loop() {
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        long s = 0L;
+        int i = 0;
+        int k = 20;
+        while (i < 30) { s = s + (long)rp_fib(k); i = i + 1; }   // rp_fib(k) 循环不变纯 → 外提
+        BenchHelpers.blackBox(s);
+    });
+    b.printSummary("pure_call_hot_loop");
+}

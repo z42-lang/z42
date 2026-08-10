@@ -108,6 +108,32 @@ pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
 use crate::metadata::lazy_loader::{LazyLoader, ZpkgCandidate};
 use crate::metadata::{Function, TypeDesc, Value};
 
+/// **add-lazy-context-unload (2026-08-05)**: routes GC-driven collectible-context
+/// reclamation to `VmCore.context_registry`. Captures `Weak<VmCore>` (cycle
+/// avoidance, like the root scanner) + a clone of the unloading-count flag for a
+/// lock-free `is_unloading` gate. Registered via `heap.set_context_reclaimer`.
+struct CoreContextReclaimer {
+    core: Weak<VmCore>,
+    unloading: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
+    fn is_unloading(&self) -> bool {
+        self.unloading.load(std::sync::atomic::Ordering::Relaxed) > 0
+    }
+    fn snapshot(&self) -> crate::metadata::context::ContextLiveness {
+        self.core
+            .upgrade()
+            .map(|c| c.context_registry.lock().liveness_snapshot())
+            .unwrap_or_default()
+    }
+    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>) {
+        if let Some(c) = self.core.upgrade() {
+            c.context_registry.lock().reclaim(live);
+        }
+    }
+}
+
 /// **`VmCore`** —— state shared across all threads sharing one VM instance
 /// (add-multithreading-foundation, 2026-05-19, Phase 1 / spec
 /// `2026-05-19-add-multithreading-foundation`).
@@ -373,6 +399,19 @@ pub struct VmContext {
     /// interp + paired `push_frame` / `pop_frame` in JIT helpers ensure
     /// the pop runs before the owner returns.
     pub(crate) call_stack:        Arc<Mutex<Vec<crate::exception::VmFrame>>>,
+    /// add-escape-analysis-stack-alloc: per-thread arena holding escape-analysis
+    /// stack-allocated objects/arrays (`Value::StackObject`/`StackArray` index it).
+    /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC
+    /// roots at safepoint (its slots may hold heap `GcRef`s). Mutex: owner-thread
+    /// accesses uncontended; GC scanner is the only cross-thread reader.
+    pub(crate) stack_arena:       Arc<Mutex<crate::interp::stack_alloc::StackArena>>,
+    /// add-struct-value-semantics: per-thread byte arena holding value-struct blobs
+    /// (`Value::StructRef` indexes it). Same lifetime model as `stack_arena`
+    /// (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
+    pub(crate) struct_arena:      Arc<Mutex<crate::interp::struct_arena::StructArena>>,
+    /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
+    /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
+    pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): forward pointer to the active
     /// `JitModuleCtx`, mirroring the existing `JitModuleCtx.vm_ctx` back-pointer.
     /// Type-erased as `usize` (the `jit` module is `cfg`-gated; this field is not)
@@ -520,6 +559,9 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            stack_arena: Arc::new(Mutex::new(Default::default())),
+            struct_arena: Arc::new(Mutex::new(Default::default())),
+            next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
@@ -673,6 +715,77 @@ impl VmContext {
                     for v in ctx.func_ref_slots.lock().iter() {
                         visit(v);
                     }
+                    // add-escape-analysis-stack-alloc: stack-alloc arena roots.
+                    // A stack object's slots / stack array's elements may hold heap
+                    // GcRefs that must stay marked while the stack object is live.
+                    // (The stack objects themselves are not GC-heap entries and are
+                    // freed by frame-exit truncation, not sweep.) The arena lock is
+                    // never held across a GC trigger, so this cannot deadlock.
+                    ctx.stack_arena.lock().scan_roots(visit);
+                    // add-struct-value-semantics: value-struct blobs' reference
+                    // leaves are GC roots too (no-op for pure-primitive structs;
+                    // ref-leaf scanning by type ref-bitmap lands in A-use).
+                    ctx.struct_arena.lock().scan_roots(visit);
+                }
+            }));
+        }
+
+        // add-lazy-context-unload: wire the collectible-context reclaimer so a
+        // major GC reclaims `Unloading` AssemblyLoadContexts with no live refs.
+        // Captures `Weak<VmCore>` (cycle avoidance) + the unloading-count flag.
+        {
+            let unloading = core.context_registry.lock().unloading_flag();
+            core.heap.set_context_reclaimer(Box::new(CoreContextReclaimer {
+                core: Arc::downgrade(&core),
+                unloading,
+            }));
+        }
+
+        // add-heap-retention-diagnostics: wire the CATEGORIZED root scanner (for
+        // retention-query L2 root reporting). Mirrors the anonymous mark scanner
+        // above but tags each root with its `RootKind`. Called only on-demand by
+        // `retention_roots`, never on the mark hot path.
+        {
+            let core_weak = Arc::downgrade(&core);
+            core.heap.set_categorized_root_scanner(Box::new(move |visit| {
+                use crate::gc::retention::RootKind;
+                let Some(c) = core_weak.upgrade() else { return; };
+                for v in c.static_fields.lock().iter() {
+                    visit(v, RootKind::StaticField);
+                }
+                let registry = c.vm_contexts.lock();
+                for ctx_ptr in registry.iter() {
+                    // SAFETY: same invariant as the anonymous root scanner —
+                    // entries are removed in `VmContext::drop` before dealloc,
+                    // and we hold `vm_contexts.lock()` for the whole walk.
+                    let ctx = unsafe { &*ctx_ptr.0 };
+                    if let Some(v) = ctx.pending_exception.lock().as_ref() {
+                        visit(v, RootKind::StackFrame);
+                    }
+                    for frame in ctx.call_stack.lock().iter() {
+                        unsafe {
+                            for v in (*frame.regs).iter() {
+                                visit(v, RootKind::StackFrame);
+                            }
+                            if !frame.env_arena.is_null() {
+                                for env in (*frame.env_arena).iter() {
+                                    for v in env.iter() {
+                                        visit(v, RootKind::StackFrame);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for v in ctx.func_ref_slots.lock().iter() {
+                        visit(v, RootKind::FuncRefSlot);
+                    }
+                    ctx.stack_arena
+                        .lock()
+                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
+                    // add-struct-value-semantics: value-struct blob reference leaves.
+                    ctx.struct_arena
+                        .lock()
+                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                 }
             }));
         }
@@ -681,6 +794,9 @@ impl VmContext {
             core,
             pending_exception,
             call_stack,
+            stack_arena: Arc::new(Mutex::new(Default::default())),
+            struct_arena: Arc::new(Mutex::new(Default::default())),
+            next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             process_next_id: std::sync::atomic::AtomicU64::new(1),
@@ -958,13 +1074,36 @@ impl VmContext {
     /// Push one [`crate::exception::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
-    pub(crate) fn push_frame(&self, frame: crate::exception::VmFrame) {
+    pub(crate) fn push_frame(&self, mut frame: crate::exception::VmFrame) {
+        // add-escape-analysis-stack-alloc: stamp this frame's stack-arena bases so
+        // pop_frame can LIFO-truncate exactly this frame's stack allocations. Lock
+        // stack_arena only briefly (released before locking call_stack) → the two
+        // locks are never held simultaneously (no lock-order inversion vs pop_frame).
+        let (obj_base, arr_base) = self.stack_arena.lock().bases();
+        frame.stack_obj_base = obj_base;
+        frame.stack_arr_base = arr_base;
+        // add-struct-value-semantics: stamp the value-struct byte-arena base too.
+        frame.struct_base = self.struct_arena.lock().base();
         self.call_stack.lock().push(frame);
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub(crate) fn pop_frame(&self) {
-        self.call_stack.lock().pop();
+        // add-escape-analysis-stack-alloc: free this frame's stack allocations by
+        // truncating the arena back to its stamped bases (bulk LIFO free). Pop the
+        // call_stack first (release its lock) before touching stack_arena.
+        let popped = self.call_stack.lock().pop();
+        if let Some(f) = popped {
+            self.stack_arena.lock().truncate(f.stack_obj_base, f.stack_arr_base);
+            // add-struct-value-semantics: LIFO-free this frame's value-struct blobs.
+            self.struct_arena.lock().truncate(f.struct_base);
+        }
+    }
+
+    /// add-escape-analysis-stack-alloc: allocate a fresh monotonic frame id
+    /// (stamped onto each interp `Frame` at entry; keys stack-arena slots).
+    pub(crate) fn next_frame_id(&self) -> u32 {
+        self.next_frame_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Update the *top* (currently executing) frame's source position.
@@ -973,10 +1112,16 @@ impl VmContext {
     ///
     /// `column = 0` means unknown — the snapshot formats as `(file:line)`
     /// rather than `(file:line:col)`.
-    pub(crate) fn update_top_frame_pos(&self, line: u32, column: u32) {
+    /// add-offline-symbolication: `offset` = the frame's linearized code offset
+    /// (`Function::linear_offset`), stamped in the **same** lock as line/column
+    /// so a stripped-release trace (no line info) can print `+0x<offset>` — an
+    /// offline-resolvable key for `z42d symbolicate` — at zero extra locking
+    /// cost. Pass `u32::MAX` when a caller has no offset to record.
+    pub(crate) fn update_top_frame_pos(&self, line: u32, column: u32, offset: u32) {
         if let Some(top) = self.call_stack.lock().last() {
             top.line.set(line);
             top.column.set(column);
+            top.offset.set(offset);
         }
     }
 
@@ -1246,9 +1391,15 @@ impl VmContext {
         let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
-            let before: std::collections::HashSet<String> = loader.loaded_zpkgs.clone();
+            // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
+            // buffer around the resolve, instead of cloning + diffing the whole
+            // `loaded_zpkgs` set on every call (profiled: that per-call clone was
+            // the top interp alloc hotspot in cross-zpkg-heavy workloads such as
+            // z42c self-compile). Common path (no new zpkg loaded) → empty buffer
+            // → `mem::take` of a zero-cap Vec → zero allocation.
+            loader.newly_loaded.clear();
             let result = loader.resolve_function(func_name);
-            let newly: Vec<String> = loader.loaded_zpkgs.difference(&before).cloned().collect();
+            let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
         for name in newly_loaded {
@@ -1263,9 +1414,10 @@ impl VmContext {
         let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
-            let before: std::collections::HashSet<String> = loader.loaded_zpkgs.clone();
+            // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
+            loader.newly_loaded.clear();
             let result = loader.resolve_type(class_name);
-            let newly: Vec<String> = loader.loaded_zpkgs.difference(&before).cloned().collect();
+            let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
         for name in newly_loaded {

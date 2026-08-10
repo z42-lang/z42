@@ -238,28 +238,26 @@ pub(super) fn call_indirect(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, callee: u32, args: &[u32],
 ) -> Result<Option<Value>> {
-    // env 解码：FuncRef → 无 env；Closure → heap GcRef；StackClosure
-    // → 从当前 frame.env_arena 复制出 Vec（新 GcRef，callee 内 lifetime
-    //   独立于 caller frame，避免 caller 弹出 arena 后 use-after-free）
-    let (fname, env_vec_opt): (String, Option<Vec<Value>>) = match frame.get(callee)? {
-        Value::FuncRef(name)               => (name.to_string(), None),
-        Value::Closure(c)                  => (c.fn_name.clone(), Some(c.env.borrow().elems.clone())),
+    // env 解码：FuncRef → 无 env；Closure → 复用已有 heap GcRef；StackClosure
+    // → 从当前 frame.env_arena 物化出新 GcRef（arena 持裸 Vec，非 GcRef；且 callee
+    //   lifetime 需独立于 caller frame，避免 caller 弹出 arena 后 use-after-free）。
+    //
+    // S3 (perf-interp-hot-paths): `Value::Closure` 直接把已有 `c.env` GcRef 交给
+    // callee（Arc 引用计数 +1），不再 `elems.clone()` 深拷 + `alloc_array` 重分配。
+    // 安全性：env 数组是 MkClos 时**写一次**、体内只 `array_get` **读**（编译器
+    // `_emitAssign` 无 BoundCapturedIdent 写回分支 → env 槽永不被 array_set 改写），
+    // 故跨调用共享 GcRef 与旧的"每次深拷+新 GcRef"行为字节等价，省 O(env) 拷贝 + 一次 GC 分配。
+    let (fname, env_val_opt): (String, Option<Value>) = match frame.get(callee)? {
+        Value::FuncRef(name) => (name.to_string(), None),
+        Value::Closure(c)    => (c.fn_name.clone(), Some(Value::Array(c.env.clone()))),
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame.env_arena.len() {
                 bail!("CallIndirect: stack closure env_idx {} out of bounds (arena_len={})",
                       idx, frame.env_arena.len());
             }
-            (sc.fn_name.clone(), Some(frame.env_arena[idx].clone()))
-        }
-        other => bail!("CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other),
-    };
-    let user_vals = collect_args(&frame.regs, args)?;
-    let arg_vals: Vec<Value> = match env_vec_opt {
-        None          => user_vals,
-        Some(env_vec) => {
             // 升格为 heap GcRef 给 callee 用 —— callee 不区分 stack/heap closure。
-            let env_val = ctx.heap().alloc_array(env_vec);
+            let env_val = ctx.heap().alloc_array(frame.env_arena[idx].clone());
             // add-gc-oom-exception: alloc_array returns Null only under strict OOM
             if matches!(env_val, Value::Null) {
                 ctx.heap().set_strict_oom(false);
@@ -270,6 +268,14 @@ pub(super) fn call_indirect(
                 ctx.heap().set_strict_oom(true);
                 return Ok(Some(exc));
             }
+            (sc.fn_name.clone(), Some(env_val))
+        }
+        other => bail!("CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other),
+    };
+    let user_vals = collect_args(&frame.regs, args)?;
+    let arg_vals: Vec<Value> = match env_val_opt {
+        None          => user_vals,
+        Some(env_val) => {
             let mut v = Vec::with_capacity(user_vals.len() + 1);
             v.push(env_val);
             v.extend(user_vals);

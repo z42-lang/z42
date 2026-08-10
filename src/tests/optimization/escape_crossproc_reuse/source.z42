@@ -1,0 +1,23 @@
+using Std.IO;
+
+// add-crossproc-escape-summary e2e（C 命中）：临时对象传给**只读它**的辅助函数 Dist。
+// 跨过程摘要前：p 传进调用 → 一律判逃逸 → 不栈分配。摘要后：Dist 的 param0 不逃逸 → p 可栈分配。
+// 开/关（--no-opt stack-alloc）输出必须一致。手算 = 1+5+13+25+41 = 85。
+class Point {
+    public int X;
+    public int Y;
+    public Point(int x, int y) { this.X = x; this.Y = y; }
+}
+
+int Dist(Point p) { return p.X * p.X + p.Y * p.Y; }   // 只读 p → param0 不逃逸
+
+void Main() {
+    int sum = 0;
+    int i = 0;
+    while (i < 5) {
+        Point p = new Point(i, i + 1);
+        sum = sum + Dist(p);
+        i = i + 1;
+    }
+    Console.WriteLine(sum);
+}

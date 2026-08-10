@@ -13,7 +13,7 @@ fn arr(values: Vec<Value>, ctx: &VmContext) -> Value {
 fn kind_of(v: &Value) -> Option<i64> {
     match v {
         Value::Array(rc) => match rc.borrow().first() {
-            Some(Value::I64(k)) => Some(*k),
+            Some(Value::I64(k)) => Some(k),
             _ => None,
         },
         _ => None,
@@ -25,7 +25,7 @@ fn ok_slot(v: &Value) -> i64 {
         Value::Array(rc) => {
             let b = rc.borrow();
             assert_eq!(b.len(), 2, "ok-value tuple has 2 elements");
-            match (&b[0], &b[1]) {
+            match (&b.get_boxed(0), &b.get_boxed(1)) {
                 (Value::I64(0), Value::I64(s)) => *s,
                 _ => panic!("not an ok-slot tuple: {:?}", b),
             }
@@ -39,7 +39,7 @@ fn ok_listen(v: &Value) -> (i64, i64) {
         Value::Array(rc) => {
             let b = rc.borrow();
             assert_eq!(b.len(), 3, "ok-listen tuple has 3 elements");
-            match (&b[0], &b[1], &b[2]) {
+            match (&b.get_boxed(0), &b.get_boxed(1), &b.get_boxed(2)) {
                 (Value::I64(0), Value::I64(s), Value::I64(p)) => (*s, *p),
                 _ => panic!("not an ok-listen tuple: {:?}", b),
             }
@@ -158,8 +158,8 @@ fn loopback_listener_accepts_and_round_trips_bytes() {
     assert_eq!(nread, 5, "should read 5 bytes");
     if let Value::Array(rc) = &read_buf {
         let b = rc.borrow();
-        let bytes: Vec<u8> = b.iter().map(|v| match v {
-            Value::I64(n) => *n as u8,
+        let bytes: Vec<u8> = b.iter_boxed().map(|v| match v {
+            Value::I64(n) => n as u8,
             _ => panic!("non-i64 byte"),
         }).collect();
         assert_eq!(&bytes, b"hello");
@@ -267,18 +267,18 @@ fn udp_loopback_send_recv_round_trip() {
         Value::Array(rc) => {
             let b = rc.borrow();
             assert_eq!(b.len(), 4, "recv ok tuple has 4 elements");
-            assert_eq!(b[0], Value::I64(0));
-            match &b[1] {
+            assert_eq!(b.get_boxed(0), Value::I64(0));
+            match &b.get_boxed(1) {
                 Value::Array(buf) => {
                     let bb = buf.borrow();
                     assert_eq!(bb.len(), 2);
-                    assert_eq!(bb[0], Value::I64(b'h' as i64));
-                    assert_eq!(bb[1], Value::I64(b'i' as i64));
+                    assert_eq!(bb.get_boxed(0), Value::I64(b'h' as i64));
+                    assert_eq!(bb.get_boxed(1), Value::I64(b'i' as i64));
                 }
                 other => panic!("expected byte[] buffer, got {:?}", other),
             }
-            assert!(matches!(&b[2], Value::Str(s) if **s == *"127.0.0.1"));
-            assert_eq!(b[3], Value::I64(port_b));
+            assert!(matches!(&b.get_boxed(2), Value::Str(s) if **s == *"127.0.0.1"));
+            assert_eq!(b.get_boxed(3), Value::I64(port_b));
         }
         other => panic!("expected ok-tuple Array, got {:?}", other),
     }

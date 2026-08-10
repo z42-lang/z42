@@ -16,12 +16,13 @@ entry   = "Z42Devtools.Main"
 pack    = true
 
 [sources]
-include = ["devtools_cli.z42"]
+include = ["devtools_cli.z42", "symbolicate.z42"]
 
 [dependencies]
 "z42.core" = "0.1.0"   # String / core
-"z42.io"   = "0.1.0"   # Console / Environment
+"z42.io"   = "0.1.0"   # Console / Environment / File / Directory
 "z42.cli"  = "0.1.0"   # Std.Cli nested router + ArgParser
+"z42.ir"   = "0.1.0"   # SidecarReader (.zsym) + IrLineEntry (add-offline-symbolication)
 
 [build]
 # Mirror builder/launcher: emit z42.devtools.zpkg into the shared artifacts tree

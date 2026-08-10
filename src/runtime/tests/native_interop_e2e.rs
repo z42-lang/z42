@@ -75,6 +75,7 @@ fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Termin
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
 }
@@ -389,6 +390,7 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     Module {
@@ -459,7 +461,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
                 Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
                 Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
                 Instruction::ConstI64 { dst: 2, val: 0x21 }, // '!'
-                Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 3, elems: vec![0, 1, 2].into(), element_type: String::new() })),
+                Instruction::ArrayNewLit(Box::new(z42::metadata::bytecode::ArrayNewLitInsn { dst: 3, elems: vec![0, 1, 2].into(), element_type: String::new(), stack_alloc: false })),
                 Instruction::PinPtr { dst: 4, src: 3 },
                 Instruction::FieldGet(Box::new(FieldGetInsn { dst: 5, obj: 4, field_name: "ptr".into() })),
                 Instruction::FieldGet(Box::new(FieldGetInsn { dst: 6, obj: 4, field_name: "len".into() })),
@@ -481,6 +483,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     let m = Module {
@@ -538,6 +541,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     let m = Module {

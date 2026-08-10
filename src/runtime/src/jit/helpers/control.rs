@@ -10,17 +10,21 @@ use super::{set_exception, take_exception, vm_ctx_ref};
 /// receives the source `(line, col)` of the `throw` site so it can stamp
 /// the throwing frame's FrameInfo before snapshotting the stack into
 /// `Std.Exception.StackTrace`. `throw_col == 0` means unknown (zbc < 1.1).
+/// add-offline-symbolication: `throw_offset` = linearized code offset of the
+/// throw site (baked by translate via `Function::linear_offset`), stamped in the
+/// same lock so a stripped-release JIT frame carries a `+0x<offset>` key.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_throw(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     reg: u32,
     throw_line: u32,
     throw_col:  u32,
+    throw_offset: u32,
 ) {
     let v = (*frame).regs[reg as usize].clone();
     let vm_ctx = vm_ctx_ref(ctx);
     let module = &*(*ctx).module;
-    vm_ctx.update_top_frame_pos(throw_line, throw_col);
+    vm_ctx.update_top_frame_pos(throw_line, throw_col, throw_offset);
     crate::exception::populate_stack_trace(&v, vm_ctx, module);
     set_exception(vm_ctx, v);
 }

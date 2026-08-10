@@ -1,0 +1,56 @@
+// sealed 修饰符（impl-sealed-semantics）——类不可被继承、方法不可被再 override。
+// 语义与 C# 一致：sealed 是 Java `final` 的对应物（z42 无 `final` 关键字）。
+//
+// 覆盖：
+//   • sealed class —— 不可作基类（继承报 E0416）
+//   • sealed override —— 封死一个 virtual override（子类再 override 报 E0417）
+//   • 简写 `sealed`（方法上）—— 等价 `sealed override`（z42 扩展，C# 需写全）
+//   • MethodInfo.IsSealed / Type.IsSealed —— 反射可见
+namespace Demo.Sealed;
+
+using System;
+using Std.Reflection;
+
+// ── 抽象基类 + virtual 方法 ──────────────────────────────────────────────────
+public abstract class Animal {
+    public abstract string Name();
+    public virtual string Sound() => "...";
+}
+
+// ── sealed 类：不可被继承 ────────────────────────────────────────────────────
+// `class X : Cat {}` 会编译报错 E0416（cannot inherit from sealed class）。
+public sealed class Cat : Animal {
+    // sealed override：Sound 到此为止，子类不得再 override（本类 sealed 已无子类，
+    // 但演示语义）。
+    public sealed override string Sound() => "Meow";
+
+    // 简写：方法上单写 `sealed` == `sealed override`（必须匹配基类 virtual）。
+    public sealed override string Name() => "Cat";
+}
+
+// ── 普通类 + shorthand sealed ───────────────────────────────────────────────
+public class Dog : Animal {
+    public override string Name()  => "Dog";
+    // 简写 sealed —— 等价 `sealed override`；Dog 的子类不得再 override Sound。
+    public sealed string Sound()   => "Woof";
+}
+
+void Main() {
+    Animal c = new Cat();
+    Animal d = new Dog();
+    Console.WriteLine($"{c.Name()}: {c.Sound()}");   // Cat: Meow
+    Console.WriteLine($"{d.Name()}: {d.Sound()}");   // Dog: Woof
+
+    // 反射：类级 + 方法级 sealed 都可见。
+    Type tc = typeof(Cat);
+    Console.WriteLine($"Cat sealed? {tc.IsSealed}");  // True
+
+    MethodInfo[] ms = typeof(Cat).GetMethods();
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == "Sound") {
+            Console.WriteLine($"Cat.Sound sealed? {ms[i].IsSealed}");  // True
+        }
+        i = i + 1;
+    }
+}

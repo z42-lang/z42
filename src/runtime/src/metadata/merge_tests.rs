@@ -33,6 +33,7 @@ fn make_module_with(
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }];
     functions.extend(extra_functions);
@@ -116,6 +117,7 @@ fn merge_deduplicates_classes_by_name() {
         interfaces: vec![].into(),
         enum_members: vec![].into(),
         iface_methods: vec![].into(),
+        struct_layout: None,
         class_flags: 0,
         name: "Std.Object".to_string(),
         base_class: None,
@@ -129,6 +131,7 @@ fn merge_deduplicates_classes_by_name() {
         interfaces: vec![].into(),
         enum_members: vec![].into(),
         iface_methods: vec![].into(),
+        struct_layout: None,
         class_flags: 0,
         name: "Std.Object".to_string(),
         base_class: None,
@@ -168,6 +171,7 @@ fn merge_deduplicates_functions_by_name() {
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
         fused_tails: Vec::new(),
+        frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     };
     let m0 = make_module("A", &["hello"], 0);

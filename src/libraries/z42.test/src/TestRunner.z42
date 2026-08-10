@@ -1,4 +1,5 @@
 namespace Std.Test;
+using Std.IO;
 
 // `TestRunner` — 极简单元测试运行器 (z42.test v0)
 //

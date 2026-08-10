@@ -2,6 +2,7 @@
 // 顶层声明的类型检查驱动（类/自由函数/impl/合成 ctor/字段 init/方法体/重复检测）。
 // TypeChecker 降为协调器：Infer 分派 → _decl.*；持 _tc 反向引用触达 _expr/_stmt/_overload/_diags/_unwrap。
 namespace Z42.Semantics;
+using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
@@ -44,8 +45,9 @@ public sealed class DeclBinder {
                             if (curCt == null || !curCt.HasBase || curCt.BaseName == "" || !clsMap.ContainsKey(curCt.BaseName)) { cur = null; }
                             else { cur = clsMap.Get(curCt.BaseName) as ClassDecl; curCt = symbols.GetClass(curCt.BaseName); }
                         }
-                        // 绑定环境：this + 全部字段（含继承，_passInheritFields 已并入）
-                        var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                        // 绑定环境：this + 全部字段（含继承，_passInheritFields 已并入）。
+                        // add-readonly-fields-opt：合成 ctor 的字段初始化器也是 ctor-this 上下文 → readonly 初始化器合法。
+                        var env = TypeEnv.Root(symbols).WithClassGenericCtor(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                         env.Define("this", ct);
                         string[] fnames = ct.Fields.Keys();
                         int fk = 0;
@@ -204,9 +206,10 @@ public sealed class DeclBinder {
             if (mem is FieldDecl) {                                  // 静态字段 init（SA-3）
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
-                if (fd.HasInit && fsym != null && fsym.IsStatic) {
+                if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
                     var fenv = TypeEnv.Root(symbols);
-                    model.AddStaticInit(c.Name, fd.Name, this._tc._expr._bindExpr(fd.Init, fenv));
+                    // add-target-typed-new：`static A f = new()` 以字段类型为目标。
+                    model.AddStaticInit(c.Name, fd.Name, this._tc._expr.BindWithTarget(fd.Init, fenv.ResolveType(fd.Type), fenv));
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
@@ -220,7 +223,11 @@ public sealed class DeclBinder {
                     // 活跃类型形参 = 类的 + 方法自身的（2A-2）。
                     int mtpc = md.TypeParams.Count;
                     string[] allParams = this._mergeParams(c.TypeParams.Names, c.TypeParams.Count, md.TypeParams.Names, mtpc);
-                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, c.TypeParams.Count + mtpc);
+                    // add-readonly-fields-opt：实例 ctor 体（含注入的字段初始化器）用 InCtorThis scope → readonly 可赋值。
+                    bool inCtor = md.IsCtor && !ms.IsStatic;
+                    var env = inCtor
+                        ? TypeEnv.Root(symbols).WithClassGenericCtor(ct.Name(), allParams, c.TypeParams.Count + mtpc)
+                        : TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, c.TypeParams.Count + mtpc);
                     if (!ms.IsStatic) {
                         env.Define("this", ct);
                         string[] fnames = ct.Fields.Keys();
@@ -271,7 +278,7 @@ public sealed class DeclBinder {
     private void _bindFreeFunc(SemanticModel model, SymbolTable symbols, MethodDecl md) {
         if (md.HasBody) {
             // 顶层泛型函数携自身型参（classFlag=false）。
-            var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count);
+            var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count, false);
             BoundStmt body = this._bindMethodBody(symbols, env, md);
             model.AddBody(md.Name, body);
         }

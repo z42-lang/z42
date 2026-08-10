@@ -130,22 +130,29 @@ pub(super) fn pin_ptr(
             // a Box<[u8]> owned by the VM for the pin's lifetime.
             // Each element must be a `Value::I64` in 0..=255.
             let arr_ref = arr.borrow();
-            let mut bytes = Vec::with_capacity(arr_ref.len());
-            for (i, v) in arr_ref.iter().enumerate() {
-                match v {
-                    Value::I64(n) if (0..=255).contains(n) => {
-                        bytes.push(*n as u8);
-                    }
-                    other => {
-                        let msg = format!(
-                            "PinPtr Array element {i} not a u8 in 0..=255: {other:?}"
-                        );
-                        drop(arr_ref);
-                        let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, msg)?;
-                        return Ok(Some(exc));
+            // packed-primitive-arrays: a packed `byte[]` (`Bytes` backing) is a
+            // contiguous `&[u8]` — copy it straight out, no per-element unbox
+            // (the "简化 extern call" win). Boxed falls back to validated unbox.
+            let bytes: Vec<u8> = if let Some(b) = arr_ref.as_bytes() {
+                b.to_vec()
+            } else {
+                let n_elems = arr_ref.len();
+                let mut out = Vec::with_capacity(n_elems);
+                let mut invalid: Option<(usize, String)> = None;
+                for i in 0..n_elems {
+                    match arr_ref.get_boxed(i) {
+                        Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
+                        other => { invalid = Some((i, format!("{other:?}"))); break; }
                     }
                 }
-            }
+                if let Some((i, o)) = invalid {
+                    drop(arr_ref);
+                    let msg = format!("PinPtr Array element {i} not a u8 in 0..=255: {o}");
+                    let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, msg)?;
+                    return Ok(Some(exc));
+                }
+                out
+            };
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
             let ptr = ctx.pin_owned_buffer(buf);

@@ -1,0 +1,48 @@
+// 驱动测试：REPL 输入完整性探针（add-repl-parser-completeness）。
+// 驱动 Std.Scripting.Completeness.IsIncomplete，打印每个输入的判定，与 expected_output.txt 对账。
+// 覆盖：类型声明缺正文、自由函数缺正文、悬挂运算符、未闭合括号/语句块 → incomplete；
+//       完整声明/表达式/语句 → complete；真语法错（非 EOF）→ complete（交 Eval 报错）。
+namespace ReplCompletenessTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    // 不完整 → 应续读
+    _check("class B");
+    _check("class B {");
+    _check("void foo()");
+    _check("enum Color");
+    _check("1 +");
+    _check("f(1,");
+    _check("if (x > 0) {");
+    // 完整 → 交求值
+    _check("class B {}");
+    _check("1 + 2");
+    _check("void foo() {}");
+    _check("var n = 10;");
+    _check("42");
+    // 真语法错但当前非 EOF → complete（交 Eval 正常报错，不误当续读）
+    _check("class 1");
+
+    // 续行视觉缩进（sink-repl-indent-to-script）：ContinuationIndent = 未闭合括号层数 × 4 空格。
+    // 打印返回串长度；覆盖平衡/嵌套/负数钳零/串内·注释内括号不计（Lexer 天然处理）。
+    _indent("1 + 2");                   // 0（平衡）
+    _indent("int f() {");               // 4（一层）
+    _indent("class A { int f() {");     // 8（嵌套两层）
+    _indent("f(g(");                    // 8
+    _indent("f() {}");                  // 0（开合抵消）
+    _indent("}}");                      // 0（负数钳到 0）
+    _indent("s = \"{[(\"");             // 0（串内括号不计）
+    _indent("x() // {");                // 0（注释内括号不计）
+}
+
+void _check(string src) {
+    if (Completeness.IsIncomplete(src)) { Console.WriteLine(src + " => incomplete"); }
+    else { Console.WriteLine(src + " => complete"); }
+}
+
+void _indent(string src) {
+    Console.WriteLine(src + " => indent " + Completeness.ContinuationIndent(src).Length.ToString());
+}

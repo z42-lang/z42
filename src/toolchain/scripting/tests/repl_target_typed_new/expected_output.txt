@@ -1,0 +1,9 @@
+ok
+Repl.R1.Pt{...}
+0
+Repl.R1.Pt{...}
+3
+4
+Repl.R1.Pt{...}
+9
+E0437: target-typed `new` requires a known target type here

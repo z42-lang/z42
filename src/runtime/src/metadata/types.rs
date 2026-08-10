@@ -147,6 +147,44 @@ pub struct TypeDesc {
 /// generics metadata. Touched only by loader fixup, reflection /
 /// `DefaultOf` opcode, and constraint verification — never by hot
 /// dispatch.
+/// add-struct-value-semantics: reference-leaf kind in a value-struct's reference
+/// bitmap (mirrors the compiler's `StructLeafKind` for the two reference kinds;
+/// primitive leaves are never listed). Both are 16 B managed handles; the kind is
+/// retained so boxing / diagnostics can recover the precise kind. Copy and GC
+/// scan treat all reference leaves uniformly via `Value`, so the value logic does
+/// not branch on kind.
+pub const STRUCT_REF_ARC_STRING: u8 = 1;
+pub const STRUCT_REF_GCREF: u8 = 2;
+
+/// add-struct-value-semantics: runtime byte + reference layout of a value-struct
+/// type, delivered by the zbc TYPE-section struct block (A-use). `size` = the
+/// byte-blob size; `ref_offsets` / `ref_kinds` = the byte offset + kind of each
+/// reference leaf (parallel arrays, bitmap order). Pure-primitive structs have
+/// empty reference arrays. A type with no delivered layout resolves (in
+/// `interp::exec_struct::resolve_layout`) to a `size`-only empty layout, which
+/// reproduces the pre-A-use pure-primitive behavior byte-for-byte.
+#[derive(Debug, Default)]
+pub struct StructTypeLayout {
+    pub size: usize,
+    pub ref_offsets: Box<[u32]>,
+    pub ref_kinds: Box<[u8]>,
+}
+
+impl StructTypeLayout {
+    /// Map a reference-leaf byte offset to its index in `ref_offsets` (and thus a
+    /// blob's `refs` side-slice). Linear scan — reference leaves per struct are few.
+    #[inline]
+    pub fn ref_index(&self, byte_off: u32) -> Option<usize> {
+        self.ref_offsets.iter().position(|&o| o == byte_off)
+    }
+
+    /// Number of reference leaves (= a blob's `refs` length for this type).
+    #[inline]
+    pub fn ref_count(&self) -> usize {
+        self.ref_offsets.len()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
@@ -201,6 +239,12 @@ pub struct TypeDescCold {
     /// `Type.GetMethods()`; presence mirrors `class_flags & CLASS_FLAG_INTERFACE`.
     /// Empty for non-interface types.
     pub iface_methods: Box<[super::bytecode::IfaceMethodSig]>,
+    /// add-struct-value-semantics (A-use): the value-struct byte + reference
+    /// layout (from the zbc TYPE-section struct block, present only when
+    /// `class_flags & CLASS_FLAG_STRUCT`). Shared (`Arc`) so `StructAlloc` can
+    /// hand it to every blob it allocates without recomputing. `None` for
+    /// non-struct types and structs whose module predates the block.
+    pub struct_layout: Option<std::sync::Arc<StructTypeLayout>>,
 }
 
 impl TypeDesc {
@@ -229,6 +273,14 @@ impl TypeDesc {
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
     /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
     #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
+    /// add-struct-value-semantics: the value-struct byte + reference layout, if
+    /// this is a struct with a delivered TYPE-section struct block. Cloned `Arc`
+    /// (cheap) so `StructAlloc` can share one layout across all blobs of the type.
+    #[inline] pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
+        self.cold.as_ref().and_then(|c| c.struct_layout.clone())
+    }
+    /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
+    #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & super::bytecode::CLASS_FLAG_STRUCT != 0 }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
     #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & super::bytecode::CLASS_FLAG_ENUM != 0 }
     #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & super::bytecode::CLASS_FLAG_DELEGATE != 0 }
@@ -421,39 +473,236 @@ pub struct ArrayObj {
     /// (Rust-synthesized arrays like reflection result sets; user arrays from
     /// `ArrayNew` always carry it).
     pub element_type: Arc<str>,
-    pub elems: Vec<Value>,
+    /// packed-primitive-arrays: element storage. **Step 1a** introduces this
+    /// enum with only `Boxed` (behaviour-identical refactor). **Step 1b** adds
+    /// packed primitive backings (Bytes/Chars/I32/I64/F64/Bool) — the C#
+    /// value-type-array model (inline packed, no per-element boxing, GC skips).
+    pub backing: ArrayBacking,
+}
+
+/// Array element storage — the C# value-type-vs-reference array distinction.
+/// `Boxed` = reference array (`object[]`/`string[]`/nested), GC-scanned. The
+/// primitive backings are packed value-type arrays (inline `Vec<T>`, no
+/// per-element boxing, GC skips them). box/unbox happens only at the ArrayGet/
+/// ArraySet boundary because interp registers are `Value` (Step 4 removes even
+/// that for the JIT via unboxed access).
+#[derive(Debug, Clone)]
+pub enum ArrayBacking {
+    Boxed(Vec<Value>),
+    Bool(Vec<bool>),
+    Bytes(Vec<u8>),      // byte / sbyte（窄整型并入；box 语义按 element_type）
+    I32(Vec<i32>),       // int / uint / short / ushort
+    I64(Vec<i64>),       // long / ulong
+    Chars(Vec<char>),    // char（scalar，与 String.ToCharArray 对齐）
+    F64(Vec<f64>),       // double / float
 }
 
 impl ArrayObj {
     /// Untyped array (element type unknown) — for Rust-synthesized arrays.
     #[inline]
     pub fn new(elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(""), elems }
+        Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed(elems) }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
+    /// **Step 1b-ii**: primitive element types get a packed value-type backing
+    /// (C# model); everything else stays `Boxed`. Unknown/FQN element types fall
+    /// back to `Boxed` (safe — no packing, correct behaviour).
     #[inline]
     pub fn typed(element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), elems }
+        Self { element_type: Arc::from(element_type), backing: Self::pack_backing(element_type, elems) }
     }
-}
 
-impl std::ops::Deref for ArrayObj {
-    type Target = Vec<Value>;
+    /// FFI return fast-path (packed-primitive-arrays Step 3): build a `byte[]`
+    /// straight from an owned `Vec<u8>` — no per-byte `Value::I64` boxing, no
+    /// re-pack scan. The mirror of `as_bytes()` on the ingest side. This is the
+    /// "简化 extern call" return path: native call → `&[u8]` → `byte[]` directly.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { element_type: Arc::from("byte"), backing: ArrayBacking::Bytes(bytes) }
+    }
+
+    /// Select a packed value-type backing for a primitive `element_type`,
+    /// unboxing `elems` into it. Conservative + sign-safe: only widths that
+    /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.
+    fn pack_backing(element_type: &str, elems: Vec<Value>) -> ArrayBacking {
+        match element_type {
+            // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
+            "byte" | "u8" =>
+                ArrayBacking::Bytes(elems.iter().map(|v| if let Value::I64(n) = v { *n as u8 } else { 0 }).collect()),
+            "char" =>
+                ArrayBacking::Chars(elems.iter().map(|v| if let Value::Char(c) = v { *c } else { '\0' }).collect()),
+            "bool" =>
+                ArrayBacking::Bool(elems.iter().map(|v| matches!(v, Value::Bool(true))).collect()),
+            // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" =>
+                ArrayBacking::I32(elems.iter().map(|v| if let Value::I64(n) = v { *n as i32 } else { 0 }).collect()),
+            // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" =>
+                ArrayBacking::I64(elems.iter().map(|v| if let Value::I64(n) = v { *n } else { 0 }).collect()),
+            "double" | "float" | "f32" | "f64" =>
+                ArrayBacking::F64(elems.iter().map(|v| if let Value::F64(f) = v { *f } else { 0.0 }).collect()),
+            // object / string / nested arrays / structs / unknown FQN → reference array.
+            _ => ArrayBacking::Boxed(elems),
+        }
+    }
+
     #[inline]
-    fn deref(&self) -> &Vec<Value> { &self.elems }
-}
-impl std::ops::DerefMut for ArrayObj {
+    pub fn len(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.len(),
+            ArrayBacking::Bool(v)  => v.len(),
+            ArrayBacking::Bytes(v) => v.len(),
+            ArrayBacking::I32(v)   => v.len(),
+            ArrayBacking::I64(v)   => v.len(),
+            ArrayBacking::Chars(v) => v.len(),
+            ArrayBacking::F64(v)   => v.len(),
+        }
+    }
     #[inline]
-    fn deref_mut(&mut self) -> &mut Vec<Value> { &mut self.elems }
-}
-impl std::ops::Index<usize> for ArrayObj {
-    type Output = Value;
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    /// Bounds-checked read as owned `Value` (packed-safe `Vec::get` analogue).
     #[inline]
-    fn index(&self, i: usize) -> &Value { &self.elems[i] }
-}
-impl std::ops::IndexMut<usize> for ArrayObj {
+    pub fn get(&self, i: usize) -> Option<Value> {
+        if i < self.len() { Some(self.get_boxed(i)) } else { None }
+    }
     #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut Value { &mut self.elems[i] }
+    pub fn first(&self) -> Option<Value> { self.get(0) }
+
+    /// Read element `i` as a `Value` (boxes packed primitives). Caller ensures
+    /// `i < len()`.
+    #[inline]
+    pub fn get_boxed(&self, i: usize) -> Value {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v[i].clone(),
+            ArrayBacking::Bool(v)  => Value::Bool(v[i]),
+            ArrayBacking::Bytes(v) => Value::I64(v[i] as i64),
+            ArrayBacking::I32(v)   => Value::I64(v[i] as i64),
+            ArrayBacking::I64(v)   => Value::I64(v[i]),
+            ArrayBacking::Chars(v) => Value::Char(v[i]),
+            ArrayBacking::F64(v)   => Value::F64(v[i]),
+        }
+    }
+    /// Write `Value` into element `i` (unboxes into packed primitives). Caller
+    /// ensures `i < len()`.
+    #[inline]
+    pub fn set_boxed(&mut self, i: usize, val: Value) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v[i] = val,
+            ArrayBacking::Bool(v)  => v[i] = matches!(val, Value::Bool(true)),
+            ArrayBacking::Bytes(v) => v[i] = if let Value::I64(n) = val { n as u8 } else { 0 },
+            ArrayBacking::I32(v)   => v[i] = if let Value::I64(n) = val { n as i32 } else { 0 },
+            ArrayBacking::I64(v)   => v[i] = if let Value::I64(n) = val { n } else { 0 },
+            ArrayBacking::Chars(v) => v[i] = if let Value::Char(c) = val { c } else { '\0' },
+            ArrayBacking::F64(v)   => v[i] = if let Value::F64(f) = val { f } else { 0.0 },
+        }
+    }
+
+    /// Materialise all elements as a `Vec<Value>` (for sites needing a boxed
+    /// snapshot — reflection, conversions). Boxed backing clones; packed boxes.
+    pub fn to_boxed_vec(&self) -> Vec<Value> {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.clone(),
+            _ => (0..self.len()).map(|i| self.get_boxed(i)).collect(),
+        }
+    }
+    /// The boxed element slice iff this is a reference array — GC scans only
+    /// this; packed primitive backings hold no heap refs (`None`).
+    #[inline]
+    pub fn boxed_slice(&self) -> Option<&[Value]> {
+        match &self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+    #[inline]
+    pub fn boxed_slice_mut(&mut self) -> Option<&mut Vec<Value>> {
+        match &mut self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+
+    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
+    /// this to hand native code a contiguous `&[u8]` — no per-byte marshal.
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match &self.backing { ArrayBacking::Bytes(v) => Some(v), _ => None }
+    }
+
+    /// JIT packed-numeric fast path: `I32`/`I64`/`F64` backings are contiguous
+    /// fixed-width slots (4 / 8 / 8 bytes) the JIT can index with a native
+    /// stride-N load/store — no 24-byte `Value` round-trip, no per-element tag.
+    /// Pairs with [`Self::packed_elem_width`]: the ptr is the buffer base, the
+    /// width tells the JIT the slot size (4 → `int[]` sign-extends into the i64
+    /// payload; 8 → raw `long[]`/`double[]` copy). `None` for `Boxed`/`Bytes`/
+    /// `Bool`/`Chars` — the JIT set-path detects width 0 and falls back to the
+    /// `jit_array_set` helper, so those backings never index off this ptr.
+    #[inline]
+    pub fn packed_num_ptr(&self) -> Option<*const u8> {
+        match &self.backing {
+            ArrayBacking::I32(v) => Some(v.as_ptr() as *const u8),
+            ArrayBacking::I64(v) => Some(v.as_ptr() as *const u8),
+            ArrayBacking::F64(v) => Some(v.as_ptr() as *const u8),
+            // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` ==
+            // u32); the JIT loads it width-4 and boxes into `Value::Char`.
+            ArrayBacking::Chars(v) => Some(v.as_ptr() as *const u8),
+            _ => None,
+        }
+    }
+
+    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`/`Chars`), 8
+    /// (`I64`/`F64`), or 0 for a non-packed backing (`Boxed`/`Bytes`/`Bool`).
+    /// The **runtime** authority the JIT ArraySet inline consults so a narrowing
+    /// store (`int[i] = <i64 value>`) writes the right slot size rather than
+    /// trusting the value register's width. Width 0 → route to the helper.
+    #[inline]
+    pub fn packed_elem_width(&self) -> i64 {
+        match &self.backing {
+            ArrayBacking::I32(_) | ArrayBacking::Chars(_) => 4,
+            ArrayBacking::I64(_) | ArrayBacking::F64(_) => 8,
+            _ => 0,
+        }
+    }
+
+    /// Iterate all elements as owned `Value`s (boxes packed primitives).
+    /// Packed-safe replacement for the old `Deref`→`Vec<Value>` `.iter()`.
+    #[inline]
+    pub fn iter_boxed(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).map(move |i| self.get_boxed(i))
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        match &mut self.backing {
+            ArrayBacking::Boxed(v) => v.clear(),
+            ArrayBacking::Bool(v)  => v.clear(),
+            ArrayBacking::Bytes(v) => v.clear(),
+            ArrayBacking::I32(v)   => v.clear(),
+            ArrayBacking::I64(v)   => v.clear(),
+            ArrayBacking::Chars(v) => v.clear(),
+            ArrayBacking::F64(v)   => v.clear(),
+        }
+    }
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity(),
+            ArrayBacking::I64(v)   => v.capacity(),
+            ArrayBacking::Chars(v) => v.capacity(),
+            ArrayBacking::F64(v)   => v.capacity(),
+        }
+    }
+    /// Heap bytes for element storage (`capacity × sizeof(element)`) — the
+    /// packed-array memory win shows up here (byte[] 1B vs Boxed 24B/elem).
+    #[inline]
+    pub fn elem_storage_bytes(&self) -> usize {
+        use std::mem::size_of;
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v.capacity() * size_of::<Value>(),
+            ArrayBacking::Bool(v)  => v.capacity(),
+            ArrayBacking::Bytes(v) => v.capacity(),
+            ArrayBacking::I32(v)   => v.capacity() * 4,
+            ArrayBacking::I64(v)   => v.capacity() * 8,
+            ArrayBacking::Chars(v) => v.capacity() * 4,
+            ArrayBacking::F64(v)   => v.capacity() * 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -539,6 +788,25 @@ pub enum Value {
     /// 指令创建；`Unbox`（object→prim）取回 `inner`。算术/方法体永远拿拆箱后的 `inner`，
     /// 故热路径零影响。Box<…> = 8B 指针，不撑大 Value。
     Boxed(Box<BoxedPrim>) = 13,
+    /// add-escape-analysis-stack-alloc: 逃逸分析证明不逃逸的对象，interp 在**每线程
+    /// context 的栈 arena**（`VmContext::stack_obj_arena`）里分配，绕过 GC、随创建帧
+    /// 退出 LIFO 截断释放。句柄（非堆指针）：
+    ///   * `idx` — arena 内条目下标（`ctx.stack_obj_arena[idx]`，任何帧都能直取——ctor
+    ///     子帧因此天然可解 `this`，无需跨帧机制）。
+    ///   * `frame_id` — 创建帧的单调 id（诊断）：解引用时校验 arena 槽的 frame_id 与之
+    ///     相符 + idx 在界内，不符/越界 = 逃逸分析误判、栈句柄活过创建帧 → 明确报错
+    ///     （而非静默 use-after-free）。帧退出 truncate 后槽被后续帧复用 → frame_id 不符即抓。
+    /// JIT 从不产生本变体（D2：JIT 忽略 stack_alloc、照常堆分配），故 JIT 值路径永不遇到。
+    StackObject { idx: u32, frame_id: u32 } = 14,
+    /// add-escape-analysis-stack-alloc: 不逃逸数组的栈 arena 句柄（`VmContext::stack_arr_arena`）。
+    /// 语义同 `StackObject`。
+    StackArray { idx: u32, frame_id: u32 } = 15,
+    /// add-struct-value-semantics Phase A: blob 值类型（多字段 struct）句柄。`idx` 索引 per-context
+    /// 字节 arena（`VmContext::struct_arena`）里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
+    /// guard，同 `StackObject`）。未装箱 struct 值以此句柄在寄存器间流转；字节 blob 存 arena。
+    /// blob 内引用叶子由 arena 的 root scanner 按 TypeDesc 引用位图扫描（trace_children 视为叶子，
+    /// 避免双计）。
+    StructRef { idx: u32, frame_id: u32 } = 16,
 }
 
 /// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
@@ -685,17 +953,17 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                for elem in arr.iter() { visit(elem); }
+                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}
                 RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    for elem in arr.iter() { visit(elem); }
+                    if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
                 }
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
@@ -706,9 +974,21 @@ impl Value {
             // 保守追踪一层（若未来 inner 承载堆值也安全）。
             Value::Boxed(b) => visit(&b.inner),
             // Primitives — no children.
+            // add-escape-analysis-stack-alloc: StackObject / StackArray are
+            // leaves for the child-traversal — their slots/elems live in the
+            // frame arena and are scanned directly as GC roots by the external
+            // root scanner (mirrors StackClosure's env_arena handling), so
+            // walking them here would double-count. A stack handle appearing in
+            // a heap object's slot would be an escape-analysis bug; the debug
+            // asserts in the store paths (FieldSet/ArraySet/StaticSet) catch it.
+            // add-struct-value-semantics: StructRef is a leaf here — its blob's
+            // reference leaves are scanned directly by the struct-arena root
+            // scanner (mirrors StackObject), so walking here would double-count.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
-            | Value::PinnedView(_) | Value::StackClosure(_) => {}
+            | Value::PinnedView(_) | Value::StackClosure(_)
+            | Value::StackObject { .. } | Value::StackArray { .. }
+            | Value::StructRef { .. } => {}
         }
     }
 }
@@ -745,6 +1025,13 @@ impl PartialEq for Value {
             (Value::Boxed(a), Value::Boxed(b)) => a.inner == b.inner,
             (Value::Boxed(a), other) => &a.inner == other,
             (other, Value::Boxed(b)) => other == &b.inner,
+            // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,
+            // frame_id) = 同一栈对象/数组（Eq 操作数在逃逸分析里是 neutral，故栈句柄
+            // 可作 `p1==p2` / `p==null` 操作数；`==null` 落 `_ => false` = 正确「非 null」）。
+            (Value::StackObject { idx: i1, frame_id: g1 },
+             Value::StackObject { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
+            (Value::StackArray { idx: i1, frame_id: g1 },
+             Value::StackArray { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             _ => false,
         }
     }

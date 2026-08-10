@@ -37,8 +37,10 @@ public sealed class ConstF64Instr : IrInstr {
 
 public sealed class ArrayNewInstr : IrInstr {
     public TypedReg Dst; public TypedReg Size; public int ElemTag; public string ElemName;   // zbc 1.16：elem FQ 名
+    public bool StackAlloc;   // zbc 1.29 add-escape-analysis：逃逸分析证明不逃逸 → 帧 arena 栈分配（默认 false=堆）
     public ArrayNewInstr(TypedReg dst, TypedReg size, int elemTag, string elemName) {
         this.Dst = dst; this.Size = size; this.ElemTag = elemTag; this.ElemName = elemName;
+        this.StackAlloc = false;
     }
     public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_new " + this.ElemName + "[%" + this.Size.Id.ToString() + "]"; }
 }
@@ -57,8 +59,10 @@ public sealed class ArrayNewLitInstr : IrInstr {
     public TypedReg[] Elems;
     public int        ElemCount;
     public string     ElemName;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 → 栈分配（默认 false=堆）
     public ArrayNewLitInstr(TypedReg dst, TypedReg[] elems, int elemCount, string elemName) {
         this.Dst = dst; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName;
+        this.StackAlloc = false;
     }
     public override string Dump() {
         string s = "%" + this.Dst.Id.ToString() + " = arr.new.lit";
@@ -310,8 +314,11 @@ public sealed class FieldGetInstr : IrInstr {
     public TypedReg Dst;
     public TypedReg Obj;
     public string   Field;
+    // add-readonly-fields-opt：字段声明为 readonly（构造后不变）——**仅内存优化提示**，不序列化到 zbc；
+    // 优化器（CSE/LICM）在 ZbcWriter 之前消费。默认 false；emit 时由 ExprEmitter 从 FieldSymbol 设置。
+    public bool     Readonly;
     public FieldGetInstr(TypedReg dst, TypedReg obj, string field) {
-        this.Dst = dst; this.Obj = obj; this.Field = field;
+        this.Dst = dst; this.Obj = obj; this.Field = field; this.Readonly = false;
     }
     public override string Dump() { return this.Dst.Dump() + " = field_get " + this.Obj.Dump() + "." + this.Field; }
 }
@@ -326,6 +333,52 @@ public sealed class FieldSetInstr : IrInstr {
     public override string Dump() { return "field_set " + this.Obj.Dump() + "." + this.Field + ", " + this.Val.Dump(); }
 }
 
+// ── blob 值类型（add-struct-value-semantics Phase A）───────────────────────────────
+// 多字段 struct 内联字节表示：值以字节 blob 存在 per-context 字节 arena，寄存器持 StructRef 句柄。
+// 操作数按「base 句柄 + byte_offset + size/kind」引用字节区间。字节大小/偏移由编译期 StructLayout 烘焙为
+// 立即数（运行时无需查表）。z42c 在 A-use（2c）才发射；A-support 只加编解码/执行能力。
+public sealed class StructAllocInstr : IrInstr {
+    public TypedReg Dst;
+    public string   TypeName;   // FQ 值类型名（arena 记录，供 GC 按引用位图扫描 + 装箱取精确类型）
+    public int      Size;       // blob 字节数（StructLayout.Size）
+    public StructAllocInstr(TypedReg dst, string typeName, int size) {
+        this.Dst = dst; this.TypeName = typeName; this.Size = size;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_alloc " + this.TypeName + " [" + this.Size.ToString() + "B]"; }
+}
+
+public sealed class StructCopyInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Src;
+    public int      Size;       // 复制字节数（= 值类型 blob 大小）
+    public StructCopyInstr(TypedReg dst, TypedReg src, int size) {
+        this.Dst = dst; this.Src = src; this.Size = size;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_copy " + this.Src.Dump() + " [" + this.Size.ToString() + "B]"; }
+}
+
+public sealed class StructFieldGetPrimInstr : IrInstr {
+    public TypedReg Dst;        // 目标寄存器（收基元值）
+    public TypedReg Base;       // struct blob 句柄
+    public int      ByteOff;    // 叶子在 blob 内字节偏移
+    public int      Kind;       // 基元叶子种类（StructLeafKind：字节宽/解码方式；Prim 各基元由 Base 类型静态已知）
+    public StructFieldGetPrimInstr(TypedReg dst, TypedReg base_, int byteOff, int kind) {
+        this.Dst = dst; this.Base = base_; this.ByteOff = byteOff; this.Kind = kind;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_fget_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString(); }
+}
+
+public sealed class StructFieldSetPrimInstr : IrInstr {
+    public TypedReg Base;       // struct blob 句柄
+    public int      ByteOff;
+    public int      Kind;
+    public TypedReg Val;        // 源基元值寄存器
+    public StructFieldSetPrimInstr(TypedReg base_, int byteOff, int kind, TypedReg val) {
+        this.Base = base_; this.ByteOff = byteOff; this.Kind = kind; this.Val = val;
+    }
+    public override string Dump() { return "struct_fset_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString() + ", " + this.Val.Dump(); }
+}
+
 // ── 对象 / 数组 / 类型测试（CG-1D；CG-2 加泛型 type-args）─────────────────────────
 // new ClassName<TypeArgs>(args)。CtorName = FQ ctor 方法名（如 "Std.Exception.Exception$1"）；
 // TypeArgs = resolved 类型实参名（new Box<int>() → ["int"]，VM 写入 ScriptObject.type_args）；非泛型空。
@@ -337,11 +390,13 @@ public sealed class ObjNewInstr : IrInstr {
     public int        TypeArgCount;
     public TypedReg[] Args;
     public int        ArgCount;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 + ctor 不泄漏 this → 栈分配（默认 false=堆）
     public ObjNewInstr(TypedReg dst, string className, string ctorName, string[] typeArgs, int typeArgCount,
                        TypedReg[] args, int argCount) {
         this.Dst = dst; this.ClassName = className; this.CtorName = ctorName;
         this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
         this.Args = args; this.ArgCount = argCount;
+        this.StackAlloc = false;
     }
     public override string Dump() {
         string s = this.Dst.Dump() + " = obj_new " + this.ClassName;

@@ -1,0 +1,83 @@
+// IrPureFunctionTable —— 纯函数推断（add-pure-call-opt）。
+//
+// 给每个同模块函数算「是否纯」：pure(f) ⟺ f 的每条指令都是「IsPure 白名单内」或「对纯函数的
+// CallInstr」或「readonly 字段读（FieldGetInstr.Readonly）」，且没有块以 throw 终结。纯 = 同参数
+// 同结果 + 无副作用 + 不抛 → 其调用可被 CSE 消重 / LICM 外提。摘要互相依赖（f 调 g）→ 模块单调
+// 不动点。方向与 IrEscapeSummary **相反**：escape 乐观全 false 上升；pure 乐观全纯，发现副作用/读
+// 可变/抛/调非纯就**降级**，单调收缩到不动点。imported / 无体函数 → 未登记 → 保守非纯。
+// 设计见 docs/spec/changes/add-pure-call-opt/design.md（Decision 2/4）。
+//
+// StrMap 无 Remove（compiler-z42c.md 踩坑）→ 不动点每轮**重建** pure 集（单调收缩，几轮收敛）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+// 纯函数集：名字在集中 = 纯。查 O(1)。跨包/无体/被降级 → 不在集 → IsPure 返 false（保守）。
+public sealed class PureTable {
+    private StrMap _set;   // funcName → "1"（纯）
+
+    public PureTable(StrMap set) { this._set = set; }
+
+    public bool IsPure(string name) { return this._set.ContainsKey(name); }
+}
+
+public sealed class IrPureFunctionTable {
+
+    // 模块入口：单调不动点算全模块纯度。
+    public static PureTable Compute(IrModule m) {
+        // 乐观初值：每个有体函数先当纯（无体 abstract/extern 不登记 → 永远非纯，调用点保守）。
+        StrMap pure = new StrMap();
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            IrFunction f = m.Functions[fi];
+            if (f.BlockCount > 0) { pure.Put(f.Name, "1"); }
+            fi = fi + 1;
+        }
+        // 单调收缩不动点：反复重建——用当前 pure 集判每个函数，只保留仍纯的。集合只缩不增 →
+        //   某轮无函数被降级即收敛。重建避开 StrMap 无 Remove。
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            StrMap next = new StrMap();
+            fi = 0;
+            while (fi < m.FuncCount) {
+                IrFunction f = m.Functions[fi];
+                if (f.BlockCount > 0) {
+                    bool isP = IrPureFunctionTable._isFuncPure(f, pure);
+                    if (isP) { next.Put(f.Name, "1"); }
+                    else if (pure.ContainsKey(f.Name)) { changed = true; }   // 本轮从纯降级
+                }
+                fi = fi + 1;
+            }
+            pure = next;
+        }
+        return new PureTable(pure);
+    }
+
+    // f 是否纯（用给定 pure 集判 callee）：每块终结子非 throw；每条指令属纯白名单/纯调用/readonly-fget。
+    private static bool _isFuncPure(IrFunction f, StrMap pure) {
+        int b = 0;
+        while (b < f.BlockCount) {
+            IrBlock blk = f.Blocks[b];
+            if (blk.HasTerm && blk.Term is ThrowTerm) { return false; }   // 会抛 → 非纯（LICM no-throw）
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                if (!IrPureFunctionTable._isInstrPure(blk.Instrs[ii], pure)) { return false; }
+                ii = ii + 1;
+            }
+            b = b + 1;
+        }
+        return true;
+    }
+
+    // 单条指令是否保纯：IsPure 白名单 / readonly 字段读 / 对纯函数的直接调用。其余全破坏纯度
+    //   （FieldSet/StaticSet/ArraySet 写、非 readonly FieldGet·StaticGet·ArrayGet·ArrayLen 读可变、
+    //    ObjNew/ArrayNew*/MkClos/StrConcat/ToStr 分配、Div/Rem 陷阱、Builtin/CallNative IO、
+    //    VCall/CallIndirect 动态派发、调非纯 CallInstr）。
+    private static bool _isInstrPure(IrInstr ins, StrMap pure) {
+        if (IrOptInfo.IsPure(ins)) { return true; }
+        if (ins is FieldGetInstr) { return (ins as FieldGetInstr).Readonly; }   // readonly 字段读确定
+        if (ins is CallInstr) { return pure.ContainsKey((ins as CallInstr).Func); }
+        return false;
+    }
+}

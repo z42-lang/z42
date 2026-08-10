@@ -1,0 +1,45 @@
+// add-heap-retention-diagnostics：通用堆保留诊断端到端。
+// L1 DirectReferrers（对象字段引用）+ L2 RetainingRoots（static 字段根，类别级）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Diagnostics;
+
+class Holder {
+    public object item;
+}
+
+static class Keeper {
+    public static object kept;
+}
+
+void Main() {
+    // L1：h.item → target，则 h（Demo.Holder）是 target 的直接引用者。
+    Holder h = new Holder();
+    Holder target = new Holder();
+    h.item = target;
+    Retainer[] refs = Heap.DirectReferrers(target);
+    bool foundHolder = false;
+    int i = 0;
+    while (i < refs.Length) {
+        if (refs[i].TypeName == "Demo.Holder") { foundHolder = true; }
+        i = i + 1;
+    }
+    Console.WriteLine(foundHolder);       // true
+
+    // 无堆对象引用的对象 → 直接引用者为空（仅栈局部持有，属根不属引用者）。
+    Holder lonely = new Holder();
+    Console.WriteLine(Heap.DirectReferrers(lonely).Length == 0);   // true
+
+    // L2：static Keeper.kept → target2，则 RetainingRoots 含 StaticField 根。
+    Holder target2 = new Holder();
+    Keeper.kept = target2;
+    RootRef[] roots = Heap.RetainingRoots(target2);
+    bool foundStatic = false;
+    int j = 0;
+    while (j < roots.Length) {
+        if (roots[j].Kind == RootKind.StaticField) { foundStatic = true; }
+        j = j + 1;
+    }
+    Console.WriteLine(foundStatic);       // true
+}

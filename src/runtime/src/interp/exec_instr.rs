@@ -38,21 +38,27 @@ pub fn exec_instr(
     func: &Function, block_idx: usize, instr_idx: usize,
     instr: &Instruction,
 ) -> Result<Option<Value>> {
-    use super::{exec_address, exec_array, exec_call, exec_object, exec_value, exec_vcall};
+    use super::{exec_address, exec_array, exec_call, exec_object, exec_struct, exec_value, exec_vcall};
     #[cfg(feature = "native-interop")]
     use super::exec_native;
 
-    // Look up per-instruction site_idx (UNRESOLVED if non-token-bearing or
-    // resolver hasn't run). `resolved` is None only if Vm::run hasn't been
-    // called yet (e.g. unit tests calling exec_function directly without
-    // resolver hookup) — helpers fall back to string lookup in that case.
+    // `resolved` is None only if Vm::run hasn't been called yet (e.g. unit tests
+    // calling exec_function directly without resolver hookup) — helpers fall back
+    // to string lookup in that case. Cheap: one OnceLock atomic load.
     let resolved = func.resolved.get();
-    let _site_idx = resolved
-        .and_then(|r| r.site_index.get(block_idx))
-        .and_then(|b| b.get(instr_idx).copied())
-        .unwrap_or(UNRESOLVED);
-    // ↑ `_site_idx` is read by token-bearing arms below; hidden behind `_`
-    //   prefix so the variable isn't a warning when no consumer is enabled.
+    // S1 (perf-interp-hot-paths): the per-site index is a nested `Vec<Vec<u32>>`
+    // lookup (two pointer chases + two bounds checks). Only the 8 token-bearing
+    // arms below consume it, so compute it lazily *inside* those arms via
+    // `site_idx!()` rather than unconditionally here — the hot arithmetic /
+    // compare / copy / branch instructions no longer pay for it every iteration.
+    macro_rules! site_idx {
+        () => {
+            resolved
+                .and_then(|r| r.site_index.get(block_idx))
+                .and_then(|b| b.get(instr_idx).copied())
+                .unwrap_or(UNRESOLVED)
+        };
+    }
 
     match instr {
         // ── Constants ────────────────────────────────────────────────────────
@@ -125,6 +131,7 @@ pub fn exec_instr(
         // ── Calls ────────────────────────────────────────────────────────────
         Instruction::Call(insn) => {
             let CallInsn { dst, func: fname, args } = &**insn;
+            let _site_idx = site_idx!();
             // 2026-05-10 exception-stack-trace: stamp current site's source
             // line on this frame's FrameInfo before descending into the
             // callee, so a downstream `throw` snapshot shows our call site.
@@ -151,6 +158,7 @@ pub fn exec_instr(
         }
         Instruction::Builtin(insn) => {
             let BuiltinInsn { dst, name, args } = &**insn;
+            let _site_idx = site_idx!();
             // Hot path: resolver populates Function.resolved.builtin_tokens
             // with BuiltinId per site at load time (closed set, all hits).
             // Fallback to name lookup when resolver hasn't run.
@@ -181,22 +189,25 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type)? {
+            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type, insn.stack_alloc)? {
                 return Ok(Some(thrown));
             }
         }
         Instruction::ArrayNewLit(insn) => {
-            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, &insn.element_type)? {
+            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, &insn.element_type, insn.stack_alloc)? {
                 return Ok(Some(thrown));
             }
         }
-        Instruction::ArrayGet    { dst, arr, idx }  => exec_array::array_get(frame, *dst, *arr, *idx)?,
+        Instruction::ArrayGet    { dst, arr, idx }  => exec_array::array_get(ctx, frame, *dst, *arr, *idx)?,
         Instruction::ArraySet    { arr, idx, val }  => exec_array::array_set(ctx, frame, *arr, *idx, *val)?,
-        Instruction::ArrayLen    { dst, arr }       => exec_array::array_len(frame, *dst, *arr)?,
+        Instruction::ArrayLen    { dst, arr }       => exec_array::array_len(ctx, frame, *dst, *arr)?,
 
         // ── Objects ──────────────────────────────────────────────────────────
         Instruction::ObjNew(insn) => {
-            let ObjNewInsn { dst, class_name, ctor_name, args, type_args } = &**insn;
+            // add-escape-analysis-stack-alloc: stack_alloc forwarded to obj_new,
+            // which allocates in the per-context arena when set (+ runtime-enabled).
+            let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc } = &**insn;
+            let _site_idx = site_idx!();
             // Hot path: pass type_token cache for repopulation. Dispatch via
             // type_registry / lazy_loader unchanged.
             let type_token = resolved
@@ -207,6 +218,7 @@ pub fn exec_instr(
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
                 ctx, module, frame, *dst, class_name, ctor_name, args, type_args, type_token,
+                *stack_alloc,
             )? {
                 return Ok(Some(thrown));
             }
@@ -221,13 +233,15 @@ pub fn exec_instr(
         }
         Instruction::FieldGet(insn) => {
             let FieldGetInsn { dst, obj, field_name } = &**insn;
+            let _site_idx = site_idx!();
             let field_ic = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
                 .and_then(|r| r.field_ic.get(_site_idx as usize));
-            exec_object::field_get(frame, *dst, *obj, field_name, field_ic)?;
+            exec_object::field_get(ctx, frame, *dst, *obj, field_name, field_ic)?;
         }
         Instruction::FieldSet(insn) => {
             let FieldSetInsn { obj, field_name, val } = &**insn;
+            let _site_idx = site_idx!();
             let field_ic = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
                 .and_then(|r| r.field_ic.get(_site_idx as usize));
@@ -235,6 +249,7 @@ pub fn exec_instr(
         }
         Instruction::VCall(insn) => {
             let VCallInsn { dst, obj, method, args } = &**insn;
+            let _site_idx = site_idx!();
             update_caller_line(ctx, func, block_idx, instr_idx);
             // Hot path: monomorphic inline cache fires when receiver TypeId
             // matches the cached one at this site (same site + same recv type).
@@ -250,6 +265,7 @@ pub fn exec_instr(
         Instruction::AsCast(insn) => exec_object::as_cast(ctx, module, frame, insn.dst, insn.obj, &insn.class_name)?,
         Instruction::StaticGet(insn) => {
             let StaticGetInsn { dst, field } = &**insn;
+            let _site_idx = site_idx!();
             // Hot path: pre-resolved StaticFieldId → direct Vec index.
             use std::sync::atomic::Ordering;
             let field_id = resolved
@@ -261,6 +277,7 @@ pub fn exec_instr(
         }
         Instruction::StaticSet(insn) => {
             let StaticSetInsn { field, val } = &**insn;
+            let _site_idx = site_idx!();
             use std::sync::atomic::Ordering;
             let field_id = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
@@ -303,6 +320,17 @@ pub fn exec_instr(
                 "native interop opcode encountered in a build with `native-interop` feature disabled"
             );
         }
+        // add-struct-value-semantics Phase A: blob value type instructions,
+        // executed on the per-context byte arena. z42c does not emit these until
+        // A-use (2c); until then they only appear in Rust unit tests.
+        Instruction::StructAlloc(insn) =>
+            exec_struct::struct_alloc(ctx, frame, insn.dst, &insn.type_name, insn.size)?,
+        Instruction::StructCopy { dst, src, size } =>
+            exec_struct::struct_copy(ctx, frame, *dst, *src, *size)?,
+        Instruction::StructFieldGetPrim { dst, base, byte_off, kind } =>
+            exec_struct::struct_field_get_prim(ctx, frame, *dst, *base, *byte_off, *kind)?,
+        Instruction::StructFieldSetPrim { base, byte_off, kind, val } =>
+            exec_struct::struct_field_set_prim(ctx, frame, *base, *byte_off, *kind, *val)?,
     }
     Ok(None)
 }
@@ -314,5 +342,8 @@ pub fn exec_instr(
 #[inline]
 fn update_caller_line(ctx: &VmContext, func: &Function, block_idx: usize, instr_idx: usize) {
     let (line, column) = super::resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
-    ctx.update_top_frame_pos(line, column);
+    // add-offline-symbolication: stamp line/col + linearized code offset in one
+    // lock so a stripped-release trace (empty line table → line 0) still carries
+    // an offline-resolvable `+0x<offset>` key at this call site (no extra lock).
+    ctx.update_top_frame_pos(line, column, func.linear_offset(block_idx as u32, instr_idx as u32));
 }

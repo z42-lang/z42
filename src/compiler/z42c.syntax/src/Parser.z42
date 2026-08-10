@@ -55,10 +55,44 @@ public sealed class Parser {
     public void _advance() { this._pos = this._pos + 1; }
 
     private void _expect(int kind, string what) {
-        if (this._peek().Kind == kind) { this._advance(); }
-        else { this._diags.Error(DiagnosticCodes.ExpectedToken, "expected '" + what + "'", this._peek().Span); }
+        if (this._peek().Kind == kind) { this._advance(); return; }
+        // 当前 token 已是 EOF → 不是写错了，是没写完（缺闭合符 / 正文 / 分号）。标记可恢复不完整，
+        // 供 REPL 完整性探针续读（add-repl-parser-completeness）。判据是「当前 == Eof」而非具体
+        // 缺什么——void foo() 缺的是 ';'、class B 缺的是 '{'，统一在此归一。
+        if (this._peek().Kind == TokenKind.Eof) {
+            // 仅当此前没有真语法错时，EOF 缺 token 才算「没写完」（首错就在 EOF）。若前面已有错误
+            // （真语法错、解析恢复后才走到 EOF），不置 incomplete——那是真错，交求值正常报错，
+            // 不能误判为「续读」（否则 `class 1` 这类真错会被 REPL 当没写完而挂起等续行）。
+            if (!this._diags.HasErrors()) { this._diags.MarkIncompleteAtEof(); }
+            this._diags.Error(DiagnosticCodes.UnexpectedEof, "unexpected end of input, expected '" + what + "'", this._peek().Span);
+        } else {
+            this._diags.Error(DiagnosticCodes.ExpectedToken, "expected '" + what + "'", this._peek().Span);
+        }
     }
-    public void _expectSemi() { this._expect(TokenKind.Semicolon, ";"); }
+    // 分号单独处理（不走 _expect）：缺 `;` 于 EOF 置 _incompleteSemiAtEof（而非 _incompleteAtEof），
+    // 因为「缺 ;」的续读语义按入口不同——声明入口 `void foo()` 要续读，表达式入口 REPL 的 `42` 不要。
+    // 由 Completeness 按入口取舍（见 Completeness.z42）。
+    public void _expectSemi() {
+        if (this._peek().Kind == TokenKind.Semicolon) { this._advance(); return; }
+        if (this._peek().Kind == TokenKind.Eof) {
+            if (!this._diags.HasErrors()) { this._diags.MarkIncompleteSemiAtEof(); }
+            this._diags.Error(DiagnosticCodes.UnexpectedEof, "unexpected end of input, expected ';'", this._peek().Span);
+        } else {
+            this._diags.Error(DiagnosticCodes.ExpectedToken, "expected ';'", this._peek().Span);
+        }
+    }
+
+    // 名字 / 操作数位置的报错：当前 token 是 EOF → 记可恢复不完整（没写完），否则报给定诊断。
+    // 与 _expect 对称，覆盖非「期待固定 token」的缺失点（如 class 缺名、表达式缺操作数）。
+    public void _errorOrIncomplete(string code, string message) {
+        if (this._peek().Kind == TokenKind.Eof) {
+            // 同 _expect：仅首错在 EOF 才算「没写完」（前面已有真错则不置，见 _expect 注释）。
+            if (!this._diags.HasErrors()) { this._diags.MarkIncompleteAtEof(); }
+            this._diags.Error(DiagnosticCodes.UnexpectedEof, "unexpected end of input (" + message + ")", this._peek().Span);
+        } else {
+            this._diags.Error(code, message, this._peek().Span);
+        }
+    }
 
     // ════ 表达式 ════════════════════════════════════════════════════════════
     public Expr ParseExpression() { return this._exprP._parseExpr(0); }
@@ -139,9 +173,31 @@ public sealed class Parser {
                 this._advance(); ns = this._declP._parseQualifiedName(); hasNs = true; this._expectSemi();
                 continue;
             }
+            // add-global-using：`global`（上下文 token，非关键字）+ `using` → 包级 using。
+            // 置于普通 using 判定前——`global` 是 Identifier，仅在紧跟 `using` 时特判。
+            if (k == TokenKind.Identifier && this._peek().Text == "global" && this._peekAt(1).Kind == TokenKind.Using) {
+                Span gsp = this._peek().Span;
+                this._advance();   // global
+                this._advance();   // using
+                string gn = this._declP._parseQualifiedName(); this._expectSemi();
+                UsingDecl gu = new UsingDecl(gn, gsp); gu.IsGlobal = true;
+                decls = this._declP._growDecls(decls, n); decls[n] = gu; n = n + 1;
+                continue;
+            }
             if (k == TokenKind.Using) {
                 Span usp = this._peek().Span;
-                this._advance(); string un = this._declP._parseQualifiedName(); this._expectSemi();
+                this._advance();
+                // add-type-alias：`using Id = Type;`——`using` 后 Identifier 紧跟 `=` → 类型别名。
+                if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.Eq) {
+                    Token an = this._peek();
+                    this._advance();   // Id
+                    this._advance();   // =
+                    TypeExpr at = this._typeP._parseType();
+                    this._expectSemi();
+                    decls = this._declP._growDecls(decls, n); decls[n] = new UsingAliasDecl(an.Text, at, usp); n = n + 1;
+                    continue;
+                }
+                string un = this._declP._parseQualifiedName(); this._expectSemi();
                 decls = this._declP._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
                 continue;
             }
