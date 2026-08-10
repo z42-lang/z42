@@ -120,3 +120,32 @@ gh workflow run CI --ref main          # 或 Actions 页面 "Run workflow"
 ```
 
 `publish-nightly` 的 `if` 已放行 `workflow_dispatch`；vm-jit/bench 即使红也不挡发布。
+
+---
+
+## 编译器语义指纹（非格式失效次元，2026-08-11 add-compiler-fingerprint-cache）
+
+> 触发条件：改了 **z42c 的 codegen / 优化 pass / typecheck / lowering 行为**，但 **zbc/zpkg
+> 格式 Minor 没有 bump**（即同一份源码、同样的 wire 格式，编出的 `.zbc` 字节却会变）。
+
+### 为什么需要它（与 zbc/zpkg 版本正交）
+
+增量编译 cache 的失效判据（`.meta` / `package.meta`）此前只 pin `源内容 SHA-256 +
+zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式没变"**：多数 codegen / 优化
+改动不动 wire 格式 → 格式 Minor 不 bump → `ProbeFiles` 命中旧 cache → **静默复用旧 `.zbc`
+产物、不重编**，产物与当前编译器语义不一致。`CompilerFingerprint` 就是补的这个失效次元。
+
+### bump 规则
+
+| 情形 | 动作 |
+|------|------|
+| 改 codegen / 优化 pass / typecheck / lowering，**且不 bump zbc/zpkg 格式** | `CacheStore.CompilerFingerprint++`（**唯一**要动的地方）|
+| bump 了 zbc/zpkg 格式 Minor | **不必**动指纹——格式 Minor 变化已让所有旧 `.meta` 失效（动了也无害）|
+| 只修 reader/writer 非格式 bug（不改 wire、不改编出的字节） | 不动指纹 |
+
+**坐标**：`src/compiler/z42c.pipeline/src/CacheStore.z42` 的 `CacheStore.CompilerFingerprint`
+（常量旁有注释）。它进 `.meta` 的 `z42c-fp` 行与 `package.meta` 头；`Parse` / `LoadSrcList`
+校验不符即令条目作废。**纯 z42c 内部格式，不涉 wire、不触发 zbc/zpkg 格式 bump、不需改 Rust 端。**
+
+> follow-up（roadmap Deferred）：自动聚合 z42c zpkg `build_id` 作指纹，令编译器一变即自动失效、
+> 免人肉 bump（B 方案，见 `add-compiler-fingerprint-cache` 归档备注）。
