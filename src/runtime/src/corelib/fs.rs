@@ -301,7 +301,11 @@ fn unique_temp_path(prefix: &str, suffix: &str) -> String {
     };
     #[cfg(target_arch = "wasm32")]
     let nanos = 0u64;
-    let pid   = std::process::id();
+    // fix-wasm-corpus-capability-gate: std::process::id() panics on wasm32.
+    #[cfg(not(target_arch = "wasm32"))]
+    let pid = std::process::id();
+    #[cfg(target_arch = "wasm32")]
+    let pid = 0u32;
     let bump  = COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut p = std::env::temp_dir();
     p.push(format!("{prefix}.{nanos:x}.{pid}.{bump:x}{suffix}"));
@@ -353,15 +357,25 @@ pub fn builtin_console_error_is_terminal(_ctx: &VmContext, _args: &[Value]) -> R
 }
 
 /// `pwd` / `$PWD`。
+/// fix-wasm-corpus-capability-gate: `std::env::current_dir()` panics on wasm32
+/// ("not supported"). A browser has no working directory — report the VFS root
+/// so infrastructure path resolution degrades gracefully instead of aborting.
 pub fn builtin_env_get_cwd(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    let p = std::env::current_dir()?;
-    Ok(Value::Str(p.to_string_lossy().into_owned().into()))
+    #[cfg(not(target_arch = "wasm32"))]
+    let cwd = std::env::current_dir()?.to_string_lossy().into_owned();
+    #[cfg(target_arch = "wasm32")]
+    let cwd = "/".to_string();
+    Ok(Value::Str(cwd.into()))
 }
 
 /// `cd path`（路径不存在 / 无权限会抛）。
 pub fn builtin_env_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__env_set_cwd")?;
+    // wasm has no working directory — `cd` is a no-op (see builtin_env_get_cwd).
+    #[cfg(not(target_arch = "wasm32"))]
     std::env::set_current_dir(path)?;
+    #[cfg(target_arch = "wasm32")]
+    let _ = path;
     Ok(Value::Null)
 }
 
