@@ -726,6 +726,9 @@ impl ArcMagrGC {
                     crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                     crate::metadata::types::RefKind::Stack { .. } => false,
                 },
+                // add-struct-heap-inline (P3b): a struct[] element handle keeps its
+                // backing array alive (mark it; trace_children then follows its refs).
+                Value::StructRefHeap(e) => GcRef::mark(&e.arr),
                 _ => false,
             };
             if !just_marked { continue; }
@@ -755,6 +758,8 @@ impl ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                 crate::metadata::types::RefKind::Stack { .. } => false,
             },
+            // add-struct-heap-inline (P3b): mark the struct[] element handle's array.
+            Value::StructRefHeap(e) => GcRef::mark(&e.arr),
             _ => false,
         }
     }
@@ -1934,8 +1939,11 @@ impl MagrGC for ArcMagrGC {
             Value::Object(rc) => {
                 let obj = rc.borrow();
                 // slots is `Box<[Value]>` — len == actual allocation.
+                // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
                 size_of::<Value>() + size_of::<ScriptObject>()
                     + obj.slots.len() * size_of::<Value>()
+                    + obj.struct_bytes.len()
+                    + obj.struct_refs.len() * size_of::<Value>()
             }
             // Spec C4: PinnedView holds raw ptr+len; the borrowed buffer
             // itself is owned by the source `Value::Str` / `Value::Array`,
@@ -1988,6 +1996,10 @@ impl MagrGC for ArcMagrGC {
                 + b.type_name.len()
                 + b.bytes.len()
                 + b.refs.len() * size_of::<Value>(),
+            // add-struct-heap-inline (P3b): a struct[] element handle — the backing
+            // array is accounted via its own Value::Array; charge only the boxed handle.
+            Value::StructRefHeap(_) => size_of::<Value>()
+                + size_of::<crate::metadata::types::StructArrayElem>(),
         }
     }
 
@@ -2030,6 +2042,9 @@ impl MagrGC for ArcMagrGC {
             // add-struct-object-boxing: boxed struct 拥有堆上引用叶子——必须扫描，否则存进对象槽的
             // boxed struct 的 object/array 叶子会被漏标→过早回收（镜像 trace_children 的 BoxedStruct 分支）。
             Value::BoxedStruct(b) => { for r in b.refs.iter() { visitor(r); } }
+            // add-struct-heap-inline (P3b): struct[] element handle — follow the
+            // backing array's reference leaves (mirrors trace_children).
+            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }
             _ => {}
         }
     }

@@ -944,6 +944,23 @@ pub enum Value {
     /// 拆箱把 blob 拷回当前帧 arena `StructRef`。unboxed struct 仍无 vtable——对象协议由本变体的 VM 分支
     /// （身份）+ 编译器合成值方法（Equals 等，PR2b）承载。
     BoxedStruct(Box<BoxedStructData>) = 17,
+    /// add-struct-heap-inline (P3b, route α): a transient handle to a value-struct
+    /// **inlined in a heap array element** (`arr[i]`). Unlike an object field (whose
+    /// composite byte offset the compiler bakes → base = `Value::Object`), a struct[]
+    /// element's byte offset depends on the runtime index, so `arr[i]` materializes
+    /// this handle and a following `StructFieldGetPrim/SetPrim` reads/writes a leaf of
+    /// element `index` (routing byte/ref access through the array's `StructBytes`
+    /// backing). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
+    StructRefHeap(Box<StructArrayElem>) = 18,
+}
+
+/// add-struct-heap-inline (P3b): payload of [`Value::StructRefHeap`] — a value-struct
+/// array element identity (`arr[index]`). Holds the array `GcRef` (so the handle keeps
+/// the array alive + GC can reach the element's reference leaves) + the element index.
+#[derive(Debug, Clone)]
+pub struct StructArrayElem {
+    pub arr: GcRef<ArrayObj>,
+    pub index: u32,
 }
 
 /// add-struct-object-boxing (PR2a): 装箱 blob 值 struct 的堆载荷。`type_name` = FQ struct 类型名
@@ -1081,6 +1098,9 @@ impl Value {
             // add-struct-object-boxing: 装箱 struct 的引用叶子可含 object/array GcRef——存进堆对象/
             // 数组时需触发写屏障（保守 true；区别于 Boxed prim 的 inner 恒基元 → false）。
             Value::BoxedStruct(_) => true,
+            // add-struct-heap-inline (P3b): holds a live `GcRef<ArrayObj>` — a strong
+            // heap edge, so if ever stored into a heap slot it needs a barrier (conservative).
+            Value::StructRefHeap(_) => true,
             _ => false,
         }
     }
@@ -1131,6 +1151,10 @@ impl Value {
             // StructRef 叶子）——必须访问其 refs，否则存进对象槽的 boxed struct 的 object/array 叶子
             // 会被漏标→过早回收。bytes 纯基元无需扫。
             Value::BoxedStruct(b) => { for r in b.refs.iter() { visit(r); } }
+            // add-struct-heap-inline (P3b): a struct[] element handle — follow the
+            // backing array's reference leaves so they stay marked (the array entry
+            // itself is marked by the `StructRefHeap` arm of the mark loop).
+            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visit(r); } }
             // Primitives — no children.
             // add-escape-analysis-stack-alloc: StackObject / StackArray are
             // leaves for the child-traversal — their slots/elems live in the

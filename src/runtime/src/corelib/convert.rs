@@ -187,6 +187,9 @@ pub fn value_to_str(v: &Value) -> String {
         // add-struct-object-boxing: boxed struct 的完整 ToString（值格式）由 PR2b 合成方法经 VCall 提供；
         // 此原始路径给类型名占位（有 type_name，比 StructRef 占位更具体）。
         Value::BoxedStruct(b) => format!("{}{{...}}", b.type_name),
+        // add-struct-heap-inline (P3b): a struct[] element handle — placeholder by the
+        // element type name (ToString on the element dispatches via VCall, not here).
+        Value::StructRefHeap(e) => format!("{}{{...}}", e.arr.borrow().element_type),
     }
 }
 

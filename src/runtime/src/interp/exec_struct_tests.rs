@@ -147,6 +147,58 @@ fn heap_object_inline_struct_field_roundtrips() {
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
 }
 
+/// add-struct-heap-inline (P3b, D1-a, route α): a `Point[]` **element** leaf is read/
+/// written through `struct_field_get_prim`/`set_prim` with a `Value::StructRefHeap`
+/// handle (`arr[index]`). Exercises the array-backing branch of the interp handlers.
+/// Element layout {x:i32@0, y:i32@4, tag:string@8}, size 12, one ref leaf.
+#[test]
+fn struct_array_element_leaf_access_via_handle() {
+    use crate::vm_context::VmContext;
+    use crate::metadata::types::{ArrayObj, ArrayBacking, StructArrayElem, STRUCT_REF_ARC_STRING};
+    use crate::gc::GcRef;
+
+    let layout = Arc::new(StructTypeLayout {
+        size: 12,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+    });
+    let arr_gc = GcRef::new(ArrayObj {
+        element_type: Arc::from("Demo.P"),
+        backing: ArrayBacking::StructBytes {
+            elem_size: 12,
+            bytes: vec![0u8; 2 * 12],
+            refs: vec![Value::Null; 2 * 1],
+            layout,
+        },
+    });
+
+    let ctx = VmContext::new();
+    let mut frame = Frame::new(&[], 8);
+    // reg0 = handle to arr[0], reg1 = handle to arr[1]
+    frame.set(0, Value::StructRefHeap(Box::new(StructArrayElem { arr: arr_gc.clone(), index: 0 })));
+    frame.set(1, Value::StructRefHeap(Box::new(StructArrayElem { arr: arr_gc.clone(), index: 1 })));
+    frame.set(2, Value::I64(11));
+    frame.set(3, Value::Str("zero".into()));
+    frame.set(4, Value::I64(22));
+
+    // arr[0].x = 11, arr[0].tag = "zero"; arr[1].x = 22
+    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 2).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 1, 0, ty::TAG_I32, 4).unwrap();
+
+    // Read back: arr[0].x == 11, arr[0].tag == "zero", arr[1].x == 22 (independent elements).
+    struct_field_get_prim(&ctx, &mut frame, 5, 0, 0, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 7, 1, 0, ty::TAG_I32).unwrap();
+
+    assert!(matches!(frame.get(5).unwrap(), Value::I64(11)), "arr[0].x must be 11");
+    match frame.get(6).unwrap() {
+        Value::Str(s) => assert_eq!(&**s, "zero"),
+        o => panic!("arr[0].tag expected string, got {o:?}"),
+    }
+    assert!(matches!(frame.get(7).unwrap(), Value::I64(22)), "arr[1].x must be 22, independent of arr[0]");
+}
+
 /// add-struct-object-boxing (PR2a): 装箱把 blob **拷进 owned `BoxedStructData`** → 脱离 arena 生命周期。
 /// arena truncate（模拟创建帧退出）后原 `StructRef` slot 失效，但 boxed 副本仍持有数据（这正是修
 /// `object o = struct` 裸拷帧作用域 StructRef → use-after-free 的健全性性质）。同时验装箱是快照。

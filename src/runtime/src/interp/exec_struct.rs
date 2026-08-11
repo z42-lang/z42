@@ -7,7 +7,7 @@
 //! giving the leaf's byte width and how to decode/encode it.
 
 use crate::metadata::types as ty;
-use crate::metadata::types::Value;
+use crate::metadata::types::{ArrayBacking, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
@@ -103,6 +103,27 @@ pub(super) fn struct_field_get_prim(
                 decode_prim(&obj.struct_bytes, off, w, kind)?
             }
         }
+        // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
+        Value::StructRefHeap(e) => {
+            let arr = e.arr.borrow();
+            match &arr.backing {
+                ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
+                    let i = e.index as usize;
+                    if is_ref_tag(kind) {
+                        let rc = layout.ref_count();
+                        let ri = layout.ref_index(byte_off).ok_or_else(|| {
+                            anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
+                        })?;
+                        refs[i * rc + ri].clone()
+                    } else {
+                        let off = i * elem_size + byte_off as usize;
+                        let w = prim_width(kind)?;
+                        decode_prim(bytes, off, w, kind)?
+                    }
+                }
+                _ => bail!("StructFieldGetPrim: StructRefHeap base is not a value-struct array"),
+            }
+        }
         _ => {
             let (idx, fid) = as_struct_ref(&base_val, "StructFieldGetPrim base")?;
             if is_ref_tag(kind) {
@@ -159,6 +180,40 @@ pub(super) fn struct_field_set_prim(
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
                 encode_prim(&mut obj.struct_bytes, off, w, kind, &v)
+            }
+        }
+        // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.
+        Value::StructRefHeap(e) => {
+            if is_ref_tag(kind) {
+                {
+                    let mut arr = e.arr.borrow_mut();
+                    match &mut arr.backing {
+                        ArrayBacking::StructBytes { refs, layout, .. } => {
+                            let rc = layout.ref_count();
+                            let ri = layout.ref_index(byte_off).ok_or_else(|| {
+                                anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
+                            })?;
+                            refs[e.index as usize * rc + ri] = v.clone();
+                        }
+                        _ => bail!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"),
+                    }
+                }
+                // Write barrier: reference stored into a heap array element (P3b).
+                if v.is_heap_ref() {
+                    let owner = Value::Array(e.arr.clone());
+                    ctx.heap().write_barrier_array_elem(&owner, e.index as usize, &v);
+                }
+                Ok(())
+            } else {
+                let mut arr = e.arr.borrow_mut();
+                match &mut arr.backing {
+                    ArrayBacking::StructBytes { elem_size, bytes, .. } => {
+                        let off = e.index as usize * *elem_size + byte_off as usize;
+                        let w = prim_width(kind)?;
+                        encode_prim(bytes, off, w, kind, &v)
+                    }
+                    _ => bail!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"),
+                }
             }
         }
         _ => {
