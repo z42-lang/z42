@@ -356,6 +356,15 @@ Java_io_z42_vm_Z42TestHost_nativeRunApp(
         argv[i] = (*env)->GetStringUTFChars(env, jargs[i], NULL);
     }
 
+    // fix-android-embed-oom: the embedded test-host runs the whole corpus, each
+    // golden in a fresh VmContext (heap + full stdlib). The agent defaults to
+    // parallel workers (= emulator cores), so peak memory = outer agent + N
+    // golden contexts → the low-memory-killer killed the app (~1.2GB RSS on the
+    // emulator). Force sequential here (peak = outer + 1 context) unless the
+    // caller set it explicitly (overwrite=0). Same-process setenv → the agent's
+    // getenv sees it before it runs.
+    setenv("Z42_TEST_JOBS", "1", 0);
+
     int rc = z42_host_run_app(app, ent, libs, (int)argc, argv);
 
     for (jsize i = 0; i < argc; i++) {
