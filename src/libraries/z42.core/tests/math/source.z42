@@ -11,8 +11,10 @@ void Main() {
     Assert.Equal(3, Math.MinInt(3, 10));
 
     // Pow
-    Assert.Equal(8, Math.Pow(2, 3));
-    Assert.Equal(1, Math.Pow(7, 0));
+    // `double Pow(double, double)` 返回 double；实参隐式拓宽 int→double 后返 F64
+    // （tighten-implicit-conversions：ConvertInstr 令 Pow 遵守 double 签名，不再因 I64 实参返 I64）。
+    Assert.Equal(8.0, Math.Pow(2, 3));
+    Assert.Equal(1.0, Math.Pow(7, 0));
 
     // Floor / Ceiling / Round (float)
     var f = 3.7;

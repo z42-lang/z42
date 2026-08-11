@@ -48,6 +48,21 @@ public sealed class ConvResult {
         if (k == ConvKind.UserImplicit)    { return true; }
         return false;
     }
+
+    // PR2 收紧门：隐式可赋白名单**剔除 ExplicitNumeric**（Unboxing/ExplicitRef 本就不在）。
+    // 窄化 / 有损浮点在隐式上下文不再放行——由调用点的 CheckImplicitConvert 走「常量在范围内例外」
+    // 或报 E0439。tighten-implicit-conversions（PR2）的 T4 阶段把执行门从 Permissive 切到本方法。
+    public bool ImplicitOk() {
+        int k = this.Kind;
+        if (k == ConvKind.Absorb)          { return true; }
+        if (k == ConvKind.GenericErase)    { return true; }
+        if (k == ConvKind.Identity)        { return true; }
+        if (k == ConvKind.ImplicitNumeric) { return true; }
+        if (k == ConvKind.Boxing)          { return true; }
+        if (k == ConvKind.ImplicitRef)     { return true; }
+        if (k == ConvKind.UserImplicit)    { return true; }
+        return false;
+    }
 }
 
 public static class Conversion {
