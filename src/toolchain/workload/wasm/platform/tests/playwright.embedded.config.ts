@@ -21,7 +21,7 @@ export default defineConfig({
     // goldens, each a fresh VmContext + stdlib reload on the single-threaded wasm
     // interp) is slow — the default 30s test timeout would abort before the 300s
     // waitForFunction. The wasm CI job has 60min, so this is comfortably bounded.
-    timeout: 1_260_000,
+    timeout: 620_000,
     use: {
         baseURL: `http://localhost:${PORT}`,
         actionTimeout: 10_000,
