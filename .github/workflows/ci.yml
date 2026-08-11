@@ -1761,7 +1761,9 @@ jobs:
           arch: x86_64
           target: google_apis
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          # fix-android-embed-oom: -memory 4096 (default ~2GB was OOM'd by the
+          # embedded corpus). Must match the test run below for snapshot consistency.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: false
           script: echo "Generated AVD snapshot for caching."
       - name: connectedAndroidTest on emulator (R1–R7 + embedded corpus)
@@ -1773,7 +1775,8 @@ jobs:
           working-directory: src/toolchain/workload/android/platform
           # ci-perf-tier2: AVD snapshot (load cached, don't re-save).
           force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          # fix-android-embed-oom: -memory 4096 (matches the snapshot-create run).
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
           # diagnose-mobile-wasm-embed (#159): the embedded corpus can crash the app
           # process natively ("Instrumentation run failed due to Process crashed")
