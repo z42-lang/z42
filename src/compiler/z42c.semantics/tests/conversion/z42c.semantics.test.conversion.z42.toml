@@ -1,0 +1,16 @@
+# z42c.semantics 转换分类器单测（add-conversion-classifier PR1）。
+[project]
+name    = "z42c.semantics.test.conversion"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16).
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/conversion"

@@ -1,0 +1,146 @@
+// 统一类型转换分类器（add-conversion-classifier，PR1/3）。
+//
+// 把一对类型 (from → to) 分类为一个带**种类标签**的 ConvResult，集中原先散落在
+// TypeFactsTc._isAssignable / Z42Type.IsAssignableTo 的转换判定。种类**语义正确**
+// （窄化 / 有损浮点标 ExplicitNumeric），但 PR1 的执行门（ImplicitOkPermissive）
+// 仍放行 ExplicitNumeric → 布尔投影与旧 _isAssignable 逐位等价 → 产物字节不变。
+//
+// 三 PR 路线：PR1 立分类器（本文件，byte-identical）→ PR2 收紧门（去掉 ExplicitNumeric
+// + 插 ConvertInstr + 迁移调用点）→ PR3 加 UserImplicit/UserExplicit 两种类 + 方法查找。
+namespace Z42.Semantics;
+
+// 转换种类常量（z42c 受限写法：static class + int，不用 enum；同 TokenKind / DiagnosticCodes）。
+public static class ConvKind {
+    public static int None            = 0;   // 不存在任何转换
+    public static int Absorb          = 1;   // 任一侧 error/unknown（防级联）
+    public static int GenericErase    = 2;   // 恰一侧泛型形参（类型擦除放行）
+    public static int Identity        = 3;   // 规范化同型（剥 ? + 别名后名等价）
+    public static int ImplicitNumeric = 4;   // 无损数值拓宽
+    public static int ExplicitNumeric = 5;   // 数值窄化 或 有损浮点
+    public static int Boxing          = 6;   // 值类型 → object/接口
+    public static int Unboxing        = 7;   // object/接口 → 值类型（显式）
+    public static int ImplicitRef     = 8;   // 引用上转（派生→基 / 类→接口 / 任意→object）
+    public static int ExplicitRef     = 9;   // 引用下转（基→派生，显式）
+    public static int UserImplicit    = 10;  // 用户 implicit operator（PR3 预留）
+    public static int UserExplicit    = 11;  // 用户 explicit operator（PR3 预留）
+}
+
+// 分类结果：种类 + 可选转换方法（Method 仅 User* 非 null；PR1 恒 null）。
+public sealed class ConvResult {
+    public int Kind;
+    public MethodSymbol Method;
+    public ConvResult(int kind) { this.Kind = kind; this.Method = null; }
+
+    // 是否存在任一转换（隐式或显式）。
+    public bool Exists() { return this.Kind != ConvKind.None; }
+
+    // PR1 宽松门：隐式可赋的种类白名单。**临时包含 ExplicitNumeric** 以等价于旧
+    // _isAssignable 的「数值窄化信任程序员放行」；PR2 收紧时从此白名单剔除 ExplicitNumeric。
+    public bool ImplicitOkPermissive() {
+        int k = this.Kind;
+        if (k == ConvKind.Absorb)          { return true; }
+        if (k == ConvKind.GenericErase)    { return true; }
+        if (k == ConvKind.Identity)        { return true; }
+        if (k == ConvKind.ImplicitNumeric) { return true; }
+        if (k == ConvKind.ExplicitNumeric) { return true; }   // PR1 宽松；PR2 起去掉
+        if (k == ConvKind.Boxing)          { return true; }
+        if (k == ConvKind.ImplicitRef)     { return true; }
+        if (k == ConvKind.UserImplicit)    { return true; }
+        return false;
+    }
+}
+
+public static class Conversion {
+    // 分类 (from → to)。分支序镜像旧 TypeFactsTc._isAssignable 以保证布尔等价，
+    // 但数值 prim 对提前到结构判定（D）之前，好把有损拓宽（int→float 等）标成
+    // ExplicitNumeric 而非被 D 笼统当 Identity——两者布尔投影一致（皆 permissive-true）。
+    public static ConvResult Classify(Z42Type from, Z42Type to, SymbolTable symbols) {
+        // A: error / unknown 吸收
+        if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
+        if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
+        // B: 恰一侧泛型形参 → 擦除放行
+        if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return new ConvResult(ConvKind.GenericErase); }
+        // C: to == object（任意 → object）
+        if ((to is Z42PrimType) && (to.Name() == "object")) {
+            if (Conversion._isValuePrim(from)) { return new ConvResult(ConvKind.Boxing); }
+            return new ConvResult(ConvKind.ImplicitRef);
+        }
+        // 数值 prim 对（两侧均数值 prim）→ 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric，永不 None）
+        if ((from is Z42PrimType) && (to is Z42PrimType)
+            && TypeFactsTc._isNumericPrim(from.Name()) && TypeFactsTc._isNumericPrim(to.Name())) {
+            return new ConvResult(Conversion._numericKind(from.Name(), to.Name()));
+        }
+        // D: 结构可赋（同名类 / 接口 / 数组 / func / 别名 prim / 泛型同名）
+        if (from.IsAssignableTo(to)) { return new ConvResult(ConvKind.Identity); }
+        // E: class → class（上转 subclass；否则可能是下转）
+        if ((from is Z42ClassType) && (to is Z42ClassType)) {
+            if (symbols.IsSubclassOf(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+            if (symbols.IsSubclassOf(to.Name(), from.Name())) { return new ConvResult(ConvKind.ExplicitRef); }
+            return new ConvResult(ConvKind.None);
+        }
+        // F: class → interface
+        if ((from is Z42ClassType) && (to is Z42InterfaceType)) {
+            if (symbols.Implements(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+            return new ConvResult(ConvKind.None);
+        }
+        // G: instantiated → interface
+        if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {
+            if (symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+            return new ConvResult(ConvKind.None);
+        }
+        // H: instantiated → base class
+        if ((from is Z42InstantiatedType) && (to is Z42ClassType)) {
+            if (symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+            return new ConvResult(ConvKind.None);
+        }
+        // I: class（裸）→ instantiated（同 def，`this` → 实例化返回类型）
+        if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {
+            if (from.Name() == (to as Z42InstantiatedType).Def.Name()) { return new ConvResult(ConvKind.ImplicitRef); }
+            return new ConvResult(ConvKind.None);
+        }
+        // 拆箱：object/接口 源 → 值 prim 目标（显式，布尔 false）
+        if (Conversion._isValuePrim(to) && ((from is Z42InterfaceType) || Conversion._isObjectPrim(from))) {
+            return new ConvResult(ConvKind.Unboxing);
+        }
+        return new ConvResult(ConvKind.None);
+    }
+
+    // 值类型 prim（可装箱）：数值（含 char）+ bool。object / string 是引用，不算。
+    public static bool _isValuePrim(Z42Type t) {
+        if (!(t is Z42PrimType)) { return false; }
+        string n = t.Name();
+        if (TypeFactsTc._isNumericPrim(n)) { return true; }
+        if (n == "bool") { return true; }
+        return false;
+    }
+
+    public static bool _isObjectPrim(Z42Type t) {
+        return (t is Z42PrimType) && (t.Name() == "object");
+    }
+
+    // 数值 prim 对 → 种类。同型 → Identity；无损拓宽 → ImplicitNumeric；否则（窄化 / 有损浮点）→ ExplicitNumeric。
+    public static int _numericKind(string from, string to) {
+        string f = Z42Type.Canon(from);
+        string t = Z42Type.Canon(to);
+        if (f == t) { return ConvKind.Identity; }
+        if (Conversion._widensLossless(f, t)) { return ConvKind.ImplicitNumeric; }
+        return ConvKind.ExplicitNumeric;
+    }
+
+    // 无损隐式数值拓宽表（canonical 名）。采用 C# 隐式数值矩阵，剔除会丢尾数精度的
+    // 整数→浮点项（i32/u32/i64/u64 → f32、i64/u64 → f64），令其落入 ExplicitNumeric。
+    // char 视作 21-bit Unicode 标量：可无损进 i32/u32/i64/u64/f32/f64。
+    public static bool _widensLossless(string f, string t) {
+        if (f == "i8")  { return t == "i16" || t == "i32" || t == "i64" || t == "f32" || t == "f64"; }
+        if (f == "u8")  { return t == "i16" || t == "u16" || t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
+        if (f == "i16") { return t == "i32" || t == "i64" || t == "f32" || t == "f64"; }
+        if (f == "u16") { return t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
+        if (f == "i32") { return t == "i64" || t == "f64"; }                 // ✗ f32（有损）
+        if (f == "u32") { return t == "i64" || t == "u64" || t == "f64"; }   // ✗ f32（有损）
+        if (f == "i64") { return false; }                                    // ✗ f32/f64（有损）
+        if (f == "u64") { return false; }                                    // ✗ f32/f64（有损）
+        if (f == "f32") { return t == "f64"; }
+        if (f == "char"){ return t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
+        return false;
+    }
+}
