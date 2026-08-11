@@ -86,6 +86,12 @@ public sealed class StructLayout {
     private StrMap _defs;         // name → StructFieldsDef（仅 struct/record 类型）
     private StrMap _cache;        // name → StructLayoutInfo
     private StrMap _inProgress;   // name → "1"（环检测在途集）
+    // add-struct-heap-inline (P3b)：非-struct class 的字段定义 + 其**合成内联布局**缓存。
+    // 内联布局 = class 的 blob-struct 字段内联进堆对象字节区（ScriptObject::struct_bytes）的对象相对布局
+    // （每内联字段 byte offset + 合成引用位图）。writer（ClassDescBuilder，本阶段）与 codegen
+    // （ExprEmitter，stage 4）**同源**取此布局 → 对象相对 offset 一致。
+    private StrMap _classDefs;    // className → StructFieldsDef（非-struct class）
+    private StrMap _inlineCache;  // className → StructLayoutInfo（合成内联布局）
     public string  ErrorType;    // 非 "" → 检测到递归自含（诊断码 E0416 由持 DiagnosticBag 的调用方发）
     public string  ErrorCycle;   // 环路径描述（诊断信息用）
 
@@ -93,6 +99,8 @@ public sealed class StructLayout {
         this._defs = defs;
         this._cache = new StrMap();
         this._inProgress = new StrMap();
+        this._classDefs = new StrMap();
+        this._inlineCache = new StrMap();
         this.ErrorType = "";
         this.ErrorCycle = "";
     }
@@ -103,25 +111,33 @@ public sealed class StructLayout {
     // 合法的引用语义自引用 struct）。
     public static StructLayout BuildFromSymbols(SymbolTable table) {
         StrMap defs = new StrMap();
+        StrMap classDefs = new StrMap();   // add-struct-heap-inline (P3b)：非-struct class 字段定义
         string[] keys = table.Classes.Keys();
         int i = 0;
         while (i < keys.Length) {
             Z42ClassType ct = table.GetClass(keys[i]);
-            if (ct != null && ct.IsStruct) {
+            if (ct != null) {
                 StructFieldsDef def = new StructFieldsDef();
                 int j = 0;
                 while (j < ct.OwnFieldCount) {
                     def.Add(ct.OwnFieldNames[j], ct.OwnFieldSpellings[j]);
                     j = j + 1;
                 }
-                defs.Put(Z42Type.Canon(keys[i]), def);
+                if (ct.IsStruct) { defs.Put(Z42Type.Canon(keys[i]), def); }
+                else { classDefs.Put(Z42Type.Canon(keys[i]), def); }
             }
             i = i + 1;
         }
         StructLayout sl = new StructLayout(defs);
         string[] dkeys = defs.Keys();
         int k = 0;
-        while (k < dkeys.Length) { sl.LayoutOf(dkeys[k]); k = k + 1; }   // 预计算 + 填缓存
+        while (k < dkeys.Length) { sl.LayoutOf(dkeys[k]); k = k + 1; }   // 预计算 struct 布局 + 填缓存
+        // add-struct-heap-inline (P3b)：struct 布局就绪后，为每个非-struct class 预计算合成内联布局
+        // （内联字段的对象相对 byte offset + 合成引用位图）。无内联字段的 class 得空布局（FieldCount 0）。
+        sl._classDefs = classDefs;
+        string[] ckeys = classDefs.Keys();
+        int m = 0;
+        while (m < ckeys.Length) { sl._computeInlineLayout(ckeys[m]); m = m + 1; }
         return sl;
     }
 
@@ -174,6 +190,65 @@ public sealed class StructLayout {
     // struct 总字节大小（供 StructAlloc 立即数）。
     public int StructSize(string structName) {
         return this.LayoutOf(structName).Size;
+    }
+
+    // ── add-struct-heap-inline (P3b)：class 合成内联布局 ─────────────────────────────
+    //
+    // 一个非-struct class 把它的 **blob-struct 字段** 内联进堆对象字节区（`ScriptObject::struct_bytes`）。
+    // 合成内联布局 = 逐字段（仅 IsBlobStruct 的）按对齐排布得每内联字段的**对象相对 byte offset** +
+    // 把其引用叶子按 `字段 offset + 叶子 offset` 平移进合成引用位图。writer（ClassDescBuilder，写 zbc 1.32
+    // 内联块）与 codegen（ExprEmitter stage 4，烘焙 StructFieldGet/SetPrim 立即数）同调此表 → offset 一致。
+
+    // 计算某非-struct class 的合成内联布局并缓存（BuildFromSymbols 预计算调用）。
+    private void _computeInlineLayout(string className) {
+        object d = this._classDefs.Get(className);
+        if (!(d is StructFieldsDef)) { return; }
+        StructFieldsDef def = d as StructFieldsDef;
+        StructLayoutInfo info = new StructLayoutInfo(className);
+        int offset = 0;
+        int maxAlign = 1;
+        int i = 0;
+        while (i < def.FieldCount) {
+            string ftype = def.FieldTypeNames[i];
+            if (this.IsBlobStruct(ftype)) {
+                StructLayoutInfo sub = this.LayoutOf(ftype);
+                int align = sub.Align;
+                if (align == 0) { align = 1; }   // 空/环兜底
+                offset = StructLayout._alignUp(offset, align);
+                info.AddField(def.FieldNames[i], offset, sub.Size, StructLeafKind.Struct, ftype);
+                int k = 0;
+                while (k < sub.RefLeafCount) {
+                    info.AddRefLeaf(offset + sub.RefLeafOffsets[k], sub.RefLeafKinds[k]);
+                    k = k + 1;
+                }
+                offset = offset + sub.Size;
+                if (align > maxAlign) { maxAlign = align; }
+            }
+            i = i + 1;
+        }
+        info.Align = maxAlign;
+        info.Size = StructLayout._alignUp(offset, maxAlign);
+        this._inlineCache.Put(className, info);
+    }
+
+    // 某 class 的合成内联布局（无内联字段 → 空布局 FieldCount 0 / Size 0）。
+    public StructLayoutInfo InlineLayoutOf(string className) {
+        object c = this._inlineCache.Get(Z42Type.Canon(className));
+        if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
+        return new StructLayoutInfo(Z42Type.Canon(className));
+    }
+
+    // 某 class 是否有内联 struct 字段（→ 设 CLASS_FLAG_HAS_INLINE_STRUCT + emit 内联块）。
+    public bool HasInlineFields(string className) {
+        return this.InlineLayoutOf(className).FieldCount > 0;
+    }
+
+    // 某内联 struct 字段在对象字节区的对象相对 byte offset（未找到 -1）。供 codegen（stage 4）烘焙。
+    public int InlineFieldByteOffset(string className, string fieldName) {
+        StructLayoutInfo li = this.InlineLayoutOf(className);
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldOffsets[i]; } i = i + 1; }
+        return -1;
     }
 
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。

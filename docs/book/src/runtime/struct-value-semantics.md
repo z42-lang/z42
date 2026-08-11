@@ -221,6 +221,74 @@ struct 处发此 AsCast），使两种运行期种类统一：`BoxedStruct`→�
 **Deferred → P3b**：真**字节内联**进堆对象字段 / `struct[]` backing（密度 + FFI）+ 写屏障——本 P3a 只装箱，
 容器里是 boxed 堆对象，非内联字节。
 
+## struct 内联进堆对象字段 + struct[] backing（add-struct-heap-inline P3b）
+
+P3a 让 struct 进容器靠**装箱**（每元素一个堆 `BoxedStruct`，无密度）。P3b 让 struct 值**字节内联**进
+**堆对象字段**（`class C { Point pt; }`）与 **`Point[]`**——真密度（基元字节精确打包，逼近 C# 布局）+
+FFI 零 marshaling + 零 per-field 堆分配。这是 struct 值语义功能面的闭合项。
+
+### Decision D1-a：基元内联 + 引用叶子侧表（非裸内联）
+
+内联 struct 的引用叶子（string/object/array）怎么存，是核心设计分叉。选定 **D1-a**：
+- **基元叶子**按字节精确**打包进对象字节区** `ScriptObject::struct_bytes`（密度/FFI 收益全在此）；
+- **引用叶子**走对象的 `struct_refs: Box<[Value]>` **侧表**（真 `Value`），**不裸内联** 16B 句柄进字节区。
+
+> **为什么不裸内联引用叶子（否决 D1-b）**：GC 访问协议是 `visitor(&Value)`，`Value` enum 远大于 16B 且带
+> 判别式——无法只存 16B 句柄再还原完整 `&Value`；`Arc<str>` 裸字节要手工 `ManuallyDrop`/`Arc::from_raw`
+> 管引用计数，漏一处即 double-free。而引用叶子无论放侧表还是字节区**都是 16B 句柄，密度无差**。故侧表既拿
+> 全部密度收益、又换回内存安全 + 与 arena `StructSlot`/`BoxedStruct` 完全同构（`StructCopy` 无转码）。
+
+### 对象内联表示与访问（路线 α）
+
+`ScriptObject` 加 `struct_bytes`（内联字段基元打包）+ `struct_refs`（引用叶子侧表）。`TypeDescCold.inline_layout`
+= 类的**合成内联布局**（对象相对字节区 size + 引用位图，复用 `StructTypeLayout`——对象内联区 = 字节 blob +
+引用侧表，与 struct 同构）。alloc 时零初始化（= struct 默认值）。**内联字段仍保留一个 dead slot**（不重排
+`field_index`/slots，最简；真数据只在 struct_bytes，dead slot 恒 Null；1 slot/字段小浪费留 P4/P5）。
+
+访问复用现有 `StructFieldGetPrim/SetPrim`（0xC0–0xC3，**无新 opcode**）——`base` 从「仅 arena StructRef」扩到
+「也可为堆 `Value::Object`」：叶子基元读写 `obj.struct_bytes[byte_off]`（`byte_off` = 编译期烘焙的对象相对
+复合 offset `off_field + off_leaf`）；引用叶子读写 `obj.struct_refs[inline_layout.ref_index(byte_off)]`。
+
+### GC：扫描 + 写屏障（P3b 核心）
+
+内联 struct 的引用叶子落在堆对象字节区内，**不再是独立 GC 根重扫**（arena 每采集重扫故无屏障，见上「P1 无
+写屏障」）——堆里的内联叶子需两件事：
+- **扫描**（mark 追踪）：`scan_object_refs`/`trace_children` 的 `Object` 臂遍历 `obj.struct_refs`（与
+  `BoxedStruct.refs` 一行同构，零 unsafe）——D1-a 侧表让这平凡复用 `visitor(&Value)`；
+- **写屏障**（并发/分代正确性）：写内联引用叶子 = 写 `struct_refs[k]` 一个 `Value` 槽 → 复用现有
+  `write_barrier_field(owner, k, new)`（STW 默认 no-op）。**无新屏障机制**——这是 D1-a 相对裸内联最大的工程简化。
+
+### 格式 wire：内联字段表（zbc 1.32 / zpkg 0.37）
+
+类描述符尾部加**合成内联布局块**（`CLASS_FLAG_HAS_INLINE_STRUCT` bit7=0x80 gated，紧随 struct 块）：
+`size:u32 + ref_count:u16 + (byte_off:u32, kind:u8)×n`——同 struct 块 shape（reader 复用 `StructLayoutDesc`）。
+writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymbols` 为每个非-struct class 预计算，
+**writer 与 codegen 同源取对象相对 offset → 一致**）。字段 byte offset 由 codegen 烘焙进访问指令，不入块。
+
+### codegen 翻转（对象字段，已落）
+
+`ExprEmitter` 谓词 `_isInlineStructFieldRoot`（字段类型 `IsBlobStruct` ∧ 容器是 class）+ `_isOwnerInlineField`
+（class 方法内裸 `pt`=this.pt，靠 `EmitContext.OwnerClassName`）。`_structChainRoot`/`_structChainOffset` 扩两
+根（内联字段根 = 对象句柄 / reg0）→ 叶子 `c.pt.x`/`pt.x` 复用嵌套链发 `StructFieldGetPrim/SetPrim`；整字段读
+（`Point p = c.pt`）→ `StructAlloc` + `_copyRegion` 拷出（值副本）；整字段写（`c.pt = q`）→ `_copyRegion` 拷入。
+
+### `struct[]` 字节 backing（runtime 已备，codegen follow-up）
+
+`ArrayBacking::StructBytes{elem_size, bytes, refs, layout}`（C# inline `struct[]`：元素基元紧凑
+`bytes[len*elem_size]` + 引用叶子并行 `refs[len*ref_count]`）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
+`Value::StructRefHeap(Box<StructArrayElem{arr, index}>)`（arena `StructRef` 热路径不动；仅数组需句柄），
+`arr[i]` 物化它、`StructFieldGetPrim/SetPrim` 认它作 base 读写 backing。GC：新 `ArrayObj::gc_refs()` 统一
+`Boxed ∪ StructBytes.refs` 供扫描；元素引用叶子写触发 `write_barrier_array_elem`。**运行时 + 句柄 + GC 已实现
+并单测**；`arr[i]` 产句柄的 codegen（`ArrayGet` 对 struct[] 出句柄 + 元素访问 copy/leaf）作 P3b follow-up。
+
+### 已工作 / Deferred
+
+- ✅ **对象内联 struct 字段**（`class C { Point pt; }`）：默认零初始化 / `c.pt.x` 叶子读写 / 整字段拷入拷出值语义
+  独立 / 方法内裸字段 / string 引用叶子内联 / 多对象独立——golden `struct_heap_inline.z42` 端到端验证。
+- ⏳ Deferred：**`struct[]` 元素 codegen**（runtime 已备）、**class 方法返回 struct**（`return pt`——需
+  `sret × VCall` 接线，当前 sret 只覆盖 struct-receiver 方法 + 静态/自由调用）、**JIT 值路径**（P5）、
+  **跨包内联布局 + 反射**（P4）。
+
 ## 与逃逸分析 / packed 数组的关系
 
 - struct 恒内联，**不走** `ObjNew`→堆/`StackObject` arena（Decision θ）；逃逸 arena 是**引用类型**的
@@ -240,7 +308,10 @@ struct 处发此 AsCast），使两种运行期种类统一：`BoxedStruct`→�
 - ✅ **struct 作泛型容器键/值/元素**（`Dictionary<P,V>` / `List<P>` 存取·ContainsKey·foreach·Contains）：
   **泛型边界装箱**（存入 type-param 装箱、取出到具体 struct 拆箱），复用 `__box_struct`+`AsCast`+`as_cast`
   StructRef 恒等臂——**格式中立、容器 ABI 不变**（add-struct-generic-boxing P3a）。
-- ⏳ Deferred：**struct 真内联进堆对象字段 / `struct[]` 字节 backing**（P3b，格式 bump + **写屏障**——struct
-  blob 存进堆对象不再 GC 根重扫，需写屏障追踪引用叶子；密度收益在此）、**单标量叶子 struct 塌缩**
-  （`GCHandle`=Phase B）、**跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 值路径**（P5，现全 bail→interp）、
-  **ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
+- ✅ **struct 真内联进堆对象字段**（`class C { Point pt; }`，P3b add-struct-heap-inline）：基元字节内联进
+  `struct_bytes` + 引用叶子 `struct_refs` 侧表（D1-a）+ 复用 `StructFieldGetPrim/SetPrim` 对象 base（路线 α）+
+  GC scan/`write_barrier_field` 复用侧表 + 格式 wire 内联字段表（zbc 1.32/zpkg 0.37）。golden 端到端验证。
+- ⏳ Deferred：**`struct[]` 字节 backing 元素 codegen**（P3b follow-up，runtime `StructBytes`+`StructRefHeap`
+  已备）、**class 方法返回 struct**（`sret × VCall` 接线）、**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
+  **跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 值路径**（P5，现全 bail→interp）、**ToString 字段 dump**、
+  **E0438 自引用诊断**（现 `Size==0` 兜底防崩）。

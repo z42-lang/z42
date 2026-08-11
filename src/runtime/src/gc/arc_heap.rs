@@ -726,6 +726,9 @@ impl ArcMagrGC {
                     crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                     crate::metadata::types::RefKind::Stack { .. } => false,
                 },
+                // add-struct-heap-inline (P3b): a struct[] element handle keeps its
+                // backing array alive (mark it; trace_children then follows its refs).
+                Value::StructRefHeap(e) => GcRef::mark(&e.arr),
                 _ => false,
             };
             if !just_marked { continue; }
@@ -755,6 +758,8 @@ impl ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                 crate::metadata::types::RefKind::Stack { .. } => false,
             },
+            // add-struct-heap-inline (P3b): mark the struct[] element handle's array.
+            Value::StructRefHeap(e) => GcRef::mark(&e.arr),
             _ => false,
         }
     }
@@ -1732,9 +1737,12 @@ impl MagrGC for ArcMagrGC {
         // Vec → Box<[T]> drops excess capacity; for the common case where
         // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
         // realloc shrink-to-fit.
+        let (struct_bytes, struct_refs) = type_desc.inline_regions();
         let obj = ScriptObject {
             type_desc,
             slots: slots.into_boxed_slice(),
+            struct_bytes,
+            struct_refs,
             native,
             type_args: Box::new([]),
         };
@@ -1931,8 +1939,11 @@ impl MagrGC for ArcMagrGC {
             Value::Object(rc) => {
                 let obj = rc.borrow();
                 // slots is `Box<[Value]>` — len == actual allocation.
+                // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
                 size_of::<Value>() + size_of::<ScriptObject>()
                     + obj.slots.len() * size_of::<Value>()
+                    + obj.struct_bytes.len()
+                    + obj.struct_refs.len() * size_of::<Value>()
             }
             // Spec C4: PinnedView holds raw ptr+len; the borrowed buffer
             // itself is owned by the source `Value::Str` / `Value::Array`,
@@ -1985,6 +1996,10 @@ impl MagrGC for ArcMagrGC {
                 + b.type_name.len()
                 + b.bytes.len()
                 + b.refs.len() * size_of::<Value>(),
+            // add-struct-heap-inline (P3b): a struct[] element handle — the backing
+            // array is accounted via its own Value::Array; charge only the boxed handle.
+            Value::StructRefHeap(_) => size_of::<Value>()
+                + size_of::<crate::metadata::types::StructArrayElem>(),
         }
     }
 
@@ -1993,17 +2008,21 @@ impl MagrGC for ArcMagrGC {
             Value::Object(rc) => {
                 let obj = rc.borrow();
                 for slot in &obj.slots { visitor(slot); }
+                // add-struct-heap-inline (P3b): reference leaves of inline struct
+                // fields live in the `struct_refs` side-table (D1-a), scanned like
+                // any object field. Empty for classes with no inline struct fields.
+                for r in &obj.struct_refs { visitor(r); }
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                for elem in arr.gc_refs() { visitor(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
             // impl-closure-l3-core: a closure's env owns Value slots that may
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                for elem in arr.gc_refs() { visitor(elem); }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
             // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
@@ -2012,16 +2031,20 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Stack { .. } => {}
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                    for elem in arr.gc_refs() { visitor(elem); }
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
                     for slot in &obj.slots { visitor(slot); }
+                    for r in &obj.struct_refs { visitor(r); }  // add-struct-heap-inline (P3b)
                 }
             },
             // add-struct-object-boxing: boxed struct 拥有堆上引用叶子——必须扫描，否则存进对象槽的
             // boxed struct 的 object/array 叶子会被漏标→过早回收（镜像 trace_children 的 BoxedStruct 分支）。
             Value::BoxedStruct(b) => { for r in b.refs.iter() { visitor(r); } }
+            // add-struct-heap-inline (P3b): struct[] element handle — follow the
+            // backing array's reference leaves (mirrors trace_children).
+            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }
             _ => {}
         }
     }

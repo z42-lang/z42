@@ -357,6 +357,20 @@ public static class ZbcWriter {
                     srl = srl + 1;
                 }
             }
+            // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联
+            // struct 字段时随 TYPE 尾部 emit（在 struct 块之后）。同 struct 块 shape：InlineSize:u32 +
+            // ref_count:u16 + (byte_off:u32, kind:u8)×n（对象相对引用位图，供运行时 GC 定位内联 struct 字段
+            // 引用叶子 + 内联叶子写屏障；字节 offset 由 codegen 烘焙进访问指令，不经此块）。gated → 非内联 class 零字节。
+            if ((cd.Flags & 128) != 0) {
+                w.WriteU32(cd.InlineSize);
+                w.WriteU16(cd.InlineRefCount);
+                int irl = 0;
+                while (irl < cd.InlineRefCount) {
+                    w.WriteU32(cd.InlineRefOffsets[irl]);
+                    w.WriteU8(cd.InlineRefKinds[irl]);
+                    irl = irl + 1;
+                }
+            }
             c = c + 1;
         }
         return w;

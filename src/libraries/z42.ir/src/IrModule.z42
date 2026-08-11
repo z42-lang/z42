@@ -71,6 +71,12 @@ public sealed class IrClassDesc {
     // 非 struct 全空、gated 零字节（同 enum/iface 块模式）。
     public int StructSize;
     public int[] StructRefOffsets; public int[] StructRefKinds; public int StructRefCount;
+    // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联 struct 字段时
+    // 随 TYPE 尾部 emit（在 struct 块之后）。InlineSize=对象内联字节区总大小（供 ScriptObject alloc）；平行数组
+    // InlineRefOffsets/InlineRefKinds 是**对象相对带种类引用位图**（GC 定位内联 struct 字段引用叶子 + 写屏障）。
+    // 同 struct 块 shape，reader 复用 StructLayoutDesc。非内联 class 全空、gated 零字节。
+    public int InlineSize;
+    public int[] InlineRefOffsets; public int[] InlineRefKinds; public int InlineRefCount;
     public IrClassDesc(string name, bool hasBase, string baseName, IrFieldDesc[] fields, int fieldCount) {
         this.Name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = fields; this.FieldCount = fieldCount;
@@ -85,6 +91,7 @@ public sealed class IrClassDesc {
         this.IfaceMethodParamCounts = new int[0]; this.IfaceMethodCount = 0;
         this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
+        this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;
     }
 }
 

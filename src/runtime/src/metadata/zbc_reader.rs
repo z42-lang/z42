@@ -116,7 +116,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-08-08 add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
 // a value-struct layout block (size + typed reference bitmap, Flags bit2 gated) and
 // z42c begins emitting StructAlloc/Copy/FieldGet/SetPrim. Coupled with zpkg 0.36.
-pub const ZBC_VERSION_MINOR: u16 = 31;
+//
+// 2026-08-11 add-struct-heap-inline P3b: bumped to 1.32 — TYPE section gains a
+// **composed inline-struct layout block** (same shape as the struct block; the
+// class's object-relative inline byte-region size + reference bitmap), present when
+// class_flags & CLASS_FLAG_HAS_INLINE_STRUCT (bit7=0x80), following the struct block.
+// Delivers `TypeDescCold.inline_layout` for `class C { Point pt; }`. Coupled with zpkg 0.37.
+pub const ZBC_VERSION_MINOR: u16 = 32;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -206,7 +212,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 //
 // 2026-08-08 add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
 // 1.31 (TYPE value-struct layout block + blob value-type instruction emission).
-pub const ZPKG_VERSION_MINOR: u16 = 36;
+// 2026-08-11 add-struct-heap-inline P3b: bumped to 0.37, coupled inner zbc 1.32
+// (TYPE composed inline-struct layout block, Flags bit7 gated). Outer zpkg layout
+// unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 37;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -587,6 +596,28 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             None
         };
+        // add-struct-heap-inline (P3b, zbc 1.32): trailing inline-struct layout block,
+        // present only when CLASS_FLAG_HAS_INLINE_STRUCT. Same shape as the struct block
+        // (size:u32 + ref_count:u16 + (byte_off:u32, kind:u8)×n) — the class's composed
+        // inline byte region size + object-relative reference bitmap. Follows the struct
+        // block in the record (a type is a struct XOR a class-with-inline-fields).
+        let inline_layout_desc = if class_flags & crate::metadata::bytecode::CLASS_FLAG_HAS_INLINE_STRUCT != 0 {
+            let size = c.read_u32()?;
+            let ref_count = c.read_u16()? as usize;
+            let mut ref_offsets = Vec::with_capacity(ref_count);
+            let mut ref_kinds = Vec::with_capacity(ref_count);
+            for _ in 0..ref_count {
+                ref_offsets.push(c.read_u32()?);
+                ref_kinds.push(c.read_u8()?);
+            }
+            Some(crate::metadata::bytecode::StructLayoutDesc {
+                size,
+                ref_offsets: ref_offsets.into_boxed_slice(),
+                ref_kinds: ref_kinds.into_boxed_slice(),
+            })
+        } else {
+            None
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -602,6 +633,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             // add-struct-value-semantics: populated by the struct-block parse
             // below (commit 2 wire); `None` until then / for non-struct classes.
             struct_layout: struct_layout_desc,
+            // add-struct-heap-inline (P3b): composed inline-struct layout (zbc 1.32).
+            inline_layout: inline_layout_desc,
         });
     }
     Ok(classes)

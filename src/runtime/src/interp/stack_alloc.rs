@@ -138,12 +138,15 @@ impl StackArena {
             for slot in s.obj.slots.iter() {
                 visit(slot);
             }
+            // add-struct-heap-inline (P3b): inline struct fields' reference leaves.
+            for r in s.obj.struct_refs.iter() {
+                visit(r);
+            }
         }
         for s in &self.arrs {
-            if let Some(elems) = s.arr.boxed_slice() {
-                for e in elems {
-                    visit(e);
-                }
+            // add-struct-heap-inline (P3b): gc_refs covers Boxed elements + struct[] refs.
+            for e in s.arr.gc_refs() {
+                visit(e);
             }
         }
     }

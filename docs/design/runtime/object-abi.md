@@ -24,6 +24,20 @@
 - **保留 fat tagged 值**（tag + payload，~16–24B）作 v1；**NaN-box / tagged-pointer 压缩进 Deferred**（后续优化，复杂度大，现 fat enum 够用）。
 - 跨引擎契约：一个 Value slot 的 `{tag 偏移, payload 偏移, 总大小}` 是 ABI 一部分；JIT/AOT 据此 load/store。
 
+### 2.1 引用压到平台指针大小 → `Value` 24B→16B（Deferred 候选，2026-08-11 User 提）
+
+**动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**，我们的是 **16B**。两个来源（已核对）：① `GcRef` = `NonNull<RegionEntry>`(8B) + `generation:u32`(4B, ABA 防护) 对齐 16B（[refs.rs](../../../src/runtime/src/gc/refs.rs)）；② `Value::Str` = `Arc<str>` 胖指针 = ptr8+len8 = 16B。因 `Value` 最大 payload = 16B → **`Value` enum 被钉在 24B**（`#[repr(C,u8)]`，JIT 按 `regs_base + reg_idx*24` 内联寻址）。若最大 payload 降到 8B，`Value` 可 **24B→16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
+
+> **前提校正**：主要收益是**内存/cache 密度**，**不是 native 交互**——托管引用（带 generation 的 region 句柄 / Arc）本就不能直接交给 native；FFI 零 marshaling 靠 struct **基元字节打包**（见 [struct-value-semantics.md] D1-a），与引用宽度无关。
+
+**两条路（generation 是障碍）**：
+- **A｜标记指针（改动小）**：x86-64/ARM64 虚拟地址仅 48 位，把窄 generation 塞进指针高 16 位（tagged pointer），deref mask 掉。**保留现有 region + 非移动 GC**，generation 变窄（ABA 窗口需评估）；deref 一次 mask（廉价）+ 与 ARM MTE/PAC、ASAN 交互需注意。参考 V8/JVM compressed oops（甚至到 4B）。
+- **B｜移动式 tracing GC（改动大）**：引用永远指活对象、GC 移动统一改写 → 从构造上无悬垂，generation 直接不需要（CLR 模型）。与本 doc §6「移动/分代预留」同向，但最重。
+
+**String 侧**：`Arc<str>` 的"胖"只在 8B 长度 → 换 `Arc<StrHeader{len,[u8]}>` 细指针 = 8B（长度进堆对象头，CLR/JVM 模型，与 §5「字符串改 GC」合流）；代价 = 取 len 多一次解引用。
+
+**范围**：全 VM 横切（GcRef 句柄模型 + String 表示 + `Value` 布局 pin + **JIT 24B 硬编码寻址** + `value_layout` 断言），属 **B-radical 统一值类型模型**子目标，**不在 struct P3b**（P3b 保持 16B 引用不动）。落地前需与 §6 移动/分代 GC 的 `gc_word`/forwarding 设计一并评估路 A vs 路 B。
+
 ---
 
 ## 3. 统一对象头 + 对象种类（去掉 ad-hoc `native`）

@@ -69,6 +69,8 @@ fn is_heap_ref_true_for_object() {
     let v = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
         slots: Box::new([]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -102,11 +104,115 @@ fn is_heap_ref_true_for_ref_field() {
     let obj = GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
         slots: Box::new([Value::I64(0)]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     });
     let v = Value::Ref(Box::new(RefKind::Field { gc_ref: obj, field_name: "x".to_string() }));
     assert!(v.is_heap_ref());
+}
+
+// ── add-struct-heap-inline (P3b, D1-a): inline struct fields' reference side-table
+//    is GC-traversed (scaffolding is inert in production until the stage-3 format
+//    wire populates it, so validate the traversal via manual construction). ──────
+
+#[test]
+fn trace_children_visits_inline_struct_refs() {
+    // An object whose inline struct field holds a reference leaf (e.g. a nested
+    // object) in `struct_refs`. `trace_children` must visit it so the leaf stays
+    // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
+    let leaf = Value::Object(GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc("Leaf"),
+        slots: Box::new([]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
+        native: NativeData::None,
+        type_args: Box::new([]),
+    }));
+    let owner = Value::Object(GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc("Owner"),
+        slots: Box::new([Value::I64(7)]),          // an ordinary field
+        struct_bytes: Box::new([0u8; 8]),          // inline struct's packed primitives
+        struct_refs: Box::new([leaf.clone()]),     // inline struct's reference leaf
+        native: NativeData::None,
+        type_args: Box::new([]),
+    }));
+
+    let mut visited_object_children = 0usize;
+    owner.trace_children(&mut |v: &Value| {
+        if matches!(v, Value::Object(_)) { visited_object_children += 1; }
+    });
+    // The ordinary I64 field is not an object; the inline struct_refs leaf is.
+    assert_eq!(visited_object_children, 1, "inline struct_refs leaf must be traced");
+}
+
+#[test]
+fn struct_array_backing_roundtrip_and_gc_refs() {
+    use crate::metadata::types::*;
+    // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 12, 1 ref leaf.
+    let layout = Arc::new(StructTypeLayout {
+        size: 12,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+    });
+    let mut arr = ArrayObj {
+        element_type: Arc::from("Demo.P"),
+        backing: ArrayBacking::StructBytes {
+            elem_size: 12,
+            bytes: vec![0u8; 2 * 12],
+            refs: vec![Value::Null; 2 * 1],
+            layout: layout.clone(),
+        },
+    };
+    assert_eq!(arr.len(), 2, "2 elements of 12 bytes each");
+
+    // Build a boxed Point{x=5,y=6,tag="a"} and store it into element 0.
+    let mk = |x: i32, y: i32, tag: &str| {
+        let mut b = vec![0u8; 12];
+        b[0..4].copy_from_slice(&x.to_le_bytes());
+        b[4..8].copy_from_slice(&y.to_le_bytes());
+        Value::BoxedStruct(Box::new(BoxedStructData {
+            type_name: Arc::from("Demo.P"),
+            bytes: b.into_boxed_slice(),
+            refs: Box::new([Value::Str(tag.into())]),
+        }))
+    };
+    arr.set_boxed(0, mk(5, 6, "a"));
+    arr.set_boxed(1, mk(7, 8, "b"));
+
+    // Reading element 0 back yields an independent boxed copy with the same leaves.
+    match arr.get_boxed(0) {
+        Value::BoxedStruct(b) => {
+            assert_eq!(i32::from_le_bytes([b.bytes[0], b.bytes[1], b.bytes[2], b.bytes[3]]), 5);
+            assert_eq!(i32::from_le_bytes([b.bytes[4], b.bytes[5], b.bytes[6], b.bytes[7]]), 6);
+            match &b.refs[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+        }
+        o => panic!("expected BoxedStruct element, got {o:?}"),
+    }
+    // Element 1's bytes are independent of element 0.
+    match arr.get_boxed(1) {
+        Value::BoxedStruct(b) =>
+            assert_eq!(i32::from_le_bytes([b.bytes[0], b.bytes[1], b.bytes[2], b.bytes[3]]), 7),
+        o => panic!("{o:?}"),
+    }
+
+    // GC must see both elements' string ref leaves (else premature free).
+    assert_eq!(arr.gc_refs().len(), 2, "both struct[] element ref leaves are GC roots");
+    let strs: Vec<&str> = arr.gc_refs().iter().filter_map(|v| match v {
+        Value::Str(s) => Some(&**s), _ => None,
+    }).collect();
+    assert_eq!(strs, vec!["a", "b"]);
+}
+
+#[test]
+fn inline_regions_empty_by_default() {
+    // Stage 1: no class carries inline-field metadata → both regions empty, so
+    // every existing object is byte-identical to pre-P3b.
+    let td = dummy_type_desc("Plain");
+    let (bytes, refs) = td.inline_regions();
+    assert!(bytes.is_empty() && refs.is_empty());
+    assert_eq!(td.inline_region_sizes(), (0, 0));
 }
 
 #[test]

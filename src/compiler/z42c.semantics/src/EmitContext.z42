@@ -16,6 +16,8 @@ public sealed class EmitContext {
     public StrMap      Fields;       // 实例方法自身字段名集合（裸 ident → field_get reg0）
     public string      OwnerStructName; // add-struct-value-semantics A-use：当前方法所属类若为 **blob 值 struct**，
                                         // 存其短名（供 `this.x`/裸字段 access 翻转到 StructFieldGet/SetPrim）；否则 ""。
+    public string      OwnerClassName;  // add-struct-heap-inline (P3b)：当前实例方法所属类短名（含非-struct class；
+                                        // 供裸 `pt`/`pt.x` 内联 struct 字段 access 解析对象相对 offset）；静态/无 owner 为 ""。
     // add-struct-value-semantics A-use：当前函数返回 blob 值 struct 时走 **sret** 约定——caller 预留返回
     // blob 作隐藏末尾参数传入，callee `return s` → StructCopy(SretReg, s)+ret void。RetIsStruct 置位时
     // SretReg=末尾参数寄存器、RetStructSize=blob 字节数。
@@ -53,6 +55,7 @@ public sealed class EmitContext {
         this.Symbols = symbols; this.Gen = gen;
         this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
         this.OwnerStructName = "";
+        this.OwnerClassName = "";
         this.RetIsStruct = false; this.RetStructSize = 0; this.SretReg = null;
         this.ConstLocals = new StrMap();
         this.Blocks = new IrBlock[4]; this.BlockCount = 0;

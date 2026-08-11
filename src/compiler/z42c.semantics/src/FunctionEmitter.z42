@@ -59,6 +59,9 @@ public sealed class FunctionEmitter {
             if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(owner.Name())) {
                 this._ctx.OwnerStructName = owner.Name();
             }
+            // add-struct-heap-inline (P3b)：记所属类短名（含非-struct class）供裸 `pt`/`pt.x` 内联字段解析。
+            // struct owner 无内联字段（其字段是嵌套展平，非堆内联）→ InlineFieldByteOffset 恒 -1，安全共存。
+            if (owner != null) { this._ctx.OwnerClassName = owner.Name(); }
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;
