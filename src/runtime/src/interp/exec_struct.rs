@@ -62,6 +62,38 @@ pub(super) fn unbox_struct(ctx: &VmContext, frame: &Frame, b: &ty::BoxedStructDa
     Ok(Value::StructRef { idx, frame_id })
 }
 
+/// add-struct-foreach (P3b follow-up): copy a `StructBytes`-array element out to a fresh
+/// **current-frame** arena `StructRef` (a value-semantics snapshot). Used by `as_cast` when
+/// a `foreach (P p in arr)` loop var (or any value-context read) receives a `StructRefHeap`
+/// element handle — the loop var must be an independent copy, not an alias into the array.
+/// Mirrors [`unbox_struct`] but the source is a byte-backed array element, not a boxed blob.
+pub(super) fn copy_array_elem_out(ctx: &VmContext, frame: &Frame, e: &ty::StructArrayElem) -> Result<Value> {
+    let i = e.index as usize;
+    let (src_bytes, src_refs, layout, tname): (Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>) = {
+        let arr = e.arr.borrow();
+        match &arr.backing {
+            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
+                let rc = layout.ref_count();
+                let bstart = i * elem_size;
+                (bytes[bstart..bstart + elem_size].to_vec(),
+                 refs[i * rc..i * rc + rc].to_vec(),
+                 layout.clone(),
+                 arr.element_type.clone())
+            }
+            _ => bail!("as-cast on a non-value-struct array element"),
+        }
+    };
+    let frame_id = frame.frame_id;
+    let idx = ctx.struct_arena.lock().alloc(frame_id, tname, layout);
+    ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
+        let n = src_bytes.len().min(s.bytes.len());
+        s.bytes[..n].copy_from_slice(&src_bytes[..n]);
+        let rn = src_refs.len().min(s.refs.len());
+        s.refs[..rn].clone_from_slice(&src_refs[..rn]);
+    })?;
+    Ok(Value::StructRef { idx, frame_id })
+}
+
 /// `StructCopy dst, src, size` — copy the `src` blob into the `dst` blob (both
 /// already allocated). This is the value-semantics copy point (assign/param/return).
 pub(super) fn struct_copy(

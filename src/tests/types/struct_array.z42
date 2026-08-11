@@ -69,4 +69,15 @@ void Main() {
     int k = 0;
     while (k < arr.Length) { sum = sum + arr[k].x; k = k + 1; }
     Assert.Equal(5 + 10 + 11, sum);
+
+    // foreach over struct[]（元素经 as_cast 拷出到帧 arena StructRef——值副本，非别名进数组）
+    int fsum = 0;
+    foreach (Point e in arr) { fsum = fsum + e.x + e.y; }
+    Assert.Equal((5 + 7) + (10 + 0) + (11 + 22), fsum);
+
+    // foreach 值语义：改循环变量不动数组元素（e 是拷贝）
+    foreach (Point e in arr) { e.x = 999; }
+    Assert.Equal(5, arr[0].x);    // arr[0] 未被 foreach 里的 e.x=999 改动
+    Assert.Equal(10, arr[1].x);
+    Assert.Equal(11, arr[2].x);
 }

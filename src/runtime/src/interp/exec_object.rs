@@ -438,6 +438,14 @@ pub(super) fn as_cast(
         frame.set(dst, out);
         return Ok(());
     }
+    // add-struct-foreach (P3b follow-up): a `StructBytes`-array element handle (`arr[i]` in a
+    // value context — e.g. `foreach (P p in arr)`) → copy the element out to a fresh current-frame
+    // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
+    if let Value::StructRefHeap(e) = &val {
+        let out = super::exec_struct::copy_array_elem_out(ctx, frame, e)?;
+        frame.set(dst, out);
+        return Ok(());
+    }
     // add-struct-generic-boxing (P3a): 已是未装箱值 struct（StructRef）→ `as P` 恒等（原样返回）。编译器仅在
     // 静态类型即该 struct 处发此 AsCast（泛型容器拆箱统一走 AsCast，元素可能是 BoxedStruct 或已是 StructRef——
     // 普通 P[]；此臂让 StructRef 情形不被误判 Null）。
