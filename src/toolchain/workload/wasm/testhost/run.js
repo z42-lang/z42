@@ -15,6 +15,16 @@ const LIBS = "/libs";
 const MANIFEST = "/bundle/manifest.json";
 const REPORT = "/out/report.json";
 
+// diagnose-mobile-wasm-embed: a wasm panic aborts to a bare "RuntimeError:
+// unreachable" JsValue — the real Rust message is emitted separately via the
+// panic hook's console.error (lib.rs _init_panic_hook). Collect those so the
+// catch below reports the actual cause instead of the opaque trap.
+const __panicLogs = [];
+{
+  const origErr = console.error.bind(console);
+  console.error = (...a) => { __panicLogs.push(a.join(" ")); origErr(...a); };
+}
+
 function show(text, cls) {
   const el = document.getElementById("out");
   if (el) { el.textContent = text; if (cls) el.className = cls; }
@@ -37,8 +47,11 @@ async function main() {
     show(report, "ok");
     window.__report = report;
   } catch (e) {
-    show("ERROR: " + e, "fail");
-    window.__error = String(e);
+    // Prefer the Rust panic message (from the hook's console.error) over the
+    // opaque "RuntimeError: unreachable" trap value.
+    const detail = __panicLogs.length ? " | " + __panicLogs.join(" ; ") : "";
+    show("ERROR: " + e + detail, "fail");
+    window.__error = String(e) + detail;
   } finally {
     window.__done = true;
   }
