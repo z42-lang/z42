@@ -46,7 +46,12 @@
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+// fix-wasm-embed-gc-time: Instant/OnceLock only back `now_us()` (GC pause timing),
+// which uses a counter on wasm (no std::time there) — so gate the imports off wasm.
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 use crate::metadata::{NativeData, ScriptObject, TypeDesc, Value};
@@ -608,9 +613,23 @@ impl ArcMagrGC {
     /// pending_exception 的闭包，让那些字段持有的 cyclic 对象在 collect 时
     /// 不被误判为可断。
     ///
+    #[cfg(not(target_arch = "wasm32"))]
     fn now_us() -> u64 {
         static EPOCH: OnceLock<Instant> = OnceLock::new();
         EPOCH.get_or_init(Instant::now).elapsed().as_micros() as u64
+    }
+
+    /// fix-wasm-embed-gc-time: `wasm32-unknown-unknown` has no `std::time`
+    /// (`Instant::now()` panics "time not implemented on this platform"). GC
+    /// pause-timing runs on every collection — heavy-allocation workloads (the
+    /// in-browser embedded test-host, which runs the whole corpus) triggered a
+    /// GC cycle and trapped. Use a monotonic counter on wasm so timing stats
+    /// stay non-negative (values are ticks, not µs) instead of panicking.
+    #[cfg(target_arch = "wasm32")]
+    fn now_us() -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TICK: AtomicU64 = AtomicU64::new(0);
+        TICK.fetch_add(1, Ordering::Relaxed)
     }
 
     /// 取 Value 的"类型名"（用于 snapshot 聚合）。
