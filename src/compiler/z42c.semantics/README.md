@@ -7,6 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `src/Z42Type.z42` | 语义类型层次（Prim/Class/Func/Void/Error/Unknown）+ 数值拓宽 IsAssignableTo |
+| `src/Conversion.z42` | **统一类型转换分类器**（`add-conversion-classifier`）：`Classify(from,to,symbols)→ConvResult{Kind}` 把转换分类为 Identity/ImplicitNumeric/ExplicitNumeric/Boxing/Unboxing/ImplicitRef/ExplicitRef/… `_isAssignable` 现委托其宽松门。隐式数值矩阵比 C# 严（有损整数→浮点降为显式）。机制见 [book 类型转换](../../../docs/book/src/compiler/type-conversion.md) |
 | `src/BinaryTypeTable.z42` | 运算类型规则表：OperandKind/ResultKind（int tag 替代 Func 委托）+ TypeFacts 数值谓词 + BinaryRule + Lookup/LookupUnary/ResultType |
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |

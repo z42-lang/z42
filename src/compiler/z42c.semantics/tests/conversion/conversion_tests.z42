@@ -1,0 +1,112 @@
+// 统一转换分类器单测（add-conversion-classifier PR1）：种类标签 + 宽松门布尔投影。
+namespace Z42cSemanticsConversionTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 便捷：分类 prim 对（无需 symbols 上下文）。
+int _kind(string from, string to) {
+    var f = new Z42PrimType(from);
+    var t = new Z42PrimType(to);
+    return Conversion.Classify(f, t, new SymbolTable()).Kind;
+}
+
+bool _implicitOk(string from, string to) {
+    var f = new Z42PrimType(from);
+    var t = new Z42PrimType(to);
+    return Conversion.Classify(f, t, new SymbolTable()).ImplicitOkPermissive();
+}
+
+[Test]
+void test_numeric_widening_implicit() {
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("int", "long"));    // int→long
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("int", "double"));  // int→double（32<53 无损）
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("byte", "int"));    // byte→int
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("short", "long"));  // short→long
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("float", "double")); // float→double
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("char", "int"));    // char→int
+}
+
+[Test]
+void test_numeric_narrowing_explicit() {
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("long", "int"));    // long→int 窄化
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("int", "byte"));    // int→byte 窄化
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("double", "int"));  // double→int 窄化
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("int", "char"));    // int→char 窄化
+}
+
+[Test]
+void test_lossy_float_explicit() {   // 比 C# 严：整数→浮点丢尾数精度 → 显式
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("int", "float"));    // 31>24 有损
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("uint", "float"));   // 32>24 有损
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("long", "float"));   // 有损
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("long", "double"));  // 63>53 有损
+    Assert.Equal(ConvKind.ExplicitNumeric, _kind("ulong", "double")); // 有损
+    // 无损浮点仍隐式：
+    Assert.Equal(ConvKind.ImplicitNumeric, _kind("uint", "double"));  // 32<53 无损
+}
+
+[Test]
+void test_identity() {
+    Assert.Equal(ConvKind.Identity, _kind("int", "int"));   // 同型
+    Assert.Equal(ConvKind.Identity, _kind("byte", "u8"));   // 别名归一
+    Assert.Equal(ConvKind.Identity, _kind("int?", "int"));  // 剥 nullable
+    Assert.Equal(ConvKind.Identity, _kind("string", "string"));
+    Assert.Equal(ConvKind.Identity, _kind("bool", "bool"));
+}
+
+[Test]
+void test_box_unbox_direction() {
+    Assert.Equal(ConvKind.Boxing,   _kind("int", "object"));   // 值 → object
+    Assert.Equal(ConvKind.Boxing,   _kind("bool", "object"));
+    Assert.Equal(ConvKind.Unboxing, _kind("object", "int"));   // object → 值
+    Assert.Equal(ConvKind.ImplicitRef, _kind("string", "object")); // string 是引用 → 上转非装箱
+}
+
+[Test]
+void test_none_and_absorb() {
+    Assert.Equal(ConvKind.None, _kind("int", "string"));  // 不相关
+    Assert.Equal(ConvKind.None, _kind("bool", "int"));    // bool↔数值 禁止
+    var err = new Z42ErrorType();
+    var i = new Z42PrimType("int");
+    Assert.Equal(ConvKind.Absorb, Conversion.Classify(i, err, new SymbolTable()).Kind);
+    Assert.Equal(ConvKind.Absorb, Conversion.Classify(err, i, new SymbolTable()).Kind);
+}
+
+[Test]
+void test_class_ref_conversions() {
+    var syms = new SymbolTable();
+    var foo = new Z42ClassType("Foo", false, "");
+    var bar = new Z42ClassType("Bar", true, "Foo");   // Bar : Foo
+    syms.Classes.Put("Foo", foo);
+    syms.Classes.Put("Bar", bar);
+    // 上转 派生→基 → ImplicitRef
+    Assert.Equal(ConvKind.ImplicitRef, Conversion.Classify(bar, foo, syms).Kind);
+    // 下转 基→派生 → ExplicitRef
+    Assert.Equal(ConvKind.ExplicitRef, Conversion.Classify(foo, bar, syms).Kind);
+    // 同名 → Identity
+    Assert.Equal(ConvKind.Identity, Conversion.Classify(foo, new Z42ClassType("Foo", false, ""), syms).Kind);
+}
+
+[Test]
+void test_class_interface_conversion() {
+    var syms = new SymbolTable();
+    var iface = new Z42InterfaceType("IShape");
+    var circle = new Z42ClassType("Circle", false, "");
+    circle.AddInterfaceName("IShape");
+    syms.Interfaces.Put("IShape", iface);
+    syms.Classes.Put("Circle", circle);
+    Assert.Equal(ConvKind.ImplicitRef, Conversion.Classify(circle, iface, syms).Kind); // 类→接口 上转
+}
+
+[Test]
+void test_permissive_projection() {   // PR1 宽松门：ExplicitNumeric 仍放行；Unboxing/ExplicitRef/None 不放行
+    Assert.Equal(true,  _implicitOk("int", "long"));   // ImplicitNumeric
+    Assert.Equal(true,  _implicitOk("int", "byte"));   // ExplicitNumeric（PR1 宽松放行）
+    Assert.Equal(true,  _implicitOk("int", "float"));  // ExplicitNumeric（有损，PR1 仍放行）
+    Assert.Equal(true,  _implicitOk("int", "object")); // Boxing
+    Assert.Equal(false, _implicitOk("object", "int")); // Unboxing 不放行
+    Assert.Equal(false, _implicitOk("int", "string")); // None 不放行
+    Assert.Equal(false, _implicitOk("bool", "int"));   // None 不放行
+}
