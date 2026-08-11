@@ -34,7 +34,7 @@ public static class TypeFactsTc {
     // 的白名单与本函数改动前的分支逐位等价（error/unknown 吸收、泛型擦除、任意→object、结构可赋、
     // 继承/接口上转、数值双向放行含窄化），故此改动 byte-identical。PR2 收紧时改分类器的门，非此处。
     public static bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
-        return Conversion.Classify(from, to, symbols).ImplicitOkPermissive();
+        return Conversion.Classify(from, to, symbols).ImplicitOk();   // tighten-implicit-conversions T4：收紧门（剔除 ExplicitNumeric）
     }
 
     public static string _primWrapper(string n) {

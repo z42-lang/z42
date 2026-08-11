@@ -110,3 +110,81 @@ void test_permissive_projection() {   // PR1 宽松门：ExplicitNumeric 仍放�
     Assert.Equal(false, _implicitOk("int", "string")); // None 不放行
     Assert.Equal(false, _implicitOk("bool", "int"));   // None 不放行
 }
+
+// ════ tighten-implicit-conversions（PR2）：收紧门 + 常量例外 + E0439 ═══════════════
+
+bool _implicitStrict(string from, string to) {
+    var f = new Z42PrimType(from);
+    var t = new Z42PrimType(to);
+    return Conversion.Classify(f, t, new SymbolTable()).ImplicitOk();
+}
+
+[Test]
+void test_strict_projection() {   // PR2 收紧门：ExplicitNumeric 不再放行（窄化/有损浮点）
+    Assert.Equal(true,  _implicitStrict("int", "long"));    // ImplicitNumeric 仍放行
+    Assert.Equal(true,  _implicitStrict("int", "double"));  // 无损拓宽仍放行
+    Assert.Equal(false, _implicitStrict("int", "byte"));    // 窄化不放行
+    Assert.Equal(false, _implicitStrict("long", "int"));    // 窄化不放行
+    Assert.Equal(false, _implicitStrict("int", "float"));   // 有损浮点不放行
+    Assert.Equal(true,  _implicitStrict("int", "object"));  // Boxing 仍放行
+}
+
+// 窄化（非常量）→ E0439：存在显式转换却用于隐式上下文。
+[Test]
+void test_gate_narrowing_nonconst_rejected() {
+    string src = "class C { void M(int x) { byte b = x; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0439", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_gate_long_to_int_nonconst_rejected() {
+    string src = "class C { void M(long y) { int n = y; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0439", SemanticDump.FirstErrorCode(src));
+}
+
+// 有损浮点（int→float，无常量例外）→ E0439。
+[Test]
+void test_gate_lossy_float_nonconst_rejected() {
+    string src = "class C { void M(int x) { float f = x; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0439", SemanticDump.FirstErrorCode(src));
+}
+
+// C# 常量在范围内例外：byte b = 48; 合法（0 错）。
+[Test]
+void test_gate_const_in_range_ok() {
+    string src = "class C { void M() { byte b = 48; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 越界常量 → E0439（byte b = 300; 越界）。
+[Test]
+void test_gate_const_out_of_range_rejected() {
+    string src = "class C { void M() { byte b = 300; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0439", SemanticDump.FirstErrorCode(src));
+}
+
+// 负常量在范围内例外：sbyte s = -1; 合法。
+[Test]
+void test_gate_negative_const_in_range_ok() {
+    string src = "class C { void M() { sbyte s = -1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 无损拓宽（int→double / int→long）隐式仍合法。
+[Test]
+void test_gate_widening_still_implicit() {
+    string src = "class C { void M() { double d = 5; long l = 5; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 拓宽赋值插 ConvertInstr：`double d = 5` 的 init 被包成 convert 节点（int→double 表示转换）。
+[Test]
+void test_widening_emits_convert_node() {
+    string src = "class C { void M() { double d = 5; } }";
+    Assert.Equal("(block (decl d :double (convert (lit-int 5 :int) :double)))",
+                 SemanticDump.DumpBody(src, "C.M"));
+}
