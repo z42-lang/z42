@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 31, "zbc minor at 1.31 (add-struct-value-semantics A-use: TYPE value-struct layout block + blob value-type instruction emission)");
+    assert_eq!(ZBC_VERSION_MINOR, 32, "zbc minor at 1.32 (add-struct-heap-inline P3b: TYPE composed inline-struct layout block, Flags bit7 gated)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 36, "zpkg minor at 0.36 (add-struct-value-semantics A-use: coupled zbc 1.31)");
+    assert_eq!(ZPKG_VERSION_MINOR, 37, "zpkg minor at 0.37 (add-struct-heap-inline P3b: coupled zbc 1.32)");
 }
 
 #[test]
