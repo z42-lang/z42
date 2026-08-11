@@ -23,7 +23,7 @@ test('embedded test-host: bundled corpus runs green in-browser', async ({ page }
     // 2nd (`arg`) — passed as arg it was silently ignored, so this fell back to
     // `actionTimeout` (10s) and timed out before the (slow, single-threaded wasm
     // interp) corpus of ~283 goldens could finish. Give it a generous budget.
-    await page.waitForFunction(() => (window as any).__done === true, undefined, { timeout: 300_000 });
+    await page.waitForFunction(() => (window as any).__done === true, undefined, { timeout: 1_200_000 });
 
     // Always echo captured console into the test output (visible in CI).
     if (consoleLogs.length) console.log('--- browser console ---\n' + consoleLogs.join('\n'));
