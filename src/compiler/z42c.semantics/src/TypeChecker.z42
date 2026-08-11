@@ -123,7 +123,7 @@ public sealed class TypeChecker {
         if (value == null || target == null) { return true; }
         Z42Type from = value.Type();
         ConvResult r = Conversion.Classify(from, target, syms);
-        if (r.ImplicitOkPermissive()) { return true; }   // T4：改 r.ImplicitOk()
+        if (r.ImplicitOk()) { return true; }   // tighten-implicit-conversions T4：收紧门（ExplicitNumeric 落入常量例外/E0439）
         // C# 常量在范围内例外（整数/char 目标，逐值可证无损）：byte b = 48; ✓
         if (r.Kind == ConvKind.ExplicitNumeric && this._constIntInRange(value, target)) { return true; }
         if (r.Exists()) {

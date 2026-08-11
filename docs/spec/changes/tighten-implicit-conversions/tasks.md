@@ -19,20 +19,21 @@
 - [ ] 产物字节变（拓宽点多 ConvertInstr + z42c 自身 codegen 变）→ 自举破一代，warm 重建收敛 5/5。
 - [ ] golden：拓宽点字节变的 golden 需 regen（确认仅拓宽相关）。
 
-## T3 迁移源（先迁移，后翻门）
-- [ ] 临时翻门（本地实验）→ `xtask build stdlib` 抓真窄化点 → 逐点补 `(T)`。
-- [ ] 核对：在范围常量点**不应**报（验证常量例外正确）；只有非常量/越界/有损浮点隐式点需 cast。
-- [ ] z42c 源自身：自举 gen2 暴露的真窄化点补 cast。
-- [ ] grind 至 stdlib + z42c 源在收紧门下全编过。
+## T3 迁移源（先迁移，后翻门）✅ **迁移面为零**
+- [x] 翻门 + `build stdlib` grind：**stdlib 零窄化错误**——常量例外覆盖全部（Tar.z42 的 12 处在范围常量全合法）。
+- [x] z42c 源自身：自举 gen2（`xtask test` 收紧门下）**逐字节等价**，无真窄化点。
+- [x] 结论：PR2 未改一处 stdlib / z42c 源（唯一改动是 math 测试的 int-vs-double 松比较，属 T2 修 Pow 的连带）。
 
-## T4 翻门收紧（正式）
-- [ ] `Conversion.z42`：`ImplicitOkPermissive`→`ImplicitOk`，剔除 `ExplicitNumeric`。
-- [ ] 全量重编：stdlib + z42c + toolchain 绿。
+## T4 翻门收紧（正式）✅
+- [x] `TypeFactsTc._isAssignable` → `Classify(...).ImplicitOk()`；`CheckImplicitConvert` 内门 → `ImplicitOk()`。
+- [x] 3 个隐式上下文检查点（return / var-decl / assign）改用 `CheckImplicitConvert`（E0439 + 常量例外）。
+- [x] 全量 `xtask test` 绿：241 unit + e2e + cross-zpkg + 自举 5 包 byte-identical。
 
-## T5 测试
-- [ ] `tests/conversion/`：负向（非常量窄化 / long→int / float=intVar 拒绝）。
-- [ ] `tests/conversion/`：常量例外（byte b=48 接受 / byte b=300 → E0439 / sbyte=-1 接受）。
-- [ ] e2e：`(byte)300==44`、`byte b=48`→48、越界报错、`double d=5` 真 F64 运算。
+## T5 测试 ✅（conversion 20→29）
+- [x] 收紧门布尔投影 `test_strict_projection`（ExplicitNumeric 不放行）。
+- [x] 负向：非常量窄化 / `long→int` / `float=intVar` → E0439。
+- [x] 常量例外：`byte b=48` 接受 / `byte b=300` → E0439 / `sbyte s=-1` 接受。
+- [x] 拓宽：`double d=5`/`long l=5` 合法 + `test_widening_emits_convert_node`（`(convert …)` 节点）。
 
 ## T6 文档 + 收尾
 - [ ] `docs/book/src/compiler/type-conversion.md`：收紧门 + 常量例外 + ConvertInstr 插入机制 + 更新种类表。

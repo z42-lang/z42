@@ -161,10 +161,7 @@ public sealed class ExprTyper {
                 string binop = a.Op.Substring(0, a.Op.Length - 1);
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
-            if (!TypeFactsTc._isAssignable(value.Type(), target.Type(), env.Symbols)) {
-                this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                    "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
-            }
+            this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
             value = this._tc.ConvertIfNeeded(value, target.Type());   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr
             return new BoundAssign(target, value, target.Type(), a.Span);
     }
