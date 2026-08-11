@@ -218,12 +218,51 @@ string _goldenEntry(string root, string caseName, string src, string expTxt, str
 }
 
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
-string _buildTestBundle(string root, string filter) {
+// fix-wasm-corpus-capability-gate: a test case whose lib/path needs a runtime
+// capability the TARGET platform lacks is excluded from that target's bundle —
+// so the in-browser (wasm) corpus stays platform-honest instead of running
+// socket/thread/native-fs tests that can't work there (and used to trap the VM).
+// Capability model: net→socket, threading→threads, io/json/toml/yaml stream +
+// operating_system/env_cwd/process_which → native-fs/env/process. wasm has none
+// of these; native targets (desktop/ios/android) run the full corpus. Coarse,
+// library-level, covers both [Test] units and goldens (matches the exec-profile
+// "caps are ground truth of the target" model). Extend the wasm-absent list as
+// new capability-specific test groups appear.
+bool _targetExcludes(string rid, string caseName) {
+    if (!rid.Contains("wasm")) { return false; }   // native runs everything
+    if (caseName.StartsWith("z42.net/"))       { return true; }   // socket
+    if (caseName.StartsWith("z42.threading/")) { return true; }   // threads
+    if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*)
+    // env / cwd / process / console-tty specific stdlib units (need OS env/process,
+    // which wasm lacks — set_var / current_dir / process spawn / is_terminal panic):
+    if (caseName == "z42.io/env_cwd")             { return true; }
+    if (caseName == "z42.io/env_set")             { return true; }
+    if (caseName == "z42.io/environment_extra")   { return true; }
+    if (caseName == "z42.io/ansi_color")          { return true; }
+    if (caseName == "z42.io/console")             { return true; }
+    if (caseName == "z42.io/operating_system")    { return true; }
+    if (caseName == "z42.io/process_which")       { return true; }
+    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }
+    return false;
+}
+
+string _buildTestBundle(string root, string filter, string rid) {
     string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
     Directory.Create(bundleDir);
     _cleanGlob(bundleDir, "*.zbc");
     string items = "";
     int count = 0;
+    int excluded = 0;
+    int capped = 0;
+    // fix-wasm-embed-timeout / android-emu timeout: the full corpus (~433 cases) is
+    // impractically slow on the constrained embed targets — each golden rebuilds a
+    // VmContext + reloads stdlib, and a browser (wasm interp) / emulator / simulator
+    // runs it >20min (wasm timed out; android hit its 60min job cap running the
+    // corpus sequentially after the OOM fix forced Z42_TEST_JOBS=1). These are SMOKE
+    // targets (prove the embed mechanism works: agent + per-case isolation +
+    // app::run), NOT full coverage — that's desktop's job. Cap them to a fast
+    // representative subset. 0 = uncapped (desktop). Cases are sorted → deterministic.
+    int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
     // 1. golden e2e — direct-run mode (mature-embed-testhost P1): compile source
     // (no [Test] wrap) → {name, zbc, entry, expected}; agent runs each in a fresh
@@ -256,6 +295,8 @@ string _buildTestBundle(string root, string filter) {
                 continue;   // sidecar (.expected_output.txt / .interp_only) or non-source
             }
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string e = _goldenEntry(root, caseName, src, expTxt, bundleDir);
             if (e.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
             if (count > 0) { items = items + ",\n"; }
@@ -273,6 +314,8 @@ string _buildTestBundle(string root, string filter) {
             if (!f.EndsWith(".z42")) { continue; }
             string caseName = lib + "/" + f.Substring(0, f.Length - 4);
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string safe = _bundleSafeName(caseName);
             string zbc = _emitUnitZbc(root, Path.Join(tdir, f), safe, bundleDir);
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + caseName); continue; }
@@ -290,6 +333,8 @@ string _buildTestBundle(string root, string filter) {
             if (!_dirHasTestMethods(dpath)) { continue; }
             string caseName = lib + "/" + nm;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string safe = _bundleSafeName(caseName);
             string zbc = _emitDirUnit(root, lib, nm, dpath, safe, bundleDir);
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + caseName); continue; }
@@ -308,6 +353,8 @@ string _buildTestBundle(string root, string filter) {
             if (!File.Exists(gsrc)) { continue; }
             string caseName = lib + "/" + nm;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string e = _goldenEntry(root, caseName, gsrc,
                 _readExpected(Path.Join(dpath, "expected_output.txt")), bundleDir);
             if (e.Length == 0) { ConsoleError.WriteLine("  ✗ lib-golden " + caseName); continue; }
@@ -317,6 +364,14 @@ string _buildTestBundle(string root, string filter) {
         }
     }
 
+    if (excluded > 0) {
+        Console.WriteLine("  (excluded " + excluded.ToString() + " case(s) requiring caps '"
+            + rid + "' lacks — socket/threads/native-fs)");
+    }
+    if (capped > 0) {
+        Console.WriteLine("  (embed smoke: capped at " + embedCap.ToString() + " cases; skipped "
+            + capped.ToString() + " more — full coverage runs on desktop)");
+    }
     if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
     string mpath = Path.Join(bundleDir, "manifest.json");
     File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
@@ -332,9 +387,10 @@ string _buildTestBundle(string root, string filter) {
 // assembly + the static harness. RUN is browser/Playwright-gated (CI); this
 // command builds + assembles the deployable dir (compile-once, per platform).
 string _buildWasmTesthost(string root, string filter) {
-    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle.
+    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle,
+    // minus tests needing caps wasm lacks (socket/threads/native-fs; see _targetExcludes).
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter);
+    string manifest = _buildTestBundle(root, filter, "browser-wasm");
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
 
@@ -468,7 +524,7 @@ string _buildIosTesthost(string root, string filter, string rid) {
         ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS)"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter);
+    string manifest = _buildTestBundle(root, filter, rid);
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
@@ -533,7 +589,7 @@ string _buildAndroidTesthost(string root, string filter, string rid) {
         ConsoleError.WriteLine("error: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter);
+    string manifest = _buildTestBundle(root, filter, rid);
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
@@ -609,7 +665,7 @@ int _testEmbedded(ParseResult r) {
     if (caseOpt.Length > 0 || filterOpt.Length > 0 || target.Length == 0) {
         string filter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
         Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-        string manifest = _buildTestBundle(root, filter);
+        string manifest = _buildTestBundle(root, filter, target);
         if (manifest.Length == 0) { return 1; }
         runArg = manifest;
     } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {

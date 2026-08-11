@@ -158,15 +158,26 @@ fn walk_dir(root: &str, rel: &str, out: &mut Vec<String>) -> Result<()> {
 pub fn builtin_env_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let name = arg_str(args, 0, "__env_set")?;
     // Null value = remove (mirrors .NET Environment.SetEnvironmentVariable(name, null)).
+    // fix-wasm-corpus-capability-gate: std::env::set_var/remove_var PANIC on wasm32
+    // ("cannot set env vars on this platform"). A browser has no OS environment —
+    // no-op there (env tests are already bundle-excluded for wasm; this is the net).
     match args.get(1).unwrap_or(&Value::Null) {
-        Value::Null => unsafe { std::env::remove_var(name) },
+        Value::Null => {
+            #[cfg(not(target_arch = "wasm32"))]
+            unsafe { std::env::remove_var(name) }
+            #[cfg(target_arch = "wasm32")]
+            let _ = name;
+        }
         v => {
             let s: &str = match v {
                 Value::Str(s) => s,
                 _ => anyhow::bail!("__env_set: arg 1 expected string or null, got {:?}", v),
             };
             // Safety: z42 is single-threaded; no concurrent env reads during this call.
+            #[cfg(not(target_arch = "wasm32"))]
             unsafe { std::env::set_var(name, s); }
+            #[cfg(target_arch = "wasm32")]
+            let _ = (name, s);
         }
     }
     Ok(Value::Null)
@@ -199,7 +210,11 @@ pub fn builtin_process_exit(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 pub fn builtin_env_unset(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let key = arg_str(args, 0, "__env_unset")?;
+    // wasm32: remove_var panics (see builtin_env_set) — no-op in the browser.
+    #[cfg(not(target_arch = "wasm32"))]
     std::env::remove_var(key);
+    #[cfg(target_arch = "wasm32")]
+    let _ = key;
     Ok(Value::Null)
 }
 pub fn builtin_env_vars(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
@@ -301,9 +316,18 @@ fn unique_temp_path(prefix: &str, suffix: &str) -> String {
     };
     #[cfg(target_arch = "wasm32")]
     let nanos = 0u64;
-    let pid   = std::process::id();
+    // fix-wasm-corpus-capability-gate: std::process::id() panics on wasm32.
+    #[cfg(not(target_arch = "wasm32"))]
+    let pid = std::process::id();
+    #[cfg(target_arch = "wasm32")]
+    let pid = 0u32;
     let bump  = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // fix-wasm-corpus-capability-gate: std::env::temp_dir() panics on wasm32
+    // (sys/paths/unsupported). "/tmp" in the in-memory VFS works fine.
+    #[cfg(not(target_arch = "wasm32"))]
     let mut p = std::env::temp_dir();
+    #[cfg(target_arch = "wasm32")]
+    let mut p = std::path::PathBuf::from("/tmp");
     p.push(format!("{prefix}.{nanos:x}.{pid}.{bump:x}{suffix}"));
     p.to_string_lossy().into_owned()
 }
@@ -353,15 +377,25 @@ pub fn builtin_console_error_is_terminal(_ctx: &VmContext, _args: &[Value]) -> R
 }
 
 /// `pwd` / `$PWD`。
+/// fix-wasm-corpus-capability-gate: `std::env::current_dir()` panics on wasm32
+/// ("not supported"). A browser has no working directory — report the VFS root
+/// so infrastructure path resolution degrades gracefully instead of aborting.
 pub fn builtin_env_get_cwd(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    let p = std::env::current_dir()?;
-    Ok(Value::Str(p.to_string_lossy().into_owned().into()))
+    #[cfg(not(target_arch = "wasm32"))]
+    let cwd = std::env::current_dir()?.to_string_lossy().into_owned();
+    #[cfg(target_arch = "wasm32")]
+    let cwd = "/".to_string();
+    Ok(Value::Str(cwd.into()))
 }
 
 /// `cd path`（路径不存在 / 无权限会抛）。
 pub fn builtin_env_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__env_set_cwd")?;
+    // wasm has no working directory — `cd` is a no-op (see builtin_env_get_cwd).
+    #[cfg(not(target_arch = "wasm32"))]
     std::env::set_current_dir(path)?;
+    #[cfg(target_arch = "wasm32")]
+    let _ = path;
     Ok(Value::Null)
 }
 
