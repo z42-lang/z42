@@ -22,18 +22,28 @@ use super::Frame;
 pub(super) fn struct_alloc(
     ctx: &VmContext, frame: &mut Frame, dst: u32, type_name: &str, size: u32,
 ) -> Result<()> {
-    let frame_id = frame.frame_id;
+    let v = struct_alloc_val(ctx, frame.frame_id, type_name, size);
+    frame.set(dst, v);
+    Ok(())
+}
+
+/// Frame-agnostic core of `StructAlloc` — allocate a zero-initialized blob in the
+/// per-context struct arena stamped with `frame_id`; returns the `StructRef` handle.
+/// Shared by interp ([`struct_alloc`]) and the JIT struct helpers
+/// (`jit::helpers::struct_ops`) which read `frame_id` off `JitFrame`.
+pub(crate) fn struct_alloc_val(
+    ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,
+) -> Value {
     let layout = resolve_layout(ctx, type_name, size);
     let idx = ctx.struct_arena.lock().alloc(frame_id, Arc::from(type_name), layout);
-    frame.set(dst, Value::StructRef { idx, frame_id });
-    Ok(())
+    Value::StructRef { idx, frame_id }
 }
 
 /// Resolve a value-struct type's runtime layout (byte size + reference bitmap).
 /// A-use delivers it via the loaded `TypeDesc`; a type without a delivered layout
 /// (or before the TYPE-section block reaches the runtime) falls back to a
 /// `size`-only pure-primitive layout — byte-for-byte the pre-A-use behavior.
-fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
+pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
     if let Some(td) = ctx.try_lookup_type(type_name) {
         if let Some(layout) = td.struct_layout() {
             return layout;
@@ -49,8 +59,7 @@ fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructType
 /// add-struct-object-boxing (PR2a): 拆箱——把堆 `BoxedStruct` 的 blob 拷回**当前帧** struct arena，
 /// 返回值 struct `StructRef` 句柄（`(P)o` / `o as P` 用）。alloc 用类型布局（size 兜底自 `bytes.len()`），
 /// 再 memcpy bytes + clone refs。拆出的 struct 是独立副本（改它不影响 boxed 或再次拆箱）。
-pub(super) fn unbox_struct(ctx: &VmContext, frame: &Frame, b: &ty::BoxedStructData) -> Result<Value> {
-    let frame_id = frame.frame_id;
+pub(crate) fn unbox_struct(ctx: &VmContext, frame_id: u32, b: &ty::BoxedStructData) -> Result<Value> {
     let layout = resolve_layout(ctx, &b.type_name, b.bytes.len() as u32);
     let idx = ctx.struct_arena.lock().alloc(frame_id, b.type_name.clone(), layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
@@ -67,7 +76,7 @@ pub(super) fn unbox_struct(ctx: &VmContext, frame: &Frame, b: &ty::BoxedStructDa
 /// a `foreach (P p in arr)` loop var (or any value-context read) receives a `StructRefHeap`
 /// element handle — the loop var must be an independent copy, not an alias into the array.
 /// Mirrors [`unbox_struct`] but the source is a byte-backed array element, not a boxed blob.
-pub(super) fn copy_array_elem_out(ctx: &VmContext, frame: &Frame, e: &ty::StructArrayElem) -> Result<Value> {
+pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
     let i = e.index as usize;
     let (src_bytes, src_refs, layout, tname): (Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>) = {
         let arr = e.arr.borrow();
@@ -83,7 +92,6 @@ pub(super) fn copy_array_elem_out(ctx: &VmContext, frame: &Frame, e: &ty::Struct
             _ => bail!("as-cast on a non-value-struct array element"),
         }
     };
-    let frame_id = frame.frame_id;
     let idx = ctx.struct_arena.lock().alloc(frame_id, tname, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = src_bytes.len().min(s.bytes.len());
@@ -99,8 +107,18 @@ pub(super) fn copy_array_elem_out(ctx: &VmContext, frame: &Frame, e: &ty::Struct
 pub(super) fn struct_copy(
     ctx: &VmContext, frame: &mut Frame, dst: u32, src: u32, size: u32,
 ) -> Result<()> {
-    let (d_idx, d_fid) = as_struct_ref(frame.get(dst)?, "StructCopy dst")?;
-    let (s_idx, s_fid) = as_struct_ref(frame.get(src)?, "StructCopy src")?;
+    let dst_val = frame.get(dst)?.clone();
+    let src_val = frame.get(src)?.clone();
+    struct_copy_val(ctx, &dst_val, &src_val, size)
+}
+
+/// Frame-agnostic core of `StructCopy` — copy the `src` blob into the `dst` blob
+/// (both already arena-allocated). Shared by interp and the JIT struct helpers.
+pub(crate) fn struct_copy_val(
+    ctx: &VmContext, dst_val: &Value, src_val: &Value, size: u32,
+) -> Result<()> {
+    let (d_idx, d_fid) = as_struct_ref(dst_val, "StructCopy dst")?;
+    let (s_idx, s_fid) = as_struct_ref(src_val, "StructCopy src")?;
     ctx.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
 }
 
@@ -117,7 +135,18 @@ pub(super) fn struct_field_get_prim(
     ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, byte_off: u32, kind: u8,
 ) -> Result<()> {
     let base_val = frame.get(base)?.clone();
-    let val = match &base_val {
+    let val = struct_field_get_val(ctx, &base_val, byte_off, kind)?;
+    frame.set(dst, val);
+    Ok(())
+}
+
+/// Frame-agnostic core of `StructFieldGetPrim` — read the leaf at `byte_off` of the
+/// `base_val` struct (base = arena `StructRef` / heap `Object` inline field /
+/// `StructRefHeap` array element). Shared by interp and the JIT struct helpers.
+pub(crate) fn struct_field_get_val(
+    ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8,
+) -> Result<Value> {
+    let val = match base_val {
         // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
         Value::Object(gc) => {
             let obj = gc.borrow();
@@ -157,7 +186,7 @@ pub(super) fn struct_field_get_prim(
             }
         }
         _ => {
-            let (idx, fid) = as_struct_ref(&base_val, "StructFieldGetPrim base")?;
+            let (idx, fid) = as_struct_ref(base_val, "StructFieldGetPrim base")?;
             if is_ref_tag(kind) {
                 ctx.struct_arena.lock().get_ref(idx, fid, byte_off)?
             } else {
@@ -167,8 +196,7 @@ pub(super) fn struct_field_get_prim(
             }
         }
     };
-    frame.set(dst, val);
-    Ok(())
+    Ok(val)
 }
 
 /// `StructFieldSetPrim base, byte_off, kind, val` — write `val` into the `base`
@@ -185,7 +213,17 @@ pub(super) fn struct_field_set_prim(
 ) -> Result<()> {
     let base_val = frame.get(base)?.clone();
     let v = frame.get(val)?.clone();
-    match &base_val {
+    struct_field_set_val(ctx, &base_val, byte_off, kind, &v)
+}
+
+/// Frame-agnostic core of `StructFieldSetPrim` — write `v` into the `base_val`
+/// struct's leaf at `byte_off` in place (base = arena `StructRef` / heap `Object`
+/// inline field / `StructRefHeap` array element). Heap bases route reference-leaf
+/// writes through a write barrier. Shared by interp and the JIT struct helpers.
+pub(crate) fn struct_field_set_val(
+    ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8, v: &Value,
+) -> Result<()> {
+    match base_val {
         // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
         Value::Object(gc) => {
             if is_ref_tag(kind) {
@@ -204,14 +242,14 @@ pub(super) fn struct_field_set_prim(
                 // `slot` argument is informational (card/diagnostics); the inline
                 // ref index is a stable per-object identifier. STW mode = no-op.
                 if v.is_heap_ref() {
-                    ctx.heap().write_barrier_field(&base_val, ri, &v);
+                    ctx.heap().write_barrier_field(base_val, ri, v);
                 }
                 Ok(())
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.struct_bytes, off, w, kind, &v)
+                encode_prim(&mut obj.struct_bytes, off, w, kind, v)
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.
@@ -233,7 +271,7 @@ pub(super) fn struct_field_set_prim(
                 // Write barrier: reference stored into a heap array element (P3b).
                 if v.is_heap_ref() {
                     let owner = Value::Array(e.arr.clone());
-                    ctx.heap().write_barrier_array_elem(&owner, e.index as usize, &v);
+                    ctx.heap().write_barrier_array_elem(&owner, e.index as usize, v);
                 }
                 Ok(())
             } else {
@@ -242,20 +280,20 @@ pub(super) fn struct_field_set_prim(
                     ArrayBacking::StructBytes { elem_size, bytes, .. } => {
                         let off = e.index as usize * *elem_size + byte_off as usize;
                         let w = prim_width(kind)?;
-                        encode_prim(bytes, off, w, kind, &v)
+                        encode_prim(bytes, off, w, kind, v)
                     }
                     _ => bail!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"),
                 }
             }
         }
         _ => {
-            let (idx, fid) = as_struct_ref(&base_val, "StructFieldSetPrim base")?;
+            let (idx, fid) = as_struct_ref(base_val, "StructFieldSetPrim base")?;
             if is_ref_tag(kind) {
-                return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, v);
+                return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, v.clone());
             }
             let off = byte_off as usize;
             let w = prim_width(kind)?;
-            ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, &v))?
+            ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, v))?
         }
     }
 }
@@ -263,7 +301,7 @@ pub(super) fn struct_field_set_prim(
 /// Whether a leaf `TypeTag` denotes a reference leaf (`string` / object / array),
 /// which lives in the blob's `refs` side-slice rather than byte-packed in `bytes`.
 #[inline]
-fn is_ref_tag(kind: u8) -> bool {
+pub(crate) fn is_ref_tag(kind: u8) -> bool {
     matches!(kind, ty::TAG_STR | ty::TAG_OBJECT | ty::TAG_ARRAY)
 }
 
@@ -277,7 +315,7 @@ fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
 }
 
 /// Byte width of a primitive leaf by its `TypeTag`.
-fn prim_width(kind: u8) -> Result<usize> {
+pub(crate) fn prim_width(kind: u8) -> Result<usize> {
     Ok(match kind {
         ty::TAG_BOOL | ty::TAG_I8 | ty::TAG_U8 => 1,
         ty::TAG_I16 | ty::TAG_U16 => 2,
@@ -290,7 +328,7 @@ fn prim_width(kind: u8) -> Result<usize> {
 /// Decode `w` bytes at `off` into a `Value` per `kind`. Integers → `Value::I64`,
 /// f32/f64 → `Value::F64`, bool → `Value::Bool`, char → `Value::Char` (mirrors the
 /// VM's scalar representation of primitives).
-fn decode_prim(bytes: &[u8], off: usize, w: usize, kind: u8) -> Result<Value> {
+pub(crate) fn decode_prim(bytes: &[u8], off: usize, w: usize, kind: u8) -> Result<Value> {
     if off + w > bytes.len() {
         bail!("struct field read out of blob bounds (off={off}, w={w}, len={})", bytes.len());
     }
@@ -320,7 +358,7 @@ fn decode_prim(bytes: &[u8], off: usize, w: usize, kind: u8) -> Result<Value> {
 }
 
 /// Encode `val` into `w` bytes at `off` per `kind` (in place).
-fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value) -> Result<()> {
+pub(crate) fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value) -> Result<()> {
     if off + w > bytes.len() {
         bail!("struct field write out of blob bounds (off={off}, w={w}, len={})", bytes.len());
     }

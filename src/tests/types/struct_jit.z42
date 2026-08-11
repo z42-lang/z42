@@ -1,0 +1,92 @@
+// add-struct-jit-value-path (P5)：JIT 值路径端到端。此前含任一 struct 值指令的函数整体 bail→interp；
+//   本 golden 综合 struct 用法（本地值语义/嵌套字段/string 引用叶子/struct[] index+foreach/装箱拆箱），
+//   在 `--mode jit` 下真正走 JIT struct helper（helper 桥接到共享 struct arena）。interp 模式同样通过——
+//   两模式输出一致（值语义不因执行模式而异）。
+namespace Demo;
+
+struct Point {
+    int x;
+    int y;
+    Point(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Line {
+    Point a;
+    Point b;
+    Line(Point a, Point b) { this.a = a; this.b = b; }
+}
+
+struct Tagged {
+    int n;
+    string name;
+    Tagged(int n, string name) { this.n = n; this.name = name; }
+}
+
+// 传参 copy-in + 返回 sret：JIT 调用路径 × struct 值语义。
+int SumPoint(Point p) { return p.x + p.y; }
+
+Point MakePoint(int x, int y) {
+    Point p = new Point(x, y);
+    return p;
+}
+
+void Main() {
+    // ── 本地 struct：分配 + 字段读写 + 复制值独立性 ──
+    Point p = new Point(3, 4);
+    Assert.Equal(3, p.x);
+    Assert.Equal(4, p.y);
+    Point q = p;            // 值复制
+    q.x = 99;
+    Assert.Equal(3, p.x);   // p 不受 q 改动影响（值语义）
+    Assert.Equal(99, q.x);
+
+    // ── 传参 copy-in + 返回值 sret ──
+    Assert.Equal(7, SumPoint(p));
+    Point r = MakePoint(10, 20);
+    Assert.Equal(10, r.x);
+    Assert.Equal(20, r.y);
+
+    // ── 嵌套 struct 字段（累积复合 offset）──
+    Line line = new Line(new Point(1, 2), new Point(3, 4));
+    Assert.Equal(1, line.a.x);
+    Assert.Equal(4, line.b.y);
+    line.a.x = 100;
+    Assert.Equal(100, line.a.x);
+    Assert.Equal(3, line.b.x);   // 兄弟字段独立
+
+    // ── string 引用叶子（走 arena refs 侧表）──
+    Tagged t = new Tagged(5, "hello");
+    Assert.Equal(5, t.n);
+    Assert.Equal("hello", t.name);
+    t.name = "world";
+    Assert.Equal("world", t.name);
+
+    // ── struct[]：index 读写 + 整元素值复制 ──
+    Point[] arr = new Point[3];
+    Assert.Equal(0, arr[0].x);
+    arr[0].x = 5;
+    arr[0].y = 7;
+    arr[1].x = 10;
+    Assert.Equal(5, arr[0].x);
+    Assert.Equal(10, arr[1].x);
+    Assert.Equal(0, arr[1].y);   // 元素独立
+    Point pe = arr[0];           // 整元素读出 = 值副本
+    pe.x = 999;
+    Assert.Equal(5, arr[0].x);   // 数组不受 pe 改动影响
+
+    // ── foreach over struct[]（循环变量是值副本）──
+    int sum = 0;
+    foreach (Point e in arr) { sum = sum + e.x; }   // 5 + 10 + 0
+    Assert.Equal(15, sum);
+    foreach (Point e in arr) { e.x = -1; }           // 改副本不动数组
+    Assert.Equal(5, arr[0].x);
+
+    // ── 装箱 + 拆箱（object o = struct；(Point)o）──
+    object boxed = p;                 // 装箱（p = {3,4}）
+    Assert.True(boxed is Point);
+    Point unboxed = (Point)boxed;     // 拆箱 → arena StructRef 值副本
+    Assert.Equal(3, unboxed.x);
+    Assert.Equal(4, unboxed.y);
+    unboxed.x = 77;
+    Assert.Equal(3, p.x);             // 拆出的是独立副本
+}

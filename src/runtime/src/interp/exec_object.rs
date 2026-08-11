@@ -429,7 +429,7 @@ pub(super) fn as_cast(
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
         let out = if &*b.type_name == class_name {
-            super::exec_struct::unbox_struct(ctx, frame, b)?
+            super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?
         } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_name, class_name) {
             val.clone()
         } else {
@@ -442,7 +442,7 @@ pub(super) fn as_cast(
     // value context — e.g. `foreach (P p in arr)`) → copy the element out to a fresh current-frame
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
     if let Value::StructRefHeap(e) = &val {
-        let out = super::exec_struct::copy_array_elem_out(ctx, frame, e)?;
+        let out = super::exec_struct::copy_array_elem_out(ctx, frame.frame_id, e)?;
         frame.set(dst, out);
         return Ok(());
     }

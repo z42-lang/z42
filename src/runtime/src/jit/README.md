@@ -25,6 +25,7 @@
 | `object.rs` | 对象分配、字段访问、类型检查、静态字段、`default(T)` |
 | `vcall.rs` | 虚调用（独立文件，含 primitive-as-struct + 懒加载 fallback） |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` / `load_fn_cached` |
+| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，复用 interp `exec_struct` 的 `*_val` 核心（add-struct-jit-value-path P5-A） |
 
 ## 入口点
 - `jit::run(ctx, module, entry)` → 建基础设施（`JitModule::setup`）+ 执行入口
