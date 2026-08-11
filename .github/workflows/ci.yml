@@ -1526,7 +1526,11 @@ jobs:
   # (infra-ci-platform-test-dashboard, 2026-06-16)
   test-wasm:
     name: test-wasm-browser(linux-x64)
-    timeout-minutes: 30
+    # ci-perf-tier2: 30→60. Cold "build deployable" (wasm-pack LTO + z42c compiling
+    # the whole corpus) runs ~27min and was hitting the 30min cap → the job was
+    # cancelled at that step and the in-browser test never ran (repeatedly). The
+    # rust-cache above cuts the wasm-pack part; the higher cap absorbs the rest.
+    timeout-minutes: 60
     needs: [changes, toolchain-bootstrap]
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
@@ -1620,7 +1624,9 @@ jobs:
 
   test-ios:
     name: test-ios-sim(macos-arm64)
-    timeout-minutes: 45
+    # ci-perf-tier2: 45→60. Same cold-build + simulator-boot pressure repeatedly
+    # cancelled this job before it could report.
+    timeout-minutes: 60
     needs: [changes, toolchain-bootstrap]
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
@@ -1677,7 +1683,9 @@ jobs:
 
   test-android:
     name: test-android-emu(linux-x64)
-    timeout-minutes: 45
+    # ci-perf-tier2: 45→60. Cold NDK/cargo-ndk build + emulator boot headroom
+    # (AVD snapshot cache below cuts boot once warm).
+    timeout-minutes: 60
     needs: [changes, toolchain-bootstrap]
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
