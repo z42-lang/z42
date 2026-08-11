@@ -30,35 +30,11 @@ public static class TypeFactsTc {
         return new Z42PrimType("double");
     }
 
+    // 可赋性判定：委托给统一转换分类器（add-conversion-classifier PR1）。ImplicitOkPermissive()
+    // 的白名单与本函数改动前的分支逐位等价（error/unknown 吸收、泛型擦除、任意→object、结构可赋、
+    // 继承/接口上转、数值双向放行含窄化），故此改动 byte-identical。PR2 收紧时改分类器的门，非此处。
     public static bool _isAssignable(Z42Type from, Z42Type to, SymbolTable symbols) {
-        if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return true; }
-        if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return true; }
-        // GS6: 泛型类型参数（T）类型擦除——仅当恰好一侧是 GenericParamType 时放行（T→concrete 或 concrete→T）。
-        // 两侧均为 GenericParamType（K→V）走 IsAssignableTo 判同名；两侧均为 concrete 走普通路径。
-        if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return true; }
-        // GS6: 任何类型均可赋给 object（通用基类）
-        if ((to is Z42PrimType) && (to.Name() == "object")) { return true; }
-        if (from.IsAssignableTo(to)) { return true; }
-        if ((from is Z42ClassType) && (to is Z42ClassType)) {
-            return symbols.IsSubclassOf(from.Name(), to.Name());
-        }
-        if ((from is Z42ClassType) && (to is Z42InterfaceType)) {   // class→iface（port-z42c-interface；单向）
-            return symbols.Implements(from.Name(), to.Name());
-        }
-        if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {   // generic class instance → iface
-            return symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name());
-        }
-        if ((from is Z42InstantiatedType) && (to is Z42ClassType)) {   // generic class instance → base class
-            return symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name());
-        }
-        if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {   // `this` (bare class) → instantiated return type
-            return from.Name() == (to as Z42InstantiatedType).Def.Name();
-        }
-        // GS6: 数值 prim 互相窄化（int→u8 等，stdlib 二进制格式大量使用）—— 信任程序员，运行期截断
-        if ((from is Z42PrimType) && (to is Z42PrimType)) {
-            if (TypeFactsTc._isNumericPrim(from.Name()) && TypeFactsTc._isNumericPrim(to.Name())) { return true; }
-        }
-        return false;
+        return Conversion.Classify(from, to, symbols).ImplicitOkPermissive();
     }
 
     public static string _primWrapper(string n) {
