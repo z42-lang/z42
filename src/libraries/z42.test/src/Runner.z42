@@ -186,12 +186,27 @@ public static class Runner {
     }
 
     // Does this [Skip] apply on the current host? Unconditional skip → yes.
-    // Platform skip → yes iff host OS matches. Feature skip → conservatively yes
-    // (skip feature-gated tests; precise feature detection is a follow-up).
+    // Platform skip → yes iff host OS matches. Feature skip → yes iff the running
+    // VM lacks that capability (fix-wasm-corpus-capability-gate): `[Skip(feature:
+    // X)]` reads as "this test requires capability X; skip where it's absent" —
+    // so it runs where X is present (e.g. threads/socket on native) and skips
+    // where it isn't (wasm). Deny-by-default preserved: an unknown feature is not
+    // in Capabilities() → absent → skip.
     static bool _skipApplies(TestEntry e) {
         if (e.SkipPlatform != null) { return Platform.OS() == e.SkipPlatform; }
-        if (e.SkipFeature != null) { return true; }
+        if (e.SkipFeature != null) { return !Runner._capsHas(e.SkipFeature); }
         return true;
+    }
+
+    // Does the running VM report capability `feature` (Std.Platform.Capabilities())?
+    static bool _capsHas(string feature) {
+        string[] caps = Platform.Capabilities();
+        int i = 0;
+        while (i < caps.Length) {
+            if (caps[i] == feature) { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 
     // Match the thrown type against the [ShouldThrow<E>] expectation. `expected`

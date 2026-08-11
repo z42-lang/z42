@@ -73,6 +73,10 @@ pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
     #[cfg(not(target_arch = "wasm32"))]     caps.push("threads");
+    // fix-wasm-corpus-capability-gate: `socket` = real OS networking (TCP/UDP/HTTP/
+    // WS) — compiled in wherever `std::net` works, i.e. everywhere except wasm.
+    // Backs `[Skip(feature: "socket")]` gating so z42.net tests skip in-browser.
+    #[cfg(not(target_arch = "wasm32"))]     caps.push("socket");
     let list: Vec<Value> = caps.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
     Ok(ctx.heap().alloc_array(list))
 }
