@@ -297,8 +297,10 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - ✅ **class 实例方法返回 struct**（`Point GetPt(){ return pt; }`）：`_emitCall` instance 分支返回 blob struct 时
   三派发路径（devirt 直 Call / DepIndex Call / VCall fallback）均追加返回 blob 句柄作**末尾隐藏 sret 实参** + void
   dst；object VCall 按 vtable slot(方法名) 派发 arity 不入解析键 → 不破派发。golden `struct_heap_inline.z42`（GetPt）验，格式中立。
-- ⏳ Deferred：**foreach over struct[]**（`foreach(P p in arr)` 元素拷出，索引循环已工作）、
-  **JIT 值路径**（P5）、**跨包内联布局 + 反射**（P4）。
+- ✅ **foreach over struct[]**（`foreach(P p in arr)`）：foreach 数组路径对值 struct 循环变量发的 AsCast，runtime
+  `as_cast` 加 `StructRefHeap` 臂 → `copy_array_elem_out` 把元素拷出到当前帧 arena StructRef（值副本，循环变量非
+  别名进数组）。runtime-only、格式中立，golden `struct_array.z42` foreach 段验（含 `foreach{e.x=999}` 不动数组）。
+- ⏳ Deferred：**JIT 值路径**（P5，现全 bail→interp）、**跨包内联布局 + 反射**（P4）。
 
 ## 与逃逸分析 / packed 数组的关系
 
@@ -323,7 +325,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
   `struct_bytes` + 引用叶子 `struct_refs` 侧表（D1-a）+ 复用 `StructFieldGetPrim/SetPrim` 对象 base（路线 α）+
   GC scan/`write_barrier_field` 复用侧表 + 格式 wire 内联字段表（zbc 1.32/zpkg 0.37）。golden 端到端验证。
 - ✅ **`struct[]` 值类型数组元素 codegen**（add-struct-array-codegen）+ **class 实例方法返回 struct**
-  （add-struct-method-return，`sret × VCall`）——均格式中立，golden `struct_array.z42` / `struct_heap_inline.z42`(GetPt) 验。
-- ⏳ Deferred：**foreach over struct[]**（索引循环已工作）、**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
+  （add-struct-method-return，`sret × VCall`）+ **foreach over struct[]**（add-struct-foreach，`as_cast`
+  StructRefHeap 臂拷出元素）——均格式中立，golden `struct_array.z42` / `struct_heap_inline.z42`(GetPt) 验。
+- ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
   **跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 值路径**（P5，现全 bail→interp）、**ToString 字段 dump**、
   **E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
