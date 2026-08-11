@@ -554,6 +554,19 @@ pub enum ArrayBacking {
     I64(Vec<i64>),       // long / ulong
     Chars(Vec<char>),    // char（scalar，与 String.ToCharArray 对齐）
     F64(Vec<f64>),       // double / float
+    /// add-struct-heap-inline (P3b, D1-a): a **value-struct array** `Point[]` — the
+    /// C# inline `struct[]` model. Elements are byte-packed back-to-back in `bytes`
+    /// (`len * elem_size`); reference leaves live in the parallel `refs` side-table
+    /// (`len * layout.ref_count()`, element `i`'s refs at `[i*rc, (i+1)*rc)`).
+    /// `layout` = the element struct type's byte+reference layout (shared `Arc`).
+    /// Element access goes through a `Value::StructRefHeap` handle (route α), not
+    /// `get_boxed`/`set_boxed` (those have no array `GcRef` to build a handle from).
+    StructBytes {
+        elem_size: usize,
+        bytes: Vec<u8>,
+        refs: Vec<Value>,
+        layout: std::sync::Arc<StructTypeLayout>,
+    },
 }
 
 impl ArrayObj {
@@ -614,6 +627,9 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => v.len(),
             ArrayBacking::Chars(v) => v.len(),
             ArrayBacking::F64(v)   => v.len(),
+            // add-struct-heap-inline (P3b): element count = total bytes / elem_size.
+            ArrayBacking::StructBytes { elem_size, bytes, .. } =>
+                if *elem_size == 0 { 0 } else { bytes.len() / elem_size },
         }
     }
     #[inline]
@@ -638,6 +654,22 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => Value::I64(v[i]),
             ArrayBacking::Chars(v) => Value::Char(v[i]),
             ArrayBacking::F64(v)   => Value::F64(v[i]),
+            // add-struct-heap-inline (P3b): reading a struct[] element as a generic
+            // `Value` yields a **boxed copy** (value semantics — the read is a snapshot;
+            // mutating the box does not touch the array). In-place `arr[i].x = v` /
+            // `arr[i].x` leaf access instead goes through a `Value::StructRefHeap`
+            // handle at the exec layer (it has the array `GcRef`; `get_boxed` does not).
+            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
+                let rc = layout.ref_count();
+                let bstart = i * elem_size;
+                let ebytes: Box<[u8]> = bytes[bstart..bstart + elem_size].into();
+                let erefs: Box<[Value]> = refs[i * rc..i * rc + rc].to_vec().into_boxed_slice();
+                Value::BoxedStruct(Box::new(BoxedStructData {
+                    type_name: self.element_type.clone(),
+                    bytes: ebytes,
+                    refs: erefs,
+                }))
+            }
         }
     }
     /// Write `Value` into element `i` (unboxes into packed primitives). Caller
@@ -652,6 +684,23 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => v[i] = if let Value::I64(n) = val { n } else { 0 },
             ArrayBacking::Chars(v) => v[i] = if let Value::Char(c) = val { c } else { '\0' },
             ArrayBacking::F64(v)   => v[i] = if let Value::F64(f) = val { f } else { 0.0 },
+            // add-struct-heap-inline (P3b): writing a whole struct[] element from a
+            // **boxed** source copies its bytes + reference leaves into the element slot.
+            // A frame-scoped `StructRef` source needs `ctx.struct_arena` → handled at the
+            // exec-layer `ArraySet` (this generic setter only sees `&mut self`).
+            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
+                if let Value::BoxedStruct(b) = &val {
+                    let rc = layout.ref_count();
+                    let bstart = i * *elem_size;
+                    let n = b.bytes.len().min(*elem_size);
+                    bytes[bstart..bstart + n].copy_from_slice(&b.bytes[..n]);
+                    let rn = b.refs.len().min(rc);
+                    for k in 0..rn { refs[i * rc + k] = b.refs[k].clone(); }
+                } else {
+                    debug_assert!(false,
+                        "struct[] set_boxed needs a BoxedStruct source (StructRef → exec-level ArraySet), got {val:?}");
+                }
+            }
         }
     }
 
@@ -672,6 +721,21 @@ impl ArrayObj {
     #[inline]
     pub fn boxed_slice_mut(&mut self) -> Option<&mut Vec<Value>> {
         match &mut self.backing { ArrayBacking::Boxed(v) => Some(v), _ => None }
+    }
+
+    /// add-struct-heap-inline (P3b): every heap reference this array holds, for the
+    /// GC mark traversal. A `Boxed` array's elements are all refs; a `StructBytes`
+    /// (value-struct) array's refs are the inline elements' reference leaves in the
+    /// side-table (packed primitives in `bytes` hold none). Packed-primitive arrays
+    /// return `&[]`. Supersedes `boxed_slice()` for GC scanning (which missed
+    /// struct[] refs → would have leaked / prematurely freed them).
+    #[inline]
+    pub fn gc_refs(&self) -> &[Value] {
+        match &self.backing {
+            ArrayBacking::Boxed(v) => v,
+            ArrayBacking::StructBytes { refs, .. } => refs,
+            _ => &[],
+        }
     }
 
     /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
@@ -733,6 +797,7 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => v.clear(),
             ArrayBacking::Chars(v) => v.clear(),
             ArrayBacking::F64(v)   => v.clear(),
+            ArrayBacking::StructBytes { bytes, refs, .. } => { bytes.clear(); refs.clear(); }
         }
     }
     #[inline]
@@ -745,6 +810,8 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => v.capacity(),
             ArrayBacking::Chars(v) => v.capacity(),
             ArrayBacking::F64(v)   => v.capacity(),
+            ArrayBacking::StructBytes { elem_size, bytes, .. } =>
+                if *elem_size == 0 { 0 } else { bytes.capacity() / elem_size },
         }
     }
     /// Heap bytes for element storage (`capacity × sizeof(element)`) — the
@@ -760,6 +827,9 @@ impl ArrayObj {
             ArrayBacking::I64(v)   => v.capacity() * 8,
             ArrayBacking::Chars(v) => v.capacity() * 4,
             ArrayBacking::F64(v)   => v.capacity() * 8,
+            // Packed struct bytes + the reference side-table (16B/handle in a Value).
+            ArrayBacking::StructBytes { bytes, refs, .. } =>
+                bytes.capacity() + refs.capacity() * size_of::<Value>(),
         }
     }
 }
@@ -1036,17 +1106,17 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
+                for elem in arr.gc_refs() { visit(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
+                for elem in arr.gc_refs() { visit(elem); }
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}
                 RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    if let Some(s) = arr.boxed_slice() { for elem in s { visit(elem); } }
+                    for elem in arr.gc_refs() { visit(elem); }
                 }
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();

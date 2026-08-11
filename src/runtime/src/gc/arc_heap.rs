@@ -2003,14 +2003,14 @@ impl MagrGC for ArcMagrGC {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                for elem in arr.gc_refs() { visitor(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
             // impl-closure-l3-core: a closure's env owns Value slots that may
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
                 let arr = c.env.borrow();
-                if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                for elem in arr.gc_refs() { visitor(elem); }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
             // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
@@ -2019,7 +2019,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Stack { .. } => {}
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    if let Some(s) = arr.boxed_slice() { for elem in s { visitor(elem); } }
+                    for elem in arr.gc_refs() { visitor(elem); }
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
