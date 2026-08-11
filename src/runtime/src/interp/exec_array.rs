@@ -22,7 +22,7 @@ use super::Frame;
 /// criterion the compiler uses to emit inline-struct access), build a `StructBytes`-backed
 /// array of `len` zero-initialized elements (C# inline `struct[]`). `None` for primitives /
 /// reference types / single-field structs (they keep `Boxed` / packed backings).
-fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<crate::metadata::types::ArrayObj> {
+pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<crate::metadata::types::ArrayObj> {
     let td = ctx.try_lookup_type(element_type)?;
     if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
     let layout = td.struct_layout()?;         // value struct with a delivered byte layout
@@ -35,7 +35,7 @@ fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<
 /// blob — resolved via `ctx.struct_arena`) or a `BoxedStruct` (owned snapshot); its bytes +
 /// reference leaves are copied into the element's byte window + ref side-table slots.
 /// `Null` = default (leave the zero-initialized element untouched).
-fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types::ArrayObj, i: usize, v: &Value) -> Result<()> {
+pub(crate) fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types::ArrayObj, i: usize, v: &Value) -> Result<()> {
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         Value::BoxedStruct(b) => (b.bytes.to_vec(), b.refs.to_vec()),
         Value::StructRef { idx, frame_id } =>

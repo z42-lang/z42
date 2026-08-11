@@ -16,12 +16,12 @@
 pub(crate) mod dispatch;
 pub(crate) mod exec_instr;
 mod exec_address;
-mod exec_array;
+pub(crate) mod exec_array;                 // add-struct-jit-value-path: JIT reuses try_struct_backed/pack_struct_elem
 mod exec_call;
 #[cfg(feature = "native-interop")]
 mod exec_native;
 mod exec_object;
-mod exec_struct;              // add-struct-value-semantics: blob value-type instruction exec
+pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type instruction exec (JIT helpers reuse the *_val cores)
 pub(crate) mod exec_value;
 mod exec_vcall;
 mod ops;
@@ -616,6 +616,11 @@ fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usi
     let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut osr = crate::jit::frame::JitFrame::from_interp_regs(&frame.regs, entry.max_reg);
+    // add-struct-jit-value-path (P5): OSR continues the SAME logical activation, so
+    // the native frame must inherit the interp frame's id — any StructRef the loop
+    // already allocated (frame_id = interp's) must still deref after hand-off, and
+    // new struct allocs in OSR code stay consistent with them.
+    osr.frame_id = frame.frame_id;
     let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(entry.ptr) };
     // NB v1 simplification: the interpreter's own VmFrame for this activation is
     // still on the stack; we push a second one for the OSR native frame. GC scans

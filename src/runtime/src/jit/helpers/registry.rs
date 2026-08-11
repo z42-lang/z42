@@ -23,7 +23,7 @@ use cranelift_codegen::ir::{types, AbiParam};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module as CraneliftModule};
 
-use super::{arith, array, call, closure, control, object, value, vcall};
+use super::{arith, array, call, closure, control, object, struct_ops, value, vcall};
 
 // ─── HelperIds ──────────────────────────────────────────────────────────────
 //
@@ -116,6 +116,11 @@ pub struct HelperIds {
     pub load_fn_cached: FuncId,
     /// fix-numeric-cast-lowering (2026-05-13): explicit numeric cast.
     pub convert:        FuncId,
+    // add-struct-jit-value-path (P5): blob value-type instruction helpers.
+    pub struct_alloc:          FuncId,
+    pub struct_copy:           FuncId,
+    pub struct_field_get_prim: FuncId,
+    pub struct_field_set_prim: FuncId,
 }
 
 // ─── register_symbols ───────────────────────────────────────────────────────
@@ -201,6 +206,11 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_load_fn_cached", closure::jit_load_fn_cached);
     reg!("jit_mk_clos",       closure::jit_mk_clos);
     reg!("jit_call_indirect", closure::jit_call_indirect);
+    // add-struct-jit-value-path (P5): struct value-type instruction helpers
+    reg!("jit_struct_alloc",          struct_ops::jit_struct_alloc);
+    reg!("jit_struct_copy",           struct_ops::jit_struct_copy);
+    reg!("jit_struct_field_get_prim", struct_ops::jit_struct_field_get_prim);
+    reg!("jit_struct_field_set_prim", struct_ops::jit_struct_field_set_prim);
 }
 
 // ─── declare_imports ────────────────────────────────────────────────────────
@@ -271,7 +281,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // formalize-jit-method-token (2026-05-08): id-based dispatch (no hash).
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t],         [i8t]),
         array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i64t], [i8t]),
-        array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], []),
+        array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], [i8t]),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         // jit_array_data(frame, ctx, arr, out_ptr, out_len, out_width) -> u8 (0 ok / 1 exc)
         array_data:    decl!("jit_array_data",    [ptr, ptr, i32t, ptr, ptr, ptr],        [i8t]),
@@ -330,5 +340,14 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         default_of:     decl!("jit_default_of",     [ptr, ptr, i32t, i32t],                      [i8t]),
         // jit_convert(frame, ctx, dst, src, to_tag) -> u8  (spec fix-numeric-cast-lowering)
         convert:        decl!("jit_convert",        [ptr, ptr, i32t, i32t, i32t],                [i8t]),
+        // add-struct-jit-value-path (P5): blob value-type instruction helpers.
+        // jit_struct_alloc(frame, ctx, dst, type_ptr, type_len, size) -> ()
+        struct_alloc:          decl!("jit_struct_alloc",          [ptr, ptr, i32t, ptr, i64t, i32t], []),
+        // jit_struct_copy(frame, ctx, dst, src, size) -> u8
+        struct_copy:           decl!("jit_struct_copy",           [ptr, ptr, i32t, i32t, i32t],      [i8t]),
+        // jit_struct_field_get_prim(frame, ctx, dst, base, byte_off, kind) -> u8
+        struct_field_get_prim: decl!("jit_struct_field_get_prim", [ptr, ptr, i32t, i32t, i32t, i8t], [i8t]),
+        // jit_struct_field_set_prim(frame, ctx, base, byte_off, kind, val) -> u8
+        struct_field_set_prim: decl!("jit_struct_field_set_prim", [ptr, ptr, i32t, i32t, i8t, i32t], [i8t]),
     })
 }

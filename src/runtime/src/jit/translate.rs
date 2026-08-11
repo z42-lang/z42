@@ -377,6 +377,11 @@ pub fn translate_function(
     let hr_as_cast       = imp!(helper_ids.as_cast);
     let hr_static_get    = imp!(helper_ids.static_get);
     let hr_static_set    = imp!(helper_ids.static_set);
+    // add-struct-jit-value-path (P5): blob value-type instruction helpers.
+    let hr_struct_alloc          = imp!(helper_ids.struct_alloc);
+    let hr_struct_copy           = imp!(helper_ids.struct_copy);
+    let hr_struct_field_get_prim = imp!(helper_ids.struct_field_get_prim);
+    let hr_struct_field_set_prim = imp!(helper_ids.struct_field_set_prim);
     let hr_get_bool      = imp!(helper_ids.get_bool);
     let hr_set_ret       = imp!(helper_ids.set_ret);
     let hr_throw            = imp!(helper_ids.throw);
@@ -1068,7 +1073,9 @@ pub fn translate_function(
                     let d = ri!(insn.dst);
                     let (ep, el) = regs_val!(&insn.elems);
                     let (etp, etl) = str_val!(insn.element_type);
-                    builder.ins().call(hr_array_new_lit, &[frame_val, ctx_val, d, ep, el, etp, etl]);
+                    let inst = builder.ins().call(hr_array_new_lit, &[frame_val, ctx_val, d, ep, el, etp, etl]);
+                    // add-struct-jit-value-path (P5): now u8 (struct-literal pack / OOM can throw).
+                    let ret = builder.inst_results(inst)[0]; check!(ret);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
                     // jit-inline-fastpaths: when the element (`dst`) and index are
@@ -1498,14 +1505,36 @@ pub fn translate_function(
                 Instruction::LoadFieldAddr(_) => {
                     bail!("JIT cannot translate LoadFieldAddr yet (impl-ref-out-in-runtime; interp only)");
                 }
-                // add-struct-value-semantics Phase A: blob value type instructions
-                // are interp-only (JIT support is Phase D); bail → function falls
-                // back to interp. z42c doesn't emit these until A-use (2c) anyway.
-                Instruction::StructAlloc(_)
-                | Instruction::StructCopy { .. }
-                | Instruction::StructFieldGetPrim { .. }
-                | Instruction::StructFieldSetPrim { .. } => {
-                    bail!("JIT cannot translate struct value-type instructions yet (Phase D; interp only)");
+                // add-struct-jit-value-path (P5-A): blob value-type instructions are
+                // emitted as calls to the struct helpers, which run on the shared
+                // per-context struct arena (helper-bridge — see struct_ops.rs). The
+                // struct op itself runs at interp speed; the surrounding code is
+                // native. Native inline byte access is Deferred (P5-B).
+                Instruction::StructAlloc(insn) => {
+                    let d = ri!(insn.dst);
+                    let (tp, tl) = str_val!(insn.type_name);
+                    let sz = builder.ins().iconst(types::I32, insn.size as i64);
+                    builder.ins().call(hr_struct_alloc, &[frame_val, ctx_val, d, tp, tl, sz]);
+                }
+                Instruction::StructCopy { dst, src, size } => {
+                    let d = ri!(*dst); let s = ri!(*src);
+                    let sz = builder.ins().iconst(types::I32, *size as i64);
+                    let inst = builder.ins().call(hr_struct_copy, &[frame_val, ctx_val, d, s, sz]);
+                    let ret = builder.inst_results(inst)[0]; check!(ret);
+                }
+                Instruction::StructFieldGetPrim { dst, base, byte_off, kind } => {
+                    let d = ri!(*dst); let b = ri!(*base);
+                    let off = builder.ins().iconst(types::I32, *byte_off as i64);
+                    let k   = builder.ins().iconst(types::I8,  *kind as i64);
+                    let inst = builder.ins().call(hr_struct_field_get_prim, &[frame_val, ctx_val, d, b, off, k]);
+                    let ret = builder.inst_results(inst)[0]; check!(ret);
+                }
+                Instruction::StructFieldSetPrim { base, byte_off, kind, val } => {
+                    let b = ri!(*base); let v = ri!(*val);
+                    let off = builder.ins().iconst(types::I32, *byte_off as i64);
+                    let k   = builder.ins().iconst(types::I8,  *kind as i64);
+                    let inst = builder.ins().call(hr_struct_field_set_prim, &[frame_val, ctx_val, b, off, k, v]);
+                    let ret = builder.inst_results(inst)[0]; check!(ret);
                 }
                 // 2026-05-07 D-8b-3 Phase 2 + switch-multicast-funcpredicate-to-generic-exception:
                 // emit `jit_default_of(frame, ctx, dst, param_index)` helper call.

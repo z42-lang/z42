@@ -28,6 +28,7 @@ pub mod closure;
 pub mod control;
 pub mod object;
 pub mod registry;
+pub mod struct_ops;
 pub mod value;
 pub mod vcall;
 

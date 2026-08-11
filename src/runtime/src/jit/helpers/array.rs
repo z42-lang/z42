@@ -21,8 +21,20 @@ pub unsafe extern "C" fn jit_array_new(
             return 1;
         }
     };
-    let default = default_value_for_tag(elem_tag);
     let element_type = std::str::from_utf8(std::slice::from_raw_parts(et_ptr, et_len)).unwrap_or("");
+    // add-struct-jit-value-path (P5): value-struct element → StructBytes heap backing
+    // (mirrors interp `array_new`); otherwise `arr[i]` can't materialize a
+    // StructRefHeap and the struct field access on it would see a Null base.
+    if let Some(sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, n) {
+        let arr = vm_ctx_ref(ctx).heap().alloc_array_obj(sb);
+        if matches!(arr, Value::Null) {
+            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array[{n}]: heap limit exceeded").into()));
+            return 1;
+        }
+        (*frame).regs[dst as usize] = arr;
+        return 0;
+    }
+    let default = default_value_for_tag(elem_tag);
     (*frame).regs[dst as usize] = vm_ctx_ref(ctx).heap().alloc_array_typed(element_type, vec![default; n]);
     0
 }
@@ -32,11 +44,29 @@ pub unsafe extern "C" fn jit_array_new_lit(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, elems_ptr: *const u32, elem_cnt: usize,
     et_ptr: *const u8, et_len: usize,
-) {
+) -> u8 {
     let elems = std::slice::from_raw_parts(elems_ptr, elem_cnt);
     let vals: Vec<Value> = elems.iter().map(|&r| (*frame).regs[r as usize].clone()).collect();
     let element_type = std::str::from_utf8(std::slice::from_raw_parts(et_ptr, et_len)).unwrap_or("");
+    // add-struct-jit-value-path (P5): value-struct literal → StructBytes backing,
+    // packing each element's bytes + reference leaves (mirrors interp array_new_lit).
+    if let Some(mut sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, vals.len()) {
+        for (i, v) in vals.iter().enumerate() {
+            if let Err(e) = crate::interp::exec_array::pack_struct_elem(vm_ctx_ref(ctx), &mut sb, i, v) {
+                set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into()));
+                return 1;
+            }
+        }
+        let arr = vm_ctx_ref(ctx).heap().alloc_array_obj(sb);
+        if matches!(arr, Value::Null) {
+            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array literal[{}]: heap limit exceeded", vals.len()).into()));
+            return 1;
+        }
+        (*frame).regs[dst as usize] = arr;
+        return 0;
+    }
     (*frame).regs[dst as usize] = vm_ctx_ref(ctx).heap().alloc_array_typed(element_type, vals);
+    0
 }
 
 /// Phase 4a (jit-inline-fastpaths): expose the array's element data pointer +
@@ -124,7 +154,22 @@ pub unsafe extern "C" fn jit_array_get(
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
                 return 1;
             }
-            borrowed.get_boxed(i)
+            // add-struct-jit-value-path (P5): a value-struct array element is a
+            // `StructRefHeap` handle into the array's byte backing (for in-place
+            // `arr[i].x` / value-copy at consumers), mirroring interp `array_get`
+            // (add-struct-array-codegen). Without this the element would degrade to
+            // a `get_boxed` BoxedStruct snapshot and the following StructFieldGetPrim
+            // (base = StructRefHeap/StructRef) would mismatch.
+            if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
+                let arr_gc = rc.clone();
+                drop(borrowed);
+                Value::StructRefHeap(Box::new(crate::metadata::types::StructArrayElem {
+                    arr: arr_gc,
+                    index: i as u32,
+                }))
+            } else {
+                borrowed.get_boxed(i)
+            }
         }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: expected array, got {:?}", other).into()));

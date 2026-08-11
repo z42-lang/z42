@@ -453,20 +453,36 @@ pub unsafe extern "C" fn jit_as_cast(
         (*frame).regs[dst as usize] = out;
         return;
     }
-    // add-struct-object-boxing: BoxedStruct 命中 struct/object/base/接口 → 保持 boxed；否则 Null。
-    // 注：精确 struct 匹配的**拆箱**（→ arena StructRef 值）是 interp-only（Phase D）——JIT 帧无
-    // frame_id 无法产合法 StructRef，且消费拆箱结果的 struct 指令会使整函数回退 interp（那时走 interp
-    // as_cast 正确拆箱）。故此处命中即保持 boxed，绝不产无效句柄。
+    // add-struct-jit-value-path (P5): BoxedStruct 精确匹配 → **拆箱**到当前帧 arena StructRef
+    // （值副本，镜像 interp as_cast）；object/base/接口 → 保持 boxed（多态）；否则 Null。frame_id
+    // 由 struct 帧惰性分配（struct_ops::frame_id_of），前置的「JIT 无 frame_id 只能保持 boxed」限制
+    // （add-struct-object-boxing）已被本 change 解除。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let matches = &*b.type_name == class_name || is_obj
-            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name);
-        (*frame).regs[dst as usize] = if matches { val } else { Value::Null };
+        let out = if &*b.type_name == class_name {
+            let fid = super::struct_ops::frame_id_of(frame, ctx);
+            crate::interp::exec_struct::unbox_struct(vm_ctx_ref(ctx), fid, b)
+                .unwrap_or(Value::Null)
+        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name) {
+            val.clone()
+        } else {
+            Value::Null
+        };
+        (*frame).regs[dst as usize] = out;
         return;
     }
     // add-struct-generic-boxing (P3a): 未装箱值 struct（StructRef）→ `as P` 恒等（镜像 interp as_cast）。
     if matches!(&val, Value::StructRef { .. }) {
         (*frame).regs[dst as usize] = val;
+        return;
+    }
+    // add-struct-jit-value-path (P5): struct[] 元素句柄在值上下文（foreach 循环变量等）→ 拷出到
+    // 当前帧 arena StructRef（值副本快照，镜像 interp copy_array_elem_out）。
+    if let Value::StructRefHeap(e) = &val {
+        let fid = super::struct_ops::frame_id_of(frame, ctx);
+        (*frame).regs[dst as usize] =
+            crate::interp::exec_struct::copy_array_elem_out(vm_ctx_ref(ctx), fid, e)
+                .unwrap_or(Value::Null);
         return;
     }
     let is_match = match &val {

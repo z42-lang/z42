@@ -24,6 +24,15 @@ pub struct JitFrame {
     /// here. Released as part of `JitFrame::recycle` (envs hold normal Drop
     /// semantics — GcRef contents inside env Vec follow their own RC chains).
     pub env_arena: Vec<Vec<Value>>,
+    /// add-struct-jit-value-path (P5): monotonic id of this JIT frame, assigned
+    /// from `VmContext::next_frame_id()` at each body-running frame-creation site
+    /// (entry / nested `jit_call` / vcall / ctor / closure) and **inherited** from
+    /// the interp frame at an OSR hand-off. The struct helpers stamp it into
+    /// `Value::StructRef { frame_id }` so the shared per-context struct arena's
+    /// staleness guard works exactly like an interp frame. `0` on frames that
+    /// never allocate a struct value is harmless — no StructRef is produced, and
+    /// the arena LIFO base is driven by `struct_base` (push/pop_frame), not by id.
+    pub frame_id: u32,
 }
 
 impl JitFrame {
@@ -37,7 +46,7 @@ impl JitFrame {
                 regs[i] = v.clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new() }
+        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
     }
 
     /// add-osr-loop-tiering: build a JitFrame from an interpreter frame's live
@@ -53,7 +62,7 @@ impl JitFrame {
         for (i, v) in interp_regs.iter().enumerate() {
             if i < size { regs[i] = v.clone(); }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new() }
+        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
     }
 
     /// Allocate a frame and fill its first registers directly from the caller's
@@ -70,7 +79,7 @@ impl JitFrame {
                 regs[i] = caller_regs[r as usize].clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new() }
+        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
     }
 
     /// Like `new_args_from`, but for a method call: register 0 is the receiver
@@ -90,7 +99,7 @@ impl JitFrame {
                 regs[slot] = caller_regs[r as usize].clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new() }
+        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
     }
 
     /// Return the register Vec to the pool for reuse.

@@ -1,9 +1,10 @@
 # struct 值语义（内联字节 blob）
 
 > 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等（2026-08-10）+
-> struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）落地，均无格式 bump。本页讲**多字段 struct 的真值语义**
-> 如何在编译器 + 运行时实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见
-> `docs/spec/changes/add-struct-value-semantics/`。
+> struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）+ 堆内联字段 / `struct[]` /
+> 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接（2026-08-12，
+> 格式中立）** 落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时实现。程序全景（选项 B /
+> B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
 
 ## 目标
 
@@ -154,10 +155,10 @@ struct（object/boxed）」→ 发 `AsCast`（复用现有 opcode）。VM `as_ca
 `as object`·base·接口 保持 boxed / 不匹配 Null。`o.GetType()` 经 VCall 的 `BoxedStruct` 分支特判到
 `builtin_obj_get_type`（保留精确类型，不拆箱 this）。
 
-> **JIT**：JIT 对 struct 值指令一律 bail→interp（Phase D），故用 struct 值的函数跑 interp（拆箱在此健全）。
-> JIT 帧无 `frame_id` 不能产 arena `StructRef`，故 `jit_as_cast` 对 boxed struct 命中即保持 boxed、绝不产
-> 无效句柄（可消费的拆箱结果必含 struct 指令 → 整函数回退 interp）；`jit_is_instance`/`jit_vcall`(GetType)
-> 加 `BoxedStruct` 分支（身份，无 alloc）与 interp 对称。
+> **JIT**（P5-A 起，见下「JIT 值路径」节）：`jit_as_cast` 对 boxed struct 精确匹配**拆箱**到当前帧
+> arena `StructRef`（`frame_id` 惰性分配）；`as object`·base·接口保持 boxed。`jit_is_instance`/
+> `jit_vcall`(GetType) 的 `BoxedStruct` 身份分支（无 alloc）与 interp 对称。（P5 前 JIT 对 struct 值指令
+> 一律 bail→interp，`jit_as_cast` 命中即保持 boxed——该限制已解除。）
 
 ## struct 合成对象协议方法（add-struct-object-methods PR2b）
 
@@ -300,7 +301,52 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - ✅ **foreach over struct[]**（`foreach(P p in arr)`）：foreach 数组路径对值 struct 循环变量发的 AsCast，runtime
   `as_cast` 加 `StructRefHeap` 臂 → `copy_array_elem_out` 把元素拷出到当前帧 arena StructRef（值副本，循环变量非
   别名进数组）。runtime-only、格式中立，golden `struct_array.z42` foreach 段验（含 `foreach{e.x=999}` 不动数组）。
-- ⏳ Deferred：**JIT 值路径**（P5，现全 bail→interp）、**跨包内联布局 + 反射**（P4）。
+- ⏳ Deferred：**跨包内联布局 + 反射**（P4）。
+
+## JIT 值路径（add-struct-jit-value-path P5-A）
+
+P5 前，JIT 一遇任一条 struct 值指令（`StructAlloc`/`StructCopy`/`StructFieldGetPrim`/`StructFieldSetPrim`）
+即 `bail!`→**整函数回退 interp**——用到 struct 的函数拿不到任何 JIT 收益（连周边算术/循环/调用一起退回）。
+P5-A 用 **helper 桥接**接通 JIT 值路径。
+
+### 机制：helper 桥接（Decision D1 选 A，非原生内联）
+
+每条 struct 指令 emit 成对一个 Rust helper 的 `call`（`jit_struct_alloc`/`_copy`/`_field_get_prim`/
+`_field_set_prim`，`jit/helpers/struct_ops.rs`），helper 操作与 interp **同一个** per-context
+`struct_arena`。**关键复用**：helper 只是薄封装读写 `JitFrame.regs`，真正的 arena 操作 + 字节编解码 +
+base 三态分派（arena `StructRef` / 堆 `Object` 内联字段 / `StructRefHeap` 数组元素）全部调 interp
+`exec_struct` 抽出的 frame 无关 `*_val` 核心（`struct_alloc_val`/`struct_copy_val`/`struct_field_get_val`/
+`struct_field_set_val`）——interp 与 JIT **逐字节等价**，无逻辑分裂。
+
+收益：**struct 指令本身 ≈interp 速度**（一次 native→Rust call + arena 锁），但**周边算术/控制流/调用为
+native**——含 struct 的函数不再整体退回 interp。这是 P5 的 95% 价值。**原生内联字节访问**（FieldGet/Set
+直接 emit cranelift load/store 到 arena 字节，跳过 helper call）边际提速有限却引入裸指针 × 移动 GC ×
+realloc 健全性风险，记 **Deferred（P5-B）**——待 benchmark 证明某热路径卡在 helper 边界再做。
+
+### frame_id：惰性分配 + OSR 继承
+
+`StructRef{idx, frame_id}` 的 `frame_id` 供共享 arena 的悬垂 guard（LIFO base 已由现有
+`push_frame`/`pop_frame` stamp `struct_base` 管理）。`JitFrame` 加 `frame_id: u32`（默认 `0`），采用
+**纯惰性**——只在**分配型** helper（`jit_struct_alloc` / `jit_as_cast` 拆箱 / `copy_array_elem_out`）里，
+若 `frame_id==0` 则从 `next_frame_id()`（与 interp 帧共用的单调 `AtomicU32`）取真值。deref（`FieldGet`/
+`Copy`）用的是句柄里**内嵌**的 frame_id（非当前帧），故只有 alloc 路径需要——一处惰性覆盖入口 + 所有嵌套
+callee，零 per-site 改动。**OSR 例外**：`from_interp_regs` 续接同一逻辑活动记录，须 eager **继承** interp
+帧 frame_id（OSR 前已分配的 struct 局部交接后仍要能 deref）。
+
+### 补齐：struct[] 数组 + 装箱拆箱
+
+- **`jit_array_new`/`jit_array_new_lit`** 对 value-struct 元素造 `ArrayBacking::StructBytes` backing（复用
+  interp `try_struct_backed`/`pack_struct_elem`），**`jit_array_get`** 对 StructBytes backing 产
+  `StructRefHeap` 句柄（非 `get_boxed` BoxedStruct 快照）——接通 JIT 下 `new Point[]` + `arr[i].x` +
+  `foreach(P p in arr)`（元素拷出走 `copy_array_elem_out`）。
+- **`jit_as_cast`** 对 `BoxedStruct` 精确匹配**拆箱**到当前帧 arena `StructRef`（`(Point)o`），镜像 interp
+  `unbox_struct`；`as object`·base·接口保持 boxed。
+
+### 验证
+
+golden `struct_jit.z42`（本地值语义 / 传参 sret / 嵌套 / string 叶子 / struct[] index+foreach / 装箱拆箱）
+在 `--mode jit` EXIT=0，且与 interp 模式输出一致；既有 8 个 `struct*.z42` golden 在 `--mode jit` 全过（此前靠
+bail→interp 才过，现真走 JIT struct 路径）。**格式中立、z42c 零改动（self-host 逐字节不变）。**
 
 ## 与逃逸分析 / packed 数组的关系
 
@@ -327,6 +373,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - ✅ **`struct[]` 值类型数组元素 codegen**（add-struct-array-codegen）+ **class 实例方法返回 struct**
   （add-struct-method-return，`sret × VCall`）+ **foreach over struct[]**（add-struct-foreach，`as_cast`
   StructRefHeap 臂拷出元素）——均格式中立，golden `struct_array.z42` / `struct_heap_inline.z42`(GetPt) 验。
+- ✅ **JIT 值路径**（helper 桥接，add-struct-jit-value-path P5-A）：struct 指令 emit 为 helper call 操作
+  共享 arena、复用 interp `*_val` 核心，含 struct 的函数不再整体 bail→interp（见上「JIT 值路径」节）。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
-  **跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 值路径**（P5，现全 bail→interp）、**ToString 字段 dump**、
-  **E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
+  **跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
+  **ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
