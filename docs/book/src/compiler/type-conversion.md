@@ -1,15 +1,15 @@
 # 类型转换分类器（Conversion classifier）
 
-> 对齐：2026-08-11（add-conversion-classifier，PR1）｜ 代码：`src/compiler/z42c.semantics/src/Conversion.z42`
+> 对齐：2026-08-12（tighten-implicit-conversions，PR2）｜ 代码：`src/compiler/z42c.semantics/src/Conversion.z42` + `TypeChecker.z42`
 
 z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、更可预测**：隐式只允许**绝对无损**
 的转换，任何可能丢信息或丢精度的转换都要求显式 `(T)` cast。本页描述承载这套规则的**分类器**
 机制。
 
-> **演进路线（三 PR）**：本页描述的分类器是 **PR1** 的产物——它把转换**分类并打标签**，但
-> 执行门暂时保持宽松（与历史行为逐字节等价）。**PR2** 收紧执行门（窄化 / 有损浮点要求显式 +
-> 为数值转换插 `ConvertInstr`），**PR3** 加用户自定义 `implicit`/`explicit operator`。本页随各 PR
-> 增补；当前反映 PR1 落地状态。
+> **演进路线（三 PR）**：**PR1** 立分类器（分类并打标签，执行门宽松、与历史逐字节等价）；
+> **PR2（已落地）** 收紧执行门（窄化 / 有损浮点在隐式上下文要求显式 `(T)`，含 C# 常量在范围内
+> 例外）+ 为数值拓宽插 `ConvertInstr`（修 `double d=5` 表示 bug 与窄化不截断）；**PR3** 加用户
+> 自定义 `implicit`/`explicit operator`。本页反映 **PR2 落地状态**。
 
 ## 为什么要一个分类器
 
@@ -36,9 +36,10 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 | `ExplicitRef` | 引用下转（基→派生）| ✗（要求 `(T)`）|
 | `UserImplicit` / `UserExplicit` | 用户自定义转换运算符（PR3）| 隐式 ✓ / 显式 ✗ |
 
-> **PR1 的宽松门**：`ConvResult.ImplicitOkPermissive()` 临时把 `ExplicitNumeric` 也算隐式可赋，
-> 以等价于历史"数值窄化信任程序员放行"的行为，保证 PR1 产物字节不变。PR2 从白名单剔除
-> `ExplicitNumeric`（及要求 `Unboxing`/`ExplicitRef` 显式），窄化才真正要求 cast。
+> **执行门（PR2 收紧）**：`ConvResult.ImplicitOk()` 是隐式可赋白名单——`{Absorb, GenericErase,
+> Identity, ImplicitNumeric, Boxing, ImplicitRef, UserImplicit}`，**剔除 `ExplicitNumeric`**（`Unboxing`/
+> `ExplicitRef` 本就不在）。`TypeFactsTc._isAssignable` 即其薄封装。窄化 / 有损浮点在隐式上下文由此
+> 拒绝。`ImplicitOkPermissive()`（含 `ExplicitNumeric`）保留作 PR1 历史等价的参照，不再用于执行门。
 
 ## 隐式数值矩阵（比 C# 严）
 
@@ -81,18 +82,60 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 > 数值对一律走细粒度矩阵。这不改 PR1 的布尔投影（数值对无论哪种都落在宽松门白名单内），只让
 > **种类标签正确**，为 PR2 的收紧提供准确依据。
 
-`_isAssignable(from, to, symbols)` 现在就是 `Classify(from, to, symbols).ImplicitOkPermissive()`
-的薄封装。cast 绑定、`BoxIfNeeded`、codegen 在 PR1 **不经**分类器（它们要到 PR2/PR3 有行为变化
-时才接入），以把 PR1 严格限定为"零行为变化的基础设施"。
+`_isAssignable(from, to, symbols)` = `Classify(...).ImplicitOk()`（PR2 收紧门）。它是**纯类型**判定
+（不看表达式），窄化 / 有损浮点返回 `false`；重载候选决议等复用它的地方，窄化实参因此不再"可赋"
+= 不参与该候选（与 C# 一致）。
+
+### 隐式上下文检查：`CheckImplicitConvert`（含常量在范围内例外）
+
+赋值 / return / 传参这些**隐式上下文**的检查经 `TypeChecker.CheckImplicitConvert(value, target, …)`——
+比纯类型 `_isAssignable` 多一层**表达式感知**：
+
+```
+1. Classify(value.Type(), target).ImplicitOk()  → true（放行）
+2. ExplicitNumeric ∧ 目标整数/char ∧ value 是编译期常量整数且在目标范围内 → true
+      （C# 常量在范围内例外：`byte b = 48;` ✓，`byte b = 300;` ✗）
+3. 存在显式转换（Exists）→ 报 E0439「cannot implicitly convert 'X' to 'Y';
+      an explicit conversion exists (are you missing a cast?)」
+4. 否则（根本无转换）→ 报 E0402 TypeMismatch
+```
+
+> **常量例外**只覆盖**整数/char 目标**（`_constIntInRange`，复用编译器权威 `ZbcInstr._parseIntLit`）：
+> 在范围内的常量窄化**逐值可证无损**，与「隐式只允许绝对无损」一致，且令 binary-format writer
+> 里 `bytes[i] = 48;` 这类免于满屏 `(byte)`。**有损浮点无此例外**（`float f = 5;` 仍要 `(float)`）。
+> 常量**表达式**折叠（`byte b = 40 + 8;`）超出 PR2 覆盖面（当前仅字面量 / 一元负号字面量）。
+
+### 数值拓宽插 `ConvertInstr`：`ConvertIfNeeded`
+
+隐式**拓宽**（`int→double`、`char→int` 等）历史上**不发** `ConvertInstr`——所有整数运行期同为
+`Value::I64`，`double d = 5` 会把 `I64(5)` 存进 F64 槽（表示 bug）。`TypeChecker.ConvertIfNeeded`
+在每个协变点（return / var-decl / assign / call-arg，镜像 `BoxIfNeeded`）当**运行期表示类**变化时
+包 `BoundConvert` → codegen 发 `ConvertInstr`：
+
+| from→to | 表示类 | 插 `ConvertInstr`? |
+|---------|--------|:---:|
+| `int→long`、`byte→int` | INT→INT（运行期同 `I64`）| ✗ no-op |
+| `int→double`、`uint→double` | INT→FLOAT（`I64→F64`）| ✓ |
+| `f32→f64` | FLOAT→FLOAT（运行期同 `F64`）| ✗ no-op |
+| `char→int`、`char→double` | CHAR→其它 | ✓ |
+
+> 只在表示类真变化时插——等宽整数拓宽与 `f32↔f64` 是 no-op，最小化字节扰动（z42c 自身源码不含
+> 隐式 int↔float 拓宽 → 其 codegen 逐字节不变，自举不破代）。副作用：`Math.Pow(2,3)` 的 int 实参
+> 现正确拓宽为 `F64` → Pow 遵守其 `double` 签名返 `F64(8.0)`（此前因 native 的 `(I64,I64)→I64`
+> 分支静默返 `Int32(8)`）。
 
 ## 验证
 
-PR1 的正确性由**自举字节不动点**兜底：用新 z42c 自编译 z42c 源码两代，gen1 与 gen2 产物逐字节
-相同，且全部 golden / stdlib / cross-zpkg 测试输出零变化——证明分类器的布尔投影与历史
-`_isAssignable` 逐位等价。分类器种类标签由 `src/compiler/z42c.semantics/tests/conversion/` 单测覆盖。
+- **单测** `src/compiler/z42c.semantics/tests/conversion/`：分类器种类标签（PR1）+ 收紧门布尔投影
+  `ImplicitOk()` + E0439 拒绝（非常量窄化 / `long→int` / 有损浮点）+ 常量例外接受/越界拒绝
+  （`byte b=48` ✓ / `byte b=300` ✗ / `sbyte s=-1` ✓）+ 拓宽插 `(convert …)` 节点。
+- **自举字节不动点**：`ConvertIfNeeded` 不触达 z42c 自身 codegen（其源无隐式 int↔float 拓宽），
+  gen1==gen2 逐字节相同；全 golden / stdlib / cross-zpkg 绿。
+- **迁移面为零**：常量在范围内例外覆盖了 stdlib 全部窄化点（binary-format writer 的在范围常量），
+  z42c 源亦无真窄化点——PR2 未改一处 stdlib / z42c 源（仅修一个 int-vs-double 松比较的 math 测试）。
 
 ## 关联文档
 
-- 引入/演进：change `add-conversion-classifier`（PR1）；后续 PR2（收紧+迁移）、PR3（用户自定义转换）
+- 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2，已落地）；后续 PR3（用户自定义转换）
 - 装箱/拆箱运行期机制：[语言部分 · 装箱](../../design/language/boxing.md)
 - 承载代码：[`z42c.semantics/README.md`](../../../src/compiler/z42c.semantics/README.md)

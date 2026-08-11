@@ -87,10 +87,89 @@ public sealed class TypeChecker {
         int i = 0;
         while (i < count && i < pts.Length && i < args.Length) {
             args[i] = this.BoxIfNeeded(args[i], pts[i]);
+            args[i] = this.ConvertIfNeeded(args[i], pts[i]);   // tighten-implicit-conversions: 实参拓宽表示转换
             i = i + 1;
         }
         return args;
     }
+    // ════ tighten-implicit-conversions（PR2）：隐式数值转换的检查 + ConvertInstr 插入 ═════════
+    //
+    // ConvertIfNeeded：镜像 BoxIfNeeded，在协变点（return/var-decl/assign/call-arg）当运行期**表示类**
+    // 变化（int↔float、char→数值）时包 BoundConvert → codegen `_emitConvert` 发 ConvertInstr。等宽整数
+    // 拓宽（byte→int→long，运行期同 I64）与 f32→f64（运行期同 F64）是 no-op → 不插，最小化字节扰动。
+    // 到达这里的值已过 CheckImplicitConvert（Identity/ImplicitNumeric/常量例外窄化），不会误插被拒转换。
+    public BoundExpr ConvertIfNeeded(BoundExpr value, Z42Type target) {
+        if (value == null || target == null) { return value; }
+        Z42Type vt = value.Type();
+        if (!(vt is Z42PrimType) || !(target is Z42PrimType)) { return value; }
+        if (!TypeFactsTc._isNumericPrim(vt.Name()) || !TypeFactsTc._isNumericPrim(target.Name())) { return value; }
+        if (TypeChecker._repClass(vt.Name()) == TypeChecker._repClass(target.Name())) { return value; }   // 同表示类 → no-op
+        return new BoundConvert(value, target, value.Span);
+    }
+
+    // 运行期表示类：f32/f64 → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。
+    private static int _repClass(string n) {
+        string c = Z42Type.Canon(n);
+        if (c == "f32" || c == "f64") { return 1; }
+        if (c == "char") { return 2; }
+        return 0;
+    }
+
+    // CheckImplicitConvert：隐式上下文（赋值/return/传参）的**表达式感知**可转检查。
+    // 返回 true=可隐式放行；false=已报诊断（E0439 存在显式转换缺 cast / TypeMismatch 根本无转换）。
+    // T1/T2 阶段用宽松门 ImplicitOkPermissive() → 行为中立（ExplicitNumeric 仍放行，常量例外/E0439 不触发）；
+    // T4 收紧时把这里改成 ImplicitOk()，ExplicitNumeric 才落入常量例外 / E0439。
+    public bool CheckImplicitConvert(BoundExpr value, Z42Type target, SymbolTable syms, Span sp, string ctx) {
+        if (value == null || target == null) { return true; }
+        Z42Type from = value.Type();
+        ConvResult r = Conversion.Classify(from, target, syms);
+        if (r.ImplicitOk()) { return true; }   // tighten-implicit-conversions T4：收紧门（ExplicitNumeric 落入常量例外/E0439）
+        // C# 常量在范围内例外（整数/char 目标，逐值可证无损）：byte b = 48; ✓
+        if (r.Kind == ConvKind.ExplicitNumeric && this._constIntInRange(value, target)) { return true; }
+        if (r.Exists()) {
+            this._diags.Error(DiagnosticCodes.ImplicitNarrowingConversion,
+                "cannot implicitly convert '" + from.Name() + "' to '" + target.Name()
+                + "'; an explicit conversion exists (are you missing a cast?)", sp);
+            return false;
+        }
+        this._diags.Error(DiagnosticCodes.TypeMismatch,
+            "cannot assign " + from.Name() + " to " + target.Name() + " (" + ctx + ")", sp);
+        return false;
+    }
+
+    // 编译期常量整数且落在目标整数/char 范围内？（浮点目标恒 false → 有损浮点无例外，决策 3）。
+    private bool _constIntInRange(BoundExpr value, Z42Type target) {
+        if (!(target is Z42PrimType)) { return false; }
+        if (!TypeChecker._isConstInt(value)) { return false; }
+        long v = TypeChecker._constIntValue(value);
+        string t = Z42Type.Canon(target.Name());
+        if (t == "i8")   { return v >= (0 - 128) && v <= 127; }
+        if (t == "u8")   { return v >= 0 && v <= 255; }
+        if (t == "i16")  { return v >= (0 - 32768) && v <= 32767; }
+        if (t == "u16")  { return v >= 0 && v <= 65535; }
+        if (t == "i32")  { return v >= (0 - 2147483647 - 1) && v <= 2147483647; }
+        if (t == "u32")  { return v >= 0 && v <= 4294967295; }
+        if (t == "i64")  { return true; }                 // 任意 long 常量在 i64 范围
+        if (t == "u64")  { return v >= 0; }               // long 上界 < u64 上界，故仅需非负
+        if (t == "char") { return v >= 0 && v <= 1114111; } // Unicode 标量上界 0x10FFFF
+        return false;   // float / bool / 非整数 → 无常量例外
+    }
+
+    // 编译期整数常量：字面量 或 一元负号包裹的字面量（const 局部在类型检查期仍是 BoundIdent，未折叠，PR2 不覆盖）。
+    private static bool _isConstInt(BoundExpr e) {
+        if (e is BoundLitInt) { return true; }
+        if (e is BoundUnary) {
+            BoundUnary u = e as BoundUnary;
+            if (u.Op == "-" && (u.Operand is BoundLitInt)) { return true; }
+        }
+        return false;
+    }
+    private static long _constIntValue(BoundExpr e) {
+        if (e is BoundLitInt) { return ZbcInstr._parseIntLit((e as BoundLitInt).Text); }
+        BoundUnary u = e as BoundUnary;
+        return 0 - ZbcInstr._parseIntLit((u.Operand as BoundLitInt).Text);
+    }
+
     private static string _intPrimFQ(string n) {
         if (n == "int"    || n == "i32") { return "Std.Int32"; }
         if (n == "long"   || n == "i64") { return "Std.Int64"; }

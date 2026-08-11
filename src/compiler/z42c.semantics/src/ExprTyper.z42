@@ -81,12 +81,12 @@ public sealed class ExprTyper {
                     int ai = 0;
                     while (ai < an) {
                         BoundExpr aidx = this._bindExpr(aix.Indices[ai], env);
-                        if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); }
+                        if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); aidx = this._tc.ConvertIfNeeded(aidx, sms.Signature.ParamTypes[ai]); }
                         sa[ai] = aidx;
                         ai = ai + 1;
                     }
                     BoundExpr aval = this._bindExpr(a.Value, env);
-                    if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); }
+                    if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); aval = this._tc.ConvertIfNeeded(aval, sms.Signature.ParamTypes[an]); }
                     sa[an] = aval;
                     return new BoundCall("instance", true, arecv, aCls.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
                 }
@@ -161,10 +161,8 @@ public sealed class ExprTyper {
                 string binop = a.Op.Substring(0, a.Op.Length - 1);
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
-            if (!TypeFactsTc._isAssignable(value.Type(), target.Type(), env.Symbols)) {
-                this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                    "cannot assign " + value.Type().Name() + " to " + target.Type().Name(), a.Value.Span);
-            }
+            this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
+            value = this._tc.ConvertIfNeeded(value, target.Type());   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr
             return new BoundAssign(target, value, target.Type(), a.Span);
     }
 
@@ -310,7 +308,7 @@ public sealed class ExprTyper {
                 int i = 0;
                 while (i < n) {
                     BoundExpr iarg = this._bindExpr(ix.Indices[i], env);
-                    if (gboxable) { iarg = this._tc.BoxIfNeeded(iarg, gm.Signature.ParamTypes[i]); }
+                    if (gboxable) { iarg = this._tc.BoxIfNeeded(iarg, gm.Signature.ParamTypes[i]); iarg = this._tc.ConvertIfNeeded(iarg, gm.Signature.ParamTypes[i]); }
                     ia[i] = iarg;
                     i = i + 1;
                 }
@@ -377,6 +375,7 @@ public sealed class ExprTyper {
             while (bi < ai.ElemCount) {
                 BoundExpr be = this._bindExpr(ai.Elems[bi], env);
                 elems[bi] = this._tc.BoxIfNeeded(be, elem);   // add-primitive-value-boxing: object[] 整数元素装箱
+                elems[bi] = this._tc.ConvertIfNeeded(elems[bi], elem);   // tighten-implicit-conversions: 数组元素拓宽表示转换
                 bi = bi + 1;
             }
             return new BoundArrayLit(elems, ai.ElemCount, elem.Name(), new Z42ArrayType(elem), ai.Span);
@@ -452,7 +451,7 @@ public sealed class ExprTyper {
         Z42Type elem;
         if (elemTe != null) { elem = env.ResolveType(elemTe); } else { elem = raw[0].Type(); }
         j = 0;
-        while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); j = j + 1; }
+        while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); raw[j] = this._tc.ConvertIfNeeded(raw[j], elem); j = j + 1; }   // tighten-implicit-conversions: 数组元素拓宽转换
         return new BoundArrayLit(raw, al.ElemCount, elem.Name(), new Z42ArrayType(elem), sp);
     }
 

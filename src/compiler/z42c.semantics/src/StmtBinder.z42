@@ -149,11 +149,9 @@ public sealed class StmtBinder {
             if (r.HasValue) {
                 // add-target-typed-new：`return new()` 以函数返回类型为目标。
                 BoundExpr val = this._tc._expr.BindWithTarget(r.Value, ret, env);
-                if (!TypeFactsTc._isAssignable(val.Type(), ret, env.Symbols)) {
-                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                        "return type " + val.Type().Name() + " not assignable to " + ret.Name(), r.Value.Span);
-                }
+                this._tc.CheckImplicitConvert(val, ret, env.Symbols, r.Value.Span, "return");   // tighten-implicit-conversions：窄化→E0439 / 常量在范围内例外
                 val = this._tc.BoxIfNeeded(val, ret);   // add-primitive-value-boxing: return 整数→object/接口 装箱
+                val = this._tc.ConvertIfNeeded(val, ret);   // tighten-implicit-conversions: 拓宽表示转换（int→double 等）插 ConvertInstr
                 return new BoundReturn(true, val, r.Span);
             }
             return new BoundReturn(false, new BoundLitNull(new Z42VoidType(), r.Span), r.Span);
@@ -183,6 +181,7 @@ public sealed class StmtBinder {
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
             init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
+            init = this._tc.ConvertIfNeeded(init, vt);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr
             BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
             if (v.IsConst) { this._bindLocalConst(v, env, bvd); }   // add-const-keyword：求值 + 登记 + 诊断
             return bvd;
@@ -304,9 +303,8 @@ public sealed class StmtBinder {
             }
         }
         Z42Type vt = env.ResolveType(v.Type);
-        if (init != null && !TypeFactsTc._isAssignable(init.Type(), vt, env.Symbols)) {   // G8：无 init 跳赋值检查
-            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                "cannot assign " + init.Type().Name() + " to " + vt.Name(), v.Init.Span);
+        if (init != null) {   // G8：无 init 跳赋值检查
+            this._tc.CheckImplicitConvert(init, vt, env.Symbols, v.Init.Span, "var-decl");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
         }
         return vt;
     }
