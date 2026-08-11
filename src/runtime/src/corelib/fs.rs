@@ -209,11 +209,22 @@ pub fn builtin_env_vars(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_array(list))
 }
 pub fn builtin_time_now_ms(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ms = SystemTime::now().duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64).unwrap_or(0);
-    Ok(Value::I64(ms))
+    Ok(Value::I64(wall_now_ms()))
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wall_now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+// fix-wasm-time-builtins: `wasm32-unknown-unknown` has no `std::time`
+// (`SystemTime::now()` panics "time not implemented"). Return epoch 0 so
+// `Std.Time` doesn't trap in the browser; real wall-clock via JS `Date.now` is
+// Deferred (would need js-sys in this crate).
+#[cfg(target_arch = "wasm32")]
+fn wall_now_ms() -> i64 { 0 }
 
 // ── Glob + Temp（extend-z42-io-glob-temp, 2026-05-16）─────────────────────────
 //
@@ -278,11 +289,18 @@ pub fn builtin_file_create_temp_file(_ctx: &VmContext, args: &[Value]) -> Result
 }
 
 fn unique_temp_path(prefix: &str, suffix: &str) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64).unwrap_or(0);
+    // fix-wasm-time-builtins: guard `std::time` (panics on wasm32). The COUNTER +
+    // pid already give uniqueness; nanos is just extra entropy → 0 on wasm.
+    #[cfg(not(target_arch = "wasm32"))]
+    let nanos = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64).unwrap_or(0)
+    };
+    #[cfg(target_arch = "wasm32")]
+    let nanos = 0u64;
     let pid   = std::process::id();
     let bump  = COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut p = std::env::temp_dir();

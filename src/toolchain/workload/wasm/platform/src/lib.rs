@@ -26,11 +26,28 @@ use crate::error::{js_error, to_js_error};
 use crate::resolver::JsCallbackResolver;
 use crate::value::{js_to_value, value_to_js};
 
+// Bind `console.error` so the panic hook can surface the Rust panic message +
+// location to the browser console (no `console_error_panic_hook` crate — keeps
+// this crate dep-light while still emitting a real message before the wasm trap).
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(s: &str);
+}
+
 /// Print better panic messages in the browser console / Node REPL.
+///
+/// diagnose-mobile-wasm-embed: a bare wasm panic aborts to `RuntimeError:
+/// unreachable` with NO message — opaque when the embedded test-host (nested
+/// `app::run` per golden) traps in-browser. This hook logs the panic's message
+/// + `file:line` to `console.error` *before* the trap, so Playwright's console
+/// capture (embedded.spec.ts) surfaces the real cause in CI. Dep-light: uses the
+/// `console.error` binding above, not the `console_error_panic_hook` crate.
 #[wasm_bindgen(start)]
 pub fn _init_panic_hook() {
-    // No-op in v0.1; users can opt into console_error_panic_hook via
-    // their own bundler if they want. We keep this crate dep-light.
+    std::panic::set_hook(Box::new(|info| {
+        console_error(&format!("z42 wasm panic: {info}"));
+    }));
 }
 
 /// Single-instance z42 VM handle for JavaScript hosts.
