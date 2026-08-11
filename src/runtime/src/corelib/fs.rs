@@ -322,7 +322,12 @@ fn unique_temp_path(prefix: &str, suffix: &str) -> String {
     #[cfg(target_arch = "wasm32")]
     let pid = 0u32;
     let bump  = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // fix-wasm-corpus-capability-gate: std::env::temp_dir() panics on wasm32
+    // (sys/paths/unsupported). "/tmp" in the in-memory VFS works fine.
+    #[cfg(not(target_arch = "wasm32"))]
     let mut p = std::env::temp_dir();
+    #[cfg(target_arch = "wasm32")]
+    let mut p = std::path::PathBuf::from("/tmp");
     p.push(format!("{prefix}.{nanos:x}.{pid}.{bump:x}{suffix}"));
     p.to_string_lossy().into_owned()
 }
