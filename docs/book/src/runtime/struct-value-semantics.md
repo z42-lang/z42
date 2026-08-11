@@ -272,22 +272,31 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 根（内联字段根 = 对象句柄 / reg0）→ 叶子 `c.pt.x`/`pt.x` 复用嵌套链发 `StructFieldGetPrim/SetPrim`；整字段读
 （`Point p = c.pt`）→ `StructAlloc` + `_copyRegion` 拷出（值副本）；整字段写（`c.pt = q`）→ `_copyRegion` 拷入。
 
-### `struct[]` 字节 backing（runtime 已备，codegen follow-up）
+### `struct[]` 字节 backing（add-struct-array-codegen，P3b follow-up）
 
 `ArrayBacking::StructBytes{elem_size, bytes, refs, layout}`（C# inline `struct[]`：元素基元紧凑
 `bytes[len*elem_size]` + 引用叶子并行 `refs[len*ref_count]`）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
-`Value::StructRefHeap(Box<StructArrayElem{arr, index}>)`（arena `StructRef` 热路径不动；仅数组需句柄），
-`arr[i]` 物化它、`StructFieldGetPrim/SetPrim` 认它作 base 读写 backing。GC：新 `ArrayObj::gc_refs()` 统一
-`Boxed ∪ StructBytes.refs` 供扫描；元素引用叶子写触发 `write_barrier_array_elem`。**运行时 + 句柄 + GC 已实现
-并单测**；`arr[i]` 产句柄的 codegen（`ArrayGet` 对 struct[] 出句柄 + 元素访问 copy/leaf）作 P3b follow-up。
+`Value::StructRefHeap(Box<StructArrayElem{arr, index}>)`（arena `StructRef` 热路径不动；仅数组需句柄）。GC：
+`ArrayObj::gc_refs()` 统一 `Boxed ∪ StructBytes.refs` 供扫描；元素引用叶子写触发 `write_barrier_array_elem`。
+
+- **创建**：`array_new`/`array_new_lit` 对 **blob 值 struct 元素**（`try_struct_backed`：`TypeDesc.fields≥2` +
+  `struct_layout`，匹配编译期 `IsBlobStruct`）造 `StructBytes` backing（`ArrayObj::struct_backed`，经
+  `Heap::alloc_array_obj` region-alloc 保 backing）；字面量经 `pack_struct_elem` 把各元素（`StructRef` 经 arena /
+  `BoxedStruct`）字节+引用叶子拷进元素槽。
+- **取值**：`array_get` 对 `StructBytes` backing 产 `StructRefHeap` 元素句柄（有 array `GcRef`，替代 `get_boxed`）。
+- **codegen（ExprEmitter）**：`_emitArrayElemHandle`（ArrayGet 直发句柄不拷贝）；`_emitIndex` 对 struct[] 出
+  `StructAlloc`+`_copyRegion` 拷出（standalone `arr[i]` 值副本）；`_structChainRoot` 对 BoundIndex struct[] 根=句柄
+  （`arr[i].x` 原地叶子读写复用嵌套链发 `StructFieldGetPrim/SetPrim`）；`arr[i] = p` 走句柄+`_copyRegion` 拷入。**无新 opcode、格式中立。**
 
 ### 已工作 / Deferred
 
 - ✅ **对象内联 struct 字段**（`class C { Point pt; }`）：默认零初始化 / `c.pt.x` 叶子读写 / 整字段拷入拷出值语义
   独立 / 方法内裸字段 / string 引用叶子内联 / 多对象独立——golden `struct_heap_inline.z42` 端到端验证。
-- ⏳ Deferred：**`struct[]` 元素 codegen**（runtime 已备）、**class 方法返回 struct**（`return pt`——需
-  `sret × VCall` 接线，当前 sret 只覆盖 struct-receiver 方法 + 静态/自由调用）、**JIT 值路径**（P5）、
-  **跨包内联布局 + 反射**（P4）。
+- ✅ **`struct[]` 值类型数组**（`Point[]`）：默认零初始化 / `arr[i].x` 叶子读写 / 整元素拷出拷入值语义独立 /
+  元素独立 / `new Point[]{}` 字面量 / string 引用叶子内联——golden `struct_array.z42` 端到端验证。格式中立。
+- ⏳ Deferred：**class 方法返回 struct**（`return pt`——需 `sret × VCall` 接线，当前 sret 只覆盖 struct-receiver
+  方法 + 静态/自由调用）、**foreach over struct[]**（`foreach(P p in arr)` 元素拷出，索引循环已工作）、
+  **JIT 值路径**（P5）、**跨包内联布局 + 反射**（P4）。
 
 ## 与逃逸分析 / packed 数组的关系
 
