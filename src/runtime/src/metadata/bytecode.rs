@@ -92,6 +92,7 @@ impl Module {
             enum_members:           c.enum_members.clone(),
             iface_methods:          c.iface_methods.clone(),
             struct_layout:          c.struct_layout.clone(),
+            inline_layout:          c.inline_layout.clone(),  // add-struct-heap-inline (P3b)
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),

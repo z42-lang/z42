@@ -73,39 +73,104 @@ pub(super) fn struct_copy(
 }
 
 /// `StructFieldGetPrim dst, base, byte_off, kind` — read the leaf at `byte_off` of
-/// the `base` blob into `dst`. A primitive `kind` decodes bytes; a reference
-/// `kind` (`string`/object/array) reads the `Value` from the blob's reference
-/// side-slice (see [`super::struct_arena`]).
+/// the `base` struct into `dst`. A primitive `kind` decodes bytes; a reference
+/// `kind` (`string`/object/array) reads the `Value` from the reference side-slice.
+///
+/// `base` may be a frame-scoped **arena** `StructRef` (local/param/temp struct) or,
+/// since add-struct-heap-inline (P3b, route α), a **heap `Value::Object`** whose
+/// inline struct field lives in `ScriptObject::struct_bytes`/`struct_refs` — the
+/// compiler bakes `byte_off` as the object-relative composite offset
+/// (`field_byte_off + leaf_off`).
 pub(super) fn struct_field_get_prim(
     ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, byte_off: u32, kind: u8,
 ) -> Result<()> {
-    let (idx, fid) = as_struct_ref(frame.get(base)?, "StructFieldGetPrim base")?;
-    let val = if is_ref_tag(kind) {
-        ctx.struct_arena.lock().get_ref(idx, fid, byte_off)?
-    } else {
-        let off = byte_off as usize;
-        let w = prim_width(kind)?;
-        ctx.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))??
+    let base_val = frame.get(base)?.clone();
+    let val = match &base_val {
+        // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
+        Value::Object(gc) => {
+            let obj = gc.borrow();
+            if is_ref_tag(kind) {
+                let il = obj.type_desc.inline_layout().ok_or_else(|| {
+                    anyhow::anyhow!("StructFieldGetPrim: object `{}` has no inline struct layout", obj.type_desc.name)
+                })?;
+                let ri = il.ref_index(byte_off).ok_or_else(|| {
+                    anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
+                })?;
+                obj.struct_refs[ri].clone()
+            } else {
+                let off = byte_off as usize;
+                let w = prim_width(kind)?;
+                decode_prim(&obj.struct_bytes, off, w, kind)?
+            }
+        }
+        _ => {
+            let (idx, fid) = as_struct_ref(&base_val, "StructFieldGetPrim base")?;
+            if is_ref_tag(kind) {
+                ctx.struct_arena.lock().get_ref(idx, fid, byte_off)?
+            } else {
+                let off = byte_off as usize;
+                let w = prim_width(kind)?;
+                ctx.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))??
+            }
+        }
     };
     frame.set(dst, val);
     Ok(())
 }
 
 /// `StructFieldSetPrim base, byte_off, kind, val` — write `val` into the `base`
-/// blob at `byte_off` (in place; the value-struct lvalue write). A primitive
-/// `kind` encodes bytes; a reference `kind` stores the `Value` into the blob's
-/// reference side-slice (no write barrier — the arena is a GC root).
+/// struct at `byte_off` (in place; the value-struct lvalue write). A primitive
+/// `kind` encodes bytes; a reference `kind` stores the `Value` into the reference
+/// side-slice.
+///
+/// Arena base: no write barrier (the arena is a GC root, re-scanned every cycle).
+/// Heap-object base (P3b): a reference-leaf write into `struct_refs` **does** need a
+/// write barrier — the heap object is not re-scanned as a root, so a concurrent /
+/// generational collector must observe the store (routed through `write_barrier_field`).
 pub(super) fn struct_field_set_prim(
     ctx: &VmContext, frame: &mut Frame, base: u32, byte_off: u32, kind: u8, val: u32,
 ) -> Result<()> {
-    let (idx, fid) = as_struct_ref(frame.get(base)?, "StructFieldSetPrim base")?;
+    let base_val = frame.get(base)?.clone();
     let v = frame.get(val)?.clone();
-    if is_ref_tag(kind) {
-        return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, v);
+    match &base_val {
+        // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
+        Value::Object(gc) => {
+            if is_ref_tag(kind) {
+                let ri = {
+                    let mut obj = gc.borrow_mut();
+                    let il = obj.type_desc.inline_layout().ok_or_else(|| {
+                        anyhow::anyhow!("StructFieldSetPrim: object `{}` has no inline struct layout", obj.type_desc.name)
+                    })?;
+                    let ri = il.ref_index(byte_off).ok_or_else(|| {
+                        anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
+                    })?;
+                    obj.struct_refs[ri] = v.clone();
+                    ri
+                };
+                // Write barrier: reference stored into a heap object (P3b). The
+                // `slot` argument is informational (card/diagnostics); the inline
+                // ref index is a stable per-object identifier. STW mode = no-op.
+                if v.is_heap_ref() {
+                    ctx.heap().write_barrier_field(&base_val, ri, &v);
+                }
+                Ok(())
+            } else {
+                let off = byte_off as usize;
+                let w = prim_width(kind)?;
+                let mut obj = gc.borrow_mut();
+                encode_prim(&mut obj.struct_bytes, off, w, kind, &v)
+            }
+        }
+        _ => {
+            let (idx, fid) = as_struct_ref(&base_val, "StructFieldSetPrim base")?;
+            if is_ref_tag(kind) {
+                return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, v);
+            }
+            let off = byte_off as usize;
+            let w = prim_width(kind)?;
+            ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, &v))?
+        }
     }
-    let off = byte_off as usize;
-    let w = prim_width(kind)?;
-    ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, &v))?
 }
 
 /// Whether a leaf `TypeTag` denotes a reference leaf (`string` / object / array),

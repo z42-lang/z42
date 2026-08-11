@@ -245,6 +245,15 @@ pub struct TypeDescCold {
     /// hand it to every blob it allocates without recomputing. `None` for
     /// non-struct types and structs whose module predates the block.
     pub struct_layout: Option<std::sync::Arc<StructTypeLayout>>,
+    /// add-struct-heap-inline (P3b, D1-a): the **composed** inline-struct layout of
+    /// this class's instances — `size` = total `ScriptObject::struct_bytes` length,
+    /// `ref_offsets`/`ref_kinds` = the object-relative reference bitmap of all inline
+    /// struct fields (each leaf's `field_byte_off + leaf_off`, in order). Reuses
+    /// `StructTypeLayout` because the object's inline region is exactly a byte blob +
+    /// reference side-table, same shape as an arena blob. `None` for classes with no
+    /// inline struct fields. Delivered by the zbc 1.32 inline-field table (stage 3);
+    /// consumed by `ScriptObject` alloc + `exec_struct` object-base field access.
+    pub inline_layout: Option<std::sync::Arc<StructTypeLayout>>,
 }
 
 impl TypeDesc {
@@ -279,20 +288,27 @@ impl TypeDesc {
     #[inline] pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
         self.cold.as_ref().and_then(|c| c.struct_layout.clone())
     }
+    /// add-struct-heap-inline (P3b, D1-a): the composed inline-struct layout of this
+    /// class's instances (object-relative byte size + reference bitmap). `None`
+    /// unless the class declares inline struct fields. Cloned `Arc` (cheap).
+    #[inline] pub fn inline_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
+        self.cold.as_ref().and_then(|c| c.inline_layout.clone())
+    }
     /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
     /// for an instance of this class — the size of the inline value-struct byte
     /// region + the reference side-table `ScriptObject` must allocate. `(0, 0)`
     /// unless the class declares inline struct fields.
     ///
-    /// **Stage 1 (inert)**: returns `(0, 0)` — no class carries inline-field
-    /// metadata yet. Stage 3 (zbc 1.32 inline-field table) populates
-    /// `TypeDescCold` and this reads the composed layout there. Keeping the two
-    /// regions empty until then makes every existing object byte-identical.
+    /// Reads the composed `inline_layout` on `TypeDescCold` (`size`, `ref_count`).
+    /// `(0, 0)` until the zbc 1.32 inline-field table (stage 3) populates it — so
+    /// every existing object stays byte-identical while the loader still delivers
+    /// `None`.
     #[inline]
     pub fn inline_region_sizes(&self) -> (usize, usize) {
-        // TODO(P3b stage 3): read composed inline layout from `cold.inline_layout`
-        // (bytes_total, refs_total) once the format-bump inline-field table lands.
-        (0, 0)
+        match self.cold.as_ref().and_then(|c| c.inline_layout.as_ref()) {
+            Some(il) => (il.size, il.ref_count()),
+            None => (0, 0),
+        }
     }
 
     /// add-struct-heap-inline (P3b, D1-a): allocate the zero-initialized inline

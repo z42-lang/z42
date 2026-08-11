@@ -781,6 +781,10 @@ pub fn build_type_registry(module: &mut Module) {
                     ref_kinds:   l.ref_kinds.clone(),
                 })
             }),
+            // add-struct-heap-inline (P3b): composed inline-struct layout. `None`
+            // until the zbc 1.32 inline-field table (stage 3) delivers it; keeping
+            // it None here leaves every existing object byte-identical.
+            inline_layout:          None,
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()

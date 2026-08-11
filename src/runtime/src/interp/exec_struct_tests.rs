@@ -83,6 +83,70 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
     assert!(matches!(bx, Value::I64(99)), "b.x must be 99, got {bx:?}");
 }
 
+/// add-struct-heap-inline (P3b, D1-a, route α): a struct field **inlined into a heap
+/// object** is read/written through `struct_field_get_prim`/`set_prim` with an
+/// `Value::Object` base — primitives land in `ScriptObject::struct_bytes`, reference
+/// leaves in `struct_refs`. Exercises the full interp handlers end-to-end.
+/// `class C { Point pt; string tag; }` → composite inline region: pt.x@0 / pt.y@4
+/// (prims) + tag@8 (string ref leaf); size 12, one ref leaf at offset 8.
+#[test]
+fn heap_object_inline_struct_field_roundtrips() {
+    use crate::vm_context::VmContext;
+    use crate::metadata::types::{TypeDesc, TypeDescCold, NativeData};
+    use crate::metadata::NameIndex;
+    use crate::metadata::tokens::TypeId;
+
+    let inline = Arc::new(StructTypeLayout {
+        size: 12,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
+    });
+    let td = Arc::new(TypeDesc {
+        class_flags: 0,
+        name: "C".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { inline_layout: Some(inline), ..Default::default() })),
+        id: TypeId::UNRESOLVED,
+    });
+
+    let ctx = VmContext::new();
+    let obj = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
+    assert!(matches!(obj, Value::Object(_)), "alloc_object must yield a heap object");
+
+    let mut frame = Frame::new(&[], 8);
+    frame.set(0, obj);                 // reg0 = the object (base)
+    frame.set(1, Value::I64(42));      // reg1 = value to store into pt.x
+    frame.set(2, Value::I64(7));       // reg2 = value to store into pt.y
+    frame.set(3, Value::Str("hi".into())); // reg3 = string for the ref leaf `tag`
+
+    // pt.x = 42 (off 0), pt.y = 7 (off 4), tag = "hi" (ref leaf off 8)
+    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+
+    // Read them back into reg4/5/6.
+    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+
+    assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42");
+    assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7");
+    match frame.get(6).unwrap() {
+        Value::Str(s) => assert_eq!(&**s, "hi", "inline ref leaf `tag` must round-trip"),
+        o => panic!("expected the string ref leaf, got {o:?}"),
+    }
+
+    // Overwriting pt.x must not disturb pt.y or the ref leaf (independent byte slots).
+    frame.set(7, Value::I64(99));
+    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
+}
+
 /// add-struct-object-boxing (PR2a): 装箱把 blob **拷进 owned `BoxedStructData`** → 脱离 arena 生命周期。
 /// arena truncate（模拟创建帧退出）后原 `StructRef` slot 失效，但 boxed 副本仍持有数据（这正是修
 /// `object o = struct` 裸拷帧作用域 StructRef → use-after-free 的健全性性质）。同时验装箱是快照。
