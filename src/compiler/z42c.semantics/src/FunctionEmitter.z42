@@ -797,6 +797,19 @@ public sealed class FunctionEmitter {
         } else {
             this._ctx.Emit(new ArrayGetInstr(elemReg, collReg, idxReg));
         }
+        // add-struct-generic-boxing (P3a)：循环变量是值 struct 时对元素发 AsCast——泛型容器（List<P> 迭代
+        // 其 T[] backing / get_Item）元素是**装箱后**的 struct（Add/set 时装箱）→ 拆箱回值 struct；普通 P[]
+        // 元素本就是 StructRef → as_cast 的 StructRef 恒等臂原样返回。两分支静态同为 P[] 不可辨，统一发、由
+        // VM as_cast 按运行期种类分流（BoxedStruct→拆箱 / StructRef→恒等）。用 `.IsStruct` 判定。
+        Z42Type feT = fe.VarType;   // BoundForeach.VarType 已是解析后的 Z42Type（元素类型），直接用
+        Z42ClassType feCt = null;
+        if (feT is Z42ClassType) { feCt = feT as Z42ClassType; }
+        else if (feT is Z42InstantiatedType) { feCt = (feT as Z42InstantiatedType).Def; }
+        if (feCt != null && feCt.IsStruct) {
+            TypedReg ubReg = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new AsCastInstr(ubReg, elemReg, this._ctx.QualifyClass(feCt.Name())));
+            elemReg = ubReg;
+        }
         this._writeBack(fe.VarName, elemReg);
         this._emitStmt(fe.Body);
         if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(incrL)); }

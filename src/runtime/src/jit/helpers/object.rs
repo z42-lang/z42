@@ -464,6 +464,11 @@ pub unsafe extern "C" fn jit_as_cast(
         (*frame).regs[dst as usize] = if matches { val } else { Value::Null };
         return;
     }
+    // add-struct-generic-boxing (P3a): 未装箱值 struct（StructRef）→ `as P` 恒等（镜像 interp as_cast）。
+    if matches!(&val, Value::StructRef { .. }) {
+        (*frame).regs[dst as usize] = val;
+        return;
+    }
     let is_match = match &val {
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),

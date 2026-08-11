@@ -76,6 +76,14 @@ public sealed class MemberResolver {
             if (itms != null) {
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
+                // add-struct-generic-boxing (P3a)：方法返回 type-param 且 subst 为 blob 值 struct（如
+                // `List<P>.First()`）→ 返回装箱值 → 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown
+                // 触发 _emitConvert AsCast 拆箱臂）。
+                Z42Type ubR = this._tc.StructUnboxTarget(itms.Signature.Ret, instRecv);
+                if (ubR != null) {
+                    BoundExpr rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, new Z42UnknownType(), sp);
+                    return new BoundConvert(rawM, ubR, sp);
+                }
                 return new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
             }
             args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
@@ -216,7 +224,7 @@ public sealed class MemberResolver {
     // 递归：裸 T→arg；T[]→subst(T)[]；嵌套 List<T>→List<subst(T)>。形参名不在 Def 形参表中
     //（如方法级泛型形参 U）→ 松绑 Unknown（沿用旧 GS6 行为，避免误绑）。inst 无形参信息（种子旧 TSIG
     // 未带 GenericParamNames / 非泛型）→ 保守返回 t 原样（不劣化既有解析）。
-    private static Z42Type _substGeneric(Z42Type t, Z42InstantiatedType inst) {
+    public static Z42Type _substGeneric(Z42Type t, Z42InstantiatedType inst) {   // P3a：ExprTyper 检索拆箱亦需
         if (t is Z42GenericParamType) {
             int idx = MemberResolver._paramIndex(inst.Def, t.Name());
             if (idx >= 0 && idx < inst.ArgCount) { return inst.TypeArgs[idx]; }
