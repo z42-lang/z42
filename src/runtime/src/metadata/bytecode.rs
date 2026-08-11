@@ -137,6 +137,12 @@ pub const CLASS_FLAG_ENUM: u8 = 1 << 5;
 /// `delegate` (delegate-as-class: TYPE entry + synthesized `<FQ>.Invoke` dead
 /// stub carries the signature). Backs `Type.IsDelegate`. No extra payload.
 pub const CLASS_FLAG_DELEGATE: u8 = 1 << 6;
+/// add-struct-heap-inline (P3b): the class declares ≥1 **inline value-struct field**
+/// (`class C { Point pt; }`). Gates the zbc 1.32 TYPE-section inline-layout block
+/// (same shape as the struct block) carrying the object's composed inline byte region
+/// size + reference bitmap. `TypeDescCold::inline_layout`; consumed by `ScriptObject`
+/// alloc + inline field access. Last free `class_flags` bit.
+pub const CLASS_FLAG_HAS_INLINE_STRUCT: u8 = 1 << 7;
 
 /// SIGS `method_flags` bits (add-method-modifiers, unify P1-c). Backs
 /// `MethodInfo.IsVirtual` (authoritative) / `IsAbstract`. `static` is NOT here
@@ -204,6 +210,14 @@ pub struct ClassDesc {
     /// blobs. `None` for non-struct classes and old zbc without the block.
     #[serde(default)]
     pub struct_layout: Option<StructLayoutDesc>,
+    /// add-struct-heap-inline (P3b): the class's **composed inline-struct layout**
+    /// (object-relative byte region size + reference bitmap of all inline struct
+    /// fields), present only when `class_flags & CLASS_FLAG_HAS_INLINE_STRUCT` (zbc
+    /// 1.32 inline block). Threaded into `TypeDescCold::inline_layout`; consumed by
+    /// `ScriptObject` alloc + inline field access. `None` for classes with no inline
+    /// struct fields. Reuses `StructLayoutDesc` (identical byte-blob + ref-bitmap shape).
+    #[serde(default)]
+    pub inline_layout: Option<StructLayoutDesc>,
 }
 
 /// add-struct-value-semantics (A-use): serialized value-struct layout carried in

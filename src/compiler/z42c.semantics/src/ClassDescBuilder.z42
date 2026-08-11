@@ -235,6 +235,21 @@ public sealed class ClassDescBuilder {
                 cd2.StructRefCount = li.RefLeafCount;
             }
         }
+        // add-struct-heap-inline (P3b，zbc 1.32)：非-struct class 有内联 struct 字段（`class C { Point pt; }`）→
+        // 设 CLASS_FLAG_HAS_INLINE_STRUCT（bit7=0x80）+ emit 合成内联布局块（对象相对字节区 size + 引用位图）。
+        // 布局同源 StructLayout.InlineLayoutOf（codegen stage 4 烘焙 offset 用同一表 → 一致）。z42c/stdlib
+        // 零生产内联字段 class → HasInlineFields 恒 false → flag/块不写 → 格式字节不变（自举字节不动）。
+        if (c.Kind != "struct" && this._g.Layouts != null) {
+            string inlineKey = this._g._classIrShortName(c);
+            if (this._g.Layouts.HasInlineFields(inlineKey)) {
+                StructLayoutInfo il = this._g.Layouts.InlineLayoutOf(inlineKey);
+                cd2.Flags = cd2.Flags + 128;   // CLASS_FLAG_HAS_INLINE_STRUCT (bit7)
+                cd2.InlineSize = il.Size;
+                cd2.InlineRefOffsets = il.RefLeafOffsets;
+                cd2.InlineRefKinds = il.RefLeafKinds;
+                cd2.InlineRefCount = il.RefLeafCount;
+            }
+        }
         // TypeParams + constraint bundles（zbc L3-G1/G3a；镜像 C# BuildConstraintList）
         if (c.TypeParams.Count > 0) {
             cd2.TypeParams = c.TypeParams.Names;

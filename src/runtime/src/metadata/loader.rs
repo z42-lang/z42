@@ -781,10 +781,15 @@ pub fn build_type_registry(module: &mut Module) {
                     ref_kinds:   l.ref_kinds.clone(),
                 })
             }),
-            // add-struct-heap-inline (P3b): composed inline-struct layout. `None`
-            // until the zbc 1.32 inline-field table (stage 3) delivers it; keeping
-            // it None here leaves every existing object byte-identical.
-            inline_layout:          None,
+            // add-struct-heap-inline (P3b): the class's composed inline-struct layout
+            // (zbc 1.32 inline block). `map` → shared `Arc`, same as struct_layout.
+            inline_layout:          desc.inline_layout.as_ref().map(|l| {
+                std::sync::Arc::new(crate::metadata::types::StructTypeLayout {
+                    size:        l.size as usize,
+                    ref_offsets: l.ref_offsets.clone(),
+                    ref_kinds:   l.ref_kinds.clone(),
+                })
+            }),
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
@@ -796,6 +801,9 @@ pub fn build_type_registry(module: &mut Module) {
             && cold_inner.interfaces.is_empty()
             && cold_inner.enum_members.is_empty()
             && cold_inner.iface_methods.is_empty()
+            // add-struct-heap-inline (P3b): keep cold if it carries an inline layout
+            // (an inline-field class always has own_fields too, but guard explicitly).
+            && cold_inner.inline_layout.is_none()
         {
             None
         } else {
