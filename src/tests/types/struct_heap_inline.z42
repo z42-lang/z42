@@ -1,0 +1,76 @@
+// add-struct-heap-inline (P3b)：struct 值内联进**堆对象字段**（class C { Point pt; }）端到端。
+//   class（引用类型/堆对象）的 blob-struct 字段字节内联进对象 struct_bytes，引用叶子进 struct_refs 侧表。
+//   验证：默认零初始化、c.pt.x 叶子读写（对象 base + 烘焙复合 offset）、整字段值复制独立性（读出/写入）、
+//   owner 方法内裸内联字段读写（this.pt）、string 引用叶子内联、多对象独立。
+namespace Demo;
+
+struct Point {
+    int x;
+    int y;
+    Point(int x, int y) { this.x = x; this.y = y; }
+}
+
+// 含 string 引用叶子的内联 struct —— 验证内联区引用叶子走 struct_refs 侧表 + 写屏障。
+struct Tagged {
+    int n;
+    string name;
+    Tagged(int n, string name) { this.n = n; this.name = name; }
+}
+
+// class = 堆对象（引用语义）；pt / tag 是**内联值 struct 字段**（字节内联进对象，非独立堆分配）。
+class Box {
+    Point pt;
+    Tagged tag;
+    Box() { }
+    void SetPt(int x, int y) { pt.x = x; pt.y = y; }   // owner 方法内裸内联字段叶子写（this.pt.x）
+    int SumPt() { return pt.x + pt.y; }                // owner 裸内联字段叶子读
+    // NB：`Point GetPt() { return pt; }`（class 方法返回 struct）留 Deferred——需 sret×VCall 接线
+    //（当前 sret 仅覆盖 struct-receiver 方法 + 静态/自由调用；class 实例方法返回 struct 走 VCall 未接 sret）。
+}
+
+void Main() {
+    var b = new Box();
+
+    // 默认零初始化（struct_bytes 零 → 默认 Point{0,0}）
+    Assert.Equal(0, b.pt.x);
+    Assert.Equal(0, b.pt.y);
+
+    // 叶子读写：c.pt.x（对象 base = Value::Object，off = off_pt + off_x 编译期烘焙）
+    b.pt.x = 5;
+    b.pt.y = 7;
+    Assert.Equal(5, b.pt.x);
+    Assert.Equal(7, b.pt.y);
+
+    // 整个内联字段读 = 值复制出（独立副本，非别名/非悬垂）
+    Point p = b.pt;
+    p.x = 99;
+    Assert.Equal(5, b.pt.x);     // 原对象内联区不受 p 改动影响
+    Assert.Equal(99, p.x);
+
+    // 整个内联字段写 = 值复制进
+    var q = new Point(11, 22);
+    b.pt = q;
+    Assert.Equal(11, b.pt.x);
+    Assert.Equal(22, b.pt.y);
+    q.x = 100;                    // q 独立于 b.pt
+    Assert.Equal(11, b.pt.x);
+
+    // owner 方法内裸内联字段访问（reg0=this 对象 + 烘焙 offset）
+    b.SetPt(3, 4);
+    Assert.Equal(3, b.pt.x);
+    Assert.Equal(4, b.pt.y);
+    Assert.Equal(7, b.SumPt());   // 3 + 4
+
+    // string 引用叶子内联（struct_refs 侧表）
+    b.tag = new Tagged(42, "hello");
+    Assert.Equal(42, b.tag.n);
+    Assert.Equal("hello", b.tag.name);
+    b.tag.name = "world";         // 引用叶子原地写（触发写屏障）
+    Assert.Equal("world", b.tag.name);
+
+    // 两个 Box 对象独立（引用类型，各自内联数据分离）——b.pt.x 此刻 = 3（上面 SetPt(3,4)）
+    var b2 = new Box();
+    b2.pt.x = 500;
+    Assert.Equal(3, b.pt.x);      // b 不受 b2 影响
+    Assert.Equal(500, b2.pt.x);
+}
