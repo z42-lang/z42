@@ -95,6 +95,16 @@ void test_index() {
 }
 
 [Test]
+void test_index_multidim() {
+    // 多维索引器使用侧：逗号分隔多下标（派发 get_Item/set_Item）。
+    Assert.Equal("(index m 0 1)", parse("m[0, 1]"));
+    Assert.Equal("(index x a b c)", parse("x[a, b, c]"));
+    Assert.Equal("(index m (+ r 1) (* c 2))", parse("m[r + 1, c * 2]"));
+    // 链式：先多维索引，再成员访问。
+    Assert.Equal("(. (index m i j) Value)", parse("m[i, j].Value"));
+}
+
+[Test]
 void test_assign_right_assoc() {
     Assert.Equal("(= x 1)", parse("x = 1"));
     Assert.Equal("(= a (= b c))", parse("a = b = c"));        // 右结合

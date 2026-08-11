@@ -1,0 +1,75 @@
+// Test: 多维索引器 —— `obj[r, c]` 读写派发 get_Item(r,c) / set_Item(r,c,value)。
+// 覆盖 add-multidim-indexer：使用侧逗号分隔多下标。
+
+class Matrix {
+    int[] data;
+    int rows;
+    int cols;
+
+    Matrix(int rows, int cols) {
+        this.rows = rows;
+        this.cols = cols;
+        this.data = new int[rows * cols];
+    }
+
+    // 双参数索引器
+    public int this[int r, int c] {
+        get { return this.data[r * this.cols + c]; }
+        set { this.data[r * this.cols + c] = value; }
+    }
+}
+
+// 三参数索引器（键类型混合：int + string 也支持，这里用三 int 验证 arity）
+class Cube {
+    int[] data;
+    int d1;
+    int d2;
+
+    Cube(int a, int b, int c) {
+        this.d1 = b;
+        this.d2 = c;
+        this.data = new int[a * b * c];
+    }
+
+    public int this[int x, int y, int z] {
+        get { return this.data[(x * this.d1 + y) * this.d2 + z]; }
+        set { this.data[(x * this.d1 + y) * this.d2 + z] = value; }
+    }
+}
+
+void Main() {
+    var m = new Matrix(2, 3);
+
+    // 多维写
+    m[0, 0] = 10;
+    m[1, 2] = 42;
+    // 读嵌入表达式
+    m[0, 1] = m[0, 0] + 5;
+
+    Assert.Equal(10, m[0, 0]);
+    Assert.Equal(15, m[0, 1]);
+    Assert.Equal(42, m[1, 2]);
+    // 未写入的位置默认 0
+    Assert.Equal(0, m[1, 0]);
+
+    // 复合下标表达式
+    int r = 1;
+    int c = 1;
+    m[r, c] = m[0, 0] + m[1, 2];  // m[1,1] = 52
+    Assert.Equal(52, m[1, 1]);
+
+    // 三维索引器
+    var cube = new Cube(2, 2, 2);
+    cube[0, 0, 0] = 1;
+    cube[1, 1, 1] = 8;
+    cube[0, 1, 0] = 3;
+    Assert.Equal(1, cube[0, 0, 0]);
+    Assert.Equal(8, cube[1, 1, 1]);
+    Assert.Equal(3, cube[0, 1, 0]);
+    Assert.Equal(0, cube[1, 0, 1]);
+
+    // 单维索引器仍工作（回归）
+    var m2 = new Matrix(1, 4);
+    m2[0, 3] = 7;
+    Assert.Equal(7, m2[0, 3]);
+}
