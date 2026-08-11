@@ -1142,6 +1142,18 @@ public sealed class ExprEmitter {
             // 镜像 C# EmitBoundCall：实参先于 receiver（寄存器编号序——byte-identical）
             TypedReg[] iargs = this._emitArgs(c);
             TypedReg recv = this.Emit(c.Receiver);
+            // add-struct-method-return (P3b follow-up)：class 实例方法返回 blob 值 struct → **sret** 约定
+            // （caller 预留返回 blob 作末尾隐藏实参，callee `return s`→StructCopy(SretReg,s)+ret void；结果=该
+            // handle）。VCall 按 vtable slot(方法名)派发、arity 不入解析键 → 追加 sret 实参不破派发，runtime
+            // new_from_receiver_regs 全量传参落 callee SretReg(=1+用户参数数)；devirt/DepIndex 的 Call 同理。
+            bool retStruct = this._isBlobStruct(c.Type());
+            TypedReg sretH = null;
+            if (retStruct) {
+                string rsn = this._blobStructName(c.Type());
+                int rsz = this._ctx.Gen.Layouts.StructSize(rsn);
+                sretH = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(rsn), rsz));
+            }
             // G19a：receiver 是 `as`-cast 到类 → 调用结果 tag Unknown（同 _emitMember 字段；
             // 镜像 C# BindMemberCallOnClass：cast-to-class 走 stub→method 未解析→Z42Type.Unknown）。
             int itag = this._ctx.ToIrType(c.Type());
@@ -1167,13 +1179,15 @@ public sealed class ExprEmitter {
                 if (sc != null) {
                     string tgt = this._ctx.ResolveSealedTarget(sc, c.MethodName, c.ArgCount, sc.IsSealed);
                     if (tgt != "") {
-                        TypedReg[] dfull = new TypedReg[c.ArgCount + 1];
+                        int dextra = retStruct ? 1 : 0;
+                        TypedReg[] dfull = new TypedReg[c.ArgCount + 1 + dextra];
                         dfull[0] = recv;
                         int dfi = 0;
                         while (dfi < c.ArgCount) { dfull[dfi + 1] = iargs[dfi]; dfi = dfi + 1; }
-                        TypedReg dvdst = this._ctx.Alloc(itag);
-                        this._ctx.Emit(new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1));
-                        return dvdst;
+                        if (retStruct) { dfull[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
+                        TypedReg dvdst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
+                        this._ctx.Emit(new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1 + dextra));
+                        return retStruct ? sretH : dvdst;
                     }
                 }
             }
@@ -1182,17 +1196,28 @@ public sealed class ExprEmitter {
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
                 if (de != null) {
                     this._ctx.TrackDepNamespace(de.Namespace);
-                    TypedReg[] full = new TypedReg[c.ArgCount + 1];
+                    int fextra = retStruct ? 1 : 0;
+                    TypedReg[] full = new TypedReg[c.ArgCount + 1 + fextra];
                     full[0] = recv;
                     int fi = 0;
                     while (fi < c.ArgCount) { full[fi + 1] = iargs[fi]; fi = fi + 1; }
-                    TypedReg ddst = this._ctx.Alloc(itag);
-                    this._ctx.Emit(new CallInstr(ddst, de.QualifiedName, full, c.ArgCount + 1));
-                    return ddst;
+                    if (retStruct) { full[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
+                    TypedReg ddst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
+                    this._ctx.Emit(new CallInstr(ddst, de.QualifiedName, full, c.ArgCount + 1 + fextra));
+                    return retStruct ? sretH : ddst;
                 }
+
             }
             // VCall fallback：imported receiver → 依赖 ns 追踪（C# 行 198-200 镜像，缺则 DEPS 漏条目）
             this._ctx.TrackImportedClass(c.OwnerClass);
+            if (retStruct) {
+                TypedReg[] vargs = new TypedReg[c.ArgCount + 1];
+                int vi = 0; while (vi < c.ArgCount) { vargs[vi] = iargs[vi]; vi = vi + 1; }
+                vargs[c.ArgCount] = sretH;   // 末尾隐藏 sret 实参
+                TypedReg vvoid = this._ctx.Alloc(IrType.Void);
+                this._ctx.Emit(new VCallInstr(vvoid, recv, c.MethodName, vargs, c.ArgCount + 1));
+                return sretH;
+            }
             TypedReg idst = this._ctx.Alloc(itag);
             this._ctx.Emit(new VCallInstr(idst, recv, c.MethodName, iargs, c.ArgCount));
             return idst;
