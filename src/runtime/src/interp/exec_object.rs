@@ -435,6 +435,13 @@ pub(super) fn as_cast(
         frame.set(dst, out);
         return Ok(());
     }
+    // add-struct-generic-boxing (P3a): 已是未装箱值 struct（StructRef）→ `as P` 恒等（原样返回）。编译器仅在
+    // 静态类型即该 struct 处发此 AsCast（泛型容器拆箱统一走 AsCast，元素可能是 BoxedStruct 或已是 StructRef——
+    // 普通 P[]；此臂让 StructRef 情形不被误判 Null）。
+    if matches!(&val, Value::StructRef { .. }) {
+        frame.set(dst, val);
+        return Ok(());
+    }
     let is_match = match &val {
         Value::Object(rc) => {
             is_subclass_or_eq_td(ctx, &module.type_registry, &rc.type_desc().name, class_name)
