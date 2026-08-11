@@ -232,13 +232,17 @@ bool _targetExcludes(string rid, string caseName) {
     if (!rid.Contains("wasm")) { return false; }   // native runs everything
     if (caseName.StartsWith("z42.net/"))       { return true; }   // socket
     if (caseName.StartsWith("z42.threading/")) { return true; }   // threads
-    // native fs / env / process specific stdlib units:
-    if (caseName == "z42.io/operating_system") { return true; }
-    if (caseName == "z42.io/env_cwd")          { return true; }
-    if (caseName == "z42.io/process_which")    { return true; }
-    if (caseName.Contains("file_stream"))      { return true; }   // native FileStream
-    if (caseName.Contains("_stream"))          { return true; }   // json/toml/yaml/…_stream
-    if (caseName.Contains("stream_"))          { return true; }   // stream_copy_to / _text_pipeline
+    if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*)
+    // env / cwd / process / console-tty specific stdlib units (need OS env/process,
+    // which wasm lacks — set_var / current_dir / process spawn / is_terminal panic):
+    if (caseName == "z42.io/env_cwd")             { return true; }
+    if (caseName == "z42.io/env_set")             { return true; }
+    if (caseName == "z42.io/environment_extra")   { return true; }
+    if (caseName == "z42.io/ansi_color")          { return true; }
+    if (caseName == "z42.io/console")             { return true; }
+    if (caseName == "z42.io/operating_system")    { return true; }
+    if (caseName == "z42.io/process_which")       { return true; }
+    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }
     return false;
 }
 

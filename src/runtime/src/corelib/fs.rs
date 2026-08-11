@@ -158,15 +158,26 @@ fn walk_dir(root: &str, rel: &str, out: &mut Vec<String>) -> Result<()> {
 pub fn builtin_env_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let name = arg_str(args, 0, "__env_set")?;
     // Null value = remove (mirrors .NET Environment.SetEnvironmentVariable(name, null)).
+    // fix-wasm-corpus-capability-gate: std::env::set_var/remove_var PANIC on wasm32
+    // ("cannot set env vars on this platform"). A browser has no OS environment —
+    // no-op there (env tests are already bundle-excluded for wasm; this is the net).
     match args.get(1).unwrap_or(&Value::Null) {
-        Value::Null => unsafe { std::env::remove_var(name) },
+        Value::Null => {
+            #[cfg(not(target_arch = "wasm32"))]
+            unsafe { std::env::remove_var(name) }
+            #[cfg(target_arch = "wasm32")]
+            let _ = name;
+        }
         v => {
             let s: &str = match v {
                 Value::Str(s) => s,
                 _ => anyhow::bail!("__env_set: arg 1 expected string or null, got {:?}", v),
             };
             // Safety: z42 is single-threaded; no concurrent env reads during this call.
+            #[cfg(not(target_arch = "wasm32"))]
             unsafe { std::env::set_var(name, s); }
+            #[cfg(target_arch = "wasm32")]
+            let _ = (name, s);
         }
     }
     Ok(Value::Null)
@@ -199,7 +210,11 @@ pub fn builtin_process_exit(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 pub fn builtin_env_unset(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let key = arg_str(args, 0, "__env_unset")?;
+    // wasm32: remove_var panics (see builtin_env_set) — no-op in the browser.
+    #[cfg(not(target_arch = "wasm32"))]
     std::env::remove_var(key);
+    #[cfg(target_arch = "wasm32")]
+    let _ = key;
     Ok(Value::Null)
 }
 pub fn builtin_env_vars(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
