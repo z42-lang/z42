@@ -157,15 +157,26 @@ pub unsafe extern "C" fn jit_vcall(
         return 1;
     }
 
-    // add-struct-object-boxing (PR2a): 装箱 struct 方法调用（镜像 interp/exec_vcall.rs BoxedStruct 臂）。
-    // GetType → builtin_obj_get_type（保留精确 struct 类型）。其余对象协议（Equals/ToString/GetHashCode）
-    // = PR2b 合成 struct 值方法；2a 暂 fallback Std.Object（this=boxed 值），不在 2a 测试面。
+    // add-struct-object-methods (PR2b): 装箱 struct 对象协议方法（镜像 interp/exec_vcall.rs BoxedStruct 臂）。
+    // GetType/GetHashCode/ToString → native；Equals(+用户方法) → {type_name}.{method}$arity 合成/声明方法。
     if let Value::BoxedStruct(b) = &obj_val {
         let vm_ctx = vm_ctx_ref(ctx);
-        if method == "GetType" && argc == 0 {
-            match crate::corelib::object::builtin_obj_get_type(vm_ctx, &[obj_val.clone()]) {
-                Ok(ty) => { frame_ref.regs[dst as usize] = ty; return 0; }
-                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+        if argc == 0 {
+            if method == "GetType" {
+                match crate::corelib::object::builtin_obj_get_type(vm_ctx, &[obj_val.clone()]) {
+                    Ok(ty) => { frame_ref.regs[dst as usize] = ty; return 0; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+            if method == "GetHashCode" {
+                match crate::corelib::convert::builtin_struct_hash_code(vm_ctx, &[obj_val.clone()]) {
+                    Ok(h) => { frame_ref.regs[dst as usize] = h; return 0; }
+                    Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+            if method == "ToString" {
+                let short = b.type_name.rsplit('.').next().unwrap_or(&b.type_name);
+                frame_ref.regs[dst as usize] = Value::Str(short.into()); return 0;
             }
         }
         let type_name = b.type_name.clone();
@@ -174,6 +185,8 @@ pub unsafe extern "C" fn jit_vcall(
         call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
         let arity = argc;
         let candidates = [
+            format!("{}.{}${}", type_name, method, arity),
+            format!("{}.{}", type_name, method),
             format!("Std.Object.{}${}", method, arity),
             format!("Std.Object.{}", method),
         ];
@@ -213,7 +226,7 @@ pub unsafe extern "C" fn jit_vcall(
             }
         }
         set_exception(vm_ctx, Value::Str(
-            format!("VCall on boxed struct `{}`: method `{}` (arity {}) — Equals/ToString/GetHashCode 由 PR2b 提供",
+            format!("VCall on boxed struct `{}`: method `{}` (arity {}) not found",
                     type_name, method, arity).into()));
         return 1;
     }

@@ -179,22 +179,33 @@ pub(super) fn vcall(
         bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity);
     }
 
-    // ── add-struct-object-boxing (PR2a): 装箱 struct 方法调用 ────────────
-    // GetType → builtin_obj_get_type（保留精确 struct 类型，not 拆箱）。其余对象协议方法
-    // （Equals / ToString / GetHashCode）= **PR2b** 合成 struct 值方法；2a 暂 fallback 到
-    // Std.Object 基类实现（this = boxed 值），不在 2a 测试面。
+    // ── add-struct-object-methods (PR2b): 装箱 struct 对象协议方法调用 ────────────
+    // GetType → builtin_obj_get_type（保留精确 struct 类型）；GetHashCode → native FNV（__struct_hash_code）；
+    // ToString → 短类型名（C# ValueType 默认）；Equals(+用户方法) → 解析 {type_name}.{method}$arity 合成/声明
+    // 方法（this = boxed 值，合成 body 内 AsCast 拆箱），fallback Std.Object。
     if let Value::BoxedStruct(b) = &obj_val {
         let mut extra_args = collect_args(&frame.regs, args)?;
-        if method == "GetType" && extra_args.is_empty() {
-            let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
-            frame.set(dst, ty);
-            return Ok(None);
+        if extra_args.is_empty() {
+            if method == "GetType" {
+                let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
+                frame.set(dst, ty); return Ok(None);
+            }
+            if method == "GetHashCode" {
+                let h = crate::corelib::convert::builtin_struct_hash_code(ctx, &[obj_val.clone()])?;
+                frame.set(dst, h); return Ok(None);
+            }
+            if method == "ToString" {
+                let short = b.type_name.rsplit('.').next().unwrap_or(&b.type_name);
+                frame.set(dst, Value::Str(short.into())); return Ok(None);
+            }
         }
         let type_name = b.type_name.clone();
         let mut call_args = vec![obj_val.clone()];
         call_args.append(&mut extra_args);
         let arity = call_args.len() - 1;
         let candidates = [
+            format!("{}.{}${}", type_name, method, arity),
+            format!("{}.{}", type_name, method),
             format!("Std.Object.{}${}", method, arity),
             format!("Std.Object.{}", method),
         ];
@@ -214,8 +225,7 @@ pub(super) fn vcall(
                 };
             }
         }
-        bail!("VCall on boxed struct `{}`: method `{}` (arity {}) — Equals/ToString/GetHashCode 由 PR2b 合成方法提供",
-              type_name, method, arity);
+        bail!("VCall on boxed struct `{}`: method `{}` (arity {}) not found", type_name, method, arity);
     }
 
     // ── Fast path: IC hit (object OR primitive receiver) ────────────────

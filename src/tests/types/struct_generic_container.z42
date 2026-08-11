@@ -1,0 +1,60 @@
+// add-struct-generic-boxing (P3a)：blob 值 struct 作泛型容器键/值/元素端到端。
+//   泛型边界装箱（存入）+ 拆箱（取出）——Dictionary<P,int> / List<P> / string 叶子键。
+namespace Demo;
+
+struct P {
+    int x;
+    int y;
+    P(int x, int y) { this.x = x; this.y = y; }
+}
+
+struct Tagged {
+    int n;
+    string label;
+    Tagged(int n, string label) { this.n = n; this.label = label; }
+}
+
+void Main() {
+    // ── Dictionary<P,int>：按值键存取（装箱 + boxed GetHashCode/Equals）──
+    var d = new Dictionary<P, int>();
+    d[new P(1, 2)] = 5;
+    d[new P(3, 4)] = 9;
+    Assert.Equal(5, d[new P(1, 2)]);       // 同值键命中（不同实例）
+    Assert.Equal(9, d[new P(3, 4)]);
+    Assert.True(d.ContainsKey(new P(1, 2)));
+    Assert.False(d.ContainsKey(new P(9, 9)));
+    d[new P(1, 2)] = 7;                    // 同值键覆盖同槽
+    Assert.Equal(7, d[new P(1, 2)]);
+
+    // ── List<P>：增 / 索引拆箱 / 遍历 / 查找 ──
+    var l = new List<P>();
+    l.Add(new P(1, 2));
+    l.Add(new P(3, 4));
+    Assert.Equal(2, l.Count);
+    Assert.Equal(1, l[0].x);              // 索引取出拆箱回值 struct
+    Assert.Equal(4, l[1].y);
+    Assert.True(l.Contains(new P(3, 4))); // 按值查找（实参装箱 + Equals）
+    Assert.False(l.Contains(new P(9, 9)));
+
+    int sum = 0;
+    foreach (P p in l) { sum = sum + p.x + p.y; }   // 遍历拆箱
+    Assert.Equal(1 + 2 + 3 + 4, sum);
+
+    // ── 取出值独立（值语义）：改取出的副本不影响容器 ──
+    P got = l[0];
+    got.x = 99;
+    Assert.Equal(1, l[0].x);
+
+    // ── string 叶子 struct 作键：内容相等命中 ──
+    var td = new Dictionary<Tagged, int>();
+    td[new Tagged(1, "hello")] = 100;
+    Assert.Equal(100, td[new Tagged(1, "hel" + "lo")]);   // 不同 string 实例、同内容 → 命中
+
+    // ── 非 struct 泛型回归 ──
+    var si = new Dictionary<string, int>();
+    si["a"] = 1;
+    Assert.Equal(1, si["a"]);
+    var li = new List<int>();
+    li.Add(42);
+    Assert.Equal(42, li[0]);
+}

@@ -1,7 +1,7 @@
 # struct 值语义（内联字节 blob）
 
-> 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等落地（2026-08-10，
-> 均无格式 bump）。本页讲**多字段 struct 的真值语义**
+> 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等（2026-08-10）+
+> struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）落地，均无格式 bump。本页讲**多字段 struct 的真值语义**
 > 如何在编译器 + 运行时实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见
 > `docs/spec/changes/add-struct-value-semantics/`。
 
@@ -159,9 +159,67 @@ struct（object/boxed）」→ 发 `AsCast`（复用现有 opcode）。VM `as_ca
 > 无效句柄（可消费的拆箱结果必含 struct 指令 → 整函数回退 interp）；`jit_is_instance`/`jit_vcall`(GetType)
 > 加 `BoxedStruct` 分支（身份，无 alloc）与 interp 对称。
 
-**Deferred → PR2b**：boxed struct 的 `Equals`（复用 [struct 值相等] 的 `_emitLeafEqChecks` 合成 struct 值
-方法）/`GetHashCode`/`ToString` 完整对象协议；`==` on boxed struct 的最终语义（2a 给 `PartialEq` provisional
-值相等）。
+## struct 合成对象协议方法（add-struct-object-methods PR2b）
+
+落地 `z42.core/Object.z42` 契约「compiler synthesises value-semantic Equals/GetHashCode/ToString」——boxed
+struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装箱后的对象协议 / 名字派发，非 vtable）。
+
+- **`Equals(object)`**：**编译器合成** IR 函数 `{FQ}.Equals$1`（`IrGen` 类成员循环末尾注入，与合成 ctor
+  同位；用户显式声明则不合成；`build_func_index` 按名注册）。body（`FunctionEmitter.EmitSynthStructEquals`
+  → `ExprEmitter.EmitSynthEqualsResult`）= `(other is P) ? leafEq((P)this,(P)other) : false`——**this/other
+  均按 boxed 处理、内部 `AsCast` 拆箱到 callee 帧 arena StructRef**（避开 JIT 帧无 frame_id），再复用 PR1
+  `_emitStructEquality` 逐叶子比较（NaN 精确、嵌套递归、string 内容 / object 引用）。
+- **`GetHashCode()`**：**native `__struct_hash_code`**（VM boxed-vcall 臂路由）——对 boxed blob 的 `bytes`
+  FNV-1a + 混入引用叶子哈希（string 内容；object/array 叶子弱贡献常量，因 Equals 对引用叶子按引用比较）。
+  `& 0x7fffffff` 非负（Dictionary 契约）。同值 → 同 `bytes`/`refs` → 同哈希。
+- **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
+- **`GetType()`**：`builtin_obj_get_type`（PR2a）。
+
+**VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
+`ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
+值，合成 body 内拆箱），fallback `Std.Object.{method}`。
+
+**D5 定案**：`==`/`!=` on `object`-typed boxed struct = **值相等**（`Value::BoxedStruct` `PartialEq`：
+type_name∧bytes∧refs），延续 ② 对 struct `==` 的值语义（z42 boxed 是 owned Box 非共享 GcRef，C# 的装箱引用
+相等在此表示下 ill-defined）；`.Equals()` = 合成叶子方法（float `Eq` → NaN≠NaN 精确）。**边角**：float NaN
+`==` 按位判等 vs `.Equals` 浮点== → 极少含 NaN 的 struct 二者微差（pre-1.0 标注，要完全一致须让 `==` 也走
+vcall Equals，代价不值）。
+
+**Deferred**：
+- **struct 作泛型容器键**（`Dictionary<P,V>`/`HashSet<P>`）+ **VCall on 未装箱 StructRef receiver**——泛型路径
+  把 struct 键当未装箱 StructRef 传入（`key.GetHashCode()`=对 StructRef 的 VCall，且存进容器堆数组=帧作用域
+  句柄逃逸 use-after-free）。正确解 = **泛型边界装箱** / P3 容器内联（**PR2b 前本就不工作**，非回归）。
+- ToString 字段 dump；`IEquatable<T>.Equals(P)` typed 重载；反射 GetMethods 报告合成方法（SIGS 元数据，
+  可选、动 SIGS 有自举字节稳定性风险，留后续）。
+
+## struct 泛型容器装箱（add-struct-generic-boxing P3a）
+
+`Dictionary<P,V>` / `List<P>` / `HashSet<P>` 存 struct 键/值/元素——**泛型边界装箱**（非字节内联；密度内联
+是 P3b）。格式中立：复用 `__box_struct`（存）+ `AsCast`（取）+ `as_cast` 的 StructRef 恒等臂，容器 backing
+（`TKey[]/T[]`，运行期擦除）与 ABI 不变。
+
+**问题**：泛型路径把 struct 实参当**未装箱 `Z42GenericParamType`（K/T）** 传入——`BoxIfNeeded` 只对
+`object`/接口目标装箱，type-param 不装箱 → 裸 `StructRef`（帧作用域 arena 句柄）流入容器：`Dictionary.Set`
+的 `key.GetHashCode()` = 对 StructRef 的 VCall → 崩；`keys[slot]=key` 存进堆数组 → 帧退出 use-after-free。
+
+**装箱（存入）**：`TypeChecker.BoxIfNeeded` 的 `erasesS` 谓词加 `|| (target is Z42GenericParamType)`——
+覆盖所有走 `BoxArgs` 的方法实参（`List.Add`/`Dictionary.Set`/`Contains`…）。`d[key]=v` 的 indexer-set
+（`ExprTyper._bindAssign` 手搭、**绕过 BoxArgs**）与 `d[key]` 读的 get_Item 索引实参（`_bindIndex`）单独按
+`set_Item`/`get_Item` 的 `ParamTypes` 装箱。→ 容器存 `Value::BoxedStruct`（堆稳定），`GetHashCode`/`Equals`
+走 PR2b 的 boxed-vcall 臂。
+
+**拆箱（取出）**：取回到具体 struct 类型需拆回值 struct。`TypeChecker.StructUnboxTarget` 判「泛型返回
+（get_Item / 方法返回 T）subst 后是否 blob struct」，是则调用点把结果包 `BoundConvert(→P)`，复用
+`ExprEmitter._emitConvert` 的 `AsCast` 拆箱臂。`foreach (P p in list)` 在 `FunctionEmitter` 对元素发 `AsCast`。
+
+**`as_cast` 的 StructRef 恒等臂**（关键统一点）：泛型容器迭代/取值统一走 `AsCast`，但元素运行期可能是
+`BoxedStruct`（泛型容器，Add/set 装箱）**或**已是 `StructRef`（普通 `P[]`）——静态同为 `P[]` 不可辨。故 VM
+`as_cast`/`jit_as_cast` 加 **StructRef 源 → 原样返回**（已是值 struct，`as P` 恒等；编译器仅在静态类型即该
+struct 处发此 AsCast），使两种运行期种类统一：`BoxedStruct`→拆箱 / `StructRef`→恒等。取出的 struct 是拷到
+当前帧 arena 的**独立副本**（值语义：改它不动容器）。
+
+**Deferred → P3b**：真**字节内联**进堆对象字段 / `struct[]` backing（密度 + FFI）+ 写屏障——本 P3a 只装箱，
+容器里是 boxed 堆对象，非内联字节。
 
 ## 与逃逸分析 / packed 数组的关系
 
@@ -175,8 +233,14 @@ struct（object/boxed）」→ 发 `AsCast`（复用现有 opcode）。VM `as_ca
 - ✅ **嵌套 struct 字段**（`Line{a:P}`）：累积-offset 叶子读写（3a）+ 整字段逐叶子复制（add-struct-nested-fields）。
 - ✅ **`struct==` 值相等**（`==` / `!=`）：逐叶子值比较脱糖，复用现有 `StructFieldGetPrim` + `Eq` + `BrCond`
   短路——**无新指令、无格式 bump**（add-struct-value-equality）。
-- ⏳ Deferred：**struct→object 健全装箱**（blob 拷到堆稳定表示 + boxed struct 的
-  `Equals`/`ToString`/`GetHashCode`/`GetType`/`is`/`as`；当前 struct→object 类型合法但运行期不装箱=裸拷
-  帧作用域 `StructRef` 句柄→悬垂，见 P4/装箱专项）、**单标量叶子 struct 塌缩**（`GCHandle` 保持现有标量
-  模型=Phase B）、**对象内联 struct 字段 / `struct[]`**（P3）、**跨包布局元数据 / 反射**（P4）、
-  **JIT 值路径**（P5）、**E0438 自引用诊断**（当前 `Size==0` 兜底防崩）。
+- ✅ **struct→object 健全装箱 + 身份**（`GetType`/`is`/`as`，blob 拷到堆稳定表示，修裸拷 StructRef 悬垂；
+  add-struct-object-boxing PR2a）。
+- ✅ **struct 合成对象协议方法**（boxed `Equals` 值相等复用 PR1 / `GetHashCode` native FNV / `ToString`
+  类型名 / `==` on boxed 值相等 D5；add-struct-object-methods PR2b）。
+- ✅ **struct 作泛型容器键/值/元素**（`Dictionary<P,V>` / `List<P>` 存取·ContainsKey·foreach·Contains）：
+  **泛型边界装箱**（存入 type-param 装箱、取出到具体 struct 拆箱），复用 `__box_struct`+`AsCast`+`as_cast`
+  StructRef 恒等臂——**格式中立、容器 ABI 不变**（add-struct-generic-boxing P3a）。
+- ⏳ Deferred：**struct 真内联进堆对象字段 / `struct[]` 字节 backing**（P3b，格式 bump + **写屏障**——struct
+  blob 存进堆对象不再 GC 根重扫，需写屏障追踪引用叶子；密度收益在此）、**单标量叶子 struct 塌缩**
+  （`GCHandle`=Phase B）、**跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 值路径**（P5，现全 bail→interp）、
+  **ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
