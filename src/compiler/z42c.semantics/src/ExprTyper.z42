@@ -72,6 +72,14 @@ public sealed class ExprTyper {
                 if (aCls != null && aCls.Methods.ContainsKey("set_Item")) {
                     BoundExpr aidx = this._bindExpr(aix.Index, env);
                     BoundExpr aval = this._bindExpr(a.Value, env);
+                    // add-struct-generic-boxing (P3a)：indexer-set 手搭 BoundCall **绕过 BoxArgs** → 对
+                    // set_Item 形参（type-param K/V）逐位装箱（否则 struct 键/值裸 StructRef 进容器堆数组悬垂）。
+                    MethodSymbol sms = aCls.Methods.Get("set_Item") as MethodSymbol;
+                    if (sms != null && sms.Signature != null && sms.Signature.ParamTypes != null
+                        && sms.Signature.ParamTypes.Length >= 2) {
+                        aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[0]);
+                        aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[1]);
+                    }
                     BoundExpr[] sa = new BoundExpr[2]; sa[0] = aidx; sa[1] = aval;
                     return new BoundCall("instance", true, arecv, aCls.Name(), "set_Item", sa, 2, new Z42VoidType(), a.Span);
                 }
@@ -276,8 +284,21 @@ public sealed class ExprTyper {
             if (ixCls != null && ixCls.Methods.ContainsKey("get_Item")) {
                 MethodSymbol gm = ixCls.Methods.Get("get_Item") as MethodSymbol;
                 Z42Type gret = gm.Signature.Ret;
-                if (gret is Z42GenericParamType) { gret = new Z42UnknownType(); }
+                // add-struct-generic-boxing (P3a)：get_Item 索引实参（key，type-param）也需装箱——否则
+                // struct 键裸 StructRef 进 FindSlot 的 key.GetHashCode() VCall 崩（读路径手搭、绕过 BoxArgs）。
+                if (gm.Signature != null && gm.Signature.ParamTypes != null && gm.Signature.ParamTypes.Length >= 1) {
+                    index = this._tc.BoxIfNeeded(index, gm.Signature.ParamTypes[0]);
+                }
                 BoundExpr[] ia = new BoundExpr[1]; ia[0] = index;
+                // add-struct-generic-boxing (P3a)：元素类型 subst 为 blob 值 struct → get_Item 返回装箱值 →
+                // 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown 触发 _emitConvert 的 AsCast 拆箱臂）。
+                Z42Type ubT = this._tc.StructUnboxTarget(gret, tt);
+                if (ubT != null) {
+                    BoundExpr rawGet = new BoundCall("instance", true, target, ixCls.Name(), "get_Item",
+                                                     ia, 1, new Z42UnknownType(), ix.Span);
+                    return new BoundConvert(rawGet, ubT, ix.Span);
+                }
+                if (gret is Z42GenericParamType) { gret = new Z42UnknownType(); }
                 return new BoundCall("instance", true, target, ixCls.Name(), "get_Item", ia, 1, gret, ix.Span);
             }
             if ((tt is Z42ErrorType) || (tt is Z42UnknownType)) {

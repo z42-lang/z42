@@ -10,12 +10,22 @@
 import { test, expect } from '@playwright/test';
 
 test('embedded test-host: bundled corpus runs green in-browser', async ({ page }) => {
+    // diagnose-mobile-wasm-embed: capture the browser console + page errors so a
+    // wasm panic (surfaced by the panic hook via console.error) shows up in the
+    // CI log — otherwise the failure is just the opaque "RuntimeError: unreachable".
+    const consoleLogs: string[] = [];
+    page.on('console', (m) => consoleLogs.push(`[${m.type()}] ${m.text()}`));
+    page.on('pageerror', (e) => consoleLogs.push(`[pageerror] ${e.message}`));
+
     await page.goto('/');
     // run.js sets window.__done when the agent finishes (ok or error).
     await page.waitForFunction(() => (window as any).__done === true, { timeout: 60_000 });
 
+    // Always echo captured console into the test output (visible in CI).
+    if (consoleLogs.length) console.log('--- browser console ---\n' + consoleLogs.join('\n'));
+
     const err = await page.evaluate(() => (window as any).__error);
-    expect(err, `embedded run errored: ${err}`).toBeFalsy();
+    expect(err, `embedded run errored: ${err}\nconsole:\n${consoleLogs.join('\n')}`).toBeFalsy();
 
     const report = await page.evaluate(() => (window as any).__report as string);
     expect(report, 'no report produced').toBeTruthy();

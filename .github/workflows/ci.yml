@@ -1771,10 +1771,40 @@ jobs:
           arch: x86_64
           target: google_apis
           working-directory: src/toolchain/workload/android/platform
+          # ci-perf-tier2: AVD snapshot (load cached, don't re-save).
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: ./gradlew :z42vm:connectedAndroidTest
+          # diagnose-mobile-wasm-embed (#159): the embedded corpus can crash the app
+          # process natively ("Instrumentation run failed due to Process crashed")
+          # — the cause lives in logcat/tombstones, not the JUnit XML. A post-crash
+          # `adb logcat -d` returns nothing (buffer gone). Capture logcat
+          # CONTINUOUSLY in the background so the SIGSEGV/abort + z42vm native
+          # frames land on disk as they happen, and `tail` it INLINE into the job
+          # log so the cause is visible even if the artifact upload path misses.
+          script: |
+            set +e
+            adb logcat -c || true
+            adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
+            LOGCAT_PID=$!
+            ./gradlew :z42vm:connectedAndroidTest
+            rc=$?
+            sleep 3
+            kill "$LOGCAT_PID" 2>/dev/null || true
+            adb pull /data/tombstones "$GITHUB_WORKSPACE/android-tombstones" 2>/dev/null || true
+            echo "===== android-embed-logcat.txt (tail 120, inline) ====="
+            tail -120 "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>/dev/null || echo "(no logcat captured)"
+            echo "===== end logcat tail ====="
+            exit $rc
+      - name: Upload Android logcat + tombstones (crash diagnostics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-embed-crash-diagnostics
+          path: |
+            android-embed-logcat.txt
+            android-tombstones/**
+          if-no-files-found: warn
       - name: Publish Android test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()
