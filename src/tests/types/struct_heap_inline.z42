@@ -24,8 +24,7 @@ class Box {
     Box() { }
     void SetPt(int x, int y) { pt.x = x; pt.y = y; }   // owner 方法内裸内联字段叶子写（this.pt.x）
     int SumPt() { return pt.x + pt.y; }                // owner 裸内联字段叶子读
-    // NB：`Point GetPt() { return pt; }`（class 方法返回 struct）留 Deferred——需 sret×VCall 接线
-    //（当前 sret 仅覆盖 struct-receiver 方法 + 静态/自由调用；class 实例方法返回 struct 走 VCall 未接 sret）。
+    Point GetPt() { return pt; }                        // class 方法返回 struct（值复制出 → sret×VCall）
 }
 
 void Main() {
@@ -60,6 +59,13 @@ void Main() {
     Assert.Equal(3, b.pt.x);
     Assert.Equal(4, b.pt.y);
     Assert.Equal(7, b.SumPt());   // 3 + 4
+
+    // class 方法返回 struct（sret×VCall）——返回值复制，独立于对象内联字段
+    Point g = b.GetPt();
+    Assert.Equal(3, g.x);
+    Assert.Equal(4, g.y);
+    g.y = 88;
+    Assert.Equal(4, b.pt.y);      // GetPt 返回的是副本，改 g 不动 b.pt
 
     // string 引用叶子内联（struct_refs 侧表）
     b.tag = new Tagged(42, "hello");
