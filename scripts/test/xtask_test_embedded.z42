@@ -254,13 +254,15 @@ string _buildTestBundle(string root, string filter, string rid) {
     int count = 0;
     int excluded = 0;
     int capped = 0;
-    // fix-wasm-embed-timeout: the full corpus (~433 cases) is impractically slow on
-    // the single-threaded wasm interp — each golden rebuilds a VmContext + reloads
-    // stdlib, so it runs >20min and times out. wasm is a SMOKE target (prove the
-    // in-browser embed mechanism works: agent + per-case isolation + app::run), not
-    // full coverage (that's desktop's job). Cap it to a fast representative subset.
-    // 0 = uncapped (native targets). Cases are sorted → the cap is deterministic.
-    int wasmCap = rid.Contains("wasm") ? 60 : 0;
+    // fix-wasm-embed-timeout / android-emu timeout: the full corpus (~433 cases) is
+    // impractically slow on the constrained embed targets — each golden rebuilds a
+    // VmContext + reloads stdlib, and a browser (wasm interp) / emulator / simulator
+    // runs it >20min (wasm timed out; android hit its 60min job cap running the
+    // corpus sequentially after the OOM fix forced Z42_TEST_JOBS=1). These are SMOKE
+    // targets (prove the embed mechanism works: agent + per-case isolation +
+    // app::run), NOT full coverage — that's desktop's job. Cap them to a fast
+    // representative subset. 0 = uncapped (desktop). Cases are sorted → deterministic.
+    int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
     // 1. golden e2e — direct-run mode (mature-embed-testhost P1): compile source
     // (no [Test] wrap) → {name, zbc, entry, expected}; agent runs each in a fresh
@@ -294,7 +296,7 @@ string _buildTestBundle(string root, string filter, string rid) {
             }
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
-            if (wasmCap > 0 && count >= wasmCap) { capped = capped + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string e = _goldenEntry(root, caseName, src, expTxt, bundleDir);
             if (e.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + caseName); continue; }
             if (count > 0) { items = items + ",\n"; }
@@ -313,7 +315,7 @@ string _buildTestBundle(string root, string filter, string rid) {
             string caseName = lib + "/" + f.Substring(0, f.Length - 4);
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
-            if (wasmCap > 0 && count >= wasmCap) { capped = capped + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string safe = _bundleSafeName(caseName);
             string zbc = _emitUnitZbc(root, Path.Join(tdir, f), safe, bundleDir);
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + caseName); continue; }
@@ -332,7 +334,7 @@ string _buildTestBundle(string root, string filter, string rid) {
             string caseName = lib + "/" + nm;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
-            if (wasmCap > 0 && count >= wasmCap) { capped = capped + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string safe = _bundleSafeName(caseName);
             string zbc = _emitDirUnit(root, lib, nm, dpath, safe, bundleDir);
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + caseName); continue; }
@@ -352,7 +354,7 @@ string _buildTestBundle(string root, string filter, string rid) {
             string caseName = lib + "/" + nm;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             if (_targetExcludes(rid, caseName)) { excluded = excluded + 1; continue; }
-            if (wasmCap > 0 && count >= wasmCap) { capped = capped + 1; continue; }
+            if (embedCap > 0 && count >= embedCap) { capped = capped + 1; continue; }
             string e = _goldenEntry(root, caseName, gsrc,
                 _readExpected(Path.Join(dpath, "expected_output.txt")), bundleDir);
             if (e.Length == 0) { ConsoleError.WriteLine("  ✗ lib-golden " + caseName); continue; }
@@ -367,7 +369,7 @@ string _buildTestBundle(string root, string filter, string rid) {
             + rid + "' lacks — socket/threads/native-fs)");
     }
     if (capped > 0) {
-        Console.WriteLine("  (wasm smoke: capped at " + wasmCap.ToString() + " cases; skipped "
+        Console.WriteLine("  (embed smoke: capped at " + embedCap.ToString() + " cases; skipped "
             + capped.ToString() + " more — full coverage runs on desktop)");
     }
     if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
