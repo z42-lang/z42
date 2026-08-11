@@ -1788,6 +1788,14 @@ impl MagrGC for ArcMagrGC {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(element_type, elems))
     }
 
+    /// add-struct-array-codegen (P3b follow-up): `Heap`-trait override so dyn-dispatched
+    /// `ctx.heap().alloc_array_obj(..)` region-allocs the pre-built `ArrayObj` (keeping a
+    /// `StructBytes` backing), not the trait default that would box it. Routes to the
+    /// inherent `ArcMagrGC::alloc_array_obj` (fully-qualified — no recursion/ambiguity).
+    fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
+        ArcMagrGC::alloc_array_obj(self, obj)
+    }
+
     fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
     }

@@ -730,6 +730,15 @@ public sealed class ExprEmitter {
         }
         if (a.Target is BoundIndex) {
             BoundIndex ti = a.Target as BoundIndex;
+            // add-struct-array-codegen (P3b follow-up)：`arr[i] = p`（value-struct 数组整元素写）→ 取元素
+            // 句柄（StructRefHeap）逐叶子把 p 拷进元素字节区（值语义）。ArraySet 的 set_boxed 收不了 arena
+            // StructRef 源。叶子写 `arr[i].x=v` 走上面 BoundMember 分支（_emitBlobFieldSet + 句柄根）。
+            if (this._isBlobStruct(ti.Type())) {
+                TypedReg h = this._emitArrayElemHandle(ti);
+                string fs = this._blobStructName(ti.Type());
+                this._copyRegion(val, 0, h, 0, fs);
+                return val;
+            }
             TypedReg arr = this.Emit(ti.Target);
             TypedReg i = this.Emit(ti.Index);
             this._ctx.Emit(new ArraySetInstr(arr, i, val));
@@ -882,6 +891,9 @@ public sealed class ExprEmitter {
         if (this._isOwnerStructField(e)) { return new TypedReg(0, IrType.Ref); }
         // add-struct-heap-inline (P3b)：裸内联字段 `pt`（class C 方法内）根 = this 对象句柄 reg0。
         if (this._isOwnerInlineField(e)) { return new TypedReg(0, IrType.Ref); }
+        // add-struct-array-codegen (P3b follow-up)：`arr[i]`（value-struct 数组元素）链根 = 元素**句柄**
+        // （StructRefHeap，ArrayGet 直发不拷贝）——供 `arr[i].x` 原地叶子读写；offset 0（元素起点，_structChainOffset 默认返 0）。
+        if (e is BoundIndex && this._isBlobStruct(e.Type())) { return this._emitArrayElemHandle(e as BoundIndex); }
         return this.Emit(e);
     }
 
@@ -1346,11 +1358,36 @@ public sealed class ExprEmitter {
 
     // arr[i] 读 → array_get（元素类型）。
     private TypedReg _emitIndex(BoundIndex idx) {
+        // add-struct-array-codegen (P3b follow-up): standalone `arr[i]` for a **value-struct
+        // array** → ArrayGet yields a `StructRefHeap` element handle; copy it out to a fresh
+        // local blob (value semantics: the read is an independent snapshot, not an alias into
+        // the array). Leaf access `arr[i].x` instead roots the chain at the handle (see
+        // `_structChainRoot`), so it reads/writes in place.
+        if (this._isBlobStruct(idx.Type())) {
+            TypedReg h = this._emitArrayElemHandle(idx);
+            string fs = this._blobStructName(idx.Type());
+            int sz = this._ctx.Gen.Layouts.StructSize(fs);
+            TypedReg cp = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(fs), sz));
+            this._copyRegion(h, 0, cp, 0, fs);
+            return cp;
+        }
         TypedReg arr = this.Emit(idx.Target);
         TypedReg i = this.Emit(idx.Index);
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(idx.Type()));
         this._ctx.Emit(new ArrayGetInstr(dst, arr, i));
         return dst;
+    }
+
+    // add-struct-array-codegen (P3b follow-up): emit `arr[i]` producing the **element
+    // handle** (`StructRefHeap`, via ArrayGet on a value-struct array) with no copy. Used as
+    // a struct chain root (`arr[i].x` in-place) + by `_emitIndex`'s copy-out + `arr[i] = p`.
+    private TypedReg _emitArrayElemHandle(BoundIndex idx) {
+        TypedReg arr = this.Emit(idx.Target);
+        TypedReg i = this.Emit(idx.Index);
+        TypedReg h = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ArrayGetInstr(h, arr, i));
+        return h;
     }
 
     // x is T → is_instance（bool）。is-pattern `x is T v`：另发 as-cast 把 (x as T) 存入 v 的

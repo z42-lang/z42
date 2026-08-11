@@ -75,6 +75,15 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_array(elems)
     }
 
+    /// add-struct-array-codegen (P3b follow-up): allocate a **pre-built** `ArrayObj`
+    /// (e.g. a value-struct `Point[]` with `StructBytes` backing that carries packed
+    /// bytes + a reference side-table). Default funnels its boxed elements through
+    /// `alloc_array` (mock heaps don't preserve packed backings; harmless for tests).
+    /// `ArcHeap` overrides to region-alloc the `ArrayObj` in place, keeping the backing.
+    fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
+        self.alloc_array(obj.to_boxed_vec())
+    }
+
     /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
     /// an owned `Vec<u8>` (FFI return path — no per-byte boxing). Default boxes
     /// for mock heaps; `ArcHeap` overrides to build a `Bytes` backing in place.
