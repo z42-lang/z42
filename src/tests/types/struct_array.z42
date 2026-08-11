@@ -1,0 +1,72 @@
+// add-struct-array-codegen (P3b follow-up)：value-struct 数组 `Point[]` 字节 backing 端到端。
+//   struct 元素基元紧凑打包进数组字节 backing（ArrayBacking::StructBytes）、引用叶子进并行侧表；
+//   `arr[i]` 物化 StructRefHeap 元素句柄。验证：默认零初始化、arr[i].x 叶子读写（句柄+烘焙 offset）、
+//   整元素读出/写入值语义独立、元素独立、struct[] 字面量、string 引用叶子内联。
+namespace Demo;
+
+struct Point {
+    int x;
+    int y;
+    Point(int x, int y) { this.x = x; this.y = y; }
+}
+
+// 含 string 引用叶子的 struct —— 验证数组元素引用叶子走 backing refs 侧表 + 写屏障。
+struct Tagged {
+    int n;
+    string name;
+    Tagged(int n, string name) { this.n = n; this.name = name; }
+}
+
+void Main() {
+    // 默认零初始化的 struct[]（backing 字节零 → 默认 Point{0,0}）
+    Point[] arr = new Point[3];
+    Assert.Equal(3, arr.Length);
+    Assert.Equal(0, arr[0].x);
+    Assert.Equal(0, arr[0].y);
+
+    // 叶子读写：arr[i].x = v（ArrayGet 产 StructRefHeap 句柄 + 烘焙叶子 offset）
+    arr[0].x = 5;
+    arr[0].y = 7;
+    arr[1].x = 10;
+    Assert.Equal(5, arr[0].x);
+    Assert.Equal(7, arr[0].y);
+    Assert.Equal(10, arr[1].x);
+    Assert.Equal(0, arr[1].y);   // 元素独立（改 arr[0] 不动 arr[1]）
+
+    // 整元素读出 = 值复制（独立副本，非别名进数组）
+    Point p = arr[0];
+    p.x = 99;
+    Assert.Equal(5, arr[0].x);   // 原数组元素不受 p 改动影响
+    Assert.Equal(99, p.x);
+
+    // 整元素写入 = 值复制进
+    var q = new Point(11, 22);
+    arr[2] = q;
+    Assert.Equal(11, arr[2].x);
+    Assert.Equal(22, arr[2].y);
+    q.x = 100;                   // q 独立于 arr[2]
+    Assert.Equal(11, arr[2].x);
+
+    // struct[] 字面量（各元素 pack 进 backing）
+    var lit = new Point[]{ new Point(1, 2), new Point(3, 4) };
+    Assert.Equal(2, lit.Length);
+    Assert.Equal(1, lit[0].x);
+    Assert.Equal(2, lit[0].y);
+    Assert.Equal(3, lit[1].x);
+    Assert.Equal(4, lit[1].y);
+
+    // string 引用叶子内联进数组元素（backing refs 侧表）
+    Tagged[] tags = new Tagged[2];
+    tags[0] = new Tagged(42, "hello");
+    Assert.Equal(42, tags[0].n);
+    Assert.Equal("hello", tags[0].name);
+    tags[0].name = "world";       // 引用叶子原地写（触发 write_barrier_array_elem）
+    Assert.Equal("world", tags[0].name);
+    Assert.Equal(0, tags[1].n);   // 元素 1 独立、默认零
+
+    // 遍历式求和（index 循环，非 foreach）
+    int sum = 0;
+    int k = 0;
+    while (k < arr.Length) { sum = sum + arr[k].x; k = k + 1; }
+    Assert.Equal(5 + 10 + 11, sum);
+}

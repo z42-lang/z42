@@ -592,6 +592,25 @@ impl ArrayObj {
         Self { element_type: Arc::from("byte"), backing: ArrayBacking::Bytes(bytes) }
     }
 
+    /// add-struct-array-codegen (P3b follow-up): build a value-struct array `Point[len]`
+    /// with `StructBytes` backing — `len` elements packed back-to-back (`len*elem_size`
+    /// bytes, zero-initialized = default struct) + a `Null`-filled reference side-table
+    /// (`len*ref_count`). `layout` = the element struct type's byte+reference layout.
+    /// Element access goes through a `Value::StructRefHeap` handle (see `array_get`).
+    pub fn struct_backed(element_type: &str, len: usize, layout: std::sync::Arc<StructTypeLayout>) -> Self {
+        let elem_size = layout.size;
+        let ref_count = layout.ref_count();
+        Self {
+            element_type: Arc::from(element_type),
+            backing: ArrayBacking::StructBytes {
+                elem_size,
+                bytes: vec![0u8; len * elem_size],
+                refs: vec![Value::Null; len * ref_count],
+                layout,
+            },
+        }
+    }
+
     /// Select a packed value-type backing for a primitive `element_type`,
     /// unboxing `elems` into it. Conservative + sign-safe: only widths that
     /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.

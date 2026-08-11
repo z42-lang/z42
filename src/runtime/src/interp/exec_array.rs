@@ -17,11 +17,64 @@ use anyhow::{bail, Result};
 use super::ops::to_usize;
 use super::Frame;
 
+/// add-struct-array-codegen (P3b follow-up): if `element_type` is a **blob value struct**
+/// (a value type with ≥2 fields + a delivered byte layout — the same `IsBlobStruct`
+/// criterion the compiler uses to emit inline-struct access), build a `StructBytes`-backed
+/// array of `len` zero-initialized elements (C# inline `struct[]`). `None` for primitives /
+/// reference types / single-field structs (they keep `Boxed` / packed backings).
+fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<crate::metadata::types::ArrayObj> {
+    let td = ctx.try_lookup_type(element_type)?;
+    if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
+    let layout = td.struct_layout()?;         // value struct with a delivered byte layout
+    if layout.size == 0 { return None; }      // self-referential / empty guard
+    Some(crate::metadata::types::ArrayObj::struct_backed(element_type, len, layout))
+}
+
+/// add-struct-array-codegen (P3b follow-up): pack one struct value `v` into element `i` of
+/// a `StructBytes`-backed array (for `new Point[]{ p1, p2 }`). `v` is a `StructRef` (arena
+/// blob — resolved via `ctx.struct_arena`) or a `BoxedStruct` (owned snapshot); its bytes +
+/// reference leaves are copied into the element's byte window + ref side-table slots.
+/// `Null` = default (leave the zero-initialized element untouched).
+fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types::ArrayObj, i: usize, v: &Value) -> Result<()> {
+    let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
+        Value::BoxedStruct(b) => (b.bytes.to_vec(), b.refs.to_vec()),
+        Value::StructRef { idx, frame_id } =>
+            ctx.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
+        Value::Null => return Ok(()),
+        other => bail!("struct array literal element must be a struct value, got {other:?}"),
+    };
+    if let crate::metadata::types::ArrayBacking::StructBytes { elem_size, bytes, refs, layout } = &mut arr.backing {
+        let rc = layout.ref_count();
+        let bstart = i * *elem_size;
+        let n = src_bytes.len().min(*elem_size);
+        bytes[bstart..bstart + n].copy_from_slice(&src_bytes[..n]);
+        let rn = src_refs.len().min(rc);
+        for k in 0..rn { refs[i * rc + k] = src_refs[k].clone(); }
+    }
+    Ok(())
+}
+
 pub(super) fn array_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, size: u32, elem_tag: u8, element_type: &str, stack_alloc: bool,
 ) -> Result<Option<Value>> {
     let n = to_usize(frame.get(size)?, "ArrayNew size")?;
+    // add-struct-array-codegen: blob value-struct element → StructBytes heap backing
+    // (skips stack-alloc + packed paths; element access via StructRefHeap handle).
+    if let Some(sb) = try_struct_backed(ctx, element_type, n) {
+        let arr = ctx.heap().alloc_array_obj(sb);
+        if matches!(arr, Value::Null) {
+            ctx.heap().set_strict_oom(false);
+            let exc = crate::exception::make_stdlib_exception(
+                ctx, module, "Std.OutOfMemoryException",
+                format!("cannot allocate struct array[{n}]: heap limit exceeded"),
+            ).unwrap_or(Value::Null);
+            ctx.heap().set_strict_oom(true);
+            return Ok(Some(exc));
+        }
+        frame.set(dst, arr);
+        return Ok(None);
+    }
     let default = default_value_for_tag(elem_tag);
     // add-escape-analysis-stack-alloc: non-escaping array → frame arena (no GC).
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
@@ -61,6 +114,23 @@ pub(super) fn array_new_lit(
         !vals.iter().any(|v| matches!(v, Value::StackObject { .. } | Value::StackArray { .. })),
         "stack-alloc handle stored into an array literal — escape analysis unsound"
     );
+    // add-struct-array-codegen: blob value-struct literal → StructBytes backing, packing
+    // each element's bytes + reference leaves (skips stack-alloc; heap-only for v1).
+    if let Some(mut sb) = try_struct_backed(ctx, element_type, n) {
+        for (i, v) in vals.iter().enumerate() { pack_struct_elem(ctx, &mut sb, i, v)?; }
+        let arr = ctx.heap().alloc_array_obj(sb);
+        if matches!(arr, Value::Null) {
+            ctx.heap().set_strict_oom(false);
+            let exc = crate::exception::make_stdlib_exception(
+                ctx, module, "Std.OutOfMemoryException",
+                format!("cannot allocate struct array literal[{n}]: heap limit exceeded"),
+            ).unwrap_or(Value::Null);
+            ctx.heap().set_strict_oom(true);
+            return Ok(Some(exc));
+        }
+        frame.set(dst, arr);
+        return Ok(None);
+    }
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let arr = crate::metadata::types::ArrayObj::typed(element_type, vals);
         let idx = ctx.stack_arena.lock().alloc_arr(frame.frame_id, arr);
@@ -103,7 +173,21 @@ pub(super) fn array_get(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, 
             if i >= borrowed.len() {
                 bail!("array index {} out of bounds (len={})", i, borrowed.len());
             }
-            borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
+            // add-struct-array-codegen (P3b follow-up): a value-struct array element is
+            // returned as a `StructRefHeap` handle into the array's byte backing (route
+            // α — in-place `arr[i].x` / value-copy at consumers), not a boxed snapshot.
+            // The array `GcRef` is only reachable here (not in `get_boxed`), so the
+            // handle must be built at the exec layer.
+            if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
+                let arr_gc = rc.clone();
+                drop(borrowed);
+                Value::StructRefHeap(Box::new(crate::metadata::types::StructArrayElem {
+                    arr: arr_gc,
+                    index: i as u32,
+                }))
+            } else {
+                borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
+            }
         }
         other => bail!("ArrayGet: expected array, got {:?}", other),
     };
