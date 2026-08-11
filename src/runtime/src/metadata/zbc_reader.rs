@@ -116,7 +116,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-08-08 add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
 // a value-struct layout block (size + typed reference bitmap, Flags bit2 gated) and
 // z42c begins emitting StructAlloc/Copy/FieldGet/SetPrim. Coupled with zpkg 0.36.
-pub const ZBC_VERSION_MINOR: u16 = 31;
+//
+// 2026-08-11 add-struct-heap-inline P3b: bumped to 1.32 — TYPE section gains a
+// **composed inline-struct layout block** (same shape as the struct block; the
+// class's object-relative inline byte-region size + reference bitmap), present when
+// class_flags & CLASS_FLAG_HAS_INLINE_STRUCT (bit7=0x80), following the struct block.
+// Delivers `TypeDescCold.inline_layout` for `class C { Point pt; }`. Coupled with zpkg 0.37.
+pub const ZBC_VERSION_MINOR: u16 = 32;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -206,7 +212,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 //
 // 2026-08-08 add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
 // 1.31 (TYPE value-struct layout block + blob value-type instruction emission).
-pub const ZPKG_VERSION_MINOR: u16 = 36;
+// 2026-08-11 add-struct-heap-inline P3b: bumped to 0.37, coupled inner zbc 1.32
+// (TYPE composed inline-struct layout block, Flags bit7 gated). Outer zpkg layout
+// unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 37;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

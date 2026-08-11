@@ -5,8 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 31;   // 2026-08-08 add-struct-value-semantics A-use：TYPE section 加值 struct 布局块（size:u32+ref_count:u16+(off:u32,kind:u8)×n，Flags bit2 gated）+ z42c 开始 emit StructAlloc/Copy/FieldGet/SetPrim。随 zpkg 0/36 同 bump。
-                                    // 前史：1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys（派发键全签名 mangle）；1.26 add-delegate-metadata（class_flags bit6=delegate）；1.24 add-method-modifiers（SIGS +method_flags:u8）。
+    public static int Minor = 32;   // 2026-08-11 add-struct-heap-inline P3b：TYPE section 加**合成内联 struct 布局块**（class 有内联 struct 字段时随尾部 emit，Flags bit7=0x80 gated，紧随 struct 块；size:u32+ref_count:u16+(off:u32,kind:u8)×n=对象相对引用位图）。随 zpkg 0/37 同 bump。
+                                    // 前史：1.31 add-struct-value-semantics A-use（TYPE 加值 struct 布局块，Flags bit2 gated）；1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys；1.26 add-delegate-metadata；1.24 add-method-modifiers。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。
