@@ -279,6 +279,34 @@ impl TypeDesc {
     #[inline] pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
         self.cold.as_ref().and_then(|c| c.struct_layout.clone())
     }
+    /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
+    /// for an instance of this class — the size of the inline value-struct byte
+    /// region + the reference side-table `ScriptObject` must allocate. `(0, 0)`
+    /// unless the class declares inline struct fields.
+    ///
+    /// **Stage 1 (inert)**: returns `(0, 0)` — no class carries inline-field
+    /// metadata yet. Stage 3 (zbc 1.32 inline-field table) populates
+    /// `TypeDescCold` and this reads the composed layout there. Keeping the two
+    /// regions empty until then makes every existing object byte-identical.
+    #[inline]
+    pub fn inline_region_sizes(&self) -> (usize, usize) {
+        // TODO(P3b stage 3): read composed inline layout from `cold.inline_layout`
+        // (bytes_total, refs_total) once the format-bump inline-field table lands.
+        (0, 0)
+    }
+
+    /// add-struct-heap-inline (P3b, D1-a): allocate the zero-initialized inline
+    /// byte region + `Null`-filled reference side-table for a fresh instance.
+    /// `(empty, empty)` until inline fields exist (stage 1). Single call site per
+    /// `ScriptObject` construction so the sizing logic lives in one place.
+    #[inline]
+    pub fn inline_regions(&self) -> (Box<[u8]>, Box<[Value]>) {
+        let (nb, nr) = self.inline_region_sizes();
+        let bytes = if nb == 0 { Box::from([]) } else { vec![0u8; nb].into_boxed_slice() };
+        let refs = if nr == 0 { Box::from([]) } else { vec![Value::Null; nr].into_boxed_slice() };
+        (bytes, refs)
+    }
+
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
     #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & super::bytecode::CLASS_FLAG_STRUCT != 0 }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
@@ -371,6 +399,21 @@ pub struct ScriptObject {
     /// Mutation via `obj.slots[i] = v` still works; `&mut [Value]` indexing
     /// is unchanged.
     pub slots: Box<[Value]>,
+    /// add-struct-heap-inline (P3b, D1-a): byte-packed primitive leaves of every
+    /// **inline value-struct field** this class declares (`class C { Point pt; }`).
+    /// Non-struct fields stay in `slots`; a struct-typed field occupies a
+    /// `[field_byte_off, +struct_size)` window here instead of a `slots` cell.
+    /// Empty for classes with no inline struct fields (byte-identical to pre-P3b).
+    /// Size comes from `TypeDesc::inline_region_sizes` (delivered by the zbc
+    /// inline-field table, format 1.32). Zero-initialized at alloc = struct default.
+    pub struct_bytes: Box<[u8]>,
+    /// add-struct-heap-inline (P3b, D1-a): reference leaves (`string`/object/array)
+    /// of this object's inline struct fields, as real `Value`s in a side-table
+    /// (mirrors `struct_arena::StructSlot::refs` + `BoxedStructData::refs`). GC
+    /// scans these directly (`visitor(&Value)`), and a write to one is a plain
+    /// `Value`-slot store routed through `write_barrier_field`. Ordered by the
+    /// composed reference bitmap of the inline fields. Empty when no inline fields.
+    pub struct_refs: Box<[Value]>,
     /// Native backing for built-in types (e.g. StringBuilder buffer).
     pub native: NativeData,
     /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
@@ -971,6 +1014,9 @@ impl Value {
             Value::Object(rc) => {
                 let obj = rc.borrow();
                 for slot in &obj.slots { visit(slot); }
+                // add-struct-heap-inline (P3b): inline struct fields' reference
+                // leaves (D1-a side-table). Empty for classes with no inline fields.
+                for r in &obj.struct_refs { visit(r); }
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -989,6 +1035,7 @@ impl Value {
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
                     for slot in &obj.slots { visit(slot); }
+                    for r in &obj.struct_refs { visit(r); }  // add-struct-heap-inline (P3b)
                 }
             },
             // add-primitive-value-boxing: 装箱基元——inner 为裸基元（无 GcRef），

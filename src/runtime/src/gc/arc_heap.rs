@@ -1732,9 +1732,12 @@ impl MagrGC for ArcMagrGC {
         // Vec → Box<[T]> drops excess capacity; for the common case where
         // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
         // realloc shrink-to-fit.
+        let (struct_bytes, struct_refs) = type_desc.inline_regions();
         let obj = ScriptObject {
             type_desc,
             slots: slots.into_boxed_slice(),
+            struct_bytes,
+            struct_refs,
             native,
             type_args: Box::new([]),
         };
@@ -1993,6 +1996,10 @@ impl MagrGC for ArcMagrGC {
             Value::Object(rc) => {
                 let obj = rc.borrow();
                 for slot in &obj.slots { visitor(slot); }
+                // add-struct-heap-inline (P3b): reference leaves of inline struct
+                // fields live in the `struct_refs` side-table (D1-a), scanned like
+                // any object field. Empty for classes with no inline struct fields.
+                for r in &obj.struct_refs { visitor(r); }
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -2017,6 +2024,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
                     for slot in &obj.slots { visitor(slot); }
+                    for r in &obj.struct_refs { visitor(r); }  // add-struct-heap-inline (P3b)
                 }
             },
             // add-struct-object-boxing: boxed struct 拥有堆上引用叶子——必须扫描，否则存进对象槽的

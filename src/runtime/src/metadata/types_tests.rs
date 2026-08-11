@@ -69,6 +69,8 @@ fn is_heap_ref_true_for_object() {
     let v = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
         slots: Box::new([]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -102,11 +104,57 @@ fn is_heap_ref_true_for_ref_field() {
     let obj = GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
         slots: Box::new([Value::I64(0)]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     });
     let v = Value::Ref(Box::new(RefKind::Field { gc_ref: obj, field_name: "x".to_string() }));
     assert!(v.is_heap_ref());
+}
+
+// ── add-struct-heap-inline (P3b, D1-a): inline struct fields' reference side-table
+//    is GC-traversed (scaffolding is inert in production until the stage-3 format
+//    wire populates it, so validate the traversal via manual construction). ──────
+
+#[test]
+fn trace_children_visits_inline_struct_refs() {
+    // An object whose inline struct field holds a reference leaf (e.g. a nested
+    // object) in `struct_refs`. `trace_children` must visit it so the leaf stays
+    // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
+    let leaf = Value::Object(GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc("Leaf"),
+        slots: Box::new([]),
+        struct_bytes: Box::new([]),
+        struct_refs: Box::new([]),
+        native: NativeData::None,
+        type_args: Box::new([]),
+    }));
+    let owner = Value::Object(GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc("Owner"),
+        slots: Box::new([Value::I64(7)]),          // an ordinary field
+        struct_bytes: Box::new([0u8; 8]),          // inline struct's packed primitives
+        struct_refs: Box::new([leaf.clone()]),     // inline struct's reference leaf
+        native: NativeData::None,
+        type_args: Box::new([]),
+    }));
+
+    let mut visited_object_children = 0usize;
+    owner.trace_children(&mut |v: &Value| {
+        if matches!(v, Value::Object(_)) { visited_object_children += 1; }
+    });
+    // The ordinary I64 field is not an object; the inline struct_refs leaf is.
+    assert_eq!(visited_object_children, 1, "inline struct_refs leaf must be traced");
+}
+
+#[test]
+fn inline_regions_empty_by_default() {
+    // Stage 1: no class carries inline-field metadata → both regions empty, so
+    // every existing object is byte-identical to pre-P3b.
+    let td = dummy_type_desc("Plain");
+    let (bytes, refs) = td.inline_regions();
+    assert!(bytes.is_empty() && refs.is_empty());
+    assert_eq!(td.inline_region_sizes(), (0, 0));
 }
 
 #[test]
