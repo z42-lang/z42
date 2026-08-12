@@ -329,3 +329,29 @@ void test_sealed_non_override_error() {
     var d = collectDiags("class A { public sealed void M() {} }");
     Assert.Equal(true, hasCode(d, "E0429"));
 }
+
+// add-user-conversions ②：声明期冲突检测——同 (源→目标) 重复的转换运算符 → E0440。
+[Test]
+void test_conversion_operator_duplicate_conflict() {
+    var d = collectDiags("class Foo { public static implicit operator int(Foo f) { return 0; } "
+                       + "public static implicit operator int(Foo f) { return 1; } }");
+    Assert.Equal(true, hasCode(d, "E0440"));
+}
+
+// implicit 与 explicit 同 (源→目标) → E0440。
+[Test]
+void test_conversion_operator_implicit_explicit_conflict() {
+    var d = collectDiags("class Foo { public static implicit operator int(Foo f) { return 0; } "
+                       + "public static explicit operator int(Foo f) { return 1; } }");
+    Assert.Equal(true, hasCode(d, "E0440"));
+}
+
+// 同源不同目标不冲突：两个转换运算符各自以含返回类型的 RegKey 注册（不撞键，Decision 4）。
+[Test]
+void test_conversion_operator_regkey_unique_per_target() {
+    var table = collect("class Foo { public static implicit operator int(Foo f) { return 0; } "
+                      + "public static implicit operator bool(Foo f) { return false; } }");
+    var foo = table.GetClass("Foo");
+    Assert.Equal(true, foo.Methods.ContainsKey("op_Implicit$1$Foo$to$i32"));
+    Assert.Equal(true, foo.Methods.ContainsKey("op_Implicit$1$Foo$to$bool"));
+}

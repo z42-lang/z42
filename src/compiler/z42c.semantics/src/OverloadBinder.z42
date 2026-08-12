@@ -41,11 +41,11 @@ public sealed class OverloadBinder {
         // add-primitive-value-boxing: 实参整数 → object/接口 形参 装箱（本方法是 5 处调用点的
         // 公共汇聚步——就地按 ms 形参类型逐位装箱；BoxArgs 对非整数/非 object·接口位 no-op）。
         // params 尾包（object[]/T[] 元素）不在此覆盖：ParamTypes[pf] 是数组类型 → BoxIfNeeded no-op（罕见）。
-        args = this._tc.BoxArgs(args, rawArgCount, ms);
+        args = this._tc.BoxArgs(args, rawArgCount, ms, env.Symbols);
         // add-params-varargs：选中的方法带 params 形参 → 走独立的打包路径（既非默认参数填充，
         // 也不复用 _adaptArgs 的命名实参匹配；_resolveOverload/_resolveParamsOverload 已选定 ms）。
         if (ms.Signature != null && ms.Signature.ParamsFrom >= 0) {
-            return this._withParamsExpansion(ms, args, rawArgCount, sp);
+            return this._withParamsExpansion(ms, args, rawArgCount, sp, env.Symbols);
         }
         if (ms.HasDecl && ms.Decl != null && rawArgCount < ms.Decl.ParamCount) {
             BoundExpr[] ad = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env);
@@ -66,7 +66,7 @@ public sealed class OverloadBinder {
         return args;
     }
 
-    private BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp) {
+    private BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp, SymbolTable syms) {
         Z42FuncType sig = ms.Signature;
         int pf = sig.ParamsFrom;
         Z42ArrayType at = sig.ParamTypes[pf] as Z42ArrayType;
@@ -80,7 +80,7 @@ public sealed class OverloadBinder {
         // add-primitive-value-boxing: params 尾包元素按元素类型装箱（`params object[]` 收整数
         // 实参 → 逐个装箱成精确宽度）。BoxArgs 在 _withDefaults 入口按 ParamTypes[pf]=数组类型
         // 判定 → 对尾位 no-op，故此处补按 elem（元素类型）装箱，镜像 _bindArrayInit。
-        while (i < packCount) { packed[i] = this._tc.BoxIfNeeded(args[pf + i], elem); packed[i] = this._tc.ConvertIfNeeded(packed[i], elem); i = i + 1; }   // tighten-implicit-conversions
+        while (i < packCount) { packed[i] = this._tc.BoxIfNeeded(args[pf + i], elem); packed[i] = this._tc.ConvertIfNeeded(packed[i], elem, syms); i = i + 1; }   // tighten-implicit-conversions；add-user-conversions
         BoundExpr arrLit = new BoundArrayLit(packed, packCount, elem.Name(), new Z42ArrayType(elem), sp);
         BoundExpr[] finalArgs = new BoundExpr[sig.ParamCount];
         int k = 0;

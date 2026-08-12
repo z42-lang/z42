@@ -294,7 +294,7 @@ public sealed class MemberResolver {
                         // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
                         args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, sms.Signature, env);
                         BoundExpr[] fa = args;
-                        if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span); }
+                        if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span, env.Symbols); }
                         return new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
                     }
                 }

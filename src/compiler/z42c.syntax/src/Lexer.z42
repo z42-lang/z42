@@ -454,6 +454,7 @@ public sealed class Lexer {
         this._kw("async", TokenKind.Async); this._kw("await", TokenKind.Await); this._kw("typeof", TokenKind.Typeof);
         this._kw("is", TokenKind.Is); this._kw("as", TokenKind.As); this._kw("where", TokenKind.Where);
         this._kw("operator", TokenKind.Operator); this._kw("null", TokenKind.Null); this._kw("true", TokenKind.True);
+        this._kw("implicit", TokenKind.Implicit); this._kw("explicit", TokenKind.Explicit);   // add-user-conversions
         this._kw("false", TokenKind.False); this._kw("string", TokenKind.String); this._kw("int", TokenKind.Int);
         this._kw("long", TokenKind.Long); this._kw("short", TokenKind.Short); this._kw("double", TokenKind.Double);
         this._kw("float", TokenKind.Float); this._kw("byte", TokenKind.Byte); this._kw("uint", TokenKind.Uint);

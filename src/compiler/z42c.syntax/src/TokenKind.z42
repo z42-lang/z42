@@ -29,6 +29,8 @@ public static class TokenKind {
     public static int Import = 52; public static int Typeof = 53; public static int Is = 54;
     public static int As = 55; public static int Null = 56; public static int Where = 57;
     public static int Operator = 58;
+    // add-user-conversions：用户自定义转换运算符修饰关键字（`implicit`/`explicit operator T(S)`）。
+    public static int Implicit = 59; public static int Explicit = 60;
     // z42 保留关键字（唯一接线：impl）
     public static int Impl = 63;
     public static int ErrorKw = 68;

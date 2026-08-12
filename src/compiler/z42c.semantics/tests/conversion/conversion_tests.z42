@@ -188,3 +188,45 @@ void test_widening_emits_convert_node() {
     Assert.Equal("(block (decl d :double (convert (lit-int 5 :int) :double)))",
                  SemanticDump.DumpBody(src, "C.M"));
 }
+
+// ══ add-user-conversions（PR3）：用户自定义 implicit / explicit 转换 ══════════════════════
+
+// 隐式用户转换被接受，并 lower 成 op_Implicit 静态调用（var-decl 协变点）。
+[Test]
+void test_user_implicit_lowered_to_call() {
+    string src = "class Foo { public int V; public Foo(int v) { this.V = v; } "
+               + "public static implicit operator int(Foo f) { return f.V; } "
+               + "int Use(Foo f) { int x = f; return x; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+    Assert.Contains("op_Implicit", SemanticDump.DumpBody(src, "Foo.Use"));   // 已 lower 成静态转换调用
+}
+
+// explicit-only 用于隐式上下文 → E0439（存在显式转换缺 cast）。
+[Test]
+void test_explicit_only_rejected_in_implicit_context() {
+    string src = "class Bar { public int V; public Bar(int v) { this.V = v; } "
+               + "public static explicit operator int(Bar b) { return b.V; } "
+               + "int Use(Bar b) { int x = b; return x; } }";
+    Assert.Equal("E0439", SemanticDump.FirstErrorCode(src));
+}
+
+// explicit-only 经 (T)x 显式 cast 可用（lower 成 op_Explicit）。
+[Test]
+void test_explicit_cast_of_explicit_only_ok() {
+    string src = "class Bar { public int V; public Bar(int v) { this.V = v; } "
+               + "public static explicit operator int(Bar b) { return b.V; } "
+               + "int Use(Bar b) { int x = (int)b; return x; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+    Assert.Contains("op_Explicit", SemanticDump.DumpBody(src, "Bar.Use"));
+}
+
+// ③ 走中间类型诊断：(C)a 无 A→C 直接转换但 A→B→C 存在 → E0402 + 提示 through 'B'。
+[Test]
+void test_intermediate_type_diagnostic() {
+    string src = "class A { public static implicit operator B(A a) { return new B(); } } "
+               + "class B { public B() { } public static implicit operator C(B b) { return new C(); } } "
+               + "class C { public C() { } } "
+               + "C Use(A a) { return (C)a; }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("through 'B'", SemanticDump.FirstErrorMessage(src));
+}

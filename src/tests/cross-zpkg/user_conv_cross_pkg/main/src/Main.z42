@@ -1,0 +1,16 @@
+namespace Demo.ConvApp;
+using Std.IO;
+using Demo.ConvTarget;
+using Demo.ConvExt;
+
+void Main() {
+    Money m = new Money(150);
+    int c = m;                     // 跨包 implicit：Money → int
+    Console.WriteLine(c);          // 150
+    Money m2 = (Money)200;         // 跨包 explicit：int → Money
+    Console.WriteLine(m2.Cents);   // 200
+    Console.WriteLine((int)m2);    // 跨包 (int) 走 implicit → 200
+    Price p = new Price(75);       // 第二个包的转换
+    int d = p;                     // 跨包 implicit：Price → int
+    Console.WriteLine(d);          // 75
+}

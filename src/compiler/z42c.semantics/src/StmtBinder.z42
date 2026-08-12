@@ -151,7 +151,7 @@ public sealed class StmtBinder {
                 BoundExpr val = this._tc._expr.BindWithTarget(r.Value, ret, env);
                 this._tc.CheckImplicitConvert(val, ret, env.Symbols, r.Value.Span, "return");   // tighten-implicit-conversions：窄化→E0439 / 常量在范围内例外
                 val = this._tc.BoxIfNeeded(val, ret);   // add-primitive-value-boxing: return 整数→object/接口 装箱
-                val = this._tc.ConvertIfNeeded(val, ret);   // tighten-implicit-conversions: 拓宽表示转换（int→double 等）插 ConvertInstr
+                val = this._tc.ConvertIfNeeded(val, ret, env.Symbols);   // tighten-implicit-conversions: 拓宽表示转换（int→double 等）插 ConvertInstr；add-user-conversions: 用户 implicit
                 return new BoundReturn(true, val, r.Span);
             }
             return new BoundReturn(false, new BoundLitNull(new Z42VoidType(), r.Span), r.Span);
@@ -181,7 +181,7 @@ public sealed class StmtBinder {
             env.Define(v.Name, vt);
             if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
             init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
-            init = this._tc.ConvertIfNeeded(init, vt);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr
+            init = this._tc.ConvertIfNeeded(init, vt, env.Symbols);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
             if (v.IsConst) { this._bindLocalConst(v, env, bvd); }   // add-const-keyword：求值 + 登记 + 诊断
             return bvd;

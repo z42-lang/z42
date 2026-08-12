@@ -5,6 +5,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.IR;   // add-user-conversions：StrMap（syms.Classes.Keys 遍历，_suggestVia）
 using Z42.IR.BinaryFormat;
 
 public sealed class TypeChecker {
@@ -80,14 +81,14 @@ public sealed class TypeChecker {
     // add-primitive-value-boxing: 对已决议方法的实参逐位装箱（整数实参 → object/接口 形参）。
     // 就地改写 args（BoxIfNeeded 对非整数实参 / 非 object·接口形参是 no-op），返回同数组便于链式。
     // 仅覆盖声明形参位（i < ParamTypes.Length）；params 尾包的元素装箱另论（罕见，暂不处理）。
-    public BoundExpr[] BoxArgs(BoundExpr[] args, int count, MethodSymbol ms) {
+    public BoundExpr[] BoxArgs(BoundExpr[] args, int count, MethodSymbol ms, SymbolTable syms) {
         if (args == null || ms == null || ms.Signature == null) { return args; }
         Z42Type[] pts = ms.Signature.ParamTypes;
         if (pts == null) { return args; }
         int i = 0;
         while (i < count && i < pts.Length && i < args.Length) {
             args[i] = this.BoxIfNeeded(args[i], pts[i]);
-            args[i] = this.ConvertIfNeeded(args[i], pts[i]);   // tighten-implicit-conversions: 实参拓宽表示转换
+            args[i] = this.ConvertIfNeeded(args[i], pts[i], syms);   // tighten-implicit-conversions: 实参拓宽表示转换；add-user-conversions: 用户 implicit
             i = i + 1;
         }
         return args;
@@ -98,13 +99,72 @@ public sealed class TypeChecker {
     // 变化（int↔float、char→数值）时包 BoundConvert → codegen `_emitConvert` 发 ConvertInstr。等宽整数
     // 拓宽（byte→int→long，运行期同 I64）与 f32→f64（运行期同 F64）是 no-op → 不插，最小化字节扰动。
     // 到达这里的值已过 CheckImplicitConvert（Identity/ImplicitNumeric/常量例外窄化），不会误插被拒转换。
-    public BoundExpr ConvertIfNeeded(BoundExpr value, Z42Type target) {
+    public BoundExpr ConvertIfNeeded(BoundExpr value, Z42Type target, SymbolTable syms) {
         if (value == null || target == null) { return value; }
+        // add-user-conversions：用户 implicit 转换 lower 成静态 op_Implicit 调用（先于 prim 守卫——用户类型非 prim）。
+        // 已过 CheckImplicitConvert（UserImplicit 在 ImplicitOk 白名单）→ 此处只管 lower。
+        if (syms != null) {
+            ConvResult ur = Conversion.Classify(value.Type(), target, syms);
+            if (ur.Kind == ConvKind.UserImplicit && ur.Method != null) {
+                return TypeChecker._lowerUserConv(value, ur.Method);
+            }
+        }
         Z42Type vt = value.Type();
         if (!(vt is Z42PrimType) || !(target is Z42PrimType)) { return value; }
         if (!TypeFactsTc._isNumericPrim(vt.Name()) || !TypeFactsTc._isNumericPrim(target.Name())) { return value; }
         if (TypeChecker._repClass(vt.Name()) == TypeChecker._repClass(target.Name())) { return value; }   // 同表示类 → no-op
         return new BoundConvert(value, target, value.Span);
+    }
+
+    // add-user-conversions：用户转换 lower 成静态 op_Implicit/op_Explicit 调用（复用运算符重载 op_Add 脱糖路径）。
+    // 返回类型取 ms.Signature.Ret（= 转换目标）；类名取声明所在类 ms.ContainingTypeName；实参 = 被转值。
+    public static BoundExpr _lowerUserConv(BoundExpr value, MethodSymbol ms) {
+        BoundExpr[] a = new BoundExpr[1];
+        a[0] = value;
+        return new BoundCall("static", false, null, ms.ContainingTypeName, ms.RegKey, a, 1, ms.Signature.Ret, value.Span);
+    }
+
+    // add-user-conversions ③：A→C 无用户/内建转换，但存在 A→B 与 B→C 两跳用户转换时，返回中间类名 B（否则 ""）。
+    // 诊断专用，稳定 Ordinal 序遍历（common-pitfalls §1）。仅在存在用户转换时才可能非空 → 无用户转换代码零影响。
+    public string _suggestVia(Z42Type from, Z42Type to, SymbolTable syms) {
+        if (from == null || to == null || syms == null) { return ""; }
+        string[] names = syms.Classes.Keys();
+        TypeChecker._sortOrdinal(names);
+        int i = 0;
+        while (i < names.Length) {
+            Z42ClassType b = syms.GetClass(names[i]);
+            if (b != null && b.Name() != from.Name() && b.Name() != to.Name()) {
+                if (Conversion._classifyUser(from, b, syms).Kind != ConvKind.None
+                    && Conversion._classifyUser(b, to, syms).Kind != ConvKind.None) {
+                    return b.Name();
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    private static void _sortOrdinal(string[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            string key = a[i];
+            int j = i - 1;
+            while (j >= 0 && TypeChecker._ordLess(key, a[j])) { a[j + 1] = a[j]; j = j - 1; }
+            a[j + 1] = key;
+            i = i + 1;
+        }
+    }
+    private static bool _ordLess(string x, string y) {
+        int n = x.Length;
+        if (y.Length < n) { n = y.Length; }
+        int i = 0;
+        while (i < n) {
+            int cx = (int)x.CharAt(i);
+            int cy = (int)y.CharAt(i);
+            if (cx != cy) { return cx < cy; }
+            i = i + 1;
+        }
+        return x.Length < y.Length;
     }
 
     // 运行期表示类：f32/f64 → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。
@@ -132,8 +192,10 @@ public sealed class TypeChecker {
                 + "'; an explicit conversion exists (are you missing a cast?)", sp);
             return false;
         }
-        this._diags.Error(DiagnosticCodes.TypeMismatch,
-            "cannot assign " + from.Name() + " to " + target.Name() + " (" + ctx + ")", sp);
+        string msg = "cannot assign " + from.Name() + " to " + target.Name() + " (" + ctx + ")";
+        string via = this._suggestVia(from, target, syms);   // add-user-conversions ③：走中间类型提示
+        if (via != "") { msg = msg + "; a conversion through '" + via + "' exists — write (" + target.Name() + ")(" + via + ")x"; }
+        this._diags.Error(DiagnosticCodes.TypeMismatch, msg, sp);
         return false;
     }
 

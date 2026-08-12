@@ -81,12 +81,12 @@ public sealed class ExprTyper {
                     int ai = 0;
                     while (ai < an) {
                         BoundExpr aidx = this._bindExpr(aix.Indices[ai], env);
-                        if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); aidx = this._tc.ConvertIfNeeded(aidx, sms.Signature.ParamTypes[ai]); }
+                        if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); aidx = this._tc.ConvertIfNeeded(aidx, sms.Signature.ParamTypes[ai], env.Symbols); }
                         sa[ai] = aidx;
                         ai = ai + 1;
                     }
                     BoundExpr aval = this._bindExpr(a.Value, env);
-                    if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); aval = this._tc.ConvertIfNeeded(aval, sms.Signature.ParamTypes[an]); }
+                    if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); aval = this._tc.ConvertIfNeeded(aval, sms.Signature.ParamTypes[an], env.Symbols); }
                     sa[an] = aval;
                     return new BoundCall("instance", true, arecv, aCls.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
                 }
@@ -162,7 +162,7 @@ public sealed class ExprTyper {
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
             this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
-            value = this._tc.ConvertIfNeeded(value, target.Type());   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr
+            value = this._tc.ConvertIfNeeded(value, target.Type(), env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             return new BoundAssign(target, value, target.Type(), a.Span);
     }
 
@@ -308,7 +308,7 @@ public sealed class ExprTyper {
                 int i = 0;
                 while (i < n) {
                     BoundExpr iarg = this._bindExpr(ix.Indices[i], env);
-                    if (gboxable) { iarg = this._tc.BoxIfNeeded(iarg, gm.Signature.ParamTypes[i]); iarg = this._tc.ConvertIfNeeded(iarg, gm.Signature.ParamTypes[i]); }
+                    if (gboxable) { iarg = this._tc.BoxIfNeeded(iarg, gm.Signature.ParamTypes[i]); iarg = this._tc.ConvertIfNeeded(iarg, gm.Signature.ParamTypes[i], env.Symbols); }
                     ia[i] = iarg;
                     i = i + 1;
                 }
@@ -375,7 +375,7 @@ public sealed class ExprTyper {
             while (bi < ai.ElemCount) {
                 BoundExpr be = this._bindExpr(ai.Elems[bi], env);
                 elems[bi] = this._tc.BoxIfNeeded(be, elem);   // add-primitive-value-boxing: object[] 整数元素装箱
-                elems[bi] = this._tc.ConvertIfNeeded(elems[bi], elem);   // tighten-implicit-conversions: 数组元素拓宽表示转换
+                elems[bi] = this._tc.ConvertIfNeeded(elems[bi], elem, env.Symbols);   // tighten-implicit-conversions: 数组元素拓宽表示转换；add-user-conversions
                 bi = bi + 1;
             }
             return new BoundArrayLit(elems, ai.ElemCount, elem.Name(), new Z42ArrayType(elem), ai.Span);
@@ -451,7 +451,7 @@ public sealed class ExprTyper {
         Z42Type elem;
         if (elemTe != null) { elem = env.ResolveType(elemTe); } else { elem = raw[0].Type(); }
         j = 0;
-        while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); raw[j] = this._tc.ConvertIfNeeded(raw[j], elem); j = j + 1; }   // tighten-implicit-conversions: 数组元素拓宽转换
+        while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); raw[j] = this._tc.ConvertIfNeeded(raw[j], elem, env.Symbols); j = j + 1; }   // tighten-implicit-conversions: 数组元素拓宽转换；add-user-conversions
         return new BoundArrayLit(raw, al.ElemCount, elem.Name(), new Z42ArrayType(elem), sp);
     }
 
@@ -674,7 +674,24 @@ public sealed class ExprTyper {
 
     private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._bindExpr(cx.E, env);
-            return new BoundConvert(operand, env.ResolveType(cx.Type), cx.Span);
+            Z42Type target = env.ResolveType(cx.Type);
+            // add-user-conversions：显式 (T)x 接受 implicit 与 explicit 用户转换 → lower 成 op_Implicit/op_Explicit 调用。
+            // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
+            ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
+            if ((ur.Kind == ConvKind.UserImplicit || ur.Kind == ConvKind.UserExplicit) && ur.Method != null) {
+                return TypeChecker._lowerUserConv(operand, ur.Method);
+            }
+            // add-user-conversions ③：无任何转换但存在中间类型 A→B→C → 提示写 (C)(B)x（仅存在用户转换时才可能触发）。
+            if (ur.Kind == ConvKind.None) {
+                string via = this._tc._suggestVia(operand.Type(), target, env.Symbols);
+                if (via != "") {
+                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                        "cannot convert '" + operand.Type().Name() + "' to '" + target.Name()
+                        + "'; a conversion through '" + via + "' exists — write (" + target.Name() + ")(" + via + ")x", cx.Span);
+                    return new BoundError("no conversion", new Z42ErrorType(), cx.Span);
+                }
+            }
+            return new BoundConvert(operand, target, cx.Span);
     }
 
     private BoundExpr _bindAsExpr(AsExpr ax, TypeEnv env) {

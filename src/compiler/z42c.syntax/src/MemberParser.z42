@@ -120,6 +120,18 @@ public sealed class MemberParser {
             this._p._advance();
             return this._parseMethodTail(mods, false, true, this._p._typeP._emptyType(), cname, this._p._typeP._emptyTypeParams(), sp);
         }
+        // add-user-conversions：用户自定义转换 `public static implicit operator Target(Source s)` /
+        // `explicit operator ...` → 方法名 op_Implicit / op_Explicit（镜像 C#）。须先于 _parseType 拦截，
+        // 因 implicit/explicit 后接 `operator`+目标类型（=返回类型），不是普通成员类型。
+        if (this._p._peek().Kind == TokenKind.Implicit || this._p._peek().Kind == TokenKind.Explicit) {
+            bool isImplicit = this._p._peek().Kind == TokenKind.Implicit;
+            this._p._advance();   // 'implicit' / 'explicit'
+            this._p._expect(TokenKind.Operator, "operator");
+            TypeExpr target = this._p._typeP._parseType();   // 转换目标 = 返回类型
+            string convName = "op_Implicit";
+            if (!isImplicit) { convName = "op_Explicit"; }
+            return this._parseMethodTail(mods, false, false, target, convName, this._p._typeP._emptyTypeParams(), sp);
+        }
         TypeExpr type = this._p._typeP._parseType();
         // GS5：索引器 `T this[params] { get {...} set {...} }`（`this` 是标识符不是关键字）
         if (this._p._peek().Kind == TokenKind.Identifier && this._p._peek().Text == "this"
