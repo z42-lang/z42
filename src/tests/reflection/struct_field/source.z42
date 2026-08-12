@@ -18,6 +18,17 @@ struct Line {
     Point b;
 }
 
+// add-object-inline-struct-reflection (P4b-B): heap classes with inline struct fields.
+class Widget {
+    int id;
+    Point origin;   // inlined into the object's struct_bytes (dead slot placeholder)
+    string label;
+}
+
+class Frame {
+    Line edge;      // inline struct whose struct itself nests structs + ref leaves
+}
+
 FieldInfo field(Type t, string name) {
     FieldInfo[] fs = t.GetFields();
     int i = 0;
@@ -69,4 +80,48 @@ void Main() {
     field(tp, "x").SetValue(boxedA, 777);
     object boxedA2 = field(typeof(Line), "a").GetValue(boxedLine);
     Console.WriteLine((int)field(tp, "x").GetValue(boxedA2));     // 1
+
+    // ⑤ 对象内联 struct 字段反射（P4b-B）
+    Widget w = new Widget();
+    w.id = 7;
+    w.origin.x = 100;
+    w.origin.y = 200;
+    w.origin.tag = "orig";
+    w.label = "widget";
+    Type tw = typeof(Widget);
+
+    // 普通 slot 字段仍走 slot 路径（未被内联路径误吞）
+    Console.WriteLine((int)field(tw, "id").GetValue(w));         // 7
+    Console.WriteLine((string)field(tw, "label").GetValue(w));   // widget
+
+    // 内联 struct 字段 GetValue → boxed 快照
+    object wo = field(tw, "origin").GetValue(w);
+    Console.WriteLine((int)field(tp, "x").GetValue(wo));         // 100
+    Console.WriteLine((string)field(tp, "tag").GetValue(wo));    // orig
+
+    // SetValue 写穿对象共享字节区（引用身份），从对象字段直接读验证
+    Point np = new Point();
+    np.x = 555;
+    np.y = 666;
+    np.tag = "set";
+    object npBoxed = np;
+    field(tw, "origin").SetValue(w, npBoxed);
+    Console.WriteLine(w.origin.x);                               // 555
+    Console.WriteLine(w.origin.tag);                             // set
+    object wo2 = field(tw, "origin").GetValue(w);
+    Console.WriteLine((int)field(tp, "y").GetValue(wo2));        // 666
+
+    // GetValue 返回快照，改它不回写对象（值语义）
+    field(tp, "x").SetValue(wo2, 111);
+    Console.WriteLine(w.origin.x);                               // 555（未变）
+
+    // ⑥ 对象内联嵌套 struct 字段（Line 含两个 Point，引用叶子展平）
+    Frame fr = new Frame();
+    fr.edge.a.x = 11;
+    fr.edge.a.tag = "ea";
+    fr.edge.b.y = 22;
+    object frEdge = field(typeof(Frame), "edge").GetValue(fr);   // boxed Line
+    object frA = field(typeof(Line), "a").GetValue(frEdge);      // boxed Point
+    Console.WriteLine((int)field(tp, "x").GetValue(frA));        // 11
+    Console.WriteLine((string)field(tp, "tag").GetValue(frA));   // ea
 }

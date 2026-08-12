@@ -306,6 +306,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
   别名进数组）。runtime-only、格式中立，golden `struct_array.z42` foreach 段验（含 `foreach{e.x=999}` 不动数组）。
 - ✅ **装箱引用身份 + struct 字段反射**（P4b add-boxed-struct-identity）：`BoxedStruct` 改共享 `ScriptObject`
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
+- ✅ **对象内联 struct 字段反射**（P4b-B add-object-inline-struct-reflection）：反射 `GetValue/SetValue` 读写
+  `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
 
 ## JIT 值路径（add-struct-jit-value-path P5-A）
 
@@ -422,12 +424,29 @@ PR2a 的 `Value::BoxedStruct(Box<BoxedStructData>)` 是**值**（`Box` 独占，
   （值语义，改返回盒不动父）。**SetValue**：共享盒**就地写穿**（引用身份→调用方可见）+ 引用叶子写屏障；基元实参
   透明拆箱（`object` 参数装箱的基元先 unbox 再 `encode_prim`）。
 - 端到端 golden `reflection/struct_field`（GetValue 基元/string/嵌套 + SetValue 写穿+别名可见 + 值语义独立，
-  interp+jit 双模式匹配 expected）+ 7 个 `struct_reflect` 单元测试（布局/校验/tag signedness 护栏）。
+  interp+jit 双模式匹配 expected）+ `struct_reflect` 单元测试（布局/校验/tag signedness 护栏）。
 
-> **Deferred（follow-up）**：**对象内联 struct 字段反射**（`class C{ Point pt; }` 的 `GetValue(fi_pt, c)`，现读
-> P3b dead-slot 得 `Null`——需另复刻**类级**内联布局映射字段→对象相对 offset，与 struct `_compute` 不同）。
-> 本 change 只交付**装箱 struct** 的字段反射（主路径）+ 引用身份。反射 invoke boxed struct 合成方法、static
-> struct 字段反射同 Deferred。
+### 对象内联 struct 字段反射（`class C { Point pt; }`，add-object-inline-struct-reflection P4b-B）
+
+P4b 只交付**装箱 struct** 的字段反射；**堆对象上的内联 struct 字段**（`class C { Point pt; }`）此前反射
+`GetValue(fi_pt, c)` 读的是 P3b 的 **dead slot → `Null`**。P4b-B 补齐读写路径，**复用同一套字节解码基础设施**：
+
+- **类级内联布局复刻**（`struct_reflect::compute_class_inline`，镜像编译器 `StructLayout._computeInlineLayout`）：
+  与 struct `_compute` 不同——类**只把 struct 字段**按声明序打包进对象 `struct_bytes`（自然对齐、引用叶子展平进
+  `struct_refs`），**非 struct 字段仍在 slots**。产出「struct 字段名 → 对象相对 (byte_off, size, 引用叶子)」+
+  对象相对引用位图，用 `validate_against` 对交付的 `TypeDesc.inline_layout`（P3b 已 wire 的合成布局）做同款三层
+  校验抓漂移。
+- **GetValue**：`struct_field_fq` 判定字段是否内联 struct——是则从 `struct_bytes`+`struct_refs` 物化 **boxed 快照**
+  （值语义，改快照不动对象）；否则回落普通 slot 读。嵌套 struct 叶子（`Frame{Line edge}`）递归展平。读取逻辑与
+  装箱 struct 的嵌套字段共用 `snapshot_struct_leaf`。
+- **SetValue**：内联 struct 字段把传入的 boxed struct 字节+引用叶子**就地写穿对象共享字节区**（对象是堆节点 →
+  引用身份可见，别名/后续读都见新值）+ 引用叶子写屏障。写入逻辑与装箱 struct 的嵌套字段共用 `write_struct_leaf`
+  （该 helper 补齐了嵌套引用叶子的写屏障——根因修，装箱路径亦受益）。
+- golden `reflection/struct_field` 扩：普通 slot 字段仍走 slot（`id`/`label`）+ 内联 struct 字段 GetValue 快照 +
+  SetValue 写穿（对象直读验证）+ 快照值语义独立 + 嵌套内联（`Frame{Line edge}` 展平引用叶子）；`struct_reflect`
+  加 3 个类级布局单测。**纯 runtime、格式中立、self-host 不受影响。**
+
+> **Deferred（follow-up）**：反射 invoke boxed struct 合成方法（Equals/GetHashCode/ToString）、static struct 字段反射。
 
 ## 与逃逸分析 / packed 数组的关系
 
@@ -463,6 +482,9 @@ PR2a 的 `Value::BoxedStruct(Box<BoxedStructData>)` 是**值**（`Box` 独占，
 - ✅ **装箱引用身份 + struct 字段反射**（P4b add-boxed-struct-identity）：`BoxedStruct` 载荷改共享
   `GcRef<ScriptObject>`（对齐 C# 引用身份，复用 region_object 零 GC 改动）+ `FieldInfo.GetValue/SetValue`
   反射装箱 struct 字段（Rust 复刻 `_compute` + 三层校验，格式中立）——见上「装箱引用身份 + struct 字段反射」节。
-- ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
-  **对象内联 struct 字段反射**（P4b follow-up，现 dead-slot 返 Null）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
-  **反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
+- ✅ **对象内联 struct 字段反射**（P4b-B add-object-inline-struct-reflection）：`FieldInfo.GetValue/SetValue`
+  读写 `class C { Point pt; }` 的内联 struct 字段（复刻**类级**内联布局 `compute_class_inline` + 共用
+  `snapshot_struct_leaf`/`write_struct_leaf`），格式中立——见上「对象内联 struct 字段反射」节。
+- ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
+  桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
+  自引用诊断**（现 `Size==0` 兜底防崩）。
