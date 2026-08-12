@@ -1,0 +1,9 @@
+[project]
+name    = "demo.convapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ConvApp.Main"
+pack    = true
+[dependencies]
+"demo.convtarget" = "0.1.0"
+"demo.convext"    = "0.1.0"

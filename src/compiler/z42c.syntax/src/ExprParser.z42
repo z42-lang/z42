@@ -161,6 +161,18 @@ public sealed class ExprParser {
         return new CallExpr(callee, args, n, callee.Span);
     }
 
+    // add-user-conversions：`(Ident)X` 中 X 若能无歧义地起一个 cast 操作数（标识符/字面量/new），则整体是 cast。
+    // 排除 `-`/`+`/`!`/`~`/`(` 等能延续为二元或调用的起始，避免误判 `(a)-b`、`(f)(x)`。
+    private static bool _castOperandStart(int k) {
+        if (k == TokenKind.Identifier) { return true; }
+        if (k == TokenKind.IntLiteral || k == TokenKind.FloatLiteral) { return true; }
+        if (k == TokenKind.StringLiteral || k == TokenKind.CharLiteral) { return true; }
+        if (k == TokenKind.InterpolatedStringLiteral || k == TokenKind.RawStringLiteral) { return true; }
+        if (k == TokenKind.True || k == TokenKind.False) { return true; }
+        if (k == TokenKind.New) { return true; }
+        return false;
+    }
+
     private Expr _parsePrefix() {
         Token t = this._p._peek();
         int k = t.Kind;
@@ -202,11 +214,14 @@ public sealed class ExprParser {
             Expr operand = this._parseExpr(85);
             return new CastExpr(ct, operand, t.Span);
         }
-        // 泛型类型形参 cast `(TD)expr`：( Identifier ) Identifier → 无歧义（`(val)ident` 在 z42 无效语法）。
-        // 用于 stdlib 中 `return (TD)DelegateOps.MakeClosure(...)` 类型形参强转场景。
+        // 用户类型 / 泛型形参 cast `(T)operand`：( Identifier ) <operand-start>。
+        // add-user-conversions：放宽 follow token 集（原仅 Identifier）到标识符/字面量/new——这些均无法与
+        // 分组表达式 `(expr)` 歧义（`(val)ident`、`(val)5` 在 z42 都是无效相邻 primary），故收编为 cast。
+        // **刻意排除** `-`/`+`/`(` 等：`(a) - b` 保持二元、`(f)(x)` 保持调用（歧义，用户改写 `as` 或临时变量）。
+        // 覆盖 stdlib `(TD)DelegateOps.MakeClosure(...)` 与用户 explicit 转换 `(Foo)bar` / `(Foo)5`。
         if (k == TokenKind.LParen && this._p._peekAt(1).Kind == TokenKind.Identifier
             && this._p._peekAt(2).Kind == TokenKind.RParen
-            && this._p._peekAt(3).Kind == TokenKind.Identifier) {
+            && ExprParser._castOperandStart(this._p._peekAt(3).Kind)) {
             this._p._advance();
             TypeExpr ct = this._p._typeP._parseType();
             this._p._expect(TokenKind.RParen, ")");

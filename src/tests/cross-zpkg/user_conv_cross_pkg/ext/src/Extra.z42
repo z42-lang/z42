@@ -1,0 +1,8 @@
+// 第二个包也可定义转换运算符（跨包分类同样命中）。
+namespace Demo.ConvExt;
+
+public class Price {
+    public int Amount;
+    public Price(int a) { this.Amount = a; }
+    public static implicit operator int(Price p) { return p.Amount; }
+}

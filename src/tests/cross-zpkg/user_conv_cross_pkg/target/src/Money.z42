@@ -1,0 +1,9 @@
+// add-user-conversions 跨包：转换运算符（静态方法）随 TSIG 导出，消费端可解析并调用。
+namespace Demo.ConvTarget;
+
+public class Money {
+    public int Cents;
+    public Money(int c) { this.Cents = c; }
+    public static implicit operator int(Money m) { return m.Cents; }
+    public static explicit operator Money(int c) { return new Money(c); }
+}

@@ -124,6 +124,57 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 > 现正确拓宽为 `F64` → Pow 遵守其 `double` 签名返 `F64(8.0)`（此前因 native 的 `(I64,I64)→I64`
 > 分支静默返 `Int32(8)`）。
 
+## 用户自定义转换（User-defined conversions，PR3 `add-user-conversions`）
+
+用户可用 C# 同款语法声明转换运算符，**并修掉 C# 的几处设计硬伤，令 z42 更严更可预测**：
+
+```z42
+class Celsius {
+    public int Deg;
+    public Celsius(int d) { this.Deg = d; }
+    public static implicit operator int(Celsius c) { return c.Deg; }      // 隐式：Celsius → int
+    public static explicit operator Celsius(int d) { return new Celsius(d); }  // 显式：int → Celsius
+}
+
+Celsius c = new Celsius(25);
+int x = c;                 // 隐式：赋值/return/传参协变点自动调 op_Implicit → 25
+Celsius c2 = (Celsius)30;  // 显式：(T)x 调 op_Explicit → Celsius(30)
+int y = (int)c2;           // (T)x 亦接受 implicit → 30
+```
+
+### 机制 / 实现
+
+| 环节 | 落点 | 说明 |
+|------|------|------|
+| 关键字 | `TokenKind.z42` `Implicit`/`Explicit` + `Lexer._initKeywords` | `implicit`/`explicit` 成保留字（support 先行，z42c/stdlib 晚一个 nightly 才用） |
+| 解析 | `MemberParser._parseMemberBody` | `implicit/explicit operator Target(Source s)` → 方法 `op_Implicit`/`op_Explicit`（静态、单参、返回=Target） |
+| `(T)x` 消歧 | `ExprParser._castOperandStart` | `(Ident)operand`（operand 起于标识符/字面量/new）解析为 `CastExpr`；`(a)-b`/`(f)(x)` 仍按二元/调用 |
+| 分类 | `Conversion._classifyUser` / `_findConvOn` | 内建转换 `None` 时回退：在 from 类与 to 类的 `Methods` 上找 op_Implicit/op_Explicit（精确 (源,目标) 匹配）→ `ConvResult{UserImplicit\|UserExplicit, Method}` |
+| lowering（隐式） | `TypeChecker.ConvertIfNeeded(_,_,syms)` | UserImplicit → `_lowerUserConv` 包成静态 `BoundCall`（op_Implicit）；已过 `CheckImplicitConvert`（UserImplicit 在 `ImplicitOk` 白名单） |
+| lowering（显式） | `ExprTyper._bindCastExpr` | UserImplicit/UserExplicit → `BoundCall`；数值/引用 cast 仍 `BoundConvert` |
+| 无格式 bump | — | 全部复用既有 Call opcode（同 `op_Add` 脱糖），无新 IR、不 bump zbc/zpkg |
+
+**RegKey 唯一（根因修复）**：静态方法仅按参数类型 mangle（`op_Implicit$1$Foo`），两个同源不同目标的转换
+（`operator int(Foo)` + `operator string(Foo)`）会撞键。转换运算符 RegKey 附返回类型消歧为
+`op_Implicit$1$Foo$to$i32`（`SymbolCollector` `_isConvOp` 分支）——RegKey 是 body 绑定 / IrGen / 派发的
+单一真相源，一处改全链一致。
+
+### 比 C# 更好的三处（z42 改进）
+
+| # | C# 的坑 | z42 的改进 | 落点 |
+|---|---------|-----------|------|
+| ① | 隐式转换 `(T)x` 语义不对称 | `(T)x` 同时接受 implicit 与 explicit 用户转换；隐式上下文只接受 implicit，explicit-only 报 E0439「缺 cast？」 | `_bindCastExpr` / `CheckImplicitConvert` |
+| ② | 转换冲突推迟到**调用点**才报 | **声明期**冲突检测（E0440）：同 (源→目标) 重复、或 implicit+explicit 同对 → 声明处即报错 | `SymbolCollector`（`convSeen` 表） |
+| ③ | 多跳转换不提示中间类型 | A→C 无直接转换但 A→B→C 存在 → 报错追加「a conversion through 'B' exists — write (C)(B)x」 | `TypeChecker._suggestVia` |
+
+**v1 精确匹配、不组合链（比 C# 更可预测）**：用户转换要求 (源,目标) 与运算符签名逐字匹配，**不做** C# 的
+「标准转换 + 一个用户转换 + 标准转换」组合链——消除 C# 里「到底走哪条链」的不确定，多跳由 ③ 诊断引导手写。
+
+### Deferred
+
+- `as` / `is` / 模式匹配接入用户转换（可失败语义，`user-conversions-future-as-is`）。
+- 标准转换 + 用户转换的组合链（`user-conversions-future-conversion-chain`）。
+
 ## 验证
 
 - **单测** `src/compiler/z42c.semantics/tests/conversion/`：分类器种类标签（PR1）+ 收紧门布尔投影
@@ -136,6 +187,6 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 
 ## 关联文档
 
-- 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2，已落地）；后续 PR3（用户自定义转换）
-- 装箱/拆箱运行期机制：[语言部分 · 装箱](../../design/language/boxing.md)
-- 承载代码：[`z42c.semantics/README.md`](../../../src/compiler/z42c.semantics/README.md)
+- 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2）、`add-user-conversions`（PR3，用户自定义转换 + ②③ 改进）——均已落地
+- 装箱/拆箱运行期机制：[语言部分 · 装箱](../../../design/language/boxing.md)
+- 承载代码：[`z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)

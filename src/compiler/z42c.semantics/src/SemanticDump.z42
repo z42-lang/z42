@@ -159,6 +159,18 @@ public static class SemanticDump {
         return diags.Get(0).Code;
     }
 
+    // 首条诊断的消息文本（错误用例断言消息内容用，如 add-user-conversions ③ 的走中间类型提示）。
+    public static string FirstErrorMessage(string src) {
+        var p = new Parser(src, "<input>");
+        var cu = p.ParseCompilationUnit();
+        var symbols = new SymbolCollector().Collect(cu);
+        var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);
+        new TypeChecker(diags).Infer(cu, symbols);
+        if (diags.Count() == 0) { return ""; }
+        return diags.Get(0).Message;
+    }
+
     // 类型检查诊断错误条数（错误用例断言）。
     public static int ErrorCount(string src) {
         var p = new Parser(src, "<input>");

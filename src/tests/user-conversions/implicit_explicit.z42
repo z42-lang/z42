@@ -1,0 +1,36 @@
+// add-user-conversions e2e：用户自定义 implicit / explicit 转换的运行期行为。
+class Celsius {
+    public int Deg;
+    public Celsius(int d) { this.Deg = d; }
+    // implicit：Celsius → int（取度数）
+    public static implicit operator int(Celsius c) { return c.Deg; }
+    // explicit：int → Celsius（构造）
+    public static explicit operator Celsius(int d) { return new Celsius(d); }
+}
+
+// 返回位隐式转换：return Celsius → int
+int _toInt(Celsius c) { return c; }
+
+void Main() {
+    Celsius c = new Celsius(25);
+
+    // 隐式（var-decl 协变点）：Celsius → int
+    int x = c;
+    Assert.Equal(25, x);
+
+    // 隐式（return 协变点）
+    Assert.Equal(25, _toInt(c));
+
+    // 显式 cast int → Celsius（explicit operator）
+    Celsius c2 = (Celsius)30;
+    Assert.Equal(30, c2.Deg);
+
+    // 显式 cast Celsius → int 也可走 implicit（(T)x 接受 implicit 与 explicit）
+    int y = (int)c2;
+    Assert.Equal(30, y);
+
+    // 隐式赋值给已声明变量
+    int z = 0;
+    z = c2;
+    Assert.Equal(30, z);
+}

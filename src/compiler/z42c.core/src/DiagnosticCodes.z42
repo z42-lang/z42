@@ -65,6 +65,7 @@ public static class DiagnosticCodes {
     // E0438 预留：值 struct 自引用（struct 直接/间接以自身为值字段）诊断——add-struct-nested-fields 的
     // follow-up（当前由 StructLayout.IsBlobStruct 的 Size==0 兜底防崩，自引用 struct 退化为引用语义不报错）。
     public static string ImplicitNarrowingConversion = "E0439";  // 存在显式转换却用于隐式上下文（窄化/有损）——需 (T) cast（tighten-implicit-conversions）
+    public static string ConversionOperatorConflict  = "E0440";  // 转换运算符声明冲突：同 (源→目标) 重复 / implicit+explicit 同对（add-user-conversions ②，声明期检测）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

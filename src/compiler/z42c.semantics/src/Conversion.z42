@@ -8,6 +8,7 @@
 // 三 PR 路线：PR1 立分类器（本文件，byte-identical）→ PR2 收紧门（去掉 ExplicitNumeric
 // + 插 ConvertInstr + 迁移调用点）→ PR3 加 UserImplicit/UserExplicit 两种类 + 方法查找。
 namespace Z42.Semantics;
+using Z42.IR;   // add-user-conversions：StrMap（枚举类方法查找 op_Implicit/op_Explicit）
 
 // 转换种类常量（z42c 受限写法：static class + int，不用 enum；同 TokenKind / DiagnosticCodes）。
 public static class ConvKind {
@@ -66,10 +67,53 @@ public sealed class ConvResult {
 }
 
 public static class Conversion {
-    // 分类 (from → to)。分支序镜像旧 TypeFactsTc._isAssignable 以保证布尔等价，
-    // 但数值 prim 对提前到结构判定（D）之前，好把有损拓宽（int→float 等）标成
-    // ExplicitNumeric 而非被 D 笼统当 Identity——两者布尔投影一致（皆 permissive-true）。
+    // 分类 (from → to)：先内建（_classifyBuiltin），内建给出 None 时回退用户自定义转换（_classifyUser）。
+    // 内建优先镜像 C#（标准转换先于用户转换）。无用户转换时回退恒 None → 与 PR2 行为逐位一致。
     public static ConvResult Classify(Z42Type from, Z42Type to, SymbolTable symbols) {
+        ConvResult r = Conversion._classifyBuiltin(from, to, symbols);
+        if (r.Kind != ConvKind.None) { return r; }
+        return Conversion._classifyUser(from, to, symbols);
+    }
+
+    // add-user-conversions：用户自定义转换查找（精确 (源,目标) 匹配，Decision 5）。在 from 类与 to 类上
+    // 找静态 op_Implicit / op_Explicit（单参、参数类型==from、返回类型==to）。命中返回带 Method 的 ConvResult。
+    // ② 保证同 (源,目标) 至多一个转换运算符，故命中唯一、无 first-wins 非确定性（common-pitfalls §1）。
+    public static ConvResult _classifyUser(Z42Type from, Z42Type to, SymbolTable symbols) {
+        if (from == null || to == null || symbols == null) { return new ConvResult(ConvKind.None); }
+        ConvResult r = Conversion._findConvOn(from.Name(), from, to, symbols);
+        if (r.Kind != ConvKind.None) { return r; }
+        return Conversion._findConvOn(to.Name(), from, to, symbols);
+    }
+
+    private static ConvResult _findConvOn(string clsName, Z42Type from, Z42Type to, SymbolTable symbols) {
+        if (!symbols.HasClass(clsName)) { return new ConvResult(ConvKind.None); }
+        Z42ClassType ct = symbols.GetClass(clsName);
+        string fromC = Z42Type.Canon(from.Name());
+        string toC = Z42Type.Canon(to.Name());
+        string[] keys = ct.Methods.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            object o = ct.Methods.Get(keys[i]);
+            if (o is MethodSymbol) {
+                MethodSymbol ms = o as MethodSymbol;
+                if (ms.IsStatic && SymbolCollector._isConvOp(ms.Name) && ms.Signature != null
+                    && ms.Signature.ParamCount == 1
+                    && Z42Type.Canon(ms.Signature.ParamTypes[0].Name()) == fromC
+                    && Z42Type.Canon(ms.Signature.Ret.Name()) == toC) {
+                    int kind = ConvKind.UserExplicit;
+                    if (ms.Name == "op_Implicit") { kind = ConvKind.UserImplicit; }
+                    ConvResult res = new ConvResult(kind);
+                    res.Method = ms;
+                    return res;
+                }
+            }
+            i = i + 1;
+        }
+        return new ConvResult(ConvKind.None);
+    }
+
+    // 内建转换分类（分支序镜像旧 TypeFactsTc._isAssignable 以保证布尔等价，数值 prim 对提前到结构判定 D 之前）。
+    private static ConvResult _classifyBuiltin(Z42Type from, Z42Type to, SymbolTable symbols) {
         // A: error / unknown 吸收
         if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
         if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }

@@ -7,12 +7,12 @@
 | 文件 | 职责 |
 |------|------|
 | `src/Z42Type.z42` | 语义类型层次（Prim/Class/Func/Void/Error/Unknown）+ 数值拓宽 IsAssignableTo |
-| `src/Conversion.z42` | **统一类型转换分类器**（`add-conversion-classifier`）：`Classify(from,to,symbols)→ConvResult{Kind}` 把转换分类为 Identity/ImplicitNumeric/ExplicitNumeric/Boxing/Unboxing/ImplicitRef/ExplicitRef/… `_isAssignable` 现委托其宽松门。隐式数值矩阵比 C# 严（有损整数→浮点降为显式）。机制见 [book 类型转换](../../../docs/book/src/compiler/type-conversion.md) |
+| `src/Conversion.z42` | **统一类型转换分类器**（`add-conversion-classifier`）：`Classify(from,to,symbols)→ConvResult{Kind,Method}` 把转换分类为 Identity/ImplicitNumeric/ExplicitNumeric/Boxing/Unboxing/ImplicitRef/ExplicitRef/**UserImplicit·UserExplicit**/… 内建 None 时回退 `_classifyUser`（查 op_Implicit/op_Explicit，精确 (源,目标) 匹配）。隐式数值矩阵比 C# 严 + 用户自定义转换（`add-user-conversions`：`(T)x` 走用户转换 + ② 声明期冲突检测 E0440 + ③ 走中间类型诊断）。机制见 [book 类型转换](../../../docs/book/src/compiler/type-conversion.md) |
 | `src/BinaryTypeTable.z42` | 运算类型规则表：OperandKind/ResultKind（int tag 替代 Func 委托）+ TypeFacts 数值谓词 + BinaryRule + Lookup/LookupUnary/ResultType |
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |
 | `src/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
-| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）；**sealed 语义强制**（`impl-sealed-semantics`：`_passSealedEnforce` 继承 sealed 类 E0427 / override sealed 方法 E0428 / 方法级 sealed 无匹配基 virtual E0429；方法上单写 `sealed`==`sealed override` 简写，2 处 override 识别点认 sealed 参与槽对齐；本地+跨包 `IsSealed`）。机制见 [book sealed](../../../docs/book/src/language/sealed.md) |
+| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）；**sealed 语义强制**（`impl-sealed-semantics`：`_passSealedEnforce` 继承 sealed 类 E0427 / override sealed 方法 E0428 / 方法级 sealed 无匹配基 virtual E0429；方法上单写 `sealed`==`sealed override` 简写，2 处 override 识别点认 sealed 参与槽对齐；本地+跨包 `IsSealed`）；**转换运算符**（`add-user-conversions`：op_Implicit/op_Explicit 的 RegKey 附返回类型消歧 `$to$<ret>` 保 (源,目标) 唯一 + ② 声明期冲突检测 E0440）。机制见 [book sealed](../../../docs/book/src/language/sealed.md) |
 | `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
