@@ -57,7 +57,9 @@ public static class IrGenFacts {
     public static int _visCode(string mods) {
         if (IrGenFacts._hasWord(mods, "private"))   { return 1; }
         if (IrGenFacts._hasWord(mods, "protected")) { return 2; }
-        return 0;   // public（显式或默认）
+        if (IrGenFacts._hasWord(mods, "public"))    { return 0; }
+        if (IrGenFacts._hasWord(mods, "override"))  { return 0; }   // enforce-access-control：override 继承基类(public)可见性
+        return 3;   // enforce-access-control：internal（显式或无修饰符默认）—— 独立于 public，供跨包 internal 强制
     }
 
     public static int _methodFlags(string mods) {

@@ -34,7 +34,7 @@ public sealed class OverloadBinder {
         return args;
     }
 
-    private BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
+    internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
         // add-target-typed-new：先回填延迟的 target-typed new 实参（按 ms 形参类型），再走装箱/默认值。
         // 必须在 BoxArgs 之前——BoxArgs 遍历 args 会对 null 位崩。
         args = this.FillDeferredArgs(args, rawArgs, rawArgCount, ms.Signature, env);
@@ -66,7 +66,7 @@ public sealed class OverloadBinder {
         return args;
     }
 
-    private BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp, SymbolTable syms) {
+    internal BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp, SymbolTable syms) {
         Z42FuncType sig = ms.Signature;
         int pf = sig.ParamsFrom;
         Z42ArrayType at = sig.ParamTypes[pf] as Z42ArrayType;
@@ -89,7 +89,7 @@ public sealed class OverloadBinder {
         return finalArgs;
     }
 
-    private BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env) {
+    internal BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env) {
         int pc = md.ParamCount;
         if (callArgCount > pc) { return null; }
         BoundExpr[] slots = new BoundExpr[pc];
@@ -126,20 +126,20 @@ public sealed class OverloadBinder {
         return slots;
     }
 
-    private string _ctorKey(Z42ClassType ct, int argCount) {
+    internal string _ctorKey(Z42ClassType ct, int argCount) {
         string name = ct.Name();
         string ak = name + "$" + argCount.ToString();
         if (ct.Methods.ContainsKey(ak)) { return ak; }
         return name;
     }
 
-    private string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
+    internal string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
         string ak = name + "$" + argCount.ToString();
         if (this._findMethod(symbols, ct, ak) != null) { return ak; }
         return name;
     }
 
-    private MethodSymbol _findMethod(SymbolTable symbols, Z42ClassType ct, string name) {
+    internal MethodSymbol _findMethod(SymbolTable symbols, Z42ClassType ct, string name) {
         Z42ClassType cur = ct;
         bool more = true;
         while (more) {
@@ -156,7 +156,7 @@ public sealed class OverloadBinder {
         return null;
     }
 
-    private MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
+    internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
                                           BoundExpr[] args, int argCount, Span sp) {
         MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
         if (all.Length == 0) { return null; }

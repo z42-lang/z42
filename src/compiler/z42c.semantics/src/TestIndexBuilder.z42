@@ -12,7 +12,7 @@ public sealed class TestIndexBuilder {
     public IrTestEntry[] _lastEntries;
     public TestIndexBuilder(IrGen g) { this._g = g; }
 
-    private void _buildTestIndex(CompilationUnit cu, IrFunction[] funcs, int fc) {
+    internal void _buildTestIndex(CompilationUnit cu, IrFunction[] funcs, int fc) {
         this._tiFuncs = funcs; this._tiFc = fc;   // _lookupFnIndex 用（first-wins 线性查 funcs）
         IrTestEntry[] entries = new IrTestEntry[4];
         int n = 0;

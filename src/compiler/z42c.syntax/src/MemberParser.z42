@@ -8,13 +8,13 @@ public sealed class MemberParser {
     private Parser _p;
     public MemberParser(Parser p) { this._p = p; }
 
-    private bool _isMulticastEventType(TypeExpr t) {
+    internal bool _isMulticastEventType(TypeExpr t) {
         if (!(t is NamedType)) { return false; }
         string n = (t as NamedType).Name;
         return n == "MulticastAction" || n == "MulticastFunc" || n == "MulticastPredicate";
     }
 
-    private MethodDecl _synthEventAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
+    internal MethodDecl _synthEventAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
         Span sp = ev.Span;
         NamedType evt = ev.Type as NamedType;
         string handlerName = "Action";
@@ -43,13 +43,13 @@ public sealed class MemberParser {
             this._p._typeP._emptyTypeParams(), new WhereClause[0], 0, ps, 1, body, bodyStmt, null, 0, false, sp);
     }
 
-    private bool _isSinglecastEventType(TypeExpr t) {
+    internal bool _isSinglecastEventType(TypeExpr t) {
         if (!(t is NamedType)) { return false; }
         string n = (t as NamedType).Name;
         return n == "Action" || n == "Func" || n == "Predicate";
     }
 
-    private MethodDecl _synthSinglecastAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
+    internal MethodDecl _synthSinglecastAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
         Span sp = ev.Span;
         TypeExpr handlerT = ev.Type;
         Param[] ps = new Param[1];
@@ -91,7 +91,7 @@ public sealed class MemberParser {
             this._p._typeP._emptyTypeParams(), new WhereClause[0], 0, ps, 1, hasBody, bodyStmt, null, 0, false, sp);
     }
 
-    private Decl _parseMember(string className) {
+    internal Decl _parseMember(string className) {
         AttrList attrs = this._p._declP._parseAttributes();
         string mods = this._p._declP._parseModifiers();
         Decl d = this._parseMemberBody(mods, className);

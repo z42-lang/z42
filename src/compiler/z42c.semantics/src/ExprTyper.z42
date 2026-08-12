@@ -143,6 +143,7 @@ public sealed class ExprTyper {
                 if (pcls != null && !pcls.Fields.ContainsKey(pmt.Name)) {
                     MethodSymbol setter = this._tc._overload._findMethod(env.Symbols, pcls, "set_" + pmt.Name);
                     if (setter != null && setter.Signature != null) {
+                        this._tc._access.CheckAccess(setter.Visibility, setter.ContainingTypeName, env, env.Symbols, "property", pmt.Name, a.Span);   // enforce-access-control
                         BoundExpr pval = this._bindExpr(a.Value, env);
                         BoundExpr[] pargs = new BoundExpr[1]; pargs[0] = pval;
                         return new BoundCall("instance", true, precv, pcls.Name(), "set_" + pmt.Name, pargs, 1, new Z42VoidType(), a.Span);

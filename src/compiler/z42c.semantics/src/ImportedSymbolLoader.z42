@@ -84,6 +84,7 @@ public static class ImportedSymbolLoader {
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
+                        nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
                         // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
                         // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——

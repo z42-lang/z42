@@ -10,7 +10,7 @@ public sealed class ClassDescBuilder {
     private IrGen _g;
     public ClassDescBuilder(IrGen g) { this._g = g; }
 
-    private string _typeFieldName(TypeExpr te) {
+    internal string _typeFieldName(TypeExpr te) {
         if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem) + "[]"; }
         if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner); }
         if (te is NamedType) {
@@ -92,7 +92,7 @@ public sealed class ClassDescBuilder {
         return trimmed;
     }
 
-    private bool _hasExplicitInstanceCtor(ClassDecl c) {
+    internal bool _hasExplicitInstanceCtor(ClassDecl c) {
         int j = 0;
         while (j < c.MemberCount) {
             Decl m = IrGenFacts._unwrap(c.Members[j]);
@@ -105,7 +105,7 @@ public sealed class ClassDescBuilder {
         return false;
     }
 
-    private IrClassDesc _classDesc(ClassDecl c) {
+    internal IrClassDesc _classDesc(ClassDecl c) {
         // 镜像 C# EmitClassDesc：struct/record 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
         bool isStructOrRecord = c.Kind == "struct" || c.Kind == "record";
         bool isRoot = c.Name == "Object";
@@ -293,7 +293,7 @@ public sealed class ClassDescBuilder {
         return cd2;
     }
 
-    private IrClassDesc _interfaceDesc(ClassDecl c) {
+    internal IrClassDesc _interfaceDesc(ClassDecl c) {
         IrFieldDesc[] empty = new IrFieldDesc[0];
         IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
         cd.Flags = 17;
@@ -356,7 +356,7 @@ public sealed class ClassDescBuilder {
         return cd;
     }
 
-    private IrAttrRef[] _attrRefs(Decl rawMem) {
+    internal IrAttrRef[] _attrRefs(Decl rawMem) {
         if (!(rawMem is AttributedDecl)) { return new IrAttrRef[0]; }
         AttributedDecl ad = rawMem as AttributedDecl;
         return this._attrRefsFromList(ad.Attrs, ad.AttrCount);
@@ -379,7 +379,7 @@ public sealed class ClassDescBuilder {
         return trimmed;
     }
 
-    private IrAttrRefList[] _paramAttrRefs(MethodDecl md, bool isInstance) {
+    internal IrAttrRefList[] _paramAttrRefs(MethodDecl md, bool isInstance) {
         int off = isInstance ? 1 : 0;
         int total = md.ParamCount + off;
         IrAttrRefList[] r = new IrAttrRefList[total];
