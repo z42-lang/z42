@@ -54,7 +54,7 @@ public sealed class Parser {
     }
     public void _advance() { this._pos = this._pos + 1; }
 
-    private void _expect(int kind, string what) {
+    internal void _expect(int kind, string what) {
         if (this._peek().Kind == kind) { this._advance(); return; }
         // 当前 token 已是 EOF → 不是写错了，是没写完（缺闭合符 / 正文 / 分号）。标记可恢复不完整，
         // 供 REPL 完整性探针续读（add-repl-parser-completeness）。判据是「当前 == Eof」而非具体

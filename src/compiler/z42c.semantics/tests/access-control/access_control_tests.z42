@@ -1,0 +1,107 @@
+// enforce-access-control：访问权限强制（private/protected/internal）单测。
+// 违规经 AccessChecker → TypeChecker._diags emit E0404 → SemanticDump.ErrorCount/FirstErrorCode 可见
+// （区别于 SymbolCollector.Diags，那类不计入 ErrorCount）。
+namespace Z42cSemanticsAccessControlTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── private ──
+
+[Test]
+void test_private_field_cross_class_denied() {
+    // 类外（另一类）读 private 字段 → E0404
+    string src = "class A { private int a; } class B { int Get(A x) { return x.a; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_private_field_same_class_ok() {
+    // 声明类内经 this 访问 private → 放行
+    string src = "class A { private int a; int Get() { return this.a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_private_field_other_instance_same_class_ok() {
+    // 同类其它实例的 private（class-based，非 instance-based）→ 放行
+    string src = "class A { private int a; int Get(A o) { return o.a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_private_not_inherited_open() {
+    // 派生类经 this 访问基类 private → E0404（private 不随继承开放）
+    string src = "class B { private int q; } class D : B { int Get() { return this.q; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_private_method_cross_class_denied() {
+    string src = "class A { private int f() { return 1; } } class B { int Get(A x) { return x.f(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+// ── protected ──
+
+[Test]
+void test_protected_from_derived_ok() {
+    string src = "class B { protected int p; } class D : B { int Get() { return this.p; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_protected_from_unrelated_denied() {
+    string src = "class B { protected int p; } class U { int Get(B b) { return b.p; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+// ── internal（同包放行；跨包由 cross-zpkg e2e 覆盖）──
+
+[Test]
+void test_internal_same_package_ok() {
+    // 无修饰符（默认 internal）字段被同一编译单元（同包）另一类访问 → 放行
+    string src = "class A { int a; } class B { int Get(A x) { return x.a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_explicit_internal_same_package_ok() {
+    string src = "class A { internal int a; } class B { int Get(A x) { return x.a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── public ──
+
+[Test]
+void test_public_field_cross_class_ok() {
+    string src = "class A { public int a; } class B { int Get(A x) { return x.a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_public_method_cross_class_ok() {
+    string src = "class A { public int f() { return 1; } } class B { int Get(A x) { return x.f(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 静态成员 ──
+
+[Test]
+void test_static_private_field_cross_class_denied() {
+    string src = "class A { private static int s; } class B { int Get() { return A.s; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_static_private_method_cross_class_denied() {
+    string src = "class A { private static int f() { return 1; } } class B { int Get() { return A.f(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}

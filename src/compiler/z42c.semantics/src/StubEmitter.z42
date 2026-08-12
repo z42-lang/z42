@@ -9,7 +9,7 @@ public sealed class StubEmitter {
     private IrGen _g;
     public StubEmitter(IrGen g) { this._g = g; }
 
-    private string _nativeIntrinsic(Decl rawMem) {
+    internal string _nativeIntrinsic(Decl rawMem) {
         if (!(rawMem is AttributedDecl)) { return ""; }
         AttributedDecl ad = rawMem as AttributedDecl;
         int a = 0;
@@ -65,7 +65,7 @@ public sealed class StubEmitter {
         return r;
     }
 
-    private IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
+    internal IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
         int totalParams = md.ParamCount;
         if (!isStatic) { totalParams = totalParams + 1; }
         bool isVoid = this._g._symbols.ResolveType(md.RetType).Name() == "void";
@@ -107,7 +107,7 @@ public sealed class StubEmitter {
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
     }
 
-    private IrFunction _emitAbstractStub(string name, MethodDecl md) {
+    internal IrFunction _emitAbstractStub(string name, MethodDecl md) {
         int totalParams = md.ParamCount + 1;   // 实例 → +this
         // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
         // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
@@ -135,7 +135,7 @@ public sealed class StubEmitter {
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
     }
 
-    private IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
+    internal IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
         int totalParams = dd.ParamCount + 1;   // +this
         string retName = this._typeSpell(dd.RetType);
         bool isVoid = retName == "void";
@@ -188,7 +188,7 @@ public sealed class StubEmitter {
         return "?";
     }
 
-    private IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,
+    internal IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,
                                            bool isStatic, int line) {
         int totalParams = isStatic ? 0 : 1;
         TypedReg thisReg = new TypedReg(0, IrType.Ref);
@@ -218,7 +218,7 @@ public sealed class StubEmitter {
                               lineTable, lineCount, locals, locals.Length);
     }
 
-    private IrFunction _emitAutoPropSetter(string name, string backingField, string valTypeName, int valTag,
+    internal IrFunction _emitAutoPropSetter(string name, string backingField, string valTypeName, int valTag,
                                            bool isStatic, int line) {
         int totalParams = isStatic ? 1 : 2;   // static: (value); instance: (this, value)
         TypedReg thisReg = new TypedReg(0, IrType.Ref);

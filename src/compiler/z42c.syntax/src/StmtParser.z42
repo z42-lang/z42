@@ -8,7 +8,7 @@ public sealed class StmtParser {
     private Parser _p;
     public StmtParser(Parser p) { this._p = p; }
 
-    private Stmt _parseForeach() {
+    internal Stmt _parseForeach() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // foreach
         this._p._expect(TokenKind.LParen, "(");
@@ -23,7 +23,7 @@ public sealed class StmtParser {
         return new ForeachStmt(t, n, iter, body, sp);
     }
 
-    private Stmt _parseFor() {
+    internal Stmt _parseFor() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // for
         this._p._expect(TokenKind.LParen, "(");
@@ -43,7 +43,7 @@ public sealed class StmtParser {
         return new ForStmt(hasInit, init, hasCond, cond, hasIncr, incr, body, sp);
     }
 
-    private Stmt _parseDoWhile() {
+    internal Stmt _parseDoWhile() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // do
         Stmt body = this._p.ParseStatement();
@@ -55,7 +55,7 @@ public sealed class StmtParser {
         return new DoWhileStmt(body, cond, sp);
     }
 
-    private Stmt _parseSwitch() {
+    internal Stmt _parseSwitch() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // switch
         this._p._expect(TokenKind.LParen, "(");
@@ -97,7 +97,7 @@ public sealed class StmtParser {
         return new SwitchStmt(subject, cases, cc, sp);
     }
 
-    private Stmt _parseTry() {
+    internal Stmt _parseTry() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // try
         Stmt tryBody = this._parseBlock();
@@ -153,7 +153,7 @@ public sealed class StmtParser {
         return new BlockStmt(stmts, n, sp);
     }
 
-    private Stmt _parseReturn() {
+    internal Stmt _parseReturn() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // return
         if (this._p._peek().Kind == TokenKind.Semicolon) {
@@ -165,7 +165,7 @@ public sealed class StmtParser {
         return new ReturnStmt(true, v, sp);
     }
 
-    private Stmt _parseIf() {
+    internal Stmt _parseIf() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // if
         this._p._expect(TokenKind.LParen, "(");
@@ -180,7 +180,7 @@ public sealed class StmtParser {
         return new IfStmt(cond, then, false, then, sp);
     }
 
-    private Stmt _parseWhile() {
+    internal Stmt _parseWhile() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // while
         this._p._expect(TokenKind.LParen, "(");
@@ -190,7 +190,7 @@ public sealed class StmtParser {
         return new WhileStmt(cond, body, sp);
     }
 
-    private bool _isVarDeclStart() {
+    internal bool _isVarDeclStart() {
         int k = this._p._peek().Kind;
         if (k == TokenKind.Const) { return true; }   // add-const-keyword：`const T name = <const-expr>;` 局部常量声明前缀
         if (k == TokenKind.Var) { return true; }
@@ -283,7 +283,7 @@ public sealed class StmtParser {
         return false;
     }
 
-    private bool _isLocalFnStart() {
+    internal bool _isLocalFnStart() {
         int k = this._p._peek().Kind;
         if (!this._p._isTypeKeyword(k) && k != TokenKind.Identifier) { return false; }
         int o = this._skipTypeOffset(0);
@@ -314,7 +314,7 @@ public sealed class StmtParser {
         return o;
     }
 
-    private Stmt _parseLocalFn() {
+    internal Stmt _parseLocalFn() {
         Span sp = this._p._peek().Span;
         TypeExpr type = this._p._typeP._parseType();
         string name = this._p._peek().Text;
@@ -325,7 +325,7 @@ public sealed class StmtParser {
         return new LocalFunctionStmt(md as MethodDecl, sp);
     }
 
-    private Stmt _parseVarDecl() {
+    internal Stmt _parseVarDecl() {
         Span sp = this._p._peek().Span;
         bool isConst = false;   // add-const-keyword：消费前导 `const`
         if (this._p._peek().Kind == TokenKind.Const) { isConst = true; this._p._advance(); }

@@ -12,7 +12,7 @@ public sealed class DeclBinder {
     private TypeChecker _tc;
     public DeclBinder(TypeChecker tc) { this._tc = tc; }
 
-    private void _synthCtors(SemanticModel model, SymbolTable symbols, CompilationUnit cu) {
+    internal void _synthCtors(SemanticModel model, SymbolTable symbols, CompilationUnit cu) {
         StrMap clsMap = new StrMap();   // 简单名 → ClassDecl（本地 class/struct/record）
         int i0 = 0;
         while (i0 < cu.DeclCount) {
@@ -96,7 +96,7 @@ public sealed class DeclBinder {
         return false;
     }
 
-    private void _checkDuplicateFreeFunctions(CompilationUnit cu) {
+    internal void _checkDuplicateFreeFunctions(CompilationUnit cu) {
         StrMap seen = new StrMap();
         int i = 0;
         while (i < cu.DeclCount) {
@@ -159,7 +159,7 @@ public sealed class DeclBinder {
         return bucket + md.Name + "$" + md.ParamCount.ToString();
     }
 
-    private void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
+    internal void _bindImpl(SemanticModel model, SymbolTable symbols, ImplDecl im) {
         string targetName = "";
         if (im.TargetType is NamedType) { targetName = (im.TargetType as NamedType).Name; }
         if (targetName == "" || !symbols.HasClass(targetName)) { return; }
@@ -194,7 +194,7 @@ public sealed class DeclBinder {
         }
     }
 
-    private void _bindClass(SemanticModel model, SymbolTable symbols, ClassDecl c) {
+    internal void _bindClass(SemanticModel model, SymbolTable symbols, ClassDecl c) {
         // Arity-mangle：泛型类若以 Name$N 键注册，优先取该 CT。
         string ctKey = c.Name;
         if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
@@ -275,7 +275,7 @@ public sealed class DeclBinder {
         }
     }
 
-    private void _bindFreeFunc(SemanticModel model, SymbolTable symbols, MethodDecl md) {
+    internal void _bindFreeFunc(SemanticModel model, SymbolTable symbols, MethodDecl md) {
         if (md.HasBody) {
             // 顶层泛型函数携自身型参（classFlag=false）。
             var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count, false);

@@ -16,6 +16,7 @@
 | `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
+| `src/AccessChecker.z42` | 访问权限强制（enforce-access-control）：`CheckAccess` 对 private/protected/internal 成员访问 emit E0404；机制见 [book](../../../docs/book/src/compiler/access-control.md) |
 | `src/GenericConstraint.z42` | 泛型约束模型（2B）：ConstraintBundle（单型参）+ ConstraintSet（一类全型参，按声明序对齐 TypeArgs） |
 | `src/ConstraintChecker.z42` | 泛型 where 约束（2B）：Resolve（声明期 where→ConstraintSet）+ Check（call-site `new Box<int>()` 校验）。隔离自 TypeChecker（镜像 C# `TypeChecker.Generics.cs`） |
 | `src/SemanticModel.z42` | 类型检查产物：符号表 + 各方法/函数体 Bound 树（key="Class.Method"/func 名） |

@@ -254,7 +254,7 @@ public sealed class StmtBinder {
     // 集合字面量脱糖（ExprTyper._bindCollLit）绑定合成语句的入口。
     public BoundStmt BindStmt(Stmt s, TypeEnv env, Z42Type ret) { return this._bindStmt(s, env, ret); }
 
-    private BoundStmt _bindStmt(Stmt s, TypeEnv env, Z42Type ret) {
+    internal BoundStmt _bindStmt(Stmt s, TypeEnv env, Z42Type ret) {
         if (s is BlockStmt) { return this._bindBlock(s as BlockStmt, env, ret); }
         if (s is LocalFunctionStmt) { return this._bindLocalFunction(s as LocalFunctionStmt, env, ret); }
         if (s is VarDeclStmt) { return this._bindVarDecl(s as VarDeclStmt, env, ret); }

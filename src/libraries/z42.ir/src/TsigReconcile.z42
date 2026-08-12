@@ -538,6 +538,7 @@ public static class TsigReconcile {
     private static string _visStr(int v) {
         if (v == 1) { return "private"; }
         if (v == 2) { return "protected"; }
+        if (v == 3) { return "internal"; }   // enforce-access-control：跨包 internal 强制
         return "public";
     }
     private static int _pfInt(int b) { if (b == 255 || b < 0) { return 0 - 1; } return b; }

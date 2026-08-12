@@ -9,11 +9,11 @@ public sealed class TypeParser {
     private Parser _p;
     public TypeParser(Parser p) { this._p = p; }
 
-    private TypeExpr _emptyType() { return new NamedType("", new TypeExpr[0], 0, this._p._peek().Span); }
+    internal TypeExpr _emptyType() { return new NamedType("", new TypeExpr[0], 0, this._p._peek().Span); }
 
-    private TypeParamList _emptyTypeParams() { return new TypeParamList(new string[0], 0, this._p._peek().Span); }
+    internal TypeParamList _emptyTypeParams() { return new TypeParamList(new string[0], 0, this._p._peek().Span); }
 
-    private TypeParamList _parseTypeParams() {
+    internal TypeParamList _parseTypeParams() {
         Span sp = this._p._peek().Span;
         string[] names = new string[4];
         int n = 0;
@@ -38,7 +38,7 @@ public sealed class TypeParser {
         return new TypeParamList(names, n, sp);
     }
 
-    private WhereList _parseWhereClause() {
+    internal WhereList _parseWhereClause() {
         Span sp = this._p._peek().Span;
         WhereClause[] items = new WhereClause[4];
         int n = 0;
@@ -85,7 +85,7 @@ public sealed class TypeParser {
         return new WhereConstraint(true, this._parseType(), "", sp);
     }
 
-    private TypeExpr _parseType() {
+    internal TypeExpr _parseType() {
         Span sp = this._p._peek().Span;
         // 函数类型 `(T1,...) -> R`（类型位 `(` 只可能是函数类型）。
         if (this._p._peek().Kind == TokenKind.LParen) { return this._parseFuncType(); }

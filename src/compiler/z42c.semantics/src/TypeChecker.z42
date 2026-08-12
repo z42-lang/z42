@@ -19,6 +19,7 @@ public sealed class TypeChecker {
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用）
     public OverloadBinder _overload;      // review P1-1：重载决议子绑定器（backref mediator）
     public MemberResolver _member;         // God-Class 拆分 step2：成员解析子绑定器
+    public AccessChecker  _access;         // enforce-access-control：访问权限校验（private/protected/internal）
     public StmtBinder _stmt;               // God-Class 拆分 step3：语句绑定子绑定器
     public ExprTyper _expr;                // God-Class 拆分 step4：表达式类型检查子绑定器
     public DeclBinder _decl;               // God-Class 拆分 step5：声明绑定编排子绑定器
@@ -30,6 +31,7 @@ public sealed class TypeChecker {
         this._currentNs = "";
         this._overload = new OverloadBinder(this);
         this._member = new MemberResolver(this);
+        this._access = new AccessChecker(this);
         this._stmt = new StmtBinder(this);
         this._expr = new ExprTyper(this);
         this._decl = new DeclBinder(this);

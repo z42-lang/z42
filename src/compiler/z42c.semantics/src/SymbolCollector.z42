@@ -981,6 +981,9 @@ public sealed class SymbolCollector {
         if (this._hasWord(mods, "private"))   { return "private"; }
         if (this._hasWord(mods, "protected")) { return "protected"; }
         if (this._hasWord(mods, "internal"))  { return "internal"; }
+        // enforce-access-control：override 继承被覆写基方法的可见性；只能覆写 virtual/abstract 成员
+        // （基类契约，通常 public），故无显式修饰符的 override 视为 public（镜像 C# override 须匹配基类可见性）。
+        if (this._hasWord(mods, "override"))  { return "public"; }
         return "internal";
     }
 

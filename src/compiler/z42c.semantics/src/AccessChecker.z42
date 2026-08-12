@@ -1,0 +1,65 @@
+// enforce-access-control：成员访问可见性校验（private / protected / internal）。
+// 持 TypeChecker 反向引用取 _diags（与 MemberResolver 同款 mediator）。违规 emit E0404，不阻断绑定。
+//
+// 语义（镜像 C#）：
+//   public    — 不校验。
+//   private   — 仅声明类文本内可访问（CurrentClass()==declClass；含同类其它实例；派生类不可访问基类 private）。
+//   protected — 声明类 + 派生类可访问（沿 CurrentClass 基链上溯能到 declClass；跨包派生天然支持）。
+//   internal  — 同包可访问；跨包不可（声明类 IsImported==true → deny）。默认无修饰符成员即 internal。
+//
+// 名字形式：CurrentClass() 与 FieldSymbol/MethodSymbol.ContainingTypeName 均为**短名**，直接可比。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class AccessChecker {
+    private TypeChecker _tc;
+    public AccessChecker(TypeChecker tc) { this._tc = tc; }
+
+    // 校验从 env 当前上下文访问「declClass 的 vis 成员」是否允许；违规 emit E0404。
+    // vis: 成员 Visibility；declClass: 声明该成员的类短名；kind: "field"/"method"/"property"（消息用）。
+    public void CheckAccess(string vis, string declClass, TypeEnv env, SymbolTable symbols,
+                            string kind, string name, Span sp) {
+        if (vis == "public") { return; }
+        if (declClass == "") { return; }   // 声明类未知（prim/接口/泛型形参松绑路径不入此函数，兜底放行不误报）
+        if (vis == "private") {
+            if (env.CurrentClass() == declClass) { return; }
+            this._deny("private", kind, name, declClass, false, sp);
+            return;
+        }
+        if (vis == "protected") {
+            if (this._currentDerivesFrom(declClass, env, symbols)) { return; }
+            this._deny("protected", kind, name, declClass, false, sp);
+            return;
+        }
+        // internal（含无修饰符默认）：声明类本包 → OK；imported（跨包）→ deny。
+        Z42ClassType dc = symbols.GetClass(declClass);
+        if (dc == null) { return; }          // 未知声明类 → 保守当本地，放行（绝不误报）
+        if (!dc.IsImported) { return; }      // 本包声明 → 同包可访问
+        this._deny("internal", kind, name, declClass, true, sp);
+    }
+
+    // CurrentClass()==declClass，或沿 CurrentClass 基链上溯能到 declClass（含隐式 Object，镜像 _findField）。
+    private bool _currentDerivesFrom(string declClass, TypeEnv env, SymbolTable symbols) {
+        string cur = env.CurrentClass();
+        if (cur == "") { return false; }     // 自由函数上下文：无「派生」身份
+        bool more = true;
+        while (more) {
+            if (cur == declClass) { return true; }
+            Z42ClassType ct = symbols.GetClass(cur);
+            if (ct == null) { more = false; }
+            else if (ct.HasBase) { cur = ct.BaseName; }
+            else if (cur != "Object" && symbols.HasClass("Object")) { cur = "Object"; }   // 隐式继承 Object
+            else { more = false; }
+        }
+        return false;
+    }
+
+    private void _deny(string vis, string kind, string name, string declClass, bool crossPkg, Span sp) {
+        string msg = "cannot access " + vis + " " + kind + " `" + name + "` of `" + declClass + "`";
+        if (crossPkg) { msg = msg + " from another package"; }
+        this._tc._diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
+    }
+}
