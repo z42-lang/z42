@@ -3,7 +3,7 @@
 > 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等（2026-08-10）+
 > struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）+ 堆内联字段 / `struct[]` /
 > 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接 + 跨包 struct
-> 值语义（P4a）**（2026-08-12，均格式中立）落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
+> 值语义（P4a）+ 装箱引用身份 + struct 字段反射（P4b）**（2026-08-12，均格式中立）落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
 > 实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
 
 ## 目标
@@ -137,9 +137,11 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 规则）但装箱缺失时**裸拷帧作用域 `Value::StructRef` 句柄进 object 槽**——创建帧一退出（arena LIFO
 truncate）即 use-after-free。
 
-**堆表示**：新 `Value::BoxedStruct(Box<BoxedStructData{type_name, bytes, refs}>)`——**拥有** blob 字节快照
-+ 引用叶子（作真 `Value`，GC 扫描；`is_heap_ref`=true 触发写屏障）+ FQ 类型名。**不**用 ScriptObject
-（那需给 struct 加 base+vtable=反转无-vtable 决定）。`size = bytes.len()`。
+**堆表示**（PR2a 原始；**P4b 已改为共享 `ScriptObject`**，见下「装箱引用身份」节）：PR2a 用
+`Value::BoxedStruct(Box<BoxedStructData{type_name, bytes, refs}>)`——**拥有** blob 字节快照 + 引用叶子
+（作真 `Value`，GC 扫描）+ FQ 类型名（值语义 `Box`，无引用身份）。**P4b 把载荷改为 `GcRef<ScriptObject>`**
+（共享堆句柄，struct blob 存进对象 `struct_bytes`/`struct_refs`）→ 对齐 C# 引用身份，复用 `region_object`。
+两版都**不**给 struct 加 base+vtable（无-vtable 决定不变），只是把值装进对象容器。
 
 **装箱**（`__box_struct` builtin，复用 `Builtin` opcode → 无格式 bump，同 `__box_prim`）：`TypeChecker.BoxIfNeeded`
 对 blob 值 struct 擦除到 `object`/接口插 `BoundBox`；`ExprEmitter._emitBox` 发 `__box_struct(structHandle)`；
@@ -181,8 +183,9 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
 
 **D5 定案**：`==`/`!=` on `object`-typed boxed struct = **值相等**（`Value::BoxedStruct` `PartialEq`：
-type_name∧bytes∧refs），延续 ② 对 struct `==` 的值语义（z42 boxed 是 owned Box 非共享 GcRef，C# 的装箱引用
-相等在此表示下 ill-defined）；`.Equals()` = 合成叶子方法（float `Eq` → NaN≠NaN 精确）。**边角**：float NaN
+type_name∧bytes∧refs），延续 ② 对 struct `==` 的值语义（**P4b 后**：`PartialEq` 先 `ptr_eq`（同盒短路，避免
+双 borrow 死锁），否则经共享对象比 `struct_bytes`/`struct_refs`——值相等语义不变）；`.Equals()` = 合成叶子方法
+（float `Eq` → NaN≠NaN 精确）。**边角**：float NaN
 `==` 按位判等 vs `.Equals` 浮点== → 极少含 NaN 的 struct 二者微差（pre-1.0 标注，要完全一致须让 `==` 也走
 vcall Equals，代价不值）。
 
@@ -301,7 +304,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - ✅ **foreach over struct[]**（`foreach(P p in arr)`）：foreach 数组路径对值 struct 循环变量发的 AsCast，runtime
   `as_cast` 加 `StructRefHeap` 臂 → `copy_array_elem_out` 把元素拷出到当前帧 arena StructRef（值副本，循环变量非
   别名进数组）。runtime-only、格式中立，golden `struct_array.z42` foreach 段验（含 `foreach{e.x=999}` 不动数组）。
-- ⏳ Deferred：**struct 字段反射**（P4b，add-struct-field-reflection）。
+- ✅ **装箱引用身份 + struct 字段反射**（P4b add-boxed-struct-identity）：`BoxedStruct` 改共享 `ScriptObject`
+  + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 
 ## JIT 值路径（add-struct-jit-value-path P5-A）
 
@@ -381,10 +385,49 @@ API 面越界）。复用既有 `HasBase` 零越界、一个 nightly 落地；�
 类型否」不一致 → 运行期 `struct field write out of blob bounds (off=0, w=4, len=0)`。golden
 `cross-zpkg/struct_cross_pkg` 复现并守住修复（interp+jit 输出一致）。
 
-### struct 字段反射（Deferred → P4b）
+## 装箱引用身份 + struct 字段反射（add-boxed-struct-identity P4b）
 
-反射按字段名读 boxed struct 字段值需 per-field 字节偏移（`struct_layout` 只有 size + 无名引用位图）→ 需
-Rust 复刻 `_compute` 或格式 bump 写偏移表，拆为 change `add-struct-field-reflection` 单独裁决。
+两件相扣的事，一个 change：**给装箱 struct 引用身份**（对齐 C#）+ **反射按字段名读写 struct 字段**。
+
+### 装箱引用身份（路 B2：装箱进 `ScriptObject`）
+
+PR2a 的 `Value::BoxedStruct(Box<BoxedStructData>)` 是**值**（`Box` 独占，`.cloned()` 深拷贝）→ `object b = a`
+是两份独立盒、反射 `SetValue` 改盒调用方看不见，与 C#（box 是共享堆引用）不一致。P4b 把载荷改为
+**`GcRef<ScriptObject>`**（共享堆句柄）：
+
+- 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（`type_desc.is_struct()`，struct blob 存进对象已有的
+  `struct_bytes`/`struct_refs`，`slots` 空）。`inline_region_sizes()` 对 `is_struct()` 类型改读该类型自己的
+  `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
+  `corelib::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
+- **复用 `region_object` + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
+  size / 跨代写屏障（`maybe_mark_cross_gen_card` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
+  （底层同为 `GcRef<ScriptObject>`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
+  `type_desc.name`/`struct_bytes`/`struct_refs`。
+- **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——C# 引用身份达成。删 `BoxedStructData`。
+- **不给 struct 加 base/vtable**（PR2a 决定不变）——只是把值装进已有对象容器、用 struct 自己的 TypeDesc。
+
+### struct 字段反射（`FieldInfo.GetValue/SetValue`）
+
+反射按**字段名**读值需 per-field 字节 offset + tag，但 runtime `StructTypeLayout` 只有 size + 无名引用位图。
+解 = **Rust 复刻编译器 `StructLayout._compute`**（`corelib/struct_reflect.rs`，方案 B——格式中立、warm 本地可验，
+非格式 bump 写偏移表）：
+
+- 用 `TypeDesc.fields` 的 `(name, type_tag)` 逐字段自然对齐累积 offset，映射 `字段名 → (byte_off, tag, is_ref,
+  is_struct, type_name)`。`canon`/`size_of`/`align_of`/`leaf_kind` 镜像 `Z42Type.Canon`/`_sizeOf`/`_alignOf`/
+  `_kindOf`；`tag_from_name` 忠实镜像 `Tag.FromName`（decode signedness 与 codegen encode 一致）。嵌套 struct
+  字段短名按声明类型的命名空间解析到 FQ（`resolve_named`）再递归。
+- **三层校验**（`validate_against`，抓复刻漂移，不符即可 catch 的 `bail!`）：① `computed.size == 交付 size`；
+  ② 计算的引用叶子 offset 集（含嵌套展平）逐一等交付 `ref_offsets`；③ 逐叶子 ref/prim 分类与交付位图交叉核对。
+- **GetValue**：基元 → `decode_prim(struct_bytes)`；引用叶子 → `struct_refs[ref_index]`；嵌套 struct → boxed 快照
+  （值语义，改返回盒不动父）。**SetValue**：共享盒**就地写穿**（引用身份→调用方可见）+ 引用叶子写屏障；基元实参
+  透明拆箱（`object` 参数装箱的基元先 unbox 再 `encode_prim`）。
+- 端到端 golden `reflection/struct_field`（GetValue 基元/string/嵌套 + SetValue 写穿+别名可见 + 值语义独立，
+  interp+jit 双模式匹配 expected）+ 7 个 `struct_reflect` 单元测试（布局/校验/tag signedness 护栏）。
+
+> **Deferred（follow-up）**：**对象内联 struct 字段反射**（`class C{ Point pt; }` 的 `GetValue(fi_pt, c)`，现读
+> P3b dead-slot 得 `Null`——需另复刻**类级**内联布局映射字段→对象相对 offset，与 struct `_compute` 不同）。
+> 本 change 只交付**装箱 struct** 的字段反射（主路径）+ 引用身份。反射 invoke boxed struct 合成方法、static
+> struct 字段反射同 Deferred。
 
 ## 与逃逸分析 / packed 数组的关系
 
@@ -417,6 +460,9 @@ Rust 复刻 `_compute` 或格式 bump 写偏移表，拆为 change `add-struct-f
   `nct.IsStruct = !cl.HasBase`（复用生产方 `HasBase=!isStruct` 编码，不新增 stdlib API→零 bootstrap 越界），
   消费方重算布局与生产方逐字节一致——修 imported struct 被当引用类型的 blob-bounds 崩，格式中立，golden
   `struct_cross_pkg`（含 transitive 嵌 imported struct）验。
+- ✅ **装箱引用身份 + struct 字段反射**（P4b add-boxed-struct-identity）：`BoxedStruct` 载荷改共享
+  `GcRef<ScriptObject>`（对齐 C# 引用身份，复用 region_object 零 GC 改动）+ `FieldInfo.GetValue/SetValue`
+  反射装箱 struct 字段（Rust 复刻 `_compute` + 三层校验，格式中立）——见上「装箱引用身份 + struct 字段反射」节。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
-  **struct 字段反射**（P4b，add-struct-field-reflection）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
-  **反射合成方法可见**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
+  **对象内联 struct 字段反射**（P4b follow-up，现 dead-slot 返 Null）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
+  **反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。

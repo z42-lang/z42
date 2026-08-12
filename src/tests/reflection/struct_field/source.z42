@@ -1,0 +1,72 @@
+// add-boxed-struct-identity (P4b): struct 字段反射 + 装箱引用身份端到端。
+//   验证：① boxed struct FieldInfo.GetValue（基元/string/嵌套 struct 返 boxed 快照）；
+//   ② FieldInfo.SetValue 就地写穿共享盒 + 别名可见（C# 引用身份）；③ 装箱前原 struct 值不受影响
+//   （值语义拷贝）；④ 嵌套 struct 快照独立于父（值语义）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+struct Point {
+    int x;
+    int y;
+    string tag;
+}
+
+struct Line {
+    Point a;
+    Point b;
+}
+
+FieldInfo field(Type t, string name) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) {
+        if (fs[i].Name == name) { return fs[i]; }
+        i = i + 1;
+    }
+    return null;
+}
+
+void Main() {
+    Point p = new Point();
+    p.x = 10;
+    p.y = 20;
+    p.tag = "hi";
+
+    object boxed = p;
+    Type tp = typeof(Point);
+
+    // ① GetValue：基元 + string
+    Console.WriteLine((int)field(tp, "x").GetValue(boxed));       // 10
+    Console.WriteLine((int)field(tp, "y").GetValue(boxed));       // 20
+    Console.WriteLine((string)field(tp, "tag").GetValue(boxed));  // hi
+
+    // ② SetValue 写穿 + 引用身份（别名 alias 看见变更）
+    object alias = boxed;
+    field(tp, "x").SetValue(boxed, 99);
+    field(tp, "tag").SetValue(boxed, "bye");
+    Console.WriteLine((int)field(tp, "x").GetValue(alias));       // 99
+    Console.WriteLine((string)field(tp, "tag").GetValue(alias));  // bye
+
+    // ③ 装箱前原 struct 值不受影响（装箱是拷贝，值语义）
+    Console.WriteLine(p.x);                                        // 10
+
+    // ④ 嵌套 struct 字段：GetValue 返 boxed 快照
+    Line ln = new Line();
+    ln.a.x = 1;
+    ln.a.y = 2;
+    ln.a.tag = "A";
+    ln.b.x = 3;
+    ln.b.y = 4;
+    ln.b.tag = "B";
+    object boxedLine = ln;
+    object boxedA = field(typeof(Line), "a").GetValue(boxedLine);
+    Console.WriteLine((int)field(tp, "x").GetValue(boxedA));      // 1
+    Console.WriteLine((string)field(tp, "tag").GetValue(boxedA)); // A
+
+    // 改嵌套快照不影响父（值语义快照）
+    field(tp, "x").SetValue(boxedA, 777);
+    object boxedA2 = field(typeof(Line), "a").GetValue(boxedLine);
+    Console.WriteLine((int)field(tp, "x").GetValue(boxedA2));     // 1
+}

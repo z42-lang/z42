@@ -175,11 +175,13 @@ pub unsafe extern "C" fn jit_vcall(
                 }
             }
             if method == "ToString" {
-                let short = b.type_name.rsplit('.').next().unwrap_or(&b.type_name);
+                // add-boxed-struct-identity (P4b): type name lives on the box's shared object.
+                let n: &str = &b.type_desc().name;
+                let short = n.rsplit('.').next().unwrap_or(n);
                 frame_ref.regs[dst as usize] = Value::Str(short.into()); return 0;
             }
         }
-        let type_name = b.type_name.clone();
+        let type_name = b.type_desc().name.to_string();
         let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
         call_args.push(obj_val.clone());
         call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));

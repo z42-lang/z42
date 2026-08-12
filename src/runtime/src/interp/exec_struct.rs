@@ -59,14 +59,24 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
 /// add-struct-object-boxing (PR2a): 拆箱——把堆 `BoxedStruct` 的 blob 拷回**当前帧** struct arena，
 /// 返回值 struct `StructRef` 句柄（`(P)o` / `o as P` 用）。alloc 用类型布局（size 兜底自 `bytes.len()`），
 /// 再 memcpy bytes + clone refs。拆出的 struct 是独立副本（改它不影响 boxed 或再次拆箱）。
-pub(crate) fn unbox_struct(ctx: &VmContext, frame_id: u32, b: &ty::BoxedStructData) -> Result<Value> {
-    let layout = resolve_layout(ctx, &b.type_name, b.bytes.len() as u32);
-    let idx = ctx.struct_arena.lock().alloc(frame_id, b.type_name.clone(), layout);
+pub(crate) fn unbox_struct(
+    ctx: &VmContext, frame_id: u32, gc: &crate::gc::GcRef<ty::ScriptObject>,
+) -> Result<Value> {
+    // add-boxed-struct-identity (P4b, 路 B2): the box is a shared struct-typed
+    // `ScriptObject` — snapshot its blob (`struct_bytes`/`struct_refs`) into a fresh
+    // current-frame arena `StructRef` (value-semantics unbox: the arena copy is
+    // independent of the box).
+    let (type_name, bytes, refs): (Arc<str>, Vec<u8>, Vec<Value>) = {
+        let o = gc.borrow();
+        (Arc::from(&*o.type_desc.name), o.struct_bytes.to_vec(), o.struct_refs.to_vec())
+    };
+    let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
+    let idx = ctx.struct_arena.lock().alloc(frame_id, type_name, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
-        let n = b.bytes.len().min(s.bytes.len());
-        s.bytes[..n].copy_from_slice(&b.bytes[..n]);
-        let rn = b.refs.len().min(s.refs.len());
-        s.refs[..rn].clone_from_slice(&b.refs[..rn]);
+        let n = bytes.len().min(s.bytes.len());
+        s.bytes[..n].copy_from_slice(&bytes[..n]);
+        let rn = refs.len().min(s.refs.len());
+        s.refs[..rn].clone_from_slice(&refs[..rn]);
     })?;
     Ok(Value::StructRef { idx, frame_id })
 }

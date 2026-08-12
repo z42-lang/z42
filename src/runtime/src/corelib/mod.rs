@@ -35,6 +35,7 @@ pub mod fs;
 pub mod fs_backend;   // add-wasm-vfs-backend: 平台隔离 fs 后端（native / memory VFS）
 pub mod object;
 pub mod reflection;
+pub mod struct_reflect;   // add-boxed-struct-identity (P4b): value-struct field layout replication
 pub mod assemblyloadcontext;
 pub mod diagnostics;
 pub mod array;

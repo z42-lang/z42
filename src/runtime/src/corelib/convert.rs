@@ -1,5 +1,5 @@
 use crate::metadata::Value;
-use crate::metadata::types::{BoxedPrim, BoxedStructData};
+use crate::metadata::types::{BoxedPrim, NativeData};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -32,13 +32,48 @@ pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         None => bail!("__box_struct: missing value arg"),
     };
     match v {
+        // add-boxed-struct-identity (P4b): already a shared box → return the SAME box
+        // (reference identity preserved; re-boxing must not clone the heap object).
         Value::BoxedStruct(_) => Ok(v.clone()),
         Value::StructRef { idx, frame_id } => {
             let (type_name, bytes, refs) = ctx.struct_arena.lock()
                 .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))?;
-            Ok(Value::BoxedStruct(Box::new(BoxedStructData { type_name, bytes, refs })))
+            box_struct_blob(ctx, &type_name, &bytes, &refs)
         }
         other => Ok(other.clone()),
+    }
+}
+
+/// add-boxed-struct-identity (P4b, 路 B2): box a value-struct blob into a **shared**
+/// `ScriptObject` (`type_desc` = the struct type, `is_struct()` true), storing the
+/// primitive leaves in the object's `struct_bytes` and the reference leaves in
+/// `struct_refs` (`alloc_object` pre-sizes both via `inline_region_sizes`, which reads
+/// the struct's own `struct_layout` for struct-typed objects). Returns a
+/// `Value::BoxedStruct(gc)` — a shared, GC-managed, reference-identity box (C# semantics:
+/// `object b = a` aliases the same box, reflective `SetValue` writes through).
+///
+/// Reused by `__box_struct` (top-level boxing) and reflection's nested-field GetValue
+/// (a nested struct field materializes as a fresh boxed snapshot).
+pub(crate) fn box_struct_blob(
+    ctx: &VmContext, type_name: &str, bytes: &[u8], refs: &[Value],
+) -> Result<Value> {
+    let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
+        anyhow::anyhow!("__box_struct: unknown struct type `{type_name}`")
+    })?;
+    let obj_val = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
+    match obj_val {
+        Value::Object(gc) => {
+            {
+                let mut o = gc.borrow_mut();
+                let n = bytes.len().min(o.struct_bytes.len());
+                o.struct_bytes[..n].copy_from_slice(&bytes[..n]);
+                let rn = refs.len().min(o.struct_refs.len());
+                o.struct_refs[..rn].clone_from_slice(&refs[..rn]);
+            }
+            Ok(Value::BoxedStruct(gc))
+        }
+        // alloc_object returns Null under strict-OOM refusal.
+        other => Ok(other),
     }
 }
 
@@ -48,13 +83,15 @@ pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// 值相等的 struct → 字节+refs 相同 → 同哈希（契约满足）。⚠️边角：float ±0.0 字节不同→哈希不同，而 Equals
 /// 的浮点 == 判 +0==-0 → 极少数含 ±0 float 的 struct 违反契约（pre-1.0 文档标注，与 C# 历史一致）。
 pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let b = match args.first() {
-        Some(Value::BoxedStruct(b)) => b,
+    let gc = match args.first() {
+        Some(Value::BoxedStruct(gc)) => gc,
         _ => bail!("__struct_hash_code: expected a boxed struct"),
     };
+    // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
+    let b = gc.borrow();
     let mut h: u32 = 2_166_136_261;
-    for &byte in b.bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
-    for r in b.refs.iter() {
+    for &byte in b.struct_bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
+    for r in b.struct_refs.iter() {
         let rh: u32 = match r {
             Value::Str(s) => {
                 let mut sh: u32 = 2_166_136_261;
@@ -186,7 +223,7 @@ pub fn value_to_str(v: &Value) -> String {
         Value::StructRef { .. } => "<struct value>".to_string(),
         // add-struct-object-boxing: boxed struct 的完整 ToString（值格式）由 PR2b 合成方法经 VCall 提供；
         // 此原始路径给类型名占位（有 type_name，比 StructRef 占位更具体）。
-        Value::BoxedStruct(b) => format!("{}{{...}}", b.type_name),
+        Value::BoxedStruct(gc) => format!("{}{{...}}", gc.type_desc().name),
         // add-struct-heap-inline (P3b): a struct[] element handle — placeholder by the
         // element type name (ToString on the element dispatches via VCall, not here).
         Value::StructRefHeap(e) => format!("{}{{...}}", e.arr.borrow().element_type),

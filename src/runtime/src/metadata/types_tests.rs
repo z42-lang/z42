@@ -167,34 +167,36 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
     };
     assert_eq!(arr.len(), 2, "2 elements of 12 bytes each");
 
-    // Build a boxed Point{x=5,y=6,tag="a"} and store it into element 0.
-    let mk = |x: i32, y: i32, tag: &str| {
-        let mut b = vec![0u8; 12];
-        b[0..4].copy_from_slice(&x.to_le_bytes());
-        b[4..8].copy_from_slice(&y.to_le_bytes());
-        Value::BoxedStruct(Box::new(BoxedStructData {
-            type_name: Arc::from("Demo.P"),
-            bytes: b.into_boxed_slice(),
-            refs: Box::new([Value::Str(tag.into())]),
-        }))
-    };
-    arr.set_boxed(0, mk(5, 6, "a"));
-    arr.set_boxed(1, mk(7, 8, "b"));
-
-    // Reading element 0 back yields an independent boxed copy with the same leaves.
-    match arr.get_boxed(0) {
-        Value::BoxedStruct(b) => {
-            assert_eq!(i32::from_le_bytes([b.bytes[0], b.bytes[1], b.bytes[2], b.bytes[3]]), 5);
-            assert_eq!(i32::from_le_bytes([b.bytes[4], b.bytes[5], b.bytes[6], b.bytes[7]]), 6);
-            match &b.refs[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+    // add-boxed-struct-identity (P4b): boxing a struct[] element is now a heap alloc
+    // (a shared `ScriptObject`), which this heap-less `ArrayObj` unit test can't do —
+    // and `get_boxed`/`set_boxed` no longer round-trip a value box. The struct[] byte
+    // backing itself (byte storage + independence + GC ref leaves) is what this test
+    // covers; the boxed round-trip is exercised end-to-end by the exec-layer /
+    // reflection golden tests. Write the element blobs straight into the backing.
+    let mut write = |i: usize, x: i32, y: i32, tag: &str| {
+        match &mut arr.backing {
+            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
+                let rc = layout.ref_count();
+                let base = i * *elem_size;
+                bytes[base..base + 4].copy_from_slice(&x.to_le_bytes());
+                bytes[base + 4..base + 8].copy_from_slice(&y.to_le_bytes());
+                refs[i * rc] = Value::Str(tag.into());
+            }
+            _ => unreachable!(),
         }
-        o => panic!("expected BoxedStruct element, got {o:?}"),
-    }
-    // Element 1's bytes are independent of element 0.
-    match arr.get_boxed(1) {
-        Value::BoxedStruct(b) =>
-            assert_eq!(i32::from_le_bytes([b.bytes[0], b.bytes[1], b.bytes[2], b.bytes[3]]), 7),
-        o => panic!("{o:?}"),
+    };
+    write(0, 5, 6, "a");
+    write(1, 7, 8, "b");
+
+    // Element bytes are stored + independent across elements.
+    match &arr.backing {
+        ArrayBacking::StructBytes { bytes, refs, .. } => {
+            assert_eq!(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]), 5);
+            assert_eq!(i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 6);
+            assert_eq!(i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 7);
+            match &refs[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+        }
+        _ => unreachable!(),
     }
 
     // GC must see both elements' string ref leaves (else premature free).

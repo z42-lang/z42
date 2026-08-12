@@ -199,29 +199,27 @@ fn struct_array_element_leaf_access_via_handle() {
     assert!(matches!(frame.get(7).unwrap(), Value::I64(22)), "arr[1].x must be 22, independent of arr[0]");
 }
 
-/// add-struct-object-boxing (PR2a): 装箱把 blob **拷进 owned `BoxedStructData`** → 脱离 arena 生命周期。
-/// arena truncate（模拟创建帧退出）后原 `StructRef` slot 失效，但 boxed 副本仍持有数据（这正是修
-/// `object o = struct` 裸拷帧作用域 StructRef → use-after-free 的健全性性质）。同时验装箱是快照。
+/// add-struct-object-boxing (PR2a) / add-boxed-struct-identity (P4b): 装箱把 blob **快照拷出** arena
+/// slot → 脱离 arena 生命周期。P4b 后快照落在共享 `ScriptObject`（heap）而非 owned `BoxedStructData`，
+/// 但「装箱时从 arena slot 拷出的快照独立于 arena」这条不变量不变——`builtin_box_struct` 先从 slot 抽
+/// `(type_name, bytes, refs)`（本测试验的这步），再 `box_struct_blob` 拷进堆对象。arena truncate（模拟
+/// 创建帧退出）后原 slot 失效，但快照仍持有数据（修 `object o = struct` use-after-free 的健全性性质）。
 #[test]
 fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
-    use crate::metadata::types::BoxedStructData;
     let mut arena = StructArena::default();
     let ty: Arc<str> = Arc::from("Demo.P");
     let base = arena.base();
     let a = arena.alloc(1, ty.clone(), prim_layout(8));
     arena.with_mut(a, 1, |s| { enc(&mut s.bytes, 0, ty::TAG_I32, Value::I64(1));
                                enc(&mut s.bytes, 4, ty::TAG_I32, Value::I64(2)); }).unwrap();
-    // box：把 slot 的 bytes+refs+类型名快照进 owned 堆值（builtin_box_struct 的等价逻辑）。
-    let boxed = arena.with(a, 1, |s| BoxedStructData {
-        type_name: s.type_name.clone(),
-        bytes: s.bytes.clone(),
-        refs: s.refs.clone(),
-    }).unwrap();
+    // box 第一步：从 slot 快照 bytes+refs+类型名（builtin_box_struct 抽取的等价逻辑，随后喂 box_struct_blob）。
+    let (snap_ty, snap_bytes, _snap_refs): (Arc<str>, Vec<u8>, Vec<Value>) =
+        arena.with(a, 1, |s| (s.type_name.clone(), s.bytes.to_vec(), s.refs.to_vec())).unwrap();
     // 创建帧退出 → arena LIFO 截断；原 StructRef 句柄此刻应 stale。
     arena.truncate(base);
     assert!(arena.with(a, 1, |_| ()).is_err(), "arena slot must be stale after truncate");
-    // boxed 副本仍持有数据（owned，无悬垂）。
-    assert_eq!(&*boxed.type_name, "Demo.P");
-    assert!(matches!(dec(&boxed.bytes, 0, ty::TAG_I32), Value::I64(1)));
-    assert!(matches!(dec(&boxed.bytes, 4, ty::TAG_I32), Value::I64(2)));
+    // 快照仍持有数据（owned，无悬垂）——box_struct_blob 会把它拷进共享 ScriptObject。
+    assert_eq!(&*snap_ty, "Demo.P");
+    assert!(matches!(dec(&snap_bytes, 0, ty::TAG_I32), Value::I64(1)));
+    assert!(matches!(dec(&snap_bytes, 4, ty::TAG_I32), Value::I64(2)));
 }

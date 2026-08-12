@@ -243,6 +243,8 @@ pub type CategorizedRootScanner =
 fn value_heap_ptr(v: &Value) -> Option<usize> {
     match v {
         Value::Object(gc) => Some(gc.data_ptr_unlocked() as usize),
+        // add-boxed-struct-identity (P4b): boxed struct is a heap object (region_object).
+        Value::BoxedStruct(gc) => Some(gc.data_ptr_unlocked() as usize),
         Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
         Value::Closure(c) => Some(c.env.data_ptr_unlocked() as usize),
         Value::Ref(kind) => match kind.as_ref() {
@@ -636,6 +638,7 @@ impl ArcMagrGC {
     fn type_name_of(value: &Value) -> Option<String> {
         match value {
             Value::Object(rc) => Some(rc.type_desc().name.clone()),
+            Value::BoxedStruct(rc) => Some(rc.type_desc().name.clone()),  // add-boxed-struct-identity (P4b)
             Value::Array(_)   => Some("<Array>".to_string()),
             _ => None,
         }
@@ -726,6 +729,10 @@ impl ArcMagrGC {
                     crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                     crate::metadata::types::RefKind::Stack { .. } => false,
                 },
+                // add-boxed-struct-identity (P4b, 路 B2): a boxed struct is a shared
+                // `ScriptObject` in region_object — mark it like Object (trace_children
+                // then scans its `struct_refs` reference leaves).
+                Value::BoxedStruct(gc) => GcRef::mark(gc),
                 // add-struct-heap-inline (P3b): a struct[] element handle keeps its
                 // backing array alive (mark it; trace_children then follows its refs).
                 Value::StructRefHeap(e) => GcRef::mark(&e.arr),
@@ -758,6 +765,8 @@ impl ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
                 crate::metadata::types::RefKind::Stack { .. } => false,
             },
+            // add-boxed-struct-identity (P4b, 路 B2): mark the boxed struct's shared ScriptObject.
+            Value::BoxedStruct(gc) => GcRef::mark(gc),
             // add-struct-heap-inline (P3b): mark the struct[] element handle's array.
             Value::StructRefHeap(e) => GcRef::mark(&e.arr),
             _ => false,
@@ -777,6 +786,8 @@ impl ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::gen_age(gc_ref),
                 crate::metadata::types::RefKind::Stack { .. } => 0,
             },
+            // add-boxed-struct-identity (P4b): gen-age of the boxed struct's shared object.
+            Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             _ => 0,
         }
     }
@@ -990,6 +1001,10 @@ impl ArcMagrGC {
     fn maybe_mark_cross_gen_card(&self, owner: &Value, new: &Value) {
         let new_age = match new {
             Value::Object(gc) => GcRef::gen_age(gc),
+            // add-boxed-struct-identity (P4b): a boxed struct is a shared region_object
+            // entry — a young box stored into an old owner MUST mark the card, else it is
+            // missed by minor GC and freed prematurely.
+            Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
             Value::Closure(c) => GcRef::gen_age(&c.env),
             Value::Ref(kind) => match kind.as_ref() {
@@ -1005,7 +1020,9 @@ impl ArcMagrGC {
             return;
         }
         match owner {
-            Value::Object(gc) => {
+            // add-boxed-struct-identity (P4b): a boxed struct owner is a region_object
+            // entry too (reflection SetValue writes a ref leaf into its struct_refs).
+            Value::Object(gc) | Value::BoxedStruct(gc) => {
                 if GcRef::gen_age(gc) < super::region::PROMOTION_THRESHOLD { return; }
                 // owner is old; mark its chunk in region_object dirty.
                 let entry_ptr = gc.entry_ptr();
@@ -1997,13 +2014,16 @@ impl MagrGC for ArcMagrGC {
             // struct arena, not the GC heap — same as stack handles. The handle
             // itself is just an (idx, frame_id) pair.
             Value::StructRef { .. } => size_of::<Value>(),
-            // add-struct-object-boxing: boxed struct 堆载荷 = enum tag + Box<BoxedStructData>
-            // (type_name Arc + bytes 快照 + refs 侧表)。
-            Value::BoxedStruct(b) => size_of::<Value>()
-                + size_of::<crate::metadata::types::BoxedStructData>()
-                + b.type_name.len()
-                + b.bytes.len()
-                + b.refs.len() * size_of::<Value>(),
+            // add-boxed-struct-identity (P4b, 路 B2): boxed struct 现是共享 `ScriptObject`——按对象
+            // 计其 struct_bytes/struct_refs（与 Object 臂同）。对象本体在 region_object，alloc 时已计一次；
+            // 此臂给按 Value 计尺寸的诚实值。
+            Value::BoxedStruct(gc) => {
+                let obj = gc.borrow();
+                size_of::<Value>() + size_of::<ScriptObject>()
+                    + obj.slots.len() * size_of::<Value>()
+                    + obj.struct_bytes.len()
+                    + obj.struct_refs.len() * size_of::<Value>()
+            }
             // add-struct-heap-inline (P3b): a struct[] element handle — the backing
             // array is accounted via its own Value::Array; charge only the boxed handle.
             Value::StructRefHeap(_) => size_of::<Value>()
@@ -2047,9 +2067,9 @@ impl MagrGC for ArcMagrGC {
                     for r in &obj.struct_refs { visitor(r); }  // add-struct-heap-inline (P3b)
                 }
             },
-            // add-struct-object-boxing: boxed struct 拥有堆上引用叶子——必须扫描，否则存进对象槽的
-            // boxed struct 的 object/array 叶子会被漏标→过早回收（镜像 trace_children 的 BoxedStruct 分支）。
-            Value::BoxedStruct(b) => { for r in b.refs.iter() { visitor(r); } }
+            // add-boxed-struct-identity (P4b, 路 B2): boxed struct 是共享 `ScriptObject`——扫其
+            // struct_refs 引用叶子（slots 空），与 Object 臂同（镜像 trace_children 的 BoxedStruct 分支）。
+            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.struct_refs { visitor(r); } }
             // add-struct-heap-inline (P3b): struct[] element handle — follow the
             // backing array's reference leaves (mirrors trace_children).
             Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }

@@ -305,6 +305,16 @@ impl TypeDesc {
     /// `None`.
     #[inline]
     pub fn inline_region_sizes(&self) -> (usize, usize) {
+        // add-boxed-struct-identity (P4b, 路 B2): a boxed value struct is a struct-typed
+        // `ScriptObject` whose entire payload IS the struct blob — size it from the type's
+        // own `struct_layout` (the blob byte size + reference-leaf count), so `alloc_object`
+        // lays out `struct_bytes`/`struct_refs` for the box. Only struct-typed objects (=
+        // boxes) hit this; regular value structs live in the frame arena, never `alloc_object`.
+        if self.is_struct() {
+            if let Some(sl) = self.struct_layout() {
+                return (sl.size, sl.ref_count());
+            }
+        }
         match self.cold.as_ref().and_then(|c| c.inline_layout.as_ref()) {
             Some(il) => (il.size, il.ref_count()),
             None => (0, 0),
@@ -678,16 +688,18 @@ impl ArrayObj {
             // mutating the box does not touch the array). In-place `arr[i].x = v` /
             // `arr[i].x` leaf access instead goes through a `Value::StructRefHeap`
             // handle at the exec layer (it has the array `GcRef`; `get_boxed` does not).
-            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
-                let rc = layout.ref_count();
-                let bstart = i * elem_size;
-                let ebytes: Box<[u8]> = bytes[bstart..bstart + elem_size].into();
-                let erefs: Box<[Value]> = refs[i * rc..i * rc + rc].to_vec().into_boxed_slice();
-                Value::BoxedStruct(Box::new(BoxedStructData {
-                    type_name: self.element_type.clone(),
-                    bytes: ebytes,
-                    refs: erefs,
-                }))
+            // add-boxed-struct-identity (P4b): boxing a struct[] element now requires a
+            // heap allocation (the box is a shared `ScriptObject`), which this
+            // `&self` accessor cannot do. The value path never reaches here — interp
+            // `array_get` + jit array-get materialize a `StructRefHeap` handle for
+            // `StructBytes` backing (see exec_array.rs / jit/helpers/array.rs), and any
+            // real struct→object boxing goes through `__box_struct` (heap-aware). This
+            // arm is an invariant guard; if a materialization path ever needs a boxed
+            // struct[] element, route it through a `ctx`-carrying helper, not `get_boxed`.
+            ArrayBacking::StructBytes { .. } => {
+                debug_assert!(false,
+                    "get_boxed on a StructBytes backing: struct[] element boxing needs a heap-aware path, not get_boxed");
+                Value::Null
             }
         }
     }
@@ -709,12 +721,15 @@ impl ArrayObj {
             // exec-layer `ArraySet` (this generic setter only sees `&mut self`).
             ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
                 if let Value::BoxedStruct(b) = &val {
+                    // add-boxed-struct-identity (P4b): read the source box's blob out of
+                    // its shared `ScriptObject` (borrow needs no `ctx`).
+                    let bo = b.borrow();
                     let rc = layout.ref_count();
                     let bstart = i * *elem_size;
-                    let n = b.bytes.len().min(*elem_size);
-                    bytes[bstart..bstart + n].copy_from_slice(&b.bytes[..n]);
-                    let rn = b.refs.len().min(rc);
-                    for k in 0..rn { refs[i * rc + k] = b.refs[k].clone(); }
+                    let n = bo.struct_bytes.len().min(*elem_size);
+                    bytes[bstart..bstart + n].copy_from_slice(&bo.struct_bytes[..n]);
+                    let rn = bo.struct_refs.len().min(rc);
+                    for k in 0..rn { refs[i * rc + k] = bo.struct_refs[k].clone(); }
                 } else {
                     debug_assert!(false,
                         "struct[] set_boxed needs a BoxedStruct source (StructRef → exec-level ArraySet), got {val:?}");
@@ -962,7 +977,13 @@ pub enum Value {
     /// `GetType`/`is`/`as`）。装箱经 `__box_struct` builtin（复用 Builtin opcode，无格式 bump）；`(P)o`
     /// 拆箱把 blob 拷回当前帧 arena `StructRef`。unboxed struct 仍无 vtable——对象协议由本变体的 VM 分支
     /// （身份）+ 编译器合成值方法（Equals 等，PR2b）承载。
-    BoxedStruct(Box<BoxedStructData>) = 17,
+    ///
+    /// **add-boxed-struct-identity (P4b, 路 B2)**: 装箱 = 一个 struct 类型的共享 `ScriptObject`
+    /// （`type_desc.is_struct()`，struct blob 存进对象的 `struct_bytes`/`struct_refs`，`slots` 空）。
+    /// 载荷从值语义 `Box<BoxedStructData>` 改为**共享堆句柄** `GcRef<ScriptObject>` → 对齐 C# 引用身份
+    /// （`object b = a` 别名同盒、反射 `SetValue` 写穿、传参改盒可见）。复用 `region_object` + 全部 GC 机制
+    /// （GC 里与 `Value::Object` 同路标记/追踪；仅 is/as/GetType/vcall/Equals 保持 boxed 值类型特判）。
+    BoxedStruct(GcRef<ScriptObject>) = 17,
     /// add-struct-heap-inline (P3b, route α): a transient handle to a value-struct
     /// **inlined in a heap array element** (`arr[i]`). Unlike an object field (whose
     /// composite byte offset the compiler bakes → base = `Value::Object`), a struct[]
@@ -982,15 +1003,10 @@ pub struct StructArrayElem {
     pub index: u32,
 }
 
-/// add-struct-object-boxing (PR2a): 装箱 blob 值 struct 的堆载荷。`type_name` = FQ struct 类型名
-/// （`Demo.P`）；`bytes` = 基元叶子字节快照（装箱时从 arena slot 拷出）；`refs` = 引用叶子（string/
-/// object/array）作真 `Value`（GC 扫描）。size = `bytes.len()`（拆箱 alloc arena slot 用）。
-#[derive(Debug, Clone)]
-pub struct BoxedStructData {
-    pub type_name: std::sync::Arc<str>,
-    pub bytes: Box<[u8]>,
-    pub refs: Box<[Value]>,
-}
+// add-boxed-struct-identity (P4b, 路 B2): `BoxedStructData` 已删——装箱 struct 的 blob 现内联在其
+// 共享 `ScriptObject` 的 `struct_bytes`/`struct_refs`（`type_desc.is_struct()` 的对象）。装箱经
+// `corelib::convert::builtin_box_struct`（alloc struct 类型 ScriptObject）；拆箱经
+// `interp::exec_struct::unbox_struct`（读对象 struct_bytes/refs → arena StructRef）。
 
 /// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
 /// `Std.Int64`/`Std.Byte`/…），供 `is`/`as`/`GetType`/`vcall` 走真 type_desc；`inner` =
@@ -1114,8 +1130,8 @@ impl Value {
                 kind.as_ref(),
                 RefKind::Array { .. } | RefKind::Field { .. }
             ),
-            // add-struct-object-boxing: 装箱 struct 的引用叶子可含 object/array GcRef——存进堆对象/
-            // 数组时需触发写屏障（保守 true；区别于 Boxed prim 的 inner 恒基元 → false）。
+            // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 现是共享 `ScriptObject` 句柄 →
+            // 与 `Value::Object` 同为强堆边（存进堆槽需写屏障）。
             Value::BoxedStruct(_) => true,
             // add-struct-heap-inline (P3b): holds a live `GcRef<ArrayObj>` — a strong
             // heap edge, so if ever stored into a heap slot it needs a barrier (conservative).
@@ -1166,10 +1182,9 @@ impl Value {
             // add-primitive-value-boxing: 装箱基元——inner 为裸基元（无 GcRef），
             // 保守追踪一层（若未来 inner 承载堆值也安全）。
             Value::Boxed(b) => visit(&b.inner),
-            // add-struct-object-boxing: 装箱 struct **拥有**堆上引用叶子（区别于 arena 扫描的
-            // StructRef 叶子）——必须访问其 refs，否则存进对象槽的 boxed struct 的 object/array 叶子
-            // 会被漏标→过早回收。bytes 纯基元无需扫。
-            Value::BoxedStruct(b) => { for r in b.refs.iter() { visit(r); } }
+            // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
+            // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
+            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.struct_refs { visit(r); } }
             // add-struct-heap-inline (P3b): a struct[] element handle — follow the
             // backing array's reference leaves so they stay marked (the array entry
             // itself is marked by the `StructRefHeap` arm of the mark loop).
@@ -1228,10 +1243,18 @@ impl PartialEq for Value {
             (other, Value::Boxed(b)) => other == &b.inner,
             // add-struct-object-boxing (PR2a, provisional，design D5)：装箱 struct 值相等——同类型 ∧
             // 字节相等 ∧ 引用叶子逐 Value 相等（refs 的 Value::eq 处理 string 内容 / object 引用）。
-            // ⚠️ bytes 比较对 float NaN 会误判等；`==` vs `Equals`（值 vs 引用装箱）最终由 PR2b 与合成
-            // Equals 统一裁定。2a 不依赖此语义正确性通过测试（身份/不悬垂才是 2a 目标）。
-            (Value::BoxedStruct(a), Value::BoxedStruct(b)) =>
-                a.type_name == b.type_name && a.bytes == b.bytes && a.refs == b.refs,
+            // add-boxed-struct-identity (P4b): 载荷现是共享 `ScriptObject`——先 ptr_eq（同盒必等，且避免
+            // 对同一 GcRef 二次 borrow 死锁），否则 borrow 两盒比 struct_bytes/struct_refs（保持值相等语义）。
+            (Value::BoxedStruct(a), Value::BoxedStruct(b)) => {
+                if GcRef::ptr_eq(a, b) {
+                    true
+                } else {
+                    let (ao, bo) = (a.borrow(), b.borrow());
+                    ao.type_desc.name == bo.type_desc.name
+                        && ao.struct_bytes == bo.struct_bytes
+                        && ao.struct_refs == bo.struct_refs
+                }
+            }
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,
             // frame_id) = 同一栈对象/数组（Eq 操作数在逃逸分析里是 neutral，故栈句柄
             // 可作 `p1==p2` / `p==null` 操作数；`==null` 落 `_ => false` = 正确「非 null」）。
