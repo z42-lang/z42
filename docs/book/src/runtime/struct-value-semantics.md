@@ -2,9 +2,9 @@
 
 > 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等（2026-08-10）+
 > struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）+ 堆内联字段 / `struct[]` /
-> 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接（2026-08-12，
-> 格式中立）** 落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时实现。程序全景（选项 B /
-> B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
+> 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接 + 跨包 struct
+> 值语义（P4a）**（2026-08-12，均格式中立）落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
+> 实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
 
 ## 目标
 
@@ -301,7 +301,7 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - ✅ **foreach over struct[]**（`foreach(P p in arr)`）：foreach 数组路径对值 struct 循环变量发的 AsCast，runtime
   `as_cast` 加 `StructRefHeap` 臂 → `copy_array_elem_out` 把元素拷出到当前帧 arena StructRef（值副本，循环变量非
   别名进数组）。runtime-only、格式中立，golden `struct_array.z42` foreach 段验（含 `foreach{e.x=999}` 不动数组）。
-- ⏳ Deferred：**跨包内联布局 + 反射**（P4）。
+- ⏳ Deferred：**struct 字段反射**（P4b，add-struct-field-reflection）。
 
 ## JIT 值路径（add-struct-jit-value-path P5-A）
 
@@ -348,6 +348,44 @@ golden `struct_jit.z42`（本地值语义 / 传参 sret / 嵌套 / string 叶子
 在 `--mode jit` EXIT=0，且与 interp 模式输出一致；既有 8 个 `struct*.z42` golden 在 `--mode jit` 全过（此前靠
 bail→interp 才过，现真走 JIT struct 路径）。**格式中立、z42c 零改动（self-host 逐字节不变）。**
 
+## 跨包 struct 值语义（add-crosspkg-struct-value-semantics P4a）
+
+包 B `import` 包 A 定义的 struct 后按值语义工作（构造/字段/方法/传参 copy-in/返回/嵌套/值独立），与本地
+struct 一致。
+
+### 机制：跨包分类 imported struct（单点，复用既有 `HasBase` 编码，无格式 bump）
+
+**wire 层面什么都不缺**：zpkg TYPE 段已携带 struct 标志（`Flags` bit2）+ 字段名/类型 + 完整字节布局
+（`StructSize` + 引用位图），消费方 `ZbcReader` 也已解码进 `IrClassDesc`。缺的只是**编译器内部把「这是
+struct」传过跨包这一跳**——`ImportedSymbolLoader` 造 imported `Z42ClassType` 时**从不设 `IsStruct`**（默认
+false）→ imported struct 当引用类型。
+
+**修复（单行）**：`nct.IsStruct = !cl.HasBase`。生产方 `ExportedTypeExtractor` 与消费方重建
+`TsigReconcile._rebuildClass` 均把 struct-ness 编码进 `ExportedClassZ.HasBase`（`hasBase = !isStruct`——
+非-struct class 恒 `HasBase=true`、struct 恒 `false`），故 `!cl.HasBase` **精确等价** isStruct（读同一份已
+编码的权威 struct-ness，非启发式）。
+
+**为何不加显式 `IsStruct` 字段**（bootstrap 约束，实测抓到）：`ExportedClassZ` 在 z42.ir（stdlib 库），
+z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42c 源立即用 → 上一 nightly 种子的 z42.ir 无
+此字段 → `xtask test bootstrap` 编当前 z42c 源报 `E0401: no field IsStruct`（bootstrap-seed axis ② stdlib
+API 面越界）。复用既有 `HasBase` 零越界、一个 nightly 落地；若未来去 `HasBase` 重载，走两-nightly 迁移到显式
+`IsStruct`。
+
+分类正确后 `StructLayout.BuildFromSymbols` 从字段名/类型**重算**布局（`_compute` 确定性，与生产方持久化的
+`StructSize`/引用位图**逐字节一致**）→ 发 `StructAlloc`/`StructFieldGetPrim/SetPrim`（正确字节 offset）。
+
+### 修复前的崩溃
+
+`ImportedSymbolLoader` 从不设 `IsStruct` → imported struct 当**引用类型**（消费方不发 struct 指令、构造为
+0 长 blob 的引用对象），而生产方 A 的构造函数按 struct 编译（发 `StructFieldSetPrim off=0`）→ 两包对「值
+类型否」不一致 → 运行期 `struct field write out of blob bounds (off=0, w=4, len=0)`。golden
+`cross-zpkg/struct_cross_pkg` 复现并守住修复（interp+jit 输出一致）。
+
+### struct 字段反射（Deferred → P4b）
+
+反射按字段名读 boxed struct 字段值需 per-field 字节偏移（`struct_layout` 只有 size + 无名引用位图）→ 需
+Rust 复刻 `_compute` 或格式 bump 写偏移表，拆为 change `add-struct-field-reflection` 单独裁决。
+
 ## 与逃逸分析 / packed 数组的关系
 
 - struct 恒内联，**不走** `ObjNew`→堆/`StackObject` arena（Decision θ）；逃逸 arena 是**引用类型**的
@@ -375,6 +413,10 @@ bail→interp 才过，现真走 JIT struct 路径）。**格式中立、z42c �
   StructRefHeap 臂拷出元素）——均格式中立，golden `struct_array.z42` / `struct_heap_inline.z42`(GetPt) 验。
 - ✅ **JIT 值路径**（helper 桥接，add-struct-jit-value-path P5-A）：struct 指令 emit 为 helper call 操作
   共享 arena、复用 interp `*_val` 核心，含 struct 的函数不再整体 bail→interp（见上「JIT 值路径」节）。
+- ✅ **跨包 struct 值语义**（`import` 别包 struct，P4a add-crosspkg-struct-value-semantics）：`ImportedSymbolLoader`
+  `nct.IsStruct = !cl.HasBase`（复用生产方 `HasBase=!isStruct` 编码，不新增 stdlib API→零 bootstrap 越界），
+  消费方重算布局与生产方逐字节一致——修 imported struct 被当引用类型的 blob-bounds 崩，格式中立，golden
+  `struct_cross_pkg`（含 transitive 嵌 imported struct）验。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、
-  **跨包布局元数据 / 反射合成方法可见**（P4）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
-  **ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。
+  **struct 字段反射**（P4b，add-struct-field-reflection）、**JIT 原生内联字节访问**（P5-B，现 helper 桥接=interp 速度）、
+  **反射合成方法可见**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）。

@@ -1,0 +1,16 @@
+// add-crosspkg-struct-reflection (P4a)：跨包 struct 值类型。生产方 A 定义 struct；消费方 B 必须把
+// imported struct 分类为 blob 值类型（否则当引用类型 → 与 A 的 struct 构造函数不一致 → blob-bounds 崩）。
+namespace Demo.StructTarget;
+
+public struct Point {
+    public int x;
+    public int y;
+    public Point(int x, int y) { this.x = x; this.y = y; }
+    public int Sum() { return this.x + this.y; }
+}
+
+public struct Line {
+    public Point a;
+    public Point b;
+    public Line(Point a, Point b) { this.a = a; this.b = b; }
+}

@@ -1,0 +1,13 @@
+namespace Demo.StructExt;
+
+using Demo.StructTarget;
+
+// 跨包 struct 内嵌**别包 imported struct**（transitive）：ext 必须也把 target.Point 分类为 struct，
+// 否则 origin 字段布局错。main 再 import ext.Rect（内含 imported Point）。
+public struct Rect {
+    public Point origin;
+    public int w;
+    public int h;
+    public Rect(Point origin, int w, int h) { this.origin = origin; this.w = w; this.h = h; }
+    public int Area() { return this.w * this.h; }
+}
