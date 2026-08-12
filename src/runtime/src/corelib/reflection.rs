@@ -1748,12 +1748,76 @@ pub fn builtin_field_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value>
         // shared box object — the field data lives byte-packed in `struct_bytes` +
         // reference-leaf side-table `struct_refs`, not in `slots`.
         Value::BoxedStruct(gc) => boxed_struct_field_get(ctx, gc, &name),
-        Value::Object(rc) => match rc.type_desc().field_index.get(&name).copied() {
-            Some(i) => Ok(rc.borrow().slots.get(i).cloned().unwrap_or(Value::Null)),
-            None => bail!("FieldInfo.GetValue: field `{name}` not present on target instance"),
-        },
+        Value::Object(rc) => {
+            // add-object-inline-struct-reflection (P4b-B): an inline value-struct field
+            // (`class C { Point pt; }`) has a dead placeholder slot — its bytes live in the
+            // object's `struct_bytes`/`struct_refs`. Read those before the plain-slot path.
+            if let Some(v) = object_inline_struct_field_get(ctx, rc, &name)? {
+                return Ok(v);
+            }
+            match rc.type_desc().field_index.get(&name).copied() {
+                Some(i) => Ok(rc.borrow().slots.get(i).cloned().unwrap_or(Value::Null)),
+                None => bail!("FieldInfo.GetValue: field `{name}` not present on target instance"),
+            }
+        }
         _ => bail!("FieldInfo.GetValue: target is not an object instance"),
     }
+}
+
+/// add-object-inline-struct-reflection (P4b-B): read an inline value-struct field off a heap
+/// object (`class C { Point pt; }`). The field's slot is a dead `Null` placeholder (P3b); the
+/// real value is byte-packed in the object's `struct_bytes` + `struct_refs` at an
+/// object-relative offset recovered by replicating the **class** inline layout
+/// (`struct_reflect::compute_class_inline`, validated against the delivered `inline_layout`).
+/// Returns `Ok(None)` when `name` is not an inline struct field → caller reads the plain slot.
+fn object_inline_struct_field_get(
+    ctx: &VmContext, rc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>, name: &str,
+) -> Result<Option<Value>> {
+    let class_name = rc.type_desc().name.to_string();
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    if super::struct_reflect::struct_field_fq(&resolve, &class_name, name).is_none() {
+        return Ok(None); // primitive / reference field → ordinary slot
+    }
+    let comp = super::struct_reflect::compute_class_inline(&resolve, &class_name)?;
+    match rc.type_desc().inline_layout() {
+        Some(il) => comp.validate_against(&il, &class_name)?,
+        None => bail!(
+            "FieldInfo.GetValue: class `{class_name}` has an inline struct field `{name}` \
+             but no delivered inline layout"
+        ),
+    }
+    let leaf = comp.field(name).ok_or_else(|| {
+        anyhow::anyhow!("FieldInfo.GetValue: inline struct field `{name}` not in class `{class_name}` layout")
+    })?;
+    let o = rc.borrow();
+    Ok(Some(snapshot_struct_leaf(ctx, &o, &comp, leaf)?))
+}
+
+/// Snapshot a nested/inline value-struct `leaf` out of a heap object's byte region into a
+/// fresh boxed struct (value semantics — mutating the returned box does not touch the parent).
+/// Shared by the boxed-struct nested-field path (P4b) and the object-inline struct-field path
+/// (P4b-B): both read from a `ScriptObject`'s `struct_bytes`/`struct_refs` given the *parent*
+/// computed layout + the struct leaf (`parent.ref_index` maps a nested ref leaf's
+/// object-relative offset to its `struct_refs` slot).
+fn snapshot_struct_leaf(
+    ctx: &VmContext,
+    o: &crate::metadata::types::ScriptObject,
+    parent: &super::struct_reflect::ComputedLayout,
+    leaf: &super::struct_reflect::FieldLeaf,
+) -> Result<Value> {
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let start = leaf.byte_off as usize;
+    let size = leaf.size as usize;
+    let nested = super::struct_reflect::compute(&resolve, &leaf.type_name)?;
+    let bytes = o.struct_bytes[start..start + size].to_vec();
+    let mut refs = Vec::with_capacity(nested.ref_offsets.len());
+    for &nro in &nested.ref_offsets {
+        let ri = parent.ref_index(leaf.byte_off + nro).ok_or_else(|| {
+            anyhow::anyhow!("struct field reflection: nested ref leaf offset not in parent bitmap")
+        })?;
+        refs.push(o.struct_refs[ri].clone());
+    }
+    super::convert::box_struct_blob(ctx, &leaf.type_name, &bytes, &refs)
 }
 
 /// add-boxed-struct-identity (P4b): read field `name` out of a boxed value struct. Replicates
@@ -1777,23 +1841,9 @@ fn boxed_struct_field_get(
         anyhow::anyhow!("FieldInfo.GetValue: field `{name}` not present on `{type_name}`")
     })?;
     if leaf.is_struct {
-        // Nested value-struct field → boxed snapshot (bytes slice + mapped ref leaves).
-        let start = leaf.byte_off as usize;
-        let size = leaf.size as usize;
-        let nested = super::struct_reflect::compute(&resolve, &leaf.type_name)?;
-        let (bytes, refs) = {
-            let o = gc.borrow();
-            let bytes = o.struct_bytes[start..start + size].to_vec();
-            let mut refs = Vec::with_capacity(nested.ref_offsets.len());
-            for &nro in &nested.ref_offsets {
-                let ri = comp.ref_index(leaf.byte_off + nro).ok_or_else(|| {
-                    anyhow::anyhow!("FieldInfo.GetValue: nested ref leaf offset not in parent bitmap")
-                })?;
-                refs.push(o.struct_refs[ri].clone());
-            }
-            (bytes, refs)
-        };
-        super::convert::box_struct_blob(ctx, &leaf.type_name, &bytes, &refs)
+        // Nested value-struct field → boxed snapshot (shared with the object-inline path).
+        let o = gc.borrow();
+        snapshot_struct_leaf(ctx, &o, &comp, leaf)
     } else if leaf.is_ref {
         let ri = comp.ref_index(leaf.byte_off).ok_or_else(|| {
             anyhow::anyhow!("FieldInfo.GetValue: reference leaf offset not in bitmap")
@@ -1821,15 +1871,101 @@ pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value>
         // a boxed struct now has reference identity (a shared `ScriptObject`), the mutation
         // is visible to every holder of the box — matching C# `FieldInfo.SetValue(box, v)`.
         Value::BoxedStruct(gc) => boxed_struct_field_set(ctx, &target, gc, &name, &value),
-        Value::Object(rc) => match rc.type_desc().field_index.get(&name).copied() {
-            Some(i) => {
-                rc.borrow_mut().slots[i] = value;
-                Ok(Value::Null)
+        Value::Object(rc) => {
+            // add-object-inline-struct-reflection (P4b-B): an inline value-struct field
+            // writes through to the object's shared `struct_bytes`/`struct_refs`, not a slot.
+            if object_inline_struct_field_set(ctx, &target, rc, &name, &value)?.is_some() {
+                return Ok(Value::Null);
             }
-            None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),
-        },
+            match rc.type_desc().field_index.get(&name).copied() {
+                Some(i) => {
+                    rc.borrow_mut().slots[i] = value;
+                    Ok(Value::Null)
+                }
+                None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),
+            }
+        }
         _ => bail!("FieldInfo.SetValue: target is not an object instance"),
     }
+}
+
+/// add-object-inline-struct-reflection (P4b-B): write a boxed value struct into an inline
+/// struct field of a heap object, in place on the object's shared byte region (visible to
+/// every holder — C# reference identity). Returns `Ok(None)` when `name` is not an inline
+/// struct field → caller writes the plain slot.
+fn object_inline_struct_field_set(
+    ctx: &VmContext, target: &Value,
+    rc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>, name: &str, value: &Value,
+) -> Result<Option<()>> {
+    let class_name = rc.type_desc().name.to_string();
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    if super::struct_reflect::struct_field_fq(&resolve, &class_name, name).is_none() {
+        return Ok(None); // primitive / reference field → ordinary slot
+    }
+    let comp = super::struct_reflect::compute_class_inline(&resolve, &class_name)?;
+    match rc.type_desc().inline_layout() {
+        Some(il) => comp.validate_against(&il, &class_name)?,
+        None => bail!(
+            "FieldInfo.SetValue: class `{class_name}` has an inline struct field `{name}` \
+             but no delivered inline layout"
+        ),
+    }
+    let leaf = comp.field(name).ok_or_else(|| {
+        anyhow::anyhow!("FieldInfo.SetValue: inline struct field `{name}` not in class `{class_name}` layout")
+    })?.clone();
+    let src = match value {
+        Value::BoxedStruct(s) => s,
+        other => bail!(
+            "FieldInfo.SetValue: inline field `{name}` is a value struct; expected a boxed struct, got {other:?}"
+        ),
+    };
+    write_struct_leaf(ctx, target, rc, &comp, &leaf, src)?;
+    Ok(Some(()))
+}
+
+/// Copy a boxed value-struct `src` into a heap object's nested/inline struct field region
+/// (`parent` layout, struct `leaf`). Primitive bytes copy verbatim; each reference leaf is
+/// written into the object's `struct_refs` side-table **with a write barrier** (a reference
+/// stored into a heap node must be tracked for cross-gen / concurrent GC). Shared by the
+/// boxed-struct nested-field write (P4b) and the object-inline struct-field write (P4b-B).
+fn write_struct_leaf(
+    ctx: &VmContext, base_val: &Value,
+    gc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>,
+    parent: &super::struct_reflect::ComputedLayout,
+    leaf: &super::struct_reflect::FieldLeaf,
+    src: &crate::gc::GcRef<crate::metadata::types::ScriptObject>,
+) -> Result<()> {
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let nested = super::struct_reflect::compute(&resolve, &leaf.type_name)?;
+    let start = leaf.byte_off as usize;
+    let size = leaf.size as usize;
+    // Snapshot the source blob first (avoid holding two borrows).
+    let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
+        let so = src.borrow();
+        (so.struct_bytes[..size.min(so.struct_bytes.len())].to_vec(), so.struct_refs.to_vec())
+    };
+    // Map nested ref leaves → the object's `struct_refs` indices (object-relative offset).
+    let mut ref_writes: Vec<(usize, Value)> = Vec::new();
+    for (k, &nro) in nested.ref_offsets.iter().enumerate() {
+        if let Some(ri) = parent.ref_index(leaf.byte_off + nro) {
+            if let Some(v) = src_refs.get(k) { ref_writes.push((ri, v.clone())); }
+        }
+    }
+    {
+        let mut o = gc.borrow_mut();
+        let n = size.min(src_bytes.len());
+        o.struct_bytes[start..start + n].copy_from_slice(&src_bytes[..n]);
+        for (ri, v) in &ref_writes {
+            o.struct_refs[*ri] = v.clone();
+        }
+    }
+    // Write barriers after releasing the mutable borrow.
+    for (ri, v) in &ref_writes {
+        if v.is_heap_ref() {
+            ctx.heap().write_barrier_field(base_val, *ri, v);
+        }
+    }
+    Ok(())
 }
 
 /// add-boxed-struct-identity (P4b): write `value` into field `name` of a boxed value struct,
@@ -1853,27 +1989,12 @@ fn boxed_struct_field_set(
         anyhow::anyhow!("FieldInfo.SetValue: field `{name}` not present on `{type_name}`")
     })?.clone();
     if leaf.is_struct {
-        // Nested value-struct field ← the supplied box's blob (copied into the region).
+        // Nested value-struct field ← the supplied box's blob (shared with the object path).
         let src = match value {
             Value::BoxedStruct(s) => s,
             other => bail!("FieldInfo.SetValue: field `{name}` is a value struct; expected a boxed struct, got {other:?}"),
         };
-        let nested = super::struct_reflect::compute(&resolve, &leaf.type_name)?;
-        let start = leaf.byte_off as usize;
-        let size = leaf.size as usize;
-        // Snapshot the source blob first (avoid holding two borrows).
-        let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
-            let so = src.borrow();
-            (so.struct_bytes[..size.min(so.struct_bytes.len())].to_vec(), so.struct_refs.to_vec())
-        };
-        let mut o = gc.borrow_mut();
-        let n = size.min(src_bytes.len());
-        o.struct_bytes[start..start + n].copy_from_slice(&src_bytes[..n]);
-        for (k, &nro) in nested.ref_offsets.iter().enumerate() {
-            if let Some(ri) = comp.ref_index(leaf.byte_off + nro) {
-                if let Some(v) = src_refs.get(k) { o.struct_refs[ri] = v.clone(); }
-            }
-        }
+        write_struct_leaf(ctx, base_val, gc, &comp, &leaf, src)?;
         Ok(Value::Null)
     } else if leaf.is_ref {
         let ri = comp.ref_index(leaf.byte_off).ok_or_else(|| {
