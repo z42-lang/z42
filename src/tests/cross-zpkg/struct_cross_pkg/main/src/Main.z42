@@ -1,0 +1,33 @@
+namespace Demo.StructApp;
+
+using Std.IO;
+using Demo.StructTarget;
+using Demo.StructExt;
+
+// 跨包传参 copy-in：修改副本不动原值。
+int Bump(Point p) { p.x = p.x + 100; return p.x; }
+
+void Main() {
+    Point p = new Point(1, 2);
+    Console.WriteLine(p.x);           // 1
+    Console.WriteLine(p.Sum());       // 3  跨包 struct 方法
+    p.x = 5;
+    Console.WriteLine(p.x);           // 5
+    Point q = p;                       // 值复制
+    q.x = 42;
+    Console.WriteLine(p.x);           // 5  q 改动不动 p
+    Console.WriteLine(q.x);           // 42
+    Console.WriteLine(Bump(p));       // 105 副本 5+100
+    Console.WriteLine(p.x);           // 5  Bump 不动 p
+    Line line = new Line(new Point(1, 2), new Point(3, 4));
+    Console.WriteLine(line.a.x);      // 1  嵌套
+    Console.WriteLine(line.b.y);      // 4
+    line.a.x = 100;
+    Console.WriteLine(line.a.x);      // 100
+    Console.WriteLine(line.b.x);      // 3  兄弟字段独立
+    // transitive：ext.Rect 内嵌 imported target.Point
+    Rect rc = new Rect(new Point(7, 8), 3, 4);
+    Console.WriteLine(rc.origin.x);   // 7  跨包 struct 内嵌 imported struct 字段
+    Console.WriteLine(rc.w);          // 3
+    Console.WriteLine(rc.Area());     // 12
+}

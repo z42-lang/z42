@@ -85,6 +85,15 @@ public static class ImportedSymbolLoader {
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
+                        // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
+                        // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——
+                        // 非-struct class 恒 HasBase=true，struct 恒 HasBase=false），故 `!cl.HasBase` 精确等价
+                        // isStruct。不新增 ExportedClassZ 字段：那会让 z42c 源用一个上一 nightly 种子 z42.ir 尚无的
+                        // stdlib API → bootstrap 越界（axis ②，实测 E0401）；复用既有 HasBase 编码零越界。
+                        // 修前 imported struct 当引用类型（消费方不发 StructAlloc/FieldGetPrim）→ 与生产方 struct
+                        // 构造函数（发 StructFieldSetPrim off=0）不一致 → 运行期 blob-bounds 崩。分类正确后
+                        // StructLayout.BuildFromSymbols 从字段名/类型重算布局（与生产方持久化逐字节一致）。
+                        nct.IsStruct = !cl.HasBase;
                         if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }
                         // fix-crosspkg-interface-impl：imported 类带上实现接口表（bare 名，TSIG 恢复）——

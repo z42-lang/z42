@@ -1,0 +1,10 @@
+[project]
+name    = "demo.structapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.StructApp.Main"
+pack    = true
+
+[dependencies]
+"demo.structtarget" = "0.1.0"
+"demo.structext"    = "0.1.0"
