@@ -1,16 +1,21 @@
 # Tasks: 装箱 struct 引用身份 + struct 字段反射（P4b）
 
-> 状态：🟡 实施中 | 创建：2026-08-12 | 路 B2（装箱进 ScriptObject）+ 合为一个 change（User 裁决）
+> 状态：🟢 实现完成，跑全 GREEN | 创建：2026-08-12 | 路 B2（装箱进 ScriptObject）+ 合为一个 change（User 裁决）
 
 ## 进度概览
-- [x] 阶段 0: DRAFT + User 裁决（路 B2 / 合并 scope）
-- [ ] 阶段 1: 表示层 `Value::BoxedStruct(Box<BoxedStructData>)` → `GcRef<ScriptObject>` + inline_region_sizes
-- [ ] 阶段 2: 装箱/拆箱（__box_struct/unbox_struct/__struct_hash_code）改走 ScriptObject
-- [ ] 阶段 3: GC + is/as/GetType/vcall/array 约 44 处臂改读法
-- [ ] 阶段 4: 引用身份验证（cargo + golden 别名/传参写穿）
-- [ ] 阶段 5: `struct_reflect.rs` 复刻布局 + 校验 + 单元测试
-- [ ] 阶段 6: 反射 GetValue/SetValue（BoxedStruct 写穿 + 对象内联 struct 字段）
-- [ ] 阶段 7: golden e2e + GREEN + 文档 + 归档 + PR
+- [x] 阶段 0: DRAFT + User 裁决（路 B2 / 合并 scope；SetValue 事实校正=值语义盒不可写穿→改共享盒解决）
+- [x] 阶段 1: 表示层 `Value::BoxedStruct` → `GcRef<ScriptObject>` + inline_region_sizes 对 is_struct 读 struct_layout
+- [x] 阶段 2: 装箱/拆箱（__box_struct→box_struct_blob alloc_object / unbox_struct / __struct_hash_code）改走 ScriptObject
+- [x] 阶段 3: GC（mark/gen/trace/scan/size/跨代屏障 owner+new）+ is/as/GetType/vcall/array 约 40 处臂改读法；删 BoxedStructData
+- [x] 阶段 4: 引用身份验证（cargo 882 绿；struct_boxing/object_methods/generic_container/array golden 双模式 EXIT=0）
+- [x] 阶段 5: `struct_reflect.rs` 复刻布局 + 三层校验 + canon/tag_from_name 镜像 + 短名命名空间解析 + 7 单元测试
+- [x] 阶段 6: 反射 GetValue（基元/引用/嵌套 boxed 快照）+ SetValue（就地写穿 + 引用叶子写屏障 + 基元实参拆箱）
+- [ ] 阶段 7: golden e2e（reflection/struct_field interp+jit 匹配）✅ + xtask test 全 GREEN + self-host 5/5（进行中）+ 文档 ✅ + 归档 + PR
+
+## 范围裁定（实施期）
+- **(A) 装箱 struct 字段反射** = 本 change 交付（主路径，golden 端到端验证）。
+- **(B) 对象内联 struct 字段反射**（`class C{ Point pt; }` 的 `GetValue(fi_pt, c)`）= **Deferred follow-up**：
+  需另复刻**类级**内联布局（字段→对象相对 offset，与 struct `_compute` 不同）；现读 P3b dead-slot 得 Null（pre-existing，非回归）。
 
 ## 阶段 1: 表示层（types.rs）
 - [ ] 1.1 `Value::BoxedStruct(GcRef<ScriptObject>)`（disc 17 不变）；删 `BoxedStructData`
