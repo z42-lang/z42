@@ -200,6 +200,81 @@ fn compute_inner(resolve: &TypeResolver, type_name: &str, depth: u32) -> Result<
     })
 }
 
+/// add-object-inline-struct-reflection (P4b-B): replicate the compiler's **class**
+/// inline layout (`StructLayout._computeInlineLayout`,
+/// `src/compiler/z42c.semantics/src/StructLayout.z42:203`) for a non-struct class.
+///
+/// Unlike a value struct (`compute`), a heap class only byte-packs its **value-struct**
+/// fields into the object's `struct_bytes`/`struct_refs`; every non-struct field keeps a
+/// real slot (a struct field also keeps a dead placeholder slot — see P3b stage 3). So
+/// this walks the class's ordered `TypeDesc.fields`, skips non-struct fields, and places
+/// each struct field at its object-relative byte offset (natural alignment), flattening
+/// its reference leaves into the object-relative `ref_offsets` (indices into the object's
+/// `struct_refs` side-table). Fields not present here are ordinary slots.
+///
+/// The result is validated by the caller against the authoritative delivered composed
+/// `inline_layout` (`TypeDesc::inline_layout`) via `validate_against` — same three-layer
+/// drift check as the value-struct path.
+pub fn compute_class_inline(resolve: &TypeResolver, class_name: &str) -> Result<ComputedLayout> {
+    let td = resolve(class_name).ok_or_else(|| {
+        anyhow::anyhow!("class inline layout: unknown class `{class_name}`")
+    })?;
+
+    let mut offset: u32 = 0;
+    let mut max_align: u32 = 1;
+    let mut leaves: Vec<FieldLeaf> = Vec::new();
+    let mut ref_offsets: Vec<u32> = Vec::new();
+
+    for f in &td.fields {
+        let ftype = &*f.type_tag;
+        // Only value-struct fields are inlined; primitives / references stay in slots.
+        let (sub_td, fq) = match resolve_named(resolve, class_name, ftype) {
+            Some(pair) if pair.0.is_struct() => pair,
+            _ => continue,
+        };
+        let _ = sub_td;
+        let nested = compute_inner(resolve, &fq, 1)?;
+        let align = if nested.align == 0 { 1 } else { nested.align };
+        offset = align_up(offset, align);
+        leaves.push(FieldLeaf {
+            name: f.name.to_string(),
+            byte_off: offset,
+            size: nested.size,
+            tag: ty::TAG_UNKNOWN,
+            is_struct: true,
+            is_ref: false,
+            type_name: fq,
+        });
+        for r in &nested.ref_offsets {
+            ref_offsets.push(offset + r);
+        }
+        offset += nested.size;
+        if align > max_align {
+            max_align = align;
+        }
+    }
+
+    Ok(ComputedLayout {
+        leaves,
+        ref_offsets,
+        size: align_up(offset, max_align),
+        align: max_align,
+    })
+}
+
+/// If `field_name` on class `owner_fq` is a value-struct field, return its fully-qualified
+/// struct type name; otherwise `None` (primitive / reference field → ordinary slot). Used by
+/// reflection to decide between the object-inline byte path and the plain-slot path.
+pub fn struct_field_fq(
+    resolve: &TypeResolver, owner_fq: &str, field_name: &str,
+) -> Option<String> {
+    let td = resolve(owner_fq)?;
+    let f = td.fields.iter().find(|f| &*f.name == field_name)?;
+    resolve_named(resolve, owner_fq, &f.type_tag)
+        .filter(|(t, _)| t.is_struct())
+        .map(|(_, fq)| fq)
+}
+
 /// Resolve a field's declared type name to `(TypeDesc, fully-qualified name)`. Tries the
 /// name as-is (already FQ, or the loader handles it), then the declaring type's namespace +
 /// the short name (`Demo.Line`'s field `Point` → `Demo.Point`). Returns `None` for

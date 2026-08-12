@@ -37,6 +37,30 @@ fn struct_td(name: &str, fields: &[(&str, &str)], layout: StructTypeLayout) -> A
     })
 }
 
+/// Build a **non-struct class** `TypeDesc` with the given `(field_name, type_tag)` fields +
+/// an authoritative composed `inline_layout` (object-relative byte region + ref bitmap).
+fn class_td(name: &str, fields: &[(&str, &str)], inline: StructTypeLayout) -> Arc<TypeDesc> {
+    let mut cold = TypeDescCold::default();
+    cold.inline_layout = Some(Arc::new(inline));
+    let mut field_index = NameIndex::new();
+    let mut fs = Vec::new();
+    for (i, (n, t)) in fields.iter().enumerate() {
+        field_index.insert(n.to_string(), i);
+        fs.push(FieldSlot { name: (*n).into(), type_tag: (*t).into(), visibility: 0 });
+    }
+    Arc::new(TypeDesc {
+        name: name.to_string(),
+        base_name: None,
+        class_flags: 0, // not a struct
+        fields: fs,
+        field_index,
+        vtable: Vec::new(),
+        vtable_index: NameIndex::new(),
+        cold: Some(Box::new(cold)),
+        id: TypeId::UNRESOLVED,
+    })
+}
+
 fn layout(size: usize, ref_offsets: &[u32]) -> StructTypeLayout {
     StructTypeLayout {
         size,
@@ -185,4 +209,72 @@ fn tag_from_name_signedness_guardrail() {
         assert_eq!(c.leaves[0].tag, expected, "tag for `{spelling}`");
         c.validate_against(&layout(size, refs), "Demo.One").unwrap();
     }
+}
+
+// ── add-object-inline-struct-reflection (P4b-B): class inline layout replication ─────────
+
+#[test]
+fn class_inline_layout_packs_only_struct_fields() {
+    // class Demo.C { int id; Point pt; string label; } where Point{x:i32,y:i32,tag:str}
+    // size24 ref@8. Only `pt` is byte-packed: id/label keep real slots. Inline region:
+    // pt@0 (align8) size24, ref leaf flattened to 8 → region size 24, ref@8.
+    let p = struct_td(
+        "Demo.Point",
+        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        layout(24, &[8]),
+    );
+    let c = class_td(
+        "Demo.C",
+        &[("id", "i32"), ("pt", "Demo.Point"), ("label", "str")],
+        layout(24, &[8]),
+    );
+    let r = resolver(vec![p, c]);
+    let inline = compute_class_inline(&r, "Demo.C").unwrap();
+    assert_eq!(inline.leaves.len(), 1, "only the struct field is inlined");
+    assert_eq!(inline.leaves[0].name, "pt");
+    assert!(inline.leaves[0].is_struct);
+    assert_eq!(inline.leaves[0].byte_off, 0);
+    assert_eq!(inline.leaves[0].size, 24);
+    assert_eq!(inline.ref_offsets, vec![8], "nested Point's string ref flattens to region offset 8");
+    assert_eq!(inline.size, 24);
+    // Validates against the authoritative delivered composed inline layout.
+    inline.validate_against(&layout(24, &[8]), "Demo.C").unwrap();
+    // struct_field_fq classifies fields correctly.
+    assert_eq!(struct_field_fq(&r, "Demo.C", "pt").as_deref(), Some("Demo.Point"));
+    assert!(struct_field_fq(&r, "Demo.C", "id").is_none(), "primitive field is not inline struct");
+    assert!(struct_field_fq(&r, "Demo.C", "label").is_none(), "string field is not inline struct");
+}
+
+#[test]
+fn class_inline_layout_two_struct_fields_pack_contiguously() {
+    // class Demo.D { Point a; int n; Point b; } → a@0 size24 (ref@8), b@24 size24 (ref@32),
+    // n stays a slot. Region size 48, refs @8,@32.
+    let p = struct_td(
+        "Demo.Point",
+        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        layout(24, &[8]),
+    );
+    let d = class_td(
+        "Demo.D",
+        &[("a", "Demo.Point"), ("n", "i32"), ("b", "Demo.Point")],
+        layout(48, &[8, 32]),
+    );
+    let r = resolver(vec![p, d]);
+    let inline = compute_class_inline(&r, "Demo.D").unwrap();
+    assert_eq!(inline.leaves.len(), 2);
+    assert_eq!((inline.leaves[0].name.as_str(), inline.leaves[0].byte_off), ("a", 0));
+    assert_eq!((inline.leaves[1].name.as_str(), inline.leaves[1].byte_off), ("b", 24));
+    assert_eq!(inline.ref_offsets, vec![8, 32]);
+    assert_eq!(inline.size, 48);
+    inline.validate_against(&layout(48, &[8, 32]), "Demo.D").unwrap();
+}
+
+#[test]
+fn class_with_no_struct_fields_has_empty_inline_layout() {
+    let c = class_td("Demo.Plain", &[("id", "i32"), ("label", "str")], layout(0, &[]));
+    let r = resolver(vec![c]);
+    let inline = compute_class_inline(&r, "Demo.Plain").unwrap();
+    assert!(inline.leaves.is_empty());
+    assert_eq!(inline.size, 0);
+    assert!(struct_field_fq(&r, "Demo.Plain", "id").is_none());
 }

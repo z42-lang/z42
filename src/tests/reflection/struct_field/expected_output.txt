@@ -7,3 +7,13 @@ bye
 1
 A
 1
+7
+widget
+100
+orig
+555
+set
+666
+555
+11
+ea
