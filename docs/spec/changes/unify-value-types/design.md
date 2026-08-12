@@ -132,6 +132,25 @@ z42.core 时可查），**删除降级分支**。若确遇"信息尚未加载"�
 - **实施顺序**（最小化中间态破坏）：① 先建 PrimModel 单一表（新增，不删旧）+ StructLayout.ReprOf；② 把
   `ToIrType`/`BoxIfNeeded`/`ResolveTypeP` 等消费点逐个切到 PrimModel，每切一处 `xtask test compiler` 验
   self-host 不变；③ 全部切完再删 `Z42PrimType` 类 + 旧七表；④ 测试文件机械替换。
+- **⚠️ 翻转后核心不变式：`Z42Type.Name()` 写入任何持久元数据的边界必须过 `PrimModel.SurfaceName`**（翻转
+  前内建 leaf 是 `Z42PrimType("int")`、`Name()`="int"；翻转后是 `Z42ClassType("Int32")`、`Name()`="Int32"）。
+  内建 wrapper 名（Int32/String/Object/Boolean…）**绝不可泄漏进 zpkg 元数据**，否则破坏 byte-identical +
+  下游误解析。共 **3 个泄漏边界**（阶段 2b GREEN 时逐个揪出）：
+  1. **TSIG 导出**（`ExportedTypeExtractor._resolvedTypeName`）：递归 array/instantiated/func + leaf 过
+     SurfaceName。泄漏后果：上一 nightly baseline seed 冷启动消费本包 TSIG 时不认 wrapper 名 → E0402。
+  2. **struct 布局字段拼写**（`SymbolCollector` OwnFieldSpelling，:699/709）：喂 `StructLayout.FieldTypeName`
+     → codegen 每次字段访问 `Tag.FromName(FieldTypeName)`；`Tag.FromName` 只认 keyword，wrapper "Int32"
+     回落 `Tag.Object`(ref) → 给 scalar 字段 baked ref-kind → 运行期 `get_ref` 越界（ref_offsets 由
+     Canon-aware 的 `_kindOf` 算对、baked kind 却错，二者不一致）。
+  3. **SIGS 段**（`FunctionEmitter._sigTypeName` :211 + lambda retName :308）：内建 leaf 走
+     `ResolveTypeP().Name()` → SIGS 泄漏 `Int32[]`/`Object[]`。**最隐蔽**——不直接报错，而是让「用新 z42c
+     重建的 stdlib」带残差类型名，导致 z42c **对该 stdlib 重新自编译**时产出行为错误的 z42c（`params
+     object[]` 的 `int→object` 装箱判定失活 → varargs 不打包）。制造「warm build（对 baseline stdlib）过 /
+     cold full-test（对重建 stdlib）不过」的假象。定位法：**收敛链最小验证**（build→rebuild stdlib→build
+     against it→跑最小用例），比盲跑全量 `xtask test` 快数量级。
+  > 结论：翻转是「窄口收敛」——`ResolveTypeP` 一处改产 phantom class，但**表面名投影散落在 N 个 emit 边界**，
+  > 每个都要 SurfaceName 兜回 keyword。self-host 不动点（gen1==gen2）**测不出 SIGS 泄漏**（gen 间都写
+  > wrapper、彼此相同），唯有「对 baseline seed 冷启动」或「对 baseline stdlib 对账」才暴露。
 - **byte-identical 验证是主门禁**：每个中间步骤都跑 `xtask test compiler`（self-host 5/5 gen1==gen2）。**不传
   `Z42_HOME`**（血泪教训 [[struct-value-semantics-program]]）。
 - **z42c 局部变量非块作用域 shadow**（compiler-z42c.md 踩坑）——收敛引入的新局部变量名勿与外层同名。

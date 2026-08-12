@@ -131,7 +131,11 @@ public static class Conversion {
             return new ConvResult(Conversion._numericKind(from.Name(), to.Name()));
         }
         // D: 结构可赋（同名类 / 接口 / 数组 / func / 别名 prim / 泛型同名）
-        if (from.IsAssignableTo(to)) { return new ConvResult(ConvKind.Identity); }
+        // unify-value-types Phase 1：桥接混用态——本地基元已翻转为 Z42ClassType(String/Int32…)，
+        // 而 imported（ImportedSymbolLoader）+ 字面量仍产 Z42PrimType；同 canonical 内建名的两者
+        // 视作 Identity（否则 `String`→`string` 等混用赋值误判 None）。翻转前两侧同为 Prim → 走
+        // from.IsAssignableTo（Z42PrimType 已按 Canon 归一），本 OR 分支不改变结果。
+        if (from.IsAssignableTo(to) || Conversion._sameBuiltin(from, to)) { return new ConvResult(ConvKind.Identity); }
         // E: class → class（上转 subclass；否则可能是下转）
         if ((from is Z42ClassType) && (to is Z42ClassType)) {
             if (symbols.IsSubclassOf(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
@@ -178,8 +182,21 @@ public static class Conversion {
         return (t is Z42ClassType) && PrimModel.IsScalarValue(t.Name());
     }
 
+    // unify-value-types Phase 1：翻转后 object→Z42ClassType(Object)——追加 Canon=="object" 判定
+    // （拆箱源判别用；翻转前无该拼写 Z42ClassType → 中立）。
     public static bool _isObjectPrim(Z42Type t) {
-        return (t is Z42PrimType) && (t.Name() == "object");
+        if ((t is Z42PrimType) && (t.Name() == "object")) { return true; }
+        return (t is Z42ClassType) && (PrimModel.Canon(t.Name()) == "object");
+    }
+
+    // 双路辅助：两侧是同一 canonical 内建类型（跨 Z42PrimType / 翻转后 Z42ClassType 混用态）。
+    // 用于桥接「本地翻转成 ClassType，imported/字面量仍是 Prim」的同类型赋值。
+    private static bool _sameBuiltin(Z42Type a, Z42Type b) {
+        if (a == null || b == null) { return false; }
+        bool aB = (a is Z42PrimType) || ((a is Z42ClassType) && PrimModel.IsBuiltin(a.Name()));
+        bool bB = (b is Z42PrimType) || ((b is Z42ClassType) && PrimModel.IsBuiltin(b.Name()));
+        if (!aB || !bB) { return false; }
+        return PrimModel.Canon(a.Name()) == PrimModel.Canon(b.Name());
     }
 
     // 双路辅助：是内建 object（Z42PrimType("object") 或翻转后 Z42ClassType(Object)）。

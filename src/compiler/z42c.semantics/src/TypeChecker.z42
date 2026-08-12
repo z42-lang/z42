@@ -44,28 +44,31 @@ public sealed class TypeChecker {
     public BoundExpr BoxIfNeeded(BoundExpr value, Z42Type target) {
         if (value == null || target == null) { return value; }
         Z42Type vt = value.Type();
-        if (!(vt is Z42PrimType)) {
-            // add-struct-object-boxing (PR2a)：值 struct 擦除到 object/接口 → 装箱（否则裸拷帧作用域
-            // StructRef 句柄逃逸创建帧 → use-after-free）。是否真装箱（blob struct）由 codegen `_emitBox`
-            // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传，保持现模型。
-            if (vt is Z42ClassType) {
-                Z42ClassType sct = vt as Z42ClassType;
-                if (sct.IsStruct) {
-                    // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界——struct
-                    // 流入容器 type-param 且存堆时装箱（否则裸 StructRef 进容器堆数组 → GetHashCode VCall 崩 +
-                    // 帧作用域句柄悬垂）。真装箱仍由 codegen `_emitBox` 按 IsBlobStruct 决定（非 blob 透传）。
-                    bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
-                                   || (target is Z42GenericParamType);
-                    if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
-                }
-            }
-            return value;
-        }
+        // unify-value-types Phase 1：整数基元装箱路径先行——覆盖 Z42PrimType("int") 与翻转后
+        // Z42ClassType(Int32,Scalar)。_intPrimFQ 经 PrimModel 兼容 wrapper 名，返 "" 表非整数（不装箱）。
         string fq = TypeChecker._intPrimFQ(vt.Name());
-        if (fq == "") { return value; }                          // 非整数基元 → 不装箱
-        bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
-        if (!erases) { return value; }
-        return new BoundBox(value, fq, target, value.Span);
+        if (fq != "") {
+            bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+            if (!erases) { return value; }
+            return new BoundBox(value, fq, target, value.Span);
+        }
+        // 非整数 Scalar（bool/char/double/float，Z42PrimType 或翻转后 Z42ClassType(Scalar)）→ 不装箱
+        // （独立 Value 变体自带身份，特例保留）。string（引用）同不装箱。
+        if (vt is Z42PrimType) { return value; }
+        if ((vt is Z42ClassType) && PrimModel.IsScalarValue(vt.Name())) { return value; }
+        // add-struct-object-boxing (PR2a)：值 struct（Blob）擦除到 object/接口/泛型形参 → 装箱（否则裸拷帧
+        // 作用域 StructRef 句柄逃逸创建帧 → use-after-free）。真装箱（blob struct）由 codegen `_emitBox`
+        // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传。
+        if (vt is Z42ClassType) {
+            Z42ClassType sct = vt as Z42ClassType;
+            if (sct.IsStruct) {
+                // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界。
+                bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
+                               || (target is Z42GenericParamType);
+                if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
+            }
+        }
+        return value;
     }
 
     // add-struct-generic-boxing (P3a)：泛型方法/索引器返回 type-param（K/V/T），若按实例化 receiver 替换后
@@ -112,9 +115,10 @@ public sealed class TypeChecker {
             }
         }
         Z42Type vt = value.Type();
-        if (!(vt is Z42PrimType) || !(target is Z42PrimType)) { return value; }
-        if (!TypeFactsTc._isNumericPrim(vt.Name()) || !TypeFactsTc._isNumericPrim(target.Name())) { return value; }
-        if (TypeChecker._repClass(vt.Name()) == TypeChecker._repClass(target.Name())) { return value; }   // 同表示类 → no-op
+        // unify-value-types Phase 1：两侧均数值 Scalar（Z42PrimType 或翻转后 Z42ClassType(Scalar)）才
+        // 考虑表示转换。_isScalarNumeric 经 PrimModel.IsNumeric 兼容 wrapper 名；翻转前 ≡ 两侧均数值 prim。
+        if (!TypeChecker._isScalarNumeric(vt) || !TypeChecker._isScalarNumeric(target)) { return value; }
+        if (TypeChecker._repClass(vt.Name()) == TypeChecker._repClass(target.Name())) { return value; }   // 同表示类 → no-op（_repClass 经中心化 Canon wrapper-aware）
         return new BoundConvert(value, target, value.Span);
     }
 
@@ -201,9 +205,18 @@ public sealed class TypeChecker {
         return false;
     }
 
+    // 数值 Scalar 值类型（Z42PrimType 或翻转后 Z42ClassType(Scalar)，名归一为数值基元）。
+    private static bool _isScalarNumeric(Z42Type t) {
+        if ((t is Z42PrimType) && TypeFactsTc._isNumericPrim(t.Name())) { return true; }
+        return (t is Z42ClassType) && PrimModel.IsNumeric(t.Name());
+    }
+
     // 编译期常量整数且落在目标整数/char 范围内？（浮点目标恒 false → 有损浮点无例外，决策 3）。
     private bool _constIntInRange(BoundExpr value, Z42Type target) {
-        if (!(target is Z42PrimType)) { return false; }
+        // unify-value-types Phase 1：目标为整数/char 基元（Z42PrimType 或翻转后 Z42ClassType(Scalar)）；
+        // 下方按 Z42Type.Canon(=PrimModel.Canon，wrapper-aware) 归一短名做范围判定，翻转前中立。
+        bool _tScalar = (target is Z42PrimType) || ((target is Z42ClassType) && PrimModel.IsScalarValue(target.Name()));
+        if (!_tScalar) { return false; }
         if (!TypeChecker._isConstInt(value)) { return false; }
         long v = TypeChecker._constIntValue(value);
         string t = Z42Type.Canon(target.Name());
@@ -234,16 +247,12 @@ public sealed class TypeChecker {
         return 0 - ZbcInstr._parseIntLit((u.Operand as BoundLitInt).Text);
     }
 
+    // 整数基元 → FQ 包装名（装箱用）；非整数 → ""（不装箱信号）。
+    // unify-value-types Phase 1：委托 PrimModel（IsInteger/Fq），兼容翻转后 wrapper 名 "Int32"；
+    // 对历史 keyword/短名输入逐条同义（IsInteger 判整数族、Fq 产 Std.Int32…）。
     private static string _intPrimFQ(string n) {
-        if (n == "int"    || n == "i32") { return "Std.Int32"; }
-        if (n == "long"   || n == "i64") { return "Std.Int64"; }
-        if (n == "short"  || n == "i16") { return "Std.Int16"; }
-        if (n == "sbyte"  || n == "i8")  { return "Std.SByte"; }
-        if (n == "byte"   || n == "u8")  { return "Std.Byte"; }
-        if (n == "ushort" || n == "u16") { return "Std.UInt16"; }
-        if (n == "uint"   || n == "u32") { return "Std.UInt32"; }
-        if (n == "ulong"  || n == "u64") { return "Std.UInt64"; }
-        return "";
+        if (!PrimModel.IsInteger(n)) { return ""; }
+        return PrimModel.Fq(n);
     }
     private static bool _isObjectName(string n) {
         return n == "object" || n == "Object" || n == "Std.Object";

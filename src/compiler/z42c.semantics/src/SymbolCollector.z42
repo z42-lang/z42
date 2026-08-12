@@ -696,7 +696,7 @@ public sealed class SymbolCollector {
                 // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。
                 // 用 resolved Z42Type.Name() 镜像 C# TypeToString(sym.Type)：接口→裸名、Predicate<T>→Func<T,bool>、
                 // Func/Action 规范化；Unknown/Error → AST fallback（imported 包 interface 未进 ImportedSymbols 时降级）。
-                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(fd.Type) : ft.Name(); ct.AddOwnField(fd.Name, fsp, this._vis(fd.Mods, "private")); }
+                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(fd.Type) : ExportedTypeExtractor.SurfaceTypeName(ft); ct.AddOwnField(fd.Name, fsp, this._vis(fd.Mods, "private")); }
             } else if (mem is PropertyDecl) {
                 // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
                 PropertyDecl pd = mem as PropertyDecl;
@@ -706,7 +706,7 @@ public sealed class SymbolCollector {
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
                 bool pfExtern = this._hasWord(pd.Mods, "extern");
-                if (!pfstatic && !pfExtern) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : pft.Name(); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
+                if (!pfstatic && !pfExtern) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : ExportedTypeExtractor.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
                 string pvis = this._vis(pd.Mods, "private");
                 Z42Type[] getPs0 = new Z42Type[0];

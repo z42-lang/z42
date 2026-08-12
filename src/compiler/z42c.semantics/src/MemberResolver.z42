@@ -39,7 +39,10 @@ public sealed class MemberResolver {
     }
 
     private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
-        if (rt is Z42ClassType) {
+        // unify-value-types Phase 1：翻转后基元/string/object 为 Z42ClassType——**排除内建**，让其
+        // 继续走下方 prim-wrapper 派发路径（declClass 用 keyword 名、键用 _overloadKey），与翻转前
+        // Z42PrimType 收者逐字节同义。用户 class/struct（非内建）仍走此类分支。
+        if ((rt is Z42ClassType) && !PrimModel.IsBuiltin(rt.Name())) {
             Z42ClassType ct = rt as Z42ClassType;
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
             if (ms != null) {
@@ -118,15 +121,17 @@ public sealed class MemberResolver {
             MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
             if (wms != null) {
                 args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, wms.Signature, env);
-                return new BoundCall("instance", true, recv, rt.Name(), mkey, args, argCount, wms.Signature.Ret, sp);
+                return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mkey, args, argCount, wms.Signature.Ret, sp);
             }
         }
         args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
-        return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+        return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, args, argCount, new Z42UnknownType(), sp);
     }
 
     private BoundExpr _bindInstanceMember(MemberExpr m, BoundExpr target, Z42Type tt, TypeEnv env) {
-        if (tt is Z42ClassType) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
+        // unify-value-types Phase 1：排除内建 Z42ClassType，让 string.Length（下方特例）+ 其余基元成员
+        // 走 prim-wrapper 路径，与翻转前 Z42PrimType 收者同款。用户 class/struct 仍走类成员访问。
+        if ((tt is Z42ClassType) && !PrimModel.IsBuiltin(tt.Name())) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
         // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）。
         if (tt is Z42InterfaceType) {
             Z42InterfaceType it = tt as Z42InterfaceType;
@@ -138,7 +143,9 @@ public sealed class MemberResolver {
         }
         // Length on array OR string → int；Count → int（镜像 C# TypeChecker.Exprs.Members 行 161-164：
         // `m.Member is "Length" && (target.Type is Z42ArrayType || target.Type == Z42Type.String)`）。
-        if (m.Name == "Length" && ((tt is Z42ArrayType) || (tt is Z42PrimType && tt.Name() == "string"))) {
+        // unify-value-types Phase 1：翻转后 string→Z42ClassType(String)——追加 Canon=="string" 判定
+        // （翻转前无该拼写 Z42ClassType 流经 → 中立）。
+        if (m.Name == "Length" && ((tt is Z42ArrayType) || (tt is Z42PrimType && tt.Name() == "string") || ((tt is Z42ClassType) && PrimModel.Canon(tt.Name()) == "string"))) {
             return new BoundMember(target, m.Name, new Z42PrimType("int"), m.Span);
         }
         if (m.Name == "Count") {
@@ -176,7 +183,7 @@ public sealed class MemberResolver {
             // 才能拿到真实返回类型；否则误判 "member access on non-class" 或松绑 Unknown。
             MethodSymbol wgetter = this._tc._overload._findMethod(env.Symbols, wct, "get_" + m.Name);
             if (wgetter != null && wgetter.Signature != null) {
-                return new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
+                return new BoundCall("instance", true, target, PrimModel.Keyword(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
             }
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
         }

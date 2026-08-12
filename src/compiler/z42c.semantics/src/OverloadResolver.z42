@@ -38,9 +38,42 @@ public sealed class OverloadResolver {
     }
 
     // 单个形参类型 → 键片段：Canon 归一（基本别名 + 剥 nullable）后剥空白（泛型名含 ", "）。
+    // unify-value-types Phase 1：**复合类型（array / instantiated / func）里的内建叶子必须用
+    // keyword 拼写**（PrimModel.Keyword：Char→"char"、Int32→"int"、Byte→"u8"），复刻翻转前
+    // Z42PrimType 承载的名——否则 `char[]` 变 `Char[]`，与 TSIG 源拼写导出键失配 → 跨包
+    // `undefined function`。裸内建仍走 Canon（int→"i32" 的历史键规则不变）。二者的非对称正是逐字节
+    // 复刻旧 `Canon(Name())`：旧 Canon 只归一裸名、不进 "[]"/"<>" 内部，故内部叶子保留 keyword 拼写。
     public static string TypeKey(Z42Type t) {
         if (t == null) { return "unknown"; }
+        if ((t is Z42ArrayType) || (t is Z42InstantiatedType) || (t is Z42FuncType)) {
+            return OverloadResolver._stripSpaces(OverloadResolver._compositeKeyName(t));
+        }
         return OverloadResolver._stripSpaces(Z42Type.Canon(t.Name()));
+    }
+
+    // 复合类型名重建（镜像各 Z42Type.Name() 的字符串格式），但内建叶子映射回 keyword 拼写。
+    private static string _compositeKeyName(Z42Type t) {
+        if (t is Z42ArrayType) { return OverloadResolver._compositeKeyName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            string s = it.Def.Name() + "<";
+            int i = 0;
+            while (i < it.ArgCount) { if (i > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(it.TypeArgs[i]); i = i + 1; }
+            return s + ">";
+        }
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            bool isVoid = ft.Ret is Z42VoidType;
+            string s = "Func<";
+            if (isVoid) { if (ft.ParamCount == 0) { return "Action"; } s = "Action<"; }
+            int i = 0;
+            while (i < ft.ParamCount) { if (i > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(ft.ParamTypes[i]); i = i + 1; }
+            if (!isVoid) { if (ft.ParamCount > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(ft.Ret); }
+            return s + ">";
+        }
+        // 叶子：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名）；其余 → 原名。
+        if ((t is Z42ClassType) && PrimModel.IsBuiltin(t.Name())) { return PrimModel.Keyword(t.Name()); }
+        return t.Name();
     }
 
     private static string _stripSpaces(string s) {
@@ -156,7 +189,8 @@ public sealed class OverloadResolver {
     }
     private static bool _assignable2(Z42Type a, Z42Type b) {
         if (OverloadResolver._sameType(a, b)) { return true; }
-        if (b != null && b.Name() == "object") { return true; }
+        // unify-value-types Phase 1：任意 → object（翻转后 object→Z42ClassType(Object)，Canon 归一）。
+        if (b != null && PrimModel.Canon(b.Name()) == "object") { return true; }
         if (a == null) { return false; }
         return a.IsAssignableTo(b);
     }

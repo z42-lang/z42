@@ -81,7 +81,7 @@ public sealed class OverloadBinder {
         // 实参 → 逐个装箱成精确宽度）。BoxArgs 在 _withDefaults 入口按 ParamTypes[pf]=数组类型
         // 判定 → 对尾位 no-op，故此处补按 elem（元素类型）装箱，镜像 _bindArrayInit。
         while (i < packCount) { packed[i] = this._tc.BoxIfNeeded(args[pf + i], elem); packed[i] = this._tc.ConvertIfNeeded(packed[i], elem, syms); i = i + 1; }   // tighten-implicit-conversions；add-user-conversions
-        BoundExpr arrLit = new BoundArrayLit(packed, packCount, elem.Name(), new Z42ArrayType(elem), sp);
+        BoundExpr arrLit = new BoundArrayLit(packed, packCount, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), sp);
         BoundExpr[] finalArgs = new BoundExpr[sig.ParamCount];
         int k = 0;
         while (k < pf) { finalArgs[k] = args[k]; k = k + 1; }
@@ -252,7 +252,8 @@ public sealed class OverloadBinder {
                     t = t + 1;
                 }
                 if (ok) {
-                    if (at.Elem.Name() == "object") { objectTier[no] = cand[i]; no = no + 1; }
+                    // unify-value-types Phase 1：params object[] 泛化层判别（翻转后 object→Z42ClassType(Object)，Canon 归一）。
+                    if (PrimModel.Canon(at.Elem.Name()) == "object") { objectTier[no] = cand[i]; no = no + 1; }
                     else { specific[ns] = cand[i]; ns = ns + 1; }
                 }
             }

@@ -379,13 +379,13 @@ public sealed class ExprTyper {
                 elems[bi] = this._tc.ConvertIfNeeded(elems[bi], elem, env.Symbols);   // tighten-implicit-conversions: 数组元素拓宽表示转换；add-user-conversions
                 bi = bi + 1;
             }
-            return new BoundArrayLit(elems, ai.ElemCount, elem.Name(), new Z42ArrayType(elem), ai.Span);
+            return new BoundArrayLit(elems, ai.ElemCount, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), ai.Span);
     }
 
     private BoundExpr _bindArrayNew(ArrayNewExpr an, TypeEnv env) {
             BoundExpr size = this._bindExpr(an.Size, env);
             Z42Type elem = env.ResolveType(an.Elem);
-            return new BoundArrayNew(size, elem.Name(), new Z42ArrayType(elem), an.Span);
+            return new BoundArrayNew(size, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), an.Span);
     }
 
     // ── 集合字面量脱糖（add-collection-literals）─────────────────────────────────
@@ -444,7 +444,7 @@ public sealed class ExprTyper {
                 return new BoundError("empty array literal", new Z42ErrorType(), sp);
             }
             Z42Type ee = env.ResolveType(elemTe);
-            return new BoundArrayLit(new BoundExpr[0], 0, ee.Name(), new Z42ArrayType(ee), sp);
+            return new BoundArrayLit(new BoundExpr[0], 0, PrimModel.SurfaceName(ee.Name()), new Z42ArrayType(ee), sp);
         }
         BoundExpr[] raw = new BoundExpr[al.ElemCount];
         int j = 0;
@@ -453,7 +453,7 @@ public sealed class ExprTyper {
         if (elemTe != null) { elem = env.ResolveType(elemTe); } else { elem = raw[0].Type(); }
         j = 0;
         while (j < al.ElemCount) { raw[j] = this._tc.BoxIfNeeded(raw[j], elem); raw[j] = this._tc.ConvertIfNeeded(raw[j], elem, env.Symbols); j = j + 1; }   // tighten-implicit-conversions: 数组元素拓宽转换；add-user-conversions
-        return new BoundArrayLit(raw, al.ElemCount, elem.Name(), new Z42ArrayType(elem), sp);
+        return new BoundArrayLit(raw, al.ElemCount, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), sp);
     }
 
     // {e0, e1, ..} List 字面量 → new List<T>() + Add（包 BoundSeqExpr）。
@@ -817,8 +817,10 @@ public sealed class ExprTyper {
             return new BoundBinary("??", left, right, TypeFactsTc._commonType(lt, rt, env.Symbols), bin.Span);
         }
         // 字符串拼接特例（任一侧 string）：先于查表，镜像 C# CheckBinary 前置。
+        // unify-value-types Phase 1：经 PrimModel.Canon 归一（翻转后 string→Z42ClassType(String)，
+        // Name()="String"）；翻转前 Canon("string")=="string" 逐字节同义。
         if (bin.Op == "+") {
-            if (lt.Name() == "string" || rt.Name() == "string") {
+            if (PrimModel.Canon(lt.Name()) == "string" || PrimModel.Canon(rt.Name()) == "string") {
                 return new BoundBinary(bin.Op, left, right, new Z42PrimType("string"), bin.Span);
             }
         }
@@ -827,8 +829,11 @@ public sealed class ExprTyper {
         // add-type-based-overloads 8.1a：迁移到 _resolveOverload（type-mangled 决议），修复同 arity
         // 多重载操作符（如 op_Add(Vec,Vec) 与 op_Add(Vec,int)）此前走旧 arity-only _overloadKey
         // 查不到 mangled 键、派发失败的遗留空洞（op_X 是静态方法，本就该走与其余 23 处一致的决议）。
+        // unify-value-types Phase 1：翻转后基元为 Z42ClassType(Int32…) 且其 INumber 带 op_Add 等——
+        // 必须**排除 Scalar 值类型**，让 int+int 走下方原生算术表（BinaryTypeTable）而非派发 op_X 方法
+        // 调用（否则算术全变方法调用，codegen 巨变）。用户 struct/class 的 op 重载不受影响（非 Scalar）。
         string opMethod = TypeFactsTc._operatorMethodNameTc(bin.Op);
-        if (opMethod != "" && lt is Z42ClassType) {
+        if (opMethod != "" && (lt is Z42ClassType) && !PrimModel.IsScalarValue(lt.Name())) {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;

@@ -164,7 +164,18 @@ public sealed class Z42ClassType : Z42Type {
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
         // 同名（1A-1 不查继承链；subclass→base 赋值在 1C，需类表走 base 链）
-        return (other is Z42ClassType) && this._name == other.Name();
+        if ((other is Z42ClassType) && this._name == other.Name()) { return true; }
+        // unify-value-types Phase 1：桥接混用态——本类是翻转后内建 Z42ClassType（String/Int32/Double…），
+        // 目标是同一 canonical 内建（Z42PrimType 或 ClassType，imported/字面量仍是 Prim）→ 可赋。
+        // 覆盖 return-type / var-decl 等**直接调 IsAssignableTo**（不走 Conversion._sameBuiltin）的检查点。
+        if (PrimModel.IsBuiltin(this._name) && PrimModel.Canon(this._name) == PrimModel.Canon(other.Name())) { return true; }
+        // unify-value-types Phase 1（D7）：翻转后 Scalar 值类型（int→Int32…）的数值拓宽——迁自旧
+        // Z42PrimType._canWiden。仅两侧均 Scalar 值类型时按 keyword 名走拓宽表；翻转前无 Scalar 名
+        // Z42ClassType 流经 → 当前中立（且与旧 Z42PrimType 路径逐字面同义）。
+        if (PrimModel.IsScalarValue(this._name) && PrimModel.IsScalarValue(other.Name())) {
+            return PrimModel.CanWiden(PrimModel.Keyword(this._name), PrimModel.Keyword(other.Name()));
+        }
+        return false;
     }
 }
 

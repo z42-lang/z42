@@ -124,6 +124,38 @@ public static class PrimModel {
         return n;   // 非内建 → 原样（调用方历史行为：已是类名）
     }
 
+    // 类型的「表面名」（反射 / typeof / 数组元素名）：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名，
+    // Int32→"int"、String→"string"）；其余原样。翻转后 elem.Name()="Int32"，须回到 "int" 以维持反射行为。
+    public static string SurfaceName(string name) {
+        if (PrimModel.IsBuiltin(name)) { return PrimModel.Keyword(name); }
+        return name;
+    }
+
+    // 数值拓宽（无收窄），迁自旧 Z42Type.Z42PrimType._canWiden（D7）。**入参须是 keyword 名**
+    // （int/long/float/double 或 byte/short——即历史 Z42PrimType 承载名，用 PrimModel.Keyword 从 wrapper
+    // 名得到）。逐字面同旧逻辑：注意旧 _canWiden 的 byte/short 分支在历史里实际因名为 u8/i16 而从不命中，
+    // 此处照抄以维持逐字节等价（拓宽仅对 int/long/float 真正生效，其余走 Conversion 数值矩阵）。
+    public static bool CanWiden(string from, string to) {
+        if (from == "byte" || from == "short") { return to == "int" || to == "long" || to == "float" || to == "double"; }
+        if (from == "int")   { return to == "long" || to == "float" || to == "double"; }
+        if (from == "long")  { return to == "float" || to == "double"; }
+        if (from == "float") { return to == "double"; }
+        return false;
+    }
+
+    // 任意拼写 → 反射/typeof 名（= 历史 Z42PrimType 承载的名，即 SymbolTable._canonPrim(keyword)）：
+    // int→"int"、long→"long"、float→"float"、double→"double"、bool/char/string/object 保留；其余整数族
+    // → 短名 i8/i16/u8/u16/u32/u64（_canonPrim 把 byte/sbyte/short/ushort/uint/ulong 归短名）。翻转后
+    // 内建 Z42ClassType 的 Name()="Int32"，reflection/typeof 名须映射回此拼写以维持 byte-identical。
+    public static string Keyword(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i32") { return "int"; }
+        if (c == "i64") { return "long"; }
+        if (c == "f32") { return "float"; }
+        if (c == "f64") { return "double"; }
+        return c;   // i8/i16/u8/u16/u32/u64/bool/char/string/object 原样（= _canonPrim 结果）
+    }
+
     // 任意拼写 → IrType 标签。= 历史 EmitContext.PrimTag（int→I32…；string→Str；object/非内建→Ref）。
     public static int IrTag(string n) {
         string c = PrimModel.Canon(n);

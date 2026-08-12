@@ -105,7 +105,7 @@ public sealed class SymbolTable {
                 if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
             }
             if (n == "void") { return new Z42VoidType(); }
-            if (this._isPrim(n)) { return new Z42PrimType(this._canonPrim(n)); }
+            if (this._isPrim(n)) { return this.BuiltinType(n); }
             // Func/Action/Predicate → 结构 Z42FuncType（port-z42c-closures D1；C# 经委托注册表但产物同构）
             if (n == "Func" && nt.ArgCount > 0) {
                 Z42Type[] fps = new Z42Type[nt.ArgCount - 1];
@@ -232,6 +232,21 @@ public sealed class SymbolTable {
             return new Z42FuncType(fps, ft.ParamCount, this.ResolveTypeP(ft.Ret, paramNames, paramCount));
         }
         return new Z42UnknownType();
+    }
+
+    // unify-value-types Phase 1（D1 翻转）：基元关键字 → 符号表里已存在的 `Std.*` phantom struct
+    // 的 Z42ClassType（int→Int32、bool→Boolean、string→String、object→Object…；byte/short/... 经
+    // PrimModel.Wrapper 归到对应 wrapper）。使基元与用户 struct 走同一 Z42ClassType 承载（消灭二元）。
+    // 名承载 wrapper 短名（"Int32"）；可赋性/拓宽经中心化 Z42Type.Canon(=PrimModel.Canon) 归一，
+    // IR 标签经 ToIrType 的 IsBuiltin 分支保留（Scalar→PrimTag、string→Str、object→Ref）。
+    // 兜底：phantom 未加载（无 prelude 的独立上下文）→ 退回轻量 Z42PrimType（阶段 3 删类后此兜底移除）。
+    public Z42Type BuiltinType(string n) {
+        string wrap = PrimModel.Wrapper(n);
+        if (this.Classes.ContainsKey(wrap)) {
+            object c = this.Classes.Get(wrap);
+            if (c is Z42ClassType) { return c as Z42ClassType; }
+        }
+        return new Z42PrimType(this._canonPrim(n));
     }
 
     // prim 源名 → C# TypeRegistry 规范名（IR 侧用：byte→u8 等次要名归一；int/long/float/

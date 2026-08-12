@@ -728,13 +728,58 @@ public static class ExportedTypeExtractor {
     }
     private static string _tsigTypeName(TypeExpr te) { return ExportedTypeExtractor.TsigTypeName(te); }
     // 解析后 Z42Type → TSIG 规范名（镜像 C# TypeToString：Unknown/Error → sentinel 字符串）。
+    // unify-value-types Phase 1：resolved 类型 → 表面拼写（内建 leaf 回 keyword，非内建逐字复刻
+    // Z42Type.Name()）。供 SymbolCollector 存 OwnFieldSpelling（喂 StructLayout / Tag.FromName /
+    // 反射 TYPE 段），消除翻转后 `int` 字段名漂成 "Int32" 致 Tag.FromName 回落 ref-tag 的 struct
+    // 布局错。与 TSIG 导出同用一条递归，语义一致。
+    public static string SurfaceTypeName(Z42Type t) { return ExportedTypeExtractor._resolvedTypeName(t); }
+
     private static string _resolvedTypeName(Z42Type t) {
         if (t == null || t is Z42UnknownType) { return "unknown"; }
         if (t is Z42ErrorType) { return "error"; }
+        // unify-value-types Phase 1（TSIG 导出 byte-identical + seed 兼容）：翻转后内建类型 leaf 变
+        // Z42ClassType(wrapper)，Name()="String"/"Int32"/"Double"…；导出元数据须回到 baseline 的 keyword/
+        // 短名拼写（"string"/"int"/"double"…），否则 ① TSIG 与翻转前不逐字节等价，② 上一 nightly 的
+        // baseline seed z42c 冷启动消费本包 TSIG 时不认 wrapper 名 → E0402。数组/泛型实例化/函数类型的
+        // 内建叶子同样泄漏——结构递归到每个 leaf 应用 PrimModel.SurfaceName（对仍是 Z42PrimType 的
+        // imported/字面量混用态亦幂等：SurfaceName 的内建判定按 canonical 名，Prim/ClassType 统一映射）。
+        if (t is Z42ArrayType) { return ExportedTypeExtractor._resolvedTypeName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            string s = it.Def.Name() + "<";
+            int i = 0;
+            while (i < it.ArgCount) {
+                if (i > 0) { s = s + ", "; }
+                s = s + ExportedTypeExtractor._resolvedTypeName(it.TypeArgs[i]);
+                i = i + 1;
+            }
+            return s + ">";
+        }
+        if (t is Z42FuncType) {
+            // 镜像 Z42FuncType.Name()（void→Action[<..>]；否则 Func<..,ret>），但每个 leaf 走 _resolvedTypeName。
+            Z42FuncType ft = t as Z42FuncType;
+            bool isVoid = ft.Ret is Z42VoidType;
+            string s = "Func<";
+            if (isVoid) {
+                if (ft.ParamCount == 0) { return "Action"; }
+                s = "Action<";
+            }
+            int i = 0;
+            while (i < ft.ParamCount) {
+                if (i > 0) { s = s + ", "; }
+                s = s + ExportedTypeExtractor._resolvedTypeName(ft.ParamTypes[i]);
+                i = i + 1;
+            }
+            if (!isVoid) {
+                if (ft.ParamCount > 0) { s = s + ", "; }
+                s = s + ExportedTypeExtractor._resolvedTypeName(ft.Ret);
+            }
+            return s + ">";
+        }
         string n = t.Name();
         if (n == "<unknown>") { return "unknown"; }
         if (n == "<error>") { return "error"; }
-        return n;
+        return PrimModel.SurfaceName(n);
     }
     // 混合模式：resolved 处理委托规范化（Predicate→Func）；AST nullable 包装补 "?"（z42c ResolveTypeP 擦除 nullable）。
     private static string _hybridTypeName(TypeExpr te, Z42Type resolved) {
