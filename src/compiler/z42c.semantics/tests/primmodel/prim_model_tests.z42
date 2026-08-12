@@ -1,0 +1,97 @@
+// unify-value-types Phase 1：PrimModel 单一表单测。验证任意拼写（关键字/短名/包装名/FQ）归一到同一
+// canonical 短名，且各投影（Fq/Wrapper/IrTag/IsScalarValue/IsInteger/IsNumeric）与历史七表逐条同义。
+namespace Z42cSemanticsPrimModelTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.IR;   // IrType
+
+[Test]
+void test_canon_normalizes_all_spellings() {
+    // 关键字 / canonical 短名 / 包装名 / FQ 四种拼写 → 同一短名。
+    Assert.Equal("i32", PrimModel.Canon("int"));
+    Assert.Equal("i32", PrimModel.Canon("i32"));
+    Assert.Equal("i32", PrimModel.Canon("Int32"));
+    Assert.Equal("i32", PrimModel.Canon("Std.Int32"));
+    Assert.Equal("i64", PrimModel.Canon("long"));
+    Assert.Equal("u8",  PrimModel.Canon("byte"));
+    Assert.Equal("u8",  PrimModel.Canon("Byte"));
+    Assert.Equal("f64", PrimModel.Canon("double"));
+    Assert.Equal("f32", PrimModel.Canon("float"));
+    Assert.Equal("bool", PrimModel.Canon("bool"));
+    Assert.Equal("bool", PrimModel.Canon("Boolean"));
+    Assert.Equal("char", PrimModel.Canon("char"));
+    Assert.Equal("string", PrimModel.Canon("string"));
+    Assert.Equal("object", PrimModel.Canon("object"));
+    // 剥尾部 ?（nullable 擦除）。
+    Assert.Equal("i32", PrimModel.Canon("int?"));
+    // 非内建 → 原样。
+    Assert.Equal("Demo.Point", PrimModel.Canon("Demo.Point"));
+}
+
+[Test]
+void test_builtin_and_repr_classification() {
+    Assert.Equal(true,  PrimModel.IsBuiltin("int"));
+    Assert.Equal(true,  PrimModel.IsBuiltin("string"));
+    Assert.Equal(true,  PrimModel.IsBuiltin("object"));
+    Assert.Equal(false, PrimModel.IsBuiltin("Demo.Point"));
+    // Scalar 值类型 = 六个 wrapper；string/object 不算。
+    Assert.Equal(true,  PrimModel.IsScalarValue("int"));
+    Assert.Equal(true,  PrimModel.IsScalarValue("bool"));
+    Assert.Equal(true,  PrimModel.IsScalarValue("char"));
+    Assert.Equal(true,  PrimModel.IsScalarValue("double"));
+    Assert.Equal(false, PrimModel.IsScalarValue("string"));
+    Assert.Equal(false, PrimModel.IsScalarValue("object"));
+}
+
+[Test]
+void test_integer_and_numeric() {
+    // IsInteger = _intPrimFQ 非空集合（整数族）。
+    Assert.Equal(true,  PrimModel.IsInteger("int"));
+    Assert.Equal(true,  PrimModel.IsInteger("byte"));
+    Assert.Equal(false, PrimModel.IsInteger("float"));
+    Assert.Equal(false, PrimModel.IsInteger("bool"));
+    Assert.Equal(false, PrimModel.IsInteger("char"));
+    // IsNumeric = 历史 _isNumericPrim（整数 + f32/f64 + char，排除 bool/string）。
+    Assert.Equal(true,  PrimModel.IsNumeric("int"));
+    Assert.Equal(true,  PrimModel.IsNumeric("double"));
+    Assert.Equal(true,  PrimModel.IsNumeric("char"));
+    Assert.Equal(false, PrimModel.IsNumeric("bool"));
+    Assert.Equal(false, PrimModel.IsNumeric("string"));
+}
+
+[Test]
+void test_fq_and_wrapper_projections() {
+    // Fq = 历史 _intPrimFQ 扩到全部内建。
+    Assert.Equal("Std.Int32",   PrimModel.Fq("int"));
+    Assert.Equal("Std.Int64",   PrimModel.Fq("long"));
+    Assert.Equal("Std.Byte",    PrimModel.Fq("byte"));
+    Assert.Equal("Std.Boolean", PrimModel.Fq("bool"));
+    Assert.Equal("Std.Char",    PrimModel.Fq("char"));
+    Assert.Equal("Std.Double",  PrimModel.Fq("double"));
+    Assert.Equal("Std.String",  PrimModel.Fq("string"));
+    Assert.Equal("Std.Object",  PrimModel.Fq("object"));
+    // Wrapper = 历史 _primWrapper。
+    Assert.Equal("Int32",   PrimModel.Wrapper("int"));
+    Assert.Equal("Int32",   PrimModel.Wrapper("i32"));
+    Assert.Equal("Boolean", PrimModel.Wrapper("bool"));
+    Assert.Equal("Single",  PrimModel.Wrapper("float"));
+    Assert.Equal("String",  PrimModel.Wrapper("string"));
+}
+
+[Test]
+void test_irtag_matches_primtag() {
+    // IrTag = 历史 EmitContext.PrimTag（string→Str；object/非内建→Ref）。
+    Assert.Equal(IrType.I32,  PrimModel.IrTag("int"));
+    Assert.Equal(IrType.I32,  PrimModel.IrTag("Int32"));
+    Assert.Equal(IrType.I64,  PrimModel.IrTag("long"));
+    Assert.Equal(IrType.U8,   PrimModel.IrTag("byte"));
+    Assert.Equal(IrType.F32,  PrimModel.IrTag("float"));
+    Assert.Equal(IrType.F64,  PrimModel.IrTag("double"));
+    Assert.Equal(IrType.Bool, PrimModel.IrTag("bool"));
+    Assert.Equal(IrType.Char, PrimModel.IrTag("char"));
+    Assert.Equal(IrType.Str,  PrimModel.IrTag("string"));
+    Assert.Equal(IrType.Ref,  PrimModel.IrTag("object"));
+    Assert.Equal(IrType.Ref,  PrimModel.IrTag("Demo.Point"));
+}

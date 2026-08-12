@@ -1,0 +1,18 @@
+# unify-value-types Phase 1：PrimModel 单一表单测（消灭 Z42PrimType 的中央映射表）。
+[project]
+name    = "z42c.semantics.test.primmodel"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.ir"        = "0.1.0"   # IrType（IrTag 投影断言）
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.semantics/tests/primmodel → artifacts/build/compiler/z42c.semantics/tests/primmodel
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/primmodel"
