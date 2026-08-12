@@ -195,11 +195,13 @@ pub(super) fn vcall(
                 frame.set(dst, h); return Ok(None);
             }
             if method == "ToString" {
-                let short = b.type_name.rsplit('.').next().unwrap_or(&b.type_name);
+                // add-boxed-struct-identity (P4b): type name lives on the box's shared object.
+                let n: &str = &b.type_desc().name;
+                let short = n.rsplit('.').next().unwrap_or(n);
                 frame.set(dst, Value::Str(short.into())); return Ok(None);
             }
         }
-        let type_name = b.type_name.clone();
+        let type_name = b.type_desc().name.to_string();
         let mut call_args = vec![obj_val.clone()];
         call_args.append(&mut extra_args);
         let arity = call_args.len() - 1;

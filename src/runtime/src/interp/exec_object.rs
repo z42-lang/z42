@@ -396,8 +396,8 @@ pub(super) fn is_instance(
         // 层级）；接口经 type_desc 链解析（struct 无 base，仅自身 + 实现的接口）；否则 false。
         Value::BoxedStruct(b) => {
             class_name == "Std.Object" || class_name == "Object"
-                || &*b.type_name == class_name
-                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_name, class_name)
+                || &*b.type_desc().name == class_name
+                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_desc().name, class_name)
         }
         // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
@@ -428,9 +428,9 @@ pub(super) fn as_cast(
     // （值 struct 副本）；命中 object/base/接口 → 保持 boxed（多态）；否则 Null。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let out = if &*b.type_name == class_name {
+        let out = if &*b.type_desc().name == class_name {
             super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?
-        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_name, class_name) {
+        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_desc().name, class_name) {
             val.clone()
         } else {
             Value::Null

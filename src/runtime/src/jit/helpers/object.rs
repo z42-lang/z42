@@ -422,8 +422,8 @@ pub unsafe extern "C" fn jit_is_instance(
             || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name),
         // add-struct-object-boxing: 装箱 struct is-a 精确 struct / object（镜像 interp is_instance）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
-            || &*b.type_name == class_name
-            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name),
+            || &*b.type_desc().name == class_name
+            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::interp::prim_isa(other, class_name),
     };
@@ -459,11 +459,11 @@ pub unsafe extern "C" fn jit_as_cast(
     // （add-struct-object-boxing）已被本 change 解除。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let out = if &*b.type_name == class_name {
+        let out = if &*b.type_desc().name == class_name {
             let fid = super::struct_ops::frame_id_of(frame, ctx);
             crate::interp::exec_struct::unbox_struct(vm_ctx_ref(ctx), fid, b)
                 .unwrap_or(Value::Null)
-        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_name, class_name) {
+        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name) {
             val.clone()
         } else {
             Value::Null
