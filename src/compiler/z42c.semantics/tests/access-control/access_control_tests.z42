@@ -61,19 +61,53 @@ void test_protected_from_unrelated_denied() {
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
 }
 
-// ── internal（同包放行；跨包由 cross-zpkg e2e 覆盖）──
+// ── 默认成员可见性 = private（default-member-private，最小封闭作用域）──
 
 [Test]
-void test_internal_same_package_ok() {
-    // 无修饰符（默认 internal）字段被同一编译单元（同包）另一类访问 → 放行
+void test_no_modifier_member_is_private() {
+    // 无修饰符成员默认 private（封闭层=类）→ 另一类访问 → E0404（access-control.md）
     string src = "class A { int a; } class B { int Get(A x) { return x.a; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_no_modifier_member_same_class_ok() {
+    // 无修饰符成员同类内访问 → 放行（private=类文本）
+    string src = "class A { int a; int Get() { return this.a; } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── internal（显式，同包放行；跨包由手工验证覆盖）──
 
 [Test]
 void test_explicit_internal_same_package_ok() {
     string src = "class A { internal int a; } class B { int Get(A x) { return x.a; } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 无修饰符自由函数默认 internal（顶层，封闭层=模块）→ 同包调用放行 ──
+
+[Test]
+void test_free_function_default_internal_callable() {
+    string src = "int helper() { return 1; } int Main() { return helper(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 组合访问修饰符 → E0405（不允许组合）──
+
+[Test]
+void test_combined_access_modifiers_rejected() {
+    string src = "class A { protected internal int x; }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0405", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_combined_private_protected_rejected() {
+    string src = "class A { private protected int x; }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0405", SemanticDump.FirstErrorCode(src));
 }
 
 // ── public ──

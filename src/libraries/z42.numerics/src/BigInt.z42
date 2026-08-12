@@ -1677,7 +1677,7 @@ public class BigInt {
 
     /// Build a normalised BigInt from a magnitude + sign. Trims trailing
     /// zero limbs; if magnitude becomes empty, forces sign to 0.
-    static BigInt _fromMagSign(int[] mag, int sign) {
+    internal static BigInt _fromMagSign(int[] mag, int sign) {
         int[] trimmed = BigInt._trim(mag);
         BigInt b = new BigInt(0);
         b._mag = trimmed;
@@ -1689,7 +1689,7 @@ public class BigInt {
         return b;
     }
 
-    static int[] _oneMag() {
+    internal static int[] _oneMag() {
         int[] m = new int[1];
         m[0] = 1;
         return m;

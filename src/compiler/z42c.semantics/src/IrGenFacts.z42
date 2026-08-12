@@ -54,12 +54,14 @@ public static class IrGenFacts {
         return arr;
     }
 
-    public static int _visCode(string mods) {
+    // 可见性 int 编码：0=public / 1=private / 2=protected / 3=internal。dflt = 无修饰符默认，按位置传入
+    // （default-member-private：成员 1=private / 顶层自由函数 3=internal，镜像 access-control.md 最小封闭作用域）。
+    public static int _visCode(string mods, int dflt) {
         if (IrGenFacts._hasWord(mods, "private"))   { return 1; }
         if (IrGenFacts._hasWord(mods, "protected")) { return 2; }
         if (IrGenFacts._hasWord(mods, "public"))    { return 0; }
         if (IrGenFacts._hasWord(mods, "override"))  { return 0; }   // enforce-access-control：override 继承基类(public)可见性
-        return 3;   // enforce-access-control：internal（显式或无修饰符默认）—— 独立于 public，供跨包 internal 强制
+        return dflt;
     }
 
     public static int _methodFlags(string mods) {

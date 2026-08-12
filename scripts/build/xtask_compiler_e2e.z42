@@ -50,7 +50,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     string bdir = Path.Join(e2eDir, "buildapp");
     Directory.Create(bdir);
     string bsrc = Path.Join(bdir, "app.z42");
-    File.WriteAllText(bsrc, "namespace Check.App;\n\nint Twice(int a) { return a + a; }\n\nclass Counter {\n    int v;\n    int Bump(int d) { v = v + d; return v; }\n}\n\nvoid Main() {\n    var c = new Counter();\n    c.Bump(20);\n    c.Bump(1);\n    int x = Twice(c.Bump(0));\n    int ok = 0;\n    if (x == 42) { ok = 1; }\n    int dummy = 100 / ok;\n}\n");
+    File.WriteAllText(bsrc, "namespace Check.App;\n\nint Twice(int a) { return a + a; }\n\nclass Counter {\n    int v;\n    public int Bump(int d) { v = v + d; return v; }\n}\n\nvoid Main() {\n    var c = new Counter();\n    c.Bump(20);\n    c.Bump(1);\n    int x = Twice(c.Bump(0));\n    int ok = 0;\n    if (x == 42) { ok = 1; }\n    int dummy = 100 / ok;\n}\n");
     string btoml = Path.Join(bdir, "check.app.z42.toml");
     File.WriteAllText(btoml, "[project]\nname    = \"check.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml)
@@ -69,7 +69,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     string ddir = Path.Join(e2eDir, "buildns");
     Directory.Create(ddir);
     File.WriteAllText(Path.Join(ddir, "demo.z42"),
-        "namespace Demo.Minimal;\n\nclass Greeter {\n    string Hello() { return \"hi\"; }\n}\n\nvoid Main() {\n    var g = new Greeter();\n    g.Hello();\n}\n");
+        "namespace Demo.Minimal;\n\nclass Greeter {\n    public string Hello() { return \"hi\"; }\n}\n\nvoid Main() {\n    var g = new Greeter();\n    g.Hello();\n}\n");
     File.WriteAllText(Path.Join(ddir, "demo.minimal.z42.toml"),
         "[project]\nname    = \"demo.minimal\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // hello-stdlib（port-z42c-import）：using Std + Console.WriteLine——跨包消费链对账工程。
@@ -174,7 +174,7 @@ int _e2eOracleChecks(string vm, string driverZpkg, string e2eDir, string flat, s
     // 正向 #2（ZW-1C/1D）：自由调用 + 对象/字段（new/vcall/field_get·set）+ 字符串（const.str/concat/eq）
     if (_e2eOracle(vm, driverZpkg, e2eDir, flat, flat, "callcheck", false,
         "int Twice(int a) { return a + a; }\n"
-        + "class Counter { int v; int Bump(int d) { v = v + d; return v; } }\n"
+        + "class Counter { int v; public int Bump(int d) { v = v + d; return v; } }\n"
         + "int Main() {\n"
         + "    var c = new Counter();\n"
         + "    c.Bump(20);\n"

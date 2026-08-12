@@ -426,7 +426,7 @@ public static class Blake3 {
     // ~64× over a 4KB input). sigma is read-only in the round loop.
     static int[] _SIGMA = Blake3._sigma();
 
-    static int[] _sigma() {
+    internal static int[] _sigma() {
         int[] s = new int[7 * 16];
         // Row 0: identity
         s[0]=0;   s[1]=1;   s[2]=2;   s[3]=3;   s[4]=4;   s[5]=5;   s[6]=6;   s[7]=7;

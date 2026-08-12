@@ -687,7 +687,7 @@ public sealed class SymbolCollector {
                     this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
                         "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
                 }
-                FieldSymbol fsym = new FieldSymbol(fd.Name, this._vis(fd.Mods), ft, fstatic, c.Name);
+                FieldSymbol fsym = new FieldSymbol(fd.Name, this._vis(fd.Mods, "private"), ft, fstatic, c.Name);
                 fsym.IsReadonly = this._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
                 if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
                 ct.Fields.Put(fd.Name, fsym);
@@ -696,19 +696,19 @@ public sealed class SymbolCollector {
                 // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。
                 // 用 resolved Z42Type.Name() 镜像 C# TypeToString(sym.Type)：接口→裸名、Predicate<T>→Func<T,bool>、
                 // Func/Action 规范化；Unknown/Error → AST fallback（imported 包 interface 未进 ImportedSymbols 时降级）。
-                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(fd.Type) : ft.Name(); ct.AddOwnField(fd.Name, fsp, this._vis(fd.Mods)); }
+                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(fd.Type) : ft.Name(); ct.AddOwnField(fd.Name, fsp, this._vis(fd.Mods, "private")); }
             } else if (mem is PropertyDecl) {
                 // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
                 PropertyDecl pd = mem as PropertyDecl;
                 Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
                 bool pfstatic = this._hasWord(pd.Mods, "static");
-                ct.Fields.Put(pd.Name, new FieldSymbol(pd.Name, this._vis(pd.Mods), pft, pfstatic, c.Name));
+                ct.Fields.Put(pd.Name, new FieldSymbol(pd.Name, this._vis(pd.Mods, "private"), pft, pfstatic, c.Name));
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
                 bool pfExtern = this._hasWord(pd.Mods, "extern");
                 if (!pfstatic && !pfExtern) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : pft.Name(); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
-                string pvis = this._vis(pd.Mods);
+                string pvis = this._vis(pd.Mods, "private");
                 Z42Type[] getPs0 = new Z42Type[0];
                 if (pd.HasGet) {
                     ct.Methods.Put("get_" + pd.Name, new MethodSymbol("get_" + pd.Name, pvis,
@@ -725,7 +725,7 @@ public sealed class SymbolCollector {
                 IndexerDecl id = mem as IndexerDecl;
                 Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
                 bool idStatic = this._hasWord(id.Mods, "static");
-                string idvis = this._vis(id.Mods);
+                string idvis = this._vis(id.Mods, "private");
                 if (id.HasGet) {
                     Z42Type[] getPs1 = new Z42Type[id.ParamCount];
                     int qi0 = 0;
@@ -836,7 +836,7 @@ public sealed class SymbolCollector {
         var sig = new Z42FuncType(ps, md.ParamCount, ret);
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { sig.ParamsFrom = md.ParamCount - 1; }
-        var ms = new MethodSymbol(md.Name, this._vis(md.Mods), sig, this._hasWord(md.Mods, "static"), containing, true, md);
+        var ms = new MethodSymbol(md.Name, this._vis(md.Mods, (containing == "" ? "internal" : "private")), sig, this._hasWord(md.Mods, "static"), containing, true, md);
         ms.IsSealed = this._hasWord(md.Mods, "sealed");   // impl-sealed-semantics-devirt：本地方法级 sealed
         return ms;
     }
@@ -976,7 +976,10 @@ public sealed class SymbolCollector {
         return r;
     }
 
-    private string _vis(string mods) {
+    // default-member-private：无修饰符默认可见性 = 最小封闭作用域（access-control.md）。
+    // 成员（字段/方法/构造器/属性/索引器/嵌套类）默认 `private`（封闭层=类）；顶层类型/自由函数默认
+    // `internal`（封闭层=模块）。故 dflt 由调用点按位置传入（成员 "private" / 顶层 "internal"）。
+    private string _vis(string mods, string dflt) {
         if (this._hasWord(mods, "public"))    { return "public"; }
         if (this._hasWord(mods, "private"))   { return "private"; }
         if (this._hasWord(mods, "protected")) { return "protected"; }
@@ -984,7 +987,7 @@ public sealed class SymbolCollector {
         // enforce-access-control：override 继承被覆写基方法的可见性；只能覆写 virtual/abstract 成员
         // （基类契约，通常 public），故无显式修饰符的 override 视为 public（镜像 C# override 须匹配基类可见性）。
         if (this._hasWord(mods, "override"))  { return "public"; }
-        return "internal";
+        return dflt;
     }
 
     // add-const-keyword：const 字段求值 + 登记 ConstVal + 诊断。fsym.IsConst 置位；求值成功 →

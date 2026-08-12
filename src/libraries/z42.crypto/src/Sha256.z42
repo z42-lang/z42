@@ -63,7 +63,7 @@ public static class Sha256 {
     // loop, so a shared immutable array is safe.
     static long[] _K = Sha256._roundConstants();
 
-    static long[] _roundConstants() {
+    internal static long[] _roundConstants() {
         long[] k = new long[64];
         k[0]  = 0x428A2F98L; k[1]  = 0x71374491L; k[2]  = 0xB5C0FBCFL; k[3]  = 0xE9B5DBA5L;
         k[4]  = 0x3956C25BL; k[5]  = 0x59F111F1L; k[6]  = 0x923F82A4L; k[7]  = 0xAB1C5ED5L;
