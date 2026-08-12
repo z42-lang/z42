@@ -15,13 +15,23 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵�
 | `protected` | 声明类 + 派生类（跨包派生同样允许） | `CurrentClass()` 沿基链上溯能到声明类 |
 | `internal` | **同包**（同一编译单元 / zpkg）；跨包不可 | 声明类 `IsImported == false` |
 
-**默认可见性**：无修饰符成员 = `internal`（`SymbolCollector._vis`）。
+**默认可见性 = 最小封闭作用域**（default-member-private；[语言规范](../../../design/language/access-control.md)）：
+无修饰符声明只对**直接封闭的那层结构**可见。
 
-两条 C# 一致性规则消除「无强制期」遗留的欠标注：
+| 声明位置 | 默认可见性 | 封闭层 |
+|---------|-----------|-------|
+| 类的字段 / 方法 / 构造器 / 属性 / 索引器 | `private` | 类 |
+| 顶层类 / 接口 / **自由函数** | `internal` | 模块（包） |
+
+故 `_vis` / `_visCode` 的无修饰符默认**按位置**传入（成员 `private` / 顶层 `internal`；`_methodSymbol`
+以 `containing==""` 区分自由函数）。
+
+三条 C# 一致性规则消除「无强制期」遗留的欠标注：
 
 - **override 继承基类可见性**：无显式修饰符的 `override` 视为 `public`（只能覆写 virtual/abstract 契约，
-  通常 public）——否则 `override ToString()` 等被判 internal，跨包调用全断。
+  通常 public）——否则 `override ToString()` 等被判 private，跨类调用全断。
 - **record 定位字段公有**：`record R(string A, …)` 的定位字段合成为 `public`（镜像 C# record 定位参→公有属性）。
+- **不允许组合修饰符**：2+ 访问修饰符（`protected internal` / `private protected`）→ `E0405`（`_parseModifiers` 拦截）。
 
 ## 机制 / 实现
 

@@ -205,7 +205,7 @@ public sealed class IrGen {
                                                                      owner, c.TypeParams.Names, c.TypeParams.Count);
                                     irf.Attrs = this._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection：方法 attr-ref
                                     irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
-                                    irf.Visibility = IrGenFacts._visCode(md.Mods);   // add-member-visibility
+                                    irf.Visibility = IrGenFacts._visCode(md.Mods, 1);   // add-member-visibility（成员默认 private）
                                     irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
                                     IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
                                     funcs = IrGenFacts._pushFunc(funcs, fc, irf); fc = fc + 1;
@@ -216,7 +216,7 @@ public sealed class IrGen {
                                 if (nat != "") {
                                     IrFunction stub = this._stubE._emitNativeStub(irName, md, nat,
                                                                            IrGenFacts._hasWord(md.Mods, "static"), rawMem);
-                                    stub.Visibility = IrGenFacts._visCode(md.Mods);      // add-member-visibility：extern 桩此前漏设
+                                    stub.Visibility = IrGenFacts._visCode(md.Mods, 1);      // add-member-visibility：extern 桩此前漏设
                                     stub.MethodFlags = IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern（如 Object.ToString/Equals/GetHashCode）须带 virtual 位
                                     IrGenFacts._fillParamMeta(stub, md, !IrGenFacts._hasWord(md.Mods, "static"));   // add-param-metadata
                                     funcs = IrGenFacts._pushFunc(funcs, fc, stub); fc = fc + 1;
@@ -228,7 +228,7 @@ public sealed class IrGen {
                                 IrFunction astub = this._stubE._emitAbstractStub(irName, md);
                                 astub.Attrs = this._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
                                 astub.ParamAttrs = this._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
-                                astub.Visibility = IrGenFacts._visCode(md.Mods);
+                                astub.Visibility = IrGenFacts._visCode(md.Mods, 1);
                                 astub.MethodFlags = IrGenFacts._methodFlags(md.Mods);
                                 IrGenFacts._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
                                 funcs = IrGenFacts._pushFunc(funcs, fc, astub); fc = fc + 1;
@@ -358,7 +358,7 @@ public sealed class IrGen {
                                     var ife = new FunctionEmitter(model.Symbols, this);
                                     IrFunction iirf = ife.EmitFunction(this._qClass(itn) + "." + imk, imd,
                                                                        model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
-                                    iirf.Visibility = IrGenFacts._visCode(imd.Mods);   // add-member-visibility
+                                    iirf.Visibility = IrGenFacts._visCode(imd.Mods, 1);   // add-member-visibility
                                     iirf.MethodFlags = IrGenFacts._methodFlags(imd.Mods);   // add-method-modifiers
                                     IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
                                     funcs = IrGenFacts._pushFunc(funcs, fc, iirf); fc = fc + 1;
@@ -456,7 +456,7 @@ public sealed class IrGen {
                     // 自由函数：无 this（isInstance=false）且 IsStatic 标志=false（与 C# 一致）
                     IrFunction irf = fe.EmitFunction(this._q(md.Name), md, model.GetBody(md.Name), false, false,
                                                      null, new string[0], 0);
-                    irf.Visibility = IrGenFacts._visCode(md.Mods);   // add-member-visibility
+                    irf.Visibility = IrGenFacts._visCode(md.Mods, 3);   // 自由函数默认 internal（顶层，最小封闭作用域=模块）
                     irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
                     IrGenFacts._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
                     funcs = IrGenFacts._pushFunc(funcs, fc, irf); fc = fc + 1;

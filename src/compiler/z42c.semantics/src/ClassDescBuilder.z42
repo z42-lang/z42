@@ -157,7 +157,7 @@ public sealed class ClassDescBuilder {
                     }
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
                     sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
-                    sfdesc.Visibility = IrGenFacts._visCode(fd.Mods);   // add-member-visibility
+                    sfdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
                 } else {
@@ -168,7 +168,7 @@ public sealed class ClassDescBuilder {
                     }
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
                     fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
-                    fdesc.Visibility = IrGenFacts._visCode(fd.Mods);   // add-member-visibility
+                    fdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
                 }

@@ -86,10 +86,19 @@ public sealed class DeclParser {
 
     public string _parseModifiers() {
         string s = "";
+        Span firstSp = this._p._peek().Span;
+        int accessCount = 0;
         while (this._isModifier(this._p._peek().Kind)) {
+            int k = this._p._peek().Kind;
+            if (k == TokenKind.Public || k == TokenKind.Private || k == TokenKind.Protected || k == TokenKind.Internal) { accessCount = accessCount + 1; }
             if (s != "") { s = s + " "; }
             s = s + this._p._peek().Text;
             this._p._advance();
+        }
+        // default-member-private / access-control.md：修饰符只能写一个访问级别，不允许组合
+        // （无 `protected internal` / `private protected`）。2+ 访问修饰符 → E0405。
+        if (accessCount > 1) {
+            this._p._diags.Error(DiagnosticCodes.InvalidModifier, "cannot combine access modifiers", firstSp);
         }
         return s;
     }

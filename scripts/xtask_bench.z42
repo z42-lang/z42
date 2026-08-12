@@ -313,11 +313,11 @@ class MicroBenchAgg {
         this._tiers = new string[1]; this._tiers[0] = "interp";
         this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;
     }
-    int count() { return this._n; }
+    internal int count() { return this._n; }
 
     // Record the execution profile (idempotent — first call wins). tiers comes
     // from the micro `--mode`; vm/vmVersion from probing the runner's VM binary.
-    void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
+    internal void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
         if (this._profSet) { return; }
         this._tiers = tiers; this._vm = vm; this._vmVersion = vmVersion;
         this._profSet = true;
@@ -325,7 +325,7 @@ class MicroBenchAgg {
 
     // Parse one z42b `--format json` module output; append each benchmark's stats.
     // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
-    void addModuleJson(string moduleJson, string lib) {
+    internal void addModuleJson(string moduleJson, string lib) {
         JsonValue root = JsonValue.Parse(moduleJson.Trim());
         if (!root.ContainsKey("results")) { return; }
         JsonValue results = root.Get("results");
@@ -355,7 +355,7 @@ class MicroBenchAgg {
     }
 
     // Wrap accumulated items in the schema-v2 envelope (reuses _gitOut/_utcNow).
-    string toSchemaV2(string root) {
+    internal string toSchemaV2(string root) {
         string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
         string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
         return "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit

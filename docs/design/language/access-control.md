@@ -1,6 +1,12 @@
 # 访问权限控制规范
 
-> **Status**: L1 ✅ (private / 枚举成员) ｜ `protected` / `internal` 检查待 Phase 2
+> **Status**: ✅ 全部实现（enforce-access-control #180 + default-member-private）——private / protected /
+> internal（含跨包）+ 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性
+> + record 定位字段 public。机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
+> **本规范是访问控制的语言 SoT**（2026-08-12：默认成员 = private 以本文档为准，实现已对齐）。
+>
+> 未做：**类级访问强制**（private 嵌套类 / internal 类不可跨作用域*引用*——当前只强制成员访问，不检查类型
+> 引用；`LinkedList.Node` 例仍可被外部引用）。列为独立后续 change。
 
 ## 设计原则
 
@@ -193,8 +199,8 @@ void Main() {
 | `private` 成员越界访问 → 编译错误 | ✅ | — |
 | 枚举成员带修饰符 → 编译错误 | ✅ | — |
 | 组合修饰符 → 编译错误 | ✅ | — |
-| `protected` 子类访问检查 | ❌ | ✅（需继承实现）|
-| `internal` 跨模块检查 | ❌ | ✅（需多文件编译）|
+| `protected` 子类访问检查 | ✅ | — |
+| `internal` 跨模块检查（含跨包） | ✅ | — |
 
 ### Phase 1 测试用例覆盖
 

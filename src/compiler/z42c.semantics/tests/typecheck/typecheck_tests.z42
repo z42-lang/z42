@@ -212,7 +212,7 @@ void test_member_field_access() {
 [Test]
 void test_inherited_field_access() {
     // this.x 来自 Base（继承字段，走 base 链查找）
-    string src = "class Base { int x; } class Derived : Base { int y; int Sum() { return this.x + this.y; } }";
+    string src = "class Base { protected int x; } class Derived : Base { int y; int Sum() { return this.x + this.y; } }";
     Assert.Equal("(block (return (bin + (member (ident this :Derived) x :int) (member (ident this :Derived) y :int) :int)))",
                  SemanticDump.DumpBody(src, "Derived.Sum"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
@@ -249,7 +249,7 @@ void test_instance_method_call() {
 
 [Test]
 void test_instance_call_on_param() {
-    string src = "class Box { int Get() { return 7; } } class C { int Read(Box b) { return b.Get(); } }";
+    string src = "class Box { public int Get() { return 7; } } class C { int Read(Box b) { return b.Get(); } }";
     Assert.Equal("(block (return (call-inst (ident b :Box) Get :int)))",
                  SemanticDump.DumpBody(src, "C.Read"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
@@ -258,7 +258,7 @@ void test_instance_call_on_param() {
 [Test]
 void test_static_method_call() {
     // Math.Square(...) 静态调用（裸类名 target）
-    string src = "class Math { static int Square(int n) { return n; } } class C { int Use() { return Math.Square(4); } }";
+    string src = "class Math { public static int Square(int n) { return n; } } class C { int Use() { return Math.Square(4); } }";
     Assert.Equal("(block (return (call-static Math Square$1$i32 (lit-int 4 :int) :int)))",
                  SemanticDump.DumpBody(src, "C.Use"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
@@ -267,7 +267,7 @@ void test_static_method_call() {
 [Test]
 void test_inherited_method_call() {
     // 继承方法调用（this.BaseM() 在 Base 定义）
-    string src = "class Base { int BaseM() { return 0; } } class Derived : Base { int Use() { return this.BaseM(); } }";
+    string src = "class Base { protected int BaseM() { return 0; } } class Derived : Base { int Use() { return this.BaseM(); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 
@@ -795,6 +795,6 @@ void test_const_bad_ref_error() {
 [Test]
 void test_const_valid_no_error() {
     // 合法 const：字段引用已定义 const + 局部 const + 混用于普通表达式 → 无错。
-    string src = "class C { const int A = 10; const int B = A * 2; } void f() { const int n = 8; int y = n + C.A; }";
+    string src = "class C { public const int A = 10; const int B = A * 2; } void f() { const int n = 8; int y = n + C.A; }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
