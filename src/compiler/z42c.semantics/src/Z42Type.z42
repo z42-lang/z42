@@ -12,20 +12,12 @@ public class Z42Type {
 
     // 规范化基本类型名用于可赋性比较：剥 nullable `?`（z42 nullable 在类型模型擦除）+
     // 基本类型别名归一（`byte`≡`u8` 等；imported TSIG 用 keyword 拼写、本地用 canonical，须等价）。
+    // unify-value-types Phase 1（D3 收敛）：委托 PrimModel.Canon——它是历史此表的**超集**（额外认
+    // 包装名 Int32/FQ Std.Int32 → 短名），使翻转后 `int`（→Z42ClassType(Int32)）与 keyword `int` 归一
+    // 到同一 canonical 短名（可赋性/拓宽比较不破）。对历史输入（keyword/短名/用户类名）结果逐条同义，
+    // 故 self-host codegen 逐字节不变；超集部分（wrapper/FQ）翻转前无类型以该拼写流经此处 → 当前中立。
     public static string Canon(string n) {
-        string s = n;
-        if (s.EndsWith("?")) { s = s.Substring(0, s.Length - 1); }
-        if (s == "byte")   { return "u8"; }
-        if (s == "sbyte")  { return "i8"; }
-        if (s == "short")  { return "i16"; }
-        if (s == "ushort") { return "u16"; }
-        if (s == "int")    { return "i32"; }
-        if (s == "uint")   { return "u32"; }
-        if (s == "long")   { return "i64"; }
-        if (s == "ulong")  { return "u64"; }
-        if (s == "float")  { return "f32"; }
-        if (s == "double") { return "f64"; }
-        return s;
+        return PrimModel.Canon(n);
     }
 }
 
