@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ifaceintapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.IfaceIntApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ifaceinttarget" = "0.1.0"

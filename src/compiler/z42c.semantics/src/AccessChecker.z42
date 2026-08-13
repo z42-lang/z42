@@ -77,29 +77,43 @@ public sealed class AccessChecker {
             while (i < it.ArgCount) { AccessChecker.CheckTypeRef(it.TypeArgs[i], currentClass, symbols, diags, sp); i = i + 1; }
             return;
         }
-        if (!(resolved is Z42ClassType)) { return; }
-        Z42ClassType ct = resolved as Z42ClassType;
-        string vis = ct.Visibility;
+        if (resolved is Z42ClassType) {
+            Z42ClassType ct = resolved as Z42ClassType;
+            AccessChecker._checkVisRef(ct.Visibility, ct.Name(), ct.IsImported, "class", currentClass, symbols, diags, sp);
+            return;
+        }
+        // complete-class-access-control ④：接口与类对称强制（internal 接口跨包引用 deny）。
+        if (resolved is Z42InterfaceType) {
+            Z42InterfaceType ift = resolved as Z42InterfaceType;
+            AccessChecker._checkVisRef(ift.Visibility, ift.Name(), ift.IsImported, "interface", currentClass, symbols, diags, sp);
+            return;
+        }
+        // 其余（prim/泛型形参/未知/func）一律放行，绝不误报。
+    }
+
+    // 类/接口共用的可见性引用校验（private 嵌套文本域 / protected 外层家族 / internal 跨包 deny）。
+    // kind："class"/"interface"（仅诊断措辞）。isImported=声明自依赖 zpkg（跨包）。
+    private static void _checkVisRef(string vis, string declName, bool isImported, string kind,
+                                     string currentClass, SymbolTable symbols, DiagnosticBag diags, Span sp) {
         if (vis == "public") { return; }
-        string declName = ct.Name();
         string outer = AccessChecker._nestedOuter(declName);
         if (vis == "private") {
             // 嵌套 private：外层类文本内（含更深嵌套）。顶层 private（outer==""）：仅类自身文本（真实代码无此）。
             if (outer == "") { if (currentClass == declName) { return; } }
             else if (currentClass == outer || currentClass.StartsWith(outer + "+")) { return; }
-            AccessChecker._denyType("private", declName, false, diags, sp);
+            AccessChecker._denyType("private", declName, kind, false, diags, sp);
             return;
         }
         if (vis == "protected") {
             // 嵌套 protected：外层类家族（外层类 + 派生）。顶层 protected（unreal）：本类家族。
             string tgt = (outer == "") ? declName : outer;
             if (AccessChecker._derivesFromOrEq(tgt, currentClass, symbols)) { return; }
-            AccessChecker._denyType("protected", declName, false, diags, sp);
+            AccessChecker._denyType("protected", declName, kind, false, diags, sp);
             return;
         }
         // internal（含无修饰符顶层默认）：本包声明放行；imported（跨包）deny。
-        if (!ct.IsImported) { return; }
-        AccessChecker._denyType("internal", declName, true, diags, sp);
+        if (!isImported) { return; }
+        AccessChecker._denyType("internal", declName, kind, true, diags, sp);
     }
 
     // 嵌套类外层名（剥 '+' 末段）；顶层类（无 '+'）返回 ""。
@@ -126,9 +140,9 @@ public sealed class AccessChecker {
         return false;
     }
 
-    private static void _denyType(string vis, string declName, bool crossPkg, DiagnosticBag diags, Span sp) {
+    private static void _denyType(string vis, string declName, string kind, bool crossPkg, DiagnosticBag diags, Span sp) {
         string disp = declName.Replace("+", ".");   // 用户面用点号（Outer.Inner），内部键为 Outer+Inner
-        string msg = "cannot access " + vis + " class `" + disp + "`";
+        string msg = "cannot access " + vis + " " + kind + " `" + disp + "`";
         if (crossPkg) { msg = msg + " from another package"; }
         diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
     }

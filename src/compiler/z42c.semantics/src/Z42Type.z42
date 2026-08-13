@@ -193,7 +193,12 @@ public sealed class Z42InterfaceType : Z42Type {
     public StrMap Methods;    // name → MethodSymbol
     public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
     public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; }
+    // complete-class-access-control ④：接口与类对称携带可见性。Visibility="public"/"private"/
+    // "protected"/"internal"（默认 public，采集/导入后赋真值）；IsImported=来自依赖 zpkg（跨包）
+    // → internal 接口跨包引用 deny（CheckTypeRef 接口分支消费，镜像 Z42ClassType）。
+    public string Visibility;
+    public bool   IsImported;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }

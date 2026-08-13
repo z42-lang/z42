@@ -5,7 +5,7 @@
 
 ## 进度概览
 - [x] 阶段 A（commit 1 = ③）：顶层 private/protected 拒绝（E0442）
-- [ ] 阶段 B（commit 2 = ④）：接口类型可见性 + CheckTypeRef 接口分支
+- [x] 阶段 B（commit 2 = ④）：接口类型可见性 + CheckTypeRef 接口分支
 - [ ] 阶段 C（commit 3 = ②）：不一致可访问性（E0441）
 - [ ] 阶段 D（commit 4 = ①）：类可见性反射面（6 谓词）
 - [ ] 阶段 E：文档同步 + 归档
@@ -18,16 +18,16 @@
 - [x] A.5 commit `feat(compiler): 顶层声明拒绝 private/protected（E0442）`
 
 ## 阶段 B：④ 接口可见性（compiler，commit 2）
-- [ ] B.1 `Z42Type.z42`：`Z42InterfaceType` 加 `public string Visibility;` + ctor 默认 `"public"`
-- [ ] B.2 `SymbolCollector._passInterfaces`（~483）：`ift.Visibility = IrGenFacts.classVis(c.Mods, nested)`
-- [ ] B.3 `ClassDescBuilder._interfaceDesc`（~296）：`cd.Visibility = IrGenFacts.classVisCode(c.Mods, nested)`
-- [ ] B.4 `ExportedTypes.z42`：`ExportedInterfaceZ` 加 `Visibility` 字段（ctor 默认 public）
-- [ ] B.5 `TsigReconcile._rebuildInterface`（~323）：`eiz.Visibility = _visStr(cd.Visibility)`
-- [ ] B.6 `ImportedSymbolLoader` 接口路径：`nift.Visibility = il.Visibility; nift.IsImported = true`
-- [ ] B.7 `AccessChecker.CheckTypeRef`：加 `Z42InterfaceType` 分支（读 `.Visibility`，同 private/protected/internal 逻辑；`_denyType` 支持 "interface" 措辞）
-- [ ] B.8 `src/tests/cross-zpkg/interface_internal_access/`：包 A internal 接口 + 包 B 引用 → E0404（手工验证型或 expected_output）
-- [ ] B.9 验证：`xtask test`（重点 cross-zpkg + 自举 gen1==gen2 byte-identical；含 internal 接口的 zpkg 字节值变但格式不变）
-- [ ] B.10 commit `feat(compiler): 接口类型可见性建模 + 跨包 internal 接口引用强制`
+- [x] B.1 `Z42Type.z42`：`Z42InterfaceType` 加 `public string Visibility;` + ctor 默认 `"public"`
+- [x] B.2 `SymbolCollector._passInterfaces`（~483）：`ift.Visibility = IrGenFacts.classVis(c.Mods, nested)`
+- [x] B.3 `ClassDescBuilder._interfaceDesc`（~296）：`cd.Visibility = IrGenFacts.classVisCode(c.Mods, nested)`
+- [x] B.4 `ExportedTypes.z42`：`ExportedInterfaceZ` 加 `Visibility` 字段（ctor 默认 public）
+- [x] B.5 `TsigReconcile._rebuildInterface`（~323）：`eiz.Visibility = _visStr(cd.Visibility)`
+- [x] B.6 `ImportedSymbolLoader` 接口路径：`nift.Visibility = il.Visibility; nift.IsImported = true`
+- [x] B.7 `AccessChecker.CheckTypeRef`：加 `Z42InterfaceType` 分支（读 `.Visibility`，同 private/protected/internal 逻辑；`_denyType` 支持 "interface" 措辞）
+- [x] B.8 `src/tests/cross-zpkg/interface_internal_access/`：包 A internal 接口 + 包 B 引用 → E0404（手工验证型或 expected_output）
+- [x] B.9 验证：`xtask test`（重点 cross-zpkg + 自举 gen1==gen2 byte-identical；含 internal 接口的 zpkg 字节值变但格式不变）
+- [x] B.10 commit `feat(compiler): 接口类型可见性建模 + 跨包 internal 接口引用强制`
 
 ## 阶段 C：② 不一致可访问性（compiler，commit 3）
 - [ ] C.1 `DiagnosticCodes.z42` 加 `InconsistentAccessibility = "E0441"`
@@ -60,6 +60,10 @@
 - [ ] E.7 PR：push 分支 + `gh pr create`（body 三段 + 页脚）；合并前 rebase origin/main + 重跑 GREEN
 
 ## 备注
+- **④ 调试教训（跨包 fixture 手工验证陷阱）**：验证跨包接口 E0404 时，`Z42_LIBS` 必须指向**新鲜重建**的
+  stdlib（`artifacts/build/libraries/dist/release/`），**不能**用 `.z42/libs`（种子=旧 z42.ir，缺
+  `ExportedInterfaceZ.Visibility` 字段 → 运行时字段读为 null → CheckTypeRef 匹配不上 "public" → 落入
+  internal 分支把 public 接口也误拒）。driver 运行时从 Z42_LIBS 加载 z42.ir，须与编译期一致。
 - **stdlib 自触发 E0441 风险（重点盯 C.5）**：加 E0441 后，stdlib 现有源码若存在「public 成员暴露 internal 类型」会在自举时报错 → 属真实不一致，需就地修（改类型或调可见性）或评估是否规则过严。这是 ② 的主要未知量，实施时先 grep 高危模式，编译器自举全绿为准。
 - **环境**：worktree `z42-acl3` 基于 origin/main（f9928607，含 #184，zbc 1.33/zpkg 0.38）。需 0.38 warm 种子（无 bump → 一次供种后 warm 全程可验，不走两代自举）。
 - **无格式 bump**：四项 zbc/zpkg 格式字节不变；自举 byte-identical 不动点应保持（接口 vis 值变属产物内容）。

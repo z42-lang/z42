@@ -251,3 +251,36 @@ void test_nested_private_class_not_toplevel_rejected() {
     string src = "class Outer { private class Inner { } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── 接口类型可见性（complete-class-access-control ④，同包嵌套接口引用；跨包 internal 见 cross-zpkg fixture）──
+// 注：用**局部变量**声明引用接口类型（StmtBinder → TypeChecker._diags，SemanticDump 计数）；方法**参数**
+// 类型的引用检查走 SymbolCollector.Diags（不计入 ErrorCount，见 semanticdump 坑），跨包 param 场景由
+// cross-zpkg/interface_internal_access fixture 手工验证覆盖。
+
+[Test]
+void test_iface_private_nested_from_outside_denied() {
+    // 无关自由函数引用另一类的 private 嵌套接口（局部变量类型）→ E0404
+    string src = "class Outer { private interface I { int F(); } } void f() { Outer.I x = null; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_iface_private_nested_from_outer_ok() {
+    // 外层类内引用自己的 private 嵌套接口 → 放行
+    string src = "class Outer { private interface I { int F(); } void use() { Outer.I x = null; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_public_nested_from_outside_ok() {
+    // public 嵌套接口跨作用域引用 → 放行
+    string src = "class Outer { public interface I { int F(); } } void f() { Outer.I x = null; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_internal_toplevel_same_package_ok() {
+    // 无修饰符顶层接口默认 internal；同包引用 → 放行（跨包 deny 由 cross-zpkg fixture 覆盖）
+    string src = "interface Handler { int H(); } void f() { Handler h = null; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

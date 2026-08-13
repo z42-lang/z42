@@ -494,11 +494,14 @@ public sealed class SymbolCollector {
                             if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
                             // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
                         } else {
-                            table.Interfaces.Put(c.Name, new Z42InterfaceType(c.Name));   // 均非 partial：维持既有 last-wins
+                            Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
+                            itw.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                            table.Interfaces.Put(c.Name, itw);
                         }
                     } else {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
+                        it.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
                         table.Interfaces.Put(c.Name, it);
                     }
                 }

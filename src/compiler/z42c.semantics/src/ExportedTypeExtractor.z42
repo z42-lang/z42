@@ -297,7 +297,9 @@ public static class ExportedTypeExtractor {
             }
             j = j + 1;
         }
-        return new ExportedInterfaceZ(c.Name, ms, mc, c.TypeParams.Names, c.TypeParams.Count);
+        ExportedInterfaceZ eiz = new ExportedInterfaceZ(c.Name, ms, mc, c.TypeParams.Names, c.TypeParams.Count);
+        eiz.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
+        return eiz;
     }
 
     private static Decl _unwrap(Decl d) {

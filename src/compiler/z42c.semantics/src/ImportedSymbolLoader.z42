@@ -114,7 +114,10 @@ public static class ImportedSymbolLoader {
                 while (ic < em.InterfaceCount) {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
-                        r.Interfaces.Put(iz.Name, new Z42InterfaceType(iz.Name));
+                        Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
+                        nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
+                        nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
+                        r.Interfaces.Put(iz.Name, nift);
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                         // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
