@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 33, "zbc minor at 1.33 (enforce-class-access: TYPE class-visibility byte)");
+    assert_eq!(ZBC_VERSION_MINOR, 34, "zbc minor at 1.34 (unify-object-byte-layout PR-1: TYPE full object field layout block, derived-predicate gated; on top of 1.33 enforce-class-access visibility byte)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 38, "zpkg minor at 0.38 (enforce-class-access: coupled zbc 1.33)");
+    assert_eq!(ZPKG_VERSION_MINOR, 39, "zpkg minor at 0.39 (unify-object-byte-layout PR-1: coupled zbc 1.34)");
 }
 
 #[test]

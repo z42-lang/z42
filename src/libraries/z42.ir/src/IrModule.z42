@@ -78,6 +78,14 @@ public sealed class IrClassDesc {
     // 同 struct 块 shape，reader 复用 StructLayoutDesc。非内联 class 全空、gated 零字节。
     public int InlineSize;
     public int[] InlineRefOffsets; public int[] InlineRefKinds; public int InlineRefCount;
+    // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（非 struct/interface/
+    // enum/delegate）随 TYPE 尾部 emit（在 inline 块之后，派生谓词 gated）。ObjectSize=对象字节区总大小
+    // （8B 引用）；平行数组 ObjFieldOffsets/ObjFieldSizes/ObjFieldKinds 是**每个直接字段**的 offset/size/kind
+    // （供 FieldGet/反射）；ObjRefOffsets/ObjRefKinds 是**扁平 8B 引用位图**（含内联 struct 内部叶子，供 GC）。
+    // PR-1 休眠元数据（runtime 暂不消费）。
+    public int ObjectSize;
+    public int[] ObjFieldOffsets; public int[] ObjFieldSizes; public int[] ObjFieldKinds; public int ObjFieldCount;
+    public int[] ObjRefOffsets; public int[] ObjRefKinds; public int ObjRefCount;
     public IrClassDesc(string name, bool hasBase, string baseName, IrFieldDesc[] fields, int fieldCount) {
         this.Name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = fields; this.FieldCount = fieldCount;
@@ -94,6 +102,9 @@ public sealed class IrClassDesc {
         this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
         this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;
+        this.ObjectSize = 0;
+        this.ObjFieldOffsets = new int[0]; this.ObjFieldSizes = new int[0]; this.ObjFieldKinds = new int[0]; this.ObjFieldCount = 0;
+        this.ObjRefOffsets = new int[0]; this.ObjRefKinds = new int[0]; this.ObjRefCount = 0;
     }
 }
 

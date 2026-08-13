@@ -93,6 +93,7 @@ impl Module {
             iface_methods:          c.iface_methods.clone(),
             struct_layout:          c.struct_layout.clone(),
             inline_layout:          c.inline_layout.clone(),  // add-struct-heap-inline (P3b)
+            object_layout:          c.object_layout.clone(),  // unify-object-byte-layout (PR-1)
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),
@@ -224,6 +225,39 @@ pub struct ClassDesc {
     /// struct fields. Reuses `StructLayoutDesc` (identical byte-blob + ref-bitmap shape).
     #[serde(default)]
     pub inline_layout: Option<StructLayoutDesc>,
+    /// unify-object-byte-layout (PR-1): the class's **full object field layout** —
+    /// every direct field's (byte offset, size, kind) at 8-byte reference width (the
+    /// C#-equivalent endpoint), plus the flattened 8B reference bitmap (including
+    /// inline-struct interior ref leaves). Present for normal reference classes (not
+    /// struct / interface / enum / delegate — the zbc 1.34 object block). **Dormant in
+    /// PR-1**: threaded into `TypeDescCold::object_layout` but not consumed (runtime
+    /// still uses `slots`); PR-2 switches field storage to this byte layout. `None` for
+    /// value/interface/enum/delegate types and old zbc without the block.
+    #[serde(default)]
+    pub object_layout: Option<ObjectLayoutDesc>,
+}
+
+/// unify-object-byte-layout (PR-1): serialized full-object field layout carried in
+/// `ClassDesc` (parsed from the zbc 1.34 TYPE-section object block). `size` = total
+/// object byte-region size (8B references); `field_*` = each **direct** field's byte
+/// offset / size / kind (`STRUCT_REF_*` for refs, else prim/struct), parallel arrays in
+/// declaration order; `ref_offsets` / `ref_kinds` = flattened 8B reference bitmap
+/// (includes inline-struct interior ref leaves), parallel arrays. Own fields only —
+/// inheritance base-offset composition happens at consume time (PR-2), mirroring
+/// `fields = base.fields ++ own_fields`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ObjectLayoutDesc {
+    pub size: u32,
+    #[serde(default)]
+    pub field_offsets: Box<[u32]>,
+    #[serde(default)]
+    pub field_sizes: Box<[u32]>,
+    #[serde(default)]
+    pub field_kinds: Box<[u8]>,
+    #[serde(default)]
+    pub ref_offsets: Box<[u32]>,
+    #[serde(default)]
+    pub ref_kinds: Box<[u8]>,
 }
 
 /// add-struct-value-semantics (A-use): serialized value-struct layout carried in
