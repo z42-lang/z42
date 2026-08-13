@@ -353,3 +353,45 @@ fn value_bool_payload_at_offset_8() {
         assert_eq!(*base_false.add(8), 0);
     }
 }
+
+// ── unify Phase 2 R3（装箱统一）: ScriptObject::boxed_prim_i64 —— 整数基元装箱盒的
+//    struct_bytes 标量编解码（宽度 + 有无符号扩展）。box 侧存 LE 字节，unbox 侧按 wrapper
+//    名的 (width, signed) 还原 i64。见 well_known_names::int_wrapper_scalar_spec。────────
+
+fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
+    GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc(name),
+        slots: Box::new([]),
+        struct_bytes: bytes.to_vec().into_boxed_slice(),
+        struct_refs: Box::new([]),
+        native: NativeData::None,
+        type_args: Box::new([]),
+    })
+}
+
+#[test]
+fn boxed_prim_i64_roundtrip_widths_and_sign() {
+    // Int32: 4 bytes, signed. +5 与 -5（符号扩展）
+    assert_eq!(boxed_prim("Std.Int32", &5i32.to_le_bytes()).borrow().boxed_prim_i64(), Some(5));
+    assert_eq!(boxed_prim("Std.Int32", &(-5i32).to_le_bytes()).borrow().boxed_prim_i64(), Some(-5));
+    // Int64: 8 bytes, signed
+    assert_eq!(boxed_prim("Std.Int64", &(-1i64).to_le_bytes()).borrow().boxed_prim_i64(), Some(-1));
+    assert_eq!(boxed_prim("Std.Int64", &9i64.to_le_bytes()).borrow().boxed_prim_i64(), Some(9));
+    // Byte(unsigned 1B): 255 零扩展；SByte(signed 1B): 0xFF → -1
+    assert_eq!(boxed_prim("Std.Byte",  &[255u8]).borrow().boxed_prim_i64(), Some(255));
+    assert_eq!(boxed_prim("Std.SByte", &[0xFFu8]).borrow().boxed_prim_i64(), Some(-1));
+    // UInt32 max: 零扩展（不当负数）
+    assert_eq!(boxed_prim("Std.UInt32", &u32::MAX.to_le_bytes()).borrow().boxed_prim_i64(),
+               Some(u32::MAX as i64));
+    // Int16: -1000 符号扩展
+    assert_eq!(boxed_prim("Std.Int16", &(-1000i16).to_le_bytes()).borrow().boxed_prim_i64(), Some(-1000));
+}
+
+#[test]
+fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
+    // 非整数 wrapper（普通 struct 装箱盒 / 未知名）→ None（调用方据此走 struct-blob 分流）
+    assert_eq!(boxed_prim("some.Point", &[1, 2, 3, 4]).borrow().boxed_prim_i64(), None);
+    assert_eq!(boxed_prim("Std.Double", &8u64.to_le_bytes()).borrow().boxed_prim_i64(), None);
+    // struct_bytes 短于 wrapper 宽度（不该发生）→ None，不 panic
+    assert_eq!(boxed_prim("Std.Int32", &[1, 2]).borrow().boxed_prim_i64(), None);
+}

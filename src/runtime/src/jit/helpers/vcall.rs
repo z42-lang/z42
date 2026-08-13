@@ -95,10 +95,12 @@ pub unsafe extern "C" fn jit_vcall(
         }
     }
 
-    // add-primitive-value-boxing: 装箱基元方法调用（镜像 interp/exec_vcall.rs Boxed 臂）。
-    // GetType 保留装箱类（不拆箱 this，否则按 inner 默认类报告丢宽度）；其余方法拆箱
-    // `this = inner` 交基元 struct 方法体（+ arity 重载，fallback Std.Object）。
-    if let Value::Boxed(b) = &obj_val {
+    // add-primitive-value-boxing → unify Phase 2 R3: 装箱基元方法调用（镜像 interp/exec_vcall.rs）。
+    // 基元盒现是 `BoxedStruct`（整数标量存 struct_bytes）；`boxed_prim_i64` 拆回标量。GetType 保留装箱类
+    // （不拆箱 this，否则按标量默认类报告丢宽度）；其余方法拆箱 `this = 裸标量` 交基元 struct 方法体
+    // （+ arity 重载，fallback Std.Object）。struct 装箱盒（None）落下方 struct 对象协议块。
+    if let Value::BoxedStruct(gc) = &obj_val {
+      if let Some(scalar) = gc.borrow().boxed_prim_i64() {
         let vm_ctx = vm_ctx_ref(ctx);
         if method == "GetType" && argc == 0 {
             match crate::corelib::object::builtin_obj_get_type(vm_ctx, &[obj_val.clone()]) {
@@ -106,9 +108,9 @@ pub unsafe extern "C" fn jit_vcall(
                 Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
             }
         }
-        let class_name = b.class.clone();
+        let class_name = gc.type_desc().name.clone();
         let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
-        call_args.push(b.inner.clone());
+        call_args.push(Value::I64(scalar));
         call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
         let arity = argc;
         let candidates = [
@@ -155,6 +157,7 @@ pub unsafe extern "C" fn jit_vcall(
         set_exception(vm_ctx, Value::Str(
             format!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity).into()));
         return 1;
+      }
     }
 
     // add-struct-object-methods (PR2b): 装箱 struct 对象协议方法（镜像 interp/exec_vcall.rs BoxedStruct 臂）。

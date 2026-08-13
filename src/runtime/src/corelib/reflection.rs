@@ -2044,8 +2044,14 @@ fn boxed_struct_field_set(
     } else {
         // The `object value` arg arrives boxed for value-type primitives (int → Std.Int32
         // box); `encode_prim` needs the raw primitive. Transparently unbox.
-        let raw = match value {
-            Value::Boxed(b) => &b.inner,
+        // unify Phase 2 R3: 基元盒现是 `BoxedStruct`（整数标量存 struct_bytes）→ `boxed_prim_i64`
+        // 拆回裸标量；非整数盒（None）保持原值（不该到此——标量 leaf 收基元）。
+        let unboxed;
+        let raw: &Value = match value {
+            Value::BoxedStruct(s) => match s.borrow().boxed_prim_i64() {
+                Some(n) => { unboxed = Value::I64(n); &unboxed }
+                None => value,
+            },
             other => other,
         };
         let w = prim_width(leaf.tag)?;

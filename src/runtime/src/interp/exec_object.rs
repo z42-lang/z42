@@ -384,16 +384,9 @@ pub(super) fn is_instance(
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => false,
-        // add-primitive-value-boxing: 装箱基元走**真 type_desc**（class + base + 接口链）——
-        // 精确强类型：`9L`(Std.Int64) is long → true；`5`(Std.Int32) is long → false。
-        // object 短路：所有装箱基元 is-a object（基元类名 Std.Int32 未必在 type_registry 可解析
-        // 到 Std.Object 基链——其真名为 Std.Primitives.Int32——故显式判，镜像 prim_isa）。
-        Value::Boxed(b) => {
-            class_name == "Std.Object" || class_name == "Object"
-                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name)
-        }
-        // add-struct-object-boxing: 装箱 struct is-a 精确 struct 类型 / object（值类型经装箱进 object
-        // 层级）；接口经 type_desc 链解析（struct 无 base，仅自身 + 实现的接口）；否则 false。
+        // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
+        // object（值类型经装箱进 object 层级）；接口 / 基链经 type_desc 解析。基元盒的 type_desc.name
+        // 即精确 wrapper（Std.Int64…）→ `9L is long`→true、`5 is long`→false 由 exact/subclass 判定。
         Value::BoxedStruct(b) => {
             class_name == "Std.Object" || class_name == "Object"
                 || &*b.type_desc().name == class_name
@@ -410,26 +403,17 @@ pub(super) fn as_cast(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
 ) -> Result<()> {
     let val = frame.get(obj)?.clone();
-    // add-primitive-value-boxing: Boxed 特判——命中**精确基元类** → 拆箱返 inner（`o as long`
-    // 拿回裸 long）；命中 base/接口 → 保持 Boxed（多态用）；否则 Null。
-    if let Value::Boxed(b) = &val {
-        let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let out = if class_name == &*b.class {
-            b.inner.clone()
-        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.class, class_name) {
-            val.clone()
-        } else {
-            Value::Null
-        };
-        frame.set(dst, out);
-        return Ok(());
-    }
-    // add-struct-object-boxing: BoxedStruct 特判——命中精确 struct 类 → 拆箱回当前帧 arena StructRef
-    // （值 struct 副本）；命中 object/base/接口 → 保持 boxed（多态）；否则 Null。
+    // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一）——
+    // 命中**精确类型** → 拆箱（基元盒 → 裸标量 `o as long`；struct 盒 → 当前帧 arena StructRef 值副本）；
+    // 命中 object/base/接口 → 保持 boxed（多态用）；否则 Null。基元 vs struct 盒由 boxed_prim_i64 分流。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let prim_scalar = b.borrow().boxed_prim_i64();
         let out = if &*b.type_desc().name == class_name {
-            super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?
+            match prim_scalar {
+                Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
+                None => super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?, // struct 盒 → arena StructRef
+            }
         } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_desc().name, class_name) {
             val.clone()
         } else {

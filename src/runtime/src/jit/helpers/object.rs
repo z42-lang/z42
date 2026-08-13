@@ -417,11 +417,8 @@ pub unsafe extern "C" fn jit_is_instance(
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
         Value::Array(_)   => is_array_isa(class_name),
-        // add-primitive-value-boxing: 装箱基元走真 type_desc（精确强类型，镜像 interp）；
-        // object 短路（基元类名未必可解析到 Std.Object 基链）。
-        Value::Boxed(b)   => class_name == "Std.Object" || class_name == "Object"
-            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name),
-        // add-struct-object-boxing: 装箱 struct is-a 精确 struct / object（镜像 interp is_instance）。
+        // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
+        // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
             || &*b.type_desc().name == class_name
             || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name),
@@ -440,30 +437,22 @@ pub unsafe extern "C" fn jit_as_cast(
         .unwrap_or("<invalid>");
     let module = &*(*ctx).module;
     let val    = (*frame).regs[obj as usize].clone();
-    // add-primitive-value-boxing: Boxed 特判（镜像 interp as_cast）——精确基元类 → 拆箱返 inner；
-    // base/接口 → 保持 Boxed；否则 Null。
-    if let Value::Boxed(b) = &val {
-        let is_obj = class_name == "Std.Object" || class_name == "Object";
-        let out = if class_name == &*b.class {
-            b.inner.clone()
-        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.class, class_name) {
-            val.clone()
-        } else {
-            Value::Null
-        };
-        (*frame).regs[dst as usize] = out;
-        return;
-    }
-    // add-struct-jit-value-path (P5): BoxedStruct 精确匹配 → **拆箱**到当前帧 arena StructRef
-    // （值副本，镜像 interp as_cast）；object/base/接口 → 保持 boxed（多态）；否则 Null。frame_id
-    // 由 struct 帧惰性分配（struct_ops::frame_id_of），前置的「JIT 无 frame_id 只能保持 boxed」限制
-    // （add-struct-object-boxing）已被本 change 解除。
+    // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像
+    // interp as_cast）——精确类型命中 → 拆箱（基元盒 → 裸标量；struct 盒 → 当前帧 arena StructRef 值
+    // 副本，frame_id 由 struct_ops::frame_id_of 惰性分配）；object/base/接口 → 保持 boxed（多态）；否则
+    // Null。基元 vs struct 盒由 boxed_prim_i64 分流。
     if let Value::BoxedStruct(b) = &val {
         let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let prim_scalar = b.borrow().boxed_prim_i64();
         let out = if &*b.type_desc().name == class_name {
-            let fid = super::struct_ops::frame_id_of(frame, ctx);
-            crate::interp::exec_struct::unbox_struct(vm_ctx_ref(ctx), fid, b)
-                .unwrap_or(Value::Null)
+            match prim_scalar {
+                Some(n) => Value::I64(n), // 基元盒精确命中 → 裸标量
+                None => {
+                    let fid = super::struct_ops::frame_id_of(frame, ctx);
+                    crate::interp::exec_struct::unbox_struct(vm_ctx_ref(ctx), fid, b)
+                        .unwrap_or(Value::Null)
+                }
+            }
         } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name) {
             val.clone()
         } else {

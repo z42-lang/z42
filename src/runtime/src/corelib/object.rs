@@ -42,9 +42,8 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Some(Value::Str(_)) => {
             Ok(make_type_from_name(ctx, crate::metadata::well_known_names::STD_STRING))
         }
-        // add-primitive-value-boxing: 装箱基元 → 其**精确基元 struct 类型**（Std.Int64/…）。
-        Some(Value::Boxed(b)) => Ok(make_type_from_name(ctx, &b.class)),
-        // add-struct-object-boxing: 装箱 struct → 其 struct 类型（type_name 载于 boxed 载荷）。
+        // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）→ 其**精确类型**
+        // （type_desc.name：struct 类型 / 基元 wrapper 如 Std.Int64——两者统一为 BoxedStruct）。
         Some(Value::BoxedStruct(b)) => Ok(make_type_from_name(ctx, &b.type_desc().name)),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         Some(v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))) => {
