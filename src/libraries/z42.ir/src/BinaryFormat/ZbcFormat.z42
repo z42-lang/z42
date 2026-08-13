@@ -5,8 +5,8 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 33;   // 2026-08-13 enforce-class-access：TYPE 记录加**类声明可见性字节**（0=public/1=private/2=protected/3=internal，紧随 class_flags u8，每条 TYPE 记录 +1 字节）。跨包 internal 类引用强制的元数据载体。随 zpkg 0/38 同 bump。
-                                    // 前史：1.32 add-struct-heap-inline P3b（TYPE 加合成内联 struct 布局块，Flags bit7=0x80 gated）；1.31 add-struct-value-semantics A-use（TYPE 加值 struct 布局块，Flags bit2 gated）；1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys；1.26 add-delegate-metadata；1.24 add-method-modifiers。
+    public static int Minor = 34;   // 2026-08-14 unify-object-byte-layout PR-1：TYPE section 加**对象全字段布局块**（普通引用类=class_flags 不含 struct/interface/enum/delegate=116 时随 inline 块之后 emit，派生谓词 gated——class flags U8 满位无空闲位；ObjectSize:u32+field_count:u16+(off:u32,size:u32,kind:u8)×n+ref_count:u16+(off:u32,kind:u8)×m=8B 引用宽度每字段布局+扁平引用位图）。随 zpkg 0/39 同 bump。
+                                    // 前史：1.33 enforce-class-access（TYPE 记录加类声明可见性字节，紧随 class_flags u8）；1.32 add-struct-heap-inline P3b（合成内联 struct 布局块，Flags bit7 gated）；1.31 add-struct-value-semantics A-use（TYPE 加值 struct 布局块，Flags bit2 gated）；1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys；1.26 add-delegate-metadata；1.24 add-method-modifiers。
 }
 
 // TIDX section 版本（须与 C# ZbcWriter.TidxFormatVersion / Rust TEST_INDEX_VERSION 一致；strict-pin）。

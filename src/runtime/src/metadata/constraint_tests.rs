@@ -28,6 +28,7 @@ fn simple_class(name: &str) -> ClassDesc {
         iface_methods: vec![].into(),
         struct_layout: None,
             inline_layout: None,
+            object_layout: None,
         class_flags: 0,
         visibility: 0,
         name: name.to_owned(),

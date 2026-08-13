@@ -146,6 +146,93 @@ void test_build_from_symbols_ref_field() {
     Assert.Equal(StructLeafKind.GcRef, lb.RefLeafKinds[0]);
 }
 
+// ── unify-object-byte-layout PR-1：对象全字段布局（8B 引用）单测 ──────────────────
+
+[Test]
+void test_object_layout_prims() {
+    // 非-struct class W { x:int; y:int; } → 对象布局 x@0, y@4, size 8, 无引用叶子。
+    var table = new SymbolTable();
+    var w = new Z42ClassType("W", false, "");   // 非 struct → 进 classDefs → 有对象布局
+    w.AddOwnField("x", "int", "public");
+    w.AddOwnField("y", "int", "public");
+    table.Classes.Put("W", w);
+    var sl = StructLayout.BuildFromSymbols(table);
+    Assert.Equal(true, sl.HasObjectLayout("W"));
+    var ol = sl.ObjectLayoutOf("W");
+    Assert.Equal(2, ol.FieldCount);
+    Assert.Equal(0, _fieldOff(ol, "x"));
+    Assert.Equal(4, _fieldOff(ol, "y"));
+    Assert.Equal(8, ol.Size);
+    Assert.Equal(0, ol.RefLeafCount);
+}
+
+[Test]
+void test_object_layout_8byte_reference() {
+    // 关键：class B { n:int; s:string; obj:W; } → 引用叶子按 **8B** 算（终点 C# 布局）：
+    // n@0(4B), s@8(string 8B ref, align8 从 4→8), obj@16(W 8B ref), size 24。
+    // 对比 struct 版（16B 引用）会是 s@8、obj@24、size 40 —— 8B 收窄在此体现。
+    var table = new SymbolTable();
+    var b = new Z42ClassType("B", false, "");
+    b.AddOwnField("n", "int", "public");
+    b.AddOwnField("s", "string", "public");
+    b.AddOwnField("obj", "W", "public");
+    table.Classes.Put("B", b);
+    table.Classes.Put("W", new Z42ClassType("W", false, ""));   // 非 struct → GcRef 8B
+    var sl = StructLayout.BuildFromSymbols(table);
+    var ol = sl.ObjectLayoutOf("B");
+    Assert.Equal(0,  _fieldOff(ol, "n"));    // int @0
+    Assert.Equal(8,  _fieldOff(ol, "s"));    // string 8B align8 → 从 4 对齐到 8
+    Assert.Equal(16, _fieldOff(ol, "obj"));  // W 引用 8B @16
+    Assert.Equal(24, ol.Size);               // 8B 引用 → 24（16B 引用会是 40）
+    Assert.Equal(8,  ol.Align);
+    // 引用叶子（8B 位图）：s=(8, ArcString)、obj=(16, GcRef)。
+    Assert.Equal(2,  ol.RefLeafCount);
+    Assert.Equal(8,  ol.RefLeafOffsets[0]);
+    Assert.Equal(StructLeafKind.ArcString, ol.RefLeafKinds[0]);
+    Assert.Equal(16, ol.RefLeafOffsets[1]);
+    Assert.Equal(StructLeafKind.GcRef, ol.RefLeafKinds[1]);
+}
+
+[Test]
+void test_object_layout_inline_struct_flattened_8byte() {
+    // class C { tag:int; pt:P; } 其中 struct P { name:string; k:int; }（内联 struct 字段扁平进对象布局）。
+    // P 8B 引用展平：name@0(8B ref), k@8 → P size 16。对象 C：tag@0(4), pt@8(align8 从 4→8)，pt 内 name@8、k@16。
+    // 对象 size = 8 + 16 = 24。引用叶子：pt.name 平移到 8 = (8, ArcString)。
+    var table = new SymbolTable();
+    var p = new Z42ClassType("P", false, "");
+    p.IsStruct = true;
+    p.AddOwnField("name", "string", "public");
+    p.AddOwnField("k", "int", "public");
+    table.Classes.Put("P", p);
+    var c = new Z42ClassType("C", false, "");
+    c.AddOwnField("tag", "int", "public");
+    c.AddOwnField("pt", "P", "public");   // 内联 struct 字段
+    table.Classes.Put("C", c);
+    var sl = StructLayout.BuildFromSymbols(table);
+    var ol = sl.ObjectLayoutOf("C");
+    Assert.Equal(0, _fieldOff(ol, "tag"));   // int @0
+    Assert.Equal(8, _fieldOff(ol, "pt"));    // struct P 扁平嵌入 @8（align8）
+    Assert.Equal(24, ol.Size);               // 8 + P(16) = 24
+    // 引用叶子：P.name 平移到 pt@8 + name@0 = 8。
+    Assert.Equal(1, ol.RefLeafCount);
+    Assert.Equal(8, ol.RefLeafOffsets[0]);
+    Assert.Equal(StructLeafKind.ArcString, ol.RefLeafKinds[0]);
+}
+
+[Test]
+void test_object_layout_struct_has_none() {
+    // struct 类型不进对象布局（走 struct 块）：ObjectLayoutOf 返回空、HasObjectLayout=false。
+    var table = new SymbolTable();
+    var p = new Z42ClassType("P", false, "");
+    p.IsStruct = true;
+    p.AddOwnField("x", "int", "public");
+    p.AddOwnField("y", "int", "public");
+    table.Classes.Put("P", p);
+    var sl = StructLayout.BuildFromSymbols(table);
+    Assert.Equal(false, sl.HasObjectLayout("P"));   // struct → 无对象布局
+    Assert.Equal(0, sl.ObjectLayoutOf("P").FieldCount);
+}
+
 [Test]
 void test_layout_cycle_detection() {
     // struct Node { next:Node; } —— 递归自含值字段（无限大小）→ ErrorType 置位。

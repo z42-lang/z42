@@ -790,6 +790,11 @@ pub fn build_type_registry(module: &mut Module) {
                     ref_kinds:   l.ref_kinds.clone(),
                 })
             }),
+            // unify-object-byte-layout (PR-1): carry the full object field layout
+            // (zbc 1.34 object block) as-is — dormant metadata, not consumed yet.
+            // Empty layouts (0-field classes) correlate with empty own_fields, so they
+            // drop naturally with the cold-emptiness check below (not added to it).
+            object_layout:          desc.object_layout.as_ref().map(|l| std::sync::Arc::new(l.clone())),
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()

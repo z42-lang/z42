@@ -258,6 +258,14 @@ pub struct TypeDescCold {
     /// inline struct fields. Delivered by the zbc 1.32 inline-field table (stage 3);
     /// consumed by `ScriptObject` alloc + `exec_struct` object-base field access.
     pub inline_layout: Option<std::sync::Arc<StructTypeLayout>>,
+    /// unify-object-byte-layout (PR-1): the class's **full object field layout** at 8B
+    /// reference width (from the zbc 1.34 object block, present for normal reference
+    /// classes). Carries per-field (offset/size/kind) + flattened 8B reference bitmap.
+    /// **Dormant in PR-1** — carried here but not consumed (field access still goes
+    /// through `slots`); PR-2 switches `ScriptObject` field storage to this byte layout.
+    /// Holds the parsed descriptor directly (no runtime form yet). `None` for
+    /// value/interface/enum/delegate types and modules predating the block.
+    pub object_layout: Option<std::sync::Arc<super::bytecode::ObjectLayoutDesc>>,
 }
 
 impl TypeDesc {

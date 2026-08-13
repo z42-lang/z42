@@ -92,6 +92,11 @@ public sealed class StructLayout {
     // （ExprEmitter，stage 4）**同源**取此布局 → 对象相对 offset 一致。
     private StrMap _classDefs;    // className → StructFieldsDef（非-struct class）
     private StrMap _inlineCache;  // className → StructLayoutInfo（合成内联布局）
+    // unify-object-byte-layout PR-1：非-struct 引用类的**对象全字段布局**（8B 引用，休眠元数据）+
+    // 内联 struct 字段扁平所需的 8B 引用 struct 展平布局缓存。
+    private StrMap _objectCache;       // className → StructLayoutInfo（对象全字段布局，8B 引用）
+    private StrMap _objStructCache;    // structName → StructLayoutInfo（8B 引用 struct 展平布局）
+    private StrMap _objStructInProgress; // 8B struct 布局环检测在途集
     public string  ErrorType;    // 非 "" → 检测到递归自含（诊断码 E0416 由持 DiagnosticBag 的调用方发）
     public string  ErrorCycle;   // 环路径描述（诊断信息用）
 
@@ -101,6 +106,9 @@ public sealed class StructLayout {
         this._inProgress = new StrMap();
         this._classDefs = new StrMap();
         this._inlineCache = new StrMap();
+        this._objectCache = new StrMap();
+        this._objStructCache = new StrMap();
+        this._objStructInProgress = new StrMap();
         this.ErrorType = "";
         this.ErrorCycle = "";
     }
@@ -142,6 +150,10 @@ public sealed class StructLayout {
         string[] ckeys = classDefs.Keys();
         int m = 0;
         while (m < ckeys.Length) { sl._computeInlineLayout(ckeys[m]); m = m + 1; }
+        // unify-object-byte-layout PR-1：为每个非-struct class 预计算**对象全字段布局**（8B 引用）。
+        // 休眠元数据（本 PR 只随 zbc 携带、runtime 不消费）；无字段的 class 得空布局（FieldCount 0）。
+        int n = 0;
+        while (n < ckeys.Length) { sl._computeObjectLayout(ckeys[n]); n = n + 1; }
         return sl;
     }
 
@@ -264,6 +276,99 @@ public sealed class StructLayout {
         int i = 0;
         while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldOffsets[i]; } i = i + 1; }
         return -1;
+    }
+
+    // ── unify-object-byte-layout PR-1：对象全字段布局（8B 引用，休眠元数据）───────────
+    //
+    // 一个非-struct 引用类的**全部直接字段**（基元 + 引用 + 内联 struct）的对象相对字节布局：
+    // per-field (offset, size, kind) 供 FieldGet/反射；扁平引用位图（含内联 struct 内部叶子）供 GC。
+    // 引用叶子按**8B 裸指针**算（终点 C# 布局；runtime 消费在 PR-2/3，本 PR 仅携带不消费）。
+    // offset 从 0 起（本类 OWN 区）；继承 base-shift 由消费方（PR-2）组合（镜像 fields=base++own）。
+
+    // 引用宽度 8B 版 _sizeOf（对象布局终点；基元宽度不变）。
+    private int _objSizeOf(string typeName, int kind) {
+        if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) { return 8; }
+        return this._sizeOf(typeName, kind);
+    }
+
+    // 8B 引用版 struct 展平布局（内联 struct 字段扁平进对象布局时用）。twin of LayoutOf/_compute，
+    // 但引用叶子 8B。环检测在途集独立于 16B 版（_objStructInProgress），命中返回空布局打断递归。
+    private StructLayoutInfo _objLayoutOfStruct(string structName) {
+        string key = Z42Type.Canon(structName);
+        object cached = this._objStructCache.Get(key);
+        if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
+        if (this._objStructInProgress.ContainsKey(key)) { return new StructLayoutInfo(key); }
+        object d = this._defs.Get(key);
+        if (!(d is StructFieldsDef)) { return new StructLayoutInfo(key); }
+        StructFieldsDef def = d as StructFieldsDef;
+        this._objStructInProgress.Put(key, "1");
+        StructLayoutInfo info = this._computeObjFields(key, def);
+        this._objStructCache.Put(key, info);
+        return info;
+    }
+
+    // 布局主算法（8B 引用版）：逐字段按对齐排布，累积 size/align，展平引用叶子（含嵌套/内联 struct）。
+    // 与 _compute 同形，差异仅：引用叶子用 _objSizeOf（8B）、嵌套 struct 递归走 _objLayoutOfStruct（8B）。
+    private StructLayoutInfo _computeObjFields(string typeName, StructFieldsDef def) {
+        StructLayoutInfo info = new StructLayoutInfo(typeName);
+        int offset = 0;
+        int maxAlign = 1;
+        int i = 0;
+        while (i < def.FieldCount) {
+            string fname = def.FieldNames[i];
+            string ftype = def.FieldTypeNames[i];
+            int kind = this._kindOf(ftype);
+            int size = 0;
+            int align = 0;
+            if (kind == StructLeafKind.Struct) {
+                StructLayoutInfo nested = this._objLayoutOfStruct(ftype);
+                size = nested.Size;
+                align = nested.Align;
+                if (align == 0) { align = 1; }   // 空/环兜底
+                offset = StructLayout._alignUp(offset, align);
+                info.AddField(fname, offset, size, kind, ftype);
+                int k = 0;
+                while (k < nested.RefLeafCount) {
+                    info.AddRefLeaf(offset + nested.RefLeafOffsets[k], nested.RefLeafKinds[k]);
+                    k = k + 1;
+                }
+            } else {
+                size = this._objSizeOf(ftype, kind);
+                align = this._alignOf(kind, size);
+                offset = StructLayout._alignUp(offset, align);
+                info.AddField(fname, offset, size, kind, ftype);
+                if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) {
+                    info.AddRefLeaf(offset, kind);   // 引用叶子入位图（8B，带种类）
+                }
+            }
+            offset = offset + size;
+            if (align > maxAlign) { maxAlign = align; }
+            i = i + 1;
+        }
+        info.Align = maxAlign;
+        info.Size = StructLayout._alignUp(offset, maxAlign);
+        return info;
+    }
+
+    // 计算并缓存某非-struct class 的对象全字段布局（BuildFromSymbols 预计算调用）。
+    private void _computeObjectLayout(string className) {
+        object d = this._classDefs.Get(className);
+        if (!(d is StructFieldsDef)) { return; }
+        StructFieldsDef def = d as StructFieldsDef;
+        StructLayoutInfo info = this._computeObjFields(className, def);
+        this._objectCache.Put(className, info);
+    }
+
+    // 某非-struct class 的对象全字段布局（无缓存 → 空布局 FieldCount 0 / Size 0）。
+    public StructLayoutInfo ObjectLayoutOf(string className) {
+        object c = this._objectCache.Get(Z42Type.Canon(className));
+        if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
+        return new StructLayoutInfo(Z42Type.Canon(className));
+    }
+
+    // 某 class 是否有对象布局（有直接字段 → 设 CLASS_FLAG_HAS_OBJECT_LAYOUT + emit 对象块）。
+    public bool HasObjectLayout(string className) {
+        return this.ObjectLayoutOf(className).FieldCount > 0;
     }
 
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。

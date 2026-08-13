@@ -372,6 +372,29 @@ public static class ZbcWriter {
                     irl = irl + 1;
                 }
             }
+            // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（Flags 不含
+            // struct(4)/interface(16)/enum(32)/delegate(64)）随 TYPE 尾部 emit（在 inline 块之后）。派生谓词
+            // gated（class flags 满位、无空闲位），reader 用同谓词读 → 无标志位也锁步。Layout：ObjectSize:u32 +
+            // field_count:u16 + (off:u32, size:u32, kind:u8)×n + ref_count:u16 + (ref_off:u32, ref_kind:u8)×m。
+            // 8B 引用宽度（C# 终点）；per-field 供 FieldGet/反射，扁平引用位图（含内联 struct 内部叶子）供 GC。
+            if ((cd.Flags & 116) == 0) {   // 116 = 4|16|32|64（struct|interface|enum|delegate）
+                w.WriteU32(cd.ObjectSize);
+                w.WriteU16(cd.ObjFieldCount);
+                int ofx = 0;
+                while (ofx < cd.ObjFieldCount) {
+                    w.WriteU32(cd.ObjFieldOffsets[ofx]);
+                    w.WriteU32(cd.ObjFieldSizes[ofx]);
+                    w.WriteU8(cd.ObjFieldKinds[ofx]);
+                    ofx = ofx + 1;
+                }
+                w.WriteU16(cd.ObjRefCount);
+                int orx = 0;
+                while (orx < cd.ObjRefCount) {
+                    w.WriteU32(cd.ObjRefOffsets[orx]);
+                    w.WriteU8(cd.ObjRefKinds[orx]);
+                    orx = orx + 1;
+                }
+            }
             c = c + 1;
         }
         return w;

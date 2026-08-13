@@ -129,7 +129,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // The compiler's cross-package `internal`-class reference enforcement reads it; the
 // VM currently reads-and-discards it (no class-visibility reflection surface yet).
 // Coupled with zpkg 0.38.
-pub const ZBC_VERSION_MINOR: u16 = 33;
+//
+// 2026-08-14 unify-object-byte-layout PR-1: bumped to 1.34 — TYPE section gains a
+// **full object field layout block** for normal reference classes (not struct /
+// interface / enum / delegate). Layout: object_size:u32 + field_count:u16 +
+// (field_off:u32, field_size:u32, field_kind:u8)×n + ref_count:u16 +
+// (ref_off:u32, ref_kind:u8)×m — every direct field's byte offset/size/kind at 8B
+// reference width (C# endpoint) + flattened 8B reference bitmap. Follows the inline
+// block, gated by a derived predicate (class flags U8 is full). Delivers
+// `TypeDescCold.object_layout` (dormant; PR-2 consumes it to replace `slots`).
+// Coupled with zpkg 0.39.
+pub const ZBC_VERSION_MINOR: u16 = 34;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -225,7 +235,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-13 enforce-class-access: bumped to 0.38, coupled inner zbc 1.33 (TYPE
 // class-declaration visibility byte). Outer zpkg layout unchanged; the bump triggers
 // ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 38;
+// 2026-08-14 unify-object-byte-layout PR-1: bumped to 0.39, coupled inner zbc 1.34
+// (TYPE full object field layout block for normal reference classes). Outer zpkg
+// layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 39;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -634,6 +647,49 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             None
         };
+        // unify-object-byte-layout (PR-1, zbc 1.33): trailing full object field layout
+        // block for normal reference classes — gated by the *derived predicate* (no
+        // free class-flags bit remained): a class that is not struct / interface /
+        // enum / delegate. Follows the inline block. Layout: object_size:u32 +
+        // field_count:u16 + (off:u32, size:u32, kind:u8)×n + ref_count:u16 +
+        // (ref_off:u32, ref_kind:u8)×m. Dormant — carried into `TypeDescCold`, not yet
+        // consumed. The writer (ClassDescBuilder / ZbcWriter) emits under the same
+        // predicate, so presence stays in lockstep without a flag.
+        let is_object_layout_class = class_flags
+            & (crate::metadata::bytecode::CLASS_FLAG_STRUCT
+                | crate::metadata::bytecode::CLASS_FLAG_INTERFACE
+                | crate::metadata::bytecode::CLASS_FLAG_ENUM
+                | crate::metadata::bytecode::CLASS_FLAG_DELEGATE)
+            == 0;
+        let object_layout_desc = if is_object_layout_class {
+            let size = c.read_u32()?;
+            let field_count = c.read_u16()? as usize;
+            let mut field_offsets = Vec::with_capacity(field_count);
+            let mut field_sizes = Vec::with_capacity(field_count);
+            let mut field_kinds = Vec::with_capacity(field_count);
+            for _ in 0..field_count {
+                field_offsets.push(c.read_u32()?);
+                field_sizes.push(c.read_u32()?);
+                field_kinds.push(c.read_u8()?);
+            }
+            let ref_count = c.read_u16()? as usize;
+            let mut ref_offsets = Vec::with_capacity(ref_count);
+            let mut ref_kinds = Vec::with_capacity(ref_count);
+            for _ in 0..ref_count {
+                ref_offsets.push(c.read_u32()?);
+                ref_kinds.push(c.read_u8()?);
+            }
+            Some(crate::metadata::bytecode::ObjectLayoutDesc {
+                size,
+                field_offsets: field_offsets.into_boxed_slice(),
+                field_sizes: field_sizes.into_boxed_slice(),
+                field_kinds: field_kinds.into_boxed_slice(),
+                ref_offsets: ref_offsets.into_boxed_slice(),
+                ref_kinds: ref_kinds.into_boxed_slice(),
+            })
+        } else {
+            None
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -652,6 +708,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             struct_layout: struct_layout_desc,
             // add-struct-heap-inline (P3b): composed inline-struct layout (zbc 1.32).
             inline_layout: inline_layout_desc,
+            // unify-object-byte-layout (PR-1): full object field layout (zbc 1.34). Dormant.
+            object_layout: object_layout_desc,
         });
     }
     Ok(classes)

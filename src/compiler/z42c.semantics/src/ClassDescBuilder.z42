@@ -251,6 +251,18 @@ public sealed class ClassDescBuilder {
                 cd2.InlineRefCount = il.RefLeafCount;
             }
         }
+        // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（class/record）填对象全
+        // 字段布局（8B 引用）。ZbcWriter 按派生谓词（Flags 不含 struct/interface/enum/delegate 位）gated emit
+        // → 与 reader 一致，无需新标志位。struct 走上面 struct 块（ObjectLayoutOf 对 struct 返回空，且 writer
+        // 谓词排除）。休眠元数据：runtime 暂不消费（PR-2 切字节存储时替换 slots）。
+        if (c.Kind != "struct" && this._g.Layouts != null) {
+            string objKey = this._g._classIrShortName(c);
+            StructLayoutInfo ol = this._g.Layouts.ObjectLayoutOf(objKey);
+            cd2.ObjectSize = ol.Size;
+            cd2.ObjFieldOffsets = ol.FieldOffsets; cd2.ObjFieldSizes = ol.FieldSizes;
+            cd2.ObjFieldKinds = ol.FieldKinds; cd2.ObjFieldCount = ol.FieldCount;
+            cd2.ObjRefOffsets = ol.RefLeafOffsets; cd2.ObjRefKinds = ol.RefLeafKinds; cd2.ObjRefCount = ol.RefLeafCount;
+        }
         // TypeParams + constraint bundles（zbc L3-G1/G3a；镜像 C# BuildConstraintList）
         if (c.TypeParams.Count > 0) {
             cd2.TypeParams = c.TypeParams.Names;
