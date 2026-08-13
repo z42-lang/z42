@@ -12,7 +12,19 @@
 
 ## Decisions（⏳ = 待 User 确认）
 
-### ⏳ D1（核心）：裸标量在 boxed-prim ScriptObject 里存哪
+### ✅ D1（User 裁决 2026-08-13）：**D1-B —— struct_bytes 存裸字节（完全同构）**
+基元装箱的 ScriptObject **裸标量存 `struct_bytes`**（与 struct 装箱完全同构）。**实现取零格式 bump 路径**：
+boxed-prim 的 `struct_bytes` 尺寸**运行期按 wrapper 名推标量宽度**（Int32→4 / Int64→8 / Boolean→1 /
+Char→4 / Double→8…，一张 `wrapper→scalar_width` 表），**不改 wrapper 类型的 emitted struct_layout**（Int32
+phantom 仍零字段/size 0，不动 zbc TYPE section）→ **无格式 bump、不碰 [[rebuild-class-access-on-unify]]**。
+拆箱按同款宽度从 `struct_bytes` 解码回裸 Value。反射（GetFields 空——Int32 无字段，标量即 this）不迭代字段，
+把整个 boxed-prim 当标量读。⚠️ 与 Phase 4「单标量塌缩」是同一机制的两半（本 Phase 只做装箱侧 struct_bytes 承载，
+塌缩=优化留 Phase 4），可复用本 change 的 `wrapper→scalar_width` 表。**若实现中发现必须动 wrapper struct_layout
+（格式 bump）→ 停下报 User**（因会与「重建类访问」的 0.38 bump 撞车、需协调）。
+
+<details><summary>（存档）D1-A 备选：slots[0] 存 Value（未选）</summary>
+
+### ~~D1-A：裸标量在 boxed-prim ScriptObject 里存哪~~
 基元 wrapper（`Std.Int32`）是 **phantom struct，零字段，this=裸标量**——无字段槽可放标量。两个选项：
 
 - **D1-A（推荐）：存 `slots[0]` 作 `Value`**。boxed-prim = `ScriptObject{ type_desc=Int32, slots=[Value::I64(v)] }`。
@@ -24,7 +36,9 @@
 - **权衡**：D1-A 零格式 bump、改动小、语义等价（引用身份靠 BoxedStruct 的 GcRef，与标量存哪无关）；D1-B 更「纯粹
   统一」但引入格式风险 + 与 Phase 4「单标量塌缩」重叠。**倾向 D1-A**，把「标量↔blob 完全同构」留给 Phase 4。
 
-### ⏳ D2：boxed-prim 的 `type_desc` 来源
+</details>
+
+### D2：boxed-prim 的 `type_desc` 来源
 `__box_prim(裸值, 类名Str)` 的 arg1 已是 FQ wrapper 名（`Std.Int32`…）→ `ctx.try_lookup_type(类名)` 取
 `TypeDesc`。该 wrapper 类型**恒已加载**（z42.core 恒在依赖闭包）——但需验：boxed-prim 反射 `GetType()` 应返
 `Std.Int32` 的 Type（现 `Value::Boxed` 走 `make_type_from_name(b.class)`，统一后走 `gc.type_desc().name` 同结果）。
