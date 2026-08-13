@@ -23,6 +23,11 @@ public sealed class TypeChecker {
     public StmtBinder _stmt;               // God-Class 拆分 step3：语句绑定子绑定器
     public ExprTyper _expr;                // God-Class 拆分 step4：表达式类型检查子绑定器
     public DeclBinder _decl;               // God-Class 拆分 step5：声明绑定编排子绑定器
+    // enforce-class-access：绑定期类型引用点访问校验（体引用：new/var/cast/is/as/typeof/default/catch/泛型实参）。
+    // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
+    public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
+        AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
+    }
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;

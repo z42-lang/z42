@@ -26,7 +26,7 @@ public static class DiagnosticCodes {
     public static string UndefinedSymbol       = "E0401";
     public static string TypeMismatch          = "E0402";
     public static string MissingReturn         = "E0403";
-    public static string AccessViolation       = "E0404";
+    public static string AccessViolation       = "E0404";   // 成员访问（enforce-access-control）+ 类型引用（enforce-class-access：private/protected 嵌套类；跨包 internal 类为 follow-up）——镜像 C# 单一 CS0122
     public static string InvalidModifier       = "E0405";
     public static string IntLiteralOutOfRange  = "E0406";
     public static string UninitializedVariable = "E0407";

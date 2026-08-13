@@ -78,6 +78,11 @@ public sealed class Z42ClassType : Z42Type {
     // 由 ImportedSymbolLoader 构造 imported 类型时置 true；本地类型默认 false。**不序列化**（每次编译按
     // 本次依赖图现算），供 `internal` 可见性判定「声明类是否本包」（同包可访问，跨包 E0404）。
     public bool   IsImported;
+    // enforce-class-access：类声明的可见性（"public"/"private"/"protected"/"internal"）。默认 "public"
+    // （构造后立即由 SymbolCollector 从 Mods 按位置默认覆写、或由 ImportedSymbolLoader 从元数据还原）。
+    // 供类级访问强制（AccessChecker.CheckTypeRef）判定「从当前上下文引用该类型是否允许」。位置默认：
+    // 嵌套类（名含 '+'）→ private、顶层类 → internal；显式修饰符优先。
+    public string Visibility;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -91,6 +96,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsStruct = false;
         this.IsSealed = false;
         this.IsImported = false;
+        this.Visibility = "public";
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。
