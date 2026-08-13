@@ -82,6 +82,10 @@ public sealed class FunctionEmitter {
             // （GetIrType 表只含 prim；体内局部值才走语义 ToIrType→class=Ref。REGT 字节实证两形态）。
             int ptag = IrType.Unknown;
             if (pt is Z42PrimType) { ptag = this._ctx.PrimTag(pt.Name()); }
+            // unify-value-types Phase 1（2.7 双路）：翻转后内建形参（int→Z42ClassType(Int32)）按名归一到
+            // 内建 IR 标签，与历史 PrimTag 逐字节同义（string→Str/object→Ref）。翻转前无内建名 Z42ClassType
+            // 形参流经此处（源码不以 wrapper/FQ 声明形参）→ 当前对 self-host 输出中立。
+            else if ((pt is Z42ClassType) && PrimModel.IsBuiltin(pt.Name())) { ptag = PrimModel.IrTag(pt.Name()); }
             else if (pt is Z42ArrayType) { ptag = IrType.Ref; }
             this._ctx.Locals.Put(md.Params[p].Name, new TypedReg(p + paramOffset, ptag));
             this._ctx.RecordReg(p + paramOffset, ptag);
@@ -204,7 +208,12 @@ public sealed class FunctionEmitter {
         }
         Z42Type resolved = this._symbols.ResolveTypeP(te, tp, tpc);
         if (resolved is Z42UnknownType) { return "unknown"; }   // <unknown> → unknown（镜像 C# SIGS 拼写）
-        return resolved.Name();
+        // unify-value-types Phase 1：翻转后内建 leaf（int/string/object…）ResolveTypeP→Z42ClassType(wrapper)，
+        // Name()="Int32"/"String"/"Object"；SIGS 须回 baseline keyword 拼写（"int"/"string"/"object"），否则
+        // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
+        // （byte/short…）已在上方按源名返回、不到此，故 SurfaceName 对 int/long/float/double/bool/char/string/
+        // object 逐字复刻 baseline Prim.Name()，非内建原样。
+        return PrimModel.SurfaceName(resolved.Name());
     }
     private bool _isAliasPrim(string n) {
         return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
@@ -296,7 +305,7 @@ public sealed class FunctionEmitter {
         }
         Z42FuncType ft = lam.Type() as Z42FuncType;
         string retName = "void";
-        if (ft != null) { retName = ft.Ret.Name(); }
+        if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
         while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }

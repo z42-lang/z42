@@ -123,8 +123,12 @@ public sealed class StructLayout {
                     def.Add(ct.OwnFieldNames[j], ct.OwnFieldSpellings[j]);
                     j = j + 1;
                 }
-                if (ct.IsStruct) { defs.Put(Z42Type.Canon(keys[i]), def); }
-                else { classDefs.Put(Z42Type.Canon(keys[i]), def); }
+                // unify-value-types Phase 1：**Scalar 基元 wrapper（Int32/Boolean/Char…）虽 IsStruct=true，
+                // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
+                // 否则（Canon 收敛后 Int32→"i32"）`int` 字段的 _kindOf 会误判为嵌套 struct（IsStructType("int")
+                // ＝ ContainsKey("i32")）→ 布局尺寸/偏移全错。排除后 int 字段走 _isPrim → Prim 叶子（正确）。
+                if (ct.IsStruct && !PrimModel.IsScalarValue(keys[i])) { defs.Put(Z42Type.Canon(keys[i]), def); }
+                else if (!ct.IsStruct) { classDefs.Put(Z42Type.Canon(keys[i]), def); }
             }
             i = i + 1;
         }
@@ -160,6 +164,17 @@ public sealed class StructLayout {
         // 不准入，避免 0 字节 blob 的字段访问越界。
         if (li.Size == 0) { return false; }
         return true;
+    }
+
+    // unify-value-types Phase 1：值类型表示 Repr。返回 "Scalar" / "Blob" / ""（非值类型）。
+    // Scalar = 六个基元 wrapper（PrimModel.IsScalarValue：整数族/f32/f64/bool/char，裸 Value 承载不进 arena）；
+    // Blob = 多字段复合值 struct（IsBlobStruct，字节 arena）。用户单字段 struct 与 phantom 零字段 wrapper
+    // 之外的退化 struct 暂归 ""（单标量叶子塌缩 = Phase 4）。codegen 据此分派：Scalar 走 PrimTag/裸算术/
+    // __box_prim；Blob 走 StructAlloc/StructCopy/__box_struct。
+    public string ReprOf(string typeName) {
+        if (PrimModel.IsScalarValue(typeName)) { return "Scalar"; }
+        if (this.IsBlobStruct(typeName)) { return "Blob"; }
+        return "";
     }
 
     // struct 直接字段的 byte offset（未找到 -1）。供 codegen 烘焙 StructFieldGet/SetPrim 立即数。

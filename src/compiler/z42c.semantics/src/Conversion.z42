@@ -120,17 +120,22 @@ public static class Conversion {
         // B: 恰一侧泛型形参 → 擦除放行
         if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return new ConvResult(ConvKind.GenericErase); }
         // C: to == object（任意 → object）
-        if ((to is Z42PrimType) && (to.Name() == "object")) {
+        // unify-value-types Phase 1（双路）：翻转后 object→Z42ClassType(Object)；按 canonical 名归一。
+        if (Conversion._isObjectBuiltin(to)) {
             if (Conversion._isValuePrim(from)) { return new ConvResult(ConvKind.Boxing); }
             return new ConvResult(ConvKind.ImplicitRef);
         }
         // 数值 prim 对（两侧均数值 prim）→ 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric，永不 None）
-        if ((from is Z42PrimType) && (to is Z42PrimType)
-            && TypeFactsTc._isNumericPrim(from.Name()) && TypeFactsTc._isNumericPrim(to.Name())) {
+        // 双路：翻转后数值基元为 Z42ClassType(Scalar)——_isNumericBuiltin 认 Prim ∪ Scalar 值类型。
+        if (Conversion._isNumericBuiltin(from) && Conversion._isNumericBuiltin(to)) {
             return new ConvResult(Conversion._numericKind(from.Name(), to.Name()));
         }
         // D: 结构可赋（同名类 / 接口 / 数组 / func / 别名 prim / 泛型同名）
-        if (from.IsAssignableTo(to)) { return new ConvResult(ConvKind.Identity); }
+        // unify-value-types Phase 1：桥接混用态——本地基元已翻转为 Z42ClassType(String/Int32…)，
+        // 而 imported（ImportedSymbolLoader）+ 字面量仍产 Z42PrimType；同 canonical 内建名的两者
+        // 视作 Identity（否则 `String`→`string` 等混用赋值误判 None）。翻转前两侧同为 Prim → 走
+        // from.IsAssignableTo（Z42PrimType 已按 Canon 归一），本 OR 分支不改变结果。
+        if (from.IsAssignableTo(to) || Conversion._sameBuiltin(from, to)) { return new ConvResult(ConvKind.Identity); }
         // E: class → class（上转 subclass；否则可能是下转）
         if ((from is Z42ClassType) && (to is Z42ClassType)) {
             if (symbols.IsSubclassOf(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
@@ -165,16 +170,47 @@ public static class Conversion {
     }
 
     // 值类型 prim（可装箱）：数值（含 char）+ bool。object / string 是引用，不算。
+    // unify-value-types Phase 1（双路）：翻转后基元为 Z42ClassType(Scalar)——追加 Scalar 判定
+    // （IsScalarValue = 六个基元 wrapper = 数值∪bool∪char，与历史 numeric∪bool 等价）。翻转前中立。
     public static bool _isValuePrim(Z42Type t) {
-        if (!(t is Z42PrimType)) { return false; }
-        string n = t.Name();
-        if (TypeFactsTc._isNumericPrim(n)) { return true; }
-        if (n == "bool") { return true; }
-        return false;
+        if (t is Z42PrimType) {
+            string n = t.Name();
+            if (TypeFactsTc._isNumericPrim(n)) { return true; }
+            if (n == "bool") { return true; }
+            return false;
+        }
+        return (t is Z42ClassType) && PrimModel.IsScalarValue(t.Name());
     }
 
+    // unify-value-types Phase 1：翻转后 object→Z42ClassType(Object)——追加 Canon=="object" 判定
+    // （拆箱源判别用；翻转前无该拼写 Z42ClassType → 中立）。
     public static bool _isObjectPrim(Z42Type t) {
-        return (t is Z42PrimType) && (t.Name() == "object");
+        if ((t is Z42PrimType) && (t.Name() == "object")) { return true; }
+        return (t is Z42ClassType) && (PrimModel.Canon(t.Name()) == "object");
+    }
+
+    // 双路辅助：两侧是同一 canonical 内建类型（跨 Z42PrimType / 翻转后 Z42ClassType 混用态）。
+    // 用于桥接「本地翻转成 ClassType，imported/字面量仍是 Prim」的同类型赋值。
+    private static bool _sameBuiltin(Z42Type a, Z42Type b) {
+        if (a == null || b == null) { return false; }
+        bool aB = (a is Z42PrimType) || ((a is Z42ClassType) && PrimModel.IsBuiltin(a.Name()));
+        bool bB = (b is Z42PrimType) || ((b is Z42ClassType) && PrimModel.IsBuiltin(b.Name()));
+        if (!aB || !bB) { return false; }
+        return PrimModel.Canon(a.Name()) == PrimModel.Canon(b.Name());
+    }
+
+    // 双路辅助：是内建 object（Z42PrimType("object") 或翻转后 Z42ClassType(Object)）。
+    private static bool _isObjectBuiltin(Z42Type t) {
+        if ((t is Z42PrimType) && (t.Name() == "object")) { return true; }
+        return (t is Z42ClassType) && (PrimModel.Canon(t.Name()) == "object");
+    }
+
+    // 双路辅助：是数值内建（Z42PrimType 或翻转后 Z42ClassType(Scalar)，且名归一为数值基元）。
+    // Z42ClassType 分支用 PrimModel.IsNumeric（Canon 归一 wrapper 名 Int32→i32）；_isNumericPrim 只认
+    // keyword/短名，翻转后 Name()="Int32" 会漏。二者在 keyword/短名输入上语义相同 → 当前中立。
+    private static bool _isNumericBuiltin(Z42Type t) {
+        if ((t is Z42PrimType) && TypeFactsTc._isNumericPrim(t.Name())) { return true; }
+        return (t is Z42ClassType) && PrimModel.IsNumeric(t.Name());
     }
 
     // 数值 prim 对 → 种类。同型 → Identity；无损拓宽 → ImplicitNumeric；否则（窄化 / 有损浮点）→ ExplicitNumeric。

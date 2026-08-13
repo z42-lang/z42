@@ -76,7 +76,7 @@ public sealed class ExprEmitter {
             // （镜像 add-reflection-array-element-type：数组运行期非擦除，elem 名须可解析）。
             string elemName = an.ElemName;
             Z42ArrayType at = an.Type() as Z42ArrayType;
-            if (at != null && !(at.Elem is Z42PrimType) && !(at.Elem is Z42GenericParamType)) {
+            if (at != null && !(at.Elem is Z42PrimType) && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
                 elemName = this._ctx.QualifyClass(an.ElemName);
             }
             // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
@@ -108,7 +108,7 @@ public sealed class ExprEmitter {
             TypedReg dst = this._ctx.Alloc(IrType.Ref);
             string elemName = al.ElemName;
             Z42ArrayType at = al.Type() as Z42ArrayType;
-            if (at != null && !(at.Elem is Z42PrimType) && !(at.Elem is Z42GenericParamType)) {
+            if (at != null && !(at.Elem is Z42PrimType) && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
                 elemName = this._ctx.QualifyClass(al.ElemName);
             }
             this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
@@ -1458,9 +1458,19 @@ public sealed class ExprEmitter {
 
     // FQ 运行期类型名：prim→裸名 / array→elem[] / class·iface→QualifyClass /
     // instantiated→QualifyClass(def)（args 另发）/ generic-param→裸名（镜像 C# Z42TypeName）。
+    // unify-value-types Phase 1：翻转后数组元素若为内建 Z42ClassType（int[]→elem Z42ClassType(Int32)），
+    // 元素名不走 QualifyClass（否则 "int"→"Std.Int32" 破 byte-identical）——与历史 Z42PrimType 元素同款
+    // 保留源短名（an.ElemName）。翻转前无内建名 Z42ClassType 元素 → 当前中立。
+    private bool _isBuiltinValueElem(Z42Type elem) {
+        return (elem is Z42ClassType) && PrimModel.IsBuiltin(elem.Name());
+    }
+
     private string _typeofName(Z42Type t) {
         if (t is Z42ArrayType) { return this._typeofName((t as Z42ArrayType).Elem) + "[]"; }
         if (t is Z42PrimType) { return t.Name(); }
+        // unify-value-types Phase 1：翻转后内建（int→Z42ClassType(Int32)）的 typeof 名须回到历史
+        // Z42PrimType 拼写（PrimModel.Keyword: Int32→"int"），而非 QualifyClass 的 FQ "Std.Int32"。
+        if ((t is Z42ClassType) && PrimModel.IsBuiltin(t.Name())) { return PrimModel.Keyword(t.Name()); }
         if (t is Z42ClassType) { return this._ctx.QualifyClass(t.Name()); }
         if (t is Z42InterfaceType) { return this._ctx.QualifyClass(t.Name()); }
         if (t is Z42InstantiatedType) { return this._ctx.QualifyClass((t as Z42InstantiatedType).Def.Name()); }
@@ -1513,7 +1523,11 @@ public sealed class ExprEmitter {
         }
         TypedReg val = this.Emit(b.E);
         // 非基元（如非 blob 单字段 struct 擦除到 object）→ BoundBox 退化为透传，保持现模型。
-        if (!(b.E.Type() is Z42PrimType)) { return val; }
+        // unify-value-types Phase 1：翻转后整数基元为 Z42ClassType(Scalar)——追加 Scalar 值类型判定，
+        // 使其仍走下方 __box_prim（否则误透传、丢装箱）。翻转前无 Scalar 名 Z42ClassType → 当前中立。
+        Z42Type _bet = b.E.Type();
+        bool _boxScalar = (_bet is Z42PrimType) || ((_bet is Z42ClassType) && PrimModel.IsScalarValue(_bet.Name()));
+        if (!_boxScalar) { return val; }
         int idx = this._ctx.Gen.Intern(b.PrimFQ);
         TypedReg cls = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(cls, idx));

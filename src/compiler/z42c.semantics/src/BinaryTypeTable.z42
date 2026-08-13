@@ -84,9 +84,12 @@ public static class TypeFacts {
     }
 
     // 二元算术「更宽」类型：double > float > long > int（双拼写）。镜像 C# ArithmeticResult。
+    // unify-value-types Phase 1：经 _asPrimName 归一（翻转后操作数为 Z42ClassType(Int32…)，其
+    // Name()="Int32"，须映射回 keyword "int" 才命中下方 _isXxxName；Z42PrimType 分支返 Name() 不变 →
+    // 翻转前逐字节同义）。
     public static Z42Type ArithmeticResult(Z42Type l, Z42Type r) {
-        string a = l.Name();
-        string b = r.Name();
+        string a = TypeFacts._asPrimName(l);
+        string b = TypeFacts._asPrimName(r);
         if (TypeFacts._isDoubleName(a) || TypeFacts._isDoubleName(b)) { return new Z42PrimType("double"); }
         if (TypeFacts._isFloatOnly(a)  || TypeFacts._isFloatOnly(b))  { return new Z42PrimType("float"); }
         if (TypeFacts._isLongName(a)   || TypeFacts._isLongName(b))   { return new Z42PrimType("long"); }

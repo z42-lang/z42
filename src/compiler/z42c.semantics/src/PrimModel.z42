@@ -1,0 +1,177 @@
+// unify-value-types Phase 1（消灭 Z42PrimType）：单一「关键字 ↔ Std.* 值类型」模型表。
+//
+// 收敛历史七张并行映射（Canon / _canonPrim / _primWrapper×2 / _intPrimFQ / PrimTag / _isPrim×3 /
+// _isPrimKeyword·_isNumericPrim）成一个入口。接受**任意拼写**——关键字 `int` / canonical 短名 `i32` /
+// 包装名 `Int32` / FQ `Std.Int32`——先归一到 canonical 短名，再由短名投影出各字段。
+//
+// 设计不变式（byte-identical 门禁）：每个投影与被它取代的历史函数**逐条同义**，故消费点切换到本表后
+// codegen 逐字节不变。归一覆盖 struct 值语义无关的**内建标量/引用类型**：整数族 i8..u64、f32/f64、bool、
+// char 为 **Scalar 值类型**（裸 Value 承载、算术热路径）；string/object 为**有专属 IR 标签的内建引用类型**
+// （非 Scalar，但 IrTag 保留 Str/Ref 以维持 byte-identical）。
+namespace Z42.Semantics;
+using Z42.IR;   // IrType
+
+public static class PrimModel {
+    // 任意拼写（关键字 / canonical 短名 / 包装名 / FQ）→ canonical 短名。
+    // 非内建 → 原样返回（剥尾部 `?`）。与 Z42Type.Canon 对关键字/短名的结果一致（超集：也认包装名/FQ）。
+    public static string Canon(string n) {
+        string s = n;
+        if (s.EndsWith("?")) { s = s.Substring(0, s.Length - 1); }
+        if (s.StartsWith("Std.")) { s = s.Substring(4); }   // FQ → 包装名
+        // 关键字 → 短名
+        if (s == "byte")   { return "u8"; }
+        if (s == "sbyte")  { return "i8"; }
+        if (s == "short")  { return "i16"; }
+        if (s == "ushort") { return "u16"; }
+        if (s == "int")    { return "i32"; }
+        if (s == "uint")   { return "u32"; }
+        if (s == "long")   { return "i64"; }
+        if (s == "ulong")  { return "u64"; }
+        if (s == "float")  { return "f32"; }
+        if (s == "double") { return "f64"; }
+        // 包装名（PascalCase）→ 短名
+        if (s == "SByte")   { return "i8"; }
+        if (s == "Int16")   { return "i16"; }
+        if (s == "Int32")   { return "i32"; }
+        if (s == "Int64")   { return "i64"; }
+        if (s == "Byte")    { return "u8"; }
+        if (s == "UInt16")  { return "u16"; }
+        if (s == "UInt32")  { return "u32"; }
+        if (s == "UInt64")  { return "u64"; }
+        if (s == "Single")  { return "f32"; }
+        if (s == "Double")  { return "f64"; }
+        if (s == "Boolean") { return "bool"; }
+        if (s == "Char")    { return "char"; }
+        if (s == "String")  { return "string"; }
+        if (s == "Object")  { return "object"; }
+        return s;   // 已是短名（i32/bool/char/string/object…）或非内建 → 原样
+    }
+
+    // 是内建基元/内建引用类型（int/long/.../bool/char/string/object 及其短名/包装名/FQ）。
+    // = 历史 SymbolTable._isPrim 超集（含 string/object）。
+    public static bool IsBuiltin(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8" || c == "i16" || c == "i32" || c == "i64") { return true; }
+        if (c == "u8" || c == "u16" || c == "u32" || c == "u64") { return true; }
+        if (c == "f32" || c == "f64" || c == "bool" || c == "char") { return true; }
+        if (c == "string" || c == "object") { return true; }
+        return false;
+    }
+
+    // 是 **Scalar 值类型**（六个基元 wrapper：整数族 + f32/f64 + bool + char）。string/object 不算（引用类型）。
+    // Repr==Scalar 的运行时载体是裸 Value 变体（不进字节 arena）。
+    public static bool IsScalarValue(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8" || c == "i16" || c == "i32" || c == "i64") { return true; }
+        if (c == "u8" || c == "u16" || c == "u32" || c == "u64") { return true; }
+        if (c == "f32" || c == "f64" || c == "bool" || c == "char") { return true; }
+        return false;
+    }
+
+    // 是整数族（i8..u64）。= 历史 _intPrimFQ 返回非空的集合（装箱判别）。
+    public static bool IsInteger(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8" || c == "i16" || c == "i32" || c == "i64") { return true; }
+        if (c == "u8" || c == "u16" || c == "u32" || c == "u64") { return true; }
+        return false;
+    }
+
+    // 是数值基元（整数 + f32/f64 + char）。= 历史 TypeFactsTc._isNumericPrim（含 char，排除 bool/string）。
+    public static bool IsNumeric(string n) {
+        if (PrimModel.IsInteger(n)) { return true; }
+        string c = PrimModel.Canon(n);
+        if (c == "f32" || c == "f64" || c == "char") { return true; }
+        return false;
+    }
+
+    // canonical 短名 → FQ（Std.Int32…）。= 历史 _intPrimFQ 扩到全部内建（bool/char/float/double/string/object）。
+    public static string Fq(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8")  { return "Std.SByte"; }
+        if (c == "i16") { return "Std.Int16"; }
+        if (c == "i32") { return "Std.Int32"; }
+        if (c == "i64") { return "Std.Int64"; }
+        if (c == "u8")  { return "Std.Byte"; }
+        if (c == "u16") { return "Std.UInt16"; }
+        if (c == "u32") { return "Std.UInt32"; }
+        if (c == "u64") { return "Std.UInt64"; }
+        if (c == "f32") { return "Std.Single"; }
+        if (c == "f64") { return "Std.Double"; }
+        if (c == "bool")   { return "Std.Boolean"; }
+        if (c == "char")   { return "Std.Char"; }
+        if (c == "string") { return "Std.String"; }
+        if (c == "object") { return "Std.Object"; }
+        return "";
+    }
+
+    // canonical 短名 → 包装类短名（Int32…）。= 历史 _primWrapper（含 string→String；object→Object）。
+    public static string Wrapper(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8")  { return "SByte"; }
+        if (c == "i16") { return "Int16"; }
+        if (c == "i32") { return "Int32"; }
+        if (c == "i64") { return "Int64"; }
+        if (c == "u8")  { return "Byte"; }
+        if (c == "u16") { return "UInt16"; }
+        if (c == "u32") { return "UInt32"; }
+        if (c == "u64") { return "UInt64"; }
+        if (c == "f32") { return "Single"; }
+        if (c == "f64") { return "Double"; }
+        if (c == "bool")   { return "Boolean"; }
+        if (c == "char")   { return "Char"; }
+        if (c == "string") { return "String"; }
+        if (c == "object") { return "Object"; }
+        return n;   // 非内建 → 原样（调用方历史行为：已是类名）
+    }
+
+    // 类型的「表面名」（反射 / typeof / 数组元素名）：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名，
+    // Int32→"int"、String→"string"）；其余原样。翻转后 elem.Name()="Int32"，须回到 "int" 以维持反射行为。
+    public static string SurfaceName(string name) {
+        if (PrimModel.IsBuiltin(name)) { return PrimModel.Keyword(name); }
+        return name;
+    }
+
+    // 数值拓宽（无收窄），迁自旧 Z42Type.Z42PrimType._canWiden（D7）。**入参须是 keyword 名**
+    // （int/long/float/double 或 byte/short——即历史 Z42PrimType 承载名，用 PrimModel.Keyword 从 wrapper
+    // 名得到）。逐字面同旧逻辑：注意旧 _canWiden 的 byte/short 分支在历史里实际因名为 u8/i16 而从不命中，
+    // 此处照抄以维持逐字节等价（拓宽仅对 int/long/float 真正生效，其余走 Conversion 数值矩阵）。
+    public static bool CanWiden(string from, string to) {
+        if (from == "byte" || from == "short") { return to == "int" || to == "long" || to == "float" || to == "double"; }
+        if (from == "int")   { return to == "long" || to == "float" || to == "double"; }
+        if (from == "long")  { return to == "float" || to == "double"; }
+        if (from == "float") { return to == "double"; }
+        return false;
+    }
+
+    // 任意拼写 → 反射/typeof 名（= 历史 Z42PrimType 承载的名，即 SymbolTable._canonPrim(keyword)）：
+    // int→"int"、long→"long"、float→"float"、double→"double"、bool/char/string/object 保留；其余整数族
+    // → 短名 i8/i16/u8/u16/u32/u64（_canonPrim 把 byte/sbyte/short/ushort/uint/ulong 归短名）。翻转后
+    // 内建 Z42ClassType 的 Name()="Int32"，reflection/typeof 名须映射回此拼写以维持 byte-identical。
+    public static string Keyword(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i32") { return "int"; }
+        if (c == "i64") { return "long"; }
+        if (c == "f32") { return "float"; }
+        if (c == "f64") { return "double"; }
+        return c;   // i8/i16/u8/u16/u32/u64/bool/char/string/object 原样（= _canonPrim 结果）
+    }
+
+    // 任意拼写 → IrType 标签。= 历史 EmitContext.PrimTag（int→I32…；string→Str；object/非内建→Ref）。
+    public static int IrTag(string n) {
+        string c = PrimModel.Canon(n);
+        if (c == "i8")  { return IrType.I8; }
+        if (c == "i16") { return IrType.I16; }
+        if (c == "i32") { return IrType.I32; }
+        if (c == "i64") { return IrType.I64; }
+        if (c == "u8")  { return IrType.U8; }
+        if (c == "u16") { return IrType.U16; }
+        if (c == "u32") { return IrType.U32; }
+        if (c == "u64") { return IrType.U64; }
+        if (c == "f32") { return IrType.F32; }
+        if (c == "f64") { return IrType.F64; }
+        if (c == "bool")   { return IrType.Bool; }
+        if (c == "char")   { return IrType.Char; }
+        if (c == "string") { return IrType.Str; }
+        return IrType.Ref;   // object / 非内建 → ref
+    }
+}
