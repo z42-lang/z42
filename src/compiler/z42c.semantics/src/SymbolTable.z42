@@ -122,7 +122,7 @@ public sealed class SymbolTable {
             if (n == "Predicate" && nt.ArgCount == 1) {
                 Z42Type[] pps = new Z42Type[1];
                 pps[0] = this.ResolveTypeP(nt.Args[0], paramNames, paramCount);
-                return new Z42FuncType(pps, 1, new Z42PrimType("bool"));
+                return new Z42FuncType(pps, 1, Z42ClassType.Builtin("bool"));
             }
             if (this.EnumTypes.ContainsKey(n)) { return new Z42ClassType(n, false, ""); }
             if (this.Delegates.ContainsKey(n)) { return this.Delegates.Get(n) as Z42FuncType; }   // 用户 delegate → 函数类型
@@ -246,7 +246,7 @@ public sealed class SymbolTable {
             object c = this.Classes.Get(wrap);
             if (c is Z42ClassType) { return c as Z42ClassType; }
         }
-        return new Z42PrimType(this._canonPrim(n));
+        return Z42ClassType.Builtin(this._canonPrim(n));
     }
 
     // prim 源名 → C# TypeRegistry 规范名（IR 侧用：byte→u8 等次要名归一；int/long/float/

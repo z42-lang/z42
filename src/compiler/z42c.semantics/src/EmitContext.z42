@@ -508,7 +508,6 @@ public sealed class EmitContext {
     // Z42Type → IrType 标签（z42c.ir 是无依赖叶子不能引用 Z42Type，故映射在 semantics 侧）。
     public int ToIrType(Z42Type t) {
         if (t is Z42VoidType) { return IrType.Void; }
-        if (t is Z42PrimType) { return this.PrimTag(t.Name()); }
         // unify-value-types Phase 1（2.2 双路）：翻转后内建（int→Int32 phantom struct）以 Z42ClassType
         // 承载——按名归一到内建 IR 标签，须在通用 ClassType→Ref 之前。IsBuiltin 覆盖 Scalar 值类型 +
         // string/object；IrTag 保留 string→Str、object→Ref（与历史 PrimTag 逐字节同义）。翻转前无内建名

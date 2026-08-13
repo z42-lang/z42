@@ -89,75 +89,7 @@ ContainingTypeName`（`SymbolCollector` 从 `c.Name` 设）**均为短名**，�
 split 辅助类（Parser/DeclParser/MemberParser/TypeParser 等）45 处**同包互访的** `private` 改为
 `internal`（无强制期的欠标注；internal 是同包协作的正确修饰符），stdlib 私有零违规。
 
-## 类级访问强制（enforce-class-access，2026-08-13）
-
-成员访问强制之外，**类型本身被引用**时也受可见性约束（镜像 C#：类型只要被「命名」就检查可访问性）。
-本 change 落地**同包**类级强制：`private`/`protected` 嵌套类只能在其外层类家族内引用。违规同样 emit
-`E0404`（C# 亦用单一 CS0122 覆盖成员与类型不可访问）。**跨包 `internal` 类引用强制**需类可见性进 zbc/zpkg
-元数据（格式 bump），拆为独立 follow-up（见 Deferred `access-future-crosspkg-internal-class`）。
-
-### 语义
-
-| 类可见性 | 可引用范围 | 判据（`AccessChecker.CheckTypeRef`） |
-|---------|-----------|-----------------------------------|
-| `public` | 任意 | 不校验 |
-| `private` 嵌套类 `Outer+Inner` | `Outer` 文本内（含更深嵌套） | `currentClass == Outer` 或以 `Outer+` 为前缀 |
-| `protected` 嵌套类 | `Outer` + 派生自 `Outer` 的类 | `currentClass` 沿基链上溯能到 `Outer` |
-| `internal` 类（含无修饰符顶层默认） | 同包（本 change 恒放行；跨包强制见 follow-up） | 被引类 `IsImported==false`（本包）→ OK |
-
-嵌套类经 `NestedFlatten` 命名为扁平键 `Outer+Inner`；外层名由 `_nestedOuter`（剥 `+` 末段）得出，
-无需结构标记。类可见性**位置默认**（`IrGenFacts.classVisCode/classVis`）：嵌套类→`private`、顶层类→
-`internal`，显式修饰符优先（与成员级 `_vis` 同款「最小封闭作用域」）。可见性存内存态 `Z42ClassType.Visibility`
-（本地类由 `SymbolCollector` 从 `Mods` 设），**不序列化**——故跨包 `internal` 类判定尚不可用（imported 类
-可见性默认 `public`，internal 分支对 imported 暂不触发）。
-
-### 强制点（两相位，静态 `CheckTypeRef` 共用）
-
-`AccessChecker.CheckTypeRef(resolved, currentClass, symbols, diags, span)` 是**静态**方法、显式收 diag
-bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例化递归校验定义类 + 每个类型实参。
-
-| 相位 | 位置 | 覆盖引用点 | diag bag |
-|------|------|-----------|---------|
-| 绑定期（体引用） | `TypeChecker._chkTypeRef` ← `StmtBinder`/`ExprTyper` | `new T` / 局部 `T x` / `(T)e` / `e is T` / `e as T` / `typeof(T)` / `default(T)` / `catch(T)` / 泛型实参 | `TypeChecker._diags` |
-| 收集期（声明签名） | `SymbolCollector._chkTypeRef` ← `_fillClass`/`_methodSymbol` | 字段 / 属性 / 索引器类型 / 方法参·返回 / 基类·接口列表 | `SymbolCollector.Diags` |
-
-codegen（`FunctionEmitter` 直呼 `symbols.ResolveTypeP`）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
-z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。非类类型（prim/接口 `Z42InterfaceType`/泛型形参/
-未知/func）一律放行，绝不误报。
-
 ## Deferred / Future Work
-
-### access-future-crosspkg-internal-class: 跨包 internal 类引用强制（含格式 bump）
-
-- **来源**：enforce-class-access 拆分（2026-08-13，本地 macOS 两代自举墙阻挡格式-bump 本地 GREEN）
-- **需要什么**：类可见性序列化进 zbc/zpkg 元数据（TYPE 记录紧随 `class_flags` 加一个可见性字节，`class_flags`
-  u8 已占满故须独立字节）——链路 `ClassDecl.Mods → IrClassDesc.Visibility → zbc TYPE 字节 → ZbcReader →
-  TsigReconcile._visStr → ExportedClassZ.Visibility → ImportedSymbolLoader → Z42ClassType.Visibility`，
-  之后 `CheckTypeRef` 的 internal 分支（`IsImported && Visibility=="internal"` → E0404）即生效。**真格式
-  bump**（zbc 1.32→1.33 / zpkg 0.37→0.38，非成员 internal=3 的零 bump）。
-- **触发条件**：格式-bump 可在 CI（Linux）或有 0.38 nightly 后本地两代自举验证时。破坏面尽调≈0（z42c/stdlib
-  导出类全 `public`）。完整设计与代码见 change `enforce-crosspkg-internal-class`（承接本 change 的 design）。
-
-### access-future-class-inconsistent-accessibility: 不一致可访问性
-
-- **来源**：enforce-class-access 实施期（Out of Scope）
-- **触发原因**：C# CS0050–53「public 签名暴露较低可见性类型」是独立于「引用点能否命名类型」的判定；本 change
-  只做后者。
-- **触发条件**：需要拦「public 方法返回一个 internal 类型」这类泄漏面时。
-
-### access-future-class-toplevel-modifier: 顶层类标 private/protected 的声明期拒绝
-
-- C# 顶层类型只能 public/internal。当前不拒绝声明（`CheckTypeRef` 对顶层 private/protected 做了合理兜底但
-  破坏面为 0）；声明合法性检查与引用强制正交，独立后续。
-
-### access-future-interface-visibility: 接口类型可见性
-
-- `Z42InterfaceType` 未建模 `Visibility`，故 `CheckTypeRef` 对解析为接口的引用放行。private/internal 嵌套/顶层
-  接口的引用强制需给接口类型加可见性字段 + 序列化，平行于类的做法。
-
-### access-future-class-visibility-reflection: 类可见性反射面
-
-- VM 读 TYPE 可见性字节但 read-and-discard；`Type.IsPublic`（类级）等反射 API 未接入。
 
 ### access-future-inherited-internal-fidelity: 跨包**继承**成员的 internal 保真
 

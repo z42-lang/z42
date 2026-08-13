@@ -110,7 +110,6 @@ public sealed class StmtBinder {
                 Z42Type exType = new Z42UnknownType();
                 if (cc.HasType) {
                     Z42Type t = env.ResolveType(cc.ExType);
-                    this._tc._chkTypeRef(t, env, cc.ExType.Span);   // enforce-class-access：catch 异常类型引用
                     exName = cc.ExType.Dump();           // 解析失败也保留源类型名（imported 异常类经 Unknown 吸收）
                     if (t is Z42ClassType) { exName = t.Name(); exType = t; }
                     // 泛型异常（catch (MulticastException<int>)）：存裸 Def 名 + arity，codegen 限定为
@@ -304,7 +303,6 @@ public sealed class StmtBinder {
             }
         }
         Z42Type vt = env.ResolveType(v.Type);
-        this._tc._chkTypeRef(vt, env, v.Type.Span);   // enforce-class-access：局部变量声明类型引用
         if (init != null) {   // G8：无 init 跳赋值检查
             this._tc.CheckImplicitConvert(init, vt, env.Symbols, v.Init.Span, "var-decl");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
         }

@@ -11,7 +11,7 @@ Span _sp() { return new Span(0, 0, 1, 1, "<t>"); }
 
 [Test]
 void test_bound_dump() {
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     var lit = new BoundLitInt("5", i, _sp());
     Assert.Equal("(lit-int 5 :int)", lit.Dump());
     var id = new BoundIdent("x", i, _sp());
@@ -24,7 +24,7 @@ void test_bound_dump() {
 
 [Test]
 void test_bound_block_and_assign() {
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     var stmts = new BoundStmt[1];
     var asn = new BoundAssign(new BoundIdent("x", i, _sp()), new BoundLitInt("3", i, _sp()), i, _sp());
     stmts[0] = new BoundExprStmt(asn, _sp());
@@ -36,9 +36,9 @@ void test_bound_block_and_assign() {
 void test_typeenv_scope() {
     var st = new SymbolTable();
     var root = TypeEnv.Root(st);
-    root.Define("a", new Z42PrimType("int"));
+    root.Define("a", Z42ClassType.Builtin("int"));
     var child = root.PushScope();
-    child.Define("b", new Z42PrimType("string"));
+    child.Define("b", Z42ClassType.Builtin("string"));
     Assert.Equal("int",    child.LookupVar("a").Name());   // 父层可见
     Assert.Equal("string", child.LookupVar("b").Name());   // 本层
     var rb = root.LookupVar("b");
@@ -57,21 +57,21 @@ void test_typeenv_with_class() {
 
 [Test]
 void test_bound_binary_unary_dump() {
-    var i = new Z42PrimType("int");
-    var b = new Z42PrimType("bool");
+    var i = Z42ClassType.Builtin("int");
+    var b = Z42ClassType.Builtin("bool");
     var bin = new BoundBinary("+", new BoundIdent("x", i, _sp()), new BoundLitInt("1", i, _sp()), i, _sp());
     Assert.Equal("(bin + (ident x :int) (lit-int 1 :int) :int)", bin.Dump());
     var un = new BoundUnary("-", new BoundIdent("x", i, _sp()), i, _sp());
     Assert.Equal("(unary - (ident x :int) :int)", un.Dump());
     var not = new BoundUnary("!", new BoundLitBool(true, b, _sp()), b, _sp());
     Assert.Equal("(unary ! (lit-bool true :bool) :bool)", not.Dump());
-    var f = new BoundLitFloat("1.5", new Z42PrimType("double"), _sp());
+    var f = new BoundLitFloat("1.5", Z42ClassType.Builtin("double"), _sp());
     Assert.Equal("(lit-float 1.5 :double)", f.Dump());
 }
 
 [Test]
 void test_bound_control_flow_dump() {
-    var b = new Z42PrimType("bool");
+    var b = Z42ClassType.Builtin("bool");
     var noStmts = new BoundStmt[0];
     var emptyBlk = new BoundBlock(noStmts, 0, _sp());
     // if 无 else

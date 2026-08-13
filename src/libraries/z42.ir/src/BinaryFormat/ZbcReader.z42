@@ -325,7 +325,6 @@ public static class ZbcReader {
                 ai = ai + 1;
             }
             cd.Flags = c.U8();
-            cd.Visibility = c.U8();   // enforce-class-access（zbc 1.33）：类声明可见性字节（紧随 Flags）
             int sfc = c.U16();
             cd.StaticFields = new IrFieldDesc[sfc]; cd.StaticFieldCount = sfc;
             int sf = 0;

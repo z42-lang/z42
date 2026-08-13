@@ -29,7 +29,7 @@ public sealed class MemberResolver {
                 string ekey = tid.Name + "." + m.Name;
                 if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
                     StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
-                    return new BoundLitInt(evalBox.Value, new Z42PrimType("long"), m.Span);
+                    return new BoundLitInt(evalBox.Value, Z42ClassType.Builtin("long"), m.Span);
                 }
             }
         }
@@ -44,11 +44,24 @@ public sealed class MemberResolver {
         // Z42PrimType 收者逐字节同义。用户 class/struct（非内建）仍走此类分支。
         if ((rt is Z42ClassType) && !PrimModel.IsBuiltin(rt.Name())) {
             Z42ClassType ct = rt as Z42ClassType;
+            // 阶段 3：受者可能是**空方法 stub**——`ImportedSymbolLoader._resolve` 对未在 per-import
+            // `r.Classes` 加载的类名（如无 `using Z42.IR` 时经字段类型间接可知的 StrMap）落兜底产
+            // `Z42ClassType.Builtin(name)`（无成员）。翻转前该兜底是 Z42PrimType，MemberResolver 走 prim
+            // 路径按名重解析/loose 绑定；翻转成 ClassType 后须复刻同款以维 byte-identical：
+            //   ① ct 无方法而主符号表有同名真类 → 重解析成真类（prim 路径 HasClass 分支）；
+            //   ② ct 无方法且主符号表无（懒加载未载真类）→ 下方 ms==null 时 **loose 绑定 Unknown**，
+            //      不报 "no method"（prim 路径 fallthrough，运行期经 DepIndex 解析）。
+            bool _stub = ct.Methods.Keys().Length == 0;
+            if (_stub && env.Symbols.HasClass(ct.Name())) { ct = env.Symbols.GetClass(ct.Name()); _stub = false; }
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
             if (ms != null) {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
                 return new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+            }
+            if (_stub) {   // 懒加载 stub 受者、主符号表无真类 → loose 绑定（镜像翻转前 prim 路径 fallthrough，无 "no method"）
+                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+                return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
@@ -145,11 +158,11 @@ public sealed class MemberResolver {
         // `m.Member is "Length" && (target.Type is Z42ArrayType || target.Type == Z42Type.String)`）。
         // unify-value-types Phase 1：翻转后 string→Z42ClassType(String)——追加 Canon=="string" 判定
         // （翻转前无该拼写 Z42ClassType 流经 → 中立）。
-        if (m.Name == "Length" && ((tt is Z42ArrayType) || (tt is Z42PrimType && tt.Name() == "string") || ((tt is Z42ClassType) && PrimModel.Canon(tt.Name()) == "string"))) {
-            return new BoundMember(target, m.Name, new Z42PrimType("int"), m.Span);
+        if (m.Name == "Length" && ((tt is Z42ArrayType) || ((tt is Z42ClassType) && PrimModel.Canon(tt.Name()) == "string"))) {
+            return new BoundMember(target, m.Name, Z42ClassType.Builtin("int"), m.Span);
         }
         if (m.Name == "Count") {
-            return new BoundMember(target, m.Name, new Z42PrimType("int"), m.Span);
+            return new BoundMember(target, m.Name, Z42ClassType.Builtin("int"), m.Span);
         }
         if ((tt is Z42ErrorType) || (tt is Z42UnknownType)) {
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);

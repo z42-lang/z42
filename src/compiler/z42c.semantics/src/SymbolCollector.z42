@@ -66,15 +66,15 @@ public sealed class SymbolCollector {
         Z42ClassType obj = new Z42ClassType("Object", false, "");
         Z42Type getTypeRet = new Z42UnknownType();
         if (table.Classes.ContainsKey("Type")) { getTypeRet = table.GetClass("Type"); }
-        Z42Type objParam = new Z42PrimType("object");
+        Z42Type objParam = Z42ClassType.Builtin("object");
         Z42Type[] noParams = new Z42Type[0];
         Z42Type[] eqParams = new Z42Type[1]; eqParams[0] = objParam;
         obj.Methods.Put("ToString", new MethodSymbol("ToString", "public",
-            new Z42FuncType(noParams, 0, new Z42PrimType("string")), false, "Object", false, null));
+            new Z42FuncType(noParams, 0, Z42ClassType.Builtin("string")), false, "Object", false, null));
         obj.Methods.Put("Equals", new MethodSymbol("Equals", "public",
-            new Z42FuncType(eqParams, 1, new Z42PrimType("bool")), false, "Object", false, null));
+            new Z42FuncType(eqParams, 1, Z42ClassType.Builtin("bool")), false, "Object", false, null));
         obj.Methods.Put("GetHashCode", new MethodSymbol("GetHashCode", "public",
-            new Z42FuncType(noParams, 0, new Z42PrimType("int")), false, "Object", false, null));
+            new Z42FuncType(noParams, 0, Z42ClassType.Builtin("int")), false, "Object", false, null));
         obj.Methods.Put("GetType", new MethodSymbol("GetType", "public",
             new Z42FuncType(noParams, 0, getTypeRet), false, "Object", false, null));
         table.Classes.Put("Object", obj);
@@ -646,13 +646,6 @@ public sealed class SymbolCollector {
         Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
         string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
         int tpc = c.TypeParams.Count;
-        // enforce-class-access：基类 / 接口列表类型引用（声明签名位置）。逐 base 解析后校验（含泛型基
-        // List<T>→递归实参）；接口若解析为 Z42InterfaceType 则 CheckTypeRef 放行（接口可见性未建模，Deferred）。
-        int _bi = 0;
-        while (_bi < c.BaseCount) {
-            this._chkTypeRef(table.ResolveTypeP(c.Bases[_bi], tp, tpc), c.Name, table, c.Bases[_bi].Span);
-            _bi = _bi + 1;
-        }
         // stabilize-dispatch-keys（方案A，静态-only）：静态方法恒全签名 mangle（键稳定，加/删重载不 re-mangle
         // 现有静态键）；实例方法保持基线键规则（bare / Name$arity / type-overload 全 mangle）。故实例仍需预扫描
         // 兄弟集（ovldInst 判 arity-based 重载、arityDup 判 type-based 重载）。静态不依赖预扫描（无条件 mangle）。
@@ -687,7 +680,6 @@ public sealed class SymbolCollector {
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
-                this._chkTypeRef(ft, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用
                 bool fconst = this._hasWord(fd.Mods, "const");   // add-const-keyword：const 隐式 static、无存储
                 bool fstatic = this._hasWord(fd.Mods, "static") || fconst;
                 // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
@@ -709,7 +701,6 @@ public sealed class SymbolCollector {
                 // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
                 PropertyDecl pd = mem as PropertyDecl;
                 Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
-                this._chkTypeRef(pft, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用
                 bool pfstatic = this._hasWord(pd.Mods, "static");
                 ct.Fields.Put(pd.Name, new FieldSymbol(pd.Name, this._vis(pd.Mods, "private"), pft, pfstatic, c.Name));
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
@@ -733,7 +724,6 @@ public sealed class SymbolCollector {
                 // get_Item / set_Item accessor 方法符号（IndexerDecl lowering；镜像 C# IndexerDecl → get_Item/set_Item）。
                 IndexerDecl id = mem as IndexerDecl;
                 Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
-                this._chkTypeRef(idRet, c.Name, table, id.RetType.Span);   // enforce-class-access：索引器返回类型引用
                 bool idStatic = this._hasWord(id.Mods, "static");
                 string idvis = this._vis(id.Mods, "private");
                 if (id.HasGet) {
@@ -840,9 +830,8 @@ public sealed class SymbolCollector {
         int allc = tpc + mtpc;
         Z42Type[] ps = new Z42Type[md.ParamCount];
         int k = 0;
-        while (k < md.ParamCount) { ps[k] = table.ResolveTypeP(md.Params[k].Type, all, allc); this._chkTypeRef(ps[k], containing, table, md.Params[k].Type.Span); k = k + 1; }   // enforce-class-access：方法参数类型引用
+        while (k < md.ParamCount) { ps[k] = table.ResolveTypeP(md.Params[k].Type, all, allc); k = k + 1; }
         Z42Type ret = table.ResolveTypeP(md.RetType, all, allc);
-        if (!md.IsCtor) { this._chkTypeRef(ret, containing, table, md.RetType.Span); }   // enforce-class-access：方法返回类型引用（ctor RetType 是占位空名，跳过）
         if (md.IsCtor) { ret = new Z42VoidType(); }   // 构造器返回 void（RetType 是占位空名）
         var sig = new Z42FuncType(ps, md.ParamCount, ret);
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
@@ -869,7 +858,6 @@ public sealed class SymbolCollector {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
         ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
         ct.IsSealed = this._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
-        ct.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
@@ -991,12 +979,6 @@ public sealed class SymbolCollector {
     // default-member-private：无修饰符默认可见性 = 最小封闭作用域（access-control.md）。
     // 成员（字段/方法/构造器/属性/索引器/嵌套类）默认 `private`（封闭层=类）；顶层类型/自由函数默认
     // `internal`（封闭层=模块）。故 dflt 由调用点按位置传入（成员 "private" / 顶层 "internal"）。
-    // enforce-class-access：收集期（声明签名位置）类型引用访问校验——字段/属性/索引器/方法参·返回/基类·接口。
-    // 委托静态 AccessChecker.CheckTypeRef，emit 到本 collector 的 Diags（收集期 diag bag）。cls=声明这些签名的类。
-    private void _chkTypeRef(Z42Type t, string cls, SymbolTable table, Span sp) {
-        AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
-    }
-
     private string _vis(string mods, string dflt) {
         if (this._hasWord(mods, "public"))    { return "public"; }
         if (this._hasWord(mods, "private"))   { return "private"; }

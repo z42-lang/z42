@@ -34,16 +34,16 @@ public sealed class ExprTyper {
                 else if (sc == 'U' || sc == 'u') { hasU = true; si = si - 1; }
                 else { si = 0 - 1; }
             }
-            Z42Type lt = new Z42PrimType("int");
-            if (hasL && hasU) { lt = new Z42PrimType("ulong"); }
-            else if (hasL) { lt = new Z42PrimType("long"); }
-            else if (hasU) { lt = new Z42PrimType("uint"); }
-            else if (v > imax || v < imin) { lt = new Z42PrimType("long"); }
+            Z42Type lt = Z42ClassType.Builtin("int");
+            if (hasL && hasU) { lt = Z42ClassType.Builtin("ulong"); }
+            else if (hasL) { lt = Z42ClassType.Builtin("long"); }
+            else if (hasU) { lt = Z42ClassType.Builtin("uint"); }
+            else if (v > imax || v < imin) { lt = Z42ClassType.Builtin("long"); }
             return new BoundLitInt(lit.Value, lt, lit.Span);
         }
         if (e is CharLitExpr) {
             CharLitExpr ch = e as CharLitExpr;
-            return new BoundLitChar(ch.Value, new Z42PrimType("char"), ch.Span);
+            return new BoundLitChar(ch.Value, Z42ClassType.Builtin("char"), ch.Span);
         }
         if (e is FloatLitExpr) {
             FloatLitExpr lit = e as FloatLitExpr;
@@ -51,11 +51,11 @@ public sealed class ExprTyper {
         }
         if (e is StringLitExpr) {
             StringLitExpr lit = e as StringLitExpr;
-            return new BoundLitStr(lit.Raw, new Z42PrimType("string"), lit.Span);
+            return new BoundLitStr(lit.Raw, Z42ClassType.Builtin("string"), lit.Span);
         }
         if (e is BoolLitExpr) {
             BoolLitExpr lit = e as BoolLitExpr;
-            return new BoundLitBool(lit.Value, new Z42PrimType("bool"), lit.Span);
+            return new BoundLitBool(lit.Value, Z42ClassType.Builtin("bool"), lit.Span);
         }
         return new BoundLitNull(new Z42UnknownType(), e.Span);   // NullLitExpr（dispatch 已保证是字面量之一）
     }
@@ -676,7 +676,6 @@ public sealed class ExprTyper {
     private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._bindExpr(cx.E, env);
             Z42Type target = env.ResolveType(cx.Type);
-            this._tc._chkTypeRef(target, env, cx.Type.Span);   // enforce-class-access：cast 目标类型引用
             // add-user-conversions：显式 (T)x 接受 implicit 与 explicit 用户转换 → lower 成 op_Implicit/op_Explicit 调用。
             // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
             ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
@@ -703,14 +702,11 @@ public sealed class ExprTyper {
             string tn;
             if (ax.Type is NamedType) { tn = (ax.Type as NamedType).Name; }
             else { tn = env.ResolveType(ax.Type).Name(); }
-            Z42Type asTarget = env.ResolveType(ax.Type);
-            this._tc._chkTypeRef(asTarget, env, ax.Type.Span);   // enforce-class-access：as 目标类型引用
-            return new BoundCast(operand, asTarget, tn, ax.Span);
+            return new BoundCast(operand, env.ResolveType(ax.Type), tn, ax.Span);
     }
 
     private BoundExpr _bindTypeofExpr(TypeofExpr tox, TypeEnv env) {
             Z42Type toTarget = env.ResolveType(tox.Type);
-            this._tc._chkTypeRef(toTarget, env, tox.Type.Span);   // enforce-class-access：typeof 目标类型引用
             // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
             Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
             // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
@@ -726,7 +722,6 @@ public sealed class ExprTyper {
             string tn;
             if (ix.Type is NamedType) { tn = (ix.Type as NamedType).Name; }
             else { tn = env.ResolveType(ix.Type).Name(); }
-            this._tc._chkTypeRef(env.ResolveType(ix.Type), env, ix.Type.Span);   // enforce-class-access：is 目标类型引用
             // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
             if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
             return new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
@@ -738,7 +733,7 @@ public sealed class ExprTyper {
             BoundExpr access = this._tc._member._bindMember(new MemberExpr(nc.Target, nc.Name, nc.Span), env);
             Z42Type mt = access.Type();
             BoundExpr recv = this._bindExpr(nc.Target, env);
-            BoundExpr cond = new BoundBinary("!=", recv, new BoundLitNull(mt, nc.Span), new Z42PrimType("bool"), nc.Span);
+            BoundExpr cond = new BoundBinary("!=", recv, new BoundLitNull(mt, nc.Span), Z42ClassType.Builtin("bool"), nc.Span);
             BoundExpr elseE = new BoundLitNull(mt, nc.Span);
             return new BoundConditional(cond, access, elseE, mt, nc.Span);
     }
@@ -806,7 +801,7 @@ public sealed class ExprTyper {
             }
             i = i + 1;
         }
-        return new BoundInterpolatedStr(bparts, e.PartCount, new Z42PrimType("string"), e.Span);
+        return new BoundInterpolatedStr(bparts, e.PartCount, Z42ClassType.Builtin("string"), e.Span);
     }
 
     private BoundExpr _bindBinary(BinaryExpr bin, TypeEnv env) {
@@ -826,7 +821,7 @@ public sealed class ExprTyper {
         // Name()="String"）；翻转前 Canon("string")=="string" 逐字节同义。
         if (bin.Op == "+") {
             if (PrimModel.Canon(lt.Name()) == "string" || PrimModel.Canon(rt.Name()) == "string") {
-                return new BoundBinary(bin.Op, left, right, new Z42PrimType("string"), bin.Span);
+                return new BoundBinary(bin.Op, left, right, Z42ClassType.Builtin("string"), bin.Span);
             }
         }
         // L3 运算符重载：左操作数为 class/struct（Z42ClassType）且有静态 op_X(2 参) →
@@ -872,7 +867,6 @@ public sealed class ExprTyper {
 
     private BoundExpr _bindDefault(DefaultExpr d, TypeEnv env) {
         Z42Type t = env.ResolveType(d.Target);
-        this._tc._chkTypeRef(t, env, d.Target.Span);   // enforce-class-access：default(T) 类型引用
         if (t is Z42GenericParamType) {
             string pname = t.Name();
             int idx = 0;
@@ -901,7 +895,6 @@ public sealed class ExprTyper {
             if (t is Z42UnknownType) {
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
             }
-            this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access：new 类型引用
         }
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
             this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);

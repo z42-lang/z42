@@ -258,7 +258,7 @@ public sealed class BoundIsExpr : BoundExpr {
     public string    TypeName;
     public string    BindName;   // is-pattern 绑定变量名（""=无绑定）
     private Z42Type _type;
-    public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = new Z42PrimType("bool"); }
+    public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
 }

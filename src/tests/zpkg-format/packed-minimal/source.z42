@@ -2,7 +2,7 @@
 namespace Demo.Minimal;
 
 class Greeter {
-    public string Hello() { return "hi"; }
+    string Hello() { return "hi"; }
 }
 
 void Main() {
