@@ -455,6 +455,29 @@ pub struct ScriptObject {
     pub type_args: Box<[String]>,
 }
 
+impl ScriptObject {
+    /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
+    /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
+    /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
+    /// `struct_bytes` 前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
+    /// 让装箱整数盒与 struct 装箱盒共用 `Value::BoxedStruct`，同时保留整数的透明拆箱语义。
+    pub fn boxed_prim_i64(&self) -> Option<i64> {
+        let (width, signed) =
+            crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?;
+        if self.struct_bytes.len() < width {
+            return None;
+        }
+        let mut buf = [0u8; 8];
+        buf[..width].copy_from_slice(&self.struct_bytes[..width]);
+        let mut v = i64::from_le_bytes(buf);
+        if signed && width < 8 {
+            let shift = (8 - width) * 8;
+            v = (v << shift) >> shift; // 符号扩展窄整数
+        }
+        Some(v)
+    }
+}
+
 impl crate::gc::GcRef<ScriptObject> {
     /// **extract-typedesc-from-mutex (2026-05-31)**: lockless read of
     /// the object's `type_desc`. type_desc is set by `alloc_object` and
@@ -945,12 +968,10 @@ pub enum Value {
     /// Closure. Refs only live in registers for a single call's
     /// duration, so the box alloc is a tiny fraction of the call cost.
     Ref(Box<RefKind>) = 12,
-    /// add-primitive-value-boxing: 基元值装箱——把裸基元（`inner`）连同其**精确基元
-    /// struct 类型名**（`class`，如 `Std.Int64`）装进堆值，使 `object`/接口 槽保留精确
-    /// 类型（强类型 `is`/`as`/`GetType`/`vcall`）。仅在 prim→object/接口 转换点由 `Box`
-    /// 指令创建；`Unbox`（object→prim）取回 `inner`。算术/方法体永远拿拆箱后的 `inner`，
-    /// 故热路径零影响。Box<…> = 8B 指针，不撑大 Value。
-    Boxed(Box<BoxedPrim>) = 13,
+    // discriminant 13 retired by unify Phase 2 R3（装箱统一）：基元装箱不再走
+    // `Value::Boxed(Box<BoxedPrim>)`——整数标量装进堆 `ScriptObject` 的 `struct_bytes` 并以
+    // `Value::BoxedStruct` 承载（与 struct 装箱同一模型 + 引用身份）。判别号 13 留空（14-18 号不
+    // 重编，`#[repr(C,u8)]` 显式判别 + JIT 原始布局不受影响）。
     /// add-escape-analysis-stack-alloc: 逃逸分析证明不逃逸的对象，interp 在**每线程
     /// context 的栈 arena**（`VmContext::stack_obj_arena`）里分配，绕过 GC、随创建帧
     /// 退出 LIFO 截断释放。句柄（非堆指针）：
@@ -1008,14 +1029,9 @@ pub struct StructArrayElem {
 // `corelib::convert::builtin_box_struct`（alloc struct 类型 ScriptObject）；拆箱经
 // `interp::exec_struct::unbox_struct`（读对象 struct_bytes/refs → arena StructRef）。
 
-/// add-primitive-value-boxing: 装箱基元载荷。`class` = FQ 基元 struct 名（`Std.Int32`/
-/// `Std.Int64`/`Std.Byte`/…），供 `is`/`as`/`GetType`/`vcall` 走真 type_desc；`inner` =
-/// 裸基元值（I64/F64/Bool/Char/Str）。
-#[derive(Debug, Clone)]
-pub struct BoxedPrim {
-    pub class: std::sync::Arc<str>,
-    pub inner: Value,
-}
+// add-primitive-value-boxing → unify Phase 2 R3: `BoxedPrim` 已删——基元装箱统一到堆
+// `ScriptObject`（整数标量存 `struct_bytes`）+ `Value::BoxedStruct`，见
+// `ScriptObject::boxed_prim_i64` / `corelib::convert::box_prim_to_heap`。
 
 /// Spec impl-ref-out-in-runtime: 描述 `Value::Ref` 指向的底层位置类型。
 #[derive(Debug, Clone)]
@@ -1179,9 +1195,6 @@ impl Value {
                     for r in &obj.struct_refs { visit(r); }  // add-struct-heap-inline (P3b)
                 }
             },
-            // add-primitive-value-boxing: 装箱基元——inner 为裸基元（无 GcRef），
-            // 保守追踪一层（若未来 inner 承载堆值也安全）。
-            Value::Boxed(b) => visit(&b.inner),
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
             // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
             Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.struct_refs { visit(r); } }
@@ -1236,11 +1249,14 @@ impl PartialEq for Value {
                  RefKind::Field { gc_ref: g2, field_name: n2 }) => GcRef::ptr_eq(g1, g2) && n1 == n2,
                 _ => false,
             },
-            // add-primitive-value-boxing: 装箱基元按 inner 值相等（class 精确性由 is/as 保证，
-            // 值相等只看载荷）。boxed vs 未装箱基元也按 inner 比较（透明拆箱）。
-            (Value::Boxed(a), Value::Boxed(b)) => a.inner == b.inner,
-            (Value::Boxed(a), other) => &a.inner == other,
-            (other, Value::Boxed(b)) => other == &b.inner,
+            // add-primitive-value-boxing → unify Phase 2 R3: 装箱整数 vs 裸整数 —— 透明拆箱按值比较
+            // （保留 add-primitive-value-boxing 的混合相等语义）。装箱整数盒是 `BoxedStruct`（整数标量
+            // 存 struct_bytes）；非整数盒（多字段 struct 装箱）`boxed_prim_i64` 返 None → 落 `_=>false`
+            // （struct 盒 ≠ 裸基元，正确）。装箱整数 vs 装箱整数由下方 BoxedStruct/BoxedStruct 臂按
+            // struct_bytes 比（同 wrapper + 同字节 → 值相等），无需单列。
+            (Value::BoxedStruct(a), Value::I64(n)) | (Value::I64(n), Value::BoxedStruct(a)) => {
+                a.borrow().boxed_prim_i64() == Some(*n)
+            }
             // add-struct-object-boxing (PR2a, provisional，design D5)：装箱 struct 值相等——同类型 ∧
             // 字节相等 ∧ 引用叶子逐 Value 相等（refs 的 Value::eq 处理 string 内容 / object 引用）。
             // add-boxed-struct-identity (P4b): 载荷现是共享 `ScriptObject`——先 ptr_eq（同盒必等，且避免

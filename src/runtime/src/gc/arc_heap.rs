@@ -1660,6 +1660,44 @@ impl ArcMagrGC {
 // ── inherent helpers ─────────────────────────────────────────────────────────
 
 impl ArcMagrGC {
+    /// 共享对象分配尾部：把已建好的 `ScriptObject` alloc 进 region + OOM 兜底 + record。
+    /// `alloc_object`（struct_bytes 由 `type_desc.inline_regions()` 定尺）与 `alloc_boxed_prim`
+    /// （struct_bytes 由调用方按 wrapper 标量宽度显式定尺，unify Phase 2 R3）复用本尾部。
+    fn finish_alloc(&self, obj: ScriptObject) -> Value {
+        let td_for_record = Arc::clone(&obj.type_desc);
+        // **add-custom-allocator P1 (2026-05-22)**: alloc into region.
+        // Region::alloc returns a stable handle; resolve gives us the
+        // entry pointer for GcRef construction.
+        let (entry_ptr, generation, handle) = {
+            let mut region = self.region_object.lock();
+            let handle = region.alloc(obj);
+            let entry: std::ptr::NonNull<super::region::RegionEntry<ScriptObject>> =
+                std::ptr::NonNull::from(region.resolve(handle));
+            (entry, handle.generation, handle)
+        };
+        // SAFETY: handle was just produced by region.alloc; entry ptr
+        // is stable for entry lifetime; generation matches.
+        let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
+        let value = Value::Object(gc);
+
+        let size = self.object_size_bytes(&value);
+        // Phase 3-OOM: strict 模式下若 alloc 后会越界，撤销并返 Null
+        let (would_oom, limit) = self.would_oom_after_alloc(size as u64);
+        if would_oom {
+            // Refund: tombstone the entry (no finalizer registered yet,
+            // so no fire on tombstone).
+            self.region_object.lock().tombstone(handle);
+            self.fire_event(GcEvent::OutOfMemory {
+                requested_bytes: size as u64,
+                limit_bytes: limit,
+            });
+            return Value::Null;
+        }
+        self.record_alloc(&value, || AllocKind::Object { class: td_for_record.name.clone() }, size);
+        self.maybe_auto_collect();
+        value
+    }
+
     /// add-reflection-array-element-type: shared array allocation over an
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
@@ -1746,10 +1784,6 @@ impl MagrGC for ArcMagrGC {
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value {
-        // Keep a cheap `Arc<TypeDesc>` handle (atomic refcount, no String alloc)
-        // so `record_alloc`'s closure can clone the class name lazily — only when
-        // an alloc sampler is installed, not on every `new`.
-        let td_for_record = Arc::clone(&type_desc);
         // review.md E2.P6 (2026-06-02): `slots` is `Box<[Value]>` now.
         // Vec → Box<[T]> drops excess capacity; for the common case where
         // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
@@ -1764,37 +1798,24 @@ impl MagrGC for ArcMagrGC {
             type_args: Box::new([]),
         };
 
-        // **add-custom-allocator P1 (2026-05-22)**: alloc into region.
-        // Region::alloc returns a stable handle; resolve gives us the
-        // entry pointer for GcRef construction.
-        let (entry_ptr, generation, handle) = {
-            let mut region = self.region_object.lock();
-            let handle = region.alloc(obj);
-            let entry: std::ptr::NonNull<super::region::RegionEntry<ScriptObject>> =
-                std::ptr::NonNull::from(region.resolve(handle));
-            (entry, handle.generation, handle)
-        };
-        // SAFETY: handle was just produced by region.alloc; entry ptr
-        // is stable for entry lifetime; generation matches.
-        let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-        let value = Value::Object(gc);
+        self.finish_alloc(obj)
+    }
 
-        let size = self.object_size_bytes(&value);
-        // Phase 3-OOM: strict 模式下若 alloc 后会越界，撤销并返 Null
-        let (would_oom, limit) = self.would_oom_after_alloc(size as u64);
-        if would_oom {
-            // Refund: tombstone the entry (no finalizer registered yet,
-            // so no fire on tombstone).
-            self.region_object.lock().tombstone(handle);
-            self.fire_event(GcEvent::OutOfMemory {
-                requested_bytes: size as u64,
-                limit_bytes: limit,
-            });
-            return Value::Null;
-        }
-        self.record_alloc(&value, || AllocKind::Object { class: td_for_record.name.clone() }, size);
-        self.maybe_auto_collect();
-        value
+    /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject`+引用身份——`struct_bytes`
+    /// 装裸标量（LE 字节，宽度由调用方按 wrapper 定，见 `corelib/convert.rs::box_prim_to_heap`），
+    /// **不走 `type_desc.inline_regions()`**（基元 wrapper 如 Int32 是零字段 struct，layout size=0，
+    /// 装不下标量）。整数装箱无引用叶子 → `struct_refs`/`slots` 空。返 `Value::Object`，调用方包成
+    /// `Value::BoxedStruct`（与 struct 装箱同款引用身份/GC/反射路径）。
+    fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, struct_bytes: Box<[u8]>) -> Value {
+        let obj = ScriptObject {
+            type_desc,
+            slots: Box::new([]),
+            struct_bytes,
+            struct_refs: Box::new([]),
+            native: NativeData::None,
+            type_args: Box::new([]),
+        };
+        self.finish_alloc(obj)
     }
 
     fn alloc_array(&self, elems: Vec<Value>) -> Value {
@@ -2001,10 +2022,6 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Field { field_name, .. } =>
                     size_of::<Value>() + field_name.capacity(),
             },
-            // add-primitive-value-boxing: 装箱基元 = enum tag + 堆 BoxedPrim（class Arc + inner）。
-            Value::Boxed(b) => size_of::<Value>()
-                + size_of::<crate::metadata::types::BoxedPrim>()
-                + b.class.len(),
             // add-escape-analysis-stack-alloc: stack objects/arrays live in the
             // per-context arena, not the GC heap — object_size_bytes is a heap-alloc
             // accounting hook and is never called on them; the arm exists only for

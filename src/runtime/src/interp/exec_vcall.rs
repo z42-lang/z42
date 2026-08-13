@@ -137,21 +137,24 @@ pub(super) fn vcall(
     // frame directly from caller regs + arg indices (zero args Vec). The cold
     // boxing / primitive-name / vtable paths materialize `extra_args` locally.
 
-    // ── add-primitive-value-boxing: 装箱基元方法调用 ────────────────────
-    // 按 boxed.class 解析方法（+ arity 重载），fallback Std.Object 基类；`this = inner`（拆箱后
-    // 交基元 struct 方法体，与未装箱基元同源）。GetType/ToString/Equals/GetHashCode 皆经此。
-    if let Value::Boxed(b) = &obj_val {
+    // ── add-primitive-value-boxing → unify Phase 2 R3: 装箱基元方法调用 ──────
+    // 基元盒现是 `BoxedStruct`（整数标量存 struct_bytes）；`boxed_prim_i64` 拆回标量并按
+    // `type_desc.name`（精确 wrapper）解析方法（+ arity 重载），fallback Std.Object；`this = 裸标量`
+    // 交基元 struct 方法体（与未装箱基元同源）。struct 装箱盒（boxed_prim_i64 None）不入此块，落下方
+    // struct 对象协议块。GetType/ToString/Equals/GetHashCode 皆经此。
+    if let Value::BoxedStruct(gc) = &obj_val {
+      if let Some(scalar) = gc.borrow().boxed_prim_i64() {
         let mut extra_args = collect_args(&frame.regs, args)?;
-        // GetType 须保留装箱类：一般方法拆箱 `this=inner` 交基元 struct 方法体，但 GetType
-        // 若也拆箱，其 __get_type 会按 inner 的**默认** primitive_class_name 报告（I64→Int32），
-        // 丢掉 Std.Int64 等精确宽度。故 GetType 直接交 builtin_obj_get_type（Boxed 臂用 b.class）。
+        // GetType 须保留装箱类：一般方法拆箱 `this=标量` 交基元 struct 方法体，但 GetType 若也拆箱，
+        // 其 __get_type 会按标量的**默认** primitive_class_name 报告（I64→Int32），丢掉 Std.Int64 等
+        // 精确宽度。故 GetType 直接交 builtin_obj_get_type（BoxedStruct 臂用 type_desc.name）。
         if method == "GetType" && extra_args.is_empty() {
             let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
             frame.set(dst, ty);
             return Ok(None);
         }
-        let class_name = b.class.clone();
-        let mut call_args = vec![b.inner.clone()];
+        let class_name = gc.type_desc().name.clone();
+        let mut call_args = vec![Value::I64(scalar)];
         call_args.append(&mut extra_args);
         let arity = call_args.len() - 1;
         let candidates = [
@@ -177,6 +180,7 @@ pub(super) fn vcall(
             }
         }
         bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity);
+      }
     }
 
     // ── add-struct-object-methods (PR2b): 装箱 struct 对象协议方法调用 ────────────

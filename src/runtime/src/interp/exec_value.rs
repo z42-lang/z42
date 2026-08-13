@@ -281,10 +281,13 @@ pub(super) fn convert(frame: &mut Frame, dst: u32, src: u32, to_tag: u8) -> Resu
 /// rather than a numeric conversion. `Null` is universally castable to
 /// any reference target. (add-std-process, 2026-05-13.)
 pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
-    // add-primitive-value-boxing: `(T)o` on a boxed primitive → unbox then convert the inner
-    // (`(long)o` boxed-Int64 → inner I64 identity；`(int)o` → 数值窄化)。
-    if let Value::Boxed(b) = v {
-        return convert_value(b.inner, to_tag);
+    // add-primitive-value-boxing → unify Phase 2 R3: `(T)o` on a boxed primitive → unbox then
+    // convert the scalar (`(long)o` boxed-Int64 → I64 identity；`(int)o` → 数值窄化)。基元盒现是
+    // `BoxedStruct`（标量存 struct_bytes）；非整数盒（struct 装箱）boxed_prim_i64 返 None → 不拦截。
+    if let Value::BoxedStruct(gc) = &v {
+        if let Some(n) = gc.borrow().boxed_prim_i64() {
+            return convert_value(Value::I64(n), to_tag);
+        }
     }
     // Reference-type identity casts — value's dynamic kind already matches the
     // narrowed static target.
