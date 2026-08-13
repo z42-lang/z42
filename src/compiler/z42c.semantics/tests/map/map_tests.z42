@@ -9,12 +9,12 @@ using Z42.Semantics;
 [Test]
 void test_strmap_basic() {
     var m = new StrMap();
-    m.Put("int", new Z42PrimType("int"));
+    m.Put("int", Z42ClassType.Builtin("int"));
     m.Put("Foo", new Z42ClassType("Foo", false, ""));
     Assert.Equal(2, m.Count());
     Assert.Equal(true,  m.ContainsKey("int"));
     Assert.Equal(false, m.ContainsKey("bar"));
-    var t = m.Get("int") as Z42PrimType;          // object → 下行
+    var t = m.Get("int") as Z42ClassType;          // object → 下行
     Assert.Equal("int", t.Name());
     var c = m.Get("Foo") as Z42ClassType;
     Assert.Equal("Foo", c.Name());
@@ -23,10 +23,10 @@ void test_strmap_basic() {
 [Test]
 void test_strmap_overwrite() {
     var m = new StrMap();
-    m.Put("x", new Z42PrimType("int"));
-    m.Put("x", new Z42PrimType("long"));          // 覆盖
+    m.Put("x", Z42ClassType.Builtin("int"));
+    m.Put("x", Z42ClassType.Builtin("long"));          // 覆盖
     Assert.Equal(1, m.Count());                   // 覆盖不增计数
-    var t = m.Get("x") as Z42PrimType;
+    var t = m.Get("x") as Z42ClassType;
     Assert.Equal("long", t.Name());
 }
 
@@ -35,14 +35,14 @@ void test_strmap_resize_and_collision() {
     var m = new StrMap();
     int i = 0;
     while (i < 100) {                             // 触发多次 2x 重散列 + 探测
-        m.Put("k" + i.ToString(), new Z42PrimType("t" + i.ToString()));
+        m.Put("k" + i.ToString(), Z42ClassType.Builtin("t" + i.ToString()));
         i = i + 1;
     }
     Assert.Equal(100, m.Count());
     Assert.Equal(true,  m.ContainsKey("k0"));
     Assert.Equal(true,  m.ContainsKey("k99"));
     Assert.Equal(false, m.ContainsKey("k100"));
-    var t = m.Get("k50") as Z42PrimType;
+    var t = m.Get("k50") as Z42ClassType;
     Assert.Equal("t50", t.Name());
     Assert.Equal(100, m.Keys().Length);
 }

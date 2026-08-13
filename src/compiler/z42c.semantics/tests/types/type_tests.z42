@@ -7,10 +7,10 @@ using Z42.Semantics;
 
 [Test]
 void test_prim_widening() {
-    var i = new Z42PrimType("int");
-    var l = new Z42PrimType("long");
-    var d = new Z42PrimType("double");
-    var s = new Z42PrimType("string");
+    var i = Z42ClassType.Builtin("int");
+    var l = Z42ClassType.Builtin("long");
+    var d = Z42ClassType.Builtin("double");
+    var s = Z42ClassType.Builtin("string");
     Assert.Equal("int", i.Name());
     Assert.Equal(true,  i.IsAssignableTo(i));    // 同型
     Assert.Equal(true,  i.IsAssignableTo(l));    // int→long 拓宽
@@ -21,7 +21,7 @@ void test_prim_widening() {
 
 [Test]
 void test_error_absorbs() {
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     var err = new Z42ErrorType();
     Assert.Equal(true, i.IsAssignableTo(err));   // 任何 → error（不级联报错）
     Assert.Equal(true, err.IsAssignableTo(i));   // error → 任何
@@ -42,7 +42,7 @@ void test_class_and_void() {
 
 [Test]
 void test_func_type_and_symbols() {
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     var ps = new Z42Type[2]; ps[0] = i; ps[1] = i;
     var sig = new Z42FuncType(ps, 2, i);           // (int,int)->int
     Assert.Equal("(int,int)->int", sig.Dump());
@@ -56,7 +56,7 @@ void test_func_type_and_symbols() {
 
 [Test]
 void test_class_members() {
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     var c = new Z42ClassType("Box", false, "");
     c.Fields.Put("value", new FieldSymbol("value", "public", i, false, "Box"));
     Assert.Equal(true, c.Fields.ContainsKey("value"));

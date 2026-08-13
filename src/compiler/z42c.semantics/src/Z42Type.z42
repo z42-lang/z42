@@ -21,24 +21,9 @@ public class Z42Type {
     }
 }
 
-public sealed class Z42PrimType : Z42Type {
-    private string _name;
-    public Z42PrimType(string name) { this._name = name; }
-    public override string Name() { return this._name; }
-    public override bool IsAssignableTo(Z42Type other) {
-        if (other is Z42ErrorType) { return true; }
-        if (Z42Type.Canon(this._name) == Z42Type.Canon(other.Name())) { return true; }   // 名等价（剥 ? + 别名）
-        return this._canWiden(this._name, other.Name());
-    }
-    // 数值拓宽（无收窄）：int→long/float/double；long→float/double；float→double；byte·short→int 起。
-    private bool _canWiden(string from, string to) {
-        if (from == "byte" || from == "short") { return to == "int" || to == "long" || to == "float" || to == "double"; }
-        if (from == "int")   { return to == "long" || to == "float" || to == "double"; }
-        if (from == "long")  { return to == "float" || to == "double"; }
-        if (from == "float") { return to == "double"; }
-        return false;
-    }
-}
+// unify-value-types 阶段 3（2026-08-13）：`Z42PrimType` 已删除——内建基元/string/object 统一由
+// `Z42ClassType`（真 phantom struct，或 `Z42ClassType.Builtin` 轻量合成，Name()=keyword）承载，
+// 完成 int≡Std.Int32 单一值类型模型。数值拓宽迁至 `PrimModel.CanWiden`；可赋性桥见 Z42ClassType.IsAssignableTo。
 
 public sealed class Z42ClassType : Z42Type {
     private string _name;
@@ -78,11 +63,6 @@ public sealed class Z42ClassType : Z42Type {
     // 由 ImportedSymbolLoader 构造 imported 类型时置 true；本地类型默认 false。**不序列化**（每次编译按
     // 本次依赖图现算），供 `internal` 可见性判定「声明类是否本包」（同包可访问，跨包 E0404）。
     public bool   IsImported;
-    // enforce-class-access：类声明的可见性（"public"/"private"/"protected"/"internal"）。默认 "public"
-    // （构造后立即由 SymbolCollector 从 Mods 按位置默认覆写、或由 ImportedSymbolLoader 从元数据还原）。
-    // 供类级访问强制（AccessChecker.CheckTypeRef）判定「从当前上下文引用该类型是否允许」。位置默认：
-    // 嵌套类（名含 '+'）→ private、顶层类 → internal；显式修饰符优先。
-    public string Visibility;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -96,7 +76,23 @@ public sealed class Z42ClassType : Z42Type {
         this.IsStruct = false;
         this.IsSealed = false;
         this.IsImported = false;
-        this.Visibility = "public";
+    }
+
+    // unify-value-types Phase 1 阶段 3（消灭 Z42PrimType）：内建基元/string/object 的**轻量合成**
+    // 值类型——取代旧 `new Z42PrimType(name)`。Name()=wrapper 拼写（Int32/String/Object…），供消费者
+    // 一律按 PrimModel.Canon/IsBuiltin/SurfaceName 归一（与翻转前 Z42PrimType("int") 逐字节等价：
+    // 二者名经 Canon 都归 "i32"，emit 经 SurfaceName 都回 "int"）。IsStruct 复刻真 phantom（scalar
+    // wrapper=struct，string/object=引用类）；无成员——内建成员访问经 MemberResolver 按名查 wrapper
+    // 类（2b 已建），不依赖本类型自带成员表。任意拼写入参（keyword/短名/wrapper/FQ）由 Wrapper 归一。
+    public static Z42ClassType Builtin(string name) {
+        // Name() 用**原样入参**（复刻旧 `Z42PrimType(name).Name()==name`：字面量/算术/imported 传的都是
+        // keyword/canonical 名如 "int"/"double"/"string"）——**不可用 Wrapper**（"Int32"），否则一切按
+        // Name() 比较/Dump/收集的内部逻辑（`f.FieldType.Name()=="int"`、`sig.Dump()=="(int,int)->int"`）
+        // 全漂成 wrapper 名。IsBuiltin(name) 恒真 → MemberResolver 走 prim-wrapper 路径（按名查真类），
+        // 与旧 Z42PrimType 逐字节同义。IsScalarValue → IsStruct 复刻真 phantom（scalar wrapper=struct）。
+        Z42ClassType ct = new Z42ClassType(name, false, "");
+        ct.IsStruct = PrimModel.IsScalarValue(name);
+        return ct;
     }
 
     // 追加一个自有实例字段元数据（SymbolCollector._fillClass 按 AST 声明序调用；static 字段不入此表）。G18。

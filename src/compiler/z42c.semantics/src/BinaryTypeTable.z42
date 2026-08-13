@@ -29,26 +29,18 @@ public static class ResultKind {
 public static class TypeFacts {
     // 统一取"基元名"：Z42PrimType → 直接取；Z42ClassType 是基元包装 → 映射；其余 → ""。
     public static string _asPrimName(Z42Type t) {
-        if (t is Z42PrimType) { return (t as Z42PrimType).Name(); }
         if (t is Z42ClassType) { return TypeFacts._structPrimName((t as Z42ClassType).Name()); }
         return "";
     }
 
-    // 基元包装结构体名 → 对应基元名（BCL Pascal-case 约定）。
+    // Scalar 值类型名 → 对应基元名。阶段 3：委托 PrimModel，**同时认 wrapper 名（Int32/Boolean/真
+    // phantom）与 keyword 名（int/bool/合成 Z42ClassType.Builtin）**——Keyword 对 wrapper 名产出与旧
+    // 逐条相同（Int32→"int"、Byte→"u8"、Boolean→"bool"、Char→"char"…），故对真 phantom byte-identical；
+    // 新增认 keyword 名让合成体（Name()="bool"/"int"）也被 IsBool/IsNumeric/IsOrderable 识别。string/object
+    // 非 scalar → IsScalarValue 挡下返 ""（与旧一致，二者不入本表）。
     private static string _structPrimName(string name) {
-        if (name == "Boolean")  { return "bool"; }
-        if (name == "Byte")     { return "u8"; }
-        if (name == "SByte")    { return "i8"; }
-        if (name == "Int16")    { return "i16"; }
-        if (name == "UInt16")   { return "u16"; }
-        if (name == "Int32")    { return "int"; }
-        if (name == "UInt32")   { return "u32"; }
-        if (name == "Int64")    { return "long"; }
-        if (name == "UInt64")   { return "u64"; }
-        if (name == "Single")   { return "float"; }
-        if (name == "Double")   { return "double"; }
-        if (name == "Char")     { return "char"; }
-        return "";
+        if (!PrimModel.IsScalarValue(name)) { return ""; }
+        return PrimModel.Keyword(name);
     }
 
     public static bool IsNumeric(Z42Type t) {
@@ -90,10 +82,10 @@ public static class TypeFacts {
     public static Z42Type ArithmeticResult(Z42Type l, Z42Type r) {
         string a = TypeFacts._asPrimName(l);
         string b = TypeFacts._asPrimName(r);
-        if (TypeFacts._isDoubleName(a) || TypeFacts._isDoubleName(b)) { return new Z42PrimType("double"); }
-        if (TypeFacts._isFloatOnly(a)  || TypeFacts._isFloatOnly(b))  { return new Z42PrimType("float"); }
-        if (TypeFacts._isLongName(a)   || TypeFacts._isLongName(b))   { return new Z42PrimType("long"); }
-        return new Z42PrimType("int");
+        if (TypeFacts._isDoubleName(a) || TypeFacts._isDoubleName(b)) { return Z42ClassType.Builtin("double"); }
+        if (TypeFacts._isFloatOnly(a)  || TypeFacts._isFloatOnly(b))  { return Z42ClassType.Builtin("float"); }
+        if (TypeFacts._isLongName(a)   || TypeFacts._isLongName(b))   { return Z42ClassType.Builtin("long"); }
+        return Z42ClassType.Builtin("int");
     }
 
     public static bool _isNumericName(string n) {
@@ -163,7 +155,7 @@ public static class BinaryTypeTable {
 
     // 结果种类 → 实际类型（一元透传时 l == 操作数类型）。
     public static Z42Type ResultType(int outKind, Z42Type l, Z42Type r) {
-        if (outKind == ResultKind.Bool)    { return new Z42PrimType("bool"); }
+        if (outKind == ResultKind.Bool)    { return Z42ClassType.Builtin("bool"); }
         if (outKind == ResultKind.Arith)   { return TypeFacts.ArithmeticResult(l, r); }
         if (outKind == ResultKind.Operand) { return l; }
         return new Z42UnknownType();

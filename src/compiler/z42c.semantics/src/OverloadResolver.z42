@@ -183,7 +183,10 @@ public sealed class OverloadResolver {
     // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底）。
     private static bool _assignable(Z42Type arg, Z42Type param) {
         if (OverloadResolver._sameType(arg, param)) { return true; }
-        if (param != null && param.Name() == "object") { return true; }   // prim/任意 → object 装箱
+        // 任意 → object 装箱/上转。阶段 3：object 形参现恒 Z42ClassType(Object)（Name()="Object"），
+        // 须按 PrimModel.Canon 归一（与 _assignable2:193 同款），否则 raw "object" 失配 → object 形参
+        // 重载（如 StrMap.Put(string,object)）对任意实参判不适用。
+        if (param != null && PrimModel.Canon(param.Name()) == "object") { return true; }
         if (arg == null) { return false; }
         return arg.IsAssignableTo(param);
     }

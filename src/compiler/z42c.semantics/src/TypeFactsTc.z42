@@ -25,9 +25,9 @@ public static class TypeFactsTc {
         int n = text.Length;
         if (n > 0) {
             char last = text.CharAt(n - 1);
-            if (last == 'f' || last == 'F') { return new Z42PrimType("float"); }
+            if (last == 'f' || last == 'F') { return Z42ClassType.Builtin("float"); }
         }
-        return new Z42PrimType("double");
+        return Z42ClassType.Builtin("double");
     }
 
     // 可赋性判定：委托给统一转换分类器（add-conversion-classifier PR1）。ImplicitOkPermissive()

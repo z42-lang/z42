@@ -86,7 +86,6 @@ public static class ImportedSymbolLoader {
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                         nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
-                        nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）
                         // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
                         // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——
                         // 非-struct class 恒 HasBase=true，struct 恒 HasBase=false），故 `!cl.HasBase` 精确等价
@@ -320,7 +319,7 @@ public static class ImportedSymbolLoader {
             return new Z42ArrayType(ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 2), typeParams, tpCount));
         }
         if (name == "void") { return new Z42VoidType(); }
-        if (ImportedSymbolLoader._isPrim(name)) { return new Z42PrimType(name); }
+        if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
         if (r.Classes.ContainsKey(name)) { return r.Classes.Get(name) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
@@ -364,7 +363,7 @@ public static class ImportedSymbolLoader {
         // GS6: 泛型型参（T/K/V 等）→ Z42GenericParamType，避免降级为 Z42PrimType
         int tp = 0;
         while (tp < tpCount) { if (typeParams[tp] == name) { return new Z42GenericParamType(name); } tp = tp + 1; }
-        return new Z42PrimType(name);    // fallback（含泛型实例化串——既有 Unknown 吸收兼容）
+        return Z42ClassType.Builtin(name);    // fallback（含泛型实例化串——既有 Unknown 吸收兼容）
     }
 
     // 无型参上下文（自由函数等）——委托四参版本。

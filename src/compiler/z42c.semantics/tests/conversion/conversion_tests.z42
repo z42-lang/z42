@@ -7,14 +7,14 @@ using Z42.Semantics;
 
 // 便捷：分类 prim 对（无需 symbols 上下文）。
 int _kind(string from, string to) {
-    var f = new Z42PrimType(from);
-    var t = new Z42PrimType(to);
+    var f = Z42ClassType.Builtin(from);
+    var t = Z42ClassType.Builtin(to);
     return Conversion.Classify(f, t, new SymbolTable()).Kind;
 }
 
 bool _implicitOk(string from, string to) {
-    var f = new Z42PrimType(from);
-    var t = new Z42PrimType(to);
+    var f = Z42ClassType.Builtin(from);
+    var t = Z42ClassType.Builtin(to);
     return Conversion.Classify(f, t, new SymbolTable()).ImplicitOkPermissive();
 }
 
@@ -69,7 +69,7 @@ void test_none_and_absorb() {
     Assert.Equal(ConvKind.None, _kind("int", "string"));  // 不相关
     Assert.Equal(ConvKind.None, _kind("bool", "int"));    // bool↔数值 禁止
     var err = new Z42ErrorType();
-    var i = new Z42PrimType("int");
+    var i = Z42ClassType.Builtin("int");
     Assert.Equal(ConvKind.Absorb, Conversion.Classify(i, err, new SymbolTable()).Kind);
     Assert.Equal(ConvKind.Absorb, Conversion.Classify(err, i, new SymbolTable()).Kind);
 }
@@ -114,8 +114,8 @@ void test_permissive_projection() {   // PR1 宽松门：ExplicitNumeric 仍放�
 // ════ tighten-implicit-conversions（PR2）：收紧门 + 常量例外 + E0439 ═══════════════
 
 bool _implicitStrict(string from, string to) {
-    var f = new Z42PrimType(from);
-    var t = new Z42PrimType(to);
+    var f = Z42ClassType.Builtin(from);
+    var t = Z42ClassType.Builtin(to);
     return Conversion.Classify(f, t, new SymbolTable()).ImplicitOk();
 }
 

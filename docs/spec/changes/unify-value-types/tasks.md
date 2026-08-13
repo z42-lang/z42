@@ -7,9 +7,9 @@
 ## 进度概览
 - [x] 阶段 0: 环境准备（worktree 播种）
 - [x] 阶段 1: PrimModel 单一表 + StructLayout.ReprOf（新增，不删旧）
-- [ ] 阶段 2: 消费点逐个切到 PrimModel（每切一处验 self-host 不变）
-- [ ] 阶段 3: 删 Z42PrimType 类 + 旧七表 + 消 sentinel
-- [ ] 阶段 4: 测试文件机械替换 + 新单测
+- [x] 阶段 2: 消费点逐个切到 PrimModel（含 2a Canon 收敛 + 2b 翻转 ResolveTypeP→phantom class；PR #182 合并）
+- [x] 阶段 3: 删 Z42PrimType 类（内建统一由 Z42ClassType 承载：真 phantom 或轻量合成 `Z42ClassType.Builtin`）
+- [x] 阶段 4: 测试文件机械替换（`new Z42PrimType`→`Z42ClassType.Builtin`；`as Z42PrimType`→`as Z42ClassType`）
 - [ ] 阶段 5: 文档同步（book 机制页 + roadmap）
 - [ ] 阶段 6: GREEN + 归档 Phase 1 + PR
 

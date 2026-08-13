@@ -23,11 +23,6 @@ public sealed class TypeChecker {
     public StmtBinder _stmt;               // God-Class 拆分 step3：语句绑定子绑定器
     public ExprTyper _expr;                // God-Class 拆分 step4：表达式类型检查子绑定器
     public DeclBinder _decl;               // God-Class 拆分 step5：声明绑定编排子绑定器
-    // enforce-class-access：绑定期类型引用点访问校验（体引用：new/var/cast/is/as/typeof/default/catch/泛型实参）。
-    // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
-    public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
-        AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
-    }
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
@@ -59,7 +54,6 @@ public sealed class TypeChecker {
         }
         // 非整数 Scalar（bool/char/double/float，Z42PrimType 或翻转后 Z42ClassType(Scalar)）→ 不装箱
         // （独立 Value 变体自带身份，特例保留）。string（引用）同不装箱。
-        if (vt is Z42PrimType) { return value; }
         if ((vt is Z42ClassType) && PrimModel.IsScalarValue(vt.Name())) { return value; }
         // add-struct-object-boxing (PR2a)：值 struct（Blob）擦除到 object/接口/泛型形参 → 装箱（否则裸拷帧
         // 作用域 StructRef 句柄逃逸创建帧 → use-after-free）。真装箱（blob struct）由 codegen `_emitBox`
@@ -212,7 +206,6 @@ public sealed class TypeChecker {
 
     // 数值 Scalar 值类型（Z42PrimType 或翻转后 Z42ClassType(Scalar)，名归一为数值基元）。
     private static bool _isScalarNumeric(Z42Type t) {
-        if ((t is Z42PrimType) && TypeFactsTc._isNumericPrim(t.Name())) { return true; }
         return (t is Z42ClassType) && PrimModel.IsNumeric(t.Name());
     }
 
@@ -220,7 +213,7 @@ public sealed class TypeChecker {
     private bool _constIntInRange(BoundExpr value, Z42Type target) {
         // unify-value-types Phase 1：目标为整数/char 基元（Z42PrimType 或翻转后 Z42ClassType(Scalar)）；
         // 下方按 Z42Type.Canon(=PrimModel.Canon，wrapper-aware) 归一短名做范围判定，翻转前中立。
-        bool _tScalar = (target is Z42PrimType) || ((target is Z42ClassType) && PrimModel.IsScalarValue(target.Name()));
+        bool _tScalar = (target is Z42ClassType) && PrimModel.IsScalarValue(target.Name());
         if (!_tScalar) { return false; }
         if (!TypeChecker._isConstInt(value)) { return false; }
         long v = TypeChecker._constIntValue(value);

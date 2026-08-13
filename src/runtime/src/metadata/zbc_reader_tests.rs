@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 33, "zbc minor at 1.33 (enforce-class-access: TYPE class-visibility byte)");
+    assert_eq!(ZBC_VERSION_MINOR, 32, "zbc minor at 1.32 (add-struct-heap-inline P3b: TYPE composed inline-struct layout block, Flags bit7 gated)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 38, "zpkg minor at 0.38 (enforce-class-access: coupled zbc 1.33)");
+    assert_eq!(ZPKG_VERSION_MINOR, 37, "zpkg minor at 0.37 (add-struct-heap-inline P3b: coupled zbc 1.32)");
 }
 
 #[test]
@@ -222,7 +222,6 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
     b.push(0u8);                                     // type-param count = 0
     b.extend_from_slice(&0u16.to_le_bytes());        // class attr count = 0
     b.push(crate::metadata::bytecode::CLASS_FLAG_STRUCT); // class_flags = struct
-    b.push(0u8);                                     // class visibility = public (zbc 1.33, enforce-class-access)
     b.extend_from_slice(&0u16.to_le_bytes());        // static field count = 0
     b.extend_from_slice(&0u16.to_le_bytes());        // interface count = 0
     // (no enum block: not CLASS_FLAG_ENUM; no iface-method block: not INTERFACE)

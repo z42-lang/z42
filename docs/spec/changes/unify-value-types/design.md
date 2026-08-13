@@ -132,6 +132,21 @@ z42.core 时可查），**删除降级分支**。若确遇"信息尚未加载"�
 - **实施顺序**（最小化中间态破坏）：① 先建 PrimModel 单一表（新增，不删旧）+ StructLayout.ReprOf；② 把
   `ToIrType`/`BoxIfNeeded`/`ResolveTypeP` 等消费点逐个切到 PrimModel，每切一处 `xtask test compiler` 验
   self-host 不变；③ 全部切完再删 `Z42PrimType` 类 + 旧七表；④ 测试文件机械替换。
+- **阶段 3（删 Z42PrimType）关键：`Z42ClassType.Builtin(name)` 轻量合成体**。翻转（2b）只让 `ResolveTypeP`
+  产真 phantom（声明类型），字面量/算术/imported 形参/合成 Object 方法等 **30 个 producer 仍产 Z42PrimType**。
+  阶段 3 把它们全改产 `Z42ClassType.Builtin(name)`——一个 **Name()=keyword 原样**（"int"/"bool"，**不是**
+  wrapper "Int32"）、`IsBuiltin` 恒真、无成员的合成 Z42ClassType，**逐字节复刻 Z42PrimType(name)** 的行为
+  （keyword 名 + IsBuiltin 路由，成员访问经 MemberResolver 按名查真 wrapper 类）。**核心教训**：合成体的
+  Name() 必须是 **keyword**，因编译器内部大量逻辑按 `Name()` 比较/Dump/收集（`f.FieldType.Name()=="int"`、
+  `sig.Dump()=="(int,int)->int"`）——用 wrapper 名会全漂。
+- **删 Z42PrimType 的连带工作 = 让每个「判 primness」的消费者同时认 keyword + wrapper 名**（经 PrimModel.
+  Canon/Keyword/IsScalarValue 归一），因翻转前它们只见 Z42PrimType（keyword 名）、翻转后见合成 ClassType
+  （keyword）+ 真 phantom（wrapper）。逐个揪出的点：`OverloadResolver._assignable`（object 装箱按 Canon）、
+  `MemberResolver` stub 受者（imported 兜底对未加载真类名产空方法 stub → 重解析/loose 绑定复刻 prim 路径）、
+  `BinaryTypeTable._structPrimName`（IsBool/IsNumeric/IsOrderable 认 keyword）、`ConstraintChecker._isClassArg`
+  （scalar 合成体不满足 `where T:class`）、`Conversion` 拆箱须在通用 class→class 分支**之前**（object/int 均
+  ClassType，否则 class→class IsSubclassOf 皆 false 误返 None）。**gen1 能否自编译 z42.core/z42.ir 是最强早期
+  信号**（比全量 test 快数量级；每改完先 warm gen1→gen2 看能否自编译）。
 - **⚠️ 翻转后核心不变式：`Z42Type.Name()` 写入任何持久元数据的边界必须过 `PrimModel.SurfaceName`**（翻转
   前内建 leaf 是 `Z42PrimType("int")`、`Name()`="int"；翻转后是 `Z42ClassType("Int32")`、`Name()`="Int32"）。
   内建 wrapper 名（Int32/String/Object/Boolean…）**绝不可泄漏进 zpkg 元数据**，否则破坏 byte-identical +

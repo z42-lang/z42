@@ -1,16 +1,12 @@
 # 访问权限控制规范
 
-> **Status**: ✅ 成员级全部实现（enforce-access-control #180 + default-member-private #181）+ **类级强制**
-> （enforce-class-access ① + enforce-crosspkg-internal-class ②）——private / protected / internal（成员含跨包）+
-> 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性 + record 定位字段 public +
-> **类级：private/protected 嵌套类 + 跨包 internal 类的**类型引用**校验**（覆盖体引用 new/var/cast/is/as/typeof/catch
-> + 声明签名 字段/参/返/基类·接口；跨包 internal 类可见性经 zbc 1.33/zpkg 0.38 TYPE 记录可见性字节序列化）。
-> 机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
+> **Status**: ✅ 全部实现（enforce-access-control #180 + default-member-private）——private / protected /
+> internal（含跨包）+ 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性
+> + record 定位字段 public。机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
 > **本规范是访问控制的语言 SoT**（2026-08-12：默认成员 = private 以本文档为准，实现已对齐）。
 >
-> 剩余 Deferred（独立后续）：不一致可访问性（public 签名暴露 internal 类型，C# CS0050–53）；顶层类标
-> private/protected 的声明期拒绝；接口类型可见性（`Z42InterfaceType` 未建模可见性）；类可见性反射面
-> （VM read-and-discard，`Type.IsPublic` 等未接）。嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。
+> 未做：**类级访问强制**（private 嵌套类 / internal 类不可跨作用域*引用*——当前只强制成员访问，不检查类型
+> 引用；`LinkedList.Node` 例仍可被外部引用）。列为独立后续 change。
 
 ## 设计原则
 

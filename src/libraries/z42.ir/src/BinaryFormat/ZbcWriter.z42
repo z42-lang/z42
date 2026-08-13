@@ -301,7 +301,6 @@ public static class ZbcWriter {
                 cai = cai + 1;
             }
             w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record
-            w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
             w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
             int sf = 0;
             while (sf < cd.StaticFieldCount) {
