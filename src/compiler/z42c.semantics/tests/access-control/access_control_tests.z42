@@ -139,3 +139,61 @@ void test_static_private_method_cross_class_denied() {
     Assert.Equal(1, SemanticDump.ErrorCount(src));
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
 }
+
+// ── enforce-class-access：类级访问强制（体引用点 → TypeChecker._diags → ErrorCount 可见） ──
+
+[Test]
+void test_class_new_private_nested_from_outside_denied() {
+    // 类外 new 一个 private 嵌套类 → E0404
+    string src = "class Outer { private class Inner { } } void f() { var n = new Outer.Inner(); }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_new_private_nested_from_outer_ok() {
+    // 外层类内 new 自己的 private 嵌套类 → 放行
+    string src = "class Outer { private class Inner { } void mk() { var n = new Inner(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_new_public_nested_from_outside_ok() {
+    // public 嵌套类类外 new → 放行
+    string src = "class Outer { public class Inner { } } void f() { var n = new Outer.Inner(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_is_private_nested_from_outside_denied() {
+    // 类外 `is` private 嵌套类 → E0404
+    string src = "class Outer { private class Inner { } } void f(object o) { var b = o is Outer.Inner; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_var_private_nested_from_outside_denied() {
+    // 类外局部变量声明为 private 嵌套类型 → E0404
+    string src = "class Outer { private class Inner { } } void f() { Outer.Inner x = null; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_protected_nested_from_derived_ok() {
+    // 派生类内 new 基类的 protected 嵌套类 → 放行
+    string src = "class Outer { protected class Inner { } } class Sub : Outer { void mk() { var n = new Outer.Inner(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_protected_nested_from_unrelated_denied() {
+    // 无关类内 new 一个 protected 嵌套类 → E0404
+    string src = "class Outer { protected class Inner { } } class U { void mk() { var n = new Outer.Inner(); } }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_internal_toplevel_same_package_ok() {
+    // 无修饰符顶层类默认 internal；同包引用 → 放行（跨包 deny 由 cross-zpkg / imported 覆盖）
+    string src = "class Secret { } void f() { var s = new Secret(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
