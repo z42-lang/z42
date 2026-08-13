@@ -50,6 +50,7 @@ public sealed class IrClassDesc {
     public IrFieldDesc[] StaticFields; public int StaticFieldCount;   // zbc 1.13（SA-3）
     public string[] Interfaces; public int InterfaceCount;   // zbc 1.17：TYPE 接口块（bare 名）
     public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record / bit4 interface / bit5 enum
+    public int Visibility;   // enforce-class-access（zbc 1.33）：类声明可见性 0=public/1=private/2=protected/3=internal（默认 0）。TYPE 记录紧随 Flags 的独立字节；跨包 internal 类引用强制据此。
     public string[]           TypeParams;           public int TypeParamCount;        // zbc L3-G1
     public IrConstraintDesc[] TypeParamConstraints; // aligned with TypeParams（null = empty bundles）
     public IrAttrRef[] Attrs; public int AttrCount;   // zbc 1.10：类 attr-ref（默认空）
@@ -83,6 +84,7 @@ public sealed class IrClassDesc {
         this.StaticFields = new IrFieldDesc[0]; this.StaticFieldCount = 0;
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.Flags = 0;
+        this.Visibility = 0;   // enforce-class-access：默认 public（未显式设置的 desc 安全默认，绝不误拒）
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
         this.TypeParamConstraints = new IrConstraintDesc[0];
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
