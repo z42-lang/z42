@@ -149,33 +149,12 @@ public sealed class Type : MemberInfo {
     public extern bool IsPrimitive { get; }
 
     // ── Declaration visibility (complete-class-access-control) ────────────────
-    // Mirrors C# System.Type: a top-level type is IsPublic xor IsNotPublic; a
-    // nested type is one of IsNested{Public,Private,Family,Assembly}. Backed by the
-    // zbc 1.33 class-visibility byte. Handle-less Types (primitive / array) → false.
-
-    // True for a top-level `public` type.
-    [Native("__type_is_public")]
-    public extern bool IsPublic { get; }
-
-    // True for a top-level type that is not public (i.e. `internal`).
-    [Native("__type_is_not_public")]
-    public extern bool IsNotPublic { get; }
-
-    // True for a nested `public` type.
-    [Native("__type_is_nested_public")]
-    public extern bool IsNestedPublic { get; }
-
-    // True for a nested `private` type.
-    [Native("__type_is_nested_private")]
-    public extern bool IsNestedPrivate { get; }
-
-    // True for a nested `protected` type (C# "family").
-    [Native("__type_is_nested_family")]
-    public extern bool IsNestedFamily { get; }
-
-    // True for a nested `internal` type (C# "assembly").
-    [Native("__type_is_nested_assembly")]
-    public extern bool IsNestedAssembly { get; }
+    // NOTE（bootstrap-seed 纪律）：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,
+    // Private,Family,Assembly}` 反射面**推迟到 follow-up PR**。VM 侧 6 个 builtin
+    // （`__type_is_public` 等）+ `TypeDesc.visibility` 存储已随本 PR 落地（support 先行），
+    // 但本 PR 同时 bump 格式（zbc 1.33），CI 冷启动走两代自举、用旧 nightly VM 加载 stdlib——
+    // 旧 VM 无这些 builtin，stdlib 一引用即 load 期 panic。故 support（VM builtin）先行、
+    // 晚一个 nightly 再在此加 extern 属性 use（届时 nightly VM 已含 builtin，无两代自举）。
 
     // Public instance fields (including inherited; base-first). Empty for
     // primitives / arrays.

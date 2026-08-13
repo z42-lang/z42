@@ -16,10 +16,12 @@
 > - **不一致可访问性**（E0441，C# CS0050 族）：成员/类型签名不得暴露比其**有效可访问性** `min(成员, 外层类)`
 >   更低可见性的类型（可见性线性 rank public>internal>protected>private；完整偏序 Deferred）。
 > - **类可见性反射**：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,Private,Family,Assembly}`（对齐 C#
->   `System.Type`），从 TYPE 可见性字节读出（VM 此前 read-and-discard，现存入 `TypeDesc.visibility`）。
+>   `System.Type`）——**VM 面已落**（6 builtin + `TypeDesc.visibility` 存储 + Rust 单测，support 先行）；
+>   **`Type.z42` 的 6 个 extern 属性推迟一个 nightly**（bootstrap-seed 纪律：本 PR 同 bump 格式 zbc 1.33，CI
+>   冷启动两代自举用旧 VM 加载 stdlib、旧 VM 无新 builtin → 一引用即 panic）。
 >
-> 嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。剩余 Deferred：不一致可访问性的完整
-> accessibility-domain 偏序（引入组合修饰符时）。
+> 嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。剩余 Deferred：① 反射 stdlib 面（follow-up）+
+> 不一致可访问性的完整 accessibility-domain 偏序（引入组合修饰符时）。
 
 ## 设计原则
 

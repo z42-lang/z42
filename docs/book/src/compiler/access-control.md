@@ -155,17 +155,33 @@ accessibility，`internal class` 内 `public` 成员实际只 internal 可见，
 可见性线性 rank `public 3 > internal 2 > protected 1 > private 0`；递归穿透泛型实例化（Def+实参）与数组元素；
 非类/接口类型视 public 不触发。完整 accessibility-domain 偏序（引入组合修饰符时）Deferred。
 
-### ① 类可见性反射（`Type.IsPublic` 族，对齐 C#）
+### ① 类可见性反射（`Type.IsPublic` 族，对齐 C#）—— VM support 已落、stdlib 面推迟一 nightly
 
 VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility → TypeDesc.visibility`。6 个 builtin
 （`__type_is_public` / `__type_is_not_public` / `__type_is_nested_{public,private,family,assembly}`）读 `td.visibility`
-+ 名内 `+` 判嵌套；`Type.z42` 加对应 6 个 `[Native]` extern 属性。顶层类型 `IsPublic` xor `IsNotPublic`；
-嵌套类型为 `IsNested{Public,Private,Family,Assembly}` 之一；无 TYPE handle（基元/数组）→ 全 false（lenient）。
++ 名内 `+` 判嵌套（顶层 `IsPublic` xor `IsNotPublic`；嵌套为 `IsNested{Public,Private,Family,Assembly}` 之一；
+无 TYPE handle（基元/数组）→ 全 false）。
+
+> **`Type.z42` 的 6 个 extern 属性推迟到 follow-up PR**（bootstrap-seed 纪律，见下 Deferred）：本 PR 同时 bump
+> 格式（zbc 1.33），CI 冷启动走两代自举、用**旧 nightly VM** 加载 stdlib；旧 VM 无新 builtin，stdlib 一引用即
+> load 期 panic。故 **support（VM builtin + 存储 + Rust 单测）先行**、晚一个 nightly 再在 `Type.z42` 加 extern
+> 属性 **use**（届时 nightly 的 VM 已含 builtin、且无格式 bump→无两代自举）。
 
 ## Deferred / Future Work
 
 > **已完成（勿再列 Deferred）**：跨包 internal 类（#184）、接口类型可见性 / 顶层拒绝 E0442 / 不一致可访问性
-> E0441 / 类可见性反射（complete-class-access-control，2026-08-13）——见上「complete-class-access-control」节。
+> E0441（complete-class-access-control，2026-08-13）——见上「complete-class-access-control」节。类可见性反射
+> **VM 面已落、stdlib 面推迟**（见下）。
+
+### access-future-type-visibility-reflection-surface: 类可见性反射的 stdlib 面（`Type.IsPublic` 族）
+
+- **来源**：complete-class-access-control ①（bootstrap-seed 纪律拆分）
+- **触发原因**：本 PR 同时 bump 格式（zbc 1.33），CI 冷启动两代自举用旧 nightly VM 加载 stdlib；旧 VM 无新
+  builtin（`__type_is_public` 等），`Type.z42` 一引用即 load 期 panic。VM 侧 6 builtin + `TypeDesc.visibility`
+  存储 + Rust 单测已随本 PR 落地（support 先行）。
+- **触发条件**：本 PR 合并 + nightly 发布后（该 nightly 的 VM 已含 6 builtin）→ follow-up PR 在 `Type.z42` 加
+  6 个 `[Native]` extern 属性（`IsPublic`/`IsNotPublic`/`IsNested{Public,Private,Family,Assembly}`）+
+  `src/tests/types/type_visibility.z42` golden。无格式 bump、无两代自举 → 直接过。
 
 ### access-future-inconsistent-accessibility-partial-order: 不一致可访问性的完整偏序
 
