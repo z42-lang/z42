@@ -146,4 +146,49 @@ public sealed class AccessChecker {
         if (crossPkg) { msg = msg + " from another package"; }
         diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
     }
+
+    // ── complete-class-access-control ②：不一致可访问性（C# CS0050 族） ──────────────────────────
+    // declVis 的声明（成员/类型）在其签名/基类列表里**暴露**了 exposed 类型；若 exposed 比 declVis
+    // 更低可见性 → E0441。可见性线性 rank：public 3 > internal 2 > protected 1 > private 0（design D2，
+    // 完整 accessibility-domain 偏序 Deferred）。递归穿透泛型实例化（Def+每个实参）与数组元素；非
+    // 类/接口类型（prim/泛型形参/func/void/未知）rank 视 public → 不触发（绝不误报）。
+    public static void CheckExposure(string declVis, Z42Type exposed, SymbolTable symbols,
+                                     DiagnosticBag diags, Span sp) {
+        if (exposed is Z42InstantiatedType) {
+            Z42InstantiatedType it = exposed as Z42InstantiatedType;
+            AccessChecker.CheckExposure(declVis, it.Def, symbols, diags, sp);
+            int i = 0;
+            while (i < it.ArgCount) { AccessChecker.CheckExposure(declVis, it.TypeArgs[i], symbols, diags, sp); i = i + 1; }
+            return;
+        }
+        if (exposed is Z42ArrayType) {
+            AccessChecker.CheckExposure(declVis, (exposed as Z42ArrayType).Elem, symbols, diags, sp);
+            return;
+        }
+        string exVis = "public";
+        string exName = "";
+        string exKind = "type";
+        if (exposed is Z42ClassType) { Z42ClassType ct = exposed as Z42ClassType; exVis = ct.Visibility; exName = ct.Name(); exKind = "class"; }
+        else if (exposed is Z42InterfaceType) { Z42InterfaceType ift = exposed as Z42InterfaceType; exVis = ift.Visibility; exName = ift.Name(); exKind = "interface"; }
+        else { return; }
+        if (AccessChecker._visRank(exVis) >= AccessChecker._visRank(declVis)) { return; }
+        string disp = exName.Replace("+", ".");
+        string msg = "inconsistent accessibility: " + exKind + " `" + disp + "` (" + exVis
+                   + ") is less accessible than the exposing declaration (" + declVis + ")";
+        diags.Error(DiagnosticCodes.InconsistentAccessibility, msg, sp);
+    }
+
+    // 可见性线性 rank（public 最高）；null / 未知安全默认 public（最高，绝不误报）。
+    private static int _visRank(string vis) {
+        if (vis == "private")   { return 0; }
+        if (vis == "protected") { return 1; }
+        if (vis == "internal")  { return 2; }
+        return 3;
+    }
+
+    // 两者中更低可见性的那个（有效可访问性 = min(成员声明, 外层类)——镜像 C# effective accessibility；
+    // `internal class` 内的 `public` 成员实际只 internal 可见，故暴露 internal 类型不算泄漏，绝不误报）。
+    public static string MinVisibility(string a, string b) {
+        return (AccessChecker._visRank(a) <= AccessChecker._visRank(b)) ? a : b;
+    }
 }

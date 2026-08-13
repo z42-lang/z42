@@ -6,7 +6,7 @@
 ## 进度概览
 - [x] 阶段 A（commit 1 = ③）：顶层 private/protected 拒绝（E0442）
 - [x] 阶段 B（commit 2 = ④）：接口类型可见性 + CheckTypeRef 接口分支
-- [ ] 阶段 C（commit 3 = ②）：不一致可访问性（E0441）
+- [x] 阶段 C（commit 3 = ②）：不一致可访问性（E0441）
 - [ ] 阶段 D（commit 4 = ①）：类可见性反射面（6 谓词）
 - [ ] 阶段 E：文档同步 + 归档
 
@@ -30,12 +30,12 @@
 - [x] B.10 commit `feat(compiler): 接口类型可见性建模 + 跨包 internal 接口引用强制`
 
 ## 阶段 C：② 不一致可访问性（compiler，commit 3）
-- [ ] C.1 `DiagnosticCodes.z42` 加 `InconsistentAccessibility = "E0441"`
-- [ ] C.2 `AccessChecker.z42`：加 `_visRank(vis)` + `_exposedVis(Z42Type)` + `static CheckExposure(declVis, exposed, ctx, symbols, diags, sp)`
-- [ ] C.3 `DeclBinder._bindClass`：对每个类遍历 base+ifaces（类 vis）+ 每个 FieldSymbol（字段 vis vs 字段类型）+ 每个 MethodSymbol（成员 vis vs ret+params）调 `CheckExposure`，emit 走 `this._tc._diags`
-- [ ] C.4 `access_control_tests.z42` 加 E0441 用例：public 方法返 internal / public 字段 internal / public 类继承 internal 基 / internal 方法返 private 嵌套 → 报；一致 + private 成员暴露 → 不报
-- [ ] C.5 验证：`xtask test`（编译器自举中若 stdlib 自身触发 E0441 需评估——见备注）
-- [ ] C.6 commit `feat(compiler): 不一致可访问性诊断（E0441，public 签名暴露低可见性类型）`
+- [x] C.1 `DiagnosticCodes.z42` 加 `InconsistentAccessibility = "E0441"`
+- [x] C.2 `AccessChecker.z42`：加 `_visRank(vis)` + `_exposedVis(Z42Type)` + `static CheckExposure(declVis, exposed, ctx, symbols, diags, sp)`
+- [x] C.3 `DeclBinder._bindClass`：对每个类遍历 base+ifaces（类 vis）+ 每个 FieldSymbol（字段 vis vs 字段类型）+ 每个 MethodSymbol（成员 vis vs ret+params）调 `CheckExposure`，emit 走 `this._tc._diags`
+- [x] C.4 `access_control_tests.z42` 加 E0441 用例：public 方法返 internal / public 字段 internal / public 类继承 internal 基 / internal 方法返 private 嵌套 → 报；一致 + private 成员暴露 → 不报
+- [x] C.5 验证：`xtask test`（编译器自举中若 stdlib 自身触发 E0441 需评估——见备注）
+- [x] C.6 commit `feat(compiler): 不一致可访问性诊断（E0441，public 签名暴露低可见性类型）`
 
 ## 阶段 D：① 类可见性反射（runtime + stdlib，commit 4）
 - [ ] D.1 `bytecode.rs`：`ClassDesc` 加 `visibility: u8`

@@ -284,3 +284,55 @@ void test_iface_internal_toplevel_same_package_ok() {
     string src = "interface Handler { int H(); } void f() { Handler h = null; }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── 不一致可访问性（complete-class-access-control ②，E0441，暴露更低可见性类型）──
+// declVis 用**有效可访问性** min(成员, 外层类)：`public class` 才使 public 成员真正 public。
+
+[Test]
+void test_inconsistent_public_field_internal_type_denied() {
+    // public 类的 public 字段暴露 internal 类型 → E0441
+    string src = "public class Api { public Secret s; } class Secret { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_public_method_return_internal_denied() {
+    // public 方法返回 internal 类 → E0441
+    string src = "public class Api { public Secret Get() { return null; } } class Secret { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_public_base_internal_denied() {
+    // public 类继承 internal 基类 → E0441
+    string src = "public class Derived : Base { } class Base { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_internal_member_private_nested_denied() {
+    // internal 方法（有效 internal）返回 private 嵌套类 → E0441（签名引用嵌套类型须限定名 Api.Node）
+    string src = "public class Api { internal Api.Node Peek() { return null; } class Node { } }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_consistent_public_exposes_public_ok() {
+    // public 成员暴露 public 类型 → 放行
+    string src = "public class Api { public Helper h; } public class Helper { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_effective_vis_internal_class_public_member_ok() {
+    // internal 类的 public 字段暴露 internal 类型：有效可访问性 = internal，不算泄漏 → 放行（防误报）
+    string src = "internal class C { public Secret s; } class Secret { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_private_member_exposes_internal_ok() {
+    // private 成员（有效 private，rank 最低）暴露任意 → 放行
+    string src = "public class Api { private Secret s; } class Secret { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
