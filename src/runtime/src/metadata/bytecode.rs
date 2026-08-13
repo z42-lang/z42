@@ -99,6 +99,7 @@ impl Module {
             id: new_id,
             base_name: td.base_name.clone(),
             class_flags: td.class_flags,
+            visibility: td.visibility,
             fields: td.fields.clone(),
             field_index: td.field_index.clone(),
             vtable: td.vtable.clone(),
@@ -178,6 +179,11 @@ pub struct ClassDesc {
     /// `Type.IsAbstract` / `Type.IsSealed` reflection.
     #[serde(default)]
     pub class_flags: u8,
+    /// complete-class-access-control (zbc 1.33 visibility byte): class-declaration
+    /// visibility (0=public / 1=private / 2=protected / 3=internal). Threaded into
+    /// `TypeDesc::visibility` for `Type.IsPublic` / `IsNestedPrivate` etc. reflection.
+    #[serde(default)]
+    pub visibility: u8,
     /// add-reflection-static-fields (zbc 1.13): the class's static fields
     /// (separate from `fields`, which is the instance layout). Threaded into
     /// `TypeDescCold::static_fields`; surfaced by `Type.GetFields()` with

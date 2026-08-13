@@ -44,6 +44,7 @@ fn empty_function(name: &str) -> Function {
 fn empty_type_desc(name: &str, id: TypeId) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: name.to_string(),
         base_name: None,
         id,

@@ -28,6 +28,7 @@ fn struct_td(name: &str, fields: &[(&str, &str)], layout: StructTypeLayout) -> A
         name: name.to_string(),
         base_name: None,
         class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+        visibility: 0,
         fields: fs,
         field_index,
         vtable: Vec::new(),
@@ -52,6 +53,7 @@ fn class_td(name: &str, fields: &[(&str, &str)], inline: StructTypeLayout) -> Ar
         name: name.to_string(),
         base_name: None,
         class_flags: 0, // not a struct
+        visibility: 0,
         fields: fs,
         field_index,
         vtable: Vec::new(),

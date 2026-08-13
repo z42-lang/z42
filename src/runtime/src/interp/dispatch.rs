@@ -170,6 +170,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         name: class_name.to_string(),
         base_name,
         class_flags: 0,  // fallback TypeDesc — no class-shape info
+        visibility: 0,
         fields,
         field_index,
         vtable: Vec::new(),

@@ -521,8 +521,9 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // enforce-class-access (zbc 1.33): class declaration visibility byte
         // (0=public/1=private/2=protected/3=internal), immediately following
         // class_flags. Consumed by the compiler's cross-package `internal`-class
-        // reference enforcement; the VM reads-and-discards it (no reflection surface).
-        let _class_visibility = c.read_u8()?;
+        // reference enforcement; complete-class-access-control surfaces it as
+        // `Type.IsPublic` etc. reflection (stored into ClassDesc.visibility below).
+        let class_visibility = c.read_u8()?;
         // add-reflection-static-fields (zbc 1.13): static fields block (same
         // shape as the instance fields block above).
         let static_count = c.read_u16()? as usize;
@@ -641,6 +642,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             type_param_constraints: type_param_constraints.into_boxed_slice(),
             attributes: attributes.into_boxed_slice(),
             class_flags,
+            visibility: class_visibility,
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),
             enum_members,

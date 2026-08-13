@@ -148,6 +148,35 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_primitive")]
     public extern bool IsPrimitive { get; }
 
+    // ── Declaration visibility (complete-class-access-control) ────────────────
+    // Mirrors C# System.Type: a top-level type is IsPublic xor IsNotPublic; a
+    // nested type is one of IsNested{Public,Private,Family,Assembly}. Backed by the
+    // zbc 1.33 class-visibility byte. Handle-less Types (primitive / array) → false.
+
+    // True for a top-level `public` type.
+    [Native("__type_is_public")]
+    public extern bool IsPublic { get; }
+
+    // True for a top-level type that is not public (i.e. `internal`).
+    [Native("__type_is_not_public")]
+    public extern bool IsNotPublic { get; }
+
+    // True for a nested `public` type.
+    [Native("__type_is_nested_public")]
+    public extern bool IsNestedPublic { get; }
+
+    // True for a nested `private` type.
+    [Native("__type_is_nested_private")]
+    public extern bool IsNestedPrivate { get; }
+
+    // True for a nested `protected` type (C# "family").
+    [Native("__type_is_nested_family")]
+    public extern bool IsNestedFamily { get; }
+
+    // True for a nested `internal` type (C# "assembly").
+    [Native("__type_is_nested_assembly")]
+    public extern bool IsNestedAssembly { get; }
+
     // Public instance fields (including inherited; base-first). Empty for
     // primitives / arrays.
     [Native("__type_fields")]

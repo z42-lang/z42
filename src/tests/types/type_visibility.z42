@@ -1,0 +1,51 @@
+// complete-class-access-control: Type.IsPublic / IsNotPublic /
+// IsNested{Public,Private,Family,Assembly} reflect the zbc 1.33 class-visibility
+// byte (0=public/1=private/2=protected/3=internal), mirroring C# System.Type.
+// Assert / Type 均 z42.core（prelude）。
+
+public class PubTop { public int x; }   // 顶层 public
+class IntTop { public int x; }          // 顶层无修饰符 → 默认 internal
+
+class Outer {
+    public class NPub { public int a; }       // 嵌套 public
+    private class NPriv { public int a; }      // 嵌套 private
+    protected class NFam { public int a; }     // 嵌套 protected（family）
+    internal class NAsm { public int a; }      // 嵌套 internal（assembly）
+
+    // 从 Outer 内部 typeof 嵌套类型（private/protected 从外部引用会触发 E0404，故内部断言）。
+    public static void CheckNested() {
+        Type np = typeof(NPub);
+        Assert.True(np.IsNestedPublic);
+        Assert.False(np.IsNestedPrivate);
+        Assert.False(np.IsPublic);          // 嵌套 public ≠ 顶层 public
+
+        Type npv = typeof(NPriv);
+        Assert.True(npv.IsNestedPrivate);
+        Assert.False(npv.IsNestedPublic);
+
+        Type nf = typeof(NFam);
+        Assert.True(nf.IsNestedFamily);
+
+        Type na = typeof(NAsm);
+        Assert.True(na.IsNestedAssembly);
+    }
+}
+
+void Main() {
+    Type tp = typeof(PubTop);
+    Assert.True(tp.IsPublic);
+    Assert.False(tp.IsNotPublic);
+    Assert.False(tp.IsNestedPublic);
+
+    Type ti = typeof(IntTop);
+    Assert.True(ti.IsNotPublic);
+    Assert.False(ti.IsPublic);
+
+    Outer.CheckNested();
+
+    // 基元类型无 TYPE handle → 所有可见性谓词 false（lenient，与 IsSealed 等一致）。
+    Type pi = typeof(int);
+    Assert.False(pi.IsPublic);
+    Assert.False(pi.IsNotPublic);
+    Assert.False(pi.IsNestedPrivate);
+}

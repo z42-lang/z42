@@ -21,6 +21,24 @@ fn td_with_flags(name: &str, class_flags: u8) -> Arc<TypeDesc> {
         name: name.to_string(),
         base_name: None,
         class_flags,
+        visibility: 0,
+        fields: Vec::new(),
+        field_index: NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: NameIndex::new(),
+        cold: None,
+        id: TypeId::UNRESOLVED,
+    })
+}
+
+/// complete-class-access-control: a TypeDesc carrying a given name + visibility byte
+/// (nested ⟺ name contains '+'). class_flags = 0.
+fn td_with_visibility(name: &str, visibility: u8) -> Arc<TypeDesc> {
+    Arc::new(TypeDesc {
+        name: name.to_string(),
+        base_name: None,
+        class_flags: 0,
+        visibility,
         fields: Vec::new(),
         field_index: NameIndex::new(),
         vtable: Vec::new(),
@@ -111,6 +129,7 @@ fn type_properties_ignores_non_accessor_methods() {
         name: "Demo.WithMethod".to_string(),
         base_name: None,
         class_flags: 0,
+        visibility: 0,
         fields: Vec::new(),
         field_index: NameIndex::new(),
         vtable: vec![("Foo".to_string(), "Demo.WithMethod.Foo".to_string())],
@@ -151,6 +170,7 @@ fn static_fields_accessor_reads_cold() {
         name: "Demo.Cfg".to_string(),
         base_name: None,
         class_flags: 0,
+        visibility: 0,
         fields: Vec::new(),
         field_index: NameIndex::new(),
         vtable: Vec::new(),
@@ -194,6 +214,7 @@ fn field_attributes_accessor_reads_cold() {
         name: "Demo.C".to_string(),
         base_name: None,
         class_flags: 0,
+        visibility: 0,
         fields: Vec::new(),
         field_index: NameIndex::new(),
         vtable: Vec::new(),
@@ -259,4 +280,45 @@ fn member_builtins_are_lenient_with_handle_but_no_core() {
     assert!(builtin_type_methods(&c, &[t.clone()]).is_ok());
     assert!(builtin_type_generic_args(&c, &[t.clone()]).is_ok());
     assert!(builtin_type_base(&c, &[t]).is_ok());
+}
+
+#[test]
+fn type_visibility_decode_top_level_and_nested() {
+    let c = ctx();
+    // Top-level public (no '+', vis=0).
+    let pub_top = type_obj(&c, td_with_visibility("Demo.PubTop", 0));
+    assert_eq!(builtin_type_is_public(&c, &[pub_top.clone()]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_is_not_public(&c, &[pub_top.clone()]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_is_nested_public(&c, &[pub_top]).unwrap(), Value::Bool(false));
+
+    // Top-level internal (no '+', vis=3).
+    let int_top = type_obj(&c, td_with_visibility("Demo.IntTop", 3));
+    assert_eq!(builtin_type_is_public(&c, &[int_top.clone()]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_is_not_public(&c, &[int_top.clone()]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_is_nested_assembly(&c, &[int_top]).unwrap(), Value::Bool(false));
+
+    // Nested public / private / protected(family) / internal(assembly) — name has '+'.
+    let n_pub = type_obj(&c, td_with_visibility("Demo.Outer+NPub", 0));
+    assert_eq!(builtin_type_is_nested_public(&c, &[n_pub.clone()]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_is_public(&c, &[n_pub]).unwrap(), Value::Bool(false));
+
+    let n_priv = type_obj(&c, td_with_visibility("Demo.Outer+NPriv", 1));
+    assert_eq!(builtin_type_is_nested_private(&c, &[n_priv.clone()]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_is_nested_public(&c, &[n_priv]).unwrap(), Value::Bool(false));
+
+    let n_fam = type_obj(&c, td_with_visibility("Demo.Outer+NFam", 2));
+    assert_eq!(builtin_type_is_nested_family(&c, &[n_fam]).unwrap(), Value::Bool(true));
+
+    let n_asm = type_obj(&c, td_with_visibility("Demo.Outer+NAsm", 3));
+    assert_eq!(builtin_type_is_nested_assembly(&c, &[n_asm]).unwrap(), Value::Bool(true));
+}
+
+#[test]
+fn type_visibility_handle_less_all_false() {
+    let c = ctx();
+    // No TYPE handle (primitive-like) → every visibility predicate false (lenient).
+    let none = Value::I64(1);
+    assert_eq!(builtin_type_is_public(&c, &[none.clone()]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_is_not_public(&c, &[none.clone()]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_is_nested_private(&c, &[none]).unwrap(), Value::Bool(false));
 }

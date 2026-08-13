@@ -25,6 +25,7 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
     fi.insert("__fullName".to_string(), 1);
     let td = Arc::new(TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: "Std.Type".to_string(),
         id: TypeId::UNRESOLVED,
         base_name: None,
@@ -47,6 +48,7 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
 fn obj(ctx: &VmContext, class_name: &str) -> Value {
     let type_desc = Arc::new(TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: class_name.to_string(),
         base_name: None,
         fields: Vec::new(),

@@ -128,6 +128,10 @@ pub struct TypeDesc {
     /// only; backs `Type.IsAbstract` / `Type.IsSealed`. A single byte kept hot
     /// (fits existing padding) rather than in the cold box.
     pub class_flags: u8,
+    /// complete-class-access-control: class-declaration visibility byte
+    /// (0=public / 1=private / 2=protected / 3=internal). Reflection only; backs
+    /// `Type.IsPublic` / `IsNotPublic` / `IsNested{Public,Private,Family,Assembly}`.
+    pub visibility: u8,
     /// review.md E2.P1 Step 1 (2026-05-27): five rarely-accessed fields
     /// (own_fields / own_methods / type_params / type_args /
     /// type_param_constraints) live behind an `Option<Box<TypeDescCold>>`.

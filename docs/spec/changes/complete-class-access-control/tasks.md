@@ -7,7 +7,7 @@
 - [x] 阶段 A（commit 1 = ③）：顶层 private/protected 拒绝（E0442）
 - [x] 阶段 B（commit 2 = ④）：接口类型可见性 + CheckTypeRef 接口分支
 - [x] 阶段 C（commit 3 = ②）：不一致可访问性（E0441）
-- [ ] 阶段 D（commit 4 = ①）：类可见性反射面（6 谓词）
+- [x] 阶段 D（commit 4 = ①）：类可见性反射面（6 谓词）
 - [ ] 阶段 E：文档同步 + 归档
 
 ## 阶段 A：③ 顶层拒绝（parser，commit 1）
@@ -38,17 +38,17 @@
 - [x] C.6 commit `feat(compiler): 不一致可访问性诊断（E0441，public 签名暴露低可见性类型）`
 
 ## 阶段 D：① 类可见性反射（runtime + stdlib，commit 4）
-- [ ] D.1 `bytecode.rs`：`ClassDesc` 加 `visibility: u8`
-- [ ] D.2 `types.rs`：`TypeDesc` 加 `visibility: u8`
-- [ ] D.3 `zbc_reader.rs`（525）：`_class_visibility` 改存入 `ClassDesc.visibility`
-- [ ] D.4 `loader.rs`：`ClassDesc.visibility` → `TypeDesc.visibility` 线程
-- [ ] D.5 `reflection.rs`：6 个 `builtin_type_is_*`（public/not_public/nested_public/nested_private/nested_family/nested_assembly），读 `td.visibility` + 名内 `+` 判嵌套
-- [ ] D.6 `corelib/mod.rs`：注册 6 builtin
-- [ ] D.7 `Type.z42`：6 个 `[Native]` extern bool 属性（C# 命名 + 注释）
-- [ ] D.8 `reflection_tests.rs`：`type_visibility_decode_*` Rust 单测
-- [ ] D.9 `src/tests/types/type_visibility.z42`：golden（顶层 public/internal + 嵌套四级 → 6 谓词断言）
-- [ ] D.10 `cargo test --lib`（Rust 单测）+ `xtask test`（含 e2e golden）
-- [ ] D.11 commit `feat(runtime): 类可见性反射面（Type.IsPublic 族，对齐 C#）`
+- [x] D.1 `bytecode.rs`：`ClassDesc` 加 `visibility: u8`
+- [x] D.2 `types.rs`：`TypeDesc` 加 `visibility: u8`
+- [x] D.3 `zbc_reader.rs`（525）：`_class_visibility` 改存入 `ClassDesc.visibility`
+- [x] D.4 `loader.rs`：`ClassDesc.visibility` → `TypeDesc.visibility` 线程
+- [x] D.5 `reflection.rs`：6 个 `builtin_type_is_*`（public/not_public/nested_public/nested_private/nested_family/nested_assembly），读 `td.visibility` + 名内 `+` 判嵌套
+- [x] D.6 `corelib/mod.rs`：注册 6 builtin
+- [x] D.7 `Type.z42`：6 个 `[Native]` extern bool 属性（C# 命名 + 注释）
+- [x] D.8 `reflection_tests.rs`：`type_visibility_decode_*` Rust 单测
+- [x] D.9 `src/tests/types/type_visibility.z42`：golden（顶层 public/internal + 嵌套四级 → 6 谓词断言）
+- [x] D.10 `cargo test --lib`（Rust 单测）+ `xtask test`（含 e2e golden）
+- [x] D.11 commit `feat(runtime): 类可见性反射面（Type.IsPublic 族，对齐 C#）`
 
 ## 阶段 E：文档 + 归档
 - [ ] E.1 `docs/design/language/access-control.md`：Phase 2 状态更新（四项补齐，去掉「未做：类级访问强制」段的 Deferred 表述细化）

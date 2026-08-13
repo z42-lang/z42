@@ -103,6 +103,7 @@ fn heap_object_inline_struct_field_roundtrips() {
     });
     let td = Arc::new(TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: "C".to_string(),
         base_name: None,
         fields: Vec::new(),
