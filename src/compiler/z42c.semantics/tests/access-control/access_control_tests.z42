@@ -197,3 +197,57 @@ void test_class_internal_toplevel_same_package_ok() {
     string src = "class Secret { } void f() { var s = new Secret(); }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── 顶层声明拒绝 private/protected（complete-class-access-control ③，E0442，parser 声明期）──
+
+[Test]
+void test_toplevel_private_class_denied() {
+    // 顶层类标 private → E0442（模块作用域下 private 无意义）
+    string src = "private class Foo { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_protected_interface_denied() {
+    string src = "protected interface I { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_protected_enum_denied() {
+    string src = "protected enum E { A, B }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_private_function_denied() {
+    string src = "private void f() { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_internal_class_ok() {
+    // 顶层 internal（显式）合法
+    string src = "internal class A { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_toplevel_public_class_ok() {
+    string src = "public class B { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_toplevel_default_class_ok() {
+    // 无修饰符顶层 → 默认 internal，合法（不报 E0442）
+    string src = "class C { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_nested_private_class_not_toplevel_rejected() {
+    // 嵌套 private 类合法（经 MemberParser，不走顶层检查）→ 无 E0442
+    string src = "class Outer { private class Inner { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

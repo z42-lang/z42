@@ -204,6 +204,17 @@ public sealed class Parser {
             AttrList attrs = this._declP._parseAttributes();
             string mods = this._declP._parseModifiers();
             int dk = this._peek().Kind;
+            // complete-class-access-control ③：顶层声明（模块作用域）不得标 private/protected——
+            // 默认 internal，private/protected 在模块层无意义。嵌套类型/成员经 MemberParser 不走此路径。
+            // 覆盖 class/struct/interface/enum/record/delegate/顶层函数（impl 无可见性，排除）。
+            if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface
+                || dk == TokenKind.Enum || dk == TokenKind.Record || dk == TokenKind.Delegate
+                || this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
+                if (this._declP._modsHas(mods, "private") || this._declP._modsHas(mods, "protected")) {
+                    this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
+                        "top-level declaration cannot be private or protected (use internal or public)", this._peek().Span);
+                }
+            }
             Decl d = new UsingDecl("<error>", this._peek().Span);
             bool ok = true;
             if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface) {
