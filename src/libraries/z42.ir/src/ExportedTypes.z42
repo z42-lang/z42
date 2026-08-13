@@ -56,6 +56,8 @@ public sealed class ExportedClassZ {
     public string[] TypeParams; public int TpCount;          // 泛型类型参数名（如 "T"/"K"/"V"）
     public bool     IsSealed;   // impl-sealed-semantics-devirt：sealed class（CLASS_FLAG_SEALED，TYPE Flags bit1）。
     // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
+    public string   Visibility;   // enforce-class-access：类声明可见性（"public"/"private"/"protected"/"internal"）。
+    // 默认 "public"，TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）构造后赋值；ImportedSymbolLoader 据此填 Z42ClassType.Visibility（跨包 internal 类引用强制）。
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -66,6 +68,7 @@ public sealed class ExportedClassZ {
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
+        this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
     }
 }
 

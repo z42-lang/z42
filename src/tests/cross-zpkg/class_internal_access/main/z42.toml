@@ -1,0 +1,9 @@
+[project]
+name    = "demo.aclintapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.AclIntApp.Main"
+pack    = true
+
+[dependencies]
+"demo.aclinttarget" = "0.1.0"
