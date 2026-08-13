@@ -64,6 +64,29 @@ public static class IrGenFacts {
         return dflt;
     }
 
+    // enforce-class-access：类声明可见性编码（0=public/1=private/2=protected/3=internal）。位置默认镜像
+    // 「最小封闭作用域」：嵌套类（isNested）→ private、顶层类 → internal；显式修饰符优先。SymbolCollector /
+    // ClassDescBuilder / ExportedTypeExtractor 三处共用此单一真相，避免默认逻辑漂移。类不参与 override 继承。
+    public static int classVisCode(string mods, bool isNested) {
+        if (IrGenFacts._hasWord(mods, "public"))    { return 0; }
+        if (IrGenFacts._hasWord(mods, "private"))   { return 1; }
+        if (IrGenFacts._hasWord(mods, "protected")) { return 2; }
+        if (IrGenFacts._hasWord(mods, "internal"))  { return 3; }
+        if (isNested) { return 1; }   // 嵌套类默认 private
+        return 3;                     // 顶层类默认 internal
+    }
+    // 类可见性 int → string（与 TsigReconcile._visStr 对齐；semantics 侧本地字符串化）。
+    public static string classVisStr(int code) {
+        if (code == 1) { return "private"; }
+        if (code == 2) { return "protected"; }
+        if (code == 3) { return "internal"; }
+        return "public";
+    }
+    // 便捷：直接从 Mods + 是否嵌套算可见性字符串（Z42ClassType.Visibility / ExportedClassZ.Visibility 本地面）。
+    public static string classVis(string mods, bool isNested) {
+        return IrGenFacts.classVisStr(IrGenFacts.classVisCode(mods, isNested));
+    }
+
     public static int _methodFlags(string mods) {
         int f = 0;
         // impl-sealed-semantics-devirt：sealed 方法必是 override（简写 `sealed` == `sealed override`）→ 亦置
