@@ -8,9 +8,18 @@
 > 机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
 > **本规范是访问控制的语言 SoT**（2026-08-12：默认成员 = private 以本文档为准，实现已对齐）。
 >
-> 剩余 Deferred（独立后续）：不一致可访问性（public 签名暴露 internal 类型，C# CS0050–53）；顶层类标
-> private/protected 的声明期拒绝；接口类型可见性（`Z42InterfaceType` 未建模可见性）；类可见性反射面
-> （VM read-and-discard，`Type.IsPublic` 等未接）。嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。
+> **complete-class-access-control（2026-08-13）补齐四项**，类级访问控制自此完整：
+> - **接口类型可见性**：`Z42InterfaceType` 与类对称携带可见性；跨包引用 internal 接口 → E0404（复用 #184
+>   已在线的 TYPE 可见性字节，无格式 bump）。
+> - **顶层声明拒绝 private/protected**（E0442）：顶层 class/interface/struct/record/enum/函数标 private/protected
+>   在模块作用域无意义 → 声明期（parser）拒绝；internal/public 合法，嵌套仍可 private/protected。
+> - **不一致可访问性**（E0441，C# CS0050 族）：成员/类型签名不得暴露比其**有效可访问性** `min(成员, 外层类)`
+>   更低可见性的类型（可见性线性 rank public>internal>protected>private；完整偏序 Deferred）。
+> - **类可见性反射**：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,Private,Family,Assembly}`（对齐 C#
+>   `System.Type`），从 TYPE 可见性字节读出（VM 此前 read-and-discard，现存入 `TypeDesc.visibility`）。
+>
+> 嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。剩余 Deferred：不一致可访问性的完整
+> accessibility-domain 偏序（引入组合修饰符时）。
 
 ## 设计原则
 

@@ -1,6 +1,6 @@
 # Tasks: 补全类级访问控制
 
-> 状态：🟡 进行中 | 创建：2026-08-13
+> 状态：🟢 已完成 | 创建：2026-08-13 | 完成：2026-08-13
 > 一个 PR / 4 commit；commit 顺序 ③→④→②→①（尊重依赖）；均无格式 bump。
 
 ## 进度概览
@@ -8,7 +8,7 @@
 - [x] 阶段 B（commit 2 = ④）：接口类型可见性 + CheckTypeRef 接口分支
 - [x] 阶段 C（commit 3 = ②）：不一致可访问性（E0441）
 - [x] 阶段 D（commit 4 = ①）：类可见性反射面（6 谓词）
-- [ ] 阶段 E：文档同步 + 归档
+- [x] 阶段 E：文档同步 + 归档
 
 ## 阶段 A：③ 顶层拒绝（parser，commit 1）
 - [x] A.1 `DiagnosticCodes.z42` 加 `TopLevelAccessModifier = "E0442"`
@@ -51,13 +51,13 @@
 - [x] D.11 commit `feat(runtime): 类可见性反射面（Type.IsPublic 族，对齐 C#）`
 
 ## 阶段 E：文档 + 归档
-- [ ] E.1 `docs/design/language/access-control.md`：Phase 2 状态更新（四项补齐，去掉「未做：类级访问强制」段的 Deferred 表述细化）
-- [ ] E.2 `docs/book/src/compiler/access-control.md`：机制页补反射面 / 不一致可访问性 rank / 顶层拒绝 / 接口可见性
-- [ ] E.3 `docs/roadmap.md`：Deferred Backlog Index 勾销四项
-- [ ] E.4 `src/libraries/z42.core/README.md`：Type 反射功能索引补可见性谓词
-- [ ] E.5 `.claude/rules/version-bumping.md` 第27-32行「当前值」表刷新（1/33、0/38；顺带清理漂移，小卫生项）
-- [ ] E.6 归档：move 到 `docs/spec/archive/2026-08-13-complete-class-access-control/`
-- [ ] E.7 PR：push 分支 + `gh pr create`（body 三段 + 页脚）；合并前 rebase origin/main + 重跑 GREEN
+- [x] E.1 `docs/design/language/access-control.md`：Phase 2 状态更新（四项补齐，去掉「未做：类级访问强制」段的 Deferred 表述细化）
+- [x] E.2 `docs/book/src/compiler/access-control.md`：机制页补反射面 / 不一致可访问性 rank / 顶层拒绝 / 接口可见性
+- [x] E.3 `docs/roadmap.md`：N/A——roadmap 未索引 access-control 的 access-future-* Deferred（仅 book 页有），无需改
+- [x] E.4 `src/libraries/z42.core/README.md`：N/A——README 用通用 Type.z42 行（个别反射谓词如 IsSealed 亦不列，属 book 层，两层分工）
+- [x] E.5 `.claude/rules/version-bumping.md` 第27-32行「当前值」表刷新（1/33、0/38；顺带清理漂移，小卫生项）
+- [x] E.6 归档：move 到 `docs/spec/archive/2026-08-13-complete-class-access-control/`
+- [x] E.7 PR：push 分支 + `gh pr create`（body 三段 + 页脚）；合并前 rebase origin/main + 重跑 GREEN
 
 ## 备注
 - **④ 调试教训（跨包 fixture 手工验证陷阱）**：验证跨包接口 E0404 时，`Z42_LIBS` 必须指向**新鲜重建**的
