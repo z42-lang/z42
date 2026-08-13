@@ -3,7 +3,8 @@
 > 状态：A-use 落地（2026-08-09，zbc 1.31 / zpkg 0.36）；嵌套字段 + `struct==` 值相等（2026-08-10）+
 > struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）+ 堆内联字段 / `struct[]` /
 > 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接 + 跨包 struct
-> 值语义（P4a）+ 装箱引用身份 + struct 字段反射（P4b）**（2026-08-12，均格式中立）落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
+> 值语义（P4a）+ 装箱引用身份 + struct 字段反射（P4b）**（2026-08-12，均格式中立）+ **基元装箱统一到
+> `BoxedStruct`（unify Phase 2 R3，2026-08-13，格式中立）**落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
 > 实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
 
 ## 目标
@@ -308,6 +309,44 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 - ✅ **对象内联 struct 字段反射**（P4b-B add-object-inline-struct-reflection）：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
+
+## 基元装箱统一到 `BoxedStruct`（unify Phase 2 R3，2026-08-13）
+
+**背景**：此前运行时有**两套不对称**装箱——struct 装箱 = `Value::BoxedStruct(GcRef<ScriptObject>)`
+（GC 管理 + 引用身份）；基元装箱 = `Value::Boxed(Box<BoxedPrim{class, inner}>)`（轻量 `Box`、**无**引用
+身份、**非** GC 管理）。代价：`is`/`as`/`GetType`/`value_to_str`/GC visit/equality/反射/vcall 等 ~20 处
+helper 双写；且 `object o=5; object p=5; ReferenceEquals(o,p)` 在 C# 是 `false`（两个不同盒），旧基元装箱
+无引用身份 → 语义偏差。
+
+**统一（唯一装箱模型）**：`__box_prim`（`corelib/convert.rs`）改产堆 `ScriptObject` + `Value::BoxedStruct`，
+与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用 `region_object` 全套 GC。删 `Value::Boxed`
+变体 + `BoxedPrim` 结构（判别号 13 留空，`#[repr(C,u8)]` 显式判别 14-18 不重编、JIT 原始布局不受影响）。
+
+**标量存储（D1-B：与 struct 装箱完全同构，零格式 bump）**：`__box_prim` 只装**整数**（bool/char/double/
+string 各留自己的 `Value` variant，不经此路——proposal D5）。整数标量的 **LE 字节存进盒的 `struct_bytes`**
+（宽度按 wrapper 名查 `well_known_names::int_wrapper_scalar_spec` → `Std.Int32`→4 / `Std.Byte`→1 /
+`Std.Int64`→8…），`slots`/`struct_refs` 空。**关键**：基元 wrapper（`Std.Int32` 等）是 phantom struct
+（零字段 / layout size 0），故装箱走**专用 alloc** `MagrGC::alloc_boxed_prim`（调用方按标量宽度定 `struct_bytes`
+尺寸），**不**走 `type_desc.inline_regions()`（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
+struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
+
+**拆箱**：`ScriptObject::boxed_prim_i64()`（`metadata/types.rs`）按 `type_desc.name` 的
+`(width, signed)` 从 `struct_bytes` 前 `width` 字节还原 i64——signed narrow 符号扩展、unsigned 零扩展；
+非整数盒（多字段 struct 装箱 / 名不在整数 wrapper 表）返 `None`。**这个 `Some`/`None` 是「基元盒 vs struct 盒」
+的分流判据**：所有原 `Value::Boxed` 消费点收敛成单一 `BoxedStruct` 臂，需要区分时用 `boxed_prim_i64()`：
+
+| 消费点 | 基元盒（`boxed_prim_i64()==Some(n)`） | struct 盒（`None`） |
+|--------|-------------------------------------|---------------------|
+| `is`/`as`（`exec_object` + `jit/helpers/object`） | 精确 wrapper 命中 → 拆回裸标量 `I64(n)` | 精确 struct 命中 → 拷 blob 回 arena `StructRef` |
+| `(T)o` 数值转换（`convert_value`） | 拆回 `I64(n)` 再 convert | 不拦截（struct 不走数值转换） |
+| VCall（`exec_vcall` + `jit/helpers/vcall`） | `this = I64(n)` 交基元 struct 方法体 | `this = 盒` 交合成对象协议方法 |
+| `value_to_str` | 标量字符串（`WriteLine(object)` 打印 `5` 非 `Std.Int32{...}`） | `类型名{...}` 占位 |
+| `GetType` | `type_desc.name` = 精确 wrapper（`Int64` 不丢宽度） | `type_desc.name` = struct 类型 |
+| equality（`Value::eq`） | 装箱整数 vs 裸整数透明拆箱比较；盒 vs 盒按 `struct_bytes` | 盒 vs 盒按类型名 + `struct_bytes` + `struct_refs` |
+
+**格式中立自证**：编译器发射不变（`__box_prim` 发射点 / 装箱路由不动）→ self-host 不动点逐字节复现
+（gen1==gen2）；zbc/zpkg minor 不变。golden `types/boxed_primitive_is_as.z42`（Int64/Byte/Int32 跨宽度
+is/as/GetType）+ `types/box_unbox.z42`（`(int)o` 拆箱 + `WriteLine` 装箱打印）验端到端。
 
 ## JIT 值路径（add-struct-jit-value-path P5-A）
 

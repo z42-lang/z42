@@ -56,6 +56,31 @@ pub const STD_TYPE: &str = "Std.Type";
 /// / `STD_OBJECT` 子类型。
 pub const STD_ARRAY: &str = "Std.Array";
 
+// ── Integer prim-wrapper scalar spec (unify Phase 2 R3 装箱统一) ──────────
+//
+// 基元装箱把整数标量 LE 字节存进 boxed `ScriptObject` 的 `struct_bytes`（D1-B：与
+// struct 装箱完全同构）。box/unbox 两侧都按 wrapper FQ 名查这张表定「标量宽度 + 有无符号」——
+// 宽度决定 struct_bytes 尺寸（结构统一），有无符号决定 unbox 时按 W 字节还原 i64 是 sign- 还是
+// zero-extend。只有整数 wrapper 会到装箱路径（`__box_prim` 只装整数；bool/char/double/string
+// 保留各自 `Value` variant，不经此路）。未列名（不该发生）→ `None`，调用方回落全 8 字节 signed。
+
+/// (标量字节宽度, 是否有符号) —— 整数 prim-wrapper 的 FQ 名。narrow BCL 名（`Std.Byte` /
+/// `Std.Int16` / `Std.UInt32` …）虽未在上面注册常量，但会作为 compile-time emit 的 class FQN
+/// 抵达装箱路径，故此表须覆盖全部整数 wrapper。
+pub fn int_wrapper_scalar_spec(name: &str) -> Option<(usize, bool)> {
+    match name {
+        "Std.SByte"  => Some((1, true)),
+        "Std.Byte"   => Some((1, false)),
+        "Std.Int16"  => Some((2, true)),
+        "Std.UInt16" => Some((2, false)),
+        "Std.Int32"  => Some((4, true)),
+        "Std.UInt32" => Some((4, false)),
+        "Std.Int64"  => Some((8, true)),
+        "Std.UInt64" => Some((8, false)),
+        _ => None,
+    }
+}
+
 // ── Well-known builtin names (used outside corelib::dispatch_table) ──────
 
 /// Builtin invoked as the fallback in `dispatch.rs::obj_to_string` when an

@@ -1,24 +1,49 @@
 use crate::metadata::Value;
-use crate::metadata::types::{BoxedPrim, NativeData};
+use crate::metadata::types::NativeData;
+use crate::metadata::well_known_names::int_wrapper_scalar_spec;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
-/// add-primitive-value-boxing: 把裸基元装箱成 `Value::Boxed`，携带其精确基元 struct 类名。
-/// 编译器在 prim→object/接口 转换点发 `builtin __box_prim(%value, %classStr)`。
-/// arg0 = 裸基元值；arg1 = FQ 基元 struct 名（`Std.Int64`/…）。已是 Boxed 则原样返（幂等）。
-pub fn builtin_box_prim(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+/// add-primitive-value-boxing → unify Phase 2 R3（装箱统一）：把裸整数基元装箱成**堆
+/// `ScriptObject` + 引用身份**（对齐 C#），返 `Value::BoxedStruct`——与 struct 装箱同一模型。
+/// 编译器在 prim→object/接口 转换点发 `builtin __box_prim(%value, %classStr)`；arg0 = 裸整数值
+/// （`__box_prim` 只装整数，bool/char/double/string 各留 `Value` variant），arg1 = FQ wrapper 名
+/// （`Std.Int32`/`Std.Byte`/…）。已是 BoxedStruct 则原样返（幂等）。每次装箱 alloc 新盒
+/// → `object o=5; object p=5; ReferenceEquals(o,p)==false`（C# 语义）。
+pub fn builtin_box_prim(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let inner = match args.first() {
-        Some(v) => v.clone(),
+        Some(v) => v,
         None => bail!("__box_prim: missing value arg"),
     };
-    if matches!(inner, Value::Boxed(_)) {
-        return Ok(inner);
+    // 幂等：已装箱（基元盒是 BoxedStruct）→ 原样返回，不重复 alloc。
+    if matches!(inner, Value::BoxedStruct(_)) {
+        return Ok(inner.clone());
     }
+    let raw = match inner {
+        Value::I64(n) => *n,
+        other => bail!("__box_prim: expected integer value, got {:?}", other),
+    };
     let class = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) => s,
         _ => bail!("__box_prim: missing/invalid class-name arg"),
     };
-    Ok(Value::Boxed(Box::new(BoxedPrim { class, inner })))
+    box_prim_to_heap(ctx, class, raw)
+}
+
+/// unify Phase 2 R3：把整数标量装箱进堆 `ScriptObject`（D1-B：标量 LE 字节存 `struct_bytes`，
+/// 尺寸 = wrapper 标量宽度，与 struct 装箱完全同构）→ `Value::BoxedStruct`。`class` = FQ wrapper
+/// 名，`raw` = 裸 i64。宽度未知（不该发生）→ 全 8 字节 signed 兜底（仍能 round-trip i64）。
+/// 无引用叶子（整数）→ `struct_refs`/`slots` 空。
+pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result<Value> {
+    let td = ctx.try_lookup_type(class).ok_or_else(|| {
+        anyhow::anyhow!("__box_prim: unknown prim wrapper type `{class}`")
+    })?;
+    let (width, _signed) = int_wrapper_scalar_spec(&td.name).unwrap_or((8, true));
+    let struct_bytes: Box<[u8]> = raw.to_le_bytes()[..width].to_vec().into_boxed_slice();
+    match ctx.heap().alloc_boxed_prim(td, struct_bytes) {
+        Value::Object(gc) => Ok(Value::BoxedStruct(gc)),
+        other => Ok(other), // Null under strict-OOM refusal
+    }
 }
 
 /// add-struct-object-boxing (PR2a): 把 blob 值 struct 装箱成堆 `Value::BoxedStruct`——从 arena slot 拷出
@@ -132,12 +157,13 @@ pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> 
 pub fn arg_i64(args: &[Value], idx: usize, ctx: &str) -> Result<i64> {
     match args.get(idx) {
         Some(Value::I64(n)) => Ok(*n),
-        // add-primitive-value-boxing: 装箱整数实参透明拆箱。call-arg 装箱把整数实参装箱成
-        // object（如 Assert.Equal(object,object)），而基元 struct 方法的 native（Equals/CompareTo/
-        // 算术）按裸 long 签名读参 → 装箱值须在此拆回内层 I64。Boxed 恒包整数（_intPrimFQ 只装箱整数）。
-        Some(Value::Boxed(b)) => match &b.inner {
-            Value::I64(n) => Ok(*n),
-            other => bail!("{}: arg {} expected int, got Boxed({:?})", ctx, idx, other),
+        // add-primitive-value-boxing → unify Phase 2 R3: 装箱整数实参透明拆箱。call-arg 装箱把整数
+        // 实参装箱成 object（如 Assert.Equal(object,object)），而基元 struct 方法的 native（Equals/
+        // CompareTo/算术）按裸 long 签名读参 → 装箱值须在此拆回 i64。装箱后整数盒是 `BoxedStruct`
+        // （堆 ScriptObject，标量存 struct_bytes），非整数盒（多字段 struct）→ unbox_prim_i64 返 None。
+        Some(Value::BoxedStruct(gc)) => match gc.borrow().boxed_prim_i64() {
+            Some(n) => Ok(n),
+            None => bail!("{}: arg {} expected int, got a non-prim boxed struct", ctx, idx),
         },
         Some(other) => bail!("{}: arg {} expected int, got {:?}", ctx, idx, other),
         None => bail!("{}: missing arg {}", ctx, idx),
@@ -208,8 +234,6 @@ pub fn value_to_str(v: &Value) -> String {
         // deref，不应到达 user-visible 字符串化路径。如果出现，说明代码漏了
         // 一处 deref —— 用占位字串避免 panic，但调试时容易识别。
         Value::Ref(_) => "<ref>".to_string(),
-        // add-primitive-value-boxing: 装箱基元字符串化 = inner 的字符串。
-        Value::Boxed(b) => value_to_str(&b.inner),
         // add-escape-analysis-stack-alloc: stack objects/arrays never reach the
         // user-visible stringify path (ToStr is an escape sink → such objects are
         // heap-allocated, not stack). This arm is defensive: a placeholder that's
@@ -221,9 +245,14 @@ pub fn value_to_str(v: &Value) -> String {
         // has no ctx to resolve it. ToString on a value struct dispatches through
         // its type's method (VCall), not this raw path — defensive placeholder.
         Value::StructRef { .. } => "<struct value>".to_string(),
-        // add-struct-object-boxing: boxed struct 的完整 ToString（值格式）由 PR2b 合成方法经 VCall 提供；
-        // 此原始路径给类型名占位（有 type_name，比 StructRef 占位更具体）。
-        Value::BoxedStruct(gc) => format!("{}{{...}}", gc.type_desc().name),
+        // add-struct-object-boxing → unify Phase 2 R3: 基元装箱盒（int→Std.Int32…）→ 标量字符串
+        // （恢复 add-primitive-value-boxing 的 `value_to_str(inner)` 语义——`WriteLine(object)` 把
+        // int 实参装箱后须打印 "5" 而非 "Std.Int32{...}"）。boxed struct 的完整 ToString（值格式）由
+        // PR2b 合成方法经 VCall 提供；此原始路径给类型名占位（比 StructRef 占位更具体）。
+        Value::BoxedStruct(gc) => match gc.borrow().boxed_prim_i64() {
+            Some(n) => n.to_string(),
+            None => format!("{}{{...}}", gc.type_desc().name),
+        },
         // add-struct-heap-inline (P3b): a struct[] element handle — placeholder by the
         // element type name (ToString on the element dispatches via VCall, not here).
         Value::StructRefHeap(e) => format!("{}{{...}}", e.arr.borrow().element_type),

@@ -26,10 +26,26 @@ object p = 5; ReferenceEquals(o,p)` 在 C# 是 `false`（两个不同盒），�
 - **收敛所有双写 helper** 到单一 BoxedStruct 路径。
 - 最终**删除 `Value::Boxed` 变体 + `BoxedPrim` 结构** —— Value 少一个变体，密度/一致性双赢。
 
-## Scope
+## Scope（实际改动文件，全在 `src/runtime/`，零 `src/compiler/`）
 
-**In**：`src/runtime/` 的装箱/拆箱/反射/GC/equality/convert/vcall 路径；`__box_prim` builtin 重写；
-删 `Value::Boxed`/`BoxedPrim`；对应 cargo 单测。
+| 文件 | 变更 | 说明 |
+|------|------|------|
+| `src/runtime/src/gc/heap.rs` | MODIFY | `MagrGC::alloc_boxed_prim` trait 方法（默认回落 alloc_object） |
+| `src/runtime/src/gc/arc_heap.rs` | MODIFY | `alloc_boxed_prim` 覆盖（struct_bytes 按标量宽度定尺）+ 提取 `finish_alloc` 共享尾部；删 Boxed sizing 臂 |
+| `src/runtime/src/metadata/well_known_names.rs` | MODIFY | `int_wrapper_scalar_spec(name) -> Option<(width, signed)>` |
+| `src/runtime/src/metadata/types.rs` | MODIFY | 删 `Value::Boxed=13` + `BoxedPrim`；`ScriptObject::boxed_prim_i64()`；GC visit / equality 收敛 |
+| `src/runtime/src/metadata/types_tests.rs` | MODIFY | `boxed_prim_i64` 宽度+符号 round-trip 单测 |
+| `src/runtime/src/corelib/convert.rs` | MODIFY | `box_prim_to_heap` + `builtin_box_prim` 产 BoxedStruct；`value_to_str` / `arg_i64` 收敛 |
+| `src/runtime/src/corelib/object.rs` | MODIFY | GetType：删 Boxed 臂（BoxedStruct 覆盖） |
+| `src/runtime/src/corelib/reflection.rs` | MODIFY | SetValue 拆箱 BoxedStruct-prim |
+| `src/runtime/src/corelib/repl.rs` | MODIFY | 会话变量类名走 type_desc.name |
+| `src/runtime/src/interp/exec_object.rs` | MODIFY | is_instance / as_cast 基元盒 vs struct 盒分流 |
+| `src/runtime/src/interp/exec_value.rs` | MODIFY | convert_value 拆箱 BoxedStruct-prim |
+| `src/runtime/src/interp/exec_vcall.rs` | MODIFY | 基元盒方法派发（this=裸标量） |
+| `src/runtime/src/jit/helpers/object.rs` | MODIFY | JIT is/as 镜像 interp |
+| `src/runtime/src/jit/helpers/vcall.rs` | MODIFY | JIT 基元盒方法派发镜像 interp |
+| `docs/book/src/runtime/struct-value-semantics.md` | MODIFY | 「基元装箱统一到 BoxedStruct」机制节 |
+| `src/tests/types/boxed_primitive_is_as.z42`、`box_unbox/` | 只读引用 | 现有 golden，验端到端（未改） |
 
 **Out（后续 Phase）**：Phase 3 FFI 值类型 marshaling（R5）、Phase 4 单标量塌缩 + runtime 谓词收敛（R7）。
 编译器侧（`src/compiler/`）**不动**（`__box_prim` 发射点、装箱路由不变）。

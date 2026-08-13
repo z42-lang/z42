@@ -65,6 +65,14 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         native: NativeData,
     ) -> Value;
 
+    /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
+    /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），
+    /// **不**走 `type_desc.inline_regions()` 定尺——wrapper 是 phantom struct（零字段/size 0），其
+    /// emitted struct_layout 不动（零格式 bump）。默认实现回落 `alloc_object`（测试 mock 不装箱基元，无碍）。
+    fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, _struct_bytes: Box<[u8]>) -> Value {
+        self.alloc_object(type_desc, Vec::new(), NativeData::None)
+    }
+
     /// 分配一个 `Vec<Value>` 数组并以 `Value::Array` 返回（元素类型未知）。
     fn alloc_array(&self, elems: Vec<Value>) -> Value;
 
