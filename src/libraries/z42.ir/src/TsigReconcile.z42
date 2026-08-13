@@ -335,8 +335,10 @@ public static class TsigReconcile {
             ipbase = ipbase + ipc;
             mi = mi + 1;
         }
-        return new ExportedInterfaceZ(bare, methods, cd.IfaceMethodCount,
+        ExportedInterfaceZ eiz = new ExportedInterfaceZ(bare, methods, cd.IfaceMethodCount,
                                       cd.TypeParams, cd.TypeParamCount);
+        eiz.Visibility = TsigReconcile._visStr(cd.Visibility);   // complete-class-access-control ④：接口可见性字节 → 字符串（跨包 internal 接口引用强制）
+        return eiz;
     }
 
     private static ExportedClassZ _rebuildClass(IrClassDesc cd, string ns,
@@ -482,6 +484,7 @@ public static class TsigReconcile {
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
+        ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
         return ecz;
     }
 

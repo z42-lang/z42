@@ -221,6 +221,7 @@ public sealed class ClassDescBuilder {
         if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
         if (c.Kind == "record")  { flags = flags + 8; }                 // bit3
         cd2.Flags = flags;
+        cd2.Visibility = IrGenFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
         // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
         // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
         // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
@@ -297,6 +298,7 @@ public sealed class ClassDescBuilder {
         IrFieldDesc[] empty = new IrFieldDesc[0];
         IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
         cd.Flags = 17;
+        cd.Visibility = IrGenFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
         // 传递基接口（add-reflection-transitive-interfaces）：typeof(IB).GetInterfaces() 含 IA。
         if (c.BaseCount > 0) {
             string[] directBases = new string[c.BaseCount];

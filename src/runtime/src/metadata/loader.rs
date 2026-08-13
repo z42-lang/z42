@@ -818,6 +818,8 @@ pub fn build_type_registry(module: &mut Module) {
             vtable_index,
             // add-reflection-type-flags (zbc 1.12): carry the class-shape flags.
             class_flags: desc.class_flags,
+            // complete-class-access-control: carry the class visibility byte.
+            visibility: desc.visibility,
             cold,
             id: type_id,
         });

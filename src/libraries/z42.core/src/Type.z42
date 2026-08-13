@@ -148,6 +148,14 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_primitive")]
     public extern bool IsPrimitive { get; }
 
+    // ── Declaration visibility (complete-class-access-control) ────────────────
+    // NOTE（bootstrap-seed 纪律）：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,
+    // Private,Family,Assembly}` 反射面**推迟到 follow-up PR**。VM 侧 6 个 builtin
+    // （`__type_is_public` 等）+ `TypeDesc.visibility` 存储已随本 PR 落地（support 先行），
+    // 但本 PR 同时 bump 格式（zbc 1.33），CI 冷启动走两代自举、用旧 nightly VM 加载 stdlib——
+    // 旧 VM 无这些 builtin，stdlib 一引用即 load 期 panic。故 support（VM builtin）先行、
+    // 晚一个 nightly 再在此加 extern 属性 use（届时 nightly VM 已含 builtin，无两代自举）。
+
     // Public instance fields (including inherited; base-first). Empty for
     // primitives / arrays.
     [Native("__type_fields")]

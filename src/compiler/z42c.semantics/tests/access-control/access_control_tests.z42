@@ -139,3 +139,200 @@ void test_static_private_method_cross_class_denied() {
     Assert.Equal(1, SemanticDump.ErrorCount(src));
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
 }
+
+// ── enforce-class-access：类级访问强制（体引用点 → TypeChecker._diags → ErrorCount 可见） ──
+
+[Test]
+void test_class_new_private_nested_from_outside_denied() {
+    // 类外 new 一个 private 嵌套类 → E0404
+    string src = "class Outer { private class Inner { } } void f() { var n = new Outer.Inner(); }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_new_private_nested_from_outer_ok() {
+    // 外层类内 new 自己的 private 嵌套类 → 放行
+    string src = "class Outer { private class Inner { } void mk() { var n = new Inner(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_new_public_nested_from_outside_ok() {
+    // public 嵌套类类外 new → 放行
+    string src = "class Outer { public class Inner { } } void f() { var n = new Outer.Inner(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_is_private_nested_from_outside_denied() {
+    // 类外 `is` private 嵌套类 → E0404
+    string src = "class Outer { private class Inner { } } void f(object o) { var b = o is Outer.Inner; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_var_private_nested_from_outside_denied() {
+    // 类外局部变量声明为 private 嵌套类型 → E0404
+    string src = "class Outer { private class Inner { } } void f() { Outer.Inner x = null; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_protected_nested_from_derived_ok() {
+    // 派生类内 new 基类的 protected 嵌套类 → 放行
+    string src = "class Outer { protected class Inner { } } class Sub : Outer { void mk() { var n = new Outer.Inner(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_class_protected_nested_from_unrelated_denied() {
+    // 无关类内 new 一个 protected 嵌套类 → E0404
+    string src = "class Outer { protected class Inner { } } class U { void mk() { var n = new Outer.Inner(); } }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_internal_toplevel_same_package_ok() {
+    // 无修饰符顶层类默认 internal；同包引用 → 放行（跨包 deny 由 cross-zpkg / imported 覆盖）
+    string src = "class Secret { } void f() { var s = new Secret(); }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 顶层声明拒绝 private/protected（complete-class-access-control ③，E0442，parser 声明期）──
+
+[Test]
+void test_toplevel_private_class_denied() {
+    // 顶层类标 private → E0442（模块作用域下 private 无意义）
+    string src = "private class Foo { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_protected_interface_denied() {
+    string src = "protected interface I { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_protected_enum_denied() {
+    string src = "protected enum E { A, B }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_private_function_denied() {
+    string src = "private void f() { }";
+    Assert.Equal("E0442", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_toplevel_internal_class_ok() {
+    // 顶层 internal（显式）合法
+    string src = "internal class A { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_toplevel_public_class_ok() {
+    string src = "public class B { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_toplevel_default_class_ok() {
+    // 无修饰符顶层 → 默认 internal，合法（不报 E0442）
+    string src = "class C { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_nested_private_class_not_toplevel_rejected() {
+    // 嵌套 private 类合法（经 MemberParser，不走顶层检查）→ 无 E0442
+    string src = "class Outer { private class Inner { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 接口类型可见性（complete-class-access-control ④，同包嵌套接口引用；跨包 internal 见 cross-zpkg fixture）──
+// 注：用**局部变量**声明引用接口类型（StmtBinder → TypeChecker._diags，SemanticDump 计数）；方法**参数**
+// 类型的引用检查走 SymbolCollector.Diags（不计入 ErrorCount，见 semanticdump 坑），跨包 param 场景由
+// cross-zpkg/interface_internal_access fixture 手工验证覆盖。
+
+[Test]
+void test_iface_private_nested_from_outside_denied() {
+    // 无关自由函数引用另一类的 private 嵌套接口（局部变量类型）→ E0404
+    string src = "class Outer { private interface I { int F(); } } void f() { Outer.I x = null; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_iface_private_nested_from_outer_ok() {
+    // 外层类内引用自己的 private 嵌套接口 → 放行
+    string src = "class Outer { private interface I { int F(); } void use() { Outer.I x = null; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_public_nested_from_outside_ok() {
+    // public 嵌套接口跨作用域引用 → 放行
+    string src = "class Outer { public interface I { int F(); } } void f() { Outer.I x = null; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_internal_toplevel_same_package_ok() {
+    // 无修饰符顶层接口默认 internal；同包引用 → 放行（跨包 deny 由 cross-zpkg fixture 覆盖）
+    string src = "interface Handler { int H(); } void f() { Handler h = null; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 不一致可访问性（complete-class-access-control ②，E0441，暴露更低可见性类型）──
+// declVis 用**有效可访问性** min(成员, 外层类)：`public class` 才使 public 成员真正 public。
+
+[Test]
+void test_inconsistent_public_field_internal_type_denied() {
+    // public 类的 public 字段暴露 internal 类型 → E0441
+    string src = "public class Api { public Secret s; } class Secret { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_public_method_return_internal_denied() {
+    // public 方法返回 internal 类 → E0441
+    string src = "public class Api { public Secret Get() { return null; } } class Secret { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_public_base_internal_denied() {
+    // public 类继承 internal 基类 → E0441
+    string src = "public class Derived : Base { } class Base { }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inconsistent_internal_member_private_nested_denied() {
+    // internal 方法（有效 internal）返回 private 嵌套类 → E0441（签名引用嵌套类型须限定名 Api.Node）
+    string src = "public class Api { internal Api.Node Peek() { return null; } class Node { } }";
+    Assert.Equal("E0441", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_consistent_public_exposes_public_ok() {
+    // public 成员暴露 public 类型 → 放行
+    string src = "public class Api { public Helper h; } public class Helper { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_effective_vis_internal_class_public_member_ok() {
+    // internal 类的 public 字段暴露 internal 类型：有效可访问性 = internal，不算泄漏 → 放行（防误报）
+    string src = "internal class C { public Secret s; } class Secret { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_private_member_exposes_internal_ok() {
+    // private 成员（有效 private，rank 最低）暴露任意 → 放行
+    string src = "public class Api { private Secret s; } class Secret { }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

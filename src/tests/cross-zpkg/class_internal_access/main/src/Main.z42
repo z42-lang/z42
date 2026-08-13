@@ -1,0 +1,18 @@
+// enforce-crosspkg-internal-class ②：消费方 B 引用生产方 A 的 internal 类。
+// 期望：`new Secret()` / `new SecretExplicit()` → E0404 `cannot access internal class ... from another package`；
+//       `new Api()`（public）→ 放行。E0404 为非阻断诊断，但错误计数非零 → z42c build 退出非零。
+namespace Demo.AclIntApp;
+
+using Std.IO;
+using Demo.AclIntTarget;
+
+void Main() {
+    Api a = new Api();                    // ✅ 跨包 public 类 → 放行
+    Console.WriteLine(a.Ok());
+
+    Secret s = new Secret();              // ❌ 跨包 internal 类 → E0404 from another package
+    Console.WriteLine(s.V());
+
+    SecretExplicit e = new SecretExplicit();  // ❌ 跨包显式 internal 类 → E0404
+    Console.WriteLine(e.W());
+}

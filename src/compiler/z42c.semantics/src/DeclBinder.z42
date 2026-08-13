@@ -200,6 +200,7 @@ public sealed class DeclBinder {
         if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
         Z42ClassType ct = symbols.GetClass(ctKey);
         this._checkDuplicateStaticOverloads(c);
+        this._checkExposure(symbols, c, ct);   // complete-class-access-control ②：不一致可访问性（E0441）
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._tc._unwrap(c.Members[j]);
@@ -269,6 +270,52 @@ public sealed class DeclBinder {
                     while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
                     setEnv.Define("value", setEnv.ResolveType(id.RetType));
                     model.AddBody(ctKey + ".set_Item", this._tc._stmt._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
+                }
+            }
+            j = j + 1;
+        }
+    }
+
+    // complete-class-access-control ②：类的基类/接口/字段/方法签名不得暴露比声明本身更低可见性的类型
+    // （C# CS0050 族 → E0441）。走 TypeChecker._diags（SemanticDump 计数）。
+    private void _checkExposure(SymbolTable symbols, ClassDecl c, Z42ClassType ct) {
+        if (ct == null) { return; }
+        // 基类 + 接口 vs 类可见性
+        if (ct.HasBase) {
+            Z42ClassType bt = symbols.GetClass(ct.BaseName);
+            if (bt != null) { AccessChecker.CheckExposure(ct.Visibility, bt, symbols, this._tc._diags, c.Span); }
+        }
+        int ii = 0;
+        while (ii < ct.InterfaceCount) {
+            Z42InterfaceType it = symbols.GetInterface(ct.InterfaceNames[ii]);
+            if (it != null) { AccessChecker.CheckExposure(ct.Visibility, it, symbols, this._tc._diags, c.Span); }
+            ii = ii + 1;
+        }
+        // 成员：字段类型 + 方法（含 ctor）返回/参数类型 vs 成员可见性
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                FieldSymbol fs = ct.Fields.Get(fd.Name) as FieldSymbol;
+                if (fs != null) {
+                    string fvis = AccessChecker.MinVisibility(fs.Visibility, ct.Visibility);   // 有效可访问性封顶
+                    AccessChecker.CheckExposure(fvis, fs.FieldType, symbols, this._tc._diags, fd.Span);
+                }
+            } else if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                string mkey = md.Name + "$" + md.ParamCount.ToString();
+                if (md.RegKey != "") { mkey = md.RegKey; }
+                else if (!ct.Methods.ContainsKey(mkey)) { mkey = md.Name; }
+                MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
+                if (ms != null) {
+                    string mvis = AccessChecker.MinVisibility(ms.Visibility, ct.Visibility);   // 有效可访问性封顶
+                    AccessChecker.CheckExposure(mvis, ms.Signature.Ret, symbols, this._tc._diags, md.Span);
+                    int p = 0;
+                    while (p < ms.Signature.ParamCount) {
+                        AccessChecker.CheckExposure(mvis, ms.Signature.ParamTypes[p], symbols, this._tc._diags, md.Span);
+                        p = p + 1;
+                    }
                 }
             }
             j = j + 1;

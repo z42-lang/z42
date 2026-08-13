@@ -1,0 +1,18 @@
+// complete-class-access-control ④：生产方 A 定义 internal 接口（跨包不可引用）+ public 接口（可引用）。
+// 消费方 B（main/src/Main.z42）引用 Handler → 期望 E0404 `from another package`；引用 Api → 放行。
+namespace Demo.IfaceIntTarget;
+
+// 无修饰符顶层接口 → 默认 internal（封闭层 = 模块）。跨包引用应被拒。
+interface Handler {
+    int Handle();
+}
+
+// 显式 internal，语义同上。
+internal interface HandlerExplicit {
+    int Run();
+}
+
+// public 顶层接口 → 跨包引用放行（对照组）。
+public interface Api {
+    int Ok();
+}

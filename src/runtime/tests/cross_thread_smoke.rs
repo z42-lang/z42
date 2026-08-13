@@ -449,6 +449,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
 fn dummy_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {
     Arc::new(z42::metadata::TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: name.to_string(),
         base_name: None,
         fields: Vec::new(),
@@ -499,6 +500,7 @@ fn concurrent_gc_mode_stress_no_race_no_leak() {
     fn make_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {
         Arc::new(z42::metadata::TypeDesc {
             class_flags: 0,
+            visibility: 0,
             name: name.to_string(),
             base_name: None,
             fields: Vec::new(),

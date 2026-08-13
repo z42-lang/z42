@@ -26,7 +26,7 @@ public static class DiagnosticCodes {
     public static string UndefinedSymbol       = "E0401";
     public static string TypeMismatch          = "E0402";
     public static string MissingReturn         = "E0403";
-    public static string AccessViolation       = "E0404";
+    public static string AccessViolation       = "E0404";   // 成员访问（enforce-access-control）+ 类型引用（enforce-class-access：private/protected 嵌套类；跨包 internal 类为 follow-up）——镜像 C# 单一 CS0122
     public static string InvalidModifier       = "E0405";
     public static string IntLiteralOutOfRange  = "E0406";
     public static string UninitializedVariable = "E0407";
@@ -66,6 +66,8 @@ public static class DiagnosticCodes {
     // follow-up（当前由 StructLayout.IsBlobStruct 的 Size==0 兜底防崩，自引用 struct 退化为引用语义不报错）。
     public static string ImplicitNarrowingConversion = "E0439";  // 存在显式转换却用于隐式上下文（窄化/有损）——需 (T) cast（tighten-implicit-conversions）
     public static string ConversionOperatorConflict  = "E0440";  // 转换运算符声明冲突：同 (源→目标) 重复 / implicit+explicit 同对（add-user-conversions ②，声明期检测）
+    public static string InconsistentAccessibility   = "E0441";  // 不一致可访问性：更高可见性的成员/类型签名暴露了更低可见性的类型（C# CS0050 族；complete-class-access-control ②）
+    public static string TopLevelAccessModifier      = "E0442";  // 顶层声明（class/interface/struct/record/enum/函数）标 private/protected——模块作用域无意义（complete-class-access-control ③）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

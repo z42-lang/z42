@@ -63,6 +63,11 @@ public sealed class Z42ClassType : Z42Type {
     // 由 ImportedSymbolLoader 构造 imported 类型时置 true；本地类型默认 false。**不序列化**（每次编译按
     // 本次依赖图现算），供 `internal` 可见性判定「声明类是否本包」（同包可访问，跨包 E0404）。
     public bool   IsImported;
+    // enforce-class-access：类声明的可见性（"public"/"private"/"protected"/"internal"）。默认 "public"
+    // （构造后立即由 SymbolCollector 从 Mods 按位置默认覆写、或由 ImportedSymbolLoader 从元数据还原）。
+    // 供类级访问强制（AccessChecker.CheckTypeRef）判定「从当前上下文引用该类型是否允许」。位置默认：
+    // 嵌套类（名含 '+'）→ private、顶层类 → internal；显式修饰符优先。
+    public string Visibility;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -76,6 +81,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsStruct = false;
         this.IsSealed = false;
         this.IsImported = false;
+        this.Visibility = "public";
     }
 
     // unify-value-types Phase 1 阶段 3（消灭 Z42PrimType）：内建基元/string/object 的**轻量合成**
@@ -187,7 +193,12 @@ public sealed class Z42InterfaceType : Z42Type {
     public StrMap Methods;    // name → MethodSymbol
     public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
     public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; }
+    // complete-class-access-control ④：接口与类对称携带可见性。Visibility="public"/"private"/
+    // "protected"/"internal"（默认 public，采集/导入后赋真值）；IsImported=来自依赖 zpkg（跨包）
+    // → internal 接口跨包引用 deny（CheckTypeRef 接口分支消费，镜像 Z42ClassType）。
+    public string Visibility;
+    public bool   IsImported;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }

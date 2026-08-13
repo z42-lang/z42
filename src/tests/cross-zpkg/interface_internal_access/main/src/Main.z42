@@ -1,0 +1,23 @@
+// complete-class-access-control ④：消费方 B 引用生产方 A 的 internal 接口。
+// 期望：形参/局部类型标 Handler / HandlerExplicit → E0404 `cannot access internal interface ... from another package`；
+//       Api（public）→ 放行。E0404 为非阻断诊断，但错误计数非零 → z42c build 退出非零。
+namespace Demo.IfaceIntApp;
+
+using Std.IO;
+using Demo.IfaceIntTarget;
+
+void Use(Api a) {                         // ✅ 跨包 public 接口 → 放行
+    Console.WriteLine(a.Ok());
+}
+
+void UseInternal(Handler h) {             // ❌ 跨包 internal 接口 → E0404 from another package
+    Console.WriteLine(h.Handle());
+}
+
+void UseInternalExplicit(HandlerExplicit e) {   // ❌ 跨包显式 internal 接口 → E0404
+    Console.WriteLine(e.Run());
+}
+
+void Main() {
+    Console.WriteLine("iface access fixture");
+}

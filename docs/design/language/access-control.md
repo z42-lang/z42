@@ -1,12 +1,27 @@
 # 访问权限控制规范
 
-> **Status**: ✅ 全部实现（enforce-access-control #180 + default-member-private）——private / protected /
-> internal（含跨包）+ 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性
-> + record 定位字段 public。机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
+> **Status**: ✅ 成员级全部实现（enforce-access-control #180 + default-member-private #181）+ **类级强制**
+> （enforce-class-access ① + enforce-crosspkg-internal-class ②）——private / protected / internal（成员含跨包）+
+> 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性 + record 定位字段 public +
+> **类级：private/protected 嵌套类 + 跨包 internal 类的**类型引用**校验**（覆盖体引用 new/var/cast/is/as/typeof/catch
+> + 声明签名 字段/参/返/基类·接口；跨包 internal 类可见性经 zbc 1.33/zpkg 0.38 TYPE 记录可见性字节序列化）。
+> 机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
 > **本规范是访问控制的语言 SoT**（2026-08-12：默认成员 = private 以本文档为准，实现已对齐）。
 >
-> 未做：**类级访问强制**（private 嵌套类 / internal 类不可跨作用域*引用*——当前只强制成员访问，不检查类型
-> 引用；`LinkedList.Node` 例仍可被外部引用）。列为独立后续 change。
+> **complete-class-access-control（2026-08-13）补齐四项**，类级访问控制自此完整：
+> - **接口类型可见性**：`Z42InterfaceType` 与类对称携带可见性；跨包引用 internal 接口 → E0404（复用 #184
+>   已在线的 TYPE 可见性字节，无格式 bump）。
+> - **顶层声明拒绝 private/protected**（E0442）：顶层 class/interface/struct/record/enum/函数标 private/protected
+>   在模块作用域无意义 → 声明期（parser）拒绝；internal/public 合法，嵌套仍可 private/protected。
+> - **不一致可访问性**（E0441，C# CS0050 族）：成员/类型签名不得暴露比其**有效可访问性** `min(成员, 外层类)`
+>   更低可见性的类型（可见性线性 rank public>internal>protected>private；完整偏序 Deferred）。
+> - **类可见性反射**：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,Private,Family,Assembly}`（对齐 C#
+>   `System.Type`）——**VM 面已落**（6 builtin + `TypeDesc.visibility` 存储 + Rust 单测，support 先行）；
+>   **`Type.z42` 的 6 个 extern 属性推迟一个 nightly**（bootstrap-seed 纪律：本 PR 同 bump 格式 zbc 1.33，CI
+>   冷启动两代自举用旧 VM 加载 stdlib、旧 VM 无新 builtin → 一引用即 panic）。
+>
+> 嵌套类 `LinkedList.Node` 例现已强制（外部引用 → E0404）。剩余 Deferred：① 反射 stdlib 面（follow-up）+
+> 不一致可访问性的完整 accessibility-domain 偏序（引入组合修饰符时）。
 
 ## 设计原则
 

@@ -126,6 +126,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
             name: "Std.GCHandle".to_string(),
             base_name: None,
             class_flags: 0,
+            visibility: 0,
             cold: Some(Box::new(crate::metadata::types::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()
@@ -161,6 +162,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             name: "Std.HeapStats".to_string(),
             base_name: None,
             class_flags: 0,
+            visibility: 0,
             cold: Some(Box::new(crate::metadata::types::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()
@@ -359,6 +361,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
             name: "Std.SoftHandle".to_string(),
             base_name: None,
             class_flags: 0,
+            visibility: 0,
             cold: Some(Box::new(crate::metadata::types::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()

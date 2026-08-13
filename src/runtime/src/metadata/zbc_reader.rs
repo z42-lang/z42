@@ -122,7 +122,14 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // class's object-relative inline byte-region size + reference bitmap), present when
 // class_flags & CLASS_FLAG_HAS_INLINE_STRUCT (bit7=0x80), following the struct block.
 // Delivers `TypeDescCold.inline_layout` for `class C { Point pt; }`. Coupled with zpkg 0.37.
-pub const ZBC_VERSION_MINOR: u16 = 32;
+//
+// 2026-08-13 enforce-class-access: bumped to 1.33 — TYPE section gains a **class
+// declaration visibility byte** (0=public/1=private/2=protected/3=internal),
+// immediately following the class_flags u8 (every TYPE record grows by 1 byte).
+// The compiler's cross-package `internal`-class reference enforcement reads it; the
+// VM currently reads-and-discards it (no class-visibility reflection surface yet).
+// Coupled with zpkg 0.38.
+pub const ZBC_VERSION_MINOR: u16 = 33;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -215,7 +222,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-11 add-struct-heap-inline P3b: bumped to 0.37, coupled inner zbc 1.32
 // (TYPE composed inline-struct layout block, Flags bit7 gated). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 37;
+// 2026-08-13 enforce-class-access: bumped to 0.38, coupled inner zbc 1.33 (TYPE
+// class-declaration visibility byte). Outer zpkg layout unchanged; the bump triggers
+// ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 38;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -508,6 +518,12 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         }
         // add-reflection-type-flags (zbc 1.12): class-shape flags byte.
         let class_flags = c.read_u8()?;
+        // enforce-class-access (zbc 1.33): class declaration visibility byte
+        // (0=public/1=private/2=protected/3=internal), immediately following
+        // class_flags. Consumed by the compiler's cross-package `internal`-class
+        // reference enforcement; complete-class-access-control surfaces it as
+        // `Type.IsPublic` etc. reflection (stored into ClassDesc.visibility below).
+        let class_visibility = c.read_u8()?;
         // add-reflection-static-fields (zbc 1.13): static fields block (same
         // shape as the instance fields block above).
         let static_count = c.read_u16()? as usize;
@@ -626,6 +642,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             type_param_constraints: type_param_constraints.into_boxed_slice(),
             attributes: attributes.into_boxed_slice(),
             class_flags,
+            visibility: class_visibility,
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),
             enum_members,

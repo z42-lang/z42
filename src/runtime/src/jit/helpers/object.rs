@@ -46,6 +46,7 @@ pub unsafe extern "C" fn jit_obj_new(
         .unwrap_or_else(|| std::sync::Arc::new(crate::metadata::TypeDesc {
             name: class_name.clone(), base_name: None,
             class_flags: 0,
+            visibility: 0,
             fields: Vec::new(), field_index: crate::metadata::NameIndex::new(),
             vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(),
             cold: None,

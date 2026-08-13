@@ -187,6 +187,7 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
         name: "Std.WeakHandle".to_string(),
         base_name: None,
         class_flags: 0,
+        visibility: 0,
         fields: Vec::new(),
         field_index: crate::metadata::NameIndex::new(),
         vtable: Vec::new(),

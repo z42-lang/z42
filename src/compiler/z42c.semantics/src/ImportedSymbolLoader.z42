@@ -86,6 +86,7 @@ public static class ImportedSymbolLoader {
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                         nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
+                        nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）
                         // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
                         // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——
                         // 非-struct class 恒 HasBase=true，struct 恒 HasBase=false），故 `!cl.HasBase` 精确等价
@@ -113,7 +114,10 @@ public static class ImportedSymbolLoader {
                 while (ic < em.InterfaceCount) {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
-                        r.Interfaces.Put(iz.Name, new Z42InterfaceType(iz.Name));
+                        Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
+                        nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
+                        nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
+                        r.Interfaces.Put(iz.Name, nift);
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                         // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。

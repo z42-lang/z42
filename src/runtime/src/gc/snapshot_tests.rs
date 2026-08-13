@@ -20,6 +20,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     field_index.insert("tail".to_string(), 1usize);
     Arc::new(TypeDesc {
         class_flags: 0,
+        visibility: 0,
         name: name.to_string(),
         base_name: None,
         cold: Some(Box::new(crate::metadata::types::TypeDescCold {

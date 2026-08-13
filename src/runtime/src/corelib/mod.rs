@@ -493,6 +493,14 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_declaring_type",     reflection::builtin_type_declaring_type),
     ("__type_nested_types",       reflection::builtin_type_nested_types),
 
+    // ── complete-class-access-control — class visibility reflection (appended) ──
+    ("__type_is_public",           reflection::builtin_type_is_public),
+    ("__type_is_not_public",       reflection::builtin_type_is_not_public),
+    ("__type_is_nested_public",    reflection::builtin_type_is_nested_public),
+    ("__type_is_nested_private",   reflection::builtin_type_is_nested_private),
+    ("__type_is_nested_family",    reflection::builtin_type_is_nested_family),
+    ("__type_is_nested_assembly",  reflection::builtin_type_is_nested_assembly),
+
     // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
     ("__lctx_default",            assemblyloadcontext::builtin_lctx_default),
     ("__lctx_create_collectible", assemblyloadcontext::builtin_lctx_create_collectible),

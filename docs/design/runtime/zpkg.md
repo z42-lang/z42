@@ -259,6 +259,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.35 | 2026-08-07 | [impl-sealed-semantics](../../spec/changes/impl-sealed-semantics/) | 耦合 inner zbc 1.30（SIGS method_flags bit2=sealed，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.36 | 2026-08-09 | [add-struct-value-semantics](../../spec/changes/add-struct-value-semantics/) | 耦合 inner zbc 1.31（TYPE 值 struct 布局块 + z42c emit blob 值指令，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.37 | 2026-08-11 | [add-struct-heap-inline](../../spec/changes/add-struct-heap-inline/) | 耦合 inner zbc 1.32（TYPE 合成内联 struct 布局块，Flags bit7 gated，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
+| 0.38 | 2026-08-13 | [enforce-class-access](../../spec/changes/enforce-class-access/) | 耦合 inner zbc 1.33（TYPE 记录类声明可见性字节，跨包 internal 类引用强制载体，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

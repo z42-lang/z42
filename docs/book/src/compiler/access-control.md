@@ -89,7 +89,107 @@ ContainingTypeName`（`SymbolCollector` 从 `c.Name` 设）**均为短名**，�
 split 辅助类（Parser/DeclParser/MemberParser/TypeParser 等）45 处**同包互访的** `private` 改为
 `internal`（无强制期的欠标注；internal 是同包协作的正确修饰符），stdlib 私有零违规。
 
+## 类级访问强制（enforce-class-access，2026-08-13）
+
+成员访问强制之外，**类型本身被引用**时也受可见性约束（镜像 C#：类型只要被「命名」就检查可访问性）。
+本 change 落地**同包**类级强制：`private`/`protected` 嵌套类只能在其外层类家族内引用。违规同样 emit
+`E0404`（C# 亦用单一 CS0122 覆盖成员与类型不可访问）。**跨包 `internal` 类引用强制**需类可见性进 zbc/zpkg
+元数据（格式 bump），拆为独立 follow-up（见 Deferred `access-future-crosspkg-internal-class`）。
+
+### 语义
+
+| 类可见性 | 可引用范围 | 判据（`AccessChecker.CheckTypeRef`） |
+|---------|-----------|-----------------------------------|
+| `public` | 任意 | 不校验 |
+| `private` 嵌套类 `Outer+Inner` | `Outer` 文本内（含更深嵌套） | `currentClass == Outer` 或以 `Outer+` 为前缀 |
+| `protected` 嵌套类 | `Outer` + 派生自 `Outer` 的类 | `currentClass` 沿基链上溯能到 `Outer` |
+| `internal` 类（含无修饰符顶层默认） | 同包（本 change 恒放行；跨包强制见 follow-up） | 被引类 `IsImported==false`（本包）→ OK |
+
+嵌套类经 `NestedFlatten` 命名为扁平键 `Outer+Inner`；外层名由 `_nestedOuter`（剥 `+` 末段）得出，
+无需结构标记。类可见性**位置默认**（`IrGenFacts.classVisCode/classVis`）：嵌套类→`private`、顶层类→
+`internal`，显式修饰符优先（与成员级 `_vis` 同款「最小封闭作用域」）。可见性存内存态 `Z42ClassType.Visibility`
+（本地类由 `SymbolCollector` 从 `Mods` 设，imported 类由 `ImportedSymbolLoader` 从 zbc 可见性字节还原）。
+**跨包 internal 类强制已落地**（#184）：可见性经 zbc 1.33/zpkg 0.38 TYPE 记录可见性字节序列化（链路
+`IrClassDesc.Visibility → ZbcWriter → ZbcReader → TsigReconcile._visStr → ExportedClassZ.Visibility →
+ImportedSymbolLoader → Z42ClassType.Visibility`），故 imported internal 类的 `CheckTypeRef` internal 分支
+（`IsImported` → E0404 `from another package`）现生效。
+
+### 强制点（两相位，静态 `CheckTypeRef` 共用）
+
+`AccessChecker.CheckTypeRef(resolved, currentClass, symbols, diags, span)` 是**静态**方法、显式收 diag
+bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例化递归校验定义类 + 每个类型实参。
+
+| 相位 | 位置 | 覆盖引用点 | diag bag |
+|------|------|-----------|---------|
+| 绑定期（体引用） | `TypeChecker._chkTypeRef` ← `StmtBinder`/`ExprTyper` | `new T` / 局部 `T x` / `(T)e` / `e is T` / `e as T` / `typeof(T)` / `default(T)` / `catch(T)` / 泛型实参 | `TypeChecker._diags` |
+| 收集期（声明签名） | `SymbolCollector._chkTypeRef` ← `_fillClass`/`_methodSymbol` | 字段 / 属性 / 索引器类型 / 方法参·返回 / 基类·接口列表 | `SymbolCollector.Diags` |
+
+codegen（`FunctionEmitter` 直呼 `symbols.ResolveTypeP`）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
+z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTypeRef` 现同时处理**类与接口**（各自
+`Visibility`，共用 `_checkVisRef` 逻辑），其余类型（prim/泛型形参/未知/func）一律放行，绝不误报。
+
+## complete-class-access-control（2026-08-13）——类级访问补齐四项
+
+`enforce-crosspkg-internal-class` 之后的四项 Deferred 一次补齐，类级访问控制自此完整（**均无格式 bump**——
+复用 #184 已在线的 TYPE 可见性字节）：
+
+### ④ 接口类型可见性
+
+`Z42InterfaceType` 与 `Z42ClassType` 对称加 `Visibility` + `IsImported`。接口经 `ClassDescBuilder._interfaceDesc`
+产同一 `IrClassDesc`（Flags bit4），走同一 TYPE 记录——#184 的 `WriteU8(cd.Visibility)` 对每条记录无条件写，
+故接口 TYPE 早已携带该字节（此前恒 0=public）。补 6 处接口分支写入/还原真实可见性：`SymbolCollector._passInterfaces`
+（从 `Mods`）、`_interfaceDesc`（emit）、`ExportedInterfaceZ.Visibility` + `TsigReconcile._rebuildInterface`
+（跨包 round-trip）、`ImportedSymbolLoader`（传播）、`CheckTypeRef` 接口分支。跨包引用 internal 接口 → E0404。
+
+### ③ 顶层声明拒绝 private/protected（E0442）
+
+顶层 class/struct/interface/record/enum/函数在模块作用域下标 `private`/`protected` 无意义（默认 internal）。
+`Parser.ParseCompilationUnit` 分派点检查 `mods` → `E0442`（parser bag，`SemanticDump.ErrorCount` 可见）；
+嵌套类型经 `MemberParser` 不走此路径，仍可 private/protected。
+
+### ② 不一致可访问性（E0441，C# CS0050 族）
+
+`DeclBinder._bindClass` 对每个类的基类/接口 + 字段/方法（含 ctor）签名调 `AccessChecker.CheckExposure`：被暴露
+类型可见性 rank 须 ≥ 暴露声明的**有效可访问性** `min(成员声明, 外层类)`（`MinVisibility`——镜像 C# effective
+accessibility，`internal class` 内 `public` 成员实际只 internal 可见，暴露 internal 不算泄漏 → 绝不误报）。
+可见性线性 rank `public 3 > internal 2 > protected 1 > private 0`；递归穿透泛型实例化（Def+实参）与数组元素；
+非类/接口类型视 public 不触发。完整 accessibility-domain 偏序（引入组合修饰符时）Deferred。
+
+### ① 类可见性反射（`Type.IsPublic` 族，对齐 C#）—— VM support 已落、stdlib 面推迟一 nightly
+
+VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility → TypeDesc.visibility`。6 个 builtin
+（`__type_is_public` / `__type_is_not_public` / `__type_is_nested_{public,private,family,assembly}`）读 `td.visibility`
++ 名内 `+` 判嵌套（顶层 `IsPublic` xor `IsNotPublic`；嵌套为 `IsNested{Public,Private,Family,Assembly}` 之一；
+无 TYPE handle（基元/数组）→ 全 false）。
+
+> **`Type.z42` 的 6 个 extern 属性推迟到 follow-up PR**（bootstrap-seed 纪律，见下 Deferred）：本 PR 同时 bump
+> 格式（zbc 1.33），CI 冷启动走两代自举、用**旧 nightly VM** 加载 stdlib；旧 VM 无新 builtin，stdlib 一引用即
+> load 期 panic。故 **support（VM builtin + 存储 + Rust 单测）先行**、晚一个 nightly 再在 `Type.z42` 加 extern
+> 属性 **use**（届时 nightly 的 VM 已含 builtin、且无格式 bump→无两代自举）。
+
 ## Deferred / Future Work
+
+> **已完成（勿再列 Deferred）**：跨包 internal 类（#184）、接口类型可见性 / 顶层拒绝 E0442 / 不一致可访问性
+> E0441（complete-class-access-control，2026-08-13）——见上「complete-class-access-control」节。类可见性反射
+> **VM 面已落、stdlib 面推迟**（见下）。
+
+### access-future-type-visibility-reflection-surface: 类可见性反射的 stdlib 面（`Type.IsPublic` 族）
+
+- **来源**：complete-class-access-control ①（bootstrap-seed 纪律拆分）
+- **触发原因**：本 PR 同时 bump 格式（zbc 1.33），CI 冷启动两代自举用旧 nightly VM 加载 stdlib；旧 VM 无新
+  builtin（`__type_is_public` 等），`Type.z42` 一引用即 load 期 panic。VM 侧 6 builtin + `TypeDesc.visibility`
+  存储 + Rust 单测已随本 PR 落地（support 先行）。
+- **触发条件**：本 PR 合并 + nightly 发布后（该 nightly 的 VM 已含 6 builtin）→ follow-up PR 在 `Type.z42` 加
+  6 个 `[Native]` extern 属性（`IsPublic`/`IsNotPublic`/`IsNested{Public,Private,Family,Assembly}`）+
+  `src/tests/types/type_visibility.z42` golden。无格式 bump、无两代自举 → 直接过。
+
+### access-future-inconsistent-accessibility-partial-order: 不一致可访问性的完整偏序
+
+- **来源**：complete-class-access-control ②（design D2）
+- **触发原因**：E0441 用线性 rank `public>internal>protected>private` 近似；C# accessibility-domain 是**偏序**
+  （protected 与 internal 不可比）。z42 无组合修饰符（`protected internal`）故偏序退化，线性 rank 覆盖全部实用
+  泄漏面；唯一近似偏差（internal 成员暴露 protected 类型按 rank 报错）语义上正确。
+- **触发条件**：若未来引入组合修饰符（`protected internal` 等），需换成真正的域运算。
 
 ### access-future-inherited-internal-fidelity: 跨包**继承**成员的 internal 保真
 

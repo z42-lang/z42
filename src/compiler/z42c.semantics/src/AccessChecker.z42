@@ -62,4 +62,140 @@ public sealed class AccessChecker {
         if (crossPkg) { msg = msg + " from another package"; }
         this._tc._diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
     }
+
+    // ── enforce-class-access：类级访问强制（引用点） ──────────────────────────────────────────
+    // 从 currentClass 上下文**引用** resolved 类型是否允许；违规 emit E0404 到 diags（不阻断）。
+    // 静态 + 显式 diag bag：绑定期（binder → _tc._diags）与收集期（SymbolCollector → 其 Diags）共用同一逻辑。
+    // 语义镜像成员级：public 放行；private 嵌套类仅外层类文本内；protected 外层类+派生；internal 同包，跨包 deny。
+    // 泛型实例化递归校验（定义类 + 每个类型实参）。非类类型（prim/接口/泛型形参/未知/func）一律放行，绝不误报。
+    public static void CheckTypeRef(Z42Type resolved, string currentClass, SymbolTable symbols,
+                                    DiagnosticBag diags, Span sp) {
+        if (resolved is Z42InstantiatedType) {
+            Z42InstantiatedType it = resolved as Z42InstantiatedType;
+            AccessChecker.CheckTypeRef(it.Def, currentClass, symbols, diags, sp);
+            int i = 0;
+            while (i < it.ArgCount) { AccessChecker.CheckTypeRef(it.TypeArgs[i], currentClass, symbols, diags, sp); i = i + 1; }
+            return;
+        }
+        if (resolved is Z42ClassType) {
+            Z42ClassType ct = resolved as Z42ClassType;
+            // unify（删 Z42PrimType）后基元 `int`≡`Std.Int32` 是 phantom Z42ClassType——永远可访问
+            // （镜像旧模型：旧 Z42PrimType 本就被 `!(is Z42ClassType)` 跳过），否则会误拒所有 `int` 引用。
+            if (PrimModel.IsBuiltin(ct.Name())) { return; }
+            AccessChecker._checkVisRef(ct.Visibility, ct.Name(), ct.IsImported, "class", currentClass, symbols, diags, sp);
+            return;
+        }
+        // complete-class-access-control ④：接口与类对称强制（internal 接口跨包引用 deny）。
+        if (resolved is Z42InterfaceType) {
+            Z42InterfaceType ift = resolved as Z42InterfaceType;
+            AccessChecker._checkVisRef(ift.Visibility, ift.Name(), ift.IsImported, "interface", currentClass, symbols, diags, sp);
+            return;
+        }
+        // 其余（prim/泛型形参/未知/func）一律放行，绝不误报。
+    }
+
+    // 类/接口共用的可见性引用校验（private 嵌套文本域 / protected 外层家族 / internal 跨包 deny）。
+    // kind："class"/"interface"（仅诊断措辞）。isImported=声明自依赖 zpkg（跨包）。
+    private static void _checkVisRef(string vis, string declName, bool isImported, string kind,
+                                     string currentClass, SymbolTable symbols, DiagnosticBag diags, Span sp) {
+        if (vis == "public") { return; }
+        string outer = AccessChecker._nestedOuter(declName);
+        if (vis == "private") {
+            // 嵌套 private：外层类文本内（含更深嵌套）。顶层 private（outer==""）：仅类自身文本（真实代码无此）。
+            if (outer == "") { if (currentClass == declName) { return; } }
+            else if (currentClass == outer || currentClass.StartsWith(outer + "+")) { return; }
+            AccessChecker._denyType("private", declName, kind, false, diags, sp);
+            return;
+        }
+        if (vis == "protected") {
+            // 嵌套 protected：外层类家族（外层类 + 派生）。顶层 protected（unreal）：本类家族。
+            string tgt = (outer == "") ? declName : outer;
+            if (AccessChecker._derivesFromOrEq(tgt, currentClass, symbols)) { return; }
+            AccessChecker._denyType("protected", declName, kind, false, diags, sp);
+            return;
+        }
+        // internal（含无修饰符顶层默认）：本包声明放行；imported（跨包）deny。
+        if (!isImported) { return; }
+        AccessChecker._denyType("internal", declName, kind, true, diags, sp);
+    }
+
+    // 嵌套类外层名（剥 '+' 末段）；顶层类（无 '+'）返回 ""。
+    private static string _nestedOuter(string name) {
+        int lp = -1;
+        int i = 0;
+        while (i < name.Length) { if (name.CharAt(i) == '+') { lp = i; } i = i + 1; }
+        if (lp < 0) { return ""; }
+        return name.Substring(0, lp);
+    }
+
+    // cur == target，或沿 cur 基链上溯能到 target（含隐式 Object）。target=="" / cur=="" → false（无家族）。
+    private static bool _derivesFromOrEq(string target, string cur, SymbolTable symbols) {
+        if (target == "" || cur == "") { return false; }
+        bool more = true;
+        while (more) {
+            if (cur == target) { return true; }
+            Z42ClassType ct = symbols.GetClass(cur);
+            if (ct == null) { more = false; }
+            else if (ct.HasBase) { cur = ct.BaseName; }
+            else if (cur != "Object" && symbols.HasClass("Object")) { cur = "Object"; }
+            else { more = false; }
+        }
+        return false;
+    }
+
+    private static void _denyType(string vis, string declName, string kind, bool crossPkg, DiagnosticBag diags, Span sp) {
+        string disp = declName.Replace("+", ".");   // 用户面用点号（Outer.Inner），内部键为 Outer+Inner
+        string msg = "cannot access " + vis + " " + kind + " `" + disp + "`";
+        if (crossPkg) { msg = msg + " from another package"; }
+        diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
+    }
+
+    // ── complete-class-access-control ②：不一致可访问性（C# CS0050 族） ──────────────────────────
+    // declVis 的声明（成员/类型）在其签名/基类列表里**暴露**了 exposed 类型；若 exposed 比 declVis
+    // 更低可见性 → E0441。可见性线性 rank：public 3 > internal 2 > protected 1 > private 0（design D2，
+    // 完整 accessibility-domain 偏序 Deferred）。递归穿透泛型实例化（Def+每个实参）与数组元素；非
+    // 类/接口类型（prim/泛型形参/func/void/未知）rank 视 public → 不触发（绝不误报）。
+    public static void CheckExposure(string declVis, Z42Type exposed, SymbolTable symbols,
+                                     DiagnosticBag diags, Span sp) {
+        if (exposed is Z42InstantiatedType) {
+            Z42InstantiatedType it = exposed as Z42InstantiatedType;
+            AccessChecker.CheckExposure(declVis, it.Def, symbols, diags, sp);
+            int i = 0;
+            while (i < it.ArgCount) { AccessChecker.CheckExposure(declVis, it.TypeArgs[i], symbols, diags, sp); i = i + 1; }
+            return;
+        }
+        if (exposed is Z42ArrayType) {
+            AccessChecker.CheckExposure(declVis, (exposed as Z42ArrayType).Elem, symbols, diags, sp);
+            return;
+        }
+        string exVis = "public";
+        string exName = "";
+        string exKind = "type";
+        if (exposed is Z42ClassType) {
+            Z42ClassType ct = exposed as Z42ClassType;
+            if (PrimModel.IsBuiltin(ct.Name())) { return; }   // unify：基元 phantom class 恒 public，不算暴露
+            exVis = ct.Visibility; exName = ct.Name(); exKind = "class";
+        }
+        else if (exposed is Z42InterfaceType) { Z42InterfaceType ift = exposed as Z42InterfaceType; exVis = ift.Visibility; exName = ift.Name(); exKind = "interface"; }
+        else { return; }
+        if (AccessChecker._visRank(exVis) >= AccessChecker._visRank(declVis)) { return; }
+        string disp = exName.Replace("+", ".");
+        string msg = "inconsistent accessibility: " + exKind + " `" + disp + "` (" + exVis
+                   + ") is less accessible than the exposing declaration (" + declVis + ")";
+        diags.Error(DiagnosticCodes.InconsistentAccessibility, msg, sp);
+    }
+
+    // 可见性线性 rank（public 最高）；null / 未知安全默认 public（最高，绝不误报）。
+    private static int _visRank(string vis) {
+        if (vis == "private")   { return 0; }
+        if (vis == "protected") { return 1; }
+        if (vis == "internal")  { return 2; }
+        return 3;
+    }
+
+    // 两者中更低可见性的那个（有效可访问性 = min(成员声明, 外层类)——镜像 C# effective accessibility；
+    // `internal class` 内的 `public` 成员实际只 internal 可见，故暴露 internal 类型不算泄漏，绝不误报）。
+    public static string MinVisibility(string a, string b) {
+        return (AccessChecker._visRank(a) <= AccessChecker._visRank(b)) ? a : b;
+    }
 }
