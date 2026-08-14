@@ -365,13 +365,11 @@ public sealed class StructLayout {
             int size = 0;
             int align = 0;
             if (kind == StructLeafKind.Struct) {
-                // unify-object-byte-layout PR-2：内联 struct 字段用**16B 引用版** struct 布局
-                // （LayoutOf/_compute），使对象里的 struct 字段字节布局与独立 struct（arena/装箱/
-                // struct[]）**逐字节一致**——runtime 反射（compute 16B）读对象内联 struct 字段、装箱成
-                // BoxedStruct 直接拷字节即可，无需 8B↔16B 转换；嵌套 struct 的引用叶子 offset 亦一致。
-                // （PR-1 曾用 8B 版 _objLayoutOfStruct 作「8B 终点」休眠元数据，但 PR-2 引用仍 16B、
-                // struct 各处均 16B，8B 版会与之错位 → 反射 nested ref offset 对不上位图。8B 终点留 PR-3
-                // 统一压缩：对象+struct 布局+侧表一起转 8B。）
+                // 内联 struct 字段用 struct 布局（LayoutOf/_compute），使对象里的 struct 字段字节布局与
+                // 独立 struct（arena/装箱/struct[]）**逐字节一致**——runtime 反射读对象内联 struct 字段、
+                // 装箱成 BoxedStruct 直接拷字节即可，无需转换；嵌套 struct 的引用叶子 offset 亦一致。
+                // unify-object-byte-layout PR-3 chunk 2c：LayoutOf/_compute 的引用叶子现已 8B（_sizeOf 塌缩），
+                // 故对象内联 struct 与独立 struct 同为 8B——D13 的 8B(对象)/16B(struct) 分裂消除，仍 byte-identical。
                 StructLayoutInfo nested = this.LayoutOf(ftype);
                 size = nested.Size;
                 align = nested.Align;
@@ -550,7 +548,10 @@ public sealed class StructLayout {
 
     // 基元字节大小（char=4B Unicode 标量）。
     private int _sizeOf(string typeName, int kind) {
-        if (StructLeafKind.IsRef(kind)) { return 16; }
+        // unify-object-byte-layout PR-3 chunk 2c：引用叶子 16→8B。GcRef 已 8B（chunk 1）、对象直接
+        // 引用已内联 8B（chunk 2b），此处把 struct 字节布局的引用宽度也塌到 8B → 全局 8B 引用一致
+        // （消除 D13 的 struct=16B / 对象=8B 分裂）。runtime 反射镜像 `struct_reflect.rs::_sizeOf` 同步。
+        if (StructLeafKind.IsRef(kind)) { return 8; }
         string c = Z42Type.Canon(typeName);
         if (c == "i8" || c == "u8" || c == "bool") { return 1; }
         if (c == "i16" || c == "u16") { return 2; }

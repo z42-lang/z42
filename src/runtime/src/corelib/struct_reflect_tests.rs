@@ -94,39 +94,39 @@ fn pure_primitive_struct_offsets() {
 
 #[test]
 fn struct_with_string_ref_leaf_alignment() {
-    // Demo.P { x:i32@0, y:i32@4, tag:str@8(16B,align8) } → size 24, ref@8.
+    // Demo.P { x:i32@0, y:i32@4, tag:str@8(8B,align8) } → size 16, ref@8 (PR-3 chunk 2c: 8B ref).
     let p = struct_td(
         "Demo.P",
         &[("x", "i32"), ("y", "i32"), ("tag", "str")],
-        layout(24, &[8]),
+        layout(16, &[8]),
     );
     let r = resolver(vec![p]);
     let c = compute(&r, "Demo.P").unwrap();
-    assert_eq!(c.size, 24);
+    assert_eq!(c.size, 16);
     assert_eq!(c.leaves[2].byte_off, 8);
     assert!(c.leaves[2].is_ref, "string leaf is a reference");
     assert_eq!(c.ref_offsets, vec![8]);
-    c.validate_against(&layout(24, &[8]), "Demo.P").unwrap();
+    c.validate_against(&layout(16, &[8]), "Demo.P").unwrap();
 }
 
 #[test]
 fn nested_struct_flattens_ref_leaves() {
-    // Demo.Seg { p:Demo.P, n:i32 } where P{x:i32,y:i32,tag:str} size24 ref@8.
-    // p@0 size24; n:i32 align4 → @24 size4 → offset28; size = align_up(28,8)=32; ref@8.
+    // Demo.Seg { p:Demo.P, n:i32 } where P{x:i32,y:i32,tag:str} size16 ref@8 (chunk 2c: 8B ref).
+    // p@0 size16; n:i32 align4 → @16 size4 → offset20; size = align_up(20,8)=24; ref@8.
     let p = struct_td(
         "Demo.P",
         &[("x", "i32"), ("y", "i32"), ("tag", "str")],
-        layout(24, &[8]),
+        layout(16, &[8]),
     );
-    let seg = struct_td("Demo.Seg", &[("p", "Demo.P"), ("n", "i32")], layout(32, &[8]));
+    let seg = struct_td("Demo.Seg", &[("p", "Demo.P"), ("n", "i32")], layout(24, &[8]));
     let r = resolver(vec![p, seg]);
     let c = compute(&r, "Demo.Seg").unwrap();
-    assert_eq!(c.size, 32);
+    assert_eq!(c.size, 24);
     assert!(c.leaves[0].is_struct, "p is a nested struct field");
     assert_eq!(c.leaves[0].byte_off, 0);
-    assert_eq!(c.leaves[1].byte_off, 24, "n follows the 24-byte nested struct");
+    assert_eq!(c.leaves[1].byte_off, 16, "n follows the 16-byte nested struct");
     assert_eq!(c.ref_offsets, vec![8], "nested P's string ref flattens into parent at offset 8");
-    c.validate_against(&layout(32, &[8]), "Demo.Seg").unwrap();
+    c.validate_against(&layout(24, &[8]), "Demo.Seg").unwrap();
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn tag_from_name_signedness_guardrail() {
     for &(spelling, expected) in cases {
         // A one-field struct isolates the leaf's tag.
         let is_ref = matches!(expected, ty::TAG_STR);
-        let (size, refs): (usize, &[u32]) = if is_ref { (16, &[0]) } else {
+        let (size, refs): (usize, &[u32]) = if is_ref { (8, &[0]) } else {
             let w = match expected {
                 ty::TAG_BOOL | ty::TAG_I8 | ty::TAG_U8 => 1,
                 ty::TAG_I16 | ty::TAG_U16 => 2,
@@ -218,17 +218,17 @@ fn tag_from_name_signedness_guardrail() {
 #[test]
 fn class_inline_layout_packs_only_struct_fields() {
     // class Demo.C { int id; Point pt; string label; } where Point{x:i32,y:i32,tag:str}
-    // size24 ref@8. Only `pt` is byte-packed: id/label keep real slots. Inline region:
-    // pt@0 (align8) size24, ref leaf flattened to 8 → region size 24, ref@8.
+    // size16 ref@8 (chunk 2c: 8B ref). Only `pt` is byte-packed: id/label keep real slots.
+    // Inline region: pt@0 (align8) size16, ref leaf flattened to 8 → region size 16, ref@8.
     let p = struct_td(
         "Demo.Point",
         &[("x", "i32"), ("y", "i32"), ("tag", "str")],
-        layout(24, &[8]),
+        layout(16, &[8]),
     );
     let c = class_td(
         "Demo.C",
         &[("id", "i32"), ("pt", "Demo.Point"), ("label", "str")],
-        layout(24, &[8]),
+        layout(16, &[8]),
     );
     let r = resolver(vec![p, c]);
     let inline = compute_class_inline(&r, "Demo.C").unwrap();
@@ -236,11 +236,11 @@ fn class_inline_layout_packs_only_struct_fields() {
     assert_eq!(inline.leaves[0].name, "pt");
     assert!(inline.leaves[0].is_struct);
     assert_eq!(inline.leaves[0].byte_off, 0);
-    assert_eq!(inline.leaves[0].size, 24);
+    assert_eq!(inline.leaves[0].size, 16);
     assert_eq!(inline.ref_offsets, vec![8], "nested Point's string ref flattens to region offset 8");
-    assert_eq!(inline.size, 24);
+    assert_eq!(inline.size, 16);
     // Validates against the authoritative delivered composed inline layout.
-    inline.validate_against(&layout(24, &[8]), "Demo.C").unwrap();
+    inline.validate_against(&layout(16, &[8]), "Demo.C").unwrap();
     // struct_field_fq classifies fields correctly.
     assert_eq!(struct_field_fq(&r, "Demo.C", "pt").as_deref(), Some("Demo.Point"));
     assert!(struct_field_fq(&r, "Demo.C", "id").is_none(), "primitive field is not inline struct");
@@ -249,26 +249,26 @@ fn class_inline_layout_packs_only_struct_fields() {
 
 #[test]
 fn class_inline_layout_two_struct_fields_pack_contiguously() {
-    // class Demo.D { Point a; int n; Point b; } → a@0 size24 (ref@8), b@24 size24 (ref@32),
-    // n stays a slot. Region size 48, refs @8,@32.
+    // class Demo.D { Point a; int n; Point b; } → a@0 size16 (ref@8), b@16 size16 (ref@24),
+    // n stays a slot (not inlined). Region size 32, refs @8,@24 (chunk 2c: 8B ref).
     let p = struct_td(
         "Demo.Point",
         &[("x", "i32"), ("y", "i32"), ("tag", "str")],
-        layout(24, &[8]),
+        layout(16, &[8]),
     );
     let d = class_td(
         "Demo.D",
         &[("a", "Demo.Point"), ("n", "i32"), ("b", "Demo.Point")],
-        layout(48, &[8, 32]),
+        layout(32, &[8, 24]),
     );
     let r = resolver(vec![p, d]);
     let inline = compute_class_inline(&r, "Demo.D").unwrap();
     assert_eq!(inline.leaves.len(), 2);
     assert_eq!((inline.leaves[0].name.as_str(), inline.leaves[0].byte_off), ("a", 0));
-    assert_eq!((inline.leaves[1].name.as_str(), inline.leaves[1].byte_off), ("b", 24));
-    assert_eq!(inline.ref_offsets, vec![8, 32]);
-    assert_eq!(inline.size, 48);
-    inline.validate_against(&layout(48, &[8, 32]), "Demo.D").unwrap();
+    assert_eq!((inline.leaves[1].name.as_str(), inline.leaves[1].byte_off), ("b", 16));
+    assert_eq!(inline.ref_offsets, vec![8, 24]);
+    assert_eq!(inline.size, 32);
+    inline.validate_against(&layout(32, &[8, 24]), "Demo.D").unwrap();
 }
 
 #[test]

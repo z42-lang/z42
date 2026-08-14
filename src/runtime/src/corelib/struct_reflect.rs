@@ -32,8 +32,8 @@ pub struct FieldLeaf {
     pub name: String,
     /// Byte offset of this field within the struct blob.
     pub byte_off: u32,
-    /// Byte size of this field (primitive width, 16 for a reference leaf, or the nested
-    /// struct's total size).
+    /// Byte size of this field (primitive width, 8 for a reference leaf (PR-3 chunk 2c),
+    /// or the nested struct's total size).
     pub size: u32,
     /// zbc `Tag` for a primitive leaf (drives `decode_prim`/`encode_prim`). Mirrors the tag
     /// the codegen baked via `Tag.FromName`. Informational for reference / struct fields.
@@ -324,16 +324,18 @@ fn is_prim(c: &str) -> bool {
 }
 
 /// Mirror of `StructLayout._kindOf` for a non-struct field: `string` and every non-primitive
-/// (array / class / interface / func / unknown) is a 16-byte reference leaf; primitives are
-/// byte-packed.
+/// (array / class / interface / func / unknown) is an 8-byte reference leaf (PR-3 chunk 2c);
+/// primitives are byte-packed.
 fn leaf_is_ref(canon: &str) -> bool {
     !is_prim(canon)
 }
 
-/// Mirror of `StructLayout._sizeOf`: reference = 16; `char` = 4 (Unicode scalar); else by width.
+/// Mirror of `StructLayout._sizeOf`: reference = 8 (PR-3 chunk 2c: `_sizeOf` 16→8B, global 8B
+/// reference width); `char` = 4 (Unicode scalar); else by width. MUST stay byte-for-byte in
+/// step with the compiler's `_sizeOf` — reflection field offsets derive from it.
 fn size_of(canon: &str, is_ref: bool) -> u32 {
     if is_ref {
-        return 16;
+        return 8;
     }
     match canon {
         "i8" | "u8" | "bool" => 1,

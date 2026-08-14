@@ -61,15 +61,15 @@ void test_layout_reference_leaves_typed() {
     var sl = new StructLayout(defs);
     var b = sl.LayoutOf("Box");
     Assert.Equal(0,  _fieldOff(b, "tag"));   // int @0
-    Assert.Equal(8,  _fieldOff(b, "s"));     // string 16B align8 → 从 4 对齐到 8
-    Assert.Equal(24, _fieldOff(b, "obj"));   // GcRef @24
-    Assert.Equal(40, b.Size);                // alignUp(40, 8)
+    Assert.Equal(8,  _fieldOff(b, "s"));     // string 8B ref align8 → 从 4 对齐到 8
+    Assert.Equal(16, _fieldOff(b, "obj"));   // GcRef @16（chunk 2c：8B 引用）
+    Assert.Equal(24, b.Size);                // alignUp(24, 8)（8B 引用）
     Assert.Equal(8,  b.Align);
-    // 引用叶子：2 个，s=(8, ArcString)、obj=(24, GcRef)。
+    // 引用叶子：2 个，s=(8, ArcString)、obj=(16, GcRef)。
     Assert.Equal(2, b.RefLeafCount);
     Assert.Equal(8,  b.RefLeafOffsets[0]);
     Assert.Equal(StructLeafKind.ArcString, b.RefLeafKinds[0]);
-    Assert.Equal(24, b.RefLeafOffsets[1]);
+    Assert.Equal(16, b.RefLeafOffsets[1]);
     Assert.Equal(StructLeafKind.GcRef, b.RefLeafKinds[1]);
 }
 
@@ -90,19 +90,19 @@ void test_layout_nested_struct() {
 
 [Test]
 void test_layout_nested_ref_flatten() {
-    // struct R{name:string;}(16B, 引用叶子@0); struct Pair{first:R;second:R;} → 引用叶子平移到 0 和 16。
+    // struct R{name:string;}(8B, 引用叶子@0); struct Pair{first:R;second:R;} → 引用叶子平移到 0 和 8。
     var defs = new StrMap();
     defs.Put("R", _mkDef(new string[]{"name"}, new string[]{"string"}, 1));
     defs.Put("Pair", _mkDef(new string[]{"first", "second"}, new string[]{"R", "R"}, 2));
     var sl = new StructLayout(defs);
     var pair = sl.LayoutOf("Pair");
     Assert.Equal(0,  _fieldOff(pair, "first"));
-    Assert.Equal(16, _fieldOff(pair, "second"));
-    Assert.Equal(32, pair.Size);
+    Assert.Equal(8,  _fieldOff(pair, "second"));   // R 8B（chunk 2c）
+    Assert.Equal(16, pair.Size);
     Assert.Equal(2,  pair.RefLeafCount);
     Assert.Equal(0,  pair.RefLeafOffsets[0]);
     Assert.Equal(StructLeafKind.ArcString, pair.RefLeafKinds[0]);
-    Assert.Equal(16, pair.RefLeafOffsets[1]);
+    Assert.Equal(8,  pair.RefLeafOffsets[1]);
     Assert.Equal(StructLeafKind.ArcString, pair.RefLeafKinds[1]);
 }
 
@@ -139,8 +139,8 @@ void test_build_from_symbols_ref_field() {
     var sl = StructLayout.BuildFromSymbols(table);
     var lb = sl.LayoutOf("Box");
     Assert.Equal(0,  _fieldOff(lb, "n"));    // int @0
-    Assert.Equal(8,  _fieldOff(lb, "w"));    // Widget 16B align8 → 从 4 对齐到 8
-    Assert.Equal(24, lb.Size);
+    Assert.Equal(8,  _fieldOff(lb, "w"));    // Widget 8B ref align8 → 从 4 对齐到 8
+    Assert.Equal(16, lb.Size);               // 8B 引用（chunk 2c）
     Assert.Equal(1,  lb.RefLeafCount);
     Assert.Equal(8,  lb.RefLeafOffsets[0]);
     Assert.Equal(StructLeafKind.GcRef, lb.RefLeafKinds[0]);
@@ -170,7 +170,7 @@ void test_object_layout_prims() {
 void test_object_layout_8byte_reference() {
     // 关键：class B { n:int; s:string; obj:W; } → 引用叶子按 **8B** 算（终点 C# 布局）：
     // n@0(4B), s@8(string 8B ref, align8 从 4→8), obj@16(W 8B ref), size 24。
-    // 对比 struct 版（16B 引用）会是 s@8、obj@24、size 40 —— 8B 收窄在此体现。
+    // chunk 2c 后 struct 布局也 8B → 独立 struct 版同为 s@8、obj@16、size 24（全局 8B 一致）。
     var table = new SymbolTable();
     var b = new Z42ClassType("B", false, "");
     b.AddOwnField("n", "int", "public");
@@ -194,12 +194,12 @@ void test_object_layout_8byte_reference() {
 }
 
 [Test]
-void test_object_layout_inline_struct_flattened_16byte() {
-    // unify-object-byte-layout PR-2（design D13）：内联 struct 字段用**16B 引用版** struct 布局
-    // （LayoutOf/_compute），与独立 struct 逐字节一致（反射读/装箱直接拷字节、嵌套 ref offset 一致）。
+void test_object_layout_inline_struct_flattened() {
+    // 内联 struct 字段用 struct 布局（LayoutOf/_compute），与独立 struct 逐字节一致（反射读/装箱直接
+    // 拷字节、嵌套 ref offset 一致）。chunk 2c：struct 引用叶子已 8B，故对象内联 struct 与独立 struct 同 8B。
     // class C { tag:int; pt:P; } 其中 struct P { name:string; k:int; }。
-    // P 16B 引用：name@0(16B ref), k@16 → P size 24。对象 C：tag@0(4), pt@8(align8 从 4→8)，pt 内 name@8、k@24。
-    // 对象 size = 8 + 24 = 32。引用叶子：pt.name 平移到 8 = (8, ArcString)。
+    // P 8B 引用：name@0(8B ref), k@8 → P size 16。对象 C：tag@0(4), pt@8(align8 从 4→8)，pt 内 name@8、k@16。
+    // 对象 size = 8 + 16 = 24。引用叶子：pt.name 平移到 8 = (8, ArcString)。
     var table = new SymbolTable();
     var p = new Z42ClassType("P", false, "");
     p.IsStruct = true;
@@ -214,7 +214,7 @@ void test_object_layout_inline_struct_flattened_16byte() {
     var ol = sl.ObjectLayoutOf("C");
     Assert.Equal(0, _fieldOff(ol, "tag"));   // int @0
     Assert.Equal(8, _fieldOff(ol, "pt"));    // struct P 扁平嵌入 @8（align8）
-    Assert.Equal(32, ol.Size);               // 8 + P(24, 16B 引用) = 32
+    Assert.Equal(24, ol.Size);               // 8 + P(16, 8B 引用) = 24（chunk 2c）
     // 引用叶子：P.name 平移到 pt@8 + name@0 = 8。
     Assert.Equal(1, ol.RefLeafCount);
     Assert.Equal(8, ol.RefLeafOffsets[0]);
