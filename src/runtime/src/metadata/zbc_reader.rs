@@ -139,7 +139,16 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // block, gated by a derived predicate (class flags U8 is full). Delivers
 // `TypeDescCold.object_layout` (dormant; PR-2 consumes it to replace `slots`).
 // Coupled with zpkg 0.39.
-pub const ZBC_VERSION_MINOR: u16 = 34;
+//
+// 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 1.35 — TYPE object
+// block **direct-field FieldKinds refinement**: the coarse `GcRef` (=2) is split into
+// `GcRefArray` (=4, array `T[]`) and `GcRefClosure` (=5, delegate/func/unresolved) so
+// the runtime (chunk 2b) can safely inline object/array refs as 8B pointers while
+// keeping non-GcRef refs (Value::Closure/FuncRef) in the side-table. Only the object
+// block's direct-field `field_kinds` bytes change; size/align/ref-bitmap/struct block
+// are byte-identical. Runtime is dormant (compose_object_layout maps 4/5 to the coarse
+// GcRef side-table path); chunk 2b consumes it. Coupled with zpkg 0.40. See design D17.
+pub const ZBC_VERSION_MINOR: u16 = 35;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -238,7 +247,12 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-14 unify-object-byte-layout PR-1: bumped to 0.39, coupled inner zbc 1.34
 // (TYPE full object field layout block for normal reference classes). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 39;
+// 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 0.40, coupled inner zbc
+// 1.35 (TYPE object-block direct-field FieldKinds refinement: coarse GcRef split into
+// GcRefArray/GcRefClosure so the runtime can safely inline object/array refs in chunk
+// 2b). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
+// two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 40;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 

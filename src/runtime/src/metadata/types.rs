@@ -279,6 +279,14 @@ pub const STRUCT_LEAF_PRIM: u8 = 0;
 pub const STRUCT_LEAF_ARCSTRING: u8 = 1;
 pub const STRUCT_LEAF_GCREF: u8 = 2;
 pub const STRUCT_LEAF_STRUCT: u8 = 3;
+/// unify-object-byte-layout (PR-3 chunk 2a): refined direct-field ref kinds emitted by the
+/// compiler's object block (`StructLayout._refineDirectRefKind`) — split the coarse `GcRef`
+/// so the runtime (chunk 2b) can safely inline object/array references as 8B pointers while
+/// keeping non-`GcRef` refs (delegate/func → `Value::Closure`/`FuncRef`) in the side-table.
+/// **Dormant in 2a**: `compose_object_layout` treats all three as a side-table `GcRef`, so
+/// runtime behavior is unchanged; chunk 2b flips these to drive inlining. See design D17.
+pub const STRUCT_LEAF_GCREF_ARRAY: u8 = 4;   // array `T[]` → `Value::Array` (inline-able, chunk 2b)
+pub const STRUCT_LEAF_GCREF_CLOSURE: u8 = 5; // delegate/func/opaque → `Value::Closure`/`FuncRef` (never inline)
 
 /// unify-object-byte-layout (PR-2, D12): resolve a **primitive** field's exact
 /// `ty::TAG_*` from its declared `type_tag` string, with a width-based fallback for
@@ -395,16 +403,18 @@ pub fn compose_object_layout(
             // not the field's `type_tag` string (which may be an unresolved alias).
             let kind = field_kinds.get(i).copied().unwrap_or(STRUCT_LEAF_PRIM);
             let type_tag = merged_fields.get(i).map(|f| f.type_tag.as_ref());
+            let ref_slot_of = |off: u32| -> i32 {
+                ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32)
+            };
             let (tag, ref_slot) = match kind {
                 STRUCT_LEAF_STRUCT => (TAG_UNKNOWN, -1),
-                STRUCT_LEAF_ARCSTRING => (
-                    TAG_STR,
-                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
-                ),
-                STRUCT_LEAF_GCREF => (
-                    TAG_OBJECT,
-                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
-                ),
+                STRUCT_LEAF_ARCSTRING => (TAG_STR, ref_slot_of(off)),
+                STRUCT_LEAF_GCREF => (TAG_OBJECT, ref_slot_of(off)),
+                // chunk 2a refined ref kinds — kept **byte-identical to the coarse GcRef path**
+                // (TAG_OBJECT + side-table ref_slot) for pure dormancy: `field_value` checks
+                // `ref_slot >= 0` first and returns the stored `Value`, never consulting the tag
+                // for ref fields. chunk 2b re-derives TAG_ARRAY here and flips to inlining.
+                STRUCT_LEAF_GCREF_ARRAY | STRUCT_LEAF_GCREF_CLOSURE => (TAG_OBJECT, ref_slot_of(off)),
                 // Prim (or unknown kind): resolve the exact primitive tag.
                 _ => (resolve_prim_tag(type_tag.unwrap_or(""), width), -1),
             };

@@ -13,8 +13,18 @@ using Z42.IR;   // StrMap
 public static class StructLeafKind {
     public static int Prim      = 0;   // 纯字节基元（可 memcpy，无 clone/drop/屏障）
     public static int ArcString = 1;   // string（Arc<str> 16B）：copy=Arc::clone 计数+1、drop=计数-1
-    public static int GcRef     = 2;   // object/array/interface/func（GcRef 16B）：copy=位拷+GC 写屏障
+    public static int GcRef     = 2;   // class/interface object（Value::Object，8B GcRef）：可内联进 bytes
     public static int Struct    = 3;   // 嵌套 struct（递归展平；本身不是叶子，其叶子并入父布局）
+    // unify-object-byte-layout PR-3 chunk 2a：把粗粒度 GcRef（原含 object/array/interface/func）细分，
+    // 供 runtime 安全内联（不同 Value 变体重建不同 / 部分根本不是 GcRef）。见 design D17。
+    // **判据保守**：只把「确定 object/array」标出来内联；delegate/func/unknown 一律 GcRefClosure（侧表安全默认）。
+    public static int GcRefArray   = 4;   // 数组 T[]（Value::Array，8B GcRef<ArrayObj>）：可内联，重建为 Array
+    public static int GcRefClosure = 5;   // delegate/func/未解析（Value::Closure/FuncRef，**非 8B GcRef**）：留侧表，永不内联
+    // 是否引用叶子（占 8B 引用槽、参与 GC 位图）——布局尺寸/对齐用（四类引用等宽同对齐）。
+    public static bool IsRef(int kind) {
+        return kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef
+            || kind == StructLeafKind.GcRefArray || kind == StructLeafKind.GcRefClosure;
+    }
 }
 
 // 一个 struct 类型的原始字段定义（名 + 声明类型名，声明序）。IrGen 从 ClassDecl 抽取；单测直接构造。
@@ -141,12 +151,14 @@ public sealed class StructLayout {
             i = i + 1;
         }
         StructLayout sl = new StructLayout(defs);
+        // unify-object-byte-layout PR-3 chunk 2a：先设 _classDefs（object 类型集），供 `_kindOf` 在
+        // **struct 布局** LayoutOf 期就能把 object 字段判成 GcRef（否则 _classDefs 尚 null → 落 GcRefClosure）。
+        sl._classDefs = classDefs;
         string[] dkeys = defs.Keys();
         int k = 0;
         while (k < dkeys.Length) { sl.LayoutOf(dkeys[k]); k = k + 1; }   // 预计算 struct 布局 + 填缓存
         // add-struct-heap-inline (P3b)：struct 布局就绪后，为每个非-struct class 预计算合成内联布局
         // （内联字段的对象相对 byte offset + 合成引用位图）。无内联字段的 class 得空布局（FieldCount 0）。
-        sl._classDefs = classDefs;
         string[] ckeys = classDefs.Keys();
         int m = 0;
         while (m < ckeys.Length) { sl._computeInlineLayout(ckeys[m]); m = m + 1; }
@@ -303,7 +315,7 @@ public sealed class StructLayout {
 
     // 引用宽度 8B 版 _sizeOf（对象布局终点；基元宽度不变）。
     private int _objSizeOf(string typeName, int kind) {
-        if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) { return 8; }
+        if (StructLeafKind.IsRef(kind)) { return 8; }
         return this._sizeOf(typeName, kind);
     }
 
@@ -359,9 +371,14 @@ public sealed class StructLayout {
                 size = this._objSizeOf(ftype, kind);
                 align = this._alignOf(kind, size);
                 offset = StructLayout._alignUp(offset, align);
-                info.AddField(fname, offset, size, kind, ftype);
-                if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) {
-                    info.AddRefLeaf(offset, kind);   // 引用叶子入位图（8B，带种类）
+                // chunk 2a：对象块直接字段的 FieldKinds 细化（GcRef→object/array/closure），供 2b 安全内联。
+                // 仅 FieldKinds 细化；size/align + 引用位图仍用粗粒度 kind（8B，byte-identical）→ 格式变更仅限
+                // array/delegate 直接字段的 field_kinds 字节，offset/位图/struct 块全不动。
+                int fieldKind = kind;
+                if (kind == StructLeafKind.GcRef) { fieldKind = this._refineDirectRefKind(ftype); }
+                info.AddField(fname, offset, size, fieldKind, ftype);
+                if (StructLeafKind.IsRef(kind)) {
+                    info.AddRefLeaf(offset, kind);   // 引用叶子入位图（8B，粗粒度 kind，与 struct 块一致）
                 }
             }
             offset = offset + size;
@@ -448,7 +465,7 @@ public sealed class StructLayout {
                 align = this._alignOf(kind, size);
                 offset = StructLayout._alignUp(offset, align);
                 info.AddField(fname, offset, size, kind, ftype);
-                if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) {
+                if (StructLeafKind.IsRef(kind)) {
                     info.AddRefLeaf(offset, kind);   // 引用叶子入位图（带种类）
                 }
             }
@@ -461,19 +478,52 @@ public sealed class StructLayout {
         return info;
     }
 
-    // 字段类型名 → 存储种类（ABI 子决策 #2）。
+    // 字段类型名 → 存储种类（ABI 子决策 #2）。**粗粒度**（Prim/ArcString/GcRef/Struct）——保持不变，
+    // 使 struct 布局 / ref 位图 / 尺寸对齐全不受 chunk 2a 影响（GcRef 的细分只作用于对象块直接字段的
+    // FieldKinds，见 `_refineDirectRefKind` + `_computeObjFields`）。
     private int _kindOf(string typeName) {
         if (this.IsStructType(typeName)) { return StructLeafKind.Struct; }
         string c = Z42Type.Canon(typeName);
         if (c == "string") { return StructLeafKind.ArcString; }
         if (StructLayout._isPrim(c)) { return StructLeafKind.Prim; }
-        // 数组 / 非-struct class / interface / func / unknown → 16B GcRef 托管句柄。
+        // 数组 / 非-struct class / interface / func / unknown → 8B GcRef 托管句柄（粗粒度）。
         return StructLeafKind.GcRef;
+    }
+
+    // unify-object-byte-layout PR-3 chunk 2a：把对象**直接字段**的粗粒度 GcRef 细分成
+    // GcRef(object)/GcRefArray/GcRefClosure，供 runtime 安全内联（design D17）。**判据保守**——只把
+    // 「确定 object/array」标为可内联；其余（delegate/func/未解析泛型/unknown）一律 GcRefClosure（侧表安全
+    // 默认），因为它们运行时可能是 Closure/FuncRef（非 GcRef），误内联 = UB。false-negative（object 落
+    // closure）只是次优（留侧表），绝不 UB。只对 coarse==GcRef 的字段调用。
+    private int _refineDirectRefKind(string ftype) {
+        // 数组 T[]：运行时 Value::Array（8B GcRef<ArrayObj>）→ 可内联，重建为 Array。
+        if (StructLayout._isArraySpelling(ftype)) { return StructLeafKind.GcRefArray; }
+        // 确定的 object 类型（本地/导入的非-struct class/interface，在 _classDefs 里）：Value::Object → 可内联。
+        // delegate 不在 _classDefs（它在 SymbolTable.Delegates，是 Z42FuncType）→ 自然落 GcRefClosure。
+        string bn = StructLayout._baseName(Z42Type.Canon(ftype));
+        if (this._classDefs != null && this._classDefs.ContainsKey(bn)) { return StructLeafKind.GcRef; }
+        // 其余（delegate/func/未解析泛型 base 名不匹配/unknown）：可能是 Closure/FuncRef（非 GcRef）→ 侧表安全默认。
+        return StructLeafKind.GcRefClosure;
+    }
+
+    // 是否数组拼写（`T[]`）。剥可空 `?` 后判后缀。
+    private static bool _isArraySpelling(string typeName) {
+        string s = typeName;
+        if (s.EndsWith("?")) { s = s.Substring(0, s.Length - 1); }
+        return s.EndsWith("[]");
+    }
+
+    // 泛型类型的 base 名（`List<int>` → `List`）+ Canon。非泛型原样 Canon。用于查 _classDefs（键为类名 Canon）。
+    // 注：泛型类在 _classDefs 若以 `Name$N` 存则不匹配 → 该泛型 object 字段落 GcRefClosure（侧表，安全次优）。
+    private static string _baseName(string canonName) {
+        int lt = canonName.IndexOf("<");
+        if (lt >= 0) { return Z42Type.Canon(canonName.Substring(0, lt)); }
+        return canonName;
     }
 
     // 基元字节大小（char=4B Unicode 标量）。
     private int _sizeOf(string typeName, int kind) {
-        if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) { return 16; }
+        if (StructLeafKind.IsRef(kind)) { return 16; }
         string c = Z42Type.Canon(typeName);
         if (c == "i8" || c == "u8" || c == "bool") { return 1; }
         if (c == "i16" || c == "u16") { return 2; }
@@ -484,7 +534,7 @@ public sealed class StructLayout {
 
     // 对齐：基元=自然对齐(=size)；引用=8。
     private int _alignOf(int kind, int size) {
-        if (kind == StructLeafKind.ArcString || kind == StructLeafKind.GcRef) { return 8; }
+        if (StructLeafKind.IsRef(kind)) { return 8; }
         return size;
     }
 
