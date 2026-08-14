@@ -65,8 +65,7 @@
   `stress_seeded_mode_switching_short` 为 pre-existing macOS-local，origin/main 同样失败）+ xtask test e2e
 - [ ] 3.2 **chunk 2**（深挖后重估，见 design D17）：**需编译器权威 kind 细分**——delegate/func 字段运行时是
   `Value::Closure/FuncRef`（**非 GcRef**），粗粒度 `StructLeafKind.GcRef` 不足以安全内联（误判=UB）。故：
-  - [ ] 3.2a 编译器 `_kindOf` 细分（delegate/func→closure kind、array→array kind、class/iface→object kind）+
-    对象块 `field_kinds`/`ref_kinds` 带细分 kind + **格式 bump（zbc1.35/zpkg0.40）** + writer/reader，runtime **dormant** 不消费（additive，self-host 验 + CI fixtures，同 PR-1 范式）
+  - [x] 3.2a 编译器字段级 kind 细分 + **格式 bump（zbc1.35/zpkg0.40）**，runtime **dormant** 不消费（additive，同 PR-1 范式）。**实际做法**（比改 `_kindOf` 更干净）：`StructLeafKind` 加 `GcRefArray=4`/`GcRefClosure=5` + `IsRef` helper；新 `_refineDirectRefKind(ftype)`（array `[]`→GcRefArray、`_classDefs` 含→GcRef object、其余 delegate/func/未解析→GcRefClosure 侧表安全默认，**保守 false-negative 只次优不 UB**）；`_computeObjFields` **只对直接字段的 `field_kinds` 细化**（`_kindOf` 保持粗粒度→size/对齐/**引用位图 `ref_kinds` 仍粗粒度**/struct 块字节不变）。runtime `types.rs`：加 `STRUCT_LEAF_GCREF_ARRAY/CLOSURE` 常量 + `compose_object_layout` 把 4/5 映射回粗粒度 GcRef 侧表路径（休眠）。0.39 下 `xtask test` 全绿（stdlib 280 + e2e 247 + self-host 5/5）已验逻辑；bump 后 cargo build ✓、full self-host + fixtures 以 CI 为准（格式 bump 本地墙）
   - [ ] 3.2b runtime 按细分 kind：object/array 引用内联进 `bytes`（8B 裸指针，Null=0 哨兵）、closure/func/string
     留收窄 `refs` 侧表；`field_value`/`set_field_value`/GC 位图/JIT 按 kind 分派 + object/array 重建变体
   - [ ] 3.2c（可选，独立）struct `_sizeOf` refs 16→8B + 塌缩 D13 + 内联-struct-内部叶子内联（触及 struct copy/boxed/struct[]）

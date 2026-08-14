@@ -261,6 +261,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.37 | 2026-08-11 | [add-struct-heap-inline](../../spec/changes/add-struct-heap-inline/) | 耦合 inner zbc 1.32（TYPE 合成内联 struct 布局块，Flags bit7 gated，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.38 | 2026-08-13 | [enforce-class-access](../../spec/changes/enforce-class-access/) | 耦合 inner zbc 1.33（TYPE 记录类声明可见性字节，跨包 internal 类引用强制载体，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.39 | 2026-08-14 | [unify-object-byte-layout](../../spec/changes/unify-object-byte-layout/)（PR-1） | 耦合 inner zbc 1.34（TYPE 对象全字段布局块，普通引用类派生谓词 gated，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
+| 0.40 | 2026-08-14 | [unify-object-byte-layout](../../spec/changes/unify-object-byte-layout/)（PR-3 chunk 2a） | 耦合 inner zbc 1.35（TYPE 对象块直接字段 field_kinds 细化 GcRef→GcRefArray/GcRefClosure，供 runtime chunk 2b 安全内联 8B 引用；休眠不消费，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

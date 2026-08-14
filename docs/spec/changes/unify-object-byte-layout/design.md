@@ -291,3 +291,22 @@ Miri/ASAN + two-gen bootstrap CI。**比 opt-in 时以为的「填洞」大得�
 **下一步正确入口**（留待专门会话）：先做 **chunk 2a = 编译器 kind 细分 + 格式 bump，dormant**（对象块带细分
 kind，runtime 暂不消费，additive+可 self-host 验、CI 出 fixtures，同 PR-1/task-2.0 范式）；再 **chunk 2b =
 runtime 按细分 kind 内联 object/array + 收窄侧表**（消费 chunk 2a 元数据，可能格式中立、本地可验）。
+
+#### 实现落点（chunk 2a 已落地，2026-08-14，zbc1.35/zpkg0.40）
+
+最终实现比 D17 原计划的「改 `_kindOf`」更**收窄**——**不动 `_kindOf`**（它保持粗粒度 Prim/ArcString/GcRef/Struct），
+只在**对象块直接字段**这一处细化，令 struct 布局 / 引用位图 / 尺寸对齐**全不受影响**（把格式变更面积压到最小）：
+
+- **`StructLeafKind`**（`StructLayout.z42`）加 `GcRefArray=4` / `GcRefClosure=5` + `IsRef(kind)` helper（四类引用等宽同对齐，尺寸/位图判据统一走它）。
+- 新 **`_refineDirectRefKind(ftype)`**：**只对 coarse==GcRef 的直接字段调用**，判据**保守**——
+  ① 数组拼写 `T[]`（剥 `?` 后 `.EndsWith("[]")`）→ `GcRefArray`（运行时 `Value::Array`，可内联）；
+  ② base 名（泛型剥 `<...>` + Canon）在 `_classDefs` 里 → `GcRef`（object/interface，`Value::Object`，可内联）；
+  ③ 其余（**delegate/func**——不在 `_classDefs`，在 `SymbolTable.Delegates` 是 `Z42FuncType`；未解析泛型；unknown）→ `GcRefClosure`（侧表安全默认）。
+  **false-negative（object 落 closure）只是次优（留侧表），绝不 UB**；反之误把 closure 判成可内联 = UB，故判据宁紧勿松。
+- **`_computeObjFields`** 直接字段分支：`AddField` 用 `_refineDirectRefKind` 细化的 `fieldKind`，但 **`AddRefLeaf` 仍传粗粒度 `kind`**（引用位图 `ref_kinds` 不变）。→ **格式变更仅限对象块直接字段 `field_kinds` 字节**（array/delegate 字段 2→4/5）；`ObjectSize`/offset/size/`ref_kinds`/struct 块**逐字节不变**。
+- **`_classDefs` 赋值提前**到 struct `LayoutOf` 循环**之前**（原在其后），使 object 字段在 struct 布局期也能被 `_refineDirectRefKind` 正确判成 GcRef（否则 `_classDefs==null` → 落 GcRefClosure）。
+- **runtime `types.rs` 休眠**：`STRUCT_LEAF_GCREF_ARRAY=4`/`GCREF_CLOSURE=5` 常量 + `compose_object_layout` 把 4/5 **映射回粗粒度 GcRef 侧表路径**（`TAG_OBJECT` + `ref_slot`，与 PR-2 字节行为一致）→ 行为不变。**chunk 2b 翻转**：读 `field_kinds` 决定 object/array 内联 vs closure/string 侧表，并按 kind 重建 `Value` 变体。
+
+**chunk 2b 为何可格式中立**：`field_kinds` 已是**权威的每直接字段 kind**；chunk 2b 在 `compose_object_layout`（runtime、load 期）据它重算「哪些直接引用内联进 bytes、哪些留侧表」+ GC 按 field 布局扫内联引用（object/array 变体由 field_kind 定），无需再改 wire → 不 bump。内联-struct 内部引用叶子（`ref_kinds` 粗粒度）在 chunk 2b **不触及**（struct 内联字节化是 2c），继续走侧表、粗粒度扫，行为不变。故 chunk 2a 只细化 `field_kinds`、不动 `ref_kinds` 是**正确且充分**的。
+
+**本会话踩的坑**：`Edit replace_all` 把 `kind==ArcString||kind==GcRef` → `StructLeafKind.IsRef(kind)` 时**误伤 `IsRef` 方法体自身**（其体内正含该 pattern）→ `IsRef` 调自己 → 无限递归 → 栈溢出 SIGSEGV(139)，debug VM 无 panic/backtrace（栈溢出特征）。另：多次 build 后 `artifacts/build` 混版会假崩 139 → 隔离前必 `rm -rf artifacts/build/{compiler,libraries,toolchain}` 重来。
