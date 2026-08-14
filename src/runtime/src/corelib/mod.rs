@@ -494,12 +494,12 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_nested_types",       reflection::builtin_type_nested_types),
 
     // ── complete-class-access-control — class visibility reflection (appended) ──
-    ("__type_is_public",           reflection::builtin_type_is_public),
-    ("__type_is_not_public",       reflection::builtin_type_is_not_public),
-    ("__type_is_nested_public",    reflection::builtin_type_is_nested_public),
-    ("__type_is_nested_private",   reflection::builtin_type_is_nested_private),
-    ("__type_is_nested_family",    reflection::builtin_type_is_nested_family),
-    ("__type_is_nested_assembly",  reflection::builtin_type_is_nested_assembly),
+    // Single visibility-byte accessor; z42 `Type.Visibility` wraps it in the
+    // `TypeVisibility` enum and pairs it with `Type.IsNested` for the C# top-level
+    // vs nested distinction (no per-predicate builtin surface). BuiltinIds resolve
+    // by name at load (resolver.rs), so collapsing the earlier 6 predicate builtins
+    // to this one is safe — nothing bakes a positional BuiltinId across a build.
+    ("__type_visibility",          reflection::builtin_type_visibility),
 
     // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
     ("__lctx_default",            assemblyloadcontext::builtin_lctx_default),

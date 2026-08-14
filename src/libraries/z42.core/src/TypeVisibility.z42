@@ -1,0 +1,21 @@
+namespace Std;
+
+// Declaration visibility of a reflected `Type`, as recorded in the zbc 1.33
+// class-visibility byte (complete-class-access-control). Mirrors the four access
+// levels a type declaration can carry. Read via `Type.Visibility`.
+//
+// Top-level types only ever carry `Public` or `Internal` (E0442 rejects a
+// top-level `private` / `protected`); nested types may carry any of the four.
+// Pair `Type.Visibility` with `Type.IsNested` to reconstruct C#'s IsPublic /
+// IsNestedPrivate / … distinctions, e.g.:
+//   bool topLevelPublic = t.Visibility == TypeVisibility.Public && !t.IsNested;
+//   bool nestedPrivate  = t.Visibility == TypeVisibility.Private &&  t.IsNested;
+//
+// Handle-less Types (primitive / array) report `Public` — they behave as public
+// top-level types, mirroring C#.
+public enum TypeVisibility {
+    Public,     // = 0  `public`
+    Private,    // = 1  `private`   (nested only)
+    Protected,  // = 2  `protected` (nested only; C# "family")
+    Internal,   // = 3  `internal`  (C# "assembly")
+}

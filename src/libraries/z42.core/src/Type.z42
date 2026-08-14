@@ -149,12 +149,31 @@ public sealed class Type : MemberInfo {
     public extern bool IsPrimitive { get; }
 
     // ── Declaration visibility (complete-class-access-control) ────────────────
-    // NOTE（bootstrap-seed 纪律）：`Type.IsPublic` / `IsNotPublic` / `IsNested{Public,
-    // Private,Family,Assembly}` 反射面**推迟到 follow-up PR**。VM 侧 6 个 builtin
-    // （`__type_is_public` 等）+ `TypeDesc.visibility` 存储已随本 PR 落地（support 先行），
-    // 但本 PR 同时 bump 格式（zbc 1.33），CI 冷启动走两代自举、用旧 nightly VM 加载 stdlib——
-    // 旧 VM 无这些 builtin，stdlib 一引用即 load 期 panic。故 support（VM builtin）先行、
-    // 晚一个 nightly 再在此加 extern 属性 use（届时 nightly VM 已含 builtin，无两代自举）。
+    // The type's declared access level (public / private / protected / internal),
+    // from the zbc 1.33 class-visibility byte. Pair with `IsNested` (above) to tell
+    // top-level from nested, e.g. `Visibility == TypeVisibility.Public && !IsNested`
+    // for a top-level public type. Handle-less Types (primitive / array) → Public.
+    [Native("__type_visibility")]
+    public extern TypeVisibility Visibility { get; }
+
+    // ── C# 对齐的可见性谓词 (computed properties over Visibility × IsNested) ──
+    // 完全对齐 C# `System.Type` 的 6 个 bool 属性：顶层 vs 嵌套由 `IsNested` 正交，
+    // 四档访问级由 `Visibility` 给出。native interop 只用一个 `__type_visibility`，
+    // 这 6 个纯脚本层派生（PR1 add-property-getter 让命名属性支持计算 getter）。
+    // handle-less 基元/数组 → Visibility=Public、IsNested=false → IsPublic=true（同 C#）。
+
+    // 顶层 public 类型（非嵌套且 public）。
+    public bool IsPublic         { get { return this.Visibility == TypeVisibility.Public   && !this.IsNested; } }
+    // 顶层非 public 类型（非嵌套且非 public，即顶层 internal）。
+    public bool IsNotPublic      { get { return this.Visibility != TypeVisibility.Public   && !this.IsNested; } }
+    // 嵌套 public。
+    public bool IsNestedPublic   { get { return this.Visibility == TypeVisibility.Public   &&  this.IsNested; } }
+    // 嵌套 private。
+    public bool IsNestedPrivate  { get { return this.Visibility == TypeVisibility.Private  &&  this.IsNested; } }
+    // 嵌套 protected（C# "family"）。
+    public bool IsNestedFamily   { get { return this.Visibility == TypeVisibility.Protected && this.IsNested; } }
+    // 嵌套 internal（C# "assembly"）。
+    public bool IsNestedAssembly { get { return this.Visibility == TypeVisibility.Internal &&  this.IsNested; } }
 
     // Public instance fields (including inherited; base-first). Empty for
     // primitives / arrays.

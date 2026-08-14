@@ -171,33 +171,39 @@ accessibility，`internal class` 内 `public` 成员实际只 internal 可见，
 可见性线性 rank `public 3 > internal 2 > protected 1 > private 0`；递归穿透泛型实例化（Def+实参）与数组元素；
 非类/接口类型视 public 不触发。完整 accessibility-domain 偏序（引入组合修饰符时）Deferred。
 
-### ① 类可见性反射（`Type.IsPublic` 族，对齐 C#）—— VM support 已落、stdlib 面推迟一 nightly
+### ① 类可见性反射（`Type.Visibility`，对齐 C#）
 
-VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility → TypeDesc.visibility`。6 个 builtin
-（`__type_is_public` / `__type_is_not_public` / `__type_is_nested_{public,private,family,assembly}`）读 `td.visibility`
-+ 名内 `+` 判嵌套（顶层 `IsPublic` xor `IsNotPublic`；嵌套为 `IsNested{Public,Private,Family,Assembly}` 之一；
-无 TYPE handle（基元/数组）→ 全 false）。
+VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility → TypeDesc.visibility`。单个 builtin
+`__type_visibility` 读 `td.visibility`，返回声明可见性字节（`0=public/1=private/2=protected/3=internal`；
+无 TYPE handle 的基元/数组 → `0=Public`，与 C# 一致——基元本就是 public 顶层类型）。
 
-> **`Type.z42` 的 6 个 extern 属性推迟到 follow-up PR**（bootstrap-seed 纪律，见下 Deferred）：本 PR 同时 bump
-> 格式（zbc 1.33），CI 冷启动走两代自举、用**旧 nightly VM** 加载 stdlib；旧 VM 无新 builtin，stdlib 一引用即
-> load 期 panic。故 **support（VM builtin + 存储 + Rust 单测）先行**、晚一个 nightly 再在 `Type.z42` 加 extern
-> 属性 **use**（届时 nightly 的 VM 已含 builtin、且无格式 bump→无两代自举）。
+z42 侧 `Type.z42` 以一个 extern auto-property `public extern TypeVisibility Visibility { get; }` 暴露它
+（`TypeVisibility` = `z42.core` 新增 enum `{Public,Private,Protected,Internal}`）。顶层 vs 嵌套是**正交**
+的另一轴，由既有 `Type.IsNested`（FQ 名内 `+`）给出。在这两者之上，`Type.z42` 直接提供 C# 那套 6 个
+bool 属性（`IsPublic` / `IsNotPublic` / `IsNestedPublic` / `IsNestedPrivate` / `IsNestedFamily` /
+`IsNestedAssembly`），每个都是**计算属性**（`{ get { return …; } }`），纯脚本层派生：
+
+```z42
+public bool IsPublic         { get { return this.Visibility == TypeVisibility.Public   && !this.IsNested; } }
+public bool IsNestedPrivate  { get { return this.Visibility == TypeVisibility.Private  &&  this.IsNested; } }
+// …其余 4 个同款，见 src/libraries/z42.core/src/Type.z42
+```
+
+> **设计（完全对齐 C#）**：native interop 只用**一个** `__type_visibility` builtin（返回声明可见性
+> 字节的 `TypeVisibility` enum），6 个 bool **全部在脚本层计算**——这正是 C# 的做法（C# 的 6 个 bool
+> 也是在 `Type.Attributes` flags 之上派生的 computed properties，而非各自的字段）。这依赖
+> **命名属性的计算 getter**（`Name { get { return … } }`，add-property-getter / #220 落地；此前仅
+> indexer 支持 `get{}`）——在该语言特性就位前，6 个 bool 若各作 extern auto-property 就要各背一个
+> builtin（6 native 面），故 add-type-visibility-reflection 分两阶段：先补计算 getter（#220），再让
+> 这 6 个 bool 成计算属性。interop 面收缩到 1，API 与 C# 逐一对齐。无格式 bump（可见性字节已在线）。
 
 ## Deferred / Future Work
 
 > **已完成（勿再列 Deferred）**：跨包 internal 类（#184）、接口类型可见性 / 顶层拒绝 E0442 / 不一致可访问性
 > E0441（complete-class-access-control，2026-08-13）——见上「complete-class-access-control」节。类可见性反射
-> **VM 面已落、stdlib 面推迟**（见下）。
-
-### access-future-type-visibility-reflection-surface: 类可见性反射的 stdlib 面（`Type.IsPublic` 族）
-
-- **来源**：complete-class-access-control ①（bootstrap-seed 纪律拆分）
-- **触发原因**：本 PR 同时 bump 格式（zbc 1.33），CI 冷启动两代自举用旧 nightly VM 加载 stdlib；旧 VM 无新
-  builtin（`__type_is_public` 等），`Type.z42` 一引用即 load 期 panic。VM 侧 6 builtin + `TypeDesc.visibility`
-  存储 + Rust 单测已随本 PR 落地（support 先行）。
-- **触发条件**：本 PR 合并 + nightly 发布后（该 nightly 的 VM 已含 6 builtin）→ follow-up PR 在 `Type.z42` 加
-  6 个 `[Native]` extern 属性（`IsPublic`/`IsNotPublic`/`IsNested{Public,Private,Family,Assembly}`）+
-  `src/tests/types/type_visibility.z42` golden。无格式 bump、无两代自举 → 直接过。
+> **VM 面 + stdlib 面均已落**（`Type.Visibility` enum，add-type-visibility-reflection 2026-08-14；设计见上
+> ① 节）——原「stdlib 面推迟一 nightly」的 Deferred 已消。落地时把 support 期的 6 个 bool builtin 收敛成单个
+> `__type_visibility`（enum 设计，见 ① 节权衡）。
 
 ### access-future-inconsistent-accessibility-partial-order: 不一致可访问性的完整偏序
 
