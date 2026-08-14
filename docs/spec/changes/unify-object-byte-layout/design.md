@@ -260,3 +260,34 @@ PR-3 的爆炸半径（引用全面 8B）实为两件正交的事，拆成两个
   堆 `Value::Object`/`Array` 或 Null；chunk 2 落地时加断言兜住（对称 static_set 现有的 StackObject 拦截）。
 - **UB 敏感**（Decision 5 风险）：位图/offset/kind 任一错 → 扫错内存/重建错句柄 = UB。chunk 2 靠 golden +
   Miri/ASAN + 自举 5/5 逐字节三层兜底。
+
+### D17: chunk 2 需**编译器权威 kind 细分**——粗粒度 GcRef 不足以安全内联（2026-08-14 深挖发现，关键）
+
+深入 chunk 2 后发现「填 8B 洞」的图景**不安全**，根因是 **`StructLeafKind.GcRef` 把太多东西并一起**
+（`_kindOf` 注释：「数组 / 非-struct class / interface / func / unknown → GcRef」），而这些在**运行时的
+`Value` 表示各不相同**：
+
+| 字段静态类型 | 运行时 `Value` | 能否内联为 8B GcRef |
+|---|---|---|
+| class / interface | `Value::Object(GcRef<ScriptObject>)` | ✅ 8B GcRef |
+| array `T[]` | `Value::Array(GcRef<ArrayObj>)` | ✅ 8B GcRef（但重建变体≠object，须 kind 区分） |
+| **delegate / func**（`Action`/`Func`/`delegate T F(..)`，z42 一等特性，`Delegates/` 整套子系统） | **`Value::Closure(Box)` / `Value::FuncRef(Box<str>)`** | ❌ **不是 GcRef**！内联读 bytes = 垃圾 = **UB** |
+| string | `Value::Str(Arc<str>)` 16B | ❌ 侧表到 PR-4 |
+| stack-escaped | `Value::StackObject`（带 frame_id） | ❌（逃逸到字段应已堆化，加断言） |
+
+**结论**：安全内联必须在**字段级**区分「持 Object/Array（可内联 8B）」vs「持 Closure/FuncRef/Str（不可
+内联）」。编译器现有粗粒度 `StructLeafKind.GcRef` **做不到**——delegate/func 字段和 class 字段都是 GcRef，
+但运行时表示天差地别。→ **无「格式中立捷径」**：chunk 2 必须
+1. **编译器细分 `_kindOf`**：把 delegate/func 类型（`IsDelegateType`/结构 func 类型）从 GcRef 里拆出来（新
+   kind，如 `GcRefClosure`），class/interface→object-GcRef、array→array-GcRef、delegate/func→closure（侧表）。
+   编译器有类型解析信息可判定（`_kindOf` 现只查 IsStructType/prim/string，需扩 delegate/func/array 判定）。
+2. **对象块 `field_kinds`/`ref_kinds` 带细分 kind** → **格式 bump**（原以为格式中立的判断错了）。
+3. runtime 按细分 kind 决定 inline（object/array）vs 侧表（closure/func/string）+ 按 object/array 重建变体。
+
+**代价重估**：chunk 2 = 编译器 kind 细分 + 格式 bump + 全 runtime 迁移（all-or-nothing）+ GC + JIT +
+Miri/ASAN + two-gen bootstrap CI。**比 opt-in 时以为的「填洞」大得多**，是 PR-2 规模、UB 敏感、需 CI 周期的
+专项 big-bang。不能在无法本地完整验证的单会话里半提交。chunk 1（GcRef 8B）已作干净前置落地（293643f7）。
+
+**下一步正确入口**（留待专门会话）：先做 **chunk 2a = 编译器 kind 细分 + 格式 bump，dormant**（对象块带细分
+kind，runtime 暂不消费，additive+可 self-host 验、CI 出 fixtures，同 PR-1/task-2.0 范式）；再 **chunk 2b =
+runtime 按细分 kind 内联 object/array + 收窄侧表**（消费 chunk 2a 元数据，可能格式中立、本地可验）。

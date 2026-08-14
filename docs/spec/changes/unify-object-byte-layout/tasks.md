@@ -63,9 +63,13 @@
   `map_addr` mask deref，strict-provenance Miri-clean）；`from_region_entry` 截断 gen；公共 API 不变；
   8B/Option<8B> size 静态断言。**格式中立**（GcRef 从不序列化）。cargo --lib 954 pass（唯一失败
   `stress_seeded_mode_switching_short` 为 pre-existing macOS-local，origin/main 同样失败）+ xtask test e2e
-- [ ] 3.2 **chunk 2** 对象布局引用 offset 16→8B（编译器 `_sizeOf` refs 返 8 + D13 塌缩删 `_objSizeOf`/
-  `_objLayoutOfStruct`）；runtime object/array 引用内联进 `bytes`（8B 裸指针，Null=0 哨兵）、`refs` 侧表
-  收窄到只存字符串；`field_value`/`set_field_value`/GC 位图/JIT 按 8B + kind（object/array/str 细分）；格式 bump
+- [ ] 3.2 **chunk 2**（深挖后重估，见 design D17）：**需编译器权威 kind 细分**——delegate/func 字段运行时是
+  `Value::Closure/FuncRef`（**非 GcRef**），粗粒度 `StructLeafKind.GcRef` 不足以安全内联（误判=UB）。故：
+  - [ ] 3.2a 编译器 `_kindOf` 细分（delegate/func→closure kind、array→array kind、class/iface→object kind）+
+    对象块 `field_kinds`/`ref_kinds` 带细分 kind + **格式 bump（zbc1.35/zpkg0.40）** + writer/reader，runtime **dormant** 不消费（additive，self-host 验 + CI fixtures，同 PR-1 范式）
+  - [ ] 3.2b runtime 按细分 kind：object/array 引用内联进 `bytes`（8B 裸指针，Null=0 哨兵）、closure/func/string
+    留收窄 `refs` 侧表；`field_value`/`set_field_value`/GC 位图/JIT 按 kind 分派 + object/array 重建变体
+  - [ ] 3.2c（可选，独立）struct `_sizeOf` refs 16→8B + 塌缩 D13 + 内联-struct-内部叶子内联（触及 struct copy/boxed/struct[]）
 - [ ] 3.3 ABA 窄 generation 评估 + Miri/ASAN；平台（ARM MTE/PAC / 5-level paging）验证
 - [ ] 3.4 GREEN（chunk 2 走 two-gen bootstrap，格式 bump 本地墙 → CI 为准 + fixture 重生）
 
