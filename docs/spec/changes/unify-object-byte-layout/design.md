@@ -93,3 +93,45 @@
 - **自举**：`xtask test compiler` 5/5 byte-identical；`xtask test bootstrap` 无越界。
 - **格式**：`xtask build test` 重生 zbc/zpkg fixture；`cargo test zbc_compat / lazy_loader`。
 - **完整 GREEN**：每 PR `xtask test` 全 stage。
+
+## PR-2 Implementation Notes（2026-08-14，User 裁决 Option B = 运行时组合）
+
+落地 D1（删 `slots`，统一到单 `bytes` 区）的具体机制，把 P3b 已验证的「对象基址字节访问 +
+`ref_index` 侧表」范式（`exec_struct::struct_field_get_val` / `struct_field_set_val` 的
+`Value::Object` 臂）从「仅内联 struct 字段」推广到**对象全部直接字段**。
+
+### D8: 引用暂存侧表（不内联进 bytes）—— 8B-baked offset 强制
+PR-1 的 `ObjectLayoutDesc` 按 **8B 引用宽度**记 offset。PR-2 引用仍 16B（`Value`），**无法**内联进
+bytes 的 8B 槽（会错位后续字段）。故 PR-2：`bytes: Box<[u8]>` 承载**全部基元叶子**（含内联 struct
+基元叶子），引用字段的 8B 槽是**空洞**（dead，PR-3 填 8B 指针）；`refs: Box<[Value]>` 承载**全部
+引用叶子**（含内联 struct 引用叶子），按 composed 引用位图序。删 `slots`/`struct_bytes`/`struct_refs`
+（三区收敛成 bytes+refs）。ref-heavy 对象 PR-2 暂多花 8B 洞/引用，PR-3 消除。这是 D7 PR-2「暂存
+bytes 里占 16B 或 refs 侧表」中**侧表**分支——16B 内联分支被 8B-baked offset 证伪。
+
+### D9: 继承组合由运行时 loader 做（Option B）
+zbc `object_layout` **保持 PR-1 的 own-only**（本类字段、offset 从 0、无 base-shift；不改写入值、
+无格式变更）。运行时 loader 组合 `composed = base.composed ++ own`（镜像现有 `fields` =
+base.fields++own_fields 的组合，见 `loader::try_fixup_inheritance`）：base 字段在前、own 字段按
+对齐追加（base composed size 起）。composed 布局产出：
+- `total_size`（bytes 长度）；
+- 每字段 name→(composed offset, size, kind)（对齐 `fields`/`field_index` 的 slot 序，供 FieldGet 按名解析）；
+- composed 引用位图（`ref_offsets`+`ref_kinds`，含内联 struct 内部叶子，供 `ref_index` 映射 + PR-3 GC 扫）。
+
+**编译器侧对称组合（风险点，须字节一致）**：内联 struct **叶子** offset 是编译期烘焙的
+（`ExprEmitter._structChainOffset`，非运行时解析），故编译器烘焙时也必须算 base-shift = base composed
+size。编译器的 `StructLayout._computeObjFields` 现只算 own（offset 从 0），PR-2 需让内联 struct 字段的
+**根对象相对 offset** 取 composed（base-shift + own）。两处组合（loader / 编译器）算法必须逐字节一致
+（base-first + 同一对齐规则），由 `xtask test compiler` 5/5 byte-identical 兜底校验分歧。
+
+### D10: 字段访问分派（复用 P3b 机制）
+- **直接基元字段**：`FieldGetInstr(name)` 不变（编译器零改动）。运行时 name→slot(`field_index`)→composed
+  offset → `decode_prim(bytes, off, kind)`。FieldIC 缓存 `TypeId→slot`（后取 composed offset/kind）。
+- **直接引用字段**：同上解析到 composed offset → `ref_index(off)` → `refs[ri]`。写经 `write_barrier_field`。
+- **内联 struct 叶子**：`StructFieldGetPrim/SetPrim(baked composed offset)` → 复用 `struct_field_get_val`
+  的 `Value::Object` 臂（现读 `struct_bytes`/`struct_refs`+`inline_layout`，PR-2 改读 `bytes`/`refs`+composed 位图）。
+
+### D11: static 存储字节化（修 REPL struct-in-static 悬垂）
+`VmCore.static_fields: Vec<Value>` → 按 C# 静态存储块等价的「offset 字节内联」布局：static **struct**
+字段内联字节进静态存储块（不再存帧作用域 `StructRef` 句柄），逃到 static 时**拷字节**；static **引用**
+字段仍存句柄（一槽一引用，C# 亦如此）。根治 `ExprEmitter.z42` `StaticSet` 发裸 `StructRef` 逃逸悬垂。
+带 e2e `struct_static_field` + REPL 回归验证。
