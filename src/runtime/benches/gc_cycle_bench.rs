@@ -34,6 +34,7 @@ fn make_type_desc(name: &str) -> Arc<TypeDesc> {
         name: name.to_string(),
         base_name: None,
         class_flags: 0,
+        visibility: 0,
         fields: Vec::new(),
         field_index: z42::metadata::NameIndex::new(),
         vtable: Vec::new(),
@@ -44,15 +45,42 @@ fn make_type_desc(name: &str) -> Arc<TypeDesc> {
 }
 
 fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
-    let td = make_type_desc("Cycle");
+    // unify-object-byte-layout (PR-2/PR-3): `ScriptObject` has no `slots`; a field is
+    // written via `set_field_value` against the type's composed layout. Give `Cycle` one
+    // reference field (slot 0, side-table) so `a ⇄ b` forms a real traced cycle.
+    let td = {
+        use z42::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, STRUCT_REF_GCREF, TAG_OBJECT};
+        let layout = Arc::new(ObjectLayout {
+            size: 8,
+            field_offsets: Box::new([0]),
+            field_sizes:   Box::new([8]),
+            field_kinds:   Box::new([2]), // StructLeafKind::GcRef
+            ref_offsets:   Box::new([0]),
+            ref_kinds:     Box::new([STRUCT_REF_GCREF]),
+            inline_refs:   Box::new([]),
+            field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: 0 }]),
+        });
+        Arc::new(TypeDesc {
+            name: "Cycle".to_string(),
+            base_name: None,
+            class_flags: 0,
+            visibility: 0,
+            fields: Vec::new(),
+            field_index: z42::metadata::NameIndex::new(),
+            vtable: Vec::new(),
+            vtable_index: z42::metadata::NameIndex::new(),
+            cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+            id: TypeId::UNRESOLVED,
+        })
+    };
     for _ in 0..num_cycles {
         let a = heap.alloc_object(td.clone(), vec![Value::Null], NativeData::None);
         let b = heap.alloc_object(td.clone(), vec![Value::Null], NativeData::None);
         {
             let Value::Object(a_gc) = &a else { unreachable!() };
             let Value::Object(b_gc) = &b else { unreachable!() };
-            a_gc.borrow_mut().slots[0] = b.clone();
-            b_gc.borrow_mut().slots[0] = a.clone();
+            a_gc.borrow_mut().set_field_value(0, &b);
+            b_gc.borrow_mut().set_field_value(0, &a);
         }
         // a / b drop at scope end → cycle becomes unrooted.
     }

@@ -512,9 +512,39 @@ fn concurrent_gc_mode_stress_no_race_no_leak() {
         })
     }
 
+    // unify-object-byte-layout (PR-2/PR-3): `ScriptObject` has no `slots` — a field is
+    // written via `set_field_value` against the type's composed layout. Give `Owner` one
+    // reference field (slot 0, side-table) so the workers can overwrite it and the GC has
+    // a real edge to trace.
+    fn make_owner_type_desc() -> Arc<z42::metadata::TypeDesc> {
+        use z42::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, STRUCT_REF_GCREF, TAG_OBJECT};
+        let layout = Arc::new(ObjectLayout {
+            size: 8,
+            field_offsets: Box::new([0]),
+            field_sizes:   Box::new([8]),
+            field_kinds:   Box::new([2]), // StructLeafKind::GcRef
+            ref_offsets:   Box::new([0]),
+            ref_kinds:     Box::new([STRUCT_REF_GCREF]),
+            inline_refs:   Box::new([]),
+            field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: 0 }]),
+        });
+        Arc::new(z42::metadata::TypeDesc {
+            class_flags: 0,
+            visibility: 0,
+            name: "Owner".to_string(),
+            base_name: None,
+            fields: Vec::new(),
+            field_index: z42::metadata::NameIndex::new(),
+            vtable: Vec::new(),
+            vtable_index: z42::metadata::NameIndex::new(),
+            cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+            id: z42::metadata::tokens::TypeId::UNRESOLVED,
+        })
+    }
+
     let main = VmContext::with_module(make_void_action_module("ConcurrentStressMain"));
     main.heap().set_mode(GcMode::ConcurrentMarkSweep);
-    let td_owner = make_type_desc("Owner");
+    let td_owner = make_owner_type_desc();
     let td_leaf  = make_type_desc("Leaf");
 
     // Pin an owner whose slot[0] holds a leaf — workers will overwrite
@@ -542,7 +572,7 @@ fn concurrent_gc_mode_stress_no_race_no_leak() {
                 // We can't use the interp's exec_object::field_set without
                 // an IR Frame; emulate the runtime sequence directly.
                 if let Value::Object(owner_gc) = &owner_clone {
-                    owner_gc.borrow_mut().slots[0] = leaf.clone();
+                    owner_gc.borrow_mut().set_field_value(0, &leaf);
                 }
                 // Barrier (matches what interp/JIT would dispatch).
                 if leaf.is_heap_ref() {
