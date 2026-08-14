@@ -61,9 +61,164 @@ pub type RefMut<'a, T> = MutexGuard<'a, T>;
 /// x86-64 (48-bit canonical VA, user-space high bits = 0) and AArch64
 /// (48-bit VA / 47-bit on Apple Silicon). See `unify-object-byte-layout`
 /// PR-3 (路 A 标记指针) + object-abi.md §2.1.
+#[cfg(target_pointer_width = "64")]
 pub(crate) const GCREF_ADDR_BITS: u32 = 48;
 /// Mask isolating the 48-bit address from a tagged pointer.
+#[cfg(target_pointer_width = "64")]
 pub(crate) const GCREF_ADDR_MASK: usize = (1usize << GCREF_ADDR_BITS) - 1;
+
+/// unify-object-byte-layout (PR-3): the 8-byte physical representation of a GC handle
+/// (address + narrow generation), abstracted behind one target-gated newtype so every
+/// `GcRef`/`WeakGcRef` method stays target-independent (they delegate to `Tagged`).
+///
+/// - **64-bit targets** (`x86-64` / `AArch64`): a single tagged `NonNull` — the low 48
+///   bits are the `RegionEntry` address, the high 16 bits carry the generation snapshot
+///   (path A tagged pointer). 8 bytes.
+/// - **32-bit targets** (`wasm32` / `armv7` / …): a 32-bit pointer has **no** spare high
+///   bits to fold the generation into, so keep it as a separate `u32` field. Still 8
+///   bytes (4B pointer + 4B generation), so `size_of::<GcRef>() == 8` holds on every
+///   target and the ABA generation guard is preserved (regression fix: the old
+///   `1usize << 48` const overflowed const-eval on 32-bit — package-wasm E0080).
+// NB: `Clone`/`Copy`/`PartialEq`/`Eq` are impl'd by hand (below) rather than derived —
+// `#[derive]` would spuriously add a `T: Trait` bound even though `T` only appears behind
+// `NonNull`/`PhantomData` (both trait-independent), which would break `GcRef<ScriptObject>`
+// where `ScriptObject: !Copy`.
+#[cfg(target_pointer_width = "64")]
+pub(crate) struct Tagged<T>(NonNull<RegionEntry<T>>);
+
+#[cfg(not(target_pointer_width = "64"))]
+pub(crate) struct Tagged<T> {
+    entry: NonNull<RegionEntry<T>>,
+    generation: u32,
+}
+
+impl<T> Clone for Tagged<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for Tagged<T> {}
+impl<T> Eq for Tagged<T> {}
+
+#[cfg(target_pointer_width = "64")]
+impl<T> PartialEq for Tagged<T> {
+    /// The tagged pointer covers BOTH address and generation (Decision 2), so a single
+    /// word compare is full identity equality (pointer + generation).
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+#[cfg(not(target_pointer_width = "64"))]
+impl<T> PartialEq for Tagged<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.entry == other.entry && self.generation == other.generation
+    }
+}
+
+impl<T> Tagged<T> {
+    /// Fold a clean entry pointer + generation into the physical handle.
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    fn pack(entry: NonNull<RegionEntry<T>>, generation: u32) -> Self {
+        let gen16 = generation as u16 as usize;
+        // strict-provenance `map_addr`: the tag lives only in the never-dereferenced
+        // high bits, so the result keeps `entry`'s provenance (Miri-clean).
+        let tagged = entry
+            .as_ptr()
+            .map_addr(|a| (a & GCREF_ADDR_MASK) | (gen16 << GCREF_ADDR_BITS));
+        // SAFETY: the low 48 bits come from a valid non-null pointer, so the masked
+        // address is non-zero regardless of the generation tag.
+        Self(unsafe { NonNull::new_unchecked(tagged) })
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    fn pack(entry: NonNull<RegionEntry<T>>, generation: u32) -> Self {
+        Self { entry, generation }
+    }
+
+    /// The backing `RegionEntry` pointer with any tag masked off.
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    fn entry_addr(&self) -> NonNull<RegionEntry<T>> {
+        let clean = self.0.as_ptr().map_addr(|a| a & GCREF_ADDR_MASK);
+        // SAFETY: masking the tag off a valid tagged pointer yields the original
+        // non-null entry address.
+        unsafe { NonNull::new_unchecked(clean) }
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    fn entry_addr(&self) -> NonNull<RegionEntry<T>> {
+        self.entry
+    }
+
+    /// The 16-bit generation snapshot (narrowed to match the `RegionEntry.generation
+    /// as u16` comparison used by the tombstone / weak-upgrade guards).
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    fn gen16(&self) -> u16 {
+        (self.0.as_ptr().addr() >> GCREF_ADDR_BITS) as u16
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    fn gen16(&self) -> u16 {
+        self.generation as u16
+    }
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): serialize to raw bits for byte-inlining
+    /// a reference into an object's `bytes` blob. Exposes provenance (a `[u8]` window
+    /// can't carry strict provenance); non-zero for any live handle, so `0` is a free
+    /// `Null` sentinel. On 32-bit the generation rides in the high 32 bits.
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    fn to_bits(&self) -> u64 {
+        self.0.as_ptr().expose_provenance() as u64
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    fn to_bits(&self) -> u64 {
+        (self.entry.as_ptr().expose_provenance() as u64) | ((self.generation as u64) << 32)
+    }
+
+    /// Reconstruct from [`to_bits`](Self::to_bits). `0` → `None`.
+    ///
+    /// # Safety
+    /// `bits` is `0` or a value from `to_bits` on a `Tagged<T>` whose backing `Region<T>`
+    /// still outlives the reconstructed handle.
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    unsafe fn from_bits(bits: u64) -> Option<Self> {
+        if bits == 0 {
+            return None;
+        }
+        let ptr = std::ptr::with_exposed_provenance_mut::<RegionEntry<T>>(bits as usize);
+        // SAFETY: `bits` is non-zero, so `ptr` is non-null; caller upholds lifetime.
+        Some(Self(unsafe { NonNull::new_unchecked(ptr) }))
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    unsafe fn from_bits(bits: u64) -> Option<Self> {
+        if bits == 0 {
+            return None;
+        }
+        let addr = (bits & 0xFFFF_FFFF) as usize;
+        let ptr = std::ptr::with_exposed_provenance_mut::<RegionEntry<T>>(addr);
+        // SAFETY: the low 32 bits are a non-zero entry address (a live handle never has a
+        // zero address); caller upholds lifetime.
+        Some(Self {
+            entry: unsafe { NonNull::new_unchecked(ptr) },
+            generation: (bits >> 32) as u32,
+        })
+    }
+}
 
 /// GC-managed heap reference. **PR-3 backing (路 A 标记指针)**: a single
 /// 8-byte tagged `NonNull<RegionEntry<T>>` — low 48 bits are the backing
@@ -87,11 +242,12 @@ pub(crate) const GCREF_ADDR_MASK: usize = (1usize << GCREF_ADDR_BITS) - 1;
 /// state. Embedders that hold `GcRef` outside the heap must ensure
 /// teardown order.
 pub struct GcRef<T> {
-    /// Tagged pointer: `[ 16-bit generation | 48-bit RegionEntry address ]`.
-    /// Never dereferenced directly — always through [`GcRef::entry_addr`],
-    /// which masks the tag off. The backing entry address is stable for the
-    /// entry's lifetime (chunks in Region are Box-owned and never relocate).
-    tagged: NonNull<RegionEntry<T>>,
+    /// Physical handle (address + generation), 8 bytes on every target. Never
+    /// dereferenced directly — always through [`GcRef::entry_addr`], which masks any
+    /// tag off. The backing entry address is stable for the entry's lifetime (chunks in
+    /// Region are Box-owned and never relocate). Representation is target-gated inside
+    /// [`Tagged`] (tagged pointer on 64-bit, `{ptr, gen}` on 32-bit).
+    tagged: Tagged<T>,
     /// Variance + dropck marker: behaves like `&'static RegionEntry<T>`
     /// for the type system (we own neither the entry nor T, just a
     /// reference into shared region storage).
@@ -113,34 +269,23 @@ unsafe impl<T: Send + Sync> Send for GcRef<T> {}
 unsafe impl<T: Send + Sync> Sync for GcRef<T> {}
 
 impl<T> GcRef<T> {
-    /// Fold a clean entry pointer + narrow generation into the tagged
-    /// pointer representation. Uses strict-provenance `map_addr` so the
-    /// result keeps `entry`'s provenance (Miri-clean; the tag lives only
-    /// in the never-dereferenced high bits).
+    /// Fold a clean entry pointer + narrow generation into the physical handle
+    /// ([`Tagged`], target-gated: tagged pointer on 64-bit, `{ptr, gen}` on 32-bit).
     #[inline]
-    fn pack(entry: NonNull<RegionEntry<T>>, generation: u32) -> NonNull<RegionEntry<T>> {
-        let gen16 = generation as u16 as usize;
-        let tagged = entry
-            .as_ptr()
-            .map_addr(|a| (a & GCREF_ADDR_MASK) | (gen16 << GCREF_ADDR_BITS));
-        // SAFETY: the low 48 bits come from a valid non-null pointer, so the
-        // masked address is non-zero regardless of the generation tag.
-        unsafe { NonNull::new_unchecked(tagged) }
+    fn pack(entry: NonNull<RegionEntry<T>>, generation: u32) -> Tagged<T> {
+        Tagged::pack(entry, generation)
     }
 
     /// The backing `RegionEntry` pointer with the generation tag masked off.
     #[inline]
     fn entry_addr(&self) -> NonNull<RegionEntry<T>> {
-        let clean = self.tagged.as_ptr().map_addr(|a| a & GCREF_ADDR_MASK);
-        // SAFETY: masking the tag off a valid tagged pointer yields the
-        // original non-null entry address.
-        unsafe { NonNull::new_unchecked(clean) }
+        self.tagged.entry_addr()
     }
 
-    /// The 16-bit narrow generation snapshot carried in the tag.
+    /// The 16-bit narrow generation snapshot carried in the handle.
     #[inline]
     fn gen16(&self) -> u16 {
-        (self.tagged.as_ptr().addr() >> GCREF_ADDR_BITS) as u16
+        self.tagged.gen16()
     }
 
     /// **add-custom-allocator P1 (2026-05-22)**: construct a `GcRef`
@@ -245,6 +390,40 @@ impl<T> GcRef<T> {
         // a direct offset, no atomic. Returned pointer is the
         // identity key for the entry.
         unsafe { &(*this.entry_addr().as_ptr()).value as *const Mutex<T> }
+    }
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): serialize the 8-byte tagged
+    /// pointer (`[gen16 | addr48]`) to raw bits so a reference can be
+    /// **byte-inlined** directly into an object's `bytes` blob — removing it
+    /// from the PR-2 `refs` side-table for direct object/array fields.
+    ///
+    /// Exposes provenance because the bits round-trip through a `[u8]` window
+    /// that erases the strict-provenance tag `pack`/`entry_addr` rely on;
+    /// [`from_tagged_bits`](Self::from_tagged_bits) re-materializes a usable
+    /// pointer via `with_exposed_provenance_mut`. The result is never zero
+    /// (the masked low-48 bits come from a non-null `RegionEntry` address), so
+    /// `0` is a free `Null` sentinel for an empty inlined reference slot.
+    #[inline]
+    pub fn to_tagged_bits(&self) -> u64 {
+        self.tagged.to_bits()
+    }
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): reconstruct a `GcRef` from
+    /// the bits written by [`to_tagged_bits`](Self::to_tagged_bits). `0` →
+    /// `None` (the `Null` sentinel for an empty inlined reference field). Uses
+    /// `with_exposed_provenance_mut` to pair with `to_tagged_bits`'s
+    /// `expose_provenance` (a byte buffer can't carry strict provenance).
+    ///
+    /// # Safety
+    /// `bits` must be either `0` or a value previously produced by
+    /// `to_tagged_bits` on a `GcRef<T>` whose backing `Region<T>` still
+    /// outlives the reconstructed handle (same lifetime contract as
+    /// [`from_region_entry`](Self::from_region_entry)).
+    #[inline]
+    pub unsafe fn from_tagged_bits(bits: u64) -> Option<Self> {
+        // SAFETY: forwarded to `Tagged::from_bits` (0 → None); caller upholds the
+        // lifetime contract (backing Region outlives the handle).
+        Tagged::from_bits(bits).map(|tagged| Self { tagged, _phantom: PhantomData })
     }
 
     /// **add-mark-sweep-collector P1 (2026-05-21)**: atomically set
@@ -355,8 +534,9 @@ impl<T: std::fmt::Debug> std::fmt::Debug for GcRef<T> {
 /// `None` if the target was tombstoned (alive=false) or the slot was
 /// reused with a different generation.
 pub struct WeakGcRef<T> {
-    /// Same tagged-pointer layout as `GcRef` (address + narrow generation).
-    tagged: NonNull<RegionEntry<T>>,
+    /// Same physical handle as `GcRef` (address + narrow generation; target-gated
+    /// [`Tagged`]).
+    tagged: Tagged<T>,
     _phantom: PhantomData<RegionEntry<T>>,
 }
 
@@ -367,16 +547,13 @@ impl<T> WeakGcRef<T> {
     /// The backing `RegionEntry` pointer with the generation tag masked off.
     #[inline]
     fn entry_addr(&self) -> NonNull<RegionEntry<T>> {
-        let clean = self.tagged.as_ptr().map_addr(|a| a & GCREF_ADDR_MASK);
-        // SAFETY: masking the tag off a valid tagged pointer yields the
-        // original non-null entry address.
-        unsafe { NonNull::new_unchecked(clean) }
+        self.tagged.entry_addr()
     }
 
-    /// The 16-bit narrow generation snapshot carried in the tag.
+    /// The 16-bit narrow generation snapshot carried in the handle.
     #[inline]
     fn gen16(&self) -> u16 {
-        (self.tagged.as_ptr().addr() >> GCREF_ADDR_BITS) as u16
+        self.tagged.gen16()
     }
 
     /// Try to recover a strong reference. Returns `None` if the
@@ -408,6 +585,34 @@ impl<T> std::fmt::Debug for WeakGcRef<T> {
         let dropped = !e.alive.load(Ordering::Acquire)
             || e.generation.load(Ordering::Acquire) as u16 != self.gen16();
         f.debug_struct("WeakGcRef").field("dropped", &dropped).finish()
+    }
+}
+
+#[cfg(test)]
+mod tagged_bits_tests {
+    use super::*;
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): the byte-inline codec must
+    /// round-trip a `GcRef` through raw bits preserving both address AND the
+    /// narrow generation tag (`ptr_eq` compares the whole tagged word), and
+    /// `0` must decode to `None` (the empty-slot `Null` sentinel).
+    #[test]
+    fn tagged_bits_round_trip_preserves_identity() {
+        let r = GcRef::new(1234u64);
+        let bits = r.to_tagged_bits();
+        assert_ne!(bits, 0, "a live GcRef never serializes to the 0 sentinel");
+        let back = unsafe { GcRef::<u64>::from_tagged_bits(bits) }
+            .expect("non-zero bits decode to Some");
+        assert!(GcRef::ptr_eq(&r, &back), "round-trip preserves address + generation");
+        assert_eq!(*back.borrow(), 1234, "reconstructed handle derefs the same entry");
+    }
+
+    #[test]
+    fn tagged_bits_zero_is_null_sentinel() {
+        assert!(
+            unsafe { GcRef::<u64>::from_tagged_bits(0) }.is_none(),
+            "0 bits decode to None (empty inlined reference slot)"
+        );
     }
 }
 
