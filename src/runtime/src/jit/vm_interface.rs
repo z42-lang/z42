@@ -65,7 +65,7 @@ pub trait JitVm {
     /// pre-interned `Arc<str>` pool — one Arc per slot, populated by the
     /// loader. `jit_const_str` / interp `const_str` clone from here
     /// (atomic refcount inc, zero heap alloc).
-    fn interned_strings(&self) -> &[std::sync::Arc<str>];
+    fn interned_strings(&self) -> &[crate::metadata::vstr::Str];
 
     /// Fully-qualified module name (e.g. `"Demo.App"`). Used by JIT
     /// observability events + crash diagnostics.
@@ -92,7 +92,7 @@ impl JitVm for Module {
     }
 
     #[inline]
-    fn interned_strings(&self) -> &[std::sync::Arc<str>] {
+    fn interned_strings(&self) -> &[crate::metadata::vstr::Str] {
         &self.interned_strings
     }
 

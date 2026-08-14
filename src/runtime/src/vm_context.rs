@@ -1465,7 +1465,7 @@ impl VmContext {
     /// Resolve an "overflow" ConstStr index past the main module's pool.
     /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
     /// wrap directly into `Value::Str` without a second allocation.
-    pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<std::sync::Arc<str>> {
+    pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
         let state = self.core.lazy_loader.lock();
         let loader = state.as_ref()?;
         loader.try_lookup_string(absolute_idx)

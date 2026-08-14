@@ -370,7 +370,7 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::F64(0.0)),                          1, "F64 tag");
     assert_eq!(tag(&Value::Bool(false)),                       2, "Bool tag");
     assert_eq!(tag(&Value::Char('\0')),                        3, "Char tag");
-    assert_eq!(tag(&Value::Str(std::sync::Arc::from(""))),     4, "Str tag");
+    assert_eq!(tag(&Value::Str(crate::metadata::vstr::Str::from(""))),     4, "Str tag");
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
     // Heap variants (Array/Object tags 6/7) need a GcRef — skip cheap test.
     assert_eq!(tag(&Value::PinnedView(Box::new(PinnedViewData {

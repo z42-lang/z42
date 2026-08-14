@@ -28,7 +28,7 @@ pub(super) fn const_str(
         // but programmatically-built Modules (tests / direct constructors) may
         // set only `string_pool` — fall back to it for correctness.
         // (fix CI: native_interop z42_str marshal "string pool index out of range".)
-        std::sync::Arc::from(raw.as_str())
+        crate::metadata::vstr::Str::from(raw.as_str())
     } else if let Some(arc) = ctx.try_lookup_string(i) {
         // ConstStr from a lazily-loaded function — idx is offset past main pool.
         arc

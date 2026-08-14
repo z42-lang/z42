@@ -14,6 +14,9 @@ pub mod tokens;
 /// migrate individual `String` fields (Function.name / TypeDesc.name /
 /// Instruction variants with String params) to use this.
 pub mod string_id;
+/// unify-object-byte-layout PR-4: `Str` — 8-byte thin ref-counted UTF-8 string handle
+/// (replaces `Value::Str(Arc<str>)`'s 16-byte fat pointer; lets `Value` reach 16 B in PR-5).
+pub mod vstr;
 /// review.md Part 2 C4 / C5 P1 (2026-06-01): linear-scan replacement for
 /// `HashMap<String, usize>` used in `TypeDesc.field_index` /
 /// `TypeDesc.vtable_index`. For typical class sizes (≤16 entries) a

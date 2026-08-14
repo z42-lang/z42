@@ -248,7 +248,7 @@ pub struct JitModuleCtx {
     /// pre-interned `Arc<str>` per pool slot; `jit_const_str` clones the
     /// Arc (atomic refcount inc, zero alloc) instead of the prior
     /// `String.clone() + .into::<Arc<str>>()` two-alloc path.
-    pub string_pool: Vec<std::sync::Arc<str>>,
+    pub string_pool: Vec<crate::metadata::vstr::Str>,
     /// Compiled function table — slot `i` corresponds to `module.functions[i]`
     /// (== `MethodId.0` == `module.func_index[name]`). Pre-sized once and never
     /// resized, so a slot's address is stable and `OnceLock::get()` hands out a

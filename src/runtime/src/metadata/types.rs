@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use crate::metadata::vstr::Str;   // unify-object-byte-layout PR-4: 8B thin string handle
 
 use crate::gc::GcRef;
 
@@ -1579,7 +1580,7 @@ pub enum Value {
     /// hot-path win for string-heavy interp / format / concat loops.
     /// Arc not Rc because `Value: Send + Sync` (see
     /// `gc/arc_heap_tests/send_sync.rs::assert_send_sync::<Value>()`).
-    Str(Arc<str>)               = 4,
+    Str(Str)                    = 4,
     Null                        = 5,
     /// Heap-allocated dynamic array with reference semantics.
     /// add-reflection-array-element-type (2026-06-11): payload is `ArrayObj`

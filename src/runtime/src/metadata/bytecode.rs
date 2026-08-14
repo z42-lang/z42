@@ -48,8 +48,10 @@ pub struct Module {
     /// underlying `String` + converting to `Arc<str>` (two allocations).
     /// Stdlib hot literals like `"Length"` / `"ToString"` are now interned
     /// per-module to a single `Arc<str>`. Empty until populated by loader.
+    /// unify-object-byte-layout PR-4: `Str` (8B thin) not `Arc<str>` (16B) — `Value::Str`
+    /// clones from here (O(1) atomic refcount inc, zero heap alloc, preserved).
     #[serde(skip)]
-    pub interned_strings: Vec<std::sync::Arc<str>>,
+    pub interned_strings: Vec<crate::metadata::vstr::Str>,
 }
 
 impl Module {

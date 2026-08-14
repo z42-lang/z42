@@ -25,12 +25,12 @@
 //! output is preserved.
 
 use std::cell::RefCell;
-use std::sync::Arc;
+use crate::metadata::vstr::Str;
 
 struct StrMeta {
-    /// Keeps the string alive (so its data pointer stays a valid identity key)
-    /// and provides the bytes for `CharAt`.
-    arc:      Arc<str>,
+    /// Keeps the string alive (so its identity pointer stays a valid key) and provides
+    /// the bytes for `CharAt`. unify-object-byte-layout PR-4: `Str` (8B thin) not `Arc<str>`.
+    s:        Str,
     char_len: usize,
     ascii:    bool,
     /// `Some` only for non-ASCII strings: `offsets[i]` is the byte offset of
@@ -48,27 +48,27 @@ thread_local! {
 }
 
 #[inline]
-fn data_ptr(s: &Arc<str>) -> *const u8 {
-    Arc::as_ptr(s) as *const u8
+fn data_ptr(s: &Str) -> *const u8 {
+    s.as_ptr()
 }
 
-fn compute(s: &Arc<str>) -> StrMeta {
+fn compute(s: &Str) -> StrMeta {
     let bytes = s.as_bytes();
     if bytes.is_ascii() {
-        StrMeta { arc: s.clone(), char_len: bytes.len(), ascii: true, offsets: None }
+        StrMeta { s: s.clone(), char_len: bytes.len(), ascii: true, offsets: None }
     } else {
         let offsets: Vec<u32> = s.char_indices().map(|(b, _)| b as u32).collect();
         let char_len = offsets.len();
-        StrMeta { arc: s.clone(), char_len, ascii: false, offsets: Some(offsets.into_boxed_slice()) }
+        StrMeta { s: s.clone(), char_len, ascii: false, offsets: Some(offsets.into_boxed_slice()) }
     }
 }
 
 /// Run `f` against `s`'s cached metadata, computing + caching on first sight.
-fn with_meta<R>(s: &Arc<str>, f: impl FnOnce(&StrMeta) -> R) -> R {
+fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();
         let key = data_ptr(s);
-        if let Some(pos) = cache.iter().position(|e| data_ptr(&e.arc) == key) {
+        if let Some(pos) = cache.iter().position(|e| data_ptr(&e.s) == key) {
             if pos != 0 {
                 let e = cache.remove(pos);
                 cache.insert(0, e);
@@ -85,21 +85,21 @@ fn with_meta<R>(s: &Arc<str>, f: impl FnOnce(&StrMeta) -> R) -> R {
 }
 
 /// O(1) (amortised) Unicode scalar count — backs `Std.String.Length`.
-pub fn char_len(s: &Arc<str>) -> usize {
+pub fn char_len(s: &Str) -> usize {
     with_meta(s, |m| m.char_len)
 }
 
 /// O(1) (amortised) char at scalar index `i` — backs `Std.String.CharAt`.
 /// Returns `None` when `i >= char_len`.
-pub fn char_at(s: &Arc<str>, i: usize) -> Option<char> {
+pub fn char_at(s: &Str, i: usize) -> Option<char> {
     with_meta(s, |m| {
         if m.ascii {
-            m.arc.as_bytes().get(i).map(|&b| b as char)
+            m.s.as_bytes().get(i).map(|&b| b as char)
         } else {
             let offs = m.offsets.as_ref().expect("non-ascii entry has offsets");
             let start = *offs.get(i)? as usize;
             // SAFETY of indexing: `start` is a char boundary by construction.
-            m.arc[start..].chars().next()
+            m.s[start..].chars().next()
         }
     })
 }

@@ -67,7 +67,7 @@ fn ref_leaf_copy_is_independent_and_scanned() {
     let src = a.alloc(1, Arc::from("R"), layout.clone());
     let dst = a.alloc(1, Arc::from("R"), layout);
     // src.s = "hi"; the leaf lives in `refs`, not in `bytes`.
-    a.set_ref(src, 1, 0, Value::Str(Arc::from("hi"))).unwrap();
+    a.set_ref(src, 1, 0, Value::Str("hi".into())).unwrap();
     // dst = src  (StructCopy → clones the reference leaf).
     a.copy_into(dst, 1, src, 1, 16).unwrap();
     match a.get_ref(dst, 1, 0).unwrap() {
@@ -75,7 +75,7 @@ fn ref_leaf_copy_is_independent_and_scanned() {
         o => panic!("expected copied string, got {o:?}"),
     }
     // dst.s = "bye" → src.s must stay "hi" (independent reference slots).
-    a.set_ref(dst, 1, 0, Value::Str(Arc::from("bye"))).unwrap();
+    a.set_ref(dst, 1, 0, Value::Str("bye".into())).unwrap();
     match a.get_ref(src, 1, 0).unwrap() {
         Value::Str(s) => assert_eq!(&*s, "hi"),
         o => panic!("src ref leaf must be unchanged, got {o:?}"),

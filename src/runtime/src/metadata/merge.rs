@@ -7,7 +7,6 @@
 use super::bytecode::{BasicBlock, Instruction, Module};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 /// Build `interned_strings` from the final `string_pool` so every
 /// `Module` returned by `merge_modules` (whether the fast path or the
@@ -24,7 +23,7 @@ use std::sync::Arc;
 fn populate_interned_strings(module: &mut Module) {
     module.interned_strings = module.string_pool
         .iter()
-        .map(|s| Arc::from(s.as_str()))
+        .map(|s| crate::metadata::vstr::Str::from(s.as_str()))
         .collect();
 }
 

@@ -683,7 +683,7 @@ fn infer_namespace_candidates(name: &str) -> Vec<&str> {
 pub fn build_interned_strings(module: &mut Module) {
     module.interned_strings = module.string_pool
         .iter()
-        .map(|s| Arc::from(s.as_str()))
+        .map(|s| crate::metadata::vstr::Str::from(s.as_str()))
         .collect();
 }
 

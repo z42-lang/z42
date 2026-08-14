@@ -156,10 +156,10 @@ pub unsafe extern "C" fn jit_to_str(
                 let r = jit_fn(&mut callee, ctx);
                 vm_ctx.pop_frame();
                 if r != 0 { callee.recycle(); return 1; }
-                let s: std::sync::Arc<str> = match callee.ret.take() {
+                let s: crate::metadata::vstr::Str = match callee.ret.take() {
                     Some(Value::Str(s)) => s,
                     Some(ref other)     => value_to_str(other).into(),
-                    None                => std::sync::Arc::from(""),
+                    None                => crate::metadata::vstr::Str::from(""),
                 };
                 callee.recycle();
                 (*frame).regs[dst as usize] = Value::Str(s);
