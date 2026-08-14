@@ -135,3 +135,36 @@ size。编译器的 `StructLayout._computeObjFields` 现只算 own（offset 从 
 字段内联字节进静态存储块（不再存帧作用域 `StructRef` 句柄），逃到 static 时**拷字节**；static **引用**
 字段仍存句柄（一槽一引用，C# 亦如此）。根治 `ExprEmitter.z42` `StaticSet` 发裸 `StructRef` 逃逸悬垂。
 带 e2e `struct_static_field` + REPL 回归验证。
+
+### D12: 字段精确 tag 恢复 + per-field 访问表（2026-08-14 实施期发现，补 D10 缺口）
+
+**发现的缺口**：D10 line 128 说「`decode_prim(bytes, off, kind)`」但没说 `kind`（精确 tag）从哪来。
+PR-1 的 `ObjectLayoutDesc.field_kinds` 用的是**粗粒度 `StructLeafKind`**（`Prim=0`/`ArcString=1`/`GcRef=2`/
+`Struct=3`），**无法**驱动 `decode_prim`——后者需精确 `ty::TAG_*`（同为 4 字节的 `i32`/`u32`/`f32` 解码
+逻辑不同：符号扩展 vs 零扩展 vs 浮点）。`StructLeafKind.Prim + width` 二元组丢失了这个精度。
+
+**解（不改格式，不 re-bump）**：精确 tag 从**字段声明类型串** `TypeDesc.fields[slot].type_tag` 恢复
+——正是 `ObjNew` 的 `default_value_for(type_tag)` 已用的同一来源。运行时 `tag_from_name(type_tag)`
+（`corelib/struct_reflect.rs`，`"int"→TAG_I32` / `"f64"→TAG_F64` / …）给出精确 `ty::TAG_*`，复用
+`exec_struct::decode_prim`/`encode_prim`/`prim_width`/`is_ref_tag`（P3b 已有，struct 路同款）。
+
+**per-field 访问表（避免每次访问 string-match，加载期预算一次）**：`ObjectLayout` 加运行时派生数组
+`field_access: Box<[FieldAccess]>`（对齐 `fields`/slot 序），加载期从 composed offset + `fields[i].type_tag`
+算出：
+```
+struct FieldAccess { offset: u32, width: u32, tag: u8, ref_slot: i32 }
+// tag = tag_from_name(type_tag)（精确）；ref_slot = 若 is_ref_tag(tag) 则 composed.ref_index(offset)，否则 -1；
+// struct-typed 直接字段：tag=TAG_UNKNOWN、ref_slot=-1（FieldGet 不发给 struct 根，只走 StructFieldGetPrim）
+```
+在 loader 组合出 composed `ObjectLayout` 后、`fields` 已知时 zip 填充（base 字段的 type_tag 在
+`base.fields` 里，跨包 fixup 时随 `fields` 重建一并重算）。
+
+**ScriptObject 访问 API（封装 decode/encode + refs 侧表，令 151 处 slots 迁移机械化）**：
+```
+impl ScriptObject {
+  fn field_value(&self, slot: usize) -> Value          // prim: decode_prim(bytes) / ref: refs[ref_slot]
+  fn set_field_value(&mut self, slot, v) -> WroteRef    // prim: encode_prim(bytes) / ref: refs[ref_slot]=v；返回是否 ref（调用方据此发 write_barrier）
+}
+```
+FieldIC **格式不变**（仍缓存 `TypeId→slot`）；slot→offset/tag 走 `field_access[slot]`（一次数组索引，
+非 string-match）。`StackObject`（stack_alloc arena 里的 `ScriptObject`）走**同一** API（同 bytes+refs 结构）。
