@@ -269,11 +269,50 @@ pub struct ObjectLayout {
     pub field_access: Box<[FieldAccess]>,
 }
 
-/// unify-object-byte-layout (PR-2): the compiler's `StructLeafKind` value for a
-/// nested/struct-typed field root in `ObjectLayoutDesc::field_kinds` (mirrors
-/// `StructLayout.StructLeafKind.Struct = 3`). Such fields are accessed via
-/// `StructFieldGetPrim` (baked leaf offsets), never `FieldGet`.
+// unify-object-byte-layout (PR-2): the compiler's `StructLeafKind` values carried in
+// `ObjectLayoutDesc::field_kinds` (mirror `StructLayout.StructLeafKind`). These are the
+// **authoritative** ref/prim/struct classification for a direct field (they come from
+// the compiler's type resolution, unlike the field's `type_tag` string which may be an
+// unresolved alias like `using Id = int`). Struct roots are accessed via
+// `StructFieldGetPrim`, never `FieldGet`.
+pub const STRUCT_LEAF_PRIM: u8 = 0;
+pub const STRUCT_LEAF_ARCSTRING: u8 = 1;
+pub const STRUCT_LEAF_GCREF: u8 = 2;
 pub const STRUCT_LEAF_STRUCT: u8 = 3;
+
+/// unify-object-byte-layout (PR-2, D12): resolve a **primitive** field's exact
+/// `ty::TAG_*` from its declared `type_tag` string, with a width-based fallback for
+/// names `tag_from_type_name` doesn't recognize — user type aliases (`using Id = int`)
+/// and FQ spellings leak through `type_tag` unresolved, but the compiler's
+/// `field_sizes` (width) is always correct. Called only for fields the compiler
+/// classified as `StructLeafKind.Prim`, so the type IS some primitive; width picks the
+/// integer tag when the name is opaque. **Limitation**: an opaque alias of a *float*
+/// (`using Real = double`) or *char* falls back to a same-width integer tag — a rare
+/// edge; the definitive fix (exact tags in the object block) is deferred (would need a
+/// zbc format bump). Recognized names (`int`/`i32`/`f64`/…) always resolve exactly.
+pub fn resolve_prim_tag(type_tag: &str, width: u32) -> u8 {
+    let t = tag_from_type_name(type_tag);
+    if is_prim_tag(t) {
+        return t;
+    }
+    // Opaque name (alias / FQ): pick a same-width signed-integer tag.
+    match width {
+        1 => TAG_I8,
+        2 => TAG_I16,
+        4 => TAG_I32,
+        _ => TAG_I64,
+    }
+}
+
+/// Whether `tag` is a scalar primitive tag (bool / int widths / floats / char) —
+/// i.e. `decode_prim`/`encode_prim` can handle it. Excludes ref/unknown tags.
+#[inline]
+pub fn is_prim_tag(tag: u8) -> bool {
+    matches!(tag,
+        TAG_BOOL | TAG_I8 | TAG_I16 | TAG_I32 | TAG_I64
+      | TAG_U8 | TAG_U16 | TAG_U32 | TAG_U64
+      | TAG_F32 | TAG_F64 | TAG_CHAR)
+}
 
 impl ObjectLayout {
     /// Map a reference-leaf byte offset to its index in the composed reference
@@ -352,16 +391,22 @@ pub fn compose_object_layout(
         for i in 0..field_offsets.len() {
             let off = field_offsets[i];
             let width = field_sizes.get(i).copied().unwrap_or(0);
-            let is_struct_root = field_kinds.get(i).copied() == Some(STRUCT_LEAF_STRUCT);
-            let tag = if is_struct_root {
-                TAG_UNKNOWN
-            } else {
-                merged_fields.get(i).map_or(TAG_OBJECT, |f| tag_from_type_name(&f.type_tag))
-            };
-            let ref_slot = if !is_struct_root && is_ref_tag(tag) {
-                ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32)
-            } else {
-                -1
+            // Classify from the compiler's authoritative `field_kinds` (StructLeafKind),
+            // not the field's `type_tag` string (which may be an unresolved alias).
+            let kind = field_kinds.get(i).copied().unwrap_or(STRUCT_LEAF_PRIM);
+            let type_tag = merged_fields.get(i).map(|f| f.type_tag.as_ref());
+            let (tag, ref_slot) = match kind {
+                STRUCT_LEAF_STRUCT => (TAG_UNKNOWN, -1),
+                STRUCT_LEAF_ARCSTRING => (
+                    TAG_STR,
+                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
+                ),
+                STRUCT_LEAF_GCREF => (
+                    TAG_OBJECT,
+                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
+                ),
+                // Prim (or unknown kind): resolve the exact primitive tag.
+                _ => (resolve_prim_tag(type_tag.unwrap_or(""), width), -1),
             };
             acc.push(FieldAccess { offset: off, width, tag, ref_slot });
         }
@@ -906,7 +951,27 @@ impl ScriptObject {
             return true;
         }
         if fa.tag == TAG_UNKNOWN { return false; } // struct-typed root
-        let _ = encode_prim(&mut self.bytes, fa.offset as usize, fa.width as usize, fa.tag, v);
+        // Reflection (FieldInfo/PropertyInfo SetValue) passes primitives **boxed**
+        // (`int` → a `Std.Int32` `BoxedStruct`); a boxed primitive's bytes ARE its raw
+        // scalar, so decode it with the field's tag/width to recover the plain `Value`
+        // that `encode_prim` needs. Non-boxed values (the common FieldSet path from z42
+        // code) pass through untouched.
+        let unboxed: Value;
+        let src: &Value = match v {
+            Value::BoxedStruct(gc) => {
+                let b = gc.borrow();
+                if b.bytes.len() >= fa.width as usize {
+                    unboxed = decode_prim(&b.bytes, 0, fa.width as usize, fa.tag)
+                        .unwrap_or(Value::Null);
+                    &unboxed
+                } else {
+                    // Not a same-width primitive box — leave as-is (encode may reject).
+                    v
+                }
+            }
+            _ => v,
+        };
+        let _ = encode_prim(&mut self.bytes, fa.offset as usize, fa.width as usize, fa.tag, src);
         false
     }
 }

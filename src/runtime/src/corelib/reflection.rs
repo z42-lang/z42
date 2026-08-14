@@ -1810,9 +1810,12 @@ fn object_inline_struct_field_get(
 ) -> Result<Option<Value>> {
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
-    if super::struct_reflect::struct_field_fq(&resolve, &class_name, name).is_none() {
-        return Ok(None); // primitive / reference field → ordinary slot
-    }
+    // `struct_field_fq` returns the field type's **fully-qualified** struct name (or
+    // `None` for a primitive / reference field → ordinary slot path).
+    let struct_type = match super::struct_reflect::struct_field_fq(&resolve, &class_name, name) {
+        Some(fq) => fq,
+        None => return Ok(None),
+    };
     // unify-object-byte-layout (PR-2): the struct field's blob lives in the object's
     // `bytes` at its composed offset (`field_access[slot]`); interior reference leaves
     // resolve through the composed object ref bitmap. Snapshot into a fresh box (value
@@ -1826,7 +1829,6 @@ fn object_inline_struct_field_get(
     let fa = *col.field_access.get(slot).ok_or_else(|| {
         anyhow::anyhow!("FieldInfo.GetValue: field `{name}` slot {slot} not in object layout")
     })?;
-    let struct_type = rc.type_desc().fields[slot].type_tag.to_string();
     let nested = super::struct_reflect::compute(&resolve, &struct_type)?;
     let composed_base = fa.offset as usize;
     let o = rc.borrow();
@@ -1947,9 +1949,11 @@ fn object_inline_struct_field_set(
 ) -> Result<Option<()>> {
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
-    if super::struct_reflect::struct_field_fq(&resolve, &class_name, name).is_none() {
-        return Ok(None); // primitive / reference field → ordinary slot
-    }
+    // `struct_field_fq` returns the field type's fully-qualified struct name.
+    let struct_type = match super::struct_reflect::struct_field_fq(&resolve, &class_name, name) {
+        Some(fq) => fq,
+        None => return Ok(None), // primitive / reference field → ordinary slot
+    };
     let src = match value {
         Value::BoxedStruct(s) => s,
         other => bail!(
@@ -1969,7 +1973,6 @@ fn object_inline_struct_field_set(
     let fa = *col.field_access.get(slot).ok_or_else(|| {
         anyhow::anyhow!("FieldInfo.SetValue: field `{name}` slot {slot} not in object layout")
     })?;
-    let struct_type = rc.type_desc().fields[slot].type_tag.to_string();
     let nested = super::struct_reflect::compute(&resolve, &struct_type)?;
     let composed_base = fa.offset as usize;
     let size = fa.width as usize;

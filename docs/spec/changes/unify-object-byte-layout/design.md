@@ -168,3 +168,33 @@ impl ScriptObject {
 ```
 FieldIC **格式不变**（仍缓存 `TypeId→slot`）；slot→offset/tag 走 `field_access[slot]`（一次数组索引，
 非 string-match）。`StackObject`（stack_alloc arena 里的 `ScriptObject`）走**同一** API（同 bytes+refs 结构）。
+
+### D13: 内联 struct 字段用 16B 布局（PR-1 的 8B 对象布局与 PR-2 的 16B struct 不兼容，2026-08-14 实施期发现）
+
+**发现**：PR-1 的 `_computeObjFields` 用 **8B 引用版** struct 布局（`_objLayoutOfStruct`，「8B 终点」）
+排布内联 struct 字段。但 PR-2 引用仍 16B（侧表），且 struct 各处（arena / boxed / `struct[]`）均用
+**16B** 布局（`_compute`/`LayoutOf`）。二者对含引用的 struct **尺寸/嵌套偏移不同**（`Point{int;int;str}`：
+8B 版 size 16、16B 版 size 24；`Line{Point;Point}` 的 `b.tag` 8B@24 vs 16B@32）。症状：反射
+`FieldInfo.GetValue` 读对象内联 struct 字段时，`compute`（16B）算出的 nested ref offset 与对象 composed
+ref 位图（8B）对不上 → `struct field reflection: ref leaf offset not in composed bitmap`；且裸叶子读
+（`FieldByteOffset` 16B）与字段基址（`InlineFieldByteOffset` 8B）混用，对含 ref 的 struct 会错位。
+
+**定解**：`_computeObjFields` 内联 struct 字段分支改用 **16B `LayoutOf`**（非 8B `_objLayoutOfStruct`），
+使对象里的 struct 字段字节布局与独立 struct **逐字节一致**——反射读/装箱直接拷字节、嵌套 ref offset 一致、
+裸叶子与基址同为 16B。直接引用**字段**仍 8B 洞（`_objSizeOf`，PR-3 填指针）；只有 struct **字段**转 16B。
+**8B 终点留 PR-3 统一压缩**（对象布局 + struct 布局 + 侧表一起转 8B），不在 PR-2 拆散。
+
+### D14: 内联 struct 字段判据与 offset 解耦 + tag 从 field_kinds 恢复（实施期两处 bug 修复）
+
+- **判据 bug**：`ExprEmitter._isOwnerInlineField`/`_isInlineStructFieldRoot` 用
+  `InlineFieldByteOffset(...) >= 0` 作「是否内联 struct 字段」判据。若让该函数对**所有**字段返 offset
+  （错误地改用 `ObjectLayoutOf`），基元/引用字段被误判为内联 struct → 发 `StructAlloc` 而非 `FieldGet`
+  → 读成 `<struct value>`/Null。**定解**：`InlineFieldByteOffset` **判据仍走 `InlineLayoutOf`**（只含
+  struct 字段，非 struct 字段返 -1），确认是 struct 字段后 **offset 取 `ObjectLayoutOf`** 的 composed 值。
+- **tag 恢复 bug（补 D12）**：`field_access` 的 tag 若纯靠 `tag_from_type_name(type_tag)`，用户类型别名
+  （`using Id = int` → type_tag=`"Id"`）/FQ 名 leak 进 type_tag 时解析失败 → 误判 ref → decode 失败 → Null。
+  **定解**：ref/prim/struct 分类**走编译器权威的 `field_kinds`（StructLeafKind）**（非 type_tag）；prim 的
+  精确 tag 由 `resolve_prim_tag`（`tag_from_type_name` 识别则精确，否则按 `field_sizes` 宽度回落有符号整数
+  tag）。**残留限制**：不透明的 float/char 别名回落成同宽整数 tag（罕见；彻底解=对象块带精确 tag，需格式 bump，deferred）。
+- **反射 struct 字段类型名**：`object_inline_struct_field_get/set` 用 `struct_field_fq`（返 FQ 名）喂
+  `compute`，非裸 `type_tag`（短名 `"Point"` 会 `unknown type`）。

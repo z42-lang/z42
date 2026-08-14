@@ -550,7 +550,7 @@ impl ArcMagrGC {
             if e.is_marked() {
                 let obj = e.value.lock();
                 let ty = obj.type_desc.name.clone();
-                let nslots = obj.slots.len();
+                let nslots = obj.refs.len(); // unify-object-byte-layout (PR-2): ref-slot count (diagnostic)
                 stale_obj = Some((h.chunk_idx as u32, h.entry_idx as u32, ty, nslots));
             }
         });

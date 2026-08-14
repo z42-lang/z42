@@ -270,11 +270,27 @@ public sealed class StructLayout {
         return this.InlineLayoutOf(className).FieldCount > 0;
     }
 
-    // 某内联 struct 字段在对象字节区的对象相对 byte offset（未找到 -1）。供 codegen（stage 4）烘焙。
+    // 某内联 struct 字段在对象字节区的对象相对 byte offset（**非**内联 struct 字段返 -1）。
+    // 供 codegen（stage 4）烘焙，同时作 `_isOwnerInlineField`/`_isInlineStructFieldRoot` 的判据
+    // （`>= 0` ⟺「是内联 struct 字段」）。
+    //
+    // unify-object-byte-layout PR-2：**判据仍走 InlineLayoutOf**（只含 struct 字段，非 struct 字段
+    // 不在其中 → 返 -1 → 判据 false → 走普通 FieldGet，绝不能误判基元/引用字段为内联 struct）；但
+    // 确认是内联 struct 字段后，返回的 **offset 改用 ObjectLayoutOf**（struct 字段夹在全部直接字段间的
+    // composed 对象布局 offset）——runtime 现把所有字段字节内联进 ScriptObject.bytes，struct 字段字节
+    // 窗口起点 = 其对象布局 offset。（无 base 类时 = composed offset；含 base 字段的派生类 base-shift
+    // 组合见后续。）
     public int InlineFieldByteOffset(string className, string fieldName) {
-        StructLayoutInfo li = this.InlineLayoutOf(className);
+        // 判据：仅内联 struct 字段（InlineLayoutOf）才有内联 offset。
+        StructLayoutInfo inl = this.InlineLayoutOf(className);
+        bool found = false;
         int i = 0;
-        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return li.FieldOffsets[i]; } i = i + 1; }
+        while (i < inl.FieldCount) { if (inl.FieldNames[i] == fieldName) { found = true; break; } i = i + 1; }
+        if (!found) { return -1; }
+        // offset：取对象全字段布局中该 struct 字段的 composed offset。
+        StructLayoutInfo obj = this.ObjectLayoutOf(className);
+        int j = 0;
+        while (j < obj.FieldCount) { if (obj.FieldNames[j] == fieldName) { return obj.FieldOffsets[j]; } j = j + 1; }
         return -1;
     }
 
@@ -321,7 +337,14 @@ public sealed class StructLayout {
             int size = 0;
             int align = 0;
             if (kind == StructLeafKind.Struct) {
-                StructLayoutInfo nested = this._objLayoutOfStruct(ftype);
+                // unify-object-byte-layout PR-2：内联 struct 字段用**16B 引用版** struct 布局
+                // （LayoutOf/_compute），使对象里的 struct 字段字节布局与独立 struct（arena/装箱/
+                // struct[]）**逐字节一致**——runtime 反射（compute 16B）读对象内联 struct 字段、装箱成
+                // BoxedStruct 直接拷字节即可，无需 8B↔16B 转换；嵌套 struct 的引用叶子 offset 亦一致。
+                // （PR-1 曾用 8B 版 _objLayoutOfStruct 作「8B 终点」休眠元数据，但 PR-2 引用仍 16B、
+                // struct 各处均 16B，8B 版会与之错位 → 反射 nested ref offset 对不上位图。8B 终点留 PR-3
+                // 统一压缩：对象+struct 布局+侧表一起转 8B。）
+                StructLayoutInfo nested = this.LayoutOf(ftype);
                 size = nested.Size;
                 align = nested.Align;
                 if (align == 0) { align = 1; }   // 空/环兜底
