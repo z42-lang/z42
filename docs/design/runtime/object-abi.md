@@ -24,7 +24,14 @@
 - **保留 fat tagged 值**（tag + payload，~16–24B）作 v1；**NaN-box / tagged-pointer 压缩进 Deferred**（后续优化，复杂度大，现 fat enum 够用）。
 - 跨引擎契约：一个 Value slot 的 `{tag 偏移, payload 偏移, 总大小}` 是 ABI 一部分；JIT/AOT 据此 load/store。
 
-### 2.1 引用压到平台指针大小 → `Value` 24B→16B（Deferred 候选，2026-08-11 User 提）
+### 2.1 引用压到平台指针大小 → `Value` 24B→16B（✅ 已落地，路 A，2026-08-15 `unify-object-byte-layout` PR-3~5）
+
+> **状态（2026-08-15）**：本节从「Deferred 候选」提为**已采纳并落地**，走**路 A（标记指针）**，`Value` 现为 **16B**。分 PR 落地：
+> - **PR-3**：`GcRef`/`WeakGcRef` 16B→8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4 / Decision 2）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
+> - **PR-4**：`Value::Str` 从 `Arc<str>`(16B 胖) 换成手写 thin-Arc-DST `Str`（[`metadata/vstr.rs`](../../../src/runtime/src/metadata/vstr.rs)，8B 细指针，长度进 `StrHeader`）。**interim**：仍 Arc refcount，非 tracing GC；string 全 GC 化（`Value::Str`→`GcRef<StrHeader>`）是后续专项（需变长 GC 分配器，与 §5 合流）。
+> - **PR-5**：`Value::FuncRef` 从 `Box<str>`(16B 胖) 换成 `Str`（8B 细）——这是最后一个 16B payload。至此每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](../../../src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 从硬编码 24 改为 `size_of::<Value>()`（单一真相，不再漂移，[`jit/translate.rs`](../../../src/runtime/src/jit/translate.rs)）。
+>
+> payload 偏移**不变**（tag@0、payload@8）；只有总 stride 24→16。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](../../../src/runtime/crates/z42-abi/)），与内部 `Value` enum 表示解耦，marshal 显式转换 → 本变更不触及 native ABI。
 
 **动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**，我们的是 **16B**。两个来源（已核对）：① `GcRef` = `NonNull<RegionEntry>`(8B) + `generation:u32`(4B, ABA 防护) 对齐 16B（[refs.rs](../../../src/runtime/src/gc/refs.rs)）；② `Value::Str` = `Arc<str>` 胖指针 = ptr8+len8 = 16B。因 `Value` 最大 payload = 16B → **`Value` enum 被钉在 24B**（`#[repr(C,u8)]`，JIT 按 `regs_base + reg_idx*24` 内联寻址）。若最大 payload 降到 8B，`Value` 可 **24B→16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
 
@@ -85,6 +92,9 @@ ObjectHeader {
 ---
 
 ## 5. 字符串改 GC 对象
+
+> **进度（2026-08-15）**：PR-4 已把 `Value::Str` 从 `Arc<str>`(16B 胖) 换成 thin-Arc-DST `Str`(8B 细指针，长度进 `StrHeader`，[`metadata/vstr.rs`](../../../src/runtime/src/metadata/vstr.rs))——**细指针目标已达成**，但仍是 **Arc refcount，未纳入 tracing GC**（interim）。下面「改 GC 字符串对象」= 后续专项：`Value::Str`→`GcRef<StrHeader>`（8B GcRef，与 Object/Array 统一堆），需**变长 GC 分配器 / string arena**（当前 region 分配器定长类型化，无法内联变长 string 字节）。
+
 - `Value::Str(Arc<str>)` → **GC 字符串对象**(统一头,可移动/分代)。标准做法(JVM/.NET)。
 - **驻留/字面量串** = context 拥有,放永生/context 空间,**随 context 卸载释放**(对接 load-context)。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放);收益:统一一套堆 + 可移动。**接受**。

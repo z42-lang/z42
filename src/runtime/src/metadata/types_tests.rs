@@ -344,9 +344,15 @@ fn value_size_observed() {
     // when an intentional shrink lands.
     //
     // 2026-05-27 review.md C1 chunks 1-5 (all cold variants boxed):
-    // Value shrunk 48 B → 24 B. Max-payload variant is now
+    // Value shrunk 48 B → 24 B. Max-payload variant was
     // Str(Arc<str>) = 16 B → +1 B tag + 7 B align = 24 B.
-    assert_eq!(std::mem::size_of::<Value>(), 24,
+    //
+    // 2026-08-15 unify-object-byte-layout PR-3/4/5: GcRef 16→8 B (PR-3),
+    // Str Arc<str> 16→8 B thin (PR-4), FuncRef Box<str> 16→8 B thin (PR-5).
+    // Every payload is now ≤ 8 B → tag(1 B, padded to 8) + 8 B = 16 B.
+    // This is also enforced at compile time by the `const _: () = assert!`
+    // in types.rs; keep both in sync.
+    assert_eq!(std::mem::size_of::<Value>(), 16,
         "Value size changed: {}", std::mem::size_of::<Value>());
     assert_eq!(std::mem::align_of::<Value>(), 8, "Value alignment changed");
 }
@@ -359,7 +365,8 @@ fn value_size_observed() {
 //
 // Pinned layout (x86-64 / aarch64, alignment 8):
 //   * offset 0  — u8 discriminant (explicit assignments in Value enum)
-//   * offset 8  — payload (max 16 B, e.g. Arc<str> for Str)
+//   * offset 8  — payload (max 8 B since PR-3/4/5: GcRef / Str / FuncRef
+//     are all thin 8 B pointers → Value is 16 B, see `value_size_observed`)
 
 #[test]
 fn value_discriminants_pinned() {
