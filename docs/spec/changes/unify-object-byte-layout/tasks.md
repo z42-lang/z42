@@ -4,8 +4,8 @@
 > 终点 = C# 完全等价（8B 引用 / 非移动 GC / 路 A）；内部分 PR，每 PR 独立 GREEN。
 
 ## 进度概览
-- [ ] PR-1: 布局元数据（编译器发对象全字段布局表 + reader，行为不变，格式 bump）
-- [ ] PR-2: runtime 切字节存储（删 slots → bytes；FieldGet/Set/IC/反射/JIT byte-offset；GC 位图；引用暂 16B）
+- [x] PR-1: 布局元数据（编译器发对象全字段布局表 + reader，行为不变，格式 bump）—— 已合并 main #188
+- [~] PR-2: runtime 切字节存储（删 slots → bytes；FieldGet/Set/IC/反射/JIT byte-offset；GC 位图；引用暂 16B）—— **2.1-2.7 + 2.9-2.10 完成全绿（self-host 5/5 + e2e 246 + stdlib 280 + compiler 24 + cargo 922）；S.1-S.4（static struct 字节化修 REPL struct-in-static 悬垂）待做**
 - [ ] PR-3: 引用 8B 标记指针（GcRef 16→8B 路 A）
 - [ ] PR-4: 字符串 8B 细指针（Arc<str>→StrHeader）
 - [ ] PR-5: Value 16B + JIT 收尾 + 文档/roadmap 收口
@@ -39,16 +39,16 @@
 > 算法逐字节一致）。引用暂 16B（8B 留 PR-3）。**无格式 re-bump**（zbc object_layout 仍 own-only）。
 > **爆炸半径**：151 处 `.slots` + 40 处 `.struct_bytes/.struct_refs`（非测试，~15 文件）+ 编译器/JIT/反射/static + 数十测试。**all-or-nothing，须一次落地才绿**。
 - [x] 2.0 运行时 composed 对象布局（additive，dormant，byte-identical）：`types.rs` 新增运行时 `ObjectLayout`（size + per-field offset/size/kind + composed 引用位图 + `ref_index`）+ `compose_object_layout(base, own)`（own 区起始 = `align_up(base.size, 8)` 的 8B 继承边界，字段/引用数组 concat+shift）；`TypeDescCold.composed_object_layout` + accessor + cold-emptiness 守卫；`build_type_registry` 组合本地 base（topo 序）、`try_fixup_inheritance` 跨包 base 与 `fields` 锁步重组合。cargo 单测 5 例（compose 纯函数 3 + loader 本地/跨包集成 2）全绿；`cargo test --lib` 901+21 pass。**de-risk 完成：composed 分歧可单测捕获**
-- [ ] 2.1 `types.rs`：`ScriptObject` 删 `slots`/`struct_bytes`/`struct_refs` → `bytes`+`refs`；`object_regions()`（复用 is_struct 走 struct_layout、否则 composed）；`trace_children` Object/BoxedStruct/RefKind::Field 臂改 `for r in &obj.refs`
-- [ ] 2.2 `arc_heap.rs`：`alloc_object`（删 slots 参数，从 composed 布局 size bytes+refs）/`alloc_boxed_prim`（struct_bytes→bytes）；`scan_object_refs`/mark/sweep 扫 `refs`；write_barrier
-- [ ] 2.3 `exec_object.rs`：FieldGet/Set/`FieldIC` 全接收者臂（StackObject/Object）→ name→slot→composed offset → `decode_prim(bytes)` / `ref_index`→`refs[ri]`；obj.new caller 删 slots 构建
-- [ ] 2.4 `exec_struct.rs`：`struct_field_get_val`/`set_val` 的 `Value::Object` 臂 `struct_bytes`→`bytes`、`struct_refs`→`refs`、`inline_layout()`→composed 位图；`unbox_struct`/`copy_array_elem_out` 同步
-- [ ] 2.5 `reflection.rs` + 其余 ~15 文件的 `.slots`/`.struct_bytes`/`.struct_refs` 直读点（repl/gc/snapshot/stack_alloc/jit frame/assemblyloadcontext/exception 等）迁移 byte-offset+ref
-- [ ] 2.6 `ExprEmitter.z42` + `StructLayout.z42`：内联 struct 叶子根 offset 从 `_inlineCache`（struct_bytes 相对）改 `_objectCache` composed（+base-shift 组合，与 loader 8B 对齐一致）；直接字段 codegen 不变（仍发名）
-- [ ] 2.7 `jit/*`：`jit_field_get/set` + 方案 B 内联 STRIDE=24 硬编码 → byte-offset 基址（引用暂 16B，Value STRIDE 仍 24）
+- [x] 2.1 `types.rs`：`ScriptObject` 删 `slots`/`struct_bytes`/`struct_refs` → `bytes`+`refs`；`object_regions()`（复用 is_struct 走 struct_layout、否则 composed）；`trace_children` Object/BoxedStruct/RefKind::Field 臂改 `for r in &obj.refs`
+- [x] 2.2 `arc_heap.rs`：`alloc_object`（删 slots 参数，从 composed 布局 size bytes+refs）/`alloc_boxed_prim`（struct_bytes→bytes）；`scan_object_refs`/mark/sweep 扫 `refs`；write_barrier
+- [x] 2.3 `exec_object.rs`：FieldGet/Set/`FieldIC` 全接收者臂（StackObject/Object）→ name→slot→composed offset → `decode_prim(bytes)` / `ref_index`→`refs[ri]`；obj.new caller 删 slots 构建
+- [x] 2.4 `exec_struct.rs`：`struct_field_get_val`/`set_val` 的 `Value::Object` 臂 `struct_bytes`→`bytes`、`struct_refs`→`refs`、`inline_layout()`→composed 位图；`unbox_struct`/`copy_array_elem_out` 同步
+- [x] 2.5 `reflection.rs` + 其余 ~15 文件的 `.slots`/`.struct_bytes`/`.struct_refs` 直读点（repl/gc/snapshot/stack_alloc/jit frame/assemblyloadcontext/exception 等）迁移 byte-offset+ref
+- [x] 2.6 `ExprEmitter.z42` + `StructLayout.z42`：内联 struct 叶子根 offset 从 `_inlineCache`（struct_bytes 相对）改 `_objectCache` composed（+base-shift 组合，与 loader 8B 对齐一致）；直接字段 codegen 不变（仍发名）
+- [x] 2.7 `jit/*`：`jit_field_get/set` + 方案 B 内联 STRIDE=24 硬编码 → byte-offset 基址（引用暂 16B，Value STRIDE 仍 24）
 - [ ] 2.8 追加 static 字节化（见 PR-2-static 节）
-- [ ] 2.9 golden：基元/引用/内联 struct/继承/跨包/反射 + `--mode jit`；更新 ~十余 `arc_heap_tests` 等测试
-- [ ] 2.10 GREEN + 自举 byte-identical（分歧则查两处组合算法）
+- [x] 2.9 golden：基元/引用/内联 struct/继承/跨包/反射 + `--mode jit`；更新 ~十余 `arc_heap_tests` 等测试
+- [x] 2.10 GREEN + 自举 byte-identical（分歧则查两处组合算法）
 
 ## PR-2 追加: static 存储字节化（修 REPL struct-in-static 悬垂，design.md D11）
 - [ ] S.1 `vm_context.rs` `VmCore.static_fields: Vec<Value>` → 每类静态存储块「offset 字节内联」（static struct 字段内联字节；引用字段存句柄一槽一引用）
