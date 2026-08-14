@@ -218,3 +218,45 @@ ref 位图（8B）对不上 → `struct field reflection: ref leaf offset not in
   tag）。**残留限制**：不透明的 float/char 别名回落成同宽整数 tag（罕见；彻底解=对象块带精确 tag，需格式 bump，deferred）。
 - **反射 struct 字段类型名**：`object_inline_struct_field_get/set` 用 `struct_field_fq`（返 FQ 名）喂
   `compute`，非裸 `type_tag`（短名 `"Point"` 会 `unknown type`）。
+
+### D16: PR-3 内部拆两 chunk + 标记指针机制 + 字符串引用收窄（2026-08-14 实施期定）
+
+PR-3 的爆炸半径（引用全面 8B）实为两件正交的事，拆成两个 chunk 分别落地、各自可验：
+
+**Chunk 1 —— `GcRef` 16→8B 标记指针（格式中立，本地 cargo+e2e 全验）**
+- `GcRef` 从 `(NonNull<RegionEntry> 8B + generation:u32 4B + pad 4B)=16B` 压成**单个 8B 标记指针**：
+  低 48 位是 RegionEntry 地址、高 16 位是**窄 generation 快照**（`refs.rs` `GCREF_ADDR_BITS=48`/
+  `GCREF_ADDR_MASK`）。deref 一律经 `entry_addr()` 先 mask 掉 tag；`gen16()` 取高 16 位。
+- 用 **strict-provenance** `ptr.map_addr()`/`.addr()`（Rust 1.84+，本仓 1.88）打/解 tag → 保留 entry
+  的 provenance，**Miri-clean**（tag 只活在从不解引用的高位）。backing `RegionEntry.generation` 仍
+  `AtomicU32`；只有句柄里的快照窄到 16 位（ABA 窗口 2^16，Decision 2 已接受的权衡）。
+- 公共 API 全不变（`entry_ptr()` 返回 masked 地址、`ptr_eq` 比整个 tagged=地址+gen 一起比）。加
+  `size_of::<GcRef>()==8` + `size_of::<Option<GcRef>>()==8`（NonNull niche 保住）静态断言防回退。
+- **GcRef 是纯运行时表示、从不序列化 → chunk 1 零格式 bump**；`refs` 侧表仍存 `Value`（chunk 2 才内联）。
+- 平台前提：x86-64 48 位规范 VA（用户态高 16 位=0）/ AArch64 48 位（Apple Silicon 47 位）→ 高 16 位可用。
+  ARM MTE/PAC、5-level paging（LVA/57 位）会破 → task 3.3 CI 目标平台验证（本地 arm64 已过）。
+
+**Chunk 2 —— 引用内联进 `bytes` + struct 16→8B + 格式 bump（PR-2 规模 big-bang，CI 收尾）**
+- 编译器 `StructLayout._sizeOf` 引用 16→8（line 476），`LayoutOf`/`_compute` 全 8B → **D13 特判塌缩**
+  （`_computeObjFields` 内联 struct 与 `_objSizeOf` 都 8B 了）→ 可删 `_objSizeOf`/`_objLayoutOfStruct` 死代码。
+  struct 块 + 对象块（内联 struct 字段 offset）字节布局都变 → **格式 bump（zbc 1.34→1.35 / zpkg 0.39→0.40）**。
+- runtime：object/array 引用把 8B tagged 指针**内联进 `bytes`**，`refs` 侧表**收窄到只存字符串**（见下）。
+  `field_value`/`set_field_value` 按 tag 分派：prim→`decode_prim(bytes)`；object/array→读 8B 重建
+  `Value::Object`/`Array`；str→侧表。GC `scan_object_refs`/`trace_children` 按对象级引用位图读 8B、
+  按 kind 重建句柄 mark。JIT `jit_field_get/set` byte-offset。two-gen bootstrap（`_computeObjFields` 改
+  编译器 → 自举字节动 → warm 重建 + gen1==gen2 校验）。
+
+**字符串引用收窄决策（关键，避免双重格式 bump）**：`refs` 侧表存的是完整 `Value`，其中**字符串字段是
+`Value::Str(Arc<str>)`=16B 胖指针**，而字符串 8B 细指针（`StrHeader`）是 **PR-4** 才做（Decision 3）。
+故 chunk 2 **只把 object/array 引用（`GcRef`，已 8B）内联进 `bytes`，字符串引用仍留在收窄的 `refs`
+侧表**（对齐 tasks「refs 侧表可删或**收窄**」的收窄分支）。PR-4 再把字符串转 8B 内联、彻底删侧表。
+这样每个 PR 各一次干净 bump，不在 PR-3 先把字符串 16B 塞进 bytes、PR-4 又 8B 重排（双 bump 浪费）。
+- **对象块 `ref_kinds` 需能区分 GcRef-object / GcRef-array / Str**：8B 裸指针本身不带「是 Object 还是
+  Array」信息，重建正确的 `Value` 变体要靠 kind（现 `STRUCT_LEAF_GCREF` 粗粒度，object+array 都归它）→
+  chunk 2 需把 kind 细分（这也是格式变更的一部分）。
+- **Null 引用**：内联槽 8B=0 表示 `Value::Null`（`GcRef` 是 NonNull、不能表 null，故 null 走「0 指针」
+  哨兵，`field_value` 见 0 返 `Value::Null`）。
+- **`StackObject` 不可内联**（带 `frame_id`）：字段引用若指向栈分配对象即逃逸 → 应堆分配，故字段槽只会是
+  堆 `Value::Object`/`Array` 或 Null；chunk 2 落地时加断言兜住（对称 static_set 现有的 StackObject 拦截）。
+- **UB 敏感**（Decision 5 风险）：位图/offset/kind 任一错 → 扫错内存/重建错句柄 = UB。chunk 2 靠 golden +
+  Miri/ASAN + 自举 5/5 逐字节三层兜底。

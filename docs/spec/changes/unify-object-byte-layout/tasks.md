@@ -57,10 +57,17 @@
 - [x] S.4 REPL 回归：`struct B{...}; B b=new(); b` + carry-forward 不崩（需 `xtask build toolchain` + 手动 REPL 验，见 [[green-gate-skips-scripting-interactive]]）
 
 ## PR-3: 引用 8B 标记指针（路 A）
-- [ ] 3.1 `refs.rs`：`GcRef` 16→8B，窄 generation 进高 16 位 + mask deref；alloc 写 generation
-- [ ] 3.2 对象布局引用 offset 16→8B；GC 按 8B 读；写屏障
-- [ ] 3.3 ABA 窄 generation 评估 + Miri/ASAN；平台（ARM MTE/PAC）验证
-- [ ] 3.4 GREEN
+> **拆两 chunk（design D16）**：chunk 1 = `GcRef` 8B 表示（格式中立、本地全验）；chunk 2 = 内联进
+> `bytes` + struct 16→8B + 格式 bump（big-bang，CI 收尾）。字符串引用留收窄侧表到 PR-4（避免双 bump）。
+- [x] 3.1 **chunk 1** `refs.rs`：`GcRef`/`WeakGcRef` 16→8B 单 tagged 字段（窄 16 位 generation 进高位 +
+  `map_addr` mask deref，strict-provenance Miri-clean）；`from_region_entry` 截断 gen；公共 API 不变；
+  8B/Option<8B> size 静态断言。**格式中立**（GcRef 从不序列化）。cargo --lib 954 pass（唯一失败
+  `stress_seeded_mode_switching_short` 为 pre-existing macOS-local，origin/main 同样失败）+ xtask test e2e
+- [ ] 3.2 **chunk 2** 对象布局引用 offset 16→8B（编译器 `_sizeOf` refs 返 8 + D13 塌缩删 `_objSizeOf`/
+  `_objLayoutOfStruct`）；runtime object/array 引用内联进 `bytes`（8B 裸指针，Null=0 哨兵）、`refs` 侧表
+  收窄到只存字符串；`field_value`/`set_field_value`/GC 位图/JIT 按 8B + kind（object/array/str 细分）；格式 bump
+- [ ] 3.3 ABA 窄 generation 评估 + Miri/ASAN；平台（ARM MTE/PAC / 5-level paging）验证
+- [ ] 3.4 GREEN（chunk 2 走 two-gen bootstrap，格式 bump 本地墙 → CI 为准 + fixture 重生）
 
 ## PR-4: 字符串 8B 细指针
 - [ ] 4.1 `StrHeader{len,[u8]}` 细指针表示；`Value::Str` payload 8B
