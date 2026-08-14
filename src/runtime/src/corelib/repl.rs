@@ -185,7 +185,7 @@ fn member_name_of(v: &Value) -> Option<String> {
     if let Value::Object(rc) = v {
         let idx = rc.type_desc().field_index.get("Name").copied();
         if let Some(i) = idx {
-            if let Some(Value::Str(s)) = rc.borrow().slots.get(i) {
+            if let Value::Str(s) = rc.borrow().field_value(i) {
                 return Some(s.to_string());
             }
         }

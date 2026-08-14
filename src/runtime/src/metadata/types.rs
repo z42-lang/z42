@@ -189,6 +189,402 @@ impl StructTypeLayout {
     }
 }
 
+/// unify-object-byte-layout (PR-2, D12): resolved per-field access descriptor for a
+/// direct field of a reference class — the hot-path form consumed by `FieldGet`/
+/// `FieldSet`. Precomputed at load time (one array-index per access, no per-access
+/// string match). Parallel by index with `TypeDesc::fields` / `field_index` slot.
+///
+/// - `offset` / `width` = the field's byte window in `ScriptObject::bytes`.
+/// - `tag` = the **exact** `ty::TAG_*` recovered from the field's declared
+///   `type_tag` string (via `tag_from_name`) — `field_kinds` (coarse `StructLeafKind`)
+///   can't drive `decode_prim`, so the precise tag comes from the type string, the
+///   same source `default_value_for` uses. `TAG_UNKNOWN` for struct-typed roots
+///   (never reached by `FieldGet`; accessed via `StructFieldGetPrim`).
+/// - `ref_slot` = index into `ScriptObject::refs` if this is a reference field, else
+///   `-1` (primitive stored inline in `bytes`; PR-3 will inline the 8B pointer here).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FieldAccess {
+    pub offset: u32,
+    pub width: u32,
+    pub tag: u8,
+    pub ref_slot: i32,
+}
+
+/// unify-object-byte-layout (PR-2): map a field's declared `type_tag` string to its
+/// exact `ty::TAG_*`. Mirrors `corelib::struct_reflect::tag_from_name` (kept here so
+/// the loader can build the access table without a corelib dependency). Post-unify
+/// canonical primitive names (`int`/`i32`, `long`/`i64`, …) and struct/ref types.
+pub fn tag_from_type_name(t: &str) -> u8 {
+    match t {
+        "void" => TAG_UNKNOWN,
+        "bool" => TAG_BOOL,
+        "i8" | "sbyte" => TAG_I8,
+        "i16" | "short" => TAG_I16,
+        "i32" | "int" => TAG_I32,
+        "i64" | "long" => TAG_I64,
+        "u8" | "byte" => TAG_U8,
+        "u16" | "ushort" => TAG_U16,
+        "u32" | "uint" => TAG_U32,
+        "u64" | "ulong" => TAG_U64,
+        "f32" | "float" => TAG_F32,
+        "f64" | "double" => TAG_F64,
+        "char" => TAG_CHAR,
+        "str" | "string" => TAG_STR,
+        _ => TAG_OBJECT,
+    }
+}
+
+/// unify-object-byte-layout (PR-2): the **composed** full-object byte layout of a
+/// reference class's instances — the runtime form of the dormant zbc `object_layout`
+/// (own-only) after inheritance composition (`base.composed ++ own`). Built at load
+/// time (`compose_object_layout`) mirroring `merge_with_base`'s `fields = base.fields
+/// ++ own_fields`, so `field_offsets[i]` aligns by index with `TypeDesc::fields[i]`.
+///
+/// - `size` = total object byte-region size (references at 8B here — the C#-equivalent
+///   endpoint; PR-2 still stores references 16B in a `refs` side-table, so the 8B field
+///   window is a dead hole until PR-3 inlines the pointer).
+/// - `field_offsets` / `field_sizes` / `field_kinds` = per **merged** field the byte
+///   offset / size / kind (`STRUCT_REF_*` for references, else primitive/struct), in
+///   merged-field-index order (base fields first, then own).
+/// - `ref_offsets` / `ref_kinds` = flattened composed reference bitmap (base leaves
+///   first, then own leaves shifted by the base region size), including inline-struct
+///   interior reference leaves. `ref_index(off)` maps a byte offset to its `refs`
+///   side-table slot, same shape as `StructTypeLayout::ref_index`.
+///
+/// **Dormant in task 2.0**: composed here and unit-tested, but not yet consumed
+/// (`ScriptObject` still uses `slots`); task 2.1+ switches field storage onto it.
+#[derive(Debug, Default)]
+pub struct ObjectLayout {
+    pub size: usize,
+    pub field_offsets: Box<[u32]>,
+    pub field_sizes: Box<[u32]>,
+    pub field_kinds: Box<[u8]>,
+    pub ref_offsets: Box<[u32]>,
+    pub ref_kinds: Box<[u8]>,
+    /// unify-object-byte-layout (PR-2, D12): resolved per-field access table (offset /
+    /// width / exact tag / refs-slot), parallel by index with `TypeDesc::fields`.
+    /// Filled at load time from the composed offsets + the merged fields' `type_tag`
+    /// strings. Empty when composed without field info (e.g. `compose_object_layout`
+    /// called with `&[]` in unit tests that only check structural offsets).
+    pub field_access: Box<[FieldAccess]>,
+}
+
+// unify-object-byte-layout (PR-2): the compiler's `StructLeafKind` values carried in
+// `ObjectLayoutDesc::field_kinds` (mirror `StructLayout.StructLeafKind`). These are the
+// **authoritative** ref/prim/struct classification for a direct field (they come from
+// the compiler's type resolution, unlike the field's `type_tag` string which may be an
+// unresolved alias like `using Id = int`). Struct roots are accessed via
+// `StructFieldGetPrim`, never `FieldGet`.
+pub const STRUCT_LEAF_PRIM: u8 = 0;
+pub const STRUCT_LEAF_ARCSTRING: u8 = 1;
+pub const STRUCT_LEAF_GCREF: u8 = 2;
+pub const STRUCT_LEAF_STRUCT: u8 = 3;
+
+/// unify-object-byte-layout (PR-2, D12): resolve a **primitive** field's exact
+/// `ty::TAG_*` from its declared `type_tag` string, with a width-based fallback for
+/// names `tag_from_type_name` doesn't recognize — user type aliases (`using Id = int`)
+/// and FQ spellings leak through `type_tag` unresolved, but the compiler's
+/// `field_sizes` (width) is always correct. Called only for fields the compiler
+/// classified as `StructLeafKind.Prim`, so the type IS some primitive; width picks the
+/// integer tag when the name is opaque. **Limitation**: an opaque alias of a *float*
+/// (`using Real = double`) or *char* falls back to a same-width integer tag — a rare
+/// edge; the definitive fix (exact tags in the object block) is deferred (would need a
+/// zbc format bump). Recognized names (`int`/`i32`/`f64`/…) always resolve exactly.
+pub fn resolve_prim_tag(type_tag: &str, width: u32) -> u8 {
+    let t = tag_from_type_name(type_tag);
+    if is_prim_tag(t) {
+        return t;
+    }
+    // Opaque name (alias / FQ): pick a same-width signed-integer tag.
+    match width {
+        1 => TAG_I8,
+        2 => TAG_I16,
+        4 => TAG_I32,
+        _ => TAG_I64,
+    }
+}
+
+/// Whether `tag` is a scalar primitive tag (bool / int widths / floats / char) —
+/// i.e. `decode_prim`/`encode_prim` can handle it. Excludes ref/unknown tags.
+#[inline]
+pub fn is_prim_tag(tag: u8) -> bool {
+    matches!(tag,
+        TAG_BOOL | TAG_I8 | TAG_I16 | TAG_I32 | TAG_I64
+      | TAG_U8 | TAG_U16 | TAG_U32 | TAG_U64
+      | TAG_F32 | TAG_F64 | TAG_CHAR)
+}
+
+impl ObjectLayout {
+    /// Map a reference-leaf byte offset to its index in the composed reference
+    /// bitmap (and thus the object's `refs` side-table slot). Linear scan —
+    /// reference leaves per object are few.
+    #[inline]
+    pub fn ref_index(&self, byte_off: u32) -> Option<usize> {
+        self.ref_offsets.iter().position(|&o| o == byte_off)
+    }
+
+    /// Number of reference leaves (= the object's `refs` side-table length).
+    #[inline]
+    pub fn ref_count(&self) -> usize {
+        self.ref_offsets.len()
+    }
+}
+
+/// unify-object-byte-layout (PR-2): compose a class's **own-only** `ObjectLayoutDesc`
+/// (from the zbc 1.34 object block, offsets from 0) with its base class's already-
+/// composed `ObjectLayout` into the merged runtime layout, mirroring
+/// `merge_with_base`'s `fields = base.fields ++ own`. The own region begins at
+/// `align_up(base.size, 8)` — the unified 8B inheritance boundary (matches the
+/// compiler's independent base-shift when it bakes inline-struct leaf offsets, D9);
+/// both must agree byte-for-byte, backstopped by self-host byte-identity.
+///
+/// `base` is `None` for a root class (or a cross-zpkg base not yet resolved — the
+/// fixup pass recomposes once it resolves). Field/reference arrays are simple
+/// concatenations with the own side shifted by `base_shift`.
+///
+/// `merged_fields` = the class's full merged field list (`base.fields ++ own`, same
+/// order as the composed offsets); used to build the per-field access table
+/// (`FieldAccess`) — the exact `ty::TAG` from each field's `type_tag` string (D12).
+/// Pass `&[]` to skip the access table (structural-only, e.g. offset unit tests).
+pub fn compose_object_layout(
+    base: Option<&ObjectLayout>,
+    own: &super::bytecode::ObjectLayoutDesc,
+    merged_fields: &[FieldSlot],
+) -> ObjectLayout {
+    // Unified 8B inheritance boundary: the own region starts after the base region,
+    // rounded up to 8 so references (8B, 8-aligned) land aligned.
+    let base_shift: u32 = match base {
+        Some(b) => ((b.size as u32) + 7) & !7,
+        None    => 0,
+    };
+
+    let base_fields = base.map_or(0, |b| b.field_offsets.len());
+    let base_refs   = base.map_or(0, |b| b.ref_offsets.len());
+
+    let mut field_offsets = Vec::with_capacity(base_fields + own.field_offsets.len());
+    let mut field_sizes   = Vec::with_capacity(base_fields + own.field_sizes.len());
+    let mut field_kinds   = Vec::with_capacity(base_fields + own.field_kinds.len());
+    let mut ref_offsets   = Vec::with_capacity(base_refs + own.ref_offsets.len());
+    let mut ref_kinds     = Vec::with_capacity(base_refs + own.ref_kinds.len());
+
+    if let Some(b) = base {
+        field_offsets.extend_from_slice(&b.field_offsets);
+        field_sizes.extend_from_slice(&b.field_sizes);
+        field_kinds.extend_from_slice(&b.field_kinds);
+        ref_offsets.extend_from_slice(&b.ref_offsets);
+        ref_kinds.extend_from_slice(&b.ref_kinds);
+    }
+
+    for &off in own.field_offsets.iter() { field_offsets.push(off + base_shift); }
+    field_sizes.extend_from_slice(&own.field_sizes);
+    field_kinds.extend_from_slice(&own.field_kinds);
+    for &off in own.ref_offsets.iter() { ref_offsets.push(off + base_shift); }
+    ref_kinds.extend_from_slice(&own.ref_kinds);
+
+    // D12: resolve the per-field access table from composed offsets + each field's
+    // declared `type_tag` (exact tag; struct roots → TAG_UNKNOWN, ref fields → refs
+    // side-table slot via the composed ref bitmap). Skipped when no field info given.
+    let field_access: Box<[FieldAccess]> = if merged_fields.is_empty() {
+        Box::new([])
+    } else {
+        let mut acc = Vec::with_capacity(field_offsets.len());
+        for i in 0..field_offsets.len() {
+            let off = field_offsets[i];
+            let width = field_sizes.get(i).copied().unwrap_or(0);
+            // Classify from the compiler's authoritative `field_kinds` (StructLeafKind),
+            // not the field's `type_tag` string (which may be an unresolved alias).
+            let kind = field_kinds.get(i).copied().unwrap_or(STRUCT_LEAF_PRIM);
+            let type_tag = merged_fields.get(i).map(|f| f.type_tag.as_ref());
+            let (tag, ref_slot) = match kind {
+                STRUCT_LEAF_STRUCT => (TAG_UNKNOWN, -1),
+                STRUCT_LEAF_ARCSTRING => (
+                    TAG_STR,
+                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
+                ),
+                STRUCT_LEAF_GCREF => (
+                    TAG_OBJECT,
+                    ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32),
+                ),
+                // Prim (or unknown kind): resolve the exact primitive tag.
+                _ => (resolve_prim_tag(type_tag.unwrap_or(""), width), -1),
+            };
+            acc.push(FieldAccess { offset: off, width, tag, ref_slot });
+        }
+        acc.into()
+    };
+
+    ObjectLayout {
+        size: (base_shift + own.size) as usize,
+        field_offsets: field_offsets.into(),
+        field_sizes:   field_sizes.into(),
+        field_kinds:   field_kinds.into(),
+        ref_offsets:   ref_offsets.into(),
+        ref_kinds:     ref_kinds.into(),
+        field_access,
+    }
+}
+
+/// unify-object-byte-layout (PR-2): synthesize a composed `ObjectLayout` directly from
+/// a class's merged `fields` — the fallback for a normal reference class that carries
+/// **no** zbc object block (synthetic / fallback / Rust-constructed types; every class
+/// compiled at zbc ≥ 1.34 delivers a real block instead). Packs each field at its
+/// natural alignment: primitives get their `prim_width` byte window; references (and
+/// any non-primitive type name — a struct field never occurs in a layout-less type)
+/// get an 8B slot + a `refs` side-table entry. Internally consistent (all of
+/// `field_value` / `set_field_value` / GC read the same table); never cross-checked
+/// against compiler output, so its exact packing only needs to be self-consistent.
+pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
+    let mut cursor: u32 = 0;
+    let mut field_offsets = Vec::with_capacity(fields.len());
+    let mut field_sizes   = Vec::with_capacity(fields.len());
+    let mut field_kinds   = Vec::with_capacity(fields.len());
+    let mut field_access  = Vec::with_capacity(fields.len());
+    let mut ref_offsets   = Vec::new();
+    let mut ref_kinds     = Vec::new();
+    for f in fields {
+        let tag = tag_from_type_name(&f.type_tag);
+        let is_ref = is_ref_tag(tag);
+        let width: u32 = if is_ref { 8 } else { prim_width(tag).unwrap_or(8) as u32 };
+        let align = width.max(1);
+        let off = (cursor + (align - 1)) & !(align - 1);
+        cursor = off + width;
+        field_offsets.push(off);
+        field_sizes.push(width);
+        let ref_slot = if is_ref {
+            let ri = ref_offsets.len() as i32;
+            ref_offsets.push(off);
+            // Distinguish arc-string vs gcref for GC precision (STRUCT_REF_*).
+            ref_kinds.push(if tag == TAG_STR { STRUCT_REF_ARC_STRING } else { STRUCT_REF_GCREF });
+            field_kinds.push(if tag == TAG_STR { 1u8 } else { 2u8 }); // StructLeafKind ArcString/GcRef
+            ri
+        } else {
+            field_kinds.push(0u8); // StructLeafKind.Prim
+            -1
+        };
+        field_access.push(FieldAccess { offset: off, width, tag, ref_slot });
+    }
+    let size = ((cursor + 7) & !7) as usize;
+    ObjectLayout {
+        size,
+        field_offsets: field_offsets.into(),
+        field_sizes:   field_sizes.into(),
+        field_kinds:   field_kinds.into(),
+        ref_offsets:   ref_offsets.into(),
+        ref_kinds:     ref_kinds.into(),
+        field_access:  field_access.into(),
+    }
+}
+
+// ── Value ↔ byte codec (unify-object-byte-layout PR-2) ───────────────────────
+//
+// Serialization of a primitive `Value` to/from a byte window, keyed by `ty::TAG_*`.
+// Lives in `metadata` (not `interp`) because both object byte-storage
+// (`ScriptObject::field_value`) and value-struct blobs (`interp::exec_struct`) consume
+// it, and `metadata` is the lower layer both depend on. Moved here from
+// `interp::exec_struct` by PR-2 (was `add-struct-heap-inline`).
+
+/// Whether a leaf `ty::TAG_*` denotes a reference leaf (`string` / object / array),
+/// which lives in the blob's / object's `refs` side-slice rather than byte-packed.
+#[inline]
+pub fn is_ref_tag(tag: u8) -> bool {
+    matches!(tag, TAG_STR | TAG_OBJECT | TAG_ARRAY)
+}
+
+/// Byte width of a primitive leaf by its `ty::TAG_*`.
+pub fn prim_width(kind: u8) -> anyhow::Result<usize> {
+    Ok(match kind {
+        TAG_BOOL | TAG_I8 | TAG_U8 => 1,
+        TAG_I16 | TAG_U16 => 2,
+        TAG_I32 | TAG_U32 | TAG_F32 | TAG_CHAR => 4,
+        TAG_I64 | TAG_U64 | TAG_F64 => 8,
+        other => anyhow::bail!("struct field: unsupported primitive tag {other:#x}"),
+    })
+}
+
+/// Decode `w` bytes at `off` into a `Value` per `kind`. Integers → `Value::I64`,
+/// f32/f64 → `Value::F64`, bool → `Value::Bool`, char → `Value::Char` (mirrors the
+/// VM's scalar representation of primitives).
+pub fn decode_prim(bytes: &[u8], off: usize, w: usize, kind: u8) -> anyhow::Result<Value> {
+    if off + w > bytes.len() {
+        anyhow::bail!("struct field read out of blob bounds (off={off}, w={w}, len={})", bytes.len());
+    }
+    let b = &bytes[off..off + w];
+    let v = match kind {
+        TAG_BOOL => Value::Bool(b[0] != 0),
+        TAG_I8   => Value::I64(b[0] as i8 as i64),
+        TAG_U8   => Value::I64(b[0] as i64),
+        TAG_I16  => Value::I64(i16::from_le_bytes([b[0], b[1]]) as i64),
+        TAG_U16  => Value::I64(u16::from_le_bytes([b[0], b[1]]) as i64),
+        TAG_I32  => Value::I64(i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as i64),
+        TAG_U32  => Value::I64(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as i64),
+        TAG_I64 | TAG_U64 => {
+            let mut a = [0u8; 8]; a.copy_from_slice(b); Value::I64(i64::from_le_bytes(a))
+        }
+        TAG_F32  => Value::F64(f32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f64),
+        TAG_F64  => {
+            let mut a = [0u8; 8]; a.copy_from_slice(b); Value::F64(f64::from_le_bytes(a))
+        }
+        TAG_CHAR => {
+            let cp = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+            Value::Char(char::from_u32(cp).unwrap_or('\0'))
+        }
+        other => anyhow::bail!("struct field: unsupported primitive tag {other:#x}"),
+    };
+    Ok(v)
+}
+
+/// Encode `val` into `w` bytes at `off` per `kind` (in place).
+pub fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value) -> anyhow::Result<()> {
+    if off + w > bytes.len() {
+        anyhow::bail!("struct field write out of blob bounds (off={off}, w={w}, len={})", bytes.len());
+    }
+    match kind {
+        TAG_BOOL => bytes[off] = if codec_as_bool(val)? { 1 } else { 0 },
+        TAG_I8 | TAG_U8 => bytes[off] = codec_as_i64(val)? as u8,
+        TAG_I16 | TAG_U16 => bytes[off..off + 2].copy_from_slice(&(codec_as_i64(val)? as u16).to_le_bytes()),
+        TAG_I32 | TAG_U32 => bytes[off..off + 4].copy_from_slice(&(codec_as_i64(val)? as u32).to_le_bytes()),
+        TAG_I64 | TAG_U64 => bytes[off..off + 8].copy_from_slice(&codec_as_i64(val)?.to_le_bytes()),
+        TAG_F32 => bytes[off..off + 4].copy_from_slice(&(codec_as_f64(val)? as f32).to_le_bytes()),
+        TAG_F64 => bytes[off..off + 8].copy_from_slice(&codec_as_f64(val)?.to_le_bytes()),
+        TAG_CHAR => bytes[off..off + 4].copy_from_slice(&codec_as_char_u32(val)?.to_le_bytes()),
+        other => anyhow::bail!("struct field: unsupported primitive tag {other:#x}"),
+    }
+    Ok(())
+}
+
+fn codec_as_i64(v: &Value) -> anyhow::Result<i64> {
+    match v {
+        Value::I64(n) => Ok(*n),
+        Value::Bool(b) => Ok(*b as i64),
+        Value::Char(c) => Ok(*c as i64),
+        other => anyhow::bail!("struct field: expected an integer value, got {other:?}"),
+    }
+}
+
+fn codec_as_f64(v: &Value) -> anyhow::Result<f64> {
+    match v {
+        Value::F64(f) => Ok(*f),
+        Value::I64(n) => Ok(*n as f64),
+        other => anyhow::bail!("struct field: expected a float value, got {other:?}"),
+    }
+}
+
+fn codec_as_bool(v: &Value) -> anyhow::Result<bool> {
+    match v {
+        Value::Bool(b) => Ok(*b),
+        Value::I64(n) => Ok(*n != 0),
+        other => anyhow::bail!("struct field: expected a bool value, got {other:?}"),
+    }
+}
+
+fn codec_as_char_u32(v: &Value) -> anyhow::Result<u32> {
+    match v {
+        Value::Char(c) => Ok(*c as u32),
+        Value::I64(n) => Ok(*n as u32),
+        other => anyhow::bail!("struct field: expected a char value, got {other:?}"),
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
@@ -266,6 +662,17 @@ pub struct TypeDescCold {
     /// Holds the parsed descriptor directly (no runtime form yet). `None` for
     /// value/interface/enum/delegate types and modules predating the block.
     pub object_layout: Option<std::sync::Arc<super::bytecode::ObjectLayoutDesc>>,
+    /// unify-object-byte-layout (PR-2): the **composed** runtime object layout —
+    /// `object_layout` (own-only) merged with the base class's composed layout via
+    /// `compose_object_layout` (`base.composed ++ own`, own region at
+    /// `align_up(base.size, 8)`). Built at load time (`build_type_registry` for
+    /// local bases, recomputed by `try_fixup_inheritance` for cross-zpkg bases),
+    /// mirroring how `fields` is built from `own_fields`. `field_offsets[i]` aligns
+    /// by index with `fields[i]`. **Dormant in task 2.0** — carried + unit-tested but
+    /// not consumed (field access still via `slots`); task 2.1+ switches storage onto
+    /// it. `None` for value/interface/enum/delegate types and modules predating the
+    /// zbc 1.34 object block.
+    pub composed_object_layout: Option<std::sync::Arc<ObjectLayout>>,
 }
 
 impl TypeDesc {
@@ -306,6 +713,14 @@ impl TypeDesc {
     #[inline] pub fn inline_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
         self.cold.as_ref().and_then(|c| c.inline_layout.clone())
     }
+    /// unify-object-byte-layout (PR-2): the composed runtime object byte layout of
+    /// this reference class's instances (`base.composed ++ own`, own at
+    /// `align_up(base.size, 8)`). `None` for value/interface/enum/delegate types and
+    /// modules predating the zbc 1.34 object block. Cloned `Arc` (cheap). **Dormant
+    /// in task 2.0** — not yet consumed for field storage.
+    #[inline] pub fn composed_object_layout(&self) -> Option<std::sync::Arc<ObjectLayout>> {
+        self.cold.as_ref().and_then(|c| c.composed_object_layout.clone())
+    }
     /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
     /// for an instance of this class — the size of the inline value-struct byte
     /// region + the reference side-table `ScriptObject` must allocate. `(0, 0)`
@@ -315,31 +730,41 @@ impl TypeDesc {
     /// `(0, 0)` until the zbc 1.32 inline-field table (stage 3) populates it — so
     /// every existing object stays byte-identical while the loader still delivers
     /// `None`.
+    /// unify-object-byte-layout (PR-2): `(bytes_len, refs_len)` for a fresh instance —
+    /// the whole object's byte region + reference side-table (replaces P3b's
+    /// inline-only `inline_region_sizes`).
+    ///
+    /// - **Boxed value struct** (`is_struct`): the payload IS the struct blob — size
+    ///   from the type's own `struct_layout` (blob byte size + reference-leaf count).
+    ///   (add-boxed-struct-identity P4b: only boxes hit `alloc_object`; frame-arena
+    ///   value structs never do.)
+    /// - **Normal reference class**: the composed object layout (`base.composed ++ own`)
+    ///   — `size` bytes + `ref_count` reference slots.
+    /// - **No layout** (synthetic / Rust-constructed / fallback): synthesize from
+    ///   `fields`; `(0, 0)` for a field-less type.
     #[inline]
-    pub fn inline_region_sizes(&self) -> (usize, usize) {
-        // add-boxed-struct-identity (P4b, 路 B2): a boxed value struct is a struct-typed
-        // `ScriptObject` whose entire payload IS the struct blob — size it from the type's
-        // own `struct_layout` (the blob byte size + reference-leaf count), so `alloc_object`
-        // lays out `struct_bytes`/`struct_refs` for the box. Only struct-typed objects (=
-        // boxes) hit this; regular value structs live in the frame arena, never `alloc_object`.
+    pub fn object_region_sizes(&self) -> (usize, usize) {
         if self.is_struct() {
-            if let Some(sl) = self.struct_layout() {
-                return (sl.size, sl.ref_count());
-            }
+            return match self.struct_layout() {
+                Some(sl) => (sl.size, sl.ref_count()),
+                None => (0, 0),
+            };
         }
-        match self.cold.as_ref().and_then(|c| c.inline_layout.as_ref()) {
-            Some(il) => (il.size, il.ref_count()),
-            None => (0, 0),
+        if let Some(col) = self.composed_object_layout() {
+            return (col.size, col.ref_count());
         }
+        if self.fields.is_empty() { return (0, 0); }
+        let l = synthesize_object_layout(&self.fields);
+        (l.size, l.ref_count())
     }
 
-    /// add-struct-heap-inline (P3b, D1-a): allocate the zero-initialized inline
-    /// byte region + `Null`-filled reference side-table for a fresh instance.
-    /// `(empty, empty)` until inline fields exist (stage 1). Single call site per
-    /// `ScriptObject` construction so the sizing logic lives in one place.
+    /// unify-object-byte-layout (PR-2): allocate the zero-initialized byte region +
+    /// `Null`-filled reference side-table for a fresh instance. Zero bytes = every
+    /// primitive field's default (0 / false / '\0'); `Null` refs = every reference
+    /// field's default. Single sizing site for every `ScriptObject` construction.
     #[inline]
-    pub fn inline_regions(&self) -> (Box<[u8]>, Box<[Value]>) {
-        let (nb, nr) = self.inline_region_sizes();
+    pub fn object_regions(&self) -> (Box<[u8]>, Box<[Value]>) {
+        let (nb, nr) = self.object_region_sizes();
         let bytes = if nb == 0 { Box::from([]) } else { vec![0u8; nb].into_boxed_slice() };
         let refs = if nr == 0 { Box::from([]) } else { vec![Value::Null; nr].into_boxed_slice() };
         (bytes, refs)
@@ -429,29 +854,23 @@ pub enum NativeData {
 pub struct ScriptObject {
     /// Type descriptor shared across all instances of this class.
     pub type_desc: Arc<TypeDesc>,
-    /// Field storage indexed by slot (see `TypeDesc.field_index`).
-    ///
-    /// review.md E2.P6 (2026-06-02): `Box<[Value]>` instead of `Vec<Value>` —
-    /// slot count is fixed at `alloc_object` time (= `TypeDesc.fields.len()`)
-    /// and never grows. Saves 8 B/object vs `Vec` (no `capacity` word).
-    /// Mutation via `obj.slots[i] = v` still works; `&mut [Value]` indexing
-    /// is unchanged.
-    pub slots: Box<[Value]>,
-    /// add-struct-heap-inline (P3b, D1-a): byte-packed primitive leaves of every
-    /// **inline value-struct field** this class declares (`class C { Point pt; }`).
-    /// Non-struct fields stay in `slots`; a struct-typed field occupies a
-    /// `[field_byte_off, +struct_size)` window here instead of a `slots` cell.
-    /// Empty for classes with no inline struct fields (byte-identical to pre-P3b).
-    /// Size comes from `TypeDesc::inline_region_sizes` (delivered by the zbc
-    /// inline-field table, format 1.32). Zero-initialized at alloc = struct default.
-    pub struct_bytes: Box<[u8]>,
-    /// add-struct-heap-inline (P3b, D1-a): reference leaves (`string`/object/array)
-    /// of this object's inline struct fields, as real `Value`s in a side-table
-    /// (mirrors `struct_arena::StructSlot::refs` + `BoxedStructData::refs`). GC
-    /// scans these directly (`visitor(&Value)`), and a write to one is a plain
-    /// `Value`-slot store routed through `write_barrier_field`. Ordered by the
-    /// composed reference bitmap of the inline fields. Empty when no inline fields.
-    pub struct_refs: Box<[Value]>,
+    /// unify-object-byte-layout (PR-2): the object's **byte-packed** field storage.
+    /// Every primitive leaf of every direct field (incl. inline-struct interior
+    /// primitive leaves) lives at its composed byte offset (`ObjectLayout::field_access`
+    /// / `field_offsets`); reference fields occupy an 8B hole here (dead in PR-2 — the
+    /// value is in `refs`; PR-3 inlines the 8B pointer). Replaces the pre-PR-2
+    /// `slots: Box<[Value]>` + `struct_bytes` (P3b). Size = `ObjectLayout::size`
+    /// (or the type's `struct_layout` size for a boxed value struct). Zero-initialized
+    /// at alloc = every primitive field's default (0 / false / '\0').
+    pub bytes: Box<[u8]>,
+    /// unify-object-byte-layout (PR-2): the object's **reference leaves** as real
+    /// `Value`s in a side-table — every reference field + every inline-struct interior
+    /// reference leaf, ordered by the composed reference bitmap
+    /// (`ObjectLayout::ref_offsets` / `FieldAccess::ref_slot`). GC scans these directly
+    /// (`visitor(&Value)`); a write to one is a plain `Value`-slot store routed through
+    /// `write_barrier_field`. Replaces the pre-PR-2 `struct_refs` (P3b) and the
+    /// reference cells of `slots`. `Null`-filled at alloc.
+    pub refs: Box<[Value]>,
     /// Native backing for built-in types (e.g. StringBuilder buffer).
     pub native: NativeData,
     /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
@@ -476,17 +895,84 @@ impl ScriptObject {
     pub fn boxed_prim_i64(&self) -> Option<i64> {
         let (width, signed) =
             crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?;
-        if self.struct_bytes.len() < width {
+        if self.bytes.len() < width {
             return None;
         }
         let mut buf = [0u8; 8];
-        buf[..width].copy_from_slice(&self.struct_bytes[..width]);
+        buf[..width].copy_from_slice(&self.bytes[..width]);
         let mut v = i64::from_le_bytes(buf);
         if signed && width < 8 {
             let shift = (8 - width) * 8;
             v = (v << shift) >> shift; // 符号扩展窄整数
         }
         Some(v)
+    }
+
+    /// unify-object-byte-layout (PR-2): the resolved `FieldAccess` for a direct field
+    /// `slot` (see `TypeDesc::field_index`). Reads the type's composed object layout;
+    /// falls back to on-the-fly synthesis for a layout-less type (rare — synthetic /
+    /// Rust-constructed). `FieldAccess` is `Copy`, so no borrow of the layout escapes.
+    #[inline]
+    fn field_access_of(&self, slot: usize) -> Option<FieldAccess> {
+        if let Some(col) = self.type_desc.composed_object_layout() {
+            return col.field_access.get(slot).copied();
+        }
+        if self.type_desc.fields.is_empty() { return None; }
+        synthesize_object_layout(&self.type_desc.fields).field_access.get(slot).copied()
+    }
+
+    /// unify-object-byte-layout (PR-2): read direct field `slot` as a `Value`.
+    /// Primitive → `decode_prim` off `bytes`; reference → the `refs` side-table cell.
+    /// `Null` for an out-of-range slot or a struct-typed root (accessed via
+    /// `StructFieldGetPrim`, never `FieldGet`). Replaces `self.slots[slot].clone()`.
+    #[inline]
+    pub fn field_value(&self, slot: usize) -> Value {
+        let fa = match self.field_access_of(slot) { Some(f) => f, None => return Value::Null };
+        if fa.ref_slot >= 0 {
+            return self.refs.get(fa.ref_slot as usize).cloned().unwrap_or(Value::Null);
+        }
+        if fa.tag == TAG_UNKNOWN {
+            return Value::Null; // struct-typed root — not a FieldGet target
+        }
+        decode_prim(&self.bytes, fa.offset as usize, fa.width as usize, fa.tag)
+            .unwrap_or(Value::Null)
+    }
+
+    /// unify-object-byte-layout (PR-2): write direct field `slot` from `v`.
+    /// Primitive → `encode_prim` into `bytes`; reference → the `refs` side-table cell.
+    /// Returns `true` iff the target is a reference slot (so the caller fires a GC
+    /// `write_barrier_field` when `v.is_heap_ref()`). No-op (returns `false`) for an
+    /// out-of-range slot or struct-typed root. Replaces `self.slots[slot] = v`.
+    #[inline]
+    pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
+        let fa = match self.field_access_of(slot) { Some(f) => f, None => return false };
+        if fa.ref_slot >= 0 {
+            if let Some(cell) = self.refs.get_mut(fa.ref_slot as usize) { *cell = v.clone(); }
+            return true;
+        }
+        if fa.tag == TAG_UNKNOWN { return false; } // struct-typed root
+        // Reflection (FieldInfo/PropertyInfo SetValue) passes primitives **boxed**
+        // (`int` → a `Std.Int32` `BoxedStruct`); a boxed primitive's bytes ARE its raw
+        // scalar, so decode it with the field's tag/width to recover the plain `Value`
+        // that `encode_prim` needs. Non-boxed values (the common FieldSet path from z42
+        // code) pass through untouched.
+        let unboxed: Value;
+        let src: &Value = match v {
+            Value::BoxedStruct(gc) => {
+                let b = gc.borrow();
+                if b.bytes.len() >= fa.width as usize {
+                    unboxed = decode_prim(&b.bytes, 0, fa.width as usize, fa.tag)
+                        .unwrap_or(Value::Null);
+                    &unboxed
+                } else {
+                    // Not a same-width primitive box — leave as-is (encode may reject).
+                    v
+                }
+            }
+            _ => v,
+        };
+        let _ = encode_prim(&mut self.bytes, fa.offset as usize, fa.width as usize, fa.tag, src);
+        false
     }
 }
 
@@ -761,10 +1247,10 @@ impl ArrayObj {
                     let bo = b.borrow();
                     let rc = layout.ref_count();
                     let bstart = i * *elem_size;
-                    let n = bo.struct_bytes.len().min(*elem_size);
-                    bytes[bstart..bstart + n].copy_from_slice(&bo.struct_bytes[..n]);
-                    let rn = bo.struct_refs.len().min(rc);
-                    for k in 0..rn { refs[i * rc + k] = bo.struct_refs[k].clone(); }
+                    let n = bo.bytes.len().min(*elem_size);
+                    bytes[bstart..bstart + n].copy_from_slice(&bo.bytes[..n]);
+                    let rn = bo.refs.len().min(rc);
+                    for k in 0..rn { refs[i * rc + k] = bo.refs[k].clone(); }
                 } else {
                     debug_assert!(false,
                         "struct[] set_boxed needs a BoxedStruct source (StructRef → exec-level ArraySet), got {val:?}");
@@ -1182,10 +1668,10 @@ impl Value {
         match self {
             Value::Object(rc) => {
                 let obj = rc.borrow();
-                for slot in &obj.slots { visit(slot); }
-                // add-struct-heap-inline (P3b): inline struct fields' reference
-                // leaves (D1-a side-table). Empty for classes with no inline fields.
-                for r in &obj.struct_refs { visit(r); }
+                // unify-object-byte-layout (PR-2): every reference leaf (fields +
+                // inline-struct interior refs) lives in `refs`; `bytes` holds only
+                // primitives (+ dead 8B ref holes) — no GcRefs to scan there.
+                for r in &obj.refs { visit(r); }
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -1203,13 +1689,12 @@ impl Value {
                 }
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
-                    for slot in &obj.slots { visit(slot); }
-                    for r in &obj.struct_refs { visit(r); }  // add-struct-heap-inline (P3b)
+                    for r in &obj.refs { visit(r); }  // unify-object-byte-layout (PR-2)
                 }
             },
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
             // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.struct_refs { visit(r); } }
+            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visit(r); } }
             // add-struct-heap-inline (P3b): a struct[] element handle — follow the
             // backing array's reference leaves so they stay marked (the array entry
             // itself is marked by the `StructRefHeap` arm of the mark loop).
@@ -1279,8 +1764,8 @@ impl PartialEq for Value {
                 } else {
                     let (ao, bo) = (a.borrow(), b.borrow());
                     ao.type_desc.name == bo.type_desc.name
-                        && ao.struct_bytes == bo.struct_bytes
-                        && ao.struct_refs == bo.struct_refs
+                        && ao.bytes == bo.bytes
+                        && ao.refs == bo.refs
                 }
             }
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,

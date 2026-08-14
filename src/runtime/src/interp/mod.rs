@@ -425,7 +425,7 @@ pub(crate) fn deref_ref(
                 .ok_or_else(|| anyhow::anyhow!(
                     "ref field `{field_name}` not found on type `{}`",
                     obj.type_desc.name))?;
-            Ok(obj.slots.get(slot).cloned().unwrap_or(Value::Null))
+            Ok(obj.field_value(slot))
         }
     }
 }
@@ -467,11 +467,13 @@ pub(crate) fn store_thru_ref(
             let mut obj = gc_ref.borrow_mut();
             let slot_opt = obj.type_desc.field_index.get(field_name).copied();
             match slot_opt {
-                Some(slot) if slot < obj.slots.len() => {
-                    obj.slots[slot] = val;
+                // unify-object-byte-layout (PR-2): encode into bytes / refs. (No GC
+                // write barrier here — parity with the pre-PR-2 store-through-ref path.)
+                Some(slot) => {
+                    obj.set_field_value(slot, &val);
                     Ok(())
                 }
-                _ => anyhow::bail!(
+                None => anyhow::bail!(
                     "ref field `{field_name}` not found on type `{}`",
                     obj.type_desc.name),
             }

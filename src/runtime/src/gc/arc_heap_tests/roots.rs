@@ -80,7 +80,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
     let outer = heap.alloc_object(dummy_type_desc("Outer"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &outer else { panic!() };
-        g.borrow_mut().slots[0] = inner.clone();
+        g.borrow_mut().refs[0] = inner.clone();
     }
 
     let frame_regs: std::sync::Arc<parking_lot::Mutex<Vec<Value>>>
@@ -100,14 +100,14 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
 
     heap.collect_cycles();
 
-    // Verify: outer / inner 数据 intact（inner.slots[0] = 42 未被错误清空）
+    // Verify: outer / inner 数据 intact（inner.refs[0] = 42 未被错误清空）
     let regs = frame_regs.lock();
     let Value::Object(outer_gc) = &regs[0] else { panic!() };
-    let inner_val = outer_gc.borrow().slots[0].clone();
+    let inner_val = outer_gc.borrow().refs[0].clone();
     let Value::Object(inner_gc) = &inner_val else {
         panic!("inner should still be Object, got {:?}", inner_val);
     };
-    assert_eq!(inner_gc.borrow().slots[0], Value::I64(42),
+    assert_eq!(inner_gc.borrow().refs[0], Value::I64(42),
         "Phase 3f: transitively reachable inner survives collect when outer in frame regs");
 }
 
@@ -151,9 +151,9 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().slots[0] = b.clone();
+        g.borrow_mut().refs[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().slots[0] = a.clone();
+        g.borrow_mut().refs[0] = a.clone();
     }
 
     // 把 a 放到 external（模拟 static_fields 持有），drop 本地强引用
@@ -164,7 +164,7 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     heap.collect_cycles();
 
     // a 应该仍然存活（external scanner 把它喂进 reachable）
-    // b 也存活（a.slots[0] = b 链可达）
+    // b 也存活（a.refs[0] = b 链可达）
     let mut count = 0;
     heap.iterate_live_objects(&mut |_| count += 1);
     assert_eq!(count, 2, "external-rooted cycle survives collect");
@@ -172,9 +172,9 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     // 关键：a 的 slots 应该 intact（不被误清）
     let alive_a = external.lock()[0].clone();
     let Value::Object(g) = &alive_a else { panic!() };
-    let slot0 = g.borrow().slots[0].clone();
+    let slot0 = g.borrow().refs[0].clone();
     assert!(matches!(slot0, Value::Object(_)),
-        "a.slots[0] still references b (NOT cleared by collector)");
+        "a.refs[0] still references b (NOT cleared by collector)");
 }
 
 #[test]
@@ -196,9 +196,9 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().slots[0] = b.clone();
+        g.borrow_mut().refs[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().slots[0] = a.clone();
+        g.borrow_mut().refs[0] = a.clone();
     }
     drop(a); drop(b);
 

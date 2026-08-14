@@ -170,7 +170,7 @@ mod make_stdlib_exception_tests {
         populate_stack_trace(&val, &ctx, &module);
         let trace = read_stack_trace(&val, &module);
         assert!(trace.is_some() || matches!(&val, Value::Object(rc)
-            if matches!(rc.borrow().slots[1], Value::Str(_))),
+            if matches!(rc.borrow().field_value(1), Value::Str(_))),
             "StackTrace populated as Value::Str (even if empty for an empty call stack)");
     }
 

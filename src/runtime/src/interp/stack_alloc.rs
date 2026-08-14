@@ -135,11 +135,9 @@ impl StackArena {
     /// stay marked). Mirrors the frame `env_arena` root scan.
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for s in &self.objs {
-            for slot in s.obj.slots.iter() {
-                visit(slot);
-            }
-            // add-struct-heap-inline (P3b): inline struct fields' reference leaves.
-            for r in s.obj.struct_refs.iter() {
+            // unify-object-byte-layout (PR-2): all reference leaves live in `refs`;
+            // `bytes` holds only primitives.
+            for r in s.obj.refs.iter() {
                 visit(r);
             }
         }

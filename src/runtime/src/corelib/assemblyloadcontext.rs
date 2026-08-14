@@ -74,8 +74,8 @@ fn type_asm_id(args: &[Value]) -> AssemblyId {
     if let Some(Value::Object(rc)) = args.first() {
         let o = rc.borrow();
         if let Some(&i) = o.type_desc.field_index.get(ASM_ID_SLOT) {
-            if let Some(Value::I64(v)) = o.slots.get(i) {
-                return AssemblyId(*v as u32);
+            if let Value::I64(v) = o.field_value(i) {
+                return AssemblyId(v as u32);
             }
         }
     }
@@ -89,7 +89,7 @@ fn set_type_asm_id(tv: &Value, aid: AssemblyId) {
         let mut o = rc.borrow_mut();
         let idx = o.type_desc.field_index.get(ASM_ID_SLOT).copied();
         if let Some(i) = idx {
-            o.slots[i] = Value::I64(aid.0 as i64);
+            o.set_field_value(i, &Value::I64(aid.0 as i64));
         }
     }
 }

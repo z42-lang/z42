@@ -240,7 +240,8 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
         match v {
             Value::Object(gc) => {
                 let obj = gc.borrow();
-                let names: Vec<String> = (0..obj.slots.len())
+                let nfields = obj.type_desc.fields.len();
+                let names: Vec<String> = (0..nfields)
                     .map(|i| {
                         obj.type_desc
                             .fields
@@ -249,9 +250,10 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                             .unwrap_or_else(|| format!("slot{}", i))
                     })
                     .collect();
-                // slots is `Box<[Value]>` since review.md E2.P6 (2026-06-02).
-                // Clone yields another `Box<[Value]>` — iter() works the same.
-                let slots: Box<[Value]> = obj.slots.clone();
+                // unify-object-byte-layout (PR-2): materialize each field's Value
+                // (primitives decode; reference fields yield the `refs` cell). Only
+                // reference children matter to the snapshot graph (`value_ptr`).
+                let slots: Vec<Value> = (0..nfields).map(|i| obj.field_value(i)).collect();
                 drop(obj);
                 for (i, child) in slots.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {

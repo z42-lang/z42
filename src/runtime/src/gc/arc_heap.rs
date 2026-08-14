@@ -550,7 +550,7 @@ impl ArcMagrGC {
             if e.is_marked() {
                 let obj = e.value.lock();
                 let ty = obj.type_desc.name.clone();
-                let nslots = obj.slots.len();
+                let nslots = obj.refs.len(); // unify-object-byte-layout (PR-2): ref-slot count (diagnostic)
                 stale_obj = Some((h.chunk_idx as u32, h.entry_idx as u32, ty, nslots));
             }
         });
@@ -903,8 +903,10 @@ impl ArcMagrGC {
                 let entry = region.resolve(h);
                 if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
                     let mut obj = entry.value.lock();
-                    for slot in obj.slots.iter_mut() {
-                        *slot = Value::Null;
+                    // unify-object-byte-layout (PR-2): only the reference side-table
+                    // holds GcRefs to break; `bytes` are primitives.
+                    for r in obj.refs.iter_mut() {
+                        *r = Value::Null;
                     }
                 }
             }
@@ -1232,8 +1234,10 @@ impl ArcMagrGC {
                 let entry = region.resolve(h);
                 if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
                     let mut obj = entry.value.lock();
-                    for slot in obj.slots.iter_mut() {
-                        *slot = Value::Null;
+                    // unify-object-byte-layout (PR-2): only the reference side-table
+                    // holds GcRefs to break; `bytes` are primitives.
+                    for r in obj.refs.iter_mut() {
+                        *r = Value::Null;
                     }
                 }
             }
@@ -1298,7 +1302,7 @@ impl ArcMagrGC {
         // slots is `Box<[Value]>` — len == actual allocation (no excess
         // capacity to charge separately).
         (size_of::<Value>() + size_of::<ScriptObject>()
-            + obj.slots.len() * size_of::<Value>()) as u64
+            + obj.bytes.len() + obj.refs.len() * size_of::<Value>()) as u64
     }
 
     fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
@@ -1465,7 +1469,7 @@ impl ArcMagrGC {
                 let self_ptr = entry.value.data_ptr() as usize;
                 let obj = entry.value.lock();
                 let type_name = obj.type_desc.name.clone();
-                for slot in obj.slots.iter() {
+                for slot in obj.refs.iter() {
                     if let Some(child) = value_heap_ptr(slot) {
                         g.add_edge(
                             child,
@@ -1784,19 +1788,23 @@ impl MagrGC for ArcMagrGC {
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value {
-        // review.md E2.P6 (2026-06-02): `slots` is `Box<[Value]>` now.
-        // Vec → Box<[T]> drops excess capacity; for the common case where
-        // the caller pre-sized to `TypeDesc.fields.len()` this is a zero
-        // realloc shrink-to-fit.
-        let (struct_bytes, struct_refs) = type_desc.inline_regions();
-        let obj = ScriptObject {
+        // unify-object-byte-layout (PR-2): `slots` is now **initial field values by
+        // slot index** (not a stored `Box<[Value]>`). Allocate the zeroed byte region
+        // + `Null` refs from the composed layout (zero = every primitive/ref default),
+        // then encode each provided initial value through `set_field_value`. Callers
+        // that pass `Vec::new()` (e.g. `obj_new`, which relies on defaults) skip the
+        // loop entirely — zero-init already equals the old per-field defaults.
+        let (bytes, refs) = type_desc.object_regions();
+        let mut obj = ScriptObject {
             type_desc,
-            slots: slots.into_boxed_slice(),
-            struct_bytes,
-            struct_refs,
+            bytes,
+            refs,
             native,
             type_args: Box::new([]),
         };
+        for (i, v) in slots.into_iter().enumerate() {
+            obj.set_field_value(i, &v);
+        }
 
         self.finish_alloc(obj)
     }
@@ -1806,12 +1814,13 @@ impl MagrGC for ArcMagrGC {
     /// **不走 `type_desc.inline_regions()`**（基元 wrapper 如 Int32 是零字段 struct，layout size=0，
     /// 装不下标量）。整数装箱无引用叶子 → `struct_refs`/`slots` 空。返 `Value::Object`，调用方包成
     /// `Value::BoxedStruct`（与 struct 装箱同款引用身份/GC/反射路径）。
-    fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, struct_bytes: Box<[u8]>) -> Value {
+    fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, scalar_bytes: Box<[u8]>) -> Value {
+        // unify-object-byte-layout (PR-2): the boxed scalar IS the object's whole byte
+        // payload (`bytes`); no reference leaves.
         let obj = ScriptObject {
             type_desc,
-            slots: Box::new([]),
-            struct_bytes,
-            struct_refs: Box::new([]),
+            bytes: scalar_bytes,
+            refs: Box::new([]),
             native: NativeData::None,
             type_args: Box::new([]),
         };
@@ -1987,9 +1996,8 @@ impl MagrGC for ArcMagrGC {
                 // slots is `Box<[Value]>` — len == actual allocation.
                 // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.slots.len() * size_of::<Value>()
-                    + obj.struct_bytes.len()
-                    + obj.struct_refs.len() * size_of::<Value>()
+                    + obj.bytes.len()
+                    + obj.refs.len() * size_of::<Value>()
             }
             // Spec C4: PinnedView holds raw ptr+len; the borrowed buffer
             // itself is owned by the source `Value::Str` / `Value::Array`,
@@ -2037,9 +2045,8 @@ impl MagrGC for ArcMagrGC {
             Value::BoxedStruct(gc) => {
                 let obj = gc.borrow();
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.slots.len() * size_of::<Value>()
-                    + obj.struct_bytes.len()
-                    + obj.struct_refs.len() * size_of::<Value>()
+                    + obj.bytes.len()
+                    + obj.refs.len() * size_of::<Value>()
             }
             // add-struct-heap-inline (P3b): a struct[] element handle — the backing
             // array is accounted via its own Value::Array; charge only the boxed handle.
@@ -2052,11 +2059,9 @@ impl MagrGC for ArcMagrGC {
         match value {
             Value::Object(rc) => {
                 let obj = rc.borrow();
-                for slot in &obj.slots { visitor(slot); }
-                // add-struct-heap-inline (P3b): reference leaves of inline struct
-                // fields live in the `struct_refs` side-table (D1-a), scanned like
-                // any object field. Empty for classes with no inline struct fields.
-                for r in &obj.struct_refs { visitor(r); }
+                // unify-object-byte-layout (PR-2): all reference leaves consolidated
+                // into `refs`; `bytes` holds only primitives (+ dead ref holes).
+                for r in &obj.refs { visitor(r); }
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -2080,13 +2085,12 @@ impl MagrGC for ArcMagrGC {
                 }
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
-                    for slot in &obj.slots { visitor(slot); }
-                    for r in &obj.struct_refs { visitor(r); }  // add-struct-heap-inline (P3b)
+                    for r in &obj.refs { visitor(r); }  // unify-object-byte-layout (PR-2)
                 }
             },
             // add-boxed-struct-identity (P4b, 路 B2): boxed struct 是共享 `ScriptObject`——扫其
             // struct_refs 引用叶子（slots 空），与 Object 臂同（镜像 trace_children 的 BoxedStruct 分支）。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.struct_refs { visitor(r); } }
+            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visitor(r); } }
             // add-struct-heap-inline (P3b): struct[] element handle — follow the
             // backing array's reference leaves (mirrors trace_children).
             Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }

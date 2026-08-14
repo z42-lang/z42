@@ -69,9 +69,8 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 fn is_heap_ref_true_for_object() {
     let v = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
-        slots: Box::new([]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -104,9 +103,8 @@ fn is_heap_ref_true_for_ref_array() {
 fn is_heap_ref_true_for_ref_field() {
     let obj = GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
-        slots: Box::new([Value::I64(0)]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     });
@@ -125,17 +123,17 @@ fn trace_children_visits_inline_struct_refs() {
     // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
     let leaf = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Leaf"),
-        slots: Box::new([]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
     let owner = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Owner"),
-        slots: Box::new([Value::I64(7)]),          // an ordinary field
-        struct_bytes: Box::new([0u8; 8]),          // inline struct's packed primitives
-        struct_refs: Box::new([leaf.clone()]),     // inline struct's reference leaf
+        // unify-object-byte-layout (PR-2): primitives (+ dead ref holes) in `bytes`,
+        // all reference leaves in `refs`. The inline-struct reference leaf lives in refs.
+        bytes: Box::new([0u8; 8]),
+        refs: Box::new([leaf.clone()]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -144,8 +142,8 @@ fn trace_children_visits_inline_struct_refs() {
     owner.trace_children(&mut |v: &Value| {
         if matches!(v, Value::Object(_)) { visited_object_children += 1; }
     });
-    // The ordinary I64 field is not an object; the inline struct_refs leaf is.
-    assert_eq!(visited_object_children, 1, "inline struct_refs leaf must be traced");
+    // Only the reference leaf in `refs` is an object; `bytes` holds no GcRefs.
+    assert_eq!(visited_object_children, 1, "reference leaf in refs must be traced");
 }
 
 #[test]
@@ -209,13 +207,13 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
 }
 
 #[test]
-fn inline_regions_empty_by_default() {
-    // Stage 1: no class carries inline-field metadata → both regions empty, so
-    // every existing object is byte-identical to pre-P3b.
+fn object_regions_empty_for_fieldless_type() {
+    // unify-object-byte-layout (PR-2): a field-less type with no delivered/synthesized
+    // layout has empty byte + reference regions.
     let td = dummy_type_desc("Plain");
-    let (bytes, refs) = td.inline_regions();
+    let (bytes, refs) = td.object_regions();
     assert!(bytes.is_empty() && refs.is_empty());
-    assert_eq!(td.inline_region_sizes(), (0, 0));
+    assert_eq!(td.object_region_sizes(), (0, 0));
 }
 
 #[test]
@@ -361,9 +359,10 @@ fn value_bool_payload_at_offset_8() {
 fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
     GcRef::new(ScriptObject {
         type_desc: dummy_type_desc(name),
-        slots: Box::new([]),
-        struct_bytes: bytes.to_vec().into_boxed_slice(),
-        struct_refs: Box::new([]),
+        // unify-object-byte-layout (PR-2): a boxed primitive's scalar is its whole
+        // `bytes` payload; no reference leaves.
+        bytes: bytes.to_vec().into_boxed_slice(),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     })
@@ -394,4 +393,78 @@ fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
     assert_eq!(boxed_prim("Std.Double", &8u64.to_le_bytes()).borrow().boxed_prim_i64(), None);
     // struct_bytes 短于 wrapper 宽度（不该发生）→ None，不 panic
     assert_eq!(boxed_prim("Std.Int32", &[1, 2]).borrow().boxed_prim_i64(), None);
+}
+
+// ── unify-object-byte-layout (PR-2, task 2.0): compose_object_layout ──────────
+
+#[test]
+fn compose_object_layout_root_is_identity() {
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 24,
+        field_offsets: Box::new([0, 8, 16]),
+        field_sizes:   Box::new([8, 8, 8]),
+        field_kinds:   Box::new([0, 1, 2]),
+        ref_offsets:   Box::new([8, 16]),
+        ref_kinds:     Box::new([1, 2]),
+    };
+    let composed = compose_object_layout(None, &own, &[]);
+    // No base → identity (base_shift 0).
+    assert_eq!(composed.size, 24);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
+    assert_eq!(&*composed.ref_offsets, &[8, 16]);
+    assert_eq!(composed.ref_count(), 2);
+}
+
+#[test]
+fn compose_object_layout_pads_base_to_8() {
+    // Base size 1 (single bool) must pad to 8 before the own region starts —
+    // the unified 8B inheritance boundary keeps 8-aligned refs aligned.
+    let base = ObjectLayout {
+        size: 1,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([1]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+        field_access: Box::new([]),
+    };
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([2]),
+        ref_offsets:   Box::new([0]),
+        ref_kinds:     Box::new([2]),
+    };
+    let composed = compose_object_layout(Some(&base), &own, &[]);
+    // base_shift = align_up(1, 8) = 8.
+    assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
+    assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
+    assert_eq!(&*composed.ref_offsets, &[8], "own ref leaf shifted to 8");
+    assert_eq!(composed.ref_index(8), Some(0));
+}
+
+#[test]
+fn compose_object_layout_already_aligned_base_no_extra_pad() {
+    let base = ObjectLayout {
+        size: 16,
+        field_offsets: Box::new([0, 8]),
+        field_sizes:   Box::new([8, 8]),
+        field_kinds:   Box::new([0, 0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+        field_access: Box::new([]),
+    };
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 4,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([4]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+    let composed = compose_object_layout(Some(&base), &own, &[]);
+    // align_up(16, 8) == 16 — no extra padding.
+    assert_eq!(composed.size, 20);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
 }

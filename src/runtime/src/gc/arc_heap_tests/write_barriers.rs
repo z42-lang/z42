@@ -147,8 +147,8 @@ fn barrier_install_does_not_alter_gc_collect_behavior() {
         {
             let Value::Object(a_gc) = &a else { panic!() };
             let Value::Object(b_gc) = &b else { panic!() };
-            a_gc.borrow_mut().slots[0] = b.clone();
-            b_gc.borrow_mut().slots[0] = a.clone();
+            a_gc.borrow_mut().refs[0] = b.clone();
+            b_gc.borrow_mut().refs[0] = a.clone();
         }
         drop(a); drop(b);
         heap.force_collect()
@@ -165,8 +165,8 @@ fn barrier_install_does_not_alter_gc_collect_behavior() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().slots[0] = b.clone();
-        b_gc.borrow_mut().slots[0] = a.clone();
+        a_gc.borrow_mut().refs[0] = b.clone();
+        b_gc.borrow_mut().refs[0] = a.clone();
     }
     drop(a); drop(b);
     let observed_stats = heap.force_collect();

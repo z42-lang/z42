@@ -202,8 +202,8 @@ fn collect_cycles_with_context_routes_concurrent_under_concurrent_mode() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().slots[0] = b.clone();
-        b_gc.borrow_mut().slots[0] = a.clone();
+        a_gc.borrow_mut().refs[0] = b.clone();
+        b_gc.borrow_mut().refs[0] = a.clone();
     }
     drop(a); drop(b);
 
@@ -241,8 +241,8 @@ fn collect_cycles_with_context_default_stw_unchanged() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().slots[0] = b.clone();
-        b_gc.borrow_mut().slots[0] = a.clone();
+        a_gc.borrow_mut().refs[0] = b.clone();
+        b_gc.borrow_mut().refs[0] = a.clone();
     }
     drop(a); drop(b);
 
@@ -294,8 +294,8 @@ fn concurrent_collect_inline_frees_unreachable_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().slots[0] = b.clone();
-        b_gc.borrow_mut().slots[0] = a.clone();
+        a_gc.borrow_mut().refs[0] = b.clone();
+        b_gc.borrow_mut().refs[0] = a.clone();
     }
     drop(a); drop(b);
     assert_eq!(alive_count(&heap), 2);
@@ -345,14 +345,14 @@ fn concurrent_collect_inline_with_simulated_barrier_marks_late_writes() {
     // Phase: pre-mark — simulate concurrent collect start by snapshotting roots
     heap.snapshot_roots_into_mark_queue_for_test();
 
-    // Simulate mutator: write a new object into root.slots[0] mid-collect.
+    // Simulate mutator: write a new object into root.refs[0] mid-collect.
     // Barrier dispatch shades the new object gray + enqueues.
     let new_child = heap.alloc_object(
         dummy_type_desc("LateChild"), vec![], NativeData::None
     );
     {
         let Value::Object(root_gc) = &root_obj else { panic!() };
-        root_gc.borrow_mut().slots[0] = new_child.clone();
+        root_gc.borrow_mut().refs[0] = new_child.clone();
     }
     heap.write_barrier_field(&root_obj, 0, &new_child);  // P3 barrier dispatch
 
@@ -360,7 +360,7 @@ fn concurrent_collect_inline_with_simulated_barrier_marks_late_writes() {
     let _traced = heap.run_cycle_collection_concurrent_inline_for_test();
 
     // Expectation: late-written child survives because barrier marked it.
-    // root (pinned) + late_child (barrier-shaded, reachable via root.slots[0]).
+    // root (pinned) + late_child (barrier-shaded, reachable via root.refs[0]).
     assert_eq!(alive_count(&heap), 2,
         "late-barrier-shaded child survives concurrent collect");
 

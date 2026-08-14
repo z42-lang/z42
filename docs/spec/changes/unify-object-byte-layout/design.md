@@ -93,3 +93,128 @@
 - **自举**：`xtask test compiler` 5/5 byte-identical；`xtask test bootstrap` 无越界。
 - **格式**：`xtask build test` 重生 zbc/zpkg fixture；`cargo test zbc_compat / lazy_loader`。
 - **完整 GREEN**：每 PR `xtask test` 全 stage。
+
+## PR-2 Implementation Notes（2026-08-14，User 裁决 Option B = 运行时组合）
+
+落地 D1（删 `slots`，统一到单 `bytes` 区）的具体机制，把 P3b 已验证的「对象基址字节访问 +
+`ref_index` 侧表」范式（`exec_struct::struct_field_get_val` / `struct_field_set_val` 的
+`Value::Object` 臂）从「仅内联 struct 字段」推广到**对象全部直接字段**。
+
+### D8: 引用暂存侧表（不内联进 bytes）—— 8B-baked offset 强制
+PR-1 的 `ObjectLayoutDesc` 按 **8B 引用宽度**记 offset。PR-2 引用仍 16B（`Value`），**无法**内联进
+bytes 的 8B 槽（会错位后续字段）。故 PR-2：`bytes: Box<[u8]>` 承载**全部基元叶子**（含内联 struct
+基元叶子），引用字段的 8B 槽是**空洞**（dead，PR-3 填 8B 指针）；`refs: Box<[Value]>` 承载**全部
+引用叶子**（含内联 struct 引用叶子），按 composed 引用位图序。删 `slots`/`struct_bytes`/`struct_refs`
+（三区收敛成 bytes+refs）。ref-heavy 对象 PR-2 暂多花 8B 洞/引用，PR-3 消除。这是 D7 PR-2「暂存
+bytes 里占 16B 或 refs 侧表」中**侧表**分支——16B 内联分支被 8B-baked offset 证伪。
+
+### D9: 继承组合由运行时 loader 做（Option B）
+zbc `object_layout` **保持 PR-1 的 own-only**（本类字段、offset 从 0、无 base-shift；不改写入值、
+无格式变更）。运行时 loader 组合 `composed = base.composed ++ own`（镜像现有 `fields` =
+base.fields++own_fields 的组合，见 `loader::try_fixup_inheritance`）：base 字段在前、own 字段按
+对齐追加（base composed size 起）。composed 布局产出：
+- `total_size`（bytes 长度）；
+- 每字段 name→(composed offset, size, kind)（对齐 `fields`/`field_index` 的 slot 序，供 FieldGet 按名解析）；
+- composed 引用位图（`ref_offsets`+`ref_kinds`，含内联 struct 内部叶子，供 `ref_index` 映射 + PR-3 GC 扫）。
+
+**编译器侧对称组合（风险点，须字节一致）**：内联 struct **叶子** offset 是编译期烘焙的
+（`ExprEmitter._structChainOffset`，非运行时解析），故编译器烘焙时也必须算 base-shift = base composed
+size。编译器的 `StructLayout._computeObjFields` 现只算 own（offset 从 0），PR-2 需让内联 struct 字段的
+**根对象相对 offset** 取 composed（base-shift + own）。两处组合（loader / 编译器）算法必须逐字节一致
+（base-first + 同一对齐规则），由 `xtask test compiler` 5/5 byte-identical 兜底校验分歧。
+
+### D10: 字段访问分派（复用 P3b 机制）
+- **直接基元字段**：`FieldGetInstr(name)` 不变（编译器零改动）。运行时 name→slot(`field_index`)→composed
+  offset → `decode_prim(bytes, off, kind)`。FieldIC 缓存 `TypeId→slot`（后取 composed offset/kind）。
+- **直接引用字段**：同上解析到 composed offset → `ref_index(off)` → `refs[ri]`。写经 `write_barrier_field`。
+- **内联 struct 叶子**：`StructFieldGetPrim/SetPrim(baked composed offset)` → 复用 `struct_field_get_val`
+  的 `Value::Object` 臂（现读 `struct_bytes`/`struct_refs`+`inline_layout`，PR-2 改读 `bytes`/`refs`+composed 位图）。
+
+### D11: static 存储字节化（修 REPL struct-in-static 悬垂）
+`VmCore.static_fields: Vec<Value>` → 按 C# 静态存储块等价的「offset 字节内联」布局：static **struct**
+字段内联字节进静态存储块（不再存帧作用域 `StructRef` 句柄），逃到 static 时**拷字节**；static **引用**
+字段仍存句柄（一槽一引用，C# 亦如此）。根治 `ExprEmitter.z42` `StaticSet` 发裸 `StructRef` 逃逸悬垂。
+带 e2e `struct_static_field` + REPL 回归验证。
+
+### D15: static struct 字段用**装箱盒**实现（D11 落地方案，2026-08-14）
+
+**实现选定 = 装箱盒（`BoxedStruct` 堆对象）而非 `static_fields` Vec 改字节块**：static struct 字段的槽
+存一个 `Value::BoxedStruct`（堆 `ScriptObject`，进程存活 + GC 管 + **引用身份**）。比改 `VmCore.static_fields`
+存储结构更小、复用已有 PR-2 装箱机制，且引用身份天然支持就地改。C# 值语义由**编译期 box/unbox 边界**给出：
+
+- **整写** `Holder.P = v`（`ExprEmitter` 赋值臂 `_boxIfStaticStruct`）：`__box_struct(v)` 全局化——帧 arena
+  blob 拷到堆盒（无悬垂），存盒句柄。是**值拷贝**（改 v/原值不影响 static）。
+- **整读** `var q = Holder.P`（`Emit(BoundStaticGet)` struct 分支）：`AsCast` 拆盒回当前帧 arena `StructRef`
+  独立副本（值语义，改 q 不影响 static）。
+- **叶子读/写** `Holder.P.X` / `Holder.P.X = 5`：`_structChainRoot` 对 `BoundStaticGet(struct)` **不拆箱**、
+  直接取盒句柄（`_emitStaticGetRaw`）；叶子 offset 由 `_structChainOffset` 从 struct 布局累积
+  （`FieldByteOffset`，struct 相对）；runtime `struct_field_get_val`/`set_val` 新增 **`Value::BoxedStruct` 臂**
+  （盒 bytes/refs 即 struct blob，用 **struct_layout**（非 composed object layout）解 offset）→ 就地读写盒（引用身份持久）。
+- **判据**：`_isBlobStruct(field.Type())`（含 REPL `public static var v` 推断为 struct 的字段）。
+
+**残留（deferred，小边角）**：`static Point P;` **未初始化**读（无 initializer → 槽 Null → 拆箱 Null →
+`StructFieldGet(Null)` 崩）。well-formed 程序（含 REPL：`B b = new()` 先初始化）均先赋后读，不触发。彻底解 =
+`DeclBinder` 为无 init 的 struct static 字段合成 `default(T)` 零 struct init（需构造 BoundExpr），列 follow-up。
+
+### D12: 字段精确 tag 恢复 + per-field 访问表（2026-08-14 实施期发现，补 D10 缺口）
+
+**发现的缺口**：D10 line 128 说「`decode_prim(bytes, off, kind)`」但没说 `kind`（精确 tag）从哪来。
+PR-1 的 `ObjectLayoutDesc.field_kinds` 用的是**粗粒度 `StructLeafKind`**（`Prim=0`/`ArcString=1`/`GcRef=2`/
+`Struct=3`），**无法**驱动 `decode_prim`——后者需精确 `ty::TAG_*`（同为 4 字节的 `i32`/`u32`/`f32` 解码
+逻辑不同：符号扩展 vs 零扩展 vs 浮点）。`StructLeafKind.Prim + width` 二元组丢失了这个精度。
+
+**解（不改格式，不 re-bump）**：精确 tag 从**字段声明类型串** `TypeDesc.fields[slot].type_tag` 恢复
+——正是 `ObjNew` 的 `default_value_for(type_tag)` 已用的同一来源。运行时 `tag_from_name(type_tag)`
+（`corelib/struct_reflect.rs`，`"int"→TAG_I32` / `"f64"→TAG_F64` / …）给出精确 `ty::TAG_*`，复用
+`exec_struct::decode_prim`/`encode_prim`/`prim_width`/`is_ref_tag`（P3b 已有，struct 路同款）。
+
+**per-field 访问表（避免每次访问 string-match，加载期预算一次）**：`ObjectLayout` 加运行时派生数组
+`field_access: Box<[FieldAccess]>`（对齐 `fields`/slot 序），加载期从 composed offset + `fields[i].type_tag`
+算出：
+```
+struct FieldAccess { offset: u32, width: u32, tag: u8, ref_slot: i32 }
+// tag = tag_from_name(type_tag)（精确）；ref_slot = 若 is_ref_tag(tag) 则 composed.ref_index(offset)，否则 -1；
+// struct-typed 直接字段：tag=TAG_UNKNOWN、ref_slot=-1（FieldGet 不发给 struct 根，只走 StructFieldGetPrim）
+```
+在 loader 组合出 composed `ObjectLayout` 后、`fields` 已知时 zip 填充（base 字段的 type_tag 在
+`base.fields` 里，跨包 fixup 时随 `fields` 重建一并重算）。
+
+**ScriptObject 访问 API（封装 decode/encode + refs 侧表，令 151 处 slots 迁移机械化）**：
+```
+impl ScriptObject {
+  fn field_value(&self, slot: usize) -> Value          // prim: decode_prim(bytes) / ref: refs[ref_slot]
+  fn set_field_value(&mut self, slot, v) -> WroteRef    // prim: encode_prim(bytes) / ref: refs[ref_slot]=v；返回是否 ref（调用方据此发 write_barrier）
+}
+```
+FieldIC **格式不变**（仍缓存 `TypeId→slot`）；slot→offset/tag 走 `field_access[slot]`（一次数组索引，
+非 string-match）。`StackObject`（stack_alloc arena 里的 `ScriptObject`）走**同一** API（同 bytes+refs 结构）。
+
+### D13: 内联 struct 字段用 16B 布局（PR-1 的 8B 对象布局与 PR-2 的 16B struct 不兼容，2026-08-14 实施期发现）
+
+**发现**：PR-1 的 `_computeObjFields` 用 **8B 引用版** struct 布局（`_objLayoutOfStruct`，「8B 终点」）
+排布内联 struct 字段。但 PR-2 引用仍 16B（侧表），且 struct 各处（arena / boxed / `struct[]`）均用
+**16B** 布局（`_compute`/`LayoutOf`）。二者对含引用的 struct **尺寸/嵌套偏移不同**（`Point{int;int;str}`：
+8B 版 size 16、16B 版 size 24；`Line{Point;Point}` 的 `b.tag` 8B@24 vs 16B@32）。症状：反射
+`FieldInfo.GetValue` 读对象内联 struct 字段时，`compute`（16B）算出的 nested ref offset 与对象 composed
+ref 位图（8B）对不上 → `struct field reflection: ref leaf offset not in composed bitmap`；且裸叶子读
+（`FieldByteOffset` 16B）与字段基址（`InlineFieldByteOffset` 8B）混用，对含 ref 的 struct 会错位。
+
+**定解**：`_computeObjFields` 内联 struct 字段分支改用 **16B `LayoutOf`**（非 8B `_objLayoutOfStruct`），
+使对象里的 struct 字段字节布局与独立 struct **逐字节一致**——反射读/装箱直接拷字节、嵌套 ref offset 一致、
+裸叶子与基址同为 16B。直接引用**字段**仍 8B 洞（`_objSizeOf`，PR-3 填指针）；只有 struct **字段**转 16B。
+**8B 终点留 PR-3 统一压缩**（对象布局 + struct 布局 + 侧表一起转 8B），不在 PR-2 拆散。
+
+### D14: 内联 struct 字段判据与 offset 解耦 + tag 从 field_kinds 恢复（实施期两处 bug 修复）
+
+- **判据 bug**：`ExprEmitter._isOwnerInlineField`/`_isInlineStructFieldRoot` 用
+  `InlineFieldByteOffset(...) >= 0` 作「是否内联 struct 字段」判据。若让该函数对**所有**字段返 offset
+  （错误地改用 `ObjectLayoutOf`），基元/引用字段被误判为内联 struct → 发 `StructAlloc` 而非 `FieldGet`
+  → 读成 `<struct value>`/Null。**定解**：`InlineFieldByteOffset` **判据仍走 `InlineLayoutOf`**（只含
+  struct 字段，非 struct 字段返 -1），确认是 struct 字段后 **offset 取 `ObjectLayoutOf`** 的 composed 值。
+- **tag 恢复 bug（补 D12）**：`field_access` 的 tag 若纯靠 `tag_from_type_name(type_tag)`，用户类型别名
+  （`using Id = int` → type_tag=`"Id"`）/FQ 名 leak 进 type_tag 时解析失败 → 误判 ref → decode 失败 → Null。
+  **定解**：ref/prim/struct 分类**走编译器权威的 `field_kinds`（StructLeafKind）**（非 type_tag）；prim 的
+  精确 tag 由 `resolve_prim_tag`（`tag_from_type_name` 识别则精确，否则按 `field_sizes` 宽度回落有符号整数
+  tag）。**残留限制**：不透明的 float/char 别名回落成同宽整数 tag（罕见；彻底解=对象块带精确 tag，需格式 bump，deferred）。
+- **反射 struct 字段类型名**：`object_inline_struct_field_get/set` 用 `struct_field_fq`（返 FQ 名）喂
+  `compute`，非裸 `type_tag`（短名 `"Point"` 会 `unknown type`）。

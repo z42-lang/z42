@@ -96,10 +96,18 @@ fn heap_object_inline_struct_field_roundtrips() {
     use crate::metadata::NameIndex;
     use crate::metadata::tokens::TypeId;
 
-    let inline = Arc::new(StructTypeLayout {
+    // unify-object-byte-layout (PR-2): the object stores the inline struct's leaves in
+    // its `bytes`/`refs` via the composed object layout (`ref_index` maps a leaf's
+    // object-relative offset to a `refs` slot). Point{x:i32@0, y:i32@4, tag:str@8},
+    // size 12, one reference leaf at offset 8.
+    let composed = Arc::new(crate::metadata::types::ObjectLayout {
         size: 12,
+        field_offsets: Box::new([]),
+        field_sizes: Box::new([]),
+        field_kinds: Box::new([]),
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
+        field_access: Box::new([]),
     });
     let td = Arc::new(TypeDesc {
         class_flags: 0,
@@ -110,7 +118,7 @@ fn heap_object_inline_struct_field_roundtrips() {
         field_index: NameIndex::new(),
         vtable: Vec::new(),
         vtable_index: NameIndex::new(),
-        cold: Some(Box::new(TypeDescCold { inline_layout: Some(inline), ..Default::default() })),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(composed), ..Default::default() })),
         id: TypeId::UNRESOLVED,
     });
 

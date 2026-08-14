@@ -883,3 +883,159 @@ fn indexed_zpkg_bytes_only_load_is_rejected() {
     };
     assert!(format!("{err:#}").contains("load it by path"), "{err:#}");
 }
+
+// ── unify-object-byte-layout (PR-2, task 2.0): composed object layout ─────────
+//
+// These verify that `build_type_registry` / `try_fixup_inheritance` compose a
+// class's own-only zbc `object_layout` with its base's composed layout into the
+// runtime `composed_object_layout` (dormant — not yet consumed for storage),
+// mirroring `fields = base.fields ++ own`. The own region starts at
+// `align_up(base.size, 8)` (unified 8B inheritance boundary).
+
+/// Build a one-class Module whose single class carries an own-only object layout.
+fn module_with_object_layout(
+    name: &str,
+    base: Option<&str>,
+    fields: Vec<(&str, &str)>,
+    layout: crate::metadata::bytecode::ObjectLayoutDesc,
+) -> crate::metadata::bytecode::Module {
+    let mut m = module_with_one_class(name, base, fields);
+    m.classes[0].object_layout = Some(layout);
+    m
+}
+
+/// Local (same-module) base→derived: topo order builds the base first, so the
+/// derived class composes against the base's composed layout at build time.
+#[test]
+fn object_layout_composed_local_inheritance() {
+    use crate::metadata::bytecode::{ClassDesc, Module, ObjectLayoutDesc};
+    use crate::metadata::types::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
+
+    // Base { i64 age@0; str name@8 } — size 16, one ref leaf (name @ 8).
+    let base_layout = ObjectLayoutDesc {
+        size: 16,
+        field_offsets: Box::new([0, 8]),
+        field_sizes:   Box::new([8, 8]),
+        field_kinds:   Box::new([0, STRUCT_REF_ARC_STRING]),
+        ref_offsets:   Box::new([8]),
+        ref_kinds:     Box::new([STRUCT_REF_ARC_STRING]),
+    };
+    // Sub : Base { bool flag@0; object other@8 } — own size 16, ref leaf (other @ 8).
+    let sub_layout = ObjectLayoutDesc {
+        size: 16,
+        field_offsets: Box::new([0, 8]),
+        field_sizes:   Box::new([1, 8]),
+        field_kinds:   Box::new([0, STRUCT_REF_GCREF]),
+        ref_offsets:   Box::new([8]),
+        ref_kinds:     Box::new([STRUCT_REF_GCREF]),
+    };
+
+    // Two classes in one module (topo: Base before Sub).
+    let mut base_mod = module_with_object_layout("Base", None,
+        vec![("age", "i64"), ("name", "str")], base_layout);
+    let sub_mod = module_with_object_layout("Sub", Some("Base"),
+        vec![("flag", "bool"), ("other", "obj")], sub_layout);
+    // Merge Sub's class into base_mod so build_type_registry sees both.
+    let sub_class: ClassDesc = sub_mod.classes.into_iter().next().unwrap();
+    base_mod.classes.push(sub_class);
+    let mut module: Module = base_mod;
+
+    crate::metadata::loader::build_type_registry(&mut module);
+
+    let base = module.type_registry.get("Base").expect("Base");
+    let bl = base.composed_object_layout().expect("Base has composed layout");
+    assert_eq!(bl.size, 16, "Base composed size = 16");
+    assert_eq!(&*bl.field_offsets, &[0, 8]);
+    assert_eq!(&*bl.ref_offsets, &[8]);
+
+    let sub = module.type_registry.get("Sub").expect("Sub");
+    let sl = sub.composed_object_layout().expect("Sub has composed layout");
+    // base_shift = align_up(16, 8) = 16.
+    assert_eq!(sl.size, 32, "Sub composed size = base(16) + own(16)");
+    assert_eq!(&*sl.field_offsets, &[0, 8, 16, 24], "base fields kept, own shifted +16");
+    assert_eq!(&*sl.field_sizes, &[8, 8, 1, 8]);
+    assert_eq!(&*sl.field_kinds, &[0, STRUCT_REF_ARC_STRING, 0, STRUCT_REF_GCREF]);
+    assert_eq!(&*sl.ref_offsets, &[8, 24], "base ref @8, own ref @8 shifted to 24");
+    assert_eq!(&*sl.ref_kinds, &[STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF]);
+    // ref_index maps composed offsets to side-table slots.
+    assert_eq!(sl.ref_index(8), Some(0));
+    assert_eq!(sl.ref_index(24), Some(1));
+    assert_eq!(sl.ref_index(16), None, "non-ref field offset not in bitmap");
+
+    // Field-index parity with the merged `fields` (offsets align by slot).
+    assert_eq!(sub.field_index.get("age"),  Some(&0));
+    assert_eq!(sub.field_index.get("name"), Some(&1));
+    assert_eq!(sub.field_index.get("flag"), Some(&2));
+    assert_eq!(sub.field_index.get("other"), Some(&3));
+
+    // D12: per-field access table resolves exact tags + refs slots from type_tag.
+    use crate::metadata::types::{TAG_I64, TAG_STR, TAG_OBJECT};
+    let fa = &sl.field_access;
+    assert_eq!(fa.len(), 4, "one FieldAccess per merged field");
+    // age: i64 primitive @ 0, not a ref.
+    assert_eq!((fa[0].offset, fa[0].tag, fa[0].ref_slot), (0, TAG_I64, -1));
+    // name: str ref @ 8 → refs slot 0.
+    assert_eq!((fa[1].offset, fa[1].tag, fa[1].ref_slot), (8, TAG_STR, 0));
+    // flag: bool primitive @ 16 (shifted), not a ref.
+    assert_eq!(fa[2].offset, 16);
+    assert_eq!(fa[2].ref_slot, -1);
+    // other: object ref @ 24 → refs slot 1.
+    assert_eq!((fa[3].offset, fa[3].tag, fa[3].ref_slot), (24, TAG_OBJECT, 1));
+}
+
+/// Cross-zpkg base→derived: the base is unresolvable at the derived module's
+/// build time (own-only, base_shift 0); `try_fixup_inheritance` recomposes once
+/// the base joins the global registry — in lockstep with `fields`.
+#[test]
+fn object_layout_composed_crosspkg_fixup() {
+    use crate::metadata::bytecode::ObjectLayoutDesc;
+    use crate::metadata::types::STRUCT_REF_ARC_STRING;
+
+    // Base { str name@0 } — size 8, ref leaf @ 0.
+    let base_layout = ObjectLayoutDesc {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_REF_ARC_STRING]),
+        ref_offsets:   Box::new([0]),
+        ref_kinds:     Box::new([STRUCT_REF_ARC_STRING]),
+    };
+    // Sub : Base { i64 n@0 } — own size 8, no refs.
+    let sub_layout = ObjectLayoutDesc {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+
+    let mut mod_a = module_with_object_layout("Base", None, vec![("name", "str")], base_layout);
+    let mut mod_b = module_with_object_layout("Sub", Some("Base"), vec![("n", "i64")], sub_layout);
+    crate::metadata::loader::build_type_registry(&mut mod_a);
+    crate::metadata::loader::build_type_registry(&mut mod_b);
+
+    // Pre-merge: Sub composed against an unresolved base → own-only (base_shift 0).
+    let sub_before = mod_b.type_registry.get("Sub").expect("Sub").composed_object_layout().unwrap();
+    assert_eq!(sub_before.size, 8, "own-only before fixup");
+    assert_eq!(&*sub_before.field_offsets, &[0], "own field at 0 (no base region yet)");
+
+    // Merge into a global registry + fixup.
+    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
+        std::collections::HashMap::new();
+    mod_a.type_registry_vec.clear();
+    mod_b.type_registry_vec.clear();
+    for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
+    for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
+
+    let fixed = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    assert_eq!(fixed, 1, "Sub recomposed once base resolves");
+
+    let sub_after = global.get("Sub").unwrap().composed_object_layout().unwrap();
+    // base_shift = align_up(8, 8) = 8. Composed = base(8) + own(8) = 16.
+    assert_eq!(sub_after.size, 16, "recomposed size = base(8) + own(8)");
+    assert_eq!(&*sub_after.field_offsets, &[0, 8], "base ref field @0, own @8");
+    assert_eq!(&*sub_after.field_kinds, &[STRUCT_REF_ARC_STRING, 0]);
+    assert_eq!(&*sub_after.ref_offsets, &[0], "only the base's ref leaf @0");
+    assert_eq!(&*sub_after.ref_kinds, &[STRUCT_REF_ARC_STRING]);
+}

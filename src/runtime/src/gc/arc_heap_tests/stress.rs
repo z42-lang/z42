@@ -166,10 +166,10 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
                 (state.pick_object(rng), state.pick_object(rng))
             {
                 if let Value::Object(gc) = &owner {
-                    let slot_count = gc.borrow().slots.len();
+                    let slot_count = gc.borrow().refs.len();
                     if slot_count > 0 {
                         let slot = rng.gen_range(0, slot_count);
-                        gc.borrow_mut().slots[slot] = new.clone();
+                        gc.borrow_mut().refs[slot] = new.clone();
                         if new.is_heap_ref() {
                             heap.write_barrier_field(&owner, slot, &new);
                         }
@@ -181,11 +181,11 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
         Op::FieldSetWithPrimitive => {
             if let Some(owner) = state.pick_object(rng) {
                 if let Value::Object(gc) = &owner {
-                    let slot_count = gc.borrow().slots.len();
+                    let slot_count = gc.borrow().refs.len();
                     if slot_count > 0 {
                         let slot = rng.gen_range(0, slot_count);
                         let v = Value::I64(rng.next_u64() as i64);
-                        gc.borrow_mut().slots[slot] = v;
+                        gc.borrow_mut().refs[slot] = v;
                         // No barrier for primitive (caller-filter contract).
                         state.n_field_set += 1;
                     }
