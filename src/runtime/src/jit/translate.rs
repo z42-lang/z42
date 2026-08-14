@@ -6,6 +6,7 @@
 /// emitted as inline Cranelift instructions.
 
 use crate::metadata::{Function, Instruction, Terminator};
+use crate::metadata::Value;
 use crate::metadata::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFnCachedInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn, StaticSetInsn, TypeofInsn,
@@ -767,7 +768,7 @@ pub fn translate_function(
                 Instruction::Copy { dst, src } => {
                     // review.md C2 P1 follow-up (2026-05-30): inline when src
                     // and dst are both drop-free primitives (I64 / F64 / Bool
-                    // / Char). 24 B Value = 1 B tag at offset 0 + 8 B payload
+                    // / Char). 16 B Value = 1 B tag at offset 0 + 8 B payload
                     // at offset 8. Heap-ref payload requires Arc::clone so
                     // those keep the helper.
                     if is_drop_free_primitive(z42_func, *dst)
@@ -1095,7 +1096,7 @@ pub fn translate_function(
                         // is a compile-time constant here — no runtime-width branch.
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
-                        const STRIDE: i64 = 24;
+                        const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
                         let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = hoisted_arrays.get(arr) {
                             (hptr, hlen, hw) // 方案 B: loop-invariant, hoisted in entry block
@@ -1168,7 +1169,7 @@ pub fn translate_function(
                         } else {
                             builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0)
                         };
-                        // store into the 24-byte register `Value` (tag + payload).
+                        // store into the 16-byte register `Value` (tag + payload).
                         let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
                         let dst_addr = builder.ins().iadd(regs_base, dst_off);
                         let tag_c = builder.ins().iconst(types::I8, val_tag); // I64=0 / F64=1
@@ -1199,7 +1200,7 @@ pub fn translate_function(
                         // fall back to the helper, which narrows/boxes + write-barriers).
                         use cranelift_codegen::ir::condcodes::IntCC;
                         use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
-                        const STRIDE: i64 = 24;
+                        const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
                         let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = hoisted_arrays.get(arr) {
                             (hptr, hlen, hw)
@@ -1331,7 +1332,7 @@ pub fn translate_function(
                         (prim_elem_tag(z42_func, *dst), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        const STRIDE: i64 = 24;
+                        const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
                         let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, slot, 0);
                         let fb_blk = builder.create_block();
@@ -1381,7 +1382,7 @@ pub fn translate_function(
                         (prim_elem_tag(z42_func, *val), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        const STRIDE: i64 = 24;
+                        const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
                         let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, slot, 0);
                         let fb_blk = builder.create_block();
@@ -1676,7 +1677,7 @@ pub fn translate_function(
                     .get(*cond as usize)
                     .copied() == Some(IrType::Bool);
                 if cond_is_bool {
-                    const VALUE_STRIDE:   i64 = 24;
+                    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
                     const PAYLOAD_OFFSET: i32 = 8;
                     let off  = builder.ins().iconst(types::I64, (*cond as i64) * VALUE_STRIDE);
                     let addr = builder.ins().iadd(regs_base, off);
@@ -1843,7 +1844,7 @@ fn is_i64_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
 ///
 /// Layout assumption (pinned by `value_size_observed` +
 /// `value_*_payload_at_offset_8` tests):
-///   * Value stride 24 B, alignment 8
+///   * Value stride 16 B, alignment 8
 ///   * u8 discriminant at offset 0 (TAG_I64 = 0)
 ///   * i64 payload at offset 8
 ///
@@ -1856,11 +1857,11 @@ fn emit_i64_binop(
     dst: u32, a: u32, b: u32,
     op: BinopKind,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_I64:        u8  = 0;
 
-    // Compute slot addresses: regs_base + idx * 24.
+    // Compute slot addresses: regs_base + idx * 16.
     let off_a   = builder.ins().iconst(types::I64, (a   as i64) * VALUE_STRIDE);
     let off_b   = builder.ins().iconst(types::I64, (b   as i64) * VALUE_STRIDE);
     let off_dst = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -1913,7 +1914,7 @@ fn emit_i64_convert(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, src: u32, to_tag: u8,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_I64:        u8  = 0;
     let off_src  = builder.ins().iconst(types::I64, (src as i64) * VALUE_STRIDE);
@@ -1981,7 +1982,7 @@ fn emit_primitive_copy(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, src: u32,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     let off_src  = builder.ins().iconst(types::I64, (src as i64) * VALUE_STRIDE);
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -2002,7 +2003,7 @@ fn emit_i64_neg(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, src: u32,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_I64:        u8  = 0;
     let off_src  = builder.ins().iconst(types::I64, (src as i64) * VALUE_STRIDE);
@@ -2024,7 +2025,7 @@ fn emit_i64_bit_not(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, src: u32,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_I64:        u8  = 0;
     let off_src  = builder.ins().iconst(types::I64, (src as i64) * VALUE_STRIDE);
@@ -2048,7 +2049,7 @@ fn emit_i64_cmp(
     kind: CmpKind,
 ) {
     use cranelift_codegen::ir::condcodes::IntCC;
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_BOOL:       u8  = 2;
 
@@ -2088,7 +2089,7 @@ fn emit_bool_binop(
     dst: u32, a: u32, b: u32,
     kind: BoolBinopKind,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_BOOL:       u8  = 2;
 
@@ -2122,7 +2123,7 @@ fn emit_bool_not(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, src: u32,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_BOOL:       u8  = 2;
 
@@ -2161,7 +2162,7 @@ fn prim_elem_tag(func: &Function, reg: u32) -> Option<i64> {
 
 /// Array-element classifier for the JIT inline get/set fast path
 /// (jit-inline-i32-arrays). Returns `(val_tag, arr_width)`:
-/// - `val_tag`: the `Value` tag written into the 24-byte register (0=I64, 1=F64).
+/// - `val_tag`: the `Value` tag written into the 16-byte register (0=I64, 1=F64).
 ///   `int` is stored as `Value::I64`, so I32 uses tag 0.
 /// - `arr_width`: the packed slot width in bytes (4 for I32, 8 for I64/F64).
 ///
@@ -2199,7 +2200,7 @@ fn emit_const_i64(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, val: i64,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_I64:        u8  = 0;
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -2216,7 +2217,7 @@ fn emit_const_f64(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, val: f64,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_F64:        u8  = 1;
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -2233,7 +2234,7 @@ fn emit_const_bool(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, val: bool,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_BOOL:       u8  = 2;
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -2252,7 +2253,7 @@ fn emit_const_char(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32, val: char,
 ) {
-    const VALUE_STRIDE:   i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const PAYLOAD_OFFSET: i32 = 8;
     const TAG_CHAR:       u8  = 3;
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
@@ -2272,7 +2273,7 @@ fn emit_const_null(
     regs_base: cranelift_codegen::ir::Value,
     dst: u32,
 ) {
-    const VALUE_STRIDE: i64 = 24;
+    const VALUE_STRIDE:   i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
     const TAG_NULL:     u8  = 5;
     let off_dst  = builder.ins().iconst(types::I64, (dst as i64) * VALUE_STRIDE);
     let addr_dst = builder.ins().iadd(regs_base, off_dst);

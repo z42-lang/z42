@@ -1609,7 +1609,14 @@ pub enum Value {
     /// Saves 8 B/instance (Box<str> = 16 B vs String = 24 B; no `cap` word).
     /// FuncRef names are write-once at creation and read-only thereafter
     /// (immutable identity → no append/grow operation needed).
-    FuncRef(Box<str>) = 9,
+    ///
+    /// unify-object-byte-layout PR-5 (2026-08-15): `Str` (8 B thin pointer)
+    /// instead of `Box<str>` (16 B fat pointer). `Box<str>` was the *last*
+    /// 16 B payload keeping `Value` at 24 B; swapping it for the vstr thin
+    /// pointer drops the max payload to 8 B → `Value` = 16 B (see the
+    /// `size_of::<Value>() == 16` static assert below). Length is read from
+    /// the `StrHeader`, so `name.len()` stays O(1).
+    FuncRef(Str) = 9,
     /// L3 capturing closure value: pairs a heap-allocated env (Vec<Value>)
     /// with the lifted function's qualified name. CallIndirect on a Closure
     /// passes `env` as the callee's first implicit parameter and copies user
@@ -1688,6 +1695,17 @@ pub enum Value {
     /// backing). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
     StructRefHeap(Box<StructArrayElem>) = 18,
 }
+
+// unify-object-byte-layout PR-5 (2026-08-15): `Value` is the interpreter's
+// register-file cell and the JIT strides its register file by
+// `size_of::<Value>()` (`jit/translate.rs` `VALUE_STRIDE`/`STRIDE`), so its
+// size is an ABI contract, not an incidental detail. After PR-3 (GcRef 8 B) +
+// PR-4 (Str 8 B) + this PR (FuncRef → Str 8 B), every payload is ≤ 8 B, so
+// `#[repr(C, u8)]` gives tag(1 B, padded to 8) + 8 B payload = 16 B. This
+// assert fails to compile the moment a payload grows past 8 B (e.g. a new
+// fat-pointer / two-word variant), forcing it to be boxed before it can
+// silently grow the register file / JIT stride back to 24 B.
+const _: () = assert!(std::mem::size_of::<Value>() == 16);
 
 /// add-struct-heap-inline (P3b): payload of [`Value::StructRefHeap`] — a value-struct
 /// array element identity (`arr[index]`). Holds the array `GcRef` (so the handle keeps

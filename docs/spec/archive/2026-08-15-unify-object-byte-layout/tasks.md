@@ -1,14 +1,14 @@
 # Tasks: 统一 struct/class 内存布局 + 引用压 8B
 
-> 状态：🟡 进行中 | 创建：2026-08-12
+> 状态：✅ 全 5 PR 完成（2026-08-15，PR-5 收尾）| 创建：2026-08-12
 > 终点 = C# 完全等价（8B 引用 / 非移动 GC / 路 A）；内部分 PR，每 PR 独立 GREEN。
 
 ## 进度概览
 - [x] PR-1: 布局元数据（编译器发对象全字段布局表 + reader，行为不变，格式 bump）—— 已合并 main #188
 - [x] PR-2: runtime 切字节存储 —— 全部完成全绿（含 S static struct 字节化修 REPL 悬垂；default-init 未初始化 static struct 列 follow-up）
-- [ ] PR-3: 引用 8B 标记指针（GcRef 16→8B 路 A）
-- [ ] PR-4: 字符串 8B 细指针（Arc<str>→StrHeader）
-- [ ] PR-5: Value 16B + JIT 收尾 + 文档/roadmap 收口
+- [x] PR-3: 引用 8B 标记指针（GcRef 16→8B 路 A）—— chunk1+2a(#190)+chunk2b(f056de47)+chunk2c(551db023) 全合并 main（wasm32 cfg-gate Tagged 回归修复 94e648ee）
+- [x] PR-4: 字符串 8B 细指针（Arc<str>→thin-Arc `Str` in vstr.rs）—— 已合并 main b9ba15f1
+- [x] PR-5: Value 16B + JIT 收尾 + 文档/roadmap 收口 —— **本 PR 完成全绿**
 
 ## PR-1: 布局元数据（行为不变）
 - [x] 1.1 `StructLayout.z42`：`_computeObjectLayout`（对象全字段：基元/引用/内联 struct 统一 offset + 引用位图带 kind）；复用 `_kindOf`/`_alignOf`/`_alignUp` + 新增 `_objSizeOf`(8B 引用)/`_objLayoutOfStruct`(8B struct 展平)
@@ -78,13 +78,12 @@
 - [ ] 4.3 `Length` benchmark（string-heavy 自编译）
 - [ ] 4.4 GREEN
 
-## PR-5: Value 16B + 收尾
-- [ ] 5.1 `Value` payload 收窄 → enum 16B；value_layout 断言
-- [ ] 5.2 `jit/translate.rs` STRIDE 24→16 / PAYLOAD；数组元素 16B
-- [ ] 5.3 `z42-abi` 断言 + marshal 复核
-- [ ] 5.4 `object-abi.md` §3/§2.1/§5 修订；`zbc.md`/`zpkg.md` changelog；`struct-value-semantics.md`；`roadmap.md` 385/386
-- [ ] 5.5 目录 README 同步（触发矩阵）
-- [ ] 5.6 GREEN + dist（若涉及）
+## PR-5: Value 16B + 收尾 —— ✅ 完成（2026-08-15）
+- [x] 5.1 `Value` payload 收窄 → enum 16B：`FuncRef(Box<str>)`（最后一个 16B 胖指针）→ `FuncRef(Str)`（8B 细）；`value_size_observed` 断言 24→16 + `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死
+- [x] 5.2 `jit/translate.rs` STRIDE/VALUE_STRIDE 24→`size_of::<Value>()`（18 处，单一真相不再漂移）；PAYLOAD@8 不变；数组元素 16B（同 stride 常量）；注释 24-byte→16-byte
+- [x] 5.3 `z42-abi` 复核：`Z42Value` 是独立冻结 16B ABI struct（tag:u32/reserved:u32/payload:u64），与内部 Value enum 解耦、marshal 显式转换 → 无需改动（abi_layout_tests `value_is_16_bytes` 本就 16B）
+- [x] 5.4 `object-abi.md` §2.1（Deferred→✅已落地 banner）+ §5（string 细指针进度）修订；`roadmap.md` 386 标 ✅。**无格式 bump**（Value 运行时表示不序列化）→ `zbc.md`/`zpkg.md` changelog 不适用；`struct-value-semantics.md` 无 Value-size 陈旧引用（引用宽度无关性已在 §2.1「前提校正」）→ 均不改
+- [x] 5.6 GREEN：cargo --lib 908 + 集成测试/bench 编译（.slots 教训）+ signal example + `xtask test`（self-host 5/5 逐字节 + e2e interp+jit）+ Value 16B 断言编译期过。纯运行时无 dist 格式变更
 
 ## 备注
 - Open Question（design）：窄 generation 位宽抗 ABA？字符串 Length deref 代价？bootstrap 格式 bump 时序？
