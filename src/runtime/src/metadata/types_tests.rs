@@ -146,6 +146,75 @@ fn trace_children_visits_inline_struct_refs() {
     assert_eq!(visited_object_children, 1, "reference leaf in refs must be traced");
 }
 
+// ── unify-object-byte-layout (PR-3 chunk 2b): a DIRECT object field is byte-inlined as
+//    an 8B tagged pointer in `bytes` (out of the side-table). Exercises the real runtime
+//    read/write/GC path end-to-end (the compose tests only check the layout metadata). ──
+#[test]
+fn inline_object_field_roundtrips_and_is_traced() {
+    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+
+    // `class Holder { object child; }` — one direct object field inlined at byte offset 0.
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_offsets:   Box::new([]),   // inlined → NOT in the side-table
+        ref_kinds:     Box::new([]),
+        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+    });
+    let holder_td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Holder".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    // The heap object the inlined field will point at.
+    let leaf = Value::Object(GcRef::new(ScriptObject {
+        type_desc: dummy_type_desc("Leaf"),
+        bytes: Box::new([]),
+        refs: Box::new([]),
+        native: NativeData::None,
+        type_args: Box::new([]),
+    }));
+    // A Holder instance: one 8B inline field window, zero-initialized.
+    let holder = GcRef::new(ScriptObject {
+        type_desc: holder_td,
+        bytes: vec![0u8; 8].into_boxed_slice(),
+        refs: Box::new([]),
+        native: NativeData::None,
+        type_args: Box::new([]),
+    });
+
+    // Zeroed window (`0` sentinel) reads back as `Null`.
+    assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
+    // Writing an object inlines its 8B tagged pointer AND reports a reference write
+    // (so the caller still fires `write_barrier_field`).
+    let wrote_ref = holder.borrow_mut().set_field_value(0, &leaf);
+    assert!(wrote_ref, "inlined object field is a reference slot");
+    // Reads back by reference identity (address + generation preserved through bytes).
+    match holder.borrow().field_value(0) {
+        Value::Object(got) => match &leaf {
+            Value::Object(l) => assert!(GcRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
+            _ => unreachable!(),
+        },
+        o => panic!("expected the inlined object, got {o:?}"),
+    }
+    // GC must reach the leaf THROUGH the inlined pointer in `bytes` (side-table is empty).
+    let hv = Value::Object(holder);
+    let mut visited = 0usize;
+    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { visited += 1; });
+    assert_eq!(visited, 1, "trace_children visits the byte-inlined object ref");
+}
+
 #[test]
 fn struct_array_backing_roundtrip_and_gc_refs() {
     use crate::metadata::types::*;
@@ -403,7 +472,7 @@ fn compose_object_layout_root_is_identity() {
         size: 24,
         field_offsets: Box::new([0, 8, 16]),
         field_sizes:   Box::new([8, 8, 8]),
-        field_kinds:   Box::new([0, 1, 2]),
+        field_kinds:   Box::new([0, 1, 2]), // Prim @0, ArcString @8, GcRef(object) @16
         ref_offsets:   Box::new([8, 16]),
         ref_kinds:     Box::new([1, 2]),
     };
@@ -411,8 +480,13 @@ fn compose_object_layout_root_is_identity() {
     // No base → identity (base_shift 0).
     assert_eq!(composed.size, 24);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
-    assert_eq!(&*composed.ref_offsets, &[8, 16]);
-    assert_eq!(composed.ref_count(), 2);
+    // PR-3 chunk 2b: the string leaf @8 stays in the side-table; the direct object
+    // (GcRef) leaf @16 is byte-inlined and removed from `ref_offsets`.
+    assert_eq!(&*composed.ref_offsets, &[8], "only the string ref stays side-table");
+    assert_eq!(composed.ref_count(), 1);
+    assert_eq!(composed.inline_refs.len(), 1, "the object ref @16 inlined");
+    assert_eq!(composed.inline_refs[0].offset, 16);
+    assert!(!composed.inline_refs[0].is_array);
 }
 
 #[test]
@@ -426,13 +500,14 @@ fn compose_object_layout_pads_base_to_8() {
         field_kinds:   Box::new([0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
+        inline_refs:   Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
         size: 8,
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
-        field_kinds:   Box::new([2]),
+        field_kinds:   Box::new([2]), // STRUCT_LEAF_GCREF (object) → PR-3 chunk 2b inlines it
         ref_offsets:   Box::new([0]),
         ref_kinds:     Box::new([2]),
     };
@@ -440,8 +515,14 @@ fn compose_object_layout_pads_base_to_8() {
     // base_shift = align_up(1, 8) = 8.
     assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
     assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
-    assert_eq!(&*composed.ref_offsets, &[8], "own ref leaf shifted to 8");
-    assert_eq!(composed.ref_index(8), Some(0));
+    // PR-3 chunk 2b: the own direct object field is byte-inlined at the shifted offset 8
+    // (pulled out of the side-table ref bitmap), so `ref_offsets` is empty and the leaf
+    // shows up in `inline_refs` instead.
+    assert!(composed.ref_offsets.is_empty(), "own GCREF field inlined, not in side-table");
+    assert_eq!(composed.ref_index(8), None, "inlined ref has no side-table slot");
+    assert_eq!(composed.inline_refs.len(), 1, "one inlined direct object ref");
+    assert_eq!(composed.inline_refs[0].offset, 8, "inlined at the shifted offset 8");
+    assert!(!composed.inline_refs[0].is_array, "object field → Value::Object, not Array");
 }
 
 #[test]
@@ -453,6 +534,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         field_kinds:   Box::new([0, 0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
+        inline_refs:   Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {

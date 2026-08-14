@@ -61,7 +61,10 @@ public static class CacheStore {
     // 「源没变 + 格式没 bump 但编译器逻辑变了 → 误命中旧 .zbc 产物」这个正确性漏洞（todo#7）。
     // 格式 bump（zbc/zpkg Minor++）已自带失效，无需同时动本值；纯 reader/writer bug 修复也不动。
     // bump 纪律见 .claude/rules/version-bumping.md「编译器语义指纹」。
-    public static int CompilerFingerprint = 1;
+    // 2 (unify-object-byte-layout PR-3 chunk 2b): `_refineDirectRefKind` 把 object/interface
+    //   直接字段的 field_kinds 从 GcRef(可内联) 改为 GcRefClosure(侧表)。zbc 格式未 bump（仍 1.35），
+    //   故手动 +1 作废 chunk-2a 期缓存——否则旧 .zbc（object 字段=GcRef）被误命中 → runtime 内联多态字段 = bug。
+    public static int CompilerFingerprint = 2;
 
     // rel（.z42）→ cache 内路径。与 driver `_writeCacheZbc` 同款「去 .z42」规则。
     public static string ZbcPath(string cacheDir, string rel)  { return Path.Join(cacheDir, CacheStore._stem(rel) + ".zbc"); }

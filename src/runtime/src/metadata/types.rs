@@ -259,14 +259,38 @@ pub struct ObjectLayout {
     pub field_offsets: Box<[u32]>,
     pub field_sizes: Box<[u32]>,
     pub field_kinds: Box<[u8]>,
+    /// **Side-table** reference bitmap: byte offsets of the reference leaves that
+    /// live in `ScriptObject::refs` (not byte-inlined). Before PR-3 chunk 2b this
+    /// was *every* reference leaf; chunk 2b removes the direct object/array leaves
+    /// (they inline into `bytes`, see `inline_refs`), leaving only closure/func/
+    /// string direct fields + every inline-struct interior reference leaf.
     pub ref_offsets: Box<[u32]>,
     pub ref_kinds: Box<[u8]>,
+    /// unify-object-byte-layout (PR-3 chunk 2b): the direct **object/array** reference
+    /// fields inlined as an 8B tagged pointer in `bytes` (removed from the `refs`
+    /// side-table). GC scans these by reading the 8B window at each `offset` and
+    /// rebuilding the right `Value` variant (`Value::Array` when `is_array`, else
+    /// `Value::Object`). `0` at the window = an empty (`Null`) slot. Empty for
+    /// synthesized/fallback layouts (which conservatively keep all refs in the
+    /// side-table — no authoritative `field_kinds` to tell object from closure).
+    pub inline_refs: Box<[InlineRef]>,
     /// unify-object-byte-layout (PR-2, D12): resolved per-field access table (offset /
     /// width / exact tag / refs-slot), parallel by index with `TypeDesc::fields`.
     /// Filled at load time from the composed offsets + the merged fields' `type_tag`
     /// strings. Empty when composed without field info (e.g. `compose_object_layout`
     /// called with `&[]` in unit tests that only check structural offsets).
     pub field_access: Box<[FieldAccess]>,
+}
+
+/// unify-object-byte-layout (PR-3 chunk 2b): a direct reference field byte-inlined
+/// into `ScriptObject::bytes` as an 8B tagged `GcRef` pointer. `is_array` selects the
+/// reconstructed `Value` variant (`Value::Array` vs `Value::Object`) — the raw 8B
+/// pointer carries no object-vs-array discriminant, so the kind must come from the
+/// compiler's `field_kinds` (`STRUCT_LEAF_GCREF` → object, `_GCREF_ARRAY` → array).
+#[derive(Debug, Clone, Copy)]
+pub struct InlineRef {
+    pub offset: u32,
+    pub is_array: bool,
 }
 
 // unify-object-byte-layout (PR-2): the compiler's `StructLeafKind` values carried in
@@ -372,26 +396,53 @@ pub fn compose_object_layout(
     let mut field_offsets = Vec::with_capacity(base_fields + own.field_offsets.len());
     let mut field_sizes   = Vec::with_capacity(base_fields + own.field_sizes.len());
     let mut field_kinds   = Vec::with_capacity(base_fields + own.field_kinds.len());
+    // Side-table ref bitmap (closure/func/string direct fields + inline-struct interior
+    // leaves) — the inlined direct object/array leaves are pulled out into `inline_refs`.
     let mut ref_offsets   = Vec::with_capacity(base_refs + own.ref_offsets.len());
     let mut ref_kinds     = Vec::with_capacity(base_refs + own.ref_kinds.len());
+    let mut inline_refs   = Vec::new();
 
     if let Some(b) = base {
         field_offsets.extend_from_slice(&b.field_offsets);
         field_sizes.extend_from_slice(&b.field_sizes);
         field_kinds.extend_from_slice(&b.field_kinds);
+        // The base is already partitioned (composed with chunk 2b): its `ref_offsets`
+        // is the side-table, its `inline_refs` the byte-inlined object/array fields.
         ref_offsets.extend_from_slice(&b.ref_offsets);
         ref_kinds.extend_from_slice(&b.ref_kinds);
+        inline_refs.extend_from_slice(&b.inline_refs);
     }
 
     for &off in own.field_offsets.iter() { field_offsets.push(off + base_shift); }
     field_sizes.extend_from_slice(&own.field_sizes);
     field_kinds.extend_from_slice(&own.field_kinds);
-    for &off in own.ref_offsets.iter() { ref_offsets.push(off + base_shift); }
-    ref_kinds.extend_from_slice(&own.ref_kinds);
+
+    // PR-3 chunk 2b: partition the OWN reference bitmap into inline (direct object/array
+    // fields, authoritative `field_kinds` says `GCREF`/`GCREF_ARRAY`) vs side-table
+    // (everything else — closure/func/string direct fields + inline-struct interior
+    // leaves). A direct field's ref leaf sits at exactly the field's byte offset, so
+    // matching `own.ref_offsets` against `own.field_offsets`+kind is an exact key lookup.
+    let own_inline_at = |off: u32| -> Option<bool> {
+        own.field_offsets.iter().zip(own.field_kinds.iter())
+            .find(|(&o, _)| o == off)
+            .and_then(|(_, &k)| match k {
+                STRUCT_LEAF_GCREF       => Some(false), // object/interface → Value::Object
+                STRUCT_LEAF_GCREF_ARRAY => Some(true),  // array `T[]`       → Value::Array
+                _ => None, // closure/func/string/prim/struct → side-table (or not a ref)
+            })
+    };
+    for (&off, &rk) in own.ref_offsets.iter().zip(own.ref_kinds.iter()) {
+        match own_inline_at(off) {
+            Some(is_array) => inline_refs.push(InlineRef { offset: off + base_shift, is_array }),
+            None => { ref_offsets.push(off + base_shift); ref_kinds.push(rk); }
+        }
+    }
 
     // D12: resolve the per-field access table from composed offsets + each field's
-    // declared `type_tag` (exact tag; struct roots → TAG_UNKNOWN, ref fields → refs
-    // side-table slot via the composed ref bitmap). Skipped when no field info given.
+    // declared `type_tag`. chunk 2b: object/array fields are **inlined** (ref_slot = -1,
+    // tag = TAG_OBJECT/TAG_ARRAY → `field_value` reads the 8B pointer from `bytes`);
+    // closure/func/string stay in the side-table (ref_slot ≥ 0). Skipped when no field
+    // info given (structural-only unit tests).
     let field_access: Box<[FieldAccess]> = if merged_fields.is_empty() {
         Box::new([])
     } else {
@@ -403,18 +454,19 @@ pub fn compose_object_layout(
             // not the field's `type_tag` string (which may be an unresolved alias).
             let kind = field_kinds.get(i).copied().unwrap_or(STRUCT_LEAF_PRIM);
             let type_tag = merged_fields.get(i).map(|f| f.type_tag.as_ref());
+            // Side-table slot = position in the (already partitioned) side-table bitmap.
             let ref_slot_of = |off: u32| -> i32 {
                 ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32)
             };
             let (tag, ref_slot) = match kind {
                 STRUCT_LEAF_STRUCT => (TAG_UNKNOWN, -1),
                 STRUCT_LEAF_ARCSTRING => (TAG_STR, ref_slot_of(off)),
-                STRUCT_LEAF_GCREF => (TAG_OBJECT, ref_slot_of(off)),
-                // chunk 2a refined ref kinds — kept **byte-identical to the coarse GcRef path**
-                // (TAG_OBJECT + side-table ref_slot) for pure dormancy: `field_value` checks
-                // `ref_slot >= 0` first and returns the stored `Value`, never consulting the tag
-                // for ref fields. chunk 2b re-derives TAG_ARRAY here and flips to inlining.
-                STRUCT_LEAF_GCREF_ARRAY | STRUCT_LEAF_GCREF_CLOSURE => (TAG_OBJECT, ref_slot_of(off)),
+                // Inlined direct references (8B pointer in `bytes`, no side-table slot).
+                STRUCT_LEAF_GCREF       => (TAG_OBJECT, -1),
+                STRUCT_LEAF_GCREF_ARRAY => (TAG_ARRAY,  -1),
+                // Non-`GcRef` reference (delegate/func → `Value::Closure`/`FuncRef`): can't
+                // be a raw 8B pointer → stays in the side-table.
+                STRUCT_LEAF_GCREF_CLOSURE => (TAG_OBJECT, ref_slot_of(off)),
                 // Prim (or unknown kind): resolve the exact primitive tag.
                 _ => (resolve_prim_tag(type_tag.unwrap_or(""), width), -1),
             };
@@ -430,6 +482,7 @@ pub fn compose_object_layout(
         field_kinds:   field_kinds.into(),
         ref_offsets:   ref_offsets.into(),
         ref_kinds:     ref_kinds.into(),
+        inline_refs:   inline_refs.into(),
         field_access,
     }
 }
@@ -481,7 +534,65 @@ pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
         field_kinds:   field_kinds.into(),
         ref_offsets:   ref_offsets.into(),
         ref_kinds:     ref_kinds.into(),
+        // Synthesized layouts conservatively keep every reference in the side-table:
+        // without authoritative `field_kinds` we can't tell an object (inline-able) from
+        // a delegate/func (`Value::Closure`, never inline-able → reading bytes = UB).
+        inline_refs:   Box::new([]),
         field_access:  field_access.into(),
+    }
+}
+
+/// unify-object-byte-layout (PR-3 chunk 2b): read a byte-inlined direct object/array
+/// reference — the 8B tagged `GcRef` pointer at `off` in an object's `bytes` — back into
+/// a `Value`. `0` (the zero-initialized default / an explicit `Null` store) → `Value::Null`.
+/// `is_array` picks the variant (`Value::Array` vs `Value::Object`); the raw pointer has
+/// no object-vs-array discriminant, so the kind must come from the layout's `field_kinds`.
+#[inline]
+pub(crate) fn read_inline_ref(bytes: &[u8], off: usize, is_array: bool) -> Value {
+    if off + 8 > bytes.len() {
+        return Value::Null;
+    }
+    let mut b = [0u8; 8];
+    b.copy_from_slice(&bytes[off..off + 8]);
+    let bits = u64::from_le_bytes(b);
+    if is_array {
+        // SAFETY: `bits` was written by `write_inline_ref` from a live `GcRef<ArrayObj>`
+        // whose backing Region outlives this object (a field reference is a strong root
+        // kept alive by GC tracing of `inline_refs`); `0` → `None` → `Null`.
+        match unsafe { GcRef::<ArrayObj>::from_tagged_bits(bits) } {
+            Some(r) => Value::Array(r),
+            None => Value::Null,
+        }
+    } else {
+        // SAFETY: as above, `bits` came from a live `GcRef<ScriptObject>`.
+        match unsafe { GcRef::<ScriptObject>::from_tagged_bits(bits) } {
+            Some(r) => Value::Object(r),
+            None => Value::Null,
+        }
+    }
+}
+
+/// unify-object-byte-layout (PR-3 chunk 2b): write a `Value` into a byte-inlined direct
+/// object/array reference slot (`off` in `bytes`). Heap `Object`/`Array` → their 8B tagged
+/// pointer; `Null` → `0`. Any other value (including a stack-escaped `StackObject`/
+/// `StackArray`, which must have been heap-promoted before reaching a field — see
+/// `exec_object::field_set`'s debug_assert) defensively stores `0` rather than a bogus
+/// pointer. The write barrier is fired separately by the caller.
+#[inline]
+pub(crate) fn write_inline_ref(bytes: &mut [u8], off: usize, v: &Value) {
+    let bits: u64 = match v {
+        Value::Object(r) => r.to_tagged_bits(),
+        Value::Array(r) => r.to_tagged_bits(),
+        _ => {
+            debug_assert!(
+                matches!(v, Value::Null),
+                "inlined object/array field only holds a heap Object/Array or Null, got {v:?}"
+            );
+            0
+        }
+    };
+    if off + 8 <= bytes.len() {
+        bytes[off..off + 8].copy_from_slice(&bits.to_le_bytes());
     }
 }
 
@@ -941,6 +1052,11 @@ impl ScriptObject {
         if fa.ref_slot >= 0 {
             return self.refs.get(fa.ref_slot as usize).cloned().unwrap_or(Value::Null);
         }
+        // PR-3 chunk 2b: an inlined direct object/array reference (`ref_slot == -1` but a
+        // reference tag) — read the 8B tagged pointer straight from `bytes` (0 = `Null`).
+        if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
+            return read_inline_ref(&self.bytes, fa.offset as usize, fa.tag == TAG_ARRAY);
+        }
         if fa.tag == TAG_UNKNOWN {
             return Value::Null; // struct-typed root — not a FieldGet target
         }
@@ -958,6 +1074,13 @@ impl ScriptObject {
         let fa = match self.field_access_of(slot) { Some(f) => f, None => return false };
         if fa.ref_slot >= 0 {
             if let Some(cell) = self.refs.get_mut(fa.ref_slot as usize) { *cell = v.clone(); }
+            return true;
+        }
+        // PR-3 chunk 2b: an inlined direct object/array reference — write the 8B tagged
+        // pointer into `bytes` (`Null`/non-heap → 0). Returns `true` so the caller still
+        // fires `write_barrier_field` (the target IS a reference slot, just byte-inlined).
+        if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
+            write_inline_ref(&mut self.bytes, fa.offset as usize, v);
             return true;
         }
         if fa.tag == TAG_UNKNOWN { return false; } // struct-typed root
@@ -983,6 +1106,48 @@ impl ScriptObject {
         };
         let _ = encode_prim(&mut self.bytes, fa.offset as usize, fa.width as usize, fa.tag, src);
         false
+    }
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): visit the object's **byte-inlined**
+    /// direct object/array references — the ones pulled out of `refs` into `bytes`.
+    /// Reads each 8B tagged pointer at its `InlineRef::offset`, rebuilds the `Value`
+    /// (`Object`/`Array` by `is_array`), and hands live (non-`Null`) ones to the GC
+    /// visitor. Complements the `for r in &obj.refs` side-table scan; together they
+    /// cover every reference edge. No-op for types without a composed object layout
+    /// (value structs use `struct_layout`; synthesized layouts inline nothing).
+    #[inline]
+    pub fn trace_inline_refs(&self, visit: &mut dyn FnMut(&Value)) {
+        if let Some(col) = self.type_desc.composed_object_layout() {
+            for ir in col.inline_refs.iter() {
+                let v = read_inline_ref(&self.bytes, ir.offset as usize, ir.is_array);
+                if !matches!(v, Value::Null) {
+                    visit(&v);
+                }
+            }
+        }
+    }
+
+    /// unify-object-byte-layout (PR-3 chunk 2b): zero every byte-inlined object/array
+    /// reference window (→ the `0` `Null` sentinel). The `bytes` twin of nulling the
+    /// `refs` side-table: used when finalizing/tombstoning an object to break strong
+    /// reference edges (both the side-table `refs` and the inlined pointers must be
+    /// cleared, else a cycle stays anchored through `bytes`).
+    #[inline]
+    pub fn clear_inline_refs(&mut self) {
+        // Collect offsets first so the `type_desc` layout borrow is released before the
+        // mutable `bytes` write (disjoint fields, but keeps the borrow checker happy).
+        let offsets: Vec<u32> = match self.type_desc.composed_object_layout() {
+            Some(col) if !col.inline_refs.is_empty() => {
+                col.inline_refs.iter().map(|ir| ir.offset).collect()
+            }
+            _ => return,
+        };
+        for off in offsets {
+            let off = off as usize;
+            if off + 8 <= self.bytes.len() {
+                self.bytes[off..off + 8].fill(0);
+            }
+        }
     }
 }
 
@@ -1678,10 +1843,12 @@ impl Value {
         match self {
             Value::Object(rc) => {
                 let obj = rc.borrow();
-                // unify-object-byte-layout (PR-2): every reference leaf (fields +
-                // inline-struct interior refs) lives in `refs`; `bytes` holds only
-                // primitives (+ dead 8B ref holes) — no GcRefs to scan there.
+                // unify-object-byte-layout: side-table reference leaves (closure/func/
+                // string + inline-struct interior refs) live in `refs`; PR-3 chunk 2b
+                // additionally inlines direct object/array refs as 8B pointers in `bytes`,
+                // scanned via `trace_inline_refs`.
                 for r in &obj.refs { visit(r); }
+                obj.trace_inline_refs(visit);
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -1700,6 +1867,7 @@ impl Value {
                 RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
                     for r in &obj.refs { visit(r); }  // unify-object-byte-layout (PR-2)
+                    obj.trace_inline_refs(visit);     // PR-3 chunk 2b: inlined object/array refs
                 }
             },
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object

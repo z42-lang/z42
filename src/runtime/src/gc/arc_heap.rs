@@ -903,11 +903,13 @@ impl ArcMagrGC {
                 let entry = region.resolve(h);
                 if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
                     let mut obj = entry.value.lock();
-                    // unify-object-byte-layout (PR-2): only the reference side-table
-                    // holds GcRefs to break; `bytes` are primitives.
+                    // unify-object-byte-layout: break every strong reference edge — the
+                    // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
+                    // byte-inlined in `bytes`.
                     for r in obj.refs.iter_mut() {
                         *r = Value::Null;
                     }
+                    obj.clear_inline_refs();
                 }
             }
             self.region_object.lock().tombstone(h);
@@ -1234,11 +1236,13 @@ impl ArcMagrGC {
                 let entry = region.resolve(h);
                 if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
                     let mut obj = entry.value.lock();
-                    // unify-object-byte-layout (PR-2): only the reference side-table
-                    // holds GcRefs to break; `bytes` are primitives.
+                    // unify-object-byte-layout: break every strong reference edge — the
+                    // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
+                    // byte-inlined in `bytes`.
                     for r in obj.refs.iter_mut() {
                         *r = Value::Null;
                     }
+                    obj.clear_inline_refs();
                 }
             }
             #[cfg(debug_assertions)]
@@ -1477,6 +1481,17 @@ impl ArcMagrGC {
                         );
                     }
                 }
+                // PR-3 chunk 2b: direct object/array fields are byte-inlined in `bytes`
+                // (not `refs`) — walk them too, else the retainer graph
+                // (`Heap.DirectReferrers`) misses references through inlined fields.
+                obj.trace_inline_refs(&mut |slot: &Value| {
+                    if let Some(child) = value_heap_ptr(slot) {
+                        g.add_edge(
+                            child,
+                            RetainerInfo { kind: RetainerKind::Object, type_name: type_name.clone(), id: self_ptr },
+                        );
+                    }
+                });
             });
         }
         // Array region → each array's heap-ref elements become reverse edges.
@@ -2059,9 +2074,10 @@ impl MagrGC for ArcMagrGC {
         match value {
             Value::Object(rc) => {
                 let obj = rc.borrow();
-                // unify-object-byte-layout (PR-2): all reference leaves consolidated
-                // into `refs`; `bytes` holds only primitives (+ dead ref holes).
+                // unify-object-byte-layout: side-table reference leaves in `refs`; PR-3
+                // chunk 2b also inlines direct object/array refs as 8B pointers in `bytes`.
                 for r in &obj.refs { visitor(r); }
+                obj.trace_inline_refs(visitor);
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
@@ -2086,6 +2102,7 @@ impl MagrGC for ArcMagrGC {
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => {
                     let obj = gc_ref.borrow();
                     for r in &obj.refs { visitor(r); }  // unify-object-byte-layout (PR-2)
+                    obj.trace_inline_refs(visitor);     // PR-3 chunk 2b: inlined object/array refs
                 }
             },
             // add-boxed-struct-identity (P4b, 路 B2): boxed struct 是共享 `ScriptObject`——扫其

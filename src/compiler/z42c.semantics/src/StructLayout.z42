@@ -101,6 +101,10 @@ public sealed class StructLayout {
     // （每内联字段 byte offset + 合成引用位图）。writer（ClassDescBuilder，本阶段）与 codegen
     // （ExprEmitter，stage 4）**同源**取此布局 → 对象相对 offset 一致。
     private StrMap _classDefs;    // className → StructFieldsDef（非-struct class）
+    // unify-object-byte-layout PR-3 chunk 2b：多态**擦除目标**类型名集（interface + object）。这些字段
+    // 可持装箱值（BoxedStruct/Array/Str/Closure），8B 内联丢变体判别 → 必须留侧表（GcRefClosure），
+    // 仅**具体类**（恒 Value::Object）可安全内联。见 `_refineDirectRefKind`（键 = base 名 Canon）。
+    private StrMap _erasureNames;
     private StrMap _inlineCache;  // className → StructLayoutInfo（合成内联布局）
     // unify-object-byte-layout PR-1：非-struct 引用类的**对象全字段布局**（8B 引用，休眠元数据）+
     // 内联 struct 字段扁平所需的 8B 引用 struct 展平布局缓存。
@@ -115,6 +119,7 @@ public sealed class StructLayout {
         this._cache = new StrMap();
         this._inProgress = new StrMap();
         this._classDefs = new StrMap();
+        this._erasureNames = new StrMap();
         this._inlineCache = new StrMap();
         this._objectCache = new StrMap();
         this._objStructCache = new StrMap();
@@ -154,6 +159,17 @@ public sealed class StructLayout {
         // unify-object-byte-layout PR-3 chunk 2a：先设 _classDefs（object 类型集），供 `_kindOf` 在
         // **struct 布局** LayoutOf 期就能把 object 字段判成 GcRef（否则 _classDefs 尚 null → 落 GcRefClosure）。
         sl._classDefs = classDefs;
+        // unify-object-byte-layout PR-3 chunk 2b：擦除目标名集 = 所有 interface（+ object，由
+        // `_isObjectSpelling` 直接识别）。`_computeObjectLayout`(下) 的 `_refineDirectRefKind` 据此把
+        // object/interface 字段归 GcRefClosure（侧表），只让具体类字段内联。
+        StrMap erasure = new StrMap();
+        string[] ikeys = table.Interfaces.Keys();
+        int ii = 0;
+        while (ii < ikeys.Length) {
+            erasure.Put(StructLayout._baseName(Z42Type.Canon(ikeys[ii])), "1");
+            ii = ii + 1;
+        }
+        sl._erasureNames = erasure;
         string[] dkeys = defs.Keys();
         int k = 0;
         while (k < dkeys.Length) { sl.LayoutOf(dkeys[k]); k = k + 1; }   // 预计算 struct 布局 + 填缓存
@@ -498,12 +514,23 @@ public sealed class StructLayout {
     private int _refineDirectRefKind(string ftype) {
         // 数组 T[]：运行时 Value::Array（8B GcRef<ArrayObj>）→ 可内联，重建为 Array。
         if (StructLayout._isArraySpelling(ftype)) { return StructLeafKind.GcRefArray; }
-        // 确定的 object 类型（本地/导入的非-struct class/interface，在 _classDefs 里）：Value::Object → 可内联。
-        // delegate 不在 _classDefs（它在 SymbolTable.Delegates，是 Z42FuncType）→ 自然落 GcRefClosure。
         string bn = StructLayout._baseName(Z42Type.Canon(ftype));
+        // **object / interface 字段是多态擦除目标**（TypeChecker 装箱边界 = is Interface || _isObjectName）：
+        // 可持装箱值（BoxedStruct/Array/Str/Closure）——运行时 Value 变体不定。8B 裸指针**丢变体判别**，
+        // 读回只能重建 Value::Object（≠ BoxedStruct，unbox 失败）→ **不可安全内联，留侧表(GcRefClosure)**。
+        if (StructLayout._isObjectSpelling(bn)) { return StructLeafKind.GcRefClosure; }
+        if (this._erasureNames != null && this._erasureNames.ContainsKey(bn)) { return StructLeafKind.GcRefClosure; }
+        // 确定的**具体类**（本地/导入的非-struct class，在 _classDefs 里，非 object/interface）：字段恒
+        // Value::Object（只能持该类或子类，绝不持 boxed struct/array）→ 可内联，重建为 Object。
+        // delegate 不在 _classDefs（它在 SymbolTable.Delegates，是 Z42FuncType）→ 自然落 GcRefClosure。
         if (this._classDefs != null && this._classDefs.ContainsKey(bn)) { return StructLeafKind.GcRef; }
         // 其余（delegate/func/未解析泛型 base 名不匹配/unknown）：可能是 Closure/FuncRef（非 GcRef）→ 侧表安全默认。
         return StructLeafKind.GcRefClosure;
+    }
+
+    // object 根类型的各拼写（镜像 TypeChecker._isObjectName）。object 字段多态 → 不可内联。
+    private static bool _isObjectSpelling(string n) {
+        return n == "object" || n == "Object" || n == "Std.Object";
     }
 
     // 是否数组拼写（`T[]`）。剥可空 `?` 后判后缀。
