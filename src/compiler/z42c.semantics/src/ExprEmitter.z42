@@ -127,11 +127,16 @@ public sealed class ExprEmitter {
             // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
             ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
             if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
-            // StaticGet 结果寄存器 = Unknown（C# REGT 字节实证：静态字段读 IR 层擦除）
-            TypedReg dst = this._ctx.Alloc(IrType.Unknown);
-            // G17b：用 QualifyClass（非 Qualify）→ 同包跨-ns 类（如 IrType@Z42.IR 从
-            // Z42.IR.BinaryFormat 引用）静态字段限定到声明 ns（镜像 C# fix-static-field-access 用 QualifyClassName）。
-            this._ctx.Emit(new StaticGetInstr(dst, this._ctx.QualifyClass(sg.ClassName) + "." + sg.FieldName));
+            TypedReg dst = this._emitStaticGetRaw(sg);
+            // add-static-struct-bytecization (PR-2 S)：static struct 字段存的是**装箱盒**
+            // （StaticSet 时 __box_struct 全局化，进程存活 + 引用身份）。**整读**（`var q = Holder.P`）
+            // 发 AsCast 拆回当前帧 arena StructRef（值语义拷贝）。**叶子访问**（`Holder.P.X`）不走这里——
+            // `_structChainRoot` 直接取盒句柄（见下），叶子 StructFieldGet/SetPrim 就地读写盒。
+            if (this._isBlobStruct(sg.Type())) {
+                TypedReg ud = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new AsCastInstr(ud, dst, this._ctx.QualifyClass(this._blobStructName(sg.Type()))));
+                return ud;
+            }
             return dst;
         }
         if (e is BoundLambda) { return this._emitLambda(e as BoundLambda); }
@@ -638,7 +643,8 @@ public sealed class ExprEmitter {
         // 镜像 static_get 发射（QualifyClass + "." + Field）+ __static_init__ 的 StaticSetInstr。
         if (a.Target is BoundStaticGet) {
             BoundStaticGet st = a.Target as BoundStaticGet;
-            this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, val));
+            TypedReg sv = this._boxIfStaticStruct(val, st.Type());   // add-static-struct-bytecization：struct 字段整写 → 装箱盒
+            this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, sv));
             return val;
         }
         if (a.Target is BoundIdent) {
@@ -878,6 +884,26 @@ public sealed class ExprEmitter {
         this._ctx.Emit(new StructFieldSetPrimInstr(base_, off, tag, val));
     }
 
+    // add-static-struct-bytecization (PR-2 S)：发 StaticGet 取**原始存储值**（static struct 字段 = 装箱盒
+    // 句柄，不拆箱）。供 Emit 整读（外层再 AsCast 拆箱）与 `_structChainRoot` 叶子根（直接用盒句柄就地读写）复用。
+    private TypedReg _emitStaticGetRaw(BoundStaticGet sg) {
+        // StaticGet 结果寄存器 = Unknown（C# REGT 字节实证：静态字段读 IR 层擦除）。
+        // G17b：用 QualifyClass（非 Qualify）→ 同包跨-ns 类静态字段限定到声明 ns。
+        TypedReg dst = this._ctx.Alloc(IrType.Unknown);
+        this._ctx.Emit(new StaticGetInstr(dst, this._ctx.QualifyClass(sg.ClassName) + "." + sg.FieldName));
+        return dst;
+    }
+
+    // add-static-struct-bytecization (PR-2 S)：整写 static struct 字段前 `__box_struct` 全局化——把帧 arena
+    // blob 拷到堆装箱盒（进程存活，无悬垂），存的是盒句柄。非 struct 字段原样返回（int/string/引用照旧）。
+    private TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
+        if (!this._isBlobStruct(fieldType)) { return val; }
+        TypedReg[] bargs = new TypedReg[1]; bargs[0] = val;
+        TypedReg bdst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(bdst, "__box_struct", bargs, 1));
+        return bdst;
+    }
+
     // 嵌套字段链的根 blob 句柄：沿链下降到根 lvalue，只 Emit 根一次。根 = 局部 ident / 返回 struct 的调用……
     // 或**拥有者 struct 的裸字段**（`a.x` 即 `this.a.x`，此时根 blob = this 句柄 reg0，偏移见 _structChainOffset）。
     private TypedReg _structChainRoot(BoundExpr e) {
@@ -888,6 +914,10 @@ public sealed class ExprEmitter {
             // 后续叶子 offset 由 _structChainOffset 累积（对象相对复合 offset 烘焙进 StructFieldGet/SetPrim）。
             if (this._isInlineStructFieldRoot(e)) { return this.Emit(m.Target); }
         }
+        // add-static-struct-bytecization (PR-2 S)：static struct 字段作叶子链根（`Holder.P.X`）→ 根 blob =
+        // 装箱盒句柄（BoxedStruct，就地读写，引用身份）。**不拆箱**（拆箱会拷贝出副本 → 叶子写丢失）；
+        // 叶子 offset 由 _structChainOffset 从 struct 布局累积（FieldByteOffset，struct 相对）。
+        if (e is BoundStaticGet && this._isBlobStruct(e.Type())) { return this._emitStaticGetRaw(e as BoundStaticGet); }
         if (this._isOwnerStructField(e)) { return new TypedReg(0, IrType.Ref); }
         // add-struct-heap-inline (P3b)：裸内联字段 `pt`（class C 方法内）根 = this 对象句柄 reg0。
         if (this._isOwnerInlineField(e)) { return new TypedReg(0, IrType.Ref); }

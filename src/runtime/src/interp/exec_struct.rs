@@ -181,6 +181,27 @@ pub(crate) fn struct_field_get_val(
                 decode_prim(&obj.bytes, off, w, kind)?
             }
         }
+        // add-static-struct-bytecization (PR-2 S): leaf of a **boxed** value struct (a
+        // static struct field is stored as a `BoxedStruct` for process-lifetime +
+        // reference identity — `Holder.P.X` mutates it in place). The box's `bytes`/`refs`
+        // ARE the struct blob (**struct** layout, not composed object layout); `byte_off`
+        // is the struct-relative leaf offset (`FieldByteOffset`).
+        Value::BoxedStruct(gc) => {
+            let obj = gc.borrow();
+            if is_ref_tag(kind) {
+                let sl = obj.type_desc.struct_layout().ok_or_else(|| {
+                    anyhow::anyhow!("StructFieldGetPrim: boxed struct `{}` has no struct layout", obj.type_desc.name)
+                })?;
+                let ri = sl.ref_index(byte_off).ok_or_else(|| {
+                    anyhow::anyhow!("boxed struct ref leaf at byte offset {byte_off} not in struct layout")
+                })?;
+                obj.refs[ri].clone()
+            } else {
+                let off = byte_off as usize;
+                let w = prim_width(kind)?;
+                decode_prim(&obj.bytes, off, w, kind)?
+            }
+        }
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap(e) => {
             let arr = e.arr.borrow();
@@ -260,6 +281,33 @@ pub(crate) fn struct_field_set_val(
                 // Write barrier: reference stored into a heap object. The `slot`
                 // argument is informational (card/diagnostics); the ref index is a
                 // stable per-object identifier. STW mode = no-op.
+                if v.is_heap_ref() {
+                    ctx.heap().write_barrier_field(base_val, ri, v);
+                }
+                Ok(())
+            } else {
+                let off = byte_off as usize;
+                let w = prim_width(kind)?;
+                let mut obj = gc.borrow_mut();
+                encode_prim(&mut obj.bytes, off, w, kind, v)
+            }
+        }
+        // add-static-struct-bytecization (PR-2 S): leaf write into a **boxed** value
+        // struct in place (static struct field `Holder.P.X = 5`; the box has reference
+        // identity so the mutation persists). Struct layout + struct-relative `byte_off`.
+        Value::BoxedStruct(gc) => {
+            if is_ref_tag(kind) {
+                let ri = {
+                    let mut obj = gc.borrow_mut();
+                    let sl = obj.type_desc.struct_layout().ok_or_else(|| {
+                        anyhow::anyhow!("StructFieldSetPrim: boxed struct `{}` has no struct layout", obj.type_desc.name)
+                    })?;
+                    let ri = sl.ref_index(byte_off).ok_or_else(|| {
+                        anyhow::anyhow!("boxed struct ref leaf at byte offset {byte_off} not in struct layout")
+                    })?;
+                    obj.refs[ri] = v.clone();
+                    ri
+                };
                 if v.is_heap_ref() {
                     ctx.heap().write_barrier_field(base_val, ri, v);
                 }

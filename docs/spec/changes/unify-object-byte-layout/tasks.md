@@ -5,7 +5,7 @@
 
 ## 进度概览
 - [x] PR-1: 布局元数据（编译器发对象全字段布局表 + reader，行为不变，格式 bump）—— 已合并 main #188
-- [~] PR-2: runtime 切字节存储（删 slots → bytes；FieldGet/Set/IC/反射/JIT byte-offset；GC 位图；引用暂 16B）—— **2.1-2.7 + 2.9-2.10 完成全绿（self-host 5/5 + e2e 246 + stdlib 280 + compiler 24 + cargo 922）；S.1-S.4（static struct 字节化修 REPL struct-in-static 悬垂）待做**
+- [x] PR-2: runtime 切字节存储 —— 全部完成全绿（含 S static struct 字节化修 REPL 悬垂；default-init 未初始化 static struct 列 follow-up）
 - [ ] PR-3: 引用 8B 标记指针（GcRef 16→8B 路 A）
 - [ ] PR-4: 字符串 8B 细指针（Arc<str>→StrHeader）
 - [ ] PR-5: Value 16B + JIT 收尾 + 文档/roadmap 收口
@@ -46,15 +46,15 @@
 - [x] 2.5 `reflection.rs` + 其余 ~15 文件的 `.slots`/`.struct_bytes`/`.struct_refs` 直读点（repl/gc/snapshot/stack_alloc/jit frame/assemblyloadcontext/exception 等）迁移 byte-offset+ref
 - [x] 2.6 `ExprEmitter.z42` + `StructLayout.z42`：内联 struct 叶子根 offset 从 `_inlineCache`（struct_bytes 相对）改 `_objectCache` composed（+base-shift 组合，与 loader 8B 对齐一致）；直接字段 codegen 不变（仍发名）
 - [x] 2.7 `jit/*`：`jit_field_get/set` + 方案 B 内联 STRIDE=24 硬编码 → byte-offset 基址（引用暂 16B，Value STRIDE 仍 24）
-- [ ] 2.8 追加 static 字节化（见 PR-2-static 节）
+- [x] 2.8 追加 static 字节化（见 PR-2-static 节）
 - [x] 2.9 golden：基元/引用/内联 struct/继承/跨包/反射 + `--mode jit`；更新 ~十余 `arc_heap_tests` 等测试
 - [x] 2.10 GREEN + 自举 byte-identical（分歧则查两处组合算法）
 
 ## PR-2 追加: static 存储字节化（修 REPL struct-in-static 悬垂，design.md D11）
-- [ ] S.1 `vm_context.rs` `VmCore.static_fields: Vec<Value>` → 每类静态存储块「offset 字节内联」（static struct 字段内联字节；引用字段存句柄一槽一引用）
-- [ ] S.2 `ExprEmitter.z42` `StaticSet`/`StaticGet`（`:639`/`:134`）：static struct 字段发字节拷贝（非裸 StructRef 句柄）；逃到 static 时拷字节
-- [ ] S.3 e2e `src/tests/types/struct_static_field.z42`：`class Holder { static Point P; }` 存/取/就地改/拷出独立副本
-- [ ] S.4 REPL 回归：`struct B{...}; B b=new(); b` + carry-forward 不崩（需 `xtask build toolchain` + 手动 REPL 验，见 [[green-gate-skips-scripting-interactive]]）
+- [x] S.1 `vm_context.rs` `VmCore.static_fields: Vec<Value>` → 每类静态存储块「offset 字节内联」（static struct 字段内联字节；引用字段存句柄一槽一引用）
+- [x] S.2 `ExprEmitter.z42` `StaticSet`/`StaticGet`（`:639`/`:134`）：static struct 字段发字节拷贝（非裸 StructRef 句柄）；逃到 static 时拷字节
+- [x] S.3 e2e `src/tests/types/struct_static_field.z42`：`class Holder { static Point P; }` 存/取/就地改/拷出独立副本
+- [x] S.4 REPL 回归：`struct B{...}; B b=new(); b` + carry-forward 不崩（需 `xtask build toolchain` + 手动 REPL 验，见 [[green-gate-skips-scripting-interactive]]）
 
 ## PR-3: 引用 8B 标记指针（路 A）
 - [ ] 3.1 `refs.rs`：`GcRef` 16→8B，窄 generation 进高 16 位 + mask deref；alloc 写 generation

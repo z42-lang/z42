@@ -136,6 +136,26 @@ size。编译器的 `StructLayout._computeObjFields` 现只算 own（offset 从 
 字段仍存句柄（一槽一引用，C# 亦如此）。根治 `ExprEmitter.z42` `StaticSet` 发裸 `StructRef` 逃逸悬垂。
 带 e2e `struct_static_field` + REPL 回归验证。
 
+### D15: static struct 字段用**装箱盒**实现（D11 落地方案，2026-08-14）
+
+**实现选定 = 装箱盒（`BoxedStruct` 堆对象）而非 `static_fields` Vec 改字节块**：static struct 字段的槽
+存一个 `Value::BoxedStruct`（堆 `ScriptObject`，进程存活 + GC 管 + **引用身份**）。比改 `VmCore.static_fields`
+存储结构更小、复用已有 PR-2 装箱机制，且引用身份天然支持就地改。C# 值语义由**编译期 box/unbox 边界**给出：
+
+- **整写** `Holder.P = v`（`ExprEmitter` 赋值臂 `_boxIfStaticStruct`）：`__box_struct(v)` 全局化——帧 arena
+  blob 拷到堆盒（无悬垂），存盒句柄。是**值拷贝**（改 v/原值不影响 static）。
+- **整读** `var q = Holder.P`（`Emit(BoundStaticGet)` struct 分支）：`AsCast` 拆盒回当前帧 arena `StructRef`
+  独立副本（值语义，改 q 不影响 static）。
+- **叶子读/写** `Holder.P.X` / `Holder.P.X = 5`：`_structChainRoot` 对 `BoundStaticGet(struct)` **不拆箱**、
+  直接取盒句柄（`_emitStaticGetRaw`）；叶子 offset 由 `_structChainOffset` 从 struct 布局累积
+  （`FieldByteOffset`，struct 相对）；runtime `struct_field_get_val`/`set_val` 新增 **`Value::BoxedStruct` 臂**
+  （盒 bytes/refs 即 struct blob，用 **struct_layout**（非 composed object layout）解 offset）→ 就地读写盒（引用身份持久）。
+- **判据**：`_isBlobStruct(field.Type())`（含 REPL `public static var v` 推断为 struct 的字段）。
+
+**残留（deferred，小边角）**：`static Point P;` **未初始化**读（无 initializer → 槽 Null → 拆箱 Null →
+`StructFieldGet(Null)` 崩）。well-formed 程序（含 REPL：`B b = new()` 先初始化）均先赋后读，不触发。彻底解 =
+`DeclBinder` 为无 init 的 struct static 字段合成 `default(T)` 零 struct init（需构造 BoundExpr），列 follow-up。
+
 ### D12: 字段精确 tag 恢复 + per-field 访问表（2026-08-14 实施期发现，补 D10 缺口）
 
 **发现的缺口**：D10 line 128 说「`decode_prim(bytes, off, kind)`」但没说 `kind`（精确 tag）从哪来。

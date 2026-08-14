@@ -1,0 +1,47 @@
+// add-static-struct-bytecization (PR-2 S / design D11)：static struct 字段存装箱盒（进程存活 + 引用身份），
+// C# 值语义端到端：整写全局化装箱、整读拆出独立副本、就地改字段持久、原值/副本互不影响。
+namespace Demo;
+
+struct Point {
+    public int x;
+    public int y;
+}
+
+class Holder {
+    public static Point P;
+}
+
+void Main() {
+    // 存：帧 arena struct → __box_struct 全局化装箱盒（无悬垂）。存的是 p 的值拷贝。
+    Point p = new Point();
+    p.x = 10;
+    p.y = 20;
+    Holder.P = p;
+
+    // 整读：拆回当前帧 arena 独立副本（值语义）。
+    Point q = Holder.P;
+    Assert.Equal(10, q.x);
+    Assert.Equal(20, q.y);
+
+    // 副本独立：改 q 不影响 static。
+    q.x = 99;
+    Assert.Equal(10, Holder.P.x);   // 叶子读 static 字段
+
+    // 原值独立：整写是值拷贝，改 p 不影响 static。
+    p.x = 77;
+    Assert.Equal(10, Holder.P.x);
+
+    // 就地改字段：叶子写穿装箱盒（引用身份，持久）。
+    Holder.P.x = 55;
+    Holder.P.y = 66;
+    Assert.Equal(55, Holder.P.x);
+    Assert.Equal(66, Holder.P.y);
+
+    // 再整读：看见就地改（同一装箱盒）。
+    Point r = Holder.P;
+    Assert.Equal(55, r.x);
+    Assert.Equal(66, r.y);
+
+    // q（更早拆出的副本）仍是旧值，不受后续就地改影响。
+    Assert.Equal(99, q.x);
+}
