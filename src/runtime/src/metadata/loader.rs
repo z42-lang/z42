@@ -800,14 +800,27 @@ pub fn build_type_registry(module: &mut Module) {
             // order means a local base is already in `registry`; a cross-zpkg base is
             // unresolved here (→ own-only, base_shift 0) and recomposed by
             // `try_fixup_inheritance` once it resolves, mirroring `fields`. Dormant.
-            composed_object_layout: desc.object_layout.as_ref().map(|own| {
-                let base_composed = desc.base_class.as_deref()
-                    .and_then(|b| registry.get(b))
-                    .and_then(|b| b.composed_object_layout());
-                std::sync::Arc::new(crate::metadata::types::compose_object_layout(
-                    base_composed.as_deref(), own, &fields,
-                ))
-            }),
+            composed_object_layout: match desc.object_layout.as_ref() {
+                Some(own) => {
+                    let base_composed = desc.base_class.as_deref()
+                        .and_then(|b| registry.get(b))
+                        .and_then(|b| b.composed_object_layout());
+                    Some(std::sync::Arc::new(crate::metadata::types::compose_object_layout(
+                        base_composed.as_deref(), own, &fields,
+                    )))
+                }
+                // unify-object-byte-layout (PR-2): a normal reference class with fields
+                // but no zbc object block (module predating zbc 1.34, or synthetic) —
+                // synthesize a self-consistent byte layout from the merged fields so
+                // `alloc_object` / `field_value` have a layout to consume.
+                None if !fields.is_empty()
+                        && (desc.class_flags & (4 | 16 | 32 | 64)) == 0 => {
+                    Some(std::sync::Arc::new(
+                        crate::metadata::types::synthesize_object_layout(&fields),
+                    ))
+                }
+                None => None,
+            },
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
@@ -963,15 +976,23 @@ pub fn try_fixup_inheritance(
             td.base_name.as_deref(),
             registry,
         );
-        let composed = td.cold.as_ref().and_then(|c| c.object_layout.as_ref()).map(|own| {
-            let base_composed = td.base_name.as_deref()
-                .and_then(|b| registry.get(b))
-                .and_then(|b| b.composed_object_layout());
-            // `layout.0` = the freshly merged fields (base ++ own) for the access table.
-            Arc::new(crate::metadata::types::compose_object_layout(
-                base_composed.as_deref(), own, &layout.0,
-            ))
-        });
+        let composed = match td.cold.as_ref().and_then(|c| c.object_layout.as_ref()) {
+            Some(own) => {
+                let base_composed = td.base_name.as_deref()
+                    .and_then(|b| registry.get(b))
+                    .and_then(|b| b.composed_object_layout());
+                // `layout.0` = freshly merged fields (base ++ own) for the access table.
+                Some(Arc::new(crate::metadata::types::compose_object_layout(
+                    base_composed.as_deref(), own, &layout.0,
+                )))
+            }
+            // No zbc object block — synthesize over the full merged fields (mirrors the
+            // build-time fallback), so a cross-zpkg normal class still gets a layout.
+            None if !layout.0.is_empty() && (td.class_flags & (4 | 16 | 32 | 64)) == 0 => {
+                Some(Arc::new(crate::metadata::types::synthesize_object_layout(&layout.0)))
+            }
+            None => None,
+        };
         planned.push((name.clone(), layout, composed));
     }
 

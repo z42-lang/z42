@@ -181,8 +181,8 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
 fn extract_gc_handle_slot(arg: &Value) -> u64 {
     let Value::Object(rc) = arg else { return 0 };
     let obj = rc.borrow();
-    match obj.slots.first() {
-        Some(Value::I64(i)) => (*i).max(0) as u64,
+    match obj.field_value(0) {
+        Value::I64(i) => i.max(0) as u64,
         _ => 0,
     }
 }
@@ -380,8 +380,8 @@ fn soft_handle_key(handle: &Value) -> Result<u64> {
     match handle {
         Value::Object(gc) => {
             let obj = gc.borrow();
-            match obj.slots.first() {
-                Some(Value::I64(k)) => Ok(*k as u64),
+            match obj.field_value(0) {
+                Value::I64(k) => Ok(k as u64),
                 _ => Err(anyhow!("SoftHandle._key: expected long slot")),
             }
         }

@@ -69,9 +69,8 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 fn is_heap_ref_true_for_object() {
     let v = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
-        slots: Box::new([]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -104,9 +103,8 @@ fn is_heap_ref_true_for_ref_array() {
 fn is_heap_ref_true_for_ref_field() {
     let obj = GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Foo"),
-        slots: Box::new([Value::I64(0)]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     });
@@ -125,17 +123,17 @@ fn trace_children_visits_inline_struct_refs() {
     // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
     let leaf = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Leaf"),
-        slots: Box::new([]),
-        struct_bytes: Box::new([]),
-        struct_refs: Box::new([]),
+        bytes: Box::new([]),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
     let owner = Value::Object(GcRef::new(ScriptObject {
         type_desc: dummy_type_desc("Owner"),
-        slots: Box::new([Value::I64(7)]),          // an ordinary field
-        struct_bytes: Box::new([0u8; 8]),          // inline struct's packed primitives
-        struct_refs: Box::new([leaf.clone()]),     // inline struct's reference leaf
+        // unify-object-byte-layout (PR-2): primitives (+ dead ref holes) in `bytes`,
+        // all reference leaves in `refs`. The inline-struct reference leaf lives in refs.
+        bytes: Box::new([0u8; 8]),
+        refs: Box::new([leaf.clone()]),
         native: NativeData::None,
         type_args: Box::new([]),
     }));
@@ -144,8 +142,8 @@ fn trace_children_visits_inline_struct_refs() {
     owner.trace_children(&mut |v: &Value| {
         if matches!(v, Value::Object(_)) { visited_object_children += 1; }
     });
-    // The ordinary I64 field is not an object; the inline struct_refs leaf is.
-    assert_eq!(visited_object_children, 1, "inline struct_refs leaf must be traced");
+    // Only the reference leaf in `refs` is an object; `bytes` holds no GcRefs.
+    assert_eq!(visited_object_children, 1, "reference leaf in refs must be traced");
 }
 
 #[test]
@@ -209,13 +207,13 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
 }
 
 #[test]
-fn inline_regions_empty_by_default() {
-    // Stage 1: no class carries inline-field metadata → both regions empty, so
-    // every existing object is byte-identical to pre-P3b.
+fn object_regions_empty_for_fieldless_type() {
+    // unify-object-byte-layout (PR-2): a field-less type with no delivered/synthesized
+    // layout has empty byte + reference regions.
     let td = dummy_type_desc("Plain");
-    let (bytes, refs) = td.inline_regions();
+    let (bytes, refs) = td.object_regions();
     assert!(bytes.is_empty() && refs.is_empty());
-    assert_eq!(td.inline_region_sizes(), (0, 0));
+    assert_eq!(td.object_region_sizes(), (0, 0));
 }
 
 #[test]
@@ -361,9 +359,10 @@ fn value_bool_payload_at_offset_8() {
 fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
     GcRef::new(ScriptObject {
         type_desc: dummy_type_desc(name),
-        slots: Box::new([]),
-        struct_bytes: bytes.to_vec().into_boxed_slice(),
-        struct_refs: Box::new([]),
+        // unify-object-byte-layout (PR-2): a boxed primitive's scalar is its whole
+        // `bytes` payload; no reference leaves.
+        bytes: bytes.to_vec().into_boxed_slice(),
+        refs: Box::new([]),
         native: NativeData::None,
         type_args: Box::new([]),
     })

@@ -182,8 +182,8 @@ fn obj_get_type_simple_name_no_namespace() {
     let result = exec_builtin(&c, "__obj_get_type", &[obj(&c, "Foo")]).unwrap();
     let Value::Object(rc) = result else { panic!("expected Object") };
     let borrow = rc.borrow();
-    assert_eq!(borrow.slots[0], Value::Str("Foo".into()));
-    assert_eq!(borrow.slots[1], Value::Str("Foo".into()));
+    assert_eq!(borrow.field_value(0), Value::Str("Foo".into()));
+    assert_eq!(borrow.field_value(1), Value::Str("Foo".into()));
 }
 
 #[test]
@@ -192,8 +192,8 @@ fn obj_get_type_namespaced_class_splits_name() {
     let result = exec_builtin(&c, "__obj_get_type", &[obj(&c, "geometry.Circle")]).unwrap();
     let Value::Object(rc) = result else { panic!("expected Object") };
     let borrow = rc.borrow();
-    assert_eq!(borrow.slots[0], Value::Str("Circle".into()));
-    assert_eq!(borrow.slots[1], Value::Str("geometry.Circle".into()));
+    assert_eq!(borrow.field_value(0), Value::Str("Circle".into()));
+    assert_eq!(borrow.field_value(1), Value::Str("geometry.Circle".into()));
 }
 
 #[test]

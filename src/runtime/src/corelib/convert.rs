@@ -90,10 +90,10 @@ pub(crate) fn box_struct_blob(
         Value::Object(gc) => {
             {
                 let mut o = gc.borrow_mut();
-                let n = bytes.len().min(o.struct_bytes.len());
-                o.struct_bytes[..n].copy_from_slice(&bytes[..n]);
-                let rn = refs.len().min(o.struct_refs.len());
-                o.struct_refs[..rn].clone_from_slice(&refs[..rn]);
+                let n = bytes.len().min(o.bytes.len());
+                o.bytes[..n].copy_from_slice(&bytes[..n]);
+                let rn = refs.len().min(o.refs.len());
+                o.refs[..rn].clone_from_slice(&refs[..rn]);
             }
             Ok(Value::BoxedStruct(gc))
         }
@@ -115,8 +115,8 @@ pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Valu
     // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
     let b = gc.borrow();
     let mut h: u32 = 2_166_136_261;
-    for &byte in b.struct_bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
-    for r in b.struct_refs.iter() {
+    for &byte in b.bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
+    for r in b.refs.iter() {
         let rh: u32 = match r {
             Value::Str(s) => {
                 let mut sh: u32 = 2_166_136_261;

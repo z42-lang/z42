@@ -60,12 +60,10 @@ pub(super) fn obj_new(
         }
     }
 
-    // 2026-05-02 fix-class-field-default-init: 按字段声明类型选默认值
-    // （int → I64(0)、bool → Bool(false)、str/ref → Null …），不再
-    // 一律 Null。有显式 init 的字段在 ctor 入口被 FieldSet 覆写。
-    let slots: Vec<Value> = type_desc.fields.iter()
-        .map(|f| crate::metadata::default_value_for(&f.type_tag))
-        .collect();
+    // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
+    // `Null` refs (= int→0 / bool→false / '\0' / ref→Null, the old per-field
+    // defaults), produced by `object_regions()`. Explicit initializers are written by
+    // `FieldSet` at the ctor entry.
 
     // add-escape-analysis-stack-alloc: when the compiler proved this `new` does
     // not escape its frame AND the ctor does not leak `this`, allocate in the
@@ -75,12 +73,11 @@ pub(super) fn obj_new(
     // through `ctx.stack_arena`, so the ctor's child frame reaches it fine.
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let (struct_bytes, struct_refs) = type_desc.inline_regions();
+        let (bytes, refs) = type_desc.object_regions();
         let obj = ScriptObject {
             type_desc,
-            slots: slots.into_boxed_slice(),
-            struct_bytes,
-            struct_refs,
+            bytes,
+            refs,
             native: NativeData::None,
             type_args: if type_args.is_empty() {
                 Box::new([])
@@ -91,7 +88,7 @@ pub(super) fn obj_new(
         let idx = ctx.stack_arena.lock().alloc_obj(frame.frame_id, obj);
         Value::StackObject { idx, frame_id: frame.frame_id }
     } else {
-        let obj_val = ctx.heap().alloc_object(type_desc, slots, NativeData::None);
+        let obj_val = ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
 
         // add-gc-oom-exception: alloc_object returns Null only under strict OOM.
         // Temporarily disable strict OOM so the exception object can be allocated;
@@ -178,17 +175,18 @@ pub(super) fn field_get(
                 if let Some(ic) = field_ic {
                     let recv_type = obj.type_desc.id.0;
                     if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                        return obj.slots.get(slot as usize).cloned().unwrap_or(Value::Null);
+                        return obj.field_value(slot as usize);
                     }
                     if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
                         field_ic_install(ic, recv_type, slot as u32);
-                        return obj.slots.get(slot).cloned().unwrap_or(Value::Null);
+                        return obj.field_value(slot);
                     }
                     return Value::Null;
                 }
-                obj.type_desc.field_index.get(field_name)
-                    .and_then(|&slot| obj.slots.get(slot).cloned())
-                    .unwrap_or(Value::Null)
+                match obj.type_desc.field_index.get(field_name) {
+                    Some(&slot) => obj.field_value(slot),
+                    None => Value::Null,
+                }
             })?
         }
         Value::Object(rc) => {
@@ -197,7 +195,7 @@ pub(super) fn field_get(
             if let Some(ic) = field_ic {
                 let recv_type = borrowed.type_desc.id.0;
                 if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                    let v = borrowed.slots.get(slot as usize).cloned().unwrap_or(Value::Null);
+                    let v = borrowed.field_value(slot as usize);
                     drop(borrowed);
                     frame.set(dst, v);
                     return Ok(());
@@ -205,12 +203,12 @@ pub(super) fn field_get(
                 // Miss: walk field_index + install in PIC.
                 if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
                     field_ic_install(ic, recv_type, slot as u32);
-                    borrowed.slots.get(slot).cloned().unwrap_or(Value::Null)
+                    borrowed.field_value(slot)
                 } else {
                     Value::Null
                 }
             } else if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                borrowed.slots.get(slot).cloned().unwrap_or(Value::Null)
+                borrowed.field_value(slot)
             } else {
                 Value::Null
             }
@@ -295,9 +293,9 @@ pub(super) fn field_set(
                     obj.type_desc.field_index.get(field_name).copied()
                 };
                 if let Some(slot) = slot_opt {
-                    if slot < obj.slots.len() {
-                        obj.slots[slot] = v.clone();
-                    }
+                    // unify-object-byte-layout (PR-2): encode into bytes / refs. No
+                    // write barrier — stack slots aren't heap slots (arena root-scanned).
+                    obj.set_field_value(slot, &v);
                 }
             })?;
             Ok(())
@@ -309,12 +307,12 @@ pub(super) fn field_set(
                 let recv_type = borrowed.type_desc.id.0;
                 if let Some(slot) = field_ic_lookup(ic, recv_type) {
                     let slot = slot as usize;
-                    if slot < borrowed.slots.len() {
-                        borrowed.slots[slot] = v.clone();
-                        drop(borrowed);
-                        if v.is_heap_ref() {
-                            ctx.heap().write_barrier_field(&owner, slot, &v);
-                        }
+                    // unify-object-byte-layout (PR-2): `set_field_value` returns whether
+                    // a reference slot was written — fire the barrier only for a heap ref.
+                    let wrote_ref = borrowed.set_field_value(slot, &v);
+                    drop(borrowed);
+                    if wrote_ref && v.is_heap_ref() {
+                        ctx.heap().write_barrier_field(&owner, slot, &v);
                     }
                     return Ok(());
                 }
@@ -322,21 +320,17 @@ pub(super) fn field_set(
                 let slot_opt = borrowed.type_desc.field_index.get(field_name).copied();
                 if let Some(slot) = slot_opt {
                     field_ic_install(ic, recv_type, slot as u32);
-                    if slot < borrowed.slots.len() {
-                        borrowed.slots[slot] = v.clone();
-                        drop(borrowed);
-                        if v.is_heap_ref() {
-                            ctx.heap().write_barrier_field(&owner, slot, &v);
-                        }
+                    let wrote_ref = borrowed.set_field_value(slot, &v);
+                    drop(borrowed);
+                    if wrote_ref && v.is_heap_ref() {
+                        ctx.heap().write_barrier_field(&owner, slot, &v);
                     }
                 }
             } else if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                if slot < borrowed.slots.len() {
-                    borrowed.slots[slot] = v.clone();
-                    drop(borrowed);
-                    if v.is_heap_ref() {
-                        ctx.heap().write_barrier_field(&owner, slot, &v);
-                    }
+                let wrote_ref = borrowed.set_field_value(slot, &v);
+                drop(borrowed);
+                if wrote_ref && v.is_heap_ref() {
+                    ctx.heap().write_barrier_field(&owner, slot, &v);
                 }
             }
             Ok(())

@@ -237,7 +237,7 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
         let is_exc = is_exception_subclass(&borrowed.type_desc, module);
         let slot   = borrowed.type_desc.field_index.get("StackTrace").copied();
         let is_null = match (is_exc, slot) {
-            (true, Some(s)) => matches!(borrowed.slots.get(s), Some(Value::Null)),
+            (true, Some(s)) => matches!(borrowed.field_value(s), Value::Null),
             _               => false,
         };
         (is_exc, slot, is_null)
@@ -251,10 +251,8 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
 
     // Step 3: write-only borrow to set the field.
     let mut bm = rc.borrow_mut();
-    if let Some(slot_val) = bm.slots.get_mut(slot) {
-        if matches!(slot_val, Value::Null) {
-            *slot_val = Value::Str(trace.into());
-        }
+    if matches!(bm.field_value(slot), Value::Null) {
+        bm.set_field_value(slot, &Value::Str(trace.into()));
     }
 }
 
@@ -268,8 +266,8 @@ pub fn read_stack_trace(value: &Value, module: &Module) -> Option<String> {
     let borrowed = rc.borrow();
     if !is_exception_subclass(&borrowed.type_desc, module) { return None; }
     let slot = borrowed.type_desc.field_index.get("StackTrace").copied()?;
-    match borrowed.slots.get(slot) {
-        Some(Value::Str(s)) if !s.is_empty() => Some(s.to_string()),
+    match borrowed.field_value(slot) {
+        Value::Str(s) if !s.is_empty() => Some(s.to_string()),
         _ => None,
     }
 }
@@ -313,8 +311,8 @@ pub fn read_message(value: &Value, module: &Module) -> Option<String> {
     let borrowed = rc.borrow();
     if !is_exception_subclass(&borrowed.type_desc, module) { return None; }
     let slot = borrowed.type_desc.field_index.get("Message").copied()?;
-    match borrowed.slots.get(slot) {
-        Some(Value::Str(s)) => Some(s.to_string()),
+    match borrowed.field_value(slot) {
+        Value::Str(s) => Some(s.to_string()),
         _ => None,
     }
 }

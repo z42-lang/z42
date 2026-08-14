@@ -93,9 +93,9 @@ fn finalizer_fires_when_object_freed_via_cycle_collect() {
     let b = heap.alloc_object(dummy_type_desc("G"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().slots[0] = b.clone();
+        g.borrow_mut().refs[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().slots[0] = a.clone();
+        g.borrow_mut().refs[0] = a.clone();
     }
     heap.register_finalizer(&a, Arc::new(move || {
         f.fetch_add(1, Ordering::SeqCst);
@@ -254,7 +254,7 @@ fn finalizer_is_one_shot_after_fire() {
     let a = heap.alloc_object(dummy_type_desc("F"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().slots[0] = a.clone();
+        g.borrow_mut().refs[0] = a.clone();
     }
     heap.register_finalizer(&a, Arc::new(move || {
         f.fetch_add(1, Ordering::SeqCst);

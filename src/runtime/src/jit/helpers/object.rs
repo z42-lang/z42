@@ -52,12 +52,10 @@ pub unsafe extern "C" fn jit_obj_new(
             cold: None,
             id: crate::metadata::tokens::TypeId::UNRESOLVED,
         }));
-    // 2026-05-02 fix-class-field-default-init: 按字段类型选默认值（与 interp
-    // exec_object.rs::obj_new 镜像，共用 metadata::default_value_for）。
-    let slots: Vec<Value> = type_desc.fields.iter()
-        .map(|f| crate::metadata::default_value_for(&f.type_tag))
-        .collect();
-    let obj_val = vm_ctx_ref(ctx).heap().alloc_object(type_desc, slots, NativeData::None);
+    // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
+    // `Null` refs (= the old per-field defaults), produced inside `alloc_object` from
+    // the composed layout; pass no initial values (mirrors interp `obj_new`).
+    let obj_val = vm_ctx_ref(ctx).heap().alloc_object(type_desc, Vec::new(), NativeData::None);
 
     // 2026-05-07 expand-jit-type-args: populate per-instance type_args BEFORE
     // ctor call so the ctor body's `default(T)` resolves correctly (mirrors
@@ -209,16 +207,13 @@ pub unsafe extern "C" fn jit_obj_field_slot(
     obj: u32, field_name_ptr: *const u8, field_name_len: usize,
     out_slots_ptr: *mut *const Value, out_slot: *mut i64,
 ) {
-    let field_name = std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len))
-        .unwrap_or("<invalid>");
-    if let Value::Object(rc) = &(*frame).regs[obj as usize] {
-        let b = rc.borrow();
-        if let Some(&slot) = b.type_desc.field_index.get(field_name) {
-            *out_slots_ptr = b.slots.as_ptr();
-            *out_slot = slot as i64;
-            return;
-        }
-    }
+    // unify-object-byte-layout (PR-2): the inline `slots.as_ptr()` + STRIDE fast path
+    // is incompatible with byte storage (a field is now a primitive packed in `bytes`
+    // or a reference in the `refs` side-table, not a uniform 24B `Value`). Always
+    // signal "no fast path" so every FieldGet routes through `jit_field_get`
+    // (`field_value`, byte-aware). A byte-aware inline fast path is restored in PR-5
+    // (Value 16B + JIT STRIDE rework). `_frame`/`_obj`/`_field_name*` unused now.
+    let _ = (frame, obj, field_name_ptr, field_name_len);
     *out_slots_ptr = std::ptr::null();
     *out_slot = -1;
 }
@@ -245,16 +240,16 @@ pub unsafe extern "C" fn jit_field_get(
             if !ic_ptr.is_null() {
                 let recv_type = b.type_desc.id.0;
                 if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
-                    let v = b.slots.get(slot as usize).cloned().unwrap_or(Value::Null);
+                    let v = b.field_value(slot as usize);
                     (*frame).regs[dst as usize] = v;
                     return 0;
                 }
                 if let Some(&slot) = b.type_desc.field_index.get(field_name) {
                     crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
-                    b.slots.get(slot).cloned().unwrap_or(Value::Null)
+                    b.field_value(slot)
                 } else { Value::Null }
             } else if let Some(&slot) = b.type_desc.field_index.get(field_name) {
-                b.slots.get(slot).cloned().unwrap_or(Value::Null)
+                b.field_value(slot)
             } else { Value::Null }
         }
         Value::Str(s) if field_name == "Length"     => Value::I64(crate::corelib::str_meta::char_len(s) as i64),
@@ -294,33 +289,27 @@ pub unsafe extern "C" fn jit_field_set(
                 let recv_type = b.type_desc.id.0;
                 if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
                     let slot = slot as usize;
-                    if slot < b.slots.len() {
-                        b.slots[slot] = v.clone();
-                        drop(b);
-                        if v.is_heap_ref() {
-                            vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
-                        }
+                    let wrote_ref = b.set_field_value(slot, &v);
+                    drop(b);
+                    if wrote_ref && v.is_heap_ref() {
+                        vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                     }
                     return 0;
                 }
                 let slot_opt = b.type_desc.field_index.get(field_name).copied();
                 if let Some(slot) = slot_opt {
                     crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
-                    if slot < b.slots.len() {
-                        b.slots[slot] = v.clone();
-                        drop(b);
-                        if v.is_heap_ref() {
-                            vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
-                        }
+                    let wrote_ref = b.set_field_value(slot, &v);
+                    drop(b);
+                    if wrote_ref && v.is_heap_ref() {
+                        vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                     }
                 }
             } else if let Some(&slot) = b.type_desc.field_index.get(field_name) {
-                if slot < b.slots.len() {
-                    b.slots[slot] = v.clone();
-                    drop(b);
-                    if v.is_heap_ref() {
-                        vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
-                    }
+                let wrote_ref = b.set_field_value(slot, &v);
+                drop(b);
+                if wrote_ref && v.is_heap_ref() {
+                    vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                 }
             }
             0

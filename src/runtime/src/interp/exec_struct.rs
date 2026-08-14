@@ -15,6 +15,11 @@ use std::sync::Arc;
 use crate::metadata::types::StructTypeLayout;
 use super::Frame;
 
+// unify-object-byte-layout (PR-2): the primitive byte<->Value codec moved to
+// `metadata::types` (both object byte-storage and struct blobs consume it). Re-export
+// so existing call sites here + in `corelib::reflection` keep the same path.
+pub(crate) use crate::metadata::types::{decode_prim, encode_prim, prim_width, is_ref_tag};
+
 /// `StructAlloc dst, type_name, size` — allocate a zero-initialized blob in the
 /// per-context struct arena; `dst` = `Value::StructRef` handle. The blob's byte +
 /// reference layout comes from the type's TYPE-section struct block (via
@@ -68,7 +73,7 @@ pub(crate) fn unbox_struct(
     // independent of the box).
     let (type_name, bytes, refs): (Arc<str>, Vec<u8>, Vec<Value>) = {
         let o = gc.borrow();
-        (Arc::from(&*o.type_desc.name), o.struct_bytes.to_vec(), o.struct_refs.to_vec())
+        (Arc::from(&*o.type_desc.name), o.bytes.to_vec(), o.refs.to_vec())
     };
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
     let idx = ctx.struct_arena.lock().alloc(frame_id, type_name, layout);
@@ -157,21 +162,23 @@ pub(crate) fn struct_field_get_val(
     ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8,
 ) -> Result<Value> {
     let val = match base_val {
-        // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
+        // unify-object-byte-layout (PR-2): inline struct leaf of a heap object — read
+        // from the object's `bytes`/`refs` via the composed object layout. `byte_off`
+        // is the compiler-baked **composed** object-relative offset (task 2.6).
         Value::Object(gc) => {
             let obj = gc.borrow();
             if is_ref_tag(kind) {
-                let il = obj.type_desc.inline_layout().ok_or_else(|| {
-                    anyhow::anyhow!("StructFieldGetPrim: object `{}` has no inline struct layout", obj.type_desc.name)
+                let col = obj.type_desc.composed_object_layout().ok_or_else(|| {
+                    anyhow::anyhow!("StructFieldGetPrim: object `{}` has no object layout", obj.type_desc.name)
                 })?;
-                let ri = il.ref_index(byte_off).ok_or_else(|| {
+                let ri = col.ref_index(byte_off).ok_or_else(|| {
                     anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
                 })?;
-                obj.struct_refs[ri].clone()
+                obj.refs[ri].clone()
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                decode_prim(&obj.struct_bytes, off, w, kind)?
+                decode_prim(&obj.bytes, off, w, kind)?
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
@@ -234,23 +241,25 @@ pub(crate) fn struct_field_set_val(
     ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8, v: &Value,
 ) -> Result<()> {
     match base_val {
-        // add-struct-heap-inline (P3b, D1-a): inline struct field of a heap object.
+        // unify-object-byte-layout (PR-2): inline struct leaf of a heap object — write
+        // into the object's `bytes`/`refs` via the composed object layout. `byte_off`
+        // is the compiler-baked composed object-relative offset (task 2.6).
         Value::Object(gc) => {
             if is_ref_tag(kind) {
                 let ri = {
                     let mut obj = gc.borrow_mut();
-                    let il = obj.type_desc.inline_layout().ok_or_else(|| {
-                        anyhow::anyhow!("StructFieldSetPrim: object `{}` has no inline struct layout", obj.type_desc.name)
+                    let col = obj.type_desc.composed_object_layout().ok_or_else(|| {
+                        anyhow::anyhow!("StructFieldSetPrim: object `{}` has no object layout", obj.type_desc.name)
                     })?;
-                    let ri = il.ref_index(byte_off).ok_or_else(|| {
+                    let ri = col.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
                     })?;
-                    obj.struct_refs[ri] = v.clone();
+                    obj.refs[ri] = v.clone();
                     ri
                 };
-                // Write barrier: reference stored into a heap object (P3b). The
-                // `slot` argument is informational (card/diagnostics); the inline
-                // ref index is a stable per-object identifier. STW mode = no-op.
+                // Write barrier: reference stored into a heap object. The `slot`
+                // argument is informational (card/diagnostics); the ref index is a
+                // stable per-object identifier. STW mode = no-op.
                 if v.is_heap_ref() {
                     ctx.heap().write_barrier_field(base_val, ri, v);
                 }
@@ -259,7 +268,7 @@ pub(crate) fn struct_field_set_val(
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.struct_bytes, off, w, kind, v)
+                encode_prim(&mut obj.bytes, off, w, kind, v)
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.
@@ -308,114 +317,12 @@ pub(crate) fn struct_field_set_val(
     }
 }
 
-/// Whether a leaf `TypeTag` denotes a reference leaf (`string` / object / array),
-/// which lives in the blob's `refs` side-slice rather than byte-packed in `bytes`.
-#[inline]
-pub(crate) fn is_ref_tag(kind: u8) -> bool {
-    matches!(kind, ty::TAG_STR | ty::TAG_OBJECT | ty::TAG_ARRAY)
-}
-
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
     match v {
         Value::StructRef { idx, frame_id } => Ok((*idx, *frame_id)),
         other => bail!("{what}: expected a struct value (StructRef), got {other:?}"),
-    }
-}
-
-/// Byte width of a primitive leaf by its `TypeTag`.
-pub(crate) fn prim_width(kind: u8) -> Result<usize> {
-    Ok(match kind {
-        ty::TAG_BOOL | ty::TAG_I8 | ty::TAG_U8 => 1,
-        ty::TAG_I16 | ty::TAG_U16 => 2,
-        ty::TAG_I32 | ty::TAG_U32 | ty::TAG_F32 | ty::TAG_CHAR => 4,
-        ty::TAG_I64 | ty::TAG_U64 | ty::TAG_F64 => 8,
-        other => bail!("struct field: unsupported primitive tag {other:#x}"),
-    })
-}
-
-/// Decode `w` bytes at `off` into a `Value` per `kind`. Integers → `Value::I64`,
-/// f32/f64 → `Value::F64`, bool → `Value::Bool`, char → `Value::Char` (mirrors the
-/// VM's scalar representation of primitives).
-pub(crate) fn decode_prim(bytes: &[u8], off: usize, w: usize, kind: u8) -> Result<Value> {
-    if off + w > bytes.len() {
-        bail!("struct field read out of blob bounds (off={off}, w={w}, len={})", bytes.len());
-    }
-    let b = &bytes[off..off + w];
-    let v = match kind {
-        ty::TAG_BOOL => Value::Bool(b[0] != 0),
-        ty::TAG_I8   => Value::I64(b[0] as i8 as i64),
-        ty::TAG_U8   => Value::I64(b[0] as i64),
-        ty::TAG_I16  => Value::I64(i16::from_le_bytes([b[0], b[1]]) as i64),
-        ty::TAG_U16  => Value::I64(u16::from_le_bytes([b[0], b[1]]) as i64),
-        ty::TAG_I32  => Value::I64(i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as i64),
-        ty::TAG_U32  => Value::I64(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as i64),
-        ty::TAG_I64 | ty::TAG_U64 => {
-            let mut a = [0u8; 8]; a.copy_from_slice(b); Value::I64(i64::from_le_bytes(a))
-        }
-        ty::TAG_F32  => Value::F64(f32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f64),
-        ty::TAG_F64  => {
-            let mut a = [0u8; 8]; a.copy_from_slice(b); Value::F64(f64::from_le_bytes(a))
-        }
-        ty::TAG_CHAR => {
-            let cp = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
-            Value::Char(char::from_u32(cp).unwrap_or('\0'))
-        }
-        other => bail!("struct field: unsupported primitive tag {other:#x}"),
-    };
-    Ok(v)
-}
-
-/// Encode `val` into `w` bytes at `off` per `kind` (in place).
-pub(crate) fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value) -> Result<()> {
-    if off + w > bytes.len() {
-        bail!("struct field write out of blob bounds (off={off}, w={w}, len={})", bytes.len());
-    }
-    match kind {
-        ty::TAG_BOOL => bytes[off] = if as_bool(val)? { 1 } else { 0 },
-        ty::TAG_I8 | ty::TAG_U8 => bytes[off] = as_i64(val)? as u8,
-        ty::TAG_I16 | ty::TAG_U16 => bytes[off..off + 2].copy_from_slice(&(as_i64(val)? as u16).to_le_bytes()),
-        ty::TAG_I32 | ty::TAG_U32 => bytes[off..off + 4].copy_from_slice(&(as_i64(val)? as u32).to_le_bytes()),
-        ty::TAG_I64 | ty::TAG_U64 => bytes[off..off + 8].copy_from_slice(&as_i64(val)?.to_le_bytes()),
-        ty::TAG_F32 => bytes[off..off + 4].copy_from_slice(&(as_f64(val)? as f32).to_le_bytes()),
-        ty::TAG_F64 => bytes[off..off + 8].copy_from_slice(&as_f64(val)?.to_le_bytes()),
-        ty::TAG_CHAR => bytes[off..off + 4].copy_from_slice(&as_char_u32(val)?.to_le_bytes()),
-        other => bail!("struct field: unsupported primitive tag {other:#x}"),
-    }
-    Ok(())
-}
-
-fn as_i64(v: &Value) -> Result<i64> {
-    match v {
-        Value::I64(n) => Ok(*n),
-        Value::Bool(b) => Ok(*b as i64),
-        Value::Char(c) => Ok(*c as i64),
-        other => bail!("struct field: expected an integer value, got {other:?}"),
-    }
-}
-
-fn as_f64(v: &Value) -> Result<f64> {
-    match v {
-        Value::F64(f) => Ok(*f),
-        Value::I64(n) => Ok(*n as f64),
-        other => bail!("struct field: expected a float value, got {other:?}"),
-    }
-}
-
-fn as_bool(v: &Value) -> Result<bool> {
-    match v {
-        Value::Bool(b) => Ok(*b),
-        Value::I64(n) => Ok(*n != 0),
-        other => bail!("struct field: expected a bool value, got {other:?}"),
-    }
-}
-
-fn as_char_u32(v: &Value) -> Result<u32> {
-    match v {
-        Value::Char(c) => Ok(*c as u32),
-        Value::I64(n) => Ok(*n as u32),
-        other => bail!("struct field: expected a char value, got {other:?}"),
     }
 }
 

@@ -10,8 +10,11 @@ fn alloc_object_returns_value_object_with_given_fields() {
     let Value::Object(rc) = v else { panic!("expected Value::Object") };
     let borrow = rc.borrow();
     assert_eq!(borrow.type_desc.name, "Foo");
-    assert_eq!(borrow.slots.len(), 2);
-    assert_eq!(borrow.slots[0], Value::I64(1));
+    // unify-object-byte-layout (PR-2): the dummy type has 4 reference fields → 4 refs
+    // slots; the two initial values land in refs[0]/refs[1].
+    assert_eq!(borrow.refs.len(), 4);
+    assert_eq!(borrow.refs[0], Value::I64(1));
+    assert_eq!(borrow.refs[1], Value::I64(2));
 }
 
 #[test]

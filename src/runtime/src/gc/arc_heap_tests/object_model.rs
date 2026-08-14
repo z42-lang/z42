@@ -31,7 +31,9 @@ fn scan_object_refs_visits_every_slot() {
     );
     let mut count = 0;
     heap.scan_object_refs(&v, &mut |_| count += 1);
-    assert_eq!(count, 3);
+    // unify-object-byte-layout (PR-2): the dummy type has 4 reference fields → 4 refs
+    // slots (the 3 initial values fill refs[0..3], refs[3] stays Null); scan visits all.
+    assert_eq!(count, 4);
 }
 
 #[test]
