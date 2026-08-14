@@ -189,6 +189,106 @@ impl StructTypeLayout {
     }
 }
 
+/// unify-object-byte-layout (PR-2): the **composed** full-object byte layout of a
+/// reference class's instances — the runtime form of the dormant zbc `object_layout`
+/// (own-only) after inheritance composition (`base.composed ++ own`). Built at load
+/// time (`compose_object_layout`) mirroring `merge_with_base`'s `fields = base.fields
+/// ++ own_fields`, so `field_offsets[i]` aligns by index with `TypeDesc::fields[i]`.
+///
+/// - `size` = total object byte-region size (references at 8B here — the C#-equivalent
+///   endpoint; PR-2 still stores references 16B in a `refs` side-table, so the 8B field
+///   window is a dead hole until PR-3 inlines the pointer).
+/// - `field_offsets` / `field_sizes` / `field_kinds` = per **merged** field the byte
+///   offset / size / kind (`STRUCT_REF_*` for references, else primitive/struct), in
+///   merged-field-index order (base fields first, then own).
+/// - `ref_offsets` / `ref_kinds` = flattened composed reference bitmap (base leaves
+///   first, then own leaves shifted by the base region size), including inline-struct
+///   interior reference leaves. `ref_index(off)` maps a byte offset to its `refs`
+///   side-table slot, same shape as `StructTypeLayout::ref_index`.
+///
+/// **Dormant in task 2.0**: composed here and unit-tested, but not yet consumed
+/// (`ScriptObject` still uses `slots`); task 2.1+ switches field storage onto it.
+#[derive(Debug, Default)]
+pub struct ObjectLayout {
+    pub size: usize,
+    pub field_offsets: Box<[u32]>,
+    pub field_sizes: Box<[u32]>,
+    pub field_kinds: Box<[u8]>,
+    pub ref_offsets: Box<[u32]>,
+    pub ref_kinds: Box<[u8]>,
+}
+
+impl ObjectLayout {
+    /// Map a reference-leaf byte offset to its index in the composed reference
+    /// bitmap (and thus the object's `refs` side-table slot). Linear scan —
+    /// reference leaves per object are few.
+    #[inline]
+    pub fn ref_index(&self, byte_off: u32) -> Option<usize> {
+        self.ref_offsets.iter().position(|&o| o == byte_off)
+    }
+
+    /// Number of reference leaves (= the object's `refs` side-table length).
+    #[inline]
+    pub fn ref_count(&self) -> usize {
+        self.ref_offsets.len()
+    }
+}
+
+/// unify-object-byte-layout (PR-2): compose a class's **own-only** `ObjectLayoutDesc`
+/// (from the zbc 1.34 object block, offsets from 0) with its base class's already-
+/// composed `ObjectLayout` into the merged runtime layout, mirroring
+/// `merge_with_base`'s `fields = base.fields ++ own`. The own region begins at
+/// `align_up(base.size, 8)` — the unified 8B inheritance boundary (matches the
+/// compiler's independent base-shift when it bakes inline-struct leaf offsets, D9);
+/// both must agree byte-for-byte, backstopped by self-host byte-identity.
+///
+/// `base` is `None` for a root class (or a cross-zpkg base not yet resolved — the
+/// fixup pass recomposes once it resolves). Field/reference arrays are simple
+/// concatenations with the own side shifted by `base_shift`.
+pub fn compose_object_layout(
+    base: Option<&ObjectLayout>,
+    own: &super::bytecode::ObjectLayoutDesc,
+) -> ObjectLayout {
+    // Unified 8B inheritance boundary: the own region starts after the base region,
+    // rounded up to 8 so references (8B, 8-aligned) land aligned.
+    let base_shift: u32 = match base {
+        Some(b) => ((b.size as u32) + 7) & !7,
+        None    => 0,
+    };
+
+    let base_fields = base.map_or(0, |b| b.field_offsets.len());
+    let base_refs   = base.map_or(0, |b| b.ref_offsets.len());
+
+    let mut field_offsets = Vec::with_capacity(base_fields + own.field_offsets.len());
+    let mut field_sizes   = Vec::with_capacity(base_fields + own.field_sizes.len());
+    let mut field_kinds   = Vec::with_capacity(base_fields + own.field_kinds.len());
+    let mut ref_offsets   = Vec::with_capacity(base_refs + own.ref_offsets.len());
+    let mut ref_kinds     = Vec::with_capacity(base_refs + own.ref_kinds.len());
+
+    if let Some(b) = base {
+        field_offsets.extend_from_slice(&b.field_offsets);
+        field_sizes.extend_from_slice(&b.field_sizes);
+        field_kinds.extend_from_slice(&b.field_kinds);
+        ref_offsets.extend_from_slice(&b.ref_offsets);
+        ref_kinds.extend_from_slice(&b.ref_kinds);
+    }
+
+    for &off in own.field_offsets.iter() { field_offsets.push(off + base_shift); }
+    field_sizes.extend_from_slice(&own.field_sizes);
+    field_kinds.extend_from_slice(&own.field_kinds);
+    for &off in own.ref_offsets.iter() { ref_offsets.push(off + base_shift); }
+    ref_kinds.extend_from_slice(&own.ref_kinds);
+
+    ObjectLayout {
+        size: (base_shift + own.size) as usize,
+        field_offsets: field_offsets.into(),
+        field_sizes:   field_sizes.into(),
+        field_kinds:   field_kinds.into(),
+        ref_offsets:   ref_offsets.into(),
+        ref_kinds:     ref_kinds.into(),
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
@@ -266,6 +366,17 @@ pub struct TypeDescCold {
     /// Holds the parsed descriptor directly (no runtime form yet). `None` for
     /// value/interface/enum/delegate types and modules predating the block.
     pub object_layout: Option<std::sync::Arc<super::bytecode::ObjectLayoutDesc>>,
+    /// unify-object-byte-layout (PR-2): the **composed** runtime object layout —
+    /// `object_layout` (own-only) merged with the base class's composed layout via
+    /// `compose_object_layout` (`base.composed ++ own`, own region at
+    /// `align_up(base.size, 8)`). Built at load time (`build_type_registry` for
+    /// local bases, recomputed by `try_fixup_inheritance` for cross-zpkg bases),
+    /// mirroring how `fields` is built from `own_fields`. `field_offsets[i]` aligns
+    /// by index with `fields[i]`. **Dormant in task 2.0** — carried + unit-tested but
+    /// not consumed (field access still via `slots`); task 2.1+ switches storage onto
+    /// it. `None` for value/interface/enum/delegate types and modules predating the
+    /// zbc 1.34 object block.
+    pub composed_object_layout: Option<std::sync::Arc<ObjectLayout>>,
 }
 
 impl TypeDesc {
@@ -305,6 +416,14 @@ impl TypeDesc {
     /// unless the class declares inline struct fields. Cloned `Arc` (cheap).
     #[inline] pub fn inline_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
         self.cold.as_ref().and_then(|c| c.inline_layout.clone())
+    }
+    /// unify-object-byte-layout (PR-2): the composed runtime object byte layout of
+    /// this reference class's instances (`base.composed ++ own`, own at
+    /// `align_up(base.size, 8)`). `None` for value/interface/enum/delegate types and
+    /// modules predating the zbc 1.34 object block. Cloned `Arc` (cheap). **Dormant
+    /// in task 2.0** — not yet consumed for field storage.
+    #[inline] pub fn composed_object_layout(&self) -> Option<std::sync::Arc<ObjectLayout>> {
+        self.cold.as_ref().and_then(|c| c.composed_object_layout.clone())
     }
     /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
     /// for an instance of this class — the size of the inline value-struct byte

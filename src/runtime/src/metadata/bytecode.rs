@@ -94,6 +94,7 @@ impl Module {
             struct_layout:          c.struct_layout.clone(),
             inline_layout:          c.inline_layout.clone(),  // add-struct-heap-inline (P3b)
             object_layout:          c.object_layout.clone(),  // unify-object-byte-layout (PR-1)
+            composed_object_layout: c.composed_object_layout.clone(),  // unify-object-byte-layout (PR-2)
         }));
         let rebuilt = Arc::new(TypeDesc {
             name: td.name.clone(),

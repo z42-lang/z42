@@ -38,7 +38,7 @@
 > offset。内联 struct 叶子编译器烘焙 composed offset（+base-shift）。**继承边界统一 8B 对齐**（两处组合
 > 算法逐字节一致）。引用暂 16B（8B 留 PR-3）。**无格式 re-bump**（zbc object_layout 仍 own-only）。
 > **爆炸半径**：151 处 `.slots` + 40 处 `.struct_bytes/.struct_refs`（非测试，~15 文件）+ 编译器/JIT/反射/static + 数十测试。**all-or-nothing，须一次落地才绿**。
-- [ ] 2.0 运行时 composed 对象布局（先做，可 additive 测）：新增运行时 `ObjectLayout`（total_size + per-slot offset/size/kind + composed 引用位图）on `TypeDescCold`；loader 组合 `base.composed ++ own`（own 从 zbc `object_layout`；own 区起始 = `align_up(base_size, 8)`，镜像 `merge_with_base`）；cargo 单测继承组合 offset。**此步先落 + 单测 de-risk byte-identical 分歧**
+- [x] 2.0 运行时 composed 对象布局（additive，dormant，byte-identical）：`types.rs` 新增运行时 `ObjectLayout`（size + per-field offset/size/kind + composed 引用位图 + `ref_index`）+ `compose_object_layout(base, own)`（own 区起始 = `align_up(base.size, 8)` 的 8B 继承边界，字段/引用数组 concat+shift）；`TypeDescCold.composed_object_layout` + accessor + cold-emptiness 守卫；`build_type_registry` 组合本地 base（topo 序）、`try_fixup_inheritance` 跨包 base 与 `fields` 锁步重组合。cargo 单测 5 例（compose 纯函数 3 + loader 本地/跨包集成 2）全绿；`cargo test --lib` 901+21 pass。**de-risk 完成：composed 分歧可单测捕获**
 - [ ] 2.1 `types.rs`：`ScriptObject` 删 `slots`/`struct_bytes`/`struct_refs` → `bytes`+`refs`；`object_regions()`（复用 is_struct 走 struct_layout、否则 composed）；`trace_children` Object/BoxedStruct/RefKind::Field 臂改 `for r in &obj.refs`
 - [ ] 2.2 `arc_heap.rs`：`alloc_object`（删 slots 参数，从 composed 布局 size bytes+refs）/`alloc_boxed_prim`（struct_bytes→bytes）；`scan_object_refs`/mark/sweep 扫 `refs`；write_barrier
 - [ ] 2.3 `exec_object.rs`：FieldGet/Set/`FieldIC` 全接收者臂（StackObject/Object）→ name→slot→composed offset → `decode_prim(bytes)` / `ref_index`→`refs[ri]`；obj.new caller 删 slots 构建

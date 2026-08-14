@@ -395,3 +395,75 @@ fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
     // struct_bytes 短于 wrapper 宽度（不该发生）→ None，不 panic
     assert_eq!(boxed_prim("Std.Int32", &[1, 2]).borrow().boxed_prim_i64(), None);
 }
+
+// ── unify-object-byte-layout (PR-2, task 2.0): compose_object_layout ──────────
+
+#[test]
+fn compose_object_layout_root_is_identity() {
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 24,
+        field_offsets: Box::new([0, 8, 16]),
+        field_sizes:   Box::new([8, 8, 8]),
+        field_kinds:   Box::new([0, 1, 2]),
+        ref_offsets:   Box::new([8, 16]),
+        ref_kinds:     Box::new([1, 2]),
+    };
+    let composed = compose_object_layout(None, &own);
+    // No base → identity (base_shift 0).
+    assert_eq!(composed.size, 24);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
+    assert_eq!(&*composed.ref_offsets, &[8, 16]);
+    assert_eq!(composed.ref_count(), 2);
+}
+
+#[test]
+fn compose_object_layout_pads_base_to_8() {
+    // Base size 1 (single bool) must pad to 8 before the own region starts —
+    // the unified 8B inheritance boundary keeps 8-aligned refs aligned.
+    let base = ObjectLayout {
+        size: 1,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([1]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([2]),
+        ref_offsets:   Box::new([0]),
+        ref_kinds:     Box::new([2]),
+    };
+    let composed = compose_object_layout(Some(&base), &own);
+    // base_shift = align_up(1, 8) = 8.
+    assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
+    assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
+    assert_eq!(&*composed.ref_offsets, &[8], "own ref leaf shifted to 8");
+    assert_eq!(composed.ref_index(8), Some(0));
+}
+
+#[test]
+fn compose_object_layout_already_aligned_base_no_extra_pad() {
+    let base = ObjectLayout {
+        size: 16,
+        field_offsets: Box::new([0, 8]),
+        field_sizes:   Box::new([8, 8]),
+        field_kinds:   Box::new([0, 0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 4,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([4]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+    let composed = compose_object_layout(Some(&base), &own);
+    // align_up(16, 8) == 16 — no extra padding.
+    assert_eq!(composed.size, 20);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
+}
