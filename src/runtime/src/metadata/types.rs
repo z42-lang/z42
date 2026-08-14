@@ -189,6 +189,51 @@ impl StructTypeLayout {
     }
 }
 
+/// unify-object-byte-layout (PR-2, D12): resolved per-field access descriptor for a
+/// direct field of a reference class — the hot-path form consumed by `FieldGet`/
+/// `FieldSet`. Precomputed at load time (one array-index per access, no per-access
+/// string match). Parallel by index with `TypeDesc::fields` / `field_index` slot.
+///
+/// - `offset` / `width` = the field's byte window in `ScriptObject::bytes`.
+/// - `tag` = the **exact** `ty::TAG_*` recovered from the field's declared
+///   `type_tag` string (via `tag_from_name`) — `field_kinds` (coarse `StructLeafKind`)
+///   can't drive `decode_prim`, so the precise tag comes from the type string, the
+///   same source `default_value_for` uses. `TAG_UNKNOWN` for struct-typed roots
+///   (never reached by `FieldGet`; accessed via `StructFieldGetPrim`).
+/// - `ref_slot` = index into `ScriptObject::refs` if this is a reference field, else
+///   `-1` (primitive stored inline in `bytes`; PR-3 will inline the 8B pointer here).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FieldAccess {
+    pub offset: u32,
+    pub width: u32,
+    pub tag: u8,
+    pub ref_slot: i32,
+}
+
+/// unify-object-byte-layout (PR-2): map a field's declared `type_tag` string to its
+/// exact `ty::TAG_*`. Mirrors `corelib::struct_reflect::tag_from_name` (kept here so
+/// the loader can build the access table without a corelib dependency). Post-unify
+/// canonical primitive names (`int`/`i32`, `long`/`i64`, …) and struct/ref types.
+pub fn tag_from_type_name(t: &str) -> u8 {
+    match t {
+        "void" => TAG_UNKNOWN,
+        "bool" => TAG_BOOL,
+        "i8" | "sbyte" => TAG_I8,
+        "i16" | "short" => TAG_I16,
+        "i32" | "int" => TAG_I32,
+        "i64" | "long" => TAG_I64,
+        "u8" | "byte" => TAG_U8,
+        "u16" | "ushort" => TAG_U16,
+        "u32" | "uint" => TAG_U32,
+        "u64" | "ulong" => TAG_U64,
+        "f32" | "float" => TAG_F32,
+        "f64" | "double" => TAG_F64,
+        "char" => TAG_CHAR,
+        "str" | "string" => TAG_STR,
+        _ => TAG_OBJECT,
+    }
+}
+
 /// unify-object-byte-layout (PR-2): the **composed** full-object byte layout of a
 /// reference class's instances — the runtime form of the dormant zbc `object_layout`
 /// (own-only) after inheritance composition (`base.composed ++ own`). Built at load
@@ -216,7 +261,19 @@ pub struct ObjectLayout {
     pub field_kinds: Box<[u8]>,
     pub ref_offsets: Box<[u32]>,
     pub ref_kinds: Box<[u8]>,
+    /// unify-object-byte-layout (PR-2, D12): resolved per-field access table (offset /
+    /// width / exact tag / refs-slot), parallel by index with `TypeDesc::fields`.
+    /// Filled at load time from the composed offsets + the merged fields' `type_tag`
+    /// strings. Empty when composed without field info (e.g. `compose_object_layout`
+    /// called with `&[]` in unit tests that only check structural offsets).
+    pub field_access: Box<[FieldAccess]>,
 }
+
+/// unify-object-byte-layout (PR-2): the compiler's `StructLeafKind` value for a
+/// nested/struct-typed field root in `ObjectLayoutDesc::field_kinds` (mirrors
+/// `StructLayout.StructLeafKind.Struct = 3`). Such fields are accessed via
+/// `StructFieldGetPrim` (baked leaf offsets), never `FieldGet`.
+pub const STRUCT_LEAF_STRUCT: u8 = 3;
 
 impl ObjectLayout {
     /// Map a reference-leaf byte offset to its index in the composed reference
@@ -245,9 +302,15 @@ impl ObjectLayout {
 /// `base` is `None` for a root class (or a cross-zpkg base not yet resolved — the
 /// fixup pass recomposes once it resolves). Field/reference arrays are simple
 /// concatenations with the own side shifted by `base_shift`.
+///
+/// `merged_fields` = the class's full merged field list (`base.fields ++ own`, same
+/// order as the composed offsets); used to build the per-field access table
+/// (`FieldAccess`) — the exact `ty::TAG` from each field's `type_tag` string (D12).
+/// Pass `&[]` to skip the access table (structural-only, e.g. offset unit tests).
 pub fn compose_object_layout(
     base: Option<&ObjectLayout>,
     own: &super::bytecode::ObjectLayoutDesc,
+    merged_fields: &[FieldSlot],
 ) -> ObjectLayout {
     // Unified 8B inheritance boundary: the own region starts after the base region,
     // rounded up to 8 so references (8B, 8-aligned) land aligned.
@@ -279,6 +342,32 @@ pub fn compose_object_layout(
     for &off in own.ref_offsets.iter() { ref_offsets.push(off + base_shift); }
     ref_kinds.extend_from_slice(&own.ref_kinds);
 
+    // D12: resolve the per-field access table from composed offsets + each field's
+    // declared `type_tag` (exact tag; struct roots → TAG_UNKNOWN, ref fields → refs
+    // side-table slot via the composed ref bitmap). Skipped when no field info given.
+    let field_access: Box<[FieldAccess]> = if merged_fields.is_empty() {
+        Box::new([])
+    } else {
+        let mut acc = Vec::with_capacity(field_offsets.len());
+        for i in 0..field_offsets.len() {
+            let off = field_offsets[i];
+            let width = field_sizes.get(i).copied().unwrap_or(0);
+            let is_struct_root = field_kinds.get(i).copied() == Some(STRUCT_LEAF_STRUCT);
+            let tag = if is_struct_root {
+                TAG_UNKNOWN
+            } else {
+                merged_fields.get(i).map_or(TAG_OBJECT, |f| tag_from_type_name(&f.type_tag))
+            };
+            let ref_slot = if !is_struct_root && is_ref_tag_u8(tag) {
+                ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32)
+            } else {
+                -1
+            };
+            acc.push(FieldAccess { offset: off, width, tag, ref_slot });
+        }
+        acc.into()
+    };
+
     ObjectLayout {
         size: (base_shift + own.size) as usize,
         field_offsets: field_offsets.into(),
@@ -286,7 +375,17 @@ pub fn compose_object_layout(
         field_kinds:   field_kinds.into(),
         ref_offsets:   ref_offsets.into(),
         ref_kinds:     ref_kinds.into(),
+        field_access,
     }
+}
+
+/// unify-object-byte-layout (PR-2): whether a resolved `ty::TAG_*` denotes a reference
+/// field (stored in `ScriptObject::refs`, not byte-packed in `bytes`). Mirrors
+/// `interp::exec_struct::is_ref_tag` (kept here to avoid an interp dependency in the
+/// loader).
+#[inline]
+pub fn is_ref_tag_u8(tag: u8) -> bool {
+    matches!(tag, TAG_STR | TAG_OBJECT | TAG_ARRAY)
 }
 
 #[derive(Debug, Default)]

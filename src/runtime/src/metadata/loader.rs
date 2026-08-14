@@ -805,7 +805,7 @@ pub fn build_type_registry(module: &mut Module) {
                     .and_then(|b| registry.get(b))
                     .and_then(|b| b.composed_object_layout());
                 std::sync::Arc::new(crate::metadata::types::compose_object_layout(
-                    base_composed.as_deref(), own,
+                    base_composed.as_deref(), own, &fields,
                 ))
             }),
         };
@@ -967,8 +967,9 @@ pub fn try_fixup_inheritance(
             let base_composed = td.base_name.as_deref()
                 .and_then(|b| registry.get(b))
                 .and_then(|b| b.composed_object_layout());
+            // `layout.0` = the freshly merged fields (base ++ own) for the access table.
             Arc::new(crate::metadata::types::compose_object_layout(
-                base_composed.as_deref(), own,
+                base_composed.as_deref(), own, &layout.0,
             ))
         });
         planned.push((name.clone(), layout, composed));

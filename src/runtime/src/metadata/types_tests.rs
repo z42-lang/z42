@@ -408,7 +408,7 @@ fn compose_object_layout_root_is_identity() {
         ref_offsets:   Box::new([8, 16]),
         ref_kinds:     Box::new([1, 2]),
     };
-    let composed = compose_object_layout(None, &own);
+    let composed = compose_object_layout(None, &own, &[]);
     // No base → identity (base_shift 0).
     assert_eq!(composed.size, 24);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
@@ -427,6 +427,7 @@ fn compose_object_layout_pads_base_to_8() {
         field_kinds:   Box::new([0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
+        field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
         size: 8,
@@ -436,7 +437,7 @@ fn compose_object_layout_pads_base_to_8() {
         ref_offsets:   Box::new([0]),
         ref_kinds:     Box::new([2]),
     };
-    let composed = compose_object_layout(Some(&base), &own);
+    let composed = compose_object_layout(Some(&base), &own, &[]);
     // base_shift = align_up(1, 8) = 8.
     assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
     assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
@@ -453,6 +454,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         field_kinds:   Box::new([0, 0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
+        field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
         size: 4,
@@ -462,7 +464,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
     };
-    let composed = compose_object_layout(Some(&base), &own);
+    let composed = compose_object_layout(Some(&base), &own, &[]);
     // align_up(16, 8) == 16 — no extra padding.
     assert_eq!(composed.size, 20);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);

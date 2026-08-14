@@ -967,6 +967,20 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(sub.field_index.get("name"), Some(&1));
     assert_eq!(sub.field_index.get("flag"), Some(&2));
     assert_eq!(sub.field_index.get("other"), Some(&3));
+
+    // D12: per-field access table resolves exact tags + refs slots from type_tag.
+    use crate::metadata::types::{TAG_I64, TAG_STR, TAG_OBJECT};
+    let fa = &sl.field_access;
+    assert_eq!(fa.len(), 4, "one FieldAccess per merged field");
+    // age: i64 primitive @ 0, not a ref.
+    assert_eq!((fa[0].offset, fa[0].tag, fa[0].ref_slot), (0, TAG_I64, -1));
+    // name: str ref @ 8 → refs slot 0.
+    assert_eq!((fa[1].offset, fa[1].tag, fa[1].ref_slot), (8, TAG_STR, 0));
+    // flag: bool primitive @ 16 (shifted), not a ref.
+    assert_eq!(fa[2].offset, 16);
+    assert_eq!(fa[2].ref_slot, -1);
+    // other: object ref @ 24 → refs slot 1.
+    assert_eq!((fa[3].offset, fa[3].tag, fa[3].ref_slot), (24, TAG_OBJECT, 1));
 }
 
 /// Cross-zpkg base→derived: the base is unresolvable at the derived module's
