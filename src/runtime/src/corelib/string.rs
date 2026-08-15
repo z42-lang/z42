@@ -1,6 +1,4 @@
 use crate::metadata::Value;
-use crate::metadata::types::ArrayObj;
-use crate::gc::GcRef;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use super::convert::{arg_str, arg_usize};
@@ -13,10 +11,12 @@ use super::convert::{arg_str, arg_usize};
 /// characters as a single primitive so string algorithms can be written in
 /// SCRIPT over `arr[i]` (the `ArrayGet` opcode) instead of `CharAt` (a builtin
 /// call) — the C# "string ops in managed code over a char buffer" model.
-pub fn builtin_str_to_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let s = arg_str(args, 0, "__str_to_chars")?;
     let elems: Vec<Value> = s.chars().map(Value::Char).collect();
-    Ok(Value::Array(GcRef::new(ArrayObj::typed("char", elems))))
+    // unify-gc-heap PR-3: region-alloc the `char[]` (packed `Chars` block in the GC heap)
+    // via the heap, not the leaking `GcRef::new` path.
+    Ok(ctx.heap().alloc_array_typed("char", elems))
 }
 
 /// Returns the number of Unicode scalar values (characters) in the string.

@@ -7,7 +7,7 @@
 //! giving the leaf's byte width and how to decode/encode it.
 
 use crate::metadata::types as ty;
-use crate::metadata::types::{ArrayBacking, Value};
+use crate::metadata::types::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
@@ -95,17 +95,17 @@ pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::Struct
     let i = e.index as usize;
     let (src_bytes, src_refs, layout, tname): (Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>) = {
         let arr = e.arr.borrow();
-        match &arr.backing {
-            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
-                let rc = layout.ref_count();
-                let bstart = i * elem_size;
-                (bytes[bstart..bstart + elem_size].to_vec(),
-                 refs[i * rc..i * rc + rc].to_vec(),
-                 layout.clone(),
-                 arr.element_type.clone())
-            }
-            _ => bail!("as-cast on a non-value-struct array element"),
-        }
+        // unify-gc-heap PR-3: struct[] element bytes + refs live in GC blocks — read via accessors.
+        let layout = arr.struct_layout().ok_or_else(|| anyhow::anyhow!("as-cast on a non-value-struct array element"))?;
+        let elem_size = layout.size;
+        let rc = layout.ref_count();
+        let bstart = i * elem_size;
+        let bytes = arr.struct_bytes().expect("StructBytes backing");
+        let refs = arr.gc_refs();
+        (bytes[bstart..bstart + elem_size].to_vec(),
+         refs[i * rc..i * rc + rc].to_vec(),
+         layout,
+         arr.element_type.clone())
     };
     let idx = ctx.struct_arena.lock().alloc(frame_id, tname, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
@@ -205,22 +205,20 @@ pub(crate) fn struct_field_get_val(
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap(e) => {
             let arr = e.arr.borrow();
-            match &arr.backing {
-                ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
-                    let i = e.index as usize;
-                    if is_ref_tag(kind) {
-                        let rc = layout.ref_count();
-                        let ri = layout.ref_index(byte_off).ok_or_else(|| {
-                            anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
-                        })?;
-                        refs[i * rc + ri].clone()
-                    } else {
-                        let off = i * elem_size + byte_off as usize;
-                        let w = prim_width(kind)?;
-                        decode_prim(bytes, off, w, kind)?
-                    }
-                }
-                _ => bail!("StructFieldGetPrim: StructRefHeap base is not a value-struct array"),
+            // unify-gc-heap PR-3: struct[] element bytes/refs live in GC blocks — read via accessors.
+            let layout = arr.struct_layout()
+                .ok_or_else(|| anyhow::anyhow!("StructFieldGetPrim: StructRefHeap base is not a value-struct array"))?;
+            let i = e.index as usize;
+            if is_ref_tag(kind) {
+                let rc = layout.ref_count();
+                let ri = layout.ref_index(byte_off).ok_or_else(|| {
+                    anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
+                })?;
+                arr.gc_refs()[i * rc + ri].clone()
+            } else {
+                let off = i * layout.size + byte_off as usize;
+                let w = prim_width(kind)?;
+                decode_prim(arr.struct_bytes().expect("StructBytes backing"), off, w, kind)?
             }
         }
         _ => {
@@ -323,17 +321,15 @@ pub(crate) fn struct_field_set_val(
         Value::StructRefHeap(e) => {
             if is_ref_tag(kind) {
                 {
+                    // unify-gc-heap PR-3: write the ref leaf into the struct[] refs block.
                     let mut arr = e.arr.borrow_mut();
-                    match &mut arr.backing {
-                        ArrayBacking::StructBytes { refs, layout, .. } => {
-                            let rc = layout.ref_count();
-                            let ri = layout.ref_index(byte_off).ok_or_else(|| {
-                                anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
-                            })?;
-                            refs[e.index as usize * rc + ri] = v.clone();
-                        }
-                        _ => bail!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"),
-                    }
+                    let layout = arr.struct_layout()
+                        .ok_or_else(|| anyhow::anyhow!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"))?;
+                    let rc = layout.ref_count();
+                    let ri = layout.ref_index(byte_off).ok_or_else(|| {
+                        anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
+                    })?;
+                    arr.struct_refs_mut().expect("StructBytes backing")[e.index as usize * rc + ri] = v.clone();
                 }
                 // Write barrier: reference stored into a heap array element (P3b).
                 if v.is_heap_ref() {
@@ -342,15 +338,13 @@ pub(crate) fn struct_field_set_val(
                 }
                 Ok(())
             } else {
+                // unify-gc-heap PR-3: encode the prim leaf into the struct[] bytes block.
                 let mut arr = e.arr.borrow_mut();
-                match &mut arr.backing {
-                    ArrayBacking::StructBytes { elem_size, bytes, .. } => {
-                        let off = e.index as usize * *elem_size + byte_off as usize;
-                        let w = prim_width(kind)?;
-                        encode_prim(bytes, off, w, kind, v)
-                    }
-                    _ => bail!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"),
-                }
+                let layout = arr.struct_layout()
+                    .ok_or_else(|| anyhow::anyhow!("StructFieldSetPrim: StructRefHeap base is not a value-struct array"))?;
+                let off = e.index as usize * layout.size + byte_off as usize;
+                let w = prim_width(kind)?;
+                encode_prim(arr.struct_bytes_mut().expect("StructBytes backing"), off, w, kind, v)
             }
         }
         _ => {

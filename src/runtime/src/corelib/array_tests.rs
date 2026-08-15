@@ -10,7 +10,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 #[test]
 fn clone_primitives_independent() {
     let ctx = ctx();
-    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(1), Value::I64(2), Value::I64(3)])));
+    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)])));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
@@ -28,8 +28,8 @@ fn clone_primitives_independent() {
 #[test]
 fn clone_shares_reference_elements() {
     let ctx = ctx();
-    let inner = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(7)])));
-    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new(vec![inner.clone()])));
+    let inner = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(7)])));
+    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![inner.clone()])));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
@@ -48,7 +48,7 @@ fn clone_shares_reference_elements() {
 #[test]
 fn clone_empty_array() {
     let ctx = ctx();
-    let empty = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new(Vec::new())));
+    let empty = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(Vec::new())));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&empty)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&empty, &cloned) {
