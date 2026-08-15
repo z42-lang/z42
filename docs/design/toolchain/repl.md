@@ -36,6 +36,10 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   函数/类型声明** / 表达式/语句；分类器 `Classifier.z42` token 级判别）→ 每轮 build 唯一命名空间
   `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes` → `__load_bytecode_in_memory`
   内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果（声明轮无 `Eval{N}`、不 Invoke）。
+  - **尾随分号归一（fix-repl-trailing-semicolon）**：表达式/语句轮 build 源前剥掉输入末尾单个 `;`。
+    否则表达式包裹 `return (X;)` 破坏括号（E0202）、语句回退 `X;; return null;` 撞 `;;` 空语句
+    （parser 拒）→ 两路皆炸、该轮副作用丢失。剥尾随后 `expr;`/`stmt;` 与不带 `;` 等价；多语句
+    `a();b();` 的中间 `;` 保留、仅尾随剥掉 → 回退路径 `a();b(); return null;` 自然合法。
 - **声明累积（add-repl-decls-multiline）**：顶层函数/类型声明**原样**作 `Repl.R{N}` 命名空间成员编译
   （不裹壳类、不改写函数体），`ExtendWithPackage` 并入 CachedScan + `LoadBytes` 进 VM，记 `Repl.R{N}`
   到 `ScriptState.DeclNamespaces`；**每后续轮** prelude 追加 `using Repl.R{N};`——自由函数经

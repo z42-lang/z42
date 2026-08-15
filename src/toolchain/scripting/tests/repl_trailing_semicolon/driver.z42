@@ -1,0 +1,42 @@
+// 驱动测试：REPL 尾随分号（fix-repl-trailing-semicolon）。
+// 直接驱动 Std.Scripting.Script.Eval 跨轮，打印每步结果，与 expected_output.txt 对账。
+// 经 warm-z42c 回路运行（Z42_LIBS = z42.scripting + z42c.* + stdlib）。
+//
+// 覆盖回归：带尾随 `;` 的方法调用 / 赋值 / 裸表达式 与不带 `;` 等价（此前尾随 `;` 会让
+// Eval 的表达式包裹 `return (X;)`（E0202）或语句回退 `X;; return null;`（`;;` 空语句被拒）
+// 双双失效、该轮副作用丢失）。多语句单行 `a();b();` 的中间 `;` 保留、尾随剥掉 → 回退路径合法。
+namespace ReplTrailingSemicolonTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    ScriptState s = Script.Create();
+
+    // 1) var 声明（打印值）
+    _step(s, "var l = new List<int>();");
+    // 2) 尾随 `;` 的方法调用（headline bug）→ 无值成功、副作用生效
+    _step(s, "l.Add(5);");
+    // 3) 副作用持久
+    _step(s, "l.Count");
+    // 4) 多语句单行 + 尾随 `;`（中间 `;` 保留，尾随剥掉，回退路径合法）
+    _step(s, "l.Add(6); l.Add(7);");
+    _step(s, "l.Count");
+    // 5) 尾随 `;` 的赋值（此前走语句路径撞 `;;`）
+    _step(s, "var n = 1;");
+    _step(s, "n = 5;");
+    _step(s, "n");
+    // 6) 尾随 `;` 的裸表达式 → 仍打印值（此前 `return (n + 2;)` E0202）
+    _step(s, "n + 2;");
+    // 7) 对照：不带 `;` 仍正常
+    _step(s, "n * 2");
+}
+
+// 打印一步结果：失败 → 错误文本（去空白）；有值 → 值；否则 → "ok"。
+void _step(ScriptState s, string input) {
+    EvalResult r = Script.Eval(s, input);
+    if (!r.Success) { Console.WriteLine(r.Error.Trim()); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine("" + r.Value); return; }
+    Console.WriteLine("ok");
+}

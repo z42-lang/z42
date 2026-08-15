@@ -1,0 +1,10 @@
+Std.Collections.List{...}
+ok
+1
+ok
+3
+1
+ok
+5
+7
+10
