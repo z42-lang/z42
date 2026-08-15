@@ -104,22 +104,27 @@ int/long/byte/ushort/uint/ulong 混合、含 U64 高位比较/移位、Convert/N
 
 即：2B 是**数值/表达式内核**的真实局部胜利，对一般控制流代码中性无害。
 
-### Phase 2C — loop-carried 跨块寄存器驻留（真正的天花板突破）
+### Phase 2C — loop-carried 跨块寄存器驻留（真正的天花板突破）✅ 已实现
 
-**做**：为**循环携带的热标量**在**循环头块引入 Cranelift block param**（IR reg → block param 的
-SSA 构造 / 支配边界 phi），使 `s`、`i` 等**跨迭代常驻机器寄存器**，循环体内零 `frame.regs` 往返。
-需要：
+> mini-DRAFT + 落地机理见 [`design-2c.md`](design-2c.md)（含 OSR 决策更正、白名单、内存同步陷阱）。
 
-- 循环头及所有前驱边（`Br`/`BrCond` 的 `translate.rs:1675/1705` 站点）threading block param；
-- **所有循环出口** spill 回 `frame.regs`（供 helper/Return/后续块读）；
-- **OSR 入口重载**：OSR 跳 `cl_blocks[k]`、当前用空 `&[]` block args（`translate.rs:549`）——若循环头
-  变成带 param 的块，OSR 入口必须先从 `frame.regs` load 出这些 param 再 jump（架构地图 §5：OSR 处所有
-  live reg 从内存读，寄存器驻留假设在此失效）；
-- Category-B 调用/safepoint 处同 2B 的 spill/reload。
+**做（实现版，比 DRAFT 更简更宽）**：用 **Cranelift `Variable`** 承载 loop-carried 整数标量——
+Cranelift 的 `use_var`/`def_var` + `seal_all_blocks` **自动**在循环头插 phi、在前驱边（含 OSR 空-args
+jump）追加 block-param arg。**故不必手工 threading block-param、不必检测循环**（DRAFT 原计划的两大难点
+被 Cranelift 外包掉）。
 
-**这是打破 `s+=…` 循环 JIT≈interp 的唯一路径**，也是**风险最高**的一块（SSA 构造 + 全出口/OSR 正确性）。
-**建议 2C 单独再走一次 mini-DRAFT + 强化验证**（`Z42_OSR_THRESHOLD=1` 全压测 byte-identical + 每类
-循环形态覆盖），视 2A/2B 实测收益再决定投入。
+- **谁驻留**：`compute_promotable_regs` 白名单——整数 reg 且**每一处访问**都在 routed 位置（const-int /
+  原生 int 算术·比较·convert / `Ret`）。任何 memory-backed op（copy/field/array/call/helper/struct/…）
+  碰过的 reg 一律 disqualify → 留 2A/2B 内存模型。**per-reg 粒度**：含 helper 的循环里累加器/计数器仍驻留。
+- **内存同步只两点**：prologue 种子（`def_var(var, load frame.regs[reg])`，OSR 时种 interp 拷入的 live
+  状态）+ `Ret` 前 spill。**safepoint 不 spill**（非移动 GC 跳整数槽）——这是相对 2B 的每迭代收益来源。
+- **OSR 照常驻留**（DRAFT 原拟禁用，实现推翻）：Cranelift 自动补 OSR 空-args jump 的 block-param arg，
+  循环头 phi 合并 `(OSR 种子, 回边值)`。热循环几乎都走 OSR 变体，故这一步是 headline 收益的关键。
+
+**收益（JIT 2C vs JIT 2B A/B）**：纯算术累加环 `s=s+i*3-seed`（20M）**1.75×**（335→192ms）；realistic
+`s += this.v; this.v += 1`（field 累加）**1.35×**。**打破 2B 对 loop-carried 单次触及标量的 `s+=…`
+零收益天花板**。正确性：全循环形态（nested/break-continue/param-carried/helper-in-loop/unsigned）
+**normal + `Z42_OSR_THRESHOLD=1` 双模式**逐字节 == interp；e2e 490/0（含 OSR-forced）+ 自举 5/5 + stdlib。
 
 ## Scope（允许改动的文件，按 phase）
 

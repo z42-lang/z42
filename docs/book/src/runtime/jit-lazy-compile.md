@@ -500,3 +500,54 @@ clean；`store_i64` 只更新缓存 + 标脏、**不写内存**（延到 flush�
 
 即 2B 是**数值/表达式内核**的真实局部胜利、对一般控制流代码中性无害。验证：`cargo --lib` + e2e
 interp==jit 逐字节 + 自举 5/5 gen1==gen2 + stdlib 全绿。
+
+## loop-carried 整数标量跨迭代驻留：Cranelift `Variable`（jit-unbox-regalloc Phase 2C）
+
+> 位置：`jit/translate.rs`（`compute_promotable_regs` + `load_int`/`store_int` + prologue 种子）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2C，mini-DRAFT 见
+> [design-2c.md](../../../spec/changes/jit-unbox-regalloc/design-2c.md)。
+
+2B 的块内缓存跨不过循环回边——`for(…) s += …` 里 `s` 每迭代仍 load/store `frame.regs`。2C 让这类
+**loop-carried 整数标量跨迭代常驻机器寄存器**，是打破 `s+=…` 天花板的一步（实测 **1.35–1.75× 快于
+2B**）。
+
+### 用 Cranelift `Variable` 把 SSA 构造外包
+
+关键手法：把符合条件的整数 reg 建成 Cranelift `Variable`（`declare_var` + `use_var`/`def_var`）。
+Cranelift 的 SSA 构造在 `seal_all_blocks` 时**自动**在循环头插 phi、给每条前驱边（含回边、含 OSR 入口
+那条空-args `jump cl_blocks[k]`）**追加 block-param arg**。于是**无需手工检测循环、无需手工 threading
+block-param**——这两个 DRAFT 原以为最难的点被 Cranelift 全包。promoted reg 的读→`use_var`、写→`def_var`
+（`load_int`/`store_int` 按 `promoted[reg]` 分流：promoted 走 Variable，否则走 2B 缓存/内存）。
+
+### 谁能驻留：per-reg 白名单（正确性核心）
+
+`compute_promotable_regs`：一个整数 reg 可驻留，当且仅当**它的每一处访问都在「routed 白名单位置」**——
+const-int（`ConstI32`/`ConstI64`）、原生整数算术/位/移位/取负取反、整数比较的读操作数、整数→整数
+`Convert`、`Ret` 操作数。**任何** memory-backed op（copy / field / array / call·helper / struct /
+static / throw / 非整数 convert / …）碰过的 reg 一律 disqualify。分析枚举全 64 个 `Instruction` 变体，
+未识别的新变体 → 保守 disqualify 其全部 reg。
+
+这条白名单是正确性的关键：promoted reg **永不**被任何 memory-backed op 触及，所以它**永不需要 mid-function
+的 spill/reload**（DRAFT 曾担心的「memory-sync 陷阱」被从根消除）。**per-reg 粒度**——含 helper 的循环里
+helper 碰的 temp 留内存，但累加器/计数器若只被原生 op 触及仍驻留（`s += foo(i)` 的 `s`/`i` 照驻留）。
+
+### 内存同步只有两点 + safepoint 不 spill
+
+promoted reg 与 `frame.regs` 的同步只在两处：
+1. **prologue 种子**：`def_var(var, load frame.regs[reg])` 在 entry 块种一次。param 得实参值；局部得
+   垃圾（Null payload），被其首个真正 def 支配覆盖（dead seed 无害）。**OSR 变体**同样在 OSR 入口块种——
+   此时 `frame.regs` 正是 interp 拷入的 live 状态（`from_interp_regs`），Cranelift 用它作循环头 phi 的
+   OSR-incoming 值。
+2. **`Ret` 前 spill**：`store frame.regs[r] = use_var(var)`，供 `hr_set_ret`（按 index 读）看到当前值。
+
+**safepoint 不 spill**：回边每迭代有 safepoint（可能转 slow helper 触发 GC），但 GC 是**非移动**的、root
+扫描**跳过整数槽**，无 JIT→interp deopt 读整数寄存器 → resident 整数跨 safepoint 无需 spill。**这正是 2C
+相对 2B 每迭代省下 load/store 的收益来源**（若 safepoint 必 spill，每迭代 spill 就零收益）。
+
+### 收益与验证
+
+- **收益（JIT 2C vs JIT 2B）**：纯算术累加环 **1.75×**；realistic field 累加 `s += this.v` **1.35×**。
+- **验证**：全循环形态（nested / break-continue / param-carried+early-return / helper-in-loop /
+  unsigned-narrow）**normal + `Z42_OSR_THRESHOLD=1`（强制每循环走 OSR）双模式** interp==jit 逐字节；
+  `cargo --lib` + e2e 490/0（含 OSR-forced e2e）+ 自举 5/5 gen1==gen2 + stdlib 全绿。纯 runtime codegen，
+  无格式 bump。

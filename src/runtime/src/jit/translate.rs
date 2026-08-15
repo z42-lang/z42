@@ -17,7 +17,7 @@ use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
 use crate::metadata::IrType;
 use cranelift_codegen::Context;
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{FuncId, Module as CraneliftModule};
 use cranelift_jit::JITModule;
 
@@ -419,6 +419,46 @@ pub fn translate_function(
         let inst = builder.ins().call(hr_regs_ptr, &[frame_val]);
         builder.inst_results(inst)[0]
     };
+
+    // ── jit-unbox-regalloc Phase 2C: loop-carried integer residency ──────────
+    // Promote integer regs whose *every* access is routed (const-int / native
+    // int arith·cmp·convert / Ret) to Cranelift `Variable`s. Cranelift's
+    // use_var/def_var + seal_all_blocks build the SSA — including loop-header
+    // phis — so these values stay resident in machine registers across blocks
+    // AND loop back-edges (2C), with no manual block-param threading. Promoted
+    // regs live entirely in Variables; the whitelist guarantees no memory-backed
+    // op ever touches them, so they never interact with the 2B cache or a helper
+    // (the sole memory sync points are: seed here, and spill at `Ret`). Disabled
+    // for OSR variants (v1) — their mid-function entry would need Variable
+    // reload at the OSR block. Seed each Variable from its `frame.regs` slot in
+    // the entry block (dominates all uses); a local's dead seed (garbage/Null
+    // payload) is overwritten by its first real def before any use.
+    // OSR variants are supported: their dedicated entry block runs the same
+    // prologue (incl. the Variable seed loads from `frame.regs`, which for OSR
+    // holds interp's copied-in state), then `jump cl_blocks[k]`. Cranelift's
+    // SSA construction appends the seeded value as the loop-header block-param
+    // arg on that jump automatically — so the loop-header phi merges
+    // (OSR-entry seed, back-edge value) correctly. Verified byte-identical
+    // under `Z42_OSR_THRESHOLD=1` (forces every loop through OSR).
+    let promoted = compute_promotable_regs(z42_func, true);
+    let any_promoted = promoted.iter().any(|&p| p);
+    if std::env::var_os("Z42_JIT_DEBUG_PROMOTE").is_some() {
+        let cnt = promoted.iter().filter(|&&p| p).count();
+        eprintln!("[2C] {} promoted {}/{} int regs (osr={})",
+            z42_func.name, cnt, promoted.len(), osr_entry.is_some());
+    }
+    if any_promoted {
+        for (reg, &p) in promoted.iter().enumerate() {
+            if p {
+                let var = Variable::from_u32(reg as u32);
+                builder.declare_var(var, types::I64);
+                let addr = reg_addr(&mut builder, regs_base, reg as u32);
+                let seed = load_payload_i64(&mut builder, addr);
+                builder.def_var(var, seed);
+            }
+        }
+    }
+
     // C2 P1 fast-path layout constants live inside `emit_i64_binop` (the sole
     // consumer today); when comparison + logical ops are specialized in the
     // next chunk they'll move to module scope.
@@ -735,7 +775,11 @@ pub fn translate_function(
                 // is `Unknown` (legacy zbc / pre-REGT path), we fall back
                 // to the helper which handles arbitrary old values via Drop.
                 Instruction::ConstI32 { dst, val } => {
-                    if is_typed(z42_func, *dst, IrType::I64) {
+                    if promoted.get(*dst as usize).copied().unwrap_or(false) {
+                        // 2C: define the resident Variable, no memory store.
+                        let v = builder.ins().iconst(types::I64, *val as i64);
+                        builder.def_var(Variable::from_u32(*dst), v);
+                    } else if is_typed(z42_func, *dst, IrType::I64) {
                         emit_const_i64(&mut builder, regs_base, *dst, *val as i64);
                     } else {
                         let d = ri!(*dst); let v = builder.ins().iconst(types::I32, *val as i64);
@@ -743,7 +787,10 @@ pub fn translate_function(
                     }
                 }
                 Instruction::ConstI64 { dst, val } => {
-                    if is_typed(z42_func, *dst, IrType::I64) {
+                    if promoted.get(*dst as usize).copied().unwrap_or(false) {
+                        let v = builder.ins().iconst(types::I64, *val);
+                        builder.def_var(Variable::from_u32(*dst), v);
+                    } else if is_typed(z42_func, *dst, IrType::I64) {
                         emit_const_i64(&mut builder, regs_base, *dst, *val);
                     } else {
                         let d = ri!(*dst); let v = builder.ins().iconst(types::I64, *val);
@@ -821,7 +868,7 @@ pub fn translate_function(
                 // Cranelift defaults, at i64 width for all integer types.
                 Instruction::Add { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Add);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Add);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_add, &[frame_val, ctx_val, d, av, bv]);
@@ -830,7 +877,7 @@ pub fn translate_function(
                 }
                 Instruction::Sub { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Sub);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Sub);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_sub, &[frame_val, ctx_val, d, av, bv]);
@@ -839,7 +886,7 @@ pub fn translate_function(
                 }
                 Instruction::Mul { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Mul);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Mul);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_mul, &[frame_val, ctx_val, d, av, bv]);
@@ -866,7 +913,7 @@ pub fn translate_function(
                 // Bool result stored back inline.
                 Instruction::Eq { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Eq);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Eq);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_eq, &[frame_val, ctx_val, d, av, bv]);
@@ -874,7 +921,7 @@ pub fn translate_function(
                 }
                 Instruction::Ne { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Ne);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ne);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_ne, &[frame_val, ctx_val, d, av, bv]);
@@ -882,7 +929,7 @@ pub fn translate_function(
                 }
                 Instruction::Lt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Lt);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Lt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_lt, &[frame_val, ctx_val, d, av, bv]);
@@ -891,7 +938,7 @@ pub fn translate_function(
                 }
                 Instruction::Le { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Le);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Le);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_le, &[frame_val, ctx_val, d, av, bv]);
@@ -900,7 +947,7 @@ pub fn translate_function(
                 }
                 Instruction::Gt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Gt);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Gt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_gt, &[frame_val, ctx_val, d, av, bv]);
@@ -909,7 +956,7 @@ pub fn translate_function(
                 }
                 Instruction::Ge { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Ge);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ge);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_ge, &[frame_val, ctx_val, d, av, bv]);
@@ -952,7 +999,7 @@ pub fn translate_function(
                 // matches helper's `Value::I64(-n)`).
                 Instruction::Neg { dst, src } => {
                     if is_int_typed_unary(z42_func, *dst, *src) {
-                        emit_i64_neg(&mut builder, regs_base, &mut cache, *dst, *src);
+                        emit_i64_neg(&mut builder, regs_base, &mut cache, &promoted, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_neg, &[frame_val, ctx_val, d, s]);
@@ -968,7 +1015,7 @@ pub fn translate_function(
                 // the VM's uniform signed `>>` on all integer types.
                 Instruction::BitAnd { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitAnd);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::BitAnd);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_and, &[frame_val, ctx_val, d, av, bv]);
@@ -977,7 +1024,7 @@ pub fn translate_function(
                 }
                 Instruction::BitOr { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitOr);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::BitOr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_or, &[frame_val, ctx_val, d, av, bv]);
@@ -986,7 +1033,7 @@ pub fn translate_function(
                 }
                 Instruction::BitXor { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitXor);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::BitXor);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_xor, &[frame_val, ctx_val, d, av, bv]);
@@ -995,7 +1042,7 @@ pub fn translate_function(
                 }
                 Instruction::BitNot { dst, src } => {
                     if is_int_typed_unary(z42_func, *dst, *src) {
-                        emit_i64_bit_not(&mut builder, regs_base, &mut cache, *dst, *src);
+                        emit_i64_bit_not(&mut builder, regs_base, &mut cache, &promoted, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_bit_not, &[frame_val, ctx_val, d, s]);
@@ -1004,7 +1051,7 @@ pub fn translate_function(
                 }
                 Instruction::Shl { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Shl);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Shl);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_shl, &[frame_val, ctx_val, d, av, bv]);
@@ -1013,7 +1060,7 @@ pub fn translate_function(
                 }
                 Instruction::Shr { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Shr);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Shr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_shr, &[frame_val, ctx_val, d, av, bv]);
@@ -1603,7 +1650,7 @@ pub fn translate_function(
                         && matches!(*to_tag,
                             T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
                     if inline_int {
-                        emit_i64_convert(&mut builder, regs_base, &mut cache, *dst, *src, *to_tag);
+                        emit_i64_convert(&mut builder, regs_base, &mut cache, &promoted, *dst, *src, *to_tag);
                     } else {
                         let d = ri!(*dst);
                         let s = ri!(*src);
@@ -1676,6 +1723,14 @@ pub fn translate_function(
                 builder.ins().return_(&[zero]);
             }
             Terminator::Ret { reg: Some(r) } => {
+                // 2C: a resident Variable's value lives in SSA, not memory —
+                // spill it to `frame.regs[r]` so `hr_set_ret` (reads by index)
+                // sees the current value.
+                if promoted.get(*r as usize).copied().unwrap_or(false) {
+                    let v = builder.use_var(Variable::from_u32(*r));
+                    let addr = reg_addr(&mut builder, regs_base, *r);
+                    store_const_tag(&mut builder, addr, TAG_I64, v);
+                }
                 let rv   = ri!(*r);
                 builder.ins().call(hr_set_ret, &[frame_val, ctx_val, rv]);
                 let zero = builder.ins().iconst(types::I8, 0);
@@ -1945,6 +2000,178 @@ fn instr_uses_int_cache(func: &Function, instr: &Instruction) -> bool {
     }
 }
 
+/// jit-unbox-regalloc Phase 2C: compute which integer registers can be promoted
+/// to Cranelift `Variable`s — kept resident in SSA / machine registers across
+/// the whole function, INCLUDING loop-carried across back-edges (Cranelift's
+/// `use_var`/`def_var` + `seal_all_blocks` insert the loop phis for us, so no
+/// manual loop detection / block-param threading is needed).
+///
+/// A reg is promotable iff it is integer-typed AND **every** one of its
+/// appearances is in a position the codegen routes through `use_var`/`def_var`
+/// (or spills, for the `Ret` operand). The routed ("whitelisted") positions are
+/// exactly the native integer fast-path ops:
+///   * `ConstI32`/`ConstI64` dst,
+///   * `Add`/`Sub`/`Mul`/`BitAnd`/`BitOr`/`BitXor`/`Shl`/`Shr` dst+a+b,
+///   * `Neg`/`BitNot` dst+src,
+///   * integer compare (`Eq`..`Ge`) a+b (dst is Bool → never a candidate),
+///   * integer→integer `Convert` (to_tag 0x02..=0x09) dst+src,
+///   * `Ret` operand (spilled to memory before `hr_set_ret`).
+/// ANY appearance in a memory-backed op (copy, field, array, call/helper,
+/// struct, static, throw, non-int convert, …) DISQUALIFIES the reg: promoting
+/// it would desync its `frame.regs` slot from the resident SSA value — a silent
+/// miscompile. Conservative by construction — when unsure, don't promote, and
+/// the reg falls back to the 2A/2B memory+cache model (byte-identical to
+/// pre-2C). Safepoints do NOT disqualify: the GC is non-moving and skips
+/// integer slots, so a resident integer needs no spill across a safepoint
+/// (the source of 2C's per-iteration win over 2B).
+///
+/// Returns a per-reg bool vector. The caller passes `enable=false` (→ all
+/// false) for OSR variants, whose entry jumps mid-function; v1 keeps those on
+/// the memory model to avoid OSR-entry reload complexity.
+fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool> {
+    let n = func.reg_types.len().max(max_reg(func) + 1);
+    let mut ok = vec![false; n];
+    if !enable {
+        return ok;
+    }
+    for r in 0..n {
+        ok[r] = func.reg_types.get(r).copied().unwrap_or(IrType::Unknown).is_integer();
+    }
+    // Regs to disqualify (appear in a memory-backed / non-routed position).
+    let mut disq: Vec<u32> = Vec::new();
+    use Instruction as I;
+    for block in &func.blocks {
+        for instr in &block.instructions {
+            match instr {
+                // ── Routed to use_var/def_var ONLY when the op takes its native
+                // fast path — the SAME predicate the codegen match arm uses. If
+                // the predicate is false the op falls to a helper that reads/
+                // writes `frame.regs` by index, so a promoted operand's stale
+                // memory slot would be read → disqualify all its regs. (Const to
+                // a promoted dst is routed to def_var unconditionally, so it is
+                // always safe and stays whitelisted.)
+                I::ConstI32 { .. } | I::ConstI64 { .. } => {}
+                I::Add { dst, a, b } | I::Sub { dst, a, b } | I::Mul { dst, a, b }
+                | I::BitAnd { dst, a, b } | I::BitOr { dst, a, b } | I::BitXor { dst, a, b }
+                | I::Shl { dst, a, b } | I::Shr { dst, a, b } => {
+                    if !is_int_typed(func, *dst, *a, *b) {
+                        disq.push(*dst); disq.push(*a); disq.push(*b);
+                    }
+                }
+                I::Neg { dst, src } | I::BitNot { dst, src } => {
+                    if !is_int_typed_unary(func, *dst, *src) {
+                        disq.push(*dst); disq.push(*src);
+                    }
+                }
+                I::Eq { a, b, .. } | I::Ne { a, b, .. } | I::Lt { a, b, .. }
+                | I::Le { a, b, .. } | I::Gt { a, b, .. } | I::Ge { a, b, .. } => {
+                    // dst is Bool (never a candidate); only a,b matter, and only
+                    // when the native `emit_i64_cmp` reads them via load_int.
+                    if !is_int_cmp(func, *a, *b) {
+                        disq.push(*a); disq.push(*b);
+                    }
+                }
+                I::Convert { dst, src, to_tag } => {
+                    // Native `emit_i64_convert` is taken iff src is integer and
+                    // to_tag is an integer width — mirror the match arm exactly.
+                    let src_int = func.reg_types
+                        .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
+                    if !(src_int && (0x02..=0x09).contains(to_tag)) {
+                        disq.push(*dst);
+                        disq.push(*src);
+                    }
+                }
+
+                // ── Non-routed (memory-backed) — disqualify every reg they touch ──
+                I::ConstStr { dst, .. } | I::ConstF64 { dst, .. }
+                | I::ConstBool { dst, .. } | I::ConstChar { dst, .. }
+                | I::ConstNull { dst } | I::DefaultOf { dst, .. } => disq.push(*dst),
+                I::Typeof(bx) => disq.push(bx.dst),
+                I::Copy { dst, src } | I::Not { dst, src } | I::ToStr { dst, src }
+                | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. }
+                | I::LoadLocalAddr { dst, slot: src } => { disq.push(*dst); disq.push(*src); }
+                I::Div { dst, a, b } | I::Rem { dst, a, b }
+                | I::And { dst, a, b } | I::Or { dst, a, b }
+                | I::StrConcat { dst, a, b } => { disq.push(*dst); disq.push(*a); disq.push(*b); }
+                I::ArrayGet { dst, arr, idx } | I::LoadElemAddr { dst, arr, idx } => {
+                    disq.push(*dst); disq.push(*arr); disq.push(*idx);
+                }
+                I::ArraySet { arr, idx, val } => { disq.push(*arr); disq.push(*idx); disq.push(*val); }
+                I::ArrayLen { dst, arr } => { disq.push(*dst); disq.push(*arr); }
+                I::UnpinPtr { pinned } => disq.push(*pinned),
+                I::StructFieldGetPrim { dst, base, .. } => { disq.push(*dst); disq.push(*base); }
+                I::StructFieldSetPrim { base, val, .. } => { disq.push(*base); disq.push(*val); }
+                I::CallIndirect { dst, callee, args } => {
+                    disq.push(*dst); disq.push(*callee); disq.extend(args.iter().copied());
+                }
+                I::CallNativeVtable { dst, recv, args, .. } => {
+                    disq.push(*dst); disq.push(*recv); disq.extend(args.iter().copied());
+                }
+                I::Call(bx) => { disq.push(bx.dst); disq.extend(bx.args.iter().copied()); }
+                I::Builtin(bx) => { disq.push(bx.dst); disq.extend(bx.args.iter().copied()); }
+                I::CallNative(bx) => { disq.push(bx.dst); disq.extend(bx.args.iter().copied()); }
+                I::ObjNew(bx) => { disq.push(bx.dst); disq.extend(bx.args.iter().copied()); }
+                I::VCall(bx) => { disq.push(bx.dst); disq.push(bx.obj); disq.extend(bx.args.iter().copied()); }
+                I::MkClos(bx) => { disq.push(bx.dst); disq.extend(bx.captures.iter().copied()); }
+                I::ArrayNew(bx) => { disq.push(bx.dst); disq.push(bx.size); }
+                I::ArrayNewLit(bx) => { disq.push(bx.dst); disq.extend(bx.elems.iter().copied()); }
+                I::LoadFn(bx) => disq.push(bx.dst),
+                I::LoadFnCached(bx) => disq.push(bx.dst),
+                I::FieldGet(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
+                I::FieldSet(bx) => { disq.push(bx.obj); disq.push(bx.val); }
+                I::IsInstance(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
+                I::AsCast(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
+                I::StaticGet(bx) => disq.push(bx.dst),
+                I::StaticSet(bx) => disq.push(bx.val),
+                I::StructAlloc(bx) => disq.push(bx.dst),
+                I::LoadFieldAddr(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
+            }
+        }
+        // Terminators: `Ret` operand is routed (spilled before hr_set_ret);
+        // `Throw` reg is a heap exception object (never integer) — disqualify.
+        if let Terminator::Throw { reg } = &block.terminator {
+            disq.push(*reg);
+        }
+    }
+    for r in disq {
+        if (r as usize) < n {
+            ok[r as usize] = false;
+        }
+    }
+    ok
+}
+
+/// jit-unbox-regalloc Phase 2C: read an integer reg's i64 payload — from its
+/// resident Cranelift `Variable` (via `use_var`, Cranelift inserts the SSA
+/// phis) if promoted, else via the 2B block-local cache (which loads from
+/// `frame.regs` on a miss).
+#[inline]
+fn load_int(
+    builder: &mut FunctionBuilder, cache: &mut RegCache, promoted: &[bool],
+    regs_base: cranelift_codegen::ir::Value, reg: u32,
+) -> cranelift_codegen::ir::Value {
+    if promoted.get(reg as usize).copied().unwrap_or(false) {
+        builder.use_var(Variable::from_u32(reg))
+    } else {
+        cache.load_i64(builder, regs_base, reg)
+    }
+}
+
+/// Write an integer reg's i64 payload — to its resident `Variable` (`def_var`)
+/// if promoted, else to the 2B cache (deferred spill). No `frame.regs` store
+/// either way until a flush (cache) or the `Ret` spill (Variable).
+#[inline]
+fn store_int(
+    builder: &mut FunctionBuilder, cache: &mut RegCache, promoted: &[bool],
+    reg: u32, val: cranelift_codegen::ir::Value,
+) {
+    if promoted.get(reg as usize).copied().unwrap_or(false) {
+        builder.def_var(Variable::from_u32(reg), val);
+    } else {
+        cache.store_i64(reg, val);
+    }
+}
+
 /// Emit Cranelift native code for `frame.regs[dst] = Value::I64(op(a, b))`,
 /// loading both operands' i64 payloads via raw pointer arithmetic against
 /// the cached `regs_base` and storing back with the I64 discriminant byte.
@@ -1962,13 +2189,14 @@ fn emit_i64_binop(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
     cache: &mut RegCache,
+    promoted: &[bool],
     dst: u32, a: u32, b: u32,
     op: BinopKind,
 ) {
-    // Load payload i64s — resident SSA value if cached, else load from memory
-    // (jit-unbox-regalloc Phase 2B block-local scalar cache).
-    let ai = cache.load_i64(builder, regs_base, a);
-    let bi = cache.load_i64(builder, regs_base, b);
+    // Load payload i64s — resident Variable (2C) / cached SSA value (2B) /
+    // memory load, resolved by `load_int`.
+    let ai = load_int(builder, cache, promoted, regs_base, a);
+    let bi = load_int(builder, cache, promoted, regs_base, b);
 
     // Compute (Cranelift `iadd`/`isub`/`imul` are wrapping by default —
     // matches z42's `vm-wrapping-int-arith` semantics).
@@ -1993,9 +2221,8 @@ fn emit_i64_binop(
         }
     };
 
-    // Cache the result as an I64-tagged value; spilled to memory at the next
-    // flush (block terminator / Category-B op / safepoint).
-    cache.store_i64(dst, result);
+    // Store to the resident Variable (2C) or the cache (2B), via `store_int`.
+    store_int(builder, cache, promoted, dst, result);
 }
 
 /// Emit native I64-source integer convert (Convert opcode fast path).
@@ -2010,9 +2237,10 @@ fn emit_i64_convert(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
     cache: &mut RegCache,
+    promoted: &[bool],
     dst: u32, src: u32, to_tag: u8,
 ) {
-    let si = cache.load_i64(builder, regs_base, src);
+    let si = load_int(builder, cache, promoted, regs_base, src);
 
     // Tag constants — mirror exec_value module-private T_* (the primitive-type
     // wire tags, a DIFFERENT namespace from the `Value` discriminants).
@@ -2058,7 +2286,7 @@ fn emit_i64_convert(
         _ => si,
     };
 
-    cache.store_i64(dst, result);
+    store_int(builder, cache, promoted, dst, result);
 }
 
 /// Emit native `frame.regs[dst] = frame.regs[src]` for drop-free primitive
@@ -2087,11 +2315,12 @@ fn emit_i64_neg(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
     cache: &mut RegCache,
+    promoted: &[bool],
     dst: u32, src: u32,
 ) {
-    let si     = cache.load_i64(builder, regs_base, src);
+    let si     = load_int(builder, cache, promoted, regs_base, src);
     let result = builder.ins().ineg(si);
-    cache.store_i64(dst, result);
+    store_int(builder, cache, promoted, dst, result);
 }
 
 /// Emit native `frame.regs[dst] = Value::I64(!src)` — bitwise NOT on i64
@@ -2101,11 +2330,12 @@ fn emit_i64_bit_not(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
     cache: &mut RegCache,
+    promoted: &[bool],
     dst: u32, src: u32,
 ) {
-    let si     = cache.load_i64(builder, regs_base, src);
+    let si     = load_int(builder, cache, promoted, regs_base, src);
     let result = builder.ins().bnot(si);
-    cache.store_i64(dst, result);
+    store_int(builder, cache, promoted, dst, result);
 }
 
 /// Emit Cranelift native `icmp <pred>` for `frame.regs[dst] = Value::Bool(a OP b)`
@@ -2115,14 +2345,15 @@ fn emit_i64_cmp(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
     cache: &mut RegCache,
+    promoted: &[bool],
     dst: u32, a: u32, b: u32,
     kind: CmpKind,
 ) {
     use cranelift_codegen::ir::condcodes::IntCC;
 
-    // Operands read via the block-local cache (Phase 2B).
-    let ai = cache.load_i64(builder, regs_base, a);
-    let bi = cache.load_i64(builder, regs_base, b);
+    // Operands read via resident Variable (2C) / cache (2B) / memory.
+    let ai = load_int(builder, cache, promoted, regs_base, a);
+    let bi = load_int(builder, cache, promoted, regs_base, b);
 
     // Cranelift `icmp` returns an i8 (boolean: 0 or 1) — directly the
     // payload byte we need to write back. Signed compares since z42's
