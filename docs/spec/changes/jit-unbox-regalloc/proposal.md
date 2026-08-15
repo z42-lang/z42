@@ -69,23 +69,40 @@ int/long/byte/ushort/uint/ulong 混合、含 U64 高位比较/移位、Convert/N
 一致（`8331491328502177984`），JIT 对该 workload **1.5× 快于 interp**。无需任何 spill 机制、值仍住
 内存——**是 P5-B 之后又一块「免费」native 化**。
 
-### Phase 2B — 块内标量 unbox + 机器寄存器缓存（block-local）
+### Phase 2B — 块内标量 unbox + 机器寄存器缓存（block-local）✅ 已实现
 
-**做**：在**单个基本块内**，把标量寄存器（I8..U64/F32/F64/Bool/Char——`reg_types` 判定的非堆值）的
-值缓存在 Cranelift SSA 值里，块内后续 op 直接用 SSA 值、不再 `load frame.regs`。在下列**汇点必须 spill
-回 `frame.regs[idx]`**（架构地图 §3/§4/§5 枚举）：
+**做（实际实现，比 DRAFT 更收敛）**：`reg_access.rs` 加 `RegCache`——**只缓存整数标量（I8..U64，
+物理全 `Value::I64`、tag `TAG_I64`）的 i64 payload**（Bool/Char/F64/堆值不缓存、直落内存，避免 tag
+多态与 GC 可见性复杂度）。`load_i64` 命中缓存返回驻留 SSA 值、否则从内存 load 并记 clean 条目；
+`store_i64` 只更新缓存 + 标脏（不写内存，延到下次 flush）。五个整数 emitter
+（`emit_i64_binop`/`_convert`/`_neg`/`_bit_not` 走缓存读写；`_cmp` 走缓存读、结果 Bool 直写内存 +
+`invalidate(dst)`）改用之。
 
-- **块终结子前**（`Br`/`BrCond`/`Return`/`Throw`——跨块值仍走内存，本 phase 不引入 block param）；
-- **每个 Category-B helper / Call / VCall / CallIndirect / ObjNew / Builtin 前**（helper 按 index 读
-  `frame.regs`，SSA 缓存对它不可见）+ **调用后**该 dst/arg 槽视为失效、重新 load；
-- **每个 safepoint 前**（`emit_safepoint_check`，可能转 slow helper 扫内存）。
+**flush（spill 脏 + 清空）汇点**——由 `translate.rs` 统一在**非参与缓存的指令前**触发（`instr_uses_int_cache`
+返 `false` 即 flush），覆盖 DRAFT 枚举的全部汇点：
 
-**正确性**：块内缓存 = 标准 local value numbering；因每个块出口/调用/safepoint 都 spill，`frame.regs`
-在任何「可能被外部观察」的点都 coherent → 与改前逐字等价的可观察行为。**OSR 无关**（OSR 只在块入口
-`cl_blocks[k]` 进入，块内缓存从该块头的 load 建立，天然从内存起步）。
+- **块终结子前**（terminator 是独立 `Terminator` 枚举、在指令循环后单点 flush——跨块值走内存，本 phase 不引入 block param）；
+- **每个 Category-B helper / Call / VCall / ObjNew / Builtin / const / copy / field / array / bool 前**
+  （它们直接读写 `frame.regs` 或按 index 调 helper）——`check!` 宏拆 Cranelift 块的点也必是 helper 调用、
+  已被 flush 覆盖，故**缓存 SSA 值永不跨 Cranelift 块边界**；
+- **每个 z42 块开头**：新建空 `RegCache`（前驱已在其 terminator flush → 内存权威）。
 
-**收益范围（诚实标注）**：块内**多次触及同一值**或**算术链**（`t=a+b; u=t*c; …` 同块）省掉中间往返。
-**单次触及的 loop-carried 标量（如每迭代一次 `s+=…`）本 phase 收益有限**——那需要 2C。
+`emit_safepoint_check` 出现在 Br/BrCond/Call 后，均已被上面的 terminator/helper flush 覆盖。
+
+**正确性不变式**：在任何「缓存参与整数 op 之外的东西可能读/写 `frame.regs`」的点，内存都 coherent。
+`instr_uses_int_cache` 必与各 op 快路径谓词逐一对齐（otherwise 非参与 op 未 flush = 读到脏内存 bug）。
+**OSR 无关**（OSR 只在块入口进入，缓存从块头 load 起步）。空缓存 flush（`std::mem::take` 空 BTreeMap）
+**发零条机器指令** → 控制流密集代码无回归。
+
+**收益范围（实测诚实标注）**：
+- **理想场景**——长直线算术块、值重度复用（`sline.z42`：a/b/c/d/e/f 层层复用、无分支无调用）：**JIT 2B
+  比 JIT 2A 快 1.30×**（5.35s→4.12s，σ 极小），byte-identical。这是「块内多次触及同一值省掉中间内存
+  往返」的直接兑现。
+- **控制流/调用密集代码**（`chain.z42`：含 if 分支 + 中途 helper 调用）：**基本持平**（2A/2B 差 ~3% 在
+  噪声内）——分支与调用把基本块切碎到复用距离之下，块内缓存跨不过去。**单次触及的 loop-carried 标量
+  （`s+=…`）收益为零**——那是 2C（跨块 block-param 驻留）的领域。
+
+即：2B 是**数值/表达式内核**的真实局部胜利，对一般控制流代码中性无害。
 
 ### Phase 2C — loop-carried 跨块寄存器驻留（真正的天花板突破）
 

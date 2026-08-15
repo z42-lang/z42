@@ -26,6 +26,7 @@ use crate::metadata::Value;
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value as ClifValue};
 use cranelift_frontend::FunctionBuilder;
+use std::collections::BTreeMap;
 
 /// Stride between adjacent `Value` slots in `frame.regs` (== `size_of::<Value>()`).
 pub const VALUE_STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: 16 B
@@ -108,4 +109,109 @@ pub fn store_tag_const(b: &mut FunctionBuilder, addr: ClifValue, tag_u8: u8) {
 #[allow(dead_code)]
 pub fn store_payload(b: &mut FunctionBuilder, addr: ClifValue, payload: ClifValue) {
     b.ins().store(MemFlags::trusted(), payload, addr, PAYLOAD_OFFSET);
+}
+
+// ─── Block-local integer-scalar cache (jit-unbox-regalloc Phase 2B) ──────────
+//
+// Within a straight-line run of native integer ops, keep each register's
+// unboxed i64 payload in a Cranelift SSA value instead of round-tripping
+// through `frame.regs` memory every op. This is the manual store-to-load /
+// redundant-load elimination Cranelift can't do for us: at `opt_level=none`
+// (the VM's setting) it does no alias analysis, and even at `speed` it can't
+// forward across the `regs_base` raw-pointer traffic + opaque helper calls
+// (measured: zero compute gain — see `lazy.rs`). We *can*, because we know
+// distinct reg indices never alias and which ops are pure.
+//
+// **Scope (deliberately narrow for correctness)**: caches only the i64 payload
+// of integer-typed regs (all `I8..U64` are physically `Value::I64`, tag
+// `TAG_I64`). Bool/Char/F64/heap values are never cached — they fall through
+// to direct memory access. So a cached entry's tag is *always* `TAG_I64` and
+// spilling is a plain `store_const_tag(TAG_I64, payload)`.
+//
+// **Coherence invariant** (the whole correctness argument): at every point
+// where anything *other than* a cache-participating integer op could read or
+// write `frame.regs` — every Category-B helper/call, every block terminator,
+// every safepoint, and the start of every z42 block — the caller must have
+// `flush`ed (spill dirty + clear) so memory is authoritative. `translate.rs`
+// enforces this by flushing before every non-participating instruction and
+// before the terminator, and by clearing at each block start. Cached SSA
+// values therefore never cross a Cranelift block boundary (helpers that split
+// the block via the `check!` macro are non-participating → flushed first) and
+// never go stale (a helper that writes a reg is preceded by a flush that
+// emptied the cache).
+//
+// Iteration/spill order is by reg index (`BTreeMap`) so codegen is
+// deterministic — distinct slots make spill order semantically irrelevant, but
+// determinism keeps the JIT reproducible.
+
+/// One cached register: its unboxed i64 payload SSA value + whether the cache
+/// is newer than memory (needs a spill).
+#[derive(Clone, Copy)]
+struct CacheEntry {
+    payload: ClifValue,
+    dirty: bool,
+}
+
+/// Block-local integer-scalar register cache. See module note above.
+#[derive(Default)]
+pub struct RegCache {
+    entries: BTreeMap<u32, CacheEntry>,
+}
+
+impl RegCache {
+    #[inline]
+    pub fn new() -> Self {
+        RegCache { entries: BTreeMap::new() }
+    }
+
+    /// Read `frame.regs[reg]`'s i64 payload, using the cached SSA value if the
+    /// reg is resident; otherwise load from memory and record a clean entry.
+    /// Only valid for integer-typed regs (caller guarantees via `reg_types`).
+    #[inline]
+    pub fn load_i64(&mut self, b: &mut FunctionBuilder, regs_base: ClifValue, reg: u32) -> ClifValue {
+        if let Some(e) = self.entries.get(&reg) {
+            return e.payload;
+        }
+        let addr = reg_addr(b, regs_base, reg);
+        let v = load_payload_i64(b, addr);
+        self.entries.insert(reg, CacheEntry { payload: v, dirty: false });
+        v
+    }
+
+    /// Record `frame.regs[reg] = Value::I64(payload)` in the cache without
+    /// writing memory; the value is spilled at the next `flush`.
+    #[inline]
+    pub fn store_i64(&mut self, reg: u32, payload: ClifValue) {
+        self.entries.insert(reg, CacheEntry { payload, dirty: true });
+    }
+
+    /// Drop any cached entry for `reg` (its memory slot has just been written
+    /// directly, e.g. a cmp storing a Bool). No spill — the cache value is dead.
+    #[inline]
+    pub fn invalidate(&mut self, reg: u32) {
+        self.entries.remove(&reg);
+    }
+
+    /// Drop the entire cache without spilling — memory is already authoritative.
+    /// Currently `translate.rs` builds a fresh `RegCache` per z42 block instead
+    /// of reusing one, so this is unused today; kept as part of the cache API for
+    /// Phase 2C (which will reuse a cache across the loop-header region).
+    #[inline]
+    #[allow(dead_code)]
+    pub fn invalidate_all(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Spill every dirty entry back to `frame.regs` (as `Value::I64`), then
+    /// clear the cache. Call before any Category-B op / terminator / safepoint —
+    /// anywhere memory must be authoritative. Deterministic order (reg index).
+    #[inline]
+    pub fn flush(&mut self, b: &mut FunctionBuilder, regs_base: ClifValue) {
+        for (reg, e) in std::mem::take(&mut self.entries) {
+            if e.dirty {
+                let addr = reg_addr(b, regs_base, reg);
+                store_const_tag(b, addr, TAG_I64, e.payload);
+            }
+        }
+    }
 }
