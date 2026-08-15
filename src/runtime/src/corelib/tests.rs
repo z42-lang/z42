@@ -312,7 +312,7 @@ fn delegate_eq_diff_funcref_not_equal() {
 #[test]
 fn delegate_eq_same_closure_equal_via_ptr_eq() {
     let c = ctx();
-    let env = GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(1)]));
+    let env = GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)]));
     let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: env.clone(), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
     let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: env.clone(), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(true));
@@ -321,8 +321,8 @@ fn delegate_eq_same_closure_equal_via_ptr_eq() {
 #[test]
 fn delegate_eq_diff_closure_env_not_equal() {
     let c = ctx();
-    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
-    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
+    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
+    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -346,14 +346,14 @@ fn delegate_eq_diff_stackclosure_idx_not_equal() {
 fn delegate_eq_funcref_vs_closure_not_equal() {
     let c = ctx();
     let a = fn_ref("Demo.F");
-    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
+    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
 #[test]
 fn delegate_eq_closure_vs_stackclosure_not_equal() {
     let c = ctx();
-    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
+    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
     let b = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "Demo.F".into() }));
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
@@ -421,7 +421,7 @@ fn upgrade_weak_non_handle_returns_null() {
 #[test]
 fn make_weak_then_upgrade_array() {
     let c = ctx();
-    let arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new(vec![i(1), i(2)])));
+    let arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![i(1), i(2)])));
     let handle = exec_builtin(&c, "__obj_make_weak", &[arr.clone()]).unwrap();
     assert!(matches!(handle, Value::Object(_)));
     let upgraded = exec_builtin(&c, "__obj_upgrade_weak", &[handle]).unwrap();
@@ -433,7 +433,7 @@ fn make_weak_then_upgrade_array() {
 fn closure(env: Vec<Value>, fn_name: &str) -> Value {
     Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         crate::metadata::ClosureData {
-            env: crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new(env)),
+            env: crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(env)),
             fn_name: fn_name.to_string(),
         },
         crate::gc::var_region::BlockType::Closure,
@@ -509,7 +509,7 @@ fn delegate_fn_name_returns_null_for_non_delegate() {
 fn make_closure_constructs_value_closure() {
     let c = ctx();
     let receiver = obj(&c, "Listener");
-    let env_arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new(vec![receiver.clone()])));
+    let env_arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![receiver.clone()])));
     let cl = exec_builtin(&c, "__make_closure", &[s("thunk_X"), env_arr]).unwrap();
     match cl {
         Value::Closure(cd) => {
@@ -537,7 +537,7 @@ fn make_closure_constructs_value_closure() {
 fn make_closure_returns_null_for_invalid_args() {
     let c = ctx();
     // fn_name 不是 string
-    let env_arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new(vec![])));
+    let env_arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])));
     assert_eq!(exec_builtin(&c, "__make_closure", &[i(5), env_arr.clone()]).unwrap(), Value::Null);
     // env 不是 array
     assert_eq!(exec_builtin(&c, "__make_closure", &[s("x"), i(5)]).unwrap(), Value::Null);

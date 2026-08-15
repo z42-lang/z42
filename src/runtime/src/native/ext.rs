@@ -272,10 +272,11 @@ type CLastErrorFn = unsafe extern "C" fn() -> *const std::os::raw::c_char;
 /// process-static `LoadedCompression` so wrapper closures can look them
 /// up without re-querying the libloading::Library on every call.
 ///
-/// `free` is unused on the VM side (we take ownership of returned buffers
-/// via `Vec::from_raw_parts` instead of calling the cdylib's free) but
-/// we still resolve it at load time so missing-symbol failures surface
-/// early instead of later.
+/// `free` frees a buffer the cdylib returned (via its OWN allocator). unify-gc-heap
+/// PR-3 fix: `take_owned_buffer` now copies the returned bytes into a Rust-owned Vec and
+/// calls `free` on the original — the old approach (reconstruct a Rust `Vec::from_raw_parts`
+/// + drop via z42vm's allocator) was an allocator-mismatch bug latent while the buffer was
+/// never dropped (kept as `Bytes(Vec)` backing, no GC), surfaced by PR-3's copy-then-drop.
 #[allow(dead_code)]
 struct LoadedCompression {
     deflate_compress:    CDeflateCompressFn,
@@ -423,13 +424,23 @@ fn bytes_to_value(ctx: &VmContext, bytes: Vec<u8>) -> Value {
     ctx.heap().alloc_bytes(bytes)
 }
 
-fn take_owned_buffer(out_ptr: *mut u8, out_len: usize) -> Vec<u8> {
+fn take_owned_buffer(free: CFreeFn, out_ptr: *mut u8, out_len: usize) -> Vec<u8> {
     if out_ptr.is_null() || out_len == 0 { return Vec::new(); }
-    // Take ownership: we asked the cdylib for a heap buffer; it returned
-    // (ptr, len). Reconstruct the Vec so Rust's allocator drops it when
-    // the Vec goes out of scope. Capacity must equal len (the cdylib
-    // builds via `Vec::into_boxed_slice` which sets capacity = len).
-    unsafe { Vec::from_raw_parts(out_ptr, out_len, out_len) }
+    // unify-gc-heap PR-3 fix (2026-08-15): **copy** the cdylib's output into a Rust-owned Vec
+    // (z42vm's global allocator), then free the cdylib's buffer via ITS OWN allocator
+    // (`z42_compression_free`). The previous code reconstructed a Rust `Vec::from_raw_parts`
+    // over the foreign buffer and let Rust's allocator drop it — a latent allocator-mismatch
+    // bug (the dlopen'd cdylib may use a different global allocator than z42vm's mimalloc). It
+    // was masked on origin/main because the reconstructed Vec was moved into the `Bytes(Vec)`
+    // array backing and, with no GC pressure in the test harness, never dropped. PR-3 copies
+    // the bytes into a GC block and drops the Vec immediately → freed the foreign buffer with
+    // the wrong allocator → SIGSEGV on Linux (tolerated on macOS). Freeing via the cdylib's
+    // own `free` is correct regardless of allocator.
+    // SAFETY: `out_ptr`/`out_len` name the cdylib's freshly-returned buffer (non-null, len>0).
+    let v = unsafe { std::slice::from_raw_parts(out_ptr, out_len) }.to_vec();
+    // SAFETY: hand the same (ptr, len) back to the cdylib's allocator exactly once.
+    unsafe { free(out_ptr, out_len); }
+    v
 }
 
 fn last_error_string() -> String {
@@ -469,7 +480,7 @@ fn wrap_deflate_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_deflate_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -491,7 +502,7 @@ fn wrap_deflate_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_zstd_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -512,7 +523,7 @@ fn wrap_zstd_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -532,7 +543,7 @@ fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -553,7 +564,7 @@ fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -573,7 +584,7 @@ fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_lz4_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -594,7 +605,7 @@ fn wrap_lz4_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_lz4_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -614,7 +625,7 @@ fn wrap_lz4_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_compressor_begin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -656,7 +667,7 @@ fn wrap_compressor_feed(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_compressor_finish(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -675,7 +686,7 @@ fn wrap_compressor_finish(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
 }
 
 fn wrap_compressor_dispose(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
