@@ -299,8 +299,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // formalize-jit-method-token Phase 2.E (2026-05-08): trailing `ptr`
         // arg = `*const FieldIC` (stable into Function.resolved.field_ic).
         field_get:     decl!("jit_field_get",  [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    [i8t]),
-        // jit_obj_field_slot(frame, ctx, obj, name_ptr, name_len, out_slots_ptr, out_slot) -> ()
-        obj_field_slot: decl!("jit_obj_field_slot", [ptr, ptr, i32t, ptr, i64t, ptr, ptr], []),
+        // P5-B: jit_obj_field_slot(frame, ctx, obj, name_ptr, name_len, exp_width, exp_tag, out_bytes_ptr, out_off) -> ()
+        obj_field_slot: decl!("jit_obj_field_slot", [ptr, ptr, i32t, ptr, i64t, i32t, i32t, ptr, ptr], []),
         field_set:     decl!("jit_field_set",  [ptr, ptr, i32t, ptr, i64t, i32t, ptr],    [i8t]),
         // jit_vcall(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_line, caller_col) -> u8
         // Phase 2.E: trailing `ptr` arg = `*const VCallIC`.
