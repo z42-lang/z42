@@ -1351,13 +1351,12 @@ impl ArrayObj {
     /// out-of-bounds / use-after-free block read into a clear panic instead of a raw SIGSEGV.
     #[inline]
     fn debug_block_bounds<T>(block: &VarGcRef, len: usize, ctx: &str) {
-        assert!(block.is_live(),
+        // Debug-only (per-access; off in release to keep the array hot path lean).
+        debug_assert!(block.is_live(),
             "unify-gc-heap PR-3: {ctx}<{}> on a stale/tombstoned block (len={len})", std::any::type_name::<T>());
-        let need = len.checked_mul(std::mem::size_of::<T>())
-            .expect("unify-gc-heap PR-3: len*size_of overflow");
-        let have = block.payload_size();
-        assert!(need <= have,
-            "unify-gc-heap PR-3: {ctx}<{}> OOB — len={len} needs {need} bytes > block payload {have}", std::any::type_name::<T>());
+        debug_assert!(
+            len.checked_mul(std::mem::size_of::<T>()).is_some_and(|need| need <= block.payload_size()),
+            "unify-gc-heap PR-3: {ctx}<{}> OOB — len={len} elems > block payload {}", std::any::type_name::<T>(), block.payload_size());
     }
     // SAFETY (exclusive): additionally the caller holds `borrow_mut()` (exclusive
     // region lock) so this `&mut [T]` uniquely aliases the block payload.
@@ -1414,8 +1413,7 @@ impl ArrayObj {
     fn alloc_packed<T: Copy>(heap: &dyn MagrGC, data: &[T]) -> VarGcRef {
         let block = heap.alloc_var_block(std::mem::size_of_val(data), BlockType::ArrayPrim);
         if !data.is_empty() {
-            // unify-gc-heap PR-3 CI hunt: guard the write against an under-sized block.
-            assert!(std::mem::size_of_val(data) <= block.payload_size(),
+            debug_assert!(std::mem::size_of_val(data) <= block.payload_size(),
                 "unify-gc-heap PR-3: alloc_packed OOB write — {} bytes > block payload {}", std::mem::size_of_val(data), block.payload_size());
             // SAFETY: block payload sized `size_of_val(data)`, 8-aligned ≥ align_of::<T>();
             // src/dst are distinct, non-overlapping regions of `data.len()` `T`s.
@@ -1809,7 +1807,7 @@ impl ArrayObj {
             // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` == u32);
             // the JIT loads it width-4 and boxes into `Value::Char`.
             | ArrayBacking::Chars { block, .. } => {
-                assert!(block.is_live(), "unify-gc-heap PR-3: packed_num_ptr on a stale/tombstoned block");
+                debug_assert!(block.is_live(), "unify-gc-heap PR-3: packed_num_ptr on a stale/tombstoned block");
                 Some(unsafe { block.payload_as_ptr::<u8>() } as *const u8)
             }
             _ => None,
