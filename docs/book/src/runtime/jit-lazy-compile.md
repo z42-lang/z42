@@ -450,3 +450,104 @@ helper 回落（`numeric_lt_helper`、`int_bitop_helper`）——对所有整数
 净效果：窄整数密集代码从 helper 转 native，无需任何 spill 机制、值仍住内存（是 P5-B 之后又一块
 「免费」native 化）。验证：`scratch_bench` 全宽度混合 workload（含 U64 高位比较/移位、Convert/Neg/
 BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp；`cargo --lib` + e2e jit + 自举 5/5 全绿。
+
+## 块内整数标量缓存：`RegCache`（jit-unbox-regalloc Phase 2B）
+
+> 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2B。
+
+Phase 2A 之前的所有整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，每 op 一次内存
+往返——interp 也这样，JIT 只省了 dispatch。Cranelift 帮不上：VM 用 `opt_level=none`（无别名分析），
+且实测 `opt_level=speed` 也**零收益**（`regs_base` 裸指针 + 不透明 helper 调用让它无法跨 op forward，
+见 `lazy.rs`）。但**我们**有 Cranelift 没有的语义：不同 reg index 永不别名、哪些 op 是纯的。
+
+`RegCache`（`BTreeMap<reg, {payload_ssa, dirty}>`）在**单个基本块的直线整数 op 段内**把每个整数 reg
+的 unboxed i64 payload 留在 Cranelift SSA 值里：`load_i64` 命中即返回驻留值、否则从内存 load 并记
+clean；`store_i64` 只更新缓存 + 标脏、**不写内存**（延到 flush）。五整数 emitter 走它
+（`binop`/`convert`/`neg`/`bit_not` 读写缓存；`cmp` 读缓存、Bool 结果直写内存 + `invalidate(dst)`）。
+
+**只缓存整数标量**（I8..U64 全物理 `Value::I64`、tag `TAG_I64`）——Bool/Char/F64/堆值不缓存、直落
+内存，避开 tag 多态与 GC 可见性。故缓存条目 tag 恒 `TAG_I64`，spill 就是
+`store_const_tag(TAG_I64, payload)`。
+
+### 一致性不变式 + flush 汇点（正确性全靠它）
+
+> **在任何「缓存参与整数 op 之外的东西可能读/写 `frame.regs`」的点，内存必须 coherent。**
+
+`translate.rs` 用一个判据 `instr_uses_int_cache` 统一守住：**非参与缓存的指令前一律先 `flush`**
+（spill 脏条目 + 清空）。这一条覆盖了所有汇点——
+
+- **块终结子前**：terminator 是独立 `Terminator` 枚举、在指令循环后单点 flush（跨块值走内存，2B 不引
+  block param）；
+- **每个 Category-B helper / Call / VCall / ObjNew / Builtin / const / copy / field / array / bool 前**：
+  它们直接读写 `frame.regs` 或按 index 调 helper。**`check!` 宏拆 Cranelift 块的点必是 helper 调用**、
+  已被此规则 flush → **缓存 SSA 值永不跨 Cranelift 块边界**（否则 dominance/staleness 都会出问题）；
+- **safepoint**（`emit_safepoint_check`）出现在 Br/BrCond/Call 后，已被上面覆盖；
+- **每个 z42 块开头**新建空 `RegCache`（前驱在其 terminator 已 flush → 内存权威）。
+
+`instr_uses_int_cache` 必与各 op 快路径谓词**逐一对齐**：某 op 只在其谓词成立时才走 `emit_i64_*`
+（进缓存），否则回落 helper（非参与）。两者失配 = 非参与 op 未 flush 读到脏内存 = bug。**OSR 无关**
+（OSR 只在块入口进入，缓存从块头 load 起步）。空缓存 flush（`std::mem::take` 空 `BTreeMap`）**发零条
+机器指令**，故控制流密集代码零回归。spill 顺序按 reg index（`BTreeMap`）→ 确定性 codegen。
+
+### 收益范围（实测诚实标注）
+
+- **理想场景**——长直线算术块、值重度复用（无分支无调用）：**JIT 2B 比 JIT 2A 快 1.30×**
+  （byte-identical）。「块内多次触及同一值省掉中间往返」的直接兑现。
+- **控制流/调用密集代码**：**基本持平**——if 分支与 helper 调用把基本块切碎到复用距离之下，块内缓存
+  跨不过去。**单次触及的 loop-carried 标量（`s+=…`）零收益**——那是 Phase 2C（跨块 block-param 驻留）
+  的领域。
+
+即 2B 是**数值/表达式内核**的真实局部胜利、对一般控制流代码中性无害。验证：`cargo --lib` + e2e
+interp==jit 逐字节 + 自举 5/5 gen1==gen2 + stdlib 全绿。
+
+## loop-carried 整数标量跨迭代驻留：Cranelift `Variable`（jit-unbox-regalloc Phase 2C）
+
+> 位置：`jit/translate.rs`（`compute_promotable_regs` + `load_int`/`store_int` + prologue 种子）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2C，mini-DRAFT 见
+> [design-2c.md](../../../spec/changes/jit-unbox-regalloc/design-2c.md)。
+
+2B 的块内缓存跨不过循环回边——`for(…) s += …` 里 `s` 每迭代仍 load/store `frame.regs`。2C 让这类
+**loop-carried 整数标量跨迭代常驻机器寄存器**，是打破 `s+=…` 天花板的一步（实测 **1.35–1.75× 快于
+2B**）。
+
+### 用 Cranelift `Variable` 把 SSA 构造外包
+
+关键手法：把符合条件的整数 reg 建成 Cranelift `Variable`（`declare_var` + `use_var`/`def_var`）。
+Cranelift 的 SSA 构造在 `seal_all_blocks` 时**自动**在循环头插 phi、给每条前驱边（含回边、含 OSR 入口
+那条空-args `jump cl_blocks[k]`）**追加 block-param arg**。于是**无需手工检测循环、无需手工 threading
+block-param**——这两个 DRAFT 原以为最难的点被 Cranelift 全包。promoted reg 的读→`use_var`、写→`def_var`
+（`load_int`/`store_int` 按 `promoted[reg]` 分流：promoted 走 Variable，否则走 2B 缓存/内存）。
+
+### 谁能驻留：per-reg 白名单（正确性核心）
+
+`compute_promotable_regs`：一个整数 reg 可驻留，当且仅当**它的每一处访问都在「routed 白名单位置」**——
+const-int（`ConstI32`/`ConstI64`）、原生整数算术/位/移位/取负取反、整数比较的读操作数、整数→整数
+`Convert`、`Ret` 操作数。**任何** memory-backed op（copy / field / array / call·helper / struct /
+static / throw / 非整数 convert / …）碰过的 reg 一律 disqualify。分析枚举全 64 个 `Instruction` 变体，
+未识别的新变体 → 保守 disqualify 其全部 reg。
+
+这条白名单是正确性的关键：promoted reg **永不**被任何 memory-backed op 触及，所以它**永不需要 mid-function
+的 spill/reload**（DRAFT 曾担心的「memory-sync 陷阱」被从根消除）。**per-reg 粒度**——含 helper 的循环里
+helper 碰的 temp 留内存，但累加器/计数器若只被原生 op 触及仍驻留（`s += foo(i)` 的 `s`/`i` 照驻留）。
+
+### 内存同步只有两点 + safepoint 不 spill
+
+promoted reg 与 `frame.regs` 的同步只在两处：
+1. **prologue 种子**：`def_var(var, load frame.regs[reg])` 在 entry 块种一次。param 得实参值；局部得
+   垃圾（Null payload），被其首个真正 def 支配覆盖（dead seed 无害）。**OSR 变体**同样在 OSR 入口块种——
+   此时 `frame.regs` 正是 interp 拷入的 live 状态（`from_interp_regs`），Cranelift 用它作循环头 phi 的
+   OSR-incoming 值。
+2. **`Ret` 前 spill**：`store frame.regs[r] = use_var(var)`，供 `hr_set_ret`（按 index 读）看到当前值。
+
+**safepoint 不 spill**：回边每迭代有 safepoint（可能转 slow helper 触发 GC），但 GC 是**非移动**的、root
+扫描**跳过整数槽**，无 JIT→interp deopt 读整数寄存器 → resident 整数跨 safepoint 无需 spill。**这正是 2C
+相对 2B 每迭代省下 load/store 的收益来源**（若 safepoint 必 spill，每迭代 spill 就零收益）。
+
+### 收益与验证
+
+- **收益（JIT 2C vs JIT 2B）**：纯算术累加环 **1.75×**；realistic field 累加 `s += this.v` **1.35×**。
+- **验证**：全循环形态（nested / break-continue / param-carried+early-return / helper-in-loop /
+  unsigned-narrow）**normal + `Z42_OSR_THRESHOLD=1`（强制每循环走 OSR）双模式** interp==jit 逐字节；
+  `cargo --lib` + e2e 490/0（含 OSR-forced e2e）+ 自举 5/5 gen1==gen2 + stdlib 全绿。纯 runtime codegen，
+  无格式 bump。
