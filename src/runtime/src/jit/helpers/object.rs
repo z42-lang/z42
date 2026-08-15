@@ -192,30 +192,47 @@ pub unsafe extern "C" fn jit_convert(
 
 // ── Field access ─────────────────────────────────────────────────────────────
 
-/// jit-inline-fastpaths (FieldGet 方案 B): **non-throwing** field-slot resolver
-/// for the loop-invariant hoist. Emitted ONCE in the JIT entry block for an
-/// object register proven never-reassigned (e.g. `this`) + a fixed field name.
-/// Object → writes `slots.as_ptr()` (Box<[Value]> is fixed-size ⇒ ptr stable)
-/// and the resolved slot index; non-object / null / field-not-found → writes
-/// `ptr=null, slot=-1` and does NOT throw. The per-`FieldGet` inline detects
-/// `slot < 0` and falls back to `jit_field_get` (correct exception / Str.Length /
-/// Array.Length semantics at the real access site). GC-safe: non-moving
-/// collector + fixed slot count ⇒ the returned ptr stays valid for the frame.
+/// post-layout JIT perf (P5-B): **non-throwing** byte-aware field resolver for the
+/// loop-invariant hoist. Emitted ONCE in the JIT entry block for an object register
+/// proven never-reassigned (e.g. `this`) + a fixed field name. If the field is a
+/// direct **inline primitive** (scalar packed in `bytes`) whose runtime width/tag
+/// match the JIT's compile-time expectation (from `reg_types`), writes
+/// `out_bytes_ptr = bytes.as_ptr()` and `out_off = byte offset`; the per-`FieldGet`/
+/// `FieldSet` inline then does a native width-aware byte load/store. Otherwise
+/// (non-object / null / field-not-found / reference / inlined obj-array ref /
+/// struct root / string / width-or-tag mismatch) writes `out_off = -1` and does NOT
+/// throw — the inline detects `off < 0` and falls back to `jit_field_get`/
+/// `jit_field_set` (correct exception / Str.Length / write-barrier semantics at the
+/// real site). GC-safe: non-moving collector + fixed `bytes` allocation + the object
+/// is held live ⇒ the returned ptr stays valid for the frame.
+///
+/// unify-object-byte-layout (PR-2) had stubbed this to always signal "no fast path"
+/// (byte storage broke the old `slots.as_ptr()` + STRIDE assumption); P5-B restores
+/// it against the `bytes` layout via `ScriptObject::inline_prim_field`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_field_slot(
     frame: *mut JitFrame, _ctx: *const JitModuleCtx,
     obj: u32, field_name_ptr: *const u8, field_name_len: usize,
-    out_slots_ptr: *mut *const Value, out_slot: *mut i64,
+    expected_width: u32, expected_tag: u32,
+    out_bytes_ptr: *mut *const u8, out_off: *mut i64,
 ) {
-    // unify-object-byte-layout (PR-2): the inline `slots.as_ptr()` + STRIDE fast path
-    // is incompatible with byte storage (a field is now a primitive packed in `bytes`
-    // or a reference in the `refs` side-table, not a uniform 24B `Value`). Always
-    // signal "no fast path" so every FieldGet routes through `jit_field_get`
-    // (`field_value`, byte-aware). A byte-aware inline fast path is restored in PR-5
-    // (Value 16B + JIT STRIDE rework). `_frame`/`_obj`/`_field_name*` unused now.
-    let _ = (frame, obj, field_name_ptr, field_name_len);
-    *out_slots_ptr = std::ptr::null();
-    *out_slot = -1;
+    // default: no fast path → the inline sees off<0 and routes to the helper.
+    *out_bytes_ptr = std::ptr::null();
+    *out_off = -1;
+    let field_name = match std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len)) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let Value::Object(rc) = &(*frame).regs[obj as usize] else { return };
+    let b = rc.borrow();
+    if let Some((ptr, off, width, tag)) = b.inline_prim_field(field_name) {
+        // Confirm the runtime layout matches the JIT's compile-time (width, tag) —
+        // guards against aliases / layout surprises: a mismatch keeps the helper.
+        if width == expected_width && tag as u32 == expected_tag {
+            *out_bytes_ptr = ptr;
+            *out_off = off as i64;
+        }
+    }
 }
 
 /// `jit_field_get` after formalize-jit-method-token Phase 2.E (2026-05-08):

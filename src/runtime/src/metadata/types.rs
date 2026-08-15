@@ -1066,6 +1066,29 @@ impl ScriptObject {
             .unwrap_or(Value::Null)
     }
 
+    /// post-layout JIT perf (P5-B): if `name` is a direct **inline primitive**
+    /// field — a scalar packed in `bytes`, NOT a `refs` side-table reference, a
+    /// byte-inlined object/array pointer, a struct-typed root, or a string — return
+    /// `(bytes base ptr, byte offset, width, tag)`. The JIT hoists this once per
+    /// never-reassigned object and emits a native width-aware byte load/store
+    /// (mirroring `decode_prim`/`encode_prim`) instead of calling `jit_field_get`/
+    /// `jit_field_set`. `None` (→ keep the helper) for anything else, so reference
+    /// writes still fire the GC `write_barrier_field` and struct/string/polymorphic
+    /// access keeps its full semantics. The returned pointer is valid for the frame:
+    /// non-moving GC + fixed `bytes` allocation + caller holds the object live.
+    #[inline]
+    pub fn inline_prim_field(&self, name: &str) -> Option<(*const u8, u32, u32, u8)> {
+        let slot = *self.type_desc.field_index.get(name)?;
+        let fa = self.field_access_of(slot)?;
+        if fa.ref_slot >= 0 { return None; } // reference in `refs` side-table
+        match fa.tag {
+            // byte-inlined obj/array ref, struct root, or string → not a scalar prim
+            TAG_OBJECT | TAG_ARRAY | TAG_UNKNOWN | TAG_STR => return None,
+            _ => {}
+        }
+        Some((self.bytes.as_ptr(), fa.offset, fa.width, fa.tag))
+    }
+
     /// unify-object-byte-layout (PR-2): write direct field `slot` from `v`.
     /// Primitive → `encode_prim` into `bytes`; reference → the `refs` side-table cell.
     /// Returns `true` iff the target is a reference slot (so the caller fires a GC

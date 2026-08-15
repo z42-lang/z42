@@ -319,3 +319,101 @@ flowchart TD
 | **OSR（本节）** | **「被调少但循环热」的函数就地升级——call-count 够不到的一类** |
 
 三者合起来：分层真正按「热度 = 实际执行工作量」决策，不多编一个、不漏编一个。
+
+## 字段访问快路径：对象原语字段原生字节内联（P5-B）
+
+> `jit/translate.rs`（`field_prim_kind` / FieldGet·FieldSet emit / hoist）+
+> `jit/helpers/object.rs`（`jit_obj_field_slot`）+ `metadata/types.rs`（`ScriptObject::inline_prim_field`）。
+> 前置：对象字节布局统一（`object-abi.md`，字段按 `FieldAccess{offset,width,tag,ref_slot}` 打包进
+> `ScriptObject::bytes`）。
+
+### 为什么
+
+统一对象布局把 JIT 寄存器文件压到 16B tagged `Value`，但**字段读写仍 100% 走运行时 helper**
+（`jit_field_get`/`jit_field_set`）：每次访问 = 一次 native→Rust 调用 + `RefCell` borrow +
+`FieldIC` 查表 + `field_value`/`set_field_value` 里的 tag 分派。字段密集热循环里这层桥是主开销——
+实测「非可提升的原语字段读+写热循环」JIT 仅 **1.09×** interp（几乎白 JIT）。
+
+> 历史：布局统一前 `translate.rs` 曾有「方案 B」原生 slot 内联骨架，但 PR-2 字节化后
+> `jit_obj_field_slot` 被 stub 成恒返回「无快路」（旧 `slots.as_ptr()+STRIDE` 假设失效），
+> 骨架变死代码。P5-B 按 `bytes` 布局复活它。
+
+### 机制：编译期定形 + 运行期只 hoist 基址
+
+关键切分——**宽度/符号性/寄存器 tag 全在编译期定死**（避免运行时按 width 分支），
+**只有对象的 `bytes` 基址 + 字段字节 offset 运行期解析一次**：
+
+1. **编译期分类器** `field_prim_kind(func, reg)`：读该寄存器的静态 `IrType`（带完整符号性
+   I8..U64/F64），映射出 `{load_ty, ext(Sext/Uext/Keep/Float), reg_tag, width, field_tag}`。
+   仅 `I8..U64 + F64` 内联；`F32/Bool/Char/Str/Ref` → `None` 回落 helper。
+   - `reg_tag` 是 **`Value` 判别 tag**（int 全存 `Value::I64`=0，float=`Value::F64`=1），**≠**
+     字段的 `TAG_*` wire tag——两套 tag 别混。
+2. **入口块 hoist**（每个从不被重赋值的对象寄存器 + 固定字段名，如 `this.f`，一次）：调
+   非抛异常的 `jit_obj_field_slot`，它经 `ScriptObject::inline_prim_field` 解析：字段是**纯内联标量**
+   （`ref_slot<0` 且 `tag∉{OBJECT,ARRAY,UNKNOWN,STR}`）且运行时 `(width,tag)` 与编译期期望一致
+   → 写回 `(bytes.as_ptr(), offset)`；否则写 `off=-1`。非移动 GC + `bytes` 定分配 + 对象被持活
+   ⇒ 该指针整帧有效。
+3. **每访问 inline**：`brif off<0` → helper 兜底；否则 native——
+   - FieldGet：`load(load_ty)` at `bytes_ptr+off` → `sextend`/`uextend`/直存（镜像 `decode_prim`）→ 写
+     寄存器 `tag`+`payload`。
+   - FieldSet：`ireduce` 到 `width` 存 `bytes_ptr+off`（镜像 `encode_prim` 的 `as uN` 截断）；
+     **无 tag、无 write barrier**（原语非堆引用）。
+
+### 边界（必留 helper，回落即等价改前）
+
+`off=-1` 回落 `jit_field_get`/`jit_field_set` 的情形，与改前逐字等价（老 stub 恒 -1 时本就全走 helper）：
+**非 `Value::Object` receiver**（含逃逸分析的 `StackObject`）、引用字段（写要 barrier）、
+byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` 多态擦除字段、
+`Str.Length`/`Array.Length` 内建伪字段、null-throw。故唯一新增行为 = **具体对象的原语字段走原生**。
+
+### 正确性靠的不变式
+
+`width`/符号性取自 `reg_types[dst/val]`（FieldGet dst / FieldSet val 的静态类型），而 z42
+**无隐式窄化** ⇒ 该静态类型恒等于字段声明类型 ⇒ 等于 packed 字段宽度；`jit_obj_field_slot` 再用编译期
+`(width,tag)` 运行时校验兜底，对不上就回落。对齐：`bytes` 字段自然对齐（布局 `_alignUp` + 分配器
+≥16B），三目标 ISA（x86-64/aarch64/wasm32）标量访问不 trap，故 `MemFlags::trusted()` 成立。
+
+### 效果佐证
+
+字段密集热循环 JIT **5.42s→2.59s（JIT 自身 2.09×）**、jit-vs-interp **1.09×→2.26×**（σ 极小）。
+正确性：全类型测（sbyte/short/int/long/byte/ushort/uint/double 含 wraparound 验 sext/uext/float）
+interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段访问跑在原生路径上仍字节复现）是
+最强回归保证。
+
+## 寄存器访问汇点：`reg_access`（jit-unbox-regalloc Phase 2.0）
+
+> `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) 程序的地基相（纯重构，
+> 无外部行为变化、自举字节不动）。
+
+### 为什么
+
+P5-B 之前，JIT 的寄存器文件访问模式（`regs_base + idx * VALUE_STRIDE` 地址算术 + `VALUE_STRIDE`/
+`PAYLOAD_OFFSET`/`TAG_*` 常量）在 `translate.rs` 里 **开放编码并各自重声明** 于 ~15 个 emitter
+（`emit_i64_binop`/`_cmp`/`_convert`/`_neg`/`_bit_not`/`emit_primitive_copy`/`emit_const_*` +
+内联 ArrayGet/Set·FieldGet/Set·BrCond 各臂）。**没有单一 `load_reg`/`store_reg` 汇点**，Value 布局
+知识散落十几处（漂移风险），且**任何"把热标量缓存进机器寄存器"的优化都无处 hook**——要改 15 个地方。
+
+### 机制
+
+`reg_access` 把三件事收敛到一处：
+
+1. **布局常量**：`VALUE_STRIDE`（=`size_of::<Value>()`=16）、`PAYLOAD_OFFSET`（8）、`TAG_OFFSET`（0）、
+   `TAG_I64/F64/BOOL/CHAR/STR/NULL`（`Value` 判别字节，`types_tests` 钉死）。
+2. **地址算术**：`reg_addr(builder, regs_base, reg) -> ClifValue`（唯一的 `regs_base + reg*16`）。
+3. **读写原语**：`load_payload_i64` / `load_payload(ty)` / `load_tag`（读）；`store_tagged(tag,payload)` /
+   `store_const_tag(tag_u8,payload)` / `store_tag_const(tag_u8)` / `store_payload`（写）。所有
+   emitter（含 P5-B 字段臂、packed 数组臂、BrCond bool 读）一律经此，**无一处再直接算 `regs_base+off`
+   或直发 `load/store`**（唯二例外：prologue 建立 `regs_base` 本身、以及数组/字段的 **数据指针**
+   `bytes_ptr+off`/`data_ptr+idx*width`——那些不是寄存器槽访问）。
+
+净效果：translate.rs −100 行（172 行开放算术 → 汇点调用），Value 布局单一真相。
+
+### 为什么这是 unbox/驻留的地基
+
+后续相（[proposal](../../../spec/changes/jit-unbox-regalloc/proposal.md) 的 2B 块内标量 unbox / 2C
+loop-carried 机器寄存器驻留）要让热标量**不再每 op 内存往返**。有了汇点，缓存逻辑只需改
+`reg_access` 一处：`load_*` 变"若该 reg 已驻留 SSA 值则直接返回、否则 load"，`store_*` 变"更新缓存 +
+标脏"，仅在设计枚举的边界（块终结子 / Category-B helper·call / safepoint / OSR 入口）spill 回内存——
+而非在 15 个 emitter 里各自维护。纯重构相本身零行为变化：`cargo --lib` 908/0（含 `value_*` 布局钉），
+e2e jit 与 interp 逐字节一致，自举 5/5 gen1==gen2 不动。
