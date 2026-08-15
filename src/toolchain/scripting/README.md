@@ -14,7 +14,7 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
 | 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs`+`gc/safepoint.rs`（add-repl-prewarm）|
-| 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）|
+| 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）；**缺省未写可见性的类型声明自动补 `public`**（`Classifier.HasVisibility` 判定），避开每轮独立 package 下 internal 类的 `E0441`/`E0404`（fix-repl-default-type-visibility）|
 | 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |
 | 多行输入完整性判定 | `Completeness.IsIncomplete`（`Completeness.z42`）——parser 权威：对**裸输入原文** parse，读 `IncompleteAtEof` 决定续读；宿主 `interactive_main` 逐行累积接线（add-repl-parser-completeness）|
 | 续行视觉缩进 | `Completeness.ContinuationIndent`（`Completeness.z42`——脚本层用既有 Lexer 数括号算 `层数×4 空格`，交 `Repl.ReadLine` 的 `initial` 预填；纯装饰，不参与完整性判定。sink-repl-indent-to-script）|
