@@ -180,6 +180,15 @@ public static class Script {
         string rewritten = input;
         if (useVarsClass) { rewritten = Rewriter.Rewrite(input, state.VarNames, refCls); }
 
+        // fix-repl-trailing-semicolon：剥离单个尾随分号，让 `expr;` / `stmt;` 与不带分号等价
+        // （REPL 常见写法）。否则表达式路径 `return (X);` 遇 `X;` → `return (X;);`（E0202），
+        // 语句/回退路径 `X; return null;` 遇 `X;` → `X;; return null;` 撞 `;;` 空语句（parser 拒）
+        // → 两路皆炸、该轮副作用丢失。剥尾随后两路都正确；多语句 `a();b();` 的中间 `;` 保留、
+        // 尾随剥掉 → 回退路径 `a();b(); return null;` 自然合法。上游 using/var-decl 各自的 `;`
+        // 处理（line 132 / Classifier line 81）已在此前完成、走 trimmed/p.*，不受影响。
+        if (rewritten.EndsWith(";")) { rewritten = rewritten.Substring(0, rewritten.Length - 1).Trim(); }
+        if (trimmed.EndsWith(";")) { trimmed = trimmed.Substring(0, trimmed.Length - 1).Trim(); }
+
         // ── 编译 ──
         CompileArtifacts art;
         bool hasValue = true;
