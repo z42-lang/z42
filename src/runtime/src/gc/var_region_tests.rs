@@ -217,6 +217,77 @@ fn chunk_growth_across_boundary() {
     }
 }
 
+// ── Payload drop-glue (non-POD payloads, e.g. closure ClosureData) ──────────────────────
+
+use std::sync::atomic::{AtomicUsize, Ordering as AOrd};
+
+/// Only this test touches `DROP_COUNT`, so the shared static is race-free across the parallel
+/// test runner (all drop-glue assertions live in the one test below).
+static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// A payload with a real `Drop` that bumps `DROP_COUNT` — stands in for `ClosureData`'s owned
+/// `String`. `#[repr(C)]` + a heap `Box` field so Miri catches a missed/double free.
+#[repr(C)]
+struct DropCounter {
+    _owned: Box<u64>,
+}
+impl Drop for DropCounter {
+    fn drop(&mut self) {
+        DROP_COUNT.fetch_add(1, AOrd::SeqCst);
+    }
+}
+
+/// Test drop glue: drop the `DropCounter` for `Closure`-tagged blocks; POD otherwise.
+unsafe fn test_drop_glue(bt: BlockType, p: *mut u8) {
+    if bt == BlockType::Closure {
+        // SAFETY: Closure-tagged test blocks store exactly one initialized `DropCounter`.
+        unsafe { std::ptr::drop_in_place(p as *mut DropCounter) }
+    }
+}
+
+/// Allocate a block holding a fresh `DropCounter`.
+fn alloc_counter(r: &mut VarRegion) -> VarGcRef {
+    let h = r.alloc(std::mem::size_of::<DropCounter>(), BlockType::Closure);
+    // SAFETY: fresh live block sized for DropCounter; write before any typed read.
+    unsafe { h.payload_as_ptr::<DropCounter>().write(DropCounter { _owned: Box::new(7) }) };
+    h
+}
+
+#[test]
+fn drop_glue_finalizes_payload_on_reclaim_and_teardown() {
+    DROP_COUNT.store(0, AOrd::SeqCst);
+    {
+        let mut r = VarRegion::with_drop_glue(test_drop_glue);
+
+        // (1) tombstone runs the finalizer exactly once.
+        let a = alloc_counter(&mut r);
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 0);
+        assert!(r.tombstone(a));
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 1, "tombstone finalizes payload");
+        // Double tombstone must NOT finalize again.
+        assert!(!r.tombstone(a));
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 1, "no double-finalize");
+
+        // (2) sweep of an unmarked block finalizes it.
+        let _b = alloc_counter(&mut r);
+        let keep = alloc_counter(&mut r);
+        assert!(keep.mark());
+        let reclaimed = r.sweep();
+        assert_eq!(reclaimed, 1);
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 2, "sweep finalizes the unmarked block");
+
+        // (3) reuse a tombstoned slot: allocating a fresh counter into a recycled slot must
+        // finalize exactly once more when reclaimed (no double-finalize of the stale payload).
+        let c = alloc_counter(&mut r); // may reuse `_b`/`a`'s slot (same size class)
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 2, "fresh alloc into reused slot: no extra drop");
+        assert!(r.tombstone(c));
+        assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 3, "reused-slot payload finalized once on reclaim");
+
+        // (4) `keep` still alive → finalized at region teardown (drop below).
+    }
+    assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 4, "region drop finalizes remaining live block");
+}
+
 #[test]
 fn block_type_all_variants_roundtrip() {
     let mut r = VarRegion::new();

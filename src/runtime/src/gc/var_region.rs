@@ -273,6 +273,18 @@ impl Chunk {
     }
 }
 
+/// Injected payload finalizer: given a block's [`BlockType`] and a pointer to its inline
+/// payload, run the payload's destructor (e.g. `drop_in_place` a `ClosureData`'s `String`).
+///
+/// Injected (rather than matched inside `VarRegion`) so the allocator stays a **pure byte
+/// allocator** with no dependency on the payload types (`metadata::types`). The heap supplies
+/// one glue fn that dispatches by `BlockType`. `None` = every payload is POD (PR-1 default).
+///
+/// # Safety
+/// The glue is called exactly once per block reclaim, with a valid pointer to that block's
+/// initialized payload; it must not touch the `VarRegion` (called while it is borrowed).
+pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8);
+
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
 pub struct VarRegion {
@@ -292,6 +304,10 @@ pub struct VarRegion {
     free_lists: Vec<Vec<NonNull<GcBlockHeader>>>,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,
+    /// Optional payload finalizer run once when a block is reclaimed (tombstone) or when the
+    /// region drops with the block still alive. `None` = all payloads POD (PR-1). Consumers
+    /// storing non-POD payloads (e.g. closure `ClosureData` with an owned `String`) supply it.
+    drop_glue: Option<PayloadDropGlue>,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -308,6 +324,7 @@ impl Default for VarRegion {
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             live_count: 0,
+            drop_glue: None,
         }
     }
 }
@@ -315,6 +332,35 @@ impl Default for VarRegion {
 impl VarRegion {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim. Used by
+    /// the heap for the closure region (`ClosureData` owns a `String` that must be dropped).
+    pub fn with_drop_glue(glue: PayloadDropGlue) -> Self {
+        // Build explicitly (can't `..Self::default()` — `VarRegion: Drop` forbids moving fields
+        // out of the temporary).
+        Self {
+            chunks: Vec::new(),
+            bump_chunk: None,
+            bump_off: 0,
+            all_blocks: Vec::new(),
+            free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            live_count: 0,
+            drop_glue: Some(glue),
+        }
+    }
+
+    /// Run the injected payload finalizer on `header`'s payload, if any. Called exactly once
+    /// per reclaim (tombstone) or at region teardown for still-alive blocks.
+    #[inline]
+    unsafe fn finalize_payload(&self, header: NonNull<GcBlockHeader>) {
+        if let Some(glue) = self.drop_glue {
+            // SAFETY: `header` is a live/just-reclaimed block; the glue gets the block type +
+            // raw payload pointer (whole-allocation provenance) and drops the payload once.
+            let bt = unsafe { header.as_ref() }.block_type();
+            let payload = unsafe { payload_ptr_of(header) };
+            unsafe { glue(bt, payload) };
+        }
     }
 
     /// Allocate a block with `payload` bytes of the given `block_type`. Returns a stable 8-byte
@@ -456,6 +502,10 @@ impl VarRegion {
         if !header.alive.swap(false, Ordering::Release) {
             return false;
         }
+        // Run the payload finalizer (e.g. drop a closure's `String`) exactly once, now that
+        // this call won the alive 1→0 race, before the slot can be recycled.
+        // SAFETY: the block is freshly reclaimed and still points at its initialized payload.
+        unsafe { self.finalize_payload(ptr) };
         header.generation.fetch_add(1, Ordering::AcqRel);
         self.live_count -= 1;
         let sc = header.size_class;
@@ -521,9 +571,19 @@ impl VarRegion {
 }
 
 impl Drop for VarRegion {
-    /// Free every owned chunk. Payloads are POD bytes in PR-1 (no per-element Drop);
-    /// consumer PRs that store `Value`s inline will add payload finalization here.
+    /// Finalize every still-alive block's payload (if a drop glue was injected), then free
+    /// every owned chunk. Reclaimed (tombstoned) blocks were already finalized at tombstone.
     fn drop(&mut self) {
+        if self.drop_glue.is_some() {
+            for &ptr in &self.all_blocks {
+                // SAFETY: chunk-owned header valid until the dealloc below.
+                let alive = unsafe { ptr.as_ref() }.is_alive();
+                if alive {
+                    // SAFETY: alive block still owns its initialized payload; finalize once.
+                    unsafe { self.finalize_payload(ptr) };
+                }
+            }
+        }
         for chunk in &self.chunks {
             // SAFETY: each chunk was allocated with `chunk.layout()`; freed exactly once here.
             unsafe { dealloc(chunk.base.as_ptr(), chunk.layout()) }
@@ -685,6 +745,21 @@ impl VarGcRef {
         // SAFETY: exclusive access + valid `len`-byte payload region.
         let data = unsafe { payload_ptr_of(ptr) };
         unsafe { Some(std::slice::from_raw_parts_mut(data, len)) }
+    }
+
+    /// Typed payload pointer `*mut T`, derived from the raw header pointer (whole-allocation
+    /// provenance, D8). Does **not** check the generation guard — callers that already hold a
+    /// live handle (mark/trace/access under the heap lock) use this for `T`-typed access when
+    /// the block payload stores exactly one `T` (e.g. `ClosureData`). The payload was allocated
+    /// with `size >= size_of::<T>()` and 8-aligned (`DATA_OFFSET = 16`, T's align ≤ 8).
+    ///
+    /// # Safety
+    /// The block must be live and store a valid `T` at its payload; the region must outlive the
+    /// pointer's use. For construction, write through this pointer *before* any typed read.
+    #[inline]
+    pub unsafe fn payload_as_ptr<T>(&self) -> *mut T {
+        // SAFETY: whole-allocation provenance from the raw header; T fits the block payload.
+        unsafe { payload_ptr_of(self.header_ptr()).cast::<T>() }
     }
 }
 
