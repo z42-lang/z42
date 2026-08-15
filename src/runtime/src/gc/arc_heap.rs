@@ -55,10 +55,11 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use crate::metadata::{NativeData, ScriptObject, TypeDesc, Value};
-use crate::metadata::types::ArrayObj;
+use crate::metadata::types::{ArrayObj, ClosureData};
 
 use super::heap::MagrGC;
 use super::refs::{GcRef, WeakGcRef};
+use super::var_region::{BlockType, GcBlockHeader, VarGcRef, VarRegion};
 use super::types::{
     AllocKind, AllocSample, AllocSamplerFn, CollectStats, FinalizerFn, FrameMark,
     GcEvent, GcHandleKind, GcKind, GcObserver, HeapSnapshot, HeapStats, ObserverId,
@@ -246,7 +247,9 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
         // add-boxed-struct-identity (P4b): boxed struct is a heap object (region_object).
         Value::BoxedStruct(gc) => Some(gc.data_ptr_unlocked() as usize),
         Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
-        Value::Closure(c) => Some(c.env.data_ptr_unlocked() as usize),
+        // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
+        // block address is its identity.
+        Value::Closure(c) => Some(c.addr()),
         Value::Ref(kind) => match kind.as_ref() {
             crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                 Some(gc_ref.data_ptr_unlocked() as usize)
@@ -257,6 +260,36 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
             crate::metadata::types::RefKind::Stack { .. } => None,
         },
         _ => None,
+    }
+}
+
+/// **unify-gc-heap PR-2/PR-3**: payload finalizer for the variable-length region, dispatched by
+/// block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
+/// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
+/// - `Closure` → one `ClosureData` (its `fn_name: String`; `env` is a no-op-`Drop` `GcRef`).
+/// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
+///   `struct[]`'s reference side-table — some are `Str` with a refcount to decrement).
+/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) → POD leaves, nothing to drop.
+///
+/// # Safety
+/// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
+/// payload (upheld by `VarRegion`).
+unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
+    match bt {
+        BlockType::Closure => {
+            // SAFETY: a Closure block's payload is exactly one initialized `ClosureData`.
+            unsafe { std::ptr::drop_in_place(payload as *mut ClosureData) }
+        }
+        BlockType::ArrayValue => {
+            let n = size / std::mem::size_of::<Value>();
+            let base = payload as *mut Value;
+            for i in 0..n {
+                // SAFETY: `base[i]` is one of `n` initialized `Value`s in the block payload.
+                unsafe { std::ptr::drop_in_place(base.add(i)) }
+            }
+        }
+        // Str / ArrayPrim / ArrayStruct (packed bytes): POD, nothing to drop.
+        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct => {}
     }
 }
 
@@ -288,6 +321,11 @@ pub struct ArcMagrGC {
     /// **add-custom-allocator P1 (2026-05-22)**: chunked region for
     /// `Value::Array` storage (heap-allocated `Vec<Value>`).
     region_array: Mutex<super::region::Region<ArrayObj>>,
+    /// **unify-gc-heap PR-2**: variable-length GC block region for payloads that don't fit the
+    /// fixed-size `Region<T>` — currently `ClosureData` (`Value::Closure`); PR-3/PR-4 add array
+    /// backings + strings. Constructed with the closure drop-glue so a reclaimed closure block
+    /// drops its `fn_name: String`. Swept alongside `region_object` / `region_array`.
+    region_var: Mutex<VarRegion>,
     /// **add-concurrent-gc P2 (2026-05-22)**: gray-object queue for the
     /// concurrent mark path. Populated by (1) the STW root snapshot at
     /// the start of a concurrent collect, (2) the write-barrier
@@ -340,6 +378,7 @@ impl Default for ArcMagrGC {
             mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
             region_object: Mutex::new(super::region::Region::new()),
             region_array:  Mutex::new(super::region::Region::new()),
+            region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
             mark_queue: Mutex::new(Vec::new()),
             pause_histogram: Mutex::new(super::types::PauseHistogram::default()),
             #[cfg(test)]
@@ -723,7 +762,9 @@ impl ArcMagrGC {
             let just_marked = match &v {
                 Value::Object(gc) => GcRef::mark(gc),
                 Value::Array(gc)  => GcRef::mark(gc),
-                Value::Closure(c) => GcRef::mark(&c.env),
+                // unify-gc-heap PR-2: mark the closure's `ClosureData` block in region_var;
+                // `trace_children` then pushes its `env` array so the env stays marked.
+                Value::Closure(c) => c.mark(),
                 Value::Ref(kind) => match kind.as_ref() {
                     crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
                     crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
@@ -759,7 +800,8 @@ impl ArcMagrGC {
         match v {
             Value::Object(gc) => GcRef::mark(gc),
             Value::Array(gc)  => GcRef::mark(gc),
-            Value::Closure(c) => GcRef::mark(&c.env),
+            // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
+            Value::Closure(c) => c.mark(),
             Value::Ref(kind) => match kind.as_ref() {
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
@@ -780,7 +822,9 @@ impl ArcMagrGC {
         match v {
             Value::Object(gc) => GcRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
-            Value::Closure(c) => GcRef::gen_age(&c.env),
+            // unify-gc-heap PR-2: the closure block (region_var) is non-generational (STW); the
+            // generational-relevant object is its `env` array (region_array), as before.
+            Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
             Value::Ref(kind) => match kind.as_ref() {
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::gen_age(gc_ref),
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::gen_age(gc_ref),
@@ -1010,7 +1054,8 @@ impl ArcMagrGC {
             // missed by minor GC and freed prematurely.
             Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
-            Value::Closure(c) => GcRef::gen_age(&c.env),
+            // unify-gc-heap PR-2: closure block non-generational; use its `env` array's age.
+            Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
             Value::Ref(kind) => match kind.as_ref() {
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::gen_age(gc_ref),
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::gen_age(gc_ref),
@@ -1292,6 +1337,19 @@ impl ArcMagrGC {
                 }
             }
             self.region_array.lock().tombstone(h);
+        }
+
+        // Variable-length region (unify-gc-heap PR-2: closures). `VarRegion::sweep` mark-checks
+        // + tombstones every unmarked live block internally, running the injected drop-glue
+        // (drops each reclaimed closure's `fn_name: String`). MUST run after the mark phase —
+        // it does (sweep_phase is invoked post-mark). v1 is STW-only: the generational minor
+        // sweep does not touch region_var, so closures are reclaimed at full GC (never freed
+        // prematurely — safe).
+        {
+            let reclaimed = self.region_var.lock().sweep();
+            // Rough byte estimate (region_var holds only closures in PR-2).
+            freed_bytes += reclaimed as u64
+                * (GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>()) as u64;
         }
 
         #[cfg(debug_assertions)]
@@ -1717,6 +1775,27 @@ impl ArcMagrGC {
         value
     }
 
+    /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`] into the
+    /// variable-length GC region (`region_var`) and return a `Value::Closure` handle. The
+    /// block's drop-glue drops `fn_name` when the closure is swept. Mirrors `finish_alloc`'s
+    /// record + auto-collect tail (no strict-OOM refund path — closure blocks are tiny and the
+    /// env array's own alloc already went through the OOM gate). Exposed via the `MagrGC` trait
+    /// (`alloc_closure`) so `ctx.heap()` callers reach it through `&dyn MagrGC`.
+    fn alloc_closure_in_region(&self, data: ClosureData) -> Value {
+        let vref = {
+            let mut region = self.region_var.lock();
+            let vref = region.alloc(std::mem::size_of::<ClosureData>(), BlockType::Closure);
+            // SAFETY: fresh block sized exactly for `ClosureData`; write before any typed read.
+            unsafe { vref.payload_as_ptr::<ClosureData>().write(data) };
+            vref
+        };
+        let value = Value::Closure(vref);
+        let size = GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>();
+        self.record_alloc(&value, || AllocKind::Object { class: "<closure>".to_string() }, size);
+        self.maybe_auto_collect();
+        value
+    }
+
     /// add-reflection-array-element-type: shared array allocation over an
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
@@ -1860,6 +1939,14 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
         self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
+    }
+
+    fn alloc_closure(&self, data: ClosureData) -> Value {
+        self.alloc_closure_in_region(data)
+    }
+
+    fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {
+        self.region_var.lock().alloc(payload, block_type)
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
@@ -2024,11 +2111,12 @@ impl MagrGC for ArcMagrGC {
             // impl-closure-l3-core: Closure carries a heap-allocated env (Vec<Value>);
             // its size is the env's storage plus the function-name string.
             Value::Closure(c) => {
+                let data = crate::metadata::types::closure_data_of(c);
                 size_of::<Value>()
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
-                    + c.env.borrow().elem_storage_bytes()
-                    + c.fn_name.capacity()
+                    + data.env.borrow().elem_storage_bytes()
+                    + data.fn_name.capacity()
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
             // env_arena 中，由 frame 拥有；本 Value 自身只携带 idx + fn_name。
@@ -2087,7 +2175,7 @@ impl MagrGC for ArcMagrGC {
             // contain Object/Array refs; scan them so reachable closures keep
             // their captured objects alive.
             Value::Closure(c) => {
-                let arr = c.env.borrow();
+                let arr = crate::metadata::types::closure_data_of(c).env.borrow();
                 for elem in arr.gc_refs() { visitor(elem); }
             }
             // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，

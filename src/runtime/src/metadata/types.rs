@@ -2,6 +2,7 @@ use std::sync::Arc;
 use crate::metadata::vstr::Str;   // unify-object-byte-layout PR-4: 8B thin string handle
 
 use crate::gc::GcRef;
+use crate::gc::var_region::VarGcRef;
 
 // ── TypeDesc — runtime type descriptor ──────────────────────────────────────
 //
@@ -1649,7 +1650,14 @@ pub enum Value {
     /// biggest cold-path variant — 40 B inline = GcRef(16 B) + String(24 B)).
     /// Boxing drops Value enum to ~24 B; capturing closures pay one heap
     /// alloc per `MkClos` but that's dwarfed by the env's own GC alloc.
-    Closure(Box<ClosureData>) = 10,
+    ///
+    /// unify-gc-heap PR-2 (2026-08-15): `VarGcRef` (8B) instead of `Box<ClosureData>`. The
+    /// `ClosureData` now lives in the GC variable-length region (`region_var`) — a single GC
+    /// heap instead of a `Box` outside GC. `ClosureData` is immutable after creation, so the
+    /// block needs no per-entry lock; access is a lock-free `&ClosureData` (kept alive by
+    /// reachability, like `GcRef`). Cloning a closure `Value` now shares the same heap closure
+    /// (handle copy) instead of deep-cloning the box. See `Value::closure_data`.
+    Closure(VarGcRef) = 10,
     /// 2026-05-02 impl-closure-l3-escape-stack: 栈分配的 capturing closure 值。
     /// `env_idx` 索引创建该 closure 的 frame 的 `env_arena: Vec<Vec<Value>>`；
     /// CallIndirect 时由 dispatch 端通过当前帧的 arena 解 env。compiler 经
@@ -1800,6 +1808,21 @@ pub struct ClosureData {
     pub fn_name: String,
 }
 
+/// unify-gc-heap PR-2: read the [`ClosureData`] behind a closure's `VarGcRef` handle (the
+/// payload of a `Value::Closure`). Mirrors [`Value::closure_data`] for call sites that have
+/// already destructured `Value::Closure(vref)`.
+///
+/// Safe-signatured (like `Value::closure_data`) on the **liveness invariant**: `vref` must be a
+/// live closure handle — true at every call site, which obtains it from a reachable
+/// `Value::Closure`. The `ClosureData` is immutable after creation, so the shared borrow needs
+/// no lock.
+#[inline]
+pub fn closure_data_of(vref: &VarGcRef) -> &ClosureData {
+    // SAFETY: `vref` names an alive `Closure` block (caller invariant); the payload is exactly
+    // one immutable `ClosureData`, valid for the returned borrow.
+    unsafe { &*vref.payload_as_ptr::<ClosureData>() }
+}
+
 impl Value {
     /// interp-typed-superinstr (2026-08-01): read the `I64` payload **without**
     /// a discriminant check. The interpreter's typed super-instructions call
@@ -1853,6 +1876,20 @@ impl Value {
     ///
     /// Mirrors the variant selection of [`Value::trace_children`] —
     /// `is_heap_ref` is the predicate, `trace_children` is the traversal.
+    /// unify-gc-heap PR-2: access the [`ClosureData`] behind a `Value::Closure`. Returns
+    /// `None` for non-closures. The `ClosureData` lives in the GC `region_var`; the block is
+    /// alive as long as this closure `Value` is reachable, so the borrow is sound (same
+    /// reachability model as `GcRef`). `ClosureData` is immutable after creation → no lock.
+    #[inline]
+    pub fn closure_data(&self) -> Option<&ClosureData> {
+        match self {
+            // SAFETY: a live `Value::Closure` names an alive `Closure` block (reachability);
+            // the payload is exactly one immutable `ClosureData`, valid for `&self`'s borrow.
+            Value::Closure(vref) => Some(unsafe { &*vref.payload_as_ptr::<ClosureData>() }),
+            _ => None,
+        }
+    }
+
     #[inline]
     pub fn is_heap_ref(&self) -> bool {
         match self {
@@ -1896,9 +1933,14 @@ impl Value {
                 let arr = rc.borrow();
                 for elem in arr.gc_refs() { visit(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
-            Value::Closure(c) => {
-                let arr = c.env.borrow();
-                for elem in arr.gc_refs() { visit(elem); }
+            Value::Closure(vref) => {
+                // unify-gc-heap PR-2: the closure's `ClosureData` is a GC block in region_var.
+                // Push its `env` array as a child so the mark loop marks the env (region_array)
+                // and then traces its elements — equivalent to the pre-PR-2 "mark env + scan
+                // its elements" behaviour, one indirection later.
+                // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
+                let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
+                visit(&Value::Array(data.env.clone()));
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}

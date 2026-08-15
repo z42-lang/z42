@@ -85,10 +85,13 @@ fn is_heap_ref_true_for_array() {
 
 #[test]
 fn is_heap_ref_true_for_closure() {
-    let v = Value::Closure(Box::new(ClosureData {
-        env:     GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(42)])),
-        fn_name: "lambda$0".to_string(),
-    }));
+    let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
+        ClosureData {
+            env:     GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(42)])),
+            fn_name: "lambda$0".to_string(),
+        },
+        crate::gc::var_region::BlockType::Closure,
+    ));
     assert!(v.is_heap_ref());
 }
 

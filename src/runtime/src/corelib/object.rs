@@ -100,7 +100,7 @@ pub fn builtin_obj_make_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Closure(c)) => {
-            let env_ref = c.env.borrow();
+            let env_ref = crate::metadata::types::closure_data_of(c).env.borrow();
             match env_ref.first() {
                 Some(Value::Object(o)) => Ok(Value::Object(o.clone())),
                 Some(Value::Array(a)) => Ok(Value::Array(a.clone())),
@@ -123,7 +123,7 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 /// - 其他 → Null
 pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
-        Some(Value::Closure(c)) => Ok(Value::Str(c.fn_name.clone().into())),
+        Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name.clone().into())),
         Some(Value::StackClosure(sc)) => Ok(Value::Str(sc.fn_name.clone().into())),
         Some(Value::FuncRef(name)) => Ok(Value::Str(name.clone().into())),
         _ => Ok(Value::Null),
@@ -155,10 +155,11 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Value::Array(rc) => rc,
         _ => return Ok(Value::Null),  // unreachable but lenient
     };
-    Ok(Value::Closure(Box::new(crate::metadata::ClosureData {
+    // unify-gc-heap PR-2: the ClosureData lives in the GC variable-length region.
+    Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData {
         env,
         fn_name: fn_name.to_string(),
-    })))
+    }))
 }
 
 /// 2026-05-04 expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
@@ -209,7 +210,8 @@ pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         (Some(Value::FuncRef(a)), Some(Value::FuncRef(b))) => a == b,
         (Some(Value::Closure(a)), Some(Value::Closure(b))) => {
-            a.fn_name == b.fn_name && crate::gc::GcRef::ptr_eq(&a.env, &b.env)
+            let (da, db) = (crate::metadata::types::closure_data_of(a), crate::metadata::types::closure_data_of(b));
+            da.fn_name == db.fn_name && crate::gc::GcRef::ptr_eq(&da.env, &db.env)
         }
         (Some(Value::StackClosure(a)), Some(Value::StackClosure(b))) => {
             a.fn_name == b.fn_name && a.env_idx == b.env_idx

@@ -249,7 +249,10 @@ pub(super) fn call_indirect(
     // 故跨调用共享 GcRef 与旧的"每次深拷+新 GcRef"行为字节等价，省 O(env) 拷贝 + 一次 GC 分配。
     let (fname, env_val_opt): (String, Option<Value>) = match frame.get(callee)? {
         Value::FuncRef(name) => (name.to_string(), None),
-        Value::Closure(c)    => (c.fn_name.clone(), Some(Value::Array(c.env.clone()))),
+        Value::Closure(c)    => {
+            let data = crate::metadata::types::closure_data_of(&c);
+            (data.fn_name.clone(), Some(Value::Array(data.env.clone())))
+        }
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame.env_arena.len() {
@@ -336,10 +339,11 @@ pub(super) fn mk_clos(
             Value::Array(rc) => rc,
             _ => bail!("mk_clos: alloc_array returned unexpected value"),
         };
-        Value::Closure(Box::new(crate::metadata::ClosureData {
+        // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+        ctx.heap().alloc_closure(crate::metadata::ClosureData {
             env,
             fn_name: fn_name.to_string(),
-        }))
+        })
     };
     frame.set(dst, value);
     Ok(None)
