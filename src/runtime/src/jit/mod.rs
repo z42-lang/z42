@@ -13,6 +13,9 @@ pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches 
 pub(crate) mod helpers;
 /// Lazy per-function compilation state (lazy-per-function-jit, 2026-07-23).
 mod lazy;
+/// Centralized `frame.regs` slot access — the single load/store choke point
+/// (jit-unbox-regalloc Phase 2.0; foundation for the 2B/2C register cache).
+mod reg_access;
 mod translate;
 /// JIT↔VM read-only metadata contract — review.md Part 1 P0 / E1.P2
 /// Phase 1 (2026-06-02). Compile-time path goes through this trait;
