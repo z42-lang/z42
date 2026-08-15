@@ -134,5 +134,12 @@ string/closure/array 的**运行时表示**变，zbc/zpkg **序列化格式不�
 
 ---
 
-## 附：Decision Log（实施中追加 D8+）
-（占位——实施期发现的坑与决策记这里，仿布局程序 design.md D12-D17）
+## 附：Decision Log（实施中追加）
+
+### D8. payload 指针必须从原始 NonNull 派生，不经 `&GcBlockHeader`（Miri SB，PR-1）
+**症状**：Miri（Stacked Borrows）报 `write_bytes` 越界写——`payload_ptr(&self)` 通过 `&self`（`&GcBlockHeader` 共享引用，provenance 只覆盖 16B 头部）派生 payload 写指针（offset 16），写 payload 是**出该 tag 边界 + 通过 SharedReadOnly 写** = 双重 UB。
+**根因**：`&GcBlockHeader` reborrow 把 provenance 收窄到 16B 头；payload 在 [16..]，通过它派生的指针既越界又只读。
+**修**：删 `GcBlockHeader::payload_ptr(&self)` 方法 → 改自由函数 `payload_ptr_of(header: NonNull<GcBlockHeader>)`，从**原始 NonNull**（保留整块 chunk-allocation provenance）`.cast::<u8>().add(DATA_OFFSET)` 派生。`payload()`/`payload_mut()` 也改为先在 scoped `&` 里读 guard 元数据（size/gen/alive，都在 [0..16] 内合法），再从原始 `ptr` 派生 payload 指针。**教训：头+内联变长 payload 的模式里，任何跨越头进入 payload 的指针都必须从整块原始指针派生，绝不经窄 `&Header`**——PR-2/3/4 迁 string/closure/array 时同款铁律（vstr.rs 现用 `NonNull` 直接派生也是这个道理）。
+
+### D9. PR-1 收敛为独立分配器 + Miri，heap 接线推到 PR-2（inert 不加死代码）
+tasks 原列 PR-1 含「ArcMagrGC 加 `region_var` + mark/sweep 驱动」。实践中：PR-1 无任何 payload 消费者 → 往 ArcMagrGC 加 `region_var` 却无 `VarGcRef` 流经任何 `Value` = 要么死代码（`allow(dead_code)`）、要么无法端到端验证的接线（真 mark_phase 没有指向变长块的 root）。按 philosophy「不加死代码/最终方案优先」，**PR-1 = 自包含 `VarRegion` 分配器 + Miri-clean 单测**（mark/sweep 语义已由 `VarRegion::mark/sweep` 单测覆盖）；**heap 接线（`region_var` 字段 + mark_phase/sweep_phase 驱动 + `alloc_var_block`）移到 PR-2 首步**，与首个消费者 string 同落地、被真实分配驱动验证。
