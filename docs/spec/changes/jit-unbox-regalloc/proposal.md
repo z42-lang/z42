@@ -45,20 +45,29 @@
 最终机器码不变）；self-host 5/5、e2e interp+jit byte-identical 不动。**这是 2B/2C 的必要地基**（缓存
 只需改 `RegAccess` 一处，而非 15 处）。
 
-### Phase 2A — 放宽整数原生快路径到全宽度 I8..U64（低风险、立即收益）
+### Phase 2A — 放宽整数原生快路径到全宽度 I8..U64（低风险、立即收益）✅ 已实现
 
-**做**：把 `emit_i64_binop`/`emit_i64_cmp`/`emit_i64_convert`/`neg`/`bitnot`/`shl/shr` 的触发谓词从
-「`== IrType::I64`」放宽到「`IrType::is_integer()`（I8..U64）」。合法性：这些整数**运行时全是
-`Value::I64` 物理表示**，算术按 i64 wrapping 语义计算后按目标宽度存 `Value::I64`——与 interp 的
-`vm-wrapping-int-arith` 一致。窄化/符号性由**已有的** `Convert`（`emit_i64_convert`）在需要时插入，不是本
-phase 的事（z42 无隐式窄化 → 中间值恒 i64、只在显式 convert 处收窄）。
+**做**：把 `is_int_typed`（原 `is_i64_typed`）/`is_int_cmp`/`is_int_typed_unary` 三个触发谓词，以及
+`Convert` 的 `src` 谓词，从「`== IrType::I64`」放宽到「`IrType::is_integer()`（I8..U64）」。合法性：这些
+整数**运行时全是 `Value::I64` 物理表示**（payload i64 @off8），算术按 i64 wrapping 语义计算后存
+`Value::I64`——与 helper 的 I64 fast-path（`jit_add` 等）和 interp 的 `vm-wrapping-int-arith`
+逐字节一致。窄化由**已有的** `Convert`（`emit_i64_convert`）在需要时插入，不是本 phase 的事（z42 无隐式
+窄化 → 中间值恒 i64、只在显式 convert 处收窄）。
 
-**边界**：`U64` 的**比较/移位符号性**要正确——无符号比较用 `icmp Unsigned*`、无符号右移用 `ushr`，按
-`reg_types` 的符号性在编译期选指令（复用 `emit_i64_convert` 已有的 signed/unsigned 分流）。`F32` 不在此
-phase（仍回落或延后到 2B 的 float 臂）。
+**⚠️ 符号性（DRAFT 原假设的事实校正，2026-08-15 实现时核实）**：DRAFT 原写「`U64` 比较用
+`icmp Unsigned*`、右移用 `ushr`」。**核实源码后否决**——当前 z42 VM（interp `ops::numeric_lt`
++ `exec_value::shr` **与** JIT helper `numeric_lt_helper`/`int_bitop_helper`）对**所有**整数类型
+（含 `U64`）**一律按有符号 i64** 处理比较与右移（`x < y`、`x >> (y & 63)` 算术移位）。若 native 路径
+改用无符号指令，就会与 helper 回落路径**和** interp **双双背离** → 破坏 `vm-jit-consistency` 逐字节
+门禁。故 native 路径**刻意沿用有符号** `icmp`/`sshr`，与 VM 现状对齐。**把 `U64` 做成真正无符号**
+是一次独立的、需同时改 interp + helper + JIT 的 VM 级语义变更，**不在本 change 范围**（见 Out of Scope）。
 
-**收益**：窄整数密集代码（大量 `int`/`uint`/`short` 运算）从 helper 转 native，无需任何 spill 机制、
-值仍住内存——**是 P5-B 之后又一块「免费」native 化**。
+**F32** 不在此 phase（仍回落或延后到 2B 的 float 臂）。
+
+**收益（实测）**：窄整数密集代码从 helper 转 native——`scratch_bench/p2a/narrowint.z42`（sbyte/short/
+int/long/byte/ushort/uint/ulong 混合、含 U64 高位比较/移位、Convert/Neg/BitNot）interp==jit 逐字节
+一致（`8331491328502177984`），JIT 对该 workload **1.5× 快于 interp**。无需任何 spill 机制、值仍住
+内存——**是 P5-B 之后又一块「免费」native 化**。
 
 ### Phase 2B — 块内标量 unbox + 机器寄存器缓存（block-local）
 

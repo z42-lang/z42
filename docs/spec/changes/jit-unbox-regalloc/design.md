@@ -66,8 +66,12 @@ block param 到这些站点 + OSR 入口重建。
 ## B. 落地机理要点（对应 proposal 的 4 phase）
 
 - **2.0**：`RegAccess::{load_reg,store_reg}` 汇点封装 A1 的地址算术 + A2 常量；15 站点改调汇点。纯重构。
-- **2A**：A6 的谓词 `== I64` → `is_integer()`；U64 比较/移位按符号性选 `icmp Unsigned*`/`ushr`（复用
-  `emit_i64_convert` 的 signed/unsigned 分流）。值仍住内存，无 spill 机制。
+- **2A ✅**：A6 的谓词 `== I64` → `is_integer()`（`is_int_typed`/`is_int_cmp`/`is_int_typed_unary`
+  三谓词 + `Convert` 的 src 判定）。**符号性核实（校正 DRAFT）**：VM 对所有整数含 `U64` 一律
+  **有符号** i64 处理比较/右移（interp `numeric_lt`/`shr` + helper `numeric_lt_helper`/
+  `int_bitop_helper` 均 `x<y`/`x>>(y&63)`），故 native 沿用有符号 `icmp`/`sshr`，**不引入**
+  `icmp Unsigned*`/`ushr`（否则 native 会与 helper 回落 + interp 双双背离，破 `vm-jit-consistency`）。
+  真正无符号 U64 是独立 VM 级变更，不在本 change。值仍住内存，无 spill 机制。
 - **2B**：块内 local value numbering，缓存 unboxed SSA 值；spill 汇点 = 块终结子前（A7）∪ Category-B
   调用前+后失效（A3/A4）∪ safepoint 前（A4）。OSR 无关（A5，块头从内存起）。
 - **2C**：循环头 block param（A7 的 threading + SSA 构造）；出口 spill；**OSR 入口从 `frame.regs` load

@@ -788,22 +788,24 @@ pub fn translate_function(
                     }
                 }
 
-                // Arithmetic — review.md C2 P1 (2026-05-28): when reg_types
-                // confirm all three operands are I64, emit native Cranelift
-                // iadd/isub/imul/sdiv/srem via raw load/store on frame.regs;
-                // skip the extern "C" helper call entirely. Otherwise fall
-                // back to the type-dispatching helper (handles Str concat,
-                // F64, mixed types, etc.).
+                // Arithmetic — review.md C2 P1 (2026-05-28); widened by
+                // jit-unbox-regalloc Phase 2A (2026-08-15): when reg_types
+                // confirm all three operands are integer types (I8..U64, all
+                // stored as Value::I64), emit native Cranelift
+                // iadd/isub/imul via raw load/store on frame.regs; skip the
+                // extern "C" helper call entirely. Otherwise fall back to the
+                // type-dispatching helper (handles Str concat, F64, mixed
+                // types, etc.).
                 //
-                // Safety of raw store: when reg_types[dst] == I64, every
-                // write to that register slot is I64 (initial Null also has
-                // no Drop), so raw bit-copy without Drop is sound. Div/Rem
-                // on i64 panic on /0 — keep helper for those (zero-check +
-                // exception propagation lives there). Add/Sub/Mul are
-                // wrapping (`vm-wrapping-int-arith`, 2026-04-28) matching
-                // Cranelift defaults.
+                // Safety of raw store: when reg_types[dst] is an integer type,
+                // every write to that register slot is Value::I64 (initial
+                // Null also has no Drop), so raw bit-copy without Drop is
+                // sound. Div/Rem on i64 panic on /0 — keep helper for those
+                // (zero-check + exception propagation lives there). Add/Sub/Mul
+                // are wrapping (`vm-wrapping-int-arith`, 2026-04-28) matching
+                // Cranelift defaults, at i64 width for all integer types.
                 Instruction::Add { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Add);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -812,7 +814,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Sub { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Sub);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -821,7 +823,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Mul { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Mul);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -843,10 +845,12 @@ pub fn translate_function(
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
                 }
 
-                // Comparison — C2 P1: I64-typed operands emit Cranelift
-                // `icmp <pred>` directly; Bool result stored back inline.
+                // Comparison — C2 P1; Phase 2A widened to all integer types:
+                // integer-typed operands (I8..U64) emit Cranelift `icmp <pred>`
+                // directly (signed, matching the VM's uniform signed compare);
+                // Bool result stored back inline.
                 Instruction::Eq { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Eq);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -854,7 +858,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Ne { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ne);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -862,7 +866,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Lt { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Lt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -871,7 +875,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Le { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Le);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -880,7 +884,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Gt { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Gt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -889,7 +893,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Ge { dst, a, b } => {
-                    if is_i64_cmp(z42_func, *a, *b) {
+                    if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ge);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -932,7 +936,7 @@ pub fn translate_function(
                 // I64-typed Neg emits native Cranelift `ineg` (wrapping,
                 // matches helper's `Value::I64(-n)`).
                 Instruction::Neg { dst, src } => {
-                    if is_i64_typed_unary(z42_func, *dst, *src) {
+                    if is_int_typed_unary(z42_func, *dst, *src) {
                         emit_i64_neg(&mut builder, regs_base, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
@@ -941,12 +945,14 @@ pub fn translate_function(
                     }
                 }
 
-                // Bitwise — review.md C2 P1 follow-up (2026-05-30): inline
-                // native Cranelift band/bor/bxor/bnot/ishl/sshr when reg_types
-                // confirm I64 operands. Same payload load/store layout as
-                // arith; shift amount masked to low 6 bits.
+                // Bitwise — review.md C2 P1 follow-up (2026-05-30); Phase 2A
+                // widened to all integer types: inline native Cranelift
+                // band/bor/bxor/bnot/ishl/sshr when reg_types confirm integer
+                // operands (I8..U64). Same payload load/store layout as arith;
+                // shift amount masked to low 6 bits; `sshr` (arithmetic) matches
+                // the VM's uniform signed `>>` on all integer types.
                 Instruction::BitAnd { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitAnd);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -955,7 +961,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::BitOr { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitOr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -964,7 +970,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::BitXor { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitXor);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -973,7 +979,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::BitNot { dst, src } => {
-                    if is_i64_typed_unary(z42_func, *dst, *src) {
+                    if is_int_typed_unary(z42_func, *dst, *src) {
                         emit_i64_bit_not(&mut builder, regs_base, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
@@ -982,7 +988,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Shl { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Shl);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -991,7 +997,7 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Shr { dst, a, b } => {
-                    if is_i64_typed(z42_func, *dst, *a, *b) {
+                    if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Shr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
@@ -1558,11 +1564,14 @@ pub fn translate_function(
                 }
 
                 // spec fix-numeric-cast-lowering (2026-05-13): explicit numeric cast
-                // review.md C2 P1 follow-up (2026-05-30): when src is I64 and
-                // to_tag is one of the integer widths (I8 / I16 / I32 / I64 /
-                // U8 / U16 / U32 / U64), emit the bit-mask / sign-extend
-                // directly. z42 stores all narrow ints as Value::I64 so the
-                // result layout is unchanged — just the payload bits change.
+                // review.md C2 P1 follow-up (2026-05-30); Phase 2A widened src
+                // to any integer type (2026-08-15): when src is an integer
+                // (I8..U64, all stored as Value::I64) and to_tag is one of the
+                // integer widths (I8 / I16 / I32 / I64 / U8 / U16 / U32 / U64),
+                // emit the bit-mask / sign-extend directly. The result layout is
+                // unchanged (still Value::I64) — just the payload bits change;
+                // `emit_i64_convert` reads the full i64 payload, identical to
+                // the `hr_convert` helper for any narrow-int source.
                 Instruction::Convert { dst, src, to_tag } => {
                     // exec_value tag constants — keep in sync.
                     const T_I8:  u8 = 0x02;
@@ -1573,7 +1582,9 @@ pub fn translate_function(
                     const T_U16: u8 = 0x07;
                     const T_U32: u8 = 0x08;
                     const T_U64: u8 = 0x09;
-                    let inline_int = is_typed(z42_func, *src, IrType::I64)
+                    let src_is_int = z42_func.reg_types
+                        .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
+                    let inline_int = src_is_int
                         && matches!(*to_tag,
                             T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
                     if inline_int {
@@ -1782,14 +1793,32 @@ fn emit_safepoint_check(
     builder.switch_to_block(fast_blk);
 }
 
-/// True iff `reg_types[dst]`, `reg_types[a]`, `reg_types[b]` are all
-/// `IrType::I64`. Out-of-range or `Unknown` regs fall back to the slow
+/// True iff `reg_types[dst]`, `reg_types[a]`, `reg_types[b]` are all integer
+/// types (`I8..U64`). Out-of-range or `Unknown` regs fall back to the slow
 /// (helper-call) path.
+///
+/// jit-unbox-regalloc Phase 2A (2026-08-15): widened from `== I64` to
+/// `is_integer()`. Every narrow integer (`I8..U64`) is physically stored as
+/// `Value::I64` (payload i64 @off8), and the VM computes **all** integer
+/// arithmetic/bitwise ops as signed i64 wrapping regardless of the declared
+/// type (`jit_add` fast path + `int_bitop_helper` + interp `exec_value` all
+/// operate on the i64 payload). So the native `iadd`/`band`/… path is
+/// byte-identical to the helper for any integer type — the old `== I64`
+/// predicate was leaving `int`/`uint`/`short`/… arithmetic on the helper path
+/// for no reason. Narrowing is handled separately by the explicit `Convert`
+/// op (`emit_i64_convert`), not here (z42 has no implicit narrowing →
+/// intermediates stay i64).
+///
+/// **Unsigned note**: the VM (both interp and the JIT helper fallback) treats
+/// `U64` uniformly as *signed* i64 for compare/shift (`numeric_lt`: `x < y`;
+/// `shr`: `x >> (y & 63)` arithmetic). The native path deliberately matches
+/// that (signed `icmp`, `sshr`) so `vm-jit-consistency` stays byte-identical —
+/// making `U64` truly unsigned is a separate VM-wide change, not this one.
 #[inline]
-fn is_i64_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
+fn is_int_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
     let rt = &func.reg_types;
     let get = |i: u32| rt.get(i as usize).copied().unwrap_or(IrType::Unknown);
-    get(dst).is_i64() && get(a).is_i64() && get(b).is_i64()
+    get(dst).is_integer() && get(a).is_integer() && get(b).is_integer()
 }
 
 /// Binary op kind passed to `emit_i64_binop`. Mirrors the subset of
@@ -1809,13 +1838,16 @@ enum CmpKind { Eq, Ne, Lt, Le, Gt, Ge }
 #[derive(Clone, Copy)]
 enum BoolBinopKind { And, Or }
 
-/// I64 comparison fast-path predicate. Output is always `Bool` regardless
-/// of input — we only need to check operand types are I64.
+/// Integer comparison fast-path predicate. Output is always `Bool` regardless
+/// of input — we only need both operands to be integer types (`I8..U64`, all
+/// stored as `Value::I64`). Phase 2A widened this from `== I64`; the native
+/// compare is signed (`icmp`), matching the VM's uniform signed treatment of
+/// all integer types incl. `U64` (see `is_int_typed`).
 #[inline]
-fn is_i64_cmp(func: &Function, a: u32, b: u32) -> bool {
+fn is_int_cmp(func: &Function, a: u32, b: u32) -> bool {
     let rt = &func.reg_types;
     let get = |i: u32| rt.get(i as usize).copied().unwrap_or(IrType::Unknown);
-    get(a).is_i64() && get(b).is_i64()
+    get(a).is_integer() && get(b).is_integer()
 }
 
 /// Bool binary-op predicate (And/Or): all three regs are Bool.
@@ -1834,12 +1866,15 @@ fn is_bool_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
     is_bool(dst) && is_bool(src)
 }
 
-/// I64 unary-op predicate (BitNot / Neg-i64-fast-path): both regs are I64.
+/// Integer unary-op predicate (BitNot / Neg fast-path): both regs are integer
+/// types (`I8..U64`). Phase 2A widened this from `== I64`; native `ineg`/`bnot`
+/// on the i64 payload is byte-identical to the helper (`Value::I64(-n)` /
+/// `Value::I64(!n)`) for any narrow integer, all stored as `Value::I64`.
 #[inline]
-fn is_i64_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
+fn is_int_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
     let rt = &func.reg_types;
-    let is_i64 = |i: u32| rt.get(i as usize).copied() == Some(IrType::I64);
-    is_i64(dst) && is_i64(src)
+    let is_int = |i: u32| rt.get(i as usize).copied().unwrap_or(IrType::Unknown).is_integer();
+    is_int(dst) && is_int(src)
 }
 
 /// Emit Cranelift native code for `frame.regs[dst] = Value::I64(op(a, b))`,
@@ -1902,7 +1937,8 @@ fn emit_i64_binop(
 /// payload internally, so the conversion is just a sign-trunc or
 /// zero-trunc of the i64 bits — output type tag stays TAG_I64.
 ///
-/// Caller must have verified `reg_types[src] == I64` and `to_tag` ∈
+/// Caller must have verified `reg_types[src].is_integer()` (I8..U64, all
+/// stored as `Value::I64`) and `to_tag` ∈
 /// {T_I8, T_I16, T_I32, T_I64, T_U8, T_U16, T_U32, T_U64}.
 fn emit_i64_convert(
     builder: &mut FunctionBuilder,
