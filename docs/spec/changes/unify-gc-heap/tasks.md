@@ -6,8 +6,8 @@
 > **⚠️ 执行顺序已重排（D10，2026-08-15）**：closure→array→string（string 分配管线最难，放最后；见下）。
 
 ## 进度概览（执行顺序）
-- [x] **PR-1**: 变长 GC 分配器原语（inert，无消费者，Miri 门禁）—— 本地全绿 commit a0fbd79d
-- [ ] **PR-2**: delegate/closure 进 GC（**+ heap 接线 2.0**；创建点全有 ctx，最简，先跑通全链路）
+- [x] **PR-1**: 变长 GC 分配器原语（inert，无消费者，Miri 门禁）—— 本地全绿 commit a0fbd79d（+ PR-2a drop-glue 3550e869）
+- [x] **PR-2**: delegate/closure 进 GC（+ heap 接线 2.0）—— 本地全绿 commit 5c910cd6（cargo 965 + Miri + self-host 5/5 逐字节 + e2e closures 12/delegates 26/gc 20 全绿）
 - [ ] **PR-3**: array backing 进 GC（`ArrayBacking` Vec→GC 变长块；packed/struct[] 全迁）
 - [ ] **PR-4**: string 进 GC（最难：弥散 `.into()` + 加载期 interning + safepoint；走 ambient 堆最本质方向 D11）
 - [ ] **PR-5**: 收敛 + 文档（删双路径残留；gc.md/object-abi/roadmap 收口）
