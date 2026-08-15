@@ -96,10 +96,11 @@ pub unsafe extern "C" fn jit_mk_clos(
             Value::Array(rc) => rc,
             _ => unreachable!("alloc_array must return Value::Array"),
         };
-        Value::Closure(Box::new(crate::metadata::ClosureData {
+        // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+        vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData {
             env,
             fn_name: name,
-        }))
+        })
     };
     frame_ref.regs[dst as usize] = value;
     0
@@ -134,7 +135,10 @@ pub unsafe extern "C" fn jit_call_indirect(
     // StackClosure 仍需物化（arena 持裸 Vec，callee lifetime 需独立）。
     let (fn_name, env_val_opt): (String, Option<Value>) = match &frame_ref.regs[callee as usize] {
         Value::FuncRef(n) => (n.to_string(), None),
-        Value::Closure(c) => (c.fn_name.clone(), Some(Value::Array(c.env.clone()))),
+        Value::Closure(c) => {
+            let data = crate::metadata::types::closure_data_of(c);
+            (data.fn_name.clone(), Some(Value::Array(data.env.clone())))
+        }
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
             if idx >= frame_ref.env_arena.len() {

@@ -136,6 +136,18 @@ string/closure/array 的**运行时表示**变，zbc/zpkg **序列化格式不�
 
 ## 附：Decision Log（实施中追加）
 
+### D12. closure 迁移精确落点（PR-2 核心，实施中）—— 代码地图已核实
+**表示**：`Value::Closure(Box<ClosureData>)`（tag=10）→ `Value::Closure(VarGcRef)`（8B 不变，Value 仍 16B）。`ClosureData{env: GcRef<ArrayObj>, fn_name: String}`（`types.rs:1775`，derive Debug/Clone）进 GC 变长块（type_tag=Closure）。**ClosureData 创建后不可变**（env/fn_name write-once）→ 变长块**无需 Mutex**（不同于 ScriptObject），访问走**无锁共享 `&ClosureData`**（靠可达性保活，同 GcRef 模型）。
+**已核实站点（grep）**：7 处构造 + 19 处 `Value::Closure(` 模式 + ~17 `.env` + ~13 `.fn_name`。`Value` derive Clone → Closure(Box) 现在**深拷** ClosureData；换 VarGcRef(Copy) 后 Clone = 浅拷句柄（**共享 closure，更符合 GC 语义**，是改进不是回归）。
+
+**落点清单**（cargo build 错误列表驱动）：
+- **arc_heap.rs**：① 加 `region_var: Mutex<VarRegion>` 字段（Default 用 `VarRegion::with_drop_glue(closure_drop_glue)` 初始化）；② `closure_drop_glue(bt, p)` = `if bt==Closure { drop_in_place(p as *mut ClosureData) }`；③ `mark_phase`(`:726`)/`mark_if_unmarked`(`:762`) closure 臂 `GcRef::mark(&c.env)` → `c.mark()`（VarGcRef::mark 标块）；④ `sweep_phase`(`:1184`) 加 `region_var.lock().sweep()`（**须在 mark 之后**，drop-glue 自动跑 ClosureData::drop 释放 fn_name）；⑤ `scan_object_refs`(`:2073`) closure 臂同步；⑥ `alloc_closure(env, fn_name) -> Value::Closure(VarGcRef)`（alloc 块 size_of::<ClosureData>() + payload_as_ptr::<ClosureData>().write）+ Heap trait 方法（`heap.rs`）。
+- **types.rs**：① 变体 `Closure(VarGcRef)`；② `trace_children`(`:1876`) closure 臂：`unsafe{&*vref.payload_as_ptr::<ClosureData>()}` 读 ClosureData → `visit(&Value::Array(env))`（推 env 让 mark 循环标 env array + 扫元素；等价现「mark 臂标 env + trace 扫元素」）；③ `is_heap_ref` Closure→true 不变（模式 `Closure(_)` 仍匹配）；④ 加 `Value::closure_data(&self)->Option<&ClosureData>`（无锁读，lifetime 系 &self，靠可达性 sound）；⑤ `PartialEq`/`Debug`(derive) closure 臂——derive 用 VarGcRef 的 Clone/Debug 自动 OK；`__delegate_eq` 若按 fn_name 比需走 closure_data。
+- **构造点**（7 处：`interp/exec_call.rs:339`、`jit/helpers/closure.rs:88/99`、`corelib/object.rs:158` 等，均有 ctx/vm_ctx_ref）：`Value::Closure(Box::new(ClosureData{env,fn_name}))` → `ctx.heap().alloc_closure(env, fn_name)`。
+- **访问点**（~17 `.env`/~13 `.fn_name`，滤掉 StackClosure/env_idx/env_arena）：`c.env`/`c.fn_name` → `c.closure_data().env`/`.fn_name`（`if let Value::Closure(c)` 处）。
+**GC 正确性铁律**：mark 必须标 region_var 块（漏标→sweep 早释→UAF）；sweep region_var 必须在 mark 之后；drop-glue 释放 fn_name 恰一次（reuse/teardown 已 Miri 验，D8/2a）。**验证**：cargo --lib + Miri + self-host 5/5 逐字节（**评估无格式 bump**，Value 表示变但不序列化）+ closure e2e（生命周期/捕获/GC 回收/delegate eq）。
+> **fn_name 的最终形态**：PR-4（string 进 GC）后 fn_name 变 GC string → ClosureData 全 POD（env GcRef + fn_name VarGcRef）→ **可删 closure drop-glue**。PR-2 的 drop-glue 是 string-未-GC 期的 interim。
+
 ### D8. payload 指针必须从原始 NonNull 派生，不经 `&GcBlockHeader`（Miri SB，PR-1）
 **症状**：Miri（Stacked Borrows）报 `write_bytes` 越界写——`payload_ptr(&self)` 通过 `&self`（`&GcBlockHeader` 共享引用，provenance 只覆盖 16B 头部）派生 payload 写指针（offset 16），写 payload 是**出该 tag 边界 + 通过 SharedReadOnly 写** = 双重 UB。
 **根因**：`&GcBlockHeader` reborrow 把 provenance 收窄到 16B 头；payload 在 [16..]，通过它派生的指针既越界又只读。

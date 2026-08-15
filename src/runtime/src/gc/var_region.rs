@@ -677,6 +677,14 @@ impl VarGcRef {
         self.generation as u16
     }
 
+    /// The block's stable header address as a `usize` — a heap-identity key (e.g. for the
+    /// retention reverse-reference graph or `ptr_eq`-style identity). Masks off the generation
+    /// tag; unique per live block for its lifetime.
+    #[inline]
+    pub fn addr(&self) -> usize {
+        self.header_ptr().as_ptr() as usize
+    }
+
     /// Mark the pointed-to block (mark phase). Returns `true` if this call won the CAS.
     ///
     /// # Safety
@@ -760,6 +768,33 @@ impl VarGcRef {
     pub unsafe fn payload_as_ptr<T>(&self) -> *mut T {
         // SAFETY: whole-allocation provenance from the raw header; T fits the block payload.
         unsafe { payload_ptr_of(self.header_ptr()).cast::<T>() }
+    }
+
+    /// Test-only: allocate a **standalone, leaked** block holding one `T` (never in any
+    /// `VarRegion`, never swept/freed). For unit tests that need a `Value::Closure`-style handle
+    /// without wiring a heap. The intentional leak is fine for the tests that use it (they never
+    /// run under Miri's leak checker — the Miri gate is `gc::var_region`).
+    #[cfg(test)]
+    pub(crate) fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
+        let payload = std::mem::size_of::<T>();
+        let (footprint, size_class) = class_for(payload);
+        let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak layout");
+        // SAFETY: non-zero layout; leaked (never freed) — acceptable for test fixtures.
+        let raw = unsafe { alloc(layout) };
+        let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
+        // SAFETY: fresh 8-aligned allocation large enough for the header + one `T`.
+        unsafe {
+            header.as_ptr().write(GcBlockHeader {
+                generation: AtomicU32::new(0),
+                size: payload as u32,
+                marked: AtomicU8::new(0),
+                alive: AtomicBool::new(true),
+                type_tag: block_type as u8,
+                size_class,
+            });
+            payload_ptr_of(header).cast::<T>().write(value);
+        }
+        VarGcRef::pack(header, 0)
     }
 }
 

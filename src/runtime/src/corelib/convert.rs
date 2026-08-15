@@ -228,7 +228,7 @@ pub fn value_to_str(v: &Value) -> String {
             format!("PinnedView{{ptr=0x{:x}, len={}, kind={:?}}}", pv.ptr, pv.len, pv.kind)
         }
         Value::FuncRef(name) => format!("<fn {name}>"),
-        Value::Closure(c)                   => format!("<closure {}>", c.fn_name),
+        Value::Closure(c)                   => format!("<closure {}>", crate::metadata::types::closure_data_of(c).fn_name),
         Value::StackClosure(sc) => format!("<closure {}>", sc.fn_name),
         // Spec impl-ref-out-in-runtime: Refs 应该在 frame.get/set 阶段透明
         // deref，不应到达 user-visible 字符串化路径。如果出现，说明代码漏了
