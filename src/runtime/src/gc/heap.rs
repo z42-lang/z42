@@ -99,6 +99,20 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_array_typed("byte", bytes.into_iter().map(|b| Value::I64(b as i64)).collect())
     }
 
+    /// unify-gc-heap PR-3: allocate a raw variable-length GC block of `payload` bytes with the
+    /// given block type, returning its handle. Used to place array element storage (and closure
+    /// data) in the single GC heap. Only `ArcMagrGC` implements a real variable-length region;
+    /// the default panics (mock heaps never allocate GC blocks — they degrade array/closure
+    /// paths to boxed `Vec`s).
+    fn alloc_var_block(
+        &self,
+        payload: usize,
+        block_type: crate::gc::var_region::BlockType,
+    ) -> crate::gc::var_region::VarGcRef {
+        let _ = (payload, block_type);
+        unreachable!("alloc_var_block requires a variable-length GC region (ArcMagrGC)")
+    }
+
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::metadata::types::ClosureData)
     /// into the GC variable-length region and return a `Value::Closure` handle. Default boxes it
     /// for mock heaps (no variable-length region); `ArcMagrGC` overrides to region-alloc in place.

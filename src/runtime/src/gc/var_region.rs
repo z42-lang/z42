@@ -273,17 +273,19 @@ impl Chunk {
     }
 }
 
-/// Injected payload finalizer: given a block's [`BlockType`] and a pointer to its inline
-/// payload, run the payload's destructor (e.g. `drop_in_place` a `ClosureData`'s `String`).
+/// Injected payload finalizer: given a block's [`BlockType`], a pointer to its inline payload,
+/// and the payload byte length, run the payload's destructor (e.g. `drop_in_place` a
+/// `ClosureData`'s `String`, or each `Value` in an array-of-values block).
 ///
 /// Injected (rather than matched inside `VarRegion`) so the allocator stays a **pure byte
 /// allocator** with no dependency on the payload types (`metadata::types`). The heap supplies
 /// one glue fn that dispatches by `BlockType`. `None` = every payload is POD (PR-1 default).
+/// The `size` lets element-array glue compute the element count (`size / size_of::<Value>()`).
 ///
 /// # Safety
 /// The glue is called exactly once per block reclaim, with a valid pointer to that block's
-/// initialized payload; it must not touch the `VarRegion` (called while it is borrowed).
-pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8);
+/// initialized `size`-byte payload; it must not touch the `VarRegion` (called while borrowed).
+pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8, usize);
 
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
@@ -356,10 +358,13 @@ impl VarRegion {
     unsafe fn finalize_payload(&self, header: NonNull<GcBlockHeader>) {
         if let Some(glue) = self.drop_glue {
             // SAFETY: `header` is a live/just-reclaimed block; the glue gets the block type +
-            // raw payload pointer (whole-allocation provenance) and drops the payload once.
-            let bt = unsafe { header.as_ref() }.block_type();
+            // raw payload pointer (whole-allocation provenance) + payload size, and drops once.
+            let (bt, size) = {
+                let h = unsafe { header.as_ref() };
+                (h.block_type(), h.size())
+            };
             let payload = unsafe { payload_ptr_of(header) };
-            unsafe { glue(bt, payload) };
+            unsafe { glue(bt, payload, size) };
         }
     }
 

@@ -59,7 +59,7 @@ use crate::metadata::types::{ArrayObj, ClosureData};
 
 use super::heap::MagrGC;
 use super::refs::{GcRef, WeakGcRef};
-use super::var_region::{BlockType, GcBlockHeader, VarRegion};
+use super::var_region::{BlockType, GcBlockHeader, VarGcRef, VarRegion};
 use super::types::{
     AllocKind, AllocSample, AllocSamplerFn, CollectStats, FinalizerFn, FrameMark,
     GcEvent, GcHandleKind, GcKind, GcObserver, HeapSnapshot, HeapStats, ObserverId,
@@ -263,18 +263,33 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// **unify-gc-heap PR-2**: payload finalizer for the variable-length region. A reclaimed
-/// `Closure` block owns a `ClosureData` whose `fn_name: String` must be dropped (its `env` is a
-/// `GcRef` — a no-op `Drop`). Other block types are POD leaves (nothing to drop). Injected into
-/// the region so `var_region.rs` stays a pure byte allocator (no `metadata::types` dependency).
+/// **unify-gc-heap PR-2/PR-3**: payload finalizer for the variable-length region, dispatched by
+/// block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
+/// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
+/// - `Closure` → one `ClosureData` (its `fn_name: String`; `env` is a no-op-`Drop` `GcRef`).
+/// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
+///   `struct[]`'s reference side-table — some are `Str` with a refcount to decrement).
+/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) → POD leaves, nothing to drop.
 ///
 /// # Safety
-/// Called once per block reclaim with a valid pointer to a `Closure` block's initialized
-/// `ClosureData` payload (upheld by `VarRegion`).
-unsafe fn closure_drop_glue(bt: BlockType, payload: *mut u8) {
-    if bt == BlockType::Closure {
-        // SAFETY: a Closure block's payload is exactly one initialized `ClosureData`.
-        unsafe { std::ptr::drop_in_place(payload as *mut ClosureData) }
+/// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
+/// payload (upheld by `VarRegion`).
+unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
+    match bt {
+        BlockType::Closure => {
+            // SAFETY: a Closure block's payload is exactly one initialized `ClosureData`.
+            unsafe { std::ptr::drop_in_place(payload as *mut ClosureData) }
+        }
+        BlockType::ArrayValue => {
+            let n = size / std::mem::size_of::<Value>();
+            let base = payload as *mut Value;
+            for i in 0..n {
+                // SAFETY: `base[i]` is one of `n` initialized `Value`s in the block payload.
+                unsafe { std::ptr::drop_in_place(base.add(i)) }
+            }
+        }
+        // Str / ArrayPrim / ArrayStruct (packed bytes): POD, nothing to drop.
+        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct => {}
     }
 }
 
@@ -363,7 +378,7 @@ impl Default for ArcMagrGC {
             mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
             region_object: Mutex::new(super::region::Region::new()),
             region_array:  Mutex::new(super::region::Region::new()),
-            region_var:    Mutex::new(VarRegion::with_drop_glue(closure_drop_glue)),
+            region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
             mark_queue: Mutex::new(Vec::new()),
             pause_histogram: Mutex::new(super::types::PauseHistogram::default()),
             #[cfg(test)]
@@ -1928,6 +1943,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_closure(&self, data: ClosureData) -> Value {
         self.alloc_closure_in_region(data)
+    }
+
+    fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {
+        self.region_var.lock().alloc(payload, block_type)
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────

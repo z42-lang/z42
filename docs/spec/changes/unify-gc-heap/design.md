@@ -136,6 +136,20 @@ string/closure/array 的**运行时表示**变，zbc/zpkg **序列化格式不�
 
 ## 附：Decision Log（实施中追加）
 
+### D13. array backing 迁移设计（PR-3）—— 代码地图已核实（Explore）
+**关键事实**：z42 数组 **定长**（C# `T[]`，无 grow/resize opcode）→ 固定 GC 块足够；JIT hoist 已假设 buffer 不搬迁（`helpers/array.rs:112`）→ A' 非移动块契合；`StackArray`（逃逸分析，arena-owned，非 GcRef）**保持 arena inline Vec、不进 GC**（parallel 非 GC 策略）。爆炸半径 ~50 站点（~16 构造 + ~10 读 + ~6 写 + ~8 trace + JIT inline 4emit/2helper + ~6 FFI）。
+
+**表示**：`ArrayBacking` 各变体 `Vec<T>` → **单个 GC 变长块**（每数组元素数据 1 块，`ArrayObj` 头仍在 `region_array`、Mutex 保护，块经 ArrayObj Mutex 访问 = 可变安全）。变体保留判别（决定 boxing 语义 + 块布局）：
+- **packed（I32/I64/F64/Bytes/Bool/Chars）**：块 = 紧凑 `[T; n]` 字节（POD 无 drop-glue）。`packed_num_ptr`/`as_bytes` = 块 payload 指针（连续、JIT/FFI 直取）。
+- **Boxed**：块 = `[Value; n]`（16B/元素）。drop-glue drop 每个 Value（Str Arc refcount 等）。`gc_refs` = 块内 Value 切片。
+- **StructBytes（struct[]）**：块 = `[bytes: len*elem_size]` + 8 对齐 pad + `[refs: len*ref_count Value]` **同一块两区**。drop-glue drop refs 子区 Value。`gc_refs` = refs 子区切片。ArrayBacking 存 elem_size/layout/len/ref_count 算区偏移。
+
+**访问改造**：`get_boxed`/`set_boxed`/`len`/`gc_refs`/`as_bytes`/`packed_num_ptr`/`to_boxed_vec`/`iter_boxed` 从 `v[i]`/`v.as_ptr()` → 块 payload 偏移读写（`buf_slice()[i]` / `block_payload_ptr`）。访问在 ArrayObj Mutex 下（现有 borrow/borrow_mut 不变）。
+**构造需堆**：`ArrayObj::new/typed/from_bytes/struct_backed` 分配元素块 → 需 `&heap`。收敛到 heap 的 `alloc_array*`（已是 heap 方法，有 self）；少数 ctx-less 构造点（`corelib/string.rs:19` 用 GcRef::new、`exec_array.rs`）线程 heap（有界，多数已有 ctx；不需 string 的 ambient 堆——那是 PR-4）。
+**GC**：mark ArrayObj(region_array) → 其元素块(region_var) 经 trace/mark 存活；sweep region_var 回收（drop-glue drop Boxed/StructBytes 的 Value）；write-barrier array 元素写不变（存进块）。
+**JIT 铁律**：packed inline get/set（`translate.rs:1081-1282`）的 `jit_array_data`/`_opt`（`helpers/array.rs:79/114`）返回块 payload 指针替代 `Vec::as_ptr`；块非移动、定长故 hoist 缓存的 ptr 全函数有效不变。**benchmark packed 数组**（JIT 热路径）量化无回归。
+**复用 PR-2 drop-glue**：`closure_drop_glue` 扩成 `var_drop_glue`（按 BlockType 分派 Closure→ClosureData / ArrayValue→drop [Value] / ArrayStruct→drop refs 子区 / Str·ArrayPrim→POD）。
+
 ### D12. closure 迁移精确落点（PR-2 核心，实施中）—— 代码地图已核实
 **表示**：`Value::Closure(Box<ClosureData>)`（tag=10）→ `Value::Closure(VarGcRef)`（8B 不变，Value 仍 16B）。`ClosureData{env: GcRef<ArrayObj>, fn_name: String}`（`types.rs:1775`，derive Debug/Clone）进 GC 变长块（type_tag=Closure）。**ClosureData 创建后不可变**（env/fn_name write-once）→ 变长块**无需 Mutex**（不同于 ScriptObject），访问走**无锁共享 `&ClosureData`**（靠可达性保活，同 GcRef 模型）。
 **已核实站点（grep）**：7 处构造 + 19 处 `Value::Closure(` 模式 + ~17 `.env` + ~13 `.fn_name`。`Value` derive Clone → Closure(Box) 现在**深拷** ClosureData；换 VarGcRef(Copy) 后 Clone = 浅拷句柄（**共享 closure，更符合 GC 语义**，是改进不是回归）。

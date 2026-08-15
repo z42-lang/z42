@@ -238,7 +238,7 @@ impl Drop for DropCounter {
 }
 
 /// Test drop glue: drop the `DropCounter` for `Closure`-tagged blocks; POD otherwise.
-unsafe fn test_drop_glue(bt: BlockType, p: *mut u8) {
+unsafe fn test_drop_glue(bt: BlockType, p: *mut u8, _size: usize) {
     if bt == BlockType::Closure {
         // SAFETY: Closure-tagged test blocks store exactly one initialized `DropCounter`.
         unsafe { std::ptr::drop_in_place(p as *mut DropCounter) }
