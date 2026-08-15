@@ -141,5 +141,18 @@ string/closure/array 的**运行时表示**变，zbc/zpkg **序列化格式不�
 **根因**：`&GcBlockHeader` reborrow 把 provenance 收窄到 16B 头；payload 在 [16..]，通过它派生的指针既越界又只读。
 **修**：删 `GcBlockHeader::payload_ptr(&self)` 方法 → 改自由函数 `payload_ptr_of(header: NonNull<GcBlockHeader>)`，从**原始 NonNull**（保留整块 chunk-allocation provenance）`.cast::<u8>().add(DATA_OFFSET)` 派生。`payload()`/`payload_mut()` 也改为先在 scoped `&` 里读 guard 元数据（size/gen/alive，都在 [0..16] 内合法），再从原始 `ptr` 派生 payload 指针。**教训：头+内联变长 payload 的模式里，任何跨越头进入 payload 的指针都必须从整块原始指针派生，绝不经窄 `&Header`**——PR-2/3/4 迁 string/closure/array 时同款铁律（vstr.rs 现用 `NonNull` 直接派生也是这个道理）。
 
+### D10. PR 顺序重排 closure→array→string（string 是最难而非最易，User 裁 2026-08-15）
+**Explore 堆访问测绘发现（事实校正）**：原设计把 string 排第一个消费者是**风险最高排序**。堆经 `ctx.heap()`（`&VmContext` 线程穿透，`vm_context.rs:1171`；堆在 `VmCore.heap`，`:211/:600`）访问，**无通用 ambient 堆访问器**（仅 `native/exports.rs:33` 的 `CURRENT_VM` thread-local，native-interop 门控 + 加载期不覆盖）。
+- **string = 最难**：所有 `Value::Str` 走 `vstr::Str::new` 全局分配器（~188 处 `.into()` 经 `From<&str> for Str`，`vstr.rs:192`），**且 interned 串池在模块加载期建**（`merge.rs:26`/`loader.rs:686`，VM/堆/帧都还不存在）+ 临时 string 的 GC-safepoint 纪律。z42c 自编译 string-heavy → 风险最集中处撞第一枪。
+- **closure = 最易**：~28 创建点全有 `ctx`（`interp/exec_call.rs:319/339`、`jit/helpers/closure.rs`）。
+- **array = 中**：已走 `ctx.heap().alloc_array(...)`，创建点有 ctx，但面大（packed/struct[]）。
+- **NativeFn** `fn(&VmContext,&[Value])`（`corelib/mod.rs:68`）+ JIT `vm_ctx_ref(ctx)`（`jit/helpers/mod.rs:69`）→ corelib/interp/JIT 创建点都有堆访问；纯自由上下文只剩 string 的加载期 interning + `.into()` choke。
+- **root 钩子**：`set_external_root_scanner`（`vm_context.rs:672`）——GC string 时 `Module.interned_strings` + `JitModuleCtx.string_pool` 在此注册为 roots。
+
+**裁决**：**执行顺序 = heap 接线 → closure → array → string**（重排后 PR-2=closure、PR-3=array、PR-4=string）。让变长分配器→mark→trace→sweep 全链路先用「创建点有 ctx」的简单 payload（closure）跑通、battle-tested，再啃 string 的弥散分配。string 数据最简（不可变叶子、trace 平凡）但**分配管线最难**，放最后。
+
+### D11. string 分配走「堆作为一等 ambient 服务」的最本质方向（User 裁 2026-08-15，string PR 详设）
+User 选「最本质的方向」（非 188 处线程穿透 hack、非凑合）。方向 = **CLR/JVM 模型：GC 堆是 ambient 分配服务**——把现有 `CURRENT_VM` thread-local 泛化成正规 `current_heap()`（ungate native-interop、每个 `exec_function` 已由 `VmGuard` 包裹，`interp/mod.rs:745`），`vstr::Str` 分配从 ambient 堆取（保 188 处 `.into()` 不变）；**interned 串作永久 GC roots 在加载期分配**（堆在 VmCore 早于模块加载即存在，把堆引用/guard 引入 loader/merge 这个有界单点）。**string PR 时展开完整详设 + safepoint 纪律**（此处仅记方向，string 已排最后）。
+
 ### D9. PR-1 收敛为独立分配器 + Miri，heap 接线推到 PR-2（inert 不加死代码）
 tasks 原列 PR-1 含「ArcMagrGC 加 `region_var` + mark/sweep 驱动」。实践中：PR-1 无任何 payload 消费者 → 往 ArcMagrGC 加 `region_var` 却无 `VarGcRef` 流经任何 `Value` = 要么死代码（`allow(dead_code)`）、要么无法端到端验证的接线（真 mark_phase 没有指向变长块的 root）。按 philosophy「不加死代码/最终方案优先」，**PR-1 = 自包含 `VarRegion` 分配器 + Miri-clean 单测**（mark/sweep 语义已由 `VarRegion::mark/sweep` 单测覆盖）；**heap 接线（`region_var` 字段 + mark_phase/sweep_phase 驱动 + `alloc_var_block`）移到 PR-2 首步**，与首个消费者 string 同落地、被真实分配驱动验证。
