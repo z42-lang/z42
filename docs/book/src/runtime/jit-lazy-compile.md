@@ -379,3 +379,41 @@ byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` �
 正确性：全类型测（sbyte/short/int/long/byte/ushort/uint/double 含 wraparound 验 sext/uext/float）
 interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段访问跑在原生路径上仍字节复现）是
 最强回归保证。
+
+## 寄存器访问汇点：`reg_access`（jit-unbox-regalloc Phase 2.0）
+
+> `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) 程序的地基相（纯重构，
+> 无外部行为变化、自举字节不动）。
+
+### 为什么
+
+P5-B 之前，JIT 的寄存器文件访问模式（`regs_base + idx * VALUE_STRIDE` 地址算术 + `VALUE_STRIDE`/
+`PAYLOAD_OFFSET`/`TAG_*` 常量）在 `translate.rs` 里 **开放编码并各自重声明** 于 ~15 个 emitter
+（`emit_i64_binop`/`_cmp`/`_convert`/`_neg`/`_bit_not`/`emit_primitive_copy`/`emit_const_*` +
+内联 ArrayGet/Set·FieldGet/Set·BrCond 各臂）。**没有单一 `load_reg`/`store_reg` 汇点**，Value 布局
+知识散落十几处（漂移风险），且**任何"把热标量缓存进机器寄存器"的优化都无处 hook**——要改 15 个地方。
+
+### 机制
+
+`reg_access` 把三件事收敛到一处：
+
+1. **布局常量**：`VALUE_STRIDE`（=`size_of::<Value>()`=16）、`PAYLOAD_OFFSET`（8）、`TAG_OFFSET`（0）、
+   `TAG_I64/F64/BOOL/CHAR/STR/NULL`（`Value` 判别字节，`types_tests` 钉死）。
+2. **地址算术**：`reg_addr(builder, regs_base, reg) -> ClifValue`（唯一的 `regs_base + reg*16`）。
+3. **读写原语**：`load_payload_i64` / `load_payload(ty)` / `load_tag`（读）；`store_tagged(tag,payload)` /
+   `store_const_tag(tag_u8,payload)` / `store_tag_const(tag_u8)` / `store_payload`（写）。所有
+   emitter（含 P5-B 字段臂、packed 数组臂、BrCond bool 读）一律经此，**无一处再直接算 `regs_base+off`
+   或直发 `load/store`**（唯二例外：prologue 建立 `regs_base` 本身、以及数组/字段的 **数据指针**
+   `bytes_ptr+off`/`data_ptr+idx*width`——那些不是寄存器槽访问）。
+
+净效果：translate.rs −100 行（172 行开放算术 → 汇点调用），Value 布局单一真相。
+
+### 为什么这是 unbox/驻留的地基
+
+后续相（[proposal](../../../spec/changes/jit-unbox-regalloc/proposal.md) 的 2B 块内标量 unbox / 2C
+loop-carried 机器寄存器驻留）要让热标量**不再每 op 内存往返**。有了汇点，缓存逻辑只需改
+`reg_access` 一处：`load_*` 变"若该 reg 已驻留 SSA 值则直接返回、否则 load"，`store_*` 变"更新缓存 +
+标脏"，仅在设计枚举的边界（块终结子 / Category-B helper·call / safepoint / OSR 入口）spill 回内存——
+而非在 15 个 emitter 里各自维护。纯重构相本身零行为变化：`cargo --lib` 908/0（含 `value_*` 布局钉），
+e2e jit 与 interp 逐字节一致，自举 5/5 gen1==gen2 不动。
