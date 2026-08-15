@@ -8,7 +8,7 @@
 ## 进度概览（执行顺序）
 - [x] **PR-1**: 变长 GC 分配器原语（inert，无消费者，Miri 门禁）—— 本地全绿 commit a0fbd79d（+ PR-2a drop-glue 3550e869）
 - [x] **PR-2**: delegate/closure 进 GC（+ heap 接线 2.0）—— 本地全绿 commit 5c910cd6（cargo 965 + Miri + self-host 5/5 逐字节 + e2e closures 12/delegates 26/gc 20 全绿）
-- [ ] **PR-3**: array backing 进 GC（`ArrayBacking` Vec→GC 变长块；packed/struct[] 全迁）
+- [x] **PR-3**: array backing 进 GC（`ArrayBacking` Vec→GC 变长块；packed/struct[] 全迁）—— 本地全绿（cargo 965+21 + Miri var_region 14 + array/struct 块访问 types_tests 31 clean 0 UB + self-host 5/5 逐字节 + xtask test GREEN 全 stage C#-free）。StackVec 变体保留逃逸分析栈数组非 GC；删 derive(Clone)→deep_copy；两块 struct[]（bytes ArrayStruct POD + refs ArrayValue）
 - [ ] **PR-4**: string 进 GC（最难：弥散 `.into()` + 加载期 interning + safepoint；走 ambient 堆最本质方向 D11）
 - [ ] **PR-5**: 收敛 + 文档（删双路径残留；gc.md/object-abi/roadmap 收口）
 
@@ -37,13 +37,13 @@
 - [ ] 2.5 GREEN：cargo --lib + 集成/bench 编译（.slots）+ Miri（heap 接线 + closure 块 unsafe）+ `xtask test`（self-host 逐字节，**评估无格式 bump**）+ e2e closure 生命周期/捕获/GC 回收
 - [ ] 2.6 benchmark：closure-heavy workload GC 压力（量化）
 
-## PR-3: array backing 进 GC（最大最敏感）
-- [ ] 3.1 `ArrayBacking` 各变体元素缓冲 → GC 变长块内联（`Boxed`/packed `Bytes/I32/I64/…`/`StructBytes`）
-- [ ] 3.2 `ArrayObj` 头与元素块关系（头留 `region_array` 指变长块，或头并入变长块——PR-3 定）
-- [ ] 3.3 trace：`Boxed` 逐元素、packed 叶子跳过、`StructBytes` 按引用位图；`gc_refs()` 等价物走 GC 块
-- [ ] 3.4 packed 基元数组 / `struct[]` / StackArray（保持栈）边界；创建点走 `ctx.heap()`（已有）
-- [ ] 3.5 write-barrier array 元素写接通变长块
-- [ ] 3.6 benchmark：数组密集 workload GC 压力；GREEN cargo + Miri + `xtask test`（self-host 逐字节）+ e2e 数组生命周期/packed/struct[]
+## PR-3: array backing 进 GC（最大最敏感）✅ 完成
+- [x] 3.1 `ArrayBacking` 各变体元素缓冲 → GC 变长块内联：`Boxed{block,len}`（ArrayValue）/ packed `Bytes/Bool/I32/I64/Chars/F64{block,len}`（ArrayPrim）/ `StructBytes{elem_size,len,bytes,refs,layout}`（**两块**：bytes ArrayStruct POD + refs ArrayValue）+ **StackVec(Vec)**（逃逸分析栈数组保持非 GC arena，D13）
+- [x] 3.2 `ArrayObj` 头留 `region_array`（Mutex 保护），元素块在 `region_var`、由头唯一拥有、经 borrow/borrow_mut 锁访问 = 可变安全；`len` 内联 backing（定长不脱同步）
+- [x] 3.3 trace：`trace_children` Array/RefArray/StructRefHeap 臂 `arr.mark_backing()` 标块（覆盖 STW/minor/concurrent）；`gc_refs()` 走块（Boxed 全切片 / StructBytes refs 块 / packed &[]）；`slice_of`/`slice_of_mut` payload 派生自原始头指针（D8）
+- [x] 3.4 packed 基元数组 / `struct[]`（`struct_bytes`/`struct_refs_mut`/`write_struct_elem` 暴露子区）/ StackArray（StackVec 保持栈）边界；构造收敛 `&dyn MagrGC` 参数走 `ctx.heap()`/`self`；删 derive(Clone)→`deep_copy(heap)`；删无调用方 boxed_slice/clear/capacity
+- [x] 3.5 write-barrier array 元素写不变（存进块）；`packed_num_ptr` 返块 payload 指针（非移动，JIT hoist 缓存不变）
+- [x] 3.6 GREEN：cargo --lib 965+21 + tests/bench 编译 + Miri（var_region 14 + array/struct 块访问 types_tests 31 clean 0 UB）+ `xtask test` self-host 5/5 逐字节 + 全 stage GREEN（C#-free）+ e2e（数组/struct[]/gc/closures 经 xtask e2e stage 覆盖）
 
 ## PR-4: string 进 GC（最难：弥散分配 + 加载期 interning + safepoint）
 > **架构方向已定（D11）= 堆作为一等 ambient 分配服务**（CLR/JVM 模型；非 188 处线程穿透）。

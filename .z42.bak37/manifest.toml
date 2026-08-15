@@ -1,0 +1,24 @@
+[package]
+name        = "z42-macos-arm64"
+version     = "0.4.0"
+abi-version = 1
+rid         = "macos-arm64"
+profile     = "release"
+build-date  = "2026-08-13T08:49:28Z"
+build-host  = "macos-arm64"
+
+[contents]
+bin         = ["z42b", "z42c", "z42d", "z42i", "z42vm"]
+libs        = ["z42.build.zpkg", "z42.cli.zpkg", "z42.collections.zpkg", "z42.compression.zpkg", "z42.core.zpkg", "z42.crypto.zpkg", "z42.diagnostics.zpkg", "z42.encoding.zpkg", "z42.io.binary.zpkg", "z42.io.zpkg", "z42.ir.zpkg", "z42.json.zpkg", "z42.net.zpkg", "z42.numerics.zpkg", "z42.project.zpkg", "z42.random.zpkg", "z42.regex.zpkg", "z42.scripting.zpkg", "z42.test.zpkg", "z42.text.zpkg", "z42.threading.zpkg", "z42.time.zpkg", "z42.toml.zpkg", "z42.uri.zpkg", "z42.workload.android.zpkg", "z42.workload.desktop.zpkg", "z42.workload.ios.zpkg", "z42.workload.wasm.zpkg", "z42.yaml.zpkg"]
+
+[contents.native]
+static      = ["libz42.a"]
+dynamic     = ["libz42.dylib"]
+containers  = []
+includes    = ["z42_abi.h", "z42_host.h"]
+
+[contents.platform]
+# desktop package: no platform-native facade (C consumers use native/include/)
+
+[compat]
+host-min-version = "0.4.0"

@@ -79,7 +79,7 @@ fn is_heap_ref_true_for_object() {
 
 #[test]
 fn is_heap_ref_true_for_array() {
-    let v = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(1), Value::I64(2)])));
+    let v = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1), Value::I64(2)])));
     assert!(v.is_heap_ref());
 }
 
@@ -87,7 +87,7 @@ fn is_heap_ref_true_for_array() {
 fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         ClosureData {
-            env:     GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(42)])),
+            env:     GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(42)])),
             fn_name: "lambda$0".to_string(),
         },
         crate::gc::var_region::BlockType::Closure,
@@ -97,7 +97,7 @@ fn is_heap_ref_true_for_closure() {
 
 #[test]
 fn is_heap_ref_true_for_ref_array() {
-    let arr = GcRef::new(crate::metadata::types::ArrayObj::new(vec![Value::I64(0)]));
+    let arr = GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(0)]));
     let v = Value::Ref(Box::new(RefKind::Array { gc_ref: arr, idx: 0 }));
     assert!(v.is_heap_ref());
 }
@@ -227,15 +227,10 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
     });
-    let mut arr = ArrayObj {
-        element_type: Arc::from("Demo.P"),
-        backing: ArrayBacking::StructBytes {
-            elem_size: 12,
-            bytes: vec![0u8; 2 * 12],
-            refs: vec![Value::Null; 2 * 1],
-            layout: layout.clone(),
-        },
-    };
+    // unify-gc-heap PR-3: struct[] byte + ref storage now lives in leaked GC blocks
+    // (heap-less test) — build via `struct_backed_leaked` + write element blobs through
+    // the heap-aware `write_struct_elem`, read back via `struct_bytes()` / `gc_refs()`.
+    let mut arr = ArrayObj::struct_backed_leaked("Demo.P", 2, layout.clone());
     assert_eq!(arr.len(), 2, "2 elements of 12 bytes each");
 
     // add-boxed-struct-identity (P4b): boxing a struct[] element is now a heap alloc
@@ -244,31 +239,21 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
     // backing itself (byte storage + independence + GC ref leaves) is what this test
     // covers; the boxed round-trip is exercised end-to-end by the exec-layer /
     // reflection golden tests. Write the element blobs straight into the backing.
-    let mut write = |i: usize, x: i32, y: i32, tag: &str| {
-        match &mut arr.backing {
-            ArrayBacking::StructBytes { elem_size, bytes, refs, layout } => {
-                let rc = layout.ref_count();
-                let base = i * *elem_size;
-                bytes[base..base + 4].copy_from_slice(&x.to_le_bytes());
-                bytes[base + 4..base + 8].copy_from_slice(&y.to_le_bytes());
-                refs[i * rc] = Value::Str(tag.into());
-            }
-            _ => unreachable!(),
-        }
+    let write = |arr: &mut ArrayObj, i: usize, x: i32, y: i32, tag: &str| {
+        let mut b = [0u8; 12];
+        b[0..4].copy_from_slice(&x.to_le_bytes());
+        b[4..8].copy_from_slice(&y.to_le_bytes());
+        arr.write_struct_elem(i, &b, std::slice::from_ref(&Value::Str(tag.into())));
     };
-    write(0, 5, 6, "a");
-    write(1, 7, 8, "b");
+    write(&mut arr, 0, 5, 6, "a");
+    write(&mut arr, 1, 7, 8, "b");
 
     // Element bytes are stored + independent across elements.
-    match &arr.backing {
-        ArrayBacking::StructBytes { bytes, refs, .. } => {
-            assert_eq!(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]), 5);
-            assert_eq!(i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 6);
-            assert_eq!(i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 7);
-            match &refs[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
-        }
-        _ => unreachable!(),
-    }
+    let bytes = arr.struct_bytes().expect("StructBytes backing");
+    assert_eq!(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]), 5);
+    assert_eq!(i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 6);
+    assert_eq!(i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 7);
+    match &arr.gc_refs()[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
 
     // GC must see both elements' string ref leaves (else premature free).
     assert_eq!(arr.gc_refs().len(), 2, "both struct[] element ref leaves are GC roots");

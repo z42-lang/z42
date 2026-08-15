@@ -27,7 +27,8 @@ pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize)
     if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
     let layout = td.struct_layout()?;         // value struct with a delivered byte layout
     if layout.size == 0 { return None; }      // self-referential / empty guard
-    Some(crate::metadata::types::ArrayObj::struct_backed(element_type, len, layout))
+    // unify-gc-heap PR-3: the constructor allocates the struct[] byte + ref blocks in the GC heap.
+    Some(crate::metadata::types::ArrayObj::struct_backed(ctx.heap(), element_type, len, layout))
 }
 
 /// add-struct-array-codegen (P3b follow-up): pack one struct value `v` into element `i` of
@@ -44,14 +45,9 @@ pub(crate) fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types
         Value::Null => return Ok(()),
         other => bail!("struct array literal element must be a struct value, got {other:?}"),
     };
-    if let crate::metadata::types::ArrayBacking::StructBytes { elem_size, bytes, refs, layout } = &mut arr.backing {
-        let rc = layout.ref_count();
-        let bstart = i * *elem_size;
-        let n = src_bytes.len().min(*elem_size);
-        bytes[bstart..bstart + n].copy_from_slice(&src_bytes[..n]);
-        let rn = src_refs.len().min(rc);
-        for k in 0..rn { refs[i * rc + k] = src_refs[k].clone(); }
-    }
+    // unify-gc-heap PR-3: struct[] element bytes + ref side-table live in GC blocks now;
+    // write through the heap-aware accessor (block payloads are private to ArrayObj).
+    arr.write_struct_elem(i, &src_bytes, &src_refs);
     Ok(())
 }
 
@@ -79,7 +75,7 @@ pub(super) fn array_new(
     let default = default_value_for_tag(elem_tag);
     // add-escape-analysis-stack-alloc: non-escaping array → frame arena (no GC).
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let arr = crate::metadata::types::ArrayObj::typed(element_type, vec![default; n]);
+        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vec![default; n]);
         let idx = ctx.stack_arena.lock().alloc_arr(frame.frame_id, arr);
         frame.set(dst, Value::StackArray { idx, frame_id: frame.frame_id });
         return Ok(None);
@@ -133,7 +129,7 @@ pub(super) fn array_new_lit(
         return Ok(None);
     }
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let arr = crate::metadata::types::ArrayObj::typed(element_type, vals);
+        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vals);
         let idx = ctx.stack_arena.lock().alloc_arr(frame.frame_id, arr);
         frame.set(dst, Value::StackArray { idx, frame_id: frame.frame_id });
         return Ok(None);

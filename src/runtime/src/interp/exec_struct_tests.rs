@@ -164,7 +164,7 @@ fn heap_object_inline_struct_field_roundtrips() {
 #[test]
 fn struct_array_element_leaf_access_via_handle() {
     use crate::vm_context::VmContext;
-    use crate::metadata::types::{ArrayObj, ArrayBacking, StructArrayElem, STRUCT_REF_ARC_STRING};
+    use crate::metadata::types::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
     use crate::gc::GcRef;
 
     let layout = Arc::new(StructTypeLayout {
@@ -172,15 +172,8 @@ fn struct_array_element_leaf_access_via_handle() {
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
     });
-    let arr_gc = GcRef::new(ArrayObj {
-        element_type: Arc::from("Demo.P"),
-        backing: ArrayBacking::StructBytes {
-            elem_size: 12,
-            bytes: vec![0u8; 2 * 12],
-            refs: vec![Value::Null; 2 * 1],
-            layout,
-        },
-    });
+    // unify-gc-heap PR-3: struct[] byte + ref storage lives in leaked GC blocks (heap-less test).
+    let arr_gc = GcRef::new(ArrayObj::struct_backed_leaked("Demo.P", 2, layout));
 
     let ctx = VmContext::new();
     let mut frame = Frame::new(&[], 8);
