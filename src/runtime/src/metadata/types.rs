@@ -1341,14 +1341,30 @@ impl ArrayObj {
     // only when the header is swept), so the borrow is sound.
     #[inline]
     unsafe fn slice_of<T>(block: &VarGcRef, len: usize) -> &[T] {
+        Self::debug_block_bounds::<T>(block, len, "slice_of");
         // SAFETY: see method contract; payload derived from the raw header ptr (D8).
         unsafe { std::slice::from_raw_parts(block.payload_as_ptr::<T>(), len) }
+    }
+
+    /// unify-gc-heap PR-3 safety guard: verify a `len`-element `T` view fits inside the
+    /// backing block (alive + `len*size_of::<T>() <= payload_size`). Turns a would-be
+    /// out-of-bounds / use-after-free block read into a clear panic instead of a raw SIGSEGV.
+    #[inline]
+    fn debug_block_bounds<T>(block: &VarGcRef, len: usize, ctx: &str) {
+        assert!(block.is_live(),
+            "unify-gc-heap PR-3: {ctx}<{}> on a stale/tombstoned block (len={len})", std::any::type_name::<T>());
+        let need = len.checked_mul(std::mem::size_of::<T>())
+            .expect("unify-gc-heap PR-3: len*size_of overflow");
+        let have = block.payload_size();
+        assert!(need <= have,
+            "unify-gc-heap PR-3: {ctx}<{}> OOB — len={len} needs {need} bytes > block payload {have}", std::any::type_name::<T>());
     }
     // SAFETY (exclusive): additionally the caller holds `borrow_mut()` (exclusive
     // region lock) so this `&mut [T]` uniquely aliases the block payload.
     #[inline]
     #[allow(clippy::mut_from_ref)]
     unsafe fn slice_of_mut<T>(block: &VarGcRef, len: usize) -> &mut [T] {
+        Self::debug_block_bounds::<T>(block, len, "slice_of_mut");
         // SAFETY: see method contract; exclusive access + payload from raw header ptr (D8).
         unsafe { std::slice::from_raw_parts_mut(block.payload_as_ptr::<T>(), len) }
     }
@@ -1789,7 +1805,10 @@ impl ArrayObj {
             | ArrayBacking::F64 { block, .. }
             // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` == u32);
             // the JIT loads it width-4 and boxes into `Value::Char`.
-            | ArrayBacking::Chars { block, .. } => Some(unsafe { block.payload_as_ptr::<u8>() } as *const u8),
+            | ArrayBacking::Chars { block, .. } => {
+                assert!(block.is_live(), "unify-gc-heap PR-3: packed_num_ptr on a stale/tombstoned block");
+                Some(unsafe { block.payload_as_ptr::<u8>() } as *const u8)
+            }
             _ => None,
         }
     }

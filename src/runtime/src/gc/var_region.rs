@@ -690,6 +690,26 @@ impl VarGcRef {
         self.header_ptr().as_ptr() as usize
     }
 
+    /// True iff the block is still alive and its generation matches this handle (not
+    /// tombstoned/reused). Reads only the 16-byte header (always chunk-mapped), so it's
+    /// safe even when the payload was reused. unify-gc-heap PR-3 safety guard for array/
+    /// string/closure block access.
+    #[inline]
+    pub fn is_live(&self) -> bool {
+        let ptr = self.header_ptr();
+        // SAFETY: header address is chunk-owned + mapped for the region's lifetime.
+        let h = unsafe { ptr.as_ref() };
+        h.is_alive() && h.generation() as u16 == self.gen16()
+    }
+
+    /// The block's requested payload byte length (from its header). unify-gc-heap PR-3:
+    /// used to bounds-check typed slice views against the actual block size (`slice_of`).
+    #[inline]
+    pub fn payload_size(&self) -> usize {
+        // SAFETY: header address is chunk-owned + mapped for the region's lifetime.
+        unsafe { self.header_ptr().as_ref() }.size()
+    }
+
     /// Mark the pointed-to block (mark phase). Returns `true` if this call won the CAS.
     ///
     /// # Safety

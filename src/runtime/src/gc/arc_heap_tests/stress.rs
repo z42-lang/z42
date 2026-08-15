@@ -396,3 +396,97 @@ fn rng_avoids_zero_seed_fixed_point() {
     let mut a = Rng::new(0);
     assert_ne!(a.next_u64(), 0, "zero seed should be remapped");
 }
+
+// unify-gc-heap PR-3 UAF repro: a pinned byte[] must survive GC churn with its
+// element block (region_var) intact. Mirrors the z42 compression-test failure.
+#[test]
+fn pr3_pinned_byte_array_survives_gc_churn() {
+    let heap = ArcMagrGC::new();
+    let want: Vec<u8> = b"hello brotli gc stress test payload xyz".to_vec();
+    let v = heap.alloc_bytes(want.clone());
+    let _pin = heap.pin_root(v.clone());
+    let Value::Array(rc) = &v else { panic!("expected byte[]") };
+    for iter in 0..300 {
+        for _ in 0..30 {
+            let _junk = heap.alloc_bytes(b"junk junk junk junk junk junk junk junk".to_vec());
+        }
+        heap.force_collect();
+        let b = rc.borrow();
+        assert_eq!(b.len(), want.len(), "iter {iter}: len corrupt");
+        let got = b.as_bytes().expect("byte[] backing");
+        assert_eq!(got, &want[..], "iter {iter}: bytes corrupt");
+    }
+}
+
+// Boxed reference-array variant: pinned Object[] whose elements are heap objects.
+#[test]
+fn pr3_pinned_ref_array_survives_gc_churn() {
+    let heap = ArcMagrGC::new();
+    let td = dummy_type_desc("Elem");
+    let e0 = heap.alloc_object(td.clone(), vec![Value::I64(11)], NativeData::None);
+    let e1 = heap.alloc_object(td.clone(), vec![Value::I64(22)], NativeData::None);
+    let v = heap.alloc_array(vec![e0.clone(), e1.clone()]);
+    let _pin = heap.pin_root(v.clone());
+    let Value::Array(rc) = &v else { panic!("expected array") };
+    for iter in 0..300 {
+        for _ in 0..30 {
+            let _junk = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        }
+        heap.force_collect();
+        let b = rc.borrow();
+        assert_eq!(b.len(), 2, "iter {iter}: len corrupt");
+        assert!(matches!(b.get_boxed(0), Value::Object(_)), "iter {iter}: elem0 not object: {:?}", b.get_boxed(0));
+    }
+}
+
+// unify-gc-heap PR-3: aggressive MIXED region_var churn — closures + arrays of many
+// sizes + objects, with a pinned nested graph. Stresses the free-list / size-class
+// reuse across block types (Closure vs ArrayValue vs ArrayPrim) that the real VM hits.
+#[test]
+fn pr3_mixed_region_var_churn_keeps_graph_intact() {
+    let heap = ArcMagrGC::new();
+    let td = dummy_type_desc("Node");
+    // Pinned nested graph: array of objects, each object holding a byte[] field-ish ref.
+    let leaf0 = heap.alloc_bytes(b"leaf-zero-payload".to_vec());
+    let leaf1 = heap.alloc_bytes(b"leaf-one-payload-longer-xxxxxxxxxxxxxxxx".to_vec());
+    let obj0 = heap.alloc_object(td.clone(), vec![leaf0.clone(), Value::I64(1)], NativeData::None);
+    let obj1 = heap.alloc_object(td.clone(), vec![leaf1.clone(), Value::I64(2)], NativeData::None);
+    let root = heap.alloc_array(vec![obj0.clone(), obj1.clone()]);
+    let _pin = heap.pin_root(root.clone());
+    let Value::Array(root_rc) = &root else { panic!() };
+
+    for iter in 0..400 {
+        // churn arrays of varying sizes (many size classes)
+        for k in 0..12 {
+            let sz = 1 + (k * 7) % 200;
+            let _j = heap.alloc_bytes(vec![k as u8; sz]);
+            let _b = heap.alloc_array(vec![Value::I64(k as i64); (k % 8) + 1]);
+        }
+        // churn closures (region_var, same as arrays) with env arrays
+        for k in 0..8 {
+            let env = heap.alloc_array(vec![Value::I64(k as i64)]);
+            let Value::Array(env_rc) = env else { panic!() };
+            let _c = heap.alloc_closure(crate::metadata::types::ClosureData {
+                env: env_rc, fn_name: format!("lambda${k}"),
+            });
+        }
+        // churn objects
+        for k in 0..6 {
+            let _o = heap.alloc_object(td.clone(), vec![Value::I64(k as i64)], NativeData::None);
+        }
+        heap.force_collect();
+
+        // verify the pinned graph is intact (dangling ref → debug validator / next-collect
+        // mark BFS panics; here we also read the leaf bytes through the object refs).
+        let rb = root_rc.borrow();
+        assert_eq!(rb.len(), 2, "iter {iter}: root len");
+        for slot in 0..2 {
+            let Value::Object(orc) = rb.get_boxed(slot) else { panic!("iter {iter}: slot {slot} not object: {:?}", rb.get_boxed(slot)) };
+            let ob = orc.borrow();
+            let Value::Array(larc) = &ob.refs[0] else { panic!("iter {iter}: obj{slot}.refs[0] not array: {:?}", ob.refs[0]) };
+            let lb = larc.borrow();
+            let bytes = lb.as_bytes().expect("leaf byte[]");
+            assert!(bytes.starts_with(b"leaf-"), "iter {iter}: leaf{slot} corrupt: {:?}", &bytes[..bytes.len().min(8)]);
+        }
+    }
+}
