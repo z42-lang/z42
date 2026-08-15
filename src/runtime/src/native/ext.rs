@@ -538,7 +538,11 @@ fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     use anyhow::bail;
     const NAME: &str = "__brotli_compress";
+    // TEMP DIAGNOSTIC (unify-gc-heap PR-3 CI SIGSEGV hunt): the last [BC] line before the
+    // `[z42vm signal SIGSEGV]` in CI pinpoints the crashing step.
+    eprintln!("[BC] enter args.len={}", args.len());
     let input = require_byte_array(args, 0, NAME)?;
+    eprintln!("[BC] require_byte_array ok input.len={} input.ptr={:p}", input.len(), input.as_ptr());
     let level = arg_i64(args, 1, NAME)? as i32;
 
     let guard = LOADED_COMPRESSION.lock();
@@ -546,14 +550,20 @@ fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
+    eprintln!("[BC] calling brotli_compress");
     let rc = unsafe {
         (lc.brotli_compress)(input.as_ptr(), input.len(), level,
                              &mut out_ptr, &mut out_len)
     };
+    eprintln!("[BC] brotli_compress rc={rc} out_len={out_len} out_ptr={out_ptr:p}");
     if rc != 0 {
         bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
+    let owned = take_owned_buffer(out_ptr, out_len);
+    eprintln!("[BC] take_owned_buffer owned.len={}", owned.len());
+    let r = bytes_to_value(ctx, owned);
+    eprintln!("[BC] bytes_to_value done");
+    Ok(r)
 }
 
 fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {

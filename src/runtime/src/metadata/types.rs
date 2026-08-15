@@ -1414,6 +1414,9 @@ impl ArrayObj {
     fn alloc_packed<T: Copy>(heap: &dyn MagrGC, data: &[T]) -> VarGcRef {
         let block = heap.alloc_var_block(std::mem::size_of_val(data), BlockType::ArrayPrim);
         if !data.is_empty() {
+            // unify-gc-heap PR-3 CI hunt: guard the write against an under-sized block.
+            assert!(std::mem::size_of_val(data) <= block.payload_size(),
+                "unify-gc-heap PR-3: alloc_packed OOB write — {} bytes > block payload {}", std::mem::size_of_val(data), block.payload_size());
             // SAFETY: block payload sized `size_of_val(data)`, 8-aligned ≥ align_of::<T>();
             // src/dst are distinct, non-overlapping regions of `data.len()` `T`s.
             unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), block.payload_as_ptr::<T>(), data.len()); }
