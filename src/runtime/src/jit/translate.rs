@@ -488,50 +488,54 @@ pub fn translate_function(
         map
     };
 
-    // ── FieldGet 方案 B: hoist (slots_ptr, slot) for never-reassigned objects ──
-    // For an object register never written (e.g. `this`) read via `FieldGet` on a
-    // primitive-typed field, resolve (slots_ptr, slot) ONCE in the entry block via
-    // the non-throwing `jit_obj_field_slot`. Keyed by (obj_reg, field_name). The
-    // per-`FieldGet` inline then loads `slots_ptr[slot]` natively; `slot < 0`
-    // (null / non-object / field-not-found) routes to `jit_field_get`.
+    // ── FieldGet/Set P5-B: hoist (bytes_ptr, byte_offset) for never-reassigned objects ──
+    // For an object register never written (e.g. `this`) accessed via `FieldGet`/
+    // `FieldSet` on an inline-primitive field, resolve (bytes_ptr, offset) ONCE in the
+    // entry block via the non-throwing byte-aware `jit_obj_field_slot`. Keyed by
+    // (obj_reg, field_name); the expected (width, tag) come from the field's static
+    // type. The per-access inline then does a native width-aware byte load/store at
+    // `bytes_ptr + offset`; `offset < 0` (null / non-object / field-not-found /
+    // reference / struct root / string / layout mismatch) routes to the helper.
     let hoisted_fields: std::collections::HashMap<(u32, String), (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
-        let mut cands: Vec<(u32, &str)> = Vec::new();
+        let mut cands: Vec<(u32, &str, u32, u8)> = Vec::new();
         for b in &z42_func.blocks {
             for ins in &b.instructions {
-                // Both FieldGet (primitive dst) and FieldSet (primitive val) on a
-                // never-reassigned object read the loop-invariant slots ptr + slot.
+                // FieldGet (dst) / FieldSet (val) on a never-reassigned object read the
+                // loop-invariant bytes ptr + offset. width/tag come from the field type.
                 let hit = match ins {
-                    Instruction::FieldGet(insn) =>
-                        prim_elem_tag(z42_func, insn.dst).is_some().then_some((insn.obj, insn.field_name.as_str())),
-                    Instruction::FieldSet(insn) =>
-                        prim_elem_tag(z42_func, insn.val).is_some().then_some((insn.obj, insn.field_name.as_str())),
+                    Instruction::FieldGet(insn) => field_prim_kind(z42_func, insn.dst)
+                        .map(|k| (insn.obj, insn.field_name.as_str(), k.width, k.field_tag)),
+                    Instruction::FieldSet(insn) => field_prim_kind(z42_func, insn.val)
+                        .map(|k| (insn.obj, insn.field_name.as_str(), k.width, k.field_tag)),
                     _ => None,
                 };
-                if let Some((obj, fname)) = hit {
-                    if !written.contains(&obj) && !cands.iter().any(|(o, f)| *o == obj && *f == fname) {
-                        cands.push((obj, fname));
+                if let Some((obj, fname, w, tag)) = hit {
+                    if !written.contains(&obj) && !cands.iter().any(|(o, f, _, _)| *o == obj && *f == fname) {
+                        cands.push((obj, fname, w, tag));
                     }
                 }
             }
         }
         cands.sort_unstable();
         let mut map = std::collections::HashMap::new();
-        for (obj, fname) in cands {
+        for (obj, fname, exp_w, exp_tag) in cands {
             use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
             let ss_ptr = builder.create_sized_stack_slot(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-            let ss_slot = builder.create_sized_stack_slot(
+            let ss_off = builder.create_sized_stack_slot(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
-            let slot_addr = builder.ins().stack_addr(ptr, ss_slot, 0);
+            let off_addr = builder.ins().stack_addr(ptr, ss_off, 0);
             let o_c = builder.ins().iconst(types::I32, obj as i64);
             let fp = builder.ins().iconst(ptr, fname.as_ptr() as i64);
             let fl = builder.ins().iconst(types::I64, fname.len() as i64);
+            let w_c = builder.ins().iconst(types::I32, exp_w as i64);
+            let tag_c = builder.ins().iconst(types::I32, exp_tag as i64);
             builder.ins().call(hr_obj_field_slot,
-                &[frame_val, ctx_val, o_c, fp, fl, ptr_addr, slot_addr]);
-            let sptr = builder.ins().stack_load(ptr, ss_ptr, 0);
-            let slot = builder.ins().stack_load(types::I64, ss_slot, 0);
-            map.insert((obj, fname.to_string()), (sptr, slot));
+                &[frame_val, ctx_val, o_c, fp, fl, w_c, tag_c, ptr_addr, off_addr]);
+            let bptr = builder.ins().stack_load(ptr, ss_ptr, 0);
+            let off = builder.ins().stack_load(types::I64, ss_off, 0);
+            map.insert((obj, fname.to_string()), (bptr, off));
         }
         map
     };
@@ -1322,19 +1326,20 @@ pub fn translate_function(
                 // Function.resolved (OnceLock-set, never overwritten).
                 Instruction::FieldGet(insn) => {
                     let FieldGetInsn { dst, obj, field_name } = &**insn;
-                    // jit-inline-fastpaths: primitive field of a hoisted (never-
-                    // reassigned) object → native slot load + unbox. `slot < 0`
-                    // (null / non-object / field-not-found) falls back to
-                    // jit_field_get (Str.Length / Array.Length / null-throw /
-                    // field-not-found→Null all preserved). Both paths converge.
+                    // P5-B: inline-primitive field of a hoisted (never-reassigned)
+                    // object → native width-aware byte load + widen into the 16B
+                    // register (mirrors `decode_prim`). `off < 0` (null / non-object /
+                    // field-not-found / reference / struct root / string / layout
+                    // mismatch) falls back to jit_field_get (Str.Length / Array.Length /
+                    // null-throw / field-not-found→Null all preserved). Paths converge.
                     let hoisted = hoisted_fields.get(&(*obj, field_name.clone())).copied();
-                    if let (Some(elem_tag), Some((slots_ptr, slot))) =
-                        (prim_elem_tag(z42_func, *dst), hoisted)
+                    if let (Some(fk), Some((bytes_ptr, off))) =
+                        (field_prim_kind(z42_func, *dst), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
                         const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
-                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, slot, 0);
+                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
                         let fb_blk = builder.create_block();
                         let native_blk = builder.create_block();
                         let cont_blk = builder.create_block();
@@ -1349,17 +1354,20 @@ pub fn translate_function(
                         let ret = builder.inst_results(inst)[0];
                         check!(ret);
                         builder.ins().jump(cont_blk, &[]);
-                        // native slot load + unbox store.
+                        // native byte load at bytes_ptr+off, widen per field type, store reg.
                         builder.switch_to_block(native_blk);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
-                        let slot_off = builder.ins().imul(slot, stride_c);
-                        let elem_addr = builder.ins().iadd(slots_ptr, slot_off);
-                        let elem = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, PAYLOAD);
+                        let elem_addr = builder.ins().iadd(bytes_ptr, off);
+                        let raw = builder.ins().load(fk.load_ty, MemFlags::trusted(), elem_addr, 0);
+                        let payload = match fk.ext {
+                            FieldExt::Sext  => builder.ins().sextend(types::I64, raw),
+                            FieldExt::Uext  => builder.ins().uextend(types::I64, raw),
+                            FieldExt::Keep | FieldExt::Float => raw, // I64 / F64 stored as-is
+                        };
                         let dst_off = builder.ins().iconst(types::I64, (*dst as i64) * STRIDE);
                         let dst_addr = builder.ins().iadd(regs_base, dst_off);
-                        let tag_c = builder.ins().iconst(types::I8, elem_tag);
+                        let tag_c = builder.ins().iconst(types::I8, fk.reg_tag);
                         builder.ins().store(MemFlags::trusted(), tag_c, dst_addr, 0);
-                        builder.ins().store(MemFlags::trusted(), elem, dst_addr, PAYLOAD);
+                        builder.ins().store(MemFlags::trusted(), payload, dst_addr, PAYLOAD);
                         builder.ins().jump(cont_blk, &[]);
                         builder.switch_to_block(cont_blk);
                     } else {
@@ -1373,18 +1381,21 @@ pub fn translate_function(
                 }
                 Instruction::FieldSet(insn) => {
                     let FieldSetInsn { obj, field_name, val } = &**insn;
-                    // Primitive field value on a hoisted object → native slot store
-                    // (no write barrier: primitive is not a heap ref, and a
-                    // type-correct primitive field's old value is also primitive).
-                    // slot<0 / heap-ref value → jit_field_set (write barrier).
+                    // P5-B: inline-primitive field on a hoisted object → native
+                    // width-aware byte store at `bytes_ptr + off` (mirrors
+                    // `encode_prim`; low `width` bytes of the register payload). No
+                    // write barrier (primitive is not a heap ref). `off < 0` /
+                    // reference / struct root / string / layout mismatch → jit_field_set
+                    // (write barrier + full semantics). z42 has no implicit narrowing,
+                    // so `val`'s static width equals the packed field width.
                     let hoisted = hoisted_fields.get(&(*obj, field_name.clone())).copied();
-                    if let (Some(elem_tag), Some((slots_ptr, slot))) =
-                        (prim_elem_tag(z42_func, *val), hoisted)
+                    if let (Some(fk), Some((bytes_ptr, off))) =
+                        (field_prim_kind(z42_func, *val), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
                         const STRIDE: i64 = std::mem::size_of::<Value>() as i64; // PR-5: Value stride (16 B)
                         const PAYLOAD: i32 = 8;
-                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, slot, 0);
+                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
                         let fb_blk = builder.create_block();
                         let native_blk = builder.create_block();
                         let cont_blk = builder.create_block();
@@ -1402,13 +1413,22 @@ pub fn translate_function(
                         builder.switch_to_block(native_blk);
                         let val_off = builder.ins().iconst(types::I64, (*val as i64) * STRIDE);
                         let val_addr = builder.ins().iadd(regs_base, val_off);
-                        let val_v = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
-                        let stride_c = builder.ins().iconst(types::I64, STRIDE);
-                        let slot_off = builder.ins().imul(slot, stride_c);
-                        let elem_addr = builder.ins().iadd(slots_ptr, slot_off);
-                        let tag_c = builder.ins().iconst(types::I8, elem_tag);
-                        builder.ins().store(MemFlags::trusted(), tag_c, elem_addr, 0);
-                        builder.ins().store(MemFlags::trusted(), val_v, elem_addr, PAYLOAD);
+                        let elem_addr = builder.ins().iadd(bytes_ptr, off);
+                        if fk.ext == FieldExt::Float {
+                            // f64 field: store the 8-byte payload verbatim.
+                            let v = builder.ins().load(types::F64, MemFlags::trusted(), val_addr, PAYLOAD);
+                            builder.ins().store(MemFlags::trusted(), v, elem_addr, 0);
+                        } else {
+                            // integer field: take the low `width` bytes of the i64 payload
+                            // (ireduce = the same truncation `encode_prim`'s `as uN` does).
+                            let v64 = builder.ins().load(types::I64, MemFlags::trusted(), val_addr, PAYLOAD);
+                            let to_store = if fk.load_ty == types::I64 {
+                                v64
+                            } else {
+                                builder.ins().ireduce(fk.load_ty, v64)
+                            };
+                            builder.ins().store(MemFlags::trusted(), to_store, elem_addr, 0);
+                        }
                         builder.ins().jump(cont_blk, &[]);
                         builder.switch_to_block(cont_blk);
                     } else {
@@ -2147,17 +2167,45 @@ fn is_typed(func: &Function, reg: u32, expected: IrType) -> bool {
     func.reg_types.get(reg as usize).copied() == Some(expected)
 }
 
-/// jit-inline-fastpaths: for a register statically typed as a **drop-free
-/// primitive** array element (i64 / f64), return its `Value` discriminant tag
-/// (I64=0, F64=1) — both store an opaque 8-byte payload, so the inline native
-/// load/store is identical bar the tag byte. `None` for any other type (element
-/// may be a heap ref → keep the helper for Drop/write-barrier correctness).
-fn prim_elem_tag(func: &Function, reg: u32) -> Option<i64> {
-    match func.reg_types.get(reg as usize).copied() {
-        Some(IrType::I64) => Some(0),
-        Some(IrType::F64) => Some(1),
-        _ => None,
-    }
+/// post-layout JIT perf (P5-B): how to natively load/store a register's static
+/// primitive type against `ScriptObject::bytes` — mirroring `decode_prim`/
+/// `encode_prim`. `width` = packed byte width, `ext` = how to widen a loaded scalar
+/// into the 16B register payload, `reg_tag` = the `Value` discriminant stamped into
+/// the register tag byte (int types → `Value::I64` = 0; floats → `Value::F64` = 1),
+/// `field_tag` = the `TAG_*` handed to `jit_obj_field_slot` for runtime validation.
+/// `None` for types stage 1 does NOT inline (F32 / Bool / Char / Str / Ref / Void /
+/// Unknown) → those keep the `jit_field_get`/`jit_field_set` helper. Relies on the
+/// invariant that a `FieldGet` dst / `FieldSet` val is typed as the field's declared
+/// type (z42 has no implicit narrowing), so this width equals the packed field width.
+#[derive(Clone, Copy)]
+struct FieldPrim {
+    load_ty: cranelift_codegen::ir::Type,
+    ext: FieldExt,
+    reg_tag: i64,
+    width: u32,
+    field_tag: u8,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum FieldExt { Sext, Uext, Keep, Float }
+
+fn field_prim_kind(func: &Function, reg: u32) -> Option<FieldPrim> {
+    use crate::metadata::types::{
+        TAG_I8, TAG_I16, TAG_I32, TAG_I64, TAG_U8, TAG_U16, TAG_U32, TAG_U64, TAG_F64,
+    };
+    let (load_ty, ext, reg_tag, width, field_tag) = match func.reg_types.get(reg as usize).copied()? {
+        IrType::I8  => (types::I8,  FieldExt::Sext,  0, 1, TAG_I8),
+        IrType::I16 => (types::I16, FieldExt::Sext,  0, 2, TAG_I16),
+        IrType::I32 => (types::I32, FieldExt::Sext,  0, 4, TAG_I32),
+        IrType::I64 => (types::I64, FieldExt::Keep,  0, 8, TAG_I64),
+        IrType::U8  => (types::I8,  FieldExt::Uext,  0, 1, TAG_U8),
+        IrType::U16 => (types::I16, FieldExt::Uext,  0, 2, TAG_U16),
+        IrType::U32 => (types::I32, FieldExt::Uext,  0, 4, TAG_U32),
+        IrType::U64 => (types::I64, FieldExt::Keep,  0, 8, TAG_U64),
+        IrType::F64 => (types::F64, FieldExt::Float, 1, 8, TAG_F64),
+        _ => return None, // F32 / Bool / Char / Str / Ref / Void / Unknown → helper
+    };
+    Some(FieldPrim { load_ty, ext, reg_tag, width, field_tag })
 }
 
 /// Array-element classifier for the JIT inline get/set fast path
