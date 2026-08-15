@@ -690,6 +690,26 @@ impl VarGcRef {
         self.header_ptr().as_ptr() as usize
     }
 
+    /// True iff the block is still alive and its generation matches this handle (not
+    /// tombstoned/reused). Reads only the 16-byte header (always chunk-mapped), so it's
+    /// safe even when the payload was reused. unify-gc-heap PR-3 safety guard for array/
+    /// string/closure block access.
+    #[inline]
+    pub fn is_live(&self) -> bool {
+        let ptr = self.header_ptr();
+        // SAFETY: header address is chunk-owned + mapped for the region's lifetime.
+        let h = unsafe { ptr.as_ref() };
+        h.is_alive() && h.generation() as u16 == self.gen16()
+    }
+
+    /// The block's requested payload byte length (from its header). unify-gc-heap PR-3:
+    /// used to bounds-check typed slice views against the actual block size (`slice_of`).
+    #[inline]
+    pub fn payload_size(&self) -> usize {
+        // SAFETY: header address is chunk-owned + mapped for the region's lifetime.
+        unsafe { self.header_ptr().as_ref() }.size()
+    }
+
     /// Mark the pointed-to block (mark phase). Returns `true` if this call won the CAS.
     ///
     /// # Safety
@@ -779,6 +799,33 @@ impl VarGcRef {
     /// `VarRegion`, never swept/freed). For unit tests that need a `Value::Closure`-style handle
     /// without wiring a heap. The intentional leak is fine for the tests that use it (they never
     /// run under Miri's leak checker — the Miri gate is `gc::var_region`).
+    /// Test-only: allocate a **standalone, leaked**, zero-initialized block of `payload`
+    /// bytes (never in any `VarRegion`, never swept/freed). For unit tests that need an
+    /// array element block (`Boxed`/packed/`struct[]`) without wiring a heap. Callers write
+    /// the payload through `payload_as_ptr` before reading. Same intentional-leak contract as
+    /// [`leak_for_test`](Self::leak_for_test) (never run under Miri's leak checker).
+    #[cfg(test)]
+    pub(crate) fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
+        let (footprint, size_class) = class_for(payload);
+        let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak block layout");
+        // SAFETY: non-zero layout; leaked (never freed) — acceptable for test fixtures.
+        let raw = unsafe { alloc(layout) };
+        let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
+        // SAFETY: fresh 8-aligned allocation large enough for the header + `payload` bytes.
+        unsafe {
+            header.as_ptr().write(GcBlockHeader {
+                generation: AtomicU32::new(0),
+                size: payload as u32,
+                marked: AtomicU8::new(0),
+                alive: AtomicBool::new(true),
+                type_tag: block_type as u8,
+                size_class,
+            });
+            std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
+        }
+        VarGcRef::pack(header, 0)
+    }
+
     #[cfg(test)]
     pub(crate) fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
         let payload = std::mem::size_of::<T>();

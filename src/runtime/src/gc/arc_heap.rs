@@ -984,13 +984,10 @@ impl ArcMagrGC {
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
-            {
-                let region = self.region_array.lock();
-                let entry = region.resolve(h);
-                if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
-                    entry.value.lock().clear();
-                }
-            }
+            // unify-gc-heap PR-3: no eager element drop here — the array's element
+            // storage lives in a `region_var` block (uniquely owned by this header),
+            // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
+            // the same cycle. Tombstoning the header just releases the region_array slot.
             self.region_array.lock().tombstone(h);
         }
 
@@ -1329,13 +1326,10 @@ impl ArcMagrGC {
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
-            {
-                let region = self.region_array.lock();
-                let entry = region.resolve(h);
-                if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
-                    entry.value.lock().clear();
-                }
-            }
+            // unify-gc-heap PR-3: no eager element drop here — the array's element
+            // storage lives in a `region_var` block (uniquely owned by this header),
+            // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
+            // the same cycle. Tombstoning the header just releases the region_array slot.
             self.region_array.lock().tombstone(h);
         }
 
@@ -1922,11 +1916,12 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn alloc_array(&self, elems: Vec<Value>) -> Value {
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::new(elems))
+        // unify-gc-heap PR-3: the constructor allocates the element block in `self`'s region_var.
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::new(self, elems))
     }
 
     fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(element_type, elems))
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(self, element_type, elems))
     }
 
     /// add-struct-array-codegen (P3b follow-up): `Heap`-trait override so dyn-dispatched
@@ -1938,7 +1933,7 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(bytes))
+        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(self, bytes))
     }
 
     fn alloc_closure(&self, data: ClosureData) -> Value {

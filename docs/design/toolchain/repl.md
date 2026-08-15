@@ -36,12 +36,22 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   函数/类型声明** / 表达式/语句；分类器 `Classifier.z42` token 级判别）→ 每轮 build 唯一命名空间
   `Repl.R{N}` 源 → `PackageCompile.Compile` → `ZpkgWriterZ.ToBytes` → `__load_bytecode_in_memory`
   内存加载 → `__invoke_static("Repl.R{N}.Eval{N}")` 取装箱结果（声明轮无 `Eval{N}`、不 Invoke）。
+  - **尾随分号归一（fix-repl-trailing-semicolon）**：表达式/语句轮 build 源前剥掉输入末尾单个 `;`。
+    否则表达式包裹 `return (X;)` 破坏括号（E0202）、语句回退 `X;; return null;` 撞 `;;` 空语句
+    （parser 拒）→ 两路皆炸、该轮副作用丢失。剥尾随后 `expr;`/`stmt;` 与不带 `;` 等价；多语句
+    `a();b();` 的中间 `;` 保留、仅尾随剥掉 → 回退路径 `a();b(); return null;` 自然合法。
 - **声明累积（add-repl-decls-multiline）**：顶层函数/类型声明**原样**作 `Repl.R{N}` 命名空间成员编译
   （不裹壳类、不改写函数体），`ExtendWithPackage` 并入 CachedScan + `LoadBytes` 进 VM，记 `Repl.R{N}`
   到 `ScriptState.DeclNamespaces`；**每后续轮** prelude 追加 `using Repl.R{N};`——自由函数经
   `fix-imported-free-func-namespace`、类型（含实例方法）经 `ImportedClassNs` + **增量导入 world-extension**
   （见下）、enum 经 **TsigReconcile enum 导出**（见下）跨包裸调/裸用解析。重定义同名 → ERROR
   （`DeclNames` 查重，不 supersede）。声明体**不**捕获会话变量（Deferred `repl-future-decl-capture-vars`）。
+  - **缺省可见性补 `public`（fix-repl-default-type-visibility）**：类型默认可见性是 `internal`，但 REPL 每轮是**独立
+    package**（`Repl.R{N}`）——裸 `class Foo { public int X; }` 会双重踩雷：① 同轮 `internal` 类含 `public` 成员 →
+    `E0441` 不一致可访问性；② 下一轮跨 package 引用 → `E0404` 跨包 internal 访问被拒。故 `Classifier` 记录声明是否
+    **显式**写了可见性（`ParsedInput.HasVisibility`），`_evalDecl` 对**未显式写可见性的类型声明**自动前缀 `public`
+    （显式写 `internal`/`public` 的尊重用户；自由函数不需要——跨包 internal 自由函数 REPL 本就可用）。这样裸
+    `class`/`struct` 跨轮可用，符合 REPL「一个连续会话」的直觉。
 - **增量导入的两处 compiler 修复（同 change）**：REPL 靠 `DepScan.ExtendWithPackage` 增量并入声明包，
   此前不完整重建类型元数据 → ① 类**实例方法** `no method`（world 不含增量包 → `TsigReconcile._rebuildClass`
   定位不到类自身、读不到 SIGS 方法）：`ExtendWithPackage` 现在 Rebuild 前把本包并入 `scan.Wp`；
