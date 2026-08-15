@@ -252,8 +252,14 @@ public static class Script {
                 i = i + 1;
             }
         }
+        // REPL 每轮编成独立 package（Repl.R{n}）。类型默认可见性 internal 在此有两个后果：
+        //   ① 同轮 public 成员 → E0441 不一致可访问性；② 下一轮跨 package 引用 → E0404。
+        // 故对**缺省未写可见性**的类型声明自动补 public，使裸 `class Foo {..}` 跨轮可用（显式写
+        // 可见性的尊重用户）。自由函数不需要（跨包 internal 自由函数 REPL 已可用）。
+        string emitText = declText;
+        if (p.IsTypeDecl && !p.HasVisibility) { emitText = "public " + declText; }
         string prelude = Script._basePrelude(state, ns);
-        CompileArtifacts art = Script._compileRaw(state, n, prelude + declText + "\n");
+        CompileArtifacts art = Script._compileRaw(state, n, prelude + emitText + "\n");
         if (art.ErrorCount > 0) {
             int pl = Script._countNewlines(prelude);   // 声明轮：declText 紧接 prelude，行号回映同理
             string err = "";

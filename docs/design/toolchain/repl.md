@@ -42,6 +42,12 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   `fix-imported-free-func-namespace`、类型（含实例方法）经 `ImportedClassNs` + **增量导入 world-extension**
   （见下）、enum 经 **TsigReconcile enum 导出**（见下）跨包裸调/裸用解析。重定义同名 → ERROR
   （`DeclNames` 查重，不 supersede）。声明体**不**捕获会话变量（Deferred `repl-future-decl-capture-vars`）。
+  - **缺省可见性补 `public`（fix-repl-default-type-visibility）**：类型默认可见性是 `internal`，但 REPL 每轮是**独立
+    package**（`Repl.R{N}`）——裸 `class Foo { public int X; }` 会双重踩雷：① 同轮 `internal` 类含 `public` 成员 →
+    `E0441` 不一致可访问性；② 下一轮跨 package 引用 → `E0404` 跨包 internal 访问被拒。故 `Classifier` 记录声明是否
+    **显式**写了可见性（`ParsedInput.HasVisibility`），`_evalDecl` 对**未显式写可见性的类型声明**自动前缀 `public`
+    （显式写 `internal`/`public` 的尊重用户；自由函数不需要——跨包 internal 自由函数 REPL 本就可用）。这样裸
+    `class`/`struct` 跨轮可用，符合 REPL「一个连续会话」的直觉。
 - **增量导入的两处 compiler 修复（同 change）**：REPL 靠 `DepScan.ExtendWithPackage` 增量并入声明包，
   此前不完整重建类型元数据 → ① 类**实例方法** `no method`（world 不含增量包 → `TsigReconcile._rebuildClass`
   定位不到类自身、读不到 SIGS 方法）：`ExtendWithPackage` 现在 Rebuild 前把本包并入 `scan.Wp`；
