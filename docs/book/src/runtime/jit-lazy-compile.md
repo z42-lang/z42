@@ -417,3 +417,36 @@ loop-carried 机器寄存器驻留）要让热标量**不再每 op 内存往返*
 标脏"，仅在设计枚举的边界（块终结子 / Category-B helper·call / safepoint / OSR 入口）spill 回内存——
 而非在 15 个 emitter 里各自维护。纯重构相本身零行为变化：`cargo --lib` 908/0（含 `value_*` 布局钉），
 e2e jit 与 interp 逐字节一致，自举 5/5 gen1==gen2 不动。
+
+## 整数原生快路径放宽到全宽度 I8..U64（jit-unbox-regalloc Phase 2A）
+
+> 位置：`jit/translate.rs`（三个触发谓词 + `Convert` 的 src 判定）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2A。
+
+Phase 2.0 之前，整数算术/比较/位运算/移位/取负/取反的原生快路径**只在
+`reg_types[reg] == IrType::I64` 精确匹配时触发**（`is_i64_typed` 等谓词）。但 z42 的窄整数
+`I8/I16/I32/U8/U16/U32/U64` **运行时全部物理存为 `Value::I64`**（payload i64 @off8），一个
+`int + int`、`uint & mask`、`ulong >> 5` 今天却因谓词太窄而**路由到 Rust helper**（native→Rust
+call + tag 分派），纯属浪费。
+
+Phase 2A 把谓词从 `== I64` 放宽到 `IrType::is_integer()`（I8..U64），谓词随之更名
+`is_int_typed` / `is_int_cmp` / `is_int_typed_unary`；`Convert` 的 `src` 判定同样放宽。合法性来自
+**同一条不变式**：所有整数都是 `Value::I64` 物理表示，native 的 `iadd`/`band`/`ishl`/`icmp`/`ineg`/
+`bnot` 在 i64 payload 上算完存 `Value::I64`，与 helper 回落路径（`jit_add` 的 I64 fast-path、
+`int_bitop_helper`、`numeric_lt_helper`）**逐位一致**。窄化不在这里——z42 无隐式窄化，中间值恒 i64、
+只在显式 `Convert` 处收窄（`emit_i64_convert` 读整个 i64 payload 做 mask/sextend，对任何窄整数源都
+与 `hr_convert` helper 相同）。
+
+### 符号性：沿用有符号，与 VM 现状对齐（关键陷阱）
+
+一个反直觉但**必须遵守**的点：native 路径对 `U64` 的比较与右移**刻意用有符号指令**
+（`icmp SignedLessThan`、`sshr`），**不用** `icmp UnsignedLessThan`/`ushr`。原因是当前整个 z42 VM
+——interp（`ops::numeric_lt` 的 `x < y`、`exec_value::shr` 的 `x >> (y & 63)` 算术移位）**与** JIT
+helper 回落（`numeric_lt_helper`、`int_bitop_helper`）——对所有整数类型**一律按有符号 i64** 处理。
+若 native 改用无符号指令，就会与 helper **和** interp **双双背离**，破坏 `vm-jit-consistency` 的逐字节
+门禁。让 `U64` 成为真正的无符号类型是一次独立的 VM 级语义变更（需同时改 interp + helper + JIT），
+不在本相范围。
+
+净效果：窄整数密集代码从 helper 转 native，无需任何 spill 机制、值仍住内存（是 P5-B 之后又一块
+「免费」native 化）。验证：`scratch_bench` 全宽度混合 workload（含 U64 高位比较/移位、Convert/Neg/
+BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp；`cargo --lib` + e2e jit + 自举 5/5 全绿。
