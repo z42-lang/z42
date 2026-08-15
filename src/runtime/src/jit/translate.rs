@@ -24,7 +24,7 @@ use cranelift_jit::JITModule;
 pub use super::helpers::HelperIds;
 use super::reg_access::{
     load_payload, load_payload_i64, load_tag, reg_addr, store_const_tag, store_tag_const,
-    store_tagged, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I64, TAG_NULL,
+    store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I64, TAG_NULL,
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -707,7 +707,22 @@ pub fn translate_function(
         }
 
         // ── Instruction translation ───────────────────────────────────────────
+        //
+        // jit-unbox-regalloc Phase 2B: a fresh block-local integer-scalar cache.
+        // Created empty per z42 block (memory is authoritative at block entry —
+        // every predecessor flushed at its terminator). Cache-participating
+        // integer ops read/write it; every other instruction, every Category-B
+        // helper, and the terminator flush it first (see `instr_uses_int_cache`
+        // + the flush points below). Cached SSA values therefore never cross a
+        // Cranelift block boundary and never go stale.
+        let mut cache = RegCache::new();
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {
+            // Coherence gate: any instruction that is NOT a cache-participating
+            // integer op may read/write `frame.regs` directly (or call a helper
+            // that does), so make memory authoritative first.
+            if !instr_uses_int_cache(z42_func, instr) {
+                cache.flush(&mut builder, regs_base);
+            }
             match instr {
                 // C2 P1 step 5 (2026-05-28): ConstI32/I64/F64/Bool/Char/Null
                 // inline directly when dst is typed-compatible — no helper
@@ -806,7 +821,7 @@ pub fn translate_function(
                 // Cranelift defaults, at i64 width for all integer types.
                 Instruction::Add { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Add);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Add);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_add, &[frame_val, ctx_val, d, av, bv]);
@@ -815,7 +830,7 @@ pub fn translate_function(
                 }
                 Instruction::Sub { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Sub);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Sub);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_sub, &[frame_val, ctx_val, d, av, bv]);
@@ -824,7 +839,7 @@ pub fn translate_function(
                 }
                 Instruction::Mul { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Mul);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Mul);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_mul, &[frame_val, ctx_val, d, av, bv]);
@@ -851,7 +866,7 @@ pub fn translate_function(
                 // Bool result stored back inline.
                 Instruction::Eq { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Eq);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Eq);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_eq, &[frame_val, ctx_val, d, av, bv]);
@@ -859,7 +874,7 @@ pub fn translate_function(
                 }
                 Instruction::Ne { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ne);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Ne);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_ne, &[frame_val, ctx_val, d, av, bv]);
@@ -867,7 +882,7 @@ pub fn translate_function(
                 }
                 Instruction::Lt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Lt);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Lt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_lt, &[frame_val, ctx_val, d, av, bv]);
@@ -876,7 +891,7 @@ pub fn translate_function(
                 }
                 Instruction::Le { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Le);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Le);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_le, &[frame_val, ctx_val, d, av, bv]);
@@ -885,7 +900,7 @@ pub fn translate_function(
                 }
                 Instruction::Gt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Gt);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Gt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_gt, &[frame_val, ctx_val, d, av, bv]);
@@ -894,7 +909,7 @@ pub fn translate_function(
                 }
                 Instruction::Ge { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
-                        emit_i64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ge);
+                        emit_i64_cmp(&mut builder, regs_base, &mut cache, *dst, *a, *b, CmpKind::Ge);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_ge, &[frame_val, ctx_val, d, av, bv]);
@@ -937,7 +952,7 @@ pub fn translate_function(
                 // matches helper's `Value::I64(-n)`).
                 Instruction::Neg { dst, src } => {
                     if is_int_typed_unary(z42_func, *dst, *src) {
-                        emit_i64_neg(&mut builder, regs_base, *dst, *src);
+                        emit_i64_neg(&mut builder, regs_base, &mut cache, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_neg, &[frame_val, ctx_val, d, s]);
@@ -953,7 +968,7 @@ pub fn translate_function(
                 // the VM's uniform signed `>>` on all integer types.
                 Instruction::BitAnd { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitAnd);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitAnd);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_and, &[frame_val, ctx_val, d, av, bv]);
@@ -962,7 +977,7 @@ pub fn translate_function(
                 }
                 Instruction::BitOr { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitOr);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitOr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_or, &[frame_val, ctx_val, d, av, bv]);
@@ -971,7 +986,7 @@ pub fn translate_function(
                 }
                 Instruction::BitXor { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::BitXor);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::BitXor);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_bit_xor, &[frame_val, ctx_val, d, av, bv]);
@@ -980,7 +995,7 @@ pub fn translate_function(
                 }
                 Instruction::BitNot { dst, src } => {
                     if is_int_typed_unary(z42_func, *dst, *src) {
-                        emit_i64_bit_not(&mut builder, regs_base, *dst, *src);
+                        emit_i64_bit_not(&mut builder, regs_base, &mut cache, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_bit_not, &[frame_val, ctx_val, d, s]);
@@ -989,7 +1004,7 @@ pub fn translate_function(
                 }
                 Instruction::Shl { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Shl);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Shl);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_shl, &[frame_val, ctx_val, d, av, bv]);
@@ -998,7 +1013,7 @@ pub fn translate_function(
                 }
                 Instruction::Shr { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
-                        emit_i64_binop(&mut builder, regs_base, *dst, *a, *b, BinopKind::Shr);
+                        emit_i64_binop(&mut builder, regs_base, &mut cache, *dst, *a, *b, BinopKind::Shr);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_shr, &[frame_val, ctx_val, d, av, bv]);
@@ -1588,7 +1603,7 @@ pub fn translate_function(
                         && matches!(*to_tag,
                             T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
                     if inline_int {
-                        emit_i64_convert(&mut builder, regs_base, *dst, *src, *to_tag);
+                        emit_i64_convert(&mut builder, regs_base, &mut cache, *dst, *src, *to_tag);
                     } else {
                         let d = ri!(*dst);
                         let s = ri!(*src);
@@ -1650,6 +1665,11 @@ pub fn translate_function(
         }
 
         // ── Terminator ───────────────────────────────────────────────────────
+        // Block-end flush (Phase 2B): spill any dirty cached scalar back to
+        // `frame.regs` before the terminator — cross-block values travel through
+        // memory (no block params yet; that's Phase 2C), and terminators read
+        // their operands (`Ret`/`Throw` reg, `BrCond` cond) from memory.
+        cache.flush(&mut builder, regs_base);
         match &z42_block.terminator {
             Terminator::Ret { reg: None } => {
                 let zero = builder.ins().iconst(types::I8, 0);
@@ -1877,6 +1897,54 @@ fn is_int_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
     is_int(dst) && is_int(src)
 }
 
+/// jit-unbox-regalloc Phase 2B: does this instruction participate in the
+/// block-local integer-scalar cache — i.e. does it take the native
+/// `emit_i64_*` path that reads/writes the cache rather than `frame.regs`
+/// directly? Every instruction for which this is `false` must be preceded by a
+/// `cache.flush` so memory is authoritative (it either touches `frame.regs`
+/// directly — const/copy/field/array/bool/… — or calls a Category-B helper
+/// that reads/writes regs by index).
+///
+/// The condition MUST match the fast-path predicate at each op's match arm
+/// exactly: an op only reaches `emit_i64_*` (and thus the cache) when its
+/// predicate holds; otherwise it falls to the helper (non-participating). A
+/// mismatch here would either desync the cache (participating op preceded by a
+/// spurious flush is harmless; a *non*-participating op NOT flushed is a
+/// stale-memory bug) so keep them in lock-step.
+fn instr_uses_int_cache(func: &Function, instr: &Instruction) -> bool {
+    match instr {
+        Instruction::Add { dst, a, b }
+        | Instruction::Sub { dst, a, b }
+        | Instruction::Mul { dst, a, b }
+        | Instruction::BitAnd { dst, a, b }
+        | Instruction::BitOr { dst, a, b }
+        | Instruction::BitXor { dst, a, b }
+        | Instruction::Shl { dst, a, b }
+        | Instruction::Shr { dst, a, b } => is_int_typed(func, *dst, *a, *b),
+
+        Instruction::Eq { a, b, .. }
+        | Instruction::Ne { a, b, .. }
+        | Instruction::Lt { a, b, .. }
+        | Instruction::Le { a, b, .. }
+        | Instruction::Gt { a, b, .. }
+        | Instruction::Ge { a, b, .. } => is_int_cmp(func, *a, *b),
+
+        Instruction::Neg { dst, src }
+        | Instruction::BitNot { dst, src } => is_int_typed_unary(func, *dst, *src),
+
+        // Convert takes the native `emit_i64_convert` path (which reads its src
+        // via the cache) iff src is integer and to_tag is an integer width
+        // (0x02..=0x09 = I8/I16/I32/I64/U8/U16/U32/U64). Mirror the match arm.
+        Instruction::Convert { src, to_tag, .. } => {
+            let src_int = func.reg_types
+                .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
+            src_int && (0x02..=0x09).contains(to_tag)
+        }
+
+        _ => false,
+    }
+}
+
 /// Emit Cranelift native code for `frame.regs[dst] = Value::I64(op(a, b))`,
 /// loading both operands' i64 payloads via raw pointer arithmetic against
 /// the cached `regs_base` and storing back with the I64 discriminant byte.
@@ -1893,17 +1961,14 @@ fn is_int_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
 fn emit_i64_binop(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
     dst: u32, a: u32, b: u32,
     op: BinopKind,
 ) {
-    // Slot addresses via the centralized reg_access choke point.
-    let addr_a   = reg_addr(builder, regs_base, a);
-    let addr_b   = reg_addr(builder, regs_base, b);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-
-    // Load payload i64s.
-    let ai = load_payload_i64(builder, addr_a);
-    let bi = load_payload_i64(builder, addr_b);
+    // Load payload i64s — resident SSA value if cached, else load from memory
+    // (jit-unbox-regalloc Phase 2B block-local scalar cache).
+    let ai = cache.load_i64(builder, regs_base, a);
+    let bi = cache.load_i64(builder, regs_base, b);
 
     // Compute (Cranelift `iadd`/`isub`/`imul` are wrapping by default —
     // matches z42's `vm-wrapping-int-arith` semantics).
@@ -1928,8 +1993,9 @@ fn emit_i64_binop(
         }
     };
 
-    // Store discriminant (TAG_I64) then i64 payload.
-    store_const_tag(builder, addr_dst, TAG_I64, result);
+    // Cache the result as an I64-tagged value; spilled to memory at the next
+    // flush (block terminator / Category-B op / safepoint).
+    cache.store_i64(dst, result);
 }
 
 /// Emit native I64-source integer convert (Convert opcode fast path).
@@ -1943,11 +2009,10 @@ fn emit_i64_binop(
 fn emit_i64_convert(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
     dst: u32, src: u32, to_tag: u8,
 ) {
-    let addr_src = reg_addr(builder, regs_base, src);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-    let si       = load_payload_i64(builder, addr_src);
+    let si = cache.load_i64(builder, regs_base, src);
 
     // Tag constants — mirror exec_value module-private T_* (the primitive-type
     // wire tags, a DIFFERENT namespace from the `Value` discriminants).
@@ -1993,7 +2058,7 @@ fn emit_i64_convert(
         _ => si,
     };
 
-    store_const_tag(builder, addr_dst, TAG_I64, result);
+    cache.store_i64(dst, result);
 }
 
 /// Emit native `frame.regs[dst] = frame.regs[src]` for drop-free primitive
@@ -2021,13 +2086,12 @@ fn emit_primitive_copy(
 fn emit_i64_neg(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
     dst: u32, src: u32,
 ) {
-    let addr_src = reg_addr(builder, regs_base, src);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-    let si       = load_payload_i64(builder, addr_src);
-    let result   = builder.ins().ineg(si);
-    store_const_tag(builder, addr_dst, TAG_I64, result);
+    let si     = cache.load_i64(builder, regs_base, src);
+    let result = builder.ins().ineg(si);
+    cache.store_i64(dst, result);
 }
 
 /// Emit native `frame.regs[dst] = Value::I64(!src)` — bitwise NOT on i64
@@ -2036,13 +2100,12 @@ fn emit_i64_neg(
 fn emit_i64_bit_not(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
     dst: u32, src: u32,
 ) {
-    let addr_src = reg_addr(builder, regs_base, src);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-    let si       = load_payload_i64(builder, addr_src);
-    let result   = builder.ins().bnot(si);
-    store_const_tag(builder, addr_dst, TAG_I64, result);
+    let si     = cache.load_i64(builder, regs_base, src);
+    let result = builder.ins().bnot(si);
+    cache.store_i64(dst, result);
 }
 
 /// Emit Cranelift native `icmp <pred>` for `frame.regs[dst] = Value::Bool(a OP b)`
@@ -2051,17 +2114,15 @@ fn emit_i64_bit_not(
 fn emit_i64_cmp(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
     dst: u32, a: u32, b: u32,
     kind: CmpKind,
 ) {
     use cranelift_codegen::ir::condcodes::IntCC;
 
-    let addr_a   = reg_addr(builder, regs_base, a);
-    let addr_b   = reg_addr(builder, regs_base, b);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-
-    let ai = load_payload_i64(builder, addr_a);
-    let bi = load_payload_i64(builder, addr_b);
+    // Operands read via the block-local cache (Phase 2B).
+    let ai = cache.load_i64(builder, regs_base, a);
+    let bi = cache.load_i64(builder, regs_base, b);
 
     // Cranelift `icmp` returns an i8 (boolean: 0 or 1) — directly the
     // payload byte we need to write back. Signed compares since z42's
@@ -2076,7 +2137,12 @@ fn emit_i64_cmp(
     };
     let result_i8 = builder.ins().icmp(cc, ai, bi);
 
+    // The dst is a Bool, not an integer — write it straight to memory (with
+    // TAG_BOOL) and drop any stale integer cache entry for it. The consumer
+    // (a `BrCond`) reads it from memory after the block-end flush.
+    let addr_dst = reg_addr(builder, regs_base, dst);
     store_const_tag(builder, addr_dst, TAG_BOOL, result_i8);
+    cache.invalidate(dst);
 }
 
 /// Emit Cranelift native `band`/`bor` on Bool operands.

@@ -450,3 +450,53 @@ helper 回落（`numeric_lt_helper`、`int_bitop_helper`）——对所有整数
 净效果：窄整数密集代码从 helper 转 native，无需任何 spill 机制、值仍住内存（是 P5-B 之后又一块
 「免费」native 化）。验证：`scratch_bench` 全宽度混合 workload（含 U64 高位比较/移位、Convert/Neg/
 BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp；`cargo --lib` + e2e jit + 自举 5/5 全绿。
+
+## 块内整数标量缓存：`RegCache`（jit-unbox-regalloc Phase 2B）
+
+> 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。属
+> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2B。
+
+Phase 2A 之前的所有整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，每 op 一次内存
+往返——interp 也这样，JIT 只省了 dispatch。Cranelift 帮不上：VM 用 `opt_level=none`（无别名分析），
+且实测 `opt_level=speed` 也**零收益**（`regs_base` 裸指针 + 不透明 helper 调用让它无法跨 op forward，
+见 `lazy.rs`）。但**我们**有 Cranelift 没有的语义：不同 reg index 永不别名、哪些 op 是纯的。
+
+`RegCache`（`BTreeMap<reg, {payload_ssa, dirty}>`）在**单个基本块的直线整数 op 段内**把每个整数 reg
+的 unboxed i64 payload 留在 Cranelift SSA 值里：`load_i64` 命中即返回驻留值、否则从内存 load 并记
+clean；`store_i64` 只更新缓存 + 标脏、**不写内存**（延到 flush）。五整数 emitter 走它
+（`binop`/`convert`/`neg`/`bit_not` 读写缓存；`cmp` 读缓存、Bool 结果直写内存 + `invalidate(dst)`）。
+
+**只缓存整数标量**（I8..U64 全物理 `Value::I64`、tag `TAG_I64`）——Bool/Char/F64/堆值不缓存、直落
+内存，避开 tag 多态与 GC 可见性。故缓存条目 tag 恒 `TAG_I64`，spill 就是
+`store_const_tag(TAG_I64, payload)`。
+
+### 一致性不变式 + flush 汇点（正确性全靠它）
+
+> **在任何「缓存参与整数 op 之外的东西可能读/写 `frame.regs`」的点，内存必须 coherent。**
+
+`translate.rs` 用一个判据 `instr_uses_int_cache` 统一守住：**非参与缓存的指令前一律先 `flush`**
+（spill 脏条目 + 清空）。这一条覆盖了所有汇点——
+
+- **块终结子前**：terminator 是独立 `Terminator` 枚举、在指令循环后单点 flush（跨块值走内存，2B 不引
+  block param）；
+- **每个 Category-B helper / Call / VCall / ObjNew / Builtin / const / copy / field / array / bool 前**：
+  它们直接读写 `frame.regs` 或按 index 调 helper。**`check!` 宏拆 Cranelift 块的点必是 helper 调用**、
+  已被此规则 flush → **缓存 SSA 值永不跨 Cranelift 块边界**（否则 dominance/staleness 都会出问题）；
+- **safepoint**（`emit_safepoint_check`）出现在 Br/BrCond/Call 后，已被上面覆盖；
+- **每个 z42 块开头**新建空 `RegCache`（前驱在其 terminator 已 flush → 内存权威）。
+
+`instr_uses_int_cache` 必与各 op 快路径谓词**逐一对齐**：某 op 只在其谓词成立时才走 `emit_i64_*`
+（进缓存），否则回落 helper（非参与）。两者失配 = 非参与 op 未 flush 读到脏内存 = bug。**OSR 无关**
+（OSR 只在块入口进入，缓存从块头 load 起步）。空缓存 flush（`std::mem::take` 空 `BTreeMap`）**发零条
+机器指令**，故控制流密集代码零回归。spill 顺序按 reg index（`BTreeMap`）→ 确定性 codegen。
+
+### 收益范围（实测诚实标注）
+
+- **理想场景**——长直线算术块、值重度复用（无分支无调用）：**JIT 2B 比 JIT 2A 快 1.30×**
+  （byte-identical）。「块内多次触及同一值省掉中间往返」的直接兑现。
+- **控制流/调用密集代码**：**基本持平**——if 分支与 helper 调用把基本块切碎到复用距离之下，块内缓存
+  跨不过去。**单次触及的 loop-carried 标量（`s+=…`）零收益**——那是 Phase 2C（跨块 block-param 驻留）
+  的领域。
+
+即 2B 是**数值/表达式内核**的真实局部胜利、对一般控制流代码中性无害。验证：`cargo --lib` + e2e
+interp==jit 逐字节 + 自举 5/5 gen1==gen2 + stdlib 全绿。

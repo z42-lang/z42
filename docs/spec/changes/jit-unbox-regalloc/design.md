@@ -72,8 +72,14 @@ block param 到这些站点 + OSR 入口重建。
   `int_bitop_helper` 均 `x<y`/`x>>(y&63)`），故 native 沿用有符号 `icmp`/`sshr`，**不引入**
   `icmp Unsigned*`/`ushr`（否则 native 会与 helper 回落 + interp 双双背离，破 `vm-jit-consistency`）。
   真正无符号 U64 是独立 VM 级变更，不在本 change。值仍住内存，无 spill 机制。
-- **2B**：块内 local value numbering，缓存 unboxed SSA 值；spill 汇点 = 块终结子前（A7）∪ Category-B
-  调用前+后失效（A3/A4）∪ safepoint 前（A4）。OSR 无关（A5，块头从内存起）。
+- **2B ✅**：`reg_access.rs` 的 `RegCache`——**只缓存整数标量 i64 payload**（I8..U64 全 `Value::I64`；
+  Bool/Char/F64/堆值不缓存直落内存）。五整数 emitter 走 `load_i64`/`store_i64`；`_cmp` 缓存读、Bool
+  结果直写内存 + `invalidate(dst)`。**flush（spill 脏 + 清空）由 `translate.rs` 在非参与缓存指令前统一
+  触发**（`instr_uses_int_cache`==false → flush），覆盖块终结子前（terminator 独立枚举、指令循环后单点
+  flush，A7）∪ Category-B 调用前（A3/A4；`check!` 拆块点必是 helper 调用故已覆盖 → 缓存 SSA 值永不跨
+  Cranelift 块边界）∪ safepoint（A4，在 Br/BrCond/Call 后已覆盖）∪ 块开头新建空缓存。空缓存 flush 发零
+  机器指令（控制流代码无回归）。OSR 无关（A5，块头从内存起）。**实测**：理想直线算术块重度复用 2B 比 2A
+  快 **1.30×**；控制流/调用密集持平（块被切碎）；loop-carried 单次触及零收益（→2C）。
 - **2C**：循环头 block param（A7 的 threading + SSA 构造）；出口 spill；**OSR 入口从 `frame.regs` load
   param 再 jump**（A5）。风险最高，建议单独 mini-DRAFT + `Z42_OSR_THRESHOLD=1` 全压测。
 
