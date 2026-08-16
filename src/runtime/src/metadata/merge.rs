@@ -8,24 +8,13 @@ use super::bytecode::{BasicBlock, Instruction, Module};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
-/// Build `interned_strings` from the final `string_pool` so every
-/// `Module` returned by `merge_modules` (whether the fast path or the
-/// multi-module merge) is consistent: `interned_strings.len() ==
-/// string_pool.len()`.
-///
-/// Why inside merge.rs instead of a caller responsibility: every consumer
-/// of `merge_modules` needs interned_strings populated. Five separate
-/// call sites had this responsibility (loader.rs × 2 / host/ops.rs /
-/// main.rs / test-runner bootstrap) and one was missed (test-runner) —
-/// surfaced as `"string pool index N out of range"` panics in stdlib
-/// tests. The architectural fix is to make the population a guaranteed
-/// post-condition of merge_modules instead of a manual step.
-fn populate_interned_strings(module: &mut Module) {
-    module.interned_strings = module.string_pool
-        .iter()
-        .map(|s| crate::metadata::vstr::Str::from(s.as_str()))
-        .collect();
-}
+/// **unify-gc-heap PR-4 (2026-08-16)**: previously materialized `interned_strings`
+/// (a `Vec<Str>` mirror of `string_pool`) as a guaranteed post-condition of
+/// `merge_modules`. String bytes now live in the GC heap, which does not exist at
+/// merge/load time — so this is a **no-op**; interning is lazy + per-context (see
+/// `VmContext::intern_const_str`). Retained so the `merge_modules` call sites need
+/// no change (field removal deferred to PR-5). `interned_strings` stays empty.
+fn populate_interned_strings(_module: &mut Module) {}
 
 /// Merge an ordered sequence of IR modules into a single flat module.
 ///

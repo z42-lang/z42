@@ -804,11 +804,18 @@ impl VarGcRef {
     /// array element block (`Boxed`/packed/`struct[]`) without wiring a heap. Callers write
     /// the payload through `payload_as_ptr` before reading. Same intentional-leak contract as
     /// [`leak_for_test`](Self::leak_for_test) (never run under Miri's leak checker).
-    #[cfg(test)]
-    pub(crate) fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
+    /// Allocate a **standalone, leaked** block of `payload` zero-initialized bytes,
+    /// owned by no `VarRegion` (never marked/swept/freed). Backs the ambient-heap-less
+    /// fallback of `Str::new` (unify-gc-heap PR-4): unit tests without a VM and any
+    /// mock heap with no variable-length region. The leak is acceptable there — such
+    /// contexts are process-scoped or short-lived (a test binary) and allocate a
+    /// bounded set. **Production execution always has an active ambient heap**, so
+    /// this path is never taken on a hot path. Callers write the payload through
+    /// [`payload_as_ptr`](Self::payload_as_ptr) before reading it back.
+    pub fn alloc_leaked(payload: usize, block_type: BlockType) -> Self {
         let (footprint, size_class) = class_for(payload);
         let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak block layout");
-        // SAFETY: non-zero layout; leaked (never freed) — acceptable for test fixtures.
+        // SAFETY: non-zero layout (footprint >= MIN_BLOCK); leaked (never freed).
         let raw = unsafe { alloc(layout) };
         let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
         // SAFETY: fresh 8-aligned allocation large enough for the header + `payload` bytes.
@@ -824,6 +831,11 @@ impl VarGcRef {
             std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
         }
         VarGcRef::pack(header, 0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
+        Self::alloc_leaked(payload, block_type)
     }
 
     #[cfg(test)]

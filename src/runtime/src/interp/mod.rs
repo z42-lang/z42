@@ -744,6 +744,12 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     #[cfg(feature = "native-interop")]
     let _vm_guard = crate::native::exports::VmGuard::enter(ctx);
 
+    // unify-gc-heap PR-4 (D11): scope this frame's heap as the ambient GC heap so
+    // heap-less `Str::new` / `.into()` sites can allocate GC string blocks. Nests
+    // safely (restored on exit); covers nested JIT calls, which run under this
+    // guard without re-installing one.
+    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+
     let block_map = &func.block_index;
     let mut block_idx = 0usize;
 

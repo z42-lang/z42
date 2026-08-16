@@ -16,19 +16,14 @@ pub(super) fn const_str(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, idx: u32,
 ) -> Result<()> {
     let i = idx as usize;
-    // review.md C3 / Part 5 P3 Phase 1 (2026-06-03,
-    // add-string-literal-interning-phase1): clone the pre-interned `Arc<str>`
-    // (atomic refcount inc, zero heap alloc) instead of the old
-    // `String.clone() + .into::<Arc<str>>()` two-allocation pattern.
-    let s = if let Some(arc) = module.interned_strings.get(i) {
-        arc.clone()
-    } else if let Some(raw) = module.string_pool.get(i) {
-        // `interned_strings` is an Arc<str> CACHE of `string_pool`
-        // (build_interned_strings copies it). The loader populates the cache,
-        // but programmatically-built Modules (tests / direct constructors) may
-        // set only `string_pool` — fall back to it for correctness.
-        // (fix CI: native_interop z42_str marshal "string pool index out of range".)
-        crate::metadata::vstr::Str::from(raw.as_str())
+    // unify-gc-heap PR-4: string bytes live in the GC heap now, so the interned
+    // pool can't be materialized at module-load time (no heap exists then). Intern
+    // lazily from the live heap + cache per-context (`intern_const_str`, main pool),
+    // falling back to the lazy-overflow pool for indices past it. This preserves the
+    // amortization the old pre-interned `Vec<Str>` gave (first hit allocs, later hits
+    // copy the 8-byte handle), but heap-safe.
+    let s = if let Some(s) = ctx.intern_const_str(module, i) {
+        s
     } else if let Some(arc) = ctx.try_lookup_string(i) {
         // ConstStr from a lazily-loaded function — idx is offset past main pool.
         arc
