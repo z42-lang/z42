@@ -307,6 +307,74 @@ push free_list）。`heap_registry: Vec<WeakRef>` 字段已删除 —— region
 `ArcMagrGC`。z42 现有架构所有 GcRef 都活在 VmContext 范围内，契约
 天然满足。Embedder 需注意 drop order。
 
+### 变长块堆：统一变长 payload 到单一 GC 堆 (unify-gc-heap, 2026-08)
+
+定长 `Region<T>` 只能存**定长头**（`ScriptObject` / `ArrayObj`）；string 的字节、
+closure 的 `ClosureData`、array 的元素后端原本各自在 GC **外**（手写 thin-Arc /
+`Box` / 外部 `Vec`）——两套内存管理并存。**unify-gc-heap** 把这三类变长 payload
+全部收进 GC，达成 CLR/JVM 式的**单一堆**（为将来移动/压缩/去重 GC 铺路）。
+
+**分配器方向 = A'（变长块 region）**：新增第三个 region
+`region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](../../../src/runtime/src/gc/var_region.rs)），
+与 `region_object` / `region_array` 并列、同一 mark/sweep cycle 回收。一个变长对象 =
+**单块 `{GcBlockHeader, inline payload…}` 单次分配**（等价原 thin-Arc 的紧凑度，但纳入 GC）。
+
+```
+VarRegion 变长块（16B 对齐原始 chunk + 2 的幂 size-class free-list + oversized 专用块）
+┌──────────────── GcBlockHeader (16B, repr(C,align8)) ────────────────┐┌── payload (8B 对齐) ──┐
+│ generation │ size │ marked │ alive │ type_tag(BlockType) │ size_class ││  inline bytes / [T;n]  │
+└─────────────────────────────────────────────────────────────────────┘└───────────────────────┘
+   ▲ VarGcRef = type-erased 8B 标记指针（low48 地址 + high16 gen；wasm32 用 {ptr,gen}）
+   payload 指针必须从原始 NonNull 派生（D8：绝不经窄 &GcBlockHeader reborrow → SB UB）
+```
+
+**BlockType 分派**（`var_drop_glue`，注入 region 让 `var_region.rs` 保持纯字节分配器）：
+
+| BlockType | payload | 消费者 | drop-glue |
+|-----------|---------|--------|-----------|
+| `Str` | inline UTF-8 | `Value::Str` / `FuncRef`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
+| `Closure` | 一个 `ClosureData{env: GcRef, fn_name: Str}` | `Value::Closure` | **POD，无**（PR-5：fn_name 迁 GC Str 后闭包全 POD）|
+| `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
+| `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
+
+**分配落地 = ambient 堆**（[`gc/ambient.rs`](../../../src/runtime/src/gc/ambient.rs)）：`current_heap()` +
+`HeapGuard` 在 `exec_function`（interp 每帧）/ `jit::run_fn`（JIT 顶层）设 thread-local，
+`Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
+回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
+
+**驻留串 = lazy per-context interning**（D-lazy）：加载期无堆 → 不物化；首次 `ConstStr(idx)`
+经 `VmContext::intern_const_str(module, idx)` 用活堆分配 + 缓存进 `interned_cache`
+（`(module ptr, idx)` 键），缓存项经 external root scanner 注册为 **GC root**。
+
+**mark/trace 统一到单一访问器**（PR-5）：`Value::visit_gc_children(for_marking, visit)` 是
+mark 阶段与 heapsnapshot/retention 枚举的**单一来源**，二者仅在两条 mark 副作用轴上不同
+（`mark_backing` 标变长元素块 + 闭包是否 surfaced env 头/fn_name），由 `for_marking` 参数统一；
+`trace_children`（`for_marking=true`）/ `scan_object_refs`（`false`）退化为薄委托。
+
+```mermaid
+flowchart TD
+  MARK["mark_phase BFS<br/>(STW / minor / concurrent 同源)"] -->|"mark_if_unmarked(v)"| M{"v 是堆引用?"}
+  M -->|"Object/Array"| RO["GcRef::mark → region_object/array 置位"]
+  M -->|"Closure/Str/FuncRef"| RV["VarGcRef::mark → region_var 块置位"]
+  RO --> TC["v.visit_gc_children(true, push child)"]
+  RV --> TC
+  TC -->|"Array"| MB["mark_backing() 标元素块 + 推 gc_refs"]
+  TC -->|"Closure"| CE["推 env 数组头 + fn_name 串"]
+  TC --> Q["子节点入队 → 循环"]
+  SWEEP["sweep_phase (mark 后, STW)"] --> S3["region_object/array/var 各自 sweep<br/>未标块 → drop-glue(仅 ArrayValue) → tombstone/回收"]
+```
+
+**safepoint = 几乎免费**（关键去风险，D-safepoint）：`maybe_auto_collect` 在 wired VmCore 下**只置
+`needs_auto_collect` 标志、延到 `check_safepoint` 才 collect**（默认 `max_bytes=None` 全不
+auto-collect）→ GC 从不在单条指令/builtin 的 Rust 执行中途运行 → 临时 string 落寄存器前天然安全
+（frame regs 已被 root scanner 扫），与既有 Object/Array 临时值同一不变式。
+
+**权衡（已由 User 裁决接受）**：纳入 GC 换掉 Arc/Box 的**确定性释放** → 浮动垃圾↑、内存峰值↑；
+收益是**架构统一 + 为移动/压缩/去重 GC 铺路**，非短期性能。实测 string-heavy 吞吐反而 **1.76× 更快**
+（消除原子 refcount：Clone=8B 拷贝、Drop=no-op），峰值 RSS +13%（默认不 auto-collect 累积）。
+四个 PR（分配器原语 → closure → array backing → string）+ PR-5 收敛的完整原理见变更容器
+[`docs/spec/changes/unify-gc-heap/design.md`](../../spec/changes/unify-gc-heap/design.md)。
+
 ### Write barrier contract (add-write-barriers, 2026-05-21)
 
 `MagrGC` trait 包含两个 write-barrier 钩子：
@@ -667,13 +735,19 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
 | **add-gc-snapshot-streaming** | `gc/snapshot.rs` 新增 `serialize_v8_heapsnapshot_to<W: Write>` 流式直写 + `escape_json_str_to<W: Write>`；`serialize_v8_heapsnapshot` 改为薄包装（byte-identical）；`builtin_gc_write_heap_snapshot` 改用 `BufWriter<File>` + `flush()`，消除中间 `String`。Pure perf，无行为变化 | ✅ 2026-05-24 add-gc-snapshot-streaming |
 | **B1 OOM exception** | `Std.OutOfMemoryException` 新类型 + interp `obj_new`/`array_new`/`mk_clos` alloc 后 Null 检测 → throw OOM；double-OOM 防卫（disable strict 再 alloc exception 对象）；`GC.SetMaxHeapBytes` / `GC.SetStrictOOM` 两个新 builtin | ✅ 2026-05-25 add-gc-oom-exception |
 | **B2 soft handles** | `SoftRegistry`（`gc/soft_registry.rs`）+ 压力阈值判定（`Z42_GC_SOFT_THRESHOLD` 默认 0.80）+ `__soft_handle_create` / `__soft_handle_get` builtins + `Std.SoftHandle` 类（z42.core）。原子值 Create → Get 始终 null | ✅ 2026-05-26 add-gc-softref |
+| **unify-gc-heap（单一堆）** | 变长 payload（string / closure / array backing）全收进 GC 变长块 region（`gc/var_region.rs`，A' 分配器，见上「变长块堆」节）。PR-1 分配器原语 → PR-2 closure → PR-3 array backing → PR-4 string（ambient 堆 + lazy per-ctx interning）→ PR-5 收敛（fn_name 迁 GC Str 删 closure drop-glue + 合并 visit_gc_children + 删 interned_strings 死代码）。达成单一堆 payload 闭合，为移动/压缩 GC 铺路 | ✅ 2026-08 unify-gc-heap PR-1~5 |
 
 至此 GC 主功能完整，可投产。后续可选迭代见下文 ["GC 后续迭代规划"](#gc-后续迭代规划) 段。
 
 ## 字符串脚本化的未来动机
 
-当 Phase 2/3 GC 成熟（环检测 + 追踪），字符串可以从 `Value::Str(String)`
-primitive 迁移成 `Value::Object(...)` 包装的脚本类（z42 源码实现 BCL `String`），
+> **进展（unify-gc-heap PR-4/5, 2026-08）**：string 的**字节存储**已纳入单一 GC 堆
+> （`Value::Str(VarGcRef)`，`BlockType::Str` 变长块，见上「变长块堆」节）——迈出「字符串
+> GC 化」的第一步。下面这个更远的目标（把 `string` 做成 `Value::Object` 包装的脚本类）尚未做，
+> 但 string 已是 GC 对象，为之扫清了内存管理层的障碍。
+
+当 Phase 2/3 GC 成熟（环检测 + 追踪），字符串可以从 `Value::Str` primitive 进一步
+迁移成 `Value::Object(...)` 包装的脚本类（z42 源码实现 BCL `String`），
 届时 z42 源码可承担更多 string 方法实现，进一步减少 Rust 端硬编码 builtin。
 这与 2026-04-24 起的 simplify-string-stdlib / wave1-string-script 系列重构方向一致。
 

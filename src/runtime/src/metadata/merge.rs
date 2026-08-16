@@ -8,14 +8,6 @@ use super::bytecode::{BasicBlock, Instruction, Module};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
-/// **unify-gc-heap PR-4 (2026-08-16)**: previously materialized `interned_strings`
-/// (a `Vec<Str>` mirror of `string_pool`) as a guaranteed post-condition of
-/// `merge_modules`. String bytes now live in the GC heap, which does not exist at
-/// merge/load time — so this is a **no-op**; interning is lazy + per-context (see
-/// `VmContext::intern_const_str`). Retained so the `merge_modules` call sites need
-/// no change (field removal deferred to PR-5). `interned_strings` stays empty.
-fn populate_interned_strings(_module: &mut Module) {}
-
 /// Merge an ordered sequence of IR modules into a single flat module.
 ///
 /// Merge rules:
@@ -32,7 +24,6 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
         let mut m = modules.into_iter().next().unwrap();
         // Canonicalise: ensure no stale indices (no-op remap with offset 0)
         remap_functions(&mut m.functions, 0, 0);
-        populate_interned_strings(&mut m);
         return Ok(m);
     }
 
@@ -70,16 +61,13 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
         }
     }
 
-    let mut merged = Module {
+    let merged = Module {
         name, string_pool, classes, functions,
         type_registry: HashMap::new(),
         type_registry_vec: Vec::new(),
         func_index: HashMap::new(),
         func_ref_cache_slots: func_ref_slot_total,
-        // Populated below by `populate_interned_strings`.
-        interned_strings: Vec::new(),
     };
-    populate_interned_strings(&mut merged);
     Ok(merged)
 }
 

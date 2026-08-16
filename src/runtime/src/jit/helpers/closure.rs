@@ -97,9 +97,11 @@ pub unsafe extern "C" fn jit_mk_clos(
             _ => unreachable!("alloc_array must return Value::Array"),
         };
         // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+        // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
+        let fn_name = vm_ctx_ref(ctx).heap().alloc_str(&name);
         vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData {
             env,
-            fn_name: name,
+            fn_name,
         })
     };
     frame_ref.regs[dst as usize] = value;
@@ -137,7 +139,7 @@ pub unsafe extern "C" fn jit_call_indirect(
         Value::FuncRef(n) => (n.to_string(), None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
-            (data.fn_name.clone(), Some(Value::Array(data.env.clone())))
+            (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
         }
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;

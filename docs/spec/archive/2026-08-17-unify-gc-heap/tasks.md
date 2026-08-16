@@ -10,7 +10,7 @@
 - [x] **PR-2**: delegate/closure 进 GC（+ heap 接线 2.0）—— 本地全绿 commit 5c910cd6（cargo 965 + Miri + self-host 5/5 逐字节 + e2e closures 12/delegates 26/gc 20 全绿）
 - [x] **PR-3**: array backing 进 GC（`ArrayBacking` Vec→GC 变长块；packed/struct[] 全迁）—— 本地全绿（cargo 965+21 + Miri var_region 14 + array/struct 块访问 types_tests 31 clean 0 UB + self-host 5/5 逐字节 + xtask test GREEN 全 stage C#-free）。StackVec 变体保留逃逸分析栈数组非 GC；删 derive(Clone)→deep_copy；两块 struct[]（bytes ArrayStruct POD + refs ArrayValue）
 - [x] **PR-4**: string 进 GC（最难：弥散 `.into()` + lazy per-ctx interning + ambient 堆 D11）✅ 2026-08-16 — 单一堆 payload 闭合
-- [ ] **PR-5**: 收敛 + 文档（删双路径残留；gc.md/object-abi/roadmap 收口）
+- [x] **PR-5**: 收敛 + 文档 ✅ 2026-08-17 —— ① 删 interned_strings/JitModuleCtx.string_pool 死代码链（d6ac7831）② ClosureData.fn_name String→GC Str，闭包全 POD 删 BlockType::Closure drop-glue（a48a6401）③ trace_children/scan_object_refs 合并为 visit_gc_children(for_marking) 单一访问器（4290aef5）④ docs（gc.md「变长块堆」机制页+mermaid、object-abi §5/§6、roadmap）。**事实校正**：frame `Arc<str>`（诊断元数据、非 Value::Str payload、perf-frame-name-precompute 热路径）**保留不迁**；element_type `Arc<str>` 延后
 
 > 重排理由（D10）：closure/array 创建点全持 `ctx`（`ctx.heap()` 可分配），string 创建弥散在无 ctx 自由上下文 + interned 串加载期建（堆未存在）→ string 是**分配管线最难**而非最易。先用 closure 把变长分配器→mark→trace→sweep 全链路 battle-test，string 放最后。原 PR-2(string)/PR-3(closure)/PR-4(array) 编号已按新序调整。
 
@@ -55,11 +55,11 @@
 - [x] 4.5 ~189 处 `.into()` 保持不变（ambient 堆）；`fn_name`/`element_type`/frame `Arc<str>`（Rust 内部 bookkeeping，非 `Value::Str`）**顺带迁延 PR-5 收敛**（不影响 string-payload 进 GC 闭合）
 - [x] 4.6 benchmark（string-heavy 实测）：**吞吐 1.76× 更快**（消除原子 refcount）+ 峰值 RSS +13%（默认不 auto-collect 累积）——预期代价实为吞吐净赢；GREEN cargo 970 + Miri 14/0 + `xtask test` self-host 5/5 逐字节 + e2e `gc_string_survives_collect`（interp+jit）
 
-## PR-5: 收敛 + 文档
-- [ ] 5.1 删 Arc/Box/外部 Vec 双路径残留；收敛 `trace_children` vs `scan_object_refs` 双 visitor（若时机合适）
-- [ ] 5.2 mark/sweep/write-barrier/内存统计口径统一到单一堆
-- [ ] 5.3 docs：`gc.md`/`gc-handle.md`（变长分配器 + 单一堆 + A' 原理，配 mermaid/伪代码）、`object-abi.md` §5（string 进 GC 落地）/§6（移动 GC 衔接）、`roadmap.md` 收口
-- [ ] 5.4 GREEN 全绿 + dist；change 容器归档
+## PR-5: 收敛 + 文档 ✅ 完成（2026-08-17）
+- [x] 5.1 删 interned_strings/JitModuleCtx.string_pool 死代码双路径（PR-4 lazy interning 后 write-only）；收敛 `trace_children` vs `scan_object_refs` → 单一 `Value::visit_gc_children(for_marking, …)`（mark 委托 true、枚举委托 false，逐臂等价）
+- [x] 5.2 `ClosureData.fn_name` String→GC `Str` → 闭包块全 POD → 删 `var_drop_glue` 的 `BlockType::Closure` 分支（region_var 现仅 `ArrayValue` 需 finalizer）；mark 经 visit_gc_children 统一（trace_children 新增 fn_name 边）。**frame `Arc<str>` 保留**（诊断非 payload，事实校正）；`element_type` 延后
+- [x] 5.3 docs：`gc.md`「变长块堆」机制页（A' 变长分配器 + block layout + mermaid + safepoint/ambient/lazy-intern 原理）+ Phase 路线行 + 字符串脚本化动机更新；`object-abi.md` §5（PR-5 收敛落地 + frame Arc<str> 保留说明）；`roadmap.md`（unify-gc-heap 行 + 标 string-全-GC follow-up 完成）。`gc-handle.md` 不涉（其为 Std.GCHandle 用户 API，非内部 VarGcRef）
+- [x] 5.4 GREEN 全绿 + change 容器归档（见 §归档）
 
 ---
 

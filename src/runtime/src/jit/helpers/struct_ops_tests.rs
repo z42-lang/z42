@@ -18,7 +18,6 @@ use crate::vm_context::VmContext;
 /// Build a minimal JIT ctx whose only live field is `vm_ctx` (module dangles).
 fn make_jit_ctx(vm_ctx: &VmContext) -> JitModuleCtx {
     JitModuleCtx {
-        string_pool:      Vec::new(),
         fn_entries_by_id: Vec::new(),
         module:           std::ptr::null(),
         lazy:             std::ptr::null(),

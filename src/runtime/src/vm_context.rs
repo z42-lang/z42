@@ -426,8 +426,8 @@ pub struct VmContext {
     pub(crate) func_ref_slots:    Arc<Mutex<Vec<Value>>>,
     /// **unify-gc-heap PR-4**: per-context lazy interning cache for `ConstStr` pool
     /// literals. The `Str` bytes moved into the GC heap, but the interned pool is
-    /// built at module *load* time when no heap exists — so instead of materializing
-    /// `Module.interned_strings` at load, the first `ConstStr(idx)` allocates a GC
+    /// built at module *load* time when no heap exists — so instead of an eager
+    /// load-time interned pool, the first `ConstStr(idx)` allocates a GC
     /// string from the live heap and caches it here (keyed by `(module ptr, idx)`).
     /// Cached entries are **GC roots** (scanned by the external root scanner), so the
     /// interned strings survive collection while this context is alive; subsequent

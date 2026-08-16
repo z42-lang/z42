@@ -829,7 +829,8 @@ pub fn translate_function(
                 // C2 P1 step 5 (2026-05-28): ConstI32/I64/F64/Bool/Char/Null
                 // inline directly when dst is typed-compatible — no helper
                 // call. ConstStr still goes through the helper because it
-                // needs ctx.string_pool lookup + bounds check + Arc::clone.
+                // lazily allocates + caches the GC string via
+                // `vm.intern_const_str` (see `jit_const_str`).
                 //
                 // Safety: previous slot value at `dst` is statically known
                 // by reg_types to be the matching primitive type (or Null

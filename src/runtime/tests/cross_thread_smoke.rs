@@ -442,7 +442,6 @@ fn make_void_action_module(fn_name: &str) -> Module {
         type_registry_vec:   Vec::new(),
         func_index,
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     }
 }
 

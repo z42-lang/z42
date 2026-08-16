@@ -110,13 +110,22 @@ ObjectHeader {
 - **驻留/字面量串**：**lazy per-context interning**——加载期**不**物化（无堆），首次 `ConstStr(idx)`
   用活堆分配 GC string + 缓存进 `VmContext.interned_cache`（`(module ptr, idx)` 键），缓存项经
   external root scanner 注册为 **GC root**；后续命中拷 8B 句柄。原 `Module.interned_strings`（加载期
-  `Vec<Str>`）已废（`build/populate_interned_strings` no-op，字段留空待 PR-5 删）。
+  `Vec<Str>`）+ 其 JIT 镜像 `JitModuleCtx.string_pool` + `build/populate_interned_strings` no-op
+  producer **已于 PR-5 删除**（write-only 死代码，运行期全走 `intern_const_str`）。
 - **safepoint 安全**：GC 只在显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条
   指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。**User 已接受（架构统一优先，非短期性能）**。
-- (Deferred)小字符串内联优化(SSO)；`ClosureData.fn_name`/`ArrayObj.element_type`/frame `Arc<str>` 等
-  **Rust 内部 bookkeeping 串**顺带迁 GC string（PR-5 收敛，非 `Value::Str`，不影响本节闭合）。
+- **✅ PR-5 收敛（2026-08-17）**：`ClosureData.fn_name` `String` → GC `Str`（8B），闭包块随之全 POD
+  → 删 `var_drop_glue` 的 `BlockType::Closure` 分支（region_var 现仅 `ArrayValue` 需 finalizer）；
+  `trace_children`（mark）/ `scan_object_refs`（枚举）两个近重复访问器合并为单一
+  `Value::visit_gc_children(for_marking, …)`。
+- **不迁移的 `Arc<str>`（事实校正）**：frame 栈帧名/文件名（`VmFrame.func_name`/`file`、
+  `Function.frame_meta`）**保留 `Arc<str>`**——它们是**诊断/栈回溯元数据、非 `Value::Str` GC payload**，
+  且刻意 `Arc<str>` 以与 JIT `FnEntry` 共享、每次调用 O(1) clone（`perf-frame-name-precompute` 的收益）；
+  迁进 GC 堆会**回退**该热路径、增加分配，与本程序意图相反 → **不动**。`ArrayObj.element_type: Arc<str>`
+  触及 heap-less/leaked/test 构造点，**延后**（非 payload 闭合所需）。
+- (Deferred)小字符串内联优化(SSO)；`ArrayObj.element_type` 迁 GC string / type-id。
 
 ### 5.1 Finalizer
 不透明 native(FileHandle/Stream)被收集时释放底层资源 → 需 **finalizer 队列**。经典坑(非确定/顺序/resurrection)→ **首选显式 close/dispose,finalizer 仅兜底**。
