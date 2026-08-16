@@ -1734,8 +1734,6 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
         type_registry_vec: Vec::new(),
         func_index: std::collections::HashMap::new(),
         func_ref_cache_slots,
-        // Populated by `loader::build_interned_strings` after deserialize.
-        interned_strings: Vec::new(),
     })
 }
 
@@ -2229,7 +2227,6 @@ fn read_mods_section(
             func_ref_cache_slots: 0,
             // Populated inside `merge_modules` (these per-namespace modules
             // are always merged before consumption).
-            interned_strings: Vec::new(),
         }, namespace, tidx_bytes));
 
         sig_offset += func_count;

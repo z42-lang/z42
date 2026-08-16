@@ -90,7 +90,6 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         type_registry_vec: Vec::new(),
         func_index: HashMap::new(),
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     }
 }
 
@@ -402,7 +401,6 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         type_registry_vec: Vec::new(),
         func_index: HashMap::new(),
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     }
 }
 
@@ -495,7 +493,6 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         type_registry_vec: Vec::new(),
         func_index: HashMap::new(),
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     };
     let func = &m.functions[0];
     let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
@@ -553,7 +550,6 @@ fn z42_str_with_interior_nul_traps_marshal() {
         type_registry_vec: Vec::new(),
         func_index: HashMap::new(),
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     };
     let func = &m.functions[0];
     let err = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])

@@ -111,7 +111,6 @@ mod make_stdlib_exception_tests {
             type_registry_vec: Vec::new(),
             func_index: HashMap::new(),
             func_ref_cache_slots: 0,
-            interned_strings: Vec::new(),
         }
     }
 

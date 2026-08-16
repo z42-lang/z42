@@ -243,12 +243,6 @@ pub struct LazyTable {
 /// Mutex-guarded compiler) exactly once. The former by-name `fn_entries` HashMap
 /// is gone — name lookups go through `module.func_index → resolve_fn_by_id`.
 pub struct JitModuleCtx {
-    /// Interned string constants (mirrors `Module::interned_strings`).
-    /// review.md C3 Phase 1 (2026-06-03, add-string-literal-interning-phase1):
-    /// pre-interned `Arc<str>` per pool slot; `jit_const_str` clones the
-    /// Arc (atomic refcount inc, zero alloc) instead of the prior
-    /// `String.clone() + .into::<Arc<str>>()` two-alloc path.
-    pub string_pool: Vec<crate::metadata::vstr::Str>,
     /// Compiled function table — slot `i` corresponds to `module.functions[i]`
     /// (== `MethodId.0` == `module.func_index[name]`). Pre-sized once and never
     /// resized, so a slot's address is stable and `OnceLock::get()` hands out a
