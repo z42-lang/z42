@@ -251,6 +251,36 @@ pub unsafe extern "C" fn jit_field_get(
         .unwrap_or("<invalid>");
     let obj_val = &(*frame).regs[obj as usize];
     let val = match obj_val {
+        // fix-jit-osr-stackobject: under OSR the interp portion may have created a
+        // stack-allocated object (escape analysis) that is live in `frame.regs` when
+        // the JIT takes over. Mirror interp `field_get` — resolve via the per-context
+        // stack arena, reusing the same monomorphic `FieldIC` as the heap path.
+        // (Non-OSR JIT never produces a StackObject, so this arm only fires on the OSR
+        // entry path. See `jit_array_get` for the StackArray analogue.)
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            let res = vm_ctx_ref(ctx).stack_arena.lock().with_obj(idx, frame_id, |obj| {
+                if !ic_ptr.is_null() {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                        return obj.field_value(slot as usize);
+                    }
+                    if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
+                        return obj.field_value(slot);
+                    }
+                    return Value::Null;
+                }
+                match obj.type_desc.field_index.get(field_name) {
+                    Some(&slot) => obj.field_value(slot),
+                    None => Value::Null,
+                }
+            });
+            match res {
+                Ok(v) => v,
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            }
+        }
         Value::Object(rc) => {
             let b = rc.borrow();
             // PIC fast path (review.md C4 P2 — 4-slot linear scan).
@@ -299,6 +329,36 @@ pub unsafe extern "C" fn jit_field_set(
     let v = (*frame).regs[val as usize].clone();
     let owner = (*frame).regs[obj as usize].clone();
     match &owner {
+        // fix-jit-osr-stackobject: OSR-entry stack object — write the slot in the
+        // arena (validated), mirroring interp `field_set`. No GC write barrier: the
+        // stack object is not a heap slot; its heap-ref fields are kept live by
+        // root-scanning the arena. Reuses the same FieldIC as the heap path. See
+        // `jit_field_get` / `jit_array_set`.
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            let res = vm_ctx_ref(ctx).stack_arena.lock().with_obj_mut(idx, frame_id, |obj| {
+                let slot_opt: Option<usize> = if !ic_ptr.is_null() {
+                    let recv_type = obj.type_desc.id.0;
+                    if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                        Some(slot as usize)
+                    } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
+                        crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
+                        Some(slot)
+                    } else {
+                        None
+                    }
+                } else {
+                    obj.type_desc.field_index.get(field_name).copied()
+                };
+                if let Some(slot) = slot_opt {
+                    obj.set_field_value(slot, &v);
+                }
+            });
+            match res {
+                Ok(()) => 0,
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
+            }
+        }
         Value::Object(rc) => {
             let mut b = rc.borrow_mut();
             // PIC fast path
