@@ -267,23 +267,24 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// **unify-gc-heap PR-2/PR-3**: payload finalizer for the variable-length region, dispatched by
-/// block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
+/// **unify-gc-heap PR-2/PR-3/PR-5**: payload finalizer for the variable-length region, dispatched
+/// by block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
 /// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
-/// - `Closure` → one `ClosureData` (its `fn_name: String`; `env` is a no-op-`Drop` `GcRef`).
 /// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
-///   `struct[]`'s reference side-table — some are `Str` with a refcount to decrement).
-/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) → POD leaves, nothing to drop.
+///   `struct[]`'s reference side-table). Since PR-4 `Value::Str` is itself a GC handle (no
+///   refcount), so these Values are all trivially droppable — but the arm is retained because
+///   `Value`'s `Drop` is not statically a no-op (other embedders' variants), and `drop_in_place`
+///   on a POD `Value` is a cheap no-op anyway.
+/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) / `Closure` → POD leaves, nothing to drop.
+///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str`, so a `ClosureData` now owns no heap
+///   outside the GC (`env: GcRef` + `fn_name: Str` are both no-op/`Copy` drops) → the former
+///   `Closure` drop-glue arm is gone.
 ///
 /// # Safety
 /// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
 /// payload (upheld by `VarRegion`).
 unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
     match bt {
-        BlockType::Closure => {
-            // SAFETY: a Closure block's payload is exactly one initialized `ClosureData`.
-            unsafe { std::ptr::drop_in_place(payload as *mut ClosureData) }
-        }
         BlockType::ArrayValue => {
             let n = size / std::mem::size_of::<Value>();
             let base = payload as *mut Value;
@@ -292,8 +293,8 @@ unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
                 unsafe { std::ptr::drop_in_place(base.add(i)) }
             }
         }
-        // Str / ArrayPrim / ArrayStruct (packed bytes): POD, nothing to drop.
-        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct => {}
+        // Str / ArrayPrim / ArrayStruct (packed bytes) / Closure (POD since PR-5): nothing to drop.
+        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct | BlockType::Closure => {}
     }
 }
 
@@ -325,10 +326,11 @@ pub struct ArcMagrGC {
     /// **add-custom-allocator P1 (2026-05-22)**: chunked region for
     /// `Value::Array` storage (heap-allocated `Vec<Value>`).
     region_array: Mutex<super::region::Region<ArrayObj>>,
-    /// **unify-gc-heap PR-2**: variable-length GC block region for payloads that don't fit the
-    /// fixed-size `Region<T>` — currently `ClosureData` (`Value::Closure`); PR-3/PR-4 add array
-    /// backings + strings. Constructed with the closure drop-glue so a reclaimed closure block
-    /// drops its `fn_name: String`. Swept alongside `region_object` / `region_array`.
+    /// **unify-gc-heap PR-2/3/4/5**: variable-length GC block region for the managed payloads that
+    /// don't fit the fixed-size `Region<T>` — `ClosureData` (`Value::Closure`), array backings
+    /// (`Value::Array`), and strings (`Value::Str`/`FuncRef`). Constructed with `var_drop_glue`
+    /// (only `ArrayValue` blocks need a finalizer; closures/strings/packed arrays are POD leaves
+    /// since PR-5). Swept alongside `region_object` / `region_array`.
     region_var: Mutex<VarRegion>,
     /// **add-concurrent-gc P2 (2026-05-22)**: gray-object queue for the
     /// concurrent mark path. Populated by (1) the STW root snapshot at
@@ -2151,7 +2153,7 @@ impl MagrGC for ArcMagrGC {
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
                     + data.env.borrow().elem_storage_bytes()
-                    + data.fn_name.capacity()
+                    + data.fn_name.len()   // unify-gc-heap PR-5: fn_name is a GC `Str` (bytes in its block)
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
             // env_arena 中，由 frame 拥有；本 Value 自身只携带 idx + fn_name。

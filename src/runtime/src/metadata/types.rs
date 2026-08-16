@@ -2094,15 +2094,21 @@ pub struct StackClosureData {
     pub fn_name: String,
 }
 
-/// Payload of [`Value::Closure`] — boxed (review.md C1 chunk 5,
-/// 2026-05-27) so the inline `Value` doesn't carry the 40-byte
-/// GcRef + String pair. `MkClos` (heap-alloc path) constructs one;
-/// `CallIndirect`, `__delegate_target`, `__delegate_fn_name`,
+/// Payload of [`Value::Closure`] — lives in the GC variable-length region
+/// (`region_var`, `BlockType::Closure`). `MkClos` (heap-alloc path) constructs
+/// one; `CallIndirect`, `__delegate_target`, `__delegate_fn_name`,
 /// `__delegate_eq` and the GC scanner consume.
+///
+/// **unify-gc-heap PR-5**: `fn_name` migrated `String` → GC [`Str`] (8B handle),
+/// so `ClosureData` now owns **no heap memory outside the GC** — both fields are
+/// trivially-droppable (`GcRef`/`Str` have no-op/`Copy` drops). The block is a
+/// POD leaf for finalization → the `BlockType::Closure` drop-glue arm is gone
+/// (see `gc::arc_heap::var_drop_glue`). Both edges (`env` array, `fn_name`
+/// string) are traced by [`Value::trace_children`].
 #[derive(Debug, Clone)]
 pub struct ClosureData {
     pub env: GcRef<ArrayObj>,
-    pub fn_name: String,
+    pub fn_name: Str,
 }
 
 /// unify-gc-heap PR-2: read the [`ClosureData`] behind a closure's `VarGcRef` handle (the
@@ -2244,6 +2250,9 @@ impl Value {
                 // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
                 let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
                 visit(&Value::Array(data.env.clone()));
+                // unify-gc-heap PR-5: `fn_name` is now a GC string block — mark it too so it
+                // survives collection while the closure is reachable (leaf, no further edges).
+                visit(&Value::Str(data.fn_name));
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}

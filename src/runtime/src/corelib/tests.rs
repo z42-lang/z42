@@ -434,7 +434,7 @@ fn closure(env: Vec<Value>, fn_name: &str) -> Value {
     Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         crate::metadata::ClosureData {
             env: crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(env)),
-            fn_name: fn_name.to_string(),
+            fn_name: crate::metadata::vstr::Str::new_leaked(fn_name),
         },
         crate::gc::var_region::BlockType::Closure,
     ))
@@ -514,7 +514,7 @@ fn make_closure_constructs_value_closure() {
     match cl {
         Value::Closure(cd) => {
             let data = crate::metadata::types::closure_data_of(&cd);
-            assert_eq!(data.fn_name, "thunk_X");
+            assert_eq!(data.fn_name.as_str(), "thunk_X");
             // env[0] 应是同一 receiver
             let env_ref = data.env.borrow();
             assert_eq!(env_ref.len(), 1);

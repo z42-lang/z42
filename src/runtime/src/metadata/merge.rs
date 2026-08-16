@@ -61,7 +61,7 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
         }
     }
 
-    let mut merged = Module {
+    let merged = Module {
         name, string_pool, classes, functions,
         type_registry: HashMap::new(),
         type_registry_vec: Vec::new(),
