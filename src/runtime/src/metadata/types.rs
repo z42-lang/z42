@@ -2216,17 +2216,25 @@ impl Value {
         }
     }
 
-    /// **add-mark-sweep-collector P1 (2026-05-21)**: visit every direct
-    /// child `Value` reachable from `self`. Used by the mark phase BFS
-    /// to extend reachability through reference-bearing variants
-    /// (Object slots, Array elements, Closure env, Ref::Array/Field
-    /// inner `GcRef`).
+    /// **add-mark-sweep-collector P1 (2026-05-21)** / **unify-gc-heap PR-5**: visit every
+    /// direct GC-reference child `Value` reachable from `self`. **Single source** for both
+    /// the GC mark phase and read-only graph enumeration (heapsnapshot / retention query) —
+    /// they differ only on two mark-phase side effects, both gated by `for_marking`:
     ///
-    /// Primitives (I64 / F64 / Bool / Char / Str / Null / FuncRef /
-    /// PinnedView / StackClosure / Ref::Stack) yield no children.
-    /// Mirrors `ArcMagrGC::scan_object_refs` (will become its
-    /// authoritative source once trial-deletion is removed in P3).
-    pub fn trace_children(&self, visit: &mut dyn FnMut(&Value)) {
+    /// - **`for_marking = true`** (mark phase, from `arc_heap`'s mark loop): additionally
+    ///   marks the variable-length element backings in place (`mark_backing`, so the
+    ///   `region_var` element block stays live this cycle), and surfaces a closure's env
+    ///   *array header* (`Value::Array`) + its `fn_name` GC string as children so the mark
+    ///   loop marks those blocks too.
+    /// - **`for_marking = false`** (enumeration, via `ArcMagrGC::scan_object_refs`): a pure
+    ///   read — no mark side effects; descends **directly** into a closure's captured refs
+    ///   (the env header and `fn_name` string are internal, not surfaced as graph nodes).
+    ///
+    /// Primitives / stack-arena handles / struct-blob refs yield no children (their storage
+    /// is scanned directly by the external root scanner, so walking here would double-count).
+    /// [`Value::is_heap_ref`] is the matching predicate; this is the traversal.
+    #[inline]
+    pub fn visit_gc_children(&self, for_marking: bool, visit: &mut dyn FnMut(&Value)) {
         match self {
             Value::Object(rc) => {
                 let obj = rc.borrow();
@@ -2239,26 +2247,31 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                arr.mark_backing();  // unify-gc-heap PR-3: keep the element block(s) in region_var alive
+                if for_marking { arr.mark_backing(); }  // unify-gc-heap PR-3: keep the element block(s) alive
                 for elem in arr.gc_refs() { visit(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
             Value::Closure(vref) => {
-                // unify-gc-heap PR-2: the closure's `ClosureData` is a GC block in region_var.
-                // Push its `env` array as a child so the mark loop marks the env (region_array)
-                // and then traces its elements — equivalent to the pre-PR-2 "mark env + scan
-                // its elements" behaviour, one indirection later.
+                // unify-gc-heap PR-2/PR-5: the closure's `ClosureData` is a GC block in region_var.
                 // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
                 let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
-                visit(&Value::Array(data.env.clone()));
-                // unify-gc-heap PR-5: `fn_name` is now a GC string block — mark it too so it
-                // survives collection while the closure is reachable (leaf, no further edges).
-                visit(&Value::Str(data.fn_name));
+                if for_marking {
+                    // Push the env array *header* (so the mark loop marks its region_array entry
+                    // and re-traces its elements — one indirection past the pre-PR-2 behaviour)
+                    // and the `fn_name` GC string (PR-5, a leaf), so both blocks stay live.
+                    visit(&Value::Array(data.env.clone()));
+                    visit(&Value::Str(data.fn_name));
+                } else {
+                    // Enumeration: descend into the captured refs directly — the env header and
+                    // fn_name string are the closure's internals, not distinct graph nodes.
+                    let arr = data.env.borrow();
+                    for elem in arr.gc_refs() { visit(elem); }
+                }
             }
             Value::Ref(kind) => match kind.as_ref() {
                 RefKind::Stack { .. } => {}
                 RefKind::Array { gc_ref, .. } => {
                     let arr = gc_ref.borrow();
-                    arr.mark_backing();  // unify-gc-heap PR-3: keep the element block(s) alive
+                    if for_marking { arr.mark_backing(); }  // unify-gc-heap PR-3: keep the element block(s) alive
                     for elem in arr.gc_refs() { visit(elem); }
                 }
                 RefKind::Field { gc_ref, .. } => {
@@ -2273,7 +2286,11 @@ impl Value {
             // add-struct-heap-inline (P3b): a struct[] element handle — follow the
             // backing array's reference leaves so they stay marked (the array entry
             // itself is marked by the `StructRefHeap` arm of the mark loop).
-            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); arr.mark_backing(); for r in arr.gc_refs() { visit(r); } }
+            Value::StructRefHeap(e) => {
+                let arr = e.arr.borrow();
+                if for_marking { arr.mark_backing(); }
+                for r in arr.gc_refs() { visit(r); }
+            }
             // Primitives — no children.
             // add-escape-analysis-stack-alloc: StackObject / StackArray are
             // leaves for the child-traversal — their slots/elems live in the
@@ -2291,6 +2308,14 @@ impl Value {
             | Value::StackObject { .. } | Value::StackArray { .. }
             | Value::StructRef { .. } => {}
         }
+    }
+
+    /// GC mark-phase traversal — thin wrapper over [`Value::visit_gc_children`] with
+    /// `for_marking = true`. `#[inline]` so the constant flag folds away on the hot
+    /// mark loop (identical codegen to the pre-convergence dedicated match).
+    #[inline]
+    pub fn trace_children(&self, visit: &mut dyn FnMut(&Value)) {
+        self.visit_gc_children(true, visit);
     }
 }
 

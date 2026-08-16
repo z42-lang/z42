@@ -2196,48 +2196,10 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn scan_object_refs(&self, value: &Value, visitor: &mut dyn FnMut(&Value)) {
-        match value {
-            Value::Object(rc) => {
-                let obj = rc.borrow();
-                // unify-object-byte-layout: side-table reference leaves in `refs`; PR-3
-                // chunk 2b also inlines direct object/array refs as 8B pointers in `bytes`.
-                for r in &obj.refs { visitor(r); }
-                obj.trace_inline_refs(visitor);
-            }
-            Value::Array(rc) => {
-                let arr = rc.borrow();
-                for elem in arr.gc_refs() { visitor(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
-            }
-            // impl-closure-l3-core: a closure's env owns Value slots that may
-            // contain Object/Array refs; scan them so reachable closures keep
-            // their captured objects alive.
-            Value::Closure(c) => {
-                let arr = crate::metadata::types::closure_data_of(c).env.borrow();
-                for elem in arr.gc_refs() { visitor(elem); }
-            }
-            // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
-            // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
-            // Stack kind 不持 GcRef（frame 在调用栈上自然存活）。
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Stack { .. } => {}
-                crate::metadata::types::RefKind::Array { gc_ref, .. } => {
-                    let arr = gc_ref.borrow();
-                    for elem in arr.gc_refs() { visitor(elem); }
-                }
-                crate::metadata::types::RefKind::Field { gc_ref, .. } => {
-                    let obj = gc_ref.borrow();
-                    for r in &obj.refs { visitor(r); }  // unify-object-byte-layout (PR-2)
-                    obj.trace_inline_refs(visitor);     // PR-3 chunk 2b: inlined object/array refs
-                }
-            },
-            // add-boxed-struct-identity (P4b, 路 B2): boxed struct 是共享 `ScriptObject`——扫其
-            // struct_refs 引用叶子（slots 空），与 Object 臂同（镜像 trace_children 的 BoxedStruct 分支）。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visitor(r); } }
-            // add-struct-heap-inline (P3b): struct[] element handle — follow the
-            // backing array's reference leaves (mirrors trace_children).
-            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }
-            _ => {}
-        }
+        // unify-gc-heap PR-5: read-only graph enumeration is now the `for_marking = false`
+        // mode of the single-source `Value::visit_gc_children` (no mark side effects; a
+        // closure's captured refs are descended directly). Snapshot / retention only.
+        value.visit_gc_children(false, visitor);
     }
 
     // ── 5. Collection control ────────────────────────────────────────────────
