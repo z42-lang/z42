@@ -127,9 +127,20 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
   对象的 slots / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
-- **JIT**：读得进新 zbc 字段但**忽略**（照常堆分配）。interp-first（准则 1）：优化只服务无 Cranelift 兜底的
-  interp；`interp==jit` 靠「输出相同、表示不同」成立。一个对象整个生命期在同一引擎内（tiering 以函数为粒度）
-  → JIT 永不遇到栈句柄。
+- **JIT（新分配）**：读得进新 zbc 的 `StackAlloc` 标志但**忽略**——`ObjNew`/`ArrayNew` 照常堆分配
+  （`translate.rs` "JIT ignores stack_alloc in v1"）。interp-first（准则 1）：优化只服务无 Cranelift
+  兜底的 interp；`interp==jit` 靠「输出相同、表示不同」成立。
+- **JIT（OSR 继承的栈句柄）—— 必须处理**：⚠️ 曾误以为"一个对象整个生命期在同一引擎内 → JIT 永不遇到栈
+  句柄"。**错**：**OSR 是函数中途 interp→JIT 切换**（`add-osr-loop-tiering`，`from_interp_regs` 拷
+  `frame.regs`）。若 interp 段在**循环外**已栈分配一个对象/数组（`Value::StackObject/StackArray` 存于
+  `frame.regs`），回边 OSR 进 JIT 后 JIT 代码会**继承并访问**该句柄。故 JIT 的字段/元素 helper
+  **必须**镜像 interp 处理栈句柄：`jit_field_get`/`jit_field_set`（对象，复用 FieldIC、栈槽无 write
+  barrier）与 `jit_array_get`/`jit_array_set`/`jit_array_len`（数组）各带一条 `StackObject`/`StackArray`
+  臂，经 `ctx.stack_arena` 解析。原生内联字段/元素快路径的 hoist（`jit_obj_field_slot` /
+  `jit_array_data_opt`）对非堆 receiver 返回 sentinel（`off=-1` / `ptr=null`）→ 路由到冷 helper，故修
+  helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
+  崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent；见
+  `fix-jit-osr-stackarray` #204 数组侧 / `fix-jit-osr-stackobject` 对象侧）。
 
 ### 诊断（栈分配出错要能第一时间知道）
 
