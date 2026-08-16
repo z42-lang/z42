@@ -23,7 +23,18 @@
 
 ## MODIFIED Requirements
 
-（无——本 change 只新增诊断，不改既有行为的语义。）
+### Requirement: `new <未定义类型>()` 统一报 E0443（原 E0401 双报收敛）
+
+此前 `_bindNew`（`ExprTyper.z42`）在 `new C()` 的 `C` 解析为 Unknown 时**单独**发一条
+`E0401 unknown type in new`，随后又调 `_chkTypeRef`。引入 E0443 后 `_chkTypeRef` 亦对该未定义
+类型报 E0443 → **同一错误双重报告**。
+
+- **WHEN** `new C()` 且 `C` 未定义
+- **THEN** **仅**报 `E0443 undefined type: C`（删去 `_bindNew` 内的 E0401 特例，交由唯一
+  choke point `CheckTypeRef` 统一报）——与其它类型注解位置一致，不再双报。
+
+> Scope 注：为此在允许改动清单外追加 `src/compiler/z42c.semantics/src/ExprTyper.z42`（删 3 行
+> 冗余 E0401），属单一 choke point 设计（design D1）的直接后果。
 
 ## 不报（负向场景，防误报）
 

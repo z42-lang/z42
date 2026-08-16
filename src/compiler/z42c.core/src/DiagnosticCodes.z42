@@ -68,6 +68,7 @@ public static class DiagnosticCodes {
     public static string ConversionOperatorConflict  = "E0440";  // 转换运算符声明冲突：同 (源→目标) 重复 / implicit+explicit 同对（add-user-conversions ②，声明期检测）
     public static string InconsistentAccessibility   = "E0441";  // 不一致可访问性：更高可见性的成员/类型签名暴露了更低可见性的类型（C# CS0050 族；complete-class-access-control ②）
     public static string TopLevelAccessModifier      = "E0442";  // 顶层声明（class/interface/struct/record/enum/函数）标 private/protected——模块作用域无意义（complete-class-access-control ③）
+    public static string UndefinedType               = "E0443";  // 类型注解引用了未定义的类型名（对标 C# CS0246；fix-undefined-type-diagnostic）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

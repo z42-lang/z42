@@ -898,10 +898,9 @@ public sealed class ExprTyper {
             t = expected;
         } else {
             t = env.ResolveType(n.Type);
-            if (t is Z42UnknownType) {
-                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "unknown type in `new`: " + n.Type.Dump(), n.Span);
-            }
-            this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access：new 类型引用
+            // 未定义类型（含 new）统一由 _chkTypeRef → E0443 报（fix-undefined-type-diagnostic：
+            // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。
+            this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用
         }
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
             this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
