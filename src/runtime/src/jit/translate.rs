@@ -451,10 +451,20 @@ pub fn translate_function(
         for (reg, &p) in promoted.iter().enumerate() {
             if p {
                 let var = Variable::from_u32(reg as u32);
-                builder.declare_var(var, types::I64);
                 let addr = reg_addr(&mut builder, regs_base, reg as u32);
-                let seed = load_payload_i64(&mut builder, addr);
-                builder.def_var(var, seed);
+                // F64 regs get an F64-typed Variable seeded with the f64 payload;
+                // integer regs (I8..U64, all physically Value::I64) get an I64
+                // Variable seeded with the i64 payload. A local's dead seed
+                // (garbage / Null) is overwritten by its first real def before use.
+                if z42_func.reg_types.get(reg).copied() == Some(IrType::F64) {
+                    builder.declare_var(var, types::F64);
+                    let seed = load_payload(&mut builder, addr, types::F64);
+                    builder.def_var(var, seed);
+                } else {
+                    builder.declare_var(var, types::I64);
+                    let seed = load_payload_i64(&mut builder, addr);
+                    builder.def_var(var, seed);
+                }
             }
         }
     }
@@ -798,7 +808,11 @@ pub fn translate_function(
                     }
                 }
                 Instruction::ConstF64 { dst, val } => {
-                    if is_typed(z42_func, *dst, IrType::F64) {
+                    if promoted.get(*dst as usize).copied().unwrap_or(false) {
+                        // 2C (F64 residency): define the resident Variable, no memory store.
+                        let v = builder.ins().f64const(*val);
+                        builder.def_var(Variable::from_u32(*dst), v);
+                    } else if is_typed(z42_func, *dst, IrType::F64) {
                         emit_const_f64(&mut builder, regs_base, *dst, *val);
                     } else {
                         let d = ri!(*dst); let v = builder.ins().f64const(*val);
@@ -870,7 +884,7 @@ pub fn translate_function(
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Add);
                     } else if is_f64_typed(z42_func, *dst, *a, *b) {
-                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Add);
+                        emit_f64_binop(&mut builder, regs_base, &promoted, *dst, *a, *b, F64BinopKind::Add);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_add, &[frame_val, ctx_val, d, av, bv]);
@@ -881,7 +895,7 @@ pub fn translate_function(
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Sub);
                     } else if is_f64_typed(z42_func, *dst, *a, *b) {
-                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Sub);
+                        emit_f64_binop(&mut builder, regs_base, &promoted, *dst, *a, *b, F64BinopKind::Sub);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_sub, &[frame_val, ctx_val, d, av, bv]);
@@ -892,7 +906,7 @@ pub fn translate_function(
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Mul);
                     } else if is_f64_typed(z42_func, *dst, *a, *b) {
-                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Mul);
+                        emit_f64_binop(&mut builder, regs_base, &promoted, *dst, *a, *b, F64BinopKind::Mul);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_mul, &[frame_val, ctx_val, d, av, bv]);
@@ -905,7 +919,7 @@ pub fn translate_function(
                     // div-by-zero must surface a catchable z42 exception (native
                     // sdiv on x86_64 traps SIGFPE) → keep the helper for ints.
                     if is_f64_typed(z42_func, *dst, *a, *b) {
-                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Div);
+                        emit_f64_binop(&mut builder, regs_base, &promoted, *dst, *a, *b, F64BinopKind::Div);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_div, &[frame_val, ctx_val, d, av, bv]);
@@ -927,7 +941,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Eq);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Eq);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Eq);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_eq, &[frame_val, ctx_val, d, av, bv]);
@@ -937,7 +951,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ne);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ne);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Ne);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_ne, &[frame_val, ctx_val, d, av, bv]);
@@ -947,7 +961,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Lt);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Lt);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Lt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_lt, &[frame_val, ctx_val, d, av, bv]);
@@ -958,7 +972,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Le);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Le);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Le);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_le, &[frame_val, ctx_val, d, av, bv]);
@@ -969,7 +983,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Gt);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Gt);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Gt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_gt, &[frame_val, ctx_val, d, av, bv]);
@@ -980,7 +994,7 @@ pub fn translate_function(
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ge);
                     } else if is_f64_cmp(z42_func, *a, *b) {
-                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ge);
+                        emit_f64_cmp(&mut builder, regs_base, &promoted, *dst, *a, *b, CmpKind::Ge);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_ge, &[frame_val, ctx_val, d, av, bv]);
@@ -1025,7 +1039,7 @@ pub fn translate_function(
                     if is_int_typed_unary(z42_func, *dst, *src) {
                         emit_i64_neg(&mut builder, regs_base, &mut cache, &promoted, *dst, *src);
                     } else if is_f64_typed_unary(z42_func, *dst, *src) {
-                        emit_f64_neg(&mut builder, regs_base, *dst, *src);
+                        emit_f64_neg(&mut builder, regs_base, &promoted, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_neg, &[frame_val, ctx_val, d, s]);
@@ -1679,8 +1693,15 @@ pub fn translate_function(
                     let inline_int = src_is_int
                         && matches!(*to_tag,
                             T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
+                    // jit-native-convert-float (float→int): F64 source narrowed
+                    // to an integer width via saturating fcvt.
+                    let inline_f64_to_int = src_ty == IrType::F64
+                        && matches!(*to_tag,
+                            T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
                     if inline_int {
                         emit_i64_convert(&mut builder, regs_base, &mut cache, &promoted, *dst, *src, *to_tag);
+                    } else if inline_f64_to_int {
+                        emit_f64_to_int(&mut builder, regs_base, &mut cache, &promoted, *dst, *src, *to_tag);
                     } else if src_is_int && matches!(*to_tag, T_F32 | T_F64) {
                         // int → f64 native (fcvt). src signedness picks
                         // fcvt_from_sint vs fcvt_from_uint.
@@ -1761,11 +1782,17 @@ pub fn translate_function(
             Terminator::Ret { reg: Some(r) } => {
                 // 2C: a resident Variable's value lives in SSA, not memory —
                 // spill it to `frame.regs[r]` so `hr_set_ret` (reads by index)
-                // sees the current value.
+                // sees the current value. F64 residents carry the TAG_F64
+                // discriminant; integer residents TAG_I64.
                 if promoted.get(*r as usize).copied().unwrap_or(false) {
                     let v = builder.use_var(Variable::from_u32(*r));
                     let addr = reg_addr(&mut builder, regs_base, *r);
-                    store_const_tag(&mut builder, addr, TAG_I64, v);
+                    let tag = if z42_func.reg_types.get(*r as usize).copied() == Some(IrType::F64) {
+                        TAG_F64
+                    } else {
+                        TAG_I64
+                    };
+                    store_const_tag(&mut builder, addr, tag, v);
                 }
                 let rv   = ri!(*r);
                 builder.ins().call(hr_set_ret, &[frame_val, ctx_val, rv]);
@@ -2057,43 +2084,50 @@ fn instr_uses_int_cache(func: &Function, instr: &Instruction) -> bool {
         Instruction::Neg { dst, src }
         | Instruction::BitNot { dst, src } => is_int_typed_unary(func, *dst, *src),
 
-        // Convert takes the native `emit_i64_convert` path (which reads its src
-        // via the cache) iff src is integer and to_tag is an integer width
-        // (0x02..=0x09 = I8/I16/I32/I64/U8/U16/U32/U64). Mirror the match arm.
+        // Convert participates in the int cache iff its dst (integer) is written
+        // via `store_int`: that is int→int (`emit_i64_convert`, reads src via
+        // cache too) and float→int (`emit_f64_to_int`, reads its F64 src from
+        // memory but writes the integer dst via `store_int`). int→f64 does NOT
+        // participate (its dst is F64, its int src is read from memory → needs a
+        // flush before so memory is authoritative). Mirror the match arm.
         Instruction::Convert { src, to_tag, .. } => {
-            let src_int = func.reg_types
-                .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
-            src_int && (0x02..=0x09).contains(to_tag)
+            let src_ty = func.reg_types
+                .get(*src as usize).copied().unwrap_or(IrType::Unknown);
+            (src_ty.is_integer() || src_ty == IrType::F64)
+                && (0x02..=0x09).contains(to_tag)
         }
 
         _ => false,
     }
 }
 
-/// jit-unbox-regalloc Phase 2C: compute which integer registers can be promoted
-/// to Cranelift `Variable`s — kept resident in SSA / machine registers across
-/// the whole function, INCLUDING loop-carried across back-edges (Cranelift's
-/// `use_var`/`def_var` + `seal_all_blocks` insert the loop phis for us, so no
-/// manual loop detection / block-param threading is needed).
+/// jit-unbox-regalloc Phase 2C: compute which integer / F64 registers can be
+/// promoted to Cranelift `Variable`s — kept resident in SSA / machine registers
+/// across the whole function, INCLUDING loop-carried across back-edges
+/// (Cranelift's `use_var`/`def_var` + `seal_all_blocks` insert the loop phis for
+/// us, so no manual loop detection / block-param threading is needed).
 ///
-/// A reg is promotable iff it is integer-typed AND **every** one of its
+/// A reg is promotable iff it is integer- or F64-typed AND **every** one of its
 /// appearances is in a position the codegen routes through `use_var`/`def_var`
 /// (or spills, for the `Ret` operand). The routed ("whitelisted") positions are
-/// exactly the native integer fast-path ops:
-///   * `ConstI32`/`ConstI64` dst,
-///   * `Add`/`Sub`/`Mul`/`BitAnd`/`BitOr`/`BitXor`/`Shl`/`Shr` dst+a+b,
-///   * `Neg`/`BitNot` dst+src,
-///   * integer compare (`Eq`..`Ge`) a+b (dst is Bool → never a candidate),
-///   * integer→integer `Convert` (to_tag 0x02..=0x09) dst+src,
+/// exactly the native fast-path ops:
+///   * `ConstI32`/`ConstI64`/`ConstF64` dst,
+///   * `Add`/`Sub`/`Mul` dst+a+b (integer OR F64), `Div` dst+a+b (F64 only),
+///   * `BitAnd`/`BitOr`/`BitXor`/`Shl`/`Shr` dst+a+b (integer only),
+///   * `Neg` dst+src (integer OR F64), `BitNot` dst+src (integer only),
+///   * compare (`Eq`..`Ge`) a+b (integer OR F64; dst is Bool → never a candidate),
+///   * integer→integer / float→integer `Convert` dst (to_tag 0x02..=0x09; the
+///     int→int form also routes src, float→int reads its F64 src from memory),
 ///   * `Ret` operand (spilled to memory before `hr_set_ret`).
 /// ANY appearance in a memory-backed op (copy, field, array, call/helper,
-/// struct, static, throw, non-int convert, …) DISQUALIFIES the reg: promoting
-/// it would desync its `frame.regs` slot from the resident SSA value — a silent
-/// miscompile. Conservative by construction — when unsure, don't promote, and
-/// the reg falls back to the 2A/2B memory+cache model (byte-identical to
-/// pre-2C). Safepoints do NOT disqualify: the GC is non-moving and skips
-/// integer slots, so a resident integer needs no spill across a safepoint
-/// (the source of 2C's per-iteration win over 2B).
+/// struct, static, throw, int→f64 / helper convert, …) DISQUALIFIES the reg:
+/// promoting it would desync its `frame.regs` slot from the resident SSA value —
+/// a silent miscompile. Conservative by construction — when unsure, don't
+/// promote, and the reg falls back to the 2A/2B memory+cache model (integers) or
+/// direct memory (F64), byte-identical to pre-2C. Safepoints do NOT disqualify:
+/// the GC is non-moving and treats an integer/F64 slot as a scalar (never a
+/// root), so a resident scalar needs no spill across a safepoint (the source of
+/// 2C's per-iteration win) — a stale slot always still carries a scalar/Null tag.
 ///
 /// Returns a per-reg bool vector. The caller passes `enable=false` (→ all
 /// false) for OSR variants, whose entry jumps mid-function; v1 keeps those on
@@ -2105,7 +2139,12 @@ fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool> {
         return ok;
     }
     for r in 0..n {
-        ok[r] = func.reg_types.get(r).copied().unwrap_or(IrType::Unknown).is_integer();
+        // Integer regs (I8..U64, all physically Value::I64) and F64 regs are
+        // promotion candidates. F64 residency (2C-for-floats) routes through the
+        // F64-native fast paths (fadd/fsub/fmul/fdiv/fcmp/fneg/ConstF64) exactly
+        // as integers route through their native ops.
+        let t = func.reg_types.get(r).copied().unwrap_or(IrType::Unknown);
+        ok[r] = t.is_integer() || t == IrType::F64;
     }
     // Regs to disqualify (appear in a memory-backed / non-routed position).
     let mut disq: Vec<u32> = Vec::new();
@@ -2121,14 +2160,39 @@ fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool> {
                 // a promoted dst is routed to def_var unconditionally, so it is
                 // always safe and stays whitelisted.)
                 I::ConstI32 { .. } | I::ConstI64 { .. } => {}
-                I::Add { dst, a, b } | I::Sub { dst, a, b } | I::Mul { dst, a, b }
-                | I::BitAnd { dst, a, b } | I::BitOr { dst, a, b } | I::BitXor { dst, a, b }
+                // ConstF64 to a promoted F64 dst is routed to def_var (like the
+                // integer consts) — always safe, no disqualification.
+                I::ConstF64 { .. } => {}
+                // Add/Sub/Mul take a native fast path for BOTH integer
+                // (`emit_i64_binop`) and F64 (`emit_f64_binop`) operands → routed
+                // when either predicate holds.
+                I::Add { dst, a, b } | I::Sub { dst, a, b } | I::Mul { dst, a, b } => {
+                    if !(is_int_typed(func, *dst, *a, *b) || is_f64_typed(func, *dst, *a, *b)) {
+                        disq.push(*dst); disq.push(*a); disq.push(*b);
+                    }
+                }
+                // Bit ops / shifts are integer-only (no F64 form).
+                I::BitAnd { dst, a, b } | I::BitOr { dst, a, b } | I::BitXor { dst, a, b }
                 | I::Shl { dst, a, b } | I::Shr { dst, a, b } => {
                     if !is_int_typed(func, *dst, *a, *b) {
                         disq.push(*dst); disq.push(*a); disq.push(*b);
                     }
                 }
-                I::Neg { dst, src } | I::BitNot { dst, src } => {
+                // Div is native for F64 (`emit_f64_binop` fdiv); integer Div goes
+                // to the helper (for the /0 exception) → routed only for F64.
+                I::Div { dst, a, b } => {
+                    if !is_f64_typed(func, *dst, *a, *b) {
+                        disq.push(*dst); disq.push(*a); disq.push(*b);
+                    }
+                }
+                // Neg is native for integer (`emit_i64_neg`) and F64 (`emit_f64_neg`).
+                I::Neg { dst, src } => {
+                    if !(is_int_typed_unary(func, *dst, *src) || is_f64_typed_unary(func, *dst, *src)) {
+                        disq.push(*dst); disq.push(*src);
+                    }
+                }
+                // BitNot is integer-only.
+                I::BitNot { dst, src } => {
                     if !is_int_typed_unary(func, *dst, *src) {
                         disq.push(*dst); disq.push(*src);
                     }
@@ -2136,31 +2200,48 @@ fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool> {
                 I::Eq { a, b, .. } | I::Ne { a, b, .. } | I::Lt { a, b, .. }
                 | I::Le { a, b, .. } | I::Gt { a, b, .. } | I::Ge { a, b, .. } => {
                     // dst is Bool (never a candidate); only a,b matter, and only
-                    // when the native `emit_i64_cmp` reads them via load_int.
-                    if !is_int_cmp(func, *a, *b) {
+                    // when the native `emit_i64_cmp` / `emit_f64_cmp` reads them
+                    // via load_int / load_f64.
+                    if !(is_int_cmp(func, *a, *b) || is_f64_cmp(func, *a, *b)) {
                         disq.push(*a); disq.push(*b);
                     }
                 }
                 I::Convert { dst, src, to_tag } => {
-                    // Native `emit_i64_convert` is taken iff src is integer and
-                    // to_tag is an integer width — mirror the match arm exactly.
-                    let src_int = func.reg_types
-                        .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
-                    if !(src_int && (0x02..=0x09).contains(to_tag)) {
+                    // Mirror the codegen match arm exactly:
+                    //   * int→int (src int, to_tag 0x02..=0x09): `emit_i64_convert`
+                    //     routes BOTH dst and src via load_int/store_int → neither
+                    //     disqualifies.
+                    //   * float→int (src F64, to_tag 0x02..=0x09): `emit_f64_to_int`
+                    //     writes dst (int) via store_int (routed → keep), but reads
+                    //     src (F64) from MEMORY → src must not be resident → disq src.
+                    //   * int→f64 / helper convert: dst+src read/written via memory
+                    //     (or F64 dst, non-candidate) → disqualify both.
+                    let src_ty = func.reg_types
+                        .get(*src as usize).copied().unwrap_or(IrType::Unknown);
+                    let to_int = (0x02..=0x09).contains(to_tag);
+                    if src_ty.is_integer() && to_int {
+                        // int→int — both routed, no disqualification.
+                    } else if src_ty == IrType::F64 && to_int {
+                        // float→int — dst routed; F64 src read from memory.
+                        disq.push(*src);
+                    } else {
                         disq.push(*dst);
                         disq.push(*src);
                     }
                 }
 
                 // ── Non-routed (memory-backed) — disqualify every reg they touch ──
-                I::ConstStr { dst, .. } | I::ConstF64 { dst, .. }
+                I::ConstStr { dst, .. }
                 | I::ConstBool { dst, .. } | I::ConstChar { dst, .. }
                 | I::ConstNull { dst } | I::DefaultOf { dst, .. } => disq.push(*dst),
                 I::Typeof(bx) => disq.push(bx.dst),
                 I::Copy { dst, src } | I::Not { dst, src } | I::ToStr { dst, src }
                 | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. }
                 | I::LoadLocalAddr { dst, slot: src } => { disq.push(*dst); disq.push(*src); }
-                I::Div { dst, a, b } | I::Rem { dst, a, b }
+                // Rem is helper-only (int /0 exception); integer And/Or (logical
+                // short-circuit forms) and StrConcat are memory-backed helpers.
+                // (Div is handled in the routed section above — native for F64.)
+                I::Rem { dst, a, b }
                 | I::And { dst, a, b } | I::Or { dst, a, b }
                 | I::StrConcat { dst, a, b } => { disq.push(*dst); disq.push(*a); disq.push(*b); }
                 I::ArrayGet { dst, arr, idx } | I::LoadElemAddr { dst, arr, idx } => {
@@ -2239,6 +2320,39 @@ fn store_int(
         builder.def_var(Variable::from_u32(reg), val);
     } else {
         cache.store_i64(reg, val);
+    }
+}
+
+/// jit-unbox-regalloc Phase 2C (F64 residency): read an F64 reg's payload — from
+/// its resident Cranelift `Variable` (declared F64-typed) if promoted, else via a
+/// direct `frame.regs` memory load. F64 regs have NO block-local cache (unlike
+/// the 2B integer cache — floats never enter `RegCache`); they are either
+/// resident Variables or memory-backed, so no cache/flush interaction exists.
+#[inline]
+fn load_f64(
+    builder: &mut FunctionBuilder, promoted: &[bool],
+    regs_base: cranelift_codegen::ir::Value, reg: u32,
+) -> cranelift_codegen::ir::Value {
+    if promoted.get(reg as usize).copied().unwrap_or(false) {
+        builder.use_var(Variable::from_u32(reg))
+    } else {
+        let addr = reg_addr(builder, regs_base, reg);
+        load_payload(builder, addr, types::F64)
+    }
+}
+
+/// Write an F64 reg's payload — to its resident `Variable` (`def_var`) if
+/// promoted, else straight to `frame.regs[reg]` with the `TAG_F64` discriminant.
+#[inline]
+fn store_f64(
+    builder: &mut FunctionBuilder, promoted: &[bool],
+    regs_base: cranelift_codegen::ir::Value, reg: u32, val: cranelift_codegen::ir::Value,
+) {
+    if promoted.get(reg as usize).copied().unwrap_or(false) {
+        builder.def_var(Variable::from_u32(reg), val);
+    } else {
+        let addr = reg_addr(builder, regs_base, reg);
+        store_const_tag(builder, addr, TAG_F64, val);
     }
 }
 
@@ -2386,6 +2500,56 @@ fn emit_int_to_f64(
     store_const_tag(builder, addr_dst, TAG_F64, f);
 }
 
+/// jit-native-convert-float (float→int): emit `frame.regs[dst] = Value::I64(f as T)`
+/// for an F64→integer `Convert`. Rust's `as` (used by interp `convert_from_f64`)
+/// is a *saturating* float→int cast with NaN→0; Cranelift `fcvt_to_sint_sat` /
+/// `fcvt_to_uint_sat` reproduce that byte-for-byte (same clamp-to-range, same
+/// NaN→0). Every narrow int lives as a `Value::I64` payload, so the saturated
+/// low-width result is sign/zero-extended back to i64 — matching interp's
+/// `(f as i8) as i64` / `(f as u8) as i64` etc. `T_U64` deliberately mirrors
+/// interp's `f as i64` (signed saturation to i64 range, NOT an unsigned cast —
+/// see `convert_from_f64`). Result discriminant `TAG_I64`.
+///
+/// Reads `src` (F64) straight from memory: the Phase 2C promotion whitelist
+/// disqualifies any F64 reg used as a float→int `Convert` src, so `src` is never
+/// a resident Variable. Writes `dst` (integer) via `store_int` (resident
+/// Variable / 2B cache / memory), so a float→int result feeding a resident
+/// accumulator stays unboxed.
+fn emit_f64_to_int(
+    builder: &mut FunctionBuilder,
+    regs_base: cranelift_codegen::ir::Value,
+    cache: &mut RegCache,
+    promoted: &[bool],
+    dst: u32, src: u32, to_tag: u8,
+) {
+    const T_I8:  u8 = 0x02;
+    const T_I16: u8 = 0x03;
+    const T_I32: u8 = 0x04;
+    const T_I64: u8 = 0x05;
+    const T_U8:  u8 = 0x06;
+    const T_U16: u8 = 0x07;
+    const T_U32: u8 = 0x08;
+    const T_U64: u8 = 0x09;
+    let addr_src = reg_addr(builder, regs_base, src);
+    let f = load_payload(builder, addr_src, types::F64);
+    let result = match to_tag {
+        // Signed narrow widths: saturating fcvt to width, sign-extend to i64.
+        T_I8  => { let v = builder.ins().fcvt_to_sint_sat(types::I8,  f); builder.ins().sextend(types::I64, v) }
+        T_I16 => { let v = builder.ins().fcvt_to_sint_sat(types::I16, f); builder.ins().sextend(types::I64, v) }
+        T_I32 => { let v = builder.ins().fcvt_to_sint_sat(types::I32, f); builder.ins().sextend(types::I64, v) }
+        // I64 and U64 both use signed saturation to the i64 range (interp uses
+        // `f as i64` for T_U64 too).
+        T_I64 | T_U64 => builder.ins().fcvt_to_sint_sat(types::I64, f),
+        // Unsigned narrow widths: saturating fcvt to width, zero-extend to i64.
+        T_U8  => { let v = builder.ins().fcvt_to_uint_sat(types::I8,  f); builder.ins().uextend(types::I64, v) }
+        T_U16 => { let v = builder.ins().fcvt_to_uint_sat(types::I16, f); builder.ins().uextend(types::I64, v) }
+        T_U32 => { let v = builder.ins().fcvt_to_uint_sat(types::I32, f); builder.ins().uextend(types::I64, v) }
+        // Caller's matches!() restricts to_tag to the eight integer widths.
+        _ => builder.ins().fcvt_to_sint_sat(types::I64, f),
+    };
+    store_int(builder, cache, promoted, dst, result);
+}
+
 /// Emit native `frame.regs[dst] = frame.regs[src]` for drop-free primitive
 /// slots (I64 / F64 / Bool / Char). Copies the 1 B tag at offset 0 plus
 /// the 8 B payload at offset 8 — heap-ref payloads keep the helper path
@@ -2523,21 +2687,20 @@ fn emit_bool_not(
 fn emit_f64_binop(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    promoted: &[bool],
     dst: u32, a: u32, b: u32,
     op: F64BinopKind,
 ) {
-    let addr_a   = reg_addr(builder, regs_base, a);
-    let addr_b   = reg_addr(builder, regs_base, b);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-    let ai = load_payload(builder, addr_a, types::F64);
-    let bi = load_payload(builder, addr_b, types::F64);
+    // Operands read via resident F64 Variable (2C) or memory, resolved by load_f64.
+    let ai = load_f64(builder, promoted, regs_base, a);
+    let bi = load_f64(builder, promoted, regs_base, b);
     let result = match op {
         F64BinopKind::Add => builder.ins().fadd(ai, bi),
         F64BinopKind::Sub => builder.ins().fsub(ai, bi),
         F64BinopKind::Mul => builder.ins().fmul(ai, bi),
         F64BinopKind::Div => builder.ins().fdiv(ai, bi),
     };
-    store_const_tag(builder, addr_dst, TAG_F64, result);
+    store_f64(builder, promoted, regs_base, dst, result);
 }
 
 /// jit-native-float: emit `frame.regs[dst] = Value::Bool(a OP b)` for F64 operands
@@ -2547,15 +2710,16 @@ fn emit_f64_binop(
 fn emit_f64_cmp(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    promoted: &[bool],
     dst: u32, a: u32, b: u32,
     kind: CmpKind,
 ) {
     use cranelift_codegen::ir::condcodes::FloatCC;
-    let addr_a   = reg_addr(builder, regs_base, a);
-    let addr_b   = reg_addr(builder, regs_base, b);
+    // F64 operands read via resident Variable (2C) / memory; dst is Bool (never
+    // an F64 candidate) → written straight to memory with TAG_BOOL.
     let addr_dst = reg_addr(builder, regs_base, dst);
-    let ai = load_payload(builder, addr_a, types::F64);
-    let bi = load_payload(builder, addr_b, types::F64);
+    let ai = load_f64(builder, promoted, regs_base, a);
+    let bi = load_f64(builder, promoted, regs_base, b);
     let cc = match kind {
         CmpKind::Eq => FloatCC::Equal,             // ordered: NaN==NaN → false
         CmpKind::Ne => FloatCC::NotEqual,          // unordered: NaN!=NaN → true
@@ -2573,13 +2737,12 @@ fn emit_f64_cmp(
 fn emit_f64_neg(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
+    promoted: &[bool],
     dst: u32, src: u32,
 ) {
-    let addr_src = reg_addr(builder, regs_base, src);
-    let addr_dst = reg_addr(builder, regs_base, dst);
-    let si     = load_payload(builder, addr_src, types::F64);
+    let si     = load_f64(builder, promoted, regs_base, src);
     let result = builder.ins().fneg(si);
-    store_const_tag(builder, addr_dst, TAG_F64, result);
+    store_f64(builder, promoted, regs_base, dst, result);
 }
 
 /// Predicate: `reg_types[reg]` is `expected`. Used by const-emit fast paths.
