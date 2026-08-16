@@ -571,9 +571,60 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 必须留 helper 处理 catchable 异常。**Rem 留 helper**（浮点取余 = `fmod` libcall、非单指令）。
 
 **范围**：只 `F64`（double）——`F32` widened 存 `Value::F64`、写回需 round 到 f32 精度，native `fadd`
-不做 → F32 留 helper（`is_f64_typed` 精确匹配 F64 排除 F32）；混合 int/float 留 helper（促 int→f64）；
-F64 op 直写内存（不进 2B 缓存/2C Variable，F64 residency 是独立 follow-up）。
+不做 → F32 留 helper（`is_f64_typed` 精确匹配 F64 排除 F32）；混合 int/float 留 helper（促 int→f64）。
+（落地时 F64 op 直写内存；F64 loop-carried residency 随后并入 2C，见下「F64 residency」节。）
 
 **收益/验证**：纯 `double` 累加环 JIT **1.59×→2.78× interp**（jit 自身 608→349ms=1.74×）；`ftest.z42`
 （全 6 比较 + 四则 + fneg + **NaN/±inf/±0/inf×0 边界** + 混合 int/float 留 helper）interp==jit==jitOSR
 逐字节；cargo --lib + e2e + 自举 5/5 + stdlib 全绿。纯 runtime codegen，无格式 bump。
+
+## 浮点 ↔ 整数原生转换（jit-native-convert-float）
+
+> 位置：`jit/translate.rs`（`Convert` 臂 + `emit_int_to_f64` / `emit_f64_to_int`）。change 容器
+> `docs/spec/changes/jit-native-convert-float/`（int→f64）+ `jit-native-float-residency/`（float→int）。
+
+`(double)i` / `(int)f` 这类 `Convert` 原本每次走 `hr_convert` helper（Rust call + `convert_value`
+分派）。热循环里的强制转换是纯逐迭代开销，两个方向都补上原生快路径：
+
+- **int→f64**（`emit_int_to_f64`）：窄整数全物理存 `Value::I64`（payload 已 sext/zext 到 i64），故
+  一条 `fcvt_from_sint`（有符号源）/ `fcvt_from_uint`（无符号源）即复刻 interp 的 `x as f64`。目标
+  `F32`/`F64` 都用 f64 全精度（interp 对 `F32` 目标也不做 f32 round）。结果 `TAG_F64`。
+- **float→int**（`emit_f64_to_int`）：Rust 的 `as`（interp `convert_from_f64`）是**饱和**转换且
+  **NaN→0**；Cranelift `fcvt_to_sint_sat` / `fcvt_to_uint_sat` 逐位复刻同一饱和+NaN→0 语义。窄目标
+  先饱和到该宽度再 sext（有符号）/ zext（无符号）回 i64，等价 interp 的 `(f as i8) as i64` 等。
+  **`T_U64` 刻意沿用 interp 的 `f as i64`**（有符号饱和到 i64 范围，**非**无符号）。结果 `TAG_I64`。
+
+**残余 helper**：`char↔数值`、`f64→char`（要 Unicode 合法性校验）、`f64→f64` 恒等、以及任何盒装基元
+unbox convert 仍走 `hr_convert`。
+
+**residency 交互**（关键）：int→f64 的 int 源、float→int 的 f64 源都**从内存读**（helper 时代不变），故
+它们在 2C 白名单里被 disqualify（不驻留），保证内存权威；两个方向的**整数侧 dst** 经 `store_int`
+（可进 2B 缓存 / 2C Variable），**f64 侧 dst** 经 `store_f64`（可进 2C Variable，见下节）——转换结果直接
+喂驻留累加器不再内存往返。
+
+**收益/验证**：float→int 密集环（`(long)f + (int)(f*.5) + (short)f` per iter）JIT **2.70×→5.45×
+interp**（jit 791→392ms）；`ftintcheck.z42`（8 目标宽度 × 正常/边界值含 NaN/±inf/越界饱和）
+interp==jit==jitOSR 逐字节。
+
+## F64 residency：loop-carried 浮点标量跨迭代驻留（jit-unbox-regalloc Phase 2C-for-floats）
+
+> 位置：`jit/translate.rs`（`compute_promotable_regs` 基集 + 各 F64 臂、`load_f64`/`store_f64`、prologue
+> 种子、`ConstF64`/`Ret` 分派）。change 容器 `docs/spec/changes/jit-native-float-residency/`。
+
+2C 把 loop-carried **整数**标量常驻机器寄存器；本节把同一机制扩到 **F64**：`double sum += …` 里的 `sum`
+不再每迭代 load/store `frame.regs`。做法与整数 2C 完全同构，只是 Variable 类型是 `F64`：
+
+- **promotion 基集**：`compute_promotable_regs` 除整数外也收 `IrType::F64` 候选。routed 位置 = F64 原生
+  op：`ConstF64`、`Add`/`Sub`/`Mul`/`Div`（全 F64）、`Neg`、比较 `Eq..Ge` 的 a/b（dst 是 Bool 恒不驻留）、
+  `Ret`。任何 memory-backed op（field/array/copy/call/int→f64 dst 之外的转换/…）碰过的 F64 reg 一律
+  disqualify——与整数同一套「全routed 才驻留」不变式。
+- **`load_f64` / `store_f64`**：F64 版的驻留访问汇点。**F64 无块内缓存**（2B `RegCache` 只存整数
+  `Value::I64`）——F64 reg 要么是驻留 Variable、要么直落内存，故无 cache/flush 交互。
+- **prologue 种子**：promoted F64 reg 声明 `types::F64` Variable，从 `frame.regs` 读 f64 payload 播种
+  （dead 种子被首个真实 def 覆盖）。`Ret` 时按 `reg_types` 选 `TAG_F64`/`TAG_I64` spill 回内存。
+- **safepoint 不 spill**：GC 非移动、把 F64 槽当标量（非 root），驻留 F64 跨 safepoint 无需 spill——
+  与整数同因（陈旧内存槽也总带标量/Null tag，GC 不误判为堆引用）。
+- **OSR**：与整数 2C 一致——Cranelift 给 OSR 空-args jump 自动补循环头 phi arg，OSR 变体照常驻留。
+
+**收益/验证**：`double s = s + (double)i*1.5 - seed` 累加环 JIT **3.23×→6.28× interp**（jit
+303→155ms≈2×）；`fbench.z42`/`ftest.z42` interp==jit==jitOSR 逐字节；纯 runtime codegen，无格式 bump。
