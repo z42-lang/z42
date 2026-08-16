@@ -93,12 +93,30 @@ ObjectHeader {
 
 ## 5. 字符串改 GC 对象
 
-> **进度（2026-08-15）**：PR-4 已把 `Value::Str` 从 `Arc<str>`(16B 胖) 换成 thin-Arc-DST `Str`(8B 细指针，长度进 `StrHeader`，[`metadata/vstr.rs`](../../../src/runtime/src/metadata/vstr.rs))——**细指针目标已达成**，但仍是 **Arc refcount，未纳入 tracing GC**（interim）。下面「改 GC 字符串对象」= 后续专项：`Value::Str`→`GcRef<StrHeader>`（8B GcRef，与 Object/Array 统一堆），需**变长 GC 分配器 / string arena**（当前 region 分配器定长类型化，无法内联变长 string 字节）。
+> **✅ 已落地（unify-gc-heap PR-4，2026-08-16）**：`Value::Str` 的字节**已纳入单一 GC 堆**。
+> `Str`（[`metadata/vstr.rs`](../../../src/runtime/src/metadata/vstr.rs)）从「手写 thin-Arc + 原子
+> refcount」换成 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
+> inline UTF-8}` 单次分配）——**refcount 删除，GC 管生死**（mark/sweep）。分配走 **ambient 堆**
+> （`gc/ambient.rs`，每帧 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 保持不变）；无堆上下文
+> （无 VM 的单测）回退 leaked 块。**这是最后一类离开「GC 外」的变长 payload，统一堆模型闭合。**
+> 实现原理（变长块 `VarRegion` / A' 分配器 / D3 块头替 Arc / D11 ambient 堆）详见变更容器
+> [`docs/spec/changes/unify-gc-heap/design.md`](../../spec/changes/unify-gc-heap/design.md) 与本节下方；
+> `gc.md` / `gc-handle.md` 的统一堆机制页归 **PR-5 收敛**统一落地（tasks 5.3）。
 
-- `Value::Str(Arc<str>)` → **GC 字符串对象**(统一头,可移动/分代)。标准做法(JVM/.NET)。
-- **驻留/字面量串** = context 拥有,放永生/context 空间,**随 context 卸载释放**(对接 load-context)。
-- 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放);收益:统一一套堆 + 可移动。**接受**。
-- (Deferred)小字符串内联优化(SSO)。
+- `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
+  mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段落对象 `refs` 侧表
+  （`STRUCT_LEAF_ARCSTRING` → `TAG_STR`），被 `trace_children` / `scan_object_refs` 扫描 →
+  string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card / 并发 mark-queue）。
+- **驻留/字面量串**：**lazy per-context interning**——加载期**不**物化（无堆），首次 `ConstStr(idx)`
+  用活堆分配 GC string + 缓存进 `VmContext.interned_cache`（`(module ptr, idx)` 键），缓存项经
+  external root scanner 注册为 **GC root**；后续命中拷 8B 句柄。原 `Module.interned_strings`（加载期
+  `Vec<Str>`）已废（`build/populate_interned_strings` no-op，字段留空待 PR-5 删）。
+- **safepoint 安全**：GC 只在显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条
+  指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
+  Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
+- 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。**User 已接受（架构统一优先，非短期性能）**。
+- (Deferred)小字符串内联优化(SSO)；`ClosureData.fn_name`/`ArrayObj.element_type`/frame `Arc<str>` 等
+  **Rust 内部 bookkeeping 串**顺带迁 GC string（PR-5 收敛，非 `Value::Str`，不影响本节闭合）。
 
 ### 5.1 Finalizer
 不透明 native(FileHandle/Stream)被收集时释放底层资源 → 需 **finalizer 队列**。经典坑(非确定/顺序/resurrection)→ **首选显式 close/dispose,finalizer 仅兜底**。

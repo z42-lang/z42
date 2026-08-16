@@ -14,12 +14,16 @@
 //!   - `offsets`   — for non-ASCII strings, the byte offset of each char, so
 //!                   `CharAt(i)` is an O(1) table lookup instead of O(i).
 //!
-//! Soundness: each cache entry *holds an `Arc<str>` clone*, so while the entry
-//! exists the string stays alive and its address cannot be reused by a
-//! different allocation — pointer identity is therefore a valid key. On
-//! eviction we drop our clone; a later allocation reusing the address has no
-//! cache entry (we removed it), so it recomputes. Immutable strings + identity
-//! key ⇒ the cached metadata always matches the queried string's content.
+//! Soundness (unify-gc-heap PR-4): strings are GC blocks now, so a cache entry's
+//! held `Str` clone is **not** a GC root — the block can be swept (its slot bumped
+//! + reused by another string) while the entry lingers. A stale entry would share
+//! the reused slot's address and falsely "hit". So a hit requires **both** the
+//! identity pointer match **and** [`VarGcRef::is_live`] (the cached handle's
+//! generation still matching the slot): a swept-and-reused slot fails the
+//! generation check ⇒ treated as a miss ⇒ recomputed for the current string.
+//! Immutable strings + generation-guarded identity ⇒ the cached metadata always
+//! matches the queried string's content. (Leaked test/no-heap strings have a fixed
+//! generation and are never swept, so they always pass the check.)
 //!
 //! The cache only changes *speed*, never the returned value — byte-identical
 //! output is preserved.
@@ -68,7 +72,11 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();
         let key = data_ptr(s);
-        if let Some(pos) = cache.iter().position(|e| data_ptr(&e.s) == key) {
+        // Hit = same allocation address AND the cached handle is still live (its
+        // block wasn't swept + its slot reused by a different string) — see the
+        // module soundness note. A stale (dead-slot) entry fails `is_live` and is
+        // skipped, so we recompute for the current `s`.
+        if let Some(pos) = cache.iter().position(|e| data_ptr(&e.s) == key && e.s.var_ref().is_live()) {
             if pos != 0 {
                 let e = cache.remove(pos);
                 cache.insert(0, e);

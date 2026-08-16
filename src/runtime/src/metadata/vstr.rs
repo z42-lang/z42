@@ -1,112 +1,129 @@
-//! unify-object-byte-layout PR-4: `Str` — an 8-byte thin, atomically ref-counted,
-//! immutable UTF-8 string handle.
+//! `Str` — an 8-byte thin handle to an **immutable UTF-8 string held in the GC
+//! heap** (unify-gc-heap PR-4).
 //!
-//! `Value::Str` was `Arc<str>` — a **fat** pointer (data ptr + length = 16 B), which made
-//! `Value` 24 B (its largest payload). `Str` stores the length **inline in the heap header**
-//! instead of in the pointer, so the handle is a single **thin** `NonNull` (8 B). That is
-//! what lets `Value` shrink to 16 B (PR-5).
+//! # History
 //!
-//! Layout of one allocation (`alloc(header ++ bytes)`, one allocation total):
+//! - unify-object-byte-layout PR-4 made `Str` a hand-rolled thin, atomically
+//!   ref-counted pointer (`StrHeader{strong,len}` + inline bytes) so `Value`
+//!   could shrink to 16 B — replacing the fat `Arc<str>`.
+//! - unify-gc-heap PR-4 (this) moves the string bytes **into the single GC heap**:
+//!   `Str` is now a thin [`VarGcRef`] to a `BlockType::Str` variable-length block
+//!   (`{GcBlockHeader, inline UTF-8 bytes}`). The atomic refcount is **gone** — the
+//!   GC manages the string's lifetime (mark/sweep), exactly like every other
+//!   managed object. This is the last variable-length payload to leave the "GC
+//!   outside" world, completing the single-heap model (design **A'** / **D3**).
+//!
+//! # Layout
+//!
+//! One GC block per string (a single [`VarRegion`](crate::gc::var_region) alloc):
 //! ```text
-//!   ┌───────────────┬──────────┬──────────────── … ─────────┐
-//!   │ strong: usize │ len:usize│ data: [u8; len] (UTF-8)     │
-//!   └───────────────┴──────────┴──────────────── … ─────────┘
-//!     └── StrHeader (Sized, 16 B) ──┘└── inline bytes follow ──┘
+//!   ┌────────────────────────────┬──────────────────────────────┐
+//!   │ GcBlockHeader (16 B, align8)│ data: [u8; len] (UTF-8)       │
+//!   │  generation/size/marked/    │                               │
+//!   │  alive/type_tag=Str/…       │                               │
+//!   └────────────────────────────┴──────────────────────────────┘
 //! ```
-//! The bytes follow the `StrHeader` in the same allocation (accessed by pointer
-//! arithmetic), so there is exactly one allocation per string and the handle carries no
-//! length metadata. This mirrors `triomphe::ThinArc` / the std `Arc<str>` internals, but
-//! hand-rolled (no new dependency; tunable for the string-heavy z42c self-compile).
+//! The byte length is `header.size` (no separate `len` field). The handle is still
+//! a single machine word (8 B) — `Option<Str>` stays 8 B via the `NonNull` niche —
+//! so `Value` stays 16 B.
 //!
-//! **Refcount, not GC** (design, User-confirmed 2026-08-15): the GC region allocator is
-//! fixed-size-typed (`RegionEntry<T>`) and can't inline variable-length string bytes, so a
-//! GC-managed string would need a second (out-of-line) allocation or a variable-size
-//! allocator rework. Strings are also immutable **leaves** (never reference other heap
-//! objects, never form cycles), so tracing GC would add mark/sweep cost for zero
-//! cycle-collection benefit. `Arc`-style atomic refcount (thread-safe: `Value: Send+Sync`)
-//! with one inline allocation is the better fit.
+//! # Allocation & the ambient heap
+//!
+//! `Str::new`/`From<&str>` carry no `&heap`, so they allocate from the **ambient
+//! heap** ([`crate::gc::ambient::current_heap`], scoped per frame). In the rare
+//! heap-less context (unit tests without a VM), they fall back to a standalone
+//! **leaked** block — never taken on a production hot path (see [`Self::new`]).
+//!
+//! # Lifetime, clone, drop
+//!
+//! - **Clone** = copy the 8-byte handle (no refcount bump) — cheaper than the old
+//!   atomic increment. Both handles name the same immutable block; observationally
+//!   identical to the old Arc share (strings are never mutated).
+//! - **Drop** = no-op. The GC frees the block when it becomes unreachable; a
+//!   `Value::Str` in a frame register is a root (the external root scanner walks
+//!   frame regs), so live strings stay marked. Interned pool strings are kept alive
+//!   by the per-context intern cache (a scanned root); see `interp::exec_value`.
+//! - **Reachability, not refcount**: a `Str` handle sitting in a *Rust* local (not
+//!   a GC root) does not by itself keep the block alive — but the GC only runs at
+//!   safepoints (loop back-edges / calls) and on `ForceCollect`, never mid-operation,
+//!   so a transient `Str` is safe until it lands in a register. This is the same
+//!   invariant that already protects `Value::Object`/`Array` temporaries.
 
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::hash::{Hash, Hasher};
-use std::ptr::NonNull;
-use std::sync::atomic::{fence, AtomicUsize, Ordering};
 
-/// Heap header preceding a string's inline UTF-8 bytes. `#[repr(C)]` pins the field order
-/// so the `data` bytes always start at `size_of::<StrHeader>()`.
-#[repr(C)]
-struct StrHeader {
-    /// Atomic strong reference count (starts at 1; `Str::clone` increments, `drop`
-    /// decrements + frees at 0). Atomic because `Value: Send + Sync`.
-    strong: AtomicUsize,
-    /// Byte length of the inline UTF-8 `data` that follows this header.
-    len: usize,
-}
+use crate::gc::var_region::{BlockType, VarGcRef};
 
-/// 8-byte thin, atomically ref-counted, immutable UTF-8 string. See the module docs.
+/// 8-byte thin handle to an immutable UTF-8 string in the GC heap. See the module
+/// docs. `Copy` because the handle is a plain pointer with no owned resource (the
+/// GC owns the block); cloning is a bitwise copy.
+#[derive(Clone, Copy)]
 pub struct Str {
-    /// Points at the `StrHeader`; the UTF-8 bytes follow it in the same allocation. Never
-    /// null (a live handle always points at a valid header).
-    ptr: NonNull<StrHeader>,
+    /// Handle to the `BlockType::Str` GC block (`{GcBlockHeader, UTF-8 bytes}`).
+    block: VarGcRef,
 }
 
-// PR-4 invariant: the handle is exactly one machine word (this is the whole point — it is
-// what lets `Value` reach 16 B in PR-5). `Option<Str>` stays 8 B via the `NonNull` niche.
+// PR-4 invariant: the handle is exactly one machine word (what lets `Value` stay
+// 16 B). `Option<Str>` stays 8 B via the `VarGcRef` → `NonNull` niche.
 const _: () = assert!(std::mem::size_of::<Str>() == std::mem::size_of::<usize>());
 const _: () = assert!(std::mem::size_of::<Option<Str>>() == std::mem::size_of::<usize>());
 
-// SAFETY: the pointed-to bytes are immutable for the allocation's lifetime and the
-// refcount is atomic, so a `Str` is safe to send/share across threads exactly like
-// `Arc<str>`.
-unsafe impl Send for Str {}
-unsafe impl Sync for Str {}
+// `Send`/`Sync` come for free: `VarGcRef` is `Send + Sync` (the block memory is
+// immutable + GC-managed behind the heap mutex), so `Str` inherits them — no
+// hand-written `unsafe impl` needed (unlike the old refcounted version).
 
 impl Str {
-    /// Byte offset of the inline data within the allocation = the (padded) header size.
-    /// `StrHeader` is `{usize, usize}` (align 8), `u8` has align 1, so no extra padding.
-    const DATA_OFFSET: usize = std::mem::size_of::<StrHeader>();
-
-    /// Compute the allocation `Layout` for a header + `len` inline UTF-8 bytes.
-    #[inline]
-    fn layout_for(len: usize) -> Layout {
-        // header (16 B, align 8) followed by `len` u8; align stays 8, size = 16 + len.
-        Layout::from_size_align(Self::DATA_OFFSET + len, std::mem::align_of::<StrHeader>())
-            .expect("string length overflows isize")
-    }
-
-    /// Allocate a fresh `Str` copying `s`'s UTF-8 bytes inline (one allocation).
+    /// Allocate a fresh GC string copying `s`'s UTF-8 bytes inline.
+    ///
+    /// Uses the ambient heap ([`crate::gc::ambient::current_heap`]) so the ~189
+    /// `.into()` / `From<&str>` call sites need no `&heap`. Falls back to a
+    /// standalone leaked block only when no frame is executing (unit tests without
+    /// a VM); production execution always has an active ambient heap.
     pub fn new(s: &str) -> Self {
-        let len = s.len();
-        let layout = Self::layout_for(len);
-        // SAFETY: layout has non-zero size (header is 16 B > 0). On OOM we abort via
-        // `handle_alloc_error` rather than returning a dangling pointer.
-        let raw = unsafe { alloc(layout) };
-        let Some(header_ptr) = NonNull::new(raw as *mut StrHeader) else {
-            handle_alloc_error(layout);
-        };
-        // SAFETY: `header_ptr` points at freshly-allocated, correctly-aligned space for a
-        // `StrHeader`; write the initial refcount + length, then copy the bytes into the
-        // trailing region `[DATA_OFFSET .. DATA_OFFSET+len)`.
-        unsafe {
-            header_ptr.as_ptr().write(StrHeader {
-                strong: AtomicUsize::new(1),
-                len,
-            });
-            let data = (raw as *mut u8).add(Self::DATA_OFFSET);
-            std::ptr::copy_nonoverlapping(s.as_ptr(), data, len);
+        match crate::gc::ambient::current_heap() {
+            Some(heap) => heap.alloc_str(s),
+            None => Self::new_leaked(s),
         }
-        Str { ptr: header_ptr }
     }
 
+    /// Wrap an already-allocated `BlockType::Str` block handle. Used by the heap's
+    /// `alloc_str` (after writing the bytes) and by GC read-back paths.
     #[inline]
-    fn header(&self) -> &StrHeader {
-        // SAFETY: the header stays valid while this `Str` holds a strong reference.
-        unsafe { self.ptr.as_ref() }
+    pub fn from_var_ref(block: VarGcRef) -> Self {
+        Str { block }
     }
 
-    /// Length in bytes (O(1) — read from the inline header, no deref of the data).
+    /// The backing GC block handle — for the GC mark phase and allocation-identity.
+    #[inline]
+    pub fn var_ref(&self) -> VarGcRef {
+        self.block
+    }
+
+    /// Mark this string's GC block during the mark phase. Returns `true` if this
+    /// call won the mark CAS. Strings are leaves (no outgoing references), so
+    /// nothing more is traced. Called from `arc_heap`'s `Value::Str` mark arm.
+    #[inline]
+    pub fn mark(&self) -> bool {
+        self.block.mark()
+    }
+
+    /// Allocate a **standalone leaked** GC string block (no ambient heap: unit
+    /// tests / mock heaps). Never GC-managed, never freed — acceptable there (see
+    /// [`VarGcRef::alloc_leaked`]).
+    pub fn new_leaked(s: &str) -> Self {
+        let block = VarGcRef::alloc_leaked(s.len(), BlockType::Str);
+        // SAFETY: fresh block sized for exactly `s.len()` bytes; write the UTF-8
+        // bytes into the (zeroed) payload before any read.
+        unsafe {
+            let dst = block.payload_as_ptr::<u8>();
+            std::ptr::copy_nonoverlapping(s.as_ptr(), dst, s.len());
+        }
+        Str { block }
+    }
+
+    /// Byte length in bytes (O(1) — the block header's `size`).
     #[inline]
     pub fn len(&self) -> usize {
-        self.header().len
+        self.block.payload_size()
     }
 
     #[inline]
@@ -118,10 +135,12 @@ impl Str {
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         let len = self.len();
-        // SAFETY: the `len` bytes at `DATA_OFFSET` were initialized at construction from a
-        // valid `&str` and are immutable for the allocation's lifetime.
+        // SAFETY: the block payload holds `len` initialized UTF-8 bytes (written at
+        // construction) and is immutable for the block's lifetime; the payload
+        // pointer is derived from the raw block header (whole-allocation provenance,
+        // D8). The block stays live while any `Str` handle to it is reachable.
         unsafe {
-            let data = (self.ptr.as_ptr() as *const u8).add(Self::DATA_OFFSET);
+            let data = self.block.payload_as_ptr::<u8>() as *const u8;
             std::slice::from_raw_parts(data, len)
         }
     }
@@ -133,51 +152,17 @@ impl Str {
         unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
-    /// Stable allocation-identity pointer (the header address). Unique per backing
-    /// allocation for its lifetime — usable as an O(1) identity key (e.g. the char-metadata
-    /// cache) exactly like `Arc::as_ptr`. Two `Str`s compare equal here iff they share the
-    /// same allocation (one was cloned from the other), NOT iff they have equal content.
+    /// Stable allocation-identity pointer (the GC block header address). Unique per
+    /// backing block for its lifetime — an O(1) identity key (e.g. the char-metadata
+    /// cache) like the old `Arc::as_ptr`. Two `Str`s compare equal here iff they
+    /// share the same block (one cloned from the other), NOT iff equal content.
+    ///
+    /// ⚠️ Under GC the slot can be reclaimed + reused after the block dies; a cache
+    /// keyed on this pointer must additionally guard freshness via
+    /// [`VarGcRef::is_live`] (generation check) — see `corelib::str_meta`.
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
-        self.ptr.as_ptr() as *const u8
-    }
-
-    /// Current strong reference count (for tests / diagnostics).
-    #[cfg(test)]
-    fn strong_count(&self) -> usize {
-        self.header().strong.load(Ordering::Acquire)
-    }
-}
-
-impl Clone for Str {
-    #[inline]
-    fn clone(&self) -> Self {
-        // Relaxed is sufficient for a refcount increment (mirrors `std::sync::Arc`): the
-        // existing reference we clone from already establishes the needed happens-before.
-        let old = self.header().strong.fetch_add(1, Ordering::Relaxed);
-        // Guard against a pathological refcount overflow (same backstop as std Arc).
-        debug_assert!(old < usize::MAX, "Str strong count overflow");
-        Str { ptr: self.ptr }
-    }
-}
-
-impl Drop for Str {
-    #[inline]
-    fn drop(&mut self) {
-        // Release so all prior reads/writes of this thread are visible to whoever performs
-        // the final decrement (mirrors `std::sync::Arc::drop`).
-        if self.header().strong.fetch_sub(1, Ordering::Release) != 1 {
-            return;
-        }
-        // We are the last owner. Acquire fence so the deallocation happens-after every
-        // other thread's use of the data.
-        fence(Ordering::Acquire);
-        let layout = Self::layout_for(self.len());
-        // SAFETY: refcount reached 0 → no other handle exists; free the whole allocation
-        // (header + inline bytes) with the same layout it was allocated with.
-        unsafe {
-            dealloc(self.ptr.as_ptr() as *mut u8, layout);
-        }
+        self.block.addr() as *const u8
     }
 }
 
@@ -238,8 +223,8 @@ impl AsRef<str> for Str {
     }
 }
 
-// Value-equality (content), not pointer-equality — matches `Arc<str>`'s `PartialEq` and the
-// language's string `==` semantics.
+// Value-equality (content), not pointer-equality — matches the old `Arc<str>`
+// `PartialEq` and the language's string `==` semantics.
 impl PartialEq for Str {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -247,10 +232,10 @@ impl PartialEq for Str {
     }
 }
 impl Eq for Str {}
-// NB: deliberately NO `PartialEq<str>` / `PartialEq<&str>` — matching `Arc<str>`, which only
-// impls `PartialEq<Arc<str>>`. Extra target impls make `str_val == "lit".into()` ambiguous
-// (the `.into()` can't pick between `Str` / `str` / `&str`). Compare against a literal via
-// `s.as_str() == "lit"` or `s == Str::from("lit")` / `"lit".into()`.
+// NB: deliberately NO `PartialEq<str>` / `PartialEq<&str>` — matching `Arc<str>`,
+// which only impls `PartialEq<Arc<str>>`. Extra target impls make
+// `str_val == "lit".into()` ambiguous. Compare a literal via `s.as_str() == "lit"`
+// or `s == Str::from("lit")` / `"lit".into()`.
 
 impl PartialOrd for Str {
     #[inline]
@@ -289,13 +274,17 @@ impl std::fmt::Display for Str {
 mod tests {
     use super::*;
 
+    // These tests run without a VM → `Str::new` takes the leaked-block fallback
+    // (no ambient heap). They validate content/identity semantics, not GC lifetime
+    // (that is covered by `gc::var_region` + e2e). The Miri gate is `gc::var_region`,
+    // so the intentional leaks here are not leak-checked.
+
     #[test]
     fn round_trips_content_and_len() {
         let s = Str::new("hello 世界");
         assert_eq!(s.as_str(), "hello 世界");
         assert_eq!(s.len(), "hello 世界".len());
         assert_eq!(&*s, "hello 世界");
-        assert_eq!(s.as_str(), "hello 世界");
         assert_eq!(s, Str::from("hello 世界"));
     }
 
@@ -308,17 +297,21 @@ mod tests {
     }
 
     #[test]
-    fn clone_shares_and_refcounts() {
+    fn clone_shares_same_block() {
         let a = Str::new("shared");
-        assert_eq!(a.strong_count(), 1);
         let b = a.clone();
-        assert_eq!(a.strong_count(), 2);
-        // Same backing allocation (thin pointer identity), same content.
-        assert_eq!(a.ptr, b.ptr);
+        // Clone copies the handle → same backing block (allocation identity).
+        assert_eq!(a.as_ptr(), b.as_ptr());
         assert_eq!(a.as_str(), b.as_str());
-        drop(b);
-        assert_eq!(a.strong_count(), 1);
-        // `a` frees at end of scope — Miri validates no leak / no double-free.
+    }
+
+    #[test]
+    fn distinct_allocs_have_distinct_identity() {
+        let a = Str::new("dup");
+        let b = Str::new("dup");
+        // Equal content, but separate allocations → distinct identity pointers.
+        assert_eq!(a, b);
+        assert_ne!(a.as_ptr(), b.as_ptr());
     }
 
     #[test]

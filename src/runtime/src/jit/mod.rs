@@ -120,6 +120,11 @@ impl JitModule {
         // methods on it. add-vmcontext-registry (2026-05-20) converted
         // the caller signature to `&VmContext`, so the cast goes via
         // `*const _` first to satisfy the strict pointer-cast rules.
+        // unify-gc-heap PR-4 (D11): scope the heap as the ambient GC heap for this
+        // JIT run so heap-less `Str::new` / `.into()` sites inside JIT'd code (and
+        // any interp it re-enters) can allocate GC string blocks. Interp frames
+        // install their own guard; this covers a JIT-first entry.
+        let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
         // lazy-per-function-jit (2026-07-23): wire this BEFORE resolving the
         // entry so the entry's own lazy compile is counted (resolve reaches the
         // counters through `vm_ctx`).

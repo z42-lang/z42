@@ -250,6 +250,10 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
         // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
         // block address is its identity.
         Value::Closure(c) => Some(c.addr()),
+        // unify-gc-heap PR-4: strings are region_var blocks now — the block header address is
+        // their heap identity. `FuncRef` likewise carries a `Str`.
+        Value::Str(s) => Some(s.as_ptr() as usize),
+        Value::FuncRef(s) => Some(s.as_ptr() as usize),
         Value::Ref(kind) => match kind.as_ref() {
             crate::metadata::types::RefKind::Array { gc_ref, .. } => {
                 Some(gc_ref.data_ptr_unlocked() as usize)
@@ -765,6 +769,10 @@ impl ArcMagrGC {
                 // unify-gc-heap PR-2: mark the closure's `ClosureData` block in region_var;
                 // `trace_children` then pushes its `env` array so the env stays marked.
                 Value::Closure(c) => c.mark(),
+                // unify-gc-heap PR-4: strings are GC blocks now — mark the `BlockType::Str`
+                // block (leaf, no children to trace). `FuncRef` carries a `Str` name too.
+                Value::Str(s) => s.mark(),
+                Value::FuncRef(s) => s.mark(),
                 Value::Ref(kind) => match kind.as_ref() {
                     crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
                     crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
@@ -802,6 +810,9 @@ impl ArcMagrGC {
             Value::Array(gc)  => GcRef::mark(gc),
             // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
             Value::Closure(c) => c.mark(),
+            // unify-gc-heap PR-4: mark the string block (leaf). `FuncRef` carries a `Str`.
+            Value::Str(s) => s.mark(),
+            Value::FuncRef(s) => s.mark(),
             Value::Ref(kind) => match kind.as_ref() {
                 crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
                 crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
@@ -1790,6 +1801,31 @@ impl ArcMagrGC {
         value
     }
 
+    /// unify-gc-heap PR-4: allocate an immutable UTF-8 string into the variable-length
+    /// GC region (`region_var`, `BlockType::Str`) and return a thin [`Str`] handle
+    /// (`{GcBlockHeader, inline UTF-8 bytes}`, one alloc). Mirrors `alloc_closure_in_region`'s
+    /// record + auto-collect tail. No drop-glue / OOM-refund: a `Str` block is a POD leaf
+    /// (`var_drop_glue` already treats `BlockType::Str` as nothing-to-drop). Exposed via the
+    /// `MagrGC` trait (`alloc_str`) so ambient-heap callers (`Str::new`) reach it.
+    fn alloc_str_in_region(&self, s: &str) -> crate::metadata::vstr::Str {
+        let vref = {
+            let mut region = self.region_var.lock();
+            let vref = region.alloc(s.len(), BlockType::Str);
+            // SAFETY: fresh block sized for exactly `s.len()` bytes; write the UTF-8 bytes
+            // into the zeroed payload (derived from the raw block header, D8) before any read.
+            unsafe {
+                std::ptr::copy_nonoverlapping(s.as_ptr(), vref.payload_as_ptr::<u8>(), s.len());
+            }
+            vref
+        };
+        let size = GcBlockHeader::DATA_OFFSET + s.len();
+        // `record_alloc`'s `_value` is unused (only the sampler's lazy `kind_fn` matters), so
+        // pass `Null` rather than materialize a throwaway `Value::Str`.
+        self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
+        self.maybe_auto_collect();
+        crate::metadata::vstr::Str::from_var_ref(vref)
+    }
+
     /// add-reflection-array-element-type: shared array allocation over an
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
@@ -1938,6 +1974,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_closure(&self, data: ClosureData) -> Value {
         self.alloc_closure_in_region(data)
+    }
+
+    fn alloc_str(&self, s: &str) -> crate::metadata::vstr::Str {
+        self.alloc_str_in_region(s)
     }
 
     fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {

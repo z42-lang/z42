@@ -680,12 +680,14 @@ fn infer_namespace_candidates(name: &str) -> Vec<&str> {
 /// Each loaded zbc / zpkg pays this O(n) cost once, where n is the pool
 /// size. Stdlib `"Length"` / `"ToString"` / `"_zeroBytes"` literals are
 /// now interned per-module to a single Arc.
-pub fn build_interned_strings(module: &mut Module) {
-    module.interned_strings = module.string_pool
-        .iter()
-        .map(|s| crate::metadata::vstr::Str::from(s.as_str()))
-        .collect();
-}
+///
+/// **unify-gc-heap PR-4 (2026-08-16)**: string bytes moved into the GC heap, which
+/// does not exist at module-load time — so the pool can no longer be materialized
+/// here. Interning is now **lazy + per-context**: `ConstStr(idx)` allocates the GC
+/// string on first use (heap live) and caches it in `VmContext::intern_const_str`.
+/// This function is a **no-op** retained only so existing call sites need no change;
+/// `interned_strings` stays empty (removal of the field is deferred to PR-5).
+pub fn build_interned_strings(_module: &mut Module) {}
 
 /// Pre-build a `TypeDesc` for every class in `module.classes` and store the
 /// results in `module.type_registry` (by-name HashMap) **and**

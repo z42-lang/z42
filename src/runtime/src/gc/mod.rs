@@ -35,6 +35,7 @@
 //! alloc 站点追踪 / pause 直方图）、C 测试质量（debug invariants / stress 压测）、
 //! D MMTk 集成（终极方向）。
 
+pub mod ambient;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;

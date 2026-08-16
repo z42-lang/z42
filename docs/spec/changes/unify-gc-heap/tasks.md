@@ -9,7 +9,7 @@
 - [x] **PR-1**: 变长 GC 分配器原语（inert，无消费者，Miri 门禁）—— 本地全绿 commit a0fbd79d（+ PR-2a drop-glue 3550e869）
 - [x] **PR-2**: delegate/closure 进 GC（+ heap 接线 2.0）—— 本地全绿 commit 5c910cd6（cargo 965 + Miri + self-host 5/5 逐字节 + e2e closures 12/delegates 26/gc 20 全绿）
 - [x] **PR-3**: array backing 进 GC（`ArrayBacking` Vec→GC 变长块；packed/struct[] 全迁）—— 本地全绿（cargo 965+21 + Miri var_region 14 + array/struct 块访问 types_tests 31 clean 0 UB + self-host 5/5 逐字节 + xtask test GREEN 全 stage C#-free）。StackVec 变体保留逃逸分析栈数组非 GC；删 derive(Clone)→deep_copy；两块 struct[]（bytes ArrayStruct POD + refs ArrayValue）
-- [ ] **PR-4**: string 进 GC（最难：弥散 `.into()` + 加载期 interning + safepoint；走 ambient 堆最本质方向 D11）
+- [x] **PR-4**: string 进 GC（最难：弥散 `.into()` + lazy per-ctx interning + ambient 堆 D11）✅ 2026-08-16 — 单一堆 payload 闭合
 - [ ] **PR-5**: 收敛 + 文档（删双路径残留；gc.md/object-abi/roadmap 收口）
 
 > 重排理由（D10）：closure/array 创建点全持 `ctx`（`ctx.heap()` 可分配），string 创建弥散在无 ctx 自由上下文 + interned 串加载期建（堆未存在）→ string 是**分配管线最难**而非最易。先用 closure 把变长分配器→mark→trace→sweep 全链路 battle-test，string 放最后。原 PR-2(string)/PR-3(closure)/PR-4(array) 编号已按新序调整。
@@ -45,15 +45,15 @@
 - [x] 3.5 write-barrier array 元素写不变（存进块）；`packed_num_ptr` 返块 payload 指针（非移动，JIT hoist 缓存不变）
 - [x] 3.6 GREEN：cargo --lib 965+21 + tests/bench 编译 + Miri（var_region 14 + array/struct 块访问 types_tests 31 clean 0 UB）+ `xtask test` self-host 5/5 逐字节 + 全 stage GREEN（C#-free）+ e2e（数组/struct[]/gc/closures 经 xtask e2e stage 覆盖）
 
-## PR-4: string 进 GC（最难：弥散分配 + 加载期 interning + safepoint）
-> **架构方向已定（D11）= 堆作为一等 ambient 分配服务**（CLR/JVM 模型；非 188 处线程穿透）。
-- [ ] 4.0 ambient 堆：泛化 `CURRENT_VM` thread-local → 正规 `current_heap()`（ungate native-interop；`VmGuard` 已包裹每个 `exec_function`，`interp/mod.rs:745`）；覆盖非 interp 路径审计
-- [ ] 4.1 GC string 块布局（type_tag=Str，`{GcBlockHeader, UTF-8 bytes}`，len 由 header.size 派生）；`vstr.rs` `Str` 的 Arc 头 → GC 块头 / `Str::new` 从 ambient 堆分配，删 `strong` 原子计数 + Arc drop（payload 派生走原始 NonNull，D8）
-- [ ] 4.2 **加载期 interning**：`Module.interned_strings` 在加载期用堆引用（VmCore.heap 早于模块加载存在）GC 分配 + 注册永久 GC roots（`merge.rs:26`/`loader.rs:686` 有界单点）；`set_external_root_scanner`（`vm_context.rs:672`）扫 interned 池 + `JitModuleCtx.string_pool`
-- [ ] 4.3 **safepoint 纪律**：临时 string（表达式中间值）分配触发 GC 前须可达（register root / 抑制 mid-alloc collect）——设计 + 验证
-- [ ] 4.4 `Value::Str(Str)` → `Value::Str(VarGcRef)`（8B）；`is_heap_ref`=true、`trace_children` string 臂（叶子终止）；str_meta 缓存身份 key → 块头地址
-- [ ] 4.5 ~188 处 `.into()` 保持不变（ambient 堆）；`fn_name`/`element_type: Arc<str>` 顺带迁 GC string
-- [ ] 4.6 benchmark：z42c 自编译（string-heavy）GC 频率/内存峰值/吞吐——量化 GC 压力回归（本程序预期短期代价）；GREEN cargo + Miri + `xtask test`（self-host 逐字节）+ e2e string 生命周期
+## PR-4: string 进 GC（最难：弥散分配 + 加载期 interning + safepoint）✅ 完成（2026-08-16）
+> **架构方向已定（D11）= 堆作为一等 ambient 分配服务**（CLR/JVM 模型；非 188 处线程穿透）。as-implemented 见 design.md §4。
+- [x] 4.0 ambient 堆：新增专用 `gc/ambient.rs`（`current_heap()` + `HeapGuard`，每帧/JIT run 设 thread-local；未重载 native-interop 的 `CURRENT_VM`）；接入 `exec_function` + `jit::run_fn`，覆盖 interp+JIT
+- [x] 4.1 GC string 块布局（`BlockType::Str`，`{GcBlockHeader, UTF-8 bytes}`，len=header.size）；`Str` → `VarGcRef`，删 `strong` 原子计数 + Arc drop；`alloc_str` on `MagrGC`/`ArcMagrGC`（payload 派生走原始 NonNull，D8）
+- [x] 4.2 **lazy per-ctx interning**（改初稿：加载期无堆 → 不物化）：`build/populate_interned_strings` no-op；`ConstStr` 首次经 `VmContext::intern_const_str` 活堆分配 + `interned_cache`（`(module,idx)` 键）；external root scanner 扫缓存；interp `const_str` + JIT `jit_const_str` 同源
+- [x] 4.3 **safepoint 纪律**：查明**几乎免费**——`maybe_auto_collect` 只置标志、延到 safepoint（默认 `max_bytes=None` 全不 auto-collect）→ 临时 string 落 reg 前天然安全（frame regs 已被 root scanner 扫），与既有 Object/Array 同不变式
+- [x] 4.4 `Value::Str(Str)`→`VarGcRef`（8B）；mark_phase + mark_if_unmarked 加 `Str`/`FuncRef` 臂；`is_heap_ref(Str/FuncRef)=true`（写屏障）；`value_heap_ptr` Str 臂；string 是叶子 trace 无出边；str_meta 加 `is_live()` 世代守卫
+- [x] 4.5 ~189 处 `.into()` 保持不变（ambient 堆）；`fn_name`/`element_type`/frame `Arc<str>`（Rust 内部 bookkeeping，非 `Value::Str`）**顺带迁延 PR-5 收敛**（不影响 string-payload 进 GC 闭合）
+- [x] 4.6 benchmark（string-heavy 实测）：**吞吐 1.76× 更快**（消除原子 refcount）+ 峰值 RSS +13%（默认不 auto-collect 累积）——预期代价实为吞吐净赢；GREEN cargo 970 + Miri 14/0 + `xtask test` self-host 5/5 逐字节 + e2e `gc_string_survives_collect`（interp+jit）
 
 ## PR-5: 收敛 + 文档
 - [ ] 5.1 删 Arc/Box/外部 Vec 双路径残留；收敛 `trace_children` vs `scan_object_refs` 双 visitor（若时机合适）

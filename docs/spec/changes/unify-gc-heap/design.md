@@ -95,14 +95,54 @@ string/closure/array 的**运行时表示**变，zbc/zpkg **序列化格式不�
 
 ---
 
-## 4. string 进 GC（PR-2）
+## 4. string 进 GC（✅ PR-4 已实现，2026-08-16）
 
-- `Str`（vstr.rs）Arc 头 → GC 块头（D3）；`Value::Str(Str)` → `Value::Str(GcRef<StrHeader>)`（8B 不变）。
-- **interned 串池** `Vec<Str>` → GC roots（`bytecode.interned_strings` / jit `frame.string_pool` / `interned_strings()`/`try_lookup_string()` 等，PR-4-of-layout 已全迁 `Vec<Str>`，此处改为 root 注册 + GcRef）。const-str O(1) clone 变 GcRef clone（更便宜）。
-- str_meta 缓存身份 key（现 `Str::as_ptr`）→ GcRef 块头地址。
-- 删 vstr Arc drop（GC 管生死）；`Str: Send+Sync` 语义由 GC 堆的线程模型给出。
-- **~287 处迁移** + benchmark（z42c 自编译 string-heavy 最敏感——GC 压力实测门禁）。
-- `PartialEq` 按内容不变；`len()` 从块头 O(1)。
+> D10 重排后 string 是最后一个 PR（不是 PR-2）。以下为**as-implemented**，与初稿（预物化池
+> 注册 root）在 interning 上不同——见 D11。
+
+- **`Str` 表示**（`vstr.rs`）：`StrHeader{strong,len}` + 原子 refcount → **`Str(VarGcRef)`**（`BlockType::Str`
+  变长块，`{GcBlockHeader, inline UTF-8}`，D3）。删 `strong` 原子计数 + Arc `Drop`（GC 管生死）；
+  **Clone = 8B 句柄拷贝**（比 refcount bump 便宜）；`Str: Copy`；`len()` = `header.size` O(1)；
+  `as_ptr()` = 块头地址（身份键）；`Send+Sync` 由 `VarGcRef` 自动给出。公开 API（`as_str`/`as_bytes`/
+  `From`/`PartialEq` 按内容/…）**全不变** → 全库 ~189 `.into()` 站点零改动。
+- **分配 = ambient 堆（D11）**：`Str::new` 走 `gc::ambient::current_heap()`（每个 `exec_function` /
+  JIT `run_fn` 设 `HeapGuard` thread-local）→ `heap.alloc_str(s)`（`region_var` 分配 `BlockType::Str`
+  块 + 拷字节，payload 派生走原始 NonNull D8）。无堆上下文（无 VM 单测）回退 `VarGcRef::alloc_leaked`。
+- **mark/trace**：`Value::Str(s)=>s.mark()` 加入 `mark_phase` + `mark_if_unmarked`（覆盖 STW/minor/
+  concurrent）；`FuncRef(Str)` 同臂。string 是叶子 → `trace_children`/`scan_object_refs` 无出边（原
+  primitive 臂已含 `Str`/`FuncRef`）。`is_heap_ref(Str/FuncRef)=true` → 存进堆槽触发写屏障。
+  `value_heap_ptr` 加 Str/FuncRef 臂（retention 诊断）。**string-in-object**：string 字段落对象 `refs`
+  侧表（`STRUCT_LEAF_ARCSTRING`→`TAG_STR`）已被 visitor 扫描 → 正确可达（无需改字段布局）。
+- **interned 串池 → lazy per-ctx interning（D11 as-implemented）**：`Module.interned_strings`（加载期
+  `Vec<Str>`）**废**——`build/populate_interned_strings` 改 no-op（加载期无堆，物化会走 leaked 兜底泄漏
+  全池）。改为：`ConstStr(idx)` 首次经 `VmContext::intern_const_str(module, idx)` 用**活堆**分配 GC
+  string + 缓存进 `interned_cache: Mutex<HashMap<(module ptr, idx), Str>>`；缓存项经 external root
+  scanner 注册为 **GC root**；后续命中拷 8B 句柄（保留旧池 O(1)-clone 的摊销，但堆安全）。interp
+  `const_str` + JIT `jit_const_str` 同源；overflow（`try_lookup_string`）保持 fresh-alloc（冷路径）。
+- **safepoint（D11）= 几乎免费**：`maybe_auto_collect` 在 wired VmCore 下**只置 `needs_auto_collect`
+  标志、延到 `check_safepoint` 才 collect**（默认 `max_bytes=None` 更是全不 auto-collect）→ GC 只在
+  显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条指令/builtin 的 Rust 执行中途
+  → 临时 string 落寄存器前天然安全（frame regs 已被 root scanner 扫），与既有 Object/Array 临时值同一
+  不变式。无需 mid-alloc suppress / 额外 register-root。
+- **str_meta 身份缓存**：缓存持 `Str` 克隆但线程本地缓存**不被扫描** → 块可被 sweep + 槽复用 → 陈旧
+  身份误命中。修：命中需**地址匹配 + `VarGcRef::is_live()` 世代守卫**（swept-reused 槽世代不符 → 视为
+  miss 重算）。leaked（测试/无堆）串世代固定、永不 swept → 恒通过。
+- **fn_name/element_type/frame `Arc<str>`**（Rust 内部 bookkeeping，非 `Value::Str`）→ 顺带迁 GC string
+  **延 PR-5 收敛**（不影响本 PR string-payload 进 GC 的闭合；closure drop-glue 暂留 drop `fn_name`）。
+- **验证**：cargo --lib 970 + Miri（`gc::var_region` 14，0 UB）+ e2e `gc_string_survives_collect`
+  （对象字段/数组/拼接/interned/unicode 全程 ForceCollect 存活，interp+jit）+ self-host 5/5 逐字节
+  （纯运行时无格式 bump）。
+- **benchmark（string-heavy `07_string_heavy` 放大版，O(n²) 拼接 + Substring，interp，macOS，输出一致）**：
+  | | OLD（Arc refcount） | NEW（string 进 GC） | Δ |
+  |---|---|---|---|
+  | 吞吐 wall | ~5.68 s | ~3.23 s | **1.76× 更快** |
+  | 峰值 RSS | ~1084 MB | ~1223 MB | +13% |
+
+  **事实校正**：本 PR 原被预期为「短期性能净负担」，但 string-heavy 实测是**吞吐净赢**——消除
+  原子 refcount（Clone=8B 句柄拷贝无 `fetch_add`、Drop=no-op 无 `fetch_sub`+free）+ region-bump
+  分配远快于 malloc+Arc。代价仅**内存 +13%**：默认 `max_bytes=None` 不 auto-collect → GC string
+  累积不即时释放（旧 Arc refcount 即时释放）；设堆上限则内存有界、代价转为 collection 停顿。**架构
+  统一 + 为移动/压缩 GC 铺路的收益之外，短期竟也是吞吐正向**（工作负载相关；非 string-churn 型差异更小）。
 
 ## 5. delegate/closure 进 GC（PR-3）
 

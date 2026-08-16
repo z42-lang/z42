@@ -424,6 +424,17 @@ pub struct VmContext {
     /// slots. `LoadFnCached { slot_id }` 首次执行时把 `Value::FuncRef(name)`
     /// 写入 `func_ref_slots[slot_id]`；后续命中直接 load。
     pub(crate) func_ref_slots:    Arc<Mutex<Vec<Value>>>,
+    /// **unify-gc-heap PR-4**: per-context lazy interning cache for `ConstStr` pool
+    /// literals. The `Str` bytes moved into the GC heap, but the interned pool is
+    /// built at module *load* time when no heap exists — so instead of materializing
+    /// `Module.interned_strings` at load, the first `ConstStr(idx)` allocates a GC
+    /// string from the live heap and caches it here (keyed by `(module ptr, idx)`).
+    /// Cached entries are **GC roots** (scanned by the external root scanner), so the
+    /// interned strings survive collection while this context is alive; subsequent
+    /// hits copy the 8-byte handle (no re-alloc). Per-context (not shared) so no
+    /// module mutation / cross-thread interning — a thread re-interns its own literals
+    /// (negligible for z42's 1–2 threads). See `interp::exec_value::const_str`.
+    pub(crate) interned_cache:    Arc<Mutex<HashMap<(usize, u32), crate::metadata::vstr::Str>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in
@@ -564,6 +575,7 @@ impl VmContext {
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
+            interned_cache: Arc::new(Mutex::new(HashMap::new())),
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
@@ -715,6 +727,13 @@ impl VmContext {
                     for v in ctx.func_ref_slots.lock().iter() {
                         visit(v);
                     }
+                    // unify-gc-heap PR-4: per-context interned string cache — the GC
+                    // strings lazily allocated for ConstStr pool literals live only
+                    // here (not in any frame reg after their instruction), so they
+                    // are roots: visit each so the interned block stays marked.
+                    for s in ctx.interned_cache.lock().values() {
+                        visit(&Value::Str(*s));
+                    }
                     // add-escape-analysis-stack-alloc: stack-alloc arena roots.
                     // A stack object's slots / stack array's elements may hold heap
                     // GcRefs that must stay marked while the stack object is live.
@@ -799,6 +818,7 @@ impl VmContext {
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
+            interned_cache: Arc::new(Mutex::new(HashMap::new())),
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
@@ -1460,6 +1480,34 @@ impl VmContext {
             }
         }
         set.into_iter().collect()
+    }
+
+    /// **unify-gc-heap PR-4**: lazily intern `module`'s string-pool literal `idx`
+    /// into a GC string, cached per-context. Returns `None` if `idx` is out of the
+    /// main pool (caller falls back to [`try_lookup_string`](Self::try_lookup_string)
+    /// for the lazy-overflow pool).
+    ///
+    /// The pool cannot be materialized at module *load* time (no heap exists then),
+    /// so the first reference to each literal allocates a GC string from the live
+    /// heap and caches it here keyed by `(module ptr, idx)`; the cache is a GC root
+    /// (scanned by the external root scanner), so the interned string survives
+    /// collection while this context lives, and subsequent hits copy the 8-byte
+    /// handle (no re-alloc — the same amortization the old pre-interned `Vec<Str>`
+    /// gave, but heap-safe).
+    #[inline]
+    pub fn intern_const_str(&self, module: &crate::metadata::Module, idx: usize) -> Option<crate::metadata::vstr::Str> {
+        let key = (module as *const crate::metadata::Module as usize, idx as u32);
+        // Fast path: already interned in this context.
+        if let Some(s) = self.interned_cache.lock().get(&key) {
+            return Some(*s);
+        }
+        // Slow path: allocate from the live heap + cache. The heap is the ambient
+        // heap for this frame; a fresh block is immediately reachable (returned into
+        // a register) and, once cached, kept alive as a root.
+        let raw = module.string_pool.get(idx)?;
+        let s = self.heap().alloc_str(raw);
+        self.interned_cache.lock().insert(key, s);
+        Some(s)
     }
 
     /// Resolve an "overflow" ConstStr index past the main module's pool.

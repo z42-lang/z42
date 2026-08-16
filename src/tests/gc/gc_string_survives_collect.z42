@@ -1,0 +1,62 @@
+namespace Demo;
+
+using Std;
+
+// unify-gc-heap PR-4: strings live in the GC heap now (region_var BlockType::Str).
+// This test proves GC-managed strings survive collection through every reachability
+// path: object ref field, array element, concat temporaries, and interned literals.
+
+class Holder {
+    string Name;
+}
+
+class Node {
+    string Label;
+    Node Next;
+}
+
+void Main() {
+    // 1. String in an object ref field — reachable only via `h.Name` (not in a reg).
+    Holder h = new Holder();
+    h.Name = "held-by-field";
+
+    // 2. Concatenation → a freshly GC-allocated string, stored transitively via a chain.
+    Node a = new Node();
+    Node b = new Node();
+    a.Next = b;
+    string part1 = "chain-";
+    string part2 = "value";
+    b.Label = part1 + part2;   // heap concat, reachable only via a.Next.Label
+
+    // 3. Strings in an array (element storage → GC block backing + Str blocks).
+    string[] arr = new string[3];
+    arr[0] = "arr-zero";
+    arr[1] = "arr-" + "one";   // concat into array element
+    arr[2] = "arr-two";
+
+    // 4. Interned literals used repeatedly (lazy per-ctx interning cache = GC roots).
+    int i = 0;
+    while (i < 5) {
+        string lit = "interned-literal";   // same pool slot each iteration
+        Assert.Equal(16, lit.Length);
+        i = i + 1;
+    }
+
+    // Force a full collect mid-execution — mark must reach every string above.
+    GC.ForceCollect();
+    GC.ForceCollect();
+
+    // 5. Verify every string is intact after collection.
+    Assert.Equal("held-by-field", h.Name);
+    Assert.Equal("chain-value", a.Next.Label);
+    Assert.Equal("arr-zero", arr[0]);
+    Assert.Equal("arr-one", arr[1]);
+    Assert.Equal("arr-two", arr[2]);
+
+    // 6. Char metadata (str_meta cache) stays correct across collects (is_live guard).
+    string uni = "héllo-世界";
+    Assert.Equal(8, uni.Length);
+    GC.ForceCollect();
+    Assert.Equal(8, uni.Length);
+    Assert.Equal('世', uni.CharAt(6));
+}

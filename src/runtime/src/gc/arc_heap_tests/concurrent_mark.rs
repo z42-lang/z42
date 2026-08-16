@@ -102,7 +102,18 @@ fn mark_if_unmarked_returns_false_for_primitives() {
     assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::I64(1)));
     assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::Null));
     assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::Bool(true)));
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::Str("x".into())));
+    // unify-gc-heap PR-4: `Value::Str` is now a GC heap ref (not a primitive) —
+    // it marks like any heap object (covered by `mark_if_unmarked_marks_string`).
+}
+
+#[test]
+fn mark_if_unmarked_marks_string() {
+    // unify-gc-heap PR-4: strings are GC blocks; the first mark wins the CAS, the
+    // second fails (idempotent), exactly like Object/Closure.
+    let s = Value::Str("hello".into());
+    assert!(ArcMagrGC::mark_if_unmarked_for_test(&s), "first call marks the string block");
+    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&s), "second call CAS fails");
+    // (leaked test block — no need to clear the mark; never swept/reused.)
 }
 
 #[test]

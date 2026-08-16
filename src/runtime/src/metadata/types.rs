@@ -2191,6 +2191,11 @@ impl Value {
     pub fn is_heap_ref(&self) -> bool {
         match self {
             Value::Object(_) | Value::Array(_) | Value::Closure(_) => true,
+            // unify-gc-heap PR-4: strings are GC blocks now — storing one into a heap
+            // slot (object ref field / array element / struct ref leaf) is a heap edge
+            // that needs a write barrier (generational card / concurrent mark-queue),
+            // so the string block is found + kept marked. `FuncRef` carries a `Str`.
+            Value::Str(_) | Value::FuncRef(_) => true,
             Value::Ref(kind) => matches!(
                 kind.as_ref(),
                 RefKind::Array { .. } | RefKind::Field { .. }

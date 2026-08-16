@@ -124,6 +124,16 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         Value::Null
     }
 
+    /// unify-gc-heap PR-4: allocate an immutable UTF-8 string into the GC
+    /// variable-length region (`BlockType::Str`) and return a thin [`Str`] handle.
+    /// The primary allocation entry for `Value::Str` (reached via the ambient heap
+    /// from `Str::new`/`.into()`). The default falls back to a standalone leaked
+    /// block for mock heaps with no variable-length region (test doubles never churn
+    /// enough for the leak to matter); `ArcMagrGC` overrides to region-alloc in place.
+    fn alloc_str(&self, s: &str) -> crate::metadata::vstr::Str {
+        crate::metadata::vstr::Str::new_leaked(s)
+    }
+
     // ── 2. Roots ─────────────────────────────────────────────────────────────
 
     /// 注册一个 **external root scanner** 闭包 —— GC mark 阶段在扫完 pinned
