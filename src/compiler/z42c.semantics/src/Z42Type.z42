@@ -323,6 +323,11 @@ public sealed class Z42ErrorType : Z42Type {
 }
 
 public sealed class Z42UnknownType : Z42Type {
+    // 未解析的原始类型名：由 SymbolTable.ResolveTypeP 在 NamedType 未解析 fallthrough 时填入，
+    // 使 AccessChecker.CheckTypeRef 能报「undefined type: <name>」（E0443）。
+    // 空串 = 匿名 Unknown（var 无 init / 错误恢复），不触发 E0443（非「具名未定义类型」）。
+    public string UnresolvedName;
+    public Z42UnknownType() { this.UnresolvedName = ""; }
     public override string Name() { return "<unknown>"; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }

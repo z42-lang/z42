@@ -91,7 +91,23 @@ public sealed class AccessChecker {
             AccessChecker._checkVisRef(ift.Visibility, ift.Name(), ift.IsImported, "interface", currentClass, symbols, diags, sp);
             return;
         }
-        // 其余（prim/泛型形参/未知/func）一律放行，绝不误报。
+        // fix-undefined-type-diagnostic D5：数组元素递归（覆盖 `C[]` 元素未定义）。
+        if (resolved is Z42ArrayType) {
+            Z42ArrayType at = resolved as Z42ArrayType;
+            AccessChecker.CheckTypeRef(at.Elem, currentClass, symbols, diags, sp);
+            return;
+        }
+        // fix-undefined-type-diagnostic：具名 Unknown（SymbolTable.ResolveTypeP 未解析 fallthrough
+        // 携原名）= 真未定义类型 → E0443。匿名 Unknown（var 无 init / 错误恢复，UnresolvedName=="")
+        // 是级联抑制哨兵，放行不误报。
+        if (resolved is Z42UnknownType) {
+            Z42UnknownType u = resolved as Z42UnknownType;
+            if (u.UnresolvedName != "") {
+                diags.Error(DiagnosticCodes.UndefinedType, "undefined type: " + u.UnresolvedName, sp);
+            }
+            return;
+        }
+        // 其余（prim/泛型形参/func）一律放行，绝不误报。
     }
 
     // 类/接口共用的可见性引用校验（private 嵌套文本域 / protected 外层家族 / internal 跨包 deny）。

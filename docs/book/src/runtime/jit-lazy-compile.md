@@ -549,5 +549,31 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 - **收益（JIT 2C vs JIT 2B）**：纯算术累加环 **1.75×**；realistic field 累加 `s += this.v` **1.35×**。
 - **验证**：全循环形态（nested / break-continue / param-carried+early-return / helper-in-loop /
   unsigned-narrow）**normal + `Z42_OSR_THRESHOLD=1`（强制每循环走 OSR）双模式** interp==jit 逐字节；
-  `cargo --lib` + e2e 490/0（含 OSR-forced e2e）+ 自举 5/5 gen1==gen2 + stdlib 全绿。纯 runtime codegen，
+  `cargo --lib` + e2e 490/0（含 OSR-forced e2e）+ 自举 5/5 gen1==gen2 + stdlib 全绿。纯 runtime codegen,
   无格式 bump。
+
+## 原生 F64 浮点算术（jit-native-float）
+
+> 位置：`jit/translate.rs`（`is_f64_typed`/`_cmp`/`_typed_unary` + `emit_f64_binop`/`_cmp`/`_neg` +
+> Add/Sub/Mul/Div/Neg/Eq..Ge 各臂）。change 容器 `docs/spec/changes/jit-native-float/`。
+
+整数原生化收官后，浮点仍全走 helper：`double` 的 Add/Sub/Mul/Div/比较/取负都路由到 extern
+`jit_add`/`jit_lt`/… → 纯 `double` 累加环 JIT 仅 1.59× interp。本节给 F64 加原生快路径，与 2A 的整数
+快路径同构（谓词全 F64 → 原生 Cranelift 指令、否则回落 helper）。
+
+- **算术** `emit_f64_binop`：`fadd`/`fsub`/`fmul`/`fdiv`，读 off8 的 f64 payload、算完存 `TAG_F64`。
+- **比较** `emit_f64_cmp`：`fcmp` + `FloatCC`。**NaN 语义（关键）**——Eq/Lt/Le/Gt/Ge 用 **ordered**
+  （NaN→false）、Ne 用 **unordered-or-not-equal**（NaN!=NaN→true），与 interp 的 Rust `f64`
+  `==`/`<`/… 逐位一致。
+- **取负** `emit_f64_neg`：`fneg`（翻符号位；`-NaN` 仍 NaN）。
+
+**Div 原生安全**：IEEE 浮点 /0 → ±inf/NaN（不 trap、不抛异常）→ 可 native `fdiv`，**不像 i64 `sdiv`**
+必须留 helper 处理 catchable 异常。**Rem 留 helper**（浮点取余 = `fmod` libcall、非单指令）。
+
+**范围**：只 `F64`（double）——`F32` widened 存 `Value::F64`、写回需 round 到 f32 精度，native `fadd`
+不做 → F32 留 helper（`is_f64_typed` 精确匹配 F64 排除 F32）；混合 int/float 留 helper（促 int→f64）；
+F64 op 直写内存（不进 2B 缓存/2C Variable，F64 residency 是独立 follow-up）。
+
+**收益/验证**：纯 `double` 累加环 JIT **1.59×→2.78× interp**（jit 自身 608→349ms=1.74×）；`ftest.z42`
+（全 6 比较 + 四则 + fneg + **NaN/±inf/±0/inf×0 边界** + 混合 int/float 留 helper）interp==jit==jitOSR
+逐字节；cargo --lib + e2e + 自举 5/5 + stdlib 全绿。纯 runtime codegen，无格式 bump。
