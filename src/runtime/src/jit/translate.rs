@@ -869,6 +869,8 @@ pub fn translate_function(
                 Instruction::Add { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Add);
+                    } else if is_f64_typed(z42_func, *dst, *a, *b) {
+                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Add);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_add, &[frame_val, ctx_val, d, av, bv]);
@@ -878,6 +880,8 @@ pub fn translate_function(
                 Instruction::Sub { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Sub);
+                    } else if is_f64_typed(z42_func, *dst, *a, *b) {
+                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Sub);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_sub, &[frame_val, ctx_val, d, av, bv]);
@@ -887,6 +891,8 @@ pub fn translate_function(
                 Instruction::Mul { dst, a, b } => {
                     if is_int_typed(z42_func, *dst, *a, *b) {
                         emit_i64_binop(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, BinopKind::Mul);
+                    } else if is_f64_typed(z42_func, *dst, *a, *b) {
+                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Mul);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_mul, &[frame_val, ctx_val, d, av, bv]);
@@ -894,11 +900,17 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Div { dst, a, b } => {
-                    // Keep helper: i64 div-by-zero must surface a catchable
-                    // z42 exception. Native sdiv on x86_64 traps with SIGFPE.
-                    let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
-                    let inst = builder.ins().call(hr_div, &[frame_val, ctx_val, d, av, bv]);
-                    let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    // jit-native-float: F64 divide is native `fdiv` — IEEE /0 →
+                    // ±inf/NaN (no trap, no exception), matching interp. i64
+                    // div-by-zero must surface a catchable z42 exception (native
+                    // sdiv on x86_64 traps SIGFPE) → keep the helper for ints.
+                    if is_f64_typed(z42_func, *dst, *a, *b) {
+                        emit_f64_binop(&mut builder, regs_base, *dst, *a, *b, F64BinopKind::Div);
+                    } else {
+                        let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
+                        let inst = builder.ins().call(hr_div, &[frame_val, ctx_val, d, av, bv]);
+                        let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    }
                 }
                 Instruction::Rem { dst, a, b } => {
                     // Same as Div — keep helper for /0 exception handling.
@@ -914,6 +926,8 @@ pub fn translate_function(
                 Instruction::Eq { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Eq);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Eq);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_eq, &[frame_val, ctx_val, d, av, bv]);
@@ -922,6 +936,8 @@ pub fn translate_function(
                 Instruction::Ne { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ne);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ne);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         builder.ins().call(hr_ne, &[frame_val, ctx_val, d, av, bv]);
@@ -930,6 +946,8 @@ pub fn translate_function(
                 Instruction::Lt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Lt);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Lt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_lt, &[frame_val, ctx_val, d, av, bv]);
@@ -939,6 +957,8 @@ pub fn translate_function(
                 Instruction::Le { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Le);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Le);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_le, &[frame_val, ctx_val, d, av, bv]);
@@ -948,6 +968,8 @@ pub fn translate_function(
                 Instruction::Gt { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Gt);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Gt);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_gt, &[frame_val, ctx_val, d, av, bv]);
@@ -957,6 +979,8 @@ pub fn translate_function(
                 Instruction::Ge { dst, a, b } => {
                     if is_int_cmp(z42_func, *a, *b) {
                         emit_i64_cmp(&mut builder, regs_base, &mut cache, &promoted, *dst, *a, *b, CmpKind::Ge);
+                    } else if is_f64_cmp(z42_func, *a, *b) {
+                        emit_f64_cmp(&mut builder, regs_base, *dst, *a, *b, CmpKind::Ge);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_ge, &[frame_val, ctx_val, d, av, bv]);
@@ -1000,6 +1024,8 @@ pub fn translate_function(
                 Instruction::Neg { dst, src } => {
                     if is_int_typed_unary(z42_func, *dst, *src) {
                         emit_i64_neg(&mut builder, regs_base, &mut cache, &promoted, *dst, *src);
+                    } else if is_f64_typed_unary(z42_func, *dst, *src) {
+                        emit_f64_neg(&mut builder, regs_base, *dst, *src);
                     } else {
                         let d = ri!(*dst); let s = ri!(*src);
                         let inst = builder.ins().call(hr_neg, &[frame_val, ctx_val, d, s]);
@@ -1905,6 +1931,12 @@ fn is_int_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
 #[derive(Clone, Copy)]
 enum BinopKind { Add, Sub, Mul, BitAnd, BitOr, BitXor, Shl, Shr }
 
+/// F64 binary op kind for `emit_f64_binop` (jit-native-float). `Div` is safe
+/// natively: IEEE float divide-by-zero yields ±inf/NaN (no trap), unlike i64
+/// `sdiv` which must stay on the helper for the catchable exception.
+#[derive(Clone, Copy)]
+enum F64BinopKind { Add, Sub, Mul, Div }
+
 /// Comparison op kind for `emit_i64_cmp`.
 #[derive(Clone, Copy)]
 enum CmpKind { Eq, Ne, Lt, Le, Gt, Ge }
@@ -1950,6 +1982,34 @@ fn is_int_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
     let rt = &func.reg_types;
     let is_int = |i: u32| rt.get(i as usize).copied().unwrap_or(IrType::Unknown).is_integer();
     is_int(dst) && is_int(src)
+}
+
+/// jit-native-float: `true` iff `dst`, `a`, `b` are all `IrType::F64` (double).
+/// Only `F64` — `F32` is stored widened as `Value::F64` and must round to f32
+/// precision on write, which the native `fadd`/… path does not do, so `F32`
+/// keeps the helper path. Mixed int/float also stays on the helper (which
+/// promotes int→f64).
+#[inline]
+fn is_f64_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
+    let rt = &func.reg_types;
+    let is_f64 = |i: u32| rt.get(i as usize).copied() == Some(IrType::F64);
+    is_f64(dst) && is_f64(a) && is_f64(b)
+}
+
+/// jit-native-float: both compare operands are `F64` (dst is Bool).
+#[inline]
+fn is_f64_cmp(func: &Function, a: u32, b: u32) -> bool {
+    let rt = &func.reg_types;
+    let is_f64 = |i: u32| rt.get(i as usize).copied() == Some(IrType::F64);
+    is_f64(a) && is_f64(b)
+}
+
+/// jit-native-float: both unary operands are `F64` (Neg).
+#[inline]
+fn is_f64_typed_unary(func: &Function, dst: u32, src: u32) -> bool {
+    let rt = &func.reg_types;
+    let is_f64 = |i: u32| rt.get(i as usize).copied() == Some(IrType::F64);
+    is_f64(dst) && is_f64(src)
 }
 
 /// jit-unbox-regalloc Phase 2B: does this instruction participate in the
@@ -2417,6 +2477,72 @@ fn emit_bool_not(
     let result = builder.ins().bxor(si, one);
 
     store_const_tag(builder, addr_dst, TAG_BOOL, result);
+}
+
+/// jit-native-float: emit `frame.regs[dst] = Value::F64(a OP b)` with native
+/// Cranelift `fadd`/`fsub`/`fmul`/`fdiv` on the f64 payloads. Caller verified
+/// all three regs are `F64`. Result discriminant `TAG_F64`. Matches interp's
+/// `int_binop_helper` float arm (plain IEEE f64 arithmetic).
+fn emit_f64_binop(
+    builder: &mut FunctionBuilder,
+    regs_base: cranelift_codegen::ir::Value,
+    dst: u32, a: u32, b: u32,
+    op: F64BinopKind,
+) {
+    let addr_a   = reg_addr(builder, regs_base, a);
+    let addr_b   = reg_addr(builder, regs_base, b);
+    let addr_dst = reg_addr(builder, regs_base, dst);
+    let ai = load_payload(builder, addr_a, types::F64);
+    let bi = load_payload(builder, addr_b, types::F64);
+    let result = match op {
+        F64BinopKind::Add => builder.ins().fadd(ai, bi),
+        F64BinopKind::Sub => builder.ins().fsub(ai, bi),
+        F64BinopKind::Mul => builder.ins().fmul(ai, bi),
+        F64BinopKind::Div => builder.ins().fdiv(ai, bi),
+    };
+    store_const_tag(builder, addr_dst, TAG_F64, result);
+}
+
+/// jit-native-float: emit `frame.regs[dst] = Value::Bool(a OP b)` for F64 operands
+/// via native `fcmp`. Uses ORDERED comparisons (NaN → false) for
+/// Eq/Lt/Le/Gt/Ge and UNORDERED-or-not-equal for Ne (NaN != NaN → true),
+/// matching Rust's f64 `==`/`<`/… used by interp `numeric_lt`/`ops::compare`.
+fn emit_f64_cmp(
+    builder: &mut FunctionBuilder,
+    regs_base: cranelift_codegen::ir::Value,
+    dst: u32, a: u32, b: u32,
+    kind: CmpKind,
+) {
+    use cranelift_codegen::ir::condcodes::FloatCC;
+    let addr_a   = reg_addr(builder, regs_base, a);
+    let addr_b   = reg_addr(builder, regs_base, b);
+    let addr_dst = reg_addr(builder, regs_base, dst);
+    let ai = load_payload(builder, addr_a, types::F64);
+    let bi = load_payload(builder, addr_b, types::F64);
+    let cc = match kind {
+        CmpKind::Eq => FloatCC::Equal,             // ordered: NaN==NaN → false
+        CmpKind::Ne => FloatCC::NotEqual,          // unordered: NaN!=NaN → true
+        CmpKind::Lt => FloatCC::LessThan,
+        CmpKind::Le => FloatCC::LessThanOrEqual,
+        CmpKind::Gt => FloatCC::GreaterThan,
+        CmpKind::Ge => FloatCC::GreaterThanOrEqual,
+    };
+    let result_i8 = builder.ins().fcmp(cc, ai, bi);
+    store_const_tag(builder, addr_dst, TAG_BOOL, result_i8);
+}
+
+/// jit-native-float: emit `frame.regs[dst] = Value::F64(-src)` via native `fneg`
+/// (flips the IEEE sign bit; `-NaN` stays NaN). Caller verified both F64.
+fn emit_f64_neg(
+    builder: &mut FunctionBuilder,
+    regs_base: cranelift_codegen::ir::Value,
+    dst: u32, src: u32,
+) {
+    let addr_src = reg_addr(builder, regs_base, src);
+    let addr_dst = reg_addr(builder, regs_base, dst);
+    let si     = load_payload(builder, addr_src, types::F64);
+    let result = builder.ins().fneg(si);
+    store_const_tag(builder, addr_dst, TAG_F64, result);
 }
 
 /// Predicate: `reg_types[reg]` is `expected`. Used by const-emit fast paths.
