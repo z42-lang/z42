@@ -308,8 +308,11 @@ void test_new_with_args() {
 
 [Test]
 void test_new_unknown_type_error() {
+    // `new` 未定义类型 → E0443（fix-undefined-type-diagnostic：与其它类型注解位置统一，
+    // 单一 choke point CheckTypeRef 报，不再另发 E0401 双重报错）
     string src = "class C { object Make() { return new Nonexistent(); } }";
-    Assert.Equal(1, SemanticDump.ErrorCount(src));   // 未知类型
+    Assert.Equal(1, SemanticDump.ErrorCount(src));   // 未定义类型（仅 E0443）
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
 }
 
 // ── 1D-2：数组类型 + 索引 ──────────────────────────────────────────────────

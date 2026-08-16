@@ -105,6 +105,11 @@ public sealed class SymbolTable {
                 if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
             }
             if (n == "void") { return new Z42VoidType(); }
+            // `var` 是推断哨兵、非类型名——返回**匿名** Unknown（不携名），使字段级 `var`
+            // （`public static var x = ...`，经 SymbolCollector._chkTypeRef）不被误报 E0443。
+            // 真实类型由初始化器推断在后续相位填充。局部 `var` 另在 StmtBinder._varType 前置过滤。
+            // （fix-undefined-type-diagnostic：局部 var 已过滤，但字段 var 走收集期 choke point 须在此挡。）
+            if (n == "var") { return new Z42UnknownType(); }
             if (this._isPrim(n)) { return this.BuiltinType(n); }
             // Func/Action/Predicate → 结构 Z42FuncType（port-z42c-closures D1；C# 经委托注册表但产物同构）
             if (n == "Func" && nt.ArgCount > 0) {
@@ -214,7 +219,11 @@ public sealed class SymbolTable {
                     return bdef;
                 }
             }
-            return new Z42UnknownType();   // imported / 未声明 → Unknown
+            // 具名 NamedType 全解析路径未命中 → 真未定义类型（imported 类已经 SymbolCollector
+            // 进 table.Classes 命中上方；泛型形参/别名/void/prim 亦已前置返回）。携名 → E0443。
+            Z42UnknownType un = new Z42UnknownType();
+            un.UnresolvedName = n;
+            return un;
         }
         if (te is ArrayType) {
             ArrayType at = te as ArrayType;

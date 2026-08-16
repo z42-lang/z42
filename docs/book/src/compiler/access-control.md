@@ -126,7 +126,23 @@ bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例�
 
 codegen（`FunctionEmitter` 直呼 `symbols.ResolveTypeP`）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
 z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTypeRef` 现同时处理**类与接口**（各自
-`Visibility`，共用 `_checkVisRef` 逻辑），其余类型（prim/泛型形参/未知/func）一律放行，绝不误报。
+`Visibility`，共用 `_checkVisRef` 逻辑），其余类型（prim/泛型形参/func/匿名未知）一律放行，绝不误报。
+
+### 顺带：未定义类型诊断（E0443，fix-undefined-type-diagnostic，2026-08-16）
+
+`CheckTypeRef` 既是所有类型引用注解的唯一 choke point，未定义类型名的诊断也在此报，无需改动 ~15 处调用点：
+
+- **携名机制**：`SymbolTable.ResolveTypeP` 对具名 `NamedType` 全解析路径（泛型形参 / 别名 / void / prim /
+  本包类 / imported 类 / 嵌套类型 / 限定名回退）均未命中的 fallthrough，构造 `Z42UnknownType` 时把
+  `UnresolvedName = nt.Name` 一并记下（此前丢名、`Name()` 恒 `<unknown>`）。
+- **报错**：`CheckTypeRef` 对**具名** Unknown（`UnresolvedName != ""`）报 `E0443 undefined type: <name>`
+  （对标 C# CS0246）；**匿名** Unknown（`var` 无 init / 表达式级联抑制哨兵，`UnresolvedName == ""`）放行，
+  不误报。递归覆盖 `Z42InstantiatedType` 泛型实参与（新增）`Z42ArrayType` 元素 → `List<C>` / `C[]` 也捕获。
+- **不误报的保证**：`var` 在 `StmtBinder._varType` 于 `_chkTypeRef` 前被特判过滤；泛型形参经携形参的
+  `ResolveTypeP` → `Z42GenericParamType`（非 Unknown）；嵌套类型经 `TypeEnv.ResolveType` 的 `+` 链上溯重试。
+  全量 GREEN + 自举 5/5 字节不动点 = 无合法类型误报的权威验证。
+- **`new` 收敛**：`_bindNew`（`ExprTyper`）原对未定义类型另发 `E0401 unknown type in new`，与 E0443 双报；
+  已删该特例，`new C()` 统一由 `CheckTypeRef` 报 E0443，与其它位置一致。
 
 ## complete-class-access-control（2026-08-13）——类级访问补齐四项
 

@@ -1,0 +1,100 @@
+// fix-undefined-type-diagnostic：引用未定义类型名的类型注解 → E0443（对标 C# CS0246）。
+// 校验点 = AccessChecker.CheckTypeRef（唯一 choke point）：局部变量走 TypeChecker._diags
+// （SemanticDump.ErrorCount/FirstErrorCode 可见）；字段/参数/返回/属性/基类走 SymbolCollector.Diags
+// （不计入 ErrorCount，须读 coll.Diags 直接断言——见 semanticdump-errorcount-skips-collector-diags）。
+namespace Z42cSemanticsUndefinedTypeTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;   // DiagnosticBag
+
+// 收集期诊断（字段/参数/返回类型引用检查在 SymbolCollector.Collect 内）。
+DiagnosticBag collectDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    return coll.Diags;
+}
+
+bool hasCode(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return true; } i = i + 1; }
+    return false;
+}
+
+// ── 正向：各类型注解位置引用未定义类型 → E0443 ──
+
+[Test]
+void test_local_var_undefined_type_reports_E0443() {
+    // 局部变量声明类型未定义（TypeChecker._diags → SemanticDump 可见）
+    string src = "class A { void f() { C c; } }";
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_field_undefined_type_reports_E0443() {
+    // 字段类型未定义（收集期）
+    Assert.Equal(true, hasCode(collectDiags("class A { C c; }"), "E0443"));
+}
+
+[Test]
+void test_param_undefined_type_reports_E0443() {
+    // 方法参数类型未定义（收集期）
+    Assert.Equal(true, hasCode(collectDiags("class A { void f(C c) { } }"), "E0443"));
+}
+
+[Test]
+void test_return_undefined_type_reports_E0443() {
+    // 方法返回类型未定义（收集期）
+    Assert.Equal(true, hasCode(collectDiags("class A { C f() { return null; } }"), "E0443"));
+}
+
+[Test]
+void test_generic_arg_undefined_type_reports_E0443() {
+    // 泛型实参未定义 → CheckTypeRef 递归 InstantiatedType.TypeArgs（收集期）
+    Assert.Equal(true, hasCode(collectDiags("class Box<T> { } class A { Box<C> b; }"), "E0443"));
+}
+
+[Test]
+void test_array_element_undefined_type_reports_E0443() {
+    // 数组元素类型未定义 → CheckTypeRef 递归 Z42ArrayType.Elem（收集期，D5 新增）
+    Assert.Equal(true, hasCode(collectDiags("class A { C[] xs; }"), "E0443"));
+}
+
+// ── 负向：不误报 ──
+
+[Test]
+void test_var_with_init_no_E0443() {
+    // `var` 有初始化器 → StmtBinder 前置特判早返，永不到 CheckTypeRef
+    string src = "class A { void f() { var x = 5; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+    Assert.Equal(false, hasCode(collectDiags(src), "E0443"));
+}
+
+[Test]
+void test_var_field_no_E0443() {
+    // `var` 字段（推断类型，经 SymbolCollector._chkTypeRef）→ ResolveTypeP 把 "var" 当推断
+    // 哨兵返回匿名 Unknown → 不报 E0443（局部 var 在 StmtBinder 前置过滤，字段 var 在此挡）。
+    Assert.Equal(false, hasCode(collectDiags("static class E { static var L = \"x\"; }"), "E0443"));
+}
+
+[Test]
+void test_generic_param_no_E0443() {
+    // 泛型形参 T → Z42GenericParamType（非 Unknown）→ 不报
+    Assert.Equal(false, hasCode(collectDiags("class Box<T> { T item; }"), "E0443"));
+}
+
+[Test]
+void test_defined_type_no_E0443() {
+    // 引用已定义类 → 命中 table.Classes → 不报
+    Assert.Equal(false, hasCode(collectDiags("class A { B b; } class B { }"), "E0443"));
+}
+
+[Test]
+void test_builtin_type_no_E0443() {
+    // 内建类型（int/string）→ BuiltinType（非 Unknown）→ 不报
+    Assert.Equal(false, hasCode(collectDiags("class A { int x; string s; }"), "E0443"));
+}
