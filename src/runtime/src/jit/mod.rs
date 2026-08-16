@@ -84,10 +84,6 @@ impl JitModule {
             .unwrap_or(10_000)
             .max(1);
         let ctx = Box::new(JitModuleCtx {
-            // review.md C3 Phase 1 (2026-06-03): copy the pre-interned Arc<str>
-            // pool (cheap — Arc::clone per slot) so `jit_const_str` avoids the
-            // prior two-alloc path.
-            string_pool: module.interned_strings.clone(),
             fn_entries_by_id,
             module: module as *const Module,
             lazy: &*lazy_box as *const Mutex<LazyCompiler>,

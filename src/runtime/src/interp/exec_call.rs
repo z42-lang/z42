@@ -251,7 +251,8 @@ pub(super) fn call_indirect(
         Value::FuncRef(name) => (name.to_string(), None),
         Value::Closure(c)    => {
             let data = crate::metadata::types::closure_data_of(&c);
-            (data.fn_name.clone(), Some(Value::Array(data.env.clone())))
+            // unify-gc-heap PR-5: fn_name is a GC `Str`; materialize an owned `String` for `fname`.
+            (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
         }
         Value::StackClosure(sc) => {
             let idx = sc.env_idx as usize;
@@ -340,9 +341,11 @@ pub(super) fn mk_clos(
             _ => bail!("mk_clos: alloc_array returned unexpected value"),
         };
         // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+        // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
+        let fn_name = ctx.heap().alloc_str(fn_name);
         ctx.heap().alloc_closure(crate::metadata::ClosureData {
             env,
-            fn_name: fn_name.to_string(),
+            fn_name,
         })
     };
     frame.set(dst, value);

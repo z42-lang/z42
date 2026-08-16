@@ -123,7 +123,8 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 /// - 其他 → Null
 pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
-        Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name.clone().into())),
+        // unify-gc-heap PR-5: fn_name is a GC `Str` (Copy) — reuse the handle directly.
+        Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name)),
         Some(Value::StackClosure(sc)) => Ok(Value::Str(sc.fn_name.clone().into())),
         Some(Value::FuncRef(name)) => Ok(Value::Str(name.clone().into())),
         _ => Ok(Value::Null),
@@ -155,10 +156,11 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Value::Array(rc) => rc,
         _ => return Ok(Value::Null),  // unreachable but lenient
     };
-    // unify-gc-heap PR-2: the ClosureData lives in the GC variable-length region.
+    // unify-gc-heap PR-2/5: the ClosureData lives in the GC variable-length region;
+    // `fn_name` is already a GC `Str` (from the `Value::Str` arg) — reuse the handle.
     Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData {
         env,
-        fn_name: fn_name.to_string(),
+        fn_name,
     }))
 }
 

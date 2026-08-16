@@ -88,7 +88,7 @@ fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         ClosureData {
             env:     GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(42)])),
-            fn_name: "lambda$0".to_string(),
+            fn_name: crate::metadata::vstr::Str::new_leaked("lambda$0"),
         },
         crate::gc::var_region::BlockType::Closure,
     ));

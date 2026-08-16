@@ -267,23 +267,24 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// **unify-gc-heap PR-2/PR-3**: payload finalizer for the variable-length region, dispatched by
-/// block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
+/// **unify-gc-heap PR-2/PR-3/PR-5**: payload finalizer for the variable-length region, dispatched
+/// by block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
 /// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
-/// - `Closure` → one `ClosureData` (its `fn_name: String`; `env` is a no-op-`Drop` `GcRef`).
 /// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
-///   `struct[]`'s reference side-table — some are `Str` with a refcount to decrement).
-/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) → POD leaves, nothing to drop.
+///   `struct[]`'s reference side-table). Since PR-4 `Value::Str` is itself a GC handle (no
+///   refcount), so these Values are all trivially droppable — but the arm is retained because
+///   `Value`'s `Drop` is not statically a no-op (other embedders' variants), and `drop_in_place`
+///   on a POD `Value` is a cheap no-op anyway.
+/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) / `Closure` → POD leaves, nothing to drop.
+///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str`, so a `ClosureData` now owns no heap
+///   outside the GC (`env: GcRef` + `fn_name: Str` are both no-op/`Copy` drops) → the former
+///   `Closure` drop-glue arm is gone.
 ///
 /// # Safety
 /// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
 /// payload (upheld by `VarRegion`).
 unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
     match bt {
-        BlockType::Closure => {
-            // SAFETY: a Closure block's payload is exactly one initialized `ClosureData`.
-            unsafe { std::ptr::drop_in_place(payload as *mut ClosureData) }
-        }
         BlockType::ArrayValue => {
             let n = size / std::mem::size_of::<Value>();
             let base = payload as *mut Value;
@@ -292,8 +293,8 @@ unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
                 unsafe { std::ptr::drop_in_place(base.add(i)) }
             }
         }
-        // Str / ArrayPrim / ArrayStruct (packed bytes): POD, nothing to drop.
-        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct => {}
+        // Str / ArrayPrim / ArrayStruct (packed bytes) / Closure (POD since PR-5): nothing to drop.
+        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct | BlockType::Closure => {}
     }
 }
 
@@ -325,10 +326,11 @@ pub struct ArcMagrGC {
     /// **add-custom-allocator P1 (2026-05-22)**: chunked region for
     /// `Value::Array` storage (heap-allocated `Vec<Value>`).
     region_array: Mutex<super::region::Region<ArrayObj>>,
-    /// **unify-gc-heap PR-2**: variable-length GC block region for payloads that don't fit the
-    /// fixed-size `Region<T>` — currently `ClosureData` (`Value::Closure`); PR-3/PR-4 add array
-    /// backings + strings. Constructed with the closure drop-glue so a reclaimed closure block
-    /// drops its `fn_name: String`. Swept alongside `region_object` / `region_array`.
+    /// **unify-gc-heap PR-2/3/4/5**: variable-length GC block region for the managed payloads that
+    /// don't fit the fixed-size `Region<T>` — `ClosureData` (`Value::Closure`), array backings
+    /// (`Value::Array`), and strings (`Value::Str`/`FuncRef`). Constructed with `var_drop_glue`
+    /// (only `ArrayValue` blocks need a finalizer; closures/strings/packed arrays are POD leaves
+    /// since PR-5). Swept alongside `region_object` / `region_array`.
     region_var: Mutex<VarRegion>,
     /// **add-concurrent-gc P2 (2026-05-22)**: gray-object queue for the
     /// concurrent mark path. Populated by (1) the STW root snapshot at
@@ -2151,7 +2153,7 @@ impl MagrGC for ArcMagrGC {
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
                     + data.env.borrow().elem_storage_bytes()
-                    + data.fn_name.capacity()
+                    + data.fn_name.len()   // unify-gc-heap PR-5: fn_name is a GC `Str` (bytes in its block)
             }
             // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
             // env_arena 中，由 frame 拥有；本 Value 自身只携带 idx + fn_name。
@@ -2194,48 +2196,10 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn scan_object_refs(&self, value: &Value, visitor: &mut dyn FnMut(&Value)) {
-        match value {
-            Value::Object(rc) => {
-                let obj = rc.borrow();
-                // unify-object-byte-layout: side-table reference leaves in `refs`; PR-3
-                // chunk 2b also inlines direct object/array refs as 8B pointers in `bytes`.
-                for r in &obj.refs { visitor(r); }
-                obj.trace_inline_refs(visitor);
-            }
-            Value::Array(rc) => {
-                let arr = rc.borrow();
-                for elem in arr.gc_refs() { visitor(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
-            }
-            // impl-closure-l3-core: a closure's env owns Value slots that may
-            // contain Object/Array refs; scan them so reachable closures keep
-            // their captured objects alive.
-            Value::Closure(c) => {
-                let arr = crate::metadata::types::closure_data_of(c).env.borrow();
-                for elem in arr.gc_refs() { visitor(elem); }
-            }
-            // Spec impl-ref-out-in-runtime: Ref::Array / Ref::Field 持 GcRef，
-            // GC 必须跟随让 caller 数组 / 对象在调用期间不被回收。
-            // Stack kind 不持 GcRef（frame 在调用栈上自然存活）。
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Stack { .. } => {}
-                crate::metadata::types::RefKind::Array { gc_ref, .. } => {
-                    let arr = gc_ref.borrow();
-                    for elem in arr.gc_refs() { visitor(elem); }
-                }
-                crate::metadata::types::RefKind::Field { gc_ref, .. } => {
-                    let obj = gc_ref.borrow();
-                    for r in &obj.refs { visitor(r); }  // unify-object-byte-layout (PR-2)
-                    obj.trace_inline_refs(visitor);     // PR-3 chunk 2b: inlined object/array refs
-                }
-            },
-            // add-boxed-struct-identity (P4b, 路 B2): boxed struct 是共享 `ScriptObject`——扫其
-            // struct_refs 引用叶子（slots 空），与 Object 臂同（镜像 trace_children 的 BoxedStruct 分支）。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visitor(r); } }
-            // add-struct-heap-inline (P3b): struct[] element handle — follow the
-            // backing array's reference leaves (mirrors trace_children).
-            Value::StructRefHeap(e) => { let arr = e.arr.borrow(); for r in arr.gc_refs() { visitor(r); } }
-            _ => {}
-        }
+        // unify-gc-heap PR-5: read-only graph enumeration is now the `for_marking = false`
+        // mode of the single-source `Value::visit_gc_children` (no mark side effects; a
+        // closure's captured refs are descended directly). Snapshot / retention only.
+        value.visit_gc_children(false, visitor);
     }
 
     // ── 5. Collection control ────────────────────────────────────────────────

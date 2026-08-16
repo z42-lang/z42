@@ -44,9 +44,9 @@ use std::sync::Arc;
 /// All methods return borrows of data owned by the implementor; the
 /// borrows must remain valid for the implementor's `&self` lifetime.
 ///
-/// `#[allow(dead_code)]`: this trait is forward-looking — `string_pool`
-/// / `interned_strings` accessors are documented contract but the actual
-/// consumers (JIT helpers + future AOT) migrate to call them in Phase 2+.
+/// `#[allow(dead_code)]`: this trait is forward-looking — the `string_pool`
+/// accessor is documented contract but the actual consumers (JIT helpers +
+/// future AOT) migrate to call it in Phase 2+.
 /// Without the lint suppression the dead_code warning escapes into
 /// stderr during release builds; the cross-zpkg test runner parses stderr
 /// to compare against expected golden output and treats extraneous
@@ -60,12 +60,6 @@ pub trait JitVm {
     /// String pool — shared across the module. Indexed by
     /// `Instruction::ConstStr.idx` and other `StringId(u32)` references.
     fn string_pool(&self) -> &[String];
-
-    /// review.md C3 Phase 1 (2026-06-03, add-string-literal-interning-phase1):
-    /// pre-interned `Arc<str>` pool — one Arc per slot, populated by the
-    /// loader. `jit_const_str` / interp `const_str` clone from here
-    /// (atomic refcount inc, zero heap alloc).
-    fn interned_strings(&self) -> &[crate::metadata::vstr::Str];
 
     /// Fully-qualified module name (e.g. `"Demo.App"`). Used by JIT
     /// observability events + crash diagnostics.
@@ -89,11 +83,6 @@ impl JitVm for Module {
     #[inline]
     fn string_pool(&self) -> &[String] {
         &self.string_pool
-    }
-
-    #[inline]
-    fn interned_strings(&self) -> &[crate::metadata::vstr::Str] {
-        &self.interned_strings
     }
 
     #[inline]

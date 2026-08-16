@@ -58,7 +58,9 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Value::FuncRef(name) => (name.to_string(), None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
-            (data.fn_name.clone(), Some(data.env.borrow().to_boxed_vec()))
+            // unify-gc-heap PR-5: fn_name is a GC `Str` (a handle into *this* context's heap);
+            // materialize an owned `String` so it can cross to the worker thread safely.
+            (data.fn_name.to_string(), Some(data.env.borrow().to_boxed_vec()))
         }
         Value::StackClosure(_) => bail!(
             "__thread_spawn: stack-allocated closure cannot escape to a worker thread \

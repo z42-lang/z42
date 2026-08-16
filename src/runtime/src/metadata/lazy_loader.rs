@@ -277,8 +277,9 @@ impl LazyLoader {
     /// add-string-literal-interning-phase1): returns `Arc<str>` instead of
     /// `String` so callers (interp / JIT ConstStr) can wrap directly into
     /// `Value::Str` without a second `.into::<Arc<str>>()` allocation. The
-    /// underlying `String` is converted on each call; Phase 2 may add a
-    /// parallel `interned_strings: Vec<Arc<str>>` to amortize this.
+    /// underlying `String` is converted on each call; overflow-pool literals
+    /// are (unlike main-pool literals) not per-context interned, so this
+    /// re-allocates a fresh GC string each time (cold path).
     pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
         let rel = absolute_idx.checked_sub(self.main_pool_len)?;
         self.string_pool.get(rel).map(|s| crate::metadata::vstr::Str::from(s.as_str()))

@@ -5,6 +5,10 @@ using Std;
 // unify-gc-heap PR-4: strings live in the GC heap now (region_var BlockType::Str).
 // This test proves GC-managed strings survive collection through every reachability
 // path: object ref field, array element, concat temporaries, and interned literals.
+//
+// unify-gc-heap PR-5: closures also survive collection — their `fn_name` migrated
+// `String` → GC `Str`, so a captured closure must stay callable across a collect
+// (the mark phase reaches the `fn_name` string block via `trace_children`).
 
 class Holder {
     string Name;
@@ -14,6 +18,8 @@ class Node {
     string Label;
     Node Next;
 }
+
+int Apply((int) -> int f, int x) => f(x);
 
 void Main() {
     // 1. String in an object ref field — reachable only via `h.Name` (not in a reg).
@@ -59,4 +65,15 @@ void Main() {
     GC.ForceCollect();
     Assert.Equal(8, uni.Length);
     Assert.Equal('世', uni.CharAt(6));
+
+    // 7. PR-5: capturing closures (heap ClosureData with a GC `fn_name` string) stay
+    //    callable across collection — mark must reach each closure's `fn_name` block.
+    var bias = 41;
+    (int) -> int add_bias = (int x) => x + bias;      // heap closure, distinct fn_name
+    (int) -> int times_bias = (int x) => x * bias;    // another closure, another fn_name
+    GC.ForceCollect();
+    GC.ForceCollect();
+    Assert.Equal(43, add_bias(2));                     // fn_name resolved post-GC
+    Assert.Equal(82, times_bias(2));
+    Assert.Equal(51, Apply(add_bias, 10));             // dispatch via CallIndirect post-GC
 }

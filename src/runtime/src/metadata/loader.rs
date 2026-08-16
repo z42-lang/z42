@@ -179,7 +179,6 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
     let mut module = read_zbc(raw).context("cannot parse binary zbc")?;
 
-    build_interned_strings(&mut module);
     build_type_registry(&mut module);
     verify_constraints(&module)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
@@ -337,7 +336,6 @@ fn assemble_zpkg_artifact(
     let modules: Vec<Module> = module_triples.into_iter().map(|(m, _, _)| m).collect();
     let mut module = merge_modules(modules).context("merging zpkg modules")?;
 
-    // interned_strings: populated inside merge_modules.
     build_type_registry(&mut module);
     verify_constraints(&module)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
@@ -670,24 +668,6 @@ fn infer_namespace_candidates(name: &str) -> Vec<&str> {
 }
 
 // ── TypeDesc registry ─────────────────────────────────────────────────────────
-
-/// review.md C3 / Part 5 P3 Phase 1 (2026-06-03, add-string-literal-interning-phase1):
-/// pre-allocate per-pool-slot `Arc<str>` cache once, so each subsequent
-/// `ConstStr` instruction can clone the existing `Arc` (atomic refcount
-/// increment) instead of `String.clone() + .into::<Arc<str>>()` (two
-/// heap allocations per call).
-///
-/// Each loaded zbc / zpkg pays this O(n) cost once, where n is the pool
-/// size. Stdlib `"Length"` / `"ToString"` / `"_zeroBytes"` literals are
-/// now interned per-module to a single Arc.
-///
-/// **unify-gc-heap PR-4 (2026-08-16)**: string bytes moved into the GC heap, which
-/// does not exist at module-load time — so the pool can no longer be materialized
-/// here. Interning is now **lazy + per-context**: `ConstStr(idx)` allocates the GC
-/// string on first use (heap live) and caches it in `VmContext::intern_const_str`.
-/// This function is a **no-op** retained only so existing call sites need no change;
-/// `interned_strings` stays empty (removal of the field is deferred to PR-5).
-pub fn build_interned_strings(_module: &mut Module) {}
 
 /// Pre-build a `TypeDesc` for every class in `module.classes` and store the
 /// results in `module.type_registry` (by-name HashMap) **and**

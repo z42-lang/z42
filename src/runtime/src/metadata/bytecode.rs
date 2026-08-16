@@ -39,19 +39,6 @@ pub struct Module {
     /// `Vec<Value>` of this size on `VmContext` at module load.
     #[serde(default)]
     pub func_ref_cache_slots: u32,
-
-    /// review.md C3 / Part 5 P3 Phase 1 (2026-06-03,
-    /// add-string-literal-interning-phase1): per-pool-slot interned `Arc<str>`.
-    /// Populated by the loader after deserialize (parallel to
-    /// `string_pool`). `ConstStr` instructions clone from here (atomic
-    /// refcount increment, zero heap allocation) instead of cloning the
-    /// underlying `String` + converting to `Arc<str>` (two allocations).
-    /// Stdlib hot literals like `"Length"` / `"ToString"` are now interned
-    /// per-module to a single `Arc<str>`. Empty until populated by loader.
-    /// unify-object-byte-layout PR-4: `Str` (8B thin) not `Arc<str>` (16B) — `Value::Str`
-    /// clones from here (O(1) atomic refcount inc, zero heap alloc, preserved).
-    #[serde(skip)]
-    pub interned_strings: Vec<crate::metadata::vstr::Str>,
 }
 
 impl Module {

@@ -137,7 +137,6 @@ mod check_safepoint_tests {
         // module pointer dangles for the test — check_safepoint never
         // dereferences it.
         let jit_ctx = JitModuleCtx {
-            string_pool:      Vec::new(),
             fn_entries_by_id: Vec::new(),
             module:           std::ptr::null(),
             // safepoint test never resolves a function → lazy stays null.

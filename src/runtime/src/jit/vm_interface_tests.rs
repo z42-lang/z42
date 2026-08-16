@@ -83,7 +83,6 @@ fn module_with(
         type_registry_vec,
         func_index,
         func_ref_cache_slots: 0,
-        interned_strings: Vec::new(),
     }
 }
 
@@ -135,14 +134,12 @@ struct MockMetadata {
     name: String,
     funcs: Vec<Function>,
     pool: Vec<String>,
-    interned: Vec<crate::metadata::vstr::Str>,
     types: std::collections::HashMap<String, Arc<TypeDesc>>,
 }
 
 impl JitVm for MockMetadata {
     fn functions(&self) -> &[Function] { &self.funcs }
     fn string_pool(&self) -> &[String] { &self.pool }
-    fn interned_strings(&self) -> &[crate::metadata::vstr::Str] { &self.interned }
     fn module_name(&self) -> &str { &self.name }
     fn type_lookup(&self, class_name: &str) -> Option<&Arc<TypeDesc>> {
         self.types.get(class_name)
@@ -157,7 +154,6 @@ fn mock_metadata_satisfies_trait() {
         name: "Synthetic".to_string(),
         funcs: vec![empty_function("entry")],
         pool: vec!["one".into(), "two".into()],
-        interned: vec![crate::metadata::vstr::Str::from("one"), crate::metadata::vstr::Str::from("two")],
         types,
     };
     // Drive every trait method through a `&dyn JitVm` reference to prove
