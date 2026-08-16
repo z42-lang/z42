@@ -1644,13 +1644,23 @@ pub fn translate_function(
                     const T_U16: u8 = 0x07;
                     const T_U32: u8 = 0x08;
                     const T_U64: u8 = 0x09;
-                    let src_is_int = z42_func.reg_types
-                        .get(*src as usize).copied().unwrap_or(IrType::Unknown).is_integer();
+                    // jit-native-convert-float: float target tags.
+                    const T_F32: u8 = 0x0A;
+                    const T_F64: u8 = 0x0B;
+                    let src_ty = z42_func.reg_types
+                        .get(*src as usize).copied().unwrap_or(IrType::Unknown);
+                    let src_is_int = src_ty.is_integer();
                     let inline_int = src_is_int
                         && matches!(*to_tag,
                             T_I8 | T_I16 | T_I32 | T_I64 | T_U8 | T_U16 | T_U32 | T_U64);
                     if inline_int {
                         emit_i64_convert(&mut builder, regs_base, &mut cache, &promoted, *dst, *src, *to_tag);
+                    } else if src_is_int && matches!(*to_tag, T_F32 | T_F64) {
+                        // int → f64 native (fcvt). src signedness picks
+                        // fcvt_from_sint vs fcvt_from_uint.
+                        let src_signed = matches!(src_ty,
+                            IrType::I8 | IrType::I16 | IrType::I32 | IrType::I64);
+                        emit_int_to_f64(&mut builder, regs_base, *dst, *src, src_signed);
                     } else {
                         let d = ri!(*dst);
                         let s = ri!(*src);
@@ -2287,6 +2297,33 @@ fn emit_i64_convert(
     };
 
     store_int(builder, cache, promoted, dst, result);
+}
+
+/// jit-native-convert-float: emit `frame.regs[dst] = Value::F64(src as f64)` for
+/// an integer→float `Convert`. All narrow ints are stored as `Value::I64` with
+/// the payload already sign/zero-extended to i64, so a single `fcvt_from_sint`
+/// (signed src) / `fcvt_from_uint` (unsigned src) on the i64 payload reproduces
+/// interp's `x as f64` / `u as f64` exactly (interp uses full f64 precision even
+/// for an `F32` target — no f32 rounding — so this covers both `to_tag`
+/// F32/F64). Result discriminant `TAG_F64`.
+///
+/// Reads `src` straight from memory: the Phase 2C promotion whitelist
+/// disqualifies any reg used as a non-int-`Convert` src, so `src` is never a
+/// resident Variable here.
+fn emit_int_to_f64(
+    builder: &mut FunctionBuilder,
+    regs_base: cranelift_codegen::ir::Value,
+    dst: u32, src: u32, src_signed: bool,
+) {
+    let addr_src = reg_addr(builder, regs_base, src);
+    let addr_dst = reg_addr(builder, regs_base, dst);
+    let si = load_payload_i64(builder, addr_src);
+    let f = if src_signed {
+        builder.ins().fcvt_from_sint(types::F64, si)
+    } else {
+        builder.ins().fcvt_from_uint(types::F64, si)
+    };
+    store_const_tag(builder, addr_dst, TAG_F64, f);
 }
 
 /// Emit native `frame.regs[dst] = frame.regs[src]` for drop-free primitive
