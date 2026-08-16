@@ -756,6 +756,58 @@ pub fn translate_function(
             }};
         }
 
+        // jit-native-int-divrem: native integer `sdiv`/`srem` on the common
+        // path, with a cold guard routing the two divisor values that need the
+        // helper's exact interp semantics:
+        //   * `b == 0`  → helper throws a catchable `Std.DivideByZeroException`
+        //     (matches interp's `check_int_div_by_zero`; native `idiv` would
+        //     SIGFPE-trap on x86_64 instead of throwing).
+        //   * `b == -1` → helper, which computes `x/-1` / `x%-1` at i64 width
+        //     exactly like interp (incl. `i64::MIN / -1` panicking, and
+        //     `i32::MIN / -1` yielding `2^31` at i64 width). Native `idiv`
+        //     SIGFPE-traps the `i64::MIN / -1` overflow on x86_64; the rare
+        //     `-1` divisor is cheap to route wholesale.
+        // The single guard `(b as u64).wrapping_add(1) <= 1` is true iff
+        // `b ∈ {0, -1}`. Operands/result go through direct `frame.regs` memory
+        // (int Div/Rem regs are disqualified from 2C promotion in
+        // `compute_promotable_regs`, and are non-participating in the 2B cache
+        // via `instr_uses_int_cache` → flushed before this op), so the cold
+        // helper's by-index reads/writes stay coherent — mirrors the inline
+        // array fast path's memory discipline exactly.
+        macro_rules! emit_int_divrem {
+            ($dst:expr, $a:expr, $b:expr, $hr:expr, $is_div:expr) => {{
+                let a_addr = reg_addr(&mut builder, regs_base, $a);
+                let b_addr = reg_addr(&mut builder, regs_base, $b);
+                let ai = load_payload_i64(&mut builder, a_addr);
+                let bi = load_payload_i64(&mut builder, b_addr);
+                let bp1 = builder.ins().iadd_imm(bi, 1);
+                let danger = builder.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual, bp1, 1);
+                let cold_blk = builder.create_block();
+                let fast_blk = builder.create_block();
+                let done_blk = builder.create_block();
+                builder.ins().brif(danger, cold_blk, &[], fast_blk, &[]);
+                // cold: reuse the helper (throw on 0 / interp-parity on -1).
+                builder.switch_to_block(cold_blk);
+                let d = ri!($dst); let av = ri!($a); let bv = ri!($b);
+                let cinst = builder.ins().call($hr, &[frame_val, ctx_val, d, av, bv]);
+                let cret = builder.inst_results(cinst)[0];
+                check!(cret);
+                builder.ins().jump(done_blk, &[]);
+                // fast: native sdiv/srem at i64 width (matches interp's i64
+                // `x / y` / `x % y`), store the result as `Value::I64`.
+                builder.switch_to_block(fast_blk);
+                let q = if $is_div {
+                    builder.ins().sdiv(ai, bi)
+                } else {
+                    builder.ins().srem(ai, bi)
+                };
+                let d_addr = reg_addr(&mut builder, regs_base, $dst);
+                store_const_tag(&mut builder, d_addr, TAG_I64, q);
+                builder.ins().jump(done_blk, &[]);
+                builder.switch_to_block(done_blk);
+            }};
+        }
+
         // ── Instruction translation ───────────────────────────────────────────
         //
         // jit-unbox-regalloc Phase 2B: a fresh block-local integer-scalar cache.
@@ -915,11 +967,13 @@ pub fn translate_function(
                 }
                 Instruction::Div { dst, a, b } => {
                     // jit-native-float: F64 divide is native `fdiv` — IEEE /0 →
-                    // ±inf/NaN (no trap, no exception), matching interp. i64
-                    // div-by-zero must surface a catchable z42 exception (native
-                    // sdiv on x86_64 traps SIGFPE) → keep the helper for ints.
+                    // ±inf/NaN (no trap, no exception), matching interp.
+                    // jit-native-int-divrem: integer divide is native `sdiv`
+                    // with a cold guard for `b ∈ {0, -1}` (see `emit_int_divrem`).
                     if is_f64_typed(z42_func, *dst, *a, *b) {
                         emit_f64_binop(&mut builder, regs_base, &promoted, *dst, *a, *b, F64BinopKind::Div);
+                    } else if is_int_typed(z42_func, *dst, *a, *b) {
+                        emit_int_divrem!(*dst, *a, *b, hr_div, true);
                     } else {
                         let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
                         let inst = builder.ins().call(hr_div, &[frame_val, ctx_val, d, av, bv]);
@@ -927,10 +981,17 @@ pub fn translate_function(
                     }
                 }
                 Instruction::Rem { dst, a, b } => {
-                    // Same as Div — keep helper for /0 exception handling.
-                    let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
-                    let inst = builder.ins().call(hr_rem, &[frame_val, ctx_val, d, av, bv]);
-                    let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    // jit-native-int-divrem: integer remainder is native `srem`
+                    // with the same cold guard as Div. Float `%` (an f64 modulo,
+                    // no single Cranelift op) is not int-typed → stays on the
+                    // helper's `int_binop_helper` f64 path.
+                    if is_int_typed(z42_func, *dst, *a, *b) {
+                        emit_int_divrem!(*dst, *a, *b, hr_rem, false);
+                    } else {
+                        let (d, av, bv) = (ri!(*dst), ri!(*a), ri!(*b));
+                        let inst = builder.ins().call(hr_rem, &[frame_val, ctx_val, d, av, bv]);
+                        let ret  = builder.inst_results(inst)[0]; check!(ret);
+                    }
                 }
 
                 // Comparison — C2 P1; Phase 2A widened to all integer types:

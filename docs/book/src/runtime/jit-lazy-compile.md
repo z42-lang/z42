@@ -628,3 +628,35 @@ interp==jit==jitOSR 逐字节。
 
 **收益/验证**：`double s = s + (double)i*1.5 - seed` 累加环 JIT **3.23×→6.28× interp**（jit
 303→155ms≈2×）；`fbench.z42`/`ftest.z42` interp==jit==jitOSR 逐字节；纯 runtime codegen，无格式 bump。
+
+## 原生整数除 / 取余（jit-native-int-divrem）
+
+> 位置：`jit/translate.rs`（`Div`/`Rem` 臂 + `emit_int_divrem!` 宏，紧邻 `check!`）。change 容器
+> `docs/spec/changes/jit-native-int-divrem/`。
+
+整数原生化收官后，`Div`/`Rem` 是唯一还全走 helper 的常见算术（`Add`/`Sub`/`Mul`/比较/位运算/转换/全
+`double` 已 native）——原因是**硬件除法陷阱**：x86_64 `idiv` 对 `/0` 与 `i64::MIN / -1` 溢出都触发
+SIGFPE，直接崩进程，而 interp 的 `/0` 要抛可捕获的 `Std.DivideByZeroException`、`i64::MIN/-1` 要
+panic（与 Rust `x / y` 一致）。本节让整数 Div/Rem 走原生 `sdiv`/`srem`，用一个**冷守卫**把两个必须交给
+helper 的除数值分流出去：
+
+- **守卫** `(b as u64).wrapping_add(1) <= 1`（一条 `iadd_imm` + 无符号 `icmp_imm`）当且仅当
+  `b ∈ {0, -1}` 为真 → 跳冷块调 `jit_div`/`jit_rem`：`b==0` 抛 `DivideByZeroException`（复刻 interp 的
+  `check_int_div_by_zero`）、`b==-1` 由 helper 在 i64 宽度算 `x/-1`（含 `i64::MIN/-1` panic、
+  `i32::MIN/-1` → i64 宽度的 `2^31`，全与 interp 一致；`-1` 除数在热循环里罕见，整值分流成本可忽略）。
+- **常路**（`b ∉ {0,-1}`）→ 原生 `sdiv`/`srem`，i64 宽度（所有窄整数物理存 `Value::I64`，与
+  `emit_i64_binop` 同——不做窄化，结果直接存 `TAG_I64`，逐位复刻 interp 的 i64 `x/y`/`x%y`）。
+
+**为什么无需碰 2C / 2B**（正确性关键）：整数 `Div`/`Rem` 的 dst/a/b 早已被 `compute_promotable_regs`
+的 Div/Rem 臂 disqualify（不驻留 Variable），且不参与 `instr_uses_int_cache`（执行前 `RegCache` 已
+flush）——故内存权威。冷块里 helper 按 index 读写 `frame.regs` 天然一致，操作数/结果全走**直接内存**
+（`load_payload_i64` / `store_const_tag`），与内联数组快路径的内存纪律同构。因此本改**只动 Div/Rem 两个
+codegen 臂**，promotion 白名单与 cache 汇点均不变。
+
+**浮点 Rem**：`double % double` 非 int-typed（`is_int_typed` 三操作数全整数才真）→ 落 helper 的
+`int_binop_helper` f64 路径（浮点取余是 `fmod` libcall，无单条 Cranelift 指令）。
+
+**收益/验证**：`divbench.z42`（`1000003/i + 1000003%i` 密集环）JIT **5.0×→8.87× interp**（div/rem 自身
+helper→native 使 JIT **快 1.76×**，jit 581→330ms）；`divcheck.z42`（sbyte/short/int/long 全宽度 × 正负
+操作数 × `-1` 除数 × JIT'd `/0` 捕获）interp==jit==jitOSR 逐字节；e2e golden `int_divide_by_zero` 在
+vm-jit-consistency 下守住 `/0` 可捕获性。纯 runtime codegen，无格式 bump、自举字节不动。
