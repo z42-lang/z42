@@ -140,6 +140,32 @@ pub unsafe extern "C" fn jit_array_get(
     let arr_val = (*frame).regs[arr as usize].clone();
     let idx_val = (*frame).regs[idx as usize].clone();
     let result = match &arr_val {
+        // fix-jit-osr-stackarray: under OSR the interp portion may have created a
+        // stack-allocated array (escape analysis) that is live in `frame.regs`
+        // when the JIT takes over. Mirror interp `exec_array::array_get` — resolve
+        // via the per-context stack arena. (Non-OSR JIT never produces a
+        // StackArray, so this arm only fires on the OSR entry path.)
+        Value::StackArray { idx: aidx, frame_id } => {
+            let (aidx, frame_id) = (*aidx, *frame_id);
+            let i = match &idx_val {
+                Value::I64(n) if *n >= 0 => *n as usize,
+                other => {
+                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: bad index {:?}", other).into()));
+                    return 1;
+                }
+            };
+            let res = vm_ctx_ref(ctx).stack_arena.lock().with_arr(aidx, frame_id, |a| {
+                if i >= a.len() {
+                    return Err(format!("array index {} out of bounds (len={})", i, a.len()));
+                }
+                Ok(a.get_boxed(i))
+            });
+            match res {
+                Ok(Ok(v)) => v,
+                Ok(Err(msg)) => { set_exception(vm_ctx_ref(ctx), Value::Str(msg.into())); return 1; }
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            }
+        }
         Value::Array(rc) => {
             let i = match &idx_val {
                 Value::I64(n) if *n >= 0 => *n as usize,
@@ -194,6 +220,32 @@ pub unsafe extern "C" fn jit_array_set(
     let idx_val = (*frame).regs[idx as usize].clone();
     let v       = (*frame).regs[val as usize].clone();
     match &arr_val {
+        // fix-jit-osr-stackarray: OSR-entry stack array — write via the arena,
+        // mirroring interp `exec_array::array_set`. No GC write barrier (not a
+        // heap slot; stack-array heap-ref elems are kept live by the arena root
+        // scan). See `jit_array_get`.
+        Value::StackArray { idx: aidx, frame_id } => {
+            let (aidx, frame_id) = (*aidx, *frame_id);
+            let i = match &idx_val {
+                Value::I64(n) if *n >= 0 => *n as usize,
+                other => {
+                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArraySet: bad index {:?}", other).into()));
+                    return 1;
+                }
+            };
+            let res = vm_ctx_ref(ctx).stack_arena.lock().with_arr_mut(aidx, frame_id, |a| {
+                if i >= a.len() {
+                    return Err(format!("array index {} out of bounds (len={})", i, a.len()));
+                }
+                a.set_boxed(i, v.clone());
+                Ok(())
+            });
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(msg)) => { set_exception(vm_ctx_ref(ctx), Value::Str(msg.into())); return 1; }
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            }
+        }
         Value::Array(rc) => {
             let i = match &idx_val {
                 Value::I64(n) if *n >= 0 => *n as usize,
@@ -227,7 +279,21 @@ pub unsafe extern "C" fn jit_array_len(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, arr: u32,
 ) -> u8 {
-    match &(*frame).regs[arr as usize] {
+    // fix-jit-osr-stackarray: clone the handle so we can drop the `frame.regs`
+    // borrow before locking the arena (arena ops may run GC root scans).
+    let arr_val = (*frame).regs[arr as usize].clone();
+    match &arr_val {
+        // OSR-entry stack array — length via arena, mirroring interp array_len.
+        Value::StackArray { idx: aidx, frame_id } => {
+            let (aidx, frame_id) = (*aidx, *frame_id);
+            match vm_ctx_ref(ctx).stack_arena.lock().with_arr(aidx, frame_id, |a| a.len() as i64) {
+                Ok(len) => { (*frame).regs[dst as usize] = Value::I64(len); 0 }
+                Err(e) => {
+                    set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into()));
+                    1
+                }
+            }
+        }
         Value::Array(rc) => { (*frame).regs[dst as usize] = Value::I64(rc.borrow().len() as i64); 0 }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayLen: expected array, got {:?}", other).into()));
