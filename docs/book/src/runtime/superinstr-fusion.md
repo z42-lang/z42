@@ -1,8 +1,10 @@
 # 超级指令融合（super-instruction fusion）
 
-> 对齐：2026-08-01（change `interp-superinstr-fusion`）。代码：
+> 对齐：2026-08-17（change `interp-superinstr-fusion` + `interp-frame-presize`）。代码：
 > `metadata/superinstr.rs`（框架 + 识别器）、`interp/ops.rs`（`eval_cmp` 共享原语）、
-> `interp/mod.rs`（exec 循环消费）、`metadata/bytecode.rs`（`Function.fused_tails` 缓存）。
+> `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/bytecode.rs`
+> （`Function.fused_tails` 缓存 + `Function::reg_file_len` / `Instruction::written_reg`）、
+> `metadata/loader.rs`（`build_block_indices` 回填 `func.max_reg`）。
 
 ## 为什么
 
@@ -75,3 +77,44 @@ metadata/superinstr.rs
   05_poly 2978→2931ms（~1.6%）。紧凑数值循环收益最明显；arith 本身算术受限，故 ~5% 已是这类的合理量级。
 - 正确性：`test e2e`（含 jit 模式）输出与融合前**逐字节一致**——融合不改可观察语义。
 - 调试：`Z42_FUSION_DEBUG=1` 打印每函数融合的 block 数；`Z42_NO_FUSION=1` 关闭融合走原路（A/B 用）。
+
+## 相关机制：寄存器文件预分配（interp-frame-presize，2026-08-17）
+
+与融合同属 `loader::build_block_indices` 的 **post-load 一次性预计算**族。解决的问题：解释器每次
+调用构造 `Frame` 时应按「函数寄存器总数」一次性分配寄存器文件，但 zbc reader 把 `func.max_reg`
+恒置 0（该计数不落 wire），loader 又从不回填 → `Frame::new*` 只按**实参数**起步，后续对更高寄存器
+的写入逐个命中 `#[cold] Frame::set_grow`（每次 `resize(idx+1, Null)` = 一次 realloc + memmove +
+清零）。call-heavy 前端里这是 frame 开销中最大的可攻击块。
+
+### 机制
+
+```
+Function::reg_file_len()  ← 权威计数（单一真相），纯函数、不读 self.max_reg
+   = 1 + max(
+       param_count - 1,                       // 参数占低位寄存器
+       max(exception_table[*].catch_reg),     // catch 寄存器：运行时在 catch-install 写，
+                                              //   IR DCE 可能删掉最后引用它的指令 → 必须显式折叠
+       max(instr.written_reg() for 所有指令))  // 每条指令的 dst
+```
+
+- `build_block_indices` 在 block_index / branch_targets / fused_tails 之后追加
+  `func.max_reg = func.reg_file_len()`，**所有构建配置**（含 interp-only / wasm，无 jit feature）
+  均生效——计数逻辑在始终编译的 `bytecode.rs`，不依赖 JIT。
+- `Frame::new*` 从此恒走 `max_reg > 0` 预分配分支，一次 `resize` 到位，热路径不再触发 `set_grow`。
+- JIT 复用同一权威：`translate::max_reg`（要最大**索引**）= `reg_file_len() - 1`（`reg_file_len` 恒
+  ≥ 1，不会下溢）。`Instruction::written_reg`（"这条指令定义哪个寄存器"）也从 `translate.rs` 上提到
+  `bytecode.rs`，interp 与 JIT 共用一份。
+
+### interp/JIT 一致性（一处边界行为对齐）
+
+预分配后，读一个「在范围内但从未写过」的寄存器，解释器从 `bail!("undefined register")` 变为返回
+`Null`——**与 JIT 一致**（JIT 早已预分配、读到 Null）。z42c codegen 保证 define-before-use，合法
+字节码不会到达此边界；本变更只是消除 interp 比 JIT 更严的历史分歧，非行为回归。
+
+### 效果 + 验证
+
+- A/B（同配方，前端 typecheck 21877 行拼接源，`--mode interp`，best of 6）：baseline 7.45s →
+  预分配 7.22s ≈ **1.03× / ~3.1%**；profile 确认 `set_grow` 从热点榜消失、`extend_with` 腰斩。
+- 正确性：dump-bound 输出**逐行 identical** + z42c 自举 gen1==gen2 逐字节（纯运行时优化，不改任何
+  emit，无格式 bump）。`reg_file_len` 三个折叠维度（param / catch reg / 写入 dst）由
+  `metadata/bytecode_tests.rs` 单元测试覆盖。

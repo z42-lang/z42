@@ -533,6 +533,83 @@ pub struct Function {
     pub resolved: std::sync::OnceLock<super::resolver::ResolvedTokens>,
 }
 
+impl Instruction {
+    /// The register this instruction writes (its `dst`), or `None` for the
+    /// store-only instructions (`ArraySet` / `FieldSet` / `StaticSet` /
+    /// `StructFieldSetPrim` / `UnpinPtr`). Used by `Function::reg_file_len`
+    /// to find the highest written register when sizing an activation frame
+    /// (shared by the interp frame pre-sizing and the JIT's `max_reg`).
+    pub fn written_reg(&self) -> Option<u32> {
+        match self {
+            Instruction::ConstStr  { dst, .. } => Some(*dst),
+            Instruction::ConstI32  { dst, .. } => Some(*dst),
+            Instruction::ConstI64  { dst, .. } => Some(*dst),
+            Instruction::ConstF64  { dst, .. } => Some(*dst),
+            Instruction::ConstBool { dst, .. } => Some(*dst),
+            Instruction::ConstChar { dst, .. } => Some(*dst),
+            Instruction::ConstNull { dst }      => Some(*dst),
+            Instruction::Copy      { dst, .. }  => Some(*dst),
+            Instruction::Add       { dst, .. }  => Some(*dst),
+            Instruction::Sub       { dst, .. }  => Some(*dst),
+            Instruction::Mul       { dst, .. }  => Some(*dst),
+            Instruction::Div       { dst, .. }  => Some(*dst),
+            Instruction::Rem       { dst, .. }  => Some(*dst),
+            Instruction::Eq        { dst, .. }  => Some(*dst),
+            Instruction::Ne        { dst, .. }  => Some(*dst),
+            Instruction::Lt        { dst, .. }  => Some(*dst),
+            Instruction::Le        { dst, .. }  => Some(*dst),
+            Instruction::Gt        { dst, .. }  => Some(*dst),
+            Instruction::Ge        { dst, .. }  => Some(*dst),
+            Instruction::And       { dst, .. }  => Some(*dst),
+            Instruction::Or        { dst, .. }  => Some(*dst),
+            Instruction::Not       { dst, .. }  => Some(*dst),
+            Instruction::Neg       { dst, .. }  => Some(*dst),
+            Instruction::BitAnd    { dst, .. }  => Some(*dst),
+            Instruction::BitOr     { dst, .. }  => Some(*dst),
+            Instruction::BitXor    { dst, .. }  => Some(*dst),
+            Instruction::BitNot    { dst, .. }  => Some(*dst),
+            Instruction::Shl       { dst, .. }  => Some(*dst),
+            Instruction::Shr       { dst, .. }  => Some(*dst),
+            Instruction::StrConcat { dst, .. }  => Some(*dst),
+            Instruction::ToStr     { dst, .. }  => Some(*dst),
+            Instruction::Call(insn)              => Some(insn.dst),
+            Instruction::LoadLocalAddr { dst, .. } => Some(*dst),
+            Instruction::LoadElemAddr  { dst, .. } => Some(*dst),
+            Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
+            Instruction::DefaultOf     { dst, .. } => Some(*dst),
+            Instruction::Builtin(insn)          => Some(insn.dst),
+            Instruction::ArrayNew(insn)          => Some(insn.dst),
+            Instruction::ArrayNewLit(insn)       => Some(insn.dst),
+            Instruction::ArrayGet    { dst, .. } => Some(*dst),
+            Instruction::ArraySet    { .. }      => None,
+            Instruction::ArrayLen    { dst, .. } => Some(*dst),
+            Instruction::ObjNew(insn)           => Some(insn.dst),
+            Instruction::Typeof(insn)           => Some(insn.dst),
+            Instruction::FieldGet(insn)         => Some(insn.dst),
+            Instruction::FieldSet(_)            => None,
+            Instruction::VCall(insn)            => Some(insn.dst),
+            Instruction::IsInstance(insn)       => Some(insn.dst),
+            Instruction::AsCast(insn)           => Some(insn.dst),
+            Instruction::StaticGet(insn)        => Some(insn.dst),
+            Instruction::StaticSet(_)           => None,
+            Instruction::CallNative(insn)             => Some(insn.dst),
+            Instruction::CallNativeVtable { dst, .. } => Some(*dst),
+            Instruction::PinPtr           { dst, .. } => Some(*dst),
+            Instruction::UnpinPtr         { .. }      => None,
+            Instruction::LoadFn(insn)             => Some(insn.dst),
+            Instruction::LoadFnCached(insn)       => Some(insn.dst),
+            Instruction::CallIndirect { dst, .. } => Some(*dst),
+            Instruction::MkClos(insn)             => Some(insn.dst),
+            Instruction::Convert      { dst, .. } => Some(*dst),
+            // add-struct-value-semantics Phase A: blob value type instructions.
+            Instruction::StructAlloc(insn)              => Some(insn.dst),
+            Instruction::StructCopy { dst, .. }         => Some(*dst),
+            Instruction::StructFieldGetPrim { dst, .. } => Some(*dst),
+            Instruction::StructFieldSetPrim { .. }      => None,
+        }
+    }
+}
+
 impl Function {
     /// Borrow the cold side-table or return a static empty slice. Accessor
     /// methods below all delegate here.
@@ -557,6 +634,37 @@ impl Function {
     #[inline] pub fn param_attributes(&self)        -> &[Box<[AttributeRef]>] { self.cold_slice(|c| &c.param_attributes) }
     #[inline] pub fn param_names(&self)             -> &[String]           { self.cold_slice(|c| &c.param_names) }
     #[inline] pub fn param_defaults(&self)          -> &[(u8, i64, String)] { self.cold_slice(|c| &c.param_defaults) }
+
+    /// Number of register slots this function's activation frame needs — the
+    /// COUNT (max register index + 1) covering: params (they occupy the low
+    /// registers), every instruction's `dst`, and exception-table catch
+    /// registers. Catch registers are written by the runtime at catch-install
+    /// and may not be referenced by any surviving instruction after IR
+    /// DCE/copy-prop, so they are folded in explicitly — otherwise the frame
+    /// under-sizes and OOB-panics on catch.
+    ///
+    /// The interp loader backfills `self.max_reg` with this once post-load
+    /// (`loader::build_block_indices`) so `Frame::new*` pre-sizes the register
+    /// file in a single `resize` instead of growing one slot at a time via the
+    /// cold `set_grow` path (~3.7% on call-heavy interp workloads). The JIT's
+    /// `translate::max_reg` (which wants the max index) is this minus one.
+    ///
+    /// **Pure** — does NOT read `self.max_reg` (which is 0 at backfill time and
+    /// the value we are computing), so it is safe to call while filling it.
+    pub fn reg_file_len(&self) -> u32 {
+        let mut max_idx = self.param_count.saturating_sub(1) as u32;
+        for e in self.exception_table() {
+            if e.catch_reg > max_idx { max_idx = e.catch_reg; }
+        }
+        for block in &self.blocks {
+            for instr in &block.instructions {
+                if let Some(d) = instr.written_reg() {
+                    if d > max_idx { max_idx = d; }
+                }
+            }
+        }
+        max_idx + 1
+    }
 
     /// Lazy-init the cold side-table for mutation. Used by sidecar debug-
     /// symbol overlay in `metadata::loader`.

@@ -6,7 +6,7 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | 公开 API（`run`/`run_with_static_init`）、`Frame`、执行循环、异常表查找 |
+| `mod.rs` | 公开 API（`run`/`run_with_static_init`）、`Frame`（寄存器文件按 `Function::reg_file_len` 一次性预分配——loader 回填 `func.max_reg`，见 book「超级指令融合」页）、执行循环、异常表查找 |
 | `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面 7 个 `exec_<category>.rs` |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr` / `DefaultOf` |
