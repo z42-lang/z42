@@ -42,18 +42,40 @@ thread_local! {
 /// callback fired during interpretation can locate the VM.
 pub struct VmGuard<'a> {
     prev: *const VmContext,
+    /// `false` when `enter` found `CURRENT_VM` already this same ctx (a nested
+    /// interp frame under the same VM/thread): store skipped, drop skips its TLS
+    /// restore. Only the outermost frame per ctx has `active == true`.
+    active: bool,
     _phantom: PhantomData<&'a VmContext>,
 }
 
 impl<'a> VmGuard<'a> {
+    #[inline]
     pub fn enter(ctx: &'a VmContext) -> Self {
-        let prev = CURRENT_VM.with(|c| c.replace(ctx as *const _));
-        VmGuard { prev, _phantom: PhantomData }
+        // Per-frame guard, but the active VM is constant across a call tree. When a
+        // nested frame re-enters with the SAME ctx, skip both the store and the
+        // drop-time restore — saving a TLS (`_tlv_get_addr` on macOS) access per
+        // nested frame. A different ctx (cross-VM native re-entry) still saves+sets+
+        // restores as before, so callback location stays correct.
+        let p = ctx as *const _;
+        CURRENT_VM.with(|c| {
+            let cur = c.get();
+            if cur == p {
+                VmGuard { prev: cur, active: false, _phantom: PhantomData }
+            } else {
+                c.set(p);
+                VmGuard { prev: cur, active: true, _phantom: PhantomData }
+            }
+        })
     }
 }
 
 impl Drop for VmGuard<'_> {
+    #[inline]
     fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
         CURRENT_VM.with(|c| c.set(self.prev));
     }
 }
