@@ -48,6 +48,11 @@ thread_local! {
 /// frame (interp → JIT → interp) leaves the outer heap in place on exit.
 pub struct HeapGuard {
     prev: Option<NonNull<dyn MagrGC>>,
+    /// `false` when `enter` found the ambient heap already set to this same heap
+    /// (a nested frame under the same VM/thread): the store was skipped, so drop
+    /// must NOT restore and skips its own TLS access. Only the outermost frame per
+    /// heap has `active == true`.
+    active: bool,
 }
 
 impl HeapGuard {
@@ -62,14 +67,30 @@ impl HeapGuard {
         // SAFETY: the transmute only widens the trait object's lifetime (identical
         // fat-pointer representation); soundness rests on the transient-use contract.
         let ptr: NonNull<dyn MagrGC + 'static> = unsafe { std::mem::transmute(ptr) };
-        let prev = CURRENT_HEAP.with(|c| c.replace(Some(ptr)));
-        HeapGuard { prev }
+        // perf: interp/JIT install a guard PER FRAME, but the ambient heap is
+        // constant across a call tree (same `VmCore` heap). When a nested frame
+        // re-enters with the SAME heap, skip both the store and the drop-time
+        // restore — halving per-frame TLS traffic (macOS resolves each `.with()`
+        // through a `_tlv_get_addr` call). A genuinely different heap (cross-VM
+        // native re-entry on the same thread) still saves+installs+restores.
+        CURRENT_HEAP.with(|c| {
+            let cur = c.get();
+            if cur == Some(ptr) {
+                HeapGuard { prev: cur, active: false }
+            } else {
+                c.set(Some(ptr));
+                HeapGuard { prev: cur, active: true }
+            }
+        })
     }
 }
 
 impl Drop for HeapGuard {
     #[inline]
     fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
         CURRENT_HEAP.with(|c| c.set(self.prev));
     }
 }
