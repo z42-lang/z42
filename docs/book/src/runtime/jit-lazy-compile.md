@@ -380,6 +380,64 @@ byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` �
 interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段访问跑在原生路径上仍字节复现）是
 最强回归保证。
 
+## 字段访问快路径：对象引用字段 GET 原生内联（T1-B）
+
+> `jit/translate.rs`（`hoisted_ref_fields` hoist + FieldGet emit）+ `jit/helpers/object.rs`
+> （`jit_obj_ref_field_slot`）+ `metadata/types.rs`（`ScriptObject::inline_ref_field`）。
+> P5-B 的**引用侧对偶**：P5-B 内联了原语字段读写，本节内联对象/数组**引用字段的 GET**。
+
+### 为什么
+
+P5-B 后**原语**字段走原生，但**引用**字段（类实例 / 数组类型）的 FieldGet 仍 100% 走
+`jit_field_get` helper——同一层 native→Rust 调用 + borrow + `FieldIC` 桥。引用字段密集的热循环
+（对象图遍历、成员集合/子对象反复读）因此 JIT≈interp：实测「非可提升的引用字段读+写热循环」JIT 仅
+**1.05×** interp（P5-B 前原语场景 1.09× 的翻版）。前置：统一对象堆（`gc.md`）让引用变成**单机器字
+的非拥有 `GcRef` tagged 指针**（无 Arc/无 Drop）——这正是「原生 store 一个引用 `Value`」得以成立的地基
+（布局统一前引用 payload 需 Arc 处理，故 `reg_access.rs` 旧注释「堆 tag 从不原生 store」在统一堆后过时）。
+
+### 机制：8B tagged 指针原生 load + 重建 Value
+
+布局统一（`object-abi.md` chunk 2b）后，**直接**的 object/array 引用字段被**字节内联**进对象
+`bytes`——8B tagged 指针（`ref_slot==-1`，tag=`TAG_OBJECT`/`TAG_ARRAY`），`0` = `Null` 哨兵；
+只有 closure/func/**string** 引用留 `refs` 侧表（`ref_slot≥0`）。故引用字段 GET = 从 `bytes` 定
+offset 读 8B + 重建 `Value`，与 `read_inline_ref` 逐字节等价：
+
+1. **入口块 hoist**（从不被重赋值的对象寄存器 + 固定字段名，一次）：调非抛异常
+   `jit_obj_ref_field_slot`，经 `ScriptObject::inline_ref_field` 解析——字段是字节内联的
+   object/array 引用 → 写回 `(bytes.as_ptr(), offset, tag)`，其中 `tag` 是**非空 load 时要打的
+   `Value` 判别 tag**（`7`=`Value::Object` / `6`=`Value::Array`，因 `IrType::Ref` 不区分二者故
+   运行期一次性解析后 hoist）；否则写 `off=-1`。
+2. **每访问 inline**：`brif off<0` → `jit_field_get` 兜底；否则 native——
+   `raw = load i64` at `bytes_ptr+off`；`raw==0` → 存 `Value::Null`（仅 tag）；否则
+   `store_tagged(tag, raw)`——把 8B tagged 指针原样作 payload。**只读、无 write barrier**。
+
+> 编译期 gate = `reg_types[dst]==IrType::Ref`（任意堆对象 object/array/list/dict/null）。这**排除掉**
+> `IrType::Str`（string GcRef 留侧表 + Str→GcRef 边界更微妙，一律 helper），并保证 dst 旧值属
+> Drop-free 集合 `{Object,Array,Null,StackObject,StackArray}`——故 native `store_tagged` 覆写旧值
+> **无需 drop**（`Value` 是 Clone-非-Copy、Box 变体有 Drop glue，但那些静态类型不会是 `Ref`；
+> `Ref`/`PinnedView` 相关指令本就 bail JIT）。
+
+### 边界（必留 helper，回落即等价改前）
+
+`off=-1` 回落 `jit_field_get`：**非 `Value::Object` receiver**（含 OSR 下的 `StackObject`）、
+侧表引用（closure/func/string）、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`。
+**无 FieldSet 对偶**——引用 store 要 GC write barrier，故引用 SET 仍走 helper。原语 XOR 引用，故
+本 hoist 与 P5-B 的 `hoisted_fields` 永不重叠。
+
+### 正确性靠的不变式
+
+`GcRef` 恰 8B，`to_tagged_bits()`（`write_inline_ref` 写进 `bytes` 的值）在硬件上**逐位等于**其
+内存表示 = 寄存器 `Value::Object` 的 payload（provenance exposure 是运行期 no-op），故「原生拷 8B
++ 打 tag」= helper 路径「`from_tagged_bits` → `Value::Object` → 写寄存器」逐字节同结果；`raw==0`
+分支复刻 `read_inline_ref` 的 `0→Null`。load 与 store 之间无 safepoint → 期间无 GC 移动/回收
+（且非移动 GC + 对象持活 ⇒ 指针整帧有效）。
+
+### 效果佐证
+
+引用字段读+写热循环 JIT **1.48s→0.90s（JIT 自身 1.64×）**、jit-vs-interp **1.05×→1.71×**。
+正确性：object/array/null/循环内改写 混合场景 interp==jit==jit-OSR 逐字节（值相关校验和
+297000000）；且 **z42c 自举 5/5 gen1==gen2 逐字节**是最强回归保证。
+
 ## 寄存器访问汇点：`reg_access`（jit-unbox-regalloc Phase 2.0）
 
 > `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。属

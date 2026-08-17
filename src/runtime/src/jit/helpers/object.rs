@@ -235,6 +235,46 @@ pub unsafe extern "C" fn jit_obj_field_slot(
     }
 }
 
+/// post-layout JIT perf (T1-B): **non-throwing** byte-inlined **reference** field
+/// resolver for the loop-invariant hoist — the reference twin of
+/// [`jit_obj_field_slot`]. Emitted ONCE in the JIT entry block for an object register
+/// proven never-reassigned (e.g. `this`) + a fixed field name. If the field is a
+/// direct byte-inlined class-instance or array reference (8B tagged pointer in
+/// `bytes`, `ref_slot == -1`), writes `out_bytes_ptr = bytes.as_ptr()`,
+/// `out_off = byte offset`, and `out_tag` = the `Value` discriminant to stamp on a
+/// non-null load (`7` = `Value::Object` / `6` = `Value::Array`); the per-`FieldGet`
+/// inline then does a native 8B load + `raw==0 ? Null : tagged store`, byte-identical
+/// to `read_inline_ref`. Otherwise (non-object receiver / null / field-not-found /
+/// primitive / side-table reference = closure·func·**string** / struct root) writes
+/// `out_off = -1` and does NOT throw — the inline detects `off < 0` and falls back to
+/// `jit_field_get` (correct Str.Length / null-throw / string-GcRef semantics at the
+/// real site). GC-safe: non-moving collector + fixed `bytes` allocation + the object
+/// held live ⇒ the returned ptr stays valid for the frame.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_obj_ref_field_slot(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    obj: u32, field_name_ptr: *const u8, field_name_len: usize,
+    out_bytes_ptr: *mut *const u8, out_off: *mut i64, out_tag: *mut i32,
+) {
+    // default: no fast path → the inline sees off<0 and routes to the helper.
+    *out_bytes_ptr = std::ptr::null();
+    *out_off = -1;
+    *out_tag = 0;
+    let field_name = match std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len)) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let Value::Object(rc) = &(*frame).regs[obj as usize] else { return };
+    let b = rc.borrow();
+    if let Some((ptr, off, is_array)) = b.inline_ref_field(field_name) {
+        *out_bytes_ptr = ptr;
+        *out_off = off as i64;
+        // `Value` `#[repr(C, u8)]` discriminants (pinned by `value_discriminants_pinned`
+        // in `metadata/types_tests.rs`): `Array` = 6, `Object` = 7.
+        *out_tag = if is_array { 6 } else { 7 };
+    }
+}
+
 /// `jit_field_get` after formalize-jit-method-token Phase 2.E (2026-05-08):
 /// per-site `FieldIC` is threaded in (stable raw pointer baked at codegen).
 /// Mirrors interp `field_get` — IC hit fetches `slots[cached_slot]` directly;
