@@ -5,7 +5,7 @@
 //! size invariant and the (unchanged) JSON wire format.
 
 use super::{CallInsn, Instruction, ObjNewInsn, StaticSetInsn, TypeofInsn};
-use super::{BasicBlock, ExecMode, Function, Terminator};
+use super::{BasicBlock, ExceptionEntry, ExecMode, Function, FunctionCold, Terminator};
 
 /// add-offline-symbolication: build a bare Function with the given per-block
 /// instruction counts (bodies are dummy `ConstNull`, terminator `Ret`) to
@@ -34,6 +34,61 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
     }
+}
+
+// interp-frame-presize: build a Function with the given param count, a single
+// block whose instructions each write one of `dsts` (as `ConstNull`), and an
+// exception table with the given catch registers. Exercises `reg_file_len`.
+fn fn_for_reg_len(param_count: usize, dsts: &[u32], catch_regs: &[u32]) -> Function {
+    let mut f = fn_with_block_sizes(&[0]);
+    f.param_count = param_count;
+    f.blocks[0].instructions =
+        dsts.iter().map(|&d| Instruction::ConstNull { dst: d }).collect();
+    if !catch_regs.is_empty() {
+        let et: Vec<ExceptionEntry> = catch_regs.iter().map(|&r| ExceptionEntry {
+            try_start:   "b0".to_string(),
+            try_end:     "b0".to_string(),
+            catch_label: "b0".to_string(),
+            catch_type:  None,
+            catch_reg:   r,
+        }).collect();
+        f.cold = Some(Box::new(FunctionCold {
+            exception_table: et.into_boxed_slice(),
+            ..Default::default()
+        }));
+    }
+    f
+}
+
+#[test]
+fn reg_file_len_param_only() {
+    // 3 params (regs %0..%2), no write exceeds them → COUNT = 3.
+    let f = fn_for_reg_len(3, &[0, 1, 2], &[]);
+    assert_eq!(f.reg_file_len(), 3);
+}
+
+#[test]
+fn reg_file_len_writes_exceed_params() {
+    // 2 params but an instruction writes %5 → COUNT = 6 (max index 5 + 1).
+    let f = fn_for_reg_len(2, &[0, 5], &[]);
+    assert_eq!(f.reg_file_len(), 6);
+}
+
+#[test]
+fn reg_file_len_folds_unreferenced_catch_reg() {
+    // The catch reg (%7) is written only by the runtime at catch-install — no
+    // instruction has it as `dst`. `reg_file_len` must still fold it in, else
+    // the frame under-sizes and OOB-panics on catch. COUNT = 8.
+    let f = fn_for_reg_len(1, &[0], &[7]);
+    assert_eq!(f.reg_file_len(), 8);
+}
+
+#[test]
+fn reg_file_len_empty_is_one() {
+    // 0 params, no writes, no catch → COUNT = 1 (never 0, so JIT's
+    // `reg_file_len - 1` index never underflows).
+    let f = fn_for_reg_len(0, &[], &[]);
+    assert_eq!(f.reg_file_len(), 1);
 }
 
 #[test]
