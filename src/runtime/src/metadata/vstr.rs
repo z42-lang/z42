@@ -23,9 +23,9 @@
 //!   │  alive/type_tag=Str/…       │                               │
 //!   └────────────────────────────┴──────────────────────────────┘
 //! ```
-//! The byte length is `header.size` (no separate `len` field). The handle is still
-//! a single machine word (8 B) — `Option<Str>` stays 8 B via the `NonNull` niche —
-//! so `Value` stays 16 B.
+//! The byte length is `header.size` (no separate `len` field). The handle is a
+//! fixed 8 B (a `VarGcRef`, 8 B on every target) — `Option<Str>` stays 8 B via the
+//! `NonNull` niche — so `Value` stays 16 B.
 //!
 //! # Allocation & the ambient heap
 //!
@@ -62,10 +62,12 @@ pub struct Str {
     block: VarGcRef,
 }
 
-// PR-4 invariant: the handle is exactly one machine word (what lets `Value` stay
-// 16 B). `Option<Str>` stays 8 B via the `VarGcRef` → `NonNull` niche.
-const _: () = assert!(std::mem::size_of::<Str>() == std::mem::size_of::<usize>());
-const _: () = assert!(std::mem::size_of::<Option<Str>>() == std::mem::size_of::<usize>());
+// PR-4 invariant: `Str` is exactly a `VarGcRef` wide — a fixed 8 bytes on every
+// target (what lets `Value` stay 16 B). NOT `size_of::<usize>()`: `VarGcRef` is
+// deliberately 8 B even on 32-bit targets (wasm32: 4 B ptr + 4 B generation), where
+// `usize` is only 4 B. `Option<Str>` stays 8 B via the `VarGcRef` → `NonNull` niche.
+const _: () = assert!(std::mem::size_of::<Str>() == std::mem::size_of::<VarGcRef>());
+const _: () = assert!(std::mem::size_of::<Option<Str>>() == std::mem::size_of::<VarGcRef>());
 
 // `Send`/`Sync` come for free: `VarGcRef` is `Send + Sync` (the block memory is
 // immutable + GC-managed behind the heap mutex), so `Str` inherits them — no
