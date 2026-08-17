@@ -37,9 +37,9 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         string_pool: vec!["hello world".to_string()],
         classes: vec![],
         functions: vec![func],
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }
