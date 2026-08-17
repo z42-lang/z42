@@ -1185,6 +1185,14 @@ pub fn build_block_indices(module: &mut Module) {
             .unwrap_or_else(|| std::sync::Arc::from(""));
         let name = std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func));
         func.frame_meta = Some((name, file));
+        // interp-frame-presize: backfill the register-file length so the interp
+        // `Frame::new*` pre-sizes the register file in one `resize` instead of
+        // growing one slot at a time through the cold `set_grow` path. The zbc
+        // reader leaves `max_reg = 0` (it is not carried on the wire); computing
+        // it here — in the always-compiled loader, no jit dependency — makes the
+        // pre-sizing kick in for every build (incl. interp-only / wasm). The JIT
+        // reaches the same count via `translate::max_reg` (`reg_file_len - 1`).
+        func.max_reg = func.reg_file_len();
     }
 }
 

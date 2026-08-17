@@ -31,111 +31,13 @@ use super::reg_access::{
 // max_reg — largest register index used in a function
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// The register an instruction writes (its `dst`), or `None` for stores that
-/// write no register (`ArraySet` / `FieldSet` / `StaticSet` / `UnpinPtr`).
-/// Single source of truth for "what does this op define" — used by `max_reg`
-/// and the jit-inline-fastpaths never-reassigned scan.
-pub fn written_reg(instr: &Instruction) -> Option<u32> {
-    match instr {
-        Instruction::ConstStr  { dst, .. } => Some(*dst),
-        Instruction::ConstI32  { dst, .. } => Some(*dst),
-        Instruction::ConstI64  { dst, .. } => Some(*dst),
-        Instruction::ConstF64  { dst, .. } => Some(*dst),
-        Instruction::ConstBool { dst, .. } => Some(*dst),
-        Instruction::ConstChar { dst, .. } => Some(*dst),
-        Instruction::ConstNull { dst }      => Some(*dst),
-        Instruction::Copy      { dst, .. }  => Some(*dst),
-        Instruction::Add       { dst, .. }  => Some(*dst),
-        Instruction::Sub       { dst, .. }  => Some(*dst),
-        Instruction::Mul       { dst, .. }  => Some(*dst),
-        Instruction::Div       { dst, .. }  => Some(*dst),
-        Instruction::Rem       { dst, .. }  => Some(*dst),
-        Instruction::Eq        { dst, .. }  => Some(*dst),
-        Instruction::Ne        { dst, .. }  => Some(*dst),
-        Instruction::Lt        { dst, .. }  => Some(*dst),
-        Instruction::Le        { dst, .. }  => Some(*dst),
-        Instruction::Gt        { dst, .. }  => Some(*dst),
-        Instruction::Ge        { dst, .. }  => Some(*dst),
-        Instruction::And       { dst, .. }  => Some(*dst),
-        Instruction::Or        { dst, .. }  => Some(*dst),
-        Instruction::Not       { dst, .. }  => Some(*dst),
-        Instruction::Neg       { dst, .. }  => Some(*dst),
-        Instruction::BitAnd    { dst, .. }  => Some(*dst),
-        Instruction::BitOr     { dst, .. }  => Some(*dst),
-        Instruction::BitXor    { dst, .. }  => Some(*dst),
-        Instruction::BitNot    { dst, .. }  => Some(*dst),
-        Instruction::Shl       { dst, .. }  => Some(*dst),
-        Instruction::Shr       { dst, .. }  => Some(*dst),
-        Instruction::StrConcat { dst, .. }  => Some(*dst),
-        Instruction::ToStr     { dst, .. }  => Some(*dst),
-        Instruction::Call(insn)              => Some(insn.dst),
-        Instruction::LoadLocalAddr { dst, .. } => Some(*dst),
-        Instruction::LoadElemAddr  { dst, .. } => Some(*dst),
-        Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
-        Instruction::DefaultOf     { dst, .. } => Some(*dst),
-        Instruction::Builtin(insn)          => Some(insn.dst),
-        Instruction::ArrayNew(insn)          => Some(insn.dst),
-        Instruction::ArrayNewLit(insn)       => Some(insn.dst),
-        Instruction::ArrayGet    { dst, .. } => Some(*dst),
-        Instruction::ArraySet    { .. }      => None,
-        Instruction::ArrayLen    { dst, .. } => Some(*dst),
-        Instruction::ObjNew(insn)           => Some(insn.dst),
-        Instruction::Typeof(insn)           => Some(insn.dst),
-        Instruction::FieldGet(insn)         => Some(insn.dst),
-        Instruction::FieldSet(_)            => None,
-        Instruction::VCall(insn)            => Some(insn.dst),
-        Instruction::IsInstance(insn)       => Some(insn.dst),
-        Instruction::AsCast(insn)           => Some(insn.dst),
-        Instruction::StaticGet(insn)        => Some(insn.dst),
-        Instruction::StaticSet(_)           => None,
-        Instruction::CallNative(insn)             => Some(insn.dst),
-        Instruction::CallNativeVtable { dst, .. } => Some(*dst),
-        Instruction::PinPtr           { dst, .. } => Some(*dst),
-        Instruction::UnpinPtr         { .. }      => None,
-        Instruction::LoadFn(insn)             => Some(insn.dst),
-        Instruction::LoadFnCached(insn)       => Some(insn.dst),
-        Instruction::CallIndirect { dst, .. } => Some(*dst),
-        Instruction::MkClos(insn)             => Some(insn.dst),
-        Instruction::Convert      { dst, .. } => Some(*dst),
-        // add-struct-value-semantics Phase A: blob value type instructions.
-        Instruction::StructAlloc(insn)              => Some(insn.dst),
-        Instruction::StructCopy { dst, .. }         => Some(*dst),
-        Instruction::StructFieldGetPrim { dst, .. } => Some(*dst),
-        Instruction::StructFieldSetPrim { .. }      => None,
-    }
-}
-
+/// The highest register **index** used by `func` — the JIT pre-sizes its
+/// register file to this + 1. Thin wrapper over `Function::reg_file_len` (the
+/// COUNT), which is the single source of truth for frame sizing shared with the
+/// interp frame pre-sizing (folds params / every `dst` / exception-table catch
+/// registers). `reg_file_len` is always ≥ 1, so the subtraction never underflows.
 pub fn max_reg(func: &Function) -> usize {
-    let mut max = func.param_count.saturating_sub(1);
-    // The compiler-authoritative reg count (`func.max_reg`, from zbc REGT) covers
-    // EVERY register the function uses — including exception-table catch registers
-    // (written by the runtime at `jit_install_catch`, never by an instruction) and
-    // any read-only reg. The instruction scan below misses those: a catch reg only
-    // shows up because some instruction happens to reference it, and an IR
-    // optimization (e.g. compile-time copy-prop / DCE) can remove the last such
-    // instruction — shrinking this recompute below the catch reg and OOB-panicking
-    // `frame.regs[catch_reg]`. `func.max_reg` is a COUNT → max index = count - 1.
-    if func.max_reg > 0 {
-        max = max.max(func.max_reg as usize - 1);
-    }
-    // Exception-table catch registers are written by the runtime at
-    // `jit_install_catch` (a direct `frame.regs[catch_reg] = ..` index, unlike
-    // the interpreter's auto-resizing `frame.set`). A catch reg only otherwise
-    // surfaces if some instruction happens to reference it, so IR optimizations
-    // (copy-prop / DCE) that remove that last instruction leave the frame too
-    // small → OOB panic. Fold every catch reg in so the frame always covers it.
-    for e in func.exception_table() {
-        if e.catch_reg as usize > max { max = e.catch_reg as usize; }
-    }
-    for block in &func.blocks {
-        for instr in &block.instructions {
-            let dst: Option<u32> = written_reg(instr);
-            if let Some(d) = dst {
-                if d as usize > max { max = d as usize; }
-            }
-        }
-    }
-    max
+    func.reg_file_len() as usize - 1
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -491,7 +393,7 @@ pub fn translate_function(
         let mut w = std::collections::HashSet::new();
         for b in &z42_func.blocks {
             for ins in &b.instructions {
-                if let Some(d) = written_reg(ins) { w.insert(d); }
+                if let Some(d) = ins.written_reg() { w.insert(d); }
             }
         }
         w
