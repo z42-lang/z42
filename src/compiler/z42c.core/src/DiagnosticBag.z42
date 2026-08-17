@@ -49,6 +49,16 @@ public sealed class DiagnosticBag {
         this.Add(Diagnostic.Info(code, message, span));
     }
 
+    // 把另一个 bag 的诊断条目追加进来（仅 items，不复制 incomplete 标志——那些是本 bag 语义）。
+    // 用途：Parser 收尾把 Lexer 的诊断（E0101/E0102/E0103）并入自身 bag，让 lexer 错端到端上浮。
+    public void MergeFrom(DiagnosticBag other) {
+        int i = 0;
+        while (i < other._count) {
+            this.Add(other._items[i]);
+            i = i + 1;
+        }
+    }
+
     public int Count() { return this._count; }
 
     /// 返回第 i 条诊断（调用方按 0 <= i < Count() 迭代）。

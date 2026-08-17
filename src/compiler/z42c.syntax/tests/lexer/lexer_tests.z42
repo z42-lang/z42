@@ -206,6 +206,104 @@ void test_char_literal_tokens() {
     Assert.Equal(TokenKind.CharLiteral, lx.TokenAt(1).Kind);
 }
 
+// 由码点构造单字符串（测试断言用，独立于被测的转义字面量）。
+string _cp(int code) {
+    char[] z = new char[1];
+    z[0] = (char)code;
+    return String.FromChars(z);
+}
+
+[Test]
+void test_decode_control_escapes() {
+    // reject-invalid-string-escape：C 系控制转义 \a \b \f \v \0 解码为对应码点（非字母）。
+    Assert.Equal(_cp(7),  Lexer.DecodeString("\"\\a\""));   // \a → BEL 0x07
+    Assert.Equal(_cp(8),  Lexer.DecodeString("\"\\b\""));   // \b → BS  0x08（不再是字母 b）
+    Assert.Equal(_cp(12), Lexer.DecodeString("\"\\f\""));   // \f → FF  0x0C
+    Assert.Equal(_cp(11), Lexer.DecodeString("\"\\v\""));   // \v → VT  0x0B
+    Assert.Equal(_cp(0),  Lexer.DecodeString("\"\\0\""));   // \0 → NUL 0x00
+}
+
+[Test]
+void test_invalid_escape_string_reports_e0102() {
+    // 未知转义 \U（Windows 路径首坑）→ 报 E0102，不静默丢反斜杠。
+    var lx = new Lexer("\"C:\\Users\"", "t.z42");
+    lx.Tokenize();
+    var bag = lx.Diagnostics();
+    bool hasE0102 = false;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == DiagnosticCodes.InvalidEscape) { hasE0102 = true; }
+        i = i + 1;
+    }
+    Assert.True(hasE0102);
+}
+
+[Test]
+void test_invalid_escape_char_reports_e0102() {
+    // char 字面量未知转义 '\q' → E0102。
+    var lx = new Lexer("'\\q'", "t.z42");
+    lx.Tokenize();
+    var bag = lx.Diagnostics();
+    bool hasE0102 = false;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == DiagnosticCodes.InvalidEscape) { hasE0102 = true; }
+        i = i + 1;
+    }
+    Assert.True(hasE0102);
+}
+
+[Test]
+void test_invalid_escape_interpolated_reports_e0102() {
+    // 插值串文本段未知转义 $"a\qb" → E0102。
+    var lx = new Lexer("$\"a\\qb\"", "t.z42");
+    lx.Tokenize();
+    var bag = lx.Diagnostics();
+    bool hasE0102 = false;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == DiagnosticCodes.InvalidEscape) { hasE0102 = true; }
+        i = i + 1;
+    }
+    Assert.True(hasE0102);
+}
+
+[Test]
+void test_invalid_escape_surfaces_through_parser() {
+    // fix-lexer-diags-dropped：lexer 诊断必须经 Parser 上浮（回归守卫——此前 Parser 从不并入
+    // lexer bag，E0102 端到端被丢，编译静默通过）。用 Parser 全流程确认 E0102 出现在 ParseDiags。
+    var p = new Parser("void Main() { string s = \"C:\\Users\"; }", "t.z42");
+    p.ParseCompilationUnit();
+    var bag = p.Diagnostics();
+    bool hasE0102 = false;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == DiagnosticCodes.InvalidEscape) { hasE0102 = true; }
+        i = i + 1;
+    }
+    Assert.True(hasE0102);
+}
+
+[Test]
+void test_unterminated_string_still_incomplete() {
+    // fix-lexer-diags-dropped 不得回归 REPL 续行：未终止串在语句入口仍判「未写完」
+    // （incomplete 标志由 parser 期字段直读设置，不受 lexer 诊断合并影响）。
+    var p = new Parser("string s = \"abc", "t.z42");
+    p.ParseStatement();
+    var bag = p.Diagnostics();
+    // 未闭合串 + 缺 ; → 仍标记「未写完」（AtEof 或 SemiAtEof 任一）；若 lexer E0101 被 pre-parse
+    // 合并，HasErrors 提前为真会抑制此标记 → 本断言即回归为红。
+    Assert.True(bag.IsIncompleteAtEof() || bag.IsIncompleteSemiAtEof());
+}
+
+[Test]
+void test_valid_escapes_no_diag() {
+    // 合法转义集不报诊断（含新增 \b \f \a \v）。
+    var lx = new Lexer("\"\\n\\t\\r\\a\\b\\f\\v\\0\\\\\\\"\"", "t.z42");
+    lx.Tokenize();
+    Assert.Equal(0, lx.Diagnostics().Count());
+}
+
 [Test]
 void test_keyword_table_accessors() {
     // 关键字只读访问器（add-vscode-syntax-ext）：计数>0、逐项非空、哨兵关键字在表中。
