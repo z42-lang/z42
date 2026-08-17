@@ -72,7 +72,7 @@ pub fn exec_instr(
         Instruction::Copy      { dst, src } => exec_value::copy(frame, *dst, *src)?,
 
         // ── Arithmetic ───────────────────────────────────────────────────────
-        Instruction::Add { dst, a, b } => exec_value::add(frame, *dst, *a, *b)?,
+        Instruction::Add { dst, a, b } => exec_value::add(ctx, frame, *dst, *a, *b)?,
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
         Instruction::Mul { dst, a, b } => exec_value::mul(frame, *dst, *a, *b)?,
         Instruction::Div { dst, a, b } => {
@@ -114,7 +114,7 @@ pub fn exec_instr(
         Instruction::Shr    { dst, a, b } => exec_value::shr(frame, *dst, *a, *b)?,
 
         // ── String formation ─────────────────────────────────────────────────
-        Instruction::StrConcat { dst, a, b } => exec_value::str_concat(frame, *dst, *a, *b)?,
+        Instruction::StrConcat { dst, a, b } => exec_value::str_concat(ctx, frame, *dst, *a, *b)?,
         Instruction::ToStr     { dst, src }  => exec_value::to_str(ctx, module, frame, *dst, *src)?,
 
         // ── Address-load (spec impl-ref-out-in-runtime) ─────────────────────

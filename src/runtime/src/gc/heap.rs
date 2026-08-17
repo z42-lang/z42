@@ -134,6 +134,21 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         crate::metadata::vstr::Str::new_leaked(s)
     }
 
+    /// fuse-str-concat-alloc: allocate a fresh GC string that is the
+    /// concatenation `a ++ b`, sizing the `BlockType::Str` block to
+    /// `a.len() + b.len()` and filling it by copying both segments directly.
+    /// This fuses what `alloc_str(&format!("{a}{b}"))` did in two heap
+    /// allocations (the intermediate `String` + the GC block) into one — the
+    /// hot path for the `StrConcat` IR op (string `+`) and `Std.String.Concat`.
+    /// The default builds the `String` and falls back to a leaked block (mock
+    /// heaps); `ArcMagrGC` overrides to region-alloc the fused block in place.
+    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+        let mut s = String::with_capacity(a.len() + b.len());
+        s.push_str(a);
+        s.push_str(b);
+        crate::metadata::vstr::Str::new_leaked(&s)
+    }
+
     // ── 2. Roots ─────────────────────────────────────────────────────────────
 
     /// 注册一个 **external root scanner** 闭包 —— GC mark 阶段在扫完 pinned
