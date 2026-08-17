@@ -59,6 +59,16 @@ thiserror = "1"
 # Bitflags (used by metadata::test_index for TestFlags; spec R1)
 bitflags = "2"
 
+# Fast non-cryptographic hasher (FxHash) for VM-internal symbol tables.
+# z42c self-compile spends ~14% in HashMap symbol resolution (function/type
+# name → decl), profiled as SipHash write + memcmp, driven mainly by
+# megamorphic VCall IC misses hashing FQ name strings. These tables are
+# internal (never hash-flood-adversarial), so a fast non-DoS-resistant hasher
+# is safe and ~5–10× cheaper on short-string keys. FxHash also gives a
+# deterministic iteration order (std SipHash randomises per-run), which is
+# strictly friendlier to the load-order-determinism rule (common-pitfalls §1).
+rustc-hash = "2"
+
 # Mutex / RwLock — used for VmCore shared state across threads (add-multithreading-foundation, 2026-05-19).
 # parking_lot vs std::sync: ~2-5x faster uncontended; no poisoning (VM contexts don't benefit from poison-on-panic).
 parking_lot = "0.12"

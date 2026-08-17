@@ -1730,9 +1730,9 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
         .unwrap_or(0);
     Ok(Module {
         name, string_pool, classes, functions,
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots,
     })
 }
@@ -2221,9 +2221,9 @@ fn read_mods_section(
         // packed zpkg 是否实际命中 LoadFnCached 决定 follow-up。
         result.push((Module {
             name, string_pool, classes, functions,
-            type_registry: std::collections::HashMap::new(),
+            type_registry: rustc_hash::FxHashMap::default(),
             type_registry_vec: Vec::new(),
-            func_index: std::collections::HashMap::new(),
+            func_index: rustc_hash::FxHashMap::default(),
             func_ref_cache_slots: 0,
             // Populated inside `merge_modules` (these per-namespace modules
             // are always merged before consumption).

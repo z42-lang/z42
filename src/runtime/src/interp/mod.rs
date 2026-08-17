@@ -1033,7 +1033,7 @@ fn find_handler(
     func: &Function,
     block_idx: usize,
     block_map: &HashMap<String, usize>,
-    type_registry: &HashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
+    type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
     thrown: &Value,
 ) -> Option<usize> {
     let thrown_class: Option<String> = match thrown {

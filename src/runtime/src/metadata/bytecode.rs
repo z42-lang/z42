@@ -2,7 +2,7 @@ use super::tokens::TypeId;
 use super::types::{ExecMode, TypeDesc};
 use super::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 /// Top-level bytecode module.
@@ -18,7 +18,7 @@ pub struct Module {
     /// deserialisation, not stored on disk.  Maps fully-qualified class name
     /// to the corresponding `TypeDesc` (field layout + vtable).
     #[serde(skip)]
-    pub type_registry: HashMap<String, Arc<TypeDesc>>,
+    pub type_registry: FxHashMap<String, Arc<TypeDesc>>,
     /// Phase 3 S1 (`tokenize-ir-and-zbc-bump`, 2026-05-09): parallel
     /// by-`TypeId` view of the type registry. Index `i` holds the `Arc<TypeDesc>`
     /// whose `id == TypeId(i as u32)`. Built alongside `type_registry` by
@@ -33,7 +33,7 @@ pub struct Module {
     /// Pre-built function name → index mapping for O(1) call dispatch.
     /// Populated by the loader after deserialisation.
     #[serde(skip)]
-    pub func_index: HashMap<String, usize>,
+    pub func_index: FxHashMap<String, usize>,
     /// 2026-05-02 add-method-group-conversion (D1b): number of FuncRef cache
     /// slots required by `LoadFnCached` instructions. VM allocates a parallel
     /// `Vec<Value>` of this size on `VmContext` at module load.

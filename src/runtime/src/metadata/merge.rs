@@ -6,7 +6,7 @@
 /// pools 0..i-1.
 use super::bytecode::{BasicBlock, Instruction, Module};
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Merge an ordered sequence of IR modules into a single flat module.
 ///
@@ -63,9 +63,9 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
 
     let merged = Module {
         name, string_pool, classes, functions,
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: func_ref_slot_total,
     };
     Ok(merged)
