@@ -342,6 +342,15 @@ VarRegion 变长块（16B 对齐原始 chunk + 2 的幂 size-class free-list + o
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
 回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
 
+**融合拼接分配 `alloc_str_concat2(a, b)`**（fuse-str-concat-alloc, 2026-08）：字符串 `+`
+（IR `StrConcat` / `Std.String.Concat`）此前走 `alloc_str(&format!("{a}{b}"))`——**两次堆分配**
+（中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。
+`MagrGC::alloc_str_concat2`（[`gc/heap.rs`](../../../src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
+`alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
+**降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
+`&str` 直传、JIT `jit_str_concat` helper 同步。产出字节相同。热字符串 workload 实测 mimalloc 压力
+减半、拼接密集环 ~1.3× interp。
+
 **驻留串 = lazy per-context interning**（D-lazy）：加载期无堆 → 不物化；首次 `ConstStr(idx)`
 经 `VmContext::intern_const_str(module, idx)` 用活堆分配 + 缓存进 `interned_cache`
 （`(module ptr, idx)` 键），缓存项经 external root scanner 注册为 **GC root**。

@@ -1828,6 +1828,32 @@ impl ArcMagrGC {
         crate::metadata::vstr::Str::from_var_ref(vref)
     }
 
+    /// fuse-str-concat-alloc: region-alloc a `BlockType::Str` block sized
+    /// `a.len() + b.len()` and fill it by copying both segments back-to-back —
+    /// the fused counterpart of `alloc_str_in_region(&format!("{a}{b}"))` that
+    /// skips the intermediate `String`. Same `record_alloc` / `maybe_auto_collect`
+    /// bookkeeping as the single-string path (the concatenation is one block).
+    fn alloc_str_concat2_in_region(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+        let total = a.len() + b.len();
+        let vref = {
+            let mut region = self.region_var.lock();
+            let vref = region.alloc(total, BlockType::Str);
+            // SAFETY: fresh block sized for exactly `total` bytes; write `a` then `b`
+            // into the zeroed payload (raw block header, D8) before any read. Both
+            // segments are valid UTF-8, so their concatenation is valid UTF-8.
+            unsafe {
+                let dst = vref.payload_as_ptr::<u8>();
+                std::ptr::copy_nonoverlapping(a.as_ptr(), dst, a.len());
+                std::ptr::copy_nonoverlapping(b.as_ptr(), dst.add(a.len()), b.len());
+            }
+            vref
+        };
+        let size = GcBlockHeader::DATA_OFFSET + total;
+        self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
+        self.maybe_auto_collect();
+        crate::metadata::vstr::Str::from_var_ref(vref)
+    }
+
     /// add-reflection-array-element-type: shared array allocation over an
     /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
     /// `alloc_array_typed` funnel through here.
@@ -1980,6 +2006,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_str(&self, s: &str) -> crate::metadata::vstr::Str {
         self.alloc_str_in_region(s)
+    }
+
+    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+        self.alloc_str_concat2_in_region(a, b)
     }
 
     fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {

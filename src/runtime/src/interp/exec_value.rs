@@ -7,7 +7,7 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 use super::dispatch::{obj_to_string, value_to_str};
-use super::ops::{bool_val, int_binop, int_bitop, str_val};
+use super::ops::{bool_val, int_binop, int_bitop};
 use super::Frame;
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -49,11 +49,14 @@ pub(super) fn copy(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 
 // ── Arithmetic ───────────────────────────────────────────────────────────
 
-pub(super) fn add(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
+pub(super) fn add(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     let result = match (frame.get(a)?, frame.get(b)?) {
-        (Value::Str(sa), Value::Str(sb)) => Value::Str(format!("{}{}", sa, sb).into()),
-        (Value::Str(sa), vb)             => Value::Str(format!("{}{}", sa, value_to_str(vb)).into()),
-        (va, Value::Str(sb))             => Value::Str(format!("{}{}", value_to_str(va), sb).into()),
+        // fuse-str-concat-alloc: allocate the concatenation as one fused GC block,
+        // skipping the intermediate `format!` String (mixed arms still build one
+        // `String` for the non-string operand via `value_to_str`).
+        (Value::Str(sa), Value::Str(sb)) => Value::Str(ctx.heap().alloc_str_concat2(sa, sb)),
+        (Value::Str(sa), vb)             => Value::Str(ctx.heap().alloc_str_concat2(sa, &value_to_str(vb))),
+        (va, Value::Str(sb))             => Value::Str(ctx.heap().alloc_str_concat2(&value_to_str(va), sb)),
         // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
         // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
         _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
@@ -223,10 +226,15 @@ pub(super) fn shr(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
 
 // ── String formation ─────────────────────────────────────────────────────
 
-pub(super) fn str_concat(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    let sa = str_val(&frame.regs, a)?;
-    let sb = str_val(&frame.regs, b)?;
-    frame.set(dst, Value::Str(format!("{}{}", sa, sb).into()));
+pub(super) fn str_concat(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
+    // fuse-str-concat-alloc: borrow both operands as `&str` and allocate the
+    // concatenation as a single fused GC block — no per-operand `str_val` String
+    // clone, no intermediate `format!` String (was 4 allocations, now 1).
+    let s = match (frame.get(a)?, frame.get(b)?) {
+        (Value::Str(sa), Value::Str(sb)) => ctx.heap().alloc_str_concat2(sa, sb),
+        (va, vb) => bail!("StrConcat: expected two strings, got {:?} and {:?}", va, vb),
+    };
+    frame.set(dst, Value::Str(s));
     Ok(())
 }
 

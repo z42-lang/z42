@@ -123,7 +123,9 @@ pub unsafe extern "C" fn jit_str_concat(
 ) -> u8 {
     match (&(*frame).regs[a as usize], &(*frame).regs[b as usize]) {
         (Value::Str(sa), Value::Str(sb)) => {
-            (*frame).regs[dst as usize] = Value::Str(format!("{}{}", sa, sb).into());
+            // fuse-str-concat-alloc: one fused GC block, no intermediate `format!` String.
+            let s = vm_ctx_ref(ctx).heap().alloc_str_concat2(sa, sb);
+            (*frame).regs[dst as usize] = Value::Str(s);
             0
         }
         (va, vb) => {
