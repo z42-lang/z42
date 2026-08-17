@@ -12,7 +12,6 @@ use crate::metadata::context::{AssemblyId, ContextId, ContextRegistry};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::TypeDesc;
 use crate::metadata::NameIndex;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
@@ -31,7 +30,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 }
 
 fn mk_module(type_names: &[&str]) -> Module {
-    let mut type_registry = HashMap::new();
+    let mut type_registry = rustc_hash::FxHashMap::default();
     for n in type_names {
         type_registry.insert(n.to_string(), dummy_type_desc(n));
     }
@@ -42,7 +41,7 @@ fn mk_module(type_names: &[&str]) -> Module {
         functions: Vec::new(),
         type_registry,
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }

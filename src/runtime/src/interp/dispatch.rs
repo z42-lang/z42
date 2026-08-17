@@ -6,7 +6,6 @@
 use crate::metadata::{ClassDesc, FieldSlot, Function, Module, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-use std::collections::HashMap;
 
 pub use crate::corelib::convert::value_to_str;
 
@@ -29,7 +28,7 @@ pub use crate::corelib::convert::value_to_str;
 /// interfaces (interface-extends-interface) are not yet covered.
 pub fn is_subclass_or_eq_td(
     ctx: &VmContext,
-    registry: &HashMap<String, std::sync::Arc<TypeDesc>>,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     derived: &str,
     target: &str,
 ) -> bool {
@@ -58,7 +57,7 @@ pub fn is_subclass_or_eq_td(
 /// matches.
 fn iface_reaches_td(
     ctx: &VmContext,
-    registry: &HashMap<String, std::sync::Arc<TypeDesc>>,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     iface: &str,
     target: &str,
 ) -> bool {

@@ -289,9 +289,9 @@ fn type_registry_vec_invariant_after_build() {
             },
         ],
         functions: vec![],
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     };
 
@@ -329,9 +329,9 @@ fn type_by_id_unresolved_returns_none() {
         string_pool: vec![],
         classes: vec![],
         functions: vec![],
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     };
 
@@ -347,9 +347,9 @@ fn register_lazy_type_appends_with_next_id() {
         string_pool: vec![],
         classes: vec![],
         functions: vec![],
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     };
 
@@ -440,9 +440,9 @@ fn module_with_one_class(
             attributes: Box::new([]),
         }],
         functions: vec![],
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }
@@ -468,8 +468,8 @@ fn fixup_inherits_base_fields_from_separate_module() {
 
     // Simulate lazy_loader merge: copy both modules' TypeDescs into a
     // global registry and run fixup.
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
     mod_a.type_registry_vec.clear();
@@ -497,8 +497,8 @@ fn fixup_handles_three_level_chain() {
         crate::metadata::loader::build_type_registry(m);
     }
 
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     for m in [&mut mod_a, &mut mod_b, &mut mod_c] {
         m.type_registry_vec.clear();  // drop second Arc refs so fixup can mutate
     }
@@ -531,8 +531,8 @@ fn fixup_deferred_until_base_loads() {
     let mut mod_b = module_with_one_class("Sub", Some("Base"), vec![("x", "str")]);
     crate::metadata::loader::build_type_registry(&mut mod_b);
 
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     mod_b.type_registry_vec.clear();
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
@@ -565,8 +565,8 @@ fn fixup_idempotent_when_no_new_resolutions() {
         crate::metadata::loader::build_type_registry(m);
         m.type_registry_vec.clear();
     }
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
@@ -595,8 +595,8 @@ fn fixup_converges_with_duplicate_field_names() {
         crate::metadata::loader::build_type_registry(m);
         m.type_registry_vec.clear();
     }
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
@@ -656,9 +656,9 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
         string_pool,
         classes: vec![],
         functions,
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }
@@ -1023,8 +1023,8 @@ fn object_layout_composed_crosspkg_fixup() {
     assert_eq!(&*sub_before.field_offsets, &[0], "own field at 0 (no base region yet)");
 
     // Merge into a global registry + fixup.
-    let mut global: std::collections::HashMap<String, std::sync::Arc<TypeDesc>> =
-        std::collections::HashMap::new();
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
+        rustc_hash::FxHashMap::default();
     mod_a.type_registry_vec.clear();
     mod_b.type_registry_vec.clear();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }

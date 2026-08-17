@@ -41,6 +41,7 @@
 //! the full state-collapse rationale.
 
 use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::marker::PhantomPinned;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
@@ -159,7 +160,7 @@ pub struct VmCore {
     pub(crate) static_fields:      Mutex<Vec<Value>>,
     /// FQN → slot id map. Lazy-allocated on first access; cross-zpkg lazy
     /// fields can be encountered in any order.
-    pub(crate) static_field_index: Mutex<HashMap<String, u32>>,
+    pub(crate) static_field_index: Mutex<FxHashMap<String, u32>>,
     /// On-demand zpkg loader. `None` until `install_lazy_loader[_with_deps]`
     /// is called (typically from `bootstrap.rs`). Shared across threads
     /// since zpkg resolution + module loading is a process-global operation.
@@ -434,7 +435,7 @@ pub struct VmContext {
     /// hits copy the 8-byte handle (no re-alloc). Per-context (not shared) so no
     /// module mutation / cross-thread interning — a thread re-interns its own literals
     /// (negligible for z42's 1–2 threads). See `interp::exec_value::const_str`.
-    pub(crate) interned_cache:    Arc<Mutex<HashMap<(usize, u32), crate::metadata::vstr::Str>>>,
+    pub(crate) interned_cache:    Arc<Mutex<FxHashMap<(usize, u32), crate::metadata::vstr::Str>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in
@@ -575,7 +576,7 @@ impl VmContext {
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
-            interned_cache: Arc::new(Mutex::new(HashMap::new())),
+            interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
@@ -599,7 +600,7 @@ impl VmContext {
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
             static_fields:      Mutex::new(Vec::new()),
-            static_field_index: Mutex::new(HashMap::new()),
+            static_field_index: Mutex::new(FxHashMap::default()),
             lazy_loader:        Mutex::new(None),
             context_registry:   Mutex::new(crate::metadata::context::ContextRegistry::new()),
             #[cfg(feature = "native-interop")]
@@ -818,7 +819,7 @@ impl VmContext {
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
-            interned_cache: Arc::new(Mutex::new(HashMap::new())),
+            interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             process_next_id: std::sync::atomic::AtomicU64::new(1),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
@@ -1354,7 +1355,7 @@ impl VmContext {
     /// test runner immediately after `install_lazy_loader_with_deps` so the
     /// fixup pass can find eagerly-loaded base classes when lazy-loading a
     /// subclass.
-    pub fn seed_lazy_loader_types(&self, types: &HashMap<String, Arc<TypeDesc>>) {
+    pub fn seed_lazy_loader_types(&self, types: &FxHashMap<String, Arc<TypeDesc>>) {
         let mut state = self.core.lazy_loader.lock();
         if let Some(loader) = state.as_mut() {
             loader.seed_types_for_lookup(types);

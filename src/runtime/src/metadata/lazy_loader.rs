@@ -1,33 +1,33 @@
-/// Lazy dependency loader (zpkg-based, C# assembly model).
-///
-/// The VM eagerly loads only `z42.core` at startup. Other stdlib/third-party
-/// zpkgs are loaded on demand when the interpreter encounters a `Call` or
-/// `ObjNew` against an undefined function/type whose namespace matches a
-/// declared-but-not-loaded zpkg.
-///
-/// ## Triggering (Decision 1: strategy C + fallback B)
-///
-///   1. Extract namespace prefix from `func_name` / `class_name`
-///   2. Route to candidate zpkgs whose exported `namespaces` metadata
-///      contains that prefix (precise routing, like C# CLR AssemblyRef →
-///      TypeRef lookup)
-///   3. Fallback: if strategy C matches nothing, iterate every declared-but-
-///      -not-loaded zpkg until the target resolves or the set is exhausted
-///   4. Transitive `ZpkgDep`s are unfolded into the declared set on load
-///      (Decision 4 cycle-safe via pre-insert colouring)
-///
-/// Multiple zpkgs may legitimately declare the same namespace — the lookup
-/// visits them one by one and `first-wins` on function/type name collisions
-/// (Decision 6).
-///
-/// ## State ownership (consolidate-vm-state, 2026-04-28)
-///
-/// Previously `LazyLoader` lived in a `thread_local!` slot. Now an instance
-/// is owned by `VmContext::lazy_loader`; all `try_lookup_*` /
-/// `declared_namespaces` calls go through `VmContext` methods which delegate
-/// here. `LazyLoader` itself remains usable directly by tests / advanced
-/// embedders.
-use std::collections::{HashMap, HashSet};
+//! Lazy dependency loader (zpkg-based, C# assembly model).
+//!
+//! The VM eagerly loads only `z42.core` at startup. Other stdlib/third-party
+//! zpkgs are loaded on demand when the interpreter encounters a `Call` or
+//! `ObjNew` against an undefined function/type whose namespace matches a
+//! declared-but-not-loaded zpkg.
+//!
+//! ## Triggering (Decision 1: strategy C + fallback B)
+//!
+//!   1. Extract namespace prefix from `func_name` / `class_name`
+//!   2. Route to candidate zpkgs whose exported `namespaces` metadata
+//!      contains that prefix (precise routing, like C# CLR AssemblyRef →
+//!      TypeRef lookup)
+//!   3. Fallback: if strategy C matches nothing, iterate every declared-but-
+//!      -not-loaded zpkg until the target resolves or the set is exhausted
+//!   4. Transitive `ZpkgDep`s are unfolded into the declared set on load
+//!      (Decision 4 cycle-safe via pre-insert colouring)
+//!
+//! Multiple zpkgs may legitimately declare the same namespace — the lookup
+//! visits them one by one and `first-wins` on function/type name collisions
+//! (Decision 6).
+//!
+//! ## State ownership (consolidate-vm-state, 2026-04-28)
+//!
+//! Previously `LazyLoader` lived in a `thread_local!` slot. Now an instance
+//! is owned by `VmContext::lazy_loader`; all `try_lookup_*` /
+//! `declared_namespaces` calls go through `VmContext` methods which delegate
+//! here. `LazyLoader` itself remains usable directly by tests / advanced
+//! embedders.
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -119,7 +119,7 @@ pub struct LazyLoader {
     /// zpkg file names that have been loaded (either eagerly at startup or
     /// by a previous lazy-load). Used for de-duplication and cycle-cutting
     /// (Decision 4: pre-inserted before load to break cycles).
-    pub(crate) loaded_zpkgs:   HashSet<String>,
+    pub(crate) loaded_zpkgs:   FxHashSet<String>,
     /// Scratch buffer: zpkg file names newly inserted into `loaded_zpkgs` during
     /// the current resolve. Drained (`mem::take`) by `VmContext::try_lookup_*`
     /// to fire `ModuleLoaded` events — replaces cloning the whole `loaded_zpkgs`
@@ -129,20 +129,20 @@ pub struct LazyLoader {
     pub(crate) newly_loaded:   Vec<String>,
     /// zpkg file names that are declared as dependencies (direct or
     /// transitive) but have not yet been loaded. Lookup candidates.
-    pub(crate) declared_zpkgs: HashMap<String, ZpkgCandidate>,
+    pub(crate) declared_zpkgs: FxHashMap<String, ZpkgCandidate>,
 
     /// Functions loaded from lazily-resolved zpkgs, indexed by FQ name.
     /// ConstStr indices have been remapped to absolute indices.
-    function_table: HashMap<String, Arc<Function>>,
+    function_table: FxHashMap<String, Arc<Function>>,
     /// Type descriptors from lazily-resolved zpkgs.
-    type_registry:  HashMap<String, Arc<TypeDesc>>,
+    type_registry:  FxHashMap<String, Arc<TypeDesc>>,
     /// add-crosspkg-impl-reflection (unify P1-e): `target_fq → [trait_fq]`
     /// aggregated from every loaded zpkg's IMPL section (`impl Trait for Type`).
     /// Appended (not first-wins): distinct packages may each impl different
     /// traits for the same target. Backs `Type.GetInterfaces()` seeing
     /// cross-package traits; only loaded packages contribute (an unloaded
     /// package's impl methods aren't callable either — consistent).
-    impls:          HashMap<String, Vec<String>>,
+    impls:          FxHashMap<String, Vec<String>>,
 }
 
 impl LazyLoader {
@@ -160,7 +160,7 @@ impl LazyLoader {
     /// inheritance), so `needs_fixup` returns false and no mutation is
     /// attempted. Only later-arriving lazy-loaded TypeDescs (which have
     /// strong_count = 1 in this registry) are mutable targets.
-    pub fn seed_types_for_lookup(&mut self, types: &HashMap<String, Arc<TypeDesc>>) {
+    pub fn seed_types_for_lookup(&mut self, types: &FxHashMap<String, Arc<TypeDesc>>) {
         for (name, td) in types {
             if !self.type_registry.contains_key(name) {
                 self.type_registry.insert(name.clone(), Arc::clone(td));
@@ -193,8 +193,8 @@ impl LazyLoader {
         declared: Vec<(String, ZpkgCandidate)>,
         initially_loaded: Vec<String>,
     ) -> Self {
-        let loaded_zpkgs: HashSet<String> = initially_loaded.into_iter().collect();
-        let declared_zpkgs: HashMap<String, ZpkgCandidate> = declared
+        let loaded_zpkgs: FxHashSet<String> = initially_loaded.into_iter().collect();
+        let declared_zpkgs: FxHashMap<String, ZpkgCandidate> = declared
             .into_iter()
             .filter(|(k, _)| !loaded_zpkgs.contains(k))
             .collect();
@@ -205,9 +205,9 @@ impl LazyLoader {
             loaded_zpkgs,
             newly_loaded:   Vec::new(),
             declared_zpkgs,
-            function_table: HashMap::new(),
-            type_registry:  HashMap::new(),
-            impls:          HashMap::new(),
+            function_table: FxHashMap::default(),
+            type_registry:  FxHashMap::default(),
+            impls:          FxHashMap::default(),
         }
     }
 

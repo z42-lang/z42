@@ -1,10 +1,4 @@
-/// Artifact loader: detects the format of a compiler output file by extension,
-/// deserialises it (binary only), and returns a merged `Module` plus metadata.
-///
-/// Supported formats:
-///   `.zbc`  — ZbcFile binary (single source file, full mode)
-///   `.zpkg` — ZpkgFile binary (project package; packed mode only)
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -681,7 +675,7 @@ fn infer_namespace_candidates(name: &str) -> Vec<&str> {
 ///   4. Both views populated: by-name HashMap and by-TypeId Vec[id] = Arc.
 pub fn build_type_registry(module: &mut Module) {
     let order = topo_sort_classes(module);
-    let mut registry: HashMap<String, Arc<TypeDesc>> = HashMap::new();
+    let mut registry: FxHashMap<String, Arc<TypeDesc>> = FxHashMap::default();
     let mut registry_vec: Vec<Arc<TypeDesc>> = Vec::with_capacity(order.len());
     // introduce-method-token 2026-05-08: assign TypeId in topo order so that
     // each TypeDesc has a stable per-module id. VCallIC / FieldIC compare
@@ -877,7 +871,7 @@ fn merge_with_base(
     own_methods: &[Box<str>],
     class_name:  &str,
     base_class_name: Option<&str>,
-    registry:    &HashMap<String, Arc<TypeDesc>>,
+    registry:    &FxHashMap<String, Arc<TypeDesc>>,
 ) -> (Vec<FieldSlot>, NameIndex, Vec<(String, String)>, NameIndex) {
     let (mut fields, mut vtable, mut vtable_index) = match base_class_name.and_then(|b| registry.get(b)) {
         Some(base) => (base.fields.clone(), base.vtable.clone(), base.vtable_index.clone()),
@@ -937,7 +931,7 @@ fn merge_with_base(
 /// owned `Vec` / `HashMap`s (no shared Arc data), then run a separate
 /// mutation pass that only borrows the registry mutably.
 pub fn try_fixup_inheritance(
-    registry: &mut HashMap<String, Arc<TypeDesc>>,
+    registry: &mut FxHashMap<String, Arc<TypeDesc>>,
 ) -> usize {
     // ── Phase 1: immutable scan — compute new layouts without mutating anything.
     type MergedLayout = (Vec<FieldSlot>, NameIndex, Vec<(String, String)>, NameIndex);
@@ -1013,7 +1007,7 @@ pub fn try_fixup_inheritance(
 
 /// Names of types still reporting `needs_fixup` — used only to make the
 /// loader's non-convergence safety-cap error message actionable.
-pub fn unconverged_type_names(registry: &HashMap<String, Arc<TypeDesc>>) -> Vec<String> {
+pub fn unconverged_type_names(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Vec<String> {
     registry.iter()
         .filter(|(_, td)| needs_fixup(td, registry))
         .map(|(name, _)| name.clone())
@@ -1029,7 +1023,7 @@ pub fn unconverged_type_names(registry: &HashMap<String, Arc<TypeDesc>>) -> Vec<
 /// `simple_name` (arity-overloaded methods like `Foo$1` / `Foo$2` both
 /// map to the same vtable slot `Foo`); count *distinct* simple names
 /// for the vtable size projection, mirroring [`merge_with_base`].
-fn needs_fixup(td: &TypeDesc, registry: &HashMap<String, Arc<TypeDesc>>) -> bool {
+fn needs_fixup(td: &TypeDesc, registry: &FxHashMap<String, Arc<TypeDesc>>) -> bool {
     let Some(base_name) = td.base_name.as_deref() else { return false; };
     let Some(base) = registry.get(base_name) else { return false; }; // base still unresolvable
     // Count *distinct* own field names not already in base — mirroring
@@ -1080,7 +1074,7 @@ pub fn verify_constraints(module: &Module) -> Result<()> {
 
 fn check_constraint_refs(
     b: &crate::metadata::bytecode::ConstraintBundle,
-    registry: &std::collections::HashMap<String, Arc<TypeDesc>>,
+    registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
     type_params: &[&str],
 ) -> Result<()> {
@@ -1105,7 +1099,7 @@ fn check_constraint_refs(
 /// of the owning decl without registry lookup; for other names, falls back to `check_one`.
 fn check_signature_type_ref(
     name: &str,
-    registry: &std::collections::HashMap<String, Arc<TypeDesc>>,
+    registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
     type_params: &[&str],
 ) -> Result<()> {
@@ -1131,7 +1125,7 @@ fn check_signature_type_ref(
 
 fn check_one(
     name: Option<&str>,
-    registry: &std::collections::HashMap<String, Arc<TypeDesc>>,
+    registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
 ) -> Result<()> {
     let Some(n) = name else { return Ok(()); };

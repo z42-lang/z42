@@ -42,9 +42,9 @@ fn make_module_with(
         string_pool: strings.iter().map(|s| s.to_string()).collect(),
         classes,
         functions,
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: std::collections::HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }

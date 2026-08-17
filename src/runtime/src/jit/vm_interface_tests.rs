@@ -67,7 +67,7 @@ fn module_with(
         .map(|(i, f)| (f.name.clone(), i))
         .collect();
     let string_pool: Vec<String> = pool.iter().map(|s| s.to_string()).collect();
-    let mut type_registry = std::collections::HashMap::new();
+    let mut type_registry = rustc_hash::FxHashMap::default();
     let mut type_registry_vec = Vec::new();
     for (idx, class_name) in classes.iter().enumerate() {
         let td = empty_type_desc(class_name, TypeId(idx as u32));
@@ -134,7 +134,7 @@ struct MockMetadata {
     name: String,
     funcs: Vec<Function>,
     pool: Vec<String>,
-    types: std::collections::HashMap<String, Arc<TypeDesc>>,
+    types: rustc_hash::FxHashMap<String, Arc<TypeDesc>>,
 }
 
 impl JitVm for MockMetadata {
@@ -148,7 +148,7 @@ impl JitVm for MockMetadata {
 
 #[test]
 fn mock_metadata_satisfies_trait() {
-    let mut types = std::collections::HashMap::new();
+    let mut types = rustc_hash::FxHashMap::default();
     types.insert("Demo.Mock".to_string(), empty_type_desc("Demo.Mock", TypeId::UNRESOLVED));
     let mock = MockMetadata {
         name: "Synthetic".to_string(),
