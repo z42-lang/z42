@@ -100,6 +100,7 @@ pub struct HelperIds {
     pub typeof_op:      FuncId,
     pub field_get:      FuncId,
     pub obj_field_slot: FuncId,
+    pub obj_ref_field_slot: FuncId,
     pub field_set:      FuncId,
     pub is_instance:    FuncId,
     pub as_cast:        FuncId,
@@ -194,6 +195,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_convert",       object::jit_convert);
     reg!("jit_field_get",     object::jit_field_get);
     reg!("jit_obj_field_slot", object::jit_obj_field_slot);
+    reg!("jit_obj_ref_field_slot", object::jit_obj_ref_field_slot);
     reg!("jit_field_set",     object::jit_field_set);
     reg!("jit_is_instance",   object::jit_is_instance);
     reg!("jit_as_cast",       object::jit_as_cast);
@@ -301,6 +303,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         field_get:     decl!("jit_field_get",  [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    [i8t]),
         // P5-B: jit_obj_field_slot(frame, ctx, obj, name_ptr, name_len, exp_width, exp_tag, out_bytes_ptr, out_off) -> ()
         obj_field_slot: decl!("jit_obj_field_slot", [ptr, ptr, i32t, ptr, i64t, i32t, i32t, ptr, ptr], []),
+        // T1-B: jit_obj_ref_field_slot(frame, ctx, obj, name_ptr, name_len, out_bytes_ptr, out_off, out_tag) -> ()
+        obj_ref_field_slot: decl!("jit_obj_ref_field_slot", [ptr, ptr, i32t, ptr, i64t, ptr, ptr, ptr], []),
         field_set:     decl!("jit_field_set",  [ptr, ptr, i32t, ptr, i64t, i32t, ptr],    [i8t]),
         // jit_vcall(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_line, caller_col) -> u8
         // Phase 2.E: trailing `ptr` arg = `*const VCallIC`.

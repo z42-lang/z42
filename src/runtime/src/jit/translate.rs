@@ -375,6 +375,7 @@ pub fn translate_function(
     let hr_typeof        = imp!(helper_ids.typeof_op);
     let hr_field_get     = imp!(helper_ids.field_get);
     let hr_obj_field_slot = imp!(helper_ids.obj_field_slot);
+    let hr_obj_ref_field_slot = imp!(helper_ids.obj_ref_field_slot);
     let hr_field_set     = imp!(helper_ids.field_set);
     let hr_vcall         = imp!(helper_ids.vcall);
     let hr_is_instance   = imp!(helper_ids.is_instance);
@@ -589,6 +590,65 @@ pub fn translate_function(
             let bptr = builder.ins().stack_load(ptr, ss_ptr, 0);
             let off = builder.ins().stack_load(types::I64, ss_off, 0);
             map.insert((obj, fname.to_string()), (bptr, off));
+        }
+        map
+    };
+
+    // ── FieldGet T1-B: hoist (bytes_ptr, byte_offset, tag) for byte-inlined ──────
+    // ── reference (class-instance / array) fields of never-reassigned objects ────
+    // Twin of the P5-B primitive hoist above: for a `FieldGet` whose `dst` is a heap
+    // reference (`IrType::Ref`) on a never-reassigned object, resolve
+    // (bytes_ptr, offset, tag) ONCE via the non-throwing `jit_obj_ref_field_slot`.
+    // `tag` is the `Value` discriminant to stamp on a non-null load (7=Object/6=Array,
+    // hoisted since `IrType::Ref` does not distinguish the two). The per-access inline
+    // then does a native 8B tagged-pointer load + `raw==0 ? Null : tagged store`;
+    // `offset < 0` (non-object receiver / null / field-not-found / side-table ref =
+    // closure·func·string / struct root) routes to `jit_field_get`. There is no
+    // FieldSet twin — a reference store needs the GC write barrier, so it stays on the
+    // helper. A field is primitive XOR reference, so this never overlaps `hoisted_fields`.
+    let hoisted_ref_fields: std::collections::HashMap<(u32, String), (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
+        let mut cands: Vec<(u32, &str)> = Vec::new();
+        for b in &z42_func.blocks {
+            for ins in &b.instructions {
+                if let Instruction::FieldGet(insn) = ins {
+                    // Only inline a reference read whose static dst type is `Ref` (any
+                    // heap object — object/array/list/dict/null). This gates OUT
+                    // `IrType::Str` (side-table string GcRef → helper) and primitives
+                    // (handled by the P5-B path), and guarantees the dst's prior value
+                    // is Drop-free {Object,Array,Null,StackObject,StackArray} so the
+                    // native `store_tagged` may overwrite it without a drop.
+                    if field_prim_kind(z42_func, insn.dst).is_none()
+                        && is_typed(z42_func, insn.dst, IrType::Ref)
+                        && !written.contains(&insn.obj)
+                        && !cands.iter().any(|(o, f)| *o == insn.obj && *f == insn.field_name.as_str())
+                    {
+                        cands.push((insn.obj, insn.field_name.as_str()));
+                    }
+                }
+            }
+        }
+        cands.sort_unstable();
+        let mut map = std::collections::HashMap::new();
+        for (obj, fname) in cands {
+            use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+            let ss_ptr = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ss_off = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ss_tag = builder.create_sized_stack_slot(
+                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+            let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+            let off_addr = builder.ins().stack_addr(ptr, ss_off, 0);
+            let tag_addr = builder.ins().stack_addr(ptr, ss_tag, 0);
+            let o_c = builder.ins().iconst(types::I32, obj as i64);
+            let fp = builder.ins().iconst(ptr, fname.as_ptr() as i64);
+            let fl = builder.ins().iconst(types::I64, fname.len() as i64);
+            builder.ins().call(hr_obj_ref_field_slot,
+                &[frame_val, ctx_val, o_c, fp, fl, ptr_addr, off_addr, tag_addr]);
+            let bptr = builder.ins().stack_load(ptr, ss_ptr, 0);
+            let off = builder.ins().stack_load(types::I64, ss_off, 0);
+            let tag = builder.ins().stack_load(types::I32, ss_tag, 0);
+            map.insert((obj, fname.to_string()), (bptr, off, tag));
         }
         map
     };
@@ -1528,6 +1588,50 @@ pub fn translate_function(
                         let dst_addr = reg_addr(&mut builder, regs_base, *dst);
                         let tag_c = builder.ins().iconst(types::I8, fk.reg_tag);
                         store_tagged(&mut builder, dst_addr, tag_c, payload);
+                        builder.ins().jump(cont_blk, &[]);
+                        builder.switch_to_block(cont_blk);
+                    } else if let Some((bytes_ptr, off, tag)) =
+                        hoisted_ref_fields.get(&(*obj, field_name.clone())).copied()
+                    {
+                        // T1-B: byte-inlined reference field of a hoisted (never-
+                        // reassigned) object → native 8B tagged-pointer load, then
+                        // `raw==0 ? Value::Null : Value::Object/Array{tag, raw}` — byte-
+                        // identical to `read_inline_ref` + the helper's register store.
+                        // No write barrier (read only). `off < 0` (non-object receiver /
+                        // null / field-not-found / side-table ref / struct root) → helper.
+                        use cranelift_codegen::ir::condcodes::IntCC;
+                        let bad = builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
+                        let fb_blk = builder.create_block();
+                        let native_blk = builder.create_block();
+                        let null_blk = builder.create_block();
+                        let store_blk = builder.create_block();
+                        let cont_blk = builder.create_block();
+                        builder.ins().brif(bad, fb_blk, &[], native_blk, &[]);
+                        // fallback: full helper (may continue OR throw via check!).
+                        builder.switch_to_block(fb_blk);
+                        let d = ri!(*dst); let o = ri!(*obj);
+                        let (fp, fl) = str_val!(field_name);
+                        let ic_ptr = field_ic_ptr_at(z42_func, block_idx, instr_idx);
+                        let ic_val = builder.ins().iconst(ptr, ic_ptr as i64);
+                        let inst = builder.ins().call(hr_field_get, &[frame_val, ctx_val, d, o, fp, fl, ic_val]);
+                        let ret = builder.inst_results(inst)[0];
+                        check!(ret);
+                        builder.ins().jump(cont_blk, &[]);
+                        // native: load the 8B tagged pointer at bytes_ptr+off.
+                        builder.switch_to_block(native_blk);
+                        let dst_addr = reg_addr(&mut builder, regs_base, *dst);
+                        let elem_addr = builder.ins().iadd(bytes_ptr, off);
+                        let raw = builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0);
+                        let is_null = builder.ins().icmp_imm(IntCC::Equal, raw, 0);
+                        builder.ins().brif(is_null, null_blk, &[], store_blk, &[]);
+                        // 0 sentinel → Value::Null (tag alone; prior slot is Drop-free Ref).
+                        builder.switch_to_block(null_blk);
+                        store_tag_const(&mut builder, dst_addr, TAG_NULL);
+                        builder.ins().jump(cont_blk, &[]);
+                        // non-null → Value::Object(7)/Array(6) with the raw pointer payload.
+                        builder.switch_to_block(store_blk);
+                        let tag_i8 = builder.ins().ireduce(types::I8, tag);
+                        store_tagged(&mut builder, dst_addr, tag_i8, raw);
                         builder.ins().jump(cont_blk, &[]);
                         builder.switch_to_block(cont_blk);
                     } else {
