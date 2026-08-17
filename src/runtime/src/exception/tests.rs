@@ -98,7 +98,7 @@ mod make_stdlib_exception_tests {
     use crate::metadata::tokens::TypeId;
     use crate::metadata::types::FieldSlot;
     use crate::vm_context::VmContext;
-    use std::collections::HashMap;
+    
     use std::sync::Arc;
 
     fn empty_module() -> Module {
@@ -107,9 +107,9 @@ mod make_stdlib_exception_tests {
             string_pool: vec![],
             classes: vec![],
             functions: vec![],
-            type_registry: HashMap::new(),
+            type_registry: rustc_hash::FxHashMap::default(),
             type_registry_vec: Vec::new(),
-            func_index: HashMap::new(),
+            func_index: rustc_hash::FxHashMap::default(),
             func_ref_cache_slots: 0,
         }
     }

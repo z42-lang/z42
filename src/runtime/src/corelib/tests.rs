@@ -38,7 +38,7 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
         vtable_index: NameIndex::new(),
         cold: None,
     });
-    let mut types = std::collections::HashMap::new();
+    let mut types = rustc_hash::FxHashMap::default();
     types.insert("Std.Type".to_string(), td);
     c.seed_lazy_loader_types(&types);
     c

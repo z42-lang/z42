@@ -86,9 +86,9 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         string_pool: vec![],
         classes: vec![],
         functions: vec![build_function(&format!("{name}.Main"), instructions, terminator)],
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }
@@ -397,9 +397,9 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         string_pool: vec![s.to_string()],
         classes: vec![],
         functions: vec![func],
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
 }
@@ -489,9 +489,9 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         string_pool: vec![],
         classes: vec![],
         functions: vec![func],
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     };
     let func = &m.functions[0];
@@ -546,9 +546,9 @@ fn z42_str_with_interior_nul_traps_marshal() {
         string_pool: vec!["a\0b".to_string()],
         classes: vec![],
         functions: vec![func],
-        type_registry: HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
-        func_index: HashMap::new(),
+        func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     };
     let func = &m.functions[0];

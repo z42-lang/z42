@@ -2371,6 +2371,7 @@ dependencies = [
  "loom",
  "mimalloc",
  "parking_lot",
+ "rustc-hash",
  "rustls",
  "rustyline",
  "serde",

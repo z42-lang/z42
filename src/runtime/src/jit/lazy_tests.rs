@@ -72,7 +72,7 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
         string_pool: Vec::new(),
         classes: Vec::new(),
         functions,
-        type_registry: std::collections::HashMap::new(),
+        type_registry: rustc_hash::FxHashMap::default(),
         type_registry_vec: Vec::new(),
         func_index,
         func_ref_cache_slots: 0,
