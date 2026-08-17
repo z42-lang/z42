@@ -1090,6 +1090,30 @@ impl ScriptObject {
         Some((self.bytes.as_ptr(), fa.offset, fa.width, fa.tag))
     }
 
+    /// post-layout JIT perf (T1-B): if `name` is a direct **byte-inlined reference**
+    /// field — a class-instance (`STRUCT_LEAF_GCREF` → `TAG_OBJECT`) or array
+    /// (`STRUCT_LEAF_GCREF_ARRAY` → `TAG_ARRAY`) whose 8B tagged pointer lives in
+    /// `bytes` (`ref_slot == -1`) — return `(bytes base ptr, byte offset, is_array)`.
+    /// The JIT hoists this once per never-reassigned receiver and emits a native 8B
+    /// load of the tagged pointer + a `Value::Object`/`Value::Array` (or `Value::Null`
+    /// for the `0` sentinel) register store, byte-identical to `read_inline_ref`,
+    /// instead of calling `jit_field_get`. `None` (→ keep the helper) for a primitive,
+    /// a side-table reference (`ref_slot ≥ 0`: closure/func/**string** — the string
+    /// GcRef path stays on the helper), a struct-typed root (`TAG_UNKNOWN`), or an
+    /// out-of-range slot. Reads only (no write barrier); the returned pointer is valid
+    /// for the frame (non-moving GC + fixed `bytes` + caller holds the object live).
+    #[inline]
+    pub fn inline_ref_field(&self, name: &str) -> Option<(*const u8, u32, bool)> {
+        let slot = *self.type_desc.field_index.get(name)?;
+        let fa = self.field_access_of(slot)?;
+        if fa.ref_slot >= 0 { return None; } // side-table reference (closure/func/string)
+        match fa.tag {
+            TAG_OBJECT => Some((self.bytes.as_ptr(), fa.offset, false)),
+            TAG_ARRAY  => Some((self.bytes.as_ptr(), fa.offset, true)),
+            _ => None, // primitive / struct root / string
+        }
+    }
+
     /// unify-object-byte-layout (PR-2): write direct field `slot` from `v`.
     /// Primitive → `encode_prim` into `bytes`; reference → the `refs` side-table cell.
     /// Returns `true` iff the target is a reference slot (so the caller fires a GC
