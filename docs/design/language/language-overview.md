@@ -130,6 +130,16 @@ string json = """
     }
     """;
 
+// 转义序列（reject-invalid-string-escape 2026-08-17）
+// - 普通串 / char 字面量 / 插值串文本段识别 C 系单字符转义全集：
+//   \a(0x07) \b(0x08) \f(0x0C) \n(0x0A) \r(0x0D) \t(0x09) \v(0x0B) \0(0x00) \\ \" \'
+// - 未知转义（如 \U \D \q）报编译错误 E0102，不再静默丢反斜杠（对齐 C# CS1009）
+// - Windows 路径等含反斜杠的串：用 \\ 转义，或直接用 raw 串 """C:\Users\bin"""（逐字保留）
+// - 数字/Unicode 转义 \uXXXX / \xXX 暂不支持（会报 E0102），见 roadmap Deferred
+string winpath = "C:\\Users\\bin";      // ✓ 显式 \\
+string winpath2 = """C:\Users\bin""";   // ✓ raw 串逐字保留
+// string bad = "C:\Users\bin";         // ✗ E0102：\U 是未知转义
+
 // 常用方法
 int len = a.Length;
 string upper = a.ToUpper();

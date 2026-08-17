@@ -18,6 +18,7 @@ public sealed class Parser {
     private Lexer _lx;
     private int   _pos;
     public DiagnosticBag _diags;
+    private bool  _lexMerged;              // lexer 诊断是否已并入 _diags（merge-once 守卫）
     public int   _pendingGt;
     public TypeParser _typeP;             // review P1-2：类型子解析器（mediator backref）
     public ExprParser _exprP;             // review P1-2：表达式子解析器
@@ -31,6 +32,7 @@ public sealed class Parser {
         this._pos = 0;
         this._pendingGt = 0;
         this._diags = new DiagnosticBag();
+        this._lexMerged = false;
         this._typeP = new TypeParser(this);
         this._exprP = new ExprParser(this);
         this._stmtP = new StmtParser(this);
@@ -42,7 +44,16 @@ public sealed class Parser {
     // parse 时顺手捕获标识符集（增量失效边输入），消编排层的第二遍 lex。只读访问。
     public Lexer Tokens() { return this._lx; }
 
-    public DiagnosticBag Diagnostics() { return this._diags; }
+    public DiagnosticBag Diagnostics() { this._ensureLexDiagsMerged(); return this._diags; }
+
+    // 把 Lexer 诊断（E0101/E0102/E0103）并入 _diags，一次性（fix-lexer-diags-dropped）。
+    // 时机：parse 收尾 / 首次外部读诊断——晚于 parse 期的 incomplete 判定（那用 _diags 字段直读，
+    // 不经本访问器），故不影响 REPL 续行；只把 lexer 错补进最终 bag 供下游上浮。
+    private void _ensureLexDiagsMerged() {
+        if (this._lexMerged) { return; }
+        this._lexMerged = true;
+        this._diags.MergeFrom(this._lx.Diagnostics());
+    }
 
     // ── token 游标 ──────────────────────────────────────────────────────────
     public Token _peek()       { return this._peekAt(0); }
@@ -244,6 +255,8 @@ public sealed class Parser {
             }
         }
         CompilationUnit cu = new CompilationUnit(hasNs, ns, decls, n, cusp);
+        // fix-lexer-diags-dropped：并入 lexer 诊断（收尾，晚于 incomplete 判定）。
+        this._ensureLexDiagsMerged();
         // fix-parse-diags-dropped：把 parse 诊断挂上 CU，供下游 typecheck 汇点合并上浮。
         cu.ParseDiags = this._diags;
         return cu;

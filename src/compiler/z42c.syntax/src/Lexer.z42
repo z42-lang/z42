@@ -5,8 +5,8 @@
 // 覆盖：空白/换行/行注释(//)/块注释(/* */) 作 trivia 跳过；标识符+关键字（全表）；
 // 数字字面量（十进制/hex `0x`/bin `0b` + `_` 分隔 + 小数 + 指数 [eE][+-]? + 后缀 L/u/f/d/m，incr 6c-1）；
 // 字符串 "..."（含转义跳过，raw lexeme 保留引号）；字符 '...'；raw 串 """..."""；插值串 $"...{e}..."（单 token）；
-// 全套符号/运算符（最长匹配）；EOF。`DecodeString` 静态助手剥引号 + 还原常见转义（incr 6c-2）。
-// 延后：转义 \0 / \uXXXX / \xXX 解码（DecodeString 仅常见集）；插值洞的结构化解析（lexer 整体单 token）。
+// 全套符号/运算符（最长匹配）；EOF。`DecodeString` 剥引号 + 还原 C 系单字符转义集
+// （\a\b\f\n\r\t\v\0\\\"\'）；未知转义词法器报 E0102。延后：\uXXXX/\xXX 数字转义。
 namespace Z42.Syntax;
 
 using Z42.Core;
@@ -214,7 +214,7 @@ public sealed class Lexer {
         int start = this._pos;
         this._advance();   // opening "
         while (this._pos < this._src.Length && this._ch(this._pos) != '"') {
-            if (this._ch(this._pos) == '\\') { this._advance(); }   // skip escaped char
+            if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }   // 校验 + skip escaped char
             if (this._pos < this._src.Length) { this._advance(); }
         }
         if (this._pos >= this._src.Length) {
@@ -229,7 +229,7 @@ public sealed class Lexer {
         int start = this._pos;
         this._advance();   // opening '
         while (this._pos < this._src.Length && this._ch(this._pos) != '\'') {
-            if (this._ch(this._pos) == '\\') { this._advance(); }
+            if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }
             if (this._pos < this._src.Length) { this._advance(); }
         }
         if (this._pos < this._src.Length) { this._advance(); }   // closing '
@@ -265,7 +265,7 @@ public sealed class Lexer {
         while (this._pos < this._src.Length) {
             char c = this._ch(this._pos);
             if (depth == 0) {
-                if (c == '\\') { this._advance(); if (this._pos < this._src.Length) { this._advance(); } continue; }
+                if (c == '\\') { this._validateEscape(this._pos); this._advance(); if (this._pos < this._src.Length) { this._advance(); } continue; }
                 if (c == '"') { this._advance(); closed = true; break; }
                 if (c == '{') {
                     if (this._ch(this._pos + 1) == '{') { this._advance(); this._advance(); continue; }   // {{ 字面
@@ -292,14 +292,15 @@ public sealed class Lexer {
     private void _skipNestedString() {
         this._advance();   // opening "
         while (this._pos < this._src.Length && this._ch(this._pos) != '"') {
-            if (this._ch(this._pos) == '\\') { this._advance(); }
+            if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }
             if (this._pos < this._src.Length) { this._advance(); }
         }
         if (this._pos < this._src.Length) { this._advance(); }   // closing "
     }
 
     // 把字符串字面量的 raw lexeme（含两端引号）解码为实际值：剥引号 + 转义还原。
-    // 支持 \n \t \r \\ \" \'（常见集）；\0 / \uXXXX / \xXX 延后（见 deferred）。
+    // 支持 C 系单字符转义全集 \a \b \f \n \r \t \v \0 \\ \" \'；数字/Unicode 转义延后（见 deferred）。
+    // 未知转义已被词法器拦下报 E0102，故合法程序进不了下面的 else 兜底分支。
     public static string DecodeString(string raw) {
         // raw 串 """...""": 剥三引号，内容逐字保留（不处理转义）。lexer 见 3 引号即走
         // _lexRawString，故任何以 """ 起的 lexeme 必是 raw 串。
@@ -322,7 +323,12 @@ public sealed class Lexer {
                 else if (e == '"')  { result = result + "\""; }
                 else if (e == '\'') { result = result + "'"; }
                 else if (e == '0')  { result = result + "\0"; }
-                else                { result = result + inner.Substring(i + 1, 1); }   // 未知转义：保留原字符
+                // C 系控制转义：码点构造（不用 \a\b\f\v 字面量，避免自举鸡蛋，见 design D3）。
+                else if (e == 'a')  { result = result + Lexer._ctrlChar(7); }    // BEL
+                else if (e == 'b')  { result = result + Lexer._ctrlChar(8); }    // BS
+                else if (e == 'f')  { result = result + Lexer._ctrlChar(12); }   // FF
+                else if (e == 'v')  { result = result + Lexer._ctrlChar(11); }   // VT
+                else                { result = result + inner.Substring(i + 1, 1); }   // 未知转义：保留原字符（词法器已报 E0102，此分支对合法程序不可达）
                 i = i + 2;
                 runStart = i;
             } else {
@@ -331,6 +337,29 @@ public sealed class Lexer {
         }
         result = result + inner.Substring(runStart, inner.Length - runStart);   // flush 末段
         return result;
+    }
+
+    // 由码点构造单字符串（供 DecodeString 产出控制字符，绕过自举鸡蛋，见 D3）。
+    private static string _ctrlChar(int code) {
+        char[] z = new char[1]; z[0] = (char)code; return String.FromChars(z);
+    }
+
+    // 合法转义集谓词（C 系单字符全集）——词法器校验与 DecodeString 映射的唯一真相。
+    private static bool _isKnownEscape(char e) {
+        return e == 'n' || e == 't' || e == 'r' || e == '0'
+            || e == 'a' || e == 'b' || e == 'f' || e == 'v'
+            || e == '\\' || e == '"' || e == '\'';
+    }
+
+    // 校验 bsPos 处的转义（bsPos 指向 '\\'）：非法则报 E0102，span 覆盖 `\X` 两字符。
+    // 串尾孤立 '\\'（next 越界）交给上层的未终止串诊断，不在此重复报。
+    private void _validateEscape(int bsPos) {
+        if (bsPos + 1 >= this._src.Length) { return; }
+        char e = this._ch(bsPos + 1);
+        if (Lexer._isKnownEscape(e)) { return; }
+        this._diags.Error(DiagnosticCodes.InvalidEscape,
+            "unrecognized escape sequence '\\" + Lexer._ctrlChar((int)e) + "'",
+            new Span(bsPos, bsPos + 2, this._sLine, this._sCol, this._file));
     }
 
     // ── 符号（最长匹配）─────────────────────────────────────────────────────
