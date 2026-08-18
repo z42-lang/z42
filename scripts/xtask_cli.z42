@@ -282,6 +282,15 @@ SubcommandRouter _testRouter() {
     e2e.AddOption("jobs", "", "parallel jobs", "");
     e2e.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
     t.Add("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)", e2e);
+    // read-only catalog of the case-granular corpus (tidy-test-system): what cases
+    // exist, how to run one, which platforms can run it — no source-reading needed.
+    ArgParser list = new ArgParser("xtask test list", "list the case-granular test corpus (goldens + stdlib [Test])");
+    list.AddOption("dir", "", "only this bucket (src/tests <cat> or stdlib <lib>)", "");
+    list.AddOption("filter", "", "only cases whose name contains this substring", "");
+    list.AddOption("kind", "", "golden | test | all (default: all)", "");
+    list.AddOption("rid", "", "annotate platform exclusion for a target RID (e.g. browser-wasm)", "");
+    list.AddFlag("json", "", "emit JSON instead of the human table");
+    t.Add("list", "catalog the case-granular corpus (--dir/--filter/--kind/--rid/--json)", list);
     // wire-embedded-testhost: run a compiled test module through the embedded
     // test-host (build agent + desktop testhost shell + run → structured result).
     ArgParser embedded = new ArgParser("xtask test embedded", "run tests through the embedded test-host (desktop / wasm)");
@@ -466,6 +475,8 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
+    if (sub == "list")         { return _testList(r); }        // read-only case catalog
+
     if (sub == "embedded")     { return _testEmbedded(r); }   // 嵌入式 test-host 跑 .zbc（desktop harness）
     if (sub == "dist")         { return _testDist(r); }
     if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
