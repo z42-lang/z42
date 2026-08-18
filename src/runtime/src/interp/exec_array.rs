@@ -76,7 +76,7 @@ pub(super) fn array_new(
     // add-escape-analysis-stack-alloc: non-escaping array → frame arena (no GC).
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vec![default; n]);
-        let idx = ctx.stack_arena.lock().alloc_arr(frame.frame_id, arr);
+        let idx = ctx.stack_alloc_arr(frame.frame_id, arr);
         frame.set(dst, Value::StackArray { idx, frame_id: frame.frame_id });
         return Ok(None);
     }
@@ -130,7 +130,7 @@ pub(super) fn array_new_lit(
     }
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vals);
-        let idx = ctx.stack_arena.lock().alloc_arr(frame.frame_id, arr);
+        let idx = ctx.stack_alloc_arr(frame.frame_id, arr);
         frame.set(dst, Value::StackArray { idx, frame_id: frame.frame_id });
         return Ok(None);
     }
@@ -180,7 +180,7 @@ pub(super) fn array_get(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, 
                 drop(borrowed);
                 // make-value-copy: StructRefHeap payload → transient arena; Value holds an 8B handle.
                 let fid = frame.frame_id;
-                let hidx = ctx.transient_arena.lock().alloc(
+                let hidx = ctx.transient_alloc(
                     fid,
                     crate::interp::transient_arena::TransientPayload::StructElem(
                         crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },

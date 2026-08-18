@@ -75,6 +75,36 @@ Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap �
 
 API 方法都用 `&self`（内部 Mutex/RwLock），调用方代码风格基本不变。详见 [`object-protocol.md`](../language/object-protocol.md)、[`interop.md`](../language/interop.md)、[`concurrency.md`](concurrency.md) 与 review2 §3 / §5.5 / §5.2。
 
+### 帧 arena 的锁瘦身：发布长度原子（interp-frame-lock-slim，2026-08-18）
+
+`VmContext` 持三个 per-thread arena —— `stack_arena`（逃逸对象/数组）、`struct_arena`（值 struct
+blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 的 payload）——均 `Arc<Mutex<>>`，
+因为 **GC scanner 跨线程读它们**（见上「Send-safety」：不能退成 `Rc<RefCell<>>`）。每个函数调用的
+`push_frame` 要戳记三个 arena 的当前长度作 truncation base，`pop_frame` 要 LIFO-truncate 回去 —— naïve
+实现是**每调用 8 把锁**（push 4 + pop 4，含 `call_stack`）。call-heavy workload（z42c 自编译）下这是
+仅次于 dispatch 的第二大桶，纯锁开销（实测跳过全部 6 个 arena 锁 = 3.9% faster）。
+
+**关键观察：这三个 arena 只有 mutator 线程写，GC 线程只读。** 于是给每个 arena 加一个**发布长度**
+`AtomicUsize`（挂 `VmContext`、在 `Mutex` 之外；`stack_arena` 两个 Vec → 两个原子）：
+
+- **单写者**：mutator 在 arena 锁内、于每个 alloc（经 `stack_alloc_obj`/`stack_alloc_arr`/`struct_alloc`/
+  `transient_alloc` 四个包装）与 `pop_frame` 的 truncate 后 `store(len, Relaxed)`。GC 从不碰这些原子
+  （它在 `Mutex` 下读 arena **数据**）。⇒ `Relaxed` 足够（线程观察自己的写按程序序）。
+- **push_frame** 从原子 `Relaxed` load 取 base（**无锁**），不再锁三个 arena → 4 把锁降到 1 把（`call_stack`）。
+- **pop_frame** 对每个 arena **仅当本帧确实增长过**（发布长度 ≠ 戳记 base）才加锁 truncate + 重发布；
+  常态帧在这三个 arena 上分配为零 → 三个比较全短路 → 只剩 `call_stack` 一把锁。
+
+**alloc 漏斗铁律**：所有 arena 分配必须经四个包装之一。绕过的裸 `arena.lock().alloc(..)` 会让原子失准 →
+`pop_frame` 误跳 truncate → arena **泄漏**（非崩溃——`frame_id` staleness 守卫仍保护读；失败模式是内存
+泄漏 + 性能退化，不是读到错值）。长度只在 alloc（增）/ truncate（减）改变，truncate 生产代码里只在
+`pop_frame`——两者全仓核对无遗漏。
+
+**GC race**：pop 的 skip 分支对 arena 零操作 → 与 GC 扫描一致；truncate 分支在 arena `Mutex` 内 → 与
+`scan_roots` 互斥，GC 要么扫到待释放槽（仍合法存活 `Value`）要么扫到已释放，皆安全。
+
+实测：前端 typecheck 4.757→4.617s = **2.9%**，`--dump-bound` 逐字节一致，`push_frame` 197→125 /
+`pop_frame` 151→110 samples，无格式/wire/语义变更、自举字节不动。
+
 **Native interop 入口**：`VmContext::register_native_type(Rc<RegisteredType>)` /
 `resolve_native_type(module, name)` / `load_native_library(path)`；后者打开 `.dylib`
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过

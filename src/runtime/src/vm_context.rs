@@ -415,6 +415,22 @@ pub struct VmContext {
     /// which now carry only an 8B `{idx,frame_id}` handle so `Value` is `Copy`). Same
     /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,
+    /// perf interp-frame-lock-slim: published lengths of the three arenas above,
+    /// mirroring their inner `Vec` len(s) (`stack_arena` has two — objs / arrs).
+    /// Written ONLY by the mutator thread — under the relevant arena's own `Mutex`
+    /// on every alloc (via the `*_alloc` wrappers below) and on `pop_frame`'s
+    /// truncate. Read lock-free (`Relaxed`) by `push_frame` (to capture a frame's
+    /// truncation base without locking the arena) and by `pop_frame` (to skip the
+    /// arena lock + truncate entirely when the length is unchanged — the
+    /// overwhelmingly common call-heavy case where a frame allocates nothing on
+    /// these arenas). Single-writer (mutator) ⇒ `Relaxed` suffices: a thread always
+    /// observes its own prior writes in program order, and the GC scanner never
+    /// touches these atomics (it reads arena DATA under the `Mutex`). This removes
+    /// 3 arena locks from every `push_frame` and 3 from the common `pop_frame`.
+    pub(crate) stack_obj_len:     std::sync::atomic::AtomicUsize,
+    pub(crate) stack_arr_len:     std::sync::atomic::AtomicUsize,
+    pub(crate) struct_len:        std::sync::atomic::AtomicUsize,
+    pub(crate) transient_len:     std::sync::atomic::AtomicUsize,
     /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
     /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
     pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
@@ -579,6 +595,10 @@ impl VmContext {
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),
+            stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
+            stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
+            struct_len: std::sync::atomic::AtomicUsize::new(0),
+            transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -831,6 +851,10 @@ impl VmContext {
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),
+            stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
+            stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
+            struct_len: std::sync::atomic::AtomicUsize::new(0),
+            transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -1110,33 +1134,99 @@ impl VmContext {
     /// Push one [`crate::exception::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
+    // ── perf interp-frame-lock-slim: arena-alloc funnel ─────────────────────────
+    // Every arena allocation MUST route through one of these four wrappers so the
+    // published length atomic stays in lock-step with the inner Vec. A raw
+    // `ctx.stack_arena.lock().alloc_obj(..)` that bypassed the wrapper would leave
+    // `stack_obj_len` stale → `pop_frame` would wrongly skip a needed truncate (an
+    // arena leak, not a crash — the `frame_id` staleness check still guards reads).
+    // The length store happens UNDER the arena lock (single-writer publish).
+
+    /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
+    pub(crate) fn stack_alloc_obj(&self, frame_id: u32, obj: crate::metadata::types::ScriptObject) -> u32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut a = self.stack_arena.lock();
+        let idx = a.alloc_obj(frame_id, obj);
+        self.stack_obj_len.store(idx as usize + 1, Relaxed);
+        idx
+    }
+
+    /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
+    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::metadata::types::ArrayObj) -> u32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut a = self.stack_arena.lock();
+        let idx = a.alloc_arr(frame_id, arr);
+        self.stack_arr_len.store(idx as usize + 1, Relaxed);
+        idx
+    }
+
+    /// Allocate a value-struct blob; publishes the new length. See `struct_len`.
+    pub(crate) fn struct_alloc(
+        &self, frame_id: u32, type_name: std::sync::Arc<str>,
+        layout: std::sync::Arc<crate::metadata::types::StructTypeLayout>,
+    ) -> u32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut a = self.struct_arena.lock();
+        let idx = a.alloc(frame_id, type_name, layout);
+        self.struct_len.store(idx as usize + 1, Relaxed);
+        idx
+    }
+
+    /// Allocate a transient payload; publishes the new length. See `transient_len`.
+    pub(crate) fn transient_alloc(
+        &self, frame_id: u32, payload: crate::interp::transient_arena::TransientPayload,
+    ) -> u32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let mut a = self.transient_arena.lock();
+        let idx = a.alloc(frame_id, payload);
+        self.transient_len.store(idx as usize + 1, Relaxed);
+        idx
+    }
+
     pub(crate) fn push_frame(&self, mut frame: crate::exception::VmFrame) {
-        // add-escape-analysis-stack-alloc: stamp this frame's stack-arena bases so
-        // pop_frame can LIFO-truncate exactly this frame's stack allocations. Lock
-        // stack_arena only briefly (released before locking call_stack) → the two
-        // locks are never held simultaneously (no lock-order inversion vs pop_frame).
-        let (obj_base, arr_base) = self.stack_arena.lock().bases();
-        frame.stack_obj_base = obj_base;
-        frame.stack_arr_base = arr_base;
-        // add-struct-value-semantics: stamp the value-struct byte-arena base too.
-        frame.struct_base = self.struct_arena.lock().base();
-        // make-value-copy: stamp the transient-arena base too.
-        frame.transient_base = self.transient_arena.lock().base();
+        use std::sync::atomic::Ordering::Relaxed;
+        // perf interp-frame-lock-slim: capture each arena's truncation base from its
+        // published-length atomic — a lock-free `Relaxed` load — instead of locking
+        // the three arenas. This is the mutator thread (the sole writer of these
+        // atomics), so the load observes its own latest publish; `pop_frame`
+        // LIFO-truncates each arena back to the base captured here.
+        frame.stack_obj_base = self.stack_obj_len.load(Relaxed);
+        frame.stack_arr_base = self.stack_arr_len.load(Relaxed);
+        frame.struct_base = self.struct_len.load(Relaxed);
+        frame.transient_base = self.transient_len.load(Relaxed);
         self.call_stack.lock().push(frame);
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub(crate) fn pop_frame(&self) {
-        // add-escape-analysis-stack-alloc: free this frame's stack allocations by
-        // truncating the arena back to its stamped bases (bulk LIFO free). Pop the
-        // call_stack first (release its lock) before touching stack_arena.
+        use std::sync::atomic::Ordering::Relaxed;
+        // Pop the call_stack first (release its lock) before touching the arenas.
         let popped = self.call_stack.lock().pop();
         if let Some(f) = popped {
-            self.stack_arena.lock().truncate(f.stack_obj_base, f.stack_arr_base);
-            // add-struct-value-semantics: LIFO-free this frame's value-struct blobs.
-            self.struct_arena.lock().truncate(f.struct_base);
-            // make-value-copy: LIFO-free this frame's transient payloads.
-            self.transient_arena.lock().truncate(f.transient_base);
+            // perf interp-frame-lock-slim: for each arena, lock + truncate ONLY when
+            // this frame actually grew it (published len ≠ stamped base). The
+            // call-heavy common case allocates nothing on these arenas, so all three
+            // comparisons short-circuit and pop_frame takes just the one call_stack
+            // lock above. Re-publish the post-truncate length under the arena lock.
+            if self.stack_obj_len.load(Relaxed) != f.stack_obj_base
+                || self.stack_arr_len.load(Relaxed) != f.stack_arr_base
+            {
+                let mut a = self.stack_arena.lock();
+                a.truncate(f.stack_obj_base, f.stack_arr_base);
+                let (o, r) = a.bases();
+                self.stack_obj_len.store(o, Relaxed);
+                self.stack_arr_len.store(r, Relaxed);
+            }
+            if self.struct_len.load(Relaxed) != f.struct_base {
+                let mut a = self.struct_arena.lock();
+                a.truncate(f.struct_base);
+                self.struct_len.store(a.base(), Relaxed);
+            }
+            if self.transient_len.load(Relaxed) != f.transient_base {
+                let mut a = self.transient_arena.lock();
+                a.truncate(f.transient_base);
+                self.transient_len.store(a.base(), Relaxed);
+            }
         }
     }
 

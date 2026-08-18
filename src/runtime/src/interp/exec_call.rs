@@ -324,7 +324,7 @@ pub(super) fn mk_clos(
         frame.env_arena.push(env_vec);
         // make-value-copy: StackClosure payload → transient arena; Value holds an 8B handle.
         let fid = frame.frame_id;
-        let hidx = ctx.transient_arena.lock().alloc(
+        let hidx = ctx.transient_alloc(
             fid,
             crate::interp::transient_arena::TransientPayload::StackClos(
                 crate::metadata::StackClosureData { env_idx, fn_name: fn_name.to_string() },
