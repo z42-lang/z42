@@ -1,12 +1,12 @@
 # 属性与索引器（成员访问器）
 
-> 对齐日期：2026-08-11 · 索引器多维使用侧：change `add-multidim-indexer`（2026-08-11）
+> 对齐日期：2026-08-18 · 计算属性 getter：change `add-property-getter`（2026-08-18）· 索引器多维使用侧：change `add-multidim-indexer`（2026-08-11）
 
 成员访问器让字段式 / 下标式语法背后跑用户逻辑，语义与 C# 一致：
 
 | 访问器 | 声明 | 使用 | lower 成 |
 |--------|------|------|---------|
-| **属性（property）** | `T Name { get; set; }` | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)` + 后备字段 `__prop_Name` |
+| **属性（property）** | `T Name { get; set; }`（auto）/ `T Name { get { ... } }`（计算） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；计算 getter 无后备字段） |
 | **索引器（indexer）** | `T this[P...] { get {...} set {...} }` | `obj[i]` / `obj[i] = v` | `get_Item(...)` / `set_Item(..., v)` |
 
 两者都在编译期 lower 成普通实例方法（镜像 C# 的 `get_X`/`set_X`、`get_Item`/`set_Item`），
@@ -18,8 +18,7 @@
 
 ### 自动属性（auto-property）
 
-z42 属性目前是**自动属性**：访问器只写 `get;` / `set;`（分号结尾），编译器合成后备字段与
-访问器方法。**不支持自定义 `get {...}` 访问器体**（延后特性）。
+**自动属性**：访问器只写 `get;` / `set;`（分号结尾），编译器合成后备字段与访问器方法。
 
 ```z42
 class Person {
@@ -37,6 +36,26 @@ class Person {
 public int Count { get; set; } = 0;
 ```
 
+### 计算属性 getter（`get { ... }`，add-property-getter）
+
+getter 可写**块体** `get { <stmts>; return <expr>; }`，在字段/其它成员之上**计算**派生值，语义与
+C# 计算属性一致。计算 getter **不合成后备字段**——每次读取都执行 getter 函数体（无存储）。
+
+```z42
+public class Box {
+    public int n;
+    public int Doubled { get { return this.n * 2; } }       // 派生自字段
+    public bool Big     { get { return this.n > 10; } }      // 布尔派生
+    public int Plus     { get { return this.Doubled + 1; } } // 引用另一计算属性
+}
+// b.Doubled 每次按当前 n 重算；无 __prop_Doubled 后备字段。
+```
+
+- **get-only**：本特性只支持计算 `get { ... }`；`set { ... }`（计算 setter）尚未支持。
+- **auto vs 计算的区分**：`get;`（分号）= auto-property（合成后备字段）；`get { ... }`（块体）=
+  计算属性（无后备字段，getter 是真实函数体）。
+- getter 体内可访问 `this`、本类字段、其它属性（`this.Doubled` 派发到 `get_Doubled`）。
+
 ### 机制：后备字段 + get_X / set_X
 
 自动属性 `T Name { get; set; }` 在类上合成（镜像 C# `SynthesizeClassAutoProp`）：
@@ -47,6 +66,15 @@ public int Count { get; set; } = 0;
   实例虚调用（导入类只有 `__prop_Name` + `get_/set_`，没有裸 `Name` 字段）。
 - **接口属性** `T Name { get; }` → 要求实现类提供 `get_Name`（如 `IEnumerator<T>.Current`
   → `get_Current`）。
+
+**计算 getter** `T Name { get { ... } }`（add-property-getter）复用**索引器**的 body-getter 流水线，
+只是无索引参数：
+
+- **不合成** `__prop_Name` 后备字段（`SymbolCollector` / `ClassDescBuilder` 均 `!HasGetBody` 守卫跳过）。
+- `DeclBinder` 把 getter 块体绑成 `<Class>.get_Name` 的 body（env = `this` + 全字段），`IrGen` 用
+  `FunctionEmitter.EmitFunction` 编译成**真实** `get_Name()` 函数（0 逻辑参数、实例）。
+- 使用点 `obj.Name` 与 auto 属性同样派发 `VCall get_Name`（`ExprEmitter` 见 `get_Name` 方法存在即派发），
+  故读取正确走 getter 函数体、不读后备字段。
 
 ---
 
@@ -125,16 +153,18 @@ arr[i]           （arr 是数组）                  → BoundIndex（原生数
 | 访问语法 | `obj.Name` | `obj[i]` / `obj[a, b]` |
 | 命名 | 每个属性独立名 `X` | 固定 `Item`（一类唯一） |
 | 参数 | 无 | 1..N 个下标 |
-| 访问器体 | 仅 auto（`get;`/`set;`） | 支持自定义 `get {...}` / `set {...}` |
-| 后备字段 | 合成 `__prop_X` | 无（体自行管理存储） |
+| 访问器体 | auto（`get;`/`set;`）；计算 getter `get {...}`（get-only，无计算 set） | 支持自定义 `get {...}` / `set {...}` |
+| 后备字段 | auto 合成 `__prop_X`；计算 getter 无 | 无（体自行管理存储） |
 | lower 成 | `get_X` / `set_X` | `get_Item` / `set_Item` |
 
 ---
 
 ## 相关文档
 
+- 计算属性 getter 引入：change `add-property-getter`（`docs/spec/archive/2026-08-18-add-property-getter`）
 - 索引器多维使用侧引入：change `add-multidim-indexer`（`docs/spec/archive/2026-08-11-add-multidim-indexer`）
 - 编译器错误码：[错误码体系](../compiler/error-codes.md)
 - 示例：`examples/indexer.z42`（单维 string 键 + 多维矩阵）、`examples/oop.z42`（接口属性）
-- 测试：`src/tests/classes/auto_property.z42`（属性）、`indexer_basic.z42`（单维泛型索引器）、
-  `indexer_multidim.z42`（多维索引器）
+- 测试：`src/tests/classes/auto_property.z42`（auto 属性）、`src/tests/types/computed_property.z42`
+  （计算属性 getter）、`src/compiler/z42c.syntax/tests/decl/decl_tests.z42` `test_computed_property_getter`
+  （parser golden）、`indexer_basic.z42`（单维泛型索引器）、`indexer_multidim.z42`（多维索引器）

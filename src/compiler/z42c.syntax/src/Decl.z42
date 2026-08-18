@@ -183,6 +183,8 @@ public sealed class PropertyDecl : Decl {
     public string   SetMods;
     public bool     HasInit;
     public Expr     Init;      // 仅 HasInit 时有效
+    public bool     HasGetBody;   // add-property-getter：计算属性 getter（`{ get { ... } }`）；true → GetBody 有效、无 __prop_X 后备字段
+    public Stmt     GetBody;      // 仅 HasGetBody 时有效（getter 块体）
     public PropertyDecl(string mods, TypeExpr type, string name,
                         bool hasGet, string getMods, bool hasSet, string setMods,
                         bool hasInit, Expr init,
@@ -190,11 +192,13 @@ public sealed class PropertyDecl : Decl {
         this.Mods = mods; this.Type = type; this.Name = name;
         this.HasGet = hasGet; this.GetMods = getMods; this.HasSet = hasSet; this.SetMods = setMods;
         this.HasInit = hasInit; this.Init = init;
+        this.HasGetBody = false; this.GetBody = null;   // post-construction 由 parser 置（镜像 ClassDecl.IsPartial）
     }
     public override string Dump() {
         string m = (this.Mods == "") ? "" : (this.Mods + " ");
         string s = "(prop " + m + this.Type.Dump() + " " + this.Name;
-        if (this.HasGet) { s = s + " " + this._acc(this.GetMods, "get"); }
+        if (this.HasGetBody) { s = s + " get " + this.GetBody.Dump(); }   // add-property-getter：计算 getter 显示块体
+        else if (this.HasGet) { s = s + " " + this._acc(this.GetMods, "get"); }
         if (this.HasSet) { s = s + " " + this._acc(this.SetMods, "set"); }
         if (this.HasInit) { s = s + " " + this.Init.Dump(); }
         return s + ")";

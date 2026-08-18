@@ -170,6 +170,18 @@ void test_property_in_interface() {
                  parseUnit("interface IShape { double Area { get; } void Draw(); }"));
 }
 
+// add-property-getter：命名属性的计算 getter（`get { ... }`）解析成带块体的 prop（区别于 auto `get;`）。
+[Test]
+void test_computed_property_getter() {
+    Assert.Equal("(unit (class C (prop public int Doubled get (block (return (* (. this n) 2))))))",
+                 parseUnit("class C { public int Doubled { get { return this.n * 2; } } }"));
+    Assert.Equal("(unit (class C (prop public bool Big get (block (return (> (. this n) 10))))))",
+                 parseUnit("class C { public bool Big { get { return this.n > 10; } } }"));
+    // auto-property 仍是分号形式（不带块体）——与计算 getter 区分。
+    Assert.Equal("(unit (class C (prop public int A get)))",
+                 parseUnit("class C { public int A { get; } }"));
+}
+
 [Test]
 void test_generic_type_decl() {
     Assert.Equal("(unit (class Box<T> (field private T value)))",

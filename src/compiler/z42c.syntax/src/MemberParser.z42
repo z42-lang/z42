@@ -211,6 +211,7 @@ public sealed class MemberParser {
         this._p._advance();   // {
         bool hasGet = false; string getMods = "";
         bool hasSet = false; string setMods = "";
+        bool hasGetBody = false; Stmt getBody = null;   // add-property-getter：计算 getter 块体
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             string accMods = "";
             while (this._p._declP._isVisibilityModifier(this._p._peek().Kind)) {
@@ -221,9 +222,14 @@ public sealed class MemberParser {
             string acc = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier && (acc == "get" || acc == "set")) {
                 this._p._advance();
-                this._p._expectSemi();   // auto；自定义 body 延后
-                if (acc == "get") { hasGet = true; getMods = accMods; }
-                else { hasSet = true; setMods = accMods; }
+                if (acc == "get" && this._p._peek().Kind == TokenKind.LBrace) {
+                    // add-property-getter：计算属性 getter（`get { ... }`）——捕获块体，镜像 indexer get body。
+                    getBody = this._p._stmtP._parseBlock(); hasGetBody = true; hasGet = true; getMods = accMods;
+                } else {
+                    this._p._expectSemi();   // auto property（`get;` / `set;`）
+                    if (acc == "get") { hasGet = true; getMods = accMods; }
+                    else { hasSet = true; setMods = accMods; }
+                }
             } else {
                 this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected 'get' or 'set' accessor", this._p._peek().Span);
                 this._p._advance();
@@ -235,7 +241,9 @@ public sealed class MemberParser {
         if (this._p._peek().Kind == TokenKind.Eq) {
             this._p._advance(); init = this._p._exprP._parseExpr(0); hasInit = true; this._p._expectSemi();
         }
-        return new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
+        PropertyDecl pd = new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
+        if (hasGetBody) { pd.HasGetBody = true; pd.GetBody = getBody; }
+        return pd;
     }
 
     public ParamList _parseParamList() {

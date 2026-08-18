@@ -177,7 +177,8 @@ public sealed class ClassDescBuilder {
                 PropertyDecl fpd = mem as PropertyDecl;
                 bool fpdExtern = IrGenFacts._hasWord(fpd.Mods, "extern");
                 bool fpdStatic = IrGenFacts._hasWord(fpd.Mods, "static");
-                if (!fpdExtern) {
+                // add-property-getter：计算属性（HasGetBody）无后备字段（getter 是真实函数体）。
+                if (!fpdExtern && !fpd.HasGetBody) {
                     string bfn = "__prop_" + fpd.Name;
                     string bft = this._typeFieldName(fpd.Type);
                     if (fpdStatic) {
