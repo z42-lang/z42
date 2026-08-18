@@ -684,6 +684,19 @@ pub(crate) fn exec_function_from_receiver_regs(
 }
 
 fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut frame: Frame) -> Result<ExecOutcome> {
+    // perf-lazy-resolve-tokens (2026-08-18): populate this function's per-site
+    // dispatch caches on first execution. `resolve_module` (Vm::run) only walks
+    // the *entry* module; lazily-loaded packages (all of z42c.semantics /
+    // z42c.syntax during a self-compile) never pass through it, so without this
+    // their VCall PIC / FieldIC / builtin-id / static-id / call-token caches
+    // stay dead and every dispatch falls back to string hashing. One relaxed
+    // atomic load on the hot path (already re-read by the instruction loop);
+    // the resolve body runs once per function (OnceLock-gated). `module` is the
+    // entry module (invariant threaded from Vm::run), matching the runtime
+    // dispatch module so `method_tokens` indices stay valid.
+    if func.resolved.get().is_none() {
+        crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
+    }
     // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：
     //   1. 通过 RefKind 解引用得到底层值

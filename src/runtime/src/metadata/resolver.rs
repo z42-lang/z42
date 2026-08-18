@@ -264,9 +264,41 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, slot: u32, fn_idx: u32) {
 /// cross-zpkg static fields can be encountered in any load order.
 pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context::VmContext) {
     for func in &module.functions {
+        resolve_function_tokens(func, module, ctx);
+    }
+}
+
+/// Populate one `Function`'s `ResolvedTokens` against `module` + `ctx`.
+///
+/// Extracted from `resolve_module` (perf-lazy-resolve-tokens, 2026-08-18) so
+/// **lazily-loaded** functions — whose owning zpkg is never passed through
+/// `resolve_module` (only the entry module is, in `Vm::run`) — can populate
+/// their per-site caches too. Before this, every function in a lazily-loaded
+/// package (e.g. all of z42c.semantics / z42c.syntax during a self-compile)
+/// ran with `resolved == None`, so its VCall PIC / FieldIC / builtin-id /
+/// static-field-id / call-token caches were all dead and every dispatch fell
+/// back to string-keyed hashing.
+///
+/// **Module identity invariant**: `module` MUST be the same `Module` the
+/// function will execute against at runtime (always the entry module — lazy
+/// callees are invoked with the caller's `module`, which threads down from the
+/// entry). `method_tokens` / `type_tokens` are indices into `module.functions`
+/// / `module.type_registry`; resolving them against a *different* module would
+/// mint wrong indices. Cross-module targets (absent from the entry module)
+/// correctly resolve to `UNRESOLVED` here and are cached per-site on first
+/// dispatch via `cross_module_targets`.
+///
+/// Idempotent: `OnceLock::set` no-ops if another path (or a concurrent thread)
+/// already populated this function.
+pub fn resolve_function_tokens(
+    func: &Function,
+    module: &crate::metadata::Module,
+    ctx: &crate::vm_context::VmContext,
+) {
+    {
         // Skip if already populated (idempotent).
         if func.resolved.get().is_some() {
-            continue;
+            return;
         }
 
         // ─── Pass 1: enumerate token-bearing sites ────────────────────────
