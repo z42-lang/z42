@@ -17,6 +17,7 @@
 | `exec_native.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
 | `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、子类检查、静态字段、fallback TypeDesc |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`numeric_lt`、`collect_args`、`bool_val`、`str_val` |
+| `stack_alloc.rs` / `struct_arena.rs` / `transient_arena.rs` | per-`VmContext` arena：逃逸对象/数组、值 struct blob、以及 `Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 瞬态 payload（`Value` 里只留 8B `{idx,frame_id}` 句柄 → `Value: Copy`，见 `docs/design/runtime/object-abi.md` §2.2）。均 LIFO 随帧 truncate + GC root 扫描 |
 
 ## 入口点
 - `interp::run(module, func, args)` — 执行单个函数

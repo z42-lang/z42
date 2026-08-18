@@ -39,7 +39,9 @@ fn thread_spawn_non_callable_arg_errors() {
 #[test]
 fn thread_spawn_stack_closure_rejected() {
     let ctx = no_module_ctx();
-    let bad = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "nope".into() }));
+    // make-value-copy: thread_spawn rejects the StackClosure variant without resolving the
+    // arena payload → a bare handle suffices.
+    let bad = Value::StackClosure { idx: 0, frame_id: 1 };
     let err = builtin_thread_spawn(&ctx, &[bad]).unwrap_err();
     assert!(err.to_string().contains("stack-allocated closure"),
         "unexpected error: {err}");

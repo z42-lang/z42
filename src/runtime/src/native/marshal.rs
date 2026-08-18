@@ -101,18 +101,20 @@ pub fn value_to_z42(v: &Value, target: &SigType, arena: &mut Arena) -> Result<Z4
         (Value::Null, SigType::Ptr | SigType::SelfRef | SigType::CStr) => {
             Ok(dispatch::z42_native_ptr(std::ptr::null_mut()))
         }
-        // Spec C4 — PinnedView projects to either its raw pointer or its
-        // length, depending on the target ABI type. C5's source generator
-        // emits separate `FieldGet view, "ptr"` / `FieldGet view, "len"`
-        // before the call site, but a defensive fall-through here lets a
-        // hand-crafted IR pass the view directly when convenient.
-        (Value::PinnedView(pv), SigType::Ptr | SigType::SelfRef | SigType::CStr) => {
-            Ok(dispatch::z42_native_ptr(pv.ptr as usize as *mut c_void))
-        }
-        (
-            Value::PinnedView(pv),
-            SigType::U64 | SigType::I64 | SigType::U32 | SigType::I32,
-        ) => Ok(dispatch::z42_i64(pv.len as i64)),
+        // Spec C4 — PinnedView projects to either its raw pointer or its length.
+        // make-value-copy: PinnedView is now a transient-arena handle whose payload
+        // (ptr/len) needs the `VmContext` arena to resolve, which this ctx-less marshal
+        // helper cannot reach. The C5 source generator always emits `FieldGet view,"ptr"`
+        // / `FieldGet view,"len"` (resolved through the arena in `exec_object::field_get`)
+        // before the call site and passes the resulting scalars here — so a raw view never
+        // reaches this arm on the compiler-emitted path. The previous "hand-crafted IR may
+        // pass the view directly" convenience is retired (extends Decision 4: ctx-less
+        // consumers of arena payloads degrade). Surfaces a clear error, not silent UB.
+        (Value::PinnedView { .. }, _) => Err(MarshalErr::Internal(anyhow!(
+            "PinnedView must be projected via FieldGet ptr/len before a native call \
+             (make-value-copy: the view payload lives in the per-context transient arena, \
+             not reachable from the ctx-less marshal path)"
+        ))),
         // Spec C8 — Value::Str → *const c_char (NUL-terminated). The
         // arena owns the CString for the call's duration. Interior NULs
         // surface as Std.InvalidMarshalException (2026-05-11 retire-z-codes;

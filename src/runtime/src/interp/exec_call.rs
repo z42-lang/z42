@@ -33,7 +33,7 @@ fn try_native_static_call(
     // corrupts it (later surfaces as "Ref vs I64" in arithmetic). This cannot arise
     // from `jit_call` (JIT callers hold no Refs) — it is mixed-mode-specific. Never
     // route when an arg is a Ref; stay on the interpreter (always correct).
-    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
         return None;
     }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
@@ -254,7 +254,9 @@ pub(super) fn call_indirect(
             // unify-gc-heap PR-5: fn_name is a GC `Str`; materialize an owned `String` for `fname`.
             (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
         }
-        Value::StackClosure(sc) => {
+        &Value::StackClosure { idx: hidx, frame_id } => {
+            // make-value-copy: resolve the StackClosure handle → StackClosureData via arena.
+            let sc = ctx.transient_arena.lock().stack_closure(hidx, frame_id)?;
             let idx = sc.env_idx as usize;
             if idx >= frame.env_arena.len() {
                 bail!("CallIndirect: stack closure env_idx {} out of bounds (arena_len={})",
@@ -318,12 +320,17 @@ pub(super) fn mk_clos(
         env_vec.push(frame.get(*r)?.clone());
     }
     let value = if stack_alloc {
-        let idx = frame.env_arena.len() as u32;
+        let env_idx = frame.env_arena.len() as u32;
         frame.env_arena.push(env_vec);
-        Value::StackClosure(Box::new(crate::metadata::StackClosureData {
-            env_idx: idx,
-            fn_name: fn_name.to_string(),
-        }))
+        // make-value-copy: StackClosure payload → transient arena; Value holds an 8B handle.
+        let fid = frame.frame_id;
+        let hidx = ctx.transient_arena.lock().alloc(
+            fid,
+            crate::interp::transient_arena::TransientPayload::StackClos(
+                crate::metadata::StackClosureData { env_idx, fn_name: fn_name.to_string() },
+            ),
+        );
+        Value::StackClosure { idx: hidx, frame_id: fid }
     } else {
         let env_val = ctx.heap().alloc_array(env_vec);
         // add-gc-oom-exception: alloc_array returns Null only under strict OOM

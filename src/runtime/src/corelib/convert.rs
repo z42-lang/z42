@@ -224,16 +224,15 @@ pub fn value_to_str(v: &Value) -> String {
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),
-        Value::PinnedView(pv) => {
-            format!("PinnedView{{ptr=0x{:x}, len={}, kind={:?}}}", pv.ptr, pv.len, pv.kind)
-        }
         Value::FuncRef(name) => format!("<fn {name}>"),
         Value::Closure(c)                   => format!("<closure {}>", crate::metadata::types::closure_data_of(c).fn_name),
-        Value::StackClosure(sc) => format!("<closure {}>", sc.fn_name),
-        // Spec impl-ref-out-in-runtime: Refs 应该在 frame.get/set 阶段透明
-        // deref，不应到达 user-visible 字符串化路径。如果出现，说明代码漏了
-        // 一处 deref —— 用占位字串避免 panic，但调试时容易识别。
-        Value::Ref(_) => "<ref>".to_string(),
+        // make-value-copy: PinnedView / StackClosure / Ref are transient-arena handles
+        // and `value_to_str` has no `ctx` to resolve the arena payload — placeholders
+        // (same as StackObject / StructRef below). These never reach the user-visible
+        // stringify path (ToString is an escape sink → the heap form is what materializes).
+        Value::PinnedView { .. } => "<pinned view>".to_string(),
+        Value::StackClosure { .. } => "<closure>".to_string(),
+        Value::Ref { .. } => "<ref>".to_string(),
         // add-escape-analysis-stack-alloc: stack objects/arrays never reach the
         // user-visible stringify path (ToStr is an escape sink → such objects are
         // heap-allocated, not stack). This arm is defensive: a placeholder that's
@@ -253,9 +252,9 @@ pub fn value_to_str(v: &Value) -> String {
             Some(n) => n.to_string(),
             None => format!("{}{{...}}", gc.type_desc().name),
         },
-        // add-struct-heap-inline (P3b): a struct[] element handle — placeholder by the
-        // element type name (ToString on the element dispatches via VCall, not here).
-        Value::StructRefHeap(e) => format!("{}{{...}}", e.arr.borrow().element_type),
+        // make-value-copy: a struct[] element handle — arena-resident, no ctx here;
+        // placeholder (ToString on the element dispatches via VCall, not this raw path).
+        Value::StructRefHeap { .. } => "<struct value>".to_string(),
     }
 }
 

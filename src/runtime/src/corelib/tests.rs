@@ -293,6 +293,18 @@ use crate::gc::GcRef;
 
 fn fn_ref(name: &str) -> Value { Value::FuncRef(name.into()) }
 
+// make-value-copy: StackClosure payload lives in the per-context transient arena; build a
+// handle backed by `c`'s arena (frame_id 1) so the delegate builtins resolve it.
+fn mk_sc(c: &VmContext, env_idx: u32, fn_name: &str) -> Value {
+    let idx = c.transient_arena.lock().alloc(
+        1,
+        crate::interp::transient_arena::TransientPayload::StackClos(
+            crate::metadata::StackClosureData { env_idx, fn_name: fn_name.to_string() },
+        ),
+    );
+    Value::StackClosure { idx, frame_id: 1 }
+}
+
 #[test]
 fn delegate_eq_same_funcref_equal() {
     let c = ctx();
@@ -329,16 +341,16 @@ fn delegate_eq_diff_closure_env_not_equal() {
 #[test]
 fn delegate_eq_same_stackclosure_equal() {
     let c = ctx();
-    let a = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "Demo.Stack".into() }));
-    let b = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "Demo.Stack".into() }));
+    let a = mk_sc(&c, 0, "Demo.Stack");
+    let b = mk_sc(&c, 0, "Demo.Stack");
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(true));
 }
 
 #[test]
 fn delegate_eq_diff_stackclosure_idx_not_equal() {
     let c = ctx();
-    let a = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "Demo.Stack".into() }));
-    let b = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 1, fn_name: "Demo.Stack".into() }));
+    let a = mk_sc(&c, 0, "Demo.Stack");
+    let b = mk_sc(&c, 1, "Demo.Stack");
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -354,7 +366,7 @@ fn delegate_eq_funcref_vs_closure_not_equal() {
 fn delegate_eq_closure_vs_stackclosure_not_equal() {
     let c = ctx();
     let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
-    let b = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "Demo.F".into() }));
+    let b = mk_sc(&c, 0, "Demo.F");
     assert_eq!(exec_builtin(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -477,7 +489,7 @@ fn delegate_target_returns_null_for_funcref() {
 #[test]
 fn delegate_target_returns_null_for_stack_closure() {
     let c = ctx();
-    let sc = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 0, fn_name: "stack_lambda".into() }));
+    let sc = mk_sc(&c, 0, "stack_lambda");
     assert_eq!(exec_builtin(&c, "__delegate_target", &[sc]).unwrap(), Value::Null);
 }
 
@@ -494,7 +506,7 @@ fn delegate_fn_name_works_for_funcref_and_stack_closure() {
     assert_eq!(
         exec_builtin(&c, "__delegate_fn_name", &[Value::FuncRef("free_fn".into())]).unwrap(),
         s("free_fn"));
-    let sc = Value::StackClosure(Box::new(crate::metadata::StackClosureData { env_idx: 3, fn_name: "stk".into() }));
+    let sc = mk_sc(&c, 3, "stk");
     assert_eq!(exec_builtin(&c, "__delegate_fn_name", &[sc]).unwrap(), s("stk"));
 }
 

@@ -176,12 +176,17 @@ pub(super) fn array_get(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, 
             // The array `GcRef` is only reachable here (not in `get_boxed`), so the
             // handle must be built at the exec layer.
             if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
-                let arr_gc = rc.clone();
+                let arr_gc = *rc;
                 drop(borrowed);
-                Value::StructRefHeap(Box::new(crate::metadata::types::StructArrayElem {
-                    arr: arr_gc,
-                    index: i as u32,
-                }))
+                // make-value-copy: StructRefHeap payload → transient arena; Value holds an 8B handle.
+                let fid = frame.frame_id;
+                let hidx = ctx.transient_arena.lock().alloc(
+                    fid,
+                    crate::interp::transient_arena::TransientPayload::StructElem(
+                        crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },
+                    ),
+                );
+                Value::StructRefHeap { idx: hidx, frame_id: fid }
             } else {
                 borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
             }

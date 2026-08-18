@@ -119,8 +119,8 @@ pub fn exec_instr(
 
         // ── Address-load (spec impl-ref-out-in-runtime) ─────────────────────
         Instruction::LoadLocalAddr { dst, slot } => exec_address::load_local_addr(ctx, frame, *dst, *slot),
-        Instruction::LoadElemAddr  { dst, arr, idx } => exec_address::load_elem_addr(frame, *dst, *arr, *idx)?,
-        Instruction::LoadFieldAddr(insn) => exec_address::load_field_addr(frame, insn.dst, insn.obj, &insn.field_name)?,
+        Instruction::LoadElemAddr  { dst, arr, idx } => exec_address::load_elem_addr(ctx, frame, *dst, *arr, *idx)?,
+        Instruction::LoadFieldAddr(insn) => exec_address::load_field_addr(ctx, frame, insn.dst, insn.obj, &insn.field_name)?,
 
         // ── Generic default(T) at runtime (D-8b-3 Phase 2) ──────────────────
         Instruction::DefaultOf { dst, param_index } => exec_address::default_of(frame, *dst, *param_index),

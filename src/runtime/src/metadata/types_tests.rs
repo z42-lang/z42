@@ -96,23 +96,13 @@ fn is_heap_ref_true_for_closure() {
 }
 
 #[test]
-fn is_heap_ref_true_for_ref_array() {
-    let arr = GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(0)]));
-    let v = Value::Ref(Box::new(RefKind::Array { gc_ref: arr, idx: 0 }));
-    assert!(v.is_heap_ref());
-}
-
-#[test]
-fn is_heap_ref_true_for_ref_field() {
-    let obj = GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc("Foo"),
-        bytes: Box::new([]),
-        refs: Box::new([]),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    });
-    let v = Value::Ref(Box::new(RefKind::Field { gc_ref: obj, field_name: "x".to_string() }));
-    assert!(v.is_heap_ref());
+fn is_heap_ref_false_for_ref_handle() {
+    // make-value-copy: a `Ref` is now an 8B transient-arena handle (payload — incl. the
+    // Array/Field target GcRef — lives in the arena, kept marked by its root scan). The
+    // handle itself never escapes into a heap slot, so it is NOT a heap edge here (matches
+    // `StructRef` / `StackObject`). Only the arena root scan keeps the target alive.
+    let v = Value::Ref { idx: 0, frame_id: 1 };
+    assert!(!v.is_heap_ref());
 }
 
 // ── add-struct-heap-inline (P3b, D1-a): inline struct fields' reference side-table
@@ -293,21 +283,19 @@ fn is_heap_ref_true_for_string_and_func_ref() {
 
 #[test]
 fn is_heap_ref_false_for_pinned_view() {
-    let v = Value::PinnedView(Box::new(PinnedViewData {
-        ptr: 0x1000, len: 4, kind: PinSourceKind::ArrayU8,
-    }));
+    let v = Value::PinnedView { idx: 0, frame_id: 1 };
     assert!(!v.is_heap_ref());
 }
 
 #[test]
 fn is_heap_ref_false_for_stack_closure() {
-    let v = Value::StackClosure(Box::new(StackClosureData { env_idx: 0, fn_name: "inner".to_string() }));
+    let v = Value::StackClosure { idx: 0, frame_id: 1 };
     assert!(!v.is_heap_ref());
 }
 
 #[test]
 fn is_heap_ref_false_for_ref_stack() {
-    let v = Value::Ref(Box::new(RefKind::Stack { frame_idx: 0, slot: 1 }));
+    let v = Value::Ref { idx: 0, frame_id: 1 };
     assert!(!v.is_heap_ref(), "stack ref points to stack location, not heap");
 }
 
@@ -371,17 +359,11 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::Str(crate::metadata::vstr::Str::from(""))),     4, "Str tag");
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
     // Heap variants (Array/Object tags 6/7) need a GcRef — skip cheap test.
-    assert_eq!(tag(&Value::PinnedView(Box::new(PinnedViewData {
-        ptr: 0, len: 0, kind: PinSourceKind::Str,
-    }))), 8, "PinnedView tag");
+    assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
     assert_eq!(tag(&Value::FuncRef("".into())),                9, "FuncRef tag");
     // Closure tag 10 — needs GcRef, skip.
-    assert_eq!(tag(&Value::StackClosure(Box::new(StackClosureData {
-        env_idx: 0, fn_name: String::new(),
-    }))), 11, "StackClosure tag");
-    assert_eq!(tag(&Value::Ref(Box::new(RefKind::Stack {
-        frame_idx: 0, slot: 0,
-    }))), 12, "Ref tag");
+    assert_eq!(tag(&Value::StackClosure { idx: 0, frame_id: 1 }), 11, "StackClosure tag");
+    assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
 }
 
 #[test]

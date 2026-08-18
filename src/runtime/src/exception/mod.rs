@@ -93,6 +93,10 @@ pub struct VmFrame {
     /// was pushed; `pop_frame` truncates back to it (LIFO-frees this frame's blobs).
     /// Stamped by `push_frame`.
     pub struct_base: usize,
+    /// make-value-copy: transient-arena length when this frame was pushed; `pop_frame`
+    /// truncates back to it (LIFO-frees this frame's Ref/PinnedView/StackClosure/
+    /// StructRefHeap payloads). Stamped by `push_frame`.
+    pub transient_base: usize,
 }
 
 // SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
@@ -122,6 +126,7 @@ impl VmFrame {
             // add-escape-analysis-stack-alloc: overwritten by push_frame.
             stack_obj_base: 0, stack_arr_base: 0,
             struct_base: 0,   // add-struct-value-semantics: overwritten by push_frame.
+            transient_base: 0, // make-value-copy: overwritten by push_frame.
         }
     }
 
