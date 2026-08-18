@@ -1,0 +1,117 @@
+// xtask — `test list`: read-only catalog of the case-granular test corpus
+// (tidy-test-system, 2026-08-19). Answers "what cases exist, how do I run one,
+// which platforms can run it" without reading source. Reuses the single corpus
+// enumeration SoT (_enumerateCorpus in xtask_test_embedded.z42) so the catalog
+// never drifts from what the embed bundle / golden runner actually see.
+//
+// Scope: the case-granular, individually-runnable corpus — src/tests goldens
+// (run via `test e2e --file`) + stdlib [Test] units (run via `test stdlib -k`).
+// Coarser stage-level suites (cross-zpkg, compiler fixpoint, platform, runtime
+// cargo, bench) are NOT case-granular; see docs/workflow/testing/verify-by-change.md.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// Right-pad `s` to width `w` with spaces (small local helper; keeps columns aligned).
+string _padCol(string s, int w) {
+    string outv = s;
+    while (outv.Length < w) { outv = outv + " "; }
+    return outv;
+}
+
+// The command a developer runs to execute just this one case.
+string _runCmdFor(_CorpusCase c) {
+    if (c.kind == "golden") { return "test e2e --file " + c.name; }
+    // unit / dir-unit → stdlib [Test] runner, narrowed by leaf name.
+    return "test stdlib " + c.lib + " -k " + c.leaf;
+}
+
+// `test list [--dir <bucket>] [--filter <substr>] [--kind golden|test|all] [--rid <rid>] [--json]`
+int _testList(ParseResult r) {
+    string root = _root();
+    string dirF = r.GetOption("dir");
+    string filter = r.GetOption("filter");
+    string kindF = r.GetOption("kind");     // golden | test | all(default)
+    string rid = r.GetOption("rid");
+    bool json = r.GetFlag("json");
+
+    _CorpusCase[] all = _enumerateCorpus(root, filter);
+
+    // Post-filter by --dir (bucket exact) and --kind (golden vs [Test]).
+    _CorpusCase[] cases = new _CorpusCase[all.Length];
+    int n = 0;
+    int i = 0;
+    while (i < all.Length) {
+        _CorpusCase c = all[i];
+        bool keep = true;
+        if (dirF.Length > 0 && c.bucket != dirF) { keep = false; }
+        if (keep && kindF == "golden" && c.kind != "golden") { keep = false; }
+        if (keep && kindF == "test" && c.kind == "golden") { keep = false; }
+        if (keep) { cases[n] = c; n = n + 1; }
+        i = i + 1;
+    }
+
+    if (json) { return _testListJson(cases, n, rid); }
+    return _testListPretty(cases, n, rid);
+}
+
+// Human catalog: grouped by bucket, one line per case with run command + mode +
+// (when --rid given) platform-exclusion note. Trailing summary counts.
+int _testListPretty(_CorpusCase[] cases, int n, string rid) {
+    Console.WriteLine("case catalog — src/tests goldens (test e2e --file) + stdlib [Test] (test stdlib -k)");
+    Console.WriteLine("");
+    int golden = 0;
+    int tests = 0;
+    int excluded = 0;
+    string curBucket = "";
+    int i = 0;
+    while (i < n) {
+        _CorpusCase c = cases[i];
+        if (c.bucket != curBucket) {
+            if (curBucket.Length > 0) { Console.WriteLine(""); }
+            curBucket = c.bucket;
+            Console.WriteLine(curBucket);
+        }
+        string kindTag = (c.kind == "golden") ? "golden" : "test  ";
+        string mode = (c.kind == "golden" && c.interpOnly) ? "[interp]" : "[interp+jit]";
+        string note = "";
+        if (rid.Length > 0 && _targetExcludes(rid, c.name)) {
+            note = "  EXCL(" + rid + ")";
+            excluded = excluded + 1;
+        }
+        Console.WriteLine("  " + _padCol(c.name, 40) + " " + kindTag
+            + "  " + _padCol(mode, 12) + "  " + _runCmdFor(c) + note);
+        if (c.kind == "golden") { golden = golden + 1; } else { tests = tests + 1; }
+        i = i + 1;
+    }
+    Console.WriteLine("");
+    string summary = "Total: " + n.ToString() + " cases (" + golden.ToString()
+        + " golden, " + tests.ToString() + " [Test])";
+    if (rid.Length > 0) { summary = summary + "; " + excluded.ToString() + " excluded for rid=" + rid; }
+    Console.WriteLine(summary);
+    return 0;
+}
+
+// Machine catalog: JSON array of {name, bucket, kind, run, interpOnly[, excluded]}.
+int _testListJson(_CorpusCase[] cases, int n, string rid) {
+    string outv = "[\n";
+    int i = 0;
+    while (i < n) {
+        _CorpusCase c = cases[i];
+        string obj = "  {\"name\": \"" + c.name + "\", \"bucket\": \"" + c.bucket
+            + "\", \"kind\": \"" + c.kind + "\", \"run\": \"" + _runCmdFor(c)
+            + "\", \"interpOnly\": " + (c.interpOnly ? "true" : "false");
+        if (rid.Length > 0) {
+            obj = obj + ", \"excluded\": " + (_targetExcludes(rid, c.name) ? "true" : "false");
+        }
+        obj = obj + "}";
+        if (i + 1 < n) { obj = obj + ","; }
+        outv = outv + obj + "\n";
+        i = i + 1;
+    }
+    outv = outv + "]";
+    Console.WriteLine(outv);
+    return 0;
+}

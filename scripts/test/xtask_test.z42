@@ -78,7 +78,15 @@ int _testRuntime() {
 // already present, only regen the golden .zbc (_regenGolden, --toolchain-aware);
 // else full _regenCore (rebuild stdlib + runtime + goldens). Shared: _testE2eCore + _testAll.
 int _regenForTest(bool haveTc, bool noBuild) {
-    return (haveTc || noBuild) ? _regenGolden() : _regenCore(true);
+    return _regenForTestF(haveTc, noBuild, "", "");
+}
+
+// Filtered variant: on the warm path (_regenGolden), narrow the recompiled golden
+// set to the --dir/--file selection so `test e2e --file X --no-build` recompiles
+// only case X. The cold full-rebuild path (_regenCore: stdlib+runtime+all goldens)
+// is unaffected — it's the "I changed the toolchain, rebuild everything" path.
+int _regenForTestF(bool haveTc, bool noBuild, string dirFilter, string fileFilter) {
+    return (haveTc || noBuild) ? _regenGoldenF(dirFilter, fileFilter) : _regenCore(true);
 }
 
 // cargo-build the DEBUG z42vm + z42-compression cdylib — the runtime the VM golden
@@ -103,7 +111,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
         if (cb != 0) { return cb; }
     }
     if (rebuild) {
-        int c = _regenForTest(haveTc, noBuild);
+        int c = _regenForTestF(haveTc, noBuild, dirFilter, fileFilter);
         if (c != 0) { return c; }
     }
     // modes is a space-separated token string (e.g. "interp jit"); split to the
