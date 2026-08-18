@@ -718,7 +718,8 @@ public sealed class SymbolCollector {
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
                 bool pfExtern = this._hasWord(pd.Mods, "extern");
-                if (!pfstatic && !pfExtern) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : ExportedTypeExtractor.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
+                // add-property-getter：计算属性（HasGetBody）无后备字段——getter 是真实函数体，不读 __prop_X。
+                if (!pfstatic && !pfExtern && !pd.HasGetBody) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : ExportedTypeExtractor.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
                 string pvis = this._vis(pd.Mods, "private");
                 Z42Type[] getPs0 = new Z42Type[0];

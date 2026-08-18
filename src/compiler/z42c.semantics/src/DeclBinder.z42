@@ -246,6 +246,18 @@ public sealed class DeclBinder {
                     if (md.IsCtor && !ms.IsStatic && !md.IsThisInit) { body = this._injectFieldInits(c, ct, env, body); }
                     model.AddBody(ctKey + "." + mkey, body);   // GS3：body 键用 mkey（重载时=Name$arity）；arity-mangle 时用 ctKey（Name$N）
                 }
+            } else if (mem is PropertyDecl) {
+                // add-property-getter：计算属性 getter body 绑定 → get_<Name>（镜像 IndexerDecl get，无索引参数）。
+                PropertyDecl pd = mem as PropertyDecl;
+                if (pd.HasGetBody) {
+                    var pgEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                    pgEnv.Define("this", ct);
+                    string[] pgfns = ct.Fields.Keys();
+                    int pgfk = 0;
+                    while (pgfk < pgfns.Length) { FieldSymbol pgfs = ct.Fields.Get(pgfns[pgfk]) as FieldSymbol; pgEnv.Define(pgfns[pgfk], pgfs.FieldType); pgfk = pgfk + 1; }
+                    Z42Type pgret = pgEnv.ResolveType(pd.Type);
+                    model.AddBody(ctKey + ".get_" + pd.Name, this._tc._stmt._bindStmt(pd.GetBody, pgEnv, pgret));
+                }
             } else if (mem is IndexerDecl) {
                 // get_Item / set_Item 体绑定（IndexerDecl lowering；镜像 C# IndexerDecl 处理）。
                 IndexerDecl id = mem as IndexerDecl;

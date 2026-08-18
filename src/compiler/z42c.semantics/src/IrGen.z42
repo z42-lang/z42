@@ -234,11 +234,27 @@ public sealed class IrGen {
                                 funcs = IrGenFacts._pushFunc(funcs, fc, astub); fc = fc + 1;
                             }
                         } else if (mem is PropertyDecl) {
-                            // auto-property get_X → builtin 桩（extern）或 field.get __prop_X 桩（非 extern）。
+                            // auto-property get_X → builtin 桩（extern）或 field.get __prop_X 桩（非 extern）；
+                            // add-property-getter：计算属性（HasGetBody）→ 编译真实 get_X 函数体。
                             PropertyDecl pd = mem as PropertyDecl;
                             bool pdExtern = IrGenFacts._hasWord(pd.Mods, "extern");
                             bool pdStatic = IrGenFacts._hasWord(pd.Mods, "static");
-                            if (pd.HasGet && pdExtern) {
+                            if (pd.HasGetBody) {
+                                // 计算属性 getter → 真实 get_<Name> 函数（镜像 IndexerDecl get，0 参数）。
+                                string pgKey = c.Name + ".get_" + pd.Name;
+                                string pgIrName = this._q(this._classIrShortName(c)) + ".get_" + pd.Name;
+                                if (model.HasBody(pgKey)) {
+                                    TypeParamList emptyTpPg = new TypeParamList(new string[0], 0, pd.Span);
+                                    MethodDecl synthPg = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
+                                                                         emptyTpPg, new WhereClause[0], 0,
+                                                                         new Param[0], 0, true, pd.GetBody, new Expr[0], 0, false, pd.Span);
+                                    var fePg = new FunctionEmitter(model.Symbols, this);
+                                    IrFunction pgIrf = fePg.EmitFunction(pgIrName, synthPg, model.GetBody(pgKey),
+                                                                          !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
+                                    IrGenFacts._fillParamMeta(pgIrf, synthPg, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                                    funcs = IrGenFacts._pushFunc(funcs, fc, pgIrf); fc = fc + 1;
+                                }
+                            } else if (pd.HasGet && pdExtern) {
                                 string nat2 = this._stubE._nativeIntrinsic(rawMem);
                                 if (nat2 != "") {
                                     TypeParamList emptyTpP = new TypeParamList(new string[0], 0, pd.Span);

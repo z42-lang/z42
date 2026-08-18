@@ -1,0 +1,21 @@
+// add-property-getter: 命名属性的计算 getter（`{ get { ... } }`）。
+// 计算属性无 backing field，读取 = 调用 getter 函数体（对比 auto-property 的存储语义）。
+
+public class Box {
+    public int n;                                        // 普通字段
+    public int Doubled { get { return this.n * 2; } }    // 计算属性：派生自字段
+    public bool Big { get { return this.n > 10; } }      // 计算属性：布尔派生
+    public int Plus { get { return this.Doubled + 1; } } // 计算属性：引用另一计算属性
+}
+
+void Main() {
+    Box b = new Box();
+    b.n = 21;
+    Assert.Equal(42, b.Doubled);       // getter 计算，非 null
+    Assert.True(b.Big);
+    Assert.Equal(43, b.Plus);          // 计算属性引用计算属性
+
+    b.n = 5;
+    Assert.Equal(10, b.Doubled);       // 每次读取重新计算（无存储）
+    Assert.False(b.Big);
+}
