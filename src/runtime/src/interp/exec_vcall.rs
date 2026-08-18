@@ -29,8 +29,8 @@ fn try_native_method_call(
     // runtime-jit-tiering Phase 1.5 safety: never marshal a `Ref(Stack)` (out/ref
     // address, which only an INTERP frame can hold) into native code — see
     // `exec_call::try_native_static_call` for the full rationale. Guard receiver + args.
-    if matches!(receiver, Value::Ref(_))
-        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref(_)))) {
+    if matches!(receiver, Value::Ref { .. })
+        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
         return None;
     }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;

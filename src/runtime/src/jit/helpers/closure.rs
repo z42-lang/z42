@@ -76,6 +76,9 @@ pub unsafe extern "C" fn jit_mk_clos(
     let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len))
         .unwrap_or("<invalid>")
         .to_string();
+    // make-value-copy: stamp this JIT frame's id for a transient-arena StackClosure handle
+    // *before* taking the `&mut *frame` borrow below (frame_id_of writes `(*frame).frame_id`).
+    let stack_fid = if stack_alloc != 0 { super::struct_ops::frame_id_of(frame, ctx) } else { 0 };
     let frame_ref = &mut *frame;
     let cap_regs  = std::slice::from_raw_parts(caps_ptr, caps_len);
     let env_vec: Vec<Value> = cap_regs.iter()
@@ -83,12 +86,16 @@ pub unsafe extern "C" fn jit_mk_clos(
         .collect();
 
     let value = if stack_alloc != 0 {
-        let idx = frame_ref.env_arena.len() as u32;
+        let env_idx = frame_ref.env_arena.len() as u32;
         frame_ref.env_arena.push(env_vec);
-        Value::StackClosure(Box::new(crate::metadata::StackClosureData {
-            env_idx: idx,
-            fn_name: name,
-        }))
+        // make-value-copy: StackClosure payload → transient arena (frame_id stamped above).
+        let hidx = vm_ctx_ref(ctx).transient_arena.lock().alloc(
+            stack_fid,
+            crate::interp::transient_arena::TransientPayload::StackClos(
+                crate::metadata::StackClosureData { env_idx, fn_name: name },
+            ),
+        );
+        Value::StackClosure { idx: hidx, frame_id: stack_fid }
     } else {
         // Allocate env via the GC heap so it's tracked as a managed array.
         let env_val = vm_ctx_ref(ctx).heap().alloc_array(env_vec);
@@ -141,7 +148,12 @@ pub unsafe extern "C" fn jit_call_indirect(
             let data = crate::metadata::types::closure_data_of(c);
             (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
         }
-        Value::StackClosure(sc) => {
+        &Value::StackClosure { idx: hidx, frame_id } => {
+            // make-value-copy: resolve the StackClosure handle → StackClosureData via arena.
+            let sc = match vm_ctx.transient_arena.lock().stack_closure(hidx, frame_id) {
+                Ok(sc) => sc,
+                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+            };
             let idx = sc.env_idx as usize;
             if idx >= frame_ref.env_arena.len() {
                 set_exception(vm_ctx, Value::Str(format!(

@@ -121,11 +121,15 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 /// - `StackClosure { fn_name }` → 返回 fn_name 字符串
 /// - `FuncRef(name)` → 返回 name
 /// - 其他 → Null
-pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         // unify-gc-heap PR-5: fn_name is a GC `Str` (Copy) — reuse the handle directly.
         Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name)),
-        Some(Value::StackClosure(sc)) => Ok(Value::Str(sc.fn_name.clone().into())),
+        // make-value-copy: resolve the StackClosure handle → fn_name via the transient arena.
+        Some(&Value::StackClosure { idx, frame_id }) => {
+            let sc = ctx.transient_arena.lock().stack_closure(idx, frame_id)?;
+            Ok(Value::Str(sc.fn_name.into()))
+        }
         Some(Value::FuncRef(name)) => Ok(Value::Str(name.clone().into())),
         _ => Ok(Value::Null),
     }
@@ -208,14 +212,19 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 /// - `FuncRef(name)` —— fn name 字符串相等
 /// - `Closure { env, fn_name }` —— fn_name 相等且 env GcRef::ptr_eq
 /// - `StackClosure { env_idx, fn_name }` —— fn_name 相等且 env_idx 相等
-pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_delegate_eq(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         (Some(Value::FuncRef(a)), Some(Value::FuncRef(b))) => a == b,
         (Some(Value::Closure(a)), Some(Value::Closure(b))) => {
             let (da, db) = (crate::metadata::types::closure_data_of(a), crate::metadata::types::closure_data_of(b));
             da.fn_name == db.fn_name && crate::gc::GcRef::ptr_eq(&da.env, &db.env)
         }
-        (Some(Value::StackClosure(a)), Some(Value::StackClosure(b))) => {
+        // make-value-copy: resolve both StackClosure handles → StackClosureData via arena.
+        (Some(&Value::StackClosure { idx: ia, frame_id: fa }),
+         Some(&Value::StackClosure { idx: ib, frame_id: fb })) => {
+            let arena = ctx.transient_arena.lock();
+            let a = arena.stack_closure(ia, fa)?;
+            let b = arena.stack_closure(ib, fb)?;
             a.fn_name == b.fn_name && a.env_idx == b.env_idx
         }
         (Some(Value::Null), Some(Value::Null))           => true,

@@ -9,7 +9,7 @@
 ---
 
 ## 1. 现状（已成形，但隐式且脆弱）
-- **Value = Rust tagged enum**（[metadata/types.rs](../../../src/runtime/src/metadata/types.rs)）：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Arc<str>)=4`、`Array(GcRef<ArrayObj>)=6`/`Object(GcRef<ScriptObject>)=7`、`Closure/Ref/PinnedView`(Box)、`TypeHandle(Arc)`、`WeakRef`。
+- **Value = Rust tagged enum**（[metadata/types.rs](../../../src/runtime/src/metadata/types.rs)）：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Array(GcRef<ArrayObj>)=6`/`Object(GcRef<ScriptObject>)=7`、`Closure(VarGcRef)`、`Ref/PinnedView/StackClosure/StructRefHeap`(→ 8B `{idx,frame_id}` transient-arena 句柄，见 §2.2)。**`Value` 现为 `Copy`（16B POD，无 `Drop` glue）**。
 - **ScriptObject** = `{ type_desc: Arc<TypeDesc>, slots: Box<[Value]>, native: NativeData }`。
 - **GcRef** = `NonNull<RegionEntry<T>> + generation`（ABA 防护）；RegionEntry **Box-owned 永不重定位 → 当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
@@ -44,6 +44,39 @@
 **String 侧**：`Arc<str>` 的"胖"只在 8B 长度 → 换 `Arc<StrHeader{len,[u8]}>` 细指针 = 8B（长度进堆对象头，CLR/JVM 模型，与 §5「字符串改 GC」合流）；代价 = 取 len 多一次解引用。
 
 **范围**：全 VM 横切（GcRef 句柄模型 + String 表示 + `Value` 布局 pin + **JIT 24B 硬编码寻址** + `value_layout` 断言），属 **B-radical 统一值类型模型**子目标，**不在 struct P3b**（P3b 保持 16B 引用不动）。落地前需与 §6 移动/分代 GC 的 `gc_word`/forwarding 设计一并评估路 A vs 路 B。
+
+### 2.2 `Value` 成为 `Copy` —— 4 个 Box 瞬态变体 → arena 句柄（✅ 已落地，2026-08-18 `make-value-copy`）
+
+> **对齐**：2026-08-18。**动机（实测驱动）**：interp-bound workload（z42c 前端）profile 中 `Value::clone`
+> 是**头号 leaf（11.4%）**，`drop_in_place<Frame>` 再占 **6.0%**。根因**不是**堆操作——`unify-gc-heap`
+> 之后 clone 已无 refcount（`GcRef::clone`=8B memcpy、`Str`=`Copy`、`GcRef::Drop`=no-op）——而是
+> `Value` 仍挂 **4 个 `Box` 冷变体**（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap`）+ `GcRef` 的
+> 显式 no-op `Drop`，逼编译器把每次 clone 编成「match 判别号 + drop-glue」、把 `Vec<Value>` 析构编成
+> 逐元素循环，**无法退化成平凡 memcpy / O(1) 释放**。
+
+**改动**：把这 4 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体，从 `Box<T>` 改为 8B
+`{ idx:u32, frame_id:u32 }` 句柄，payload 存进 per-`VmContext` 的 **`TransientArena`**
+（[`interp/transient_arena.rs`](../../../src/runtime/src/interp/transient_arena.rs)）；`GcRef` 删除显式
+no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
+
+- **`TransientArena` 生命周期模型**：与 `StackArena`/`StructArena` 同构——`Vec<TransientSlot>`（`Mutex`
+  保护）、`frame_id` staleness 守卫、`push_frame` 戳 `transient_base` / `pop_frame` LIFO `truncate`、
+  每次 GC 作 **root 扫描**（`scan_roots`）。interp 与 JIT 共用同一 arena + `push_frame`/`pop_frame`
+  base（JIT 经 `struct_ops::frame_id_of` 懒分配帧 id，与既有 `StructRef` 句柄同法）。
+- **GC**：arena 是 root → payload 内 GcRef（`Ref` 的 Array/Field 目标、`StructRefHeap` 的 backing 数组）
+  恒被标记；故 `Value::visit_gc_children` / `arc_heap::mark_if_unmarked` 对这 4 变体是 **no-op**
+  （同 `StructRef`/`StackObject`）——**净效果是从 GC mark 热路径移除工作**，无需写屏障（root 每次重扫）。
+- **相等 / stringify 退化**：4 变体 `==` 按 `{idx,frame_id}` 句柄相等（同 `StackObject`）；`value_to_str`
+  返回通用占位串——照 `StackObject`/`StructRef` 先例（ToString 是 escape sink，这些瞬态句柄永不到达
+  用户可见 stringify 路径）。有 `ctx` 的消费点（`deref_ref`/`UnpinPtr`/FFI marshal/FieldGet `.ptr/.len`/
+  `CallIndirect`/`StructFieldGet(Set)Prim`/`__delegate_*`）经 `arena.with(idx,frame_id,…)` 读真 payload。
+- **native marshal**：`value_to_z42`（无 `ctx`）的 `PinnedView` 防御臂退化为明确错误——编译器路径本就
+  先 `FieldGet ptr/len`（经 arena 解析）再传标量，从不把 raw view 交给 marshal。
+
+**效果（实测）**：前端 typecheck big.z42 **7.37s→6.19s = 1.19×（16% faster）**，输出逐字节一致，
+`Value::clone` 离开 profile 头部、`drop<Frame>` 195→68 样本。`size_of::<Value>()==16` 不变（8B 句柄）。
+**无 zbc/zpkg 格式 bump**（纯运行时表示）。这是 §2.1 布局线的自然延续：§2.1 把 `Value` 压到 16B，
+§2.2 把它变成真正的 POD（`Copy` + 无 `Drop` glue）。
 
 ---
 

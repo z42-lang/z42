@@ -11,47 +11,51 @@
 /// (D-8b-3 Phase 2).
 
 use crate::metadata::Value;
+use crate::metadata::types::RefKind;
 use crate::vm_context::VmContext;
+use crate::interp::transient_arena::TransientPayload;
 use anyhow::{bail, Result};
 
 use super::ops::to_usize;
 use super::Frame;
 
+/// make-value-copy: allocate a `RefKind` into the per-context transient arena and
+/// return the `Value::Ref { idx, frame_id }` handle (payload lives in the arena, so
+/// `Value` stays `Copy`). LIFO-freed when the creating frame pops.
+fn mk_ref(ctx: &VmContext, frame_id: u32, kind: RefKind) -> Value {
+    let idx = ctx.transient_arena.lock().alloc(frame_id, TransientPayload::Ref(kind));
+    Value::Ref { idx, frame_id }
+}
+
 pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot: u32) {
     let depth = ctx.frame_stack_depth();
     // Current frame is the most recent push (depth - 1).
     let frame_idx = (depth.saturating_sub(1)) as u32;
-    frame.set(dst, Value::Ref(Box::new(
-        crate::metadata::types::RefKind::Stack { frame_idx, slot },
-    )));
+    let r = mk_ref(ctx, frame.frame_id, RefKind::Stack { frame_idx, slot });
+    frame.set(dst, r);
 }
 
-pub(super) fn load_elem_addr(frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Result<()> {
+pub(super) fn load_elem_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Result<()> {
     let arr_val = frame.get(arr)?;
     let idx_val = to_usize(frame.get(idx)?, "LoadElemAddr index")?;
     match arr_val {
         Value::Array(rc) => {
-            frame.set(dst, Value::Ref(Box::new(
-                crate::metadata::types::RefKind::Array {
-                    gc_ref: rc.clone(), idx: idx_val,
-                }
-            )));
+            let r = mk_ref(ctx, frame.frame_id, RefKind::Array { gc_ref: *rc, idx: idx_val });
+            frame.set(dst, r);
             Ok(())
         }
         other => bail!("LoadElemAddr: expected array, got {:?}", other),
     }
 }
 
-pub(super) fn load_field_addr(frame: &mut Frame, dst: u32, obj: u32, field_name: &str) -> Result<()> {
+pub(super) fn load_field_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, obj: u32, field_name: &str) -> Result<()> {
     let obj_val = frame.get(obj)?;
     match obj_val {
         Value::Object(rc) => {
-            frame.set(dst, Value::Ref(Box::new(
-                crate::metadata::types::RefKind::Field {
-                    gc_ref: rc.clone(),
-                    field_name: field_name.to_string(),
-                }
-            )));
+            let r = mk_ref(ctx, frame.frame_id, RefKind::Field {
+                gc_ref: *rc, field_name: field_name.to_string(),
+            });
+            frame.set(dst, r);
             Ok(())
         }
         other => bail!("LoadFieldAddr: expected object, got {:?}", other),

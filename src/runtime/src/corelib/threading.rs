@@ -62,7 +62,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             // materialize an owned `String` so it can cross to the worker thread safely.
             (data.fn_name.to_string(), Some(data.env.borrow().to_boxed_vec()))
         }
-        Value::StackClosure(_) => bail!(
+        Value::StackClosure { .. } => bail!(
             "__thread_spawn: stack-allocated closure cannot escape to a worker thread \
              (compiler should have promoted it to a heap Closure for cross-thread use)"
         ),

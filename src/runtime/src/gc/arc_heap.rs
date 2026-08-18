@@ -254,15 +254,8 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
         // their heap identity. `FuncRef` likewise carries a `Str`.
         Value::Str(s) => Some(s.as_ptr() as usize),
         Value::FuncRef(s) => Some(s.as_ptr() as usize),
-        Value::Ref(kind) => match kind.as_ref() {
-            crate::metadata::types::RefKind::Array { gc_ref, .. } => {
-                Some(gc_ref.data_ptr_unlocked() as usize)
-            }
-            crate::metadata::types::RefKind::Field { gc_ref, .. } => {
-                Some(gc_ref.data_ptr_unlocked() as usize)
-            }
-            crate::metadata::types::RefKind::Stack { .. } => None,
-        },
+        // make-value-copy: a `Ref` handle has no stable heap identity of its own (its
+        // payload lives in the transient arena); like `StructRef`/`StackObject` → None.
         _ => None,
     }
 }
@@ -775,18 +768,13 @@ impl ArcMagrGC {
                 // block (leaf, no children to trace). `FuncRef` carries a `Str` name too.
                 Value::Str(s) => s.mark(),
                 Value::FuncRef(s) => s.mark(),
-                Value::Ref(kind) => match kind.as_ref() {
-                    crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
-                    crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
-                    crate::metadata::types::RefKind::Stack { .. } => false,
-                },
                 // add-boxed-struct-identity (P4b, 路 B2): a boxed struct is a shared
                 // `ScriptObject` in region_object — mark it like Object (trace_children
                 // then scans its `struct_refs` reference leaves).
                 Value::BoxedStruct(gc) => GcRef::mark(gc),
-                // add-struct-heap-inline (P3b): a struct[] element handle keeps its
-                // backing array alive (mark it; trace_children then follows its refs).
-                Value::StructRefHeap(e) => GcRef::mark(&e.arr),
+                // make-value-copy: `Ref` / `StructRefHeap` are transient-arena handles —
+                // their payload's GcRefs are seeded as GC roots by `TransientArena::
+                // scan_roots`, so the handle itself marks nothing here (falls to `false`).
                 _ => false,
             };
             if !just_marked { continue; }
@@ -815,15 +803,10 @@ impl ArcMagrGC {
             // unify-gc-heap PR-4: mark the string block (leaf). `FuncRef` carries a `Str`.
             Value::Str(s) => s.mark(),
             Value::FuncRef(s) => s.mark(),
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::mark(gc_ref),
-                crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::mark(gc_ref),
-                crate::metadata::types::RefKind::Stack { .. } => false,
-            },
             // add-boxed-struct-identity (P4b, 路 B2): mark the boxed struct's shared ScriptObject.
             Value::BoxedStruct(gc) => GcRef::mark(gc),
-            // add-struct-heap-inline (P3b): mark the struct[] element handle's array.
-            Value::StructRefHeap(e) => GcRef::mark(&e.arr),
+            // make-value-copy: `Ref` / `StructRefHeap` handles mark nothing here — their
+            // payload GcRefs are seeded by `TransientArena::scan_roots` (GC root).
             _ => false,
         }
     }
@@ -838,13 +821,10 @@ impl ArcMagrGC {
             // unify-gc-heap PR-2: the closure block (region_var) is non-generational (STW); the
             // generational-relevant object is its `env` array (region_array), as before.
             Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::gen_age(gc_ref),
-                crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::gen_age(gc_ref),
-                crate::metadata::types::RefKind::Stack { .. } => 0,
-            },
             // add-boxed-struct-identity (P4b): gen-age of the boxed struct's shared object.
             Value::BoxedStruct(gc) => GcRef::gen_age(gc),
+            // make-value-copy: `Ref` handle carries no direct heap allocation to age
+            // (its target is aged via the arena root scan) → 0.
             _ => 0,
         }
     }
@@ -1066,11 +1046,9 @@ impl ArcMagrGC {
             Value::Array(gc)  => GcRef::gen_age(gc),
             // unify-gc-heap PR-2: closure block non-generational; use its `env` array's age.
             Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Array { gc_ref, .. } => GcRef::gen_age(gc_ref),
-                crate::metadata::types::RefKind::Field { gc_ref, .. } => GcRef::gen_age(gc_ref),
-                crate::metadata::types::RefKind::Stack { .. } => return,
-            },
+            // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
+            // = false), so a write barrier here is unreachable for it; its target's age is
+            // handled via the transient-arena root scan.
             _ => return,
         };
         // Only old→young triggers a card. Young→young is in-young
@@ -2168,10 +2146,6 @@ impl MagrGC for ArcMagrGC {
                     + obj.bytes.len()
                     + obj.refs.len() * size_of::<Value>()
             }
-            // Spec C4: PinnedView holds raw ptr+len; the borrowed buffer
-            // itself is owned by the source `Value::Str` / `Value::Array`,
-            // not by the view. Charge only the discriminant + scalars.
-            Value::PinnedView(_) => size_of::<Value>() + size_of::<crate::metadata::PinnedViewData>(),
             // impl-lambda-l2: FuncRef holds the function name; no managed heap
             // allocation beyond the string buffer.
             Value::FuncRef(name) => size_of::<Value>() + name.len(),
@@ -2185,30 +2159,20 @@ impl MagrGC for ArcMagrGC {
                     + data.env.borrow().elem_storage_bytes()
                     + data.fn_name.len()   // unify-gc-heap PR-5: fn_name is a GC `Str` (bytes in its block)
             }
-            // impl-closure-l3-escape-stack: StackClosure 的 env 在创建 frame 的
-            // env_arena 中，由 frame 拥有；本 Value 自身只携带 idx + fn_name。
-            // GC 不为 arena 内存分配 / 释放负责（frame Drop 自动处理）。
-            Value::StackClosure(sc) => {
-                size_of::<Value>() + size_of::<crate::metadata::StackClosureData>() + sc.fn_name.capacity()
-            }
-            // Spec impl-ref-out-in-runtime: Ref 仅存索引或 GcRef；底层
-            // Vec/Object 已被本身的 Value::Array / Value::Object 计入，
-            // Ref 只额外计入自己的 enum tag + RefKind 数据。
-            Value::Ref(kind) => match kind.as_ref() {
-                crate::metadata::types::RefKind::Stack { .. } => size_of::<Value>(),
-                crate::metadata::types::RefKind::Array { .. } => size_of::<Value>(),
-                crate::metadata::types::RefKind::Field { field_name, .. } =>
-                    size_of::<Value>() + field_name.capacity(),
-            },
+            // make-value-copy: `StackClosure` / `Ref` / `StructRefHeap` are now
+            // transient-arena handles (payload owned by the per-context arena, freed by
+            // frame-exit truncation, not the GC heap) — the handle in a Value is just an
+            // (idx, frame_id) pair, exactly like the stack / struct-arena handles below.
+            //
             // add-escape-analysis-stack-alloc: stack objects/arrays live in the
             // per-context arena, not the GC heap — object_size_bytes is a heap-alloc
             // accounting hook and is never called on them; the arm exists only for
             // exhaustiveness. The handle itself is just a (idx, frame_id) pair.
-            Value::StackObject { .. } | Value::StackArray { .. } => size_of::<Value>(),
-            // add-struct-value-semantics: struct blob lives in the per-context
-            // struct arena, not the GC heap — same as stack handles. The handle
-            // itself is just an (idx, frame_id) pair.
-            Value::StructRef { .. } => size_of::<Value>(),
+            // add-struct-value-semantics: struct blob lives in the per-context struct arena.
+            Value::StackObject { .. } | Value::StackArray { .. }
+            | Value::StructRef { .. }
+            | Value::StackClosure { .. } | Value::Ref { .. }
+            | Value::PinnedView { .. } | Value::StructRefHeap { .. } => size_of::<Value>(),
             // add-boxed-struct-identity (P4b, 路 B2): boxed struct 现是共享 `ScriptObject`——按对象
             // 计其 struct_bytes/struct_refs（与 Object 臂同）。对象本体在 region_object，alloc 时已计一次；
             // 此臂给按 Value 计尺寸的诚实值。
@@ -2218,10 +2182,6 @@ impl MagrGC for ArcMagrGC {
                     + obj.bytes.len()
                     + obj.refs.len() * size_of::<Value>()
             }
-            // add-struct-heap-inline (P3b): a struct[] element handle — the backing
-            // array is accounted via its own Value::Array; charge only the boxed handle.
-            Value::StructRefHeap(_) => size_of::<Value>()
-                + size_of::<crate::metadata::types::StructArrayElem>(),
         }
     }
 

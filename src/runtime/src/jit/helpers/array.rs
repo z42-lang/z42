@@ -187,12 +187,18 @@ pub unsafe extern "C" fn jit_array_get(
             // a `get_boxed` BoxedStruct snapshot and the following StructFieldGetPrim
             // (base = StructRefHeap/StructRef) would mismatch.
             if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
-                let arr_gc = rc.clone();
+                let arr_gc = *rc;
                 drop(borrowed);
-                Value::StructRefHeap(Box::new(crate::metadata::types::StructArrayElem {
-                    arr: arr_gc,
-                    index: i as u32,
-                }))
+                // make-value-copy: StructRefHeap payload → transient arena (JIT uses the
+                // same per-context arena + lazily-assigned frame_id as struct_arena handles).
+                let fid = super::struct_ops::frame_id_of(frame, ctx);
+                let hidx = vm_ctx_ref(ctx).transient_arena.lock().alloc(
+                    fid,
+                    crate::interp::transient_arena::TransientPayload::StructElem(
+                        crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },
+                    ),
+                );
+                Value::StructRefHeap { idx: hidx, frame_id: fid }
             } else {
                 borrowed.get_boxed(i)
             }

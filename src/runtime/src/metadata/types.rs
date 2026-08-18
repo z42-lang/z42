@@ -1910,7 +1910,7 @@ impl ArrayObj {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, u8)]
 pub enum Value {
     I64(i64)        = 0,
@@ -1945,7 +1945,8 @@ pub enum Value {
     /// inline `Value` size — `PinnedView` is created on the rare
     /// `PinPtr` opcode and immediately consumed by the next native
     /// call, so the heap-alloc cost is dominated by the FFI it enables.
-    PinnedView(Box<PinnedViewData>) = 8,
+    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `PinnedViewData`).
+    PinnedView { idx: u32, frame_id: u32 } = 8,
     /// Function reference value. Currently used by L2 no-capture lambda
     /// literals (see docs/design/language/closure.md §6). Indirect call dispatches
     /// to the named function in the loaded module.
@@ -1990,7 +1991,8 @@ pub enum Value {
     /// inline `Value` size — StackClosure is created on the rare
     /// non-escaping closure path and only consumed by the next
     /// `CallIndirect` before the creating frame returns.
-    StackClosure(Box<StackClosureData>) = 11,
+    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `StackClosureData`).
+    StackClosure { idx: u32, frame_id: u32 } = 11,
     /// Spec impl-ref-out-in-runtime: `ref` / `out` / `in` 参数运行时表达。
     /// 持有该 Value 的寄存器在 frame.get/set 时被透明 deref（单点 dispatch，
     /// 见 `interp/mod.rs::Frame::get`）。引用永远不离开调用栈帧（前置 spec
@@ -2000,7 +2002,8 @@ pub enum Value {
     /// is 32 B (Field variant) — biggest cold-path payload after
     /// Closure. Refs only live in registers for a single call's
     /// duration, so the box alloc is a tiny fraction of the call cost.
-    Ref(Box<RefKind>) = 12,
+    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `RefKind`).
+    Ref { idx: u32, frame_id: u32 } = 12,
     // discriminant 13 retired by unify Phase 2 R3（装箱统一）：基元装箱不再走
     // `Value::Boxed(Box<BoxedPrim>)`——整数标量装进堆 `ScriptObject` 的 `struct_bytes` 并以
     // `Value::BoxedStruct` 承载（与 struct 装箱同一模型 + 引用身份）。判别号 13 留空（14-18 号不
@@ -2045,7 +2048,8 @@ pub enum Value {
     /// this handle and a following `StructFieldGetPrim/SetPrim` reads/writes a leaf of
     /// element `index` (routing byte/ref access through the array's `StructBytes`
     /// backing). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
-    StructRefHeap(Box<StructArrayElem>) = 18,
+    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `StructArrayElem`).
+    StructRefHeap { idx: u32, frame_id: u32 } = 18,
 }
 
 // unify-object-byte-layout PR-5 (2026-08-15): `Value` is the interpreter's
@@ -2226,16 +2230,13 @@ impl Value {
             // that needs a write barrier (generational card / concurrent mark-queue),
             // so the string block is found + kept marked. `FuncRef` carries a `Str`.
             Value::Str(_) | Value::FuncRef(_) => true,
-            Value::Ref(kind) => matches!(
-                kind.as_ref(),
-                RefKind::Array { .. } | RefKind::Field { .. }
-            ),
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 现是共享 `ScriptObject` 句柄 →
             // 与 `Value::Object` 同为强堆边（存进堆槽需写屏障）。
             Value::BoxedStruct(_) => true,
-            // add-struct-heap-inline (P3b): holds a live `GcRef<ArrayObj>` — a strong
-            // heap edge, so if ever stored into a heap slot it needs a barrier (conservative).
-            Value::StructRefHeap(_) => true,
+            // make-value-copy: `Ref` / `StructRefHeap` are now transient-arena handles
+            // (like `StructRef` / `StackObject`) — their payload's GcRefs are kept marked
+            // by the arena root scan, and the handles never escape the creating frame into
+            // a heap slot, so no write barrier is needed here → fall through to `false`.
             _ => false,
         }
     }
@@ -2291,30 +2292,14 @@ impl Value {
                     for elem in arr.gc_refs() { visit(elem); }
                 }
             }
-            Value::Ref(kind) => match kind.as_ref() {
-                RefKind::Stack { .. } => {}
-                RefKind::Array { gc_ref, .. } => {
-                    let arr = gc_ref.borrow();
-                    if for_marking { arr.mark_backing(); }  // unify-gc-heap PR-3: keep the element block(s) alive
-                    for elem in arr.gc_refs() { visit(elem); }
-                }
-                RefKind::Field { gc_ref, .. } => {
-                    let obj = gc_ref.borrow();
-                    for r in &obj.refs { visit(r); }  // unify-object-byte-layout (PR-2)
-                    obj.trace_inline_refs(visit);     // PR-3 chunk 2b: inlined object/array refs
-                }
-            },
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
             // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
             Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visit(r); } }
-            // add-struct-heap-inline (P3b): a struct[] element handle — follow the
-            // backing array's reference leaves so they stay marked (the array entry
-            // itself is marked by the `StructRefHeap` arm of the mark loop).
-            Value::StructRefHeap(e) => {
-                let arr = e.arr.borrow();
-                if for_marking { arr.mark_backing(); }
-                for r in arr.gc_refs() { visit(r); }
-            }
+            // make-value-copy: `Ref` / `StructRefHeap` are transient-arena handles — leaves
+            // here, exactly like `StructRef` / `StackObject`. Their payload's GcRefs (a
+            // Ref's Array/Field target, a StructRefHeap's backing array) are scanned
+            // *directly* by `TransientArena::scan_roots` (a GC root), so tracing through
+            // the handle here would double-count.
             // Primitives — no children.
             // add-escape-analysis-stack-alloc: StackObject / StackArray are
             // leaves for the child-traversal — their slots/elems live in the
@@ -2328,7 +2313,8 @@ impl Value {
             // scanner (mirrors StackObject), so walking here would double-count.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
-            | Value::PinnedView(_) | Value::StackClosure(_)
+            | Value::PinnedView { .. } | Value::StackClosure { .. }
+            | Value::Ref { .. } | Value::StructRefHeap { .. }
             | Value::StackObject { .. } | Value::StackArray { .. }
             | Value::StructRef { .. } => {}
         }
@@ -2355,21 +2341,19 @@ impl PartialEq for Value {
             // Array/Object equality is reference equality (same as C# reference semantics)
             (Value::Array(a),  Value::Array(b))  => GcRef::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => GcRef::ptr_eq(a, b),
-            (Value::PinnedView(a), Value::PinnedView(b)) => {
-                a.ptr == b.ptr && a.len == b.len && a.kind == b.kind
-            }
-            // Spec impl-ref-out-in-runtime: Ref 比较按 RefKind 字段；
-            // Array/Field kind 用 GcRef::ptr_eq（同 Object/Array 引用语义）；
-            // Stack kind 比 frame_idx + slot（指向同一栈位置）。
-            (Value::Ref(a), Value::Ref(b)) => match (&**a, &**b) {
-                (RefKind::Stack { frame_idx: f1, slot: s1 },
-                 RefKind::Stack { frame_idx: f2, slot: s2 }) => f1 == f2 && s1 == s2,
-                (RefKind::Array { gc_ref: g1, idx: i1 },
-                 RefKind::Array { gc_ref: g2, idx: i2 }) => GcRef::ptr_eq(g1, g2) && i1 == i2,
-                (RefKind::Field { gc_ref: g1, field_name: n1 },
-                 RefKind::Field { gc_ref: g2, field_name: n2 }) => GcRef::ptr_eq(g1, g2) && n1 == n2,
-                _ => false,
-            },
+            // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap` / `StackClosure`)
+            // are now transient-arena handles — compare by `{idx, frame_id}` handle
+            // identity (same as `StackObject`). These are internal transient values; user
+            // code has no by-value-equality dependency on them (they never reach a
+            // user-visible `==` — an escape sink would have materialized the heap form).
+            (Value::PinnedView { idx: i1, frame_id: g1 },
+             Value::PinnedView { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
+            (Value::Ref { idx: i1, frame_id: g1 },
+             Value::Ref { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
+            (Value::StackClosure { idx: i1, frame_id: g1 },
+             Value::StackClosure { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
+            (Value::StructRefHeap { idx: i1, frame_id: g1 },
+             Value::StructRefHeap { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             // add-primitive-value-boxing → unify Phase 2 R3: 装箱整数 vs 裸整数 —— 透明拆箱按值比较
             // （保留 add-primitive-value-boxing 的混合相等语义）。装箱整数盒是 `BoxedStruct`（整数标量
             // 存 struct_bytes）；非整数盒（多字段 struct 装箱）`boxed_prim_i64` 返 None → 落 `_=>false`

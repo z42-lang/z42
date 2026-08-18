@@ -502,16 +502,18 @@ impl<T> Clone for GcRef<T> {
     /// **D8 (no atomic op on clone)**: 8-byte memcpy of the tagged pointer.
     /// No `fetch_add`, no `Arc::clone`. Hot path on every Value passing
     /// through interp / JIT / closure capture / field access.
+    #[inline(always)]
     fn clone(&self) -> Self {
-        Self { tagged: self.tagged, _phantom: PhantomData }
+        *self
     }
 }
 
-impl<T> Drop for GcRef<T> {
-    /// **D8 cont.**: no-op. No refcount to decrement. Finalizer fires
-    /// at sweep_phase (or via `Std.GC.Finalize(x)`), never here.
-    fn drop(&mut self) {}
-}
+// make-value-copy: `GcRef` is a POD tagged-pointer handle — it owns no resource and
+// its `Drop` was already a no-op (D8: no refcount; finalizers fire at sweep, not on
+// scope exit). Making it `Copy` (dropping the explicit no-op `Drop`) is what lets the
+// enclosing `Value` be `Copy` — clone becomes a plain memcpy and `Vec<Value>` drops in
+// O(1). `BoxedStruct(GcRef)` / `Object` / `Array` inherit `Copy` from this.
+impl<T> Copy for GcRef<T> {}
 
 impl<T: std::fmt::Debug> std::fmt::Debug for GcRef<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

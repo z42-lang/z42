@@ -410,6 +410,11 @@ pub struct VmContext {
     /// (`Value::StructRef` indexes it). Same lifetime model as `stack_arena`
     /// (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) struct_arena:      Arc<Mutex<crate::interp::struct_arena::StructArena>>,
+    /// make-value-copy: per-thread arena holding the payloads of the four transient,
+    /// frame-scoped `Value` variants (`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap`,
+    /// which now carry only an 8B `{idx,frame_id}` handle so `Value` is `Copy`). Same
+    /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
+    pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,
     /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
     /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
     pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
@@ -573,6 +578,7 @@ impl VmContext {
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
+            transient_arena: Arc::new(Mutex::new(Default::default())),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -746,6 +752,10 @@ impl VmContext {
                     // leaves are GC roots too (no-op for pure-primitive structs;
                     // ref-leaf scanning by type ref-bitmap lands in A-use).
                     ctx.struct_arena.lock().scan_roots(visit);
+                    // make-value-copy: transient payloads (Ref target / StructRefHeap
+                    // backing array) hold GcRefs that must stay marked while the handle
+                    // is live; the arena is the root (handles are not traced through).
+                    ctx.transient_arena.lock().scan_roots(visit);
                 }
             }));
         }
@@ -806,6 +816,10 @@ impl VmContext {
                     ctx.struct_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
+                    // make-value-copy: transient payloads' GC leaves.
+                    ctx.transient_arena
+                        .lock()
+                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                 }
             }));
         }
@@ -816,6 +830,7 @@ impl VmContext {
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
+            transient_arena: Arc::new(Mutex::new(Default::default())),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
@@ -1105,6 +1120,8 @@ impl VmContext {
         frame.stack_arr_base = arr_base;
         // add-struct-value-semantics: stamp the value-struct byte-arena base too.
         frame.struct_base = self.struct_arena.lock().base();
+        // make-value-copy: stamp the transient-arena base too.
+        frame.transient_base = self.transient_arena.lock().base();
         self.call_stack.lock().push(frame);
     }
 
@@ -1118,6 +1135,8 @@ impl VmContext {
             self.stack_arena.lock().truncate(f.stack_obj_base, f.stack_arr_base);
             // add-struct-value-semantics: LIFO-free this frame's value-struct blobs.
             self.struct_arena.lock().truncate(f.struct_base);
+            // make-value-copy: LIFO-free this frame's transient payloads.
+            self.transient_arena.lock().truncate(f.transient_base);
         }
     }
 

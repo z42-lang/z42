@@ -27,6 +27,7 @@ mod exec_vcall;
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
 pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs
+pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/PinnedView/StackClosure/StructRefHeap
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;
@@ -360,7 +361,12 @@ impl Frame {
     #[allow(dead_code)]
     pub fn get_deref(&self, reg: u32, ctx: &VmContext) -> Result<Value> {
         match self.get(reg)? {
-            Value::Ref(kind) => deref_ref(kind.as_ref(), ctx),
+            // make-value-copy: resolve the Ref handle → RefKind via the transient arena,
+            // release the arena lock (clone) before deref touches heap / other locks.
+            Value::Ref { idx, frame_id } => {
+                let kind = ctx.transient_arena.lock().ref_kind(*idx, *frame_id)?;
+                deref_ref(&kind, ctx)
+            }
             other => Ok(other.clone()),
         }
     }
@@ -377,7 +383,8 @@ impl Frame {
             self.regs.resize(idx + 1, Value::Null);
         }
         let kind_to_store = match &self.regs[idx] {
-            Value::Ref(kind) => Some((**kind).clone()),
+            // make-value-copy: resolve the Ref handle → RefKind via the transient arena.
+            Value::Ref { idx: ai, frame_id } => Some(ctx.transient_arena.lock().ref_kind(*ai, *frame_id)?),
             _ => None,
         };
         match kind_to_store {
@@ -408,7 +415,7 @@ pub(crate) fn deref_ref(
                     "ref target slot %{slot} out of frame range"))?;
             // Sanity guard: ref-to-ref nesting not supported (codegen never
             // produces it; defend in case of malformed bytecode).
-            if let Value::Ref(_) = v {
+            if let Value::Ref { .. } = v {
                 anyhow::bail!("ref-to-ref nesting not supported");
             }
             Ok(v.clone())
@@ -555,7 +562,7 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
 fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<Result<ExecOutcome>> {
     let p = ctx.jit_ctx_ptr();
     if p == 0 { return None; }
-    if args.iter().any(|a| matches!(a, Value::Ref(_))) { return None; }
+    if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
     // lockstep with `vm_ctx`). Copy the small entry fields out before the native
@@ -688,8 +695,10 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // frame 尚未入栈，Ref::Stack { frame_idx } 指向 caller 的栈位置，
     // ctx.frame_state_at 能找到正确 regs 指针。
     for i in 0..(func.param_count as usize).min(frame.regs.len()) {
-        if let Value::Ref(kind) = &frame.regs[i] {
-            let kind_clone = (**kind).clone();
+        // make-value-copy: Ref is a transient-arena handle — resolve its RefKind via the
+        // arena (the handle was created in the caller's frame, still live here).
+        if let Value::Ref { idx, frame_id } = frame.regs[i] {
+            let kind_clone = ctx.transient_arena.lock().ref_kind(idx, frame_id)?;
             let underlying = deref_ref(&kind_clone, ctx)?;
             frame.regs[i] = underlying;
             frame.ref_writebacks.push((i as u32, kind_clone));

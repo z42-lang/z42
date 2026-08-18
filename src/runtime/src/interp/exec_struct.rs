@@ -203,7 +203,9 @@ pub(crate) fn struct_field_get_val(
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
-        Value::StructRefHeap(e) => {
+        // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
+        Value::StructRefHeap { idx, frame_id } => {
+            let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
             let arr = e.arr.borrow();
             // unify-gc-heap PR-3: struct[] element bytes/refs live in GC blocks — read via accessors.
             let layout = arr.struct_layout()
@@ -318,7 +320,9 @@ pub(crate) fn struct_field_set_val(
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.
-        Value::StructRefHeap(e) => {
+        // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
+        Value::StructRefHeap { idx, frame_id } => {
+            let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
             if is_ref_tag(kind) {
                 {
                     // unify-gc-heap PR-3: write the ref leaf into the struct[] refs block.

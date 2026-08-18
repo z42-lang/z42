@@ -574,10 +574,15 @@ pub unsafe extern "C" fn jit_as_cast(
     }
     // add-struct-jit-value-path (P5): struct[] 元素句柄在值上下文（foreach 循环变量等）→ 拷出到
     // 当前帧 arena StructRef（值副本快照，镜像 interp copy_array_elem_out）。
-    if let Value::StructRefHeap(e) = &val {
+    if let Value::StructRefHeap { idx, frame_id } = &val {
+        // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
+        let e = match vm_ctx_ref(ctx).transient_arena.lock().struct_elem(*idx, *frame_id) {
+            Ok(e) => e,
+            Err(_) => { (*frame).regs[dst as usize] = Value::Null; return; }
+        };
         let fid = super::struct_ops::frame_id_of(frame, ctx);
         (*frame).regs[dst as usize] =
-            crate::interp::exec_struct::copy_array_elem_out(vm_ctx_ref(ctx), fid, e)
+            crate::interp::exec_struct::copy_array_elem_out(vm_ctx_ref(ctx), fid, &e)
                 .unwrap_or(Value::Null);
         return;
     }

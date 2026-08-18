@@ -233,13 +233,20 @@ pub(super) fn field_get(
                 other => bail!("array has no field `{}`", other),
             }
         }
-        Value::PinnedView(pv) => match field_name {
-            // Spec C4 — only `ptr` / `len` are exposed; element type
-            // information (kind) stays internal.
-            "ptr" => Value::I64(pv.ptr as i64),
-            "len" => Value::I64(pv.len as i64),
-            other => bail!("PinnedView has no field `{}` (only `ptr` / `len`)", other),
-        },
+        // make-value-copy: PinnedView is a transient-arena handle — resolve ptr/len via arena.
+        Value::PinnedView { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            let (ptr, len) = ctx.transient_arena.lock().with(idx, frame_id, |p| match p {
+                crate::interp::transient_arena::TransientPayload::PinView(pv) => (pv.ptr, pv.len),
+                _ => (0u64, 0u64),
+            })?;
+            match field_name {
+                // Spec C4 — only `ptr` / `len` are exposed; element type (kind) stays internal.
+                "ptr" => Value::I64(ptr as i64),
+                "len" => Value::I64(len as i64),
+                other => bail!("PinnedView has no field `{}` (only `ptr` / `len`)", other),
+            }
+        }
         other => bail!("FieldGet: not an object or known value type, got {:?}", other),
     };
     frame.set(dst, val);
@@ -419,8 +426,9 @@ pub(super) fn as_cast(
     // add-struct-foreach (P3b follow-up): a `StructBytes`-array element handle (`arr[i]` in a
     // value context — e.g. `foreach (P p in arr)`) → copy the element out to a fresh current-frame
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
-    if let Value::StructRefHeap(e) = &val {
-        let out = super::exec_struct::copy_array_elem_out(ctx, frame.frame_id, e)?;
+    if let Value::StructRefHeap { idx, frame_id } = &val {
+        let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+        let out = super::exec_struct::copy_array_elem_out(ctx, frame.frame_id, &e)?;
         frame.set(dst, out);
         return Ok(());
     }
