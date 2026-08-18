@@ -331,6 +331,47 @@ if let Some(cell) = cross_cell:
   既有 cross-zpkg 慢路径处取用）。
 - **仅 interp**：JIT 的 cross-zpkg 走 `jit_call` helper，本机制不动它（见下）。
 
+### 惰性加载函数的 token 首执解析（perf-lazy-resolve-tokens，2026-08-18）
+
+上面所有 per-site 缓存（`method_tokens` / `cross_module_targets` / `vcall_ic` /
+`field_ic` / `builtin_tokens` / `static_field_tokens` / `type_tokens` / `site_index`）
+都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
+[`resolver::resolve_module`](../../../src/runtime/src/metadata/resolver.rs) 一次性填充。
+但 `resolve_module` **只在 `Vm::run` 里对 entry module 跑一次**——而
+interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](../../../src/runtime/src/app.rs)
+`is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
+**所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
+z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进 `function_table`，其
+`Function.resolved` **永不被 set**。
+
+后果：**整个自编译工作负载（跑在惰性加载的 z42c.* 里）dispatch 时所有 per-site
+缓存全失效**——`resolved == None` → `site_idx` 恒 `UNRESOLVED` → VCall 无 PIC、
+Field 无 IC、Builtin/Static 走名字查、每个 Call 都对 entry module 的
+`func_index` 做一次 String hash+`memcmp` 且 miss、再 `try_lookup_function`。
+profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
+
+修法：把 `resolve_module` 的**单函数体**抽成
+[`resolve_function_tokens(func, module, ctx)`](../../../src/runtime/src/metadata/resolver.rs)，
+并在 [`exec_function_body`](../../../src/runtime/src/interp/mod.rs) 顶部**首次执行时**
+按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
+热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
+
+**模块身份不变式（关键正确性约束）**：填充用的 `module` 必须是该函数**运行期实际
+dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调用方的 `module`
+一路透传，根在 entry）。`method_tokens` / `type_tokens` 是 `module.functions` /
+`module.type_registry` 的下标；对**别的** module 解析会铸出错下标。跨模块目标
+（不在 entry module）在此正确解析为 `UNRESOLVED`，交由 `cross_module_targets`
+per-site 首执缓存兜住（见上一节）。**`vcall_ic` / `field_ic`（运行期首派填充）、
+`builtin_tokens`（全局闭集）、`static_field_tokens`（全局 `ctx.resolve_static_field_id`，
+锁保护幂等）** 均与 module 下标无关 → 这几条是本优化的主要收益来源。
+
+- **只填被执行的函数**：比"加载时对整个惰性 module 跑 `resolve_module`"更省
+  （加载但从不调用的函数零解析开销），且天然拿到正确的 entry-module 身份。
+- **并发安全**：worker 线程可并发首执同一函数；两者各自构建等价 `ResolvedTokens`
+  （静态字段 id 按名幂等、同值），`OnceLock::set` 取胜者，落败者丢弃无副作用。
+- **实测**：自编译前端 typecheck **1.26× faster**，`--dump-bound` 输出逐字节一致，
+  无格式/wire/语义变更。
+
 ### JIT cross-zpkg 调用解析（fix-jit-cross-zpkg-call，2026-06-20）
 
 JIT 把一个模块的全部函数编译成原生码，`jit_call` 跳转到 `fn_entries`（本 JIT 模块
