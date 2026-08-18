@@ -60,9 +60,14 @@ GREEN**，commit 前必须跑完整 `xtask test`）：
 
 | 手段 | 命令 | 作用 |
 |------|------|------|
+| 查有哪些用例 / 怎么跑 | `./xtask test list [--dir/--filter/--kind/--rid] [--json]` | 只读列出**用例级** corpus（src/tests golden + stdlib `[Test]`）：每例的运行命令、interp/jit、`--rid` 下的平台门控。定位「该跑哪个用例」的入口；`--json` 供脚本 |
 | 按改动挑 stage | `./xtask test changed [base]` | 按 `git diff` 逐文件映射为命令并集，只跑受影响的 stage（`--dry-run` 只打印计划）；见 [`changed-only.md`](changed-only.md) |
-| 单跑某 stage | `./xtask test e2e --dir <cat>` / `--file <p>` / `test stdlib <lib>` | 只跑一个类别 / 单库 |
+| 单跑一个用例 / 类别 / 库 | `./xtask test e2e --file <name>` / `--dir <cat>` / `test stdlib <lib> -k <name>` | 只跑命中用例。配 `--no-build`（或 `--toolchain`）时**仅重编命中用例的 golden**（tidy-test-system，2026-08-19）——改一个用例从"全量重编 ~333 golden"降到秒级 |
 | 跳过重建波 | `./xtask test … --no-build`（或 `--no-rebuild`）| 消费已建产物，反复迭代同一测试时不重编 |
+
+> **快速迭代标准姿势**：先跑一次完整 `xtask test`（或 `build`）备好工具链，之后
+> `./xtask test e2e --file <name> --no-build` 反复迭代——只重编+跑那一个用例。用
+> `./xtask test list --filter <kw>` 先查准确的用例名。**commit 前仍须跑完整 `xtask test`**。
 
 > **注**：早期 C# 版 xtask 曾有 `--scope=full|runtime|compiler|stdlib|auto` 与 `--parallel`
 > wave 机制；z42 版 xtask **尚未实现**这两者（源码 `scripts/test/xtask_test.z42` 注明是
@@ -97,7 +102,12 @@ GREEN**，commit 前必须跑完整 `xtask test`）：
 | `source.z42` | 必须 | z42 源码 |
 | `source.zbc` | 由 `xtask build test` 生成 | **不与 `source.z42` 同处**——镜像到 `artifacts/build/<...>`（gitignored）；唯一例外 `{zbc,zpkg}-format/*` 是 check-in 基线，就地重写 |
 | `expected_output.txt` | run 用例 | stdout 期望；**空 / 缺失 = 靠内置 `Assert.*` 自验**（跑通无输出即过）|
-| `interp_only` | 可选 marker | JIT 模式跳过该用例 |
+| `interp_only` | 可选 marker | JIT 模式跳过该用例（`test list` 显示为 `[interp]`）|
 | `features.toml` | 可选 | LanguageFeatures override |
+
+> **查用例元数据不必读源码**：`./xtask test list` 把「用例名 → 运行命令 / interp·jit /
+> 平台门控」列成表——`--rid browser-wasm`（或 ios/android RID）标出哪些用例因目标平台
+> 缺能力（socket/threads/native-fs，判据 `_targetExcludes`）被排除。这套「哪个平台能跑哪些
+> 用例」的门控同时驱动移动/wasm 嵌入 smoke 的采样，见 [`platform-tests.md`](platform-tests.md)。
 
 > 测试**设计**（attribute 体系 / TIDX section / z42b runner 协议）见 [`docs/design/testing/`](../../design/testing/)（迁移中；`testing.md` 已冻结）。

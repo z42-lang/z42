@@ -135,3 +135,13 @@ eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 
 平台测试**不在** `./xtask test`（host 6 stages）内——它们需各自的重型工具链，
 按需单独跑。CI 各平台独立 job 跑（见 [`../ci.md`](../ci.md)），结果以 GitHub Check 呈现。
+
+## 嵌入 smoke corpus（移动/wasm 跑多少用例）
+
+`test embedded --rid <wasm|ios|android>` 把 src/tests goldens + stdlib `[Test]` 汇成一个 bundle
+穿过嵌入 VM 跑。受限平台上完整 corpus（~500 例）太慢（曾超时 / 撞 job 时限），故取
+**smoke 子集（cap=60）**——定位是「验嵌入执行路径通不通」，非全覆盖（全覆盖是 desktop：不 cap）。
+子集按**类别 round-robin 采样**（tidy-test-system），每个类别都有代表 case，不再偏向字母序靠前的类。
+缺目标平台能力（socket/threads/native-fs）的用例整例排除。机制详见
+[`../../design/testing/embedded-app-run.md` §5.7](../../design/testing/embedded-app-run.md)；
+用 `xtask test list --rid <rid>` 可查哪些用例会被排除。

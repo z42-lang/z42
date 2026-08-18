@@ -142,6 +142,52 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 - Android:cargo-ndk 建 `.so`(arm64-v8a + x86_64)全绿(fs_backend 改动跨编 android 通过);JNI C
   经 NDK clang 语法校验通过。AAR(gradle)+ emulator RUN(`connectedAndroidTest`)为 CI/emulator 门。
 
+## 5.7 嵌入 corpus 枚举 + 能力门控 + 按类 smoke 采样(tidy-test-system, 2026-08-19)
+
+嵌入 bundle 的构建(`_buildTestBundle`, `scripts/test/xtask_test_embedded.z42`)分三步流水线,
+枚举、门控、采样三个关注点解耦:
+
+```
+_enumerateCorpus(root, filter)      → _CorpusCase[]   (结构化,rid 无关)
+  → _targetExcludes(rid, name) 过滤 → included[]      (平台能力门控)
+  → _sampleCorpus(included, cap)    → selected[]      (按类 round-robin 采样)
+  → 逐 selected 编译 (kind → _goldenEntry / _emitUnitZbc / _emitDirUnit) → manifest.json
+```
+
+### 枚举 SoT:`_enumerateCorpus`
+
+单一枚举函数产出 `_CorpusCase` 描述符(name / bucket / kind / 源路径 / interpOnly),覆盖四段:
+① src/tests goldens(dir + flat 两布局)② stdlib `[Test]` 文件单元 ③ stdlib `[Test]` 目录单元
+④ stdlib lib-goldens。**`test list` 命令(catalog)与 bundle 构建共用这一个枚举**——两个消费者、
+零漂移。枚举**rid 无关**:能力门控与 cap 是 bundle 时策略,不混进枚举,故 `test list` 能对同一份
+用例集叠加任意 `--rid` 视角。
+
+关键不变式:枚举顺序稳定(cats 字母序 → 每 lib 内 单元→目录单元→lib-golden),因此**同 bucket
+的用例在数组里连续** —— `_sampleCorpus` 依赖这一点做零额外分配的分桶。
+
+### 能力门控:`_targetExcludes`
+
+粗粒度(库级)判定:目标平台缺某能力(wasm 无 socket/threads/native-fs/env/process)则该用例整例
+排除,让平台 corpus 诚实(不跑注定崩的 socket/stream 测)。native 目标(desktop/ios/android)跑全集。
+`test list --rid <rid>` 把此门控标为 `EXCL(<rid>)`,是「哪个平台能跑哪些用例」的可查视图。
+
+### 按类 smoke 采样:`_sampleCorpus`(本次核心改动)
+
+受限平台(wasm/ios/android)的完整 corpus(~500 例)在浏览器 interp / 模拟器 / 真机上跑 >20min
+(wasm 曾超时、android 曾撞 60min job 上限),故 cap 为 smoke 子集(`embedCap=60`,desktop=0 不 cap
+= 全覆盖的家)。**旧实现是「排序后前 60」——字母序靠前的类别(arith/array…)挤满预算,靠后的
+(try/string/stdlib 单元)一个抽不到,覆盖面偏斜。**
+
+新实现按 bucket **round-robin**:把连续桶(枚举顺序天然连续)按轮次一桶取一例,直到取满 cap 或全部
+取尽 —— 每个类别都拿到代表 case,60 的预算在类别间均摊。确定性:桶序 = 首次出现序(即字母序)、
+桶内序 = 枚举序、结果按原枚举序发射(manifest 顺序稳定)。cap≤0 或 total≤cap → 返回全集(desktop
+逐字节不变)。
+
+> 采样**定位仍是 smoke**(验嵌入执行路径 agent + per-case 隔离 + `app::run` 通不通),不是全覆盖;
+> 全覆盖是 desktop 的职责。本次只是让 60 的子集**更有代表性**,未提 cap、未改 CI 拓扑。
+> 本地验采样分布:`xtask test embedded --rid iossim-arm64` 打印 `bundle: N cases` + 采样报告,
+> 看被抽到的 case 名跨类别分布即可,无需真跑模拟器。
+
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
 嵌入式 RUN **折叠进现有 `test-{wasm,ios,android}` job**(`.github/workflows/ci.yml`),复用同一
