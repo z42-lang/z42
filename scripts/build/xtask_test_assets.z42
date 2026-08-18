@@ -44,6 +44,14 @@ class _GoldenCases {
 // tests, flat-mode src/tests) into parallel arrays. Split out of _regenGolden (was
 // ~100 lines inline) to keep that function within the size limit (review §2.8).
 _GoldenCases _collectGoldenCases(string root) {
+    return _collectGoldenCasesF(root, "", "");
+}
+
+// Filtered variant: mirrors _enumerateCasesF's --dir (category) / --file (name or
+// source-path substring) narrowing so `test e2e --file X` on the fast --no-build /
+// --toolchain path regenerates ONLY the matched case's .zbc instead of all ~333.
+// Both filters empty = the full set (`build test` + gate build-wave — unchanged).
+_GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilter) {
     string[] caseNames    = new string[64];
     string[] caseSources  = new string[64];
     string[] caseOutputs  = new string[64];
@@ -63,6 +71,7 @@ _GoldenCases _collectGoldenCases(string root) {
             string name = names[ni];
             string caseDir = Path.Join(catDir, name);
             string src = Path.Join(caseDir, "source.z42");
+            if (!_e2eIncluded(cat, name, src, dirFilter, fileFilter)) { ni = ni + 1; continue; }
             if (File.Exists(src)) {
                 // zbc-format: checked-in byte baseline → regen overwrites in place
                 // (git diff = format drift). All other run-goldens redirect to the
@@ -88,7 +97,8 @@ _GoldenCases _collectGoldenCases(string root) {
 
     // Dir mode part 2: src/libraries/<lib>/tests/<name>/source.z42
     string libsRoot = Path.Join(root, "src/libraries");
-    string[] libs = _enumDirsSorted(libsRoot);
+    // --dir <cat> excludes library golden tests entirely (mirrors _enumerateCasesF).
+    string[] libs = (dirFilter.Length > 0) ? new string[0] : _enumDirsSorted(libsRoot);
     int li = 0;
     while (li < libs.Length) {
         string libTestsDir = Path.Join(libsRoot, libs[li] + "/tests");
@@ -103,6 +113,7 @@ _GoldenCases _collectGoldenCases(string root) {
                 // _enumerateCases.
                 if (_dirHasTestMethods(caseDir)) { ni = ni + 1; continue; }
                 string src = Path.Join(caseDir, "source.z42");
+                if (fileFilter.Length > 0 && !_e2eIncluded("", name, src, "", fileFilter)) { ni = ni + 1; continue; }
                 if (File.Exists(src)) {
                     // run-golden → artifacts mirror (no zbc-format under libraries).
                     string mirrorDir = _goldenArtifactDir(root,
@@ -125,6 +136,7 @@ _GoldenCases _collectGoldenCases(string root) {
     while (ci < testCats.Length) {
         string cat = testCats[ci];
         if (_isNonRegenCat(cat)) { ci = ci + 1; continue; }
+        if (dirFilter.Length > 0 && cat != dirFilter) { ci = ci + 1; continue; }
         string catDir = Path.Join(testsRoot, cat);
         string[] entries = Path.Glob(catDir, "*.z42");
         int ei = 0;
@@ -132,6 +144,7 @@ _GoldenCases _collectGoldenCases(string root) {
             string flatPath = entries[ei];
             if (File.Exists(flatPath)) {
                 string name = Path.GetFileNameWithoutExtension(flatPath);
+                if (fileFilter.Length > 0 && !_e2eIncluded(cat, name, flatPath, dirFilter, fileFilter)) { ei = ei + 1; continue; }
                 // flat run-golden → artifacts mirror (zbc-format is dir-mode only).
                 string mirrorDir = _goldenArtifactDir(root, Path.Join("tests", cat));
                 Directory.Create(mirrorDir);
@@ -155,6 +168,14 @@ _GoldenCases _collectGoldenCases(string root) {
 }
 
 int _regenGolden() {
+    return _regenGoldenF("", "");
+}
+
+// Filtered golden regen: dirFilter/fileFilter narrow the compiled set the same way
+// `test e2e --dir/--file` narrows the run set (via _collectGoldenCasesF), so the
+// fast --no-build / --toolchain iteration path recompiles only the touched case(s).
+// Both empty = full regen (the `build test` + gate build-wave behavior).
+int _regenGoldenF(string dirFilter, string fileFilter) {
     string root = _root();
     // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
     // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
@@ -185,15 +206,26 @@ int _regenGolden() {
         return 1;
     }
 
-    Console.WriteLine("Regenerating golden test artifacts...");
+    bool filtered = (dirFilter.Length > 0 || fileFilter.Length > 0);
+    if (filtered) {
+        string scope = (dirFilter.Length > 0 ? ("--dir " + dirFilter) : "")
+            + (fileFilter.Length > 0 ? ((dirFilter.Length > 0 ? " " : "") + "--file " + fileFilter) : "");
+        Console.WriteLine("Regenerating golden test artifacts (" + scope + ")...");
+    } else {
+        Console.WriteLine("Regenerating golden test artifacts...");
+    }
     Console.WriteLine("");
 
     // ── Enumerate cases (three layouts → parallel arrays; split: _collectGoldenCases) ──
-    _GoldenCases gc = _collectGoldenCases(root);
+    _GoldenCases gc = _collectGoldenCasesF(root, dirFilter, fileFilter);
     string[] caseNames   = gc.names;
     string[] caseSources = gc.sources;
     string[] caseOutputs = gc.outputs;
     int      caseCount   = gc.count;
+
+    if (filtered && caseCount == 0) {
+        Console.WriteLine("  (no golden case matched the filter — nothing to regenerate)");
+    }
 
     // ── Compile each case (parallel batches) ─────────────────────────────
     // Each case spawns z42vm + z42c.driver to compile one source.z42 — the cost
