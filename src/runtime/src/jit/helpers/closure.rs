@@ -89,7 +89,7 @@ pub unsafe extern "C" fn jit_mk_clos(
         let env_idx = frame_ref.env_arena.len() as u32;
         frame_ref.env_arena.push(env_vec);
         // make-value-copy: StackClosure payload → transient arena (frame_id stamped above).
-        let hidx = vm_ctx_ref(ctx).transient_arena.lock().alloc(
+        let hidx = vm_ctx_ref(ctx).transient_alloc(
             stack_fid,
             crate::interp::transient_arena::TransientPayload::StackClos(
                 crate::metadata::StackClosureData { env_idx, fn_name: name },

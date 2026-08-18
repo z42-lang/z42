@@ -296,7 +296,7 @@ fn fn_ref(name: &str) -> Value { Value::FuncRef(name.into()) }
 // make-value-copy: StackClosure payload lives in the per-context transient arena; build a
 // handle backed by `c`'s arena (frame_id 1) so the delegate builtins resolve it.
 fn mk_sc(c: &VmContext, env_idx: u32, fn_name: &str) -> Value {
-    let idx = c.transient_arena.lock().alloc(
+    let idx = c.transient_alloc(
         1,
         crate::interp::transient_arena::TransientPayload::StackClos(
             crate::metadata::StackClosureData { env_idx, fn_name: fn_name.to_string() },

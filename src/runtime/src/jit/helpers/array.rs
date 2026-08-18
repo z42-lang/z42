@@ -192,7 +192,7 @@ pub unsafe extern "C" fn jit_array_get(
                 // make-value-copy: StructRefHeap payload → transient arena (JIT uses the
                 // same per-context arena + lazily-assigned frame_id as struct_arena handles).
                 let fid = super::struct_ops::frame_id_of(frame, ctx);
-                let hidx = vm_ctx_ref(ctx).transient_arena.lock().alloc(
+                let hidx = vm_ctx_ref(ctx).transient_alloc(
                     fid,
                     crate::interp::transient_arena::TransientPayload::StructElem(
                         crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },

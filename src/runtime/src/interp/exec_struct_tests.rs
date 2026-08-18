@@ -180,7 +180,7 @@ fn struct_array_element_leaf_access_via_handle() {
     // make-value-copy: StructRefHeap payload lives in the per-context transient arena; the
     // register holds an 8B handle. Alloc both element handles into `ctx`'s arena (frame_id 7).
     let mk_sr = |idx: u32| {
-        let hidx = ctx.transient_arena.lock().alloc(
+        let hidx = ctx.transient_alloc(
             7,
             crate::interp::transient_arena::TransientPayload::StructElem(
                 StructArrayElem { arr: arr_gc, index: idx },

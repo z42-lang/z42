@@ -85,7 +85,7 @@ pub(super) fn obj_new(
                 Box::<[String]>::from(type_args)
             },
         };
-        let idx = ctx.stack_arena.lock().alloc_obj(frame.frame_id, obj);
+        let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
         Value::StackObject { idx, frame_id: frame.frame_id }
     } else {
         let obj_val = ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None);

@@ -40,7 +40,7 @@ pub(crate) fn struct_alloc_val(
     ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,
 ) -> Value {
     let layout = resolve_layout(ctx, type_name, size);
-    let idx = ctx.struct_arena.lock().alloc(frame_id, Arc::from(type_name), layout);
+    let idx = ctx.struct_alloc(frame_id, Arc::from(type_name), layout);
     Value::StructRef { idx, frame_id }
 }
 
@@ -76,7 +76,7 @@ pub(crate) fn unbox_struct(
         (Arc::from(&*o.type_desc.name), o.bytes.to_vec(), o.refs.to_vec())
     };
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
-    let idx = ctx.struct_arena.lock().alloc(frame_id, type_name, layout);
+    let idx = ctx.struct_alloc(frame_id, type_name, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&bytes[..n]);
@@ -107,7 +107,7 @@ pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::Struct
          layout,
          arr.element_type.clone())
     };
-    let idx = ctx.struct_arena.lock().alloc(frame_id, tname, layout);
+    let idx = ctx.struct_alloc(frame_id, tname, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = src_bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&src_bytes[..n]);

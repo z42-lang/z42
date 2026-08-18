@@ -23,7 +23,7 @@ use super::Frame;
 /// return the `Value::Ref { idx, frame_id }` handle (payload lives in the arena, so
 /// `Value` stays `Copy`). LIFO-freed when the creating frame pops.
 fn mk_ref(ctx: &VmContext, frame_id: u32, kind: RefKind) -> Value {
-    let idx = ctx.transient_arena.lock().alloc(frame_id, TransientPayload::Ref(kind));
+    let idx = ctx.transient_alloc(frame_id, TransientPayload::Ref(kind));
     Value::Ref { idx, frame_id }
 }
 
