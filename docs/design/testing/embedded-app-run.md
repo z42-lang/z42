@@ -150,7 +150,9 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 ```
 _enumerateCorpus(root, filter)      → _CorpusCase[]   (结构化,rid 无关)
   → _targetExcludes(rid, name) 过滤 → included[]      (平台能力门控)
-  → _sampleCorpus(included, cap)    → selected[]      (按类 round-robin 采样)
+  → 选择 (二选一):
+      · shardN>0  → _shardCorpus(included, k, n) → selected[]  (全覆盖分片,不 cap)
+      · shardN==0 → _sampleCorpus(included, cap) → selected[]  (按类 round-robin smoke 采样)
   → 逐 selected 编译 (kind → _goldenEntry / _emitUnitZbc / _emitDirUnit) → manifest.json
 ```
 
@@ -183,10 +185,35 @@ _enumerateCorpus(root, filter)      → _CorpusCase[]   (结构化,rid 无关)
 桶内序 = 枚举序、结果按原枚举序发射(manifest 顺序稳定)。cap≤0 或 total≤cap → 返回全集(desktop
 逐字节不变)。
 
-> 采样**定位仍是 smoke**(验嵌入执行路径 agent + per-case 隔离 + `app::run` 通不通),不是全覆盖;
-> 全覆盖是 desktop 的职责。本次只是让 60 的子集**更有代表性**,未提 cap、未改 CI 拓扑。
+> 采样**定位是无 `--shard` 时的快速本地/手动 smoke**(验嵌入执行路径 agent + per-case 隔离 +
+> `app::run` 通不通)。tier-2 的 nightly 全覆盖改由下方分片承担(tier2-shard-full-coverage);
+> 采样路径本身保持不变,仍是 desktop-字节不变的 smoke 家。
 > 本地验采样分布:`xtask test embedded --rid iossim-arm64` 打印 `bundle: N cases` + 采样报告,
 > 看被抽到的 case 名跨类别分布即可,无需真跑模拟器。
+
+### 全覆盖分片:`_shardCorpus` + tier-2 matrix(tier2-shard-full-coverage, 2026-08-19)
+
+smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆盖分片让 nightly 把**全部可跑用例**跑完:
+`test embedded --rid <tier2> --shard k/n` 时,`_buildTestBundle` 走 `_shardCorpus(included, k, n)`
+而非 `_sampleCorpus` —— **不设 cap**,只取"能力门控后"的 `included[]` 里 `index % n == k-1` 的那
+一片。n 个 shard 的并集 = 全集,零重叠(纯 index 取模分区),按枚举序确定、可复现。`index%n` 在
+`_enumerateCorpus` 的连续 bucket 上交错,故每片天然跨类别均衡。`--shard` 复用 golden/stdlib 的
+`_parseShard`([0,0] = 不分片 → 回到 smoke 采样)。
+
+**为何分片而非提 cap**:cap 由**单 job 时间墙**(wasm Playwright / android 60min emulator)封顶,
+提 cap 会撞墙;分片把 corpus 的**编译+跑**摊到 n 个平行 CI runner(`.github/workflows/ci.yml` 的
+`test-wasm` / `test-ios` / `test-android` 加 `strategy.matrix.shard`),每片只跑 1/n,墙不动、覆盖到 100%。
+
+**T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍**平台冷构建**
+(wasm-pack LTO / iOS xcframework+模拟器 / android NDK+emulator)。wasm 的 R1–R7(`test platform wasm`,
+与语料无关)因此只在 `shard==1` 跑;iOS/android 把 R1–R7 折进同一 xcodebuild/connectedAndroidTest,
+无法廉价拆分 → 每片重跑 R1–R7。n 是**首个测量值**(6),由第一次 nightly 的真实单片耗时回调:
+墙有富余就调低 n(省机器分钟)、某腿逼近墙就调高。若冷构建的重付变得难以承受,再升级到 T2
+(冷构建产物只建一次 + 分片只跑,仿 share-goldens-no-regen)。
+
+junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名带 `(shard k)`),避免 v4
+同名 artifact 冲突。本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)
+看 `embed shard k/n` 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 

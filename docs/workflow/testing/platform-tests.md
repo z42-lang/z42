@@ -136,12 +136,20 @@ eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 平台测试**不在** `./xtask test`（host 6 stages）内——它们需各自的重型工具链，
 按需单独跑。CI 各平台独立 job 跑（见 [`../ci.md`](../ci.md)），结果以 GitHub Check 呈现。
 
-## 嵌入 smoke corpus（移动/wasm 跑多少用例）
+## 嵌入 corpus（移动/wasm 跑多少用例）
 
 `test embedded --rid <wasm|ios|android>` 把 src/tests goldens + stdlib `[Test]` 汇成一个 bundle
-穿过嵌入 VM 跑。受限平台上完整 corpus（~500 例）太慢（曾超时 / 撞 job 时限），故取
-**smoke 子集（cap=60）**——定位是「验嵌入执行路径通不通」，非全覆盖（全覆盖是 desktop：不 cap）。
-子集按**类别 round-robin 采样**（tidy-test-system），每个类别都有代表 case，不再偏向字母序靠前的类。
-缺目标平台能力（socket/threads/native-fs）的用例整例排除。机制详见
+穿过嵌入 VM 跑。缺目标平台能力（socket/threads/native-fs）的用例整例排除。两种覆盖模式：
+
+- **快速 smoke（默认，无 `--shard`）**：`cap=60` 的**类别 round-robin 采样**（tidy-test-system），
+  每类都有代表 case、不偏向字母序靠前的类。定位是「验嵌入执行路径通不通」，本地/手动快速跑。
+- **全覆盖分片（`--shard k/n`，tier2-shard-full-coverage）**：不设 cap，取能力门控后的第 k/n 片
+  （`index%n` 分区，n 片并集=全集、零重叠、确定）。nightly CI 的 `test-wasm`/`test-ios`/`test-android`
+  用 `strategy.matrix.shard` fan-out 成 n 个平行 job（当前 n=6），合起来跑**全部可跑用例**。
+  受限平台单 job 有时间墙（wasm Playwright / android 60min emulator），提 cap 会撞墙，分片把
+  编译+跑摊到 n 个 runner、墙不动而覆盖到 100%。n 是首个测量值，由首次 nightly 的单片耗时回调。
+
+机制（枚举/门控/采样/分片、T1 拓扑代价与 T2 升级路径）详见
 [`../../design/testing/embedded-app-run.md` §5.7](../../design/testing/embedded-app-run.md)；
-用 `xtask test list --rid <rid>` 可查哪些用例会被排除。
+用 `xtask test list --rid <rid>` 可查哪些用例会被排除。本地验分片切分：
+`xtask test embedded --rid iossim-arm64 --shard 1/4`（及 2/4…）看 `embed shard k/n` 报告的 selected 数。
