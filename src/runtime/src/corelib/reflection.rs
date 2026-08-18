@@ -1605,39 +1605,20 @@ fn class_flag_set(args: &[Value], bit: u8) -> bool {
         .unwrap_or(false)
 }
 
-// ── complete-class-access-control: class visibility reflection (Type.IsPublic 族) ─
-// The zbc 1.33 visibility byte (0=public/1=private/2=protected/3=internal), now
-// stored on `TypeDesc::visibility`. Mirrors C# System.Type: top-level types are
-// IsPublic / IsNotPublic; nested types are IsNested{Public,Private,Family,Assembly}.
-// Handle-less Types (primitive / array) → all false (lenient, matches IsSealed etc.).
+// ── complete-class-access-control: class visibility reflection (Type.Visibility) ──
+// The zbc 1.33 visibility byte (0=public/1=private/2=protected/3=internal), stored
+// on `TypeDesc::visibility`. A single `__type_visibility` builtin surfaces it as an
+// int; z42 `Type.Visibility` wraps it in the `TypeVisibility` enum, and callers pair
+// it with `Type.IsNested` (the orthogonal axis) to reconstruct C#'s top-level vs
+// nested distinction. Handle-less Types (primitive / array) → Public (0): primitives
+// behave as public top-level types, mirroring C#.
 
-/// The reflected Type's visibility byte, or None for handle-less Types.
-fn type_visibility(args: &[Value]) -> Option<u8> {
-    type_handle(args).map(|td| td.visibility)
-}
-
-/// Nested ⟺ the reflected Type's FQ name contains '+' (same rule as `Type.IsNested`).
-fn type_is_nested_name(args: &[Value]) -> bool {
-    type_handle(args).map(|td| td.name.contains('+')).unwrap_or(false)
-}
-
-pub fn builtin_type_is_public(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(!type_is_nested_name(args) && type_visibility(args) == Some(0)))
-}
-pub fn builtin_type_is_not_public(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(!type_is_nested_name(args) && matches!(type_visibility(args), Some(v) if v != 0)))
-}
-pub fn builtin_type_is_nested_public(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(type_is_nested_name(args) && type_visibility(args) == Some(0)))
-}
-pub fn builtin_type_is_nested_private(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(type_is_nested_name(args) && type_visibility(args) == Some(1)))
-}
-pub fn builtin_type_is_nested_family(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(type_is_nested_name(args) && type_visibility(args) == Some(2)))
-}
-pub fn builtin_type_is_nested_assembly(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Bool(type_is_nested_name(args) && type_visibility(args) == Some(3)))
+/// `__type_visibility(typeObj) -> int` — the reflected Type's declaration
+/// visibility byte (0=public/1=private/2=protected/3=internal). Handle-less Types
+/// (primitive / array) → 0 (Public).
+pub fn builtin_type_visibility(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let vis = type_handle(args).map(|td| td.visibility).unwrap_or(0);
+    Ok(Value::I64(vis as i64))
 }
 
 // ── Reflective invocation (add-method-invoke-non-generic, 0.3.12) ────────────

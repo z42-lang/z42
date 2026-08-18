@@ -1,0 +1,69 @@
+// complete-class-access-control: Type.Visibility surfaces the zbc 1.33
+// class-visibility byte as a TypeVisibility enum {Public,Private,Protected,Internal}.
+// add-type-visibility-reflection: 6 个 C# 对齐的 bool 计算属性（IsPublic /
+// IsNotPublic / IsNestedPublic / IsNestedPrivate / IsNestedFamily /
+// IsNestedAssembly）叠在 Visibility × IsNested 上。
+// Assert / Type / TypeVisibility 均 z42.core（prelude）。
+
+public class PubTop { public int x; }   // 顶层 public
+class IntTop { public int x; }          // 顶层无修饰符 → 默认 internal
+
+class Outer {
+    public class NPub { public int a; }        // 嵌套 public
+    private class NPriv { public int a; }       // 嵌套 private
+    protected class NFam { public int a; }      // 嵌套 protected（family）
+    internal class NAsm { public int a; }       // 嵌套 internal（assembly）
+
+    // private/protected 嵌套从外部 typeof 会触发 E0404，故在 Outer 内部断言。
+    public static void CheckNested() {
+        Type np = typeof(NPub);
+        Assert.True(np.IsNested);
+        Assert.True(np.Visibility == TypeVisibility.Public);
+        Assert.True(np.IsNestedPublic);
+        Assert.False(np.IsPublic);          // 嵌套 → 顶层谓词恒 false
+        Assert.False(np.IsNotPublic);
+        Assert.False(np.IsNestedPrivate);
+
+        Type npv = typeof(NPriv);
+        Assert.True(npv.IsNested);
+        Assert.True(npv.Visibility == TypeVisibility.Private);
+        Assert.True(npv.IsNestedPrivate);
+        Assert.False(npv.IsNestedPublic);
+
+        Type nf = typeof(NFam);
+        Assert.True(nf.Visibility == TypeVisibility.Protected);
+        Assert.True(nf.IsNestedFamily);
+        Assert.False(nf.IsNestedAssembly);
+
+        Type na = typeof(NAsm);
+        Assert.True(na.Visibility == TypeVisibility.Internal);
+        Assert.True(na.IsNestedAssembly);
+        Assert.False(na.IsNestedFamily);
+    }
+}
+
+void Main() {
+    // 顶层 public：Visibility.Public 且非嵌套 → IsPublic，非 IsNotPublic/嵌套谓词。
+    Type tp = typeof(PubTop);
+    Assert.False(tp.IsNested);
+    Assert.True(tp.Visibility == TypeVisibility.Public);
+    Assert.True(tp.IsPublic);
+    Assert.False(tp.IsNotPublic);
+    Assert.False(tp.IsNestedPublic);
+
+    // 顶层 internal（默认可见性）→ IsNotPublic，非 IsPublic。
+    Type ti = typeof(IntTop);
+    Assert.False(ti.IsNested);
+    Assert.True(ti.Visibility == TypeVisibility.Internal);
+    Assert.True(ti.IsNotPublic);
+    Assert.False(ti.IsPublic);
+
+    Outer.CheckNested();
+
+    // 基元类型无 TYPE handle → Visibility 默认 Public、非嵌套 → IsPublic（与 C# 对齐）。
+    Type pi = typeof(int);
+    Assert.False(pi.IsNested);
+    Assert.True(pi.Visibility == TypeVisibility.Public);
+    Assert.True(pi.IsPublic);
+    Assert.False(pi.IsNotPublic);
+}

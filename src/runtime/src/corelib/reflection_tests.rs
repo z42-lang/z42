@@ -285,40 +285,44 @@ fn member_builtins_are_lenient_with_handle_but_no_core() {
 #[test]
 fn type_visibility_decode_top_level_and_nested() {
     let c = ctx();
+    // The single `__type_visibility` builtin returns the raw declaration byte
+    // (0=public/1=private/2=protected/3=internal); z42 `Type.Visibility` wraps it in
+    // the `TypeVisibility` enum. Top-level vs nested is the orthogonal `__type_is_nested`
+    // axis (name carries '+'). Callers combine both to reconstruct C#'s IsPublic /
+    // IsNestedPrivate / … distinctions.
+
     // Top-level public (no '+', vis=0).
     let pub_top = type_obj(&c, td_with_visibility("Demo.PubTop", 0));
-    assert_eq!(builtin_type_is_public(&c, &[pub_top.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_not_public(&c, &[pub_top.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_nested_public(&c, &[pub_top]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_visibility(&c, &[pub_top.clone()]).unwrap(), Value::I64(0));
+    assert_eq!(builtin_type_is_nested(&c, &[pub_top]).unwrap(), Value::Bool(false));
 
     // Top-level internal (no '+', vis=3).
     let int_top = type_obj(&c, td_with_visibility("Demo.IntTop", 3));
-    assert_eq!(builtin_type_is_public(&c, &[int_top.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_not_public(&c, &[int_top.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_nested_assembly(&c, &[int_top]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_visibility(&c, &[int_top.clone()]).unwrap(), Value::I64(3));
+    assert_eq!(builtin_type_is_nested(&c, &[int_top]).unwrap(), Value::Bool(false));
 
     // Nested public / private / protected(family) / internal(assembly) — name has '+'.
     let n_pub = type_obj(&c, td_with_visibility("Demo.Outer+NPub", 0));
-    assert_eq!(builtin_type_is_nested_public(&c, &[n_pub.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_public(&c, &[n_pub]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_visibility(&c, &[n_pub.clone()]).unwrap(), Value::I64(0));
+    assert_eq!(builtin_type_is_nested(&c, &[n_pub]).unwrap(), Value::Bool(true));
 
     let n_priv = type_obj(&c, td_with_visibility("Demo.Outer+NPriv", 1));
-    assert_eq!(builtin_type_is_nested_private(&c, &[n_priv.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_nested_public(&c, &[n_priv]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_visibility(&c, &[n_priv.clone()]).unwrap(), Value::I64(1));
+    assert_eq!(builtin_type_is_nested(&c, &[n_priv]).unwrap(), Value::Bool(true));
 
     let n_fam = type_obj(&c, td_with_visibility("Demo.Outer+NFam", 2));
-    assert_eq!(builtin_type_is_nested_family(&c, &[n_fam]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_visibility(&c, &[n_fam]).unwrap(), Value::I64(2));
 
     let n_asm = type_obj(&c, td_with_visibility("Demo.Outer+NAsm", 3));
-    assert_eq!(builtin_type_is_nested_assembly(&c, &[n_asm]).unwrap(), Value::Bool(true));
+    assert_eq!(builtin_type_visibility(&c, &[n_asm]).unwrap(), Value::I64(3));
 }
 
 #[test]
-fn type_visibility_handle_less_all_false() {
+fn type_visibility_handle_less_is_public() {
     let c = ctx();
-    // No TYPE handle (primitive-like) → every visibility predicate false (lenient).
+    // No TYPE handle (primitive / array) → visibility defaults to Public (0):
+    // primitives behave as public top-level types (mirrors C#).
     let none = Value::I64(1);
-    assert_eq!(builtin_type_is_public(&c, &[none.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_not_public(&c, &[none.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_nested_private(&c, &[none]).unwrap(), Value::Bool(false));
+    assert_eq!(builtin_type_visibility(&c, &[none.clone()]).unwrap(), Value::I64(0));
+    assert_eq!(builtin_type_is_nested(&c, &[none]).unwrap(), Value::Bool(false));
 }
