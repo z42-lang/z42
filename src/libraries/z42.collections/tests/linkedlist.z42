@@ -1,6 +1,8 @@
 // Spec R5 — z42.collections 库本地测试。覆盖 LinkedList<T> 的 Count /
 // IsEmpty / AddFirst / AddLast / First / Last 行为。
-namespace Z42CollectionsTests;
+// unique per-file namespace (was shared Z42CollectionsTests) — see queue.z42 for
+// why (embedded shared-VM loader dedups same-namespace .zbc → dropped functions).
+namespace Z42CollectionsLinkedListTests;
 
 using Std;
 using Std.Test;

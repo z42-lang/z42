@@ -217,15 +217,19 @@ junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名�
 同名 artifact 冲突。本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)
 看 `embed shard k/n` 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
 
-### 全覆盖暴露的两类平台失败(首次 dispatch 修复,tier2-shard-full-coverage)
+### 全覆盖暴露的三类失败(逐轮 dispatch 修复,tier2-shard-full-coverage)
 
-60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的平台不兼容用例。首次全量 dispatch 暴露两类:
+60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的问题。逐轮 dispatch 暴露并修复三类:
 
-1. **wasm:`z42.compression` native builtin panic**。`z42.compression` 是纯
-   `[Native(lib="z42_compression")]` facade(brotli/gzip/zstd/zip/lz4/tar)。wasm 无 dlopen → ext
-   注册表空 → 元数据 resolver 加载即 panic(`unknown builtin __brotli_compress`)。它是**唯一**的
-   native-ext facade 库(crypto 等走静态 `BUILTINS`,wasm 有)。修:`_targetExcludes` 整桶排除
-   `z42.compression/`,与 net/threading 同款能力门控。
+1. **wasm 能力缺口(panic + 断言失败)**。① `z42.compression` 是纯
+   `[Native(lib="z42_compression")]` facade(brotli/gzip/zstd/zip/lz4/tar):wasm 无 dlopen → ext
+   注册表空 → 元数据 resolver 加载即 panic(`unknown builtin __brotli_compress`);它是唯一的
+   native-ext facade 库(crypto 走静态 `BUILTINS`,wasm 有)。② 排除 compression 后又暴露一批**断言
+   失败**——wasm 无真文件系统 / 进程 / OS 熵 / 系统时钟,故 `z42.io` 的 process*/file*/directory*/
+   path_glob*/console*/env*/gc_heap_snapshot、`z42.crypto/secure_random*`、`z42.time/datetime`
+   (`DateTime.UtcNow`)物理跑不了。修:`_targetExcludes` 整桶排除 compression + 按**能力前缀**排除
+   上述 io/crypto/time 用例(源码审计,非 CI 采样,更全;同 lib 的纯 string/stream-memory/hash/
+   date-parse 用例仍跑),与 net/threading 同款能力门控。
 
 2. **mobile(android+ios):嵌入运行原生栈溢出 SIGSEGV**。z42 解释器**在原生调用栈上递归**
    (每次 z42 调用一层原生帧,无 reify 帧栈)。嵌入 host 经 `z42_host::run_app` 从**调用方线程**跑 VM,
@@ -239,6 +243,20 @@ junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名�
    C 符号。wasm 单线程、走 `z42_wasm` 另一入口,`#[cfg(not(wasm32))]` 门控不触及。16MB = desktop
    主线程 8MB 的 2×:崩溃用例在 ~1MB 移动端栈溢出、却在 desktop 8MB 通过 → ≥8MB 即够,2× 留余量;
    再大无益(需 >8MB 的程序在 desktop 本就崩)。64 位虚拟保留、只 commit 触及页,在移动端每线程上限内。
+
+3. **全平台:同 namespace 多文件在共享 VM 里冲突**(不是 wasm 专属,desktop embedded 也复现)。嵌入
+   bundle 把每个 `[Test]` **文件**单独编成一个 `.zbc`,`_runBundleReport` 的 unit 段把它们**依次
+   load 进同一个共享 VM**(goldens 走 `__run_goldens_isolated` 各自隔离,units 不隔离)。而原生模块
+   加载器 `__load_module` **按 namespace 去重(first-wins)**——第 2 个声明同一 namespace 的 `.zbc`
+   其 `[Test]` 自由函数**不再注册**,`__invoke_static` 找不到 → 该模块每个测试报
+   `function ... not found`(伪装成测试失败)。`test stdlib` 不踩因它把一个 lib 的测试**一起编成一个
+   模块**(namespace 编译期合并)。全库仅 `z42.collections` 的 `Z42CollectionsTests` 被 3 个文件
+   (linkedlist/queue/stack)共享——**唯一**触发点(其余测试文件都已是 per-file namespace)。修:给这
+   3 个文件各自独立 namespace(`Z42Collections{LinkedList,Queue,Stack}Tests`),与既有约定一致,且
+   无论分片如何分布都不冲突(比隔离 units 的改动更小、更稳)。
+   > 遗留(harness 加固,可选 follow-up):共享 VM 对「同 namespace 多 `.zbc`」仍会**静默**误报,
+   > 未来有人再写同 namespace 的测试文件会踩。根治需 units 隔离(仿 goldens)或 bundler 把同
+   > namespace 文件合编一个 `.zbc`;当前语料无触发,故先按约定回避。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
