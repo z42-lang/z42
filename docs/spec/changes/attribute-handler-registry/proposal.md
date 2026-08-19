@@ -25,11 +25,13 @@ pseudo-attribute（`[StructLayout]` 是元数据位、`[Route]` 是 blob，同�
    免 partial）+ **Analyzer**（诊断/lint，四级 severity + `[lints]` 可调级）。同一 handler 注册表，
    同 VM / 同 zpkg 加载 / 同反射。
 
-配套：一等 **`attribute` 声明** + `targets/single/inherited` 约束子句（取代 `class Foo : Attribute`）；
-`caller_member!()` 等**表达式位编译期宏**吸收"编译器插入值"整类。
+**声明位一律 `[X]`，不引入任何新关键字**（D1/D7）：attribute 类型沿用 `class Foo : Attribute`，位置限制用
+`[Targets(...)]`、richer 约束靠 handler 自校验（Rust 对齐）；`layout`/`extern`/`deprecated` 等也是 `[X]`
+directive，不做关键字。`caller_member!()` 等**表达式位编译期宏**吸收"编译器插入值"整类。
 
-编译器**既无魔法名字表、也无魔法基类表**：加新机制 = 往注册表加一项，不碰文法。现有 4 个 ad-hoc pass
-全部收敛进统一契约（映射见 design.md §12.2）。
+`[X]` 的 kind 完全由 **"X 解析到什么类型"** 三路判定（directive 注册表 → 实现 handler 接口 → else
+store-meta），**既无魔法名字表、也无 marker**；这替换掉现有 `_isUserAttr` 白名单。现有 4 个 ad-hoc pass
+全部收敛进统一契约（映射见 design.md）。
 
 ## 前置依赖
 
@@ -39,9 +41,9 @@ pseudo-attribute（`[StructLayout]` 是元数据位、`[Route]` 是 blob，同�
 ## Scope（允许改动的子系统 / 文件）
 
 - `compiler`：`src/compiler/z42c.*`（pipeline / semantics / IrGen / 现有 4 pass / 新增 HandlerRegistry）。
-- `stdlib`：`src/libraries/z42.core`（`Std.Meta`：Handler/Analyzer/Generator 接口、DiagRule、TriggerSpec；
-  `Std.Attribute` 基类保留）。
-- `runtime`：`src/runtime`（metadata reader：usage / deprecated / caller-kind flag 的读取；随对应带 bump PR）。
+- `stdlib`：`src/libraries/z42.core`（`Std.Meta`：Analyzer/Generator/ModuleGenerator 接口、DiagRule、
+  `Target` 枚举、directive 类型；`Std.Attribute` 基类保留）。
+- `runtime`：`src/runtime`（metadata reader：directive 烘焙结果 / deprecated / caller-kind flag 的读取；随对应带 bump PR）。
 - `toolchain`：`packages.toml` 解析（`[lints]` 段、generator/analyzer 依赖）。
 - `docs`：book 对应机制页 + 本 change 目录。
 
@@ -51,10 +53,12 @@ pseudo-attribute（`[StructLayout]` 是元数据位、`[Route]` 是 blob，同�
 
 - 用户可写的 `macro` / 用户自定义 derive（保持编译器/团队掌握内建集；架构预留将来开放）。
 - 编译期 handler 沙箱（v1 直接信任 + 确定性约束，见 D5）。
-- `layout`（E2，随 interop 需求）；IR 层性能 lint（additive，随 perf 需求）。
+- `[Layout]`/`[Repr]`（E2，随 interop 需求）；`OnIrOp` IR 层性能 lint（additive，随 perf 需求）。
 - Rust `[track_caller]` 多层传播（留作宏注册表上的将来追加，见 D3）。
+- `[Native]`→`[Extern]` 改名（User 裁决 2026-08-19 暂不做，独立小 change）；局部变量 attribute（需扩 parser）。
 
 ## Open Questions
 
-无未决项——D1–D6 + 两个缺口均已定案，见 [design.md §决策记录](design.md)。实施中若发现规范冲突，按
-CLAUDE.md「规范冲突检测」停下裁决。
+无未决项——D1–D8 + 两个缺口均已定案，见 [design.md §决策记录](design.md)。其中 **D8 类名后缀约定反转了
+z42 旧"无后缀"决定**（已按 CLAUDE.md 规范冲突流程经 User 裁决），实现 PR 须同步 `Attribute.z42`/`basic.z42`
+头注。实施中若再遇规范冲突，照旧停下裁决。

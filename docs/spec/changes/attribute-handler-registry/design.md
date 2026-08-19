@@ -2,99 +2,99 @@
 
 > 背景与动机见 [proposal.md](proposal.md)。本文件是技术设计 SoT：模型 / 接口 / pipeline / 决策 / 验证。
 > PR 分解与逐 PR scope 见 [tasks.md](tasks.md)。
+>
+> **核心原则（贯穿全文）**：声明位只有一个表面 `[X]`，**不引入任何新关键字**；`[X]` 的 kind 完全由
+> "X 解析到什么类型"决定。表达式位另有 `name!()` 宏用于值注入（另一根轴）。
 
 ## Architecture
 
 ### 设计不变量
 
-1. **单一语义**：`[X]` ⟺ 运行时可反射元数据、编译期无副作用、必然活到运行时。
+1. **单一表面**：声明位一律 `[X]`；不加 `attribute`/`extern`/`layout`/`deprecated` 等关键字。kind 靠解析。
 2. **枚举扩展点，不枚举 attribute**：编译器暴露一小撮稳定 phase hook；handler 是开放注册表。加新机制 =
    往注册表加一项，不碰文法。
-3. **开放度对齐机制**：可扩展元数据（`[X]`）给用户；编译器原生封闭集用 directive；可注册编译期行为用 handler。
-4. **持久性可预测**：从机制即知是否活到运行时。
+3. **开放度对齐机制**：可扩展元数据（store-meta）与源生成（handler）给用户；codegen 原生封闭集用 directive。
+4. **持久性可预测**：从 kind 即知是否活到运行时、以什么形式持久。
 5. **确定性 = 自举字节不动点生死线**：任何 handler 输出 / 多标记处理，同输入→同输出，遍历按稳定键 sort
    （common-pitfalls §1），产物纳入增量 cache 指纹。
 6. **自举红线**：外部 handler 绝不上 z42c 自建路径（bootstrap-seed 轴④）；内建 handler 在 z42c 内，天然规避。
 
-### 三消费模型 + 两条 litmus
+### 两条 litmus + 三消费模型
 
 **litmus A —「删掉所有运行时反射查询，发射出的代码会不会变？」**
 **litmus B —「第三方能有意义地实现新行为吗，还是编译器必须原生懂？」**
 
-| 类 | litmus A | 消费者 | 可扩展 | 例 |
-|----|:---:|--------|:---:|----|
-| **store-meta** | 不变 | 运行时反射 | 用户自由定义 ✅ | `[Serializable]` `[Route]` `[Test]` |
-| **built-in directive** | 变 | 固定编译器 phase | 编译器原生 ❌ | `layout` `extern` `repr` `inline` |
-| **open handler** | 变 | 可注册 handler | 用户/团队注册 ✅ | `derive`(Generator)、lint(Analyzer) |
+`[X]` 应用时，编译器解析 X 的类型（本就要解析以派发），按下表三分：
 
-- layout 删反射 offset 照旧 → 编译期输入，非 store-meta；codegen 必须原生懂每种 layout → 非 open handler
-  → **built-in directive**（IrGen 读 descriptor 位，不走 handler 回调）。extern 同理。
-- **可扩展注册表里只剩 Generator + Analyzer 家族。**
+| X 解析到 | kind | litmus A | 持久化形式 | 谁读 | 可扩展 |
+|---------|------|:---:|-----------|------|:---:|
+| 普通 attribute 类（`: Attribute`，无 handler 接口） | **store-meta** | 不变 | IrAttrRef blob | 运行时反射 | 用户 ✅ |
+| directive 注册表里的已知类型（`Std.Meta` 封闭集） | **built-in directive** | 变 | 烘进 descriptor 字段 | codegen/loader/下游编译器 | 编译器原生 ❌ |
+| 实现 `Generator`/`ModuleGenerator`/`Analyzer` 的类型 | **open handler** | 变 | 无（active，消费即弃） | 编译期 handler | 用户 ✅ |
+
+这个三路判定**替换掉现有 `_isUserAttr` 名字白名单**：先查 directive 注册表（canonical 名，豁免后缀）→
+再对用户 kind 按后缀展开解析 → 都不是即报错。**不靠名字白名单、不靠 marker，靠类型解析 + 后缀约定（D8）。**
+
+**用名 → 类型解析（D8 后缀约定）**：`[X]` 先查 directive 注册表（`Native`/`Layout`… canonical、不带后缀）；
+未命中则按后缀展开找用户类型 `X+{Attribute|Generator|Analyzer}`，匹配到的后缀即决定 kind。多个后缀同时匹配
+（如 `DataAttribute` + `DataGenerator` 都 → `[Data]`）→ **确定性报错**。
+
+三种**持久化模型**（消除 C# pseudo-attribute 隐藏坑）：
+- **store-meta**：持久化**注解本身**（IrAttrRef），运行时反射重建实例。
+- **built-in directive**：定义点消费注解、把**烘焙结果**（offset/size/binding 名/flag）写进 descriptor 字段；
+  下游读 descriptor，不再读注解。参数在定义点常量折叠，无需跑工厂、无"静态读工厂参数"难题。
+- **open handler**：编译期消费即弃，产物是生成的源码/诊断，注解本身**不持久**。
 
 ### 两条可扩展基底
 
-**基底一 · 注解 `[Name(args)]`**：单一表面。解析 `[Name(args)]` → 解析 Name → 拿 handler → 派发到它声明的
-phase。裸 `attribute` 类型且无特殊 handler → 默认 store-meta。认不出且无 handler → 报错。命名空间约定：
-编译期 handler 命名空间化（`[perf.HotPath]`），`[tool.skip]` 编译器忽略、留外部工具。
+**基底一 · 注解 `[Name(args)]`**：单一表面。解析 Name → 三路判定（上表）。命名空间约定：directive/handler
+可命名空间化，`[tool.skip]` 编译器忽略、留外部工具。
 
-**基底二 · 表达式位编译期宏 `name!()`**（D3）：`caller_member!()`/`caller_line!()`/`caller_file!()`/
-`module_path!()` 是注册表里的内建宏，可用于参数默认值：
-```z42
-fn Log(string msg, string who = caller_member!(), int line = caller_line!()) { ... }
-Log("hi")   // 编译期把省略的实参展开成调用点字面量
-```
-新增同类 = 再注册一个宏，不碰 lexer/parser。v1 采 C# 式表达式宏默认值（纯编译期 call-site 注入、无 ABI
-改动，只 param 加 caller-kind flag）。
+**基底二 · 表达式位编译期宏 `name!()`**（值注入）：`caller_member!()`/`caller_line!()`/`caller_file!()`/
+`module_path!()` 是注册表里的内建宏，可用于参数默认值。v1 C# 式 call-site 注入、无 ABI 改动；Rust
+`[track_caller]` 多层传播留作宏注册表将来追加。
 
-## `attribute` 声明文法（D1）
+## Attribute 类型与可贴位置
 
-`attribute` 是**声明种类关键字**（与 `class`/`struct`/`interface`/`enum` 同族、互斥），**不是修饰符**；
-`public`/`sealed` 位置语义不变。
+**不引入 `attribute` 关键字**（决策 D1）。attribute 类型沿用 `class Foo : Attribute {}`；`Std.Attribute` 基类保留。
 
-```
-public   attribute   Route(string path, string method: "GET")   targets(class, method) single inherited ;
-└─修饰符─┘ └─声明种类─┘ └────── 名字 + 主构造参数 ──────┘        └─────────── 声明子句 ───────────┘
-```
+**类名后缀强制约定（D8，反转 z42 旧"无后缀"决定）**：用户 kind 的类名**必须**带角色后缀，用名**剥离**后缀：
+| kind | 类名（定义） | 用名（`[X]`） | 实现 |
+|------|-------------|--------------|------|
+| store-meta attribute | `RouteAttribute` | `[Route]` | `: Attribute` |
+| applied generator | `DeriveGenerator` | `[Derive]` | `: Generator` |
+| module generator | `RouteTableGenerator` | （不贴，无用名） | `: ModuleGenerator` |
+| analyzer | `NoGotoAnalyzer` | （不贴，观察） | `: Analyzer` |
 
-两种等价写法：
-```z42
-// A) 主构造式（简单 attribute 首选）：主构造参数隐式成同名 public 字段（record 式）
-public attribute Route(string path, string method: "GET") targets(class, method) single;
+实现了 `Generator`/`Analyzer`/`: Attribute` 却无对应后缀 → **编译错误**（约定强制、不靠自觉）。directive
+（`[Native]`/`[Layout]`）是编译器封闭集，**豁免后缀**，保留 canonical 短名。代码里引用类型仍用全名
+（`MethodsWith<RouteAttribute>()`）；剥离只发生在 `[X]` 用名处。
 
-// B) body 式（需额外字段/多 ctor/逻辑）
-public attribute Route targets(class, method) single {
-    public string Path;  public string Method;
-    public Route(string path, string method: "GET") { Path = path; Method = method; }
-}
-```
-
-**子句语义**：
-
-| 子句 | 取值 | 默认 | 语义 |
-|------|------|------|------|
-| `targets(...)` | `class` `struct` `interface` `enum` `method` `field` `param` 子集 | 全部 | 只允许贴列出目标；违规→编译错误 |
-| `single` / `multi` | —— | `single` | 同一目标可否重复贴 |
-| `inherited` | 出现即启用 | 不继承 | 反射时子类/override 是否可见该 attr |
-
-**apply-site 校验（新增语义 pass）**：每处 `[Foo]` 查 Foo 的 usage（目标命中 / `single` / `inherited`）。
-**跨包**：usage 随 attribute 类型元数据进 zpkg（`IrClassDesc.attr_usage`：target-mask+flags）→ zbc/zpkg minor
-bump，走两阶段自举。
-
-**迁移**：`class Foo : Attribute {}` → `attribute Foo {}`，面很小。`Std.Attribute` 基类保留（`attribute` 声明
-隐式派生它，store-meta 工厂返回类型统一），用户不再手写 `: Attribute`。**运行时路径（工厂→IrAttrRef→反射）
-原样不动。**
-
-## Handler 契约
+### 位置限制 `[Targets]`（对应 C# `[AttributeUsage]`）
 
 ```z42
-public interface Handler { TriggerSpec Triggers(); }   // 只对匹配项触发（增量 key + 性能）
+public enum Target { Class=1, Struct=2, Interface=4, Enum=8, Method=16, Field=32, Param=64 }
+
+[Targets(Target.Method | Target.Field)]      // 只能贴方法/字段，违规 → 编译错误
+public class MemoizeGenerator : Generator { ... }   // 用 [Memoize]
 ```
-`TriggerSpec`：`Trigger.Annotation/NodeKind/SymbolKind/OpKind/Implements/NameMatches/Module` + `and/or/where`。
-三种 kind 靠**实现哪个接口**区分，据此派发；不靠名字、不靠外部标记表。
+- **读取无 bump**：handler/attribute 的 zpkg 是编译期依赖、被加载+反射，编译器直接从内存里的类读 `[Targets]`，
+  不需要专门元数据字段（利用"handler 跑同一 VM"）。
+- **当前位置集**：class/struct/interface/enum/method/field/param。**局部变量当前 parser 不支持贴 attribute**
+  （`StmtParser` 无解析）——要支持需先扩 parser，属独立语言变更，不在本 change。
+- **richer 约束靠 handler 自校验**（Rust proc-macro 式）：位置之外的约束（如"只能贴全 public 字段的 struct"）
+  由 `Generate`/`Register` 里 `ctx.Diags().Report(...)` 自己判。位置声明式、语义自校验，分工清楚。
 
-**执行顺序（gap1）**：同 phase 内多 handler **按 handler 稳定 Id 排序**后执行；产物/诊断顺序确定。
+## Handler 契约（无 Triggers、无 marker）
 
-## 诊断 / severity 模型（Analyzer + Generator 共享）
+- **无 `[Generator]`/`[Analyzer]` marker**：实现接口即声明 kind，靠反射"找实现接口的类型"发现。
+- **无 `Triggers()` 方法**：
+  - **applied generator**：**类名剥后缀即注解名**——`[Derive]` 解析到 `DeriveGenerator`，其应用处即触发。
+  - **module generator**：`ModuleGenerator`，不贴在任何处，注册（依赖）即跑一次、扫全编译。
+  - **analyzer**：trigger 藏在 `ctx.OnSyntaxNode(kind, …)` 等注册调用里，其并集即 trigger。
+- **执行顺序（gap1）**：同 phase 内多 handler 按 handler 稳定 Id 排序后执行；产物/诊断顺序确定。
+
+## 诊断 / severity / 开关（Analyzer + Generator 共享）
 
 ```z42
 public struct DiagRule {
@@ -102,88 +102,150 @@ public struct DiagRule {
     string Category; Severity DefaultSeverity; bool EnabledByDefault; string? HelpUri; DiagTag Tags;
 }
 enum Severity { Hidden, Info, Warning, Error }   // 对齐 Roslyn
-public interface DiagSink {
-    DiagBuilder Report(DiagRule rule, Span at, ..args);
-    DiagBuilder Report(DiagRule rule, Span at, Seq<Span> related, ..args);
-}
+public interface DiagSink { DiagBuilder Report(DiagRule rule, Span at, ..args); /* 可带 related / WithFix */ }
 ```
-**severity 三层生效**：① 规则默认级 `DefaultSeverity`；② 用户 config `packages.toml [lints]`
-（`Z9001 = error|warning|info|none` + 全局 `warnings-as-errors`）；③ 就地 `#suppress Z9001 "理由"` /
-`[Suppress("Z9001","理由")]`。`Error`=编译失败；`Hidden`=不显示供 `--fix`；`Info`=建议。
+
+**开启 + 全局配置**（`packages.toml [lints]`，对应 C# `.editorconfig`）：
+```toml
+[lints]
+Z9002 = "warning"          # 显式设级
+Z9100 = "error"            # 升级为硬错误
+Z9003 = "none"             # 关掉
+"webgen.*" = "none"        # 关整包
+warnings-as-errors = true
+```
+依赖 analyzer 包 = 自动注册；单规则由 `EnabledByDefault` + `[lints]` 覆盖。
+
+**局部关闭**（对应 C# `#pragma warning disable/restore` + `[SuppressMessage]`）：
+```z42
+#suppress Z9002 "这段是生成代码"
+try { risky(); } catch (Error e) { }
+#restore Z9002
+
+[Suppress("Z9100", "热路径已 profile")]  public void Hot() { ... }
+```
+`Error`=编译失败；`Hidden`=不显示但供 `--fix`；`Info`=建议。
 
 ## Analyzer 接口
 
 ```z42
-public interface Analyzer : Handler {
-    Seq<DiagRule> SupportedRules();
-    void Register(AnalysisContext ctx);
+public interface Analyzer {
+    Seq<DiagRule> SupportedRules();      // 声明能发哪些规则（config/工具枚举）
+    void Register(AnalysisContext ctx);  // 注册要观察什么（trigger 即在此）
 }
 ```
 `AnalysisContext` 观察面（照 Roslyn `Register*Action`）：
 
 | 注册方法 | 观察对象 | 语义? | 用途 |
 |---------|---------|:---:|------|
-| `OnSyntaxNode(trig,cb)` | AST 节点 | 否 | 禁 goto、括号风格 |
-| `OnSyntaxTree(cb)` | 整棵树 | 否 | 文件级格式 |
-| `OnSymbol(kinds,cb)` | 符号 | 是 | 命名规范、public 面 |
-| `OnOperation(kinds,cb)` | 语义操作 | 是 | 不依赖语法形状的健壮检查 |
-| `OnBody(cb)` | 方法体 | 是 | 数据流 |
-| `OnReference(cb)` | use-site | 是 | `deprecated` 引用告警 |
-| `OnCompilationStart(→State)`/`OnCompilationEnd(State,sink)` | 跨编译累积 | 是 | "全程序无人引用" |
-
-**启用模型（gap2）**：`packages.toml` 声明依赖 → **依赖即注册**；规则级由 `EnabledByDefault` + `[lints]`
-控制（含整包开关 `pkg.* = none`）。
+| `OnSyntaxNode(kind, cb)` | AST 节点 | 否 | 禁 goto、空 catch、括号风格 |
+| `OnSyntaxTree(cb)` | 整棵树 | 否 | 文件级格式、行宽 |
+| `OnSymbol(kinds, cb)` | 符号 | 是 | 命名规范、public 面 |
+| `OnOperation(kinds, cb)` | 语义操作（调用/赋值/转换/new） | 是 | 不依赖语法形状的健壮检查 |
+| `OnBody(cb)` | 方法体 | 是 | 数据流、未初始化 |
+| `OnReference(cb)` | use-site | 是 | `[Deprecated]` 引用告警 |
+| `OnCompilationStart(→State)`/`OnCompilationEnd(State,sink)` | 跨编译累积 | 是 | "声明了但全程序无人引用" |
+| `OnIrOp(kind, cb)` | IR 操作（additive） | 是 | **超出 C#**：循环内分配等 perf lint |
 
 示例：
 ```z42
-[Analyzer]
-public class NoGoto : Analyzer {
+public class NoEmptyCatchAnalyzer : Analyzer {
     static readonly DiagRule Rule = new DiagRule {
-        Id="Z9001", Title="禁用 goto", MessageFormat="goto 被禁用",
-        Category="Design", DefaultSeverity=Severity.Error, EnabledByDefault=true };
+        Id="Z9002", Title="空 catch", MessageFormat="空 catch 吞掉异常",
+        Category="Correctness", DefaultSeverity=Severity.Warning, EnabledByDefault=true };
     public Seq<DiagRule> SupportedRules() => [Rule];
-    public TriggerSpec  Triggers()       => Trigger.NodeKind(SyntaxKind.Goto);
     public void Register(AnalysisContext ctx) =>
-        ctx.OnSyntaxNode(Triggers(), (n, d) => d.Report(Rule, n.Span));
+        ctx.OnSyntaxNode(SyntaxKind.CatchClause, (n, d) => {   // trigger 就在这
+            var c = n as CatchClause;
+            if (c.Body.IsEmpty()) d.Report(Rule, c.Span);
+        });
 }
 ```
 
-## Generator 接口
+## Generator 接口（两种激活模式）
 
 ```z42
-public interface Generator : Handler {
-    void PostInit(GenSink sink);                 // 用户码分析前注入固定源（marker 注解）
+// applied：类名 = 注解名；[X] 贴处触发；ctor 收注解参数，Generate 读 this
+public interface Generator {
+    void Generate(GenTarget t, GenSink sink);       // t = 被贴的声明
+}
+// module：不贴任何处；注册即跑一次、扫全编译
+public interface ModuleGenerator {
     void Generate(GenContext ctx, GenSink sink);
 }
 public interface GenSink {
-    void AddSource(string hint, string src);     // 追加（≈ C#）
-    void Replace(DeclId id, string src);         // 替换被注解声明（C# 做不到）
-    void Augment(DeclId id, string membersSrc);  // 注入成员，免 partial（C# 做不到）
+    void AddSource(string hint, string src);        // 追加（≈ C#）
+    void Replace(DeclId id, string src);            // 替换被贴声明（C# 做不到，免 partial）
+    void Augment(DeclId id, string membersSrc);     // 往已有类型/体注入成员
 }
-public interface GenContext {
-    Seq<TypeSymbol> TypesWith(string attr); Seq<MethodSymbol> MethodsWith(string attr);
-    SourceView OriginalOf(DeclId id); TypeSymbol? Resolve(string fqn); DiagSink Diags();
+public interface GenContext {                        // module 用
+    Seq<TypeSymbol> TypesWith<T>();  Seq<MethodSymbol> MethodsWith<T>();   // 强类型查询
+    TypeSymbol? Resolve(string fqn); DiagSink Diags();
+}
+public interface GenTarget {                          // applied 用
+    DeclId DeclId; SymbolKind Kind; SourceView Original; /* 字段/成员访问 */
+    DiagSink Diags();
 }
 ```
-**splice 模型**：被注解声明有稳定 **DeclId**（`module.type.member#idx`）；generator 只吐源码文本、按 DeclId
+
+**"注解即 generator"**：`[Derive(Trait.Equals)]` 解析到 `class Derive : Generator`，编译器用注解参数**实例化** it
+（ctor 参数 = 注解参数），对被贴声明跑 `Generate`，`Generate` 读 `this.字段`——无需 `GetAttribute`。
+
+**splice 模型**：被贴声明有稳定 **DeclId**（`module.type.member#idx`）；generator 只吐**源码文本**、按 DeclId
 引用，不碰 AST/IR；合并器施加 replace/augment → 重新 parse+typecheck「用户码 ∪ 生成码」。
 **护栏**：generator 只能改它 trigger 命中（opt-in）的声明；两 handler 碰同一 DeclId → 确定性报错（非 last-wins）。
-**增量**：作者精确声明 `Triggers()`，编译器用它当增量 key + 产物纳入 cache 指纹——免手写 provider 管线。
+**增量**：编译器从 applied 站点 / observed kinds / queried 集自动推增量 key + 产物纳入 cache 指纹——免手写 provider。
 
-示例：
+示例（applied，枚举参数）：
 ```z42
-[Generator]
-public class EqualsGen : Generator {
-    public void PostInit(GenSink s) => s.AddSource("Derivable.g.z42", "public attribute Derivable targets(struct,class);");
-    public TriggerSpec Triggers()   => Trigger.Annotation("Derivable");
+public enum Trait { Equals=1, Hash=2, ToString=4 }   // flags 枚举，编译期检查+补全（非字符串）
+public class DeriveGenerator : Generator {            // 后缀 Generator；[Derive] 剥后缀即触发
+    Trait traits;
+    public DeriveGenerator(Trait traits) { this.traits = traits; }   // 注解参数 = 构造参数
+    public void Generate(GenTarget t, GenSink sink) {
+        var buf = new StrBuilder();
+        if (traits.Has(Trait.Equals))   buf.Append(_renderEquals(t));
+        if (traits.Has(Trait.ToString)) buf.Append(_renderToString(t));
+        sink.Augment(t.DeclId, buf.ToString());
+    }
+}
+// 用户：[Derive(Trait.Equals | Trait.ToString)] public struct Point { public int X; public int Y; }
+```
+> 扩展注：枚举 = 封闭集。将来若要**用户可扩展 derive**，参数改 Rust 式**类型引用**（每个 derivable 是自己的
+> generator，`[Derive(Equals, Hash)]`），是独立演进。
+
+示例（module，聚合成表）：
+```z42
+public class RouteAttribute : Attribute { public string Path; public RouteAttribute(string p){ Path=p; } } // passive，用 [Route]
+public class RouteTableGenerator : ModuleGenerator {
     public void Generate(GenContext ctx, GenSink sink) {
-        foreach (var t in ctx.TypesWith("Derivable")) {
-            if (t.Fields.IsEmpty()) { ctx.Diags().Report(NoFieldsRule, t.NameSpan, t.Name); continue; }
-            sink.Augment(t.DeclId, RenderEqualsMembers(t));
-        }
+        var rows = new StrBuilder();
+        foreach (var m in ctx.MethodsWith<RouteAttribute>())               // 代码用全名，强类型查询
+            rows.Append($"  t.Add(\"{m.GetAttribute<RouteAttribute>().Path}\", {m.FullName});\n");  // 像 ctor 拿 .Path
+        sink.AddSource("__RouteTable.g.z42", $"...{rows}...");
     }
 }
 ```
+
+## Built-in directive
+
+**全部是 `[X]` 注解，不是关键字**（决策 D7）。directive 是编译器原生、封闭的一小撮，放 `Std.Meta`，编译器内部
+有张 directive 注册表（= Rust `builtin_attrs.rs`）：
+
+| directive | 对应 | 作用 | 持久化（烘进 descriptor） |
+|-----------|------|------|------------------------|
+| `[Native("__x")]` | 现状保留（**暂不改名**） | native/builtin 绑定 → `StubEmitter` | binding 名（现有 stub 机制） |
+| `[Layout(Sequential\|Explicit\|Packed)]` `[FieldOffset(8)]` | StructLayout | 内存布局/ABI | offset/size 字段（bump，做时） |
+| `[Repr(C)]` | Rust repr | interop 表示 | descriptor 位（bump，做时） |
+| `[Inline]` / `[NoInline]` | inline hint | 喂现有跨包内联 | inline 位 |
+| `[Deprecated("msg")]` | 废弃 | use-site 告警 | flag+msg 串池（bump，D2） |
+
+- 消费：IrGen 静态读参数（常量，编译器原生解析）→ 烘进 descriptor。下游读 descriptor 不再读注解。
+- 默认**不进反射**；interop 工具需要 size/offset 可选镜像进反射（additive）。
+- **不可用户扩展**（故意，litmus B）：codegen 必须原生懂每个。用户想要"编译器生成点什么" → 用 **Generator**
+  （源码层），不是 directive（codegen 内部）。
+
+> `[Native]` → `[Extern]` 的改名**本 change 暂不做**（User 裁决 2026-08-19），延后为独立小 change。
 
 ## 超出 C# 的能力（契约 vs 追加，D4）
 
@@ -191,72 +253,71 @@ public class EqualsGen : Generator {
 |---------|---------|:---:|
 | 生成器只能追加，逼 `partial` | `Replace`/`Augment` | 契约 now |
 | 分析器/修复拆两类型，修复仅 IDE | 同套 splice，`--fix` build 期应用 | additive |
-| 分析停在 IOperation | 下探 IR 层性能 lint | additive（加 `OnIrOp`） |
+| 分析停在 IOperation | 下探 IR 层（`OnIrOp`）性能 lint | additive |
 | 分析器需独立 assembly | 同 VM/zpkg/反射加载 | 契约 now |
-| 增量需手写 provider 管线 | 声明式 triggers | 契约 now |
+| 增量需手写 provider 管线 | 编译器自动从 trigger 推导 | 契约 now |
 
-fix 附带复用 GenSink splice：
-```z42
-d.Report(ReadonlyRule, field.NameSpan, field.Name)
- .WithFix("加 readonly", s => s.Replace(field.DeclId, "readonly " + ctx.OriginalOf(field.DeclId)));
-```
-
-## Pipeline 挂载 + 有界多轮
+## Pipeline 挂载 + 有界多轮 + 护栏
 
 ```
-z42c.syntax    parse ──▶ [Analyzer.OnSyntaxNode/Tree] + [Generator.PostInit]
+z42c.syntax    parse ──▶ [Analyzer.OnSyntaxNode/Tree]
 z42c.semantics bind  ──▶ [Analyzer.OnSymbol/Operation/Body/Reference] + [OnCompilationStart→累积]
-                     └─▶ [Generator.Generate]  (GenSink：Add/Replace/Augment)
+                     └─▶ [Generator.Generate / ModuleGenerator.Generate]  (GenSink：Add/Replace/Augment)
 z42c.pipeline  merge 生成源 ──▶ 重新 parse+typecheck「用户码∪生成码」──▶ [Analyzer.OnCompilationEnd]
-z42c.IrGen     lower ──▶ [built-in directive: layout/extern → descriptor 位] ──▶ zpkg
+z42c.IrGen     lower ──▶ [directive: Native/Layout/… → descriptor 字段] + [Analyzer.OnIrOp] ──▶ zpkg
 ```
-**有界多轮**：默认单轮。generator 声明 `consumes(tag)/produces(tag)` → 拓扑序、后轮 GenContext 含前轮生成
-符号；硬上限轮数、成环报错；轮内遍历按稳定键 sort。
+**有界多轮**：默认单轮。generator 声明 `consumes(tag)/produces(tag)` → 拓扑序、后轮含前轮生成符号；硬上限
+轮数、成环报错；轮内遍历按稳定键 sort。
 
 **护栏（红线，v1 强制）**：① replace/augment 冲突→确定性报错；② 多轮有界+拓扑序+产物纳入指纹；
-③ 外部 handler 禁上 z42c 自举路径；④ 信任模型（D5）：直接信任 + 记账 defer 沙箱，但补确定性约束——handler
-须为其声明输入的纯函数，禁读环境态（fs/时钟/随机），先文档化、将来用 VM 能力限制强制。
+③ 外部 handler 禁上 z42c 自举路径；④ 信任（D5）：直接信任+记账 defer 沙箱，但补确定性约束——handler 须为其
+声明输入的纯函数，禁读环境态（fs/时钟/随机），先文档化、将来用 VM 能力限制强制。
 
-## Implementation Notes：zpkg 持久化 + 4 pass 迁移
-
-**持久化 / bump**：
+## Implementation Notes：持久化 / bump / 4 pass 迁移
 
 | 机制 | 进 zpkg | 载体 | bump? |
 |------|:---:|------|:---:|
 | store-meta | 是 | IrAttrRef blob（已有） | 否 |
-| attribute usage（D1） | 是 | IrClassDesc.attr_usage | 是 |
-| extern | 是 | 现有 stub | 否 |
-| layout（E2） | 是 | descriptor layout 字段 | 是（做时） |
-| deprecated（D2 持久） | 是 | flag+msg 串池 | 是 |
-| caller-kind（D3） | 是 | param 枚举 flag | 是 |
+| directive: Native | 是 | 现有 stub | 否 |
+| directive: Layout/Repr（E2） | 是 | descriptor 布局字段 | 是（做时） |
+| directive: Deprecated（D2） | 是 | flag+msg 串池 | 是 |
+| caller-kind 宏（D3） | 是 | param 枚举 flag | 是 |
 | Generator 产物 / Analyzer | 否 | —— | 否 |
 
-**现有 4 pass 收敛**：`AttributeSynth`→store-meta（不变）；`StubEmitter`→directive `extern`；
-`TestIndexBuilder`→store-meta（反射发现，退休 TIDX 段）；`BenchmarkDesugar`→内建 Generator；
-struct Equals/Hash/ToString（在做）→内建 Generator（derive 样板）。
+**现有 4 pass 收敛**（勘察确认分两层）：
+- AST 级（`CompilationUnit→CompilationUnit`）：`AttributeSynth`（→ store-meta 默认路径，判定改三路）+
+  `BenchmarkDesugar`（→ 内建 Generator）。挂载点 `IncrementalDriver.z42:52` / `IrDump.z42:82`。
+- IR 级（IrGen 子构建器）：`TestIndexBuilder`（→ store-meta，反射发现测试，TIDX 退休另评）+ `StubEmitter`
+  （→ directive `[Native]`，逻辑不变，识别改注册表）。挂载在 `IrGen.Generate`。
+- **字节不动点陷阱**：`_isUserAttr` 黑名单缺 `Setup/Teardown/Ignore`（它们现会被合成工厂）。PR1 纯重构，
+  三路判定的 store-meta 分支必须**逐字节复刻此现状**，不得顺手对齐——修不一致是独立非重构变更。
 
 ## Decisions（决策记录，已定）
 
 | # | 决策 | 定案 |
 |---|------|------|
-| D1 | attribute 定义形态 | 引入一等 `attribute` 声明 + `targets/single/inherited` 子句；排 PR4，带 bump |
-| D2 | deprecated 第一版 | 直接持久化版（跨包+IDE，带 bump）；廉价验范式已由 PR2 分析器达成，不做半残无 bump 版 |
+| D1 | attribute 定义形态 | **不引入 `attribute` 关键字**；沿用 `class Foo:Attribute`；位置用 `[Targets]`（反射读，无 bump），richer 约束靠 handler 自校验（Rust 对齐） |
+| D2 | deprecated | `[Deprecated("msg")]` built-in directive，持久化 flag+msg（跨包+IDE，带 bump） |
 | D3 | caller 形态 | C# 式表达式宏默认值（最简、无 ABI）；Rust `[track_caller]` 留作宏注册表将来追加 |
-| D4 | v1 契约范围 | 契约 now：DeclId+merge+Add/Replace/Augment+有界多轮；additive later：`--fix`、IR-lint |
+| D4 | v1 契约范围 | 契约 now：DeclId+merge+Add/Replace/Augment+有界多轮；additive：`--fix`、`OnIrOp` |
 | D5 | 外部 handler 信任 | 直接信任 + 记账 defer 沙箱；补确定性约束（handler 须纯函数，禁读环境态） |
-| D6 | 命名 | marker `[Generator]`/`[Analyzer]` 归 `Std.Meta`；lint config = `packages.toml [lints]` 段 |
+| D6 | 命名 | 无 marker（接口发现）；lint config = `packages.toml [lints]` 段；`Target` 枚举 |
+| D7 | directive 表面 | 全部 `[X]` 注解、**不引入关键字**；directive 注册表（Rust builtin_attrs 式）；`[Native]` **暂不改名** |
+| D8 | 类名后缀约定 | **强制**用户 kind 类名带角色后缀（`*Attribute`/`*Generator`/`*Analyzer`），用名剥离；缺后缀→编译错误；directive 豁免；剥离后跨 kind 撞名→报错。**反转 z42 旧"无后缀"决定**——实现 PR 须同步改 `Attribute.z42`/`basic.z42` 头注 |
 | gap1 | handler 执行序 | 同 phase 内按 handler 稳定 Id 排序 |
 | gap2 | analyzer 启用 | 依赖即注册；规则级由 `EnabledByDefault` + `[lints]` 控制（含整包开关） |
+| Q1/2/3 | kind 判定 | 三路：directive 注册表 → 实现 handler 接口 → else store-meta；替换 `_isUserAttr` |
 
-## Testing Strategy（自举不动点验证）
+## Testing Strategy
 
-- **PR1（纯内部重构）**：无语义输出变化 → gen1==gen2 逐字节；`xtask test` 全 stage gate；self-host 5/5。
-- **带 bump 的 PR（D1/D2/D3/E2）**：两阶段自举 + `xtask test bootstrap`；fixture 重生按 escape-stack 经验
-  （临时 CI 步 + 本地对应 VM 验）。
+- **PR1（纯内部重构）**：无语义输出变化 → gen1==gen2 逐字节；`xtask test` 全 stage gate；self-host 5/5；
+  确认 zbc-format golden 零漂移；**Setup/Teardown/Ignore 行为逐字节保持**。
+- **带 bump 的 PR（D2/E2/D3）**：两阶段自举 + `xtask test bootstrap`；fixture 重生按 escape-stack 经验。
 - **Generator/Analyzer**：生成物 golden（源码+产物双验）、诊断 golden（Id/severity/span）、产物/诊断确定性
   （同源多跑逐字节一致）。
 - **红线自检**：外部 handler 不在 z42c 自建路径；generator 产物进增量 cache 指纹。
 
 ## Deferred
 
-用户可写 `macro`/自定义 derive；handler 沙箱；`layout`(E2)；IR 层性能 lint；Rust `[track_caller]` 多层传播。
+用户可写 `macro`/自定义 derive（→ 参数改类型引用）；handler 沙箱；`[Layout]`/`[Repr]`(E2)；`OnIrOp` perf lint；
+Rust `[track_caller]` 多层传播；`[Native]`→`[Extern]` 改名；局部变量 attribute（需扩 parser）。
