@@ -207,13 +207,35 @@ smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆�
 **T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍**平台冷构建**
 (wasm-pack LTO / iOS xcframework+模拟器 / android NDK+emulator)。wasm 的 R1–R7(`test platform wasm`,
 与语料无关)因此只在 `shard==1` 跑;iOS/android 把 R1–R7 折进同一 xcodebuild/connectedAndroidTest,
-无法廉价拆分 → 每片重跑 R1–R7。n 是**首个测量值**(6),由第一次 nightly 的真实单片耗时回调:
-墙有富余就调低 n(省机器分钟)、某腿逼近墙就调高。若冷构建的重付变得难以承受,再升级到 T2
-(冷构建产物只建一次 + 分片只跑,仿 share-goldens-no-regen)。
+无法廉价拆分 → 每片重跑 R1–R7。**当前 n:wasm=3、mobile=6**。首次全量 dispatch 的单片耗时是
+**time-to-crash 而非 time-to-complete**(每片撞到失败用例即中止,见下"两类失败"),故 mobile 暂留 6、
+拿到真实完成耗时后再降;wasm 语料小(排除 compression 后 ~340 例)、Playwright interp 每例轻,n=3 稳在墙内。
+墙有富余就调低 n(省机器分钟)、某腿逼近墙就调高。若冷构建重付难以承受,再升级 T2(冷构建产物只建一次 +
+分片只跑,仿 share-goldens-no-regen)。
 
 junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名带 `(shard k)`),避免 v4
 同名 artifact 冲突。本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)
 看 `embed shard k/n` 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
+
+### 全覆盖暴露的两类平台失败(首次 dispatch 修复,tier2-shard-full-coverage)
+
+60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的平台不兼容用例。首次全量 dispatch 暴露两类:
+
+1. **wasm:`z42.compression` native builtin panic**。`z42.compression` 是纯
+   `[Native(lib="z42_compression")]` facade(brotli/gzip/zstd/zip/lz4/tar)。wasm 无 dlopen → ext
+   注册表空 → 元数据 resolver 加载即 panic(`unknown builtin __brotli_compress`)。它是**唯一**的
+   native-ext facade 库(crypto 等走静态 `BUILTINS`,wasm 有)。修:`_targetExcludes` 整桶排除
+   `z42.compression/`,与 net/threading 同款能力门控。
+
+2. **mobile(android+ios):嵌入运行原生栈溢出 SIGSEGV**。z42 解释器**在原生调用栈上递归**
+   (每次 z42 调用一层原生帧,无 reify 帧栈)。嵌入 host 经 `z42_host::run_app` 从**调用方线程**跑 VM,
+   而 Android `AndroidJUnitRunner` / iOS XCTest 线程栈只 ~512KB–1MB(desktop 主线程 ~8MB)。于是
+   desktop 能跑的**有限但深**递归用例在移动端溢出 → 整进程 SIGSEGV(logcat:`stack pointer is not in
+   a rw map; likely due to stack overflow`),R1–R7 却全过。修:**`z42_host::run_app` 把
+   `z42::app::run` 放到一条 64MB 大栈线程上跑再 join**(`src/runtime/crates/z42-host/src/lib.rs`),
+   让嵌入栈预算 ≥ desktop,统一覆盖 Android JNI / iOS Swift / desktop test-host 三个原生入口;
+   wasm 单线程、走 `z42_wasm` 另一入口,`#[cfg(not(wasm32))]` 门控不触及。64MB = desktop 默认 8×,
+   够任何有限递归语料用例,且在移动端每线程上限内(64 位虚拟保留,只 commit 触及页)。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 

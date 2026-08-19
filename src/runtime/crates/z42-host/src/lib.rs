@@ -212,13 +212,61 @@ pub fn run_app(
     mode: Option<z42::metadata::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
-    let opts = z42::app::RunOpts {
-        mode: mode.unwrap_or_else(z42::app::default_mode),
-        libs_dir,
-        program_args: args,
-        print_stats: false,
-    };
-    z42::app::run(file, entry, opts).map_err(|e| HostError::VmException(format!("{e:#}")))
+    let mode = mode.unwrap_or_else(z42::app::default_mode);
+
+    // tier2-shard-full-coverage: the z42 interpreter recurses on the *native* call
+    // stack (one native frame per z42 call — no reified frame stack). Embedded
+    // hosts invoke run_app from a caller-provided thread whose stack is far smaller
+    // than a desktop main thread's ~8 MB: Android's AndroidJUnitRunner and iOS
+    // XCTest threads are ~512 KB–1 MB. So a deeply-but-FINITELY recursive z42
+    // program that runs fine on desktop overflows and SIGSEGVs the whole process
+    // ("stack pointer is not in a rw map; likely due to stack overflow"). Running
+    // the full mobile corpus surfaced this — the 60-case smoke sample never hit a
+    // deep-enough case. Fix: run the VM on a dedicated large-stack thread so the
+    // embedded stack budget matches/exceeds desktop, uniformly for every native
+    // embedded caller (Android JNI / iOS Swift / desktop test-host). wasm is
+    // single-threaded and enters through z42_wasm (not this fn), so it's untouched.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let opts = z42::app::RunOpts {
+            mode,
+            libs_dir,
+            program_args: args,
+            print_stats: false,
+        };
+        z42::app::run(file, entry, opts).map_err(|e| HostError::VmException(format!("{e:#}")))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // 64 MB = 8× the desktop main-thread default — ample for any finitely
+        // recursive corpus program, well within Android/iOS per-thread limits
+        // (virtual reservation on 64-bit; only touched pages commit).
+        const EMBED_STACK: usize = 64 * 1024 * 1024;
+        // `file`/`entry` are borrowed with the caller's lifetime; a spawned thread
+        // needs 'static, so hand it owned copies.
+        let file = file.to_string();
+        let entry = entry.map(str::to_string);
+        let handle = std::thread::Builder::new()
+            .name("z42-embedded-run".to_string())
+            .stack_size(EMBED_STACK)
+            .spawn(move || {
+                let opts = z42::app::RunOpts {
+                    mode,
+                    libs_dir,
+                    program_args: args,
+                    print_stats: false,
+                };
+                z42::app::run(&file, entry.as_deref(), opts)
+                    .map_err(|e| HostError::VmException(format!("{e:#}")))
+            })
+            .map_err(|e| HostError::VmException(format!("spawn z42 run thread: {e}")))?;
+        match handle.join() {
+            Ok(res) => res,
+            Err(_) => Err(HostError::VmException(
+                "z42 run thread panicked (see stderr for the Rust panic)".to_string(),
+            )),
+        }
+    }
 }
 
 /// Errors surfaced by every `z42-host` API. `message` carries the

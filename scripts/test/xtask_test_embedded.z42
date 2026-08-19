@@ -232,6 +232,12 @@ bool _targetExcludes(string rid, string caseName) {
     if (!rid.Contains("wasm")) { return false; }   // native runs everything
     if (caseName.StartsWith("z42.net/"))       { return true; }   // socket
     if (caseName.StartsWith("z42.threading/")) { return true; }   // threads
+    // z42.compression is a pure [Native(lib="z42_compression")] facade (brotli/gzip/
+    // zstd/zip/lz4/tar). wasm has no dlopen → the ext registry is empty → the
+    // metadata resolver panics ("unknown builtin `__brotli_compress` …") the moment
+    // such a case loads. Exclude the whole bucket, like net/threading. (Surfaced by
+    // tier2-shard-full-coverage — the 60-smoke sample happened to skip these.)
+    if (caseName.StartsWith("z42.compression/")) { return true; }
     if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*)
     // env / cwd / process / console-tty specific stdlib units (need OS env/process,
     // which wasm lacks — set_var / current_dir / process spawn / is_terminal panic):

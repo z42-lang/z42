@@ -1539,12 +1539,15 @@ jobs:
     # so nightly runs the FULL runnable corpus (`test embedded --shard k/N`, no cap)
     # instead of the 60-case smoke sample. R1–R7 (`test platform wasm`) is NOT
     # per-corpus, so it runs only on shard 1 (gated below) to avoid N× redundancy;
-    # the embedded slice + its Playwright run happen on every shard. N is a first
-    # measurement value — tune from the real per-shard timings this nightly reports.
+    # the embedded slice + its Playwright run happen on every shard. wasm = n=3:
+    # measured per-shard runtime is small (~5-7 min build-cached) with big wall
+    # headroom, and z42.compression is capability-excluded — 3 shards over the ~340
+    # runnable wasm cases keeps each well under the job wall without over-flooding
+    # the runner pool.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1608,13 +1611,13 @@ jobs:
       # deployable (agent+bundle+libs → artifacts/build/wasm-test/) and run the
       # bundled corpus in-browser (distinct config rooted at that dir).
       # tier2-shard-full-coverage: --shard k/N → this shard's full-coverage slice.
-      - name: test embedded --rid browser-wasm (build deployable, shard ${{ matrix.shard }}/6)
+      - name: test embedded --rid browser-wasm (build deployable, shard ${{ matrix.shard }}/3)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --shard ${{ matrix.shard }}/6
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
       - name: Playwright — embedded corpus runs green in-browser
         shell: bash
         run: |
