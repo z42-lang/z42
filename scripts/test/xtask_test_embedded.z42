@@ -232,17 +232,33 @@ bool _targetExcludes(string rid, string caseName) {
     if (!rid.Contains("wasm")) { return false; }   // native runs everything
     if (caseName.StartsWith("z42.net/"))       { return true; }   // socket
     if (caseName.StartsWith("z42.threading/")) { return true; }   // threads
+    // z42.compression is a pure [Native(lib="z42_compression")] facade (brotli/gzip/
+    // zstd/zip/lz4/tar). wasm has no dlopen → the ext registry is empty → the
+    // metadata resolver panics ("unknown builtin `__brotli_compress` …") the moment
+    // such a case loads. Exclude the whole bucket, like net/threading. (Surfaced by
+    // tier2-shard-full-coverage — the 60-smoke sample happened to skip these.)
+    if (caseName.StartsWith("z42.compression/")) { return true; }
     if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*)
-    // env / cwd / process / console-tty specific stdlib units (need OS env/process,
-    // which wasm lacks — set_var / current_dir / process spawn / is_terminal panic):
-    if (caseName == "z42.io/env_cwd")             { return true; }
-    if (caseName == "z42.io/env_set")             { return true; }
-    if (caseName == "z42.io/environment_extra")   { return true; }
-    if (caseName == "z42.io/ansi_color")          { return true; }
-    if (caseName == "z42.io/console")             { return true; }
-    if (caseName == "z42.io/operating_system")    { return true; }
-    if (caseName == "z42.io/process_which")       { return true; }
-    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }
+    // wasm lacks a real filesystem, process spawn, OS entropy, and a system clock.
+    // The z42.io / z42.crypto / z42.time cases exercising those physically can't run;
+    // the 60-smoke sample never hit them, so tier2-shard-full-coverage's first full
+    // run surfaced them as failures. Excluded by CAPABILITY PREFIX (audit over the
+    // stdlib test source) — the pure string / stream-memory / hash-vector / date-parse
+    // cases in the same libs still run. (The `Contains("stream")` above already covers
+    // file_stream*/*_stream fs cases.)
+    if (caseName.StartsWith("z42.io/process"))   { return true; }   // process spawn (basic/spawn/stdio/stdin/timeout/which/failure/env_cwd)
+    if (caseName.StartsWith("z42.io/file"))      { return true; }   // native fs (file_temp/bytes/extras/atomic_write/chmod_link_size/last_write_time/…)
+    if (caseName.StartsWith("z42.io/directory")) { return true; }   // native fs (directory/directory_copy/directory_temp)
+    if (caseName.StartsWith("z42.io/path_glob")) { return true; }   // fs glob (path_glob/path_glob_recursive)
+    if (caseName.StartsWith("z42.io/console"))   { return true; }   // console/tty (console/console_tty)
+    if (caseName.StartsWith("z42.io/env"))       { return true; }   // env vars (env_cwd/env_set/environment_extra)
+    if (caseName == "z42.io/ansi_color")         { return true; }   // env-driven ANSI
+    if (caseName == "z42.io/operating_system")   { return true; }   // OS / current_dir
+    if (caseName == "z42.io/platform")           { return true; }   // OS/family identity strings (wasm reports "wasm"/"unknown", not a known desktop OS)
+    if (caseName == "z42.io/gc_heap_snapshot")   { return true; }   // writes a heap-snapshot file
+    if (caseName.StartsWith("z42.crypto/secure_random")) { return true; }  // OS entropy (basic/distribution)
+    if (caseName == "z42.time/datetime")         { return true; }   // DateTime.UtcNow → system clock (parse/calendar/offset cases still run)
+    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }  // env/process
     return false;
 }
 
@@ -416,24 +432,45 @@ _CorpusCase[] _sampleCorpus(_CorpusCase[] cases, int cap) {
     return outc;
 }
 
+// Full-coverage sharding for parallel tier-2 CI (tier2-shard-full-coverage).
+// Partition the (already capability-filtered) corpus into n DISJOINT slices by
+// stable enumeration index: shard k gets every case where index % n == k-1. No
+// cap — the union of shards 1..n is the FULL runnable corpus (100% coverage),
+// with zero overlap. index%n interleaves across the contiguous bucket runs from
+// _enumerateCorpus, so each shard stays category-balanced. Deterministic: keyed
+// on enumeration order only, so re-runs and shard boundaries are reproducible.
+_CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
+    int total = cases.Length;
+    int cnt = 0;
+    int i = 0;
+    while (i < total) { if ((i % n) == (k - 1)) { cnt = cnt + 1; } i = i + 1; }
+    _CorpusCase[] outc = new _CorpusCase[cnt];
+    int o = 0; i = 0;
+    while (i < total) { if ((i % n) == (k - 1)) { outc[o] = cases[i]; o = o + 1; } i = i + 1; }
+    return outc;
+}
+
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
 // Pipeline: enumerate full corpus → exclude cases needing caps the target lacks
-// (_targetExcludes) → per-category sample to the smoke cap (_sampleCorpus) →
-// compile the selection. Desktop (cap=0) compiles the full included set unchanged.
+// (_targetExcludes) → SELECT (shard slice OR per-category smoke sample) → compile
+// the selection. Desktop (cap=0, no shard) compiles the full included set unchanged.
 //
-// fix-wasm-embed-timeout / android-emu timeout: the full corpus (~433 cases) is
-// impractically slow on constrained embed targets (browser interp / emulator /
-// simulator ran it >20min; android hit its 60min job cap). These are SMOKE targets
-// (prove the embed mechanism works: agent + per-case isolation + app::run), NOT
-// full coverage — that's desktop's job. tidy-test-system: the cap is now spread
-// per-category (round-robin) so late-sorted categories still get representation.
-string _buildTestBundle(string root, string filter, string rid) {
+// Two select modes on tier-2 (wasm/ios/android):
+//   • shardN>0  → full-coverage slice k/n (_shardCorpus, NO cap). Nightly CI
+//     fans out n parallel shard jobs; their union = 100% of the runnable corpus.
+//     (tier2-shard-full-coverage — replaces the smoke-only tier-2 coverage.)
+//   • shardN==0 → per-category smoke sample to embedCap=60 (_sampleCorpus). This
+//     is the fast local/manual default: fix-wasm-embed-timeout / android-emu cap
+//     kept the whole corpus (~433 cases) from blowing the emulator/browser job
+//     wall (>20min; android hit 60min). tidy-test-system spread the cap per
+//     category (round-robin) so late-sorted categories still get representation.
+string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
     string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
     Directory.Create(bundleDir);
     _cleanGlob(bundleDir, "*.zbc");
     int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
-    // enumerate (structural) → capability-exclude → per-category sample.
+    // enumerate (structural) → capability-exclude → select (shard slice | smoke sample).
     _CorpusCase[] all = _enumerateCorpus(root, filter);
     _CorpusCase[] incl = new _CorpusCase[all.Length];
     int ni = 0;
@@ -446,8 +483,11 @@ string _buildTestBundle(string root, string filter, string rid) {
     }
     _CorpusCase[] included = new _CorpusCase[ni];
     int c0 = 0; while (c0 < ni) { included[c0] = incl[c0]; c0 = c0 + 1; }
-    _CorpusCase[] sel = _sampleCorpus(included, embedCap);
-    int capped = ni - sel.Length;
+    // --shard k/n wins over the smoke cap: run the full 1/n slice, no cap.
+    _CorpusCase[] sel;
+    if (shardN > 0) { sel = _shardCorpus(included, shardK, shardN); }
+    else            { sel = _sampleCorpus(included, embedCap); }
+    int capped = (shardN > 0) ? 0 : (ni - sel.Length);
 
     // compile the selection → manifest items.
     string items = "";
@@ -480,10 +520,16 @@ string _buildTestBundle(string root, string filter, string rid) {
         Console.WriteLine("  (excluded " + excluded.ToString() + " case(s) requiring caps '"
             + rid + "' lacks — socket/threads/native-fs)");
     }
+    if (shardN > 0) {
+        Console.WriteLine("  (embed shard " + shardK.ToString() + "/" + shardN.ToString()
+            + ": full-coverage slice — selected " + sel.Length.ToString() + " of "
+            + ni.ToString() + " runnable case(s); union of all " + shardN.ToString()
+            + " shards = 100%)");
+    }
     if (capped > 0) {
         Console.WriteLine("  (embed smoke: sampled " + sel.Length.ToString() + " of "
             + ni.ToString() + " per-category (cap " + embedCap.ToString() + "); skipped "
-            + capped.ToString() + " — full coverage runs on desktop)");
+            + capped.ToString() + " — full coverage runs on desktop or via --shard)");
     }
     if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
     string mpath = Path.Join(bundleDir, "manifest.json");
@@ -499,11 +545,11 @@ string _buildTestBundle(string root, string filter, string rid) {
 // desktop bundle builder + test-agent; adds the wasm crate build + asset
 // assembly + the static harness. RUN is browser/Playwright-gated (CI); this
 // command builds + assembles the deployable dir (compile-once, per platform).
-string _buildWasmTesthost(string root, string filter) {
+string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle,
     // minus tests needing caps wasm lacks (socket/threads/native-fs; see _targetExcludes).
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, "browser-wasm");
+    string manifest = _buildTestBundle(root, filter, "browser-wasm", shardK, shardN);
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
 
@@ -632,12 +678,12 @@ int _buildIosXcframework(string root, string here, string rid) {
 // xcframework for `rid`'s slice(s). The embedded runner is
 // Z42EmbeddedTests.testEmbeddedBundle (in the Z42VM scheme) — RUN via
 // `xcodebuild test` on a simulator (CI-gated) or `swift test` on the host.
-string _buildIosTesthost(string root, string filter, string rid) {
+string _buildIosTesthost(string root, string filter, string rid, int shardK, int shardN) {
     if (Process.Which("xcodebuild") == null) {
         ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS)"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, rid);
+    string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
@@ -689,7 +735,7 @@ string _androidRidAbi(string rid) {
 // Z42EmbeddedInstrumentedTest (in the z42vm test apk) — the AAR build (gradle) +
 // RUN (`connectedAndroidTest` on an emulator) are CI/emulator-gated. Real
 // filesystem → no VFS, same z42_host_run_app core.
-string _buildAndroidTesthost(string root, string filter, string rid) {
+string _buildAndroidTesthost(string root, string filter, string rid, int shardK, int shardN) {
     if (Process.Which("cargo-ndk") == null) {
         ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
     }
@@ -702,7 +748,7 @@ string _buildAndroidTesthost(string root, string filter, string rid) {
         ConsoleError.WriteLine("error: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, rid);
+    string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
     string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
@@ -741,6 +787,14 @@ int _testEmbedded(ParseResult r) {
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "json"; }
     string rid = r.GetOption("rid");
+    // --shard k/n: parallel-CI full-coverage slice. Reuses the golden/stdlib
+    // `_parseShard` ([0,0] = no sharding). When set, the bundle builder runs the
+    // FULL runnable corpus slice k/n with NO smoke cap (each shard = a disjoint
+    // 1/n of all cases; union of n shards = full coverage). Without --shard the
+    // tier-2 cap (60, per-category sample) still applies = fast local/manual smoke.
+    int[] sh = _parseShard(r.GetOption("shard"));
+    int shardK = sh[0];
+    int shardN = sh[1];
 
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
 
@@ -752,15 +806,15 @@ int _testEmbedded(ParseResult r) {
     string tfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
     string cat = (rid.Length == 0) ? "desktop" : _ridCategory(rid);
     if (cat == "wasm") {
-        string wout = _buildWasmTesthost(root, tfilter);
+        string wout = _buildWasmTesthost(root, tfilter, shardK, shardN);
         return (wout.Length > 0) ? 0 : 1;
     }
     if (cat == "ios") {
-        string iout = _buildIosTesthost(root, tfilter, rid);
+        string iout = _buildIosTesthost(root, tfilter, rid, shardK, shardN);
         return (iout.Length > 0) ? 0 : 1;
     }
     if (cat == "android") {
-        string aout = _buildAndroidTesthost(root, tfilter, rid);
+        string aout = _buildAndroidTesthost(root, tfilter, rid, shardK, shardN);
         return (aout.Length > 0) ? 0 : 1;
     }
     if (cat == "unknown") {
@@ -778,7 +832,7 @@ int _testEmbedded(ParseResult r) {
     if (caseOpt.Length > 0 || filterOpt.Length > 0 || target.Length == 0) {
         string filter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
         Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-        string manifest = _buildTestBundle(root, filter, target);
+        string manifest = _buildTestBundle(root, filter, target, shardK, shardN);
         if (manifest.Length == 0) { return 1; }
         runArg = manifest;
     } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {

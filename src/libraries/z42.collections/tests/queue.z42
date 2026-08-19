@@ -1,5 +1,12 @@
 // z42.collections local test — Queue<T> shared IBasicCollection contract.
-namespace Z42CollectionsTests;
+// unique per-file namespace (was shared Z42CollectionsTests with stack/linkedlist):
+// the embedded bundle compiles each test file to a separate .zbc and loads them
+// into ONE shared VM; the native module loader dedups by namespace (first-wins),
+// so a 2nd module declaring an already-loaded namespace has its [Test] functions
+// dropped → "__invoke_static: function not found" for every test in it. Full-
+// coverage sharding (tier2-shard-full-coverage) surfaced this. Per-file namespaces
+// (the convention every other test file already follows) avoid the collision.
+namespace Z42CollectionsQueueTests;
 
 using Std;
 using Std.Test;

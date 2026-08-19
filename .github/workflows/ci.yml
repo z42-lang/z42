@@ -1525,7 +1525,7 @@ jobs:
   # Check via dorny/test-reporter — the 3 checks on the PR ARE the dashboard.
   # (infra-ci-platform-test-dashboard, 2026-06-16)
   test-wasm:
-    name: test-wasm-browser(linux-x64)
+    name: test-wasm-browser(linux-x64) shard ${{ matrix.shard }}
     # ci-perf-tier2: 30→60. Cold "build deployable" (wasm-pack LTO + z42c compiling
     # the whole corpus) runs ~27min and was hitting the 30min cap → the job was
     # cancelled at that step and the in-browser test never ran (repeatedly). The
@@ -1535,6 +1535,19 @@ jobs:
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # tier2-shard-full-coverage: fan out the embedded corpus into N parallel shards
+    # so nightly runs the FULL runnable corpus (`test embedded --shard k/N`, no cap)
+    # instead of the 60-case smoke sample. R1–R7 (`test platform wasm`) is NOT
+    # per-corpus, so it runs only on shard 1 (gated below) to avoid N× redundancy;
+    # the embedded slice + its Playwright run happen on every shard. wasm = n=3:
+    # measured per-shard runtime is small (~5-7 min build-cached) with big wall
+    # headroom, and z42.compression is capability-excluded — 3 shards over the ~340
+    # runnable wasm cases keeps each well under the job wall without over-flooding
+    # the runner pool.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1583,7 +1596,11 @@ jobs:
           cd src/toolchain/workload/wasm/platform/tests
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
+      # tier2-shard-full-coverage: R1–R7 is corpus-independent → run it only on
+      # shard 1 (not N× redundantly). Its junit is published/uploaded below, also
+      # shard-1-only, so the artifact name stays unique.
       - name: test platform wasm (build + assets + Playwright R1–R7)
+        if: ${{ matrix.shard == 1 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1593,29 +1610,32 @@ jobs:
       # add-wasm-testhost G6: same runner + primed Playwright — build the embedded
       # deployable (agent+bundle+libs → artifacts/build/wasm-test/) and run the
       # bundled corpus in-browser (distinct config rooted at that dir).
-      - name: test embedded --rid browser-wasm (build deployable)
+      # tier2-shard-full-coverage: --shard k/N → this shard's full-coverage slice.
+      - name: test embedded --rid browser-wasm (build deployable, shard ${{ matrix.shard }}/3)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
       - name: Playwright — embedded corpus runs green in-browser
         shell: bash
         run: |
           set -euo pipefail
           cd src/toolchain/workload/wasm/platform/tests
           npx playwright test --config playwright.embedded.config.ts
+      # R1–R7 junit exists only on shard 1 (Playwright embedded reports via `list`,
+      # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)
+        if: ${{ always() && matrix.shard == 1 }}
         uses: dorny/test-reporter@v1
-        if: always()
         with:
           name: platform-tests / wasm
           path: artifacts/test-reports/wasm/junit.xml
           reporter: java-junit
           fail-on-error: false
       - name: Upload wasm JUnit
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         uses: actions/upload-artifact@v4
         with:
           name: junit-wasm

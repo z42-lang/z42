@@ -689,17 +689,66 @@ pub unsafe extern "C" fn z42_host_run_app(
                 }
             }
         }
-        let opts = crate::app::RunOpts {
-            mode: crate::app::default_mode(),
-            libs_dir: libs,
-            program_args: prog_args,
-            print_stats: false,
+        // tier2-shard-full-coverage: the z42 interpreter recurses on the *native*
+        // call stack (one native frame per z42 call — no reified frame stack). This
+        // C entry is what every native embedded shell calls (desktop C test-host,
+        // iOS Swift, Android JNI), and those callers invoke us on a thread whose
+        // stack is far smaller than a desktop main thread's ~8 MB: Android's
+        // AndroidJUnitRunner and iOS XCTest threads are ~512 KB–1 MB. So a
+        // deeply-but-FINITELY recursive z42 program that runs fine on desktop
+        // overflows and SIGSEGVs the whole process ("stack pointer is not in a rw
+        // map; likely due to stack overflow"). Running the full mobile corpus
+        // surfaced this — the 60-case smoke sample never hit a deep-enough case.
+        // Fix: run the VM on a dedicated large-stack thread so the embedded stack
+        // budget matches/exceeds desktop.
+        let run_vm = move || -> i32 {
+            let opts = crate::app::RunOpts {
+                mode: crate::app::default_mode(),
+                libs_dir: libs,
+                program_args: prog_args,
+                print_stats: false,
+            };
+            match crate::app::run(&app, entry_owned.as_deref(), opts) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("z42_host_run_app: {e:#}");
+                    1
+                }
+            }
         };
-        match crate::app::run(&app, entry_owned.as_deref(), opts) {
-            Ok(()) => 0,
-            Err(e) => {
-                eprintln!("z42_host_run_app: {e:#}");
-                1
+        // wasm is single-threaded and enters via z42_wasm (not this C symbol), so
+        // this native-only big-stack path never runs there — but host/mod.rs still
+        // compiles for wasm32, so gate the thread spawn out.
+        #[cfg(target_arch = "wasm32")]
+        {
+            run_vm()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // 16 MB = 2× the desktop main-thread default (8 MB on Linux/macOS, which
+            // the corpus is known to run within). The bound is principled: the
+            // crashing cases overflow the ~1 MB Android/iOS runner thread but pass on
+            // desktop's 8 MB, so ≥8 MB suffices; 2× is margin. Bigger buys nothing —
+            // a program needing >8 MB would already fail on desktop. Virtual
+            // reservation on 64-bit (only touched pages commit), well within
+            // Android/iOS per-thread limits.
+            const EMBED_STACK: usize = 16 * 1024 * 1024;
+            match std::thread::Builder::new()
+                .name("z42-embedded-run".to_string())
+                .stack_size(EMBED_STACK)
+                .spawn(run_vm)
+            {
+                Ok(h) => match h.join() {
+                    Ok(code) => code,
+                    Err(_) => {
+                        eprintln!("z42_host_run_app: VM thread panicked (see stderr above)");
+                        70
+                    }
+                },
+                Err(e) => {
+                    eprintln!("z42_host_run_app: spawn VM thread failed: {e}");
+                    71
+                }
             }
         }
     }));

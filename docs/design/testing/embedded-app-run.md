@@ -150,7 +150,9 @@ iOS/Android **有真文件系统**,比 wasm 简单——不需要 VFS,直接把 
 ```
 _enumerateCorpus(root, filter)      → _CorpusCase[]   (结构化,rid 无关)
   → _targetExcludes(rid, name) 过滤 → included[]      (平台能力门控)
-  → _sampleCorpus(included, cap)    → selected[]      (按类 round-robin 采样)
+  → 选择 (二选一):
+      · shardN>0  → _shardCorpus(included, k, n) → selected[]  (全覆盖分片,不 cap)
+      · shardN==0 → _sampleCorpus(included, cap) → selected[]  (按类 round-robin smoke 采样)
   → 逐 selected 编译 (kind → _goldenEntry / _emitUnitZbc / _emitDirUnit) → manifest.json
 ```
 
@@ -183,10 +185,91 @@ _enumerateCorpus(root, filter)      → _CorpusCase[]   (结构化,rid 无关)
 桶内序 = 枚举序、结果按原枚举序发射(manifest 顺序稳定)。cap≤0 或 total≤cap → 返回全集(desktop
 逐字节不变)。
 
-> 采样**定位仍是 smoke**(验嵌入执行路径 agent + per-case 隔离 + `app::run` 通不通),不是全覆盖;
-> 全覆盖是 desktop 的职责。本次只是让 60 的子集**更有代表性**,未提 cap、未改 CI 拓扑。
+> 采样**定位是无 `--shard` 时的快速本地/手动 smoke**(验嵌入执行路径 agent + per-case 隔离 +
+> `app::run` 通不通)。tier-2 的 nightly 全覆盖改由下方分片承担(tier2-shard-full-coverage);
+> 采样路径本身保持不变,仍是 desktop-字节不变的 smoke 家。
 > 本地验采样分布:`xtask test embedded --rid iossim-arm64` 打印 `bundle: N cases` + 采样报告,
 > 看被抽到的 case 名跨类别分布即可,无需真跑模拟器。
+
+### 全覆盖分片:`_shardCorpus` + tier-2 matrix(tier2-shard-full-coverage, 2026-08-19)
+
+smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆盖分片让 nightly 把**全部可跑用例**跑完:
+`test embedded --rid <tier2> --shard k/n` 时,`_buildTestBundle` 走 `_shardCorpus(included, k, n)`
+而非 `_sampleCorpus` —— **不设 cap**,只取"能力门控后"的 `included[]` 里 `index % n == k-1` 的那
+一片。n 个 shard 的并集 = 全集,零重叠(纯 index 取模分区),按枚举序确定、可复现。`index%n` 在
+`_enumerateCorpus` 的连续 bucket 上交错,故每片天然跨类别均衡。`--shard` 复用 golden/stdlib 的
+`_parseShard`([0,0] = 不分片 → 回到 smoke 采样)。
+
+**为何分片而非提 cap**:cap 由**单 job 时间墙**(wasm Playwright / android 60min emulator)封顶,
+提 cap 会撞墙;分片把 corpus 的**编译+跑**摊到 n 个平行 CI runner,每片只跑 1/n,墙不动、覆盖到 100%。
+
+**当前落地范围(本 PR)**:**只有 `test-wasm` 走全覆盖分片**(`strategy.matrix.shard`,n=3);
+**iOS / Android 仍留 60-smoke**(单 job、不分片,与本 PR 前一致)。原因见下「③ mobile 沙箱」——
+android 模拟器 / iOS 模拟器的 app 沙箱像 wasm 一样受限(挡 socket 绑定/监听、任意 fs、进程),
+mobile 全覆盖需一套**独立的能力排除审计**(net + 部分 fs/process),属**后续专项**;`--shard` flag、
+`_shardCorpus`、移动端 16MB 栈修复(轴 ②)已就绪,后续专项只需给 mobile 补审计 + 打开 matrix。
+
+**T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍平台冷构建。wasm 的 R1–R7
+(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料小(排除能力用例后 ~330 例)、
+Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富余,后续按需调 n。junit/artifact
+按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若冷构建重付难以承受,再升级 T2(冷构建产物只建
+一次 + 分片只跑,仿 share-goldens-no-regen)。
+
+本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)看 `embed shard k/n`
+报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
+
+### 全覆盖暴露的四类问题(前三类本 PR 修复,第四类转 follow-up,tier2-shard-full-coverage)
+
+60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的问题。逐轮 dispatch 暴露:①②③ 已修(wasm
+故因此本 PR 全覆盖绿),④ 是 mobile 全覆盖的门槛、转独立 follow-up(故本 PR mobile 仍留 smoke):
+
+1. **wasm 能力缺口(panic + 断言失败)**。① `z42.compression` 是纯
+   `[Native(lib="z42_compression")]` facade(brotli/gzip/zstd/zip/lz4/tar):wasm 无 dlopen → ext
+   注册表空 → 元数据 resolver 加载即 panic(`unknown builtin __brotli_compress`);它是唯一的
+   native-ext facade 库(crypto 走静态 `BUILTINS`,wasm 有)。② 排除 compression 后又暴露一批**断言
+   失败**——wasm 无真文件系统 / 进程 / OS 熵 / 系统时钟,故 `z42.io` 的 process*/file*/directory*/
+   path_glob*/console*/env*/gc_heap_snapshot、`z42.crypto/secure_random*`、`z42.time/datetime`
+   (`DateTime.UtcNow`)物理跑不了。修:`_targetExcludes` 整桶排除 compression + 按**能力前缀**排除
+   上述 io/crypto/time 用例(源码审计,非 CI 采样,更全;同 lib 的纯 string/stream-memory/hash/
+   date-parse 用例仍跑),与 net/threading 同款能力门控。
+
+2. **mobile(android+ios):嵌入运行原生栈溢出 SIGSEGV**。z42 解释器**在原生调用栈上递归**
+   (每次 z42 调用一层原生帧,无 reify 帧栈)。嵌入 host 经 `z42_host::run_app` 从**调用方线程**跑 VM,
+   而 Android `AndroidJUnitRunner` / iOS XCTest 线程栈只 ~512KB–1MB(desktop 主线程 ~8MB)。于是
+   desktop 能跑的**有限但深**递归用例在移动端溢出 → 整进程 SIGSEGV(logcat:`stack pointer is not in
+   a rw map; likely due to stack overflow`),R1–R7 却全过。修:**C-ABI 入口 `z42_host_run_app`
+   (`src/runtime/src/host/mod.rs`,所有原生嵌入 shell 的唯一 C 符号:desktop C test-host /
+   iOS Swift / Android JNI 都调它)把 `z42::app::run` 放到一条 16MB 大栈线程上跑再 join**,
+   让嵌入栈预算 ≥ desktop。⚠️注意入口辨析:z42-host **crate** 的 `run_app`(Rust API,仅
+   `run_app_smoke` 示例用)是另一条路,不在移动端调用链上——补在那里无效,必须补 host/mod.rs 的
+   C 符号。wasm 单线程、走 `z42_wasm` 另一入口,`#[cfg(not(wasm32))]` 门控不触及。16MB = desktop
+   主线程 8MB 的 2×:崩溃用例在 ~1MB 移动端栈溢出、却在 desktop 8MB 通过 → ≥8MB 即够,2× 留余量;
+   再大无益(需 >8MB 的程序在 desktop 本就崩)。64 位虚拟保留、只 commit 触及页,在移动端每线程上限内。
+
+3. **全平台:同 namespace 多文件在共享 VM 里冲突**(不是 wasm 专属,desktop embedded 也复现)。嵌入
+   bundle 把每个 `[Test]` **文件**单独编成一个 `.zbc`,`_runBundleReport` 的 unit 段把它们**依次
+   load 进同一个共享 VM**(goldens 走 `__run_goldens_isolated` 各自隔离,units 不隔离)。而原生模块
+   加载器 `__load_module` **按 namespace 去重(first-wins)**——第 2 个声明同一 namespace 的 `.zbc`
+   其 `[Test]` 自由函数**不再注册**,`__invoke_static` 找不到 → 该模块每个测试报
+   `function ... not found`(伪装成测试失败)。`test stdlib` 不踩因它把一个 lib 的测试**一起编成一个
+   模块**(namespace 编译期合并)。全库仅 `z42.collections` 的 `Z42CollectionsTests` 被 3 个文件
+   (linkedlist/queue/stack)共享——**唯一**触发点(其余测试文件都已是 per-file namespace)。修:给这
+   3 个文件各自独立 namespace(`Z42Collections{LinkedList,Queue,Stack}Tests`),与既有约定一致,且
+   无论分片如何分布都不冲突(比隔离 units 的改动更小、更稳)。
+   > 遗留(harness 加固,可选 follow-up):共享 VM 对「同 namespace 多 `.zbc`」仍会**静默**误报,
+   > 未来有人再写同 namespace 的测试文件会踩。根治需 units 隔离(仿 goldens)或 bundler 把同
+   > namespace 文件合编一个 `.zbc`;当前语料无触发,故先按约定回避。
+
+4. **mobile 沙箱能力缺口(follow-up,本 PR 未修 → mobile 仍留 smoke)**。修完 ①②③ 后,mobile
+   全覆盖 dispatch 显示:栈溢出没了(② 生效,logcat 无 SIGSEGV),但 **android 模拟器 / iOS 模拟器的
+   app 沙箱**跑不了一大批用例——**几乎整个 `z42.net`**(socket 绑定/监听、UDP loopback/multicast、
+   websocket、HTTP server:沙箱禁 bind/listen/loopback)+ **部分 `z42.io`**(directory*/file 元数据/
+   process_stdio/gc_heap_snapshot:app 私有目录外的 fs、进程受限)。即 **mobile 不是「native 什么都能
+   跑」**,其沙箱像 wasm 一样受限,只是可跑集不同(mobile 有 compression/熵/时钟,但缺 net/任意 fs/
+   进程)。故 mobile 全覆盖需一套**独立的 per-平台能力排除审计**(net + 沙箱受限 fs/process),且
+   android 与 iOS 可能有差异、并混有 flaky(如 `strings/string_methods` 偶发,desktop embedded 恒过)。
+   本 PR 把它**转为 follow-up**:mobile 保持 60-smoke(绿),wasm 先享全覆盖;地基(`--shard`/
+   `_shardCorpus`/16MB 栈/collections 修复)已就绪,follow-up 只需补 mobile 审计 + 打开 mobile matrix。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
