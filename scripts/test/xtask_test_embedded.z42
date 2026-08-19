@@ -239,16 +239,25 @@ bool _targetExcludes(string rid, string caseName) {
     // tier2-shard-full-coverage — the 60-smoke sample happened to skip these.)
     if (caseName.StartsWith("z42.compression/")) { return true; }
     if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*)
-    // env / cwd / process / console-tty specific stdlib units (need OS env/process,
-    // which wasm lacks — set_var / current_dir / process spawn / is_terminal panic):
-    if (caseName == "z42.io/env_cwd")             { return true; }
-    if (caseName == "z42.io/env_set")             { return true; }
-    if (caseName == "z42.io/environment_extra")   { return true; }
-    if (caseName == "z42.io/ansi_color")          { return true; }
-    if (caseName == "z42.io/console")             { return true; }
-    if (caseName == "z42.io/operating_system")    { return true; }
-    if (caseName == "z42.io/process_which")       { return true; }
-    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }
+    // wasm lacks a real filesystem, process spawn, OS entropy, and a system clock.
+    // The z42.io / z42.crypto / z42.time cases exercising those physically can't run;
+    // the 60-smoke sample never hit them, so tier2-shard-full-coverage's first full
+    // run surfaced them as failures. Excluded by CAPABILITY PREFIX (audit over the
+    // stdlib test source) — the pure string / stream-memory / hash-vector / date-parse
+    // cases in the same libs still run. (The `Contains("stream")` above already covers
+    // file_stream*/*_stream fs cases.)
+    if (caseName.StartsWith("z42.io/process"))   { return true; }   // process spawn (basic/spawn/stdio/stdin/timeout/which/failure/env_cwd)
+    if (caseName.StartsWith("z42.io/file"))      { return true; }   // native fs (file_temp/bytes/extras/atomic_write/chmod_link_size/last_write_time/…)
+    if (caseName.StartsWith("z42.io/directory")) { return true; }   // native fs (directory/directory_copy/directory_temp)
+    if (caseName.StartsWith("z42.io/path_glob")) { return true; }   // fs glob (path_glob/path_glob_recursive)
+    if (caseName.StartsWith("z42.io/console"))   { return true; }   // console/tty (console/console_tty)
+    if (caseName.StartsWith("z42.io/env"))       { return true; }   // env vars (env_cwd/env_set/environment_extra)
+    if (caseName == "z42.io/ansi_color")         { return true; }   // env-driven ANSI
+    if (caseName == "z42.io/operating_system")   { return true; }   // OS / current_dir
+    if (caseName == "z42.io/gc_heap_snapshot")   { return true; }   // writes a heap-snapshot file
+    if (caseName.StartsWith("z42.crypto/secure_random")) { return true; }  // OS entropy (basic/distribution)
+    if (caseName == "z42.time/datetime")         { return true; }   // DateTime.UtcNow → system clock (parse/calendar/offset cases still run)
+    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }  // env/process
     return false;
 }
 

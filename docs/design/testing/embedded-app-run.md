@@ -231,11 +231,14 @@ junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名�
    (每次 z42 调用一层原生帧,无 reify 帧栈)。嵌入 host 经 `z42_host::run_app` 从**调用方线程**跑 VM,
    而 Android `AndroidJUnitRunner` / iOS XCTest 线程栈只 ~512KB–1MB(desktop 主线程 ~8MB)。于是
    desktop 能跑的**有限但深**递归用例在移动端溢出 → 整进程 SIGSEGV(logcat:`stack pointer is not in
-   a rw map; likely due to stack overflow`),R1–R7 却全过。修:**`z42_host::run_app` 把
-   `z42::app::run` 放到一条 64MB 大栈线程上跑再 join**(`src/runtime/crates/z42-host/src/lib.rs`),
-   让嵌入栈预算 ≥ desktop,统一覆盖 Android JNI / iOS Swift / desktop test-host 三个原生入口;
-   wasm 单线程、走 `z42_wasm` 另一入口,`#[cfg(not(wasm32))]` 门控不触及。64MB = desktop 默认 8×,
-   够任何有限递归语料用例,且在移动端每线程上限内(64 位虚拟保留,只 commit 触及页)。
+   a rw map; likely due to stack overflow`),R1–R7 却全过。修:**C-ABI 入口 `z42_host_run_app`
+   (`src/runtime/src/host/mod.rs`,所有原生嵌入 shell 的唯一 C 符号:desktop C test-host /
+   iOS Swift / Android JNI 都调它)把 `z42::app::run` 放到一条 16MB 大栈线程上跑再 join**,
+   让嵌入栈预算 ≥ desktop。⚠️注意入口辨析:z42-host **crate** 的 `run_app`(Rust API,仅
+   `run_app_smoke` 示例用)是另一条路,不在移动端调用链上——补在那里无效,必须补 host/mod.rs 的
+   C 符号。wasm 单线程、走 `z42_wasm` 另一入口,`#[cfg(not(wasm32))]` 门控不触及。16MB = desktop
+   主线程 8MB 的 2×:崩溃用例在 ~1MB 移动端栈溢出、却在 desktop 8MB 通过 → ≥8MB 即够,2× 留余量;
+   再大无益(需 >8MB 的程序在 desktop 本就崩)。64 位虚拟保留、只 commit 触及页,在移动端每线程上限内。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 

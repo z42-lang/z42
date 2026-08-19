@@ -149,7 +149,7 @@ eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
   受限平台单 job 有时间墙（wasm Playwright / android 60min emulator），提 cap 会撞墙，分片把
   编译+跑摊到 n 个 runner、墙不动而覆盖到 100%。n 由 nightly 真实单片耗时回调（首轮是 time-to-crash，
   非完成耗时，故 mobile 暂留 6）。能力门控排除 `z42.net`/`z42.threading`/`z42.compression`（wasm）等；
-  嵌入运行在 **64MB 大栈线程**上跑（`z42_host::run_app`），避免深递归打爆移动端小线程栈。
+  嵌入运行在 **16MB 大栈线程**上跑（`z42_host::run_app`），避免深递归打爆移动端小线程栈。
 
 机制（枚举/门控/采样/分片、T1 拓扑代价与 T2 升级路径）详见
 [`../../design/testing/embedded-app-run.md` §5.7](../../design/testing/embedded-app-run.md)；
