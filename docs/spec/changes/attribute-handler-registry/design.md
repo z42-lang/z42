@@ -70,6 +70,15 @@
 （`[Native]`/`[Layout]`）是编译器封闭集，**豁免后缀**，保留 canonical 短名。代码里引用类型仍用全名
 （`MethodsWith<RouteAttribute>()`）；剥离只发生在 `[X]` 用名处。
 
+> **与 C# 的关系（勿误读为"抄 C#"）**：D8 是 **z42 自主选择**，只有 store-meta 那半与 C# 语言规则同源，
+> 且 z42 比 C# 更严：
+> - **`*Attribute` 剥后缀**：C# 有真语言规则（`[Obsolete]` ↔ `ObsoleteAttribute`），但**不强制加后缀**
+>   ——无后缀 attribute 类完全合法，"应带后缀"只是**风格分析器警告 CA1710**（可关），非编译错；唯一硬错是
+>   `Foo`/`FooAttribute` **歧义 → CS1614**。z42 把这半从"软警告"提成"**硬编译错**"。
+> - **`*Generator`/`*Analyzer` 后缀**：**C# 完全没有此机制**。Roslyn 靠 **marker attribute**
+>   （`[Generator]`/`[DiagnosticAnalyzer]`）**+ 接口/基类**判 kind，类名后缀**纯命名约定、零编译器语义**。
+>   z42 故意**砍掉 marker**（见下「Handler 契约」），改用**后缀当 kind 信号**——这是 z42 自创，不是 C# 先例。
+
 ### 位置限制 `[Targets]`（对应 C# `[AttributeUsage]`）
 
 ```z42
