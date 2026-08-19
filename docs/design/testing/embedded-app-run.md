@@ -201,25 +201,27 @@ smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆�
 `_parseShard`([0,0] = 不分片 → 回到 smoke 采样)。
 
 **为何分片而非提 cap**:cap 由**单 job 时间墙**(wasm Playwright / android 60min emulator)封顶,
-提 cap 会撞墙;分片把 corpus 的**编译+跑**摊到 n 个平行 CI runner(`.github/workflows/ci.yml` 的
-`test-wasm` / `test-ios` / `test-android` 加 `strategy.matrix.shard`),每片只跑 1/n,墙不动、覆盖到 100%。
+提 cap 会撞墙;分片把 corpus 的**编译+跑**摊到 n 个平行 CI runner,每片只跑 1/n,墙不动、覆盖到 100%。
 
-**T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍**平台冷构建**
-(wasm-pack LTO / iOS xcframework+模拟器 / android NDK+emulator)。wasm 的 R1–R7(`test platform wasm`,
-与语料无关)因此只在 `shard==1` 跑;iOS/android 把 R1–R7 折进同一 xcodebuild/connectedAndroidTest,
-无法廉价拆分 → 每片重跑 R1–R7。**当前 n:wasm=3、mobile=6**。首次全量 dispatch 的单片耗时是
-**time-to-crash 而非 time-to-complete**(每片撞到失败用例即中止,见下"两类失败"),故 mobile 暂留 6、
-拿到真实完成耗时后再降;wasm 语料小(排除 compression 后 ~340 例)、Playwright interp 每例轻,n=3 稳在墙内。
-墙有富余就调低 n(省机器分钟)、某腿逼近墙就调高。若冷构建重付难以承受,再升级 T2(冷构建产物只建一次 +
-分片只跑,仿 share-goldens-no-regen)。
+**当前落地范围(本 PR)**:**只有 `test-wasm` 走全覆盖分片**(`strategy.matrix.shard`,n=3);
+**iOS / Android 仍留 60-smoke**(单 job、不分片,与本 PR 前一致)。原因见下「③ mobile 沙箱」——
+android 模拟器 / iOS 模拟器的 app 沙箱像 wasm 一样受限(挡 socket 绑定/监听、任意 fs、进程),
+mobile 全覆盖需一套**独立的能力排除审计**(net + 部分 fs/process),属**后续专项**;`--shard` flag、
+`_shardCorpus`、移动端 16MB 栈修复(轴 ②)已就绪,后续专项只需给 mobile 补审计 + 打开 matrix。
 
-junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名带 `(shard k)`),避免 v4
-同名 artifact 冲突。本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)
-看 `embed shard k/n` 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
+**T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍平台冷构建。wasm 的 R1–R7
+(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料小(排除能力用例后 ~330 例)、
+Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富余,后续按需调 n。junit/artifact
+按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若冷构建重付难以承受,再升级 T2(冷构建产物只建
+一次 + 分片只跑,仿 share-goldens-no-regen)。
 
-### 全覆盖暴露的三类失败(逐轮 dispatch 修复,tier2-shard-full-coverage)
+本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)看 `embed shard k/n`
+报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
 
-60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的问题。逐轮 dispatch 暴露并修复三类:
+### 全覆盖暴露的四类问题(前三类本 PR 修复,第四类转 follow-up,tier2-shard-full-coverage)
+
+60-smoke 只碰一个子集;全覆盖必然撞上 smoke 从没抽到的问题。逐轮 dispatch 暴露:①②③ 已修(wasm
+故因此本 PR 全覆盖绿),④ 是 mobile 全覆盖的门槛、转独立 follow-up(故本 PR mobile 仍留 smoke):
 
 1. **wasm 能力缺口(panic + 断言失败)**。① `z42.compression` 是纯
    `[Native(lib="z42_compression")]` facade(brotli/gzip/zstd/zip/lz4/tar):wasm 无 dlopen → ext
@@ -257,6 +259,17 @@ junit/artifact 在矩阵下按 shard 命名(`junit-ios-shard-<k>` 等,check 名�
    > 遗留(harness 加固,可选 follow-up):共享 VM 对「同 namespace 多 `.zbc`」仍会**静默**误报,
    > 未来有人再写同 namespace 的测试文件会踩。根治需 units 隔离(仿 goldens)或 bundler 把同
    > namespace 文件合编一个 `.zbc`;当前语料无触发,故先按约定回避。
+
+4. **mobile 沙箱能力缺口(follow-up,本 PR 未修 → mobile 仍留 smoke)**。修完 ①②③ 后,mobile
+   全覆盖 dispatch 显示:栈溢出没了(② 生效,logcat 无 SIGSEGV),但 **android 模拟器 / iOS 模拟器的
+   app 沙箱**跑不了一大批用例——**几乎整个 `z42.net`**(socket 绑定/监听、UDP loopback/multicast、
+   websocket、HTTP server:沙箱禁 bind/listen/loopback)+ **部分 `z42.io`**(directory*/file 元数据/
+   process_stdio/gc_heap_snapshot:app 私有目录外的 fs、进程受限)。即 **mobile 不是「native 什么都能
+   跑」**,其沙箱像 wasm 一样受限,只是可跑集不同(mobile 有 compression/熵/时钟,但缺 net/任意 fs/
+   进程)。故 mobile 全覆盖需一套**独立的 per-平台能力排除审计**(net + 沙箱受限 fs/process),且
+   android 与 iOS 可能有差异、并混有 flaky(如 `strings/string_methods` 偶发,desktop embedded 恒过)。
+   本 PR 把它**转为 follow-up**:mobile 保持 60-smoke(绿),wasm 先享全覆盖;地基(`--shard`/
+   `_shardCorpus`/16MB 栈/collections 修复)已就绪,follow-up 只需补 mobile 审计 + 打开 mobile matrix。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 

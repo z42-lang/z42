@@ -144,12 +144,14 @@ eval "$(./xtask deps env)"   # 设 ANDROID_NDK_HOME
 - **快速 smoke（默认，无 `--shard`）**：`cap=60` 的**类别 round-robin 采样**（tidy-test-system），
   每类都有代表 case、不偏向字母序靠前的类。定位是「验嵌入执行路径通不通」，本地/手动快速跑。
 - **全覆盖分片（`--shard k/n`，tier2-shard-full-coverage）**：不设 cap，取能力门控后的第 k/n 片
-  （`index%n` 分区，n 片并集=全集、零重叠、确定）。nightly CI 的 `test-wasm`/`test-ios`/`test-android`
-  用 `strategy.matrix.shard` fan-out 成 n 个平行 job（当前 **wasm=3、mobile=6**），合起来跑**全部可跑用例**。
+  （`index%n` 分区，n 片并集=全集、零重叠、确定）。**当前只有 `test-wasm` 走全覆盖分片**（nightly
+  `strategy.matrix.shard` n=3）；**iOS/Android 仍留 60-smoke**——其模拟器 app 沙箱像 wasm 一样受限
+  （挡 socket 绑定/监听、任意 fs、进程），mobile 全覆盖需一套独立能力排除审计，属 follow-up。
   受限平台单 job 有时间墙（wasm Playwright / android 60min emulator），提 cap 会撞墙，分片把
-  编译+跑摊到 n 个 runner、墙不动而覆盖到 100%。n 由 nightly 真实单片耗时回调（首轮是 time-to-crash，
-  非完成耗时，故 mobile 暂留 6）。能力门控排除 `z42.net`/`z42.threading`/`z42.compression`（wasm）等；
-  嵌入运行在 **16MB 大栈线程**上跑（`z42_host::run_app`），避免深递归打爆移动端小线程栈。
+  编译+跑摊到 n 个 runner、墙不动而覆盖到 100%。wasm 能力门控排除 `z42.net`/`z42.threading`/
+  `z42.compression` + `z42.io` 的 fs/进程/OS-身份用例 + `z42.crypto/secure_random` + `z42.time/datetime`；
+  嵌入运行在 **16MB 大栈线程**上跑（host/mod.rs 的 C 符号 `z42_host_run_app`），避免深递归
+  打爆移动端小线程栈。
 
 机制（枚举/门控/采样/分片、T1 拓扑代价与 T2 升级路径）详见
 [`../../design/testing/embedded-app-run.md` §5.7](../../design/testing/embedded-app-run.md)；

@@ -1643,7 +1643,7 @@ jobs:
           if-no-files-found: warn
 
   test-ios:
-    name: test-ios-sim(macos-arm64) shard ${{ matrix.shard }}
+    name: test-ios-sim(macos-arm64)
     # ci-perf-tier2: 45→60. Same cold-build + simulator-boot pressure repeatedly
     # cancelled this job before it could report.
     timeout-minutes: 60
@@ -1652,15 +1652,6 @@ jobs:
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-15
-    # tier2-shard-full-coverage: fan out the embedded corpus for full nightly
-    # coverage. iOS folds R1–R7 + embedded into ONE xcodebuild scheme, so each
-    # shard re-runs R1–R7 alongside its embedded slice (folded — can't cheaply
-    # split); that redundancy is the T1 cost we measure this run. N is a first
-    # value — tune from the per-shard timings this nightly reports.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       checks: write
@@ -1677,7 +1668,7 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           key: tier2-ios
       - uses: ./.github/actions/xtask-bootstrap-artifact
-      - name: test platform ios + embedded (one simulator run, R1–R7 + embedded shard ${{ matrix.shard }}/6)
+      - name: test platform ios + embedded (one simulator run, R1–R7 + embedded corpus)
         shell: bash
         run: |
           set -euo pipefail
@@ -1691,15 +1682,14 @@ jobs:
           #  2) platform ios assets → R1–R7 fixtures + stdlib into Resources.
           #  3) platform ios run → ONE `xcodebuild test -scheme Z42VM` runs both
           #     Z42VMTests (R1–R7) and Z42EmbeddedTests, writes the JUnit below.
-          # tier2-shard-full-coverage: --shard k/N → this shard's full-coverage slice.
-          run test embedded --rid iossim-arm64 --shard ${{ matrix.shard }}/6
+          run test embedded --rid iossim-arm64
           run test platform ios assets
           run test platform ios run
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()
         with:
-          name: platform-tests / ios (shard ${{ matrix.shard }})
+          name: platform-tests / ios
           path: artifacts/test-reports/ios/junit.xml
           reporter: java-junit
           fail-on-error: false
@@ -1707,12 +1697,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-ios-shard-${{ matrix.shard }}
+          name: junit-ios
           path: artifacts/test-reports/ios/**
           if-no-files-found: warn
 
   test-android:
-    name: test-android-emu(linux-x64) shard ${{ matrix.shard }}
+    name: test-android-emu(linux-x64)
     # ci-perf-tier2: 45→60. Cold NDK/cargo-ndk build + emulator boot headroom
     # (AVD snapshot cache below cuts boot once warm).
     timeout-minutes: 60
@@ -1721,15 +1711,6 @@ jobs:
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    # tier2-shard-full-coverage: fan out the embedded corpus for full nightly
-    # coverage. Android folds R1–R7 + embedded into ONE connectedAndroidTest run,
-    # so each shard re-runs R1–R7 alongside its embedded slice (folded — can't
-    # cheaply split); that redundancy is the T1 cost we measure this run. N is a
-    # first value — tune from the per-shard timings this nightly reports.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       checks: write
@@ -1779,8 +1760,7 @@ jobs:
           # add-wasm-testhost G6: build the embedded corpus (x86_64 .so — matches
           # the emulator ABI — + androidTest/assets/embedded) so the single
           # connectedAndroidTest below runs Z42EmbeddedInstrumentedTest too.
-          # tier2-shard-full-coverage: --shard k/N → this shard's full-coverage slice.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid android-x64 --shard ${{ matrix.shard }}/6
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid android-x64
       # ci-perf-tier2 (#4): AVD snapshot cache. A cold emulator boot is ~4min every
       # run; caching ~/.android/avd + a warm snapshot boots in ~1min on a hit.
       # arch/target/api-level MUST match between the create-snapshot run and the
@@ -1843,7 +1823,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-embed-crash-diagnostics-shard-${{ matrix.shard }}
+          name: android-embed-crash-diagnostics
           path: |
             android-embed-logcat.txt
             android-tombstones/**
@@ -1852,7 +1832,7 @@ jobs:
         uses: dorny/test-reporter@v1
         if: always()
         with:
-          name: platform-tests / android (shard ${{ matrix.shard }})
+          name: platform-tests / android
           path: 'src/toolchain/workload/android/platform/z42vm/build/outputs/androidTest-results/connected/**/*.xml'
           reporter: java-junit
           fail-on-error: false
@@ -1860,7 +1840,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-android-shard-${{ matrix.shard }}
+          name: junit-android
           path: src/toolchain/workload/android/platform/z42vm/build/outputs/androidTest-results/connected/**
           if-no-files-found: warn
 
