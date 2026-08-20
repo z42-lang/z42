@@ -324,9 +324,27 @@ WASM-ONLY 缺口（仅 if(isWasm)）     → threading/* · compression/* · *st
 
 > **mobile fs/stream 的 KEEP-IN 是能力假设,靠 tier-2 CI 分片验证**:app 沙箱**有**可写 tmp,
 > 故 `file_temp`/`directory_temp`/memory+file stream 假定可跑、保留在语料内。若某例实际需要沙箱
-> 拒绝的东西(如 `chmod`/symlink、固定路径 glob),CI dispatch 会把它显成红,下一轮把它从
-> WASM-ONLY 上移到 SHARED(或加 mobile-only 排除)。**全覆盖的原则是「揭真实平台差异、按证据收敛」,
-> 不是「先排干净求绿」**——与 §5.7「四类问题」一脉相承。android 与 iOS 若出现差异,再按 rid 细分。
+> 拒绝的东西(如硬链接、无写权限的固定路径),CI dispatch 会把它显成红,按证据加 mobile/android
+> 排除。**全覆盖的原则是「揭真实平台差异、按证据收敛」,不是「先排干净求绿」**——与 §5.7 一脉相承。
+
+### 首轮 discovery dispatch 结果(run 32422098038):iOS 全绿,android 6 例 fs 缺口
+
+三分片 dispatch(`gh workflow run ci.yml --ref tier2-mobile-coverage`):
+
+- **iOS(iossim)3 片全绿** —— 上表 KEEP-IN 假设对 iOS **全部成立**(threads / compression / 熵 /
+  时钟 / 沙箱 fs / stream 都跑通)。排除 68 → 可跑 465。
+- **android(emulator)3 片红在 6 个 `z42.io` case**(23 个 sub-test),分两类,故加**android-only**
+  排除(iOS 沙箱能跑这些,**不上移到 SHARED**),排除 74:
+  - **① 真能力缺口(永久 android 排除)**:`file_chmod_link_size` —— `File.Link`(硬链接)在 android
+    app 沙箱 `Permission denied`(symlink 却可以)。该测试**已**用 `File.CreateTempDir`,故非 /tmp 问题、
+    改不了 → 永久排除。
+  - **② 测试可移植性缺陷(临时 android 排除,待 /tmp follow-up)**:`directory` / `directory_copy` /
+    `file_extras` / `file_last_write_time` / `gc_heap_snapshot` —— 这 5 个测试**硬编码 `/tmp/…`** 写盘路径。
+    iOS-sim(跑在 macOS)与 desktop 有可写 `/tmp` 故过;**android emulator 无可写 `/tmp`** → `Read-only
+    file system (os error 30)` / `No such file`。android **有**可写 temp(`File.CreateTempDir`,
+    `file_temp` 在 android 已过)→ **真修 = 把这 5 个测试从硬编码 `/tmp` 改用 `CreateTempDir`(可移植,
+    android+iOS+desktop 都过)**,改完即**删掉这 5 个 android 排除**。该 /tmp 可移植性修复按裁决**拆为
+    独立 follow-up PR**(本 PR 先交付机制 + iOS 全覆盖 + android 暂排这 6 例保绿)。
 
 ### 分片 matrix(`test-ios` / `test-android`,n=3)
 
