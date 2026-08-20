@@ -271,6 +271,22 @@ Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富
    本 PR 把它**转为 follow-up**:mobile 保持 60-smoke(绿),wasm 先享全覆盖;地基(`--shard`/
    `_shardCorpus`/16MB 栈/collections 修复)已就绪,follow-up 只需补 mobile 审计 + 打开 mobile matrix。
 
+5. **wasm:深递归压穿 shadow stack → OOB(fix-wasm-yaml-deep-recursion-oob,follow-up #1,已修)**。
+   tier2-shard-full-coverage 交付时 shard 2/3 留了个 `RuntimeError: memory access out of bounds`
+   (str_meta 串味修复后**仍**复现,故是独立 bug),二分定位到单个用例 `z42.yaml/parse_errors`
+   (孤立跑即崩、确定复现)。根因**与 ②(mobile SIGSEGV)同源**——z42 解释器在**原生栈**递归
+   (每层 z42 调用一层原生帧),而 wasm 的 **shadow stack(在 linear memory 内)默认仅 1 MiB**,
+   远小于 desktop 主线程 ~8MB / mobile 16MB 大栈线程。该用例 `test_deep_flow_nesting_rejected`
+   解析 300 层 `[[[…]]]`(> 解析器 256 层 DoS cap):递归在**尚未触及 256 cap 抛 YamlException 之前**
+   就把 1 MiB shadow stack 压穿,`__stack_pointer` 下溢 → 下一次 local 存储越界 → OOB 陷阱
+   (wasm **无栈保护页**,溢出即 OOB,不是 `call stack exhausted`;这也是它伪装成"随机" OOB、
+   `console` 无输出、trap 后 wasm 实例即死无法回读 VFS 的原因)。修:`.cargo/config.toml` 给
+   `[target.wasm32-unknown-unknown]` 加 `-C link-arg=-zstack-size=16777216`,把 shadow stack
+   提到 **16 MiB(与 ② mobile 大栈线程同预算)**,让 256 cap 可达、按设计抛 YamlException 而非陷阱。
+   **② 与 ⑤ 是同一原则「嵌入栈预算 ≥ desktop」的两面**:② 补 native 线程栈(host/mod.rs 16MB 线程),
+   ⑤ 补 wasm shadow stack(link-arg)。验证:`parse_errors` 单例由 CRASH→PASS,shard 2/3 全 137 例
+   本地 Playwright 全绿(shard 1/3、3/3 早已绿,栈只增不减,不回归)。
+
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
 嵌入式 RUN **折叠进现有 `test-{wasm,ios,android}` job**(`.github/workflows/ci.yml`),复用同一
