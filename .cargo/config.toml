@@ -1,2 +1,18 @@
 [build]
 target-dir = "artifacts/build/runtime"
+
+# wasm shadow-stack size (fix-wasm-yaml-deep-recursion-oob, 2026-08-20).
+#
+# The z42 interpreter executes z42 calls by recursing on the *native* stack, so
+# recursive-descent stdlib parsers (e.g. Std.Yaml, whose nesting is capped at
+# 256 levels as DoS protection) can drive that recursion hundreds of frames deep.
+# wasm's default shadow stack is only 1 MiB — far smaller than the desktop main
+# thread (~8 MiB) or the mobile 16 MiB run thread that host::z42_host_run_app
+# spawns for exactly this reason. On wasm, parsing deep-but-bounded input
+# (z42.yaml/parse_errors' 300-level `[[[…]]]` case) overflowed the 1 MiB shadow
+# stack *before* the parser's 256-cap could reject it; the shadow-stack pointer
+# underflowed and the next local store trapped as "memory access out of bounds".
+# Give wasm the same 16 MiB budget as the mobile run thread so the depth cap is
+# reachable and the intended clean YamlException is thrown instead of a trap.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=16777216"]
