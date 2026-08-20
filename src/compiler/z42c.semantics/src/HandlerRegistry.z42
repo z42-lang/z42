@@ -1,0 +1,58 @@
+// attribute-handler-registry PR1a — AST-phase 编译期 handler 注册表。
+//
+// 把「解析后、类型检查前」的两个 AST 级 pass 收敛到单一入口 RunAst，并用**三路 kind 判定**
+// （KindOf）替换散落在 AttributeSynth 的 `_isUserAttr` 名字白名单。设计 SoT：
+// docs/spec/changes/attribute-handler-registry/design.md。
+//
+// 三路 kind（design §消费模型）：
+//   · store-meta —— 普通 `: Attribute` 类 → 反射 blob（IrAttrRef）。**本 PR 落地**：仍由
+//     AttributeSynth 合成无参工厂，判定改问 KindOf。
+//   · directive  —— Std.Meta 封闭集（Native/Test/… 等）→ codegen / TestIndexBuilder 等别的 pass
+//     消费。**PR1b 细化**：本 PR 只把它们归为「非 store-meta」，行为不变。
+//   · handler    —— 实现 Generator/Analyzer 接口 → 编译期消费即弃。**PR4 接入**。
+//
+// PR1a 是纯内部重构，外部可见行为逐字节不变：store-meta 判定必须逐字节复刻 `_isUserAttr` 的
+// false-集（见 _isReservedBuiltin），**不得**对齐 TestIndexBuilder._isTestAttrName 的全集
+// （后者含 Setup/Teardown/Ignore，而它们现仍走 store-meta 工厂——对齐会破自举字节不动点）。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+// attribute 应用 `[X]` 的三路 kind。z42 无 enum → static class + int 常量（同 StructLayout）。
+public static class AttrKind {
+    public static int StoreMeta = 0;   // 普通 : Attribute 类 → 反射 blob（本 PR 落地）
+    public static int Directive = 1;   // 编译器封闭集，codegen / 测试索引消费（PR1b 细化）
+    public static int Handler = 2;     // 实现 Generator/Analyzer 接口（PR4 接入）
+}
+
+// 声明寻址：store-meta 工厂 / 将来 Generator 的 Replace/Augment 都按 DeclId 定位一个声明。
+// PR1a 仅奠定概念——Key 即镜像 C# 的工厂 key 前缀（cls$C / mth$C$M / fld$C$F / fn$F / …$prm$j）。
+public sealed class DeclId {
+    public string Key;
+    public DeclId(string key) { this.Key = key; }
+}
+
+public static class HandlerRegistry {
+    // AST-phase 单一入口（挂载点：IncrementalDriver / IrDump）。内建 Generator（BenchmarkDesugar）
+    // 先跑，再走 store-meta 合成（AttributeSynth）——与收敛前 `AttributeSynth.Run(BenchmarkDesugar.Run(cu))`
+    // 语义逐字节一致。
+    public static CompilationUnit RunAst(CompilationUnit cu) {
+        return AttributeSynth.Run(BenchmarkDesugar.Run(cu));
+    }
+
+    // 三路 kind 判定（替换 AttributeSynth._isUserAttr）。PR1a 只区分 store-meta / 非-store-meta：
+    // 保留给 directive/handler 的封闭集统一归 Directive（PR1b 再从中分出 handler），其余为 store-meta。
+    public static int KindOf(string name) {
+        if (HandlerRegistry._isReservedBuiltin(name)) { return AttrKind.Directive; }
+        return AttrKind.StoreMeta;
+    }
+
+    // 逐字节复刻 AttributeSynth._isUserAttr 的 false-集：Native + 5 个由别的 pass 处理的测试内建
+    // （Test/Benchmark/Skip/ShouldThrow/Timeout）。**刻意不含 Setup/Teardown/Ignore**——它们现走
+    // store-meta 工厂，PR1a 必须保持（对齐 _isTestAttrName 会破自举字节不动点，见文件头注）。
+    private static bool _isReservedBuiltin(string name) {
+        if (name == "Native" || name == "Test" || name == "Benchmark") { return true; }
+        if (name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
+        return false;
+    }
+}

@@ -10,7 +10,8 @@
 //
 // 工厂 key 前缀（镜像 C#）：cls$<C> / mth$<C>$<M> / fld$<C>$<F> / fn$<F> / <prefix>$prm$<j>。
 // 编译器/测试框架内建 attribute（Native/Test/Benchmark/Skip/ShouldThrow/Timeout）由别的 pass
-// 处理，**不**合成工厂（否则 `new Test()` 等失败 + 破坏 self-build byte-identical）。
+// 处理，**不**合成工厂（否则 `new Test()` 等失败 + 破坏 self-build byte-identical）。哪些名字算内建、
+// 哪些走 store-meta 工厂，判定统一收敛到 HandlerRegistry.KindOf（attribute-handler-registry PR1a）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
@@ -93,13 +94,15 @@ public sealed class AttributeSynth {
         }
     }
 
-    // 一组 attr：逐个非内建 attr 合成工厂 + 记 FactoryFunc。
+    // 一组 attr：逐个 store-meta attr 合成工厂 + 记 FactoryFunc。kind 判定由 HandlerRegistry.KindOf
+    // 统管（替换旧 _isUserAttr 名字白名单）；keyPrefix 即该声明的地址，包成 DeclId 供将来寻址复用。
     private void _process(Attr[] attrs, int count, string keyPrefix) {
+        DeclId did = new DeclId(keyPrefix);
         int a = 0;
         while (a < count) {
             Attr at = attrs[a];
-            if (AttributeSynth._isUserAttr(at.Name)) {
-                string fname = "__attr$" + keyPrefix + "$" + a.ToString();
+            if (HandlerRegistry.KindOf(at.Name) == AttrKind.StoreMeta) {
+                string fname = "__attr$" + did.Key + "$" + a.ToString();
                 at.FactoryFunc = fname;
                 this._addFactory(AttributeSynth._synthFactory(at, fname));
             }
@@ -114,13 +117,6 @@ public sealed class AttributeSynth {
             this._fac = b;
         }
         this._fac[this._facCount] = fnd; this._facCount = this._facCount + 1;
-    }
-
-    // 编译器/测试框架内建 attribute → 不合成工厂。
-    private static bool _isUserAttr(string name) {
-        if (name == "Native" || name == "Test" || name == "Benchmark") { return false; }
-        if (name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return false; }
-        return true;
     }
 
     // `public Attribute <fname>() { return new <attr.Name>(attr.Args); }`

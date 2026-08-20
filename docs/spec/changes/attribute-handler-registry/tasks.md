@@ -6,7 +6,7 @@
 
 | PR | 内容 | bump | 状态 |
 |----|------|:---:|------|
-| PR1a | HandlerRegistry AST-phase：AttributeSynth+BenchmarkDesugar 收敛 + 三路 kind 判定（无后缀，byte-identical）+ DeclId 概念 | 否 | ⬜ 进行中 |
+| PR1a | HandlerRegistry AST-phase：AttributeSynth+BenchmarkDesugar 收敛 + 三路 kind 判定（无后缀，byte-identical）+ DeclId 概念 | 否 | ✅ 完成 |
 | PR1b | HandlerRegistry IR-phase：TestIndexBuilder+StubEmitter 收敛（`[Native]` 不改） | 否 | ⬜ |
 | PR2 | 后缀约定（D8）：resolution 剥离 + 强制校验 + 迁移现有 attribute 类 + 反转 `Attribute.z42`/`basic.z42` 头注 | 否 | ⬜ |
 | PR3 | Analyzer 契约 + `AnalysisContext` + 诊断/severity + `[lints]` + `#suppress`/`[Suppress]` | 否 | ⬜ |
@@ -47,9 +47,20 @@
 
 ### 阶段 3 · GREEN + 自举不动点
 
-- [ ] worktree 供种（`.z42`/`xtask`/重建 `xtask.zpkg`，见 [[fresh-worktree-seed-setup]]）。
-- [ ] `xtask test` 全 stage gate 绿；self-host gen1==gen2 逐字节；5/5。
-- [ ] zbc-format golden 零漂移；`[Setup]/[Teardown]/[Ignore]` 行为逐字节保持。
+- [x] worktree 供种（`.z42`/`xtask`/重建 `xtask.zpkg`，见 [[fresh-worktree-seed-setup]]）。
+- [x] `xtask test all` 全 stage gate 绿（e2e goldens + stdlib + compiler + vscode-syntax）；self-host gen1==gen2 逐字节 **5/5**。
+- [x] `xtask test incremental` incr==full 逐字节（demo + xtask，55/55 files byte-identical）——覆盖 `IncrementalDriver.ParseAllTk` 改动路径。
+- [x] zbc-format golden 零漂移；`[Setup]/[Teardown]/[Ignore]` 行为逐字节保持（store-meta 判定复刻 6 名 `_isUserAttr` false-集，未对齐 `_isTestAttrName`）。
+
+### PR1a 实测勘察修正（写码时发现，与阶段 0 DRAFT 出入）
+
+- **挂载点是 4 处，非 DRAFT 说的 2 处**：`AttributeSynth.Run(BenchmarkDesugar.Run(...))` 除
+  `IncrementalDriver:52` / `IrDump:82` 外，还有 `IrDump:558`（`BuildModuleD` 跨包路径）+
+  `IrDump:667`（`_buildFOpt` 内联单测路径）。四处全切 `HandlerRegistry.RunAst`。
+  （`bench_desugar_tests.z42:13` 直调 `BenchmarkDesugar.Run` 保留——单测隔离，函数仍 public。）
+- **DeclId 非死代码**：`AttributeSynth._process` 实际 `new DeclId(keyPrefix)` 并用 `did.Key` 构工厂名
+  （`did.Key == keyPrefix` → 逐字节一致）。奠定寻址概念且真被执行，不违反 philosophy 反 speculative。
+- **`test incremental` 是必跑的额外 gate**：`test all` 不含它，而本 PR 动了增量路径 → 必须单独跑。
 
 ## 备注
 
