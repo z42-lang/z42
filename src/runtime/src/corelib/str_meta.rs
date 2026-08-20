@@ -25,10 +25,26 @@
 //! matches the queried string's content. (Leaked test/no-heap strings have a fixed
 //! generation and are never swept, so they always pass the check.)
 //!
+//! Cross-heap soundness (fix-wasm-string-ops): the generation guard above only
+//! distinguishes slot reuse **within one heap** (the region bumps the generation at
+//! every tombstone). It does **not** cover reuse **across heaps**: this cache is a
+//! plain `thread_local`, so it outlives any single [`VmContext`]/heap. When a VM is
+//! torn down its [`VarRegion`] returns its chunk memory to the system allocator, and
+//! the next VM on the same thread can re-allocate a block at the exact same address
+//! with generation **0** (a fresh bump-allocated slot). A stale gen-0 entry from the
+//! dead heap would then pass both `data_ptr == key` and `is_live` — a false hit that
+//! returns the WRONG string's metadata (observed on wasm32, where linear-memory
+//! addresses recycle densely and deterministically: e.g. `"".Length == 13`). The fix
+//! is to scope the cache to a single heap's address space via the per-heap monotonic
+//! epoch ([`crate::gc::ambient::current_heap_epoch`]): entries are computed under one
+//! epoch, and the whole cache is dropped the moment execution switches to a different
+//! epoch. Because the epoch is never reused, a recycled address in a *new* heap can
+//! never be mistaken for a live entry from the *old* one.
+//!
 //! The cache only changes *speed*, never the returned value — byte-identical
 //! output is preserved.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use crate::metadata::vstr::Str;
 
 struct StrMeta {
@@ -49,6 +65,11 @@ const CACHE_CAP: usize = 8;
 
 thread_local! {
     static CACHE: RefCell<Vec<StrMeta>> = const { RefCell::new(Vec::new()) };
+    /// **fix-wasm-string-ops**: the heap epoch under which `CACHE`'s entries were computed. On
+    /// a mismatch with the current epoch (a heap switch — a new VM on this thread), the whole
+    /// cache is dropped, because a torn-down heap's block addresses get recycled and a fresh
+    /// gen-0 block at a recycled address would otherwise false-hit a stale gen-0 entry.
+    static LAST_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
 
 #[inline]
@@ -69,8 +90,19 @@ fn compute(s: &Str) -> StrMeta {
 
 /// Run `f` against `s`'s cached metadata, computing + caching on first sight.
 fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
+    // fix-wasm-string-ops: scope the cache to a single heap's address space. The entries are
+    // keyed by GC block ADDRESS (+ generation), but a torn-down heap's addresses get recycled
+    // by the next VM's allocator, and a fresh block's generation resets to 0 — so a gen-0 entry
+    // from a dead heap could false-hit a gen-0 block at the same recycled address (the `is_live`
+    // generation guard only distinguishes reuse WITHIN one region). The per-heap monotonic epoch
+    // (`ambient::current_heap_epoch`, never reused) changes on every heap switch; drop the whole
+    // cache when it does. Within one heap the epoch is constant ⇒ no clearing, no perf loss.
+    let epoch = crate::gc::ambient::current_heap_epoch();
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();
+        if LAST_EPOCH.with(|le| le.replace(epoch)) != epoch {
+            cache.clear();
+        }
         let key = data_ptr(s);
         // Hit = same allocation address AND the cached handle is still live (its
         // block wasn't swept + its slot reused by a different string) — see the

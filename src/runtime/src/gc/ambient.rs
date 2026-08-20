@@ -41,6 +41,14 @@ thread_local! {
     /// [`HeapGuard`]. Lazy (non-`const`) init: the fat-pointer niche has no cheap
     /// null literal, and the one-time per-thread init cost is negligible.
     static CURRENT_HEAP: Cell<Option<NonNull<dyn MagrGC>>> = const { Cell::new(None) };
+
+    /// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] snapshot (0 = no heap).
+    /// Maintained in lockstep with `CURRENT_HEAP` by [`HeapGuard`] so a cheap `u64` read
+    /// ([`current_heap_epoch`]) identifies "which heap" without a per-access vtable call.
+    /// Address-keyed caches ([`crate::corelib::str_meta`]) read it to detect a heap switch and
+    /// drop entries that would otherwise false-hit a malloc-recycled address (wasm32 cross-VM
+    /// string corruption). Monotonic epoch ⇒ a recycled address in a new heap never matches.
+    static CURRENT_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
 
 /// RAII guard scoping `heap` into [`CURRENT_HEAP`] for the guard's lifetime.
@@ -48,6 +56,8 @@ thread_local! {
 /// frame (interp → JIT → interp) leaves the outer heap in place on exit.
 pub struct HeapGuard {
     prev: Option<NonNull<dyn MagrGC>>,
+    /// **fix-wasm-string-ops**: the epoch to restore on drop (saved alongside `prev`).
+    prev_epoch: u64,
     /// `false` when `enter` found the ambient heap already set to this same heap
     /// (a nested frame under the same VM/thread): the store was skipped, so drop
     /// must NOT restore and skips its own TLS access. Only the outermost frame per
@@ -76,10 +86,14 @@ impl HeapGuard {
         CURRENT_HEAP.with(|c| {
             let cur = c.get();
             if cur == Some(ptr) {
-                HeapGuard { prev: cur, active: false }
+                // Nested frame under the same heap: epoch unchanged, skip TLS churn.
+                HeapGuard { prev: cur, prev_epoch: 0, active: false }
             } else {
                 c.set(Some(ptr));
-                HeapGuard { prev: cur, active: true }
+                // fix-wasm-string-ops: install this heap's epoch in lockstep. Read once here
+                // (per heap switch), not per allocation, so the hot path stays vtable-free.
+                let prev_epoch = CURRENT_EPOCH.with(|e| e.replace(heap.heap_epoch()));
+                HeapGuard { prev: cur, prev_epoch, active: true }
             }
         })
     }
@@ -92,6 +106,8 @@ impl Drop for HeapGuard {
             return;
         }
         CURRENT_HEAP.with(|c| c.set(self.prev));
+        // fix-wasm-string-ops: restore the epoch saved at enter (mirror of CURRENT_HEAP).
+        CURRENT_EPOCH.with(|e| e.set(self.prev_epoch));
     }
 }
 
@@ -113,4 +129,15 @@ pub fn current_heap() -> Option<&'static dyn MagrGC> {
             unsafe { &*p.as_ptr() }
         })
     })
+}
+
+/// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] (0 when no z42 frame is
+/// executing). A cheap `u64` TLS read — the epoch is snapshotted into `CURRENT_EPOCH` by
+/// [`HeapGuard`] on each heap switch, so this avoids a vtable call on hot per-char callers.
+/// Used by [`crate::corelib::str_meta`] to scope its address-keyed cache to a single heap:
+/// a monotonic, never-reused epoch means a malloc-recycled block address in a *new* heap can
+/// never collide with a stale entry from a torn-down heap.
+#[inline]
+pub fn current_heap_epoch() -> u64 {
+    CURRENT_EPOCH.with(|e| e.get())
 }
