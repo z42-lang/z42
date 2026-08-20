@@ -532,6 +532,22 @@ public class TomlParseFail : Exception { ... }              // ✗
 - 与 C# / Java / Python `*Error` ≈ Rust `*Error` ≠ z42 的 `*Exception` —— z42 跟 C# 公约（更通用，"异常"比"错误"涵盖更广）
 - 命名空间：通常放在 owning 包的根 namespace（`Std` 而非 `Std.Toml`），让继承 `Exception` 的 `: Exception` 引用通过 same-namespace lookup 解到 `Std.Exception`。详见 stdlib `TomlException.z42` 顶部注释
 
+### 14b. Attribute 类型：`Attribute` 后缀强制（D8）
+
+所有继承自 `Std.Attribute` 的类型**必须**以 `Attribute` 结尾，应用时**剥去后缀**：
+
+```z42
+public class RouteAttribute : Attribute { ... }   // ✓ 定义带后缀
+[Route("/u")] class C { }                          // ✓ 应用剥后缀
+
+public class Route : Attribute { ... }             // ✗ 缺后缀 → E0444
+```
+
+- 与 `*Exception`（§14）同族的后缀强制，但语义相反：exception 应用即真实类名，attribute **应用剥后缀**
+  （类 `RouteAttribute` ↔ 用名 `[Route]`），反射引用仍用真实类名 `typeof(RouteAttribute)`。
+- 比 C# 更严：C# 后缀可选（CA1710 软警告）、双拼法（`[Route]`/`[RouteAttribute]`），z42 强制单拼法。
+- 机制与判据见 [attributes.md](attributes.md) 与 attribute-handler-registry design D8。
+
 ### 15. Enum 命名：单数 vs 复数
 
 - **互斥状态枚举（普通 enum）** → **单数** 类型名

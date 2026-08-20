@@ -1,38 +1,41 @@
 # 自定义 Attribute 与反射
 
-> 状态：class-level（C3a）+ method-level（C3b）均已落地（2026-06-09）。
-> 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）。
+> 状态：class-level（C3a）+ method-level（C3b）均已落地（2026-06-09）。**D8 后缀约定**（类名强制
+> `*Attribute`、应用剥后缀、`E0444`）2026-08-20 落地（attribute-handler-registry PR2）。
+> 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
+> [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。
 
 z42 的 attribute 是**用户自定义的元数据注解**，应用到声明上，运行期经反射读回**活实例**。设计取自 C#，但修正了 C# 的几处长期缺陷（见下「对 C# 的改进」）。
 
 ## 用法
 
-attribute 是一个继承 `Std.Attribute` 的普通类，按**真实类名**应用（无后缀约定）：
+attribute 是一个继承 `Std.Attribute` 的普通类，**类名必须以 `Attribute` 后缀结尾**（D8 后缀约定，
+编译器强制为 `E0444`），应用时**剥去后缀**（类 `RouteAttribute` 写作 `[Route]`）：
 
 ```z42
 using Std;
 
-class Route : Attribute {
+class RouteAttribute : Attribute {        // 定义名带后缀
     public string Path;
     public string Method;
     // 全部状态走构造器（命名参数 + 默认值）——单一初始化路径
-    public Route(string path, string method = "GET") {
+    public RouteAttribute(string path, string method = "GET") {
         this.Path = path;
         this.Method = method;
     }
 }
 
-[Route("/users", method: "POST")]
+[Route("/users", method: "POST")]          // 用名剥后缀
 class UsersController { }
 
 void Demo() {
     Type t = typeof(UsersController);
 
     // 全部 attribute：活实例，按应用顺序
-    Attribute[] all = t.GetCustomAttributes();   // [ Route 实例 ]
+    Attribute[] all = t.GetCustomAttributes();   // [ RouteAttribute 实例 ]
 
-    // 按类型单查（不存在返回 null）
-    Route r = (Route) t.GetAttribute(typeof(Route));
+    // 按类型单查（不存在返回 null）——反射用真实类名（带后缀）
+    RouteAttribute r = (RouteAttribute) t.GetAttribute(typeof(RouteAttribute));
     Console.WriteLine(r.Path);    // "/users"
     Console.WriteLine(r.Method);  // "POST"
 
@@ -42,8 +45,10 @@ void Demo() {
 ```
 
 - attribute 参数限**编译期常量**（字面量 / enum 成员 / `typeof`）。
-- 应用按真实类名 `[Route]`（**不**接受 `[RouteAttribute]`）。
-- `GetAttribute(Type)` 按实例的运行期类型（FullName）比较，故子类 attribute 也匹配。
+- 应用位剥后缀：类 `RouteAttribute` 写作 `[Route]`（编译器把 `[X]` 展开成 `XAttribute` 解析）。缺后缀的
+  `: Attribute` 类（如 `class Route : Attribute`）→ 编译错误 `E0444`。
+- 反射引用类型用**真实类名**（`typeof(RouteAttribute)`），`GetAttribute(Type)` 按实例运行期类型（FullName）
+  比较，故子类 attribute 也匹配。
 
 ### API（class-level，z42.core）
 
@@ -66,8 +71,8 @@ class Service {
 Type t = typeof(Service);
 foreach (MethodInfo m in t.GetMethods()) {
     if (m.Name == "List") {
-        Attribute[] attrs = m.GetCustomAttributes();        // [ Doc, Route ]
-        Doc d = (Doc) m.GetAttribute(typeof(Doc));          // d.Text == "lists users"
+        Attribute[] attrs = m.GetCustomAttributes();        // [ DocAttribute, RouteAttribute ]
+        DocAttribute d = (DocAttribute) m.GetAttribute(typeof(DocAttribute));  // d.Text == "lists users"
     }
 }
 ```
@@ -78,7 +83,7 @@ foreach (MethodInfo m in t.GetMethods()) {
 
 | # | C# 缺陷 | z42 |
 |---|---------|-----|
-| 1 | `Attribute` 后缀魔法（`class FooAttribute` 写作 `[Foo]`/`[FooAttribute]`，两种拼法）| **无后缀**：`class Route : Attribute` 即写作 `[Route]`，单一拼法 |
+| 1 | `Attribute` 后缀**可选** + 双拼法（`class FooAttribute` 写作 `[Foo]` 或 `[FooAttribute]`；无后缀类也合法，只有 CA1710 软警告）| **后缀强制、单拼法**（D8）：类名必须 `*Attribute`（否则 `E0444` 硬错），应用只接受剥后缀的 `[Foo]`。比 C# 更严——消除"两种拼法 / 加不加后缀"的自由度 |
 | 2 | 双初始化路径（positional→ctor，named→public 字段直写）| **单一 ctor 路径**：全部参数走构造器（复用 named-arg + 默认值）|
 | 3 | 每次 `GetCustomAttributes()` 重新分配新实例 + 返 `object[]` | **缓存单例**：首次实例化一次，后续返同一批 |
 | 4 | 实例可变（正是 #3 必须复制的根因）| **不可变实例**（ctor 内一次写定）→ 缓存安全 |
@@ -93,7 +98,7 @@ foreach (MethodInfo m in t.GetMethods()) {
 attribute 构造**全编译期已知**（已知类、已知构造器、常量参数），无需运行时泛型实例化。编译器为每个 `[Foo(args)]` 应用合成一个**无参工厂函数**（[AttributeFactorySynthesizer](../../../src/compiler/z42.Semantics/Codegen/AttributeFactorySynthesizer.cs)，pre-typecheck，复用 BenchmarkDesugar 合成模式）：
 
 ```z42
-public Attribute __attr$cls$UsersController$0() { return new Route("/users", method: "POST"); }
+public Attribute __attr$cls$UsersController$0() { return new RouteAttribute("/users", method: "POST"); }
 ```
 
 工厂的**返回类型是 `Attribute` 基类**——于是普通 typecheck 顺带强制了 attribute 契约，错误锚定在应用点：

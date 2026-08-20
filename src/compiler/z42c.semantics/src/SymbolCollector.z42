@@ -37,6 +37,7 @@ public sealed class SymbolCollector {
         this._passMembers(t, cu);
         this._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
         this._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._passInheritFields(t, cu);
@@ -146,6 +147,8 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._passFixupOverrides(table, cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._passSealedEnforce(table, cus[c]); c = c + 1; }   // impl-sealed-semantics-devirt
+        c = 0;
+        while (c < cuCount) { this._passAttributeSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR2（D8 后缀）
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
@@ -198,6 +201,7 @@ public sealed class SymbolCollector {
         this._passMembers(table, cu);
         this._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
         this._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._passImpls(table, cu);   // port-z42c-impl-block
         this._passInheritFields(table, cu);
         return table;
@@ -396,6 +400,41 @@ public sealed class SymbolCollector {
             }
             i = i + 1;
         }
+    }
+
+    // attribute-handler-registry PR2（D8 后缀约定）：任何直接以 `Attribute` 基类派生的用户类，其类名
+    // **必须**以 `Attribute` 结尾——用名 `[X]` 剥后缀 ↔ 定义名 `XAttribute` 带后缀，AttributeSynth 按此
+    // 展开合成工厂 `new XAttribute()`。违规 → E0444（把 C# 的软警告 CA1710 提成硬编译错，design D8 注）。
+    // 纯语法检查（NestedFlatten 后遍历 ClassDecl，看直接基类名）；directive（`[Native]`）/ test 家族
+    // 不派生 `Attribute` → 天然豁免；基类 `Attribute` 自身无 `: Attribute` 基 → 不触发。
+    // （Generator/Analyzer 的后缀强制留 PR3/PR4——彼时那两 kind 才成为可加载的真类型。）
+    private void _passAttributeSuffixEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (this._baseIsAttribute(c) && !c.Name.EndsWith("Attribute")) {
+                    this.Diags.Error(DiagnosticCodes.AttributeSuffixRequired,
+                        "attribute class `" + c.Name + "` must end with `Attribute` suffix (rename to `" + c.Name + "Attribute`; apply it as `[" + c.Name + "]`)", c.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 直接基类里是否有 `Attribute`（或限定 `*.Attribute`）。attribute 基类现实中一律不限定（限定
+    // `Std.Attribute` 触 typechecker FQN-upcast gap，见 reflection.md Deferred），限定分支仅稳妥兜底。
+    private bool _baseIsAttribute(ClassDecl c) {
+        int j = 0;
+        while (j < c.BaseCount) {
+            if (c.Bases[j] is NamedType) {
+                string bn = (c.Bases[j] as NamedType).Name;
+                if (bn == "Attribute" || bn.EndsWith(".Attribute")) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
     }
 
     // 沿 base 链找 (name, paramTypes) 的**最近**匹配 MethodSymbol（用于 sealed override 强制：最近的被

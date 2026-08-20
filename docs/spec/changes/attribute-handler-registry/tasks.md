@@ -8,13 +8,49 @@
 |----|------|:---:|------|
 | PR1a | HandlerRegistry AST-phase：AttributeSynth+BenchmarkDesugar 收敛 + 三路 kind 判定（无后缀，byte-identical）+ DeclId 概念 | 否 | ✅ 完成 |
 | PR1b | HandlerRegistry IR-phase：TestIndexBuilder+StubEmitter 名字识别收敛 + KindOf 细化三路（`[Native]` 不改，byte-identical） | 否 | ✅ 完成 |
-| PR2 | 后缀约定（D8）：resolution 剥离 + 强制校验 + 迁移现有 attribute 类 + 反转 `Attribute.z42`/`basic.z42` 头注 | 否 | ⬜ |
+| PR2 | 后缀约定（D8）：resolution 展开（`[X]`→`XAttribute`）+ 强制校验 E0444 + test 家族全归 handler + 迁移 fixtures + 反转 `Attribute.z42`/`basic.z42`/`attributes.md` 头注 | 否 | ✅ 完成 |
 | PR3 | Analyzer 契约 + `AnalysisContext` + 诊断/severity + `[lints]` + `#suppress`/`[Suppress]` | 否 | ⬜ |
 | PR4 | Generator/ModuleGenerator 对外加载（`packages.toml` 依赖 + 反射发现接口）+ splice/merge（Replace/Augment） | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
 | 后续 | `[Native]`→`[Extern]` 改名 / `[Layout]`/`[Repr]`(E2) / `OnIrOp` perf lint / 用户 `macro` / 局部变量 attribute | 视需 | ⬜ Deferred |
+
+## PR2 · 后缀约定 D8（已完成，破坏性非 byte-identical）
+
+**目标**：落地 D8 后缀约定——store-meta `[X]` 按后缀展开解析到类 `XAttribute`；`: Attribute` 类名缺后缀 →
+硬编译错 `E0444`；test 家族全 8 名归 handler（消除 PR1a/1b 保字节不动点的 5/3 差集折衷）。**非
+byte-identical**：attributes 类目 golden 重生 + Setup/Teardown/Ignore 不再合成 store-meta 死工厂。
+
+### 实施
+
+- [x] `HandlerRegistry`：加 `StoreMetaClassName(name)=name+"Attribute"`（后缀逻辑单点）；`KindOf` 的 handler
+      分支改问 `IsTestHandlerAttr`（全 8 名）→ Setup/Teardown/Ignore 归 Handler、不再 store-meta；删
+      `_isTestHandlerNonStoreMeta`。
+- [x] store-meta 两处消费改经 helper 取带后缀类名：`AttributeSynth._synthFactory`（`new XAttribute()`）+
+      `ClassDescBuilder._attrRefsFromList`（IrAttrRef 持久化类型名 `_qClass(XAttribute)`）。
+- [x] `SymbolCollector._passAttributeSuffixEnforce`（3 挂载点，同 `_passSealedEnforce`）：直接基类名 ==
+      `Attribute` 且类名不以 `Attribute` 结尾 → `E0444`（`DiagnosticCodes.AttributeSuffixRequired`）。
+      语法层检查（不依赖 base 可解析）。Generator/Analyzer 后缀强制留 PR3/PR4（彼时那两 kind 才成真类型）。
+- [x] 迁移 fixtures（`[X]` 应用名不动，改类定义/ctor/typeof/cast）：`src/tests/attributes/{basic,field_attrs,
+      methods}.z42`、`src/tests/types/param_attributes.z42`、`src/libraries/z42.core/tests/reflection.z42`。
+- [x] 反转文档头注：`Attribute.z42` + `basic.z42` + `docs/design/language/attributes.md`（"无后缀 improvement"
+      → 后缀强制、比 C# 更严）+ `naming-conventions.md` §14b。
+- [x] E0444 负测试：`collect_tests.z42` 加 3 个（缺后缀报 / 带后缀不报 / 非-attribute 类不受约束）。
+
+### 关键设计点
+
+- **store-meta 判定仍是名字驱动**（非全类型解析）：AST-phase 无全符号表，且 PR2 尚无 Generator/Analyzer 类
+  → 无歧义可能（`DataAttribute`+`DataGenerator` 同名歧义检测留 PR4）。故 `[X]` 一律展开 `XAttribute`，
+  directive/test 家族豁免（走各自 handler，不经 store-meta 工厂）。
+- **test 家族全归 handler = 消除 PR1a/1b 字节不动点陷阱**：那个「5 名 handler / 3 名 store-meta」差集是纯
+  重构期为保字节一致的折衷；PR2 破坏性，正是收敛它的时机（design：test = 内建 handler、豁免后缀）。
+
+### GREEN
+
+- [ ] worktree 供种 + 重建 xtask.zpkg；`xtask test all` 全绿；self-host gen1==gen2 **5/5**（新行为不动点）。
+- [ ] attributes 类目 golden 重生（`--dir attributes`）；reflection 单测（z42.core [Test]）全过。
+- [ ] `xtask test bootstrap`：不涉新语法/格式（纯 semantics 逻辑）→ 无越界。
 
 ## PR1b · HandlerRegistry IR-phase 名字识别收敛 + KindOf 细化三路（当前）
 

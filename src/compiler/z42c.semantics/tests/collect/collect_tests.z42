@@ -330,6 +330,27 @@ void test_sealed_non_override_error() {
     Assert.Equal(true, hasCode(d, "E0429"));
 }
 
+// ── attribute-handler-registry PR2: `: Attribute` 类名后缀强制（D8）──────────────
+// 纯语法检查（看直接基类名 == Attribute），故无需 import Std/base 可解析。
+
+[Test]
+void test_attribute_missing_suffix_error() {
+    // `: Attribute` 类名不以 Attribute 结尾 → E0444
+    Assert.Equal(true, hasCode(collectDiags("class Route : Attribute { }"), "E0444"));
+}
+
+[Test]
+void test_attribute_with_suffix_ok() {
+    // 带 Attribute 后缀 → 无 E0444
+    Assert.Equal(false, hasCode(collectDiags("class RouteAttribute : Attribute { }"), "E0444"));
+}
+
+[Test]
+void test_non_attribute_class_no_suffix_error() {
+    // 不派生 Attribute 的普通类不受后缀约束 → 无 E0444
+    Assert.Equal(false, hasCode(collectDiags("class Route { public int X; }"), "E0444"));
+}
+
 // add-user-conversions ②：声明期冲突检测——同 (源→目标) 重复的转换运算符 → E0440。
 [Test]
 void test_conversion_operator_duplicate_conflict() {
