@@ -351,6 +351,27 @@ void test_non_attribute_class_no_suffix_error() {
     Assert.Equal(false, hasCode(collectDiags("class Route { public int X; }"), "E0444"));
 }
 
+// ── attribute-handler-registry PR3a: `: Analyzer` 类名后缀强制（D8，analyzer 侧）──────
+// 同 E0444，纯语法检查（看直接基/接口名 == Analyzer），故无需 Analyzer 契约可解析。
+
+[Test]
+void test_analyzer_missing_suffix_error() {
+    // 实现 `Analyzer` 接口但类名不以 Analyzer 结尾 → E0445
+    Assert.Equal(true, hasCode(collectDiags("class NoGoto : Analyzer { }"), "E0445"));
+}
+
+[Test]
+void test_analyzer_with_suffix_ok() {
+    // 带 Analyzer 后缀 → 无 E0445
+    Assert.Equal(false, hasCode(collectDiags("class NoGotoAnalyzer : Analyzer { }"), "E0445"));
+}
+
+[Test]
+void test_non_analyzer_class_no_suffix_error() {
+    // 不实现 Analyzer 的普通类不受后缀约束 → 无 E0445
+    Assert.Equal(false, hasCode(collectDiags("class NoGoto { public int X; }"), "E0445"));
+}
+
 // add-user-conversions ②：声明期冲突检测——同 (源→目标) 重复的转换运算符 → E0440。
 [Test]
 void test_conversion_operator_duplicate_conflict() {
