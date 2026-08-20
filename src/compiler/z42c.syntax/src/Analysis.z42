@@ -1,0 +1,76 @@
+// attribute-handler-registry PR3a —— Analyzer 契约（编译期诊断分析框架的公共 API 面）。
+//
+// 放在 z42c.syntax（AST 所在处、被 z42c.semantics 依赖）——对齐 Roslyn：analyzer 包依赖编译器的
+// 语法 API（Microsoft.CodeAnalysis），而非纯运行时库（stdlib 不能反依赖编译器）。外部 analyzer
+// zpkg 经 [dependencies] 依赖 z42c.syntax + z42c.core 来编写，用 z42.toml `[analyzers]` 段声明被
+// 编译器加载执行（D9：独立编译期 zpkg 类别，编译期运行、不链入目标程序、不入消费产物）。设计 SoT：
+// docs/spec/changes/attribute-handler-registry/design.md §Analyzer 接口 / §Decisions D8·D9。
+//
+// 契约 = 纯抽象 + 数据：Analyzer / AnalysisContext / DiagSink 是接口（驱动在 z42c.semantics 提供
+// 具体实现）；DiagRule 是数据类；SyntaxKind / AnalyzerSeverity 是 int 常量（z42 无 enum → static
+// class + int，同 TokenKind）；SyntaxNodeAction 是回调 delegate。PR3a 只落 OnSyntaxNode（语法相位，
+// 无需语义模型）；OnSymbol / OnOperation / OnBody / OnReference / OnIrOp 等观察面按 design 观察面表
+// 后续增量扩。类名须以 `Analyzer` 结尾（D8，E0445 强制，见 SymbolCollector._passAnalyzerSuffixEnforce）。
+namespace Z42.Syntax;
+
+using Z42.Core;   // Span
+
+// analyzer 观察的语法节点种类。PR3a 起步覆盖用得上的子集，按需扩（对应 AST 节点类；驱动遍历 AST 时
+// 把每个节点映射到这些 kind 再分派）。值稳定、只增不改（外部 analyzer 按名引用）。
+public static class SyntaxKind {
+    public static int CatchClause  = 1;   // Stmt.z42 CatchClause —— 空 catch 吞异常 lint 等
+    public static int TryCatchStmt = 2;   // Stmt.z42 TryCatchStmt
+    public static int ClassDecl    = 3;   // Decl.z42 ClassDecl —— 命名规范等
+    public static int MethodDecl   = 4;   // Decl.z42 MethodDecl
+    public static int WhileStmt    = 5;   // Stmt.z42 WhileStmt
+    public static int ForStmt      = 6;   // Stmt.z42 ForStmt
+}
+
+// 诊断严重级（对齐 Roslyn 四级；是 z42c.core DiagnosticSeverity 的超集——多一个 Hidden 供 --fix）。
+public static class AnalyzerSeverity {
+    public static int Hidden  = 0;   // 不显示，仅供 --fix 消费（design）
+    public static int Info    = 1;   // 建议
+    public static int Warning = 2;
+    public static int Error   = 3;   // 编译失败
+}
+
+// 一条可诊断规则的声明——analyzer 声明它能发哪些规则（供 config 枚举 / severity 解析，PR3b [lints]）。
+public sealed class DiagRule {
+    public string Id;                // 如 "Z9002"
+    public string Title;
+    public string MessageFormat;
+    public string Category;          // 如 "Correctness"
+    public int DefaultSeverity;      // AnalyzerSeverity.*
+    public bool EnabledByDefault;
+
+    public DiagRule(string id, string title, string messageFormat, string category, int defaultSeverity, bool enabledByDefault) {
+        this.Id = id;
+        this.Title = title;
+        this.MessageFormat = messageFormat;
+        this.Category = category;
+        this.DefaultSeverity = defaultSeverity;
+        this.EnabledByDefault = enabledByDefault;
+    }
+}
+
+// analyzer 报告诊断的接收口。驱动（z42c.semantics）实现它，把 Report 映射进编译器 DiagnosticBag
+// （按规则默认级 + 将来 [lints] 覆盖决定最终 severity；PR3b）。
+public interface DiagSink {
+    void Report(DiagRule rule, Span at);
+}
+
+// analyzer 语法节点回调：命中的节点（以 object 传入，analyzer 按 AST 类 as-cast）+ 诊断口。
+public delegate void SyntaxNodeAction(object node, DiagSink diags);
+
+// analyzer 在 Register 里注册要观察什么（trigger 即在此）。驱动提供具体实现，收集注册项后遍历 AST
+// 分派。PR3a 只有 OnSyntaxNode（语法相位）；OnSymbol / OnOperation / OnBody 等语义观察面后续增量扩。
+public interface AnalysisContext {
+    void OnSyntaxNode(int kind, SyntaxNodeAction cb);
+}
+
+// analyzer 契约（design §Analyzer 接口）。实现接口即声明 kind（无 marker，靠接口发现，D6）；类名须以
+// `Analyzer` 结尾（D8，E0445）。SupportedRules 声明能发哪些规则（config/工具枚举）；Register 注册观察面。
+public interface Analyzer {
+    DiagRule[] SupportedRules();
+    void Register(AnalysisContext ctx);
+}
