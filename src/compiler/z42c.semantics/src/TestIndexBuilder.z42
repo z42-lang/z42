@@ -86,18 +86,14 @@ public sealed class TestIndexBuilder {
         return 0 - 1;
     }
 
+    // test handler 触发家族的名字识别已上移到 HandlerRegistry（attribute-handler-registry PR1b：
+    // 「逻辑不变，识别改注册表」）；本子构建器只保留聚合成 TIDX 表的 emit 逻辑。
     private bool _hasTestAttr(AttributedDecl ad) {
         int a = 0;
         while (a < ad.AttrCount) {
-            if (this._isTestAttrName(ad.Attrs[a].Name)) { return true; }
+            if (HandlerRegistry.IsTestHandlerAttr(ad.Attrs[a].Name)) { return true; }
             a = a + 1;
         }
-        return false;
-    }
-
-    private bool _isTestAttrName(string nm) {
-        if (nm == "Test" || nm == "Benchmark" || nm == "Setup" || nm == "Teardown") { return true; }
-        if (nm == "Ignore" || nm == "Skip" || nm == "ShouldThrow" || nm == "Timeout") { return true; }
         return false;
     }
 
