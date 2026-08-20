@@ -1,0 +1,164 @@
+// attribute-handler-registry PR3a —— 编译期 analyzer 驱动。
+//
+// 契约在 z42c.syntax（Analysis.z42：Analyzer / DiagSink / DiagRule / SyntaxKind）。本文件是**驱动侧
+// 具体实现**（z42c.semantics）：遍历 CompilationUnit 的语法节点，对每个 analyzer 声明观察（ObservedKinds）
+// 的节点调用 analyzer.OnSyntaxNode，把回调报告的诊断映射进编译器 DiagnosticBag。
+//
+// visitor 模型（无 delegate）：z42 自举编译器刻意规避 delegate + 命名 delegate 跨 zpkg 丢 FQ 名（见
+// Analysis.z42 头注），故契约与驱动全走**接口派发 + 纯虚调用**——driver 侧零 delegate / 零闭包，
+// analyzer 侧也无需 lambda。发现 / 加载外部 analyzer zpkg 见 [analyzers] 段（后续增量）；本增量的驱动
+// 机制由单测（tests/analyzer）直接喂 analyzer 实例验证。
+//
+// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §Analyzer 接口 / §Pipeline。
+namespace Z42.Semantics;
+
+using Z42.Core;     // Diagnostic / DiagnosticBag / DiagnosticSeverity / Span
+using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST
+
+// DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 映射：PR3a 用规则默认级
+// （[lints] 覆盖 / warnings-as-errors 留 PR3b）；Hidden 暂并入 Info（--fix 消费留后续）。
+public sealed class DiagSinkImpl : DiagSink {
+    public DiagnosticBag Bag;
+    public DiagSinkImpl(DiagnosticBag bag) { this.Bag = bag; }
+
+    public void Report(DiagRule rule, Span at) {
+        int sev = AnalyzerDriver._mapSeverity(rule.DefaultSeverity);
+        this.Bag.Add(new Diagnostic(sev, rule.Id, rule.MessageFormat, at));
+    }
+}
+
+public static class AnalyzerDriver {
+    // 对一组 analyzer 跑一遍：逐个遍历 CU、对命中 ObservedKinds 的节点调 OnSyntaxNode。诊断汇入同一
+    // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，common-pitfalls §1）。
+    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag) {
+        DiagSinkImpl sink = new DiagSinkImpl(bag);
+        int i = 0;
+        while (i < analyzerCount) {
+            Analyzer a = analyzers[i];
+            int[] kinds = a.ObservedKinds();
+            AnalyzerDriver._walkCu(cu, a, kinds, sink);
+            i = i + 1;
+        }
+    }
+
+    // ── AST 遍历：抵达已定义 SyntaxKind 的节点即分派（PR3a 只到语句层，不入 Expr）──────────────
+    private static void _walkCu(CompilationUnit cu, Analyzer a, int[] kinds, DiagSink sink) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            AnalyzerDriver._walkDecl(cu.Decls[i], a, kinds, sink);
+            i = i + 1;
+        }
+    }
+
+    private static void _walkDecl(Decl d, Analyzer a, int[] kinds, DiagSink sink) {
+        Decl inner = AnalyzerDriver._unwrap(d);
+        if (inner is ClassDecl) {
+            ClassDecl c = inner as ClassDecl;
+            AnalyzerDriver._dispatch(SyntaxKind.ClassDecl, c, a, kinds, sink);
+            int i = 0;
+            while (i < c.MemberCount) {
+                AnalyzerDriver._walkDecl(c.Members[i], a, kinds, sink);   // 嵌套类型 + 方法
+                i = i + 1;
+            }
+            return;
+        }
+        if (inner is MethodDecl) {
+            MethodDecl m = inner as MethodDecl;
+            AnalyzerDriver._dispatch(SyntaxKind.MethodDecl, m, a, kinds, sink);
+            if (m.HasBody) { AnalyzerDriver._walkStmt(m.Body, a, kinds, sink); }
+            return;
+        }
+    }
+
+    // 剥 AttributedDecl 外壳（`[X]` 应用），拿内层真声明——镜像 SymbolCollector._unwrap。
+    private static Decl _unwrap(Decl d) {
+        if (d is AttributedDecl) { return (d as AttributedDecl).Inner; }
+        return d;
+    }
+
+    private static void _walkStmt(Stmt s, Analyzer a, int[] kinds, DiagSink sink) {
+        if (s == null) { return; }
+        if (s is BlockStmt) {
+            BlockStmt b = s as BlockStmt;
+            int i = 0;
+            while (i < b.Count) { AnalyzerDriver._walkStmt(b.Stmts[i], a, kinds, sink); i = i + 1; }
+            return;
+        }
+        if (s is IfStmt) {
+            IfStmt f = s as IfStmt;
+            AnalyzerDriver._walkStmt(f.Then, a, kinds, sink);
+            if (f.HasElse) { AnalyzerDriver._walkStmt(f.Else, a, kinds, sink); }
+            return;
+        }
+        if (s is WhileStmt) {
+            WhileStmt w = s as WhileStmt;
+            AnalyzerDriver._dispatch(SyntaxKind.WhileStmt, w, a, kinds, sink);
+            AnalyzerDriver._walkStmt(w.Body, a, kinds, sink);
+            return;
+        }
+        if (s is ForStmt) {
+            ForStmt fo = s as ForStmt;
+            AnalyzerDriver._dispatch(SyntaxKind.ForStmt, fo, a, kinds, sink);
+            if (fo.HasInit) { AnalyzerDriver._walkStmt(fo.Init, a, kinds, sink); }
+            AnalyzerDriver._walkStmt(fo.Body, a, kinds, sink);
+            return;
+        }
+        if (s is ForeachStmt) {
+            AnalyzerDriver._walkStmt((s as ForeachStmt).Body, a, kinds, sink);
+            return;
+        }
+        if (s is DoWhileStmt) {
+            AnalyzerDriver._walkStmt((s as DoWhileStmt).Body, a, kinds, sink);
+            return;
+        }
+        if (s is SwitchStmt) {
+            SwitchStmt sw = s as SwitchStmt;
+            int i = 0;
+            while (i < sw.CaseCount) {
+                SwitchCase cs = sw.Cases[i];
+                int j = 0;
+                while (j < cs.BodyCount) { AnalyzerDriver._walkStmt(cs.Body[j], a, kinds, sink); j = j + 1; }
+                i = i + 1;
+            }
+            return;
+        }
+        if (s is TryCatchStmt) {
+            TryCatchStmt t = s as TryCatchStmt;
+            AnalyzerDriver._dispatch(SyntaxKind.TryCatchStmt, t, a, kinds, sink);
+            AnalyzerDriver._walkStmt(t.TryBody, a, kinds, sink);
+            int i = 0;
+            while (i < t.CatchCount) {
+                CatchClause cc = t.Catches[i];
+                AnalyzerDriver._dispatch(SyntaxKind.CatchClause, cc, a, kinds, sink);
+                AnalyzerDriver._walkStmt(cc.Body, a, kinds, sink);
+                i = i + 1;
+            }
+            if (t.HasFinally) { AnalyzerDriver._walkStmt(t.Finally, a, kinds, sink); }
+            return;
+        }
+        // 其余语句（Expr/Return/VarDecl/Throw/Break/Continue/LocalFunction）无子语句 → PR3a 无需深入。
+    }
+
+    // 分派：节点 kind 在 analyzer 的 ObservedKinds 内即调 OnSyntaxNode（纯虚接口调用，无 delegate）。
+    private static void _dispatch(int kind, object node, Analyzer a, int[] kinds, DiagSink sink) {
+        if (AnalyzerDriver._observes(kinds, kind)) {
+            a.OnSyntaxNode(kind, node, sink);
+        }
+    }
+
+    private static bool _observes(int[] kinds, int kind) {
+        int i = 0;
+        while (i < kinds.Length) {
+            if (kinds[i] == kind) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // AnalyzerSeverity（Hidden0/Info1/Warning2/Error3）→ DiagnosticSeverity（Error0/Warning1/Info2）。
+    public static int _mapSeverity(int analyzerSev) {
+        if (analyzerSev >= AnalyzerSeverity.Error) { return DiagnosticSeverity.Error; }
+        if (analyzerSev == AnalyzerSeverity.Warning) { return DiagnosticSeverity.Warning; }
+        return DiagnosticSeverity.Info;   // Info + Hidden（PR3a 暂并入）
+    }
+}
