@@ -1,0 +1,101 @@
+// z42c.semantics AnalyzerDriver 单测（attribute-handler-registry PR3a）。
+//
+// 验证编译期 analyzer 驱动机制：一个测试内 analyzer（实现 Z42.Syntax.Analyzer 契约，Register 里用
+// lambda 注册 OnSyntaxNode——这是 user code，lambda 合法）经 AnalyzerDriver.Run 遍历 parse 出的
+// CompilationUnit，命中的回调把诊断汇入 DiagnosticBag。证驱动的 store/invoke delegate + AST 遍历
+// 分派 + DiagSink→DiagnosticBag 映射全链，无需外部 zpkg 加载（那是后续增量）。
+namespace Z42cSemanticsAnalyzerTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// 测试用 analyzer：报告空 catch（吞异常）。类名带 Analyzer 后缀（D8/E0445）。visitor 模型——声明
+// ObservedKinds=CatchClause，driver 对每个 catch 调 OnSyntaxNode，内部 as-cast + 报告。无 delegate/lambda。
+class NoEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rules = new DiagRule[1];
+        rules[0] = NoEmptyCatchAnalyzer._rule();
+        return rules;
+    }
+    public int[] ObservedKinds() {
+        int[] k = new int[1];
+        k[0] = SyntaxKind.CatchClause;
+        return k;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) { diags.Report(NoEmptyCatchAnalyzer._rule(), c.Span); }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9002", "empty catch", "empty catch swallows exception",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}
+
+// 跑 analyzer over src，返回诊断袋。
+DiagnosticBag _run(Analyzer a, string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1];
+    arr[0] = a;
+    AnalyzerDriver.Run(arr, 1, cu, bag);
+    return bag;
+}
+
+bool _hasCode(DiagnosticBag bag, string code) {
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == code) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+[Test]
+void test_empty_catch_reported() {
+    // 空 catch → analyzer 报 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_nonempty_catch_not_reported() {
+    // 非空 catch → 不报
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { log(e); } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_no_try_no_report() {
+    // 无 try/catch → analyzer 无触发点，零诊断
+    var bag = _run(new NoEmptyCatchAnalyzer(), "class C { void M() { risky(); } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_reported_severity_is_warning() {
+    // Z9002 默认级 Warning → 映射进 DiagnosticBag 为 DiagnosticSeverity.Warning
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { } } }");
+    int i = 0;
+    bool found = false;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == "Z9002") {
+            Assert.Equal(DiagnosticSeverity.Warning, bag.Get(i).Severity);
+            found = true;
+        }
+        i = i + 1;
+    }
+    Assert.Equal(true, found);
+}

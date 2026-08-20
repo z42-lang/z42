@@ -183,39 +183,49 @@ try { risky(); } catch (Error e) { }
 ```
 `Error`=编译失败；`Hidden`=不显示但供 `--fix`；`Info`=建议。
 
-## Analyzer 接口
+## Analyzer 接口（visitor 模型，PR3a 实现——偏离 Roslyn 回调注册）
+
+**⚠️ 偏离决策（PR3a 实测，2026-08-21）**：设计初稿照 Roslyn `Register(AnalysisContext ctx)` +
+`ctx.OnSyntaxNode(kind, lambda)` **回调注册**模型。实现时发现 z42 自举编译器**无法承载它**：
+① z42 自举编译器**刻意规避 delegate**（`BinaryTypeTable` 用 int tag 替 `Func<>`）；② **命名 delegate
+跨 zpkg 丢 FQ 名**（`Bound.z42` / `ExprEmitter.z42`：delegate 塌成结构化 `Z42FuncType`）→ 契约里的
+命名回调 delegate（`SyntaxNodeAction`）**在消费方无法按名解析**（实测 E0443）。故改用**无 delegate 的
+visitor 模型**：analyzer 声明 `ObservedKinds()` + 实现 `OnSyntaxNode(kind, node, sink)`，driver 遍历 AST、
+对命中节点**纯虚接口调用**该方法。全走接口派发（跨包已验证）+ 纯虚调用，driver 侧零 delegate/零闭包，
+analyzer 侧也无需 lambda。**契约在 `z42c.syntax/src/Analysis.z42`，driver 在 `z42c.semantics/src/AnalyzerDriver.z42`。**
 
 ```z42
 public interface Analyzer {
-    Seq<DiagRule> SupportedRules();      // 声明能发哪些规则（config/工具枚举）
-    void Register(AnalysisContext ctx);  // 注册要观察什么（trigger 即在此）
+    DiagRule[] SupportedRules();                          // 声明能发哪些规则（config/工具枚举）
+    int[] ObservedKinds();                                // 声明观察哪些 SyntaxKind（省无关派发）
+    void OnSyntaxNode(int kind, object node, DiagSink diags);   // driver 对命中节点调用；内部 as-cast + 报告
 }
 ```
-`AnalysisContext` 观察面（照 Roslyn `Register*Action`）：
+观察面（照 Roslyn `Register*Action`，visitor 化——每类观察面 = 一对 `Observed*Kinds()` + `On*()`）：
 
-| 注册方法 | 观察对象 | 语义? | 用途 |
-|---------|---------|:---:|------|
-| `OnSyntaxNode(kind, cb)` | AST 节点 | 否 | 禁 goto、空 catch、括号风格 |
-| `OnSyntaxTree(cb)` | 整棵树 | 否 | 文件级格式、行宽 |
-| `OnSymbol(kinds, cb)` | 符号 | 是 | 命名规范、public 面 |
-| `OnOperation(kinds, cb)` | 语义操作（调用/赋值/转换/new） | 是 | 不依赖语法形状的健壮检查 |
-| `OnBody(cb)` | 方法体 | 是 | 数据流、未初始化 |
-| `OnReference(cb)` | use-site | 是 | `[Deprecated]` 引用告警 |
-| `OnCompilationStart(→State)`/`OnCompilationEnd(State,sink)` | 跨编译累积 | 是 | "声明了但全程序无人引用" |
-| `OnIrOp(kind, cb)` | IR 操作（additive） | 是 | **超出 C#**：循环内分配等 perf lint |
+| 观察方法 | 观察对象 | 语义? | 用途 | 状态 |
+|---------|---------|:---:|------|:---:|
+| `OnSyntaxNode(kind,node,sink)` | AST 节点 | 否 | 禁 goto、空 catch、括号风格 | **PR3a ✅** |
+| `OnSymbol(...)` | 符号 | 是 | 命名规范、public 面 | 后续增量 |
+| `OnOperation(...)` | 语义操作（调用/赋值/转换/new） | 是 | 不依赖语法形状的健壮检查 | 后续 |
+| `OnBody(...)` | 方法体 | 是 | 数据流、未初始化 | 后续 |
+| `OnReference(...)` | use-site | 是 | `[Deprecated]` 引用告警 | 后续 |
+| `OnCompilationStart/End(...)` | 跨编译累积 | 是 | "声明了但全程序无人引用" | 后续 |
+| `OnIrOp(...)` | IR 操作（additive） | 是 | **超出 C#**：循环内分配等 perf lint | 后续 |
 
-示例：
+示例（PR3a 实测通过——`z42c.semantics/tests/analyzer/analyzer_tests.z42`）：
 ```z42
-public class NoEmptyCatchAnalyzer : Analyzer {
-    static readonly DiagRule Rule = new DiagRule {
-        Id="Z9002", Title="空 catch", MessageFormat="空 catch 吞掉异常",
-        Category="Correctness", DefaultSeverity=Severity.Warning, EnabledByDefault=true };
-    public Seq<DiagRule> SupportedRules() => [Rule];
-    public void Register(AnalysisContext ctx) =>
-        ctx.OnSyntaxNode(SyntaxKind.CatchClause, (n, d) => {   // trigger 就在这
-            var c = n as CatchClause;
-            if (c.Body.IsEmpty()) d.Report(Rule, c.Span);
-        });
+class NoEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() { ... return [Z9002 规则]; }
+    public int[] ObservedKinds() { ... return [SyntaxKind.CatchClause]; }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {                     // 空 catch → 报告
+                if ((c.Body as BlockStmt).Count == 0) { diags.Report(_rule(), c.Span); }
+            }
+        }
+    }
 }
 ```
 
