@@ -384,7 +384,9 @@ public sealed class ClassDescBuilder {
         while (a < count) {
             Attr at = attrs[a];
             if (at.FactoryFunc != "") {
-                r[n] = new IrAttrRef(this._g._qClass(at.Name), this._g._q(at.FactoryFunc)); n = n + 1;
+                // D8：持久化的 attribute 类型名 = 后缀展开后的真实类名（`[Route]` → `RouteAttribute`），
+                // 与 AttributeSynth 合成工厂 `new RouteAttribute()` 及 typeof(RouteAttribute) 反射对齐。
+                r[n] = new IrAttrRef(this._g._qClass(HandlerRegistry.StoreMetaClassName(at.Name)), this._g._q(at.FactoryFunc)); n = n + 1;
             }
             a = a + 1;
         }

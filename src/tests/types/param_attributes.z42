@@ -4,9 +4,9 @@
 // Position + 1, so x→1, y→2, z→3 with the implicit `this` at 0.
 using Std.Reflection;
 
-class ParamTag : Attribute {   // unqualified base (via `using Std`) — see reflection.md Deferred attr-factory-qualified-base-upcast
+class ParamTagAttribute : Attribute {   // D8 suffix; unqualified base (via `using Std`) — see reflection.md Deferred attr-factory-qualified-base-upcast
     public string Note;
-    public ParamTag(string note) { this.Note = note; }
+    public ParamTagAttribute(string note) { this.Note = note; }
 }
 
 class Endpoint {
@@ -27,7 +27,7 @@ void Main() {
             // param 0 (x): [ParamTag("id")]
             Std.Attribute[] a0 = ps[0].GetCustomAttributes();
             Assert.Equal(1, a0.Length);
-            ParamTag t0 = (ParamTag) ps[0].GetAttribute(typeof(ParamTag));
+            ParamTagAttribute t0 = (ParamTagAttribute) ps[0].GetAttribute(typeof(ParamTagAttribute));
             Assert.Equal("id", t0.Note);
 
             // param 1 (y): no attributes
@@ -35,7 +35,7 @@ void Main() {
             Assert.Equal(0, a1.Length);
 
             // param 2 (z): [ParamTag("body")]
-            ParamTag t2 = (ParamTag) ps[2].GetAttribute(typeof(ParamTag));
+            ParamTagAttribute t2 = (ParamTagAttribute) ps[2].GetAttribute(typeof(ParamTagAttribute));
             Assert.Equal("body", t2.Note);
         }
     }

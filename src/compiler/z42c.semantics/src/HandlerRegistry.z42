@@ -15,11 +15,11 @@
 //     （design 记 TestIndexBuilder 的**终态**是 store-meta + 反射发现、TIDX 退休——那是独立后续变更；
 //      本 PR 标注的是**现状机制**：eager 聚合表 = handler 形。）
 //
-// PR1a/PR1b 都是纯内部重构，外部可见行为逐字节不变。**字节不动点陷阱**：AttributeSynth 的 store-meta
-// false-集（不合成工厂的名字）是 {Native, Test, Benchmark, Skip, ShouldThrow, Timeout}——**刻意不含
-// Setup/Teardown/Ignore**（它们现仍走 store-meta 工厂，见 _isTestHandlerNonStoreMeta）。TestIndexBuilder
-// 的触发集则是全 8 名（含 Setup/Teardown/Ignore，见 IsTestHandlerAttr）。两集的差集正是这个陷阱——
-// 对齐会破自举字节不动点。
+// PR1a/PR1b 是纯内部重构（byte-identical）。**PR2（后缀约定 D8）是破坏性、非 byte-identical**：
+//   ① store-meta 应用名按后缀展开解析成类名（`[Route]` → `RouteAttribute`，见 StoreMetaClassName）；
+//   ② test 家族全 8 名归 Handler（KindOf），消除 PR1a/1b 为保字节不动点保留的「5/3 差集」折衷——
+//      Setup/Teardown/Ignore 不再走 store-meta 工厂（它们本就该是内建 handler、豁免后缀）。
+//   现在 KindOf 的 Handler 集 == IsTestHandlerAttr 触发集（全 8 名），两集收敛。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
@@ -47,15 +47,27 @@ public static class HandlerRegistry {
     }
 
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────
-    // PR1b 从 PR1a 的「Directive 一锅端」细化出真三路：Native=directive、test 非-store-meta 家族=handler、
-    // 其余=store-meta。**store-meta 判定逐字节保持 PR1a**：非-store-meta 集 = directive ∪ 非-SM-test =
-    // {Native, Test, Benchmark, Skip, ShouldThrow, Timeout}（6 名），补集含 Setup/Teardown/Ignore。
-    // 返回值目前只被 AttributeSynth 以 `== StoreMeta` 消费——Directive/Handler 的区分是文档性/前瞻性的，
-    // 无行为影响（故本 PR 字节不动）。
+    // PR2（后缀约定 D8）：test 家族**全 8 名**归 Handler（含 Setup/Teardown/Ignore）——消除 PR1a/PR1b
+    // 为保字节不动点而刻意保留的「5 名 Handler / 3 名 store-meta」差集折衷（那个差集会让 [Setup] 走
+    // store-meta 工厂 → 合成 `new Setup()`；D8 后 [Setup] 会按后缀展开成 `SetupAttribute` 更荒谬）。
+    // 现在 KindOf 的 Handler 子集 == IsTestHandlerAttr 的触发集（全 8 名），两者收敛为同一集合。
+    // 三路：Native=directive（豁免后缀）、test 全家族=handler（豁免后缀，编译器内建）、其余=store-meta
+    // （按 D8 后缀展开解析成 `<name>Attribute` 类）。**本 PR 非 byte-identical**：Setup/Teardown/Ignore
+    // 不再合成工厂 = 少几个死工厂；test_demo / 用到这些名字的 golden 会重生（预期）。
     public static int KindOf(string name) {
         if (HandlerRegistry.IsDirectiveAttr(name)) { return AttrKind.Directive; }
-        if (HandlerRegistry._isTestHandlerNonStoreMeta(name)) { return AttrKind.Handler; }
+        if (HandlerRegistry.IsTestHandlerAttr(name)) { return AttrKind.Handler; }
         return AttrKind.StoreMeta;
+    }
+
+    // ── D8 后缀约定：store-meta 应用名 → 类名 ────────────────────────────────────────────────
+    // `[Route]`（用名，剥后缀）解析到类 `RouteAttribute`（定义名，带后缀）。store-meta 分流的两处消费
+    // ——AttributeSynth._synthFactory 的 `new <cls>(args)` 与 ClassDescBuilder 的 IrAttrRef 类型名——
+    // 都经此 helper 拿到带后缀的真实类名，后缀逻辑单点收敛在注册表（design D8）。directive / handler
+    // 不经此路径（豁免后缀、无 store-meta 工厂）。
+    public static string AttributeSuffix = "Attribute";
+    public static string StoreMetaClassName(string appliedName) {
+        return appliedName + HandlerRegistry.AttributeSuffix;
     }
 
     // ── directive 家族（IR-phase：StubEmitter 消费）─────────────────────────────────────────
@@ -77,14 +89,6 @@ public static class HandlerRegistry {
     public static bool IsTestHandlerAttr(string name) {
         if (name == "Test" || name == "Benchmark" || name == "Setup" || name == "Teardown") { return true; }
         if (name == "Ignore" || name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
-        return false;
-    }
-
-    // KindOf 用的「test handler 中的非-store-meta 子集」（5 名）。Setup/Teardown/Ignore 现仍走 store-meta
-    // 工厂（PR1a 字节不动点陷阱）→ 刻意不含，故 KindOf 对它们返回 StoreMeta。
-    private static bool _isTestHandlerNonStoreMeta(string name) {
-        if (name == "Test" || name == "Benchmark") { return true; }
-        if (name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
         return false;
     }
 }

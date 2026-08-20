@@ -1,8 +1,8 @@
 // add-attribute-reflection（镜像 C# AttributeFactorySynthesizer）：parse 后、typecheck 前的 AST 级
 // 下降——把每个用户 attribute 应用 `[Foo(args)]` lower 成一个无参工厂自由函数：
 //
-//   [Route("/u", method: "POST")] class C { ... }
-//     →  public Attribute __attr$cls$C$0() { return new Route("/u", method: "POST"); }
+//   [Route("/u", method: "POST")] class C { ... }         // 类名 RouteAttribute（D8 后缀约定）
+//     →  public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POST"); }
 //
 // 并把工厂名记到 Attr.FactoryFunc。反射（GetCustomAttributes）调工厂一次并缓存——产出 live
 // attribute 实例，无需运行期 Activator/Invoke（构造全静态可知）。工厂体是普通 `new Foo(args)`，
@@ -119,11 +119,12 @@ public sealed class AttributeSynth {
         this._fac[this._facCount] = fnd; this._facCount = this._facCount + 1;
     }
 
-    // `public Attribute <fname>() { return new <attr.Name>(attr.Args); }`
+    // `public Attribute <fname>() { return new <attr.Name>Attribute(attr.Args); }`
     // 返回类型用 Attribute 基类（非具体 attr 类）→ 普通类型检查免费强制 attribute 契约。
     private static MethodDecl _synthFactory(Attr at, string fname) {
         Span s = at.Span;
-        TypeExpr attrType = new NamedType(at.Name, new TypeExpr[0], 0, s);
+        // D8：store-meta `[X]` 按后缀展开解析到类 `XAttribute`（用名剥后缀 ↔ 定义名带后缀）。
+        TypeExpr attrType = new NamedType(HandlerRegistry.StoreMetaClassName(at.Name), new TypeExpr[0], 0, s);
         Expr ctorCall = new ObjNewExpr(attrType, at.Args, at.ArgCount, s);
         Stmt[] stmts = new Stmt[1];
         stmts[0] = new ReturnStmt(true, ctorCall, s);

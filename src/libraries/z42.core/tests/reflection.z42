@@ -72,9 +72,9 @@ class FieldHolder {
 }
 
 // add-field-attribute-reflection: field-level user attributes.
-class FieldTag : Attribute {   // unqualified (via `using Std`) — qualified `Std.Attribute` base trips a typechecker FQN-upcast gap, see reflection.md Deferred
+class FieldTagAttribute : Attribute {   // D8 suffix; unqualified (via `using Std`) — qualified `Std.Attribute` base trips a typechecker FQN-upcast gap, see reflection.md Deferred
     public string Note;
-    public FieldTag(string note) { this.Note = note; }
+    public FieldTagAttribute(string note) { this.Note = note; }
 }
 
 class TaggedFields {
@@ -524,7 +524,7 @@ void test_field_custom_attributes() {
             checkedMarked = true;
             Std.Attribute[] attrs = f.GetCustomAttributes();
             Assert.Equal(1, attrs.Length);
-            FieldTag tag = (FieldTag) f.GetAttribute(typeof(FieldTag));
+            FieldTagAttribute tag = (FieldTagAttribute) f.GetAttribute(typeof(FieldTagAttribute));
             Assert.Equal("hot", tag.Note);
         }
         if (f.Name == "unmarked") {
@@ -549,14 +549,14 @@ void test_param_custom_attributes() {
             // param 0 (a): [FieldTag("first")]
             Std.Attribute[] a0 = ps[0].GetCustomAttributes();
             Assert.Equal(1, a0.Length);
-            FieldTag g0 = (FieldTag) ps[0].GetAttribute(typeof(FieldTag));
+            FieldTagAttribute g0 = (FieldTagAttribute) ps[0].GetAttribute(typeof(FieldTagAttribute));
             Assert.Equal("first", g0.Note);
 
             // param 1 (b): none
             Assert.Equal(0, ps[1].GetCustomAttributes().Length);
 
             // param 2 (c): [FieldTag("third")]
-            FieldTag g2 = (FieldTag) ps[2].GetAttribute(typeof(FieldTag));
+            FieldTagAttribute g2 = (FieldTagAttribute) ps[2].GetAttribute(typeof(FieldTagAttribute));
             Assert.Equal("third", g2.Note);
         }
     }

@@ -7,14 +7,14 @@ using Std.Reflection;
 // reflected via MethodInfo.GetCustomAttributes() — live cached instances, same
 // mechanism as class-level (C3a).
 
-class Doc : Attribute {
+class DocAttribute : Attribute {
     public string Text;
-    public Doc(string text) { this.Text = text; }
+    public DocAttribute(string text) { this.Text = text; }
 }
 
-class Route : Attribute {
+class RouteAttribute : Attribute {
     public string Path;
-    public Route(string path) { this.Path = path; }
+    public RouteAttribute(string path) { this.Path = path; }
 }
 
 class Service {
@@ -49,9 +49,9 @@ void Main() {
     Attribute[] attrs = listM.GetCustomAttributes();
     Assert.Equal(2, attrs.Length);
 
-    Doc d = (Doc) listM.GetAttribute(typeof(Doc));
+    DocAttribute d = (DocAttribute) listM.GetAttribute(typeof(DocAttribute));
     Assert.Equal("lists everything", d.Text);
-    Route r = (Route) listM.GetAttribute(typeof(Route));
+    RouteAttribute r = (RouteAttribute) listM.GetAttribute(typeof(RouteAttribute));
     Assert.Equal("/list", r.Path);
 
     // Noop() has one.
@@ -61,7 +61,7 @@ void Main() {
     // Plain() has none; GetAttribute returns null.
     MethodInfo plainM = findMethod(methods, "Plain");
     Assert.Equal(0, plainM.GetCustomAttributes().Length);
-    Assert.Null(plainM.GetAttribute(typeof(Doc)));
+    Assert.Null(plainM.GetAttribute(typeof(DocAttribute)));
 
     // Cached: repeated calls return the same instances.
     Attribute[] again = listM.GetCustomAttributes();
