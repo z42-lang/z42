@@ -361,7 +361,17 @@ pub struct ArcMagrGC {
     barrier_observer: Mutex<Option<std::sync::Arc<BarrierObserver>>>,
     #[cfg(debug_assertions)]
     debug_stw_no_push: std::sync::atomic::AtomicBool,
+    /// **fix-wasm-string-ops**: process-unique, monotonically-increasing epoch for this heap's
+    /// address space (see [`MagrGC::heap_epoch`]). Assigned once at construction from
+    /// [`NEXT_HEAP_EPOCH`] and never reused, so an address-keyed cache outliving a torn-down
+    /// heap (`corelib::str_meta`) can detect a heap switch and drop entries that would otherwise
+    /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
+    epoch: u64,
 }
+
+/// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at
+/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::gc::ambient::current_heap_epoch`]).
+static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// **add-concurrent-gc P0 (2026-05-22)**: manual `Default` impl so the
 /// `mode` field is initialized from `GcMode::from_env()` (reads
@@ -384,6 +394,8 @@ impl Default for ArcMagrGC {
             barrier_observer: Mutex::new(None),
             #[cfg(debug_assertions)]
             debug_stw_no_push: std::sync::atomic::AtomicBool::new(false),
+            // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
+            epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -1866,6 +1878,13 @@ impl ArcMagrGC {
 // ── trait impl ───────────────────────────────────────────────────────────────
 
 impl MagrGC for ArcMagrGC {
+    /// **fix-wasm-string-ops**: this heap's process-unique, never-reused epoch (assigned at
+    /// construction). See [`MagrGC::heap_epoch`] and [`crate::corelib::str_meta`].
+    #[inline]
+    fn heap_epoch(&self) -> u64 {
+        self.epoch
+    }
+
     // ── 2. Roots / scanner ───────────────────────────────────────────────────
 
     /// **Phase 3d.1** + **add-multithreading-foundation Phase 2.2**：

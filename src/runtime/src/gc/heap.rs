@@ -99,6 +99,16 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_array_typed("byte", bytes.into_iter().map(|b| Value::I64(b as i64)).collect())
     }
 
+    /// fix-wasm-string-ops: a process-unique, monotonically-increasing identifier for this
+    /// heap's address space. Never reused across heaps (even if a new heap's backing memory is
+    /// malloc-recycled at an old heap's address). Address-keyed caches with a lifetime longer
+    /// than one heap (`corelib::str_meta`) tag their entries with this epoch and invalidate on
+    /// change, so a fresh block (generation 0) at a recycled address can't false-hit a stale
+    /// gen-0 entry from a torn-down heap. Mock/test heaps return `0` (they never churn heaps).
+    fn heap_epoch(&self) -> u64 {
+        0
+    }
+
     /// unify-gc-heap PR-3: allocate a raw variable-length GC block of `payload` bytes with the
     /// given block type, returning its handle. Used to place array element storage (and closure
     /// data) in the single GC heap. Only `ArcMagrGC` implements a real variable-length region;

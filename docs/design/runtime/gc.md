@@ -342,6 +342,16 @@ VarRegion 变长块（16B 对齐原始 chunk + 2 的幂 size-class free-list + o
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
 回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
 
+**堆 epoch（per-heap 单调标识，fix-wasm-string-ops）**：每个 `ArcMagrGC` 构造时从全局
+`AtomicU64` 领一个**永不复用**的 `epoch`（`MagrGC::heap_epoch()`），`HeapGuard` 把它随
+`current_heap` 一起装进 thread-local（`current_heap_epoch()`，热路径只多一个 `u64` 读）。
+用途：**给「按 GC 块地址索引、但生命周期长于单个堆」的 thread-local 缓存做作用域**。典型即
+`corelib/str_meta` 的字符元数据缓存——它跨 `VmContext` 拆毁存活；旧堆拆毁后 `VarRegion` 的
+chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，且 bump 新块 `generation` 归零，
+于是旧堆遗留条目（同址、同 gen=0）会**假命中**返回错误串长（wasm32 上线性内存密集复用地址 →
+`"".Length==13` 类串味；`is_live` 的 gen 守卫只防同 region 内复用，防不住跨堆）。epoch 单调 ⇒
+换堆必变 ⇒ 缓存整清 ⇒ 复用地址永不被误判为旧堆的活条目。
+
 **融合拼接分配 `alloc_str_concat2(a, b)`**（fuse-str-concat-alloc, 2026-08）：字符串 `+`
 （IR `StrConcat` / `Std.String.Concat`）此前走 `alloc_str(&format!("{a}{b}"))`——**两次堆分配**
 （中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。
