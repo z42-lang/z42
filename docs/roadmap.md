@@ -165,7 +165,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 | 版本 | 主题 | Phase | 估时 |
 |------|------|:----:|:----:|
-| **0.5.x** | 泛型完整 + Trait 静态分发 + OSR/deopt 框架（JIT 分层 + hot-reload 共用地基）+ LSP v1 + Interop 2a（Rust embedding 稳定）| L3 | 10–14 周 |<br>（反射泛型扩展：泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T> 已上移 **0.4.x G 流**，2026-06-23）
+| **0.5.x** | **G2/G3：泛型方法 `Invoke`/`MakeGenericMethod` + `Deserialize<T>` serde 串联** + **Trait 静态分发** + **deopt + JIT 分层**（与 hot-reload 共用地基）+ **LSP v1** + **Interop 2a 稳定化**（`z42-abi`/`z42-host` embedding 打磨到稳定）| L3 | 8–12 周 |<br>（**2026-08-21 按代码现状重修订**——已落地、从本版移除：G1 `MakeGenericType`+constructed `CreateInstance` ✅、OSR interp→JIT 热替换 ✅、Interop 2a 地基 `z42-abi` crate+C ABI 头+`z42-host` ✅、JSON 解析/写入 `z42.json` ✅。反射泛型扩展原 2026-06-23 上移 0.4.x G 流，其 G1 已交付、G2/G3 未落地 → 顺延本版。）
 | **0.6.x** | 函数式（Lambda / 命名参数 / 模式匹配 / `let` 不可变 / LINQ）+ unmanaged + GC v2 + linter | L3 | 9–11 周 |
 | **0.7.x** | `Result<T,E>` + `?` + ADT + `match` 穷尽检查 | L3 | 6–8 周 |
 | **0.8.x** | async / await + 多线程 + GC v3（generational + concurrent）+ DAP debugger | L3 | 12–16 周 |
@@ -180,7 +180,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 ```
 0.1 ─► 0.2 ─► 0.3 ──┬──► 0.4 ──► 0.5 ──► 0.6 ──► 0.7 ──► 0.8 ──► 0.9 ──► 0.10 ──► 1.0
        │       │   │           │                                            │
-       │       │   ├── reflection C1-C3 (0.3 C ✅) ──► boxing 机制 (0.3.11) ──► Method.Invoke 非泛型 (0.3.12) ──► 泛型实例化+泛型 Invoke/MakeGenericType (0.4 G) ──► Deserialize<T> serde (0.4 L)
+       │       │   ├── reflection C1-C3 (0.3 C ✅) ──► boxing 机制 (0.3.11) ──► Method.Invoke 非泛型 (0.3.12) ──► MakeGenericType+constructed CreateInstance (0.4 G1 ✅) ──► 泛型方法 Invoke (0.5 G2) ──► Deserialize<T> serde (0.5 L)
        │       │   │                                                        │
        │       │   ├── 编译器全自举 7 子系统 (0.3 B：Lex→Parse→Proj→Driver→Sem→TC→IR→Emit→Pipeline)
        │       │   │           ──► byte-identical gate + compile-perf ≤3× (0.3.x 退出)
