@@ -54,6 +54,54 @@
 `module_path!()` 是注册表里的内建宏，可用于参数默认值。v1 C# 式 call-site 注入、无 ABI 改动；Rust
 `[track_caller]` 多层传播留作宏注册表将来追加。
 
+## Handler 打包与加载：独立编译期 zpkg 类别（决策 D9，C# analyzer 对齐）
+
+**核心**：`Generator`/`ModuleGenerator`/`Analyzer` 这类 **open handler 不随普通依赖走**——它们打包为
+**独立的"编译期 handler zpkg"类别**，在 z42.toml 里用**专门的引用段**（本设计定名 `[analyzers]`，覆盖
+analyzer + generator 两类，与 C# 把 source generator 也归 analyzer 引用类别同源）声明，语义 =
+「**加载进编译器、编译期运行、绝不链入目标程序**」。
+
+**对齐 C#/Roslyn**：analyzer / source generator 程序集经 `<Analyzer>` item（或 analyzer NuGet 包的
+`analyzers/` 目录）被 **Roslyn 加载进编译器进程**跑，**不进**目标项目的运行时/元数据引用——用户程序运行期
+不依赖 analyzer。z42 照搬这条边界。
+
+| | 普通依赖 `[dependencies]` | handler zpkg `[analyzers]` |
+|---|---|---|
+| 引用段 | `[dependencies]` | **独立段** `[analyzers]` |
+| 加载到 | 目标程序运行时 + 编译期类型解析 | **仅编译期 VM** |
+| 链入产物 | 是 | **否**（编译期消费即弃） |
+| 发现 | —— | 在该段声明的 zpkg 内**限定反射**找 `: Analyzer`/`: Generator` 实现 |
+
+**为什么这样定（三重收益）**：
+1. **红线结构性满足**（设计不变量 6，替代原运行期特判 gating）：外部 handler 只在 `[analyzers]` 段声明时才加载；
+   **z42c 自建自己时不声明任何 handler zpkg** → 外部 handler 天然不上自举路径，无需运行期 gating 特判。
+2. **发现精确、确定**：发现面 = 该段列出的 zpkg（限定反射），**不是**「扫所有已加载 zpkg」（后者非确定 + 会误伤
+   运行时依赖里碰巧实现接口的类）。遍历按 zpkg 稳定键 sort（common-pitfalls §1）。
+3. **职责清晰**：普通依赖 = 目标程序的一部分；handler zpkg = 构建工具。二者物理分开，不混。
+
+**内建 handler 不走此类别**：`BenchmarkDesugar`（内建 generator）/ 测试索引 / directive（`[Native]`）是 z42c
+**内部**实现，硬编码在编译器里（现状），与外部 handler zpkg 加载是**两条独立路径**——内建的永远在，外部的 opt-in。
+
+**不改文法、不改 zpkg 二进制格式**：handler zpkg 就是**普通 zpkg**（含实现接口的类），"特殊"只在**引用方式**
+（哪个 toml 段声明 + 加载到哪 + 是否链入），非格式。故 handler 加载本身**无 bump**。
+
+### 统一模型：handler 是独立 build 目标 + 类型化引用 + 不入消费产物（User 细化 2026-08-20）
+
+三点，与 test/bench「独立 zpkg」（[[strip-test-bench-to-separate-zpkg]] Model B）**同一套机制**：
+
+1. **handler 独立输出 zpkg**：analyzer/generator 像 test 一样，是**独立 build 目标**——在其自身 manifest 声明
+   `kind = "analyzer"` / `kind = "generator"`（类比 `kind = "exe"`/`"lib"`），独立编译、独立产出 zpkg。
+2. **消费方类型化引用**：消费方在依赖配置里**设置该引用的类型/类别**（标记「这是 handler 依赖」，本设计用
+   独立段 `[analyzers]` 承载，即「按段设类型」）；编译器据此**加载 + 执行对应 handler**，而非链入目标程序。
+3. **handler 不入消费产物**：handler 的**类型本身**（`DeriveGenerator`/`NoGotoAnalyzer` 类）+ **applied-handler
+   注解**（kind=handler 的 `[Derive]` 等）**绝不写进消费方 zpkg**——编译期消费即弃（litmus A）。**唯一例外 =
+   store-meta attribute**（`[Route]` → `RouteAttribute : Attribute`）：它是 store-meta，照常持久成 IrAttrRef
+   blob 供运行时反射；即便某 module-generator 编译期也读它，也不改变它 store-meta 的持久性。区分靠 kind，不靠
+   谁读它。
+
+> 收益：analyzer/generator/test 三类「构建工具 zpkg」共享一条「独立目标 + 类型化引用 + 不入消费闭包」的路子，
+> 概念统一、实现复用。红线（不变量 6）由此更牢：消费方产物里根本不含 handler 代码/注解，自举链更不可能被污染。
+
 ## Attribute 类型与可贴位置
 
 **不引入 `attribute` 关键字**（决策 D1）。attribute 类型沿用 `class Foo : Attribute {}`；`Std.Attribute` 基类保留。
@@ -313,6 +361,7 @@ z42c.IrGen     lower ──▶ [directive: Native/Layout/… → descriptor 字�
 | D6 | 命名 | 无 marker（接口发现）；lint config = `packages.toml [lints]` 段；`Target` 枚举 |
 | D7 | directive 表面 | 全部 `[X]` 注解、**不引入关键字**；directive 注册表（Rust builtin_attrs 式）；`[Native]` **暂不改名** |
 | D8 | 类名后缀约定 | **强制**用户 kind 类名带角色后缀（`*Attribute`/`*Generator`/`*Analyzer`），用名剥离；缺后缀→编译错误；directive 豁免；剥离后跨 kind 撞名→报错。**反转 z42 旧"无后缀"决定**——实现 PR 须同步改 `Attribute.z42`/`basic.z42` 头注 |
+| D9 | handler 打包/加载 | open handler（Generator/Analyzer）= **独立 build 目标 + 独立编译期 zpkg 类别**：handler 自身 manifest 声 `kind="analyzer"/"generator"`（像 test 一样独立编译输出 zpkg）；消费方**类型化引用**（z42.toml 独立段 `[analyzers]` 承载「这是 handler 依赖」），编译器据此加载进编译期 VM 运行、**不链入目标程序**（C# `<Analyzer>` 对齐）。发现 = 该段 zpkg 内**限定反射/元数据**（非扫全部已加载 zpkg）。**handler 类型 + applied-handler 注解绝不写进消费方 zpkg**（唯 store-meta attribute 例外，照常持久 blob；区分靠 kind）。**红线（不变量 6）由类别分离 + 不入产物双重结构性满足**——z42c 自建不声明 handler zpkg。内建 handler（BenchmarkDesugar/test/directive）走编译器内部路径，与外部加载独立。handler zpkg 是普通 zpkg，"特殊"只在引用方式 + 是否链入 → **无 bump**。与 test/bench「独立 zpkg」（Model B）同一套机制 |
 | gap1 | handler 执行序 | 同 phase 内按 handler 稳定 Id 排序 |
 | gap2 | analyzer 启用 | 依赖即注册；规则级由 `EnabledByDefault` + `[lints]` 控制（含整包开关） |
 | Q1/2/3 | kind 判定 | 三路：directive 注册表 → 实现 handler 接口 → else store-meta；替换 `_isUserAttr` |

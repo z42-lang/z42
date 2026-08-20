@@ -9,8 +9,10 @@
 | PR1a | HandlerRegistry AST-phase：AttributeSynth+BenchmarkDesugar 收敛 + 三路 kind 判定（无后缀，byte-identical）+ DeclId 概念 | 否 | ✅ 完成 |
 | PR1b | HandlerRegistry IR-phase：TestIndexBuilder+StubEmitter 名字识别收敛 + KindOf 细化三路（`[Native]` 不改，byte-identical） | 否 | ✅ 完成 |
 | PR2 | 后缀约定（D8）：resolution 展开（`[X]`→`XAttribute`）+ 强制校验 E0444 + test 家族全归 handler + 迁移 fixtures + 反转 `Attribute.z42`/`basic.z42`/`attributes.md` 头注 | 否 | ✅ 完成 |
-| PR3 | Analyzer 契约 + `AnalysisContext` + 诊断/severity + `[lints]` + `#suppress`/`[Suppress]` | 否 | ⬜ |
-| PR4 | Generator/ModuleGenerator 对外加载（`packages.toml` 依赖 + 反射发现接口）+ splice/merge（Replace/Augment） | 否 | ⬜ |
+| PR3a | Analyzer 框架垂直切片：`Analyzer`/`AnalysisContext`(OnSyntaxNode) + `DiagRule`/`Severity`/`DiagSink`(stdlib `Std.Analysis`) + 诊断映射进 `DiagnosticBag` + `*Analyzer` 后缀强制(E0445，KindOf 四路) + **`[analyzers]` 独立编译期 zpkg 类别加载**(D9) + 1 个外部 analyzer 端到端 + golden | 否 | ⬜ |
+| PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | ⬜ |
+| PR3c | `#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly) + `[Suppress]` attr(store-meta) | 否 | ⬜ |
+| PR4 | Generator/ModuleGenerator 复用 `[analyzers]` 类别加载(D9) + splice/merge（Add/Replace/Augment） | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
