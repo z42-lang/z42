@@ -15,7 +15,7 @@ public sealed class StubEmitter {
         int a = 0;
         while (a < ad.AttrCount) {
             Attr at = ad.Attrs[a];
-            if (at.Name == "Native" && at.ArgCount >= 1) {
+            if (HandlerRegistry.IsNativeDirective(at.Name) && at.ArgCount >= 1) {
                 // ① positional 字符串
                 if (at.Args[0] is StringLitExpr) {
                     return Lexer.DecodeString((at.Args[0] as StringLitExpr).Raw);
@@ -45,7 +45,7 @@ public sealed class StubEmitter {
         int a = 0;
         while (a < ad.AttrCount) {
             Attr at = ad.Attrs[a];
-            if (at.Name == "Native") {
+            if (HandlerRegistry.IsNativeDirective(at.Name)) {
                 int ai = 0;
                 while (ai < at.ArgCount) {
                     if (at.Args[ai] is AssignExpr) {
