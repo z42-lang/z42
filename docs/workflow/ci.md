@@ -82,6 +82,7 @@ flowchart TD
   - `verify-selfhost`（**compiler 门控**，已有）/ `verify-features`（**vm 门控**）。
   - `package-host` / `package-{android,ios,wasm}` / `test-{ios-sim,android-emu,...}`。
   - 上述 job 均 `needs: toolchain-bootstrap`（消费一次构建的 `toolchain-<os>` 工件）+ `needs: changes`（门控条件）。`schedule` / `workflow_dispatch` 无条件全跑。
+  - **`package-*`（host + android/ios/wasm）PR 门控（gate-pr-package）**：其产物仅 `publish-nightly`（push-to-main/dispatch）消费，打包机制只受 `platform` 类改动影响（runtime 交叉编译 / workload / 打包脚本），compiler/stdlib/tests 源改动动不了它。故 **PR 上仅 `platform` 改动才跑；push/schedule/dispatch 照跑**（喂 publish-nightly）。非-platform PR 因此少 7 个 job → 给满负荷跑（峰值贴 ~20 并发上限）腾 headroom。package-* 均非 required check，且被 `if:` skip 的 required check 在本仓库不阻塞合并。
 - **本地**：`xtask test [--toolchain <sdk>] [--no-build]` = 完整单体 gate（不分片；stage 组成见
   [test-gate.md](../../book/src/dev/test-gate.md)）。CI 的 `--skip` 分解只为并行，本地始终整跑。
 - 约束（先简化后修）：① `test-runner` 是 native，暂保留——`xtask test` 接口不变，内部后续换 `z42.build`；② release-vm-jit 有 bug（见 [memory](../../.claude/projects)），jit 跑 debug vm 或延后。
@@ -100,7 +101,8 @@ flowchart TD
 |------|--------------|---------|------|
 | ① | `detect-changes` | — | — |
 | ② | `verify-selfhost(linux-x64)` | compiler | linux |
-| ③ | `compile-toolchain(<host-arch>)` / `package-host(<host-arch>)` | — (always) | linux-x64, macos-arm64（pkg 含 +arm64/+windows）|
+| ③ | `compile-toolchain(<host-arch>)` | — (always) | linux-x64, macos-arm64 |
+|  | `package-host(<host-arch>)` | platform ‖ 非-PR | linux-x64, macos-arm64（pkg 含 +arm64/+windows）|
 | ④ | `compile-test-assets(<host-arch>)`（独立 job：regen + bundle 进 current-sdk）| — (always) | linux-x64, macos-arm64 |
 | ⑤ | `test-host(<host-arch>)`（e2e goldens interp only） | — (always) | 4 OS |
 |  | `compiler-checks(linux-x64)`（自举不动点 + vscode-syntax） | compiler | linux |
@@ -109,7 +111,7 @@ flowchart TD
 |  | `test-stdlib-interp(<os>)` | vm‖stdlib | 3 OS |
 |  | `verify-features(linux-x64)` | vm | linux |
 |  | `test-consume(linux-x64)` / `test-{wasm-browser,ios-sim,android-emu,desktop-cabi}` | platform / — | 见各 job |
-|  | `package-{ios,android,wasm}(<host-arch>)` | — (always) | 见各 job |
+|  | `package-{ios,android,wasm}(<host-arch>)` | platform ‖ 非-PR | 见各 job |
 | ⑥ | `publish-nightly` | — (push to main) | linux |
 
 > **job 命名约定**：`<动作>-<目标>[-<scope>](<host-arch>)`。**每个 job 都带目标**（含通用 host gate → `host`），命名统一无例外。
