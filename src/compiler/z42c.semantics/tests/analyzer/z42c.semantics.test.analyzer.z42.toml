@@ -1,0 +1,19 @@
+# z42c.semantics AnalyzerDriver 单测（attribute-handler-registry PR3a）。
+# 编译期 analyzer 驱动的机制验证：测试内 analyzer（user code，可用 lambda）经 AnalyzerDriver.Run
+# 遍历 CU → 命中回调 → 诊断汇入 DiagnosticBag。外部 [analyzers] zpkg 加载见后续增量。
+[project]
+name    = "z42c.semantics.test.analyzer"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component)。
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/analyzer"

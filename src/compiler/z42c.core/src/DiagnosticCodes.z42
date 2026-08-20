@@ -70,6 +70,7 @@ public static class DiagnosticCodes {
     public static string TopLevelAccessModifier      = "E0442";  // 顶层声明（class/interface/struct/record/enum/函数）标 private/protected——模块作用域无意义（complete-class-access-control ③）
     public static string UndefinedType               = "E0443";  // 类型注解引用了未定义的类型名（对标 C# CS0246；fix-undefined-type-diagnostic）
     public static string AttributeSuffixRequired     = "E0444";  // `: Attribute` 类名必须以 `Attribute` 结尾（D8 后缀约定；attribute-handler-registry PR2）
+    public static string AnalyzerSuffixRequired      = "E0445";  // `: Analyzer` 类名必须以 `Analyzer` 结尾（D8 后缀约定；attribute-handler-registry PR3a）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
