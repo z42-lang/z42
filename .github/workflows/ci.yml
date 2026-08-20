@@ -324,7 +324,18 @@ jobs:
   host-package:
     name: package-host(${{ matrix.platform }})
     timeout-minutes: 45
-    needs: toolchain-bootstrap
+    # gate-pr-package: package-* artifacts are consumed ONLY by publish-nightly
+    # (push-to-main / dispatch). On a PR they are pure "does packaging still build"
+    # validation, and packaging is affected only by `platform`-scope changes
+    # (runtime cross-compile / workload / packaging scripts) — NOT compiler/stdlib/
+    # tests source, which just change which zpkg bytes get bundled. So on a PR run
+    # them only when platform changed; push/schedule/dispatch always run (publish-
+    # nightly needs the artifacts). Cuts host-package×4 + package-{ios,android,wasm}
+    # = 7 jobs from every non-platform PR → frees runner-pool headroom (full runs
+    # sit at the ~20 concurrent-job cap). None of package-* are required checks, and
+    # a required check skipped via `if:` does not block merge here anyway.
+    needs: [changes, toolchain-bootstrap]
+    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1006,7 +1017,9 @@ jobs:
   package-ios:
     name: package-ios(macos-arm64)
     timeout-minutes: 45
-    needs: toolchain-bootstrap
+    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    needs: [changes, toolchain-bootstrap]
+    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: macos-15
 
     steps:
@@ -1083,7 +1096,9 @@ jobs:
   package-android:
     name: package-android(linux-x64)
     timeout-minutes: 45
-    needs: toolchain-bootstrap
+    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    needs: [changes, toolchain-bootstrap]
+    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -1186,7 +1201,9 @@ jobs:
   package-wasm:
     name: package-wasm(linux-x64)
     timeout-minutes: 40
-    needs: toolchain-bootstrap
+    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    needs: [changes, toolchain-bootstrap]
+    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
