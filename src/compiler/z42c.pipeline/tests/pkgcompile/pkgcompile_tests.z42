@@ -195,6 +195,55 @@ void test_external_analyzer_loaded_and_reports() {
     Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
 }
 
+// 现编 fixture analyzer → 写临时 zpkg，返回其路径（PR3b [lints] 端到端复用）。
+string _writeFixtureZpkg(string[] dirs) {
+    CompileArtifacts aArt = PackageCompile.Compile(_fixtureAnalyzerInputs(dirs));
+    Assert.Equal(0, aArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string azPath = Path.Join(tmp, "demo.analyzerfixture.zpkg");
+    File.WriteAllBytes(azPath, ZpkgWriterZ.WritePacked(aArt.Z, false).ToBytes());
+    return azPath;
+}
+
+// 空-catch consumer + AnalyzerZpkgs 指向 fixture，可带 [lints] 决策器。
+CompileInputs _consumerWithAnalyzer(string azPath, LintConfig cfg) {
+    CompileInputs cin = _inputs("namespace Consumer;\nint risky() { return 1; }\nint M() { int r = 0; try { r = risky(); } catch { } return r; }\n", "lib");
+    cin.Name = "demo.consumer";
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    cin.Lints = cfg;
+    return cin;
+}
+
+// ── PR3b：[lints] severity 决策端到端（CompileInputs.Lints → _runAnalyzers → LintConfig）─────
+
+[Test]
+void test_lints_none_suppresses_end_to_end() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    // [lints] Z9002 = "none" → 抑制，consumer Cms 不含 Z9002
+    string[] keys = new string[1]; keys[0] = "Z9002";
+    string[] sevs = new string[1]; sevs[0] = "none";
+    LintConfig cfg = new LintConfig(keys, sevs, 1, false);
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(false, _cmsHasCode(cArt, "Z9002"));
+}
+
+[Test]
+void test_lints_warnings_as_errors_fails_compile() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    // warnings-as-errors → Z9002（默认 Warning）升 Error → consumer ErrorCount>0（拦编译）
+    LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
+    Assert.Equal(true, cArt.ErrorCount > 0);
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
+}
+
 [Test]
 void test_no_analyzers_no_extra_diags() {
     // 无 [analyzers]（AnalyzerZpkgCount=0）→ 空 catch 不触发 analyzer 诊断（byte-identical 路径）

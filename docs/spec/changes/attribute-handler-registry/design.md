@@ -183,6 +183,12 @@ try { risky(); } catch (Error e) { }
 ```
 `Error`=编译失败；`Hidden`=不显示但供 `--fix`；`Info`=建议。
 
+> **PR3b 落地（2026-08-21）**：`[lints]` 解析 = z42.project 中性 `LintNames`/`LintSeverities`/
+> `LintWarningsAsErrors`（`ManifestLoader._parseLints`，`warnings-as-errors` 从逐规则串拎出）；severity
+> **决策**在编译器侧 `LintConfig.Resolve`（z42c.semantics）——精确 Id 优先于 `pkg.*` 前缀通配、`"none"`
+> 抑制、`EnabledByDefault` 门、WAE 升级。`DiagSinkImpl` 抑制则丢弃、不进 `DiagnosticBag`；仅 Error 级
+> 增 `ErrorCount`。局部关闭（`#suppress`/`[Suppress]`）仍留 PR3c。z42c 自建无 `[lints]` → byte-identical。
+
 ## Analyzer 接口（visitor 模型，PR3a 实现——偏离 Roslyn 回调注册）
 
 **⚠️ 偏离决策（PR3a 实测，2026-08-21）**：设计初稿照 Roslyn `Register(AnalysisContext ctx)` +

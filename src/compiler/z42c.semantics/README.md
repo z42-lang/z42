@@ -7,7 +7,8 @@
 | 文件 | 职责 |
 |------|------|
 | `src/Z42Type.z42` | 语义类型层次（Prim/Class/Func/Void/Error/Unknown）+ 数值拓宽 IsAssignableTo |
-| `src/AnalyzerDriver.z42` | **编译期 analyzer 驱动**（attribute-handler-registry PR3a）：`Run(analyzers,cu,bag)` 遍历 CompilationUnit AST，对命中 `ObservedKinds` 的节点调 `Analyzer.OnSyntaxNode`，诊断经 `DiagSinkImpl` 映射进 `DiagnosticBag`（visitor 模型，无 delegate）。契约在 z42c.syntax `Analysis.z42` |
+| `src/AnalyzerDriver.z42` | **编译期 analyzer 驱动**（attribute-handler-registry PR3a）：`Run(analyzers,cu,bag,cfg)` 遍历 CompilationUnit AST，对命中 `ObservedKinds` 的节点调 `Analyzer.OnSyntaxNode`，诊断经 `DiagSinkImpl` 按 `LintConfig`（PR3b）决策 severity 后映射进 `DiagnosticBag`（抑制则丢弃；visitor 模型，无 delegate）。契约在 z42c.syntax `Analysis.z42` |
+| `src/LintConfig.z42` | **`[lints]` severity 决策器**（attribute-handler-registry PR3b）：`Resolve(rule)→AnalyzerSeverity`（-1=抑制）——`EnabledByDefault` 门 + `[lints]` 覆盖（精确 Id 优先于 `pkg.*` 前缀通配；`"none"`=抑制）+ `warnings-as-errors`（Warning→Error）。由 z42.project `[lints]` 中性字段（driver 侧）构造 |
 | `src/AnalyzerLoader.z42` | **外部 analyzer zpkg 编译期加载**（PR3a-load）：`Load(zpkgPaths)→Analyzer[]`——两路组合：Path-A `AssemblyLoadContext.Default().Load→GetTypes→过滤 GetInterface("Analyzer")` 发现 FQN（reflect-only）+ Path-B 自绑 `[Native("__load_module")]` 使可调 → `Type.GetType(FullName)`+`Activator.CreateInstance`+`as Analyzer`。消费方 `[analyzers]` 段声明（D9）；PackageCompile gated 调用 |
 | `src/Conversion.z42` | **统一类型转换分类器**（`add-conversion-classifier`）：`Classify(from,to,symbols)→ConvResult{Kind,Method}` 把转换分类为 Identity/ImplicitNumeric/ExplicitNumeric/Boxing/Unboxing/ImplicitRef/ExplicitRef/**UserImplicit·UserExplicit**/… 内建 None 时回退 `_classifyUser`（查 op_Implicit/op_Explicit，精确 (源,目标) 匹配）。隐式数值矩阵比 C# 严 + 用户自定义转换（`add-user-conversions`：`(T)x` 走用户转换 + ② 声明期冲突检测 E0440 + ③ 走中间类型诊断）。机制见 [book 类型转换](../../../docs/book/src/compiler/type-conversion.md) |
 | `src/BinaryTypeTable.z42` | 运算类型规则表：OperandKind/ResultKind（int tag 替代 Func 委托）+ TypeFacts 数值谓词 + BinaryRule + Lookup/LookupUnary/ResultType |
