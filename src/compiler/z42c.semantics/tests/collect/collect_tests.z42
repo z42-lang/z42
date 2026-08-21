@@ -372,6 +372,27 @@ void test_non_analyzer_class_no_suffix_error() {
     Assert.Equal(false, hasCode(collectDiags("class NoGoto { public int X; }"), "E0445"));
 }
 
+// ── attribute-handler-registry PR4a: `: Generator` 类名后缀强制（D8，generator 侧）──────
+// 同 E0444/E0445，纯语法检查（看直接基/接口名 == Generator），故无需 Generator 契约可解析。
+
+[Test]
+void test_generator_missing_suffix_error() {
+    // 实现 `Generator` 接口但类名不以 Generator 结尾 → E0447
+    Assert.Equal(true, hasCode(collectDiags("class Derive : Generator { }"), "E0447"));
+}
+
+[Test]
+void test_generator_with_suffix_ok() {
+    // 带 Generator 后缀 → 无 E0447
+    Assert.Equal(false, hasCode(collectDiags("class DeriveGenerator : Generator { }"), "E0447"));
+}
+
+[Test]
+void test_non_generator_class_no_suffix_error() {
+    // 不实现 Generator 的普通类不受后缀约束 → 无 E0447
+    Assert.Equal(false, hasCode(collectDiags("class Derive { public int X; }"), "E0447"));
+}
+
 // add-user-conversions ②：声明期冲突检测——同 (源→目标) 重复的转换运算符 → E0440。
 [Test]
 void test_conversion_operator_duplicate_conflict() {

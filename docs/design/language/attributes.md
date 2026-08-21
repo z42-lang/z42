@@ -6,7 +6,10 @@
 > 编译期加载运行、不链入目标程序——D9）随 PR3a / PR3a-load 落地；诊断 severity 开关（z42.toml `[lints]`
 > 段：逐规则覆盖 + `pkg.*` 通配 + `warnings-as-errors`，结合规则 `EnabledByDefault`）随 PR3b 落地。
 > **局部抑制**（`#suppress`/`#restore` 源码指令 + `[Suppress]` directive，纯编译期不写 zpkg）随 PR3c 落地
-> （见下「局部抑制诊断」）。本页主讲 **store-meta attribute**（`[X]`
+> （见下「局部抑制诊断」）。**applied generator 引擎**（`Generator` 契约 `AppliedName()`+`Generate`、类名强制
+> `*Generator`/`E0447`、编译期 splice/merge——`AddSource`/`Replace`/`Augment`（`Augment` 脱糖 synthetic
+> partial 免用户写 partial），post-bind double-bind 重编，参考 Roslyn source generator）随 PR4a 落地（外部
+> zpkg 加载 / module generator / 有界多轮见后续 PR4c-e）。本页主讲 **store-meta attribute**（`[X]`
 > 反射元数据），handler 全貌见下方 design 链接。
 > 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
 > [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。

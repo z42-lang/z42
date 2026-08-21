@@ -1,0 +1,321 @@
+// attribute-handler-registry PR4a —— applied generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）。
+//
+// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §Generator 引擎实现落法（PR4a）。
+//
+// 时机：接进 IrDump.BuildPackageCus，在 provisional CollectAll（symbols 就绪）之后跑。对每个已实例化
+// generator（本 PR 由测试注入 CompileInputs.Generators；外部 zpkg 加载留 PR4d）：
+//   1. 触发名 = 反射类名剥 `Generator` 后缀（D8 无 Triggers()）——`AddEqGenerator` → `[AddEq]`。
+//   2. 遍历 cus 找 `[触发名]@类型声明`（AttributedDecl→ClassDecl）→ 建 GenTarget（被贴 decl + 解析
+//      Z42ClassType + 触发 Attr）→ gen.Generate(target, GenSinkImpl)。
+//   3. GenSink 三操作落地：AddSource=新 CU；Augment=脱糖 `partial <kind> T{members}` 新 CU + 标原 T
+//      IsPartial（partial 合并把成员并进 T，用户免写 partial）；Replace=AST 层替换被贴 decl。
+//   4. **ordering fixup**（关键，byte-identical）：每个被处理的触发点，剥掉触发 attr + 删除 AttributeSynth
+//      在解析相位预合成的 store-meta 工厂（经 at.FactoryFunc 精确定位）——否则 `new <T>Attribute()` 炸。
+//      z42c 自建无 generator 触发 → 从不产生该工厂 → 天然 byte-identical。
+//
+// 护栏（design 红线①）：generator 只能改它 trigger 命中的 decl（Augment/Replace 的 DeclId 必须 == 被贴
+// decl 的 DeclId）；越界 → 确定性报错。多轮 / 外部加载 / ModuleGenerator 留 PR4c-e。
+namespace Z42.Semantics;
+
+using Z42.Syntax;   // Parser / CompilationUnit / ClassDecl / AttributedDecl / Attr / Decl / MethodDecl
+using Z42.Core;     // Span / DiagnosticBag / DiagnosticCodes
+
+// 一条待落地的生成操作（GenSinkImpl 收集）。
+public static class GenOpKind {
+    public static int AddSource = 0;
+    public static int Replace   = 1;
+    public static int Augment   = 2;
+}
+public sealed class GenOp {
+    public int Kind;
+    public string TargetKey;   // Replace/Augment 目标 DeclId.Key（AddSource 忽略）
+    public string Hint;        // AddSource 文件名
+    public string Src;         // 生成源码
+    public GenOp(int kind, string targetKey, string hint, string src) {
+        this.Kind = kind; this.TargetKey = targetKey; this.Hint = hint; this.Src = src;
+    }
+}
+
+// GenSink 实现：收集 generator 吐的操作，供引擎统一落地。
+public sealed class GenSinkImpl : GenSink {
+    public GenOp[] Ops;
+    public int OpCount;
+    public GenSinkImpl() { this.Ops = new GenOp[4]; this.OpCount = 0; }
+    public void AddSource(string hint, string src) { this._push(new GenOp(GenOpKind.AddSource, "", hint, src)); }
+    public void Replace(DeclId id, string src) { this._push(new GenOp(GenOpKind.Replace, id.Key, "", src)); }
+    public void Augment(DeclId id, string membersSrc) { this._push(new GenOp(GenOpKind.Augment, id.Key, "", membersSrc)); }
+    private void _push(GenOp op) {
+        if (this.OpCount == this.Ops.Length) {
+            GenOp[] b = new GenOp[this.Ops.Length * 2];
+            int k = 0; while (k < this.OpCount) { b[k] = this.Ops[k]; k = k + 1; }
+            this.Ops = b;
+        }
+        this.Ops[this.OpCount] = op; this.OpCount = this.OpCount + 1;
+    }
+}
+
+// 引擎结果。HasOutput=false（无 generator / 无触发命中）→ Cus/Files 原样返回 → BuildPackageCus 走原路、
+// byte-identical。HasOutput=true → Cus/Files 是完整 union（用户 CU 在前 [0,count)、生成 CU 在后），调用方
+// 用 Files 重建 BuildPackageCus 的并行文件名数组。
+public sealed class GenOutcome {
+    public bool HasOutput;
+    public CompilationUnit[] Cus;
+    public string[] Files;
+    public int CuCount;
+    public GenOutcome(bool hasOutput, CompilationUnit[] cus, string[] files, int cuCount) {
+        this.HasOutput = hasOutput; this.Cus = cus; this.Files = files; this.CuCount = cuCount;
+    }
+}
+
+public static class GeneratorDriver {
+    // gens/genCount：已实例化 generator（测试注入）。cus/files/count：用户 CU + 文件名（已 RunAst）。
+    // symbols：provisional bind。diags：冲突/越界诊断（并入调用方 bag）。
+    public static GenOutcome Run(Generator[] gens, int genCount, CompilationUnit[] cus, string[] files, int count,
+                                 SymbolTable symbols, DiagnosticBag diags) {
+        if (genCount == 0) { return new GenOutcome(false, cus, files, count); }
+        string[] triggers = GeneratorDriver._triggerNames(gens, genCount);
+
+        CompilationUnit[] outCus = new CompilationUnit[count];   // 用户 CU（可能被改写）
+        int outN = 0;
+        CompilationUnit[] extra = new CompilationUnit[4];        // 生成的新 CU
+        string[] extraFiles = new string[4];
+        int extraN = 0;
+        bool any = false;
+
+        int ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            if (cu == null) { outCus[outN] = cu; outN = outN + 1; ci = ci + 1; continue; }
+            SiteEdit[] edits = new SiteEdit[4];
+            int editN = 0;
+            int di = 0;
+            while (di < cu.DeclCount) {
+                SiteEdit ed = GeneratorDriver._tryProcessDecl(cu, di, gens, triggers, genCount, symbols, diags);
+                if (ed != null) {
+                    edits = GeneratorDriver._pushEdit(edits, editN, ed); editN = editN + 1;
+                    any = true;
+                    // 收集该 site 的 AddSource/Augment → 生成 CU
+                    int k = 0;
+                    while (k < ed.NewSrcCount) {
+                        extra = GeneratorDriver._pushCu(extra, extraN,
+                            GeneratorDriver._parseGen(ed.NewSrcs[k], ed.NewHints[k], diags));
+                        extraFiles = GeneratorDriver._pushStr(extraFiles, extraN, ed.NewHints[k]);
+                        extraN = extraN + 1; k = k + 1;
+                    }
+                }
+                di = di + 1;
+            }
+            if (editN > 0) { cu = GeneratorDriver._rewriteCu(cu, edits, editN); }
+            outCus[outN] = cu; outN = outN + 1;
+            ci = ci + 1;
+        }
+        if (!any) { return new GenOutcome(false, cus, files, count); }
+
+        int total = outN + extraN;
+        CompilationUnit[] merged = new CompilationUnit[total];
+        string[] mergedFiles = new string[total];
+        int m = 0;
+        while (m < outN) { merged[m] = outCus[m]; mergedFiles[m] = files[m]; m = m + 1; }
+        int e = 0;
+        while (e < extraN) { merged[outN + e] = extra[e]; mergedFiles[outN + e] = extraFiles[e]; e = e + 1; }
+        return new GenOutcome(true, merged, mergedFiles, total);
+    }
+
+    // 每个 generator 的触发名 = AppliedName()（== 类名剥 `Generator` 后缀，D8；见 Generation.z42 头注
+    // 为何显式而非对接口引用反射——`gen as Object` 在自举 VM 返回 Null）。
+    private static string[] _triggerNames(Generator[] gens, int n) {
+        string[] r = new string[n];
+        int i = 0;
+        while (i < n) { r[i] = gens[i].AppliedName(); i = i + 1; }
+        return r;
+    }
+
+    // 若 cu.Decls[di] 是 `[触发名]@类型声明` → 跑 generator、返回该 site 的 SiteEdit（含生成源）；否则 null。
+    private static SiteEdit _tryProcessDecl(CompilationUnit cu, int di, Generator[] gens, string[] triggers,
+                                            int genCount, SymbolTable symbols, DiagnosticBag diags) {
+        Decl d = cu.Decls[di];
+        if (!(d is AttributedDecl)) { return null; }
+        AttributedDecl ad = d as AttributedDecl;
+        if (!(ad.Inner is ClassDecl)) { return null; }
+        ClassDecl c = ad.Inner as ClassDecl;
+        int ai = 0;
+        while (ai < ad.AttrCount) {
+            Attr at = ad.Attrs[ai];
+            int gi = GeneratorDriver._findTrigger(triggers, genCount, at.Name);
+            if (gi >= 0) {
+                string key = "cls$" + c.Name;
+                GenTarget target = new GenTarget(new DeclId(key), c.Name, c, symbols.GetClass(c.Name), at);
+                GenSinkImpl sink = new GenSinkImpl();
+                gens[gi].Generate(target, sink);
+                return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags);
+            }
+            ai = ai + 1;
+        }
+        return null;
+    }
+
+    private static int _findTrigger(string[] triggers, int n, string name) {
+        int i = 0;
+        while (i < n) { if (triggers[i] == name) { return i; } i = i + 1; }
+        return -1;
+    }
+
+    // 把 sink 收集的 ops 归约成一个 SiteEdit（剥 attr + 删工厂固定做；Replace 记替换 decl；Augment/AddSource 记生成源）。
+    private static SiteEdit _buildEdit(int declIndex, int attrIndex, Attr trigger, ClassDecl c, string selfKey,
+                                       GenSinkImpl sink, DiagnosticBag diags) {
+        SiteEdit ed = new SiteEdit(declIndex, attrIndex, trigger.FactoryFunc);
+        int i = 0;
+        while (i < sink.OpCount) {
+            GenOp op = sink.Ops[i];
+            if (op.Kind == GenOpKind.AddSource) {
+                ed._addSrc(op.Src, op.Hint);
+            } else if (op.Kind == GenOpKind.Augment) {
+                if (op.TargetKey != selfKey) {
+                    diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
+                        "generator `[" + trigger.Name + "]` may only augment the decl it is applied to", c.Span);
+                } else {
+                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src), "__gen$" + c.Name + "$augment.z42");
+                    ed.MarkPartial = true;
+                }
+            } else if (op.Kind == GenOpKind.Replace) {
+                if (op.TargetKey != selfKey) {
+                    diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
+                        "generator `[" + trigger.Name + "]` may only replace the decl it is applied to", c.Span);
+                } else {
+                    ed.ReplaceSrc = op.Src;
+                }
+            }
+            i = i + 1;
+        }
+        return ed;
+    }
+
+    // 脱糖 Augment：`[namespace ns;] partial <kind> <Name> { <membersSrc> }`（同 owner ns → partial 合并）。
+    private static string _wrapPartial(ClassDecl c, string membersSrc) {
+        string s = "partial " + c.Kind + " " + c.Name + " {\n" + membersSrc + "\n}\n";
+        return s;
+    }
+
+    // 解析生成源码 → CU，并施同 user code 的 AST-phase（RunAst：store-meta/benchmark 合成）。
+    private static CompilationUnit _parseGen(string src, string file, DiagnosticBag diags) {
+        var p = new Parser(src, file);
+        CompilationUnit raw = p.ParseCompilationUnit();
+        return HandlerRegistry.RunAst(raw);
+    }
+
+    // 用 edits 改写一个 CU：删除工厂 + 剥触发 attr（可选 Replace/标 partial）。
+    private static CompilationUnit _rewriteCu(CompilationUnit cu, SiteEdit[] edits, int editN) {
+        // 收集要删的工厂名 + 建 declIndex→edit 映射（线性小规模）。
+        Decl[] nd = new Decl[cu.DeclCount];
+        int w = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (GeneratorDriver._isRemovedFactory(d, edits, editN)) { i = i + 1; continue; }
+            SiteEdit ed = GeneratorDriver._editFor(edits, editN, i);
+            if (ed != null) { nd[w] = GeneratorDriver._applyEdit(cu, d, ed); }
+            else { nd[w] = d; }
+            w = w + 1;
+            i = i + 1;
+        }
+        CompilationUnit nu = new CompilationUnit(cu.HasNamespace, cu.Namespace, nd, w, cu.Span);
+        nu.ParseDiags = cu.ParseDiags;
+        return nu;
+    }
+
+    // 某 decl 是否是待删工厂（top-level MethodDecl，名字命中任一 edit 的 FactoryName）。
+    private static bool _isRemovedFactory(Decl d, SiteEdit[] edits, int editN) {
+        if (!(d is MethodDecl)) { return false; }
+        string nm = (d as MethodDecl).Name;
+        int i = 0;
+        while (i < editN) {
+            if (edits[i].FactoryName != "" && edits[i].FactoryName == nm) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static SiteEdit _editFor(SiteEdit[] edits, int editN, int declIndex) {
+        int i = 0;
+        while (i < editN) { if (edits[i].DeclIndex == declIndex) { return edits[i]; } i = i + 1; }
+        return null;
+    }
+
+    // 施加单个 site 的 edit：Replace → 换成 parse 的新 decl；否则剥触发 attr（+可选标 inner partial）。
+    private static Decl _applyEdit(CompilationUnit cu, Decl d, SiteEdit ed) {
+        AttributedDecl ad = d as AttributedDecl;
+        ClassDecl c = ad.Inner as ClassDecl;
+        if (ed.ReplaceSrc != "") {
+            return GeneratorDriver._firstDeclOf(ed.ReplaceSrc, "__gen$" + c.Name + "$replace.z42");
+        }
+        if (ed.MarkPartial) { c.IsPartial = true; }
+        return GeneratorDriver._stripAttr(ad, ed.AttrIndex);
+    }
+
+    // 剥掉 AttributedDecl 第 idx 个 attr；剥完无 attr → 返回裸 inner，否则新 AttributedDecl。
+    private static Decl _stripAttr(AttributedDecl ad, int idx) {
+        if (ad.AttrCount <= 1) { return ad.Inner; }
+        Attr[] na = new Attr[ad.AttrCount - 1];
+        int w = 0; int i = 0;
+        while (i < ad.AttrCount) { if (i != idx) { na[w] = ad.Attrs[i]; w = w + 1; } i = i + 1; }
+        return new AttributedDecl(na, ad.AttrCount - 1, ad.Inner, ad.Span);
+    }
+
+    // Replace：parse src → 取第一个顶层 decl（剥其 AttributedDecl 壳，若有）。
+    private static Decl _firstDeclOf(string src, string file) {
+        CompilationUnit cu = new Parser(src, file).ParseCompilationUnit();
+        if (cu.DeclCount == 0) { return null; }
+        Decl d = cu.Decls[0];
+        if (d is AttributedDecl) { return (d as AttributedDecl).Inner; }
+        return d;
+    }
+
+    private static SiteEdit[] _pushEdit(SiteEdit[] a, int n, SiteEdit v) {
+        if (n == a.Length) {
+            SiteEdit[] b = new SiteEdit[a.Length * 2];
+            int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; } a = b;
+        }
+        a[n] = v; return a;
+    }
+    private static CompilationUnit[] _pushCu(CompilationUnit[] a, int n, CompilationUnit v) {
+        if (n == a.Length) {
+            CompilationUnit[] b = new CompilationUnit[a.Length * 2];
+            int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; } a = b;
+        }
+        a[n] = v; return a;
+    }
+    private static string[] _pushStr(string[] a, int n, string v) {
+        if (n == a.Length) {
+            string[] b = new string[a.Length * 2];
+            int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; } a = b;
+        }
+        a[n] = v; return a;
+    }
+}
+
+// 一个触发点的改写指令。
+public sealed class SiteEdit {
+    public int DeclIndex;       // cu.Decls 里被贴 AttributedDecl 的下标
+    public int AttrIndex;       // 触发 attr 下标（剥它）
+    public string FactoryName;  // AttributeSynth 预合成工厂名（删它；"" = 无）
+    public string ReplaceSrc;   // 非空 → Replace 被贴 decl
+    public bool MarkPartial;    // Augment → 标 inner.IsPartial
+    public string[] NewSrcs;    // AddSource/Augment 生成源
+    public string[] NewHints;
+    public int NewSrcCount;
+    public SiteEdit(int declIndex, int attrIndex, string factoryName) {
+        this.DeclIndex = declIndex; this.AttrIndex = attrIndex; this.FactoryName = factoryName;
+        this.ReplaceSrc = ""; this.MarkPartial = false;
+        this.NewSrcs = new string[2]; this.NewHints = new string[2]; this.NewSrcCount = 0;
+    }
+    public void _addSrc(string src, string hint) {
+        if (this.NewSrcCount == this.NewSrcs.Length) {
+            string[] bs = new string[this.NewSrcs.Length * 2];
+            string[] bh = new string[this.NewHints.Length * 2];
+            int k = 0; while (k < this.NewSrcCount) { bs[k] = this.NewSrcs[k]; bh[k] = this.NewHints[k]; k = k + 1; }
+            this.NewSrcs = bs; this.NewHints = bh;
+        }
+        this.NewSrcs[this.NewSrcCount] = src; this.NewHints[this.NewSrcCount] = hint;
+        this.NewSrcCount = this.NewSrcCount + 1;
+    }
+}

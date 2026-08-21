@@ -269,8 +269,11 @@ class NoEmptyCatchAnalyzer : Analyzer {
 ## Generator 接口（两种激活模式）
 
 ```z42
-// applied：类名 = 注解名；[X] 贴处触发；ctor 收注解参数，Generate 读 this
+// applied：类名 = 注解名；[X] 贴处触发；Generate 读被贴声明。
+// AppliedName() 返回触发名（==类名剥 Generator 后缀）——PR4a 实测：对接口引用反射取类名在自举 VM 崩，
+// 故显式返回；D8 命名规则不变（E0447 强制），见 §Generator 引擎实现落法。
 public interface Generator {
+    string AppliedName();                           // 触发注解名（==类名剥 `Generator` 后缀）
     void Generate(GenTarget t, GenSink sink);       // t = 被贴的声明
 }
 // module：不贴任何处；注册即跑一次、扫全编译
@@ -377,6 +380,94 @@ z42c.IrGen     lower ──▶ [directive: Native/Layout/… → descriptor 字�
 **护栏（红线，v1 强制）**：① replace/augment 冲突→确定性报错；② 多轮有界+拓扑序+产物纳入指纹；
 ③ 外部 handler 禁上 z42c 自举路径；④ 信任（D5）：直接信任+记账 defer 沙箱，但补确定性约束——handler 须为其
 声明输入的纯函数，禁读环境态（fs/时钟/随机），先文档化、将来用 VM 能力限制强制。
+
+## Generator 引擎实现落法（PR4a，方案 B — 参考 Roslyn；User 2026-08-21 裁决）
+
+> **裁决背景**：曾评估过一个「applied 专用轻量 AST-phase 引擎（方案 A，绑定前跑、不见符号、片段 parse
+> AST-merge）」。User 裁决**走最终方案 B**（post-bind、见解析符号、union 重编），避免 A 之后为 module
+> generator 推翻重建（philosophy「优先最终方案、不走临时路」）。本节是 PR4a 的实现权威。
+
+**参考 C# Roslyn source generator 的执行模型**：generator 跑在 **bind 之后**（拿到 semantic model / 符号）→
+**只能 `AddSource` 追加新树**（原树不可变）→ compilation = 原树 ∪ 新树 → **重新 bind**。z42 **超越** C# 的点：
+`Replace`（替换被贴声明，C# 做不到）+ `Augment`（往已有类型注入成员，C# 逼 `partial`，z42 **免 partial**）。
+
+**契约位置 = z42c.semantics（非 syntax）**：方案 B 的 `GenTarget` 须暴露被贴类型的**解析后 `Z42ClassType`**
+（PR4c 的 `GenContext.TypesWith<T>` 更返回 `TypeSymbol`）——这些是语义层类型，z42c.syntax（下层）引用不到。
+故 `Generation.z42` 放 z42c.semantics，与 design 原稿契约含 `TypeSymbol`/`SymbolKind` 一致、且贴 Roslyn
+（generator 依赖完整 CodeAnalysis 语义 API）。**这与 syntax-only 的 `Analyzer` 契约（PR3a）不同**——那是因
+PR3a 只做语法相位。外部 generator（PR4d）依赖 z42c.semantics，同 Roslyn 模型。
+
+### 执行时机：post-bind，接进 `IrDump.BuildPackageCus`（double-bind）
+
+```
+BuildPackageCus(texts, files, count, cus, ...):
+  symbols0 = coll.CollectAll(cus, ...)            // #1 provisional bind（≈ Roslyn semantic model）
+  gr = GeneratorDriver.Run(Generators, cus, count, symbols0)
+  if gr.HasOutput: cus' = applyGenOps(cus, gr)    // union
+  symbols = coll.CollectAll(cus', ...)            // #2 real bind on union
+  _buildMergedPartial + typecheck + IrGen → zpkg
+  // gr.HasOutput=false（z42c 自建无注入 generator）→ cus'==cus → 逐字节一致（byte-identical gate 保持）
+```
+
+`symbols` 是 `BuildPackageCus` 局部——故 driver **在其内部** provisional bind 后跑，无需把 `SymbolTable`
+导出到 `PackageCompile`（比 Roslyn 的「外层不可变 Compilation」模型更省一层管道）。
+
+### 三 sink 落法（关键：规避 start-only span）
+
+z42 decl 的 `Span` 是 **start-only**（`_peek().Span`，只覆盖首 token）→ **不能**靠 `Span.End` 往现有源码字节
+里 splice。落法：
+
+| sink | 落法 | 机制 |
+|------|------|------|
+| **`AddSource(hint, src)`** | `new Parser(src, hint).ParseCompilationUnit()` → 追加进 `cus[]` | 纯 add，同 Roslyn；无 span 问题 |
+| **`Augment(T, members)`** | 生成 `partial <kind> T { members }` 新 CU（走 AddSource）+ **在原 CU 的 `T` ClassDecl 上自动设 `IsPartial=true`** | partial 合并（`SymbolCollector._passClassStubs` 符号层 + `IrDump._buildMergedPartial` AST 层，遍历整个 `cus[]`、typecheck 前跑、支持 class/struct/record/interface）把成员并进 T |
+| **`Replace(declId, src)`** | `Key→Decl` 反查定位原 CU 里的 Decl 节点 → parse `src` 成 Decl → **AST 层替换** | 需 DeclId 反查（见下）；C# 无此能力 |
+
+**Augment 免 partial 卖点保住**：用户不写 `partial`；被 Augment 的类型由引擎自动标记（AST 可变）→ 规避
+`_passValidatePartial` 的 **E0430**「所有碎片须标 partial」。这是「参考 C# partial 合并机制 + z42 用户侧免
+partial」的合成。
+
+### 与 AttributeSynth 的 ordering fixup（关键坑，byte-identical 保持）
+
+`[AddEq] struct Point`（generator 触发）在**解析相位**先被 `AttributeSynth`（`RunAst` 内）按名判为 store-meta
+→ 合成 bogus 工厂 `__attr$cls$Point$0() { return new AddEqAttribute(); }`——但无 `AddEqAttribute` 类 → 最终
+typecheck 会炸。`KindOf` 解析相位无 generator 集、无法按名分辨 generator 与 store-meta。
+
+**落法（localized 到 post-bind 引擎、天然 byte-identical）**：driver 消费 `[AddEq]@Point` 时，**同时剥掉
+`[AddEq]` attr + 删除其预合成的 store-meta 工厂**——经 `attr.FactoryFunc`（AttributeSynth 已把精确工厂名
+`__attr$cls$Point$0` 记在 attr 上）精确定位删除，非重构名字。**z42c 自建无 generator 触发 → 从不产生 bogus
+工厂 → byte-identical 天然成立**；fixup 仅在 generator-using 代码（测试/PR4d）跑。这是 philosophy 认可的
+**两阶段 fixup**（Phase-2 把降级升级回来），非补丁。
+
+推论（简化）：**无需 `KindOf` Generator 分支**（generator 触发判定 = 引擎侧按注入集的触发名匹配，`KindOf`
+保持名字驱动）；**无需全局 `DeclId→Decl` 反查 map**（护栏：generator 只改它 trigger 命中的 decl，引擎遍历时
+本就持有该 Decl → 本地 `DeclId.Key→Decl` 小映射即可）。DeclId `Key` 保持现状；method key arity 消歧留到
+真需要跨成员 Replace 时（PR4a 的 Augment/Replace 作用于被贴的类型声明 `cls$Name`，无 arity 歧义）。
+
+### 触发发现 + generator 来源（本 PR = 注入）
+
+- **触发名 = `Generator.AppliedName()`**（返回 == 类名剥 `Generator` 后缀，`AddEqGenerator`→`"AddEq"`）→
+  遍历 `cus[]` 找 `[AddEq]` 应用位。**为何显式方法而非反射剥类名（偏离 D8「无 Triggers()」，实测转向）**：
+  driver 持 `Generator` **接口引用**，对接口值 `x as Object` 的运行期 checked-cast 在自举 VM 返回 Null
+  （`GetType()` 挂 Null → VCall 崩，实测），故反射取实例类名不可行（同 delegate 跨包约束——契约受 VM 现实
+  塑形）。**D8 命名规则不变**（类名仍须 `<Trigger>Generator`，E0447 强制）；`AppliedName()` 只可靠报出该名，
+  「AppliedName()==类名剥后缀」由文档 + E0447 双保。
+- **generator 实例来源**：本 PR 由**测试注入**（`CompileInputs.Generators` 存已实例化 `Generator[]`，集成测试
+  `new TestGen()` 喂入；对镜 PR3a 单测直接 new NoEmptyCatchAnalyzer）。**编译内自动发现 `:Generator` 类 +
+  外部 zpkg 加载 → PR4d**（需「编译 generator→`__load_module`→`Activator`」，与 AnalyzerLoader Path-A/B 同源）。
+- **`*Generator` 后缀强制（E0447）** 本 PR 即落（`SymbolCollector._passGeneratorSuffixEnforce`，同 E0444/E0445
+  三挂载点），使框架完整——即便 PR4a 的 `:Generator` 类只出现在测试 fixture。
+
+### 护栏（本 PR 生效的子集）
+
+红线①（两 generator 碰同一 DeclId → 确定性报错）本 PR 即实现。红线②（有界多轮）→ PR4e；③（外部 handler 禁上
+自举路径）→ PR4d（本 PR generator 靠注入、不入 z42c 自建）；④（纯函数约束）先文档化。
+
+### applied vs module 能力边界（本 PR 记录）
+
+- **applied generator**（PR4a）：post-bind，`GenTarget` 可给被贴声明的**解析符号**（`Z42ClassType` → 字段解析
+  类型）。够 derive 式生成（Equals/ToString/Hash 从字段）。
+- **module generator**（PR4c）：`GenContext.TypesWith<T>()` 跨类型符号查询，依赖泛型方法（#240）→ 延后。
 
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 

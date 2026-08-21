@@ -1,0 +1,161 @@
+// z42c.semantics GeneratorDriver 集成测试（attribute-handler-registry PR4a）。
+//
+// 验证 applied generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）端到端：测试注入 generator
+// 实例（对镜 PR3a 单测直接 new analyzer）→ parse fixture → RunAst → provisional CollectAll（给 generator
+// 解析符号）→ GeneratorDriver.Run（三 sink：Augment=脱糖 partial / Replace=AST 替换 / AddSource=新 CU；
+// + ordering fixup：剥触发 attr + 删 AttributeSynth 预合成的 store-meta 工厂）→ merged CollectAll →
+// TypeChecker.Infer，断言合并结构 + **合并后 typecheck 通过**（外部 zpkg 加载 + VM 执行 golden 见 PR4d）。
+namespace Z42cSemanticsGeneratorTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// ── 测试用 generator（实现 Z42.Semantics.Generator；类名带 Generator 后缀 D8/E0447；触发名=剥后缀）──
+
+// Augment：往被贴 struct 注入 eq。读 t.Symbol 证 post-bind 解析符号可用（方案 B）。触发名 = "AddEq"。
+class AddEqGenerator : Generator {
+    public string AppliedName() { return "AddEq"; }
+    public void Generate(GenTarget t, GenSink sink) {
+        if (t.Symbol == null) { return; }   // provisional 符号未就绪 → 不生成（断言 eq 存在即证符号可用）
+        sink.Augment(t.DeclId, "public bool eq(Point p) { return this.X == p.X && this.Y == p.Y; }");
+    }
+}
+
+// Replace：整体替换被贴类。触发名 = "Rewrite"。
+class RewriteGenerator : Generator {
+    public string AppliedName() { return "Rewrite"; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.Replace(t.DeclId, "class Widget { public int tag() { return 42; } }");
+    }
+}
+
+// AddSource：追加一个兄弟新 CU。触发名 = "AddSibling"。
+class AddSiblingGenerator : Generator {
+    public string AppliedName() { return "AddSibling"; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.AddSource("helper.z42", "class Helper { public int help() { return 7; } }");
+    }
+}
+
+// 越界：Augment 一个非自身 DeclId → 护栏 E0448。触发名 = "BadTarget"。
+class BadTargetGenerator : Generator {
+    public string AppliedName() { return "BadTarget"; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.Augment(new DeclId("cls$Elsewhere"), "public int nope() { return 0; }");
+    }
+}
+
+// ── 引擎驱动结果 + helper ─────────────────────────────────────────────────────────
+class GenResult {
+    public GenOutcome Outcome;
+    public SymbolTable Merged;
+    public DiagnosticBag EngineDiags;    // 引擎护栏诊断（E0448 等）
+    public DiagnosticBag TypeDiags;      // 合并后 typecheck 诊断
+    public GenResult(GenOutcome o, SymbolTable m, DiagnosticBag ed, DiagnosticBag td) {
+        this.Outcome = o; this.Merged = m; this.EngineDiags = ed; this.TypeDiags = td;
+    }
+}
+
+bool hasCode(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return true; } i = i + 1; }
+    return false;
+}
+
+Generator[] one(Generator g) { Generator[] a = new Generator[1]; a[0] = g; return a; }
+
+// 端到端跑引擎：parse → RunAst → provisional CollectAll → GeneratorDriver.Run → merged CollectAll →
+// TypeChecker.Infer（每 CU）。返回引擎/typecheck 诊断 + 合并符号表。
+GenResult runGen(Generator[] gens, int genCount, string[] srcs, int n) {
+    string[] files = new string[n];
+    CompilationUnit[] cus = new CompilationUnit[n];
+    int i = 0;
+    while (i < n) {
+        files[i] = "f" + i.ToString() + ".z42";
+        cus[i] = HandlerRegistry.RunAst(new Parser(srcs[i], files[i]).ParseCompilationUnit());
+        i = i + 1;
+    }
+    SymbolTable prov = new SymbolCollector().CollectAll(cus, files, n, null);   // #1 provisional bind
+    DiagnosticBag ed = new DiagnosticBag();
+    GenOutcome go = GeneratorDriver.Run(gens, genCount, cus, files, n, prov, ed);
+    CompilationUnit[] mcus = go.HasOutput ? go.Cus : cus;
+    string[] mfiles = go.HasOutput ? go.Files : files;
+    int mc = go.HasOutput ? go.CuCount : n;
+    SymbolTable msym = new SymbolCollector().CollectAll(mcus, mfiles, mc, null);   // #2 real bind on union
+    DiagnosticBag td = new DiagnosticBag();
+    int j = 0;
+    while (j < mc) { new TypeChecker(td).Infer(mcus[j], msym); j = j + 1; }
+    return new GenResult(go, msym, ed, td);
+}
+
+// ── 测试 ─────────────────────────────────────────────────────────────────────────
+
+[Test]
+void test_augment_injects_member_and_typechecks() {
+    string[] srcs = new string[1];
+    srcs[0] = "[AddEq] struct Point { public int X; public int Y; }";
+    GenResult r = runGen(one(new AddEqGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    // Augment 经脱糖 partial 把 eq 并进 Point；原字段 X/Y 仍在（合并非替换）
+    Assert.Equal(true, r.Merged.GetClass("Point").Methods.ContainsKey("eq"));
+    Assert.Equal(true, r.Merged.GetClass("Point").Fields.ContainsKey("X"));
+    // 合并后 typecheck 通过；ordering fixup 生效 → 无 bogus AddEqAttribute（E0443）
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+    Assert.Equal(false, hasCode(r.TypeDiags, "E0443"));
+}
+
+[Test]
+void test_augment_marks_original_partial() {
+    // Augment 自动把被贴类型标 partial（用户免写）→ 原碎片 + 生成碎片都 partial → 无 E0430
+    string[] srcs = new string[1];
+    srcs[0] = "[AddEq] struct Point { public int X; public int Y; }";
+    GenResult r = runGen(one(new AddEqGenerator()), 1, srcs, 1);
+    Assert.Equal(false, hasCode(r.TypeDiags, "E0430"));   // 不因「某碎片未标 partial」报错
+    Assert.Equal(2, r.Outcome.CuCount);                   // 原 CU + 生成 partial 碎片 CU
+}
+
+[Test]
+void test_replace_swaps_decl_and_typechecks() {
+    string[] srcs = new string[1];
+    srcs[0] = "[Rewrite] class Widget { public int old() { return 1; } }";
+    GenResult r = runGen(one(new RewriteGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(true, r.Merged.GetClass("Widget").Methods.ContainsKey("tag"));    // 新方法
+    Assert.Equal(false, r.Merged.GetClass("Widget").Methods.ContainsKey("old"));   // 旧方法被替换掉
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_addsource_adds_sibling_cu_and_typechecks() {
+    string[] srcs = new string[1];
+    srcs[0] = "[AddSibling] struct Tag { public int V; }";
+    GenResult r = runGen(one(new AddSiblingGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(2, r.Outcome.CuCount);                                            // 原 CU + 生成 CU
+    Assert.Equal(true, r.Merged.GetClass("Tag") != null);                          // 被贴类型保留
+    Assert.Equal(true, r.Merged.GetClass("Helper").Methods.ContainsKey("help"));   // 生成兄弟类
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_out_of_scope_target_guardrail() {
+    // generator 只能改它 trigger 命中的声明；Augment 非自身 DeclId → E0448
+    string[] srcs = new string[1];
+    srcs[0] = "[BadTarget] struct Foo { public int X; }";
+    GenResult r = runGen(one(new BadTargetGenerator()), 1, srcs, 1);
+    Assert.Equal(true, hasCode(r.EngineDiags, "E0448"));
+}
+
+[Test]
+void test_no_generators_passthrough() {
+    // 无 generator 注入 → 引擎不产出 → CU 原样（gated off，z42c 自建路径的 byte-identical 保证）
+    string[] srcs = new string[1];
+    srcs[0] = "struct Plain { public int X; }";
+    GenResult r = runGen(new Generator[0], 0, srcs, 1);
+    Assert.Equal(false, r.Outcome.HasOutput);
+    Assert.Equal(1, r.Outcome.CuCount);
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
