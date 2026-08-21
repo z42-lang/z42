@@ -12,12 +12,98 @@
 | PR3a | Analyzer **框架**：`Analyzer`(visitor 模型 ObservedKinds+OnSyntaxNode，**无 delegate**——z42c 规避+命名 delegate 跨包丢 FQ 名 [[z42c-no-cross-pkg-delegates]])/`DiagRule`/`AnalyzerSeverity`/`DiagSink`/`SyntaxKind`(z42c.syntax，非 stdlib——契约暴露 AST) + AnalyzerDriver(AST 遍历分派+诊断映射进 DiagnosticBag) + `*Analyzer` 后缀强制(E0445) + 驱动单测(NoEmptyCatchAnalyzer)。KindOf 不动(analyzer 无应用位) | 否 | ✅ 完成(1-3) |
 | PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Default().Load`→`GetTypes`→过滤 `GetInterface`) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + **编译器级 in-process 集成测试**(非提交二进制→免格式-bump 脆性，合 D9「构建工具 zpkg」定位)。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | ✅ 完成(#235) |
 | PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | ✅ 完成(#238) |
-| PR3c | 局部抑制(合并单 PR，**纯编译期零 zpkg 持久化**)：`#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly)拦截 Hash→`CompilationUnit.SuppressRegions`(AST-only) + `[Suppress]` attr(**directive**——加 `IsDirectiveAttr`、不写 blob/descriptor、无需 stdlib 类) + `SuppressionSet` 判定挂 `DiagSinkImpl.Report` | 否 | 🟡 进行中 |
-| PR4 | Generator/ModuleGenerator 复用 `[analyzers]` 类别加载(D9) + splice/merge（Add/Replace/Augment） | 否 | ⬜ |
+| PR3c | 局部抑制(合并单 PR，**纯编译期零 zpkg 持久化**)：`#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly)拦截 Hash→`CompilationUnit.SuppressRegions`(AST-only) + `[Suppress]` attr(**directive**——加 `IsDirectiveAttr`、不写 blob/descriptor、无需 stdlib 类) + `SuppressionSet` 判定挂 `DiagSinkImpl.Report` | 否 | ✅ 完成(#241) |
+| PR4a | applied generator **最终引擎**(方案 B post-bind，参考 Roslyn)：契约 `Generator`/`GenSink`/`GenTarget`(z42c.syntax，visitor 无 delegate) + `*Generator` 后缀 E0447 + KindOf Generator 分支 + 三 sink(**Augment=脱糖 synthetic partial+自动标原类型 partial** / **Replace=AST 层按 DeclId 替换** / **AddSource=新 CU**) + DeclId 反查(Key→Decl，method key 加 arity) + `BuildPackageCus` provisional bind→driver→union 重编(gated，z42c 自建 byte-identical) + **集成测试注入驱动**(测试 `new TestGen()` 喂引擎，端到端 typecheck+VM run) | 否 | 🟡 进行中 |
+| PR4c | `ModuleGenerator` + `GenContext`(`TypesWith<T>`/`MethodsWith<T>` 符号查询，依赖泛型方法) | 否 | ⬜ |
+| PR4d | 外部 generator zpkg 加载(编译内发现 `:Generator` 类 + AnalyzerLoader 式 Path-A/B) + `[generators]` manifest；复用 PR3a-load infra(D9) | 否 | ⬜ |
+| PR4e | 有界多轮(`consumes`/`produces` 拓扑序 + 产物纳入增量指纹) | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
 | 后续 | `[Native]`→`[Extern]` 改名 / `[Layout]`/`[Repr]`(E2) / `OnIrOp` perf lint / 用户 `macro` / 局部变量 attribute | 视需 | ⬜ Deferred |
+
+## PR4a · applied generator 最终引擎（方案 B post-bind，当前，🟡 进行中）
+
+**目标**：落地 design.md 的 Generator splice 模型（applied 那半）——generator 吐**源码文本**、按 DeclId 引用，
+合并器施加 Add/Replace/Augment → **重新 parse+typecheck「用户码 ∪ 生成码」**。**方案 B（最终架构，User 2026-08-21
+裁决）**：post-bind 执行（能查解析后符号），**参考 C# Roslyn source generator**（post-compilation 查 semantic
+model / 只 add / union 重 bind / 单轮→有界多轮）。`Replace`/`Augment` 是 z42 超 C# 的增量。零 bump。z42c 自建
+不注入 generator → gated off → **byte-identical**。
+
+### 关键设计决策（User 2026-08-21 已确认；design.md §Generator 实现落法 是权威）
+
+- **D-a Augment 落法 = 脱糖 synthetic partial + 自动标原类型 partial**：`Augment(T, members)` → 生成
+  `partial <kind> T { members }` 新 CU（AddSource 追加进 `cus[]`）+ **在原 CU 的 `T` ClassDecl 上自动设
+  `IsPartial=true`**（规避 E0430「所有碎片须标 partial」，用户免写 partial——卖点）。partial 合并
+  （`SymbolCollector._passClassStubs` 符号层 + `IrDump._buildMergedPartial` AST 层，都遍历整个 `cus[]`、
+  typecheck 前跑、支持 class/struct/record/interface）自然把成员并进 T。**既参考 C# partial 合并、又避开
+  start-only span**（不改现有源码字节）。
+- **D-b generator 来源 = 测试注入实例**（本 PR）：引擎真实接进 `BuildPackageCus`，但 generator 实例由集成测试
+  `new TestGen()` 注入（对镜 PR3a 测 NoEmptyCatchAnalyzer）。**编译内自动发现 `:Generator` 类 + 外部 zpkg
+  加载 → 延后 PR4d**（需「编译 generator→load→Activator」机制，与外部加载同源）。
+- **D-c 触发名 = `Generator.AppliedName()`**（返回 == 类名剥 `Generator` 后缀）：**实测转向**——对 `Generator`
+  接口引用 `x as Object` 的运行期 checked-cast 在自举 VM 返回 Null（反射取实例类名崩），故契约加显式
+  `AppliedName()` 报触发名。D8 命名规则不变（类名仍须 `<Trigger>Generator`，E0447 强制），约定
+  `AppliedName()==类名剥后缀` 由文档 + E0447 双保。
+- **D-d DeclId**：保留 `Key` 字符串 + 建 `Key→Decl` 反查（Replace 定位原节点）；method key **加 arity** 消歧重载。
+
+### 数据流（接进 `IrDump.BuildPackageCus`）
+
+```
+BuildPackageCus(texts, files, count, cus, ...):
+  symbols0 = coll.CollectAll(cus, ...)                 // #1 provisional bind（Roslyn: semantic model）
+  gr = GeneratorDriver.Run(inp.Generators, cus, count, symbols0)
+       · 每 gen：类名剥后缀→触发名→遍历 cus 找 [触发名]@decl（AttributedDecl）
+       · 调 gen.Generate(GenTarget{DeclId, decl+符号}, sink)
+       · GenSink 收集：AddSource / Replace(DeclId) / Augment(DeclId)
+  if gr.HasOutput:
+       cus' = applyGenOps(cus, gr)                     // Augment→partial 新 CU+标原 T partial；Replace→AST 替换；AddSource→新 CU
+       // 现有流程照常在 union 上（symbols 从头重收）
+  symbols = coll.CollectAll(cus', ...)                 // #2 real bind on union
+  _buildMergedPartial + typecheck + IrGen → zpkg
+  （gr.HasOutput=false → cus'==cus → 与现状逐字节一致）
+```
+
+### 实施
+
+- [ ] 1. 契约 `z42c.semantics/src/Generation.z42`（NEW，**注意在 semantics 非 syntax**——方案 B 的 `GenTarget`
+      须暴露解析后 `Z42ClassType`，syntax 层引用不到语义符号；与 design.md 原稿含 `TypeSymbol`/`SymbolKind`
+      一致、更贴 Roslyn）：`interface Generator { void Generate(GenTarget t, GenSink sink); }` + `interface GenSink
+      { void AddSource(string hint, string src); void Replace(DeclId id, string src); void Augment(DeclId id,
+      string membersSrc); }` + `interface GenTarget`（DeclId/Kind/被贴 AttributedDecl AST + 解析 `Z42ClassType`）。
+      无 delegate（[[z42c-no-cross-pkg-delegates]]）。`ModuleGenerator`/`GenContext` 留 PR4c。`DeclId` 留在
+      semantics（HandlerRegistry），无需搬。
+- [ ] 2. `DiagnosticCodes.z42`：`GeneratorSuffixRequired = "E0447"`（避开 generic-methods #240 占的 E0446）。
+- [ ] 3. `SymbolCollector._passGeneratorSuffixEnforce`（3 挂载点，同 `_passAnalyzerSuffixEnforce`）：
+      `_baseHasSimpleName(c, "Generator") && !c.Name.EndsWith("Generator")` → E0447。纯语法层。
+- [ ] 4. `HandlerRegistry`：`KindOf` 加 Generator 分支（本 PR generator 靠注入，KindOf 的 Generator 判定=引擎侧
+      按注入 generator 的触发名集，非全局——`IsGeneratorAttr(name, injectedSet)`）；`DeclId` 加 `Key→Decl` 反查
+      helper（复用 AttributeSynth key scheme + arity）。
+- [ ] 5. `GeneratorDriver.z42`（NEW，z42c.semantics）：`Run(Generator[] gens, int n, CompilationUnit[] cus, int count,
+      SymbolTable symbols) → GenOutcome{ CompilationUnit[] extraCus, int extraCount, bool hasOutput }`。
+      `GenSinkImpl : GenSink` 收集 ops；`_applyOps` 落地三 sink（Augment 脱糖 partial+标记、Replace AST 替换、AddSource 新 CU）；
+      护栏：两 gen 碰同一 DeclId → 确定性报错（design 红线①）。
+- [ ] 6. 接线 `PackageCompile.CompileInputs`：加 `public Generator[] Generators; public int GeneratorCount;`（默认空）；
+      `IrDump.BuildPackageCus` 加 provisional CollectAll→driver→union（gated，空→原路 byte-identical）。
+      增量缓存：spliced 文件强制 fresh 或整体走非增量 union（实现时按 agent 勘察的 `IncrementalDriver.Prepare` 约束处理）。
+- [ ] 7. 集成测试 `z42c.semantics/tests/generator/*`（NEW）：`AddEqGenerator`(Augment) / `ReplaceBodyGenerator`(Replace) /
+      `AddSiblingGenerator`(AddSource) 各一，测试 `new` 实例喂 `PackageCompile.Compile`（fixture + 注入）→ 断言合并后
+      typecheck 过 + IrGen + **VM 跑出预期输出**（端到端）。+ `collect_tests.z42` 加 E0447 负测（缺后缀报/带后缀不报）。
+- [ ] 8. docs：`design.md`（本节 B 落法细化，见 §Generator 实现落法）+ `docs/book`/`attributes.md`（generator splice 机制页）
+      + `z42c.syntax`/`z42c.semantics` README 功能索引。
+
+### GREEN（全绿）
+
+- [ ] worktree 供种 + 重建 `xtask.zpkg`；`xtask test` 全 stage gate 绿；self-host gen1==gen2 **5/5**（gated → 不动点保持）。
+- [ ] generator 集成测试（Augment/Replace/AddSource 端到端 VM run）全过；E0447 负测过。
+- [ ] `xtask test bootstrap`：本 PR 零新语法/格式（纯 semantics + 新 stdlib-side 契约类在 z42c.syntax）→ 确认无越界。
+      ⚠️ `Generation.z42` 进 z42c.syntax（编译器自身构成）→ 非 stdlib API 轴，但仍过 bootstrap check 确认。
+
+### 体量提示 / 中断点
+
+- **大 PR**：double-bind + 三 sink 落地 + partial 脱糖 + DeclId 反查 + union 接线。实施中若 union 重编触发
+  增量缓存连锁、或某块明显超 tasks 估计 1.5×（workflow 阶段 6.5 中断条件 7）→ 停下与 User 重议是否再拆
+  （如「引擎+Augment」先合、Replace/AddSource 后续）。
 
 ## PR3a-load · 外部编译期加载 + pipeline 接线（当前，🟡 进行中）
 

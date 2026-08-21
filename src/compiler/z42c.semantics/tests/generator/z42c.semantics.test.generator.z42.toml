@@ -1,0 +1,20 @@
+# z42c.semantics GeneratorDriver 集成测试（attribute-handler-registry PR4a）。
+# applied generator 引擎（方案 B post-bind splice/merge）的端到端机制验证：测试注入 generator 实例 →
+# parse fixture → provisional CollectAll → GeneratorDriver.Run（Add/Replace/Augment + ordering fixup）→
+# merged CollectAll → TypeChecker.Infer，断言合并结果 + 合并后 typecheck 通过。外部 zpkg 加载见 PR4d。
+[project]
+name    = "z42c.semantics.test.generator"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component)。
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/generator"

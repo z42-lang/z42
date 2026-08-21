@@ -39,6 +39,7 @@ public sealed class SymbolCollector {
         this._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
         this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
+        this._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
         this._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._passInheritFields(t, cu);
@@ -152,6 +153,8 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._passAttributeSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR2（D8 后缀）
         c = 0;
         while (c < cuCount) { this._passAnalyzerSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR3a（D8 analyzer 后缀）
+        c = 0;
+        while (c < cuCount) { this._passGeneratorSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR4a（D8 generator 后缀）
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
@@ -206,6 +209,7 @@ public sealed class SymbolCollector {
         this._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
         this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
+        this._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
         this._passImpls(table, cu);   // port-z42c-impl-block
         this._passInheritFields(table, cu);
         return table;
@@ -453,8 +457,27 @@ public sealed class SymbolCollector {
         }
     }
 
-    // 直接基/接口列表里是否有简单名 `name`（或限定 `*.name`）。纯语法（不依赖 base 可解析）——E0444/E0445
-    // 后缀强制共用；attribute 基类/analyzer 接口现实中都不限定，限定分支仅稳妥兜底。
+    // attribute-handler-registry PR4a（D8 后缀约定，generator 侧）：任何直接实现 `Generator` 接口的用户类，
+    // 其类名**必须**以 `Generator` 结尾（`DeriveGenerator` 等）——generator 靠接口发现、类名剥后缀即触发注解
+    // 名（`[Derive]`），后缀是 kind 信号（design D8）。违规 → E0447。与 E0444/E0445 同为纯语法检查（看直接
+    // 基/接口名，不依赖可解析）；同 3 挂载点。
+    private void _passGeneratorSuffixEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (this._baseHasSimpleName(c, "Generator") && !c.Name.EndsWith("Generator")) {
+                    this.Diags.Error(DiagnosticCodes.GeneratorSuffixRequired,
+                        "generator class `" + c.Name + "` must end with `Generator` suffix (rename to `" + c.Name + "Generator`)", c.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 直接基/接口列表里是否有简单名 `name`（或限定 `*.name`）。纯语法（不依赖 base 可解析）——E0444/E0445/
+    // E0447 后缀强制共用；attribute 基类/analyzer·generator 接口现实中都不限定，限定分支仅稳妥兜底。
     private bool _baseHasSimpleName(ClassDecl c, string name) {
         int j = 0;
         while (j < c.BaseCount) {

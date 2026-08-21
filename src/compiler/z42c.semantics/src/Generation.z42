@@ -1,0 +1,73 @@
+// attribute-handler-registry PR4a —— applied generator 契约（编译期源生成框架的公共 API 面）。
+//
+// 放在 z42c.semantics（**非** z42c.syntax，与 Analyzer 契约不同）——方案 B（post-bind，User 2026-08-21
+// 裁决）的 GenTarget 须暴露被贴类型的**解析后 Z42ClassType**（PR4c 的 GenContext.TypesWith<T> 更返回
+// TypeSymbol），这些是语义层类型，syntax（下层）引用不到。与 design 原稿契约含 TypeSymbol/SymbolKind
+// 一致、且贴 Roslyn（source generator 依赖完整 CodeAnalysis 语义 API，非仅语法）。外部 generator（PR4d）
+// 依赖 z42c.semantics，同 Roslyn 模型。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md
+// §Generator 引擎实现落法（PR4a，方案 B）。
+//
+// 参考 C# Roslyn source generator 执行模型：generator 跑在 bind 之后（拿到 semantic model / 符号）→ 只能
+// 追加源码 → union 重 bind。z42 **超越** C#：Replace（替换被贴声明，C# 做不到）+ Augment（往已有类型注入
+// 成员，C# 逼 partial，z42 免 partial——引擎内部脱糖 synthetic partial 碎片实现，用户不写 partial）。
+//
+// 契约形态（同 Analyzer，无 delegate——z42c 规避 delegate + 命名 delegate 跨 zpkg 丢 FQ 名，见
+// [[z42c-no-cross-pkg-delegates]]）：Generator / GenSink 是接口（generator 侧 / driver 侧各实现一半），
+// GenTarget 是数据类（driver 构造、generator 只读）。触发名走 D8 后缀约定——类名剥 `Generator` 后缀即触发
+// 注解名（`AddEqGenerator` → `[AddEq]`），由 `AppliedName()` **显式返回**该名。
+//
+// ⚠️ 为何 AppliedName() 而非纯反射剥类名（偏离 design D8「无 Triggers()」，实测转向）：driver 持 Generator
+// **接口引用**，对接口值 `x as Object` 的运行期 checked-cast 在 z42 自举 VM 返回 Null（`GetType()` 挂 Null →
+// VCall 崩），故反射取实例类名不可行（同 delegate 跨包约束——契约受 VM 现实塑形）。改由 generator 显式返回
+// 触发名；**D8 命名规则不变**（类名仍须 `<Trigger>Generator`，E0447 强制），AppliedName() 只是可靠地报出该名，
+// 约定「AppliedName() == 类名剥后缀」由文档 + E0447 双保。类名须以 `Generator` 结尾（E0447，见
+// SymbolCollector._passGeneratorSuffixEnforce）。
+//
+// ModuleGenerator（扫全编译聚合）+ GenContext（TypesWith<T> 跨类型符号查询，依赖泛型方法）留 PR4c；
+// 外部 zpkg 加载 + [generators] manifest 留 PR4d；有界多轮留 PR4e。
+namespace Z42.Semantics;
+
+using Z42.Syntax;   // Decl / ClassDecl / Attr
+
+// generator 吐生成源码的接收口。driver（GeneratorDriver.GenSinkImpl）实现它，收集三种 splice 操作，
+// 编译期落地（AddSource=新 CU / Augment=脱糖 partial 碎片 / Replace=AST 层按 DeclId 替换）。
+//   · AddSource(hint, src)      —— 追加一个新编译单元（新“文件”，src 是完整 CU 源码）。≈ Roslyn AddSource。
+//   · Replace(id, src)          —— 替换 DeclId 定位的声明（src 是替换后的单个声明源码）。C# 做不到。
+//   · Augment(id, membersSrc)   —— 往 DeclId 定位的类型注入成员（membersSrc 是成员列表源码）。C# 逼 partial。
+public interface GenSink {
+    void AddSource(string hint, string src);
+    void Replace(DeclId id, string src);
+    void Augment(DeclId id, string membersSrc);
+}
+
+// applied generator 的生成目标——被 `[X]` 贴住的那个声明 + 其解析后符号。driver 构造、generator 只读。
+//   · DeclId   —— 被贴声明地址（Augment/Replace 回引用）。
+//   · Name     —— 被贴类型/成员简单名（生成代码里拼名字用）。
+//   · Applied  —— 被贴声明的 AST（generator 读字段/成员的语法结构；类型声明可 cast 成 ClassDecl）。
+//   · Symbol   —— 被贴类型解析后的 Z42ClassType（读字段/方法的解析符号；非类型声明时为 null）。
+//   · Trigger  —— 触发的 `[X]` attr（读注解参数 Trigger.Args / Trigger.ArgCount）。
+public sealed class GenTarget {
+    public DeclId DeclId;
+    public string Name;
+    public Decl Applied;
+    public Z42ClassType Symbol;
+    public Attr Trigger;
+
+    public GenTarget(DeclId declId, string name, Decl applied, Z42ClassType symbol, Attr trigger) {
+        this.DeclId = declId;
+        this.Name = name;
+        this.Applied = applied;
+        this.Symbol = symbol;
+        this.Trigger = trigger;
+    }
+}
+
+// applied generator 契约。实现接口即声明 kind（无 marker，靠接口发现，D6）；类名须以 `Generator` 结尾
+// （D8，E0447）——剥后缀即触发注解名。
+//   · AppliedName() —— 返回触发注解名（== 类名剥 `Generator` 后缀，见文件头注为何显式而非反射）。
+//   · Generate()    —— driver 对每个 `[AppliedName()]` 应用位调用；generator 读 GenTarget（被贴声明 +
+//     解析符号 + 注解参数）、经 GenSink 吐生成源码（AddSource/Replace/Augment）。
+public interface Generator {
+    string AppliedName();
+    void Generate(GenTarget t, GenSink sink);
+}
