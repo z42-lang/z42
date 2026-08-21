@@ -291,6 +291,70 @@ public static class GeneratorDriver {
         }
         a[n] = v; return a;
     }
+
+    // ── ModuleGenerator 驱动（PR4c）───────────────────────────────────────────────────────────
+    // mods：已实例化 module generator（测试注入；外部 zpkg 加载留 PR4d）。cus/files/count：当前工作集
+    // （含 applied 阶段产出的 union；module 查询扫这份 AST）。symbols：provisional bind（Resolve 用）。
+    // 每个 module generator 跑一次，读 GenContext 强类型查询、经 GenSink.AddSource 追加聚合 CU；Replace/
+    // Augment 无 owner 站点 → 越界护栏 E0448（并入 diags）。无 AddSource 产出 → HasOutput=false 原样返回。
+    public static GenOutcome RunModules(ModuleGenerator[] mods, int n, CompilationUnit[] cus, string[] files,
+                                        int count, SymbolTable symbols, DiagnosticBag diags) {
+        if (n == 0) { return new GenOutcome(false, cus, files, count); }
+        GenContextImpl ctx = new GenContextImpl(cus, count, symbols);
+        CompilationUnit[] extra = new CompilationUnit[4];
+        string[] extraFiles = new string[4];
+        int extraN = 0;
+        int mi = 0;
+        while (mi < n) {
+            GenSinkImpl sink = new GenSinkImpl();
+            mods[mi].Generate(ctx, sink);
+            int k = 0;
+            while (k < sink.OpCount) {
+                GenOp op = sink.Ops[k];
+                if (op.Kind == GenOpKind.AddSource) {
+                    extra = GeneratorDriver._pushCu(extra, extraN, GeneratorDriver._parseGen(op.Src, op.Hint, diags));
+                    extraFiles = GeneratorDriver._pushStr(extraFiles, extraN, op.Hint);
+                    extraN = extraN + 1;
+                } else {
+                    diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
+                        "module generator may only AddSource (Replace/Augment need a target decl)",
+                        new Span(0, 0, 0, 0, ""));
+                }
+                k = k + 1;
+            }
+            mi = mi + 1;
+        }
+        if (extraN == 0) { return new GenOutcome(false, cus, files, count); }
+        int total = count + extraN;
+        CompilationUnit[] merged = new CompilationUnit[total];
+        string[] mergedFiles = new string[total];
+        int m = 0;
+        while (m < count) { merged[m] = cus[m]; mergedFiles[m] = files[m]; m = m + 1; }
+        int e = 0;
+        while (e < extraN) { merged[count + e] = extra[e]; mergedFiles[count + e] = extraFiles[e]; e = e + 1; }
+        return new GenOutcome(true, merged, mergedFiles, total);
+    }
+
+    // 剥 attribute 类名的 `Attribute` 后缀（D8 逆运算：`RouteAttribute` → `Route`；无后缀原样返回）。
+    // 与 HandlerRegistry.StoreMetaClassName（应用名 → 类名）对称。
+    public static string _stripAttrSuffix(string typeName) {
+        string suf = HandlerRegistry.AttributeSuffix;
+        if (typeName.EndsWith(suf) && typeName.Length > suf.Length) {
+            return typeName.Substring(0, typeName.Length - suf.Length);
+        }
+        return typeName;
+    }
+
+    // attrs 里第一个名字命中 full（全类名，如 "RouteAttribute"）或 bare（剥后缀应用名，如 "Route"）的 attr；无 → null。
+    public static Attr _findAttr(Attr[] attrs, int count, string full, string bare) {
+        int i = 0;
+        while (i < count) {
+            string nm = attrs[i].Name;
+            if (nm == full || nm == bare) { return attrs[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
 }
 
 // 一个触发点的改写指令。

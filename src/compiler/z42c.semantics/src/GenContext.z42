@@ -1,0 +1,148 @@
+// attribute-handler-registry PR4c —— ModuleGenerator 引擎的 GenContext 实现 + 命中累加器。
+//
+// 从 GeneratorDriver.z42 拆出（单文件 500 行硬限，code-organization）。GeneratorDriver.RunModules
+// 建 GenContextImpl 驱动 module generator；两文件同 namespace Z42.Semantics。契约见 Generation.z42。
+namespace Z42.Semantics;
+
+using Z42.Syntax;   // CompilationUnit / ClassDecl / AttributedDecl / MethodDecl / Attr / Decl
+
+// ── ModuleGenerator 引擎（attribute-handler-registry PR4c）─────────────────────────────────────
+//
+// module generator 不贴任何声明——注册即跑一次、扫全编译、经 GenContext 强类型查询聚合。区别于 applied
+// GeneratorDriver.Run（`[X]` 贴处触发 + Augment/Replace/AddSource 三 sink），module generator 只 AddSource
+// 追加聚合 CU（无单一 owner 站点 → Replace/Augment 越界即护栏 E0448）。查询用泛型方法（依赖 #240）：
+// `ctx.TypesWith<RouteAttribute>()` 内 typeof(T) 取类型名、剥 Attribute 后缀得应用名、扫 AST 命中。
+//
+// GenContext 是接口（Roslyn 模型；外部 module generator PR4d 只依赖契约）——泛型查询经接口虚派发，实测
+// 自举 VM 支持（method_type_args 随 frame 穿透，#240 M1）。
+
+// GenType 命中累加器（内部；避免手工数组阈值散布在扫描循环里）。
+public sealed class GenTypeList {
+    public GenType[] Items; public int Count;
+    public GenTypeList() { this.Items = new GenType[4]; this.Count = 0; }
+    public void Add(GenType v) {
+        if (this.Count == this.Items.Length) {
+            GenType[] b = new GenType[this.Items.Length * 2];
+            int k = 0; while (k < this.Count) { b[k] = this.Items[k]; k = k + 1; } this.Items = b;
+        }
+        this.Items[this.Count] = v; this.Count = this.Count + 1;
+    }
+    public GenType[] Trimmed() {
+        GenType[] r = new GenType[this.Count];
+        int k = 0; while (k < this.Count) { r[k] = this.Items[k]; k = k + 1; } return r;
+    }
+}
+
+// GenMethod 命中累加器（内部）。
+public sealed class GenMethodList {
+    public GenMethod[] Items; public int Count;
+    public GenMethodList() { this.Items = new GenMethod[4]; this.Count = 0; }
+    public void Add(GenMethod v) {
+        if (this.Count == this.Items.Length) {
+            GenMethod[] b = new GenMethod[this.Items.Length * 2];
+            int k = 0; while (k < this.Count) { b[k] = this.Items[k]; k = k + 1; } this.Items = b;
+        }
+        this.Items[this.Count] = v; this.Count = this.Count + 1;
+    }
+    public GenMethod[] Trimmed() {
+        GenMethod[] r = new GenMethod[this.Count];
+        int k = 0; while (k < this.Count) { r[k] = this.Items[k]; k = k + 1; } return r;
+    }
+}
+
+// GenContext 实现（driver 侧）。持编译单元集（含 applied 阶段产出的 union）+ provisional 符号表；泛型查询
+// 扫 AST（TypesWith/MethodsWith 靠 attr 名匹配，稳定序=文件序+声明序），Resolve 经符号表。
+public sealed class GenContextImpl : GenContext {
+    private CompilationUnit[] _cus;
+    private int _count;
+    private SymbolTable _symbols;
+    public GenContextImpl(CompilationUnit[] cus, int count, SymbolTable symbols) {
+        this._cus = cus; this._count = count; this._symbols = symbols;
+    }
+
+    // 贴了 `[T]`（T=attribute 类）的所有类型。typeof(T).Name = "RouteAttribute"；剥后缀得应用名 "Route"；
+    // attr.Name 命中全名或应用名任一即算（用户写 `[Route]` 或 `[RouteAttribute]` 都收）。
+    public GenType[] TypesWith<T>() {
+        string full = typeof(T).Name;
+        string bare = GeneratorDriver._stripAttrSuffix(full);
+        GenTypeList acc = new GenTypeList();
+        int ci = 0;
+        while (ci < this._count) {
+            CompilationUnit cu = this._cus[ci];
+            if (cu != null) {
+                int di = 0;
+                while (di < cu.DeclCount) {
+                    Decl d = cu.Decls[di];
+                    if (d is AttributedDecl) {
+                        AttributedDecl ad = d as AttributedDecl;
+                        if (ad.Inner is ClassDecl) {
+                            ClassDecl c = ad.Inner as ClassDecl;
+                            Attr m = GeneratorDriver._findAttr(ad.Attrs, ad.AttrCount, full, bare);
+                            if (m != null) {
+                                acc.Add(new GenType(c.Name, this._symbols.GetClass(c.Name), m, new DeclId("cls$" + c.Name)));
+                            }
+                        }
+                    }
+                    di = di + 1;
+                }
+            }
+            ci = ci + 1;
+        }
+        return acc.Trimmed();
+    }
+
+    // 贴了 `[T]` 的所有方法（类内方法 + 顶层自由函数）。
+    public GenMethod[] MethodsWith<T>() {
+        string full = typeof(T).Name;
+        string bare = GeneratorDriver._stripAttrSuffix(full);
+        GenMethodList acc = new GenMethodList();
+        int ci = 0;
+        while (ci < this._count) {
+            CompilationUnit cu = this._cus[ci];
+            if (cu != null) {
+                int di = 0;
+                while (di < cu.DeclCount) {
+                    Decl d = cu.Decls[di];
+                    if (d is AttributedDecl) {
+                        AttributedDecl ad = d as AttributedDecl;
+                        if (ad.Inner is MethodDecl) {
+                            Attr m = GeneratorDriver._findAttr(ad.Attrs, ad.AttrCount, full, bare);
+                            if (m != null) {
+                                MethodDecl md = ad.Inner as MethodDecl;
+                                acc.Add(new GenMethod(md.Name, "", md.Name, m));
+                            }
+                        } else if (ad.Inner is ClassDecl) {
+                            GenContextImpl._scanMembers(ad.Inner as ClassDecl, full, bare, acc);
+                        }
+                    } else if (d is ClassDecl) {
+                        GenContextImpl._scanMembers(d as ClassDecl, full, bare, acc);
+                    }
+                    di = di + 1;
+                }
+            }
+            ci = ci + 1;
+        }
+        return acc.Trimmed();
+    }
+
+    public Z42ClassType Resolve(string fqn) { return this._symbols.GetClass(fqn); }
+
+    // 扫一个类型的成员方法，命中 `[T]` 的记入 acc（OwnerName=类名，FullName=类名.方法名）。
+    private static void _scanMembers(ClassDecl c, string full, string bare, GenMethodList acc) {
+        int mi = 0;
+        while (mi < c.MemberCount) {
+            Decl mem = c.Members[mi];
+            if (mem is AttributedDecl) {
+                AttributedDecl mad = mem as AttributedDecl;
+                if (mad.Inner is MethodDecl) {
+                    Attr m = GeneratorDriver._findAttr(mad.Attrs, mad.AttrCount, full, bare);
+                    if (m != null) {
+                        MethodDecl md = mad.Inner as MethodDecl;
+                        acc.Add(new GenMethod(md.Name, c.Name, c.Name + "." + md.Name, m));
+                    }
+                }
+            }
+            mi = mi + 1;
+        }
+    }
+}

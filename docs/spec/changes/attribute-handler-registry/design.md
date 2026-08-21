@@ -467,7 +467,38 @@ typecheck 会炸。`KindOf` 解析相位无 generator 集、无法按名分辨 g
 
 - **applied generator**（PR4a）：post-bind，`GenTarget` 可给被贴声明的**解析符号**（`Z42ClassType` → 字段解析
   类型）。够 derive 式生成（Equals/ToString/Hash 从字段）。
-- **module generator**（PR4c）：`GenContext.TypesWith<T>()` 跨类型符号查询，依赖泛型方法（#240）→ 延后。
+- **module generator**（PR4c，✅ 已实现）：`GenContext.TypesWith<T>()`/`MethodsWith<T>()` 跨类型强类型符号查询，
+  靠泛型方法（#240）。
+
+### Module generator 引擎实现落法（PR4c）
+
+**module generator 不贴任何声明**——注册（依赖）即**跑一次、扫全编译**、聚合成表（路由表 / DI 容器 / serde
+注册）。区别于 applied（`[X]` 贴处触发、`GenTarget` 只见被贴那一个声明），module 通过 `GenContext` **强类型查询**
+整个 CU 集里贴了某 attribute 的所有类型 / 方法，只经 `GenSink.AddSource` 追加聚合源码（无单一 owner 站点 →
+Replace/Augment 越界即护栏 **E0448**）。
+
+- **契约（`Generation.z42`，z42c.semantics）**：`interface ModuleGenerator { void Generate(GenContext ctx, GenSink sink); }`
+  + `interface GenContext { GenType[] TypesWith<T>(); GenMethod[] MethodsWith<T>(); Z42ClassType Resolve(string fqn); }`
+  + 结果类 `GenType`(Name/Symbol/Match/DeclId) / `GenMethod`(Name/OwnerName/FullName/Match)。**GenContext 是接口**
+  （Roslyn 模型；外部 module generator PR4d 只依赖契约）——泛型查询 `TypesWith<T>` 经**接口虚派发**，实测自举 VM
+  支持接口/实例泛型方法派发（method_type_args 随 frame 穿透，#240 M1；**与 PR4a `x as Object` checked-cast 返 Null
+  的约束不同**，那是 cast 路径、非泛型 dispatch）。
+- **强类型查询靠泛型方法（#240，PR4c 依赖它的根因）**：`ctx.MethodsWith<RouteAttribute>()` 内 `typeof(T).Name` 取类型名
+  `"RouteAttribute"` → 剥 `Attribute` 后缀（D8 逆运算 `_stripAttrSuffix`，与 `StoreMetaClassName` 对称）得应用名
+  `"Route"` → 扫 AST 命中贴 `[Route]`（或 `[RouteAttribute]` 全名）的类型/方法，稳定序（文件序 + 声明序）。
+  代码里写全名 + 编译期检查（非字符串魔法名），是 module 相对 applied 的核心增益。
+- **引擎（`GeneratorDriver.RunModules`）**：建 `GenContextImpl(cus,count,symbols)` → 每个 module generator 跑一次 →
+  收 `GenSink` 的 AddSource → parse 成新 CU 追加；Replace/Augment → E0448。gated on `ModuleGeneratorCount>0`。
+- **接进 `PackageCompile`（同 applied 的 gated 块，applied 之后）**：共用 provisional bind；applied 可能改写 CU
+  （Augment/Replace/AddSource），module 扫其产出的 union AST。任一路径有产出 → union 全 fresh 重编。z42c 自建无
+  module generator → 分支不进 → **byte-identical**。
+- **后缀强制**：`SymbolCollector._passGeneratorSuffixEnforce`（E0447）扩到 `: ModuleGenerator` 实现者（共用
+  `Generator` 后缀，module 无触发名但同 kind 信号）。
+- **测试**（`tests/generator/module_generator_tests.z42`，注入驱动镜像 PR4a）：RouteTableGenerator（MethodsWith）/
+  EntityRegistryGenerator（TypesWith）端到端 parse→RunModules→merge→CollectAll→typecheck，**经生成代码的成员名
+  断言查询命中集**（GetA/GetB 命中、NotRouted 不命中）+ E0448 越界 + 无 generator passthrough。
+- **留 PR4d**：外部 module generator zpkg 加载（编译内发现 `:ModuleGenerator` + `[generators]` manifest）+ VM 执行
+  golden（真跑生成方法）。本 PR 由测试注入、in-process。
 
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 

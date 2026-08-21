@@ -1,0 +1,165 @@
+// z42c.semantics ModuleGenerator + GenContext 集成测试（attribute-handler-registry PR4c）。
+//
+// 验证 module generator 引擎端到端：测试注入 module generator 实例 → parse fixture → RunAst → provisional
+// CollectAll（给 GenContext 解析符号）→ GeneratorDriver.RunModules（扫全编译 + 强类型查询 TypesWith<T>/
+// MethodsWith<T> → AddSource 聚合 CU）→ merged CollectAll → TypeChecker.Infer，断言查询命中集正确（经生成
+// 代码的成员名反映）+ 合并后 typecheck 通过。外部 zpkg 加载 + VM 执行 golden 见 PR4d。
+//
+// **强类型查询靠泛型方法（#240）**：generator 写 `ctx.MethodsWith<RouteAttribute>()`，内部 typeof(T) 取名、
+// 剥 Attribute 后缀（"Route"）、按名匹配 fixture 里贴的 `[Route]`。RouteAttribute/EntityAttribute 在本测试
+// 库定义（供 generator 的 typeof 解析）；fixture 也各自定义同名 attr（供 fixture 自身 `[X]` 的 store-meta
+// 合成 typecheck）——两处同名、查询靠名字桥接（镜像真实：attr 在共享包、generator 与 user 都依赖它）。
+namespace Z42cSemanticsGeneratorTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// ── 测试库侧 attr（供 module generator 的 typeof(T) 解析；类名带 Attribute 后缀 D8/E0444）──
+public class RouteAttribute : Attribute {
+    public string Path;
+    public RouteAttribute(string p) { this.Path = p; }
+}
+public class EntityAttribute : Attribute {
+    public EntityAttribute() { }
+}
+
+// ── 测试用 module generator（实现 Z42.Semantics.ModuleGenerator；类名带 Generator 后缀 D8/E0447）──
+
+// MethodsWith：聚合贴了 [Route] 的方法，为每个命中方法生成一个 `route_<Name>()` 标记方法。合并后按标记
+// 方法名断言查询命中集（GetA/GetB 命中、NotRouted 不命中）。
+class RouteTableGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        GenMethod[] ms = ctx.MethodsWith<RouteAttribute>();
+        string members = "";
+        int i = 0;
+        while (i < ms.Length) {
+            members = members + "  public int route_" + ms[i].Name + "() { return 1; }\n";
+            i = i + 1;
+        }
+        sink.AddSource("__routes.g.z42", "class RouteTable {\n" + members + "}\n");
+    }
+}
+
+// TypesWith：聚合贴了 [Entity] 的类型，为每个命中类型生成一个 `has_<Name>()` 标记方法。
+class EntityRegistryGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        GenType[] ts = ctx.TypesWith<EntityAttribute>();
+        string members = "";
+        int i = 0;
+        while (i < ts.Length) {
+            members = members + "  public int has_" + ts[i].Name + "() { return 1; }\n";
+            i = i + 1;
+        }
+        sink.AddSource("__entities.g.z42", "class EntityRegistry {\n" + members + "}\n");
+    }
+}
+
+// 越界：module generator 无 owner 站点，Replace/Augment → 护栏 E0448。
+class BadModuleGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.Augment(new DeclId("cls$Whatever"), "public int nope() { return 0; }");
+    }
+}
+
+// ── helper（复用 generator_tests.z42 的 GenResult / hasCode）─────────────────────────────────
+
+ModuleGenerator[] moduleOne(ModuleGenerator g) { ModuleGenerator[] a = new ModuleGenerator[1]; a[0] = g; return a; }
+
+// 端到端跑 module 引擎：parse → RunAst → provisional CollectAll → GeneratorDriver.RunModules → merged
+// CollectAll → TypeChecker.Infer（每 CU）。返回引擎/typecheck 诊断 + 合并符号表。
+GenResult runModuleGen(ModuleGenerator[] mods, int modCount, string[] srcs, int n) {
+    string[] files = new string[n];
+    CompilationUnit[] cus = new CompilationUnit[n];
+    int i = 0;
+    while (i < n) {
+        files[i] = "f" + i.ToString() + ".z42";
+        cus[i] = HandlerRegistry.RunAst(new Parser(srcs[i], files[i]).ParseCompilationUnit());
+        i = i + 1;
+    }
+    SymbolTable prov = new SymbolCollector().CollectAll(cus, files, n, null);   // provisional bind
+    DiagnosticBag ed = new DiagnosticBag();
+    GenOutcome go = GeneratorDriver.RunModules(mods, modCount, cus, files, n, prov, ed);
+    CompilationUnit[] mcus = go.HasOutput ? go.Cus : cus;
+    string[] mfiles = go.HasOutput ? go.Files : files;
+    int mc = go.HasOutput ? go.CuCount : n;
+    SymbolTable msym = new SymbolCollector().CollectAll(mcus, mfiles, mc, null);   // real bind on union
+    DiagnosticBag td = new DiagnosticBag();
+    int j = 0;
+    while (j < mc) { new TypeChecker(td).Infer(mcus[j], msym); j = j + 1; }
+    return new GenResult(go, msym, ed, td);
+}
+
+// fixture：贴 [Route] 的方法 handlers（自带 RouteAttribute 定义供 store-meta 合成）。
+string routeFixture() {
+    return "public class RouteAttribute : Attribute { public string Path; public RouteAttribute(string p) { this.Path = p; } }\n"
+         + "class Handlers {\n"
+         + "  [Route(\"/a\")] public void GetA() { }\n"
+         + "  [Route(\"/b\")] public void GetB() { }\n"
+         + "  public void NotRouted() { }\n"
+         + "}\n";
+}
+
+// fixture：贴 [Entity] 的类型（自带 EntityAttribute 定义）。
+string entityFixture() {
+    return "public class EntityAttribute : Attribute { public EntityAttribute() { } }\n"
+         + "[Entity] class User { public int Id; }\n"
+         + "[Entity] class Order { public int Total; }\n"
+         + "class Plain { public int X; }\n";
+}
+
+// ── 测试 ─────────────────────────────────────────────────────────────────────────
+
+[Test]
+void test_module_methodswith_aggregates_routed_methods() {
+    string[] srcs = new string[1];
+    srcs[0] = routeFixture();
+    GenResult r = runModuleGen(moduleOne(new RouteTableGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(2, r.Outcome.CuCount);   // 原 CU + 生成的 RouteTable CU
+    // MethodsWith<RouteAttribute> 命中集 = {GetA, GetB}——经生成的标记方法名断言
+    Z42ClassType rt = r.Merged.GetClass("RouteTable");
+    Assert.Equal(true, rt != null);
+    Assert.Equal(true, rt.Methods.ContainsKey("route_GetA"));
+    Assert.Equal(true, rt.Methods.ContainsKey("route_GetB"));
+    Assert.Equal(false, rt.Methods.ContainsKey("route_NotRouted"));   // 未贴 [Route] → 不命中
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_module_typeswith_aggregates_entity_types() {
+    string[] srcs = new string[1];
+    srcs[0] = entityFixture();
+    GenResult r = runModuleGen(moduleOne(new EntityRegistryGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    // TypesWith<EntityAttribute> 命中集 = {User, Order}
+    Z42ClassType reg = r.Merged.GetClass("EntityRegistry");
+    Assert.Equal(true, reg != null);
+    Assert.Equal(true, reg.Methods.ContainsKey("has_User"));
+    Assert.Equal(true, reg.Methods.ContainsKey("has_Order"));
+    Assert.Equal(false, reg.Methods.ContainsKey("has_Plain"));   // 未贴 [Entity] → 不命中
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_module_out_of_scope_target_guardrail() {
+    // module generator 只能 AddSource；Augment/Replace 无 owner 站点 → E0448
+    string[] srcs = new string[1];
+    srcs[0] = "class Foo { public int X; }";
+    GenResult r = runModuleGen(moduleOne(new BadModuleGenerator()), 1, srcs, 1);
+    Assert.Equal(true, hasCode(r.EngineDiags, "E0448"));
+    Assert.Equal(false, r.Outcome.HasOutput);   // 无 AddSource → 无产出
+}
+
+[Test]
+void test_no_module_generators_passthrough() {
+    // 无 module generator 注入 → 引擎不产出 → CU 原样（gated off，byte-identical 保证）
+    string[] srcs = new string[1];
+    srcs[0] = "class Plain { public int X; }";
+    GenResult r = runModuleGen(new ModuleGenerator[0], 0, srcs, 1);
+    Assert.Equal(false, r.Outcome.HasOutput);
+    Assert.Equal(1, r.Outcome.CuCount);
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
