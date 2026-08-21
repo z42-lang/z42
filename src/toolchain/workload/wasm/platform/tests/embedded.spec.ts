@@ -22,8 +22,11 @@ test('embedded test-host: bundled corpus runs green in-browser', async ({ page }
     // fix-wasm-embed-timeout: `{timeout}` must be the 3rd arg (options), NOT the
     // 2nd (`arg`) — passed as arg it was silently ignored, so this fell back to
     // `actionTimeout` (10s) and timed out before the (slow, single-threaded wasm
-    // interp) corpus of ~283 goldens could finish. Give it a generous budget.
-    await page.waitForFunction(() => (window as any).__done === true, undefined, { timeout: 600_000 });
+    // interp) corpus could finish. Give it a generous budget.
+    // fix-wasm-shard-timeout: 600_000 → 1_440_000 (24min), kept just under the
+    // config's 25min whole-test budget so the in-page wait — not an opaque outer
+    // abort — is what surfaces if the corpus ever overruns.
+    await page.waitForFunction(() => (window as any).__done === true, undefined, { timeout: 1_440_000 });
 
     // Always echo captured console into the test output (visible in CI).
     if (consoleLogs.length) console.log('--- browser console ---\n' + consoleLogs.join('\n'));

@@ -11,6 +11,11 @@ using Z42.Project;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 
+// ── attribute-handler-registry PR3a-load：外部 analyzer zpkg 编译期加载端到端 ─────────────────
+// 编译一个实现 Z42.Syntax.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
+// PackageCompile → 断言 analyzer 的 Z9002 诊断合入 consumer 的 per-file Cms。**非提交二进制**（fixture
+// 现编 → 免格式-bump 脆性），走真实 AnalyzerLoader（两路加载 + 反射实例化）+ AnalyzerDriver 全链。
+
 // 单文件 no-dep 工程 → CompileInputs（LibsDirs 空，Cus 现 parse）。
 CompileInputs _inputs(string src, string kind) {
     string[] texts = new string[1]; texts[0] = src;
@@ -103,4 +108,98 @@ void test_extend_with_package_adds_namespace() {
     // 新包命名空间 ExtNs 并入 → NsCount 增长，且能 FileOf 命中
     Assert.Equal(true, a1.Scan.NsCount > before);
     Assert.Equal("repl_ext.zpkg", a1.Scan.FileOf("ExtNs"));
+}
+
+// ── PR3a-load 外部 analyzer 加载端到端 ──────────────────────────────────────────
+
+// fixture analyzer 源：实现 Z42.Syntax.Analyzer，报告空 catch（Z9002）。类名带 Analyzer 后缀（E0445）；
+// 独立命名空间/类名（避免与 z42c.semantics 测试模块里 NoEmptyCatchAnalyzer 在 live VM 撞名）。
+string _fixtureAnalyzerSrc() {
+    return "namespace AnalyzerLoadFixture;\n"
+        + "using Z42.Syntax;\n"
+        + "using Z42.Core;\n"
+        + "public class FixtureNoEmptyCatchAnalyzer : Analyzer {\n"
+        + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureNoEmptyCatchAnalyzer._rule(); return r; }\n"
+        + "    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }\n"
+        + "    public void OnSyntaxNode(int kind, object node, DiagSink diags) {\n"
+        + "        if (kind == SyntaxKind.CatchClause) {\n"
+        + "            CatchClause c = node as CatchClause;\n"
+        + "            if (c.Body is BlockStmt) { BlockStmt b = c.Body as BlockStmt; if (b.Count == 0) { diags.Report(FixtureNoEmptyCatchAnalyzer._rule(), c.Span); } }\n"
+        + "        }\n"
+        + "    }\n"
+        + "    static DiagRule _rule() { return new DiagRule(\"Z9002\", \"empty catch\", \"empty catch swallows exception\", \"Correctness\", AnalyzerSeverity.Warning, true); }\n"
+        + "}\n";
+}
+
+// 编译 fixture analyzer（依赖 z42c.syntax + z42c.core）→ CompileInputs。
+CompileInputs _fixtureAnalyzerInputs(string[] dirs) {
+    string[] texts = new string[1]; texts[0] = _fixtureAnalyzerSrc();
+    string[] files = new string[1]; files[0] = "fixture_analyzer.z42";
+    string[] hashes = new string[1]; hashes[0] = "FIXTUREAZ";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.analyzerfixture"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
+    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    return cin;
+}
+
+string _tmpRoot() {
+    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    if (t == "") { t = "/tmp"; }
+    return Path.Join(t, "z42c-analyzer-load-tests");
+}
+
+bool _cmsHasCode(CompileArtifacts art, string code) {
+    int i = 0;
+    while (i < art.CmCount) {
+        CompiledModuleZ cm = art.Cms[i];
+        int di = 0;
+        while (di < cm.DiagCount) {
+            if (cm.DiagMsgs[di].Contains(code)) { return true; }
+            di = di + 1;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+[Test]
+void test_external_analyzer_loaded_and_reports() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
+    string[] dirs = libs.Split(":");
+    // 1. 现编 fixture analyzer → 临时 zpkg（非提交二进制）
+    CompileArtifacts aArt = PackageCompile.Compile(_fixtureAnalyzerInputs(dirs));
+    Assert.Equal(0, aArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string azPath = Path.Join(tmp, "demo.analyzerfixture.zpkg");
+    byte[] bytes = ZpkgWriterZ.WritePacked(aArt.Z, false).ToBytes();
+    File.WriteAllBytes(azPath, bytes);
+    // 2. 编一个含空 catch 的 consumer，AnalyzerZpkgs 指向 fixture → 走真实 AnalyzerLoader + driver。
+    //    typeless `catch { }`（Parser 支持，类型/变量可省）→ 无 deps 即可 typecheck 干净。
+    CompileInputs cin = _inputs("namespace Consumer;\nint risky() { return 1; }\nint M() { int r = 0; try { r = risky(); } catch { } return r; }\n", "lib");
+    cin.Name = "demo.consumer";
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    // analyzer 诊断为 Warning → 不 fail 编译（ErrorCount 不增），但合入 per-file Cms 可见
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
+}
+
+[Test]
+void test_no_analyzers_no_extra_diags() {
+    // 无 [analyzers]（AnalyzerZpkgCount=0）→ 空 catch 不触发 analyzer 诊断（byte-identical 路径）
+    CompileArtifacts art = PackageCompile.Compile(
+        _inputs("namespace C2;\nint risky() { return 1; }\nint M() { int r = 0; try { r = risky(); } catch { } return r; }\n", "lib"));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal(false, _cmsHasCode(art, "Z9002"));
 }

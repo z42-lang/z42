@@ -90,7 +90,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // 「新 API 需晚一 nightly」轴④约束。warm dev 代价：z42c build 增量缓存命中下近零（源未变 → probe
 // 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
 void _ensureBootstrapZ42Ir(string root, string vm, string driver, string stdlibFlat) {
-    _vNormal("  bootstrap: (re)building current-source z42.core + z42.ir into build-libs（破 z42c⇄z42.ir 环）");
+    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.ir into build-libs（破 z42c⇄stdlib 轴④环）");
     // consolidate-core-intrinsics (A1): 当前源 z42.ir 现调 Std.BitConverter（当前源 z42.core 新增门面）。
     // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.ir 会
     // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.ir。
@@ -98,6 +98,14 @@ void _ensureBootstrapZ42Ir(string root, string vm, string driver, string stdlibF
     string coreToml = Path.Join(root, "src/libraries/z42.core/z42.core.z42.toml");
     int rcCore = _z42cBuildPackage(vm, driver, coreToml, stdlibFlat, stdlibFlat);
     if (rcCore != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.core failed (" + rcCore.ToString() + ")"); }
+    // attribute-handler-registry PR3a-load：z42c.driver **编译期**消费 z42.project 的 ProjectManifest
+    // （新增 `[analyzers]` 段的 Analyzers/AnalyzerCount 字段）。z42c workspace self-build 早于 step-4
+    // 全量 stdlib 重建 → 若不先把当前源 z42.project 建进 flat，driver 会对着**旧** z42.project 编 →
+    // `no field AnalyzerCount on ProjectManifest`（轴②：z42c 源新用一个 stdlib API，须先于 z42c 自建进
+    // flat）。与 z42.core/z42.ir 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
+    string projToml = Path.Join(root, "src/libraries/z42.project/z42.project.z42.toml");
+    int rcProj = _z42cBuildPackage(vm, driver, projToml, stdlibFlat, stdlibFlat);
+    if (rcProj != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.project failed (" + rcProj.ToString() + ")"); }
     string irToml = Path.Join(root, "src/libraries/z42.ir/z42.ir.z42.toml");
     int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.ir failed (" + rc.ToString() + ")"); }

@@ -1,0 +1,97 @@
+// attribute-handler-registry PR3a-load —— 外部 analyzer zpkg 的编译期发现 + 实例化。
+//
+// 消费方在 z42.toml `[analyzers]` 段声明的 handler zpkg（D9：独立编译期类别，加载进编译器、
+// 编译期运行、不链入目标程序）经本加载器变成可喂给 AnalyzerDriver 的 `Analyzer` 实例。
+//
+// 两路加载组合（单靠一条都不够，源码复核确认——见 tasks PR3a-load 关键设计点）：
+//   · Path-A 发现（reflect-only）：AssemblyLoadContext.Default().Load(path) → Assembly.GetTypes()
+//     → 过滤 GetInterface("Analyzer")。__lctx_load 进 root 的 AssemblyEntry 类型**可枚举**，但函数
+//     **不并入 live module → 不可调**（runtime context.rs:load_into）。仅用它拿类型 FQN 清单。
+//   · Path-B 可调用：__load_module(path)（load_module_into_vm flat-merge）→ 函数/类型并入 live VM，
+//     可 Type.GetType + Activator.CreateInstance + 虚调用。仅用它让实例可执行。
+//   · 实例化：用 Path-A 拿到的 FullName 走 Type.GetType（解析到 Path-B 合并后的 live TypeDesc，
+//     避免 ALC 投影副本的 vtable 指向未合并函数）→ Activator.CreateInstance → as Analyzer。
+//
+// 接口同一性：analyzer 实现的 Z42.Syntax.Analyzer == 本编译器进程已驻留的同一接口（z42c 由
+// z42c.syntax 构成，运行时它已加载）→ as Analyzer + AnalyzerDriver.Run 直接可用。
+//
+// 范式 = z42b builder.z42 _hostCompiler（Load→GetType→CreateInstance→as，已生产验证；那里 FQN
+// 硬编码，这里靠 Path-A 发现）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9。
+namespace Z42.Semantics;
+
+using Std;             // Type
+using Std.Runtime;     // AssemblyLoadContext
+using Std.Reflection;  // Assembly / Activator
+using Z42.Syntax;      // Analyzer
+
+public static class AnalyzerLoader {
+    // Path-B：把 zpkg 的函数/类型并入 live VM（可 Type.GetType + Activator + 虚调用）。z42c **不**
+    // 依赖 z42.test（那里有 public 包装 Std.Test.ModuleLoader.Load），故此处**自绑** VM builtin。
+    // native 是 VM builtin（种子里恒在 → 无两-nightly 越界）；返回 TIDX（Std.Test.TestEntry[]），忽略——
+    // 只要其加载副作用。
+    [Native("__load_module")]
+    private static extern object _makeCallable(string path);
+
+    // 发现 + 实例化给定 zpkg 路径里所有 `: Analyzer` 类型。路径先按 Ordinal 排序（common-pitfalls §1，
+    // 确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的 Analyzer 实例数组。
+    public static Analyzer[] Load(string[] zpkgPaths, int count) {
+        string[] sorted = AnalyzerLoader._sortedCopy(zpkgPaths, count);
+        Analyzer[] found = new Analyzer[4];
+        int n = 0;
+        int i = 0;
+        while (i < count) {
+            string path = sorted[i];
+            AnalyzerLoader._makeCallable(path);                        // Path-B（先，供实例可执行）
+            Assembly asm = AssemblyLoadContext.Default().Load(path);   // Path-A（反射投影，仅枚举）
+            Type[] types = asm.GetTypes();
+            int j = 0;
+            while (j < types.Length) {
+                Type projT = types[j];
+                if (projT.GetInterface("Analyzer") != null) {          // GetInterface 比简单名
+                    Type liveT = Type.GetType(projT.FullName);         // 解析到 live 合并后的 TypeDesc
+                    if (liveT != null) {
+                        object o = Activator.CreateInstance(liveT);
+                        Analyzer a = o as Analyzer;
+                        if (a != null) {
+                            found = AnalyzerLoader._push(found, n, a);
+                            n = n + 1;
+                        }
+                    }
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        Analyzer[] r = new Analyzer[n];
+        int k = 0;
+        while (k < n) { r[k] = found[k]; k = k + 1; }
+        return r;
+    }
+
+    // Ordinal 稳定序拷贝（插入排序；count 小）。string.CompareTo 是 Ordinal（DepScan/WorkspaceBuild 同款）。
+    private static string[] _sortedCopy(string[] a, int count) {
+        string[] r = new string[count];
+        int i = 0;
+        while (i < count) { r[i] = a[i]; i = i + 1; }
+        int x = 1;
+        while (x < count) {
+            string cur = r[x];
+            int y = x - 1;
+            while (y >= 0 && r[y].CompareTo(cur) > 0) { r[y + 1] = r[y]; y = y - 1; }
+            r[y + 1] = cur;
+            x = x + 1;
+        }
+        return r;
+    }
+
+    private static Analyzer[] _push(Analyzer[] arr, int count, Analyzer x) {
+        if (count >= arr.Length) {
+            Analyzer[] nw = new Analyzer[arr.Length * 2 + 8];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+}
