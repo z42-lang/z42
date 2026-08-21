@@ -10,7 +10,7 @@
 | PR1b | HandlerRegistry IR-phase：TestIndexBuilder+StubEmitter 名字识别收敛 + KindOf 细化三路（`[Native]` 不改，byte-identical） | 否 | ✅ 完成 |
 | PR2 | 后缀约定（D8）：resolution 展开（`[X]`→`XAttribute`）+ 强制校验 E0444 + test 家族全归 handler + 迁移 fixtures + 反转 `Attribute.z42`/`basic.z42`/`attributes.md` 头注 | 否 | ✅ 完成 |
 | PR3a | Analyzer **框架**：`Analyzer`(visitor 模型 ObservedKinds+OnSyntaxNode，**无 delegate**——z42c 规避+命名 delegate 跨包丢 FQ 名 [[z42c-no-cross-pkg-delegates]])/`DiagRule`/`AnalyzerSeverity`/`DiagSink`/`SyntaxKind`(z42c.syntax，非 stdlib——契约暴露 AST) + AnalyzerDriver(AST 遍历分派+诊断映射进 DiagnosticBag) + `*Analyzer` 后缀强制(E0445) + 驱动单测(NoEmptyCatchAnalyzer)。KindOf 不动(analyzer 无应用位) | 否 | ✅ 完成(1-3) |
-| PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Load`→`GetTypes`→过滤) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + 外部 analyzer fixture zpkg + golden。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | ⬜ |
+| PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Default().Load`→`GetTypes`→过滤 `GetInterface`) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + **编译器级 in-process 集成测试**(非提交二进制→免格式-bump 脆性，合 D9「构建工具 zpkg」定位)。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | 🟡 进行中 |
 | PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | ⬜ |
 | PR3c | `#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly) + `[Suppress]` attr(store-meta) | 否 | ⬜ |
 | PR4 | Generator/ModuleGenerator 复用 `[analyzers]` 类别加载(D9) + splice/merge（Add/Replace/Augment） | 否 | ⬜ |
@@ -18,6 +18,68 @@
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
 | 后续 | `[Native]`→`[Extern]` 改名 / `[Layout]`/`[Repr]`(E2) / `OnIrOp` perf lint / 用户 `macro` / 局部变量 attribute | 视需 | ⬜ Deferred |
+
+## PR3a-load · 外部编译期加载 + pipeline 接线（当前，🟡 进行中）
+
+**目标**：把「外部 analyzer zpkg 编译期加载并驱动」接通，让 PR3a 的 `AnalyzerDriver` 不再只吃内存
+实例，而是从消费方 `[analyzers]` 段声明的 zpkg 里**发现 + 实例化 + 执行** `: Analyzer` 类型。
+零 bump（handler zpkg 是普通 zpkg，"特殊"只在引用方式）。z42c 自建不声明 `[analyzers]` → **byte-identical**。
+
+### 关键设计点（勘察已定，写码直接用）
+
+- **两路加载组合（memory 勘察 + 本次源码复核确认）**：单靠一条路都不够——
+  - **Path-A 发现（reflect-only）**：`AssemblyLoadContext.Default().Load(zpkgPath)` → `Assembly.GetTypes()`
+    → 过滤 `t.GetInterface("Z42.Syntax.Analyzer") != null` 拿 FQN。`__lctx_load` 进 root context 的
+    `AssemblyEntry` 类型**可枚举**，但函数**不并入 live module → 不可调**（`context.rs:load_into`）。
+  - **Path-B 可调用**：`__load_module(zpkgPath)`（`load_module_into_vm` flat-merge）→ 函数/类型并入
+    live VM **可 `Type.GetType`+`Activator.CreateInstance`+虚调用**（但返回 TIDX、无类型枚举）。
+  - 两路对同一 zpkg 各跑一次：A 只为拿 FQN 清单，B 只为让实例可执行。范式 = z42b
+    [builder.z42:63-84](../../../../src/toolchain/builder/core/builder.z42)（Load→GetType→CreateInstance→as，已生产验证；那里 FQN 硬编码，这里靠 A 发现）。
+- **接口同一性**：analyzer 实现的 `Z42.Syntax.Analyzer` == 编译器进程里**已驻留**的同一接口（z42c 由
+  z42c.syntax 构成，运行时它已加载）→ `as Analyzer` cast + `AnalyzerDriver.Run` 直接可用，无需跨版本桥。
+- **`__load_module` 绑定归属**：它是 `Std.Test.ModuleLoader` 的 `[Native]`；z42c **不依赖 z42.test**，
+  故在 AnalyzerLoader 内**自绑** `[Native("__load_module")]` private extern（native 是 VM builtin，种子里在——无两-nightly 越界）。
+- **诊断合入**：`AnalyzerDriver.Run` 产 `DiagnosticBag` → 逐条格式化 append 进 `CompiledModuleZ.DiagMsgs`/
+  `DiagCount`；**仅 severity==Error 才 `ErrorCount++`**（analyzer 默认 Warning → 不 fail 编译）。
+- **gating**：`AnalyzerZpkgCount>0` 才加载/运行。z42c 自建无 `[analyzers]` → 该分支不进 → 逐字节不动。
+
+### 实施（按依赖顺序）
+
+- [x] 1. `[analyzers]` 段解析（`src/libraries/z42.project/`）：`ProjectManifest` 加 `Analyzers`(DepEntry[])
+      + `AnalyzerCount`（构造后填，同 `OptimizeNames`）；`ManifestLoader._parseAnalyzers(root,pm)` 复用
+      `_parseDeps(root,"analyzers")`。**单测**（`manifest_roundtrip.z42`）：`test_analyzers_section_parsed`
+      + `test_analyzers_section_absent_empty` ✅。
+- [x] 2. `AnalyzerLoader.z42`（新，z42c.semantics）：`Load(string[] zpkgPaths, int count) -> Analyzer[]`。
+      路径先按 Ordinal sort（common-pitfalls §1）；逐 zpkg 跑 Path-A（`ALC.Default().Load→GetTypes→过滤
+      GetInterface("Analyzer")`）+ Path-B（自绑 `[Native("__load_module")]` 使可调）+ 用 `Type.GetType(FullName)`
+      → `Activator.CreateInstance` → `as Analyzer` 实例化；growable 用 `_push`。
+- [x] 3. `PackageCompile` 接线：`CompileInputs` 加 `AnalyzerZpkgs`+`AnalyzerZpkgCount`（ctor 默认空）；
+      `Compile()` 在 `BuildPackageCus` 后、错误门前 gated 跑 `_runAnalyzers`（逐 `inp.Cus[i]` → `AnalyzerDriver.Run`
+      → `_mergeDiags` 合入 `cms[i]`，仅 Error 级 `ErrorCount++`）。
+- [x] 4. driver 接线（`z42c.driver/Main.z42`）：`pm.Analyzers` 名 → LibsDirs 找 `<name>.zpkg` → 填
+      `cin.AnalyzerZpkgs`（找不到 → E BuildError）。**z42b `Z42cCompiler` 未接线**（`CompileRequest` 无
+      analyzers 字段，MVP app-compile；共享 PackageCompile 核心 gated 跑，parity 是干净 follow-up）。
+- [x] 5. **编译器级 in-process 集成测试**（`pkgcompile_tests.z42`）：不提交二进制——测试内用 `PackageCompile`
+      把 fixture analyzer 源编成临时 zpkg（`Z42_LIBS` 供 z42c.syntax/core，TMPDIR 写盘）→ 编含空 catch 的
+      consumer（typeless `catch { }` 避 Error 依赖）`AnalyzerZpkgs` 指向它 → 断言 `cms` 含 Z9002。
+      `test_external_analyzer_loaded_and_reports` + `test_no_analyzers_no_extra_diags` ✅。
+- [x] 6. **轴② bootstrap-staging 破环**：扩 `_ensureBootstrapZ42Ir`（`scripts/build/xtask_compiler.z42`）把当前源
+      z42.project 也预建进 flat（早于 z42c self-build）——否则 z42c.driver 对着旧 z42.project 编 → E0401。
+      **改 scripts → 重建 xtask.zpkg**。
+- [x] 7. GREEN：`xtask test` **全绿（REAL_EXIT=0）**；self-host gen1==gen2 **5/5 逐字节**（z42c 自建无
+      `[analyzers]` → byte-identical 保）；e2e 250/0 + cross-zpkg 11/0 + stdlib 全绿 + golden regen 261/0
+      + vscode-syntax ✅。
+- [x] 8. 文档同步：z42.project README（ManifestLoader `[analyzers]` + ProjectManifest.Analyzers 行 + DepEntry
+      段）+ z42c.semantics README（AnalyzerDriver + AnalyzerLoader 行）+ `docs/design/language/attributes.md`
+      头注（编译期 handler / 外部 analyzer 加载随 PR3a-load 落地，design.md 为 SoT）。
+
+### 实施实测确认（原「待验证」，已解）
+
+- ✅ ALC.Default().Load + __load_module 对同一 zpkg 双注册无冲突（两独立 registry；集成测试证实）。
+- ✅ 测试内把 analyzer 源编成 zpkg 写盘（`ZpkgWriterZ.WritePacked().ToBytes()` + `TMPDIR`）在 z42c 测试环境可用。
+- ⚠️ **轴② 教训**：z42c.driver 编译期新用 z42.project 字段 → 必须把 z42.project 加进 `_ensureBootstrapZ42Ir`
+  预建集（与 z42.core/z42.ir 同款）；否则 self-build E0401。`build stdlib`/`build compiler` 单独跑的 exit
+  经 pipe 到 grep 会假 0——必须直接捕获 xtask 的 `$?`。
 
 ## PR2 · 后缀约定 D8（已完成，破坏性非 byte-identical）
 

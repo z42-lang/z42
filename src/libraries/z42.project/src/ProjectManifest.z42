@@ -31,6 +31,11 @@ public sealed class ProjectManifest {
     // 的 Opt 位（Opt.ByName）建 tomlBits/tomlMask 交 Opt.Resolve。z42.project **不**耦合 Opt 位值。
     // 可变公字段（默认空，ManifestLoader 构造后填），避免撑大已 20 参的构造函数。
     public string[] OptimizeNames; public bool[] OptimizeValues; public int OptimizeCount;
+    // ── [analyzers] 编译期 handler zpkg 引用（attribute-handler-registry D9）─────
+    // 独立引用段：声明「加载进编译器、编译期运行、不链入目标程序」的 analyzer/generator zpkg
+    // （与 [dependencies] 物理分开）。中性 DepEntry（name+version）；消费方（z42c）按名在 LibsDirs
+    // 解析到 `<name>.zpkg`、加载其 `: Analyzer` 类型执行。可变公字段（默认空，ManifestLoader 构造后填）。
+    public DepEntry[] Analyzers; public int AnalyzerCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -52,5 +57,6 @@ public sealed class ProjectManifest {
         this.Benches = benches; this.BenchCount = benchCount;
         this.Examples = examples; this.ExampleCount = exampleCount;
         this.OptimizeNames = new string[0]; this.OptimizeValues = new bool[0]; this.OptimizeCount = 0;
+        this.Analyzers = new DepEntry[0]; this.AnalyzerCount = 0;
     }
 }
