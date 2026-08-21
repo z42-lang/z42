@@ -98,7 +98,7 @@ public static class PackageCompile {
             int auc = 0;
             int ui = 0;
             while (ui < inp.SrcCount) {
-                string[] us = IrDump.ExtractUsings(inp.Texts[ui], inp.Files[ui]);
+                string[] us = IrDump.UsingsOf(inp.Cus[ui]);   // F1：已 parse 的 CU 在手，免每文件全 reparse
                 int j = 0;
                 while (j < us.Length) {
                     bool seen = false;
