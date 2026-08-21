@@ -10,8 +10,8 @@
 | PR1b | HandlerRegistry IR-phase：TestIndexBuilder+StubEmitter 名字识别收敛 + KindOf 细化三路（`[Native]` 不改，byte-identical） | 否 | ✅ 完成 |
 | PR2 | 后缀约定（D8）：resolution 展开（`[X]`→`XAttribute`）+ 强制校验 E0444 + test 家族全归 handler + 迁移 fixtures + 反转 `Attribute.z42`/`basic.z42`/`attributes.md` 头注 | 否 | ✅ 完成 |
 | PR3a | Analyzer **框架**：`Analyzer`(visitor 模型 ObservedKinds+OnSyntaxNode，**无 delegate**——z42c 规避+命名 delegate 跨包丢 FQ 名 [[z42c-no-cross-pkg-delegates]])/`DiagRule`/`AnalyzerSeverity`/`DiagSink`/`SyntaxKind`(z42c.syntax，非 stdlib——契约暴露 AST) + AnalyzerDriver(AST 遍历分派+诊断映射进 DiagnosticBag) + `*Analyzer` 后缀强制(E0445) + 驱动单测(NoEmptyCatchAnalyzer)。KindOf 不动(analyzer 无应用位) | 否 | ✅ 完成(1-3) |
-| PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Default().Load`→`GetTypes`→过滤 `GetInterface`) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + **编译器级 in-process 集成测试**(非提交二进制→免格式-bump 脆性，合 D9「构建工具 zpkg」定位)。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | 🟡 进行中 |
-| PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | ⬜ |
+| PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Default().Load`→`GetTypes`→过滤 `GetInterface`) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + **编译器级 in-process 集成测试**(非提交二进制→免格式-bump 脆性，合 D9「构建工具 zpkg」定位)。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | ✅ 完成(#235) |
+| PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | 🟡 进行中 |
 | PR3c | `#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly) + `[Suppress]` attr(store-meta) | 否 | ⬜ |
 | PR4 | Generator/ModuleGenerator 复用 `[analyzers]` 类别加载(D9) + splice/merge（Add/Replace/Augment） | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
@@ -80,6 +80,42 @@
 - ⚠️ **轴② 教训**：z42c.driver 编译期新用 z42.project 字段 → 必须把 z42.project 加进 `_ensureBootstrapZ42Ir`
   预建集（与 z42.core/z42.ir 同款）；否则 self-build E0401。`build stdlib`/`build compiler` 单独跑的 exit
   经 pipe 到 grep 会假 0——必须直接捕获 xtask 的 `$?`。
+
+## PR3b · [lints] config + severity 决策（当前，🟡 进行中）
+
+**目标**：让 analyzer 报的诊断走 severity 决策链——不再一律用规则默认级。`[lints]` 段做逐规则覆盖
+（`Z9002="error"` / `"pkg.*"="none"`）+ `warnings-as-errors`；结合规则 `EnabledByDefault` 门决定是否报
+及最终级别。零 bump；z42c 自建无 `[lints]` → LintCount==0 && !WAE → 空配置 → **逐字节不动**。
+
+### 决策链（LintConfig.Resolve，对齐 Roslyn editorconfig）
+
+1. `[lints]` 覆盖：**精确 rule Id 优先**于 `pkg.*` 前缀通配；`"none"` → 抑制（不报）。
+2. 无覆盖时 `EnabledByDefault` 定基线：默认禁用 + 无覆盖 → 抑制；否则用 `DefaultSeverity`。
+3. `warnings-as-errors` → 最终为 Warning 的规则升 Error（Info/Hidden 不动）。
+4. 抑制（禁用 / "none"）→ `DiagSinkImpl.Report` 整条丢弃、不进 bag。
+
+### 实施
+
+- [x] 1. `[lints]` 段解析（`src/libraries/z42.project/`）：`ProjectManifest` 加 `LintNames`/`LintSeverities`/
+      `LintCount`/`LintWarningsAsErrors`（构造后填，同 `OptimizeNames`）；`ManifestLoader._parseLints` 把
+      `warnings-as-errors`（bool）从逐规则 severity 串（复用 `Keys()`/`AsString()`）拎出。**单测** 3 个
+      （`manifest_roundtrip.z42`：parsed / absent-empty / wae-only）。
+- [x] 2. `LintConfig.z42`（新，z42c.semantics）：`Resolve(DiagRule)→int`（-1=抑制）——精确+通配查覆盖、
+      severity 串解析、EnabledByDefault 门、WAE 升级。`Empty()` = 无覆盖无 WAE（null cfg 默认）。
+- [x] 3. `AnalyzerDriver`：`DiagSinkImpl` 持 `LintConfig`，`Report` 先 `Resolve`、抑制则不入 bag；`Run`
+      加 `LintConfig cfg` 参（null→Empty）。**analyzer_tests.z42** 加 6 个决策单测（override-to-error /
+      none-suppresses / WAE / wildcard / disabled-by-default 不报 / [lints] 显式打开默认禁用规则）。
+- [x] 4. `PackageCompile`：`CompileInputs` 加 `LintConfig Lints`（默认 null）；`_runAnalyzers` 传给 `Run`。
+      **pkgcompile_tests.z42** 加 2 个端到端（`Lints` none 抑制 / WAE 令 ErrorCount>0 拦编译）。
+- [x] 5. driver 接线（`Main.z42`）：`pm.LintCount>0 || pm.LintWarningsAsErrors` → 构造 `LintConfig` 填
+      `cin.Lints`。z42b `Z42cCompiler` 未接线（同 PR3a-load，MVP；干净 follow-up）。
+- [x] 6. **轴② bootstrap-staging 已被 PR3a-load 覆盖**：z42.project 已在 `_ensureBootstrapZ42Ir` 预建集
+      → 新字段随当前源预建进 flat，z42c self-build 见新字段，无 E0401。**无新 staging 工作**；改 scripts
+      未触 → 无需重建（但改了 z42.project/z42c 源 → 常规重建 xtask.zpkg 供种）。
+- [ ] 7. GREEN：`xtask test` 全绿（REAL_EXIT=0）；self-host gen1==gen2 **5/5 逐字节**（z42c 自建无 `[lints]`
+      → byte-identical 保）；manifest/analyzer/pkgcompile 单测全过。
+- [ ] 8. 文档同步：z42.project README（`[lints]` 行 + ManifestLoader 段）+ z42c.semantics README（LintConfig
+      + AnalyzerDriver Run 签名）+ design.md 头注（PR3b 落地）。
 
 ## PR2 · 后缀约定 D8（已完成，破坏性非 byte-identical）
 

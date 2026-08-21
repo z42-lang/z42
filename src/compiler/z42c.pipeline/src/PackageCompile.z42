@@ -48,9 +48,14 @@ public sealed class CompileInputs {
     // 按名在 LibsDirs 解析到 `<name>.zpkg`）。非空 → 编译期加载并驱动，诊断合入 per-file Cms；
     // 空（z42c 自建）→ 分支不进 → 逐字节不动。D9：加载进编译器、不链入目标程序。
     public string[] AnalyzerZpkgs; public int AnalyzerZpkgCount;
+    // attribute-handler-registry PR3b：[lints] 决策器（由 driver 从 manifest 中性字段构造）。null →
+    // AnalyzerDriver 用 LintConfig.Empty()（仅 EnabledByDefault + DefaultSeverity，无覆盖/无 WAE）。
+    // 仅在 AnalyzerZpkgCount>0 时相关；z42c 自建无 analyzer → 不参与 → 逐字节不动。
+    public LintConfig Lints;
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
+        this.Lints = null;
     }
 }
 
@@ -202,7 +207,7 @@ public static class PackageCompile {
             CompilationUnit cu = inp.Cus[i];
             if (cu != null) {
                 DiagnosticBag bag = new DiagnosticBag();
-                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag);
+                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints);
                 if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
             }
             i = i + 1;

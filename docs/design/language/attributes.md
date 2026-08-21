@@ -3,7 +3,9 @@
 > 状态：class-level（C3a）+ method-level（C3b）均已落地（2026-06-09）。**D8 后缀约定**（类名强制
 > `*Attribute`、应用剥后缀、`E0444`）2026-08-20 落地（attribute-handler-registry PR2）。**编译期 handler**
 > 体系（`Analyzer` 契约 + `AnalyzerDriver` + 外部 analyzer zpkg 加载：z42.toml `[analyzers]` 段声明、
-> 编译期加载运行、不链入目标程序——D9）随 PR3a / PR3a-load 落地；本页只讲 **store-meta attribute**（`[X]`
+> 编译期加载运行、不链入目标程序——D9）随 PR3a / PR3a-load 落地；诊断 severity 开关（z42.toml `[lints]`
+> 段：逐规则覆盖 + `pkg.*` 通配 + `warnings-as-errors`，结合规则 `EnabledByDefault`）随 PR3b 落地。
+> 本页只讲 **store-meta attribute**（`[X]`
 > 反射元数据），handler 全貌见下方 design 链接。
 > 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
 > [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。

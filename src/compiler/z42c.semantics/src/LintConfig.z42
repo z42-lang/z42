@@ -1,0 +1,75 @@
+// attribute-handler-registry PR3b —— [lints] 编译期解析结果 + 每规则 severity 决策。
+//
+// z42.project 只搬运中性 key/severity 串对（`[lints]` 段，不认识规则语义）；本类型在**编译器侧**把它
+// 解释成每条 DiagRule 的最终 severity。对齐 Roslyn `.editorconfig` 的 severity 决策链：
+//   1. [lints] 显式覆盖（精确 rule Id 优先于 `pkg.*` 前缀通配）；`"none"` → 抑制。
+//   2. 无覆盖时，规则的 `EnabledByDefault` 决定基线（默认禁用 + 无覆盖 → 抑制；否则用 DefaultSeverity）。
+//   3. `warnings-as-errors = true` → 最终为 Warning 的规则升级为 Error（Info/Hidden 不动）。
+//
+// 契约类型（DiagRule / AnalyzerSeverity）在 z42c.syntax；本决策器与 AnalyzerDriver 同处 z42c.semantics
+// （编译器侧驱动）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §诊断/severity/开关。
+namespace Z42.Semantics;
+
+using Z42.Syntax;   // AnalyzerSeverity / DiagRule
+
+public sealed class LintConfig {
+    // _lookup / _parseSevToken 的哨兵（severity 合法值为 0..3，哨兵取负避免碰撞）。
+    public static int NoOverride = -2;   // 无匹配覆盖 / 未知 severity 串 → 回落默认
+    public static int Suppress   = -1;   // 显式 "none" 或规则禁用 → 不报
+
+    // 覆盖项：精确 rule Id（"Z9002"）或前缀通配（"webgen.*"）→ severity 串。顺序 = manifest 声明序。
+    public string[] Keys; public string[] Sevs; public int Count;
+    public bool WarningsAsErrors;
+
+    public LintConfig(string[] keys, string[] sevs, int count, bool warningsAsErrors) {
+        this.Keys = keys; this.Sevs = sevs; this.Count = count; this.WarningsAsErrors = warningsAsErrors;
+    }
+
+    // 空配置：无覆盖、无 WAE（等价于「无 [lints] 段」）。null cfg 的默认。
+    public static LintConfig Empty() { return new LintConfig(new string[0], new string[0], 0, false); }
+
+    // 决策一条规则的最终 AnalyzerSeverity（0..3）；返回 LintConfig.Suppress(-1) = 抑制（不报）。
+    public int Resolve(DiagRule rule) {
+        int ov = this._lookup(rule.Id);
+        int sev;
+        if (ov == LintConfig.Suppress) { return LintConfig.Suppress; }   // 显式 "none" → 抑制
+        if (ov == LintConfig.NoOverride) {
+            if (!rule.EnabledByDefault) { return LintConfig.Suppress; }   // 默认禁用 + 无覆盖 → 抑制
+            sev = rule.DefaultSeverity;
+        } else {
+            sev = ov;                                                     // 显式 severity（含把默认禁用规则打开）
+        }
+        if (this.WarningsAsErrors && sev == AnalyzerSeverity.Warning) { return AnalyzerSeverity.Error; }
+        return sev;
+    }
+
+    // 查覆盖：精确 Id 优先，其次 `pkg.*` 前缀通配。返回 severity(0..3) / Suppress(-1，"none") /
+    // NoOverride(-2，无匹配或未知 severity 串)。
+    private int _lookup(string id) {
+        int i = 0;                                              // pass 1：精确匹配
+        while (i < this.Count) {
+            if (this.Keys[i] == id) { return LintConfig._parseSevToken(this.Sevs[i]); }
+            i = i + 1;
+        }
+        i = 0;                                                  // pass 2：尾部 `*` 前缀通配（`webgen.*` / `Z9*`）
+        while (i < this.Count) {
+            string k = this.Keys[i];
+            if (k.EndsWith("*")) {
+                string prefix = k.Substring(0, k.Length - 1);   // 去尾 `*`（"webgen.*"→"webgen." / "Z9*"→"Z9"）
+                if (id.StartsWith(prefix)) { return LintConfig._parseSevToken(this.Sevs[i]); }
+            }
+            i = i + 1;
+        }
+        return LintConfig.NoOverride;
+    }
+
+    // severity 串 → AnalyzerSeverity（"none"→Suppress；未知→NoOverride，宽松回落默认）。
+    private static int _parseSevToken(string s) {
+        if (s == "none")    { return LintConfig.Suppress; }
+        if (s == "hidden")  { return AnalyzerSeverity.Hidden; }
+        if (s == "info")    { return AnalyzerSeverity.Info; }
+        if (s == "warning") { return AnalyzerSeverity.Warning; }
+        if (s == "error")   { return AnalyzerSeverity.Error; }
+        return LintConfig.NoOverride;
+    }
+}

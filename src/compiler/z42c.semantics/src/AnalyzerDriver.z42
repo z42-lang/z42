@@ -15,14 +15,18 @@ namespace Z42.Semantics;
 using Z42.Core;     // Diagnostic / DiagnosticBag / DiagnosticSeverity / Span
 using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST
 
-// DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 映射：PR3a 用规则默认级
-// （[lints] 覆盖 / warnings-as-errors 留 PR3b）；Hidden 暂并入 Info（--fix 消费留后续）。
+// DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 决策经 LintConfig（PR3b）：
+// EnabledByDefault + [lints] 覆盖 + 通配 + warnings-as-errors → 最终级别；抑制（规则禁用 / "none"）
+// 则整条丢弃、不进 bag。Hidden 暂并入 Info（--fix 消费留后续）。
 public sealed class DiagSinkImpl : DiagSink {
     public DiagnosticBag Bag;
-    public DiagSinkImpl(DiagnosticBag bag) { this.Bag = bag; }
+    public LintConfig Cfg;
+    public DiagSinkImpl(DiagnosticBag bag, LintConfig cfg) { this.Bag = bag; this.Cfg = cfg; }
 
     public void Report(DiagRule rule, Span at) {
-        int sev = AnalyzerDriver._mapSeverity(rule.DefaultSeverity);
+        int eff = this.Cfg.Resolve(rule);
+        if (eff < 0) { return; }   // 抑制（规则禁用 / [lints] "none"）→ 不报
+        int sev = AnalyzerDriver._mapSeverity(eff);
         this.Bag.Add(new Diagnostic(sev, rule.Id, rule.MessageFormat, at));
     }
 }
@@ -30,8 +34,11 @@ public sealed class DiagSinkImpl : DiagSink {
 public static class AnalyzerDriver {
     // 对一组 analyzer 跑一遍：逐个遍历 CU、对命中 ObservedKinds 的节点调 OnSyntaxNode。诊断汇入同一
     // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，common-pitfalls §1）。
-    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag) {
-        DiagSinkImpl sink = new DiagSinkImpl(bag);
+    // cfg = [lints] 决策器（severity 覆盖 + EnabledByDefault 门 + WAE）；null → LintConfig.Empty()
+    // （无覆盖、无 WAE，仅按规则 EnabledByDefault + DefaultSeverity）。
+    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
+        if (cfg == null) { cfg = LintConfig.Empty(); }
+        DiagSinkImpl sink = new DiagSinkImpl(bag, cfg);
         int i = 0;
         while (i < analyzerCount) {
             Analyzer a = analyzers[i];
