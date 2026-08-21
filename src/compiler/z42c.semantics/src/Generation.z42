@@ -71,3 +71,68 @@ public interface Generator {
     string AppliedName();
     void Generate(GenTarget t, GenSink sink);
 }
+
+// ── ModuleGenerator + GenContext（attribute-handler-registry PR4c）─────────────────────────────
+//
+// module generator 不贴在任何声明上——注册（依赖）即**跑一次、扫全编译**、聚合成表（路由表 / DI 容器 /
+// serde 注册等）。区别于 applied generator（`[X]` 贴处触发、`GenTarget` 只见被贴那一个声明），module
+// generator 通过 `GenContext` **强类型查询**整个编译单元集里贴了某 attribute 的所有类型 / 方法，只经
+// `GenSink.AddSource` 追加聚合源码（不 Replace/Augment 具体声明——它没有单一 owner 站点，越界即护栏 E0448）。
+//
+// **强类型查询靠泛型方法（依赖 #240 add-generic-methods）**：`ctx.TypesWith<RouteAttribute>()` 内部经
+// `typeof(T)` 取 attribute 类型名（`"RouteAttribute"`）、剥 `Attribute` 后缀（D8）得应用名（`"Route"`），
+// 再扫 AST 找贴了 `[Route]` 的类型/方法。代码里写全名（`RouteAttribute`）、编译期检查（非字符串），
+// 这是 module generator 相对 applied 的核心增益（design §Generator 示例 module）。
+//
+// **GenContext 是接口**（driver 侧 GenContextImpl 实现，见 GeneratorDriver.z42）：泛型查询方法 `TypesWith<T>`
+// / `MethodsWith<T>` 经接口虚派发——实测 z42 自举 VM 支持接口/实例泛型方法派发（method_type_args 随 frame
+// 穿透，#240 M1；与 PR4a `x as Object` 反射返 Null 的约束**不同**，那是 checked-cast 路径）。故此处遵从
+// design 原稿把 GenContext 定为接口（Roslyn 模型；外部 module generator PR4d 只依赖契约）。
+
+// module generator 的查询命中结果——贴了 `[T]` 的一个类型。
+//   · Name    —— 类型简单名（生成代码拼名字用）。
+//   · Symbol  —— 解析后的 Z42ClassType（可 null——provisional bind 未含时；读字段/方法结构）。
+//   · Match   —— 命中的 `[T]` attr（读注解参数 Match.Args / Match.ArgCount）。
+//   · DeclId  —— 该类型声明地址（与 applied GenTarget.DeclId 同址法：`"cls$"+Name`）。
+public sealed class GenType {
+    public string Name;
+    public Z42ClassType Symbol;
+    public Attr Match;
+    public DeclId DeclId;
+    public GenType(string name, Z42ClassType symbol, Attr match, DeclId declId) {
+        this.Name = name; this.Symbol = symbol; this.Match = match; this.DeclId = declId;
+    }
+}
+
+// module generator 的查询命中结果——贴了 `[T]` 的一个方法。
+//   · Name      —— 方法简单名。
+//   · OwnerName —— 所属类型名（""=顶层自由函数）。
+//   · FullName  —— `OwnerName + "." + Name`（顶层=Name）——生成代码里引用方法用。
+//   · Match     —— 命中的 `[T]` attr（读注解参数）。
+public sealed class GenMethod {
+    public string Name;
+    public string OwnerName;
+    public string FullName;
+    public Attr Match;
+    public GenMethod(string name, string ownerName, string fullName, Attr match) {
+        this.Name = name; this.OwnerName = ownerName; this.FullName = fullName; this.Match = match;
+    }
+}
+
+// module generator 扫全编译的强类型查询面（driver 侧 GenContextImpl 实现）。
+//   · TypesWith<T>()   —— 贴了 `[T]`（T=attribute 类）的所有类型，稳定序（文件序 + 声明序）。
+//   · MethodsWith<T>() —— 贴了 `[T]` 的所有方法（含类内方法 + 顶层函数），稳定序。
+//   · Resolve(fqn)     —— 按名解析类型符号（null=未找到）。
+public interface GenContext {
+    GenType[]   TypesWith<T>();
+    GenMethod[] MethodsWith<T>();
+    Z42ClassType Resolve(string fqn);
+}
+
+// module generator 契约。实现接口即声明 kind（无 marker，靠接口发现，D6）；类名须以 `Generator` 结尾
+// （D8，E0447，与 applied Generator 共用同一后缀强制）。**不贴任何声明**——注册即跑一次、扫全编译。
+//   · Generate() —— driver 每个 module generator 跑一次；读 GenContext 强类型查询、经 GenSink.AddSource
+//     追加聚合源码（Replace/Augment 越界 → E0448）。
+public interface ModuleGenerator {
+    void Generate(GenContext ctx, GenSink sink);
+}

@@ -56,11 +56,16 @@ public sealed class CompileInputs {
     // PR4d，届时 driver 从 [generators] 段加载填此）。非空 → provisional bind 后跑 GeneratorDriver（splice/
     // merge → union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public Generator[] Generators; public int GeneratorCount;
+    // attribute-handler-registry PR4c：已实例化的 module generator（本 PR 由测试注入；外部 zpkg 加载留
+    // PR4d）。非空 → provisional bind 后（applied 之后）跑 GeneratorDriver.RunModules（扫全编译 + 强类型
+    // 查询 → AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
+    public ModuleGenerator[] ModuleGenerators; public int ModuleGeneratorCount;
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
         this.Lints = null;
         this.Generators = new Generator[0]; this.GeneratorCount = 0;
+        this.ModuleGenerators = new ModuleGenerator[0]; this.ModuleGeneratorCount = 0;
     }
 }
 
@@ -135,12 +140,22 @@ public static class PackageCompile {
         string[] texts = inp.Texts;
         int srcCount = inp.SrcCount;
         IrModule[] cachedMods = inp.CachedMods;
+        // PR4c：module generator（不贴任何处、扫全编译 + 强类型查询 → AddSource）接在 applied 之后同一
+        // gated 块——共用 provisional bind；applied 可能改写 CU（Augment/Replace/AddSource），module 扫
+        // 其产出的 union AST。任一路径有产出 → union 全 fresh 重编。
         DiagnosticBag genDiags = new DiagnosticBag();
-        if (inp.GeneratorCount > 0) {
+        if (inp.GeneratorCount > 0 || inp.ModuleGeneratorCount > 0) {
             SymbolTable prov = new SymbolCollector().CollectAll(cus, files, srcCount, imported);   // #1 provisional bind
-            GenOutcome go = GeneratorDriver.Run(inp.Generators, inp.GeneratorCount, cus, files, srcCount, prov, genDiags);
-            if (go.HasOutput) {
-                cus = go.Cus; files = go.Files; srcCount = go.CuCount;
+            bool changed = false;
+            if (inp.GeneratorCount > 0) {
+                GenOutcome go = GeneratorDriver.Run(inp.Generators, inp.GeneratorCount, cus, files, srcCount, prov, genDiags);
+                if (go.HasOutput) { cus = go.Cus; files = go.Files; srcCount = go.CuCount; changed = true; }
+            }
+            if (inp.ModuleGeneratorCount > 0) {
+                GenOutcome mo = GeneratorDriver.RunModules(inp.ModuleGenerators, inp.ModuleGeneratorCount, cus, files, srcCount, prov, genDiags);
+                if (mo.HasOutput) { cus = mo.Cus; files = mo.Files; srcCount = mo.CuCount; changed = true; }
+            }
+            if (changed) {
                 texts = new string[srcCount];   // 生成 CU 无源文本；fresh 路径不读 texts（仅 cached 读）→ 占位即可
                 int ti = 0; while (ti < srcCount) { texts[ti] = ti < inp.SrcCount ? inp.Texts[ti] : ""; ti = ti + 1; }
                 cachedMods = null;   // union 全 fresh

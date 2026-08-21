@@ -8,8 +8,10 @@
 > **局部抑制**（`#suppress`/`#restore` 源码指令 + `[Suppress]` directive，纯编译期不写 zpkg）随 PR3c 落地
 > （见下「局部抑制诊断」）。**applied generator 引擎**（`Generator` 契约 `AppliedName()`+`Generate`、类名强制
 > `*Generator`/`E0447`、编译期 splice/merge——`AddSource`/`Replace`/`Augment`（`Augment` 脱糖 synthetic
-> partial 免用户写 partial），post-bind double-bind 重编，参考 Roslyn source generator）随 PR4a 落地（外部
-> zpkg 加载 / module generator / 有界多轮见后续 PR4c-e）。本页主讲 **store-meta attribute**（`[X]`
+> partial 免用户写 partial），post-bind double-bind 重编，参考 Roslyn source generator）随 PR4a 落地。
+> **module generator**（`ModuleGenerator` 契约、不贴任何处、扫全编译 + `GenContext.TypesWith<T>()`/
+> `MethodsWith<T>()` 强类型查询——靠泛型方法 #240、只 `AddSource` 聚合成表）随 PR4c 落地（外部 zpkg
+> 加载 / 有界多轮见后续 PR4d-e）。本页主讲 **store-meta attribute**（`[X]`
 > 反射元数据），handler 全貌见下方 design 链接。
 > 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
 > [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。

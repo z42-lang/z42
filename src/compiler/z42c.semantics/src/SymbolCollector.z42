@@ -457,17 +457,19 @@ public sealed class SymbolCollector {
         }
     }
 
-    // attribute-handler-registry PR4a（D8 后缀约定，generator 侧）：任何直接实现 `Generator` 接口的用户类，
-    // 其类名**必须**以 `Generator` 结尾（`DeriveGenerator` 等）——generator 靠接口发现、类名剥后缀即触发注解
-    // 名（`[Derive]`），后缀是 kind 信号（design D8）。违规 → E0447。与 E0444/E0445 同为纯语法检查（看直接
-    // 基/接口名，不依赖可解析）；同 3 挂载点。
+    // attribute-handler-registry PR4a（D8 后缀约定，generator 侧）：任何直接实现 `Generator`（applied，PR4a）
+    // 或 `ModuleGenerator`（module，PR4c）接口的用户类，其类名**必须**以 `Generator` 结尾（`DeriveGenerator` /
+    // `RouteTableGenerator` 等）——applied generator 靠接口发现、类名剥后缀即触发注解名（`[Derive]`），module
+    // generator 无触发名但共用同一 kind 信号后缀（design D8）。违规 → E0447。与 E0444/E0445 同为纯语法检查
+    // （看直接基/接口名，不依赖可解析）；同 3 挂载点。
     private void _passGeneratorSuffixEnforce(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (this._baseHasSimpleName(c, "Generator") && !c.Name.EndsWith("Generator")) {
+                bool isGen = this._baseHasSimpleName(c, "Generator") || this._baseHasSimpleName(c, "ModuleGenerator");
+                if (isGen && !c.Name.EndsWith("Generator")) {
                     this.Diags.Error(DiagnosticCodes.GeneratorSuffixRequired,
                         "generator class `" + c.Name + "` must end with `Generator` suffix (rename to `" + c.Name + "Generator`)", c.Span);
                 }
