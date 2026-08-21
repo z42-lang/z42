@@ -2431,6 +2431,7 @@ fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Option<std::pa
         libs_dir: libs,
         program_args: Vec::new(),
         print_stats: false,
+        stats_json: false,
     };
     let res = crate::app::run(path, entry, opts);
     let captured = crate::corelib::io::take_stdout_sink();

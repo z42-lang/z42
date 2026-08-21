@@ -168,6 +168,19 @@ SubcommandRouter _cliRoot() {
     root.AddRouter("deps", "toolchain deps", _depsRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
+    // plan-script-profiling P0: profile one .z42 script across four dimensions
+    // (native CPU/heap via samply/dhat + hyperfine wall-clock + peak-RSS +
+    // counter摘要). No dimension flag = all four → report.md. See xtask_profile.z42.
+    ArgParser profile = new ArgParser("xtask profile", "profile a .z42 script (cpu/heap/threads/e2e)");
+    profile.AddPositional("script", "<script.z42> to profile");
+    profile.AddFlag("cpu", "", "native CPU flamegraph via samply");
+    profile.AddFlag("heap", "", "heap profile via dhat (builds a throwaway dhat-heap VM)");
+    profile.AddFlag("threads", "", "concurrency counters + per-thread timeline hint");
+    profile.AddFlag("e2e", "", "wall-clock (hyperfine) + peak-RSS + counters");
+    profile.AddFlag("all", "", "run all four dimensions → report.md");
+    profile.AddOption("mode", "", "interp|jit (measured mode; default jit)", "jit");
+    root.Add("profile", "profile a .z42 script (cpu/heap/threads/e2e; no flag = all)", profile);
+
     // add-tests-bench-manifest-config P3: `example [name]` — compile + run
     // manifest [[example]] targets (compile-gate always; run test=true / <name>).
     ArgParser example = new ArgParser("xtask example", "compile + run example targets (exit-code judged)");
@@ -445,6 +458,7 @@ int _dispatch(CommandResolution res) {
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
+    if (top == "profile")        { return _profile(r); }
     if (top == "example")        { return _testExample(r.GetPositional(0)); }
     if (top == "clean")          { return _clean(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.

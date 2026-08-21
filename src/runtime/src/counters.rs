@@ -106,6 +106,33 @@ pub struct Snapshot {
     pub exceptions_caught:    u64,
 }
 
+impl Snapshot {
+    /// Render this snapshot as a single-line JSON object for machine consumption
+    /// (`--print-stats-on-exit --stats-format=json`; `xtask profile` scrapes it).
+    /// Hand-rolled (no serde) — a flat map of the same u64 fields `Display` lists;
+    /// the `z42vm_counters` sentinel key lets scrapers disambiguate it from any
+    /// `{`-leading program stderr on the same stream.
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\"z42vm_counters\":1,\
+\"builtin_calls\":{},\
+\"native_calls\":{},\
+\"jit_methods_compiled\":{},\
+\"jit_compile_us_total\":{},\
+\"jit_native_from_interp\":{},\
+\"exceptions_thrown\":{},\
+\"exceptions_caught\":{}}}",
+            self.builtin_calls,
+            self.native_calls,
+            self.jit_methods_compiled,
+            self.jit_compile_us_total,
+            self.jit_native_from_interp,
+            self.exceptions_thrown,
+            self.exceptions_caught,
+        )
+    }
+}
+
 impl std::fmt::Display for Snapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "--- z42vm runtime counters ---")?;
@@ -181,6 +208,33 @@ mod tests {
             "exceptions_caught:    3",
         ] {
             assert!(out.contains(needle), "Snapshot display missing `{needle}`; got:\n{out}");
+        }
+    }
+
+    #[test]
+    fn to_json_is_single_line_with_all_fields() {
+        let s = Snapshot {
+            builtin_calls:        100,
+            native_calls:         50,
+            jit_methods_compiled: 10,
+            jit_compile_us_total: 12345,
+            jit_native_from_interp: 42,
+            exceptions_thrown:    5,
+            exceptions_caught:    3,
+        };
+        let j = s.to_json();
+        assert!(!j.contains('\n'), "JSON stats must be single-line; got:\n{j}");
+        assert!(j.starts_with("{\"z42vm_counters\":1,"), "missing sentinel key; got:\n{j}");
+        for needle in [
+            "\"builtin_calls\":100",
+            "\"native_calls\":50",
+            "\"jit_methods_compiled\":10",
+            "\"jit_compile_us_total\":12345",
+            "\"jit_native_from_interp\":42",
+            "\"exceptions_thrown\":5",
+            "\"exceptions_caught\":3",
+        ] {
+            assert!(j.contains(needle), "JSON stats missing `{needle}`; got:\n{j}");
         }
     }
 

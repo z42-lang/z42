@@ -7,9 +7,18 @@ use std::path::PathBuf;
 // compile ~40% and alloc-heavy (string-building) workloads ~3×. Gated on the
 // default-on `mimalloc-alloc` feature so wasm/mobile presets (built
 // `--no-default-features`) fall back to the system allocator.
-#[cfg(feature = "mimalloc-alloc")]
+//
+// `dhat-heap` (script-profiling P0, `xtask profile --heap`) replaces the global
+// allocator with dhat's heap-profiling shim, so it is mutually exclusive with
+// mimalloc — a build carries at most one `#[global_allocator]`. Only ever built
+// on demand into a throwaway target-dir by `xtask profile`; never shipped.
+#[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[derive(Parser)]
 #[command(name = "z42vm", about = "z42 Virtual Machine", version)]
@@ -49,6 +58,13 @@ struct Cli {
     #[arg(long)]
     print_stats_on_exit: bool,
 
+    /// Output format for `--print-stats-on-exit` (script-profiling P0):
+    /// `text` (default, human block) or `json` (one-line object that
+    /// `xtask profile` scrapes off stderr). No effect without
+    /// `--print-stats-on-exit`.
+    #[arg(long, value_enum, default_value = "text")]
+    stats_format: StatsFormat,
+
     /// add-z42-launcher (2026-06-02): arguments forwarded to the running z42
     /// program. Everything after a literal `--` separator is collected here
     /// and exposed to z42 code via `Std.IO.Environment.GetCommandLineArgs()`
@@ -64,6 +80,14 @@ struct Cli {
 // 2026-05-07 add-runtime-feature-flags (P4.1): variants are feature-gated so
 // `--help` only advertises modes the binary can actually run, and clap rejects
 // unsupported `--mode jit` requests with a friendly enum-list error.
+/// `--stats-format` selector (script-profiling P0). `Text` is the historical
+/// human block; `Json` is a single-line object for tooling.
+#[derive(Clone, PartialEq, Eq, ValueEnum)]
+enum StatsFormat {
+    Text,
+    Json,
+}
+
 #[derive(Clone, ValueEnum)]
 enum ExecMode {
     Interp,
@@ -419,6 +443,12 @@ fn resolve_config_mode(mode: Option<&str>) -> Option<z42::metadata::ExecMode> {
 }
 
 fn main() -> Result<()> {
+    // Heap profiling (script-profiling P0, `xtask profile --heap`): the dhat
+    // profiler must outlive the whole run — held here so it flushes `dhat-heap.json`
+    // (in cwd) when it drops at main() exit. Only present in the `dhat-heap` build.
+    #[cfg(feature = "dhat-heap")]
+    let _dhat_profiler = dhat::Profiler::new_heap();
+
     let cli = Cli::parse();
 
     // Centralized runtime config — single source of truth for Z42_* env vars
@@ -529,6 +559,7 @@ fn main() -> Result<()> {
             libs_dir,
             program_args: cli.args.clone(),
             print_stats: cli.print_stats_on_exit,
+            stats_json: cli.stats_format == StatsFormat::Json,
         },
     )
 }
