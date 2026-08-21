@@ -1,0 +1,68 @@
+// attribute-handler-registry PR3c —— analyzer 诊断的局部抑制集（编译期本地，不持久化）。
+//
+// 两来源合一（AnalyzerDriver.Run 构建、DiagSinkImpl.Report 查询）：
+//   ① `#suppress <Id> "reason"` / `#restore <Id>` —— **字节区间**（精确 token 偏移，来自
+//      CompilationUnit.SuppressRegions）。`at.Start ∈ [Start, End)` 且规则 Id 相等 → 抑制。
+//   ② `[Suppress("Id","reason")]` 声明级 —— **活跃栈**（driver walk 进/出带 `[Suppress]` 的声明时
+//      PushActive/PopActive）。**不用 decl.Span 做区间**——本 parser 的 decl Span 只覆盖起始 token
+//      （非全体，见 MemberParser `Span sp = _peek().Span`），字节区间会漏掉方法体内的诊断；活跃栈
+//      按 AST 结构精确圈定「当前在某 [Suppress] 声明子树内」，规避 span-end 缺失。
+//
+// 纯编译期：本集只在编译该 CU 时存在，不写 zpkg（设计 SoT：design.md §诊断/severity/开关 PR3c 落地）。
+namespace Z42.Semantics;
+
+public sealed class SuppressionSet {
+    // ① `#suppress` 字节区间（平行数组）。
+    private string[] _rIds; private int[] _rStarts; private int[] _rEnds; private int _rCount;
+    // ② `[Suppress]` 声明级活跃栈（walk 期间平衡 push/pop，退出声明即弹出）。
+    private string[] _active; private int _aCount;
+
+    public SuppressionSet() {
+        this._rIds = new string[0]; this._rStarts = new int[0]; this._rEnds = new int[0]; this._rCount = 0;
+        this._active = new string[0]; this._aCount = 0;
+    }
+
+    // 加一条 `#suppress` 字节区间 [start, end)。
+    public void AddRegion(string ruleId, int start, int end) {
+        if (this._rCount == this._rIds.Length) {
+            int cap = this._rIds.Length * 2; if (cap == 0) { cap = 4; }
+            string[] ni = new string[cap]; int[] ns = new int[cap]; int[] ne = new int[cap];
+            int i = 0; while (i < this._rCount) { ni[i] = this._rIds[i]; ns[i] = this._rStarts[i]; ne[i] = this._rEnds[i]; i = i + 1; }
+            this._rIds = ni; this._rStarts = ns; this._rEnds = ne;
+        }
+        this._rIds[this._rCount] = ruleId; this._rStarts[this._rCount] = start; this._rEnds[this._rCount] = end;
+        this._rCount = this._rCount + 1;
+    }
+
+    // 进入带 `[Suppress(id)]` 的声明时压栈。
+    public void PushActive(string ruleId) {
+        if (this._aCount == this._active.Length) {
+            int cap = this._active.Length * 2; if (cap == 0) { cap = 4; }
+            string[] na = new string[cap];
+            int i = 0; while (i < this._aCount) { na[i] = this._active[i]; i = i + 1; }
+            this._active = na;
+        }
+        this._active[this._aCount] = ruleId; this._aCount = this._aCount + 1;
+    }
+
+    // 退出声明时弹出本声明 push 的 n 条。
+    public void PopActive(int n) {
+        this._aCount = this._aCount - n;
+        if (this._aCount < 0) { this._aCount = 0; }
+    }
+
+    // pos 处规则 ruleId 是否被抑制：活跃栈含该 Id（声明级）或落在某匹配字节区间内（`#suppress`）。
+    public bool IsSuppressed(string ruleId, int pos) {
+        int i = 0;
+        while (i < this._aCount) {
+            if (this._active[i] == ruleId) { return true; }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < this._rCount) {
+            if (this._rIds[i] == ruleId && pos >= this._rStarts[i] && pos < this._rEnds[i]) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+}

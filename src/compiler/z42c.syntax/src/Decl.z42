@@ -371,12 +371,27 @@ public sealed class DelegateDecl : Decl {
 // 记录在 parser 阶段降级为 ClassDecl(Kind="record")（合成位置参数字段 + primary ctor），
 // 故无独立 RecordDecl 节点——下游统一走 ClassDecl 机制（含 zbc TYPE 段 record flag）。
 
+// attribute-handler-registry PR3c：一段 `#suppress <Id> "reason"` / `#restore <Id>` 圈定的诊断抑制区间
+// （字节偏移 [Start, End)）。纯源码级、编译期消费即弃（不序列化到 zpkg）→ 无格式 bump。AnalyzerDriver
+// 建 SuppressionSet 时灌入 CU 收集到的这批区间；`at.Start ∈ [Start, End)` 且规则 Id 相等 → 该诊断被抑制。
+public sealed class SuppressRegion {
+    public string RuleId;
+    public int    Start;
+    public int    End;
+    public SuppressRegion(string ruleId, int start, int end) {
+        this.RuleId = ruleId; this.Start = start; this.End = end;
+    }
+}
+
 public sealed class CompilationUnit {
     public Span Span;
     public bool   HasNamespace;
     public string Namespace;
     public Decl[] Decls;
     public int    DeclCount;
+    // attribute-handler-registry PR3c：`#suppress`/`#restore` 圈定的抑制区间（Parser 收尾挂上；空数组=无）。
+    public SuppressRegion[] SuppressRegions;
+    public int              SuppressRegionCount;
     // fix-parse-diags-dropped：Parser 收尾把自己的 DiagnosticBag 挂到 CU 上，
     // 让下游 typecheck 汇点能上浮 parse 错误。此前 parse 诊断被整体丢弃（各编译
     // 点只为 TypeChecker 新建 bag）——畸形 parse 的垃圾 AST 流入 codegen，若
@@ -389,6 +404,8 @@ public sealed class CompilationUnit {
         this.HasNamespace = hasNs; this.Namespace = ns; this.Decls = decls; this.DeclCount = dc;
         this.ParseDiags = null;
         this.NestedFlattened = false;
+        this.SuppressRegions = new SuppressRegion[0];
+        this.SuppressRegionCount = 0;
     }
     // 把 parse 阶段诊断并入 `into`（typecheck bag），使其计入编译错误数。CU 未携带时 no-op。
     public void MergeParseDiags(DiagnosticBag into) {

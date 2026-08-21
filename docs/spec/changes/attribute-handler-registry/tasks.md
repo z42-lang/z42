@@ -11,8 +11,8 @@
 | PR2 | 后缀约定（D8）：resolution 展开（`[X]`→`XAttribute`）+ 强制校验 E0444 + test 家族全归 handler + 迁移 fixtures + 反转 `Attribute.z42`/`basic.z42`/`attributes.md` 头注 | 否 | ✅ 完成 |
 | PR3a | Analyzer **框架**：`Analyzer`(visitor 模型 ObservedKinds+OnSyntaxNode，**无 delegate**——z42c 规避+命名 delegate 跨包丢 FQ 名 [[z42c-no-cross-pkg-delegates]])/`DiagRule`/`AnalyzerSeverity`/`DiagSink`/`SyntaxKind`(z42c.syntax，非 stdlib——契约暴露 AST) + AnalyzerDriver(AST 遍历分派+诊断映射进 DiagnosticBag) + `*Analyzer` 后缀强制(E0445) + 驱动单测(NoEmptyCatchAnalyzer)。KindOf 不动(analyzer 无应用位) | 否 | ✅ 完成(1-3) |
 | PR3a-load | **外部编译期加载 + pipeline 接线**：`[analyzers]` 段(ManifestLoader) + z42c 加载该段 zpkg 元数据发现 `: Analyzer`(Path-A `AssemblyLoadContext.Default().Load`→`GetTypes`→过滤 `GetInterface`) + Path-B 实例化执行(`__load_module`→`Type.GetType`→无参 `Activator.CreateInstance`→as Analyzer→喂 AnalyzerDriver) + PackageCompile 接线(gated on [analyzers]，z42c 自建无→byte-identical) + **编译器级 in-process 集成测试**(非提交二进制→免格式-bump 脆性，合 D9「构建工具 zpkg」定位)。**与 PR4 generator 加载共享此 infra**。红线:z42c 自建不声明 [analyzers] | 否 | ✅ 完成(#235) |
-| PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | 🟡 进行中 |
-| PR3c | `#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly) + `[Suppress]` attr(store-meta) | 否 | ⬜ |
+| PR3b | `[lints]` config(ManifestLoader `_parseLints`) + severity 解析(EnabledByDefault + `[lints]` 覆盖 + warnings-as-errors) | 否 | ✅ 完成(#238) |
+| PR3c | 局部抑制(合并单 PR，**纯编译期零 zpkg 持久化**)：`#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly)拦截 Hash→`CompilationUnit.SuppressRegions`(AST-only) + `[Suppress]` attr(**directive**——加 `IsDirectiveAttr`、不写 blob/descriptor、无需 stdlib 类) + `SuppressionSet` 判定挂 `DiagSinkImpl.Report` | 否 | 🟡 进行中 |
 | PR4 | Generator/ModuleGenerator 复用 `[analyzers]` 类别加载(D9) + splice/merge（Add/Replace/Augment） | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
@@ -232,6 +232,54 @@ byte-identical**：attributes 类目 golden 重生 + Setup/Teardown/Ignore 不�
 - **DeclId 非死代码**：`AttributeSynth._process` 实际 `new DeclId(keyPrefix)` 并用 `did.Key` 构工厂名
   （`did.Key == keyPrefix` → 逐字节一致）。奠定寻址概念且真被执行，不违反 philosophy 反 speculative。
 - **`test incremental` 是必跑的额外 gate**：`test all` 不含它，而本 PR 动了增量路径 → 必须单独跑。
+
+## PR3c · 局部抑制 `#suppress`/`#restore` + `[Suppress]`（当前，🟡 进行中）
+
+**目标**：让 analyzer 诊断可局部关闭（对应 C# `#pragma warning disable/restore` + `[SuppressMessage]`）。
+两机制合并单 PR（User 裁决 2026-08-21）。抑制检查点统一在 `DiagSinkImpl.Report`，抑制区随 `cu` 流入
+`AnalyzerDriver.Run`（无需改 Run 签名 / `_runAnalyzers`）。**无格式 bump**（源码级、编译期消费即弃 +
+store-meta blob 走现有反射机制）。z42c/stdlib 只加 support 不 use → 无两-nightly 纪律、self-host byte-identical。
+设计 SoT：[design.md](design.md) §诊断/severity/开关「PR3c 落地」。
+
+### 阶段 1：`#suppress`/`#restore` 区间指令（新语法）
+- [x] 1.1 `CompilationUnit` 加 `SuppressRegion[] SuppressRegions` + `int SuppressRegionCount` 字段
+  （`z42c.syntax/src/Decl.z42`）；新增 `public sealed class SuppressRegion { string RuleId; int Start; int End; }`
+- [x] 1.2 Parser 拦截 `Hash` token：在语句列表（`_stmtP._parseBlock` 循环）+ 顶层/成员声明列表边界
+  （`Parser.ParseCompilationUnit` 循环 + `_declP` 成员循环）见 `#` + ident `suppress`/`restore` → 解析指令。
+  累加器挂主 `Parser` 实例，子解析器经引用共享；`_push` growable idiom 累积区间；`ParseCompilationUnit`
+  收尾把区间挂到 CU。开区间栈按 RuleId 配对；EOF 未闭合 → 延伸到 `cu.Span.End`。
+- [x] 1.3 边界/错误：`#restore` 无匹配开区间 → 诊断（宽松：忽略或 warn）；`#suppress` 缺 RuleId → parse error。
+- [x] 1.4 dump/parse 单测（`z42c.syntax/tests/`）：`#suppress`/`#restore` 正确产出 SuppressRegions（区间数 + Start/End）。
+
+### 阶段 2：`[Suppress]` 声明级抑制（directive——纯编译期，不写 zpkg）
+> User 裁决 2026-08-21：`[Suppress]` 归 **directive** 而非 store-meta——抑制是编译期本地概念、无运行时消费者，
+> 持久化纯膨胀。核实：`AttributeSynth._process:104` 只对 store-meta 写 IrAttrRef；`StubEmitter` 只烘 Native；
+> 无 `NativeAttribute` 类→directive 无需 backing 类。故归 directive = 零 blob、零 descriptor、无需 stdlib 类。
+- [x] 2.1 `HandlerRegistry.IsDirectiveAttr` 加 `name == "Suppress"`（不加 `IsNativeDirective`）→
+  `KindOf("Suppress") == Directive`。**不建 z42.core 类**（同 `[Native]` 靠名字识别）。
+- [x] 2.2 验证：`[Suppress("Z9002")]` 应用后 `AttributeSynth` 跳过（非 store-meta→无 blob）、`StubEmitter`
+  忽略（非 Native→不烘）、`AttributedDecl` 仍留在 AST（driver 可按名读 `attr.Args[0]`）。self-host byte-identical。
+
+### 阶段 3：driver 抑制判定
+- [x] 3.1 `z42c.semantics` 新增 `SuppressionSet`（`Add(ruleId,start,end)` + `IsSuppressed(ruleId,pos)`；growable）。
+- [x] 3.2 `AnalyzerDriver.Run` 内建 SuppressionSet：① 灌入 `cu.SuppressRegions`；② walk decls 收集
+  `[Suppress("Id")]`（`AttributedDecl` 未 `_unwrap` 前读 `attr.Name=="Suppress"` + `attr.Args[0]` 字符串
+  字面量，区间 = `Inner.Span`）。传给 `DiagSinkImpl`。
+- [x] 3.3 `DiagSinkImpl` 加 `SuppressionSet Supp` 字段；`Report` 在 severity resolve 前判
+  `Supp.IsSuppressed(rule.Id, at.Start)` → 命中 return（不报）。
+
+### 阶段 4：测试
+- [x] 4.1 semantics 单测（`tests/analyzer/analyzer_tests.z42`）：SuppressionSet 命中/不命中；driver + `#suppress`
+  区间 + `[Suppress]` 声明各抑制一处、区间外仍报。
+- [x] 4.2 pkgcompile 端到端（`z42c.pipeline/tests/pkgcompile/`）：fixture analyzer emit Z9002 于空 catch；
+  consumer 源在 `#suppress Z9002`/`#restore` 内放一处空 catch + `[Suppress("Z9002")]` 方法内放一处 + 区间外
+  放一处 → 断言 cms 只含区间外那一处 Z9002。
+
+### 阶段 5：验证 + 文档
+- [x] 5.1 GREEN：`xtask test`（含 e2e/cross-zpkg/stdlib/compiler/vscode-syntax）REAL_EXIT=0 + self-host 5/5 逐字节。
+- [x] 5.2 book 语言参考：`#suppress`/`#restore` 指令 + `[Suppress]` attribute（机制页 + attributes.md）。
+- [x] 5.3 目录 README 同步（`z42c.syntax` / `z42.core` / `z42c.semantics` 功能索引 + 核心文件）。
+- [x] 5.4 design.md 「PR3c 落地」note 已写（本 PR 完成后核对与实现一致）。
 
 ## 备注
 

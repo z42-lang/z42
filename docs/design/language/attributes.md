@@ -5,7 +5,8 @@
 > 体系（`Analyzer` 契约 + `AnalyzerDriver` + 外部 analyzer zpkg 加载：z42.toml `[analyzers]` 段声明、
 > 编译期加载运行、不链入目标程序——D9）随 PR3a / PR3a-load 落地；诊断 severity 开关（z42.toml `[lints]`
 > 段：逐规则覆盖 + `pkg.*` 通配 + `warnings-as-errors`，结合规则 `EnabledByDefault`）随 PR3b 落地。
-> 本页只讲 **store-meta attribute**（`[X]`
+> **局部抑制**（`#suppress`/`#restore` 源码指令 + `[Suppress]` directive，纯编译期不写 zpkg）随 PR3c 落地
+> （见下「局部抑制诊断」）。本页主讲 **store-meta attribute**（`[X]`
 > 反射元数据），handler 全貌见下方 design 链接。
 > 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
 > [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。
@@ -120,6 +121,23 @@ public Attribute __attr$cls$UsersController$0() { return new RouteAttribute("/us
 ### 反射时构造 + 缓存
 
 native `__type_custom_attributes(type)` 对每条 ref 用 `run_returning` 调工厂函数拿活实例（`exec_function` 的每调用状态在栈局部 `Frame`，native→VM re-entrancy 安全）。z42 层 `Type.GetCustomAttributes()` 把结果缓存到 Type 对象（`__attrCache`），故重复调用返回同一批实例。跨 zpkg：工厂函数经 lazy loader 跨模块解析。
+
+## 局部抑制诊断：`#suppress` / `[Suppress]`（PR3c）
+
+关闭某个 analyzer 诊断规则（对应 C# `#pragma warning disable/restore` + `[SuppressMessage]`）。**两机制皆纯编译期、零 zpkg 持久化**——抑制信息只在编译该文件时存在，不写进产物：
+
+```z42
+#suppress Z9002 "这段是生成代码"      // 区间起
+try { risky(); } catch (Error e) { }   // 此处 Z9002 被抑制
+#restore Z9002                          // 区间止（省略则延伸到文件尾）
+
+[Suppress("Z9002")] void Hot() { ... }  // 声明级：整个 Hot 及其内部抑制 Z9002
+```
+
+- **`#suppress <Id> ["reason"]` / `#restore <Id>`**：源码指令（`#` 词法产 `Hash` token，此前无语义）。parser 在语句列表 / 顶层声明列表边界收集成 `CompilationUnit.SuppressRegions`（`SuppressRegion{RuleId,Start,End}` 字节区间；AST-only，不序列化）。`at.Start ∈ [Start, End)` 且规则 Id 相等 → 抑制。精确 Id 匹配、无通配（通配是 `[lints]` config 层的事）。
+- **`[Suppress("<Id>","reason")]`**：**directive**（非 store-meta）——`HandlerRegistry.IsDirectiveAttr` 认它、`KindOf → Directive`，故 `AttributeSynth` 不合成反射工厂（**不写 blob**）、`StubEmitter` 不烘（**不入 descriptor**），也**无需 `SuppressAttribute` 类**（同 `[Native]` 靠名字识别）。`AnalyzerDriver` walk 到带 `[Suppress]` 的声明时把 Id 压入活跃栈、退出弹出（**不用 decl.Span**——本 parser 的 decl span 只覆盖起始 token，活跃栈按 AST 结构精确圈定子树）。`Suppress` 是保留 directive 名，用户不能再定义同名 store-meta 类。
+- 判定统一在 `DiagSinkImpl.Report`（z42c.semantics `AnalyzerDriver.z42`）：severity 决策**之前**先查 `SuppressionSet.IsSuppressed(ruleId, at.Start)`，命中即整条丢弃、不进 `DiagnosticBag`。
+- 全貌见 [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md) §诊断/severity/开关「PR3c 落地」。
 
 ## Deferred / Future Work
 

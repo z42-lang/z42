@@ -252,3 +252,48 @@ void test_no_analyzers_no_extra_diags() {
     Assert.Equal(0, art.ErrorCount);
     Assert.Equal(false, _cmsHasCode(art, "Z9002"));
 }
+
+// ── PR3c：局部抑制端到端（全量编译，走 AnalyzerLoader + AnalyzerDriver.Run 抑制判定）──────────
+
+// consumer 源：`#suppress Z9002` … `#restore Z9002` 圈住空 catch。指定 AnalyzerZpkgs。
+CompileInputs _consumerPragmaSuppress(string azPath) {
+    CompileInputs cin = _inputs("namespace Consumer;\nint risky() { return 1; }\n"
+        + "int M() { int r = 0; #suppress Z9002 \"gen\" try { r = risky(); } catch { } #restore Z9002 return r; }\n", "lib");
+    cin.Name = "demo.consumer";
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    return cin;
+}
+
+// consumer 源：`[Suppress("Z9002")]` 贴自由函数 M（含空 catch）。验 directive 分类全量编译干净 + 抑制。
+CompileInputs _consumerAttrSuppress(string azPath) {
+    CompileInputs cin = _inputs("namespace Consumer;\nint risky() { return 1; }\n"
+        + "[Suppress(\"Z9002\")] int M() { int r = 0; try { r = risky(); } catch { } return r; }\n", "lib");
+    cin.Name = "demo.consumer";
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    return cin;
+}
+
+[Test]
+void test_suppress_pragma_end_to_end() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    // `#suppress`/`#restore` 圈住空 catch → 抑制，consumer Cms 不含 Z9002；编译干净
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerPragmaSuppress(azPath));
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(false, _cmsHasCode(cArt, "Z9002"));
+}
+
+[Test]
+void test_suppress_attr_end_to_end() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    // `[Suppress("Z9002")]` = directive（纯编译期）→ 全量编译不因缺 SuppressAttribute 类而报错
+    // （ErrorCount=0），且抑制生效（Cms 不含 Z9002）。这条同时验 directive 分类与抑制两件事。
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerAttrSuppress(azPath));
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(false, _cmsHasCode(cArt, "Z9002"));
+}

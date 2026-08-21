@@ -194,3 +194,82 @@ void test_disabled_by_default_enabled_via_lints() {
     Assert.Equal(true, _hasCode(bag, "Z9003"));
     Assert.Equal(DiagnosticSeverity.Warning, _sevOf(bag, "Z9003"));
 }
+
+// ── PR3c：局部抑制 `#suppress`/`#restore`（字节区间）+ `[Suppress]`（声明活跃栈）─────────────
+
+int _countCode(DiagnosticBag bag, string code) {
+    int i = 0; int n = 0;
+    while (i < bag.Count()) { if (bag.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+[Test]
+void test_suppress_pragma_region_suppresses() {
+    // `#suppress Z9002` … `#restore Z9002` 圈住空 catch → 抑制
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 \"gen code\" try { risky(); } catch (Error e) { } #restore Z9002 } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_outside_reported() {
+    // 空 catch 在 `#restore` 之后（区间外）→ 仍报
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 \"g\" #restore Z9002 try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_wrong_id_not_suppressed() {
+    // `#suppress Z9999`（不同 Id）不抑制 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9999 try { risky(); } catch (Error e) { } #restore Z9999 } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_unclosed_to_eof() {
+    // `#suppress Z9002` 无 `#restore` → 延伸到 EOF，抑制其后所有 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_attr_on_method_suppresses() {
+    // `[Suppress("Z9002")]` 贴方法 → 该方法内空 catch 抑制
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { [Suppress(\"Z9002\")] void M() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_attr_scoped_to_decl() {
+    // `[Suppress]` 只作用于所贴方法：M 抑制、N 不抑制 → 恰 1 条 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { [Suppress(\"Z9002\")] void M() { try { risky(); } catch (Error e) { } }"
+        + " void N() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(1, _countCode(bag, "Z9002"));
+}
+
+// SuppressionSet 直接单测（字节区间 + 活跃栈判定）。
+[Test]
+void test_suppression_set_region() {
+    var s = new SuppressionSet();
+    s.AddRegion("Z9002", 10, 20);
+    Assert.Equal(true, s.IsSuppressed("Z9002", 10));    // 下界含
+    Assert.Equal(true, s.IsSuppressed("Z9002", 19));
+    Assert.Equal(false, s.IsSuppressed("Z9002", 20));   // 上界排他
+    Assert.Equal(false, s.IsSuppressed("Z9002", 5));    // 区间外
+    Assert.Equal(false, s.IsSuppressed("Z9999", 15));   // Id 不匹配
+}
+
+[Test]
+void test_suppression_set_active_stack() {
+    var s = new SuppressionSet();
+    s.PushActive("Z9002");
+    Assert.Equal(true, s.IsSuppressed("Z9002", 0));     // 活跃栈命中（位置无关）
+    Assert.Equal(false, s.IsSuppressed("Z9003", 0));
+    s.PopActive(1);
+    Assert.Equal(false, s.IsSuppressed("Z9002", 0));    // 弹出后不再抑制
+}
