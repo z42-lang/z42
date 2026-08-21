@@ -11,10 +11,18 @@
 
 ## 核心模型（一句话）
 
-**每个 change 一条分支（大改必走 worktree 物理隔离），完工开 PR；PR 按先来后到合并，不排队、不占锁。
-合并前每个 PR 必须并入 main 最新改动并重跑完整 GREEN；合并后立即删远程 + 本地分支 + worktree。**
+**每个 change 一条独立 worktree + 独立分支（物理隔离，不共用分支 / worktree），完工开 PR；PR 按先来后到
+合并，不排队、不占锁。合并前每个 PR 必须并入 main 最新改动并重跑完整 GREEN；合并后立即删远程 + 本地
+分支 + worktree。**
 
 worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责语义正确——三者合起来，锁不再需要。
+
+> **§0 worktree 隔离铁律（2026-08-21 强化，必须遵守）**：**每一次改动都必须在自己专属的 worktree 里做，
+> 一 change 一 worktree 一分支，绝不共用分支 / worktree、绝不在主树（`z42-test`）上直接改。** 无论改动
+> 大小（feature / refactor / fix / 甚至纯文档规范）一律如此——主树只作 seed 供体与 origin/main 参照，不
+> 承载在制品。理由：① 主树常被并发会话共享，在其上改动会互相踩踏；② 共用分支会让两条独立改动的历史 /
+> GREEN 互相污染，无法按 PR 先来后到独立合并。新 worktree 必基于 origin/main（先 `git fetch`，别基于滞后
+> 的本地 ref），供种（`.z42` / `xtask` / `xtask.zpkg`）从一个 warm 树拷贝后用种子 z42c 现建。
 
 ---
 
@@ -28,7 +36,8 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 > 拿不准算不算"很小" → 按走 PR 处理。开 PR 的成本远低于直推 main 后发现要回滚。
 
 **分支命名**：沿用 change 名（`docs/spec/changes/<change-name>/` 的 kebab-case 名），如
-`add-for-loop`、`fix-type-check-crash`。大改在 worktree 里开（物理隔离并行流），小 PR 可原地开分支。
+`add-for-loop`、`fix-type-check-crash`。**所有改动一律在专属 worktree 里开分支（§0 铁律），不在主树原地
+开分支、不共用他人分支**——即便是"很小的改动"直推 main，也从自己的独立 worktree 走完整 GREEN 后再推。
 
 ### §1.1 PR body 约定（必须遵守）
 
