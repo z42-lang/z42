@@ -1078,7 +1078,7 @@ impl ArcMagrGC {
                 // SAFETY: entry pointer valid for GcRef lifetime.
                 let entry = unsafe { entry_ptr.as_ref() };
                 let (ci, _) = entry.location;
-                if ci != u16::MAX {
+                if ci != u32::MAX {
                     self.region_object.lock().mark_card_dirty(ci);
                 }
             }
@@ -1087,7 +1087,7 @@ impl ArcMagrGC {
                 let entry_ptr = gc.entry_ptr();
                 let entry = unsafe { entry_ptr.as_ref() };
                 let (ci, _) = entry.location;
-                if ci != u16::MAX {
+                if ci != u32::MAX {
                     self.region_array.lock().mark_card_dirty(ci);
                 }
             }
