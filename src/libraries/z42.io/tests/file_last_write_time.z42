@@ -1,7 +1,7 @@
 // add-file-last-write-time (2026-06-09)：File.GetLastWriteTime（mtime）本地测试。
 // 覆盖：刚写的文件 mtime 是真实当前时刻（>2020 且 ≤now+1d）/ 重写后 mtime 单调
 // 不减（freshness 检查核心保证）/ 文件不存在抛异常。
-// 隔离写盘到 /tmp/z42-mtime-test-*（与 directory.z42 同款）。
+// 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoFileLastWriteTimeTests;
 
 using Std.Test;
@@ -12,35 +12,39 @@ using Std.Time;
 void test_mtime_is_real_current_time() {
     // 刚写的文件 mtime 应在固定过去时刻之后、且不晚于"现在+1天"（容时钟偏差）。
     // 这验证 native 返回的是真实 unix-ms 当前时间，而非 0 / 垃圾值。
-    string p = "/tmp/z42-mtime-test-recent.txt";
+    string base = File.CreateTempDir("z42mtime");
+    string p = base + "/recent.txt";
     File.WriteAllText(p, "x");
     DateTime mt = File.GetLastWriteTime(p);
     // 2020-01-01T00:00:00Z = 1577836800000 ms（大 long 字面量用 L 后缀）
     Assert.True(mt.IsAfter(DateTime.FromUnixMs(1577836800000L)));
     Assert.True(mt.IsBefore(DateTime.UtcNow().AddDays(1)));
-    File.Delete(p);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_mtime_monotonic_after_rewrite() {
     // 重写文件后 mtime 单调不减 —— incremental / cache freshness 检查的核心保证。
-    string p = "/tmp/z42-mtime-test-mono.txt";
+    string base = File.CreateTempDir("z42mtime");
+    string p = base + "/mono.txt";
     File.WriteAllText(p, "first");
     long t1 = File.GetLastWriteTime(p).UnixMs();
     File.WriteAllText(p, "second longer content");
     long t2 = File.GetLastWriteTime(p).UnixMs();
     Assert.True(t2 >= t1);
-    File.Delete(p);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_missing_file_throws() {
     // 文件不存在 → metadata() 失败 → Std.Exception（沿用本模块 IO 错误约定）。
+    string base = File.CreateTempDir("z42mtime");
     bool threw = false;
     try {
-        File.GetLastWriteTime("/tmp/__z42_mtime_definitely_missing_xyz__.txt");
+        File.GetLastWriteTime(base + "/__z42_mtime_definitely_missing_xyz__.txt");
     } catch (Exception e) {
         threw = true;
     }
     Assert.True(threw);
+    Directory.Delete(base, true);
 }

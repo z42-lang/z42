@@ -1,8 +1,8 @@
 // add-std-io-directory (2026-05-13)：z42.io.Directory 库本地测试。
 // 5 个 extern API 各覆盖 happy path + 必要的边界（不存在 / 非空目录）。
 //
-// 测试用 /tmp/z42-directory-test-* 隔离写盘（与 process_stdio 同款；
-// Windows 兼容由 z42 build-driver 落地后跟 Path.Separator 一并解决）。
+// 隔离写盘到 File.CreateTempDir 建的临时目录（不硬编码 /tmp——Android app
+// 沙箱无可写 /tmp，桌面/iOS-sim 才有；CreateTempDir 各平台都落在可写临时区）。
 namespace Z42IoDirectoryTests;
 
 using Std.Test;
@@ -12,78 +12,91 @@ using Std.IO;
 
 [Test]
 void test_exists_true_for_dir() {
-    // /tmp 在 macOS / Linux 上 ~~一定存在
-    Assert.True(Directory.Exists("/tmp"));
+    // CreateTempDir 刚建的目录必存在（跨平台可写临时区）
+    string d = File.CreateTempDir("z42dir");
+    Assert.True(Directory.Exists(d));
+    Directory.Delete(d, false);
 }
 
 [Test]
 void test_exists_false_for_missing() {
-    Assert.False(Directory.Exists("/tmp/__definitely_does_not_exist_z42_x__"));
+    string d = File.CreateTempDir("z42dir");
+    Assert.False(Directory.Exists(d + "/__definitely_does_not_exist_z42_x__"));
+    Directory.Delete(d, false);
 }
 
 [Test]
 void test_exists_false_for_file() {
     // 文件不是目录；Exists 必须 false（区别于 File.Exists）
-    string path = "/tmp/z42-directory-test-file-not-dir.txt";
+    string base = File.CreateTempDir("z42dir");
+    string path = base + "/file-not-dir.txt";
     File.WriteAllText(path, "hi");
     Assert.False(Directory.Exists(path));
-    File.Delete(path);
+    Directory.Delete(base, true);
 }
 
 // ── Create ────────────────────────────────────────────────────────────────
 
 [Test]
 void test_create_simple() {
-    string p = "/tmp/z42-directory-test-create-simple";
+    string base = File.CreateTempDir("z42dir");
+    string p = base + "/create-simple";
     Directory.Create(p);
     Assert.True(Directory.Exists(p));
-    Directory.Delete(p, false);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_create_recursive() {
     // mkdir -p 语义：中间目录自动建
-    string p = "/tmp/z42-directory-test-create-rec/a/b/c";
+    string base = File.CreateTempDir("z42dir");
+    string p = base + "/create-rec/a/b/c";
     Directory.Create(p);
     Assert.True(Directory.Exists(p));
-    Assert.True(Directory.Exists("/tmp/z42-directory-test-create-rec/a"));
-    Directory.Delete("/tmp/z42-directory-test-create-rec", true);
+    Assert.True(Directory.Exists(base + "/create-rec/a"));
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_create_idempotent() {
     // 已存在不报错
-    string p = "/tmp/z42-directory-test-create-idem";
+    string base = File.CreateTempDir("z42dir");
+    string p = base + "/create-idem";
     Directory.Create(p);
     Directory.Create(p);   // 第二次不抛
     Assert.True(Directory.Exists(p));
-    Directory.Delete(p, false);
+    Directory.Delete(base, true);
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────
 
 [Test]
 void test_delete_empty() {
-    string p = "/tmp/z42-directory-test-del-empty";
+    string base = File.CreateTempDir("z42dir");
+    string p = base + "/del-empty";
     Directory.Create(p);
     Directory.Delete(p, false);
     Assert.False(Directory.Exists(p));
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_delete_recursive() {
-    string root = "/tmp/z42-directory-test-del-rec";
+    string base = File.CreateTempDir("z42dir");
+    string root = base + "/del-rec";
     Directory.Create(root + "/sub");
     File.WriteAllText(root + "/sub/a.txt", "x");
     Directory.Delete(root, true);
     Assert.False(Directory.Exists(root));
+    Directory.Delete(base, true);
 }
 
 // ── Enumerate ─────────────────────────────────────────────────────────────
 
 [Test]
 void test_enumerate_returns_basenames() {
-    string root = "/tmp/z42-directory-test-enum";
+    string base = File.CreateTempDir("z42dir");
+    string root = base + "/enum";
     Directory.Create(root);
     File.WriteAllText(root + "/b.txt", "");
     File.WriteAllText(root + "/a.txt", "");
@@ -96,23 +109,25 @@ void test_enumerate_returns_basenames() {
     Assert.Equal("b.txt", items[1]);
     Assert.Equal("d",     items[2]);
 
-    Directory.Delete(root, true);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_enumerate_empty_dir() {
-    string root = "/tmp/z42-directory-test-enum-empty";
+    string base = File.CreateTempDir("z42dir");
+    string root = base + "/enum-empty";
     Directory.Create(root);
     string[] items = Directory.Enumerate(root);
     Assert.Equal(0, items.Length);
-    Directory.Delete(root, false);
+    Directory.Delete(base, true);
 }
 
 // ── EnumerateRecursive ────────────────────────────────────────────────────
 
 [Test]
 void test_enumerate_recursive_includes_subtree() {
-    string root = "/tmp/z42-directory-test-enum-rec";
+    string base = File.CreateTempDir("z42dir");
+    string root = base + "/enum-rec";
     Directory.Create(root + "/sub/deep");
     File.WriteAllText(root + "/top.txt",         "");
     File.WriteAllText(root + "/sub/mid.txt",     "");
@@ -127,5 +142,5 @@ void test_enumerate_recursive_includes_subtree() {
     Assert.Equal("sub/mid.txt",        items[3]);
     Assert.Equal("top.txt",            items[4]);
 
-    Directory.Delete(root, true);
+    Directory.Delete(base, true);
 }
