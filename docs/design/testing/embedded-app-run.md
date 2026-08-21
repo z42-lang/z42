@@ -337,16 +337,23 @@ WASM-ONLY 缺口（仅 if(isWasm)）     → threading/* · compression/* · *st
 
 - **iOS(iossim)3 片全绿** —— 上表 KEEP-IN 假设对 iOS **全部成立**(threads / compression / 熵 /
   时钟 / 沙箱 fs / stream 都跑通)。排除 68 → 可跑 465。
-- **android(emulator)首轮 3 片红在 6 个 `z42.io` case**(23 个 sub-test),分两类:
+- **android(emulator)首轮 3 片红在 6 个 `z42.io` case**(23 个 sub-test),经 fix-mobile-tmp-portability
+  收敛为**两个 android-only 排除 + 4 例转可移植**:
   - **① 真能力缺口(永久 android 排除)**:`file_chmod_link_size` —— `File.Link`(硬链接)在 android
     app 沙箱 `Permission denied`(symlink 却可以)。该测试**已**用 `File.CreateTempDir`,故非 /tmp 问题、
     改不了 → **永久 android-only 排除**(iOS 沙箱能跑,**不上移到 SHARED**)。
-  - **② 测试可移植性缺陷(已修,fix-mobile-tmp-portability follow-up)**:`directory` / `directory_copy` /
-    `file_extras` / `file_last_write_time` / `gc_heap_snapshot` —— 这 5 个测试原**硬编码 `/tmp/…`** 写盘路径。
-    iOS-sim(跑在 macOS)与 desktop 有可写 `/tmp` 故过;**android emulator 无可写 `/tmp`** → `Read-only
-    file system (os error 30)` / `No such file`。android **有**可写 temp(`File.CreateTempDir`,
-    `file_temp` 在 android 已过)。**已把这 5 个测试从硬编码 `/tmp` 改用 `File.CreateTempDir`(可移植,
-    android+iOS+desktop 都过)并删掉这 5 个 android 临时排除** → android 现只留 ① 一个永久排除。
+  - **② 内存缺口(永久 android 排除,非 /tmp)**:`gc_heap_snapshot` —— `GC.WriteHeapSnapshot` 把**整个活
+    堆**序列化成 V8 JSON 串(+`ReadAllText` 再读回)。嵌入 runner 里 [Test] units **共享一个 VM**,此例
+    在片内偏后跑(idx ~337/464,约第 112 个 unit)→ 累积堆已很大 → 快照膨胀到**数 GB**。android emulator
+    内存紧 → **low-memory-killer SIGKILL**(dispatch 32435384808:android shard 2 ~2.4GB RSS + 2.2GB swap
+    → LMK;去掉此例的 shard 1/3 全绿)。iOS-sim(macOS 宿主内存充足)跑得过、desktop 非共享-VM,故
+    **只在 android 排除**;wasm 本就排除它。/tmp→CreateTempDir 可移植性修复对该测试本身仍生效。
+  - **③ 测试可移植性缺陷(已修,4 例转可移植)**:`directory` / `directory_copy` / `file_extras` /
+    `file_last_write_time` —— 原**硬编码 `/tmp/…`** 写盘路径。iOS-sim(跑在 macOS)与 desktop 有可写
+    `/tmp` 故过;**android emulator 无可写 `/tmp`** → `Read-only file system (os error 30)` / `No such
+    file`。android **有**可写 temp(`File.CreateTempDir`,`file_temp` 在 android 已过)。**已把这 4 个测试
+    从硬编码 `/tmp` 改用 `File.CreateTempDir`(可移植,android+iOS+desktop 都过)并删掉它们的 android
+    临时排除** → android 全覆盖三片全绿(①② 两例仍 android-only 排除)。
 
 ### 分片 matrix(`test-ios` / `test-android`,n=3)
 
