@@ -203,11 +203,9 @@ smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆�
 **为何分片而非提 cap**:cap 由**单 job 时间墙**(wasm Playwright / android 60min emulator)封顶,
 提 cap 会撞墙;分片把 corpus 的**编译+跑**摊到 n 个平行 CI runner,每片只跑 1/n,墙不动、覆盖到 100%。
 
-**当前落地范围(本 PR)**:**只有 `test-wasm` 走全覆盖分片**(`strategy.matrix.shard`,n=3);
-**iOS / Android 仍留 60-smoke**(单 job、不分片,与本 PR 前一致)。原因见下「③ mobile 沙箱」——
-android 模拟器 / iOS 模拟器的 app 沙箱像 wasm 一样受限(挡 socket 绑定/监听、任意 fs、进程),
-mobile 全覆盖需一套**独立的能力排除审计**(net + 部分 fs/process),属**后续专项**;`--shard` flag、
-`_shardCorpus`、移动端 16MB 栈修复(轴 ②)已就绪,后续专项只需给 mobile 补审计 + 打开 matrix。
+**落地范围**:`test-wasm`(tier2-shard-full-coverage, n=3)**与 `test-ios` / `test-android`
+(tier2-mobile-coverage, n=3)三者都走全覆盖分片**。mobile 分片打开时同步补齐了它**独立的能力
+排除审计**(见 §5.8)——mobile 的能力集与 wasm **不同**,不能照搬 wasm 的排除表,故需独立一节。
 
 **T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍平台冷构建。wasm 的 R1–R7
 (`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料小(排除能力用例后 ~330 例)、
@@ -260,16 +258,14 @@ Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富
    > 未来有人再写同 namespace 的测试文件会踩。根治需 units 隔离(仿 goldens)或 bundler 把同
    > namespace 文件合编一个 `.zbc`;当前语料无触发,故先按约定回避。
 
-4. **mobile 沙箱能力缺口(follow-up,本 PR 未修 → mobile 仍留 smoke)**。修完 ①②③ 后,mobile
+4. **mobile 沙箱能力缺口(tier2-mobile-coverage 处理中,见 §5.8)**。修完 ①②③ 后,mobile
    全覆盖 dispatch 显示:栈溢出没了(② 生效,logcat 无 SIGSEGV),但 **android 模拟器 / iOS 模拟器的
    app 沙箱**跑不了一大批用例——**几乎整个 `z42.net`**(socket 绑定/监听、UDP loopback/multicast、
-   websocket、HTTP server:沙箱禁 bind/listen/loopback)+ **部分 `z42.io`**(directory*/file 元数据/
-   process_stdio/gc_heap_snapshot:app 私有目录外的 fs、进程受限)。即 **mobile 不是「native 什么都能
-   跑」**,其沙箱像 wasm 一样受限,只是可跑集不同(mobile 有 compression/熵/时钟,但缺 net/任意 fs/
-   进程)。故 mobile 全覆盖需一套**独立的 per-平台能力排除审计**(net + 沙箱受限 fs/process),且
-   android 与 iOS 可能有差异、并混有 flaky(如 `strings/string_methods` 偶发,desktop embedded 恒过)。
-   本 PR 把它**转为 follow-up**:mobile 保持 60-smoke(绿),wasm 先享全覆盖;地基(`--shard`/
-   `_shardCorpus`/16MB 栈/collections 修复)已就绪,follow-up 只需补 mobile 审计 + 打开 mobile matrix。
+   websocket、HTTP server:沙箱禁 bind/listen/loopback)+ **部分 `z42.io`**(process*/console/env/
+   平台身份:进程 fork/exec 与可变 env 受限)。即 **mobile 不是「native 什么都能跑」**,其沙箱受限,
+   只是可跑集**与 wasm 不同**(mobile 有 threads / compression / OS 熵 / 系统时钟 / 可写沙箱 fs,
+   缺 net / 进程 / TTY / 可变 env)。故 mobile 全覆盖需一套**独立的能力排除审计**——即 §5.8 的
+   `_targetExcludes` mobile 分支 + `test-ios`/`test-android` 分片 matrix(tier2-mobile-coverage)。
 
 5. **wasm:深递归压穿 shadow stack → OOB(fix-wasm-yaml-deep-recursion-oob,follow-up #1,已修)**。
    tier2-shard-full-coverage 交付时 shard 2/3 留了个 `RuntimeError: memory access out of bounds`
@@ -286,6 +282,87 @@ Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富
    **② 与 ⑤ 是同一原则「嵌入栈预算 ≥ desktop」的两面**:② 补 native 线程栈(host/mod.rs 16MB 线程),
    ⑤ 补 wasm shadow stack(link-arg)。验证:`parse_errors` 单例由 CRASH→PASS,shard 2/3 全 137 例
    本地 Playwright 全绿(shard 1/3、3/3 早已绿,栈只增不减,不回归)。
+
+## 5.8 mobile 全覆盖:能力模型 + 分片 matrix(tier2-mobile-coverage)
+
+wasm 全覆盖(§5.7)交付后,mobile(iOS 模拟器 / Android 模拟器)由 60-smoke 升级到全覆盖分片。
+关键洞察:**mobile 的能力集与 wasm 不同,不能照搬 wasm 的排除表**,故 `_targetExcludes` 分两层。
+
+### 为什么 mobile ≠ wasm
+
+wasm 没有任何原生设施;mobile 跑在**真原生 runtime** 上,有 wasm 缺的一大批能力:
+
+| 能力 | wasm | mobile(iOS sim / android emu) |
+|------|:----:|:----:|
+| 线程(pthreads) | ✗ | ✓ |
+| 原生扩展(compression 静态链接) | ✗(无 dlopen) | ✓ |
+| OS 熵(secure_random) | ✗ | ✓ |
+| 系统时钟(DateTime.UtcNow) | ✗ | ✓ |
+| 可写文件系统 | ✗ | ✓(app 沙箱 tmp/Documents) |
+| server/loopback socket + DNS | ✗ | ✗(沙箱禁 bind/listen;CI 无外网) |
+| 进程 fork/exec | ✗ | ✗(iOS 禁,android app 不能 exec) |
+| TTY / console | ✗ | ✗(测试 harness 无 tty) |
+| 可变 env / 桌面 OS 身份 | ✗ | ✗(env 受限,身份是 "ios"/"android") |
+
+所以 mobile **保留** wasm 必须丢的 threading / compression / secure_random / datetime / fs / stream,
+只**排除沙箱真缺**的那一小撮。
+
+### `_targetExcludes` 两层结构(`scripts/test/xtask_test_embedded.z42`)
+
+```
+desktop（非 wasm/非 mobile）        → 全跑，return false
+SHARED 缺口（wasm 与 mobile 都缺）  → net/* · io/process* · io/console* · io/env* ·
+                                      io/ansi_color · io/operating_system · io/platform ·
+                                      cli/cli_env_fallback_and_mutex
+WASM-ONLY 缺口（仅 if(isWasm)）     → threading/* · compression/* · *stream* · io/file* ·
+                                      io/directory* · io/path_glob* · io/gc_heap_snapshot ·
+                                      crypto/secure_random* · time/datetime
+```
+
+结果(533 例语料):wasm 排除 **121** → 可跑 412;mobile 排除 **68** → 可跑 **465**
+(mobile 比 wasm 多跑 53 例:13 threading + 11 compression + 22 io fs/stream + 熵/时钟等)。
+
+> **mobile fs/stream 的 KEEP-IN 是能力假设,靠 tier-2 CI 分片验证**:app 沙箱**有**可写 tmp,
+> 故 `file_temp`/`directory_temp`/memory+file stream 假定可跑、保留在语料内。若某例实际需要沙箱
+> 拒绝的东西(如硬链接、无写权限的固定路径),CI dispatch 会把它显成红,按证据加 mobile/android
+> 排除。**全覆盖的原则是「揭真实平台差异、按证据收敛」,不是「先排干净求绿」**——与 §5.7 一脉相承。
+
+### 首轮 discovery dispatch 结果(run 32422098038):iOS 全绿,android 6 例 fs 缺口
+
+三分片 dispatch(`gh workflow run ci.yml --ref tier2-mobile-coverage`):
+
+- **iOS(iossim)3 片全绿** —— 上表 KEEP-IN 假设对 iOS **全部成立**(threads / compression / 熵 /
+  时钟 / 沙箱 fs / stream 都跑通)。排除 68 → 可跑 465。
+- **android(emulator)3 片红在 6 个 `z42.io` case**(23 个 sub-test),分两类,故加**android-only**
+  排除(iOS 沙箱能跑这些,**不上移到 SHARED**),排除 74:
+  - **① 真能力缺口(永久 android 排除)**:`file_chmod_link_size` —— `File.Link`(硬链接)在 android
+    app 沙箱 `Permission denied`(symlink 却可以)。该测试**已**用 `File.CreateTempDir`,故非 /tmp 问题、
+    改不了 → 永久排除。
+  - **② 测试可移植性缺陷(临时 android 排除,待 /tmp follow-up)**:`directory` / `directory_copy` /
+    `file_extras` / `file_last_write_time` / `gc_heap_snapshot` —— 这 5 个测试**硬编码 `/tmp/…`** 写盘路径。
+    iOS-sim(跑在 macOS)与 desktop 有可写 `/tmp` 故过;**android emulator 无可写 `/tmp`** → `Read-only
+    file system (os error 30)` / `No such file`。android **有**可写 temp(`File.CreateTempDir`,
+    `file_temp` 在 android 已过)→ **真修 = 把这 5 个测试从硬编码 `/tmp` 改用 `CreateTempDir`(可移植,
+    android+iOS+desktop 都过)**,改完即**删掉这 5 个 android 排除**。该 /tmp 可移植性修复按裁决**拆为
+    独立 follow-up PR**(本 PR 先交付机制 + iOS 全覆盖 + android 暂排这 6 例保绿)。
+
+### 分片 matrix(`test-ios` / `test-android`,n=3)
+
+与 `test-wasm` 同构:`strategy.matrix.shard: [1,2,3]`,每片 `test embedded --rid <mobile> --shard k/3`
+取全覆盖 1/3 切片(`_shardCorpus`,不 cap),三片并集 = 100%。为何必须分片:mobile 可跑集(~465)
+远大于 wasm(~412),**未 cap 的全语料曾撞 60min emulator/sim 墙**(正是 60-smoke cap 的由来);
+n=3 让每片 ~155 例稳在墙内。
+
+**与 wasm 分片的差异**:wasm 的 R1–R7(`test platform wasm`)是独立 Playwright 步,只在 shard 1 跑;
+mobile 的嵌入 corpus **折叠进 R1–R7 的同一次 `xcodebuild test` / `connectedAndroidTest`**(单次
+sim/emulator 启动,§6),无法把 R1–R7 从 scheme 里摘出,故 R1–R7 在每片**冗余重跑**——相对每片的
+boot+corpus 成本可忽略,换来「不二次启动模拟器」。junit / logcat / crash-diagnostics artifact 均按
+`${{ matrix.shard }}` 命名避免矩阵内碰撞。代价同 §5.7 T1:每片独立 runner 重付一遍平台冷构建
+(iOS 冷编 rust + xcframework、android 冷编 cargo-ndk + AAR),AVD snapshot 缓存 key 与语料无关、
+跨片共享。
+
+本地无法可靠验 mobile 全跑(iOS 模拟器需 xcodebuild + 冷编 rust,android 需 emulator;且 libffi-sys
+的 iOS-sim 交叉编译在部分本机环境会卡),故 mobile 长尾**以 CI dispatch 为准**(与 wasm 首轮同法)。
 
 ## 6. CI 集成(add-wasm-testhost G6 —— 折叠进现有平台 job,不新增)
 
