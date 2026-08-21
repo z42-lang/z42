@@ -118,15 +118,16 @@ public static class IrDump {
         int afc = 0;
         i = 0;
         while (i < count) {
-            ExportedModuleZ own = ExportedTypeExtractor.Extract(cus[i], symbols, "");
+            // F3：仅抽自由函数（此前全量 Extract 只留 Functions，class/interface/enum/delegate/impl 全丢弃）。
+            ExportedFuncZ[] ownFuncs = ExportedTypeExtractor.ExtractFuncs(cus[i], symbols);
             int f = 0;
-            while (f < own.FunctionCount) {
+            while (f < ownFuncs.Length) {
                 if (afc == allFuncs.Length) {
                     ExportedFuncZ[] b = new ExportedFuncZ[allFuncs.Length * 2];
                     int k = 0; while (k < afc) { b[k] = allFuncs[k]; k = k + 1; }
                     allFuncs = b;
                 }
-                allFuncs[afc] = own.Functions[f];
+                allFuncs[afc] = ownFuncs[f];
                 afc = afc + 1;
                 f = f + 1;
             }
