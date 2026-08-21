@@ -1,16 +1,11 @@
 // add-directory-copy (2026-06-08)：Directory.Copy 递归目录拷贝本地测试。
 // 覆盖 recursive=true（嵌套子树全拷 + 内容一致）、recursive=false（只拷顶层
 // 文件、子目录不递归）、dst 自动创建（mkdir -p 语义）。
-// 隔离写盘到 /tmp/z42-dircopy-test-*（与 directory.z42 同款）。
+// 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoDirectoryCopyTests;
 
 using Std.Test;
 using Std.IO;
-
-// 已存在则清掉（防上次崩溃留残树污染断言）
-void _clean(string p) {
-    if (Directory.Exists(p)) { Directory.Delete(p, true); }
-}
 
 // 固定源树：top.txt + sub/mid.txt + sub/deep/leaf.txt
 void _makeSrc(string root) {
@@ -22,10 +17,9 @@ void _makeSrc(string root) {
 
 [Test]
 void test_copy_recursive_full_tree() {
-    string src = "/tmp/z42-dircopy-test-rec-src";
-    string dst = "/tmp/z42-dircopy-test-rec-dst";
-    _clean(src);
-    _clean(dst);
+    string base = File.CreateTempDir("z42dircopy");
+    string src = base + "/rec-src";
+    string dst = base + "/rec-dst";
     _makeSrc(src);
 
     Directory.Copy(src, dst, true);
@@ -44,16 +38,14 @@ void test_copy_recursive_full_tree() {
     Assert.Equal("M", File.ReadAllText(dst + "/sub/mid.txt"));
     Assert.Equal("L", File.ReadAllText(dst + "/sub/deep/leaf.txt"));
 
-    _clean(src);
-    _clean(dst);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_copy_nonrecursive_top_files_only() {
-    string src = "/tmp/z42-dircopy-test-flat-src";
-    string dst = "/tmp/z42-dircopy-test-flat-dst";
-    _clean(src);
-    _clean(dst);
+    string base = File.CreateTempDir("z42dircopy");
+    string src = base + "/flat-src";
+    string dst = base + "/flat-dst";
     _makeSrc(src);
 
     Directory.Copy(src, dst, false);
@@ -65,18 +57,15 @@ void test_copy_nonrecursive_top_files_only() {
     Assert.True(File.Exists(dst + "/top.txt"));
     Assert.False(Directory.Exists(dst + "/sub"));
 
-    _clean(src);
-    _clean(dst);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_copy_creates_missing_dst() {
     // dst（含中间目录）不存在时 Copy 自动建（mkdir -p 语义）
-    string src     = "/tmp/z42-dircopy-test-mkdst-src";
-    string dstRoot = "/tmp/z42-dircopy-test-mkdst-dst";
-    string dst     = dstRoot + "/nested";
-    _clean(src);
-    _clean(dstRoot);
+    string base    = File.CreateTempDir("z42dircopy");
+    string src     = base + "/mkdst-src";
+    string dst     = base + "/mkdst-dst/nested";
     Directory.Create(src);
     File.WriteAllText(src + "/only.txt", "X");
 
@@ -85,6 +74,5 @@ void test_copy_creates_missing_dst() {
     Assert.True(Directory.Exists(dst));
     Assert.Equal("X", File.ReadAllText(dst + "/only.txt"));
 
-    _clean(src);
-    _clean(dstRoot);
+    Directory.Delete(base, true);
 }
