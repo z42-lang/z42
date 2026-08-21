@@ -34,7 +34,8 @@ public static class ExportedTypeExtractor {
     // classNs：短类名→声明 ns 图（imported + 同包跨-ns），用于 impl target/trait FQ 化。
     public static ExportedModuleZ ExtractP(CompilationUnit cu, SymbolTable symbols, string ns,
                                            ExportedFuncZ[] allFuncs, int allFuncCount, StrMap pkgClassMap, StrMap classNs) {
-        ExportedModuleZ em = ExportedTypeExtractor.Extract(cu, symbols, ns, pkgClassMap, classNs);
+        // F3：skipFuncs=true —— 本文件函数会被 allFuncs 覆盖，跳过每文件函数抽取。
+        ExportedModuleZ em = ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, classNs, true);
         ExportedModuleZ r = new ExportedModuleZ(em.Namespace,
             em.Classes, em.ClassCount,
             em.Interfaces, em.InterfaceCount,
@@ -54,6 +55,39 @@ public static class ExportedTypeExtractor {
     }
 
     public static ExportedModuleZ Extract(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, StrMap classNs) {
+        return ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, classNs, false);
+    }
+
+    // F3（pipeline 优化）：仅提取自由函数（不 materialize class/interface/enum/delegate/impl）。
+    // BuildPackageCus pass-1 只为聚合全包 allFuncs 而遍历，此前误用全量 Extract 再丢弃 class/etc。
+    // 与全量 Extract 的 MethodDecl 分支逐字节等价（_extractFunc 不依赖 ns/pkgClassMap/classNs）。
+    public static ExportedFuncZ[] ExtractFuncs(CompilationUnit cu, SymbolTable symbols) {
+        ExportedFuncZ[] funcs = new ExportedFuncZ[4];
+        int fc = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = ExportedTypeExtractor._unwrap(cu.Decls[i]);
+            if (d is MethodDecl) {
+                MethodDecl md = d as MethodDecl;
+                if (md.HasBody) {
+                    if (fc == funcs.Length) {
+                        ExportedFuncZ[] b = new ExportedFuncZ[funcs.Length * 2];
+                        int k = 0; while (k < fc) { b[k] = funcs[k]; k = k + 1; }
+                        funcs = b;
+                    }
+                    funcs[fc] = ExportedTypeExtractor._extractFunc(md, symbols);
+                    fc = fc + 1;
+                }
+            }
+            i = i + 1;
+        }
+        ExportedFuncZ[] r = new ExportedFuncZ[fc];
+        int t = 0; while (t < fc) { r[t] = funcs[t]; t = t + 1; }
+        return r;
+    }
+
+    // skipFuncs：ExtractP 路径下自由函数会被全包 allFuncs 覆盖，故跳过每文件函数抽取（F3）。
+    private static ExportedModuleZ _extractCore(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, StrMap classNs, bool skipFuncs) {
         // 短类名 → ClassDecl（本 CU 内；TSIG 继承方法合并走 base 链需祖先 ClassDecl 取自有方法 AST 序+签名）。
         // z42c.syntax/ir 继承均同文件（Expr+子类 / IrInstr+子类）→ per-CU 图足够；跨文件继承待扩展为包级图。G18。
         // arity-mangle 检测（同 SymbolCollector._passClassStubs）：泛型类以 Name$N 键存入 classMap。
@@ -109,7 +143,7 @@ public static class ExportedTypeExtractor {
                     classes[cc] = ExportedTypeExtractor._extractClass(c, symbols, classMap, pkgClassMap);
                     cc = cc + 1;
                 }
-            } else if (d is MethodDecl) {
+            } else if (!skipFuncs && d is MethodDecl) {
                 MethodDecl md = d as MethodDecl;
                 if (md.HasBody) {
                     if (fc == funcs.Length) {
