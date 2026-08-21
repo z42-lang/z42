@@ -96,7 +96,12 @@ pub struct RegionEntry<T> {
     /// given only a `&RegionEntry<T>` (no separate handle needed).
     /// Set by `Region::alloc`; immutable thereafter for the entry's
     /// lifetime (a single slot keeps its location across reuse).
-    pub(crate) location: (u16, u16),
+    /// fix-region-chunk-idx-u16-overflow (2026-08-21): chunk_idx widened u16→u32.
+    /// A full 24-lib stdlib build bump-allocates past 65 535 chunks (× CHUNK_SIZE=256
+    /// = 16.7M slots); the old u16 chunk index overflowed at `ci + 1`, wrapping
+    /// `next_bump` to (0,0) → fresh allocations overwrote live chunk-0 objects →
+    /// non-deterministic heap corruption. entry_idx stays u16 (CHUNK_SIZE ≤ 65 536).
+    pub(crate) location: (u32, u16),
 
     /// **add-gc-softref (2026-05-26)**: count of live `SoftGcRef<T>`
     /// handles pointing at this entry. > 0 means the entry is
@@ -119,14 +124,14 @@ impl<T> RegionEntry<T> {
     /// standalone (no-Region) allocations. Wraps a fresh entry with
     /// generation=0, alive=true. See refs.rs for the lifetime model
     /// (intentional leak — process-wide static). `location` is set to
-    /// `(u16::MAX, u16::MAX)` — sentinel meaning "not in any Region"
+    /// `(u32::MAX, u16::MAX)` — sentinel meaning "not in any Region"
     /// so `finalize_now` skips free-list bookkeeping for these
     /// standalone entries.
     pub fn new_for_test(value: T) -> Self {
-        Self::new(value, (u16::MAX, u16::MAX))
+        Self::new(value, (u32::MAX, u16::MAX))
     }
 
-    fn new(value: T, location: (u16, u16)) -> Self {
+    fn new(value: T, location: (u32, u16)) -> Self {
         Self {
             value:          Mutex::new(value),
             marked:         AtomicU8::new(0),
@@ -191,7 +196,7 @@ impl<T> RegionEntry<T> {
 /// in `refs.rs` enforces `Clone`-only (per design D9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegionHandle {
-    pub(crate) chunk_idx: u16,
+    pub(crate) chunk_idx: u32,
     pub(crate) entry_idx: u16,
     pub(crate) generation: u32,
 }
@@ -207,10 +212,10 @@ pub struct Region<T> {
 
     /// (chunk_idx, entry_idx) — next bump-pointer position. Advances
     /// linearly; never goes back. Free list pops are separate.
-    next_bump: (u16, u16),
+    next_bump: (u32, u16),
 
     /// Tombstoned slots reusable by fresh allocs. LIFO (Vec::pop).
-    free_list: Vec<(u16, u16)>,
+    free_list: Vec<(u32, u16)>,
 
     /// Track initialized vs uninitialized slots. Bit `(ci, ei)` is
     /// set if the slot is initialized (was alloc'd at least once).
@@ -226,7 +231,7 @@ pub struct Region<T> {
     /// promote (swap_remove once threshold reached), and tombstone
     /// (swap_remove if was young). Minor GC iterates this list for
     /// O(young) cost instead of walking all chunks.
-    young_list: Vec<(u16, u16)>,
+    young_list: Vec<(u32, u16)>,
 
     /// **add-generational-gc P0 (2026-05-22)**: per-chunk dirty card
     /// bitmap. Bit `ci` set when an old→young write happened to an
@@ -377,7 +382,7 @@ impl<T> Region<T> {
     /// `(chunk_idx, entry_idx)` pair from `young_list` via
     /// `swap_remove` (O(young_list.len()) lookup — acceptable since
     /// tombstone is sweep-time work, not the alloc hot path).
-    fn remove_from_young_list(&mut self, ci: u16, ei: u16) {
+    fn remove_from_young_list(&mut self, ci: u32, ei: u16) {
         if let Some(pos) = self.young_list.iter().position(|&p| p == (ci, ei)) {
             self.young_list.swap_remove(pos);
         }
@@ -444,7 +449,7 @@ impl<T> Region<T> {
     /// `GenerationalMarkSweep` when an old entry writes a young
     /// reference into one of its slots. The minor GC re-roots from
     /// dirty cards so the young target isn't incorrectly swept.
-    pub fn mark_card_dirty(&mut self, chunk_idx: u16) {
+    pub fn mark_card_dirty(&mut self, chunk_idx: u32) {
         let ci = chunk_idx as usize;
         if ci < self.card_dirty.len() {
             self.card_dirty[ci] |= 1u32;
@@ -454,7 +459,7 @@ impl<T> Region<T> {
     /// **add-generational-gc P0 (2026-05-22)**: query a chunk's
     /// card-dirty state. Mostly for tests; minor GC iterates via
     /// `iterate_dirty_cards`.
-    pub fn is_card_dirty(&self, chunk_idx: u16) -> bool {
+    pub fn is_card_dirty(&self, chunk_idx: u32) -> bool {
         let ci = chunk_idx as usize;
         ci < self.card_dirty.len() && (self.card_dirty[ci] & 1u32) != 0
     }
@@ -493,7 +498,7 @@ impl<T> Region<T> {
                     continue;
                 }
                 let h = RegionHandle {
-                    chunk_idx:  ci as u16,
+                    chunk_idx:  ci as u32,
                     entry_idx:  ei as u16,
                     generation: entry.generation.load(Ordering::Acquire),
                 };
@@ -517,7 +522,7 @@ impl<T> Region<T> {
                     continue;
                 }
                 let h = RegionHandle {
-                    chunk_idx:  ci as u16,
+                    chunk_idx:  ci as u32,
                     entry_idx:  ei as u16,
                     generation: entry.generation.load(Ordering::Acquire),
                 };
@@ -545,7 +550,7 @@ impl<T> Region<T> {
         let was_young = entry.gen_age() < PROMOTION_THRESHOLD;
         entry.generation.fetch_add(1, Ordering::AcqRel);
         let (ci, ei) = entry.location;
-        if ci != u16::MAX {
+        if ci != u32::MAX {
             self.free_list.push((ci, ei));
             if was_young {
                 self.remove_from_young_list(ci, ei);
@@ -608,18 +613,18 @@ impl<T> Region<T> {
 pub enum Violation {
     /// young_list 中找到 gen_age >= PROMOTION_THRESHOLD 的 entry
     /// (generational invariant).
-    OldEntryInYoungList { chunk_idx: u16, entry_idx: u16, gen_age: u8 },
+    OldEntryInYoungList { chunk_idx: u32, entry_idx: u16, gen_age: u8 },
     /// alive young entry (gen_age < threshold) 不在 young_list 中
     /// (generational invariant).
-    YoungEntryNotInList { chunk_idx: u16, entry_idx: u16 },
+    YoungEntryNotInList { chunk_idx: u32, entry_idx: u16 },
     /// young_list 中同一 (ci, ei) 出现多次（违反 swap_remove 契约）.
-    DuplicateInYoungList { chunk_idx: u16, entry_idx: u16 },
+    DuplicateInYoungList { chunk_idx: u32, entry_idx: u16 },
     /// free_list 中找到 alive=true 的 slot（违反 tombstone 契约 —
     /// custom-allocator invariant）.
-    AliveSlotInFreeList { chunk_idx: u16, entry_idx: u16 },
+    AliveSlotInFreeList { chunk_idx: u32, entry_idx: u16 },
     /// `entry.location` 不等于实际 (chunk_idx, entry_idx)（自定位错乱 —
     /// custom-allocator invariant）.
-    LocationMismatch { chunk_idx: u16, entry_idx: u16, recorded: (u16, u16) },
+    LocationMismatch { chunk_idx: u32, entry_idx: u16, recorded: (u32, u16) },
     /// `card_dirty.len()` 与 `chunks.len()` 不一致（generational invariant；
     /// alloc-time grow 应保持一一对应）.
     CardDirtyLengthMismatch { expected: usize, actual: usize },
@@ -672,7 +677,7 @@ impl<T> Region<T> {
 
         // 2. young_list: no duplicates, all gen_age < threshold,
         //    location matches.
-        let mut in_young: std::collections::HashSet<(u16, u16)> =
+        let mut in_young: std::collections::HashSet<(u32, u16)> =
             std::collections::HashSet::with_capacity(self.young_list.len());
         for &(ci, ei) in &self.young_list {
             if !in_young.insert((ci, ei)) {
@@ -699,19 +704,19 @@ impl<T> Region<T> {
                 }
                 let entry = unsafe { chunk[ei].assume_init_ref() };
                 // Location self-consistency.
-                if entry.location != (ci as u16, ei as u16) {
+                if entry.location != (ci as u32, ei as u16) {
                     return Err(Violation::LocationMismatch {
-                        chunk_idx: ci as u16, entry_idx: ei as u16,
+                        chunk_idx: ci as u32, entry_idx: ei as u16,
                         recorded: entry.location,
                     });
                 }
                 // Alive young entries must be in young_list.
                 if entry.alive.load(Ordering::Acquire)
                     && entry.gen_age() < PROMOTION_THRESHOLD
-                    && !in_young.contains(&(ci as u16, ei as u16))
+                    && !in_young.contains(&(ci as u32, ei as u16))
                 {
                     return Err(Violation::YoungEntryNotInList {
-                        chunk_idx: ci as u16, entry_idx: ei as u16,
+                        chunk_idx: ci as u32, entry_idx: ei as u16,
                     });
                 }
             }
