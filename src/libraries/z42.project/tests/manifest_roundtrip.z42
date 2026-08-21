@@ -68,3 +68,21 @@ void test_optimize_section_absent_empty() {
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.OptimizeCount);   // 缺 [optimize] → 空（消费方回落 profile 默认）
 }
+
+// ── [analyzers] 编译期 handler zpkg 引用（attribute-handler-registry D9）───────
+[Test]
+void test_analyzers_section_parsed() {
+    // [analyzers] 值同 [dependencies]（版本串），复用 _parseDeps → DepEntry。
+    string toml = "[project]\nname = \"a\"\nversion = \"0.1.0\"\n\n[analyzers]\n\"demo.noemptycatch\" = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.AnalyzerCount);
+    Assert.Equal("demo.noemptycatch", m.Analyzers[0].Name);
+    Assert.Equal("0.1.0", m.Analyzers[0].Version);
+}
+
+[Test]
+void test_analyzers_section_absent_empty() {
+    string toml = "[project]\nname = \"a\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.AnalyzerCount);   // 缺 [analyzers] → 空（无外部 handler 加载）
+}

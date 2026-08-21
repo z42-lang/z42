@@ -47,7 +47,17 @@ public static class ManifestLoader {
                                    benches, benches.Length,
                                    examples, examples.Length);
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
+        ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
         return pm;
+    }
+
+    // ── [analyzers]（attribute-handler-registry D9）───────────────────────────
+    // 独立引用段：声明「加载进编译器、编译期运行、不链入目标程序」的 analyzer/generator zpkg。
+    // 值同 [dependencies]（字符串版本或 { version, path } 表）→ 复用 _parseDeps；语义差异（加载到哪、
+    // 是否链入）由消费方（z42c）按段区分，非解析层。构造后填（默认空），避免撑大构造函数。
+    private static void _parseAnalyzers(TomlValue root, ProjectManifest pm) {
+        DepEntry[] az = ManifestLoader._parseDeps(root, "analyzers");
+        pm.Analyzers = az; pm.AnalyzerCount = az.Length;
     }
 
     // ── [optimize] ───────────────────────────────────────────────────────────
