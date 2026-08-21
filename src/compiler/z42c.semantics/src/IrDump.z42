@@ -161,7 +161,7 @@ public static class IrDump {
             if (cachedModules != null && cachedModules[i] != null) {
                 // cached：typecheck/codegen 跳过；ns/usings 来自当前 AST/源（与 fresh 同源）。
                 string nsReal = cus[i].HasNamespace ? cus[i].Namespace : "";
-                string[] us = IrDump.ExtractUsings(srcs[i], files[i]);
+                string[] us = IrDump.UsingsOf(cus[i]);   // F1：已解析 CU 在手，免第三次 reparse
                 r[i] = new CompiledModuleZ(cachedModules[i], nsReal, us, us.Length,
                                            new string[0], 0, 0);
                 r[i].DiagMsgs = new string[0]; r[i].DiagCount = 0;
@@ -616,10 +616,8 @@ public static class IrDump {
         return cm2;
     }
 
-    // 公开：仅 usings + 导出（driver 组装期先收 usings 决定激活集时用）。
-    public static string[] ExtractUsings(string src, string file) {
-        var p = new Parser(src, file);
-        var cu = p.ParseCompilationUnit();
+    // 公开：从**已解析** CU 收 using 名，零 reparse（F1）。包编译已有 CompilationUnit 在手时走此入口。
+    public static string[] UsingsOf(CompilationUnit cu) {
         string[] usings = new string[8];
         int uc = 0;
         int i = 0;
@@ -640,6 +638,11 @@ public static class IrDump {
         i = 0;
         while (i < uc) { r[i] = usings[i]; i = i + 1; }
         return r;
+    }
+
+    // 公开：文本入口（仅 --emit-zbc 无-CU 独立路径 Main.z42 用）。有 CU 时改用 UsingsOf 免 reparse（F1）。
+    public static string[] ExtractUsings(string src, string file) {
+        return UsingsOf(new Parser(src, file).ParseCompilationUnit());
     }
 
     // 公开：源→导出类型签名（TSIG；port-z42c-tsig）。独立 parse+collect（与 BuildModule 分离，
