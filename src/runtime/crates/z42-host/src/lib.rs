@@ -217,6 +217,7 @@ pub fn run_app(
         libs_dir,
         program_args: args,
         print_stats: false,
+        stats_json: false,
     };
     z42::app::run(file, entry, opts).map_err(|e| HostError::VmException(format!("{e:#}")))
 }
