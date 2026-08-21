@@ -1,0 +1,24 @@
+namespace Std.Reflection;
+
+// Common base of MethodInfo and ConstructorInfo (mirrors C#
+// `System.Reflection.MethodBase`). Holds the members shared by methods and
+// constructors — static-ness, the qualified backing-function name, and the
+// parameter list. `Invoke` is defined by each subclass: `MethodInfo.Invoke`
+// calls the method; `ConstructorInfo.Invoke` allocates and constructs an instance.
+// Read-only by convention — populated only by the VM reflection builtins.
+public class MethodBase : MemberInfo {
+    // True for static methods (no implicit `this`). Constructors are never static.
+    public bool IsStatic;
+
+    // Qualified backing-function name (VM-written), used for reflective invocation
+    // and (on MethodInfo) attribute-factory resolution.
+    public string __qualified;
+
+    // Backing parameter array written by the VM; exposed via GetParameters().
+    public ParameterInfo[] __parameters;
+
+    // The parameters, in declaration order (excludes the implicit `this`).
+    public ParameterInfo[] GetParameters() {
+        return this.__parameters;
+    }
+}

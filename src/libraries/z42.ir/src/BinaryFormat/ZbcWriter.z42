@@ -125,6 +125,10 @@ public static class ZbcWriter {
             while (pn < fdef.ParamNames.Length) { pool.Intern(fdef.ParamNames[pn]); pn = pn + 1; }
             int pdk = 0;
             while (pdk < fdef.ParamDefaultKinds.Length) { if (fdef.ParamDefaultKinds[pdk] == 5) { pool.Intern(fdef.ParamDefaultStrs[pdk]); } pdk = pdk + 1; }
+            // add-reflective-invoke：方法级泛型类型形参名（写序=params 后、attr 前，与 WriteSigEntries 一致）。
+            // 非泛型方法 TypeParamCount=0 → 不 intern → STRS 池逐字节不变。
+            int ftp = 0;
+            while (ftp < fdef.TypeParamCount) { pool.Intern(fdef.TypeParams[ftp]); ftp = ftp + 1; }
             // SIGS attr-ref 串（add-attribute-reflection）：函数级 + 每参数级。
             int fax = 0;
             while (fax < fdef.AttrCount) { pool.Intern(fdef.Attrs[fax].TypeName); pool.Intern(fdef.Attrs[fax].FactoryFunc); fax = fax + 1; }
@@ -440,7 +444,19 @@ public static class ZbcWriter {
                 else if (dk == 5) { w.WriteU32(pool.Idx(f.ParamDefaultStrs[p])); }    // str idx
                 p = p + 1;
             }
-            w.WriteU8(0);    // tpCount（z42c IrFunction 无 typeparam → ZW-2 补）
+            // add-reflective-invoke：方法级泛型类型形参（原恒写 0；SIGS 段格式早已预留此槽，reader
+            // 全链路已读 → 填真实值无格式 bump）。每 tp：nameIdx:u32 + 约束包（cflags=0 + ifaceCount=0；
+            // where 约束反射式 Deferred）。约束包格式镜像类 writer（TYPE 段 tpCount+bundle）。
+            int mtp = f.TypeParamCount;
+            if (mtp > 255) { mtp = 255; }
+            w.WriteU8(mtp);
+            int mtpi = 0;
+            while (mtpi < mtp) {
+                w.WriteU32(pool.Idx(f.TypeParams[mtpi]));
+                w.WriteU8(0);   // cflags=0：无 type-param-ref、无 class/struct/base 约束
+                w.WriteU8(0);   // ifaceCount=0：无接口约束
+                mtpi = mtpi + 1;
+            }
             w.WriteU16(f.AttrCount);   // attrCount（zbc 1.11，add-attribute-reflection）
             int fai = 0;
             while (fai < f.AttrCount) {

@@ -1,0 +1,74 @@
+// Test: constructor reflection — Type.GetConstructors() + ConstructorInfo.Invoke(args)
+// (add-reflective-invoke). Verifies the MethodBase/ConstructorInfo hierarchy, ctor
+// enumeration (multiple overloads), parameterised construction (allocate + run ctor +
+// return initialized instance), arity errors, and ctor-body throw preservation — all
+// via reflection (no casts: results read back through MethodInfo.Invoke).
+using Std.Reflection;
+
+class Point {
+    public int x;
+    public int y;
+    public Point(int px, int py) { this.x = px; this.y = py; }
+    public Point()               { this.x = -1; this.y = -1; }
+    public int Sum() { return this.x + this.y; }
+}
+
+class Boom {
+    public Boom(int n) { throw new Std.Exception("boom"); }
+}
+
+// Reflectively call the no-arg instance method `Sum` on `obj` (returns object; the
+// caller compares via Assert.Equal, mirroring the boxed-int assertion pattern).
+object CallSum(object obj) {
+    Type t = obj.GetType();
+    MethodInfo[] ms = t.GetMethods();
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == "Sum") { return ms[i].Invoke(obj, new object[]{}); }
+        i = i + 1;
+    }
+    return null;
+}
+
+void Main() {
+    Type t = typeof(Point);
+
+    // ── Enumeration + hierarchy ────────────────────────────────────────────
+    ConstructorInfo[] ctors = t.GetConstructors();
+    Assert.Equal(2, ctors.Length);
+    ConstructorInfo two = null;
+    ConstructorInfo zero = null;
+    int i = 0;
+    while (i < ctors.Length) {
+        Assert.True(ctors[i] is MethodBase);        // ConstructorInfo : MethodBase
+        Assert.Equal(false, ctors[i].IsStatic);     // ctors are never static
+        int pc = ctors[i].GetParameters().Length;
+        if (pc == 2) { two = ctors[i]; }
+        if (pc == 0) { zero = ctors[i]; }
+        i = i + 1;
+    }
+    Assert.True(two != null);
+    Assert.True(zero != null);
+
+    // ── Parameterised Invoke → initialized instance ────────────────────────
+    object p = two.Invoke(new object[]{ 3, 4 });
+    Assert.Equal("Point", p.GetType().Name);
+    Assert.Equal(7, CallSum(p));                    // ctor body ran: x=3, y=4
+
+    // ── No-arg Invoke ──────────────────────────────────────────────────────
+    object q = zero.Invoke(new object[]{});
+    Assert.Equal(-2, CallSum(q));                   // x=-1, y=-1
+
+    // ── Arity mismatch → catchable Std.Exception ───────────────────────────
+    bool arityThrew = false;
+    try { two.Invoke(new object[]{ 1 }); }
+    catch (Std.Exception e) { arityThrew = true; }
+    Assert.True(arityThrew);
+
+    // ── Ctor-body throw propagates with its original type ──────────────────
+    ConstructorInfo bc = typeof(Boom).GetConstructors()[0];
+    bool caught = false;
+    try { bc.Invoke(new object[]{ 1 }); }
+    catch (Std.Exception e) { caught = true; }
+    Assert.True(caught);
+}

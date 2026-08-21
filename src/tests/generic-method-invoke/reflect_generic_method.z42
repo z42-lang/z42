@@ -1,0 +1,78 @@
+// Test: reflective generic-method invocation — MethodInfo.MakeGenericMethod(..).Invoke(..)
+// (add-reflective-invoke G2). Verifies IsGenericMethod / IsGenericMethodDefinition /
+// GetGenericArguments (definition placeholders + bound args), MakeGenericMethod arity,
+// and that the constructed MethodInfo's Invoke threads method_type_args into the callee
+// frame so typeof(T) / default(T) / new T() / arg-passing behave exactly as a direct
+// `Foo<T>()` call. Static + instance paths both covered. This is the reflective serde
+// substrate (`JsonSerializer.Deserialize<T>`).
+using Std.Reflection;
+
+class Box { public int V; }
+
+class Reflector {
+    public static string TypeName<T>()    { return typeof(T).Name; }
+    public static T      Zero<T>()        { return default(T); }
+    public static string NewTypeName<T>() { object o = new T(); return o.GetType().Name; }
+    public static T      Echo<T>(T x)     { return x; }
+    public          string InstName<T>()  { return typeof(T).Name; }   // instance generic method
+    public int Plain(int a) { return a; }                              // non-generic control
+
+    public static MethodInfo Find(Type t, string name) {
+        MethodInfo[] ms = t.GetMethods();
+        int i = 0;
+        while (i < ms.Length) {
+            if (ms[i].Name == name) { return ms[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
+
+void Main() {
+    Type rt = typeof(Reflector);
+
+    // ── Definition-state reflection ────────────────────────────────────────
+    MethodInfo def = Reflector.Find(rt, "TypeName");
+    Assert.True(def.IsGenericMethod);
+    Assert.True(def.IsGenericMethodDefinition);
+    Type[] tp = def.GetGenericArguments();          // placeholders from declared names
+    Assert.Equal(1, tp.Length);
+    Assert.Equal("T", tp[0].Name);
+
+    // Non-generic method is not misreported.
+    MethodInfo plain = Reflector.Find(rt, "Plain");
+    Assert.Equal(false, plain.IsGenericMethod);
+    Assert.Equal(false, plain.IsGenericMethodDefinition);
+    Assert.Equal(0, plain.GetGenericArguments().Length);
+
+    // ── MakeGenericMethod → constructed state ──────────────────────────────
+    MethodInfo made = def.MakeGenericMethod(typeof(Box));
+    Assert.True(made.IsGenericMethod);
+    Assert.Equal(false, made.IsGenericMethodDefinition);
+    Type[] ta = made.GetGenericArguments();         // bound argument, not placeholder
+    Assert.Equal(1, ta.Length);
+    Assert.Equal("Box", ta[0].Name);
+
+    // ── Static Invoke: typeof(T) reflection == direct call ─────────────────
+    object r = made.Invoke(null, new object[]{});
+    Assert.Equal(Reflector.TypeName<Box>(), r);     // "Box", threaded through the frame
+    // Reflective typeof(T).Name must equal the direct `TypeName<int>()` (the invariant —
+    // whatever the canonical primitive name is, both paths must agree).
+    Assert.Equal(Reflector.TypeName<int>(),
+                 Reflector.Find(rt, "TypeName").MakeGenericMethod(typeof(int)).Invoke(null, new object[]{}));
+
+    // ── default(T): value → zero, reference → null ─────────────────────────
+    Assert.Equal(0, Reflector.Find(rt, "Zero").MakeGenericMethod(typeof(int)).Invoke(null, new object[]{}));
+    Assert.True(Reflector.Find(rt, "Zero").MakeGenericMethod(typeof(Box)).Invoke(null, new object[]{}) == null);
+
+    // ── new T() via reflection ─────────────────────────────────────────────
+    Assert.Equal("Box", Reflector.Find(rt, "NewTypeName").MakeGenericMethod(typeof(Box)).Invoke(null, new object[]{}));
+
+    // ── arg passing: Echo<int>(42) ─────────────────────────────────────────
+    Assert.Equal(42, Reflector.Find(rt, "Echo").MakeGenericMethod(typeof(int)).Invoke(null, new object[]{ 42 }));
+
+    // ── Instance generic method: receiver + typeArgs orthogonal ────────────
+    Reflector inst = new Reflector();
+    MethodInfo im = Reflector.Find(rt, "InstName").MakeGenericMethod(typeof(Box));
+    Assert.Equal("Box", im.Invoke(inst, new object[]{}));
+}

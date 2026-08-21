@@ -4,12 +4,11 @@ namespace Std.Reflection;
 // Mirrors C# `System.Reflection.MethodInfo`. Non-generic `Invoke` lands 0.3.12
 // (add-method-invoke-non-generic); generic-method Invoke waits on generic
 // instantiation (0.4.x G).
-public class MethodInfo : MemberInfo {
+public class MethodInfo : MethodBase {
     // Return type, e.g. typeof(int) / typeof(void). Written by the VM.
     public Std.Type ReturnType;
 
-    // True for static methods (no implicit `this`).
-    public bool IsStatic;
+    // IsStatic is inherited from MethodBase.
 
     // True for virtual / override / abstract methods (add-method-modifiers, unify
     // P1-c: now authoritative from the declared modifier, not a vtable heuristic).
@@ -30,19 +29,9 @@ public class MethodInfo : MemberInfo {
     public bool IsPublic;
     public bool IsPrivate;
 
-    // Backing parameter array written by the VM; exposed via GetParameters().
-    public ParameterInfo[] __parameters;
-
-    // The method's parameters, in declaration order.
-    public ParameterInfo[] GetParameters() {
-        return this.__parameters;
-    }
+    // __parameters / GetParameters() and __qualified are inherited from MethodBase.
 
     // ── Custom attributes (C3b add-attribute-reflection-methods) ────────────
-
-    // Qualified function name (VM-written), used to resolve this method's
-    // attribute factories.
-    public string __qualified;
 
     // Cached attribute instances (see Type.GetCustomAttributes for rationale).
     public Std.Attribute[] __attrCache;
@@ -83,4 +72,40 @@ public class MethodInfo : MemberInfo {
     // only. The VM reads __qualified / IsStatic from this MethodInfo.
     [Native("__method_invoke")]
     public extern object Invoke(object obj, object[] args);
+
+    // ── Generic-method reflection (add-reflective-invoke, G2) ───────────────
+    // Mirrors C# `MethodInfo.{IsGenericMethod,IsGenericMethodDefinition,
+    // GetGenericArguments,MakeGenericMethod}`. A method reflected from a generic
+    // definition (`Foo<T>()`) is a *definition* (IsGenericMethodDefinition == true);
+    // `MakeGenericMethod` binds type arguments and returns a *constructed* MethodInfo
+    // (same type, no separate subtype — C# semantics), on which
+    // IsGenericMethodDefinition == false and GetGenericArguments() returns the bound
+    // arguments. Constructed-MethodInfo.Invoke materializes typeof(T)/new T()/default(T)
+    // exactly as a direct `Foo<Arg>()` call.
+
+    // True when this method declares type parameters (definition or constructed).
+    // Written by the VM (definition) / MakeGenericMethod (constructed).
+    public bool IsGenericMethod;
+
+    // True for an unbound generic method definition; false once type arguments are
+    // bound via MakeGenericMethod.
+    public bool IsGenericMethodDefinition;
+
+    // Declared type-parameter names (e.g. ["T","U"]); VM-written. Backs
+    // GetGenericArguments() for the definition (placeholder Types from these names).
+    public string[] __typeParamNames;
+
+    // Bound type arguments (Type[]) set by MakeGenericMethod on the constructed
+    // MethodInfo; null on a definition. Threaded into the callee frame by Invoke.
+    public Std.Type[] __typeArgs;
+
+    // The method's type parameters (definition) or bound type arguments (constructed).
+    [Native("__method_generic_arguments")]
+    public extern Std.Type[] GetGenericArguments();
+
+    // Bind type arguments to a generic method definition, returning the constructed
+    // MethodInfo. Throws Std.Exception if this method is not a generic definition or
+    // the argument count differs from the declared type-parameter count.
+    [Native("__method_make_generic")]
+    public extern MethodInfo MakeGenericMethod(params Std.Type[] typeArgs);
 }

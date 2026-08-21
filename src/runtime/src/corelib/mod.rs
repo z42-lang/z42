@@ -223,6 +223,8 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__type_element",       reflection::builtin_type_element),
     ("__type_fields",        reflection::builtin_type_fields),
     ("__type_methods",       reflection::builtin_type_methods),
+    // add-reflective-invoke: constructor reflection (ConstructorInfo enumeration).
+    ("__type_constructors",  reflection::builtin_type_constructors),
     ("__type_base",          reflection::builtin_type_base),
     ("__type_generic_args",  reflection::builtin_type_generic_args),
     ("__type_interfaces",    reflection::builtin_type_interfaces),
@@ -256,6 +258,11 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // add-method-invoke-non-generic (0.3.12): reflective invocation primitives.
     ("__type_get_type",      reflection::builtin_type_get_type),
     ("__method_invoke",      reflection::builtin_method_invoke),
+    // add-reflective-invoke (G2): generic-method reflection — MakeGenericMethod
+    // produces a constructed MethodInfo; GetGenericArguments reads type params/args;
+    // Invoke on the constructed MethodInfo threads __typeArgs into the callee frame.
+    ("__method_make_generic",       reflection::builtin_method_make_generic),
+    ("__method_generic_arguments",  reflection::builtin_method_generic_arguments),
     // add-property-getvalue-setvalue: reflective property read/write (reuses the
     // non-generic invoke path via get_<X>/set_<X> accessors).
     ("__property_get_value", reflection::builtin_property_get_value),
@@ -266,6 +273,8 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__field_set_value",    reflection::builtin_field_set_value),
     // retire-test-runner: no-arg reflective construction (test-class instantiation).
     ("__activator_create",   reflection::builtin_activator_create),
+    // add-reflective-invoke: ConstructorInfo.Invoke — parameterised construction.
+    ("__ctor_invoke",        reflection::builtin_ctor_invoke),
     // retire-test-runner: load a compiled test module + return its TIDX entries.
     ("__load_module",        reflection::builtin_load_module),
     // retire-test-runner: invoke a free/static [Test]/[Benchmark] function by FQN

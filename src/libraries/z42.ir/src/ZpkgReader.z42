@@ -219,6 +219,8 @@ public static class ZpkgReader {
             while (j < tpc) {
                 c.U32();                       // tp 名
                 ZpkgReader._skipConstraintBundle(c);
+                j = j + 1;                     // add-reflective-invoke：曾漏增（tpc 恒 0 时无害）；
+                                               // 方法级泛型 tpc>0 后不增 → 无限读越界。
             }
             int attrc = c.U16();
             j = 0;
