@@ -1547,7 +1547,11 @@ jobs:
     # the whole corpus) runs ~27min and was hitting the 30min cap → the job was
     # cancelled at that step and the in-browser test never ran (repeatedly). The
     # rust-cache above cuts the wasm-pack part; the higher cap absorbs the rest.
-    timeout-minutes: 60
+    # fix-wasm-shard-timeout: 60→75. The corpus keeps growing (each shard's
+    # in-browser Playwright run passed 10min → hit the old 620s test-timeout), so
+    # the raised Playwright timeout (playwright.embedded.config.ts) needs more room
+    # under the job wall alongside a cold ~27min build; 75 matches toolchain-bootstrap.
+    timeout-minutes: 75
     needs: [changes, toolchain-bootstrap]
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
