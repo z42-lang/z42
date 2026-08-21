@@ -184,6 +184,13 @@ public sealed class Type : MemberInfo {
     [Native("__type_methods")]
     public extern Std.Reflection.MethodInfo[] GetMethods();
 
+    // Constructors declared on this type (add-reflective-invoke). Each
+    // ConstructorInfo.Invoke(args) allocates + constructs a new instance. Empty for
+    // primitives / arrays / interfaces. Overload selection by parameter types
+    // (GetConstructor(Type[])) is deferred — enumerate + inspect GetParameters().
+    [Native("__type_constructors")]
+    public extern Std.Reflection.ConstructorInfo[] GetConstructors();
+
     // Fields and methods together.
     [Native("__type_members")]
     public extern Std.Reflection.MemberInfo[] GetMembers();

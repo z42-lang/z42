@@ -16,7 +16,7 @@
 //!     method's `Function` via `ctx.try_lookup_function` — no persisted
 //!     per-type method table, no wire-format change.
 
-use crate::interp::{exec_function, ExecOutcome};
+use crate::interp::{exec_function, exec_function_with_type_args, ExecOutcome};
 use crate::metadata::{well_known_names, NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -26,6 +26,7 @@ use std::sync::Arc;
 const STD_OBJECT: &str = "Std.Object";
 const STD_REFLECTION_FIELDINFO: &str = "Std.Reflection.FieldInfo";
 const STD_REFLECTION_METHODINFO: &str = "Std.Reflection.MethodInfo";
+const STD_REFLECTION_CONSTRUCTORINFO: &str = "Std.Reflection.ConstructorInfo";
 const STD_REFLECTION_PARAMINFO: &str = "Std.Reflection.ParameterInfo";
 const STD_REFLECTION_PROPERTYINFO: &str = "Std.Reflection.PropertyInfo";
 
@@ -599,23 +600,79 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_array(out))
 }
 
-/// Build a `MethodInfo` by resolving the backing `Function` for its signature.
-/// Missing Function (extern/native or unresolved) → name-only MethodInfo.
-fn build_method_info(
+/// `__type_constructors(typeObj) -> ConstructorInfo[]` (add-reflective-invoke).
+/// Constructors are ordinary functions named like the class (`<ClassFQN>.<SimpleName>`,
+/// with a `$N$types` overload-mangle suffix), living in the module's `func_index`
+/// (NOT in the type's `own_methods`/vtable — a single non-overloaded constructor is
+/// absent there). Scan `func_index` for keys whose segment after `<ClassFQN>.` and
+/// before the first `$` equals the class simple name; dedup by function index (a
+/// constructor may be registered under bare + mangled dispatch keys), sorted for a
+/// deterministic order.
+pub fn builtin_type_constructors(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let td = match type_handle(args) {
+        Some(t) => t,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let class_simple = td.name.rsplit('.').next().unwrap_or(td.name.as_str());
+    let module_arc = match ctx.core.module.as_ref() {
+        Some(m) => m.clone(),
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let module = module_arc.as_ref();
+    let prefix = format!("{}.", td.name);
+    // Collect (key, func-index) for constructor-named entries, sorted by key for a
+    // stable order (common-pitfalls §1: never rely on HashMap iteration order).
+    let mut ctor_keys: Vec<(&String, usize)> = module
+        .func_index
+        .iter()
+        .filter(|(k, _)| {
+            k.strip_prefix(&prefix)
+                .and_then(|rest| rest.split('$').next())
+                == Some(class_simple)
+        })
+        .map(|(k, &idx)| (k, idx))
+        .collect();
+    ctor_keys.sort_by(|a, b| a.0.cmp(b.0));
+    let mut seen_idx: HashSet<usize> = HashSet::new();
+    let mut out = Vec::new();
+    for (key, idx) in ctor_keys {
+        if seen_idx.insert(idx) {
+            out.push(build_ctor_info(ctx, key)?);
+        }
+    }
+    Ok(ctx.heap().alloc_array(out))
+}
+
+/// Build a `ConstructorInfo` for the constructor function `qualified`
+/// (`<ClassFQN>.<SimpleName>[$N]`). Reuses `build_param_infos`; a constructor is never
+/// static, has no return type, and its user-facing `Name` is the class simple name.
+fn build_ctor_info(ctx: &VmContext, qualified: &str) -> Result<Value> {
+    let simple_full = simple_method_name(qualified);
+    let simple = simple_full.split('$').next().unwrap_or(simple_full);
+    let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos(ctx, qualified)?;
+    let params_arr = ctx.heap().alloc_array(params);
+    alloc_named(
+        ctx,
+        STD_REFLECTION_CONSTRUCTORINFO,
+        &[
+            ("Name", Value::Str(simple.to_string().into())),
+            ("IsStatic", Value::Bool(false)),
+            ("__parameters", params_arr),
+            ("__qualified", Value::Str(qualified.to_string().into())),
+        ],
+    )
+}
+
+/// Build the logical `ParameterInfo[]` (excludes the implicit `this`) for a function,
+/// plus its resolved `(is_static, ret_type, visibility, method_flags, sig_found)`.
+/// Shared by `build_method_info` and `build_ctor_info`.
+fn build_param_infos(
     ctx: &VmContext,
-    simple: &str,
     qualified: &str,
-    is_virtual: bool,
-) -> Result<Value> {
-    // stabilize-dispatch-keys (方案A, 2026-07-14): dispatch keys now carry a
-    // full `$N$types` mangle suffix for every method (vtable slots + own_methods
-    // keys included), so the derived `simple` name may be e.g. `Foo$1$int`.
-    // Reflection presents the source-level name — strip the mangle suffix for
-    // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
-    let simple = simple.split('$').next().unwrap_or(simple);
-    let (ret_tag, is_static, params, visibility, method_flags, sig_found) = match resolve_func_sig(ctx, qualified) {
+) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
+    match resolve_func_sig(ctx, qualified) {
         Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
-            // Instance methods carry `this` at param 0 — skip it.
+            // Instance methods / constructors carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             let mut params = Vec::new();
             for i in start..param_count {
@@ -656,10 +713,28 @@ fn build_method_info(
                     ],
                 )?);
             }
-            (ret_type, fn_is_static, params, vis, mf, true)
+            Ok((params, fn_is_static, ret_type, vis, mf, true))
         }
-        None => ("void".to_string(), false, Vec::new(), 0, 0, false),
-    };
+        None => Ok((Vec::new(), false, "void".to_string(), 0, 0, false)),
+    }
+}
+
+/// Build a `MethodInfo` by resolving the backing `Function` for its signature.
+/// Missing Function (extern/native or unresolved) → name-only MethodInfo.
+fn build_method_info(
+    ctx: &VmContext,
+    simple: &str,
+    qualified: &str,
+    is_virtual: bool,
+) -> Result<Value> {
+    // stabilize-dispatch-keys (方案A, 2026-07-14): dispatch keys now carry a
+    // full `$N$types` mangle suffix for every method (vtable slots + own_methods
+    // keys included), so the derived `simple` name may be e.g. `Foo$1$int`.
+    // Reflection presents the source-level name — strip the mangle suffix for
+    // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
+    let simple = simple.split('$').next().unwrap_or(simple);
+    let (params, is_static, ret_tag, visibility, method_flags, sig_found) =
+        build_param_infos(ctx, qualified)?;
     // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
     // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
     // not) in the vtable, so vtable-presence alone over-reports. Fall back to the
@@ -673,6 +748,18 @@ fn build_method_info(
     let is_abstract_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_ABSTRACT) != 0;
     // impl-sealed-semantics-devirt: MethodInfo.IsSealed from METHOD_FLAG_SEALED (bit2).
     let is_sealed_flag = (method_flags & crate::metadata::bytecode::METHOD_FLAG_SEALED) != 0;
+    // add-reflective-invoke: method-level generic type parameters (definition state).
+    // A freshly-reflected MethodInfo is a generic method *definition* iff it declares
+    // type params; MakeGenericMethod produces a *constructed* MethodInfo (sets __typeArgs
+    // + clears IsGenericMethodDefinition). __typeParamNames backs GetGenericArguments()
+    // for the definition (placeholder Types built from the names).
+    let type_param_names = resolve_func_type_params(ctx, qualified);
+    let is_generic_method = !type_param_names.is_empty();
+    let tp_name_values: Vec<Value> = type_param_names
+        .iter()
+        .map(|n| Value::Str(n.clone().into()))
+        .collect();
+    let tp_names_arr = ctx.heap().alloc_array(tp_name_values);
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -690,6 +777,10 @@ fn build_method_info(
             // 2=protected. `protected` reports neither (mirrors C# IsFamily).
             ("IsPublic", Value::Bool(visibility == 0)),
             ("IsPrivate", Value::Bool(visibility == 1)),
+            // add-reflective-invoke: generic-method reflection (definition state).
+            ("IsGenericMethod", Value::Bool(is_generic_method)),
+            ("IsGenericMethodDefinition", Value::Bool(is_generic_method)),
+            ("__typeParamNames", tp_names_arr),
             ("__parameters", params_arr),
             // C3b: qualified func name so MethodInfo.GetCustomAttributes() can
             // resolve the backing Function's attribute factories.
@@ -789,6 +880,24 @@ fn resolve_func_sig(
         }
     }
     ctx.try_lookup_function(qualified).map(|f| extract(&f))
+}
+
+/// add-reflective-invoke: the backing function's **method-level** generic type
+/// parameter names (e.g. `["T", "U"]` for `Foo<T, U>()`; empty for non-generic).
+/// Read from `Function.type_params()` (populated from SIGS via FunctionCold).
+/// Kept separate from the 10-tuple `resolve_func_sig` to avoid bloating a shared
+/// return used by two callers.
+fn resolve_func_type_params(ctx: &VmContext, qualified: &str) -> Vec<String> {
+    if let Some(m) = ctx.module() {
+        if let Some(&i) = m.func_index.get(qualified) {
+            if let Some(f) = m.functions.get(i) {
+                return f.type_params().to_vec();
+            }
+        }
+    }
+    ctx.try_lookup_function(qualified)
+        .map(|f| f.type_params().to_vec())
+        .unwrap_or_default()
 }
 
 // ── Property reflection ─────────────────────────────────────────────────────
@@ -1672,16 +1781,127 @@ pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
     }
 
-    invoke_qualified(ctx, &qualified, &call_args)
+    // add-reflective-invoke: a *constructed* generic MethodInfo carries `__typeArgs`
+    // (Type[] bound by MakeGenericMethod). Convert each to its FQ name string and
+    // thread into the callee frame's `method_type_args` slot so the body materializes
+    // typeof(T)/new T()/default(T) exactly as a direct `Foo<T>()` call. Definition-state
+    // or non-generic MethodInfo → empty → byte-identical to the prior non-generic path.
+    let method_type_args = read_type_arg_names(&mi);
+    invoke_qualified(ctx, &qualified, &call_args, &method_type_args)
+}
+
+/// add-reflective-invoke: read a constructed generic MethodInfo's `__typeArgs`
+/// (Type[]) as FQ type-name strings for `frame.method_type_args`. Empty when the
+/// MethodInfo is a definition or non-generic (no `__typeArgs` slot / empty array).
+fn read_type_arg_names(mi: &Value) -> Vec<String> {
+    match read_obj_slot(mi, "__typeArgs") {
+        Value::Array(rc) => rc
+            .borrow()
+            .iter_boxed()
+            .map(|t| match read_obj_slot(&t, "__fullName") {
+                Value::Str(s) => s.to_string(),
+                // fall back to the simple Name slot if __fullName is absent
+                _ => match read_obj_slot(&t, "Name") {
+                    Value::Str(s) => s.to_string(),
+                    _ => String::new(),
+                },
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `__method_generic_arguments(mi: MethodInfo) -> Type[]`. Mirrors C#
+/// `MethodInfo.GetGenericArguments()`: a *constructed* generic method (has
+/// `__typeArgs`) returns its bound type arguments; a *definition* returns
+/// placeholder `Std.Type`s built from the declared type-parameter names
+/// (`__typeParamNames`, e.g. `T`/`U`); a non-generic method returns an empty array.
+pub fn builtin_method_generic_arguments(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let mi = args.first().cloned().unwrap_or(Value::Null);
+    // Constructed state: the bound Type[] set by MakeGenericMethod.
+    if let Value::Array(rc) = read_obj_slot(&mi, "__typeArgs") {
+        let elems: Vec<Value> = rc.borrow().iter_boxed().collect();
+        if !elems.is_empty() {
+            return Ok(ctx.heap().alloc_array(elems));
+        }
+    }
+    // Definition state: placeholder Types from the declared type-param names.
+    if let Value::Array(rc) = read_obj_slot(&mi, "__typeParamNames") {
+        let placeholders: Vec<Value> = rc
+            .borrow()
+            .iter_boxed()
+            .map(|v| match v {
+                Value::Str(s) => make_type_from_name(ctx, &s),
+                _ => Value::Null,
+            })
+            .collect();
+        return Ok(ctx.heap().alloc_array(placeholders));
+    }
+    Ok(ctx.heap().alloc_array(Vec::new()))
+}
+
+/// `__method_make_generic(mi: MethodInfo, typeArgs: Type[]) -> MethodInfo`. Mirrors
+/// C# `MethodInfo.MakeGenericMethod`: binds method-level type arguments on a generic
+/// method *definition* and returns a *constructed* `MethodInfo` (same type, no
+/// separate subtype) carrying `__typeArgs`. Non-generic receiver or an arity mismatch
+/// raises a catchable `Std.Exception` (the native `Err` is wrapped by
+/// `exec_call::builtin`). `Invoke` on the result threads `__typeArgs` into the frame.
+pub fn builtin_method_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let mi = args.first().cloned().unwrap_or(Value::Null);
+    let type_args = args.get(1).cloned().unwrap_or(Value::Null);
+    // Genericness + arity, validated against the declared type-param names.
+    let expected = match read_obj_slot(&mi, "__typeParamNames") {
+        Value::Array(rc) => rc.borrow().len(),
+        _ => 0,
+    };
+    if expected == 0 {
+        bail!("MakeGenericMethod: method is not a generic method definition");
+    }
+    let given = match &type_args {
+        Value::Array(rc) => rc.borrow().len(),
+        _ => 0,
+    };
+    if given != expected {
+        bail!("MakeGenericMethod: expected {expected} type argument(s), got {given}");
+    }
+    // Clone the definition MethodInfo into a constructed one: preserve identity slots,
+    // set __typeArgs, and flip IsGenericMethodDefinition off (IsGenericMethod stays on).
+    alloc_named(
+        ctx,
+        STD_REFLECTION_METHODINFO,
+        &[
+            ("Name", read_obj_slot(&mi, "Name")),
+            ("ReturnType", read_obj_slot(&mi, "ReturnType")),
+            ("IsStatic", read_obj_slot(&mi, "IsStatic")),
+            ("IsVirtual", read_obj_slot(&mi, "IsVirtual")),
+            ("IsAbstract", read_obj_slot(&mi, "IsAbstract")),
+            ("IsSealed", read_obj_slot(&mi, "IsSealed")),
+            ("IsPublic", read_obj_slot(&mi, "IsPublic")),
+            ("IsPrivate", read_obj_slot(&mi, "IsPrivate")),
+            ("IsGenericMethod", Value::Bool(true)),
+            ("IsGenericMethodDefinition", Value::Bool(false)),
+            ("__typeParamNames", read_obj_slot(&mi, "__typeParamNames")),
+            ("__typeArgs", type_args),
+            ("__parameters", read_obj_slot(&mi, "__parameters")),
+            ("__qualified", read_obj_slot(&mi, "__qualified")),
+        ],
+    )
 }
 
 /// Shared reflective-invocation core: resolve `qualified` (main module first,
 /// then lazy loader), arity-check against the already-assembled `call_args`
 /// (receiver-first for instance methods), execute, and normalize the outcome.
+/// `method_type_args` (FQ type-name strings) threads a constructed generic method's
+/// bound type arguments into the callee frame (empty for non-generic / definition).
 /// A `throw` inside the callee propagates with its ORIGINAL type via
 /// `ctx.set_pending_thrown` (consumed by `exec_call::builtin`). Shared by
 /// `MethodInfo.Invoke` and `PropertyInfo.GetValue` / `SetValue`.
-fn invoke_qualified(ctx: &VmContext, qualified: &str, call_args: &[Value]) -> Result<Value> {
+fn invoke_qualified(
+    ctx: &VmContext,
+    qualified: &str,
+    call_args: &[Value],
+    method_type_args: &[String],
+) -> Result<Value> {
     let module_arc = ctx
         .core
         .module
@@ -1694,14 +1914,14 @@ fn invoke_qualified(ctx: &VmContext, qualified: &str, call_args: &[Value]) -> Re
         Some(&idx) => {
             let f = &module.functions[idx];
             invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f, call_args)?
+            exec_function_with_type_args(ctx, module, f, call_args, method_type_args)?
         }
         None => {
             let f = ctx.try_lookup_function(qualified).ok_or_else(|| {
                 anyhow::anyhow!("reflective invoke: function `{qualified}` not found")
             })?;
             invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f.as_ref(), call_args)?
+            exec_function_with_type_args(ctx, module, f.as_ref(), call_args, method_type_args)?
         }
     };
 
@@ -1729,7 +1949,7 @@ pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Val
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.GetValue: property has no getter (write-only)"),
     };
-    invoke_qualified(ctx, &getter, &[target])
+    invoke_qualified(ctx, &getter, &[target], &[])
 }
 
 /// `__property_set_value(prop: PropertyInfo, target: object, value: object)`.
@@ -1745,7 +1965,7 @@ pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<Val
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
     };
-    invoke_qualified(ctx, &setter, &[target, value])
+    invoke_qualified(ctx, &setter, &[target, value], &[])
 }
 
 /// `__field_get_value(field: FieldInfo, target: object) -> object` — read an
@@ -2209,6 +2429,78 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
         }
     }
     Ok(obj)
+}
+
+/// `__ctor_invoke(ci: ConstructorInfo, args: object[]) -> object` (add-reflective-invoke).
+/// Parameterised construction (mirrors C# `ConstructorInfo.Invoke`): resolve the class
+/// from the constructor's `__qualified` name (`<ClassFQN>.<SimpleName>[$N]` → strip the
+/// last segment), allocate a default-field instance, then run the constructor with the
+/// new object as the reg-0 receiver plus the supplied arguments; return the constructed
+/// object. Arity mismatch → catchable `Std.Exception`; a ctor `throw` propagates with
+/// its original type via `ctx.set_pending_thrown`.
+pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let ci = args.first().cloned().unwrap_or(Value::Null);
+    let args_arr = args.get(1).cloned().unwrap_or(Value::Null);
+    let qualified = match read_obj_slot(&ci, "__qualified") {
+        Value::Str(s) => s.to_string(),
+        _ => bail!("ConstructorInfo.Invoke: receiver is not a ConstructorInfo (no __qualified)"),
+    };
+    // Class FQN = ctor func name minus its last `.` segment (the constructor's own name).
+    let class_name = match qualified.rfind('.') {
+        Some(i) => qualified[..i].to_string(),
+        None => bail!("ConstructorInfo.Invoke: malformed constructor name `{qualified}`"),
+    };
+    let td = ctx
+        .module()
+        .and_then(|m| m.type_registry.get(&class_name).cloned())
+        .or_else(|| ctx.try_lookup_type(&class_name))
+        .ok_or_else(|| anyhow::anyhow!("ConstructorInfo.Invoke: type `{class_name}` not found"))?;
+    // Allocate with per-field defaults (same as ObjNew / Activator).
+    let slots: Vec<Value> = td
+        .fields
+        .iter()
+        .map(|f| crate::metadata::default_value_for(&f.type_tag))
+        .collect();
+    let obj = ctx.heap().alloc_object(td.clone(), slots, NativeData::None);
+    if matches!(obj, Value::Null) {
+        bail!("ConstructorInfo.Invoke: allocation failed for `{class_name}`");
+    }
+    // Assemble call args: new object as reg-0 receiver, then the object[] elements.
+    let mut call_args: Vec<Value> = vec![obj.clone()];
+    if let Value::Array(rc) = &args_arr {
+        for e in rc.borrow().iter_boxed() {
+            call_args.push(e);
+        }
+    }
+    let module_arc = ctx
+        .core
+        .module
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("ConstructorInfo.Invoke: VmCore.module is None"))?
+        .clone();
+    let module = module_arc.as_ref();
+    let outcome = match module.func_index.get(&qualified) {
+        Some(&idx) => {
+            let f = &module.functions[idx];
+            invoke_arity_check(&qualified, f.param_count, call_args.len())?;
+            exec_function(ctx, module, f, &call_args)?
+        }
+        None => {
+            let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
+                anyhow::anyhow!("ConstructorInfo.Invoke: constructor `{qualified}` not found")
+            })?;
+            invoke_arity_check(&qualified, f.param_count, call_args.len())?;
+            exec_function(ctx, module, f.as_ref(), &call_args)?
+        }
+    };
+    match outcome {
+        // A constructor returns void; the constructed object is the result.
+        ExecOutcome::Returned(_) => Ok(obj),
+        ExecOutcome::Thrown(val) => {
+            ctx.set_pending_thrown(val);
+            bail!("__z42_reflected_throw__")
+        }
+    }
 }
 
 /// `__load_module(path: str) -> Std.Test.TestEntry[]` — load a compiled test

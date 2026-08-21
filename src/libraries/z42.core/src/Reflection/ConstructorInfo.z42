@@ -1,0 +1,17 @@
+namespace Std.Reflection;
+
+// Reflected constructor (mirrors C# `System.Reflection.ConstructorInfo`).
+// Enumerated by `Type.GetConstructors()`. Unlike `MethodInfo.Invoke` (which calls
+// an existing method on a receiver), `ConstructorInfo.Invoke` allocates a *new*
+// instance and runs the constructor body with the supplied arguments, returning the
+// constructed object (parameterised construction). A constructor is never static, so
+// `IsStatic` (inherited from MethodBase) is always false.
+public class ConstructorInfo : MethodBase {
+    // Allocate a new instance, run this constructor with `args` (mapped to the
+    // parameters in order), and return the constructed object. Throws Std.Exception
+    // on an argument-count mismatch; a `throw` inside the constructor body propagates
+    // with its original type (catchable). The VM reads __qualified for the backing
+    // constructor function.
+    [Native("__ctor_invoke")]
+    public extern object Invoke(object[] args);
+}

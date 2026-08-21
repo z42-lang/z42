@@ -1,6 +1,6 @@
 # 泛型方法（方法级类型参数）
 
-> 对齐：2026-08-21（change `add-generic-methods`，M1）
+> 对齐：2026-08-22（change `add-generic-methods` M1 + `add-reflective-invoke` G2/构造函数反射）
 
 方法可以有**自身的类型参数**（独立于所在类的类型参数），在调用点用 `Foo<Type>(args)` 显式指定，
 方法体内可对这些类型参数做 `typeof(T)`、`new T()`、`default(T)`：
@@ -103,8 +103,76 @@ flowchart LR
 
 ### 边界（M1 Scope）
 
-- **只做直接调用** `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 拆后续（type_args 来自
-  运行期 `MethodInfo` 而非编译期调用点，路径不同）。
+- **M1 只做直接调用** `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 由 **G2**
+  （add-reflective-invoke）补齐，见下节。
 - **类型实参须为具体类型**；调用者把自己的类型形参转发给被调方法（嵌套泛型转发）留后续。
 - **类级 `typeof(T)` 的具体化不在本 Scope**（当前仍产占位名）；本 change 只补方法级。
 - 类型**推断**（从实参推 `T`，省略 `<...>`）留后续；M1 要求显式写 `Foo<T>()`。
+
+## 反射式调用（G2 — MakeGenericMethod + Invoke）
+
+> add-reflective-invoke。M1 的直接调用在**编译期**把类型实参编进 `CallGeneric` 指令；G2 让
+> 类型实参在**运行期**经 `MethodInfo` 绑定后再调用，路径不同但**复用 M1 的帧槽物化**。参照 C#
+> `System.Reflection.MethodInfo.{IsGenericMethod, GetGenericArguments, MakeGenericMethod}`。
+
+```z42
+using Std.Reflection;
+
+class Reflector { public static string TypeName<T>() { return typeof(T).Name; } }
+
+MethodInfo def  = /* 从 typeof(Reflector).GetMethods() 取到的 "TypeName" */;
+Assert.True(def.IsGenericMethod);
+Assert.True(def.IsGenericMethodDefinition);          // 未绑定的定义态
+Type[] tp = def.GetGenericArguments();               // 定义态 → 类型形参占位 [T]
+
+MethodInfo made = def.MakeGenericMethod(typeof(Box));// 绑定 → 构造态
+Assert.Equal(false, made.IsGenericMethodDefinition);
+object r = made.Invoke(null, new object[]{});        // == 直接调用 Reflector.TypeName<Box>()
+```
+
+### 数据流（复用 M1 帧槽）
+
+```mermaid
+flowchart LR
+  A["MethodInfo 定义态<br/>__typeParamNames=['T']"] -->|"MakeGenericMethod(typeof(Box))"| B["MethodInfo 构造态<br/>__typeArgs=[typeof(Box)]"]
+  B -->|"Invoke(obj, args)"| C["读 __typeArgs → FQ 名 ['…Box']"]
+  C -->|"exec_function_with_type_args"| D["Frame.method_type_args = ['…Box']"]
+  D --> E["方法体 M1 opcode 物化<br/>typeof(T)/new T()/default(T)"]
+```
+
+- **构造态无独立子类型**（参 C#）：`MakeGenericMethod` 返回同为 `MethodInfo` 的对象，只是多带隐藏
+  `__typeArgs`（`Std.Type[]`），并翻转 `IsGenericMethodDefinition=false`。
+- **元数据来源无格式 bump**：方法级类型形参名早已由 zbc SIGS 段的 `tpCount` 槽承载
+  （此前 writer 恒写 0），G2 让 `ZbcWriter` 填真实值即可——非泛型方法 `tpCount=0` 逐字节不变，
+  reader 全链路（z42 + Rust）早已就绪。反射侧经 `Function.type_params()` → `build_method_info`
+  露出 `IsGenericMethod` + `__typeParamNames`。
+- **Invoke 线程**：`builtin_method_invoke` 读 `__typeArgs` 的每个 `Type` 取其 FQ 名，经
+  `exec_function_with_type_args` 填入 callee `frame.method_type_args`（M1 建的槽）→ 方法体
+  `MethodTypeArg`/`MethodDefault` opcode 物化，与直接调用**逐点一致**。空切片（非泛型/定义态）→
+  与非泛型 Invoke byte-identical。
+- **arity 校验**：`MakeGenericMethod` 在 native 层校验（非泛型 / 实参数 ≠ 类型形参数 → 可 catch 的
+  `Std.Exception`）。反射式 `where` 约束校验留 Deferred（M1 直接调用仍有编译期约束校验）。
+
+## 构造函数反射（MethodBase / ConstructorInfo）
+
+> add-reflective-invoke。反射类型层级对齐 C# `MemberInfo → MethodBase → {MethodInfo,
+> ConstructorInfo}`。`ConstructorInfo.Invoke(args)` 提供**带参构造**（此前 `Activator.CreateInstance`
+> 只无参、且不跑构造函数）。
+
+```z42
+ConstructorInfo[] ctors = typeof(Point).GetConstructors();
+ConstructorInfo two = /* GetParameters().Length == 2 的那个 */;
+object p = two.Invoke(new object[]{ 3, 4 });         // 分配 + 跑 ctor + 返回初始化实例
+```
+
+- **层级**：`MethodBase : MemberInfo` 承载 `IsStatic`/`__qualified`/`GetParameters()` 共享成员；
+  `MethodInfo` 与 `ConstructorInfo` 各自继承并各带 `Invoke`（语义不同：方法调用 vs 建实例）。
+- **枚举靠 `func_index` 而非 `own_methods`**（**关键坑**）：构造函数是命名为
+  `<ClassFQN>.<SimpleName>[$N]` 的普通函数，**单个非重载 ctor 不进 `own_methods`/vtable**（只重载
+  ctor 才进）。故 `__type_constructors` 扫 `module.func_index` 键，取 `<ClassFQN>.` 前缀后、首个
+  `$` 前的段等于类简名者；按 func-index 去重（bare + mangled 别名）+ 按键排序（确定序）。
+- **`ConstructorInfo.Invoke(args)` = 带参构造**：解析类 → 默认字段分配（同 `__activator_create`）→
+  以新对象为 reg0 + args 跑 ctor 函数 → 返回对象。arity 错 / ctor 体内 throw 均走 catchable 通道。
+  重开了此前 Deferred 的带参构造能力；`Activator.CreateInstance(Type)` 保持无参快路径不变。
+- **Deferred**：`GetConstructor(Type[])` 按参数类型的重载解析（调用方用 `GetConstructors()` +
+  `GetParameters()` 自选）。

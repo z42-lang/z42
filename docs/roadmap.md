@@ -165,7 +165,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 | 版本 | 主题 | Phase | 估时 |
 |------|------|:----:|:----:|
-| **0.5.x** | **G2/G3：泛型方法 `Invoke`/`MakeGenericMethod` + `Deserialize<T>` serde 串联** + **Trait 静态分发** + **deopt + JIT 分层**（与 hot-reload 共用地基）+ **LSP v1** + **Interop 2a 稳定化**（`z42-abi`/`z42-host` embedding 打磨到稳定）| L3 | 8–12 周 |<br>（**2026-08-21 按代码现状重修订**——已落地、从本版移除：G1 `MakeGenericType`+constructed `CreateInstance` ✅、OSR interp→JIT 热替换 ✅、Interop 2a 地基 `z42-abi` crate+C ABI 头+`z42-host` ✅、JSON 解析/写入 `z42.json` ✅。反射泛型扩展原 2026-06-23 上移 0.4.x G 流，其 G1 已交付、G2/G3 未落地 → 顺延本版。**2026-08-21 add-generic-methods M1**：G2 的**直接调用**部分已交付——方法级 type_args 端到端（`Foo<T>()` + 方法体 `typeof(T)`/`new T()`/`default(T)`，frame 槽载体，zbc 1.36/zpkg 0.41），是 `Deserialize<T>` serde 招牌的语言前置；剩反射式 `MakeGenericMethod().Invoke()` + 类型推断见 Deferred Backlog。见 [`book/src/language/generic-methods.md`](book/src/language/generic-methods.md)。）
+| **0.5.x** | **G2/G3：泛型方法 `Invoke`/`MakeGenericMethod` + `Deserialize<T>` serde 串联** + **Trait 静态分发** + **deopt + JIT 分层**（与 hot-reload 共用地基）+ **LSP v1** + **Interop 2a 稳定化**（`z42-abi`/`z42-host` embedding 打磨到稳定）| L3 | 8–12 周 |<br>（**2026-08-21 按代码现状重修订**——已落地、从本版移除：G1 `MakeGenericType`+constructed `CreateInstance` ✅、OSR interp→JIT 热替换 ✅、Interop 2a 地基 `z42-abi` crate+C ABI 头+`z42-host` ✅、JSON 解析/写入 `z42.json` ✅。反射泛型扩展原 2026-06-23 上移 0.4.x G 流，其 G1 已交付、G2/G3 未落地 → 顺延本版。**2026-08-21 add-generic-methods M1**：G2 的**直接调用**部分已交付——方法级 type_args 端到端（`Foo<T>()` + 方法体 `typeof(T)`/`new T()`/`default(T)`，frame 槽载体，zbc 1.36/zpkg 0.41），是 `Deserialize<T>` serde 招牌的语言前置；剩反射式 `MakeGenericMethod().Invoke()` + 类型推断见 Deferred Backlog。见 [`book/src/language/generic-methods.md`](book/src/language/generic-methods.md)。**2026-08-22 add-reflective-invoke G2**：反射式泛型方法 `MakeGenericMethod().Invoke()` + `IsGenericMethod`/`GetGenericArguments` 已交付（复用 M1 帧槽，**无格式 bump**——zbc SIGS 段早预留方法类型形参槽）；同 change 补齐反射层级 `MethodBase`/`ConstructorInfo` + 带参构造 `ConstructorInfo.Invoke(args)`。剩 `Deserialize<T>` serde 引擎（L 流）+ 类型推断见 Deferred。）
 | **0.6.x** | 函数式（Lambda / 命名参数 / 模式匹配 / `let` 不可变 / LINQ）+ unmanaged + GC v2 + linter | L3 | 9–11 周 |
 | **0.7.x** | `Result<T,E>` + `?` + ADT + `match` 穷尽检查 | L3 | 6–8 周 |
 | **0.8.x** | async / await + 多线程 + GC v3（generational + concurrent）+ DAP debugger | L3 | 12–16 周 |
@@ -511,10 +511,13 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `retire-platform-build-test-sh` | 三平台 z42 管线 CI-proven 后，删 `platforms/*/{build,test}.sh`（migrate-scripts-to-z42 节奏）| CI-proven 后 |
 | `add-boxing-future-enum-precise` | enum 当前 I64 表示，装箱丢类型精度（GetType→Int32，`(MyEnum)o` 与 `(int)o` 不可区分）；精确 enum 装箱需 enum-as-type-entity（独立 tag/带-tag 装箱）。正文见 [`design/language/boxing.md`](design/language/boxing.md#deferred--future-work) | enum 作独立类型实体时 |
 | `add-method-invoke-future-generic` | 泛型方法 `Invoke` / `MakeGenericType` / `Activator.CreateInstance<T>`，需运行期泛型实例化。正文见 [`design/language/reflection.md`](design/language/reflection.md) | 0.4.x G 流泛型实例化后 |
-| `add-method-invoke-future-activator` | ~~无参 `Activator.CreateInstance(Type)`~~ ✅ 已落地；剩**有参** `CreateInstance(Type, args)`（构造重载决议）+ 泛型 `CreateInstance<T>` 待 0.4.x G | 有反射有参构造需求时 |
-| `generic-methods-future-reflective-invoke` | 反射式泛型方法 `MakeGenericMethod().Invoke()`——M1（add-generic-methods）只做**直接调用** `Foo<T>()`；反射式填充 `method_type_args` 的路径不同（从运行期 `MethodInfo` 实参而非编译期调用点）。前置=M1 的 Frame `method_type_args` 载体（已建）。正文见 [`language/generic-methods.md`](design/../book/src/language/generic-methods.md) | 泛型反射三件套收口时 |
+| `add-method-invoke-future-activator` | ~~无参 `Activator.CreateInstance(Type)`~~ ✅；~~有参构造~~ ✅ 由 `ConstructorInfo.Invoke(args)`（add-reflective-invoke）落地；剩泛型 `Activator.CreateInstance<T>` 待 0.4.x G | 有泛型 Activator 需求时 |
+| ~~`generic-methods-future-reflective-invoke`~~ ✅ **已落地**（add-reflective-invoke，2026-08-22）| 反射式泛型方法 `MakeGenericMethod().Invoke()` + `IsGenericMethod`/`GetGenericArguments`——复用 M1 Frame `method_type_args` 载体。正文见 [`language/generic-methods.md`](book/src/language/generic-methods.md) | — |
 | `generic-methods-future-type-inference` | 方法 type_args 推断——M1 要求显式 `Foo<T>(x)`；从实参推断 `T` 需类型统一 | 泛型人机工学打磨阶段 |
 | `generic-methods-future-classlevel-typeof` | 类级 `typeof(T)` 具体化——当前产占位名（M1 只补方法级）；可复用 M1 物化范式（载体换 `instance.type_args`）| 有类级 `typeof(T)`→具体 的真实需求时 |
+| `reflective-invoke-future-constraint-check` | 反射式 `where` 约束运行期校验——`MakeGenericMethod` 绕过编译期 `ConstraintChecker`（M1 直接调用仍校验）| serde/用户反射需运行期约束校验时 |
+| `reflective-invoke-future-open-generic-cross` | 开放泛型类上的泛型方法双层交叉具化（类形参 + 方法形参同时开放）| 反射调用泛型类的泛型方法且类形参也需运行期绑定时 |
+| `ctor-reflection-future-overload-resolution` | `Type.GetConstructor(Type[])` 按参数类型匹配重载——add-reflective-invoke 只做 `GetConstructors()` 枚举 + `ConstructorInfo.Invoke`；调用方用 `GetParameters()` 自选 | 需按参数类型直接取 ctor 时 |
 
 ### Backlog 项实施流程
 

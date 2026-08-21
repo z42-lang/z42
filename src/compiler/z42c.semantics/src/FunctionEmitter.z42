@@ -143,6 +143,12 @@ public sealed class FunctionEmitter {
             irf.ExcTable = xs;
             irf.ExcCount = this._ctx.ExcCount;
         }
+        // add-reflective-invoke：记**方法级**泛型类型形参名（md.TypeParams，不含类形参）→ SIGS tpCount 槽
+        // （ZbcWriter 从恒 0 改为写真实值）→ 运行期 MethodInfo.GetGenericArguments/MakeGenericMethod 可反射。
+        if (md.TypeParams.Count > 0) {
+            irf.TypeParams = md.TypeParams.Names;
+            irf.TypeParamCount = md.TypeParams.Count;
+        }
         return irf;
     }
 

@@ -560,6 +560,35 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     exec_function_body(ctx, module, func, frame)
 }
 
+/// add-reflective-invoke: like [`exec_function`] but threads method-level generic
+/// `method_type_args` into the callee frame, so a reflectively-invoked *constructed*
+/// generic method (`MethodInfo.MakeGenericMethod(..).Invoke(..)`) materializes
+/// `typeof(T)`/`new T()`/`default(T)` via the M1 `frame.method_type_args` slot —
+/// identical to a direct `Foo<T>()` call. An empty slice is behaviourally identical
+/// to `exec_function` (same JIT backstop + frame), so non-generic reflective invokes
+/// keep their exact prior path. Generic methods are never JIT-compiled (M1's
+/// `jit_unsupported_reason`), so the `try_native_exec` fast lane is only consulted
+/// for the empty (non-generic) case.
+pub(crate) fn exec_function_with_type_args(
+    ctx: &VmContext,
+    module: &Module,
+    func: &Function,
+    args: &[Value],
+    method_type_args: &[String],
+) -> Result<ExecOutcome> {
+    crate::gc::safepoint::check_safepoint(ctx);
+    if method_type_args.is_empty() {
+        if let Some(outcome) = try_native_exec(ctx, func, args) {
+            return outcome;
+        }
+    }
+    let mut frame = Frame::new(args, func.max_reg);
+    if !method_type_args.is_empty() {
+        frame.method_type_args = method_type_args.into();
+    }
+    exec_function_body(ctx, module, func, frame)
+}
+
 /// runtime-jit-tiering Phase 1.5.2: name-based mixed-mode divert used as the
 /// universal backstop at `exec_function`. Returns `None` (→ interpret) when no JIT
 /// ctx is published (interp-only run), when an argument is a `Ref` (a stack address

@@ -198,6 +198,10 @@ public sealed class IrFunction {
     public IrLocalVarEntry[] LocalVars;  public int LocalVarCount;   // DBUG 局部变量表
     public IrAttrRef[] Attrs; public int AttrCount;                  // zbc 1.11：SIGS 函数 attr-ref（默认空）
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;     // zbc 1.15：每参数 attr-ref（SIGS 参数序对齐）
+    // add-reflective-invoke：**方法级**泛型类型形参名（`Foo<T,U>()` → ["T","U"]；非泛型方法空）。
+    // SIGS 段早已预留 tpCount 槽（ZbcWriter 恒写 0）→ 本字段填真实值即可，无格式 bump。默认空，
+    // FunctionEmitter 从 md.TypeParams 覆盖。where 约束反射式暂 Deferred（写空约束包）。
+    public string[]  TypeParams;      public int TypeParamCount;
     public IrFunction(string name, int paramCount, string retType, bool isStatic,
                       IrBlock[] blocks, int blockCount, int maxReg,
                       string execMode, string[] paramTypes, int paramTypeCount,
@@ -219,6 +223,8 @@ public sealed class IrFunction {
         this.MinArg = paramCount; this.ParamsFrom = 255;
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];
         this.ParamDefaultVals = new long[0]; this.ParamDefaultStrs = new string[0];
+        // add-reflective-invoke：默认非泛型方法（空类型形参）；FunctionEmitter 对泛型方法覆盖。
+        this.TypeParams = new string[0]; this.TypeParamCount = 0;
     }
     public string Dump() {
         string s = "fn @" + this.Name + "(" + this.ParamCount.ToString() + ") -> " + this.RetType + " {";
