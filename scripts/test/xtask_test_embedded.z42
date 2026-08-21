@@ -285,12 +285,24 @@ bool _targetExcludes(string rid, string caseName) {
         // (File.Link → "Permission denied"; symlinks still work). Not fixable —
         // permanent Android exclusion.
         if (caseName == "z42.io/file_chmod_link_size") { return true; }
+        // MEMORY gap (NOT /tmp): gc_heap_snapshot calls GC.WriteHeapSnapshot, which
+        // serialises the WHOLE live heap to a V8 JSON string (+ ReadAllText reloads
+        // it). In the embedded runner [Test] units share ONE VM, so by the time this
+        // case runs (idx ~337/464, ~112 units into its shard) the accumulated heap
+        // is large → the snapshot balloons to multi-GB. The Android emulator's tight
+        // budget → the low-memory-killer SIGKILLs the app (dispatch 32435384808:
+        // android shard 2 hit ~2.4GB RSS + 2.2GB swap → LMK; shards 1/3 without this
+        // case are green). iOS-sim (macOS host, ample RAM) runs it fine and desktop
+        // isn't shared-VM, so exclude on Android ONLY. Already excluded on wasm
+        // (line above). The /tmp→CreateTempDir portability fix still applies to the
+        // test itself. (embedded-app-run.md §5.8.)
+        if (caseName == "z42.io/gc_heap_snapshot") { return true; }
         // NOTE (/tmp-portability follow-up landed): directory / directory_copy /
-        // file_extras / file_last_write_time / gc_heap_snapshot used to be excluded
-        // here — they hardcoded `/tmp/...` write paths the Android emulator has no
-        // writable /tmp for. They now write under File.CreateTempDir (portable,
-        // Android-writable — z42.io/file_temp proves it), so the Android excludes
-        // were REMOVED and they run in the full-coverage shards. (embedded-app-run.md §5.8.)
+        // file_extras / file_last_write_time used to be excluded here too — they
+        // hardcoded `/tmp/...` write paths the Android emulator has no writable /tmp
+        // for. They now write under File.CreateTempDir (portable, Android-writable —
+        // z42.io/file_temp proves it), so those 4 Android excludes were REMOVED and
+        // they run in the full-coverage shards. (embedded-app-run.md §5.8.)
     }
     return false;
 }
