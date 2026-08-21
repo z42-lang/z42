@@ -228,6 +228,31 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     cin.OptSet = optSet;   // add-compiler-inlining：-1=profile 默认；否则 CLI 解析后的优化集
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
+    // attribute-handler-registry PR3a-load：[analyzers] 段声明的 handler zpkg 名 → LibsDirs 里
+    // `<name>.zpkg` 路径（镜像 _bundleExeDeps 的 dep→zpkg 解析）。加载进编译器、编译期运行、不链入
+    // 目标产物（D9）。z42c 自建无 [analyzers] → 此块不进 → 自举 gen1==gen2 逐字节不动。
+    if (pm.AnalyzerCount > 0) {
+        string[] azPaths = new string[pm.AnalyzerCount];
+        int ai = 0;
+        while (ai < pm.AnalyzerCount) {
+            string aname = pm.Analyzers[ai].Name;
+            string azfile = aname + ".zpkg";
+            string azFound = "";
+            int d = 0;
+            while (d < libsDirsN) {
+                string cand = Path.Join(libsDirs[d], azfile);
+                if (File.Exists(cand)) { azFound = cand; break; }
+                d = d + 1;
+            }
+            if (azFound.Length == 0) {
+                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 未在依赖目录找到 " + azfile);
+                return ExitCode.BuildError;
+            }
+            azPaths[ai] = azFound;
+            ai = ai + 1;
+        }
+        cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = pm.AnalyzerCount;
+    }
     CompileArtifacts art = PackageCompile.Compile(cin);
     CompiledModuleZ[] cms = art.Cms;
     // ⑨ 诊断呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）

@@ -9,6 +9,7 @@
 namespace Z42.Pipeline;
 
 using Std;
+using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.IR;
@@ -43,7 +44,14 @@ public sealed class CompileInputs {
     // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
     // 静态 scan（+ ExtendWithPackage 增量并入前轮 Vars）→ 消除 ~98% 的每轮开销。null = 现状（磁盘扫描）。
     public DepScanResult CachedScan;
-    public CompileInputs() { this.CachedScan = null; this.OptSet = -1; }
+    // attribute-handler-registry PR3a-load：外部 analyzer zpkg 路径（[analyzers] 段解析后由调用方
+    // 按名在 LibsDirs 解析到 `<name>.zpkg`）。非空 → 编译期加载并驱动，诊断合入 per-file Cms；
+    // 空（z42c 自建）→ 分支不进 → 逐字节不动。D9：加载进编译器、不链入目标程序。
+    public string[] AnalyzerZpkgs; public int AnalyzerZpkgCount;
+    public CompileInputs() {
+        this.CachedScan = null; this.OptSet = -1;
+        this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
+    }
 }
 
 // 组装好的 in-memory 包 + 结果状态。ErrorCount>0 时 Z/Mods 为 null，调用方按 Cms 逐文件呈现诊断。
@@ -126,6 +134,14 @@ public static class PackageCompile {
             }
         }
 
+        // ── attribute-handler-registry PR3a-load：外部 analyzer（[analyzers] 段声明的 handler zpkg）──
+        // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
+        // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
+        // analyzer 报的 Error 级也能拦编译。
+        if (inp.AnalyzerZpkgCount > 0) {
+            PackageCompile._runAnalyzers(inp, cms);
+        }
+
         // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
         int totalErr = 0;
         int fi = 0;
@@ -175,5 +191,40 @@ public static class PackageCompile {
         CompileArtifacts okArt = new CompileArtifacts(z, mods, inp.SrcCount, cms, inp.SrcCount, 0, entryStatus);
         okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
         return okArt;
+    }
+
+    // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
+    private static void _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
+        Analyzer[] analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+        if (analyzers.Length == 0) { return; }
+        int i = 0;
+        while (i < inp.SrcCount) {
+            CompilationUnit cu = inp.Cus[i];
+            if (cu != null) {
+                DiagnosticBag bag = new DiagnosticBag();
+                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag);
+                if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 把 analyzer 诊断 append 进 CompiledModuleZ（格式镜像 IrDump BuildModule*）。仅 Error 级增 ErrorCount
+    // （analyzer 默认 Warning → 不 fail 编译，仅可见）。
+    private static void _mergeDiags(CompiledModuleZ cm, DiagnosticBag bag) {
+        int add = bag.Count();
+        int oldn = cm.DiagCount;
+        string[] nw = new string[oldn + add];
+        int q = 0;
+        while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
+        int b = 0;
+        while (b < add) {
+            Diagnostic dg = bag.Get(b);
+            nw[oldn + b] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString()
+                         + "): " + dg.Code + ": " + dg.Message;
+            if (dg.Severity == DiagnosticSeverity.Error) { cm.ErrorCount = cm.ErrorCount + 1; }
+            b = b + 1;
+        }
+        cm.DiagMsgs = nw; cm.DiagCount = oldn + add;
     }
 }
