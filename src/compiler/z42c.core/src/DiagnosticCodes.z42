@@ -71,6 +71,7 @@ public static class DiagnosticCodes {
     public static string UndefinedType               = "E0443";  // 类型注解引用了未定义的类型名（对标 C# CS0246；fix-undefined-type-diagnostic）
     public static string AttributeSuffixRequired     = "E0444";  // `: Attribute` 类名必须以 `Attribute` 结尾（D8 后缀约定；attribute-handler-registry PR2）
     public static string AnalyzerSuffixRequired      = "E0445";  // `: Analyzer` 类名必须以 `Analyzer` 结尾（D8 后缀约定；attribute-handler-registry PR3a）
+    public static string GenericMethodArity          = "E0446";  // 泛型方法调用 `Foo<...>()` 的类型实参数与方法声明的类型形参数不符（add-generic-methods）
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

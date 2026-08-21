@@ -82,3 +82,26 @@ pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
     };
     frame.set(dst, val);
 }
+
+/// add-generic-methods: materialize a **method-level** type parameter into a concrete
+/// `Std.Type`, reading `frame.method_type_args[param_index]` (set at call time from
+/// `CallInsn::method_type_args`). Feeds `typeof(T)` (result directly) and `new T()`
+/// (`__activator_create` consumes this Type). OOB/empty → placeholder constructed type
+/// named "T" (graceful, mirrors the class-level Typeof placeholder path).
+pub(super) fn method_type_arg(ctx: &VmContext, frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = match frame.method_type_args.get(param_index as usize) {
+        Some(name) => crate::corelib::reflection::make_type_from_name(ctx, name),
+        None => crate::corelib::reflection::make_constructed_type(ctx, "T", &[]),
+    };
+    frame.set(dst, val);
+}
+
+/// add-generic-methods: method-level `default(T)` zero value — mirrors `default_of`
+/// but reads `frame.method_type_args[param_index]` instead of the receiver's instance
+/// type_args. OOB/empty → `Value::Null`.
+pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = frame.method_type_args.get(param_index as usize)
+        .map(|tag| crate::metadata::types::default_value_for(tag))
+        .unwrap_or(Value::Null);
+    frame.set(dst, val);
+}

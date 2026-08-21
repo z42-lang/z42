@@ -86,6 +86,9 @@ pub(super) fn call(
     // index. First cross-zpkg hit stores the resolved `Arc<Function>`; later
     // calls borrow it (no `try_lookup_function` hash). None: back-compat.
     cross_cell: Option<&OnceLock<Arc<Function>>>,
+    // add-generic-methods: resolved FQ type-arg names for a generic call (empty for
+    // non-generic). Threaded into the callee frame's method_type_args slot.
+    method_type_args: &[String],
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
 
@@ -112,9 +115,14 @@ pub(super) fn call(
     // runtime-jit-tiering Phase 1.5 (mixed-mode): route an already-compiled callee
     // to native code instead of interpreting the whole subtree. No-op when there is
     // no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
-    if let Some(idx) = callee_idx {
-        if let Some(res) = try_native_static_call(ctx, frame, dst, idx, args) {
-            return res;
+    // add-generic-methods: generic calls carry method_type_args that the native
+    // JIT static-call fast path does not thread yet → stay on the interpreter so
+    // the callee frame gets its type_args. (JIT generic support: jit_call path.)
+    if method_type_args.is_empty() {
+        if let Some(idx) = callee_idx {
+            if let Some(res) = try_native_static_call(ctx, frame, dst, idx, args) {
+                return res;
+            }
         }
     }
     let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
@@ -122,7 +130,7 @@ pub(super) fn call(
     // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly
     // from caller regs + arg indices — no `collect_args` Vec, args cloned once.
     let outcome = if let Some(callee) = callee_fn {
-        super::exec_function_from_regs(ctx, module, callee, &frame.regs, args)?
+        super::exec_function_from_regs(ctx, module, callee, &frame.regs, args, method_type_args)?
     } else if let Some(cell) = cross_cell {
         // Cross-zpkg: borrow the cached Arc<Function> on hit (zero hash);
         // resolve via the lazy loader once on first miss and backfill the cell.
@@ -138,10 +146,10 @@ pub(super) fn call(
                 cell.get().expect("cell was just set")
             }
         };
-        super::exec_function_from_regs(ctx, module, target.as_ref(), &frame.regs, args)?
+        super::exec_function_from_regs(ctx, module, target.as_ref(), &frame.regs, args, method_type_args)?
     } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
         // No cross cell (back-compat): pure lazy-loader lookup, uncached.
-        super::exec_function_from_regs(ctx, module, lazy_fn.as_ref(), &frame.regs, args)?
+        super::exec_function_from_regs(ctx, module, lazy_fn.as_ref(), &frame.regs, args, method_type_args)?
     } else {
         bail!("undefined function `{fname}`");
     };

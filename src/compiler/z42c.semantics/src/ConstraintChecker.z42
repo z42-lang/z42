@@ -168,6 +168,92 @@ public sealed class ConstraintChecker {
         return (arg is Z42ClassType) && PrimModel.IsScalarValue(arg.Name());
     }
 
+    // ════ 方法级 where 约束（add-generic-methods，call-site）═══════════════════════
+    // 泛型方法调用 `Foo<A,B>(...)`：从 md.Wheres 建 bundle（对齐 md.TypeParams 声明序），逐
+    // (型参约束, 解析后实参) 校验，违反报 E0402（复用 _satisfiesBase/_isClassArg 等，与类级同规则）。
+    // 方法级形参无 ClassConstraints 存储（不预登记）→ 每调用点即席建 bundle（方法约束项少，成本低）。
+    public void CheckMethod(SymbolTable symbols, MethodDecl md, Z42Type[] args, int argCount, Span sp) {
+        if (md == null || md.WhereCount == 0) { return; }
+        string[] pnames = md.TypeParams.Names;
+        int pc = md.TypeParams.Count;
+        ConstraintBundle[] bundles = new ConstraintBundle[pc];
+        int b = 0;
+        while (b < pc) { bundles[b] = new ConstraintBundle(); b = b + 1; }
+        int w = 0;
+        while (w < md.WhereCount) {
+            WhereClause wc = md.Wheres[w];
+            int pi = this._indexOfName(pnames, pc, wc.TypeParam);
+            if (pi >= 0) { this._fillBundleM(symbols, md.Name, bundles[pi], wc, pnames, pc); }
+            w = w + 1;
+        }
+        int n = argCount; if (n > pc) { n = pc; }
+        int i = 0;
+        while (i < n) {
+            ConstraintBundle bun = bundles[i];
+            if (!bun.IsEmpty()) { this._checkBundleM(symbols, pnames, pc, args, argCount, bun, args[i], md.Name, i, sp); }
+            i = i + 1;
+        }
+    }
+
+    private int _indexOfName(string[] pnames, int pc, string name) {
+        int i = 0;
+        while (i < pc) { if (pnames[i] == name) { return i; } i = i + 1; }
+        return -1;
+    }
+
+    // 镜像 _fillBundle，但 owner 用方法名（无 ClassDecl）。
+    private void _fillBundleM(SymbolTable symbols, string ownerName, ConstraintBundle bundle, WhereClause wc,
+                              string[] pnames, int pc) {
+        int k = 0;
+        while (k < wc.Count) {
+            WhereConstraint con = wc.Constraints[k];
+            if (!con.IsType) {
+                if (con.Special == "class")  { bundle.RequiresClass = true; }
+                if (con.Special == "struct") { bundle.RequiresStruct = true; }
+            } else if (con.Type is NamedType) {
+                NamedType nt = con.Type as NamedType;
+                if (this._isParam(nt.Name, pnames, pc)) {
+                    bundle.HasTypeParamRef = true; bundle.TypeParamRef = nt.Name;
+                } else if (nt.ArgCount == 0 && symbols.HasClass(nt.Name)) {
+                    bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
+                }
+            }
+            k = k + 1;
+        }
+        if (bundle.RequiresClass && bundle.RequiresStruct) {
+            this._diags.Error(DiagnosticCodes.TypeMismatch,
+                "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + ownerName + "`",
+                this._noSpan());
+        }
+    }
+
+    // 镜像 _checkBundle，但用 pnames+args 数组（无 Z42InstantiatedType）。
+    private void _checkBundleM(SymbolTable symbols, string[] pnames, int pc, Z42Type[] args, int argCount,
+                               ConstraintBundle b, Z42Type arg, string ownerName, int idx, Span sp) {
+        string pn = pnames[idx];
+        if (b.HasBaseClass && !this._satisfiesBase(symbols, arg, b.BaseClassName)) {
+            this._errAt(arg, pn, b.BaseClassName, ownerName, sp);
+        }
+        if (b.RequiresClass && !this._isClassArg(arg)) {
+            this._errAt(arg, pn, "class", ownerName, sp);
+        }
+        if (b.RequiresStruct && !this._isStructArg(arg)) {
+            this._errAt(arg, pn, "struct", ownerName, sp);
+        }
+        if (b.HasTypeParamRef) {
+            int j = this._indexOfName(pnames, pc, b.TypeParamRef);
+            if (j >= 0 && j < argCount && !this._satisfiesParamRef(symbols, arg, args[j])) {
+                this._errAt(arg, pn, b.TypeParamRef, ownerName, sp);
+            }
+        }
+    }
+
+    private void _errAt(Z42Type arg, string param, string constraint, string owner, Span sp) {
+        this._diags.Error(DiagnosticCodes.TypeMismatch,
+            "type argument `" + arg.Name() + "` for `" + param + "` does not satisfy constraint `" + constraint + "` on `" + owner + "`",
+            sp);
+    }
+
     private Decl _unwrap(Decl d) {
         if (d is AttributedDecl) { AttributedDecl ad = d as AttributedDecl; return ad.Inner; }
         return d;

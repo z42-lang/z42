@@ -577,6 +577,8 @@ impl Instruction {
             Instruction::LoadElemAddr  { dst, .. } => Some(*dst),
             Instruction::LoadFieldAddr(insn)       => Some(insn.dst),
             Instruction::DefaultOf     { dst, .. } => Some(*dst),
+            Instruction::MethodTypeArg { dst, .. } => Some(*dst),
+            Instruction::MethodDefault { dst, .. } => Some(*dst),
             Instruction::Builtin(insn)          => Some(insn.dst),
             Instruction::ArrayNew(insn)          => Some(insn.dst),
             Instruction::ArrayNewLit(insn)       => Some(insn.dst),
@@ -771,6 +773,11 @@ pub struct CallInsn {
     #[serde(with = "typed_reg_serde")] pub dst: Reg,
     pub func: String,
     #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    /// add-generic-methods: resolved FQ type-argument names for a generic method
+    /// call `Foo<A,B>()`. Empty for non-generic calls. Copied into the callee's
+    /// `Frame.method_type_args` at frame construction; read by `MethodTypeArg` /
+    /// `MethodDefault` in the callee body.
+    #[serde(default)] pub method_type_args: Box<[String]>,
 }
 
 /// Payload for [`Instruction::ArrayNew`] (add-reflection-array-element-type).
@@ -884,6 +891,9 @@ pub struct VCallInsn {
     #[serde(with = "typed_reg_serde")] pub obj: Reg,
     pub method: String,
     #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    /// add-generic-methods: resolved FQ type-argument names for a generic instance
+    /// method call. Empty for non-generic. See `CallInsn::method_type_args`.
+    #[serde(default)] pub method_type_args: Box<[String]>,
 }
 
 /// Payload for [`Instruction::IsInstance`].
@@ -1109,6 +1119,22 @@ pub enum Instruction {
     /// looks up the resolved type via `default_value_for(tag)`, writes Value to dst.
     /// Non-Object reg 0 / OOB index → graceful-degrade to `Value::Null`.
     DefaultOf {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        param_index: u8,
+    },
+    /// add-generic-methods: materialize a **method-level** type parameter into a
+    /// concrete `Std.Type`, reading `frame.method_type_args[param_index]` (set at
+    /// call time from `CallInsn::method_type_args`). Feeds `typeof(T)` (result
+    /// directly) and `new T()` (via `__activator_create`). OOB/empty → placeholder
+    /// constructed type (graceful, mirrors class-level Typeof placeholder).
+    MethodTypeArg {
+        #[serde(with = "typed_reg_serde")] dst: Reg,
+        param_index: u8,
+    },
+    /// add-generic-methods: method-level `default(T)` zero value — mirrors
+    /// `DefaultOf` but reads `frame.method_type_args[param_index]` instead of the
+    /// receiver's instance type_args. OOB/empty → `Value::Null`.
+    MethodDefault {
         #[serde(with = "typed_reg_serde")] dst: Reg,
         param_index: u8,
     },

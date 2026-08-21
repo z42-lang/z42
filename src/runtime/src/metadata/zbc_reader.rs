@@ -148,7 +148,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // block's direct-field `field_kinds` bytes change; size/align/ref-bitmap/struct block
 // are byte-identical. Runtime is dormant (compose_object_layout maps 4/5 to the coarse
 // GcRef side-table path); chunk 2b consumes it. Coupled with zpkg 0.40. See design D17.
-pub const ZBC_VERSION_MINOR: u16 = 35;
+//
+// 2026-08-21 add-generic-methods: bumped to 1.36 — method-level generic type_args.
+// New opcodes: MethodTypeArg (0xB2), MethodDefault (0xB3), CallGeneric (0xB4),
+// VCallGeneric (0xB5). Non-generic Call/VCall (0x50/0x52) encoding unchanged
+// (byte-identical); generic calls carry a `method_type_args` string list (count u16
+// + pool idx u32×) between the method token and args. Coupled with zpkg 0.41.
+pub const ZBC_VERSION_MINOR: u16 = 36;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -252,7 +258,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // GcRefArray/GcRefClosure so the runtime can safely inline object/array refs in chunk
 // 2b). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
 // two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 40;
+// 2026-08-21 add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
+// generic type_args new opcodes; non-generic calls byte-identical). Outer zpkg layout
+// unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 41;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -334,6 +343,13 @@ const OP_LOAD_FIELD_ADDR: u8 = 0xA2;
 const OP_DEFAULT_OF: u8 = 0xB0;
 // fix-numeric-cast-lowering (2026-05-13): explicit numeric type conversion.
 const OP_CONVERT: u8 = 0xB1;
+// add-generic-methods (2026-08-21, zbc 1.36): method-level generic type_args.
+// Non-generic Call/VCall keep 0x50/0x52 (byte-identical); generic calls carry a
+// method_type_args string list via CallGeneric/VCallGeneric.
+const OP_METHOD_TYPE_ARG: u8 = 0xB2;
+const OP_METHOD_DEFAULT: u8  = 0xB3;
+const OP_CALL_GENERIC: u8    = 0xB4;
+const OP_VCALL_GENERIC: u8   = 0xB5;
 
 // add-struct-value-semantics Phase A: blob value type instructions (byte-region ops).
 const OP_STRUCT_ALLOC: u8          = 0xC0;
@@ -1333,7 +1349,23 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             // to v0.9 (pool_str) or v1.0 (IMPORT_BASE bit) decode based on header.
             let func = id_map.resolve_method(c.read_u32()?)?;
             let args = read_args(c)?;
-            Instruction::Call(Box::new(CallInsn { dst, func, args }))
+            Instruction::Call(Box::new(CallInsn { dst, func, args, method_type_args: Box::from([]) }))
+        }
+        // add-generic-methods: Call carrying resolved method type_args (mta after
+        // the method token, before args).
+        OP_CALL_GENERIC => {
+            let func = id_map.resolve_method(c.read_u32()?)?;
+            let method_type_args = read_mta(c, pool)?;
+            let args = read_args(c)?;
+            Instruction::Call(Box::new(CallInsn { dst, func, args, method_type_args }))
+        }
+        OP_METHOD_TYPE_ARG => {
+            let param_index = c.read_u8()?;
+            Instruction::MethodTypeArg { dst, param_index }
+        }
+        OP_METHOD_DEFAULT => {
+            let param_index = c.read_u8()?;
+            Instruction::MethodDefault { dst, param_index }
         }
         OP_LOAD_FN => {
             let func = id_map.resolve_method(c.read_u32()?)?;
@@ -1365,7 +1397,14 @@ fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[String], id_m
             let method = pool_str_owned(pool, c.read_u32()?)?;
             let obj    = c.read_u16()? as u32;
             let args   = read_args(c)?;
-            Instruction::VCall(Box::new(VCallInsn { dst, obj, method, args }))
+            Instruction::VCall(Box::new(VCallInsn { dst, obj, method, args, method_type_args: Box::from([]) }))
+        }
+        OP_VCALL_GENERIC => {
+            let method = pool_str_owned(pool, c.read_u32()?)?;
+            let obj    = c.read_u16()? as u32;
+            let method_type_args = read_mta(c, pool)?;
+            let args   = read_args(c)?;
+            Instruction::VCall(Box::new(VCallInsn { dst, obj, method, args, method_type_args }))
         }
         OP_FIELD_GET => {
             let obj        = c.read_u16()? as u32;
@@ -1533,6 +1572,14 @@ fn read_args(c: &mut Cursor) -> Result<Box<[u32]>> {
     let mut args = Vec::with_capacity(count);
     for _ in 0..count { args.push(c.read_u16()? as u32); }
     Ok(args.into_boxed_slice())
+}
+
+/// add-generic-methods: method type-argument list — count(u16) + count× pool idx(u32).
+fn read_mta(c: &mut Cursor, pool: &[String]) -> Result<Box<[String]>> {
+    let count = c.read_u16()? as usize;
+    let mut names = Vec::with_capacity(count);
+    for _ in 0..count { names.push(pool_str_owned(pool, c.read_u32()?)?); }
+    Ok(names.into_boxed_slice())
 }
 
 fn pool_str_owned(pool: &[String], idx: u32) -> Result<String> {

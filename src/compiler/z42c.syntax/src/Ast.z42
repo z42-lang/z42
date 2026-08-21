@@ -250,11 +250,22 @@ public sealed class CallExpr : Expr {
     public Expr   Callee;
     public Expr[] Args;
     public int    ArgCount;
+    // 显式方法类型实参 `Foo<T,U>(args)`（add-generic-methods）。默认空数组 = 非泛型调用。
+    // parser 歧义消解确认 `名<类型列表>(` 后填入；byte-identical：为空时 Dump 不变。
+    public TypeExpr[] TypeArgs;
+    public int        TypeArgCount;
     public CallExpr(Expr callee, Expr[] args, int argCount, Span span) { this.Span = span;
         this.Callee = callee; this.Args = args; this.ArgCount = argCount;
+        this.TypeArgs = new TypeExpr[0]; this.TypeArgCount = 0;
     }
     public override string Dump() {
         string s = "(call " + this.Callee.Dump();
+        if (this.TypeArgCount > 0) {
+            s = s + " <";
+            int t = 0;
+            while (t < this.TypeArgCount) { if (t > 0) { s = s + ","; } s = s + this.TypeArgs[t].Dump(); t = t + 1; }
+            s = s + ">";
+        }
         int i = 0;
         while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
         return s + ")";

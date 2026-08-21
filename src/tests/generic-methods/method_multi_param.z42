@@ -1,0 +1,17 @@
+// Test: multi-parameter generic method <K,V> — each method type parameter resolves
+// independently from its own frame.method_type_args slot (add-generic-methods M1).
+
+string FirstName<K,V>()  { return typeof(K).Name; }
+string SecondName<K,V>() { return typeof(V).Name; }
+V SecondDefault<K,V>()   { return default(V); }
+
+void Main() {
+    Assert.Equal(typeof(int).Name,    FirstName<int, string>());
+    Assert.Equal(typeof(string).Name, SecondName<int, string>());
+    // swapped order → slots track declaration order, not call spelling coincidence
+    Assert.Equal(typeof(bool).Name,   FirstName<bool, int>());
+    Assert.Equal(typeof(int).Name,    SecondName<bool, int>());
+    // default on the second param
+    Assert.Equal(0, SecondDefault<string, int>());
+    Assert.Equal(true, SecondDefault<int, string>() == null);
+}

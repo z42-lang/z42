@@ -716,7 +716,14 @@ public sealed class ExprTyper {
             // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
             // 发射时用它 QualifyClass 回 FQ delegate 名。
             string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
-            return new BoundTypeof(toTarget, targetName, toType, tox.Span);
+            BoundTypeof bto = new BoundTypeof(toTarget, targetName, toType, tox.Span);
+            // add-generic-methods：方法级 typeof(T) → 发 MethodTypeArgInsn 具体化（读 frame 槽）。
+            // 类级泛型形参不标记（D3：类级 typeof 仍产占位名，走既有 TypeofInstr）。
+            if (toTarget is Z42GenericParamType) {
+                int mIdx = env.MethodParamIndexOf(toTarget.Name());
+                if (mIdx >= 0) { bto.IsMethodLevel = true; bto.MethodParamIndex = mIdx; }
+            }
+            return bto;
     }
 
     private BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {
@@ -875,6 +882,14 @@ public sealed class ExprTyper {
         this._tc._chkTypeRef(t, env, d.Target.Span);   // enforce-class-access：default(T) 类型引用
         if (t is Z42GenericParamType) {
             string pname = t.Name();
+            // add-generic-methods：就近优先——方法级形参先查（发 MethodDefaultInsn 读 frame 槽）；
+            // 否则类级（发 DefaultOfInstr 读 instance.type_args）。
+            int mIdx = env.MethodParamIndexOf(pname);
+            if (mIdx >= 0) {
+                BoundDefault bd = new BoundDefault(t, mIdx, d.Span);
+                bd.IsMethodLevel = true;
+                return bd;
+            }
             int idx = 0;
             int pi = 0;
             while (pi < env.TypeParamCount) {
@@ -898,6 +913,20 @@ public sealed class ExprTyper {
             t = expected;
         } else {
             t = env.ResolveType(n.Type);
+            // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 运行期按 frame 槽具化类型 activator 构造。
+            // 不走 _chkTypeRef（泛型形参非可访问性检查对象）/ ctor 解析。要求零实参（无 ctor 签名可校验）。
+            if (t is Z42GenericParamType) {
+                int mIdx = env.MethodParamIndexOf(t.Name());
+                if (mIdx >= 0) {
+                    if (n.ArgCount != 0) {
+                        this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
+                            "`new " + t.Name() + "()` on a method type parameter takes no arguments", n.Span);
+                    }
+                    BoundNew bn = new BoundNew(t.Name(), "", new BoundExpr[0], 0, t, n.Span);
+                    bn.IsMethodTypeParam = true; bn.MethodParamIndex = mIdx;
+                    return bn;
+                }
+            }
             // 未定义类型（含 new）统一由 _chkTypeRef → E0443 报（fix-undefined-type-diagnostic：
             // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。
             this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用

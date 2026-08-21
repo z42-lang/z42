@@ -175,7 +175,8 @@ public sealed class DeclBinder {
                     MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                     int mtpc = md.TypeParams.Count;
                     string[] allParams = this._mergeParams(new string[0], 0, md.TypeParams.Names, mtpc);
-                    var env = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, mtpc);
+                    // add-generic-methods：impl 方法无类形参 → classParamCount=0，全部为方法级。
+                    var env = TypeEnv.Root(symbols).WithClassGenericMethod(ct.Name(), allParams, mtpc, 0, false);
                     if (ms != null && !ms.IsStatic) {
                         env.Define("this", ct);
                         string[] fnames = ct.Fields.Keys();
@@ -226,9 +227,9 @@ public sealed class DeclBinder {
                     string[] allParams = this._mergeParams(c.TypeParams.Names, c.TypeParams.Count, md.TypeParams.Names, mtpc);
                     // add-readonly-fields-opt：实例 ctor 体（含注入的字段初始化器）用 InCtorThis scope → readonly 可赋值。
                     bool inCtor = md.IsCtor && !ms.IsStatic;
-                    var env = inCtor
-                        ? TypeEnv.Root(symbols).WithClassGenericCtor(ct.Name(), allParams, c.TypeParams.Count + mtpc)
-                        : TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), allParams, c.TypeParams.Count + mtpc);
+                    // add-generic-methods：allParams = 类形参(前 c.TypeParams.Count 个) + 方法形参(后 mtpc 个)。
+                    var env = TypeEnv.Root(symbols).WithClassGenericMethod(
+                        ct.Name(), allParams, c.TypeParams.Count + mtpc, c.TypeParams.Count, inCtor);
                     if (!ms.IsStatic) {
                         env.Define("this", ct);
                         string[] fnames = ct.Fields.Keys();
@@ -338,6 +339,9 @@ public sealed class DeclBinder {
         if (md.HasBody) {
             // 顶层泛型函数携自身型参（classFlag=false）。
             var env = new TypeEnv(symbols, false, null, false, "", md.TypeParams.Names, md.TypeParams.Count, false);
+            // add-generic-methods：自由函数无类形参 → 全部型参为**方法级**（ClassTypeParamCount=0），
+            // 使 typeof(T)/new T()/default(T) 走 frame.method_type_args 通道（否则默认全类级 → 占位名）。
+            env.ClassTypeParamCount = 0;
             BoundStmt body = this._bindMethodBody(symbols, env, md);
             model.AddBody(md.Name, body);
         }

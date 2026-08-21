@@ -81,6 +81,25 @@ public sealed class ExprParser {
                 left = new SwitchExpr(left, arms, ac, swsp);
                 continue;
             }
+            // 泛型方法调用 `名<T,...>(args)`（add-generic-methods）：`<` 歧义消解。
+            // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'。
+            if (k == TokenKind.Lt) {
+                int posMark = this._p._mark();
+                int diagMark = this._p._diags.Count();
+                int gtMark = this._p._pendingGt;
+                TypeExpr[] targs = this._p._typeP._tryParseCallTypeArgs();
+                if (targs != null && this._p._peek().Kind == TokenKind.LParen) {
+                    this._p._advance();                       // consume '('
+                    CallExpr gcall = this._parseCall(left) as CallExpr;
+                    gcall.TypeArgs = targs; gcall.TypeArgCount = targs.Length;
+                    left = gcall;
+                    continue;
+                }
+                this._p._reset(posMark);
+                this._p._diags.TruncateTo(diagMark);
+                this._p._pendingGt = gtMark;
+                // 落到下面二元 '<'
+            }
             // is / as（bp 60，右侧为类型）
             if ((k == TokenKind.Is || k == TokenKind.As) && minBp <= 60) {
                 bool isIs = (k == TokenKind.Is);

@@ -5,7 +5,7 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 35;   // 2026-08-14 unify-object-byte-layout PR-3 chunk 2a：TYPE **对象块直接字段 FieldKinds 细化**——粗粒度 GcRef(=2) 细分为 GcRefArray(=4,数组 T[])/GcRefClosure(=5,delegate/func/未解析)，供 runtime chunk 2b 安全内联 8B 引用（object/array 可内联、closure 留侧表；delegate/func 运行时是 Closure/FuncRef 非 GcRef，误内联=UB）。仅对象块直接字段 field_kinds 字节变化；size/对齐/引用位图/struct 块全不动。runtime 休眠不消费。随 zpkg 0.40 同 bump。旧注（1.34 PR-1）：TYPE section 加**对象全字段布局块**（普通引用类=class_flags 不含 struct/interface/enum/delegate=116 时随 inline 块之后 emit，派生谓词 gated——class flags U8 满位无空闲位；ObjectSize:u32+field_count:u16+(off:u32,size:u32,kind:u8)×n+ref_count:u16+(off:u32,kind:u8)×m=8B 引用宽度每字段布局+扁平引用位图）。随 zpkg 0/39 同 bump。
+    public static int Minor = 36;   // 2026-08-21 add-generic-methods：方法级泛型 type_args——新 opcode MethodTypeArg(0xB2)/MethodDefault(0xB3)/CallGeneric(0xB4)/VCallGeneric(0xB5)；非泛型 Call/VCall 编码不变（byte-identical）。随 zpkg 0.41 同 bump。旧注（1.35 unify-object-byte-layout PR-3 chunk 2a）
                                     // 前史：1.34 unify-object-byte-layout PR-1（TYPE 加对象全字段布局块=每字段 off/size/kind + 8B 扁平引用位图，普通引用类派生谓词 gated）；1.33 enforce-class-access（TYPE 记录加类声明可见性字节，紧随 class_flags u8）；1.32 add-struct-heap-inline P3b（合成内联 struct 布局块，Flags bit7 gated）；1.31 add-struct-value-semantics A-use（TYPE 加值 struct 布局块，Flags bit2 gated）；1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys；1.26 add-delegate-metadata；1.24 add-method-modifiers。
 }
 
@@ -51,6 +51,12 @@ public static class Op {
     public static int LoadLocalAddr = 0xA0;  // ref 参数调用：dst, slot（镜像 C# Opcodes.LoadLocalAddr）
     public static int DefaultOf = 0xB0;  // default(T) 泛型类型参数零值（D-8b-3 Phase 2；镜像 C# Opcodes.DefaultOf）
     public static int Convert = 0xB1;   // (T)expr 数值转换（spec fix-numeric-cast-lowering；镜像 C# Opcodes.Convert）
+    // add-generic-methods（zbc bump）：方法级泛型形参物化 + 泛型调用（携方法类型实参）。非泛型 Call/VCall
+    // 仍用 0x50/0x52（byte-identical）；仅有类型实参时才发 CallGeneric/VCallGeneric。
+    public static int MethodTypeArg = 0xB2;  // dst = 具体 Std.Type，读 frame.method_type_args[param_index]（喂 typeof(T)/new T()）
+    public static int MethodDefault = 0xB3;  // dst = default(T) 零值，读 frame.method_type_args[param_index]（镜像 DefaultOf 但 frame 载体）
+    public static int CallGeneric   = 0xB4;  // Call + method_type_args：dst | method-token | mta_count(u16) | mta[](str idx u32) | args
+    public static int VCallGeneric  = 0xB5;  // VCall + method_type_args：dst | method(str) | obj(u16) | mta_count(u16) | mta[] | args
     // add-struct-value-semantics Phase A：blob 值类型（多字段 struct 内联字节表示）。z42c 在 A-use（2c）才发射；
     // A-support（2a/2b）只加编解码/执行能力、不发射 → 无 zbc 字节变化、暂不 bump 版本（bump 在 A-use）。
     public static int StructAlloc        = 0xC0;  // dst = 在字节 arena 分配 size 字节 blob（零初始化），dst=StructRef 句柄

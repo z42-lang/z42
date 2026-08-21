@@ -1,0 +1,18 @@
+// Test: method-level typeof(T) — materialized from frame.method_type_args at the
+// call site, must equal the *direct* typeof of the concrete type argument
+// (add-generic-methods M1).
+
+class Box { public int V; }
+
+Type IdentType<T>() { return typeof(T); }
+
+void Main() {
+    // user class → real handle (Name + a usable Type object)
+    Assert.Equal(typeof(Box).Name, IdentType<Box>().Name);
+    // primitives → same normalized name as direct typeof
+    Assert.Equal(typeof(int).Name, IdentType<int>().Name);
+    Assert.Equal(typeof(bool).Name, IdentType<bool>().Name);
+    Assert.Equal(typeof(string).Name, IdentType<string>().Name);
+    // the handle is a real Type: FullName resolves consistently too
+    Assert.Equal(typeof(Box).FullName, IdentType<Box>().FullName);
+}
