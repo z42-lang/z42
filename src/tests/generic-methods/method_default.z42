@@ -1,0 +1,16 @@
+// Test: method-level default(T) — reads frame.method_type_args, references → null,
+// value types → zero (add-generic-methods M1; MethodDefault opcode).
+
+class Box { public int V; }
+
+T Zero<T>() { return default(T); }
+
+void Main() {
+    // reference type → null
+    Assert.Equal(true, Zero<Box>() == null);
+    Assert.Equal(true, Zero<string>() == null);
+    // value types → zero value
+    Assert.Equal(0, Zero<int>());
+    Assert.Equal(0L, Zero<long>());
+    Assert.Equal(false, Zero<bool>());
+}

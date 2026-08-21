@@ -31,6 +31,14 @@ public static class ZbcInstr {
         }
         if (ins is CallInstr) {
             CallInstr i = ins as CallInstr;
+            // add-generic-methods：携方法类型实参 → CallGeneric（非泛型仍走 Op.Call，byte-identical）。
+            if (i.MethodTypeArgCount > 0) {
+                w.WriteU8(Op.CallGeneric); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+                w.WriteU32(alloc.ResolveMethod(i.Func, pool));
+                ZbcInstr._mta(w, pool, i.MethodTypeArgs, i.MethodTypeArgCount);
+                ZbcInstr._args(w, i.Args, i.ArgCount);
+                return;
+            }
             w.WriteU8(Op.Call); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
             w.WriteU32(alloc.ResolveMethod(i.Func, pool));
             ZbcInstr._args(w, i.Args, i.ArgCount);
@@ -54,6 +62,13 @@ public static class ZbcInstr {
         }
         if (ins is VCallInstr) {
             VCallInstr i = ins as VCallInstr;
+            if (i.MethodTypeArgCount > 0) {
+                w.WriteU8(Op.VCallGeneric); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+                w.WriteU32(pool.Idx(i.Method)); w.WriteU16(i.Obj.Id);
+                ZbcInstr._mta(w, pool, i.MethodTypeArgs, i.MethodTypeArgCount);
+                ZbcInstr._args(w, i.Args, i.ArgCount);
+                return;
+            }
             w.WriteU8(Op.VCall); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
             w.WriteU32(pool.Idx(i.Method)); w.WriteU16(i.Obj.Id);
             ZbcInstr._args(w, i.Args, i.ArgCount);
@@ -280,6 +295,13 @@ public static class ZbcInstr {
         while (i < argCount) { w.WriteU16(args[i].Id); i = i + 1; }
     }
 
+    // add-generic-methods：方法类型实参串编码 —— count(u16) + count× pool idx(u32)。
+    private static void _mta(ByteWriter w, ZbcStringPool pool, string[] names, int count) {
+        w.WriteU16(count);
+        int i = 0;
+        while (i < count) { w.WriteU32(pool.Idx(names[i])); i = i + 1; }
+    }
+
     // 无字符串/token 操作数的核心指令（const/copy/算术/比较/位/一元）。
     private static void _writeCore(ByteWriter w, IrInstr ins) {
         if (ins is ConstI32Instr) {
@@ -314,6 +336,19 @@ public static class ZbcInstr {
         if (ins is DefaultOfInstr) {
             DefaultOfInstr i = ins as DefaultOfInstr;
             w.WriteU8(Op.DefaultOf); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+            w.WriteU8(i.ParamIndex);
+            return;
+        }
+        // add-generic-methods：方法级形参物化 / default（镜像 DefaultOf 编码，param_index u8）。
+        if (ins is MethodTypeArgInsn) {
+            MethodTypeArgInsn i = ins as MethodTypeArgInsn;
+            w.WriteU8(Op.MethodTypeArg); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
+            w.WriteU8(i.ParamIndex);
+            return;
+        }
+        if (ins is MethodDefaultInsn) {
+            MethodDefaultInsn i = ins as MethodDefaultInsn;
+            w.WriteU8(Op.MethodDefault); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
             w.WriteU8(i.ParamIndex);
             return;
         }
@@ -410,7 +445,7 @@ public static class ZbcInstr {
 
     // 指令引用串预扫 intern（镜像 C# InternInstrStrings；调用序 = STRS 字节序的一部分，须 1:1）。
     public static void InternStrings(ZbcStringPool pool, IrInstr ins) {
-        if (ins is CallInstr) { CallInstr i = ins as CallInstr; pool.Intern(i.Func); return; }
+        if (ins is CallInstr) { CallInstr i = ins as CallInstr; pool.Intern(i.Func); int t = 0; while (t < i.MethodTypeArgCount) { pool.Intern(i.MethodTypeArgs[t]); t = t + 1; } return; }
         if (ins is LoadFnInstr) { pool.Intern((ins as LoadFnInstr).Func); return; }       // C# 池序实证：lift 名入池
         if (ins is ArrayNewInstr) { pool.Intern((ins as ArrayNewInstr).ElemName); return; }
         if (ins is ArrayNewLitInstr) { pool.Intern((ins as ArrayNewLitInstr).ElemName); return; }
@@ -419,7 +454,7 @@ public static class ZbcInstr {
         if (ins is MkClosInstr) { pool.Intern((ins as MkClosInstr).Func); return; }
         if (ins is BuiltinInstr) { pool.Intern((ins as BuiltinInstr).Name); return; }   // 镜像 C# InternInstrStrings
         if (ins is CallNativeInstr) { CallNativeInstr i = ins as CallNativeInstr; pool.Intern(i.Module); pool.Intern(i.Type); pool.Intern(i.Symbol); return; }
-        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; pool.Intern(i.Method); return; }
+        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; pool.Intern(i.Method); int t = 0; while (t < i.MethodTypeArgCount) { pool.Intern(i.MethodTypeArgs[t]); t = t + 1; } return; }
         if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; pool.Intern(i.Field); return; }
         if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; pool.Intern(i.Field); return; }
         if (ins is StructAllocInstr) { pool.Intern((ins as StructAllocInstr).TypeName); return; }   // 仅 StructAlloc 带类型名串

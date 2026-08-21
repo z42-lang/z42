@@ -104,6 +104,18 @@ public static class ZbcReaderInstr {
             TypedReg[] args = ZbcReaderInstr._args(c);
             return new CallInstr(d, fname, args, ZbcReaderInstr._argN);
         }
+        // add-generic-methods：携方法类型实参的 Call/VCall（mta 在 method 标识后、args 前）。
+        if (op == Op.CallGeneric) {
+            string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
+            string[] mta = ZbcReaderInstr._mta(c, pool);
+            int mtaN = ZbcReaderInstr._mtaN;
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            CallInstr ci = new CallInstr(d, fname, args, ZbcReaderInstr._argN);
+            ci.MethodTypeArgs = mta; ci.MethodTypeArgCount = mtaN;
+            return ci;
+        }
+        if (op == Op.MethodTypeArg) { return new MethodTypeArgInsn(d, c.U8()); }
+        if (op == Op.MethodDefault) { return new MethodDefaultInsn(d, c.U8()); }
         if (op == Op.Builtin) {
             string name = ZbcReaderInstr._p(pool, c.U32());
             TypedReg[] args = ZbcReaderInstr._args(c);
@@ -121,6 +133,16 @@ public static class ZbcReaderInstr {
             TypedReg obj = ZbcReaderInstr._ru(c.U16());
             TypedReg[] args = ZbcReaderInstr._args(c);
             return new VCallInstr(d, obj, method, args, ZbcReaderInstr._argN);
+        }
+        if (op == Op.VCallGeneric) {
+            string method = ZbcReaderInstr._p(pool, c.U32());
+            TypedReg obj = ZbcReaderInstr._ru(c.U16());
+            string[] mta = ZbcReaderInstr._mta(c, pool);
+            int mtaN = ZbcReaderInstr._mtaN;
+            TypedReg[] args = ZbcReaderInstr._args(c);
+            VCallInstr vi = new VCallInstr(d, obj, method, args, ZbcReaderInstr._argN);
+            vi.MethodTypeArgs = mta; vi.MethodTypeArgCount = mtaN;
+            return vi;
         }
         if (op == Op.FieldGet) {
             TypedReg obj = ZbcReaderInstr._ru(c.U16());
@@ -270,6 +292,17 @@ public static class ZbcReaderInstr {
         return r;
     }
 
+    // add-generic-methods：方法类型实参串 —— count u16 + pool idx u32×。长度经 _mtaN 旁路（同 _argN 约定）。
+    private static int _mtaN = 0;
+    private static string[] _mta(ZbcCursor c, string[] pool) {
+        int n = c.U16();
+        string[] r = new string[n];
+        int i = 0;
+        while (i < n) { r[i] = ZbcReaderInstr._p(pool, c.U32()); i = i + 1; }
+        ZbcReaderInstr._mtaN = n;
+        return r;
+    }
+
     private static TypedReg _r(int id, int tag) { return new TypedReg(id, ZbcReaderInstr._irTypeFromTag(tag)); }
     private static TypedReg _ru(int id) { return new TypedReg(id, IrType.Unknown); }
     private static string _bl(int idx) {
@@ -369,6 +402,8 @@ public static class ZbcReaderInstr {
         if (ins is ConstCharInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstCharInstr).Dst); return; }
         if (ins is ConstNullInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstNullInstr).Dst); return; }
         if (ins is DefaultOfInstr) { ZbcReaderInstr._up(rt, n, (ins as DefaultOfInstr).Dst); return; }
+        if (ins is MethodTypeArgInsn) { ZbcReaderInstr._up(rt, n, (ins as MethodTypeArgInsn).Dst); return; }
+        if (ins is MethodDefaultInsn) { ZbcReaderInstr._up(rt, n, (ins as MethodDefaultInsn).Dst); return; }
         if (ins is CopyInstr) { CopyInstr i = ins as CopyInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
         if (ins is AddInstr) { AddInstr i = ins as AddInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
         if (ins is SubInstr) { SubInstr i = ins as SubInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }

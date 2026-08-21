@@ -67,6 +67,14 @@ pub fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
                 Instruction::LoadLocalAddr { .. } => "LoadLocalAddr",
                 Instruction::LoadElemAddr { .. }  => "LoadElemAddr",
                 Instruction::LoadFieldAddr(_)     => "LoadFieldAddr",
+                // add-generic-methods: method-level generics run on the interpreter for
+                // now (the JIT frame has no method_type_args carrier, and the JIT call
+                // paths don't thread it). A function that *reads* a method type param,
+                // or *makes* a generic call, stays interp — everything else JITs.
+                Instruction::MethodTypeArg { .. } => "MethodTypeArg (generic method body)",
+                Instruction::MethodDefault { .. } => "MethodDefault (generic method body)",
+                Instruction::Call(insn) if !insn.method_type_args.is_empty() => "generic Call",
+                Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
                 _ => continue,
             };
             return Some(reason);
@@ -1149,7 +1157,9 @@ pub fn translate_function(
                 // pre-resolved MethodId + name (fallback for cross-zpkg).
                 // Helper checks id first; UNRESOLVED → uses name HashMap.
                 Instruction::Call(insn) => {
-                    let CallInsn { dst, func: fname, args } = &**insn;
+                    // add-generic-methods: generic Call sites are filtered out by
+                    // jit_unsupported_reason (stay interp); non-generic reach here.
+                    let CallInsn { dst, func: fname, args, .. } = &**insn;
                     let d = ri!(*dst);
                     let (np, nl) = str_val!(fname);
                     let (ap, al) = regs_val!(args);
@@ -1606,7 +1616,8 @@ pub fn translate_function(
                 }
                 // Phase 2.E: emit VCallIC pointer as trailing helper arg.
                 Instruction::VCall(insn) => {
-                    let VCallInsn { dst, obj, method, args } = &**insn;
+                    // add-generic-methods: generic VCall sites filtered by jit_unsupported_reason.
+                    let VCallInsn { dst, obj, method, args, .. } = &**insn;
                     let d = ri!(*dst); let o = ri!(*obj);
                     let (mp, ml) = str_val!(method);
                     let (ap, al) = regs_val!(args);
@@ -1731,6 +1742,12 @@ pub fn translate_function(
                     let pi = builder.ins().iconst(types::I32, *param_index as i64);
                     let inst = builder.ins().call(hr_default_of, &[frame_val, ctx_val, d, pi]);
                     let ret  = builder.inst_results(inst)[0]; check!(ret);
+                }
+                // add-generic-methods: unreachable — jit_unsupported_reason routes any
+                // function containing these (method-generic body) to the interpreter
+                // before translation. Kept for match exhaustiveness.
+                Instruction::MethodTypeArg { .. } | Instruction::MethodDefault { .. } => {
+                    bail!("JIT cannot translate method-level generics yet (add-generic-methods; interp only)");
                 }
 
                 // spec fix-numeric-cast-lowering (2026-05-13): explicit numeric cast
@@ -2301,7 +2318,8 @@ fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool> {
                 // ── Non-routed (memory-backed) — disqualify every reg they touch ──
                 I::ConstStr { dst, .. }
                 | I::ConstBool { dst, .. } | I::ConstChar { dst, .. }
-                | I::ConstNull { dst } | I::DefaultOf { dst, .. } => disq.push(*dst),
+                | I::ConstNull { dst } | I::DefaultOf { dst, .. }
+                | I::MethodTypeArg { dst, .. } | I::MethodDefault { dst, .. } => disq.push(*dst),
                 I::Typeof(bx) => disq.push(bx.dst),
                 I::Copy { dst, src } | I::Not { dst, src } | I::ToStr { dst, src }
                 | I::PinPtr { dst, src } | I::StructCopy { dst, src, .. }

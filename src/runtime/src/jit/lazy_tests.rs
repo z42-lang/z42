@@ -59,6 +59,7 @@ fn caller_of(name: &str, callee: &str) -> Function {
         dst: 0,
         func: callee.to_string(),
         args: Vec::new().into_boxed_slice(),
+        method_type_args: Box::default(),
     }))];
     f
 }

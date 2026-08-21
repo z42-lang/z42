@@ -1,0 +1,20 @@
+// Test: static generic method `Class.Method<T>()` — the shape of the 0.5.x serde
+// signature `JsonSerializer.Deserialize<T>(json)`. Verifies the static-call path
+// threads method_type_args into the callee frame (add-generic-methods M1).
+
+class Box { public int V; }
+
+class Reflector {
+    public static Type Of<T>()   { return typeof(T); }
+    public static T    Zero<T>() { return default(T); }
+    public static object New<T>() { return new T(); }
+}
+
+void Main() {
+    Assert.Equal(typeof(Box).Name, Reflector.Of<Box>().Name);
+    Assert.Equal(typeof(int).Name, Reflector.Of<int>().Name);
+    Assert.Equal(0, Reflector.Zero<int>());
+    Assert.Equal(true, Reflector.Zero<Box>() == null);
+    object m = Reflector.New<Box>();
+    Assert.Equal(typeof(Box).Name, m.GetType().Name);
+}

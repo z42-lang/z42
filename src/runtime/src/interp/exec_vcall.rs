@@ -130,6 +130,9 @@ pub(super) fn vcall(
     // Subsequent hits with the same receiver type take the fast path
     // (single u32 compare + direct module.functions index).
     vcall_ic: Option<&crate::metadata::resolver::VCallIC>,
+    // add-generic-methods: resolved FQ type-arg names for a generic instance-method
+    // call (empty for non-generic). Threaded into the callee frame's method_type_args.
+    method_type_args: &[String],
 ) -> Result<Option<Value>> {
     let obj_val = frame.get(obj)?.clone();
     // perf-vm-iteration Phase 1 (Decision 3): `collect_args` is no longer
@@ -253,16 +256,20 @@ pub(super) fn vcall(
             if fn_idx != crate::metadata::tokens::UNRESOLVED {
                 // runtime-jit-tiering Phase 1.5: route an already-compiled method to
                 // native (receiver-aware). No-op when cold/untranslatable/interp-only.
-                if let Some(res) = try_native_method_call(
-                    ctx, frame, dst, fn_idx as usize, &obj_val, args)
-                {
-                    return res;
+                // add-generic-methods: native path doesn't thread method_type_args yet
+                // → stay on interp for generic instance calls.
+                if method_type_args.is_empty() {
+                    if let Some(res) = try_native_method_call(
+                        ctx, frame, dst, fn_idx as usize, &obj_val, args)
+                    {
+                        return res;
+                    }
                 }
                 if let Some(callee) = module.functions.get(fn_idx as usize) {
                     // Direct fill: regs[0]=receiver, regs[1+i]=caller args. No
                     // vec![receiver] / collect_args allocation on the hot path.
                     let outcome = super::exec_function_from_receiver_regs(
-                        ctx, module, callee, &obj_val, &frame.regs, args)?;
+                        ctx, module, callee, &obj_val, &frame.regs, args, method_type_args)?;
                     return match outcome {
                         ExecOutcome::Returned(ret) => {
                             frame.set(dst, ret.unwrap_or(Value::Null));
@@ -451,9 +458,9 @@ pub(super) fn vcall(
     let func_name = chosen_name.unwrap_or_else(|| format!("{}.{}", type_desc.name, method));
     let outcome = if let Some(idx) = callee_module_idx {
         let callee = &module.functions[idx];
-        super::exec_function_from_receiver_regs(ctx, module, callee, &obj_val, &frame.regs, args)?
+        super::exec_function_from_receiver_regs(ctx, module, callee, &obj_val, &frame.regs, args, method_type_args)?
     } else if let Some(lazy_fn) = callee_lazy {
-        super::exec_function_from_receiver_regs(ctx, module, lazy_fn.as_ref(), &obj_val, &frame.regs, args)?
+        super::exec_function_from_receiver_regs(ctx, module, lazy_fn.as_ref(), &obj_val, &frame.regs, args, method_type_args)?
     } else {
         bail!("VCall: function `{}` not found", func_name);
     };

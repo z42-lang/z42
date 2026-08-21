@@ -174,6 +174,12 @@ public sealed class ExprEmitter {
         if (e is BoundInterpolatedStr) { return this._emitInterpolation(e as BoundInterpolatedStr); }
         if (e is BoundDefault) {
             BoundDefault def = e as BoundDefault;
+            // add-generic-methods：方法级 default(T) → MethodDefaultInsn（读 frame.method_type_args）。
+            if (def.IsMethodLevel) {
+                TypedReg mdr = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new MethodDefaultInsn(mdr, def.ParamIndex));
+                return mdr;
+            }
             if (def.ParamIndex >= 0) {
                 TypedReg dr = this._ctx.Alloc(IrType.Ref);
                 this._ctx.Emit(new DefaultOfInstr(dr, def.ParamIndex));
@@ -1126,6 +1132,11 @@ public sealed class ExprEmitter {
     // A-use：发射 Call，返回 blob 值 struct 时走 **sret**——caller 预留返回 blob 作末尾隐藏参数，callee
     // `return s`→StructCopy 进去；结果=该 handle。recv=实例接收者句柄（null=静态/自由）；args 已 copy-in。
     private TypedReg _emitCallSretAware(string fq, TypedReg recv, TypedReg[] args, int argCount, Z42Type retType) {
+        return this._emitCallSretAwareG(fq, recv, args, argCount, retType, new string[0], 0);
+    }
+    // add-generic-methods：带方法类型实参的变体（mta = FQ 名数组，写入 CallInstr.MethodTypeArgs）。
+    private TypedReg _emitCallSretAwareG(string fq, TypedReg recv, TypedReg[] args, int argCount, Z42Type retType,
+                                         string[] mta, int mtaCount) {
         bool hasRecv = recv != null;
         bool retStruct = this._isBlobStruct(retType);
         int total = argCount + (hasRecv ? 1 : 0) + (retStruct ? 1 : 0);
@@ -1143,9 +1154,21 @@ public sealed class ExprEmitter {
         }
         int dtag = retStruct ? IrType.Void : this._ctx.ToIrType(retType);
         TypedReg dst = this._ctx.Alloc(dtag);
-        this._ctx.Emit(new CallInstr(dst, fq, full, total));
+        CallInstr ci = new CallInstr(dst, fq, full, total);
+        if (mtaCount > 0) { ci.MethodTypeArgs = mta; ci.MethodTypeArgCount = mtaCount; }
+        this._ctx.Emit(ci);
         if (retStruct) { return retHandle; }
         return dst;
+    }
+
+    // add-generic-methods：BoundCall 的解析后类型实参（Z42Type[]）→ FQ 名 string[]（与 typeof 同款
+    // _typeofArgName：FQ + 递归带尖括号，基元/数组保源拼写）。非泛型调用返回空数组。
+    private string[] _methodTypeArgNames(BoundCall c) {
+        if (c.MethodTypeArgCount == 0) { return new string[0]; }
+        string[] names = new string[c.MethodTypeArgCount];
+        int i = 0;
+        while (i < c.MethodTypeArgCount) { names[i] = this._typeofArgName(c.MethodTypeArgs[i]); i = i + 1; }
+        return names;
     }
 
     // 调用分派：free → call @f / static → call @Class.m / instance → vcall recv.m。
@@ -1216,7 +1239,9 @@ public sealed class ExprEmitter {
                         while (dfi < c.ArgCount) { dfull[dfi + 1] = iargs[dfi]; dfi = dfi + 1; }
                         if (retStruct) { dfull[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
                         TypedReg dvdst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
-                        this._ctx.Emit(new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1 + dextra));
+                        CallInstr dvci = new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1 + dextra);
+                        if (c.MethodTypeArgCount > 0) { dvci.MethodTypeArgs = this._methodTypeArgNames(c); dvci.MethodTypeArgCount = c.MethodTypeArgCount; }
+                        this._ctx.Emit(dvci);
                         return retStruct ? sretH : dvdst;
                     }
                 }
@@ -1233,7 +1258,9 @@ public sealed class ExprEmitter {
                     while (fi < c.ArgCount) { full[fi + 1] = iargs[fi]; fi = fi + 1; }
                     if (retStruct) { full[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
                     TypedReg ddst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
-                    this._ctx.Emit(new CallInstr(ddst, de.QualifiedName, full, c.ArgCount + 1 + fextra));
+                    CallInstr dici = new CallInstr(ddst, de.QualifiedName, full, c.ArgCount + 1 + fextra);
+                    if (c.MethodTypeArgCount > 0) { dici.MethodTypeArgs = this._methodTypeArgNames(c); dici.MethodTypeArgCount = c.MethodTypeArgCount; }
+                    this._ctx.Emit(dici);
                     return retStruct ? sretH : ddst;
                 }
 
@@ -1249,7 +1276,9 @@ public sealed class ExprEmitter {
                 return sretH;
             }
             TypedReg idst = this._ctx.Alloc(itag);
-            this._ctx.Emit(new VCallInstr(idst, recv, c.MethodName, iargs, c.ArgCount));
+            VCallInstr vci = new VCallInstr(idst, recv, c.MethodName, iargs, c.ArgCount);
+            if (c.MethodTypeArgCount > 0) { vci.MethodTypeArgs = this._methodTypeArgNames(c); vci.MethodTypeArgCount = c.MethodTypeArgCount; }
+            this._ctx.Emit(vci);
             return idst;
         }
         TypedReg[] args = this._emitStructAwareArgs(c);   // A-use：struct 实参 copy-in（值语义）
@@ -1269,7 +1298,9 @@ public sealed class ExprEmitter {
             if (de != null) {
                 this._ctx.TrackDepNamespace(de.Namespace);
                 TypedReg ddst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-                this._ctx.Emit(new CallInstr(ddst, de.QualifiedName, args, c.ArgCount));
+                CallInstr dci = new CallInstr(ddst, de.QualifiedName, args, c.ArgCount);
+                if (c.MethodTypeArgCount > 0) { dci.MethodTypeArgs = this._methodTypeArgNames(c); dci.MethodTypeArgCount = c.MethodTypeArgCount; }
+                this._ctx.Emit(dci);
                 return ddst;
             }
         }
@@ -1297,7 +1328,8 @@ public sealed class ExprEmitter {
             func = this._ctx.QualifyFreeFunc(c.MethodName);
         }
         // A-use：返回 blob 值 struct 走 sret（如 operator 脱糖的静态 struct 工厂 Vec2.op_Add）；否则普通 Call。
-        return this._emitCallSretAware(func, null, args, c.ArgCount, c.Type());
+        // add-generic-methods：静态/自由泛型方法调用携方法类型实参（same-program 直呼的 e2e 主路径）。
+        return this._emitCallSretAwareG(func, null, args, c.ArgCount, c.Type(), this._methodTypeArgNames(c), c.MethodTypeArgCount);
     }
 
     private TypedReg[] _emitArgs(BoundCall c) {
@@ -1309,6 +1341,17 @@ public sealed class ExprEmitter {
 
     // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。
     private TypedReg _emitNew(BoundNew n) {
+        // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 物化具体 Std.Type（读 frame 槽）+
+        // __activator_create（无参反射构造）。零实参已由绑定期保证。
+        if (n.IsMethodTypeParam) {
+            TypedReg treg = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new MethodTypeArgInsn(treg, n.MethodParamIndex));
+            TypedReg[] acargs = new TypedReg[1];
+            acargs[0] = treg;
+            TypedReg acdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new BuiltinInstr(acdst, "__activator_create", acargs, 1));
+            return acdst;
+        }
         TypedReg[] args = new TypedReg[n.ArgCount];
         int i = 0;
         while (i < n.ArgCount) { args[i] = this.Emit(n.Args[i]); i = i + 1; }
@@ -1464,6 +1507,12 @@ public sealed class ExprEmitter {
 
     // typeof(T) → Typeof 指令（reflection Std.Type 句柄）。FQ 名镜像 C# Z42TypeName。
     private TypedReg _emitTypeof(BoundTypeof e) {
+        // add-generic-methods：方法级 typeof(T) → MethodTypeArgInsn 具体化（读 frame.method_type_args）。
+        if (e.IsMethodLevel) {
+            TypedReg mdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new MethodTypeArgInsn(mdst, e.MethodParamIndex));
+            return mdst;
+        }
         // typeof(delegate)：delegate 名解析成结构化 Z42FuncType（"Action"/"Func<…>"），丢了 FQ
         // delegate 名 → 用 AST 原始名 QualifyClass 回 FQ delegate 名（其 TYPE 条目 under FQ 名，
         // add-delegate-metadata），使 typeof(MyDelegate) 得真句柄（IsDelegate=true），与

@@ -139,6 +139,7 @@ fn boxed_variant_json_wire_format_unchanged() {
         dst: 3,
         func: "Foo.bar".into(),
         args: vec![1, 2].into(),
+        method_type_args: Box::default(),
     }));
     let json = serde_json::to_value(&call).unwrap();
 

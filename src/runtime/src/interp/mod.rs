@@ -196,6 +196,13 @@ pub(crate) struct Frame {
     /// truncated the arena) is caught by the frame_id mismatch. 0 = unstamped
     /// (frames that never stack-allocate; the arena is never keyed on 0).
     pub frame_id: u32,
+    /// add-generic-methods: resolved concrete FQ type-argument names for the
+    /// generic method call that created this frame (from `CallInsn::method_type_args`).
+    /// Empty for non-generic calls. Read by `MethodTypeArg` / `MethodDefault` in the
+    /// body to materialize `typeof(T)` / `new T()` / `default(T)`. Mirrors the
+    /// class-level `Object.type_args` carrier, but on the frame (static methods have
+    /// no `this`). Set after construction in `exec_call` from the call instruction.
+    pub method_type_args: Box<[String]>,
 }
 
 thread_local! {
@@ -256,6 +263,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             frame_id: 0,
+            method_type_args: Box::default(),
         }
     }
 
@@ -281,6 +289,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             frame_id: 0,
+            method_type_args: Box::default(),
         })
     }
 
@@ -311,6 +320,7 @@ impl Frame {
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             frame_id: 0,
+            method_type_args: Box::default(),
         })
     }
 
@@ -664,9 +674,13 @@ fn try_osr(_ctx: &VmContext, _frame: &mut Frame, _func: &Function, _loop_header:
 pub(crate) fn exec_function_from_regs(
     ctx: &VmContext, module: &Module, func: &Function,
     caller_regs: &[Value], arg_indices: &[u32],
+    // add-generic-methods: resolved FQ type-arg names for a generic call (empty
+    // for non-generic). Stored on the callee frame for MethodTypeArg/MethodDefault.
+    method_type_args: &[String],
 ) -> Result<ExecOutcome> {
     crate::gc::safepoint::check_safepoint(ctx);
-    let frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    let mut frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
 }
 
@@ -677,9 +691,11 @@ pub(crate) fn exec_function_from_regs(
 pub(crate) fn exec_function_from_receiver_regs(
     ctx: &VmContext, module: &Module, func: &Function,
     receiver: &Value, caller_regs: &[Value], arg_indices: &[u32],
+    method_type_args: &[String],   // add-generic-methods: see exec_function_from_regs
 ) -> Result<ExecOutcome> {
     crate::gc::safepoint::check_safepoint(ctx);
-    let frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
+    let mut frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
+    if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
 }
 

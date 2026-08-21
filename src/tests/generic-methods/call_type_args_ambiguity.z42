@@ -1,0 +1,27 @@
+// Test: `<` disambiguation — the generic-call type-argument parse must not swallow
+// ordinary comparison expressions. `a < b > c` and friends stay comparisons
+// (add-generic-methods M1; parser speculative lookahead with zero-side-effect rollback).
+
+int Id<T>(int x) { return x; }
+
+void Main() {
+    int a = 1; int b = 2; int c = 3;
+
+    // chained comparisons combined with && — must be two comparisons, not a generic call
+    bool r1 = a < b && b > c;
+    Assert.Equal(false, r1);
+
+    bool r2 = a < b && c > b;
+    Assert.Equal(true, r2);
+
+    // `a < b` alone
+    Assert.Equal(true, a < b);
+
+    // a real generic call still works right next to comparison-heavy code
+    int g = Id<int>(a < b ? 10 : 20);
+    Assert.Equal(10, g);
+
+    // `x<y` where both are values (not a type) → comparison
+    int x = 5; int y = 9;
+    Assert.Equal(true, x < y);
+}

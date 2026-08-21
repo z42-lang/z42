@@ -125,12 +125,16 @@ pub fn exec_instr(
         // ── Generic default(T) at runtime (D-8b-3 Phase 2) ──────────────────
         Instruction::DefaultOf { dst, param_index } => exec_address::default_of(frame, *dst, *param_index),
 
+        // ── Method-level generics (add-generic-methods) ─────────────────────
+        Instruction::MethodTypeArg { dst, param_index } => exec_address::method_type_arg(ctx, frame, *dst, *param_index),
+        Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
+
         // ── Numeric cast (fix-numeric-cast-lowering, 2026-05-13) ────────────
         Instruction::Convert { dst, src, to_tag } => exec_value::convert(frame, *dst, *src, *to_tag)?,
 
         // ── Calls ────────────────────────────────────────────────────────────
         Instruction::Call(insn) => {
-            let CallInsn { dst, func: fname, args } = &**insn;
+            let CallInsn { dst, func: fname, args, method_type_args } = &**insn;
             let _site_idx = site_idx!();
             // 2026-05-10 exception-stack-trace: stamp current site's source
             // line on this frame's FrameInfo before descending into the
@@ -147,7 +151,7 @@ pub fn exec_instr(
             let cross_cell = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
                 .and_then(|r| r.cross_module_targets.get(_site_idx as usize));
-            if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, cross_cell)? {
+            if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, cross_cell, method_type_args)? {
                 return Ok(Some(thrown));
             }
             // add-gc-safepoint (2026-05-20): post-Call safepoint — long-running
@@ -248,7 +252,7 @@ pub fn exec_instr(
             exec_object::field_set(ctx, frame, *obj, field_name, *val, field_ic)?;
         }
         Instruction::VCall(insn) => {
-            let VCallInsn { dst, obj, method, args } = &**insn;
+            let VCallInsn { dst, obj, method, args, method_type_args } = &**insn;
             let _site_idx = site_idx!();
             update_caller_line(ctx, func, block_idx, instr_idx);
             // Hot path: monomorphic inline cache fires when receiver TypeId
@@ -257,7 +261,7 @@ pub fn exec_instr(
             let vcall_ic = resolved
                 .filter(|_| _site_idx != UNRESOLVED)
                 .and_then(|r| r.vcall_ic.get(_site_idx as usize));
-            if let Some(thrown) = exec_vcall::vcall(ctx, module, frame, *dst, *obj, method, args, vcall_ic)? {
+            if let Some(thrown) = exec_vcall::vcall(ctx, module, frame, *dst, *obj, method, args, vcall_ic, method_type_args)? {
                 return Ok(Some(thrown));
             }
         }

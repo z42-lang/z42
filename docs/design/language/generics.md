@@ -2,6 +2,8 @@
 
 > **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播；关联类型 / 协变逆变 / 反射见 Deferred
 
+> **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](../../book/src/language/generic-methods.md)**（SoT）。
+
 > L3 核心特性。本文档定义泛型的语法、约束体系、编译策略和 VM 运行时支持。
 
 ---

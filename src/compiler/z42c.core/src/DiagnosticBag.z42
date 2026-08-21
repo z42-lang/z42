@@ -61,6 +61,10 @@ public sealed class DiagnosticBag {
 
     public int Count() { return this._count; }
 
+    /// 回滚到之前 Count() 的快照——speculative 解析失败时丢弃期间产生的诊断
+    /// （如泛型调用歧义消解 `名<T>(` 试解析失败后回退为 `<` 比较）。n >= 当前 count 无副作用。
+    public void TruncateTo(int n) { if (n >= 0 && n < this._count) { this._count = n; } }
+
     /// 返回第 i 条诊断（调用方按 0 <= i < Count() 迭代）。
     public Diagnostic Get(int i) { return this._items[i]; }
 

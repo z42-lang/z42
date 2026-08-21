@@ -16,8 +16,13 @@ public sealed class TypeEnv {
     public SymbolTable Symbols;
     public bool        ClassFlag;
     public string      ClassName;
-    public string[]    TypeParamNames;   // 活跃类型形参（泛型类/方法 scope，2A）
+    public string[]    TypeParamNames;   // 活跃类型形参（泛型类/方法 scope，2A）。方法体内 = 类形参在前、方法形参在后（_mergeParams 序）。
     public int         TypeParamCount;
+    // add-generic-methods：前导**类级**形参数（= TypeParamNames 中属类的个数，方法级从此偏移起）。
+    // 方法体内判别形参归属：flatIdx < ClassTypeParamCount → 类级（读 instance.type_args）；
+    // ≥ → 方法级（读 frame.method_type_args，methodIdx = flatIdx - ClassTypeParamCount）。
+    // 默认 = TypeParamCount（全类级，非方法体 scope 行为不变）。
+    public int         ClassTypeParamCount;
     public bool        InCtorThis;       // add-readonly-fields-opt：当前在声明类的实例 ctor 体内（接收者 this）。
                                          // readonly 字段仅此上下文可赋值。PushScope 继承（ctor 内嵌套块仍算）；
                                          // WithClass* 重置为 false；ctor 体绑定用 WithClassGenericCtor 置 true。
@@ -34,6 +39,7 @@ public sealed class TypeEnv {
         this.ClassName = className;
         this.TypeParamNames = typeParamNames;
         this.TypeParamCount = typeParamCount;
+        this.ClassTypeParamCount = typeParamCount;   // 默认全类级
         this.InCtorThis = inCtorThis;
     }
 
@@ -42,7 +48,9 @@ public sealed class TypeEnv {
     }
 
     public TypeEnv PushScope() {
-        return new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount, this.InCtorThis);
+        TypeEnv e = new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount, this.InCtorThis);
+        e.ClassTypeParamCount = this.ClassTypeParamCount;   // 嵌套块继承方法级偏移
+        return e;
     }
 
     public TypeEnv WithClass(string className) {
@@ -57,6 +65,15 @@ public sealed class TypeEnv {
     // ctor 体 scope（携类型形参 + InCtorThis=true）：readonly 字段在此可赋值。add-readonly-fields-opt。
     public TypeEnv WithClassGenericCtor(string className, string[] typeParamNames, int typeParamCount) {
         return new TypeEnv(this.Symbols, true, this, true, className, typeParamNames, typeParamCount, true);
+    }
+
+    // add-generic-methods：方法体 scope——typeParamNames = 类形参(前) + 方法形参(后)（_mergeParams 序），
+    // classParamCount = 前导类级个数。方法级 typeof(T)/new T()/default(T) 据此定位 frame 槽索引。
+    public TypeEnv WithClassGenericMethod(string className, string[] typeParamNames, int typeParamCount,
+                                          int classParamCount, bool inCtorThis) {
+        TypeEnv e = new TypeEnv(this.Symbols, true, this, true, className, typeParamNames, typeParamCount, inCtorThis);
+        e.ClassTypeParamCount = classParamCount;
+        return e;
     }
 
     // 类型解析（携本 scope 的活跃类型形参）。
@@ -141,6 +158,26 @@ public sealed class TypeEnv {
             else { more = false; }
         }
         return null;
+    }
+
+    // add-generic-methods：形参归属判别（就近优先——方法级先查）。
+    // 方法级序号（在方法 TypeParams 中的位置）；非方法级返回 -1。
+    public int MethodParamIndexOf(string name) {
+        int i = this.ClassTypeParamCount;
+        while (i < this.TypeParamCount) {
+            if (this.TypeParamNames[i] == name) { return i - this.ClassTypeParamCount; }
+            i = i + 1;
+        }
+        return -1;
+    }
+    // 类级序号（在类 TypeParams 中的位置）；非类级返回 -1。
+    public int ClassParamIndexOf(string name) {
+        int i = 0;
+        while (i < this.ClassTypeParamCount) {
+            if (this.TypeParamNames[i] == name) { return i; }
+            i = i + 1;
+        }
+        return -1;
     }
 
     public bool        HasClass()     { return this.ClassFlag; }

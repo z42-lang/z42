@@ -155,4 +155,31 @@ public sealed class TypeParser {
         return false;
     }
 
+    // add-generic-methods：泛型方法调用 `名<T,U>(` 歧义消解——游标停在 '<'，试解析类型实参列表。
+    // 成功返回精确大小的 args（>= 1，游标越过闭合 '>'）；失败返回 null（调用方负责回滚游标/诊断/_pendingGt）。
+    // 复用 _parseType + _tryCloseTypeArgs（含 >>/>>> 拆分）。每个实参必须以 标识符 / 类型关键字 起始，
+    // 排除 `a < 5`、`a < b + c` 之类比较；`a < b > (x)` 与 C# 一致判为泛型调用（stdlib 无此模式，golden 兜底）。
+    internal TypeExpr[] _tryParseCallTypeArgs() {
+        this._p._advance();                                  // consume '<'
+        if (this._tryCloseTypeArgs()) { return null; }       // 空 <> 非泛型调用
+        TypeExpr[] args = new TypeExpr[4];
+        int ac = 0;
+        while (true) {
+            int sk = this._p._peek().Kind;
+            if (sk != TokenKind.Identifier && !this._p._isTypeKeyword(sk) && sk != TokenKind.LParen) { return null; }
+            if (ac == args.Length) {
+                TypeExpr[] b = new TypeExpr[args.Length * 2];
+                int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                args = b;
+            }
+            args[ac] = this._parseType(); ac = ac + 1;
+            if (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
+            break;
+        }
+        if (!this._tryCloseTypeArgs()) { return null; }      // 未整齐闭合 → 非泛型调用
+        TypeExpr[] outp = new TypeExpr[ac];
+        int j = 0; while (j < ac) { outp[j] = args[j]; j = j + 1; }
+        return outp;
+    }
+
 }

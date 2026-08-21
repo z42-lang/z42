@@ -158,6 +158,10 @@ public sealed class Parser {
     }
     public void _advance() { this._pos = this._pos + 1; }
 
+    // 游标快照 / 回滚——speculative 解析（泛型调用 `名<T>(` 歧义消解）失败时回退。
+    public int  _mark()          { return this._pos; }
+    public void _reset(int m)    { this._pos = m; }
+
     internal void _expect(int kind, string what) {
         if (this._peek().Kind == kind) { this._advance(); return; }
         // 当前 token 已是 EOF → 不是写错了，是没写完（缺闭合符 / 正文 / 分号）。标记可恢复不完整，

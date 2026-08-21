@@ -280,6 +280,33 @@ public sealed class MemberResolver {
         return -1;
     }
 
+    // add-generic-methods：解析泛型方法调用 `Foo<A,B>(...)` 的类型实参，写入 BoundCall.MethodTypeArgs
+    // （解析后的具体 Z42Type[]，ExprEmitter 转 FQ 名编进 IR Call）。ms 有本地 Decl 时校验 arity（E0445）
+    // 与 where 约束（复用 ConstraintChecker.CheckMethod）；ms=null / 无 Decl（导入 / 间接）→ 仅解析、跳过校验。
+    // 幂等：已附加（MethodTypeArgCount>0）或非泛型调用（TypeArgCount==0）即返回。
+    private void _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {
+        if (call.TypeArgCount == 0 || bc.MethodTypeArgCount > 0) { return; }
+        Z42Type[] targs = new Z42Type[call.TypeArgCount];
+        int i = 0;
+        while (i < call.TypeArgCount) {
+            targs[i] = env.ResolveType(call.TypeArgs[i]);
+            this._tc._chkTypeRef(targs[i], env, call.TypeArgs[i].Span);   // 类型实参引用的可访问性/存在性
+            i = i + 1;
+        }
+        bc.MethodTypeArgs = targs;
+        bc.MethodTypeArgCount = call.TypeArgCount;
+        if (ms != null && ms.HasDecl && ms.Decl != null) {
+            int declTp = ms.Decl.TypeParams.Count;
+            if (declTp != call.TypeArgCount) {
+                this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
+                    "generic method `" + ms.Name + "` expects " + declTp.ToString()
+                    + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
+            } else {
+                this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, targs, call.TypeArgCount, call.Span);
+            }
+        }
+    }
+
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
@@ -308,7 +335,9 @@ public sealed class MemberResolver {
             if (env.Symbols.HasFunc(id.Name)) {
                 MethodSymbol ms = env.Symbols.GetFunc(id.Name);
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
-                return new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
+                BoundCall bc = new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
+                this._applyMethodTypeArgs(bc, call, ms, env);
+                return bc;
             }
             // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
             if (env.HasClass()) {
@@ -322,7 +351,9 @@ public sealed class MemberResolver {
                         args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, sms.Signature, env);
                         BoundExpr[] fa = args;
                         if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span, env.Symbols); }
-                        return new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
+                        BoundCall bc = new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
+                        this._applyMethodTypeArgs(bc, call, sms, env);
+                        return bc;
                     }
                 }
             }
@@ -332,7 +363,11 @@ public sealed class MemberResolver {
         }
         // 成员调用：obj.m(args) / Class.m(args)
         if (call.Callee is MemberExpr) {
-            return this._bindMemberCall(call.Callee as MemberExpr, args, call.ArgCount, call.Args, env, call.Span);
+            BoundExpr mr = this._bindMemberCall(call.Callee as MemberExpr, args, call.ArgCount, call.Args, env, call.Span, call);
+            // add-generic-methods：兜底——静态 Class.m 路径已在 _bindMemberCall 内校验；此处为 instance /
+            // imported / prim 等余下路径附加类型实参（无本地 Decl → 仅解析、不校验），保证运行期拿到 type_args。
+            if (mr is BoundCall) { this._applyMethodTypeArgs(mr as BoundCall, call, null, env); }
+            return mr;
         }
         // 通用间接调用：array[i](args) / method()(args) 等 callee 是任意表达式且类型为 Z42FuncType。
         // Z42GenericParamType：泛型接口方法返回类型参数（如 ISubscription<TD>.Get()→TD）；type-erased，运行期解析。
@@ -352,7 +387,7 @@ public sealed class MemberResolver {
         return new BoundError("unsupported call", new Z42ErrorType(), call.Span);
     }
 
-    private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+    private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // fix-namespace-qualified-free-call：`ns.func()` 当 ns=当前命名空间且 func 是自由函数
         // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。
         if (mem.Target is IdentExpr) {
@@ -373,7 +408,9 @@ public sealed class MemberResolver {
                 if (ms != null) {
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
-                    return new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                    BoundCall bc = new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                    this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
+                    return bc;
                 }
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                     "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);

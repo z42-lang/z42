@@ -1,0 +1,17 @@
+// Test: method-level new T() — materializes the concrete Type from
+// frame.method_type_args then reflectively constructs it via __activator_create
+// (add-generic-methods M1).
+
+class Box { public int V; }
+
+object Make<T>() { return new T(); }
+
+void Main() {
+    object m = Make<Box>();
+    Assert.Equal(true, m != null);
+    // the constructed instance is really a Box
+    Assert.Equal(typeof(Box).Name, m.GetType().Name);
+    Box b = m as Box;
+    Assert.Equal(true, b != null);
+    Assert.Equal(0, b.V);   // default-field construction
+}

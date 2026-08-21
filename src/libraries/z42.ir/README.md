@@ -8,7 +8,7 @@ z42c / z42b / 未来 REPL·分析工具经本库**共享**「emit IR → zbc/zpk
 ## 核心文件
 | 分组 | 文件 | 职责 |
 |------|------|------|
-| IR 模型 | `IrType` / `TypedReg` / `IrModule` / `IrInstr` / `IrTerminator` / `ObjectMethods` | 寄存器式 SSA IR（IrModule→IrFunction→IrBlock→IrInstr/Terminator）+ 类型标签 + 对象协议方法 |
+| IR 模型 | `IrType` / `TypedReg` / `IrModule` / `IrInstr` / `IrTerminator` / `ObjectMethods` | 寄存器式 SSA IR（IrModule→IrFunction→IrBlock→IrInstr/Terminator）+ 类型标签 + 对象协议方法。泛型方法（add-generic-methods）：`Call`/`VCall` 携 `MethodTypeArgs` + 新指令 `MethodTypeArgInsn`/`MethodDefaultInsn`（方法级 `typeof(T)`/`new T()`/`default(T)`，见 book「泛型方法」页）|
 | zbc 格式 | `BinaryFormat/ByteWriter` / `ZbcFormat` / `ZbcStringPool` / `TokenAllocator` / `ZbcInstr` / `ZbcReader` / `ZbcReaderInstr` / `ZbcWriter` | byte-identical `.zbc` 写/读（8-section）+ 指令编解码 + 串池 + token 分配 |
 | zpkg 后端 | `ZpkgWriter` / `ZpkgWriterIndexed` / `ZpkgReader` / `ZpkgBuilder` / `PackageTypes` / `TsigReconcile` | `.zpkg` 包格式读/写/构建 + 类型签名（TSIG）重建（含**本地 enum 导出** → 跨包 enum 导入，add-repl-decls-multiline）+ 包类型模型 |
 | 惰性跨包类型世界 | `TsigReconcile.LazyReconWorld` | 按包懒填 TYPE/SIGS + 命名空间路由（`EnsureFq`）——`Rebuild` 基类链只解析引用闭包，不再一次性全量解析 world（lazy-type-world；O(引用) 不随库总量增长；旧 `BuildWorld`+4-arg `Rebuild` 作 eager 包装保留给种子）|

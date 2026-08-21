@@ -176,12 +176,18 @@ public sealed class BoundCall : BoundExpr {
     public string      MethodName;
     public BoundExpr[] Args;
     public int         ArgCount;
+    // add-generic-methods：泛型方法调用 `Foo<T>(a)` 的**解析后具体类型实参**（Z42Type[]，非泛型调用为空）。
+    // ExprEmitter 转 FQ 名编进 IR Call.MethodTypeArgs，运行期拷入 callee frame.method_type_args。
+    // 默认空数组（post-construction 由 MemberResolver 在泛型调用点写入 → 不改既有构造点）。
+    public Z42Type[]   MethodTypeArgs;
+    public int         MethodTypeArgCount;
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
         this.Kind = kind; this.HasReceiver = hasReceiver; this.Receiver = receiver;
         this.OwnerClass = ownerClass; this.MethodName = methodName;
         this.Args = args; this.ArgCount = argCount; this._retType = retType;
+        this.MethodTypeArgs = new Z42Type[0]; this.MethodTypeArgCount = 0;
     }
     public override Z42Type Type() { return this._retType; }
     public override string  Dump() {
@@ -273,8 +279,13 @@ public sealed class BoundTypeof : BoundExpr {
     // 回 FQ delegate 名（delegate 有 TYPE 条目 under FQ 名，add-delegate-metadata）。镜像
     // BoundCast.TypeName / BoundIsExpr.TypeName 用 AST 原始名而非 resolved 类型。
     public string  TargetName;
+    // add-generic-methods：方法级泛型形参 typeof(T)。IsMethodLevel=true 时 Target 为 Z42GenericParamType，
+    // MethodParamIndex = 该形参在方法 TypeParams 中的序号 → ExprEmitter 发 MethodTypeArgInsn（读 frame 槽），
+    // 而非常规 TypeofInstr。默认 false（类级/具体类型走既有路径，D3 类级 typeof 仍产占位）。
+    public bool    IsMethodLevel;
+    public int     MethodParamIndex;
     private Z42Type _t;
-    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; }
+    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; this.IsMethodLevel = false; this.MethodParamIndex = -1; }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
 }
@@ -322,9 +333,15 @@ public sealed class BoundNew : BoundExpr {
     public string      CtorName;  // 短名 ctor 方法键（如 "Exception$1"）；ExprEmitter 构建 fqCtor = qualCls + "." + CtorName
     public BoundExpr[] Args;
     public int         ArgCount;
+    // add-generic-methods：`new T()` 其中 T 为**方法级**泛型形参。IsMethodTypeParam=true 时
+    // ExprEmitter 发 MethodTypeArgInsn(物化 Std.Type) + __activator_create（无 ctor 直接调用），
+    // MethodParamIndex = 该形参在方法 TypeParams 序号。默认 false（常规 new）。
+    public bool        IsMethodTypeParam;
+    public int         MethodParamIndex;
     private Z42Type _type;
     public BoundNew(string typeName, string ctorName, BoundExpr[] args, int argCount, Z42Type type, Span span) { this.Span = span;
         this.TypeName = typeName; this.CtorName = ctorName; this.Args = args; this.ArgCount = argCount; this._type = type;
+        this.IsMethodTypeParam = false; this.MethodParamIndex = -1;
     }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() {
@@ -338,8 +355,11 @@ public sealed class BoundNew : BoundExpr {
 // GS7：default(T) 零值表达式。ParamIndex ≥ 0 → 泛型类型参数（运行期通过 DefaultOf 指令解析）；-1 → 常量零值。
 public sealed class BoundDefault : BoundExpr {
     public int      ParamIndex;   // ≥0 = 泛型参数索引；-1 = 常量零值（null/0/false）
+    // add-generic-methods：IsMethodLevel=true → ParamIndex 是**方法**形参序号，发 MethodDefaultInsn（读 frame 槽）；
+    // false → 类级（ParamIndex 是类形参序号，发 DefaultOfInstr 读 instance.type_args）或常量零值（-1）。
+    public bool     IsMethodLevel;
     private Z42Type _type;
-    public BoundDefault(Z42Type type, int paramIndex, Span span) { this.Span = span; this._type = type; this.ParamIndex = paramIndex; }
+    public BoundDefault(Z42Type type, int paramIndex, Span span) { this.Span = span; this._type = type; this.ParamIndex = paramIndex; this.IsMethodLevel = false; }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(default :" + this._type.Name() + ")"; }
 }
