@@ -208,10 +208,14 @@ smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆�
 排除审计**(见 §5.8)——mobile 的能力集与 wasm **不同**,不能照搬 wasm 的排除表,故需独立一节。
 
 **T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍平台冷构建。wasm 的 R1–R7
-(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料小(排除能力用例后 ~330 例)、
-Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富余,后续按需调 n。junit/artifact
-按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若冷构建重付难以承受,再升级 T2(冷构建产物只建
-一次 + 分片只跑,仿 share-goldens-no-regen)。
+(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料随 stdlib 增长(排除能力用例后
+~340 例),Playwright 里 interp 每例(fresh VmContext + stdlib reload,单线程 wasm)其实不轻——**单片
+整体在浏览器内跑已超 10min**,一度撞穿 `playwright.embedded.config.ts` 旧的 620s(10.3min)whole-test
+timeout(shard 2 确定性红,`Test timeout 620000ms exceeded`)。**fix-wasm-shard-timeout 把该 timeout
+提到 25min(inner waitForFunction 24min)、job 墙 60→75min**——冷构建 ~27min + 25min 跑仍稳在 75min 内。
+选提 timeout 而非提 n:每加一片都要重付一遍冷 wasm-pack 构建,提 timeout 零额外 job。junit/artifact
+按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若单片整体跑逼近墙(语料再涨),再升级 T2(冷构建
+产物只建一次 + 分片只跑,仿 share-goldens-no-regen)或提 n 分更细。
 
 本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)看 `embed shard k/n`
 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
@@ -333,18 +337,16 @@ WASM-ONLY 缺口（仅 if(isWasm)）     → threading/* · compression/* · *st
 
 - **iOS(iossim)3 片全绿** —— 上表 KEEP-IN 假设对 iOS **全部成立**(threads / compression / 熵 /
   时钟 / 沙箱 fs / stream 都跑通)。排除 68 → 可跑 465。
-- **android(emulator)3 片红在 6 个 `z42.io` case**(23 个 sub-test),分两类,故加**android-only**
-  排除(iOS 沙箱能跑这些,**不上移到 SHARED**),排除 74:
+- **android(emulator)首轮 3 片红在 6 个 `z42.io` case**(23 个 sub-test),分两类:
   - **① 真能力缺口(永久 android 排除)**:`file_chmod_link_size` —— `File.Link`(硬链接)在 android
     app 沙箱 `Permission denied`(symlink 却可以)。该测试**已**用 `File.CreateTempDir`,故非 /tmp 问题、
-    改不了 → 永久排除。
-  - **② 测试可移植性缺陷(临时 android 排除,待 /tmp follow-up)**:`directory` / `directory_copy` /
-    `file_extras` / `file_last_write_time` / `gc_heap_snapshot` —— 这 5 个测试**硬编码 `/tmp/…`** 写盘路径。
+    改不了 → **永久 android-only 排除**(iOS 沙箱能跑,**不上移到 SHARED**)。
+  - **② 测试可移植性缺陷(已修,fix-mobile-tmp-portability follow-up)**:`directory` / `directory_copy` /
+    `file_extras` / `file_last_write_time` / `gc_heap_snapshot` —— 这 5 个测试原**硬编码 `/tmp/…`** 写盘路径。
     iOS-sim(跑在 macOS)与 desktop 有可写 `/tmp` 故过;**android emulator 无可写 `/tmp`** → `Read-only
     file system (os error 30)` / `No such file`。android **有**可写 temp(`File.CreateTempDir`,
-    `file_temp` 在 android 已过)→ **真修 = 把这 5 个测试从硬编码 `/tmp` 改用 `CreateTempDir`(可移植,
-    android+iOS+desktop 都过)**,改完即**删掉这 5 个 android 排除**。该 /tmp 可移植性修复按裁决**拆为
-    独立 follow-up PR**(本 PR 先交付机制 + iOS 全覆盖 + android 暂排这 6 例保绿)。
+    `file_temp` 在 android 已过)。**已把这 5 个测试从硬编码 `/tmp` 改用 `File.CreateTempDir`(可移植,
+    android+iOS+desktop 都过)并删掉这 5 个 android 临时排除** → android 现只留 ① 一个永久排除。
 
 ### 分片 matrix(`test-ios` / `test-android`,n=3)
 

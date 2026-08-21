@@ -1,5 +1,5 @@
 // add-std-io-polish (2026-05-12)：File.Copy + File.Move 测试。
-// 测试用 /tmp/z42-file-extras-* 隔离写盘。
+// 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoFileExtrasTests;
 
 using Std.Test;
@@ -9,59 +9,61 @@ using Std.IO;
 
 [Test]
 void test_copy_creates_dst() {
-    string src = "/tmp/z42-file-extras-copy-src.txt";
-    string dst = "/tmp/z42-file-extras-copy-dst.txt";
+    string base = File.CreateTempDir("z42fx");
+    string src = base + "/copy-src.txt";
+    string dst = base + "/copy-dst.txt";
     File.WriteAllText(src, "hello copy");
     File.Copy(src, dst);
     Assert.True(File.Exists(dst));
     Assert.Equal("hello copy", File.ReadAllText(dst));
-    File.Delete(src);
-    File.Delete(dst);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_copy_leaves_src_intact() {
-    string src = "/tmp/z42-file-extras-copy-src2.txt";
-    string dst = "/tmp/z42-file-extras-copy-dst2.txt";
+    string base = File.CreateTempDir("z42fx");
+    string src = base + "/copy-src2.txt";
+    string dst = base + "/copy-dst2.txt";
     File.WriteAllText(src, "original");
     File.Copy(src, dst);
     Assert.True(File.Exists(src));
     Assert.Equal("original", File.ReadAllText(src));
-    File.Delete(src);
-    File.Delete(dst);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_copy_overwrites_dst() {
-    string src = "/tmp/z42-file-extras-copy-ow-src.txt";
-    string dst = "/tmp/z42-file-extras-copy-ow-dst.txt";
+    string base = File.CreateTempDir("z42fx");
+    string src = base + "/copy-ow-src.txt";
+    string dst = base + "/copy-ow-dst.txt";
     File.WriteAllText(dst, "old content");
     File.WriteAllText(src, "new content");
     File.Copy(src, dst);
     Assert.Equal("new content", File.ReadAllText(dst));
-    File.Delete(src);
-    File.Delete(dst);
+    Directory.Delete(base, true);
 }
 
 // ── File.Move ─────────────────────────────────────────────────────────────
 
 [Test]
 void test_move_creates_dst() {
-    string src = "/tmp/z42-file-extras-move-src.txt";
-    string dst = "/tmp/z42-file-extras-move-dst.txt";
+    string base = File.CreateTempDir("z42fx");
+    string src = base + "/move-src.txt";
+    string dst = base + "/move-dst.txt";
     File.WriteAllText(src, "hello move");
     File.Move(src, dst);
     Assert.True(File.Exists(dst));
     Assert.Equal("hello move", File.ReadAllText(dst));
-    File.Delete(dst);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_move_removes_src() {
-    string src = "/tmp/z42-file-extras-move-src2.txt";
-    string dst = "/tmp/z42-file-extras-move-dst2.txt";
+    string base = File.CreateTempDir("z42fx");
+    string src = base + "/move-src2.txt";
+    string dst = base + "/move-dst2.txt";
     File.WriteAllText(src, "data");
     File.Move(src, dst);
     Assert.False(File.Exists(src));
-    File.Delete(dst);
+    Directory.Delete(base, true);
 }

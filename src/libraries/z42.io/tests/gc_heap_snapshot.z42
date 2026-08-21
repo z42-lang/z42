@@ -1,6 +1,7 @@
 // add-gc-heap-snapshot-export (2026-05-24): end-to-end test that
 // `Std.GC.WriteHeapSnapshot(path)` writes a V8 `.heapsnapshot` JSON
 // file containing the expected top-level keys + root sentinel.
+// 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoGcHeapSnapshotTests;
 
 using Std;
@@ -9,7 +10,8 @@ using Std.IO;
 
 [Test]
 void test_write_snapshot_creates_nonempty_file() {
-    string path = "/tmp/z42-test-snapshot.heapsnapshot";
+    string base = File.CreateTempDir("z42snap");
+    string path = base + "/snapshot.heapsnapshot";
     long bytes = GC.WriteHeapSnapshot(path);
 
     Assert.True(bytes > 100);
@@ -35,14 +37,15 @@ void test_write_snapshot_creates_nonempty_file() {
     // Synthetic root must be present.
     Assert.Contains("(GC roots)", content);
 
-    File.Delete(path);
+    Directory.Delete(base, true);
 }
 
 [Test]
 void test_returned_bytes_equal_file_length() {
-    string path = "/tmp/z42-test-snapshot-len.heapsnapshot";
+    string base = File.CreateTempDir("z42snap");
+    string path = base + "/snapshot-len.heapsnapshot";
     long bytes = GC.WriteHeapSnapshot(path);
     string content = File.ReadAllText(path);
     Assert.Equal(bytes, content.Length);
-    File.Delete(path);
+    Directory.Delete(base, true);
 }
