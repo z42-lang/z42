@@ -22,6 +22,8 @@
 | `src/runtime/src/app.rs` | MODIFY | `RunOpts.stats_json`；print_stats 分支 JSON |
 | `src/runtime/src/main.rs` | MODIFY | `--stats-format` clap 枚举 + plumb；dhat 全局 allocator 门控（`dhat-heap`）+ Profiler |
 | `src/runtime/Cargo.toml` | MODIFY | optional `dhat` dep + `dhat-heap` feature |
+| `src/runtime/src/{host/mod.rs,corelib/reflection.rs}` + `crates/z42-host/src/lib.rs` | MODIFY | RunOpts 构造点补 `stats_json: false` |
+| `src/toolchain/workload/wasm/platform/src/lib.rs` | MODIFY | RunOpts 构造点补 `stats_json: false`（CI 揭示的第 5 个 caller；不在默认 workspace build，`cargo build`/`verify-features` 不覆盖，仅 `package-wasm` 编译） |
 | `scripts/README.md` | MODIFY | 功能索引 + 基础用法 |
 
 只读引用：`scripts/xtask_bench.z42`（compile/exec 模式参照）、`scripts/common/xtask_common.z42`（`_have`/`_exec`/`_builtVm`/`_assembleAllLibs` 等）。

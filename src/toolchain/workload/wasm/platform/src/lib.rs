@@ -257,6 +257,7 @@ pub fn run_test_app(
         libs_dir: libs,
         program_args: args,
         print_stats: false,
+        stats_json: false,
     };
     z42::app::run(app_path, entry_opt, opts)
         .map_err(|e| js_error("VmException", 40, &format!("{e:#}")))
