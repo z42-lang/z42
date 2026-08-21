@@ -83,6 +83,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `package workload [--rid R] \| <label> [dist]` | `--rid`/无参：建 per-RID desktop workload；`<label>`：合并 4 个 per-RID → 单 archive | `cargo` | workload 包 / 合并 archive |
 | `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
 | `bench [--diff]` | 性能基准 / 回归对比 | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果 |
+| `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |
 | `test` | **每次 commit / 归档前必跑** | 下面各 stage | 串联 GREEN 验证（e2e + stdlib + compiler；不含 runtime——见下） |
 | `test runtime` | 改了 Rust VM (`src/runtime/`) | `cargo` | Rust VM 单测/集成（`cargo test --test-threads=1`；含 zbc/zpkg format 基线）。**不在 `test` gate 内**（signal 测试在受限沙箱会挂）；CI 每腿单独一步 + 按需本地跑 |
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
@@ -228,6 +229,7 @@ scripts/
 ├── xtask_cli.z42        Std.Cli 命令树构建 + dispatch（每层 -h 自动生成）
 ├── xtask_deps.z42       deps check 版本漂移检查
 ├── xtask_bench.z42      bench 基准 / --diff 回归对比
+├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/path/cargo/toolchain 选择器
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）

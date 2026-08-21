@@ -46,6 +46,11 @@ cc = "1"
 # the wasm sandbox / size-sensitive mobile staticlibs. Wired via
 # `#[global_allocator]` in main.rs (binary only; embedded lib uses host alloc).
 mimalloc = { version = "0.1", optional = true }
+# Heap profiler (script-profiling P0, `xtask profile --heap`). Optional + off by
+# default; the `dhat-heap` feature swaps it in as `#[global_allocator]` (mutually
+# exclusive with mimalloc) and emits `dhat-heap.json` per run. `xtask profile`
+# builds it on demand into a throwaway target-dir — never the shipped binary.
+dhat = { version = "0.3", optional = true }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"   # JSON interchange format (legacy .z42ir.json)
@@ -136,6 +141,10 @@ default              = ["jit", "native-interop", "mimalloc-alloc"]
 # mimalloc-alloc: route the z42vm binary's global allocator through mimalloc
 # (default-on desktop; omitted by the --no-default-features wasm/ios/android presets).
 mimalloc-alloc       = ["dep:mimalloc"]
+# dhat-heap: heap-allocation profiling (script-profiling P0). Swaps the global
+# allocator to dhat (overrides mimalloc via a cfg gate in main.rs) and writes
+# dhat-heap.json per run. Dev/profiling only — never in a release/platform preset.
+dhat-heap            = ["dep:dhat"]
 jit                  = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 native-interop       = ["dep:libffi", "dep:libloading"]
 aot                  = []
