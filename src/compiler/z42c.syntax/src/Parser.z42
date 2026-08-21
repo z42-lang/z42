@@ -26,6 +26,12 @@ public sealed class Parser {
     public DeclParser _declP;             // review P1-2：声明子解析器
     public MemberParser _memberP;         // review P1-2：成员子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
 
+    // attribute-handler-registry PR3c：`#suppress`/`#restore` 局部抑制收集。子解析器经 `this._p`
+    // 引用共享同一累加器。_supRegions=已闭合区间；_supOpen*=开区间栈（LIFO 按 RuleId 配对）。收尾
+    // `_finalizeSuppress` 把未闭合的延伸到 EOF 并挂到 CU。见 SuppressRegion / design PR3c 落地。
+    public SuppressRegion[] _supRegions; public int _supCount;
+    private string[] _supOpenIds; private int[] _supOpenStarts; private int _supOpenCount;
+
     public Parser(string src, string file) {
         this._lx = new Lexer(src, file);
         this._lx.Tokenize();
@@ -38,6 +44,93 @@ public sealed class Parser {
         this._stmtP = new StmtParser(this);
         this._declP = new DeclParser(this);
         this._memberP = new MemberParser(this);
+        this._supRegions = new SuppressRegion[0]; this._supCount = 0;
+        this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
+    }
+
+    // ── PR3c 局部抑制指令 ────────────────────────────────────────────────────
+    // `#suppress <Id> ["reason"]` / `#restore <Id>`。仅在语句列表 / 顶层声明列表边界调用（见 Hash token）。
+    // 返回 true=消费了一条指令（调用方 continue）；false=`#` 后非 suppress/restore → 不动游标，
+    // 留给正常错误路径（`#` 现无其它语义，孤立 Hash 仍报错，与既有行为一致）。
+    public bool _tryParseSuppressDirective() {
+        if (this._peek().Kind != TokenKind.Hash) { return false; }
+        Token nx = this._peekAt(1);
+        if (nx.Kind != TokenKind.Identifier) { return false; }
+        if (nx.Text == "suppress") { this._parseSuppressOpen(); return true; }
+        if (nx.Text == "restore")  { this._parseSuppressClose(); return true; }
+        return false;
+    }
+
+    private void _parseSuppressOpen() {
+        int start = this._peek().Span.Start;   // `#` 起点
+        this._advance();   // #
+        this._advance();   // suppress
+        string id = this._parseSuppressRuleId();
+        if (this._peek().Kind == TokenKind.StringLiteral) { this._advance(); }   // 可选 reason，接受即弃
+        if (this._supOpenCount == this._supOpenIds.Length) {
+            int cap = this._supOpenIds.Length * 2; if (cap == 0) { cap = 4; }
+            string[] ni = new string[cap]; int[] nst = new int[cap];
+            int i = 0; while (i < this._supOpenCount) { ni[i] = this._supOpenIds[i]; nst[i] = this._supOpenStarts[i]; i = i + 1; }
+            this._supOpenIds = ni; this._supOpenStarts = nst;
+        }
+        this._supOpenIds[this._supOpenCount] = id;
+        this._supOpenStarts[this._supOpenCount] = start;
+        this._supOpenCount = this._supOpenCount + 1;
+    }
+
+    private void _parseSuppressClose() {
+        int end = this._peek().Span.Start;   // `#restore` 起点 = 抑制区排他上界
+        this._advance();   // #
+        this._advance();   // restore
+        string id = this._parseSuppressRuleId();
+        // 弹出同 Id 最近开区间（LIFO），定型 [openStart, end)。无匹配 → 宽松忽略（无诊断，同 C# pragma restore）。
+        int j = this._supOpenCount - 1;
+        while (j >= 0) {
+            if (this._supOpenIds[j] == id) {
+                this._addSuppressRegion(id, this._supOpenStarts[j], end);
+                int k = j;
+                while (k < this._supOpenCount - 1) {
+                    this._supOpenIds[k] = this._supOpenIds[k + 1];
+                    this._supOpenStarts[k] = this._supOpenStarts[k + 1];
+                    k = k + 1;
+                }
+                this._supOpenCount = this._supOpenCount - 1;
+                return;
+            }
+            j = j - 1;
+        }
+    }
+
+    // RuleId = 单个标识符（如 Z9002）；缺失 → 诊断 + 返回空串（抑制退化为无效，安全）。
+    private string _parseSuppressRuleId() {
+        if (this._peek().Kind == TokenKind.Identifier) {
+            string id = this._peek().Text; this._advance(); return id;
+        }
+        this._diags.Error(DiagnosticCodes.ExpectedToken, "expected rule id after #suppress/#restore", this._peek().Span);
+        return "";
+    }
+
+    private void _addSuppressRegion(string id, int start, int end) {
+        if (this._supCount == this._supRegions.Length) {
+            int cap = this._supRegions.Length * 2; if (cap == 0) { cap = 4; }
+            SuppressRegion[] nr = new SuppressRegion[cap];
+            int i = 0; while (i < this._supCount) { nr[i] = this._supRegions[i]; i = i + 1; }
+            this._supRegions = nr;
+        }
+        this._supRegions[this._supCount] = new SuppressRegion(id, start, end);
+        this._supCount = this._supCount + 1;
+    }
+
+    // 收尾：未闭合的开区间延伸到 cuEnd（EOF）；把收集区间挂到 CU。ParseCompilationUnit 末尾调用。
+    public void _finalizeSuppress(CompilationUnit cu, int cuEnd) {
+        int j = 0;
+        while (j < this._supOpenCount) {
+            this._addSuppressRegion(this._supOpenIds[j], this._supOpenStarts[j], cuEnd);
+            j = j + 1;
+        }
+        this._supOpenCount = 0;
+        cu.SuppressRegions = this._supRegions;
+        cu.SuppressRegionCount = this._supCount;
     }
 
     // 已 lex 的 token 流（add-file-level-incremental D8 性能修正，User 追认 2026-07-08）：
@@ -184,6 +277,10 @@ public sealed class Parser {
         int n = 0;
         while (this._peek().Kind != TokenKind.Eof) {
             int k = this._peek().Kind;
+            // PR3c：顶层声明列表边界的 `#suppress`/`#restore`（可圈定整个顶层声明）。非指令的 `#` 落回错误路径。
+            if (k == TokenKind.Hash) {
+                if (this._tryParseSuppressDirective()) { continue; }
+            }
             if (k == TokenKind.Namespace) {
                 this._advance(); ns = this._declP._parseQualifiedName(); hasNs = true; this._expectSemi();
                 continue;
@@ -258,7 +355,9 @@ public sealed class Parser {
                 decls = this._declP._growDecls(decls, n); decls[n] = d; n = n + 1;
             }
         }
+        int cuEnd = this._peek().Span.End;   // Eof 位置 = 未闭合抑制区的排他上界
         CompilationUnit cu = new CompilationUnit(hasNs, ns, decls, n, cusp);
+        this._finalizeSuppress(cu, cuEnd);   // PR3c：未闭合 `#suppress` 延伸到 EOF，挂区间到 CU
         // fix-lexer-diags-dropped：并入 lexer 诊断（收尾，晚于 incomplete 判定）。
         this._ensureLexDiagsMerged();
         // fix-parse-diags-dropped：把 parse 诊断挂上 CU，供下游 typecheck 汇点合并上浮。

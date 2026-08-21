@@ -12,8 +12,8 @@
 | `src/TypeExpr.z42` | 类型表达式 AST（TypeExpr + virtual Dump；NamedType/ArrayType/NullableType；Dump 复刻规范 type-text）+ TypeParamList（形参 `<T>`）+ WhereClause/WhereConstraint（泛型约束）|
 | `src/Ast.z42` | 表达式 AST（Expr + virtual Dump；字面量/标识符/一元/二元含位运算·??·is·as/成员/调用/索引/赋值·复合/三目/new；is·as·new 的类型为 TypeExpr）|
 | `src/Stmt.z42` | 语句 AST（Stmt + virtual Dump；expr/var-decl/return/if/while/block/break/continue/throw/foreach/for/do-while/switch/try-catch-finally）|
-| `src/Decl.z42` | 声明 AST（CompilationUnit/Using/Class·Struct·Interface[Kind 区分]/Enum+EnumMember/Record/Delegate/Field/Method[IsFree=顶层 func]/Property/Param/ParamList/TypeList/Attr+AttributedDecl + Dump；类型用法位均为 TypeExpr）|
-| `src/Parser.z42` | Pratt 表达式（含后缀/赋值/三目/is·as/new）+ 递归下降语句（含 for/switch/try）+ 顶层声明（class·struct·interface/enum/record/delegate/顶层 func/field/method/ctor/property + 泛型形参 `<T>`/where + 前置 attribute `[X]` + `partial` 修饰符（类型 + 方法，方法可无 body）+ 用户转换运算符 `implicit/explicit operator T(S)`（MemberParser → op_Implicit/op_Explicit）+ `(UserType)operand` cast 消歧（ExprParser._castOperandStart））|
+| `src/Decl.z42` | 声明 AST（CompilationUnit[含 `SuppressRegions` 局部抑制区间]/Using/Class·Struct·Interface[Kind 区分]/Enum+EnumMember/Record/Delegate/Field/Method[IsFree=顶层 func]/Property/Param/ParamList/TypeList/Attr+AttributedDecl + `SuppressRegion`{RuleId,Start,End}（PR3c，`#suppress` 收集，AST-only）+ Dump；类型用法位均为 TypeExpr）|
+| `src/Parser.z42` | Pratt 表达式（含后缀/赋值/三目/is·as/new）+ 递归下降语句（含 for/switch/try）+ 顶层声明（class·struct·interface/enum/record/delegate/顶层 func/field/method/ctor/property + 泛型形参 `<T>`/where + 前置 attribute `[X]` + `partial` 修饰符（类型 + 方法，方法可无 body）+ 用户转换运算符 `implicit/explicit operator T(S)`（MemberParser → op_Implicit/op_Explicit）+ `(UserType)operand` cast 消歧（ExprParser._castOperandStart）+ **`#suppress <Id> ["reason"]` / `#restore <Id>` 局部抑制指令**（PR3c，语句/顶层声明列表边界拦截 `Hash` → 收集成 `CompilationUnit.SuppressRegions`；非指令 `#` 落回错误路径））|
 | `src/DumpTool.z42` | 前端 dump 纯函数（`DumpTokens`/`DumpAst`：源码→token 流/AST s-expr）；供 z42c driver `--dump-*` 调用 + [Test] 验证 |
 | `src/SyntaxSkeleton.z42` | **过渡占位**：semantics/pipeline 仍引用；各自移植时移除（driver 已切真实依赖）|
 

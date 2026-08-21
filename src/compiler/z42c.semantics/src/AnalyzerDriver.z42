@@ -21,9 +21,14 @@ using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST
 public sealed class DiagSinkImpl : DiagSink {
     public DiagnosticBag Bag;
     public LintConfig Cfg;
-    public DiagSinkImpl(DiagnosticBag bag, LintConfig cfg) { this.Bag = bag; this.Cfg = cfg; }
+    public SuppressionSet Supp;   // PR3c：局部抑制（`#suppress` 字节区间 + `[Suppress]` 声明活跃栈）
+    public DiagSinkImpl(DiagnosticBag bag, LintConfig cfg, SuppressionSet supp) {
+        this.Bag = bag; this.Cfg = cfg; this.Supp = supp;
+    }
 
     public void Report(DiagRule rule, Span at) {
+        // PR3c：局部抑制优先——命中即整条丢弃、不进 bag（早于 severity 决策，省一次 Resolve）。
+        if (this.Supp.IsSuppressed(rule.Id, at.Start)) { return; }
         int eff = this.Cfg.Resolve(rule);
         if (eff < 0) { return; }   // 抑制（规则禁用 / [lints] "none"）→ 不报
         int sev = AnalyzerDriver._mapSeverity(eff);
@@ -38,33 +43,50 @@ public static class AnalyzerDriver {
     // （无覆盖、无 WAE，仅按规则 EnabledByDefault + DefaultSeverity）。
     public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
         if (cfg == null) { cfg = LintConfig.Empty(); }
-        DiagSinkImpl sink = new DiagSinkImpl(bag, cfg);
+        // PR3c：建局部抑制集。① `#suppress`/`#restore` 字节区间（parser 收集，挂 cu.SuppressRegions）。
+        //       ② `[Suppress]` 声明活跃栈由 walk 期间 push/pop 填充（见 _walkDecl）。
+        SuppressionSet supp = new SuppressionSet();
+        int r = 0;
+        while (r < cu.SuppressRegionCount) {
+            SuppressRegion sr = cu.SuppressRegions[r];
+            supp.AddRegion(sr.RuleId, sr.Start, sr.End);
+            r = r + 1;
+        }
+        DiagSinkImpl sink = new DiagSinkImpl(bag, cfg, supp);
         int i = 0;
         while (i < analyzerCount) {
             Analyzer a = analyzers[i];
             int[] kinds = a.ObservedKinds();
-            AnalyzerDriver._walkCu(cu, a, kinds, sink);
+            AnalyzerDriver._walkCu(cu, a, kinds, sink, supp);   // walk 平衡 push/pop，跨 analyzer 复用同一 supp
             i = i + 1;
         }
     }
 
     // ── AST 遍历：抵达已定义 SyntaxKind 的节点即分派（PR3a 只到语句层，不入 Expr）──────────────
-    private static void _walkCu(CompilationUnit cu, Analyzer a, int[] kinds, DiagSink sink) {
+    private static void _walkCu(CompilationUnit cu, Analyzer a, int[] kinds, DiagSink sink, SuppressionSet supp) {
         int i = 0;
         while (i < cu.DeclCount) {
-            AnalyzerDriver._walkDecl(cu.Decls[i], a, kinds, sink);
+            AnalyzerDriver._walkDecl(cu.Decls[i], a, kinds, sink, supp);
             i = i + 1;
         }
     }
 
-    private static void _walkDecl(Decl d, Analyzer a, int[] kinds, DiagSink sink) {
-        Decl inner = AnalyzerDriver._unwrap(d);
+    // 进声明前 push 本声明的 `[Suppress]`（若有），walk 内层，退出即 pop——活跃栈精确圈定 [Suppress] 子树
+    // （规避 decl.Span 只覆盖首 token 的问题，见 SuppressionSet 头注）。pop 保证与 push 平衡。
+    private static void _walkDecl(Decl d, Analyzer a, int[] kinds, DiagSink sink, SuppressionSet supp) {
+        int pushed = 0;
+        if (d is AttributedDecl) { pushed = AnalyzerDriver._pushSuppress(d as AttributedDecl, supp); }
+        AnalyzerDriver._walkDeclInner(AnalyzerDriver._unwrap(d), a, kinds, sink, supp);
+        supp.PopActive(pushed);
+    }
+
+    private static void _walkDeclInner(Decl inner, Analyzer a, int[] kinds, DiagSink sink, SuppressionSet supp) {
         if (inner is ClassDecl) {
             ClassDecl c = inner as ClassDecl;
             AnalyzerDriver._dispatch(SyntaxKind.ClassDecl, c, a, kinds, sink);
             int i = 0;
             while (i < c.MemberCount) {
-                AnalyzerDriver._walkDecl(c.Members[i], a, kinds, sink);   // 嵌套类型 + 方法
+                AnalyzerDriver._walkDecl(c.Members[i], a, kinds, sink, supp);   // 嵌套类型 + 方法
                 i = i + 1;
             }
             return;
@@ -81,6 +103,24 @@ public static class AnalyzerDriver {
     private static Decl _unwrap(Decl d) {
         if (d is AttributedDecl) { return (d as AttributedDecl).Inner; }
         return d;
+    }
+
+    // 读 AttributedDecl 上的 `[Suppress("Id", ...)]` 并 push 活跃栈；返回 push 条数（供退出时 pop）。
+    // `[Suppress]` 是 PR3c directive（纯编译期，不持久化）；这里从 AST 按名读、取首参字符串字面量为 RuleId。
+    private static int _pushSuppress(AttributedDecl ad, SuppressionSet supp) {
+        int pushed = 0;
+        int i = 0;
+        while (i < ad.AttrCount) {
+            Attr at = ad.Attrs[i];
+            if (HandlerRegistry.IsSuppressDirective(at.Name) && at.ArgCount >= 1) {
+                if (at.Args[0] is StringLitExpr) {
+                    string id = Lexer.DecodeString((at.Args[0] as StringLitExpr).Raw);
+                    if (id != "") { supp.PushActive(id); pushed = pushed + 1; }
+                }
+            }
+            i = i + 1;
+        }
+        return pushed;
     }
 
     private static void _walkStmt(Stmt s, Analyzer a, int[] kinds, DiagSink sink) {

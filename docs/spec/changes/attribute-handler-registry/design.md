@@ -189,6 +189,37 @@ try { risky(); } catch (Error e) { }
 > 抑制、`EnabledByDefault` 门、WAE 升级。`DiagSinkImpl` 抑制则丢弃、不进 `DiagnosticBag`；仅 Error 级
 > 增 `ErrorCount`。局部关闭（`#suppress`/`[Suppress]`）仍留 PR3c。z42c 自建无 `[lints]` → byte-identical。
 
+> **PR3c 落地（2026-08-21）—— 局部抑制（两机制，合并单 PR）**：抑制检查点统一在
+> `DiagSinkImpl.Report(rule, at)`——severity 决策**之前**先判 `at.Start` 是否落在该规则的抑制区，命中即
+> 整条丢弃（不进 bag、不增 ErrorCount）。抑制区来自两个来源，都随 `cu` 流入 `AnalyzerDriver.Run`
+> （**无需改 Run 签名 / `_runAnalyzers`**）：
+>
+> 1. **`#suppress <Id> "reason"` / `#restore <Id>`（区间级，新语法）**：`#` 现只 emit `Hash` token 且
+>    **全代码库无人消费**（parser 从不读 Hash）→ 零冲突的全新指令。Parser 在**语句列表 + 顶层/成员声明
+>    列表边界**拦截 `Hash`：见 `#` + ident `suppress` → 解析 `#suppress <Id-ident> [<字符串 reason>]`，
+>    按 `Id` 压栈开区间（记 token.Start）；见 `#restore <Id>` → 弹出同 `Id` 最近开区间、定型
+>    `[openStart, restoreStart)`。EOF 仍未闭合 → 延伸到 `cu.Span.End`。收集进 **`CompilationUnit.SuppressRegions`**
+>    （`SuppressRegion{string RuleId; int Start; int End}` 数组，parser 用 growable `_push` idiom 累积，
+>    收尾挂 CU）。**纯源码级、编译期消费即弃**（AST 不序列化 → 无格式 bump）。累加器挂在主 `Parser`
+>    实例，子解析器（`_stmtP`/`_declP`）经主 parser 引用共享。
+> 2. **`[Suppress("<Id>", "reason")]`（声明级，directive——纯编译期，不写 zpkg）**：归 **directive**
+>    而非 store-meta（User 裁决 2026-08-21：抑制是编译期本地概念，无运行时/下游消费者读它，持久化纯膨胀）。
+>    加 `Suppress` 进 `HandlerRegistry.IsDirectiveAttr`（不加 `IsNativeDirective`）→ `KindOf("Suppress")
+>    == Directive`：`AttributeSynth._process` 只对 store-meta 合成反射工厂（IrAttrRef blob）→ Suppress
+>    **不写 blob**；`StubEmitter` 只烘 Native → Suppress **不烘进 descriptor**。故**什么都不写进 zpkg**，
+>    且**无需在 z42.core 建 `SuppressAttribute` 类**（同 `[Native]`——directive 靠名字识别、无 backing 类）。
+>    `AttributedDecl` 仍留在 AST，`AnalyzerDriver` walk 时 `_unwrap` 前读 `attr.Name=="Suppress"` +
+>    `attr.Args[0]` 字符串字面量取 `Id`，区间 = 内层声明 `Inner.Span`。driver 在 `Run` 内建
+>    `SuppressionSet`（`#suppress` 区间 ∪ `[Suppress]` 声明区间），传给 `DiagSinkImpl`。
+>    （C# `[SuppressMessage]` 是真元数据 attribute；z42 取更简的编译期本地模型——`Suppress` 成保留
+>    directive 名，用户不能再定义同名 store-meta 类，同 `Native`。）
+>
+> **抑制语义**：精确 rule Id 匹配（无通配——对齐 C# pragma 逐码；通配是 `[lints]` config 层的事）。
+> **两机制皆纯编译期、零 zpkg 持久化**（`#suppress` 是 AST-only、`[Suppress]` 是 directive 不落 blob）。
+> z42c 源 / stdlib **不 use** 新语法与 `[Suppress]`（仅加 support）→ 上一 nightly 仍能编当前源、
+> self-host byte-identical、无两-nightly 纪律触发。端到端验证经 fixture analyzer（emit Z9002 于空 catch）
+> + consumer 源在 `#suppress`/`[Suppress]` 内外各放一处 → 断言被抑制处诊断消失、未抑制处仍报。
+
 ## Analyzer 接口（visitor 模型，PR3a 实现——偏离 Roslyn 回调注册）
 
 **⚠️ 偏离决策（PR3a 实测，2026-08-21）**：设计初稿照 Roslyn `Register(AnalysisContext ctx)` +
@@ -312,6 +343,7 @@ public class RouteTableGenerator : ModuleGenerator {
 | `[Repr(C)]` | Rust repr | interop 表示 | descriptor 位（bump，做时） |
 | `[Inline]` / `[NoInline]` | inline hint | 喂现有跨包内联 | inline 位 |
 | `[Deprecated("msg")]` | 废弃 | use-site 告警 | flag+msg 串池（bump，D2） |
+| `[Suppress("Id","reason")]` | C# `[SuppressMessage]` | analyzer 诊断局部关闭（AnalyzerDriver 读，PR3c） | **无**——纯编译期消费，不烘 descriptor、不写 blob（异于其它 directive） |
 
 - 消费：IrGen 静态读参数（常量，编译器原生解析）→ 烘进 descriptor。下游读 descriptor 不再读注解。
 - 默认**不进反射**；interop 工具需要 size/offset 可选镜像进反射（additive）。

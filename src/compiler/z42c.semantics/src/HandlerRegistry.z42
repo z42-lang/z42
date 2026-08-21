@@ -71,10 +71,18 @@ public static class HandlerRegistry {
     }
 
     // ── directive 家族（IR-phase：StubEmitter 消费）─────────────────────────────────────────
-    // 编译器原生封闭集，烘进 descriptor。当前仅 `[Native]`（native/builtin 绑定 → 死体桩）。
+    // 编译器原生封闭集。`[Native]`（native/builtin 绑定 → 死体桩，烘进 descriptor）+ `[Suppress]`
+    // （PR3c：analyzer 诊断局部关闭，**纯编译期消费、不烘 descriptor / 不写 blob**——归 directive 仅为让
+    // KindOf≠StoreMeta，避免 AttributeSynth 合成反射工厂 + 免建 backing 类，同 Native 靠名字识别）。
     // Layout/Repr/Inline/Deprecated 由后续 PR 加入本集（design §Built-in directive）。
     public static bool IsDirectiveAttr(string name) {
-        return HandlerRegistry.IsNativeDirective(name);
+        return HandlerRegistry.IsNativeDirective(name) || HandlerRegistry.IsSuppressDirective(name);
+    }
+
+    // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
+    // 再定义同名 store-meta 类（同 Native）。
+    public static bool IsSuppressDirective(string name) {
+        return name == "Suppress";
     }
 
     // StubEmitter 专用：`[Native(...)]` 绑定 directive 识别（取代散落的 `at.Name == "Native"` 字面量）。
