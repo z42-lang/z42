@@ -707,6 +707,7 @@ pub unsafe extern "C" fn z42_host_run_app(
                 libs_dir: libs,
                 program_args: prog_args,
                 print_stats: false,
+                stats_json: false,
             };
             match crate::app::run(&app, entry_owned.as_deref(), opts) {
                 Ok(()) => 0,

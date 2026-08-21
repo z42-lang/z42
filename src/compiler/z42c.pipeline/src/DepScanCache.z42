@@ -1,0 +1,63 @@
+// 进程级 zpkg 解码 + TSIG 重建 memo（perf-workspace-carry-depscan / 流程优化 F2）。
+//
+// 问题：workspace 构建（`build --workspace`）对 N 个成员逐个 PackageCompile.Compile → 每个
+// DepScan.ScanDirs 把 libsDirs 里**所有** zpkg（外部 stdlib + 已建成员）重新 File.ReadAllBytes +
+// ZpkgReader.Open + TsigReconcile.Rebuild 一遍。同一 zpkg 被 N 个成员各解一遍 → O(N²)。实测
+// DepScan ≈ workspace 编译时间的 ~60%，且每成员恒定 ~850ms（与成员自身大小无关，纯重复劳动）。
+//
+// 解：把「按 path 打开的 ZpkgInfo」与「该 zpkg 的 TsigReconcile.Rebuild 结果」memo 到进程级缓存。
+// DepScan.ScanDirs 的算法 / 排序（_sortedZpkgsMulti）/ declaredDeps 过滤 / self-exclude 全不变——
+// 只把最贵的两块原语换成缓存查——故**字节不动点天然成立**。合法性：
+//   · ZpkgReader.Open 结果是 zpkg 字节的纯函数；
+//   · 某包 P 的 TsigReconcile.Rebuild 结果只依赖 P 自身 + 其祖先字段/方法；拓扑序保证 P 被任何成员
+//     扫到时其 deps 已建、在 world 中，故 P 的 tsig 跨成员恒定（后续成员 world 只是超集，不改 P 输出）。
+//
+// key = 绝对 path（**无 mtime**）：正确性依赖「同一进程内 path→内容稳定」不变式——workspace 每成员
+// dist 写一次后只读不改（拓扑序：建某成员前其 dist 空、不在 paths；建成后即终态，只被后续成员读）；
+// 外部 Z42_LIBS 恒定；单包 build 一次 ScanDirs 后进程即退；REPL 走 CachedScan（跳过 ScanDirs）+
+// ExtendWithPackage，不重复 ScanDirs 同一 path。故现有全部 z42c 用法进程内均无「同 path 改内容再扫」
+// 路径，path-only 正确。（若将来新增「进程内覆写 zpkg 后重扫」路径，需在 Get 加 mtime/size 守卫。）
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.Project;   // ExportedModuleZ（converge：z42.ir + z42.project 合库，类型在此 ns）
+
+// 单个 zpkg 的缓存条目：打开的 ZpkgInfo + （懒填的）该包 TSIG 重建结果。
+public sealed class CachedZpkg {
+    public string Path;
+    public ZpkgInfo Z;                 // ZpkgReader.Open 结果（非法 zpkg 时为 null，与直接 Open 同语义）
+    public ExportedModuleZ[] Tsig;     // null = 尚未缓存该包 TSIG（首次某成员把它当非-self 扫到时 Rebuild + 存）
+    public CachedZpkg(string path, ZpkgInfo z) {
+        this.Path = path; this.Z = z; this.Tsig = null;
+    }
+}
+
+public static class DepScanCache {
+    // 惰性分配（z42 静态字段初始化器不支持 `new[]`；首次 Get 时建）；访问一律 ClassName._field 限定。
+    private static CachedZpkg[] _entries = null;
+    private static int _count = 0;
+
+    // 按 path 取缓存条目；未命中则 File.ReadAllBytes + ZpkgReader.Open 一次并缓存。
+    // 命中路径**零文件 I/O、零重解码**（这正是 O(N²)→O(N) 的来源）。
+    public static CachedZpkg Get(string path) {
+        if (DepScanCache._entries == null) { DepScanCache._entries = new CachedZpkg[16]; }
+        int i = 0;
+        while (i < DepScanCache._count) {
+            if (DepScanCache._entries[i].Path == path) { return DepScanCache._entries[i]; }
+            i = i + 1;
+        }
+        ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(path));
+        CachedZpkg e = new CachedZpkg(path, z);
+        if (DepScanCache._count == DepScanCache._entries.Length) {
+            CachedZpkg[] b = new CachedZpkg[DepScanCache._entries.Length * 2];
+            int k = 0;
+            while (k < DepScanCache._count) { b[k] = DepScanCache._entries[k]; k = k + 1; }
+            DepScanCache._entries = b;
+        }
+        DepScanCache._entries[DepScanCache._count] = e;
+        DepScanCache._count = DepScanCache._count + 1;
+        return e;
+    }
+}

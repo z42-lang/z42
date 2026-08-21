@@ -1,0 +1,347 @@
+// xtask — script performance profiling (plan-script-profiling P0, 2026-08-22).
+//
+// `xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode M]`
+// compiles the script once (via z42c, like `bench`) then, per requested
+// dimension, hangs an external profiler or a knob off the z42vm run:
+//
+//   --cpu      samply → native CPU flamegraph (missing → install hint, skip)
+//   --heap     build a throwaway dhat-heap VM → dhat-heap.json + counter摘要
+//   --threads  counter摘要 (safepoint/lock model note) + samply per-thread hint
+//   --e2e      hyperfine wall-clock + /usr/bin/time peak-RSS + counter摘要
+//   --all      run all four → write report.md
+//
+// P0 is the "native world" pass (external tools, read DWARF, ~zero VM change) +
+// the JSON counter surface (`z42vm --print-stats-on-exit --stats-format=json`,
+// scraped off stderr). Script-world attribution (z42 flamegraphs) is P2. The
+// design lives in docs/spec/changes/plan-script-profiling/. Same Z42Xtask
+// namespace; reuses _root/_exec/_have/_builtVm/_libsDir/_driverZpkg/
+// _assembleAllLibs/_ensureToolchainDeps/_extractNamespace from xtask_common /
+// xtask_toolchain / xtask_bench.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// Compiled artifact + shared paths handed to each dimension handler.
+class ProfileCtx {
+    public string root;
+    public string vm;       // built release z42vm
+    public string libs;     // stdlib libs for the measured run
+    public string zbc;      // compiled script
+    public string entry;    // "<ns>.Main"
+    public string mode;     // interp | jit (measured mode)
+    public string outDir;   // artifacts/profile/<name>
+    public string name;     // script basename (no ext)
+
+    public ProfileCtx() {
+        this.root = ""; this.vm = ""; this.libs = ""; this.zbc = "";
+        this.entry = ""; this.mode = ""; this.outDir = ""; this.name = "";
+    }
+}
+
+// `profile <script>` entry. Resolves + compiles the script, then dispatches the
+// selected dimensions. No dimension flag → all four (like `--all`).
+int _profile(ParseResult r) {
+    string script = r.GetPositional(0);
+    if (script.Length == 0) {
+        ConsoleError.WriteLine("usage: xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode interp|jit]");
+        return 2;
+    }
+    bool cpu = r.GetFlag("cpu");
+    bool heap = r.GetFlag("heap");
+    bool threads = r.GetFlag("threads");
+    bool e2e = r.GetFlag("e2e");
+    bool all = r.GetFlag("all");
+    if (all || (!cpu && !heap && !threads && !e2e)) {
+        cpu = true; heap = true; threads = true; e2e = true; all = true;
+    }
+    string mode = r.GetOption("mode");
+    if (mode.Length == 0) { mode = "jit"; }
+
+    string root = _root();
+    string srcAbs = script.StartsWith("/") ? script : Path.Join(root, script);
+    if (!File.Exists(srcAbs)) {
+        ConsoleError.WriteLine("error: script not found: " + srcAbs);
+        return 2;
+    }
+
+    // Build the toolchain deps if missing, then compile the script → .zbc (the
+    // .zbc is mode-agnostic; only the measured run differs). Mirrors _bench.
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+    string vm = _builtVm(root, "release");
+    string libs = _libsDir(root);
+    string driverZpkg = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+
+    string srcText = File.ReadAllText(srcAbs);
+    string ns = _extractNamespace(srcText);
+    if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + script); return 2; }
+    string baseName = _stemOf(srcAbs);
+
+    string outDir = Path.Join(root, Path.Join("artifacts/profile", baseName));
+    Directory.Create(outDir);
+    string zbc = Path.Join(outDir, baseName + ".zbc");
+    Console.WriteLine("→ compiling " + script + " → " + zbc);
+    int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(srcAbs).Arg(zbc).Env("Z42_LIBS", flat));
+    if (cc != 0) { ConsoleError.WriteLine("error: compile failed"); return cc; }
+
+    ProfileCtx ctx = new ProfileCtx();
+    ctx.root = root; ctx.vm = vm; ctx.libs = libs; ctx.zbc = zbc;
+    ctx.entry = ns + ".Main"; ctx.mode = mode; ctx.outDir = outDir; ctx.name = baseName;
+
+    Console.WriteLine("profiling '" + baseName + "' [mode=" + mode + "] → " + outDir);
+    string report = "# profile: " + baseName + "\n\n"
+        + "- script: `" + script + "`\n- mode: `" + mode + "`\n- entry: `" + ctx.entry + "`\n\n";
+
+    if (cpu)     { report = report + _profileCpu(ctx); }
+    if (heap)    { report = report + _profileHeap(ctx); }
+    if (threads) { report = report + _profileThreads(ctx); }
+    if (e2e)     { report = report + _profileE2e(ctx); }
+
+    if (all) {
+        string rp = Path.Join(outDir, "report.md");
+        File.WriteAllText(rp, report);
+        Console.WriteLine("✅ profile complete → " + rp);
+    } else {
+        Console.WriteLine("✅ profile complete → " + outDir);
+    }
+    return 0;
+}
+
+// ── CPU (samply) ────────────────────────────────────────────────────────────
+
+// samply records a native CPU profile (Firefox Profiler format, reads DWARF,
+// mac免root). Absent → print the one-liner install hint and skip (never crash).
+string _profileCpu(ProfileCtx c) {
+    Console.WriteLine("── cpu (samply) ──");
+    if (!_have("samply")) {
+        Console.WriteLine("  ⊘ samply not found — install: `cargo install samply` (or brew install samply)");
+        return "## cpu\n\n_samply not installed — `cargo install samply`._\n\n";
+    }
+    string prof = Path.Join(c.outDir, "cpu-profile.json.gz");
+    // `samply record --save-only -o <out> -- <vm> <zbc> <entry> --mode <m>`
+    int rc = _exec(new Process("samply").Arg("record").Arg("--save-only")
+        .Arg("-o").Arg(prof).Arg("--")
+        .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Env("Z42_LIBS", c.libs));
+    if (rc != 0) {
+        Console.WriteLine("  ✗ samply record failed (rc=" + rc.ToString() + ")");
+        return "## cpu\n\n_samply record failed (rc=" + rc.ToString() + ")._\n\n";
+    }
+    Console.WriteLine("  ✓ " + prof + "  (load: `samply load " + prof + "`)");
+    return "## cpu\n\nnative flamegraph: `" + prof + "`  → `samply load " + prof + "`\n\n";
+}
+
+// ── heap (dhat) ─────────────────────────────────────────────────────────────
+
+// Build a throwaway z42vm with `--features dhat-heap` into an isolated target-dir
+// (so the normal release VM is NOT clobbered), run the script under it → the dhat
+// allocator writes dhat-heap.json in cwd on exit. Also captures the counter摘要.
+string _profileHeap(ProfileCtx c) {
+    Console.WriteLine("── heap (dhat) ──");
+    string tdir = Path.Join(c.outDir, "dhat-target");
+    Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
+    int bc = _exec(_cargoRelease()
+        .Arg("--manifest-path").Arg(_runtimeManifest())
+        .Arg("--features").Arg("dhat-heap")
+        .Arg("--target-dir").Arg(tdir));
+    if (bc != 0) {
+        Console.WriteLine("  ✗ dhat-heap build failed (rc=" + bc.ToString() + ")");
+        return "## heap\n\n_dhat-heap build failed (rc=" + bc.ToString() + ")._\n\n";
+    }
+    string dhatVm = Path.Join(tdir, Path.Join("release", "z42vm"));
+    // dhat writes dhat-heap.json to cwd → run in outDir so it lands there.
+    ProcessResult pr = new Process(dhatVm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .WorkingDirectory(c.outDir)
+        .Env("Z42_LIBS", c.libs).Run();
+    string heapJson = Path.Join(c.outDir, "dhat-heap.json");
+    string stats = _counterSummary(pr.Stderr);
+    if (File.Exists(heapJson)) {
+        Console.WriteLine("  ✓ " + heapJson + "  (view: https://nnethercote.github.io/dh_view/dh_view.html)");
+    } else {
+        Console.WriteLine("  ⚠ dhat-heap.json not produced (rc=" + pr.ExitCode.ToString() + ")");
+    }
+    Console.WriteLine("  counters: " + stats);
+    return "## heap\n\ndhat profile: `" + heapJson + "`  → open in dh_view.html\n\ncounters: `"
+        + stats + "`\n\n";
+}
+
+// ── threads / concurrency ───────────────────────────────────────────────────
+
+// z42 has NO background GC/JIT threads — GC is cooperative safepoint STW, JIT is
+// lazy on the calling thread. So the concurrency signal at P0 is the counter摘要
+// plus a per-thread-timeline hint (samply). Deeper safepoint/lock counters = P1.
+string _profileThreads(ProfileCtx c) {
+    Console.WriteLine("── threads / concurrency ──");
+    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .Env("Z42_LIBS", c.libs).Run();
+    string stats = _counterSummary(pr.Stderr);
+    Console.WriteLine("  counters: " + stats);
+    string hint = _have("samply")
+        ? "per-thread timeline: `samply record -- " + c.vm + " " + c.zbc + " " + c.entry + " --mode " + c.mode + "`"
+        : "install samply for a per-thread timeline (`cargo install samply`)";
+    Console.WriteLine("  " + hint);
+    return "## threads\n\nmodel: cooperative safepoint STW GC, lazy JIT (no background threads).\n\n"
+        + "counters: `" + stats + "`\n\n" + hint + "\n\n";
+}
+
+// ── e2e (wall-clock + peak-RSS) ─────────────────────────────────────────────
+
+// hyperfine for wall-clock (warmup3/runs10) + `/usr/bin/time` for peak-RSS
+// (macOS `-l` bytes / Linux `-v` kbytes) + the counter摘要 from one tagged run.
+string _profileE2e(ProfileCtx c) {
+    Console.WriteLine("── e2e (wall-clock + peak-RSS) ──");
+    string cmd = c.vm + " " + c.zbc + " " + c.entry + " --mode " + c.mode;
+    string wall = "n/a";
+    if (_have("hyperfine")) {
+        string hj = Path.Join(c.outDir, "e2e-hyperfine.json");
+        int hc = _exec(new Process("hyperfine").Arg("--warmup").Arg("3").Arg("--runs").Arg("10")
+            .Arg("--export-json").Arg(hj).Arg("--shell=none").Arg("--command-name").Arg(c.name)
+            .Arg(cmd).Env("Z42_LIBS", c.libs));
+        if (hc == 0 && File.Exists(hj)) { wall = _hyperfineMeanMs(File.ReadAllText(hj)) + " ms"; }
+    } else {
+        Console.WriteLine("  ⊘ hyperfine not found — install: `brew install hyperfine` (or cargo install hyperfine)");
+    }
+    Console.WriteLine("  wall-clock (mean): " + wall);
+
+    string rss = _peakRss(c);
+    Console.WriteLine("  peak RSS: " + rss);
+
+    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .Env("Z42_LIBS", c.libs).Run();
+    string stats = _counterSummary(pr.Stderr);
+    Console.WriteLine("  counters: " + stats);
+    return "## e2e\n\n- wall-clock (mean): " + wall + "\n- peak RSS: " + rss
+        + "\n- counters: `" + stats + "`\n\n";
+}
+
+// peak-RSS via `/usr/bin/time`: macOS `-l` (bytes), Linux `-v` (kbytes). time
+// writes its report to stderr; scan for the max-RSS line and normalize to MB.
+string _peakRss(ProfileCtx c) {
+    bool mac = Platform.IsMacOS();
+    Process p = new Process("/usr/bin/time").Arg(mac ? "-l" : "-v")
+        .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Env("Z42_LIBS", c.libs);
+    ProcessResult r = p.Run();
+    string[] lines = r.Stderr.Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i];
+        if (mac && ln.Contains("maximum resident set size")) {
+            long bytes = _leadingLong(ln.Trim());
+            if (bytes > 0L) { return _mb(bytes) + " MB"; }
+        }
+        if (!mac && ln.Contains("Maximum resident set size")) {
+            long kb = _trailingLong(ln);
+            if (kb > 0L) { return _mb(kb * 1024L) + " MB"; }
+        }
+        i = i + 1;
+    }
+    return "n/a";
+}
+
+// ── small parse helpers ─────────────────────────────────────────────────────
+
+// Scan stderr for the single-line `{"z42vm_counters":1,...}` object and reduce
+// it to a compact "builtin=.. exc=.. jitc=.." summary. Absent → "(none)".
+string _counterSummary(string stderr) {
+    string[] lines = stderr.Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i].Trim();
+        if (ln.StartsWith("{\"z42vm_counters\"")) {
+            string b = _jsonNum(ln, "builtin_calls");
+            string n = _jsonNum(ln, "native_calls");
+            string jc = _jsonNum(ln, "jit_methods_compiled");
+            string et = _jsonNum(ln, "exceptions_thrown");
+            return "builtin=" + b + " native=" + n + " jit_compiled=" + jc + " exc_thrown=" + et;
+        }
+        i = i + 1;
+    }
+    return "(none)";
+}
+
+// value of "<key>":N in a flat single-line JSON object (N up to the next , or }).
+string _jsonNum(string json, string key) {
+    string needle = "\"" + key + "\":";
+    int at = json.IndexOf(needle);
+    if (at < 0) { return "?"; }
+    int s = at + needle.Length;
+    int e = s;
+    while (e < json.Length) {
+        var ch = json.CharAt(e);
+        if (ch == ',' || ch == '}') { break; }
+        e = e + 1;
+    }
+    return json.Substring(s, e - s);
+}
+
+// mean of results[0].mean (seconds) → ms string, from a hyperfine export JSON.
+string _hyperfineMeanMs(string hjson) {
+    string needle = "\"mean\":";
+    int at = hjson.IndexOf(needle);
+    if (at < 0) { return "n/a"; }
+    int s = at + needle.Length;
+    int e = s;
+    while (e < hjson.Length) {
+        var ch = hjson.CharAt(e);
+        if (ch == ',' || ch == '}' || ch == ']') { break; }
+        e = e + 1;
+    }
+    string secs = hjson.Substring(s, e - s).Trim();
+    double v = Double.Parse(secs) * 1000.0;
+    return v.ToString();
+}
+
+// first run of digits in a string → long (macOS `time -l`: "N  maximum ...").
+long _leadingLong(string s) {
+    int i = 0;
+    while (i < s.Length && !_isDigit(s.CharAt(i))) { i = i + 1; }
+    int j = i;
+    while (j < s.Length && _isDigit(s.CharAt(j))) { j = j + 1; }
+    if (j == i) { return -1L; }
+    return Int64.Parse(s.Substring(i, j - i));
+}
+
+// last run of digits in a string → long (Linux `time -v`: "... (kbytes): N").
+long _trailingLong(string s) {
+    int j = s.Length;
+    while (j > 0 && !_isDigit(s.CharAt(j - 1))) { j = j - 1; }
+    int i = j;
+    while (i > 0 && _isDigit(s.CharAt(i - 1))) { i = i - 1; }
+    if (i == j) { return -1L; }
+    return Int64.Parse(s.Substring(i, j - i));
+}
+
+bool _isDigit(char ch) { return ch >= '0' && ch <= '9'; }
+
+// bytes → MB string (String.Split gives no LastIndexOf; keep arithmetic simple).
+string _mb(long bytes) {
+    double mb = bytes / 1048576.0;
+    return mb.ToString();
+}
+
+// last index of a single-char needle in s, or -1 (String has IndexOf but no
+// LastIndexOf — scan from the end).
+int _lastIndexChar(string s, char needle) {
+    int i = s.Length - 1;
+    while (i >= 0) {
+        if (s.CharAt(i) == needle) { return i; }
+        i = i - 1;
+    }
+    return -1;
+}
+
+// basename without extension: "a/b/hello.z42" → "hello".
+string _stemOf(string path) {
+    int slash = _lastIndexChar(path, '/');
+    string base_ = slash >= 0 ? path.Substring(slash + 1, path.Length - slash - 1) : path;
+    int dot = _lastIndexChar(base_, '.');
+    if (dot > 0) { return base_.Substring(0, dot); }
+    return base_;
+}

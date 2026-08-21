@@ -53,6 +53,9 @@ pub struct RunOpts {
     pub program_args: Vec<String>,
     /// Print counter stats to stderr after the run (z42vm `--print-stats-on-exit`).
     pub print_stats: bool,
+    /// When `print_stats`, emit a single-line JSON object instead of the human
+    /// text block (z42vm `--stats-format=json`; `xtask profile` scrapes it).
+    pub stats_json: bool,
 }
 
 /// Load the app at `file` (.zbc or .zpkg) and run its entry (`entry` overrides
@@ -222,9 +225,15 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let result = vm.run(&*ctx, effective_entry);
 
     // --print-stats-on-exit: snapshot counters AFTER vm.run (even on error).
+    // JSON form (--stats-format=json) is one line for `xtask profile` to scrape;
+    // both go to stderr so program stdout stays the script's own output.
     if opts.print_stats {
         let snap = ctx.counters().snapshot();
-        eprintln!("{snap}");
+        if opts.stats_json {
+            eprintln!("{}", snap.to_json());
+        } else {
+            eprintln!("{snap}");
+        }
     }
 
     result
