@@ -234,13 +234,16 @@ public static class DepScan {
         // 一次——解码结果存进平行 `opened[]`，下面主循环直接复用，不再重读重解一遍（原双读在
         // REPL 每轮全量 DepScan 里成倍放大，是 ~3.5s/eval 的一部分）。
         ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
+        CachedZpkg[] cached = new CachedZpkg[paths.Length];   // F2：进程级 memo 条目（tsig 懒填）
         ZpkgInfo[] world = new ZpkgInfo[paths.Length];
         string[] worldDirs = new string[paths.Length];
         int worldCount = 0;
         int wpi = 0;
         while (wpi < paths.Length) {
-            ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]));
+            CachedZpkg ce = DepScanCache.Get(paths[wpi]);   // F2：缓存 Open（命中零文件 I/O + 零重解码）
+            ZpkgInfo wz = ce.Z;
             opened[wpi] = wz;
+            cached[wpi] = ce;
             if (wz != null && !wz.IsExe) {
                 world[worldCount] = wz; worldDirs[worldCount] = Path.GetDirectoryName(paths[wpi]);
                 worldCount = worldCount + 1;
@@ -287,7 +290,14 @@ public static class DepScan {
                         }
                     }
                     // drop-tsig-expt（unify P3）：从 TYPE/SIGS/IMPL 重建（替代已删 TSIG 段）。
-                    ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld);
+                    // F2：该包 TSIG 只依赖自身 + 祖先（拓扑序保证在场），跨成员恒定 → 进程级 memo，命中零重建。
+                    ExportedModuleZ[] tsig;
+                    if (cached[pi].Tsig != null) {
+                        tsig = cached[pi].Tsig;
+                    } else {
+                        tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld);
+                        cached[pi].Tsig = tsig;
+                    }
                     i = 0;
                     while (i < tsig.Length) {
                         if (exportedCount == exported.Length) {
