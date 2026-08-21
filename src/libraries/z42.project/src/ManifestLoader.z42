@@ -48,6 +48,7 @@ public static class ManifestLoader {
                                    examples, examples.Length);
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
         ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
+        ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
         return pm;
     }
 
@@ -58,6 +59,33 @@ public static class ManifestLoader {
     private static void _parseAnalyzers(TomlValue root, ProjectManifest pm) {
         DepEntry[] az = ManifestLoader._parseDeps(root, "analyzers");
         pm.Analyzers = az; pm.AnalyzerCount = az.Length;
+    }
+
+    // ── [lints]（attribute-handler-registry PR3b）─────────────────────────────
+    // `[lints]` 段：逐规则 severity 覆盖（`Z9002 = "warning"` / `"webgen.*" = "none"`）+ 特殊布尔
+    // `warnings-as-errors = true`。前者搬为中性 name/severity 串对（z42.project 不解释规则/级别语义），
+    // 后者拎成独立 bool。消费方（z42c 的 LintConfig）做 EnabledByDefault + 覆盖 + 通配 + WAE 决策。
+    private static void _parseLints(TomlValue root, ProjectManifest pm) {
+        if (!root.ContainsKey("lints")) { return; }
+        var o = root.Get("lints");
+        string[] keys = o.Keys();
+        string[] names = new string[keys.Length];   // 逐规则键（可含通配 `pkg.*`）
+        string[] sevs  = new string[keys.Length];   // 对应 severity 串（"warning"/"error"/"none"/…）
+        int n = 0;
+        bool wae = false;
+        int i = 0;
+        while (i < keys.Length) {
+            if (keys[i] == "warnings-as-errors") {
+                wae = o.Get(keys[i]).AsBool();
+            } else {
+                names[n] = keys[i];
+                sevs[n]  = o.Get(keys[i]).AsString();
+                n = n + 1;
+            }
+            i = i + 1;
+        }
+        pm.LintNames = names; pm.LintSeverities = sevs; pm.LintCount = n;
+        pm.LintWarningsAsErrors = wae;
     }
 
     // ── [optimize] ───────────────────────────────────────────────────────────

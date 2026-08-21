@@ -40,15 +40,63 @@ class NoEmptyCatchAnalyzer : Analyzer {
     }
 }
 
-// 跑 analyzer over src，返回诊断袋。
-DiagnosticBag _run(Analyzer a, string src) {
+// 跑 analyzer over src（可带 [lints] 决策器；null → LintConfig.Empty()），返回诊断袋。
+DiagnosticBag _runCfg(Analyzer a, string src, LintConfig cfg) {
     var p = new Parser(src, "t.z42");
     var cu = p.ParseCompilationUnit();
     var bag = new DiagnosticBag();
     Analyzer[] arr = new Analyzer[1];
     arr[0] = a;
-    AnalyzerDriver.Run(arr, 1, cu, bag);
+    AnalyzerDriver.Run(arr, 1, cu, bag, cfg);
     return bag;
+}
+
+// 无 [lints] 覆盖（默认级 + EnabledByDefault）。
+DiagnosticBag _run(Analyzer a, string src) {
+    return _runCfg(a, src, null);
+}
+
+// 构造单条 `Id = sev` 覆盖的 LintConfig。
+LintConfig _cfg1(string id, string sev, bool wae) {
+    string[] keys = new string[1]; keys[0] = id;
+    string[] sevs = new string[1]; sevs[0] = sev;
+    return new LintConfig(keys, sevs, 1, wae);
+}
+
+// 报告 Z9003（默认禁用 EnabledByDefault=false）的 analyzer——验 EnabledByDefault 门 + 显式开启。
+class OffByDefaultAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rules = new DiagRule[1];
+        rules[0] = OffByDefaultAnalyzer._rule();
+        return rules;
+    }
+    public int[] ObservedKinds() {
+        int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) { diags.Report(OffByDefaultAnalyzer._rule(), c.Span); }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9003", "opt-in catch", "opt-in lint",
+            "Style", AnalyzerSeverity.Warning, false);   // EnabledByDefault=false
+    }
+}
+
+string _emptyCatchSrc() { return "class C { void M() { try { risky(); } catch (Error e) { } } }"; }
+
+int _sevOf(DiagnosticBag bag, string code) {
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == code) { return bag.Get(i).Severity; }
+        i = i + 1;
+    }
+    return -1;
 }
 
 bool _hasCode(DiagnosticBag bag, string code) {
@@ -98,4 +146,51 @@ void test_reported_severity_is_warning() {
         i = i + 1;
     }
     Assert.Equal(true, found);
+}
+
+// ── PR3b：[lints] severity 决策（LintConfig.Resolve）────────────────────────────
+
+[Test]
+void test_lints_override_to_error() {
+    // [lints] Z9002 = "error" → 默认 Warning 升为 Error
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9002", "error", false));
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+    Assert.Equal(DiagnosticSeverity.Error, _sevOf(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_none_suppresses() {
+    // [lints] Z9002 = "none" → 整条抑制，不进 bag
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9002", "none", false));
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_warnings_as_errors() {
+    // warnings-as-errors + 无逐规则覆盖 → 默认 Warning 规则升为 Error
+    LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), cfg);
+    Assert.Equal(DiagnosticSeverity.Error, _sevOf(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_wildcard_suppresses() {
+    // 前缀通配 "Z9*" = "none" → 抑制 Z9002
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9*", "none", false));
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_disabled_by_default_not_reported() {
+    // EnabledByDefault=false + 无覆盖 → 抑制
+    var bag = _runCfg(new OffByDefaultAnalyzer(), _emptyCatchSrc(), null);
+    Assert.Equal(false, _hasCode(bag, "Z9003"));
+}
+
+[Test]
+void test_disabled_by_default_enabled_via_lints() {
+    // EnabledByDefault=false，但 [lints] Z9003 = "warning" 显式打开 → 报
+    var bag = _runCfg(new OffByDefaultAnalyzer(), _emptyCatchSrc(), _cfg1("Z9003", "warning", false));
+    Assert.Equal(true, _hasCode(bag, "Z9003"));
+    Assert.Equal(DiagnosticSeverity.Warning, _sevOf(bag, "Z9003"));
 }

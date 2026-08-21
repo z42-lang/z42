@@ -36,6 +36,13 @@ public sealed class ProjectManifest {
     // （与 [dependencies] 物理分开）。中性 DepEntry（name+version）；消费方（z42c）按名在 LibsDirs
     // 解析到 `<name>.zpkg`、加载其 `: Analyzer` 类型执行。可变公字段（默认空，ManifestLoader 构造后填）。
     public DepEntry[] Analyzers; public int AnalyzerCount;
+    // ── [lints] 诊断规则开关 / severity 覆盖（attribute-handler-registry PR3b）─────
+    // 中性 key/severity 字符串对（如 `Z9002="warning"` / `"webgen.*"="none"`）——z42.project **不**
+    // 认识规则 Id / severity 语义，只搬运；消费方（z42c 的 LintConfig）解释成每规则最终 severity
+    // （EnabledByDefault + 覆盖 + 通配 + warnings-as-errors）。`warnings-as-errors` 布尔单独拎出。
+    // 可变公字段（默认空，ManifestLoader 构造后填），同 OptimizeNames 模式。
+    public string[] LintNames; public string[] LintSeverities; public int LintCount;
+    public bool LintWarningsAsErrors;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -58,5 +65,7 @@ public sealed class ProjectManifest {
         this.Examples = examples; this.ExampleCount = exampleCount;
         this.OptimizeNames = new string[0]; this.OptimizeValues = new bool[0]; this.OptimizeCount = 0;
         this.Analyzers = new DepEntry[0]; this.AnalyzerCount = 0;
+        this.LintNames = new string[0]; this.LintSeverities = new string[0]; this.LintCount = 0;
+        this.LintWarningsAsErrors = false;
     }
 }

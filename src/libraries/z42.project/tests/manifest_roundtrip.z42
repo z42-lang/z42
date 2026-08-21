@@ -86,3 +86,41 @@ void test_analyzers_section_absent_empty() {
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.AnalyzerCount);   // 缺 [analyzers] → 空（无外部 handler 加载）
 }
+
+// ── [lints] 诊断规则开关 / severity 覆盖（attribute-handler-registry PR3b）──────
+[Test]
+void test_lints_section_parsed() {
+    // 逐规则 severity 串搬为中性 name/severity 对；warnings-as-errors 拎成独立 bool。
+    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nZ9002 = \"warning\"\nZ9100 = \"error\"\n\"webgen.*\" = \"none\"\nwarnings-as-errors = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(3, m.LintCount);   // warnings-as-errors 不计入逐规则表
+    Assert.True(m.LintWarningsAsErrors);
+    bool sawW = false; bool sawE = false; bool sawWild = false;
+    int i = 0;
+    while (i < m.LintCount) {
+        if (m.LintNames[i] == "Z9002")     { sawW = true; Assert.Equal("warning", m.LintSeverities[i]); }
+        if (m.LintNames[i] == "Z9100")     { sawE = true; Assert.Equal("error",   m.LintSeverities[i]); }
+        if (m.LintNames[i] == "webgen.*")  { sawWild = true; Assert.Equal("none",  m.LintSeverities[i]); }
+        i = i + 1;
+    }
+    Assert.True(sawW);
+    Assert.True(sawE);
+    Assert.True(sawWild);
+}
+
+[Test]
+void test_lints_section_absent_empty() {
+    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.LintCount);   // 缺 [lints] → 空
+    Assert.Equal(false, m.LintWarningsAsErrors);
+}
+
+[Test]
+void test_lints_warnings_as_errors_only() {
+    // 仅 warnings-as-errors、无逐规则条目 → LintCount 0、WAE true。
+    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nwarnings-as-errors = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.LintCount);
+    Assert.True(m.LintWarningsAsErrors);
+}
