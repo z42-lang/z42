@@ -208,10 +208,14 @@ smoke 采样只覆盖 ~14%,不足以在受限平台上真正验语料。全覆�
 排除审计**(见 §5.8)——mobile 的能力集与 wasm **不同**,不能照搬 wasm 的排除表,故需独立一节。
 
 **T1 拓扑的代价(已知、可测)**:矩阵每片是独立 runner,各自重付一遍平台冷构建。wasm 的 R1–R7
-(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料小(排除能力用例后 ~330 例)、
-Playwright interp 每例轻,n=3 单片 ~6min 稳在 60min 墙内;墙有大量富余,后续按需调 n。junit/artifact
-按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若冷构建重付难以承受,再升级 T2(冷构建产物只建
-一次 + 分片只跑,仿 share-goldens-no-regen)。
+(`test platform wasm`,与语料无关)因此只在 `shard==1` 跑。wasm 语料随 stdlib 增长(排除能力用例后
+~340 例),Playwright 里 interp 每例(fresh VmContext + stdlib reload,单线程 wasm)其实不轻——**单片
+整体在浏览器内跑已超 10min**,一度撞穿 `playwright.embedded.config.ts` 旧的 620s(10.3min)whole-test
+timeout(shard 2 确定性红,`Test timeout 620000ms exceeded`)。**fix-wasm-shard-timeout 把该 timeout
+提到 25min(inner waitForFunction 24min)、job 墙 60→75min**——冷构建 ~27min + 25min 跑仍稳在 75min 内。
+选提 timeout 而非提 n:每加一片都要重付一遍冷 wasm-pack 构建,提 timeout 零额外 job。junit/artifact
+按 shard 命名(`junit-wasm` 仅 shard 1 出 R1–R7)。若单片整体跑逼近墙(语料再涨),再升级 T2(冷构建
+产物只建一次 + 分片只跑,仿 share-goldens-no-regen)或提 n 分更细。
 
 本地验分片切分:`xtask test embedded --rid iossim-arm64 --shard 1/4`(及 2/4…)看 `embed shard k/n`
 报告的 selected 数,确认 n 片并集=全集、无重叠——无需真跑模拟器。
