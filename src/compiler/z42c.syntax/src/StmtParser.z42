@@ -142,6 +142,10 @@ public sealed class StmtParser {
         Stmt[] stmts = new Stmt[8];
         int n = 0;
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            // PR3c：语句列表边界的 `#suppress`/`#restore`（圈住块内语句）。非指令的 `#` 落回 ParseStatement 报错。
+            if (this._p._peek().Kind == TokenKind.Hash) {
+                if (this._p._tryParseSuppressDirective()) { continue; }
+            }
             if (n == stmts.Length) {
                 Stmt[] bigger = new Stmt[stmts.Length * 2];
                 int i = 0; while (i < n) { bigger[i] = stmts[i]; i = i + 1; }
