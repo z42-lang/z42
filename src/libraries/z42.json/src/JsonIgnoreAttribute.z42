@@ -1,0 +1,7 @@
+namespace Std.Json;
+using Std;
+
+// add-json-serde (2026-08-22)：标注该成员在序列化 / 反序列化时被跳过。用法 `[JsonIgnore]`，
+// 可标注字段或属性。D8：`[JsonIgnore]` → 类名 `JsonIgnoreAttribute`。
+public class JsonIgnoreAttribute : Attribute {
+}

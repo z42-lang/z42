@@ -1,0 +1,96 @@
+namespace Std.Json;
+using Std;
+using Std.Reflection;
+
+// add-json-serde (2026-08-22)：统一「可序列化成员」抽象——封装字段 (FieldInfo) 或属性
+// (PropertyInfo)，携带解析后的 JSON 键名、成员类型、读写能力。序列化 / 反序列化引擎按这层
+// 统一遍历，无需区分字段与属性。键名解析：`[JsonProperty("k")]` 覆盖默认成员名；`[JsonIgnore]`
+// 排除成员。属性 attribute 挂 auto-property 的 `__prop_X` 背后字段（复用 field_attributes，无格式 bump；计算属性不覆盖）。
+public class JsonMember {
+    // 二者其一非 null。
+    private FieldInfo _field;
+    private PropertyInfo _prop;
+
+    public string JsonKey;      // JSON 键名（[JsonProperty] 覆盖或成员名）
+    public Type MemberType;     // 成员的静态类型
+    public bool CanRead;        // 可读（序列化）
+    public bool CanWrite;       // 可写（反序列化）
+
+    public object Get(object target) {
+        if (this._field != null) { return this._field.GetValue(target); }
+        return this._prop.GetValue(target);
+    }
+
+    public void Set(object target, object value) {
+        if (this._field != null) { this._field.SetValue(target, value); return; }
+        this._prop.SetValue(target, value);
+    }
+
+    public static JsonMember OfField(FieldInfo f, string key) {
+        JsonMember m = new JsonMember();
+        m._field = f; m._prop = null;
+        // 跨包读 imported 反射成员返回引用类型（Type/Attribute）须显式 cast（z42c 跨包成员类型
+        // 解析 footgun，见 z42.core reflection.z42 测试的 (FieldTagAttribute) cast / local-receiver）。
+        m.JsonKey = key; m.MemberType = (Type)f.FieldType;
+        m.CanRead = true; m.CanWrite = true;
+        return m;
+    }
+
+    public static JsonMember OfProperty(PropertyInfo p, string key) {
+        JsonMember m = new JsonMember();
+        m._prop = p; m._field = null;
+        m.JsonKey = key; m.MemberType = (Type)p.PropertyType;
+        m.CanRead = p.CanRead; m.CanWrite = p.CanWrite;
+        return m;
+    }
+}
+
+// 成员集合构建：从 Type 收集 public 实例字段 + public 属性，解析键名 / 忽略。
+public static class JsonMembers {
+    // 收集 t 的可序列化成员（public 非 static 字段 + 属性；[JsonIgnore] 排除）。
+    public static JsonMember[] For(Type t) {
+        FieldInfo[] fs = t.GetFields();
+        PropertyInfo[] ps = t.GetProperties();
+        JsonMember[] buf = new JsonMember[fs.Length + ps.Length];
+        int n = 0;
+        int i = 0;
+        while (i < fs.Length) {
+            FieldInfo f = fs[i];
+            if (!f.IsStatic && f.IsPublic && !JsonMembers._fieldIgnored(f)) {
+                buf[n] = JsonMember.OfField(f, JsonMembers._fieldKey(f));
+                n = n + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < ps.Length) {
+            PropertyInfo p = ps[i];
+            if (!JsonMembers._propIgnored(p)) {
+                buf[n] = JsonMember.OfProperty(p, JsonMembers._propKey(p));
+                n = n + 1;
+            }
+            i = i + 1;
+        }
+        JsonMember[] outm = new JsonMember[n];
+        int k = 0;
+        while (k < n) { outm[k] = buf[k]; k = k + 1; }
+        return outm;
+    }
+
+    private static bool _fieldIgnored(FieldInfo f) {
+        return f.GetAttribute(typeof(JsonIgnoreAttribute)) != null;
+    }
+    private static bool _propIgnored(PropertyInfo p) {
+        return JsonReflect.PropAttr(p, typeof(JsonIgnoreAttribute)) != null;
+    }
+    private static string _fieldKey(FieldInfo f) {
+        Attribute a = (Attribute)f.GetAttribute(typeof(JsonPropertyAttribute));
+        if (a != null) { return (a as JsonPropertyAttribute).Name; }
+        return f.Name;
+    }
+    private static string _propKey(PropertyInfo p) {
+        Attribute a = JsonReflect.PropAttr(p, typeof(JsonPropertyAttribute));
+        if (a != null) { return (a as JsonPropertyAttribute).Name; }
+        return p.Name;
+    }
+}

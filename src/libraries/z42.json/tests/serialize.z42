@@ -1,0 +1,121 @@
+// add-json-serde (2026-08-22)：对象 → JSON 序列化（含字段/属性、嵌套、数组、[JsonProperty]/[JsonIgnore]）。
+namespace Z42JsonSerializeTests;
+
+using Std;
+using Std.Test;
+using Std.Json;
+
+class Point {
+    public int x;
+    public int y;
+}
+
+class Person {
+    public bool Active;               // 字段
+    public string Name { get; set; }  // 属性
+    public int Age { get; set; }
+}
+
+class Renamed {
+    [JsonProperty("full_name")] public string Name;
+    [JsonIgnore] public int Secret;
+    public int Id;
+}
+
+class PropTagged {
+    [JsonProperty("user_name")] public string Name { get; set; }
+    [JsonIgnore] public int Token { get; set; }
+    public int Id { get; set; }
+}
+
+class Nested {
+    public string Title;
+    public Point Origin;
+}
+
+class WithArray {
+    public string Name;
+    public int[] Nums;
+}
+
+[Test]
+void test_serialize_primitive_fields_exact() {
+    Point p = new Point();
+    p.x = 3; p.y = 4;
+    Assert.Equal("{\"x\":3,\"y\":4}", JsonSerializer.Serialize(p));
+}
+
+[Test]
+void test_serialize_fields_and_properties() {
+    Person person = new Person();
+    person.Active = true; person.Name = "Alice"; person.Age = 30;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(person));
+    Assert.True(v.Get("Active").AsBool());
+    Assert.Equal("Alice", v.Get("Name").AsString());
+    Assert.Equal(30L, v.Get("Age").AsLong());
+}
+
+[Test]
+void test_serialize_field_jsonproperty_and_ignore() {
+    Renamed r = new Renamed();
+    r.Name = "bob"; r.Secret = 99; r.Id = 7;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(r));
+    Assert.Equal("bob", v.Get("full_name").AsString());   // renamed
+    Assert.False(v.ContainsKey("Name"));                   // original name gone
+    Assert.False(v.ContainsKey("Secret"));                 // ignored
+    Assert.Equal(7L, v.Get("Id").AsLong());
+}
+
+[Test]
+void test_serialize_property_jsonproperty_and_ignore() {
+    // 关键：属性上的 [JsonProperty]/[JsonIgnore]（挂 __prop_X 背后字段的 attr）。
+    PropTagged p = new PropTagged();
+    p.Name = "kim"; p.Token = 42; p.Id = 5;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(p));
+    Assert.Equal("kim", v.Get("user_name").AsString());   // 属性 renamed
+    Assert.False(v.ContainsKey("Name"));
+    Assert.False(v.ContainsKey("Token"));                  // 属性 ignored
+    Assert.Equal(5L, v.Get("Id").AsLong());
+}
+
+[Test]
+void test_serialize_nested_object() {
+    Nested n = new Nested();
+    n.Title = "root";
+    n.Origin = new Point();
+    n.Origin.x = 1; n.Origin.y = 2;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(n));
+    Assert.Equal("root", v.Get("Title").AsString());
+    Assert.Equal(1L, v.Get("Origin").Get("x").AsLong());
+    Assert.Equal(2L, v.Get("Origin").Get("y").AsLong());
+}
+
+[Test]
+void test_serialize_array() {
+    WithArray w = new WithArray();
+    w.Name = "xs";
+    w.Nums = new int[3];
+    w.Nums[0] = 10; w.Nums[1] = 20; w.Nums[2] = 30;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(w));
+    Assert.Equal("xs", v.Get("Name").AsString());
+    JsonValue arr = v.Get("Nums");
+    Assert.Equal(3, arr.Count());
+    Assert.Equal(10L, arr.At(0).AsLong());
+    Assert.Equal(30L, arr.At(2).AsLong());
+}
+
+[Test]
+void test_serialize_null_member() {
+    Nested n = new Nested();
+    n.Title = "t";
+    n.Origin = null;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(n));
+    Assert.True(v.Get("Origin").IsNull());
+}
+
+[Test]
+void test_serialize_pretty_has_newlines() {
+    Point p = new Point();
+    p.x = 1; p.y = 2;
+    Assert.Contains("\n", JsonSerializer.SerializePretty(p));
+}

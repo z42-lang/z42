@@ -74,6 +74,11 @@ public sealed class AttributeSynth {
                     this._processParams(md, "mth$" + c.Name + "$" + md.Name);
                 } else if (mad.Inner is FieldDecl) {
                     this._process(mad.Attrs, mad.AttrCount, "fld$" + c.Name + "$" + (mad.Inner as FieldDecl).Name);
+                } else if (mad.Inner is PropertyDecl) {
+                    // add-json-serde：属性上的 store-meta attr（`[JsonProperty]`/`[JsonIgnore]` 等）也须
+                    // 合成工厂并记 FactoryFunc——否则 ClassDescBuilder 挂到 __prop_X 背后字段的 attr 因
+                    // FactoryFunc=="" 被 _attrRefsFromList 跳过（计算属性无背后字段则仅记工厂、不落字段）。
+                    this._process(mad.Attrs, mad.AttrCount, "prop$" + c.Name + "$" + (mad.Inner as PropertyDecl).Name);
                 }
             } else if (mem is MethodDecl) {
                 this._processParams(mem as MethodDecl, "mth$" + c.Name + "$" + (mem as MethodDecl).Name);
