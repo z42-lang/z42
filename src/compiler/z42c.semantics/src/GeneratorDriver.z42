@@ -338,6 +338,45 @@ public static class GeneratorDriver {
         return new GenOutcome(true, merged, mergedFiles, total);
     }
 
+    // ── 有界多轮编排（PR4e）──────────────────────────────────────────────────────────────
+    // applied + module generator 统一按 `consumes`/`produces` 拓扑分层（GenTopo：Kahn 最长路径 + 成环检测），
+    // 逐层 re-bind 后跑该层——后层能见前层生成的符号 / 应用位。成环 → E0449、不产出（错误经 ErrorCount
+    // 拦编译）。**默认（全空 consumes/produces）→ 全落第 0 层、一轮跑完 = 退化回单轮**（applied 先、module
+    // 后，与 PR4a/4c 单轮 byte-identical）；z42c 自建无 generator → 调用方 gate off → 本函数不进。分层辅助
+    // 拆在 GenTopo.z42（守 500 行硬限，semantics-内部——不引入新跨成员符号，避免 F2 冷启动 stale-cache）。
+    public static GenOutcome RunRounds(Generator[] gens, int genCount, ModuleGenerator[] mods, int modCount,
+                                       CompilationUnit[] cus, string[] files, int count,
+                                       ImportedSymbols imported, DiagnosticBag diags) {
+        int n = genCount + modCount;
+        if (n == 0) { return new GenOutcome(false, cus, files, count); }
+        GenNode[] nodes = GenTopo.BuildNodes(gens, genCount, mods, modCount);
+        int maxLevel = GenTopo.TopoLevels(nodes, n, diags);
+        if (maxLevel < 0) { return new GenOutcome(false, cus, files, count); }   // 成环（E0449 已报）
+
+        CompilationUnit[] curCus = cus; string[] curFiles = files; int curCount = count;
+        bool any = false;
+        int lvl = 0;
+        while (lvl <= maxLevel) {
+            // 层首 re-bind：level 0 = 原始 bind（= 单轮），后层见前层产出。
+            SymbolTable prov = new SymbolCollector().CollectAll(curCus, curFiles, curCount, imported);
+            // 本层 applied（按 AppliedName 稳定序）先跑——可改写 curCus。
+            Generator[] la = GenTopo.LevelApplied(nodes, n, gens, lvl);
+            if (la.Length > 0) {
+                GenOutcome go = GeneratorDriver.Run(la, la.Length, curCus, curFiles, curCount, prov, diags);
+                if (go.HasOutput) { curCus = go.Cus; curFiles = go.Files; curCount = go.CuCount; any = true; }
+            }
+            // 本层 module 后跑——扫 applied 更新后的 curCus（符号仍绑本层 prov，同单轮语义）。
+            ModuleGenerator[] lm = GenTopo.LevelModules(nodes, n, mods, lvl);
+            if (lm.Length > 0) {
+                GenOutcome mo = GeneratorDriver.RunModules(lm, lm.Length, curCus, curFiles, curCount, prov, diags);
+                if (mo.HasOutput) { curCus = mo.Cus; curFiles = mo.Files; curCount = mo.CuCount; any = true; }
+            }
+            lvl = lvl + 1;
+        }
+        if (!any) { return new GenOutcome(false, cus, files, count); }
+        return new GenOutcome(true, curCus, curFiles, curCount);
+    }
+
     // 剥 attribute 类名的 `Attribute` 后缀（D8 逆运算：`RouteAttribute` → `Route`；无后缀原样返回）。
     // 与 HandlerRegistry.StoreMetaClassName（应用名 → 类名）对称。
     public static string _stripAttrSuffix(string typeName) {

@@ -31,6 +31,8 @@ public class EntityAttribute : Attribute {
 // MethodsWith：聚合贴了 [Route] 的方法，为每个命中方法生成一个 `route_<Name>()` 标记方法。合并后按标记
 // 方法名断言查询命中集（GetA/GetB 命中、NotRouted 不命中）。
 class RouteTableGenerator : ModuleGenerator {
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenContext ctx, GenSink sink) {
         GenMethod[] ms = ctx.MethodsWith<RouteAttribute>();
         string members = "";
@@ -45,6 +47,8 @@ class RouteTableGenerator : ModuleGenerator {
 
 // TypesWith：聚合贴了 [Entity] 的类型，为每个命中类型生成一个 `has_<Name>()` 标记方法。
 class EntityRegistryGenerator : ModuleGenerator {
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenContext ctx, GenSink sink) {
         GenType[] ts = ctx.TypesWith<EntityAttribute>();
         string members = "";
@@ -59,6 +63,8 @@ class EntityRegistryGenerator : ModuleGenerator {
 
 // 越界：module generator 无 owner 站点，Replace/Augment → 护栏 E0448。
 class BadModuleGenerator : ModuleGenerator {
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenContext ctx, GenSink sink) {
         sink.Augment(new DeclId("cls$Whatever"), "public int nope() { return 0; }");
     }

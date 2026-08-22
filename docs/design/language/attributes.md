@@ -10,8 +10,11 @@
 > `*Generator`/`E0447`、编译期 splice/merge——`AddSource`/`Replace`/`Augment`（`Augment` 脱糖 synthetic
 > partial 免用户写 partial），post-bind double-bind 重编，参考 Roslyn source generator）随 PR4a 落地。
 > **module generator**（`ModuleGenerator` 契约、不贴任何处、扫全编译 + `GenContext.TypesWith<T>()`/
-> `MethodsWith<T>()` 强类型查询——靠泛型方法 #240、只 `AddSource` 聚合成表）随 PR4c 落地（外部 zpkg
-> 加载 / 有界多轮见后续 PR4d-e）。本页主讲 **store-meta attribute**（`[X]`
+> `MethodsWith<T>()` 强类型查询——靠泛型方法 #240、只 `AddSource` 聚合成表）随 PR4c 落地。**外部 generator
+> zpkg 加载**（经 `[analyzers]` 段 D9 单段覆盖两类）+ VM 执行 golden 随 PR4d 落地。**有界多轮**（generator 加
+> `Consumes()`/`Produces()` 声明依赖 tag、`GeneratorDriver.RunRounds` 按 consumes/produces 拓扑分层逐层
+> re-bind、后层见前层产出、成环 `E0449`；产物纳入增量指纹——handler zpkg 内容指纹揉入源 hash 使「换 generator」
+> 失效缓存）随 PR4e 落地。本页主讲 **store-meta attribute**（`[X]`
 > 反射元数据），handler 全貌见下方 design 链接。
 > 相关：[reflection.md](reflection.md)（GetType / typeof / 反射对象）；
 > [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md)（handler 体系全貌）。

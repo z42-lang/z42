@@ -69,9 +69,17 @@ public sealed class GenTarget {
 //   · AppliedName() —— 返回触发注解名（== 类名剥 `Generator` 后缀，见文件头注为何显式而非反射）。
 //   · Generate()    —— driver 对每个 `[AppliedName()]` 应用位调用；generator 读 GenTarget（被贴声明 +
 //     解析符号 + 注解参数）、经 GenSink 吐生成源码（AddSource/Replace/Augment）。
+//   · Consumes()    —— 本 generator 需"存在"的 tag 集（attribute 名，如 "Route"）。**空 → 默认 [AppliedName()]**
+//     （只依赖自身触发名，落拓扑第 0 层）。声明非空 → 若某 producer 的 Produces() 含其中一个 tag，则该
+//     producer 排在本 generator 之前（后轮见前轮生成的符号/应用位）。
+//   · Produces()    —— 本 generator 输出会 emit 的 tag 集（用于建 consumes/produces DAG）。空 → 不产任何被
+//     下游消费的 tag。**有界多轮**：driver 按 Produces∩Consumes 建边、Kahn 拓扑分层、逐层 re-bind；成环 → E0449
+//     （attribute-handler-registry PR4e；design §Pipeline 挂载 + 有界多轮）。
 public interface Generator {
     string AppliedName();
     void Generate(GenTarget t, GenSink sink);
+    string[] Consumes();
+    string[] Produces();
 }
 
 // ── ModuleGenerator + GenContext（attribute-handler-registry PR4c）─────────────────────────────
@@ -135,6 +143,11 @@ public interface GenContext {
 // （D8，E0447，与 applied Generator 共用同一后缀强制）。**不贴任何声明**——注册即跑一次、扫全编译。
 //   · Generate() —— driver 每个 module generator 跑一次；读 GenContext 强类型查询、经 GenSink.AddSource
 //     追加聚合源码（Replace/Augment 越界 → E0448）。
+//   · Consumes()/Produces() —— 有界多轮定序（同 Generator）。module generator **无 AppliedName** → 空 Consumes()
+//     即落第 0 层（默认不依赖任何 producer）；若它 TypesWith<T>/MethodsWith<T> 查询的 attribute 由某 applied
+//     generator 生成，则声明 Consumes() 含该 tag，driver 排它在 producer 之后（PR4e）。
 public interface ModuleGenerator {
     void Generate(GenContext ctx, GenSink sink);
+    string[] Consumes();
+    string[] Produces();
 }

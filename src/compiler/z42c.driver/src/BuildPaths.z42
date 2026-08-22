@@ -74,3 +74,54 @@ string _resolveDistDir(ProjectManifest pm, string projectDir, bool isRelease) {
     return Path.IsRooted(distExp) ? distExp : Path.Join(absProj, distExp);
 }
 
+// attribute-handler-registry PR4e：handler（[analyzers] 段）身份指纹——按 analyzer 名稳定序（common-pitfalls
+// §1）拼「名:zpkg 内容指纹」。无 [analyzers] → `""`（源 hash 不揉入 → 自举 byte-identical）。generator 换了
+// （zpkg 内容变）→ 指纹变 → 揉进源 hash 的每个文件都失效 → 全量重编（design red-line ②「产物纳入指纹」）。
+// 解析 [analyzers] zpkg 路径复用 Main 的 `<name>.zpkg` in libsDirs 逻辑；缺失也定序进指纹（真缺失稍后另报 E）。
+string _handlerFingerprint(ProjectManifest pm, string[] libsDirs, int libsDirsN) {
+    if (pm.AnalyzerCount == 0) { return ""; }
+    // 稳定序：analyzer 名选择排序（禁依赖 manifest 声明顺序碰巧）。
+    string[] names = new string[pm.AnalyzerCount];
+    int i = 0;
+    while (i < pm.AnalyzerCount) { names[i] = pm.Analyzers[i].Name; i = i + 1; }
+    int p = 0;
+    while (p < names.Length) {
+        int min = p; int q = p + 1;
+        while (q < names.Length) { if (names[q].CompareTo(names[min]) < 0) { min = q; } q = q + 1; }
+        if (min != p) { string t = names[p]; names[p] = names[min]; names[min] = t; }
+        p = p + 1;
+    }
+    string acc = "";
+    i = 0;
+    while (i < names.Length) {
+        string azfile = names[i] + ".zpkg";
+        string found = "";
+        int d = 0;
+        while (d < libsDirsN) {
+            string cand = Path.Join(libsDirs[d], azfile);
+            if (File.Exists(cand)) { found = cand; break; }
+            d = d + 1;
+        }
+        if (found.Length > 0) {
+            byte[] bytes = File.ReadAllBytes(found);
+            acc = acc + names[i] + ":" + _bytesFp(bytes) + ";";
+        } else {
+            acc = acc + names[i] + ":missing;";
+        }
+        i = i + 1;
+    }
+    return acc;
+}
+
+// byte[] 内容指纹：长度 + 溢出安全的模多项式滚动哈希（z42 int≡Int32；base 31、模 33554393 使
+// `h*31+255 < 2^31` 不溢出）。长度 + 滚动哈希双要素 → 内容变几乎必变指纹（用于缓存失效，宁多编不漏）。
+string _bytesFp(byte[] b) {
+    int h = 0;
+    int i = 0;
+    while (i < b.Length) {
+        h = (h * 31 + (((int)b[i]) & 255)) % 33554393;
+        i = i + 1;
+    }
+    return b.Length.ToString() + "_" + h.ToString();
+}
+
