@@ -1,0 +1,182 @@
+// 赋值类型绑定簇（refactor-exprtyper-concern-split：从 ExprTyper 按职责抽出）。
+// 承载 =/复合赋值/索引器 set/event +=-=/imported 属性 setter 的绑定 + const/readonly 写入检查。
+// 共享 TypeChecker（与 ExprTyper 同一 _tc）；递归子表达式 _bindExpr、target-typed RHS 绑定
+// BindWithTarget 经父反向引用 _et 委回 ExprTyper。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR.BinaryFormat;
+
+public sealed class AssignTyper {
+    private TypeChecker _tc;
+    private ExprTyper _et;   // 反向引用：递归 _bindExpr + target-typed BindWithTarget 委回 ExprTyper
+    public AssignTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
+
+    internal BoundExpr _bindAssign(AssignExpr a, TypeEnv env) {
+            // 类索引器写 obj[i] = v → set_Item(i, v) 虚调用（仅简单 `=`；否则落普通路径）。
+            if (a.Op == "=" && a.Target is IndexExpr) {
+                IndexExpr aix = a.Target as IndexExpr;
+                BoundExpr arecv = this._et._bindExpr(aix.Target, env);
+                Z42Type att = arecv.Type();
+                Z42ClassType aCls = null;
+                if (att is Z42ClassType) { aCls = att as Z42ClassType; }
+                else if (att is Z42InstantiatedType) { aCls = (att as Z42InstantiatedType).Def; }
+                if (aCls != null && aCls.Methods.ContainsKey("set_Item")) {
+                    // 多维：全部下标 + value 传给 set_Item（N 下标 → N+1 实参）。
+                    // add-struct-generic-boxing (P3a)：indexer-set 手搭 BoundCall **绕过 BoxArgs** → 对
+                    // set_Item 形参（type-param K/V）逐位装箱（否则 struct 键/值裸 StructRef 进容器堆数组悬垂）。
+                    int an = aix.IndexCount;
+                    MethodSymbol sms = aCls.Methods.Get("set_Item") as MethodSymbol;
+                    bool sboxable = sms != null && sms.Signature != null && sms.Signature.ParamTypes != null
+                                    && sms.Signature.ParamTypes.Length >= an + 1;
+                    BoundExpr[] sa = new BoundExpr[an + 1];
+                    int ai = 0;
+                    while (ai < an) {
+                        BoundExpr aidx = this._et._bindExpr(aix.Indices[ai], env);
+                        if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); aidx = this._tc.ConvertIfNeeded(aidx, sms.Signature.ParamTypes[ai], env.Symbols); }
+                        sa[ai] = aidx;
+                        ai = ai + 1;
+                    }
+                    BoundExpr aval = this._et._bindExpr(a.Value, env);
+                    if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); aval = this._tc.ConvertIfNeeded(aval, sms.Signature.ParamTypes[an], env.Symbols); }
+                    sa[an] = aval;
+                    return new BoundCall("instance", true, arecv, aCls.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
+                }
+            }
+            // event `recv.E += h` / `-= h` → `recv.add_E(h)` / `recv.remove_E(h)`（镜像 C#
+            // add-event-keyword：访问器在 recv 类/接口/泛型实例上，vtable 派发到实现）。须在
+            // compound desugar 前拦截。访问器由 parser SynthesizeClassEvent 合成。
+            if ((a.Op == "+=" || a.Op == "-=") && a.Target is MemberExpr) {
+                MemberExpr emtgt = a.Target as MemberExpr;
+                BoundExpr erecv = this._et._bindExpr(emtgt.Target, env);
+                Z42Type ertype = erecv.Type();
+                string accName = (a.Op == "+=") ? ("add_" + emtgt.Name) : ("remove_" + emtgt.Name);
+                MethodSymbol acc = null;
+                string recvCls = "";
+                if (ertype is Z42ClassType) {
+                    Z42ClassType ec = ertype as Z42ClassType;
+                    acc = this._tc._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
+                } else if (ertype is Z42InstantiatedType) {
+                    Z42ClassType ec = (ertype as Z42InstantiatedType).Def;
+                    acc = this._tc._overload._findMethod(env.Symbols, ec, accName); if (acc != null) { recvCls = ec.Name(); }
+                } else if (ertype is Z42InterfaceType) {
+                    Z42InterfaceType it = ertype as Z42InterfaceType;
+                    acc = it.Methods.Get(accName) as MethodSymbol; if (acc != null) { recvCls = it.Name(); }
+                }
+                if (acc != null && acc.Signature != null) {
+                    BoundExpr erhs = this._et._bindExpr(a.Value, env);
+                    BoundExpr[] sargs = new BoundExpr[1]; sargs[0] = erhs;
+                    return new BoundCall("instance", true, erecv, recvCls, accName, sargs, 1, acc.Signature.Ret, a.Span);
+                }
+            }
+            // fix-crosspkg-property-assign（wire-z42b 2b 暴露）：imported 类**属性**赋值
+            // `ctx.Target = t`——imported 类无属性名字段（只有 __prop_X 后备 + get_/set_ 方法），
+            // 泛化 _bindExpr(target) 走 _bindMember 的 getter fallback 得 BoundCall → _emitAssign
+            // 认不出（非 BoundMember）→ 赋值**静默丢弃**。此处拦截：receiver 类无字段 X 但有
+            // set_X → 直接绑 setter 调用。本地类属性有 FieldSymbol（BoundMember 路径 + emit 侧
+            // set_ 派发）不进此分支 → 本地 emit 零变化。
+            if (a.Op == "=" && a.Target is MemberExpr) {
+                MemberExpr pmt = a.Target as MemberExpr;
+                // 静态成员赋值（`ZbcReader._lastN = n`——receiver 是类名而非值）不进本分支：
+                // 类名当表达式绑会误报 E0401。类名被同名局部遮蔽时仍走实例路径（LookupVar 先查）。
+                bool staticRecv = false;
+                if (pmt.Target is IdentExpr) {
+                    string prn = (pmt.Target as IdentExpr).Name;
+                    if (env.LookupVar(prn) == null
+                        && (env.Symbols.HasClass(prn) || env.Symbols.HasInterface(prn))) { staticRecv = true; }
+                }
+                if (staticRecv) { }
+                else {
+                BoundExpr precv = this._et._bindExpr(pmt.Target, env);
+                Z42Type prt = precv.Type();
+                Z42ClassType pcls = null;
+                if (prt is Z42ClassType) { pcls = prt as Z42ClassType; }
+                else if (prt is Z42InstantiatedType) { pcls = (prt as Z42InstantiatedType).Def; }
+                if (pcls != null && !pcls.Fields.ContainsKey(pmt.Name)) {
+                    MethodSymbol setter = this._tc._overload._findMethod(env.Symbols, pcls, "set_" + pmt.Name);
+                    if (setter != null && setter.Signature != null) {
+                        this._tc._access.CheckAccess(setter.Visibility, setter.ContainingTypeName, env, env.Symbols, "property", pmt.Name, a.Span);   // enforce-access-control
+                        BoundExpr pval = this._et._bindExpr(a.Value, env);
+                        BoundExpr[] pargs = new BoundExpr[1]; pargs[0] = pval;
+                        return new BoundCall("instance", true, precv, pcls.Name(), "set_" + pmt.Name, pargs, 1, new Z42VoidType(), a.Span);
+                    }
+                }
+                }
+            }
+            BoundExpr target = this._et._bindExpr(a.Target, env);
+            this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
+            this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
+            // add-target-typed-new：`x = new()` RHS 以 LHS 类型为目标（含实例字段初始化器 `this.f = new()`）。
+            BoundExpr value = this._et.BindWithTarget(a.Value, target.Type(), env);
+            // 复合赋值 `x op= v` desugar → `x = x op v`（原 binder 忽略 a.Op 直存 value →
+            // `+=` 退化成 `=`，丢旧值；arr[0]+=5 得 5 非 15）。binop = 去掉末尾 '='。
+            if (a.Op != "=") {
+                string binop = a.Op.Substring(0, a.Op.Length - 1);
+                value = new BoundBinary(binop, target, value, target.Type(), a.Span);
+            }
+            this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
+            value = this._tc.ConvertIfNeeded(value, target.Type(), env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
+            return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与
+    // const 字段（BoundStaticGet 指向 IsConst 字段）。const 无存储，赋值无从谈起 → 一律报错。
+    private void _checkConstAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            if (env.IsConstName(nm)) {
+                this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const `" + nm + "`", a.Span);
+                return;
+            }
+        }
+        if (target is BoundStaticGet) {
+            BoundStaticGet sg = target as BoundStaticGet;
+            if (env.Symbols.HasClass(sg.ClassName)) {
+                FieldSymbol fs = env.Symbols.GetClass(sg.ClassName).Fields.Get(sg.FieldName) as FieldSymbol;
+                if (fs != null && fs.IsConst) {
+                    this._tc._diags.Error(DiagnosticCodes.ConstAssignment, "cannot assign to const field `" + fs.Name + "`", a.Span);
+                }
+            }
+        }
+    }
+
+    // add-readonly-fields-opt：readonly 字段仅可在声明类实例 ctor 内经 `this` 赋值（含注入的字段初始化器）。
+    // 覆盖两种写法：`recv.field = v`（BoundMember）与裸 `field = v`（BoundIdent，隐式接收者 this）。
+    // 用已绑 target 取字段（不重复绑定接收者，避免双诊断）。裸 ident 经 `this` 类型查字段——
+    // 若同名局部遮蔽 readonly 字段名会误报（极罕见、当前无 readonly 字段故无回归；workaround=重命名局部）。
+    private void _checkReadonlyAssign(AssignExpr a, BoundExpr target, TypeEnv env) {
+        FieldSymbol fs = null;
+        bool recvIsThis = false;
+        if (target is BoundMember) {
+            BoundMember bm = target as BoundMember;
+            fs = this._fieldOf(bm.Target.Type(), bm.MemberName);
+            if (a.Target is MemberExpr) {
+                Expr rt = (a.Target as MemberExpr).Target;
+                recvIsThis = (rt is IdentExpr) && ((rt as IdentExpr).Name == "this");
+            }
+        } else if (target is BoundIdent) {
+            string nm = (target as BoundIdent).Name;
+            Z42Type thisT = env.LookupVar("this");
+            if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        }
+        if (fs != null && fs.IsReadonly) {
+            bool ok = recvIsThis && env.InCtor();
+            if (!ok) {
+                this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
+                    "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
+            }
+        }
+    }
+
+    // 从接收者类型取字段符号（class / 泛型实例）；非类或无此字段 → null。
+    private FieldSymbol _fieldOf(Z42Type recvType, string name) {
+        Z42ClassType cls = null;
+        if (recvType is Z42ClassType) { cls = recvType as Z42ClassType; }
+        else if (recvType is Z42InstantiatedType) { cls = (recvType as Z42InstantiatedType).Def; }
+        if (cls == null) { return null; }
+        if (!cls.Fields.ContainsKey(name)) { return null; }
+        return cls.Fields.Get(name) as FieldSymbol;
+    }
+}
