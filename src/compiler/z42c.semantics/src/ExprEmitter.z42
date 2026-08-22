@@ -12,7 +12,8 @@ public sealed class ExprEmitter {
     private FunctionEmitter _fn;   // 反向引用：BoundSeqExpr 的 prelude 语句委托 _fn._emitStmt（含循环/控制流）
     private CallEmitter _call;     // call/new/method-group 发射簇（CG-1E follow-up 按职责抽出）
     private TypeOpEmitter _top;    // is/typeof/cast/box/convert 发射簇（CG-1E follow-up 按职责抽出）
-    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); }
+    private OperatorEmitter _op;   // binary/unary/conditional/switch-expr 发射簇（CG-1E follow-up 按职责抽出）
+    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); this._op = new OperatorEmitter(ctx, this); }
 
     public TypedReg Emit(BoundExpr e) {
         // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
@@ -152,8 +153,8 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new CallIndirectInstr(dst, callee, args, ic.ArgCount));
             return dst;
         }
-        if (e is BoundBinary) { return this._emitBinary(e as BoundBinary); }
-        if (e is BoundUnary) { return this._emitUnary(e as BoundUnary); }
+        if (e is BoundBinary) { return this._op._emitBinary(e as BoundBinary); }
+        if (e is BoundUnary) { return this._op._emitUnary(e as BoundUnary); }
         if (e is BoundAssign) { return this._emitAssign(e as BoundAssign); }
         if (e is BoundMember) { return this._emitMember(e as BoundMember); }
         if (e is BoundCall) { return this._call._emitCall(e as BoundCall); }
@@ -164,8 +165,8 @@ public sealed class ExprEmitter {
         if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
         if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }
         if (e is BoundConvert) { return this._top._emitConvert(e as BoundConvert); }
-        if (e is BoundConditional) { return this._emitConditional(e as BoundConditional); }
-        if (e is BoundSwitchExpr) { return this._emitSwitchExpr(e as BoundSwitchExpr); }
+        if (e is BoundConditional) { return this._op._emitConditional(e as BoundConditional); }
+        if (e is BoundSwitchExpr) { return this._op._emitSwitchExpr(e as BoundSwitchExpr); }
         if (e is BoundFuncRef) {   // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）
             BoundFuncRef fr = e as BoundFuncRef;
             TypedReg frdst = this._ctx.Alloc(IrType.Ref);
@@ -425,230 +426,6 @@ public sealed class ExprEmitter {
         return ph;
     }
 
-    // 二元运算：逻辑短路 &&·‖·?? 先拦截（操作数条件求值，不能预先 Emit 两侧）；
-    // 否则算术 + − × ÷ % / 比较 / 位 / 字符串拼接。
-    private TypedReg _emitBinary(BoundBinary b) {
-        string sop = b.Op;
-        if (sop == "&&") { return this._emitShortCircuit(b, true); }
-        if (sop == "||") { return this._emitShortCircuit(b, false); }
-        if (sop == "??") { return this._emitNullCoalesce(b); }
-        TypedReg a = this.Emit(b.Left);
-        TypedReg c = this.Emit(b.Right);
-        string op = b.Op;
-        if (op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=") {
-            // add-struct-value-equality：两操作数均 blob 值 struct 的 ==/!= → 逐叶子值相等（脱糖，非句柄身份）。
-            if ((op == "==" || op == "!=") && this._isBlobStruct(b.Left.Type()) && this._isBlobStruct(b.Right.Type())) {
-                return this._emitStructEquality(op == "==", a, c, this._blobStructName(b.Left.Type()));
-            }
-            return this._emitCompare(op, a, c);   // → bool
-        }
-        TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
-        if (op == "-") { this._ctx.Emit(new SubInstr(d, a, c)); }
-        else if (op == "*") { this._ctx.Emit(new MulInstr(d, a, c)); }
-        else if (op == "/") { this._ctx.Emit(new DivInstr(d, a, c)); }
-        else if (op == "%") { this._ctx.Emit(new RemInstr(d, a, c)); }
-        else if (op == "&") { this._ctx.Emit(new BitAndInstr(d, a, c)); }
-        else if (op == "|") { this._ctx.Emit(new BitOrInstr(d, a, c)); }
-        else if (op == "^") { this._ctx.Emit(new BitXorInstr(d, a, c)); }
-        else if (op == "<<") { this._ctx.Emit(new ShlInstr(d, a, c)); }
-        else if (op == ">>") { this._ctx.Emit(new ShrInstr(d, a, c)); }
-        else if (op == "+") {
-            // 字符串拼接也走 Add（tag=str；C# 字节实证 0x10 非 0x85——StrConcatInstr 留作他途）
-            this._ctx.Emit(new AddInstr(d, a, c));
-        }
-        else { this._ctx.Emit(new AddInstr(d, a, c)); }   // && / || / ?? → CG-1E-2（占位）
-        return d;
-    }
-
-    // 比较 → bool（操作数类型透传到指令文本）。
-    private TypedReg _emitCompare(string op, TypedReg a, TypedReg c) {
-        TypedReg d = this._ctx.Alloc(IrType.Bool);
-        if (op == "==") { this._ctx.Emit(new EqInstr(d, a, c)); }
-        else if (op == "!=") { this._ctx.Emit(new NeInstr(d, a, c)); }
-        else if (op == "<") { this._ctx.Emit(new LtInstr(d, a, c)); }
-        else if (op == "<=") { this._ctx.Emit(new LeInstr(d, a, c)); }
-        else if (op == ">") { this._ctx.Emit(new GtInstr(d, a, c)); }
-        else { this._ctx.Emit(new GeInstr(d, a, c)); }
-        return d;
-    }
-
-    // 一元：! → not（bool）/ - → neg / ~ → bit_not / + → 透传。++ -- 后续。
-    private TypedReg _emitUnary(BoundUnary u) {
-        TypedReg x = this.Emit(u.Operand);
-        string op = u.Op;
-        if (op == "!") { TypedReg d = this._ctx.Alloc(IrType.Bool); this._ctx.Emit(new NotInstr(d, x)); return d; }
-        if (op == "-") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new NegInstr(d, x)); return d; }
-        if (op == "~") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
-        if (op == "+") { return x; }
-        // 前置 ++/--（"pre++"/"pre--"）：x = x ± 1，返回**新值**（区别于后置返回旧值）。
-        // 仅 BoundIdent 操作数（`++i`）写回 Locals 活寄存器；非 ident 暂不增量。
-        if (op == "pre++" || op == "pre--") {
-            if (u.Operand is BoundIdent) {
-                BoundIdent pbid = u.Operand as BoundIdent;
-                TypedReg one = this._ctx.Alloc(IrType.I64);
-                TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
-                this._ctx.Emit(new ConstI64Instr(one, "1"));
-                if (op == "pre++") { this._ctx.Emit(new AddInstr(nv, x, one)); }
-                else                { this._ctx.Emit(new SubInstr(nv, x, one)); }
-                // 实例字段（裸名）写回 field_set(reg0)；否则 Locals 活寄存器 copy。
-                if (this._ctx.Fields.ContainsKey(pbid.Name)) {
-                    this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), pbid.Name, nv));
-                    return nv;
-                }
-                this._ctx.Emit(new CopyInstr(x, nv));
-                return x;
-            }
-            if (u.Operand is BoundStaticGet) {   // ++Class.staticField → static_set 写回
-                BoundStaticGet st = u.Operand as BoundStaticGet;
-                TypedReg one = this._ctx.Alloc(IrType.I64);
-                TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
-                this._ctx.Emit(new ConstI64Instr(one, "1"));
-                if (op == "pre++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
-                this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, nv));
-                return nv;
-            }
-            return x;
-        }
-        // post-increment / post-decrement（镜像 C# EmitBoundPostfix）：
-        // 1. savedOld = copy x（表达式返回旧值）
-        // 2. newVal = x ± 1
-        // 3. x = copy newVal（写回原寄存器，x 即 Locals 寄存器本身）
-        // 注：仅 BoundIdent 操作数（即 `i++`）时 x 是 Locals 活寄存器，写回合法；
-        //     非 ident（`arr[i]++`）暂不处理增量（留 D-post-inc-nonident）。
-        TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
-        this._ctx.Emit(new CopyInstr(ph, x));
-        if (u.Operand is BoundIdent) {
-            BoundIdent bid = u.Operand as BoundIdent;
-            TypedReg one = this._ctx.Alloc(IrType.I64);
-            TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
-            this._ctx.Emit(new ConstI64Instr(one, "1"));
-            if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); }
-            else             { this._ctx.Emit(new SubInstr(nv, x, one)); }
-            // 实例字段（裸名）写回 field_set(reg0)；否则 Locals 活寄存器 copy（返回旧值 ph）。
-            if (this._ctx.Fields.ContainsKey(bid.Name)) {
-                this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), bid.Name, nv));
-            } else {
-                this._ctx.Emit(new CopyInstr(x, nv));
-            }
-        } else if (u.Operand is BoundStaticGet) {   // Class.staticField++ → static_set 写回（返回旧值 ph）
-            BoundStaticGet st = u.Operand as BoundStaticGet;
-            TypedReg one = this._ctx.Alloc(IrType.I64);
-            TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
-            this._ctx.Emit(new ConstI64Instr(one, "1"));
-            if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
-            this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, nv));
-        }
-        return ph;
-    }
-
-    // ════ 块化表达式（CG-1E-2）：中途分块 + 结果寄存器经 copy/const 汇合 ════════════════
-    // 三目 cond ? then : else → 结果寄存器在两分支各赋值（镜像 C# EmitBoundTernary：
-    // cond 先求 → 3 标签 tern_then/else/end → result 在标签后 alloc）。
-    // switch 表达式 → 等值比较链写结果寄存器（镜像 C# EmitBoundSwitchExpr）。
-    private TypedReg _emitSwitchExpr(BoundSwitchExpr sw) {
-        TypedReg subj = this.Emit(sw.Subject);
-        TypedReg result = this._ctx.Alloc(this._ctx.ToIrType(sw.Type()));
-        string endL = this._ctx.Fresh("swx_end");
-        int ai = 0;
-        while (ai < sw.ArmCount) {
-            BoundSwitchArm arm = sw.Arms[ai];
-            if (!arm.HasPattern) {
-                TypedReg defR = this.Emit(arm.Body);
-                this._ctx.Emit(new CopyInstr(result, defR));
-                this._ctx.EndBlock(new BrTerm(endL));
-                ai = sw.ArmCount;
-            } else {
-                string thenL = this._ctx.Fresh("swx_arm");
-                string nextL = this._ctx.Fresh("swx_next");
-                TypedReg pat = this.Emit(arm.Pattern);
-                TypedReg cmp = this._ctx.Alloc(IrType.Bool);
-                this._ctx.Emit(new EqInstr(cmp, subj, pat));
-                this._ctx.EndBlock(new BrCondTerm(cmp, thenL, nextL));
-                this._ctx.StartBlock(thenL);
-                TypedReg bodyR = this.Emit(arm.Body);
-                this._ctx.Emit(new CopyInstr(result, bodyR));
-                this._ctx.EndBlock(new BrTerm(endL));
-                this._ctx.StartBlock(nextL);
-                ai = ai + 1;
-            }
-        }
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-        this._ctx.StartBlock(endL);
-        return result;
-    }
-
-    private TypedReg _emitConditional(BoundConditional c) {
-        TypedReg cond = this.Emit(c.Cond);
-        string thenL = this._ctx.Fresh("tern_then");
-        string elseL = this._ctx.Fresh("tern_else");
-        string endL = this._ctx.Fresh("tern_end");
-        TypedReg result = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-        this._ctx.EndBlock(new BrCondTerm(cond, thenL, elseL));
-        this._ctx.StartBlock(thenL);
-        TypedReg thenR = this.Emit(c.Then);
-        this._ctx.Emit(new CopyInstr(result, thenR));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(elseL);
-        TypedReg elseR = this.Emit(c.Else);
-        this._ctx.Emit(new CopyInstr(result, elseR));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(endL);
-        return result;
-    }
-
-    // a && b / a || b → BrCond 块（镜像 C# EmitShortCircuit，统一 and/or 路径）。
-    // 标签序 {tag}_rhs/{tag}_short/{tag}_end → result alloc → left 求值 → BrCond。
-    // and：真→rhs（求 b）/假→short（const false）；or：真→short（const true）/假→rhs。
-    private TypedReg _emitShortCircuit(BoundBinary b, bool isAnd) {
-        string tag = "or";
-        if (isAnd) { tag = "and"; }
-        string rhsL = this._ctx.Fresh(tag + "_rhs");
-        string shortL = this._ctx.Fresh(tag + "_short");
-        string endL = this._ctx.Fresh(tag + "_end");
-        TypedReg result = this._ctx.Alloc(IrType.Bool);
-        TypedReg left = this.Emit(b.Left);
-        if (isAnd) {
-            this._ctx.EndBlock(new BrCondTerm(left, rhsL, shortL));
-        } else {
-            this._ctx.EndBlock(new BrCondTerm(left, shortL, rhsL));
-        }
-        this._ctx.StartBlock(rhsL);
-        TypedReg rightR = this.Emit(b.Right);
-        this._ctx.Emit(new CopyInstr(result, rightR));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(shortL);
-        TypedReg constR = this._ctx.Alloc(IrType.Bool);
-        this._ctx.Emit(new ConstBoolInstr(constR, !isAnd));
-        this._ctx.Emit(new CopyInstr(result, constR));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(endL);
-        return result;
-    }
-
-    // a ?? b（镜像 C# EmitBoundNullCoalesce）：alloc 序 left/null/cmp/result →
-    // ConstNull+Eq → 标签 nc_null/nc_end，BrCond(cmp, nc_null, nc_end)；
-    // nc_end 块=非空路径 copy left + 中途 Fresh(nc_after)；nc_null 块求 b；汇合 nc_after。
-    private TypedReg _emitNullCoalesce(BoundBinary b) {
-        TypedReg left = this.Emit(b.Left);
-        TypedReg nullReg = this._ctx.Alloc(IrType.Ref);
-        TypedReg cmpReg = this._ctx.Alloc(IrType.Bool);
-        TypedReg result = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
-        this._ctx.Emit(new ConstNullInstr(nullReg));
-        this._ctx.Emit(new EqInstr(cmpReg, left, nullReg));
-        string nullL = this._ctx.Fresh("nc_null");
-        string endL = this._ctx.Fresh("nc_end");
-        this._ctx.EndBlock(new BrCondTerm(cmpReg, nullL, endL));
-        this._ctx.StartBlock(endL);
-        this._ctx.Emit(new CopyInstr(result, left));
-        string afterL = this._ctx.Fresh("nc_after");
-        this._ctx.EndBlock(new BrTerm(afterL));
-        this._ctx.StartBlock(nullL);
-        TypedReg rightR = this.Emit(b.Right);
-        this._ctx.Emit(new CopyInstr(result, rightR));
-        this._ctx.EndBlock(new BrTerm(afterL));
-        this._ctx.StartBlock(afterL);
-        return result;
-    }
 
     // 赋值：local（copy 回写）/ 裸字段（field_set reg0）/ obj.field（field_set obj）/ arr[i]（array_set）。
     private TypedReg _emitAssign(BoundAssign a) {
@@ -1051,7 +828,7 @@ public sealed class ExprEmitter {
     // 操作数各求值一次（a/c 为 blob 句柄），递归展平叶子逐个 Eq；首个不等即短路到 fail 块。
     // wantEqual=true → `==`（全叶子相等 → true）；false → `!=`（全等 → false）。结果 result-reg 在
     // 「全等」与「fail」两分支各写 ConstBool，end 块读汇合（镜像 _emitConditional 三目范式）。
-    private TypedReg _emitStructEquality(bool wantEqual, TypedReg a, TypedReg c, string structName) {
+    internal TypedReg _emitStructEquality(bool wantEqual, TypedReg a, TypedReg c, string structName) {
         TypedReg result = this._ctx.Alloc(IrType.Bool);
         string failL = this._ctx.Fresh("seq_ne");
         string endL = this._ctx.Fresh("seq_end");
