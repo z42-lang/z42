@@ -468,7 +468,15 @@ typecheck 会炸。`KindOf` 解析相位无 generator 集、无法按名分辨 g
 **契约扩展**：`Generator` + `ModuleGenerator` 各加 `string[] Consumes()` / `string[] Produces()`（tag = attribute
 名，如 `"Route"`）。applied 空 `Consumes()` → 默认 `[AppliedName()]`（只依赖自身触发名）；module 空 → 空。
 
-**引擎 = `GeneratorDriver.RunRounds`**（替换 PackageCompile 里 PR4a/4c 的单轮 `Run`+`RunModules`）：
+> **⚠️ 分阶段落地（F2 冷启动 staged-bootstrap 纪律，bootstrap-seed.md 轴②）**：接线 `PackageCompile →
+> GeneratorDriver.RunRounds` 是**新跨成员符号**（pipeline→semantics），nightly 种子的 z42c.semantics 尚无
+> RunRounds → 冷启动 F2 stale-cache 会报 `no static method RunRounds`。故 **PR4e 本体落引擎 `RunRounds`
+> + `Consumes()`/`Produces()` 契约 + 单测 + 指纹（support），但 PackageCompile 仍走单轮 `Run`+`RunModules`
+> （不接线）**；**接线激活留 RunRounds 随 nightly 发布后的 follow-up PR（use，晚一 nightly）**。指纹（driver-
+> intra，无跨成员符号）本体即 active。E0449 由 GeneratorDriver 用**字面量 "E0449"** 发（同理避新 core 成员
+> 冷启动 undefined，常量在 DiagnosticCodes.z42 作登记 SoT）。
+
+**引擎 = `GeneratorDriver.RunRounds`**（follow-up 接线后替换 PackageCompile 里 PR4a/4c 的单轮 `Run`+`RunModules`；本 PR 已实现+单测，未接线）：
 
 1. **统一节点表**（`GenNode`，z42 无嵌套数组字段 → 用类持 `string[]`）：`0..genCount-1`=applied、
    `genCount..N-1`=module。边 `u→v` iff `produces(u) ∩ consumes(v) ≠ ∅`（u 排 v 前）。

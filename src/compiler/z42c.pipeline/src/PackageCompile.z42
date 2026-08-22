@@ -136,13 +136,16 @@ public static class PackageCompile {
                                                  allUsings, auc);
         }
 
-        // ── attribute-handler-registry PR4a/4c/4e：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──
+        // ── attribute-handler-registry PR4a/4c：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──
         // gated on GeneratorCount>0 → z42c 自建无 generator → 分支不进 → 逐字节不动。有 generator 时走
-        // GeneratorDriver.RunRounds（PR4e 有界多轮）：按 consumes/produces 拓扑分层，每层 provisional
-        // CollectAll（给该层 generator 解析符号）→ 跑该层 applied+module（Add/Replace/Augment → union）→ 后层
-        // 见前层产出 → 下面 BuildPackageCus 对最终 union 重编（其内 CollectAll = real bind）。union 一律 fresh
-        // 编译（cachedMods=null）——生成内容使增量缓存失效（design：spliced 走非增量 union 路径）；跨 build 的
-        // generator-身份失效由增量 probe 的 handler 指纹兜底（PR4e，见 IncrementalDriver.Prepare）。
+        // double-bind：provisional CollectAll（给 generator 解析符号）→ applied `Run` + module `RunModules`
+        // （Add/Replace/Augment → union）→ 下面 BuildPackageCus 对 union 重编（其内 CollectAll = real bind）。
+        // union 一律 fresh 编译（cachedMods=null）——生成内容使增量缓存失效；跨 build 的 generator-身份失效由
+        // 增量 probe 的 handler 指纹兜底（PR4e，见 BuildPaths._handlerFingerprint，已 active）。
+        // ⚠️ **PR4e 有界多轮引擎（GeneratorDriver.RunRounds）已实现+单测，但此处仍走单轮**——接线
+        // PackageCompile→RunRounds 是新跨成员符号（pipeline→semantics），nightly 种子尚无 RunRounds → 冷启动
+        // F2 stale-cache 会炸（bootstrap-seed.md 轴②）。故接线延到 RunRounds 随 nightly 发布后的 follow-up PR
+        // （staged：support 先行、use 晚一 nightly）。届时本块单轮 Run+RunModules → RunRounds 即激活多轮。
         CompilationUnit[] cus = inp.Cus;
         string[] files = inp.Files;
         string[] texts = inp.Texts;
@@ -167,13 +170,17 @@ public static class PackageCompile {
             effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
         }
         if (effGenCount > 0 || effModCount > 0) {
-            // PR4e：有界多轮编排——RunRounds 按 consumes/produces 拓扑分层、逐层 re-bind（层首 CollectAll）
-            // 后跑该层（applied 先、module 后），后层见前层产出；成环 → E0449（进 genDiags → 拦编译）。
-            // 默认全空 consumes/produces → 全落第 0 层、一轮跑完 = 退化回单轮（byte-identical）。
-            GenOutcome go = GeneratorDriver.RunRounds(effGens, effGenCount, effMods, effModCount,
-                                                      cus, files, srcCount, imported, genDiags);
-            if (go.HasOutput) {
-                cus = go.Cus; files = go.Files; srcCount = go.CuCount;
+            SymbolTable prov = new SymbolCollector().CollectAll(cus, files, srcCount, imported);   // #1 provisional bind
+            bool changed = false;
+            if (effGenCount > 0) {
+                GenOutcome go = GeneratorDriver.Run(effGens, effGenCount, cus, files, srcCount, prov, genDiags);
+                if (go.HasOutput) { cus = go.Cus; files = go.Files; srcCount = go.CuCount; changed = true; }
+            }
+            if (effModCount > 0) {
+                GenOutcome mo = GeneratorDriver.RunModules(effMods, effModCount, cus, files, srcCount, prov, genDiags);
+                if (mo.HasOutput) { cus = mo.Cus; files = mo.Files; srcCount = mo.CuCount; changed = true; }
+            }
+            if (changed) {
                 texts = new string[srcCount];   // 生成 CU 无源文本；fresh 路径不读 texts（仅 cached 读）→ 占位即可
                 int ti = 0; while (ti < srcCount) { texts[ti] = ti < inp.SrcCount ? inp.Texts[ti] : ""; ti = ti + 1; }
                 cachedMods = null;   // union 全 fresh
