@@ -252,6 +252,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             ai = ai + 1;
         }
         cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = pm.AnalyzerCount;
+        // attribute-handler-registry PR4d：同一 `[analyzers]` 段 zpkg 也承载 generator（D9 单段覆盖两类，
+        // User 2026-08-22 裁决）——PackageCompile 直接从 AnalyzerZpkgs 经 GeneratorLoader 发现
+        // `: Generator`/`: ModuleGenerator`（只含 analyzer 的 zpkg → 发现 0 个 generator，反之亦然）。**不设
+        // 独立字段**：避免 driver 引用 CompileInputs 新字段成新跨成员符号、撞 F2 冷启动 stale-cache。
     }
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
     // EnabledByDefault 门 + warnings-as-errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →

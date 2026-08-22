@@ -23,8 +23,10 @@
 // 约定「AppliedName() == 类名剥后缀」由文档 + E0447 双保。类名须以 `Generator` 结尾（E0447，见
 // SymbolCollector._passGeneratorSuffixEnforce）。
 //
-// ModuleGenerator（扫全编译聚合）+ GenContext（TypesWith<T> 跨类型符号查询，依赖泛型方法）留 PR4c；
-// 外部 zpkg 加载 + [generators] manifest 留 PR4d；有界多轮留 PR4e。
+// ModuleGenerator（扫全编译聚合）+ GenContext（TypesWith<T> 跨类型符号查询，依赖泛型方法）= PR4c（✅）；
+// 外部 zpkg 加载（`GeneratorLoader`，经 `[analyzers]` 段——D9 单段覆盖 analyzer + generator 两类，
+// User 2026-08-22 裁决——发现 `: Generator`/`: ModuleGenerator`）+ VM 执行 golden = PR4d（✅）；
+// 有界多轮留 PR4e。
 namespace Z42.Semantics;
 
 using Z42.Syntax;   // Decl / ClassDecl / Attr

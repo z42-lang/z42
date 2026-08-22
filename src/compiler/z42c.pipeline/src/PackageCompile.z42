@@ -52,14 +52,20 @@ public sealed class CompileInputs {
     // AnalyzerDriver 用 LintConfig.Empty()（仅 EnabledByDefault + DefaultSeverity，无覆盖/无 WAE）。
     // 仅在 AnalyzerZpkgCount>0 时相关；z42c 自建无 analyzer → 不参与 → 逐字节不动。
     public LintConfig Lints;
-    // attribute-handler-registry PR4a：已实例化的 applied generator（本 PR 由测试注入；外部 zpkg 加载留
-    // PR4d，届时 driver 从 [generators] 段加载填此）。非空 → provisional bind 后跑 GeneratorDriver（splice/
-    // merge → union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
+    // attribute-handler-registry PR4a：已实例化的 applied generator（测试注入路径；外部 zpkg 加载经
+    // AnalyzerZpkgs 由 Compile 载入后并入本数组，见下）。非空 → provisional bind 后跑
+    // GeneratorDriver（splice/merge → union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public Generator[] Generators; public int GeneratorCount;
-    // attribute-handler-registry PR4c：已实例化的 module generator（本 PR 由测试注入；外部 zpkg 加载留
-    // PR4d）。非空 → provisional bind 后（applied 之后）跑 GeneratorDriver.RunModules（扫全编译 + 强类型
-    // 查询 → AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
+    // attribute-handler-registry PR4c：已实例化的 module generator（同上，测试注入 + 外部加载并入）。
+    // 非空 → provisional bind 后（applied 之后）跑 GeneratorDriver.RunModules（扫全编译 + 强类型查询 →
+    // AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public ModuleGenerator[] ModuleGenerators; public int ModuleGeneratorCount;
+    // attribute-handler-registry PR4d：外部 generator zpkg **复用 `AnalyzerZpkgs`**（D9 单段 `[analyzers]`
+    // 覆盖 analyzer + generator 两类，User 2026-08-22 裁决——同一批路径）。Compile 经 GeneratorLoader 从
+    // `AnalyzerZpkgs` 发现 `: Generator`/`: ModuleGenerator`、并入 Generators/ModuleGenerators 走同一 gated
+    // 块（analyzer 各按接口过滤，互不干扰）。**不新增独立字段**——避免 z42c.driver 引用 CompileInputs 新
+    // 字段成「新跨成员符号」，撞 F2 DepScanCache 冷启动 stale-cache（driver 冷建解析到种子旧 pipeline →
+    // E0401；见 GeneratorLoader.z42 头注 + design §Generator 外部加载）。空（z42c 自建）→ 不加载 → 逐字节不动。
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
@@ -144,15 +150,29 @@ public static class PackageCompile {
         // gated 块——共用 provisional bind；applied 可能改写 CU（Augment/Replace/AddSource），module 扫
         // 其产出的 union AST。任一路径有产出 → union 全 fresh 重编。
         DiagnosticBag genDiags = new DiagnosticBag();
-        if (inp.GeneratorCount > 0 || inp.ModuleGeneratorCount > 0) {
+        // PR4d：外部 generator zpkg **复用 `[analyzers]` 段路径（AnalyzerZpkgs）**（D9 单段覆盖两类）→
+        // GeneratorLoader 发现 `: Generator`/`: ModuleGenerator` 类型、实例化，并入测试注入的数组，走同一
+        // gated 块。z42c 自建无 [analyzers] → AnalyzerZpkgCount==0 → 不加载、effGens/effMods 即注入的空数组
+        // → gate false → 逐字节不动。（不用独立 GeneratorZpkgs 字段：见 CompileInputs 上方注 —— 避免 driver
+        // 引用 CompileInputs 新字段撞 F2 冷启动 stale-cache。）
+        Generator[] effGens = inp.Generators; int effGenCount = inp.GeneratorCount;
+        ModuleGenerator[] effMods = inp.ModuleGenerators; int effModCount = inp.ModuleGeneratorCount;
+        if (inp.AnalyzerZpkgCount > 0) {
+            LoadedGenerators lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+            effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
+            effGenCount = inp.GeneratorCount + lg.AppliedCount;
+            effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
+            effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
+        }
+        if (effGenCount > 0 || effModCount > 0) {
             SymbolTable prov = new SymbolCollector().CollectAll(cus, files, srcCount, imported);   // #1 provisional bind
             bool changed = false;
-            if (inp.GeneratorCount > 0) {
-                GenOutcome go = GeneratorDriver.Run(inp.Generators, inp.GeneratorCount, cus, files, srcCount, prov, genDiags);
+            if (effGenCount > 0) {
+                GenOutcome go = GeneratorDriver.Run(effGens, effGenCount, cus, files, srcCount, prov, genDiags);
                 if (go.HasOutput) { cus = go.Cus; files = go.Files; srcCount = go.CuCount; changed = true; }
             }
-            if (inp.ModuleGeneratorCount > 0) {
-                GenOutcome mo = GeneratorDriver.RunModules(inp.ModuleGenerators, inp.ModuleGeneratorCount, cus, files, srcCount, prov, genDiags);
+            if (effModCount > 0) {
+                GenOutcome mo = GeneratorDriver.RunModules(effMods, effModCount, cus, files, srcCount, prov, genDiags);
                 if (mo.HasOutput) { cus = mo.Cus; files = mo.Files; srcCount = mo.CuCount; changed = true; }
             }
             if (changed) {
@@ -191,55 +211,89 @@ public static class PackageCompile {
             PackageCompile._runAnalyzers(inp, cms);
         }
 
+        // PR4d：generation 增长了 srcCount/cus/files/cms（union 含 Augment 合并的 synthetic partial 碎片
+        // 与 AddSource 新 CU）。**assembly 必须用 union count `srcCount`、而非 `inp.SrcCount`**——否则生成
+        // 的 module（索引 ≥ inp.SrcCount）被截断出 zpkg：AddSource 新类运行期无 TypeDesc（Activator 报 no
+        // runtime handle）、Augment override 所在 partial 碎片模块丢失（vtable 无覆盖 → 调默认）。PR4a/4c
+        // 的引擎单测走独立 CollectAll+TypeChecker harness、从不经本 assembly，故此截断此前未被发现，PR4d 的
+        // VM 执行 golden 首次触发。generated CU 无源 hash → 占位；z42c 自建无 generator → srcCount==inp.SrcCount
+        // → hashes==inp.SrcHashes、下面全部退化为原路径 → 逐字节不动。
+        string[] hashes = inp.SrcHashes;
+        if (srcCount != inp.SrcCount) {
+            hashes = new string[srcCount];
+            int hi = 0;
+            while (hi < srcCount) { hashes[hi] = hi < inp.SrcCount ? inp.SrcHashes[hi] : "GENERATED"; hi = hi + 1; }
+        }
+
         // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
         int totalErr = 0;
         int fi = 0;
-        while (fi < inp.SrcCount) { if (cms[fi].ErrorCount > 0) { totalErr = totalErr + cms[fi].ErrorCount; } fi = fi + 1; }
+        while (fi < srcCount) { if (cms[fi].ErrorCount > 0) { totalErr = totalErr + cms[fi].ErrorCount; } fi = fi + 1; }
         if (totalErr > 0) {
-            CompileArtifacts errArt = new CompileArtifacts(null, null, 0, cms, inp.SrcCount, totalErr, "");
+            CompileArtifacts errArt = new CompileArtifacts(null, null, 0, cms, srcCount, totalErr, "");
             errArt.Scan = scan;   // perf ②：回显 scan（首轮出错也让调用方缓存已建 scan）
             return errArt;
         }
 
         // ── ⑩ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
         bool isExe = inp.Kind == "exe";
-        ZbcFileZ[] mods = new ZbcFileZ[inp.SrcCount];
+        ZbcFileZ[] mods = new ZbcFileZ[srcCount];
         int i = 0;
-        while (i < inp.SrcCount) {
+        while (i < srcCount) {
             CompiledModuleZ cm = cms[i];
             IrModule irm = cm.Module;
-            string rel = inp.Files[i];   // SourceFile = 发现到的完整路径原样（C# CLI 字节实证）
+            string rel = files[i];   // SourceFile = 发现到的完整路径原样（generated CU 用其合成文件名）
             string[] exports = new string[irm.FuncCount];
             int e = 0;
             while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
             string modNs = cm.Namespace;
             if (modNs == "") { modNs = "main"; }   // no-ns 单元 ns="main"（C# build 字节实证）
-            mods[i] = new ZbcFileZ(rel, inp.SrcHashes[i], modNs, exports, irm.FuncCount, irm);
+            mods[i] = new ZbcFileZ(rel, hashes[i], modNs, exports, irm.FuncCount, irm);
             mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
             mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
             i = i + 1;
         }
         // TSIG：BuildPackageCus 已产 per-file Exported（PS-1）
-        ExportedModuleZ[] exported = new ExportedModuleZ[inp.SrcCount];
+        ExportedModuleZ[] exported = new ExportedModuleZ[srcCount];
         i = 0;
-        while (i < inp.SrcCount) { exported[i] = cms[i].Exported; i = i + 1; }
+        while (i < srcCount) { exported[i] = cms[i].Exported; i = i + 1; }
         // DEPS 条目（usings ∪ usedDepNs → nsMap）
         ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
         if (scan != null) {
-            depList = ZpkgBuilder.BuildDependencyMap(mods, inp.SrcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name + ".zpkg");
+            depList = ZpkgBuilder.BuildDependencyMap(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name + ".zpkg");
         }
         ZpkgFileZ z = ZpkgBuilder.BuildPackedD(inp.Name, inp.Version, isExe, inp.HasEntry, inp.Entry,
-                                               mods, inp.SrcCount, depList.Items, depList.Count);
+                                               mods, srcCount, depList.Items, depList.Count);
         z.Exported = exported;
-        z.ExportedCount = inp.SrcCount;
+        z.ExportedCount = srcCount;
         string entryStatus = "ok";
         if (isExe) {
             if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
             else if (z.Entry == "") { entryStatus = "missing"; }
         }
-        CompileArtifacts okArt = new CompileArtifacts(z, mods, inp.SrcCount, cms, inp.SrcCount, 0, entryStatus);
+        CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
         okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
         return okArt;
+    }
+
+    // PR4d：注入的 applied generator + 外部加载的 applied generator 合并（注入在前，加载在后——外部
+    // 加载已按路径 Ordinal 稳定序）。z42c 自建两者皆空 → 返回空 → 不触 gate。
+    private static Generator[] _concatGen(Generator[] a, int an, Generator[] b, int bn) {
+        Generator[] r = new Generator[an + bn];
+        int i = 0;
+        while (i < an) { r[i] = a[i]; i = i + 1; }
+        int j = 0;
+        while (j < bn) { r[an + j] = b[j]; j = j + 1; }
+        return r;
+    }
+
+    private static ModuleGenerator[] _concatMod(ModuleGenerator[] a, int an, ModuleGenerator[] b, int bn) {
+        ModuleGenerator[] r = new ModuleGenerator[an + bn];
+        int i = 0;
+        while (i < an) { r[i] = a[i]; i = i + 1; }
+        int j = 0;
+        while (j < bn) { r[an + j] = b[j]; j = j + 1; }
+        return r;
     }
 
     // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
