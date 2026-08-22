@@ -215,10 +215,17 @@ public sealed class ExprEmitter {
             this._ctx.Emit(new ConstNullInstr(drn));
             return drn;
         }
-        // 其余节点 → 后续增量：占位 const.null（保 dump 良构）
-        TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(e.Type()));
-        this._ctx.Emit(new ConstNullInstr(ph));
-        return ph;
+        // BoundError（类型检查失败的错误恢复哨兵）：优雅降级为 const.null（保 dump 良构）。
+        // 仅错误路径可达——成功编译在 emit 前已因类型错误中止，不会走到这里。
+        if (e is BoundError) {
+            TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(e.Type()));
+            this._ctx.Emit(new ConstNullInstr(ph));
+            return ph;
+        }
+        // 其余任何未处理节点 = 编译器 bug（新增了 BoundExpr 种类却漏接 emit dispatch）。
+        // 响亮报错，杜绝此前「静默 emit const.null 占位 → 错误 codegen」的隐蔽陷阱
+        // （dispatch 穷尽性：新增节点漏接立即崩、带节点 Dump，而非产出错误字节）。
+        throw new Exception("ExprEmitter.Emit: unhandled BoundExpr kind: " + e.Dump());
     }
 
     // GS4：插值串发射。镜像 C# EmitInterpolation：
