@@ -2,19 +2,19 @@
 //!
 //! **Policy-free adapter shell.** The decision logic all lives in z42
 //! (`Std.Scripting.ReplEditing.KeyEdit`, reached via the registered free function
-//! `replKeyEdit`). Here we only, on each controlled key (Backspace / Tab / `}`):
+//! `replKeyEdit`). Here we only, on each controlled key (Backspace / Tab):
 //!   1. re-enter the VM to ask z42 for an "action string", then
 //!   2. translate that string into a rustyline `Cmd`.
 //! Mirrors the Tab-completion callback (`SetCompleter` / `replComplete`) re-entrancy:
 //! the FQN comes from a process-global, the live `&VmContext` from the readline-span
 //! thread-local `ACTIVE_CTX` (published by `repl::read_one_line`).
 //!
-//! Action-string protocol (Rust is a dumb translator — no decisions here):
-//!   ""                    → `None` (perform the key's default: Tab→complete, }→insert,
-//!                                    Backspace→delete one char)
-//!   "kill <n>"            → `Cmd::Kill(BackwardChar(n))`
-//!   "insert <text>"       → `Cmd::Insert(1, text)`        (text may contain spaces)
-//!   "replace <n> <text>"  → `Cmd::Replace(BackwardChar(n), Some(text))`
+//! Action-string protocol (Rust is a dumb translator — no decisions here). Both
+//! non-empty actions map to **redo-immune** commands (see `parse_action`):
+//!   ""              → `None` (perform the key's default: Tab→complete,
+//!                             Backspace→delete one char)
+//!   "dedent"        → `Cmd::Dedent(Movement::WholeLine)`   (remove one `indent_size`)
+//!   "insert:<text>" → `Cmd::Insert(1, text)`               (kill-ring-free; Tab grid-snap-ceil)
 
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -103,18 +103,27 @@ fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 
 /// Translate a z42 action string into a rustyline `Cmd`; `None` = the key's default.
 ///
-/// Only two actions, both mapping to **redo-immune** commands. rustyline runs a
-/// custom binding's repeatable command through `redo(Some(n))`, where `n` is the
-/// numeric-argument prefix (1 for a plain keypress). That clobbers any count baked
-/// into a movement — e.g. `Kill(BackwardChar(4))` degrades to `BackwardChar(1)`,
-/// deleting a single char. `Cmd::Indent`/`Dedent(WholeLine)` sidestep this: they
-/// take a count-less movement and dedent/indent by `config.indent_size()` (set to 4
-/// in `read_one_line`), so the level survives redo intact.
+/// Both actions map to **redo-immune** commands. rustyline runs a custom binding's
+/// repeatable command through `redo(Some(n))`, where `n` is the numeric-argument
+/// prefix (1 for a plain keypress). That clobbers any count baked into a *movement* —
+/// e.g. `Kill(BackwardChar(4))` degrades to `BackwardChar(1)`. Immunity comes from:
+///   - `Dedent(Movement::WholeLine)`: `WholeLine` carries no count; dedents by
+///     `config.indent_size()` (=4 in `read_one_line`), so the level survives redo.
+///     Used for Backspace (one-level dedent, kill-ring-free, cursor correct).
+///   - `Insert(1, text)`: the count is on the repeat, not the text — `redo(Some(1))`
+///     re-inserts the full `text` once, cursor lands after it. Used for Tab
+///     grid-snap-ceil: insert `next_stop - col` spaces (kill-ring-free). `insert:`
+///     carries the literal spaces after the prefix (no escaping; never a colon).
+///
+/// Not here: a `Replace(WholeLine, text)` action for variable-width backspace floor /
+/// `}` auto-dedent. That command IS redo-immune, but `edit_insert_text` doesn't advance
+/// the cursor, so it homes to column 0 — breaking typing after `}` (`} else {`). Those
+/// stay Deferred pending a rustyline `edit_insert_text` cursor fix. (add-repl-tab-grid-snap)
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parse_action(s: &str) -> Option<Cmd> {
     match s {
-        "indent" => Some(Cmd::Indent(Movement::WholeLine)),
         "dedent" => Some(Cmd::Dedent(Movement::WholeLine)),
+        _ if s.starts_with("insert:") => Some(Cmd::Insert(1, s["insert:".len()..].to_string())),
         _ => None,
     }
 }

@@ -1,6 +1,7 @@
-// REPL 缩进感知键位策略测试（add-repl-indent-editing）。直接调纯函数 ReplEditing.KeyEdit——
-// 与 rustyline 键位回调 replKeyEdit 完全同一策略（Rust 侧只把 indent/dedent 译成 redo-免疫的
-// Cmd::Indent/Dedent(WholeLine)，无判断）。返回 (default) 表示空串（走该键默认行为）。
+// REPL 缩进感知键位策略测试（add-repl-indent-editing + add-repl-tab-grid-snap）。直接调纯函数
+// ReplEditing.KeyEdit——与 rustyline 键位回调 replKeyEdit 完全同一策略（Rust 侧 parse_action 只把
+// dedent/insert: 译成 redo-免疫的 Cmd，无判断）。动作串用 [..] 包裹渲染（尾随空格可见、不被 trim）；
+// [] = 空串（走该键默认行为）。
 namespace ReplEditingTest;
 
 using Std;
@@ -8,27 +9,33 @@ using Std.IO;
 using Std.Scripting;
 
 void Main() {
+    // 退格：全空白前缀非空 → 去一级缩进（Dedent，光标正确）；否则默认删 1 字符。
+    // （floor 到前制表位属 Deferred——需 Replace(WholeLine)，其光标归位行首破坏 } 后输入。）
     Console.WriteLine("== backspace ==");
-    _show("bs indent4",  "backspace", "    ", 4);          // dedent
-    _show("bs indent8",  "backspace", "        ", 8);      // dedent
-    _show("bs mis2",     "backspace", "  ", 2);            // dedent（前缀全空格即介入）
-    _show("bs nonspace", "backspace", "  x", 3);           // default
-    _show("bs col0",     "backspace", "", 0);              // default
-    _show("bs word",     "backspace", "ab", 2);            // default
-    _show("bs multi",    "backspace", "foo(\n    ", 9);    // dedent（末行 4 空格）
+    _show("bs align4",  "backspace", "    ", 4);           // dedent
+    _show("bs align8",  "backspace", "        ", 8);       // dedent
+    _show("bs shallow2","backspace", "  ", 2);             // dedent
+    _show("bs mis6",    "backspace", "      ", 6);         // dedent（错位也只去一级，非 floor）
+    _show("bs nonspace","backspace", "  x", 3);            // default（有内容）
+    _show("bs col0",    "backspace", "", 0);               // default
+    _show("bs word",    "backspace", "ab", 2);             // default
+    _show("bs multi",   "backspace", "foo(\n    ", 9);     // dedent（末行 4 空格）
     _show("bs midindent","backspace", "    ", 2);          // dedent（光标在缩进中段）
 
+    // Tab：全空白前缀 → grid-snap ceil 到下制表位，补 (next_stop - col) 空格（Insert，光标正确、
+    // 零 kill-ring 污染）；有词 → 默认（补全）。这是本 change 的唯一新行为（升级 #253 的定量一级）。
     Console.WriteLine("== tab ==");
-    _show("tab empty",  "tab", "", 0);                     // indent
-    _show("tab col2",   "tab", "  ", 2);                   // indent
-    _show("tab align4", "tab", "    ", 4);                 // indent
-    _show("tab word",   "tab", "  foo", 5);                // default（补全）
-    _show("tab word0",  "tab", "foo", 3);                  // default
-    _show("tab multi",  "tab", "x(\n  ", 5);               // indent（末行 2 空格全空白）
+    _show("tab col0",  "tab", "", 0);                      // insert 4 (→4)
+    _show("tab col2",  "tab", "  ", 2);                    // insert 2 (ceil 2→4，非 #253 的 →6)
+    _show("tab align4","tab", "    ", 4);                  // insert 4 (→8)
+    _show("tab col6",  "tab", "      ", 6);                // insert 2 (ceil 6→8)
+    _show("tab col1",  "tab", " ", 1);                     // insert 3 (ceil 1→4)
+    _show("tab word",  "tab", "  foo", 5);                 // default（补全）
+    _show("tab word0", "tab", "foo", 3);                   // default
+    _show("tab multi", "tab", "x(\n  ", 5);                // insert 2（末行 2 空格 ceil →4）
 }
 
 void _show(string label, string key, string line, int pos) {
     string r = ReplEditing.KeyEdit(key, line, pos);
-    if (r.Length == 0) { r = "(default)"; }
-    Console.WriteLine(label + " -> " + r);
+    Console.WriteLine(label + " -> [" + r + "]");
 }
