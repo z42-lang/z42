@@ -15,11 +15,13 @@ public sealed class ExprTyper {
     private CollectionTyper _coll;   // 集合字面量绑定簇（[..]/{..} 脱糖）
     private AssignTyper _assign;     // 赋值绑定簇（=/复合/索引器 set/event/属性 setter + const·readonly 检查）
     private ConstructTyper _construct;   // 构造/对象初始化器绑定簇（new C(args) / new C{...}）
+    private TypeOpTyper _typeop;     // 类型操作绑定簇（(T)x / x as T / typeof(T) / x is T）
     public ExprTyper(TypeChecker tc) {
         this._tc = tc; this._collSeq = 0;
         this._coll = new CollectionTyper(tc, this);
         this._assign = new AssignTyper(tc, this);
         this._construct = new ConstructTyper(tc, this);
+        this._typeop = new TypeOpTyper(tc, this);
     }
 
     private BoundExpr _bindLiteral(Expr e) {
@@ -259,72 +261,6 @@ public sealed class ExprTyper {
         return this._coll._bindCollLit(e, target, env);
     }
 
-    private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
-            BoundExpr operand = this._bindExpr(cx.E, env);
-            Z42Type target = env.ResolveType(cx.Type);
-            this._tc._chkTypeRef(target, env, cx.Type.Span);   // enforce-class-access：cast 目标类型引用
-            // add-user-conversions：显式 (T)x 接受 implicit 与 explicit 用户转换 → lower 成 op_Implicit/op_Explicit 调用。
-            // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
-            ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
-            if ((ur.Kind == ConvKind.UserImplicit || ur.Kind == ConvKind.UserExplicit) && ur.Method != null) {
-                return TypeChecker._lowerUserConv(operand, ur.Method);
-            }
-            // add-user-conversions ③：无任何转换但存在中间类型 A→B→C → 提示写 (C)(B)x（仅存在用户转换时才可能触发）。
-            if (ur.Kind == ConvKind.None) {
-                string via = this._tc._suggestVia(operand.Type(), target, env.Symbols);
-                if (via != "") {
-                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                        "cannot convert '" + operand.Type().Name() + "' to '" + target.Name()
-                        + "'; a conversion through '" + via + "' exists — write (" + target.Name() + ")(" + via + ")x", cx.Span);
-                    return new BoundError("no conversion", new Z42ErrorType(), cx.Span);
-                }
-            }
-            return new BoundConvert(operand, target, cx.Span);
-    }
-
-    private BoundExpr _bindAsExpr(AsExpr ax, TypeEnv env) {
-            BoundExpr operand = this._bindExpr(ax.E, env);
-            // 目标名用 AST 原始类型名（镜像 `is` → BoundIsExpr.TypeName）：imported 接口/内建类
-            // ResolveType 得 Unknown → "<unknown>" 会致 as_cast 目标失配（跨包接口 `as` 恒 null）。
-            string tn;
-            if (ax.Type is NamedType) { tn = (ax.Type as NamedType).Name; }
-            else { tn = env.ResolveType(ax.Type).Name(); }
-            Z42Type asTarget = env.ResolveType(ax.Type);
-            this._tc._chkTypeRef(asTarget, env, ax.Type.Span);   // enforce-class-access：as 目标类型引用
-            return new BoundCast(operand, asTarget, tn, ax.Span);
-    }
-
-    private BoundExpr _bindTypeofExpr(TypeofExpr tox, TypeEnv env) {
-            Z42Type toTarget = env.ResolveType(tox.Type);
-            this._tc._chkTypeRef(toTarget, env, tox.Type.Span);   // enforce-class-access：typeof 目标类型引用
-            // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
-            Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
-            // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
-            // 发射时用它 QualifyClass 回 FQ delegate 名。
-            string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
-            BoundTypeof bto = new BoundTypeof(toTarget, targetName, toType, tox.Span);
-            // add-generic-methods：方法级 typeof(T) → 发 MethodTypeArgInsn 具体化（读 frame 槽）。
-            // 类级泛型形参不标记（D3：类级 typeof 仍产占位名，走既有 TypeofInstr）。
-            if (toTarget is Z42GenericParamType) {
-                int mIdx = env.MethodParamIndexOf(toTarget.Name());
-                if (mIdx >= 0) { bto.IsMethodLevel = true; bto.MethodParamIndex = mIdx; }
-            }
-            return bto;
-    }
-
-    private BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {
-            BoundExpr operand = this._bindExpr(ix.E, env);
-            // 用 AST 原始类型名（镜像 C# bin.Right ident → QualifyClassName），不用 resolved 类型：
-            // Array/Object 等内建类 ResolveType 得 Unknown → "<unknown>"，致 is_instance 失配。
-            string tn;
-            if (ix.Type is NamedType) { tn = (ix.Type as NamedType).Name; }
-            else { tn = env.ResolveType(ix.Type).Name(); }
-            this._tc._chkTypeRef(env.ResolveType(ix.Type), env, ix.Type.Span);   // enforce-class-access：is 目标类型引用
-            // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
-            if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
-            return new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
-    }
-
     private BoundExpr _bindNullCondMember(NullCondMemberExpr nc, TypeEnv env) {
             // obj?.member 脱糖：(recv != null) ? recv.member : null（复用 BoundConditional）。
             // 简单接收者双求值无副作用；goldens 均为局部接收者。
@@ -353,10 +289,10 @@ public sealed class ExprTyper {
             return this._tc._member._bindMember(e as MemberExpr, env);
         }
         if (e is NullCondMemberExpr) { return this._bindNullCondMember(e as NullCondMemberExpr, env); }
-        if (e is IsExpr) { return this._bindIsExpr(e as IsExpr, env); }
-        if (e is TypeofExpr) { return this._bindTypeofExpr(e as TypeofExpr, env); }
-        if (e is AsExpr) { return this._bindAsExpr(e as AsExpr, env); }
-        if (e is CastExpr) { return this._bindCastExpr(e as CastExpr, env); }
+        if (e is IsExpr) { return this._typeop._bindIsExpr(e as IsExpr, env); }
+        if (e is TypeofExpr) { return this._typeop._bindTypeofExpr(e as TypeofExpr, env); }
+        if (e is AsExpr) { return this._typeop._bindAsExpr(e as AsExpr, env); }
+        if (e is CastExpr) { return this._typeop._bindCastExpr(e as CastExpr, env); }
         if (e is ArrayNewExpr) { return this._bindArrayNew(e as ArrayNewExpr, env); }
         if (e is ArrayInitExpr) { return this._bindArrayInit(e as ArrayInitExpr, env); }
         // 集合字面量（无目标类型上下文 → null；有目标时经 StmtBinder._bindVarDecl 等站点直接调 _bindCollLit）

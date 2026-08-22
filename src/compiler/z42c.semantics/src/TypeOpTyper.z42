@@ -1,0 +1,82 @@
+// 类型操作表达式类型绑定簇（refactor-exprtyper-concern-split：从 ExprTyper 按职责抽出）。
+// 承载 (T)x 显式转换、x as T、typeof(T)、x is T 的类型绑定（含用户转换 lower、访问性检查
+// _chkTypeRef、is-pattern 变量声明、方法级 typeof 具体化）。共享 TypeChecker（同一 _tc）；
+// 递归子表达式 _bindExpr 经父反向引用 _et 委回 ExprTyper。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR.BinaryFormat;
+
+public sealed class TypeOpTyper {
+    private TypeChecker _tc;
+    private ExprTyper _et;   // 反向引用：递归 _bindExpr 委回 ExprTyper
+    public TypeOpTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
+
+    internal BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
+            BoundExpr operand = this._et._bindExpr(cx.E, env);
+            Z42Type target = env.ResolveType(cx.Type);
+            this._tc._chkTypeRef(target, env, cx.Type.Span);   // enforce-class-access：cast 目标类型引用
+            // add-user-conversions：显式 (T)x 接受 implicit 与 explicit 用户转换 → lower 成 op_Implicit/op_Explicit 调用。
+            // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
+            ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
+            if ((ur.Kind == ConvKind.UserImplicit || ur.Kind == ConvKind.UserExplicit) && ur.Method != null) {
+                return TypeChecker._lowerUserConv(operand, ur.Method);
+            }
+            // add-user-conversions ③：无任何转换但存在中间类型 A→B→C → 提示写 (C)(B)x（仅存在用户转换时才可能触发）。
+            if (ur.Kind == ConvKind.None) {
+                string via = this._tc._suggestVia(operand.Type(), target, env.Symbols);
+                if (via != "") {
+                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                        "cannot convert '" + operand.Type().Name() + "' to '" + target.Name()
+                        + "'; a conversion through '" + via + "' exists — write (" + target.Name() + ")(" + via + ")x", cx.Span);
+                    return new BoundError("no conversion", new Z42ErrorType(), cx.Span);
+                }
+            }
+            return new BoundConvert(operand, target, cx.Span);
+    }
+
+    internal BoundExpr _bindAsExpr(AsExpr ax, TypeEnv env) {
+            BoundExpr operand = this._et._bindExpr(ax.E, env);
+            // 目标名用 AST 原始类型名（镜像 `is` → BoundIsExpr.TypeName）：imported 接口/内建类
+            // ResolveType 得 Unknown → "<unknown>" 会致 as_cast 目标失配（跨包接口 `as` 恒 null）。
+            string tn;
+            if (ax.Type is NamedType) { tn = (ax.Type as NamedType).Name; }
+            else { tn = env.ResolveType(ax.Type).Name(); }
+            Z42Type asTarget = env.ResolveType(ax.Type);
+            this._tc._chkTypeRef(asTarget, env, ax.Type.Span);   // enforce-class-access：as 目标类型引用
+            return new BoundCast(operand, asTarget, tn, ax.Span);
+    }
+
+    internal BoundExpr _bindTypeofExpr(TypeofExpr tox, TypeEnv env) {
+            Z42Type toTarget = env.ResolveType(tox.Type);
+            this._tc._chkTypeRef(toTarget, env, tox.Type.Span);   // enforce-class-access：typeof 目标类型引用
+            // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
+            Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
+            // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
+            // 发射时用它 QualifyClass 回 FQ delegate 名。
+            string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
+            BoundTypeof bto = new BoundTypeof(toTarget, targetName, toType, tox.Span);
+            // add-generic-methods：方法级 typeof(T) → 发 MethodTypeArgInsn 具体化（读 frame 槽）。
+            // 类级泛型形参不标记（D3：类级 typeof 仍产占位名，走既有 TypeofInstr）。
+            if (toTarget is Z42GenericParamType) {
+                int mIdx = env.MethodParamIndexOf(toTarget.Name());
+                if (mIdx >= 0) { bto.IsMethodLevel = true; bto.MethodParamIndex = mIdx; }
+            }
+            return bto;
+    }
+
+    internal BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {
+            BoundExpr operand = this._et._bindExpr(ix.E, env);
+            // 用 AST 原始类型名（镜像 C# bin.Right ident → QualifyClassName），不用 resolved 类型：
+            // Array/Object 等内建类 ResolveType 得 Unknown → "<unknown>"，致 is_instance 失配。
+            string tn;
+            if (ix.Type is NamedType) { tn = (ix.Type as NamedType).Name; }
+            else { tn = env.ResolveType(ix.Type).Name(); }
+            this._tc._chkTypeRef(env.ResolveType(ix.Type), env, ix.Type.Span);   // enforce-class-access：is 目标类型引用
+            // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
+            if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
+            return new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
+    }
+}
