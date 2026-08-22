@@ -11,7 +11,8 @@ public sealed class ExprEmitter {
     private EmitContext _ctx;
     private FunctionEmitter _fn;   // 反向引用：BoundSeqExpr 的 prelude 语句委托 _fn._emitStmt（含循环/控制流）
     private CallEmitter _call;     // call/new/method-group 发射簇（CG-1E follow-up 按职责抽出）
-    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); }
+    private TypeOpEmitter _top;    // is/typeof/cast/box/convert 发射簇（CG-1E follow-up 按职责抽出）
+    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); }
 
     public TypedReg Emit(BoundExpr e) {
         // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
@@ -158,11 +159,11 @@ public sealed class ExprEmitter {
         if (e is BoundCall) { return this._call._emitCall(e as BoundCall); }
         if (e is BoundNew) { return this._call._emitNew(e as BoundNew); }
         if (e is BoundIndex) { return this._emitIndex(e as BoundIndex); }
-        if (e is BoundIsExpr) { return this._emitIs(e as BoundIsExpr); }
-        if (e is BoundTypeof) { return this._emitTypeof(e as BoundTypeof); }
-        if (e is BoundCast) { return this._emitCast(e as BoundCast); }
-        if (e is BoundBox) { return this._emitBox(e as BoundBox); }
-        if (e is BoundConvert) { return this._emitConvert(e as BoundConvert); }
+        if (e is BoundIsExpr) { return this._top._emitIs(e as BoundIsExpr); }
+        if (e is BoundTypeof) { return this._top._emitTypeof(e as BoundTypeof); }
+        if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
+        if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }
+        if (e is BoundConvert) { return this._top._emitConvert(e as BoundConvert); }
         if (e is BoundConditional) { return this._emitConditional(e as BoundConditional); }
         if (e is BoundSwitchExpr) { return this._emitSwitchExpr(e as BoundSwitchExpr); }
         if (e is BoundFuncRef) {   // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）
@@ -1154,52 +1155,6 @@ public sealed class ExprEmitter {
         return h;
     }
 
-    // x is T → is_instance（bool）。is-pattern `x is T v`：另发 as-cast 把 (x as T) 存入 v 的
-    // 寄存器并登记 Locals（true 分支读 v 命中此寄存器；不匹配时 as 得 null，分支不执行无害）。
-    private TypedReg _emitIs(BoundIsExpr e) {
-        TypedReg obj = this.Emit(e.E);
-        string qn = this._ctx.QualifyTypeName(e.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
-        if (qn == "Array") { qn = "Std.Array"; }       // 内建根类（VM 硬编码 Std.Array/Std.Object）
-        else if (qn == "Object") { qn = "Std.Object"; }
-        if (e.BindName != "") {
-            TypedReg vReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(vReg, obj, qn));
-            this._ctx.Locals.Put(e.BindName, vReg);
-        }
-        TypedReg dst = this._ctx.Alloc(IrType.Bool);
-        this._ctx.Emit(new IsInstanceInstr(dst, obj, qn));
-        return dst;
-    }
-
-    // typeof(T) → Typeof 指令（reflection Std.Type 句柄）。FQ 名镜像 C# Z42TypeName。
-    private TypedReg _emitTypeof(BoundTypeof e) {
-        // add-generic-methods：方法级 typeof(T) → MethodTypeArgInsn 具体化（读 frame.method_type_args）。
-        if (e.IsMethodLevel) {
-            TypedReg mdst = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new MethodTypeArgInsn(mdst, e.MethodParamIndex));
-            return mdst;
-        }
-        // typeof(delegate)：delegate 名解析成结构化 Z42FuncType（"Action"/"Func<…>"），丢了 FQ
-        // delegate 名 → 用 AST 原始名 QualifyClass 回 FQ delegate 名（其 TYPE 条目 under FQ 名，
-        // add-delegate-metadata），使 typeof(MyDelegate) 得真句柄（IsDelegate=true），与
-        // Type.GetType("<fq>") 一致。非 delegate 走既有 _typeofName（add-reflection-typeof-delegate）。
-        string name;
-        if (e.Target is Z42FuncType && e.TargetName != "") {
-            name = this._ctx.QualifyClass(e.TargetName);
-        } else {
-            name = this._typeofName(e.Target);
-        }
-        string[] targs = new string[0];
-        int targc = 0;
-        if (e.Target is Z42InstantiatedType) {
-            Z42InstantiatedType it = e.Target as Z42InstantiatedType;
-            targs = new string[it.ArgCount];
-            while (targc < it.ArgCount) { targs[targc] = this._typeofArgName(it.TypeArgs[targc]); targc = targc + 1; }
-        }
-        TypedReg dst = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new TypeofInstr(dst, name, targs, targc));
-        return dst;
-    }
 
     // FQ 运行期类型名：prim→裸名 / array→elem[] / class·iface→QualifyClass /
     // instantiated→QualifyClass(def)（args 另发）/ generic-param→裸名（镜像 C# Z42TypeName）。
@@ -1210,7 +1165,7 @@ public sealed class ExprEmitter {
         return (elem is Z42ClassType) && PrimModel.IsBuiltin(elem.Name());
     }
 
-    private string _typeofName(Z42Type t) {
+    internal string _typeofName(Z42Type t) {
         if (t is Z42ArrayType) { return this._typeofName((t as Z42ArrayType).Elem) + "[]"; }
         // unify-value-types Phase 1：翻转后内建（int→Z42ClassType(Int32)）的 typeof 名须回到历史
         // Z42PrimType 拼写（PrimModel.Keyword: Int32→"int"），而非 QualifyClass 的 FQ "Std.Int32"。
@@ -1237,70 +1192,6 @@ public sealed class ExprEmitter {
         return this._typeofName(t);
     }
 
-    // x as T → as_cast（结果 ref）。目标类型名用 AST 原始名经 QualifyClass 解析（镜像 _emitIs）——
-    // 不用 resolved 类型名：imported 接口/内建类 ResolveType 得 Unknown → "<unknown>" 会致目标失配
-    // （跨包接口 `as` 恒 null）。含 Array/Object 内建根类归一（同 _emitIs）。
-    private TypedReg _emitCast(BoundCast c) {
-        TypedReg obj = this.Emit(c.E);
-        TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-        string qn = this._ctx.QualifyTypeName(c.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
-        if (qn == "Array") { qn = "Std.Array"; }
-        else if (qn == "Object") { qn = "Std.Object"; }
-        this._ctx.Emit(new AsCastInstr(dst, obj, qn));
-        return dst;
-    }
-
-    // (T)x 数值转换（G3）→ ConvertInstr。镜像 C# VisitCast：identity（fromIr==toIr）no-op；
-    // 目标 Unknown/Ref no-op；源 Unknown/Ref 仍发 Convert（VM 按需 coerce）；否则发 Convert。
-    // add-primitive-value-boxing: 整数→object/接口 装箱 → `__box_prim(value, primFQ)` builtin。
-    // 复用现有 ConstStr + Builtin opcode，无新 IR opcode（不改 zbc 格式）。
-    private TypedReg _emitBox(BoundBox b) {
-        // add-struct-object-boxing: blob 值 struct → `__box_struct`（把帧 arena blob 拷到堆，type_name
-        // 运行时从 arena slot 取，无需 class 参数）。复用 Builtin opcode，无格式 bump。
-        if (this._isBlobStruct(b.E.Type())) {
-            TypedReg sval = this.Emit(b.E);
-            TypedReg[] sargs = new TypedReg[1];
-            sargs[0] = sval;
-            TypedReg sdst = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new BuiltinInstr(sdst, "__box_struct", sargs, 1));
-            return sdst;
-        }
-        TypedReg val = this.Emit(b.E);
-        // 非基元（如非 blob 单字段 struct 擦除到 object）→ BoundBox 退化为透传，保持现模型。
-        // unify-value-types Phase 1：翻转后整数基元为 Z42ClassType(Scalar)——追加 Scalar 值类型判定，
-        // 使其仍走下方 __box_prim（否则误透传、丢装箱）。翻转前无 Scalar 名 Z42ClassType → 当前中立。
-        Z42Type _bet = b.E.Type();
-        bool _boxScalar = (_bet is Z42ClassType) && PrimModel.IsScalarValue(_bet.Name());
-        if (!_boxScalar) { return val; }
-        int idx = this._ctx.Gen.Intern(b.PrimFQ);
-        TypedReg cls = this._ctx.Alloc(IrType.Str);
-        this._ctx.Emit(new ConstStrInstr(cls, idx));
-        TypedReg[] args = new TypedReg[2];
-        args[0] = val; args[1] = cls;
-        TypedReg dst = this._ctx.Alloc(IrType.Ref);   // Boxed 落 object 槽（引用）
-        this._ctx.Emit(new BuiltinInstr(dst, "__box_prim", args, 2));
-        return dst;
-    }
-
-    private TypedReg _emitConvert(BoundConvert c) {
-        TypedReg src = this.Emit(c.E);
-        // add-struct-object-boxing (PR2a)：`(P)o`（object/接口 → blob 值 struct 的 C 风格强转）= **拆箱**。
-        // 源不是值 struct（是 object/boxed）、目标是 blob 值 struct → 发 AsCast（VM 对 BoxedStruct 精确
-        // 匹配 → 拷回当前帧 arena StructRef）。类名用 QualifyClass 与 StructAlloc 的 arena type_name 对齐。
-        // （`(P)somePexpr` 源已是值 struct → 不进此支，走下方 Ref==Ref 透传。）
-        if (this._isBlobStruct(c.Type()) && !this._isBlobStruct(c.E.Type())) {
-            TypedReg ud = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(ud, src, this._ctx.QualifyClass(this._blobStructName(c.Type()))));
-            return ud;
-        }
-        int toIr = this._ctx.ToIrType(c.Type());
-        int fromIr = this._ctx.ToIrType(c.E.Type());
-        if (fromIr == toIr) { return src; }
-        if (toIr == IrType.Unknown || toIr == IrType.Ref) { return src; }
-        TypedReg dst = this._ctx.Alloc(toIr);
-        this._ctx.Emit(new ConvertInstr(dst, src));
-        return dst;
-    }
 
     // cast 目标是否为类（Z42ClassType / Z42InstantiatedType）——field.get / instance-call 在
     // cast-to-class receiver 上结果 tag → Unknown 的门（G19a；prim/array/iface cast 不触发）。
