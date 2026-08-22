@@ -151,7 +151,7 @@ int y = (int)c2;           // (T)x 亦接受 implicit → 30
 | `(T)x` 消歧 | `ExprParser._castOperandStart` | `(Ident)operand`（operand 起于标识符/字面量/new）解析为 `CastExpr`；`(a)-b`/`(f)(x)` 仍按二元/调用 |
 | 分类 | `Conversion._classifyUser` / `_findConvOn` | 内建转换 `None` 时回退：在 from 类与 to 类的 `Methods` 上找 op_Implicit/op_Explicit（精确 (源,目标) 匹配）→ `ConvResult{UserImplicit\|UserExplicit, Method}` |
 | lowering（隐式） | `TypeChecker.ConvertIfNeeded(_,_,syms)` | UserImplicit → `_lowerUserConv` 包成静态 `BoundCall`（op_Implicit）；已过 `CheckImplicitConvert`（UserImplicit 在 `ImplicitOk` 白名单） |
-| lowering（显式） | `ExprTyper._bindCastExpr` | UserImplicit/UserExplicit → `BoundCall`；数值/引用 cast 仍 `BoundConvert` |
+| lowering（显式） | `TypeOpTyper._bindCastExpr` | UserImplicit/UserExplicit → `BoundCall`；数值/引用 cast 仍 `BoundConvert` |
 | 无格式 bump | — | 全部复用既有 Call opcode（同 `op_Add` 脱糖），无新 IR、不 bump zbc/zpkg |
 
 **RegKey 唯一（根因修复）**：静态方法仅按参数类型 mangle（`op_Implicit$1$Foo`），两个同源不同目标的转换
