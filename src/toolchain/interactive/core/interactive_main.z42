@@ -41,6 +41,7 @@ void Main() {
     // 本 VM 的 GC 协作会让计算密集的后台线程阻塞主线程 eval（安全点等待）——后台预热反而拖慢 `1+1`。
     s.PrewarmThread = Thread.Start(() => { Script.Prewarm(s); });
     Repl.SetCompleter("Std.Scripting.replComplete");   // Tab → 作用域补全（会话变量 / 声明名）
+    Repl.SetKeyEditor("Std.Scripting.replKeyEdit");    // 缩进感知键位：退格删整级 / Tab 插缩进 / } 回退一级
     // 多行累积在脚本层驱动（add-repl-parser-completeness + sink-repl-indent-to-script）：逐行读取，
     // 累积到 buf，由 parser 权威的 Completeness.IsIncomplete 判「写完没」——没写完（缺 } / 操作数等）
     // 续读，写完才求值。续行视觉缩进也由脚本层算（Completeness.ContinuationIndent 用既有 Lexer 数

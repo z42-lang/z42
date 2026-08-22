@@ -217,6 +217,14 @@ thread_local! {
     static ACTIVE_CTX: std::cell::Cell<*const VmContext> = const { std::cell::Cell::new(std::ptr::null()) };
 }
 
+/// The live `&VmContext` published for the duration of `ed.readline()` (see
+/// `read_one_line`), as a raw pointer; null outside a readline span. Read by the
+/// indent-aware key handlers in `repl_editing` (sibling module). (add-repl-indent-editing)
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn active_ctx_ptr() -> *const VmContext {
+    ACTIVE_CTX.with(|c| c.get())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 struct ReplHelper {
     /// fish-style ghost from prior inputs; the fallback when no live identifier
@@ -401,9 +409,30 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
         // list candidates). rustyline's default is `Circular`, which cycles through
         // candidates on each Tab and wraps back to the *original* input — read as
         // Tab "going backward" / losing text. (add-repl-completion-iter2)
-        let config = Config::builder().completion_type(CompletionType::List).build();
+        // indent_size(4): the level `Cmd::Indent`/`Dedent` add/remove per keypress —
+        // matches the script layer's 4-space continuation indent. (add-repl-indent-editing)
+        let config = Config::builder()
+            .completion_type(CompletionType::List)
+            .indent_size(4)
+            .build();
         if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::with_config(config) {
             ed.set_helper(Some(ReplHelper::new()));
+            // Indent-aware editing keys (add-repl-indent-editing): the decision logic
+            // lives in z42 (`Std.Scripting.ReplEditing`, via `replKeyEdit`); these
+            // handlers only relay (line, pos) and translate the returned action into a
+            // redo-immune `Cmd::Indent`/`Dedent`. Returning `None` falls back to the
+            // key's default (Tab→complete, Backspace→delete one char), so nothing is
+            // blocked when unregistered or on a non-indent line.
+            use crate::corelib::repl_editing::KeyEditHandler;
+            use rustyline::{EventHandler, KeyCode, KeyEvent, Modifiers};
+            ed.bind_sequence(
+                KeyEvent(KeyCode::Backspace, Modifiers::NONE),
+                EventHandler::Conditional(Box::new(KeyEditHandler::new("backspace"))),
+            );
+            ed.bind_sequence(
+                KeyEvent(KeyCode::Tab, Modifiers::NONE),
+                EventHandler::Conditional(Box::new(KeyEditHandler::new("tab"))),
+            );
             // Load prior sessions' history (best-effort: missing file / parse error is
             // fine — a fresh session just starts empty). (add-repl-history-keyword-completion)
             if let Some(p) = history_path() {

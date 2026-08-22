@@ -8,6 +8,7 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 行编辑（rustyline）| `Std.Repl.Repl.ReadLine(prompt, initial)`（`Repl.z42` → z42vm builtin；`initial` 预填编辑缓冲）|
+| 缩进感知键位（纯缩进行：退格删一级 / Tab 加一级，`indent_size=4`）| `Std.Scripting.ReplEditing.KeyEdit`（`ReplEditing.z42`；决策全在 z42 返回 indent/dedent，Rust 只译成 redo-免疫的 `Cmd::Indent`/`Dedent(WholeLine)`）；经 `Repl.SetKeyEditor("Std.Scripting.replKeyEdit")` 注册（`interactive_main`），机制见 z42vm `corelib/repl_editing.rs`（add-repl-indent-editing）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
@@ -50,7 +51,8 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine(prompt, initial)`）|
+| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine` / `SetCompleter` / `SetKeyEditor` / `MemberNames`）|
+| `ReplEditing.z42` | `Std.Scripting.ReplEditing.KeyEdit`：缩进感知键位策略（纯缩进行判定 → indent/dedent；量由 rustyline `indent_size` 定）+ 自由函数 `replKeyEdit` 回调 |
 | `Completeness.z42` | 输入完整性探针 `IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）+ 续行缩进 `ContinuationIndent`（Lexer 数括号）|
 | `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用原语 |
 | `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |

@@ -28,6 +28,7 @@
 pub mod convert;
 pub mod io;
 pub mod repl;
+pub mod repl_editing;
 pub mod string;
 pub mod str_meta;
 pub mod math;
@@ -487,6 +488,7 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__repl_readline",           repl::builtin_repl_readline),
     ("__repl_complete_probe",     repl::builtin_repl_complete_probe),
     ("__repl_set_completer",      repl::builtin_repl_set_completer),
+    ("__repl_set_key_editor",     repl_editing::builtin_repl_set_key_editor),
     ("__repl_member_names",       repl::builtin_repl_member_names),
     ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
 
