@@ -1,0 +1,69 @@
+// REPL 缩进感知键位策略（add-repl-indent-editing）。**决策逻辑在此**——Rust 侧
+// （z42vm corelib/repl_editing.rs）只做 policy-free 的适配壳：取 line/pos + 键名，回调这里
+// 的自由函数 replKeyEdit，再把返回的「动作串」翻译成 rustyline Cmd。与 Tab 补全的
+// Repl.SetCompleter/replComplete 同款重入模式。
+//
+// 契约：string replKeyEdit(string key, string line, int pos)
+//   key ∈ { "backspace", "tab" }
+//   返回动作串（Rust 照译成 redo-免疫的 rustyline 命令）：
+//     ""        → 该键默认行为（Tab 落回补全、退格删 1 字符）
+//     "indent"  → Cmd::Indent(WholeLine)：行首加一级缩进（indent_size，见 repl.rs 设 4）
+//     "dedent"  → Cmd::Dedent(WholeLine)：行首去一级缩进
+//
+// 为何只有 indent/dedent 两个动作（而非「删 N 空格」）：rustyline 对可重复命令执行
+// redo(Some(n))，n=数字前缀（默认 1）会覆盖 Kill(BackwardChar(4)) 的计数 → 退化成删 1。
+// 唯一 redo-免疫的成级缩进原语是 Indent/Dedent(WholeLine)（按 config.indent_size 定量）。
+// 因此这里只判「要不要成级缩进」，量由 rustyline 的 indent_size 决定（固定一级，非网格吸附）。
+//
+// 「当前逻辑行光标前」= 从末个 '\n' 之后到 pos 的子串；col = 其长度。仅当该前缀**全为空格**
+// 时才介入（纯缩进行）——有词/有内容一律走默认键行为，绝不干扰正常编辑与补全。
+namespace Std.Scripting;
+
+using Std;
+
+public static class ReplEditing {
+    // 当前逻辑行光标前子串（末个 '\n' 之后到 pos）。pos 假定 ≤ line.Length。
+    private static string LinePrefix(string line, int pos) {
+        int start = 0;
+        int i = 0;
+        while (i < pos) {
+            if (line.CharAt(i) == '\n') { start = i + 1; }
+            i = i + 1;
+        }
+        return line.Substring(start, pos - start);
+    }
+
+    // 子串是否全为空格。
+    private static bool AllSpaces(string s) {
+        int i = 0;
+        while (i < s.Length) {
+            if (s.CharAt(i) != ' ') { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // 主策略：给定键名 + 当前行 + 光标位，返回动作串。纯函数、无副作用、可 [Test]。
+    public static string KeyEdit(string key, string line, int pos) {
+        string prefix = ReplEditing.LinePrefix(line, pos);
+        int col = prefix.Length;
+        bool ws = ReplEditing.AllSpaces(prefix);
+
+        if (key == "backspace") {
+            // 光标前全是空格且非空 → 去一级缩进；否则默认删 1 字符。
+            if (ws && col > 0) { return "dedent"; }
+            return "";
+        }
+        if (key == "tab") {
+            // 纯空白前缀（含 col==0，无词可补）→ 加一级缩进；有词 → 默认（补全）。
+            if (ws) { return "indent"; }
+            return "";
+        }
+        return "";
+    }
+}
+
+// rustyline 键位回调（契约见 corelib/repl_editing.rs）。经 Repl.SetKeyEditor 注册。
+string replKeyEdit(string key, string line, int pos) {
+    return ReplEditing.KeyEdit(key, line, pos);
+}

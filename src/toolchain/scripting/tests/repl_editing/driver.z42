@@ -1,0 +1,34 @@
+// REPL 缩进感知键位策略测试（add-repl-indent-editing）。直接调纯函数 ReplEditing.KeyEdit——
+// 与 rustyline 键位回调 replKeyEdit 完全同一策略（Rust 侧只把 indent/dedent 译成 redo-免疫的
+// Cmd::Indent/Dedent(WholeLine)，无判断）。返回 (default) 表示空串（走该键默认行为）。
+namespace ReplEditingTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    Console.WriteLine("== backspace ==");
+    _show("bs indent4",  "backspace", "    ", 4);          // dedent
+    _show("bs indent8",  "backspace", "        ", 8);      // dedent
+    _show("bs mis2",     "backspace", "  ", 2);            // dedent（前缀全空格即介入）
+    _show("bs nonspace", "backspace", "  x", 3);           // default
+    _show("bs col0",     "backspace", "", 0);              // default
+    _show("bs word",     "backspace", "ab", 2);            // default
+    _show("bs multi",    "backspace", "foo(\n    ", 9);    // dedent（末行 4 空格）
+    _show("bs midindent","backspace", "    ", 2);          // dedent（光标在缩进中段）
+
+    Console.WriteLine("== tab ==");
+    _show("tab empty",  "tab", "", 0);                     // indent
+    _show("tab col2",   "tab", "  ", 2);                   // indent
+    _show("tab align4", "tab", "    ", 4);                 // indent
+    _show("tab word",   "tab", "  foo", 5);                // default（补全）
+    _show("tab word0",  "tab", "foo", 3);                  // default
+    _show("tab multi",  "tab", "x(\n  ", 5);               // indent（末行 2 空格全空白）
+}
+
+void _show(string label, string key, string line, int pos) {
+    string r = ReplEditing.KeyEdit(key, line, pos);
+    if (r.Length == 0) { r = "(default)"; }
+    Console.WriteLine(label + " -> " + r);
+}

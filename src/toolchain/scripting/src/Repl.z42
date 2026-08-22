@@ -19,6 +19,12 @@ public static class Repl {
     [Native("__repl_set_completer")]
     public static extern void SetCompleter(string fqn);
 
+    // 注册缩进感知键位回调的自由函数 FQN（契约 `string f(string key, string line, int pos)`）；空串清除。
+    // rustyline 在 Backspace / Tab / `}` 按下时回调它取「动作串」（见 z42vm corelib/repl_editing.rs）。
+    // 策略全在 z42（Std.Scripting.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
+    [Native("__repl_set_key_editor")]
+    public static extern void SetKeyEditor(string fqn);
+
     // 读会话变量活值（静态字段 FQN = `Repl.R{N}.Vars{N}.{var}`）的运行时类型成员名（字段/方法/属性）。
     // 零副作用（读已存静态字段，不重求值）。null / 基元 / 未加载 → 空。add-completion-query-api 阶段 3b。
     [Native("__repl_member_names")]

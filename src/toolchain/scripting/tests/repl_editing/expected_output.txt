@@ -1,0 +1,16 @@
+== backspace ==
+bs indent4 -> dedent
+bs indent8 -> dedent
+bs mis2 -> dedent
+bs nonspace -> (default)
+bs col0 -> (default)
+bs word -> (default)
+bs multi -> dedent
+bs midindent -> dedent
+== tab ==
+tab empty -> indent
+tab col2 -> indent
+tab align4 -> indent
+tab word -> (default)
+tab word0 -> (default)
+tab multi -> indent
