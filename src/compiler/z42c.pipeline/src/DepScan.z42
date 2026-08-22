@@ -282,7 +282,13 @@ public static class DepScan {
                 if (basename != excludeZpkg) {
                     // DepIndex：每模块 SIGS 签名（声明依赖过滤——镜像 C# BuildDepIndex allowedPkgs）
                     if (declaredCount == 0 || DepScan._allowedForIndex(z.Name, declaredDeps, declaredCount)) {
-                        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
+                        // F2-邻：ReadModuleSigs 是 z 字节纯函数、跨成员恒定 → 进程级 memo（命中零重解码 SIGS）。
+                        // AddModule 仍每成员执行（按 declaredDeps 建各自过滤 index，不可跨成员共享）。
+                        ZpkgModuleSigs[] mods = cached[pi].Mods;
+                        if (mods == null) {
+                            mods = ZpkgReader.ReadModuleSigs(z);
+                            cached[pi].Mods = mods;
+                        }
                         i = 0;
                         while (i < mods.Length) {
                             index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
