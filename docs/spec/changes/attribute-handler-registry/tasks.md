@@ -15,7 +15,7 @@
 | PR3c | 局部抑制(合并单 PR，**纯编译期零 zpkg 持久化**)：`#suppress`/`#restore` pragma(新语法，z42c/stdlib 不 use → 单 PR 加 support 不触两-nightly)拦截 Hash→`CompilationUnit.SuppressRegions`(AST-only) + `[Suppress]` attr(**directive**——加 `IsDirectiveAttr`、不写 blob/descriptor、无需 stdlib 类) + `SuppressionSet` 判定挂 `DiagSinkImpl.Report` | 否 | ✅ 完成(#241) |
 | PR4a | applied generator **最终引擎**(方案 B post-bind，参考 Roslyn)：契约 `Generator`/`GenSink`/`GenTarget`(z42c.semantics，visitor 无 delegate) + `*Generator` 后缀 E0447 + 三 sink(**Augment=脱糖 synthetic partial+自动标原类型 partial** / **Replace=AST 层按 DeclId 替换** / **AddSource=新 CU**) + ordering fixup(剥触发 attr+删预合成 store-meta 工厂) + `PackageCompile` provisional bind→driver→union 重编(gated，z42c 自建 byte-identical) + **集成测试注入驱动** | 否 | ✅ 完成(#245) |
 | PR4c | `ModuleGenerator` + `GenContext`(`TypesWith<T>`/`MethodsWith<T>` 强类型符号查询，靠泛型方法 #240) + `GeneratorDriver.RunModules`(扫全编译→AddSource，越界 E0448) + `PackageCompile` 同 gated 块接在 applied 之后 + `*Generator` 后缀 E0447 扩到 `ModuleGenerator` + 集成测试注入驱动 | 否 | ✅ 完成 |
-| PR4d | 外部 generator zpkg 加载(编译内发现 `:Generator` 类 + AnalyzerLoader 式 Path-A/B) + `[generators]` manifest；复用 PR3a-load infra(D9) | 否 | ⬜ |
+| PR4d | 外部 generator zpkg 加载(`GeneratorLoader`，编译内发现 `: Generator`/`: ModuleGenerator` + AnalyzerLoader 式 Path-A/B) 经 **`[analyzers]` 段**(D9 单段覆盖两类，User 2026-08-22 裁决；非独立 `[generators]`) + **VM 执行 golden**(真跑生成方法)；复用 PR3a-load infra | 否 | ✅ 完成 |
 | PR4e | 有界多轮(`consumes`/`produces` 拓扑序 + 产物纳入增量指纹) | 否 | ⬜ |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |

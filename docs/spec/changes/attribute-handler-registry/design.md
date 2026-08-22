@@ -497,8 +497,95 @@ Replace/Augment 越界即护栏 **E0448**）。
 - **测试**（`tests/generator/module_generator_tests.z42`，注入驱动镜像 PR4a）：RouteTableGenerator（MethodsWith）/
   EntityRegistryGenerator（TypesWith）端到端 parse→RunModules→merge→CollectAll→typecheck，**经生成代码的成员名
   断言查询命中集**（GetA/GetB 命中、NotRouted 不命中）+ E0448 越界 + 无 generator passthrough。
-- **留 PR4d**：外部 module generator zpkg 加载（编译内发现 `:ModuleGenerator` + `[generators]` manifest）+ VM 执行
-  golden（真跑生成方法）。本 PR 由测试注入、in-process。
+- **PR4d（✅ 已实现）**：外部 generator zpkg 加载（`GeneratorLoader`，编译内发现 `: Generator`/`: ModuleGenerator`，
+  经 `[analyzers]` 段——D9 单段覆盖 analyzer + generator 两类，User 2026-08-22 裁决——**非**独立 `[generators]` 段）
+  + VM 执行 golden（真跑生成方法）。见下「§Generator 外部加载 + VM golden（PR4d）」。
+
+### Generator 外部加载 + VM golden（PR4d，✅ 已实现）
+
+**目标**：让 applied / module generator 像 analyzer 一样从**外部 zpkg** 加载进编译期运行（此前 PR4a/4c 只支持
+测试注入实例），并用 **VM 执行 golden** 证明外部 generator 的生成代码**真在 VM 里跑通**（此前只 in-process
+断言合并符号结构）。复用 PR3a-load 的两路加载 infra（AnalyzerLoader）。
+
+**段名裁决（User 2026-08-22，规范冲突消解）**：外部 handler 引用**只用一个 `[analyzers]` 段**，覆盖
+analyzer + generator 两类（对齐 C# Roslyn 把 source generator 也归 analyzer 引用类别；D9 原文即如此）。此前
+tasks.md PR4d 行 / `PackageCompile.z42` 注释 / `Generation.z42` 头注里出现的 `[generators]` 说法是与 D9 SoT
+的不一致，本 PR 一并校正为 `[analyzers]`。一个 zpkg 可混含二者，只引用一次即两类都被发现。
+
+**数据流**（镜像 analyzer，但 generator 在 provisional-bind 后的 gated 块内消费）：
+
+```
+driver Main：pm.Analyzers（[analyzers] 段）名 → LibsDirs `<name>.zpkg` → azPaths
+             cin.AnalyzerZpkgs = azPaths（唯一字段；analyzer 与 generator 复用同一批路径）
+PackageCompile.Compile：
+  if AnalyzerZpkgCount>0:
+      LoadedGenerators lg = GeneratorLoader.Load(AnalyzerZpkgs)    // 两路：__load_module（可调）+ ALC.Load（枚举）
+                                                                   // 每类型 GetInterface("Generator"/"ModuleGenerator")
+                                                                   // → Type.GetType(FullName) → Activator → as
+      effGens = inject(Generators) ⊕ lg.Applied                    // 注入在前、加载在后（后者路径 Ordinal 序）
+      effMods = inject(ModuleGenerators) ⊕ lg.Modules
+  if effGenCount>0 || effModCount>0:  ... 同 PR4a/4c gated 块（provisional bind → Run/RunModules → union 重编）
+  ... 稍后 if AnalyzerZpkgCount>0: _runAnalyzers（同 AnalyzerZpkgs 发现 : Analyzer）
+```
+
+> **⚠️ 为何 generator **复用 AnalyzerZpkgs 而非新增 GeneratorZpkgs 字段**（F2 冷启动 stale-cache 第二次咬，
+> CI 实测）**：初版给 `CompileInputs` 加独立 `GeneratorZpkgs`/`GeneratorZpkgCount` 字段、driver 填它。但
+> `CompileInputs` 在 z42c.pipeline，driver（z42c.driver）引用其新字段 = **driver→pipeline 新跨成员符号**，
+> 冷启动 CI 的 `[5/5] z42c.driver` 从 F2 stale-cache 拿到种子旧 pipeline → `E0401 no field GeneratorZpkgs`。
+> 这是 GeneratorLoader move 解掉 pipeline→semantics 后**同一 F2 缺陷在 driver→pipeline 的复发**。**根治
+> = 不新增字段**：`AnalyzerZpkgs`（PR3a-load #235 已入 nightly）承载单 `[analyzers]` 段全部路径，generator
+> 与 analyzer 复用之——driver 只引用既有字段，零新跨成员符号，任 F2 缓存状态都稳。这也更纯地表达「单段」设计。
+
+**红线 / byte-identical**：z42c 自建不声明 `[analyzers]` → `AnalyzerZpkgCount==0` → 不加载 generator、
+effGens/effMods 即注入的空数组 → gate false → 分支不进 → 自举 gen1==gen2 逐字节不动（结构性满足不变量 6）。
+
+**VM 执行 golden（`z42c.pipeline/tests/pkgcompile`）**：现编 fixture generator（一个 zpkg 混含 applied
+`StringifyGenerator` + module `RegistryGenerator` + `EntityAttribute`）→ 临时 zpkg → consumer 的
+`AnalyzerZpkgs` 指向它 → 真实 `GeneratorLoader` 两路加载 + 引擎 splice/merge → **把编好的 consumer zpkg
+`__load_module` 并入 live VM → `Type.GetType` → `Activator.CreateInstance` → 调 `ToString()` → 断言生成方法
+体真运行**（生成代码用**数值→`ToString()`** 规避「测试源 ⊃ generator 源 ⊃ 生成源」三层引号嵌套：applied 生成
+`(40+2).ToString()`→`"42"`；module 生成 `count()` 返回实体计数 `n`、`ToString` 返回其字符串→`"2"`）。
+harness 只用已验证原语（`__load_module` / `Type.GetType` / `Activator.CreateInstance` / `ToString()` 虚派发；
+**不**依赖尚在研的反射 method-invoke）。**非提交二进制**（fixture 现编，免格式-bump 脆性），合 D9。
+
+**GeneratorLoader 放 z42c.pipeline（非 z42c.semantics，与 AnalyzerLoader 不同）——bootstrap 硬约束**：
+它由 PackageCompile（pipeline）独家消费。若放 semantics，pipeline 就**新增一个跨成员引用刚加进 semantics
+的符号**——而 F2（#247）的进程级 `DepScanCache` 冷启动会把种子旧 semantics 缓存住、workspace 重建同 path
+后不失效 → pipeline 冷建解析到旧 semantics、`E0401 undefined GeneratorLoader`（**PR4d 是 F2 合入后首个需要
+新跨成员符号的 attribute PR，故冷启动 CI 首次暴露**；PR4c 基于 pre-F2 的 9336f322 故未触）。**本 PR 的修
+= move（GeneratorLoader 与消费者 PackageCompile 同包 → pipeline 只引用 semantics 里已在上一 nightly 的
+`Generator`/`ModuleGenerator`，规避新跨成员符号）**——当前冷构建由旧种子 z42c 执行、其缓存 bug 无法靠改
+本仓源码救，故 move 是唯一能立即解冷且可本地冷复现验证的手段。
+
+> **F2 DepScanCache 冷启动缺陷 = 独立 follow-up（本 PR 不带，必记）**：治本本应在 `DepScanCache.Get` 加
+> size/mtime 守卫（同 path size 变则重开），但**实测该守卫会破 self-host 字节不动点**——gen1 的
+> z42c.semantics 由旧种子（path-only 缓存）编、gen2 由带守卫的 z42c 编，两者对同一 semantics 源解析出的
+> dep 内容不同 → 输出差 12B（1/5 gen1≠gen2）。守卫改变了「跨编译器版本」的 dep 解析，破坏了 F2「字节不动点
+> 天然成立」的前提。**正确修法需另开 change 谨慎设计**（如：仅在 workspace 自建路径按拓扑序在覆写成员后
+> 定点失效该 path，而非全局 size 守卫），并单独验字节不动点。PR4d 只用 move 规避，不动 DepScanCache。
+
+#### VM golden 揪出的两个 PR4a/4c 潜伏真 bug（此前只测到 typecheck 层、从未测运行期）
+
+PR4a/4c 的引擎单测走**独立 `CollectAll`+`TypeChecker` harness**，只断言合并后的符号/类型——**从不经
+`PackageCompile` 的组装、更不真跑生成代码**。PR4d 的 VM 执行 golden 是第一次让「生成代码真进 zpkg 且在 VM
+里执行」，一次性揪出两个此前不可见的 bug：
+
+1. **组装截断（`PackageCompile.Compile`）**：generator 产出后 `srcCount`/`cus`/`cms` 都增长到 union 大小，
+   但组装段（诊断门、`mods[]`、`exported[]`、`BuildPackedD`、`ExportedCount`）**一直用旧的 `inp.SrcCount`**
+   → 生成的 module（AddSource 新类、Augment 合成 partial 碎片）被**截断出 zpkg**（AddSource 类运行期
+   `Activator` 报 no runtime handle；Augment override 所在碎片模块丢失）。修 = 组装全程改用 union count
+   `srcCount`（generated CU 无源 hash → 占位 `"GENERATED"`）。z42c 自建无 generator → `srcCount==inp.SrcCount`
+   → 逐字节不动。
+
+2. **Augment 脱糖丢命名空间（`GeneratorDriver._wrapPartial`）**：合成 partial 碎片建成
+   `partial <kind> <Name> {...}` **不带命名空间** → 落在 global ns，与被贴类（如 `GenConsumer.Widget`）**不同
+   FQN、永不合并**，成员进不了原类 → 运行期用默认成员（override ToString 不生效）。**PR4a 的 fixture 全在
+   global ns、从未暴露**。修 = `_wrapPartial` 携被贴类所属 CU 的命名空间前缀（`namespace ns;\n`）。
+
+（golden 调试期另记一条**测试自身**的坑，非产品 bug：`__load_module` 是**进程内全局 first-wins 注册**——
+同一 FQN 的类若已被前一个测试从别的 zpkg 载入，后载的同名类不覆盖。故 module fixture 的 `RegistryGenerator`
+在**发现 0 个实体时不产空注册表**，避免无实体消费方 compile 里顺带产出 `ModConsumer.EntityRegistry` 串味到
+后续 module golden。真实用户不会把两个定义同名生成类的 zpkg 载进同一进程，故这是 harness 约束、非引擎缺陷。）
 
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 

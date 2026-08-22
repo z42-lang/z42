@@ -5,11 +5,19 @@ namespace Z42cPipelinePkgCompileTests;
 using Std;
 using Std.IO;
 using Std.Test;
+using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
+
+// PR4d VM 执行 golden 用：把编好的 consumer zpkg 并入 live VM（可 Type.GetType + Activator + 虚调用）。
+// native 是 VM builtin（种子恒在），返回值忽略——只要加载副作用。同 GeneratorLoader/AnalyzerLoader Path-B。
+static class _VmLoad {
+    [Native("__load_module")]
+    public static extern object load(string path);
+}
 
 // ── attribute-handler-registry PR3a-load：外部 analyzer zpkg 编译期加载端到端 ─────────────────
 // 编译一个实现 Z42.Syntax.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
@@ -296,4 +304,165 @@ void test_suppress_attr_end_to_end() {
     CompileArtifacts cArt = PackageCompile.Compile(_consumerAttrSuppress(azPath));
     Assert.Equal(0, cArt.ErrorCount);
     Assert.Equal(false, _cmsHasCode(cArt, "Z9002"));
+}
+
+// ── attribute-handler-registry PR4d：外部 generator zpkg 编译期加载 + VM 执行 golden ─────────────
+// 编译一个实现 Z42.Semantics.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
+// CompileInputs.AnalyzerZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类；generator 复用该字段）喂给 PackageCompile →
+// GeneratorLoader 两路加载（发现 `: Generator`/`: ModuleGenerator` + 反射实例化）→ 引擎 splice/merge。
+// **VM 执行 golden**：把编好的 consumer zpkg 并入 live VM（__load_module）→ CreateInstance 生成的类型 →
+// 调 ToString() → 断言生成方法体**真运行**（生成用数值→ToString 规避三层引号嵌套；`(40+2)`→"42" /
+// entity 计数→"2"）。**非提交二进制**（fixture 现编 → 免格式-bump 脆性），走真实外部加载全链。
+
+// fixture 源：一个 zpkg 混含 applied generator（StringifyGenerator，Augment override ToString）+ module
+// generator（RegistryGenerator，TypesWith<EntityAttribute> 计数 → AddSource EntityRegistry）+ EntityAttribute
+// （供 module 的 typeof 解析；名字桥接 consumer 的 `[Entity]`）。类名带 Generator/Attribute 后缀（E0447/E0444）。
+string _fixtureGeneratorSrc() {
+    return "namespace GeneratorLoadFixture;\n"
+        + "using Std;\n"
+        + "using Z42.Semantics;\n"
+        + "public class EntityAttribute : Attribute { public EntityAttribute() { } }\n"
+        // applied：Augment 被贴类 override ToString → (40+2).ToString() == \"42\"（无嵌套字符串字面量）。
+        + "public class StringifyGenerator : Generator {\n"
+        + "    public string AppliedName() { return \"Stringify\"; }\n"
+        + "    public void Generate(GenTarget t, GenSink sink) {\n"
+        + "        sink.Augment(t.DeclId, \"public override string ToString() { return (40 + 2).ToString(); }\");\n"
+        + "    }\n"
+        + "}\n"
+        // module：TypesWith<EntityAttribute> 计数 n → 生成 EntityRegistry（count()==n，ToString 返回其字符串）。
+        + "public class RegistryGenerator : ModuleGenerator {\n"
+        + "    public void Generate(GenContext ctx, GenSink sink) {\n"
+        + "        GenType[] ts = ctx.TypesWith<EntityAttribute>();\n"
+        + "        int n = ts.Length;\n"
+        + "        if (n == 0) { return; }\n"   // 无实体 → 不产空注册表（也避免无实体消费方 compile 里串味 ModConsumer.EntityRegistry）
+        + "        sink.AddSource(\"registry.z42\", \"namespace ModConsumer; class EntityRegistry { public int count() { return \" + n.ToString() + \"; } public override string ToString() { return this.count().ToString(); } }\");\n"
+        + "    }\n"
+        + "}\n";
+}
+
+// 编 fixture generator（依赖 z42c.semantics；Std=prelude 提供 Attribute）→ 临时 zpkg，返回其路径。
+string _writeFixtureGeneratorZpkg(string[] dirs) {
+    string[] texts = new string[1]; texts[0] = _fixtureGeneratorSrc();
+    string[] files = new string[1]; files[0] = "fixture_generator.z42";
+    string[] hashes = new string[1]; hashes[0] = "FIXTUREGEN";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.generatorfixture"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    string[] deps = new string[1]; deps[0] = "z42c.semantics";
+    cin.DeclaredDeps = deps; cin.DepCount = 1;
+    CompileArtifacts aArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, aArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string gzPath = Path.Join(tmp, "demo.generatorfixture.zpkg");
+    File.WriteAllBytes(gzPath, ZpkgWriterZ.WritePacked(aArt.Z, false).ToBytes());
+    return gzPath;
+}
+
+// 编好的 consumer zpkg → 落盘 → __load_module → Type.GetType(fqn) → CreateInstance → ToString()。
+string _loadAndToString(CompileArtifacts cArt, string zpkgName, string typeFqn) {
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string czPath = Path.Join(tmp, zpkgName);
+    File.WriteAllBytes(czPath, ZpkgWriterZ.WritePacked(cArt.Z, false).ToBytes());
+    _VmLoad.load(czPath);                       // Path-B：并入 live VM
+    Type t = Type.GetType(typeFqn);
+    Assert.Equal(true, t != null);
+    object o = Activator.CreateInstance(t);
+    Assert.Equal(true, o != null);
+    return o.ToString();                        // 虚派发命中生成的 override（golden）
+}
+
+// CONTROL-2：手写**两文件 partial**（override 在第二碎片，无 generator）→ lib → __load_module → ToString。
+// 决定性区分：applied Augment = 原类 + 合成 partial 碎片（两 CU/模块）。若本控制返回类名 = __load_module
+// 对多模块 partial 的方法/vtable wiring 有局限（非引擎问题）；若返回 "42" = 手写多模块 partial 经加载 OK
+// → applied 的问题出在引擎合成 partial（IsPartial 标志 vs 源 keyword）与手写有别。
+[Test]
+void test_handwritten_multimodule_partial_via_load_control() {
+    string[] texts = new string[2];
+    texts[0] = "namespace Pc;\npartial class Pw { }\n";
+    texts[1] = "namespace Pc;\nusing Std;\npartial class Pw { public override string ToString() { return (40 + 2).ToString(); } }\n";
+    string[] files = new string[2]; files[0] = "pa.z42"; files[1] = "pb.z42";
+    string[] hashes = new string[2]; hashes[0] = "PA"; hashes[1] = "PB";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 2;
+    cin.Cus = IrDump.ParseAll(texts, files, 2);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.partialctrl"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = new string[0]; cin.LibsDirsN = 0;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    string s = _loadAndToString(cArt, "demo.partialctrl.zpkg", "Pc.Pw");
+    Assert.Equal("42", s);
+}
+
+// CONTROL: 手写 lib（override ToString，无 generator）→ write zpkg → __load_module → CreateInstance →
+// ToString。隔离 __load_module 是否保留 override vtable（若返回类名 = vtable 未保留 → 非 generator 问题）。
+[Test]
+void test_handwritten_tostring_via_load_control() {
+    CompileInputs cin = _inputs("namespace CtrlNs;\nclass Ctrl { public override string ToString() { return (40 + 2).ToString(); } }\n", "lib");
+    cin.Name = "demo.ctrl";
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    string s = _loadAndToString(cArt, "demo.ctrl.zpkg", "CtrlNs.Ctrl");
+    Assert.Equal("42", s);
+}
+
+[Test]
+void test_external_applied_generator_vm_execution_golden() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
+    string[] dirs = libs.Split(":");
+    string gzPath = _writeFixtureGeneratorZpkg(dirs);
+    // consumer：`[Stringify] class Widget {}`（无 ToString）。AnalyzerZpkgs 指向 fixture → 外部加载
+    // StringifyGenerator → Augment override ToString。ordering fixup 剥 `[Stringify]` 触发 attr。
+    CompileInputs cin = _inputs("namespace GenConsumer;\n[Stringify] class Widget { }\n", "lib");
+    cin.Name = "demo.genconsumer.applied";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;   // override ToString 需 Std.Object 可见以链 vtable 槽
+    string[] gz = new string[1]; gz[0] = gzPath;
+    cin.AnalyzerZpkgs = gz; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    // VM 执行：生成的 ToString 若真跑 → "42"（若来自 object 默认 ToString 则不是）。证外部 applied 生成体运行。
+    string s = _loadAndToString(cArt, "demo.genconsumer.applied.zpkg", "GenConsumer.Widget");
+    Assert.Equal("42", s);
+}
+
+[Test]
+void test_external_module_generator_vm_execution_golden() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string[] dirs = libs.Split(":");
+    string gzPath = _writeFixtureGeneratorZpkg(dirs);
+    // consumer：自定义 EntityAttribute（供 `[Entity]` store-meta 合成）+ 2 个 `[Entity]` 类 + 1 非实体。
+    // module generator（外部加载）TypesWith<EntityAttribute> 按名匹配 → n=2 → 生成 EntityRegistry。
+    CompileInputs cin = _inputs("namespace ModConsumer;\nusing Std;\n"
+        + "public class EntityAttribute : Attribute { public EntityAttribute() { } }\n"
+        + "[Entity] class Foo { }\n[Entity] class Bar { }\nclass Plain { }\n", "lib");
+    cin.Name = "demo.genconsumer.module";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;   // 消费者用 Std.Attribute 基类 → 需 libs 解析
+    string[] gz = new string[1]; gz[0] = gzPath;
+    cin.AnalyzerZpkgs = gz; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    // VM 执行：生成的 EntityRegistry.ToString() == count().ToString() == "2"（module 发现了 2 个 [Entity]）。
+    string s = _loadAndToString(cArt, "demo.genconsumer.module.zpkg", "ModConsumer.EntityRegistry");
+    Assert.Equal("2", s);
+}
+
+[Test]
+void test_no_generator_zpkgs_no_change() {
+    // 无 [analyzers]（AnalyzerZpkgCount=0）→ 不加载 generator、gate 不进 → 普通类照常编译（byte-identical 路径）。
+    CompileArtifacts art = PackageCompile.Compile(
+        _inputs("namespace Plain;\nclass Widget { public int v() { return 1; } }\n", "lib"));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal(1, art.ModCount);
 }
