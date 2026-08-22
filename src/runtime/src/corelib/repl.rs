@@ -420,9 +420,10 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
             // Indent-aware editing keys (add-repl-indent-editing): the decision logic
             // lives in z42 (`Std.Scripting.ReplEditing`, via `replKeyEdit`); these
             // handlers only relay (line, pos) and translate the returned action into a
-            // redo-immune `Cmd::Indent`/`Dedent`. Returning `None` falls back to the
-            // key's default (Tab→complete, Backspace→delete one char), so nothing is
-            // blocked when unregistered or on a non-indent line.
+            // redo-immune `Cmd` (`Dedent` for Backspace, `Insert` for Tab grid-snap-ceil).
+            // Returning `None` falls back to the key's default (Tab→complete,
+            // Backspace→delete one char), so nothing is blocked when unregistered or on a
+            // non-indent line. (add-repl-indent-editing + add-repl-tab-grid-snap)
             use crate::corelib::repl_editing::KeyEditHandler;
             use rustyline::{EventHandler, KeyCode, KeyEvent, Modifiers};
             ed.bind_sequence(

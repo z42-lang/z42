@@ -1,8 +1,10 @@
 # REPL 输入完整性判定（parser 权威）
 
-> 对齐：2026-08-09（change `add-repl-parser-completeness` + `sink-repl-indent-to-script`）
-> 代码：`src/toolchain/scripting/src/Completeness.z42`、`src/compiler/z42c.syntax/src/Parser.z42`、
-> `src/toolchain/interactive/core/interactive_main.z42`、`src/runtime/src/corelib/repl.rs`
+> 对齐：2026-08-22（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
+> `add-repl-indent-editing` + `add-repl-tab-grid-snap`）
+> 代码：`src/toolchain/scripting/src/Completeness.z42`、`src/toolchain/scripting/src/ReplEditing.z42`、
+> `src/compiler/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
+> `src/runtime/src/corelib/repl.rs`、`src/runtime/src/corelib/repl_editing.rs`
 
 ## 要解决的问题
 
@@ -98,3 +100,39 @@ z42 与 C#/JS 同属「换行不敏感、分号结尾」，故 `1 +` **续读**�
 - **`-c` 单次路径**：无续读来源，`IsIncomplete` 为真时当语法错误、非零退出。
 - **已知边界**：泛型返回类型函数头 `List<int> foo()` 被 `Classifier` 保守漏判（`<>` 非括号）→ 走表达式
   路径报错而非续读。见 change 的 Deferred。
+
+## 缩进感知键位（策略在 z42、Rust 只做适配壳）
+
+> change：`add-repl-indent-editing`（退格/Tab 基础）+ `add-repl-tab-grid-snap`（Tab 网格吸附）。
+> 代码：`src/toolchain/scripting/src/ReplEditing.z42`（策略）、`src/runtime/src/corelib/repl_editing.rs`（适配壳 +
+> `parse_action`）、`src/runtime/src/corelib/repl.rs`（键绑定 + `indent_size(4)`）。
+
+续行缩进（上节 `ContinuationIndent`）只在**新行开头预填**空格；行内编辑的键位交互是另一套。rustyline 在
+Backspace / Tab 上回调 z42 的 `ReplEditing.KeyEdit(key, line, pos)`（经 `ACTIVE_CTX` 重入，与 Tab 补全
+`replComplete` 同款路径），z42 返回一个**动作串**，Rust `parse_action` 照译成 rustyline `Cmd`——策略全在
+z42，Rust 不做决策。只在光标前缀**全为空格**（纯缩进行）时介入，有词一律走默认（Tab→补全、退格→删 1）。
+
+| 动作串 | Cmd | 用于 | kill-ring |
+|--------|-----|------|-----------|
+| `""` | `None`（该键默认）| 有词 / 非缩进行 | — |
+| `dedent` | `Cmd::Dedent(WholeLine)` | 退格去一级（删 `indent_size`=4）| 干净 |
+| `insert:<text>` | `Cmd::Insert(1, text)` | Tab 网格吸附：补到下制表位 | 干净 |
+
+**Tab 网格吸附（grid-snap-ceil）**：Tab 从「恒加一级」改为「ceil 到下制表位」——补 `((col/4)+1)*4 - col`
+个空格。对齐时（col 为 4 倍数）等价加一级；错位时对齐到制表位（`col=2` → 4，而非旧的 → 6）。
+
+### 两个 rustyline 坑（决定了什么能做、什么延后）
+
+1. **redo 覆盖 movement 计数**：rustyline 对自定义绑定返回的**可重复**命令执行 `cmd.redo(Some(n))`，`n`=
+   数字前缀（普通按键 = 1），会覆盖 movement 里嵌的计数——`Kill(BackwardChar(4))` 退化成删 1。**redo-免疫**
+   的命令是：movement 无计数的（`Dedent(WholeLine)`、`Replace(WholeLine, …)`——`WholeLine.redo` 恒等），以及
+   把内容放在 payload 而非计数的 `Insert(1, text)`。故本机制只用这三类。
+2. **`edit_insert_text` 不推进光标**：`Cmd::Replace(WholeLine, text)` 执行 = `edit_kill(WholeLine)`（光标
+   move_home 到行首）→ `edit_insert_text`（`insert_str` 插入但**不改 `pos`**）→ 光标停在**行首**。`Insert` /
+   `Dedent` 无此问题（光标正确）。这就是 `}` 自动回退、退格 floor 到前制表位**延后**的原因：二者需整行替换
+   `Replace(WholeLine, …)`（唯一 redo-免疫的变量宽度删+插），但光标归位行首会破坏 `}` 之后继续输入
+   （`} else {`）。z42 非缩进敏感，这些纯属视觉美化，不值为其接受功能性光标倒退或 fork rustyline——留待
+   patch `edit_insert_text` 使其推进光标，或多行编辑重构后重估。
+
+> 历史更正：`add-repl-indent-editing` 曾据坑 ①（redo）判「`}`/网格吸附须 patch rustyline」。坑 ① 其实用
+> `Replace(WholeLine)` 即可绕过（无需 fork）；真正的阻塞是坑 ②（光标）。
