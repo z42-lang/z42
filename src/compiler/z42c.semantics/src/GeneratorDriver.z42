@@ -147,7 +147,7 @@ public static class GeneratorDriver {
                 GenTarget target = new GenTarget(new DeclId(key), c.Name, c, symbols.GetClass(c.Name), at);
                 GenSinkImpl sink = new GenSinkImpl();
                 gens[gi].Generate(target, sink);
-                return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags);
+                return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags, cu.HasNamespace, cu.Namespace);
             }
             ai = ai + 1;
         }
@@ -161,8 +161,10 @@ public static class GeneratorDriver {
     }
 
     // 把 sink 收集的 ops 归约成一个 SiteEdit（剥 attr + 删工厂固定做；Replace 记替换 decl；Augment/AddSource 记生成源）。
+    // hasNs/ns = 被贴 decl 所属 CU 的命名空间——Augment 脱糖的 synthetic partial 必须**同命名空间**才能与原类
+    // 合并（否则原类 `GenConsumer.Widget` 与合成 `(global).Widget` 是两个类，成员并不进原类 → 运行期用默认成员）。
     private static SiteEdit _buildEdit(int declIndex, int attrIndex, Attr trigger, ClassDecl c, string selfKey,
-                                       GenSinkImpl sink, DiagnosticBag diags) {
+                                       GenSinkImpl sink, DiagnosticBag diags, bool hasNs, string ns) {
         SiteEdit ed = new SiteEdit(declIndex, attrIndex, trigger.FactoryFunc);
         int i = 0;
         while (i < sink.OpCount) {
@@ -174,7 +176,7 @@ public static class GeneratorDriver {
                     diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
                         "generator `[" + trigger.Name + "]` may only augment the decl it is applied to", c.Span);
                 } else {
-                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src), "__gen$" + c.Name + "$augment.z42");
+                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns), "__gen$" + c.Name + "$augment.z42");
                     ed.MarkPartial = true;
                 }
             } else if (op.Kind == GenOpKind.Replace) {
@@ -191,9 +193,10 @@ public static class GeneratorDriver {
     }
 
     // 脱糖 Augment：`[namespace ns;] partial <kind> <Name> { <membersSrc> }`（同 owner ns → partial 合并）。
-    private static string _wrapPartial(ClassDecl c, string membersSrc) {
-        string s = "partial " + c.Kind + " " + c.Name + " {\n" + membersSrc + "\n}\n";
-        return s;
+    // 必须携原类 CU 的命名空间——否则合成碎片落在 global ns、与原类不同 FQN、成员并不进原类。
+    private static string _wrapPartial(ClassDecl c, string membersSrc, bool hasNs, string ns) {
+        string prefix = hasNs ? ("namespace " + ns + ";\n") : "";
+        return prefix + "partial " + c.Kind + " " + c.Name + " {\n" + membersSrc + "\n}\n";
     }
 
     // 解析生成源码 → CU，并施同 user code 的 AST-phase（RunAst：store-meta/benchmark 合成）。

@@ -497,8 +497,71 @@ Replace/Augment 越界即护栏 **E0448**）。
 - **测试**（`tests/generator/module_generator_tests.z42`，注入驱动镜像 PR4a）：RouteTableGenerator（MethodsWith）/
   EntityRegistryGenerator（TypesWith）端到端 parse→RunModules→merge→CollectAll→typecheck，**经生成代码的成员名
   断言查询命中集**（GetA/GetB 命中、NotRouted 不命中）+ E0448 越界 + 无 generator passthrough。
-- **留 PR4d**：外部 module generator zpkg 加载（编译内发现 `:ModuleGenerator` + `[generators]` manifest）+ VM 执行
-  golden（真跑生成方法）。本 PR 由测试注入、in-process。
+- **PR4d（✅ 已实现）**：外部 generator zpkg 加载（`GeneratorLoader`，编译内发现 `: Generator`/`: ModuleGenerator`，
+  经 `[analyzers]` 段——D9 单段覆盖 analyzer + generator 两类，User 2026-08-22 裁决——**非**独立 `[generators]` 段）
+  + VM 执行 golden（真跑生成方法）。见下「§Generator 外部加载 + VM golden（PR4d）」。
+
+### Generator 外部加载 + VM golden（PR4d，✅ 已实现）
+
+**目标**：让 applied / module generator 像 analyzer 一样从**外部 zpkg** 加载进编译期运行（此前 PR4a/4c 只支持
+测试注入实例），并用 **VM 执行 golden** 证明外部 generator 的生成代码**真在 VM 里跑通**（此前只 in-process
+断言合并符号结构）。复用 PR3a-load 的两路加载 infra（AnalyzerLoader）。
+
+**段名裁决（User 2026-08-22，规范冲突消解）**：外部 handler 引用**只用一个 `[analyzers]` 段**，覆盖
+analyzer + generator 两类（对齐 C# Roslyn 把 source generator 也归 analyzer 引用类别；D9 原文即如此）。此前
+tasks.md PR4d 行 / `PackageCompile.z42` 注释 / `Generation.z42` 头注里出现的 `[generators]` 说法是与 D9 SoT
+的不一致，本 PR 一并校正为 `[analyzers]`。一个 zpkg 可混含二者，只引用一次即两类都被发现。
+
+**数据流**（镜像 analyzer，但 generator 在 provisional-bind 后的 gated 块内消费）：
+
+```
+driver Main：pm.Analyzers（[analyzers] 段）名 → LibsDirs `<name>.zpkg` → azPaths
+             cin.AnalyzerZpkgs = azPaths（→ _runAnalyzers 发现 : Analyzer）
+             cin.GeneratorZpkgs = azPaths（同一批路径；→ 下面发现 : Generator/: ModuleGenerator）
+PackageCompile.Compile：
+  if GeneratorZpkgCount>0:
+      LoadedGenerators lg = GeneratorLoader.Load(GeneratorZpkgs)   // 两路：__load_module（可调）+ ALC.Load（枚举）
+                                                                   // 每类型 GetInterface("Generator"/"ModuleGenerator")
+                                                                   // → Type.GetType(FullName) → Activator → as
+      effGens = inject(Generators) ⊕ lg.Applied                    // 注入在前、加载在后（后者路径 Ordinal 序）
+      effMods = inject(ModuleGenerators) ⊕ lg.Modules
+  if effGenCount>0 || effModCount>0:  ... 同 PR4a/4c gated 块（provisional bind → Run/RunModules → union 重编）
+```
+
+**红线 / byte-identical**：z42c 自建不声明 `[analyzers]` → `GeneratorZpkgCount==0` → 不加载、effGens/effMods
+即注入的空数组 → gate false → 分支不进 → 自举 gen1==gen2 逐字节不动（结构性满足不变量 6，同 PR3a-load）。
+
+**VM 执行 golden（`z42c.pipeline/tests/pkgcompile`）**：现编 fixture generator（一个 zpkg 混含 applied
+`StringifyGenerator` + module `RegistryGenerator` + `EntityAttribute`）→ 临时 zpkg → consumer 的
+`GeneratorZpkgs` 指向它 → 真实 `GeneratorLoader` 两路加载 + 引擎 splice/merge → **把编好的 consumer zpkg
+`__load_module` 并入 live VM → `Type.GetType` → `Activator.CreateInstance` → 调 `ToString()` → 断言生成方法
+体真运行**（生成代码用**数值→`ToString()`** 规避「测试源 ⊃ generator 源 ⊃ 生成源」三层引号嵌套：applied 生成
+`(40+2).ToString()`→`"42"`；module 生成 `count()` 返回实体计数 `n`、`ToString` 返回其字符串→`"2"`）。
+harness 只用已验证原语（`__load_module` / `Type.GetType` / `Activator.CreateInstance` / `ToString()` 虚派发；
+**不**依赖尚在研的反射 method-invoke）。**非提交二进制**（fixture 现编，免格式-bump 脆性），合 D9。
+
+#### VM golden 揪出的两个 PR4a/4c 潜伏真 bug（此前只测到 typecheck 层、从未测运行期）
+
+PR4a/4c 的引擎单测走**独立 `CollectAll`+`TypeChecker` harness**，只断言合并后的符号/类型——**从不经
+`PackageCompile` 的组装、更不真跑生成代码**。PR4d 的 VM 执行 golden 是第一次让「生成代码真进 zpkg 且在 VM
+里执行」，一次性揪出两个此前不可见的 bug：
+
+1. **组装截断（`PackageCompile.Compile`）**：generator 产出后 `srcCount`/`cus`/`cms` 都增长到 union 大小，
+   但组装段（诊断门、`mods[]`、`exported[]`、`BuildPackedD`、`ExportedCount`）**一直用旧的 `inp.SrcCount`**
+   → 生成的 module（AddSource 新类、Augment 合成 partial 碎片）被**截断出 zpkg**（AddSource 类运行期
+   `Activator` 报 no runtime handle；Augment override 所在碎片模块丢失）。修 = 组装全程改用 union count
+   `srcCount`（generated CU 无源 hash → 占位 `"GENERATED"`）。z42c 自建无 generator → `srcCount==inp.SrcCount`
+   → 逐字节不动。
+
+2. **Augment 脱糖丢命名空间（`GeneratorDriver._wrapPartial`）**：合成 partial 碎片建成
+   `partial <kind> <Name> {...}` **不带命名空间** → 落在 global ns，与被贴类（如 `GenConsumer.Widget`）**不同
+   FQN、永不合并**，成员进不了原类 → 运行期用默认成员（override ToString 不生效）。**PR4a 的 fixture 全在
+   global ns、从未暴露**。修 = `_wrapPartial` 携被贴类所属 CU 的命名空间前缀（`namespace ns;\n`）。
+
+（golden 调试期另记一条**测试自身**的坑，非产品 bug：`__load_module` 是**进程内全局 first-wins 注册**——
+同一 FQN 的类若已被前一个测试从别的 zpkg 载入，后载的同名类不覆盖。故 module fixture 的 `RegistryGenerator`
+在**发现 0 个实体时不产空注册表**，避免无实体消费方 compile 里顺带产出 `ModConsumer.EntityRegistry` 串味到
+后续 module golden。真实用户不会把两个定义同名生成类的 zpkg 载进同一进程，故这是 harness 约束、非引擎缺陷。）
 
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 

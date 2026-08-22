@@ -1,0 +1,126 @@
+// attribute-handler-registry PR4d —— 外部 generator zpkg 的编译期发现 + 实例化。
+//
+// 与 AnalyzerLoader（PR3a-load）同源、同 infra：消费方在 z42.toml `[analyzers]` 段声明的 handler zpkg
+// （D9 单段覆盖 analyzer + generator 两类，对齐 C# 把 source generator 也归 analyzer 引用类别；User
+// 2026-08-22 裁决）经本加载器变成可喂给 GeneratorDriver 的 `Generator`（applied）/`ModuleGenerator` 实例。
+//
+// 两路加载组合（单靠一条都不够，源码复核见 AnalyzerLoader 头注 / tasks PR3a-load）：
+//   · Path-A 发现（reflect-only）：AssemblyLoadContext.Default().Load(path) → Assembly.GetTypes()
+//     → 过滤 GetInterface("Generator")/GetInterface("ModuleGenerator")。root 的 AssemblyEntry 类型
+//     **可枚举**，但函数**不并入 live module → 不可调**。仅用它拿类型 FQN 清单。
+//   · Path-B 可调用：__load_module(path)（flat-merge）→ 函数/类型并入 live VM，可 Type.GetType +
+//     Activator.CreateInstance + 虚调用。仅用它让实例可执行。
+//   · 实例化：用 Path-A 拿到的 FullName 走 Type.GetType（解析到 Path-B 合并后的 live TypeDesc，避免
+//     ALC 投影副本的 vtable 指向未合并函数）→ Activator.CreateInstance → as Generator / as ModuleGenerator。
+//
+// 接口同一性：generator 实现的 Z42.Semantics.Generator / ModuleGenerator == 本编译器进程已驻留的同一
+// 接口（z42c 由 z42c.semantics 构成，运行时它已加载）→ cast + GeneratorDriver.Run/RunModules 直接可用。
+//
+// 一个 zpkg 可含 applied generator + module generator 混合（单段 D9）——本加载器一遍扫出两类，各归其数组。
+// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9 + §Generator 引擎实现落法（PR4d）。
+namespace Z42.Semantics;
+
+using Std;             // Type
+using Std.Runtime;     // AssemblyLoadContext
+using Std.Reflection;  // Assembly / Activator
+
+// 一遍加载的产物：applied generator 与 module generator 各归其数组（一个 zpkg 可混含两类）。
+public sealed class LoadedGenerators {
+    public Generator[] Applied; public int AppliedCount;
+    public ModuleGenerator[] Modules; public int ModuleCount;
+    public LoadedGenerators(Generator[] applied, int appliedCount, ModuleGenerator[] modules, int moduleCount) {
+        this.Applied = applied; this.AppliedCount = appliedCount;
+        this.Modules = modules; this.ModuleCount = moduleCount;
+    }
+}
+
+public static class GeneratorLoader {
+    // Path-B：把 zpkg 的函数/类型并入 live VM（可 Type.GetType + Activator + 虚调用）。native 是 VM
+    // builtin（种子里恒在 → 无两-nightly 越界）；返回 TIDX，忽略——只要其加载副作用。同 AnalyzerLoader。
+    [Native("__load_module")]
+    private static extern object _makeCallable(string path);
+
+    // 发现 + 实例化给定 zpkg 路径里所有 `: Generator` / `: ModuleGenerator` 类型。路径先按 Ordinal 排序
+    // （common-pitfalls §1，确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的实例。
+    public static LoadedGenerators Load(string[] zpkgPaths, int count) {
+        string[] sorted = GeneratorLoader._sortedCopy(zpkgPaths, count);
+        Generator[] apps = new Generator[4];
+        int an = 0;
+        ModuleGenerator[] mods = new ModuleGenerator[4];
+        int mn = 0;
+        int i = 0;
+        while (i < count) {
+            string path = sorted[i];
+            GeneratorLoader._makeCallable(path);                       // Path-B（先，供实例可执行）
+            Assembly asm = AssemblyLoadContext.Default().Load(path);   // Path-A（反射投影，仅枚举）
+            Type[] types = asm.GetTypes();
+            int j = 0;
+            while (j < types.Length) {
+                Type projT = types[j];
+                bool isApplied = projT.GetInterface("Generator") != null;
+                bool isModule  = projT.GetInterface("ModuleGenerator") != null;
+                if (isApplied || isModule) {
+                    Type liveT = Type.GetType(projT.FullName);         // 解析到 live 合并后的 TypeDesc
+                    if (liveT != null) {
+                        object o = Activator.CreateInstance(liveT);
+                        // 一个类型只会实现其一（Generator 有 AppliedName()，ModuleGenerator 无）；分别 cast。
+                        if (isApplied) {
+                            Generator g = o as Generator;
+                            if (g != null) { apps = GeneratorLoader._pushG(apps, an, g); an = an + 1; }
+                        } else {
+                            ModuleGenerator m = o as ModuleGenerator;
+                            if (m != null) { mods = GeneratorLoader._pushM(mods, mn, m); mn = mn + 1; }
+                        }
+                    }
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        Generator[] ra = new Generator[an];
+        int ka = 0;
+        while (ka < an) { ra[ka] = apps[ka]; ka = ka + 1; }
+        ModuleGenerator[] rm = new ModuleGenerator[mn];
+        int km = 0;
+        while (km < mn) { rm[km] = mods[km]; km = km + 1; }
+        return new LoadedGenerators(ra, an, rm, mn);
+    }
+
+    // Ordinal 稳定序拷贝（插入排序；count 小）。string.CompareTo 是 Ordinal。同 AnalyzerLoader。
+    private static string[] _sortedCopy(string[] a, int count) {
+        string[] r = new string[count];
+        int i = 0;
+        while (i < count) { r[i] = a[i]; i = i + 1; }
+        int x = 1;
+        while (x < count) {
+            string cur = r[x];
+            int y = x - 1;
+            while (y >= 0 && r[y].CompareTo(cur) > 0) { r[y + 1] = r[y]; y = y - 1; }
+            r[y + 1] = cur;
+            x = x + 1;
+        }
+        return r;
+    }
+
+    private static Generator[] _pushG(Generator[] arr, int count, Generator x) {
+        if (count >= arr.Length) {
+            Generator[] nw = new Generator[arr.Length * 2 + 8];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+
+    private static ModuleGenerator[] _pushM(ModuleGenerator[] arr, int count, ModuleGenerator x) {
+        if (count >= arr.Length) {
+            ModuleGenerator[] nw = new ModuleGenerator[arr.Length * 2 + 8];
+            int i = 0;
+            while (i < count) { nw[i] = arr[i]; i = i + 1; }
+            arr = nw;
+        }
+        arr[count] = x;
+        return arr;
+    }
+}
