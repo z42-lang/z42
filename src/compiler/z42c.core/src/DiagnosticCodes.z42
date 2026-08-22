@@ -74,7 +74,7 @@ public static class DiagnosticCodes {
     public static string GenericMethodArity          = "E0446";  // 泛型方法调用 `Foo<...>()` 的类型实参数与方法声明的类型形参数不符（add-generic-methods）
     public static string GeneratorSuffixRequired     = "E0447";  // `: Generator` 类名必须以 `Generator` 结尾（D8 后缀约定；attribute-handler-registry PR4a）
     public static string GeneratorTargetOutOfScope   = "E0448";  // generator 只能改它 trigger 命中的声明（Augment/Replace 越界；attribute-handler-registry PR4a 护栏）
-    public static string GeneratorDependencyCycle    = "E0449";  // generator 的 consumes/produces 依赖成环——拓扑分层无法定序（attribute-handler-registry PR4e 有界多轮护栏）
+    public static string GeneratorDependencyCycle    = "E0449";  // generator 的 consumes/produces 依赖成环——拓扑分层无法定序（attribute-handler-registry PR4e 有界多轮护栏）。⚠️ 登记 SoT，但 GeneratorDriver 现用字面量 "E0449" 引用（避 F2 冷启动 stale-cache：新 core 成员对 semantics 冷启动 undefined）；下个 nightly 载入后可切回常量引用。
 
     // IrGen
     public static string UnsupportedSyntax   = "E0501";

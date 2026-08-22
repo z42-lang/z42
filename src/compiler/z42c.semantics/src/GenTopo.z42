@@ -6,10 +6,11 @@
 // PR4d 踩过的 F2 冷启动 stale-cache 陷阱）：把 applied + module generator 建成统一拓扑节点表、按
 // `produces ∩ consumes` 建边、Kahn 最长路径分层 + 成环检测。RunRounds 编排（逐层 re-bind + 调单轮引擎）
 // 仍在 GeneratorDriver.z42。
+// ⚠️ 本文件**刻意不引用 z42c.core（DiagnosticCodes/DiagnosticBag/Span）**——成环诊断（E0449）由
+// GeneratorDriver.RunRounds 发（既有文件、既有 core 链接）。新文件 + 新 core 符号引用会撞 F2 冷启动
+// stale-cache（`undefined: DiagnosticCodes`，见 GeneratorDriver.RunRounds 头注）。GenTopo 全用同命名空间
+// （Generator/ModuleGenerator/GenNode，Z42.Semantics）+ 内建数组，零跨包符号。
 namespace Z42.Semantics;
-
-using Z42.Syntax;   // Generator / ModuleGenerator（契约在 Generation.z42，同 ns）
-using Z42.Core;     // Span / DiagnosticBag / DiagnosticCodes
 
 public static class GenTopo {
     // 建统一节点表：applied 空 consumes → 默认 [AppliedName()]（只依赖自身触发名）；module 空 → 空。
@@ -33,8 +34,9 @@ public static class GenTopo {
     }
 
     // Kahn 最长路径分层，写 nodes[v].Level；返回 maxLevel。边 u→v iff `produces(u) ∩ consumes(v) ≠ ∅`
-    // （u 排 v 前）。层号 = 最长路径 `level[v] = max(level[u]+1)`；Kahn 处理数 < N → 成环 → 报 E0449 返回 -1。
-    public static int TopoLevels(GenNode[] nodes, int n, DiagnosticBag diags) {
+    // （u 排 v 前）。层号 = 最长路径 `level[v] = max(level[u]+1)`；Kahn 处理数 < N → **成环 → 返回 -1**
+    // （诊断 E0449 由调用方 GeneratorDriver.RunRounds 发——本文件不碰 z42c.core，避 F2 冷启动 stale-cache）。
+    public static int TopoLevels(GenNode[] nodes, int n) {
         bool[] edge = new bool[n * n];
         int[] inDeg = new int[n];
         int u = 0;
@@ -65,11 +67,7 @@ public static class GenTopo {
                 b = b + 1;
             }
         }
-        if (processed < n) {
-            diags.Error(DiagnosticCodes.GeneratorDependencyCycle,
-                "generator `consumes`/`produces` 依赖成环——无法拓扑定序", new Span(0, 0, 0, 0, ""));
-            return -1;
-        }
+        if (processed < n) { return -1; }   // 成环——调用方发 E0449
         int maxLevel = 0;
         int m = 0;
         while (m < n) { if (nodes[m].Level > maxLevel) { maxLevel = nodes[m].Level; } m = m + 1; }
