@@ -16,6 +16,11 @@ public sealed class ExprEmitter {
     private AccessEmitter _access; // assign/member/index/ident + struct 值语义机制发射簇（CG-1E follow-up 按职责抽出）
     public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); this._op = new OperatorEmitter(ctx, this); this._access = new AccessEmitter(ctx, this); }
 
+    // 合成 struct Equals/== body 的公开入口（FunctionEmitter 调用）——委回 OperatorEmitter（struct 相等发射簇）。
+    public TypedReg EmitSynthEqualsResult(string structName, TypedReg thisReg, TypedReg otherReg) {
+        return this._op.EmitSynthEqualsResult(structName, thisReg, otherReg);
+    }
+
     public TypedReg Emit(BoundExpr e) {
         // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
         // 配合 _emitStmt 的语句级 TrackLine，覆盖跨多行的表达式（如多行 return 拼接）。
@@ -424,79 +429,6 @@ public sealed class ExprEmitter {
         return IrType.Ref;
     }
 
-    // ── add-struct-value-equality：blob 值 struct 的 == / != → 逐叶子值相等短路合取 ──────────
-    // 操作数各求值一次（a/c 为 blob 句柄），递归展平叶子逐个 Eq；首个不等即短路到 fail 块。
-    // wantEqual=true → `==`（全叶子相等 → true）；false → `!=`（全等 → false）。结果 result-reg 在
-    // 「全等」与「fail」两分支各写 ConstBool，end 块读汇合（镜像 _emitConditional 三目范式）。
-    internal TypedReg _emitStructEquality(bool wantEqual, TypedReg a, TypedReg c, string structName) {
-        TypedReg result = this._ctx.Alloc(IrType.Bool);
-        string failL = this._ctx.Fresh("seq_ne");
-        string endL = this._ctx.Fresh("seq_end");
-        this._emitLeafEqChecks(a, c, 0, structName, failL);
-        // 全部叶子相等（fall-through）
-        this._ctx.Emit(new ConstBoolInstr(result, wantEqual));
-        this._ctx.EndBlock(new BrTerm(endL));
-        // 任一叶子不等
-        this._ctx.StartBlock(failL);
-        this._ctx.Emit(new ConstBoolInstr(result, !wantEqual));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(endL);
-        return result;
-    }
-
-    // 递归枚举 structName 的展平叶子（镜像 _copyRegion）：嵌套 struct 字段递归累积 offset；基元/引用
-    // 叶子读 a/c 两侧值（现有 StructFieldGetPrim）+ 现有 Eq + BrCond 短路到 failL（真→下一叶子块）。
-    private void _emitLeafEqChecks(TypedReg a, TypedReg c, int off, string structName, string failL) {
-        StructLayoutInfo li = this._ctx.Gen.Layouts.LayoutOf(structName);
-        int i = 0;
-        while (i < li.FieldCount) {
-            int fo = li.FieldOffsets[i];
-            if (li.FieldKinds[i] == StructLeafKind.Struct) {
-                this._emitLeafEqChecks(a, c, off + fo, li.FieldTypeNames[i], failL);
-            } else {
-                int tag = Tag.FromName(li.FieldTypeNames[i]);
-                int irt = this._tagToIrType(tag);
-                TypedReg la = this._ctx.Alloc(irt);
-                TypedReg lc = this._ctx.Alloc(irt);
-                this._ctx.Emit(new StructFieldGetPrimInstr(la, a, off + fo, tag));
-                this._ctx.Emit(new StructFieldGetPrimInstr(lc, c, off + fo, tag));
-                TypedReg cmp = this._ctx.Alloc(IrType.Bool);
-                this._ctx.Emit(new EqInstr(cmp, la, lc));
-                string contL = this._ctx.Fresh("seq_cont");
-                this._ctx.EndBlock(new BrCondTerm(cmp, contL, failL));
-                this._ctx.StartBlock(contL);
-            }
-            i = i + 1;
-        }
-    }
-
-    // ── add-struct-object-methods (PR2b)：合成 Equals(object) body 的结果表达式 ──────────────
-    // `(other is P) ? leafEq((P)this, (P)other) : false`。this/other 均为 boxed（vcall 臂传 boxed 值、
-    // 或 static Call 传 boxed）→ 内部 AsCast 拆箱到 **callee 帧** arena StructRef（避开 JIT 帧无 frame_id），
-    // 再复用 PR1 `_emitStructEquality` 逐叶子比较。result-reg 在两分支汇合（镜像三目）。
-    public TypedReg EmitSynthEqualsResult(string structName, TypedReg thisReg, TypedReg otherReg) {
-        string fq = this._ctx.QualifyClass(structName);
-        TypedReg result = this._ctx.Alloc(IrType.Bool);
-        TypedReg isP = this._ctx.Alloc(IrType.Bool);
-        this._ctx.Emit(new IsInstanceInstr(isP, otherReg, fq));
-        string doL = this._ctx.Fresh("seq_eq_do");
-        string elseL = this._ctx.Fresh("seq_eq_no");
-        string endL = this._ctx.Fresh("seq_eq_end");
-        this._ctx.EndBlock(new BrCondTerm(isP, doL, elseL));
-        this._ctx.StartBlock(doL);
-        TypedReg a = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new AsCastInstr(a, thisReg, fq));    // 拆 this → StructRef
-        TypedReg b = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new AsCastInstr(b, otherReg, fq));   // 拆 other → StructRef
-        TypedReg eq = this._emitStructEquality(true, a, b, structName);
-        this._ctx.Emit(new CopyInstr(result, eq));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(elseL);
-        this._ctx.Emit(new ConstBoolInstr(result, false));
-        this._ctx.EndBlock(new BrTerm(endL));
-        this._ctx.StartBlock(endL);
-        return result;
-    }
 
 
 
