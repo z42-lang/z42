@@ -109,51 +109,57 @@ public static class IrDump {
         // 字段类型、回写 fs.FieldType（消除「var」降级态，使导出 + 跨包消费得真实类型）。
         VarFieldInfer.Run(cus, count, symbols);
         StrMap partialMerged = IrDump._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
-        // G17b：同包跨-ns 类名解析图（跨-zpkg imported + 包内每个有 ns 的类 短名→声明 ns）。
-        // is/as/static-get/ObjNew 引用兄弟 ns 的本地类时限定到声明 ns（镜像 C# ImportedClassNamespaces 含 using 引入的同包类）。
-        StrMap classNs = IrDump._pkgClassNs(cus, count, imported);
-        StrMap localClasses = IrDump._pkgLocalClasses(cus, count);   // G18：反劫持守卫仅认本地类
-        // 全包自由函数聚合（文件序+声明序）——每模块 TSIG functions 全包（C# sem.Funcs 兄弟泄漏镜像）
-        ExportedFuncZ[] allFuncs = new ExportedFuncZ[4];
+        // F4+F12：符号收集后的 4 趟独立全 CU 扫融成一趟——classNs（G17b 跨-ns 类名解析图）/
+        // localClasses（G18 本地类集）/ pkgClassMap（跨文件基类 map）/ allFuncs（全包自由函数聚合）
+        // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。单文件 emit 路径仍用
+        // _pkgClassNs / _pkgLocalClasses 辅助（1-CU 场景），故辅助函数保留。
+        // classNs 预置跨-zpkg imported（镜像 C# ImportedClassNamespaces）。
+        StrMap classNs = new StrMap();
+        if (imported != null && imported.ClassNamespaces != null) {
+            string[] icks = imported.ClassNamespaces.Keys();
+            int ick = 0;
+            while (ick < icks.Length) { classNs.Put(icks[ick], imported.ClassNamespaces.Get(icks[ick])); ick = ick + 1; }
+        }
+        StrMap localClasses = new StrMap();          // G18：反劫持守卫仅认本地类
+        StrMap pkgClassMap = new StrMap();            // 跨文件 base 类方法继承（shortName / Name$N → ClassDecl）
+        ExportedFuncZ[] allFuncs = new ExportedFuncZ[4];   // 全包自由函数（文件序+声明序，C# sem.Funcs 兄弟泄漏镜像）
         int afc = 0;
         i = 0;
         while (i < count) {
-            ExportedModuleZ own = ExportedTypeExtractor.Extract(cus[i], symbols, "");
+            CompilationUnit fcu = cus[i];
+            bool hasNs = fcu.HasNamespace && fcu.Namespace != "";   // classNs 仅收有 ns 的类
+            int d = 0;
+            while (d < fcu.DeclCount) {
+                Decl dd = fcu.Decls[d];
+                if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+                if (dd is ClassDecl) {
+                    ClassDecl cd = dd as ClassDecl;
+                    if (hasNs) { classNs.Put(cd.Name, new StrBox(fcu.Namespace)); }   // 含 interface（任意 Kind）
+                    if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
+                        localClasses.Put(cd.Name, new StrBox(cd.Name));
+                        if (!pkgClassMap.ContainsKey(cd.Name)) { pkgClassMap.Put(cd.Name, cd); }
+                        if (cd.TypeParams.Count > 0) {
+                            string pcmk = cd.Name + "$" + cd.TypeParams.Count.ToString();
+                            if (!pkgClassMap.ContainsKey(pcmk)) { pkgClassMap.Put(pcmk, cd); }
+                        }
+                    }
+                }
+                d = d + 1;
+            }
+            // F3：仅抽自由函数（此前全量 Extract 只留 Functions，class/interface/enum/delegate/impl 全丢弃）。
+            ExportedFuncZ[] ownFuncs = ExportedTypeExtractor.ExtractFuncs(fcu, symbols);
             int f = 0;
-            while (f < own.FunctionCount) {
+            while (f < ownFuncs.Length) {
                 if (afc == allFuncs.Length) {
                     ExportedFuncZ[] b = new ExportedFuncZ[allFuncs.Length * 2];
                     int k = 0; while (k < afc) { b[k] = allFuncs[k]; k = k + 1; }
                     allFuncs = b;
                 }
-                allFuncs[afc] = own.Functions[f];
+                allFuncs[afc] = ownFuncs[f];
                 afc = afc + 1;
                 f = f + 1;
             }
             i = i + 1;
-        }
-        // G18 部分修���：全包 classMap（shortName/Name$N → ClassDecl），用于跨文件 base 类方法继承���
-        // 镜像 C# SymbolCollector 第二趟 mergedMethods 对同包跨文件基类的处理。
-        StrMap pkgClassMap = new StrMap();
-        int pci = 0;
-        while (pci < count) {
-            int pcj = 0;
-            while (pcj < cus[pci].DeclCount) {
-                Decl pcd = cus[pci].Decls[pcj];
-                if (pcd is AttributedDecl) { pcd = (pcd as AttributedDecl).Inner; }
-                if (pcd is ClassDecl) {
-                    ClassDecl pccd = pcd as ClassDecl;
-                    if (pccd.Kind == "class" || pccd.Kind == "struct" || pccd.Kind == "record") {
-                        if (!pkgClassMap.ContainsKey(pccd.Name)) { pkgClassMap.Put(pccd.Name, pccd); }
-                        if (pccd.TypeParams.Count > 0) {
-                            string pcmk = pccd.Name + "$" + pccd.TypeParams.Count.ToString();
-                            if (!pkgClassMap.ContainsKey(pcmk)) { pkgClassMap.Put(pcmk, pccd); }
-                        }
-                    }
-                }
-                pcj = pcj + 1;
-            }
-            pci = pci + 1;
         }
         CompiledModuleZ[] r = new CompiledModuleZ[count];
         i = 0;
