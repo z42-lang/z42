@@ -83,7 +83,7 @@ sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运�
 （virtual 方法的 `VCall` 内联 pass 吃不进）。
 
 - **净增价值 = 解锁内联**，不是派发提速——解释器已有多态内联缓存（`VCallIC`），单态 sealed 调用点派发已近直接调用。
-- **落点**：`ExprEmitter._emitCall`（instance 分支）emit 时就地——天然在 `IrInline` 之前。`Opt.Devirt` 门控
+- **落点**：`CallEmitter._emitCall`（instance 分支）emit 时就地——天然在 `IrInline` 之前。`Opt.Devirt` 门控
   （release 全开；`--no-opt devirt` 关，供 before/after 逐字节对拍）。
 - **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的可限定非泛型类**
   `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
