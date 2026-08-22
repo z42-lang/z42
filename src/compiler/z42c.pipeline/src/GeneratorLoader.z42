@@ -18,11 +18,21 @@
 //
 // 一个 zpkg 可含 applied generator + module generator 混合（单段 D9）——本加载器一遍扫出两类，各归其数组。
 // 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9 + §Generator 引擎实现落法（PR4d）。
-namespace Z42.Semantics;
+//
+// **放 z42c.pipeline（非 z42c.semantics，与 AnalyzerLoader 不同）的原因（bootstrap 硬约束，必守）**：本
+// 加载器由 PackageCompile（pipeline）独家消费。若放 semantics，pipeline 就新增一个「跨成员引用刚加进
+// semantics 的符号」——而 F2（#247）的进程级 DepScanCache 冷启动会把种子旧 semantics 缓存住、workspace
+// 重建同 path 后不失效 → pipeline 冷建解析到旧 semantics、`E0401 undefined GeneratorLoader`（PR4d CI 冷启动
+// 首次暴露）。**当前冷构建由旧种子 z42c 执行、其缓存 bug 无法靠改本仓源码救**，故本加载器必须与消费者同包、
+// 只引用 semantics 里**已在上一 nightly** 的 Generator/ModuleGenerator，规避新跨成员符号。
+// （DepScanCache 的 path-only 缓存冷启动失效是 F2 的独立缺陷；治本的 size/mtime 守卫会改变跨编译器版本的
+// dep 解析、破 self-host 字节不动点，须单独 change 谨慎处理——见 design.md「§Generator 外部加载」，本 PR 不带。）
+namespace Z42.Pipeline;
 
 using Std;             // Type
 using Std.Runtime;     // AssemblyLoadContext
 using Std.Reflection;  // Assembly / Activator
+using Z42.Semantics;   // Generator / ModuleGenerator（上一 nightly 已有 → 跨成员引用安全）
 
 // 一遍加载的产物：applied generator 与 module generator 各归其数组（一个 zpkg 可混含两类）。
 public sealed class LoadedGenerators {

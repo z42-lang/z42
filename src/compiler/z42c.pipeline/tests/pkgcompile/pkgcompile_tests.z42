@@ -308,7 +308,7 @@ void test_suppress_attr_end_to_end() {
 
 // ── attribute-handler-registry PR4d：外部 generator zpkg 编译期加载 + VM 执行 golden ─────────────
 // 编译一个实现 Z42.Semantics.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
-// CompileInputs.GeneratorZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类）喂给 PackageCompile →
+// CompileInputs.AnalyzerZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类；generator 复用该字段）喂给 PackageCompile →
 // GeneratorLoader 两路加载（发现 `: Generator`/`: ModuleGenerator` + 反射实例化）→ 引擎 splice/merge。
 // **VM 执行 golden**：把编好的 consumer zpkg 并入 live VM（__load_module）→ CreateInstance 生成的类型 →
 // 调 ToString() → 断言生成方法体**真运行**（生成用数值→ToString 规避三层引号嵌套；`(40+2)`→"42" /
@@ -422,13 +422,13 @@ void test_external_applied_generator_vm_execution_golden() {
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
     string[] dirs = libs.Split(":");
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
-    // consumer：`[Stringify] class Widget {}`（无 ToString）。GeneratorZpkgs 指向 fixture → 外部加载
+    // consumer：`[Stringify] class Widget {}`（无 ToString）。AnalyzerZpkgs 指向 fixture → 外部加载
     // StringifyGenerator → Augment override ToString。ordering fixup 剥 `[Stringify]` 触发 attr。
     CompileInputs cin = _inputs("namespace GenConsumer;\n[Stringify] class Widget { }\n", "lib");
     cin.Name = "demo.genconsumer.applied";
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;   // override ToString 需 Std.Object 可见以链 vtable 槽
     string[] gz = new string[1]; gz[0] = gzPath;
-    cin.GeneratorZpkgs = gz; cin.GeneratorZpkgCount = 1;
+    cin.AnalyzerZpkgs = gz; cin.AnalyzerZpkgCount = 1;
     CompileArtifacts cArt = PackageCompile.Compile(cin);
     Assert.Equal(0, cArt.ErrorCount);
     // VM 执行：生成的 ToString 若真跑 → "42"（若来自 object 默认 ToString 则不是）。证外部 applied 生成体运行。
@@ -450,7 +450,7 @@ void test_external_module_generator_vm_execution_golden() {
     cin.Name = "demo.genconsumer.module";
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;   // 消费者用 Std.Attribute 基类 → 需 libs 解析
     string[] gz = new string[1]; gz[0] = gzPath;
-    cin.GeneratorZpkgs = gz; cin.GeneratorZpkgCount = 1;
+    cin.AnalyzerZpkgs = gz; cin.AnalyzerZpkgCount = 1;
     CompileArtifacts cArt = PackageCompile.Compile(cin);
     Assert.Equal(0, cArt.ErrorCount);
     // VM 执行：生成的 EntityRegistry.ToString() == count().ToString() == "2"（module 发现了 2 个 [Entity]）。
@@ -460,7 +460,7 @@ void test_external_module_generator_vm_execution_golden() {
 
 [Test]
 void test_no_generator_zpkgs_no_change() {
-    // 无 GeneratorZpkgs（GeneratorZpkgCount=0）→ 不加载、gate 不进 → 普通类照常编译（byte-identical 路径）。
+    // 无 [analyzers]（AnalyzerZpkgCount=0）→ 不加载 generator、gate 不进 → 普通类照常编译（byte-identical 路径）。
     CompileArtifacts art = PackageCompile.Compile(
         _inputs("namespace Plain;\nclass Widget { public int v() { return 1; } }\n", "lib"));
     Assert.Equal(0, art.ErrorCount);

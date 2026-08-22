@@ -52,27 +52,26 @@ public sealed class CompileInputs {
     // AnalyzerDriver 用 LintConfig.Empty()（仅 EnabledByDefault + DefaultSeverity，无覆盖/无 WAE）。
     // 仅在 AnalyzerZpkgCount>0 时相关；z42c 自建无 analyzer → 不参与 → 逐字节不动。
     public LintConfig Lints;
-    // attribute-handler-registry PR4a：已实例化的 applied generator（测试注入路径；driver 用外部 zpkg
-    // 加载填 GeneratorZpkgs、由 Compile 载入后并入本数组，见下）。非空 → provisional bind 后跑
+    // attribute-handler-registry PR4a：已实例化的 applied generator（测试注入路径；外部 zpkg 加载经
+    // AnalyzerZpkgs 由 Compile 载入后并入本数组，见下）。非空 → provisional bind 后跑
     // GeneratorDriver（splice/merge → union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public Generator[] Generators; public int GeneratorCount;
     // attribute-handler-registry PR4c：已实例化的 module generator（同上，测试注入 + 外部加载并入）。
     // 非空 → provisional bind 后（applied 之后）跑 GeneratorDriver.RunModules（扫全编译 + 强类型查询 →
     // AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public ModuleGenerator[] ModuleGenerators; public int ModuleGeneratorCount;
-    // attribute-handler-registry PR4d：外部 generator zpkg 路径（`[analyzers]` 段——D9 单段覆盖
-    // analyzer + generator 两类，User 2026-08-22 裁决——解析后由 driver 按名在 LibsDirs 解析到
-    // `<name>.zpkg`；与 AnalyzerZpkgs 取同一批路径）。非空 → Compile 经 GeneratorLoader 加载其
-    // `: Generator`/`: ModuleGenerator` 类型、并入 Generators/ModuleGenerators 后走同一 gated 块；
-    // 空（z42c 自建）→ 不加载 → 逐字节不动。D9：加载进编译器、不链入目标程序。
-    public string[] GeneratorZpkgs; public int GeneratorZpkgCount;
+    // attribute-handler-registry PR4d：外部 generator zpkg **复用 `AnalyzerZpkgs`**（D9 单段 `[analyzers]`
+    // 覆盖 analyzer + generator 两类，User 2026-08-22 裁决——同一批路径）。Compile 经 GeneratorLoader 从
+    // `AnalyzerZpkgs` 发现 `: Generator`/`: ModuleGenerator`、并入 Generators/ModuleGenerators 走同一 gated
+    // 块（analyzer 各按接口过滤，互不干扰）。**不新增独立字段**——避免 z42c.driver 引用 CompileInputs 新
+    // 字段成「新跨成员符号」，撞 F2 DepScanCache 冷启动 stale-cache（driver 冷建解析到种子旧 pipeline →
+    // E0401；见 GeneratorLoader.z42 头注 + design §Generator 外部加载）。空（z42c 自建）→ 不加载 → 逐字节不动。
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
         this.Lints = null;
         this.Generators = new Generator[0]; this.GeneratorCount = 0;
         this.ModuleGenerators = new ModuleGenerator[0]; this.ModuleGeneratorCount = 0;
-        this.GeneratorZpkgs = new string[0]; this.GeneratorZpkgCount = 0;
     }
 }
 
@@ -151,13 +150,15 @@ public static class PackageCompile {
         // gated 块——共用 provisional bind；applied 可能改写 CU（Augment/Replace/AddSource），module 扫
         // 其产出的 union AST。任一路径有产出 → union 全 fresh 重编。
         DiagnosticBag genDiags = new DiagnosticBag();
-        // PR4d：外部 generator zpkg（`[analyzers]` 段，D9 单段覆盖两类）→ GeneratorLoader 发现
-        // `: Generator`/`: ModuleGenerator` 类型、实例化，并入测试注入的数组，走同一 gated 块。z42c 自建
-        // 无 GeneratorZpkgs → 不加载、effGens/effMods 即注入的空数组 → gate false → 逐字节不动。
+        // PR4d：外部 generator zpkg **复用 `[analyzers]` 段路径（AnalyzerZpkgs）**（D9 单段覆盖两类）→
+        // GeneratorLoader 发现 `: Generator`/`: ModuleGenerator` 类型、实例化，并入测试注入的数组，走同一
+        // gated 块。z42c 自建无 [analyzers] → AnalyzerZpkgCount==0 → 不加载、effGens/effMods 即注入的空数组
+        // → gate false → 逐字节不动。（不用独立 GeneratorZpkgs 字段：见 CompileInputs 上方注 —— 避免 driver
+        // 引用 CompileInputs 新字段撞 F2 冷启动 stale-cache。）
         Generator[] effGens = inp.Generators; int effGenCount = inp.GeneratorCount;
         ModuleGenerator[] effMods = inp.ModuleGenerators; int effModCount = inp.ModuleGeneratorCount;
-        if (inp.GeneratorZpkgCount > 0) {
-            LoadedGenerators lg = GeneratorLoader.Load(inp.GeneratorZpkgs, inp.GeneratorZpkgCount);
+        if (inp.AnalyzerZpkgCount > 0) {
+            LoadedGenerators lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
             effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
             effGenCount = inp.GeneratorCount + lg.AppliedCount;
             effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
