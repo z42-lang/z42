@@ -14,10 +14,12 @@ public sealed class ExprTyper {
     private int _collSeq;   // 集合字面量脱糖的合成局部名计数器（$c0, $c1, ...）
     private CollectionTyper _coll;   // 集合字面量绑定簇（[..]/{..} 脱糖）
     private AssignTyper _assign;     // 赋值绑定簇（=/复合/索引器 set/event/属性 setter + const·readonly 检查）
+    private ConstructTyper _construct;   // 构造/对象初始化器绑定簇（new C(args) / new C{...}）
     public ExprTyper(TypeChecker tc) {
         this._tc = tc; this._collSeq = 0;
         this._coll = new CollectionTyper(tc, this);
         this._assign = new AssignTyper(tc, this);
+        this._construct = new ConstructTyper(tc, this);
     }
 
     private BoundExpr _bindLiteral(Expr e) {
@@ -257,35 +259,6 @@ public sealed class ExprTyper {
         return this._coll._bindCollLit(e, target, env);
     }
 
-    // 对象初始化器 new Foo(args) { X = 1, y } → $c = new Foo(args); $c.X = 1; $c.y = y; ⟨$c⟩。
-    // 复用 Change 1 的 BoundSeqExpr；字段赋值走既有 MemberExpr 赋值绑定（校验存在性/可赋值/可见性）。
-    // expected：target-typed（oi.Type == null）时的目标类型；否则传 null。
-    private BoundExpr _bindObjInit(ObjInitExpr oi, TypeEnv env, Z42Type expected) {
-        Span sp = oi.Span;
-        TypeExpr oiTy = oi.Type;
-        if (oiTy == null) {   // add-target-typed-new：`new() { ... }` 从目标类型合成类型表达式
-            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
-                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
-                    "target-typed `new` requires a known target type here", sp);
-                return new BoundError("target-typed new without target", new Z42ErrorType(), sp);
-            }
-            oiTy = this._typeToTypeExpr(expected, sp);
-        }
-        string tmp = this._freshColl();
-        Z42Type voidT = new Z42VoidType();
-        BoundStmt[] pre = new BoundStmt[oi.FieldCount + 1];
-        Stmt declS = new VarDeclStmt(oiTy, tmp, new ObjNewExpr(oiTy, oi.Args, oi.ArgCount, sp), sp);
-        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
-        int i = 0;
-        while (i < oi.FieldCount) {
-            Expr assign = new AssignExpr("=", new MemberExpr(new IdentExpr(tmp, sp), oi.FieldNames[i], sp), oi.FieldValues[i], sp);
-            pre[i + 1] = this._tc._stmt.BindStmt(new ExprStmt(assign, sp), env, voidT);
-            i = i + 1;
-        }
-        BoundExpr val = this._bindExpr(new IdentExpr(tmp, sp), env);
-        return new BoundSeqExpr(pre, oi.FieldCount + 1, val, val.Type(), sp);
-    }
-
     private BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._bindExpr(cx.E, env);
             Z42Type target = env.ResolveType(cx.Type);
@@ -390,9 +363,9 @@ public sealed class ExprTyper {
         if (ExprTyper.IsCollLit(e)) { return this._bindCollLit(e, null, env); }
         if (e is RefArgExpr) { return this._bindRefArg(e as RefArgExpr, env); }
         if (e is ObjNewExpr) {
-            return this._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
+            return this._construct._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
         }
-        if (e is ObjInitExpr) { return this._bindObjInit(e as ObjInitExpr, env, null); }
+        if (e is ObjInitExpr) { return this._construct._bindObjInit(e as ObjInitExpr, env, null); }
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }
@@ -514,98 +487,6 @@ public sealed class ExprTyper {
         return new BoundDefault(t, -1, d.Span);
     }
 
-    // expected：target-typed new（n.Type == null）时的目标类型；非 target-typed 时传 null（忽略）。
-    private BoundExpr _bindNew(ObjNewExpr n, TypeEnv env, Z42Type expected) {
-        Z42Type t;
-        if (n.Type == null) {   // add-target-typed-new：从目标类型推断被省略的类名
-            if (expected == null || expected is Z42UnknownType || expected is Z42ErrorType) {
-                this._tc._diags.Error(DiagnosticCodes.TargetTypedNewNeedsType,
-                    "target-typed `new` requires a known target type here", n.Span);
-                return new BoundError("target-typed new without target", new Z42ErrorType(), n.Span);
-            }
-            t = expected;
-        } else {
-            t = env.ResolveType(n.Type);
-            // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 运行期按 frame 槽具化类型 activator 构造。
-            // 不走 _chkTypeRef（泛型形参非可访问性检查对象）/ ctor 解析。要求零实参（无 ctor 签名可校验）。
-            if (t is Z42GenericParamType) {
-                int mIdx = env.MethodParamIndexOf(t.Name());
-                if (mIdx >= 0) {
-                    if (n.ArgCount != 0) {
-                        this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
-                            "`new " + t.Name() + "()` on a method type parameter takes no arguments", n.Span);
-                    }
-                    BoundNew bn = new BoundNew(t.Name(), "", new BoundExpr[0], 0, t, n.Span);
-                    bn.IsMethodTypeParam = true; bn.MethodParamIndex = mIdx;
-                    return bn;
-                }
-            }
-            // 未定义类型（含 new）统一由 _chkTypeRef → E0443 报（fix-undefined-type-diagnostic：
-            // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。
-            this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用
-        }
-        if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
-            this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
-        }
-        // ctor 重载键（镜像 C# ResolveCtorName：单 ctor bare、重载 Name$argCount）
-        Z42ClassType cls = null;
-        if (t is Z42ClassType) { cls = t as Z42ClassType; }
-        if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
-        string ctorName = cls != null ? this._tc._overload._ctorKey(cls, n.ArgCount) : "";
-        // GS1/named-arg：命名实参重排 + 可选参数默认值填充（镜像 C#——工厂体 `new Route("/u", method:"POST")`
-        // 及省略可选实参 `new Route("/h")` 须在调用点解析为完整位置实参序）。仅本地有 Decl 的 ctor 适配。
-        MethodSymbol cms = null;
-        if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
-        if (cms != null && cms.HasDecl && cms.Decl != null) {
-            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
-            if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
-        }
-        // ctor arity 校验（根因修复）：枚举本类所有源名 ctor（OverloadsOf——与 bare/$N 注册键无关，
-        // 单 ctor 注册裸名、重载注册 Name$N，_findMethod 单键查会漏），只要存在本地声明 ctor 且无一能
-        // 接受 n.ArgCount 个实参 → 报 E0426，防「实参数与形参数不符被下方 fall-through 静默按位截断/补默认」
-        // （曾致 z42.project ManifestLoader 16 传 12 的 OutputDir 空 bug）。params ctor（变长，接受 ≥ 定长部分）
-        // 与带默认尾参各按其规则计入「可接受」。imported/无 Decl 的 ctor 无法校验 → 跳过（不误报）。
-        if (cls != null) {
-            MethodSymbol[] ctors = cls.OverloadsOf(cls.Name());
-            bool anyDeclared = false;
-            bool accepts = false;
-            int ci = 0;
-            while (ci < ctors.Length) {
-                MethodSymbol cm = ctors[ci];
-                if (cm.HasDecl && cm.Decl != null) {
-                    anyDeclared = true;
-                    int pc = cm.Decl.ParamCount;
-                    bool isParams = pc > 0 && cm.Decl.Params[pc - 1].IsParams;
-                    if (isParams) {
-                        if (n.ArgCount >= pc - 1) { accepts = true; }
-                    } else if (n.ArgCount <= pc) {
-                        bool ok = true;
-                        int p = n.ArgCount;
-                        while (p < pc) { if (cm.Decl.Params[p].Default == null) { ok = false; } p = p + 1; }
-                        if (ok) { accepts = true; }
-                    }
-                }
-                ci = ci + 1;
-            }
-            if (anyDeclared && !accepts) {
-                this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
-                    "constructor `" + cls.Name() + "` has no overload accepting "
-                    + n.ArgCount.ToString() + " argument(s)", n.Span);
-            }
-        }
-        BoundExpr[] args = new BoundExpr[n.ArgCount];
-        int i = 0;
-        // ctor 实参按选中 ctor 的形参类型定型（支持嵌套 target-typed new：`new C(new())`）。
-        // 无可解析 Decl 的 ctor（imported / 无 Decl）→ 目标类型 null，target-typed 实参会报 E0437。
-        while (i < n.ArgCount) {
-            Z42Type ptv = null;
-            if (cms != null && cms.Signature != null && i < cms.Signature.ParamCount) { ptv = cms.Signature.ParamTypes[i]; }
-            args[i] = this.BindWithTarget(n.Args[i], ptv, env);
-            i = i + 1;
-        }
-        return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
-    }
-
     // add-target-typed-new：某表达式是否是省略了类名的 target-typed new / 对象初始化器。
     public static bool IsTargetTypedNew(Expr e) {
         if (e is ObjNewExpr)  { return (e as ObjNewExpr).Type == null; }
@@ -616,8 +497,8 @@ public sealed class ExprTyper {
     // 目标类型已知的绑定入口：target-typed new/obj-init 用目标类型定型，其余表达式回落普通绑定。
     // target 为 null 时 target-typed new 会经 _bindNew/_bindObjInit 报 E0437。
     public BoundExpr BindWithTarget(Expr e, Z42Type target, TypeEnv env) {
-        if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._bindNew(e as ObjNewExpr, env, target); }
-        if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._bindObjInit(e as ObjInitExpr, env, target); }
+        if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._construct._bindNew(e as ObjNewExpr, env, target); }
+        if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._construct._bindObjInit(e as ObjInitExpr, env, target); }
         return this._bindExpr(e, env);
     }
 
