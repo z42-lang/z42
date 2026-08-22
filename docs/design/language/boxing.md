@@ -36,7 +36,7 @@ struct BoxedPrim { class: Arc<str>, inner: Value }   // class = FQ 基元 struct
 ## 编译器：装箱插入点（全覆盖）
 
 编译期在**每一处**「源基元静态类型 → 目标 `object`/接口 静态类型」的隐式转换点插入 `BoundBox`
-（`ExprEmitter._emitBox` → `__box_prim`）。**已覆盖全部 coercion 点**：
+（`TypeOpEmitter._emitBox` → `__box_prim`）。**已覆盖全部 coercion 点**：
 
 | 插入点 | 位置 |
 |--------|------|
