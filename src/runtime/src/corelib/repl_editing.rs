@@ -9,12 +9,23 @@
 //! the FQN comes from a process-global, the live `&VmContext` from the readline-span
 //! thread-local `ACTIVE_CTX` (published by `repl::read_one_line`).
 //!
-//! Action-string protocol (Rust is a dumb translator — no decisions here). Both
-//! non-empty actions map to **redo-immune** commands (see `parse_action`):
+//! Action-string protocol (Rust is a dumb translator — no *language* decisions here;
+//! the one cursor mechanic Rust owns is the Enter at-end gate, see the handler). Non-empty
+//! actions map to **redo-immune** commands (see `parse_action`):
 //!   ""              → `None` (perform the key's default: Tab→complete,
-//!                             Backspace→delete one char)
+//!                             Backspace→delete one char, Enter→submit)
 //!   "dedent"        → `Cmd::Dedent(Movement::WholeLine)`   (remove one `indent_size`)
 //!   "insert:<text>" → `Cmd::Insert(1, text)`               (kill-ring-free; Tab grid-snap-ceil)
+//!   "newline:<ind>" → `Cmd::Insert(1, "\n"+ind)`           (Enter on an incomplete buffer:
+//!                                                            insert newline + continuation indent)
+//!   "accept"        → `Cmd::AcceptLine`                     (Enter on a complete buffer: submit)
+//!
+//! Whole-buffer multiline (add-repl-multiline-editing): Enter is bound to the same
+//! handler with key `"enter"`. The z42 side judges whether the *whole buffer* is complete
+//! (`Completeness.IsIncomplete`) and returns "accept" (complete) or "newline:<indent>"
+//! (incomplete → keep editing). `EventContext::line()` is the entire multi-line buffer
+//! (with `\n`), `pos()` the global cursor offset — so one `readline()` spans a whole
+//! statement and the z42 loop no longer accumulates line-by-line.
 
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -115,6 +126,14 @@ fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 ///     grid-snap-ceil: insert `next_stop - col` spaces (kill-ring-free). `insert:`
 ///     carries the literal spaces after the prefix (no escaping; never a colon).
 ///
+/// Enter (add-repl-multiline-editing):
+///   - `"accept"`        → `Cmd::AcceptLine`. `command.rs` matches `(Cmd::AcceptLine, ..)`
+///     → **unconditional submit** (validator/cursor ignored), so it needs no validator.
+///     The handler additionally gates on cursor-at-end (see `handle`) so mid-buffer Enter
+///     on a complete buffer splits instead of submitting.
+///   - `"newline:<ind>"` → `Cmd::Insert(1, "\n"+ind)`: insert a newline plus the
+///     continuation indent, cursor landing after it (same redo-immune `Insert` as Tab).
+///
 /// Not here: a `Replace(WholeLine, text)` action for variable-width backspace floor /
 /// `}` auto-dedent. That command IS redo-immune, but `edit_insert_text` doesn't advance
 /// the cursor, so it homes to column 0 — breaking typing after `}` (`} else {`). Those
@@ -123,7 +142,11 @@ fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 pub fn parse_action(s: &str) -> Option<Cmd> {
     match s {
         "dedent" => Some(Cmd::Dedent(Movement::WholeLine)),
+        "accept" => Some(Cmd::AcceptLine),
         _ if s.starts_with("insert:") => Some(Cmd::Insert(1, s["insert:".len()..].to_string())),
+        _ if s.starts_with("newline:") => {
+            Some(Cmd::Insert(1, format!("\n{}", &s["newline:".len()..])))
+        }
         _ => None,
     }
 }
@@ -166,6 +189,14 @@ impl ConditionalEventHandler for KeyEditHandler {
         // the callback runs as a normal mutator (same as the completer).
         let _unpark = crate::gc::NativeUnparkGuard::exit(vmctx);
         match key_edit_via_callback(vmctx, &fqn, self.key, ectx.line(), ectx.pos() as i64) {
+            // Enter at-end gate (the one cursor mechanic Rust owns): "accept" means z42
+            // judged the whole buffer complete. Submit only when the cursor is at the very
+            // end (byte-robust, so UTF-8 in string literals is handled correctly); a
+            // mid-buffer Enter on a complete buffer inserts a newline instead
+            // (accept_in_the_middle: false — the recommended multiline UX).
+            Ok(action) if action == "accept" && ectx.pos() != ectx.line().len() => {
+                Some(Cmd::Insert(1, "\n".to_string()))
+            }
             Ok(action) => parse_action(&action),
             Err(_) => None,
         }

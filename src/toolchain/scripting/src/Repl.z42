@@ -6,13 +6,14 @@ using Std;
 
 // 交互式行编辑器（rustyline，见 z42vm corelib/repl.rs）。EOF/Ctrl-D → null。
 public static class Repl {
-    // 读一行（历史 / emacs 键 / Ctrl-D），编辑缓冲预填 initial（空串 = 全新行；缩进串 = 自动
-    // 缩进的续行，光标落在缩进后可编辑）。返回 null 表示 EOF（调用方据此退出）。
-    // 多行累积 + 完整性判定 + 续行缩进计算已全部上移脚本层（sink-repl-indent-to-script，承接
-    // add-repl-parser-completeness）：parser 权威判完整、Std.Scripting.Completeness 用既有 Lexer
-    // 算缩进；本原语退化成「读一行、用给定串预填」——native 侧不再留任何括号状态机。
+    // 读入（历史 / emacs 键 / Ctrl-D）。返回 null 表示 EOF（调用方据此退出）。
+    // 整块多行编辑（add-repl-multiline-editing）：交互（tty）下一次 ReadLine 读**整条**多行语句——
+    // 回车键重入 z42（Std.Scripting.ReplEditing 的 "enter" 策略）按 Completeness 判「写完没」，没写完
+    // 就在缓冲内插换行 + 续行缩进（可上下方向键跨行编辑、粘贴回改），写完才提交整块。非交互（管道 /
+    // 无 tty）下退化成读一物理行，多行仍由调用方按 Completeness.IsIncomplete 累积（见 corelib/repl.rs）。
+    // 续行缩进由回车策略在缓冲内插入 → 不再需要 initial 预填参数。
     [Native("__repl_readline")]
-    public static extern string ReadLine(string prompt, string initial);
+    public static extern string ReadLine(string prompt);
 
     // 注册 Tab 补全的自由函数 FQN（契约 `string[] f(string line, int pos)`）；空串清除。
     // rustyline Completer 在每次 Tab 回调它取候选（见 z42vm corelib/repl.rs）。add-completion-query-api。

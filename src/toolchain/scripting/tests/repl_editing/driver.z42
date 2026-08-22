@@ -33,6 +33,19 @@ void Main() {
     _show("tab word",  "tab", "  foo", 5);                 // default（补全）
     _show("tab word0", "tab", "foo", 3);                   // default
     _show("tab multi", "tab", "x(\n  ", 5);                // insert 2（末行 2 空格 ceil →4）
+
+    // Enter（add-repl-multiline-editing）：对**整块缓冲** line 判完整性。写完 → "accept"（提交；
+    // Rust 侧再按光标是否在缓冲末尾兜底 accept_in_the_middle:false，故 KeyEdit 对完整块不看光标）；
+    // 没写完 → "newline:"+续行缩进（按光标前文本未闭合括号层数，复用 Completeness.ContinuationIndent）。
+    // 注：本用例编译需同包携 ReplEditing.z42 + Completeness.z42 副本 + z42c.syntax/z42c.core 依赖。
+    Console.WriteLine("== enter ==");
+    _show("en complete",       "enter", "1 + 1", 5);                      // accept
+    _show("en complete-mid",   "enter", "1 + 1", 2);                      // accept（KeyEdit 不 gate 光标）
+    _show("en open-brace",     "enter", "class C {", 9);                  // newline:4（depth1）
+    _show("en open-paren",     "enter", "foo(", 4);                       // newline:4
+    _show("en nested2",        "enter", "foo(\n    bar(", 13);           // newline:8（depth2）
+    _show("en missing-operand","enter", "1 +", 3);                        // newline:（depth0，裸换行）
+    _show("en complete-multi", "enter", "class C {\n    int x;\n}", 22); // accept
 }
 
 void _show(string label, string key, string line, int pos) {

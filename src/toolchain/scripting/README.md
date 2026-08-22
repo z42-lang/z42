@@ -7,8 +7,8 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 ## 功能索引
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| 行编辑（rustyline）| `Std.Repl.Repl.ReadLine(prompt, initial)`（`Repl.z42` → z42vm builtin；`initial` 预填编辑缓冲）|
-| 缩进感知键位（纯缩进行：退格删一级 / Tab 加一级，`indent_size=4`）| `Std.Scripting.ReplEditing.KeyEdit`（`ReplEditing.z42`；决策全在 z42 返回 indent/dedent，Rust 只译成 redo-免疫的 `Cmd::Indent`/`Dedent(WholeLine)`）；经 `Repl.SetKeyEditor("Std.Scripting.replKeyEdit")` 注册（`interactive_main`），机制见 z42vm `corelib/repl_editing.rs`（add-repl-indent-editing）|
+| 行编辑（rustyline）| `Std.Repl.Repl.ReadLine(prompt)`（`Repl.z42` → z42vm builtin；tty 下读**整条多行语句**，非 tty 读一物理行）|
+| 缩进感知键位 + 回车整块判定 | `Std.Scripting.ReplEditing.KeyEdit`（`ReplEditing.z42`；决策全在 z42：退格→`dedent`、Tab→`insert:<空格>`（grid-snap）、Enter→`accept`（写完提交）/`newline:<缩进>`（没写完续行），Rust `parse_action` 只译成 redo-免疫的 `Cmd`）；经 `Repl.SetKeyEditor("Std.Scripting.replKeyEdit")` 注册；机制见 z42vm `corelib/repl_editing.rs`（add-repl-indent-editing / add-repl-tab-grid-snap / add-repl-multiline-editing）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
@@ -17,8 +17,8 @@ REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把�
 | 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs`+`gc/safepoint.rs`（add-repl-prewarm）|
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）；**缺省未写可见性的类型声明自动补 `public`**（`Classifier.HasVisibility` 判定），避开每轮独立 package 下 internal 类的 `E0441`/`E0404`（fix-repl-default-type-visibility）|
 | 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |
-| 多行输入完整性判定 | `Completeness.IsIncomplete`（`Completeness.z42`）——parser 权威：对**裸输入原文** parse，读 `IncompleteAtEof` 决定续读；宿主 `interactive_main` 逐行累积接线（add-repl-parser-completeness）|
-| 续行视觉缩进 | `Completeness.ContinuationIndent`（`Completeness.z42`——脚本层用既有 Lexer 数括号算 `层数×4 空格`，交 `Repl.ReadLine` 的 `initial` 预填；纯装饰，不参与完整性判定。sink-repl-indent-to-script）|
+| 多行输入完整性判定 | `Completeness.IsIncomplete`（`Completeness.z42`）——parser 权威：对**裸输入原文** parse，读 `IncompleteAtEof` 决定续读；tty 下由 `ReplEditing.KeyEdit` 的 Enter 分支对整块调用、非 tty 由 `interactive_main` 逐行累积调用（add-repl-parser-completeness / add-repl-multiline-editing）|
+| 续行视觉缩进 | `Completeness.ContinuationIndent`（`Completeness.z42`——用既有 Lexer 数括号算 `层数×4 空格`；由 `ReplEditing.KeyEdit` 的 Enter 分支在缓冲内插换行时附加；纯装饰，不参与完整性判定。sink-repl-indent-to-script / add-repl-multiline-editing）|
 
 ## 基础用法
 ```z42
@@ -52,7 +52,7 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 | 文件 | 职责 |
 |------|------|
 | `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine` / `SetCompleter` / `SetKeyEditor` / `MemberNames`）|
-| `ReplEditing.z42` | `Std.Scripting.ReplEditing.KeyEdit`：缩进感知键位策略（纯缩进行判定 → indent/dedent；量由 rustyline `indent_size` 定）+ 自由函数 `replKeyEdit` 回调 |
+| `ReplEditing.z42` | `Std.Scripting.ReplEditing.KeyEdit`：键位策略（退格 `dedent` / Tab `insert:` grid-snap / Enter `accept`｜`newline:<缩进>` 整块多行判定，复用 `Completeness`）+ 自由函数 `replKeyEdit` 回调 |
 | `Completeness.z42` | 输入完整性探针 `IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）+ 续行缩进 `ContinuationIndent`（Lexer 数括号）|
 | `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用原语 |
 | `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |

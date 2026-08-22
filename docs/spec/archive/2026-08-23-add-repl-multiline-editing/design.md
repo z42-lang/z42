@@ -63,10 +63,15 @@
 **决定：选 B。** 理由：缩进控制是多行编辑体验的核心，选项 A 丢缩进不可接受；且 B 与既有 keyedit
 范式一脉相承（Rust dumb、逻辑在 z42），维护心智一致。**代价**：Enter 中段语义需显式设计（Decision 2）。
 
-> 保留 `ReplHelper::Validator` 实现为兜底：即便自定义 Enter handler 未注册（非交互/降级），一个最小
-> `validate`（重入 `IsIncomplete` 或保守返回 `Valid`）能让 rustyline 的默认 `AcceptOrInsertLine`
-> 仍工作。二者不冲突：handler 命中时走 handler，未命中回落 Validator/默认。**具体是否需要 Validator
-> 兜底、还是 handler 足矣，实施期 spike 定。**
+> **spike 已坐实（rustyline 14.0.0 源码，2026-08-23）——无需 Validator，handler 独控：**
+> - `command.rs:133-158`：`Cmd::AcceptLine` 命中 `(Cmd::AcceptLine, ..)` 分支 → **无条件 `Submit`**，
+>   与 validator 结果 / 光标位置无关。故 handler 返回 `AcceptLine` 即提交，validator 被忽略。
+> - `lib.rs:516-535`：`ValidationResult::Incomplete` 时 rustyline 只重加换行、**不缩进**（证实选项 A 丢缩进）。
+> - `binding.rs:183/189`：`EventContext::line()` 返回**整块缓冲**（多行含 `\n`），`pos()` 是全局字节偏移。
+> - 无 handler 命中（未注册/出错回 `None`）→ 回落默认 ENTER = `AcceptOrInsertLine{accept_in_the_middle:true}`，
+>   无 validator 时 `s.validate()` 返回 `Valid`（edit.rs:231）→ 提交单行。**安全回落**。
+>
+> **结论：`ReplHelper::Validator` 保持空 stub，不需要兜底 validator**——自定义 Enter handler 完全接管。
 
 ### Decision 2: Enter 位于缓冲中段的语义
 
@@ -77,30 +82,40 @@
 `pos == line.Length && !IsIncomplete(line)` → accept，否则 newline。
 （`line` 此处是**整块**含 `\n`；`pos` 是全局光标偏移。）
 
-### Decision 3: 脚本层循环塌缩 + 删旧机制（无兼容）
+### Decision 3: 脚本层循环——保留累积（非 tty 需要），只删 `initial` 预填【实施期修正】
 
-`interactive_main.z42` 主循环从「per-line 累积」塌缩为「一次 ReadLine 拿整条语句 → 求值」：
+> **DRAFT 原设想「塌缩循环」，实施期修正为「保留累积」**：原以为一次 ReadLine 拿整条语句即可、
+> 循环可删累积。但**非交互（管道 / 无 tty）路径** `plain_readline` 只能读**一个物理行**（无行编辑器）
+> → 若删累积，piped 多行输入（`echo "int f(){\n...}" | z42i`、测试）会拿到半条语句求值报错。故
+> **循环保留 `buf` 累积 + `Completeness.IsIncomplete` 判定**，两模式通吃：
+> - **tty**：回车 handler 在**一次 readline 内**插换行 + 缩进直到完整，返回整块 → `buf`=整块、
+>   `IsIncomplete` 一轮即 false → 求值。整块编辑（跨行导航 / 粘贴回改）全发生在这一次 readline 内。
+> - **非 tty**：ReadLine 读一物理行 → `buf` 逐行累积 → `IsIncomplete` 判续读（同 add-repl-parser-completeness）。
+
+实际循环改动**极小**：只把 `Repl.ReadLine(prompt, initial)` 的 `initial`/`ContinuationIndent` 实参删掉
+（续行缩进移进回车策略在缓冲内插入），其余累积结构不动：
 
 ```
-loop:
-  Completer.SetActive(s)
-  string stmt = Repl.ReadLine(">>> ")   // 整条多行语句，一次返回；null=EOF/中断
-  if stmt == null: break
-  string t = stmt.Trim()
-  if t.Length == 0: continue
-  if t.StartsWith("."): <元指令分派>; continue     // 元指令天然单行完整（见 Decision 4）
-  EvalResult r = Script.Eval(s, stmt)
-  <打印>
+if (buf.Length == 0) { line = Repl.ReadLine(">>> "); }
+else                 { line = Repl.ReadLine("... "); }   // ... 仅非 tty 逐行时出现
 ```
 
-**删除**（pre-1.0 无兼容，[[philosophy]] 不留旧路径）：`buf` 累积、`while` 续读、`... ` 续行提示符在
-脚本层的驱动、`Completeness.ContinuationIndent` 经 `initial` 预填的调用点。`ContinuationIndent` 本身
-**保留**（移到回车策略里调用）。`Repl.ReadLine` 的 `initial` 参数：整块模型下续行缩进由回车 handler
-在缓冲内插入，不再需要 `initial` 预填 → `ReadLine` 签名简化为单参 `ReadLine(prompt)`（连带 Rust
-`__repl_readline` + `read_one_line` 去掉 `initial`）。
+**删除**（pre-1.0 无兼容）：`Repl.ReadLine` 的 `initial` 参数（连带 Rust `__repl_readline` /
+`read_one_line` / `plain_readline` 去掉 `initial`）、脚本层对 `Completeness.ContinuationIndent` 的调用
+（移到回车策略）。`ContinuationIndent` 本体保留。
 
-> `... ` 续行提示符：整块模型下一次 readline 内部跨行，rustyline 多行渲染默认续行不换提示符（或用
-> 空续行提示）。是否要视觉区分首/续行提示符，实施期按 rustyline 多行渲染能力定；不影响语义。
+### Decision 6: Ctrl-C（中断）vs Ctrl-D（EOF）在整块模型下必须分流【实施期新增】
+
+**问题（PTY 实测暴露的回归）**：旧逐行模型里 Ctrl-C / Ctrl-D 都映射成 `null`，靠 `buf` 是否非空区分
+「续读中中断（弃缓冲、回主提示符）」vs「主提示符 EOF（退出）」。整块模型下多行编辑发生在**一次
+readline 内**、`buf` 始终空 → Ctrl-C 中断该 readline 时 `buf` 空 → 旧逻辑误判为 EOF → **整个 REPL 退出**（回归）。
+
+**决定**：在 Rust `read_one_line` 层分流——
+- `Err(Interrupted)`（Ctrl-C）→ 返回**空串** `""`：循环视作「没输入、continue」→ 丢弃 rustyline 内已弃的
+  多行缓冲、回主提示符（Python 式：Ctrl-C 重来）。
+- `Err(Eof)`（Ctrl-D）→ 返回 `null`：循环 break → 退出 REPL。
+
+副作用（可接受的行为改进）：主提示符下 Ctrl-C 由「退出」变「重来一行」（与 Python REPL 一致；Ctrl-D 仍退出）。
 
 ### Decision 4: 元指令识别点
 

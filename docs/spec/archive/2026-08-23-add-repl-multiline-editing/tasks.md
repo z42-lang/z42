@@ -1,19 +1,19 @@
 # Tasks: REPL 整块多行编辑
 
-> 状态：🟡 进行中（DRAFT，待 User 阶段 6.5 确认）| 创建：2026-08-23
+> 状态：🟡 进行中（实施 + 本地验证完成，待完整 xtask test + 落地）| 创建：2026-08-23
 
 ## 进度概览
-- [ ] 阶段 1: spike 验证 rustyline 多行关键行为
-- [ ] 阶段 2: 核心实现（回车重入 + 脚本层塌缩）
-- [ ] 阶段 3: 测试与验证
-- [ ] 阶段 4: 文档同步 + 归档
+- [x] 阶段 1: spike 验证 rustyline 多行关键行为（源码坐实 + PTY 实测）
+- [x] 阶段 2: 核心实现（回车重入 + 循环去 initial + Ctrl-C/EOF 分流）
+- [x] 阶段 3: 测试与验证（Rust 6/6 + golden 24/24 + PTY 5/5；完整 xtask test 进行中）
+- [x] 阶段 4: 文档同步（design D3/D6 修正 + book + roadmap + README）
 
 ## 阶段 1: spike（实施前验证假设，勿假设）
-- [ ] 1.1 rustyline 14：`Cmd::AcceptLine` 在自定义 Enter 绑定下是否正常提交整块（vs `AcceptOrInsertLine`）
-- [ ] 1.2 `Cmd::Insert(1, "\n    ")` 在缓冲内插入换行 + 缩进后光标是否正确落缩进后（复用 add-repl-tab-grid-snap 已验的 Insert 光标语义，确认换行同样成立）
-- [ ] 1.3 rustyline 多行缓冲：方向键跨行导航 + 缓冲中段 Enter 的默认行为；确认 `ectx.line()` 返回整块含 `\n`、`ectx.pos()` 是全局偏移
-- [ ] 1.4 bracketed paste：多行粘贴是否整体入单缓冲、粘贴内换行是否**不**触发 Enter handler（不叠加缩进）
-- [ ] 1.5 是否需要 `ReplHelper::Validator` 兜底（handler 未命中时），还是自定义 Enter handler 足矣
+- [x] 1.1 `Cmd::AcceptLine` 无条件提交（command.rs:133-158 `(Cmd::AcceptLine, ..)` → Submit，validator 忽略）✅ 源码坐实
+- [ ] 1.2 `Cmd::Insert(1, "\n    ")` 在缓冲内插换行 + 缩进后光标正确落其后（Insert 光标语义 #257 已 PTY 验；`\n` case 实施后 PTY 复验）
+- [x] 1.3 `ectx.line()` 返回整块含 `\n`、`ectx.pos()` 全局偏移（binding.rs:183/189）✅ 源码坐实；方向键跨行导航 = rustyline 多行默认（实施后 PTY 验）
+- [ ] 1.4 bracketed paste：多行粘贴整体入单缓冲、粘贴内换行**不**触发 Enter handler（不叠加缩进）— 实施后 PTY 验
+- [x] 1.5 **无需 Validator 兜底**：handler 独控（AcceptLine 无条件提交 + 无 handler 回落默认 ENTER 提交单行）✅ 源码坐实 → Validator 保持空 stub
 
 ## 阶段 2: 核心实现
 - [ ] 2.1 `parse_action`（repl_editing.rs）扩 `"accept"` → `Cmd::AcceptLine`、`"newline:<ind>"` → `Cmd::Insert(1, "\n"+ind)`
