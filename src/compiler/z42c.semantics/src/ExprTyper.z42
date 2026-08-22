@@ -2,6 +2,14 @@
 // 持 TypeChecker 反向引用 _tc：跨界经 _tc._stmt（StmtBinder，lambda/局部函数体）、
 // _tc._member（成员调用）、_tc._overload（重载）、_tc._constraints、共享状态 _tc._lambda*、
 // 叶子 _tc._isAssignable/_commonType/_checkOperand/_requireBool/_operatorMethodNameTc/_floatLitType/_diags。
+//
+// refactor-exprtyper-concern-split：本 hub 保留 _bindExpr dispatch + 字面量/ident/index/binary/
+// unary/switch/ternary/ref-arg/array-new·init/lambda-arg/null-cond/interp 等叶子 + 共享脱糖辅助
+// （_freshColl/_typeToTypeExpr，internal）+ 静态谓词（IsCollLit/IsTargetTypedNew）+ 目标类型入口
+// BindWithTarget。按职责分出 4 个绑定簇（各持 _tc 共享 + _et 单向委回，零簇间耦合，复用 ExprEmitter
+// 的 hub-and-spoke 模型）：_coll=CollectionTyper（[..]/{..} 脱糖）、_assign=AssignTyper（赋值 +
+// const·readonly 检查）、_construct=ConstructTyper（new C(args)/new C{...}）、_typeop=TypeOpTyper
+// （(T)x/as/typeof/is）。
 namespace Z42.Semantics;
 using Z42.IR;
 
