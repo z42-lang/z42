@@ -104,7 +104,7 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 5. **fix-z42c-native-named-entry**：z42c `IrGen._nativeIntrinsic` 只识别 positional `[Native("__name")]`（`Args[0] is StringLitExpr`），对 named 短形 `[Native(lib = "L", entry = "E")]`（named args = AssignExpr，z42.compression 8 文件全用）返 "" → 不发 builtin 桩 → `_CompressRaw` 等 extern 在 zpkg 无函数体 → 运行时 undefined。修：扫 named args 取 `entry=` 值发 BuiltinInstr（镜像 C# EmitNativeStub 短形 `TypeName==null → BuiltinInstr(entry)`）。compression 18→10 修。
 
 **S3 dogfood 暴露并修复的 #6 bug（已落地）**：
-6. **fix-z42c-static-call-cross-ns**：z42c 静态调用 `Class.m()` 的 OwnerClass 用 `Qualify`（当前 ns）而非 `QualifyClass`（imported/同包跨-ns aware，查 ImportedClassNs）→ `Std.Archive.Zip.Write` 调 `Deflate.Compress`（`Std.Compression`）被误发 `Std.Archive.Deflate.Compress$1` → undefined。修 `ExprEmitter` 用 QualifyClass（镜像 C# QualifyClassName）。compression 8→4。
+6. **fix-z42c-static-call-cross-ns**：z42c 静态调用 `Class.m()` 的 OwnerClass 用 `Qualify`（当前 ns）而非 `QualifyClass`（imported/同包跨-ns aware，查 ImportedClassNs）→ `Std.Archive.Zip.Write` 调 `Deflate.Compress`（`Std.Compression`）被误发 `Std.Archive.Deflate.Compress$1` → undefined。修 `CallEmitter._emitCall` 用 QualifyClass（镜像 C# QualifyClassName）。compression 8→4。
 
 **S3 dogfood 暴露并修复的 #7 bug（已落地）**：
 7. **fix-z42c-static-field-assign**：z42c `_emitAssign` 无 `BoundStaticGet` LHS 分支 → `Class.staticField = v`（静态字段写）静默丢弃 → 静态字段 mutation 不持久（`Log.SetMinLevel(3)` 后 `GetMinLevel()` 仍返默认 2，3× DiagnosticsFilter/LogFormat）。修：加 `StaticSetInstr` 分支。z42c 自身包静态字段多为只读，mutation 路径未测到。

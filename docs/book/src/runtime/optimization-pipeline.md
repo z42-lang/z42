@@ -77,7 +77,7 @@ z42 源码 ──z42c──> z42 IR
 > 运行时 per-context arena、诊断防线详见 [逃逸分析与栈上分配](escape-analysis-stack-alloc.md)。
 
 > **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
-> 本地非泛型 **sealed 类** → 目标编译期唯一 → `ExprEmitter._emitCall` **emit 时就地**把 `VCallInstr`
+> 本地非泛型 **sealed 类** → 目标编译期唯一 → `CallEmitter._emitCall` **emit 时就地**把 `VCallInstr`
 > 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
 > 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../language/sealed.md)。
 > 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，

@@ -73,7 +73,7 @@ public class Box {
 - **不合成** `__prop_Name` 后备字段（`SymbolCollector` / `ClassDescBuilder` 均 `!HasGetBody` 守卫跳过）。
 - `DeclBinder` 把 getter 块体绑成 `<Class>.get_Name` 的 body（env = `this` + 全字段），`IrGen` 用
   `FunctionEmitter.EmitFunction` 编译成**真实** `get_Name()` 函数（0 逻辑参数、实例）。
-- 使用点 `obj.Name` 与 auto 属性同样派发 `VCall get_Name`（`ExprEmitter` 见 `get_Name` 方法存在即派发），
+- 使用点 `obj.Name` 与 auto 属性同样派发 `VCall get_Name`（`AccessEmitter._emitMember` 见 `get_Name` 方法存在即派发），
   故读取正确走 getter 函数体、不读后备字段。
 
 ---

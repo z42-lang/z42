@@ -1,6 +1,6 @@
 # 访问权限强制（Access control）
 
-> 对齐：2026-08-12（enforce-access-control）｜ 代码：`src/compiler/z42c.semantics/src/AccessChecker.z42` + `MemberResolver.z42` / `ExprTyper.z42`
+> 对齐：2026-08-12（enforce-access-control）｜ 代码：`src/compiler/z42c.semantics/src/AccessChecker.z42` + `MemberResolver.z42` / `ExprTyper.z42`（绑定簇：`AssignTyper` / `ConstructTyper` / `TypeOpTyper`）
 
 z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵循 **C# 语义**，并在编译期
 **强制**：违规成员访问 emit `E0404 AccessViolation`。此前修饰符只被解析、存进符号表与 zpkg 元数据，
@@ -46,7 +46,7 @@ env, symbols, kind, name, span)`：
 | `MemberResolver._bindInstanceMemberCall` | 实例方法调用 |
 | `MemberResolver._bindMember` | 静态字段读 |
 | `MemberResolver._bindMemberCall` | 静态方法调用（`Class.m()`） |
-| `ExprTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖 |
+| `AssignTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖 |
 
 `CheckAccess` 决策（`AccessChecker.z42`）：
 
@@ -121,7 +121,7 @@ bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例�
 
 | 相位 | 位置 | 覆盖引用点 | diag bag |
 |------|------|-----------|---------|
-| 绑定期（体引用） | `TypeChecker._chkTypeRef` ← `StmtBinder`/`ExprTyper` | `new T` / 局部 `T x` / `(T)e` / `e is T` / `e as T` / `typeof(T)` / `default(T)` / `catch(T)` / 泛型实参 | `TypeChecker._diags` |
+| 绑定期（体引用） | `TypeChecker._chkTypeRef` ← `StmtBinder`/`ExprTyper`（`new T` 在 `ConstructTyper`；`(T)e`/`e is T`/`e as T`/`typeof(T)` 在 `TypeOpTyper`） | `new T` / 局部 `T x` / `(T)e` / `e is T` / `e as T` / `typeof(T)` / `default(T)` / `catch(T)` / 泛型实参 | `TypeChecker._diags` |
 | 收集期（声明签名） | `SymbolCollector._chkTypeRef` ← `_fillClass`/`_methodSymbol` | 字段 / 属性 / 索引器类型 / 方法参·返回 / 基类·接口列表 | `SymbolCollector.Diags` |
 
 codegen（`FunctionEmitter` 直呼 `symbols.ResolveTypeP`）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
@@ -141,7 +141,7 @@ z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTy
 - **不误报的保证**：`var` 在 `StmtBinder._varType` 于 `_chkTypeRef` 前被特判过滤；泛型形参经携形参的
   `ResolveTypeP` → `Z42GenericParamType`（非 Unknown）；嵌套类型经 `TypeEnv.ResolveType` 的 `+` 链上溯重试。
   全量 GREEN + 自举 5/5 字节不动点 = 无合法类型误报的权威验证。
-- **`new` 收敛**：`_bindNew`（`ExprTyper`）原对未定义类型另发 `E0401 unknown type in new`，与 E0443 双报；
+- **`new` 收敛**：`_bindNew`（`ConstructTyper`）原对未定义类型另发 `E0401 unknown type in new`，与 E0443 双报；
   已删该特例，`new C()` 统一由 `CheckTypeRef` 报 E0443，与其它位置一致。
 
 ## complete-class-access-control（2026-08-13）——类级访问补齐四项
