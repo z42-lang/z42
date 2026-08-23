@@ -29,10 +29,10 @@ public static class JsonBinder {
     private static object _fromArray(Type t, JsonValue v) {
         Type elem = (Type)t.GetElementType();   // 跨包 imported 返回类型须 cast（footgun）
         int n = v.Count();
-        object arr = JsonReflect.NewArray(elem, n);
+        Array arr = Array.CreateInstance(elem, n);
         int i = 0;
         while (i < n) {
-            JsonReflect.ArraySet(arr, i, JsonBinder.FromJson(elem, v.At(i)));
+            arr.SetValue(JsonBinder.FromJson(elem, v.At(i)), i);   // C# 顺序：value 先、index 后
             i = i + 1;
         }
         return arr;

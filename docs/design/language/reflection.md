@@ -108,9 +108,16 @@ void Demo() {
 | `FieldInfo : MemberInfo` | `Std.Reflection` | `FieldType : Type` / `IsStatic` / `IsPublic` / `IsPrivate` / `GetCustomAttributes()` / `GetAttribute(Type)` |
 | `MethodInfo : MemberInfo` | `Std.Reflection` | `ReturnType : Type` / `IsStatic` / `IsVirtual` / `IsAbstract` / `IsPublic` / `IsPrivate` / `GetParameters()` / **`Invoke(object, object[])`**（0.3.12，非泛型）|
 | `ParameterInfo` | `Std.Reflection` | `Name`（SIGS 权威） / `ParameterType : Type` / `Position` / `IsOptional` / `IsParams` / `DefaultValue` / `GetCustomAttributes()` / `GetAttribute(Type)` |
-| `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` / `GetValue(obj)` / `SetValue(obj, value)` |
+| `PropertyInfo : MemberInfo` | `Std.Reflection` | `PropertyType : Type` / `CanRead` / `CanWrite` / `GetValue(obj)` / `SetValue(obj, value)` / `GetCustomAttributes()` / `GetAttribute(Type)`（add-array-property-reflection-api）|
+| `Array` | `Std`（z42.core）| 反射式数组（照搬 C# `System.Array`，add-array-property-reflection-api）：静态 `CreateInstance(Type, int) → Array` / 实例 `GetValue(int) → object` / `SetValue(object value, int index)` / `Length`（属性）|
 
 `FieldType` / `ReturnType` / `ParameterType` / `BaseType` 返回的都是 `Type` 对象（不是字符串），与 C# 一致。
+
+`PropertyInfo` 的 attr API 镜像 `FieldInfo`：auto-property desugar 出 backing field `__prop_<Name>`，编译器把属性
+attribute 挂其上，native `__property_custom_attributes` 从 accessor-qualified 名剥 `get_`/`set_` 前缀定位该字段读取
+（无持久化属性元数据、无格式 bump）；计算属性无 backing field → 无 attribute。`GetAttribute(Type)` 按运行期类型
+`FullName` 精确匹配。`Std.Array` 反射静态/实例方法绑既有 VM native（`__array_create` / `__array_get` /
+`__array_set`），长度用 `.Length` 属性（VM `Value::Array` 的 FieldGet 分支）。
 
 `Type` 另有静态 **`Type.GetType(string fqn)`**（0.3.12）：完全限定名 → `Type`（未知返 null），补 `typeof`/`obj.GetType()` 的反向查询。
 

@@ -2,51 +2,15 @@ namespace Std.Json;
 using Std;
 using Std.Reflection;
 
-// add-json-serde (2026-08-22)：serde 反射底座。把本次新增的 runtime native 声明为 **z42.json 自有
-// extern**（而非 Std.Array / PropertyInfo 的公开 API）。
+// add-json-serde (2026-08-22)：serde 反射底座。
 //
-// 为什么放这里而不放 z42.core（自举约束，必须遵守）：zbc/zpkg 格式-bump 的**两代自举 gen0** 用
-// **种子 stdlib**（上一 nightly）编译整套 stdlib（含 z42.json）。种子的 `Std.Array` / `PropertyInfo`
-// 尚无本次新增的 API → z42.json 若引用它们会在 gen0 `E0401`（axis② stdlib API 面约束）。声明为本库
-// extern 则编译期只是 extern 声明（native 运行期由**新 VM** 解析），不依赖种子 prelude 的新成员；
-// 属性 attr 的 qualified 名亦由种子**已有**的 `PropertyInfo.__getterQualified` + `Name` 推导，不依赖
-// 新字段。→ 待本 nightly 发布后，可作非-format-bump follow-up 把这些下沉为 Std.Array /
-// PropertyInfo 的公开反射 API，并让 z42.json 改用之。native 注册见 runtime corelib/mod.rs。
+// add-array-property-reflection-api (2026-08-24)：反射式数组建/读写与属性 attribute 已**下沉**为
+// `Std.Array`（静态 `CreateInstance` + 实例 `GetValue`/`SetValue`/`.Length`）与
+// `Std.Reflection.PropertyInfo`（`GetCustomAttributes`/`GetAttribute`）的公开反射 API，本库不再自带
+// 对应 extern（原 `__array_*` / `__property_custom_attributes` 声明已删，调用点改用公开 API）。此处仅保留
+// **集合反射辅助**——它们封装的是已公开的反射 API（`GetGenericArguments`/`Activator`/`MethodInfo.Invoke`/
+// `FieldInfo.GetValue`），z42 反射尚无 `GetMethod(name)`/`GetField(name)` 故本库以「遍历按名取首个匹配」补齐。
 internal static class JsonReflect {
-    // ── 反射式数组建/读写（元素类型只以运行期 Type 已知）───────────────────────────
-    [Native("__array_create")]
-    public static extern object NewArray(Type elementType, int length);
-    [Native("__array_length")]
-    public static extern int ArrayLength(object array);
-    [Native("__array_get")]
-    public static extern object ArrayGet(object array, int index);
-    [Native("__array_set")]
-    public static extern void ArraySet(object array, int index, object value);
-
-    // ── 属性 attribute（挂 __prop_<Name> 背后字段的 field_attributes，无格式 bump）──────
-    [Native("__property_custom_attributes")]
-    public static extern Attribute[] PropAttrs(string qualified);
-
-    // 由 PropertyInfo 现有访问器 qualified（"<Class>.get_<Name>"）+ Name 推导属性 qualified
-    // "<Class>.<Name>"（避免依赖种子无的 PropertyInfo.__qualified 字段）。
-    // 属性上指定类型的 attribute 实例（无则 null）。按运行期 FullName 匹配（子类 attr 亦命中）。
-    // 直接把访问器 qualified（"<Class>.get_<Name>"）交给 native，由 Rust 解析出背后字段
-    // `__prop_<Name>`——避免在 z42 侧对跨包 `__getterQualified` 字段做字符串方法调用（会误 VCall）。
-    public static Attribute PropAttr(PropertyInfo p, Type attrType) {
-        string acc = p.__getterQualified;
-        if (acc == null) { acc = p.__setterQualified; }
-        if (acc == null) { return null; }
-        Attribute[] all = JsonReflect.PropAttrs(acc);
-        int i = 0;
-        while (i < all.Length) {
-            Attribute cur = all[i];
-            Type gt = (Type)cur.GetType();   // local receiver + cast（跨包 imported 返回类型 footgun）
-            if (gt.FullName == attrType.FullName) { return cur; }
-            i = i + 1;
-        }
-        return null;
-    }
-
     // ── 集合反射（List<T> / Dictionary<string,V>，add-collection-serde）─────────────
     // 反射-only：复用既有反射 native（GetGenericArguments / Activator / MethodInfo.Invoke /
     // FieldInfo.GetValue）。z42 反射无 GetMethod(name)/GetField(name) → 遍历按名取首个匹配。

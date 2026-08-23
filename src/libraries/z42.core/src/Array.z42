@@ -37,4 +37,21 @@ public sealed class Array {
 
     [Native("__obj_to_str")]
     public extern string ToString();
+
+    // ── 反射式建/读写（add-array-property-reflection-api）─────────────────────
+    // 照搬 C# System.Array：以运行期 Type 建数组、以实例方法读写元素，供反射式
+    // (de)serialization 在编译期不知元素类型时操作数组。native 绑既有 builtin。
+
+    // C# `Array.CreateInstance(Type, int)`：以元素类型 + 长度建一维数组（元素为该类型默认值）。
+    [Native("__array_create")]
+    public static extern Array CreateInstance(Type elementType, int length);
+
+    // C# `object GetValue(int)`：读元素 index（基元装箱为对应包装类，引用元素原样）。
+    [Native("__array_get")]
+    public extern Object GetValue(int index);
+
+    // C# `void SetValue(object value, int index)`：写 value 到元素 index（value 在前，
+    // 与 C# 原生签名一致；native `__array_set` 按 (array, value, index) 读取）。
+    [Native("__array_set")]
+    public extern void SetValue(Object value, int index);
 }

@@ -292,7 +292,6 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // add-json-serde: reflective array create/get/set/length (build/read/write T[] whose
     // element type is only known as a runtime Type — serde `T[]` support).
     ("__array_create", array::builtin_array_create),
-    ("__array_length", array::builtin_array_length),
     ("__array_get",    array::builtin_array_get),
     ("__array_set",    array::builtin_array_set),
 

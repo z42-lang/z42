@@ -1,0 +1,110 @@
+// add-array-property-reflection-api (2026-08-24): 反射 API 下沉的公开面测试。
+// 覆盖 Std.Array 的 C# 风格反射 API（静态 CreateInstance + 实例 GetValue/SetValue/.Length）
+// 与 Std.Reflection.PropertyInfo 的属性 attribute API（GetCustomAttributes / GetAttribute）。
+namespace Z42CoreReflApiDownsinkTests;
+
+using Std;
+using Std.Test;
+using Std.Reflection;
+
+// D8 后缀；extend 无限定 `Attribute`（via using Std）——限定 `Std.Attribute` 会触发 typechecker
+// FQN-upcast gap（见 reflection.z42:75 注释）。
+class PropTagAttribute : Attribute {
+    public string Note;
+    public PropTagAttribute(string note) { this.Note = note; }
+}
+
+class NoteAttribute : Attribute {
+    public int N;
+    public NoteAttribute(int n) { this.N = n; }
+}
+
+// 带标注 auto-property（desugar 出 backing field `__prop_<Name>`，attribute 挂其上）。
+class TaggedProps {
+    [PropTag("hot")] public string Name { get; set; }   // read-write，带 attr
+    public int Size { get; set; }                        // read-write，无 attr
+    [PropTag("multi")][Note(7)] public bool Flag { get; set; }  // 多 attr
+    public int Doubled { get { return this.Size * 2; } } // 计算属性，无 backing field
+}
+
+// ── Std.Array 反射式 API ─────────────────────────────────────────────────────
+
+[Test]
+void test_array_create_setvalue_getvalue_int() {
+    Array arr = Array.CreateInstance(typeof(int), 3);
+    arr.SetValue(10, 0);   // C# 顺序：value 先、index 后
+    arr.SetValue(20, 1);
+    arr.SetValue(30, 2);
+    Assert.Equal(3, arr.Length);
+    Assert.Equal(10, (int) arr.GetValue(0));
+    Assert.Equal(20, (int) arr.GetValue(1));
+    Assert.Equal(30, (int) arr.GetValue(2));
+}
+
+[Test]
+void test_array_create_reference_type_with_null_slot() {
+    Array arr = Array.CreateInstance(typeof(string), 2);
+    arr.SetValue("a", 0);
+    Assert.Equal(2, arr.Length);
+    Assert.Equal("a", (string) arr.GetValue(0));
+    Assert.Null(arr.GetValue(1));   // 未写入的引用槽为 null
+}
+
+[Test]
+void test_array_downcast_from_object_reads_compiletime_array() {
+    int[] xs = [1, 2, 3];
+    object o = xs;
+    Array a = (Array)o;             // object → Array 下转型成立
+    Assert.Equal(3, a.Length);
+    Assert.Equal(2, (int) a.GetValue(1));
+}
+
+// ── PropertyInfo 属性 attribute ──────────────────────────────────────────────
+
+[Test]
+void test_property_getattribute_hit() {
+    Type t = typeof(TaggedProps);
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Name") {
+            PropTagAttribute tag = (PropTagAttribute) p.GetAttribute(typeof(PropTagAttribute));
+            Assert.NotNull(tag);
+            Assert.Equal("hot", tag.Note);
+        }
+    }
+}
+
+[Test]
+void test_property_getattribute_absent_null() {
+    Type t = typeof(TaggedProps);
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Size") {
+            Assert.Null(p.GetAttribute(typeof(PropTagAttribute)));
+        }
+    }
+}
+
+[Test]
+void test_property_getcustomattributes_computed_empty() {
+    Type t = typeof(TaggedProps);
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Doubled") {
+            // 计算属性无 backing field → 无 attribute（返回空数组，不抛）。
+            Assert.Equal(0, p.GetCustomAttributes().Length);
+        }
+    }
+}
+
+[Test]
+void test_property_getcustomattributes_returns_all() {
+    Type t = typeof(TaggedProps);
+    foreach (var p in t.GetProperties()) {
+        if (p.Name == "Flag") {
+            Std.Attribute[] all = p.GetCustomAttributes();
+            Assert.Equal(2, all.Length);
+            PropTagAttribute pt = (PropTagAttribute) p.GetAttribute(typeof(PropTagAttribute));
+            Assert.Equal("multi", pt.Note);
+            NoteAttribute nt = (NoteAttribute) p.GetAttribute(typeof(NoteAttribute));
+            Assert.Equal(7, nt.N);
+        }
+    }
+}
