@@ -104,3 +104,30 @@ jobs:
               --current bench/results/e2e.json \
               --baseline /tmp/baseline.json \
               --threshold-time 0.10
+
+      # ── expose-diagnostics-counters (script-profiling P1c) ────────────────
+      # INFORMATIONAL allocations probe. Unlike wall-time (±60% cross-runner
+      # noise, see docs/design/testing), `allocations` is deterministic — it is
+      # the intended signal for a future hard alloc-regression gate. This step
+      # only PRINTS the count (per scenario × GC-mode); it never fails the job.
+      # Observe 3-5 rounds of cross-GC-mode stability here before a follow-up
+      # change turns it into a threshold gate (Decision D4). `|| true` guards
+      # every probe so a profiler hiccup can't red the bench job.
+      - name: Allocations probe (informational — never fails)
+        shell: bash
+        run: |
+          set -uo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          export Z42_PORTABLE_VM="$vm"
+          export Z42_LIBS="$PWD/artifacts/build/libraries/dist/release"
+          echo "── allocations (informational; deterministic; not a gate) ──"
+          # alloc-heavy + call-heavy scenarios, each under two GC modes.
+          for scn in bench/scenarios/08_dict_heavy.z42 bench/scenarios/01_fibonacci.z42; do
+            for gc in stw generational; do
+              out="$(Z42_GC_MODE="$gc" "$vm" artifacts/xtask/xtask.zpkg -- \
+                       profile --threads "$scn" --mode interp 2>/dev/null \
+                     | grep -oE 'alloc=[0-9]+' | head -1 || true)"
+              printf 'informational: %-40s gc=%-13s %s\n' "$(basename "$scn")" "$gc" "${out:-alloc=?}"
+            done
+          done
+          echo "── end allocations probe ──"

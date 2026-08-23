@@ -107,7 +107,14 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
     `xtask profile` 展示。仅进 **profile 快照**；暴露到 z42（下条）仍待 P1c。
   - （另：`native_calls`/`exceptions_thrown`/`exceptions_caught` 早于 2026-05-26 已埋点，非"待埋"。）
-- **暴露到 z42**：`Std.Diagnostics.counters()` 返回快照（现 Rust `snapshot()` + `--print-counters` + profile JSON）。**待 P1c**。
+- **暴露到 z42（已落地 expose-diagnostics-counters P1c, 2026-08-23）**：`Std.Diagnostics.RuntimeStats.Counters()`
+  返回一个 `Std.Diagnostics.RuntimeCounters` 值对象（11 只读 auto-property = 7 运行时 counter +
+  `Allocations` + 3 分代 GC 字段），backing builtin `__diag_counters`（`corelib/diagnostics.rs`，append 到
+  `BUILTINS` 末尾，BuiltinId 不移位）。投影来源与 `app.rs` 的 `ProfileSnapshot` 同（`RuntimeCounters::snapshot`
+  + `HeapStats`），故脚本内读值与 `--print-stats-on-exit` JSON 一致。z42.core 的 `Std.HeapStats`（7 字段）
+  保持不动——全景归 Diagnostics.Runtime（决策 D3）。**无格式 bump**（builtin 运行时解析 + `[Native]` 字符串）。
+  - **`allocations` 分配回归 gate**：先 **informational**（CI 打印不 fail，观察 3–5 轮跨 GC-mode 稳定性），
+    稳定后由后续 change 转确定性硬 gate（绝对/相对%）。见 `.github/workflows/bench-pr.yml`。
 
 ---
 

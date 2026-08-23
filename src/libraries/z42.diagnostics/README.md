@@ -1,68 +1,67 @@
 # z42.diagnostics
 
 ## 职责
-全局日志门面 + level filter，输出到 stderr。替代 ad-hoc `Console.WriteLine`
-调试。对标 C# `System.Diagnostics.Trace` + Rust `log` crate（facade only）。
+`Std.Diagnostics` 命名空间——运行时可观测性 stdlib。三个面：**日志门面**（`Log`，level filter，
+输出 stderr）、**堆保留诊断**（`Heap`，「某对象为什么活着 / 被谁钉住」反向图查询）、**运行时计数**
+（`RuntimeStats.Counters()`，把 VM 的 counter + 堆派生快照暴露给 z42 脚本）。
 
-**不包含**：sink 路由（文件 / syslog / OTel）、JSON 格式化、async / batch
-buffering。结构化字段已支持（`LogFields` + `Log.*(msg, fields)` 重载，logfmt
-格式）。v0 仍只单一 stderr 文本 sink。
+**不包含**：日志 sink 路由（文件 / syslog / OTel）、JSON 日志格式化、async / batch buffering；
+完整引用链（堆诊断 L3）；并发探针 / 采样 profiler（脚本性能分析程序 P1b/P2，另库/另面）。
 
-## 核心文件
-| 文件 | 职责 |
-|------|------|
-| `src/LogLevel.z42` | `LogLevel` static class — TRACE/DEBUG/INFO/WARN/ERROR 常量 + `Name(int)` |
-| `src/Log.z42`      | `Log` static class — `Trace/Debug/Info/Warn/Error/SetMinLevel/GetMinLevel/IsEnabled` + 每个 level 一个 `(msg, LogFields)` 重载 |
-| `src/LogFields.z42` | `LogFields` builder — chainable `.Add(key, value)` → 渲染成 ` key="value"` logfmt 后缀；自动 escape `"` 和 `\` |
+## 功能索引
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| 全局日志（TRACE…ERROR + level filter + logfmt 字段） | `Log.z42` 的 `Log.Info(...)` / `Log.*(msg, LogFields)` |
+| 结构化日志字段 builder | `LogFields.z42` 的 `.Add(k, v)` |
+| 堆直接引用者查询（L1） | `Heap.z42` 的 `Heap.DirectReferrers(obj) → Retainer[]` |
+| 堆保留根查询（L2，类别级 GC 根） | `Heap.z42` 的 `Heap.RetainingRoots(obj) → RootRef[]` |
+| 运行时计数快照暴露给脚本 | `RuntimeStats.z42` 的 `RuntimeStats.Counters() → RuntimeCounters` |
 
-## 入口点
+## 基础用法
 
 ```z42
 using Std.Diagnostics;
 
-Log.SetMinLevel(LogLevel.DEBUG);  // 默认 INFO
-
-Log.Trace("entered method");      // < INFO，默认丢弃
-Log.Debug("connecting to " + url);
+// 日志
+Log.SetMinLevel(LogLevel.DEBUG);              // 默认 INFO
 Log.Info("server ready on port " + port.ToString());
-Log.Warn("slow query: " + ms.ToString() + "ms");
-Log.Error("disk full: " + path);
 
-// expensive 日志：先 check
-if (Log.IsEnabled(LogLevel.DEBUG)) {
-    Log.Debug("dump: " + bigObject.ToString());
-}
+// 堆保留诊断（诊断非热路径，每次查询先触发一次 full GC）
+Retainer[] refs = Heap.DirectReferrers(suspect);
+RootRef[]  roots = Heap.RetainingRoots(suspect);
+
+// 运行时计数（脚本自省 alloc / GC / 异常 / JIT 开销，无需外部 scrape stderr JSON）
+RuntimeCounters c = RuntimeStats.Counters();
+Console.WriteLine("allocations so far: " + c.Allocations.ToString());
 ```
 
-## 输出格式
+## 如何测试验证
 
-```
-[INFO 2026-06-03T14:32:31.789Z] connecting to api.example.com
-[ERROR 2026-06-03T14:32:32.123Z] timeout after 1000ms
-```
-
-`[LEVEL ISO8601] message`，写入 stderr（`ConsoleError.WriteLine`），不污染
-stdout 主输出。终端下 level token 自动着色（TRACE 灰 / DEBUG 青 / INFO 绿 /
-WARN 黄 / ERROR 红+粗），非 TTY 或 `NO_COLOR=1` 时透传不带 escape。
-`Ansi.SetEnabled(bool)` 可手动覆盖。
-
-## Level 顺序
-
-```
-TRACE (0) < DEBUG (1) < INFO (2, default) < WARN (3) < ERROR (4)
+```bash
+xtask test stdlib z42.diagnostics    # 本库全部 [Test]（log / heap / runtime counters）
 ```
 
-`SetMinLevel(LogLevel.WARN)` 后只输出 WARN + ERROR。
+RuntimeStats.Counters 的投影单测（Rust 侧 append-only 注册）：`cargo test --manifest-path
+src/runtime/Cargo.toml --release --lib diagnostics`。
+
+## 关联文档
+- 日志设计：`docs/design/stdlib/diagnostics.md`（Deferred 段）
+- 堆保留诊断：change `add-heap-retention-diagnostics`（已归档）
+- 运行时计数暴露：change `expose-diagnostics-counters`（脚本性能分析 P1c）；机制见
+  `docs/design/runtime/diagnostics.md` §5
+- 计数来源（VM 侧）：`src/runtime/src/counters.rs`（`RuntimeCounters`/`ProfileSnapshot`）、
+  `src/runtime/src/corelib/diagnostics.rs`（`__diag_counters` builtin）
+
+## 核心文件
+| 文件 | 职责 |
+|------|------|
+| `src/LogLevel.z42` | `LogLevel` static — TRACE/DEBUG/INFO/WARN/ERROR 常量 + `Name(int)` |
+| `src/Log.z42` | `Log` static — `Trace/Debug/Info/Warn/Error/SetMinLevel/GetMinLevel/IsEnabled` + 每 level 一个 `(msg, LogFields)` 重载 |
+| `src/LogFields.z42` | `LogFields` builder — chainable `.Add(key, value)` → logfmt 后缀（自动 escape）|
+| `src/Heap.z42` | `Heap` static — `DirectReferrers`（L1）/ `RetainingRoots`（L2）堆反向图查询 |
+| `src/Retainer.z42` / `src/RootRef.z42` / `src/RootKind.z42` | 堆诊断结果对象（VM-written）|
+| `src/RuntimeStats.z42` | `RuntimeStats` static — `Counters()` 运行时计数快照入口（`[Native("__diag_counters")]`）|
+| `src/RuntimeCounters.z42` | `Counters()` 返回类型 — 11 只读 auto-property（7 counter + allocations + 3 分代 GC）|
 
 ## 依赖关系
-依赖 `z42.core`（基础类型）+ `z42.io`（`ConsoleError.WriteLine` + `Ansi.*` 颜色助手）+ `z42.time`
-（`DateTime.UtcNow().ToIso8601()` 时间戳）。
-
-## 不在本期 Scope（详 `docs/design/stdlib/diagnostics.md` Deferred）
-
-- Named loggers / scoped loggers（`Log.Get("module.x")`）
-- 多 sink 路由（File / network / OTel exporter）
-- ~~结构化字段（key-value logfmt）~~ ✅ 已落地 2026-05-27 `add-log-structured-fields` —— `LogFields` builder；JSON output 仍延后
-- Async / batch buffering
-- ISO8601 timestamp（等 z42.time 落地 strftime）
-- 颜色编码（terminal capability detection）
+`z42.core`（基础类型）+ `z42.io`（`ConsoleError` + `Ansi` 颜色）+ `z42.time`（ISO8601 时间戳）。

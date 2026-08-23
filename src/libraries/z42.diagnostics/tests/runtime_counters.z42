@@ -1,0 +1,83 @@
+// Std.Diagnostics.RuntimeStats.Counters() —— 运行时计数暴露给 z42 脚本。
+// expose-diagnostics-counters（脚本性能分析 P1c，2026-08-23）。
+namespace Z42DiagnosticsRuntimeCountersTests;
+
+using Std;
+using Std.Test;
+using Std.Diagnostics;
+
+// 一个小堆对象，用来制造确定的分配。
+class Box {
+    public long V;
+}
+
+// ── 全 11 字段可读 ────────────────────────────────────────────────────
+
+[Test]
+void test_counters_all_fields_readable() {
+    RuntimeCounters c = RuntimeStats.Counters();
+    // 全部为非负 long（快照有效 = 投影产出完整 11 字段对象，缺一即 Null → 崩）。
+    Assert.GreaterOrEqual(c.BuiltinCalls, 0);
+    Assert.GreaterOrEqual(c.NativeCalls, 0);
+    Assert.GreaterOrEqual(c.JitMethodsCompiled, 0);
+    Assert.GreaterOrEqual(c.JitCompileUsTotal, 0);
+    Assert.GreaterOrEqual(c.JitNativeFromInterp, 0);
+    Assert.GreaterOrEqual(c.ExceptionsThrown, 0);
+    Assert.GreaterOrEqual(c.ExceptionsCaught, 0);
+    Assert.GreaterOrEqual(c.Allocations, 0);
+    Assert.GreaterOrEqual(c.MinorCollections, 0);
+    Assert.GreaterOrEqual(c.MajorCollections, 0);
+    Assert.GreaterOrEqual(c.ReclaimedBytes, 0);
+}
+
+// ── Allocations 随分配单调增 ───────────────────────────────────────────
+
+[Test]
+void test_allocations_increase_after_alloc() {
+    long a0 = RuntimeStats.Counters().Allocations;
+    // 分配 200 个堆对象。
+    Box[] keep = new Box[200];
+    long i = 0;
+    while (i < 200) {
+        keep[i] = new Box();
+        keep[i].V = i;
+        i = i + 1;
+    }
+    long a1 = RuntimeStats.Counters().Allocations;
+    // 至少涨了（不断言精确增量——内部临时对象数因 GC-mode 而异）。
+    Assert.True(a1 > a0);
+    // keep 存活到此，防止分配被优化掉。
+    Assert.Equal(199, keep[199].V);
+}
+
+// ── 快照单调（同 VM 内后读 >= 先读） ──────────────────────────────────
+
+[Test]
+void test_allocations_monotonic() {
+    long a0 = RuntimeStats.Counters().Allocations;
+    Box b = new Box();
+    b.V = 1;
+    long a1 = RuntimeStats.Counters().Allocations;
+    Assert.GreaterOrEqual(a1, a0);
+    Assert.Equal(1, b.V);
+}
+
+// ── 异常计数字段读取后不回退（单调，mode-independent） ────────────────
+//
+// 注：ExceptionsThrown/Caught 的**增量**埋点在 interp 路径（`interp::fire_exception_*`），
+// JIT 下不递增（已知 gap）——故本测试只断言「读取安全且非回退」（mode-robust），不断言
+// 严格增量。投影字段可读性由 test_counters_all_fields_readable 覆盖。
+[Test]
+void test_exception_fields_monotonic_across_throw() {
+    long t0 = RuntimeStats.Counters().ExceptionsThrown;
+    long c0 = RuntimeStats.Counters().ExceptionsCaught;
+    try {
+        throw new Exception("probe");
+    } catch (Exception e) {
+        // 捕获，忽略。
+    }
+    long t1 = RuntimeStats.Counters().ExceptionsThrown;
+    long c1 = RuntimeStats.Counters().ExceptionsCaught;
+    Assert.GreaterOrEqual(t1, t0);
+    Assert.GreaterOrEqual(c1, c0);
+}
