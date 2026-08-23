@@ -59,7 +59,19 @@
 ## 增量进度
 1A 最小类型检查 ✅ / 1B 运算+控制流 ✅ / 1C 调用+receiver+继承 ✅ / 1D is·as·new·数组 ✅ / 1E 三目·?? ✅ / 2A 泛型类·方法·实例化 ✅ / **2B where 约束求解（可行子集：base-class/class/struct/型参引用+互斥；interface·enum·new()·func 延后）✅**。下一步 codegen（Bound→IR，需先 map z42c.ir，单独 design）。
 
-## ExportedTypeExtractor（port-z42c-tsig，2026-06-10）
+## ExportedTypeExtractor（port-z42c-tsig，2026-06-10；2026-08-24 hub+spoke 分解）
 TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不可迭代）+ 编译器级固定内建面静态表
 （Object 四方法前置 / 11 接口 / GCHandleType / Action·Func·Predicate 委托——镜像 C# SymbolCollector
 prelude 注入，C# 同源字节实测校准）。
+
+**结构**（`refactor-ete-concern-split`，974→269，全 <500，静态类 hub+spoke，同 `DepScan` 变体）：
+
+| 文件 | 职责 | 行 |
+|------|------|----|
+| `src/ExportedTypeExtractor.z42` | **hub**：提取编排入口 Extract*/ExtractFuncs + `_extractCore`（遍历 CU 声明序调各簇）+ 共享叶子 `_unwrap`/`_hasWord`/`_requiredCount`/`_im`（被 ≥2 簇用 → 留 hub） | 269 |
+| `src/ClassExtractor.z42` | 类/结构/接口提取：`_extractClass`（base 链字段·方法合并、override 保留祖先位）/ `_extractInterface` / `_fromSymbol`·`_fromImportedMethod`（method→ExportedMethodZ）/ `_indexOf` | 406 |
+| `src/FuncImplExtractor.z42` | 自由函数 + trait impl 提取：`_extractFunc` / `_extractImpls` + `_fqOf`/`_typeShortName`/`_visFromMods` | 134 |
+| `src/TypeNameResolver.z42` | 类型名解析（纯叶子）：`TsigTypeName`（TypeExpr→TSIG）/ `SurfaceTypeName`·`_resolvedTypeName`（Z42Type→表面拼写）/ `_hybridTypeName`/`_canonName`。**公开面**供 ClassExtractor/FuncImplExtractor 及 `MemberCollector` 调用 | 108 |
+| `src/BuiltinTypeDefs.z42` | 固定 prelude 内建面：`_builtinInterfaces`/`_builtinEnums`/`_builtinDelegates` + `_iface`/`_del`/`_ims`/`_t0`·`_t1`·`_t2` 构造快捷方式 | 121 |
+
+**设计模型**：静态类变体——spoke 与 hub 均 `static class`，用限定静态调（`ClassExtractor._extractClass` / `ExportedTypeExtractor._unwrap`）单向委回，无实例 `_ref` 字段。唯一 spoke→spoke 边 = ClassExtractor / FuncImplExtractor → `TypeNameResolver`（单向进纯叶子工具，干净分层）；其余全经 hub。跨类方法 `private→internal`。

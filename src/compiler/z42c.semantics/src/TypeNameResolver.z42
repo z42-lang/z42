@@ -1,0 +1,108 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 类型名解析（从 ExportedTypeExtractor 分出）：TypeExpr / Z42Type → TSIG 表面拼写。
+// 纯叶子工具，供 ClassExtractor / FuncImplExtractor / MemberCollector（TsigTypeName/SurfaceTypeName）调用。
+public static class TypeNameResolver {
+
+    // 方法/函数**签名**类型名（ret + param）：规范化 prim 名（byte→u8 等）+ 保留数组/nullable 结构。
+    // 镜像 C# FuncToMethod 用 `TypeToString(resolved)`——C# 自 G17c-2 后漂移：方法签名类型走规范名
+    // （ByteWriter.ToBytes 返回 byte[] → TSIG=u8[]，与 SIGS 一致），区别于**字段**仍用源拼写（byte[]，
+    // 见 _extractClass static-field 段用 fd.Type.Dump()）。泛型实参暂回落 Dump（z42c.ir 无泛型签名）。G18d。
+    // 公开（SymbolCollector 回填 OwnField 规范拼写复用）：纯 TypeExpr 函数，无符号表依赖。
+    public static string TsigTypeName(TypeExpr te) {
+        if (te is ArrayType) { return TypeNameResolver.TsigTypeName((te as ArrayType).Elem) + "[]"; }
+        if (te is NullableType) { return TypeNameResolver.TsigTypeName((te as NullableType).Inner) + "?"; }
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            if (nt.ArgCount == 0) { return TypeNameResolver._canonName(nt.Name); }
+            // 泛型实参用 ", " 分隔（镜像 C# TypeToString: string.Join(", ", ...)），避免 Dump() 的无空格格式。
+            string s = nt.Name + "<";
+            int ai = 0;
+            while (ai < nt.ArgCount) {
+                if (ai > 0) { s = s + ", "; }
+                s = s + TypeNameResolver.TsigTypeName(nt.Args[ai]);
+                ai = ai + 1;
+            }
+            return s + ">";
+        }
+        return te.Dump();
+    }
+
+    private static string _tsigTypeName(TypeExpr te) { return TypeNameResolver.TsigTypeName(te); }
+
+    // 解析后 Z42Type → TSIG 规范名（镜像 C# TypeToString：Unknown/Error → sentinel 字符串）。
+    // unify-value-types Phase 1：resolved 类型 → 表面拼写（内建 leaf 回 keyword，非内建逐字复刻
+    // Z42Type.Name()）。供 SymbolCollector 存 OwnFieldSpelling（喂 StructLayout / Tag.FromName /
+    // 反射 TYPE 段），消除翻转后 `int` 字段名漂成 "Int32" 致 Tag.FromName 回落 ref-tag 的 struct
+    // 布局错。与 TSIG 导出同用一条递归，语义一致。
+    public static string SurfaceTypeName(Z42Type t) { return TypeNameResolver._resolvedTypeName(t); }
+
+    internal static string _resolvedTypeName(Z42Type t) {
+        if (t == null || t is Z42UnknownType) { return "unknown"; }
+        if (t is Z42ErrorType) { return "error"; }
+        // unify-value-types Phase 1（TSIG 导出 byte-identical + seed 兼容）：翻转后内建类型 leaf 变
+        // Z42ClassType(wrapper)，Name()="String"/"Int32"/"Double"…；导出元数据须回到 baseline 的 keyword/
+        // 短名拼写（"string"/"int"/"double"…），否则 ① TSIG 与翻转前不逐字节等价，② 上一 nightly 的
+        // baseline seed z42c 冷启动消费本包 TSIG 时不认 wrapper 名 → E0402。数组/泛型实例化/函数类型的
+        // 内建叶子同样泄漏——结构递归到每个 leaf 应用 PrimModel.SurfaceName（对仍是 Z42PrimType 的
+        // imported/字面量混用态亦幂等：SurfaceName 的内建判定按 canonical 名，Prim/ClassType 统一映射）。
+        if (t is Z42ArrayType) { return TypeNameResolver._resolvedTypeName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            string s = it.Def.Name() + "<";
+            int i = 0;
+            while (i < it.ArgCount) {
+                if (i > 0) { s = s + ", "; }
+                s = s + TypeNameResolver._resolvedTypeName(it.TypeArgs[i]);
+                i = i + 1;
+            }
+            return s + ">";
+        }
+        if (t is Z42FuncType) {
+            // 镜像 Z42FuncType.Name()（void→Action[<..>]；否则 Func<..,ret>），但每个 leaf 走 _resolvedTypeName。
+            Z42FuncType ft = t as Z42FuncType;
+            bool isVoid = ft.Ret is Z42VoidType;
+            string s = "Func<";
+            if (isVoid) {
+                if (ft.ParamCount == 0) { return "Action"; }
+                s = "Action<";
+            }
+            int i = 0;
+            while (i < ft.ParamCount) {
+                if (i > 0) { s = s + ", "; }
+                s = s + TypeNameResolver._resolvedTypeName(ft.ParamTypes[i]);
+                i = i + 1;
+            }
+            if (!isVoid) {
+                if (ft.ParamCount > 0) { s = s + ", "; }
+                s = s + TypeNameResolver._resolvedTypeName(ft.Ret);
+            }
+            return s + ">";
+        }
+        string n = t.Name();
+        if (n == "<unknown>") { return "unknown"; }
+        if (n == "<error>") { return "error"; }
+        return PrimModel.SurfaceName(n);
+    }
+
+    // 混合模式：resolved 处理委托规范化（Predicate→Func）；AST nullable 包装补 "?"（z42c ResolveTypeP 擦除 nullable）。
+    internal static string _hybridTypeName(TypeExpr te, Z42Type resolved) {
+        if (te is NullableType) { return TypeNameResolver._resolvedTypeName(resolved) + "?"; }
+        return TypeNameResolver._resolvedTypeName(resolved);
+    }
+
+    // prim 源名 → IR 规范名（镜像 SymbolTable._canonPrim / C# TypeRegistry：仅次要别名归一）。
+    private static string _canonName(string n) {
+        if (n == "byte")   { return "u8"; }
+        if (n == "sbyte")  { return "i8"; }
+        if (n == "short")  { return "i16"; }
+        if (n == "ushort") { return "u16"; }
+        if (n == "uint")   { return "u32"; }
+        if (n == "ulong")  { return "u64"; }
+        return n;
+    }
+}
