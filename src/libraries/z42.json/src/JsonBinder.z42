@@ -1,0 +1,111 @@
+namespace Std.Json;
+using Std;
+using Std.Reflection;
+
+// add-json-serde (2026-08-22)：反序列化反射核。`FromJson(Type, JsonValue)` 按**目标 Type**
+// 递归分派（而非 JSON kind），故 JSON 的整数/浮点能正确落到 int/long/double 目标成员。
+// 构造模型：有无参 ctor（或无 ctor）→ Activator + 按名 SetValue；否则选参数最多的 ctor 按
+// 参数名映射 JSON 键 Invoke（覆盖 record / 只读 auto-prop），再补齐剩余可写成员。
+// 类型覆盖：基元 (int/long/double/bool/string) + 嵌套对象 + 定长数组 T[]。集合/enum/nullable 见 Deferred。
+public static class JsonBinder {
+    public static object FromJson(Type t, JsonValue v) {
+        if (v.IsNull()) { return null; }
+        string fn = t.FullName;
+        // 基元目标：反射 FieldType/PropertyType 的 FullName 用**规范基元名**（"int"/"long"/
+        // "double"/"bool"/"string"），而装箱运行期类型（GetType）用 Std.* 包装类 FQ——两套词汇
+        // 都接受，使成员类型（前者）与顶层 typeof(T)（后者可能）皆命中。
+        if (fn == "int"    || fn == "Std.Int32")   { return (int)v.AsLong(); }
+        if (fn == "long"   || fn == "Std.Int64")   { return v.AsLong(); }
+        if (fn == "double" || fn == "Std.Double")  { return v.AsDouble(); }
+        if (fn == "bool"   || fn == "Std.Boolean") { return v.AsBool(); }
+        if (fn == "string" || fn == "Std.String")  { return v.AsString(); }
+        if (t.IsArray) { return JsonBinder._fromArray(t, v); }
+        return JsonBinder._fromObject(t, v);
+    }
+
+    private static object _fromArray(Type t, JsonValue v) {
+        Type elem = (Type)t.GetElementType();   // 跨包 imported 返回类型须 cast（footgun）
+        int n = v.Count();
+        object arr = JsonReflect.NewArray(elem, n);
+        int i = 0;
+        while (i < n) {
+            JsonReflect.ArraySet(arr, i, JsonBinder.FromJson(elem, v.At(i)));
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    private static object _fromObject(Type t, JsonValue v) {
+        ConstructorInfo[] ctors = t.GetConstructors();
+        ConstructorInfo paramCtor = null;             // 参数最多的 ctor（无无参 ctor 时用）
+        bool hasNoArg = (ctors.Length == 0);          // 无 ctor → Activator 默认构造
+        int i = 0;
+        while (i < ctors.Length) {
+            ConstructorInfo c = ctors[i];
+            int pc = c.GetParameters().Length;
+            if (pc == 0) {
+                hasNoArg = true;
+            } else if (paramCtor == null || pc > paramCtor.GetParameters().Length) {
+                paramCtor = c;
+            }
+            i = i + 1;
+        }
+        if (hasNoArg || paramCtor == null) {
+            return JsonBinder._viaActivator(t, v);
+        }
+        return JsonBinder._viaCtor(t, v, paramCtor);
+    }
+
+    private static object _viaActivator(Type t, JsonValue v) {
+        object obj = Activator.CreateInstance(t);
+        JsonMember[] members = JsonMembers.For(t);
+        int i = 0;
+        while (i < members.Length) {
+            JsonMember m = members[i];
+            if (m.CanWrite && v.ContainsKey(m.JsonKey)) {
+                m.Set(obj, JsonBinder.FromJson(m.MemberType, v.Get(m.JsonKey)));
+            }
+            i = i + 1;
+        }
+        return obj;
+    }
+
+    private static object _viaCtor(Type t, JsonValue v, ConstructorInfo ctor) {
+        ParameterInfo[] ps = ctor.GetParameters();
+        object[] args = new object[ps.Length];
+        int i = 0;
+        while (i < ps.Length) {
+            ParameterInfo p = ps[i];
+            Type pt = (Type)p.ParameterType;   // 跨包 imported 返回类型须 cast（footgun）
+            if (v.ContainsKey(p.Name)) {
+                args[i] = JsonBinder.FromJson(pt, v.Get(p.Name));
+            } else if (p.IsOptional) {
+                args[i] = p.DefaultValue;
+            } else {
+                args[i] = JsonBinder.FromJson(pt, JsonValue.OfNull());
+            }
+            i = i + 1;
+        }
+        object obj = ctor.Invoke(args);
+        // 构造后补齐 JSON 中剩余、非 ctor 参数覆盖的可写成员。
+        JsonMember[] members = JsonMembers.For(t);
+        int j = 0;
+        while (j < members.Length) {
+            JsonMember m = members[j];
+            if (m.CanWrite && v.ContainsKey(m.JsonKey) && !JsonBinder._isCtorParam(m.JsonKey, ps)) {
+                m.Set(obj, JsonBinder.FromJson(m.MemberType, v.Get(m.JsonKey)));
+            }
+            j = j + 1;
+        }
+        return obj;
+    }
+
+    private static bool _isCtorParam(string key, ParameterInfo[] ps) {
+        int i = 0;
+        while (i < ps.Length) {
+            if (ps[i].Name == key) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+}

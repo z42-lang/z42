@@ -130,7 +130,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.4.0 | Pv0 perf 基线刻画（量化已落地的 4-slot IC / JIT I64 特化）| B1 `z42.bench` 包 + B2 `z42b bench` GA | `params` 变长参数 ✅（add-params-varargs，2026-07-01）| L1 stdlib 模块审计 spec | G0 泛型实例化设计 spec |
 | 0.4.1 | Pv1 quickening + 超指令 ‖ Pc1 激活 IrPassManager（const-fold/DCE）| B5 perf 库 baseline 铺面 | `init` + 表达式体属性 | L2 `JsonReader`（合 add-json-streaming-reader）| G1 运行期泛型实例化 |
 | 0.4.2 | **Pv2 JIT 直接 emit 拆箱 + F64 特化（招牌）** ‖ Pc2 intrinsic 表 + devirt pass | B3 e2e 硬门禁 | 索引器 `this[i]` | L2 `JsonSerializer` 非泛型（`[JsonProperty]`）| G2 泛型方法 Invoke + `MakeGenericType` |
-| 0.4.3 | Pv3 Frame 寄存器 HashMap→Vec ‖ Pc3 大类拆分 + BindCall D-11 收尾 | B4 PR 自动评论 diff | 命名实参 | **L2 `Deserialize<T>` 泛型 serde（招牌）** | G3 `Activator.CreateInstance<T>` |
+| 0.4.3 | Pv3 Frame 寄存器 HashMap→Vec ‖ Pc3 大类拆分 + BindCall D-11 收尾 | B4 PR 自动评论 diff | 命名实参 | **L2 `Deserialize<T>` 泛型 serde（招牌）✅ add-json-serde（M2；无格式 bump——属性 attr 复用 field_attributes 挂 `__prop_X` 背后字段）** | G3 `Activator.CreateInstance<T>` |
 | 0.4.4 | Pv4 非原子 refcount（profiling 门控）‖ Pc4 compile-perf phase profiling | — | `partial` class | L3 CLI 值校验 + 全局 flag | — |
 | 0.4.5 | P6 stdlib 脚本 perf 三轮（BigInt/Coll、String/IO、JSON/YAML/TOML）| bench 收尾报告 | — | L3 CLI shell 补全 + L1 审计清单执行 | — |
 | 0.4.6 | — | — | — | **`z42-doc` 文档生成器**（doc comment → HTML/markdown + stdlib 自动发布）| — |
@@ -357,6 +357,10 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | L3-G3a 关联类型 | `where T: IAdd<Output=T>` + zbc 扩展 + 运行时校验 | [language/generics.md](design/language/generics.md) |
+| json-serde 集合类型（json-serde-future-collections）| `List<T>`/`Dictionary<K,V>`/`Set` 的 serde（需泛型容器运行期反射 + Add 反射）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
+| json-serde enum/nullable/char（json-serde-future-enum-nullable-char）| enum（名/底层值）、`T?`、char 的 serde 映射 | [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
+| json-serde 命名策略（json-serde-future-casing-policy）| camelCase↔PascalCase 自动命名策略（workaround：逐成员 `[JsonProperty]`）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
+| serde 公开反射 API 下沉（json-serde-future-public-reflection-api）| 把 `Std.Array` 反射静态 + `PropertyInfo.GetCustomAttributes` 从 z42.json-local extern 下沉为公开 API（本 nightly 发布后的非-format-bump follow-up；gen0 约束见 design）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
 | 数字/Unicode 转义（escape-future-numeric-unicode）| `\uXXXX` / `\xXX` / `\0` 八进制扩展 / `\UXXXXXXXX` 解码；需 hex/oct 解析 + 码点越界诊断。当前（reject-invalid-string-escape 后）这些转义报 E0102，workaround = 源码写字面字符或用 raw 串 | [changes/reject-invalid-string-escape/design.md](spec/changes/reject-invalid-string-escape/design.md) "Deferred / Future Work" 段 |
 | REPL 泛型返回续读（repl-completeness-future-generic-return）| 泛型返回类型函数头 `List<int> foo()` 被 Classifier 漏判为表达式 → 无法多行续读；需 Classifier 泛型感知或 parser submission 模式 | [archive/2026-08-08-add-repl-parser-completeness/design.md](spec/archive/) Deferred 段 |
 | 闭包档 A 完整版 | 任何不逃逸 closure 栈分配（当前仅单变量子集）| [language/closure.md](design/language/closure.md) |

@@ -1,0 +1,71 @@
+namespace Std.Json;
+using Std;
+using Std.Reflection;
+
+// add-json-serde (2026-08-22)：对象 ↔ JSON 序列化引擎（serde M2）。
+//
+// 公开 API：
+//   Serialize(object)         → compact JSON 文本
+//   SerializePretty(object)   → 2 空格缩进 JSON
+//   Deserialize<T>(string)    → T（泛型薄壳，typeof(T) 驱动反射核）
+//   Deserialize(Type, string) → object（非泛型入口，泛型薄壳转发到此）
+//
+// 序列化按对象**运行期类型**递归（多态元素随其真实类型）；反序列化按**目标 Type** 递归
+// （JsonBinder）。成员统一由 JsonMembers 提供（字段 + 属性）；[JsonProperty]/[JsonIgnore] 生效。
+// 机制原理见 docs/book/src/stdlib/json-serde.md。
+public static class JsonSerializer {
+    public static string Serialize(object value) {
+        return JsonValue.Stringify(JsonSerializer._toJson(value));
+    }
+
+    public static string SerializePretty(object value) {
+        return JsonValue.StringifyPretty(JsonSerializer._toJson(value));
+    }
+
+    public static T Deserialize<T>(string json) {
+        return (T)JsonBinder.FromJson(typeof(T), JsonValue.Parse(json));
+    }
+
+    public static object Deserialize(Type type, string json) {
+        return JsonBinder.FromJson(type, JsonValue.Parse(json));
+    }
+
+    // object → JsonValue（按运行期类型分派）。
+    private static JsonValue _toJson(object o) {
+        if (o == null) { return JsonValue.OfNull(); }
+        Type t = (Type)o.GetType();   // 跨包 imported 返回类型须 cast（footgun）
+        string fn = t.FullName;
+        if (fn == "Std.Int32")   { return JsonValue.OfLong((long)(int)o); }
+        if (fn == "Std.Int64")   { return JsonValue.OfLong((long)o); }
+        if (fn == "Std.Double")  { return JsonValue.OfDouble((double)o); }
+        if (fn == "Std.Boolean") { return JsonValue.OfBool((bool)o); }
+        if (fn == "Std.String")  { return JsonValue.OfString((string)o); }
+        if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
+        return JsonSerializer._objectToJson(o, t);
+    }
+
+    private static JsonValue _arrayToJson(object o) {
+        JsonValue arr = JsonValue.OfArray();
+        int n = JsonReflect.ArrayLength(o);
+        int i = 0;
+        while (i < n) {
+            arr.Add(JsonSerializer._toJson(JsonReflect.ArrayGet(o, i)));
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    private static JsonValue _objectToJson(object o, Type t) {
+        JsonValue obj = JsonValue.OfObject();
+        JsonMember[] members = JsonMembers.For(t);
+        int i = 0;
+        while (i < members.Length) {
+            JsonMember m = members[i];
+            if (m.CanRead) {
+                obj.Set(m.JsonKey, JsonSerializer._toJson(m.Get(o)));
+            }
+            i = i + 1;
+        }
+        return obj;
+    }
+}

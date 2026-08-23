@@ -177,6 +177,11 @@ public sealed class ClassDescBuilder {
                 PropertyDecl fpd = mem as PropertyDecl;
                 bool fpdExtern = IrGenFacts._hasWord(fpd.Mods, "extern");
                 bool fpdStatic = IrGenFacts._hasWord(fpd.Mods, "static");
+                // add-json-serde：属性 attribute（如 [JsonProperty]/[JsonIgnore]）挂到合成的背后字段
+                // `__prop_X` 的 .Attrs（复用既有 field_attributes 格式，无格式 bump）。`PropertyInfo.
+                // GetCustomAttributes` 经 __property_custom_attributes 查 `__prop_<Name>` 字段 attr。
+                // 计算属性（HasGetBody，无背后字段）不承载 attribute（M2 已知限制）。
+                IrAttrRef[] prAttrs = this._attrRefs(c.Members[j]);
                 // add-property-getter：计算属性（HasGetBody）无后备字段（getter 是真实函数体）。
                 if (!fpdExtern && !fpd.HasGetBody) {
                     string bfn = "__prop_" + fpd.Name;
@@ -188,6 +193,7 @@ public sealed class ClassDescBuilder {
                             sfields = b3;
                         }
                         IrFieldDesc sbf = new IrFieldDesc(bfn, bft);
+                        sbf.Attrs = prAttrs; sbf.AttrCount = prAttrs.Length;   // add-json-serde：属性 attr 挂背后字段
                         sbf.Visibility = 1;   // auto-prop 后备字段 = private（reconcile：镜像符号侧 OwnFieldVis）
                         sfields[sfcount] = sbf; sfcount = sfcount + 1;
                     } else {
@@ -197,6 +203,7 @@ public sealed class ClassDescBuilder {
                             fields = b4;
                         }
                         IrFieldDesc ibf = new IrFieldDesc(bfn, bft);
+                        ibf.Attrs = prAttrs; ibf.AttrCount = prAttrs.Length;   // add-json-serde：属性 attr 挂背后字段
                         ibf.Visibility = 1;   // 同上：instance 后备字段 private
                         fields[fcount] = ibf; fcount = fcount + 1;
                     }

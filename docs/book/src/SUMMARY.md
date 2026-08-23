@@ -57,6 +57,7 @@
 - [概览](stdlib/README.md)
   - [三层架构与包边界]()
   - [核心包索引]()
+  - [JSON serde（对象 ↔ JSON）](stdlib/json-serde.md)
 
 # 第五部分 · 工具链（Toolchain）
 
