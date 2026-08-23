@@ -71,9 +71,10 @@ string json = JsonSerializer.Serialize(u);          // {"user_name":...,"Age":..
 User back = JsonSerializer.Deserialize<User>(json);  // 反射构造 + 按名回填（user_name → Name）
 ```
 
-类型覆盖：基元（int/long/double/bool/string）+ 嵌套对象 + 定长数组 `T[]`。构造：有无参 ctor →
-`Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `ConstructorInfo.Invoke`（record / 只读
-auto-prop）。List/Dictionary/enum/nullable 见 roadmap Deferred。
+类型覆盖：基元（int/long/double/bool/string）+ 嵌套对象 + 定长数组 `T[]` + **`List<T>`（↔ JSON array）
++ `Dictionary<string,V>`（↔ JSON object，字符串键）**（add-collection-serde，反射-only）。构造：有无参
+ctor → `Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `ConstructorInfo.Invoke`（record / 只读
+auto-prop）。Dict 非字符串键 / Set / enum / nullable 见 roadmap Deferred。
 
 ## 依赖关系
 依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）。无其他 stdlib 依赖。
