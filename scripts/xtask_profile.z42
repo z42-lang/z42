@@ -248,7 +248,9 @@ string _peakRss(ProfileCtx c) {
 // ── small parse helpers ─────────────────────────────────────────────────────
 
 // Scan stderr for the single-line `{"z42vm_counters":1,...}` object and reduce
-// it to a compact "builtin=.. exc=.. jitc=.." summary. Absent → "(none)".
+// it to a compact digest. Covers the RuntimeCounters fields plus the heap-derived
+// numbers merged in by ProfileSnapshot (allocations + GC minor/major/reclaimed,
+// extend-runtime-counters P1a). Absent → "(none)".
 string _counterSummary(string stderr) {
     string[] lines = stderr.Split("\n");
     int i = 0;
@@ -259,7 +261,15 @@ string _counterSummary(string stderr) {
             string n = _jsonNum(ln, "native_calls");
             string jc = _jsonNum(ln, "jit_methods_compiled");
             string et = _jsonNum(ln, "exceptions_thrown");
-            return "builtin=" + b + " native=" + n + " jit_compiled=" + jc + " exc_thrown=" + et;
+            string ec = _jsonNum(ln, "exceptions_caught");
+            string al = _jsonNum(ln, "allocations");
+            string gmin = _jsonNum(ln, "minor_collections");
+            string gmaj = _jsonNum(ln, "major_collections");
+            string rec = _jsonNum(ln, "reclaimed_bytes");
+            return "builtin=" + b + " native=" + n + " jit_compiled=" + jc
+                + " exc_thrown=" + et + " exc_caught=" + ec
+                + " alloc=" + al + " gc_minor=" + gmin + " gc_major=" + gmaj
+                + " reclaimed=" + rec;
         }
         i = i + 1;
     }

@@ -227,8 +227,16 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // --print-stats-on-exit: snapshot counters AFTER vm.run (even on error).
     // JSON form (--stats-format=json) is one line for `xtask profile` to scrape;
     // both go to stderr so program stdout stays the script's own output.
+    // Merge the RuntimeCounters snapshot with heap-owned numbers (allocations +
+    // GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
+    // is complete in a single line/block.
     if opts.print_stats {
-        let snap = ctx.counters().snapshot();
+        let counters = ctx.counters().snapshot();
+        let h = ctx.heap().stats();
+        let snap = crate::counters::ProfileSnapshot::new(
+            counters, h.allocations,
+            h.minor_collections, h.major_collections, h.reclaimed_bytes,
+        );
         if opts.stats_json {
             eprintln!("{}", snap.to_json());
         } else {

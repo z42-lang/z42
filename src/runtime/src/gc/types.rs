@@ -288,8 +288,19 @@ impl PauseHistogram {
 pub struct HeapStats {
     /// Total allocations since heap creation.
     pub allocations:        u64,
-    /// Number of `collect_cycles` / `force_collect` invocations.
+    /// Number of `collect_cycles` / `force_collect` invocations (all-modes
+    /// total, unchanged semantics).
     pub gc_cycles:          u64,
+    /// Generational **minor** (young-gen) collections. Bumped once per
+    /// `run_cycle_collection_minor`. `minor + major` need NOT equal
+    /// `gc_cycles`: an escalated generational cycle bumps `gc_cycles` once but
+    /// both `minor` and `major`; non-generational paths bump only `major`.
+    pub minor_collections:  u64,
+    /// **Major** (whole-heap) collections: generational escalation +
+    /// concurrent mark-sweep + STW full cycle + `force_collect`.
+    pub major_collections:  u64,
+    /// Cumulative bytes reclaimed across all collection cycles (saturating).
+    pub reclaimed_bytes:    u64,
     /// Approximate live bytes. **RC mode caveat**: monotonically increases
     /// (`Rc<T>` drop is not observable); Phase 3 tracing GC will be precise.
     pub used_bytes:         u64,
