@@ -60,6 +60,16 @@
 
 ### H4. Write barrier 在 release 构建下无防护
 
+> **2026-08-23 复核（推进 #1 时发现，待 User 裁决）**：本项与既有设计契约冲突，暂不实施。
+> `arc_heap_tests/write_barriers.rs:64-85` 明确记录：`write_barrier_field` **有意不过滤 primitive**——
+> call site 负责过滤，observer 记录**全部**调用（含 `new_is_heap=false`）以便端到端验证 call-site 是否漏过滤。
+> 在函数开头加无条件 `if !new.is_heap_ref() { return; }` 会破坏该 observability 并使既有测试失效。
+> 且经核实 `maybe_mark_cross_gen_card`（primitive `new` → 即 return）与 `mark_if_unmarked`（primitive → false）
+> **已对 primitive 安全 no-op**，故 H4 并非原文所称的「release 内存安全 bug」，debug_assert 仅是契约违反检测器。
+> **候选处置**：A 却下（现设计合理）/ B 仅在函数头加注释说明 helper 已安全 no-op / C 改写 observer 契约后再加早退。
+
+**（以下为原始记录）**
+
 `src/runtime/src/gc/arc_heap.rs` 的 `write_barrier_field`（约 :1631-1648）靠调用方遵守「仅在 `new.is_heap_ref()` 时调用」的口头契约，唯一防线是 concurrent 模式下的 `debug_assert!`——release 构建被编译掉，违约时静默 no-op。并发标记模式下漏 barrier 是内存安全级 bug。
 
 **修复成本极低**：函数开头无条件 `if !new.is_heap_ref() { return; }`。
@@ -141,7 +151,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 
 | 顺序 | change（建议名） | 覆盖 | 子系统 | 状态 |
 |------|-----------------|------|--------|------|
-| 1 | `fix-runtime-load-order-determinism` | H1（+ H4 write barrier 防护，同为小而硬） | runtime | ☐ |
+| 1 | `fix-runtime-load-order-determinism` | H1 ✅（PR #266）；H4 剥离待裁决（见下） | runtime | 🟢 H1 done |
 | 2 | `refactor-arc-heap-modularization` | H2(arc_heap) + L11 顺带评估 | runtime | ☐ |
 | 3 | `refactor-zbc-reader-split` | H2(zbc_reader) + M3(opcode 表) + M4(zbc_compat) —— **建议在下一次 format bump 前完成** | runtime | ☐ |
 | 4 | `refactor-jit-translate-split` | H2(translate) + H3(semantics 统一 + unsupported 表) —— 反正要大动 JIT 文件，一次收敛三重实现 | runtime | ☐ |
