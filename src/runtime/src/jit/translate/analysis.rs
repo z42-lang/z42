@@ -247,3 +247,16 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
     }
     ok
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// max_reg — largest register index used in a function
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// The highest register **index** used by `func` — the JIT pre-sizes its
+/// register file to this + 1. Thin wrapper over `Function::reg_file_len` (the
+/// COUNT), which is the single source of truth for frame sizing shared with the
+/// interp frame pre-sizing (folds params / every `dst` / exception-table catch
+/// registers). `reg_file_len` is always ≥ 1, so the subtraction never underflows.
+pub(crate) fn max_reg(func: &Function) -> usize {
+    func.reg_file_len() as usize - 1
+}

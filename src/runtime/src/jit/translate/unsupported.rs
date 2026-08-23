@@ -26,3 +26,34 @@ pub(crate) fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
     }
     None
 }
+
+/// Single source of truth for "which opcodes the JIT cannot translate, and why".
+///
+/// converge-vm-arith-semantics (H3): this collapses the two hand-maintained
+/// lists that previously had to be kept in lock-step — the prescan (above) and
+/// the `bail!` arms in `translate_instr`. The prescan loops over this; each
+/// `bail!` arm sources its message from here (`unsupported_reason(instr).expect(..)`),
+/// so the two checkpoints can never drift.
+///
+/// Must take `&Instruction` (not a flat opcode set): the two generic cases are
+/// *conditional* on `method_type_args` — a non-generic `Call`/`VCall` DOES JIT.
+pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
+    Some(match instr {
+        Instruction::CallNative(_)           => "CallNative",
+        Instruction::CallNativeVtable { .. } => "CallNativeVtable",
+        Instruction::PinPtr { .. }           => "PinPtr",
+        Instruction::UnpinPtr { .. }         => "UnpinPtr",
+        Instruction::LoadLocalAddr { .. }    => "LoadLocalAddr",
+        Instruction::LoadElemAddr { .. }     => "LoadElemAddr",
+        Instruction::LoadFieldAddr(_)        => "LoadFieldAddr",
+        // add-generic-methods: method-level generics run on the interpreter for
+        // now (the JIT frame has no method_type_args carrier, and the JIT call
+        // paths don't thread it). A function that *reads* a method type param,
+        // or *makes* a generic call, stays interp — everything else JITs.
+        Instruction::MethodTypeArg { .. }    => "MethodTypeArg (generic method body)",
+        Instruction::MethodDefault { .. }    => "MethodDefault (generic method body)",
+        Instruction::Call(insn)  if !insn.method_type_args.is_empty() => "generic Call",
+        Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
+        _ => return None,
+    })
+}

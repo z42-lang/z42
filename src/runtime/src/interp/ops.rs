@@ -109,11 +109,6 @@ pub(super) fn eval_cmp_i64(op: crate::metadata::superinstr::CmpOp, regs: &[Value
     }
 }
 
-pub(super) fn numeric_lt(regs: &[Value], a: u32, b: u32) -> Result<bool> {
-    let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
-    let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    crate::semantics::numeric_lt(va, vb)
-}
 
 /// Convert a Value to a usize index/size, rejecting negative values.
 pub(super) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
