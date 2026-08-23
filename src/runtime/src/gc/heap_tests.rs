@@ -40,6 +40,9 @@ fn heap_stats_default_is_zero() {
     let s = HeapStats::default();
     assert_eq!(s.allocations,        0);
     assert_eq!(s.gc_cycles,          0);
+    assert_eq!(s.minor_collections,  0);
+    assert_eq!(s.major_collections,  0);
+    assert_eq!(s.reclaimed_bytes,    0);
     assert_eq!(s.used_bytes,         0);
     assert_eq!(s.max_bytes,          None);
     assert_eq!(s.roots_pinned,       0);

@@ -443,3 +443,24 @@ fn release_re_enables_next_collector() {
     let g2 = request_gc_pause(&ctx);
     assert!(g2.is_some(), "second claim after release should succeed");
 }
+
+// extend-runtime-counters P1a: a collection driven through the safepoint path in
+// GenerationalMarkSweep mode bumps `minor_collections` (young-gen), unlike the
+// non-generational path which only bumps `major_collections`.
+#[test]
+fn generational_collection_bumps_minor_counter() {
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(crate::gc::GcMode::GenerationalMarkSweep);
+    assert_eq!(ctx.heap().stats().minor_collections, 0);
+
+    // Drive one real collection via the auto-collect safepoint drain, which
+    // routes to collect_cycles_with_context → the generational minor path.
+    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    check_safepoint(&ctx);
+
+    let s = ctx.heap().stats();
+    assert!(s.minor_collections >= 1,
+        "generational collection should bump minor_collections (got {})", s.minor_collections);
+    assert!(s.gc_cycles >= 1, "gc_cycles must also increment");
+}

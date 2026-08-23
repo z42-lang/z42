@@ -101,7 +101,13 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
   - **gauge**（瞬时值）：堆占用字节、活跃 context 数、已加载类型数、JIT code cache 字节。
   - **histogram**（分布）：编译耗时、GC 暂停、分配大小。
 - **扩覆盖**：`gc_cycles`/`gc_reclaimed_bytes`/`gc_pause_us`(hist)、`types_loaded`、`deopts`、`osr_count`、`allocations`/`alloc_bytes`、`zpkg_loaded`/`zpkg_unloaded`、`contexts_active`(gauge)。
-- **暴露到 z42**：`Std.Diagnostics.counters()` 返回快照（现仅 Rust `snapshot()` + `--print-counters`）。
+  - **已 surface 到 profile 快照（extend-runtime-counters P1a, 2026-08-23）**：`HeapStats` 新增
+    `minor_collections`/`major_collections`/`reclaimed_bytes`（generational 分代拆分；`gc_cycles` 合计语义不变）；
+    `--print-stats-on-exit` 输出点用 `counters::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
+    （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
+    `xtask profile` 展示。仅进 **profile 快照**；暴露到 z42（下条）仍待 P1c。
+  - （另：`native_calls`/`exceptions_thrown`/`exceptions_caught` 早于 2026-05-26 已埋点，非"待埋"。）
+- **暴露到 z42**：`Std.Diagnostics.counters()` 返回快照（现 Rust `snapshot()` + `--print-counters` + profile JSON）。**待 P1c**。
 
 ---
 
