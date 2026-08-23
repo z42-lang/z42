@@ -98,7 +98,7 @@
 
 | 表 | 现状 | 建议 |
 |----|------|------|
-| **opcode / section 常量** | 65 个 `OP_*` 在 zbc_reader.rs:121-198、SEC_* 在 formats.rs:34-43、Instruction 枚举在 bytecode.rs、writer 在 z42c 侧——version-bumping.md 的 5 处同步清单本质是在为这个分散买单 | 集中 `OpcodeInfo` / `SectionInfo` const 表（可与 H2 的 zbc_reader 拆分同 change）；**建议在下一次 zbc format bump 前完成**，直接受益 |
+| **opcode / section 常量** | 65 个 `OP_*` 在 zbc_reader.rs:121-198、SEC_* 在 formats.rs:34-43、Instruction 枚举在 bytecode.rs、writer 在 z42c 侧——version-bumping.md 的 5 处同步清单本质是在为这个分散买单 | ✅ **已落地（refactor-zbc-reader-split）**：`OP_*` + `TAG_*` 收进 `metadata/zbc_reader/opcodes.rs` 单一 reader-side 源（`SEC_*` 早已在 formats.rs）。**刻意不建 `OpcodeInfo`/`SectionInfo` name/metadata 表**——decoder 直接 match 原始字节，runtime 无一处按名迭代 opcode，投机表 = 无消费者的基础设施（philosophy.md 最简实现）。真正的跨语言同步痛点在 z42c writer ↔ Rust reader 两侧，Rust 侧建表不能解，留待出现真实消费者（反汇编器/linter）时再加 |
 | **BUILTINS（442 项，corelib/mod.rs:74-442）↔ stdlib .z42 声明** | 无一致性校验，签名不匹配到运行期才报 "unknown builtin" | VM 启动期 eager validation，或 z42c 编 zpkg 时比对 `[Native]` 声明与 BUILTINS 签名 |
 | **GC 调参魔数** | 90% near-limit、10% throttle（arc_heap.rs:1398-1400）、75% pressure（:1421-1433）、晋升阈值 2（region.rs:115）直接写在条件里 | 收进 `RuntimeConfig::GcTuning`（near_limit_ratio / pressure_ratio / throttle_ratio / promotion_threshold / soft_ref_threshold），调优实验不改代码；参数文档落 book |
 | **native marshal 类型映射** | `dispatch.rs:94-130` `parse_type()` 与 `marshal.rs` 的转换是两处需同步的 match | 合并为一张类型注册表（name / SigType / ffi_type），可自动生成 C header 与文档 |
@@ -107,7 +107,9 @@
 
 reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_reader.rs:336-420、:503-600），无集中判定点。strict-pin 政策下当前问题不大，但每次 minor bump 的改动面比必要的大。
 
-**建议**：`metadata/zbc_compat.rs` 提供 `ZbcVersion::verify()` + `has_feature(Feature)`，section reader 接收版本参数按 feature 分支。
+✅ **已落地（refactor-zbc-reader-split）**：`metadata/zbc_reader/versions.rs` 提供 `verify_zbc_version()` / `verify_zpkg_version()`，把「magic + 精确 major/minor strict-pin」从 4 处 copy-paste（read_zbc + read_zpkg_meta/modules/file_entries）收敛到单一真相源；错误串 byte-identical（`*_rejects_*` 单测断言）。
+
+**刻意不建 `has_feature(Feature)` 版本分支**：strict-pin 下 reader 永远只读唯一当前版本，`(zbc 1.33)` 之类注释只记录字段何时加入、reader 无条件读取——没有任何多版本分支消费者，Feature 抽象 = 无消费者的投机基础设施（philosophy.md）。「1.XX 起有此字段」的注释本就是文档、不是待抽象的分支逻辑。真需要多版本兼容时（若曾放弃 strict-pin）再引入。
 
 ### M5. 解释器内部样板收敛
 
@@ -156,8 +158,8 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 | 顺序 | change（建议名） | 覆盖 | 子系统 | 状态 |
 |------|-----------------|------|--------|------|
 | 1 | `fix-runtime-load-order-determinism` | H1 ✅（PR #266）；H4 剥离待裁决（见下） | runtime | 🟢 H1 done |
-| 2 | `refactor-arc-heap-modularization` | H2(arc_heap) + L11 顺带评估 | runtime | ☐ |
-| 3 | `refactor-zbc-reader-split` | H2(zbc_reader) + M3(opcode 表) + M4(zbc_compat) —— **建议在下一次 format bump 前完成** | runtime | ☐ |
+| 2 | `refactor-arc-heap-modularization` | H2(arc_heap) + L11 顺带评估 | runtime | 🟢 done（PR #269）|
+| 3 | `refactor-zbc-reader-split` | H2(zbc_reader 拆 10 子模块，全 <500) + M3(opcodes 集中，**不建投机 OpcodeInfo 表**) + M4(verify_zbc/zpkg_version 集中 strict-pin，**不建 has_feature**) | runtime | 🟢 done |
 | 4 | `refactor-jit-translate-split` | H2(translate 拆 20 子模块，全 <500) + H3(semantics.rs 单一真相源 + unsupported 表 + 边界 golden 差分) | runtime | 🟢 done（commits a34bed57/804f0fd8/017f4f85）|
 | 5 | `refactor-vm-context-resource-registry` | H2(vm_context) + M2 | runtime | ☐ |
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
