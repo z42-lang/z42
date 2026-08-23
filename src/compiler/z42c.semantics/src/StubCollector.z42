@@ -1,0 +1,193 @@
+// 符号收集 Pass A（骨架 stub）：从 SymbolCollector 分出。接口 / 枚举 / 类 stub / 委托的注册，
+// 使成员类型可解析兄弟类。共享辅助（_unwrap/_hasWord）与编排入口留 hub SymbolCollector，经 _sc 委回。
+namespace Z42.Semantics;
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class StubCollector {
+    private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
+    public StubCollector(SymbolCollector sc) { this._sc = sc; }
+
+    // Pass A-1：枚举类型 + 成员常量（先于类 stub——成员类型解析可能用到枚举）。
+    // 用户 delegate → Z42FuncType（委托类型即函数类型）。非泛型注册；泛型暂跳（运行期擦除）。
+    // _passClassStubs 后调用，使签名 prim/类类型可解析。
+    internal void _passDelegates(SymbolTable table, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is DelegateDecl) {
+                DelegateDecl dd = d as DelegateDecl;
+                if (dd.TypeParams.Count == 0 && !table.Delegates.ContainsKey(dd.Name)) {
+                    Z42Type[] ps = new Z42Type[dd.ParamCount];
+                    int p = 0;
+                    while (p < dd.ParamCount) { ps[p] = table.ResolveType(dd.Params[p].Type); p = p + 1; }
+                    table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, table.ResolveType(dd.RetType)));
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    internal void _passEnums(SymbolTable table, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is EnumDecl) {
+                EnumDecl ed = d as EnumDecl;
+                table.EnumTypes.Put(ed.Name, "enum");
+                long cur = 0;
+                int mi = 0;
+                while (mi < ed.MemberCount) {
+                    EnumMember em = ed.Members[mi];
+                    if (em.HasValue) { cur = this._parseEnumVal(em.Value); }
+                    table.EnumConsts.Put(ed.Name + "." + em.Name, new StrBox(cur.ToString()));
+                    cur = cur + 1;
+                    mi = mi + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private long _parseEnumVal(string s) {
+        long r = 0;
+        int i = 0;
+        bool neg = false;
+        if (s.Length > 0 && s.CharAt(0) == '-') { neg = true; i = 1; }
+        while (i < s.Length) {
+            int d = (int)s.CharAt(i) - 48;
+            r = r * 10 + (long)d;
+            i = i + 1;
+        }
+        if (neg) { r = 0 - r; }
+        return r;
+    }
+
+    // Pass A0：接口 stub（先于类——基表判别要查 Interfaces）（port-z42c-interface）
+    internal void _passInterfaces(SymbolTable table, CompilationUnit cu, string file) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "interface") {
+                    // add-partial-types：同名接口碎片合并（方法经 _fillInterface 并入首碎片；主碎片=首=min-path）。
+                    if (table.Interfaces.ContainsKey(c.Name)) {
+                        Z42InterfaceType prev = table.Interfaces.Get(c.Name) as Z42InterfaceType;
+                        if (c.IsPartial || prev.IsPartial) {
+                            if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
+                            // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
+                        } else {
+                            Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
+                            itw.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                            table.Interfaces.Put(c.Name, itw);
+                        }
+                    } else {
+                        Z42InterfaceType it = new Z42InterfaceType(c.Name);
+                        if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
+                        it.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                        table.Interfaces.Put(c.Name, it);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
+    internal void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
+        // ── Pre-scan：检测同 CU 内同名不同 arity 的类，泛型版需 arity-mangle（镜像 C# NeedsMangle 逻辑）。
+        // firstArityMap[name] = 首次见到的 arity（字符串）；multiArityMap[name] = "1" 若有多个不同 arity。
+        StrMap firstArityMap = new StrMap();
+        StrMap multiArityMap = new StrMap();
+        int pi = 0;
+        while (pi < cu.DeclCount) {
+            Decl pd = this._sc._unwrap(cu.Decls[pi]);
+            if (pd is ClassDecl) {
+                ClassDecl pc = pd as ClassDecl;
+                if (pc.Kind == "class" || pc.Kind == "struct" || pc.Kind == "record") {
+                    string arStr = pc.TypeParams.Count.ToString();
+                    if (firstArityMap.ContainsKey(pc.Name)) {
+                        StrBox fa = firstArityMap.Get(pc.Name) as StrBox;
+                        if (fa.Value != arStr) { multiArityMap.Put(pc.Name, "1"); }
+                    } else {
+                        firstArityMap.Put(pc.Name, new StrBox(arStr));
+                    }
+                }
+            }
+            pi = pi + 1;
+        }
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                    bool hasBase = false;
+                    string baseName = "";
+                    string[] ifaces = new string[c.BaseCount];
+                    int ifc = 0;
+                    int b = 0;
+                    while (b < c.BaseCount) {
+                        string bn = c.Bases[b].Dump();
+                        // 泛型接口查表用裸名（"IComparable<char>" → "IComparable"），
+                        // 存储也用裸名（镜像 C# ExportedTypeExtractor ifaceList.Select(i => i.Name)）。
+                        string bnLookup = bn;
+                        int ltIdx = bn.IndexOf("<");
+                        if (ltIdx >= 0) { bnLookup = bn.Substring(0, ltIdx); }
+                        if (table.Interfaces.ContainsKey(bnLookup)) { ifaces[ifc] = bnLookup; ifc = ifc + 1; }
+                        else if (!hasBase) { hasBase = true; baseName = bn; }
+                        b = b + 1;
+                    }
+                    bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
+                    string key = needsMangle ? c.Name + "$" + c.TypeParams.Count.ToString() : c.Name;
+                    // add-partial-types：同名碎片合并。保留首碎片（发现序=Ordinal 序，首=主碎片 min-path），
+                    // 并入本碎片的 base/接口；均非 partial 时维持既有 last-wins 覆盖（无回归）。
+                    bool collides = table.Classes.ContainsKey(key);
+                    bool mergePartial = collides && (c.IsPartial || (table.Classes.Get(key) as Z42ClassType).IsPartial);
+                    if (mergePartial) {
+                        Z42ClassType prev = table.Classes.Get(key) as Z42ClassType;
+                        if (hasBase) {
+                            if (prev.HasBase && prev.BaseName != baseName) {
+                                this._sc.Diags.Error(DiagnosticCodes.PartialBaseConflict,
+                                    "partial type `" + c.Name + "` declares a base class in more than one fragment", c.Span);
+                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; }
+                        }
+                        int ii = 0;
+                        while (ii < ifc) { if (!this._ctHasIface(prev, ifaces[ii])) { prev.AddInterfaceName(ifaces[ii]); } ii = ii + 1; }
+                        if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
+                        // 保留 prev（首碎片），不覆盖 → 成员按 Ordinal 序累积进同一 CT（_fillClass 各碎片查同名命中此 CT）。
+                    } else {
+                        // 新键 OR 碰撞但均非 partial（后者维持既有 last-wins 覆盖，无回归）。
+                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // ct 的接口集是否已含 name（碎片接口并集 dedup 用）。
+    private bool _ctHasIface(Z42ClassType ct, string name) {
+        int i = 0;
+        while (i < ct.InterfaceCount) { if (ct.InterfaceNames[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 建并注册一条类 stub（新键 / 非-partial 碰撞覆盖共用；抽出避免 z42 函数级作用域下 `ct` 重复声明）。
+    private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
+                               string[] ifaces, int ifc, bool needsMangle, string file) {
+        Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
+        ct.IsSealed = this._sc._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
+        ct.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
+        ct.InterfaceNames = ifaces;
+        ct.InterfaceCount = ifc;
+        if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
+        if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
+        if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
+        table.Classes.Put(key, ct);
+    }
+
+}
