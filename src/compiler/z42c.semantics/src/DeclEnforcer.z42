@@ -1,0 +1,182 @@
+// 声明良构约束簇：从 SymbolCollector 分出。D8 类名后缀强制（attribute/analyzer/generator，E0444/5/7）
+// + partial 类型/方法校验。纯语法/AST 级检查。共享辅助 + partial 状态留 hub SymbolCollector，经 _sc 委回。
+namespace Z42.Semantics;
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class DeclEnforcer {
+    private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
+    public DeclEnforcer(SymbolCollector sc) { this._sc = sc; }
+
+    // attribute-handler-registry PR2（D8 后缀约定）：任何直接以 `Attribute` 基类派生的用户类，其类名
+    // **必须**以 `Attribute` 结尾——用名 `[X]` 剥后缀 ↔ 定义名 `XAttribute` 带后缀，AttributeSynth 按此
+    // 展开合成工厂 `new XAttribute()`。违规 → E0444（把 C# 的软警告 CA1710 提成硬编译错，design D8 注）。
+    // 纯语法检查（NestedFlatten 后遍历 ClassDecl，看直接基类名）；directive（`[Native]`）/ test 家族
+    // 不派生 `Attribute` → 天然豁免；基类 `Attribute` 自身无 `: Attribute` 基 → 不触发。
+    // （Generator/Analyzer 的后缀强制留 PR3/PR4——彼时那两 kind 才成为可加载的真类型。）
+    internal void _passAttributeSuffixEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (this._baseIsAttribute(c) && !c.Name.EndsWith("Attribute")) {
+                    this._sc.Diags.Error(DiagnosticCodes.AttributeSuffixRequired,
+                        "attribute class `" + c.Name + "` must end with `Attribute` suffix (rename to `" + c.Name + "Attribute`; apply it as `[" + c.Name + "]`)", c.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 直接基类里是否有 `Attribute`（或限定 `*.Attribute`）。attribute 基类现实中一律不限定（限定
+    // `Std.Attribute` 触 typechecker FQN-upcast gap，见 reflection.md Deferred），限定分支仅稳妥兜底。
+    private bool _baseIsAttribute(ClassDecl c) {
+        return this._baseHasSimpleName(c, "Attribute");
+    }
+
+    // attribute-handler-registry PR3a（D8 后缀约定，analyzer 侧）：任何直接实现 `Analyzer` 接口的用户类，
+    // 其类名**必须**以 `Analyzer` 结尾（`NoGotoAnalyzer` 等）——handler 靠接口发现、无用名 `[X]`，后缀是
+    // kind 信号（design D8：Generator/Analyzer 后缀 C# 无先例、z42 自创）。违规 → E0445。与 E0444 同为纯
+    // 语法检查（看直接基/接口名，不依赖可解析）；同 3 挂载点。Generator 后缀强制留 PR4（彼时 Generator 成
+    // 可加载真类型）。
+    internal void _passAnalyzerSuffixEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (this._baseHasSimpleName(c, "Analyzer") && !c.Name.EndsWith("Analyzer")) {
+                    this._sc.Diags.Error(DiagnosticCodes.AnalyzerSuffixRequired,
+                        "analyzer class `" + c.Name + "` must end with `Analyzer` suffix (rename to `" + c.Name + "Analyzer`)", c.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // attribute-handler-registry PR4a（D8 后缀约定，generator 侧）：任何直接实现 `Generator`（applied，PR4a）
+    // 或 `ModuleGenerator`（module，PR4c）接口的用户类，其类名**必须**以 `Generator` 结尾（`DeriveGenerator` /
+    // `RouteTableGenerator` 等）——applied generator 靠接口发现、类名剥后缀即触发注解名（`[Derive]`），module
+    // generator 无触发名但共用同一 kind 信号后缀（design D8）。违规 → E0447。与 E0444/E0445 同为纯语法检查
+    // （看直接基/接口名，不依赖可解析）；同 3 挂载点。
+    internal void _passGeneratorSuffixEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                bool isGen = this._baseHasSimpleName(c, "Generator") || this._baseHasSimpleName(c, "ModuleGenerator");
+                if (isGen && !c.Name.EndsWith("Generator")) {
+                    this._sc.Diags.Error(DiagnosticCodes.GeneratorSuffixRequired,
+                        "generator class `" + c.Name + "` must end with `Generator` suffix (rename to `" + c.Name + "Generator`)", c.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 直接基/接口列表里是否有简单名 `name`（或限定 `*.name`）。纯语法（不依赖 base 可解析）——E0444/E0445/
+    // E0447 后缀强制共用；attribute 基类/analyzer·generator 接口现实中都不限定，限定分支仅稳妥兜底。
+    private bool _baseHasSimpleName(ClassDecl c, string name) {
+        int j = 0;
+        while (j < c.BaseCount) {
+            if (c.Bases[j] is NamedType) {
+                string bn = (c.Bases[j] as NamedType).Name;
+                if (bn == name || bn.EndsWith("." + name)) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    // partial 类型校验（AST 级，跨全部 CU 按名分组）：① 全部标 partial ② Kind 一致 ③ 嵌套 partial 报错。
+    // （base 冲突在 _passClassStubs——需接口表分辨 base vs iface；成员重复在 _fillClass。）
+    internal void _passValidatePartial(CompilationUnit[] cus, string[] files, int count) {
+        ClassDecl[] frags = new ClassDecl[16];
+        int nf = 0;
+        int c = 0;
+        while (c < count) {
+            int i = 0;
+            while (i < cus[c].DeclCount) {
+                Decl d = this._sc._unwrap(cus[c].Decls[i]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (nf == frags.Length) {
+                        ClassDecl[] bb = new ClassDecl[frags.Length * 2];
+                        int k = 0; while (k < nf) { bb[k] = frags[k]; k = k + 1; }
+                        frags = bb;
+                    }
+                    frags[nf] = cd; nf = nf + 1;
+                    this._checkNestedPartial(cd);
+                }
+                i = i + 1;
+            }
+            c = c + 1;
+        }
+        StrMap seen = new StrMap();
+        int a = 0;
+        while (a < nf) {
+            string nm = frags[a].Name;
+            if (!seen.ContainsKey(nm)) {
+                seen.Put(nm, "1");
+                int total = 0; int partialN = 0; string firstKind = "";
+                bool kindErr = false; ClassDecl kindReport = frags[a];
+                int b = 0;
+                while (b < nf) {
+                    if (frags[b].Name == nm) {
+                        total = total + 1;
+                        if (frags[b].IsPartial) { partialN = partialN + 1; }
+                        if (firstKind == "") { firstKind = frags[b].Kind; }
+                        else if (frags[b].Kind != firstKind) { kindErr = true; kindReport = frags[b]; }
+                    }
+                    b = b + 1;
+                }
+                if (partialN > 0) {
+                    if (partialN != total) {
+                        this._sc.Diags.Error(DiagnosticCodes.PartialModifierMissing,
+                            "type `" + nm + "` has both partial and non-partial declarations; all must be `partial`", frags[a].Span);
+                    }
+                    if (kindErr) {
+                        this._sc.Diags.Error(DiagnosticCodes.PartialKindMismatch,
+                            "partial type `" + nm + "` declared with mismatched kinds (class/struct/record/interface must agree)", kindReport.Span);
+                    }
+                }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 嵌套类型自身 partial（v1 不支持，design D9）：外层 partial 含嵌套允许；嵌套类**自身**标 partial → 报错。
+    private void _checkNestedPartial(ClassDecl outer) {
+        int i = 0;
+        while (i < outer.MemberCount) {
+            Decl m = this._sc._unwrap(outer.Members[i]);
+            if (m is ClassDecl) {
+                ClassDecl inner = m as ClassDecl;
+                if (inner.IsPartial) {
+                    this._sc.Diags.Error(DiagnosticCodes.PartialNestedUnsupported,
+                        "nested type `" + inner.Name + "` cannot be `partial` (v1 supports partial only on top-level types)", inner.Span);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // partial method 配对校验：每个实现必须有匹配声明（同 canonical 签名）；否则=实现无声明/签名不一致。
+    // decl-only（有声明无实现）→ 已在 _fillClass 擦除，此处不报错（合法擦除）。
+    internal void _passResolvePartialMethods() {
+        string[] implKeys = this._sc._partialImpls.Keys();
+        int i = 0;
+        while (i < implKeys.Length) {
+            if (!this._sc._partialDecls.ContainsKey(implKeys[i])) {
+                MethodDecl implMd = this._sc._partialImpls.Get(implKeys[i]) as MethodDecl;
+                this._sc.Diags.Error(DiagnosticCodes.PartialMethodSigMismatch,
+                    "partial method `" + implMd.Name + "` implementation has no matching declaration (declaration and implementation signatures must match exactly)", implMd.Span);
+            }
+            i = i + 1;
+        }
+    }
+
+}

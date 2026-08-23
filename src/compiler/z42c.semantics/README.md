@@ -18,7 +18,11 @@
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |
 | `src/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
-| `src/SymbolCollector.z42` | Pass 0：两阶段建类 stub → 填字段/方法签名 + 顶层 func；**partial 类型跨碎片合并**（同名碎片并成单一 `Z42ClassType`/`Z42InterfaceType` + 校验 E0430–E0435 + partial method 配对/擦除）；**sealed 语义强制**（`impl-sealed-semantics`：`_passSealedEnforce` 继承 sealed 类 E0427 / override sealed 方法 E0428 / 方法级 sealed 无匹配基 virtual E0429；方法上单写 `sealed`==`sealed override` 简写，2 处 override 识别点认 sealed 参与槽对齐；本地+跨包 `IsSealed`）；**转换运算符**（`add-user-conversions`：op_Implicit/op_Explicit 的 RegKey 附返回类型消歧 `$to$<ret>` 保 (源,目标) 唯一 + ② 声明期冲突检测 E0440）。机制见 [book sealed](../../../docs/book/src/language/sealed.md) |
+| `src/SymbolCollector.z42` | Pass 0 **hub**：3 编排入口（Collect / CollectWithImports / CollectAll）顺序调各簇 pass + imported 种子 + 共享辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol + 静态 IsProtocolExempt/_isConvOp）+ partial 状态。实际 pass 分入下列 4 簇（`refactor-symbolcollector-concern-split`，hub+spoke）。机制见 [book sealed](../../../docs/book/src/language/sealed.md) |
+| `src/StubCollector.z42` | Pass A 骨架簇：interface / enum(+常量) / class stub（arity-mangle + partial 碎片合并）/ delegate 注册——建符号表骨架使成员类型可解析兄弟类 |
+| `src/MemberCollector.z42` | Pass B 成员填充簇：字段/方法/属性/索引器签名 + regKey mangle（stabilize-dispatch-keys）+ **const 收集** + **转换运算符**（op_Implicit/op_Explicit RegKey 附 `$to$<ret>` 消歧 + 声明期冲突 E0440）；含 191 行 `_fillClass` |
+| `src/InheritanceResolver.z42` | 基链解析簇（成员填充后）：override regKey 对齐（D7）+ **sealed 语义强制**（继承 sealed 类 E0427 / override sealed E0428 / 无基 virtual E0429，`sealed`==`sealed override` 简写）+ 继承字段合并 + impl-block 合并 |
+| `src/DeclEnforcer.z42` | 声明良构约束簇：**D8 类名后缀强制**（attribute E0444 / analyzer E0445 / generator E0447）+ **partial 类型/方法校验**（全标 partial / Kind 一致 / 嵌套 partial / method 配对，E0430–E0435） |
 | `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |

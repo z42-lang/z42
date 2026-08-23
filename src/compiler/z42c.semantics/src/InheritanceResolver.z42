@@ -1,0 +1,265 @@
+// 符号收集基链解析簇：从 SymbolCollector 分出。override regKey 对齐 + sealed 强制 + 继承字段合并
+// + impl-block 合并——均在成员填充后跑、依赖 base 链遍历。共享辅助 + 编排入口留 hub，经 _sc 委回。
+namespace Z42.Semantics;
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class InheritanceResolver {
+    private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
+    public InheritanceResolver(SymbolCollector sc) { this._sc = sc; }
+
+    // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
+    // 解析 target（NamedType→已注册类）+ trait（接口名）→ 把方法并入 target.Methods、
+    // trait 并入 target.InterfaceNames。严格校验（接口方法齐备/arity）留待后续。
+    internal void _passImpls(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is ImplDecl) {
+                ImplDecl implD = d as ImplDecl;
+                string targetName = "";
+                if (implD.TargetType is NamedType) { targetName = (implD.TargetType as NamedType).Name; }
+                if (targetName != "" && table.HasClass(targetName)) {
+                    Z42ClassType target = table.GetClass(targetName);
+                    string traitName = "";
+                    if (implD.TraitType is NamedType) { traitName = (implD.TraitType as NamedType).Name; }
+                    if (traitName != "") { target.AddInterfaceName(traitName); }
+                    int m = 0;
+                    while (m < implD.MethodCount) {
+                        if (implD.Methods[m] is MethodDecl) {
+                            MethodDecl md = implD.Methods[m] as MethodDecl;
+                            target.Methods.Put(md.Name, this._sc._methodSymbol(table, md, targetName, new string[0], 0));
+                            target.AddOwnMethod(md.Name, this._sc._hasWord(md.Mods, "virtual"), false);
+                        }
+                        m = m + 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 继承字段合并（_passMembers 后）：把基类链上的实例字段并入派生类 Fields（own-wins，跳 static）。
+    // Z42ClassType.Fields 供 binder env（裸 ident → 字段类型）+ FunctionEmitter（裸 ident → field_get reg0）
+    // 读取；此前仅含自有字段 → 派生类裸访问继承字段（`name = n`）解析失败 → 写入幻影局部 → 运行期 null。
+    // _classDesc 用 AST c.Members 发 TYPE 段字段，不读此表 → 合并不污染字段布局。
+    internal void _passInheritFields(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                    string ctKey = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
+                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    if (ct != null) {
+                        Z42ClassType cur = ct;
+                        while (cur != null && cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName)) {
+                            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+                            if (baseCt == null) { cur = null; }
+                            else {
+                                string[] bfns = baseCt.Fields.Keys();
+                                int k = 0;
+                                while (k < bfns.Length) {
+                                    FieldSymbol bfs = baseCt.Fields.Get(bfns[k]) as FieldSymbol;
+                                    if (bfs != null && !bfs.IsStatic && !ct.Fields.ContainsKey(bfns[k])) {
+                                        ct.Fields.Put(bfns[k], bfs);
+                                    }
+                                    k = k + 1;
+                                }
+                                cur = baseCt;
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // add-type-based-overloads D7（阶段 8 修复，2026-07-01）：override 方法 regKey 对齐。
+    //
+    // 根因：_fillClass 的 mangle 决策（wantMangle）只看**当前类自身**的 arityDup——若 Base 声明两个
+    // 同 arity 重载（如 Handle(int)/Handle(string)）会 mangle 出 Handle$1$i32/Handle$1$string；但
+    // Derived 若只 override 其中一个，Derived 本地只有一个 Handle（arityDup=1）→ 不 mangle → 注册成裸
+    // 名 "Handle"。VM 侧 vtable 合并（TypeDesc::derive_simple_method_name / merge_with_base）按 regKey
+    // 字符串裸匹配 slot——两端 regKey 不一致 ⟹ Derived 的 override 落进一个**新**槽位，Base 的
+    // Handle$1$i32 槽位原样保留 ⟹ 虚派发仍打到 Base 实现（override 语义失效）。
+    //
+    // 修复：override 方法必须复用"最初声明该虚方法"的那层（非 override 的 virtual 声明，或 imported
+    // 基类——无 AST Decl 视为终点）所采用的 regKey，而非依本地 arityDup 独立决策。走 AST Decl.Mods 逐层
+    // 上溯（而非依赖 baseCt.Methods 是否已被本 pass 修正），使结果与 _fillClass 的跨 CU 处理顺序无关。
+    internal void _passFixupOverrides(SymbolTable table, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                    string ctKey = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
+                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    if (ct != null && ct.HasBase) {
+                        int j = 0;
+                        while (j < c.MemberCount) {
+                            Decl mem = this._sc._unwrap(c.Members[j]);
+                            if (mem is MethodDecl) {
+                                MethodDecl md = mem as MethodDecl;
+                                // impl-sealed-semantics-devirt：方法 `sealed`（简写）等价 `sealed override`，
+                                // 同样参与 regKey 槽对齐（否则 override 落新槽、虚派发打不到基实现）。
+                                if (this._sc._hasWord(md.Mods, "override") || this._sc._hasWord(md.Mods, "sealed")) {
+                                    MethodSymbol localSym = ct.Methods.Get(md.RegKey) as MethodSymbol;
+                                    if (localSym != null) {
+                                        MethodSymbol origin = this._findVirtualOrigin(table, ct,
+                                            localSym.Name, localSym.Signature.ParamTypes, localSym.Signature.ParamCount);
+                                        if (origin != null && origin.RegKey != md.RegKey) {
+                                            localSym.RegKey = origin.RegKey;
+                                            md.RegKey = origin.RegKey;
+                                            ct.Methods.Put(origin.RegKey, localSym);   // 旧裸键留存亦无害——
+                                            // OverloadsOf 按 Name 收集，_collectOverloads 再按 RegKey 去重，
+                                            // 两键指向同一（已改写 RegKey 的）对象时天然合并为一个候选。
+                                        }
+                                    }
+                                }
+                            }
+                            j = j + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 沿 base 链逐层上溯，找到（name, paramTypes）对应虚方法**最初**（非 override）声明所在层的
+    // MethodSymbol，返回其 RegKey 作为权威键。imported 基类方法无 AST Decl（HasDecl=false）→ 视为终点
+    // （其 RegKey 即该 imported 包编译时已定案的键，无需也无法继续上溯）。全链找不到匹配 → 返回 null
+    // （不改写，保留 _fillClass 的本地决策——理论上不应发生，`override` 必然对应某个虚方法声明）。
+    private MethodSymbol _findVirtualOrigin(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
+        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
+        Z42ClassType cur = ct;
+        MethodSymbol lastMatch = null;
+        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+        while (more) {
+            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            if (baseCt == null) {
+                more = false;
+            } else {
+                MethodSymbol matchHere = null;
+                string[] keys = baseCt.Methods.Keys();
+                int k = 0;
+                while (k < keys.Length) {
+                    MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
+                    if (sym != null && sym.Name == name) {
+                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
+                        if (symCanon == wantCanon) { matchHere = sym; }
+                    }
+                    k = k + 1;
+                }
+                if (matchHere != null) {
+                    lastMatch = matchHere;
+                    // impl-sealed-semantics-devirt：中间层 `sealed`（简写）也是 override → 继续上溯找最初声明。
+                    bool matchIsOverride = matchHere.HasDecl && matchHere.Decl != null && (this._sc._hasWord(matchHere.Decl.Mods, "override") || this._sc._hasWord(matchHere.Decl.Mods, "sealed"));
+                    if (!matchIsOverride) { more = false; }
+                    else { cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName); }
+                } else {
+                    cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+                }
+            }
+        }
+        return lastMatch;
+    }
+
+    // impl-sealed-semantics-devirt：sealed 语义强制。三项检查（本地 + 跨包，跨包 sealed 性由
+    // ImportedSymbolLoader 从 CLASS_FLAG_SEALED / METHOD_FLAG_SEALED 还原）：
+    //   ① 继承 sealed 类 → E0416
+    //   ② 方法级 sealed（含简写）无匹配基类 virtual → E0418（封死一个非 override 方法无意义）
+    //   ③ override（含 sealed 简写）一个 sealed 基方法 → E0417
+    // 在 _passFixupOverrides 之后运行（regKey/签名已定案），复用 _findVirtualOrigin 的按签名上溯匹配。
+    internal void _passSealedEnforce(SymbolTable table, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                    string ctKey = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
+                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    if (ct != null) {
+                        // ① 继承 sealed 类
+                        if (ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
+                            Z42ClassType baseCt = table.Classes.Get(ct.BaseName) as Z42ClassType;
+                            if (baseCt != null && baseCt.IsSealed) {
+                                this._sc.Diags.Error(DiagnosticCodes.SealedInheritance,
+                                    "cannot inherit from sealed class `" + ct.BaseName + "`", c.Span);
+                            }
+                        }
+                        // ②③ 逐方法
+                        int j = 0;
+                        while (j < c.MemberCount) {
+                            Decl mem = this._sc._unwrap(c.Members[j]);
+                            if (mem is MethodDecl) {
+                                MethodDecl md = mem as MethodDecl;
+                                if (!md.IsCtor) {
+                                    bool mSealed = this._sc._hasWord(md.Mods, "sealed");
+                                    bool mOverride = this._sc._hasWord(md.Mods, "override") || mSealed;
+                                    if (mSealed || mOverride) {
+                                        MethodSymbol localSym = ct.Methods.Get(md.RegKey) as MethodSymbol;
+                                        if (localSym != null) {
+                                            MethodSymbol near = this._nearestBaseMethod(table, ct,
+                                                localSym.Name, localSym.Signature.ParamTypes, localSym.Signature.ParamCount);
+                                            // ② sealed 无基类 virtual
+                                            if (mSealed && near == null) {
+                                                this._sc.Diags.Error(DiagnosticCodes.SealedMethodNoBase,
+                                                    "sealed method `" + localSym.Name + "` must override a base virtual method", md.Span);
+                                            }
+                                            // ③ override 一个 sealed 基方法（含 sealed 简写覆盖 sealed）
+                                            if (near != null && near.IsSealed) {
+                                                this._sc.Diags.Error(DiagnosticCodes.SealedOverride,
+                                                    "cannot override sealed method `" + localSym.Name + "`", md.Span);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            j = j + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 沿 base 链找 (name, paramTypes) 的**最近**匹配 MethodSymbol（用于 sealed override 强制：最近的被
+    // 覆盖方法若 sealed 即非法）。与 _findVirtualOrigin（找**最初**声明）互补：此处首个命中即返回。
+    private MethodSymbol _nearestBaseMethod(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
+        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
+        Z42ClassType cur = ct;
+        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+        while (more) {
+            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            if (baseCt == null) { more = false; }
+            else {
+                string[] keys = baseCt.Methods.Keys();
+                int k = 0;
+                while (k < keys.Length) {
+                    MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
+                    if (sym != null && sym.Name == name) {
+                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
+                        if (symCanon == wantCanon) { return sym; }   // 最近命中即返回
+                    }
+                    k = k + 1;
+                }
+                cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+            }
+        }
+        return null;
+    }
+
+}
