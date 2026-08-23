@@ -109,6 +109,19 @@ prescan 循环调它；`bail!` 臂改为 `bail!(unsupported_reason(instr).expect
 
 ## 模块拆分方案（H2）
 
+> **落地结构（2026-08-23，实际 20 文件，均 <500）**：与下表规划略有出入——按职责分得更细，
+> 且把 leaf 辅助与指令 handler 分开：
+> - **驱动**：`mod.rs`(493)——函数序言 + `TxCtx` 逐块构造 + 按类别穷尽 dispatch + `tr_terminator` 调用。
+> - **上下文**：`ctx.rs`(244)——`TxCtx`（68 个 helper FuncRef 内联为字段，与 `let hr_x` 局部同名 →
+>   field shorthand 构造；弃 HelperRefs 中间结构）+ 6 个宏转方法。
+> - **指令 handler**（`impl TxCtx { fn tr_* }`）：`value` `arith` `compare` `convert` `call`
+>   `array` `object` `structs` `term`。
+> - **Cranelift 发射 leaf**：`emit_int`(178,H3 锚定 i64/bool)、`emit_fc`(304,H3 锚定 f64/convert/const)。
+> - **其它 leaf**：`predicates`(212 谓词+Kind 枚举+field 形状)、`analysis`(262 max_reg/promotable/cache 参与)、
+>   `reg_var`(69 load/store_int/f64)、`ic`(86 站点缓存)、`control`(72 find_handler/safepoint)、
+>   `hoist`(189 循环不变量提升)、`unsupported`(59 不支持指令单表)。
+> 下表为原始规划（arith_emit→emit_int/emit_fc 合并、predicates/analysis/ic 独立、新增 hoist），保留供追溯。
+
 `translate.rs` → `jit/translate/` 目录（`mod.rs` 为薄驱动）：
 
 | 模块 | 承载 | ~行 |
