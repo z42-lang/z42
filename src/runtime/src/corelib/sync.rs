@@ -106,6 +106,13 @@ const TRY_SEND_DISCONNECTED: i64 = 2;
 const TRY_LOCK_OK:           i64 = 0;
 const TRY_LOCK_CONTENDED:    i64 = 1;
 
+// add-concurrency-probes (P1b): user-lock contention probes live in a sibling
+// module (keeps this file under the 500-line limit). `#[cfg]`-gated on
+// `profile-contention`; the default build's helpers are zero-cost forwards.
+#[path = "sync_contention.rs"]
+mod sync_contention;
+use sync_contention::{contended_lock, contended_read, contended_write};
+
 // ── Mutex builtins ────────────────────────────────────────────────────────────
 
 /// `__mutex_new(initial: Value) -> i64 slot_id` — allocate a new Mutex
@@ -137,7 +144,12 @@ pub fn builtin_mutex_lock_acquire(ctx: &VmContext, args: &[Value]) -> Result<Val
     // thread. parking_lot's lock_api permits this pattern — it's the
     // documented escape hatch when MutexGuard lifetime can't be expressed
     // in plain Rust (cross-FFI / cross-builtin call here).
-    let guard = arc.lock();
+    //
+    // add-concurrency-probes (2026-08-23, script-profiling P1b): under the
+    // `profile-contention` feature, a `try_lock` first tells us whether the
+    // acquire was contended (lock already held) and, if so, times the blocking
+    // wait. The default build compiles this out entirely → plain `arc.lock()`.
+    let guard = contended_lock(ctx, &arc);
     let cloned = (*guard).clone();
     // Forget the guard so it does NOT drop and unlock at end of scope.
     std::mem::forget(guard);
@@ -393,7 +405,8 @@ pub fn builtin_rwlock_read_acquire(ctx: &VmContext, args: &[Value]) -> Result<Va
     // SAFETY: parking_lot::RwLock::read is the blocking shared acquire.
     // We mem::forget the guard so it doesn't unlock at scope end and
     // pair release with `force_unlock_read` via the thread-local map.
-    let guard = arc.read();
+    // add-concurrency-probes: `profile-contention` feature times contended reads.
+    let guard = contended_read(ctx, &arc);
     let cloned = (*guard).clone();
     std::mem::forget(guard);
     HELD_RWLOCK_GUARDS.with(|cell| {
@@ -434,7 +447,8 @@ pub fn builtin_rwlock_write_acquire(ctx: &VmContext, args: &[Value]) -> Result<V
     let slot = slot_id_arg(args, 0, "__rwlock_write_acquire")?;
     let arc = ctx.core.rwlocks.lock().get(&slot).cloned()
         .ok_or_else(|| anyhow!("__rwlock_write_acquire: unknown slot id {slot}"))?;
-    let guard = arc.write();
+    // add-concurrency-probes: `profile-contention` feature times contended writes.
+    let guard = contended_write(ctx, &arc);
     let cloned = (*guard).clone();
     std::mem::forget(guard);
     HELD_RWLOCK_GUARDS.with(|cell| {

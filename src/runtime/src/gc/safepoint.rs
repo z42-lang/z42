@@ -168,6 +168,11 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
 /// `Requested → ConcurrentMarking` to signal mutators may resume; only
 /// the final STW handshake (`Marking`) re-parks them.
 fn park_until_idle(ctx: &VmContext) {
+    // add-concurrency-probes (2026-08-23, script-profiling P1b): time how long
+    // this mutator stays parked (STW stall as seen by the stopped thread). This
+    // runs ONLY on the park slow path (an actual GC pause), never on the hot
+    // `check_safepoint` fast path — so it's free to leave always-on.
+    let park_start = std::time::Instant::now();
     ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
     // Acquire the phase lock BEFORE calling notify_all.
     //
@@ -201,6 +206,13 @@ fn park_until_idle(ctx: &VmContext) {
     // against the collector's next re-check.
     ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
+    // Record park duration AFTER releasing the phase lock (park_histogram is a
+    // distinct lock; recording here can't deadlock the collector). Saturating
+    // µs cast is fine — a single park never approaches u64 µs.
+    ctx.core
+        .park_histogram
+        .lock()
+        .record(park_start.elapsed().as_micros() as u64);
 }
 
 // ── add-repl-prewarm (2026-07-29): GC-safe park around a blocking native call ──
