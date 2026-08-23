@@ -3,8 +3,11 @@
 
 use crate::corelib::convert::value_to_str;
 use crate::metadata::Value;
+// converge-vm-arith-semantics (H3): scalar rules come from the single source of
+// truth `crate::semantics` (shared with interp), not a JIT-local copy.
+use crate::semantics;
 use super::super::frame::{JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, int_binop_helper, int_bitop_helper, numeric_lt_helper};
+use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────
 
@@ -34,7 +37,7 @@ pub unsafe extern "C" fn jit_add(
             (Value::Str(sa), Value::Str(sb)) => Value::Str(format!("{}{}", sa, sb).into()),
             (Value::Str(sa), vb) => Value::Str(format!("{}{}", sa, value_to_str(vb)).into()),
             (va, Value::Str(sb)) => Value::Str(format!("{}{}", value_to_str(va), sb).into()),
-            _ => match int_binop_helper(va, vb, i64::wrapping_add, |x, y| x + y) {
+            _ => match semantics::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
                 Ok(r)  => r,
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
             }
@@ -60,7 +63,7 @@ macro_rules! arith_op {
             }
             let va = regs[a as usize].clone();
             let vb = regs[b as usize].clone();
-            match int_binop_helper(&va, &vb, $int_op, $float_op) {
+            match semantics::int_binop(&va, &vb, $int_op, $float_op) {
                 Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
@@ -96,10 +99,10 @@ pub unsafe extern "C" fn jit_div(
     }
     let va = regs[a as usize].clone();
     let vb = regs[b as usize].clone();
-    if matches!(&vb, Value::I64(0)) {
+    if semantics::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "/");
     }
-    match int_binop_helper(&va, &vb, |x, y| x / y, |x, y| x / y) {
+    match semantics::int_binop(&va, &vb, |x, y| x / y, |x, y| x / y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }
@@ -120,10 +123,10 @@ pub unsafe extern "C" fn jit_rem(
     }
     let va = regs[a as usize].clone();
     let vb = regs[b as usize].clone();
-    if matches!(&vb, Value::I64(0)) {
+    if semantics::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "%");
     }
-    match int_binop_helper(&va, &vb, |x, y| x % y, |x, y| x % y) {
+    match semantics::int_binop(&va, &vb, |x, y| x % y, |x, y| x % y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }
@@ -137,8 +140,8 @@ unsafe fn throw_int_div_by_zero(ctx: *const JitModuleCtx, op: &str) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = &*(*ctx).module;
     let exc = crate::exception::make_stdlib_exception(
-        vm_ctx, module, "Std.DivideByZeroException",
-        format!("integer {op} by zero"),
+        vm_ctx, module, semantics::DIV_BY_ZERO_EXC,
+        semantics::div_by_zero_msg(op),
     ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));
     set_exception(vm_ctx, exc);
     1
@@ -190,7 +193,7 @@ macro_rules! cmp_op {
             } else {
                 (regs[a as usize].clone(), regs[b as usize].clone())
             };
-            match numeric_lt_helper(&va, &vb) {
+            match semantics::numeric_lt(&va, &vb) {
                 Ok(r)  => { (*frame).regs[dst as usize] = Value::Bool(if $negate { !r } else { r }); 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
@@ -277,7 +280,7 @@ macro_rules! bitwise_op {
         ) -> u8 {
             let va = (*frame).regs[a as usize].clone();
             let vb = (*frame).regs[b as usize].clone();
-            match int_bitop_helper(&va, &vb, $op) {
+            match semantics::int_bitop(&va, &vb, $op) {
                 Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
