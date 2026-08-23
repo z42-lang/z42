@@ -306,22 +306,31 @@ impl LazyLoader {
     /// covering a query for `Std.Collections`).
     pub(crate) fn candidates_for_namespace(&self, ns: &str) -> Vec<String> {
         let ns_dot = format!("{ns}.");
-        self.declared_zpkgs
+        // common-pitfalls.md §1: `declared_zpkgs` is an FxHashMap (non-deterministic
+        // iteration order); downstream consumers pick candidates first-wins, so sort
+        // by file name for a stable, platform-independent result.
+        let mut out: Vec<String> = self.declared_zpkgs
             .iter()
             .filter(|(file, cand)| {
                 !self.loaded_zpkgs.contains(file.as_str())
                     && cand.namespaces.iter().any(|n| n == ns || n.starts_with(&ns_dot))
             })
             .map(|(file, _)| file.clone())
-            .collect()
+            .collect();
+        out.sort();
+        out
     }
 
     pub(crate) fn remaining_declared(&self) -> Vec<String> {
-        self.declared_zpkgs
+        // common-pitfalls.md §1: sort for deterministic force-load order across
+        // platforms (FxHashMap iteration order is otherwise non-deterministic).
+        let mut out: Vec<String> = self.declared_zpkgs
             .keys()
             .filter(|f| !self.loaded_zpkgs.contains(f.as_str()))
             .cloned()
-            .collect()
+            .collect();
+        out.sort();
+        out
     }
 
     /// Force-load every declared zpkg into `function_table` / `type_registry`.
