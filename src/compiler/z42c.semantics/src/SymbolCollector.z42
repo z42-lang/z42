@@ -1,6 +1,16 @@
 // 符号收集（port-z42c-semantics 1A-3，Pass 0）。CompilationUnit AST → SymbolTable。
 // 两阶段：A 先建类 stub（注册名字，使成员类型可解析兄弟类）→ B 填字段/方法签名 + 顶层 func。
 // 1A 范围：class/struct（字段 + 方法签名，跳 ctor[1D] / property[后续]）+ 顶层 func。
+//
+// 本类是 **hub**：3 个编排入口（CollectWithImports / CollectAll / Collect）顺序调用各簇 pass +
+// imported 符号种子 + 共享叶子辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol/_mergeParams +
+// 静态 IsProtocolExempt/_isConvOp）+ partial 状态（_partialDecls/_partialImpls）。实际 pass 分入 4 簇
+// （refactor-symbolcollector-concern-split，同 ExprEmitter/ExprTyper/FunctionEmitter hub+spoke 模型）：
+//   StubCollector       —— Pass A 骨架：interface/enum/class stub/delegate 注册
+//   MemberCollector     —— Pass B 成员填充：字段/方法/属性/索引器 + regKey mangle + const + 转换运算符
+//   InheritanceResolver —— 基链解析：override regKey 对齐 + sealed 强制 + 继承字段 + impl-block 合并
+//   DeclEnforcer        —— 声明良构约束：D8 后缀强制（attribute/analyzer/generator）+ partial 校验
+// 每簇持 _sc 反向引用、经 _sc 访问共享辅助/状态（零簇间边，所有跨簇流量过 hub）。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
@@ -12,13 +22,23 @@ public sealed class SymbolCollector {
     // 单文件 Collect/CollectWithImports 路径也复用（同文件多 partial 碎片合并同样走这套）。
     public DiagnosticBag Diags;
     // partial method 配对追踪：canonical sig key "Cls#Name(pt,…)" → MethodDecl。decl-only 擦除，impl 需匹配 decl。
-    private StrMap _partialDecls;
-    private StrMap _partialImpls;
+    internal StrMap _partialDecls;
+    internal StrMap _partialImpls;
+    private StubCollector       _stub;      // Pass A：骨架 stub
+    private MemberCollector     _member;    // Pass B：成员填充
+    private InheritanceResolver _inherit;   // 基链解析（override/sealed/继承字段/impl）
+    private DeclEnforcer        _enforce;   // 声明良构约束（后缀 D8 + partial 校验）
+
     public SymbolCollector() {
         this.Diags = new DiagnosticBag();
         this._partialDecls = new StrMap();
         this._partialImpls = new StrMap();
+        this._stub = new StubCollector(this);
+        this._member = new MemberCollector(this);
+        this._inherit = new InheritanceResolver(this);
+        this._enforce = new DeclEnforcer(this);
     }
+
     // imported 符号先 seed，本地声明覆盖（CI-4；镜像 C# SymbolCollector.Collect：MergeImported
     // 在成员收集前——使本地类**字段/方法类型**能解析为兄弟包 imported 类，而非降级 Unknown）。
     // 顺序：本地 interface/class stub → seed imported（guard 跳本地同名，local-wins）→ 成员解析。
@@ -26,23 +46,23 @@ public sealed class SymbolCollector {
     public SymbolTable CollectWithImports(CompilationUnit cu, ImportedSymbols imported) {
         var t = new SymbolTable();
         NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
-        this._passInterfaces(t, cu, "");
-        this._passEnums(t, cu);
+        this._stub._passInterfaces(t, cu, "");
+        this._stub._passEnums(t, cu);
         this._mergeImportedEnums(t, imported);
         this._mergeImportedInterfaces(t, imported);
-        this._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
+        this._stub._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
         this._mergeImports(t, imported);
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
-        this._passDelegates(t, cu);
-        this._passMembers(t, cu);
-        this._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
-        this._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
-        this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
-        this._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
-        this._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
-        this._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
+        this._stub._passDelegates(t, cu);
+        this._member._passMembers(t, cu);
+        this._inherit._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
+        this._inherit._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
+        this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
+        this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
+        this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
-        this._passInheritFields(t, cu);
+        this._inherit._passInheritFields(t, cu);
         return t;
     }
 
@@ -126,603 +146,66 @@ public sealed class SymbolCollector {
         int nf = 0;
         while (nf < cuCount) { NestedFlatten.Flatten(cus[nf]); nf = nf + 1; }   // add-nested-types（幂等，每 cu）
         int c = 0;
-        while (c < cuCount) { this._passInterfaces(table, cus[c], files[c]); c = c + 1; }
+        while (c < cuCount) { this._stub._passInterfaces(table, cus[c], files[c]); c = c + 1; }
         c = 0;
-        while (c < cuCount) { this._passEnums(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._stub._passEnums(table, cus[c]); c = c + 1; }
         this._mergeImportedEnums(table, imported);
         // imported 接口必须在 _passClassStubs 前 seed（基表判别：查 table.Interfaces 区分 iface vs class base）。
         this._mergeImportedInterfaces(table, imported);
         c = 0;
-        while (c < cuCount) { this._passClassStubs(table, cus[c], files[c]); c = c + 1; }
-        this._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
+        while (c < cuCount) { this._stub._passClassStubs(table, cus[c], files[c]); c = c + 1; }
+        this._enforce._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
         // seed imported classes + funcs（成员解析前；G18：兄弟包 imported 类字段/方法类型可解析为 Z42ClassType 而非 Unknown）。
         this._mergeImports(table, imported);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         c = 0;
-        while (c < cuCount) { this._passDelegates(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
         c = 0;
-        while (c < cuCount) { this._passMembers(table, cus[c]); c = c + 1; }
-        this._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
+        while (c < cuCount) { this._member._passMembers(table, cus[c]); c = c + 1; }
+        this._enforce._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
         // add-type-based-overloads D7（阶段 8 修复）：override 方法 regKey 对齐——必须在所有 CU 的
         // _passMembers 全部跑完后再做（跨 CU base/derived 声明序不保证 base 先行，见 _findVirtualOrigin）。
         c = 0;
-        while (c < cuCount) { this._passFixupOverrides(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._inherit._passFixupOverrides(table, cus[c]); c = c + 1; }
         c = 0;
-        while (c < cuCount) { this._passSealedEnforce(table, cus[c]); c = c + 1; }   // impl-sealed-semantics-devirt
+        while (c < cuCount) { this._inherit._passSealedEnforce(table, cus[c]); c = c + 1; }   // impl-sealed-semantics-devirt
         c = 0;
-        while (c < cuCount) { this._passAttributeSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR2（D8 后缀）
+        while (c < cuCount) { this._enforce._passAttributeSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR2（D8 后缀）
         c = 0;
-        while (c < cuCount) { this._passAnalyzerSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR3a（D8 analyzer 后缀）
+        while (c < cuCount) { this._enforce._passAnalyzerSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR3a（D8 analyzer 后缀）
         c = 0;
-        while (c < cuCount) { this._passGeneratorSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR4a（D8 generator 后缀）
+        while (c < cuCount) { this._enforce._passGeneratorSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR4a（D8 generator 后缀）
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
         c = 0;
-        while (c < cuCount) { this._passImpls(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._inherit._passImpls(table, cus[c]); c = c + 1; }
         c = 0;
-        while (c < cuCount) { this._passInheritFields(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._inherit._passInheritFields(table, cus[c]); c = c + 1; }
         return table;
-    }
-
-    // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
-    // 解析 target（NamedType→已注册类）+ trait（接口名）→ 把方法并入 target.Methods、
-    // trait 并入 target.InterfaceNames。严格校验（接口方法齐备/arity）留待后续。
-    private void _passImpls(SymbolTable table, CompilationUnit cu) {
-        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = cu.Decls[i];
-            if (d is ImplDecl) {
-                ImplDecl implD = d as ImplDecl;
-                string targetName = "";
-                if (implD.TargetType is NamedType) { targetName = (implD.TargetType as NamedType).Name; }
-                if (targetName != "" && table.HasClass(targetName)) {
-                    Z42ClassType target = table.GetClass(targetName);
-                    string traitName = "";
-                    if (implD.TraitType is NamedType) { traitName = (implD.TraitType as NamedType).Name; }
-                    if (traitName != "") { target.AddInterfaceName(traitName); }
-                    int m = 0;
-                    while (m < implD.MethodCount) {
-                        if (implD.Methods[m] is MethodDecl) {
-                            MethodDecl md = implD.Methods[m] as MethodDecl;
-                            target.Methods.Put(md.Name, this._methodSymbol(table, md, targetName, new string[0], 0));
-                            target.AddOwnMethod(md.Name, this._hasWord(md.Mods, "virtual"), false);
-                        }
-                        m = m + 1;
-                    }
-                }
-            }
-            i = i + 1;
-        }
     }
 
     public SymbolTable Collect(CompilationUnit cu) {
         var table = new SymbolTable();
         NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
-        this._passInterfaces(table, cu, "");
-        this._passEnums(table, cu);
-        this._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
-        this._passDelegates(table, cu);
-        this._passMembers(table, cu);
-        this._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
-        this._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
-        this._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
-        this._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
-        this._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
-        this._passImpls(table, cu);   // port-z42c-impl-block
-        this._passInheritFields(table, cu);
+        this._stub._passInterfaces(table, cu, "");
+        this._stub._passEnums(table, cu);
+        this._stub._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
+        this._stub._passDelegates(table, cu);
+        this._member._passMembers(table, cu);
+        this._inherit._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
+        this._inherit._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
+        this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
+        this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
+        this._inherit._passImpls(table, cu);   // port-z42c-impl-block
+        this._inherit._passInheritFields(table, cu);
         return table;
     }
 
-    // 继承字段合并（_passMembers 后）：把基类链上的实例字段并入派生类 Fields（own-wins，跳 static）。
-    // Z42ClassType.Fields 供 binder env（裸 ident → 字段类型）+ FunctionEmitter（裸 ident → field_get reg0）
-    // 读取；此前仅含自有字段 → 派生类裸访问继承字段（`name = n`）解析失败 → 写入幻影局部 → 运行期 null。
-    // _classDesc 用 AST c.Members 发 TYPE 段字段，不读此表 → 合并不污染字段布局。
-    private void _passInheritFields(SymbolTable table, CompilationUnit cu) {
-        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
-                    if (ct != null) {
-                        Z42ClassType cur = ct;
-                        while (cur != null && cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName)) {
-                            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
-                            if (baseCt == null) { cur = null; }
-                            else {
-                                string[] bfns = baseCt.Fields.Keys();
-                                int k = 0;
-                                while (k < bfns.Length) {
-                                    FieldSymbol bfs = baseCt.Fields.Get(bfns[k]) as FieldSymbol;
-                                    if (bfs != null && !bfs.IsStatic && !ct.Fields.ContainsKey(bfns[k])) {
-                                        ct.Fields.Put(bfns[k], bfs);
-                                    }
-                                    k = k + 1;
-                                }
-                                cur = baseCt;
-                            }
-                        }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // add-type-based-overloads D7（阶段 8 修复，2026-07-01）：override 方法 regKey 对齐。
-    //
-    // 根因：_fillClass 的 mangle 决策（wantMangle）只看**当前类自身**的 arityDup——若 Base 声明两个
-    // 同 arity 重载（如 Handle(int)/Handle(string)）会 mangle 出 Handle$1$i32/Handle$1$string；但
-    // Derived 若只 override 其中一个，Derived 本地只有一个 Handle（arityDup=1）→ 不 mangle → 注册成裸
-    // 名 "Handle"。VM 侧 vtable 合并（TypeDesc::derive_simple_method_name / merge_with_base）按 regKey
-    // 字符串裸匹配 slot——两端 regKey 不一致 ⟹ Derived 的 override 落进一个**新**槽位，Base 的
-    // Handle$1$i32 槽位原样保留 ⟹ 虚派发仍打到 Base 实现（override 语义失效）。
-    //
-    // 修复：override 方法必须复用"最初声明该虚方法"的那层（非 override 的 virtual 声明，或 imported
-    // 基类——无 AST Decl 视为终点）所采用的 regKey，而非依本地 arityDup 独立决策。走 AST Decl.Mods 逐层
-    // 上溯（而非依赖 baseCt.Methods 是否已被本 pass 修正），使结果与 _fillClass 的跨 CU 处理顺序无关。
-    private void _passFixupOverrides(SymbolTable table, CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
-                    if (ct != null && ct.HasBase) {
-                        int j = 0;
-                        while (j < c.MemberCount) {
-                            Decl mem = this._unwrap(c.Members[j]);
-                            if (mem is MethodDecl) {
-                                MethodDecl md = mem as MethodDecl;
-                                // impl-sealed-semantics-devirt：方法 `sealed`（简写）等价 `sealed override`，
-                                // 同样参与 regKey 槽对齐（否则 override 落新槽、虚派发打不到基实现）。
-                                if (this._hasWord(md.Mods, "override") || this._hasWord(md.Mods, "sealed")) {
-                                    MethodSymbol localSym = ct.Methods.Get(md.RegKey) as MethodSymbol;
-                                    if (localSym != null) {
-                                        MethodSymbol origin = this._findVirtualOrigin(table, ct,
-                                            localSym.Name, localSym.Signature.ParamTypes, localSym.Signature.ParamCount);
-                                        if (origin != null && origin.RegKey != md.RegKey) {
-                                            localSym.RegKey = origin.RegKey;
-                                            md.RegKey = origin.RegKey;
-                                            ct.Methods.Put(origin.RegKey, localSym);   // 旧裸键留存亦无害——
-                                            // OverloadsOf 按 Name 收集，_collectOverloads 再按 RegKey 去重，
-                                            // 两键指向同一（已改写 RegKey 的）对象时天然合并为一个候选。
-                                        }
-                                    }
-                                }
-                            }
-                            j = j + 1;
-                        }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // 沿 base 链逐层上溯，找到（name, paramTypes）对应虚方法**最初**（非 override）声明所在层的
-    // MethodSymbol，返回其 RegKey 作为权威键。imported 基类方法无 AST Decl（HasDecl=false）→ 视为终点
-    // （其 RegKey 即该 imported 包编译时已定案的键，无需也无法继续上溯）。全链找不到匹配 → 返回 null
-    // （不改写，保留 _fillClass 的本地决策——理论上不应发生，`override` 必然对应某个虚方法声明）。
-    private MethodSymbol _findVirtualOrigin(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
-        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
-        Z42ClassType cur = ct;
-        MethodSymbol lastMatch = null;
-        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
-        while (more) {
-            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
-            if (baseCt == null) {
-                more = false;
-            } else {
-                MethodSymbol matchHere = null;
-                string[] keys = baseCt.Methods.Keys();
-                int k = 0;
-                while (k < keys.Length) {
-                    MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
-                    if (sym != null && sym.Name == name) {
-                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
-                        if (symCanon == wantCanon) { matchHere = sym; }
-                    }
-                    k = k + 1;
-                }
-                if (matchHere != null) {
-                    lastMatch = matchHere;
-                    // impl-sealed-semantics-devirt：中间层 `sealed`（简写）也是 override → 继续上溯找最初声明。
-                    bool matchIsOverride = matchHere.HasDecl && matchHere.Decl != null && (this._hasWord(matchHere.Decl.Mods, "override") || this._hasWord(matchHere.Decl.Mods, "sealed"));
-                    if (!matchIsOverride) { more = false; }
-                    else { cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName); }
-                } else {
-                    cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
-                }
-            }
-        }
-        return lastMatch;
-    }
-
-    // impl-sealed-semantics-devirt：sealed 语义强制。三项检查（本地 + 跨包，跨包 sealed 性由
-    // ImportedSymbolLoader 从 CLASS_FLAG_SEALED / METHOD_FLAG_SEALED 还原）：
-    //   ① 继承 sealed 类 → E0416
-    //   ② 方法级 sealed（含简写）无匹配基类 virtual → E0418（封死一个非 override 方法无意义）
-    //   ③ override（含 sealed 简写）一个 sealed 基方法 → E0417
-    // 在 _passFixupOverrides 之后运行（regKey/签名已定案），复用 _findVirtualOrigin 的按签名上溯匹配。
-    private void _passSealedEnforce(SymbolTable table, CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
-                    if (ct != null) {
-                        // ① 继承 sealed 类
-                        if (ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
-                            Z42ClassType baseCt = table.Classes.Get(ct.BaseName) as Z42ClassType;
-                            if (baseCt != null && baseCt.IsSealed) {
-                                this.Diags.Error(DiagnosticCodes.SealedInheritance,
-                                    "cannot inherit from sealed class `" + ct.BaseName + "`", c.Span);
-                            }
-                        }
-                        // ②③ 逐方法
-                        int j = 0;
-                        while (j < c.MemberCount) {
-                            Decl mem = this._unwrap(c.Members[j]);
-                            if (mem is MethodDecl) {
-                                MethodDecl md = mem as MethodDecl;
-                                if (!md.IsCtor) {
-                                    bool mSealed = this._hasWord(md.Mods, "sealed");
-                                    bool mOverride = this._hasWord(md.Mods, "override") || mSealed;
-                                    if (mSealed || mOverride) {
-                                        MethodSymbol localSym = ct.Methods.Get(md.RegKey) as MethodSymbol;
-                                        if (localSym != null) {
-                                            MethodSymbol near = this._nearestBaseMethod(table, ct,
-                                                localSym.Name, localSym.Signature.ParamTypes, localSym.Signature.ParamCount);
-                                            // ② sealed 无基类 virtual
-                                            if (mSealed && near == null) {
-                                                this.Diags.Error(DiagnosticCodes.SealedMethodNoBase,
-                                                    "sealed method `" + localSym.Name + "` must override a base virtual method", md.Span);
-                                            }
-                                            // ③ override 一个 sealed 基方法（含 sealed 简写覆盖 sealed）
-                                            if (near != null && near.IsSealed) {
-                                                this.Diags.Error(DiagnosticCodes.SealedOverride,
-                                                    "cannot override sealed method `" + localSym.Name + "`", md.Span);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            j = j + 1;
-                        }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // attribute-handler-registry PR2（D8 后缀约定）：任何直接以 `Attribute` 基类派生的用户类，其类名
-    // **必须**以 `Attribute` 结尾——用名 `[X]` 剥后缀 ↔ 定义名 `XAttribute` 带后缀，AttributeSynth 按此
-    // 展开合成工厂 `new XAttribute()`。违规 → E0444（把 C# 的软警告 CA1710 提成硬编译错，design D8 注）。
-    // 纯语法检查（NestedFlatten 后遍历 ClassDecl，看直接基类名）；directive（`[Native]`）/ test 家族
-    // 不派生 `Attribute` → 天然豁免；基类 `Attribute` 自身无 `: Attribute` 基 → 不触发。
-    // （Generator/Analyzer 的后缀强制留 PR3/PR4——彼时那两 kind 才成为可加载的真类型。）
-    private void _passAttributeSuffixEnforce(CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (this._baseIsAttribute(c) && !c.Name.EndsWith("Attribute")) {
-                    this.Diags.Error(DiagnosticCodes.AttributeSuffixRequired,
-                        "attribute class `" + c.Name + "` must end with `Attribute` suffix (rename to `" + c.Name + "Attribute`; apply it as `[" + c.Name + "]`)", c.Span);
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // 直接基类里是否有 `Attribute`（或限定 `*.Attribute`）。attribute 基类现实中一律不限定（限定
-    // `Std.Attribute` 触 typechecker FQN-upcast gap，见 reflection.md Deferred），限定分支仅稳妥兜底。
-    private bool _baseIsAttribute(ClassDecl c) {
-        return this._baseHasSimpleName(c, "Attribute");
-    }
-
-    // attribute-handler-registry PR3a（D8 后缀约定，analyzer 侧）：任何直接实现 `Analyzer` 接口的用户类，
-    // 其类名**必须**以 `Analyzer` 结尾（`NoGotoAnalyzer` 等）——handler 靠接口发现、无用名 `[X]`，后缀是
-    // kind 信号（design D8：Generator/Analyzer 后缀 C# 无先例、z42 自创）。违规 → E0445。与 E0444 同为纯
-    // 语法检查（看直接基/接口名，不依赖可解析）；同 3 挂载点。Generator 后缀强制留 PR4（彼时 Generator 成
-    // 可加载真类型）。
-    private void _passAnalyzerSuffixEnforce(CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (this._baseHasSimpleName(c, "Analyzer") && !c.Name.EndsWith("Analyzer")) {
-                    this.Diags.Error(DiagnosticCodes.AnalyzerSuffixRequired,
-                        "analyzer class `" + c.Name + "` must end with `Analyzer` suffix (rename to `" + c.Name + "Analyzer`)", c.Span);
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // attribute-handler-registry PR4a（D8 后缀约定，generator 侧）：任何直接实现 `Generator`（applied，PR4a）
-    // 或 `ModuleGenerator`（module，PR4c）接口的用户类，其类名**必须**以 `Generator` 结尾（`DeriveGenerator` /
-    // `RouteTableGenerator` 等）——applied generator 靠接口发现、类名剥后缀即触发注解名（`[Derive]`），module
-    // generator 无触发名但共用同一 kind 信号后缀（design D8）。违规 → E0447。与 E0444/E0445 同为纯语法检查
-    // （看直接基/接口名，不依赖可解析）；同 3 挂载点。
-    private void _passGeneratorSuffixEnforce(CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                bool isGen = this._baseHasSimpleName(c, "Generator") || this._baseHasSimpleName(c, "ModuleGenerator");
-                if (isGen && !c.Name.EndsWith("Generator")) {
-                    this.Diags.Error(DiagnosticCodes.GeneratorSuffixRequired,
-                        "generator class `" + c.Name + "` must end with `Generator` suffix (rename to `" + c.Name + "Generator`)", c.Span);
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // 直接基/接口列表里是否有简单名 `name`（或限定 `*.name`）。纯语法（不依赖 base 可解析）——E0444/E0445/
-    // E0447 后缀强制共用；attribute 基类/analyzer·generator 接口现实中都不限定，限定分支仅稳妥兜底。
-    private bool _baseHasSimpleName(ClassDecl c, string name) {
-        int j = 0;
-        while (j < c.BaseCount) {
-            if (c.Bases[j] is NamedType) {
-                string bn = (c.Bases[j] as NamedType).Name;
-                if (bn == name || bn.EndsWith("." + name)) { return true; }
-            }
-            j = j + 1;
-        }
-        return false;
-    }
-
-    // 沿 base 链找 (name, paramTypes) 的**最近**匹配 MethodSymbol（用于 sealed override 强制：最近的被
-    // 覆盖方法若 sealed 即非法）。与 _findVirtualOrigin（找**最初**声明）互补：此处首个命中即返回。
-    private MethodSymbol _nearestBaseMethod(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
-        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
-        Z42ClassType cur = ct;
-        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
-        while (more) {
-            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
-            if (baseCt == null) { more = false; }
-            else {
-                string[] keys = baseCt.Methods.Keys();
-                int k = 0;
-                while (k < keys.Length) {
-                    MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
-                    if (sym != null && sym.Name == name) {
-                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
-                        if (symCanon == wantCanon) { return sym; }   // 最近命中即返回
-                    }
-                    k = k + 1;
-                }
-                cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
-            }
-        }
-        return null;
-    }
-
-    // Pass A-1：枚举类型 + 成员常量（先于类 stub——成员类型解析可能用到枚举）。
-    // 用户 delegate → Z42FuncType（委托类型即函数类型）。非泛型注册；泛型暂跳（运行期擦除）。
-    // _passClassStubs 后调用，使签名 prim/类类型可解析。
-    private void _passDelegates(SymbolTable table, CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is DelegateDecl) {
-                DelegateDecl dd = d as DelegateDecl;
-                if (dd.TypeParams.Count == 0 && !table.Delegates.ContainsKey(dd.Name)) {
-                    Z42Type[] ps = new Z42Type[dd.ParamCount];
-                    int p = 0;
-                    while (p < dd.ParamCount) { ps[p] = table.ResolveType(dd.Params[p].Type); p = p + 1; }
-                    table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, table.ResolveType(dd.RetType)));
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    private void _passEnums(SymbolTable table, CompilationUnit cu) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is EnumDecl) {
-                EnumDecl ed = d as EnumDecl;
-                table.EnumTypes.Put(ed.Name, "enum");
-                long cur = 0;
-                int mi = 0;
-                while (mi < ed.MemberCount) {
-                    EnumMember em = ed.Members[mi];
-                    if (em.HasValue) { cur = this._parseEnumVal(em.Value); }
-                    table.EnumConsts.Put(ed.Name + "." + em.Name, new StrBox(cur.ToString()));
-                    cur = cur + 1;
-                    mi = mi + 1;
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    private long _parseEnumVal(string s) {
-        long r = 0;
-        int i = 0;
-        bool neg = false;
-        if (s.Length > 0 && s.CharAt(0) == '-') { neg = true; i = 1; }
-        while (i < s.Length) {
-            int d = (int)s.CharAt(i) - 48;
-            r = r * 10 + (long)d;
-            i = i + 1;
-        }
-        if (neg) { r = 0 - r; }
-        return r;
-    }
-
-    // Pass A0：接口 stub（先于类——基表判别要查 Interfaces）（port-z42c-interface）
-    private void _passInterfaces(SymbolTable table, CompilationUnit cu, string file) {
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "interface") {
-                    // add-partial-types：同名接口碎片合并（方法经 _fillInterface 并入首碎片；主碎片=首=min-path）。
-                    if (table.Interfaces.ContainsKey(c.Name)) {
-                        Z42InterfaceType prev = table.Interfaces.Get(c.Name) as Z42InterfaceType;
-                        if (c.IsPartial || prev.IsPartial) {
-                            if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
-                            // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
-                        } else {
-                            Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
-                            itw.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
-                            table.Interfaces.Put(c.Name, itw);
-                        }
-                    } else {
-                        Z42InterfaceType it = new Z42InterfaceType(c.Name);
-                        if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
-                        it.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
-                        table.Interfaces.Put(c.Name, it);
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
-    private void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
-        // ── Pre-scan：检测同 CU 内同名不同 arity 的类，泛型版需 arity-mangle（镜像 C# NeedsMangle 逻辑）。
-        // firstArityMap[name] = 首次见到的 arity（字符串）；multiArityMap[name] = "1" 若有多个不同 arity。
-        StrMap firstArityMap = new StrMap();
-        StrMap multiArityMap = new StrMap();
-        int pi = 0;
-        while (pi < cu.DeclCount) {
-            Decl pd = this._unwrap(cu.Decls[pi]);
-            if (pd is ClassDecl) {
-                ClassDecl pc = pd as ClassDecl;
-                if (pc.Kind == "class" || pc.Kind == "struct" || pc.Kind == "record") {
-                    string arStr = pc.TypeParams.Count.ToString();
-                    if (firstArityMap.ContainsKey(pc.Name)) {
-                        StrBox fa = firstArityMap.Get(pc.Name) as StrBox;
-                        if (fa.Value != arStr) { multiArityMap.Put(pc.Name, "1"); }
-                    } else {
-                        firstArityMap.Put(pc.Name, new StrBox(arStr));
-                    }
-                }
-            }
-            pi = pi + 1;
-        }
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
-                    bool hasBase = false;
-                    string baseName = "";
-                    string[] ifaces = new string[c.BaseCount];
-                    int ifc = 0;
-                    int b = 0;
-                    while (b < c.BaseCount) {
-                        string bn = c.Bases[b].Dump();
-                        // 泛型接口查表用裸名（"IComparable<char>" → "IComparable"），
-                        // 存储也用裸名（镜像 C# ExportedTypeExtractor ifaceList.Select(i => i.Name)）。
-                        string bnLookup = bn;
-                        int ltIdx = bn.IndexOf("<");
-                        if (ltIdx >= 0) { bnLookup = bn.Substring(0, ltIdx); }
-                        if (table.Interfaces.ContainsKey(bnLookup)) { ifaces[ifc] = bnLookup; ifc = ifc + 1; }
-                        else if (!hasBase) { hasBase = true; baseName = bn; }
-                        b = b + 1;
-                    }
-                    bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
-                    string key = needsMangle ? c.Name + "$" + c.TypeParams.Count.ToString() : c.Name;
-                    // add-partial-types：同名碎片合并。保留首碎片（发现序=Ordinal 序，首=主碎片 min-path），
-                    // 并入本碎片的 base/接口；均非 partial 时维持既有 last-wins 覆盖（无回归）。
-                    bool collides = table.Classes.ContainsKey(key);
-                    bool mergePartial = collides && (c.IsPartial || (table.Classes.Get(key) as Z42ClassType).IsPartial);
-                    if (mergePartial) {
-                        Z42ClassType prev = table.Classes.Get(key) as Z42ClassType;
-                        if (hasBase) {
-                            if (prev.HasBase && prev.BaseName != baseName) {
-                                this.Diags.Error(DiagnosticCodes.PartialBaseConflict,
-                                    "partial type `" + c.Name + "` declares a base class in more than one fragment", c.Span);
-                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; }
-                        }
-                        int ii = 0;
-                        while (ii < ifc) { if (!this._ctHasIface(prev, ifaces[ii])) { prev.AddInterfaceName(ifaces[ii]); } ii = ii + 1; }
-                        if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
-                        // 保留 prev（首碎片），不覆盖 → 成员按 Ordinal 序累积进同一 CT（_fillClass 各碎片查同名命中此 CT）。
-                    } else {
-                        // 新键 OR 碰撞但均非 partial（后者维持既有 last-wins 覆盖，无回归）。
-                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file);
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // Pass B：成员 + 顶层 func
-    private void _passMembers(SymbolTable table, CompilationUnit cu) {
-        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：解析成员类型时本 CU 别名生效
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") { this._fillClass(table, c); }
-                else if (c.Kind == "interface") { this._fillInterface(table, c); }
-            } else if (d is MethodDecl) {
-                MethodDecl m = d as MethodDecl;            // 顶层 func（IsFree）
-                table.Functions.Put(m.Name, this._methodSymbol(table, m, "", new string[0], 0));
-            }
-            i = i + 1;
-        }
-    }
-
-    private Decl _unwrap(Decl d) {
+    internal Decl _unwrap(Decl d) {
         if (d is AttributedDecl) { AttributedDecl ad = d as AttributedDecl; return ad.Inner; }
         return d;
-    }
-
-    // 接口方法签名（体可无；签名同类方法解析）（port-z42c-interface）。
-    private void _fillInterface(SymbolTable table, ClassDecl c) {
-        Z42InterfaceType it = table.Interfaces.Get(c.Name) as Z42InterfaceType;
-        string[] tp = c.TypeParams.Names;    // 接口类型形参（泛型接口 IFoo<T>：T 列入 paramNames 解析签名）
-        int tpc = c.TypeParams.Count;
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[j]);
-            if (mem is MethodDecl) {
-                MethodDecl md = mem as MethodDecl;
-                it.Methods.Put(md.Name, this._methodSymbol(table, md, c.Name, tp, tpc));
-            } else if (mem is PropertyDecl) {
-                // 接口属性 getter → get_X 方法符号（镜像 C# IEnumerator<T>.Current → get_Current）。
-                PropertyDecl pd = mem as PropertyDecl;
-                if (pd.HasGet) {
-                    string gkey = "get_" + pd.Name;
-                    Z42Type gret = table.ResolveTypeP(pd.Type, tp, tpc);
-                    Z42Type[] gps = new Z42Type[0];
-                    it.Methods.Put(gkey, new MethodSymbol(gkey, "public", new Z42FuncType(gps, 0, gret), false, c.Name, false, null));
-                }
-            }
-            j = j + 1;
-        }
     }
 
     // add-type-based-overloads D7：实例方法协议豁免名单——这些名字被 Rust VM / TypeChecker 自身按
@@ -736,203 +219,11 @@ public sealed class SymbolCollector {
             || name == "get_Item" || name == "set_Item";
     }
 
-    private void _fillClass(SymbolTable table, ClassDecl c) {
-        // Arity-mangle：泛型类若已以 Name$N 键注册，优先取该 CT（镜像 C# TryGetClassFor）。
-        string ctKey = c.Name;
-        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-        Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
-        string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
-        int tpc = c.TypeParams.Count;
-        // enforce-class-access：基类 / 接口列表类型引用（声明签名位置）。逐 base 解析后校验（含泛型基
-        // List<T>→递归实参）；接口若解析为 Z42InterfaceType 则 CheckTypeRef 放行（接口可见性未建模，Deferred）。
-        int _bi = 0;
-        while (_bi < c.BaseCount) {
-            this._chkTypeRef(table.ResolveTypeP(c.Bases[_bi], tp, tpc), c.Name, table, c.Bases[_bi].Span);
-            _bi = _bi + 1;
-        }
-        // stabilize-dispatch-keys（方案A，静态-only）：静态方法恒全签名 mangle（键稳定，加/删重载不 re-mangle
-        // 现有静态键）；实例方法保持基线键规则（bare / Name$arity / type-overload 全 mangle）。故实例仍需预扫描
-        // 兄弟集（ovldInst 判 arity-based 重载、arityDup 判 type-based 重载）。静态不依赖预扫描（无条件 mangle）。
-        StrMap seenInst   = new StrMap();   // 实例方法首次见
-        StrMap ovldInst   = new StrMap();   // 实例方法重载（>1 arity）
-        // add-type-based-overloads：同 (name,arity) ≥2 重载检测（type-based）。键 name$arity，值 "1"=见过 / "2"=重复。
-        // arityDup 计入 static+instance 全部方法：实例方法的 wantMangle 判据依赖跨 static/instance 的 name$arity
-        // 碰撞（镜像基线），故必须全量统计才能与基线实例键逐字节一致。
-        StrMap arityDup   = new StrMap();
-        int pi = 0;
-        while (pi < c.MemberCount) {
-            Decl pmem = this._unwrap(c.Members[pi]);
-            if (pmem is MethodDecl) {
-                MethodDecl pmd = pmem as MethodDecl;
-                if (!this._hasWord(pmd.Mods, "static")) {
-                    if (seenInst.ContainsKey(pmd.Name)) { ovldInst.Put(pmd.Name, "1"); }
-                    else { seenInst.Put(pmd.Name, "1"); }
-                }
-                string ak = pmd.Name + "$" + pmd.ParamCount.ToString();
-                if (arityDup.ContainsKey(ak)) { arityDup.Put(ak, "2"); }   // ≥2 → type-based 重载
-                else { arityDup.Put(ak, "1"); }
-            }
-            pi = pi + 1;
-        }
-        StrMap classConstEnv = new StrMap();   // add-const-keyword：按声明序累积同类 const（裸名 + `Class.名`），供后续 const 初始化器引用
-        // add-user-conversions ②：本类转换运算符 (源→目标) → "implicit"/"explicit"，声明期冲突检测（E0440）。
-        // 须在注册时检测——真重复会在 ct.Methods 里静默覆盖，事后扫 ct.Methods 抓不到。
-        StrMap convSeen = new StrMap();
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl mem = this._unwrap(c.Members[j]);
-            if (mem is FieldDecl) {
-                FieldDecl fd = mem as FieldDecl;
-                Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
-                this._chkTypeRef(ft, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用
-                bool fconst = this._hasWord(fd.Mods, "const");   // add-const-keyword：const 隐式 static、无存储
-                bool fstatic = this._hasWord(fd.Mods, "static") || fconst;
-                // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
-                if (ct.IsPartial && ct.Fields.ContainsKey(fd.Name)) {
-                    this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
-                        "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
-                }
-                FieldSymbol fsym = new FieldSymbol(fd.Name, this._vis(fd.Mods, "private"), ft, fstatic, c.Name);
-                fsym.IsReadonly = this._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
-                if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
-                ct.Fields.Put(fd.Name, fsym);
-                if (this._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
-
-                // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。
-                // 用 resolved Z42Type.Name() 镜像 C# TypeToString(sym.Type)：接口→裸名、Predicate<T>→Func<T,bool>、
-                // Func/Action 规范化；Unknown/Error → AST fallback（imported 包 interface 未进 ImportedSymbols 时降级）。
-                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(fd.Type) : ExportedTypeExtractor.SurfaceTypeName(ft); ct.AddOwnField(fd.Name, fsp, this._vis(fd.Mods, "private")); }
-            } else if (mem is PropertyDecl) {
-                // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
-                PropertyDecl pd = mem as PropertyDecl;
-                Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
-                this._chkTypeRef(pft, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用
-                bool pfstatic = this._hasWord(pd.Mods, "static");
-                ct.Fields.Put(pd.Name, new FieldSymbol(pd.Name, this._vis(pd.Mods, "private"), pft, pfstatic, c.Name));
-                // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
-                // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
-                bool pfExtern = this._hasWord(pd.Mods, "extern");
-                // add-property-getter：计算属性（HasGetBody）无后备字段——getter 是真实函数体，不读 __prop_X。
-                if (!pfstatic && !pfExtern && !pd.HasGetBody) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? ExportedTypeExtractor.TsigTypeName(pd.Type) : ExportedTypeExtractor.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
-                // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
-                string pvis = this._vis(pd.Mods, "private");
-                Z42Type[] getPs0 = new Z42Type[0];
-                if (pd.HasGet) {
-                    ct.Methods.Put("get_" + pd.Name, new MethodSymbol("get_" + pd.Name, pvis,
-                        new Z42FuncType(getPs0, 0, pft), pfstatic, c.Name, false, null));
-                }
-                if (pd.HasSet) {
-                    Z42Type[] setPs0 = new Z42Type[1];
-                    setPs0[0] = pft;
-                    ct.Methods.Put("set_" + pd.Name, new MethodSymbol("set_" + pd.Name, pvis,
-                        new Z42FuncType(setPs0, 1, new Z42VoidType()), pfstatic, c.Name, false, null));
-                }
-            } else if (mem is IndexerDecl) {
-                // get_Item / set_Item accessor 方法符号（IndexerDecl lowering；镜像 C# IndexerDecl → get_Item/set_Item）。
-                IndexerDecl id = mem as IndexerDecl;
-                Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
-                this._chkTypeRef(idRet, c.Name, table, id.RetType.Span);   // enforce-class-access：索引器返回类型引用
-                bool idStatic = this._hasWord(id.Mods, "static");
-                string idvis = this._vis(id.Mods, "private");
-                if (id.HasGet) {
-                    Z42Type[] getPs1 = new Z42Type[id.ParamCount];
-                    int qi0 = 0;
-                    while (qi0 < id.ParamCount) { getPs1[qi0] = table.ResolveTypeP(id.Params[qi0].Type, tp, tpc); qi0 = qi0 + 1; }
-                    ct.Methods.Put("get_Item", new MethodSymbol("get_Item", idvis,
-                        new Z42FuncType(getPs1, id.ParamCount, idRet), idStatic, c.Name, false, null));
-                }
-                if (id.HasSet) {
-                    Z42Type[] setPs1 = new Z42Type[id.ParamCount + 1];
-                    int qi1 = 0;
-                    while (qi1 < id.ParamCount) { setPs1[qi1] = table.ResolveTypeP(id.Params[qi1].Type, tp, tpc); qi1 = qi1 + 1; }
-                    setPs1[id.ParamCount] = idRet;
-                    ct.Methods.Put("set_Item", new MethodSymbol("set_Item", idvis,
-                        new Z42FuncType(setPs1, id.ParamCount + 1, new Z42VoidType()), idStatic, c.Name, false, null));
-                }
-            } else if (mem is MethodDecl) {
-                MethodDecl md = mem as MethodDecl;
-                // add-partial-types：partial method 配对追踪（canonical sig key，独立于重载 mangle）。
-                if (md.IsPartial) {
-                    string psk = this._partialSigKey(c.Name, md);
-                    if (md.HasBody) { this._partialImpls.Put(psk, md); } else { this._partialDecls.Put(psk, md); }
-                }
-                // ctor（G11）也收集为方法（名=类名，ret void）：使 TypeChecker 能绑其体、IrGen 能发 `<Class>.<Class>` 函数。
-                // GS3：重载方法注册 Name$arity；unique 方法 bare name（镜像 C# SymbolCollector.Classes.cs regName 逻辑）。
-                // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
-                bool mst = this._hasWord(md.Mods, "static");
-                MethodSymbol msym = this._methodSymbol(table, md, c.Name, tp, tpc);
-                // stabilize-dispatch-keys（方案A，静态-only）：
-                // - 常规静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
-                //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。
-                // - 静态【虚】成员（INumber 的 static abstract op_* 接口成员 + 各 primitive 的 static override 实现）：
-                //   经 VCall 按运行时类型派发（`x.op_Add(x)` → VCall → Std.Int32.op_Add + arity 重试），base 声明与
-                //   派生实现【必须同键】。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)
-                //   → VCall 落空（`expected object, got I64`）。故与实例虚方法同理，走基线键规则（op_* 唯一 → 裸名）。
-                // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
-                //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量
-                //   硬查，mangle 会断锚点）。实例 / 虚 / 接口 / 泛型 / 委托 / foreach / ctor 派发依赖此基线锚点，不动。
-                bool staticVirtual = mst && (this._hasWord(md.Mods, "override") || this._hasWord(md.Mods, "abstract"));
-                string regName;
-                if (mst && !staticVirtual) {
-                    regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
-                    // add-user-conversions Decision 4（根因）：转换运算符按 (param,return) 唯一——静态 mangle 仅按
-                    // 参数类型，`op_Implicit(Foo)->int` 与 `->string` 会撞键 → RegKey 附返回类型消歧。
-                    if (SymbolCollector._isConvOp(md.Name)) {
-                        regName = regName + "$to$" + Z42Type.Canon(msym.Signature.Ret.Name());
-                    }
-                } else {
-                    string aritK = md.Name + "$" + md.ParamCount.ToString();
-                    regName = md.Name;
-                    bool wantMangle = arityDup.ContainsKey(aritK) && arityDup.Get(aritK) == "2"
-                        && !SymbolCollector.IsProtocolExempt(md.Name);
-                    if (wantMangle) {
-                        regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
-                    } else if (ovldInst.ContainsKey(md.Name)) {
-                        regName = aritK;
-                    }
-                }
-                // add-partial-types：decl-only partial method → 擦除（无实现即不存在，不注册桩/体）。
-                if (md.IsPartial && !md.HasBody) {
-                    // 擦除：跳过注册。若某碎片有实现，其 impl 会在自己的碎片正常注册。
-                } else {
-                    if (ct.IsPartial && ct.Methods.ContainsKey(regName)) {
-                        this.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
-                            "partial type `" + c.Name + "` defines member `" + md.Name + "` in more than one fragment", md.Span);
-                    }
-                    msym.RegKey = regName;
-                    md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键
-                    ct.Methods.Put(regName, msym);
-                    // add-user-conversions ②：声明期冲突检测（同 (源→目标) 重复 / implicit+explicit 同对 → E0440）。
-                    if (SymbolCollector._isConvOp(md.Name) && mst && msym.Signature.ParamCount == 1) {
-                        string srcN = Z42Type.Canon(msym.Signature.ParamTypes[0].Name());
-                        string tgtN = Z42Type.Canon(msym.Signature.Ret.Name());
-                        string pairK = srcN + "->" + tgtN;
-                        string curKind = "implicit";
-                        if (md.Name == "op_Explicit") { curKind = "explicit"; }
-                        if (convSeen.ContainsKey(pairK)) {
-                            string prevKind = convSeen.Get(pairK) as string;
-                            if (prevKind == curKind) {
-                                this.Diags.Error(DiagnosticCodes.ConversionOperatorConflict,
-                                    "conversion operator '" + srcN + "' -> '" + tgtN + "' is already declared", md.Span);
-                            } else {
-                                this.Diags.Error(DiagnosticCodes.ConversionOperatorConflict,
-                                    "cannot declare both implicit and explicit conversion '" + srcN + "' -> '" + tgtN + "'", md.Span);
-                            }
-                        } else {
-                            convSeen.Put(pairK, curKind);
-                        }
-                    }
-                }
-            }
-            j = j + 1;
-        }
-    }
-
     // add-user-conversions：转换运算符方法名（op_Implicit / op_Explicit）。
     public static bool _isConvOp(string name) { return name == "op_Implicit" || name == "op_Explicit"; }
 
     // tp/tpc = 类的活跃类型形参；与方法自身型参（md.TypeParams，2A-2）合并后解析签名。
-    private MethodSymbol _methodSymbol(SymbolTable table, MethodDecl md, string containing, string[] tp, int tpc) {
+    internal MethodSymbol _methodSymbol(SymbolTable table, MethodDecl md, string containing, string[] tp, int tpc) {
         int mtpc = md.TypeParams.Count;
         string[] all = this._mergeParams(tp, tpc, md.TypeParams.Names, mtpc);
         int allc = tpc + mtpc;
@@ -950,132 +241,7 @@ public sealed class SymbolCollector {
         return ms;
     }
 
-    // ── add-partial-types 辅助 ─────────────────────────────────────────────
-    // 注：SymbolCollector 已超 500 行软/硬限（pre-existing）；本组辅助按项目惯例（God-class 拆分走独立
-    // refactor change，见 split-typechecker/parser/irgen-class）暂随本特性落此，拆分留后续独立 refactor。
 
-    // ct 的接口集是否已含 name（碎片接口并集 dedup 用）。
-    private bool _ctHasIface(Z42ClassType ct, string name) {
-        int i = 0;
-        while (i < ct.InterfaceCount) { if (ct.InterfaceNames[i] == name) { return true; } i = i + 1; }
-        return false;
-    }
-
-    // 建并注册一条类 stub（新键 / 非-partial 碰撞覆盖共用；抽出避免 z42 函数级作用域下 `ct` 重复声明）。
-    private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
-                               string[] ifaces, int ifc, bool needsMangle, string file) {
-        Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
-        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
-        ct.IsSealed = this._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
-        ct.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
-        ct.InterfaceNames = ifaces;
-        ct.InterfaceCount = ifc;
-        if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
-        if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
-        if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
-        table.Classes.Put(key, ct);
-    }
-
-    // partial method 配对用 canonical 签名键（独立于重载 mangle）：Cls#Name(pTypeDump,…)。
-    // 声明与实现签名一致 → 键相同 → 配对；不一致 → impl 键在 decls 查不到 → 报 E0434。
-    private string _partialSigKey(string cls, MethodDecl md) {
-        string s = cls + "#" + md.Name + "(";
-        int i = 0;
-        while (i < md.ParamCount) {
-            if (i > 0) { s = s + ","; }
-            s = s + md.Params[i].Type.Dump();
-            i = i + 1;
-        }
-        return s + ")";
-    }
-
-    // partial 类型校验（AST 级，跨全部 CU 按名分组）：① 全部标 partial ② Kind 一致 ③ 嵌套 partial 报错。
-    // （base 冲突在 _passClassStubs——需接口表分辨 base vs iface；成员重复在 _fillClass。）
-    private void _passValidatePartial(CompilationUnit[] cus, string[] files, int count) {
-        ClassDecl[] frags = new ClassDecl[16];
-        int nf = 0;
-        int c = 0;
-        while (c < count) {
-            int i = 0;
-            while (i < cus[c].DeclCount) {
-                Decl d = this._unwrap(cus[c].Decls[i]);
-                if (d is ClassDecl) {
-                    ClassDecl cd = d as ClassDecl;
-                    if (nf == frags.Length) {
-                        ClassDecl[] bb = new ClassDecl[frags.Length * 2];
-                        int k = 0; while (k < nf) { bb[k] = frags[k]; k = k + 1; }
-                        frags = bb;
-                    }
-                    frags[nf] = cd; nf = nf + 1;
-                    this._checkNestedPartial(cd);
-                }
-                i = i + 1;
-            }
-            c = c + 1;
-        }
-        StrMap seen = new StrMap();
-        int a = 0;
-        while (a < nf) {
-            string nm = frags[a].Name;
-            if (!seen.ContainsKey(nm)) {
-                seen.Put(nm, "1");
-                int total = 0; int partialN = 0; string firstKind = "";
-                bool kindErr = false; ClassDecl kindReport = frags[a];
-                int b = 0;
-                while (b < nf) {
-                    if (frags[b].Name == nm) {
-                        total = total + 1;
-                        if (frags[b].IsPartial) { partialN = partialN + 1; }
-                        if (firstKind == "") { firstKind = frags[b].Kind; }
-                        else if (frags[b].Kind != firstKind) { kindErr = true; kindReport = frags[b]; }
-                    }
-                    b = b + 1;
-                }
-                if (partialN > 0) {
-                    if (partialN != total) {
-                        this.Diags.Error(DiagnosticCodes.PartialModifierMissing,
-                            "type `" + nm + "` has both partial and non-partial declarations; all must be `partial`", frags[a].Span);
-                    }
-                    if (kindErr) {
-                        this.Diags.Error(DiagnosticCodes.PartialKindMismatch,
-                            "partial type `" + nm + "` declared with mismatched kinds (class/struct/record/interface must agree)", kindReport.Span);
-                    }
-                }
-            }
-            a = a + 1;
-        }
-    }
-
-    // 嵌套类型自身 partial（v1 不支持，design D9）：外层 partial 含嵌套允许；嵌套类**自身**标 partial → 报错。
-    private void _checkNestedPartial(ClassDecl outer) {
-        int i = 0;
-        while (i < outer.MemberCount) {
-            Decl m = this._unwrap(outer.Members[i]);
-            if (m is ClassDecl) {
-                ClassDecl inner = m as ClassDecl;
-                if (inner.IsPartial) {
-                    this.Diags.Error(DiagnosticCodes.PartialNestedUnsupported,
-                        "nested type `" + inner.Name + "` cannot be `partial` (v1 supports partial only on top-level types)", inner.Span);
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    // partial method 配对校验：每个实现必须有匹配声明（同 canonical 签名）；否则=实现无声明/签名不一致。
-    // decl-only（有声明无实现）→ 已在 _fillClass 擦除，此处不报错（合法擦除）。
-    private void _passResolvePartialMethods() {
-        string[] implKeys = this._partialImpls.Keys();
-        int i = 0;
-        while (i < implKeys.Length) {
-            if (!this._partialDecls.ContainsKey(implKeys[i])) {
-                MethodDecl implMd = this._partialImpls.Get(implKeys[i]) as MethodDecl;
-                this.Diags.Error(DiagnosticCodes.PartialMethodSigMismatch,
-                    "partial method `" + implMd.Name + "` implementation has no matching declaration (declaration and implementation signatures must match exactly)", implMd.Span);
-            }
-            i = i + 1;
-        }
-    }
 
     private string[] _mergeParams(string[] a, int ac, string[] b, int bc) {
         string[] r = new string[ac + bc];
@@ -1091,11 +257,11 @@ public sealed class SymbolCollector {
     // `internal`（封闭层=模块）。故 dflt 由调用点按位置传入（成员 "private" / 顶层 "internal"）。
     // enforce-class-access：收集期（声明签名位置）类型引用访问校验——字段/属性/索引器/方法参·返回/基类·接口。
     // 委托静态 AccessChecker.CheckTypeRef，emit 到本 collector 的 Diags（收集期 diag bag）。cls=声明这些签名的类。
-    private void _chkTypeRef(Z42Type t, string cls, SymbolTable table, Span sp) {
+    internal void _chkTypeRef(Z42Type t, string cls, SymbolTable table, Span sp) {
         AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
     }
 
-    private string _vis(string mods, string dflt) {
+    internal string _vis(string mods, string dflt) {
         if (this._hasWord(mods, "public"))    { return "public"; }
         if (this._hasWord(mods, "private"))   { return "private"; }
         if (this._hasWord(mods, "protected")) { return "protected"; }
@@ -1106,40 +272,8 @@ public sealed class SymbolCollector {
         return dflt;
     }
 
-    // add-const-keyword：const 字段求值 + 登记 ConstVal + 诊断。fsym.IsConst 置位；求值成功 →
-    // 存 ConstVal 并把值加进 classConstEnv（裸名 + `Class.名`），供后续同类 const 初始化器引用。
-    private void _collectConstField(FieldDecl fd, FieldSymbol fsym, string className, StrMap classConstEnv) {
-        fsym.IsConst = true;
-        if (!fd.HasInit) {
-            this.Diags.Error(DiagnosticCodes.ConstNeedsInit,
-                "const field `" + fd.Name + "` must have an initializer", fd.Span);
-            return;
-        }
-        ConstValue cv = ConstEval.Eval(fd.Init, classConstEnv);
-        if (cv == null) {
-            if (this._isPureRef(fd.Init)) {
-                this.Diags.Error(DiagnosticCodes.ConstExprBadRef,
-                    "const expression can only reference already-defined const values", fd.Span);
-            } else {
-                this.Diags.Error(DiagnosticCodes.ConstNotConstantInit,
-                    "const field `" + fd.Name + "` initializer must be a compile-time constant", fd.Span);
-            }
-            return;
-        }
-        fsym.ConstVal = cv;
-        classConstEnv.Put(fd.Name, cv);
-        classConstEnv.Put(className + "." + fd.Name, cv);
-    }
-
-    // add-const-keyword：初始化器顶层是否为「裸标识符 / Class.成员」纯引用（决定 BadRef vs NotConstant 诊断）。
-    private bool _isPureRef(Expr e) {
-        if (e is IdentExpr) { return true; }
-        if (e is MemberExpr) { return (e as MemberExpr).Target is IdentExpr; }
-        return false;
-    }
-
     // mods 空格分隔；逐 token 比较（不依赖 String.Contains，避免子串误命中）。
-    private bool _hasWord(string s, string word) {
+    internal bool _hasWord(string s, string word) {
         int n = s.Length;
         int start = 0;
         int i = 0;
