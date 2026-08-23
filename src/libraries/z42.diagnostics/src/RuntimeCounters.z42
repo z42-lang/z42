@@ -1,0 +1,51 @@
+// Std.Diagnostics.RuntimeStats.Counters() 的返回类型 —— 运行时可观测计数的一个快照。
+//
+// 字段由 VM 的 `__diag_counters` builtin 直接 emit（不暴露 ctor，用户不 `new`），
+// 保证值与运行时实时状态一致。expose-diagnostics-counters（脚本性能分析 P1c，2026-08-23）。
+//
+// 全景 = 7 个运行时 counter（来自 counters.rs `RuntimeCounters::snapshot`）+ 堆派生的
+// `Allocations` + 3 个分代 GC 字段（来自 gc::HeapStats）。与 `--print-stats-on-exit`
+// 的 `z42vm_counters` JSON 同两个来源，故脚本内读值与退出 JSON 语义一致。
+//
+// 注：z42.core 的 `Std.HeapStats`（GC.GetStats 返回）保持精简 7 字段；本类型是运行时
+// 全景入口，含 counter + 分代堆信息。
+namespace Std.Diagnostics;
+
+public class RuntimeCounters {
+    // ── 运行时 counter（counters.rs RuntimeCounters） ──
+
+    /// 调用的 builtin 函数次数（`__str_length` / `__print` / …）。
+    public long BuiltinCalls        { get; }
+
+    /// 派发的 native FFI 调用次数（用户 `[Native]` extern 方法）。
+    public long NativeCalls         { get; }
+
+    /// JIT 编译的方法数（tier-up 编译触发）。
+    public long JitMethodsCompiled  { get; }
+
+    /// 累计 JIT 编译墙钟时间（微秒）；per-compile span 计时未接线时为 0。
+    public long JitCompileUsTotal   { get; }
+
+    /// mixed-mode：interp 帧把已编译 callee 路由到其 native code 的次数（>0 = mixed-mode 生效）。
+    public long JitNativeFromInterp { get; }
+
+    /// 抛出的用户异常数（`throw` + VM 抬升的算术/类型错误）。
+    public long ExceptionsThrown    { get; }
+
+    /// 被 `try/catch` 捕获的异常数。
+    public long ExceptionsCaught    { get; }
+
+    // ── 堆派生（gc::HeapStats） ──
+
+    /// 自堆创建以来累计的对象 alloc 次数（HeapStats.allocations SoT）。
+    public long Allocations         { get; }
+
+    /// generational minor（young-gen）回收次数。
+    public long MinorCollections    { get; }
+
+    /// major（whole-heap）回收次数。
+    public long MajorCollections    { get; }
+
+    /// 累计回收字节数。
+    public long ReclaimedBytes      { get; }
+}

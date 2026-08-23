@@ -1,0 +1,18 @@
+// Std.Diagnostics.RuntimeStats —— 运行时可观测计数的第一方 z42 入口。
+//
+// `Counters()` 把 VM 的运行时 counter + 堆派生快照暴露给 z42 脚本自身，脚本无需外部
+// 进程 scrape `--print-stats-on-exit` 的 stderr JSON 即可自省 alloc / GC / 异常 / JIT 开销。
+// 用于脚本内 benchmark、自适应逻辑、断言分配上界等。
+//
+// 命名：**不叫 `Runtime`**——`Std.Runtime`（z42.core prelude）已有 `public static class Runtime`，
+// 同简名会在 inline 链式调用（`RuntimeStats.Counters().Allocations`）时被解析到错误的类。
+//
+// expose-diagnostics-counters（脚本性能分析 P1c，2026-08-23）。
+namespace Std.Diagnostics;
+
+public static class RuntimeStats {
+    // 取一个运行时计数快照。每次调用读取当前累计值（自 VM 启动以来）。
+    // 快照非一致元组（各 counter 独立 load，有微小 skew）——观测用途无碍。
+    [Native("__diag_counters")]
+    public static extern RuntimeCounters Counters();
+}

@@ -548,6 +548,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
     ("__run_goldens_isolated",    reflection::builtin_run_goldens_isolated),
+
+    // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
+    ("__diag_counters",           diagnostics::builtin_diag_counters),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

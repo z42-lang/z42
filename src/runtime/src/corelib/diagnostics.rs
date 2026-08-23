@@ -15,6 +15,10 @@ use crate::vm_context::VmContext;
 
 const STD_RETAINER: &str = "Std.Diagnostics.Retainer";
 const STD_ROOTREF: &str = "Std.Diagnostics.RootRef";
+/// expose-diagnostics-counters (2026-08-23): return type of
+/// `Std.Diagnostics.Runtime.Counters()` — 11 read-only auto-properties
+/// (7 runtime counters + `allocations` + 3 generational GC fields).
+const STD_RUNTIME_COUNTERS: &str = "Std.Diagnostics.RuntimeCounters";
 
 /// The heap identity (data ptr as usize) of a target `Value`, or `None` for
 /// non-heap values (primitive / null → no retention to report).
@@ -79,6 +83,37 @@ pub fn builtin_heap_retaining_roots(ctx: &VmContext, args: &[Value]) -> Result<V
     Ok(ctx.heap().alloc_array(out))
 }
 
+/// `Std.Diagnostics.Runtime.Counters()` (static) → `RuntimeCounters`.
+///
+/// expose-diagnostics-counters (2026-08-23, script-profiling P1c): surfaces the
+/// runtime counter snapshot + heap-derived numbers to z42 scripts. Same two
+/// sources `app.rs` merges into its `ProfileSnapshot` for `--print-stats-on-exit`
+/// (`RuntimeCounters::snapshot` + `HeapStats`), so a script reading these fields
+/// sees values consistent with the exit JSON (modulo the natural sampling-instant
+/// skew). `allocations` reuses `HeapStats.allocations` (the SoT) — never
+/// re-counted on the hot path.
+pub fn builtin_diag_counters(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+    let c = ctx.counters().snapshot();
+    let h = ctx.heap().stats();
+    alloc_named(
+        ctx,
+        STD_RUNTIME_COUNTERS,
+        &[
+            ("__prop_BuiltinCalls", Value::I64(c.builtin_calls as i64)),
+            ("__prop_NativeCalls", Value::I64(c.native_calls as i64)),
+            ("__prop_JitMethodsCompiled", Value::I64(c.jit_methods_compiled as i64)),
+            ("__prop_JitCompileUsTotal", Value::I64(c.jit_compile_us_total as i64)),
+            ("__prop_JitNativeFromInterp", Value::I64(c.jit_native_from_interp as i64)),
+            ("__prop_ExceptionsThrown", Value::I64(c.exceptions_thrown as i64)),
+            ("__prop_ExceptionsCaught", Value::I64(c.exceptions_caught as i64)),
+            ("__prop_Allocations", Value::I64(h.allocations as i64)),
+            ("__prop_MinorCollections", Value::I64(h.minor_collections as i64)),
+            ("__prop_MajorCollections", Value::I64(h.major_collections as i64)),
+            ("__prop_ReclaimedBytes", Value::I64(h.reclaimed_bytes as i64)),
+        ],
+    )
+}
+
 fn root_kind_ord(k: RootKind) -> i64 {
     match k {
         RootKind::StaticField => 0,
@@ -87,3 +122,7 @@ fn root_kind_ord(k: RootKind) -> i64 {
         RootKind::Pinned => 3,
     }
 }
+
+#[cfg(test)]
+#[path = "diagnostics_tests.rs"]
+mod diagnostics_tests;
