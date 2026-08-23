@@ -76,13 +76,52 @@ public static class HandlerRegistry {
     // KindOf≠StoreMeta，避免 AttributeSynth 合成反射工厂 + 免建 backing 类，同 Native 靠名字识别）。
     // Layout/Repr/Inline/Deprecated 由后续 PR 加入本集（design §Built-in directive）。
     public static bool IsDirectiveAttr(string name) {
-        return HandlerRegistry.IsNativeDirective(name) || HandlerRegistry.IsSuppressDirective(name);
+        return HandlerRegistry.IsNativeDirective(name)
+            || HandlerRegistry.IsSuppressDirective(name)
+            || HandlerRegistry.IsDeprecatedDirective(name);
     }
 
     // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
     // 再定义同名 store-meta 类（同 Native）。
     public static bool IsSuppressDirective(string name) {
         return name == "Suppress";
+    }
+
+    // PR5：`[Deprecated]` / `[Deprecated("msg")]` directive 识别（D2）。归 directive 使 KindOf≠StoreMeta
+    // （不合成反射工厂 / 免建 backing 类，同 Native/Suppress 靠名字识别）。**但持久化**——IrGen 把
+    // deprecated 位 + 消息串烘进 method/class/field descriptor（异于 Suppress 的纯编译期消费）。
+    public static bool IsDeprecatedDirective(string name) {
+        return name == "Deprecated";
+    }
+
+    // PR5：`[Deprecated]` 持久化哨兵常量在 z42.ir（叶子库）= `IrDeprecation.Sentinel`（供生产 z42c.semantics
+    // + 消费 z42.ir/TsigReconcile 共用；z42.ir 不能反依赖 z42c.semantics）。此处不再重复定义。
+
+    // PR5：某声明是否带 `[Deprecated]`（IrGen 烘 deprecated 位用）。
+    public static bool HasDeprecated(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return false; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (HandlerRegistry.IsDeprecatedDirective(ad.Attrs[a].Name)) { return true; }
+            a = a + 1;
+        }
+        return false;
+    }
+
+    // PR5：`[Deprecated("msg")]` 的 positional 消息串（无消息 / 无该 attr → ""）。同 _nativeIntrinsic 读法。
+    public static string DeprecatedMsg(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return ""; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (HandlerRegistry.IsDeprecatedDirective(at.Name) && at.ArgCount >= 1 && (at.Args[0] is StringLitExpr)) {
+                return Lexer.DecodeString((at.Args[0] as StringLitExpr).Raw);
+            }
+            a = a + 1;
+        }
+        return "";
     }
 
     // StubEmitter 专用：`[Native(...)]` 绑定 directive 识别（取代散落的 `at.Name == "Native"` 字面量）。

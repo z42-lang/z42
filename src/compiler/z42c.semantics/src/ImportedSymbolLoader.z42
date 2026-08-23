@@ -86,6 +86,7 @@ public static class ImportedSymbolLoader {
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                         nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
+                        nct.IsDeprecated = cl.IsDeprecated; nct.DeprecationMsg = cl.DeprecationMsg;   // add-deprecated-directive：跨包类级弃用（use-site 告警）
                         nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）
                         // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
                         // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——
@@ -240,6 +241,7 @@ public static class ImportedSymbolLoader {
                 sig.ParamsFrom = me.ParamsFrom;
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
                 sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
+                sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 ct.Methods.Put(me.Name, sym);
                 if (!me.IsStatic) { ct.AddOwnMethod(me.Name, me.IsVirtual, me.IsAbstract); }
             }
@@ -269,8 +271,10 @@ public static class ImportedSymbolLoader {
         while (i < cl.FieldCount) {
             ExportedFieldZ fd = cl.Fields[i];
             if (!ct.Fields.ContainsKey(fd.Name)) {
-                ct.Fields.Put(fd.Name, new FieldSymbol(fd.Name, fd.Visibility,
-                    ImportedSymbolLoader._resolve(r, fd.TypeName, tps, tpc), fd.IsStatic, ct.Name()));
+                FieldSymbol fsym = new FieldSymbol(fd.Name, fd.Visibility,
+                    ImportedSymbolLoader._resolve(r, fd.TypeName, tps, tpc), fd.IsStatic, ct.Name());
+                fsym.IsDeprecated = fd.IsDeprecated; fsym.DeprecationMsg = fd.DeprecationMsg;   // add-deprecated-directive：跨包字段级弃用
+                ct.Fields.Put(fd.Name, fsym);
                 // G18-import：实例字段入 OwnField* 有序元数据（TSIG 继承字段展开；static 不入，同本地 _fillClass）。
                 if (!fd.IsStatic) { ct.AddOwnField(fd.Name, fd.TypeName, fd.Visibility); }
             }
@@ -293,6 +297,7 @@ public static class ImportedSymbolLoader {
                 var sym = new MethodSymbol(srcName, m.Visibility, sig, m.IsStatic, ct.Name(), false, null);
                 sym.RegKey = m.Name;
                 sym.IsSealed = m.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
+                sym.IsDeprecated = m.IsDeprecated; sym.DeprecationMsg = m.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 ct.Methods.Put(m.Name, sym);
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }

@@ -19,7 +19,7 @@
 | PR4e | 有界多轮**引擎+契约+指纹（support，未接线）**：契约加 `Consumes()`/`Produces()`(Generator+ModuleGenerator) + `GeneratorDriver.RunRounds`(统一节点 Kahn 最长路径分层 + 成环 **E0449** 字面量 + 逐层 re-bind + 轮内 applied 先·module 后) + 多轮/成环/退化单测 + **产物纳入增量指纹**(handler zpkg 内容指纹揉入 srcHashes，driver-intra 即 active)。**PackageCompile 仍单轮**——接线 RunRounds 是新跨成员符号撞 F2 冷启动，留 PR4e-wire | 否 | ✅ 完成 |
 | PR4e-wire | **接线激活多轮**（RunRounds 随 nightly `main@9fc6414` 发布后）：PackageCompile 单轮 `Run`+`RunModules` → `GeneratorDriver.RunRounds`；E0449 字面量→常量 `DiagnosticCodes.GeneratorDependencyCycle`。staged-bootstrap 轴② use 阶段。GREEN：test all 5/5 byte-identical + bootstrap 无越界 + incremental 5/5+51/51 byte-identical | 否 | ✅ 完成 |
 | PR4f(Deferred) | 生成产物**跨 build 增量缓存复用**(现 generator 一律强制全量重编，正确但非增量)：需 probe 感知 generator(probe 时运行/指纹化产物)——独立较大 change | 否 | ⬜ Deferred |
-| PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
+| PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE；方法+类+字段；治理接入 [lints]/WAE/#suppress；格式 bump zbc1.37/zpkg0.42）→ 详见下「PR5 子任务」 | 是 | 🟡 |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
 | 后续 | `[Native]`→`[Extern]` 改名 / `[Layout]`/`[Repr]`(E2) / `OnIrOp` perf lint / 用户 `macro` / 局部变量 attribute | 视需 | ⬜ Deferred |
@@ -368,6 +368,43 @@ store-meta blob 走现有反射机制）。z42c/stdlib 只加 support 不 use �
 - [x] 5.2 book 语言参考：`#suppress`/`#restore` 指令 + `[Suppress]` attribute（机制页 + attributes.md）。
 - [x] 5.3 目录 README 同步（`z42c.syntax` / `z42.core` / `z42c.semantics` 功能索引 + 核心文件）。
 - [x] 5.4 design.md 「PR3c 落地」note 已写（本 PR 完成后核对与实现一致）。
+
+## PR5 子任务（`[Deprecated]` directive，🟡 进行中）
+
+> 端到端模板 = `sealed` 位（每层皆有先例）；字段级是唯一全新形状（字段 descriptor 当前无 flags 字节）。
+> spec 见 `specs/deprecated-directive/spec.md`；实现原理见 design.md「PR5 落地」。
+
+### 阶段 A：分类 + IR 模型
+- [ ] A.1 `HandlerRegistry`：`IsDeprecatedDirective(name)=="Deprecated"` 折进 `IsDirectiveAttr`（不进 `IsNativeDirective`）
+- [ ] A.2 `IrModule`：`IrFunction` 复用 `MethodFlags`（+bit3 常量注释）；`IrClassDesc.Flags`（+deprecated bit）+ `DeprecationMsg`；`IrFieldDesc` 新增 `Deprecated`/`DeprecationMsg`
+- [ ] A.3 IrGen：`IrGenFacts._methodFlags` 后按 attr OR bit3 + 取 msg（仿 `StubEmitter._nativeIntrinsic` 读 attr 串）；`ClassDescBuilder` 类级；字段级在字段 descriptor 构建处
+
+### 阶段 B：格式 bump + 序列化（zbc 1.36→1.37 / zpkg 0.41→0.42）
+- [ ] B.1 `ZbcFormat.z42` Minor 36→37（注释）；`ZpkgWriter.z42` Minor 41→42（注释）
+- [ ] B.2 `ZbcWriter`：SIGS 写 method_flags bit3 + msg idx；TYPE 写 class flag bit + msg idx + **实例/静态字段循环各加 field-flags u8 + msg idx**
+- [ ] B.3 读端 3 处 lockstep：① Rust `zbc_reader.rs`（read_type 实例+静态字段 / SIGS）+ `bytecode.rs`（FieldDesc/MethodDesc/ClassDesc 加字段）② z42c `ZbcReader.ReadTypeAt` + SIGS ③ `ZpkgReader` SIGS
+- [ ] B.4 Rust 4 个版本常量（ZBC/ZPKG major+minor）+ changelog 注释行
+- [ ] B.5 `docs/design/runtime/zbc.md` + `zpkg.md` changelog 各加一行；`.claude/rules/version-bumping.md` 版本表刷新（stale 1.35/0.40 → 1.37/0.42）
+
+### 阶段 C：跨包传播（仿 sealed）
+- [ ] C.1 `ExportedTypes`：`ExportedMethodZ`/`ExportedClassZ`/`ExportedFieldZ` 加 `IsDeprecated`/`DeprecationMsg`
+- [ ] C.2 `TsigReconcile`：从新 flag bit + msg 池设 Exported*Z（method `&8`、class bit、field-flags）
+- [ ] C.3 `Symbol`（`MethodSymbol`/`FieldSymbol`）+ `Z42Type`（`Z42ClassType`）加 `IsDeprecated`/`DeprecationMsg`
+- [ ] C.4 `ImportedSymbolLoader`：仿 `IsSealed` 传播三处
+
+### 阶段 D：use-site 检测 + 治理
+- [ ] D.1 `AccessChecker.CheckDeprecated(sym, span)`：收集 hit 到 `_tc` 上的 accumulator（不直接发，留治理）
+- [ ] D.2 调用点接线：`MemberResolver`（field/method/property 各 resolve 处）+ `ExprTyper`（setter/`new`）+ `CheckTypeRef`（类型引用）
+- [ ] D.3 内建 `DiagRule`（id `"deprecated"`，category Usage，DefaultSeverity=Warning，EnabledByDefault=true）
+- [ ] D.4 `_runDeprecation` pass（`PackageCompile`，**always-run**）：per-cu 建 SuppressionSet（抽 `AnalyzerDriver` 的 builder 复用）+ 用 `inp.Lints` → 逐 hit `DiagSinkImpl.Report(DEPRECATED_RULE, span)` → 治理统一
+
+### 阶段 E：测试 + 验证
+- [ ] E.1 z42c 单测：`zbc_tests.z42` golden hex 重截 + method/class/field deprecated 位 round-trip
+- [ ] E.2 use-site 告警 + 治理单测（`tests/access-control/` 或新 `tests/deprecated/`：抑制/WAE/#suppress）
+- [ ] E.3 跨包 golden：`src/tests/cross-zpkg/deprecated_imported/`（克隆 `sealed_devirt_imported`）
+- [ ] E.4 fixture regen：`zbc-format/*`（`xtask build test`）+ `zpkg-format/*`（手工）；Rust `zbc_compat`/`lazy_loader`
+- [ ] E.5 GREEN：`xtask test`（全 stage）+ self-host 5/5 + `xtask test bootstrap`（格式 bump 两代自举，CI 权威）
+- [ ] E.6 文档同步：book attribute 页 + 相关 README（触发矩阵）
 
 ## 备注
 

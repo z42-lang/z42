@@ -15,6 +15,23 @@ public sealed class IrAttrRef {
     public IrAttrRef(string typeName, string factoryFunc) { this.TypeName = typeName; this.FactoryFunc = factoryFunc; }
 }
 
+// add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 经既有 attr-ref 块持久化的哨兵（TypeName=Sentinel、
+// FactoryFunc=消息）。生产方 ClassDescBuilder._attrRefs 追加、消费方 TsigReconcile/反射按 TypeName 识别并剥离。
+// 常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用；`$` 前缀不撞 D8 `*Attribute`。
+public static class IrDeprecation {
+    public static string Sentinel = "$Deprecated";
+    // attrs 中是否含弃用哨兵。
+    public static bool Has(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrDeprecation.Sentinel) { return true; } i = i + 1; }
+        return false;
+    }
+    // 弃用消息（哨兵的 FactoryFunc；无哨兵 → ""）。
+    public static string Msg(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrDeprecation.Sentinel) { return attrs[i].FactoryFunc; } i = i + 1; }
+        return "";
+    }
+}
+
 // 单参数的 attr-ref 列表（IrFunction.ParamAttrs 按 SIGS 参数序对齐，含实例方法的 this 槽=空）。
 public sealed class IrAttrRefList {
     public IrAttrRef[] Items; public int Count;

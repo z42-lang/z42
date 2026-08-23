@@ -66,7 +66,7 @@ public static class CacheStore {
     //   故手动 +1 作废 chunk-2a 期缓存——否则旧 .zbc（object 字段=GcRef）被误命中 → runtime 内联多态字段 = bug。
     // 3 (unify-object-byte-layout PR-3 chunk 2c): `_sizeOf` 引用叶子 16→8B → struct 字节布局
     //   （size/offset/引用位图）变化。格式未 bump（struct 块结构不变、仅值），手动 +1 作废旧缓存。
-    public static int CompilerFingerprint = 3;
+    public static int CompilerFingerprint = 4;   // add-deprecated-directive（PR5）：`[Deprecated]` 经 attr-ref 哨兵持久化，codegen 变（弃用符号 attr 块 +1 条），无格式-bump → bump 指纹令旧增量缓存失效
 
     // rel（.z42）→ cache 内路径。与 driver `_writeCacheZbc` 同款「去 .z42」规则。
     public static string ZbcPath(string cacheDir, string rel)  { return Path.Join(cacheDir, CacheStore._stem(rel) + ".zbc"); }

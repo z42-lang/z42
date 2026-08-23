@@ -273,3 +273,54 @@ void test_suppression_set_active_stack() {
     s.PopActive(1);
     Assert.Equal(false, s.IsSuppressed("Z9002", 0));    // 弹出后不再抑制
 }
+
+// ── add-deprecated-directive（PR5）：use-site 弃用告警（直接在 typecheck 相位发 "deprecated" Warning）──
+// 零格式-bump（[Deprecated] 经 attr-ref 哨兵持久化）；AccessChecker 在 use-site 解析到弃用符号即发告警到
+// _diags，#suppress 经 TypeChecker._curSuppress（cu.SuppressRegions）局部抑制。[lints]/WAE 治理 Deferred
+// （接 LintConfig 到 typecheck 需 pipeline→semantics 新跨成员符号，撞 F2 冷启动；见 design.md）。
+
+// 驱动 typecheck → 返回 diags（弃用告警直接进袋）。
+DiagnosticBag _depDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+string _depMethodSrc() {
+    return "class A { [Deprecated(\"use g\")] int f() { return 1; } int g() { return this.f(); } }";
+}
+
+[Test]
+void test_deprecated_method_use_warns() {
+    // 调用 [Deprecated] 方法 → 至少 1 条 "deprecated" Warning
+    var bag = _depDiags(_depMethodSrc());
+    Assert.Equal(true, _hasCode(bag, "deprecated"));
+    Assert.Equal(0, bag.ErrorCount());   // Warning 不阻断编译
+}
+
+[Test]
+void test_not_deprecated_no_warning() {
+    // 无 [Deprecated] → 无 "deprecated" 告警
+    var bag = _depDiags("class A { int f() { return 1; } int g() { return this.f(); } }");
+    Assert.Equal(false, _hasCode(bag, "deprecated"));
+}
+
+[Test]
+void test_deprecated_suppress_pragma() {
+    // `#suppress deprecated` 圈住调用点 → 抑制
+    string src = "class A { [Deprecated(\"x\")] int f() { return 1; }"
+        + " int g() { #suppress deprecated int r = this.f(); #restore deprecated return r; } }";
+    var bag = _depDiags(src);
+    Assert.Equal(false, _hasCode(bag, "deprecated"));
+}
+
+[Test]
+void test_deprecated_class_new_warns() {
+    // new [Deprecated] 类 → 类级 use-site 告警
+    string src = "[Deprecated] class D { } class U { int g() { var d = new D(); return 1; } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "deprecated"));
+}

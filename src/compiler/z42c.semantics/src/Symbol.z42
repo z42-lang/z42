@@ -20,12 +20,15 @@ public sealed class MethodSymbol {
     public bool        IsSealed;              // impl-sealed-semantics-devirt：方法级 sealed（sealed override 或
                                               // 简写 sealed）。默认 false；本地由 SymbolCollector 从 Mods 设置，
                                               // 导入由 ImportedSymbolLoader 从 METHOD_FLAG_SEALED 还原。
+    public bool        IsDeprecated;          // add-deprecated-directive：`[Deprecated]` 方法。use-site 告警用。
+    public string      DeprecationMsg;        // 本地由 SymbolCollector 从 attr 设置，导入由 ImportedSymbolLoader 还原。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
         this.ContainingTypeName = containingTypeName; this.HasDecl = hasDecl; this.Decl = decl;
         this.RegKey = name;
         this.IsSealed = false;
+        this.IsDeprecated = false; this.DeprecationMsg = "";
     }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
 }
@@ -40,11 +43,14 @@ public sealed class FieldSymbol {
                                  // 本地字段由 SymbolCollector 从 Mods 设置；导入字段 v1 保守留 false（不跨包）。
     public bool       IsConst;   // add-const-keyword：const 编译期常量字段（隐式 static、无存储）。默认 false。
     public ConstValue ConstVal;  // add-const-keyword：IsConst 时的求值结果（引用替换用）；否则 null。
+    public bool       IsDeprecated;   // add-deprecated-directive：`[Deprecated]` 字段。use-site 告警用。
+    public string     DeprecationMsg; // 本地由 SymbolCollector 从 attr 设置，导入由 ImportedSymbolLoader 还原。
     public FieldSymbol(string name, string visibility, Z42Type fieldType, bool isStatic, string containingTypeName) {
         this.Name = name; this.Visibility = visibility; this.FieldType = fieldType;
         this.IsStatic = isStatic; this.ContainingTypeName = containingTypeName;
         this.IsReadonly = false;
         this.IsConst = false; this.ConstVal = null;
+        this.IsDeprecated = false; this.DeprecationMsg = "";
     }
     public string Dump() { return "(field " + this.Name + " " + this.FieldType.Dump() + ")"; }
 }

@@ -381,7 +381,18 @@ public sealed class ClassDescBuilder {
     internal IrAttrRef[] _attrRefs(Decl rawMem) {
         if (!(rawMem is AttributedDecl)) { return new IrAttrRef[0]; }
         AttributedDecl ad = rawMem as AttributedDecl;
-        return this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+        IrAttrRef[] refs = this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+        // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 是 directive（无 store-meta 工厂 → 不入
+        // 上面的 refs）。用**既有 attr-ref 块**（零格式变更、避开格式-bump 两代自举回归）持久化：追加一条
+        // 哨兵 IrAttrRef(TypeName="$Deprecated", FactoryFunc=msg)。消费方（TsigReconcile / 反射）按 TypeName 识别
+        // 并剥离——见 DeprecatedSentinel。未弃用符号不追加 → 零字节变化。
+        if (HandlerRegistry.HasDeprecated(rawMem)) {
+            IrAttrRef[] withDep = new IrAttrRef[refs.Length + 1];
+            int i = 0; while (i < refs.Length) { withDep[i] = refs[i]; i = i + 1; }
+            withDep[refs.Length] = new IrAttrRef(IrDeprecation.Sentinel, HandlerRegistry.DeprecatedMsg(rawMem));
+            return withDep;
+        }
+        return refs;
     }
 
     private IrAttrRef[] _attrRefsFromList(Attr[] attrs, int count) {
