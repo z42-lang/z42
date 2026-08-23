@@ -198,7 +198,7 @@ ExportedTypeExtractor(887 行)的泛型 arity 预扫(59–75)几乎复制 Symbol
 |---|------|---------|------|
 | P1-1 | 拆 TypeChecker(1937 → 6 子绑定器 + Facade 257) | semantics | ✅ 2026-07-12（OverloadBinder/MemberResolver/StmtBinder/ExprTyper/TypeFactsTc/DeclBinder，全 <500，不动点 7/7）|
 | P1-2 | 拆 Parser(1743 → 5 子解析器 + mediator 265) | syntax | ✅ 2026-07-12（Type/Expr/Stmt/Decl/Member，全 <500，不动点 7/7）|
-| P1-3 | 拆 IrGen(1153)/ ExprEmitter(874)/ FunctionEmitter(633) | semantics | ⬜(排 P1-1 后) |
+| P1-3 | 拆 IrGen(1153)/ ExprEmitter/ FunctionEmitter | semantics | 🟡 ExprEmitter ✅ 2026-08-22（#258，1665→491，拆 Call/TypeOp/Operator/AccessEmitter 四发射簇，hub+spoke）；FunctionEmitter ✅ 2026-08-23（分出 StmtEmitter 语句&控制流簇，841→418，同模型）；**IrGen 待拆**（611，多趟编排器，味道≠dispatch，先诊断）。另 ExprTyper ✅ 2026-08-23（#260，1010→448，拆 Collection/Assign/Construct/TypeOpTyper） |
 
 ### P2 — 表驱动化 + 格式单源
 
