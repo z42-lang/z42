@@ -41,17 +41,18 @@ void Main() {
     // 本 VM 的 GC 协作会让计算密集的后台线程阻塞主线程 eval（安全点等待）——后台预热反而拖慢 `1+1`。
     s.PrewarmThread = Thread.Start(() => { Script.Prewarm(s); });
     Repl.SetCompleter("Std.Scripting.replComplete");   // Tab → 作用域补全（会话变量 / 声明名）
-    Repl.SetKeyEditor("Std.Scripting.replKeyEdit");    // 缩进感知键位：退格删整级 / Tab 插缩进 / } 回退一级
-    // 多行累积在脚本层驱动（add-repl-parser-completeness + sink-repl-indent-to-script）：逐行读取，
-    // 累积到 buf，由 parser 权威的 Completeness.IsIncomplete 判「写完没」——没写完（缺 } / 操作数等）
-    // 续读，写完才求值。续行视觉缩进也由脚本层算（Completeness.ContinuationIndent 用既有 Lexer 数
-    // 括号）→ 交 Repl.ReadLine 的 initial 预填；native 只剩「读一行 + 用给定串预填」这一个原语。
+    Repl.SetKeyEditor("Std.Scripting.replKeyEdit");    // 缩进感知键位 + 回车整块判定（退格删整级 / Tab 插缩进 / Enter 判写完没）
+    // 整块多行编辑（add-repl-multiline-editing）：交互（tty）下一次 ReadLine 即读**整条**多行语句——
+    // 回车键重入 ReplEditing 的 "enter" 策略按 Completeness 判写完没，没写完就在缓冲内插换行 + 续行
+    // 缩进（可跨行方向键编辑 / 粘贴回改），写完才提交整块 → 此时 buf=整块、IsIncomplete=false 一轮即求值。
+    // 非交互（管道 / 无 tty）下 ReadLine 退化成读一物理行，故**保留** buf 累积 + IsIncomplete 判定
+    // （承接 add-repl-parser-completeness）——同一循环两模式通吃。续行缩进已下沉回车策略，不再传 initial。
     string buf = "";
     while (true) {
         Completer.SetActive(s);   // 每轮把当前会话交给补全器（.reset 会重建 s → 必须重设）
         string line = "";
-        if (buf.Length == 0) { line = Repl.ReadLine(">>> ", ""); }
-        else { line = Repl.ReadLine("... ", Completeness.ContinuationIndent(buf)); }
+        if (buf.Length == 0) { line = Repl.ReadLine(">>> "); }
+        else { line = Repl.ReadLine("... "); }
         if (line == null) {
             // Ctrl-D（EOF）/ Ctrl-C（中断）：续读中（buf 非空）放弃当前多行缓冲、回主提示符；
             // 主提示符处（buf 空）退出 REPL。用「buf 是否空」定语义，无需区分 Ctrl-C/Ctrl-D。

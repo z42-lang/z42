@@ -56,8 +56,22 @@ public static class ReplEditing {
         return s;
     }
 
-    // 主策略：给定键名 + 当前行 + 光标位，返回动作串。纯函数、无副作用、可 [Test]。
+    // 主策略：给定键名 + 当前行 + 光标位，返回动作串。无副作用（enter 分支会 parse 判完整性，但不
+    // 改任何状态）、可 [Test]。backspace/tab 只看当前逻辑行；enter 看**整块缓冲**（含 \n）。
     public static string KeyEdit(string key, string line, int pos) {
+        if (key == "enter") {
+            // 整块多行编辑（add-repl-multiline-editing）：对整块 line 判完整性——写完 → "accept"
+            // （提交；Rust 侧再按光标是否在缓冲末尾兜底 accept_in_the_middle:false）；没写完 →
+            // "newline:"+续行缩进（按**光标前文本**的未闭合括号层数），Rust 译成 Insert("\n"+缩进)。
+            // 缩进复用 Completeness.ContinuationIndent（既有 Lexer 数括号），与旧逐行模型同源。
+            if (Completeness.IsIncomplete(line)) {
+                string pre = line;
+                if (pos >= 0 && pos <= line.Length) { pre = line.Substring(0, pos); }
+                return "newline:" + Completeness.ContinuationIndent(pre);
+            }
+            return "accept";
+        }
+
         string prefix = ReplEditing.LinePrefix(line, pos);
         int col = prefix.Length;
         bool ws = ReplEditing.AllSpaces(prefix);

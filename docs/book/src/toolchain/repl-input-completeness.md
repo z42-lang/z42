@@ -1,7 +1,7 @@
 # REPL 输入完整性判定（parser 权威）
 
-> 对齐：2026-08-22（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
-> `add-repl-indent-editing` + `add-repl-tab-grid-snap`）
+> 对齐：2026-08-23（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
+> `add-repl-indent-editing` + `add-repl-tab-grid-snap` + `add-repl-multiline-editing`）
 > 代码：`src/toolchain/scripting/src/Completeness.z42`、`src/toolchain/scripting/src/ReplEditing.z42`、
 > `src/compiler/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
 > `src/runtime/src/corelib/repl.rs`、`src/runtime/src/corelib/repl_editing.rs`
@@ -117,6 +117,8 @@ z42，Rust 不做决策。只在光标前缀**全为空格**（纯缩进行）�
 | `""` | `None`（该键默认）| 有词 / 非缩进行 | — |
 | `dedent` | `Cmd::Dedent(WholeLine)` | 退格去一级（删 `indent_size`=4）| 干净 |
 | `insert:<text>` | `Cmd::Insert(1, text)` | Tab 网格吸附：补到下制表位 | 干净 |
+| `accept` | `Cmd::AcceptLine` | Enter：整块写完 → 提交 | 干净 |
+| `newline:<ind>` | `Cmd::Insert(1, "\n"+ind)` | Enter：整块没写完 → 插换行 + 续行缩进 | 干净 |
 
 **Tab 网格吸附（grid-snap-ceil）**：Tab 从「恒加一级」改为「ceil 到下制表位」——补 `((col/4)+1)*4 - col`
 个空格。对齐时（col 为 4 倍数）等价加一级；错位时对齐到制表位（`col=2` → 4，而非旧的 → 6）。
@@ -136,3 +138,52 @@ z42，Rust 不做决策。只在光标前缀**全为空格**（纯缩进行）�
 
 > 历史更正：`add-repl-indent-editing` 曾据坑 ①（redo）判「`}`/网格吸附须 patch rustyline」。坑 ① 其实用
 > `Replace(WholeLine)` 即可绕过（无需 fork）；真正的阻塞是坑 ②（光标）。
+
+## 整块多行编辑（whole-buffer multiline）
+
+> change：`add-repl-multiline-editing`。代码：`ReplEditing.KeyEdit` 的 `"enter"` 分支（策略）、
+> `repl_editing.rs` 的 `parse_action` + Enter 键绑定 + at-end gate、`repl.rs` `read_one_line`（Ctrl-C/EOF 分流）、
+> `interactive_main.z42`（循环去 `initial`）、`Repl.z42`（`ReadLine(prompt)` 单参）。
+
+**动机**：`add-repl-indent-editing` 之前 REPL 是**逐行 readline**——每个物理行一次 `readline()`，多行由脚本层
+`buf` 累积。上箭头是历史、够不到当前语句的上一行 → 粘贴后无法回改任意行、续行不能跨行导航。整块多行把
+一条（可能跨多行的）语句放进**一次 readline**，让 rustyline 的整块缓冲能跨行导航 / 回改 / 粘贴编辑。
+
+**机制**：Enter 绑定到与退格/Tab **同一个** `ReplEditing.KeyEdit` 回调（key=`"enter"`）。它对
+`EventContext::line()`（**整块缓冲**，含 `\n`）调 `Completeness.IsIncomplete`：
+
+```mermaid
+flowchart TD
+  E[按 Enter] --> R[KeyEditHandler key=enter]
+  R -->|重入 z42| K["ReplEditing.KeyEdit(enter, 整块line, pos)"]
+  K --> I{"IsIncomplete(整块)?"}
+  I -->|是| N["newline: + ContinuationIndent(光标前文本)"]
+  I -->|否| A[accept]
+  N --> NI["Cmd::Insert(1, '\n'+缩进) → 缓冲内续行"]
+  A --> G{"Rust at-end gate: pos == line.len()?"}
+  G -->|是| S[Cmd::AcceptLine → 提交整块]
+  G -->|否| SP["Cmd::Insert(1,'\n') → 中段拆行（不提交）"]
+```
+
+- **完整性判定在 z42**（parser 权威，复用 `Completeness`）；**光标 at-end 判定在 Rust**（`ectx.pos() ==
+  ectx.line().len()`，字节比较，UTF-8 稳健）——分工：z42 答「代码写完没」，Rust 答「光标在末尾没」。
+- **at-end gate = `accept_in_the_middle: false`**（多行推荐 UX）：只有光标在缓冲末尾 **且** 整块完整才提交；
+  在中段按 Enter 只拆行、不提交。
+- **无需 rustyline `Validator`**：`Cmd::AcceptLine` 在 rustyline 里**无条件提交**（`command.rs`
+  `(Cmd::AcceptLine, ..)` → `Submit`，忽略 validator/光标）；`Validator` 保持空 stub。
+
+**两条读取路径**（同一循环通吃）：
+
+| 模式 | ReadLine 返回 | 多行怎么来 |
+|------|--------------|-----------|
+| 交互（tty） | **整条**语句（回车 handler 在一次 readline 内插换行 + 缩进直到完整）| rustyline 整块缓冲 |
+| 非交互（管道 / 无 tty） | **一物理行**（`plain_readline`，无行编辑器）| 脚本层 `buf` 累积 + `IsIncomplete` 判续读 |
+
+故 `interactive_main.z42` 的 `buf` 累积 **保留**（非 tty 靠它）；tty 下整块一轮即完整、`buf` 只是透传。
+
+**Ctrl-C vs Ctrl-D**：整块编辑发生在一次 readline 内、`buf` 始终空，故不能再靠「`buf` 是否空」区分中断
+与 EOF。改在 `read_one_line` 分流：`Interrupted`（Ctrl-C）→ 返回**空串**（循环 continue，弃当前多行、
+回主提示符，Python 式重来）；`Eof`（Ctrl-D）→ 返回 `null`（循环 break，退出）。
+
+**仍延后**：`}` 自动回退一级、退格 floor（坑 ② 光标问题）。整块模型为其提供了更干净的地基（成为当前
+物理行内编辑），但本 change 不做——见 roadmap Deferred。

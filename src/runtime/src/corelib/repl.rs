@@ -36,16 +36,15 @@ fn prompt_arg(args: &[Value], idx: usize) -> String {
 }
 
 /// `__repl_readline(prompt: string, initial: string) -> string?` — read one edited
-/// line, pre-filling the edit buffer with `initial` (empty → a fresh line; a computed
-/// indent string → an auto-indented continuation line, cursor landing after it).
-/// Returns null on Ctrl-D (EOF) / Ctrl-C (interrupt).
+/// whole (possibly multi-line) statement — one `readline()` spans an entire statement,
+/// with the Enter key deciding submit-vs-continue via the z42 key-editor
+/// (add-repl-multiline-editing). Returns null on Ctrl-D (EOF) / Ctrl-C (interrupt).
 pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
-    let initial = prompt_arg(args, 1);
     // add-repl-prewarm: GC-safe park for the blocking read so a background
     // prewarm thread's GC can proceed while this thread waits on stdin.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
-    read_one_line(ctx, &prompt, &initial)
+    read_one_line(ctx, &prompt)
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
@@ -392,7 +391,7 @@ fn word_start(line: &str, pos: usize) -> usize {
 // ── Line source: rustyline on host, plain stdin on wasm / when unavailable ──
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> {
+fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
     use parking_lot::Mutex;
     use rustyline::error::ReadlineError;
     use rustyline::history::DefaultHistory;
@@ -424,6 +423,14 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
             // Returning `None` falls back to the key's default (Tab→complete,
             // Backspace→delete one char), so nothing is blocked when unregistered or on a
             // non-indent line. (add-repl-indent-editing + add-repl-tab-grid-snap)
+            //
+            // Enter is bound to the SAME handler with key "enter" (add-repl-multiline-editing):
+            // it re-enters z42 to judge whether the whole buffer is complete → "accept"
+            // (Cmd::AcceptLine, submit) or "newline:<indent>" (Cmd::Insert "\n"+indent, keep
+            // editing). This turns the editor into a whole-buffer multi-line editor: one
+            // readline() spans an entire statement, arrow keys navigate across its lines, and
+            // a pasted block is editable in place. Returning None (unregistered) falls back to
+            // rustyline's default Enter (submit) — safe single-line behavior.
             use crate::corelib::repl_editing::KeyEditHandler;
             use rustyline::{EventHandler, KeyCode, KeyEvent, Modifiers};
             ed.bind_sequence(
@@ -433,6 +440,10 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
             ed.bind_sequence(
                 KeyEvent(KeyCode::Tab, Modifiers::NONE),
                 EventHandler::Conditional(Box::new(KeyEditHandler::new("tab"))),
+            );
+            ed.bind_sequence(
+                KeyEvent(KeyCode::Enter, Modifiers::NONE),
+                EventHandler::Conditional(Box::new(KeyEditHandler::new("enter"))),
             );
             // Load prior sessions' history (best-effort: missing file / parse error is
             // fine — a fresh session just starts empty). (add-repl-history-keyword-completion)
@@ -446,13 +457,11 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
         Some(ed) => {
             // Publish the live ctx for the completer, strictly for this readline span.
             ACTIVE_CTX.with(|c| c.set(ctx as *const VmContext));
-            // `initial` (non-empty on auto-indented continuation lines) pre-fills the
-            // edit buffer with the cursor after it; empty → a normal fresh line.
-            let res = if initial.is_empty() {
-                ed.readline(prompt)
-            } else {
-                ed.readline_with_initial(prompt, (initial, ""))
-            };
+            // Whole-buffer multiline (add-repl-multiline-editing): one readline() reads an
+            // entire (possibly multi-line) statement; the Enter handler inserts newlines +
+            // continuation indent in-buffer until the statement is complete, so there is no
+            // per-line `initial` pre-fill anymore.
+            let res = ed.readline(prompt);
             ACTIVE_CTX.with(|c| c.set(std::ptr::null()));
             match res {
                 Ok(line) => {
@@ -464,23 +473,30 @@ fn read_one_line(ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> 
                     }
                     Ok(Value::Str(line.into()))
                 }
-                Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => Ok(Value::Null),
+                // Ctrl-C (Interrupt) abandons the current (possibly multi-line) buffer and
+                // re-prompts — return an empty line, which the loop treats as "nothing typed,
+                // continue". Ctrl-D (Eof) returns null → the loop exits. In the old line-by-line
+                // model both mapped to null and `buf` non-empty distinguished them; whole-buffer
+                // editing keeps `buf` empty, so the split must happen here. (add-repl-multiline-editing)
+                Err(ReadlineError::Interrupted) => Ok(Value::Str(String::new().into())),
+                Err(ReadlineError::Eof) => Ok(Value::Null),
                 Err(e) => bail!("__repl_readline: {e}"),
             }
         }
-        None => plain_readline(prompt, initial),
+        None => plain_readline(prompt),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_one_line(_ctx: &VmContext, prompt: &str, initial: &str) -> Result<Value> {
-    plain_readline(prompt, initial)
+fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Value> {
+    plain_readline(prompt)
 }
 
-/// Fallback: print the prompt to stderr, read one line from stdin. EOF → null.
-/// `initial` (auto-indent pre-fill) is ignored here: a non-interactive / no-tty
-/// stream carries its own literal text and cannot host an editable pre-fill.
-fn plain_readline(prompt: &str, _initial: &str) -> Result<Value> {
+/// Fallback: print the prompt to stderr, read one physical line from stdin. EOF → null.
+/// No line editing here (non-interactive / no-tty). Whole-buffer multi-line editing is a
+/// tty-only feature; a piped stream still works because the z42 loop accumulates lines and
+/// asks `Completeness.IsIncomplete` when to stop. (add-repl-multiline-editing)
+fn plain_readline(prompt: &str) -> Result<Value> {
     use std::io::Write;
     let mut err = std::io::stderr();
     let _ = err.write_all(prompt.as_bytes());
