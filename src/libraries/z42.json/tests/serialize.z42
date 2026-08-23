@@ -4,10 +4,25 @@ namespace Z42JsonSerializeTests;
 using Std;
 using Std.Test;
 using Std.Json;
+using Std.Collections;
 
 class Point {
     public int x;
     public int y;
+}
+
+// add-collection-serde：List<T> / Dictionary<string,V> 序列化测。
+class Bag {
+    public string Name;
+    public List<int> Nums;
+    public Dictionary<string, int> Scores;
+}
+// List 元素为对象——List<T> 约束 T: IEquatable<T> + IComparable<T>。
+class Item : IEquatable<Item>, IComparable<Item> {
+    public int id;
+    public bool Equals(Item other) { return this.id == other.id; }
+    public int GetHashCode() { return this.id; }
+    public int CompareTo(Item other) { return this.id - other.id; }
 }
 
 class Person {
@@ -118,4 +133,49 @@ void test_serialize_pretty_has_newlines() {
     Point p = new Point();
     p.x = 1; p.y = 2;
     Assert.Contains("\n", JsonSerializer.SerializePretty(p));
+}
+
+// ── add-collection-serde ────────────────────────────────────────────────────
+[Test]
+void test_serialize_list_of_int() {
+    List<int> nums = new List<int>();
+    nums.Add(1); nums.Add(2); nums.Add(3);
+    Assert.Equal("[1,2,3]", JsonSerializer.Serialize(nums));
+}
+
+[Test]
+void test_serialize_empty_list() {
+    List<int> nums = new List<int>();
+    Assert.Equal("[]", JsonSerializer.Serialize(nums));
+}
+
+[Test]
+void test_serialize_dict_string_int() {
+    Dictionary<string, int> d = new Dictionary<string, int>();
+    d["a"] = 1;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(d));
+    Assert.True(v.IsObject());
+    Assert.Equal(1, (int)v.Get("a").AsLong());
+}
+
+[Test]
+void test_serialize_collections_as_fields() {
+    Bag b = new Bag();
+    b.Name = "xs";
+    b.Nums = new List<int>(); b.Nums.Add(10); b.Nums.Add(20);
+    b.Scores = new Dictionary<string, int>(); b.Scores["k"] = 5;
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(b));
+    Assert.Equal("xs", v.Get("Name").AsString());
+    Assert.Equal(2, v.Get("Nums").Count());
+    Assert.Equal(10, (int)v.Get("Nums").At(0).AsLong());
+    Assert.Equal(5, (int)v.Get("Scores").Get("k").AsLong());
+}
+
+[Test]
+void test_serialize_list_of_objects() {
+    List<Item> items = new List<Item>();
+    Item a = new Item(); a.id = 7; items.Add(a);
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(items));
+    Assert.True(v.IsArray());
+    Assert.Equal(7, (int)v.At(0).Get("id").AsLong());
 }

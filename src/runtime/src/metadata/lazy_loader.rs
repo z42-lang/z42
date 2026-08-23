@@ -321,6 +321,18 @@ impl LazyLoader {
         out
     }
 
+    /// Force-load every not-yet-loaded declared package. One-time eager load used
+    /// by reflection (`make_type_from_name`) when a dotless class name can't be
+    /// resolved from already-loaded types — a constructed-generic field type_tag
+    /// carries source spelling (`List<int>`), not an FQN, and there is no
+    /// simple→FQN index without loading bodies. After this, `remaining_declared()`
+    /// is empty so repeat calls are no-ops. add-collection-serde.
+    pub fn force_load_all(&mut self) {
+        for f in self.remaining_declared() {
+            let _ = self.load_zpkg_file(&f);
+        }
+    }
+
     pub(crate) fn remaining_declared(&self) -> Vec<String> {
         // common-pitfalls.md §1: sort for deterministic force-load order across
         // platforms (FxHashMap iteration order is otherwise non-deterministic).

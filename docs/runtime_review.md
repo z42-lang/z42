@@ -67,6 +67,10 @@
 > 且经核实 `maybe_mark_cross_gen_card`（primitive `new` → 即 return）与 `mark_if_unmarked`（primitive → false）
 > **已对 primitive 安全 no-op**，故 H4 并非原文所称的「release 内存安全 bug」，debug_assert 仅是契约违反检测器。
 > **候选处置**：A 却下（现设计合理）/ B 仅在函数头加注释说明 helper 已安全 no-op / C 改写 observer 契约后再加早退。
+>
+> **2026-08-23 裁决：A 却下。** User 确认：helper 已对 primitive 安全 no-op，加早退会破坏
+> observer 端到端验证契约、使 `write_barriers.rs` 既有测试失效，且原文所称「release 内存安全 bug」不成立。
+> 本项不实施、不再跟踪。
 
 **（以下为原始记录）**
 
@@ -154,7 +158,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 | 1 | `fix-runtime-load-order-determinism` | H1 ✅（PR #266）；H4 剥离待裁决（见下） | runtime | 🟢 H1 done |
 | 2 | `refactor-arc-heap-modularization` | H2(arc_heap) + L11 顺带评估 | runtime | ☐ |
 | 3 | `refactor-zbc-reader-split` | H2(zbc_reader) + M3(opcode 表) + M4(zbc_compat) —— **建议在下一次 format bump 前完成** | runtime | ☐ |
-| 4 | `refactor-jit-translate-split` | H2(translate) + H3(semantics 统一 + unsupported 表) —— 反正要大动 JIT 文件，一次收敛三重实现 | runtime | ☐ |
+| 4 | `refactor-jit-translate-split` | H2(translate 拆 20 子模块，全 <500) + H3(semantics.rs 单一真相源 + unsupported 表 + 边界 golden 差分) | runtime | 🟢 done（commits a34bed57/804f0fd8/017f4f85）|
 | 5 | `refactor-vm-context-resource-registry` | H2(vm_context) + M2 | runtime | ☐ |
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
 | 7 | `refactor-reflection-split` | H2(reflection) + L3(README) | runtime | ☐ |

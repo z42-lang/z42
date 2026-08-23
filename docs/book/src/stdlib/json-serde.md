@@ -100,9 +100,29 @@ null-receiver vcall 派发）在类型实参**非唯一限定**时可能只带**
 （entry module + lazy loader）里唯一匹配则解析为真 handle；零/多义则维持 synthetic（不误绑）。用户程序
 里目标类型通常唯一 → 稳解析。（根因是编译期跨包泛型实参限定，兜底在运行期最小且安全。）
 
+### 集合类型（add-collection-serde）
+
+`List<T>` ↔ JSON array，`Dictionary<string,V>` ↔ JSON object（字符串键）。**反射-only**（无新 native）：
+
+- **检测**：`Type.FullName == "Std.Collections.List"` / `"Std.Collections.Dictionary"`（置于基元/数组之后、
+  通用对象分派之前——否则 List 被当对象遍历其 items/Count 内部字段）。元素类型经 `GetGenericArguments()`。
+- **序列化**：List 反射读 `Count`（公开字段）+ `get_Item(i)`；Dict 反射 `Keys()` + `get_Item(key)`（`JsonReflect`
+  封装「遍历 `GetMethods()` 按名取」——z42 反射无 `GetMethod(name)`）。
+- **反序列化**：`Activator.CreateInstance(memberType)`（非泛型，作用于构造泛型 Type）+ 逐元素 `FromJson` +
+  反射 `Add`（List）/ `set_Item`（Dict）。Dict 键非 string → `JsonException`。
+
+> **两个通用反射修复**（字段路径反序列化所需，非集合特有）：
+> 1. **`split_generic_args` trim**：字段 type_tag 用源拼写、逗号后带空格（`Dictionary<string, int>`，见 z42c
+>    `_typeSourceName` 的 `", "`）→ 原生 split 得 `" int"`（前导空格）→ `make_type_from_name` 落空丢 handle。
+>    修 = 每实参 trim（typeof 名无空格，此坑只中 member-type 反射的多实参泛型）。
+> 2. **dotless 短基名 force-load 兜底**：字段 type_tag 基名是短名 `List`（非 FQN）。`typeof(List<int>)` 走 FQ
+>    force-load 得 handle；字段短名若集合类型未被 `typeof`/`new` 触发加载则从已加载类型找不到 → 无 handle。
+>    修 = 无点**类名**（大写首字母、非基元）找不到时一次性 `force_load_all_packages()` 再简单名唯一匹配
+>    （gated 大写 → 基元不触发；force-load 幂等一次）。
+
 ## 类型覆盖与 Deferred
 
-**M2 覆盖**：基元（int/long/double/bool/string）+ 嵌套对象 + 定长数组 `T[]`。
+**覆盖**：基元（int/long/double/bool/string）+ 嵌套对象 + 定长数组 `T[]` + **`List<T>` + `Dictionary<string,V>`**。
 
-**Deferred**（roadmap Deferred Backlog Index）：`List<T>`/`Dictionary<K,V>`/`Set`（需泛型容器反射）、
-enum、nullable(`T?`)、char、camelCase↔PascalCase 命名策略。
+**Deferred**（roadmap Deferred Backlog Index）：`Dictionary<K,V>` 非字符串键（→ array-of-pairs）、`Set`/`Queue`/
+`Stack`、enum、nullable(`T?`)、char、camelCase↔PascalCase 命名策略。
