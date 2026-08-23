@@ -103,6 +103,52 @@ fn candidates_routes_multi_zpkg_sharing_namespace() {
     );
 }
 
+/// fix-runtime-load-order-determinism (common-pitfalls.md §1): `candidates_for_namespace`
+/// iterates an FxHashMap (non-deterministic order) and downstream consumers pick first-wins,
+/// so the returned Vec must be sorted regardless of insertion order. Insert several
+/// same-namespace candidates in reverse-sorted order and assert the result is sorted
+/// *without* the caller sorting it.
+#[test]
+fn candidates_returns_sorted_order() {
+    let loader = LazyLoader::new(
+        Vec::new(),
+        0,
+        vec![
+            ("z.zpkg".to_string(), fake_candidate(&["Std.Collections"])),
+            ("m.zpkg".to_string(), fake_candidate(&["Std.Collections"])),
+            ("a.zpkg".to_string(), fake_candidate(&["Std.Collections"])),
+        ],
+        Vec::new(),
+    );
+    let matches = loader.candidates_for_namespace("Std.Collections");
+    assert_eq!(
+        matches,
+        vec!["a.zpkg".to_string(), "m.zpkg".to_string(), "z.zpkg".to_string()],
+        "candidates must be returned in stable sorted order (no caller-side sort)",
+    );
+}
+
+/// fix-runtime-load-order-determinism: `remaining_declared` likewise must return a
+/// stable sorted order (drives `__static_init__` force-load enumeration).
+#[test]
+fn remaining_declared_returns_sorted_order() {
+    let loader = LazyLoader::new(
+        Vec::new(),
+        0,
+        vec![
+            ("z.zpkg".to_string(), fake_candidate(&["Z"])),
+            ("m.zpkg".to_string(), fake_candidate(&["M"])),
+            ("a.zpkg".to_string(), fake_candidate(&["A"])),
+        ],
+        Vec::new(),
+    );
+    assert_eq!(
+        loader.remaining_declared(),
+        vec!["a.zpkg".to_string(), "m.zpkg".to_string(), "z.zpkg".to_string()],
+        "remaining_declared must be returned in stable sorted order (no caller-side sort)",
+    );
+}
+
 #[test]
 fn install_filters_already_loaded_from_declared() {
     let loader = LazyLoader::new(

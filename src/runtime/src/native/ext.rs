@@ -125,8 +125,13 @@ fn load_via_dlopen(ctx: &VmContext) -> Result<()> {
                 continue;
             }
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        // common-pitfalls.md §1: `read_dir` order is OS/FS-dependent and
+        // downstream `ExtBuiltinTable::register` is first-wins — two libs
+        // exporting the same builtin name would resolve non-deterministically
+        // across platforms. Sort by path so load order is stable everywhere.
+        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
             if let Some(name) = parse_z42_lib_name(&path) {
                 if let Err(e) = load_one(ctx, &path, &name) {
                     tracing::warn!("ext: failed to load {}: {:#}", path.display(), e);
