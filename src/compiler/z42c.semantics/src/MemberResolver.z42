@@ -287,13 +287,22 @@ public sealed class MemberResolver {
     private void _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {
         if (call.TypeArgCount == 0 || bc.MethodTypeArgCount > 0) { return; }
         Z42Type[] targs = new Z42Type[call.TypeArgCount];
+        int[] fwd = new int[call.TypeArgCount];
         int i = 0;
         while (i < call.TypeArgCount) {
             targs[i] = env.ResolveType(call.TypeArgs[i]);
             this._tc._chkTypeRef(targs[i], env, call.TypeArgs[i].Span);   // 类型实参引用的可访问性/存在性
+            // add-generic-activator：类型实参是外层方法的方法级泛型形参（Foo<T>() 里的 T）→ 记其
+            // 方法级下标，emit 期发 `$mta:<idx>` 转发标记而非字面 "T"（运行期按调用方 frame 解析）。
+            fwd[i] = 0 - 1;
+            if (targs[i] is Z42GenericParamType) {
+                int mIdx = env.MethodParamIndexOf(targs[i].Name());
+                if (mIdx >= 0) { fwd[i] = mIdx; }
+            }
             i = i + 1;
         }
         bc.MethodTypeArgs = targs;
+        bc.MethodTypeArgFwd = fwd;
         bc.MethodTypeArgCount = call.TypeArgCount;
         if (ms != null && ms.HasDecl && ms.Decl != null) {
             int declTp = ms.Decl.TypeParams.Count;

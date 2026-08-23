@@ -1,13 +1,20 @@
 namespace Std.Reflection;
 
 // Reflective object construction. Mirrors C# `System.Activator` (no-arg subset).
-// Non-generic, no-arg only (test-class instantiation for the reflective test
-// runner). Parameterised CreateInstance + CreateInstance<T> are deferred until
-// runtime generic instantiation (0.4.x G).
+// No-arg construction only. Parameterised CreateInstance (Type + args) is deferred
+// (use `ConstructorInfo.Invoke` for parameterised construction).
 public static class Activator {
     // Create an instance of `t` via its no-arg constructor (or default-field
     // allocation if the type has no explicit ctor). A ctor `throw` propagates
     // with its original exception type.
     [Native("__activator_create")]
     public static extern object CreateInstance(Std.Type t);
+
+    // add-generic-activator (G3): 泛型无参构造便捷形——`new T()` 的反射入口。薄泛型壳：
+    // `typeof(T)`（方法级 type_arg，add-generic-methods #240）拿目标 Type，转发到上面的非泛型
+    // native。无新 native / IR / 格式改动。跨包调用时 `typeof(T)` 短名 handle 由 make_type_from_name
+    // 兜底解析（add-json-serde）。serde `Deserialize<T>` 内部即用同款 `(T)CreateInstance(typeof(T))`。
+    public static T CreateInstance<T>() {
+        return (T)Activator.CreateInstance(typeof(T));
+    }
 }

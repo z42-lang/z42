@@ -128,6 +128,17 @@ interface IExtendedShape : IShape {
     void Reset();
 }
 
+// add-generic-activator (G3): 无参 ctor（带副作用字段）+ 普通默认字段，供 Activator.CreateInstance<T> 往返测。
+class ActWidget {
+    public int count;
+    public string label;
+    public ActWidget() { this.label = "made"; }
+}
+// 泛型方法内转发 CreateInstance<T>（T 经 method_type_args 穿透，镜像 serde Deserialize<T>）。
+class ActMaker {
+    public static T Make<T>() { return Activator.CreateInstance<T>(); }
+}
+
 [Test]
 void test_gettype_name_and_fullname() {
     Derived d = new Derived();
@@ -316,6 +327,31 @@ void test_activator_constructed_carries_type_args() {
     Type[] gargs = o.GetType().GetGenericArguments();
     Assert.Equal(1, gargs.Length);
     Assert.Equal("int", gargs[0].Name);
+}
+
+[Test]
+void test_generic_activator_createinstance() {
+    // add-generic-activator (G3): 泛型无参构造 = new T()。ctor 副作用生效 + 默认字段。
+    ActWidget w = Activator.CreateInstance<ActWidget>();
+    Assert.NotNull(w);
+    Assert.Equal("made", w.label);   // 无参 ctor 已执行
+    Assert.Equal(0, w.count);        // 未赋值字段 = 默认
+}
+
+[Test]
+void test_generic_activator_type_correct() {
+    // 返回值运行期类型 == T。
+    object o = Activator.CreateInstance<ActWidget>();
+    ActWidget w = o as ActWidget;
+    Assert.NotNull(w);
+}
+
+[Test]
+void test_generic_activator_forwarded_through_generic_method() {
+    // 泛型方法内 CreateInstance<T>（T = 外层方法级形参，经 method_type_args 穿透）。
+    ActWidget w = ActMaker.Make<ActWidget>();
+    Assert.NotNull(w);
+    Assert.Equal("made", w.label);
 }
 
 [Test]

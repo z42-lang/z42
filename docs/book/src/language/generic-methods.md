@@ -105,9 +105,35 @@ flowchart LR
 
 - **M1 只做直接调用** `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 由 **G2**
   （add-reflective-invoke）补齐，见下节。
-- **类型实参须为具体类型**；调用者把自己的类型形参转发给被调方法（嵌套泛型转发）留后续。
 - **类级 `typeof(T)` 的具体化不在本 Scope**（当前仍产占位名）；本 change 只补方法级。
 - 类型**推断**（从实参推 `T`，省略 `<...>`）留后续；M1 要求显式写 `Foo<T>()`。
+
+## 方法级形参转发（add-generic-activator）
+
+M1 曾要求「类型实参须为具体类型」——调用者**把自己的方法级形参 `T` 转发给嵌套泛型调用**
+（`Foo<T>() { Bar<T>() }`）此前不支持：调用点发字面 `"T"`，被调方 `typeof(T)` 的
+`make_type_from_name("T")` 落空 → 丢 handle。**add-generic-activator 修复了顶层转发**（`Activator.CreateInstance<T>()`
+在泛型方法内可用的前置）。
+
+**机制（`$mta:<idx>` 标记，零格式改动）**：
+
+```
+Make<ActWidget>()              → Make frame.method_type_args = ["…ActWidget"]   （具体名）
+  内部 Activator.CreateInstance<T>()
+    编译期：T 是 Make 的方法级形参(idx=0) → 发标记 "$mta:0"（而非字面 "T"）
+    运行期：exec_call/exec_vcall 在拷入 callee frame 前，把 "$mta:0" 换成
+            调用方(Make) frame.method_type_args[0] = "…ActWidget"
+    → CreateInstance frame.method_type_args = ["…ActWidget"] → typeof(T) 得具体 handle ✓
+```
+
+- **编译期**：`_applyMethodTypeArgs` 若类型实参是外层方法级形参（`env.MethodParamIndexOf ≥ 0`），
+  在 `BoundCall.MethodTypeArgFwd` 记其下标；`_methodTypeArgNames` 据此发 `$mta:<idx>`。
+- **运行期**：`resolve_forwarded_mta`（interp/mod.rs）按**调用方** frame 解析标记。嵌套天然成立
+  （每层调用在设置自己 callee frame 前解析，故调用方 frame 的槽已是具体名）。
+- **零格式改动**：`method_type_args` 本就是 `string[]`，`$mta:<idx>` 只是标记串；无新 opcode。
+  无标记的调用（具体实参 / 类级形参）产物**字节不变**（`starts_with("$mta:")` 门控）。
+- **限制**：只做**顶层**类型实参转发（`Bar<T>`）；`Bar<List<T>>` 里嵌套的 T（标记落在尖括号内）留
+  后续（需 `make_type_from_name` 角括号解析里嵌转发）。
 
 ## 反射式调用（G2 — MakeGenericMethod + Invoke）
 
