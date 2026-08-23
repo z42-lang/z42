@@ -154,7 +154,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // VCallGeneric (0xB5). Non-generic Call/VCall (0x50/0x52) encoding unchanged
 // (byte-identical); generic calls carry a `method_type_args` string list (count u16
 // + pool idx u32×) between the method token and args. Coupled with zpkg 0.41.
-pub const ZBC_VERSION_MINOR: u16 = 36;
+pub const ZBC_VERSION_MINOR: u16 = 37;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -261,7 +261,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-21 add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
 // generic type_args new opcodes; non-generic calls byte-identical). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 41;
+pub const ZPKG_VERSION_MINOR: u16 = 42;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
