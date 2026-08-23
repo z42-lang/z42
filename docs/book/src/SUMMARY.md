@@ -41,6 +41,7 @@
 - [概览](runtime/README.md)
   - [执行模型（interp / jit / aot）]()
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
+  - [解释器 / JIT 标量语义单一真相源](runtime/interp-jit-semantics.md)
   - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
   - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
   - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)

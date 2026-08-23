@@ -11,7 +11,7 @@
 /// • exec_vcall.rs   — VCall + primitive_class_name + is_array_isa (single-op file)
 /// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
-/// • ops.rs        — register-level helpers (int_binop, numeric_lt, collect_args, …)
+/// • ops.rs        — register-level helpers (int_binop, collect_args, …)
 
 pub(crate) mod dispatch;
 pub(crate) mod exec_instr;
