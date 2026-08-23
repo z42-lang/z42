@@ -352,12 +352,9 @@ public static class GeneratorDriver {
         GenNode[] nodes = GenTopo.BuildNodes(gens, genCount, mods, modCount);
         int maxLevel = GenTopo.TopoLevels(nodes, n);
         if (maxLevel < 0) {   // consumes/produces 成环 → 发 E0449。
-            // ⚠️ 用**字面量 "E0449"** 而非 `DiagnosticCodes.GeneratorDependencyCycle` 常量：E0449 是本 PR
-            // 新增的 z42c.core 成员，nightly 种子的 z42c.core 尚无它 → 冷启动 F2 stale-cache 下 z42c.semantics
-            // 引用该新成员报 `undefined: DiagnosticCodes`（既有 E0448 常量正常、仅新成员炸；同 PR4d 教训）。
-            // 字面量不触跨包符号解析 → 冷启动稳。常量仍在 DiagnosticCodes.z42 作登记 SoT；下个 nightly 载入
-            // E0449 后可切回常量（staged-bootstrap 纪律）。== DiagnosticCodes.GeneratorDependencyCycle。
-            diags.Error("E0449",
+            // PR4e-wire：E0449 常量已随 nightly 载入 z42c.core → 从 PR4e 的字面量 "E0449" 切回常量引用
+            // （staged-bootstrap use 阶段；DiagnosticCodes.GeneratorDependencyCycle == "E0449"，SoT 单点）。
+            diags.Error(DiagnosticCodes.GeneratorDependencyCycle,
                 "generator `consumes`/`produces` 依赖成环——无法拓扑定序", new Span(0, 0, 0, 0, ""));
             return new GenOutcome(false, cus, files, count);
         }

@@ -17,7 +17,7 @@
 | PR4c | `ModuleGenerator` + `GenContext`(`TypesWith<T>`/`MethodsWith<T>` 强类型符号查询，靠泛型方法 #240) + `GeneratorDriver.RunModules`(扫全编译→AddSource，越界 E0448) + `PackageCompile` 同 gated 块接在 applied 之后 + `*Generator` 后缀 E0447 扩到 `ModuleGenerator` + 集成测试注入驱动 | 否 | ✅ 完成 |
 | PR4d | 外部 generator zpkg 加载(`GeneratorLoader`，编译内发现 `: Generator`/`: ModuleGenerator` + AnalyzerLoader 式 Path-A/B) 经 **`[analyzers]` 段**(D9 单段覆盖两类，User 2026-08-22 裁决；非独立 `[generators]`) + **VM 执行 golden**(真跑生成方法)；复用 PR3a-load infra | 否 | ✅ 完成 |
 | PR4e | 有界多轮**引擎+契约+指纹（support，未接线）**：契约加 `Consumes()`/`Produces()`(Generator+ModuleGenerator) + `GeneratorDriver.RunRounds`(统一节点 Kahn 最长路径分层 + 成环 **E0449** 字面量 + 逐层 re-bind + 轮内 applied 先·module 后) + 多轮/成环/退化单测 + **产物纳入增量指纹**(handler zpkg 内容指纹揉入 srcHashes，driver-intra 即 active)。**PackageCompile 仍单轮**——接线 RunRounds 是新跨成员符号撞 F2 冷启动，留 PR4e-wire | 否 | ✅ 完成 |
-| PR4e-wire | **接线激活多轮**（RunRounds 随 nightly 发布后）：PackageCompile 单轮 `Run`+`RunModules` → `GeneratorDriver.RunRounds`（1 行）；E0449 字面量→常量。staged-bootstrap 轴② use 阶段 | 否 | ⬜ 待 nightly |
+| PR4e-wire | **接线激活多轮**（RunRounds 随 nightly `main@9fc6414` 发布后）：PackageCompile 单轮 `Run`+`RunModules` → `GeneratorDriver.RunRounds`；E0449 字面量→常量 `DiagnosticCodes.GeneratorDependencyCycle`。staged-bootstrap 轴② use 阶段。GREEN：test all 5/5 byte-identical + bootstrap 无越界 + incremental 5/5+51/51 byte-identical | 否 | ✅ 完成 |
 | PR4f(Deferred) | 生成产物**跨 build 增量缓存复用**(现 generator 一律强制全量重编，正确但非增量)：需 probe 感知 generator(probe 时运行/指纹化产物)——独立较大 change | 否 | ⬜ Deferred |
 | PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE） | 是 | ⬜ |
 | PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
