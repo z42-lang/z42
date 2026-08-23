@@ -560,6 +560,28 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     exec_function_body(ctx, module, func, frame)
 }
 
+/// add-generic-activator: resolve method-type-arg *forwarding* markers in `mta`
+/// against the CALLER frame's already-concrete `method_type_args`. A marker
+/// `"$mta:N"` (emitted when a generic call's type-arg is a bare method-level type
+/// param of the enclosing method — `Foo<T>() { Bar<T>() }`) is replaced by
+/// `caller.method_type_args[N]`. Non-marker entries pass through. Only called when
+/// the caller carries at least one marker (see the `starts_with("$mta:")` guard at
+/// the call sites), so the common concrete-type-arg path allocates nothing.
+pub(super) fn resolve_forwarded_mta(caller: &Frame, mta: &[String]) -> Vec<String> {
+    mta.iter()
+        .map(|s| {
+            if let Some(n) = s.strip_prefix("$mta:") {
+                if let Ok(i) = n.parse::<usize>() {
+                    if let Some(v) = caller.method_type_args.get(i) {
+                        return v.clone();
+                    }
+                }
+            }
+            s.clone()
+        })
+        .collect()
+}
+
 /// add-reflective-invoke: like [`exec_function`] but threads method-level generic
 /// `method_type_args` into the callee frame, so a reflectively-invoked *constructed*
 /// generic method (`MethodInfo.MakeGenericMethod(..).Invoke(..)`) materializes

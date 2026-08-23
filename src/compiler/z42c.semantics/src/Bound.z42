@@ -181,6 +181,10 @@ public sealed class BoundCall : BoundExpr {
     // 默认空数组（post-construction 由 MemberResolver 在泛型调用点写入 → 不改既有构造点）。
     public Z42Type[]   MethodTypeArgs;
     public int         MethodTypeArgCount;
+    // add-generic-activator：与 MethodTypeArgs 平行——若第 i 个类型实参是**外层方法**的方法级
+    // 泛型形参（`Foo<T>() { Bar<T>() }` 里的 T），存其方法级下标（≥0）；否则 -1。emit 期据此
+    // 发 `$mta:<idx>` 转发标记（运行期按调用方 frame.method_type_args[idx] 解析），而非字面 "T"。
+    public int[]       MethodTypeArgFwd;
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
@@ -188,6 +192,7 @@ public sealed class BoundCall : BoundExpr {
         this.OwnerClass = ownerClass; this.MethodName = methodName;
         this.Args = args; this.ArgCount = argCount; this._retType = retType;
         this.MethodTypeArgs = new Z42Type[0]; this.MethodTypeArgCount = 0;
+        this.MethodTypeArgFwd = new int[0];
     }
     public override Z42Type Type() { return this._retType; }
     public override string  Dump() {

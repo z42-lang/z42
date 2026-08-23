@@ -130,7 +130,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.4.0 | Pv0 perf 基线刻画（量化已落地的 4-slot IC / JIT I64 特化）| B1 `z42.bench` 包 + B2 `z42b bench` GA | `params` 变长参数 ✅（add-params-varargs，2026-07-01）| L1 stdlib 模块审计 spec | G0 泛型实例化设计 spec |
 | 0.4.1 | Pv1 quickening + 超指令 ‖ Pc1 激活 IrPassManager（const-fold/DCE）| B5 perf 库 baseline 铺面 | `init` + 表达式体属性 | L2 `JsonReader`（合 add-json-streaming-reader）| G1 运行期泛型实例化 |
 | 0.4.2 | **Pv2 JIT 直接 emit 拆箱 + F64 特化（招牌）** ‖ Pc2 intrinsic 表 + devirt pass | B3 e2e 硬门禁 | 索引器 `this[i]` | L2 `JsonSerializer` 非泛型（`[JsonProperty]`）| G2 泛型方法 Invoke + `MakeGenericType` |
-| 0.4.3 | Pv3 Frame 寄存器 HashMap→Vec ‖ Pc3 大类拆分 + BindCall D-11 收尾 | B4 PR 自动评论 diff | 命名实参 | **L2 `Deserialize<T>` 泛型 serde（招牌）✅ add-json-serde（M2；无格式 bump——属性 attr 复用 field_attributes 挂 `__prop_X` 背后字段）** | G3 `Activator.CreateInstance<T>` |
+| 0.4.3 | Pv3 Frame 寄存器 HashMap→Vec ‖ Pc3 大类拆分 + BindCall D-11 收尾 | B4 PR 自动评论 diff | 命名实参 | **L2 `Deserialize<T>` 泛型 serde（招牌）✅ add-json-serde（M2；无格式 bump——属性 attr 复用 field_attributes 挂 `__prop_X` 背后字段）** | **G3 `Activator.CreateInstance<T>` ✅ add-generic-activator（泛型薄壳 + 方法级形参转发 `$mta:<idx>`；无格式 bump）** |
 | 0.4.4 | Pv4 非原子 refcount（profiling 门控）‖ Pc4 compile-perf phase profiling | — | `partial` class | L3 CLI 值校验 + 全局 flag | — |
 | 0.4.5 | P6 stdlib 脚本 perf 三轮（BigInt/Coll、String/IO、JSON/YAML/TOML）| bench 收尾报告 | — | L3 CLI shell 补全 + L1 审计清单执行 | — |
 | 0.4.6 | — | — | — | **`z42-doc` 文档生成器**（doc comment → HTML/markdown + stdlib 自动发布）| — |
@@ -516,7 +516,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `retire-platform-build-test-sh` | 三平台 z42 管线 CI-proven 后，删 `platforms/*/{build,test}.sh`（migrate-scripts-to-z42 节奏）| CI-proven 后 |
 | `add-boxing-future-enum-precise` | enum 当前 I64 表示，装箱丢类型精度（GetType→Int32，`(MyEnum)o` 与 `(int)o` 不可区分）；精确 enum 装箱需 enum-as-type-entity（独立 tag/带-tag 装箱）。正文见 [`design/language/boxing.md`](design/language/boxing.md#deferred--future-work) | enum 作独立类型实体时 |
 | `add-method-invoke-future-generic` | 泛型方法 `Invoke` / `MakeGenericType` / `Activator.CreateInstance<T>`，需运行期泛型实例化。正文见 [`design/language/reflection.md`](design/language/reflection.md) | 0.4.x G 流泛型实例化后 |
-| `add-method-invoke-future-activator` | ~~无参 `Activator.CreateInstance(Type)`~~ ✅；~~有参构造~~ ✅ 由 `ConstructorInfo.Invoke(args)`（add-reflective-invoke）落地；剩泛型 `Activator.CreateInstance<T>` 待 0.4.x G | 有泛型 Activator 需求时 |
+| `add-method-invoke-future-activator` | ~~无参 `Activator.CreateInstance(Type)`~~ ✅；~~有参构造~~ ✅ 由 `ConstructorInfo.Invoke(args)`（add-reflective-invoke）落地；~~泛型 `Activator.CreateInstance<T>`~~ ✅ add-generic-activator（0.4.3 G3）。剩带参泛型 `CreateInstance<T>(args)` + 嵌套构造泛型的方法级形参转发（`Bar<List<T>>`）| 有需求时 |
 | ~~`generic-methods-future-reflective-invoke`~~ ✅ **已落地**（add-reflective-invoke，2026-08-22）| 反射式泛型方法 `MakeGenericMethod().Invoke()` + `IsGenericMethod`/`GetGenericArguments`——复用 M1 Frame `method_type_args` 载体。正文见 [`language/generic-methods.md`](book/src/language/generic-methods.md) | — |
 | `generic-methods-future-type-inference` | 方法 type_args 推断——M1 要求显式 `Foo<T>(x)`；从实参推断 `T` 需类型统一 | 泛型人机工学打磨阶段 |
 | `generic-methods-future-classlevel-typeof` | 类级 `typeof(T)` 具体化——当前产占位名（M1 只补方法级）；可复用 M1 物化范式（载体换 `instance.type_args`）| 有类级 `typeof(T)`→具体 的真实需求时 |

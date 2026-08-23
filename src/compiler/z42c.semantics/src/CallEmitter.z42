@@ -69,7 +69,16 @@ public sealed class CallEmitter {
         if (c.MethodTypeArgCount == 0) { return new string[0]; }
         string[] names = new string[c.MethodTypeArgCount];
         int i = 0;
-        while (i < c.MethodTypeArgCount) { names[i] = this._ee._typeofArgName(c.MethodTypeArgs[i]); i = i + 1; }
+        while (i < c.MethodTypeArgCount) {
+            // add-generic-activator：外层方法级形参 T → 转发标记 `$mta:<idx>`（运行期按调用方
+            // frame.method_type_args[idx] 解析），而非字面 "T"（后者 make_type_from_name 落空丢 handle）。
+            if (c.MethodTypeArgFwd != null && i < c.MethodTypeArgFwd.Length && c.MethodTypeArgFwd[i] >= 0) {
+                names[i] = "$mta:" + c.MethodTypeArgFwd[i].ToString();
+            } else {
+                names[i] = this._ee._typeofArgName(c.MethodTypeArgs[i]);
+            }
+            i = i + 1;
+        }
         return names;
     }
 
