@@ -233,6 +233,9 @@ public static class ZpkgReader {
                 while (x < pac) { c.U32(); c.U32(); x = x + 1; }
                 j = j + 1;
             }
+            // add-deprecated-directive（zbc 1.37）：method_flags bit3 gated 消息串 idx（SIGS 条目尾部）。
+            string depMsg = "";
+            if ((mflags & 8) != 0) { depMsg = z.Pool[c.U32()]; }
             // 签名 stub：体为空（消费侧不需要）；MaxReg/块 0。P1 元数据全灌（reconcile 消费）。
             IrFunction stub = new IrFunction(fname, pc, ret, isStatic == 1,
                                     new IrBlock[0], 0, 0,
@@ -240,6 +243,7 @@ public static class ZpkgReader {
                                     new int[0], 0,
                                     new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
             stub.Visibility = vis; stub.MethodFlags = mflags;
+            stub.DeprecationMsg = depMsg;   // add-deprecated-directive（zbc 1.37）
             stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
             stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
             stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;

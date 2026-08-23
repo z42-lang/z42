@@ -71,11 +71,13 @@ public sealed class SigEntryZ {
     public string[] ParamTypes; public int ParamTypeCount;
     public IrAttrRef[] Attrs; public int AttrCount;
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;
+    public string DeprecationMsg;   // add-deprecated-directive（zbc 1.37）：MethodFlags bit3 gated 消息串
     public SigEntryZ() {
         this.Name = ""; this.ParamCount = 0; this.RetType = "void"; this.ExecMode = "Interp";
         this.IsStatic = false;
         this.Visibility = 0;
         this.MethodFlags = 0;
+        this.DeprecationMsg = "";
         this.MinArg = 0; this.ParamsFrom = 255;
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];
         this.ParamDefaultVals = new long[0]; this.ParamDefaultStrs = new string[0];
@@ -295,6 +297,7 @@ public static class ZbcReader {
                 IrFieldDesc fd = new IrFieldDesc(fname, ft);
                 ZbcReader._readFieldAttrs(c, pool, fd);
                 fd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
+                ZbcReader._readFieldFlags(c, pool, fd);   // add-deprecated-directive（zbc 1.37）
                 fields[f] = fd;
                 f = f + 1;
             }
@@ -326,6 +329,7 @@ public static class ZbcReader {
             }
             cd.Flags = c.U8();
             cd.Visibility = c.U8();   // enforce-class-access（zbc 1.33）：类声明可见性字节（紧随 Flags）
+            if ((cd.Flags & 64) != 0) { cd.DeprecationMsg = ZbcReader._p(pool, c.U32()); }   // add-deprecated-directive（zbc 1.37）：类级 bit6 gated 消息串
             int sfc = c.U16();
             cd.StaticFields = new IrFieldDesc[sfc]; cd.StaticFieldCount = sfc;
             int sf = 0;
@@ -336,6 +340,7 @@ public static class ZbcReader {
                 IrFieldDesc sd = new IrFieldDesc(sn, st);
                 ZbcReader._readFieldAttrs(c, pool, sd);
                 sd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
+                ZbcReader._readFieldFlags(c, pool, sd);   // add-deprecated-directive（zbc 1.37）
                 cd.StaticFields[sf] = sd;
                 sf = sf + 1;
             }
@@ -453,6 +458,12 @@ public static class ZbcReader {
         }
     }
 
+    // add-deprecated-directive（zbc 1.37）：字段 flags 字节（bit0=deprecated）+ gated 消息串。镜像 _writeFieldFlags。
+    private static void _readFieldFlags(ZbcCursor c, string[] pool, IrFieldDesc fd) {
+        int ff = c.U8();
+        if ((ff & 1) != 0) { fd.Deprecated = true; fd.DeprecationMsg = ZbcReader._p(pool, c.U32()); }
+    }
+
     // ── SIGS ────────────────────────────────────────────────────────────────────
 
     private static SigEntryZ[] _readSigs(byte[] data, ZbcSectionZ[] dir, string[] pool) {
@@ -530,6 +541,8 @@ public static class ZbcReader {
                 pa = pa + 1;
             }
             if (!anyPa) { e.ParamAttrs = new IrAttrRefList[0]; e.ParamAttrsLen = 0; }   // writer：ParamAttrsLen=0 → 全零块，往返等价
+            // add-deprecated-directive（zbc 1.37）：method_flags bit3 gated 消息串 idx（SIGS 条目尾部）。
+            if ((e.MethodFlags & 8) != 0) { e.DeprecationMsg = ZbcReader._p(pool, c.U32()); }
             r[i] = e;
             i = i + 1;
         }
@@ -591,6 +604,7 @@ public static class ZbcReader {
             f.Attrs = sig.Attrs; f.AttrCount = sig.AttrCount;
             f.ParamAttrs = sig.ParamAttrs; f.ParamAttrsLen = sig.ParamAttrsLen;
             f.Visibility = sig.Visibility; f.MethodFlags = sig.MethodFlags;   // 1.23/1.24 round-trip
+            f.DeprecationMsg = sig.DeprecationMsg;   // add-deprecated-directive（zbc 1.37）round-trip
             f.MinArg = sig.MinArg; f.ParamsFrom = sig.ParamsFrom;             // add-param-metadata round-trip
             f.ParamNames = sig.ParamNames; f.ParamDefaultKinds = sig.ParamDefaultKinds;
             f.ParamDefaultVals = sig.ParamDefaultVals; f.ParamDefaultStrs = sig.ParamDefaultStrs;

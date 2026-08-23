@@ -26,9 +26,12 @@ public sealed class IrFieldDesc {
     public string Type;   // 类型名文本（Z42Type.Name）
     public IrAttrRef[] Attrs; public int AttrCount;   // zbc 1.14：字段 attr-ref（默认空）
     public int Visibility;   // add-member-visibility（zbc 1.23）：0=public / 1=private / 2=protected（默认 0）
+    // add-deprecated-directive（zbc 1.37）：字段 descriptor 首个 flags 字节 bit0=deprecated + 消息串（默认无）。
+    public bool Deprecated; public string DeprecationMsg;
     public IrFieldDesc(string name, string type) { this.Name = name; this.Type = type;
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.Visibility = 0;
+        this.Deprecated = false; this.DeprecationMsg = "";
     }
 }
 
@@ -49,8 +52,9 @@ public sealed class IrClassDesc {
     public int           FieldCount;
     public IrFieldDesc[] StaticFields; public int StaticFieldCount;   // zbc 1.13（SA-3）
     public string[] Interfaces; public int InterfaceCount;   // zbc 1.17：TYPE 接口块（bare 名）
-    public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record / bit4 interface / bit5 enum
+    public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record / bit4 interface / bit5 enum / bit6 deprecated（zbc 1.37）/ bit7 有内联 struct 字段
     public int Visibility;   // enforce-class-access（zbc 1.33）：类声明可见性 0=public/1=private/2=protected/3=internal（默认 0）。TYPE 记录紧随 Flags 的独立字节；跨包 internal 类引用强制据此。
+    public string DeprecationMsg;   // add-deprecated-directive（zbc 1.37）：Flags bit6=deprecated 时的消息串（紧随 Visibility 字节 emit；默认空）。
     public string[]           TypeParams;           public int TypeParamCount;        // zbc L3-G1
     public IrConstraintDesc[] TypeParamConstraints; // aligned with TypeParams（null = empty bundles）
     public IrAttrRef[] Attrs; public int AttrCount;   // zbc 1.10：类 attr-ref（默认空）
@@ -93,6 +97,7 @@ public sealed class IrClassDesc {
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.Flags = 0;
         this.Visibility = 0;   // enforce-class-access：默认 public（未显式设置的 desc 安全默认，绝不误拒）
+        this.DeprecationMsg = "";   // add-deprecated-directive：默认无消息
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
         this.TypeParamConstraints = new IrConstraintDesc[0];
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
@@ -175,7 +180,8 @@ public sealed class IrFunction {
     public string    RetType;
     public bool      IsStatic;
     public int       Visibility;      // add-member-visibility（zbc 1.23）：0=public/1=private/2=protected（IrGen 设，默认 0）
-    public int       MethodFlags;     // add-method-modifiers（zbc 1.24）：bit0=virtual/bit1=abstract（IrGen 设，默认 0）
+    public int       MethodFlags;     // add-method-modifiers（zbc 1.24）：bit0=virtual/bit1=abstract/bit2=sealed/bit3=deprecated（zbc 1.37；IrGen 设，默认 0）
+    public string    DeprecationMsg;  // add-deprecated-directive（zbc 1.37）：MethodFlags bit3=deprecated 时的消息串（SIGS 追加；默认空）
     // add-param-metadata（zbc 1.25）：参数元数据（IrGen `_fillParamMeta` 设）。逻辑口径 min_arg/params_from
     // （不含 this）；每参并行数组含 this 槽（长度 = ParamCount 含 this）。
     public int       MinArg;          // 必填逻辑参数个数（首个带默认值参数的下标）；默认 = 全必填
@@ -219,6 +225,7 @@ public sealed class IrFunction {
         this.ParamAttrs = new IrAttrRefList[0]; this.ParamAttrsLen = 0;
         this.Visibility = 0;   // add-member-visibility：默认 public；IrGen 对显式方法/自由函数按 mods 覆盖
         this.MethodFlags = 0;  // add-method-modifiers：默认非虚；IrGen 对显式/impl 方法按 mods 覆盖
+        this.DeprecationMsg = "";  // add-deprecated-directive：默认无消息
         // add-param-metadata：默认全必填、无 varargs、无参数名/默认值（IrGen `_fillParamMeta` 覆盖）
         this.MinArg = paramCount; this.ParamsFrom = 255;
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];

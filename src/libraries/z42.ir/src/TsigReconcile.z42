@@ -393,7 +393,9 @@ public static class TsigReconcile {
             int fi = 0;
             while (fi < anc.FieldCount) {
                 if (fldc == fields.Length) { ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2]; int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; } fields = b; }
-                fields[fldc] = new ExportedFieldZ(anc.Fields[fi].Name, anc.Fields[fi].Type, TsigReconcile._visStr(anc.Fields[fi].Visibility), false);
+                ExportedFieldZ efz = new ExportedFieldZ(anc.Fields[fi].Name, anc.Fields[fi].Type, TsigReconcile._visStr(anc.Fields[fi].Visibility), false);
+                efz.IsDeprecated = anc.Fields[fi].Deprecated; efz.DeprecationMsg = anc.Fields[fi].DeprecationMsg;   // add-deprecated-directive
+                fields[fldc] = efz;
                 fldc = fldc + 1; fi = fi + 1;
             }
             ci = ci - 1;
@@ -401,7 +403,9 @@ public static class TsigReconcile {
         int sfi = 0;
         while (sfi < cd.StaticFieldCount) {
             if (fldc == fields.Length) { ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2]; int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; } fields = b; }
-            fields[fldc] = new ExportedFieldZ(cd.StaticFields[sfi].Name, cd.StaticFields[sfi].Type, TsigReconcile._visStr(cd.StaticFields[sfi].Visibility), true);
+            ExportedFieldZ sefz = new ExportedFieldZ(cd.StaticFields[sfi].Name, cd.StaticFields[sfi].Type, TsigReconcile._visStr(cd.StaticFields[sfi].Visibility), true);
+            sefz.IsDeprecated = cd.StaticFields[sfi].Deprecated; sefz.DeprecationMsg = cd.StaticFields[sfi].DeprecationMsg;   // add-deprecated-directive
+            fields[fldc] = sefz;
             fldc = fldc + 1; sfi = sfi + 1;
         }
         // methods：Object 四方法（非 struct）+ 链 topmost-first SIGS 方法合并（override 保留祖先位）
@@ -484,6 +488,7 @@ public static class TsigReconcile {
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
+        ecz.IsDeprecated = (cd.Flags & 64) != 0; ecz.DeprecationMsg = cd.DeprecationMsg;   // add-deprecated-directive：CLASS_FLAG_DEPRECATED（bit6）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
         return ecz;
     }
@@ -496,6 +501,7 @@ public static class TsigReconcile {
                                   f.MinArg, ps, ps.Length);
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
+        em.IsDeprecated = (f.MethodFlags & 8) != 0; em.DeprecationMsg = f.DeprecationMsg;   // add-deprecated-directive：METHOD_FLAG_DEPRECATED（bit3）
         return em;
     }
 

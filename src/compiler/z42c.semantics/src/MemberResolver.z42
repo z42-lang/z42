@@ -21,6 +21,7 @@ public sealed class MemberResolver {
                 FieldSymbol sfs = sct.Fields.Get(m.Name) as FieldSymbol;
                 if (sfs != null && sfs.IsStatic) {
                     this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, "field", m.Name, m.Span);   // enforce-access-control
+                    this._tc._access.CheckDeprecatedF(sfs, m.Name, m.Span);   // add-deprecated-directive
                     return new BoundStaticGet(tid.Name, m.Name, sfs.FieldType, m.Span);
                 }
             }
@@ -56,6 +57,7 @@ public sealed class MemberResolver {
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
             if (ms != null) {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
+                this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
                 return new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
             }
@@ -209,12 +211,14 @@ public sealed class MemberResolver {
             FieldSymbol fs = this._findField(env.Symbols, ct, m.Name);
             if (fs != null) {
                 this._tc._access.CheckAccess(fs.Visibility, fs.ContainingTypeName, env, env.Symbols, "field", m.Name, m.Span);   // enforce-access-control
+                this._tc._access.CheckDeprecatedF(fs, m.Name, m.Span);   // add-deprecated-directive
                 return new BoundMember(target, m.Name, fs.FieldType, m.Span);
             }
             // 属性 getter 派发：无字段但有 get_<Name>(0 参) → 虚调用 getter（镜像 C#）。
             MethodSymbol getter = this._tc._overload._findMethod(env.Symbols, ct, "get_" + m.Name);
             if (getter != null && getter.Signature != null) {
                 this._tc._access.CheckAccess(getter.Visibility, getter.ContainingTypeName, env, env.Symbols, "property", m.Name, m.Span);   // enforce-access-control
+                this._tc._access.CheckDeprecatedM(getter, m.Name, m.Span);   // add-deprecated-directive
                 return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
             }
             // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
@@ -223,6 +227,7 @@ public sealed class MemberResolver {
             MethodSymbol mg = this._tc._overload._findMethod(env.Symbols, ct, m.Name);
             if (mg != null && mg.Signature != null) {
                 this._tc._access.CheckAccess(mg.Visibility, mg.ContainingTypeName, env, env.Symbols, "method", m.Name, m.Span);   // enforce-access-control
+                this._tc._access.CheckDeprecatedM(mg, m.Name, m.Span);   // add-deprecated-directive
                 return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -407,6 +412,7 @@ public sealed class MemberResolver {
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
                 if (ms != null) {
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
+                    this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                     BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
                     BoundCall bc = new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）

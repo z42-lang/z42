@@ -63,6 +63,24 @@ public sealed class AccessChecker {
         this._tc._diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
     }
 
+    // ── add-deprecated-directive（PR5）：use-site 弃用检测 ────────────────────────────────────
+    // 解析到某符号后调；若其带 `[Deprecated]`，记一条 hit 到当前 CU（相位错配：检测在 typecheck、治理
+    // 在 PackageCompile._runDeprecation，届时按 [lints]/WAE/#suppress 决定最终 severity/抑制）。不直接进 bag。
+    public void CheckDeprecatedM(MethodSymbol m, string name, Span sp) {
+        if (m != null && m.IsDeprecated) { this._recordDep(name, m.DeprecationMsg, sp); }
+    }
+    public void CheckDeprecatedF(FieldSymbol f, string name, Span sp) {
+        if (f != null && f.IsDeprecated) { this._recordDep(name, f.DeprecationMsg, sp); }
+    }
+    public void CheckDeprecatedT(Z42ClassType t, Span sp) {
+        if (t != null && t.IsDeprecated) { this._recordDep(t.Name(), t.DeprecationMsg, sp); }
+    }
+    private void _recordDep(string name, string msg, Span sp) {
+        string m = "`" + name + "` 已弃用（deprecated）";
+        if (msg != "") { m = m + "：" + msg; }
+        if (this._tc._curCu != null) { this._tc._curCu.AddDepHit(sp, m); }
+    }
+
     // ── enforce-class-access：类级访问强制（引用点） ──────────────────────────────────────────
     // 从 currentClass 上下文**引用** resolved 类型是否允许；违规 emit E0404 到 diags（不阻断）。
     // 静态 + 显式 diag bag：绑定期（binder → _tc._diags）与收集期（SymbolCollector → 其 Diags）共用同一逻辑。

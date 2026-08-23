@@ -251,6 +251,15 @@ public static class ZbcWriter {
         }
     }
 
+    // add-deprecated-directive（zbc 1.37）：字段 descriptor 首个 flags 字节（此前字段仅有 visibility、无 flags）。
+    // bit0=deprecated；置位时紧随 u32 消息串 idx（gated，未弃用字段仅多 1 字节 flags=0）。实例/静态字段循环共用。
+    private static void _writeFieldFlags(ByteWriter w, IrFieldDesc fd, ZbcStringPool pool) {
+        int ff = 0;
+        if (fd.Deprecated) { ff = ff | 1; }
+        w.WriteU8(ff);
+        if ((ff & 1) != 0) { w.WriteU32(pool.Idx(fd.DeprecationMsg)); }
+    }
+
     // ── TYPE：count + 每类描述（ZW-1A trivial 无类 → count 0）─────────────────────────
     public static ByteWriter BuildType(IrClassDesc[] classes, int classCount, ZbcStringPool pool) {
         var w = new ByteWriter();
@@ -268,6 +277,7 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.Fields[f].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.Fields[f], pool);   // per-field attrCount + refs（zbc 1.14）
                 w.WriteU8(cd.Fields[f].Visibility);   // add-member-visibility（zbc 1.23）：0/1/2
+                ZbcWriter._writeFieldFlags(w, cd.Fields[f], pool);   // add-deprecated-directive（zbc 1.37）：field-flags u8 + gated msg
                 f = f + 1;
             }
             // TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）
@@ -304,8 +314,9 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.Attrs[cai].FactoryFunc));
                 cai = cai + 1;
             }
-            w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record
+            w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record/…/bit6 deprecated
             w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
+            if ((cd.Flags & 64) != 0) { w.WriteU32(pool.Idx(cd.DeprecationMsg)); }   // add-deprecated-directive（zbc 1.37）：类级 bit6 gated 消息串（紧随 Visibility）
             w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
             int sf = 0;
             while (sf < cd.StaticFieldCount) {
@@ -314,6 +325,7 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.StaticFields[sf].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.StaticFields[sf], pool);   // per-field attrCount + refs（zbc 1.14）
                 w.WriteU8(cd.StaticFields[sf].Visibility);   // add-member-visibility（zbc 1.23）
+                ZbcWriter._writeFieldFlags(w, cd.StaticFields[sf], pool);   // add-deprecated-directive（zbc 1.37）：field-flags u8 + gated msg
                 sf = sf + 1;
             }
             w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
@@ -481,6 +493,8 @@ public static class ZbcWriter {
                 }
                 pa = pa + 1;
             }
+            // add-deprecated-directive（zbc 1.37）：method_flags bit3=deprecated 时，SIGS 条目尾部追加消息串 idx。
+            if ((f.MethodFlags & 8) != 0) { w.WriteU32(pool.Idx(f.DeprecationMsg)); }
             fi = fi + 1;
         }
     }

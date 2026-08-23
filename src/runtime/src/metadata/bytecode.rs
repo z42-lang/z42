@@ -351,6 +351,13 @@ pub struct FieldDesc {
     /// Surfaced by `FieldInfo.IsPublic` / `IsPrivate`. Default 0 (public).
     #[serde(default)]
     pub visibility: u8,
+    /// add-deprecated-directive (zbc 1.37): `[Deprecated]` mark + optional message.
+    /// Read from the per-field flags byte (bit0) + gated message index. Surfaced at
+    /// use-site by the compiler (VM does not enforce; dormant reflection metadata).
+    #[serde(default)]
+    pub deprecated: bool,
+    #[serde(default)]
+    pub deprecation_msg: String,
 }
 
 /// Format a function's stack-trace display name with parameter signature.

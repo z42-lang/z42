@@ -158,6 +158,7 @@ public sealed class ClassDescBuilder {
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
                     sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
                     sfdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    if (HandlerRegistry.HasDeprecated(c.Members[j])) { sfdesc.Deprecated = true; sfdesc.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
                 } else {
@@ -169,6 +170,7 @@ public sealed class ClassDescBuilder {
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
                     fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
                     fdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    if (HandlerRegistry.HasDeprecated(c.Members[j])) { fdesc.Deprecated = true; fdesc.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
                 }

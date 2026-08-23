@@ -154,7 +154,15 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // VCallGeneric (0xB5). Non-generic Call/VCall (0x50/0x52) encoding unchanged
 // (byte-identical); generic calls carry a `method_type_args` string list (count u16
 // + pool idx u32×) between the method token and args. Coupled with zpkg 0.41.
-pub const ZBC_VERSION_MINOR: u16 = 36;
+//
+// 2026-08-23 add-deprecated-directive: bumped to 1.37 — `[Deprecated]` persistence.
+// SIGS method_flags bit3=deprecated → trailing message pool-idx u32 (gated). TYPE
+// class_flags bit6=deprecated → message pool-idx u32 after the visibility byte (gated).
+// Every TYPE field record (instance + static) gains a leading field-flags u8
+// (bit0=deprecated) + gated message pool-idx u32. VM reads-and-discards class/method
+// messages (compile-time warning only); FieldDesc stores them as dormant reflection
+// metadata. Coupled with zpkg 0.42.
+pub const ZBC_VERSION_MINOR: u16 = 37;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -261,7 +269,11 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-21 add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
 // generic type_args new opcodes; non-generic calls byte-identical). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 41;
+// 2026-08-23 add-deprecated-directive: bumped to 0.42, coupled inner zbc 1.37
+// (`[Deprecated]` persistence — method/class flags gated messages + new per-field flags
+// byte). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
+// two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 42;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -537,7 +549,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
             let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
-            fields.push(FieldDesc { name, type_tag, attributes, visibility });
+            let (deprecated, deprecation_msg) = read_field_flags(&mut c, pool)?;  // 1.37 add-deprecated-directive
+            fields.push(FieldDesc { name, type_tag, attributes, visibility, deprecated, deprecation_msg });
         }
         // Generic type parameters + per-tp constraints (L3-G3a)
         let tp_count = c.read_u8()? as usize;
@@ -567,6 +580,13 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // reference enforcement; complete-class-access-control surfaces it as
         // `Type.IsPublic` etc. reflection (stored into ClassDesc.visibility below).
         let class_visibility = c.read_u8()?;
+        // add-deprecated-directive (zbc 1.37): class-level deprecation message,
+        // gated on class_flags bit6 (0x40), immediately following the visibility
+        // byte. VM does not enforce deprecation (compile-time warning) → read and
+        // discard to keep the cursor aligned.
+        if class_flags & 0x40 != 0 {
+            let _msg_idx = c.read_u32()?;
+        }
         // add-reflection-static-fields (zbc 1.13): static fields block (same
         // shape as the instance fields block above).
         let static_count = c.read_u16()? as usize;
@@ -579,7 +599,8 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
             let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
-            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility });
+            let (deprecated, deprecation_msg) = read_field_flags(&mut c, pool)?;  // 1.37 add-deprecated-directive
+            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility, deprecated, deprecation_msg });
         }
         // add-reflection-get-interfaces (zbc 1.17): per-class interface block —
         // u16 count + interface_name_idx[] u32. Surfaced by Type.GetInterfaces().
@@ -767,6 +788,19 @@ fn read_attr_refs(
     Ok(refs.into_boxed_slice())
 }
 
+/// add-deprecated-directive (zbc 1.37): per-field flags byte (bit0=deprecated) +
+/// gated message index. Mirrors the writer's `_writeFieldFlags`. Every field record
+/// now carries at least the flags byte; the message index follows only when bit0 set.
+fn read_field_flags(c: &mut Cursor, pool: &[String]) -> Result<(bool, String)> {
+    let ff = c.read_u8()?;
+    if ff & 1 != 0 {
+        let idx = c.read_u32()?;
+        Ok((true, c.pool_str(pool, idx)?.to_owned()))
+    } else {
+        Ok((false, String::new()))
+    }
+}
+
 fn read_constraint_bundle(c: &mut Cursor, pool: &[String]) -> Result<ConstraintBundle> {
     let flags = c.read_u8()?;
     let requires_class       = (flags & 0x01) != 0;
@@ -909,6 +943,12 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
             for _ in 0..param_count {
                 param_attributes.push(read_attr_refs(&mut c, pool)?);
             }
+        }
+        // add-deprecated-directive (zbc 1.37): method_flags bit3=deprecated → trailing
+        // message index at the end of the SIGS entry. VM does not enforce deprecation
+        // (compile-time warning) → read and discard to keep the cursor aligned.
+        if method_flags & 0x08 != 0 {
+            let _msg_idx = c.read_u32()?;
         }
         sigs.push(FuncSig {
             name: c.pool_str(pool, name_idx)?.to_owned(),

@@ -97,6 +97,16 @@ public static class IrGenFacts {
         return f;
     }
 
+    // add-deprecated-directive（PR5）：把 `[Deprecated]` 烘进方法 flags（bit3=8）+ 消息串。
+    // 调用点 = IrGen 每个 `irf.MethodFlags = _methodFlags(...)` 赋值之后（rawMem = 未 unwrap 的原始 Decl）。
+    // rawMem 非 AttributedDecl（如接口方法/未加 attr）→ HasDeprecated=false → no-op。
+    public static void applyDeprecated(IrFunction irf, Decl rawMem) {
+        if (HandlerRegistry.HasDeprecated(rawMem)) {
+            irf.MethodFlags = irf.MethodFlags | 8;
+            irf.DeprecationMsg = HandlerRegistry.DeprecatedMsg(rawMem);
+        }
+    }
+
     public static void _fillParamMeta(IrFunction irf, MethodDecl md, bool isInstance) {
         int off = 0; if (isInstance) { off = 1; }
         int total = md.ParamCount + off;

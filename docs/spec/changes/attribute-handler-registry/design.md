@@ -355,6 +355,47 @@ public class RouteTableGenerator : ModuleGenerator {
 
 > `[Native]` → `[Extern]` 的改名**本 change 暂不做**（User 裁决 2026-08-19），延后为独立小 change。
 
+### `[Deprecated]` 实现落法（PR5，D2 —— 方法+类+字段，治理接入）
+
+built-in directive 家族第一个**持久化**成员（`[Suppress]` 是编译期，不持久）。端到端模板 = **`sealed` 位**
+（每层皆有先例，逐层对照抄）；唯一全新形状 = **字段级**（字段 descriptor 当前只有 visibility、无 flags 字节）。
+
+**① 分类**：`HandlerRegistry.IsDeprecatedDirective(name)=="Deprecated"` 折进 `IsDirectiveAttr`（名字识别、
+无 backing 类、`KindOf=Directive`）→ `AttributeSynth` 不合成反射工厂、`StubEmitter` 不烘 Native。**但持久**
+（异于 `[Suppress]`）：IrGen 从 AST attr 读位 + 消息串，烘进 descriptor。
+
+**② 持久化（格式 bump zbc 1.36→1.37 / zpkg 0.41→0.42）**——「一个 flag 位 + 一个池化消息串索引」：
+
+| 载体 | flag | 消息 | 序列化点 |
+|------|------|------|----------|
+| method | `method_flags` u8 新 bit3（bit2=sealed 先例）| msg 池 idx `u32`（空=哨兵）| SIGS 记录 |
+| class | class `flags` u8 新 bit | msg 池 idx | TYPE 记录 |
+| field | **新增 field-flags u8**（bit0=deprecated）| msg 池 idx | TYPE 实例+静态字段循环**各**加 |
+
+写在 `ZbcWriter`（SIGS + TYPE），**3 个读端 lockstep**（strict-pin 漏一即 CI 崩，[[add-reflective-invoke-program]]
+教训）：① Rust `zbc_reader.rs`（read_type 实例/静态字段 + SIGS）+ `bytecode.rs`（`FieldDesc` 加成员）
+② z42c `ZbcReader.ReadTypeAt` + SIGS ③ `ZpkgReader` SIGS。消息串复用既有 attr-ref 的字符串池
+（`pool.Idx(...)`）。
+
+**③ 跨包（仿 sealed 全链）**：`TsigReconcile`（从 flag+msg 池设）→ `Exported{Method,Class,Field}Z`
+（+`IsDeprecated`/`DeprecationMsg`）→ `ImportedSymbolLoader`（仿 `IsSealed` 传播）→ `MethodSymbol`/
+`FieldSymbol`/`Z42ClassType`。→ 导入的 `[Deprecated]` 符号在消费方 use-site 仍告警。
+
+**④ 检测 + 治理（collect-then-govern，解相位错配）**：检测需**已解析符号**（typecheck 相位）、治理需
+**配置**（analyzer 相位）→ 拆开：
+- typecheck：`AccessChecker.CheckDeprecated(sym, span)` 在 resolve 点（`MemberResolver` 调用/字段/属性；
+  `CheckTypeRef` 类型引用/`new`）**只记 hit**（span + 消息）到 `_tc` 上的累加器。
+- `_runDeprecation` pass（`PackageCompile`，**always-run**，非 gated on analyzers）：per-cu 建 `SuppressionSet`
+  （抽 `AnalyzerDriver` 的 builder 复用）+ `inp.Lints` → 逐 hit `DiagSinkImpl.Report(DEPRECATED_RULE, span)`。
+  内建 `DiagRule` id `"deprecated"`（category Usage，DefaultSeverity=Warning，EnabledByDefault=true）→ **统一**
+  经既有 PR3b/3c 治理：`[lints] deprecated=none` 抑制、`warnings-as-errors` 升 Error、`#suppress deprecated` /
+  `[Suppress("deprecated")]` 局部关闭（按 rule id + 位置）。
+- **byte-identical**：z42c/stdlib 无 `[Deprecated]` → 零 hit、flag 位全 0 → 新格式下 self-host gen1==gen2 逐字节
+  （格式 bump 本身改所有 zbc 字节，但不动点仍收敛）。
+
+**Deferred**：`isError=true` 硬错模式、命名参数、镜像进反射 API、property/enum 成员级（属性经 getter/setter
+方法间接覆盖；enum 成员 = 静态字段，随字段级已覆盖）。
+
 ## 超出 C# 的能力（契约 vs 追加，D4）
 
 | C# 局限 | z42 目标 | 契约 now / additive |
