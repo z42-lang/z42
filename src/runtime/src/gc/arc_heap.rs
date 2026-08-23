@@ -2329,6 +2329,8 @@ impl MagrGC for ArcMagrGC {
                 {
                     let mut i = self.inner.lock();
                     i.stats.gc_cycles += 1;
+                    i.stats.major_collections += 1;
+                    i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
                     i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
                 }
                 self.maybe_reset_near_limit_warned();
@@ -2376,6 +2378,7 @@ impl MagrGC for ArcMagrGC {
                 };
 
                 let mut freed_bytes = self.run_cycle_collection_minor();
+                let mut did_major = false;
 
                 // Survival rate: how much of young survived (not
                 // tombstoned) AND was promoted out. Easier measured:
@@ -2397,12 +2400,16 @@ impl MagrGC for ArcMagrGC {
                     if survival >= Self::minor_escalation_threshold() {
                         // Major in same pause window.
                         freed_bytes += self.run_cycle_collection_major();
+                        did_major = true;
                     }
                 }
 
                 {
                     let mut i = self.inner.lock();
                     i.stats.gc_cycles += 1;
+                    i.stats.minor_collections += 1;
+                    if did_major { i.stats.major_collections += 1; }
+                    i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
                     i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
                 }
                 self.maybe_reset_near_limit_warned();
@@ -2428,6 +2435,8 @@ impl MagrGC for ArcMagrGC {
         {
             let mut i = self.inner.lock();
             i.stats.gc_cycles += 1;
+            i.stats.major_collections += 1;
+            i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
             i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
         }
         // Phase 3d: 若 used 已降到 90% 阈值以下，重置 near_limit_warned
@@ -2456,6 +2465,8 @@ impl MagrGC for ArcMagrGC {
         {
             let mut i = self.inner.lock();
             i.stats.gc_cycles += 1;
+            i.stats.major_collections += 1;
+            i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
             i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
         }
         self.maybe_reset_near_limit_warned();

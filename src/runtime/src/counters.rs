@@ -5,21 +5,21 @@
 //! item; was P0 because production environments had zero visibility into
 //! runtime activity (JIT compiles / builtin calls / exception traffic).
 //!
-//! # Phase 1 scope (this commit)
+//! # Increment sites (current)
 //!
-//! Lands the infrastructure: struct + atomic increments + CLI `--print-
-//! stats-on-exit` flag + one demo increment site (`builtin_calls`,
-//! incremented from `corelib::exec_builtin`). The framework is wired but
-//! most fields stay at 0 until Phase 2 migrates their respective
-//! increment sites:
+//! - `builtin_calls`         ← `corelib::exec_builtin`
+//! - `native_calls`          ← `interp::exec_native::call_native` (2026-05-26)
+//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile (2026-05-26)
+//! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
+//! - `exceptions_thrown`     ← `interp::fire_exception_thrown` (2026-05-26)
+//! - `exceptions_caught`     ← `interp::fire_exception_caught` (2026-05-26)
 //!
-//! - `jit_methods_compiled` / `jit_compile_us_total` ← `jit::compile_module`
-//! - `native_calls` ← `interp::exec_native`
-//! - `exceptions_thrown` / `exceptions_caught` ← `exception::*`
+//! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
+//! is tracked as a diagnostics.md §4.2 span item, deferred.
 //!
-//! Each Phase 2 migration is a tiny standalone refactor (1 file + add
-//! `ctx.core().counters.<field>.fetch_add(1, Ordering::Relaxed)` in the
-//! hot path).
+//! Heap-derived numbers (`allocations`, GC minor/major/reclaimed) live in
+//! `gc::HeapStats`, not here; the profile snapshot ([`ProfileSnapshot`])
+//! merges both at the `--print-stats-on-exit` output point.
 //!
 //! # Concurrency
 //!
@@ -47,13 +47,15 @@ pub struct RuntimeCounters {
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
-    /// Phase 2: increment in `interp::exec_native`.
+    /// Incremented at top of `interp::exec_native::call_native` (2026-05-26).
     pub native_calls:         AtomicU64,
 
-    /// Methods JIT-compiled. Phase 2: increment in `jit::compile_module`.
+    /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`
+    /// (2026-05-26).
     pub jit_methods_compiled: AtomicU64,
 
-    /// Total wallclock JIT compile time, microseconds. Phase 2: ditto.
+    /// Total wallclock JIT compile time, microseconds. Not yet wired (0);
+    /// per-compile timing tracked as a diagnostics.md §4.2 span item (deferred).
     pub jit_compile_us_total: AtomicU64,
 
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): calls where an INTERP frame
@@ -64,11 +66,11 @@ pub struct RuntimeCounters {
 
     /// User exceptions thrown (z42 `throw expr` statements + VM-raised
     /// arithmetic / type errors that bubble as exceptions).
-    /// Phase 2: increment in `exception::*`.
+    /// Incremented in `interp::fire_exception_thrown` (2026-05-26).
     pub exceptions_thrown:    AtomicU64,
 
     /// User exceptions caught by `try { ... } catch` blocks.
-    /// Phase 2: increment in `exception::*` handler-found path.
+    /// Incremented in `interp::fire_exception_caught` (2026-05-26).
     pub exceptions_caught:    AtomicU64,
 }
 
@@ -133,128 +135,87 @@ impl Snapshot {
     }
 }
 
-impl std::fmt::Display for Snapshot {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "--- z42vm runtime counters ---")?;
+impl Snapshot {
+    /// Writes the counter field lines (no header / trailer). Shared by
+    /// [`Snapshot`]'s and [`ProfileSnapshot`]'s `Display` so the counter
+    /// block never drifts between the two.
+    fn fmt_fields(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "builtin_calls:        {}", self.builtin_calls)?;
         writeln!(f, "native_calls:         {}", self.native_calls)?;
         writeln!(f, "jit_methods_compiled: {}", self.jit_methods_compiled)?;
         writeln!(f, "jit_compile_us_total: {}", self.jit_compile_us_total)?;
         writeln!(f, "jit_native_from_interp: {}", self.jit_native_from_interp)?;
         writeln!(f, "exceptions_thrown:    {}", self.exceptions_thrown)?;
-        writeln!(f, "exceptions_caught:    {}", self.exceptions_caught)?;
-        write!(f,   "---")
+        writeln!(f, "exceptions_caught:    {}", self.exceptions_caught)
+    }
+}
+
+impl std::fmt::Display for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "--- z42vm runtime counters ---")?;
+        self.fmt_fields(f)?;
+        write!(f, "---")
+    }
+}
+
+/// Combined runtime + heap-derived counter view for the profile snapshot
+/// (`--print-stats-on-exit`). Wraps the counter [`Snapshot`] and adds the
+/// heap-owned numbers (`gc::HeapStats`) that live outside `RuntimeCounters`,
+/// so a single JSON line / text block carries the full picture for
+/// `xtask profile`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProfileSnapshot {
+    pub counters:          Snapshot,
+    /// Total object allocations (from `HeapStats.allocations`).
+    pub allocations:       u64,
+    /// Generational minor (young-gen) collections (from `HeapStats`).
+    pub minor_collections: u64,
+    /// Major (whole-heap) collections (from `HeapStats`).
+    pub major_collections: u64,
+    /// Cumulative reclaimed bytes (from `HeapStats.reclaimed_bytes`).
+    pub reclaimed_bytes:   u64,
+}
+
+impl ProfileSnapshot {
+    /// Assemble from a counter snapshot + the heap-derived fields. Kept as
+    /// plain `u64` so `counters.rs` stays free of a `gc` dependency — the
+    /// caller (`app.rs`) extracts them from `HeapStats`.
+    pub fn new(
+        counters: Snapshot, allocations: u64,
+        minor_collections: u64, major_collections: u64, reclaimed_bytes: u64,
+    ) -> Self {
+        Self { counters, allocations, minor_collections, major_collections, reclaimed_bytes }
+    }
+
+    /// Single-line JSON: a strict **superset** of [`Snapshot::to_json`] (same
+    /// `z42vm_counters` sentinel + all counter keys) plus `allocations` /
+    /// `minor_collections` / `major_collections` / `reclaimed_bytes`. Built by
+    /// splicing the counter JSON so the counter keys never drift; only adds
+    /// keys → back-compatible for `xtask profile`'s scraper.
+    pub fn to_json(&self) -> String {
+        let base = self.counters.to_json();
+        let head = base.strip_suffix('}').unwrap_or(base.as_str());
+        format!(
+            "{head},\"allocations\":{},\"minor_collections\":{},\
+\"major_collections\":{},\"reclaimed_bytes\":{}}}",
+            self.allocations, self.minor_collections,
+            self.major_collections, self.reclaimed_bytes,
+        )
+    }
+}
+
+impl std::fmt::Display for ProfileSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "--- z42vm runtime counters ---")?;
+        self.counters.fmt_fields(f)?;
+        writeln!(f, "allocations:          {}", self.allocations)?;
+        writeln!(f, "gc_minor_collections: {}", self.minor_collections)?;
+        writeln!(f, "gc_major_collections: {}", self.major_collections)?;
+        writeln!(f, "gc_reclaimed_bytes:   {}", self.reclaimed_bytes)?;
+        write!(f, "---")
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_starts_all_zero() {
-        let c = RuntimeCounters::new();
-        let s = c.snapshot();
-        assert_eq!(s, Snapshot::default());
-    }
-
-    #[test]
-    fn fetch_add_observable_via_snapshot() {
-        let c = RuntimeCounters::new();
-        c.builtin_calls.fetch_add(42, Ordering::Relaxed);
-        c.exceptions_thrown.fetch_add(3, Ordering::Relaxed);
-        c.exceptions_caught.fetch_add(2, Ordering::Relaxed);
-
-        let s = c.snapshot();
-        assert_eq!(s.builtin_calls,     42);
-        assert_eq!(s.exceptions_thrown, 3);
-        assert_eq!(s.exceptions_caught, 2);
-        assert_eq!(s.native_calls,      0);
-    }
-
-    #[test]
-    fn snapshot_is_copy_independent_of_source() {
-        let c = RuntimeCounters::new();
-        c.builtin_calls.fetch_add(5, Ordering::Relaxed);
-        let s1 = c.snapshot();
-
-        // Subsequent mutations of c don't affect captured snapshot
-        c.builtin_calls.fetch_add(10, Ordering::Relaxed);
-        let s2 = c.snapshot();
-
-        assert_eq!(s1.builtin_calls, 5);
-        assert_eq!(s2.builtin_calls, 15);
-    }
-
-    #[test]
-    fn display_lists_all_fields() {
-        let s = Snapshot {
-            builtin_calls:        100,
-            native_calls:         50,
-            jit_methods_compiled: 10,
-            jit_compile_us_total: 12345,
-            jit_native_from_interp: 42,
-            exceptions_thrown:    5,
-            exceptions_caught:    3,
-        };
-        let out = format!("{s}");
-        // Every field name appears, every value appears.
-        for needle in [
-            "builtin_calls:        100",
-            "native_calls:         50",
-            "jit_methods_compiled: 10",
-            "jit_compile_us_total: 12345",
-            "exceptions_thrown:    5",
-            "exceptions_caught:    3",
-        ] {
-            assert!(out.contains(needle), "Snapshot display missing `{needle}`; got:\n{out}");
-        }
-    }
-
-    #[test]
-    fn to_json_is_single_line_with_all_fields() {
-        let s = Snapshot {
-            builtin_calls:        100,
-            native_calls:         50,
-            jit_methods_compiled: 10,
-            jit_compile_us_total: 12345,
-            jit_native_from_interp: 42,
-            exceptions_thrown:    5,
-            exceptions_caught:    3,
-        };
-        let j = s.to_json();
-        assert!(!j.contains('\n'), "JSON stats must be single-line; got:\n{j}");
-        assert!(j.starts_with("{\"z42vm_counters\":1,"), "missing sentinel key; got:\n{j}");
-        for needle in [
-            "\"builtin_calls\":100",
-            "\"native_calls\":50",
-            "\"jit_methods_compiled\":10",
-            "\"jit_compile_us_total\":12345",
-            "\"jit_native_from_interp\":42",
-            "\"exceptions_thrown\":5",
-            "\"exceptions_caught\":3",
-        ] {
-            assert!(j.contains(needle), "JSON stats missing `{needle}`; got:\n{j}");
-        }
-    }
-
-    #[test]
-    fn concurrent_increments_are_lossless() {
-        use std::sync::Arc;
-        use std::thread;
-
-        let c = Arc::new(RuntimeCounters::new());
-        let mut handles = Vec::new();
-        for _ in 0..8 {
-            let c = Arc::clone(&c);
-            handles.push(thread::spawn(move || {
-                for _ in 0..1000 {
-                    c.builtin_calls.fetch_add(1, Ordering::Relaxed);
-                }
-            }));
-        }
-        for h in handles { h.join().unwrap(); }
-
-        assert_eq!(c.snapshot().builtin_calls, 8000);
-    }
-}
+#[path = "counters_tests.rs"]
+mod counters_tests;

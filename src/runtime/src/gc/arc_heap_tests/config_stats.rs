@@ -43,14 +43,34 @@ fn stats_gc_cycles_increments_on_collect_cycles() {
     assert_eq!(heap.stats().gc_cycles, 3);
 }
 
+// extend-runtime-counters P1a: the default (non-generational) cycle collector
+// classifies every collection as **major** — minor stays 0, major tracks
+// gc_cycles.
+#[test]
+fn stats_major_collections_track_non_generational_cycles() {
+    let heap = ArcMagrGC::new();
+    let s0 = heap.stats();
+    assert_eq!((s0.minor_collections, s0.major_collections), (0, 0));
+
+    heap.collect_cycles();
+    heap.force_collect();
+    let s = heap.stats();
+    assert_eq!(s.gc_cycles, 2);
+    assert_eq!(s.major_collections, 2, "collect_cycles + force_collect are both major");
+    assert_eq!(s.minor_collections, 0, "no generational minor in default mode");
+}
+
 #[test]
 fn stats_struct_has_all_expected_fields() {
     let heap = ArcMagrGC::new();
     let s = heap.stats();
-    // Just access every field — compile time check that all 7 fields exist
+    // Just access every field — compile time check that all fields exist
     let _ = (
         s.allocations,
         s.gc_cycles,
+        s.minor_collections,
+        s.major_collections,
+        s.reclaimed_bytes,
         s.used_bytes,
         s.max_bytes,
         s.roots_pinned,
