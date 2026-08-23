@@ -134,6 +134,17 @@ pub(super) fn vcall(
     // call (empty for non-generic). Threaded into the callee frame's method_type_args.
     method_type_args: &[String],
 ) -> Result<Option<Value>> {
+    // add-generic-activator: resolve method-type-arg forwarding markers `$mta:N`
+    // against the caller frame before threading to the callee (see exec_call::call
+    // and interp::resolve_forwarded_mta). No alloc unless a marker is present.
+    let fwd_storage;
+    let method_type_args: &[String] = if method_type_args.iter().any(|s| s.starts_with("$mta:")) {
+        fwd_storage = super::resolve_forwarded_mta(frame, method_type_args);
+        &fwd_storage
+    } else {
+        method_type_args
+    };
+
     let obj_val = frame.get(obj)?.clone();
     // perf-vm-iteration Phase 1 (Decision 3): `collect_args` is no longer
     // unconditional — the object/primitive IC fast path below fills the callee
