@@ -11,191 +11,14 @@ using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Project;
 
-// 一次扫描的产物束。
-public sealed class DepScanResult {
-    public DependencyIndex   Index;
-    public string[]          NsNames;      public int NsCount;       // nsMap 平行数组
-    public string[]          NsFiles;
-    public ExportedModuleZ[] Exported;     public int ExportedCount; // 全部 TSIG 模块
-    public string[]          ExportedPkg;                            // 平行：每模块来源包名
-    // 惰性跨包类型世界（lazy-type-world）：取代 eager `ReconWorldPkg[] Wp`。Wp 按包懒填、基类链
-    // 遇祖先按 ns 路由解析（world 不再一次性全量解析 → 首次 eval O(引用闭包)）。供 ExtendWithPackage /
-    // EnsurePackageLoaded 复用。
-    public LazyReconWorld    World;
-    // 惰性扫描（lazy-repl-depscan）：ScanDirsLazy 只对 prelude 做 Rebuild/DepIndex；其余包按需
-    // Rebuild（lazy-type-world：Rebuild 内部经 World.EnsureFq 只解析引用到的祖先包）。下列保留每个
-    // 已 Open 的包，供 EnsurePackageLoaded 按需 Rebuild + DepIndex。ScanDirs（非惰性）不填这些
-    // （Loaded 全 true 语义 = 全量已加载，EnsurePackageLoaded no-op）。
-    public ZpkgInfo[] Opened;      // 已 Open 的 lib 包（与 OpenedDirs/OpenedNames/Loaded 平行）；
-                                   // repl-scan-nsindex-cache 命中路径下初始 null（惰性），首次 _loadOpenedPackage 时按 OpenedPaths 现开
-    public string[]   OpenedDirs;  // 各包所在目录（Rebuild 的 pkgDir，indexed 包读散装 zbc 需要）
-    public string[]   OpenedNames; // 各包 basename（"z42.io.zpkg"）——FileOf(ns) 定位后据此找索引
-    public bool[]     Loaded;      // 各包是否已产出 Exported/DepIndex
-    public int        OpenedCount;
-    // repl-scan-nsindex-cache：惰性 open 支持——OpenedPaths[i] = 第 i 包全路径（Opened[i]==null 时据此现开）；
-    // OpenedNsFlat + OpenedNsStart/Len = 每包命名空间列表（来自 ns 索引；EnsurePackageLoaded 不 open 即可判某包是否声明 ns）。
-    public string[]   OpenedPaths;
-    public string[]   OpenedNsFlat; public int[] OpenedNsStart; public int[] OpenedNsLen;
-    // repl-type-nsindex：类型短名 → 声明它的命名空间（平行数组，同名跨 ns 允许多条）。completer 用它
-    // 判「某活跃 ns 是否声明了某候选类型」，只读命中的模块（不再全扫活跃 ns，省 45-73ms/首次引用）。
-    // 由 open-all（ReadModuleTypes 提取）或索引命中（NsTypes）填充；空（TypeMapCount==0）→ 保守全扫。
-    public string[]   TypeShort; public string[] TypeNs; public int TypeMapCount;
-    public DepScanResult(DependencyIndex index,
-                         string[] nsNames, string[] nsFiles, int nsCount,
-                         ExportedModuleZ[] exported, string[] exportedPkg, int exportedCount) {
-        this.Index = index;
-        this.NsNames = nsNames; this.NsFiles = nsFiles; this.NsCount = nsCount;
-        this.Exported = exported; this.ExportedPkg = exportedPkg; this.ExportedCount = exportedCount;
-        this.World = null;
-        this.Opened = new ZpkgInfo[0]; this.OpenedDirs = new string[0];
-        this.OpenedNames = new string[0]; this.Loaded = new bool[0]; this.OpenedCount = 0;
-        this.OpenedPaths = new string[0];
-        this.OpenedNsFlat = new string[0]; this.OpenedNsStart = new int[0]; this.OpenedNsLen = new int[0];
-        this.TypeShort = new string[0]; this.TypeNs = new string[0]; this.TypeMapCount = 0;
-    }
-    // repl-type-nsindex：追加一条 (shortname, ns) 到类型索引（growable）。
-    public void AddTypeNs(string shortName, string ns) {
-        if (this.TypeMapCount == this.TypeShort.Length) {
-            int ncap = this.TypeShort.Length == 0 ? 512 : this.TypeShort.Length * 2;
-            string[] s1 = new string[ncap]; string[] s2 = new string[ncap];
-            int k = 0; while (k < this.TypeMapCount) { s1[k] = this.TypeShort[k]; s2[k] = this.TypeNs[k]; k = k + 1; }
-            this.TypeShort = s1; this.TypeNs = s2;
-        }
-        this.TypeShort[this.TypeMapCount] = shortName; this.TypeNs[this.TypeMapCount] = ns;
-        this.TypeMapCount = this.TypeMapCount + 1;
-    }
-    // repl-type-nsindex：活跃 ns `ns` 是否声明了 cands 里的某个类型？索引空 → true（保守全扫，回退旧行为）。
-    public bool NsMayHaveCandidate(string ns, string[] cands, int candCount) {
-        if (this.TypeMapCount == 0) { return true; }
-        int k = 0;
-        while (k < this.TypeMapCount) {
-            if (this.TypeNs[k] == ns) {
-                int c = 0;
-                while (c < candCount) { if (this.TypeShort[k] == cands[c]) { return true; } c = c + 1; }
-            }
-            k = k + 1;
-        }
-        return false;
-    }
-    // ns → zpkg basename（未知 → ""）。
-    public string FileOf(string ns) {
-        int i = 0;
-        while (i < this.NsCount) {
-            if (this.NsNames[i] == ns) { return this.NsFiles[i]; }
-            i = i + 1;
-        }
-        return "";
-    }
-}
 
-// repl-scan-nsindex-cache：ns 索引一条目——一个 *.zpkg 的 basename + 是否 exe + 声明的命名空间列表。
-// 索引按 sorted *.zpkg 顺序逐条存；指纹匹配保证 paths[i] ↔ index[i] 一一对应。
-public sealed class NsIndexEntry {
-    public string Basename; public bool IsExe; public string[] Nss;
-    // repl-type-nsindex：与 Nss 平行——NsTypes[i] = Nss[i] 里声明的类型短名（逗号连接）。
-    // completer 据此 shortname→ns 直达，只读含候选类型的那一个模块（不再全扫活跃 ns）。空 = 未知/无类型。
-    public string[] NsTypes;
-    public NsIndexEntry(string basename, bool isExe, string[] nss) {
-        this.Basename = basename; this.IsExe = isExe; this.Nss = nss;
-        this.NsTypes = new string[0];
-    }
-}
-
+// libs 目录扫描主入口 + 惰性扫描 + 增量并包 + 按需加载/reconcile 编排（refactor-depscan-concern-split）。
+// 数据类见 DepScanTypes.z42；ns 索引缓存见 NsIndexCache.z42；路径排序见 ZpkgPathSort.z42；reconcile 辅助见 DepReconcile.z42。
 public static class DepScan {
     // prelude 包名单（镜像 C# PreludePackages.Names）。用于 ① _sortedZpkgsMulti prelude-first 排序
     // （nsMap first-wins 确定性）② ImportedSymbolLoader 免-using 可见性。**注意**：lazy-prelude 后
     // ScanDirsLazy 不再据此 *eager reconcile* prelude（改按需 E0401 加载），但排序/可见性判据仍需它。
     public static bool IsPrelude(string pkgName) { return pkgName == "z42.core"; }
-
-    // ── repl-scan-nsindex-cache: ns 索引持久化 ──────────────────────────────
-    // 惰性 scan 的 open-all（读+解全部 ~26 个 zpkg 只为建 ns 路由）是 REPL 首次 eval 的一次性大头
-    // （macOS 暖 ~0.375s；Windows 每次文件打开被 Defender 逐个扫，更甚）。把「每包→命名空间」落盘缓存，
-    // 命中则从缓存建 nsMap + 路由、只 open prelude + 引用闭包。指纹变（任一 zpkg 增删改）→ 自动重建。
-    [Native("__file_last_write_time_ms")] private static extern long _mtimeMs(string path);
-
-    // libs 指纹：sorted path 列表逐个 (basename,size,mtime) 拼串。任一 zpkg 变 → 串变 → 索引失效。
-    private static string _libsFingerprint(string[] paths) {
-        string s = "";
-        int i = 0;
-        while (i < paths.Length) {
-            s = s + Path.GetFileName(paths[i]) + ":" + File.GetSize(paths[i]).ToString()
-                  + ":" + DepScan._mtimeMs(paths[i]).ToString() + ";";
-            i = i + 1;
-        }
-        return s;
-    }
-
-    // 索引文件：第一个 libsDir 下 `.z42-nsindex`（只读 libs → 写失败静默容忍，退化为每次重建）。
-    private static string _nsIndexPath(string[] dirs, int dirCount) {
-        if (dirCount == 0) { return ""; }
-        return Path.Join(dirs[0], ".z42-nsindex");
-    }
-
-    // basename "z42.io.zpkg" → 包名 "z42.io"（IsPrelude 判据）。
-    private static string _nameOfBasename(string basename) {
-        if (basename.EndsWith(".zpkg")) { return basename.Substring(0, basename.Length - 5); }
-        return basename;
-    }
-
-    // 读索引：header==NSIDX1 且指纹匹配且条目数==expectCount → 返回条目数组；否则 null（未命中/失效/损坏）。
-    private static NsIndexEntry[] _readNsIndex(string path, string fingerprint, int expectCount) {
-        if (path.Length == 0 || !File.Exists(path)) { return null; }
-        string content = "";
-        try { content = File.ReadAllText(path); } catch (Exception ex) { return null; }
-        string[] lines = content.Split("\n");
-        if (lines.Length < 2) { return null; }
-        if (lines[0] != "NSIDX2") { return null; }
-        if (lines[1] != fingerprint) { return null; }
-        NsIndexEntry[] entries = new NsIndexEntry[expectCount];
-        int n = 0;
-        int li = 2;
-        while (li < lines.Length) {
-            if (lines[li].Length == 0) { li = li + 1; continue; }   // 尾随空行
-            string[] f = lines[li].Split("\t");
-            if (f.Length < 2) { return null; }
-            // repl-type-nsindex：每 ns 字段为 `ns=T1,T2`——按首个 `=` 切分 ns 名与类型短名列表。
-            string[] nss = new string[f.Length - 2];
-            string[] nsTypes = new string[f.Length - 2];
-            int k = 2;
-            while (k < f.Length) {
-                string fld = f[k];
-                int eq = fld.IndexOf("=");
-                if (eq < 0) { nss[k - 2] = fld; nsTypes[k - 2] = ""; }   // 兜底（不含 `=` 的旧式字段）
-                else { nss[k - 2] = fld.Substring(0, eq); nsTypes[k - 2] = fld.Substring(eq + 1, fld.Length - eq - 1); }
-                k = k + 1;
-            }
-            if (n >= expectCount) { return null; }   // 条目多于预期 → 失效
-            NsIndexEntry ent = new NsIndexEntry(f[0], f[1] == "1", nss);
-            ent.NsTypes = nsTypes;
-            entries[n] = ent;
-            n = n + 1;
-            li = li + 1;
-        }
-        if (n != expectCount) { return null; }        // 条目数不符 → 失效
-        return entries;
-    }
-
-    // 写索引（NSIDX1 + 指纹 + 每 *.zpkg 一行 `basename\tisExe\tns...`）。只读 libs 写失败 → 静默。
-    // repl-type-nsindex：NSIDX2——每 ns 字段由 `ns` 升级为 `ns=T1,T2`（T = 该 ns 声明的类型短名）。
-    // completer 据此 shortname→ns 直达。header bump NSIDX1→NSIDX2 让旧缓存自动失效重建。
-    private static void _writeNsIndex(string path, string fingerprint, NsIndexEntry[] entries, int count) {
-        if (path.Length == 0) { return; }
-        string s = "NSIDX2\n" + fingerprint + "\n";
-        int i = 0;
-        while (i < count) {
-            NsIndexEntry e = entries[i];
-            s = s + e.Basename + "\t" + (e.IsExe ? "1" : "0");
-            bool hasTypes = e.NsTypes.Length == e.Nss.Length;
-            int k = 0;
-            while (k < e.Nss.Length) {
-                s = s + "\t" + e.Nss[k] + "=" + (hasTypes ? e.NsTypes[k] : "");
-                k = k + 1;
-            }
-            s = s + "\n";
-            i = i + 1;
-        }
-        try { File.WriteAllTextAtomic(path, s); } catch (Exception ex) { }
-    }
 
     // declaredDeps/declaredCount = 本工程 manifest 声明的依赖包名（z42c.* 等）。declaredCount>0 时
     // **DepIndex 只索引 stdlib(z42.* 前缀) + 声明依赖**（镜像 C# BuildDepIndex allowedPkgs 过滤），
@@ -224,7 +47,7 @@ public static class DepScan {
         // 包不导入自己：构建某包时把它自己的 .zpkg 排除出扫描（flat libs 含 self 时——
         // 否则同包符号经 DepIndex 解析 → 自依赖 DEPS + FQ 调用，与 C#[libs 不含 self]不一致）。
         string excludeZpkg = excludeName + ".zpkg";
-        string[] paths = DepScan._sortedZpkgsMulti(dirs, dirCount);
+        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount);
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }
@@ -281,7 +104,7 @@ public static class DepScan {
                 // DepIndex 和 TSIG：排除 self（避免自引用；镜像 C# BuildDepIndex excludeName 语义）
                 if (basename != excludeZpkg) {
                     // DepIndex：每模块 SIGS 签名（声明依赖过滤——镜像 C# BuildDepIndex allowedPkgs）
-                    if (declaredCount == 0 || DepScan._allowedForIndex(z.Name, declaredDeps, declaredCount)) {
+                    if (declaredCount == 0 || ZpkgPathSort._allowedForIndex(z.Name, declaredDeps, declaredCount)) {
                         // F2-邻：ReadModuleSigs 是 z 字节纯函数、跨成员恒定 → 进程级 memo（命中零重解码 SIGS）。
                         // AddModule 仍每成员执行（按 declaredDeps 建各自过滤 index，不可跨成员共享）。
                         ZpkgModuleSigs[] mods = cached[pi].Mods;
@@ -387,83 +210,6 @@ public static class DepScan {
         return scan;
     }
 
-    // ── repl-scan-nsindex-cache: ns 索引命中路径（不 open-all）────────────────────
-    // 指纹命中 → 从索引条目（每包 basename + isExe + 命名空间列表，与 sorted paths 一一对应）建
-    // nsMap + 路由 + 惰性 world + 惰性 libOpened，**不 open 任何包**；仅 prelude 现开 + reconcile
-    // （首轮需要）。产出与未命中（open-all）路径等价：同一 sorted 顺序 → nsMap first-wins 一致、
-    // 路由等价（EnsureFq 扫全部匹配 pair，非 first-wins，与顺序无关）。
-    private static DepScanResult _scanFromIndex(string[] paths, NsIndexEntry[] idx, string excludeName,
-                                                string excludeZpkg, string[] declaredDeps, int declaredCount) {
-        var index = new DependencyIndex();
-        string[] nsNames = new string[8]; string[] nsFiles = new string[8]; int nsCount = 0;
-        ExportedModuleZ[] exported = new ExportedModuleZ[8]; string[] exportedPkg = new string[8]; int exportedCount = 0;
-        int cap = paths.Length;
-        // 惰性 world（LazyFromPairs）+ 路由 pair
-        string[] worldPaths = new string[cap]; string[] worldDirs = new string[cap]; int worldCount = 0;
-        string[] pairNs = new string[16]; int[] pairIdx = new int[16]; int pairN = 0;
-        // 惰性 libOpened（Opened 初始 null，按 libPaths 现开）+ 每包 ns 列表（flat）
-        ZpkgInfo[] libOpened = new ZpkgInfo[cap]; string[] libPaths = new string[cap];
-        string[] libDirs = new string[cap]; string[] libNames = new string[cap]; bool[] libLoaded = new bool[cap];
-        string[] nsFlat = new string[16]; int[] nsStart = new int[cap]; int[] nsLen = new int[cap]; int nsFlatN = 0;
-        int libCount = 0;
-        int pi = 0;
-        while (pi < paths.Length) {
-            NsIndexEntry e = idx[pi];
-            if (!e.IsExe) {
-                string dir = Path.GetDirectoryName(paths[pi]);
-                string basename = e.Basename;
-                int wIdx = worldCount;
-                worldPaths[wIdx] = paths[pi]; worldDirs[wIdx] = dir; worldCount = worldCount + 1;
-                int a = 0;
-                while (a < e.Nss.Length) {
-                    string nsv = e.Nss[a];
-                    if (DepScan._nsIndexOf(nsNames, nsCount, nsv) < 0) {
-                        if (nsCount == nsNames.Length) {
-                            string[] b1 = new string[nsNames.Length * 2]; string[] b2 = new string[nsNames.Length * 2];
-                            int k = 0; while (k < nsCount) { b1[k] = nsNames[k]; b2[k] = nsFiles[k]; k = k + 1; }
-                            nsNames = b1; nsFiles = b2;
-                        }
-                        nsNames[nsCount] = nsv; nsFiles[nsCount] = basename; nsCount = nsCount + 1;
-                    }
-                    if (pairN == pairNs.Length) {
-                        string[] c1 = new string[pairNs.Length * 2]; int[] c2 = new int[pairIdx.Length * 2];
-                        int k = 0; while (k < pairN) { c1[k] = pairNs[k]; c2[k] = pairIdx[k]; k = k + 1; }
-                        pairNs = c1; pairIdx = c2;
-                    }
-                    pairNs[pairN] = nsv; pairIdx[pairN] = wIdx; pairN = pairN + 1;
-                    a = a + 1;
-                }
-                libOpened[libCount] = null; libPaths[libCount] = paths[pi];
-                libDirs[libCount] = dir; libNames[libCount] = basename;
-                nsStart[libCount] = nsFlatN; nsLen[libCount] = e.Nss.Length;
-                int b = 0;
-                while (b < e.Nss.Length) {
-                    if (nsFlatN == nsFlat.Length) {
-                        string[] d1 = new string[nsFlat.Length * 2];
-                        int k = 0; while (k < nsFlatN) { d1[k] = nsFlat[k]; k = k + 1; }
-                        nsFlat = d1;
-                    }
-                    nsFlat[nsFlatN] = e.Nss[b]; nsFlatN = nsFlatN + 1; b = b + 1;
-                }
-                libLoaded[libCount] = false;   // prelude 下面统一现开加载
-                libCount = libCount + 1;
-            }
-            pi = pi + 1;
-        }
-        LazyReconWorld lazyWorld = LazyReconWorld.LazyFromPairs(worldPaths, worldDirs, worldCount, pairNs, pairIdx, pairN);
-        DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
-        res.World = lazyWorld;
-        res.Opened = libOpened; res.OpenedDirs = libDirs; res.OpenedNames = libNames;
-        res.Loaded = libLoaded; res.OpenedCount = libCount;
-        res.OpenedPaths = libPaths;
-        res.OpenedNsFlat = nsFlat; res.OpenedNsStart = nsStart; res.OpenedNsLen = nsLen;
-        DepScan._fillTypeMap(res, idx, paths.Length);   // repl-type-nsindex：从落盘索引填类型→ns（不重读模块）
-        // lazy-prelude（repl-lazy-prelude）：**不再 eager reconcile prelude**。首轮 `1+1` 类纯表达式
-        // 不引用任何 Std 符号 → 零包加载（实测 1.72s→0.34s）。首次引用 Std 符号时 _compileSrc 的 E0401
-        // 回退按需加载（含 prelude，见 Script._loadUsingsPackages 显式补 "Std"）。
-        return res;
-    }
-
     // ── 惰性扫描（lazy-repl-depscan + lazy-type-world）───────────────────────────
     // 首轮只对 prelude 做 Rebuild/DepIndex + 全量廉价 nsMap；其余包在 `EnsurePackageLoaded` 按需
     // 产出 Exported/DepIndex。**lazy-type-world**：类型世界 `LazyReconWorld` 按包懒填——不再一次性
@@ -479,16 +225,16 @@ public static class DepScan {
         string[] exportedPkg = new string[8];
         int exportedCount = 0;
         string excludeZpkg = excludeName + ".zpkg";
-        string[] paths = DepScan._sortedZpkgsMulti(dirs, dirCount);
+        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount);
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }
         // repl-scan-nsindex-cache: 试命中 ns 索引（指纹匹配）→ 跳过 open-all，只 open prelude + 引用闭包。
-        string fp = DepScan._libsFingerprint(paths);
-        string idxPath = DepScan._nsIndexPath(dirs, dirCount);
-        NsIndexEntry[] idxHit = DepScan._readNsIndex(idxPath, fp, paths.Length);
+        string fp = NsIndexCache._libsFingerprint(paths);
+        string idxPath = NsIndexCache._nsIndexPath(dirs, dirCount);
+        NsIndexEntry[] idxHit = NsIndexCache._readNsIndex(idxPath, fp, paths.Length);
         if (idxHit != null) {
-            return DepScan._scanFromIndex(paths, idxHit, excludeName, excludeZpkg, declaredDeps, declaredCount);
+            return NsIndexCache._scanFromIndex(paths, idxHit, excludeName, excludeZpkg, declaredDeps, declaredCount);
         }
         // Open 全部 → world（建惰性 LazyReconWorld + nsMap 路由）；同时留存 lib 包供按需 Rebuild。
         ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
@@ -550,7 +296,7 @@ public static class DepScan {
                 // repl-scan-nsindex-cache: 回填索引条目（真实 nss）+ 惰性 open/EnsurePackageLoaded 所需 path + ns 列表
                 // repl-type-nsindex：顺带提取每 ns 的类型短名（cold-start 一次性 ~159ms/26 包，落盘缓存）。
                 NsIndexEntry ent = new NsIndexEntry(basename, false, nss);
-                ent.NsTypes = DepScan._extractNsTypes(z, Path.GetDirectoryName(paths[pi]), nss);
+                ent.NsTypes = NsIndexCache._extractNsTypes(z, Path.GetDirectoryName(paths[pi]), nss);
                 entries[pi] = ent;
                 libPaths[libCount] = paths[pi];
                 nsStart[libCount] = nsFlatN; nsLen[libCount] = nss.Length;
@@ -577,52 +323,10 @@ public static class DepScan {
         res.Loaded = libLoaded; res.OpenedCount = libCount;
         res.OpenedPaths = libPaths;
         res.OpenedNsFlat = nsFlat; res.OpenedNsStart = nsStart; res.OpenedNsLen = nsLen;
-        DepScan._fillTypeMap(res, entries, paths.Length);   // repl-type-nsindex：填类型→ns 索引
+        NsIndexCache._fillTypeMap(res, entries, paths.Length);   // repl-type-nsindex：填类型→ns 索引
         // repl-scan-nsindex-cache: 落盘 ns 索引（下次启动指纹命中 → 跳过 open-all）。只读 libs 写失败静默。
-        DepScan._writeNsIndex(idxPath, fp, entries, paths.Length);
+        NsIndexCache._writeNsIndex(idxPath, fp, entries, paths.Length);
         return res;
-    }
-
-    // repl-type-nsindex：读一次包全模块类型 → 按 nss 顺序产出每 ns 的类型短名（逗号连接）。
-    // cold-start（cache-miss）用；warm 命中路径改从落盘的 NsTypes 读，不重跑此提取。
-    private static string[] _extractNsTypes(ZpkgInfo z, string dir, string[] nss) {
-        string[] outp = new string[nss.Length];
-        int i = 0; while (i < nss.Length) { outp[i] = ""; i = i + 1; }
-        ZpkgModuleTypes[] mts = ZpkgReader.ReadModuleTypes(z, dir);
-        int m = 0;
-        while (m < mts.Length) {
-            int ni = DepScan._nsIndexOf(nss, nss.Length, mts[m].Namespace);
-            if (ni >= 0) {
-                int c = 0;
-                while (c < mts[m].ClassCount) {
-                    string sn = DepScan._shortOf(mts[m].Classes[c].Name);
-                    outp[ni] = outp[ni].Length == 0 ? sn : (outp[ni] + "," + sn);
-                    c = c + 1;
-                }
-            }
-            m = m + 1;
-        }
-        return outp;
-    }
-
-    // repl-type-nsindex：把索引条目里的 (类型短名, ns) 填入 res 的类型索引。open-all 与索引命中共用。
-    private static void _fillTypeMap(DepScanResult res, NsIndexEntry[] entries, int count) {
-        int i = 0;
-        while (i < count) {
-            NsIndexEntry e = entries[i];
-            if (!e.IsExe && e.NsTypes.Length == e.Nss.Length) {
-                int a = 0;
-                while (a < e.Nss.Length) {
-                    if (e.NsTypes[a].Length > 0) {
-                        string[] ts = e.NsTypes[a].Split(",");
-                        int t = 0;
-                        while (t < ts.Length) { if (ts[t].Length > 0) { res.AddTypeNs(ts[t], e.Nss[a]); } t = t + 1; }
-                    }
-                    a = a + 1;
-                }
-            }
-            i = i + 1;
-        }
     }
 
     // 按需加载命名空间 `ns` 所在的**全部**包：对每个做 Rebuild（world 已完整 → base 链正确）+
@@ -644,43 +348,10 @@ public static class DepScan {
                     string[] nss = ZpkgReader.ReadNamespaces(scan.Opened[i]);
                     if (DepScan._nsIndexOf(nss, nss.Length, ns) >= 0) { declares = true; }
                 }
-                if (declares) { DepScan._loadOpenedPackage(scan, i); }
+                if (declares) { DepReconcile._loadOpenedPackage(scan, i); }
             }
             i = i + 1;
         }
-    }
-
-    // 把第 idx 个 lib 包产出 Exported/DepIndex 并并入 scan（对完整 world 重建）。
-    // repl-scan-nsindex-cache: Opened[idx]==null（命中路径惰性）→ 按 OpenedPaths[idx] 现开、缓存回。
-    private static void _loadOpenedPackage(DepScanResult scan, int idx) {
-        ZpkgInfo z = scan.Opened[idx];
-        if (z == null && idx < scan.OpenedPaths.Length) {
-            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
-            scan.Opened[idx] = z;
-        }
-        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
-        int i = 0;
-        while (i < mods.Length) {
-            scan.Index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
-            i = i + 1;
-        }
-        scan.Index.Seal();
-        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, scan.OpenedDirs[idx], scan.World);
-        i = 0;
-        while (i < tsig.Length) {
-            if (scan.ExportedCount == scan.Exported.Length) {
-                ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
-                string[] g2 = new string[scan.Exported.Length * 2 + 1];
-                int k = 0;
-                while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
-                scan.Exported = g1; scan.ExportedPkg = g2;
-            }
-            scan.Exported[scan.ExportedCount] = tsig[i];
-            scan.ExportedPkg[scan.ExportedCount] = z.Name;
-            scan.ExportedCount = scan.ExportedCount + 1;
-            i = i + 1;
-        }
-        scan.Loaded[idx] = true;
     }
 
     // repl-per-symbol-reconcile（completer 批量）：**读 `ns` 模块一次**，把其中短名 ∈ cands 的类型各 reconcile
@@ -706,144 +377,28 @@ public static class DepScan {
         while (t < mt.ClassCount) {
             string fq = mt.Classes[t].Name;
             string shortName = DepScan._shortOf(fq);
-            if (DepScan._inCands(shortName, cands, candCount) && !DepScan._typeInExported(scan, ns, shortName, fq)) {
+            if (DepReconcile._inCands(shortName, cands, candCount) && !DepReconcile._typeInExported(scan, ns, shortName, fq)) {
                 ExportedClassZ cls = TsigReconcile.ReconcileOneFromDesc(mt.Classes[t], ns, scan.World);
-                if (cls != null) { DepScan._appendExportedClass(scan, ns, pkgName, cls); added = true; }
+                if (cls != null) { DepReconcile._appendExportedClass(scan, ns, pkgName, cls); added = true; }
             }
             t = t + 1;
         }
         return added;
     }
 
-    private static string _shortOf(string fq) {
+    // basename "z42.io.zpkg" → 包名 "z42.io"（IsPrelude 判据）。
+    private static string _nameOfBasename(string basename) {
+        if (basename.EndsWith(".zpkg")) { return basename.Substring(0, basename.Length - 5); }
+        return basename;
+    }
+
+    internal static string _shortOf(string fq) {
         int i = fq.Length - 1;
         while (i >= 0) { if ((int)fq.CharAt(i) == 46) { return fq.Substring(i + 1); } i = i - 1; }
         return fq;
     }
-    private static bool _inCands(string name, string[] cands, int candCount) {
-        int i = 0; while (i < candCount) { if (cands[i] == name) { return true; } i = i + 1; } return false;
-    }
-    private static bool _typeInExported(DepScanResult scan, string ns, string shortName, string fq) {
-        int e = 0;
-        while (e < scan.ExportedCount) {
-            ExportedModuleZ em = scan.Exported[e];
-            if (em.Namespace == ns) {
-                int c = 0;
-                while (c < em.ClassCount) { if (em.Classes[c].Name == shortName || em.Classes[c].Name == fq) { return true; } c = c + 1; }
-            }
-            e = e + 1;
-        }
-        return false;
-    }
-    private static void _appendExportedClass(DepScanResult scan, string ns, string pkgName, ExportedClassZ cls) {
-        ExportedClassZ[] one = new ExportedClassZ[1]; one[0] = cls;
-        ExportedModuleZ mod = new ExportedModuleZ(ns, one, 1,
-            new ExportedInterfaceZ[0], 0, new ExportedEnumZ[0], 0,
-            new ExportedFuncZ[0], 0, new ExportedDelegateZ[0], 0);
-        if (scan.ExportedCount == scan.Exported.Length) {
-            ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
-            string[] g2 = new string[scan.Exported.Length * 2 + 1];
-            int k = 0;
-            while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
-            scan.Exported = g1; scan.ExportedPkg = g2;
-        }
-        scan.Exported[scan.ExportedCount] = mod;
-        scan.ExportedPkg[scan.ExportedCount] = pkgName;
-        scan.ExportedCount = scan.ExportedCount + 1;
-    }
 
-    // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
-    // 不存在的目录跳过（per-member 布局下后续成员 dist 在建本成员时尚空）。
-    private static string[] _sortedZpkgsMulti(string[] dirs, int dirCount) {
-        // 第一遍：统计总数。
-        int total = 0;
-        int di = 0;
-        while (di < dirCount) {
-            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }
-            di = di + 1;
-        }
-        // 第二遍：合并到 flat 数组。
-        string[] paths = new string[total];
-        int pc = 0;
-        di = 0;
-        while (di < dirCount) {
-            if (Directory.Exists(dirs[di])) {
-                string[] hits = Path.Glob(dirs[di], "*.zpkg");
-                int hi = 0;
-                while (hi < hits.Length) { paths[pc] = hits[hi]; pc = pc + 1; hi = hi + 1; }
-            }
-            di = di + 1;
-        }
-        // 同名包跨目录去重（first-wins）：某包同时在成员 dist 与 Z42_LIBS（外部 stdlib
-        // 种子）出现时只扫一次，避免 DepIndex 重复 AddModule → 歧义键被 Seal 剔除。
-        // 单目录调用方无重名（一目录不会有两份同名文件）→ 此步 no-op，Milestone 1 byte-identical 不变。
-        return DepScan._dedupByBasename(DepScan._sortZpkgKeys(paths));
-    }
-
-    // 排序后的 paths 中，每个 basename 仅保留首次出现（first-wins）。
-    private static string[] _dedupByBasename(string[] paths) {
-        string[] seen = new string[paths.Length];
-        int seenCount = 0;
-        string[] kept = new string[paths.Length];
-        int keptCount = 0;
-        int i = 0;
-        while (i < paths.Length) {
-            string b = Path.GetFileName(paths[i]);
-            if (DepScan._nsIndexOf(seen, seenCount, b) < 0) {
-                seen[seenCount] = b; seenCount = seenCount + 1;
-                kept[keptCount] = paths[i]; keptCount = keptCount + 1;
-            }
-            i = i + 1;
-        }
-        if (keptCount == paths.Length) { return kept; }
-        string[] r = new string[keptCount];
-        i = 0;
-        while (i < keptCount) { r[i] = kept[i]; i = i + 1; }
-        return r;
-    }
-
-    // prelude-first（"0_"+name）+ Ordinal 排序（镜像 C# BuildDepIndex 的 sortedPaths）。
-    private static string[] _sortZpkgKeys(string[] paths) {
-        // 排序键并行数组 + 插入排序
-        string[] keys = new string[paths.Length];
-        int i = 0;
-        while (i < paths.Length) {
-            string name = Path.GetFileNameWithoutExtension(paths[i]);
-            if (DepScan.IsPrelude(name)) { keys[i] = "0_" + name; }
-            else { keys[i] = "1_" + name; }
-            i = i + 1;
-        }
-        i = 1;
-        while (i < paths.Length) {
-            string k = keys[i];
-            string p = paths[i];
-            int j = i - 1;
-            bool more = j >= 0;
-            while (more) {
-                if (keys[j].CompareTo(k) > 0) {
-                    keys[j + 1] = keys[j]; paths[j + 1] = paths[j];
-                    j = j - 1; more = j >= 0;
-                } else { more = false; }
-            }
-            keys[j + 1] = k;
-            paths[j + 1] = p;
-            i = i + 1;
-        }
-        return paths;
-    }
-
-    // DepIndex 准入：stdlib（z42. 前缀；z42c.X 不匹配）∨ 声明依赖名（镜像 C# isStdlib || allowedPkgs.Contains）。
-    private static bool _allowedForIndex(string pkgName, string[] declaredDeps, int declaredCount) {
-        if (pkgName.StartsWith("z42.")) { return true; }
-        int i = 0;
-        while (i < declaredCount) {
-            if (declaredDeps[i] == pkgName) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
-
-    private static int _nsIndexOf(string[] a, int n, string s) {
+    internal static int _nsIndexOf(string[] a, int n, string s) {
         int i = 0;
         while (i < n) {
             if (a[i] == s) { return i; }

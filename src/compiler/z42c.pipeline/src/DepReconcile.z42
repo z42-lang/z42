@@ -1,0 +1,78 @@
+// 惰性包加载后的候选 reconcile 辅助（refactor-depscan-concern-split：从 DepScan 拆出）。
+// _loadOpenedPackage（按需 Rebuild+DepIndex 并入 scan）+ completer 候选类型追加辅助。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Project;
+
+public static class DepReconcile {
+    // 把第 idx 个 lib 包产出 Exported/DepIndex 并并入 scan（对完整 world 重建）。
+    // repl-scan-nsindex-cache: Opened[idx]==null（命中路径惰性）→ 按 OpenedPaths[idx] 现开、缓存回。
+    internal static void _loadOpenedPackage(DepScanResult scan, int idx) {
+        ZpkgInfo z = scan.Opened[idx];
+        if (z == null && idx < scan.OpenedPaths.Length) {
+            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
+            scan.Opened[idx] = z;
+        }
+        ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);
+        int i = 0;
+        while (i < mods.Length) {
+            scan.Index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
+            i = i + 1;
+        }
+        scan.Index.Seal();
+        ExportedModuleZ[] tsig = TsigReconcile.Rebuild(z, scan.OpenedDirs[idx], scan.World);
+        i = 0;
+        while (i < tsig.Length) {
+            if (scan.ExportedCount == scan.Exported.Length) {
+                ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
+                string[] g2 = new string[scan.Exported.Length * 2 + 1];
+                int k = 0;
+                while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
+                scan.Exported = g1; scan.ExportedPkg = g2;
+            }
+            scan.Exported[scan.ExportedCount] = tsig[i];
+            scan.ExportedPkg[scan.ExportedCount] = z.Name;
+            scan.ExportedCount = scan.ExportedCount + 1;
+            i = i + 1;
+        }
+        scan.Loaded[idx] = true;
+    }
+
+    internal static bool _inCands(string name, string[] cands, int candCount) {
+        int i = 0; while (i < candCount) { if (cands[i] == name) { return true; } i = i + 1; } return false;
+    }
+
+    internal static bool _typeInExported(DepScanResult scan, string ns, string shortName, string fq) {
+        int e = 0;
+        while (e < scan.ExportedCount) {
+            ExportedModuleZ em = scan.Exported[e];
+            if (em.Namespace == ns) {
+                int c = 0;
+                while (c < em.ClassCount) { if (em.Classes[c].Name == shortName || em.Classes[c].Name == fq) { return true; } c = c + 1; }
+            }
+            e = e + 1;
+        }
+        return false;
+    }
+
+    internal static void _appendExportedClass(DepScanResult scan, string ns, string pkgName, ExportedClassZ cls) {
+        ExportedClassZ[] one = new ExportedClassZ[1]; one[0] = cls;
+        ExportedModuleZ mod = new ExportedModuleZ(ns, one, 1,
+            new ExportedInterfaceZ[0], 0, new ExportedEnumZ[0], 0,
+            new ExportedFuncZ[0], 0, new ExportedDelegateZ[0], 0);
+        if (scan.ExportedCount == scan.Exported.Length) {
+            ExportedModuleZ[] g1 = new ExportedModuleZ[scan.Exported.Length * 2 + 1];
+            string[] g2 = new string[scan.Exported.Length * 2 + 1];
+            int k = 0;
+            while (k < scan.ExportedCount) { g1[k] = scan.Exported[k]; g2[k] = scan.ExportedPkg[k]; k = k + 1; }
+            scan.Exported = g1; scan.ExportedPkg = g2;
+        }
+        scan.Exported[scan.ExportedCount] = mod;
+        scan.ExportedPkg[scan.ExportedCount] = pkgName;
+        scan.ExportedCount = scan.ExportedCount + 1;
+    }
+}

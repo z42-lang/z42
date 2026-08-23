@@ -1,0 +1,99 @@
+// DepScan 扫描产物数据类（DepScanResult 产物束 + NsIndexEntry ns 索引条目）。
+// 从 DepScan.z42 拆出（refactor-depscan-concern-split）：纯数据，无逻辑。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Project;
+
+// 一次扫描的产物束。
+public sealed class DepScanResult {
+    public DependencyIndex   Index;
+    public string[]          NsNames;      public int NsCount;       // nsMap 平行数组
+    public string[]          NsFiles;
+    public ExportedModuleZ[] Exported;     public int ExportedCount; // 全部 TSIG 模块
+    public string[]          ExportedPkg;                            // 平行：每模块来源包名
+    // 惰性跨包类型世界（lazy-type-world）：取代 eager `ReconWorldPkg[] Wp`。Wp 按包懒填、基类链
+    // 遇祖先按 ns 路由解析（world 不再一次性全量解析 → 首次 eval O(引用闭包)）。供 ExtendWithPackage /
+    // EnsurePackageLoaded 复用。
+    public LazyReconWorld    World;
+    // 惰性扫描（lazy-repl-depscan）：ScanDirsLazy 只对 prelude 做 Rebuild/DepIndex；其余包按需
+    // Rebuild（lazy-type-world：Rebuild 内部经 World.EnsureFq 只解析引用到的祖先包）。下列保留每个
+    // 已 Open 的包，供 EnsurePackageLoaded 按需 Rebuild + DepIndex。ScanDirs（非惰性）不填这些
+    // （Loaded 全 true 语义 = 全量已加载，EnsurePackageLoaded no-op）。
+    public ZpkgInfo[] Opened;      // 已 Open 的 lib 包（与 OpenedDirs/OpenedNames/Loaded 平行）；
+                                   // repl-scan-nsindex-cache 命中路径下初始 null（惰性），首次 _loadOpenedPackage 时按 OpenedPaths 现开
+    public string[]   OpenedDirs;  // 各包所在目录（Rebuild 的 pkgDir，indexed 包读散装 zbc 需要）
+    public string[]   OpenedNames; // 各包 basename（"z42.io.zpkg"）——FileOf(ns) 定位后据此找索引
+    public bool[]     Loaded;      // 各包是否已产出 Exported/DepIndex
+    public int        OpenedCount;
+    // repl-scan-nsindex-cache：惰性 open 支持——OpenedPaths[i] = 第 i 包全路径（Opened[i]==null 时据此现开）；
+    // OpenedNsFlat + OpenedNsStart/Len = 每包命名空间列表（来自 ns 索引；EnsurePackageLoaded 不 open 即可判某包是否声明 ns）。
+    public string[]   OpenedPaths;
+    public string[]   OpenedNsFlat; public int[] OpenedNsStart; public int[] OpenedNsLen;
+    // repl-type-nsindex：类型短名 → 声明它的命名空间（平行数组，同名跨 ns 允许多条）。completer 用它
+    // 判「某活跃 ns 是否声明了某候选类型」，只读命中的模块（不再全扫活跃 ns，省 45-73ms/首次引用）。
+    // 由 open-all（ReadModuleTypes 提取）或索引命中（NsTypes）填充；空（TypeMapCount==0）→ 保守全扫。
+    public string[]   TypeShort; public string[] TypeNs; public int TypeMapCount;
+    public DepScanResult(DependencyIndex index,
+                         string[] nsNames, string[] nsFiles, int nsCount,
+                         ExportedModuleZ[] exported, string[] exportedPkg, int exportedCount) {
+        this.Index = index;
+        this.NsNames = nsNames; this.NsFiles = nsFiles; this.NsCount = nsCount;
+        this.Exported = exported; this.ExportedPkg = exportedPkg; this.ExportedCount = exportedCount;
+        this.World = null;
+        this.Opened = new ZpkgInfo[0]; this.OpenedDirs = new string[0];
+        this.OpenedNames = new string[0]; this.Loaded = new bool[0]; this.OpenedCount = 0;
+        this.OpenedPaths = new string[0];
+        this.OpenedNsFlat = new string[0]; this.OpenedNsStart = new int[0]; this.OpenedNsLen = new int[0];
+        this.TypeShort = new string[0]; this.TypeNs = new string[0]; this.TypeMapCount = 0;
+    }
+    // repl-type-nsindex：追加一条 (shortname, ns) 到类型索引（growable）。
+    public void AddTypeNs(string shortName, string ns) {
+        if (this.TypeMapCount == this.TypeShort.Length) {
+            int ncap = this.TypeShort.Length == 0 ? 512 : this.TypeShort.Length * 2;
+            string[] s1 = new string[ncap]; string[] s2 = new string[ncap];
+            int k = 0; while (k < this.TypeMapCount) { s1[k] = this.TypeShort[k]; s2[k] = this.TypeNs[k]; k = k + 1; }
+            this.TypeShort = s1; this.TypeNs = s2;
+        }
+        this.TypeShort[this.TypeMapCount] = shortName; this.TypeNs[this.TypeMapCount] = ns;
+        this.TypeMapCount = this.TypeMapCount + 1;
+    }
+    // repl-type-nsindex：活跃 ns `ns` 是否声明了 cands 里的某个类型？索引空 → true（保守全扫，回退旧行为）。
+    public bool NsMayHaveCandidate(string ns, string[] cands, int candCount) {
+        if (this.TypeMapCount == 0) { return true; }
+        int k = 0;
+        while (k < this.TypeMapCount) {
+            if (this.TypeNs[k] == ns) {
+                int c = 0;
+                while (c < candCount) { if (this.TypeShort[k] == cands[c]) { return true; } c = c + 1; }
+            }
+            k = k + 1;
+        }
+        return false;
+    }
+    // ns → zpkg basename（未知 → ""）。
+    public string FileOf(string ns) {
+        int i = 0;
+        while (i < this.NsCount) {
+            if (this.NsNames[i] == ns) { return this.NsFiles[i]; }
+            i = i + 1;
+        }
+        return "";
+    }
+}
+
+// repl-scan-nsindex-cache：ns 索引一条目——一个 *.zpkg 的 basename + 是否 exe + 声明的命名空间列表。
+// 索引按 sorted *.zpkg 顺序逐条存；指纹匹配保证 paths[i] ↔ index[i] 一一对应。
+public sealed class NsIndexEntry {
+    public string Basename; public bool IsExe; public string[] Nss;
+    // repl-type-nsindex：与 Nss 平行——NsTypes[i] = Nss[i] 里声明的类型短名（逗号连接）。
+    // completer 据此 shortname→ns 直达，只读含候选类型的那一个模块（不再全扫活跃 ns）。空 = 未知/无类型。
+    public string[] NsTypes;
+    public NsIndexEntry(string basename, bool isExe, string[] nss) {
+        this.Basename = basename; this.IsExe = isExe; this.Nss = nss;
+        this.NsTypes = new string[0];
+    }
+}
