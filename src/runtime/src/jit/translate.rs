@@ -59,28 +59,43 @@ pub fn max_reg(func: &Function) -> usize {
 pub fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
     for block in &func.blocks {
         for instr in &block.instructions {
-            let reason = match instr {
-                Instruction::CallNative(_)        => "CallNative",
-                Instruction::CallNativeVtable { .. } => "CallNativeVtable",
-                Instruction::PinPtr { .. }        => "PinPtr",
-                Instruction::UnpinPtr { .. }      => "UnpinPtr",
-                Instruction::LoadLocalAddr { .. } => "LoadLocalAddr",
-                Instruction::LoadElemAddr { .. }  => "LoadElemAddr",
-                Instruction::LoadFieldAddr(_)     => "LoadFieldAddr",
-                // add-generic-methods: method-level generics run on the interpreter for
-                // now (the JIT frame has no method_type_args carrier, and the JIT call
-                // paths don't thread it). A function that *reads* a method type param,
-                // or *makes* a generic call, stays interp — everything else JITs.
-                Instruction::MethodTypeArg { .. } => "MethodTypeArg (generic method body)",
-                Instruction::MethodDefault { .. } => "MethodDefault (generic method body)",
-                Instruction::Call(insn) if !insn.method_type_args.is_empty() => "generic Call",
-                Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
-                _ => continue,
-            };
-            return Some(reason);
+            if let Some(reason) = unsupported_reason(instr) {
+                return Some(reason);
+            }
         }
     }
     None
+}
+
+/// Single source of truth for "which opcodes the JIT cannot translate, and why".
+///
+/// converge-vm-arith-semantics (H3): this collapses the two hand-maintained
+/// lists that previously had to be kept in lock-step — the prescan (above) and
+/// the `bail!` arms in `translate_instr`. The prescan loops over this; each
+/// `bail!` arm sources its message from here (`unsupported_reason(instr).expect(..)`),
+/// so the two checkpoints can never drift.
+///
+/// Must take `&Instruction` (not a flat opcode set): the two generic cases are
+/// *conditional* on `method_type_args` — a non-generic `Call`/`VCall` DOES JIT.
+pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
+    Some(match instr {
+        Instruction::CallNative(_)           => "CallNative",
+        Instruction::CallNativeVtable { .. } => "CallNativeVtable",
+        Instruction::PinPtr { .. }           => "PinPtr",
+        Instruction::UnpinPtr { .. }         => "UnpinPtr",
+        Instruction::LoadLocalAddr { .. }    => "LoadLocalAddr",
+        Instruction::LoadElemAddr { .. }     => "LoadElemAddr",
+        Instruction::LoadFieldAddr(_)        => "LoadFieldAddr",
+        // add-generic-methods: method-level generics run on the interpreter for
+        // now (the JIT frame has no method_type_args carrier, and the JIT call
+        // paths don't thread it). A function that *reads* a method type param,
+        // or *makes* a generic call, stays interp — everything else JITs.
+        Instruction::MethodTypeArg { .. }    => "MethodTypeArg (generic method body)",
+        Instruction::MethodDefault { .. }    => "MethodDefault (generic method body)",
+        Instruction::Call(insn)  if !insn.method_type_args.is_empty() => "generic Call",
+        Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
+        _ => return None,
+    })
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -726,6 +741,12 @@ pub fn translate_function(
             }};
         }
 
+        // SEMANTICS: `semantics::int_binop` (I64 div/rem via `jit_div`/`jit_rem`
+        // cold path) + `semantics::is_int_div_by_zero` (INT_DIV_ZERO = throw) +
+        // INT_DIV_GUARD (`b ∈ {0,-1}` routed to the scalar helper). This inline
+        // path is the ONLY place the `{0,-1}` guard lives; the diff test
+        // (`semantics_jit_diff_tests.rs`) pins `MIN/-1`, `/0`, `%0` byte-identity.
+        //
         // jit-native-int-divrem: native integer `sdiv`/`srem` on the common
         // path, with a cold guard routing the two divisor values that need the
         // helper's exact interp semantics:
@@ -1669,22 +1690,31 @@ pub fn translate_function(
                 // C1 native interop scaffold: JIT translation lands in
                 // L3.M16. Refuse to compile a function that contains these
                 // opcodes; caller should keep the function in Interp mode.
+                // converge-vm-arith-semantics (H3): these arms are UNREACHABLE in
+                // practice — `jit_unsupported_reason` (driven by `unsupported_reason`)
+                // routes any function containing them to the interpreter before
+                // translation. Kept for match exhaustiveness (runtime-rust.md: no `_`
+                // wildcard). Each bail sources its reason from the single source of
+                // truth `unsupported_reason(instr)` so the prescan list and these arms
+                // can never name a different opcode set.
                 Instruction::CallNative(insn) => {
                     let CallNativeInsn { module, type_name, symbol, .. } = &**insn;
                     bail!(
-                        "JIT cannot translate CallNative yet (L3.M16): {module}::{type_name}::{symbol}"
+                        "JIT cannot translate {} yet (L3.M16): {module}::{type_name}::{symbol}",
+                        unsupported_reason(instr).unwrap_or("CallNative")
                     );
                 }
                 Instruction::CallNativeVtable { vtable_slot, .. } => {
                     bail!(
-                        "JIT cannot translate CallNativeVtable yet (L3.M16): slot={vtable_slot}"
+                        "JIT cannot translate {} yet (L3.M16): slot={vtable_slot}",
+                        unsupported_reason(instr).unwrap_or("CallNativeVtable")
                     );
                 }
                 Instruction::PinPtr { .. } => {
-                    bail!("JIT cannot translate PinPtr yet (L3.M16)");
+                    bail!("JIT cannot translate {} yet (L3.M16)", unsupported_reason(instr).unwrap_or("PinPtr"));
                 }
                 Instruction::UnpinPtr { .. } => {
-                    bail!("JIT cannot translate UnpinPtr yet (L3.M16)");
+                    bail!("JIT cannot translate {} yet (L3.M16)", unsupported_reason(instr).unwrap_or("UnpinPtr"));
                 }
 
                 // Spec impl-ref-out-in-runtime: address-load opcodes are
@@ -1692,13 +1722,13 @@ pub fn translate_function(
                 // frame deref support which is not yet implemented (CLAUDE.md
                 // "interp 全绿前不碰 JIT/AOT"). Function falls back to interp.
                 Instruction::LoadLocalAddr { .. } => {
-                    bail!("JIT cannot translate LoadLocalAddr yet (impl-ref-out-in-runtime; interp only)");
+                    bail!("JIT cannot translate {} yet (impl-ref-out-in-runtime; interp only)", unsupported_reason(instr).unwrap_or("LoadLocalAddr"));
                 }
                 Instruction::LoadElemAddr { .. } => {
-                    bail!("JIT cannot translate LoadElemAddr yet (impl-ref-out-in-runtime; interp only)");
+                    bail!("JIT cannot translate {} yet (impl-ref-out-in-runtime; interp only)", unsupported_reason(instr).unwrap_or("LoadElemAddr"));
                 }
                 Instruction::LoadFieldAddr(_) => {
-                    bail!("JIT cannot translate LoadFieldAddr yet (impl-ref-out-in-runtime; interp only)");
+                    bail!("JIT cannot translate {} yet (impl-ref-out-in-runtime; interp only)", unsupported_reason(instr).unwrap_or("LoadFieldAddr"));
                 }
                 // add-struct-jit-value-path (P5-A): blob value-type instructions are
                 // emitted as calls to the struct helpers, which run on the shared
@@ -1747,7 +1777,8 @@ pub fn translate_function(
                 // function containing these (method-generic body) to the interpreter
                 // before translation. Kept for match exhaustiveness.
                 Instruction::MethodTypeArg { .. } | Instruction::MethodDefault { .. } => {
-                    bail!("JIT cannot translate method-level generics yet (add-generic-methods; interp only)");
+                    bail!("JIT cannot translate {} yet (add-generic-methods; interp only)",
+                          unsupported_reason(instr).unwrap_or("method-level generics"));
                 }
 
                 // spec fix-numeric-cast-lowering (2026-05-13): explicit numeric cast
@@ -2455,6 +2486,11 @@ fn store_f64(
 /// Safety: caller must have verified `reg_types[dst] == I64` so the
 /// pre-existing slot value is either `Null` (initial) or `I64`, both of
 /// which have no Drop work — raw bit-copy is sound.
+///
+/// SEMANTICS: `semantics::int_binop` (I64 arm) — inline Cranelift mirror.
+/// `iadd`/`isub`/`imul` are wrapping (INT_OVERFLOW_WRAPS); Shl/Shr `band 63`
+/// mirrors `semantics::SHIFT_MASK`. Byte-identity pinned by
+/// `translate/semantics_jit_diff_tests.rs`.
 fn emit_i64_binop(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -2512,8 +2548,10 @@ fn emit_i64_convert(
 ) {
     let si = load_int(builder, cache, promoted, regs_base, src);
 
-    // Tag constants — mirror exec_value module-private T_* (the primitive-type
-    // wire tags, a DIFFERENT namespace from the `Value` discriminants).
+    // SEMANTICS: `semantics::convert_value` → `convert_from_i64` integer-narrowing
+    // arm — inline Cranelift mirror (ireduce+sextend / band-mask). Tag constants
+    // mirror `semantics::T_*` (Cranelift needs compile-time consts; the local copy
+    // is deliberate — keep in sync with the single source of truth in semantics.rs).
     const T_I8:  u8 = 0x02;
     const T_I16: u8 = 0x03;
     const T_I32: u8 = 0x04;
@@ -2570,6 +2608,9 @@ fn emit_i64_convert(
 /// Reads `src` straight from memory: the Phase 2C promotion whitelist
 /// disqualifies any reg used as a non-int-`Convert` src, so `src` is never a
 /// resident Variable here.
+///
+/// SEMANTICS: `semantics::convert_value` → `convert_from_i64` int→float arm
+/// (I2F = full f64 precision, F32 target also f64). Inline Cranelift mirror.
 fn emit_int_to_f64(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -2601,6 +2642,10 @@ fn emit_int_to_f64(
 /// a resident Variable. Writes `dst` (integer) via `store_int` (resident
 /// Variable / 2B cache / memory), so a float→int result feeding a resident
 /// accumulator stays unboxed.
+///
+/// SEMANTICS: `semantics::convert_value` → `convert_from_f64` float→int arm
+/// (F2I = saturate + NaN→0; `T_U64` uses signed i64 saturation). Inline mirror
+/// via `fcvt_to_sint_sat` / `fcvt_to_uint_sat`.
 fn emit_f64_to_int(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -2688,6 +2733,9 @@ fn emit_i64_bit_not(
 /// Emit Cranelift native `icmp <pred>` for `frame.regs[dst] = Value::Bool(a OP b)`
 /// when both `a` and `b` are statically I64. Result discriminant is `TAG_BOOL`,
 /// payload is the i8 comparison result.
+///
+/// SEMANTICS: `semantics::eval_cmp` (I64 arm; CMP = signed ordered) — inline
+/// Cranelift mirror via signed `IntCC`. Byte-identity pinned by diff tests.
 fn emit_i64_cmp(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -2793,6 +2841,10 @@ fn emit_f64_binop(
 /// via native `fcmp`. Uses ORDERED comparisons (NaN → false) for
 /// Eq/Lt/Le/Gt/Ge and UNORDERED-or-not-equal for Ne (NaN != NaN → true),
 /// matching Rust's f64 `==`/`<`/… used by interp `numeric_lt`/`ops::compare`.
+///
+/// SEMANTICS: `semantics::eval_cmp` (F64 arm; CMP = ordered, `Ne` unordered).
+/// The `FloatCC::NotEqual` for Ne mirrors `semantics::eval_cmp`'s `va != vb`
+/// on NaN (→ true). Inline Cranelift mirror; byte-identity pinned by diff tests.
 fn emit_f64_cmp(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,

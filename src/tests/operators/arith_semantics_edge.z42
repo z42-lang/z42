@@ -1,0 +1,41 @@
+// converge-vm-arith-semantics (H3): edge cases pinning the three arithmetic
+// implementations (interp / JIT runtime-helper / JIT inline Cranelift) to ONE
+// behavior. Self-checking via Assert — runs under BOTH interp (default GREEN)
+// and JIT (`xtask test e2e --mode jit` / CI test-vm-jit). Any divergence in the
+// inline Cranelift path (the one that can't call `semantics.rs` at runtime) fails
+// an Assert here. Complements the scalar-rule unit tests in `semantics_tests.rs`
+// and the div-by-zero golden `exceptions/int_divide_by_zero`.
+//
+// Locals (not literals) are used throughout so the compiler does not const-fold
+// the expression away before it reaches the VM.
+
+void Main() {
+    // ── Integer overflow WRAPS (semantics rule: INT_OVERFLOW_WRAPS) ──
+    long max = 9223372036854775807;       // i64::MAX
+    Assert.Equal(true, max + 1 < 0);      // MAX + 1 wraps to i64::MIN (negative)
+    Assert.Equal(true, max + max < 0);    // wraps
+    long min = max + 1;                   // = i64::MIN
+    Assert.Equal(min, min * 1);           // identity through the I64 path
+
+    // ── Shift amount masks to low 6 bits (semantics::SHIFT_MASK = 63) ──
+    long one = 1;
+    Assert.Equal(1, one << 64);           // 64 & 63 == 0 → identity
+    Assert.Equal(2, one << 65);           // 65 & 63 == 1
+    long big = 256;
+    Assert.Equal(256, big >> 64);         // 64 & 63 == 0 → identity (shr also masks)
+
+    // ── Float compare NaN ordering (CMP: ordered, Ne unordered) ──
+    double zero = 0.0;
+    double nan = zero / zero;             // NaN (IEEE 754)
+    Assert.Equal(false, nan == nan);      // ordered Eq: NaN == NaN → false
+    Assert.Equal(true, nan != nan);       // unordered Ne: NaN != NaN → true
+    Assert.Equal(false, nan < 1.0);
+    Assert.Equal(false, nan > 1.0);
+
+    // ── float→int saturation + NaN→0 (semantics rule: F2I = SaturateNaNZero) ──
+    double huge = 100000000.0 * 100000000.0 * 100000000.0;  // 1e24 > i64::MAX
+    Assert.Equal(9223372036854775807, (long)huge);          // saturates to i64::MAX
+    double negHuge = zero - huge;                            // -1e24
+    Assert.Equal(-9223372036854775807 - 1, (long)negHuge);  // saturates to i64::MIN
+    Assert.Equal(0, (long)nan);                             // NaN → 0
+}

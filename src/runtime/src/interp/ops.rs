@@ -25,6 +25,10 @@ pub(super) fn bool_val(regs: &[Value], reg: u32) -> Result<bool> {
 }
 
 /// Integer/float binary operation with automatic widening.
+///
+/// converge-vm-arith-semantics (H3): register fetch stays here (the
+/// "undefined register" error is interp-model-specific); the scalar rule +
+/// type-mismatch is [`crate::semantics::int_binop`], shared with the JIT helper.
 pub(super) fn int_binop(
     regs: &[Value],
     a: u32,
@@ -34,16 +38,11 @@ pub(super) fn int_binop(
 ) -> Result<Value> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => Value::I64(int_op(*x, *y)),
-        (Value::F64(x), Value::F64(y)) => Value::F64(float_op(*x, *y)),
-        (Value::F64(x), Value::I64(y)) => Value::F64(float_op(*x, *y as f64)),
-        (Value::I64(x), Value::F64(y)) => Value::F64(float_op(*x as f64, *y)),
-        (a, b) => bail!("type mismatch in arithmetic: {:?} vs {:?}", a, b),
-    })
+    crate::semantics::int_binop(va, vb, int_op, float_op)
 }
 
 /// Integer-only binary operation (bitwise/shift). Rejects floats.
+/// Scalar rule shared via [`crate::semantics::int_bitop`] (see `int_binop`).
 pub(super) fn int_bitop(
     regs: &[Value],
     a: u32,
@@ -52,10 +51,7 @@ pub(super) fn int_bitop(
 ) -> Result<Value> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => Value::I64(op(*x, *y)),
-        (a, b) => bail!("bitwise op requires integral operands, got {:?} and {:?}", a, b),
-    })
+    crate::semantics::int_bitop(va, vb, op)
 }
 
 /// Numeric less-than comparison with automatic widening.
@@ -73,15 +69,9 @@ pub(super) fn int_bitop(
 /// lives in exactly one place (no interp/fusion duplication).
 #[inline]
 pub(super) fn eval_cmp(op: crate::metadata::superinstr::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
-    use crate::metadata::superinstr::CmpOp;
-    Ok(match op {
-        CmpOp::Lt => numeric_lt(regs, a, b)?,
-        CmpOp::Le => !numeric_lt(regs, b, a)?,
-        CmpOp::Gt => numeric_lt(regs, b, a)?,
-        CmpOp::Ge => !numeric_lt(regs, a, b)?,
-        CmpOp::Eq => reg_ref(regs, a)? == reg_ref(regs, b)?,
-        CmpOp::Ne => reg_ref(regs, a)? != reg_ref(regs, b)?,
-    })
+    // converge-vm-arith-semantics (H3): register fetch here, comparison rule in
+    // [`crate::semantics::eval_cmp`] (shared with JIT helper `jit_lt`/`jit_eq`/…).
+    crate::semantics::eval_cmp(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
 }
 
 #[inline]
@@ -122,16 +112,7 @@ pub(super) fn eval_cmp_i64(op: crate::metadata::superinstr::CmpOp, regs: &[Value
 pub(super) fn numeric_lt(regs: &[Value], a: u32, b: u32) -> Result<bool> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => x < y,
-        (Value::F64(x), Value::F64(y)) => x < y,
-        (Value::F64(x), Value::I64(y)) => *x < (*y as f64),
-        (Value::I64(x), Value::F64(y)) => (*x as f64) < *y,
-        (Value::Char(x), Value::Char(y)) => x < y,
-        (Value::Char(x), Value::I64(y))  => (*x as u32 as i64) < *y,
-        (Value::I64(x),  Value::Char(y)) => *x < (*y as u32 as i64),
-        (a, b) => bail!("type mismatch in comparison: {:?} vs {:?}", a, b),
-    })
+    crate::semantics::numeric_lt(va, vb)
 }
 
 /// Convert a Value to a usize index/size, rejecting negative values.

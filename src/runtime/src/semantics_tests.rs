@@ -1,20 +1,9 @@
-//! Tests for `exec_value::convert_value` — numeric cast dispatch table.
-//! Spec fix-numeric-cast-lowering (2026-05-13).
+//! Tests for `semantics::convert_value` — numeric cast dispatch table.
+//! Spec fix-numeric-cast-lowering (2026-05-13); moved here from
+//! `interp/exec_value_tests.rs` by converge-vm-arith-semantics (H3).
 
 use super::*;
 use crate::metadata::Value;
-
-// Mirror tag constants from exec_value.rs — must stay aligned with
-// `compiler/z42.IR/BinaryFormat/Opcodes.cs::TypeTags`.
-const T_I8:   u8 = 0x02;
-const T_I16:  u8 = 0x03;
-const T_I32:  u8 = 0x04;
-const T_I64:  u8 = 0x05;
-const T_U8:   u8 = 0x06;
-const T_U32:  u8 = 0x08;
-const T_F64:  u8 = 0x0B;
-const T_CHAR: u8 = 0x0C;
-const T_BOOL: u8 = 0x01;
 
 // ── f64 → integer ───────────────────────────────────────────────────────────
 
@@ -208,4 +197,49 @@ fn unbox_char_identity() {
 fn unbox_mismatch_str_to_bool_throws() {
     // `(bool)o` where o boxes a string → InvalidCastException.
     assert!(convert_value(Value::Str("hi".into()), T_BOOL).is_err());
+}
+
+// ── 标量算术 / 比较 / 除零判定（converge-vm-arith-semantics 新增）─────────────
+
+#[test]
+fn int_binop_wrapping_add_overflow() {
+    let r = int_binop(&Value::I64(i64::MAX), &Value::I64(1), i64::wrapping_add, |x, y| x + y).unwrap();
+    assert_eq!(r, Value::I64(i64::MIN));
+}
+
+#[test]
+fn int_binop_widens_mixed_i64_f64() {
+    let r = int_binop(&Value::I64(3), &Value::F64(0.5), i64::wrapping_add, |x, y| x + y).unwrap();
+    assert_eq!(r, Value::F64(3.5));
+}
+
+#[test]
+fn int_binop_type_mismatch_bails() {
+    assert!(int_binop(&Value::Bool(true), &Value::I64(1), i64::wrapping_add, |x, y| x + y).is_err());
+}
+
+#[test]
+fn int_bitop_shift_masks_low_six_bits() {
+    // shift amount 64 masks to 0 → identity (matches interp shl/shr `& SHIFT_MASK`).
+    let r = int_bitop(&Value::I64(1), &Value::I64(SHIFT_MASK + 1), |x, y| x << (y & SHIFT_MASK)).unwrap();
+    assert_eq!(r, Value::I64(1));
+}
+
+#[test]
+fn numeric_lt_char_i64_widening() {
+    assert!(numeric_lt(&Value::Char('0'), &Value::I64(100)).unwrap());
+}
+
+#[test]
+fn eval_cmp_ne_nan_is_true() {
+    // Ne on NaN vs NaN → true (unordered), matching JIT inline FloatCC::NotEqual.
+    assert!(eval_cmp(CmpOp::Ne, &Value::F64(f64::NAN), &Value::F64(f64::NAN)).unwrap());
+    assert!(!eval_cmp(CmpOp::Eq, &Value::F64(f64::NAN), &Value::F64(f64::NAN)).unwrap());
+}
+
+#[test]
+fn is_int_div_by_zero_only_integer_zero() {
+    assert!(is_int_div_by_zero(&Value::I64(0)));
+    assert!(!is_int_div_by_zero(&Value::F64(0.0)));   // float /0 → IEEE Infinity, not throw
+    assert!(!is_int_div_by_zero(&Value::I64(1)));
 }
