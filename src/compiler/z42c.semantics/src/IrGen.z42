@@ -181,7 +181,7 @@ public sealed class IrGen {
                         }
                         IrClassDesc cdesc = this._classDescB._classDesc(descDecl);
                         cdesc.Attrs = this._classDescB._attrRefs(cu.Decls[i]); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection：类 attr-ref
-                        if (HandlerRegistry.HasDeprecated(cu.Decls[i])) { cdesc.Flags = cdesc.Flags | 64; cdesc.DeprecationMsg = HandlerRegistry.DeprecatedMsg(cu.Decls[i]); }   // add-deprecated-directive：类级 bit6
+                        if (HandlerRegistry.HasDeprecated(cu.Decls[i])) { cdesc.Deprecated = true; cdesc.DeprecationMsg = HandlerRegistry.DeprecatedMsg(cu.Decls[i]); }   // add-deprecated-directive：类级（TYPE 尾表持久化，非 bit6=delegate）
                         classes = IrGenFacts._pushClass(classes, cc, cdesc); cc = cc + 1;
                     }
                     int j = 0;

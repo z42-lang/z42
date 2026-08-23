@@ -549,8 +549,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
             let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
-            let (deprecated, deprecation_msg) = read_field_flags(&mut c, pool)?;  // 1.37 add-deprecated-directive
-            fields.push(FieldDesc { name, type_tag, attributes, visibility, deprecated, deprecation_msg });
+            fields.push(FieldDesc { name, type_tag, attributes, visibility });
         }
         // Generic type parameters + per-tp constraints (L3-G3a)
         let tp_count = c.read_u8()? as usize;
@@ -580,13 +579,6 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // reference enforcement; complete-class-access-control surfaces it as
         // `Type.IsPublic` etc. reflection (stored into ClassDesc.visibility below).
         let class_visibility = c.read_u8()?;
-        // add-deprecated-directive (zbc 1.37): class-level deprecation message,
-        // gated on class_flags bit6 (0x40), immediately following the visibility
-        // byte. VM does not enforce deprecation (compile-time warning) → read and
-        // discard to keep the cursor aligned.
-        if class_flags & 0x40 != 0 {
-            let _msg_idx = c.read_u32()?;
-        }
         // add-reflection-static-fields (zbc 1.13): static fields block (same
         // shape as the instance fields block above).
         let static_count = c.read_u16()? as usize;
@@ -599,8 +591,7 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
             let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
-            let (deprecated, deprecation_msg) = read_field_flags(&mut c, pool)?;  // 1.37 add-deprecated-directive
-            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility, deprecated, deprecation_msg });
+            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility });
         }
         // add-reflection-get-interfaces (zbc 1.17): per-class interface block —
         // u16 count + interface_name_idx[] u32. Surfaced by Type.GetInterfaces().
@@ -763,6 +754,24 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             object_layout: object_layout_desc,
         });
     }
+    // add-deprecated-directive (zbc 1.37): size-gated deprecation tail at the end of the
+    // TYPE section body (class + field deprecation). Two-gen-safe: gen0's TYPE body ends
+    // at the classes (no tail) → cursor at section end → skipped. The VM does not enforce
+    // deprecation (compile-time warning only) → read and discard for cursor alignment.
+    if c.remaining() > 0 {
+        let class_dep_count = c.read_u16()? as usize;
+        for _ in 0..class_dep_count {
+            let _class_idx = c.read_u16()?;
+            let _msg_idx = c.read_u32()?;
+        }
+        let field_dep_count = c.read_u16()? as usize;
+        for _ in 0..field_dep_count {
+            let _class_idx = c.read_u16()?;
+            let _is_static = c.read_u8()?;
+            let _field_idx = c.read_u16()?;
+            let _msg_idx = c.read_u32()?;
+        }
+    }
     Ok(classes)
 }
 
@@ -786,19 +795,6 @@ fn read_attr_refs(
         });
     }
     Ok(refs.into_boxed_slice())
-}
-
-/// add-deprecated-directive (zbc 1.37): per-field flags byte (bit0=deprecated) +
-/// gated message index. Mirrors the writer's `_writeFieldFlags`. Every field record
-/// now carries at least the flags byte; the message index follows only when bit0 set.
-fn read_field_flags(c: &mut Cursor, pool: &[String]) -> Result<(bool, String)> {
-    let ff = c.read_u8()?;
-    if ff & 1 != 0 {
-        let idx = c.read_u32()?;
-        Ok((true, c.pool_str(pool, idx)?.to_owned()))
-    } else {
-        Ok((false, String::new()))
-    }
 }
 
 fn read_constraint_bundle(c: &mut Cursor, pool: &[String]) -> Result<ConstraintBundle> {

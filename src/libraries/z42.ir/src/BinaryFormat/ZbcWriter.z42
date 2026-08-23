@@ -166,6 +166,18 @@ public static class ZbcWriter {
             while (lv < fdef.LocalVarCount) { pool.Intern(fdef.LocalVars[lv].Name); lv = lv + 1; }
             fi = fi + 1;
         }
+        // add-deprecated-directive（zbc 1.37）：TYPE 尾部弃用表的 msg 串入池。**仅弃用符号入池** → 未弃用
+        // 模块（含全 stdlib）不新增池串、STRS 段与旧格式逐字节一致（两代自举安全）。顺序：类 msg 再字段 msg。
+        int dc = 0;
+        while (dc < irm.ClassCount) {
+            IrClassDesc cd = irm.Classes[dc];
+            if (cd.Deprecated) { pool.Intern(cd.DeprecationMsg); }
+            int df = 0;
+            while (df < cd.FieldCount) { if (cd.Fields[df].Deprecated) { pool.Intern(cd.Fields[df].DeprecationMsg); } df = df + 1; }
+            int ds = 0;
+            while (ds < cd.StaticFieldCount) { if (cd.StaticFields[ds].Deprecated) { pool.Intern(cd.StaticFields[ds].DeprecationMsg); } ds = ds + 1; }
+            dc = dc + 1;
+        }
     }
 
     // ── NSPC ────────────────────────────────────────────────────────────────────
@@ -251,13 +263,59 @@ public static class ZbcWriter {
         }
     }
 
-    // add-deprecated-directive（zbc 1.37）：字段 descriptor 首个 flags 字节（此前字段仅有 visibility、无 flags）。
-    // bit0=deprecated；置位时紧随 u32 消息串 idx（gated，未弃用字段仅多 1 字节 flags=0）。实例/静态字段循环共用。
-    private static void _writeFieldFlags(ByteWriter w, IrFieldDesc fd, ZbcStringPool pool) {
-        int ff = 0;
-        if (fd.Deprecated) { ff = ff | 1; }
-        w.WriteU8(ff);
-        if ((ff & 1) != 0) { w.WriteU32(pool.Idx(fd.DeprecationMsg)); }
+    // add-deprecated-directive（zbc 1.37）：`[Deprecated]` 类/字段弃用元数据 = **TYPE 段体尾部的 size-gated 表**
+    // （method 级走 SIGS method_flags bit3；class_flags 已满 bit6=delegate 不可用、per-field 非-gated 字节破两代
+    // 自举，故 class/field 用此尾表）。**两代自举安全**：未弃用的模块（含全 stdlib）无任何弃用 → 不写尾表 →
+    // TYPE 段体到 classes 末尾即止、与旧格式逐字节一致；reader 靠「cursor < 段末」判尾表是否存在（gen1 读 gen0
+    // 无尾表→cursor==段末→不读→无脱同步）。表布局（仅在有弃用时写）：
+    //   classDepCount:u16 + (classIdx:u16, msgIdx:u32)×
+    //   fieldDepCount:u16 + (classIdx:u16, isStatic:u8, fieldIdx:u16, msgIdx:u32)×
+    // 预扫 _anyDeprecation 决定是否写；msg 串已在 InternPoolStrings 入池。
+    public static bool _anyDeprecation(IrClassDesc[] classes, int classCount) {
+        int c = 0;
+        while (c < classCount) {
+            IrClassDesc cd = classes[c];
+            if (cd.Deprecated) { return true; }
+            int f = 0; while (f < cd.FieldCount) { if (cd.Fields[f].Deprecated) { return true; } f = f + 1; }
+            int s = 0; while (s < cd.StaticFieldCount) { if (cd.StaticFields[s].Deprecated) { return true; } s = s + 1; }
+            c = c + 1;
+        }
+        return false;
+    }
+    private static void _writeDepTail(ByteWriter w, IrClassDesc[] classes, int classCount, ZbcStringPool pool) {
+        // 类级
+        int cn = 0; int c = 0;
+        while (c < classCount) { if (classes[c].Deprecated) { cn = cn + 1; } c = c + 1; }
+        w.WriteU16(cn);
+        c = 0;
+        while (c < classCount) {
+            if (classes[c].Deprecated) { w.WriteU16(c); w.WriteU32(pool.Idx(classes[c].DeprecationMsg)); }
+            c = c + 1;
+        }
+        // 字段级（实例 isStatic=0 / 静态 isStatic=1）
+        int fn = 0; c = 0;
+        while (c < classCount) {
+            IrClassDesc cd = classes[c];
+            int f = 0; while (f < cd.FieldCount) { if (cd.Fields[f].Deprecated) { fn = fn + 1; } f = f + 1; }
+            int s = 0; while (s < cd.StaticFieldCount) { if (cd.StaticFields[s].Deprecated) { fn = fn + 1; } s = s + 1; }
+            c = c + 1;
+        }
+        w.WriteU16(fn);
+        c = 0;
+        while (c < classCount) {
+            IrClassDesc cd = classes[c];
+            int f = 0;
+            while (f < cd.FieldCount) {
+                if (cd.Fields[f].Deprecated) { w.WriteU16(c); w.WriteU8(0); w.WriteU16(f); w.WriteU32(pool.Idx(cd.Fields[f].DeprecationMsg)); }
+                f = f + 1;
+            }
+            int s = 0;
+            while (s < cd.StaticFieldCount) {
+                if (cd.StaticFields[s].Deprecated) { w.WriteU16(c); w.WriteU8(1); w.WriteU16(s); w.WriteU32(pool.Idx(cd.StaticFields[s].DeprecationMsg)); }
+                s = s + 1;
+            }
+            c = c + 1;
+        }
     }
 
     // ── TYPE：count + 每类描述（ZW-1A trivial 无类 → count 0）─────────────────────────
@@ -277,7 +335,6 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.Fields[f].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.Fields[f], pool);   // per-field attrCount + refs（zbc 1.14）
                 w.WriteU8(cd.Fields[f].Visibility);   // add-member-visibility（zbc 1.23）：0/1/2
-                ZbcWriter._writeFieldFlags(w, cd.Fields[f], pool);   // add-deprecated-directive（zbc 1.37）：field-flags u8 + gated msg
                 f = f + 1;
             }
             // TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）
@@ -314,9 +371,8 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.Attrs[cai].FactoryFunc));
                 cai = cai + 1;
             }
-            w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record/…/bit6 deprecated
+            w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record/…/bit6 有弃用元数据
             w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
-            if ((cd.Flags & 64) != 0) { w.WriteU32(pool.Idx(cd.DeprecationMsg)); }   // add-deprecated-directive（zbc 1.37）：类级 bit6 gated 消息串（紧随 Visibility）
             w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
             int sf = 0;
             while (sf < cd.StaticFieldCount) {
@@ -325,7 +381,6 @@ public static class ZbcWriter {
                 w.WriteU32(pool.Idx(cd.StaticFields[sf].Type));
                 ZbcWriter._writeFieldAttrs(w, cd.StaticFields[sf], pool);   // per-field attrCount + refs（zbc 1.14）
                 w.WriteU8(cd.StaticFields[sf].Visibility);   // add-member-visibility（zbc 1.23）
-                ZbcWriter._writeFieldFlags(w, cd.StaticFields[sf], pool);   // add-deprecated-directive（zbc 1.37）：field-flags u8 + gated msg
                 sf = sf + 1;
             }
             w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
@@ -413,6 +468,9 @@ public static class ZbcWriter {
             }
             c = c + 1;
         }
+        // add-deprecated-directive（zbc 1.37）：TYPE 段体尾部 size-gated 弃用表（class/field）。仅在有弃用时写
+        // → 未弃用模块（含全 stdlib）TYPE 段体到此为止、与旧格式逐字节一致（两代自举安全）。
+        if (ZbcWriter._anyDeprecation(classes, classCount)) { ZbcWriter._writeDepTail(w, classes, classCount, pool); }
         return w;
     }
 

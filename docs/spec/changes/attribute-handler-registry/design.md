@@ -364,18 +364,23 @@ built-in directive 家族第一个**持久化**成员（`[Suppress]` 是编译�
 无 backing 类、`KindOf=Directive`）→ `AttributeSynth` 不合成反射工厂、`StubEmitter` 不烘 Native。**但持久**
 （异于 `[Suppress]`）：IrGen 从 AST attr 读位 + 消息串，烘进 descriptor。
 
-**② 持久化（格式 bump zbc 1.36→1.37 / zpkg 0.41→0.42）**——「一个 flag 位 + 一个池化消息串索引」：
+**② 持久化（格式 bump zbc 1.36→1.37 / zpkg 0.41→0.42）**：
 
-| 载体 | flag | 消息 | 序列化点 |
-|------|------|------|----------|
-| method | `method_flags` u8 新 bit3（bit2=sealed 先例）| msg 池 idx `u32`（空=哨兵）| SIGS 记录 |
-| class | class `flags` u8 新 bit | msg 池 idx | TYPE 记录 |
-| field | **新增 field-flags u8**（bit0=deprecated）| msg 池 idx | TYPE 实例+静态字段循环**各**加 |
+- **方法级**：`SIGS method_flags` u8 bit3（bit2=sealed 先例；method_flags 既有字节、bit3 空闲）+ 置位时 SIGS
+  条目尾部 gated `msg 池 idx u32`。
+- **类/字段级**：**TYPE 段体尾部 size-gated 弃用表**。⚠️ **不能用 class_flags 位**（已满、bit6=delegate）；
+  ⚠️ **不能用 per-field 非-gated 字节**（每字段 +1 字节 → 破格式-bump 两代自举：gen1 的 0.42 reader 读 gen0
+  的 0.41 stdlib 无该字节 → cursor 脱同步 → `undefined String`，CI 首轮实证）。故用**尾表**：所有 class 记录后，
+  若本模块有任何类/字段弃用则追加 `classDepCount:u16 + (classIdx:u16, msgIdx:u32)× + fieldDepCount:u16
+  + (classIdx:u16, isStatic:u8, fieldIdx:u16, msgIdx:u32)×`。**两代自举安全**：未弃用模块（含全 stdlib）无尾表
+  → TYPE 段体到 classes 末即止、与旧格式逐字节一致；reader 靠「cursor < TYPE 段末」判尾表在否（gen1 读 gen0
+  无尾表→cursor==段末→不读→无脱同步）。**zpkg MODS 段面不变**（尾表在 TYPE 段体内，非新 zbc 段/非 MODS 5→6）。
 
-写在 `ZbcWriter`（SIGS + TYPE），**3 个读端 lockstep**（strict-pin 漏一即 CI 崩，[[add-reflective-invoke-program]]
-教训）：① Rust `zbc_reader.rs`（read_type 实例/静态字段 + SIGS）+ `bytecode.rs`（`FieldDesc` 加成员）
-② z42c `ZbcReader.ReadTypeAt` + SIGS ③ `ZpkgReader` SIGS。消息串复用既有 attr-ref 的字符串池
-（`pool.Idx(...)`）。
+写在 `ZbcWriter.BuildType`（`_writeDepTail`/`_anyDeprecation`）+ SIGS，**3 个读端 lockstep**（strict-pin 漏一即
+CI 崩，[[add-reflective-invoke-program]] 教训）：① Rust `zbc_reader.rs`（read_type 尾表 read-and-discard + SIGS
+bit3）② z42c `ZbcReader.ReadTypeAt`（+`end` 参 + `_readDepTail` 回填 IrClassDesc/IrFieldDesc.Deprecated）+ SIGS
+③ `ZpkgReader`（TYPE 走 ReadTypeAt 传 `end`；SIGS bit3）。msg 串复用既有 STRS 串池（`pool.Idx`；未弃用零新池
+串 → STRS 逐字节一致）。
 
 **③ 跨包（仿 sealed 全链）**：`TsigReconcile`（从 flag+msg 池设）→ `Exported{Method,Class,Field}Z`
 （+`IsDeprecated`/`DeprecationMsg`）→ `ImportedSymbolLoader`（仿 `IsSealed` 传播）→ `MethodSymbol`/

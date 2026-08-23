@@ -57,10 +57,11 @@
 - **注**：`[Suppress("deprecated")]` 声明子树抑制**本 PR 不覆盖**——它靠 walk 期活跃栈（decl.Span start-only），而 deprecation 检测在 typecheck 相位、治理在其后（相位错配）；留 Deferred（见文末）
 
 ## IR Mapping
-- method: SIGS `method_flags` u8 新增 bit3=deprecated（bit2=sealed 先例）+ 追加 msg 池索引 `u32`（空=哨兵）
-- class: TYPE class `flags` u8 新增 deprecated bit + msg 池索引
-- field: TYPE 实例/静态字段记录各新增 field-flags `u8`（bit0=deprecated）+ msg 池索引
-- 格式：zbc `ZbcVersion.Minor` 36→37；zpkg `ZpkgWriterZ.Minor` 41→42（联动）
+- method: SIGS `method_flags` u8 新增 bit3=deprecated（bit2=sealed 先例）+ 置位时 SIGS 条目尾部追加 msg 池索引 `u32`（gated）
+- class/field: **TYPE 段体尾部 size-gated 弃用表**（class_flags 已满、bit6=delegate；per-field 非-gated 字节破两代自举）——
+  `classDepCount:u16 + (classIdx:u16, msgIdx:u32)× + fieldDepCount:u16 + (classIdx:u16, isStatic:u8, fieldIdx:u16, msgIdx:u32)×`，
+  仅在本模块有弃用时写（未弃用零字节、与旧格式一致 → 两代自举安全；reader 靠 cursor<TYPE 段末 判存在）
+- 格式：zbc `ZbcVersion.Minor` 36→37；zpkg `ZpkgWriterZ.Minor` 41→42（联动，MODS 段面不变）
 
 ## Pipeline Steps
 - [x] Lexer — 无（`[X]` 已有词法）

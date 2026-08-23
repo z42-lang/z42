@@ -272,12 +272,12 @@ public static class ZbcReader {
     private static IrClassDesc[] _readType(byte[] data, ZbcSectionZ[] dir, string[] pool) {
         ZbcSectionZ s = ZbcReader._sec(dir, "TYPE");
         if (s == null || s.Size < 4) { ZbcReader._lastN = 0; return new IrClassDesc[0]; }
-        return ZbcReader.ReadTypeAt(data, s.Offset, pool);
+        return ZbcReader.ReadTypeAt(data, s.Offset, s.Offset + s.Size, pool);
     }
 
     // TYPE 段体解析（给定偏移；reconcile-tsig-from-runtime-sections 公开——zpkg MODS 每模块
     // 记录内嵌的 TYPE 字节与 zbc TYPE 段同构，ZpkgReader.ReadModuleTypes 复用本入口）。
-    public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, string[] pool) {
+    public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, int end, string[] pool) {
         ZbcCursor c = new ZbcCursor(data, offset);
         int n = c.U32();
         IrClassDesc[] classes = new IrClassDesc[n];
@@ -297,7 +297,6 @@ public static class ZbcReader {
                 IrFieldDesc fd = new IrFieldDesc(fname, ft);
                 ZbcReader._readFieldAttrs(c, pool, fd);
                 fd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
-                ZbcReader._readFieldFlags(c, pool, fd);   // add-deprecated-directive（zbc 1.37）
                 fields[f] = fd;
                 f = f + 1;
             }
@@ -329,7 +328,6 @@ public static class ZbcReader {
             }
             cd.Flags = c.U8();
             cd.Visibility = c.U8();   // enforce-class-access（zbc 1.33）：类声明可见性字节（紧随 Flags）
-            if ((cd.Flags & 64) != 0) { cd.DeprecationMsg = ZbcReader._p(pool, c.U32()); }   // add-deprecated-directive（zbc 1.37）：类级 bit6 gated 消息串
             int sfc = c.U16();
             cd.StaticFields = new IrFieldDesc[sfc]; cd.StaticFieldCount = sfc;
             int sf = 0;
@@ -340,7 +338,6 @@ public static class ZbcReader {
                 IrFieldDesc sd = new IrFieldDesc(sn, st);
                 ZbcReader._readFieldAttrs(c, pool, sd);
                 sd.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：attrs 后
-                ZbcReader._readFieldFlags(c, pool, sd);   // add-deprecated-directive（zbc 1.37）
                 cd.StaticFields[sf] = sd;
                 sf = sf + 1;
             }
@@ -443,8 +440,33 @@ public static class ZbcReader {
             classes[ci] = cd;
             ci = ci + 1;
         }
+        // add-deprecated-directive（zbc 1.37）：TYPE 段体尾部 size-gated 弃用表。cursor 未达段末 → 尾表存在
+        // （两代自举：gen1 读 gen0 无尾表 → cursor==段末 → 不读 → 无脱同步）。
+        if (c.Pos < end) { ZbcReader._readDepTail(c, pool, classes, n); }
         ZbcReader._lastN = n;
         return classes;
+    }
+
+    // add-deprecated-directive（zbc 1.37）：读 TYPE 尾部弃用表 → 回填 classes[idx].Deprecated/字段 .Deprecated。
+    private static void _readDepTail(ZbcCursor c, string[] pool, IrClassDesc[] classes, int n) {
+        int cn = c.U16();
+        int i = 0;
+        while (i < cn) {
+            int cidx = c.U16(); string msg = ZbcReader._p(pool, c.U32());
+            if (cidx < n) { classes[cidx].Deprecated = true; classes[cidx].DeprecationMsg = msg; }
+            i = i + 1;
+        }
+        int fn = c.U16();
+        i = 0;
+        while (i < fn) {
+            int cidx = c.U16(); int isStatic = c.U8(); int fidx = c.U16(); string msg = ZbcReader._p(pool, c.U32());
+            if (cidx < n) {
+                IrClassDesc cd = classes[cidx];
+                if (isStatic == 1) { if (fidx < cd.StaticFieldCount) { cd.StaticFields[fidx].Deprecated = true; cd.StaticFields[fidx].DeprecationMsg = msg; } }
+                else { if (fidx < cd.FieldCount) { cd.Fields[fidx].Deprecated = true; cd.Fields[fidx].DeprecationMsg = msg; } }
+            }
+            i = i + 1;
+        }
     }
 
     private static void _readFieldAttrs(ZbcCursor c, string[] pool, IrFieldDesc fd) {
@@ -456,12 +478,6 @@ public static class ZbcReader {
             fd.Attrs[i] = new IrAttrRef(tn, ZbcReader._p(pool, c.U32()));
             i = i + 1;
         }
-    }
-
-    // add-deprecated-directive（zbc 1.37）：字段 flags 字节（bit0=deprecated）+ gated 消息串。镜像 _writeFieldFlags。
-    private static void _readFieldFlags(ZbcCursor c, string[] pool, IrFieldDesc fd) {
-        int ff = c.U8();
-        if ((ff & 1) != 0) { fd.Deprecated = true; fd.DeprecationMsg = ZbcReader._p(pool, c.U32()); }
     }
 
     // ── SIGS ────────────────────────────────────────────────────────────────────

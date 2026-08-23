@@ -303,7 +303,7 @@ public static class ZpkgReader {
             int typeLen = m.U32();              // ② TYPE 体
             IrClassDesc[] classes = new IrClassDesc[0];
             if (typeLen > 0) {
-                classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, z.Pool);
+                classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, m.Pos + typeLen, z.Pool);
                 m.Pos = m.Pos + typeLen;
             }
             int k = 0;
@@ -351,7 +351,7 @@ public static class ZpkgReader {
             m.Pos = m.Pos + funcLen;
             int typeLen = m.U32();                 // ② TYPE 体
             if (ns == targetNs && typeLen > 0) {
-                IrClassDesc[] classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, z.Pool);
+                IrClassDesc[] classes = ZbcReader.ReadTypeAt(z.Data, m.Pos, m.Pos + typeLen, z.Pool);
                 int c = 0;
                 while (c < classes.Length) {
                     if (accn == acc.Length) { IrClassDesc[] b = new IrClassDesc[acc.Length * 2]; int k = 0; while (k < accn) { b[k] = acc[k]; k = k + 1; } acc = b; }

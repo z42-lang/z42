@@ -488,7 +488,7 @@ public static class TsigReconcile {
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
-        ecz.IsDeprecated = (cd.Flags & 64) != 0; ecz.DeprecationMsg = cd.DeprecationMsg;   // add-deprecated-directive：CLASS_FLAG_DEPRECATED（bit6）
+        ecz.IsDeprecated = cd.Deprecated; ecz.DeprecationMsg = cd.DeprecationMsg;   // add-deprecated-directive：类级（TYPE 尾表，非 bit6=delegate）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
         return ecz;
     }
