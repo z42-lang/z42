@@ -1,23 +1,30 @@
-// 每函数 Bound → IR lowering：函数入口 + 语句 + 控制流（port-z42c-codegen）。
-// 表达式 lowering 在 ExprEmitter，共享状态在 EmitContext（z42 无 partial class，故抽两类拆文件）。
-// 集中 if-is 语句调度（D1，同 TypeChecker._bindStmt）。
+// 每函数 Bound → IR lowering 的**函数级 hub**：函数入口（EmitFunction/静态 init/lambda lift/合成 equals）
+// + 签名装配 + 局部函数 lift + 共享状态（EmitContext/ExprEmitter/finally 栈）。
+// **语句 & 控制流**（_emitStmt 调度 + if/for/while/switch/foreach + try/finally）已分出到 StmtEmitter，
+// 经 _stmt 委派、经共享 internal 状态回流（同 ExprEmitter/ExprTyper 分解模型：hub 持状态、簇单向委回）。
+// 表达式 lowering 在 ExprEmitter，共享状态在 EmitContext（z42 无 partial class，故抽多类拆文件）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
 
 public sealed class FunctionEmitter {
-    private SymbolTable _symbols;
-    private IrGen       _gen;
-    private EmitContext _ctx;
-    private ExprEmitter _expr;
-    private StrMap      _seedLocalFns;   // impl-local-fn-l2：lifted 体继承父函数的 local-fn→lifted 名映射（兄弟/递归调用解析）
+    private SymbolTable  _symbols;
+    internal IrGen       _gen;      // internal：StmtEmitter 经 _fe._gen 访问（AddLifted/Layouts）
+    internal EmitContext _ctx;      // internal：StmtEmitter 经 _fe._ctx 发射（每入口重建）
+    internal ExprEmitter _expr;     // internal：StmtEmitter 经 _fe._expr 发射表达式
+    private StrMap       _seedLocalFns;   // impl-local-fn-l2：lifted 体继承父函数的 local-fn→lifted 名映射（兄弟/递归调用解析）
+    private StmtEmitter  _stmt;     // 语句 & 控制流簇（本 hub 唯一 spoke）
     // 活跃 finally 栈（fix-finally-nonlocal-exit）：词法上包裹当前发射点的 try-with-finally 体，
     // 内层在 _finDepth-1。return/break/continue 离开这些 try 前，须内→外内联跑对应 finally。
-    private BoundStmt[] _finBodies;
-    private int         _finDepth;
+    // internal：finally 栈的推/弹/内联在 StmtEmitter（_emitTry/_emitPendingFinallys），入口处重置在本 hub。
+    internal BoundStmt[] _finBodies;
+    internal int         _finDepth;
 
-    public FunctionEmitter(SymbolTable symbols, IrGen gen) { this._symbols = symbols; this._gen = gen; this._seedLocalFns = null; }
+    public FunctionEmitter(SymbolTable symbols, IrGen gen) {
+        this._symbols = symbols; this._gen = gen; this._seedLocalFns = null;
+        this._stmt = new StmtEmitter(this);
+    }
 
     // lifted 局部函数体 emit 前注入兄弟 local-fn 映射（递归/前向引用解析为 Call <lifted>）。
     public void SeedLocalFns(StrMap m) { this._seedLocalFns = m; }
@@ -114,9 +121,9 @@ public sealed class FunctionEmitter {
             BoundBlock bb = body as BoundBlock;
             this._registerLocalFns(bb.Stmts, bb.Count);   // impl-local-fn-l2：先注册 lifted 名（兄弟/递归解析）
             int bi = 0;
-            while (bi < bb.Count) { this._emitStmt(bb.Stmts[bi]); bi = bi + 1; }
+            while (bi < bb.Count) { this._stmt._emitStmt(bb.Stmts[bi]); bi = bi + 1; }
         } else {
-            this._emitStmt(body);
+            this._stmt._emitStmt(body);
         }
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }   // 隐式 ret
         string retName = "void";   // G11：ctor 返回 void（RetType 占位空名）
@@ -298,7 +305,7 @@ public sealed class FunctionEmitter {
         this._ctx.CaptureNames = capNames; this._ctx.CaptureNameCount = lam.CaptureCount;
         this._ctx.StartBlock("entry");
         if (lam.HasBlock) {
-            this._emitBlockChildren(lam.BlockBody);
+            this._stmt._emitBlockChildren(lam.BlockBody);
             if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
         } else {
             this._ctx.TrackLine(lam.ExprBody.Span);          // 表达式体记 1 条行（DBUG 字节实证：体表达式位置）
@@ -334,124 +341,6 @@ public sealed class FunctionEmitter {
         return lifted;
     }
 
-    // 块体直循环（镜像 C# EmitBoundBlock：子语句逐条 EmitBoundStmt，块自身不 TrackLine）。
-    private void _emitBlockChildren(BoundStmt body) {
-        if (body is BoundBlock) {
-            BoundBlock bb = body as BoundBlock;
-            int i = 0;
-            while (i < bb.Count) {
-                if (this._ctx.Ended) { return; }
-                this._emitStmt(bb.Stmts[i]);
-                i = i + 1;
-            }
-        } else {
-            this._emitStmt(body);
-        }
-    }
-
-    // ── finally 栈（非局部退出经 finally；fix-finally-nonlocal-exit）──────────────
-    private void _pushFinally(BoundStmt fin) {
-        if (this._finBodies == null) { this._finBodies = new BoundStmt[4]; }
-        if (this._finDepth == this._finBodies.Length) {
-            BoundStmt[] g = new BoundStmt[this._finBodies.Length * 2];
-            int i = 0; while (i < this._finDepth) { g[i] = this._finBodies[i]; i = i + 1; }
-            this._finBodies = g;
-        }
-        this._finBodies[this._finDepth] = fin;
-        this._finDepth = this._finDepth + 1;
-    }
-    private void _popFinally() { this._finDepth = this._finDepth - 1; }
-
-    // 在一个非局部退出（return/break/continue）离开若干 try-with-finally 前，把它们的 finally 体
-    // 内→外内联发射到当前块。floor = 停在哪层（return→0 跑全部；break/continue→本循环 FinFloor）。
-    // 发射 finally[i] 时把活跃栈临时截断到 i（只余 [0..i-1]），故 finally 内的 return 只跑更外层、
-    // 绝不自我重入。任一 finally 自身做了非局部退出（块已 Ended）即停止后续。
-    private void _emitPendingFinallys(int floor) {
-        int saved = this._finDepth;
-        int i = saved - 1;
-        while (i >= floor) {
-            if (this._ctx.Ended) { break; }
-            this._finDepth = i;
-            this._emitBlockChildren(this._finBodies[i]);
-            i = i - 1;
-        }
-        this._finDepth = saved;
-    }
-
-    // try/catch/finally lowering（port-z42c-try；1:1 镜像 C# EmitBoundTryCatch）。
-    private void _emitTry(BoundTry t) {
-        string tryStartL = this._ctx.Fresh("try_start");
-        string tryEndL = this._ctx.Fresh("try_end");
-        string afterL = this._ctx.Fresh("after_try");
-        string finallyL = afterL;
-        if (t.HasFinally) { finallyL = this._ctx.Fresh("finally"); }
-        // finally 活跃于 try 体 + 各 catch 体内：其内的 return/break/continue 退出前经此 finally。
-        // 发射 finally 体的三处副本（内联退出 / 合成 catch-all / fall-through）本身不含自己，故在
-        // catch 循环后、发射 finally 副本前弹出。
-        if (t.HasFinally) { this._pushFinally(t.Finally); }
-
-        this._ctx.EndBlock(new BrTerm(tryStartL));
-        this._ctx.StartBlock(tryStartL);
-        this._emitBlockChildren(t.TryBody);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(tryEndL)); }
-        this._ctx.StartBlock(tryEndL);
-        this._ctx.EndBlock(new BrTerm(finallyL));
-
-        // catch 子句（每子句：表条目 + catch_start 块；变量 = catchReg 寄存器别名）
-        int ci = 0;
-        while (ci < t.CatchCount) {
-            BoundCatchClause cc = t.Catches[ci];
-            TypedReg catchReg = this._ctx.Alloc(IrType.Ref);
-            string catchL = this._ctx.Fresh("catch_start");
-            bool hasType = cc.HasType;
-            string typeName = "";
-            if (hasType) {
-                typeName = this._ctx.QualifyClass(cc.ExTypeName);
-                // imported 泛型异常 → arity-mangled（Std.MulticastException$1）；local 泛型不加后缀。
-                if (cc.ExArity > 0
-                    && (this._ctx.LocalClasses == null || !this._ctx.LocalClasses.ContainsKey(cc.ExTypeName))) {
-                    typeName = typeName + "$" + cc.ExArity.ToString();
-                }
-            }
-            this._ctx.AddExc(new IrExcEntry(tryStartL, tryEndL, catchL, hasType, typeName, catchReg));
-            this._ctx.StartBlock(catchL);
-            if (cc.HasVar) {
-                // 镜像 C# WriteBackName：同名 catch 变量（多 catch 块共用 `e`）复用首次分配寄存器，
-                // 不重新分配——否则第二 catch 的 e 会推高后续寄存器号（寄存器漂移，REGT/FUNC byte-diff）。
-                TypedReg vreg;
-                if (this._ctx.Locals.ContainsKey(cc.VarName)) {
-                    vreg = this._ctx.Locals.Get(cc.VarName) as TypedReg;
-                } else {
-                    vreg = this._ctx.Alloc(IrType.Ref);
-                    this._ctx.Locals.Put(cc.VarName, vreg);
-                }
-                this._ctx.Emit(new CopyInstr(vreg, catchReg));
-            }
-            this._emitBlockChildren(cc.Body);
-            if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(finallyL)); }
-            ci = ci + 1;
-        }
-        if (t.HasFinally) { this._popFinally(); }   // finally 体副本发射前弹出（副本不含自身）
-        // 无 catch 有 finally → 合成 catch-all "*" + rethrow（镜像 C#）
-        if (t.CatchCount == 0 && t.HasFinally) {
-            TypedReg allReg = this._ctx.Alloc(IrType.Ref);
-            string catchAllL = this._ctx.Fresh("catch_finally");
-            string rethrowL = this._ctx.Fresh("rethrow");
-            this._ctx.AddExc(new IrExcEntry(tryStartL, tryEndL, catchAllL, true, "*", allReg));
-            this._ctx.StartBlock(catchAllL);
-            this._emitBlockChildren(t.Finally);
-            if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(rethrowL)); }
-            this._ctx.StartBlock(rethrowL);
-            this._ctx.EndBlock(new ThrowTerm(allReg));
-        }
-        if (t.HasFinally) {
-            this._ctx.StartBlock(finallyL);
-            this._emitBlockChildren(t.Finally);
-            if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(afterL)); }
-        }
-        this._ctx.StartBlock(afterL);
-    }
-
     private string[] _mergeTp(string[] a, int ac, string[] b, int bc) {
         string[] r = new string[ac + bc];
         int i = 0;
@@ -464,7 +353,7 @@ public sealed class FunctionEmitter {
     // ════ 语句（集中 if-is）═══════════════════════════════════════════════════════
     // impl-local-fn-l2：块内 BoundLocalFunction 预注册 lifted 名（CurFnName__localName）→ 兄弟/递归
     // 调用先于体 emit 解析为 Call <lifted>。镜像 C# EmitBoundBlock sibling pre-pass。
-    private void _registerLocalFns(BoundStmt[] stmts, int count) {
+    internal void _registerLocalFns(BoundStmt[] stmts, int count) {
         int i = 0;
         while (i < count) {
             if (stmts[i] is BoundLocalFunction) {
@@ -479,7 +368,7 @@ public sealed class FunctionEmitter {
 
     // 局部函数 lift。无捕获（L2）→ 自由函数（支持递归；call → Call <lifted>）；有捕获（L3）→
     // 合成 BoundLambda 复用 EmitLambdaLifted（env 版）+ MkClos + Locals 存闭包（call → CallIndirect）。
-    private void _emitLocalFn(BoundLocalFunction lfn) {
+    internal void _emitLocalFn(BoundLocalFunction lfn) {
         string lifted = (this._ctx.LocalFnNames.Get(lfn.Name) as StrBox).Value;
         if (lfn.CaptureCount == 0) {
             var fe = new FunctionEmitter(this._symbols, this._gen);
@@ -514,7 +403,7 @@ public sealed class FunctionEmitter {
     }
 
     // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其短名（供值语义翻转），否则 ""。
-    private string _blobStructNameT(Z42Type t) {
+    internal string _blobStructNameT(Z42Type t) {
         Z42ClassType ct = null;
         if (t is Z42ClassType) { ct = t as Z42ClassType; }
         else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }
@@ -523,319 +412,7 @@ public sealed class FunctionEmitter {
         return "";
     }
 
-    // BoundSeqExpr（集合字面量脱糖）的 prelude 语句发射入口——由 ExprEmitter 反向调用。
-    public void EmitStmt(BoundStmt s) { this._emitStmt(s); }
+    // BoundSeqExpr（集合字面量脱糖）的 prelude 语句发射入口——由 ExprEmitter 反向调用；委派语句簇。
+    public void EmitStmt(BoundStmt s) { this._stmt._emitStmt(s); }
 
-    private void _emitStmt(BoundStmt s) {
-        this._ctx.TrackLine(s.Span);   // 每语句记源码行（镜像 C# EmitBoundStmt 入口；同行去重在 ctx）
-        if (s is BoundLocalFunction) {
-            this._emitLocalFn(s as BoundLocalFunction);
-        } else if (s is BoundBlock) {
-            BoundBlock b = s as BoundBlock;
-            this._registerLocalFns(b.Stmts, b.Count);   // impl-local-fn-l2：嵌套块同样先注册
-            int i = 0;
-            while (i < b.Count) { this._emitStmt(b.Stmts[i]); i = i + 1; }
-        } else if (s is BoundVarDeclStmt) {
-            BoundVarDeclStmt v = s as BoundVarDeclStmt;
-            // add-const-keyword：登记局部 const 替换表（存储仍正常发射→引用全替换后 dead store 由 DCE 清；
-            // 保留存储让被 lambda 捕获的 const 局部仍可 lift）。
-            if (v.IsConst && v.ConstVal != null) { this._ctx.ConstLocals.Put(v.Name, v.ConstVal); }
-            // 有 init：专用寄存器 + copy（byte-identical：FUNC 指令流/REGT/DBUG instrIdx）。
-            // 无 init（G8）：不发 IR——变量首次赋值时 _emitAssign 绑定寄存器（镜像 C# VisitVarDecl）。
-            if (v.Init != null) {
-                TypedReg r = this._expr.Emit(v.Init);
-                // add-struct-value-semantics A-use：blob 值 struct 局部。new-rvalue（fresh 句柄）直接别名；
-                // 否则（`P b = a`）新分配 blob + StructCopy（值语义，b 独立于 a）。重声明同名 → StructCopy
-                // 进已有 blob。
-                string bsn = this._blobStructNameT(v.Init.Type());
-                if (bsn != "") {
-                    if (this._ctx.Locals.ContainsKey(v.Name)) {
-                        TypedReg bdst = this._ctx.Locals.Get(v.Name) as TypedReg;
-                        if (bdst.Id != r.Id) { this._ctx.Emit(new StructCopyInstr(bdst, r, this._gen.Layouts.StructSize(bsn))); }
-                    } else if (v.Init is BoundNew) {
-                        this._ctx.Locals.Put(v.Name, r);
-                    } else {
-                        int sz = this._gen.Layouts.StructSize(bsn);
-                        TypedReg bdst = this._ctx.Alloc(IrType.Ref);
-                        this._ctx.Emit(new StructAllocInstr(bdst, this._ctx.QualifyClass(bsn), sz));
-                        this._ctx.Emit(new StructCopyInstr(bdst, r, sz));
-                        this._ctx.Locals.Put(v.Name, bdst);
-                    }
-                    return;
-                }
-                // 镜像 C# WriteBackName：locals 是函数级平表，同名变量（兄弟作用域重声明，
-                // 如大 if-else 各分支 `XxxInstr i = ins as ...`）复用首次分配的寄存器，不新分配
-                // → 寄存器数不随分支膨胀（否则 REGT 多出大量条目，z42c.ir WriteInstr 实证 +73B）。
-                TypedReg dst;
-                if (this._ctx.Locals.ContainsKey(v.Name)) {
-                    dst = this._ctx.Locals.Get(v.Name) as TypedReg;
-                } else {
-                    // 镜像 C# WriteBackName：var 专用寄存器 tag = init 表达式寄存器类型（r.Type），
-                    // 非声明类型。差异仅在 init 为 Unknown（cast 链）而声明类型具体时显现（如
-                    // `string s = (x as T).Name()` → C# Unknown / 声明类型 str）。
-                    dst = this._ctx.Alloc(r.Type);
-                    this._ctx.Locals.Put(v.Name, dst);
-                }
-                if (dst.Id != r.Id) { this._ctx.Emit(new CopyInstr(dst, r)); }
-            }
-        } else if (s is BoundReturn) {
-            BoundReturn ret = s as BoundReturn;
-            // 返回值须在 finally 运行前求值（finally 改到的变量不影响已定的返回值，镜像 C#/Java）。
-            bool hasV = ret.HasValue;
-            TypedReg rv = null;
-            if (hasV) {
-                rv = this._expr.Emit(ret.Value);
-                // Emit 对裸局部返回其活寄存器别名；有 finally 待跑时先物化到独立寄存器，
-                // 否则 finally 若改到该局部会污染返回值。仅在 _finDepth>0 时插 Copy——无 finally
-                // 路径字节不变（z42c 自身零 try/finally → 自举不动点不破）。
-                if (this._finDepth > 0) {
-                    TypedReg keep = this._ctx.Alloc(rv.Type);
-                    this._ctx.Emit(new CopyInstr(keep, rv));
-                    rv = keep;
-                }
-            }
-            this._emitPendingFinallys(0);   // return 退出整个函数 → 跑全部外层 finally（内→外）
-            // add-struct-value-semantics A-use sret：返回 blob 值 struct → 把返回值 blob 复制进 caller 预留的
-            // sret handle（在本帧截断前完成，避免悬垂），再 ret void。rv 是本函数里的 struct handle（局部/
-            // 参数/new 结果），SretReg 指向 caller 帧的返回 blob。
-            if (this._ctx.RetIsStruct && hasV && rv != null) {
-                this._ctx.Emit(new StructCopyInstr(this._ctx.SretReg, rv, this._ctx.RetStructSize));
-                if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
-            } else if (!this._ctx.Ended) {
-                this._ctx.EndBlock(new RetTerm(hasV, rv));
-            }
-        } else if (s is BoundExprStmt) {
-            BoundExprStmt e = s as BoundExprStmt;
-            this._expr.Emit(e.E);                         // 结果弃
-        } else if (s is BoundThrow) {
-            BoundThrow th = s as BoundThrow;
-            TypedReg r = this._expr.Emit(th.E);
-            this._ctx.EndBlock(new ThrowTerm(r));
-        } else if (s is BoundTry) {
-            this._emitTry(s as BoundTry);
-        } else if (s is BoundIf) {
-            this._emitIf(s as BoundIf);
-        } else if (s is BoundForeach) {
-            this._emitForeach(s as BoundForeach);
-        } else if (s is BoundFor) {
-            this._emitFor(s as BoundFor);
-        } else if (s is BoundWhile) {
-            this._emitWhile(s as BoundWhile);
-        } else if (s is BoundDoWhile) {
-            this._emitDoWhile(s as BoundDoWhile);
-        } else if (s is BoundSwitch) {
-            this._emitSwitch(s as BoundSwitch);
-        } else if (s is BoundBreak) {
-            if (this._ctx.InLoop()) {
-                this._emitPendingFinallys(this._ctx.CurBreakFinFloor());   // 跑本层内的 finally
-                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(this._ctx.CurBreak())); }
-            }
-        } else if (s is BoundContinue) {
-            if (this._ctx.InLoop()) {
-                this._emitPendingFinallys(this._ctx.CurContFinFloor());
-                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(this._ctx.CurContinue())); }
-            }
-        }
-    }
-
-    // if/else → 基本块（cond 块 br.cond → then/else，汇合 end 块）。
-    private void _emitIf(BoundIf i) {
-        TypedReg cond = this._expr.Emit(i.Cond);
-        string thenL = this._ctx.Fresh("then");
-        string elseL = "";
-        string endL = "";
-        if (i.HasElse) { elseL = this._ctx.Fresh("else"); endL = this._ctx.Fresh("end"); }
-        else { endL = this._ctx.Fresh("end"); elseL = endL; }
-        this._ctx.EndBlock(new BrCondTerm(cond, thenL, elseL));
-        this._ctx.StartBlock(thenL);
-        this._emitStmt(i.Then);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-        if (i.HasElse) {
-            this._ctx.StartBlock(elseL);
-            this._emitStmt(i.Else);
-            if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-        }
-        this._ctx.StartBlock(endL);
-    }
-
-    // for (init; cond; incr) body → cond/body/incr/end 四块（镜像 C# EmitBoundFor）。
-    // continue→incr，break→end；incr 块含 i++ 指令后 br cond。
-    private void _emitFor(BoundFor f) {
-        if (f.HasInit) { this._emitStmt(f.Init); }
-        string condL = this._ctx.Fresh("cond");
-        string bodyL = this._ctx.Fresh("body");
-        string incrL = this._ctx.Fresh("incr");
-        string endL  = this._ctx.Fresh("end");
-        this._ctx.EndBlock(new BrTerm(condL));
-        this._ctx.StartBlock(condL);
-        if (f.HasCond) {
-            TypedReg cond = this._expr.Emit(f.Cond);
-            this._ctx.EndBlock(new BrCondTerm(cond, bodyL, endL));
-        } else {
-            this._ctx.EndBlock(new BrTerm(bodyL));
-        }
-        this._ctx.PushLoop(incrL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
-        this._ctx.StartBlock(bodyL);
-        this._emitStmt(f.Body);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(incrL)); }
-        this._ctx.PopLoop();
-        this._ctx.StartBlock(incrL);
-        if (f.HasIncr) { this._expr.Emit(f.Incr); }
-        this._ctx.EndBlock(new BrTerm(condL));
-        this._ctx.StartBlock(endL);
-    }
-
-    // while → cond/body/end 三块。continue→cond，break→end。
-    private void _emitWhile(BoundWhile w) {
-        string condL = this._ctx.Fresh("cond");   // label 拼写 = C#（byte-identical：label 入 STRS）
-        string bodyL = this._ctx.Fresh("body");
-        string endL = this._ctx.Fresh("end");
-        this._ctx.EndBlock(new BrTerm(condL));
-        this._ctx.StartBlock(condL);
-        TypedReg cond = this._expr.Emit(w.Cond);
-        this._ctx.EndBlock(new BrCondTerm(cond, bodyL, endL));
-        this._ctx.PushLoop(condL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
-        this._ctx.StartBlock(bodyL);
-        this._emitStmt(w.Body);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(condL)); }
-        this._ctx.PopLoop();
-        this._ctx.StartBlock(endL);
-    }
-
-    // do { body } while (cond) → body 块先执行，再 cond 块判定回跳（镜像 C# EmitBoundDoWhile）。
-    // continue → condL（重判条件）；break → endL。
-    private void _emitDoWhile(BoundDoWhile dw) {
-        string bodyL = this._ctx.Fresh("do_body");
-        string condL = this._ctx.Fresh("do_cond");
-        string endL = this._ctx.Fresh("do_end");
-        this._ctx.EndBlock(new BrTerm(bodyL));
-        this._ctx.PushLoop(condL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
-        this._ctx.StartBlock(bodyL);
-        this._emitStmt(dw.Body);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(condL)); }
-        this._ctx.PopLoop();
-        this._ctx.StartBlock(condL);
-        TypedReg cond = this._expr.Emit(dw.Cond);
-        this._ctx.EndBlock(new BrCondTerm(cond, bodyL, endL));
-        this._ctx.StartBlock(endL);
-    }
-
-    // switch (subject) { case P: body; default: body }（镜像 C# EmitBoundSwitchStmt）：
-    // 等值比较链；break → sw_end，continue 透传外层 loop。
-    private void _emitSwitch(BoundSwitch sw) {
-        TypedReg subj = this._expr.Emit(sw.Subject);
-        string endL = this._ctx.Fresh("sw_end");
-        string outerCont = this._ctx.InLoop() ? this._ctx.CurContinue() : endL;
-        // switch：break→本 sw_end（floor=当前深）；continue 转发外层循环 → floor 继承外层 continue-floor
-        // （无外层则同当前深），确保 switch 内 continue 跨越 switch 与外层循环间的 try-finally 时跑其 finally。
-        int swContFloor = this._ctx.InLoop() ? this._ctx.CurContFinFloor() : this._finDepth;
-        this._ctx.PushLoop(outerCont, endL, this._finDepth, swContFloor);
-        int ci = 0;
-        while (ci < sw.CaseCount) {
-            BoundSwitchCase c = sw.Cases[ci];
-            if (!c.HasPattern) {
-                int bi = 0;
-                while (bi < c.BodyCount) { if (this._ctx.Ended) { break; } this._emitStmt(c.Body[bi]); bi = bi + 1; }
-                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-                ci = sw.CaseCount;   // default 视作最后一条（break out）
-            } else {
-                string bodyL = this._ctx.Fresh("sw_case");
-                string nextL = this._ctx.Fresh("sw_next");
-                TypedReg pat = this._expr.Emit(c.Pattern);
-                TypedReg cmp = this._ctx.Alloc(IrType.Bool);
-                this._ctx.Emit(new EqInstr(cmp, subj, pat));
-                this._ctx.EndBlock(new BrCondTerm(cmp, bodyL, nextL));
-                this._ctx.StartBlock(bodyL);
-                int bi2 = 0;
-                while (bi2 < c.BodyCount) { if (this._ctx.Ended) { break; } this._emitStmt(c.Body[bi2]); bi2 = bi2 + 1; }
-                if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-                this._ctx.StartBlock(nextL);
-                ci = ci + 1;
-            }
-        }
-        this._ctx.PopLoop();
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
-        this._ctx.StartBlock(endL);
-    }
-
-    // WriteBackName ミラー（镜像 C# WriteBackName：首次分配寄存器，已有则复用；id 不同则 emit copy）。
-    private void _writeBack(string name, TypedReg val) {
-        TypedReg dst;
-        if (this._ctx.Locals.ContainsKey(name)) {
-            dst = this._ctx.Locals.Get(name) as TypedReg;
-        } else {
-            dst = this._ctx.Alloc(val.Type);
-            this._ctx.Locals.Put(name, dst);
-        }
-        if (dst.Id != val.Id) { this._ctx.Emit(new CopyInstr(dst, val)); }
-    }
-
-    // foreach → 6 块（entry/fe_cond/fe_body/fe_inc/fe_end + 可能中间块）。
-    // 镜像 C# EmitBoundForeach：ConstI32 计数器 + ArrayLen（数组 path）或 Count field/VCall（类 path）。
-    private void _emitForeach(BoundForeach fe) {
-        TypedReg collReg = this._expr.Emit(fe.Collection);
-        // 计数器寄存器：ConstI32(0) + WriteBack（NOT BoundLitInt → i64；镜像 C# ConstI32Instr(0)）。
-        TypedReg zeroReg = this._ctx.Alloc(IrType.I32);
-        this._ctx.Emit(new ConstI32Instr(zeroReg, "0"));
-        string idxVar = "__fe_i_" + this._ctx.LabelSeq.ToString();
-        this._writeBack(idxVar, zeroReg);
-        // 长度：数组 → ArrayLenInstr（loop 前一次性求值，镜像 C#）；类 → Count field/VCall。
-        TypedReg lenReg = this._ctx.Alloc(IrType.I32);
-        if (fe.IsClassIter) {
-            if (fe.CountIsField) {
-                this._ctx.Emit(new FieldGetInstr(lenReg, collReg, "Count"));
-            } else {
-                TypedReg[] noArgs = new TypedReg[0];
-                this._ctx.Emit(new VCallInstr(lenReg, collReg, "Count", noArgs, 0));
-            }
-        } else {
-            this._ctx.Emit(new ArrayLenInstr(lenReg, collReg));
-        }
-        string condL = this._ctx.Fresh("fe_cond");
-        string bodyL = this._ctx.Fresh("fe_body");
-        string incrL = this._ctx.Fresh("fe_inc");
-        string endL  = this._ctx.Fresh("fe_end");
-        this._ctx.EndBlock(new BrTerm(condL));
-        this._ctx.StartBlock(condL);
-        TypedReg iReg = this._ctx.Locals.Get(idxVar) as TypedReg;
-        TypedReg cmpReg = this._ctx.Alloc(IrType.Bool);
-        this._ctx.Emit(new LtInstr(cmpReg, iReg, lenReg));
-        this._ctx.EndBlock(new BrCondTerm(cmpReg, bodyL, endL));
-        this._ctx.PushLoop(incrL, endL, this._finDepth, this._finDepth);   // 真循环：break/continue 同底
-        this._ctx.StartBlock(bodyL);
-        TypedReg idxReg = this._ctx.Locals.Get(idxVar) as TypedReg;
-        TypedReg elemReg = this._ctx.Alloc(this._ctx.ToIrType(fe.VarType));
-        if (fe.IsClassIter) {
-            TypedReg[] idxArgs = new TypedReg[1]; idxArgs[0] = idxReg;
-            this._ctx.Emit(new VCallInstr(elemReg, collReg, "get_Item", idxArgs, 1));
-        } else {
-            this._ctx.Emit(new ArrayGetInstr(elemReg, collReg, idxReg));
-        }
-        // add-struct-generic-boxing (P3a)：循环变量是值 struct 时对元素发 AsCast——泛型容器（List<P> 迭代
-        // 其 T[] backing / get_Item）元素是**装箱后**的 struct（Add/set 时装箱）→ 拆箱回值 struct；普通 P[]
-        // 元素本就是 StructRef → as_cast 的 StructRef 恒等臂原样返回。两分支静态同为 P[] 不可辨，统一发、由
-        // VM as_cast 按运行期种类分流（BoxedStruct→拆箱 / StructRef→恒等）。用 `.IsStruct` 判定。
-        Z42Type feT = fe.VarType;   // BoundForeach.VarType 已是解析后的 Z42Type（元素类型），直接用
-        Z42ClassType feCt = null;
-        if (feT is Z42ClassType) { feCt = feT as Z42ClassType; }
-        else if (feT is Z42InstantiatedType) { feCt = (feT as Z42InstantiatedType).Def; }
-        if (feCt != null && feCt.IsStruct) {
-            TypedReg ubReg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new AsCastInstr(ubReg, elemReg, this._ctx.QualifyClass(feCt.Name())));
-            elemReg = ubReg;
-        }
-        this._writeBack(fe.VarName, elemReg);
-        this._emitStmt(fe.Body);
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(incrL)); }
-        this._ctx.PopLoop();
-        this._ctx.StartBlock(incrL);
-        TypedReg idxReg2 = this._ctx.Locals.Get(idxVar) as TypedReg;
-        TypedReg oneReg  = this._ctx.Alloc(IrType.I32);
-        this._ctx.Emit(new ConstI32Instr(oneReg, "1"));
-        TypedReg nextReg = this._ctx.Alloc(IrType.I32);
-        this._ctx.Emit(new AddInstr(nextReg, idxReg2, oneReg));
-        this._writeBack(idxVar, nextReg);
-        this._ctx.EndBlock(new BrTerm(condL));
-        this._ctx.StartBlock(endL);
-    }
 }
