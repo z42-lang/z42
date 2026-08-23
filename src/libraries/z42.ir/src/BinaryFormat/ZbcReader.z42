@@ -71,13 +71,11 @@ public sealed class SigEntryZ {
     public string[] ParamTypes; public int ParamTypeCount;
     public IrAttrRef[] Attrs; public int AttrCount;
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;
-    public string DeprecationMsg;   // add-deprecated-directive（zbc 1.37）：MethodFlags bit3 gated 消息串
     public SigEntryZ() {
         this.Name = ""; this.ParamCount = 0; this.RetType = "void"; this.ExecMode = "Interp";
         this.IsStatic = false;
         this.Visibility = 0;
         this.MethodFlags = 0;
-        this.DeprecationMsg = "";
         this.MinArg = 0; this.ParamsFrom = 255;
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];
         this.ParamDefaultVals = new long[0]; this.ParamDefaultStrs = new string[0];
@@ -272,12 +270,12 @@ public static class ZbcReader {
     private static IrClassDesc[] _readType(byte[] data, ZbcSectionZ[] dir, string[] pool) {
         ZbcSectionZ s = ZbcReader._sec(dir, "TYPE");
         if (s == null || s.Size < 4) { ZbcReader._lastN = 0; return new IrClassDesc[0]; }
-        return ZbcReader.ReadTypeAt(data, s.Offset, s.Offset + s.Size, pool);
+        return ZbcReader.ReadTypeAt(data, s.Offset, pool);
     }
 
     // TYPE 段体解析（给定偏移；reconcile-tsig-from-runtime-sections 公开——zpkg MODS 每模块
     // 记录内嵌的 TYPE 字节与 zbc TYPE 段同构，ZpkgReader.ReadModuleTypes 复用本入口）。
-    public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, int end, string[] pool) {
+    public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, string[] pool) {
         ZbcCursor c = new ZbcCursor(data, offset);
         int n = c.U32();
         IrClassDesc[] classes = new IrClassDesc[n];
@@ -440,33 +438,8 @@ public static class ZbcReader {
             classes[ci] = cd;
             ci = ci + 1;
         }
-        // add-deprecated-directive（zbc 1.37）：TYPE 段体尾部 size-gated 弃用表。cursor 未达段末 → 尾表存在
-        // （两代自举：gen1 读 gen0 无尾表 → cursor==段末 → 不读 → 无脱同步）。
-        if (c.Pos < end) { ZbcReader._readDepTail(c, pool, classes, n); }
         ZbcReader._lastN = n;
         return classes;
-    }
-
-    // add-deprecated-directive（zbc 1.37）：读 TYPE 尾部弃用表 → 回填 classes[idx].Deprecated/字段 .Deprecated。
-    private static void _readDepTail(ZbcCursor c, string[] pool, IrClassDesc[] classes, int n) {
-        int cn = c.U16();
-        int i = 0;
-        while (i < cn) {
-            int cidx = c.U16(); string msg = ZbcReader._p(pool, c.U32());
-            if (cidx < n) { classes[cidx].Deprecated = true; classes[cidx].DeprecationMsg = msg; }
-            i = i + 1;
-        }
-        int fn = c.U16();
-        i = 0;
-        while (i < fn) {
-            int cidx = c.U16(); int isStatic = c.U8(); int fidx = c.U16(); string msg = ZbcReader._p(pool, c.U32());
-            if (cidx < n) {
-                IrClassDesc cd = classes[cidx];
-                if (isStatic == 1) { if (fidx < cd.StaticFieldCount) { cd.StaticFields[fidx].Deprecated = true; cd.StaticFields[fidx].DeprecationMsg = msg; } }
-                else { if (fidx < cd.FieldCount) { cd.Fields[fidx].Deprecated = true; cd.Fields[fidx].DeprecationMsg = msg; } }
-            }
-            i = i + 1;
-        }
     }
 
     private static void _readFieldAttrs(ZbcCursor c, string[] pool, IrFieldDesc fd) {
@@ -557,8 +530,6 @@ public static class ZbcReader {
                 pa = pa + 1;
             }
             if (!anyPa) { e.ParamAttrs = new IrAttrRefList[0]; e.ParamAttrsLen = 0; }   // writer：ParamAttrsLen=0 → 全零块，往返等价
-            // add-deprecated-directive（zbc 1.37）：method_flags bit3 gated 消息串 idx（SIGS 条目尾部）。
-            if ((e.MethodFlags & 8) != 0) { e.DeprecationMsg = ZbcReader._p(pool, c.U32()); }
             r[i] = e;
             i = i + 1;
         }
@@ -620,7 +591,6 @@ public static class ZbcReader {
             f.Attrs = sig.Attrs; f.AttrCount = sig.AttrCount;
             f.ParamAttrs = sig.ParamAttrs; f.ParamAttrsLen = sig.ParamAttrsLen;
             f.Visibility = sig.Visibility; f.MethodFlags = sig.MethodFlags;   // 1.23/1.24 round-trip
-            f.DeprecationMsg = sig.DeprecationMsg;   // add-deprecated-directive（zbc 1.37）round-trip
             f.MinArg = sig.MinArg; f.ParamsFrom = sig.ParamsFrom;             // add-param-metadata round-trip
             f.ParamNames = sig.ParamNames; f.ParamDefaultKinds = sig.ParamDefaultKinds;
             f.ParamDefaultVals = sig.ParamDefaultVals; f.ParamDefaultStrs = sig.ParamDefaultStrs;

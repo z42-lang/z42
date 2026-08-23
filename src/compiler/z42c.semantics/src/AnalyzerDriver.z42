@@ -208,39 +208,4 @@ public static class AnalyzerDriver {
         if (analyzerSev == AnalyzerSeverity.Warning) { return DiagnosticSeverity.Warning; }
         return DiagnosticSeverity.Info;   // Info + Hidden（PR3a 暂并入）
     }
-
-    // ── add-deprecated-directive（PR5）：use-site 弃用告警治理 ──────────────────────────────────
-    // 内建 DiagRule（id "deprecated"）——使 `[Deprecated]` 告警与 analyzer 诊断走同一治理面：`[lints]
-    // deprecated=none` 抑制、`warnings-as-errors` 升 Error、`#suppress deprecated` 局部关闭。默认 Warning、
-    // EnabledByDefault=true。（`[Suppress("deprecated")]` 声明子树抑制留 Deferred——相位错配，见 design。）
-    public static DiagRule DeprecatedRule() {
-        return new DiagRule("deprecated", "Deprecated usage",
-                            "use of deprecated symbol", "Usage", AnalyzerSeverity.Warning, true);
-    }
-
-    // 治理某 cu 的 use-site 弃用命中（TypeChecker 收集在 cu.DepHit*）：按 [lints]/WAE 决 severity（整规则），
-    // 按 #suppress 字节区间逐条抑制，存活者并入 bag（消息 = 命中携带的已格式化串）。零命中 no-op → byte-identical。
-    public static void RunDeprecation(CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
-        if (cu.DepHitCount == 0) { return; }
-        if (cfg == null) { cfg = LintConfig.Empty(); }
-        DiagRule rule = AnalyzerDriver.DeprecatedRule();
-        int eff = cfg.Resolve(rule);
-        if (eff < 0) { return; }   // [lints] "none" / 规则禁用 → 整条抑制
-        int sev = AnalyzerDriver._mapSeverity(eff);
-        SuppressionSet supp = new SuppressionSet();   // PR3c #suppress 字节区间（[Suppress] 子树 Deferred）
-        int r = 0;
-        while (r < cu.SuppressRegionCount) {
-            SuppressRegion sr = cu.SuppressRegions[r];
-            supp.AddRegion(sr.RuleId, sr.Start, sr.End);
-            r = r + 1;
-        }
-        int i = 0;
-        while (i < cu.DepHitCount) {
-            Span at = cu.DepHitSpans[i];
-            if (!supp.IsSuppressed("deprecated", at.Start)) {
-                bag.Add(new Diagnostic(sev, "deprecated", cu.DepHitMsgs[i], at));
-            }
-            i = i + 1;
-        }
-    }
 }

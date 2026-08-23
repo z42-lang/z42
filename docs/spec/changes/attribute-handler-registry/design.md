@@ -355,51 +355,46 @@ public class RouteTableGenerator : ModuleGenerator {
 
 > `[Native]` → `[Extern]` 的改名**本 change 暂不做**（User 裁决 2026-08-19），延后为独立小 change。
 
-### `[Deprecated]` 实现落法（PR5，D2 —— 方法+类+字段，治理接入）
+### `[Deprecated]` 实现落法（PR5，D2 —— 方法+类+字段；**零格式-bump，attr-ref 哨兵持久化**）
 
-built-in directive 家族第一个**持久化**成员（`[Suppress]` 是编译期，不持久）。端到端模板 = **`sealed` 位**
-（每层皆有先例，逐层对照抄）；唯一全新形状 = **字段级**（字段 descriptor 当前只有 visibility、无 flags 字节）。
+**⚠️⚠️ 关键决策转向（2026-08-23，两个预存 CI 回归逼出）**：初版走 D2 原意「directive 烘进 descriptor
+（格式 bump zbc1.37/zpkg0.42）」，但撞**两个预存基建回归**（均非本 PR）：
+1. **两代自举回归**：任何格式-bump 在 CI 两代自举 gen1-stdlib 编 z42.encoding 报 `E0401 undefined String`
+   （诊断 PR #270 纯 bump 零代码同样红证实；serde #256 亦撞此、User 已裁「回退格式-bump」）。
+2. **F2 冷启动 stale-cache**：z42c.semantics 用 z42c.syntax 的**新跨成员符号**（如 CompilationUnit 新方法）
+   冷启动炸（[[add-reflective-invoke-program]] PR4d 教训）。
 
-**① 分类**：`HandlerRegistry.IsDeprecatedDirective(name)=="Deprecated"` 折进 `IsDirectiveAttr`（名字识别、
-无 backing 类、`KindOf=Directive`）→ `AttributeSynth` 不合成反射工厂、`StubEmitter` 不烘 Native。**但持久**
-（异于 `[Suppress]`）：IrGen 从 AST attr 读位 + 消息串，烘进 descriptor。
+故**改零格式-bump 方案（同 serde）**：`[Deprecated]` 经**既有 attr-ref 块**持久化（TYPE 类/字段 attr-ref、
+SIGS 方法 attr-ref 均 PR1x 既有），追加一条**哨兵** `IrAttrRef(TypeName=IrDeprecation.Sentinel="$Deprecated",
+FactoryFunc=消息)`。未弃用符号不追加 → 零字节变化、无格式 bump、无两代自举。
 
-**② 持久化（格式 bump zbc 1.36→1.37 / zpkg 0.41→0.42）**：
+**① 分类**：`HandlerRegistry.IsDeprecatedDirective(name)=="Deprecated"` 折进 `IsDirectiveAttr`（名字识别、无
+backing 类）→ `AttributeSynth` 不合成反射工厂。`HasDeprecated`/`DeprecatedMsg`（读 AST attr）供生产端。
 
-- **方法级**：`SIGS method_flags` u8 bit3（bit2=sealed 先例；method_flags 既有字节、bit3 空闲）+ 置位时 SIGS
-  条目尾部 gated `msg 池 idx u32`。
-- **类/字段级**：**TYPE 段体尾部 size-gated 弃用表**。⚠️ **不能用 class_flags 位**（已满、bit6=delegate）；
-  ⚠️ **不能用 per-field 非-gated 字节**（每字段 +1 字节 → 破格式-bump 两代自举：gen1 的 0.42 reader 读 gen0
-  的 0.41 stdlib 无该字节 → cursor 脱同步 → `undefined String`，CI 首轮实证）。故用**尾表**：所有 class 记录后，
-  若本模块有任何类/字段弃用则追加 `classDepCount:u16 + (classIdx:u16, msgIdx:u32)× + fieldDepCount:u16
-  + (classIdx:u16, isStatic:u8, fieldIdx:u16, msgIdx:u32)×`。**两代自举安全**：未弃用模块（含全 stdlib）无尾表
-  → TYPE 段体到 classes 末即止、与旧格式逐字节一致；reader 靠「cursor < TYPE 段末」判尾表在否（gen1 读 gen0
-  无尾表→cursor==段末→不读→无脱同步）。**zpkg MODS 段面不变**（尾表在 TYPE 段体内，非新 zbc 段/非 MODS 5→6）。
+**② 持久化（零格式-bump，attr-ref 哨兵）**：`ClassDescBuilder._attrRefs(Decl)` 对弃用符号在返回的 attr-ref 数组
+末尾追加哨兵。生产覆盖所有经 `_attrRefs` 设 `.Attrs` 的产出点（类=IrGen cdesc.Attrs、字段=fdesc/sfdesc.Attrs、
+方法=irf.Attrs）。**既有 writer/reader 原样序列化 attr-ref 块**——零格式改动、零新 reader 逻辑。哨兵常量
+`IrDeprecation.Sentinel`（+`Has`/`Msg` 助手）放 **z42.ir**（叶子库），供生产（z42c.semantics）+ 消费（z42.ir
+TsigReconcile）共用（z42.ir 不能反依赖 z42c.semantics）。`$` 前缀不撞 D8 `*Attribute`。
 
-写在 `ZbcWriter.BuildType`（`_writeDepTail`/`_anyDeprecation`）+ SIGS，**3 个读端 lockstep**（strict-pin 漏一即
-CI 崩，[[add-reflective-invoke-program]] 教训）：① Rust `zbc_reader.rs`（read_type 尾表 read-and-discard + SIGS
-bit3）② z42c `ZbcReader.ReadTypeAt`（+`end` 参 + `_readDepTail` 回填 IrClassDesc/IrFieldDesc.Deprecated）+ SIGS
-③ `ZpkgReader`（TYPE 走 ReadTypeAt 传 `end`；SIGS bit3）。msg 串复用既有 STRS 串池（`pool.Idx`；未弃用零新池
-串 → STRS 逐字节一致）。
+**③ 跨包**：`TsigReconcile` 扫读到的 attr-ref 找哨兵（`IrDeprecation.Has/Msg`）→ `Exported{Method,Class,Field}Z`
+（+`IsDeprecated`/`DeprecationMsg`，z42.ir 新字段——**由 `_ensureBootstrapZ42Ir` 轴④ staging 保冷启动安全**）→
+`ImportedSymbolLoader`（仿 `IsSealed` 传播）→ `MethodSymbol`/`FieldSymbol`/`Z42ClassType`。本地由 SymbolCollector
+簇（MemberCollector/StubCollector）直接从 decl 的 `[Deprecated]` 设 symbol.IsDeprecated。
 
-**③ 跨包（仿 sealed 全链）**：`TsigReconcile`（从 flag+msg 池设）→ `Exported{Method,Class,Field}Z`
-（+`IsDeprecated`/`DeprecationMsg`）→ `ImportedSymbolLoader`（仿 `IsSealed` 传播）→ `MethodSymbol`/
-`FieldSymbol`/`Z42ClassType`。→ 导入的 `[Deprecated]` 符号在消费方 use-site 仍告警。
+**④ 检测 + 告警（typecheck 相位直接发，F2 安全）**：`AccessChecker.CheckDeprecatedM/F/T` 在 resolve 点
+（`MemberResolver` 调用/字段/属性；`_chkTypeRef` 类型引用/`new`）解析到弃用符号即发 `_diags.Warning("deprecated",
+msg, span)`（Warning 级、不阻断）。`#suppress deprecated` 经 `TypeChecker._curSuppress`（每-CU 建自
+`cu.SuppressRegions`，PR3c 既有字段；**语义内构造 → F2 安全**，不改 z42c.syntax 跨成员面）局部抑制。
+**byte-identical**：z42c/stdlib 无 `[Deprecated]` → 零哨兵、零告警 → self-host 逐字节不变（无格式 bump）。
 
-**④ 检测 + 治理（collect-then-govern，解相位错配）**：检测需**已解析符号**（typecheck 相位）、治理需
-**配置**（analyzer 相位）→ 拆开：
-- typecheck：`AccessChecker.CheckDeprecated(sym, span)` 在 resolve 点（`MemberResolver` 调用/字段/属性；
-  `CheckTypeRef` 类型引用/`new`）**只记 hit**（span + 消息）到 `_tc` 上的累加器。
-- `_runDeprecation` pass（`PackageCompile`，**always-run**，非 gated on analyzers）：per-cu 建 `SuppressionSet`
-  （抽 `AnalyzerDriver` 的 builder 复用）+ `inp.Lints` → 逐 hit `DiagSinkImpl.Report(DEPRECATED_RULE, span)`。
-  内建 `DiagRule` id `"deprecated"`（category Usage，DefaultSeverity=Warning，EnabledByDefault=true）→ **统一**
-  经既有 PR3b/3c 治理：`[lints] deprecated=none` 抑制、`warnings-as-errors` 升 Error、`#suppress deprecated` /
-  `[Suppress("deprecated")]` 局部关闭（按 rule id + 位置）。
-- **byte-identical**：z42c/stdlib 无 `[Deprecated]` → 零 hit、flag 位全 0 → 新格式下 self-host gen1==gen2 逐字节
-  （格式 bump 本身改所有 zbc 字节，但不动点仍收敛）。
-
-**Deferred**：`isError=true` 硬错模式、命名参数、镜像进反射 API、property/enum 成员级（属性经 getter/setter
-方法间接覆盖；enum 成员 = 静态字段，随字段级已覆盖）。
+**Deferred（受预存基建回归所限）**：
+- **`[lints]` severity 覆盖 + `warnings-as-errors`**：需把 `LintConfig` 接到 typecheck 相位 = pipeline→semantics
+  **新跨成员符号**（撞 F2 冷启动）→ 待 F2 修复/staged 后补。当前仅 `#suppress deprecated` 治理生效。
+- **`[Suppress("deprecated")]` 声明子树抑制**（相位/start-only span，见前）。
+- `isError=true` 硬错模式、命名参数、镜像进反射 API（哨兵已在 attr-ref 块 → 反射 GetCustomAttributes 需过滤
+  `$Deprecated`，follow-up）、property/enum 成员级。
+- **格式-bump 版（descriptor flag）= 待两代自举回归修复后可回归 D2 原意**（更干净、无 attr-ref 哨兵 + 反射过滤）。
 
 ## 超出 C# 的能力（契约 vs 追加，D4）
 

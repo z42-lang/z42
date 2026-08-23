@@ -94,6 +94,9 @@ public static class HandlerRegistry {
         return name == "Deprecated";
     }
 
+    // PR5：`[Deprecated]` 持久化哨兵常量在 z42.ir（叶子库）= `IrDeprecation.Sentinel`（供生产 z42c.semantics
+    // + 消费 z42.ir/TsigReconcile 共用；z42.ir 不能反依赖 z42c.semantics）。此处不再重复定义。
+
     // PR5：某声明是否带 `[Deprecated]`（IrGen 烘 deprecated 位用）。
     public static bool HasDeprecated(Decl rawMem) {
         if (!(rawMem is AttributedDecl)) { return false; }

@@ -203,12 +203,6 @@ public static class PackageCompile {
         // PR4a：generator 引擎的护栏诊断（越界 Replace/Augment，E0448）合入首模块 → Error 增 ErrorCount 拦编译。
         if (genDiags.Count() > 0 && cms.Length > 0) { PackageCompile._mergeDiags(cms[0], genDiags); }
 
-        // ── add-deprecated-directive（PR5）：use-site 弃用告警治理（always-run，非 gated on analyzers）──
-        // TypeChecker 在 BuildPackageCus 期把 use-site 弃用命中收集到各 cu（相位错配：检测需已解析符号）；此处
-        // 按 [lints]/warnings-as-errors/#suppress 治理后并入 per-file cms。z42c/stdlib 无 [Deprecated] → 零命中
-        // → 不进 bag → 逐字节不动。用 union `cus`/`srcCount`（generation 后 cus 是 union；命中挂 union cu 上）。
-        PackageCompile._runDeprecation(inp, cus, srcCount, cms);
-
         // ── attribute-handler-registry PR3a-load：外部 analyzer（[analyzers] 段声明的 handler zpkg）──
         // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
@@ -303,20 +297,6 @@ public static class PackageCompile {
     }
 
     // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
-    // add-deprecated-directive（PR5）：治理并发出 use-site 弃用告警。逐 cu：命中经 AnalyzerDriver.RunDeprecation
-    // （建 #suppress 区间集 + [lints]/WAE 决 severity）→ 并入 cms。always-run；零命中 cu 直接跳过 → 逐字节不动。
-    private static void _runDeprecation(CompileInputs inp, CompilationUnit[] cus, int srcCount, CompiledModuleZ[] cms) {
-        int i = 0;
-        while (i < srcCount) {
-            if (i < cms.Length && cus[i] != null && cus[i].DepHitCount > 0) {
-                DiagnosticBag bag = new DiagnosticBag();
-                AnalyzerDriver.RunDeprecation(cus[i], bag, inp.Lints);
-                if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
-            }
-            i = i + 1;
-        }
-    }
-
     private static void _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
         Analyzer[] analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
         if (analyzers.Length == 0) { return; }

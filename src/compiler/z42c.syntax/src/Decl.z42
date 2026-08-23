@@ -400,29 +400,12 @@ public sealed class CompilationUnit {
     // add-nested-types：嵌套类型展平幂等标志。NestedFlatten.Flatten 把嵌套 class/struct/interface/enum
     // 提升为顶层 Decl（名改 `Outer+Inner`），置本标志防重复展平（SymbolCollector/IrGen 多入口共享同一 cu）。
     public bool NestedFlattened;
-    // add-deprecated-directive（PR5）：use-site 弃用命中（TypeChecker 收集，PackageCompile._runDeprecation 治理后发）。
-    // 平行数组（Span + 已格式化消息）；相位错配（检测在 typecheck、治理在其后）故先收集不直接进 bag。默认空。
-    public Span[]   DepHitSpans;
-    public string[] DepHitMsgs;
-    public int      DepHitCount;
     public CompilationUnit(bool hasNs, string ns, Decl[] decls, int dc, Span span) { this.Span = span;
         this.HasNamespace = hasNs; this.Namespace = ns; this.Decls = decls; this.DeclCount = dc;
         this.ParseDiags = null;
         this.NestedFlattened = false;
         this.SuppressRegions = new SuppressRegion[0];
         this.SuppressRegionCount = 0;
-        this.DepHitSpans = new Span[0]; this.DepHitMsgs = new string[0]; this.DepHitCount = 0;
-    }
-    // add-deprecated-directive：追加一条 use-site 弃用命中（growable，doubling）。
-    public void AddDepHit(Span sp, string msg) {
-        if (this.DepHitCount == this.DepHitSpans.Length) {
-            int ncap = this.DepHitSpans.Length * 2; if (ncap < 4) { ncap = 4; }
-            Span[] ns = new Span[ncap]; string[] nm = new string[ncap];
-            int k = 0; while (k < this.DepHitCount) { ns[k] = this.DepHitSpans[k]; nm[k] = this.DepHitMsgs[k]; k = k + 1; }
-            this.DepHitSpans = ns; this.DepHitMsgs = nm;
-        }
-        this.DepHitSpans[this.DepHitCount] = sp; this.DepHitMsgs[this.DepHitCount] = msg;
-        this.DepHitCount = this.DepHitCount + 1;
     }
     // 把 parse 阶段诊断并入 `into`（typecheck bag），使其计入编译错误数。CU 未携带时 no-op。
     public void MergeParseDiags(DiagnosticBag into) {

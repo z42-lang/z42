@@ -75,10 +75,15 @@ public sealed class AccessChecker {
     public void CheckDeprecatedT(Z42ClassType t, Span sp) {
         if (t != null && t.IsDeprecated) { this._recordDep(t.Name(), t.DeprecationMsg, sp); }
     }
+    // 直接发 use-site 弃用告警到 _diags（code "deprecated"，Warning 级，不阻断编译）。#suppress 局部抑制
+    // 用 TypeChecker 每-CU 建的 _curSuppress（源自 cu.SuppressRegions，PR3c 既有；语义内、F2 安全——不改
+    // z42c.syntax 跨成员面）。**[lints]/warnings-as-errors 治理留 Deferred**：接 LintConfig 到 typecheck 相位
+    // 需 pipeline→semantics 新跨成员符号（撞 F2 冷启动 stale-cache），待 F2 修复/staged 后补。见 design.md。
     private void _recordDep(string name, string msg, Span sp) {
+        if (this._tc._curSuppress != null && this._tc._curSuppress.IsSuppressed("deprecated", sp.Start)) { return; }
         string m = "`" + name + "` 已弃用（deprecated）";
         if (msg != "") { m = m + "：" + msg; }
-        if (this._tc._curCu != null) { this._tc._curCu.AddDepHit(sp, m); }
+        this._tc._diags.Warning("deprecated", m, sp);
     }
 
     // ── enforce-class-access：类级访问强制（引用点） ──────────────────────────────────────────

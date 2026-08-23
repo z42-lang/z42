@@ -154,15 +154,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // VCallGeneric (0xB5). Non-generic Call/VCall (0x50/0x52) encoding unchanged
 // (byte-identical); generic calls carry a `method_type_args` string list (count u16
 // + pool idx u32×) between the method token and args. Coupled with zpkg 0.41.
-//
-// 2026-08-23 add-deprecated-directive: bumped to 1.37 — `[Deprecated]` persistence.
-// SIGS method_flags bit3=deprecated → trailing message pool-idx u32 (gated). TYPE
-// class_flags bit6=deprecated → message pool-idx u32 after the visibility byte (gated).
-// Every TYPE field record (instance + static) gains a leading field-flags u8
-// (bit0=deprecated) + gated message pool-idx u32. VM reads-and-discards class/method
-// messages (compile-time warning only); FieldDesc stores them as dormant reflection
-// metadata. Coupled with zpkg 0.42.
-pub const ZBC_VERSION_MINOR: u16 = 37;
+pub const ZBC_VERSION_MINOR: u16 = 36;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -269,11 +261,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-08-21 add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
 // generic type_args new opcodes; non-generic calls byte-identical). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-08-23 add-deprecated-directive: bumped to 0.42, coupled inner zbc 1.37
-// (`[Deprecated]` persistence — method/class flags gated messages + new per-field flags
-// byte). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
-// two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 42;
+pub const ZPKG_VERSION_MINOR: u16 = 41;
 
 // ── Opcode constants (must match C# Opcodes.cs) ───────────────────────────────
 
@@ -754,24 +742,6 @@ fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             object_layout: object_layout_desc,
         });
     }
-    // add-deprecated-directive (zbc 1.37): size-gated deprecation tail at the end of the
-    // TYPE section body (class + field deprecation). Two-gen-safe: gen0's TYPE body ends
-    // at the classes (no tail) → cursor at section end → skipped. The VM does not enforce
-    // deprecation (compile-time warning only) → read and discard for cursor alignment.
-    if c.remaining() > 0 {
-        let class_dep_count = c.read_u16()? as usize;
-        for _ in 0..class_dep_count {
-            let _class_idx = c.read_u16()?;
-            let _msg_idx = c.read_u32()?;
-        }
-        let field_dep_count = c.read_u16()? as usize;
-        for _ in 0..field_dep_count {
-            let _class_idx = c.read_u16()?;
-            let _is_static = c.read_u8()?;
-            let _field_idx = c.read_u16()?;
-            let _msg_idx = c.read_u32()?;
-        }
-    }
     Ok(classes)
 }
 
@@ -939,12 +909,6 @@ fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<Fun
             for _ in 0..param_count {
                 param_attributes.push(read_attr_refs(&mut c, pool)?);
             }
-        }
-        // add-deprecated-directive (zbc 1.37): method_flags bit3=deprecated → trailing
-        // message index at the end of the SIGS entry. VM does not enforce deprecation
-        // (compile-time warning) → read and discard to keep the cursor aligned.
-        if method_flags & 0x08 != 0 {
-            let _msg_idx = c.read_u32()?;
         }
         sigs.push(FuncSig {
             name: c.pool_str(pool, name_idx)?.to_owned(),
