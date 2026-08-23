@@ -233,9 +233,22 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     if opts.print_stats {
         let counters = ctx.counters().snapshot();
         let h = ctx.heap().stats();
+        // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
+        // + user-lock contention counters (0 unless the `profile-contention`
+        // feature is built in).
+        let (park_count, park_us_total, park_max_us) = {
+            let ph = ctx.core.park_histogram.lock();
+            (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
+        };
+        use std::sync::atomic::Ordering::Relaxed;
         let snap = crate::counters::ProfileSnapshot::new(
             counters, h.allocations,
             h.minor_collections, h.major_collections, h.reclaimed_bytes,
+        )
+        .with_concurrency(
+            park_count, park_us_total, park_max_us,
+            ctx.core.lock_contentions.load(Relaxed),
+            ctx.core.lock_wait_us.load(Relaxed),
         );
         if opts.stats_json {
             eprintln!("{}", snap.to_json());

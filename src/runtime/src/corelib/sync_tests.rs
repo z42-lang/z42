@@ -590,3 +590,61 @@ fn rwlock_try_read_unknown_slot_errors() {
     let err = builtin_rwlock_try_read(&c, &[Value::I64(9_999)]).unwrap_err();
     assert!(err.to_string().contains("unknown slot id"));
 }
+
+// ── add-concurrency-probes (2026-08-23, script-profiling P1b) ────────────────
+//
+// Contention probes only exist under the `profile-contention` feature; these
+// tests are cfg-gated to it (the default build compiles them out along with
+// the probe code they exercise).
+
+#[cfg(feature = "profile-contention")]
+#[test]
+fn contended_acquire_bumps_contention_counters() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let main = ctx();
+    let id = match builtin_mutex_new(&main, &[Value::I64(0)]).unwrap() {
+        Value::I64(n) => n,
+        _ => panic!(),
+    };
+    // Main thread holds the lock.
+    builtin_mutex_lock_acquire(&main, &[Value::I64(id)]).unwrap();
+
+    // Worker shares the same VmCore (so the same mutex slot) and tries to
+    // acquire while main holds it → `try_lock` fails → contention recorded.
+    let core = main.core_arc();
+    let worker = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        builtin_mutex_lock_acquire(&w, &[Value::I64(id)]).unwrap();
+        builtin_mutex_unlock(&w, &[Value::I64(id)]).unwrap();
+    });
+
+    // Give the worker time to reach the contended acquire before we release,
+    // so its `try_lock` observes the lock held. A brief sleep is enough; the
+    // assertion below tolerates scheduling slop (>= 1).
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    builtin_mutex_unlock(&main, &[Value::I64(id)]).unwrap();
+    worker.join().expect("worker panicked");
+
+    assert!(
+        main.core.lock_contentions.load(Relaxed) >= 1,
+        "a contended acquire should bump lock_contentions",
+    );
+}
+
+#[cfg(feature = "profile-contention")]
+#[test]
+fn uncontended_acquire_does_not_bump_contention() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let c = ctx();
+    let id = match builtin_mutex_new(&c, &[Value::I64(0)]).unwrap() {
+        Value::I64(n) => n,
+        _ => panic!(),
+    };
+    // Single thread, no contention: try_lock always succeeds → no bump.
+    for _ in 0..5 {
+        builtin_mutex_lock_acquire(&c, &[Value::I64(id)]).unwrap();
+        builtin_mutex_unlock(&c, &[Value::I64(id)]).unwrap();
+    }
+    assert_eq!(c.core.lock_contentions.load(Relaxed), 0);
+    assert_eq!(c.core.lock_wait_us.load(Relaxed), 0);
+}

@@ -362,6 +362,22 @@ pub struct VmCore {
     /// [`VmContext::add_runtime_observer`]; subsystems fire via
     /// [`VmContext::fire_runtime_event`]. docs/review.md Part 4 D3.
     pub runtime_observers: crate::observer::RuntimeObserverRegistry,
+
+    /// **add-concurrency-probes (2026-08-23, script-profiling P1b)**: distribution
+    /// of how long mutators spend PARKED at a GC safepoint (STW stall as seen by
+    /// each stopped thread). Recorded in `gc::safepoint::park_until_idle`, which
+    /// only runs during an actual GC pause — so this costs the hot safepoint-check
+    /// path nothing (always-on). Reuses `PauseHistogram` (same shape as GC pauses).
+    pub(crate) park_histogram: Mutex<crate::gc::types::PauseHistogram>,
+
+    /// **add-concurrency-probes (2026-08-23)**: user-lock (`Std.Threading.Mutex` /
+    /// `RwLock`) contention counters. Written ONLY when the VM is built with the
+    /// `profile-contention` cargo feature (the probe in `corelib::sync` is
+    /// `#[cfg]`-gated); the default build never touches them → they stay 0.
+    /// `lock_contentions` = acquires that found the lock already held (`try_lock`
+    /// failed); `lock_wait_us` = cumulative µs blocked on those contended acquires.
+    pub(crate) lock_contentions: std::sync::atomic::AtomicU64,
+    pub(crate) lock_wait_us:     std::sync::atomic::AtomicU64,
 }
 
 /// Runtime-mutable state shared across one VM instance's interp + JIT paths.
@@ -677,6 +693,11 @@ impl VmContext {
             // attach via `VmContext::add_runtime_observer`. Phase 1 emits
             // ModuleLoaded from main.rs after each load_artifact.
             runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
+            // add-concurrency-probes (2026-08-23): empty park histogram + zeroed
+            // contention counters (only written under the `profile-contention` feature).
+            park_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
+            lock_contentions: std::sync::atomic::AtomicU64::new(0),
+            lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
         });
 
         // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into

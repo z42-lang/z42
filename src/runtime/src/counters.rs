@@ -174,32 +174,71 @@ pub struct ProfileSnapshot {
     pub major_collections: u64,
     /// Cumulative reclaimed bytes (from `HeapStats.reclaimed_bytes`).
     pub reclaimed_bytes:   u64,
+
+    // ── add-concurrency-probes (2026-08-23, script-profiling P1b) ──
+    /// Number of times a mutator parked at a GC safepoint (STW stalls).
+    pub park_count:        u64,
+    /// Cumulative µs mutators spent parked at safepoints.
+    pub park_us_total:     u64,
+    /// Longest single safepoint park, µs.
+    pub park_max_us:       u64,
+    /// User-lock contended acquires (`try_lock` miss). Non-zero only under the
+    /// `profile-contention` build; 0 in the default build.
+    pub lock_contentions:  u64,
+    /// Cumulative µs blocked on contended user-lock acquires. Feature-gated (see above).
+    pub lock_wait_us:      u64,
 }
 
 impl ProfileSnapshot {
     /// Assemble from a counter snapshot + the heap-derived fields. Kept as
     /// plain `u64` so `counters.rs` stays free of a `gc` dependency — the
-    /// caller (`app.rs`) extracts them from `HeapStats`.
+    /// caller (`app.rs`) extracts them from `HeapStats`. Concurrency-probe
+    /// fields default to 0; set them via [`with_concurrency`](Self::with_concurrency).
     pub fn new(
         counters: Snapshot, allocations: u64,
         minor_collections: u64, major_collections: u64, reclaimed_bytes: u64,
     ) -> Self {
-        Self { counters, allocations, minor_collections, major_collections, reclaimed_bytes }
+        Self {
+            counters, allocations, minor_collections, major_collections, reclaimed_bytes,
+            park_count: 0, park_us_total: 0, park_max_us: 0,
+            lock_contentions: 0, lock_wait_us: 0,
+        }
+    }
+
+    /// add-concurrency-probes (P1b): attach safepoint-park + user-lock-contention
+    /// numbers. `park_*` come from `VmCore.park_histogram` (count / total_us /
+    /// max_us); `lock_*` from the feature-gated `VmCore.lock_*` atomics (0 in the
+    /// default build). Separate setter so `new`'s arg list stays small.
+    pub fn with_concurrency(
+        mut self,
+        park_count: u64, park_us_total: u64, park_max_us: u64,
+        lock_contentions: u64, lock_wait_us: u64,
+    ) -> Self {
+        self.park_count = park_count;
+        self.park_us_total = park_us_total;
+        self.park_max_us = park_max_us;
+        self.lock_contentions = lock_contentions;
+        self.lock_wait_us = lock_wait_us;
+        self
     }
 
     /// Single-line JSON: a strict **superset** of [`Snapshot::to_json`] (same
-    /// `z42vm_counters` sentinel + all counter keys) plus `allocations` /
-    /// `minor_collections` / `major_collections` / `reclaimed_bytes`. Built by
-    /// splicing the counter JSON so the counter keys never drift; only adds
-    /// keys → back-compatible for `xtask profile`'s scraper.
+    /// `z42vm_counters` sentinel + all counter keys) plus the heap-derived and
+    /// concurrency-probe fields. Built by splicing the counter JSON so the
+    /// counter keys never drift; only adds keys → back-compatible for
+    /// `xtask profile`'s scraper.
     pub fn to_json(&self) -> String {
         let base = self.counters.to_json();
         let head = base.strip_suffix('}').unwrap_or(base.as_str());
         format!(
             "{head},\"allocations\":{},\"minor_collections\":{},\
-\"major_collections\":{},\"reclaimed_bytes\":{}}}",
+\"major_collections\":{},\"reclaimed_bytes\":{},\
+\"park_count\":{},\"park_us_total\":{},\"park_max_us\":{},\
+\"lock_contentions\":{},\"lock_wait_us\":{}}}",
             self.allocations, self.minor_collections,
             self.major_collections, self.reclaimed_bytes,
+            self.park_count, self.park_us_total, self.park_max_us,
+            self.lock_contentions, self.lock_wait_us,
         )
     }
 }
@@ -212,6 +251,11 @@ impl std::fmt::Display for ProfileSnapshot {
         writeln!(f, "gc_minor_collections: {}", self.minor_collections)?;
         writeln!(f, "gc_major_collections: {}", self.major_collections)?;
         writeln!(f, "gc_reclaimed_bytes:   {}", self.reclaimed_bytes)?;
+        writeln!(f, "park_count:           {}", self.park_count)?;
+        writeln!(f, "park_us_total:        {}", self.park_us_total)?;
+        writeln!(f, "park_max_us:          {}", self.park_max_us)?;
+        writeln!(f, "lock_contentions:     {}", self.lock_contentions)?;
+        writeln!(f, "lock_wait_us:         {}", self.lock_wait_us)?;
         write!(f, "---")
     }
 }
