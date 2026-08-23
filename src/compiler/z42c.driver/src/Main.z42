@@ -143,11 +143,20 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     string[] texts = new string[srcs.Length];
     int ti = 0;
     while (ti < srcs.Length) { texts[ti] = File.ReadAllText(srcs[ti]); ti = ti + 1; }
+    // attribute-handler-registry PR4e：handler（[analyzers] zpkg）身份指纹并入增量指纹（design red-line ②
+    // 「产物纳入指纹」，helper 在 BuildPaths.z42）——揉进每个文件源 hash，则「换 generator 但源没变」也令所有
+    // 缓存失效。空（无 [analyzers]，含 z42c 自建）→ `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
+    string handlerFp = _handlerFingerprint(pm, libsDirs, libsDirsN);
     // 源 hash 一次计算三处复用（probe / ZbcFileZ / meta——解释执行的 SHA-256 重复算曾是
     // D8 增量差价主项，见 IncrementalBuild.ProbeFiles 注）。
     string[] srcHashes = new string[srcs.Length];
     ti = 0;
-    while (ti < srcs.Length) { srcHashes[ti] = ZpkgBuilder.Sha256Hex(texts[ti]); ti = ti + 1; }
+    while (ti < srcs.Length) {
+        string hin = texts[ti];
+        if (handlerFp.Length > 0) { hin = hin + "\n#z42c-handler-fp:" + handlerFp; }
+        srcHashes[ti] = ZpkgBuilder.Sha256Hex(hin);
+        ti = ti + 1;
+    }
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
     bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
     // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认

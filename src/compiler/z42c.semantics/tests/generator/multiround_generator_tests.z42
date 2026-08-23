@@ -1,0 +1,135 @@
+// z42c.semantics GeneratorDriver.RunRounds 集成测试（attribute-handler-registry PR4e）。
+//
+// 验证有界多轮编排：applied + module generator 按 consumes/produces 拓扑分层（Kahn 最长路径 + 成环
+// 检测），逐层 re-bind，后层见前层生成的应用位/符号。成环 → E0449。默认（全空 consumes/produces）→
+// 全落第 0 层、一轮跑完 = 退化回单轮（与 PR4a Run 同结果）。
+//
+// 复用 generator_tests.z42 的 GenResult / hasCode（同一测试库）。
+namespace Z42cSemanticsGeneratorTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// ── 链式：Producer 生成带 [Tag] 的类；Consumer 后一轮 Augment 它（跨轮见前轮产出）─────────────
+
+// [Emit] → AddSource 一个带 [Tag] 的新类 Gizmo。Produces ["Tag"] → 排在 [Tag] consumer 之前。
+class EmitGenerator : Generator {
+    public string AppliedName() { return "Emit"; }
+    public string[] Consumes() { return new string[0]; }              // 默认 [Emit] → 第 0 层
+    public string[] Produces() { string[] p = new string[1]; p[0] = "Tag"; return p; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.AddSource("gen_gizmo.z42", "[Tag] class Gizmo { public int seed() { return 1; } }");
+    }
+}
+
+// [Tag] → Augment 被贴类注入 tagged()。Consumes 默认 [Tag]；因 Emit.Produces∩Tag.Consumes={Tag}
+// → Emit→Tag 边 → Tag 落第 1 层、见 Emit 第 0 层生成的 [Tag]@Gizmo 应用位。
+class TagGenerator : Generator {
+    public string AppliedName() { return "Tag"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.Augment(t.DeclId, "public int tagged() { return 2; }");
+    }
+}
+
+// ── 成环：A 消费 Y 产出 X；B 消费 X 产出 Y → A→B 且 B→A → E0449 ──────────────────────────────
+class CycAGenerator : Generator {
+    public string AppliedName() { return "CycA"; }
+    public string[] Consumes() { string[] c = new string[1]; c[0] = "Y"; return c; }
+    public string[] Produces() { string[] p = new string[1]; p[0] = "X"; return p; }
+    public void Generate(GenTarget t, GenSink sink) { }
+}
+class CycBGenerator : Generator {
+    public string AppliedName() { return "CycB"; }
+    public string[] Consumes() { string[] c = new string[1]; c[0] = "X"; return c; }
+    public string[] Produces() { string[] p = new string[1]; p[0] = "Y"; return p; }
+    public void Generate(GenTarget t, GenSink sink) { }
+}
+
+// ── 退化单轮：空 consumes/produces 的 AddSource generator（应与 PR4a Run 同结果）──────────────
+class SoloGenerator : Generator {
+    public string AppliedName() { return "Solo"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+    public void Generate(GenTarget t, GenSink sink) {
+        sink.AddSource("solo.z42", "class Solo1 { public int hi() { return 9; } }");
+    }
+}
+
+// ── 多轮 harness：parse → RunAst → GeneratorDriver.RunRounds → merged CollectAll → TypeChecker.Infer ──
+GenResult runRounds(Generator[] gens, int gc, ModuleGenerator[] mods, int mc, string[] srcs, int n) {
+    string[] files = new string[n];
+    CompilationUnit[] cus = new CompilationUnit[n];
+    int i = 0;
+    while (i < n) {
+        files[i] = "f" + i.ToString() + ".z42";
+        cus[i] = HandlerRegistry.RunAst(new Parser(srcs[i], files[i]).ParseCompilationUnit());
+        i = i + 1;
+    }
+    DiagnosticBag ed = new DiagnosticBag();
+    GenOutcome go = GeneratorDriver.RunRounds(gens, gc, mods, mc, cus, files, n, null, ed);
+    CompilationUnit[] mcus = go.HasOutput ? go.Cus : cus;
+    string[] mfiles = go.HasOutput ? go.Files : files;
+    int mc2 = go.HasOutput ? go.CuCount : n;
+    SymbolTable msym = new SymbolCollector().CollectAll(mcus, mfiles, mc2, null);
+    DiagnosticBag td = new DiagnosticBag();
+    int j = 0;
+    while (j < mc2) { new TypeChecker(td).Infer(mcus[j], msym); j = j + 1; }
+    return new GenResult(go, msym, ed, td);
+}
+
+Generator[] two(Generator a, Generator b) { Generator[] r = new Generator[2]; r[0] = a; r[1] = b; return r; }
+
+// ── 测试 ─────────────────────────────────────────────────────────────────────────
+
+[Test]
+void test_multiround_producer_then_consumer_chain() {
+    // Emit（第 0 层）生成 [Tag] class Gizmo → 再绑 → Tag（第 1 层）Augment Gizmo.tagged()。
+    string[] srcs = new string[1];
+    srcs[0] = "[Emit] class Seed { public int X; }";
+    GenResult r = runRounds(two(new EmitGenerator(), new TagGenerator()), 2, new ModuleGenerator[0], 0, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Z42ClassType gizmo = r.Merged.GetClass("Gizmo");
+    Assert.Equal(true, gizmo != null);
+    Assert.Equal(true, gizmo.Methods.ContainsKey("seed"));      // Emit 生成的原始成员
+    Assert.Equal(true, gizmo.Methods.ContainsKey("tagged"));    // Tag 后一轮 Augment 注入（跨轮见前轮产出）
+    // ordering fixup 生效 → 无残留 EmitAttribute/TagAttribute（E0443）
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+    Assert.Equal(false, hasCode(r.TypeDiags, "E0443"));
+}
+
+[Test]
+void test_multiround_cycle_reports_E0449() {
+    // CycA↔CycB 的 consumes/produces 成环 → 拓扑无法定序 → E0449、不产出。
+    string[] srcs = new string[1];
+    srcs[0] = "class Whatever { public int X; }";
+    GenResult r = runRounds(two(new CycAGenerator(), new CycBGenerator()), 2, new ModuleGenerator[0], 0, srcs, 1);
+    Assert.Equal(true, hasCode(r.EngineDiags, "E0449"));
+    Assert.Equal(false, r.Outcome.HasOutput);
+}
+
+[Test]
+void test_multiround_degrades_to_single_round() {
+    // 空 consumes/produces → 全落第 0 层、一轮跑完 = 单轮（AddSource 生效）。
+    string[] srcs = new string[1];
+    srcs[0] = "[Solo] class Host { public int X; }";
+    Generator[] g = new Generator[1]; g[0] = new SoloGenerator();
+    GenResult r = runRounds(g, 1, new ModuleGenerator[0], 0, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(true, r.Merged.GetClass("Solo1").Methods.ContainsKey("hi"));
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_multiround_no_generators_passthrough() {
+    // 无 generator → RunRounds 不产出 → CU 原样（byte-identical 保证）。
+    string[] srcs = new string[1];
+    srcs[0] = "class Plain { public int X; }";
+    GenResult r = runRounds(new Generator[0], 0, new ModuleGenerator[0], 0, srcs, 1);
+    Assert.Equal(false, r.Outcome.HasOutput);
+    Assert.Equal(1, r.Outcome.CuCount);
+}

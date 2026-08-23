@@ -18,6 +18,8 @@ using Z42.Core;
 // Augment：往被贴 struct 注入 eq。读 t.Symbol 证 post-bind 解析符号可用（方案 B）。触发名 = "AddEq"。
 class AddEqGenerator : Generator {
     public string AppliedName() { return "AddEq"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenTarget t, GenSink sink) {
         if (t.Symbol == null) { return; }   // provisional 符号未就绪 → 不生成（断言 eq 存在即证符号可用）
         sink.Augment(t.DeclId, "public bool eq(Point p) { return this.X == p.X && this.Y == p.Y; }");
@@ -27,6 +29,8 @@ class AddEqGenerator : Generator {
 // Replace：整体替换被贴类。触发名 = "Rewrite"。
 class RewriteGenerator : Generator {
     public string AppliedName() { return "Rewrite"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenTarget t, GenSink sink) {
         sink.Replace(t.DeclId, "class Widget { public int tag() { return 42; } }");
     }
@@ -35,6 +39,8 @@ class RewriteGenerator : Generator {
 // AddSource：追加一个兄弟新 CU。触发名 = "AddSibling"。
 class AddSiblingGenerator : Generator {
     public string AppliedName() { return "AddSibling"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenTarget t, GenSink sink) {
         sink.AddSource("helper.z42", "class Helper { public int help() { return 7; } }");
     }
@@ -43,6 +49,8 @@ class AddSiblingGenerator : Generator {
 // 越界：Augment 一个非自身 DeclId → 护栏 E0448。触发名 = "BadTarget"。
 class BadTargetGenerator : Generator {
     public string AppliedName() { return "BadTarget"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
     public void Generate(GenTarget t, GenSink sink) {
         sink.Augment(new DeclId("cls$Elsewhere"), "public int nope() { return 0; }");
     }

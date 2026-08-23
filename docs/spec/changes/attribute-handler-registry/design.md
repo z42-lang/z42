@@ -460,8 +460,44 @@ typecheck 会炸。`KindOf` 解析相位无 generator 集、无法按名分辨 g
 
 ### 护栏（本 PR 生效的子集）
 
-红线①（两 generator 碰同一 DeclId → 确定性报错）本 PR 即实现。红线②（有界多轮）→ PR4e；③（外部 handler 禁上
+红线①（两 generator 碰同一 DeclId → 确定性报错）本 PR 即实现。红线②（有界多轮）→ PR4e（✅ 见下）；③（外部 handler 禁上
 自举路径）→ PR4d（本 PR generator 靠注入、不入 z42c 自建）；④（纯函数约束）先文档化。
+
+### 有界多轮实现落法（PR4e，✅）
+
+**契约扩展**：`Generator` + `ModuleGenerator` 各加 `string[] Consumes()` / `string[] Produces()`（tag = attribute
+名，如 `"Route"`）。applied 空 `Consumes()` → 默认 `[AppliedName()]`（只依赖自身触发名）；module 空 → 空。
+
+> **⚠️ 分阶段落地（F2 冷启动 staged-bootstrap 纪律，bootstrap-seed.md 轴②）**：接线 `PackageCompile →
+> GeneratorDriver.RunRounds` 是**新跨成员符号**（pipeline→semantics），nightly 种子的 z42c.semantics 尚无
+> RunRounds → 冷启动 F2 stale-cache 会报 `no static method RunRounds`。故 **PR4e 本体落引擎 `RunRounds`
+> + `Consumes()`/`Produces()` 契约 + 单测 + 指纹（support），但 PackageCompile 仍走单轮 `Run`+`RunModules`
+> （不接线）**；**接线激活留 RunRounds 随 nightly 发布后的 follow-up PR（use，晚一 nightly）**。指纹（driver-
+> intra，无跨成员符号）本体即 active。E0449 由 GeneratorDriver 用**字面量 "E0449"** 发（同理避新 core 成员
+> 冷启动 undefined，常量在 DiagnosticCodes.z42 作登记 SoT）。
+
+**引擎 = `GeneratorDriver.RunRounds`**（follow-up 接线后替换 PackageCompile 里 PR4a/4c 的单轮 `Run`+`RunModules`；本 PR 已实现+单测，未接线）：
+
+1. **统一节点表**（`GenNode`，z42 无嵌套数组字段 → 用类持 `string[]`）：`0..genCount-1`=applied、
+   `genCount..N-1`=module。边 `u→v` iff `produces(u) ∩ consumes(v) ≠ ∅`（u 排 v 前）。
+2. **Kahn 最长路径分层 + 成环检测**：`level[v] = max(level[u]+1)`；处理数 `< N` → 成环 → **E0449**、不产出。
+3. **逐层 re-bind**：`level 0..maxLevel`，每层首 `CollectAll(union)`（level 0 = 原始 bind = 单轮），跑该层
+   **applied 先（按 AppliedName sort）→ module 后（注入序）**（轮内确定序，common-pitfalls §1），产出并进
+   union → 下层 re-bind 见前层产出（`[Emit]` 生成 `[Tag]` 类 → 下轮 `[Tag]` generator 命中）。
+4. **默认（全空 consumes/produces）→ 全落第 0 层、一轮跑完 = 退化回单轮**（applied 先 module 后，与 PR4a/4c
+   byte-identical）；z42c 自建无 generator → 调用方 gate off → RunRounds 不进 → 逐字节不动。
+
+**产物纳入增量指纹（红线② 后半）= handler 身份决定因子哈希**：直接在 probe 时"跑 generator 比对产物"是
+chicken-egg（generator 在 PackageCompile 内、probe 之后跑）。**正解（同 Roslyn incremental generator）**：由 D5
+纯函数约束，产物 = `f(handler 身份, 用户源)`——把 `[analyzers]` 段各 zpkg 的**内容指纹**（长度 + 溢出安全模
+多项式滚动哈希，`Main._handlerFingerprint`/`_bytesFp`，按名 Ordinal 稳定序）揉进**每个文件的源 hash**
+（`Sha256Hex(text + "\n#z42c-handler-fp:" + fp)`）。→ 换了 generator（zpkg 内容变）但用户源没变，也会令**所有**
+缓存条目 hash-diff 失效、绕开 `Main` 的 `AllCached` 早退（否则复用旧产物 = 陈旧）。**空指纹（无 [analyzers]，
+含 z42c 自建）→ `text+""==text` → 源 hash 逐字节不变 → 自举 byte-identical、`test incremental` 不受扰。**
+
+> **Deferred（PR4f）**：生成产物**跨 build 增量缓存复用**——现状 generator 一产出即 `cachedMods=null` 全量重编
+> （正确但非增量）。要让产物本身进增量 cache 复用，需 probe 感知 generator（probe 时运行 / 指纹化产物），是独立
+> 较大 change，不在 PR4e。PR4e 只保证「换 generator → 正确失效」，不做「同 generator → 复用产物」。
 
 ### applied vs module 能力边界（本 PR 记录）
 

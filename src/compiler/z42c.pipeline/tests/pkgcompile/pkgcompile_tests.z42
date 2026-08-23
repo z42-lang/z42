@@ -325,12 +325,16 @@ string _fixtureGeneratorSrc() {
         // applied：Augment 被贴类 override ToString → (40+2).ToString() == \"42\"（无嵌套字符串字面量）。
         + "public class StringifyGenerator : Generator {\n"
         + "    public string AppliedName() { return \"Stringify\"; }\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
         + "    public void Generate(GenTarget t, GenSink sink) {\n"
         + "        sink.Augment(t.DeclId, \"public override string ToString() { return (40 + 2).ToString(); }\");\n"
         + "    }\n"
         + "}\n"
         // module：TypesWith<EntityAttribute> 计数 n → 生成 EntityRegistry（count()==n，ToString 返回其字符串）。
         + "public class RegistryGenerator : ModuleGenerator {\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
         + "    public void Generate(GenContext ctx, GenSink sink) {\n"
         + "        GenType[] ts = ctx.TypesWith<EntityAttribute>();\n"
         + "        int n = ts.Length;\n"

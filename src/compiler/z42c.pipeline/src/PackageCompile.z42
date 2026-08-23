@@ -136,11 +136,16 @@ public static class PackageCompile {
                                                  allUsings, auc);
         }
 
-        // ── attribute-handler-registry PR4a：applied generator（方案 B post-bind splice/merge，参考 Roslyn）──
+        // ── attribute-handler-registry PR4a/4c：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──
         // gated on GeneratorCount>0 → z42c 自建无 generator → 分支不进 → 逐字节不动。有 generator 时走
-        // double-bind：provisional CollectAll（给 generator 解析符号）→ GeneratorDriver（Add/Replace/Augment
-        // → union）→ 下面 BuildPackageCus 对 union 重编（其内 CollectAll = real bind）。union 一律 fresh
-        // 编译（cachedMods=null）——生成内容使增量缓存失效（design：spliced 走非增量 union 路径）。
+        // double-bind：provisional CollectAll（给 generator 解析符号）→ applied `Run` + module `RunModules`
+        // （Add/Replace/Augment → union）→ 下面 BuildPackageCus 对 union 重编（其内 CollectAll = real bind）。
+        // union 一律 fresh 编译（cachedMods=null）——生成内容使增量缓存失效；跨 build 的 generator-身份失效由
+        // 增量 probe 的 handler 指纹兜底（PR4e，见 BuildPaths._handlerFingerprint，已 active）。
+        // ⚠️ **PR4e 有界多轮引擎（GeneratorDriver.RunRounds）已实现+单测，但此处仍走单轮**——接线
+        // PackageCompile→RunRounds 是新跨成员符号（pipeline→semantics），nightly 种子尚无 RunRounds → 冷启动
+        // F2 stale-cache 会炸（bootstrap-seed.md 轴②）。故接线延到 RunRounds 随 nightly 发布后的 follow-up PR
+        // （staged：support 先行、use 晚一 nightly）。届时本块单轮 Run+RunModules → RunRounds 即激活多轮。
         CompilationUnit[] cus = inp.Cus;
         string[] files = inp.Files;
         string[] texts = inp.Texts;

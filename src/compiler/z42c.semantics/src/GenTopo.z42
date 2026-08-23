@@ -1,0 +1,138 @@
+// attribute-handler-registry PR4e —— 有界多轮拓扑分层辅助（自 GeneratorDriver.z42 拆出守 500 行硬限）。
+//
+// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §有界多轮实现落法（PR4e）。
+//
+// 纯 semantics-内部辅助（只被同包 GeneratorDriver.RunRounds 调用——**不引入新的跨成员符号**，避免
+// PR4d 踩过的 F2 冷启动 stale-cache 陷阱）：把 applied + module generator 建成统一拓扑节点表、按
+// `produces ∩ consumes` 建边、Kahn 最长路径分层 + 成环检测。RunRounds 编排（逐层 re-bind + 调单轮引擎）
+// 仍在 GeneratorDriver.z42。
+// ⚠️ 本文件**刻意不引用 z42c.core（DiagnosticCodes/DiagnosticBag/Span）**——成环诊断（E0449）由
+// GeneratorDriver.RunRounds 发（既有文件、既有 core 链接）。新文件 + 新 core 符号引用会撞 F2 冷启动
+// stale-cache（`undefined: DiagnosticCodes`，见 GeneratorDriver.RunRounds 头注）。GenTopo 全用同命名空间
+// （Generator/ModuleGenerator/GenNode，Z42.Semantics）+ 内建数组，零跨包符号。
+namespace Z42.Semantics;
+
+public static class GenTopo {
+    // 建统一节点表：applied 空 consumes → 默认 [AppliedName()]（只依赖自身触发名）；module 空 → 空。
+    // 节点统一索引：`0..genCount-1` = applied（node i → gens[i]）；`genCount..N-1` = module（node genCount+j → mods[j]）。
+    public static GenNode[] BuildNodes(Generator[] gens, int genCount, ModuleGenerator[] mods, int modCount) {
+        GenNode[] nodes = new GenNode[genCount + modCount];
+        int i = 0;
+        while (i < genCount) {
+            string nm = gens[i].AppliedName();
+            string[] c = gens[i].Consumes();
+            if (c.Length == 0) { c = new string[1]; c[0] = nm; }
+            nodes[i] = new GenNode(true, i, nm, c, gens[i].Produces());
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < modCount) {
+            nodes[genCount + j] = new GenNode(false, j, "", mods[j].Consumes(), mods[j].Produces());
+            j = j + 1;
+        }
+        return nodes;
+    }
+
+    // Kahn 最长路径分层，写 nodes[v].Level；返回 maxLevel。边 u→v iff `produces(u) ∩ consumes(v) ≠ ∅`
+    // （u 排 v 前）。层号 = 最长路径 `level[v] = max(level[u]+1)`；Kahn 处理数 < N → **成环 → 返回 -1**
+    // （诊断 E0449 由调用方 GeneratorDriver.RunRounds 发——本文件不碰 z42c.core，避 F2 冷启动 stale-cache）。
+    public static int TopoLevels(GenNode[] nodes, int n) {
+        bool[] edge = new bool[n * n];
+        int[] inDeg = new int[n];
+        int u = 0;
+        while (u < n) {
+            int v = 0;
+            while (v < n) {
+                if (u != v && GenTopo._intersects(nodes[u].Produces, nodes[v].Consumes)) {
+                    edge[u * n + v] = true; inDeg[v] = inDeg[v] + 1;
+                }
+                v = v + 1;
+            }
+            u = u + 1;
+        }
+        int[] queue = new int[n];
+        int head = 0; int tail = 0;
+        int k = 0;
+        while (k < n) { if (inDeg[k] == 0) { queue[tail] = k; tail = tail + 1; } k = k + 1; }
+        int processed = 0;
+        while (head < tail) {
+            int a = queue[head]; head = head + 1; processed = processed + 1;
+            int b = 0;
+            while (b < n) {
+                if (edge[a * n + b]) {
+                    if (nodes[a].Level + 1 > nodes[b].Level) { nodes[b].Level = nodes[a].Level + 1; }
+                    inDeg[b] = inDeg[b] - 1;
+                    if (inDeg[b] == 0) { queue[tail] = b; tail = tail + 1; }
+                }
+                b = b + 1;
+            }
+        }
+        if (processed < n) { return -1; }   // 成环——调用方发 E0449
+        int maxLevel = 0;
+        int m = 0;
+        while (m < n) { if (nodes[m].Level > maxLevel) { maxLevel = nodes[m].Level; } m = m + 1; }
+        return maxLevel;
+    }
+
+    // a 与 b 有公共 tag（精确字符串相等）。
+    private static bool _intersects(string[] a, string[] b) {
+        int i = 0;
+        while (i < a.Length) {
+            int j = 0;
+            while (j < b.Length) { if (a[i] == b[j]) { return true; } j = j + 1; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 本层 applied generator 子集，按 AppliedName 稳定序（选择排序，规模小；common-pitfalls §1）。
+    public static Generator[] LevelApplied(GenNode[] nodes, int n, Generator[] gens, int lvl) {
+        int cnt = 0;
+        int i = 0;
+        while (i < n) { if (nodes[i].IsApplied && nodes[i].Level == lvl) { cnt = cnt + 1; } i = i + 1; }
+        Generator[] r = new Generator[cnt];
+        int w = 0;
+        i = 0;
+        while (i < n) {
+            if (nodes[i].IsApplied && nodes[i].Level == lvl) { r[w] = gens[nodes[i].Index]; w = w + 1; }
+            i = i + 1;
+        }
+        int p = 0;
+        while (p < cnt) {
+            int min = p; int q = p + 1;
+            while (q < cnt) { if (r[q].AppliedName().CompareTo(r[min].AppliedName()) < 0) { min = q; } q = q + 1; }
+            if (min != p) { Generator t = r[p]; r[p] = r[min]; r[min] = t; }
+            p = p + 1;
+        }
+        return r;
+    }
+
+    // 本层 module generator 子集（按注入序，天然稳定）。
+    public static ModuleGenerator[] LevelModules(GenNode[] nodes, int n, ModuleGenerator[] mods, int lvl) {
+        int cnt = 0;
+        int i = 0;
+        while (i < n) { if (!nodes[i].IsApplied && nodes[i].Level == lvl) { cnt = cnt + 1; } i = i + 1; }
+        ModuleGenerator[] r = new ModuleGenerator[cnt];
+        int w = 0;
+        i = 0;
+        while (i < n) {
+            if (!nodes[i].IsApplied && nodes[i].Level == lvl) { r[w] = mods[nodes[i].Index]; w = w + 1; }
+            i = i + 1;
+        }
+        return r;
+    }
+}
+
+// 有界多轮（PR4e）拓扑节点：applied/module generator 统一表示（z42 无嵌套数组字段 → 用类持 string[]）。
+public sealed class GenNode {
+    public bool     IsApplied;   // true=applied（gens[Index]）；false=module（mods[Index]）
+    public int      Index;       // 进 gens[] 或 mods[] 的下标
+    public string   Key;         // 稳定序键：applied=AppliedName；module=""（用注入序）
+    public string[] Consumes;    // 有效 consumes（applied 空已补默认 [AppliedName()]）
+    public string[] Produces;
+    public int      Level;       // 拓扑层号（最长路径），TopoLevels 填
+    public GenNode(bool isApplied, int index, string key, string[] consumes, string[] produces) {
+        this.IsApplied = isApplied; this.Index = index; this.Key = key;
+        this.Consumes = consumes; this.Produces = produces; this.Level = 0;
+    }
+}
