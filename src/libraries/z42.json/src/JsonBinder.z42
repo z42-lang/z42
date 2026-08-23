@@ -20,6 +20,9 @@ public static class JsonBinder {
         if (fn == "bool"   || fn == "Std.Boolean") { return v.AsBool(); }
         if (fn == "string" || fn == "Std.String")  { return v.AsString(); }
         if (t.IsArray) { return JsonBinder._fromArray(t, v); }
+        // add-collection-serde：集合检测先于通用对象构造。
+        if (fn == "Std.Collections.List")       { return JsonBinder._fromList(t, v); }
+        if (fn == "Std.Collections.Dictionary") { return JsonBinder._fromDict(t, v); }
         return JsonBinder._fromObject(t, v);
     }
 
@@ -33,6 +36,38 @@ public static class JsonBinder {
             i = i + 1;
         }
         return arr;
+    }
+
+    // JSON array → List<T>：反射构造（非泛型 Activator 作用于构造泛型 Type）+ 逐元素反射 Add。
+    private static object _fromList(Type t, JsonValue v) {
+        Type elem = JsonReflect.GenericArg(t, 0);
+        object list = Activator.CreateInstance(t);
+        int n = v.Count();
+        int i = 0;
+        while (i < n) {
+            JsonReflect.ListAdd(list, JsonBinder.FromJson(elem, v.At(i)));
+            i = i + 1;
+        }
+        return list;
+    }
+
+    // JSON object → Dictionary<string,V>：键必为 string；逐键反射 set_Item。
+    private static object _fromDict(Type t, JsonValue v) {
+        Type keyT = JsonReflect.GenericArg(t, 0);
+        string kf = keyT.FullName;
+        if (kf != "string" && kf != "Std.String") {
+            throw new JsonException("Dictionary key type must be string for JSON object deserialization, got " + kf);
+        }
+        Type valT = JsonReflect.GenericArg(t, 1);
+        object dict = Activator.CreateInstance(t);
+        string[] keys = v.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            string k = keys[i];
+            JsonReflect.DictSet(dict, k, JsonBinder.FromJson(valT, v.Get(k)));
+            i = i + 1;
+        }
+        return dict;
     }
 
     private static object _fromObject(Type t, JsonValue v) {

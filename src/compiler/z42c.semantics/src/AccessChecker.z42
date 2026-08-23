@@ -63,6 +63,29 @@ public sealed class AccessChecker {
         this._tc._diags.Error(DiagnosticCodes.AccessViolation, msg, sp);
     }
 
+    // ── add-deprecated-directive（PR5）：use-site 弃用检测 ────────────────────────────────────
+    // 解析到某符号后调；若其带 `[Deprecated]`，记一条 hit 到当前 CU（相位错配：检测在 typecheck、治理
+    // 在 PackageCompile._runDeprecation，届时按 [lints]/WAE/#suppress 决定最终 severity/抑制）。不直接进 bag。
+    public void CheckDeprecatedM(MethodSymbol m, string name, Span sp) {
+        if (m != null && m.IsDeprecated) { this._recordDep(name, m.DeprecationMsg, sp); }
+    }
+    public void CheckDeprecatedF(FieldSymbol f, string name, Span sp) {
+        if (f != null && f.IsDeprecated) { this._recordDep(name, f.DeprecationMsg, sp); }
+    }
+    public void CheckDeprecatedT(Z42ClassType t, Span sp) {
+        if (t != null && t.IsDeprecated) { this._recordDep(t.Name(), t.DeprecationMsg, sp); }
+    }
+    // 直接发 use-site 弃用告警到 _diags（code "deprecated"，Warning 级，不阻断编译）。#suppress 局部抑制
+    // 用 TypeChecker 每-CU 建的 _curSuppress（源自 cu.SuppressRegions，PR3c 既有；语义内、F2 安全——不改
+    // z42c.syntax 跨成员面）。**[lints]/warnings-as-errors 治理留 Deferred**：接 LintConfig 到 typecheck 相位
+    // 需 pipeline→semantics 新跨成员符号（撞 F2 冷启动 stale-cache），待 F2 修复/staged 后补。见 design.md。
+    private void _recordDep(string name, string msg, Span sp) {
+        if (this._tc._curSuppress != null && this._tc._curSuppress.IsSuppressed("deprecated", sp.Start)) { return; }
+        string m = "`" + name + "` 已弃用（deprecated）";
+        if (msg != "") { m = m + "：" + msg; }
+        this._tc._diags.Warning("deprecated", m, sp);
+    }
+
     // ── enforce-class-access：类级访问强制（引用点） ──────────────────────────────────────────
     // 从 currentClass 上下文**引用** resolved 类型是否允许；违规 emit E0404 到 diags（不阻断）。
     // 静态 + 显式 diag bag：绑定期（binder → _tc._diags）与收集期（SymbolCollector → 其 Diags）共用同一逻辑。

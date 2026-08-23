@@ -1556,6 +1556,27 @@ impl VmContext {
         result
     }
 
+    /// Force-load every not-yet-loaded declared package (one-time eager load).
+    /// Used by reflection's `make_type_from_name` dotless fallback when a class-like
+    /// simple name (e.g. a constructed-generic field type_tag base `List`) can't be
+    /// resolved from already-loaded types. See `LazyLoader::force_load_all`.
+    pub fn force_load_all_packages(&self) {
+        let newly = {
+            let mut state = self.core.lazy_loader.lock();
+            match state.as_mut() {
+                Some(loader) => {
+                    loader.newly_loaded.clear();
+                    loader.force_load_all();
+                    std::mem::take(&mut loader.newly_loaded)
+                }
+                None => Vec::new(),
+            }
+        };
+        for name in newly {
+            self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+        }
+    }
+
     /// add-crosspkg-impl-reflection (unify P1-e): traits added to `target_fq`
     /// via cross-package `impl Trait for Type`, aggregated from every loaded
     /// package's IMPL section (returns owned Vec — the registry lives behind

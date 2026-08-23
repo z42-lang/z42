@@ -91,40 +91,8 @@ pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -
 pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;
 
 // ─── Shared numeric helpers ─────────────────────────────────────────────────
-
-pub(super) fn int_binop_helper(
-    va: &Value, vb: &Value,
-    int_op: impl Fn(i64, i64) -> i64, float_op: impl Fn(f64, f64) -> f64,
-) -> anyhow::Result<Value> {
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => Value::I64(int_op(*x, *y)),
-        (Value::F64(x), Value::F64(y)) => Value::F64(float_op(*x, *y)),
-        (Value::F64(x), Value::I64(y)) => Value::F64(float_op(*x, *y as f64)),
-        (Value::I64(x), Value::F64(y)) => Value::F64(float_op(*x as f64, *y)),
-        (a, b) => anyhow::bail!("type mismatch in arithmetic: {:?} vs {:?}", a, b),
-    })
-}
-
-pub(super) fn int_bitop_helper(
-    va: &Value, vb: &Value, op: impl Fn(i64, i64) -> i64,
-) -> anyhow::Result<Value> {
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => Value::I64(op(*x, *y)),
-        (a, b) => anyhow::bail!("bitwise op requires integral operands, got {:?} and {:?}", a, b),
-    })
-}
-
-pub(super) fn numeric_lt_helper(va: &Value, vb: &Value) -> anyhow::Result<bool> {
-    Ok(match (va, vb) {
-        (Value::I64(x), Value::I64(y)) => x < y,
-        (Value::F64(x), Value::F64(y)) => x < y,
-        (Value::F64(x), Value::I64(y)) => *x < (*y as f64),
-        (Value::I64(x), Value::F64(y)) => (*x as f64) < *y,
-        // fix-char-comparison (2026-05-24): mirror interp::ops::numeric_lt
-        // — Char-vs-Char + mixed Char/I64 widening.
-        (Value::Char(x), Value::Char(y)) => x < y,
-        (Value::Char(x), Value::I64(y))  => (*x as u32 as i64) < *y,
-        (Value::I64(x),  Value::Char(y)) => *x < (*y as u32 as i64),
-        (a, b) => anyhow::bail!("type mismatch in comparison: {:?} vs {:?}", a, b),
-    })
-}
+//
+// converge-vm-arith-semantics (H3): the scalar rules formerly duplicated here
+// (`int_binop_helper` / `int_bitop_helper` / `numeric_lt_helper` were verbatim
+// copies of `interp/ops.rs`) now live once in `crate::semantics`. Call sites in
+// `arith.rs` use `crate::semantics::{int_binop, int_bitop, numeric_lt}` directly.

@@ -112,6 +112,7 @@ public sealed class MemberCollector {
                 FieldSymbol fsym = new FieldSymbol(fd.Name, this._sc._vis(fd.Mods, "private"), ft, fstatic, c.Name);
                 fsym.IsReadonly = this._sc._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
                 if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
+                if (HandlerRegistry.HasDeprecated(c.Members[j])) { fsym.IsDeprecated = true; fsym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地字段级
                 ct.Fields.Put(fd.Name, fsym);
                 if (this._sc._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
@@ -178,6 +179,7 @@ public sealed class MemberCollector {
                 // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
                 bool mst = this._sc._hasWord(md.Mods, "static");
                 MethodSymbol msym = this._sc._methodSymbol(table, md, c.Name, tp, tpc);
+                if (HandlerRegistry.HasDeprecated(c.Members[j])) { msym.IsDeprecated = true; msym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地方法级
                 // stabilize-dispatch-keys（方案A，静态-only）：
                 // - 常规静态方法：恒全签名 mangle → 键是方法自身签名的纯函数，加/删重载不再 re-mangle 现有静态键
                 //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。

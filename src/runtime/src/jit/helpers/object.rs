@@ -179,7 +179,9 @@ pub unsafe extern "C" fn jit_convert(
             return 1;
         }
     };
-    let result = match crate::interp::exec_value::convert_value(src_val, to_tag as u8) {
+    // converge-vm-arith-semantics (H3): convert dispatch moved to the shared
+    // single source of truth (was `interp::exec_value::convert_value`).
+    let result = match crate::semantics::convert_value(src_val, to_tag as u8) {
         Ok(v) => v,
         Err(e) => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("{:#}", e).into()));

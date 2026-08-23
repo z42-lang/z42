@@ -357,7 +357,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | L3-G3a 关联类型 | `where T: IAdd<Output=T>` + zbc 扩展 + 运行时校验 | [language/generics.md](design/language/generics.md) |
-| json-serde 集合类型（json-serde-future-collections）| `List<T>`/`Dictionary<K,V>`/`Set` 的 serde（需泛型容器运行期反射 + Add 反射）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
+| json-serde 集合类型（json-serde-future-collections）| ~~`List<T>` + `Dictionary<string,V>`~~ ✅ add-collection-serde（反射-only + 2 小 runtime 反射修复）。剩：`Dictionary<K,V>` 非字符串键（→ array-of-pairs）、`Set`/`Queue`/`Stack` | [changes/add-collection-serde/design.md](spec/changes/add-collection-serde/design.md) Deferred 段 |
 | json-serde enum/nullable/char（json-serde-future-enum-nullable-char）| enum（名/底层值）、`T?`、char 的 serde 映射 | [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
 | json-serde 命名策略（json-serde-future-casing-policy）| camelCase↔PascalCase 自动命名策略（workaround：逐成员 `[JsonProperty]`）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
 | serde 公开反射 API 下沉（json-serde-future-public-reflection-api）| 把 `Std.Array` 反射静态 + `PropertyInfo.GetCustomAttributes` 从 z42.json-local extern 下沉为公开 API（本 nightly 发布后的非-format-bump follow-up；gen0 约束见 design）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |

@@ -68,6 +68,10 @@ public sealed class Z42ClassType : Z42Type {
     // 供类级访问强制（AccessChecker.CheckTypeRef）判定「从当前上下文引用该类型是否允许」。位置默认：
     // 嵌套类（名含 '+'）→ private、顶层类 → internal；显式修饰符优先。
     public string Visibility;
+    // add-deprecated-directive：类级 `[Deprecated]`。默认 false；本地由 SymbolCollector 从 attr 设置，
+    // 导入由 ImportedSymbolLoader 从 CLASS_FLAG_DEPRECATED 还原。供 use-site（new/类型引用）告警。
+    public bool   IsDeprecated;
+    public string DeprecationMsg;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -82,6 +86,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsSealed = false;
         this.IsImported = false;
         this.Visibility = "public";
+        this.IsDeprecated = false; this.DeprecationMsg = "";
     }
 
     // unify-value-types Phase 1 阶段 3（消灭 Z42PrimType）：内建基元/string/object 的**轻量合成**

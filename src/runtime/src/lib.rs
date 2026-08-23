@@ -8,6 +8,9 @@ pub mod gc;
 pub mod pal;
 pub mod thread;
 pub mod exception;
+// converge-vm-arith-semantics (H3): 算术/比较/转换标量语义的唯一真相源，
+// interp 执行循环 + JIT helper 都调用它（内联 Cranelift 路径以注释锚定 + 差分测试担保）。
+pub mod semantics;
 pub mod interp;
 // 2026-05-07 add-runtime-feature-flags (P4.1): jit / aot are feature-gated.
 // `default = ["jit"]` keeps backward compat; platforms (wasm / ios / android)

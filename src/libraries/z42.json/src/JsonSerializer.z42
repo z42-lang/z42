@@ -41,7 +41,35 @@ public static class JsonSerializer {
         if (fn == "Std.Boolean") { return JsonValue.OfBool((bool)o); }
         if (fn == "Std.String")  { return JsonValue.OfString((string)o); }
         if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
+        // add-collection-serde：集合检测**先于**通用对象分派（否则 List/Dict 被当对象遍历内部字段）。
+        if (fn == "Std.Collections.List")       { return JsonSerializer._listToJson(o); }
+        if (fn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o); }
         return JsonSerializer._objectToJson(o, t);
+    }
+
+    // List<T> → JSON array（反射 Count + get_Item 遍历，元素按运行期类型递归）。
+    private static JsonValue _listToJson(object o) {
+        JsonValue arr = JsonValue.OfArray();
+        int n = JsonReflect.ListCount(o);
+        int i = 0;
+        while (i < n) {
+            arr.Add(JsonSerializer._toJson(JsonReflect.ListGet(o, i)));
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    // Dictionary<string,V> → JSON object（反射 Keys + get_Item，键为字符串）。
+    private static JsonValue _dictToJson(object o) {
+        JsonValue obj = JsonValue.OfObject();
+        string[] keys = JsonReflect.DictKeys(o);
+        int i = 0;
+        while (i < keys.Length) {
+            string k = keys[i];
+            obj.Set(k, JsonSerializer._toJson(JsonReflect.DictGet(o, k)));
+            i = i + 1;
+        }
+        return obj;
     }
 
     private static JsonValue _arrayToJson(object o) {

@@ -17,6 +17,8 @@ public sealed class TypeChecker {
     public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     public ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用）
+    public CompilationUnit _curCu;          // add-deprecated-directive：当前检查中的 CU（use-site 弃用告警的 #suppress 源）
+    public SuppressionSet  _curSuppress;    // add-deprecated-directive：本 CU 的 #suppress 区间集（cu.SuppressRegions，PR3c）；语义内、F2 安全
     public OverloadBinder _overload;      // review P1-1：重载决议子绑定器（backref mediator）
     public MemberResolver _member;         // God-Class 拆分 step2：成员解析子绑定器
     public AccessChecker  _access;         // enforce-access-control：访问权限校验（private/protected/internal）
@@ -27,6 +29,7 @@ public sealed class TypeChecker {
     // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
+        if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
     }
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
@@ -34,6 +37,7 @@ public sealed class TypeChecker {
         this._lambdaActive = false;
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";
+        this._curCu = null; this._curSuppress = null;   // add-deprecated-directive
         this._overload = new OverloadBinder(this);
         this._member = new MemberResolver(this);
         this._access = new AccessChecker(this);
@@ -264,6 +268,15 @@ public sealed class TypeChecker {
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
         var model = new SemanticModel(symbols);
         symbols.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：本 CU 文件级别名生效
+        this._curCu = cu;   // add-deprecated-directive：use-site 弃用告警的 #suppress 源
+        // 建本 CU 的 #suppress 区间集（cu.SuppressRegions 是 PR3c 既有字段）。语义内构造 → F2 安全。
+        this._curSuppress = new SuppressionSet();
+        int _sr = 0;
+        while (_sr < cu.SuppressRegionCount) {
+            SuppressRegion _srr = cu.SuppressRegions[_sr];
+            this._curSuppress.AddRegion(_srr.RuleId, _srr.Start, _srr.End);
+            _sr = _sr + 1;
+        }
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
         this._constraints.Resolve(cu, symbols);   // Pass 0.5：泛型 where 约束解析（2B，镜像 C# ResolveAllWhereConstraints）
         this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
