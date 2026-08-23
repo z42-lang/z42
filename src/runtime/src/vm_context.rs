@@ -378,6 +378,15 @@ pub struct VmCore {
     /// failed); `lock_wait_us` = cumulative µs blocked on those contended acquires.
     pub(crate) lock_contentions: std::sync::atomic::AtomicU64,
     pub(crate) lock_wait_us:     std::sync::atomic::AtomicU64,
+
+    /// **add-sampling-profiler (2026-08-24, script-profiling P2)**: safepoint
+    /// sampling profiler. `Sampler::disabled()` unless `Z42_SAMPLE_HZ` is set,
+    /// in which case a background timer thread flags samples that mutators
+    /// snapshot at their next safepoint (`gc::safepoint::check_safepoint_slow`
+    /// Idle tail). Default-off is zero-cost: no thread, one `enabled()` atomic
+    /// load on the already-throttled slow path. Produces a folded flamegraph
+    /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
+    pub(crate) sampler: crate::gc::Sampler,
 }
 
 /// Runtime-mutable state shared across one VM instance's interp + JIT paths.
@@ -698,6 +707,16 @@ impl VmContext {
             park_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
             lock_contentions: std::sync::atomic::AtomicU64::new(0),
             lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
+            // add-sampling-profiler (2026-08-24): start the sampler only when
+            // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
+            // Trace timeline recorded only when Z42_TRACE_OUT is also set.
+            sampler: match crate::config::runtime_config().sample_hz {
+                Some(hz) => crate::gc::Sampler::start(
+                    hz,
+                    crate::config::runtime_config().trace_out.is_some(),
+                ),
+                None => crate::gc::Sampler::disabled(),
+            },
         });
 
         // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into

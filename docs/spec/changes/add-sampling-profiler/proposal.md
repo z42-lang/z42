@@ -20,9 +20,13 @@
    `check_safepoint_slow` 一次 atomic load）。
 2. **退出时输出**（app.rs）：运行结束把累加的 folded stacks 写到 `Z42_SAMPLE_OUT`（默认 `z42-samples.folded`），
    格式 `frame1;frame2;frame3 <count>` 每行——inferno / flamegraph.pl 的标准输入格式。
-3. **xtask profile --cpu 增强**：现有 samply（native）保留；新增 **z42-level 火焰图**——用 `Z42_SAMPLE_HZ`
-   跑一遍收 folded stacks，有 `inferno` CLI 则渲成 SVG，否则落 `.folded` 文件 + 查看提示（镜像 `--heap` 的
-   dhat 产物模式）。
+3. **perfetto / chrome trace（采样型，User 裁决 B）**：设 `Z42_TRACE_OUT` 时，用**同一次** safepoint 栈快照
+   额外记 `(ts_us, 栈)` 样本序列，退出写 chrome legacy JSON（`ph:"P"` sample 事件 + `stackFrames` 帧树），
+   perfetto UI 直接 import 渲成**采样火焰图 over time**。关键：这是**采样型** trace（复用采样，零额外热路径成本），
+   **不是** span 埋点型（每帧 enter/exit 计时，那依赖 diagnostics §4.2 基建、才真翻倍）。
+4. **xtask profile --cpu 增强**：现有 samply（native）保留；新增 **z42-level 火焰图**——用 `Z42_SAMPLE_HZ`
+   (+`Z42_TRACE_OUT`) 跑一遍收 folded stacks，有 `inferno` CLI 则渲成 SVG，否则落 `.folded` 文件 + 查看提示；
+   trace JSON 落产物目录 + perfetto 查看提示（镜像 `--heap` 的 dhat 产物模式）。
 
 ## Scope（允许改动的文件）
 
@@ -32,8 +36,8 @@
 | `src/runtime/src/vm_context.rs` | MODIFY | `VmCore` 加 `sampler: Sampler`；`new_internal` 按 `Z42_SAMPLE_HZ` 启动 |
 | `src/runtime/src/gc/safepoint.rs` | MODIFY | `check_safepoint_slow` Idle 路径：见 `sample_pending` → 快照 call_stack → 累加 |
 | `src/runtime/src/gc/mod.rs` | MODIFY | `pub mod sampler;` |
-| `src/runtime/src/config.rs` | MODIFY | `KNOWN_KNOBS` 加 `Z42_SAMPLE_HZ` / `Z42_SAMPLE_OUT` |
-| `src/runtime/src/app.rs` | MODIFY | run() 结束 flush sampler 的 folded stacks 到输出文件 |
+| `src/runtime/src/config.rs` | MODIFY | `KNOWN_KNOBS` 加 `Z42_SAMPLE_HZ` / `Z42_SAMPLE_OUT` / `Z42_TRACE_OUT` |
+| `src/runtime/src/app.rs` | MODIFY | run() 结束 flush sampler 的 folded stacks（+ 设 `Z42_TRACE_OUT` 时 chrome trace）|
 | `src/runtime/src/gc/sampler_tests.rs` | NEW | 采样累加 + folded 格式单测（手动置 flag + 造 call_stack） |
 | `scripts/xtask_profile.z42` | MODIFY | `_profileCpu` 加 z42-level 火焰图（inferno / folded 产物） |
 | `docs/book/src/runtime/diagnostics.md` | NEW | **知识上浮**：诊断/profiling 机制页（counter/park/contention/采样统一落 book）|
@@ -46,9 +50,9 @@
 
 ## Out of Scope
 
-- **perfetto / chrome trace（`--trace-out`，diagnostics.md §7）**：不同输出格式（时间线事件，非聚合火焰图）。
-  本 change 交付 **folded-stacks 火焰图**（核心价值）；perfetto trace 记 **Deferred**（后续 change）。
-- **per-thread 火焰图归属**：v1 全局累加（多线程栈混在一起）；per-thread 归属 Deferred。
+- **span 埋点型 trace**（每帧精确 enter/exit 计时，diagnostics.md §4.2）：本 change 的 perfetto 是**采样型**、
+  复用采样零额外成本；精确 span 时间线依赖 §4.2 基建，仍 **Deferred**。
+- **per-thread 火焰图 / trace 分轨归属**：v1 全局累加（folded 一张图 + trace 全记 `tid:1`）；per-thread Deferred。
 - **暴露到 z42 脚本 API**：采样只经 env + xtask，不新增 `Std.Diagnostics` API。
 - **JIT-code 采样精度**：safepoint 只在 backward-branch/call 处，JIT 内联/无 safepoint 段采不到——记 Deferred。
 
@@ -56,5 +60,5 @@
 
 - [x] 采样机制 → DRAFT D5：后台线程置 flag + mutator 在 safepoint 快照（复用协作式轮询）。
 - [x] 知识上浮落点 → User 已授权按 book 结构选：新建 `docs/book/src/runtime/diagnostics.md`。
-- [ ] **perfetto trace 是否本 change 做**：倾向 **Deferred**（folded 火焰图是核心；perfetto 是另一输出格式、
-      工作量翻倍）。**实施前请 User 拍板**：只做火焰图（推荐）vs 火焰图+perfetto 一起。
+- [x] **perfetto trace 是否本 change 做** → **User 裁决 B（2026-08-24）：一起做**。采用**采样型** chrome trace
+      （复用同一采样，非 span 埋点），故不依赖 §4.2、不翻倍热路径成本。见 design.md D5。

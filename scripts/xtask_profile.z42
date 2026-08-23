@@ -4,16 +4,19 @@
 // compiles the script once (via z42c, like `bench`) then, per requested
 // dimension, hangs an external profiler or a knob off the z42vm run:
 //
-//   --cpu      samply → native CPU flamegraph (missing → install hint, skip)
+//   --cpu      samply native flamegraph + z42-level sampling flamegraph
+//              (safepoint sampler → inferno SVG + perfetto trace, P2)
 //   --heap     build a throwaway dhat-heap VM → dhat-heap.json + counter摘要
 //   --threads  counter摘要 (safepoint/lock model note) + samply per-thread hint
 //   --e2e      hyperfine wall-clock + /usr/bin/time peak-RSS + counter摘要
 //   --all      run all four → write report.md
 //
-// P0 is the "native world" pass (external tools, read DWARF, ~zero VM change) +
+// P0 was the "native world" pass (external tools, read DWARF, ~zero VM change) +
 // the JSON counter surface (`z42vm --print-stats-on-exit --stats-format=json`,
-// scraped off stderr). Script-world attribution (z42 flamegraphs) is P2. The
-// design lives in docs/spec/changes/plan-script-profiling/. Same Z42Xtask
+// scraped off stderr). P2 (add-sampling-profiler) adds z42-source-function
+// attribution: `--cpu` now also runs the VM under Z42_SAMPLE_HZ → folded stacks
+// (inferno flamegraph) + a perfetto sample-trace. The design lives in
+// docs/spec/changes/{plan-script-profiling,add-sampling-profiler}/. Same Z42Xtask
 // namespace; reuses _root/_exec/_have/_builtVm/_libsDir/_driverZpkg/
 // _assembleAllLibs/_ensureToolchainDeps/_extractNamespace from xtask_common /
 // xtask_toolchain / xtask_bench.
@@ -112,26 +115,84 @@ int _profile(ParseResult r) {
 
 // ── CPU (samply) ────────────────────────────────────────────────────────────
 
-// samply records a native CPU profile (Firefox Profiler format, reads DWARF,
-// mac免root). Absent → print the one-liner install hint and skip (never crash).
+// Two layers (script-profiling P2 adds the second):
+//   1. NATIVE (samply): Firefox Profiler format, reads DWARF, mac免root. Shows
+//      Rust/JIT machine frames — good for VM internals, opaque for "which z42
+//      function is hot" (JIT code is mangled machine frames, interp is all in
+//      the dispatch loop).
+//   2. Z42-LEVEL (safepoint sampler): run under Z42_SAMPLE_HZ → folded stacks
+//      of z42 source functions (`Main;foo;bar`) → inferno flamegraph SVG. Plus
+//      an optional perfetto/chrome sample-trace (Z42_TRACE_OUT) — a timeline of
+//      the same samples, viewable at https://ui.perfetto.dev.
+// Missing external tools → install hint + skip; never crash the profile.
 string _profileCpu(ProfileCtx c) {
-    Console.WriteLine("── cpu (samply) ──");
+    Console.WriteLine("── cpu (samply — native) ──");
+    string report = "## cpu\n\n";
     if (!_have("samply")) {
         Console.WriteLine("  ⊘ samply not found — install: `cargo install samply` (or brew install samply)");
-        return "## cpu\n\n_samply not installed — `cargo install samply`._\n\n";
+        report = report + "_samply not installed — `cargo install samply` (native flamegraph)._\n\n";
+    } else {
+        string prof = Path.Join(c.outDir, "cpu-profile.json.gz");
+        // `samply record --save-only -o <out> -- <vm> <zbc> <entry> --mode <m>`
+        int rc = _exec(new Process("samply").Arg("record").Arg("--save-only")
+            .Arg("-o").Arg(prof).Arg("--")
+            .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+            .Env("Z42_LIBS", c.libs));
+        if (rc != 0) {
+            Console.WriteLine("  ✗ samply record failed (rc=" + rc.ToString() + ")");
+            report = report + "_samply record failed (rc=" + rc.ToString() + ")._\n\n";
+        } else {
+            Console.WriteLine("  ✓ " + prof + "  (load: `samply load " + prof + "`)");
+            report = report + "native flamegraph: `" + prof + "`  → `samply load " + prof + "`\n\n";
+        }
     }
-    string prof = Path.Join(c.outDir, "cpu-profile.json.gz");
-    // `samply record --save-only -o <out> -- <vm> <zbc> <entry> --mode <m>`
-    int rc = _exec(new Process("samply").Arg("record").Arg("--save-only")
-        .Arg("-o").Arg(prof).Arg("--")
-        .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Env("Z42_LIBS", c.libs));
-    if (rc != 0) {
-        Console.WriteLine("  ✗ samply record failed (rc=" + rc.ToString() + ")");
-        return "## cpu\n\n_samply record failed (rc=" + rc.ToString() + ")._\n\n";
+    return report + _profileCpuZ42(c);
+}
+
+// Z42-level CPU sampling (safepoint sampler, P2). Runs the script once with
+// Z42_SAMPLE_HZ set → the VM writes folded stacks (+ perfetto trace); then
+// renders the folded stacks to an SVG via `inferno-flamegraph` if present.
+string _profileCpuZ42(ProfileCtx c) {
+    Console.WriteLine("── cpu (z42-level sampling) ──");
+    string folded = Path.Join(c.outDir, "z42-samples.folded");
+    string trace = Path.Join(c.outDir, "z42-trace.json");
+    // Sample at 4000 Hz so even short scripts collect enough samples; trace on.
+    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        .Env("Z42_LIBS", c.libs)
+        .Env("Z42_SAMPLE_HZ", "4000")
+        .Env("Z42_SAMPLE_OUT", folded)
+        .Env("Z42_TRACE_OUT", trace)
+        .Run();
+    if (pr.ExitCode != 0) {
+        Console.WriteLine("  ⚠ sampled run exited rc=" + pr.ExitCode.ToString() + " (stderr tail below)");
     }
-    Console.WriteLine("  ✓ " + prof + "  (load: `samply load " + prof + "`)");
-    return "## cpu\n\nnative flamegraph: `" + prof + "`  → `samply load " + prof + "`\n\n";
+    if (!File.Exists(folded)) {
+        Console.WriteLine("  ⚠ no folded stacks produced (script too short to be sampled?)");
+        return "### cpu (z42-level)\n\n_no samples captured (script too short?)._\n\n";
+    }
+    string rep = "### cpu (z42-level)\n\nfolded stacks: `" + folded + "`\n";
+    // Render SVG if inferno is installed; else leave the .folded + a hint.
+    if (_have("inferno-flamegraph")) {
+        ProcessResult ipr = new Process("inferno-flamegraph").Arg(folded).Run();
+        string svg = Path.Join(c.outDir, "z42-flame.svg");
+        if (ipr.ExitCode == 0 && ipr.Stdout.Length > 0) {
+            File.WriteAllText(svg, ipr.Stdout);
+            Console.WriteLine("  ✓ flamegraph: " + svg);
+            rep = rep + "flamegraph: `" + svg + "`\n";
+        } else {
+            Console.WriteLine("  ⚠ inferno-flamegraph failed (rc=" + ipr.ExitCode.ToString() + ")");
+        }
+    } else {
+        Console.WriteLine("  ⊘ inferno not found — install: `cargo install inferno`");
+        Console.WriteLine("     then: `inferno-flamegraph " + folded + " > flame.svg`");
+        rep = rep + "_render: `cargo install inferno` then `inferno-flamegraph "
+            + folded + " > flame.svg`_\n";
+    }
+    if (File.Exists(trace)) {
+        Console.WriteLine("  ✓ perfetto trace: " + trace + "  (open at https://ui.perfetto.dev)");
+        rep = rep + "perfetto trace: `" + trace + "`  → open at https://ui.perfetto.dev\n";
+    }
+    return rep + "\n";
 }
 
 // ── heap (dhat) ─────────────────────────────────────────────────────────────

@@ -30,12 +30,29 @@
 - **WHEN** 采样开但程序太短没被采到
 - **THEN** 输出文件为空或不产出（不写 `<空> 0` 之类坏行）；不 panic
 
+### Requirement: 采样可选产出 perfetto/chrome trace（采样型时间线）
+
+#### Scenario: Z42_TRACE_OUT 未设 → 只产 folded，不记时间线
+- **WHEN** 设 `Z42_SAMPLE_HZ` 但不设 `Z42_TRACE_OUT`
+- **THEN** 只累加 folded 计数、写 folded 文件；**不**记录 per-sample `(ts, 栈)` 序列（省内存）；不产 trace 文件
+
+#### Scenario: Z42_TRACE_OUT 设 → 产 chrome legacy JSON
+- **WHEN** 设 `Z42_SAMPLE_HZ=1000` + `Z42_TRACE_OUT=trace.json`，脚本热循环调 `foo() → bar()`
+- **THEN** 退出时写 `trace.json`：一个含 `traceEvents`（每条 `{"ph":"P","ts":<us>,"pid":1,"tid":1,"sf":"<id>"}`
+  采样事件）+ `stackFrames`（`<id> → {name, parent}` 帧树）的 JSON 对象；perfetto UI（ui.perfetto.dev）可 import
+  渲成采样火焰图 over time；folded 文件**同时**产出（两输出源自同一采样）
+
+#### Scenario: trace 采样点与 folded 一致
+- **WHEN** 同一次运行同时产 folded + trace
+- **THEN** 两者反映**同一批** safepoint 采样（每个 timer tick 一次快照喂两路）；trace 的叶帧路径 = folded 键的分号展开
+
 ### Requirement: xtask profile 产 z42 火焰图
 
 #### Scenario: xtask profile --cpu 增 z42-level 火焰图
 - **WHEN** `xtask profile --cpu <script>`
-- **THEN** 除 samply（native）外，用 `Z42_SAMPLE_HZ` 跑一遍收 folded stacks；有 `inferno` CLI 则渲 SVG
-  火焰图，否则落 `.folded` 文件 + 查看提示（镜像 `--heap` dhat 产物模式）；无论哪种都不让 profile 失败
+- **THEN** 除 samply（native）外，用 `Z42_SAMPLE_HZ`(+`Z42_TRACE_OUT`) 跑一遍收 folded stacks + trace；有 `inferno`
+  CLI 则渲 SVG 火焰图，否则落 `.folded` 文件 + 查看提示；trace JSON 落产物目录 + perfetto 查看提示（镜像 `--heap`
+  dhat 产物模式）；无论哪种都不让 profile 失败
 
 ## IR Mapping
 

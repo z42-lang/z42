@@ -257,6 +257,33 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
     }
 
+    // add-sampling-profiler (P2): flush the safepoint sampling profiler's folded
+    // stacks (+ optional perfetto trace) after the run. Gated on the sampler
+    // being enabled (Z42_SAMPLE_HZ set) — the default-off path does nothing.
+    // Independent of --print-stats-on-exit: the sampler is its own env-driven
+    // profiling channel.
+    if ctx.core.sampler.enabled() {
+        let cfg = crate::config::runtime_config();
+        let folded_path = cfg.sample_out.to_string_lossy();
+        match ctx.core.sampler.flush_folded(&folded_path) {
+            Ok(()) => eprintln!(
+                "z42: sampling profiler → folded stacks: {folded_path}  \
+                 (flamegraph: `inferno-flamegraph < {folded_path} > flame.svg`)"
+            ),
+            Err(e) => eprintln!("z42: failed to write sample folded stacks to {folded_path}: {e}"),
+        }
+        if let Some(trace_path) = cfg.trace_out.as_ref() {
+            let trace_path = trace_path.to_string_lossy();
+            match ctx.core.sampler.flush_trace(&trace_path) {
+                Ok(()) => eprintln!(
+                    "z42: sampling profiler → perfetto trace: {trace_path}  \
+                     (open at https://ui.perfetto.dev)"
+                ),
+                Err(e) => eprintln!("z42: failed to write sample trace to {trace_path}: {e}"),
+            }
+        }
+    }
+
     result
 }
 

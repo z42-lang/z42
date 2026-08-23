@@ -18,10 +18,12 @@
             sampler.accum.lock()[folded] += 1
 
 退出 (app.rs run() 结束):
-  sampler.flush_to(Z42_SAMPLE_OUT | "z42-samples.folded")       // 每行 "folded <count>"
+  sampler.flush_folded(Z42_SAMPLE_OUT | "z42-samples.folded")   // 每行 "folded <count>" → 火焰图
+  if Z42_TRACE_OUT 设: sampler.flush_trace(Z42_TRACE_OUT)       // chrome/perfetto JSON（采样型）
 
 xtask profile --cpu:
-  samply（native，保留）+ z42-level: Z42_SAMPLE_HZ 跑 → inferno(folded)→SVG | .folded + 提示
+  samply（native，保留）+ z42-level: Z42_SAMPLE_HZ(+Z42_TRACE_OUT) 跑一遍 →
+    inferno(folded)→火焰图 SVG | .folded + 提示；trace JSON → perfetto UI 提示
 ```
 
 ## Decisions
@@ -47,10 +49,28 @@ DRAFT D5（已定）。z42 已有协作式 safepoint（`check_safepoint` 每 bac
 `Mutex` 争用极低（采样频率 ~1kHz，每次快照 µs 级）。退出时单线程读出、按 count 降序写文件。
 不存原始样本序列（省内存）；folded 聚合足够画火焰图。**per-thread 归属延后**（v1 全局一张图）。
 
-### Decision D5: perfetto trace 延后（本 change 只做火焰图）
-folded-stacks 火焰图是核心价值、一次输出格式。perfetto/chrome trace 是**时间线**格式（每事件带 ts/dur/tid），
-需要时间戳化的 span 流（对接 diagnostics.md §4.2 span 基建，那是另一块未落地的地基）→ 工作量翻倍且依赖 span。
-**记 Deferred**（`add-perfetto-trace` 后续 change）。**⚠️ 须 User 确认此 scoping**（Open Question）。
+### Decision D5: perfetto trace 本 change 一并做 —— **采样型**（复用同一采样，非 span 埋点）
+**User 裁决 = B（火焰图 + perfetto 一起）**（2026-08-24）。关键 reframing：perfetto/chrome trace 不必依赖
+diagnostics.md §4.2 的 **span 埋点**基建（每帧 enter/exit 计时，那才违反默认零成本、才真翻倍）——chrome trace
+格式原生支持**采样型** profiling（`ph:"P"` sample 事件 + `stackFrames` 帧树）。故本 change 用**同一次
+safepoint 栈快照**喂两个输出：
+- **folded → 火焰图**（inferno SVG，聚合，无时间轴）。
+- **(时间戳, 栈) 样本序列 → perfetto/chrome trace JSON**（时间线，perfetto UI 渲采样火焰图 over time）。
+
+采样点除累加 folded 计数外，再记一条 `(ts_us, leaf_frame_id)`（`ts_us` = 采样相对启动的微秒；`leaf_frame_id`
+= 把当前栈 intern 进帧树后的叶 id）。退出时：
+- `Z42_SAMPLE_OUT`（默认 `z42-samples.folded`）永远写 folded；
+- `Z42_TRACE_OUT`（默认关）设了才额外写 chrome trace JSON——**trace 记录仅在此 knob 设时开启**（省内存：
+  未开时不存 per-sample 时间线，只累加 folded）。
+
+**trace JSON 结构**（chrome legacy JSON，perfetto 直接 import）：
+```json
+{ "traceEvents": [ {"ph":"P","name":"<leaf>","pid":1,"tid":1,"ts":<us>,"sf":"<id>"}, … ],
+  "stackFrames": { "<id>": {"name":"<fn>","parent":"<pid>"}, … } }
+```
+`stackFrames` 是增量 intern 的帧树（`(parent_id, name)` 去重）；`ph:"P"` 样本引用叶帧 id。
+**代价仍是 D1 的采样偏差**（只在 safepoint 采）；perfetto 时间线继承同偏差，不额外引入 span 开销。
+**per-thread tid**：v1 全部记 `tid:1`（全局累加，与 folded 同 Decision D4）；per-thread 分轨 Deferred。
 
 ### Decision D6: 不动格式 / 不新增 z42 API
 纯运行时采样 + 文本 folded 输出 + xtask；无 zbc/zpkg 格式变更、无新 stdlib API → 无 bootstrap 两-nightly 约束。
@@ -62,21 +82,33 @@ folded-stacks 火焰图是核心价值、一次输出格式。perfetto/chrome tr
   ```rust
   pub struct Sampler {
       enabled:        bool,                          // Z42_SAMPLE_HZ 设即 true
+      trace_enabled:  bool,                          // Z42_TRACE_OUT 设即 true（额外记时间线）
       sample_pending: Arc<AtomicBool>,               // 后台线程置，mutator swap(false)
-      accum:          Arc<Mutex<HashMap<String, u64>>>,
-      _thread:        Option<std::thread::JoinHandle<()>>,  // detached-ish; stop flag 可选
-      stop:           Arc<AtomicBool>,
+      stop:           Arc<AtomicBool>,               // Drop 时置 true 让 timer 线程退出
+      start:          std::time::Instant,            // 采样时间戳基准 t0
+      data:           Mutex<SamplerData>,
+      _thread:        Option<std::thread::JoinHandle<()>>,
   }
+  struct SamplerData {
+      folded:    HashMap<String, u64>,               // folded stack → count（火焰图）
+      // ↓ 仅 trace_enabled 时填充（perfetto 采样时间线）
+      frames:    Vec<FrameNode>,                     // intern 的帧树
+      frame_ids: HashMap<(u32, Arc<str>), u32>,      // (parent|MAX, name) → node idx 去重
+      samples:   Vec<(u64, u32)>,                    // (ts_us, leaf frame id)
+  }
+  struct FrameNode { name: Arc<str>, parent: u32 }   // parent=u32::MAX 为根
   impl Sampler {
-      pub fn start(hz: u32) -> Self { /* spawn timer thread; enabled=true */ }
+      pub fn start(hz: u32, trace_enabled: bool) -> Self { /* spawn timer 线程; enabled=true */ }
       pub fn disabled() -> Self { /* enabled=false, 无线程 */ }
-      pub fn maybe_sample(&self, ctx: &VmContext) { /* swap flag → walk call_stack → accum */ }
-      pub fn flush_to(&self, path: &str) -> std::io::Result<()> { /* 降序写 folded */ }
+      pub fn enabled(&self) -> bool { self.enabled }
+      pub fn maybe_sample(&self, ctx: &VmContext) { /* swap flag → walk call_stack → folded++ (+trace intern) */ }
+      pub fn flush_folded(&self, path: &str) -> std::io::Result<()> { /* 降序写 folded */ }
+      pub fn flush_trace(&self, path: &str)  -> std::io::Result<()> { /* 写 chrome JSON（P 事件+stackFrames）*/ }
   }
   ```
   - 栈快照：`for f in ctx.call_stack.lock().iter() { push f.func_name }`，`join(";")`（栈底在左=call_stack
-    顺序）。空栈跳过。
-  - `maybe_sample` 只在 `enabled` 时进（调用点已 `if sampler.enabled` gate）。
+    顺序）。空栈跳过。folded 计数**恒**累加；`trace_enabled` 时再 intern 帧树 + push `(elapsed_us, leaf_id)`。
+  - `maybe_sample` 只在 `enabled` 时进（调用点已 `if sampler.enabled()` gate）。
 - **safepoint hook**（`check_safepoint_slow` Idle 末，`needs_auto_collect` 处理后）：
   ```rust
   if ctx.core.sampler.enabled {
@@ -84,12 +116,17 @@ folded-stacks 火焰图是核心价值、一次输出格式。perfetto/chrome tr
   }
   ```
   注意：不能在持 GC 相关锁时采样；此处已过 GC 分支、Idle，安全。call_stack 锁与 gc_phase 锁无嵌套。
-- **config**：`Z42_SAMPLE_HZ`（u32，采样频率，默认 unset=off）、`Z42_SAMPLE_OUT`（路径，默认 `z42-samples.folded`）
-  加进 `KNOWN_KNOBS` + `RuntimeConfig`。
-- **app.rs**：run() 结束（`print_stats` 附近）：`if enabled { sampler.flush_to(out) }`，打印一行提示到 stderr。
-- **xtask profile `_profileCpu`**：现有 samply 分支保留；追加 z42-level：设 `Z42_SAMPLE_HZ` 跑一遍，读出
-  `.folded`；`inferno-flamegraph` 在 PATH 则 `inferno-flamegraph < folded > flame.svg`，否则留 `.folded` +
-  提示（`cargo install inferno` / flamegraph.pl）。`|| true` 不让 profile 失败。
+- **config**：`Z42_SAMPLE_HZ`（u32，采样频率，默认 unset=off）、`Z42_SAMPLE_OUT`（路径，默认 `z42-samples.folded`）、
+  `Z42_TRACE_OUT`（路径，默认 unset=不写 trace）加进 `KNOWN_KNOBS` + `RuntimeConfig`（`sample_hz: Option<u32>` /
+  `sample_out: Option<PathBuf>`(带默认) / `trace_out: Option<PathBuf>`）。
+- **vm_context.rs**：`VmCore.sampler: Sampler`；`new_internal` 按 `runtime_config().sample_hz` → `Sampler::start(hz,
+  trace_out.is_some())` 否则 `Sampler::disabled()`。
+- **app.rs**：run() 结束（`print_stats` 附近，无条件）：`if sampler.enabled() { flush_folded(sample_out); if trace_out
+  设 flush_trace(trace_out) }`，各打印一行提示到 stderr。
+- **xtask profile `_profileCpu`**：现有 samply 分支保留；追加 z42-level：设 `Z42_SAMPLE_HZ`(+`Z42_TRACE_OUT`) 跑一遍，
+  读出 `.folded`；`inferno-flamegraph` 在 PATH 则 `inferno-flamegraph < folded > flame.svg`，否则留 `.folded` + 提示
+  （`cargo install inferno`）；trace JSON 落 `outDir` + perfetto (`https://ui.perfetto.dev`) 查看提示。`|| true` 不让
+  profile 失败。
 
 ## Testing Strategy
 
@@ -103,7 +140,7 @@ folded-stacks 火焰图是核心价值、一次输出格式。perfetto/chrome tr
 
 ## Deferred
 
-- **perfetto / chrome trace `--trace-out`**（`add-perfetto-trace`）：时间线格式，依赖 span 基建（diagnostics §4.2）。
-- **per-thread 火焰图归属**：v1 全局；per-thread 分图延后。
+- **span 埋点型 trace**（每帧精确 enter/exit 计时，diagnostics §4.2）：本 change 的 perfetto 是**采样型**、非埋点型；
+  精确 span 时间线依赖 §4.2 基建，仍 Deferred。
+- **per-thread 火焰图 / trace 分轨归属**：v1 全局累加（folded 一张图 + trace 全记 `tid:1`）；per-thread 分轨延后。
 - **JIT 内联段采样盲区**：safepoint 只在 backward-branch/call；紧内联循环采不到。
-- **原始样本序列 / 时间轴**：只存 folded 聚合，不留时序（perfetto 需要时再加）。
