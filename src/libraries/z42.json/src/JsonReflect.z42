@@ -46,4 +46,79 @@ internal static class JsonReflect {
         }
         return null;
     }
+
+    // ── 集合反射（List<T> / Dictionary<string,V>，add-collection-serde）─────────────
+    // 反射-only：复用既有反射 native（GetGenericArguments / Activator / MethodInfo.Invoke /
+    // FieldInfo.GetValue）。z42 反射无 GetMethod(name)/GetField(name) → 遍历按名取首个匹配。
+    // 跨包 imported 反射返回引用类型（Type/MethodInfo/FieldInfo）逐处 cast + local receiver（footgun）。
+
+    // 构造泛型第 idx 个类型实参（List→[T]，Dict→[K,V]）；越界返回 null。
+    public static Type GenericArg(Type t, int idx) {
+        Type[] ga = t.GetGenericArguments();
+        if (idx < ga.Length) { Type g = ga[idx]; return g; }
+        return null;
+    }
+
+
+    private static MethodInfo _findMethod(Type t, string name) {
+        MethodInfo[] ms = t.GetMethods();
+        int i = 0;
+        while (i < ms.Length) {
+            MethodInfo m = ms[i];
+            if (m.Name == name) { return m; }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    private static FieldInfo _findField(Type t, string name) {
+        FieldInfo[] fs = t.GetFields();
+        int i = 0;
+        while (i < fs.Length) {
+            FieldInfo f = fs[i];
+            if (f.Name == name) { return f; }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    // List<T>：Count（公开字段）+ get_Item(i)（indexer）+ Add(item)。
+    public static int ListCount(object list) {
+        Type t = (Type)list.GetType();
+        FieldInfo cf = JsonReflect._findField(t, "Count");
+        object v = cf.GetValue(list);
+        return (int)v;
+    }
+    public static object ListGet(object list, int i) {
+        Type t = (Type)list.GetType();
+        MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
+        object[] args = new object[1]; args[0] = i;
+        return gm.Invoke(list, args);
+    }
+    public static void ListAdd(object list, object item) {
+        Type t = (Type)list.GetType();
+        MethodInfo am = JsonReflect._findMethod(t, "Add");
+        object[] args = new object[1]; args[0] = item;
+        am.Invoke(list, args);
+    }
+
+    // Dictionary<string,V>：Keys()→string[] 快照 + get_Item(key) + set_Item(key,val)。
+    public static string[] DictKeys(object dict) {
+        Type t = (Type)dict.GetType();
+        MethodInfo km = JsonReflect._findMethod(t, "Keys");
+        object r = km.Invoke(dict, new object[0]);
+        return (string[])r;
+    }
+    public static object DictGet(object dict, string key) {
+        Type t = (Type)dict.GetType();
+        MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
+        object[] args = new object[1]; args[0] = key;
+        return gm.Invoke(dict, args);
+    }
+    public static void DictSet(object dict, string key, object val) {
+        Type t = (Type)dict.GetType();
+        MethodInfo sm = JsonReflect._findMethod(t, "set_Item");
+        object[] args = new object[2]; args[0] = key; args[1] = val;
+        sm.Invoke(dict, args);
+    }
 }

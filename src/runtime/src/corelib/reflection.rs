@@ -57,18 +57,23 @@ fn split_generic_args(inner: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut depth: i32 = 0;
     let mut start = 0usize;
+    // add-collection-serde: TRIM each arg. Field/member type_tags use source spelling
+    // with a space after commas (`Dictionary<string, int>` — see z42c
+    // ClassDescBuilder `_typeSourceName`'s `", "`), so a raw split yields `" int"` with
+    // a leading space → make_type_from_name misses → synthetic (no handle). typeof names
+    // have no space, so this only bit member-type reflection of multi-arg generics.
     for (i, c) in inner.char_indices() {
         match c {
             '<' | '[' => depth += 1,
             '>' | ']' => depth -= 1,
             ',' if depth == 0 => {
-                out.push(inner[start..i].to_string());
+                out.push(inner[start..i].trim().to_string());
                 start = i + 1;
             }
             _ => {}
         }
     }
-    out.push(inner[start..].to_string());
+    out.push(inner[start..].trim().to_string());
     out
 }
 
@@ -113,35 +118,28 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     if let Some(td) = ctx.try_lookup_type(name) {
         return make_type_object(ctx, td);
     }
-    // add-json-serde: an *unqualified* class name (no `.`) that failed the FQ
-    // lookups above. This arises for `typeof(T)` in a **cross-package generic
-    // method** (`z42.json`'s `Deserialize<UserType>`): the call site emits the
-    // method type-arg through the imported null-receiver vcall path, which yields
-    // the type argument's *simple* name rather than its FQ name — so the entry
-    // module's FQ-keyed `type_registry` misses. Resolve it by simple-name match
-    // against the entry module's own types (the user program, where `T` lives).
-    // Only a *unique* match is accepted; zero/ambiguous → fall through to the
-    // name-only synthetic (unchanged behaviour), so this never mis-binds.
+    // An *unqualified* class name (no `.`) that failed the FQ lookups above.
+    // Two sources:
+    //  (a) add-json-serde: `typeof(T)` in a cross-package generic method emits the
+    //      type-arg's *simple* name (imported null-receiver vcall path).
+    //  (b) add-collection-serde: a constructed-generic field/member type_tag carries
+    //      *source spelling* (`List<int>` field → base `List`), not the FQN.
+    // Resolve by unique simple-name match against loaded types (never mis-binds:
+    // zero/ambiguous → synthetic, unchanged behaviour).
     if !name.contains('.') {
-        let mut fq_hit: Option<String> = None;
-        let mut ambiguous = false;
-        let all = ctx.loaded_type_names();
-        for key in all {
-            if type_simple_name(&key) == name {
-                if fq_hit.is_some() { ambiguous = true; break; }
-                fq_hit = Some(key);
-            }
+        if let Some(td) = resolve_dotless_simple(ctx, name) {
+            return make_type_object(ctx, td);
         }
-        if !ambiguous {
-            if let Some(fq) = fq_hit {
-                if let Some(m) = ctx.module() {
-                    if let Some(td) = m.type_registry.get(&fq) {
-                        return make_type_object(ctx, td.clone());
-                    }
-                }
-                if let Some(td) = ctx.try_lookup_type(&fq) {
-                    return make_type_object(ctx, td);
-                }
+        // Miss: a class-like name (uppercase, not a primitive alias) may live in a
+        // not-yet-loaded package whose FQN we can't derive (the loader indexes
+        // namespaces, not type names — no simple→FQN map). Force-load all remaining
+        // packages ONCE, then retry. Gated on uppercase-first so primitives
+        // (`int`/`bool`/`string`…) never trigger the eager load. After the first
+        // force-load, `remaining_declared()` is empty → repeat calls are cheap.
+        if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            ctx.force_load_all_packages();
+            if let Some(td) = resolve_dotless_simple(ctx, name) {
+                return make_type_object(ctx, td);
             }
         }
     }
@@ -253,6 +251,30 @@ fn build_type_ex(
 /// Pull the real `Arc<TypeDesc>` out of a `Std.Type`'s `NativeData::TypeHandle`.
 /// Returns `None` for synthetic Types (primitives/arrays) so callers degrade
 /// to empty results.
+/// Resolve a dotless simple type name to a loaded `TypeDesc` by *unique*
+/// simple-name match across loaded types (entry module + lazy-loaded). Ambiguous
+/// (>1 match) or zero → `None`, so callers fall through to a name-only synthetic
+/// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
+/// add-collection-serde dotless fallback (with an optional force-load retry).
+fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
+    let mut hit: Option<String> = None;
+    for key in ctx.loaded_type_names() {
+        if type_simple_name(&key) == name {
+            if hit.is_some() {
+                return None; // ambiguous
+            }
+            hit = Some(key);
+        }
+    }
+    let fq = hit?;
+    if let Some(m) = ctx.module() {
+        if let Some(td) = m.type_registry.get(&fq) {
+            return Some(td.clone());
+        }
+    }
+    ctx.try_lookup_type(&fq)
+}
+
 fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {
     match args.first() {
         Some(Value::Object(rc)) => {

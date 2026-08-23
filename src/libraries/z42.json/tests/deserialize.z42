@@ -5,10 +5,27 @@ namespace Z42JsonDeserializeTests;
 using Std;
 using Std.Test;
 using Std.Json;
+using Std.Collections;
 
 class Point {
     public int x;
     public int y;
+}
+
+// add-collection-serde：List<T> / Dictionary<string,V> 反序列化测。
+class Bag {
+    public string Name;
+    public List<int> Nums;
+    public Dictionary<string, int> Scores;
+}
+class PointMap {
+    public Dictionary<string, Point> Pts;
+}
+class Item : IEquatable<Item>, IComparable<Item> {
+    public int id;
+    public bool Equals(Item other) { return this.id == other.id; }
+    public int GetHashCode() { return this.id; }
+    public int CompareTo(Item other) { return this.id - other.id; }
 }
 
 class Person {
@@ -118,4 +135,70 @@ void test_deserialize_non_generic_entry() {
     Point p = o as Point;
     Assert.Equal(8, p.x);
     Assert.Equal(9, p.y);
+}
+
+// ── add-collection-serde ────────────────────────────────────────────────────
+[Test]
+void test_deserialize_list_of_int() {
+    List<int> nums = JsonSerializer.Deserialize<List<int>>("[1,2,3]");
+    Assert.Equal(3, nums.Count);
+    Assert.Equal(1, nums[0]);
+    Assert.Equal(3, nums[2]);
+}
+
+[Test]
+void test_deserialize_empty_list() {
+    List<int> nums = JsonSerializer.Deserialize<List<int>>("[]");
+    Assert.Equal(0, nums.Count);
+}
+
+[Test]
+void test_deserialize_dict_string_int() {
+    Dictionary<string, int> d = JsonSerializer.Deserialize<Dictionary<string, int>>("{\"a\":1,\"b\":2}");
+    Assert.Equal(2, d.Count);
+    Assert.Equal(1, d["a"]);
+    Assert.Equal(2, d["b"]);
+}
+
+[Test]
+void test_deserialize_collections_as_fields() {
+    Bag b = JsonSerializer.Deserialize<Bag>("{\"Name\":\"xs\",\"Nums\":[10,20],\"Scores\":{\"k\":5}}");
+    Assert.Equal("xs", b.Name);
+    Assert.Equal(2, b.Nums.Count);
+    Assert.Equal(20, b.Nums[1]);
+    Assert.Equal(5, b.Scores["k"]);
+}
+
+[Test]
+void test_deserialize_dict_of_objects() {
+    PointMap m = JsonSerializer.Deserialize<PointMap>("{\"Pts\":{\"origin\":{\"x\":1,\"y\":2}}}");
+    Point p = m.Pts["origin"];
+    Assert.Equal(1, p.x);
+    Assert.Equal(2, p.y);
+}
+
+[Test]
+void test_deserialize_list_of_objects() {
+    List<Item> items = JsonSerializer.Deserialize<List<Item>>("[{\"id\":7},{\"id\":9}]");
+    Assert.Equal(2, items.Count);
+    Assert.Equal(7, items[0].id);
+    Assert.Equal(9, items[1].id);
+}
+
+[Test]
+void test_deserialize_collections_roundtrip() {
+    Bag src = new Bag();
+    src.Name = "rt"; src.Nums = new List<int>(); src.Nums.Add(5); src.Nums.Add(6);
+    src.Scores = new Dictionary<string, int>(); src.Scores["z"] = 99;
+    Bag back = JsonSerializer.Deserialize<Bag>(JsonSerializer.Serialize(src));
+    Assert.Equal("rt", back.Name);
+    Assert.Equal(2, back.Nums.Count);
+    Assert.Equal(6, back.Nums[1]);
+    Assert.Equal(99, back.Scores["z"]);
+}
+
+[Test]
+void test_deserialize_dict_nonstring_key_throws() {
+    // 非字符串键 Dict 从 JSON object 反序列化 → 清晰报错。
+    Assert.ThrowsAny(() => JsonSerializer.Deserialize<Dictionary<int, int>>("{\"1\":2}"));
 }
