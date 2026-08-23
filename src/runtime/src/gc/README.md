@@ -11,7 +11,15 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | 文件 | 职责 |
 |------|------|
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（对齐 MMTk porting contract，10 能力组 ~30 方法）|
-| `arc_heap.rs` | `ArcMagrGC` —— 默认后端（`GcRef` backing 是 `Rc<GcAllocation<T>>`，wrapper 含 finalizer Cell + 自定义 Drop）+ 完整 host-side 实现 + Trial-deletion 环回收器 |
+| `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、`RcHeapInner`、句柄表、类型别名、`Default`/`Debug`、`new()` + concern 子模块声明（`GcRef` backing 是 `Rc<GcAllocation<T>>`，wrapper 含 finalizer Cell + 自定义 Drop）|
+| `arc_heap/alloc.rs` | region 分配尾部 + OOM 兜底 + 内存压力检查 + size 估算/查询（`object_size_bytes`）|
+| `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
+| `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect` + finalize + soft-ref |
+| `arc_heap/generational.rs` | 分代 GC：minor/major/promotion/card + `gen_age` + write barriers |
+| `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
+| `arc_heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
+| `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— GC 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
+| `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
 | `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄 + `GcAllocation<T>` wrapper |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
 | `heap_tests.rs` | trait 默认方法契约测试 |
