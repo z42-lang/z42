@@ -1,0 +1,215 @@
+// ns 索引 sidecar 缓存（refactor-depscan-concern-split：从 DepScan 拆出）。
+// repl-scan-nsindex-cache：把「每包→命名空间/类型」落盘缓存，命中则免 open-all；含指纹、
+// 读/写索引、从索引建 scan（_scanFromIndex）、类型→ns 提取与回填。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Project;
+
+public static class NsIndexCache {
+    // ── repl-scan-nsindex-cache: ns 索引持久化 ──────────────────────────────
+    // 惰性 scan 的 open-all（读+解全部 ~26 个 zpkg 只为建 ns 路由）是 REPL 首次 eval 的一次性大头
+    // （macOS 暖 ~0.375s；Windows 每次文件打开被 Defender 逐个扫，更甚）。把「每包→命名空间」落盘缓存，
+    // 命中则从缓存建 nsMap + 路由、只 open prelude + 引用闭包。指纹变（任一 zpkg 增删改）→ 自动重建。
+    [Native("__file_last_write_time_ms")] private static extern long _mtimeMs(string path);
+
+    // libs 指纹：sorted path 列表逐个 (basename,size,mtime) 拼串。任一 zpkg 变 → 串变 → 索引失效。
+    internal static string _libsFingerprint(string[] paths) {
+        string s = "";
+        int i = 0;
+        while (i < paths.Length) {
+            s = s + Path.GetFileName(paths[i]) + ":" + File.GetSize(paths[i]).ToString()
+                  + ":" + NsIndexCache._mtimeMs(paths[i]).ToString() + ";";
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 索引文件：第一个 libsDir 下 `.z42-nsindex`（只读 libs → 写失败静默容忍，退化为每次重建）。
+    internal static string _nsIndexPath(string[] dirs, int dirCount) {
+        if (dirCount == 0) { return ""; }
+        return Path.Join(dirs[0], ".z42-nsindex");
+    }
+
+    // 读索引：header==NSIDX1 且指纹匹配且条目数==expectCount → 返回条目数组；否则 null（未命中/失效/损坏）。
+    internal static NsIndexEntry[] _readNsIndex(string path, string fingerprint, int expectCount) {
+        if (path.Length == 0 || !File.Exists(path)) { return null; }
+        string content = "";
+        try { content = File.ReadAllText(path); } catch (Exception ex) { return null; }
+        string[] lines = content.Split("\n");
+        if (lines.Length < 2) { return null; }
+        if (lines[0] != "NSIDX2") { return null; }
+        if (lines[1] != fingerprint) { return null; }
+        NsIndexEntry[] entries = new NsIndexEntry[expectCount];
+        int n = 0;
+        int li = 2;
+        while (li < lines.Length) {
+            if (lines[li].Length == 0) { li = li + 1; continue; }   // 尾随空行
+            string[] f = lines[li].Split("\t");
+            if (f.Length < 2) { return null; }
+            // repl-type-nsindex：每 ns 字段为 `ns=T1,T2`——按首个 `=` 切分 ns 名与类型短名列表。
+            string[] nss = new string[f.Length - 2];
+            string[] nsTypes = new string[f.Length - 2];
+            int k = 2;
+            while (k < f.Length) {
+                string fld = f[k];
+                int eq = fld.IndexOf("=");
+                if (eq < 0) { nss[k - 2] = fld; nsTypes[k - 2] = ""; }   // 兜底（不含 `=` 的旧式字段）
+                else { nss[k - 2] = fld.Substring(0, eq); nsTypes[k - 2] = fld.Substring(eq + 1, fld.Length - eq - 1); }
+                k = k + 1;
+            }
+            if (n >= expectCount) { return null; }   // 条目多于预期 → 失效
+            NsIndexEntry ent = new NsIndexEntry(f[0], f[1] == "1", nss);
+            ent.NsTypes = nsTypes;
+            entries[n] = ent;
+            n = n + 1;
+            li = li + 1;
+        }
+        if (n != expectCount) { return null; }        // 条目数不符 → 失效
+        return entries;
+    }
+
+    // 写索引（NSIDX1 + 指纹 + 每 *.zpkg 一行 `basename\tisExe\tns...`）。只读 libs 写失败 → 静默。
+    // repl-type-nsindex：NSIDX2——每 ns 字段由 `ns` 升级为 `ns=T1,T2`（T = 该 ns 声明的类型短名）。
+    // completer 据此 shortname→ns 直达。header bump NSIDX1→NSIDX2 让旧缓存自动失效重建。
+    internal static void _writeNsIndex(string path, string fingerprint, NsIndexEntry[] entries, int count) {
+        if (path.Length == 0) { return; }
+        string s = "NSIDX2\n" + fingerprint + "\n";
+        int i = 0;
+        while (i < count) {
+            NsIndexEntry e = entries[i];
+            s = s + e.Basename + "\t" + (e.IsExe ? "1" : "0");
+            bool hasTypes = e.NsTypes.Length == e.Nss.Length;
+            int k = 0;
+            while (k < e.Nss.Length) {
+                s = s + "\t" + e.Nss[k] + "=" + (hasTypes ? e.NsTypes[k] : "");
+                k = k + 1;
+            }
+            s = s + "\n";
+            i = i + 1;
+        }
+        try { File.WriteAllTextAtomic(path, s); } catch (Exception ex) { }
+    }
+
+    // ── repl-scan-nsindex-cache: ns 索引命中路径（不 open-all）────────────────────
+    // 指纹命中 → 从索引条目（每包 basename + isExe + 命名空间列表，与 sorted paths 一一对应）建
+    // nsMap + 路由 + 惰性 world + 惰性 libOpened，**不 open 任何包**；仅 prelude 现开 + reconcile
+    // （首轮需要）。产出与未命中（open-all）路径等价：同一 sorted 顺序 → nsMap first-wins 一致、
+    // 路由等价（EnsureFq 扫全部匹配 pair，非 first-wins，与顺序无关）。
+    internal static DepScanResult _scanFromIndex(string[] paths, NsIndexEntry[] idx, string excludeName,
+                                                string excludeZpkg, string[] declaredDeps, int declaredCount) {
+        var index = new DependencyIndex();
+        string[] nsNames = new string[8]; string[] nsFiles = new string[8]; int nsCount = 0;
+        ExportedModuleZ[] exported = new ExportedModuleZ[8]; string[] exportedPkg = new string[8]; int exportedCount = 0;
+        int cap = paths.Length;
+        // 惰性 world（LazyFromPairs）+ 路由 pair
+        string[] worldPaths = new string[cap]; string[] worldDirs = new string[cap]; int worldCount = 0;
+        string[] pairNs = new string[16]; int[] pairIdx = new int[16]; int pairN = 0;
+        // 惰性 libOpened（Opened 初始 null，按 libPaths 现开）+ 每包 ns 列表（flat）
+        ZpkgInfo[] libOpened = new ZpkgInfo[cap]; string[] libPaths = new string[cap];
+        string[] libDirs = new string[cap]; string[] libNames = new string[cap]; bool[] libLoaded = new bool[cap];
+        string[] nsFlat = new string[16]; int[] nsStart = new int[cap]; int[] nsLen = new int[cap]; int nsFlatN = 0;
+        int libCount = 0;
+        int pi = 0;
+        while (pi < paths.Length) {
+            NsIndexEntry e = idx[pi];
+            if (!e.IsExe) {
+                string dir = Path.GetDirectoryName(paths[pi]);
+                string basename = e.Basename;
+                int wIdx = worldCount;
+                worldPaths[wIdx] = paths[pi]; worldDirs[wIdx] = dir; worldCount = worldCount + 1;
+                int a = 0;
+                while (a < e.Nss.Length) {
+                    string nsv = e.Nss[a];
+                    if (DepScan._nsIndexOf(nsNames, nsCount, nsv) < 0) {
+                        if (nsCount == nsNames.Length) {
+                            string[] b1 = new string[nsNames.Length * 2]; string[] b2 = new string[nsNames.Length * 2];
+                            int k = 0; while (k < nsCount) { b1[k] = nsNames[k]; b2[k] = nsFiles[k]; k = k + 1; }
+                            nsNames = b1; nsFiles = b2;
+                        }
+                        nsNames[nsCount] = nsv; nsFiles[nsCount] = basename; nsCount = nsCount + 1;
+                    }
+                    if (pairN == pairNs.Length) {
+                        string[] c1 = new string[pairNs.Length * 2]; int[] c2 = new int[pairIdx.Length * 2];
+                        int k = 0; while (k < pairN) { c1[k] = pairNs[k]; c2[k] = pairIdx[k]; k = k + 1; }
+                        pairNs = c1; pairIdx = c2;
+                    }
+                    pairNs[pairN] = nsv; pairIdx[pairN] = wIdx; pairN = pairN + 1;
+                    a = a + 1;
+                }
+                libOpened[libCount] = null; libPaths[libCount] = paths[pi];
+                libDirs[libCount] = dir; libNames[libCount] = basename;
+                nsStart[libCount] = nsFlatN; nsLen[libCount] = e.Nss.Length;
+                int b = 0;
+                while (b < e.Nss.Length) {
+                    if (nsFlatN == nsFlat.Length) {
+                        string[] d1 = new string[nsFlat.Length * 2];
+                        int k = 0; while (k < nsFlatN) { d1[k] = nsFlat[k]; k = k + 1; }
+                        nsFlat = d1;
+                    }
+                    nsFlat[nsFlatN] = e.Nss[b]; nsFlatN = nsFlatN + 1; b = b + 1;
+                }
+                libLoaded[libCount] = false;   // prelude 下面统一现开加载
+                libCount = libCount + 1;
+            }
+            pi = pi + 1;
+        }
+        LazyReconWorld lazyWorld = LazyReconWorld.LazyFromPairs(worldPaths, worldDirs, worldCount, pairNs, pairIdx, pairN);
+        DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
+        res.World = lazyWorld;
+        res.Opened = libOpened; res.OpenedDirs = libDirs; res.OpenedNames = libNames;
+        res.Loaded = libLoaded; res.OpenedCount = libCount;
+        res.OpenedPaths = libPaths;
+        res.OpenedNsFlat = nsFlat; res.OpenedNsStart = nsStart; res.OpenedNsLen = nsLen;
+        NsIndexCache._fillTypeMap(res, idx, paths.Length);   // repl-type-nsindex：从落盘索引填类型→ns（不重读模块）
+        // lazy-prelude（repl-lazy-prelude）：**不再 eager reconcile prelude**。首轮 `1+1` 类纯表达式
+        // 不引用任何 Std 符号 → 零包加载（实测 1.72s→0.34s）。首次引用 Std 符号时 _compileSrc 的 E0401
+        // 回退按需加载（含 prelude，见 Script._loadUsingsPackages 显式补 "Std"）。
+        return res;
+    }
+
+    // repl-type-nsindex：读一次包全模块类型 → 按 nss 顺序产出每 ns 的类型短名（逗号连接）。
+    // cold-start（cache-miss）用；warm 命中路径改从落盘的 NsTypes 读，不重跑此提取。
+    internal static string[] _extractNsTypes(ZpkgInfo z, string dir, string[] nss) {
+        string[] outp = new string[nss.Length];
+        int i = 0; while (i < nss.Length) { outp[i] = ""; i = i + 1; }
+        ZpkgModuleTypes[] mts = ZpkgReader.ReadModuleTypes(z, dir);
+        int m = 0;
+        while (m < mts.Length) {
+            int ni = DepScan._nsIndexOf(nss, nss.Length, mts[m].Namespace);
+            if (ni >= 0) {
+                int c = 0;
+                while (c < mts[m].ClassCount) {
+                    string sn = DepScan._shortOf(mts[m].Classes[c].Name);
+                    outp[ni] = outp[ni].Length == 0 ? sn : (outp[ni] + "," + sn);
+                    c = c + 1;
+                }
+            }
+            m = m + 1;
+        }
+        return outp;
+    }
+
+    // repl-type-nsindex：把索引条目里的 (类型短名, ns) 填入 res 的类型索引。open-all 与索引命中共用。
+    internal static void _fillTypeMap(DepScanResult res, NsIndexEntry[] entries, int count) {
+        int i = 0;
+        while (i < count) {
+            NsIndexEntry e = entries[i];
+            if (!e.IsExe && e.NsTypes.Length == e.Nss.Length) {
+                int a = 0;
+                while (a < e.Nss.Length) {
+                    if (e.NsTypes[a].Length > 0) {
+                        string[] ts = e.NsTypes[a].Split(",");
+                        int t = 0;
+                        while (t < ts.Length) { if (ts[t].Length > 0) { res.AddTypeNs(ts[t], e.Nss[a]); } t = t + 1; }
+                    }
+                    a = a + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+}

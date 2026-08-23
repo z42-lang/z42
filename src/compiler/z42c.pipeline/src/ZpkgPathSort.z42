@@ -1,0 +1,103 @@
+// zpkg 路径确定性枚举 + 排序（refactor-depscan-concern-split：从 DepScan 拆出）。
+// 多目录合并 + prelude-first + Ordinal 排序 + 同名去重 + DepIndex 准入判定
+// （common-pitfalls §1：加载顺序确定性的落点）。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Project;
+
+public static class ZpkgPathSort {
+    // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
+    // 不存在的目录跳过（per-member 布局下后续成员 dist 在建本成员时尚空）。
+    internal static string[] _sortedZpkgsMulti(string[] dirs, int dirCount) {
+        // 第一遍：统计总数。
+        int total = 0;
+        int di = 0;
+        while (di < dirCount) {
+            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }
+            di = di + 1;
+        }
+        // 第二遍：合并到 flat 数组。
+        string[] paths = new string[total];
+        int pc = 0;
+        di = 0;
+        while (di < dirCount) {
+            if (Directory.Exists(dirs[di])) {
+                string[] hits = Path.Glob(dirs[di], "*.zpkg");
+                int hi = 0;
+                while (hi < hits.Length) { paths[pc] = hits[hi]; pc = pc + 1; hi = hi + 1; }
+            }
+            di = di + 1;
+        }
+        // 同名包跨目录去重（first-wins）：某包同时在成员 dist 与 Z42_LIBS（外部 stdlib
+        // 种子）出现时只扫一次，避免 DepIndex 重复 AddModule → 歧义键被 Seal 剔除。
+        // 单目录调用方无重名（一目录不会有两份同名文件）→ 此步 no-op，Milestone 1 byte-identical 不变。
+        return ZpkgPathSort._dedupByBasename(ZpkgPathSort._sortZpkgKeys(paths));
+    }
+
+    // 排序后的 paths 中，每个 basename 仅保留首次出现（first-wins）。
+    private static string[] _dedupByBasename(string[] paths) {
+        string[] seen = new string[paths.Length];
+        int seenCount = 0;
+        string[] kept = new string[paths.Length];
+        int keptCount = 0;
+        int i = 0;
+        while (i < paths.Length) {
+            string b = Path.GetFileName(paths[i]);
+            if (DepScan._nsIndexOf(seen, seenCount, b) < 0) {
+                seen[seenCount] = b; seenCount = seenCount + 1;
+                kept[keptCount] = paths[i]; keptCount = keptCount + 1;
+            }
+            i = i + 1;
+        }
+        if (keptCount == paths.Length) { return kept; }
+        string[] r = new string[keptCount];
+        i = 0;
+        while (i < keptCount) { r[i] = kept[i]; i = i + 1; }
+        return r;
+    }
+
+    // prelude-first（"0_"+name）+ Ordinal 排序（镜像 C# BuildDepIndex 的 sortedPaths）。
+    private static string[] _sortZpkgKeys(string[] paths) {
+        // 排序键并行数组 + 插入排序
+        string[] keys = new string[paths.Length];
+        int i = 0;
+        while (i < paths.Length) {
+            string name = Path.GetFileNameWithoutExtension(paths[i]);
+            if (DepScan.IsPrelude(name)) { keys[i] = "0_" + name; }
+            else { keys[i] = "1_" + name; }
+            i = i + 1;
+        }
+        i = 1;
+        while (i < paths.Length) {
+            string k = keys[i];
+            string p = paths[i];
+            int j = i - 1;
+            bool more = j >= 0;
+            while (more) {
+                if (keys[j].CompareTo(k) > 0) {
+                    keys[j + 1] = keys[j]; paths[j + 1] = paths[j];
+                    j = j - 1; more = j >= 0;
+                } else { more = false; }
+            }
+            keys[j + 1] = k;
+            paths[j + 1] = p;
+            i = i + 1;
+        }
+        return paths;
+    }
+
+    // DepIndex 准入：stdlib（z42. 前缀；z42c.X 不匹配）∨ 声明依赖名（镜像 C# isStdlib || allowedPkgs.Contains）。
+    internal static bool _allowedForIndex(string pkgName, string[] declaredDeps, int declaredCount) {
+        if (pkgName.StartsWith("z42.")) { return true; }
+        int i = 0;
+        while (i < declaredCount) {
+            if (declaredDeps[i] == pkgName) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+}
