@@ -1,0 +1,44 @@
+// json_serde —— 对象 ↔ JSON 序列化 / 反序列化（add-json-serde, serde M2）。
+// 演示：Serialize(object) / Deserialize<T>(string) + [JsonProperty] / [JsonIgnore] +
+// 嵌套对象 + 数组。运行：z42 run examples/json_serde.z42
+namespace Demo;
+
+using Std;
+using Std.IO;
+using Std.Json;
+
+class Address {
+    public string City;
+    public int Zip;
+}
+
+class User {
+    [JsonProperty("user_name")] public string Name { get; set; }
+    public int Age { get; set; }
+    [JsonIgnore] public string Password { get; set; }
+    public Address Home;
+    public int[] Scores;
+}
+
+void Main() {
+    User u = new User();
+    u.Name = "Ada";
+    u.Age = 36;
+    u.Password = "secret";        // [JsonIgnore] → 不出现在 JSON
+    u.Home = new Address();
+    u.Home.City = "London"; u.Home.Zip = 12345;
+    u.Scores = new int[3];
+    u.Scores[0] = 90; u.Scores[1] = 85; u.Scores[2] = 100;
+
+    string json = JsonSerializer.SerializePretty(u);
+    Console.WriteLine("序列化：");
+    Console.WriteLine(json);
+
+    User back = JsonSerializer.Deserialize<User>(json);
+    Console.WriteLine("反序列化回：");
+    Console.WriteLine("  name = " + back.Name);          // Ada（从 user_name 读回）
+    Console.WriteLine("  age  = " + back.Age.ToString());
+    Console.WriteLine("  city = " + back.Home.City);
+    Console.WriteLine("  score[2] = " + back.Scores[2].ToString());
+    Console.WriteLine("  password = " + (back.Password == null ? "<null，已忽略>" : back.Password));
+}

@@ -1,0 +1,121 @@
+// add-json-serde (2026-08-22)：JSON → 对象反序列化（Deserialize<T>：无参 ctor / 带参 ctor /
+// 嵌套 / 数组 / 缺键默认 / 多余键忽略 / [JsonProperty] 属性重命名）。
+namespace Z42JsonDeserializeTests;
+
+using Std;
+using Std.Test;
+using Std.Json;
+
+class Point {
+    public int x;
+    public int y;
+}
+
+class Person {
+    public bool Active;
+    public string Name { get; set; }
+    public int Age { get; set; }
+}
+
+// 带参 ctor（record-like，参数名匹配字段名）——无无参 ctor → 走构造绑定路径。
+class Coord {
+    public int X;
+    public int Y;
+    public Coord(int X, int Y) { this.X = X; this.Y = Y; }
+}
+
+class PropTagged {
+    [JsonProperty("user_name")] public string Name { get; set; }
+    public int Id { get; set; }
+}
+
+class Nested {
+    public string Title;
+    public Point Origin;
+}
+
+class WithArray {
+    public string Name;
+    public int[] Nums;
+}
+
+[Test]
+void test_deserialize_primitive_fields() {
+    Point p = JsonSerializer.Deserialize<Point>("{\"x\":3,\"y\":4}");
+    Assert.Equal(3, p.x);
+    Assert.Equal(4, p.y);
+}
+
+[Test]
+void test_deserialize_fields_and_properties() {
+    Person person = JsonSerializer.Deserialize<Person>("{\"Active\":true,\"Name\":\"Alice\",\"Age\":30}");
+    Assert.True(person.Active);
+    Assert.Equal("Alice", person.Name);
+    Assert.Equal(30, person.Age);
+}
+
+[Test]
+void test_deserialize_via_constructor() {
+    // 无无参 ctor → 按参数名映射 JSON 键 ConstructorInfo.Invoke。
+    Coord c = JsonSerializer.Deserialize<Coord>("{\"X\":11,\"Y\":22}");
+    Assert.Equal(11, c.X);
+    Assert.Equal(22, c.Y);
+}
+
+[Test]
+void test_deserialize_property_rename() {
+    // [JsonProperty] 在属性上（挂 __prop_X 背后字段的 attr）反序列化路径。
+    PropTagged p = JsonSerializer.Deserialize<PropTagged>("{\"user_name\":\"kim\",\"Id\":5}");
+    Assert.Equal("kim", p.Name);
+    Assert.Equal(5, p.Id);
+}
+
+[Test]
+void test_deserialize_nested() {
+    Nested n = JsonSerializer.Deserialize<Nested>("{\"Title\":\"root\",\"Origin\":{\"x\":1,\"y\":2}}");
+    Assert.Equal("root", n.Title);
+    Assert.Equal(1, n.Origin.x);
+    Assert.Equal(2, n.Origin.y);
+}
+
+[Test]
+void test_deserialize_array() {
+    WithArray w = JsonSerializer.Deserialize<WithArray>("{\"Name\":\"xs\",\"Nums\":[10,20,30]}");
+    Assert.Equal("xs", w.Name);
+    Assert.Equal(3, w.Nums.Length);
+    Assert.Equal(10, w.Nums[0]);
+    Assert.Equal(30, w.Nums[2]);
+}
+
+[Test]
+void test_deserialize_missing_key_keeps_default() {
+    Point p = JsonSerializer.Deserialize<Point>("{\"x\":7}");
+    Assert.Equal(7, p.x);
+    Assert.Equal(0, p.y);   // 缺键 → 默认值
+}
+
+[Test]
+void test_deserialize_extra_key_ignored() {
+    Point p = JsonSerializer.Deserialize<Point>("{\"x\":1,\"y\":2,\"z\":99}");
+    Assert.Equal(1, p.x);
+    Assert.Equal(2, p.y);   // 多余键 z 被忽略，不报错
+}
+
+[Test]
+void test_roundtrip() {
+    Person src = new Person();
+    src.Active = true; src.Name = "Zoe"; src.Age = 41;
+    string json = JsonSerializer.Serialize(src);
+    Person back = JsonSerializer.Deserialize<Person>(json);
+    Assert.True(back.Active);
+    Assert.Equal("Zoe", back.Name);
+    Assert.Equal(41, back.Age);
+}
+
+[Test]
+void test_deserialize_non_generic_entry() {
+    object o = JsonSerializer.Deserialize(typeof(Point), "{\"x\":8,\"y\":9}");
+    Point p = o as Point;
+    Assert.Equal(8, p.x);
+    Assert.Equal(9, p.y);
+}

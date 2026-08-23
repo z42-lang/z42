@@ -256,6 +256,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__method_custom_attributes", reflection::builtin_method_custom_attributes),
     ("__field_custom_attributes", reflection::builtin_field_custom_attributes),
     ("__param_custom_attributes", reflection::builtin_param_custom_attributes),
+    // add-json-serde: property-attribute reflection (reads the auto-property backing
+    // field `__prop_<Name>`'s field_attributes — no wire-format bump).
+    ("__property_custom_attributes", reflection::builtin_property_custom_attributes),
     // add-method-invoke-non-generic (0.3.12): reflective invocation primitives.
     ("__type_get_type",      reflection::builtin_type_get_type),
     ("__method_invoke",      reflection::builtin_method_invoke),
@@ -286,6 +289,12 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── Array protocol（add-array-base-class，2026-05-07）─────────────────────
     ("__array_clone", array::builtin_array_clone),
+    // add-json-serde: reflective array create/get/set/length (build/read/write T[] whose
+    // element type is only known as a runtime Type — serde `T[]` support).
+    ("__array_create", array::builtin_array_create),
+    ("__array_length", array::builtin_array_length),
+    ("__array_get",    array::builtin_array_get),
+    ("__array_set",    array::builtin_array_set),
 
     // ── GC control（Phase 3d.2 expose-gc-to-scripts） ────────────────────────
     ("__gc_collect",       gc::builtin_gc_collect),

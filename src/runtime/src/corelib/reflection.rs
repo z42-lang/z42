@@ -113,6 +113,38 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     if let Some(td) = ctx.try_lookup_type(name) {
         return make_type_object(ctx, td);
     }
+    // add-json-serde: an *unqualified* class name (no `.`) that failed the FQ
+    // lookups above. This arises for `typeof(T)` in a **cross-package generic
+    // method** (`z42.json`'s `Deserialize<UserType>`): the call site emits the
+    // method type-arg through the imported null-receiver vcall path, which yields
+    // the type argument's *simple* name rather than its FQ name — so the entry
+    // module's FQ-keyed `type_registry` misses. Resolve it by simple-name match
+    // against the entry module's own types (the user program, where `T` lives).
+    // Only a *unique* match is accepted; zero/ambiguous → fall through to the
+    // name-only synthetic (unchanged behaviour), so this never mis-binds.
+    if !name.contains('.') {
+        let mut fq_hit: Option<String> = None;
+        let mut ambiguous = false;
+        let all = ctx.loaded_type_names();
+        for key in all {
+            if type_simple_name(&key) == name {
+                if fq_hit.is_some() { ambiguous = true; break; }
+                fq_hit = Some(key);
+            }
+        }
+        if !ambiguous {
+            if let Some(fq) = fq_hit {
+                if let Some(m) = ctx.module() {
+                    if let Some(td) = m.type_registry.get(&fq) {
+                        return make_type_object(ctx, td.clone());
+                    }
+                }
+                if let Some(td) = ctx.try_lookup_type(&fq) {
+                    return make_type_object(ctx, td);
+                }
+            }
+        }
+    }
     // Primitive / unresolved: present a canonical user-facing name. The VM uses
     // two tag vocabularies — field slots carry `"int"`/`"long"`, function
     // signatures carry `"i32"`/`"i64"`/`"str"` — so reflection normalizes both
@@ -451,6 +483,53 @@ pub fn builtin_field_custom_attributes(ctx: &VmContext, args: &[Value]) -> Resul
             td.field_attributes()
                 .iter()
                 .find(|(n, _)| n.as_ref() == field)
+                .map(|(_, refs)| refs.to_vec())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    call_attribute_factories(ctx, &attrs)
+}
+
+/// `__property_custom_attributes(qualified) -> Std.Attribute[]` — live attribute
+/// instances for the property named by "<Class>.<Property>". An auto-property desugars
+/// to a private backing field `__prop_<Property>`; the compiler (ClassDescBuilder)
+/// attaches the property's attributes to that backing field, so this looks them up in
+/// `cold.field_attributes` under the `__prop_<Property>` name (reusing the existing
+/// field-attribute format — no wire-format bump). Computed properties (no backing
+/// field) carry no attributes. add-json-serde.
+pub fn builtin_property_custom_attributes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let qualified = match args.iter().find_map(|v| match v {
+        Value::Str(s) => Some(s.to_string()),
+        _ => None,
+    }) {
+        Some(q) => q,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    // Accept the accessor-qualified name "<Class>.get_<Prop>" / "<Class>.set_<Prop>"
+    // (z42 JsonReflect passes PropertyInfo.__getterQualified directly — avoids z42-side
+    // string manipulation on the cross-package field). Split at the last dot, strip the
+    // get_/set_ accessor prefix → the property name → its backing field `__prop_<Prop>`.
+    let dot = match qualified.rfind('.') {
+        Some(d) => d,
+        None => return Ok(ctx.heap().alloc_array(Vec::new())),
+    };
+    let class = &qualified[..dot];
+    let accessor = &qualified[dot + 1..];
+    let prop = accessor
+        .strip_prefix("get_")
+        .or_else(|| accessor.strip_prefix("set_"))
+        .unwrap_or(accessor);
+    let backing = format!("__prop_{prop}");
+    let td = ctx
+        .module()
+        .and_then(|m| m.type_registry.get(class).cloned())
+        .or_else(|| ctx.try_lookup_type(class));
+    let attrs: Vec<crate::metadata::bytecode::AttributeRef> = td
+        .as_ref()
+        .map(|td| {
+            td.field_attributes()
+                .iter()
+                .find(|(n, _)| n.as_ref() == backing.as_str())
                 .map(|(_, refs)| refs.to_vec())
                 .unwrap_or_default()
         })
@@ -1734,7 +1813,7 @@ pub fn builtin_type_visibility(_ctx: &VmContext, args: &[Value]) -> Result<Value
 
 /// Read a named slot from any ScriptObject `Value` (e.g. a `MethodInfo`'s hidden
 /// `__qualified` / `IsStatic`). `Null` if not an object or no such field.
-fn read_obj_slot(v: &Value, field: &str) -> Value {
+pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
     if let Value::Object(rc) = v {
         if let Some(i) = rc.type_desc().field_index.get(field).copied() {
             return rc.borrow().field_value(i);
