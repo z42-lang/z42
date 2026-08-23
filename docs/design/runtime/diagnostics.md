@@ -107,6 +107,15 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
     `xtask profile` 展示。仅进 **profile 快照**；暴露到 z42（下条）仍待 P1c。
   - （另：`native_calls`/`exceptions_thrown`/`exceptions_caught` 早于 2026-05-26 已埋点，非"待埋"。）
+  - **并发探针（add-concurrency-probes P1b, 2026-08-23）**：ProfileSnapshot 再加两组并发字段。
+    ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 `VmCore.park_histogram`
+    （复用 `gc::types::PauseHistogram`），埋点在 `gc::safepoint::park_until_idle`——只在真实 GC 暂停的
+    slow path 跑，`check_safepoint` 热路径零成本，故常开无 feature。surface `park_count`/`park_us_total`/
+    `park_max_us`。② **用户锁争用（编译期 feature `profile-contention`，默认关）**：`Std.Threading.Mutex`/
+    `RwLock` 的阻塞 acquire（`corelib::sync`）在 feature 下先 `try_lock`，miss=争用 → `lock_contentions`++
+    + 计时 `lock_wait_us`；默认构建 `#[cfg]`-编译掉探针 → acquire 路径零成本（见 §6 feature-gate）。
+    `xtask profile --threads` 展示 park（默认 VM）+ contention（现建 `profile-contention` throwaway VM，
+    复用 `--heap` 的隔离 target-dir 手法）。仅进 profile 快照；暴露到 z42 API 延后。
 - **暴露到 z42（已落地 expose-diagnostics-counters P1c, 2026-08-23）**：`Std.Diagnostics.RuntimeStats.Counters()`
   返回一个 `Std.Diagnostics.RuntimeCounters` 值对象（11 只读 auto-property = 7 运行时 counter +
   `Allocations` + 3 分代 GC 字段），backing builtin `__diag_counters`（`corelib/diagnostics.rs`，append 到

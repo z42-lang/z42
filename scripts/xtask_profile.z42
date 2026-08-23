@@ -172,21 +172,48 @@ string _profileHeap(ProfileCtx c) {
 // ── threads / concurrency ───────────────────────────────────────────────────
 
 // z42 has NO background GC/JIT threads — GC is cooperative safepoint STW, JIT is
-// lazy on the calling thread. So the concurrency signal at P0 is the counter摘要
-// plus a per-thread-timeline hint (samply). Deeper safepoint/lock counters = P1.
+// lazy on the calling thread. Concurrency signal (add-concurrency-probes P1b):
+//   - park_count / park_us: how long mutators were STW-stalled at GC safepoints
+//     (always-on, from the default VM run).
+//   - lock_contended / lock_wait_us: user-lock (Std.Threading.Mutex/RwLock)
+//     contention — needs a VM built with the `profile-contention` feature (the
+//     probe is #[cfg]-gated so the default build stays zero-cost). Mirrors the
+//     `--heap` throwaway-dhat-VM手法: build an isolated feature VM + run once.
 string _profileThreads(ProfileCtx c) {
     Console.WriteLine("── threads / concurrency ──");
+    // 1) Default VM: park histogram + all counters (contention fields = 0 here).
     ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
         .Env("Z42_LIBS", c.libs).Run();
     string stats = _counterSummary(pr.Stderr);
-    Console.WriteLine("  counters: " + stats);
+    Console.WriteLine("  counters (park always-on): " + stats);
+
+    // 2) Contention VM: isolated `profile-contention` build → real lock_* data.
+    string tdir = Path.Join(c.outDir, "contention-target");
+    Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
+    int bc = _exec(_cargoRelease()
+        .Arg("--manifest-path").Arg(_runtimeManifest())
+        .Arg("--features").Arg("profile-contention")
+        .Arg("--target-dir").Arg(tdir));
+    string contention = "(build failed rc=" + bc.ToString() + ")";
+    if (bc == 0) {
+        string cvm = Path.Join(tdir, Path.Join("release", "z42vm"));
+        ProcessResult cpr = new Process(cvm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+            .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+            .Env("Z42_LIBS", c.libs).Run();
+        contention = _counterSummary(cpr.Stderr);
+        Console.WriteLine("  counters (contention on): " + contention);
+    } else {
+        Console.WriteLine("  ✗ profile-contention build failed (rc=" + bc.ToString() + ")");
+    }
+
     string hint = _have("samply")
         ? "per-thread timeline: `samply record -- " + c.vm + " " + c.zbc + " " + c.entry + " --mode " + c.mode + "`"
         : "install samply for a per-thread timeline (`cargo install samply`)";
     Console.WriteLine("  " + hint);
     return "## threads\n\nmodel: cooperative safepoint STW GC, lazy JIT (no background threads).\n\n"
-        + "counters: `" + stats + "`\n\n" + hint + "\n\n";
+        + "counters (park always-on): `" + stats + "`\n\n"
+        + "counters (profile-contention build): `" + contention + "`\n\n" + hint + "\n\n";
 }
 
 // ── e2e (wall-clock + peak-RSS) ─────────────────────────────────────────────
@@ -266,10 +293,17 @@ string _counterSummary(string stderr) {
             string gmin = _jsonNum(ln, "minor_collections");
             string gmaj = _jsonNum(ln, "major_collections");
             string rec = _jsonNum(ln, "reclaimed_bytes");
+            // add-concurrency-probes (P1b): safepoint park + user-lock contention.
+            string pc = _jsonNum(ln, "park_count");
+            string pu = _jsonNum(ln, "park_us_total");
+            string lc = _jsonNum(ln, "lock_contentions");
+            string lw = _jsonNum(ln, "lock_wait_us");
             return "builtin=" + b + " native=" + n + " jit_compiled=" + jc
                 + " exc_thrown=" + et + " exc_caught=" + ec
                 + " alloc=" + al + " gc_minor=" + gmin + " gc_major=" + gmaj
-                + " reclaimed=" + rec;
+                + " reclaimed=" + rec
+                + " park_count=" + pc + " park_us=" + pu
+                + " lock_contended=" + lc + " lock_wait_us=" + lw;
         }
         i = i + 1;
     }

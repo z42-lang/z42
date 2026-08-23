@@ -145,6 +145,13 @@ mimalloc-alloc       = ["dep:mimalloc"]
 # allocator to dhat (overrides mimalloc via a cfg gate in main.rs) and writes
 # dhat-heap.json per run. Dev/profiling only — never in a release/platform preset.
 dhat-heap            = ["dep:dhat"]
+# profile-contention: user-lock (Std.Threading.Mutex/RwLock) contention probes
+# (script-profiling P1b). Wraps each blocking acquire with a try_lock + timing
+# so contended acquires bump `lock_contentions` / `lock_wait_us`. OFF by default
+# — the probe code is #[cfg]-compiled out so the default build's lock path stays
+# the plain `arc.lock()` (zero cost). `xtask profile` builds a throwaway VM with
+# this feature when contention data is requested. No extra deps.
+profile-contention   = []
 jit                  = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 native-interop       = ["dep:libffi", "dep:libloading"]
 aot                  = []

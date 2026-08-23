@@ -89,6 +89,14 @@ fn pause_guard_drop_notifies_waiters() {
     worker.join().expect("worker panicked");
     assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
 
+    // add-concurrency-probes (2026-08-23, script-profiling P1b): the worker that
+    // parked in `park_until_idle` recorded its STW stall into the shared park
+    // histogram. Always-on (no feature gate) — proves the probe fires.
+    assert!(
+        collector.core.park_histogram.lock().count >= 1,
+        "a safepoint park should have been recorded in park_histogram",
+    );
+
     // Keep mutator alive across the asserts so the registry doesn't drop
     // out from under us.
     drop(mutator);
