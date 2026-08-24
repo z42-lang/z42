@@ -100,7 +100,7 @@
 |----|------|------|
 | **opcode / section 常量** | 65 个 `OP_*` 在 zbc_reader.rs:121-198、SEC_* 在 formats.rs:34-43、Instruction 枚举在 bytecode.rs、writer 在 z42c 侧——version-bumping.md 的 5 处同步清单本质是在为这个分散买单 | ✅ **已落地（refactor-zbc-reader-split）**：`OP_*` + `TAG_*` 收进 `metadata/zbc_reader/opcodes.rs` 单一 reader-side 源（`SEC_*` 早已在 formats.rs）。**刻意不建 `OpcodeInfo`/`SectionInfo` name/metadata 表**——decoder 直接 match 原始字节，runtime 无一处按名迭代 opcode，投机表 = 无消费者的基础设施（philosophy.md 最简实现）。真正的跨语言同步痛点在 z42c writer ↔ Rust reader 两侧，Rust 侧建表不能解，留待出现真实消费者（反汇编器/linter）时再加 |
 | **BUILTINS（442 项，corelib/mod.rs:74-442）↔ stdlib .z42 声明** | 无一致性校验，签名不匹配到运行期才报 "unknown builtin" | VM 启动期 eager validation，或 z42c 编 zpkg 时比对 `[Native]` 声明与 BUILTINS 签名 |
-| **GC 调参魔数** | 90% near-limit、10% throttle（arc_heap.rs:1398-1400）、75% pressure（:1421-1433）、晋升阈值 2（region.rs:115）直接写在条件里 | 收进 `RuntimeConfig::GcTuning`（near_limit_ratio / pressure_ratio / throttle_ratio / promotion_threshold / soft_ref_threshold），调优实验不改代码；参数文档落 book |
+| **GC 调参魔数** | 90% near-limit、10% throttle、75% pressure（`gc/arc_heap/alloc.rs`）、晋升阈值 2（`gc/region.rs`）直接写在条件里 | ✅ **已落地（add-gc-tuning-config）**：三个自动回收比率收进 `RuntimeConfig`（`Z42_GC_NEAR_LIMIT_RATIO` 0.90 / `Z42_GC_PRESSURE_RATIO` 0.75 / `Z42_GC_THROTTLE_RATIO` 0.10，共用 `parse_gc_ratio` clamp `[0,1]`），`alloc.rs` 三处消费点改读 `runtime_config()`。`soft_ref_threshold` 早已是 `gc_soft_threshold`。参数 + 三态协议文档落 [`docs/book/src/runtime/gc-tuning-and-safepoint.md`](book/src/runtime/gc-tuning-and-safepoint.md)。**刻意不做 `promotion_threshold`**：它是编译期 `const`，被 `generational.rs::maybe_mark_cross_gen_card`（**write barrier 热路径**，每次堆引用写读取）+ ~20 处测试当结构不变量硬编码——运行时读会给每次引用写注入原子 load，为几乎无人调的值付热路径代价（判据同 M4/M5「得不偿失即不做」）。真需要时应做成构造期 per-heap 缓存，非热路径运行时读 |
 | **native marshal 类型映射** | `dispatch.rs:94-130` `parse_type()` 与 `marshal.rs` 的转换是两处需同步的 match | 合并为一张类型注册表（name / SigType / ffi_type），可自动生成 C header 与文档 |
 
 ### M4. zbc 版本特性检查未集中
@@ -140,6 +140,13 @@ build clean + `cargo test --lib` z42 960/0 + compression 21/0（含 semantics_te
 
 **建议**：在 `MagrGC` trait（heap.rs）文档化 Safepoint 协议（注册 / defer / fallback 三态），为多线程执行铺路。属文档+小改，可与 H4 同 change。
 
+✅ **已落地（add-gc-tuning-config）**：`MagrGC::set_external_needs_collect_flag`（`gc/heap.rs`）的 doc 现完整
+写出**三态协议**——① Register（`VmCore::new` 注册共享 `Arc<AtomicBool>`）② Defer（allocator 仅置 flag，
+mutator 下一个 safepoint 用 `swap(false)` 抢占 + `request_gc_pause` 下 STW 回收）③ Fallback（未注册 → 就地
+`collect_cycles`，保 GC 单测单线程行为），并点明「谁置位（分配线程 alloc 时）/ 谁清除（mutator safepoint 轮询）」、
+回收延迟由 safepoint 节流上界而非分配决定。跨组件数据流全文另落 book 机制页
+[`gc-tuning-and-safepoint.md`](book/src/runtime/gc-tuning-and-safepoint.md)。
+
 ---
 
 ## 三、低优先级（记录在案，等触发条件）
@@ -177,7 +184,7 @@ build clean + `cargo test --lib` z42 960/0 + compression 21/0（含 semantics_te
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
 | 7 | `refactor-reflection-split` | H2(reflection 拆 11 子模块，全 <500) + L3(corelib README) | runtime | 🟢 done |
 | 8 | `refactor-interp-boilerplate` | M5（OOM helper + cached_token! 宏 + TypeTag 单一源；#3 resolve_function 复核后刻意不做） | runtime | 🟢 done |
-| 9 | `add-gc-tuning-config` | M3(GC 调参) + M6(safepoint 协议文档) | runtime | ☐ |
+| 9 | `add-gc-tuning-config` | M3(GC 调参：3 比率入 config，`promotion_threshold` 刻意不做) + M6(safepoint 三态协议文档 + book 机制页) | runtime | 🟢 done |
 | 10 | `add-builtin-signature-validation` | M3(BUILTINS 校验) + M3(marshal 表) | runtime + stdlib | ☐ |
 
 L 系列不排期，按各自触发条件挂靠对应 change 或 roadmap Deferred 索引。

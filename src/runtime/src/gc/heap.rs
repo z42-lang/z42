@@ -197,15 +197,41 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         Vec::new()
     }
 
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire an external
-    /// `Arc<AtomicBool>` flag for the backend to set (instead of calling
-    /// `collect_cycles` inline) when an automatic threshold-based collection
-    /// is warranted. The flag is then drained at the next
-    /// [`crate::gc::safepoint::check_safepoint`] call, which performs a
-    /// stop-the-world collect under the safepoint protocol.
+    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: register the external
+    /// "needs collect" flag that turns an allocator pressure-trip into a
+    /// *deferred*, safepoint-coordinated collect rather than an inline one.
     ///
-    /// Default no-op: backends that don't observe allocation thresholds
-    /// or that don't need cross-thread safety opt out.
+    /// # Auto-collect protocol (three states)
+    ///
+    /// The allocator's [`maybe_auto_collect`](crate::gc::arc_heap) decides a
+    /// collect is warranted when heap-used crosses **`gc_near_limit_ratio`**
+    /// (default 0.90) of the max-bytes limit *and* has grown by at least
+    /// **`gc_throttle_ratio`** (default 0.10) of the limit since the last
+    /// auto-collect (both `Z42_GC_*` knobs — see `config.rs`). What happens
+    /// next depends on whether this flag is wired:
+    ///
+    /// 1. **Register** — `VmCore::new` calls this once after construction to
+    ///    hand the heap an `Arc<AtomicBool>` shared with every `VmContext`.
+    ///    A backend that ignores allocation thresholds (mock heaps) or needs
+    ///    no cross-thread coordination keeps the default no-op and stays in
+    ///    state 3 permanently.
+    /// 2. **Defer** (flag wired, the production path) — `maybe_auto_collect`
+    ///    only does `flag.store(true, Release)` and returns; it does **not**
+    ///    collect on the allocating thread. The flag is drained by the next
+    ///    [`check_safepoint`](crate::gc::safepoint::check_safepoint) on any
+    ///    mutator: the slow path claims the round via `swap(false, AcqRel)`
+    ///    (first claimer wins; others skip) and runs a stop-the-world collect
+    ///    under [`request_gc_pause`](crate::gc::safepoint::request_gc_pause),
+    ///    so the scanner never races a mutator's live registers.
+    /// 3. **Fallback** (flag unwired) — `maybe_auto_collect` collects inline
+    ///    via `collect_cycles()`. This preserves single-threaded behaviour for
+    ///    GC unit tests that construct `ArcMagrGC::new()` without a VmCore.
+    ///
+    /// **Who checks / when**: the flag is *set* on the allocating thread at
+    /// alloc time; it is *checked and cleared* by mutator threads at their
+    /// throttled safepoint polls (function entry / back-edge / Call return).
+    /// A set flag never blocks the allocator — collection latency is bounded
+    /// by the safepoint throttle, not by allocation.
     fn set_external_needs_collect_flag(&self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
 
     /// 把一个 value 加入 root set，host 持有返回的 `RootHandle` 期间该值
