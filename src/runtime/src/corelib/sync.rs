@@ -28,7 +28,6 @@ use anyhow::{anyhow, bail, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
 // ── ChannelSlot ───────────────────────────────────────────────────────────────
@@ -122,7 +121,7 @@ pub fn builtin_mutex_new(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         .ok_or_else(|| anyhow!("__mutex_new: missing initial value"))?
         .clone();
 
-    let id = ctx.core.next_mutex_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.mutexes.alloc_id();
     let mutex = Arc::new(parking_lot::Mutex::new(initial));
     ctx.core.mutexes.lock().insert(id, mutex);
     Ok(Value::I64(id as i64))
@@ -208,7 +207,7 @@ pub fn builtin_mutex_unlock(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// and register it in `VmCore.channels`.
 pub fn builtin_channel_new(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     let (tx, rx) = mpsc::channel::<Value>();
-    let id = ctx.core.next_channel_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.channels.alloc_id();
     ctx.core.channels.lock().insert(id, ChannelSlot {
         sender:   Some(ChannelSender::Unbounded(tx)),
         receiver: Arc::new(std::sync::Mutex::new(rx)),
@@ -229,7 +228,7 @@ pub fn builtin_channel_new_bounded(ctx: &VmContext, args: &[Value]) -> Result<Va
         None        => bail!("__channel_new_bounded: missing capacity argument"),
     };
     let (tx, rx) = mpsc::sync_channel::<Value>(cap);
-    let id = ctx.core.next_channel_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.channels.alloc_id();
     ctx.core.channels.lock().insert(id, ChannelSlot {
         sender:   Some(ChannelSender::Bounded(tx)),
         receiver: Arc::new(std::sync::Mutex::new(rx)),
@@ -389,7 +388,7 @@ pub fn builtin_rwlock_new(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let initial = args.first()
         .ok_or_else(|| anyhow!("__rwlock_new: missing initial value"))?
         .clone();
-    let id = ctx.core.next_rwlock_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.rwlocks.alloc_id();
     let lock = Arc::new(parking_lot::RwLock::new(initial));
     ctx.core.rwlocks.lock().insert(id, lock);
     Ok(Value::I64(id as i64))

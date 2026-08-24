@@ -3,8 +3,8 @@
 //! Architecture (add-threading-stdlib, 2026-05-20):
 //!
 //! - `__thread_spawn(action)` validates the callable, allocates a slot id from
-//!   `VmCore.next_thread_id`, spawns an `std::thread`, and stores the
-//!   `JoinHandle` in `VmCore.threads` keyed by the slot id. Returns the slot
+//!   `VmCore.threads` (a `ResourceRegistry`), spawns an `std::thread`, and
+//!   stores the `JoinHandle` in it keyed by the slot id. Returns the slot
 //!   id as `Value::I64`.
 //! - `__thread_join(slot_id)` removes the handle from the registry, joins, and
 //!   returns a discriminated result array the z42 facade converts to either a
@@ -38,7 +38,6 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 const JOIN_OK:           i64 = 0;
 const JOIN_ACTION_ERR:   i64 = 1;
@@ -80,7 +79,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
 
     let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
-    let id = ctx.core.next_thread_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.threads.alloc_id();
 
     let handle = std::thread::spawn(move || -> Result<()> {
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
