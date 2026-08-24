@@ -109,10 +109,10 @@ exceptions_caught:    0
 CLI flag 与 `--info` 不同：`--info` 是 boot-time build 信息；`--print-stats-on-exit`
 是 runtime 计数。两个 flag 可同时设。
 
-> **Phase 2 路线**：JIT 编译数 / 时间在 `jit::compile_module`、native call 在
-> `interp::exec_native`、exception 计数在 `exception::*` —— 每个独立 refactor。
-> 脚本层 `Std.Diagnostics.RuntimeStats.Snapshot()` 暴露 API 也在 Phase 2。
-> 定时打印 / Prometheus / OTLP exporter 见 docs/review.md Part 4 D6。
+> **已扩展（脚本性能分析 P1a/P1c，2026-08）**：native / jit / exception 计数均已接通增量点；
+> 快照升级为 `ProfileSnapshot`（+ allocations + GC 分代 + 并发探针），`--stats-format json` 出单行
+> JSON；脚本层 `Std.Diagnostics.RuntimeStats.Counters()` 暴露同一组计数。整体用法见上「脚本性能分析
+> （`xtask profile`）」节。定时打印 / Prometheus / OTLP exporter 见 docs/review.md Part 4 D6。
 
 ### `RuntimeObserver` —— push-based 事件流（embedding API）
 
@@ -150,6 +150,45 @@ Phase 1 emit site：`main.rs` 每个 boot-time `load_artifact` 成功后 replay-
 Observer 回调约束：**Send + Sync**（embedder 可能跨 thread 转发到 async runtime / 监控管线）；
 **禁止 panic**（VM fire-loop 不 catch unwind，panic 会 abort 整个进程）；
 **快速返回**（重活走 channel 给 worker thread，不要阻塞 hot path）。
+
+## 脚本性能分析（`xtask profile`）
+
+一条命令把外部 profiler / 运行时探针挂到一次脚本运行上，按四个维度出分析产物。机制原理
+（两层成本模型 / safepoint 采样 / perfetto 采样型 trace）见
+[`docs/book/src/runtime/diagnostics.md`](../book/src/runtime/diagnostics.md)（知识库机制页）；
+program-plan 与决策见归档 `docs/spec/archive/2026-08-24-plan-script-profiling/`。
+
+```bash
+# 编译脚本 → 按维度分析（无维度 flag = 全跑，写 report.md）
+xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode interp|jit]
+```
+
+| 维度 | 产物 | 依赖工具（缺则跳过 + 安装提示，不让 profile 失败）|
+|------|------|------|
+| `--cpu` | ① **samply** native 火焰图（Rust/JIT machine 栈）② **z42-level** 采样火焰图（`Main;foo;bar` folded → inferno SVG）+ **perfetto 采样 trace**（`z42-trace.json`）| `samply` / `inferno-flamegraph`（`cargo install`）/ perfetto UI |
+| `--heap` | dhat 堆分析 `dhat-heap.json` + counter 摘要 | dhat（内置 feature，隔离 target-dir 现建）→ dh_view.html |
+| `--threads` | safepoint park 直方图 + 用户锁争用（`profile-contention` feature VM）+ counter 摘要 | — |
+| `--e2e` | hyperfine wall-clock + peak-RSS + counter 摘要 | `hyperfine` |
+
+**z42-level CPU 采样**（`--cpu` 的第二层，safepoint 采样 profiler）直接经 env 控制，不必走 xtask：
+
+```bash
+# 采样开：按 Hz 采 z42 调用栈 → folded（火焰图）；设 Z42_TRACE_OUT 再产 perfetto 采样 trace
+Z42_SAMPLE_HZ=4000 Z42_SAMPLE_OUT=z42-samples.folded Z42_TRACE_OUT=z42-trace.json \
+  z42vm script.zbc <entry> --mode jit
+inferno-flamegraph z42-samples.folded > flame.svg   # 渲火焰图
+# z42-trace.json → 打开 https://ui.perfetto.dev import（采样火焰图 over time）
+```
+
+| env knob | 作用 | 默认 |
+|----------|------|------|
+| `Z42_SAMPLE_HZ` | 采样频率（Hz，≥1 开启）；未设 = 关（**零成本**：无后台线程、热路径不受影响）| unset |
+| `Z42_SAMPLE_OUT` | folded stacks 输出路径（inferno 格式）| `z42-samples.folded` |
+| `Z42_TRACE_OUT` | chrome/perfetto 采样 trace 路径；设了才记时间线（省内存）| unset = 不写 |
+
+**counter 快照**（`--print-stats-on-exit`）现由 `ProfileSnapshot` 输出，`--stats-format json`
+出单行 JSON 供 `xtask profile` 抓取；脚本层经 `Std.Diagnostics.RuntimeStats.Counters()` 读同一组
+计数（7 counter + allocations + GC 分代）。
 
 ## 当前可用
 
