@@ -664,6 +664,102 @@ PR4a/4c 的引擎单测走**独立 `CollectAll`+`TypeChecker` harness**，只断
 在**发现 0 个实体时不产空注册表**，避免无实体消费方 compile 里顺带产出 `ModConsumer.EntityRegistry` 串味到
 后续 module golden。真实用户不会把两个定义同名生成类的 zpkg 载进同一进程，故这是 harness 约束、非引擎缺陷。）
 
+## 参数默认值统一常量表示 + caller 宏（PR6 实现落法，D3 + 默认值行为修复）
+
+> spec：`specs/param-default-representation/spec.md`。**零格式-bump**（骑 zbc 1.15 param attr-ref blob 通道）。
+> 原 PR6 仅 caller 宏；系统设计后扩为参数默认值整体重设——因 `kind` 是错的抽象层（见 spec 背景）。
+
+### 问题诊断（真相源）
+
+两条互不相干的默认填充路径 + 一份只喂反射的标量投影：
+
+| 路径 | 现状 | 能力 |
+|------|------|------|
+| 同包 | `OverloadBinder._adaptArgs` 调用点重绑 `Param.Default` AST 表达式 | 任意表达式（含 struct）；`kind` 没用到 |
+| 跨包 | `Z42FuncType` 不带默认值信息 → `BoundDefault(T,-1)` → emit `default(T)` **零值** | **静默 bug**：作者默认值被丢，一律塌零 |
+| 持久化 `(kind,val,str)` fold（kind 0-5） | 只被 `reflection.rs` 读 | 标量-only 有损投影；从不参与真实调用 |
+
+`kind` 只服务反射展示、表达不了 struct/enum/数组、且跨包默认值根本没接 → **用统一 `ConstBlob` 取代之**。
+
+### 统一模型
+
+**参数默认值 = 编码常量 `ConstBlob`（或 caller 哨兵），经 param attr-ref `$Default`/`$Caller:*` 哨兵持久化；
+两条调用路径从同一真相源物化。常量值模型：默认值必须编译期常量折叠（非常量 → 新诊断 E04xx）。**
+
+```
+参数默认值 Expr
+   ├─ 常量折叠成功  → ConstBlob → 持久化 IrAttrRef{TypeName="$Default", FactoryFunc=<ConstBlob 串>}
+   ├─ caller 宏     → 持久化 IrAttrRef{TypeName="$Caller:member|line|file|module", FactoryFunc=""}
+   └─ 非常量        → 编译错误（E04xx，常量值模型）
+SIGS per-param default_kind 字节 → 写 0（vestigial，物理删除需 bump，留 follow-up）
+```
+
+### `ConstBlob` 编码（**序列化的常量-表达式树**，放 `$Default` 哨兵的 FactoryFunc 串槽）
+
+> **关键设计（避开 struct 值-解释器）**：ConstBlob 不是「把 struct 归约成字段值」，而是**序列化一棵常量-表达式树**——
+> 标量叶子完全归约；聚合体（struct/array）存「常量构造」（类型 + 常量子节点），**在每个调用点 re-emit**
+> `new T(constArgs)` / `[constElems]`。对值类型 struct，re-emit 常量构造 = 等价常量值（确定、无副作用），
+> 仍是纯常量值模型；但**无需编译期跑 ctor 体求字段值**（那才是重活）。同包现行正是 re-emit 表达式——
+> 本设计把它序列化以供跨包，两路统一。折叠器 = **常量-性检查器**（复用既有 `ConstEval`），非值-解释器。
+
+长度前缀 + 标签的紧凑文本编码（可嵌套）。标签方案（草案，实现时定稿）：
+
+| 形式 | 编码 | 说明 |
+|------|------|------|
+| null | `n` | |
+| bool | `b0` / `b1` | |
+| int | `i<width>:<十进制>` | width 由参数声明类型定，值完全归约 |
+| float | `f<width>:<hexbits>` | 复用 `DoubleToBits` 保精确 |
+| char | `c:<codepoint>` | |
+| string | `s:<len>:<utf8 bytes>` | 长度前缀支持嵌套 |
+| enum | `e:<typeFQ>:<底值(int)>` | 底层整数值 + enum 类型名（re-emit 为 enum 常量） |
+| **struct** | `t:<len>:<typeFQ>:<arity>:<arg0><arg1>…` | **常量构造**：类型 + ctor 常量实参（re-emit `new T(args)`），非字段值 |
+| **array** | `a:<len>:<elemTypeFQ>:<n>:<elem0>…` | 元素类型 + 常量元素（re-emit `[e0,…]`） |
+
+- **来源**：折叠器复用 `ConstEval.Eval`（标量/null/一元二元/命名 const/enum 成员 `Class.FIELD` 均已覆盖）；
+  新增 `ArrayLitExpr` / `ObjNewExpr` 的**常量-性**分支（元素/实参递归 ConstEval，非常量即拒 → E04xx）。
+- **解码**：z42c 侧重建 BoundExpr（标量→`BoundConst`；array→`BoundArrayLit`；struct→`BoundNew` 带常量实参）→
+  调用点 emit。Rust 反射侧解码成 Value（聚合体反射细化见 Deferred）。**双方一致即可，不入格式版本。**
+
+### 数据流
+
+```
+[Codegen] ClassDescBuilder/IrGenFacts：
+   每参 fold Default → ConstBlob 串 → append IrAttrRef 到 IrFunction.ParamAttrs[pIdx]
+   caller 宏 → append $Caller:* 哨兵；default_kind 写 0
+[持久化] 复用 ZbcWriter/ZpkgWriter 既有 param attr-ref blob（zbc 1.15）— 零格式改动
+[跨包读回] ImportedSymbolLoader：扫导入符号 param attr-ref → $Default/$Caller:* →
+   填进 Z42FuncType（新增 ParamDefaults 字段：ConstBlob 串 / caller 标记）+ MethodSymbol
+[调用点] OverloadBinder：
+   同包 — 用 fold 的 ConstBlob（或直接 BoundConst，重绑退休）
+   跨包 — 用导入的 ConstBlob 重建 BoundConst（替代 BoundDefault(T,-1) 零值）← 修 bug
+   caller 哨兵 — 注入调用点上下文字面量（enclosing member / line / file / namespace）
+[反射] reflection.rs：读 param attr-ref $Default → 解码 ConstBlob → Value（替代旧 param_defaults 元组）
+```
+
+### caller 宏语法（新，support-先行）
+
+- 表达式宏 `caller_member!()` / `caller_line!()` / `caller_file!()` / `module_path!()`；**v1 仅合法于参数默认值位**
+  （别处 → 报错，对齐 C# CallerXxx 限定可选参数）。
+- 词法零改动优先：复用既有 `Bang`(`!`) + `(`；语义层按宏名白名单认（4 个内建宏）。若 Pratt 后缀不便，
+  再加最小 `MacroCallExpr` 节点。
+- **z42c / stdlib / xtask 源不使用**这些宏（仅加 support）→ 上一 nightly 能编当前源 → 单 PR、不触两-nightly（同 PR3c `#suppress`）。
+
+### 自举 / bump 安全
+
+- **零格式-bump**：不动 zbc/zpkg wire layout（骑既有 param attr-ref blob）→ 不触发 ci-bootstrap 两代转换 →
+  绕开当前两代自举格式-bump 回归墙（PR #270 证实纯版本 bump 亦红）。
+- **无新跨成员符号跨包被引用**：ConstBlob helper 尽量落在被消费方同包（z42.ir / semantics-内部），
+  避免 post-F2 冷启动 stale-cache（复用 PR4d/4e 教训）。
+- **self-host byte-identical**：z42c/stdlib 源标量默认值改走 ConstBlob → 当前 z42c 确定性产出 → gen1==gen2；
+  不使用 caller 宏 → 种子能编。
+
+### 与既有能力的衔接
+
+- struct 常量默认值依赖 struct 字段可常量表达（[[struct-value-semantics-program]] 的值语义地基）+ enum 底值（`enum-underlying-type`）。
+- 命名常量折叠复用 `const` 编译期常量（[[add-const-keyword]]）。
+- 反射迁移与 `add-parameter-attribute-reflection`（zbc 1.15 param attr 通道）同源——本 PR 正是复用它承载 `$Default`。
+
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 
 | 机制 | 进 zpkg | 载体 | bump? |
@@ -671,9 +767,13 @@ PR4a/4c 的引擎单测走**独立 `CollectAll`+`TypeChecker` harness**，只断
 | store-meta | 是 | IrAttrRef blob（已有） | 否 |
 | directive: Native | 是 | 现有 stub | 否 |
 | directive: Layout/Repr（E2） | 是 | descriptor 布局字段 | 是（做时） |
-| directive: Deprecated（D2） | 是 | flag+msg 串池 | 是 |
-| caller-kind 宏（D3） | 是 | param 枚举 flag | 是 |
+| directive: Deprecated（D2） | 是 | ~~flag+msg 串池~~ → **attr-ref `$Deprecated` 哨兵** | **否**（PR5 pivot 零-bump） |
+| 参数默认值 + caller 宏（D3） | 是 | **param attr-ref `$Default`/`$Caller:*` 哨兵**（ConstBlob）| **否**（PR6 零-bump，见下节） |
 | Generator 产物 / Analyzer | 否 | —— | 否 |
+
+> **⚠️ 冲突已消解（2026-08-24，PR6 系统设计）**：原「caller-kind 宏 bump=是 / param 枚举 flag」与 D3
+> 「无 ABI」矛盾。勘察证明零-bump 可行（骑既有 param attr-ref blob 通道，Rust `_` 兜底安全）→
+> **D3「无 ABI」为准**；并借此系统重设参数默认值表示（见「## 参数默认值统一常量表示 + caller 宏」节）。
 
 **现有 4 pass 收敛**（勘察确认分两层）：
 - AST 级（`CompilationUnit→CompilationUnit`）：`AttributeSynth`（→ store-meta 默认路径，判定改三路）+
@@ -689,7 +789,7 @@ PR4a/4c 的引擎单测走**独立 `CollectAll`+`TypeChecker` harness**，只断
 |---|------|------|
 | D1 | attribute 定义形态 | **不引入 `attribute` 关键字**；沿用 `class Foo:Attribute`；位置用 `[Targets]`（反射读，无 bump），richer 约束靠 handler 自校验（Rust 对齐） |
 | D2 | deprecated | `[Deprecated("msg")]` built-in directive，持久化 flag+msg（跨包+IDE，带 bump） |
-| D3 | caller 形态 | C# 式表达式宏默认值（最简、无 ABI）；Rust `[track_caller]` 留作宏注册表将来追加 |
+| D3 | caller 形态 | C# 式表达式宏默认值（`name!()`，**无 ABI 改动、零格式-bump**——PR6 骑 param attr-ref 哨兵）；Rust `[track_caller]` 留作宏注册表将来追加。**PR6 扩展**：系统重设参数默认值为统一常量表示（ConstBlob）+ 修跨包塌零 bug，caller 宏是其一个哨兵家族——见专节 |
 | D4 | v1 契约范围 | 契约 now：DeclId+merge+Add/Replace/Augment+有界多轮；additive：`--fix`、`OnIrOp` |
 | D5 | 外部 handler 信任 | 直接信任 + 记账 defer 沙箱；补确定性约束（handler 须纯函数，禁读环境态） |
 | D6 | 命名 | 无 marker（接口发现）；lint config = `packages.toml [lints]` 段；`Target` 枚举 |

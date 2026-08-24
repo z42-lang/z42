@@ -218,8 +218,11 @@ public sealed class Z42FuncType : Z42Type {
     public Z42Type   Ret;
     public int       ParamsFrom;   // add-params-varargs：变长形参 0-based 索引（= ParamCount-1）；-1 = 非变长。
                                    // 构造后由 SymbolCollector / ImportedSymbolLoader 设置；不入 Dump（默认 -1 → 现有签名 Dump 不变）。
+    public string[]  ParamDefaults; // PR6：跨包每参 `$Default` ConstBlob 串（"" = 无默认值）；ImportedSymbolLoader 从 ExportedParamZ 填。
+    public string[]  ParamCallers;  // PR6：跨包每参 caller 宏种类（"member"/"line"/"file"/"module"；"" = 非 caller）。
     public Z42FuncType(Z42Type[] paramTypes, int paramCount, Z42Type ret) {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
+        this.ParamDefaults = new string[0]; this.ParamCallers = new string[0];
     }
     // C# TypeToString 镜像（TSIG/SIGS 串字节实证）：void 返回 → "Action[<p,…>]"；否则 "Func<p,…,ret>"（", " 分隔）。
     public override string Name() {

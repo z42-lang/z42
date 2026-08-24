@@ -1,0 +1,24 @@
+// PR6 参数默认值统一常量表示：跨包默认值回归测试（生产方）。
+// 各方法带常量默认值——消费方省略实参时必须注入**作者声明的默认值**，而非 default(T) 零值
+// （修 OverloadBinder 跨包塌零 bug）。覆盖 标量 / string / enum / struct 常量默认值。
+namespace Demo.PdTarget;
+
+public enum Color { Red = 1, Green = 2, Blue = 7 }
+
+public struct Point {
+    public int X;
+    public int Y;
+    public Point(int x, int y) { this.X = x; this.Y = y; }
+    public int Sum() { return this.X + this.Y; }
+}
+
+public class Api {
+    // 标量默认值：省略 b → 100。
+    public static int Add(int a, int b = 100) { return a + b; }
+    // string 默认值：省略 who → "world"。
+    public static string Greet(string who = "world") { return "hi " + who; }
+    // enum 默认值：省略 c → Color.Blue（底值 7）。
+    public static int ColorVal(Color c = Color.Blue) { return (int)c; }
+    // struct 常量构造默认值：省略 p → new Point(3, 4)（Sum=7）。
+    public static int PointSum(Point p = new Point(3, 4)) { return p.Sum(); }
+}

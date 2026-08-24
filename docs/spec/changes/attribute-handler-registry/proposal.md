@@ -43,7 +43,7 @@ store-meta），**既无魔法名字表、也无 marker**；这替换掉现有 `
 - `compiler`：`src/compiler/z42c.*`（pipeline / semantics / IrGen / 现有 4 pass / 新增 HandlerRegistry）。
 - `stdlib`：`src/libraries/z42.core`（`Std.Meta`：Analyzer/Generator/ModuleGenerator 接口、DiagRule、
   `Target` 枚举、directive 类型；`Std.Attribute` 基类保留）。
-- `runtime`：`src/runtime`（metadata reader：directive 烘焙结果 / deprecated / caller-kind flag 的读取；随对应带 bump PR）。
+- `runtime`：`src/runtime`（反射 `reflection.rs`：directive 烘焙结果 / deprecated 哨兵 / **PR6 参数默认值 `$Default` ConstBlob 解码**——**均零格式-bump 哨兵，非 wire 格式改动**）。
 - `toolchain`：`packages.toml` 解析（`[lints]` 段、generator/analyzer 依赖）。
 - `docs`：book 对应机制页 + 本 change 目录。
 

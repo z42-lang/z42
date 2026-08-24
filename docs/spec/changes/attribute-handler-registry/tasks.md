@@ -19,8 +19,9 @@
 | PR4e | 有界多轮**引擎+契约+指纹（support，未接线）**：契约加 `Consumes()`/`Produces()`(Generator+ModuleGenerator) + `GeneratorDriver.RunRounds`(统一节点 Kahn 最长路径分层 + 成环 **E0449** 字面量 + 逐层 re-bind + 轮内 applied 先·module 后) + 多轮/成环/退化单测 + **产物纳入增量指纹**(handler zpkg 内容指纹揉入 srcHashes，driver-intra 即 active)。**PackageCompile 仍单轮**——接线 RunRounds 是新跨成员符号撞 F2 冷启动，留 PR4e-wire | 否 | ✅ 完成 |
 | PR4e-wire | **接线激活多轮**（RunRounds 随 nightly `main@9fc6414` 发布后）：PackageCompile 单轮 `Run`+`RunModules` → `GeneratorDriver.RunRounds`；E0449 字面量→常量 `DiagnosticCodes.GeneratorDependencyCycle`。staged-bootstrap 轴② use 阶段。GREEN：test all 5/5 byte-identical + bootstrap 无越界 + incremental 5/5+51/51 byte-identical | 否 | ✅ 完成 |
 | PR4f(Deferred) | 生成产物**跨 build 增量缓存复用**(现 generator 一律强制全量重编，正确但非增量)：需 probe 感知 generator(probe 时运行/指纹化产物)——独立较大 change | 否 | ⬜ Deferred |
-| PR5 | `[Deprecated]` directive（D2，持久化 flag+msg，跨包+IDE；方法+类+字段；治理接入 [lints]/WAE/#suppress；格式 bump zbc1.37/zpkg0.42）→ 详见下「PR5 子任务」 | 是 | 🟡 |
-| PR6 | caller 编译期宏（D3） | 是(param) | ⬜ |
+| PR5 | `[Deprecated]` directive（D2；方法+类+字段；**零格式-bump attr-ref 哨兵**，非最初计划的 flag+msg 格式 bump）→ 详见下「PR5 子任务」 | 否 | ✅ 完成(#268) |
+| PR6 | **参数默认值统一常量表示 + 修跨包塌零 bug**（D3 默认值部分）：ConstBlob 取代标量 `kind`（含 struct/enum/数组/命名常量）+ `$Default` param attr-ref 哨兵持久化 + 跨包省略实参用真实默认值（**修 bug，已验证**）+ 反射迁移到 ConstBlob；`default_kind` 字节退休写 0。**caller 宏拆到 PR6b**（User 2026-08-24 裁决） → 详见下「PR6 子任务」 | **否**（零-bump，骑 zbc 1.15 param attr-ref 通道） | 🟡 |
+| PR6b | **caller 编译期宏**（D3 本体）：`caller_member!()`/`caller_line!()`/`caller_file!()`/`module_path!()` 表达式宏（限参数默认值位，support-先行）+ `$Caller:*` 哨兵 + 调用点注入 enclosing-member/line/file/namespace（复用 PR6 的 ConstBlob 持久化 infra + IrParamDefault.Caller/ExportedParamZ.CallerKind/Z42FuncType.ParamCallers 已就位） | 否（零-bump） | ⬜ |
 | PR7 | `--fix` 统一分析+修复（build 期 splice） | 否 | ⬜ |
 | 后续 | `[Native]`→`[Extern]` 改名 / `[Layout]`/`[Repr]`(E2) / `OnIrOp` perf lint / 用户 `macro` / 局部变量 attribute | 视需 | ⬜ Deferred |
 
@@ -405,6 +406,46 @@ store-meta blob 走现有反射机制）。z42c/stdlib 只加 support 不 use �
 - [ ] E.4 fixture regen：`zbc-format/*`（`xtask build test`）+ `zpkg-format/*`（手工）；Rust `zbc_compat`/`lazy_loader`
 - [ ] E.5 GREEN：`xtask test`（全 stage）+ self-host 5/5 + `xtask test bootstrap`（格式 bump 两代自举，CI 权威）
 - [ ] E.6 文档同步：book attribute 页 + 相关 README（触发矩阵）
+
+## PR6 子任务（参数默认值统一常量表示，✅ Phase A/B/D/E 完成 + F GREEN；caller 宏拆 PR6b）
+
+> spec 见 `specs/param-default-representation/spec.md`；实现原理见 design.md「参数默认值统一常量表示 + caller 宏」节。
+> **零格式-bump**（骑 zbc 1.15 param attr-ref blob 通道 + `$Default`/`$Caller:*` 哨兵）。先例：PR5 `$Deprecated`。
+> **状态（2026-08-24）**：A/B/D/E 已实现并本地 GREEN（self-host 5/5 逐字节 + cross-zpkg + 反射）；剩 F 的 rebase origin/main + bootstrap 无越界 + PR。caller 宏（阶段 C + E.2）拆 PR6b（infra 已就位）。
+
+### 阶段 A：ConstBlob 编码 + 常量折叠扩展 ✅
+- [x] A.1 `ConstBlob` 编解码 helper（`z42c.semantics/src/ConstBlob.z42`，自描述递归：null/bool/int/float/char/string/enum/struct/array，长度前缀 `_seg`）
+- [x] A.2 折叠**复用 `ConstEval`**（非扩 `_foldDefault`——后者已退休删除）：标量/一元二元/字符串拼接/enum 成员经 `syms.EnumConsts` / struct·array 结构递归 → 产 ConstBlob 串
+- [x] A.3 非常量默认值 → `ConstBlob.Encode` 返 null（不追加 `$Default`）；核实 stdlib/编译器同包默认值均可折叠（零破坏，GREEN 证）
+
+### 阶段 B：持久化（$Default 哨兵，零格式-bump）✅
+- [x] B.1 `ClassDescBuilder._paramAttrRefs`：每参有默认值且 Encode 成功 → append `IrAttrRef{TypeName="$Default", FactoryFunc=<ConstBlob 串>}`
+- [x] B.2 SIGS per-param `default_kind` 字节 → `IrGenFacts._fillParamMeta` 恒写 0（vestigial 退休；删死代码 `DefaultFold`+`_foldDefault` 族；不动 wire layout）
+- [x] B.3 无 writer/reader 格式改动（复用 zbc 1.15 param attr-ref blob）；`CompilerFingerprint` 3→4
+
+### 阶段 C：caller 宏 support（新语法，support-先行）→ 拆 PR6b
+- [ ] C.1 Parser：`caller_member!()`/`caller_line!()`/`caller_file!()`/`module_path!()`（复用 `Bang`+`(` 或最小 `MacroCallExpr`）；限参数默认值位，别处 → 报错
+- [ ] C.2 Fold：caller 宏 → 持久化 `$Caller:member|line|file|module` 哨兵（FactoryFunc 空）
+- [ ] C.3 **核实 z42c/stdlib/xtask 源不使用** caller 宏（仅加 support）→ 单 PR 不触两-nightly
+
+### 阶段 D：跨包读回 + 调用点注入（含修 bug）✅
+- [x] D.1 `Z42FuncType` + `MethodSymbol` 加 `ParamDefaults`（+caller infra `ParamCallers`/`CallerKind`，PR6b 用）
+- [x] D.2 `ImportedSymbolLoader`（≥4 建 Z42FuncType 站点，含静态实例主路径 line 292）扫 param attr-ref → `$Default` → 填符号；**顺带修 `ZpkgReader.ReadModuleSigs` 方法/参数级 attr read-and-skip 潜伏 bug（PR5 `$Deprecated` 方法级跨包同款静默失效）**
+- [x] D.3 `OverloadBinder` 跨包分支：`BoundDefault(T,-1)` 零值 → ConstBlob decode→AST→`_bindExpr` 重建（**修跨包塌零 bug**）
+- [~] D.4 caller 哨兵注入 → 拆 PR6b（infra 已就位）
+- [x] D.5 同包路径保留既有 `_adaptArgs` AST 重绑（与跨包 ConstBlob 语义一致，GREEN 证）
+
+### 阶段 E：反射迁移 ✅
+- [x] E.1 Rust `reflection.rs`：`DefaultValue` 改读 `$Default` param attr-ref → `decode_const_blob_scalar`（标量 n/b/i/c/f/s→Value；聚合 e/a/t→Null Deferred）；旧 kind 元组作 fallback
+- [~] E.2 caller 宏参数 DefaultValue「无固定值」→ 拆 PR6b
+
+### 阶段 F：测试 + 验证（GREEN 完成，rebase+bootstrap 待）
+- [x] F.2 同包默认值 e2e：标量/enum/struct/数组/命名常量省略实参 → 正确值
+- [x] F.3 **跨包 golden**：`src/tests/cross-zpkg/param_default_cross_pkg/`（3 包 target/ext/main，9 断言：标量/string/enum/struct/负整数/常量表达式/char/bool/数组）——回归修复，12/0
+- [~] F.4 caller 宏 e2e → 拆 PR6b
+- [x] F.5 反射 e2e：`fold_param_defaults.z42`（含字符串拼接现折叠 "ab"）+ `z42.core reflection.z42` DefaultValue
+- [x] F.6 GREEN：`xtask test` 全 stage + self-host 5/5 逐字节（base 072ca0fd）；⏭ rebase origin/main 后重跑 + `xtask test bootstrap` 无越界
+- [~] F.7 文档：design.md（SoT）已同步；book attribute/语言页默认值补充随 PR6b（caller）一并
 
 ## 备注
 

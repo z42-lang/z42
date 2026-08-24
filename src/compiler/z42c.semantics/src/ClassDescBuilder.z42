@@ -422,10 +422,28 @@ public sealed class ClassDescBuilder {
         int j = 0;
         while (j < md.ParamCount) {
             IrAttrRef[] pa = this._attrRefsFromList(md.Params[j].Attrs, md.Params[j].AttrCount);
+            // PR6：参数默认值统一常量表示——有默认值 → 追加 `$Default` 哨兵（ConstBlob）到 param attr-ref
+            // 列表（零格式-bump，骑 zbc 1.15 param attr-ref blob 通道）。非常量折叠失败 → 不追加（暂沿旧
+            // kind 路径；常量-性诊断 E04xx 在 typecheck 相位补，Phase D）。
+            Expr pd = md.Params[j].Default;
+            if (pd != null) {
+                string blob = ConstBlob.Encode(pd, this._constEnv(), this._g._symbols);
+                if (blob != null) {
+                    IrAttrRef[] pd2 = new IrAttrRef[pa.Length + 1];
+                    int t = 0; while (t < pa.Length) { pd2[t] = pa[t]; t = t + 1; }
+                    pd2[pa.Length] = new IrAttrRef(ConstBlob.Sentinel, blob);
+                    pa = pd2;
+                }
+            }
             r[j + off] = new IrAttrRefList(pa, pa.Length);
             j = j + 1;
         }
         return r;
     }
+
+    // PR6：ConstEval 的 const 环境（裸名 / `Class.FIELD` → ConstValue）。enum 成员经 ConstBlob._encodeEnum
+    // 直接查 syms.EnumConsts，故此处只需命名 const 字段；v1 先返回空表（现无参数默认值引用命名 const；
+    // 需要时从 syms 的 const 字段填充）。
+    private StrMap _constEnv() { return new StrMap(); }
 
 }
