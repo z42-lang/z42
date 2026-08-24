@@ -1,0 +1,176 @@
+// Bound 树——表达式节点（主/取值族）：字面量 / 插值 / ident / func-ref / 成员·索引访问 /
+// static-get / 捕获 / default / error。从 Bound.z42 拆出（refactor-bound-node-split）：纯节点定义无逻辑。
+// 运算/调用/转换/构造等复合表达式见 BoundExprOp.z42；语句见 BoundStmt.z42。
+namespace Z42.Semantics;
+
+using Z42.Core;
+
+public class BoundExpr {
+    public Span Span;
+    public virtual Z42Type Type() { return new Z42UnknownType(); }
+    public virtual string  Dump() { return "?bexpr"; }
+}
+
+public sealed class BoundLitInt : BoundExpr {
+    public string Text;       // 原始字面量文本（数值解析留 codegen）
+    private Z42Type _type;
+    public BoundLitInt(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(lit-int " + this.Text + " :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundLitChar : BoundExpr {
+    public char Value;
+    private Z42Type _t;
+    public BoundLitChar(char value, Z42Type t, Span span) { this.Span = span; this.Value = value; this._t = t; }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(lit-char " + this.Value.ToString() + " :" + this._t.Name() + ")"; }
+}
+
+public sealed class BoundLitFloat : BoundExpr {
+    public string Text;       // 原始字面量文本（含可能的 f/d 后缀；数值解析留 codegen）
+    private Z42Type _type;
+    public BoundLitFloat(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(lit-float " + this.Text + " :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundLitStr : BoundExpr {
+    public string Raw;        // 原始词素（含引号）
+    private Z42Type _type;
+    public BoundLitStr(string raw, Z42Type type, Span span) { this.Span = span; this.Raw = raw; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(lit-str " + this.Raw + " :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundLitBool : BoundExpr {
+    public bool Value;
+    private Z42Type _type;
+    public BoundLitBool(bool value, Z42Type type, Span span) { this.Span = span; this.Value = value; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        string v = "false"; if (this.Value) { v = "true"; }
+        return "(lit-bool " + v + " :" + this._type.Name() + ")";
+    }
+}
+
+// GS4：插值字符串 bound 节点。BoundInterpPart → BoundInterpText / BoundInterpHole。
+public class BoundInterpPart { public Span Span; public BoundInterpPart(Span span) { this.Span = span; } }
+public sealed class BoundInterpText : BoundInterpPart {
+    public string Text;
+    public BoundInterpText(string text, Span span) : base(span) { this.Text = text; }
+}
+public sealed class BoundInterpHole : BoundInterpPart {
+    public BoundExpr Inner;
+    public BoundInterpHole(BoundExpr inner, Span span) : base(span) { this.Inner = inner; }
+}
+public sealed class BoundInterpolatedStr : BoundExpr {
+    public BoundInterpPart[] Parts;
+    public int               PartCount;
+    private Z42Type _t;
+    public BoundInterpolatedStr(BoundInterpPart[] parts, int partCount, Z42Type t, Span span) {
+        this.Span = span; this.Parts = parts; this.PartCount = partCount; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(interp-str " + this.PartCount.ToString() + " :string)"; }
+}
+
+public sealed class BoundLitNull : BoundExpr {
+    private Z42Type _type;
+    public BoundLitNull(Z42Type type, Span span) { this.Span = span; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(lit-null :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundIdent : BoundExpr {
+    public string Name;
+    private Z42Type _type;
+    public BoundIdent(string name, Z42Type type, Span span) { this.Span = span; this.Name = name; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(ident " + this.Name + " :" + this._type.Name() + ")"; }
+}
+
+// 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ LoadFn @<qualified>（func 引用）。
+public sealed class BoundFuncRef : BoundExpr {
+    public string FuncName;
+    private Z42Type _type;
+    public BoundFuncRef(string funcName, Z42Type type, Span span) { this.Span = span; this.FuncName = funcName; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string Dump() { return "(func-ref " + this.FuncName + ")"; }
+}
+
+// 成员字段访问（1C）：obj.field / this.field（含继承字段）。方法调用见 BoundCall。
+public sealed class BoundMember : BoundExpr {
+    public BoundExpr Target;
+    public string    MemberName;
+    private Z42Type _type;
+    public BoundMember(BoundExpr target, string memberName, Z42Type type, Span span) { this.Span = span;
+        this.Target = target; this.MemberName = memberName; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(member " + this.Target.Dump() + " " + this.MemberName + " :" + this._type.Name() + ")";
+    }
+}
+
+// 数组索引（1D）：arr[i] → 元素类型。
+public sealed class BoundIndex : BoundExpr {
+    public BoundExpr Target;
+    public BoundExpr Index;
+    private Z42Type _type;
+    public BoundIndex(BoundExpr target, BoundExpr index, Z42Type type, Span span) { this.Span = span;
+        this.Target = target; this.Index = index; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(index " + this.Target.Dump() + " " + this.Index.Dump() + " :" + this._type.Name() + ")";
+    }
+}
+
+public sealed class BoundStaticGet : BoundExpr {
+    public string ClassName;       // 短名（Qualify 在 codegen）
+    public string FieldName;
+    private Z42Type _t;
+    public BoundStaticGet(string className, string fieldName, Z42Type t, Span span) {
+        this.Span = span; this.ClassName = className; this.FieldName = fieldName; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(static-get " + this.ClassName + "." + this.FieldName + " :" + this._t.Name() + ")"; }
+}
+
+public sealed class BoundCapture {
+    public string  Name;
+    public Z42Type CapType;
+    public BoundCapture(string name, Z42Type capType) { this.Name = name; this.CapType = capType; }
+}
+
+public sealed class BoundCapturedIdent : BoundExpr {
+    public string Name;
+    public int    CaptureIdx;    // env 槽位（lift 发射 array_get env[idx]）
+    private Z42Type _t;
+    public BoundCapturedIdent(string name, int captureIdx, Z42Type t, Span span) {
+        this.Span = span; this.Name = name; this.CaptureIdx = captureIdx; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(cap-ident " + this.Name + " #" + this.CaptureIdx.ToString() + " :" + this._t.Name() + ")"; }
+}
+
+// GS7：default(T) 零值表达式。ParamIndex ≥ 0 → 泛型类型参数（运行期通过 DefaultOf 指令解析）；-1 → 常量零值。
+public sealed class BoundDefault : BoundExpr {
+    public int      ParamIndex;   // ≥0 = 泛型参数索引；-1 = 常量零值（null/0/false）
+    // add-generic-methods：IsMethodLevel=true → ParamIndex 是**方法**形参序号，发 MethodDefaultInsn（读 frame 槽）；
+    // false → 类级（ParamIndex 是类形参序号，发 DefaultOfInstr 读 instance.type_args）或常量零值（-1）。
+    public bool     IsMethodLevel;
+    private Z42Type _type;
+    public BoundDefault(Z42Type type, int paramIndex, Span span) { this.Span = span; this._type = type; this.ParamIndex = paramIndex; this.IsMethodLevel = false; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(default :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundError : BoundExpr {
+    public string Message;
+    private Z42Type _type;
+    public BoundError(string message, Z42Type type, Span span) { this.Span = span; this.Message = message; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(error :" + this._type.Name() + ")"; }
+}

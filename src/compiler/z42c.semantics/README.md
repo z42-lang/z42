@@ -23,7 +23,9 @@
 | `src/MemberCollector.z42` | Pass B 成员填充簇：字段/方法/属性/索引器签名 + regKey mangle（stabilize-dispatch-keys）+ **const 收集** + **转换运算符**（op_Implicit/op_Explicit RegKey 附 `$to$<ret>` 消歧 + 声明期冲突 E0440）；含 191 行 `_fillClass` |
 | `src/InheritanceResolver.z42` | 基链解析簇（成员填充后）：override regKey 对齐（D7）+ **sealed 语义强制**（继承 sealed 类 E0427 / override sealed E0428 / 无基 virtual E0429，`sealed`==`sealed override` 简写）+ 继承字段合并 + impl-block 合并 |
 | `src/DeclEnforcer.z42` | 声明良构约束簇：**D8 类名后缀强制**（attribute E0444 / analyzer E0445 / generator E0447）+ **partial 类型/方法校验**（全标 partial / Kind 一致 / 嵌套 partial / method 配对，E0430–E0435） |
-| `src/Bound.z42` | Bound 树节点（lit/ident/assign/call/binary/unary + decl/return/expr/block/if/while/break/continue），virtual Dump 出含类型注解 s-expr |
+| `src/BoundExpr.z42` | Bound 树**主/取值表达式节点**（`refactor-bound-node-split`）：base `BoundExpr` + 字面量 / 插值 / ident / func-ref / 成员·索引访问 / static-get / 捕获 / default / error，virtual Dump 出含类型注解 s-expr |
+| `src/BoundExprOp.z42` | Bound 树**运算/调用/转换/构造表达式节点**：switch-expr / seq / assign / binary·unary / conditional / call·method-group·indirect-call / new / ref-arg / cast·convert·box·is·typeof / array-new·lit / lambda |
+| `src/BoundStmt.z42` | Bound 树**语句节点**：base `BoundStmt` + decl / return / expr-stmt / local-fn / block / if / try·catch·finally / throw / while·do-while / switch / for / foreach / break / continue |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
 | `src/AccessChecker.z42` | 访问权限强制（enforce-access-control）：`CheckAccess` 对 private/protected/internal 成员访问 emit E0404；机制见 [book](../../../docs/book/src/compiler/access-control.md) |

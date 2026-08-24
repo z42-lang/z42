@@ -1,0 +1,326 @@
+// Bound 树——表达式节点（运算/调用/转换/构造族）：switch-expr / seq / assign / binary·unary /
+// conditional / call·method-group·indirect-call / new / ref-arg / cast·convert·box·is·typeof /
+// array-new·lit / lambda。从 Bound.z42 拆出（refactor-bound-node-split）：纯节点定义无逻辑。
+// 主/取值表达式见 BoundExpr.z42；语句见 BoundStmt.z42。
+namespace Z42.Semantics;
+
+using Z42.Core;
+
+// switch 表达式（求值版 switch）：等值比较链写入结果寄存器（镜像 C# BoundSwitchExpr）。
+public sealed class BoundSwitchArm {
+    public Span      Span;
+    public bool      HasPattern;
+    public BoundExpr Pattern;   // 仅 HasPattern 时有效
+    public BoundExpr Body;
+    public BoundSwitchArm(bool hasPattern, BoundExpr pattern, BoundExpr body, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Body = body;
+    }
+}
+
+public sealed class BoundSwitchExpr : BoundExpr {
+    public BoundExpr       Subject;
+    public BoundSwitchArm[] Arms;
+    public int             ArmCount;
+    private Z42Type        _type;
+    public BoundSwitchExpr(BoundExpr subject, BoundSwitchArm[] arms, int armCount, Z42Type type, Span span) { this.Span = span;
+        this.Subject = subject; this.Arms = arms; this.ArmCount = armCount; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string Dump() { return "(switch-expr :" + this._type.Name() + ")"; }
+}
+
+// 序列表达式（block-expression）：先按序执行 Prelude 语句，再求值 Value，其值即本表达式的值。
+// 集合字面量脱糖用（new List + 多次 Add + 收尾读 tmp）。发射：依次 emit prelude，再 emit value 返回其寄存器。
+public sealed class BoundSeqExpr : BoundExpr {
+    public BoundStmt[] Prelude;
+    public int         PreludeCount;
+    public BoundExpr   Value;
+    private Z42Type    _type;
+    public BoundSeqExpr(BoundStmt[] prelude, int preludeCount, BoundExpr value, Z42Type type, Span span) { this.Span = span;
+        this.Prelude = prelude; this.PreludeCount = preludeCount; this.Value = value; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string Dump() { return "(seq-expr :" + this._type.Name() + ")"; }
+}
+
+public sealed class BoundAssign : BoundExpr {
+    public BoundExpr Target;
+    public BoundExpr Value;
+    private Z42Type _type;
+    public BoundAssign(BoundExpr target, BoundExpr value, Z42Type type, Span span) { this.Span = span;
+        this.Target = target; this.Value = value; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(assign " + this.Target.Dump() + " " + this.Value.Dump() + " :" + this._type.Name() + ")";
+    }
+}
+
+// 实例方法组 `obj.Method` 作 delegate 值（D-1b）：emit 期合成 thunk(__mg_thunk_...) +
+// MkClos 捕获 receiver。Receiver=接收者表达式；ClassName=接收者类（thunk 名/VCall 限定）；
+// MethodName=方法名；Type=方法签名（delegate 形）。
+public sealed class BoundMethodGroup : BoundExpr {
+    public BoundExpr Receiver;
+    public string    ClassName;
+    public string    MethodName;
+    private Z42Type _type;
+    public BoundMethodGroup(BoundExpr receiver, string className, string methodName, Z42Type sig, Span span) {
+        this.Span = span; this.Receiver = receiver; this.ClassName = className; this.MethodName = methodName; this._type = sig;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string Dump() { return "(method-group " + this.ClassName + "." + this.MethodName + ")"; }
+}
+
+// 顶层自由函数调用（1A stub：仅 callee 名 + 实参 + 返回类型；成员/虚分派见 1C）。
+// 调用：Kind = "free"（顶层函数）/ "instance"（obj.m）/ "static"（Class.m）。
+public sealed class BoundCall : BoundExpr {
+    public string      Kind;
+    public bool        HasReceiver;
+    public BoundExpr   Receiver;     // 仅 instance
+    public string      OwnerClass;   // instance/static 的类名（free 为 ""）
+    public string      MethodName;
+    public BoundExpr[] Args;
+    public int         ArgCount;
+    // add-generic-methods：泛型方法调用 `Foo<T>(a)` 的**解析后具体类型实参**（Z42Type[]，非泛型调用为空）。
+    // ExprEmitter 转 FQ 名编进 IR Call.MethodTypeArgs，运行期拷入 callee frame.method_type_args。
+    // 默认空数组（post-construction 由 MemberResolver 在泛型调用点写入 → 不改既有构造点）。
+    public Z42Type[]   MethodTypeArgs;
+    public int         MethodTypeArgCount;
+    // add-generic-activator：与 MethodTypeArgs 平行——若第 i 个类型实参是**外层方法**的方法级
+    // 泛型形参（`Foo<T>() { Bar<T>() }` 里的 T），存其方法级下标（≥0）；否则 -1。emit 期据此
+    // 发 `$mta:<idx>` 转发标记（运行期按调用方 frame.method_type_args[idx] 解析），而非字面 "T"。
+    public int[]       MethodTypeArgFwd;
+    private Z42Type _retType;
+    public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
+                     string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
+        this.Kind = kind; this.HasReceiver = hasReceiver; this.Receiver = receiver;
+        this.OwnerClass = ownerClass; this.MethodName = methodName;
+        this.Args = args; this.ArgCount = argCount; this._retType = retType;
+        this.MethodTypeArgs = new Z42Type[0]; this.MethodTypeArgCount = 0;
+        this.MethodTypeArgFwd = new int[0];
+    }
+    public override Z42Type Type() { return this._retType; }
+    public override string  Dump() {
+        string head = "(call " + this.MethodName;
+        if (this.Kind == "instance") { head = "(call-inst " + this.Receiver.Dump() + " " + this.MethodName; }
+        else if (this.Kind == "static") { head = "(call-static " + this.OwnerClass + " " + this.MethodName; }
+        string s = head;
+        int i = 0;
+        while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
+        return s + " :" + this._retType.Name() + ")";
+    }
+}
+
+// 二元运算（1B）。Op 留原始运算符文本（z42 无 enum；codegen 自行映射 opcode）。
+public sealed class BoundBinary : BoundExpr {
+    public string    Op;
+    public BoundExpr Left;
+    public BoundExpr Right;
+    private Z42Type _type;
+    public BoundBinary(string op, BoundExpr left, BoundExpr right, Z42Type type, Span span) { this.Span = span;
+        this.Op = op; this.Left = left; this.Right = right; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(bin " + this.Op + " " + this.Left.Dump() + " " + this.Right.Dump() + " :" + this._type.Name() + ")";
+    }
+}
+
+// 一元/前缀运算（1B）：! - + ~ ++ --。
+public sealed class BoundUnary : BoundExpr {
+    public string    Op;
+    public BoundExpr Operand;
+    private Z42Type _type;
+    public BoundUnary(string op, BoundExpr operand, Z42Type type, Span span) { this.Span = span;
+        this.Op = op; this.Operand = operand; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(unary " + this.Op + " " + this.Operand.Dump() + " :" + this._type.Name() + ")";
+    }
+}
+
+// 三目（1E）：cond ? then : else → then/else 公共类型。
+public sealed class BoundConditional : BoundExpr {
+    public BoundExpr Cond;
+    public BoundExpr Then;
+    public BoundExpr Else;
+    private Z42Type _type;
+    public BoundConditional(BoundExpr cond, BoundExpr then, BoundExpr els, Z42Type type, Span span) { this.Span = span;
+        this.Cond = cond; this.Then = then; this.Else = els; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        return "(cond " + this.Cond.Dump() + " " + this.Then.Dump() + " " + this.Else.Dump() + " :" + this._type.Name() + ")";
+    }
+}
+
+// 类型测试（1D）：x is T → bool。
+public sealed class BoundIsExpr : BoundExpr {
+    public BoundExpr E;
+    public string    TypeName;
+    public string    BindName;   // is-pattern 绑定变量名（""=无绑定）
+    private Z42Type _type;
+    public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
+}
+
+// 转换（1D）：x as T → T（结果类型 = 目标）。
+// typeof(T)（make-typeof-return-type）。Target=typeof 内的解析类型；结果类型=Std.Type。
+// FQ 运行期名由 ExprEmitter 算（prim→name / array→elem[] / class·iface→QualifyClass）。
+public sealed class BoundTypeof : BoundExpr {
+    public Z42Type Target;
+    // AST 原始类型名（typeof-delegate）：delegate 名经 ResolveType 解析为结构化 Z42FuncType
+    // （"Action"/"Func<…>"），丢失 FQ delegate 名。发射时对 Z42FuncType 目标用它经 QualifyClass
+    // 回 FQ delegate 名（delegate 有 TYPE 条目 under FQ 名，add-delegate-metadata）。镜像
+    // BoundCast.TypeName / BoundIsExpr.TypeName 用 AST 原始名而非 resolved 类型。
+    public string  TargetName;
+    // add-generic-methods：方法级泛型形参 typeof(T)。IsMethodLevel=true 时 Target 为 Z42GenericParamType，
+    // MethodParamIndex = 该形参在方法 TypeParams 中的序号 → ExprEmitter 发 MethodTypeArgInsn（读 frame 槽），
+    // 而非常规 TypeofInstr。默认 false（类级/具体类型走既有路径，D3 类级 typeof 仍产占位）。
+    public bool    IsMethodLevel;
+    public int     MethodParamIndex;
+    private Z42Type _t;
+    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; this.IsMethodLevel = false; this.MethodParamIndex = -1; }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
+}
+
+public sealed class BoundCast : BoundExpr {
+    public BoundExpr E;
+    private Z42Type _type;
+    // AST 原始目标类型名（fix-crosspkg-interface-impl）：cast 目标名用它经 QualifyClass 解析
+    // （镜像 `is` 走 BoundIsExpr.TypeName），不用 resolved 类型——imported 接口/内建类 ResolveType
+    // 得 Unknown → "<unknown>" 会致 as_cast 目标名失配、跨包接口 `as` 恒 null。
+    public string TypeName;
+    public BoundCast(BoundExpr e, Z42Type type, string typeName, Span span) {
+        this.Span = span; this.E = e; this._type = type; this.TypeName = typeName;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(cast " + this.E.Dump() + " :" + this._type.Name() + ")"; }
+}
+
+// C 风格数值转换（G3）：(T)x → T。codegen 发 ConvertInstr（identity/Unknown/Ref no-op，镜像 C# VisitCast）。
+public sealed class BoundConvert : BoundExpr {
+    public BoundExpr E;
+    private Z42Type _type;
+    public BoundConvert(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(convert " + this.E.Dump() + " :" + this._type.Name() + ")"; }
+}
+
+// add-primitive-value-boxing：基元→object/接口 的隐式装箱。codegen 发 `__box_prim(E, primFQ)`
+// builtin，把裸基元装进带精确类型的 Value::Boxed。结果静态类型 = 目标（object/接口）。
+// PrimFQ = 源基元的 FQ struct 名（Std.Int64 等），运行时据此保留精确类型（强类型 is/as/GetType）。
+public sealed class BoundBox : BoundExpr {
+    public BoundExpr E;
+    public string    PrimFQ;    // 源基元的 FQ 包装类（Std.Int32/Int64/…）
+    private Z42Type  _type;      // 目标类型（object / 接口）
+    public BoundBox(BoundExpr e, string primFQ, Z42Type type, Span span) {
+        this.Span = span; this.E = e; this.PrimFQ = primFQ; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(box " + this.E.Dump() + " :" + this.PrimFQ + ")"; }
+}
+
+// new T(args)（1D）：构造（ctor 签名检查留后续；结果类型 = T）。
+public sealed class BoundNew : BoundExpr {
+    public string      TypeName;
+    public string      CtorName;  // 短名 ctor 方法键（如 "Exception$1"）；ExprEmitter 构建 fqCtor = qualCls + "." + CtorName
+    public BoundExpr[] Args;
+    public int         ArgCount;
+    // add-generic-methods：`new T()` 其中 T 为**方法级**泛型形参。IsMethodTypeParam=true 时
+    // ExprEmitter 发 MethodTypeArgInsn(物化 Std.Type) + __activator_create（无 ctor 直接调用），
+    // MethodParamIndex = 该形参在方法 TypeParams 序号。默认 false（常规 new）。
+    public bool        IsMethodTypeParam;
+    public int         MethodParamIndex;
+    private Z42Type _type;
+    public BoundNew(string typeName, string ctorName, BoundExpr[] args, int argCount, Z42Type type, Span span) { this.Span = span;
+        this.TypeName = typeName; this.CtorName = ctorName; this.Args = args; this.ArgCount = argCount; this._type = type;
+        this.IsMethodTypeParam = false; this.MethodParamIndex = -1;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() {
+        string s = "(new " + this.TypeName;
+        int i = 0;
+        while (i < this.ArgCount) { s = s + " " + this.Args[i].Dump(); i = i + 1; }
+        return s + " :" + this._type.Name() + ")";
+    }
+}
+
+// ref 实参（ref var）：ExprEmitter 发 LoadLocalAddrInstr(Unknown, slot_reg)，结果传 call arg。
+public sealed class BoundRefArg : BoundExpr {
+    public BoundExpr Inner;
+    public bool IsVarDecl;   // `out var n` 内联声明 → emit 期先 Alloc + Locals.Put(VarName)
+    public string VarName;
+    private Z42Type _t;   // Z42UnknownType（地址寄存器无具体类型）
+    public BoundRefArg(BoundExpr inner, Z42Type t, Span span) { this.Span = span; this.Inner = inner; this._t = t; this.IsVarDecl = false; this.VarName = ""; }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(ref-arg " + this.Inner.Dump() + " :" + this._t.Name() + ")"; }
+}
+
+public sealed class BoundArrayNew : BoundExpr {
+    public BoundExpr Size;
+    public string    ElemName;     // 元素类型名（elemTag 映射）
+    private Z42Type _t;            // Z42ArrayType
+    public BoundArrayNew(BoundExpr size, string elemName, Z42Type t, Span span) {
+        this.Span = span; this.Size = size; this.ElemName = elemName; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(array-new " + this.ElemName + " " + this.Size.Dump() + " :" + this._t.Name() + ")"; }
+}
+
+public sealed class BoundArrayLit : BoundExpr {
+    public BoundExpr[] Elems;
+    public int         ElemCount;
+    public string      ElemName;
+    private Z42Type    _t;
+    public BoundArrayLit(BoundExpr[] elems, int elemCount, string elemName, Z42Type t, Span span) {
+        this.Span = span; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(array-lit " + this.ElemName + " " + this.ElemCount.ToString() + " :" + this._t.Name() + ")"; }
+}
+
+// lambda（port-z42c-closures）：参数名/类型 + 体（表达式或块）+ 捕获表 + 函数类型。
+
+public sealed class BoundLambda : BoundExpr {
+    public string[]       ParamNames;
+    public Z42Type[]      ParamTypes;
+    public int            ParamCount;
+    public bool           HasBlock;
+    public BoundExpr      ExprBody;     // !HasBlock
+    public BoundStmt      BlockBody;    // HasBlock
+    public BoundCapture[] Captures;
+    public int            CaptureCount;
+    private Z42Type _t;                 // Z42FuncType
+    public BoundLambda(string[] paramNames, Z42Type[] paramTypes, int paramCount,
+                       bool hasBlock, BoundExpr exprBody, BoundStmt blockBody,
+                       BoundCapture[] captures, int captureCount, Z42Type t, Span span) {
+        this.Span = span; this.ParamNames = paramNames; this.ParamTypes = paramTypes; this.ParamCount = paramCount;
+        this.HasBlock = hasBlock; this.ExprBody = exprBody; this.BlockBody = blockBody;
+        this.Captures = captures; this.CaptureCount = captureCount; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() {
+        string s = "(lambda";
+        int i = 0;
+        while (i < this.CaptureCount) { s = s + " [cap " + this.Captures[i].Name + "]"; i = i + 1; }
+        if (this.HasBlock) { s = s + " " + this.BlockBody.Dump(); }
+        else { s = s + " " + this.ExprBody.Dump(); }
+        return s + " :" + this._t.Name() + ")";
+    }
+}
+
+public sealed class BoundIndirectCall : BoundExpr {
+    public BoundExpr   Callee;
+    public BoundExpr[] Args;
+    public int         ArgCount;
+    private Z42Type _t;
+    public BoundIndirectCall(BoundExpr callee, BoundExpr[] args, int argCount, Z42Type t, Span span) {
+        this.Span = span; this.Callee = callee; this.Args = args; this.ArgCount = argCount; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(call-ind " + this.Callee.Dump() + " :" + this._t.Name() + ")"; }
+}
