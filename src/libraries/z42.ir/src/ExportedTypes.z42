@@ -5,7 +5,9 @@ namespace Z42.IR;
 public sealed class ExportedParamZ {
     public string Name;       // 方法/函数 "p{i}"；委托 "arg{i}"（C# 实测）
     public string TypeName;
-    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; }
+    public string DefaultBlob;   // PR6：`$Default` ConstBlob 串（无默认值 → ""）
+    public string CallerKind;    // PR6：caller 宏种类 "member"/"line"/"file"/"module"（非 caller → ""）
+    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; this.DefaultBlob = ""; this.CallerKind = ""; }
 }
 
 public sealed class ExportedMethodZ {

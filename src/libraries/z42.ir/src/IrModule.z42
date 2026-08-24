@@ -32,6 +32,30 @@ public static class IrDeprecation {
     }
 }
 
+// 参数默认值统一常量表示（PR6，零格式-bump）：`$Default`（ConstBlob）/ `$Caller:*` 哨兵经 param attr-ref
+// 块持久化。生产方 ClassDescBuilder._paramAttrRefs 追加、消费方 TsigReconcile._params / OverloadBinder / 反射
+// 按 TypeName 识别。常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用。
+public static class IrParamDefault {
+    public static string Sentinel = "$Default";          // ConstBlob 常量默认值
+    public static string CallerPrefix = "$Caller:";       // caller 宏（+member|line|file|module）
+    // param 的 attr-ref 列表里 `$Default` 哨兵的 ConstBlob 串；无 → ""。
+    public static string Blob(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.Sentinel) { return attrs[i].FactoryFunc; } i = i + 1; }
+        return "";
+    }
+    // param 的 caller 宏种类（"member"/"line"/"file"/"module"）；非 caller → ""。
+    public static string Caller(IrAttrRef[] attrs, int count) {
+        int i = 0;
+        while (i < count) {
+            if (attrs[i].TypeName.StartsWith(IrParamDefault.CallerPrefix)) {
+                return attrs[i].TypeName.Substring(IrParamDefault.CallerPrefix.Length, attrs[i].TypeName.Length - IrParamDefault.CallerPrefix.Length);
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+}
+
 // 单参数的 attr-ref 列表（IrFunction.ParamAttrs 按 SIGS 参数序对齐，含实例方法的 this 槽=空）。
 public sealed class IrAttrRefList {
     public IrAttrRef[] Items; public int Count;

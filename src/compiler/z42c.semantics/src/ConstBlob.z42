@@ -1,0 +1,204 @@
+// 参数默认值统一常量表示（attribute-handler-registry PR6，零格式-bump）。
+//
+// 把一个参数默认值 Expr 序列化成一棵**常量-表达式树**的紧凑串（ConstBlob），塞进 param attr-ref
+// 哨兵 `$Default` 的 FactoryFunc 槽持久化（复用 zbc 1.15 param attr-ref blob 通道，不 bump 格式）。
+// 取代旧的标量-only `DefaultFold`(kind 0-5) —— 那只喂反射、表达不了 struct/enum/数组、且跨包默认值
+// 根本没接（跨包塌 `default(T)` 零值，本 PR 修）。
+//
+// 设计：**不是把 struct 归约成字段值，而是序列化常量-构造**（类型 + 常量子节点），调用点 re-emit
+// `new T(constArgs)` / `[constElems]`（值类型 struct → 等价常量值，无副作用，纯常量值模型；无需编译期跑
+// ctor 体）。折叠器 = 常量-性检查器，复用既有 `ConstEval`（标量/一元二元/命名 const/enum 成员均已覆盖）。
+//
+// 编码（长度前缀 `_seg` 使串/嵌套自定界；reader 见 ConstBlobDecode.z42）：
+//   n                                   null
+//   b0 / b1                             bool
+//   i<seg(dec)>                         int（值完全归约；宽度由参数声明类型定）
+//   c<seg(codepoint)>                   char
+//   f<seg(f64bits)>                     float
+//   s<seg(raw)>                         string
+//   e<seg(enumTypeFQ)><seg(dec)>        enum 成员（底层整数 + 类型名）
+//   a<seg(elemType)><seg(n)>child0..    数组常量
+//   t<seg(typeFQ)><seg(arity)>arg0..    struct 常量构造
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+public static class ConstBlob {
+    public static string Sentinel = "$Default";   // param attr-ref TypeName 哨兵；**必须**与 IrParamDefault.Sentinel 一致
+                                                   // （不引用后者：z42 静态初始化顺序不保证 → 会取到 null，见踩坑）
+
+    // 长度前缀段：<len>:<s>。len = s 的字符数（decode 侧读同样多字符）。
+    public static string _seg(string s) { return s.Length.ToString() + ":" + s; }
+
+    // 把参数默认值 Expr 编码成 ConstBlob 串；非编译期常量 → null（调用方报 E04xx）。
+    // env = const 名（裸 + `Class.FIELD`）→ ConstValue（含 enum 成员）；syms 供聚合体类型名解析。
+    public static string Encode(Expr e, StrMap env, SymbolTable syms) {
+        if (e == null) { return null; }
+        // 聚合体先于 ConstEval（后者对 array/new 返回 null）。
+        if (e is ArrayLitExpr) { return ConstBlob._encodeArray(e as ArrayLitExpr, env, syms); }
+        if (e is ObjNewExpr)   { return ConstBlob._encodeStruct(e as ObjNewExpr, env, syms); }
+        // enum 成员：MemberExpr `Enum.Member` 命中 EnumConsts → 带类型名编码。
+        if (e is MemberExpr) {
+            string es = ConstBlob._encodeEnum(e as MemberExpr, syms);
+            if (es != null) { return es; }
+        }
+        // 标量 / null / 一元二元 / 命名 const → 归约成 ConstValue。
+        ConstValue cv = ConstEval.Eval(e, env);
+        if (cv == null) { return null; }
+        return ConstBlob._encodeScalar(cv);
+    }
+
+    public static string _encodeScalar(ConstValue cv) {
+        if (cv.Kind == ConstValue.KNull)  { return "n"; }
+        if (cv.Kind == ConstValue.KBool)  { return cv.IntVal == 1 ? "b1" : "b0"; }
+        if (cv.Kind == ConstValue.KInt)   { return "i" + ConstBlob._seg(cv.IntVal.ToString()); }
+        if (cv.Kind == ConstValue.KChar)  { return "c" + ConstBlob._seg(cv.IntVal.ToString()); }
+        if (cv.Kind == ConstValue.KFloat) { return "f" + ConstBlob._seg(ZbcReaderInstr.BitsToDouble(cv.IntVal).ToString()); }
+        if (cv.Kind == ConstValue.KStr)   { return "s" + ConstBlob._seg(cv.StrVal); }
+        return null;
+    }
+
+    // enum 成员：`Enum.Member`（target 为裸标识符）命中 syms.EnumConsts →
+    // e<seg(enumName)><seg(memberName)><seg(intval)>。注入用 enumName.memberName re-emit（MemberExpr，
+    // 重绑解析回 enum const）；反射用 intval。
+    private static string _encodeEnum(MemberExpr m, SymbolTable syms) {
+        if (!(m.Target is IdentExpr)) { return null; }
+        string enumName = (m.Target as IdentExpr).Name;
+        string key = enumName + "." + m.Name;
+        if (!syms.EnumConsts.ContainsKey(key)) { return null; }
+        StrBox sb = syms.EnumConsts.Get(key) as StrBox;
+        if (sb == null) { return null; }
+        return "e" + ConstBlob._seg(enumName) + ConstBlob._seg(m.Name) + ConstBlob._seg(sb.Value);
+    }
+
+    // 常量数组 `[e0, e1, ...]`（不含 spread）：所有元素须常量。elem 类型名先留空（decode 用参数声明的元素类型）。
+    private static string _encodeArray(ArrayLitExpr a, StrMap env, SymbolTable syms) {
+        int i = 0;
+        while (i < a.ElemCount) { if (a.IsSpread[i]) { return null; } i = i + 1; }   // spread 非常量形状
+        string body = "";
+        i = 0;
+        while (i < a.ElemCount) {
+            string ce = ConstBlob.Encode(a.Elems[i], env, syms);
+            if (ce == null) { return null; }
+            body = body + ce;
+            i = i + 1;
+        }
+        return "a" + ConstBlob._seg("") + ConstBlob._seg(a.ElemCount.ToString()) + body;
+    }
+
+    // 常量 struct 构造 `new T(a0, a1, ...)`：所有实参须常量。存类型名 + 常量实参（re-emit new T(args)）。
+    private static string _encodeStruct(ObjNewExpr n, StrMap env, SymbolTable syms) {
+        if (n.Type == null) { return null; }                     // target-typed new 无显式类型 → 非此路径
+        string tn = ConstBlob._typeName(n.Type);
+        if (tn == null) { return null; }
+        string body = "";
+        int i = 0;
+        while (i < n.ArgCount) {
+            string ce = ConstBlob.Encode(n.Args[i], env, syms);
+            if (ce == null) { return null; }
+            body = body + ce;
+            i = i + 1;
+        }
+        return "t" + ConstBlob._seg(tn) + ConstBlob._seg(n.ArgCount.ToString()) + body;
+    }
+
+    // TypeExpr → 简单类型名串（NamedType.Name；泛型/数组等复杂形态 v1 不支持常量默认值）。
+    public static string _typeName(TypeExpr te) {
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            if (nt.Args != null && nt.ArgCount > 0) { return null; }   // 泛型 struct 常量默认值 v1 不支持
+            return nt.Name;
+        }
+        return null;
+    }
+}
+
+// ConstBlob 解码器：把持久化的 ConstBlob 串重建成 **AST Expr**（供调用点经既有 binder 重绑，复用类型
+// 强转 / array / new 机制 —— 镜像同包 `_adaptArgs` 的 re-bind）。跨包省略实参 + reflection 共用。
+// 负数 int/float 包成 UnaryExpr("-", …)（_parseRadix 不吃前导 '-'）；string 反转义回词素。
+public sealed class ConstBlobReader {
+    private string _s;
+    private int    _pos;
+    private Span   _sp;
+    public ConstBlobReader(string s, Span sp) { this._s = s; this._pos = 0; this._sp = sp; }
+
+    // 读一个节点 → AST Expr；格式非法 → null。
+    public Expr Read() {
+        if (this._s == null || this._pos >= this._s.Length) { return null; }
+        char tag = this._s.CharAt(this._pos); this._pos = this._pos + 1;
+        if (tag == 'n') { return new NullLitExpr(this._sp); }
+        if (tag == 'b') {
+            char b = this._s.CharAt(this._pos); this._pos = this._pos + 1;
+            return new BoolLitExpr(b == '1', this._sp);
+        }
+        if (tag == 'i') { return this._numLit(this._readSeg(), true); }
+        if (tag == 'c') { return new CharLitExpr((char)(int)ZbcInstr._parseIntLit(this._readSeg()), this._sp); }
+        if (tag == 'f') { return this._numLit(this._readSeg(), false); }
+        if (tag == 's') { return new StringLitExpr(ConstBlobReader._escapeRaw(this._readSeg()), this._sp); }
+        if (tag == 'e') {
+            string enumName = this._readSeg();
+            string member = this._readSeg();
+            this._readSeg();                       // int 值（注入用 Enum.Member re-emit；反射另取）
+            return new MemberExpr(new IdentExpr(enumName, this._sp), member, this._sp);
+        }
+        if (tag == 'a') {
+            this._readSeg();                       // elem 类型（留空；重绑用目标元素类型）
+            int n = (int)ZbcInstr._parseIntLit(this._readSeg());
+            Expr[] elems = new Expr[n];
+            bool[] spread = new bool[n];
+            int i = 0;
+            while (i < n) { elems[i] = this.Read(); spread[i] = false; i = i + 1; }
+            return new ArrayLitExpr(elems, spread, n, this._sp);
+        }
+        if (tag == 't') {
+            string tn = this._readSeg();
+            int arity = (int)ZbcInstr._parseIntLit(this._readSeg());
+            Expr[] args = new Expr[arity];
+            int i = 0;
+            while (i < arity) { args[i] = this.Read(); i = i + 1; }
+            NamedType nt = new NamedType(tn, new TypeExpr[0], 0, this._sp);
+            return new ObjNewExpr(nt, args, arity, this._sp);
+        }
+        return null;
+    }
+
+    // 数值字面量：负值包 UnaryExpr("-", lit(绝对值))。isInt → IntLitExpr，否则 FloatLitExpr。
+    private Expr _numLit(string dec, bool isInt) {
+        bool neg = dec.Length > 0 && dec.CharAt(0) == '-';
+        string mag = neg ? dec.Substring(1, dec.Length - 1) : dec;
+        Expr lit = isInt ? (new IntLitExpr(mag, this._sp) as Expr) : (new FloatLitExpr(mag, this._sp) as Expr);
+        if (neg) { return new UnaryExpr("-", lit, this._sp); }
+        return lit;
+    }
+
+    // 读 <len>:<content>，返回 content（手动扫 ':'，不依赖 2-arg IndexOf）。
+    private string _readSeg() {
+        int colon = this._pos;
+        while (colon < this._s.Length && this._s.CharAt(colon) != ':') { colon = colon + 1; }
+        if (colon >= this._s.Length) { this._pos = this._s.Length; return ""; }
+        int len = (int)ZbcInstr._parseIntLit(this._s.Substring(this._pos, colon - this._pos));
+        this._pos = colon + 1;
+        string content = this._s.Substring(this._pos, len);
+        this._pos = this._pos + len;
+        return content;
+    }
+
+    // 反转 Lexer.DecodeString：解码值 → 带引号原始词素。
+    public static string _escapeRaw(string s) {
+        string r = "\"";
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (c == '\\')      { r = r + "\\\\"; }
+            else if (c == '"')  { r = r + "\\\""; }
+            else if (c == '\n') { r = r + "\\n"; }
+            else if (c == '\t') { r = r + "\\t"; }
+            else if (c == '\r') { r = r + "\\r"; }
+            else { r = r + c.ToString(); }
+            i = i + 1;
+        }
+        return r + "\"";
+    }
+}

@@ -171,6 +171,7 @@ public static class ImportedSymbolLoader {
                         while (j < fz.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, fz.Params[j].TypeName); j = j + 1; }
                         var sig = new Z42FuncType(ps, fz.ParamCount, ImportedSymbolLoader._resolve(r, fz.ReturnType));
                         sig.ParamsFrom = fz.ParamsFrom;
+                        ImportedSymbolLoader._fillParamDefaults(sig, fz.Params, fz.ParamCount);   // PR6：跨包默认值/ caller
                         r.Functions.Put(fz.Name, new MethodSymbol(fz.Name, "public", sig, false, "", false, null));
                         // 记源 ns（与 ClassNamespaces 对称）→ 发射期 QualifyFreeFunc 跨包裸调按源 ns 限定。
                         r.FunctionNamespaces.Put(fz.Name, new StrBox(em.Namespace));
@@ -193,6 +194,7 @@ public static class ImportedSymbolLoader {
                                 int mj2 = 0;
                                 while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName); mj2 = mj2 + 1; }
                                 var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType));
+                                ImportedSymbolLoader._fillParamDefaults(msig, mz.Params, mz.ParamCount);   // PR6
                                 it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, false, iz2.Name, false, null));
                             }
                             im2 = im2 + 1;
@@ -239,6 +241,7 @@ public static class ImportedSymbolLoader {
                 while (j < me.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, me.Params[j].TypeName); j = j + 1; }
                 var sig = new Z42FuncType(ps, me.ParamCount, ImportedSymbolLoader._resolve(r, me.ReturnType));
                 sig.ParamsFrom = me.ParamsFrom;
+                ImportedSymbolLoader._fillParamDefaults(sig, me.Params, me.ParamCount);   // PR6：跨包默认值/ caller
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
                 sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
@@ -289,6 +292,7 @@ public static class ImportedSymbolLoader {
                 while (j < m.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, m.Params[j].TypeName, tps, tpc); j = j + 1; }
                 var sig = new Z42FuncType(ps, m.ParamCount, ImportedSymbolLoader._resolve(r, m.ReturnType, tps, tpc));
                 sig.ParamsFrom = m.ParamsFrom;
+                ImportedSymbolLoader._fillParamDefaults(sig, m.Params, m.ParamCount);   // PR6：跨包默认值/ caller（静态+实例主路径）
                 // z42c 既有约定：静态/实例同进 Methods（IsStatic 标真值）——D3
                 // add-type-based-overloads：symbol.Name = 源名（首个 $ 前），RegKey = 完整注册键
                 //   → OverloadsOf(源名) 跨包候选枚举一致（同本地）；调用方决议返回 RegKey 派发。
@@ -378,6 +382,16 @@ public static class ImportedSymbolLoader {
     // 无型参上下文（自由函数等）——委托四参版本。
     private static Z42Type _resolve(ImportedSymbols r, string name) {
         return ImportedSymbolLoader._resolve(r, name, new string[0], 0);
+    }
+
+    // PR6：把 ExportedParamZ 的 DefaultBlob / CallerKind 填进 Z42FuncType（跨包默认值/ caller 宏传播）。
+    // pz 已是逻辑参数序（TsigReconcile._params 跳 this 槽）→ 与 sig.ParamTypes 对齐。
+    private static void _fillParamDefaults(Z42FuncType sig, ExportedParamZ[] pz, int count) {
+        string[] defs = new string[count];
+        string[] cls = new string[count];
+        int i = 0;
+        while (i < count) { defs[i] = pz[i].DefaultBlob; cls[i] = pz[i].CallerKind; i = i + 1; }
+        sig.ParamDefaults = defs; sig.ParamCallers = cls;
     }
 
     // 按顶层逗号切分泛型类型参数串（`string,List<int>` → ["string","List<int>"]），尊重嵌套 <>。
