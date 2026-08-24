@@ -38,4 +38,50 @@ public class PropertyInfo : MemberInfo {
     // `Std.Exception` for a read-only property (no setter).
     [Native("__property_set_value")]
     public extern void SetValue(object obj, object value);
+
+    // ── Custom attributes (add-array-property-reflection-api) ────────────────
+    // Mirrors FieldInfo's attr API. An auto-property desugars to a private backing
+    // field `__prop_<Name>`; the compiler attaches the property's attributes to that
+    // field, so the native resolves them from the accessor-qualified name (stripping
+    // the get_/set_ prefix → the backing field) — no persisted property metadata and
+    // no wire-format change. Computed properties (no backing field) carry none.
+
+    // Cached attribute instances (see FieldInfo.GetCustomAttributes for rationale).
+    public Std.Attribute[] __attrCache;
+
+    [Native("__property_custom_attributes")]
+    public extern Std.Attribute[] __customAttributes(string qualified);
+
+    // User attributes applied to this property, as live instances. Cached. Uses the
+    // accessor-qualified name (getter preferred, else setter) — avoids depending on a
+    // VM-written property-qualified field the bootstrap seed may lack.
+    public Std.Attribute[] GetCustomAttributes() {
+        if (this.__attrCache != null) {
+            return this.__attrCache;
+        }
+        string acc = this.__getterQualified;
+        if (acc == null) { acc = this.__setterQualified; }
+        if (acc == null) {
+            this.__attrCache = new Std.Attribute[0];
+            return this.__attrCache;
+        }
+        this.__attrCache = this.__customAttributes(acc);
+        return this.__attrCache;
+    }
+
+    // The single attribute of the given type, or null if absent. Compares by the
+    // instance's runtime type (FullName), so subclass attributes match too.
+    public Std.Attribute GetAttribute(Std.Type attributeType) {
+        Std.Attribute[] all = this.GetCustomAttributes();
+        int i = 0;
+        while (i < all.Length) {
+            Std.Attribute a = all[i];
+            Std.Type at = a.GetType();
+            if (at.FullName == attributeType.FullName) {
+                return a;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
 }
