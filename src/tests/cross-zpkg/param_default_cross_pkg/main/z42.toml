@@ -1,0 +1,10 @@
+[project]
+name    = "demo.pdapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.PdApp.Main"
+pack    = true
+
+[dependencies]
+"demo.pdtarget" = "0.1.0"
+"demo.pdext"    = "0.1.0"

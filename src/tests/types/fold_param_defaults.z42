@@ -1,9 +1,11 @@
-// 2026-07-24 fold-nonliteral-param-defaults: ParameterInfo.DefaultValue now folds
-// constant expressions (unary -/!/~, binary arithmetic/comparison/logical over
-// int/float/bool), not just literals. -5 / 1+2 / -3.14 / !false / 2*3+1 etc. now
-// surface their value; non-constant defaults (enum members / named constants /
-// string concat) stay null (deferred — need symbol resolution). Reuses the SIGS
-// default_kind encoding — no format bump.
+// 2026-07-24 fold-nonliteral-param-defaults / 2026-08-24 param-default-representation (PR6):
+// ParameterInfo.DefaultValue folds constant expressions (unary -/!/~, binary
+// arithmetic/comparison/logical over int/float/bool, **and string concat**), not
+// just literals. -5 / 1+2 / -3.14 / !false / 2*3+1 / "a"+"b" now surface their value.
+// PR6 moved the persisted representation from the SIGS default_kind tuple (retired,
+// now written as 0) to the `$Default` param attr-ref ConstBlob, shared with cross-pkg
+// injection — still no format bump. Aggregate defaults (enum members / arrays /
+// structs) reflect as null (Deferred — only scalars are materialized by reflection).
 
 namespace Demo;
 
@@ -49,9 +51,11 @@ void Main() {
     double fv = (double)pOf("FNeg", 0).DefaultValue;               // -3.14
     Assert.True(fv < -3.13 && fv > -3.15);
 
-    // ── Deferred (still null): enum member / string concat ─────────────────
+    // ── String concat now folds (PR6: ConstEval covers string `+`) ─────────
+    Assert.Equal("ab", (string)pOf("Cat", 0).DefaultValue);            // "a" + "b"
+
+    // ── Deferred (still null): enum member (aggregate) ─────────────────────
     Assert.True(pOf("Enu", 0).DefaultValue == null);
-    Assert.True(pOf("Cat", 0).DefaultValue == null);
 
     // ── IsOptional still true even when unfolded (d != null) ────────────────
     Assert.True(pOf("Enu", 0).IsOptional);

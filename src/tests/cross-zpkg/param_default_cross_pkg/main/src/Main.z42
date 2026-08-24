@@ -1,0 +1,20 @@
+// PR6 跨包默认值回归（消费方）：全部省略可选实参 → 必须得到作者声明的默认值。
+// 修复前（BoundDefault(T,-1) 零值）：会打印零/null（或崩）。修复后（从 $Default ConstBlob 解码注入）：
+//   target: 105 / hi world / 7 / 7   ext: -5 / 14 / 65 / 1 / 60
+namespace Demo.PdApp;
+
+using Std.IO;
+using Demo.PdTarget;
+using Demo.PdExt;
+
+void Main() {
+    Console.WriteLine(Api.Add(5).ToString());        // 105（标量默认值 b=100）
+    Console.WriteLine(Api.Greet());                  // hi world（string 默认值）
+    Console.WriteLine(Api.ColorVal().ToString());    // 7（enum 默认值 Color.Blue）
+    Console.WriteLine(Api.PointSum().ToString());    // 7（struct 常量构造默认值 new Point(3,4)）
+    Console.WriteLine(Ext.Neg().ToString());         // -5（负整数默认值）
+    Console.WriteLine(Ext.Expr().ToString());        // 14（常量表达式 2+3*4）
+    Console.WriteLine(Ext.CharCode().ToString());    // 65（char 默认值 'A'）
+    Console.WriteLine(Ext.FlagVal().ToString());     // 1（bool 默认值 true）
+    Console.WriteLine(Ext.ArrSum().ToString());      // 60（常量数组默认值 [10,20,30]）
+}

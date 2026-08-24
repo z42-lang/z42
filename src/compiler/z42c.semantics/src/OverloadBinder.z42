@@ -58,12 +58,24 @@ public sealed class OverloadBinder {
             int i = 0;
             while (i < rawArgCount) { filled[i] = args[i]; i = i + 1; }
             while (i < pc) {
-                filled[i] = new BoundDefault(ms.Signature.ParamTypes[i], 0 - 1, sp);
+                filled[i] = this._crossPkgDefault(ms.Signature, i, env, sp);
                 i = i + 1;
             }
             return filled;
         }
         return args;
+    }
+
+    // PR6：跨包省略实参的默认值物化——从导入签名的 `$Default` ConstBlob 解码 → AST → 重绑（复用
+    // BindWithTarget 的类型强转 / array / new），替代旧的 `BoundDefault(T,-1)` **零值**（修跨包塌零 bug）。
+    // 无 ConstBlob（真无默认值 / caller 宏待 Phase C）→ 回落零值（保守，绝不崩）。
+    internal BoundExpr _crossPkgDefault(Z42FuncType sig, int i, TypeEnv env, Span sp) {
+        if (sig.ParamDefaults != null && i < sig.ParamDefaults.Length && sig.ParamDefaults[i] != null && sig.ParamDefaults[i] != "") {
+            ConstBlobReader rdr = new ConstBlobReader(sig.ParamDefaults[i], sp);
+            Expr e = rdr.Read();
+            if (e != null) { return this._tc._expr.BindWithTarget(e, sig.ParamTypes[i], env); }
+        }
+        return new BoundDefault(sig.ParamTypes[i], 0 - 1, sp);
     }
 
     internal BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp, SymbolTable syms) {

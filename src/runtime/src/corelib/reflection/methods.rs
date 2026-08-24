@@ -146,6 +146,12 @@ pub(super) fn build_param_infos(
         Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
             // Instance methods / constructors carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
+            // PR6: parameter defaults now persist as the `$Default` param attr-ref
+            // sentinel (a ConstBlob), superseding the retired SIGS `default_kind` tuple
+            // (z42c now writes kind 0 for all params). Read it per physical param; the
+            // legacy `param_defaults` match stays as a fallback for zpkgs built by an
+            // older z42c (which wrote kinds but no `$Default`).
+            let param_attrs = resolve_func_param_attrs(ctx, qualified);
             let mut params = Vec::new();
             for i in start..param_count {
                 let tag = param_types.get(i).map(|s| s.as_str()).unwrap_or("?");
@@ -160,14 +166,18 @@ pub(super) fn build_param_infos(
                 // add-param-metadata: IsOptional / IsParams (logical position) + DefaultValue.
                 let is_optional = (pos as u16) >= min_arg;
                 let is_params = params_from != 0xFF && pos as u8 == params_from;
-                let default_value = match param_defaults.get(i) {
-                    Some((1, _, _)) => Value::Null,
-                    Some((2, iv, _)) => Value::I64(*iv),
-                    Some((3, iv, _)) => Value::F64(f64::from_bits(*iv as u64)),
-                    Some((4, iv, _)) => Value::Bool(*iv != 0),
-                    Some((5, _, sv)) => Value::Str(sv.clone().into()),
-                    _ => Value::Null, // kind 0 = no (foldable) default
-                };
+                let default_value = param_default_from_blob(&param_attrs, i).unwrap_or_else(|| {
+                    // Fallback: legacy SIGS default_kind tuple (only nonzero for zpkgs
+                    // built by a pre-PR6 z42c; current z42c writes kind 0 everywhere).
+                    match param_defaults.get(i) {
+                        Some((1, _, _)) => Value::Null,
+                        Some((2, iv, _)) => Value::I64(*iv),
+                        Some((3, iv, _)) => Value::F64(f64::from_bits(*iv as u64)),
+                        Some((4, iv, _)) => Value::Bool(*iv != 0),
+                        Some((5, _, sv)) => Value::Str(sv.clone().into()),
+                        _ => Value::Null, // kind 0 = no (foldable) default
+                    }
+                });
                 params.push(alloc_named(
                     ctx,
                     STD_REFLECTION_PARAMINFO,
@@ -352,6 +362,91 @@ pub(super) fn resolve_func_sig(
         }
     }
     ctx.try_lookup_function(qualified).map(|f| extract(&f))
+}
+
+/// PR6 (param-default-representation): the backing function's per-parameter
+/// attribute-ref lists (physical param order, incl. `this`). Carries the `$Default`
+/// ConstBlob sentinel read by `param_default_from_blob`. Kept separate from the
+/// 10-tuple `resolve_func_sig` to avoid bloating a return shared by two callers.
+fn resolve_func_param_attrs(
+    ctx: &VmContext,
+    qualified: &str,
+) -> Vec<Box<[crate::metadata::bytecode::AttributeRef]>> {
+    if let Some(m) = ctx.module() {
+        if let Some(&i) = m.func_index.get(qualified) {
+            if let Some(f) = m.functions.get(i) {
+                return f.param_attributes().to_vec();
+            }
+        }
+    }
+    ctx.try_lookup_function(qualified)
+        .map(|f| f.param_attributes().to_vec())
+        .unwrap_or_default()
+}
+
+/// PR6: read the `$Default` param attr-ref sentinel (a ConstBlob) for physical
+/// parameter `idx` and decode it into a reflection `DefaultValue`. Returns `None`
+/// when the param has no `$Default` (→ caller falls back to the legacy kind tuple).
+fn param_default_from_blob(
+    param_attrs: &[Box<[crate::metadata::bytecode::AttributeRef]>],
+    idx: usize,
+) -> Option<Value> {
+    let attrs = param_attrs.get(idx)?;
+    attrs
+        .iter()
+        .find(|a| a.type_name == "$Default")
+        .and_then(|a| decode_const_blob_scalar(&a.factory_func))
+}
+
+/// Decode a scalar `ConstBlob` (mirrors the z42 `ConstBlob` encoder in
+/// `ConstBlob.z42`) into a reflection value. Scalars `n`/`b`/`i`/`c`/`f`/`s` are
+/// materialized; aggregates `e` (enum) / `a` (array) / `t` (struct) reflect as
+/// `Null` (Deferred — only scalars are surfaced). Malformed → `None`.
+fn decode_const_blob_scalar(blob: &str) -> Option<Value> {
+    // Char-indexed to match z42's char-based `_seg` length prefix.
+    let chars: Vec<char> = blob.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    let mut pos = 0usize;
+    let tag = chars[pos];
+    pos += 1;
+    // Read a `<len>:<content>` segment (len = char count of content).
+    fn read_seg(chars: &[char], pos: &mut usize) -> Option<String> {
+        let mut colon = *pos;
+        while colon < chars.len() && chars[colon] != ':' {
+            colon += 1;
+        }
+        if colon >= chars.len() {
+            return None;
+        }
+        let len: usize = chars[*pos..colon].iter().collect::<String>().parse().ok()?;
+        *pos = colon + 1;
+        if *pos + len > chars.len() {
+            return None;
+        }
+        let content: String = chars[*pos..*pos + len].iter().collect();
+        *pos += len;
+        Some(content)
+    }
+    match tag {
+        'n' => Some(Value::Null),
+        'b' => chars.get(pos).map(|c| Value::Bool(*c == '1')),
+        'i' => read_seg(&chars, &mut pos)
+            .and_then(|s| s.parse::<i64>().ok())
+            .map(Value::I64),
+        'c' => read_seg(&chars, &mut pos)
+            .and_then(|s| s.parse::<u32>().ok())
+            .and_then(char::from_u32)
+            .map(Value::Char),
+        'f' => read_seg(&chars, &mut pos)
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(Value::F64),
+        's' => read_seg(&chars, &mut pos).map(|s| Value::Str(s.into())),
+        // Aggregates: present but Deferred → Null (don't fall through to kind).
+        'e' | 'a' | 't' => Some(Value::Null),
+        _ => None,
+    }
 }
 
 /// add-reflective-invoke: the backing function's **method-level** generic type
