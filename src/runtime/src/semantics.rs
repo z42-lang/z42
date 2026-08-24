@@ -118,23 +118,16 @@ pub fn div_by_zero_msg(op: &str) -> String {
 
 // ── 数值转换（cast）───────────────────────────────────────────────────────────
 
-/// 目标类型标签常量 —— 镜像 `compiler/z42.IR/BinaryFormat/Opcodes.cs::TypeTags`。
-/// 就近内联于此（而非读 `metadata::tokens`）保持 `convert_value` 自足；权威在 C# 侧。
-pub const T_BOOL: u8 = 0x01;
-pub const T_I8:   u8 = 0x02;
-pub const T_I16:  u8 = 0x03;
-pub const T_I32:  u8 = 0x04;
-pub const T_I64:  u8 = 0x05;
-pub const T_U8:   u8 = 0x06;
-pub const T_U16:  u8 = 0x07;
-pub const T_U32:  u8 = 0x08;
-pub const T_U64:  u8 = 0x09;
-pub const T_F32:  u8 = 0x0A;
-pub const T_F64:  u8 = 0x0B;
-pub const T_CHAR:   u8 = 0x0C;
-pub const T_STR:    u8 = 0x0D;
-pub const T_OBJECT: u8 = 0x20;
-pub const T_ARRAY:  u8 = 0x21;
+/// 目标类型标签常量 —— 单一真相源在 `crate::metadata::types`（`TAG_*`，镜像 z42
+/// 编译器 `z42.ir` 的 TypeTags）。此处以 `T_*` 别名重导出，供下面 `convert_value`
+/// 的 match 臂简洁引用，避免第二份 0xNN 表漂移。（C# bootstrap 编译器已于
+/// 2026-06-26 移除，权威在 z42 侧。）
+pub use crate::metadata::types::{
+    TAG_BOOL as T_BOOL, TAG_I8 as T_I8, TAG_I16 as T_I16, TAG_I32 as T_I32,
+    TAG_I64 as T_I64, TAG_U8 as T_U8, TAG_U16 as T_U16, TAG_U32 as T_U32,
+    TAG_U64 as T_U64, TAG_F32 as T_F32, TAG_F64 as T_F64, TAG_CHAR as T_CHAR,
+    TAG_STR as T_STR, TAG_OBJECT as T_OBJECT, TAG_ARRAY as T_ARRAY,
+};
 
 /// 纯数值转换 —— 无 frame 读写副作用，故 interp `convert` 处理器与 JIT `jit_convert`
 /// helper 都复用它。

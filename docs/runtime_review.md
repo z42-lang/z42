@@ -115,12 +115,24 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 
 | 模式 | 位置 | 建议 |
 |------|------|------|
-| OOM 异常构造重复 3 次（禁严格模式→构造 Std.OutOfMemoryException→恢复→返回） | exec_call.rs:192-202、:248-258；exec_object.rs:70-81 | 提取 `make_oom_exception(ctx, module, msg)` 辅助 |
-| resolved 缓存加载模式重复 11 处（`resolved.filter(...).and_then(...)`） | exec_instr.rs:135-137、:157-159、:202-204 等 | 宏或泛型辅助 `load_cached_token` |
-| 「主模块查不到→查 lazy loader」函数解析重复 | exec_call.rs:94-105、:209-216；exec_vcall.rs、dispatch.rs | 提取 `resolve_function(ctx, module, name)` 统一入口（未来加缓存也在此） |
-| TypeTag 常数（T_BOOL..T_ARRAY）孤立镜像编译器侧 | exec_value.rs:244-262 | 加编译期一致性测试，或移到 `metadata::tokens` 单一定义处 re-export |
+| OOM 异常构造重复（禁严格模式→构造 Std.OutOfMemoryException→恢复→返回） | exec_call/array/object（共 7 处） | ✅ 提取 `exception::make_oom_exception(ctx, module, msg)` 辅助 |
+| resolved 缓存加载模式重复（`resolved.filter(...).and_then(...)`） | exec_instr.rs 各 token-bearing 臂（9 处） | ✅ `cached_token!($site,$field)` 宏（伴 `site_idx!`）；`.copied()`/`.map()` 尾链由调用方保留 |
+| 「主模块查不到→查 lazy loader」函数解析重复 | exec_call.rs、exec_object.rs 等 | ⛔ **刻意不做**（见下） |
+| TypeTag 常数（T_BOOL..T_ARRAY）孤立镜像 | #4/H3 后迁至 semantics.rs:121-137 | ✅ 改 `pub use crate::metadata::types::{TAG_* as T_*}` 单一源（值逐一核对）；emit_fc.rs 的 Cranelift 本地 const 仍刻意保留（`// SEMANTICS:` 锚，注释指向真源） |
 
 同时收敛新增指令时的遗漏面。
+
+✅ **已落地（refactor-interp-boilerplate，PR #8）**：OOM helper（7→1）+ `cached_token!` 宏（9 处）+ TypeTag 单一源。
+净 −17 行，零格式 bump，行为字节不变（宏 token-identical、常量值逐一核对、OOM 逻辑逐字封装）。GREEN=cargo
+build clean + `cargo test --lib` z42 960/0 + compression 21/0（含 semantics_tests 覆盖 convert_value 各 T_* 臂）；
+完整 xtask GREEN 交 CI（本机 z42vm 退出期挂起）。
+
+⛔ **「主模块→lazy loader 函数解析」刻意不做**：本 review 写于 2026-07-05，其列的 exec_call:94-105/:209-216 站点
+在 #4/H3（PR #273）重构后已不存在。当前 origin/main 仅剩 2 处「resolve→exec_function」站点且**形状分叉**：
+① CallIndirect（预建 args + 未找到→bail）② exec_object ctor（args 按分支惰性构建·prepend obj_val + 未找到→合法
+隐式 ctor 返 None）。统一二者要么改变 args 求值惰性（perf 面），要么引入 `&Function`/`Arc<Function>` 包装 enum
+（`module.functions.get` 返借用 vs `try_lookup_function` 返 owned Arc，生命周期不同）——代价 > 省下的 ~3 行；
+单站点抽 helper 无去重价值。判据同 M3/M4「无消费者/得不偿失即不做」（philosophy.md 最简实现）。
 
 ### M6. Safepoint 与 GC 协议不清晰
 
@@ -164,7 +176,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 | 5 | `refactor-vm-context-resource-registry` | H2(vm_context 拆 9 子模块，全 <500) + M2(`ResourceRegistry<T>` 归一 10 张 slot table，VmCore 字段 20→10) | runtime | 🟢 done |
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
 | 7 | `refactor-reflection-split` | H2(reflection 拆 11 子模块，全 <500) + L3(corelib README) | runtime | 🟢 done |
-| 8 | `refactor-interp-boilerplate` | M5 | runtime | ☐ |
+| 8 | `refactor-interp-boilerplate` | M5（OOM helper + cached_token! 宏 + TypeTag 单一源；#3 resolve_function 复核后刻意不做） | runtime | 🟢 done |
 | 9 | `add-gc-tuning-config` | M3(GC 调参) + M6(safepoint 协议文档) | runtime | ☐ |
 | 10 | `add-builtin-signature-validation` | M3(BUILTINS 校验) + M3(marshal 表) | runtime + stdlib | ☐ |
 

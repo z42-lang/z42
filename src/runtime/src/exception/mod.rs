@@ -364,5 +364,22 @@ pub fn make_stdlib_exception(
     Ok(ctx.heap().alloc_object(type_desc, slots, NativeData::None))
 }
 
+/// Construct a `Std.OutOfMemoryException` after a strict-mode allocation
+/// returned `Value::Null` (heap limit exceeded).
+///
+/// add-gc-oom-exception: the exception object itself needs to allocate, so
+/// strict OOM is toggled off for the duration of the construction and then
+/// restored — otherwise building the OOM exception would recursively trip the
+/// same limit. Returns the exception `Value` (or `Value::Null` if even the
+/// exception type is unavailable), ready to hand up through `exec_instr`'s
+/// `Ok(Some(value))` throw channel.
+pub fn make_oom_exception(ctx: &VmContext, module: &Module, message: String) -> Value {
+    ctx.heap().set_strict_oom(false);
+    let exc = make_stdlib_exception(ctx, module, "Std.OutOfMemoryException", message)
+        .unwrap_or(Value::Null);
+    ctx.heap().set_strict_oom(true);
+    exc
+}
+
 #[cfg(test)]
 mod tests;
