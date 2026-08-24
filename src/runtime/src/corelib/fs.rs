@@ -412,7 +412,6 @@ pub fn builtin_env_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 // subsequent operations see `None` and report a clear "file closed"
 // error instead of dangling-slot UB.
 
-use std::sync::atomic::Ordering;
 use super::convert::arg_i64;
 
 /// 0 = Read (open existing, read-only)
@@ -474,7 +473,7 @@ pub fn builtin_file_open(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         2 => std::fs::OpenOptions::new().append(true).create(true).open(path)?,
         n => anyhow::bail!("{}: unknown FileMode {} (expected 0=Read, 1=Write, 2=Append)", NAME, n),
     };
-    let id = ctx.core.next_file_handle_id.fetch_add(1, Ordering::Relaxed);
+    let id = ctx.core.file_handles.alloc_id();
     ctx.core.file_handles.lock().insert(id, FileHandleSlot { file: Some(file), mode });
     Ok(Value::I64(id as i64))
 }
