@@ -178,20 +178,29 @@ z42 xtask.zpkg bench --diff                              # 自动选 main-<os>.j
 z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 baseline
 ```
 
-退化判定：
-- 时间退化 > 5%（默认阈值，`--threshold-time` 调整）→ `↑` 标注，exit 1
-- 内存退化 > 10%（默认阈值，`--threshold-memory` 调整）→ `↑` 标注
-- 改进（更快/更小）→ `↓` 标注，但**不**触发失败
-- 浮动 ≤ 阈值 → `≈` 标注
+退化判定（**区间感知**，add-interval-aware-bench-gate 2026-08-24）：一次回归必须**同时**满足
+「均值超阈值」**且**「置信区间与 baseline 分离」。区间重叠 = 两次测量统计上不可区分 = 噪声，
+一律**不**判回归——这是压掉共享 runner 假红、让门禁重新可信的关键。
 
-输出示例：
+- **回归**（`↑`，exit 1）⟺ `delta > thr` **且** `cur.ci_lower > base.ci_upper`
+  （时间阈值默认 5% / `--threshold-time`，内存 10% / `--threshold-memory`）
+- **改进**（`↓`，不 fail）⟺ `delta < -thr` **且** `cur.ci_upper < base.ci_lower`
+- **区间重叠**（含均值超阈值但区间重叠）→ `≈` 并标 `(overlap)`，**不** fail
+- **缺置信区间**（任一侧 `ci_lower`/`ci_upper` 缺失或 null）→ 回落裸均值判定，标 `(no-ci)`
+
+> 判定用的是结果 JSON 里已有的 `ci_lower`/`ci_upper`（e2e 由 hyperfine 产、micro 用 min/max
+> 充当区间），不采集新数据。区间越宽（噪声越大）门禁越保守，正合共享 runner 场景。
+
+输出示例（`↑` 是真回归；+11% 那条均值超阈值但区间重叠 → 判噪声不 fail）：
 
 ```
-  01_fibonacci [time]      50.000 ms → 81.007 ms  ↑ +62.0%
-  02_math_loop [time]      15.000 ms → 15.128 ms  ≈ +0.9%
+  01_fibonacci [time jit@linux/x64]  90 ms → 130 ms  ↑ 44.4%
+  02_math_loop [time jit@linux/x64]  50 ms → 100 ms  ≈ 11.1% (overlap)
 
-❌ 1 regression(s) above threshold (out of 2 benchmarks)
+❌ 1 regression(s) — delta over threshold AND CI-separated (out of 2 benchmarks)
 ```
+
+判定逻辑的三态回归 fixtures 在 `bench/testdata/`（overlap→exit 0 / regress→exit 1 / improve→exit 0）。
 
 ## 输出格式
 

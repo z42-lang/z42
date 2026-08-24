@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "commit": "bbbbbbb",
+  "branch": "pr-noise",
+  "z42vm_version": "0.5.0",
+  "timestamp": "2026-08-24T01:00:00Z",
+  "benchmarks": [
+    {
+      "name": "01_fibonacci", "tier": "z42-e2e", "metric": "time",
+      "value": 100.0, "unit": "ms", "ci_lower": 88.0, "ci_upper": 112.0, "samples": 10,
+      "profile": {
+        "mode": { "tiers": ["interp", "jit"], "aot_pkgs": [] },
+        "mode_label": "jit",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "02_math_loop", "tier": "z42-e2e", "metric": "time",
+      "value": 50.5, "unit": "ms", "ci_lower": 48.5, "ci_upper": 52.5, "samples": 10,
+      "profile": {
+        "mode": { "tiers": ["interp", "jit"], "aot_pkgs": [] },
+        "mode_label": "jit",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    }
+  ]
+}

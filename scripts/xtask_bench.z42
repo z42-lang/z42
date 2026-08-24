@@ -115,9 +115,12 @@ int _bench(ParseResult r) {
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
 // against a baseline (both conform to bench/baseline-schema.json): per-benchmark
-// delta = (cur - base) / base; a time delta > --threshold-time (default 0.05) or
-// a memory delta > --threshold-memory (default 0.10) is a regression. Exit codes:
-// 0 = no regression, 1 = regression above threshold, 2 = tool error.
+// delta = (cur - base) / base. Interval-aware gate — a regression requires BOTH
+// delta > --threshold-time (default 0.05) / --threshold-memory (default 0.10) AND
+// the current confidence interval separated from the baseline's (cur.ci_lower >
+// base.ci_upper). Overlapping intervals ⇒ noise ⇒ not a regression (marked
+// (overlap)). A side lacking ci_lower/ci_upper falls back to the bare-mean-ratio
+// gate (marked (no-ci)). Exit codes: 0 = no regression, 1 = regression, 2 = tool error.
 int _benchDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
@@ -145,7 +148,7 @@ int _benchDiff(ParseResult r) {
         Console.WriteLine("Comparing:");
         Console.WriteLine("  current:  " + cur.Get("commit").AsString() + "  (" + current + ")");
         Console.WriteLine("  baseline: " + base_.Get("commit").AsString() + "  (" + baseline + ")");
-        Console.WriteLine("  thresholds: time>" + thrTime.ToString() + "=fail, memory>" + thrMem.ToString() + "=fail");
+        Console.WriteLine("  gate: delta>" + thrTime.ToString() + " (time) / " + thrMem.ToString() + " (mem) AND CI-separated = regression");
         Console.WriteLine("");
     }
 
@@ -162,11 +165,12 @@ int _benchDiff(ParseResult r) {
         string mkey   = _epBenchModeKey(c);
         total = total + 1;
         string label = name + " [" + metric + " " + mkey + "]";
-        double baseV = _findBenchValue(baseBs, name, metric, mkey);
-        if (baseV < 0.0) {
+        JsonValue baseObj = _findBenchObj(baseBs, name, metric, mkey);
+        if (baseObj == null) {
             if (!quiet) { Console.WriteLine("  " + label + "  (new)  " + curV.ToString() + " " + unit); }
             j = j + 1; continue;
         }
+        double baseV = baseObj.Get("value").AsDouble();
         if (baseV == 0.0) {
             if (!quiet) { Console.WriteLine("  " + label + "  baseline=0 (skip)"); }
             j = j + 1; continue;
@@ -175,11 +179,29 @@ int _benchDiff(ParseResult r) {
         bool isMem = (metric == "memory" || unit == "bytes" || unit == "KB" || unit == "MB");
         double thr = isMem ? thrMem : thrTime;
         string sym = "≈";
-        if (delta > thr) { sym = "↑"; regressions = regressions + 1; }
-        else if (delta < (0.0 - thr)) { sym = "↓"; }
-        if (!quiet || delta > thr) {
+        string note = "";
+        // Interval-aware gate: a regression must be BOTH large (|delta| > thr) AND
+        // statistically distinguishable (current CI separated from baseline CI).
+        // Overlapping intervals ⇒ the mean shift is within measurement noise ⇒ ≈,
+        // no matter how big delta looks. Kills the cross-runner false-positive reds
+        // that made the old bare-mean-ratio gate untrustworthy.
+        if (_hasCi(c) && _hasCi(baseObj)) {
+            double cLo = c.Get("ci_lower").AsDouble();
+            double cHi = c.Get("ci_upper").AsDouble();
+            double bLo = baseObj.Get("ci_lower").AsDouble();
+            double bHi = baseObj.Get("ci_upper").AsDouble();
+            if (delta > thr && cLo > bHi) { sym = "↑"; regressions = regressions + 1; }
+            else if (delta < (0.0 - thr) && cHi < bLo) { sym = "↓"; }
+            else if (delta > thr || delta < (0.0 - thr)) { note = " (overlap)"; }
+        } else {
+            // Fallback: a side lacks ci_lower/ci_upper → legacy bare-mean-ratio gate.
+            note = " (no-ci)";
+            if (delta > thr) { sym = "↑"; regressions = regressions + 1; }
+            else if (delta < (0.0 - thr)) { sym = "↓"; }
+        }
+        if (!quiet || sym == "↑") {
             Console.WriteLine("  " + label + "  " + baseV.ToString() + " " + unit
-                + " → " + curV.ToString() + " " + unit + "  " + sym + " " + (delta * 100.0).ToString() + "%");
+                + " → " + curV.ToString() + " " + unit + "  " + sym + " " + (delta * 100.0).ToString() + "%" + note);
         }
         j = j + 1;
     }
@@ -204,10 +226,10 @@ int _benchDiff(ParseResult r) {
 
     Console.WriteLine("");
     if (regressions > 0) {
-        Console.WriteLine("❌ " + regressions.ToString() + " regression(s) above threshold (out of " + total.ToString() + " benchmarks)");
+        Console.WriteLine("❌ " + regressions.ToString() + " regression(s) — delta over threshold AND CI-separated (out of " + total.ToString() + " benchmarks)");
         return 1;
     }
-    Console.WriteLine("✅ no regression above threshold (" + total.ToString() + " benchmarks compared)");
+    Console.WriteLine("✅ no regression (interval-aware; " + total.ToString() + " benchmarks compared)");
     return 0;
 }
 
@@ -225,6 +247,29 @@ double _findBenchValue(JsonValue benchmarks, string name, string metric, string 
         i = i + 1;
     }
     return -1.0;
+}
+
+// like _findBenchValue but returns the whole benchmark object (or null if absent),
+// so the interval-aware gate can read ci_lower/ci_upper off the baseline entry.
+JsonValue _findBenchObj(JsonValue benchmarks, string name, string metric, string mkey) {
+    int i = 0;
+    while (i < benchmarks.Count()) {
+        JsonValue b = benchmarks.At(i);
+        if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric
+            && _epBenchModeKey(b) == mkey) {
+            return b;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// true iff the benchmark carries both confidence-interval bounds (present & non-null).
+// Get() throws on a missing key and AsDouble() throws on null, so guard before reading.
+bool _hasCi(JsonValue b) {
+    if (!b.ContainsKey("ci_lower") || b.Get("ci_lower").IsNull()) { return false; }
+    if (!b.ContainsKey("ci_upper") || b.Get("ci_upper").IsNull()) { return false; }
+    return true;
 }
 
 // add-bench-speedup-cap-gating: for each (name, metric, platform) measured under
