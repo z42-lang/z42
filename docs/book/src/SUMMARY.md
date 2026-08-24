@@ -48,6 +48,7 @@
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
+    - [GC 调参与自动回收 / safepoint 协议](runtime/gc-tuning-and-safepoint.md)
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
   - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
   - [诊断与性能分析（采样 profiler / 火焰图 / perfetto）](runtime/diagnostics.md)

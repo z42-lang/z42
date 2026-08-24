@@ -90,6 +90,13 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "gc/mode.rs",
     },
     KnobSpec {
+        name: "Z42_GC_NEAR_LIMIT_RATIO",
+        toml_key: "gc-near-limit-ratio",
+        description: "heap-used fraction (0.0–1.0) of the max-bytes limit at/above which an auto-collect trips and a NearHeapLimit event fires",
+        default_hint: "unset; defaults to 0.90",
+        consumed_by: "gc/arc_heap/alloc.rs",
+    },
+    KnobSpec {
         name: "Z42_GC_PAUSE_WINDOW",
         toml_key: "gc-pause-window",
         description: "capacity (entries) of the per-heap rolling GC pause-time deque, clamped to [1, 65536]",
@@ -97,11 +104,25 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "gc/types.rs",
     },
     KnobSpec {
+        name: "Z42_GC_PRESSURE_RATIO",
+        toml_key: "gc-pressure-ratio",
+        description: "heap-used fraction (0.0–1.0) in [pressure, near) that fires an AllocationPressure event; stays below the near-limit ratio",
+        default_hint: "unset; defaults to 0.75",
+        consumed_by: "gc/arc_heap/alloc.rs",
+    },
+    KnobSpec {
         name: "Z42_GC_SOFT_THRESHOLD",
         toml_key: "gc-soft-threshold",
         description: "heap pressure ratio (0.0–1.0) above which SoftHandle refs become GC-eligible",
         default_hint: "unset; defaults to 0.80",
         consumed_by: "gc/soft_registry.rs",
+    },
+    KnobSpec {
+        name: "Z42_GC_THROTTLE_RATIO",
+        toml_key: "gc-throttle-ratio",
+        description: "min heap-used growth (fraction 0.0–1.0 of the max-bytes limit) since the last auto-collect before another auto-collect may trip — debounces back-to-back collects",
+        default_hint: "unset; defaults to 0.10",
+        consumed_by: "gc/arc_heap/alloc.rs",
     },
     KnobSpec {
         name: "Z42_JIT_PROFILE",
@@ -233,6 +254,19 @@ pub struct RuntimeConfig {
     /// which SoftHandle refs become GC-eligible. Falls back to 0.80 on
     /// missing / invalid.
     pub gc_soft_threshold: f64,
+    /// `Z42_GC_NEAR_LIMIT_RATIO` (0.0–1.0) — heap-used fraction of the
+    /// max-bytes limit at/above which the allocator trips an auto-collect
+    /// and fires `NearHeapLimit`. Falls back to 0.90; clamped to `[0,1]`.
+    pub gc_near_limit_ratio: f64,
+    /// `Z42_GC_PRESSURE_RATIO` (0.0–1.0) — heap-used fraction in
+    /// `[pressure, near)` that fires `AllocationPressure`. Expected below
+    /// `gc_near_limit_ratio`. Falls back to 0.75; clamped to `[0,1]`.
+    pub gc_pressure_ratio: f64,
+    /// `Z42_GC_THROTTLE_RATIO` (0.0–1.0) — minimum heap-used growth (as a
+    /// fraction of the max-bytes limit) since the last auto-collect before
+    /// another may trip; debounces back-to-back collects. Falls back to
+    /// 0.10; clamped to `[0,1]`.
+    pub gc_throttle_ratio: f64,
     /// `Z42_SAFEPOINT_THROTTLE` — per-thread fast-path counter; every
     /// Nth check runs the real Mutex-lock poll. `1` disables throttling.
     /// Falls back to 1024 on missing / invalid.
@@ -273,6 +307,9 @@ impl Default for RuntimeConfig {
             gc_minor_threshold: 0.75,
             gc_pause_window: 1024,
             gc_soft_threshold: 0.80,
+            gc_near_limit_ratio: 0.90,
+            gc_pressure_ratio: 0.75,
+            gc_throttle_ratio: 0.10,
             safepoint_throttle: 1024,
             native_search_paths: Vec::new(),
             jit_profile: false,
@@ -350,6 +387,9 @@ impl RuntimeConfig {
             gc_minor_threshold:  parse_gc_minor_threshold(&layered),
             gc_pause_window:     parse_gc_pause_window(&layered),
             gc_soft_threshold:   parse_gc_soft_threshold(&layered),
+            gc_near_limit_ratio: parse_gc_ratio(&layered, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
+            gc_pressure_ratio:   parse_gc_ratio(&layered, "Z42_GC_PRESSURE_RATIO",   0.75),
+            gc_throttle_ratio:   parse_gc_ratio(&layered, "Z42_GC_THROTTLE_RATIO",   0.10),
             safepoint_throttle:  parse_safepoint_throttle(&layered),
             native_search_paths: parse_native_search_paths(&layered),
             jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
@@ -453,6 +493,26 @@ where F: Fn(&str) -> Option<String> {
     raw.parse::<f64>()
         .map(|v| v.clamp(0.0, 1.0))
         .unwrap_or(0.80)
+}
+
+/// Shared parser for the GC auto-collect ratio knobs (`Z42_GC_NEAR_LIMIT_RATIO`
+/// / `Z42_GC_PRESSURE_RATIO` / `Z42_GC_THROTTLE_RATIO`). Missing / empty →
+/// `default`; a parseable value is clamped to `[0.0, 1.0]`; unparseable → warns
+/// then falls back to `default`. Cross-knob ordering (pressure < near) is *not*
+/// enforced here — an inverted pair simply makes the pressure-event branch dead,
+/// harmless; keeping each knob independent avoids surprising silent rewrites.
+fn parse_gc_ratio<F>(get: &F, name: &str, default: f64) -> f64
+where F: Fn(&str) -> Option<String> {
+    let Some(raw) = get(name).filter(|s| !s.trim().is_empty()) else {
+        return default;
+    };
+    match raw.parse::<f64>() {
+        Ok(v) => v.clamp(0.0, 1.0),
+        Err(_) => {
+            eprintln!("z42: invalid {name}={raw:?}; using default {default}");
+            default
+        }
+    }
 }
 
 fn parse_safepoint_throttle<F>(get: &F) -> u32
@@ -679,6 +739,9 @@ mod tests {
         assert_eq!(cfg.gc_minor_threshold,  0.75);
         assert_eq!(cfg.gc_pause_window,     1024);
         assert_eq!(cfg.gc_soft_threshold,   0.80);
+        assert_eq!(cfg.gc_near_limit_ratio, 0.90);
+        assert_eq!(cfg.gc_pressure_ratio,   0.75);
+        assert_eq!(cfg.gc_throttle_ratio,   0.10);
         assert_eq!(cfg.safepoint_throttle,  1024);
         assert!(cfg.native_search_paths.is_empty());
     }
@@ -772,6 +835,37 @@ mod tests {
                 .gc_soft_threshold,
             0.80,
         );
+    }
+
+    #[test]
+    fn from_getter_gc_auto_collect_ratios_parse_and_clamp() {
+        // Each ratio parses its own env var.
+        let cfg = RuntimeConfig::from_getter(fake_env(&[
+            ("Z42_GC_NEAR_LIMIT_RATIO", "0.95"),
+            ("Z42_GC_PRESSURE_RATIO",   "0.6"),
+            ("Z42_GC_THROTTLE_RATIO",   "0.05"),
+        ]));
+        assert_eq!(cfg.gc_near_limit_ratio, 0.95);
+        assert_eq!(cfg.gc_pressure_ratio,   0.6);
+        assert_eq!(cfg.gc_throttle_ratio,   0.05);
+
+        // Out-of-unit values clamp to [0, 1] (not rejected).
+        let clamped = RuntimeConfig::from_getter(fake_env(&[
+            ("Z42_GC_NEAR_LIMIT_RATIO", "1.5"),
+            ("Z42_GC_PRESSURE_RATIO",   "-0.2"),
+        ]));
+        assert_eq!(clamped.gc_near_limit_ratio, 1.0);
+        assert_eq!(clamped.gc_pressure_ratio,   0.0);
+
+        // Garbage → per-knob documented default.
+        let bad = RuntimeConfig::from_getter(fake_env(&[
+            ("Z42_GC_NEAR_LIMIT_RATIO", "nope"),
+            ("Z42_GC_PRESSURE_RATIO",   "xyz"),
+            ("Z42_GC_THROTTLE_RATIO",   ""),
+        ]));
+        assert_eq!(bad.gc_near_limit_ratio, 0.90);
+        assert_eq!(bad.gc_pressure_ratio,   0.75);
+        assert_eq!(bad.gc_throttle_ratio,   0.10);
     }
 
     #[test]

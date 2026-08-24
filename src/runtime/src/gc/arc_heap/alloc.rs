@@ -90,9 +90,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         if paused { return; }
         let Some(limit) = max_opt else { return };
-        let near_threshold = (limit as f64 * 0.9) as u64;
+        let cfg = crate::config::runtime_config();
+        let near_threshold = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
         if used < near_threshold { return; }
-        let throttle_delta = (limit as f64 * 0.1) as u64;
+        let throttle_delta = (limit as f64 * cfg.gc_throttle_ratio) as u64;
         if used.saturating_sub(last) < throttle_delta { return; }
         // Mark this as the "last seen used" pre-collect so we don't re-trip
         // on every subsequent alloc until the collect actually runs.
@@ -108,12 +109,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.collect_cycles();
     }
 
-    /// **Phase 3d**: collect 完成后，若 used 已降到 90% 阈值以下，
+    /// **Phase 3d**: collect 完成后，若 used 已降到 near-limit 阈值以下，
     /// reset `near_limit_warned` 让下次跨阈值能再发 NearHeapLimit 事件。
+    /// 阈值比率来自 `Z42_GC_NEAR_LIMIT_RATIO`（默认 0.90），与 [`Self::check_pressure`]
+    /// 触发 NearHeapLimit 的同一比率——保证「发一次事件」与「重置事件闩」用同一阈值。
     pub(super) fn maybe_reset_near_limit_warned(&self) {
+        let near_ratio = crate::config::runtime_config().gc_near_limit_ratio;
         let mut i = self.inner.lock();
         let Some(limit) = i.stats.max_bytes else { return };
-        let near_threshold = (limit as f64 * 0.9) as u64;
+        let near_threshold = (limit as f64 * near_ratio) as u64;
         if i.stats.used_bytes < near_threshold {
             i.near_limit_warned = false;
         }
@@ -125,8 +129,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (i.stats.used_bytes, i.stats.max_bytes, i.near_limit_warned)
         };
         let Some(limit) = max else { return };
-        let near_threshold     = (limit as f64 * 0.9 ) as u64;
-        let pressure_threshold = (limit as f64 * 0.75) as u64;
+        let cfg = crate::config::runtime_config();
+        let near_threshold     = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
+        let pressure_threshold = (limit as f64 * cfg.gc_pressure_ratio) as u64;
 
         if !near_warned && used >= near_threshold {
             self.inner.lock().near_limit_warned = true;
