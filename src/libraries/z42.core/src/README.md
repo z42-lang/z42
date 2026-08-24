@@ -12,6 +12,8 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 |------|------|
 | `Object.z42` | 所有引用类型的基类；`ToString` / `Equals` / `GetHashCode` 协议方法 |
 | `Type.z42` | 运行时类型对象（`typeof` 结果） |
+| `Array.z42` | 所有 `T[]` 的基类（`sealed`）：`Length` / `Clone` / Object 协议 + 反射式 `CreateInstance`(静态)/`GetValue`/`SetValue`（照搬 C# `System.Array`，供反射式 serde）|
+| `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo`（含 `GetCustomAttributes`/`GetAttribute`）/ `MethodInfo` / `PropertyInfo`（含 `GetValue`/`SetValue` + `GetCustomAttributes`/`GetAttribute`）/ `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/design/language/reflection.md`）|
 | `String.z42` | `string` primitive 的成员方法（`Substring` / `Contains` / 等）|
 | `Primitives/` | 6 个数值/布尔 primitive 的成员方法（Bool / Char / Int / Long / Float / Double） |
 | `Delegates/` | callable + multicast + 订阅策略整套（详见 `docs/design/language/delegates-events.md`）<br>• `Delegates.z42` / `DelegateOps.z42` — base Action/Func/Predicate + `==` / `!=`<br>• `MulticastAction/Func/Predicate.z42` — 多播容器<br>• `ISubscription.z42` + `SubscriptionRefs.z42` — 订阅策略 wrapper |

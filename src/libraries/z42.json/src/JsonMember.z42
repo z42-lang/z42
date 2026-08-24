@@ -81,7 +81,7 @@ public static class JsonMembers {
         return f.GetAttribute(typeof(JsonIgnoreAttribute)) != null;
     }
     private static bool _propIgnored(PropertyInfo p) {
-        return JsonReflect.PropAttr(p, typeof(JsonIgnoreAttribute)) != null;
+        return p.GetAttribute(typeof(JsonIgnoreAttribute)) != null;
     }
     private static string _fieldKey(FieldInfo f) {
         Attribute a = (Attribute)f.GetAttribute(typeof(JsonPropertyAttribute));
@@ -89,7 +89,7 @@ public static class JsonMembers {
         return f.Name;
     }
     private static string _propKey(PropertyInfo p) {
-        Attribute a = JsonReflect.PropAttr(p, typeof(JsonPropertyAttribute));
+        Attribute a = (Attribute)p.GetAttribute(typeof(JsonPropertyAttribute));
         if (a != null) { return (a as JsonPropertyAttribute).Name; }
         return p.Name;
     }

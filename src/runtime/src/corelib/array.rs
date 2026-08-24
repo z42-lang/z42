@@ -79,15 +79,6 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_array_typed(tag, elems))
 }
 
-/// `__array_length(arr: object) -> int`. add-json-serde.
-pub fn builtin_array_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Array(rc)) => Ok(Value::I64(rc.borrow().len() as i64)),
-        Some(Value::Null) => bail!("Array.GetLength: null array reference"),
-        other => bail!("Array.GetLength: expected an array, got {:?}", other),
-    }
-}
-
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
 /// Packed integers are boxed to the matching wrapper (`BoxedStruct`); double / bool /
 /// char / reference elements are already object-representation. add-json-serde.
@@ -114,19 +105,21 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
 }
 
-/// `__array_set(arr: object, i: int, value: object) -> void` — write `value` into
-/// element `i`, unboxing a boxed primitive into the packed slot. add-json-serde.
+/// `__array_set(arr: object, value: object, i: int) -> void` — write `value` into
+/// element `i`, unboxing a boxed primitive into the packed slot. Arg order mirrors
+/// C# `Array.SetValue(object value, int index)` (value first) as an instance method
+/// (`this`=array at args[0]). add-array-property-reflection-api (was value-last).
 pub fn builtin_array_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let rc = match args.first() {
         Some(Value::Array(rc)) => rc.clone(),
         Some(Value::Null) => bail!("Array.SetValue: null array reference"),
         other => bail!("Array.SetValue: expected an array, got {:?}", other),
     };
-    let i = match args.get(1) {
+    let value = args.get(1).cloned().unwrap_or(Value::Null);
+    let i = match args.get(2) {
         Some(Value::I64(n)) if *n >= 0 => *n as usize,
         _ => bail!("Array.SetValue: expected a non-negative index"),
     };
-    let value = args.get(2).cloned().unwrap_or(Value::Null);
     // Unbox a boxed integer primitive to its raw `I64` so packed backings store it;
     // non-boxed values (F64 / Bool / Char / Str / Object) pass through to `set_boxed`.
     let raw = match value {

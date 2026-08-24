@@ -74,10 +74,11 @@ public static class JsonSerializer {
 
     private static JsonValue _arrayToJson(object o) {
         JsonValue arr = JsonValue.OfArray();
-        int n = JsonReflect.ArrayLength(o);
+        Array a = (Array)o;                       // object → Array 下转型（元素以运行期 Type 反射读）
+        int n = a.Length;
         int i = 0;
         while (i < n) {
-            arr.Add(JsonSerializer._toJson(JsonReflect.ArrayGet(o, i)));
+            arr.Add(JsonSerializer._toJson(a.GetValue(i)));
             i = i + 1;
         }
         return arr;

@@ -75,18 +75,28 @@ attribute。本 change **不新增格式**，而是把属性上的 attr **挂到
 > 加 `[JsonProperty]`/`[JsonIgnore]`。若将来需要，再评估独立格式载体。因**零格式 bump**，两代自举 /
 > download-bootstrap 均不受影响（避开了 format-bump 的 CI 两代自举复杂度）。
 
-### 反射底座的自举约束（JsonReflect 库自有 extern）
+### 反射底座（已下沉为公开 API，add-array-property-reflection-api 2026-08-24）
 
-serde 用到的新 runtime native（`__array_create`/`__array_get`/`__array_set`/`__array_length`——反射
-式建/读写元素类型只以运行期 Type 已知的 `T[]`；`__property_custom_attributes`——读属性 attr）声明为
-**z42.json 自有 extern**（`JsonReflect.z42`），而非 `Std.Array`/`PropertyInfo` 的公开 API。
+serde 用到的反射式数组建/读写与属性 attribute 读取，现已是 **`Std.Array` / `Std.Reflection.PropertyInfo`
+的公开反射 API**：
 
-**为什么**：冷启动 / download-bootstrap **gen0 用上一 nightly 的种子 stdlib 编译整套 stdlib（含
-z42.json）**。种子的 `Std.Array`/`PropertyInfo` 尚无这些新 native → 若 z42.json 引用其公开 API 会
-gen0 `E0401`（axis② stdlib API 面约束）。声明为本库 extern 则编译期仅 extern 声明（native 运行期由
-新 VM 解析），不依赖种子 prelude 的新成员；属性 qualified 名由种子**已有**的
-`PropertyInfo.__getterQualified` 直接交给 native（Rust 侧剥 accessor 前缀），不依赖种子无的新字段。
-→ 待本 nightly 发布后，可作 follow-up 把这些下沉为公开反射 API 并让 z42.json 改用。
+- **`Std.Array`（照搬 C# `System.Array`）**：静态 `CreateInstance(Type, int)`、实例 `GetValue(int)` /
+  `SetValue(object value, int index)`、`.Length` 属性——反射式建/读写元素类型只以运行期 Type 已知的 `T[]`。
+  绑既有 native `__array_create` / `__array_get` / `__array_set`（后者按 `(array, value, index)` 读，
+  对齐 C# value-在前签名）。
+- **`Std.Reflection.PropertyInfo`**：`GetCustomAttributes()` / `GetAttribute(Type)`（镜像 `FieldInfo`），
+  绑 native `__property_custom_attributes`（Rust 侧从 accessor-qualified 名剥 `get_`/`set_` 前缀 → backing
+  field `__prop_<Name>` 取 attr，无格式 bump）。
+
+serde（`JsonBinder` / `JsonSerializer` / `JsonMember`）改用这些公开 API；`JsonReflect.z42` 仅保留**集合
+反射辅助**（`GenericArg`/`List*`/`Dict*`，封装已公开的反射 API，见下节）。
+
+> **历史（M2 → 下沉的自举约束）**：serde M2 初版把上述 native 声明为 **z42.json 自有 extern**，出于
+> 「gen0 用上一 nightly 种子 stdlib 编译 z42.json、种子无新 API 会 `E0401`」的保守顾虑。**后核实该顾虑
+> 对本类改动不成立**：`bootstrap-seed.md` axis② 豁免 stdlib 源（stdlib 由自建的当前 z42c 编），且
+> `xtask build stdlib` 的 workspace 构建把全体成员 fresh dist 排在种子 `Z42_LIBS` 之前
+> （`z42c.driver/src/Main.z42`），拓扑序保证 z42.json 后建时解析到 fresh z42.core（含新 API）。故此次下沉
+> **零格式 bump、单 PR、本地 warm 可验**。
 
 ### 跨包泛型 `typeof(T)` 的 handle 解析（`Deserialize<T>` 依赖）
 
