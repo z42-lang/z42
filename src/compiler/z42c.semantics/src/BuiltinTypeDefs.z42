@@ -1,0 +1,121 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 编译器级固定 prelude 内建面（从 ExportedTypeExtractor 分出）：11 接口 + GCHandleType 枚举
+// + Action/Func/Predicate 委托，字节形态 = C# 同源实测。hub 经 _extractCore 注入。
+public static class BuiltinTypeDefs {
+
+    // static abstract 接口成员（INumber op_*）
+    private static ExportedMethodZ _ims(string name, string ret, string[] paramTypes, int pc) {
+        ExportedParamZ[] ps = new ExportedParamZ[pc];
+        int i = 0;
+        while (i < pc) { ps[i] = new ExportedParamZ("p" + i.ToString(), paramTypes[i]); i = i + 1; }
+        return new ExportedMethodZ(name, ret, "public", true, false, true, pc, ps, pc);
+    }
+
+    private static string[] _t0() { return new string[0]; }
+
+    private static string[] _t1(string a) { string[] r = new string[1]; r[0] = a; return r; }
+
+    private static string[] _t2(string a, string b) { string[] r = new string[2]; r[0] = a; r[1] = b; return r; }
+
+    private static ExportedInterfaceZ _iface(string name, string[] tps, int tpc, ExportedMethodZ[] ms, int mc) {
+        return new ExportedInterfaceZ(name, ms, mc, tps, tpc);
+    }
+
+    internal static ExportedInterfaceZ[] _builtinInterfaces() {
+        ExportedInterfaceZ[] r = new ExportedInterfaceZ[11];
+        ExportedMethodZ[] m;
+        m = new ExportedMethodZ[3];
+        m[0] = ExportedTypeExtractor._im("Get", "TD", BuiltinTypeDefs._t0(), 0);
+        m[1] = ExportedTypeExtractor._im("IsAlive", "bool", BuiltinTypeDefs._t0(), 0);
+        m[2] = ExportedTypeExtractor._im("OnInvoked", "void", BuiltinTypeDefs._t0(), 0);
+        r[0] = BuiltinTypeDefs._iface("ISubscription", BuiltinTypeDefs._t1("TD"), 1, m, 3);
+        m = new ExportedMethodZ[4];
+        m[0] = ExportedTypeExtractor._im("Count", "int", BuiltinTypeDefs._t0(), 0);
+        m[1] = ExportedTypeExtractor._im("IsEmpty", "bool", BuiltinTypeDefs._t0(), 0);
+        m[2] = ExportedTypeExtractor._im("Clear", "void", BuiltinTypeDefs._t0(), 0);
+        m[3] = ExportedTypeExtractor._im("AddOne", "void", BuiltinTypeDefs._t1("T"), 1);   // 2026-06-11 prelude 漂移（并行流）
+        r[1] = BuiltinTypeDefs._iface("IBasicCollection", BuiltinTypeDefs._t1("T"), 1, m, 4);
+        m = new ExportedMethodZ[1];
+        m[0] = ExportedTypeExtractor._im("CompareTo", "int", BuiltinTypeDefs._t1("T"), 1);
+        r[2] = BuiltinTypeDefs._iface("IComparable", BuiltinTypeDefs._t1("T"), 1, m, 1);
+        m = new ExportedMethodZ[1];
+        m[0] = ExportedTypeExtractor._im("Compare", "int", BuiltinTypeDefs._t2("T", "T"), 2);
+        r[3] = BuiltinTypeDefs._iface("IComparer", BuiltinTypeDefs._t1("T"), 1, m, 1);
+        m = new ExportedMethodZ[1];
+        m[0] = ExportedTypeExtractor._im("Dispose", "void", BuiltinTypeDefs._t0(), 0);
+        r[4] = BuiltinTypeDefs._iface("IDisposable", BuiltinTypeDefs._t0(), 0, m, 1);
+        m = new ExportedMethodZ[1];
+        m[0] = ExportedTypeExtractor._im("GetEnumerator", "IEnumerator", BuiltinTypeDefs._t0(), 0);
+        r[5] = BuiltinTypeDefs._iface("IEnumerable", BuiltinTypeDefs._t1("T"), 1, m, 1);
+        m = new ExportedMethodZ[2];
+        m[0] = ExportedTypeExtractor._im("MoveNext", "bool", BuiltinTypeDefs._t0(), 0);
+        m[1] = ExportedTypeExtractor._im("get_Current", "T", BuiltinTypeDefs._t0(), 0);
+        r[6] = BuiltinTypeDefs._iface("IEnumerator", BuiltinTypeDefs._t1("T"), 1, m, 2);
+        m = new ExportedMethodZ[2];
+        m[0] = ExportedTypeExtractor._im("Equals", "bool", BuiltinTypeDefs._t2("T", "T"), 2);
+        m[1] = ExportedTypeExtractor._im("GetHashCode", "int", BuiltinTypeDefs._t1("T"), 1);
+        r[7] = BuiltinTypeDefs._iface("IEqualityComparer", BuiltinTypeDefs._t1("T"), 1, m, 2);
+        m = new ExportedMethodZ[2];
+        m[0] = ExportedTypeExtractor._im("Equals", "bool", BuiltinTypeDefs._t1("T"), 1);
+        m[1] = ExportedTypeExtractor._im("GetHashCode", "int", BuiltinTypeDefs._t0(), 0);
+        r[8] = BuiltinTypeDefs._iface("IEquatable", BuiltinTypeDefs._t1("T"), 1, m, 2);
+        m = new ExportedMethodZ[1];
+        m[0] = ExportedTypeExtractor._im("ToString", "string", BuiltinTypeDefs._t1("string"), 1);
+        r[9] = BuiltinTypeDefs._iface("IFormattable", BuiltinTypeDefs._t0(), 0, m, 1);
+        m = new ExportedMethodZ[5];
+        // INumber 五方法是 static abstract 接口成员（C# 11 形态）：flags = static|abstract（=5，非 virtual）
+        m[0] = BuiltinTypeDefs._ims("op_Add", "T", BuiltinTypeDefs._t2("T", "T"), 2);
+        m[1] = BuiltinTypeDefs._ims("op_Subtract", "T", BuiltinTypeDefs._t2("T", "T"), 2);
+        m[2] = BuiltinTypeDefs._ims("op_Multiply", "T", BuiltinTypeDefs._t2("T", "T"), 2);
+        m[3] = BuiltinTypeDefs._ims("op_Divide", "T", BuiltinTypeDefs._t2("T", "T"), 2);
+        m[4] = BuiltinTypeDefs._ims("op_Modulo", "T", BuiltinTypeDefs._t2("T", "T"), 2);
+        r[10] = BuiltinTypeDefs._iface("INumber", BuiltinTypeDefs._t1("T"), 1, m, 5);
+        return r;
+    }
+
+    internal static ExportedEnumZ[] _builtinEnums() {
+        ExportedEnumMemberZ[] mems = new ExportedEnumMemberZ[2];
+        mems[0] = new ExportedEnumMemberZ("Weak", 0L);
+        mems[1] = new ExportedEnumMemberZ("Strong", 1L);
+        ExportedEnumZ[] r = new ExportedEnumZ[1];
+        r[0] = new ExportedEnumZ("GCHandleType", mems, 2);
+        return r;
+    }
+
+    // Action×5（0..4 参）/ Func×5（R 殿后）/ Predicate；参数名 arg{i}；container 均无
+    private static ExportedDelegateZ _del(string name, string ret, string[] tps, int tpc, int argc, string[] argTypes) {
+        ExportedParamZ[] ps = new ExportedParamZ[argc];
+        int i = 0;
+        while (i < argc) { ps[i] = new ExportedParamZ("arg" + i.ToString(), argTypes[i]); i = i + 1; }
+        return new ExportedDelegateZ(name, ret, ps, argc, tps, tpc, false, "");
+    }
+
+    internal static ExportedDelegateZ[] _builtinDelegates() {
+        ExportedDelegateZ[] r = new ExportedDelegateZ[11];
+        string[] t = BuiltinTypeDefs._t0();
+        r[0] = BuiltinTypeDefs._del("Action", "void", t, 0, 0, t);
+        r[1] = BuiltinTypeDefs._del("Action", "void", BuiltinTypeDefs._t1("T"), 1, 1, BuiltinTypeDefs._t1("T"));
+        string[] t12 = BuiltinTypeDefs._t2("T1", "T2");
+        r[2] = BuiltinTypeDefs._del("Action", "void", t12, 2, 2, t12);
+        string[] t123 = new string[3]; t123[0] = "T1"; t123[1] = "T2"; t123[2] = "T3";
+        r[3] = BuiltinTypeDefs._del("Action", "void", t123, 3, 3, t123);
+        string[] t1234 = new string[4]; t1234[0] = "T1"; t1234[1] = "T2"; t1234[2] = "T3"; t1234[3] = "T4";
+        r[4] = BuiltinTypeDefs._del("Action", "void", t1234, 4, 4, t1234);
+        r[5] = BuiltinTypeDefs._del("Func", "R", BuiltinTypeDefs._t1("R"), 1, 0, t);
+        string[] tr = BuiltinTypeDefs._t2("T", "R");
+        r[6] = BuiltinTypeDefs._del("Func", "R", tr, 2, 1, BuiltinTypeDefs._t1("T"));
+        string[] t12r = new string[3]; t12r[0] = "T1"; t12r[1] = "T2"; t12r[2] = "R";
+        r[7] = BuiltinTypeDefs._del("Func", "R", t12r, 3, 2, t12);
+        string[] t123r = new string[4]; t123r[0] = "T1"; t123r[1] = "T2"; t123r[2] = "T3"; t123r[3] = "R";
+        r[8] = BuiltinTypeDefs._del("Func", "R", t123r, 4, 3, t123);
+        string[] t1234r = new string[5]; t1234r[0] = "T1"; t1234r[1] = "T2"; t1234r[2] = "T3"; t1234r[3] = "T4"; t1234r[4] = "R";
+        r[9] = BuiltinTypeDefs._del("Func", "R", t1234r, 5, 4, t1234);
+        r[10] = BuiltinTypeDefs._del("Predicate", "bool", BuiltinTypeDefs._t1("T"), 1, 1, BuiltinTypeDefs._t1("T"));
+        return r;
+    }
+}

@@ -1,0 +1,134 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 自由函数 + trait impl 的导出提取（从 ExportedTypeExtractor 分出）。hub 经 _extractCore 调度。
+public static class FuncImplExtractor {
+
+    // 提取 `impl Trait for Target { methods }`（镜像 C# ExtractImpls）。
+    // target/trait 短名经 classNs FQ 化：命中 imported/同包跨-ns 图 → "<declNs>.<name>"，否则 "<currentNs>.<name>"。
+    internal static ExportedImplZ[] _extractImpls(CompilationUnit cu, string currentNs, StrMap classNs) {
+        ExportedImplZ[] result = new ExportedImplZ[4];
+        int rc = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = ExportedTypeExtractor._unwrap(cu.Decls[i]);
+            if (d is ImplDecl) {
+                ImplDecl implD = d as ImplDecl;
+                string targetName = FuncImplExtractor._typeShortName(implD.TargetType);
+                string traitName = FuncImplExtractor._typeShortName(implD.TraitType);
+                if (targetName != "" && traitName != "") {
+                    string targetFq = FuncImplExtractor._fqOf(targetName, currentNs, classNs);
+                    string traitFq = FuncImplExtractor._fqOf(traitName, currentNs, classNs);
+                    // trait 泛型实参（NamedType.Args → TsigTypeName）
+                    string[] argStrs = new string[0];
+                    int argc = 0;
+                    if (implD.TraitType is NamedType) {
+                        NamedType tnt = implD.TraitType as NamedType;
+                        argStrs = new string[tnt.ArgCount];
+                        while (argc < tnt.ArgCount) { argStrs[argc] = TypeNameResolver.TsigTypeName(tnt.Args[argc]); argc = argc + 1; }
+                    }
+                    // impl 方法签名（AST 直取，镜像 C#：types via TsigTypeName，vis/static/virtual/abstract via mods）
+                    ExportedMethodZ[] ms = new ExportedMethodZ[implD.MethodCount];
+                    int mc = 0;
+                    int mj = 0;
+                    while (mj < implD.MethodCount) {
+                        Decl mem = ExportedTypeExtractor._unwrap(implD.Methods[mj]);
+                        if (mem is MethodDecl) {
+                            MethodDecl md = mem as MethodDecl;
+                            ExportedParamZ[] ps = new ExportedParamZ[md.ParamCount];
+                            int pi = 0;
+                            while (pi < md.ParamCount) { ps[pi] = new ExportedParamZ(md.Params[pi].Name, TypeNameResolver.TsigTypeName(md.Params[pi].Type)); pi = pi + 1; }
+                            string ret = "void";
+                            if (!md.IsCtor) { ret = TypeNameResolver.TsigTypeName(md.RetType); }
+                            string vis = FuncImplExtractor._visFromMods(md.Mods);
+                            bool isStatic = ExportedTypeExtractor._hasWord(md.Mods, "static");
+                            bool isVirtual = ExportedTypeExtractor._hasWord(md.Mods, "virtual");
+                            bool isAbstract = ExportedTypeExtractor._hasWord(md.Mods, "abstract");
+                            int reqd = ExportedTypeExtractor._requiredCount(md.Params, md.ParamCount);
+                            ms[mc] = new ExportedMethodZ(md.Name, ret, vis, isStatic, isVirtual, isAbstract, reqd, ps, md.ParamCount);
+                            mc = mc + 1;
+                        }
+                        mj = mj + 1;
+                    }
+                    if (rc == result.Length) {
+                        ExportedImplZ[] b = new ExportedImplZ[result.Length * 2];
+                        int k = 0; while (k < rc) { b[k] = result[k]; k = k + 1; }
+                        result = b;
+                    }
+                    result[rc] = new ExportedImplZ(targetFq, traitFq, argStrs, argc, ms, mc);
+                    rc = rc + 1;
+                }
+            }
+            i = i + 1;
+        }
+        ExportedImplZ[] trimmed = new ExportedImplZ[rc];
+        int t = 0; while (t < rc) { trimmed[t] = result[t]; t = t + 1; }
+        return trimmed;
+    }
+
+    // 短名 FQ 化：classNs 命中 → "<declNs>.<name>"，否则 "<currentNs>.<name>"（镜像 C# ImportedClassNamespaces 回落）。
+    private static string _fqOf(string name, string currentNs, StrMap classNs) {
+        if (classNs != null && classNs.ContainsKey(name)) {
+            StrBox b = classNs.Get(name) as StrBox;
+            return b.Value + "." + name;
+        }
+        return currentNs + "." + name;
+    }
+
+    // TypeExpr → 短名（NamedType.Name；非 Named 形态 → ""，镜像 C# ExtractTypeName 返回 null）。
+    private static string _typeShortName(TypeExpr t) {
+        if (t is NamedType) { return (t as NamedType).Name; }
+        return "";
+    }
+
+    // impl 方法可见性：mods 显式声明取之，无修饰默认 "public"（镜像 C# AST Visibility 默认）。
+    private static string _visFromMods(string mods) {
+        if (ExportedTypeExtractor._hasWord(mods, "public"))    { return "public"; }
+        if (ExportedTypeExtractor._hasWord(mods, "private"))   { return "private"; }
+        if (ExportedTypeExtractor._hasWord(mods, "protected")) { return "protected"; }
+        if (ExportedTypeExtractor._hasWord(mods, "internal"))  { return "internal"; }
+        return "public";
+    }
+
+    internal static ExportedFuncZ _extractFunc(MethodDecl md, SymbolTable symbols) {
+        MethodSymbol ms = symbols.GetFunc(md.Name);
+        ExportedParamZ[] ps = new ExportedParamZ[0];
+        string ret = "void";
+        int pc = 0;
+        int paramsFrom = 0 - 1;
+        // Free functions don't overload — `GetFunc` is name-keyed, so for an (invalid)
+        // same-name pair it may return a DIFFERENT-arity overload's symbol. Only trust the
+        // resolved signature when its arity matches THIS decl; otherwise fall back to the
+        // decl's own written types so export can't index `md.Params`/`sig.ParamTypes` out
+        // of range and crash. Valid (unique-name) functions always match → unchanged path,
+        // so self-host byte-identity is preserved. TypeChecker._checkDuplicateFreeFunctions
+        // reports the duplicate as a hard error regardless.
+        if (ms != null && ms.Signature.ParamCount == md.ParamCount) {
+            Z42FuncType sig = ms.Signature;
+            pc = sig.ParamCount;
+            ps = new ExportedParamZ[pc];
+            int i = 0;
+            while (i < pc) {
+                ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver._hybridTypeName(md.Params[i].Type, sig.ParamTypes[i]));
+                i = i + 1;
+            }
+            ret = TypeNameResolver._hybridTypeName(md.RetType, sig.Ret);
+            paramsFrom = sig.ParamsFrom;
+        } else {
+            pc = md.ParamCount;
+            ps = new ExportedParamZ[pc];
+            int i = 0;
+            while (i < pc) {
+                ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver.TsigTypeName(md.Params[i].Type));
+                i = i + 1;
+            }
+            ret = TypeNameResolver.TsigTypeName(md.RetType);
+        }
+        ExportedFuncZ ef = new ExportedFuncZ(md.Name, ret, ExportedTypeExtractor._requiredCount(md.Params, pc), ps, pc);
+        ef.ParamsFrom = paramsFrom;
+        return ef;
+    }
+}
