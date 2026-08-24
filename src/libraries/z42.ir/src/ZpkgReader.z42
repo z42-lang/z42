@@ -222,15 +222,22 @@ public static class ZpkgReader {
                 j = j + 1;                     // add-reflective-invoke：曾漏增（tpc 恒 0 时无害）；
                                                // 方法级泛型 tpc>0 后不增 → 无限读越界。
             }
+            // 方法级 attr-ref 块（PR6：从跳过改为**灌进 stub.Attrs**，令 TsigReconcile.Rebuild 读回
+            // 跨包方法级哨兵——$Deprecated 之前因此静默失效，$Default 同理需要）。
             int attrc = c.U16();
+            IrAttrRef[] mattrs = new IrAttrRef[attrc];
             j = 0;
-            while (j < attrc) { c.U32(); c.U32(); j = j + 1; }
-            // zbc 1.15：per-param attr 块（每参 u16 count + 对×count）
+            while (j < attrc) { string mtn = z.Pool[c.U32()]; string mff = z.Pool[c.U32()]; mattrs[j] = new IrAttrRef(mtn, mff); j = j + 1; }
+            // zbc 1.15：per-param attr 块（每参 u16 count + 对×count）→ 灌进 stub.ParamAttrs
+            // （PR6：跨包默认值 `$Default` / caller `$Caller:*` 哨兵传播，修跨包塌零 bug）。
+            IrAttrRefList[] pattrs = new IrAttrRefList[pc];
             j = 0;
             while (j < pc) {
                 int pac = c.U16();
+                IrAttrRef[] pai = new IrAttrRef[pac];
                 int x = 0;
-                while (x < pac) { c.U32(); c.U32(); x = x + 1; }
+                while (x < pac) { string ptn = z.Pool[c.U32()]; string pff = z.Pool[c.U32()]; pai[x] = new IrAttrRef(ptn, pff); x = x + 1; }
+                pattrs[j] = new IrAttrRefList(pai, pac);
                 j = j + 1;
             }
             // 签名 stub：体为空（消费侧不需要）；MaxReg/块 0。P1 元数据全灌（reconcile 消费）。
@@ -243,6 +250,8 @@ public static class ZpkgReader {
             stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
             stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
             stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;
+            stub.Attrs = mattrs; stub.AttrCount = attrc;                 // PR6：方法级 attr（跨包哨兵）
+            stub.ParamAttrs = pattrs; stub.ParamAttrsLen = pc;           // PR6：参数级 attr（$Default/$Caller）
             all[i] = stub;
             i = i + 1;
         }

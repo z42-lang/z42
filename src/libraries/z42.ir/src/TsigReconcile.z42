@@ -515,7 +515,15 @@ public static class TsigReconcile {
         while (i < n) {
             string pt = "?";
             if (i + off < f.ParamTypeCount) { pt = f.ParamTypes[i + off]; }
-            ps[i] = new ExportedParamZ("p" + i.ToString(), pt);
+            ExportedParamZ p = new ExportedParamZ("p" + i.ToString(), pt);
+            // PR6：从 param attr-ref 块读 `$Default`（ConstBlob）/ `$Caller:*` 哨兵 → 跨包默认值/ caller 宏
+            // 传播（修跨包塌零 bug）。ParamAttrs 按 SIGS 参数序对齐（含 this 槽），故用 i+off。
+            if (i + off < f.ParamAttrsLen) {
+                IrAttrRefList pal = f.ParamAttrs[i + off];
+                p.DefaultBlob = IrParamDefault.Blob(pal.Items, pal.Count);
+                p.CallerKind = IrParamDefault.Caller(pal.Items, pal.Count);
+            }
+            ps[i] = p;
             i = i + 1;
         }
         return ps;

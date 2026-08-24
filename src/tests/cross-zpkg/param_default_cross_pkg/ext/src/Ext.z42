@@ -1,0 +1,20 @@
+// PR6 跨包默认值回归（第二生产方，扩展覆盖）：负整数 / 常量表达式 / char / bool / 常量数组 默认值。
+namespace Demo.PdExt;
+
+public class Ext {
+    // 负整数默认值（UnaryExpr "-" 折叠）：省略 → -5。
+    public static int Neg(int x = -5) { return x; }
+    // 常量二元表达式默认值：省略 → 2 + 3*4 = 14。
+    public static int Expr(int n = 2 + 3 * 4) { return n; }
+    // char 默认值：省略 → 'A'（码点 65）。
+    public static int CharCode(char c = 'A') { return (int)c; }
+    // bool 默认值：省略 → true → 1。
+    public static int FlagVal(bool b = true) { if (b) { return 1; } return 0; }
+    // 常量数组默认值：省略 → [10, 20, 30]（和 60）。
+    public static int ArrSum(int[] xs = [10, 20, 30]) {
+        int s = 0;
+        int i = 0;
+        while (i < xs.Length) { s = s + xs[i]; i = i + 1; }
+        return s;
+    }
+}
