@@ -39,7 +39,7 @@
 | `src/runtime/src/metadata/zbc_reader.rs` | 1759 | 3.5× | 拆 `format_tables.rs`（65 个 OP_* + SEC_* 常量表）+ `section_readers.rs`（各 `read_*`）+ ~200 行入口协调器（头部检查 + section 分发） |
 | `src/runtime/src/jit/translate.rs` | 1692 | 3.4× | 镜像 interp 的组织（exec_instr.rs 19 行分发 + 8 个 exec_* 子模块是正面样板）：拆 translate_value / call / array / object / control，主文件只留 dispatch 路由 |
 | `src/runtime/src/vm_context.rs` | 1273 | 2.5× | 结合 M3（ResourceRegistry）一起做 |
-| `src/runtime/src/corelib/reflection.rs` | 1224 | 2.4× | 拆 type_builder（类型对象构造）/ member_reflection（fields/methods/properties）/ attribute_reflection（自定义属性），reflection.rs re-export 保持对外接口 |
+| `src/runtime/src/corelib/reflection.rs` | 1224 | 2.4× | ✅ **已落地（refactor-reflection-split）**：`reflection.rs`（增长到 2840 行）→ `reflection/` 11 concern 子模块全 <500（mod hub / type_object / type_query / fields / methods / properties / attributes / generics / enums / invoke / accessors / module_load）；mod.rs 私有 re-glob + `pub use` 保留对外接口（`builtin_*` / `make_type_*` / `read_obj_slot`）|
 | `src/runtime/src/metadata/loader.rs` | 1033 | 2.1× | 与 M2（NamespaceIndex 提取）合并做 |
 
 拆分是独立 refactor change、单独 commit（code-organization.md 执行方式）。
@@ -136,7 +136,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 |---|------|---------|
 | L1 | corelib builtin 参数解包样板宏化（`#[builtin(...)]` 或声明宏） | builtin 数量再上一个量级时 |
 | L2 | PAL 层悬空：corelib/fs 直接调 `std::fs` 未走 PAL——要么 fs 收进 PAL，要么明确 PAL 只管 signal/system | 下次跨平台需求（新 RID / wasm fs）时裁决 |
-| L3 | `src/runtime/src/corelib/` 缺目录 README（code-organization.md 要求），新增 builtin 无 checklist | 随任一 corelib change 顺带补 |
+| L3 | ✅ **已落地（refactor-reflection-split）**：`src/runtime/src/corelib/README.md` 已补（六段制：职责 / 功能索引 / 加 builtin 用法含「只追加不插入 BUILTINS」约定 / 测试 / 关联文档 / 核心文件，含 `reflection/` 子目录逐文件表）| ~~随任一 corelib change 顺带补~~ |
 | L4 | 观测体系 Phase 2 占位未跟踪：counters.rs:53-62（jit_* / native_calls / exceptions_*）与 observer.rs:56-87 各 4-5 个占位 | 在 roadmap Deferred 索引挂号，JIT 推进时 wire-up |
 | L5 | 并发标记 mark_queue（arc_heap.rs:242）无背压上限，mutator 写速 > mark 速时队列无界增长 | concurrent GC 生产化前置项 |
 | L6 | 卡表粒度 = CHUNK_SIZE（region.rs:47，256）未与年轻代协调，可能粗粒度误标 | 分代 GC 性能调优期（Phase 2+），先落设计文档 |
@@ -163,7 +163,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 | 4 | `refactor-jit-translate-split` | H2(translate 拆 20 子模块，全 <500) + H3(semantics.rs 单一真相源 + unsupported 表 + 边界 golden 差分) | runtime | 🟢 done（commits a34bed57/804f0fd8/017f4f85）|
 | 5 | `refactor-vm-context-resource-registry` | H2(vm_context 拆 9 子模块，全 <500) + M2(`ResourceRegistry<T>` 归一 10 张 slot table，VmCore 字段 20→10) | runtime | 🟢 done |
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
-| 7 | `refactor-reflection-split` | H2(reflection) + L3(README) | runtime | ☐ |
+| 7 | `refactor-reflection-split` | H2(reflection 拆 11 子模块，全 <500) + L3(corelib README) | runtime | 🟢 done |
 | 8 | `refactor-interp-boilerplate` | M5 | runtime | ☐ |
 | 9 | `add-gc-tuning-config` | M3(GC 调参) + M6(safepoint 协议文档) | runtime | ☐ |
 | 10 | `add-builtin-signature-validation` | M3(BUILTINS 校验) + M3(marshal 表) | runtime + stdlib | ☐ |
