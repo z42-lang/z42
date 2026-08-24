@@ -24,7 +24,8 @@ pub(super) fn emit_i64_convert(
     // SEMANTICS: `semantics::convert_value` → `convert_from_i64` integer-narrowing
     // arm — inline Cranelift mirror (ireduce+sextend / band-mask). Tag constants
     // mirror `semantics::T_*` (Cranelift needs compile-time consts; the local copy
-    // is deliberate — keep in sync with the single source of truth in semantics.rs).
+    // is deliberate — keep in sync with the single source of truth
+    // `crate::metadata::types::TAG_*`, which `semantics::T_*` re-exports).
     const T_I8:  u8 = 0x02;
     const T_I16: u8 = 0x03;
     const T_I32: u8 = 0x04;

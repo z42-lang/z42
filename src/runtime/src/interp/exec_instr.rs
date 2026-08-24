@@ -59,6 +59,17 @@ pub fn exec_instr(
                 .unwrap_or(UNRESOLVED)
         };
     }
+    // Token-cache load: read `func.resolved.<field>[$site]` on the hot path,
+    // yielding `None` when the resolver hasn't run or this site is UNRESOLVED
+    // (a cross-zpkg site before its first hit). `$site` is the arm's precomputed
+    // `_site_idx`; callers append `.copied()` / `.map(..)` as the table demands.
+    macro_rules! cached_token {
+        ($site:expr, $field:ident) => {
+            resolved
+                .filter(|_| $site != UNRESOLVED)
+                .and_then(|r| r.$field.get($site as usize))
+        };
+    }
 
     match instr {
         // ── Constants ────────────────────────────────────────────────────────
@@ -143,14 +154,10 @@ pub fn exec_instr(
 
             // Hot path: pre-resolved MethodId direct-indexes module.functions.
             // Cross-zpkg cache (UNRESOLVED at load) backfills on first hit.
-            let method_token = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.method_tokens.get(_site_idx as usize));
+            let method_token = cached_token!(_site_idx, method_tokens);
             // review.md C7: per-site cross-zpkg target cache (parallel to
             // method_tokens). Borrowed on hit; backfilled on first cross-zpkg call.
-            let cross_cell = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.cross_module_targets.get(_site_idx as usize));
+            let cross_cell = cached_token!(_site_idx, cross_module_targets);
             if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, cross_cell, method_type_args)? {
                 return Ok(Some(thrown));
             }
@@ -166,9 +173,7 @@ pub fn exec_instr(
             // Hot path: resolver populates Function.resolved.builtin_tokens
             // with BuiltinId per site at load time (closed set, all hits).
             // Fallback to name lookup when resolver hasn't run.
-            let builtin_id = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.builtin_tokens.get(_site_idx as usize).copied());
+            let builtin_id = cached_token!(_site_idx, builtin_tokens).copied();
             // make-corelib-errors-catchable (2026-05-15): builtin errors now
             // surface as catchable `Std.Exception` instances (see exec_call::builtin).
             if let Some(thrown) = exec_call::builtin(ctx, module, frame, *dst, name, args, builtin_id)? {
@@ -214,9 +219,7 @@ pub fn exec_instr(
             let _site_idx = site_idx!();
             // Hot path: pass type_token cache for repopulation. Dispatch via
             // type_registry / lazy_loader unchanged.
-            let type_token = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.type_tokens.get(_site_idx as usize));
+            let type_token = cached_token!(_site_idx, type_tokens);
             // fix-ctor-throw-propagation (2026-05-24): mirror Call / Builtin —
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
@@ -238,17 +241,13 @@ pub fn exec_instr(
         Instruction::FieldGet(insn) => {
             let FieldGetInsn { dst, obj, field_name } = &**insn;
             let _site_idx = site_idx!();
-            let field_ic = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.field_ic.get(_site_idx as usize));
+            let field_ic = cached_token!(_site_idx, field_ic);
             exec_object::field_get(ctx, frame, *dst, *obj, field_name, field_ic)?;
         }
         Instruction::FieldSet(insn) => {
             let FieldSetInsn { obj, field_name, val } = &**insn;
             let _site_idx = site_idx!();
-            let field_ic = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.field_ic.get(_site_idx as usize));
+            let field_ic = cached_token!(_site_idx, field_ic);
             exec_object::field_set(ctx, frame, *obj, field_name, *val, field_ic)?;
         }
         Instruction::VCall(insn) => {
@@ -258,9 +257,7 @@ pub fn exec_instr(
             // Hot path: monomorphic inline cache fires when receiver TypeId
             // matches the cached one at this site (same site + same recv type).
             // Polymorphic sites overwrite the slot each time (Phase 1 mono IC).
-            let vcall_ic = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.vcall_ic.get(_site_idx as usize));
+            let vcall_ic = cached_token!(_site_idx, vcall_ic);
             if let Some(thrown) = exec_vcall::vcall(ctx, module, frame, *dst, *obj, method, args, vcall_ic, method_type_args)? {
                 return Ok(Some(thrown));
             }
@@ -272,9 +269,7 @@ pub fn exec_instr(
             let _site_idx = site_idx!();
             // Hot path: pre-resolved StaticFieldId → direct Vec index.
             use std::sync::atomic::Ordering;
-            let field_id = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.static_field_tokens.get(_site_idx as usize))
+            let field_id = cached_token!(_site_idx, static_field_tokens)
                 .map(|atom| atom.load(Ordering::Relaxed))
                 .filter(|&id| id != UNRESOLVED);
             exec_object::static_get(ctx, frame, *dst, field, field_id);
@@ -283,9 +278,7 @@ pub fn exec_instr(
             let StaticSetInsn { field, val } = &**insn;
             let _site_idx = site_idx!();
             use std::sync::atomic::Ordering;
-            let field_id = resolved
-                .filter(|_| _site_idx != UNRESOLVED)
-                .and_then(|r| r.static_field_tokens.get(_site_idx as usize))
+            let field_id = cached_token!(_site_idx, static_field_tokens)
                 .map(|atom| atom.load(Ordering::Relaxed))
                 .filter(|&id| id != UNRESOLVED);
             exec_object::static_set(ctx, frame, field, *val, field_id)?;
