@@ -39,17 +39,29 @@ vm.run(&ctx, hint)?;
 - `native_types: RwLock<HashMap<(String,String), Arc<RegisteredType>>>` — Tier 1 native interop 注册表（**RwLock**，读多写少：dispatch 是纯读，写仅在 module 加载期）
 - `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲（spec C10）
-- `processes: Mutex<HashMap<u64, ProcessSlot>>` — `Std.IO.Process` 子进程注册表
+- `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（默认 ArcMagrGC 后端）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享（add-threading-stdlib 2026-05-20）；测试路径 `None`，生产路径 `Some(Arc::new(module))`
-- `threads: Mutex<HashMap<u64, JoinHandle<Result<()>>>>` — `Std.Threading.Thread` 的 JoinHandle slot table（add-threading-stdlib 2026-05-20）；`__thread_spawn` 插入，`__thread_join` take-out 后 join
-- `next_thread_id: AtomicU64` — Thread slot id 计数器（同 processes 模式，单调递增）
-- `mutexes: Mutex<HashMap<u64, Arc<parking_lot::Mutex<Value>>>>` — `Std.Threading.Mutex<T>` slot table（add-sync-primitives 2026-05-20）。`__mutex_lock_acquire` 把 Arc clone 到调用方 thread-local guard map；`__mutex_store` / `__mutex_unlock` 通过 thread-local 查回 + `force_unlock` 释放
-- `next_mutex_id: AtomicU64` — Mutex slot id 计数器
-- `channels: Mutex<HashMap<u64, ChannelSlot>>` — `Std.Threading.Channel<T>` slot table（add-sync-primitives 2026-05-20）。`ChannelSlot` 持 `Option<ChannelSender>` + `Arc<std::sync::Mutex<mpsc::Receiver>>`：多 producer 通过 `Sender::clone()` 分发，多 consumer 通过内部 Mutex 串行。`ChannelSender` enum 区分 `Unbounded(mpsc::Sender)` / `Bounded(mpsc::SyncSender)`（add-sync-primitives-bounded-channel 2026-05-20）
-- `next_channel_id: AtomicU64` — Channel slot id 计数器
-- `rwlocks: Mutex<HashMap<u64, Arc<parking_lot::RwLock<Value>>>>` — `Std.Threading.RwLock<T>` slot table（add-sync-primitives-rwlock 2026-05-20）。多读单写 lock 与 Mutex 同款 Arc + thread-local guard parking 模式；thread-local 用 enum `RwLockHeld { Read(Arc), Write(Arc) }` 区分释放路径
-- `next_rwlock_id: AtomicU64` — RwLock slot id 计数器
+- `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table（add-threading-stdlib 2026-05-20）；`__thread_spawn` 插入，`__thread_join` take-out 后 join
+- `mutexes: ResourceRegistry<Arc<parking_lot::Mutex<Value>>>` — `Std.Threading.Mutex<T>` slot table（add-sync-primitives 2026-05-20）。`__mutex_lock_acquire` 把 Arc clone 到调用方 thread-local guard map；`__mutex_store` / `__mutex_unlock` 通过 thread-local 查回 + `force_unlock` 释放
+- `channels: ResourceRegistry<ChannelSlot>` — `Std.Threading.Channel<T>` slot table（add-sync-primitives 2026-05-20）。`ChannelSlot` 持 `Option<ChannelSender>` + `Arc<std::sync::Mutex<mpsc::Receiver>>`：多 producer 通过 `Sender::clone()` 分发，多 consumer 通过内部 Mutex 串行。`ChannelSender` enum 区分 `Unbounded(mpsc::Sender)` / `Bounded(mpsc::SyncSender)`（add-sync-primitives-bounded-channel 2026-05-20）
+- `rwlocks: ResourceRegistry<Arc<parking_lot::RwLock<Value>>>` — `Std.Threading.RwLock<T>` slot table（add-sync-primitives-rwlock 2026-05-20）。多读单写 lock 与 Mutex 同款 Arc + thread-local guard parking 模式；thread-local 用 enum `RwLockHeld { Read(Arc), Write(Arc) }` 区分释放路径
+- `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者 `#[cfg(not(target_arch="wasm32"))]`）— `Std.IO.FileStream` 句柄 + `Std.Net.Sockets` 各类 socket slot table
+
+> **M2 —— `ResourceRegistry<T>` 归一（refactor-vm-context-resource-registry, 2026-08-24）**：上面 10 张
+> 「`Mutex<HashMap<u64, T>>` + 单调 `AtomicU64` id 计数器」的 slot table 曾各写两个字段（表 + `next_*_id`
+> 计数器）、构造时各初始化两处。现统一为 `ResourceRegistry<T>`（内嵌锁 + 表 + 计数器），VmCore 相关字段
+> 20 → 10，「新增一类资源」从「改三处」降为「加一个字段」。API：`insert_new(v)->id`（分配+插入）/
+> `alloc_id()`（只 bump 计数器，供 `corelib::network` 先算 id 再自行上锁插入的路径）/ `take(id)` /
+> `with_mut(id, f)` / `count()` / `get_cloned(id)`（Arc-wrapped 的 Mutex/RwLock 用）/ `lock()`（逃生舱：
+> 返回裸 `MutexGuard<HashMap<u64,T>>`，供 `corelib::network`/`fs` 那种「取出→阻塞 I/O→放回」必须在单次
+> 上锁内跨多步的场景）。**顺带修正**：`processes` 的 id 计数器原挂在 `VmContext`（per-thread）、表却在
+> `VmCore`（共享），是唯一的「per-thread 计数器 + 共享表」错配；归一后计数器随表进 registry，ids 与其它
+> socket/handle 表一样 per-core 唯一。
+> **模块布局（H2）**：`vm_context.rs`（1771 行）拆为 `vm_context/`：`mod.rs`（hub：VM_CORES / snapshot /
+> `VmContextPtr` / `CoreContextReclaimer`）+ `resource_registry.rs` + `types.rs`（VmCore/VmContext struct）+
+> `construct.rs`（构造 + Drop）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
+> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件），全 < 500 行。
 
 `VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/arc_heap_tests/send_sync.rs`）。
 
@@ -61,7 +73,8 @@ vm.run(&ctx, hint)?;
 - `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
 - `call_stack: Arc<Mutex<Vec<VmFrame>>>` — 当前线程帧栈（unify-frame-chain，2026-05-10）
 - `func_ref_slots: Arc<Mutex<Vec<Value>>>` — method-group-conversion FuncRef cache 槽位（D1b）
-- `process_next_id: AtomicU64` — 进程 slot id 计数器
+
+（M2 后 `process_next_id` 已移除——进程 slot id 计数器随表并入 `VmCore.processes: ResourceRegistry`，见上。）
 
 每个 `VmFrame` 同时承载 `(regs ptr, env_arena ptr, func_name, file, line, column)`：GC root scanner 扫 regs+env_arena，stack-trace 读 name/file/line/col，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 

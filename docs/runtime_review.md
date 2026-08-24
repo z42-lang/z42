@@ -161,7 +161,7 @@ reader 各 section 里「1.XX 起有此字段」的逻辑靠注释约定（zbc_r
 | 2 | `refactor-arc-heap-modularization` | H2(arc_heap) + L11 顺带评估 | runtime | 🟢 done（PR #269）|
 | 3 | `refactor-zbc-reader-split` | H2(zbc_reader 拆 10 子模块，全 <500) + M3(opcodes 集中，**不建投机 OpcodeInfo 表**) + M4(verify_zbc/zpkg_version 集中 strict-pin，**不建 has_feature**) | runtime | 🟢 done |
 | 4 | `refactor-jit-translate-split` | H2(translate 拆 20 子模块，全 <500) + H3(semantics.rs 单一真相源 + unsupported 表 + 边界 golden 差分) | runtime | 🟢 done（commits a34bed57/804f0fd8/017f4f85）|
-| 5 | `refactor-vm-context-resource-registry` | H2(vm_context) + M2 | runtime | ☐ |
+| 5 | `refactor-vm-context-resource-registry` | H2(vm_context 拆 9 子模块，全 <500) + M2(`ResourceRegistry<T>` 归一 10 张 slot table，VmCore 字段 20→10) | runtime | 🟢 done |
 | 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
 | 7 | `refactor-reflection-split` | H2(reflection) + L3(README) | runtime | ☐ |
 | 8 | `refactor-interp-boilerplate` | M5 | runtime | ☐ |
