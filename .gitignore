@@ -69,7 +69,10 @@ src/tests/cross-zpkg/*/*/libs/
 BenchmarkDotNet.Artifacts/
 
 # Bench output / baseline files (only .gitkeep tracked; CI publishes real baselines elsewhere)
-bench/results/*.json
+# Match ALL result artifacts, not just *.json — a stray *.md snapshot (MODE-COMPARISON.md)
+# once slipped through the .json-only gap into the repo.
+bench/results/*
+!bench/results/.gitkeep
 bench/baselines/*.json
 
 # Claude scheduler local state
