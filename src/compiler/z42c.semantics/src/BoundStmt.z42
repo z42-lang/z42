@@ -1,0 +1,227 @@
+// Bound 树——语句节点：decl / return / expr-stmt / local-fn / block / if / try·catch·finally /
+// throw / while·do-while / switch / for / foreach / break / continue。从 Bound.z42 拆出
+// （refactor-bound-node-split）：纯节点定义无逻辑。表达式节点见 BoundExpr.z42 / BoundExprOp.z42。
+namespace Z42.Semantics;
+
+using Z42.Core;
+using Z42.Syntax;
+
+public class BoundStmt {
+    public Span Span;
+    public virtual string Dump() { return "?bstmt"; }
+}
+
+public sealed class BoundVarDeclStmt : BoundStmt {
+    public string     Name;
+    public Z42Type    VarType;
+    public BoundExpr  Init;
+    public bool       IsConst;   // add-const-keyword：局部 const（引用替换为字面量；存储由 DCE 清理）
+    public ConstValue ConstVal;  // add-const-keyword：IsConst 时的求值结果；否则 null
+    public BoundVarDeclStmt(string name, Z42Type varType, BoundExpr init, Span span) { this.Span = span;
+        this.Name = name; this.VarType = varType; this.Init = init; this.IsConst = false; this.ConstVal = null;
+    }
+    public override string Dump() {
+        string i = "_"; if (this.Init != null) { i = this.Init.Dump(); }   // G8：无 init → "_"
+        return "(decl " + this.Name + " :" + this.VarType.Name() + " " + i + ")";
+    }
+}
+
+public sealed class BoundReturn : BoundStmt {
+    public bool      HasValue;
+    public BoundExpr Value;     // 仅 HasValue
+    public BoundReturn(bool hasValue, BoundExpr value, Span span) { this.Span = span; this.HasValue = hasValue; this.Value = value; }
+    public override string Dump() {
+        if (this.HasValue) { return "(return " + this.Value.Dump() + ")"; }
+        return "(return)";
+    }
+}
+
+public sealed class BoundExprStmt : BoundStmt {
+    public BoundExpr E;
+    public BoundExprStmt(BoundExpr e, Span span) { this.Span = span; this.E = e; }
+    public override string Dump() { return "(expr " + this.E.Dump() + ")"; }
+}
+
+// 局部函数（impl-local-fn-l2 + L3 捕获）：Decl 提供 params/ret，Body 为已绑定体。
+// Captures 非空 → 闭包路径（env lift + MkClos + CallIndirect）；空 → L2 自由函数 lift（支持递归）。
+public sealed class BoundLocalFunction : BoundStmt {
+    public string     Name;
+    public MethodDecl Decl;
+    public BoundStmt  Body;
+    public BoundCapture[] Captures; public int CaptureCount;
+    public BoundLocalFunction(string name, MethodDecl decl, BoundStmt body, BoundCapture[] captures, int captureCount, Span span) {
+        this.Span = span; this.Name = name; this.Decl = decl; this.Body = body;
+        this.Captures = captures; this.CaptureCount = captureCount;
+    }
+    public override string Dump() { return "(localfn " + this.Name + " " + this.Body.Dump() + ")"; }
+}
+
+public sealed class BoundBlock : BoundStmt {
+    public BoundStmt[] Stmts;
+    public int         Count;
+    public BoundBlock(BoundStmt[] stmts, int count, Span span) { this.Span = span; this.Stmts = stmts; this.Count = count; }
+    public override string Dump() {
+        string s = "(block";
+        int i = 0;
+        while (i < this.Count) { s = s + " " + this.Stmts[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
+// 无 nullable 字段：用 HasElse 标志 + 占位 Else（gated by 标志，同 syntax IfStmt 约定）。
+public sealed class BoundIf : BoundStmt {
+    public BoundExpr Cond;
+    public BoundStmt Then;
+    public bool      HasElse;
+    public BoundStmt Else;     // 仅 HasElse
+    public BoundIf(BoundExpr cond, BoundStmt then, bool hasElse, BoundStmt els, Span span) { this.Span = span;
+        this.Cond = cond; this.Then = then; this.HasElse = hasElse; this.Else = els;
+    }
+    public override string Dump() {
+        if (this.HasElse) {
+            return "(if " + this.Cond.Dump() + " " + this.Then.Dump() + " " + this.Else.Dump() + ")";
+        }
+        return "(if " + this.Cond.Dump() + " " + this.Then.Dump() + ")";
+    }
+}
+
+public sealed class BoundCatchClause {
+    public Span     Span;
+    public bool     HasType;
+    public string   ExTypeName;   // 解析后 FQ 候选（QualifyClass 在 codegen；此处存解析类名或 ""）
+    public int      ExArity;      // 泛型异常实参数（0=非泛型）；codegen 据此补 `$N` 后缀
+    public bool     HasVar;
+    public string   VarName;
+    public BoundStmt Body;
+    public BoundCatchClause(bool hasType, string exTypeName, int exArity, bool hasVar, string varName, BoundStmt body, Span span) {
+        this.Span = span; this.HasType = hasType; this.ExTypeName = exTypeName; this.ExArity = exArity;
+        this.HasVar = hasVar; this.VarName = varName; this.Body = body;
+    }
+    public string Dump() {
+        string s = "(catch";
+        if (this.HasType) { s = s + " :" + this.ExTypeName; }
+        if (this.HasVar) { s = s + " " + this.VarName; }
+        return s + " " + this.Body.Dump() + ")";
+    }
+}
+
+public sealed class BoundTry : BoundStmt {
+    public BoundStmt           TryBody;
+    public BoundCatchClause[]  Catches;
+    public int                 CatchCount;
+    public bool                HasFinally;
+    public BoundStmt           Finally;
+    public BoundTry(BoundStmt tryBody, BoundCatchClause[] catches, int catchCount,
+                    bool hasFinally, BoundStmt finallyBody, Span span) {
+        this.Span = span; this.TryBody = tryBody; this.Catches = catches; this.CatchCount = catchCount;
+        this.HasFinally = hasFinally; this.Finally = finallyBody;
+    }
+    public override string Dump() {
+        string s = "(try " + this.TryBody.Dump();
+        int i = 0;
+        while (i < this.CatchCount) { s = s + " " + this.Catches[i].Dump(); i = i + 1; }
+        if (this.HasFinally) { s = s + " (finally " + this.Finally.Dump() + ")"; }
+        return s + ")";
+    }
+}
+
+public sealed class BoundThrow : BoundStmt {
+    public BoundExpr E;
+    public BoundThrow(BoundExpr e, Span span) { this.Span = span; this.E = e; }
+    public override string Dump() { return "(throw " + this.E.Dump() + ")"; }
+}
+
+public sealed class BoundWhile : BoundStmt {
+    public BoundExpr Cond;
+    public BoundStmt Body;
+    public BoundWhile(BoundExpr cond, BoundStmt body, Span span) { this.Span = span; this.Cond = cond; this.Body = body; }
+    public override string Dump() {
+        return "(while " + this.Cond.Dump() + " " + this.Body.Dump() + ")";
+    }
+}
+
+// do { body } while (cond)（镜像 C# BoundDoWhile：body 先执行一次，再判 cond）
+public sealed class BoundDoWhile : BoundStmt {
+    public BoundStmt Body;
+    public BoundExpr Cond;
+    public BoundDoWhile(BoundStmt body, BoundExpr cond, Span span) { this.Span = span; this.Body = body; this.Cond = cond; }
+    public override string Dump() {
+        return "(do-while " + this.Body.Dump() + " " + this.Cond.Dump() + ")";
+    }
+}
+
+// switch (subject) { case P: ...; default: ... }（镜像 C# BoundSwitch：等值比较链）。
+public sealed class BoundSwitchCase {
+    public Span      Span;
+    public bool      HasPattern;
+    public BoundExpr Pattern;   // 仅 HasPattern 时有效（default 无）
+    public BoundStmt[] Body;
+    public int       BodyCount;
+    public BoundSwitchCase(bool hasPattern, BoundExpr pattern, BoundStmt[] body, int bodyCount, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Body = body; this.BodyCount = bodyCount;
+    }
+}
+
+public sealed class BoundSwitch : BoundStmt {
+    public BoundExpr        Subject;
+    public BoundSwitchCase[] Cases;
+    public int              CaseCount;
+    public BoundSwitch(BoundExpr subject, BoundSwitchCase[] cases, int caseCount, Span span) { this.Span = span;
+        this.Subject = subject; this.Cases = cases; this.CaseCount = caseCount;
+    }
+    public override string Dump() {
+        string s = "(switch " + this.Subject.Dump();
+        int i = 0;
+        while (i < this.CaseCount) {
+            if (this.Cases[i].HasPattern) { s = s + " (case " + this.Cases[i].Pattern.Dump() + ")"; }
+            else { s = s + " (default)"; }
+            i = i + 1;
+        }
+        return s + ")";
+    }
+}
+
+// for (init; cond; incr) body（镜像 C# BoundFor；独立节点避免 continue 跳过 incr 的脱糖 bug）
+public sealed class BoundFor : BoundStmt {
+    public bool HasInit; public BoundStmt Init;
+    public bool HasCond; public BoundExpr Cond;
+    public bool HasIncr; public BoundExpr Incr;
+    public BoundStmt Body;
+    public BoundFor(bool hasInit, BoundStmt init, bool hasCond, BoundExpr cond,
+                    bool hasIncr, BoundExpr incr, BoundStmt body, Span span) {
+        this.Span = span;
+        this.HasInit = hasInit; this.Init = init;
+        this.HasCond = hasCond; this.Cond = cond;
+        this.HasIncr = hasIncr; this.Incr = incr;
+        this.Body = body;
+    }
+    public override string Dump() { return "(for)"; }
+}
+
+// foreach (T name in coll) body（镜像 C# BoundForeach；FunctionEmitter 专用路径产出 byte-identical IR）。
+// IsClassIter=false → 数组 path（ArrayLen+ArrayGet+ConstI32 计数器）。
+// IsClassIter=true  → 类 iterator path（VCall get_Item + Count field/method）。
+public sealed class BoundForeach : BoundStmt {
+    public string    VarName;
+    public Z42Type   VarType;
+    public BoundExpr Collection;
+    public BoundStmt Body;
+    public bool IsClassIter; public bool CountIsField;
+    public BoundForeach(string varName, Z42Type varType, BoundExpr coll, BoundStmt body,
+                        bool isClassIter, bool countIsField, Span span) {
+        this.Span = span; this.VarName = varName; this.VarType = varType;
+        this.Collection = coll; this.Body = body;
+        this.IsClassIter = isClassIter; this.CountIsField = countIsField;
+    }
+    public override string Dump() { return "(foreach " + this.VarName + ")"; }
+}
+
+public sealed class BoundBreak : BoundStmt {
+    public BoundBreak(Span span) { this.Span = span;}
+    public override string Dump() { return "(break)"; }
+}
+
+public sealed class BoundContinue : BoundStmt {
+    public BoundContinue(Span span) { this.Span = span;}
+    public override string Dump() { return "(continue)"; }
+}
