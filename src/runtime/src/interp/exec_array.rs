@@ -61,13 +61,10 @@ pub(super) fn array_new(
     if let Some(sb) = try_struct_backed(ctx, element_type, n) {
         let arr = ctx.heap().alloc_array_obj(sb);
         if matches!(arr, Value::Null) {
-            ctx.heap().set_strict_oom(false);
-            let exc = crate::exception::make_stdlib_exception(
-                ctx, module, "Std.OutOfMemoryException",
+            return Ok(Some(crate::exception::make_oom_exception(
+                ctx, module,
                 format!("cannot allocate struct array[{n}]: heap limit exceeded"),
-            ).unwrap_or(Value::Null);
-            ctx.heap().set_strict_oom(true);
-            return Ok(Some(exc));
+            )));
         }
         frame.set(dst, arr);
         return Ok(None);
@@ -84,13 +81,10 @@ pub(super) fn array_new(
     // `arr.GetType().GetElementType()`.
     let arr = ctx.heap().alloc_array_typed(element_type, vec![default; n]);
     if matches!(arr, Value::Null) {
-        ctx.heap().set_strict_oom(false);
-        let exc = crate::exception::make_stdlib_exception(
-            ctx, module, "Std.OutOfMemoryException",
+        return Ok(Some(crate::exception::make_oom_exception(
+            ctx, module,
             format!("cannot allocate array[{n}]: heap limit exceeded"),
-        ).unwrap_or(Value::Null);
-        ctx.heap().set_strict_oom(true);
-        return Ok(Some(exc));
+        )));
     }
     frame.set(dst, arr);
     Ok(None)
@@ -117,13 +111,10 @@ pub(super) fn array_new_lit(
         for (i, v) in vals.iter().enumerate() { pack_struct_elem(ctx, &mut sb, i, v)?; }
         let arr = ctx.heap().alloc_array_obj(sb);
         if matches!(arr, Value::Null) {
-            ctx.heap().set_strict_oom(false);
-            let exc = crate::exception::make_stdlib_exception(
-                ctx, module, "Std.OutOfMemoryException",
+            return Ok(Some(crate::exception::make_oom_exception(
+                ctx, module,
                 format!("cannot allocate struct array literal[{n}]: heap limit exceeded"),
-            ).unwrap_or(Value::Null);
-            ctx.heap().set_strict_oom(true);
-            return Ok(Some(exc));
+            )));
         }
         frame.set(dst, arr);
         return Ok(None);
@@ -136,13 +127,10 @@ pub(super) fn array_new_lit(
     }
     let arr = ctx.heap().alloc_array_typed(element_type, vals);
     if matches!(arr, Value::Null) {
-        ctx.heap().set_strict_oom(false);
-        let exc = crate::exception::make_stdlib_exception(
-            ctx, module, "Std.OutOfMemoryException",
+        return Ok(Some(crate::exception::make_oom_exception(
+            ctx, module,
             format!("cannot allocate array literal[{n}]: heap limit exceeded"),
-        ).unwrap_or(Value::Null);
-        ctx.heap().set_strict_oom(true);
-        return Ok(Some(exc));
+        )));
     }
     frame.set(dst, arr);
     Ok(None)

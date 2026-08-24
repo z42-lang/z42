@@ -288,13 +288,10 @@ pub(super) fn call_indirect(
             let env_val = ctx.heap().alloc_array(frame.env_arena[idx].clone());
             // add-gc-oom-exception: alloc_array returns Null only under strict OOM
             if matches!(env_val, Value::Null) {
-                ctx.heap().set_strict_oom(false);
-                let exc = crate::exception::make_stdlib_exception(
-                    ctx, module, "Std.OutOfMemoryException",
+                return Ok(Some(crate::exception::make_oom_exception(
+                    ctx, module,
                     "cannot allocate closure env: heap limit exceeded".to_string(),
-                ).unwrap_or(Value::Null);
-                ctx.heap().set_strict_oom(true);
-                return Ok(Some(exc));
+                )));
             }
             (sc.fn_name.clone(), Some(env_val))
         }
@@ -357,13 +354,10 @@ pub(super) fn mk_clos(
         let env_val = ctx.heap().alloc_array(env_vec);
         // add-gc-oom-exception: alloc_array returns Null only under strict OOM
         if matches!(env_val, Value::Null) {
-            ctx.heap().set_strict_oom(false);
-            let exc = crate::exception::make_stdlib_exception(
-                ctx, module, "Std.OutOfMemoryException",
+            return Ok(Some(crate::exception::make_oom_exception(
+                ctx, module,
                 format!("cannot allocate closure `{fn_name}` env: heap limit exceeded"),
-            ).unwrap_or(Value::Null);
-            ctx.heap().set_strict_oom(true);
-            return Ok(Some(exc));
+            )));
         }
         let env = match env_val {
             Value::Array(rc) => rc,
