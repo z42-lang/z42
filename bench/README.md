@@ -112,7 +112,8 @@ bench/
 │   ├── 05_polymorphic_dispatch.z42 # 多态派发 (PIC)
 │   ├── 06_thread_scaling.z42  # 多线程 spawn/join (caps=threads)
 │   ├── 07_string_heavy.z42    # 字符串搜索/拼接 (per-char VCall 分发税)
-│   └── 08_dict_heavy.z42      # 字典 insert/lookup (string-key hash + Equals 探测)
+│   ├── 08_dict_heavy.z42      # 字典 insert/lookup (string-key hash + Equals 探测)
+│   └── 10_mono_vcall.z42      # 单态虚调用紧循环 (IC 恒命中，隔离 dispatch 成本)
 ├── probe/                     # capabilities.z42 — 被测 VM 能力探针（profile.caps 来源）
 ├── baselines/                 # main 分支的历史基线（gitignored，CI 上传到 gh-pages）
 │   └── .gitkeep
@@ -139,17 +140,21 @@ cargo bench --manifest-path src/runtime/Cargo.toml
 
 ## CI 集成（PR）
 
-PR 到 main 时，`.github/workflows/bench-pr.yml` 自动跑 `xtask bench --quick --mode both`（仅 ubuntu），把 `bench/results/e2e.json` 上传为 artifact。**当前不做自动 diff/门禁** —— 因为：
+> **机制与判红语义的权威（SoT）见 book 页 [性能基准与回归门禁](../docs/book/src/dev/benchmarking.md)。**
+> 本节只是操作速查。
 
-- CI runner 噪声大（共享 VM），5% 阈值会大量假阳性
-- 还没有持久化的 main baseline 可对比
+PR 触碰性能敏感路径（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
+`scripts/**/*.z42`）时，`.github/workflows/bench-pr.yml` **自动跑区间感知回归门禁并在真回归时 fail**：
 
-P1.D.4 加 PR fetch + 自动 diff 后才有自动门禁；当前 PR 流程：
-1. PR 触发 CI → bench-e2e job 跑完 → 在 PR Checks 页面下载 artifact
-2. 本地 `cp downloaded.json bench/baselines/main-darwin-arm64.json`
-3. 本地 `z42 xtask.zpkg bench --diff` 手动检查
+1. `xtask bench --mode both` 跑全量 e2e（interp + jit，仅 ubuntu-latest）
+2. `git fetch origin bench-baselines` 取最新 main 基线（`baselines/e2e-ubuntu-latest.json`）
+3. `xtask bench --diff --threshold-time 0.10` 做**区间感知**判定 —— 回归 → exit 1 → **workflow fail**
+4. 另跑一个 informational allocations 探针（确定性指标，只打印不 fail）
 
-**主分支 baseline 持久化（P1.D.3 已上线）**：每次 push 到 main 自动跑全量 e2e 并把结果提交到 `bench-baselines` 分支：
+判红准则（区间分离 AND 均值超阈值）见下「退化判定」节。纯文档 PR 因路径过滤自动跳过。
+基线分支不存在时（首次 bootstrap）跳过 diff 并 warning，不阻塞。
+
+**主分支 baseline 持久化**：每次 push 到 main，`bench-update.yml` 自动跑全量 e2e 并把结果提交到 `bench-baselines` 分支：
 
 ```
 bench-baselines/
@@ -178,7 +183,8 @@ z42 xtask.zpkg bench --diff                              # 自动选 main-<os>.j
 z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 baseline
 ```
 
-退化判定（**区间感知**，add-interval-aware-bench-gate 2026-08-24）：一次回归必须**同时**满足
+退化判定（**区间感知**，add-interval-aware-bench-gate 2026-08-24；完整语义与数据流见 book 页
+[性能基准与回归门禁](../docs/book/src/dev/benchmarking.md)）：一次回归必须**同时**满足
 「均值超阈值」**且**「置信区间与 baseline 分离」。区间重叠 = 两次测量统计上不可区分 = 噪声，
 一律**不**判回归——这是压掉共享 runner 假红、让门禁重新可信的关键。
 
