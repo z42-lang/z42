@@ -153,6 +153,20 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "gc/safepoint.rs",
     },
     KnobSpec {
+        name: "Z42_SAMPLE_HZ",
+        toml_key: "sample-hz",
+        description: "safepoint sampling-profiler frequency (Hz); any value ≥1 turns z42-level CPU sampling on",
+        default_hint: "unset; sampling off (zero-cost — no background thread, hot path unchanged)",
+        consumed_by: "gc/sampler.rs (via vm_context.rs)",
+    },
+    KnobSpec {
+        name: "Z42_SAMPLE_OUT",
+        toml_key: "sample-out",
+        description: "folded-stacks output path for the sampling flamegraph (inferno format)",
+        default_hint: "unset; defaults to z42-samples.folded (only written when Z42_SAMPLE_HZ set)",
+        consumed_by: "app.rs (flush) + gc/sampler.rs",
+    },
+    KnobSpec {
         name: "Z42_STRESS_ITERS",
         toml_key: "stress-iters",
         description: "iteration count for GC stress tests (test code only)",
@@ -165,6 +179,13 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         description: "reserved: cross-compilation / execution target selector (not yet implemented)",
         default_hint: "unset; reserved",
         consumed_by: "reserved (not yet implemented)",
+    },
+    KnobSpec {
+        name: "Z42_TRACE_OUT",
+        toml_key: "trace-out",
+        description: "chrome/perfetto sample-trace JSON output path; set → also record a per-sample timeline",
+        default_hint: "unset; no trace written (folded flamegraph still produced)",
+        consumed_by: "app.rs (flush) + gc/sampler.rs",
     },
 ];
 
@@ -226,6 +247,19 @@ pub struct RuntimeConfig {
     /// (unvalidated) string. `None` = unset. Sits below `--mode` CLI and above
     /// the build default; `main.rs` validates the value + feature-gates jit/aot.
     pub mode: Option<String>,
+
+    // ── script-profiling P2: safepoint sampling profiler ─────────────────
+    /// `Z42_SAMPLE_HZ` — safepoint sampling frequency (Hz). `None` = sampling
+    /// off (zero-cost). `Some(hz)` (hz ≥ 1) starts the background timer thread
+    /// + z42-level CPU sampling. Read once at `VmCore::new_internal`.
+    pub sample_hz: Option<u32>,
+    /// `Z42_SAMPLE_OUT` — folded-stacks output path (inferno flamegraph input).
+    /// Defaults to `z42-samples.folded`; only written when `sample_hz` is set.
+    pub sample_out: PathBuf,
+    /// `Z42_TRACE_OUT` — chrome/perfetto sample-trace JSON output path. `None`
+    /// = no trace (folded still produced). `Some` → additionally record a
+    /// per-sample `(ts, stack)` timeline and serialize it on exit.
+    pub trace_out: Option<PathBuf>,
 }
 
 impl Default for RuntimeConfig {
@@ -243,6 +277,9 @@ impl Default for RuntimeConfig {
             native_search_paths: Vec::new(),
             jit_profile: false,
             mode: None,
+            sample_hz: None,
+            sample_out: PathBuf::from("z42-samples.folded"),
+            trace_out: None,
         }
     }
 }
@@ -317,6 +354,24 @@ impl RuntimeConfig {
             native_search_paths: parse_native_search_paths(&layered),
             jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
             mode:                layered("Z42_MODE").filter(|s| !s.trim().is_empty()),
+            sample_hz:           parse_sample_hz(&layered),
+            sample_out:          layered("Z42_SAMPLE_OUT").filter(|s| !s.trim().is_empty())
+                                    .map(PathBuf::from).unwrap_or_else(|| PathBuf::from("z42-samples.folded")),
+            trace_out:           layered("Z42_TRACE_OUT").filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        }
+    }
+}
+
+/// Parse `Z42_SAMPLE_HZ` → `Some(hz)` (hz ≥ 1) enables sampling; missing / empty
+/// / invalid / `0` → `None` (off). A `0` or garbage value warns then disables.
+fn parse_sample_hz<F>(get: &F) -> Option<u32>
+where F: Fn(&str) -> Option<String> {
+    let raw = get("Z42_SAMPLE_HZ").filter(|s| !s.trim().is_empty())?;
+    match raw.trim().parse::<u32>() {
+        Ok(hz) if hz >= 1 => Some(hz),
+        _ => {
+            eprintln!("z42: invalid Z42_SAMPLE_HZ={raw:?} (want integer ≥ 1); sampling disabled");
+            None
         }
     }
 }
@@ -547,6 +602,34 @@ mod tests {
     fn from_getter_whitespace_only_is_unset() {
         let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_LOG", "   ")]));
         assert!(cfg.log_filter.is_none(), "whitespace-only Z42_LOG should be unset");
+    }
+
+    #[test]
+    fn sampling_knobs_default_off() {
+        let cfg = RuntimeConfig::from_getter(fake_env(&[]));
+        assert!(cfg.sample_hz.is_none(), "sampling off by default");
+        assert!(cfg.trace_out.is_none(), "no trace by default");
+        assert_eq!(cfg.sample_out, std::path::PathBuf::from("z42-samples.folded"));
+    }
+
+    #[test]
+    fn sampling_knobs_parse() {
+        let cfg = RuntimeConfig::from_getter(fake_env(&[
+            ("Z42_SAMPLE_HZ", "2000"),
+            ("Z42_SAMPLE_OUT", "/tmp/out.folded"),
+            ("Z42_TRACE_OUT", "/tmp/trace.json"),
+        ]));
+        assert_eq!(cfg.sample_hz, Some(2000));
+        assert_eq!(cfg.sample_out, std::path::PathBuf::from("/tmp/out.folded"));
+        assert_eq!(cfg.trace_out.as_deref(), Some(std::path::Path::new("/tmp/trace.json")));
+    }
+
+    #[test]
+    fn sample_hz_zero_or_garbage_disables() {
+        for bad in ["0", "-3", "abc"] {
+            let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_SAMPLE_HZ", bad)]));
+            assert!(cfg.sample_hz.is_none(), "Z42_SAMPLE_HZ={bad:?} → sampling off");
+        }
     }
 
     #[test]

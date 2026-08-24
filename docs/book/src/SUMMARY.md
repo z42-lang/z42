@@ -50,6 +50,7 @@
   - [GC]()
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
   - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
+  - [诊断与性能分析（采样 profiler / 火焰图 / perfetto）](runtime/diagnostics.md)
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
 

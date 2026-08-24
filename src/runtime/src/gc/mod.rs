@@ -44,11 +44,13 @@ pub mod region;
 pub mod var_region;
 pub mod retention;
 pub mod safepoint;
+pub mod sampler;
 pub mod snapshot;
 pub mod soft_registry;
 pub mod types;
 
 pub use heap::MagrGC;
+pub use sampler::Sampler;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
 pub use refs::{GcRef, WeakGcRef};

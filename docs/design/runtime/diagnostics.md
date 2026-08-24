@@ -143,6 +143,11 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
   - `span(category, name) -> SpanHandle` + `end()`（z42 代码自埋点）
   - `whyRetained(ctx)` / `inspectArtifacts()`（转发 load-context / tiered 诊断）
 - **CLI**：`--print-counters`（已有）；扩 `--trace=<cat,cat>`、`--trace-out=trace.json`（**perfetto / chrome trace 格式**，火焰图/时间线可视化）。
+  > **✅ 部分落地（script-profiling P2，add-sampling-profiler）**：**采样型** perfetto/chrome trace 已交付——
+  > 经 `Z42_TRACE_OUT` env（+ `Z42_SAMPLE_HZ` 开采样）或 `xtask profile --cpu`，用 safepoint 采样的栈快照写
+  > chrome legacy JSON（`ph:"P"` sample 事件 + `stackFrames` 帧树），不依赖 §4.2 span 埋点。**span 埋点型**
+  > trace（每帧精确 enter/exit）仍 Deferred（需 §4.2）。机制上浮见
+  > [`docs/book/src/runtime/diagnostics.md`](../../book/src/runtime/diagnostics.md) §2。
 - **统一总线**：tier 回收、load-context 卸载/保留根、context 生命周期 全 emit 到同一事件流；调试组件 `libz42_debug`（componentized）是一个 sink；可桥到 `tracing`。
 
 ---
@@ -152,8 +157,9 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 2. **埋点**：`JitCompile` begin/end + `TypeLoad` + GC 入统一流 + `Deopt`/`Osr`/`InterpTierUp` + load-context 生命周期。
 3. **计数扩**：gauge/histogram kind + 覆盖（§5）+ `Std.Diagnostics.counters()`。
 4. **时间**：histogram（p50/p99）+ per-函数编译耗时面板。
-5. **trace 输出**：perfetto/chrome JSON + CLI `--trace`。
-6. **高频处理**：采样 / feature-gate probe。
+5. **trace 输出**：perfetto/chrome JSON + CLI `--trace`。〔✅ 采样型 perfetto trace 已落地（P2，见 §7）；
+   埋点型 span trace 待 §4.2〕
+6. **高频处理**：采样 / feature-gate probe。〔✅ safepoint 采样 profiler 落地（P2）；lock 争用 feature-gate probe 落地（P1b）〕
 
 ---
 
