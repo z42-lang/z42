@@ -41,6 +41,16 @@ public static class AnalyzerDriver {
     // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，common-pitfalls §1）。
     // cfg = [lints] 决策器（severity 覆盖 + EnabledByDefault 门 + WAE）；null → LintConfig.Empty()
     // （无覆盖、无 WAE，仅按规则 EnabledByDefault + DefaultSeverity）。
+    // attribute-handler-registry PR7-support —— `--fix` 接线桩（**F2-安全预置**）。
+    // 签名只含既有类型 + 原始 bool（**不引用** syntax 新增的 FixSink/CodeFix/TextEdit）→ 可在 support
+    // 阶段安全登记，让 PackageCompile（pipeline）在 PR7-wire 直接调本 6-参重载而**零新跨成员符号**
+    // （种子已含此签名）。support 阶段本体空转（忽略 `fix`、委托 5-参 Run）；修复收集/应用逻辑（构造
+    // FixSink 收集编辑 + `--fix` 时就地重写 `TextEdit.At.File`）在 PR7-wire 填入本体——那些引用的 syntax
+    // 新类型届时已随本 PR 的 nightly 进种子，syntax→semantics 解析安全。见 Analysis.z42 头注 staged 说明。
+    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg, bool fix) {
+        AnalyzerDriver.Run(analyzers, analyzerCount, cu, bag, cfg);   // PR7-wire 将在此按 `fix` 收集+应用修复
+    }
+
     public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
         if (cfg == null) { cfg = LintConfig.Empty(); }
         // PR3c：建局部抑制集。① `#suppress`/`#restore` 字节区间（parser 收集，挂 cu.SuppressRegions）。

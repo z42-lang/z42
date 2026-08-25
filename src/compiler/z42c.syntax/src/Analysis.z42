@@ -76,3 +76,54 @@ public interface Analyzer {
     int[] ObservedKinds();
     void OnSyntaxNode(int kind, object node, DiagSink diags);
 }
+
+// ─── 代码修复契约（attribute-handler-registry PR7，D4「同套 splice」）─────────────────────────
+//
+// C# 把 analyzer（报诊断）和 CodeFixProvider（产修复，仅 IDE）拆成两个类型；z42 **统一**成一套
+// （design.md D4：C# 局限「分析器/修复拆两类型，修复仅 IDE」→ z42「同套 splice，`--fix` build 期应用」）。
+// analyzer 在同一个 `OnSyntaxNode` 回调里、命中问题时把诊断与修复**一起**报出去——回调里本就握着
+// AST 节点，产修复零额外定位成本。第三方 analyzer zpkg 经 `[analyzers]` 加载，**分析+修复捆绑**一同
+// 扩展（谁报诊断谁产修复，满足 litmus B 第三方可扩展）。
+//
+// **staged-bootstrap（PR4e/PR4e-wire 同款，bootstrap-seed.md 轴②/③）**：本文件（z42c.syntax）新增的
+// TextEdit/CodeFix/FixSink 被 z42c.semantics 消费 = syntax→semantics 新跨成员符号，post-F2 冷启动
+// stale-cache 单 PR 过不了（[[two-gen-bootstrap-regressed-blocks-format-bumps]]，无 sentinel 逃生通道）。
+// 故分两阶段：
+//   · **PR7-support（本 PR）**：只把契约类型登记进 z42c.syntax（纯 additive，**无任何 in-tree 消费**）→
+//     随 nightly 发布进种子。同时预置 F2-安全的接线桩（AnalyzerDriver.Run 的 `bool fix` 重载体空转、
+//     CompileInputs.Fix 未接），使 wire 阶段零新跨成员符号。byte-identical、零格式-bump。
+//   · **PR7-wire（下个 nightly）**：DiagSinkImpl 实现 FixSink 收集编辑；`z42c build --fix` 就地重写源文件；
+//     内建可修复规则 + 跨包 golden（第三方 analyzer 携修复）。
+//
+// analyzer 用法（下转到 FixSink；host 无 --fix 能力时优雅回落到纯 Report）：
+//   void OnSyntaxNode(int kind, object node, DiagSink diags) {
+//       if (/* 命中问题 */) {
+//           if (diags is FixSink) { (diags as FixSink).ReportFix(rule, span, myFix); }
+//           else { diags.Report(rule, span); }
+//       }
+//   }
+
+// 一处源码替换：把 `At`（Span）覆盖的字节区间 [At.Start, At.End) 替换成 `NewText`。Span 自带 `File`
+// 定位到源文件、`Start`/`End` 是字节偏移 → 应用侧（PR7-wire）无需额外传路径。
+public sealed class TextEdit {
+    public Span At;
+    public string NewText;
+    public TextEdit(Span at, string newText) { this.At = at; this.NewText = newText; }
+}
+
+// 一条诊断对应的命名修复 = 一组有序编辑（通常 1 条）。`Title` 是人读的动作名（如 "补 null 检查"）。
+public sealed class CodeFix {
+    public string Title;
+    public TextEdit[] Edits;
+    public int EditCount;
+    public CodeFix(string title, TextEdit[] edits, int editCount) {
+        this.Title = title; this.Edits = edits; this.EditCount = editCount;
+    }
+}
+
+// 可选的“带修复”接收口——与 DiagSink **分离**（analyzer 下转到它），使 PR7-support 能纯 additive 加它、
+// 既有 DiagSink/Analyzer/DiagSinkImpl 逐字节不动（无 syntax→semantics 新消费 → 冷启动安全）。
+// `ReportFix` 语义 = 报诊断（等同 DiagSink.Report）**并**附带修复；`--fix` 激活时（PR7-wire）应用编辑。
+public interface FixSink {
+    void ReportFix(DiagRule rule, Span at, CodeFix fix);
+}

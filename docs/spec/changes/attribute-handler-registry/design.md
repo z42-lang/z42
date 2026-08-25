@@ -785,6 +785,57 @@ SIGS per-param default_kind 字节 → 写 0（vestigial，物理删除需 bump�
 - 命名常量折叠复用 `const` 编译期常量（[[add-const-keyword]]）。
 - 反射迁移与 `add-parameter-attribute-reflection`（zbc 1.15 param attr 通道）同源——本 PR 正是复用它承载 `$Default`。
 
+## 代码修复 `--fix`（PR7 实现落法，D4「同套 splice」）
+
+**目标**：`z42c build --fix` 在 build 期把 analyzer 携带的修复**就地应用**到源文件。C# 把 analyzer（报诊断）
+与 CodeFixProvider（产修复，仅 IDE）拆两类型；z42 **统一**（D4 「分析器/修复拆两类型，修复仅 IDE」→
+「同套 splice，`--fix` build 期应用」）——analyzer 在同一个 `OnSyntaxNode` 回调里、命中问题时把诊断与修复
+一起报出去（回调里本就握着 AST 节点，产修复零额外定位成本）。第三方 analyzer zpkg 经 `[analyzers]` 加载，
+**分析+修复捆绑**一同扩展（谁报诊断谁产修复，litmus B）。**User 2026-08-25 裁决走统一模型（A），非 Roslyn
+拆分（B）**。
+
+### 契约（z42c.syntax `Analysis.z42`，PR7-support）
+
+```z42
+public sealed class TextEdit { Span At; string NewText; }          // 替换 [At.Start,At.End) 为 NewText
+public sealed class CodeFix  { string Title; TextEdit[] Edits; int EditCount; }   // 一条诊断的命名修复
+public interface  FixSink    { void ReportFix(DiagRule rule, Span at, CodeFix fix); }  // 报诊断+附修复
+```
+
+analyzer 用法（下转，host 无 `--fix` 能力时优雅回落纯 `Report`）：
+```z42
+if (diags is FixSink) { (diags as FixSink).ReportFix(rule, span, myFix); }
+else                  { diags.Report(rule, span); }
+```
+- **接口下转 + 跨接口虚派发在自举 VM 已验证可行**（PR7 spike：`a is B`/`a as B`/`b.Fb()` 均正常；与 PR4a
+  `x as Object` 返 Null 的 checked-cast 约束不同）。
+- **`Span` 自带 `File`/`Start`/`End`**（字节偏移，`_mergeDiags` 已用 `dg.Span.File`）→ `TextEdit.At` 自定位
+  源文件与字节区间，应用侧**无需额外传路径**。
+
+### 就地应用（PR7-wire）
+
+`DiagSinkImpl`（z42c.semantics）在 `--fix` 模式下额外实现 `FixSink`，`ReportFix` = 照常报诊断进 bag **并**
+把 `CodeFix` 收进列表；一个 CU = 一个源文件，`AnalyzerDriver.Run` 走完该 CU 后，若 `fix`，按 `TextEdit.At.Start`
+**降序**（避免前序编辑移位后序偏移）就地重写 `TextEdit.At.File`（`Std.IO`）。z42c 自建无 `[analyzers]` → gate
+off → 不进 → 逐字节不动。
+
+### staged-bootstrap（PR7-support / PR7-wire，**关键 F2 约束**）
+
+契约类型在 z42c.syntax、被 z42c.semantics（DiagSinkImpl/AnalyzerDriver）消费 = **syntax→semantics 新跨成员
+符号** → post-F2 冷启动 DepScanCache stale-cache 单 PR 过不了（[[two-gen-bootstrap-regressed-blocks-format-bumps]]；
+且**无 sentinel 逃生通道**——修复是 span+text 结构数据，无既有通道可骑，不同于 PR6b caller 宏的 `$macro:`
+`IdentExpr` 哨兵）。故分两阶段（PR4e/PR4e-wire 同款）：
+
+| 阶段 | 内容 | 为何 F2-安全 |
+|------|------|------------|
+| **PR7-support**（本 PR，nightly N） | ① syntax 加 3 契约类型（纯 additive）；② semantics `AnalyzerDriver.Run` 加 `bool fix` 重载（体空转，委托 5-参）；③ pipeline `CompileInputs.Fix` bool（未接）。docs。 | 契约类型**无任何 in-tree 消费**；重载签名**只含原始 bool**（不引用 syntax 新类型）；`Fix` 字段**无人 set/read**（driver 不引用）→ 冷启动零新跨成员消费、z42c 自建逐字节不动。 |
+| **PR7-wire**（nightly N+1） | DiagSinkImpl 实现 FixSink 收集+就地应用；driver `--fix`→`inp.Fix`→`_runAnalyzers` 调 6-参 `Run`；内建可修复规则 + 跨包 golden。 | 契约类型/6-参 Run 签名/`Fix` 字段**均已随 support 进种子** → wire 的 syntax→semantics 消费、driver→pipeline `inp.Fix` set、pipeline→semantics 6-参调用**全部零新未种子符号**。 |
+
+> **为何不能单 PR**：wire 需要 semantics 引用 syntax 新类型（FixSink/CodeFix），而 support 阶段编 semantics 时
+> DepScan 读的是**种子（pre-PR7）syntax.zpkg**（无这些类型）→ E0401。support 阶段因此**不能含任何 syntax→
+> semantics 的新消费**，只能纯登记类型 + 预置**只含原始类型**的接线桩（重载 bool / 未接字段）。见
+> `CompileInputs.Fix` 头注对比 PR4d「单 PR 不新增字段」约束——staged 使该约束不再适用。
+
 ## Implementation Notes：持久化 / bump / 4 pass 迁移
 
 | 机制 | 进 zpkg | 载体 | bump? |
