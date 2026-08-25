@@ -361,7 +361,25 @@ public sealed class ExprParser {
             this._p._expect(TokenKind.RParen, ")");
             return new DefaultExpr(ty, t.Span);
         }
-        if (k == TokenKind.Identifier)    { this._p._advance(); return new IdentExpr(t.Text, t.Span); }
+        if (k == TokenKind.Identifier)    {
+            this._p._advance();
+            // attribute-handler-registry PR6b：编译期表达式宏 `name!()`（v1 = caller info：
+            // caller_member!()/caller_line!()/caller_file!()/module_path!()）。复用既有 Bang + `()`，
+            // 无新 token、无新 AST 节点——译成既有 IdentExpr 的哨兵名 `$macro:<name>`（`$` 非法于真
+            // 标识符 → 零撞名，同本 change `$Default`/`$Caller` 哨兵哲学）。这样 z42c.semantics 只需靠
+            // 既有 IdentExpr.Name 识别、**不引用任何新 syntax 类型** → 避免 syntax→semantics 新跨包符号
+            // 撞 F2 冷启动 stale-cache（见 design「caller 宏语法」节 + bootstrap-seed 轴②/④ 教训）。
+            // 白名单认名 + 「仅参数默认值位」由语义层强制（E0450）。v1 仅 `!()`（无参）。
+            if (this._p._peek().Kind == TokenKind.Bang
+                && this._p._peekAt(1).Kind == TokenKind.LParen
+                && this._p._peekAt(2).Kind == TokenKind.RParen) {
+                this._p._advance();   // !
+                this._p._advance();   // (
+                this._p._advance();   // )
+                return new IdentExpr("$macro:" + t.Text, t.Span);
+            }
+            return new IdentExpr(t.Text, t.Span);
+        }
         // GS6: 类型关键字在 primary 表达式位置（int.Parse / string.FromChars 等）→ IdentExpr(keyword)
         if (this._p._isTypeKeyword(k)) { this._p._advance(); return new IdentExpr(t.Text, t.Span); }
         // EOF 处缺操作数（如 `1 +`）→ 可恢复不完整，供 REPL 续读；否则真正的表达式语法错。

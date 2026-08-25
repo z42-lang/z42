@@ -1,0 +1,6 @@
+// harness 要求三包（target/ext/main）；ext 为占位第二生产方。
+namespace Demo.CmExt;
+
+public class Ext {
+    public static int id(int x) { return x; }
+}

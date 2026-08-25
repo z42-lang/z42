@@ -48,7 +48,7 @@ public sealed class OverloadBinder {
             return this._withParamsExpansion(ms, args, rawArgCount, sp, env.Symbols);
         }
         if (ms.HasDecl && ms.Decl != null && rawArgCount < ms.Decl.ParamCount) {
-            BoundExpr[] ad = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env);
+            BoundExpr[] ad = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env, sp);
             if (ad != null) { return ad; }
         }
         if ((!ms.HasDecl || ms.Decl == null) && ms.Signature != null
@@ -68,14 +68,35 @@ public sealed class OverloadBinder {
 
     // PR6：跨包省略实参的默认值物化——从导入签名的 `$Default` ConstBlob 解码 → AST → 重绑（复用
     // BindWithTarget 的类型强转 / array / new），替代旧的 `BoundDefault(T,-1)` **零值**（修跨包塌零 bug）。
-    // 无 ConstBlob（真无默认值 / caller 宏待 Phase C）→ 回落零值（保守，绝不崩）。
+    // 无 ConstBlob（真无默认值）→ 回落零值（保守，绝不崩）。
     internal BoundExpr _crossPkgDefault(Z42FuncType sig, int i, TypeEnv env, Span sp) {
+        // PR6b：caller 宏跨包注入（ParamCallers[i] = "member"/"line"/"file"/"module"，由
+        // ImportedSymbolLoader 从 `$Caller:*` 哨兵填）→ 注入调用点上下文字面量（先于 $Default 判定）。
+        if (sig.ParamCallers != null && i < sig.ParamCallers.Length && sig.ParamCallers[i] != null && sig.ParamCallers[i] != "") {
+            return this._callerLiteral(sig.ParamCallers[i], sig.ParamTypes[i], sp);
+        }
         if (sig.ParamDefaults != null && i < sig.ParamDefaults.Length && sig.ParamDefaults[i] != null && sig.ParamDefaults[i] != "") {
             ConstBlobReader rdr = new ConstBlobReader(sig.ParamDefaults[i], sp);
             Expr e = rdr.Read();
             if (e != null) { return this._tc._expr.BindWithTarget(e, sig.ParamTypes[i], env); }
         }
         return new BoundDefault(sig.ParamTypes[i], 0 - 1, sp);
+    }
+
+    // PR6b：caller 宏默认值 → 调用点上下文字面量。kind ∈ {member,line,file,module}。
+    // member = enclosing 成员名（_curMemberName）；line/file = 调用表达式 Span 的行号/文件；
+    // module = 调用点命名空间（_currentNs）。字符串走三引号 raw 形式（Lexer.DecodeString 逐字保留，
+    // 免转义处理，值内不含 `"""`——成员名/命名空间/文件路径皆安全）。类型取形参声明类型（定义侧
+    // 已校验 member/file/module=string、line=int，故直接吻合、无需再转换）。
+    internal BoundExpr _callerLiteral(string kind, Z42Type pty, Span sp) {
+        if (kind == "line") {
+            return new BoundLitInt(sp.Line.ToString(), pty, sp);
+        }
+        string val = "";
+        if (kind == "member") { val = this._tc._curMemberName; }
+        else if (kind == "file") { val = sp.File; }
+        else if (kind == "module") { val = this._tc._currentNs; }
+        return new BoundLitStr("\"\"\"" + val + "\"\"\"", pty, sp);
     }
 
     internal BoundExpr[] _withParamsExpansion(MethodSymbol ms, BoundExpr[] args, int rawArgCount, Span sp, SymbolTable syms) {
@@ -101,7 +122,7 @@ public sealed class OverloadBinder {
         return finalArgs;
     }
 
-    internal BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env) {
+    internal BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env, Span sp) {
         int pc = md.ParamCount;
         if (callArgCount > pc) { return null; }
         BoundExpr[] slots = new BoundExpr[pc];
@@ -130,8 +151,15 @@ public sealed class OverloadBinder {
         int k = 0;
         while (k < pc) {
             if (!filled[k]) {
-                if (md.Params[k].Default == null) { return null; }   // 缺实参且无默认 → 不可适配
-                slots[k] = this._tc._expr._bindExpr(md.Params[k].Default, env);
+                Expr dflt = md.Params[k].Default;
+                if (dflt == null) { return null; }   // 缺实参且无默认 → 不可适配
+                if (CallerMacro.IsMacro(dflt)) {
+                    // PR6b：同包 caller 宏注入（跨包对称走 _crossPkgDefault）。截在 _bindExpr 前——
+                    // 否则 IdentExpr("$macro:*") 会落到 ExprTyper._bindIdent 报 E0450（误用检测）。
+                    slots[k] = this._callerLiteral(CallerMacro.KindOf(CallerMacro.NameOf(dflt)), env.ResolveType(md.Params[k].Type), sp);
+                } else {
+                    slots[k] = this._tc._expr._bindExpr(dflt, env);
+                }
             }
             k = k + 1;
         }

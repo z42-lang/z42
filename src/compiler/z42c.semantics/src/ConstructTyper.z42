@@ -87,7 +87,7 @@ public sealed class ConstructTyper {
         MethodSymbol cms = null;
         if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
-            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env);
+            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env, n.Span);   // PR6b：n.Span = 调用点，供 caller 宏注入
             if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
         }
         // ctor arity 校验（根因修复）：枚举本类所有源名 ctor（OverloadsOf——与 bare/$N 注册键无关，

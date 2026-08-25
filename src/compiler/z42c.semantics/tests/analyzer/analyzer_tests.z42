@@ -324,3 +324,39 @@ void test_deprecated_class_new_warns() {
     var bag = _depDiags(src);
     Assert.Equal(true, _hasCode(bag, "deprecated"));
 }
+
+// ── attribute-handler-registry PR6b：编译期 caller 宏（`name!()`）诊断 E0450 ────────────
+// 宏经 parser 译成 IdentExpr("$macro:<name>") 哨兵；DeclBinder 定义侧校验名字白名单 + 参数类型，
+// ExprTyper 检测非参数默认值位的误用。合法 caller 宏无诊断（注入延到调用点，见 e2e caller_macros）。
+
+[Test]
+void test_caller_macro_valid_no_error() {
+    // 合法：caller 宏在正确类型的参数默认值位 → 无 E0450
+    string src = "class L { string m(string s = caller_member!(), int n = caller_line!()) { return s; } }";
+    var bag = _depDiags(src);
+    Assert.Equal(false, _hasCode(bag, "E0450"));
+}
+
+[Test]
+void test_caller_macro_wrong_param_type() {
+    // caller_member!() 要求 string 参数——用在 int 参数上 → E0450
+    string src = "class L { void m(int x = caller_member!()) { } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0450"));
+}
+
+[Test]
+void test_caller_macro_unknown_name() {
+    // 未知宏名 → E0450
+    string src = "class L { void m(string s = frobnicate!()) { } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0450"));
+}
+
+[Test]
+void test_caller_macro_misused_in_body() {
+    // caller 宏出现在普通表达式位（非参数默认值）→ E0450
+    string src = "class L { void m() { string x = caller_member!(); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0450"));
+}

@@ -1,0 +1,10 @@
+[project]
+name    = "demo.cmapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CmApp.Main"
+pack    = true
+
+[dependencies]
+"demo.cmtarget" = "0.1.0"
+"demo.cmext"    = "0.1.0"

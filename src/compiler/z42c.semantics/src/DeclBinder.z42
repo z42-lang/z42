@@ -391,6 +391,12 @@ public sealed class DeclBinder {
             env.Define(md.Params[p].Name, env.ResolveType(md.Params[p].Type));
             p = p + 1;
         }
+        // PR6b：记录当前 enclosing 成员名，供 caller_member!() 在本体内的调用点注入（三挂载点
+        // 均经此：类方法 / impl / free func；lambda 走 _bindStmt 不重置 → 继承外层成员名，同 C#）。
+        this._tc._curMemberName = md.Name;
+        // PR6b：定义侧校验 caller 宏参数默认值——名字白名单 + 参数类型（member/file/module→string，
+        // line→int）。未知宏名 / 类型不符 → E0450（字面量发码，避 core→semantics 冷启动 F2）。
+        this._validateCallerMacroDefaults(env, md);
         Z42Type ret = env.ResolveType(md.RetType);
         BoundStmt body = this._tc._stmt._bindStmt(md.Body, env, ret);
         // ctor 初始化调用：ctor + BaseArgCount > 0 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
@@ -437,6 +443,32 @@ public sealed class DeclBinder {
             }
         }
         return body;
+    }
+
+    // PR6b：定义侧校验 caller 宏参数默认值。宏经 parser 译成 IdentExpr("$macro:<name>") 哨兵
+    // （见 CallerMacro）。未知宏名 或 参数类型不符（member/file/module 须 string、line 须 int）→ E0450。
+    // 发码用字面量 "E0450"（不引用新 DiagnosticCodes 常量 → 避 core→semantics 冷启动 F2 stale-cache，
+    // 同 PR4e E0449 手法）。合法 caller 宏在此不产码——持久化由 ClassDescBuilder、注入由 OverloadBinder。
+    private void _validateCallerMacroDefaults(TypeEnv env, MethodDecl md) {
+        int i = 0;
+        while (i < md.ParamCount) {
+            Expr dv = md.Params[i].Default;
+            if (dv != null && CallerMacro.IsMacro(dv)) {
+                string mn = CallerMacro.NameOf(dv);
+                string kind = CallerMacro.KindOf(mn);
+                if (kind == "") {
+                    this._tc._diags.Error("E0450", "unknown compile-time macro '" + mn + "!()'", dv.Span);
+                } else {
+                    Z42Type pt = env.ResolveType(md.Params[i].Type);
+                    // 归一到表面 keyword（Int32/Std.String… → int/string）再比对。
+                    if (!CallerMacro.ParamTypeOk(kind, PrimModel.SurfaceName(pt.Name()))) {
+                        string need = (kind == "line") ? "int" : "string";
+                        this._tc._diags.Error("E0450", "'" + mn + "!()' requires a " + need + " parameter", dv.Span);
+                    }
+                }
+            }
+            i = i + 1;
+        }
     }
 
 }

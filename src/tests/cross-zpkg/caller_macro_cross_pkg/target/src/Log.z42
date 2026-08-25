@@ -1,0 +1,11 @@
+// attribute-handler-registry PR6b：caller 宏跨包生产方。方法带 caller 宏默认值 → 持久化为
+// `$Caller:*` param attr-ref 哨兵。消费方（不同包）省略实参时，编译器在**消费方调用点**注入其
+// enclosing member / 行号 / 源文件 / 命名空间（读消费方上下文，非本 lib 的）——验证跨包 ParamCallers 注入。
+namespace Demo.CmTarget;
+
+public class Log {
+    public static string mem(string m = caller_member!()) { return m; }
+    public static int line(int l = caller_line!()) { return l; }
+    public static string file(string f = caller_file!()) { return f; }
+    public static string mod(string p = module_path!()) { return p; }
+}
