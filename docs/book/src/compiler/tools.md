@@ -20,9 +20,16 @@ z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](source-compile.
 |------|------|
 | `z42c build <project.z42.toml>` | 编译单个包，产出 packed `.zpkg` 到 `dist/` |
 | `z42c build --workspace [--output-dir <d>]` | 按拓扑序编译工作区全部成员 |
+| `z42c build <project.z42.toml> --fix` | 编译并**就地应用** `[analyzers]` 声明的 analyzer 携带的代码修复到源文件 |
 | `z42c --emit-zbc <file.z42> <out.zbc>` | 把单文件编译为 `.zbc` |
 
-`build` 支持 `--release`、`--no-incremental` 等 flag。
+`build` 支持 `--release`、`--no-incremental`、`--fix` 等 flag。
+
+`--fix`：analyzer 在报诊断的同时可携带一个「代码修复」（`CodeFix` = 一组文本编辑）；`z42c build --fix`
+在编译时把这些修复**就地重写**回源文件（无修复的 analyzer / 不加 `--fix` 时源文件不动）。修复由 analyzer
+自身（含第三方 `[analyzers]` zpkg）产出——「谁报诊断谁产修复」，对齐 C# analyzer+CodeFix 但统一成一套。
+被 `[lints]` 抑制或 `#suppress`/`[Suppress]` 局部抑制的诊断不会应用修复。当前仅单包 `build` 生效
+（`--workspace` 暂不支持）。
 
 ### 诊断（dump）
 

@@ -306,6 +306,113 @@ void test_suppress_attr_end_to_end() {
     Assert.Equal(false, _cmsHasCode(cArt, "Z9002"));
 }
 
+// ── attribute-handler-registry PR7-wire：外部 analyzer 携修复 + `--fix` 就地重写 consumer 源 ──────
+// litmus B「第三方 analyzer 分析+修复捆绑」端到端：fixture analyzer（Z9010）在 OnSyntaxNode 里经
+// `diags as FixSink` 下转、报诊断 + 附 TextEdit（catch 前零宽插入 /*FIXED*/）。consumer 源写**真实临时
+// 文件**（spans.File 指向它），CompileInputs.Fix=true → AnalyzerDriver 就地重写该文件。非提交二进制。
+
+// fixture 源：可修复 analyzer（携修复），FixSink 下转在同套 OnSyntaxNode。类名带 Analyzer 后缀（E0445）。
+string _fixtureFixSrc() {
+    return "namespace AnalyzerFixFixture;\n"
+        + "using Z42.Syntax;\n"
+        + "using Z42.Core;\n"
+        + "public class FixtureFixEmptyCatchAnalyzer : Analyzer {\n"
+        + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureFixEmptyCatchAnalyzer._rule(); return r; }\n"
+        + "    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }\n"
+        + "    public void OnSyntaxNode(int kind, object node, DiagSink diags) {\n"
+        + "        if (kind == SyntaxKind.CatchClause) {\n"
+        + "            CatchClause c = node as CatchClause;\n"
+        + "            if (c.Body is BlockStmt) { BlockStmt b = c.Body as BlockStmt; if (b.Count == 0) {\n"
+        + "                if (diags is FixSink) {\n"
+        + "                    Span at = new Span(c.Span.Start, c.Span.Start, c.Span.Line, c.Span.Column, c.Span.File);\n"
+        + "                    TextEdit[] es = new TextEdit[1]; es[0] = new TextEdit(at, \"/*FIXED*/\");\n"
+        + "                    (diags as FixSink).ReportFix(FixtureFixEmptyCatchAnalyzer._rule(), c.Span, new CodeFix(\"insert marker\", es, 1));\n"
+        + "                } else { diags.Report(FixtureFixEmptyCatchAnalyzer._rule(), c.Span); }\n"
+        + "            } }\n"
+        + "        }\n"
+        + "    }\n"
+        + "    static DiagRule _rule() { return new DiagRule(\"Z9010\", \"empty catch (fixable)\", \"empty catch swallows exception\", \"Correctness\", AnalyzerSeverity.Warning, true); }\n"
+        + "}\n";
+}
+
+// 现编 fix-fixture analyzer → 写临时 zpkg，返回路径。
+string _writeFixtureFixZpkg(string[] dirs) {
+    string[] texts = new string[1]; texts[0] = _fixtureFixSrc();
+    string[] files = new string[1]; files[0] = "fixture_fix.z42";
+    string[] hashes = new string[1]; hashes[0] = "FIXTUREFIX";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.fixfixture"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
+    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    CompileArtifacts aArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, aArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string azPath = Path.Join(tmp, "demo.fixfixture.zpkg");
+    File.WriteAllBytes(azPath, ZpkgWriterZ.WritePacked(aArt.Z, false).ToBytes());
+    return azPath;
+}
+
+// consumer（含空 catch）写真实临时文件、Cus 以该路径 parse（spans.File=该路径）、AnalyzerZpkgs 指向
+// fix-fixture、Fix 由参数控制。返回 (CompileInputs, 临时文件路径)——分两个 helper 返回。
+string _fixConsumerSrc() {
+    return "namespace FixConsumer;\nint risky() { return 1; }\nint M() { int r = 0; try { r = risky(); } catch { } return r; }\n";
+}
+
+CompileInputs _fixConsumerInputs(string azPath, string cpath, bool fix) {
+    string csrc = _fixConsumerSrc();
+    File.WriteAllText(cpath, csrc);   // 写真实文件（--fix 重写它）
+    string[] texts = new string[1]; texts[0] = csrc;
+    string[] files = new string[1]; files[0] = cpath;   // spans.File = 真实路径
+    string[] hashes = new string[1]; hashes[0] = "FIXCONSUMER";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.fixconsumer"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = new string[0]; cin.LibsDirsN = 0;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    cin.Fix = fix;
+    return cin;
+}
+
+[Test]
+void test_external_analyzer_fix_rewrites_consumer_in_place() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureFixZpkg(libs.Split(":"));
+    string cpath = Path.Join(_tmpRoot(), "fix_consumer_on.z42");
+    CompileArtifacts cArt = PackageCompile.Compile(_fixConsumerInputs(azPath, cpath, true));
+    Assert.Equal(0, cArt.ErrorCount);                  // Warning 不阻断编译
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9010"));    // 诊断仍报（ReportFix 报 + 修）
+    string after = File.ReadAllText(cpath);            // 源文件已就地重写
+    Assert.Equal(true, after.Contains("/*FIXED*/"));   // 标记已插入
+    Assert.Equal(true, after.Contains("/*FIXED*/catch"));  // 恰在 catch 前（零宽插入、非破坏替换）
+    Assert.Equal(true, after.Contains("catch"));       // 原 catch 保留
+}
+
+[Test]
+void test_external_analyzer_fix_off_leaves_consumer() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }
+    string azPath = _writeFixtureFixZpkg(libs.Split(":"));
+    string cpath = Path.Join(_tmpRoot(), "fix_consumer_off.z42");
+    // Fix=false（默认 build）→ 诊断照报、源文件原样不动（默认构建绝不改用户源）
+    CompileArtifacts cArt = PackageCompile.Compile(_fixConsumerInputs(azPath, cpath, false));
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9010"));
+    Assert.Equal(_fixConsumerSrc(), File.ReadAllText(cpath));   // 未重写
+}
+
 // ── attribute-handler-registry PR4d：外部 generator zpkg 编译期加载 + VM 执行 golden ─────────────
 // 编译一个实现 Z42.Semantics.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
 // CompileInputs.AnalyzerZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类；generator 复用该字段）喂给 PackageCompile →

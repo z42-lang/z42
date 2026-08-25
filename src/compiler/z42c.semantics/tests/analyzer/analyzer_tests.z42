@@ -8,6 +8,7 @@ namespace Z42cSemanticsAnalyzerTests;
 
 using Std;
 using Std.Test;
+using Std.IO;         // PR7-wire：File/Environment/Directory/Path —— --fix 就地重写单测
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Core;
@@ -359,4 +360,106 @@ void test_caller_macro_misused_in_body() {
     string src = "class L { void m() { string x = caller_member!(); } }";
     var bag = _depDiags(src);
     Assert.Equal(true, _hasCode(bag, "E0450"));
+}
+
+// ── attribute-handler-registry PR7-wire：代码修复 `--fix`（FixSink + 就地重写）─────────────
+// 可修复 analyzer：命中空 catch 时经 `diags as FixSink` 下转、调 ReportFix 报诊断 **并** 附修复
+// （在 catch 关键字前零宽插入注释标记）。演示 D4「同套 splice」——analyzer 在同一 OnSyntaxNode 里
+// 报诊断 + 产修复（litmus B「谁报诊断谁产修复」）；host 无 --fix 能力（sink.Collect=false）时优雅回落。
+class FixableEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] r = new DiagRule[1]; r[0] = FixableEmptyCatchAnalyzer._rule(); return r;
+    }
+    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) {
+                    // 修复 = catch 关键字前零宽插入（Start==End=c.Span.Start）→ 保留原 catch、仅插标记。
+                    if (diags is FixSink) {
+                        Span at = new Span(c.Span.Start, c.Span.Start, c.Span.Line, c.Span.Column, c.Span.File);
+                        TextEdit[] edits = new TextEdit[1];
+                        edits[0] = new TextEdit(at, "/*FIXED*/");
+                        CodeFix fix = new CodeFix("insert marker", edits, 1);
+                        (diags as FixSink).ReportFix(FixableEmptyCatchAnalyzer._rule(), c.Span, fix);
+                    } else {
+                        diags.Report(FixableEmptyCatchAnalyzer._rule(), c.Span);
+                    }
+                }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9010", "empty catch (fixable)", "empty catch swallows exception",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}
+
+// temp 文件：写 content 到 $TMPDIR/z42c-fix-tests/<name>，返回路径（供 spans.File 定位 + 重写后回读）。
+string _tmpFile(string name, string content) {
+    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
+    if (t == "") { t = "/tmp"; }
+    string dir = Path.Join(t, "z42c-fix-tests");
+    Directory.Create(dir);
+    string p = Path.Join(dir, name);
+    File.WriteAllText(p, content);
+    return p;
+}
+
+// 把 src 写临时文件、以该路径 parse（spans.File=该路径）、跑 6-参 Run(fix)，返回重写后文件内容。
+string _runFix(Analyzer a, string name, string src, bool fix) {
+    string p = _tmpFile(name, src);
+    var parser = new Parser(src, p);
+    var cu = parser.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1]; arr[0] = a;
+    AnalyzerDriver.Run(arr, 1, cu, bag, null, fix);
+    return File.ReadAllText(p);
+}
+
+int _occurrences(string hay, string needle) {
+    return hay.Split(needle).Length - 1;
+}
+
+[Test]
+void test_fix_rewrites_source_in_place() {
+    // fix=true → analyzer 携修复就地重写源：标记插入 + 原 catch 保留（插入非破坏性替换）。
+    string src = "class C { void M() { try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "inplace.z42", src, true);
+    Assert.Equal(true, after.Contains("/*FIXED*/"));       // 修复已应用
+    Assert.Equal(true, after.Contains("/*FIXED*/catch"));  // 标记恰在 catch 前（零宽插入）
+    Assert.Equal(true, after.Contains("catch"));           // 原 catch 未被破坏
+}
+
+[Test]
+void test_fix_false_leaves_source_unchanged() {
+    // fix=false → 诊断照报、但源文件原样不动（Collect=false → 不收编辑 → 不重写）。
+    string src = "class C { void M() { try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "nofix.z42", src, false);
+    Assert.Equal(src, after);
+    Assert.Equal(false, after.Contains("/*FIXED*/"));
+}
+
+[Test]
+void test_fix_suppressed_no_rewrite() {
+    // [lints] Z9010="none" → 抑制诊断 → 不产生修复（不改用户已抑制的代码），即便 fix=true 也不重写。
+    string src = "class C { void M() { try { } catch { } } }";
+    string p = _tmpFile("suppressed.z42", src);
+    var parser = new Parser(src, p);
+    var cu = parser.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1]; arr[0] = new FixableEmptyCatchAnalyzer();
+    LintConfig cfg = _cfg1("Z9010", "none", false);
+    AnalyzerDriver.Run(arr, 1, cu, bag, cfg, true);
+    Assert.Equal(src, File.ReadAllText(p));   // 抑制 → 无重写
+}
+
+[Test]
+void test_fix_multiple_edits_descending() {
+    // 两个空 catch → 两处插入，按 Start 降序应用（靠前编辑不移位靠后偏移）→ 两个标记都在。
+    string src = "class C { void M() { try { } catch { } try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "multi.z42", src, true);
+    Assert.Equal(2, _occurrences(after, "/*FIXED*/"));
 }

@@ -13,26 +13,66 @@
 namespace Z42.Semantics;
 
 using Z42.Core;     // Diagnostic / DiagnosticBag / DiagnosticSeverity / Span
-using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST
+using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST / FixSink / CodeFix / TextEdit
+using Std.IO;       // File —— PR7-wire `--fix` 就地重写源（z42.io 已在 semantics 传递闭包：→z42.ir→z42.io）
 
 // DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 决策经 LintConfig（PR3b）：
 // EnabledByDefault + [lints] 覆盖 + 通配 + warnings-as-errors → 最终级别；抑制（规则禁用 / "none"）
 // 则整条丢弃、不进 bag。Hidden 暂并入 Info（--fix 消费留后续）。
-public sealed class DiagSinkImpl : DiagSink {
+//
+// PR7-wire：同时实现 FixSink——analyzer 命中问题时经 `diags as FixSink` 下转、调 ReportFix 报诊断 +
+// 附修复。DiagSinkImpl 既是 DiagSink 又是 FixSink → analyzer 的 `if (diags is FixSink)` 分支恒真、走
+// ReportFix；host 无 --fix 能力（Collect=false）时 ReportFix 仍照常报诊断、只是不收编辑（优雅回落）。
+public sealed class DiagSinkImpl : DiagSink, FixSink {
     public DiagnosticBag Bag;
     public LintConfig Cfg;
     public SuppressionSet Supp;   // PR3c：局部抑制（`#suppress` 字节区间 + `[Suppress]` 声明活跃栈）
-    public DiagSinkImpl(DiagnosticBag bag, LintConfig cfg, SuppressionSet supp) {
+    // PR7-wire：`--fix` 激活时收集编辑（可增长数组，_push idiom 非 List）。Collect=false（非 --fix）→
+    // ReportFix 只报诊断、不收编辑。
+    public bool Collect;
+    public TextEdit[] Fixes;
+    public int FixCount;
+    public DiagSinkImpl(DiagnosticBag bag, LintConfig cfg, SuppressionSet supp, bool collect) {
         this.Bag = bag; this.Cfg = cfg; this.Supp = supp;
+        this.Collect = collect;
+        this.Fixes = new TextEdit[0];
+        this.FixCount = 0;
     }
 
     public void Report(DiagRule rule, Span at) {
+        this._report(rule, at);
+    }
+
+    // FixSink：报诊断（同 Report 的抑制/severity 策略）**并**——仅当诊断真正报出（未抑制/未禁用）且
+    // `--fix` 激活（Collect）——收集该修复的编辑。抑制/禁用的诊断不产生修复（不改用户已抑制的代码）。
+    public void ReportFix(DiagRule rule, Span at, CodeFix fix) {
+        if (this._report(rule, at) && this.Collect) {
+            int k = 0;
+            while (k < fix.EditCount) { this._pushFix(fix.Edits[k]); k = k + 1; }
+        }
+    }
+
+    // 报诊断共用体：抑制/禁用 → 返 false（未报）；否则加入 bag 返 true。ReportFix 据此决定收不收编辑。
+    private bool _report(DiagRule rule, Span at) {
         // PR3c：局部抑制优先——命中即整条丢弃、不进 bag（早于 severity 决策，省一次 Resolve）。
-        if (this.Supp.IsSuppressed(rule.Id, at.Start)) { return; }
+        if (this.Supp.IsSuppressed(rule.Id, at.Start)) { return false; }
         int eff = this.Cfg.Resolve(rule);
-        if (eff < 0) { return; }   // 抑制（规则禁用 / [lints] "none"）→ 不报
+        if (eff < 0) { return false; }   // 抑制（规则禁用 / [lints] "none"）→ 不报
         int sev = AnalyzerDriver._mapSeverity(eff);
         this.Bag.Add(new Diagnostic(sev, rule.Id, rule.MessageFormat, at));
+        return true;
+    }
+
+    private void _pushFix(TextEdit e) {
+        if (this.FixCount >= this.Fixes.Length) {
+            int newcap = this.Fixes.Length == 0 ? 4 : this.Fixes.Length * 2;
+            TextEdit[] bigger = new TextEdit[newcap];
+            int i = 0;
+            while (i < this.FixCount) { bigger[i] = this.Fixes[i]; i = i + 1; }
+            this.Fixes = bigger;
+        }
+        this.Fixes[this.FixCount] = e;
+        this.FixCount = this.FixCount + 1;
     }
 }
 
@@ -41,17 +81,11 @@ public static class AnalyzerDriver {
     // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，common-pitfalls §1）。
     // cfg = [lints] 决策器（severity 覆盖 + EnabledByDefault 门 + WAE）；null → LintConfig.Empty()
     // （无覆盖、无 WAE，仅按规则 EnabledByDefault + DefaultSeverity）。
-    // attribute-handler-registry PR7-support —— `--fix` 接线桩（**F2-安全预置**）。
-    // 签名只含既有类型 + 原始 bool（**不引用** syntax 新增的 FixSink/CodeFix/TextEdit）→ 可在 support
-    // 阶段安全登记，让 PackageCompile（pipeline）在 PR7-wire 直接调本 6-参重载而**零新跨成员符号**
-    // （种子已含此签名）。support 阶段本体空转（忽略 `fix`、委托 5-参 Run）；修复收集/应用逻辑（构造
-    // FixSink 收集编辑 + `--fix` 时就地重写 `TextEdit.At.File`）在 PR7-wire 填入本体——那些引用的 syntax
-    // 新类型届时已随本 PR 的 nightly 进种子，syntax→semantics 解析安全。见 Analysis.z42 头注 staged 说明。
+    // attribute-handler-registry PR7-wire —— `--fix` 接线本体（support 阶段此重载是空转桩，现填入实逻辑）。
+    // fix=true（`z42c build --fix`）→ 建 collect 型 sink，走完 CU 后就地重写源文件（_applyFixes）。
+    // fix=false → 等价 5-参（不收编辑）。签名与 support 登记的一致（种子已含）→ pipeline 直接调本 6-参
+    // **零新跨成员符号**；FixSink/CodeFix/TextEdit 已随 support 的 nightly 进种子 → syntax→semantics 解析安全。
     public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg, bool fix) {
-        AnalyzerDriver.Run(analyzers, analyzerCount, cu, bag, cfg);   // PR7-wire 将在此按 `fix` 收集+应用修复
-    }
-
-    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
         if (cfg == null) { cfg = LintConfig.Empty(); }
         // PR3c：建局部抑制集。① `#suppress`/`#restore` 字节区间（parser 收集，挂 cu.SuppressRegions）。
         //       ② `[Suppress]` 声明活跃栈由 walk 期间 push/pop 填充（见 _walkDecl）。
@@ -62,12 +96,50 @@ public static class AnalyzerDriver {
             supp.AddRegion(sr.RuleId, sr.Start, sr.End);
             r = r + 1;
         }
-        DiagSinkImpl sink = new DiagSinkImpl(bag, cfg, supp);
+        DiagSinkImpl sink = new DiagSinkImpl(bag, cfg, supp, fix);
         int i = 0;
         while (i < analyzerCount) {
             Analyzer a = analyzers[i];
             int[] kinds = a.ObservedKinds();
             AnalyzerDriver._walkCu(cu, a, kinds, sink, supp);   // walk 平衡 push/pop，跨 analyzer 复用同一 supp
+            i = i + 1;
+        }
+        // PR7-wire：`--fix` 激活 → 就地应用收集的编辑（一 CU=一源文件，所有编辑同 At.File）。
+        if (fix && sink.FixCount > 0) { AnalyzerDriver._applyFixes(sink.Fixes, sink.FixCount); }
+    }
+
+    // 5-参重载（无 --fix）：委托 6-参、fix=false。既有调用方（analyzer_tests 单测）不变。
+    public static void Run(Analyzer[] analyzers, int analyzerCount, CompilationUnit cu, DiagnosticBag bag, LintConfig cfg) {
+        AnalyzerDriver.Run(analyzers, analyzerCount, cu, bag, cfg, false);
+    }
+
+    // PR7-wire：就地应用编辑到源文件。所有编辑同一文件（一 CU=一源，design D4）→ 读一次、降序 splice、
+    // 写回。用 String.Substring 而非字节操作：Span.Start/End 源自 Lexer._pos（CharAt 字符索引推进），
+    // splice 必须用同一字符串 API 保持偏移一致（Span.z42 注「byte offset」是 C# 镜像语义，z42 侧为字符串索引）。
+    private static void _applyFixes(TextEdit[] edits, int count) {
+        AnalyzerDriver._sortEditsDesc(edits, count);
+        string file = edits[0].At.File;
+        string src = File.ReadAllText(file);
+        int i = 0;
+        while (i < count) {
+            TextEdit e = edits[i];
+            src = src.Substring(0, e.At.Start) + e.NewText + src.Substring(e.At.End);
+            i = i + 1;
+        }
+        File.WriteAllText(file, src);
+    }
+
+    // 按 At.Start 降序插入排序（就地）——降序应用使靠前编辑不移位靠后编辑的偏移。
+    private static void _sortEditsDesc(TextEdit[] edits, int count) {
+        int i = 1;
+        while (i < count) {
+            TextEdit key = edits[i];
+            int j = i - 1;
+            while (j >= 0 && edits[j].At.Start < key.At.Start) {
+                edits[j + 1] = edits[j];
+                j = j - 1;
+            }
+            edits[j + 1] = key;
             i = i + 1;
         }
     }
