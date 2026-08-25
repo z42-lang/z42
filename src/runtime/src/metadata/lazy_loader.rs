@@ -28,7 +28,7 @@
 //! here. `LazyLoader` itself remains usable directly by tests / advanced
 //! embedders.
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -37,67 +37,19 @@ use super::bytecode::{Function, Instruction};
 use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
 use super::test_index::LoadedTestEntry;
 use super::types::TypeDesc;
-use super::zbc_reader::read_zpkg_meta;
+use super::namespace_index;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/// A declared-but-not-yet-loaded zpkg. Records the information needed to
-/// route a `Call` / `ObjNew` miss to the right zpkg for loading.
-#[derive(Debug, Clone)]
-pub struct ZpkgCandidate {
-    /// Absolute path to the zpkg file.
-    pub file_path: PathBuf,
-    /// Namespaces exported by this zpkg (from its NSPC section).
-    pub namespaces: Vec<String>,
-}
-
-impl ZpkgCandidate {
-    /// Build a candidate by reading the zpkg metadata from disk.
-    ///
-    /// add-wasm-testhost (G6): reads via the platform fs backend so a wasm host
-    /// that mounts stdlib zpkgs into the in-memory VFS resolves declared
-    /// candidates too. Byte-identical to `std::fs` on native.
-    pub fn build(libs_dir: &Path, file_name: &str) -> Result<Self> {
-        let file_path = libs_dir.join(file_name);
-        let path_str = file_path.to_str()
-            .ok_or_else(|| anyhow::anyhow!("non-UTF8 zpkg path `{}`", file_path.display()))?;
-        let data = crate::corelib::fs_backend::active().read(path_str)?;
-        let meta = read_zpkg_meta(&data)?;
-        Ok(Self {
-            file_path,
-            namespaces: meta.namespaces,
-        })
-    }
-
-    // add-wasm-testhost (G6): `is_file` semantics via the platform fs backend —
-    // exists && !is_dir. Native delegates to std::fs (byte-identical); on wasm a
-    // mounted zpkg exists in the VFS and is not a directory.
-    fn backend_is_file(path: &Path) -> bool {
-        match path.to_str() {
-            Some(s) => {
-                let b = crate::corelib::fs_backend::active();
-                b.exists(s) && !b.is_dir(s)
-            }
-            None => false,
-        }
-    }
-
-    /// Build a candidate by searching `dirs` in order for `file_name`, using
-    /// the first directory that actually contains the file. Enables colocated
-    /// dependency resolution (support-colocated-zpkg-deps, 2026-06-20): an
-    /// apphost whose payload + its deps live together (e.g.
-    /// `programs/z42c/z42c.driver.zpkg` next to `z42c.core.zpkg`) resolves
-    /// those siblings even though they aren't in the stdlib `libs/` dir.
-    pub fn build_in_dirs(dirs: &[PathBuf], file_name: &str) -> Result<Self> {
-        for dir in dirs {
-            let file_path = dir.join(file_name);
-            if Self::backend_is_file(&file_path) {
-                return Self::build(dir, file_name);
-            }
-        }
-        anyhow::bail!("zpkg `{file_name}` not found in any search dir ({} candidates)", dirs.len())
-    }
-}
+// `ZpkgCandidate` (the namespace→zpkg index entry: file path + exported
+// namespaces) and its disk-parse constructors (`build` / `build_in_dirs`) live
+// in the stateless `namespace_index` primitive (refactor-metadata-namespace-
+// index, runtime_review #6 step 2). Re-exported here so existing
+// `lazy_loader::ZpkgCandidate` paths (app.rs, vm_context, tests, and the
+// `metadata::ZpkgCandidate` facade) are unaffected. The lazy loader is the
+// *retaining* consumer: it keeps candidates in `declared_zpkgs` and owns the
+// load/track/release lifecycle; parsing stays in the primitive.
+pub use super::namespace_index::ZpkgCandidate;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -579,15 +531,22 @@ impl LazyLoader {
                 }
             }
             // Namespace-derived candidates (covers bare-zbc test units with no
-            // `dependencies` list). Resolve each `using` namespace to the zpkg(s)
-            // declaring it, across all search dirs.
+            // `dependencies` list). Scan the search dirs once for zpkg candidates
+            // via the stateless `namespace_index` primitive, then register those
+            // whose exported namespaces exactly match a `using` clause. Replaces
+            // the former reverse call into `loader::resolve_namespace` (which
+            // re-scanned the dirs per namespace and then re-read each hit through
+            // `build_in_dirs`): one scan, no cross-module dependency, matched
+            // candidates retained directly. The stored path is now the dir where
+            // the namespace actually matched (was first-dir-by-name) — identical
+            // for real single-location zpkgs. (refactor-metadata-namespace-index)
+            let scanned = namespace_index::scan_zpkg_candidates(&dirs);
             for ns in &artifact.import_namespaces {
-                let zpkg_paths = match super::loader::resolve_namespace(ns, &[], &dirs) {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                };
-                for zpkg_path in zpkg_paths {
-                    let Some(file) = zpkg_path
+                for cand in &scanned {
+                    if !cand.namespaces.iter().any(|n| n == ns) {
+                        continue;
+                    }
+                    let Some(file) = cand.file_path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .map(str::to_owned)
@@ -599,9 +558,7 @@ impl LazyLoader {
                     {
                         continue;
                     }
-                    if let Ok(cand) = ZpkgCandidate::build_in_dirs(&dirs, &file) {
-                        self.declared_zpkgs.insert(file, cand);
-                    }
+                    self.declared_zpkgs.insert(file, cand.clone());
                 }
             }
         }

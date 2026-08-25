@@ -1,4 +1,5 @@
 use super::*;
+use crate::metadata::namespace_index;
 
 // ── Namespace resolution ──────────────────────────────────────────────────────
 
@@ -20,11 +21,28 @@ pub fn resolve_namespace(
     module_paths: &[PathBuf],
     libs_paths: &[PathBuf],
 ) -> Result<Vec<PathBuf>> {
-    let zbc_matches = find_namespace_in_zbc_dirs(ns, module_paths)?;
+    // Delegates the disk scan + NSPC parse to the stateless `namespace_index`
+    // primitive; this resolver is the *transient* consumer — it filters by exact
+    // namespace match and drops the candidates on return (refactor-metadata-
+    // namespace-index, runtime_review #6 step 2). The lazy loader is the
+    // *retaining* consumer of the same primitive.
+    let zbc_matches = matching_paths(namespace_index::scan_zbc_candidates(module_paths), ns);
     if !zbc_matches.is_empty() {
         return Ok(zbc_matches);
     }
-    find_namespace_in_zpkg_dirs(ns, libs_paths)
+    Ok(matching_paths(namespace_index::scan_zpkg_candidates(libs_paths), ns))
+}
+
+/// Exact-match filter over scanned candidates → their paths, deduplicated in
+/// first-seen order. The module-path-over-libs override lives in the caller.
+fn matching_paths(candidates: Vec<namespace_index::ZpkgCandidate>, ns: &str) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    for cand in candidates {
+        if cand.namespaces.iter().any(|n| n == ns) && !found.contains(&cand.file_path) {
+            found.push(cand.file_path);
+        }
+    }
+    found
 }
 
 /// Resolve a zpkg dependency by its file name (e.g. `"z42.collections.zpkg"`).
@@ -43,71 +61,7 @@ pub fn resolve_dependency(
     Ok(None)
 }
 
-fn find_namespace_in_zbc_dirs(ns: &str, dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    let backend = fs_backend::active();
-    for dir in dirs {
-        let dir_str = match dir.to_str() { Some(s) => s, None => continue };
-        let names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
-        for name in names {
-            let path = dir.join(&name);
-            if path.extension().and_then(|e| e.to_str()) != Some("zbc") { continue; }
-            let path_str = match path.to_str() { Some(s) => s, None => continue };
-            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
-            if data.len() < 4 || &data[0..4] != ZBC_MAGIC { continue; }
-            let file_ns = match read_zbc_namespace(&data) { Ok(n) => n, Err(_) => continue };
-            if file_ns == ns && !found.contains(&path) {
-                found.push(path);
-            }
-        }
-    }
-    Ok(found)
-}
-
-fn find_namespace_in_zpkg_dirs(ns: &str, dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    let backend = fs_backend::active();
-    for dir in dirs {
-        let dir_str = match dir.to_str() { Some(s) => s, None => continue };
-        let names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
-        for name in names {
-            let path = dir.join(&name);
-            if path.extension().and_then(|e| e.to_str()) != Some("zpkg") { continue; }
-            let path_str = match path.to_str() { Some(s) => s, None => continue };
-            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
-            if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { continue; }
-            let namespaces = match read_zpkg_namespaces(&data) { Ok(v) => v, Err(_) => continue };
-            if namespaces.iter().any(|n| n == ns) && !found.contains(&path) {
-                found.push(path);
-            }
-        }
-    }
-    Ok(found)
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-/// Reads the namespace from a binary zbc buffer (NSPC section fast-path).
-pub fn read_zbc_namespace(data: &[u8]) -> Result<String> {
-    use crate::metadata::formats::ZBC_MAGIC;
-    if data.len() < 16 { bail!("zbc buffer too short ({} bytes)", data.len()) }
-    if &data[0..4] != ZBC_MAGIC { bail!("not a zbc file (bad magic)") }
-
-    let sec_count = u16::from_le_bytes([data[10], data[11]]);
-    let dir = crate::metadata::zbc_reader::read_directory_pub(data, sec_count)?;
-
-    match dir.get(b"NSPC") {
-        None => Ok(String::new()),
-        Some(&(off, size)) => {
-            if off + size > data.len() { bail!("NSPC section out of bounds") }
-            let sec = &data[off..off + size];
-            if sec.len() < 2 { return Ok(String::new()); }
-            let len = u16::from_le_bytes([sec[0], sec[1]]) as usize;
-            if len == 0 || sec.len() < 2 + len { return Ok(String::new()); }
-            Ok(std::str::from_utf8(&sec[2..2 + len])?.to_owned())
-        }
-    }
-}
 
 /// Extract unique namespace prefixes from a module's external calls and static
 /// field accesses.

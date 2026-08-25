@@ -36,6 +36,7 @@ pub mod project;
 pub mod formats;
 pub mod zbc_reader;
 pub mod loader;
+pub mod namespace_index;
 pub mod lazy_loader;
 pub mod merge;
 pub mod resolver;
