@@ -66,12 +66,20 @@ public sealed class CompileInputs {
     // 块（analyzer 各按接口过滤，互不干扰）。**不新增独立字段**——避免 z42c.driver 引用 CompileInputs 新
     // 字段成「新跨成员符号」，撞 F2 DepScanCache 冷启动 stale-cache（driver 冷建解析到种子旧 pipeline →
     // E0401；见 GeneratorLoader.z42 头注 + design §Generator 外部加载）。空（z42c 自建）→ 不加载 → 逐字节不动。
+    // attribute-handler-registry PR7-support：`z42c build --fix` 模式开关（**F2-安全预置，本 PR 未接**）。
+    // 与上面 PR4d「不新增字段避 driver→pipeline 新跨成员符号」的权衡不同：那条约束是**单 PR** 情形下
+    // driver 引用种子 pipeline 尚无的字段会撞 F2 冷启动 stale-cache（driver 冷建解析到旧 pipeline → E0401）。
+    // 本字段走 **staged**（Analysis.z42 头注）——support 阶段登记但**无人 set/read**（driver 不引用它、
+    // z42c 自建恒 false → 逐字节不动、冷启动零消费）；随 nightly 进种子后，PR7-wire 的 driver 再 `inp.Fix=true`
+    // 就安全（种子 pipeline 已含此字段）+ `_runAnalyzers` 读它调 AnalyzerDriver.Run 6-参重载。
+    public bool Fix;
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
         this.Lints = null;
         this.Generators = new Generator[0]; this.GeneratorCount = 0;
         this.ModuleGenerators = new ModuleGenerator[0]; this.ModuleGeneratorCount = 0;
+        this.Fix = false;
     }
 }
 
