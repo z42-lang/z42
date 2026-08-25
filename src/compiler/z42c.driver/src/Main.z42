@@ -44,6 +44,7 @@ void Main() {
         bool isRelease = false;
         bool isWorkspace = false;
         bool noIncremental = false;
+        bool isFix = false;   // attribute-handler-registry PR7-wire：`--fix`——analyzer 携修复就地重写源文件
         string outputDir = "";
         // add-compiler-inlining：CLI --opt/--no-opt 累积位（可独立开关的优化，见 OptSet.z42）。
         // 单名可重复：`--opt inline --opt dce` / `--no-opt copy-prop`；`all`/`none` 亦可。
@@ -55,6 +56,7 @@ void Main() {
             if (argv[ai] == "--release") { isRelease = true; }
             else if (argv[ai] == "--workspace") { isWorkspace = true; }
             else if (argv[ai] == "--no-incremental") { noIncremental = true; }
+            else if (argv[ai] == "--fix") { isFix = true; }
             else if (argv[ai] == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
             else if (argv[ai] == "--opt" && ai + 1 < argv.Length) {
                 int b = Opt.ByName(argv[ai + 1]);
@@ -73,10 +75,10 @@ void Main() {
         if (cliAdd != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
         else if (cliRemove != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
         if (isWorkspace) {
-            Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet));
+            Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet));   // --fix 暂不作用于 workspace（多成员批量），单包路径生效
             return;
         }
-        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental, optSet));
+        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental, optSet, isFix));
         return;
     }
     if (cmd == "--emit-zbc") {
@@ -116,7 +118,7 @@ void Main() {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet) {
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
@@ -234,6 +236,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
+    cin.Fix = fix;         // PR7-wire：`--fix` → _runAnalyzers 传 6-参 Run，analyzer 携修复就地重写源
     cin.OptSet = optSet;   // add-compiler-inlining：-1=profile 默认；否则 CLI 解析后的优化集
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
@@ -468,7 +471,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int opt
     int i = 0;
     while (i < ordered.Length) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
-        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true, optSet);
+        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true, optSet, false);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -502,7 +505,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet) {
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true, optSet);
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true, optSet, false);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;
@@ -537,6 +540,7 @@ void _usage() {
     Console.WriteLine("  z42c --emit-zbc    <file.z42> <out>    compile to .zbc (subset)");
     Console.WriteLine("  z42c build         <project.z42.toml>  build packed .zpkg -> dist/");
     Console.WriteLine("                     [--no-incremental]  force full rebuild (skip cache probe)");
+    Console.WriteLine("                     [--fix]             apply analyzer code fixes in place to source");
     Console.WriteLine("  z42c build --workspace [--output-dir <d>] build all members (topo order);");
     Console.WriteLine("                                          omit --output-dir for per-member layout");
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");

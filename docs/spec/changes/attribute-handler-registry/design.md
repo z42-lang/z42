@@ -812,12 +812,27 @@ else                  { diags.Report(rule, span); }
 - **`Span` 自带 `File`/`Start`/`End`**（字节偏移，`_mergeDiags` 已用 `dg.Span.File`）→ `TextEdit.At` 自定位
   源文件与字节区间，应用侧**无需额外传路径**。
 
-### 就地应用（PR7-wire）
+### 就地应用（PR7-wire，✅ 已实现 #—）
 
-`DiagSinkImpl`（z42c.semantics）在 `--fix` 模式下额外实现 `FixSink`，`ReportFix` = 照常报诊断进 bag **并**
-把 `CodeFix` 收进列表；一个 CU = 一个源文件，`AnalyzerDriver.Run` 走完该 CU 后，若 `fix`，按 `TextEdit.At.Start`
-**降序**（避免前序编辑移位后序偏移）就地重写 `TextEdit.At.File`（`Std.IO`）。z42c 自建无 `[analyzers]` → gate
-off → 不进 → 逐字节不动。
+`DiagSinkImpl`（z42c.semantics）额外实现 `FixSink`（`class DiagSinkImpl : DiagSink, FixSink`），`ReportFix`
+= 照常经共用 `_report` 报诊断进 bag（抑制/severity 决策不变）**并**——仅当诊断真正报出（未抑制/未禁用）
+且 `Collect`（`--fix` 激活）——把 `CodeFix` 的编辑收进 `Fixes` 增长数组。一个 CU = 一个源文件，
+`AnalyzerDriver.Run(...,fix)` 走完该 CU 后，若 `fix && FixCount>0`，按 `TextEdit.At.Start` **降序**（`_sortEditsDesc`，
+避免前序编辑移位后序偏移）就地重写 `edits[0].At.File`。`Run` 的 5-参重载委托 6-参 `fix=false`。
+driver `--fix` flag → `cin.Fix` → `PackageCompile._runAnalyzers` 调 6-参 `Run`。z42c 自建无 `[analyzers]` →
+`analyzers` 空、`_runAnalyzers` 提前 return → 不触发 → 逐字节不动（self-host 5/5 证）。
+
+**实测两点（偏离/补充设计）**：
+
+1. **z42c.semantics 新增 `z42.io` 直接依赖**（用 `File.ReadAllText/WriteAllText`）。z42.io **本已在 semantics
+   传递闭包**（semantics→z42.ir→z42.io，且 axis ④ 由 `_ensureBootstrapZ42Ir` 预建）→ 加**直接**依赖边不
+   引入新 stdlib、不改自建产物（gated off）；`File` 是**预建 stdlib 既有符号**（种子 z42.io.zpkg 已含，
+   非在建包新符号）→ 与 support 预种的 syntax→semantics 契约不同类，冷启动由 CI compile-toolchain 双门兜底。
+2. **splice 用 `String.Substring` 而非字节操作**：`Span.Start/End` 虽注为「byte offset」（C# 镜像语义），实际
+   源自 Lexer `_pos`（`CharAt`/`Substring` 字符索引推进）→ 就地 splice 必须用**同一字符串 API** 保持偏移
+   一致：`src.Substring(0, At.Start) + NewText + src.Substring(At.End)`。**零宽插入**（`At.Start==At.End`）用
+   于「catch 前插标记」类修复——因本 parser decl/stmt Span 是首 token span（`Span.End` 只覆盖首 token，见
+   PR3c SuppressionSet 头注），故非破坏性插入比区间替换更稳，替换类修复须用**token 级 Span**（`End` 有意义）。
 
 ### staged-bootstrap（PR7-support / PR7-wire，**关键 F2 约束**）
 
@@ -829,7 +844,7 @@ off → 不进 → 逐字节不动。
 | 阶段 | 内容 | 为何 F2-安全 |
 |------|------|------------|
 | **PR7-support**（本 PR，nightly N） | ① syntax 加 3 契约类型（纯 additive）；② semantics `AnalyzerDriver.Run` 加 `bool fix` 重载（体空转，委托 5-参）；③ pipeline `CompileInputs.Fix` bool（未接）。docs。 | 契约类型**无任何 in-tree 消费**；重载签名**只含原始 bool**（不引用 syntax 新类型）；`Fix` 字段**无人 set/read**（driver 不引用）→ 冷启动零新跨成员消费、z42c 自建逐字节不动。 |
-| **PR7-wire**（nightly N+1） | DiagSinkImpl 实现 FixSink 收集+就地应用；driver `--fix`→`inp.Fix`→`_runAnalyzers` 调 6-参 `Run`；内建可修复规则 + 跨包 golden。 | 契约类型/6-参 Run 签名/`Fix` 字段**均已随 support 进种子** → wire 的 syntax→semantics 消费、driver→pipeline `inp.Fix` set、pipeline→semantics 6-参调用**全部零新未种子符号**。 |
+| **PR7-wire**（nightly N+1，✅ 已实现） | DiagSinkImpl 实现 FixSink 收集+就地应用；driver `--fix`→`inp.Fix`→`_runAnalyzers` 调 6-参 `Run`；semantics 加 z42.io 直接依赖（File）；可修复 analyzer demo（Z9010，FixSink 下转）+ 跨包 golden（fixture 携修复就地重写真实 consumer 文件）。 | 契约类型/6-参 Run 签名/`Fix` 字段**均已随 support 进种子** → wire 的 syntax→semantics 消费、driver→pipeline `inp.Fix` set、pipeline→semantics 6-参调用**全部零新未种子符号**；semantics→z42.io 直接边的目标 `File` 是预建 stdlib 既有符号（种子已含）。 |
 
 > **为何不能单 PR**：wire 需要 semantics 引用 syntax 新类型（FixSink/CodeFix），而 support 阶段编 semantics 时
 > DepScan 读的是**种子（pre-PR7）syntax.zpkg**（无这些类型）→ E0401。support 阶段因此**不能含任何 syntax→

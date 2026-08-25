@@ -313,7 +313,9 @@ public static class PackageCompile {
             CompilationUnit cu = inp.Cus[i];
             if (cu != null) {
                 DiagnosticBag bag = new DiagnosticBag();
-                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints);
+                // PR7-wire：传 inp.Fix 调 6-参 Run——true（`z42c build --fix`）→ analyzer 携修复就地重写
+                // cu 的源文件（TextEdit.At.File）。z42c 自建无 [analyzers] → analyzers 空、提前 return → 不触发。
+                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints, inp.Fix);
                 if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
             }
             i = i + 1;

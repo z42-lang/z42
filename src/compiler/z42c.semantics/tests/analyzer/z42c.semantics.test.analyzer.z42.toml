@@ -13,6 +13,7 @@ include = ["**/*.z42"]
 "z42c.semantics" = "0.1.0"
 "z42c.syntax"    = "0.1.0"
 "z42c.core"      = "0.1.0"
+"z42.io"         = "0.1.0"   # PR7-wire：File/Environment/Directory/Path —— --fix 就地重写单测（temp 文件）
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component)。
