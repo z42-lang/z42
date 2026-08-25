@@ -1,0 +1,48 @@
+// 编译期表达式宏（attribute-handler-registry PR6b，caller info，零格式-bump）。
+//
+// parser 把 `name!()`（v1：caller_member/caller_line/caller_file/module_path）译成既有
+// `IdentExpr("$macro:"+name)` 哨兵（见 ExprParser「PR6b」注）——不新增任何 syntax AST 节点，故
+// z42c.semantics 只靠既有 IdentExpr.Name 识别，**无新 syntax→semantics 跨包符号** → 避开 F2
+// 冷启动 stale-cache（[[two-gen-bootstrap-regressed-blocks-format-bumps]] 邻近 PR4d/4e 教训）。
+//
+// 本 helper 全在 z42c.semantics **包内**（被 ClassDescBuilder/DeclBinder/OverloadBinder/ExprTyper
+// 引用）→ 包内符号解析，F2-安全。caller kind 白名单也在此（design「语义层按宏名白名单认」）。
+//
+// 持久化：caller 宏 → param attr-ref `$Caller:<kind>` 哨兵（FactoryFunc 空；PR6 infra 的
+// IrParamDefault.Caller() 读回、ImportedSymbolLoader 填 Z42FuncType.ParamCallers）。
+// 注入：调用点省略实参 → OverloadBinder._callerLiteral 注入 enclosing member/line/file/namespace 字面量。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+public static class CallerMacro {
+    // parser 产出的宏哨兵名前缀（IdentExpr.Name = "$macro:" + 宏名）。
+    public static string Prefix = "$macro:";
+
+    // Expr 是否为编译期宏哨兵。
+    public static bool IsMacro(Expr e) {
+        if (!(e is IdentExpr)) { return false; }
+        return (e as IdentExpr).Name.StartsWith(CallerMacro.Prefix);
+    }
+
+    // 宏名（去掉 "$macro:" 前缀），如 "caller_member"。调用方须先 IsMacro 为真。
+    public static string NameOf(Expr e) {
+        string n = (e as IdentExpr).Name;
+        return n.Substring(CallerMacro.Prefix.Length, n.Length - CallerMacro.Prefix.Length);
+    }
+
+    // caller 宏名 → caller kind（"member"/"line"/"file"/"module"）；非白名单宏 → ""（未知 → E0450）。
+    public static string KindOf(string macroName) {
+        if (macroName == "caller_member") { return "member"; }
+        if (macroName == "caller_line")   { return "line"; }
+        if (macroName == "caller_file")   { return "file"; }
+        if (macroName == "module_path")   { return "module"; }
+        return "";
+    }
+
+    // 该 kind 要求的参数类型（"line" → int；其余 → string）。定义侧类型校验用。
+    public static bool ParamTypeOk(string kind, string typeName) {
+        if (kind == "line") { return typeName == "int"; }
+        return typeName == "string";
+    }
+}

@@ -147,6 +147,38 @@ try { risky(); } catch (Error e) { }   // 此处 Z9002 被抑制
 - 判定统一在 `DiagSinkImpl.Report`（z42c.semantics `AnalyzerDriver.z42`）：severity 决策**之前**先查 `SuppressionSet.IsSuppressed(ruleId, at.Start)`，命中即整条丢弃、不进 `DiagnosticBag`。
 - 全貌见 [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md) §诊断/severity/开关「PR3c 落地」。
 
+## 编译期 caller 宏：参数默认值注入（PR6b）
+
+对齐 C# `[CallerMemberName]` / `[CallerLineNumber]` / `[CallerFilePath]`——4 个内建编译期表达式宏，**仅可用作
+可选参数的默认值**，调用点省略该实参时由编译器注入**调用方上下文**（日志 / 断言 / 诊断的常见需求）：
+
+```z42
+class Log {
+    // 省略后 4 个实参 → 编译器按调用点注入
+    public static void info(string msg,
+                            string member = caller_member!(),   // 调用方 enclosing 成员名
+                            int    line   = caller_line!(),     // 调用点行号
+                            string file   = caller_file!(),     // 调用点源文件
+                            string mod    = module_path!()) {   // 调用点命名空间
+        Console.WriteLine(msg + " @" + member + ":" + line.ToString());
+    }
+}
+
+void run() {
+    Log.info("hello");                 // member="run"、line=本行、file=本文件、mod=本命名空间
+    Log.info("bye", "customCaller");   // 显式实参覆盖对应 caller 默认
+}
+```
+
+- **语法**：`name!()`（复用 `!` + `()`，无新 token / 无新 AST 节点——parser 译成内部 `IdentExpr("$macro:"+name)`
+  哨兵，`$` 非法于真标识符故零撞名）。**仅这 4 个宏名合法，且只在参数默认值位**；用错宏名 / 参数类型不符
+  （member/file/module 须 `string`、line 须 `int`）/ 用在普通表达式位 → **E0450**。
+- **持久化 / 跨包**：零格式-bump——默认值编成 `$Caller:<kind>` param attr-ref 哨兵（骑 zbc 1.15 通道，同 PR5
+  `$Deprecated` / PR6 `$Default`）。跨包调用同样在**消费方调用点**注入其上下文（非定义 lib 的）。
+- **反射**：caller 参数 `ParameterInfo.DefaultValue` = `null`（无固定值，值由调用点决定）。
+- **v1 限制**：单层 call-site 注入（无 ABI 改动）；Rust `[track_caller]` 式多层传播留作宏注册表将来追加。
+- 实现原理（哨兵译法、F2-安全设计、注入数据流）见 [attribute-handler-registry design](../../spec/changes/attribute-handler-registry/design.md) §caller 宏语法（PR6b 实现）。
+
 ## Deferred / Future Work
 
 ### ~~attribute-future-method-level（C3b）~~ — 已落地

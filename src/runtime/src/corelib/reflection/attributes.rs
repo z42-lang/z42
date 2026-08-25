@@ -189,6 +189,14 @@ pub(super) fn call_attribute_factories(
     };
     let mut out = Vec::with_capacity(attrs.len());
     for a in attrs {
+        // attribute-handler-registry: internal sentinels use a `$` prefix that cannot
+        // collide with real attribute type names (`$` is not a valid identifier char):
+        // `$Deprecated` (PR5), `$Default` (PR6), `$Caller:*` (PR6b). They carry compiler
+        // metadata, not user attributes, and have no factory function — skip them so
+        // `GetCustomAttributes()` doesn't surface a bogus `Null` element for each.
+        if a.type_name.starts_with('$') {
+            continue;
+        }
         let instance = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
             crate::interp::run_returning(ctx, &module, &module.functions[idx], &[])?
         } else if let Some(func) = ctx.try_lookup_function(&a.factory_func) {

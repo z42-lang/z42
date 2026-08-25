@@ -16,7 +16,8 @@ public sealed class TypeChecker {
     public StrMap _lambdaLocals;
     public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     public ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
-    public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用）
+    public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用；PR6b module_path!() 注入源）
+    public string _curMemberName;           // PR6b：当前 enclosing 成员名（DeclBinder._bindMethodBody 设）；caller_member!() 注入源。语义内、F2 安全
     public CompilationUnit _curCu;          // add-deprecated-directive：当前检查中的 CU（use-site 弃用告警的 #suppress 源）
     public SuppressionSet  _curSuppress;    // add-deprecated-directive：本 CU 的 #suppress 区间集（cu.SuppressRegions，PR3c）；语义内、F2 安全
     public OverloadBinder _overload;      // review P1-1：重载决议子绑定器（backref mediator）
@@ -37,6 +38,7 @@ public sealed class TypeChecker {
         this._lambdaActive = false;
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";
+        this._curMemberName = "";   // PR6b：caller_member!() 注入源，进 method body 前由 _bindMethodBody 设
         this._curCu = null; this._curSuppress = null;   // add-deprecated-directive
         this._overload = new OverloadBinder(this);
         this._member = new MemberResolver(this);

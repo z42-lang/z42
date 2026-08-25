@@ -1,0 +1,17 @@
+// attribute-handler-registry PR6b：caller 宏跨包消费方。全部省略可选实参 → 注入的必须是**本消费方
+// 调用点**上下文（member=Main / namespace=Demo.CmApp / 本文件 / 调用行），而非生产方 lib 的上下文。
+namespace Demo.CmApp;
+
+using Std.IO;
+using Demo.CmTarget;
+
+void Main() {
+    Console.WriteLine(Log.mem());                        // enclosing 成员名 → Main
+    Console.WriteLine(Log.mod());                        // 消费方命名空间 → Demo.CmApp
+    int l1 = Log.line();
+    int l2 = Log.line();
+    Console.WriteLine((l2 - l1).ToString());             // 相邻调用行号差 → 1
+    string f = Log.file();
+    if (f.EndsWith(".z42")) { Console.WriteLine("file-ok"); } else { Console.WriteLine(f); }
+    Console.WriteLine(Log.mem("explicit"));              // 显式实参覆盖 caller 默认 → explicit
+}

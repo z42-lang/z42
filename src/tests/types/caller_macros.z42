@@ -1,0 +1,27 @@
+// attribute-handler-registry PR6b：编译期 caller 宏（同包端到端）。
+// `caller_member!()` / `caller_line!()` / `caller_file!()` / `module_path!()` 只合法于参数默认值位；
+// 调用点省略实参时，编译器注入 enclosing member / 调用行号 / 源文件 / 命名空间（C# CallerXxx 式，
+// 无 ABI、零格式-bump——持久化为 `$Caller:*` param attr-ref 哨兵，跨包对称注入见 cross-zpkg/caller_macro_cross_pkg）。
+// 显式传实参 → 覆盖对应的 caller 默认（见 mem("custom")）。
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class Log {
+    public static string mem(string m = caller_member!()) { return m; }
+    public static int line(int l = caller_line!()) { return l; }
+    public static string file(string f = caller_file!()) { return f; }
+    public static string mod(string p = module_path!()) { return p; }
+}
+
+void Main() {
+    Console.WriteLine(Log.mem());                        // 注入 enclosing 成员名 → "Main"
+    Console.WriteLine(Log.mod());                        // 注入命名空间 → "Demo"
+    int l1 = Log.line();
+    int l2 = Log.line();
+    Console.WriteLine((l2 - l1).ToString());             // 两次相邻调用行号差 → "1"（稳定于文件位置）
+    string f = Log.file();
+    if (f.EndsWith(".z42")) { Console.WriteLine("file-ok"); } else { Console.WriteLine(f); }
+    Console.WriteLine(Log.mem("custom"));                // 显式实参覆盖 caller 默认 → "custom"
+}

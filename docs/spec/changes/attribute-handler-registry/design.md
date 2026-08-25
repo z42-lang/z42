@@ -737,12 +737,37 @@ SIGS per-param default_kind 字节 → 写 0（vestigial，物理删除需 bump�
 [反射] reflection.rs：读 param attr-ref $Default → 解码 ConstBlob → Value（替代旧 param_defaults 元组）
 ```
 
-### caller 宏语法（新，support-先行）
+### caller 宏语法（PR6b 实现，support-先行）
 
 - 表达式宏 `caller_member!()` / `caller_line!()` / `caller_file!()` / `module_path!()`；**v1 仅合法于参数默认值位**
-  （别处 → 报错，对齐 C# CallerXxx 限定可选参数）。
-- 词法零改动优先：复用既有 `Bang`(`!`) + `(`；语义层按宏名白名单认（4 个内建宏）。若 Pratt 后缀不便，
-  再加最小 `MacroCallExpr` 节点。
+  （别处 → 报错 **E0450**，对齐 C# CallerXxx 限定可选参数）。
+- 词法零改动：复用既有 `Bang`(`!`) + `()`。
+- **⚠️ F2-安全设计（实现转向，关键）——不新增 `MacroCallExpr` AST 节点**：草案曾拟「若 Pratt 不便加最小
+  `MacroCallExpr` 节点」。勘察证实这在自举编译器上**冷启动危险**：编译器 workspace 成员间 dep 走**预建
+  `.zpkg`**（`DepScan` 扫 libsDir），故 z42c.syntax 新增 `MacroCallExpr` 类型、被 z42c.semantics
+  `x is MacroCallExpr` 引用 = **新 syntax→semantics 跨包符号**，会撞 F2（#247 `DepScanCache` path-only key）
+  冷启动 stale-cache → `E0401 undefined MacroCallExpr`，且**本地不可复现**（[[two-gen-bootstrap-regressed-blocks-format-bumps]]
+  邻近 PR4d/4e 教训；末次 Ast.z42 加节点 #240 早于 F2，无 post-F2 先例）。
+  **解 = parser 把 `name!()` 译成既有 `IdentExpr("$macro:"+name)` 哨兵**（`$` 非法于真标识符 → 零撞名，
+  同本 change `$Default`/`$Caller` 哨兵哲学）。z42c.semantics 只经既有 `IdentExpr.Name.StartsWith("$macro:")`
+  识别（helper `CallerMacro`，semantics **包内** → 包内符号解析，F2-安全）——**无新跨包类型**。
+- **语义层白名单**（`CallerMacro.KindOf`）：caller_member→member / caller_line→line / caller_file→file /
+  module_path→module；未知宏名 → E0450。
+- **持久化**（`ClassDescBuilder._paramAttrRefs`）：caller 宏 → `IrAttrRef{TypeName="$Caller:<kind>", FactoryFunc=""}`
+  哨兵（先于 ConstBlob.Encode 分流；PR6 的 `IrParamDefault.Caller()`/`ExportedParamZ.CallerKind`/
+  `Z42FuncType.ParamCallers` reader infra 直接复用）。
+- **注入**（`OverloadBinder._callerLiteral`，读**消费方调用点**上下文，同/跨包对称）：member=`_curMemberName`
+  （`DeclBinder._bindMethodBody` 进体前设 md.Name，覆盖类方法/impl/free func；lambda 继承）/ line=调用 `Span.Line`
+  / file=`Span.File` / module=`_currentNs`。字符串走三引号 raw 形式（`Lexer.DecodeString` 逐字保留，免转义）。
+  同包截在 `_adaptArgs`（`_bindExpr` 前，否则落 `ExprTyper._bindIdent` 误报 E0450），跨包走 `_crossPkgDefault`
+  读 `sig.ParamCallers[i]`。
+- **误用诊断 E0450**（`DiagnosticCodes.CallerMacroInvalid` 登记，但**语义层用字面量 `"E0450"` 发码**——不引用
+  新 core 常量，避 core→semantics 新跨成员符号撞 F2，同 PR4e E0449 手法）：未知宏名 / 参数类型不符
+  （member/file/module 须 string、line 须 int，`DeclBinder` 定义侧校验）/ 出现在非参数默认值位（`ExprTyper`）。
+- **反射（E.2）零 Rust 格式改**：caller 参数无 `$Default` → `param_default_from_blob` 返 None → fallback
+  kind 0 → `Value::Null`（=「无固定值」）。顺带修 `call_attribute_factories` 过滤 `$`-前缀哨兵（否则
+  `$Caller:*`/`$Default` 会给 param `GetCustomAttributes()` push 一个 Null 元素——PR5/PR6 既有潜伏 leak）。
+- **z42c / stdlib / xtask 源不使用**这些宏（仅加 support）→ 上一 nightly 能编当前源 → 单 PR、不触两-nightly（同 PR3c `#suppress`）。
 - **z42c / stdlib / xtask 源不使用**这些宏（仅加 support）→ 上一 nightly 能编当前源 → 单 PR、不触两-nightly（同 PR3c `#suppress`）。
 
 ### 自举 / bump 安全
