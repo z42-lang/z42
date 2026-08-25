@@ -1,0 +1,240 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// CU 预处理 + 命名空间遮蔽/作用域解析辅助（从 IrDump 分出，irdump-pipeline-split）：global using 注入、
+// file-scoped using 强制、活跃 ns 集、local-wins 遮蔽剔除、包内类名/ns 图、文件 stem。叶子（不调兄弟簇）。
+public static class CuPreprocess {
+    // G17b：构建「短类名 → 声明 ns」图（跨-zpkg imported + 包内每个有 ns 的类/接口）。
+    // 镜像 C# QualifyClassName 经 ImportedClassNamespaces 把 using 引入的同包跨-ns 类限定到
+    // 其声明 ns；同 ns 类 declNs==currentNs，QualifyClass 结果与 Qualify(currentNs) 一致（无回归）。
+    // 全包共用一张图（类 FQ 名恒为 declNs.name，与引用方 CU 无关，无需按 CU using 过滤）。
+    private static StrMap _pkgClassNs(CompilationUnit[] cus, int count, ImportedSymbols imported) {
+        StrMap m = new StrMap();
+        if (imported != null && imported.ClassNamespaces != null) {
+            string[] ks = imported.ClassNamespaces.Keys();
+            int j = 0;
+            while (j < ks.Length) { m.Put(ks[j], imported.ClassNamespaces.Get(ks[j])); j = j + 1; }
+        }
+        int i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            if (cu.HasNamespace && cu.Namespace != "") {
+                int d = 0;
+                while (d < cu.DeclCount) {
+                    Decl dd = cu.Decls[d];
+                    if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+                    if (dd is ClassDecl) { m.Put((dd as ClassDecl).Name, new StrBox(cu.Namespace)); }
+                    d = d + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return m;
+    }
+    // 本包**自有声明**类名集（G18：ChainHasMethod 反劫持守卫仅认本地类，镜像 C# ClassRegistry 仅本地）。
+    // 含所有 ns / 无 ns 的本包 class·struct（不含 imported）。值=占位 StrBox（仅用 ContainsKey）。
+    internal static StrMap _pkgLocalClasses(CompilationUnit[] cus, int count) {
+        StrMap m = new StrMap();
+        int i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            int d = 0;
+            while (d < cu.DeclCount) {
+                Decl dd = cu.Decls[d];
+                if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+                if (dd is ClassDecl) {
+                    ClassDecl cd = dd as ClassDecl;
+                    if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") { m.Put(cd.Name, new StrBox(cd.Name)); }
+                }
+                d = d + 1;
+            }
+            i = i + 1;
+        }
+        return m;
+    }
+    // 文件 stem（SA-3 镜像 C# GetFileNameWithoutExtension）：cu 源文件 basename 去 .z42。
+    internal static string _stem(CompilationUnit cu) {
+        string path = cu.Span.File;
+        int slash = 0 - 1;
+        int i = path.Length - 1;
+        bool more = i >= 0;
+        while (more) {
+            char ch = path.CharAt(i);
+            if (ch == '/' || ch == '\\') { slash = i; more = false; } else { i = i - 1; more = i >= 0; }
+        }
+        string base2 = path;
+        if (slash >= 0) { base2 = path.Substring(slash + 1, path.Length - slash - 1); }
+        if (base2.EndsWith(".z42")) { base2 = base2.Substring(0, base2.Length - 4); }
+        return base2;
+    }
+    // 剔除被**本 CU 声明类**遮蔽的 imported 名（local-wins shadowing，ns-aware）。仅当本 CU 声明的类
+    // 名在 ImportedClassNs 中映射到**不同于本 CU ns** 的 ns 时才剔除（= 真 import 遮蔽，如用户
+    // `class Stack`@Demo 遮蔽 Std.Collections.Stack）。本包跨-ns 自有类（声明在别的 CU/ns）不在本 CU
+    // decls 中 → 不剔除 → 保留其 cross-ns 限定（避免误删致自举 emit 崩溃）。返回过滤副本，不改原表。
+    internal static StrMap _filterShadowed(StrMap imported, CompilationUnit cu) {
+        if (imported == null) { return imported; }
+        string myNs = "";
+        if (cu.HasNamespace) { myNs = cu.Namespace; }
+        StrMap exclude = new StrMap();
+        int di = 0;
+        while (di < cu.DeclCount) {
+            Decl dd = cu.Decls[di];
+            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+            if (dd is ClassDecl) {
+                string cn = (dd as ClassDecl).Name;
+                if (imported.ContainsKey(cn)) {
+                    StrBox b = imported.Get(cn) as StrBox;
+                    if (b != null && b.Value != myNs) { exclude.Put(cn, "1"); }
+                }
+            }
+            di = di + 1;
+        }
+        if (exclude.Keys().Length == 0) { return imported; }
+        StrMap r = new StrMap();
+        string[] ks = imported.Keys();
+        int i = 0;
+        while (i < ks.Length) {
+            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
+            i = i + 1;
+        }
+        return r;
+    }
+    // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）+ **prelude 命名空间**。
+    // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
+    // **prelude（z42.core，namespace Std / Std.Runtime）必须纳入**——它免 `using` 恒可见；漏掉会让
+    // 「`using Std.Test` 但裸 `Assert.Equal`（靠 prelude 的 Std.Assert）」被唯一命中误消歧到 Std.Test.Assert
+    // （common-pitfalls §1 的「AssertionError→values not equal」回归）。纳入后 Std.Assert 与 Std.Test.Assert
+    // 同时活跃 → 歧义 → GetStaticScoped 返回 null → 回落短键 prelude-first → Std.Assert（既有行为，字节不动）。
+    // add-global-using：收集全包 `global using` 名，注入到每个 CU 的 Decls（缺则补），
+    // 使其对每个文件的名字解析生效。既有 per-CU using 提取点（_activeNamespaces 等）自动纳入。
+    // 幂等：注入的 UsingDecl.IsGlobal=false，重复调用时"已存在"检查跳过。
+    internal static void _injectGlobalUsings(CompilationUnit[] cus, int count) {
+        string[] globals = new string[8];
+        int gc = 0;
+        int ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int di = 0;
+            while (di < cu.DeclCount) {
+                if (cu.Decls[di] is UsingDecl) {
+                    UsingDecl u = cu.Decls[di] as UsingDecl;
+                    if (u.IsGlobal) {
+                        bool seen = false;
+                        int g = 0; while (g < gc) { if (globals[g] == u.Name) { seen = true; } g = g + 1; }
+                        if (!seen) {
+                            if (gc == globals.Length) {
+                                string[] b = new string[globals.Length * 2];
+                                int m = 0; while (m < gc) { b[m] = globals[m]; m = m + 1; }
+                                globals = b;
+                            }
+                            globals[gc] = u.Name; gc = gc + 1;
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            ci = ci + 1;
+        }
+        if (gc == 0) { return; }
+        ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int g = 0;
+            while (g < gc) {
+                bool has = false;
+                int di = 0;
+                while (di < cu.DeclCount) {
+                    if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == globals[g]) { has = true; }
+                    di = di + 1;
+                }
+                if (!has) {
+                    if (cu.DeclCount == cu.Decls.Length) {
+                        Decl[] nb = new Decl[cu.Decls.Length * 2 + 1];
+                        int m = 0; while (m < cu.DeclCount) { nb[m] = cu.Decls[m]; m = m + 1; }
+                        cu.Decls = nb;
+                    }
+                    cu.Decls[cu.DeclCount] = new UsingDecl(globals[g], cu.Span);
+                    cu.DeclCount = cu.DeclCount + 1;
+                }
+                g = g + 1;
+            }
+            ci = ci + 1;
+        }
+    }
+    // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
+    // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime, 本 ns} 覆盖，否则 E0436。
+    // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
+    internal static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
+        int u = 0;
+        while (u < cm.UsedDepNsCount) {
+            string ns = cm.UsedDepNs[u];
+            bool allowed = (ns == "Std" || ns == "Std.Runtime");
+            if (cu.HasNamespace && ns == cu.Namespace) { allowed = true; }
+            int di = 0;
+            while (di < cu.DeclCount) {
+                if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == ns) { allowed = true; }
+                di = di + 1;
+            }
+            if (!allowed) {
+                string pmsg = file + "(1,1): " + DiagnosticCodes.MissingUsing
+                    + ": namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
+                int oldn = cm.DiagCount;
+                string[] nw = new string[oldn + 1];
+                int q = 0; while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
+                nw[oldn] = pmsg;
+                cm.DiagMsgs = nw; cm.DiagCount = oldn + 1;
+                cm.ErrorCount = cm.ErrorCount + 1;
+            }
+            u = u + 1;
+        }
+    }
+    internal static string[] _activeNamespaces(CompilationUnit cu) {
+        int uc = 0;
+        int i = 0;
+        while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
+        int extra = 0;
+        if (cu.HasNamespace) { extra = 1; }
+        // + 2 个 prelude 命名空间（Std / Std.Runtime）——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
+        string[] r = new string[uc + extra + 2];
+        int k = 0;
+        i = 0;
+        while (i < cu.DeclCount) {
+            if (cu.Decls[i] is UsingDecl) { r[k] = (cu.Decls[i] as UsingDecl).Name; k = k + 1; }
+            i = i + 1;
+        }
+        if (cu.HasNamespace) { r[k] = cu.Namespace; k = k + 1; }
+        r[k] = "Std"; k = k + 1;
+        r[k] = "Std.Runtime";
+        return r;
+    }
+    // 自由函数版遮蔽剔除（fix-imported-free-func-namespace，镜像 _filterShadowed）：本 CU 顶层
+    // 声明的自由函数遮蔽同名 imported —— 从 FunctionNamespaces 剔除，使 QualifyFreeFunc 回落当前 ns
+    // （local-wins：本地 `foo` 不误绑到某依赖包的 public `foo`）。
+    internal static StrMap _filterShadowedFuncs(StrMap imported, CompilationUnit cu) {
+        if (imported == null) { return imported; }
+        StrMap exclude = new StrMap();
+        int di = 0;
+        while (di < cu.DeclCount) {
+            Decl dd = cu.Decls[di];
+            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+            if (dd is MethodDecl) {
+                string fname = (dd as MethodDecl).Name;
+                if (imported.ContainsKey(fname)) { exclude.Put(fname, "1"); }
+            }
+            di = di + 1;
+        }
+        if (exclude.Keys().Length == 0) { return imported; }
+        StrMap r = new StrMap();
+        string[] ks = imported.Keys();
+        int i = 0;
+        while (i < ks.Length) {
+            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
+            i = i + 1;
+        }
+        return r;
+    }
+}

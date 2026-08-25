@@ -1,0 +1,129 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 单 CU / partial 编译内核（从 IrDump 分出，irdump-pipeline-split）：per-file typecheck+codegen（_compileCu）
+// + partial 碎片合并（_buildMergedPartial/_mergeFragments）。全私有内核，仅 IrDump 门面同包内调用。
+public static class CuCompile {
+    // add-partial-types：为每个 partial 类型构建一条**合并 ClassDecl**（全碎片成员按 Ordinal(cus 已 Ordinal 排序)
+    // + 声明序拼接；基表并集按 Dump dedup）。仅主碎片（IrGen 判 min-path）用它发 TYPE record → 单条完整 record，
+    // VM/loader/zbc 格式零改动。非 partial 类型不入表（IrGen 回落本地 ClassDecl）。
+    internal static StrMap _buildMergedPartial(CompilationUnit[] cus, int count, SymbolTable symbols) {
+        StrMap merged = new StrMap();
+        StrMap seen = new StrMap();
+        int a = 0;
+        while (a < count) {
+            int di = 0;
+            while (di < cus[a].DeclCount) {
+                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (!seen.ContainsKey(cd.Name)) {
+                        bool isPart = false;
+                        if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
+                            Z42ClassType ct = symbols.GetClass(cd.Name) as Z42ClassType;
+                            isPart = ct != null && ct.IsPartial;
+                        } else if (cd.Kind == "interface") {
+                            Z42InterfaceType it = symbols.Interfaces.Get(cd.Name) as Z42InterfaceType;
+                            isPart = it != null && it.IsPartial;
+                        }
+                        if (isPart) {
+                            seen.Put(cd.Name, "1");
+                            merged.Put(cd.Name, CuCompile._mergeFragments(cus, count, cd));
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            a = a + 1;
+        }
+        return merged;
+    }
+    // 拼接同名 partial 碎片为一条 ClassDecl：成员（Ordinal(cus)+声明序）+ 基表并集（Dump dedup）；
+    // 壳（kind/mods/name/tps/wheres/span）取 head（=首碎片=主碎片，与 PartialMainFile 一致）。
+    private static ClassDecl _mergeFragments(CompilationUnit[] cus, int count, ClassDecl head) {
+        Decl[] mems = new Decl[8]; int mc = 0;
+        TypeExpr[] bases = new TypeExpr[4]; int bc = 0;
+        int a = 0;
+        while (a < count) {
+            int di = 0;
+            while (di < cus[a].DeclCount) {
+                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
+                if (d is ClassDecl) {
+                    ClassDecl cd = d as ClassDecl;
+                    if (cd.Name == head.Name && cd.Kind == head.Kind) {
+                        int mi = 0;
+                        while (mi < cd.MemberCount) {
+                            if (mc == mems.Length) { Decl[] gb = new Decl[mems.Length * 2]; int k = 0; while (k < mc) { gb[k] = mems[k]; k = k + 1; } mems = gb; }
+                            mems[mc] = cd.Members[mi]; mc = mc + 1; mi = mi + 1;
+                        }
+                        int bii = 0;
+                        while (bii < cd.BaseCount) {
+                            string bnm = cd.Bases[bii].Dump();
+                            bool dup = false; int q = 0; while (q < bc) { if (bases[q].Dump() == bnm) { dup = true; } q = q + 1; }
+                            if (!dup) {
+                                if (bc == bases.Length) { TypeExpr[] gb2 = new TypeExpr[bases.Length * 2]; int k = 0; while (k < bc) { gb2[k] = bases[k]; k = k + 1; } bases = gb2; }
+                                bases[bc] = cd.Bases[bii]; bc = bc + 1;
+                            }
+                            bii = bii + 1;
+                        }
+                    }
+                }
+                di = di + 1;
+            }
+            a = a + 1;
+        }
+        return new ClassDecl(head.Kind, head.Mods, head.Name, head.TypeParams, bases, bc, head.Wheres, head.WhereCount, mems, mc, head.Span);
+    }
+    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet) {
+        var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
+        var model = new TypeChecker(diags).Infer(cu, symbols);
+        var gen = new IrGen();
+        gen.Deps = deps;
+        gen.IsRelease = isRelease;   // 传入 release 标志（strip debug info）
+        gen.SourceStem = CuPreprocess._stem(cu);
+        gen.SourceFile = file;           // add-partial-types：主碎片判定（对 Z42ClassType.PartialMainFile）
+        gen.PartialMerged = partialMerged;   // add-partial-types：partial 类型 → 合并 ClassDecl（主碎片发 TYPE record）
+        // 本地声明类遮蔽同名 imported（shadowing：用户 `class Stack<T>` 遮蔽 stdlib Std.Collections.Stack）
+        // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
+        // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
+        gen.ImportedClassNs = CuPreprocess._filterShadowed(classNs, cu);
+        if (imported != null) { gen.ImportedFuncNs = CuPreprocess._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
+        gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
+        string[] actNs = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
+        gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
+        IrModule irm = gen.Generate(cu, model, optSet);
+        string[] usings = new string[8];
+        int uc = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            if (cu.Decls[i] is UsingDecl) {
+                if (uc == usings.Length) {   // 修存量越界：第 9 个 using 曾直接炸（固定 8 无扩容；镜像 BuildModuleD 的扩容）
+                    string[] b = new string[usings.Length * 2];
+                    int k = 0;
+                    while (k < uc) { b[k] = usings[k]; k = k + 1; }
+                    usings = b;
+                }
+                usings[uc] = (cu.Decls[i] as UsingDecl).Name;
+                uc = uc + 1;
+            }
+            i = i + 1;
+        }
+        string ns = "";
+        if (cu.HasNamespace) { ns = cu.Namespace; }
+        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, diags.ErrorCount());
+        string[] dm = new string[diags.Count()];
+        int di = 0;
+        while (di < diags.Count()) {
+            Diagnostic dg = diags.Get(di);
+            dm[di] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
+            di = di + 1;
+        }
+        cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
+        return cm2;
+    }
+}
