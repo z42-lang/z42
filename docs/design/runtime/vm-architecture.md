@@ -313,6 +313,14 @@ struct ZpkgCandidate {
 }
 ```
 
+> **解析 vs 生命周期分层**（refactor-metadata-namespace-index，2026-08-25）：
+> `ZpkgCandidate` 与「扫 libs 目录 → 逐 zpkg 读 NSPC → 建 namespace↔path 候选」这段
+> **无状态解析**逻辑住在 `metadata/namespace_index.rs`（`scan_zpkg_candidates` /
+> `scan_zbc_candidates`，返回 owned 候选）。两个消费者按「弃/留」分工同一原语：
+> **loader**（`resolve_namespace`，编译期工具/诊断）扫完精确匹配即 **drop** 候选（transient）；
+> **lazy_loader** 把候选**留存**进 `declared_zpkgs`、配 `loaded_zpkgs` 管加载/释放
+> 生命周期（retaining）。生命周期不进原语——「何时加载/加载什么/何时释放」只在 lazy_loader。
+
 ### Call miss 触发策略（Decision 1：策略 C + 回退 B）
 
 ```

@@ -88,6 +88,10 @@
 
 **建议**：提取 `metadata/namespace_index.rs`（`NamespaceIndex`：namespace → candidates 的统一查询 + rebuild），loader 与 lazy_loader 共享；resolver（token 解析 + inline cache）职责独立，保持不动。
 
+**✅ 落地（2026-08-25，分两步）**：
+- **步骤 1（纯搬移）**：`loader.rs` 1237 拆 5 concern 子模块全 <500（PR #289，已合并）。
+- **步骤 2（分层归一）**：复盘发现 review 说的「两个查找函数重叠」表述不准——`find_namespace_in_*_dirs`（磁盘扫描/精确/PathBuf）与 `candidates_for_namespace`（内存表/前缀/String/过滤 loaded）**匹配策略与状态本质不同，强并会揉出条件参数**。真正的重叠是**下层的「扫目录+读 NSPC」解析原语**，且 lazy_loader 曾**反向调 `loader::resolve_namespace`**（跨模块耦合）。故按**「解析 vs 生命周期」**分层：提取无状态 `namespace_index`（`scan_zpkg_candidates`/`scan_zbc_candidates` 返 owned 候选 + `ZpkgCandidate` + `read_zbc_namespace`），loader 用完即弃（transient）、lazy_loader 留存管生命周期（retaining）；去掉反向依赖。**刻意不做**：不合并两个查询函数（各自消费同一原语即可）；不动 `seed_types_for_lookup` vs `build_type_registry`（是「类型表」非「namespace 索引」，目的不同）。app.rs `build_declared_candidates`（第三份拷贝）消费公开 `resolve_namespace`、暂留作 follow-up。
+
 ### M2. VmContext 呈 god object 趋势
 
 `vm_context.rs:133-320` 的 VmCore 有 30+ 字段，其中 **10 个是完全相同的 `Mutex<HashMap<u64, T>>` + `AtomicU64` 计数器模式**（processes / threads / mutexes / channels / file_handles / tcp_sockets / tcp_listeners / tls_sockets / udp_sockets / rwlocks）。
@@ -181,7 +185,7 @@ mutator 下一个 safepoint 用 `swap(false)` 抢占 + `request_gc_pause` 下 ST
 | 3 | `refactor-zbc-reader-split` | H2(zbc_reader 拆 10 子模块，全 <500) + M3(opcodes 集中，**不建投机 OpcodeInfo 表**) + M4(verify_zbc/zpkg_version 集中 strict-pin，**不建 has_feature**) | runtime | 🟢 done |
 | 4 | `refactor-jit-translate-split` | H2(translate 拆 20 子模块，全 <500) + H3(semantics.rs 单一真相源 + unsupported 表 + 边界 golden 差分) | runtime | 🟢 done（commits a34bed57/804f0fd8/017f4f85）|
 | 5 | `refactor-vm-context-resource-registry` | H2(vm_context 拆 9 子模块，全 <500) + M2(`ResourceRegistry<T>` 归一 10 张 slot table，VmCore 字段 20→10) | runtime | 🟢 done |
-| 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ☐ |
+| 6 | `refactor-metadata-namespace-index` | M1 + H2(loader) | runtime | ✅ 步骤1 #289 合 + 步骤2（namespace_index 分层）实施中 |
 | 7 | `refactor-reflection-split` | H2(reflection 拆 11 子模块，全 <500) + L3(corelib README) | runtime | 🟢 done |
 | 8 | `refactor-interp-boilerplate` | M5（OOM helper + cached_token! 宏 + TypeTag 单一源；#3 resolve_function 复核后刻意不做） | runtime | 🟢 done |
 | 9 | `add-gc-tuning-config` | M3(GC 调参：3 比率入 config，`promotion_threshold` 刻意不做) + M6(safepoint 三态协议文档 + book 机制页) | runtime | 🟢 done |
