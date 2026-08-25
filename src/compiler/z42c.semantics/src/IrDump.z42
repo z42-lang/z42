@@ -1,5 +1,3 @@
-// IR dump 工具（port-z42c-codegen CG-1A）。源 → typecheck → codegen → .zasm-like IR 文本。
-// 供 [Test] 断言 + driver `--dump-ir`（后续）。纯函数（内部建临时 DiagnosticBag）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
@@ -7,6 +5,10 @@ using Z42.Core;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 
+// IR dump/emit + 包编译门面（port-z42c-codegen CG-1A）：源 → typecheck → codegen → .zasm-like IR 文本 / .zbc
+// 字节 / CompiledModuleZ 束。供 [Test] 断言 + driver `--dump-ir`/`--emit-zbc` + pipeline 包编译。
+// 跨包公开 API 全留本类（自举稳定：pipeline/driver 依赖的接口冻结）；私有 CU 编译内核分出 CuCompile、
+// CU 预处理/ns 遮蔽分出 CuPreprocess（irdump-pipeline-split，均同包内消费故 member-compile 内解析）。
 public static class IrDump {
     // 指定函数（key="Class.Method" / 顶层函数名）的 IR 文本。
     public static string DumpFunc(string src, string funcKey) {
@@ -18,12 +20,10 @@ public static class IrDump {
         }
         return "(no-func " + funcKey + ")";
     }
-
     // 整模块 IR 文本（所有函数）。
     public static string DumpModule(string src) {
         return IrDump._build(src).Dump();
     }
-
     // 指定 optSet 的函数 dump（add-compiler-inlining Phase 2：内联/独立性单测用；
     // 传 Opt.All 开内联、Opt.Inline 单独验内联、Opt.None 验 -O0）。
     public static string DumpFuncOpt(string src, string funcKey, int optSet) {
@@ -35,43 +35,35 @@ public static class IrDump {
         }
         return "(no-func " + funcKey + ")";
     }
-
     // 指定 optSet 的整模块 dump。
     public static string DumpModuleOpt(string src, int optSet) {
         return IrDump._buildFOpt(src, "<input>", optSet).Dump();
     }
-
     // 整模块 → byte-identical .zbc 的小写 hex（golden-hex 断言；port-z42c-zbc-writer）。
     public static string DumpZbcHex(string src) {
         return ZbcWriter.WriteHex(IrDump._build(src));
     }
-
     // 整模块 → .zbc 字节（driver --emit-zbc 写盘；纯函数，IO 在 driver）。file 进 span→DBUG（basename 化在 TrackLine）。
     public static byte[] ZbcBytes(string src, string file) {
         return ZbcWriter.Write(IrDump._buildF(src, file)).ToBytes();
     }
-
     // deps-aware 单文件 emit（replace-csharp Phase C：golden regen 脱 dotnet 需跨包 dep 解析，
     // 否则调 stdlib（Assert/Console）的源 emit 出 `<error>` 函数名）。镜像 build 路径用 BuildModuleD。
     public static byte[] ZbcBytesD(string src, string file, DependencyIndex deps, ImportedSymbols imported) {
         CompiledModuleZ cm = IrDump.BuildModuleD(src, file, deps, imported);
         return ZbcWriter.Write(cm.Module).ToBytes();
     }
-
     // golden-hex 断言用：指定文件名（DBUG file 串须与 C# 同源 capture 一致）。
     public static string DumpZbcHexF(string src, string file) {
         return ZbcWriter.WriteHex(IrDump._buildF(src, file));
     }
-
     private static IrModule _build(string src) {
         return IrDump._buildF(src, "<input>");
     }
-
     // 公开：源→IrModule（pipeline/driver build 用）。
     public static IrModule BuildModule(string src, string file) {
         return IrDump._buildF(src, file);
     }
-
     // 全文件 parse（+ AttributeSynth 合成工厂）。增量路径先 parse 后闭包 → CU 复用进
     // BuildPackageCus，避免二次 parse（add-file-level-incremental D2）。
     public static CompilationUnit[] ParseAll(string[] srcs, string[] files, int count) {
@@ -84,7 +76,6 @@ public static class IrDump {
         }
         return cus;
     }
-
     // 包级编译（PS-1）：全文件 parse → 全包合并收集 → 逐文件 typecheck/codegen（per-file IrModule）。
     public static CompiledModuleZ[] BuildPackage(string[] srcs, string[] files, int count,
                                                  DependencyIndex deps, ImportedSymbols imported,
@@ -92,7 +83,6 @@ public static class IrDump {
         return IrDump.BuildPackageCus(srcs, files, count, IrDump.ParseAll(srcs, files, count),
                                       deps, imported, isRelease, null, Opt.ProfileDefault(isRelease));
     }
-
     // 增量变体（add-file-level-incremental D2）：cachedModules[i] 非 null → 该文件跳过
     // typecheck/codegen，IrModule 用 cache 读回件；符号收集 / allFuncs / classNs / classMap /
     // TSIG（Exported）恒全包重算（每文件 TSIG 全包耦合——自由函数兄弟泄漏 + 全包 AST）。
@@ -102,13 +92,13 @@ public static class IrDump {
                                                     DependencyIndex deps, ImportedSymbols imported,
                                                     bool isRelease, IrModule[] cachedModules, int optSet) {
         int i = 0;
-        IrDump._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
+        CuPreprocess._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
         SymbolCollector coll = new SymbolCollector();
         SymbolTable symbols = coll.CollectAll(cus, files, count, imported);   // add-partial-types：files 供主碎片跟踪 + 合并校验
         // infer-var-field-types：SymbolCollect 后、TSIG Export 前——从初始化器推断 static var
         // 字段类型、回写 fs.FieldType（消除「var」降级态，使导出 + 跨包消费得真实类型）。
         VarFieldInfer.Run(cus, count, symbols);
-        StrMap partialMerged = IrDump._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
+        StrMap partialMerged = CuCompile._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
         // F4+F12：符号收集后的 4 趟独立全 CU 扫融成一趟——classNs（G17b 跨-ns 类名解析图）/
         // localClasses（G18 本地类集）/ pkgClassMap（跨文件基类 map）/ allFuncs（全包自由函数聚合）
         // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。单文件 emit 路径仍用
@@ -172,9 +162,9 @@ public static class IrDump {
                                            new string[0], 0, 0);
                 r[i].DiagMsgs = new string[0]; r[i].DiagCount = 0;
             } else {
-                r[i] = IrDump._compileCu(cus[i], files[i], symbols, deps, imported, classNs, localClasses, isRelease, partialMerged, optSet);
+                r[i] = CuCompile._compileCu(cus[i], files[i], symbols, deps, imported, classNs, localClasses, isRelease, partialMerged, optSet);
             }
-            IrDump._enforceFileScope(cus[i], files[i], r[i]);   // add-file-scoped-usings：跨包未-using 报错
+            CuPreprocess._enforceFileScope(cus[i], files[i], r[i]);   // add-file-scoped-usings：跨包未-using 报错
             string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
             if (cus[i].HasNamespace) { ns2 = cus[i].Namespace; }
             r[i].Exported = ExportedTypeExtractor.ExtractP(cus[i], symbols, ns2, allFuncs, afc, pkgClassMap, classNs);
@@ -199,365 +189,6 @@ public static class IrDump {
         }
         return r;
     }
-
-    // add-partial-types：为每个 partial 类型构建一条**合并 ClassDecl**（全碎片成员按 Ordinal(cus 已 Ordinal 排序)
-    // + 声明序拼接；基表并集按 Dump dedup）。仅主碎片（IrGen 判 min-path）用它发 TYPE record → 单条完整 record，
-    // VM/loader/zbc 格式零改动。非 partial 类型不入表（IrGen 回落本地 ClassDecl）。
-    private static StrMap _buildMergedPartial(CompilationUnit[] cus, int count, SymbolTable symbols) {
-        StrMap merged = new StrMap();
-        StrMap seen = new StrMap();
-        int a = 0;
-        while (a < count) {
-            int di = 0;
-            while (di < cus[a].DeclCount) {
-                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
-                if (d is ClassDecl) {
-                    ClassDecl cd = d as ClassDecl;
-                    if (!seen.ContainsKey(cd.Name)) {
-                        bool isPart = false;
-                        if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
-                            Z42ClassType ct = symbols.GetClass(cd.Name) as Z42ClassType;
-                            isPart = ct != null && ct.IsPartial;
-                        } else if (cd.Kind == "interface") {
-                            Z42InterfaceType it = symbols.Interfaces.Get(cd.Name) as Z42InterfaceType;
-                            isPart = it != null && it.IsPartial;
-                        }
-                        if (isPart) {
-                            seen.Put(cd.Name, "1");
-                            merged.Put(cd.Name, IrDump._mergeFragments(cus, count, cd));
-                        }
-                    }
-                }
-                di = di + 1;
-            }
-            a = a + 1;
-        }
-        return merged;
-    }
-
-    // 拼接同名 partial 碎片为一条 ClassDecl：成员（Ordinal(cus)+声明序）+ 基表并集（Dump dedup）；
-    // 壳（kind/mods/name/tps/wheres/span）取 head（=首碎片=主碎片，与 PartialMainFile 一致）。
-    private static ClassDecl _mergeFragments(CompilationUnit[] cus, int count, ClassDecl head) {
-        Decl[] mems = new Decl[8]; int mc = 0;
-        TypeExpr[] bases = new TypeExpr[4]; int bc = 0;
-        int a = 0;
-        while (a < count) {
-            int di = 0;
-            while (di < cus[a].DeclCount) {
-                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
-                if (d is ClassDecl) {
-                    ClassDecl cd = d as ClassDecl;
-                    if (cd.Name == head.Name && cd.Kind == head.Kind) {
-                        int mi = 0;
-                        while (mi < cd.MemberCount) {
-                            if (mc == mems.Length) { Decl[] gb = new Decl[mems.Length * 2]; int k = 0; while (k < mc) { gb[k] = mems[k]; k = k + 1; } mems = gb; }
-                            mems[mc] = cd.Members[mi]; mc = mc + 1; mi = mi + 1;
-                        }
-                        int bii = 0;
-                        while (bii < cd.BaseCount) {
-                            string bnm = cd.Bases[bii].Dump();
-                            bool dup = false; int q = 0; while (q < bc) { if (bases[q].Dump() == bnm) { dup = true; } q = q + 1; }
-                            if (!dup) {
-                                if (bc == bases.Length) { TypeExpr[] gb2 = new TypeExpr[bases.Length * 2]; int k = 0; while (k < bc) { gb2[k] = bases[k]; k = k + 1; } bases = gb2; }
-                                bases[bc] = cd.Bases[bii]; bc = bc + 1;
-                            }
-                            bii = bii + 1;
-                        }
-                    }
-                }
-                di = di + 1;
-            }
-            a = a + 1;
-        }
-        return new ClassDecl(head.Kind, head.Mods, head.Name, head.TypeParams, bases, bc, head.Wheres, head.WhereCount, mems, mc, head.Span);
-    }
-
-    // G17b：构建「短类名 → 声明 ns」图（跨-zpkg imported + 包内每个有 ns 的类/接口）。
-    // 镜像 C# QualifyClassName 经 ImportedClassNamespaces 把 using 引入的同包跨-ns 类限定到
-    // 其声明 ns；同 ns 类 declNs==currentNs，QualifyClass 结果与 Qualify(currentNs) 一致（无回归）。
-    // 全包共用一张图（类 FQ 名恒为 declNs.name，与引用方 CU 无关，无需按 CU using 过滤）。
-    private static StrMap _pkgClassNs(CompilationUnit[] cus, int count, ImportedSymbols imported) {
-        StrMap m = new StrMap();
-        if (imported != null && imported.ClassNamespaces != null) {
-            string[] ks = imported.ClassNamespaces.Keys();
-            int j = 0;
-            while (j < ks.Length) { m.Put(ks[j], imported.ClassNamespaces.Get(ks[j])); j = j + 1; }
-        }
-        int i = 0;
-        while (i < count) {
-            CompilationUnit cu = cus[i];
-            if (cu.HasNamespace && cu.Namespace != "") {
-                int d = 0;
-                while (d < cu.DeclCount) {
-                    Decl dd = cu.Decls[d];
-                    if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-                    if (dd is ClassDecl) { m.Put((dd as ClassDecl).Name, new StrBox(cu.Namespace)); }
-                    d = d + 1;
-                }
-            }
-            i = i + 1;
-        }
-        return m;
-    }
-
-    // 本包**自有声明**类名集（G18：ChainHasMethod 反劫持守卫仅认本地类，镜像 C# ClassRegistry 仅本地）。
-    // 含所有 ns / 无 ns 的本包 class·struct（不含 imported）。值=占位 StrBox（仅用 ContainsKey）。
-    private static StrMap _pkgLocalClasses(CompilationUnit[] cus, int count) {
-        StrMap m = new StrMap();
-        int i = 0;
-        while (i < count) {
-            CompilationUnit cu = cus[i];
-            int d = 0;
-            while (d < cu.DeclCount) {
-                Decl dd = cu.Decls[d];
-                if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-                if (dd is ClassDecl) {
-                    ClassDecl cd = dd as ClassDecl;
-                    if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") { m.Put(cd.Name, new StrBox(cd.Name)); }
-                }
-                d = d + 1;
-            }
-            i = i + 1;
-        }
-        return m;
-    }
-
-    // 文件 stem（SA-3 镜像 C# GetFileNameWithoutExtension）：cu 源文件 basename 去 .z42。
-    private static string _stem(CompilationUnit cu) {
-        string path = cu.Span.File;
-        int slash = 0 - 1;
-        int i = path.Length - 1;
-        bool more = i >= 0;
-        while (more) {
-            char ch = path.CharAt(i);
-            if (ch == '/' || ch == '\\') { slash = i; more = false; } else { i = i - 1; more = i >= 0; }
-        }
-        string base2 = path;
-        if (slash >= 0) { base2 = path.Substring(slash + 1, path.Length - slash - 1); }
-        if (base2.EndsWith(".z42")) { base2 = base2.Substring(0, base2.Length - 4); }
-        return base2;
-    }
-
-    // 剔除被**本 CU 声明类**遮蔽的 imported 名（local-wins shadowing，ns-aware）。仅当本 CU 声明的类
-    // 名在 ImportedClassNs 中映射到**不同于本 CU ns** 的 ns 时才剔除（= 真 import 遮蔽，如用户
-    // `class Stack`@Demo 遮蔽 Std.Collections.Stack）。本包跨-ns 自有类（声明在别的 CU/ns）不在本 CU
-    // decls 中 → 不剔除 → 保留其 cross-ns 限定（避免误删致自举 emit 崩溃）。返回过滤副本，不改原表。
-    private static StrMap _filterShadowed(StrMap imported, CompilationUnit cu) {
-        if (imported == null) { return imported; }
-        string myNs = "";
-        if (cu.HasNamespace) { myNs = cu.Namespace; }
-        StrMap exclude = new StrMap();
-        int di = 0;
-        while (di < cu.DeclCount) {
-            Decl dd = cu.Decls[di];
-            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-            if (dd is ClassDecl) {
-                string cn = (dd as ClassDecl).Name;
-                if (imported.ContainsKey(cn)) {
-                    StrBox b = imported.Get(cn) as StrBox;
-                    if (b != null && b.Value != myNs) { exclude.Put(cn, "1"); }
-                }
-            }
-            di = di + 1;
-        }
-        if (exclude.Keys().Length == 0) { return imported; }
-        StrMap r = new StrMap();
-        string[] ks = imported.Keys();
-        int i = 0;
-        while (i < ks.Length) {
-            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
-            i = i + 1;
-        }
-        return r;
-    }
-
-    // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）+ **prelude 命名空间**。
-    // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
-    // **prelude（z42.core，namespace Std / Std.Runtime）必须纳入**——它免 `using` 恒可见；漏掉会让
-    // 「`using Std.Test` 但裸 `Assert.Equal`（靠 prelude 的 Std.Assert）」被唯一命中误消歧到 Std.Test.Assert
-    // （common-pitfalls §1 的「AssertionError→values not equal」回归）。纳入后 Std.Assert 与 Std.Test.Assert
-    // 同时活跃 → 歧义 → GetStaticScoped 返回 null → 回落短键 prelude-first → Std.Assert（既有行为，字节不动）。
-    // add-global-using：收集全包 `global using` 名，注入到每个 CU 的 Decls（缺则补），
-    // 使其对每个文件的名字解析生效。既有 per-CU using 提取点（_activeNamespaces 等）自动纳入。
-    // 幂等：注入的 UsingDecl.IsGlobal=false，重复调用时"已存在"检查跳过。
-    private static void _injectGlobalUsings(CompilationUnit[] cus, int count) {
-        string[] globals = new string[8];
-        int gc = 0;
-        int ci = 0;
-        while (ci < count) {
-            CompilationUnit cu = cus[ci];
-            int di = 0;
-            while (di < cu.DeclCount) {
-                if (cu.Decls[di] is UsingDecl) {
-                    UsingDecl u = cu.Decls[di] as UsingDecl;
-                    if (u.IsGlobal) {
-                        bool seen = false;
-                        int g = 0; while (g < gc) { if (globals[g] == u.Name) { seen = true; } g = g + 1; }
-                        if (!seen) {
-                            if (gc == globals.Length) {
-                                string[] b = new string[globals.Length * 2];
-                                int m = 0; while (m < gc) { b[m] = globals[m]; m = m + 1; }
-                                globals = b;
-                            }
-                            globals[gc] = u.Name; gc = gc + 1;
-                        }
-                    }
-                }
-                di = di + 1;
-            }
-            ci = ci + 1;
-        }
-        if (gc == 0) { return; }
-        ci = 0;
-        while (ci < count) {
-            CompilationUnit cu = cus[ci];
-            int g = 0;
-            while (g < gc) {
-                bool has = false;
-                int di = 0;
-                while (di < cu.DeclCount) {
-                    if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == globals[g]) { has = true; }
-                    di = di + 1;
-                }
-                if (!has) {
-                    if (cu.DeclCount == cu.Decls.Length) {
-                        Decl[] nb = new Decl[cu.Decls.Length * 2 + 1];
-                        int m = 0; while (m < cu.DeclCount) { nb[m] = cu.Decls[m]; m = m + 1; }
-                        cu.Decls = nb;
-                    }
-                    cu.Decls[cu.DeclCount] = new UsingDecl(globals[g], cu.Span);
-                    cu.DeclCount = cu.DeclCount + 1;
-                }
-                g = g + 1;
-            }
-            ci = ci + 1;
-        }
-    }
-
-    // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
-    // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime, 本 ns} 覆盖，否则 E0436。
-    // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
-    private static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
-        int u = 0;
-        while (u < cm.UsedDepNsCount) {
-            string ns = cm.UsedDepNs[u];
-            bool allowed = (ns == "Std" || ns == "Std.Runtime");
-            if (cu.HasNamespace && ns == cu.Namespace) { allowed = true; }
-            int di = 0;
-            while (di < cu.DeclCount) {
-                if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == ns) { allowed = true; }
-                di = di + 1;
-            }
-            if (!allowed) {
-                string pmsg = file + "(1,1): " + DiagnosticCodes.MissingUsing
-                    + ": namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
-                int oldn = cm.DiagCount;
-                string[] nw = new string[oldn + 1];
-                int q = 0; while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
-                nw[oldn] = pmsg;
-                cm.DiagMsgs = nw; cm.DiagCount = oldn + 1;
-                cm.ErrorCount = cm.ErrorCount + 1;
-            }
-            u = u + 1;
-        }
-    }
-
-    private static string[] _activeNamespaces(CompilationUnit cu) {
-        int uc = 0;
-        int i = 0;
-        while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
-        int extra = 0;
-        if (cu.HasNamespace) { extra = 1; }
-        // + 2 个 prelude 命名空间（Std / Std.Runtime）——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
-        string[] r = new string[uc + extra + 2];
-        int k = 0;
-        i = 0;
-        while (i < cu.DeclCount) {
-            if (cu.Decls[i] is UsingDecl) { r[k] = (cu.Decls[i] as UsingDecl).Name; k = k + 1; }
-            i = i + 1;
-        }
-        if (cu.HasNamespace) { r[k] = cu.Namespace; k = k + 1; }
-        r[k] = "Std"; k = k + 1;
-        r[k] = "Std.Runtime";
-        return r;
-    }
-
-    // 自由函数版遮蔽剔除（fix-imported-free-func-namespace，镜像 _filterShadowed）：本 CU 顶层
-    // 声明的自由函数遮蔽同名 imported —— 从 FunctionNamespaces 剔除，使 QualifyFreeFunc 回落当前 ns
-    // （local-wins：本地 `foo` 不误绑到某依赖包的 public `foo`）。
-    private static StrMap _filterShadowedFuncs(StrMap imported, CompilationUnit cu) {
-        if (imported == null) { return imported; }
-        StrMap exclude = new StrMap();
-        int di = 0;
-        while (di < cu.DeclCount) {
-            Decl dd = cu.Decls[di];
-            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-            if (dd is MethodDecl) {
-                string fname = (dd as MethodDecl).Name;
-                if (imported.ContainsKey(fname)) { exclude.Put(fname, "1"); }
-            }
-            di = di + 1;
-        }
-        if (exclude.Keys().Length == 0) { return imported; }
-        StrMap r = new StrMap();
-        string[] ks = imported.Keys();
-        int i = 0;
-        while (i < ks.Length) {
-            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
-            i = i + 1;
-        }
-        return r;
-    }
-
-    private static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet) {
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        var model = new TypeChecker(diags).Infer(cu, symbols);
-        var gen = new IrGen();
-        gen.Deps = deps;
-        gen.IsRelease = isRelease;   // 传入 release 标志（strip debug info）
-        gen.SourceStem = IrDump._stem(cu);
-        gen.SourceFile = file;           // add-partial-types：主碎片判定（对 Z42ClassType.PartialMainFile）
-        gen.PartialMerged = partialMerged;   // add-partial-types：partial 类型 → 合并 ClassDecl（主碎片发 TYPE record）
-        // 本地声明类遮蔽同名 imported（shadowing：用户 `class Stack<T>` 遮蔽 stdlib Std.Collections.Stack）
-        // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
-        // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
-        gen.ImportedClassNs = IrDump._filterShadowed(classNs, cu);
-        if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
-        gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
-        string[] actNs = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
-        gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
-        IrModule irm = gen.Generate(cu, model, optSet);
-        string[] usings = new string[8];
-        int uc = 0;
-        int i = 0;
-        while (i < cu.DeclCount) {
-            if (cu.Decls[i] is UsingDecl) {
-                if (uc == usings.Length) {   // 修存量越界：第 9 个 using 曾直接炸（固定 8 无扩容；镜像 BuildModuleD 的扩容）
-                    string[] b = new string[usings.Length * 2];
-                    int k = 0;
-                    while (k < uc) { b[k] = usings[k]; k = k + 1; }
-                    usings = b;
-                }
-                usings[uc] = (cu.Decls[i] as UsingDecl).Name;
-                uc = uc + 1;
-            }
-            i = i + 1;
-        }
-        string ns = "";
-        if (cu.HasNamespace) { ns = cu.Namespace; }
-        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, diags.ErrorCount());
-        string[] dm = new string[diags.Count()];
-        int di = 0;
-        while (di < diags.Count()) {
-            Diagnostic dg = diags.Get(di);
-            dm[di] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
-            di = di + 1;
-        }
-        cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
-        return cm2;
-    }
-
     // 公开：带跨包依赖的编译（CI-4）。imported 合并符号表；deps 驱动静态调用 FQ 命中。
     public static CompiledModuleZ BuildModuleD(string src, string file, DependencyIndex deps, ImportedSymbols imported) {
         var p = new Parser(src, file);
@@ -574,13 +205,13 @@ public static class IrDump {
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
-        gen.SourceStem = IrDump._stem(cu);
+        gen.SourceStem = CuPreprocess._stem(cu);
         gen.SourceFile = file;                                        // add-partial-types：主碎片判定
-        gen.PartialMerged = IrDump._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
-        gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
-        if (imported != null) { gen.ImportedClassNs = IrDump._filterShadowed(imported.ClassNamespaces, cu); }
-        if (imported != null) { gen.ImportedFuncNs = IrDump._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
-        string[] actNs2 = IrDump._activeNamespaces(cu);   // path C：static call using-scoped 消歧
+        gen.PartialMerged = CuCompile._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
+        gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
+        if (imported != null) { gen.ImportedClassNs = CuPreprocess._filterShadowed(imported.ClassNamespaces, cu); }
+        if (imported != null) { gen.ImportedFuncNs = CuPreprocess._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
+        string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         // 单模块 / --dump-ir / codegen 单测 / golden .zbc regen 路径：本地优化但**不内联**
         // （Opt.All - Inline，add-compiler-inlining Phase 2）。codegen/zbc golden 断言的是优化后 IR
@@ -621,7 +252,6 @@ public static class IrDump {
         cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
         return cm2;
     }
-
     // 公开：从**已解析** CU 收 using 名，零 reparse（F1）。包编译已有 CompilationUnit 在手时走此入口。
     public static string[] UsingsOf(CompilationUnit cu) {
         string[] usings = new string[8];
@@ -645,12 +275,10 @@ public static class IrDump {
         while (i < uc) { r[i] = usings[i]; i = i + 1; }
         return r;
     }
-
     // 公开：文本入口（仅 --emit-zbc 无-CU 独立路径 Main.z42 用）。有 CU 时改用 UsingsOf 免 reparse（F1）。
     public static string[] ExtractUsings(string src, string file) {
         return UsingsOf(new Parser(src, file).ParseCompilationUnit());
     }
-
     // 公开：源→导出类型签名（TSIG；port-z42c-tsig）。独立 parse+collect（与 BuildModule 分离，
     // 形态简单；增量编译期再合并为单趟）。
     public static ExportedModuleZ ExtractExports(string src, string file, string ns) {
@@ -659,7 +287,6 @@ public static class IrDump {
         var symbols = new SymbolCollector().Collect(cu);
         return ExportedTypeExtractor.Extract(cu, symbols, ns);
     }
-
     private static IrModule _buildF(string src, string file) {
         // dump / codegen-golden 默认 optSet = Opt.All **减去 Inline**（add-compiler-inlining Phase 2）：
         // 单函数 dump / golden 断言的是「单函数本地优化后」的 IR（const-fold/copy-prop/dce），**不含**
@@ -669,7 +296,6 @@ public static class IrDump {
         // 同理减去 StackAlloc（add-escape-analysis）：跨函数 + 模块级、会改 golden 字节 → 单函数 dump 路径不跑。
         return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt);
     }
-
     // 带显式 optSet 的 dump 构建（内联 / 独立性单测：传 Opt.All 开内联、传 Opt.Inline 单独验内联）。
     private static IrModule _buildFOpt(string src, string file, int optSet) {
         var p = new Parser(src, file);
@@ -679,25 +305,9 @@ public static class IrDump {
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
-        gen.SourceStem = IrDump._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
+        gen.SourceStem = CuPreprocess._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
-        gen.LocalClasses = IrDump._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
+        gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
         return gen.Generate(cu, model, optSet);
-    }
-}
-
-// 带依赖编译的产物束（CI-4）。
-public sealed class CompiledModuleZ {
-    public IrModule Module;
-    public ExportedModuleZ Exported;   // PS-1：包级提取（全包函数泄漏镜像）
-    public string[] DiagMsgs; public int DiagCount;   // 诊断详情（driver 打印）
-    public string   Namespace;  // cu 真实 ns（""=无——C# ZbcFile.Namespace 语义；≠ IrModule.Name 的 "main" 缺省）
-    public string[] Usings;     public int UsingCount;
-    public string[] UsedDepNs;  public int UsedDepNsCount;
-    public int      ErrorCount;
-    public CompiledModuleZ(IrModule irm, string ns, string[] usings, int usingCount,
-                           string[] usedDepNs, int usedDepNsCount, int errorCount) {
-        this.Module = irm; this.Namespace = ns; this.Usings = usings; this.UsingCount = usingCount;
-        this.UsedDepNs = usedDepNs; this.UsedDepNsCount = usedDepNsCount; this.ErrorCount = errorCount;
     }
 }

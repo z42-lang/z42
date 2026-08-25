@@ -1,0 +1,22 @@
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 带依赖编译的产物束（CI-4）。
+public sealed class CompiledModuleZ {
+    public IrModule Module;
+    public ExportedModuleZ Exported;   // PS-1：包级提取（全包函数泄漏镜像）
+    public string[] DiagMsgs; public int DiagCount;   // 诊断详情（driver 打印）
+    public string   Namespace;  // cu 真实 ns（""=无——C# ZbcFile.Namespace 语义；≠ IrModule.Name 的 "main" 缺省）
+    public string[] Usings;     public int UsingCount;
+    public string[] UsedDepNs;  public int UsedDepNsCount;
+    public int      ErrorCount;
+    public CompiledModuleZ(IrModule irm, string ns, string[] usings, int usingCount,
+                           string[] usedDepNs, int usedDepNsCount, int errorCount) {
+        this.Module = irm; this.Namespace = ns; this.Usings = usings; this.UsingCount = usingCount;
+        this.UsedDepNs = usedDepNs; this.UsedDepNsCount = usedDepNsCount; this.ErrorCount = errorCount;
+    }
+}
