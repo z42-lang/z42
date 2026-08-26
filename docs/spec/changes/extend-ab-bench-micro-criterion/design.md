@@ -102,6 +102,16 @@ CI 首跑暴露：base 树 `bench stdlib` 内部 `_assembleAllLibs(base-src)` �
 BASEALL 成功跑 base 场景，故复用之最稳。）本机自验：override 指向自组 alllibs → z42b 建成 + 7 基准 + mean_ns，
 EXIT=0。
 
+### B1.3 base 预 Part-A 过渡：SEM 缺则回落区间感知（CI 实战修正）
+
+CI 首个跑到 micro 门禁的运行暴露：**base 树跑的是 base stdlib 的 Bencher**（Part A 的 mean/stddev 富化在
+PR、不在 base），故 base 基线 `mean_ns=stddev_ns=-1` → `_abVerdict` 恒 no-ci 裸比值 → 一个噪声基准
+（string_concat 抖到 +17.6%）假红。**修复**：`_microVerdict` 分流——base 与 pr **都**带 SEM 才走 `_abVerdict`；
+否则回落**区间感知**（两基线恒有 `value`+`ci_lower/ci_upper`=median+min/max）：`R_lower = pr.min/base.max`、
+`R_upper = pr.max/base.min`，复用同一 `_abClassify`（R_lower>1+thr 判红）。min/max 区间宽 → 重叠 → 噪声不假红。
+**本 change 合并 + 一个 nightly 后**，base 也带 mean/stddev → 全 SEM。用 CI 真实基线复验：55 比较、
+string_concat 从假红转 overlap、exit 0。
+
 ### B2 复用既有 micro 编译/运行机制（原设想，被 B1.1/B1.2 取代）
 
 micro 的「编 bench 模块 → z42b 跑 → 解析 stats」全套已在 `_testLibCore`/`_runLibKind`

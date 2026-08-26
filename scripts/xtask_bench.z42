@@ -410,8 +410,7 @@ int _benchMicroDiff(ParseResult r) {
         string mkey   = _epBenchModeKey(c);
         JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
         if (b == null) { newb = newb + 1; j = j + 1; continue; }
-        AbVerdict v = _abVerdict(_microMean(b), _microSd(b), _microN(b),
-                                 _microMean(c), _microSd(c), _microN(c), thr);
+        AbVerdict v = _microVerdict(b, c, thr);
         compared = compared + 1;
         _abPrint(name, mkey, v);
         if (v.IsRegression) { regr = regr + 1; }
@@ -428,6 +427,50 @@ int _benchMicroDiff(ParseResult r) {
     }
     Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
     return 0;
+}
+
+// Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when
+// BOTH baselines carry it. During the transition where the base tree predates
+// Part A's Bencher enrichment (base mean_ns/stddev_ns = -1, since base stdlib's
+// Bencher emits the old summary line), fall back to the INTERVAL-AWARE min/max
+// comparison — both baselines always carry value + ci_lower/ci_upper. Same
+// R_lower > 1+thr criterion either way (via _abClassify). After this change ships
+// and one nightly passes, base baselines also carry mean/stddev → full SEM.
+AbVerdict _microVerdict(JsonValue b, JsonValue c, double thr) {
+    if (_microHasSem(b) && _microHasSem(c)) {
+        return _abVerdict(_microMean(b), _microSd(b), _microN(b),
+                          _microMean(c), _microSd(c), _microN(c), thr);
+    }
+    AbVerdict v = new AbVerdict();
+    double baseV = b.Get("value").AsDouble();
+    double prV   = c.Get("value").AsDouble();
+    if (baseV <= 0.0 || prV <= 0.0) { v.Verdict = "no-data"; return v; }
+    v.Ratio = prV / baseV;
+    if (!_microHasCiBounds(b) || !_microHasCiBounds(c)) {
+        v.HasCi = false; v.RLower = v.Ratio; v.RUpper = v.Ratio;
+        _abClassify(v, thr);
+        return v;
+    }
+    // Ratio CI from the min/max intervals: [pr.lo/base.hi, pr.hi/base.lo]. A
+    // regression needs pr's fastest sample to still exceed base's slowest by the
+    // threshold (R_lower > 1+thr) — overlapping intervals ⇒ noise ⇒ not a regression.
+    double bLo = b.Get("ci_lower").AsDouble(); double bHi = b.Get("ci_upper").AsDouble();
+    double cLo = c.Get("ci_lower").AsDouble(); double cHi = c.Get("ci_upper").AsDouble();
+    if (bHi <= 0.0 || bLo <= 0.0) { v.RLower = v.Ratio; v.RUpper = v.Ratio; v.HasCi = false; _abClassify(v, thr); return v; }
+    v.RLower = cLo / bHi;
+    v.RUpper = cHi / bLo;
+    _abClassify(v, thr);
+    return v;
+}
+
+// SEM usable ⟺ mean present + stddev>0 + samples>1 (matches _abVerdict's haveCi).
+bool _microHasSem(JsonValue b) {
+    return b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0
+        && b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() > 0.0
+        && b.ContainsKey("samples") && b.Get("samples").AsDouble() > 1.0;
+}
+bool _microHasCiBounds(JsonValue b) {
+    return b.ContainsKey("ci_lower") && b.ContainsKey("ci_upper");
 }
 
 // Point estimate for a micro benchmark object: prefer mean_ns; fall back to
