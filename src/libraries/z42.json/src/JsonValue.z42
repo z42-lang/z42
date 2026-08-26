@@ -1,6 +1,7 @@
 namespace Std.Json;
 using Std;
 using Std.IO;
+using Std.Collections;
 
 // add-z42-json (2026-05-14)：JSON 值的运行时表示 + 入口点。
 //
@@ -20,10 +21,15 @@ public class JsonValue {
     private JsonValue[] _arrayItems;
     private int _arrayCount;
 
-    // Object storage as parallel key/value arrays (kind == 6).
+    // Object storage as parallel key/value arrays (kind == 6). The arrays are
+    // the source of truth and preserve insertion order (JSON output must be
+    // order-stable). `_objectIndex` maps key → its slot in those arrays so
+    // ContainsKey / Get / Set are O(1) average instead of O(n) linear scans —
+    // building or reading an n-key object drops from O(n²) to O(n).
     private string[] _objectKeys;
     private JsonValue[] _objectValues;
     private int _objectCount;
+    private Dictionary<string, int> _objectIndex;
 
     // ── Public entry points ──────────────────────────────────────────────
 
@@ -128,6 +134,7 @@ public class JsonValue {
         v._objectKeys = new string[4];
         v._objectValues = new JsonValue[4];
         v._objectCount = 0;
+        v._objectIndex = new Dictionary<string, int>();
         return v;
     }
 
@@ -177,37 +184,26 @@ public class JsonValue {
 
     public bool ContainsKey(string key) {
         if (this._kind != 6) { return false; }
-        int i = 0;
-        while (i < this._objectCount) {
-            if (this._objectKeys[i] == key) { return true; }
-            i = i + 1;
-        }
-        return false;
+        return this._objectIndex.ContainsKey(key);
     }
 
     public JsonValue Get(string key) {
         if (this._kind != 6) {
             throw new JsonException("JsonGet on non-object value (" + this.KindName() + ")");
         }
-        int i = 0;
-        while (i < this._objectCount) {
-            if (this._objectKeys[i] == key) { return this._objectValues[i]; }
-            i = i + 1;
+        if (!this._objectIndex.ContainsKey(key)) {
+            throw new JsonException("key not found: " + key);
         }
-        throw new JsonException("key not found: " + key);
+        return this._objectValues[this._objectIndex.Get(key)];
     }
 
     public void Set(string key, JsonValue v) {
         if (this._kind != 6) {
             throw new JsonException("JsonSet on non-object value (" + this.KindName() + ")");
         }
-        int i = 0;
-        while (i < this._objectCount) {
-            if (this._objectKeys[i] == key) {
-                this._objectValues[i] = v;
-                return;
-            }
-            i = i + 1;
+        if (this._objectIndex.ContainsKey(key)) {
+            this._objectValues[this._objectIndex.Get(key)] = v;   // overwrite in place, order preserved
+            return;
         }
         if (this._objectCount == this._objectKeys.Length) {
             int newCap = this._objectKeys.Length * 2;
@@ -225,6 +221,7 @@ public class JsonValue {
         }
         this._objectKeys[this._objectCount] = key;
         this._objectValues[this._objectCount] = v;
+        this._objectIndex.Set(key, this._objectCount);
         this._objectCount = this._objectCount + 1;
     }
 

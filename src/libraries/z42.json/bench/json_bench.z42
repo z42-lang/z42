@@ -7,7 +7,53 @@ namespace Z42JsonBench;
 
 using Std;
 using Std.Test;
+using Std.Text;
 using Std.Json;
+
+// Build a ~KB JSON object literal with `keys` distinct members. Exercises the
+// object-build path (Set per key) at a size where the old O(n²) linear-scan
+// storage actually shows vs the O(n) key→slot index.
+string _bigObjectDoc(int keys) {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("{");
+    int i = 0;
+    while (i < keys) {
+        if (i > 0) { sb.Append(","); }
+        sb.Append("\"key");
+        sb.Append(i.ToString());
+        sb.Append("\":");
+        sb.Append(i.ToString());
+        i = i + 1;
+    }
+    sb.Append("}");
+    return sb.ToString();
+}
+
+[Benchmark]
+void bench_parse_large_object() {
+    string doc = _bigObjectDoc(200);          // >1 KB, 200 members
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        var v = JsonValue.Parse(doc);
+        BenchHelpers.blackBox(v.Count());
+    });
+    b.printSummary("parse_large_object_200");
+}
+
+[Benchmark]
+void bench_stringify_large_object() {
+    var obj = JsonValue.OfObject();
+    int i = 0;
+    while (i < 200) {
+        obj.Set("key" + i.ToString(), JsonValue.OfLong((long)i));
+        i = i + 1;
+    }
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        BenchHelpers.blackBox(JsonValue.Stringify(obj));   // WriteObject Get-per-key now O(n)
+    });
+    b.printSummary("stringify_large_object_200");
+}
 
 [Benchmark]
 void bench_parse_object() {

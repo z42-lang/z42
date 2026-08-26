@@ -1,0 +1,65 @@
+// optimize-json-value-storage (2026-08-27): regression coverage after adding a
+// key→slot Dictionary index to JsonValue's object storage (O(1) Get/Set/
+// ContainsKey while the parallel arrays keep insertion order) and rewriting
+// JsonWriter.QuoteString to flush ordinary-char runs as bulk substrings.
+namespace Z42JsonObjectIndexTests;
+
+using Std;
+using Std.Test;
+using Std.Json;
+
+[Test]
+void test_object_get_set_contains() {
+    var o = JsonValue.OfObject();
+    o.Set("a", JsonValue.OfLong(1));
+    o.Set("b", JsonValue.OfLong(2));
+    o.Set("c", JsonValue.OfLong(3));
+    Assert.True(o.ContainsKey("b"));
+    Assert.False(o.ContainsKey("z"));
+    Assert.Equal(2L, o.Get("b").AsLong());
+    Assert.Equal(3, o.Count());
+}
+
+[Test]
+void test_object_overwrite_preserves_order_and_value() {
+    var o = JsonValue.OfObject();
+    o.Set("x", JsonValue.OfLong(1));
+    o.Set("y", JsonValue.OfLong(2));
+    o.Set("x", JsonValue.OfLong(99));       // overwrite existing key: no new slot
+    Assert.Equal(2, o.Count());
+    Assert.Equal(99L, o.Get("x").AsLong());
+    string[] keys = o.Keys();
+    Assert.Equal("x", keys[0]);             // insertion order preserved (x before y)
+    Assert.Equal("y", keys[1]);
+}
+
+[Test]
+void test_object_build_many_keys() {
+    // Enough keys to exercise index grow + array grow together.
+    var o = JsonValue.OfObject();
+    int i = 0;
+    while (i < 50) { o.Set("k" + i.ToString(), JsonValue.OfLong((long)i)); i = i + 1; }
+    Assert.Equal(50, o.Count());
+    Assert.True(o.ContainsKey("k0"));
+    Assert.True(o.ContainsKey("k49"));
+    Assert.False(o.ContainsKey("k50"));
+    Assert.Equal(25L, o.Get("k25").AsLong());
+}
+
+[Test]
+void test_roundtrip_preserves_key_order() {
+    string doc = "{\"one\":1,\"two\":2,\"three\":3}";
+    var v = JsonValue.Parse(doc);
+    Assert.Equal(doc, JsonValue.Stringify(v));   // compact stringify keeps key order
+    Assert.True(v.ContainsKey("two"));
+    Assert.Equal(2L, v.Get("two").AsLong());
+}
+
+[Test]
+void test_quotestring_runs_and_escapes() {
+    // Ordinary runs (flushed as substrings) interleaved with escapes must still
+    // produce byte-exact JSON.
+    var o = JsonValue.OfObject();
+    o.Set("k", JsonValue.OfString("ab\"cd\\ef\ngh"));
+    Assert.Equal("{\"k\":\"ab\\\"cd\\\\ef\\ngh\"}", JsonValue.Stringify(o));
+}

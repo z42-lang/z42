@@ -102,21 +102,31 @@ public sealed class JsonWriter {
     private string QuoteString(string s) {
         StringBuilder sb = new StringBuilder();
         sb.Append("\"");
+        int n = s.Length;
+        int runStart = 0;   // start of the current run of ordinary (unescaped) chars
         int i = 0;
-        while (i < s.Length) {
+        while (i < n) {
             char c = s.CharAt(i);
             int cc = (int)c;
-            if (c == '"')       { sb.Append("\\\""); }
-            else if (c == '\\') { sb.Append("\\\\"); }
-            else if (c == '\n') { sb.Append("\\n"); }
-            else if (c == '\t') { sb.Append("\\t"); }
-            else if (c == '\r') { sb.Append("\\r"); }
-            else if (cc == 8)   { sb.Append("\\b"); }
-            else if (cc == 12)  { sb.Append("\\f"); }
-            else if (cc < 32)   { sb.Append(this.UnicodeEscape(cc)); }
-            else                { sb.Append(this.CharString(c)); }
+            string esc = "";
+            if (c == '"')       { esc = "\\\""; }
+            else if (c == '\\') { esc = "\\\\"; }
+            else if (c == '\n') { esc = "\\n"; }
+            else if (c == '\t') { esc = "\\t"; }
+            else if (c == '\r') { esc = "\\r"; }
+            else if (cc == 8)   { esc = "\\b"; }
+            else if (cc == 12)  { esc = "\\f"; }
+            else if (cc < 32)   { esc = this.UnicodeEscape(cc); }
+            if (esc.Length > 0) {
+                // Flush the pending ordinary run as one bulk substring (avoids a
+                // char[1]+FromChars allocation per character), then the escape.
+                if (i > runStart) { sb.Append(s.Substring(runStart, i - runStart)); }
+                sb.Append(esc);
+                runStart = i + 1;
+            }
             i = i + 1;
         }
+        if (n > runStart) { sb.Append(s.Substring(runStart, n - runStart)); }
         sb.Append("\"");
         return sb.ToString();
     }
@@ -130,12 +140,6 @@ public sealed class JsonWriter {
         arr[3] = hex.CharAt((v >> 8) & 0xF);
         arr[4] = hex.CharAt((v >> 4) & 0xF);
         arr[5] = hex.CharAt(v & 0xF);
-        return String.FromChars(arr);
-    }
-
-    private string CharString(char c) {
-        char[] arr = new char[1];
-        arr[0] = c;
         return String.FromChars(arr);
     }
 }
