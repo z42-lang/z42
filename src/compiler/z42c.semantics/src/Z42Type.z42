@@ -72,6 +72,10 @@ public sealed class Z42ClassType : Z42Type {
     // 导入由 ImportedSymbolLoader 从 CLASS_FLAG_DEPRECATED 还原。供 use-site（new/类型引用）告警。
     public bool   IsDeprecated;
     public string DeprecationMsg;
+    // add-record-value-semantics：类级 `[Record]`（class 或 struct）。默认 false；本地由 StubCollector
+    // 从 HandlerRegistry.HasRecord(raw decl) 回填。供 OperatorEmitter 判定 record-class `==`/`!=` 是否
+    // 脱糖成值 Equals 调用（引用 record 的 `==` = 值相等，非句柄身份）。
+    public bool   IsRecord;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -83,6 +87,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
         this.IsStruct = false;
+        this.IsRecord = false;
         this.IsSealed = false;
         this.IsImported = false;
         this.Visibility = "public";

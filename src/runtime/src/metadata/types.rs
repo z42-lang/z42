@@ -896,6 +896,10 @@ impl TypeDesc {
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
     #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & super::bytecode::CLASS_FLAG_STRUCT != 0 }
+    /// add-record-value-semantics: whether this type is a `[Record]` (Type.IsRecord). Used by the
+    /// boxed-struct vcall arm to step aside from the native ToString intercept so a record struct's
+    /// compiler-synthesized `<Type>.ToString` (record format) is reached instead of the type name.
+    #[inline] pub fn is_record(&self)             -> bool { self.class_flags & super::bytecode::CLASS_FLAG_RECORD != 0 }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
     #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & super::bytecode::CLASS_FLAG_ENUM != 0 }
     #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & super::bytecode::CLASS_FLAG_DELEGATE != 0 }
