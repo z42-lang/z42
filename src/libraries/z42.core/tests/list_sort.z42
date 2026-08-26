@@ -1,0 +1,128 @@
+// optimize-list-sort (2026-08-26): regression coverage for List<T> after
+// swapping insertion sort → stable merge sort, adding the List(int capacity)
+// ctor + pre-growing AddRange, and making Dictionary.Remove reinsert the probe
+// chain inline (reusing stored hashes). These assert *behavior* is unchanged;
+// the perf is a separate benchmark (core_bench bench_list_sort).
+namespace Z42CoreListSortTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+// Sort key is `Key` only; `Seq` records insertion order so a *stable* sort must
+// keep equal-Key elements in their original relative order.
+class KV : IEquatable<KV>, IComparable<KV> {
+    public int Key;
+    public int Seq;
+    public KV(int key, int seq) { this.Key = key; this.Seq = seq; }
+    public bool Equals(KV other) { return this.Key == other.Key && this.Seq == other.Seq; }
+    public int GetHashCode() { return this.Key * 31 + this.Seq; }
+    public int CompareTo(KV other) { return this.Key - other.Key; }   // Key only
+}
+
+[Test]
+void test_sort_empty_and_single() {
+    var e = new List<int>();
+    e.Sort();                       // must not trap on n < 2
+    Assert.Equal(0, e.Count);
+
+    var s = new List<int>();
+    s.Add(42);
+    s.Sort();
+    Assert.Equal(1, s.Count);
+    Assert.Equal(42, s[0]);
+}
+
+[Test]
+void test_sort_reverse_and_sorted() {
+    var xs = new List<int>();
+    int i = 5;
+    while (i >= 1) { xs.Add(i); i = i - 1; }   // 5,4,3,2,1
+    xs.Sort();
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(2, xs[1]);
+    Assert.Equal(3, xs[2]);
+    Assert.Equal(4, xs[3]);
+    Assert.Equal(5, xs[4]);
+    xs.Sort();                                  // idempotent on already-sorted
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(5, xs[4]);
+}
+
+[Test]
+void test_sort_larger_with_duplicates() {
+    // Pseudo-scattered with duplicates; verify fully non-decreasing after sort.
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 100) { xs.Add((i * 37 + 11) % 17); i = i + 1; }
+    xs.Sort();
+    Assert.Equal(100, xs.Count);
+    int j = 1;
+    bool ordered = true;
+    while (j < xs.Count) {
+        if (xs[j - 1] > xs[j]) { ordered = false; }
+        j = j + 1;
+    }
+    Assert.True(ordered);
+}
+
+[Test]
+void test_sort_is_stable() {
+    // Interleaved keys 2,1,2,1,2 with ascending Seq. A stable sort by Key keeps
+    // Seq order within each Key group.
+    var xs = new List<KV>();
+    xs.Add(new KV(2, 0));
+    xs.Add(new KV(1, 1));
+    xs.Add(new KV(2, 2));
+    xs.Add(new KV(1, 3));
+    xs.Add(new KV(2, 4));
+    xs.Sort();
+    // Expected: (1,1),(1,3),(2,0),(2,2),(2,4)
+    Assert.Equal(1, xs[0].Key); Assert.Equal(1, xs[0].Seq);
+    Assert.Equal(1, xs[1].Key); Assert.Equal(3, xs[1].Seq);
+    Assert.Equal(2, xs[2].Key); Assert.Equal(0, xs[2].Seq);
+    Assert.Equal(2, xs[3].Key); Assert.Equal(2, xs[3].Seq);
+    Assert.Equal(2, xs[4].Key); Assert.Equal(4, xs[4].Seq);
+}
+
+[Test]
+void test_capacity_ctor_and_addrange() {
+    // Undersized initial capacity forces AddRange to pre-grow in one shot.
+    var xs = new List<int>(2);
+    Assert.Equal(0, xs.Count);
+    xs.AddRange(new int[]{ 10, 20, 30, 40, 50 });
+    Assert.Equal(5, xs.Count);
+    Assert.Equal(10, xs[0]);
+    Assert.Equal(50, xs[4]);
+    xs.Add(60);                                 // still growable afterwards
+    Assert.Equal(6, xs.Count);
+    Assert.Equal(60, xs[5]);
+
+    var z = new List<int>(0);                   // capacity < 1 → falls back to 1
+    z.Add(7);
+    Assert.Equal(7, z[0]);
+}
+
+[Test]
+void test_dict_remove_reinserts_probe_chain() {
+    // Keys 0, 8, 16 all hash to slot 0 (cap 8) → one probe chain. Removing a
+    // middle / head link must keep the rest reachable (inline reinsert).
+    var d = new Dictionary<int, int>();
+    d[0] = 100;
+    d[8] = 108;
+    d[16] = 116;
+    Assert.Equal(3, d.Count);
+
+    Assert.True(d.Remove(8));                    // remove middle of chain
+    Assert.Equal(2, d.Count);
+    Assert.True(d.ContainsKey(0));
+    Assert.True(d.ContainsKey(16));
+    Assert.False(d.ContainsKey(8));
+    Assert.Equal(100, d[0]);
+    Assert.Equal(116, d[16]);
+
+    Assert.True(d.Remove(0));                     // remove head of chain
+    Assert.True(d.ContainsKey(16));
+    Assert.Equal(116, d[16]);
+    Assert.Equal(1, d.Count);
+}

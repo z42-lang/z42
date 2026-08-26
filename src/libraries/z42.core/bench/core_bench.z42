@@ -82,6 +82,25 @@ void bench_list_add_index() {
     b.printSummary("list_add_index");
 }
 
+// Sort a freshly-scrambled 256-element list each iteration. Exercises the
+// merge sort (O(n log n)); the pseudo-scatter `(i*137+89) % 251` keeps the
+// input unsorted (and with duplicates) so every run does real work.
+[Benchmark]
+void bench_list_sort() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        var xs = new List<int>();
+        int i = 0;
+        while (i < 256) {
+            xs.Add((i * 137 + 89) % 251);
+            i = i + 1;
+        }
+        xs.Sort();
+        BenchHelpers.blackBox(xs[0] + xs[255]);
+    });
+    b.printSummary("list_sort_256");
+}
+
 // Smoke [Test] — confirms the benchmark bodies actually run (Bencher wired,
 // samples honoured), independent of timing.
 [Test]
