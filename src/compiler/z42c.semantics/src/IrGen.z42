@@ -179,7 +179,7 @@ public sealed class IrGen {
                         if (ptIsPartial && this.PartialMerged != null && this.PartialMerged.ContainsKey(c.Name)) {
                             descDecl = this.PartialMerged.Get(c.Name) as ClassDecl;   // 合并碎片：全字段有序 + 基表并集
                         }
-                        IrClassDesc cdesc = this._classDescB._classDesc(descDecl);
+                        IrClassDesc cdesc = this._classDescB._classDesc(descDecl, HandlerRegistry.HasRecord(cu.Decls[i]));   // add-record-attribute：[Record]→bit3
                         cdesc.Attrs = this._classDescB._attrRefs(cu.Decls[i]); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection：类 attr-ref
                         classes = IrGenFacts._pushClass(classes, cc, cdesc); cc = cc + 1;
                     }

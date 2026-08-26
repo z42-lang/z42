@@ -43,10 +43,7 @@ public static class HandlerRegistry {
     // 内建 Generator（BenchmarkDesugar）先跑，再走 store-meta 合成（AttributeSynth）——与收敛前
     // `AttributeSynth.Run(BenchmarkDesugar.Run(cu))` 语义逐字节一致。
     public static CompilationUnit RunAst(CompilationUnit cu) {
-        // add-record-attribute：RecordExpand 最内层——先把 class/struct 的位置参数展开成 public(record)/
-        // private(primary ctor) 字段 + 主构造器（并置 IsRecord），再让 BenchmarkDesugar / AttributeSynth
-        // 看到完整成员集。
-        return AttributeSynth.Run(BenchmarkDesugar.Run(RecordExpand.Run(cu)));
+        return AttributeSynth.Run(BenchmarkDesugar.Run(cu));
     }
 
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────
@@ -129,13 +126,14 @@ public static class HandlerRegistry {
     }
 
     // add-record-attribute：`[Record]` directive 识别（保留名，豁免 D8 后缀 + 无 backing 类，同 Suppress/
-    // Native/Deprecated 靠名字识别）。RecordExpand（AST 期）消费它——把位置参数展开成 public 字段 + 主构造器
-    // 并置 ClassDecl.IsRecord（→ ClassDescBuilder 打 zbc flags bit3）。不合成反射工厂 / 不写 store-meta blob。
+    // Native/Deprecated 靠名字识别）。位置参数在 parser 就地展开成 public 字段 + 主构造器；ClassDescBuilder
+    // 据 `HasRecord(rawDecl)` 打 zbc flags bit3。不合成反射工厂 / 不写 store-meta blob。
     public static bool IsRecordDirective(string name) {
         return name == "Record";
     }
 
-    // add-record-attribute：某声明是否带 `[Record]`（RecordExpand 读，决定 public 字段 + bit3 vs private 字段）。
+    // add-record-attribute：某声明是否带 `[Record]`（IrGen/ClassDescBuilder 读 → bit3；读原始 AttributedDecl.Attrs，
+    // 既有结构，不依赖新 syntax 字段 → z42c.semantics 自建对旧种子 syntax 兼容）。
     public static bool HasRecord(Decl rawMem) {
         if (!(rawMem is AttributedDecl)) { return false; }
         AttributedDecl ad = rawMem as AttributedDecl;

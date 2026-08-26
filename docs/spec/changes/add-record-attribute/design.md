@@ -5,30 +5,24 @@
 ```
 源码  [Record] class/struct T(int X, int Y) { ...块成员... }
   │
-  │  (Parser.z42:316)  attrs = [Record]   ← 在外层解析
-  │  (DeclParser._parseTypeDecl)          ← 看不到 attrs！只解析 (params)→ ClassDecl.PrimaryParams
-  ▼
-CompilationUnit ── AttributedDecl([Record], ClassDecl{ Kind, PrimaryParams=[X,Y], IsRecord=false })
-  │
-  │  HandlerRegistry.RunAst（AST-phase 单一入口）:
-  │     AttributeSynth.Run( BenchmarkDesugar.Run( RecordExpand.Run( cu ) ) )
+  │  (Parser.z42:316) 先解析 attrs=[Record]，作参传进 →
+  │  DeclParser._parseTypeDecl(mods, kind, attrs)   ← 就地展开
   │  ┌────────────────────────────────────────────────────────────┐
-  │  │ RecordExpand（新 pass，形态照抄 BenchmarkDesugar）            │
-  │  │  扫 AttributedDecl，命中 [Record] 的 ClassDecl：              │
-  │  │   1. PrimaryParams → public FieldDecl（照搬 _parseRecord）    │
-  │  │   2. 合成主构造器 MethodDecl（this.X=X …）                    │
-  │  │   3. 置 ClassDecl.IsRecord = true                            │
-  │  │  非 [Record] 但 PrimaryParams>0 → 诊断（见 Decision 3）       │
+  │  │ 解析 (params)；_attrsHaveRecord(attrs) 判 [Record]：          │
+  │  │   1. 位置参数 → FieldDecl（[Record]=public / 否则=private）   │
+  │  │   2. 合成主构造器 MethodDecl（this.X=X …），置块成员之前       │
+  │  │   3. `;` 短形式（无块体）亦可                                  │
   │  └────────────────────────────────────────────────────────────┘
   ▼
-ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...], IsRecord=true }
-  │
+AttributedDecl([Record], ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...块成员] })
+  │  ← ClassDecl 无新字段（PrimaryParams/IsRecord 均不加——自举约束，见 Decision 2）
   ▼  SymbolCollector → TypeChecker → IrGen → ClassDescBuilder → zbc/反射
      · 走 Kind 对应机制（class→Std.Object 基；struct→无基）——record 不再是独立 Kind
-     · ClassDescBuilder:230 bit3 从 c.IsRecord 打 → 运行时 __type_is_record 不变
+     · IrGen 从原始 AttributedDecl.Attrs 判 [Record]（HandlerRegistry.HasRecord），传
+       _classDesc(c, hasRecord) → bit3（Kind=="record" || hasRecord）→ 运行时 __type_is_record 不变
 ```
 
-**与今天 `record` 的等价性**：`[Record] class T(...)` 经上述展开后，产出的 `ClassDecl` 与今天
+**与今天 `record` 的等价性**：`[Record] class T(...)` 经就地展开后，产出的 `ClassDecl` 与今天
 `_parseRecord` 产出的 `ClassDecl(Kind="record", 同样的 public 字段 + ctor)` **成员逐一对应**，zbc TYPE 段
 flags 也同样置 bit3。差别仅：底层 Kind 从 `"record"` 变成 `"class"`/`"struct"`（→ 基类随 Kind 归位，
 见 Decision 4）。运行时行为、反射 `__type_is_record`、zbc/zpkg 格式**全不变**。
@@ -46,28 +40,33 @@ bit3 已在 zbc 格式里，复用它 = **零格式-bump**。若走 store-meta �
 
 > **无需 `RecordAttribute.z42`**（实测修正）：directive 靠**名字**识别、**无 backing 类**——stdlib 里
 > 并不存在 `Deprecated`/`Suppress`/`Native` 类，`AttributeSynth` 只为 store-meta attr 合成工厂
-> （`KindOf==StoreMeta`），directive 走不到那条路径。`[Record]` 同理，`RecordExpand` 按名字
-> `HandlerRegistry.HasRecord` 判定即可，省一个文件。
+> （`KindOf==StoreMeta`），directive 走不到那条路径。`[Record]` 同理——parser 按名字 `_attrsHaveRecord`
+> 判位置参数可见性、`IrGen` 按名字 `HandlerRegistry.HasRecord` 判 bit3，均无需 backing 类，省一个文件。
 
-### Decision 2: 位置参数展开在 AST 期（parser 看不到自己的 attr）
+### Decision 2: 位置参数在 parser 就地展开（把 attrs 传进 `_parseTypeDecl`）—— 自举硬约束驱动
 
-**问题**：`[Record] class Foo(int X)` 里，「位置参数是否建 public 字段」取决于有没有 `[Record]`。但
-[Parser.z42:316-354](../../../../src/compiler/z42c.syntax/src/Parser.z42) 是**先**在 `_parseTypeDecl`
-（line 336）产 `ClassDecl`、**后**（line 354）才用 `attrs` 包 `AttributedDecl`——parser 内部看不到自己的
-`[Record]`。
+**问题**：`[Record] class Foo(int X)` 里，「位置参数是否建 public 字段」取决于有没有 `[Record]`。
+[Parser.z42:316-354](../../../../src/compiler/z42c.syntax/src/Parser.z42) 先解析 `attrs`（:316）、再调
+`_parseTypeDecl`（:336）产 `ClassDecl`、最后（:354）才用 `attrs` 包 `AttributedDecl`。
 
-**选项**：**A（parser 就地展开）**——需把 attrs 传进 `_parseTypeDecl`，侵入解析层、与「attr 在外层统一
-包裹」的现有架构打架；**B（parser 只存 `PrimaryParams`，AST 期展开）**——`_parseTypeDecl` 把 `(params)`
-原样存进 `ClassDecl.PrimaryParams` 不展开，新 AST pass `RecordExpand`（能看到 `AttributedDecl`）按有无
-`[Record]` 展开。
+**曾选 B（AST 期 pass），CI 上证伪**：最初把 `(params)` 存进新字段 `ClassDecl.PrimaryParams`、新 AST pass
+`RecordExpand`（semantics）按 `[Record]` 展开 + 置 `ClassDecl.IsRecord` 供 `ClassDescBuilder` 读 bit3。
+**PR #295 首推 CI 炸 `E0401: no field IsRecord on ClassDecl`**——根因：**z42c 自建时 `z42c.semantics` 对着
+「上一 nightly 的 `z42c.syntax`」编译**（种子 syntax，非 fresh），给 `ClassDecl` 加新字段并从 semantics 读
+就撞种子 syntax 无该字段。CI 证据决定性：当前种子有 PR7 的 `TextEdit` 但无我的 `IsRecord` → CI 只炸
+`IsRecord`、不炸 `TextEdit`。这与 PR7「预种 syntax 契约」的两-nightly 约束同源（[[bootstrap-seed]] 轴②）。
 
-**决定**：选 **B**。它与现有 AST-phase 架构同相位（`BenchmarkDesugar`/`AttributeSynth` 都在
-`HandlerRegistry.RunAst` 这一层做「看着 attr 改 AST」），`_parseTypeDecl` 保持纯语法、零 attr 耦合。
-`RecordExpand` 复用 `_parseRecord` 的展开代码（public 字段 + `this.X=X` ctor）。
+**改选 A（parser 就地展开）**：把已解析的 `attrs` 作参传进 `_parseTypeDecl(mods, kind, attrs)`（Parser 顶层 +
+MemberParser 嵌套两处调用点都传），parser 就能判 `[Record]`（`_attrsHaveRecord`，名字匹配）→ 位置参数
+就地展开成字段（`[Record]`=public / 否则=private）+ 主构造器（照搬 `_parseRecord` 逻辑）。
 
-**seam**：`HandlerRegistry.RunAst` = `AttributeSynth.Run(BenchmarkDesugar.Run(RecordExpand.Run(cu)))`。
-`RecordExpand` 放最内层（先展开位置参数成普通成员，再让后两个 pass 看到完整成员集）。单一入口，
-5 个调用点（IncrementalDriver / IrDump×3 / GeneratorDriver）自动覆盖。
+**关键收益——彻底不给 semantics 引入新 syntax 字段**：删 `ClassDecl.PrimaryParams`/`IsRecord`、删
+`RecordExpand` pass；bit3 由 `IrGen` 从**原始 `AttributedDecl.Attrs`**（既有结构）`HandlerRegistry.HasRecord(cu.Decls[i])`
+判、传 `_classDesc(c, hasRecord)`。**semantics 读零新 syntax 字段** → z42c 自建对**旧种子 syntax 兼容** →
+单-PR 落地、无需两-nightly。判据：`grep 'PrimaryParams|\.IsRecord' src/compiler/z42c.semantics` 必为空。
+
+> **教训**：给 z42c 内部 syntax 类型加字段并跨包（semantics）读，受「semantics 对种子 syntax 编」约束——
+> 要么两-nightly 预种，要么（本 change 的选择）把逻辑收进 syntax 内、只让 semantics 读既有结构。
 
 ### Decision 3: 无 `[Record]` 的 `class/struct Foo(params)` = 纯主构造器（选项 A，gate 已确认）
 
@@ -108,9 +107,10 @@ User 已接受。**不**给 `[Record]` 加「抑制基类」特例——attribut
 
 ### Decision 5: bit3 触发源迁移 = 零格式-bump
 
-**决定**：`ClassDescBuilder:230` `if (c.Kind=="record") flags+=8` → `if (c.IsRecord) flags+=8`。
-`IsRecord` 由 `RecordExpand` 置。**扩展到 struct**：`[Record] struct` 现在也能置 bit3（bit2 struct + bit3
-record 共存）——今天 record 无法是 struct，这是新增能力，但格式位早已存在。
+**决定**：`ClassDescBuilder._classDesc(c, hasRecord)` 的 bit3 = `if (c.Kind=="record" || hasRecord) flags+=8`。
+`hasRecord` 由 `IrGen` 从原始 `AttributedDecl.Attrs` 判（`HandlerRegistry.HasRecord(cu.Decls[i])`）后传入——
+**不新增 ClassDecl 字段**（自举约束，见 Decision 2）。**扩展到 struct**：`[Record] struct` 也能置 bit3
+（bit2 struct + bit3 record 共存）——今天 record 无法是 struct，这是新增能力，但格式位早已存在。
 
 **格式影响**：类形状 flags 字节不变、bit3 语义不变（仍是 `is-record`）、reader（`__type_is_record`
 [reflection.rs:1542](../../../../src/runtime/src/corelib/reflection.rs)）一行不改。**非格式-bump**——
@@ -118,14 +118,11 @@ warm 本地可验，无两代自举墙。
 
 ## Implementation Notes
 
-- **`ClassDecl` 新字段**：`Param[] PrimaryParams`（+ `int PrimaryParamCount`）与 `bool IsRecord`。构造器
-  默认 `PrimaryParams=new Param[0]`、`IsRecord=false`，避免动所有 `new ClassDecl(...)` 调用点（沿用
-  `IsPartial` 的「构造后单独赋值」模式，见 DeclParser:169/318）。
-- **`RecordExpand` 展开逻辑**：直接搬 `_parseRecord`:283-307 的两段——① `PrimaryParams` →
-  `FieldDecl(vis, ...)`（`vis` = 有 `[Record]` 时 `"public"`，否则 `"private"`）；② 合成 ctor（`this.X=X`
-  赋值 BlockStmt + `MethodDecl`）。插到 `ClassDecl.Members` 前部，再接原有块成员。产出**新** `ClassDecl`
-  （AST 不可变风格，同 BenchmarkDesugar 重建节点）或就地改 Members（择 BenchmarkDesugar 同款）。
-  `[Record]` 分支额外置 `IsRecord=true`。
+- **不加 ClassDecl 字段**：自举约束（Decision 2）——位置参数在 `_parseTypeDecl` 内就地消费展开，无需存字段。
+- **parser 就地展开逻辑**：`_parseTypeDecl(mods, kind, attrs)` 内直接搬 `_parseRecord`:283-307 的两段——
+  ① 位置参数 → `FieldDecl(vis, ...)`（`vis` = `_attrsHaveRecord(attrs)` 时 `"public"`，否则 `"private"`）；
+  ② 合成 ctor（`this.X=X` 赋值 BlockStmt + `MethodDecl`）。置于块成员前部，再接块成员（或 `;` 短形式）。
+  `_attrsHaveRecord`（DeclParser 内，名字匹配 `"Record"`）不依赖 semantics 的 HandlerRegistry（syntax 自足）。
 - **字段初始化器 × primary 参数**：ctor 内**参数是局部**（`_lookupIdent` 局部优先于字段，:419>:420），故
   `this.X=X` 里右侧 `X`=参数、左侧 `this.X`=字段，正确。若某字段初始化器（`int x = X*2;`）引用 primary
   参数 `X`：需确认 z42 字段初始化器在合成 ctor 中的注入时机——若初始化器在 ctor 体内、且 primary 参数
@@ -143,10 +140,8 @@ warm 本地可验，无两代自举墙。
 
 ## Testing Strategy
 
-- **parser 单测**：`[Record] class C(int X)` / `[Record] struct S(int X)` 解析成功，`PrimaryParams` 正确；
-  `[Record] class C { ... }`（无 params）也合法。
-- **AST pass 单测**：`RecordExpand` 后 `[Record] class C(int X)` 的 Members 含 public 字段 `X` + ctor、
-  `IsRecord==true`；非 `[Record]` 的 `class C(int X)` → 诊断（Decision 3 = B）。
+- **parser 就地展开**：`[Record] class C(int X)` → Members 含 **public** 字段 `X` + ctor；`class C(int X)`
+  （无 attr）→ **private** 字段 `X` + ctor；`[Record] class C { ... }`（无 params）也合法；`;` 短形式合法。
 - **等价 golden**：新 `[Record] class` 端到端产出与迁移前 `record` 版**行为一致**（`__type_is_record`
   反射为 true；字段/ctor 可用）。`[Record] struct` 的 bit2+bit3 反射。
 - **GREEN gate**：完整 `xtask test`（e2e / cross-zpkg / stdlib / **compiler 自举 5/5 byte-identical** /

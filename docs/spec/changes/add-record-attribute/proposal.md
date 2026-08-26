@@ -32,21 +32,21 @@ attribute 全闭环（[[attribute-handler-registry]] 已收官），无需新建
 ## What Changes（本次 = 纯「关键字 → attribute」等价替换）
 
 - **新增内建 `[Record]` directive**（保留名，走 [[attribute-handler-registry]] 的 **directive 路**，
-  仿 `[Deprecated]`；豁免 D8 `Attribute` 后缀；不序列化成 store-meta blob）。
-- **`_parseTypeDecl` 接受可选位置参数 `(params)`**（当前只有 `_parseRecord` 有此语法位置）。位置参数
-  **不在 parser 就地展开**——存到 `ClassDecl` 新字段 `PrimaryParams`，留给 AST 期看得到 `[Record]` 的
-  pass 展开（parser 看不到自己的 attr，见 design Decision 2）。
-- **新增 AST 期 pass `RecordExpand`**（挂在 `HandlerRegistry.RunAst` 单一入口）：把 `PrimaryParams`
-  展开为 **字段 + 主构造器**（照搬 `_parseRecord` 逻辑）。**两条分支，仅字段可见性 + bit3 不同**：
-  - **有 `[Record]`** → **public** 字段 + ctor，置 `ClassDecl.IsRecord=true`（bit3；替代 `Kind=="record"` 哨兵）= record。
-  - **无 `[Record]`** → **private** 字段 + ctor，`IsRecord=false`（无 bit3）= **primary constructor**（C# 12）。
+  仿 `[Deprecated]`；豁免 D8 `Attribute` 后缀；不序列化成 store-meta blob；**无需 backing 类**）。
+- **`_parseTypeDecl(mods, kind, attrs)` 接受可选位置参数 `(params)` 并就地展开**（当前只有 `_parseRecord`
+  有此语法位置）。把已解析的 `attrs` 传进来（Parser 顶层 + MemberParser 嵌套两处），parser 就能判 `[Record]`：
+  - **有 `[Record]`** → **public** 字段 + 主构造器 = record。
+  - **无 `[Record]`** → **private** 字段 + 主构造器 = **primary constructor**（C# 12）。
+  - > 为何 parser 就地展开而非 AST 期 pass：**自举硬约束**——z42c.semantics 自建时对着上一 nightly 的
+  >   z42c.syntax 编译，给 `ClassDecl` 加新字段供 semantics 读会 `E0401 no field`（PR #295 首推 CI 实证）。
+  >   把展开收进 syntax、不给 semantics 引入新字段，即可单-PR 落地。见 design Decision 2。
 - **primary constructor 靠既有「字段入方法体 scope」机制免 binder 改动**：[DeclBinder.z42:48-54](../../../../src/compiler/z42c.semantics/src/DeclBinder.z42)
   把类的**全部字段**播种进方法体 `env`，[AccessEmitter.z42:420](../../../../src/compiler/z42c.semantics/src/AccessEmitter.z42)
   把裸 `BoundIdent`（命中字段名）发成 `this.X` 字段读——故 `class Point(int X){ int Sum => X; }` 里裸 `X`
   自然解析成私有字段读，**无需改名字解析 / binder**（纯 desugar）。
-- **bit3 触发源迁移**：`ClassDescBuilder` 的 bit3 从 `Kind=="record"` 改读 `c.IsRecord`，并**自然扩展到
-  struct**（`[Record] struct` = bit2 struct + bit3 record）。**零格式-bump**（bit3 已在格式里），运行时
-  `__type_is_record` 一行不改。
+- **bit3 由 `[Record]` attr 判**：`IrGen` 从原始 `AttributedDecl.Attrs`（既有结构）`HandlerRegistry.HasRecord`
+  判、传 `ClassDescBuilder._classDesc(c, hasRecord)`；bit3 = `Kind=="record" || hasRecord`，**扩展到 struct**
+  （`[Record] struct` = bit2 + bit3）。**零格式-bump**（bit3 已在格式里），运行时 `__type_is_record` 一行不改。
 - **删除 `record` 关键字**及其全部下游分支（token / lexer / `_parseRecord` / parser·MemberParser 分派 /
   ~22 处 `|| Kind=="record"` 子句 / E0431 文案）。record 身份种类从此不存在——`[Record] class` 走 class
   机制、`[Record] struct` 走 struct 机制。
@@ -67,13 +67,14 @@ attribute 全闭环（[[attribute-handler-registry]] 已收官），无需新建
 | 文件 | 变更 | 说明 |
 |------|------|------|
 | ~~`RecordAttribute.z42`~~ | ~~NEW~~ | **不需要**——directive 靠名字识别、无 backing 类（同 `[Deprecated]`/`[Suppress]`/`[Native]`，实测 stdlib 无这些类）。省一个文件。 |
-| `src/compiler/z42c.syntax/src/DeclParser.z42` | MODIFY | `_parseTypeDecl` 接受可选 `(params)` → 存 `ClassDecl.PrimaryParams`；`;` 短形式 body 可选 |
-| `src/compiler/z42c.syntax/src/Decl.z42` | MODIFY | `ClassDecl` 加 `Param[] PrimaryParams` + `bool IsRecord` 字段 |
-| `src/compiler/z42c.semantics/src/RecordExpand.z42` | NEW | AST 期 pass：`[Record]` → 展开 `PrimaryParams` 为 public 字段 + ctor、置 `IsRecord` |
-| `src/compiler/z42c.semantics/src/HandlerRegistry.z42` | MODIFY | `RunAst` 串入 `RecordExpand.Run`；加 `IsRecordDirective`/`HasRecord`（仿 `IsDeprecatedDirective`/`HasDeprecated`）；directive 集 + D8 豁免加 `Record` |
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | bit3 触发 `Kind=="record"` → `c.IsRecord`（:230）；`isStructOrRecord` 去 record 分支（:110，基类随 Kind） |
-| （无需改 IrGen 传参）| — | bit3 改读 `ClassDecl.IsRecord`，`_classDesc(ClassDecl)` 签名不变 |
-| 新增单测 / golden | NEW | `[Record] class`、`[Record] struct` 解析 + bit3 反射 + 等价性 |
+| `src/compiler/z42c.syntax/src/DeclParser.z42` | MODIFY | `_parseTypeDecl(mods,kind,attrs)` 接受可选 `(params)`，**就地展开**成字段（`[Record]`=public/否则=private）+ 主构造器；`_attrsHaveRecord` 判 `[Record]`；`;` 短形式 body 可选 |
+| `src/compiler/z42c.syntax/src/Parser.z42` / `MemberParser.z42` | MODIFY | 顶层 + 嵌套两处 `_parseTypeDecl` 调用传 `attrs` |
+| ~~`ClassDecl` 加字段~~ | ~~—~~ | **不加**（自举约束：semantics 读新 syntax 字段 = `E0401`，见 design D2）。位置参数就地展开、bit3 走 attr |
+| ~~`RecordExpand.z42`~~ | ~~NEW~~ | **不建**（展开收进 parser） |
+| `src/compiler/z42c.semantics/src/HandlerRegistry.z42` | MODIFY | 加 `IsRecordDirective`/`HasRecord`（仿 `IsDeprecatedDirective`/`HasDeprecated`）；directive 集加 `Record`（豁免 D8） |
+| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | `_classDesc(c, hasRecord)`：bit3 = `Kind=="record" \|\| hasRecord` |
+| `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | `_classDesc(descDecl, HandlerRegistry.HasRecord(cu.Decls[i]))`——从原始 AttributedDecl 判 `[Record]` |
+| `src/tests/attributes/record_attribute.z42` | NEW | `[Record] class`/`[Record] struct`（`;`+`{}`）+ primary ctor + bit3 反射 |
 
 ### nightly N+1 —— use + remove（新 nightly 发布后）
 
@@ -99,7 +100,7 @@ attribute 全闭环（[[attribute-handler-registry]] 已收官），无需新建
 | `docs/book/src/language/record-attribute.md` | NEW 机制页（`[Record]` 语义 + 位置参数展开 + bit3 反射 + 实现原理）+ 挂入 `SUMMARY.md` |
 | `docs/design/language/grammar.peg` | record 产生式 → class/struct 的可选 `(params)` |
 | `docs/book/src/compiler/zbc-format.md` | bit3 说明：`Kind==record` → `[Record]` attribute |
-| 目录 README（z42.semantics / z42.core） | 加 RecordExpand / RecordAttribute |
+| 目录 README（z42.syntax） | `_parseTypeDecl` 位置参数就地展开说明（如需） |
 
 **只读引用**（理解上下文）：`BenchmarkDesugar.z42`（AST pass 样板）、`AttributeSynth.z42`（seam）、
 `HandlerRegistry.z42`（directive 先例 `HasDeprecated`）、`_parseRecord`（展开逻辑源）。

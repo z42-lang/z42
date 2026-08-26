@@ -48,39 +48,31 @@ class Counter(int start, int step) {              // 无 [Record] = 主构造器
 
 ## 实现原理
 
-`[Record]` / 主构造器是**纯 AST 期脱糖**，无需改名字解析 / binder。数据流：
+`[Record]` / 主构造器是**parser 就地脱糖**，无需改名字解析 / binder。数据流：
 
 ```
 源码  [Record] class Point(int X, int Y) { ... }
   │
-  │ Parser（DeclParser._parseTypeDecl）
-  │   · class/struct 名后遇 `(` → 解析位置参数存进 ClassDecl.PrimaryParams
-  │   · **不展开**——parser 看不到自己的 [Record]（attr 在外层 Parser 包成 AttributedDecl，见下）
+  │ Parser 顶层：先解析 attrs=[Record]，把它作参传进 _parseTypeDecl(mods, kind, attrs)
+  │ DeclParser._parseTypeDecl（就地展开）：
+  │   · class/struct 名后遇 `(` → 解析位置参数
+  │   · _attrsHaveRecord(attrs) 判 [Record] → 决定字段可见性
+  │   · 位置参数 → FieldDecl（[Record]=public / 否则=private）+ 主构造器 MethodDecl（this.X=X）
+  │   · 置于块成员之前；`;` 短形式（无块体）亦可
   ▼
-AttributedDecl([Record], ClassDecl{ Kind, PrimaryParams=[X,Y], IsRecord=false })
-  │
-  │ AST 期单一入口 HandlerRegistry.RunAst：
-  │   AttributeSynth.Run( BenchmarkDesugar.Run( RecordExpand.Run( cu ) ) )
-  │ ┌────────────────────────────────────────────────────────────┐
-  │ │ RecordExpand（本 change 新增 pass）                          │
-  │ │  扫 AttributedDecl / 裸 ClassDecl，对有 PrimaryParams 的：    │
-  │ │   1. 位置参数 → FieldDecl（[Record]=public / 否则=private）   │
-  │ │   2. 合成主构造器 MethodDecl（this.X = X …）                  │
-  │ │   3. 有 [Record] → 置 ClassDecl.IsRecord = true              │
-  │ │   4. 递归进嵌套类型成员                                       │
-  │ └────────────────────────────────────────────────────────────┘
-  ▼
-ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...块成员], IsRecord }
+AttributedDecl([Record], ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...块成员] })
   │
   ▼ SymbolCollector → TypeChecker → IrGen → ClassDescBuilder → zbc / 反射
     · 走 Kind 对应机制（record 不再是独立 Kind）
-    · ClassDescBuilder 据 IsRecord 打 zbc 类形状 flags bit3 → 运行时 __type_is_record
+    · IrGen 从原始 AttributedDecl.Attrs 判 [Record]（HandlerRegistry.HasRecord），传
+      ClassDescBuilder._classDesc(c, hasRecord) → bit3 → 运行时 __type_is_record
 ```
 
-**为什么脱糖放在 AST 期而非 parser**：位置参数「建 public 还是 private 字段」取决于有没有
-`[Record]`，而 attribute 在外层 `Parser` 才包成 `AttributedDecl`——`_parseTypeDecl` 内部看不到自己的
-attr。因此 parser 只把 `(params)` 原样存进 `ClassDecl.PrimaryParams`，交给能看到 `AttributedDecl` 的
-AST 期 pass（`RecordExpand`，与 `BenchmarkDesugar` / `AttributeSynth` 同相位）按有无 `[Record]` 展开。
+**为什么 parser 就地展开、bit3 走 attr 而非新字段**：这是**自举硬约束**。z42c 自建时，`z42c.semantics`
+是对着**上一个 nightly 的 `z42c.syntax`**（种子）编译的——若给 `ClassDecl` 加新字段（如 `PrimaryParams`/
+`IsRecord`）并从 semantics 读，种子 syntax 没有该字段 → `E0401 no field`（须两-nightly 预种）。把位置参数
+展开收进 parser（syntax 内自足）、bit3 由 semantics 读**既有的** `AttributedDecl.Attrs`，即可单-PR 落地。
+parser 能判 `[Record]` 是因为把已解析的 `attrs` 作参传进了 `_parseTypeDecl`（顶层 + 嵌套两处调用点）。
 
 **为什么裸字段访问免 binder 改动**：`DeclBinder` 绑定方法体时把类的**全部字段**（含继承）播种进
 `TypeEnv`；`ExprTyper._bindIdent` 经 `env.LookupVar` 命中字段名；`AccessEmitter._lookupIdent` 把裸

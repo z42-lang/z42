@@ -3,10 +3,15 @@
 > 状态：🟡 DRAFT（待 6.5 gate） | 创建：2026-08-26
 > **分两 nightly**：阶段 1-3 + 5（support）= nightly N；阶段 4（use + remove keyword）= nightly N+1。
 
+> **🔴 重大重构（PR #295 首推 CI 炸后）**：原「ClassDecl 加 PrimaryParams/IsRecord 字段 + RecordExpand
+> AST pass」方案**违反自举约束**——z42c.semantics 对着上一 nightly 的 z42c.syntax 编译，semantics 读新
+> syntax 字段 = `E0401 no field`。**改为 parser 就地展开**（attrs 传进 `_parseTypeDecl`）+ bit3 由 IrGen 从
+> 既有 `AttributedDecl.Attrs` 判 → semantics 零新 syntax 字段。见 design Decision 2。
+
 ## 进度概览
-- [x] 阶段 1: `[Record]` directive 定义 + 识别接线（HandlerRegistry；**无需 RecordAttribute.z42**——directive 靠名字识别、无 backing 类）
-- [x] 阶段 2: parser 接受 `(params)` → `ClassDecl.PrimaryParams` + `IsRecord` 字段（+ `;` 短形式修）
-- [x] 阶段 3: `RecordExpand` AST pass + bit3 触发源迁移（加法式）
+- [x] 阶段 1: `[Record]` directive 识别（HandlerRegistry `IsRecordDirective`/`HasRecord`；**无需 RecordAttribute.z42**）
+- [x] 阶段 2: parser `_parseTypeDecl(mods,kind,attrs)` 接受 `(params)` **就地展开**（public if [Record] else private）+ `;` 短形式；Parser/MemberParser 传 attrs
+- [x] 阶段 3: bit3 由 `IrGen` 从原始 AttributedDecl 判 `HasRecord` 传 `ClassDescBuilder._classDesc(c,hasRecord)`（**无 ClassDecl 新字段、无 RecordExpand pass**）
 - [x] 阶段 5: 文档（book 机制页 + SUMMARY + language-overview）+ e2e golden（record_attribute）
 - [~] 阶段 6: 验证（z42c 自建✔ / stdlib 24/24✔ / record_attribute e2e 2/2✔；self-host 字节 + bootstrap 边界交 CI，本机 seed 老一 nightly 已手动 patch）
 - [ ] 阶段 4: 【nightly N+1】迁移 stdlib/examples/tests + 删 `record` 关键字
@@ -19,30 +24,18 @@
 - [x] 1.3 `HandlerRegistry.IsDirectiveAttr` 加 `|| IsRecordDirective(name)`；directive 天然豁免 D8 后缀
 - [x] 1.4 `[Record]` 在 class/struct 上解析成功（e2e record_attribute 覆盖）
 
-## 阶段 2: parser 接受 `(params)` + ClassDecl 新字段
-- [ ] 2.1 `Decl.z42`：`ClassDecl` 加 `Param[] PrimaryParams` + `int PrimaryParamCount` + `bool IsRecord`
-      （构造器默认空/false，沿用 `IsPartial` 的「构造后赋值」模式，不动现有 `new ClassDecl` 调用点）
-- [x] 2.2 `DeclParser._parseTypeDecl`（:124）：`name`/typeParams 后、`:` base 前，若 `LParen` → 解析
-      `_parseParamList` 存 `PrimaryParams`（**不展开**）
-      - ⚠️ 实现时发现：`_parseTypeDecl` 原本无条件 `_expect("{")`，但短形式 `[Record] class Point(int X, int Y);`
-        用分号无块体（镜像旧 `_parseRecord`）。修：`primaryPc>0 && 非 {` → `_expectSemi()` 早返回空成员
-        ClassDecl。无位置参数仍要求 `{`（不放宽 `class Foo;`）。否则 semicolon 形式 parse 出错、拖垮整文件
-        →「Demo.Main not found」（首轮 e2e 实测炸点）。
-- [ ] 2.3 `Decl.z42:371` 注释更新（record 降级 → `[Record]` AST 展开）
+## 阶段 2: parser 就地展开（无 ClassDecl 新字段）
+- [x] 2.1 **不加 ClassDecl 字段**（自举约束：semantics 读新 syntax 字段 = `E0401`）——位置参数就地消费。
+- [x] 2.2 `DeclParser._parseTypeDecl(mods, kind, attrs)`：解析 `(params)` → 就地展开成 `FieldDecl(vis)` +
+      主构造器（`_attrsHaveRecord(attrs)` 判 vis=public/private）；`_attrsHaveRecord` helper（名字匹配 Record）。
+      - Parser.z42 顶层 + MemberParser 嵌套两处调用传 `attrs`。
+      - ⚠️ `;` 短形式：`primaryPc>0 && 非 {` → `_expectSemi()`（否则拖垮整文件→「Demo.Main not found」）。
 
-## 阶段 3: RecordExpand AST pass + bit3 迁移
-- [ ] 3.1 `src/compiler/z42c.semantics/src/RecordExpand.z42`（NEW，形态照抄 `BenchmarkDesugar.z42`）：
-      CU 下降扫 `AttributedDecl`，命中 `[Record]`（`HandlerRegistry.HasRecord`）的 `ClassDecl`
-- [ ] 3.2 展开（两分支共用代码，传 `vis`/`isRecord`）：`PrimaryParams` → `FieldDecl(vis)` + 合成主构造器
-      `MethodDecl`（搬 `_parseRecord`:283-307）；插到 Members 前部
-      - 有 `[Record]` → `vis="public"` + 置 `IsRecord=true`（= record）
-      - 无 `[Record]` → `vis="private"` + `IsRecord=false`（= primary constructor，Decision 3=A）
-- [ ] 3.3 golden 验证 primary ctor：`class Point(int X){int Sum(){return X;}}` 裸字段访问 + S6b 初始化器求值序
-- [ ] 3.4 `HandlerRegistry.RunAst`（:45）串入：`AttributeSynth.Run(BenchmarkDesugar.Run(RecordExpand.Run(cu)))`
-- [ ] 3.5 `ClassDescBuilder.z42`（**nightly N 加法式**，保 keyword `record` 不坏）：bit3 →
-      `if (c.Kind=="record" || c.IsRecord)`（两触发并存）；`isStructOrRecord` **保留** record 分支
-      （keyword 仍在，`[Record] class` 靠 Kind=="class" 自然拿基、无需改）。**N+1** 删关键字后再去
-      `Kind=="record"` 两处。
+## 阶段 3: bit3 由原始 AttributedDecl 判（无 RecordExpand pass）
+- [x] 3.1 bit3：`IrGen:182` `_classDesc(descDecl, HandlerRegistry.HasRecord(cu.Decls[i]))`；`ClassDescBuilder._classDesc(c, hasRecord)`
+      bit3 = `Kind=="record" || hasRecord`。`HasRecord` 读原始 `AttributedDecl.Attrs`（既有结构，semantics 零新字段）。
+- [x] 3.2 primary ctor 裸字段访问 + `[Record]` public / 无-attr private（e2e record_attribute 覆盖 S1-S6）。
+- [ ] 3.3 【N+1】`ClassDescBuilder`：bit3 去 `Kind=="record"` 项；`isStructOrRecord` 去 record 分支（基类随 Kind）。
       > ⚠️ 关键：N 阶段 `[Record]` 与 keyword `record` **并存**，ClassDescBuilder 改动必须加法式——
       > 直接替换会让现存 `record Foo(...)`（stdlib z42.build 等）在 N 丢 bit3 / 改基类。
 

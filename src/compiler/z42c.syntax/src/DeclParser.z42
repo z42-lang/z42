@@ -121,7 +121,7 @@ public sealed class DeclParser {
         return mods.IndexOf(" " + w + " ") >= 0;
     }
 
-    public Decl _parseTypeDecl(string mods, string kind) {   // add-nested-types：MemberParser 嵌套类型也调用
+    public Decl _parseTypeDecl(string mods, string kind, AttrList attrs) {   // add-nested-types：MemberParser 嵌套类型也调用
         Span sp = this._p._peek().Span;
         this._p._advance();   // class / struct / interface
         string name = this._p._peek().Text;
@@ -129,8 +129,11 @@ public sealed class DeclParser {
         else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected type name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
         // add-record-attribute：class/struct 后可跟位置参数 `Foo(int X, int Y)`（原 record 专属语法位置）。
-        // parser 仅存进 ClassDecl.PrimaryParams，不展开——RecordExpand（AST 期，能看到 [Record]）按有无
-        // [Record] 展开成 public(record)/private(primary ctor) 字段 + 主构造器。interface 不接受位置参数。
+        // 在 parser 内**就地展开**成字段 + 主构造器——传入的 attrs 已含 `[Record]` 判定（attrs 在外层 Parser /
+        // MemberParser 已解析并传入），故 parser 能区分：有 `[Record]` → public 字段（record）；否则 → private
+        // 字段（C# 12 主构造器）。就地展开（而非存 ClassDecl 字段留 AST 期）是自举硬约束：z42c.semantics 自
+        // 建时对着**上一 nightly 的 z42c.syntax** 编译，若给 ClassDecl 加新字段供 semantics 读会 `no field`
+        // （种子 syntax 无该字段）。interface 不接受位置参数。
         Param[] primaryParams = new Param[0];
         int primaryPc = 0;
         if (kind != "interface" && this._p._peek().Kind == TokenKind.LParen) {
@@ -144,16 +147,41 @@ public sealed class DeclParser {
             bases = bl.Items; bc = bl.Count;
         }
         WhereList wl = this._p._typeP._parseWhereClause();
-        // add-record-attribute：带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体，
-        // 镜像旧 _parseRecord）——body 可选：有 `{` 则解析块成员，否则消一个 `;`。无位置参数仍要求 `{`。
         Decl[] members = new Decl[16];
         int mc = 0;
         bool isIface = (kind == "interface");
+        // 位置参数就地展开：字段（[Record]=public / 否则=private）+ 主构造器（this.X=X），置于块成员之前。
+        if (primaryPc > 0) {
+            bool hasRecord = this._attrsHaveRecord(attrs);
+            string fvis = "private";
+            if (hasRecord) { fvis = "public"; }
+            int pi = 0;
+            while (pi < primaryPc) {
+                members = this._growDecls(members, mc);
+                members[mc] = new FieldDecl(fvis, primaryParams[pi].Type, primaryParams[pi].Name, false, null, primaryParams[pi].Span);
+                mc = mc + 1; pi = pi + 1;
+            }
+            Stmt[] cstmts = new Stmt[primaryPc];
+            int ci = 0;
+            while (ci < primaryPc) {
+                Expr tgt = new MemberExpr(new IdentExpr("this", primaryParams[ci].Span), primaryParams[ci].Name, primaryParams[ci].Span);
+                Expr val = new IdentExpr(primaryParams[ci].Name, primaryParams[ci].Span);
+                cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, primaryParams[ci].Span), primaryParams[ci].Span);
+                ci = ci + 1;
+            }
+            BlockStmt cbody = new BlockStmt(cstmts, primaryPc, sp);
+            members = this._growDecls(members, mc);
+            members[mc] = new MethodDecl("", false, true, this._p._typeP._emptyType(), name,
+                                         this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
+                                         primaryParams, primaryPc, true, cbody, new Expr[0], 0, false, sp);
+            mc = mc + 1;
+        }
+        // 带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体，镜像旧 _parseRecord）——
+        // body 可选：有 `{` 则解析块成员，否则消一个 `;`。无位置参数仍要求 `{`。
         if (primaryPc > 0 && this._p._peek().Kind != TokenKind.LBrace) {
             this._p._expectSemi();
             ClassDecl cds = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
             cds.IsPartial = this._modsHas(mods, "partial");
-            cds.PrimaryParams = primaryParams; cds.PrimaryParamCount = primaryPc;
             return cds;
         }
         this._p._expect(TokenKind.LBrace, "{");
@@ -185,8 +213,19 @@ public sealed class DeclParser {
         this._p._expect(TokenKind.RBrace, "}");
         ClassDecl cd = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
         cd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
-        cd.PrimaryParams = primaryParams; cd.PrimaryParamCount = primaryPc;   // add-record-attribute
         return cd;
+    }
+
+    // add-record-attribute：位置参数展开时判 `[Record]`（决定字段 public/private）。就地在 syntax 判定
+    // （不依赖 semantics 的 HandlerRegistry），保证 z42c.syntax 自足；名字匹配即可（directive 保留名）。
+    private bool _attrsHaveRecord(AttrList attrs) {
+        if (attrs == null) { return false; }
+        int i = 0;
+        while (i < attrs.Count) {
+            if (attrs.Items[i].Name == "Record") { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 
 

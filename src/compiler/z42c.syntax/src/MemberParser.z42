@@ -94,12 +94,12 @@ public sealed class MemberParser {
     internal Decl _parseMember(string className) {
         AttrList attrs = this._p._declP._parseAttributes();
         string mods = this._p._declP._parseModifiers();
-        Decl d = this._parseMemberBody(mods, className);
+        Decl d = this._parseMemberBody(mods, className, attrs);   // add-record-attribute：attrs 供嵌套类型位置参数判 [Record]
         if (attrs.Count > 0) { return new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
         return d;
     }
 
-    private Decl _parseMemberBody(string mods, string className) {
+    private Decl _parseMemberBody(string mods, string className, AttrList attrs) {
         Span sp = this._p._peek().Span;
         // add-nested-types：嵌套类型声明（class/struct/interface/enum/record）作为成员 → 委托 DeclParser
         // 的类型声明解析（其成员体再递归 _parseMember，故深层嵌套天然支持）。NestedFlatten 稍后把它们
@@ -109,7 +109,7 @@ public sealed class MemberParser {
             string nkind = "class";
             if (nk == TokenKind.Struct) { nkind = "struct"; }
             else if (nk == TokenKind.Interface) { nkind = "interface"; }
-            return this._p._declP._parseTypeDecl(mods, nkind);
+            return this._p._declP._parseTypeDecl(mods, nkind, attrs);
         }
         if (nk == TokenKind.Enum)   { return this._p._declP._parseEnum(mods); }
         if (nk == TokenKind.Record) { return this._p._declP._parseRecord(mods); }
