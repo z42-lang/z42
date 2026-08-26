@@ -10,7 +10,12 @@ using Std;
 // `test-runner/src/exec.rs::extract_bench_stats_from_stdout` — same contract, now
 // pure script. The one-line format is produced by `Bencher.printSummary`:
 //
-//   bench[<label>] min=<n>ns median=<n>ns max=<n>ns samples=<n>
+//   bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+//
+// `mean=`/`stddev=` (extend-ab-bench-micro-criterion) are OPTIONAL — a summary
+// line lacking them (older baselines) still parses, with MeanNs/StdDevNs = -1.
+// The A/B gate reads mean+stddev+n for SEM propagation; a -1 there degrades to a
+// bare-ratio verdict (no false regression).
 //
 // `parse` is deterministic (input strings, not timings) and hence directly
 // unit-testable (see `tests/bench_stats.z42`). Malformed input returns `null` —
@@ -21,13 +26,18 @@ public class BenchStats {
     public long MinNs;
     public long MedianNs;
     public long MaxNs;
+    public long MeanNs;     // -1 if the summary line omitted mean= (older format)
+    public long StdDevNs;   // -1 if the summary line omitted stddev=
     public long Samples;
 
-    public BenchStats(string label, long minNs, long medianNs, long maxNs, long samples) {
+    public BenchStats(string label, long minNs, long medianNs, long maxNs,
+                      long meanNs, long stddevNs, long samples) {
         this.Label = label;
         this.MinNs = minNs;
         this.MedianNs = medianNs;
         this.MaxNs = maxNs;
+        this.MeanNs = meanNs;
+        this.StdDevNs = stddevNs;
         this.Samples = samples;
     }
 
@@ -61,11 +71,14 @@ public class BenchStats {
         long median  = BenchStats._pullKv(rest, "median=");
         long max     = BenchStats._pullKv(rest, "max=");
         long samples = BenchStats._pullKv(rest, "samples=");
+        // mean / stddev are OPTIONAL: -1 (absent) is carried through, not fatal.
+        long mean    = BenchStats._pullKv(rest, "mean=");
+        long stddev  = BenchStats._pullKv(rest, "stddev=");
 
-        // Any missing / non-integer field → whole line malformed (-1 sentinel is
-        // internal to _pullKv; real ns / sample counts are always >= 0).
+        // The REQUIRED fields — any missing / non-integer → whole line malformed
+        // (-1 sentinel is internal to _pullKv; real ns / sample counts are >= 0).
         if (min < 0 || median < 0 || max < 0 || samples < 0) { return null; }
-        return new BenchStats(label, min, median, max, samples);
+        return new BenchStats(label, min, median, max, mean, stddev, samples);
     }
 
     // Read the integer immediately following `key` in `s`, ignoring any trailing

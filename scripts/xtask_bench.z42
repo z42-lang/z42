@@ -638,12 +638,18 @@ class MicroBenchAgg {
                 long lo  = bs.Get("min_ns").AsLong();
                 long hi  = bs.Get("max_ns").AsLong();
                 long smp = bs.Get("samples").AsLong();
+                // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
+                // in older reports → default -1. Carried into the schema-v2 object
+                // so the informational baseline is SEM-ready for future consumers.
+                long mean = bs.ContainsKey("mean_ns") ? bs.Get("mean_ns").AsLong() : -1;
+                long sd   = bs.ContainsKey("stddev_ns") ? bs.Get("stddev_ns").AsLong() : -1;
                 if (this._n > 0) { this._items = this._items + ",\n"; }
                 this._items = this._items
                     + "    {\n      \"name\": \"" + name + "\",\n"
                     + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
                     + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
                     + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
+                    + "      \"mean_ns\": " + mean.ToString() + ",\n      \"stddev_ns\": " + sd.ToString() + ",\n"
                     + "      \"samples\": " + smp.ToString() + ",\n"
                     + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
                 this._n = this._n + 1;

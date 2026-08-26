@@ -11,13 +11,28 @@ using Std.Test;
 
 [Test]
 void test_parse_canonical() {
-    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100");
+    // New canonical format carries mean= / stddev= (extend-ab-bench-micro-criterion).
+    BenchStats s = BenchStats.parse(
+        "bench[addition] min=3875ns median=3958ns max=9042ns mean=4100ns stddev=250ns samples=100");
     Assert.NotNull(s);
     Assert.Equal("addition", s.Label);
     Assert.Equal("3875", s.MinNs.ToString());
     Assert.Equal("3958", s.MedianNs.ToString());
     Assert.Equal("9042", s.MaxNs.ToString());
+    Assert.Equal("4100", s.MeanNs.ToString());
+    Assert.Equal("250", s.StdDevNs.ToString());
     Assert.Equal("100", s.Samples.ToString());
+}
+
+[Test]
+void test_parse_legacy_line_omits_mean_stddev() {
+    // Older Bencher output (no mean/stddev) must still parse — mean/stddev = -1.
+    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100");
+    Assert.NotNull(s);
+    Assert.Equal("3875", s.MinNs.ToString());
+    Assert.Equal("100", s.Samples.ToString());
+    Assert.Equal("-1", s.MeanNs.ToString());
+    Assert.Equal("-1", s.StdDevNs.ToString());
 }
 
 [Test]
@@ -58,13 +73,14 @@ void test_parse_leading_indent() {
 
 [Test]
 void test_result_json_benchmark_shape() {
-    BenchStats b = BenchStats.parse("bench[add] min=10ns median=20ns max=30ns samples=50");
+    BenchStats b = BenchStats.parse(
+        "bench[add] min=10ns median=20ns max=30ns mean=22ns stddev=4ns samples=50");
     TestResult r = new TestResult("M.bench_add", "passed", true, null, b);
     string j = TestReport.resultJson(r);
     Assert.Contains("\"name\":\"M.bench_add\"", j);
     Assert.Contains("\"status\":\"passed\"", j);
     Assert.Contains("\"is_benchmark\":true", j);
-    Assert.Contains("\"bench_stats\":{\"label\":\"add\",\"min_ns\":10,\"median_ns\":20,\"max_ns\":30,\"samples\":50}", j);
+    Assert.Contains("\"bench_stats\":{\"label\":\"add\",\"min_ns\":10,\"median_ns\":20,\"max_ns\":30,\"mean_ns\":22,\"stddev_ns\":4,\"samples\":50}", j);
 }
 
 [Test]

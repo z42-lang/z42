@@ -60,7 +60,24 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke），未接入 xtask | ❌ `cargo bench` 直跑 |
 
 **e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是门禁守护面；**micro** 把回归
-定位到具体函数、守 stdlib 热路径，但 ns 级数字只在稳定硬件上有意义，故不进门禁。
+定位到具体函数、守 stdlib 热路径，但 ns 级数字只在稳定硬件上有意义，故（当前）不进门禁。
+
+### Bencher 统计与自适应采样（`Std.Test.Bencher`）
+
+micro tier 的每个 `[Benchmark]` 用 `Bencher` 采样，`printSummary` 产出一行契约：
+
+```
+bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+```
+
+- **mean / stddev**（extend-ab-bench-micro-criterion）：`mean=`/`stddev=` 是 SEM 传播的输入，供
+  micro tier 将来接入同-runner A/B 门禁（与 e2e 同套 `_abVerdict`）。是**追加字段**——旧
+  summary line（无 mean/stddev）仍能被 `BenchStats.parse` 解析，缺失记 -1，下游按「无 CI」降级。
+- **自适应采样**：默认构造 `new Bencher()` 现按 **~50ms 测量预算**自动选采样数 n（先跑 15 次 pilot
+  估单次成本，再 clamp 到 [20, 2000]）——快基准多采样（CI 更紧）、慢基准少采样（墙钟有界）。
+  显式 `new Bencher(warmup, samples)` 保持**固定** samples（无自适应），既有 tuned 基准行为不变。
+- stddev 是**总体**方差（÷n）、四舍五入到 ns；亚-ns 离散 round 到 0 → 下游判「无 CI」→ 裸比值，
+  安全不假红。
 
 ## 执行画像（profile，schema v2）
 
