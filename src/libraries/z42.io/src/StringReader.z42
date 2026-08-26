@@ -26,11 +26,16 @@ using Std;
 
 public class StringReader {
     private string _source;
+    // Bulk-materialised source chars (one `ToCharArray()`) so per-char reads are
+    // O(1) array indexing instead of a `CharAt` builtin call each. `_source` is
+    // kept for `.Length` / `.Substring`.
+    private char[] _chars;
     private int    _pos;
     private bool   _closed;
 
     public StringReader(string source) {
         this._source = source;
+        this._chars  = source.ToCharArray();
         this._pos    = 0;
         this._closed = false;
     }
@@ -41,14 +46,14 @@ public class StringReader {
     public int Peek() {
         this.EnsureOpen();
         if (this._pos >= this._source.Length) { return -1; }
-        return (int)this._source.CharAt(this._pos);
+        return (int)this._chars[this._pos];
     }
 
     /// Consume next char as int code; -1 on EOF (cursor unchanged on EOF).
     public int Read() {
         this.EnsureOpen();
         if (this._pos >= this._source.Length) { return -1; }
-        int code = (int)this._source.CharAt(this._pos);
+        int code = (int)this._chars[this._pos];
         this._pos = this._pos + 1;
         return code;
     }
@@ -70,7 +75,7 @@ public class StringReader {
         if (n > remaining) { n = remaining; }
         int i = 0;
         while (i < n) {
-            buffer[offset + i] = this._source.CharAt(this._pos + i);
+            buffer[offset + i] = this._chars[this._pos + i];
             i = i + 1;
         }
         this._pos = this._pos + n;
@@ -91,7 +96,7 @@ public class StringReader {
         int start = this._pos;
         int i = start;
         while (i < len) {
-            char c = this._source.CharAt(i);
+            char c = this._chars[i];
             if (c == '\n') {
                 string line = this._source.Substring(start, i - start);
                 this._pos = i + 1;
@@ -100,7 +105,7 @@ public class StringReader {
             if (c == '\r') {
                 string line = this._source.Substring(start, i - start);
                 // Consume optional \n after \r (CRLF).
-                if (i + 1 < len && this._source.CharAt(i + 1) == '\n') {
+                if (i + 1 < len && this._chars[i + 1] == '\n') {
                     this._pos = i + 2;
                 } else {
                     this._pos = i + 1;
@@ -133,9 +138,10 @@ public class StringReader {
     public void Close() {
         if (this._closed) { return; }
         this._closed = true;
-        // Drop the source ref so the GC can reclaim it if the caller
+        // Drop the source refs so the GC can reclaim them if the caller
         // didn't hold an outside reference.
         this._source = "";
+        this._chars = new char[0];
     }
 
     // ── Internal ────────────────────────────────────────────────────────

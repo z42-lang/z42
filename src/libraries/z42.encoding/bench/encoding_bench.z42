@@ -14,6 +14,37 @@ byte[] _mkPayload() {
     return data;
 }
 
+// n-byte deterministic payload — KB-scale inputs make the decode-side char[]
+// materialisation (vs per-char CharAt) measurable.
+byte[] _mkPayloadN(int n) {
+    byte[] data = new byte[n];
+    int i = 0;
+    while (i < n) { data[i] = (byte)(i % 251); i = i + 1; }
+    return data;
+}
+
+[Benchmark]
+void bench_base64_roundtrip_4k() {
+    byte[] data = _mkPayloadN(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        string s = Base64.Encode(data);
+        BenchHelpers.blackBox(Base64.Decode(s).Length);
+    });
+    b.printSummary("base64_roundtrip_4k");
+}
+
+[Benchmark]
+void bench_hex_roundtrip_4k() {
+    byte[] data = _mkPayloadN(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        string s = Hex.Encode(data);
+        BenchHelpers.blackBox(Hex.Decode(s).Length);
+    });
+    b.printSummary("hex_roundtrip_4k");
+}
+
 [Benchmark]
 void bench_base64_roundtrip() {
     byte[] data = _mkPayload();

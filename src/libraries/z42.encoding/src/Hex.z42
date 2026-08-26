@@ -35,11 +35,14 @@ public static class Hex {
         if ((hex.Length & 1) != 0) {
             throw new FormatException("odd-length hex string");
         }
-        byte[] result = new byte[hex.Length / 2];
+        // 一次性物化为 char[]：逐字符解码走 O(1) 数组索引而非 CharAt builtin 调用。
+        char[] hc = hex.ToCharArray();
+        int n = hex.Length / 2;
+        byte[] result = new byte[n];
         int i = 0;
-        while (i < hex.Length / 2) {
-            int hi = digitValue(hex.CharAt(i * 2));
-            int lo = digitValue(hex.CharAt(i * 2 + 1));
+        while (i < n) {
+            int hi = digitValue(hc[i * 2]);
+            int lo = digitValue(hc[i * 2 + 1]);
             result[i] = (byte)((hi << 4) | lo);
             i = i + 1;
         }
