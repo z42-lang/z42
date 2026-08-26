@@ -105,6 +105,11 @@ Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy 
 3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的 `mean.point_estimate`
    与 `confidence_interval.lower_bound`——**变化 > +10% 且 CI 下界 > 0**（criterion 确信真慢）→ 判红。
 
+**`concurrent_*`（多线程）基准仅信息性、不判红**：criterion 的 `--baseline` 比的是**两次独立跑**（base 先存、
+pr 再比），线程 GC 基准在共享 runner 上的**跑间线程调度噪声**很大（实测：一个 perf-中立的纯注释 PR，
+concurrent 基准摆动 +6~33%，单线程基准却居 0 附近）。criterion 紧的**跑内** CI 抓不到这种跑间漂移，硬判会
+假红。故 concurrent 基准打印但不 fail job；单线程 GC 基准照常硬门禁。
+
 **仅当 PR 触碰 `src/runtime` 时跑**（`git diff --quiet base..HEAD -- src/runtime` 为真则跳过——VM 字节
 相同、结果必不动）。`smoke_bench.rs` 是纯 Rust sanity（不碰 VM），保留作「criterion 装置能跑」自检、
 **不纳入门禁**。

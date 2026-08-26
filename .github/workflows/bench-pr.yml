@@ -215,6 +215,13 @@ jobs:
       # detection + bootstrap CI. A shared CRITERION_HOME lets the two trees' runs meet.
       # gc_cycle_bench is a real VM benchmark (gated); smoke_bench is a pure-Rust
       # sanity harness (NOT gated). Gate: any bench mean change >10% AND CI-separated.
+      # EXCEPTION: `concurrent_*` (multi-threaded) benchmarks are INFORMATIONAL only —
+      # criterion's --baseline compares two SEPARATE runs (base saved, then pr), and
+      # for threaded GC the between-run thread-scheduling noise on a shared CI runner
+      # is large (validated: a perf-neutral comment-only PR saw the concurrent benches
+      # swing +6–33% while single-threaded ones centred on 0). criterion's tight
+      # within-run CI does not capture that drift, so gating them false-reds. They are
+      # printed but never fail the job; single-threaded GC benches remain hard-gated.
       - name: Criterion(Rust) A/B gate (gc_cycle_bench; only if src/runtime changed)
         shell: bash
         run: |
@@ -245,8 +252,12 @@ jobs:
               if pe is None or lo is None: continue
               bench = est.split(os.sep)[-3]
               tag = f"{pe*100:+.1f}% (CI lower {lo*100:+.1f}%)"
+              noisy = "concurrent" in bench   # threaded → between-run scheduling noise; informational only
               if pe > thr and lo > 0.0:
-                  regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
+                  if noisy:
+                      print(f"  ~ {bench}: {tag} (concurrent — informational, not gated)")
+                  else:
+                      regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
               else:
                   print(f"  ≈ {bench}: {tag}")
           if regr:
