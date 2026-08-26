@@ -8,6 +8,10 @@ using Std.Text;
 // 只有 7 种 value 类型，无 section / dotted-key / array-of-tables 概念。
 public sealed class JsonParser {
     private string _src;
+    // Bulk-materialised source chars (one `ToCharArray()`) so per-char cursor
+    // reads are O(1) array indexing instead of a `CharAt` builtin call each.
+    // `_src` is kept for `.Length` / `.Substring`.
+    private char[] _chars;
     private int _pos;
     private int _line;
     private int _col;
@@ -21,6 +25,7 @@ public sealed class JsonParser {
 
     public JsonParser(string src) {
         this._src = src;
+        this._chars = src.ToCharArray();
         this._pos = 0;
         this._line = 1;
         this._col = 1;
@@ -55,7 +60,7 @@ public sealed class JsonParser {
 
     private char Peek() {
         if (this._pos >= this._src.Length) { return '\0'; }
-        return this._src.CharAt(this._pos);
+        return this._chars[this._pos];
     }
 
     private char Advance() {
@@ -216,7 +221,7 @@ public sealed class JsonParser {
         if (this._pos + len > this._src.Length) { return false; }
         int i = 0;
         while (i < len) {
-            if (this._src.CharAt(this._pos + i) != lit.CharAt(i)) { return false; }
+            if (this._chars[this._pos + i] != lit.CharAt(i)) { return false; }
             i = i + 1;
         }
         int j = 0;
@@ -271,8 +276,8 @@ public sealed class JsonParser {
         // High surrogate? Look for low surrogate \uDxxx pair.
         if (v >= 0xD800 && v <= 0xDBFF) {
             if (this._pos + 1 < this._src.Length
-                && this._src.CharAt(this._pos) == '\\'
-                && this._src.CharAt(this._pos + 1) == 'u') {
+                && this._chars[this._pos] == '\\'
+                && this._chars[this._pos + 1] == 'u') {
                 this.Advance();
                 this.Advance();
                 int low = this.ReadHex4();

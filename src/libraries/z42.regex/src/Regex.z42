@@ -16,6 +16,11 @@ public class Regex {
     // ── mutable match state ───────────────────────────────────────────────
     // 单线程模型；多次 Match 调用会 reset 这些字段。
     private string _input;
+    // Bulk-materialised match subject (one `ToCharArray()` per match run in
+    // ResetState) so the backtracking engine's repeated same-position reads are
+    // O(1) array indexing instead of a `CharAt` builtin call each. `_input` is
+    // kept for `.Length` / `.Substring`.
+    private char[] _chars;
     private int[] _gStarts;
     private int[] _gEnds;
 
@@ -284,6 +289,7 @@ public class Regex {
     // reused arrays are never aliased by a returned Match.
     private void ResetState(string input) {
         this._input = input;
+        this._chars = input.ToCharArray();
         if (this._gStarts == null || this._gStarts.Length != this._groupCount) {
             this._gStarts = new int[this._groupCount];
             this._gEnds   = new int[this._groupCount];
@@ -304,7 +310,7 @@ public class Regex {
 
         if (k == 1) {  // LIT
             if (pos < this._input.Length) {
-                int inCh  = (int)this._input.CharAt(pos);
+                int inCh  = (int)this._chars[pos];
                 int patCh = node._ch;
                 bool eq;
                 if (this._caseInsensitive) {
@@ -324,7 +330,7 @@ public class Regex {
         }
         if (k == 3) {  // CHARSET
             if (pos < this._input.Length) {
-                int ch = (int)this._input.CharAt(pos);
+                int ch = (int)this._chars[pos];
                 bool hit = node.CharsetMatches(ch);
                 if (this._caseInsensitive) {
                     int swapped = Regex._swapCase(ch);
@@ -350,7 +356,7 @@ public class Regex {
             // add-regex-word-boundary-multiline (2026-05-30): under `(?m)`,
             // `^` additionally matches just after any `\n`.
             if (this._multiline && pos > 0
-                && (int)this._input.CharAt(pos - 1) == 10) {
+                && (int)this._chars[pos - 1] == 10) {
                 return this.Match(seq, count, idx + 1, pos);
             }
             return -1;
@@ -360,7 +366,7 @@ public class Regex {
             // add-regex-word-boundary-multiline (2026-05-30): under `(?m)`,
             // `$` additionally matches immediately before any `\n`.
             if (this._multiline && pos < this._input.Length
-                && (int)this._input.CharAt(pos) == 10) {
+                && (int)this._chars[pos] == 10) {
                 return this.Match(seq, count, idx + 1, pos);
             }
             return -1;
@@ -425,9 +431,9 @@ public class Regex {
     /// add-regex-word-boundary-multiline (2026-05-30).
     private bool _AtWordBoundary(int pos) {
         bool leftWord  = pos > 0
-                      && Regex._IsWordChar((int)this._input.CharAt(pos - 1));
+                      && Regex._IsWordChar((int)this._chars[pos - 1]);
         bool rightWord = pos < this._input.Length
-                      && Regex._IsWordChar((int)this._input.CharAt(pos));
+                      && Regex._IsWordChar((int)this._chars[pos]);
         return leftWord != rightWord;
     }
 

@@ -32,6 +32,10 @@ using Std.Text;
 
 public sealed class YamlParser {
     private string _src;
+    // Bulk-materialised source chars — one `ToCharArray()` up front so the
+    // per-char cursor reads are O(1) array indexing (ArrayGet) instead of a
+    // `CharAt` builtin call each. `_src` is kept for `.Length` / `.Substring`.
+    private char[] _chars;
     private int    _pos;
     private int    _line;
     private int    _col;
@@ -66,6 +70,7 @@ public sealed class YamlParser {
 
     public YamlParser(string src) {
         this._src  = src;
+        this._chars = src.ToCharArray();
         this._pos  = 0;
         this._line = 1;
         this._col  = 1;
@@ -204,7 +209,7 @@ public sealed class YamlParser {
         if (contentPos >= this._src.Length) {
             return YamlValue.OfNull();
         }
-        char first = this._src.CharAt(contentPos);
+        char first = this._chars[contentPos];
 
         // Block sequence: line starts with `- ` (or just `-` at EOL).
         if (first == '-') {
@@ -212,9 +217,9 @@ public sealed class YamlParser {
             // negative number scalar (e.g. `-42`). It's a sequence dash
             // iff the next char is whitespace or EOL.
             if (contentPos + 1 >= this._src.Length
-                || this._src.CharAt(contentPos + 1) == ' '
-                || this._src.CharAt(contentPos + 1) == '\n'
-                || this._src.CharAt(contentPos + 1) == '\r') {
+                || this._chars[contentPos + 1] == ' '
+                || this._chars[contentPos + 1] == '\n'
+                || this._chars[contentPos + 1] == '\r') {
                 return this._ParseBlockSequence(actualIndent);
             }
         }
@@ -278,11 +283,11 @@ public sealed class YamlParser {
             }
             int contentPos = this._pos + indent;
             // Refuse to parse a `- ` sequence entry inline with a mapping.
-            char first = this._src.CharAt(contentPos);
+            char first = this._chars[contentPos];
             if (first == '-' && (contentPos + 1 >= this._src.Length
-                || this._src.CharAt(contentPos + 1) == ' '
-                || this._src.CharAt(contentPos + 1) == '\n'
-                || this._src.CharAt(contentPos + 1) == '\r')) {
+                || this._chars[contentPos + 1] == ' '
+                || this._chars[contentPos + 1] == '\n'
+                || this._chars[contentPos + 1] == '\r')) {
                 break;  // sibling block sequence shouldn't happen at exact mapping indent
             }
             this._pos = contentPos;
@@ -292,7 +297,7 @@ public sealed class YamlParser {
             string key = this._ParseMappingKey();
             bool keyQuoted = this._lastKeyQuoted;
             this._SkipInlineSpaces();
-            if (this._pos >= this._src.Length || this._src.CharAt(this._pos) != ':') {
+            if (this._pos >= this._src.Length || this._chars[this._pos] != ':') {
                 throw this._Err("expected ':' after mapping key '" + key + "'");
             }
             this._pos = this._pos + 1;  // consume ':'
@@ -302,9 +307,9 @@ public sealed class YamlParser {
             // What follows: inline value on this line, or block value on next.
             YamlValue val;
             if (this._pos >= this._src.Length
-                || this._src.CharAt(this._pos) == '\n'
-                || this._src.CharAt(this._pos) == '\r'
-                || (this._src.CharAt(this._pos) == '#' && this._IsCommentStart())) {
+                || this._chars[this._pos] == '\n'
+                || this._chars[this._pos] == '\r'
+                || (this._chars[this._pos] == '#' && this._IsCommentStart())) {
                 // Empty inline value → check next line.
                 this._ConsumeRestOfLine();
                 this._SkipBlankLines();
@@ -316,7 +321,7 @@ public sealed class YamlParser {
                         val = this._ParseBlockValue(nextIndent);
                     } else if (nextIndent == indent
                             && nextIndent < this._src.Length - this._pos
-                            && this._src.CharAt(this._pos + nextIndent) == '-') {
+                            && this._chars[this._pos + nextIndent] == '-') {
                         // fix-yaml-quoted-strings (2026-05-24): YAML allows a
                         // mapping value to be a block sequence at the SAME
                         // indent as the mapping key — `key:\n- item`. The
@@ -328,9 +333,9 @@ public sealed class YamlParser {
                         // or EOL) before committing.
                         int dashNext = this._pos + nextIndent + 1;
                         bool isDash = dashNext >= this._src.Length
-                            || this._src.CharAt(dashNext) == ' '
-                            || this._src.CharAt(dashNext) == '\n'
-                            || this._src.CharAt(dashNext) == '\r';
+                            || this._chars[dashNext] == ' '
+                            || this._chars[dashNext] == '\n'
+                            || this._chars[dashNext] == '\r';
                         if (isDash) {
                             val = this._ParseBlockSequence(nextIndent);
                         } else {
@@ -340,7 +345,7 @@ public sealed class YamlParser {
                         val = YamlValue.OfNull();
                     }
                 }
-            } else if (this._src.CharAt(this._pos) == '[' || this._src.CharAt(this._pos) == '{') {
+            } else if (this._chars[this._pos] == '[' || this._chars[this._pos] == '{') {
                 val = this._ParseFlow();
                 this._SkipInlineSpacesAndOptionalComment();
                 this._ConsumeRestOfLine();
@@ -389,7 +394,7 @@ public sealed class YamlParser {
         if (this._pos >= this._src.Length) {
             throw this._Err("expected mapping key, got EOF");
         }
-        char c = this._src.CharAt(this._pos);
+        char c = this._chars[this._pos];
         if (c == '"') {
             this._lastKeyQuoted = true;
             return this._ParseDoubleQuotedString();
@@ -402,14 +407,14 @@ public sealed class YamlParser {
         // Plain key: read until ':' (followed by space or EOL) or EOL.
         int start = this._pos;
         while (this._pos < this._src.Length) {
-            char ch = this._src.CharAt(this._pos);
+            char ch = this._chars[this._pos];
             if (ch == ':') {
                 // Mapping key terminator iff next is WS/EOL/EOF.
                 if (this._pos + 1 >= this._src.Length
-                    || this._src.CharAt(this._pos + 1) == ' '
-                    || this._src.CharAt(this._pos + 1) == '\n'
-                    || this._src.CharAt(this._pos + 1) == '\r'
-                    || this._src.CharAt(this._pos + 1) == '\t') {
+                    || this._chars[this._pos + 1] == ' '
+                    || this._chars[this._pos + 1] == '\n'
+                    || this._chars[this._pos + 1] == '\r'
+                    || this._chars[this._pos + 1] == '\t') {
                     break;
                 }
             }
@@ -440,12 +445,12 @@ public sealed class YamlParser {
                     + indent.ToString() + ", got " + lineIndent.ToString() + ")");
             }
             int contentPos = this._pos + indent;
-            if (contentPos >= this._src.Length || this._src.CharAt(contentPos) != '-') {
+            if (contentPos >= this._src.Length || this._chars[contentPos] != '-') {
                 break;
             }
             // Must be a dash followed by WS / EOL.
             if (contentPos + 1 < this._src.Length) {
-                char nx = this._src.CharAt(contentPos + 1);
+                char nx = this._chars[contentPos + 1];
                 if (nx != ' ' && nx != '\n' && nx != '\r' && nx != '\t') {
                     break;
                 }
@@ -465,9 +470,9 @@ public sealed class YamlParser {
             //     out of v0 scope; raise an error)
             YamlValue item;
             if (this._pos >= this._src.Length
-                || this._src.CharAt(this._pos) == '\n'
-                || this._src.CharAt(this._pos) == '\r'
-                || (this._src.CharAt(this._pos) == '#' && this._IsCommentStart())) {
+                || this._chars[this._pos] == '\n'
+                || this._chars[this._pos] == '\r'
+                || (this._chars[this._pos] == '#' && this._IsCommentStart())) {
                 this._ConsumeRestOfLine();
                 this._SkipBlankLines();
                 if (this._pos >= this._src.Length) {
@@ -480,7 +485,7 @@ public sealed class YamlParser {
                         item = YamlValue.OfNull();
                     }
                 }
-            } else if (this._src.CharAt(this._pos) == '[' || this._src.CharAt(this._pos) == '{') {
+            } else if (this._chars[this._pos] == '[' || this._chars[this._pos] == '{') {
                 item = this._ParseFlow();
                 this._SkipInlineSpacesAndOptionalComment();
                 this._ConsumeRestOfLine();
@@ -495,7 +500,7 @@ public sealed class YamlParser {
                     // the dash is a v1 case.
                     string key = this._ParseMappingKey();
                     this._SkipInlineSpaces();
-                    if (this._pos >= this._src.Length || this._src.CharAt(this._pos) != ':') {
+                    if (this._pos >= this._src.Length || this._chars[this._pos] != ':') {
                         throw this._Err("expected ':' in inline mapping under '- '");
                     }
                     this._pos = this._pos + 1;
@@ -503,10 +508,10 @@ public sealed class YamlParser {
                     this._SkipInlineSpaces();
                     YamlValue val;
                     if (this._pos >= this._src.Length
-                        || this._src.CharAt(this._pos) == '\n'
-                        || this._src.CharAt(this._pos) == '\r') {
+                        || this._chars[this._pos] == '\n'
+                        || this._chars[this._pos] == '\r') {
                         val = YamlValue.OfNull();
-                    } else if (this._src.CharAt(this._pos) == '[' || this._src.CharAt(this._pos) == '{') {
+                    } else if (this._chars[this._pos] == '[' || this._chars[this._pos] == '{') {
                         val = this._ParseFlow();
                     } else {
                         val = this._ParseBlockScalarValue();
@@ -550,7 +555,7 @@ public sealed class YamlParser {
             throw this._Err("nesting too deep (max 256)");
         }
         try {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == '[') { return this._ParseFlowSequence(); }
             if (c == '{') { return this._ParseFlowMapping(); }
             throw this._Err("expected '[' or '{', got '" + c.ToString() + "'");
@@ -563,7 +568,7 @@ public sealed class YamlParser {
         this._Advance();  // consume '['
         YamlValue seq = YamlValue.OfSequence();
         this._SkipFlowWS();
-        if (this._pos < this._src.Length && this._src.CharAt(this._pos) == ']') {
+        if (this._pos < this._src.Length && this._chars[this._pos] == ']') {
             this._Advance();
             return seq;
         }
@@ -574,7 +579,7 @@ public sealed class YamlParser {
             if (this._pos >= this._src.Length) {
                 throw this._Err("unterminated flow sequence (missing ']')");
             }
-            char ch = this._src.CharAt(this._pos);
+            char ch = this._chars[this._pos];
             if (ch == ',') {
                 this._Advance();
                 this._SkipFlowWS();
@@ -593,7 +598,7 @@ public sealed class YamlParser {
         this._Advance();  // consume '{'
         YamlValue m = YamlValue.OfMapping();
         this._SkipFlowWS();
-        if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '}') {
+        if (this._pos < this._src.Length && this._chars[this._pos] == '}') {
             this._Advance();
             return m;
         }
@@ -614,7 +619,7 @@ public sealed class YamlParser {
             string key = this._ParseFlowKey();
             bool keyQuoted = this._lastKeyQuoted;
             this._SkipFlowWS();
-            if (this._pos >= this._src.Length || this._src.CharAt(this._pos) != ':') {
+            if (this._pos >= this._src.Length || this._chars[this._pos] != ':') {
                 throw this._Err("expected ':' after flow mapping key '" + key + "'");
             }
             this._Advance();
@@ -637,7 +642,7 @@ public sealed class YamlParser {
             if (this._pos >= this._src.Length) {
                 throw this._Err("unterminated flow mapping (missing '}')");
             }
-            char ch = this._src.CharAt(this._pos);
+            char ch = this._chars[this._pos];
             if (ch == ',') {
                 this._Advance();
                 this._SkipFlowWS();
@@ -656,7 +661,7 @@ public sealed class YamlParser {
         if (this._pos >= this._src.Length) {
             throw this._Err("expected flow mapping key, got EOF");
         }
-        char c = this._src.CharAt(this._pos);
+        char c = this._chars[this._pos];
         if (c == '"') {
             this._lastKeyQuoted = true;
             return this._ParseDoubleQuotedString();
@@ -669,7 +674,7 @@ public sealed class YamlParser {
         // Plain flow key: until ':' or ',' or '}' or whitespace
         int start = this._pos;
         while (this._pos < this._src.Length) {
-            char ch = this._src.CharAt(this._pos);
+            char ch = this._chars[this._pos];
             if (ch == ':' || ch == ',' || ch == '}' || ch == ']'
                 || ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') { break; }
             this._Advance();
@@ -684,7 +689,7 @@ public sealed class YamlParser {
         if (this._pos >= this._src.Length) {
             throw this._Err("expected flow value, got EOF");
         }
-        char c = this._src.CharAt(this._pos);
+        char c = this._chars[this._pos];
         if (c == '[' || c == '{') { return this._ParseFlow(); }
         if (c == '"') { return YamlValue.OfString(this._ParseDoubleQuotedString()); }
         if (c == '\'') { return YamlValue.OfString(this._ParseSingleQuotedString()); }
@@ -711,7 +716,7 @@ public sealed class YamlParser {
         // Plain scalar: until ',' or ']' or '}' or EOL
         int start = this._pos;
         while (this._pos < this._src.Length) {
-            char ch = this._src.CharAt(this._pos);
+            char ch = this._chars[this._pos];
             if (ch == ',' || ch == ']' || ch == '}' || ch == '\n' || ch == '\r') { break; }
             this._Advance();
         }
@@ -725,7 +730,7 @@ public sealed class YamlParser {
         this._Advance();  // consume opening "
         StringBuilder sb = new StringBuilder();
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == '"') {
                 this._Advance();
                 return sb.ToString();
@@ -735,7 +740,7 @@ public sealed class YamlParser {
                 if (this._pos >= this._src.Length) {
                     throw this._Err("unterminated string escape");
                 }
-                char esc = this._src.CharAt(this._pos);
+                char esc = this._chars[this._pos];
                 this._Advance();
                 if (esc == 'n')  { sb.Append('\n'); }
                 else if (esc == 't')  { sb.Append('\t'); }
@@ -782,10 +787,10 @@ public sealed class YamlParser {
         this._Advance();  // consume opening '
         StringBuilder sb = new StringBuilder();
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == '\'') {
                 // YAML 1.2: '' inside a single-quoted string is a literal '.
-                if (this._pos + 1 < this._src.Length && this._src.CharAt(this._pos + 1) == '\'') {
+                if (this._pos + 1 < this._src.Length && this._chars[this._pos + 1] == '\'') {
                     sb.Append('\'');
                     this._Advance();
                     this._Advance();
@@ -816,7 +821,7 @@ public sealed class YamlParser {
     /// helper only consumes up to the end of the scalar token.
     private YamlValue _ParseBlockScalarValue() {
         if (this._pos < this._src.Length) {
-            char first = this._src.CharAt(this._pos);
+            char first = this._chars[this._pos];
             if (first == '"') {
                 return YamlValue.OfString(this._ParseDoubleQuotedString());
             }
@@ -836,25 +841,25 @@ public sealed class YamlParser {
     /// registry). add-yaml-tags (2026-05-25).
     private YamlValue _TryParseTag(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
-        if (this._src.CharAt(this._pos) != '!') { return null; }
+        if (this._chars[this._pos] != '!') { return null; }
         string tag = this._ParseTagName();
         this._SkipInlineSpaces();
         // Parse the following scalar value verbatim (raw text), then coerce.
         YamlValue raw;
-        if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '"') {
+        if (this._pos < this._src.Length && this._chars[this._pos] == '"') {
             raw = YamlValue.OfString(this._ParseDoubleQuotedString());
             this._ConsumeRestOfLine();
-        } else if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '\'') {
+        } else if (this._pos < this._src.Length && this._chars[this._pos] == '\'') {
             raw = YamlValue.OfString(this._ParseSingleQuotedString());
             this._ConsumeRestOfLine();
         } else if (this._pos >= this._src.Length
-                || this._src.CharAt(this._pos) == '\n'
-                || this._src.CharAt(this._pos) == '\r'
-                || (this._src.CharAt(this._pos) == '#' && this._IsCommentStart())) {
+                || this._chars[this._pos] == '\n'
+                || this._chars[this._pos] == '\r'
+                || (this._chars[this._pos] == '#' && this._IsCommentStart())) {
             // No inline value after the tag — tag applies to an empty value.
             this._ConsumeRestOfLine();
             raw = YamlValue.OfNull();
-        } else if (this._src.CharAt(this._pos) == '[' || this._src.CharAt(this._pos) == '{') {
+        } else if (this._chars[this._pos] == '[' || this._chars[this._pos] == '{') {
             // Flow-style value after a tag — coerce only meaningful for
             // collection tags (!!seq/!!map) which are not in v0 scope.
             // Treat as the underlying flow value; tag ignored.
@@ -875,11 +880,11 @@ public sealed class YamlParser {
     private string _ParseTagName() {
         int start = this._pos;
         this._Advance();                          // first `!`
-        if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '!') {
+        if (this._pos < this._src.Length && this._chars[this._pos] == '!') {
             this._Advance();                      // optional second `!`
         }
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             bool ok = (c >= 'a' && c <= 'z')
                 || (c >= 'A' && c <= 'Z')
                 || (c >= '0' && c <= '9')
@@ -940,7 +945,7 @@ public sealed class YamlParser {
     /// is a block at deeper indent. add-yaml-anchors-aliases (2026-05-25).
     private YamlValue _TryParseAnchorOrAlias(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
-        char c = this._src.CharAt(this._pos);
+        char c = this._chars[this._pos];
         if (c != '&' && c != '*') { return null; }
         bool isAnchor = (c == '&');
         this._Advance();
@@ -965,9 +970,9 @@ public sealed class YamlParser {
         this._SkipInlineSpaces();
         YamlValue val;
         if (this._pos >= this._src.Length
-                || this._src.CharAt(this._pos) == '\n'
-                || this._src.CharAt(this._pos) == '\r'
-                || (this._src.CharAt(this._pos) == '#' && this._IsCommentStart())) {
+                || this._chars[this._pos] == '\n'
+                || this._chars[this._pos] == '\r'
+                || (this._chars[this._pos] == '#' && this._IsCommentStart())) {
             // Block value: anchored content is on subsequent indented lines.
             this._ConsumeRestOfLine();
             this._SkipBlankLines();
@@ -981,11 +986,11 @@ public sealed class YamlParser {
                     val = YamlValue.OfNull();
                 }
             }
-        } else if (this._src.CharAt(this._pos) == '|' || this._src.CharAt(this._pos) == '>') {
+        } else if (this._chars[this._pos] == '|' || this._chars[this._pos] == '>') {
             // Block scalar follows the anchor on the same line.
             YamlValue block = this._TryParseBlockScalar(parentIndent);
             val = block != null ? block : YamlValue.OfNull();
-        } else if (this._src.CharAt(this._pos) == '[' || this._src.CharAt(this._pos) == '{') {
+        } else if (this._chars[this._pos] == '[' || this._chars[this._pos] == '{') {
             val = this._ParseFlow();
             this._SkipInlineSpacesAndOptionalComment();
             this._ConsumeRestOfLine();
@@ -1004,7 +1009,7 @@ public sealed class YamlParser {
     private string _ParseAnchorName() {
         int start = this._pos;
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             bool ok = (c >= 'a' && c <= 'z')
                 || (c >= 'A' && c <= 'Z')
                 || (c >= '0' && c <= '9')
@@ -1155,7 +1160,7 @@ public sealed class YamlParser {
     /// more than this. add-yaml-multiline-strings (2026-05-25).
     private YamlValue _TryParseBlockScalar(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
-        char first = this._src.CharAt(this._pos);
+        char first = this._chars[this._pos];
         if (first != '|' && first != '>') { return null; }
         bool literal = (first == '|');
         this._Advance();
@@ -1166,7 +1171,7 @@ public sealed class YamlParser {
         int explicitIndent = -1;
         int passes = 0;
         while (passes < 2 && this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if ((c == '-' || c == '+') && chomp == 0) {
                 if (c == '-') { chomp = 1; }
                 else          { chomp = 2; }
@@ -1192,7 +1197,7 @@ public sealed class YamlParser {
             int lineStart = this._pos;
             int lineIndent = 0;
             while (lineStart + lineIndent < this._src.Length
-                    && this._src.CharAt(lineStart + lineIndent) == ' ') {
+                    && this._chars[lineStart + lineIndent] == ' ') {
                 lineIndent = lineIndent + 1;
             }
             int probe = lineStart + lineIndent;
@@ -1200,7 +1205,7 @@ public sealed class YamlParser {
             if (probe >= this._src.Length) {
                 blank = true;
             } else {
-                char pc = this._src.CharAt(probe);
+                char pc = this._chars[probe];
                 if (pc == '\n' || pc == '\r') { blank = true; }
             }
             if (blank) {
@@ -1240,8 +1245,8 @@ public sealed class YamlParser {
             int textStart = lineStart + contentIndent;
             int textEnd = textStart;
             while (textEnd < this._src.Length
-                    && this._src.CharAt(textEnd) != '\n'
-                    && this._src.CharAt(textEnd) != '\r') {
+                    && this._chars[textEnd] != '\n'
+                    && this._chars[textEnd] != '\r') {
                 textEnd = textEnd + 1;
             }
             string lineText = this._src.Substring(textStart, textEnd - textStart);
@@ -1306,12 +1311,12 @@ public sealed class YamlParser {
         int start = this._pos;
         int commentStart = -1;
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == '\n' || c == '\r') { break; }
             // YAML allows `#` inside a plain scalar only when not preceded
             // by whitespace; an inline comment requires `␣#`.
             if (c == '#' && this._pos > start) {
-                char prev = this._src.CharAt(this._pos - 1);
+                char prev = this._chars[this._pos - 1];
                 if (prev == ' ' || prev == '\t') {
                     commentStart = this._pos;
                     break;
@@ -1500,7 +1505,7 @@ public sealed class YamlParser {
         int i = this._pos;
         int n = 0;
         while (i < this._src.Length) {
-            char c = this._src.CharAt(i);
+            char c = this._chars[i];
             if (c == ' ') { n = n + 1; i = i + 1; continue; }
             if (c == '\t') {
                 throw this._Err("tab character not allowed in indentation");
@@ -1515,12 +1520,12 @@ public sealed class YamlParser {
             int save = this._pos;
             int indent = 0;
             // Skip leading spaces.
-            while (save < this._src.Length && this._src.CharAt(save) == ' ') {
+            while (save < this._src.Length && this._chars[save] == ' ') {
                 save = save + 1;
                 indent = indent + 1;
             }
             if (save >= this._src.Length) { this._pos = save; return; }
-            char c = this._src.CharAt(save);
+            char c = this._chars[save];
             if (c == '\n' || c == '\r' || c == '#') {
                 this._pos = save;
                 this._col = indent + 1;
@@ -1533,17 +1538,17 @@ public sealed class YamlParser {
 
     private void _SkipInlineSpaces() {
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == ' ' || c == '\t') { this._Advance(); } else { break; }
         }
     }
 
     private void _SkipInlineSpacesAndOptionalComment() {
         this._SkipInlineSpaces();
-        if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '#') {
+        if (this._pos < this._src.Length && this._chars[this._pos] == '#') {
             // Skip until EOL.
             while (this._pos < this._src.Length) {
-                char c = this._src.CharAt(this._pos);
+                char c = this._chars[this._pos];
                 if (c == '\n' || c == '\r') { break; }
                 this._Advance();
             }
@@ -1552,13 +1557,13 @@ public sealed class YamlParser {
 
     private void _SkipFlowWS() {
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 this._Advance();
                 continue;
             }
             if (c == '#') {
-                while (this._pos < this._src.Length && this._src.CharAt(this._pos) != '\n') {
+                while (this._pos < this._src.Length && this._chars[this._pos] != '\n') {
                     this._Advance();
                 }
                 continue;
@@ -1569,7 +1574,7 @@ public sealed class YamlParser {
 
     private void _ConsumeRestOfLine() {
         while (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             if (c == '\n') {
                 this._pos = this._pos + 1;
                 this._line = this._line + 1;
@@ -1578,7 +1583,7 @@ public sealed class YamlParser {
             }
             if (c == '\r') {
                 this._pos = this._pos + 1;
-                if (this._pos < this._src.Length && this._src.CharAt(this._pos) == '\n') {
+                if (this._pos < this._src.Length && this._chars[this._pos] == '\n') {
                     this._pos = this._pos + 1;
                 }
                 this._line = this._line + 1;
@@ -1593,13 +1598,13 @@ public sealed class YamlParser {
         int i = this._pos;
         int m = 0;
         while (i < this._src.Length && m < marker.Length) {
-            if (this._src.CharAt(i) != marker.CharAt(m)) { return false; }
+            if (this._chars[i] != marker.CharAt(m)) { return false; }
             i = i + 1;
             m = m + 1;
         }
         if (m < marker.Length) { return false; }
         if (i >= this._src.Length) { return true; }
-        char nx = this._src.CharAt(i);
+        char nx = this._chars[i];
         return nx == '\n' || nx == '\r' || nx == ' ' || nx == '\t';
     }
 
@@ -1609,7 +1614,7 @@ public sealed class YamlParser {
         // non-WS char of the line. We approximate: if prev char is space or
         // we're at line start, it's a comment.
         if (this._pos == 0) { return true; }
-        char prev = this._src.CharAt(this._pos - 1);
+        char prev = this._chars[this._pos - 1];
         return prev == ' ' || prev == '\t' || prev == '\n' || prev == '\r';
     }
 
@@ -1621,7 +1626,7 @@ public sealed class YamlParser {
         bool inSingleQuote = false;
         bool inDoubleQuote = false;
         while (i < this._src.Length) {
-            char c = this._src.CharAt(i);
+            char c = this._chars[i];
             if (c == '\n' || c == '\r') { return false; }
             if (inDoubleQuote) {
                 if (c == '\\' && i + 1 < this._src.Length) { i = i + 2; continue; }
@@ -1631,7 +1636,7 @@ public sealed class YamlParser {
             }
             if (inSingleQuote) {
                 if (c == '\'') {
-                    if (i + 1 < this._src.Length && this._src.CharAt(i + 1) == '\'') {
+                    if (i + 1 < this._src.Length && this._chars[i + 1] == '\'') {
                         i = i + 2; continue;
                     }
                     inSingleQuote = false;
@@ -1643,12 +1648,12 @@ public sealed class YamlParser {
             if (c == '\'') { inSingleQuote = true;  i = i + 1; continue; }
             // Inline comment ends search.
             if (c == '#' && i > start) {
-                char prev = this._src.CharAt(i - 1);
+                char prev = this._chars[i - 1];
                 if (prev == ' ' || prev == '\t') { return false; }
             }
             if (c == ':') {
                 if (i + 1 >= this._src.Length) { return true; }
-                char nx = this._src.CharAt(i + 1);
+                char nx = this._chars[i + 1];
                 if (nx == ' ' || nx == '\t' || nx == '\n' || nx == '\r') {
                     return true;
                 }
@@ -1660,7 +1665,7 @@ public sealed class YamlParser {
 
     private void _Advance() {
         if (this._pos < this._src.Length) {
-            char c = this._src.CharAt(this._pos);
+            char c = this._chars[this._pos];
             this._pos = this._pos + 1;
             if (c == '\n') {
                 this._line = this._line + 1;
