@@ -125,9 +125,19 @@ jobs:
           ( cd base-src/src/compiler && \
             Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release )
 
-          # base flat libs = base z42c siblings + base stdlib (built by base z42c).
+          # base flat libs = base z42c siblings + stdlib (to RUN the base driver) +
+          # base stdlib (built next, overwriting the seed stdlib for measurement).
           BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
           for f in "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
+          # The compiler dist does NOT bundle stdlib, so BASEALL has no z42.io yet.
+          # BASEDRIVER (compiled by the PR z42c against PR stdlib) needs a matching
+          # stdlib to RUN — seed it with the PR stdlib (same z42c ⇒ same extern
+          # mangling). Without this the base driver falls back to the VM entry-dir
+          # stdlib, whose mangling can differ across z42c versions → runtime
+          # `undefined function …$N` (regressed once #295's parser changed mangling).
+          # This mirrors PRALL (which stages stdlib + compiler); base stdlib built
+          # below then overwrites these for the actual measurement.
+          for f in "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
           ( cd base-src/src/libraries && \
             Z42_LIBS="$BASEALL" "$BASEVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
