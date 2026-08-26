@@ -1,13 +1,15 @@
 //! Smoke benchmark — proves the criterion harness compiles and runs.
 //!
-//! These two benchmarks intentionally avoid touching VM internals so this file
-//! can land independently of any decisions on how to expose Interpreter /
-//! Module / GC for benchmarking.
+//! These two benchmarks intentionally avoid touching VM internals, so this file
+//! stays a pure-Rust criterion sanity check. It is deliberately NOT part of the
+//! CI regression gate: `bench-pr.yml`'s criterion A/B step
+//! (extend-ab-bench-micro-criterion) gates `gc_cycle_bench` (a real VM benchmark),
+//! not this file. See `docs/book/src/dev/benchmarking.md` for the gate semantics.
 //!
-//! Future bench files (planned in P1.B / P1.C / P1.D):
-//! - `interp_bench.rs`  — interp dispatch loop, call overhead
-//! - `gc_bench.rs`      — alloc / collect / barrier costs
-//! - `decoder_bench.rs` — .zbc decoding throughput
+//! Bench files that landed since / are still planned:
+//! - `gc_cycle_bench.rs` — cycle-collect / mark / sweep costs (LANDED; A/B-gated)
+//! - `interp_bench.rs`   — interp dispatch loop, call overhead (planned)
+//! - `decoder_bench.rs`  — .zbc decoding throughput (planned)
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
