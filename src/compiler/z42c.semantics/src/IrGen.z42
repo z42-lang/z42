@@ -352,6 +352,37 @@ public sealed class IrGen {
                         eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
                         funcs = IrGenFacts._pushFunc(funcs, fc, eqF); fc = fc + 1;
                     }
+                    // add-record-value-semantics：`[Record]` 类型合成值语义（用户未显式声明才合成）。
+                    //   class（引用）：Equals$1 / GetHashCode / ToString——经 own_methods 扫描进 vtable 覆盖 Object。
+                    //   struct（值）：仅 ToString——VM record-bit 守卫让路原生拦截 → boxed-vcall 候选查找命中；
+                    //   struct 的 Equals（既有 blob 值相等，上方）/ GetHashCode（native FNV）不合成。
+                    if (owner != null && HandlerRegistry.HasRecord(cu.Decls[i])) {
+                        var rse = new RecordSynthEmitter(model.Symbols, this);
+                        string rq = this._q(this._classIrShortName(c));
+                        bool hasTs = owner.Methods.ContainsKey("ToString") || owner.Methods.ContainsKey("ToString$0");
+                        if (owner.IsStruct) {
+                            if (!hasTs) {
+                                IrFunction tsF = rse.EmitRecordToString(rq + ".ToString", owner, true);
+                                funcs = IrGenFacts._pushFunc(funcs, fc, tsF); fc = fc + 1;
+                            }
+                        } else {
+                            if (!owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
+                                // 类 record 的 Equals 用**裸名**（镜像用户显式 override 的 `Equals`）——引用类型经
+                                // vtable 派发，裸名与 Object 槽一致；`$1` arity 后缀会致 jit 派发错配（jit 命中
+                                // Object.Equals 身份版 → 值相等失效）。struct 用 `Equals$1`（boxed-vcall 候选查找）不同路。
+                                IrFunction reqF = rse.EmitRecordEquals(rq + ".Equals", owner);
+                                funcs = IrGenFacts._pushFunc(funcs, fc, reqF); fc = fc + 1;
+                            }
+                            if (!owner.Methods.ContainsKey("GetHashCode") && !owner.Methods.ContainsKey("GetHashCode$0")) {
+                                IrFunction ghF = rse.EmitRecordGetHashCode(rq + ".GetHashCode", owner);
+                                funcs = IrGenFacts._pushFunc(funcs, fc, ghF); fc = fc + 1;
+                            }
+                            if (!hasTs) {
+                                IrFunction tsF = rse.EmitRecordToString(rq + ".ToString", owner, false);
+                                funcs = IrGenFacts._pushFunc(funcs, fc, tsF); fc = fc + 1;
+                            }
+                        }
+                    }
                 }
             } else if (d is ImplDecl) {
                 // port-z42c-impl-block 2c：发 impl 方法为 `<qualTarget>.<m>` 函数。

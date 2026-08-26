@@ -167,6 +167,12 @@ public sealed class StubCollector {
                         Z42ClassType ctd = table.Classes.Get(key) as Z42ClassType;
                         if (ctd != null) { ctd.IsDeprecated = true; ctd.DeprecationMsg = HandlerRegistry.DeprecatedMsg(cu.Decls[i]); }
                     }
+                    // add-record-value-semantics：本地类级 `[Record]`（class/struct）。stub 已注册 → 回查设位，
+                    // 供 OperatorEmitter 判定 record-class `==`/`!=` 脱糖成值 Equals。
+                    if (HandlerRegistry.HasRecord(cu.Decls[i])) {
+                        Z42ClassType ctr = table.Classes.Get(key) as Z42ClassType;
+                        if (ctr != null) { ctr.IsRecord = true; }
+                    }
                 }
             }
             i = i + 1;

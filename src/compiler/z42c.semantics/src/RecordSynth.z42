@@ -1,0 +1,331 @@
+// add-record-value-semantics：给 `[Record]` 类型合成值语义。纯 IR 合成（复用现有指令），
+// 无新 opcode、无 zbc/zpkg 格式 bump。镜像 FunctionEmitter.EmitSynthStructEquals 自搭 EmitContext。
+//
+//   [Record] class（引用类型）：合成 `<FQ>.Equals$1` / `<FQ>.GetHashCode` / `<FQ>.ToString`——
+//     VM 的 own_methods 扫描（type_registry.rs：按 `<class>.` 前缀收函数）自动把它们纳入
+//     vtable，derive_simple_method_name 剥 `$N` 后与 Std.Object 的 Equals/GetHashCode/ToString
+//     同名 → 覆盖基槽。
+//   [Record] struct（值类型）：仅合成 `<FQ>.ToString`——VM 对 record struct 让路原生 ToString
+//     拦截（is_record 守卫）→ boxed-vcall 候选查找命中本合成。struct 的 Equals（既有 blob 值相等
+//     `EmitSynthStructEquals`）/ GetHashCode（native FNV 值哈希）不在此合成。
+//
+// 相等：type-exact（`other.GetType().FullName == <FQ>` 常量比，对齐 C# EqualityContract）+ 逐字段
+//   （基元 Eq / 引用 null-safe .Equals）；字段范围=全部实例字段（含 private）。
+// ToString：`T { A = v, B = v }`（C# 精确格式，空 `T { }`）；字段范围=public 实例字段。
+// GetHashCode：`h=17; h=h*31+field.GetHashCode()` 折叠（基元装箱后 vcall、引用 null→0），末尾 & 0x7fffffff。
+// 字段枚举：`Z42ClassType.OwnFieldNames`/`OwnFieldVis`（确定性声明序 + 可见性），含基类沿 BaseName
+//   上溯（基类在前）。字段访问：class=FieldGet by name / struct=StructFieldGetPrim by offset。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 字段枚举结果（并行数组 + 计数）。names[i]=字段名、types[i]=字段类型（Z42Type）。
+public sealed class RecordFieldSet {
+    public string[]  Names;
+    public Z42Type[] Types;
+    public int       Count;
+    public RecordFieldSet(string[] names, Z42Type[] types, int count) {
+        this.Names = names; this.Types = types; this.Count = count;
+    }
+}
+
+public sealed class RecordSynthEmitter {
+    private EmitContext _ctx;
+    private IrGen       _gen;
+    private SymbolTable _symbols;
+
+    public RecordSynthEmitter(SymbolTable symbols, IrGen gen) { this._symbols = symbols; this._gen = gen; }
+
+    // ── EmitContext 自搭（镜像 FunctionEmitter.EmitSynthStructEquals）。reg0=this、reg1..=extra 参数 ──
+    private void _initCtx(string fnName, int extraParams) {
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._ctx.Ns = this._gen.Ns;
+        this._ctx.Deps = this._gen.Deps;
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ImportedFuncNs = this._gen.ImportedFuncNs;
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = fnName;
+        this._ctx.RecordReg(0, IrType.Ref);
+        int p = 1;
+        while (p <= extraParams) { this._ctx.RecordReg(p, IrType.Ref); p = p + 1; }
+        this._ctx.NextReg = extraParams + 1;
+        this._ctx.MaxReg = extraParams + 1;
+        this._ctx.StartBlock("entry");
+    }
+
+    private IrFunction _finish(string name, int totalParams, string retName, string[] paramTypes) {
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rt = 0;
+        while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
+        this._gen._mergeUsedNsPub(this._ctx);
+        IrLineEntry[] lines = new IrLineEntry[0];
+        IrLocalVarEntry[] localVars = new IrLocalVarEntry[0];
+        IrFunction irf = new IrFunction(name, totalParams, retName, false,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
+                              lines, 0, localVars, 0);
+        irf.Visibility = 0;   // public（记录式合成成员对外可见，对齐 C# record）
+        return irf;
+    }
+
+    // ── 字段枚举：基类在前、声明序；publicOnly=true 只收 public（ToString），false 收全部（Equals/Hash）──
+    private RecordFieldSet _collect(Z42ClassType owner, bool publicOnly) {
+        Z42ClassType[] chain = new Z42ClassType[8]; int cc = 0;
+        Z42ClassType cur = owner;
+        while (cur != null) {
+            if (cc == chain.Length) { Z42ClassType[] nb = new Z42ClassType[chain.Length * 2]; int k = 0; while (k < cc) { nb[k] = chain[k]; k = k + 1; } chain = nb; }
+            chain[cc] = cur; cc = cc + 1;
+            if (cur.HasBase && this._symbols.HasClass(cur.BaseName)) { cur = this._symbols.GetClass(cur.BaseName) as Z42ClassType; }
+            else { cur = null; }
+        }
+        string[] names = new string[8]; Z42Type[] types = new Z42Type[8]; int n = 0;
+        int ci = cc - 1;
+        while (ci >= 0) {
+            Z42ClassType t = chain[ci];
+            int fi = 0;
+            while (fi < t.OwnFieldCount) {
+                bool isPub = t.OwnFieldVis[fi] == "public";
+                if (!publicOnly || isPub) {
+                    if (n == names.Length) {
+                        string[] nn = new string[names.Length * 2]; Z42Type[] ntt = new Z42Type[types.Length * 2];
+                        int k = 0; while (k < n) { nn[k] = names[k]; ntt[k] = types[k]; k = k + 1; }
+                        names = nn; types = ntt;
+                    }
+                    names[n] = t.OwnFieldNames[fi];
+                    FieldSymbol fs = t.Fields.Get(t.OwnFieldNames[fi]) as FieldSymbol;
+                    if (fs != null) { types[n] = fs.FieldType; } else { types[n] = null; }
+                    n = n + 1;
+                }
+                fi = fi + 1;
+            }
+            ci = ci - 1;
+        }
+        return new RecordFieldSet(names, types, n);
+    }
+
+    private bool _isScalar(Z42Type t) {
+        return t != null && PrimModel.IsScalarValue(t.Name());
+    }
+
+    // ═══ class：Equals(object) —— type-exact + 逐字段值相等 ═══════════════════════════════
+    public IrFunction EmitRecordEquals(string name, Z42ClassType owner) {
+        this._initCtx(name, 1);   // reg0=this、reg1=other(object)（须先建 _ctx 再用 QualifyClass）
+        string fq = this._ctx.QualifyClass(owner.Name());
+        TypedReg self = new TypedReg(0, IrType.Ref);
+        TypedReg other = new TypedReg(1, IrType.Ref);
+        string failL = this._ctx.Fresh("req_ne");
+        string endL = this._ctx.Fresh("req_end");
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        // other == null → false
+        TypedReg nullR = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(nullR));
+        TypedReg isNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(isNull, other, nullR));
+        string t1 = this._ctx.Fresh("req_notnull");
+        this._ctx.EndBlock(new BrCondTerm(isNull, failL, t1));
+        this._ctx.StartBlock(t1);
+        // type-exact：other.GetType().FullName == <fq>（对齐 C# EqualityContract：派生≠基即使同字段）。
+        TypedReg oType = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new VCallInstr(oType, other, "GetType", new TypedReg[0], 0));
+        TypedReg oFull = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new VCallInstr(oFull, oType, "get_FullName", new TypedReg[0], 0));
+        TypedReg fqReg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(fqReg, this._gen.Intern(fq)));
+        TypedReg[] seArgs = new TypedReg[1]; seArgs[0] = fqReg;
+        TypedReg sameType = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new VCallInstr(sameType, oFull, "Equals", seArgs, 1));
+        string t2 = this._ctx.Fresh("req_samety");
+        this._ctx.EndBlock(new BrCondTerm(sameType, t2, failL));
+        this._ctx.StartBlock(t2);
+        // 逐字段（全部实例字段）——直接读 other（引用类型；type-exact 已确认同类型 → 字段名可解析）。
+        // 不经 as_cast 中转：field_get off as_cast 结果在 jit 下会误编（interp 容忍），镜像普通 codegen 直读。
+        RecordFieldSet fs = this._collect(owner, false);
+        int i = 0;
+        while (i < fs.Count) {
+            this._emitFieldEq(self, other, fs.Names[i], fs.Types[i], failL);
+            i = i + 1;
+        }
+        this._ctx.Emit(new ConstBoolInstr(result, true));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(failL);
+        this._ctx.Emit(new ConstBoolInstr(result, false));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(endL);
+        this._ctx.EndBlock(new RetTerm(true, result));
+        string[] pt = new string[2]; pt[0] = owner.Name(); pt[1] = "object";
+        IrFunction irf = this._finish(name, 2, "bool", pt);
+        irf.MinArg = 1;
+        return irf;
+    }
+
+    // 单字段相等 → 不等即短路到 failL。基元 Eq；引用 null-safe .Equals。
+    private void _emitFieldEq(TypedReg self, TypedReg o, string fname, Z42Type ftype, string failL) {
+        TypedReg tf = this._ctx.Alloc(this._ctx.ToIrType(ftype));
+        this._ctx.Emit(new FieldGetInstr(tf, self, fname));
+        TypedReg of = this._ctx.Alloc(this._ctx.ToIrType(ftype));
+        this._ctx.Emit(new FieldGetInstr(of, o, fname));
+        string contL = this._ctx.Fresh("req_cont");
+        if (this._isScalar(ftype)) {
+            TypedReg cmp = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new EqInstr(cmp, tf, of));
+            this._ctx.EndBlock(new BrCondTerm(cmp, contL, failL));
+            this._ctx.StartBlock(contL);
+            return;
+        }
+        // 引用字段：tf==null ? of==null : tf.Equals(of)
+        TypedReg nullR = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(nullR));
+        TypedReg tNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(tNull, tf, nullR));
+        string tNullL = this._ctx.Fresh("req_tnull");
+        string tNotL = this._ctx.Fresh("req_tnot");
+        this._ctx.EndBlock(new BrCondTerm(tNull, tNullL, tNotL));
+        this._ctx.StartBlock(tNullL);
+        TypedReg oNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(oNull, of, nullR));
+        this._ctx.EndBlock(new BrCondTerm(oNull, contL, failL));
+        this._ctx.StartBlock(tNotL);
+        TypedReg[] eqArgs = new TypedReg[1]; eqArgs[0] = of;
+        TypedReg eqr = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new VCallInstr(eqr, tf, "Equals", eqArgs, 1));
+        this._ctx.EndBlock(new BrCondTerm(eqr, contL, failL));
+        this._ctx.StartBlock(contL);
+    }
+
+    // ═══ class：GetHashCode —— h=17; h=h*31+fieldHash; & 0x7fffffff ═══════════════════════
+    public IrFunction EmitRecordGetHashCode(string name, Z42ClassType owner) {
+        this._initCtx(name, 0);
+        TypedReg self = new TypedReg(0, IrType.Ref);
+        TypedReg h = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new ConstI32Instr(h, "17"));
+        TypedReg c31 = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new ConstI32Instr(c31, "31"));
+        RecordFieldSet fs = this._collect(owner, false);
+        int i = 0;
+        while (i < fs.Count) {
+            TypedReg fh = this._emitFieldHash(self, fs.Names[i], fs.Types[i]);
+            TypedReg hm = this._ctx.Alloc(IrType.I32);
+            this._ctx.Emit(new MulInstr(hm, h, c31));
+            TypedReg hn = this._ctx.Alloc(IrType.I32);
+            this._ctx.Emit(new AddInstr(hn, hm, fh));
+            h = hn;
+            i = i + 1;
+        }
+        TypedReg mask = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new ConstI32Instr(mask, "2147483647"));   // 0x7fffffff
+        TypedReg hf = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new BitAndInstr(hf, h, mask));
+        this._ctx.EndBlock(new RetTerm(true, hf));
+        string[] pt = new string[1]; pt[0] = owner.Name();
+        IrFunction irf = this._finish(name, 1, "int", pt);
+        irf.MinArg = 0;
+        return irf;
+    }
+
+    // 单字段 hash（int）。基元：__box_prim → GetHashCode；引用：null ? 0 : field.GetHashCode()。
+    private TypedReg _emitFieldHash(TypedReg self, string fname, Z42Type ftype) {
+        TypedReg fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
+        this._ctx.Emit(new FieldGetInstr(fv, self, fname));
+        if (this._isScalar(ftype)) {
+            TypedReg fqReg = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(fqReg, this._gen.Intern(PrimModel.Fq(ftype.Name()))));
+            TypedReg[] bargs = new TypedReg[2]; bargs[0] = fv; bargs[1] = fqReg;
+            TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new BuiltinInstr(boxed, "__box_prim", bargs, 2));
+            TypedReg hh = this._ctx.Alloc(IrType.I32);
+            this._ctx.Emit(new VCallInstr(hh, boxed, "GetHashCode", new TypedReg[0], 0));
+            return hh;
+        }
+        // 引用字段：null → 0
+        TypedReg result = this._ctx.Alloc(IrType.I32);
+        TypedReg nullR = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(nullR));
+        TypedReg isN = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(isN, fv, nullR));
+        string zeroL = this._ctx.Fresh("rh_zero");
+        string callL = this._ctx.Fresh("rh_call");
+        string doneL = this._ctx.Fresh("rh_done");
+        this._ctx.EndBlock(new BrCondTerm(isN, zeroL, callL));
+        this._ctx.StartBlock(zeroL);
+        TypedReg z = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new ConstI32Instr(z, "0"));
+        this._ctx.Emit(new CopyInstr(result, z));
+        this._ctx.EndBlock(new BrTerm(doneL));
+        this._ctx.StartBlock(callL);
+        TypedReg hc = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new VCallInstr(hc, fv, "GetHashCode", new TypedReg[0], 0));
+        this._ctx.Emit(new CopyInstr(result, hc));
+        this._ctx.EndBlock(new BrTerm(doneL));
+        this._ctx.StartBlock(doneL);
+        return result;
+    }
+
+    // ═══ ToString（class & struct）—— "T { A = v, B = v }"（空 "T { }"） ═══════════════════
+    public IrFunction EmitRecordToString(string name, Z42ClassType owner, bool isStruct) {
+        string simple = owner.Name();   // 符号表存简单名（QualifyClass 补 ns）→ 即 C# ToString 用的简单类名
+        this._initCtx(name, 0);          // 须先建 _ctx 再用 QualifyClass
+        string fq = this._ctx.QualifyClass(owner.Name());
+        TypedReg self = new TypedReg(0, IrType.Ref);
+        // struct：this 为 boxed → 拆到 StructRef 供 StructFieldGetPrim
+        TypedReg baseRef = self;
+        if (isStruct) {
+            baseRef = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new AsCastInstr(baseRef, self, fq));
+        }
+        RecordFieldSet fs = this._collect(owner, true);   // 只 public
+        // 前缀 "Simple { "
+        TypedReg acc = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(acc, this._gen.Intern(simple + " { ")));
+        int i = 0;
+        while (i < fs.Count) {
+            string sep = "";
+            if (i > 0) { sep = ", "; }
+            acc = this._concat(acc, sep + fs.Names[i] + " = ");
+            TypedReg fstr = this._emitFieldToStr(baseRef, fs.Names[i], fs.Types[i], isStruct, owner.Name());
+            acc = this._concatReg(acc, fstr);
+            i = i + 1;
+        }
+        if (fs.Count > 0) { acc = this._concat(acc, " "); }   // C#：非空成员后补一空格
+        acc = this._concat(acc, "}");
+        this._ctx.EndBlock(new RetTerm(true, acc));
+        string[] pt = new string[1]; pt[0] = owner.Name();
+        IrFunction irf = this._finish(name, 1, "string", pt);
+        irf.MinArg = 0;
+        return irf;
+    }
+
+    // acc = acc + <lit>
+    private TypedReg _concat(TypedReg acc, string lit) {
+        TypedReg litR = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(litR, this._gen.Intern(lit)));
+        TypedReg dst = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new StrConcatInstr(dst, acc, litR));
+        return dst;
+    }
+    // acc = acc + <str reg>
+    private TypedReg _concatReg(TypedReg acc, TypedReg s) {
+        TypedReg dst = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new StrConcatInstr(dst, acc, s));
+        return dst;
+    }
+
+    // 单字段 → string（ToStr 统一转换：基元→数字串、引用→其 ToString 递归、null→安全串）。
+    private TypedReg _emitFieldToStr(TypedReg baseRef, string fname, Z42Type ftype, bool isStruct, string ownerName) {
+        TypedReg fv;
+        if (isStruct) {
+            int off = this._gen.Layouts.FieldByteOffset(ownerName, fname);
+            int tag = Tag.FromName(this._gen.Layouts.FieldTypeName(ownerName, fname));
+            fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
+            this._ctx.Emit(new StructFieldGetPrimInstr(fv, baseRef, off, tag));
+        } else {
+            fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
+            this._ctx.Emit(new FieldGetInstr(fv, baseRef, fname));
+        }
+        TypedReg s = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ToStrInstr(s, fv));
+        return s;
+    }
+}
