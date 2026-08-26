@@ -3,7 +3,7 @@ namespace Std.Collections;
 // `List<T>` — 纯源码级泛型动态数组（L3-G4h step 3：取代 pseudo-class 实现）。
 //
 // 摊还 O(1) Add / indexer，O(n) RemoveAt / Insert / Contains / IndexOf / Remove。
-// Sort 为插入排序（O(n^2)，后续可升级为归并排序 / 快排）。
+// Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）。
 //
 // 约束：
 //   T: IEquatable<T>   —— 为 Contains / IndexOf / Remove 提供相等判定
@@ -17,6 +17,16 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
     public List() {
         this.capacity = 4;
         this.items = new T[4];
+        this.Count = 0;
+    }
+
+    // Pre-size for a known element count, avoiding repeated 2× Grow reallocs
+    // when the final size is known up front. `capacity < 1` falls back to 1.
+    public List(int capacity) {
+        int cap = capacity;
+        if (cap < 1) cap = 1;
+        this.capacity = cap;
+        this.items = new T[cap];
         this.Count = 0;
     }
 
@@ -34,12 +44,33 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
     }
 
     // add-list-toarray-addrange (review §2.6): append a whole array in order.
+    // Pre-grows once to the final size instead of triggering a chain of 2× Grow
+    // reallocs through per-element Add.
     public void AddRange(T[] items) {
+        int n = items.Length;
+        this.EnsureCapacity(this.Count + n);
         int i = 0;
-        while (i < items.Length) {
-            this.Add(items[i]);
+        while (i < n) {
+            this.items[this.Count] = items[i];
+            this.Count = this.Count + 1;
             i = i + 1;
         }
+    }
+
+    // Ensure `items` can hold at least `min` elements, reallocating once (grow
+    // to the max of 2× current capacity and `min`) if needed.
+    void EnsureCapacity(int min) {
+        if (min <= this.capacity) return;
+        int newCap = this.capacity * 2;
+        if (newCap < min) newCap = min;
+        T[] bigger = new T[newCap];
+        int i = 0;
+        while (i < this.Count) {
+            bigger[i] = this.items[i];
+            i = i + 1;
+        }
+        this.items = bigger;
+        this.capacity = newCap;
     }
 
     // Snapshot copy of the list's elements (a fresh array, safe to mutate).
@@ -93,19 +124,40 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
 
     public void Clear() { this.Count = 0; }
 
-    // Insertion sort — stable, in-place, O(n^2).
+    // Top-down merge sort — stable, O(n log n). One scratch buffer allocated
+    // up front and reused across every merge (recursion only splits index
+    // ranges, never allocates).
     public void Sort() {
-        int i = 1;
-        while (i < this.Count) {
-            T v = this.items[i];
-            int j = i - 1;
-            while (j >= 0 && this.items[j].CompareTo(v) > 0) {
-                this.items[j + 1] = this.items[j];
-                j = j - 1;
+        if (this.Count < 2) return;
+        T[] scratch = new T[this.Count];
+        this.MergeSort(scratch, 0, this.Count);
+    }
+
+    // Sort items[lo, hi) into ascending order using `scratch` as merge staging.
+    void MergeSort(T[] scratch, int lo, int hi) {
+        if (hi - lo < 2) return;
+        int mid = lo + (hi - lo) / 2;
+        this.MergeSort(scratch, lo, mid);
+        this.MergeSort(scratch, mid, hi);
+        // Merge the two sorted runs items[lo,mid) + items[mid,hi) into scratch,
+        // then copy back. Ties take the left run first → stable.
+        int i = lo;
+        int j = mid;
+        int k = lo;
+        while (i < mid && j < hi) {
+            if (this.items[j].CompareTo(this.items[i]) < 0) {
+                scratch[k] = this.items[j];
+                j = j + 1;
+            } else {
+                scratch[k] = this.items[i];
+                i = i + 1;
             }
-            this.items[j + 1] = v;
-            i = i + 1;
+            k = k + 1;
         }
+        while (i < mid) { scratch[k] = this.items[i]; i = i + 1; k = k + 1; }
+        while (j < hi)  { scratch[k] = this.items[j]; j = j + 1; k = k + 1; }
+        int t = lo;
+        while (t < hi) { this.items[t] = scratch[t]; t = t + 1; }
     }
 
     public void Reverse() {

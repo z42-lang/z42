@@ -51,8 +51,8 @@
 
 | 文件 | 内容 |
 |------|------|
-| `Collections/List.z42` | `List<T>` — 泛型动态数组（纯脚本实现） |
-| `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现） |
+| `Collections/List.z42` | `List<T>` — 泛型动态数组（纯脚本实现）；`Sort()` 稳定归并排序 O(n log n)，`List(int capacity)` 预分配构造，`AddRange` 一次预扩容 |
+| `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现）；`Remove` 复用已存 hash 内联重排探测链 |
 | `Collections/HashSet.z42` | _（未来实现；暂缺）_ |
 
 ### 设计决策（2026-04-25 reorganize-stdlib-packages W1）

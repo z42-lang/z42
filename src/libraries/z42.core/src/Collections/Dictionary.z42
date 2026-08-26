@@ -63,15 +63,22 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         if (!this.occupied[slot]) return false;
         this.occupied[slot] = false;
         this.Count = this.Count - 1;
-        // 重新插入探测链剩余项以避免空洞。
+        // 重新插入探测链剩余项以避免空洞。复用已存 hashes[j] inline 再插
+        // （照抄 Grow 的思路）：免去 Set() 重算 GetHashCode（对 string key 为
+        // O(len)）与多余的负载因子检查；item 仍在表内故 Count 不变。
         int mask = this.capacity - 1;
         int j = (slot + 1) & mask;
         while (this.occupied[j]) {
+            int h = this.hashes[j];
             TKey k = this.keys[j];
             TValue v = this.values[j];
             this.occupied[j] = false;
-            this.Count = this.Count - 1;
-            this.Set(k, v);
+            int s = h & mask;
+            while (this.occupied[s]) s = (s + 1) & mask;
+            this.occupied[s] = true;
+            this.keys[s] = k;
+            this.values[s] = v;
+            this.hashes[s] = h;
             j = (j + 1) & mask;
         }
         return true;
