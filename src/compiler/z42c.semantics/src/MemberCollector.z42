@@ -18,7 +18,7 @@ public sealed class MemberCollector {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") { this._fillClass(table, c); }
+                if (c.Kind == "class" || c.Kind == "struct") { this._fillClass(table, c); }
                 else if (c.Kind == "interface") { this._fillInterface(table, c); }
             } else if (d is MethodDecl) {
                 MethodDecl m = d as MethodDecl;            // 顶层 func（IsFree）

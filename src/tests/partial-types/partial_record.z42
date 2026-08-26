@@ -1,12 +1,13 @@
-// add-partial-types：partial record 端到端（record 走与 class/struct 同一合并路径，Kind 区分）。
+// add-partial-types：`[Record] partial class` 端到端（走与 class/struct 同一合并路径）。
 // 碎片 1 带 positional 主构造器 + 一个方法；碎片 2 仅补一个方法，跨碎片读主构造字段。
+// bit3（is-record）取自主碎片（含 positional params 的碎片 1）的 [Record]；两碎片均标注以清晰对齐。
 namespace PartialRecordTest;
 
-partial record Money(int Cents) {
+[Record] partial class Money(int Cents) {
     int Doubled() { return this.Cents * 2; }
 }
 
-partial record Money {
+[Record] partial class Money {
     string Show() { return this.Cents.ToString() + "c"; }   // 引用碎片 1 主构造字段 Cents
 }
 

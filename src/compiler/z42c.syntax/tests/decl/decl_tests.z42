@@ -142,14 +142,25 @@ void test_delegate() {
 
 [Test]
 void test_record() {
-    // 位置式（仅参数，`;` 结尾）→ 降级为 public 字段 + ctor（镜像 C# TopLevelParser，Parser.z42:1120）
-    Assert.Equal("(unit (record Point (field public int X) (field public int Y) (ctor Point (int X, int Y) (block (expr (= (. this X) X)) (expr (= (. this Y) Y))))))",
-                 parseUnit("record Point(int X, int Y);"));
-    // 位置式 + 基类 + 块体成员 → 位置参数降级为字段 + ctor，`: Base` 紧随名字
-    Assert.Equal("(unit (record public Person : Base (field public string Name) (ctor Person (string Name) (block (expr (= (. this Name) Name)))) (method int Age () (block (return 0)))))",
-                 parseUnit("public record Person(string Name) : Base { int Age() { return 0; } }"));
-    // 块式（无位置参数）
-    Assert.Equal("(unit (record Empty))", parseUnit("record Empty { }"));
+    // add-record-attribute（N+1）：`record` 关键字已删 → `[Record] class` 替代。位置参数（`;` 短形式）
+    // → PUBLIC 字段 + 主构造器；attr 外层包裹，Kind=class。
+    Assert.Equal("(unit (attr [Record] (class Point (field public int X) (field public int Y) (ctor Point (int X, int Y) (block (expr (= (. this X) X)) (expr (= (. this Y) Y)))))))",
+                 parseUnit("[Record] class Point(int X, int Y);"));
+    // [Record] class + 基类 + 块体成员 → 位置参数降级为 public 字段 + ctor，`: Base` 紧随名字
+    Assert.Equal("(unit (attr [Record] (class public Person : Base (field public string Name) (ctor Person (string Name) (block (expr (= (. this Name) Name)))) (method int Age () (block (return 0))))))",
+                 parseUnit("[Record] public class Person(string Name) : Base { int Age() { return 0; } }"));
+    // [Record] class 无位置参数（块式）
+    Assert.Equal("(unit (attr [Record] (class Empty)))", parseUnit("[Record] class Empty { }"));
+    // 裸主构造器（无 [Record]）：位置参数 → PRIVATE 字段 + 主构造器（C# 12 primary ctor 语义）
+    Assert.Equal("(unit (class Point (field private int X) (field private int Y) (ctor Point (int X, int Y) (block (expr (= (. this X) X)) (expr (= (. this Y) Y))))))",
+                 parseUnit("class Point(int X, int Y);"));
+}
+
+[Test]
+void test_record_keyword_removed() {
+    // N+1：`record` 关键字已删 → 现为普通标识符（可作类型名 / 字段名），不再触发记录降级。
+    Assert.Equal("(unit (class C (field record x)))",
+                 parseUnit("class C { record x; }"));
 }
 
 [Test]
@@ -206,8 +217,8 @@ void test_generic_method() {
 void test_generic_delegate_and_record() {
     Assert.Equal("(unit (delegate R Func<T,R> (T x)))",
                  parseUnit("delegate R Func<T, R>(T x);"));
-    Assert.Equal("(unit (record Box<T> (field public T value) (ctor Box (T value) (block (expr (= (. this value) value))))))",
-                 parseUnit("record Box<T>(T value);"));
+    Assert.Equal("(unit (attr [Record] (class Box<T> (field public T value) (ctor Box (T value) (block (expr (= (. this value) value)))))))",
+                 parseUnit("[Record] class Box<T>(T value);"));
     // where 多段 + class 约束
     Assert.Equal("(unit (delegate void Cb<T> (T x) where T : class))",
                  parseUnit("delegate void Cb<T>(T x) where T : class;"));

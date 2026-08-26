@@ -53,7 +53,16 @@ qualified_name
     = IDENT ("." IDENT)*
 
 top_decl
-    = exec_mode_attr? modifier* (function_decl / class_decl / struct_decl / record_decl / interface_decl / enum_decl)
+    = attr_list? exec_mode_attr? modifier* (function_decl / class_decl / struct_decl / interface_decl / enum_decl)
+
+# Type-level attributes, e.g. `[Record]`, `[Serializable]`, `[A, B]`.
+# `[Record]` on a class/struct marks it is-record (reflection Type.IsRecord) and makes
+# positional parameters PUBLIC fields; without it, positional params are PRIVATE (C# 12
+# primary constructor). The `record` keyword was removed — `[Record]` replaces it.
+attr_list
+    = ("[" S attr (S "," S attr)* S "]" S)+
+attr
+    = IDENT (S "(" S (expr (S "," S expr)*)? S ")")?
 
 exec_mode_attr                             (* z42 extension *)
     = "[" S "ExecMode" S "(" S exec_mode_value S ")" S "]"
@@ -88,13 +97,15 @@ param
 # ── [feat:oop] ──────────────────────────────────────────────────────
 
 class_decl                                 # [feat:oop]
-    = "class" S IDENT type_params? base_list? S class_body
+    = "class" S IDENT type_params? ("(" S param_list S ")")? base_list? S (class_body / ";")
 
 struct_decl                                # [feat:oop]
-    = "struct" S IDENT type_params? base_list? S class_body
+    = "struct" S IDENT type_params? ("(" S param_list S ")")? base_list? S (class_body / ";")
 
-record_decl                                # [feat:oop]
-    = "record" S ("struct" S)? IDENT type_params? ("(" S param_list S ")")? base_list? S (class_body / ";")
+# NOTE: the `record` keyword was removed (2026-08). Records are now `[Record] class` /
+# `[Record] struct` (see attr_list above). Positional params + the `;` short form moved
+# onto class_decl / struct_decl; `[Record]` only decides positional-field visibility
+# (public) and the is-record flag.
 
 interface_decl                             # [feat:oop]
     = "interface" S IDENT type_params? base_list? S class_body

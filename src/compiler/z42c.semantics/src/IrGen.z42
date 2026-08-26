@@ -163,7 +163,7 @@ public sealed class IrGen {
             Decl d = IrGenFacts._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 owner CT。
                     string ownerKey = c.Name;
                     if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }

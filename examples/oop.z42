@@ -59,7 +59,7 @@ public class Rectangle : Shape {
 
 // ── Record — 不可变值对象 ───────────────────────────────────────────────────
 
-public record Point(double X, double Y) {
+[Record] public class Point(double X, double Y) {
     public double DistanceTo(Point other) {
         double dx = X - other.X;
         double dy = Y - other.Y;
@@ -69,7 +69,7 @@ public record Point(double X, double Y) {
     public static readonly Point Origin = new(0, 0);
 }
 
-public record struct Vector2(double X, double Y) {
+[Record] public struct Vector2(double X, double Y) {
     public static Vector2 operator +(Vector2 a, Vector2 b) =>
         new(a.X + b.X, a.Y + b.Y);
 

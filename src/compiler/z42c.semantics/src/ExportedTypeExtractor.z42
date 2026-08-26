@@ -98,7 +98,7 @@ public static class ExportedTypeExtractor {
             Decl etd = ExportedTypeExtractor._unwrap(cu.Decls[mi]);
             if (etd is ClassDecl) {
                 ClassDecl etcm = etd as ClassDecl;
-                if (etcm.Kind == "class" || etcm.Kind == "struct" || etcm.Kind == "record") {
+                if (etcm.Kind == "class" || etcm.Kind == "struct") {
                     string etarStr = etcm.TypeParams.Count.ToString();
                     if (etFirstArityMap.ContainsKey(etcm.Name)) {
                         StrBox etfa = etFirstArityMap.Get(etcm.Name) as StrBox;
@@ -114,7 +114,7 @@ public static class ExportedTypeExtractor {
             Decl dm = ExportedTypeExtractor._unwrap(cu.Decls[mi]);
             if (dm is ClassDecl) {
                 ClassDecl cm = dm as ClassDecl;
-                if (cm.Kind == "class" || cm.Kind == "struct" || cm.Kind == "record") {
+                if (cm.Kind == "class" || cm.Kind == "struct") {
                     bool cmMangle = cm.TypeParams.Count > 0 && etMultiArityMap.ContainsKey(cm.Name);
                     string cmKey = cmMangle ? cm.Name + "$" + cm.TypeParams.Count.ToString() : cm.Name;
                     classMap.Put(cmKey, cm);
@@ -132,7 +132,7 @@ public static class ExportedTypeExtractor {
             Decl d = ExportedTypeExtractor._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     // 镜像 C# ExtractClasses：合成 Object stub 不导出（自举包 + stdlib 均有 Object 声明，但 TSIG 里不出现）。
                     if (c.Name == "Object") { i = i + 1; continue; }
                     if (cc == classes.Length) {

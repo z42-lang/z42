@@ -1,8 +1,8 @@
 namespace Demo;
 
-record Point(int X, int Y);
+[Record] class Point(int X, int Y);
 
-record Person(string Name, int Age) {
+[Record] class Person(string Name, int Age) {
     string Greet() {
         return $"Hi, I'm {this.Name}, age {this.Age}";
     }

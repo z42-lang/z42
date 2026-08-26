@@ -52,7 +52,7 @@ public sealed class InheritanceResolver {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     string ctKey = c.Name;
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
                     Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
@@ -99,7 +99,7 @@ public sealed class InheritanceResolver {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     string ctKey = c.Name;
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
                     Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
@@ -186,7 +186,7 @@ public sealed class InheritanceResolver {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     string ctKey = c.Name;
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
                     Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;

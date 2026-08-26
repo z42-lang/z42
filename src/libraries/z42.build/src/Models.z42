@@ -7,16 +7,16 @@ namespace Z42.Build;
 // 不在此处——见 src/libraries/z42.project。
 
 /// 构建目标。Family ∈ TargetFamily.*；Mode ∈ BuildMode.*。
-public record Target(string Rid, string Family, string Profile, string Mode);
+[Record] public class Target(string Rid, string Family, string Profile, string Mode);
 
 /// 目录布局。Source 只读；写操作仅允许落在 Intermediate / Dist 之下。
-public record Dirs(string Source, string Cache, string Intermediate, string Dist);
+[Record] public class Dirs(string Source, string Cache, string Intermediate, string Dist);
 
 /// compile 阶段产物。Zsym 为 "" 表示无 split-debug sidecar。
-public record Inputs(string Zpkg, string Zsym, string[] Deps);
+[Record] public class Inputs(string Zpkg, string Zsym, string[] Deps);
 
 /// 一个交付物产物。Kind 如 "ipa" / "aab" / "exe" / "zip" / "apphost"。
-public record Output(string Kind, string Path);
+[Record] public class Output(string Kind, string Path);
 
 /// 子进程执行结果。
-public record ExecResult(int ExitCode, string Stdout, string Stderr);
+[Record] public class ExecResult(int ExitCode, string Stdout, string Stderr);

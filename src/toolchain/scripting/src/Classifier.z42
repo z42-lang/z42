@@ -1,6 +1,6 @@
 // REPL 输入分类（add-repl-decls-multiline）。token 级判别一段输入属于哪类：
 //   var 声明   `var x = ...` / `T x = ...`（T=标识符或内建类型）
-//   顶层声明   自由函数 `[修饰符] RetType Name(...)` / 类型 `[修饰符] class|struct|record|interface|enum Name`
+//   顶层声明   自由函数 `[修饰符] RetType Name(...)` / 类型 `[修饰符] class|struct|interface|enum Name`
 //   其余        表达式 / 语句（交给 Script.Eval 的表达式-优先路径）
 //
 // 判别只看头部 token（跳过前导修饰符）：区分 var(`=`) 与 函数(`(`) 靠第三 token；类型靠关键字。
@@ -20,7 +20,7 @@ public class ParsedInput {
                              // 供 REPL 发静态字段时保留类型 → target-typed new 等能从声明类型定型。
     public bool IsDecl;      // 顶层函数/类型声明：DeclName = 声明的符号名（重定义查重用）
     public string DeclName;
-    public bool IsTypeDecl;  // IsDecl 中进一步区分：类型声明（class/struct/enum/interface/record）；false = 自由函数。供 .types 只列类型。
+    public bool IsTypeDecl;  // IsDecl 中进一步区分：类型声明（class/struct/enum/interface）；false = 自由函数。供 .types 只列类型。
     public bool HasVisibility;  // 输入是否显式写了 public/private/protected/internal（供 REPL 决定是否补 public）。
     public ParsedInput() {
         this.IsVarDecl = false; this.VarName = ""; this.InitExpr = ""; this.DeclType = "";
@@ -46,8 +46,8 @@ public static class Classifier {
         if (mi >= cnt) { return p; }
         int k0 = lx.TokenAt(mi).Kind;
 
-        // ── 类型声明：class / struct / enum / interface / record（TokenKind 19..23）──
-        if (k0 >= TokenKind.Class && k0 <= TokenKind.Record) {
+        // ── 类型声明：class / struct / enum / interface（TokenKind 19..22；`record` 关键字已删）──
+        if (k0 >= TokenKind.Class && k0 <= TokenKind.Interface) {
             p.IsDecl = true;
             p.IsTypeDecl = true;
             if (mi + 1 < cnt && lx.TokenAt(mi + 1).Kind == TokenKind.Identifier) {

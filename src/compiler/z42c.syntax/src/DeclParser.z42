@@ -176,7 +176,7 @@ public sealed class DeclParser {
                                          primaryParams, primaryPc, true, cbody, new Expr[0], 0, false, sp);
             mc = mc + 1;
         }
-        // 带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体，镜像旧 _parseRecord）——
+        // 带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体）——
         // body 可选：有 `{` 则解析块成员，否则消一个 `;`。无位置参数仍要求 `{`。
         if (primaryPc > 0 && this._p._peek().Kind != TokenKind.LBrace) {
             this._p._expectSemi();
@@ -315,67 +315,6 @@ public sealed class DeclParser {
         return this._p._memberP._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
     }
 
-    public Decl _parseRecord(string mods) {   // add-nested-types：MemberParser 嵌套 record 也调用
-        Span sp = this._p._peek().Span;
-        this._p._advance();   // record
-        string name = this._p._peek().Text;
-        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected record name"); }
-        TypeParamList typeParams = this._p._typeP._parseTypeParams();
-        Param[] pos = new Param[0];
-        int pc = 0;
-        if (this._p._peek().Kind == TokenKind.LParen) {
-            ParamList pl = this._p._memberP._parseParamList();
-            pos = pl.Items; pc = pl.Count;
-        }
-        TypeExpr[] bases = new TypeExpr[0];
-        int bc = 0;
-        if (this._p._peek().Kind == TokenKind.Colon) {
-            TypeList bl = this._parseBaseList();
-            bases = bl.Items; bc = bl.Count;
-        }
-        WhereList wl = this._p._typeP._parseWhereClause();
-        // 记录降级（镜像 C# TopLevelParser 位置式 record）：位置参数 → public 字段
-        // + primary ctor（`this.X = X` 赋值），再接显式块成员。产出 ClassDecl(Kind="record")
-        // 让下游 SymbolCollector/TypeChecker/IrGen 复用 class 机制（含 zbc TYPE 段 record flag）。
-        Decl[] members = new Decl[8];
-        int mc = 0;
-        int pi = 0;
-        while (pi < pc) {
-            members = this._growDecls(members, mc);
-            members[mc] = new FieldDecl("public", pos[pi].Type, pos[pi].Name, false, null, pos[pi].Span);   // enforce-access-control：record 定位字段公有（镜像 C# 记录）
-            mc = mc + 1;
-            pi = pi + 1;
-        }
-        if (pc > 0) {
-            Stmt[] cstmts = new Stmt[pc];
-            int ci = 0;
-            while (ci < pc) {
-                Expr tgt = new MemberExpr(new IdentExpr("this", pos[ci].Span), pos[ci].Name, pos[ci].Span);
-                Expr val = new IdentExpr(pos[ci].Name, pos[ci].Span);
-                cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, pos[ci].Span), pos[ci].Span);
-                ci = ci + 1;
-            }
-            BlockStmt cbody = new BlockStmt(cstmts, pc, sp);
-            members = this._growDecls(members, mc);
-            members[mc] = new MethodDecl("", false, true, this._p._typeP._emptyType(), name,
-                                         this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
-                                         pos, pc, true, cbody, new Expr[0], 0, false, sp);
-            mc = mc + 1;
-        }
-        if (this._p._peek().Kind == TokenKind.LBrace) {
-            this._p._advance();
-            while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-                members = this._growDecls(members, mc); members[mc] = this._p._memberP._parseMember(name); mc = mc + 1;
-            }
-            this._p._expect(TokenKind.RBrace, "}");
-        } else {
-            this._p._expectSemi();
-        }
-        ClassDecl rd = new ClassDecl("record", mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
-        rd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
-        return rd;
-    }
 
 
 

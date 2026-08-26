@@ -477,7 +477,7 @@ public sealed class Lexer {
         this._kw("const", TokenKind.Const);
         this._kw("class", TokenKind.Class);
         this._kw("struct", TokenKind.Struct); this._kw("enum", TokenKind.Enum); this._kw("interface", TokenKind.Interface);
-        this._kw("record", TokenKind.Record); this._kw("delegate", TokenKind.Delegate); this._kw("event", TokenKind.Event);
+        this._kw("delegate", TokenKind.Delegate); this._kw("event", TokenKind.Event);
         this._kw("abstract", TokenKind.Abstract); this._kw("extern", TokenKind.Extern); this._kw("sealed", TokenKind.Sealed);
         this._kw("override", TokenKind.Override); this._kw("virtual", TokenKind.Virtual); this._kw("new", TokenKind.New);
         this._kw("async", TokenKind.Async); this._kw("await", TokenKind.Await); this._kw("typeof", TokenKind.Typeof);

@@ -23,7 +23,7 @@ public static class CuCompile {
                     ClassDecl cd = d as ClassDecl;
                     if (!seen.ContainsKey(cd.Name)) {
                         bool isPart = false;
-                        if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
+                        if (cd.Kind == "class" || cd.Kind == "struct") {
                             Z42ClassType ct = symbols.GetClass(cd.Name) as Z42ClassType;
                             isPart = ct != null && ct.IsPartial;
                         } else if (cd.Kind == "interface") {

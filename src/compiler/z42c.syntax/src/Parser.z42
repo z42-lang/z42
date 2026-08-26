@@ -318,9 +318,9 @@ public sealed class Parser {
             int dk = this._peek().Kind;
             // complete-class-access-control ③：顶层声明（模块作用域）不得标 private/protected——
             // 默认 internal，private/protected 在模块层无意义。嵌套类型/成员经 MemberParser 不走此路径。
-            // 覆盖 class/struct/interface/enum/record/delegate/顶层函数（impl 无可见性，排除）。
+            // 覆盖 class/struct/interface/enum/delegate/顶层函数（impl 无可见性，排除）。
             if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface
-                || dk == TokenKind.Enum || dk == TokenKind.Record || dk == TokenKind.Delegate
+                || dk == TokenKind.Enum || dk == TokenKind.Delegate
                 || this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
                 if (this._declP._modsHas(mods, "private") || this._declP._modsHas(mods, "protected")) {
                     this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
@@ -338,15 +338,13 @@ public sealed class Parser {
                 d = this._declP._parseImplDecl(mods);
             } else if (dk == TokenKind.Enum) {
                 d = this._declP._parseEnum(mods);
-            } else if (dk == TokenKind.Record) {
-                d = this._declP._parseRecord(mods);
             } else if (dk == TokenKind.Delegate) {
                 d = this._declP._parseDelegate(mods);
             } else if (this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
                 // 顶层自由函数：Type Name(params) { body }
                 d = this._declP._parseTopLevelFunc(mods);
             } else {
-                this._diags.Error(DiagnosticCodes.UnexpectedToken, "expected declaration (class/struct/interface/enum/record/delegate/func)", this._peek().Span);
+                this._diags.Error(DiagnosticCodes.UnexpectedToken, "expected declaration (class/struct/interface/enum/delegate/func)", this._peek().Span);
                 this._advance();
                 ok = false;
             }
@@ -404,7 +402,8 @@ public sealed class Parser {
 
     // 顶层自由函数：retType Name<T>(params) where ... { body }（命名空间级，无 this）。
 
-    // record Name<T> [(pos params)] [: base] [where ...] { members }  /  record Name(...) ;
+    // [Record] class/struct Name<T> [(pos params)] [: base] [where ...] { members }  /  [Record] class Name(...) ;
+    //   （`record` 关键字已删——位置参数由 _parseTypeDecl 就地展开，[Record]→public 字段 / 无→private）
 
 
 

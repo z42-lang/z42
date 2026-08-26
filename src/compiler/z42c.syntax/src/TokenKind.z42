@@ -16,7 +16,7 @@ public static class TokenKind {
     public static int Protected = 15; public static int Internal = 16;
     public static int Ref = 17; public static int Out = 18;
     public static int Class = 19; public static int Struct = 20; public static int Enum = 21;
-    public static int Interface = 22; public static int Record = 23; public static int Delegate = 24;
+    public static int Interface = 22; public static int Delegate = 24;   // 23 = 原 `record` 关键字（已删，`[Record]` attribute 替代）；空号保留，其余不重排
     public static int Event = 25; public static int Abstract = 26; public static int Sealed = 27;
     public static int Override = 28; public static int Virtual = 29; public static int New = 30;
     public static int Extern = 31; public static int Async = 32; public static int Await = 33;

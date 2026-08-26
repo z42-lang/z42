@@ -49,7 +49,7 @@ public sealed class TestIndexBuilder {
 
     private int _scanClassTests(ClassDecl c, IrTestEntry[] entries, int n) {
         this._lastEntries = entries;
-        if (c.Kind != "class" && c.Kind != "struct" && c.Kind != "record") { return n; }
+        if (c.Kind != "class" && c.Kind != "struct") { return n; }
         int j = 0;
         while (j < c.MemberCount) {
             Decl rawMem = c.Members[j];

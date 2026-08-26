@@ -14,7 +14,7 @@ namespace Z42.Build;
 // ⚠️ Parked / 接口先行：本文件只定接口与请求/结果记录，无实现（NoCompiler 仅兜底空实现）。
 
 /// 一次编译请求：源码 → app.zpkg（平台无关字节码）。纯数据载体。
-public record CompileRequest(
+[Record] public class CompileRequest(
     string   SourceDir,       // 工程源根（只读）
     string   OutputZpkg,      // 产物 .zpkg 落点（Dirs.Intermediate 下）
     string[] Deps,            // 依赖 .zpkg 路径
@@ -23,7 +23,7 @@ public record CompileRequest(
     bool     Incremental);    // 增量编译（可缓存）
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。
-public record CompileResult(
+[Record] public class CompileResult(
     string Zpkg,
     string Zsym,
     bool   Ok,

@@ -112,7 +112,6 @@ public sealed class MemberParser {
             return this._p._declP._parseTypeDecl(mods, nkind, attrs);
         }
         if (nk == TokenKind.Enum)   { return this._p._declP._parseEnum(mods); }
-        if (nk == TokenKind.Record) { return this._p._declP._parseRecord(mods); }
         // 构造器：标识符(==类名) 紧跟 '('
         if (this._p._peek().Kind == TokenKind.Identifier && this._p._peek().Text == className
             && this._p._peekAt(1).Kind == TokenKind.LParen) {

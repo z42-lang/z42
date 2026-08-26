@@ -17,11 +17,11 @@ public enum HttpStatus : int {
 
 // ── 判别联合（abstract record 模式） ───────────────────────────────────────
 
-public abstract record Expr;
-public sealed record Num(double Value)                 : Expr;
-public sealed record Add(Expr Left, Expr Right)        : Expr;
-public sealed record Mul(Expr Left, Expr Right)        : Expr;
-public sealed record Neg(Expr Operand)                 : Expr;
+[Record] public abstract class Expr;
+[Record] public sealed class Num(double Value)                 : Expr;
+[Record] public sealed class Add(Expr Left, Expr Right)        : Expr;
+[Record] public sealed class Mul(Expr Left, Expr Right)        : Expr;
+[Record] public sealed class Neg(Expr Operand)                 : Expr;
 
 // 递归求值
 double Eval(Expr e) => e switch {
@@ -43,9 +43,9 @@ string Pretty(Expr e) => e switch {
 
 // ── 类型模式、属性模式 ─────────────────────────────────────────────────────
 
-public abstract record Shape2;
-public sealed record Circle2(double Radius)             : Shape2;
-public sealed record Rect2(double Width, double Height) : Shape2;
+[Record] public abstract class Shape2;
+[Record] public sealed class Circle2(double Radius)             : Shape2;
+[Record] public sealed class Rect2(double Width, double Height) : Shape2;
 
 string Describe(Shape2 s) => s switch {
     Circle2 { Radius: 0 }             => "degenerate circle",

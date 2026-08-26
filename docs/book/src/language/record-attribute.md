@@ -1,8 +1,9 @@
 # `[Record]` attribute 与主构造器
 
-> 对齐：2026-08-26（change `add-record-attribute`）
+> 对齐：2026-08-26（change `add-record-attribute`；N support + N+1 keyword-removal 均已落地）
 
-z42 用内建 attribute **`[Record]`** 标记「记录」类型，取代旧的 `record` 关键字。同一根 attribute 可作用于
+z42 用内建 attribute **`[Record]`** 标记「记录」类型，**取代已删除的 `record` 关键字**（`record` 现为普通
+标识符，可作类型 / 变量名）。同一根 attribute 可作用于
 **`class` 和 `struct`**——把类型的**位置参数**展开为 public 字段 + 主构造器，并在反射里标记 `IsRecord`。
 非 `[Record]` 的 `class/struct` 也可带位置参数，那是 **primary constructor（主构造器）**：参数变成
 private 字段。
