@@ -91,7 +91,18 @@ micro A/B 问的是「**同一段 benchmark 代码，跑在 base stdlib 上 vs p
 命令 + CI 编排。代价：base 工具链需在 CI 存在（e2e A/B 步已把 base 编译器+stdlib 建进 `base-src/artifacts/
 build`，micro 复用之 + 建 base z42b）。
 
-### B2 复用既有 micro 编译/运行机制（原设想，被 B1.1 取代）
+### B1.2 base 捕获用显式工具链 override（CI 实战修正）
+
+CI 首跑暴露：base 树 `bench stdlib` 内部 `_assembleAllLibs(base-src)` 组出的 libs 让 base 驱动/z42b 运行时
+`undefined function Std.IO.Environment.GetCommandLineArgs$0`（base 树 VM entry-dir 无 runtime stdlib → 回落到
+上一 nightly 种子 stdlib，其 extern mangling 与 #295 后的 5e782ea0 不一致）。**根治**：给 `bench stdlib`
+（`_testLib`/`_testLibCore`）加 `--vm/--driver/--libs` 显式 override（三者齐全 → 跳过 in-tree build、直接用该
+工具链）。CI base 捕获把三者指向 e2e A/B 已验证可用的 `.ab-base-alllibs`（base stdlib + base z42c siblings），
+避开 base-src assembled-libs 布局差异，base 基准编译+运行对一份**证明一致**的 base stdlib。（e2e A/B 早已用
+BASEALL 成功跑 base 场景，故复用之最稳。）本机自验：override 指向自组 alllibs → z42b 建成 + 7 基准 + mean_ns，
+EXIT=0。
+
+### B2 复用既有 micro 编译/运行机制（原设想，被 B1.1/B1.2 取代）
 
 micro 的「编 bench 模块 → z42b 跑 → 解析 stats」全套已在 `_testLibCore`/`_runLibKind`
 （`scripts/test/xtask_test_lib.z42` + `xtask_test_targets.z42`），但它**假定 in-tree 自建工具链**

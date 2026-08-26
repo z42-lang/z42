@@ -183,19 +183,19 @@ jobs:
           set -euo pipefail
           ROOT="$PWD"
           PRVM="$ROOT/artifacts/build/runtime/release/z42vm"
-          # base tree needs a z42vm at its built path; reuse base_vm (== pr_vm when
-          # src/runtime was unchanged) so no extra Rust build.
-          mkdir -p "$ROOT/base-src/artifacts/build/runtime/release"
-          cp -f "${{ steps.base.outputs.base_vm }}" "$ROOT/base-src/artifacts/build/runtime/release/z42vm"
-          # Run the PR xtask (self-contained orchestrator; Z42_LIBS = PR libs for
-          # xtask's OWN deps) against the base tree (cwd=base-src → _root()=base-src).
-          # It builds base z42b + assembles base libs from base-src/artifacts/build
-          # (populated by the "Build base toolchain" step) and measures base
-          # benchmarks under the base z42vm. Output written into the PR workspace.
+          # Run the PR xtask (Z42_LIBS = PR libs for xtask's OWN deps) against the base
+          # tree (cwd=base-src → _root()=base-src, so bench sources / output dirs are
+          # base's). The measured toolchain is passed EXPLICITLY via --vm/--driver/--libs
+          # = the exact base toolchain the e2e A/B already used (.ab-base-alllibs), so
+          # base benchmarks compile+run against a proven-consistent base stdlib — no
+          # in-tree rebuild, no reliance on base-src's assembled-libs layout.
           ( cd base-src && \
             Z42_PORTABLE_VM="$PRVM" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
             "$PRVM" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
-            bench stdlib --json "$ROOT/bench/results/micro-base.json" --no-build --mode interp )
+            bench stdlib --json "$ROOT/bench/results/micro-base.json" --no-build --mode interp \
+              --vm     "${{ steps.base.outputs.base_vm }}" \
+              --driver "${{ steps.base.outputs.base_driver }}" \
+              --libs   "${{ steps.base.outputs.base_libs }}" )
 
       - name: Same-runner micro A/B gate (>10% time fails)
         shell: bash

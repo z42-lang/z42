@@ -80,7 +80,10 @@ int _testLib(ParseResult r, string kind) {
     // for bench; test path passes null (unchanged pretty behaviour).
     string jsonOut = (kind == "bench") ? r.GetOption("json") : "";
     MicroBenchAgg agg = (jsonOut.Length > 0) ? new MicroBenchAgg() : null;
-    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg);
+    // extend-ab-bench-micro-criterion Part B: optional explicit toolchain override
+    // (micro A/B base capture points these at the pre-built base toolchain).
+    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg,
+                            r.GetOption("vm"), r.GetOption("driver"), r.GetOption("libs"));
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
         File.WriteAllText(outPath, agg.toSchemaV2(_root()));
@@ -90,18 +93,27 @@ int _testLib(ParseResult r, string kind) {
     return __rc;
 }
 
-int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg) {
+int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
+                 string ovVm, string ovDriver, string ovLibs) {
     // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
     // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/bench/,
     // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/bench/. The
     // z42b runs both [Test] and [Benchmark] regardless.
+    //
+    // extend-ab-bench-micro-criterion Part B: ovVm/ovDriver/ovLibs (empty = derive
+    // from in-tree). When all set, use that PROVIDED toolchain (a pre-built base
+    // toolchain — vm + z42c.driver.zpkg + flat libs dir) instead of `_builtVm` /
+    // `_driverZpkg` / `_assembleAllLibs`, and skip the in-tree rebuild. The micro
+    // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
+    // so base benchmarks compile+run against a proven-consistent base stdlib.
     string subdir = (kind == "bench") ? "bench" : "tests";
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
     string[] reqLibs = reqLibsIn;
     int nReq = reqLibsIn.Length;
     string root = _root();
-    if (!noBuild) {
+    bool useOverride = ovVm.Length > 0 && ovDriver.Length > 0 && ovLibs.Length > 0;
+    if (!noBuild && !useOverride) {
         Console.WriteLine("→ Preparing tooling (stdlib + z42vm; release)...");
         int c = _buildStdlib(); if (c != 0) { return c; }
         c = _buildRuntime(); if (c != 0) { return c; }
@@ -124,9 +136,9 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // flat: link the stdlib dist + the 7 z42c members into one dir. Computed
     // once; threaded through _runUnitsBatched → _compilePrep so every unit
     // compiles via z42c, not `dotnet z42c.dll`.
-    string vm = _builtVm(root, "release");
-    string driverZpkg = _driverZpkg(root);
-    string libs = _assembleAllLibs(root, "release");
+    string vm = useOverride ? ovVm : _builtVm(root, "release");
+    string driverZpkg = useOverride ? ovDriver : _driverZpkg(root);
+    string libs = useOverride ? ovLibs : _assembleAllLibs(root, "release");
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each
     // compiled test/bench artifact (Std.Test.ModuleLoader) and runs its
