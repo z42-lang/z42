@@ -1,4 +1,4 @@
-// AST 声明节点（z42c.syntax）。CompilationUnit / using / class·struct·interface / enum / record / delegate
+// AST 声明节点（z42c.syntax）。CompilationUnit / using / class·struct·interface / enum / delegate
 //   / 顶层 func（MethodDecl.IsFree）/ field / method / property / param / attribute（AttributedDecl 包裹）。
 // 受限写法：class 继承 + virtual Dump()。类型/修饰符捕获为字符串文本（增量；TypeExpr 后续）。
 namespace Z42.Syntax;
@@ -368,8 +368,9 @@ public sealed class DelegateDecl : Decl {
     }
 }
 
-// 记录在 parser 阶段降级为 ClassDecl(Kind="record")（合成位置参数字段 + primary ctor），
-// 故无独立 RecordDecl 节点——下游统一走 ClassDecl 机制（含 zbc TYPE 段 record flag）。
+// add-record-attribute（N+1）：`record` 关键字已删，改由 `[Record]` attribute 表达。`[Record] class/struct`
+// 在 parser 内就地展开位置参数（public 字段 + primary ctor），产出普通 ClassDecl（Kind=class/struct）；
+// bit3（is-record）由 IrGen 从原始 AttributedDecl.Attrs 判 [Record] 后烘进 zbc TYPE 段。无独立 RecordDecl 节点。
 
 // attribute-handler-registry PR3c：一段 `#suppress <Id> "reason"` / `#restore <Id>` 圈定的诊断抑制区间
 // （字节偏移 [Start, End)）。纯源码级、编译期消费即弃（不序列化到 zpkg）→ 无格式 bump。AnalyzerDriver

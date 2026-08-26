@@ -26,7 +26,7 @@ public sealed class ConstraintChecker {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if ((c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") && c.TypeParams.Count > 0 && c.WhereCount > 0) {
+                if ((c.Kind == "class" || c.Kind == "struct") && c.TypeParams.Count > 0 && c.WhereCount > 0) {
                     ConstraintSet cs = this._buildSet(symbols, c);
                     if (cs.AnyNonEmpty()) { symbols.ClassConstraints.Put(c.Name, cs); }
                 }

@@ -19,7 +19,7 @@ public sealed class DeclBinder {
             Decl d0 = this._tc._unwrap(cu.Decls[i0]);
             if (d0 is ClassDecl) {
                 ClassDecl cc = d0 as ClassDecl;
-                if (cc.Kind == "class" || cc.Kind == "struct" || cc.Kind == "record") { clsMap.Put(cc.Name, cc); }
+                if (cc.Kind == "class" || cc.Kind == "struct") { clsMap.Put(cc.Name, cc); }
             }
             i0 = i0 + 1;
         }
@@ -28,7 +28,7 @@ public sealed class DeclBinder {
             Decl d = this._tc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if ((c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") && !this._hasExplicitInstanceCtor(c)) {
+                if ((c.Kind == "class" || c.Kind == "struct") && !this._hasExplicitInstanceCtor(c)) {
                     string ctKey = c.Name;
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
                     Z42ClassType ct = symbols.GetClass(ctKey);

@@ -140,7 +140,7 @@ public sealed class DeclEnforcer {
                     }
                     if (kindErr) {
                         this._sc.Diags.Error(DiagnosticCodes.PartialKindMismatch,
-                            "partial type `" + nm + "` declared with mismatched kinds (class/struct/record/interface must agree)", kindReport.Span);
+                            "partial type `" + nm + "` declared with mismatched kinds (class/struct/interface must agree)", kindReport.Span);
                     }
                 }
             }

@@ -48,7 +48,7 @@ public static class CuPreprocess {
                 if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
                 if (dd is ClassDecl) {
                     ClassDecl cd = dd as ClassDecl;
-                    if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") { m.Put(cd.Name, new StrBox(cd.Name)); }
+                    if (cd.Kind == "class" || cd.Kind == "struct") { m.Put(cd.Name, new StrBox(cd.Name)); }
                 }
                 d = d + 1;
             }

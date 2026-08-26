@@ -125,7 +125,7 @@ public static class IrDump {
                 if (dd is ClassDecl) {
                     ClassDecl cd = dd as ClassDecl;
                     if (hasNs) { classNs.Put(cd.Name, new StrBox(fcu.Namespace)); }   // 含 interface（任意 Kind）
-                    if (cd.Kind == "class" || cd.Kind == "struct" || cd.Kind == "record") {
+                    if (cd.Kind == "class" || cd.Kind == "struct") {
                         localClasses.Put(cd.Name, new StrBox(cd.Name));
                         if (!pkgClassMap.ContainsKey(cd.Name)) { pkgClassMap.Put(cd.Name, cd); }
                         if (cd.TypeParams.Count > 0) {

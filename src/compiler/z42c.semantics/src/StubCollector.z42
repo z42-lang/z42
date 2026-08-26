@@ -106,7 +106,7 @@ public sealed class StubCollector {
             Decl pd = this._sc._unwrap(cu.Decls[pi]);
             if (pd is ClassDecl) {
                 ClassDecl pc = pd as ClassDecl;
-                if (pc.Kind == "class" || pc.Kind == "struct" || pc.Kind == "record") {
+                if (pc.Kind == "class" || pc.Kind == "struct") {
                     string arStr = pc.TypeParams.Count.ToString();
                     if (firstArityMap.ContainsKey(pc.Name)) {
                         StrBox fa = firstArityMap.Get(pc.Name) as StrBox;
@@ -123,7 +123,7 @@ public sealed class StubCollector {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") {
+                if (c.Kind == "class" || c.Kind == "struct") {
                     bool hasBase = false;
                     string baseName = "";
                     string[] ifaces = new string[c.BaseCount];
@@ -184,7 +184,7 @@ public sealed class StubCollector {
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
                                string[] ifaces, int ifc, bool needsMangle, string file) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
-        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（record 暂不算，引用语义）
+        ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（`[Record] class` 仍是引用类型，IsStruct=false）
         ct.IsSealed = this._sc._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
         ct.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
         ct.InterfaceNames = ifaces;

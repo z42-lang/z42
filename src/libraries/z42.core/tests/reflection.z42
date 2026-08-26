@@ -58,12 +58,12 @@ sealed class SealedThing {
     public int n;
 }
 
-// add-reflection-value-record-flags: struct → IsValueType, record → IsRecord.
+// add-reflection-value-record-flags: struct → IsValueType, [Record] → IsRecord.
 struct ValueThing {
     public int v;
 }
 
-record RecordThing(int a, int b);
+[Record] class RecordThing(int a, int b);
 
 // add-reflection-static-fields: GetFields() includes static fields + IsStatic.
 class FieldHolder {

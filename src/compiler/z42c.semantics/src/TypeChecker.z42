@@ -287,7 +287,7 @@ public sealed class TypeChecker {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct" || c.Kind == "record") { this._decl._bindClass(model, symbols, c); }
+                if (c.Kind == "class" || c.Kind == "struct") { this._decl._bindClass(model, symbols, c); }
             } else if (d is MethodDecl) {
                 MethodDecl m = d as MethodDecl;
                 this._decl._bindFreeFunc(model, symbols, m);

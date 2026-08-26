@@ -13,7 +13,7 @@ class Circle : IShape {
     public int Area() { return this.R * this.R * 3; }
 }
 
-record Person(string Name, int Age);
+[Record] class Person(string Name, int Age);
 
 struct Pt {
     public int X;

@@ -16,13 +16,13 @@ class Derived : Shape {   // concrete subclass of an abstract base
     public int y;
 }
 
-// add-reflection-value-record-flags: struct → IsValueType, record → IsRecord.
+// add-reflection-value-record-flags: struct → IsValueType, [Record] → IsRecord.
 struct Vec2 {
     public int x;
     public int y;
 }
 
-record Pair(int a, int b);
+[Record] class Pair(int a, int b);
 
 void Main() {
     Type ts = typeof(Shape);

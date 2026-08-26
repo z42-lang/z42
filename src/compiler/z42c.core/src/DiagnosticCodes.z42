@@ -55,7 +55,7 @@ public static class DiagnosticCodes {
     public static string SealedMethodNoBase       = "E0429";   // 方法级 sealed 必须 override 基类某 virtual 方法
     // partial types (add-partial-types)
     public static string PartialModifierMissing   = "E0430";   // 同名类型某声明未标 partial（须全部标）
-    public static string PartialKindMismatch      = "E0431";   // 碎片 Kind（class/struct/record/interface）不一致
+    public static string PartialKindMismatch      = "E0431";   // 碎片 Kind（class/struct/interface）不一致
     public static string PartialBaseConflict      = "E0432";   // 基类由多个碎片声明（至多一个）
     public static string PartialDuplicateMember   = "E0433";   // 碎片间重复成员（同名字段 / 同签名方法）
     public static string PartialMethodSigMismatch = "E0434";   // partial method 实现无匹配声明 / 声明与实现签名不一致

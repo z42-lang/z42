@@ -30,7 +30,7 @@ public static class Completeness {
         Parser parser = new Parser(src, "<repl>");
         if (p.IsDecl) {
             // 声明入口：缺闭合符 或 缺 `;`（无体函数 `void foo()` 续读补 body）都算没写完。
-            parser.ParseCompilationUnit();   // class/struct/enum/interface/record/自由函数
+            parser.ParseCompilationUnit();   // class/struct/enum/interface/自由函数
             return parser.Diagnostics().IsIncompleteAtEof() || parser.Diagnostics().IsIncompleteSemiAtEof();
         }
         // 表达式/语句入口：只有缺闭合符/操作数才续读；缺 `;` 不算（REPL 表达式 `42` 本就无分号）。
