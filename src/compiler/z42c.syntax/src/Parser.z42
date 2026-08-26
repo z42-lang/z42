@@ -333,7 +333,7 @@ public sealed class Parser {
                 string kind = "class";
                 if (dk == TokenKind.Struct) { kind = "struct"; }
                 else if (dk == TokenKind.Interface) { kind = "interface"; }
-                d = this._declP._parseTypeDecl(mods, kind);
+                d = this._declP._parseTypeDecl(mods, kind, attrs);   // add-record-attribute：传 attrs 供位置参数就地判 [Record]
             } else if (dk == TokenKind.Impl) {
                 d = this._declP._parseImplDecl(mods);
             } else if (dk == TokenKind.Enum) {

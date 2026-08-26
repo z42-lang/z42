@@ -1,0 +1,63 @@
+namespace Demo;
+
+using Std;
+
+// add-record-attribute: `[Record]` attribute replaces the `record` keyword. It expands a
+// class/struct's positional parameters into public fields + a primary constructor and marks
+// the type is-record (zbc flags bit3, read back via reflection Type.IsRecord). A bare
+// `class/struct Foo(params)` (no [Record]) is a primary constructor: private fields, not
+// is-record. This is the nightly-N support test — [Record] and the legacy `record` keyword
+// coexist; here we exercise the new attribute form end-to-end.
+
+// [Record] class — positional params become PUBLIC fields; is-record.
+[Record] class Point(int X, int Y);
+
+// [Record] class with a base and block members alongside positional params.
+[Record] class Person(string Name, int Age) {
+    string Greet() {
+        return $"Hi, I'm {this.Name}, age {this.Age}";
+    }
+}
+
+// [Record] struct — value type + is-record (bit2 + bit3).
+[Record] struct Vec(int X, int Y);
+
+// Bare primary constructor (no [Record]) — params become PRIVATE fields, accessible as bare
+// names in the body (resolved to instance fields); NOT is-record.
+class Counter(int start, int step) {
+    int cur = 0;
+    int Next() {
+        // bare `start`/`step` resolve to the private primary-ctor fields.
+        this.cur = this.cur + step;
+        return start + this.cur;
+    }
+}
+
+void Main() {
+    // [Record] class: public fields + ctor.
+    var p = new Point(3, 4);
+    Assert.Equal(3, p.X);
+    Assert.Equal(4, p.Y);
+    Assert.True(typeof(Point).IsRecord);
+    Assert.False(typeof(Point).IsValueType);
+
+    // [Record] class with block members.
+    var person = new Person("Alice", 30);
+    Assert.Equal("Hi, I'm Alice, age 30", person.Greet());
+    person.Name = "Bob";   // public field is assignable
+    Assert.Equal("Hi, I'm Bob, age 30", person.Greet());
+    Assert.True(typeof(Person).IsRecord);
+
+    // [Record] struct: value type + is-record.
+    var v = new Vec(5, 6);
+    Assert.Equal(5, v.X);
+    Assert.Equal(6, v.Y);
+    Assert.True(typeof(Vec).IsRecord);
+    Assert.True(typeof(Vec).IsValueType);
+
+    // Primary constructor (no [Record]): bare field access, NOT is-record.
+    var c = new Counter(100, 2);
+    Assert.Equal(102, c.Next());   // start(100) + cur(0+2)
+    Assert.Equal(104, c.Next());   // start(100) + cur(2+2)
+    Assert.False(typeof(Counter).IsRecord);
+}
