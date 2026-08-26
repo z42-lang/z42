@@ -365,6 +365,131 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
     return 1;
 }
 
+// ── extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B ──
+//
+// `bench --micro-diff --current <prMicro.json> --baseline <baseMicro.json> [--threshold-time T]`
+//
+// The micro tier runs `[Benchmark]`s IN-PROCESS under z42b, so (unlike the e2e
+// tier's per-scenario isolated z42vm) base and pr stdlib cannot be co-loaded. The
+// same-runner A/B is therefore achieved by capturing TWO isolated `bench stdlib
+// --json` baselines on THIS runner — one in the base(merge-base) tree, one in the
+// PR tree — and diffing them here. Because both were measured on the same machine,
+// the machine speed factor cancels in ratio = pr/base, making the SEM (from Part A's
+// mean/stddev) statistically valid — exactly as for the e2e A/B, just base-batch
+// then pr-batch instead of hyperfine's adjacent double-command.
+//
+// Per benchmark (matched by name + mode key so interp/jit never cross-compare),
+// `_abVerdict` on mean_ns/stddev_ns/samples. Regression ⟺ R_lower > 1+thr. A
+// benchmark present in PR but absent from base (renamed / newly added) is skipped —
+// no base counterpart to compare against. Exit: 0 = no regression, 1 = regression(s),
+// 2 = bad args / missing file.
+int _benchMicroDiff(ParseResult r) {
+    string root = _root();
+    string current = r.GetOption("current");
+    if (current.Length == 0) { current = "bench/results/micro-pr.json"; }
+    string baseline = r.GetOption("baseline");
+    if (baseline.Length == 0) { baseline = "bench/results/micro-base.json"; }
+    double thr = 0.10;
+    string tt = r.GetOption("threshold-time");
+    if (tt.Length > 0) { thr = Double.Parse(tt); }
+    string curPath  = _absUnder(root, current);
+    string basePath = _absUnder(root, baseline);
+    if (!File.Exists(curPath))  { ConsoleError.WriteLine("error: micro current not found: " + current); return 2; }
+    if (!File.Exists(basePath)) { ConsoleError.WriteLine("error: micro baseline not found: " + baseline); return 2; }
+
+    JsonValue curBs  = JsonValue.Parse(File.ReadAllText(curPath)).Get("benchmarks");
+    JsonValue baseBs = JsonValue.Parse(File.ReadAllText(basePath)).Get("benchmarks");
+    Console.WriteLine("Micro A/B (same-runner base vs pr; gate: R_lower > 1+" + thr.ToString() + "):");
+
+    int regr = 0; int compared = 0; int newb = 0;
+    int j = 0;
+    while (j < curBs.Count()) {
+        JsonValue c = curBs.At(j);
+        string name   = c.Get("name").AsString();
+        string metric = c.Get("metric").AsString();
+        string mkey   = _epBenchModeKey(c);
+        JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
+        if (b == null) { newb = newb + 1; j = j + 1; continue; }
+        AbVerdict v = _microVerdict(b, c, thr);
+        compared = compared + 1;
+        _abPrint(name, mkey, v);
+        if (v.IsRegression) { regr = regr + 1; }
+        j = j + 1;
+    }
+    if (newb > 0) {
+        Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
+    }
+    Console.WriteLine("");
+    if (regr > 0) {
+        Console.WriteLine("❌ " + regr.ToString() + " micro regression(s) — R_lower > 1+thr (of "
+            + compared.ToString() + " same-runner comparisons)");
+        return 1;
+    }
+    Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
+    return 0;
+}
+
+// Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when
+// BOTH baselines carry it. During the transition where the base tree predates
+// Part A's Bencher enrichment (base mean_ns/stddev_ns = -1, since base stdlib's
+// Bencher emits the old summary line), fall back to the INTERVAL-AWARE min/max
+// comparison — both baselines always carry value + ci_lower/ci_upper. Same
+// R_lower > 1+thr criterion either way (via _abClassify). After this change ships
+// and one nightly passes, base baselines also carry mean/stddev → full SEM.
+AbVerdict _microVerdict(JsonValue b, JsonValue c, double thr) {
+    if (_microHasSem(b) && _microHasSem(c)) {
+        return _abVerdict(_microMean(b), _microSd(b), _microN(b),
+                          _microMean(c), _microSd(c), _microN(c), thr);
+    }
+    AbVerdict v = new AbVerdict();
+    double baseV = b.Get("value").AsDouble();
+    double prV   = c.Get("value").AsDouble();
+    if (baseV <= 0.0 || prV <= 0.0) { v.Verdict = "no-data"; return v; }
+    v.Ratio = prV / baseV;
+    if (!_microHasCiBounds(b) || !_microHasCiBounds(c)) {
+        v.HasCi = false; v.RLower = v.Ratio; v.RUpper = v.Ratio;
+        _abClassify(v, thr);
+        return v;
+    }
+    // Ratio CI from the min/max intervals: [pr.lo/base.hi, pr.hi/base.lo]. A
+    // regression needs pr's fastest sample to still exceed base's slowest by the
+    // threshold (R_lower > 1+thr) — overlapping intervals ⇒ noise ⇒ not a regression.
+    double bLo = b.Get("ci_lower").AsDouble(); double bHi = b.Get("ci_upper").AsDouble();
+    double cLo = c.Get("ci_lower").AsDouble(); double cHi = c.Get("ci_upper").AsDouble();
+    if (bHi <= 0.0 || bLo <= 0.0) { v.RLower = v.Ratio; v.RUpper = v.Ratio; v.HasCi = false; _abClassify(v, thr); return v; }
+    v.RLower = cLo / bHi;
+    v.RUpper = cHi / bLo;
+    _abClassify(v, thr);
+    return v;
+}
+
+// SEM usable ⟺ mean present + stddev>0 + samples>1 (matches _abVerdict's haveCi).
+bool _microHasSem(JsonValue b) {
+    return b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0
+        && b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() > 0.0
+        && b.ContainsKey("samples") && b.Get("samples").AsDouble() > 1.0;
+}
+bool _microHasCiBounds(JsonValue b) {
+    return b.ContainsKey("ci_lower") && b.ContainsKey("ci_upper");
+}
+
+// Point estimate for a micro benchmark object: prefer mean_ns; fall back to
+// value (median) when mean_ns is absent/-1 (older baseline).
+double _microMean(JsonValue b) {
+    if (b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0) { return b.Get("mean_ns").AsDouble(); }
+    return b.Get("value").AsDouble();
+}
+// Dispersion: stddev_ns, or 0 (→ _abVerdict no-ci fallback) when absent/-1.
+double _microSd(JsonValue b) {
+    if (b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() >= 0.0) { return b.Get("stddev_ns").AsDouble(); }
+    return 0.0;
+}
+// Sample count n for SEM = stddev/sqrt(n); 0 (→ no-ci) when absent.
+double _microN(JsonValue b) {
+    if (b.ContainsKey("samples")) { return b.Get("samples").AsDouble(); }
+    return 0.0;
+}
+
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
 // against a baseline (both conform to bench/baseline-schema.json): per-benchmark
@@ -638,12 +763,18 @@ class MicroBenchAgg {
                 long lo  = bs.Get("min_ns").AsLong();
                 long hi  = bs.Get("max_ns").AsLong();
                 long smp = bs.Get("samples").AsLong();
+                // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
+                // in older reports → default -1. Carried into the schema-v2 object
+                // so the informational baseline is SEM-ready for future consumers.
+                long mean = bs.ContainsKey("mean_ns") ? bs.Get("mean_ns").AsLong() : -1;
+                long sd   = bs.ContainsKey("stddev_ns") ? bs.Get("stddev_ns").AsLong() : -1;
                 if (this._n > 0) { this._items = this._items + ",\n"; }
                 this._items = this._items
                     + "    {\n      \"name\": \"" + name + "\",\n"
                     + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
                     + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
                     + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
+                    + "      \"mean_ns\": " + mean.ToString() + ",\n      \"stddev_ns\": " + sd.ToString() + ",\n"
                     + "      \"samples\": " + smp.ToString() + ",\n"
                     + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
                 this._n = this._n + 1;

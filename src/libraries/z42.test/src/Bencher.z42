@@ -32,34 +32,56 @@ using Std.IO;
 //       b.iter(() => 1 + 2 + 3);
 //   }
 //
-// Form 2 uses default warmup=10 / samples=100; for custom counts use
-// form 1 with `new Bencher(W, S)`.
-//
 // blackBox: identity wrapper to opt out of dead-code elimination. Interp
 // path is no-op today; JIT path will hook here once cranelift learns to
 // elide pure expressions. Safe to use unconditionally.
+//
+// Adaptive sampling (extend-ab-bench-micro-criterion, Part A): the DEFAULT
+// constructor `new Bencher()` now samples ADAPTIVELY — a short pilot estimates
+// per-iteration cost, then the sample count `n` is chosen to fill a ~50ms
+// measurement budget (bounded to [20, 2000]). Fast benchmarks therefore
+// collect many samples (tight CI); slow ones collect few (bounded wall time).
+// The explicit 2-arg `new Bencher(W, S)` keeps a FIXED sample count S (no
+// adaptivity) — existing tuned benchmarks are byte-for-behaviour unchanged.
+// After `iter`, `Samples` reflects the ACTUAL n used, and `MeanNs` / `StdDevNs`
+// (added here) feed the same-runner A/B gate's SEM propagation (`_abVerdict`).
 
 public class Bencher {
     public int WarmupIters { get; private set; }
-    public int Samples { get; private set; }
+    public int Samples { get; private set; }   // actual n after iter() (adaptive: chosen; fixed: S)
     public long MinNs { get; private set; }
     public long MaxNs { get; private set; }
     public long MedianNs { get; private set; }
+    public long MeanNs { get; private set; }    // arithmetic mean of samples (ns)
+    public long StdDevNs { get; private set; }  // population stddev of samples (ns, rounded)
     public long TotalNs { get; private set; }
 
-    public Bencher() : this(10, 100) {}
+    bool _adaptive;   // true → estimate n to fill the time budget; false → fixed Samples
 
+    // Default: adaptive sampling, warmup=10.
+    public Bencher() {
+        this.WarmupIters = 10;
+        this.Samples = 0;          // filled by iter() once n is chosen
+        this._adaptive = true;
+        this._initZero();
+    }
+
+    // Explicit: fixed warmup + fixed sample count (no adaptivity).
     public Bencher(int warmupIters, int sampleIters) {
         this.WarmupIters = warmupIters;
         this.Samples = sampleIters;
-        this.MinNs = 0;
-        this.MaxNs = 0;
-        this.MedianNs = 0;
-        this.TotalNs = 0;
+        this._adaptive = false;
+        this._initZero();
     }
 
-    // Run `body` `WarmupIters` times un-timed, then `Samples` times timed.
-    // After return, MinNs / MedianNs / MaxNs / TotalNs reflect the sample run.
+    void _initZero() {
+        this.MinNs = 0; this.MaxNs = 0; this.MedianNs = 0;
+        this.MeanNs = 0; this.StdDevNs = 0; this.TotalNs = 0;
+    }
+
+    // Run `body` `WarmupIters` times un-timed, then `n` times timed (n fixed or
+    // adaptively chosen). After return, Min/Median/Max/Mean/StdDev/Total/Samples
+    // reflect the sample run.
     public void iter(Action body) {
         // ── warmup ───────────────────────────────────────────────────────
         int w = 0;
@@ -68,32 +90,73 @@ public class Bencher {
             w = w + 1;
         }
 
+        // ── choose sample count ──────────────────────────────────────────
+        int n = this._adaptive ? this._estimateAdaptiveN(body) : this.Samples;
+        if (n < 1) { n = 1; }
+
         // ── timed samples ────────────────────────────────────────────────
-        long[] times = new long[this.Samples];
+        long[] times = new long[n];
         int i = 0;
-        while (i < this.Samples) {
+        while (i < n) {
             long t0 = __time_now_mono_ns();
             body();
             long t1 = __time_now_mono_ns();
             times[i] = t1 - t0;
             i = i + 1;
         }
+        this.Samples = n;
 
-        // ── stats: insertion sort + min/median/max/total ─────────────────
+        // ── stats: insertion sort + min/median/max/total/mean/stddev ─────
         sortInPlace(times);
+        this.MinNs    = times[0];
+        this.MaxNs    = times[n - 1];
+        this.MedianNs = times[n / 2];
 
-        if (this.Samples > 0) {
-            this.MinNs    = times[0];
-            this.MaxNs    = times[this.Samples - 1];
-            this.MedianNs = times[this.Samples / 2];
-        }
         long total = 0;
         int j = 0;
-        while (j < this.Samples) {
+        while (j < n) {
             total = total + times[j];
             j = j + 1;
         }
         this.TotalNs = total;
+        this.MeanNs = total / n;
+
+        // Population stddev (÷n, not n-1): SEM = stddev/sqrt(n) downstream uses
+        // total-population dispersion, matching hyperfine's reported stddev. For
+        // n≈100 the n vs n-1 difference is <0.5% and never flips a verdict.
+        double meanD = (double)total / (double)n;
+        double varAcc = 0.0;
+        int k = 0;
+        while (k < n) {
+            double d = (double)times[k] - meanD;
+            varAcc = varAcc + d * d;
+            k = k + 1;
+        }
+        double variance = varAcc / (double)n;
+        // round to nearest ns; sub-ns dispersion rounds to 0 → downstream A/B
+        // treats stddev=0 as "no CI" and falls back to the bare ratio (safe:
+        // never a false regression).
+        this.StdDevNs = (long)(Math.Sqrt(variance) + 0.5);
+    }
+
+    // Pilot-based adaptive sample-count estimator. Runs a short un-recorded
+    // pilot to estimate per-iteration cost, then picks n = budget / per-iter,
+    // clamped to [MIN, MAX]. Pure integer arithmetic (no fractional n) keeps the
+    // chosen n deterministic given the pilot timing.
+    int _estimateAdaptiveN(Action body) {
+        long targetNs = 50000000;   // ~50ms measurement budget
+        long minS = 20;
+        long maxS = 2000;
+        long pilot = 15;
+        long t0 = __time_now_mono_ns();
+        long i = 0;
+        while (i < pilot) { body(); i = i + 1; }
+        long elapsed = __time_now_mono_ns() - t0;
+        if (elapsed <= 0) { return (int)maxS; }   // immeasurably fast → max samples
+        long need = targetNs * pilot / elapsed;   // = budget / per-iter cost
+        if (need < minS) { need = minS; }
+        if (need > maxS) { need = maxS; }
+        return (int)need;
     }
 
     // Human-readable single-line summary.
@@ -104,14 +167,16 @@ public class Bencher {
     // (rebuild-bench-structured-output; the z42-native successor to the retired
     // Rust `extract_bench_stats_from_stdout`). Format:
     //
-    //   `bench[<label>] min=<n>ns median=<n>ns max=<n>ns samples=<n>`
+    //   `bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>`
     //
     // `BenchStats.parse` reads these fields by key (`ns` suffix stripped from the
-    // time fields). If you change this format, update `BenchStats.parse`
+    // time fields). `mean=`/`stddev=` (extend-ab-bench-micro-criterion) are
+    // appended AFTER `max=` — older summary lines lacking them still parse
+    // (missing → -1). If you change this format, update `BenchStats.parse`
     // (`src/libraries/z42.test/src/BenchStats.z42`) in the same commit — the unit
     // tests in `tests/bench_stats.z42` will catch a mismatch.
     public void printSummary(string label) {
-        Console.WriteLine($"bench[{label}] min={this.MinNs}ns median={this.MedianNs}ns max={this.MaxNs}ns samples={this.Samples}");
+        Console.WriteLine($"bench[{label}] min={this.MinNs}ns median={this.MedianNs}ns max={this.MaxNs}ns mean={this.MeanNs}ns stddev={this.StdDevNs}ns samples={this.Samples}");
     }
 
     // Insertion sort — Samples is small (default 100), no heap pressure.

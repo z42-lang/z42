@@ -203,13 +203,15 @@ void test_assert_equal_approx_beyond_eps_fails() {
 // ── R2 完整版：Bencher ──────────────────────────────────────────────────
 
 [Test]
-void test_bencher_default_runs_warmup_plus_samples() {
+void test_bencher_default_is_adaptive() {
+    // extend-ab-bench-micro-criterion: 默认构造 = 自适应采样。样本数 n 由 pilot
+    // 估算并 clamp 到 [20, 2000]；body 调用总数 = warmup(10) + pilot(15) + n。
     var b = new Bencher();
     var c = new IntCell();
     b.iter(() => { c.v = c.v + 1; });
-    // 默认 warmup=10, samples=100 → body 调用 110 次
-    Assert.Equal(110, c.v);
-    Assert.Equal(100, b.Samples);
+    Assert.True(b.Samples >= 20);
+    Assert.True(b.Samples <= 2000);
+    Assert.Equal(b.WarmupIters + 15 + b.Samples, c.v);
 }
 
 [Test]

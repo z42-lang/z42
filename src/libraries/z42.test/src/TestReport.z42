@@ -83,11 +83,15 @@ public static class TestReport {
     }
 
     static string _statsJson(BenchStats b) {
+        // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): -1 when the
+        // summary line omitted them (older Bencher) → consumers treat as "no CI".
         return "{"
             + "\"label\":\"" + TestReport.esc(b.Label) + "\","
             + "\"min_ns\":" + b.MinNs.ToString() + ","
             + "\"median_ns\":" + b.MedianNs.ToString() + ","
             + "\"max_ns\":" + b.MaxNs.ToString() + ","
+            + "\"mean_ns\":" + b.MeanNs.ToString() + ","
+            + "\"stddev_ns\":" + b.StdDevNs.ToString() + ","
             + "\"samples\":" + b.Samples.ToString()
             + "}";
     }

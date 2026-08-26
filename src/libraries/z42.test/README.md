@@ -46,11 +46,11 @@ void test_with_capture() {
 
 [Test]
 void test_with_bench() {
-    var b = new Bencher();
+    var b = new Bencher();          // 默认 = 自适应采样（~50ms 预算，n∈[20,2000]）
     var c = new Counter();
     b.iter(() => { c.n = c.n + 1; });
-    Assert.Equal(110, c.n);     // 默认 warmup=10 + samples=100
-    b.printSummary("counter");
+    Assert.True(b.Samples >= 20);   // 显式固定采样用 new Bencher(warmup, samples)
+    b.printSummary("counter");      // bench[counter] min=..ns .. mean=..ns stddev=..ns samples=..
 }
 
 class Counter { public int n; public Counter() { this.n = 0; } }

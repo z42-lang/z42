@@ -33,8 +33,8 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
   不为门禁跑第二遍。区间越宽（噪声越大）门禁越保守——正合共享 runner。
 - **画像隔离**：interp 与 jit、不同 os/arch 的数字**从不互比**。每条结果带一个
   `profile`，diff 按 `(name, metric, mode_label@os/arch)` 精确匹配。
-- **micro 与 e2e 分工**：ns 级微基准对噪声过敏，**不进 CI 门禁**，只做本地/nightly 的稳定硬件对比；
-  CI 门禁只守粗粒度 e2e（ms 级）。
+- **micro 与 e2e 分工**：e2e（ms 级）守粗粒度全管线；micro（ns 级）守 stdlib 函数级与 VM 内部热路径。
+  ns 级**单快照跨-runner** 比过敏，故 micro 也走**同-runner A/B**（base 树 vs pr 树同机各测一遍）才进门禁。
 
 ## 方案与决策
 
@@ -48,7 +48,7 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | 缺区间回落 | 任一侧缺 `ci_lower`/`ci_upper` → 裸均值比值门禁，标 `(no-ci)` | 老格式 / 外部结果无 CI 时仍可判，只是回到宽松语义，显式标注让读者知道判据降级了 |
 | 阈值 | 时间 5%（`--threshold-time`；CI 用 0.10）/ 内存 10% | 时间默认严、CI 放宽到 10% 匹配 0.2.3 退出标准；内存指标暂为 informational |
 | 画像键 | `(name, metric, mode_label@os/arch)` | interp/jit、跨平台结果隔离，杜绝 interp 的数字被拿去比 jit 基线 |
-| micro 进 CI | 否 | ns 级测量对共享 runner 噪声过敏，假阳性淹没信号；留给本地/nightly 稳定硬件 |
+| micro 进 CI | **是（同-runner A/B）** | 单快照跨-runner 比确实噪声过敏；但**同-runner** base-batch vs pr-batch 把机器因子约掉，配 Bencher mean/stddev 的 SEM → 门禁有效（`bench --micro-diff`） |
 | 基线存放 | 孤儿分支 `bench-baselines`，非主仓库树 | 结果 JSON 随 push 每日覆盖，进主分支历史会污染 diff；孤儿分支隔离、PR 侧按需 fetch |
 
 ## 三层度量 tier
@@ -56,11 +56,58 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |------|------|------|------|-----------|
 | **z42 e2e** | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁 |
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ❌ 本地/nightly 对比 |
-| **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke），未接入 xtask | ❌ `cargo bench` 直跑 |
+| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 同-runner A/B（`bench --micro-diff`） |
+| **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke）| ✅ criterion 原生 A/B（仅 src/runtime 改动时） |
 
 **e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是门禁守护面；**micro** 把回归
-定位到具体函数、守 stdlib 热路径，但 ns 级数字只在稳定硬件上有意义，故不进门禁。
+定位到具体函数、守 stdlib 热路径——ns 级单快照跨-runner 比确实过敏，但**同-runner A/B**
+（base 树 + pr 树同机各测一遍、比比值）把机器因子约掉，配 mean/stddev 的 SEM 后同样能进门禁。
+
+### micro 同-runner A/B（`bench --micro-diff`，Part B）
+
+micro `[Benchmark]` 在 z42b 里**进程内**跑，base 与 pr 的同名 stdlib zpkg 无法共载（不像 e2e 每场景一个
+独立 z42vm 子进程）。故同-runner A/B 用**两个隔离的 `bench stdlib --json` 基线**实现：
+
+1. **PR 树**跑 `bench stdlib --json micro-pr.json`（PR 工具链编+跑全 stdlib `[Benchmark]`）。
+2. **base(merge-base) 树**跑同样命令 → `micro-base.json`（base 工具链，复用 CI「Build base toolchain」步已建
+   的 base 编译器+stdlib，仅新建 base z42b）。
+3. `bench --micro-diff --current micro-pr.json --baseline micro-base.json` 逐基准（按 `name` + 画像键配对）
+   `_abVerdict`——与 e2e 共用同一判红纯函数。回归 ⟺ R_lower > 1+thr（CI 用 0.10）。
+
+同机顺序测量 → 机器因子在比值抵消；采样越多（自适应）CI 越紧、门禁越敏。PR 新增/改名的基准在 base 无
+对应 → 信息性 skip，不判红。
+
+### Bencher 统计与自适应采样（`Std.Test.Bencher`）
+
+micro tier 的每个 `[Benchmark]` 用 `Bencher` 采样，`printSummary` 产出一行契约：
+
+```
+bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+```
+
+- **mean / stddev**（extend-ab-bench-micro-criterion）：`mean=`/`stddev=` 是 SEM 传播的输入，供
+  micro tier 的同-runner A/B 门禁（与 e2e 同套 `_abVerdict`；见上「micro 同-runner A/B」）。是**追加
+  字段**——旧 summary line（无 mean/stddev）仍能被 `BenchStats.parse` 解析，缺失记 -1，下游按「无 CI」降级。
+- **自适应采样**：默认构造 `new Bencher()` 现按 **~50ms 测量预算**自动选采样数 n（先跑 15 次 pilot
+  估单次成本，再 clamp 到 [20, 2000]）——快基准多采样（CI 更紧）、慢基准少采样（墙钟有界）。
+  显式 `new Bencher(warmup, samples)` 保持**固定** samples（无自适应），既有 tuned 基准行为不变。
+- stddev 是**总体**方差（÷n）、四舍五入到 ns；亚-ns 离散 round 到 0 → 下游判「无 CI」→ 裸比值，
+  安全不假红。
+
+### criterion(Rust) 同-runner A/B（Part C）
+
+Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy / shallow_tree / large_array）
+用 **criterion 原生的同-runner baseline 对照**，不复用 z42 侧 `_abVerdict`——criterion 自带 outlier
+检测 + bootstrap CI + 变化判定，比手搓 SEM 更权威：
+
+1. **base(merge-base) 树**：`cargo bench --bench gc_cycle_bench -- --save-baseline ab-base`。
+2. **PR 树**：`cargo bench --bench gc_cycle_bench -- --baseline ab-base`（criterion 报每个基准的均值变化 %）。
+3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的 `mean.point_estimate`
+   与 `confidence_interval.lower_bound`——**变化 > +10% 且 CI 下界 > 0**（criterion 确信真慢）→ 判红。
+
+**仅当 PR 触碰 `src/runtime` 时跑**（`git diff --quiet base..HEAD -- src/runtime` 为真则跳过——VM 字节
+相同、结果必不动）。`smoke_bench.rs` 是纯 Rust sanity（不碰 VM），保留作「criterion 装置能跑」自检、
+**不纳入门禁**。
 
 ## 执行画像（profile，schema v2）
 
@@ -181,15 +228,19 @@ exit = regressions > 0 ? 1 : 0
 ### CI 门禁接线（bench-pr.yml）
 
 触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
-`scripts/**/*.z42` / 本 workflow），**纯文档 PR 跳过**。`timeout-minutes: 45`（建两套工具链）。步骤：
+`scripts/**/*.z42` / 本 workflow），**纯文档 PR 跳过**。`timeout-minutes: 60`（建两套工具链 + micro/criterion A/B）。步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
 3. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime` 无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
-4. `xtask bench --ab --mode both --threshold-time 0.10 --base-vm/-libs/-driver …`：每场景×mode 在两套下同机
-   编译+测量，`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json` artifact
-5. **allocations 探针（informational，永不 fail）**：alloc 计数是确定性的（不像 wall-time），
+4. **e2e A/B**：`xtask bench --ab --mode both --threshold-time 0.10 --base-vm/-libs/-driver …`：每场景×mode
+   在两套下同机编译+测量，`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json`
+5. **micro A/B**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树复用 3 建的工具链、cp base_vm、
+   仅新建 base z42b）→ `bench --micro-diff` 逐基准 `_abVerdict` 判红
+6. **criterion A/B**（Part C，仅 `src/runtime` 改动时）：base 树 `--save-baseline ab-base`、PR 树
+   `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红（>10% 且 CI 分离）
+7. **allocations 探针（informational，永不 fail）**：alloc 计数是确定性的（不像 wall-time），
    打印每场景 × GC-mode 的分配数，为将来的确定性 alloc 回归门禁积累观测（决策 D4）
 
 > **格式-bump 边角（已知瞬态）**：PR 同时 bump zpkg 格式 **且**动 `src/runtime` 时，base driver 是 PR(新)
@@ -198,8 +249,9 @@ exit = regressions > 0 ? 1 : 0
 
 ## 已知局限与后续
 
-- **micro/stdlib tier 未进 A/B 门禁**（Stage 2）：把同-runner A/B 扩到 micro（ns 级）需先给 Bencher 加
-  mean/stddev + 自适应采样，Deferred `ab-bench-micro`；criterion tier 接线或砍是 `ab-bench-criterion`。
+- **micro/criterion tier 已进门禁**（Stage 2/3，extend-ab-bench-micro-criterion）：micro 用两个隔离
+  `bench stdlib --json` 基线 + `bench --micro-diff`；criterion 用其原生 baseline 对照（仅 runtime 改动时）。
+  `ab-bench-micro` / `ab-bench-criterion` 两个 Deferred 项**已落地**。
 - **A/B 交错粒度**：hyperfine 双命令是「base 全跑→pr 全跑」于一 invocation（同机相邻，够抵消 between-run），
   非逐次交错；逐次交错抗 job 内漂移更强，Deferred `ab-interleave-per-run`。
 - **内存指标**：schema 有 `metric:"memory"` 位，但 e2e harness 暂不采集 RSS；`--threshold-memory`
