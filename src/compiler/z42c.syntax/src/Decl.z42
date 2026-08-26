@@ -223,6 +223,11 @@ public sealed class ClassDecl : Decl {
     public int           MemberCount;
     public bool          IsPartial;   // add-partial-types：`partial` 修饰的类型碎片。由 parser 从 mods 派生
                                        // （post-construction，镜像 MethodDecl.RegKey）；默认 false → 现有类型不变。
+    public Param[]       PrimaryParams;      // add-record-attribute：位置参数 `class/struct Foo(int X, int Y)`
+    public int           PrimaryParamCount;  // parser 仅存不展开；RecordExpand（AST 期）按有无 [Record] 展开成
+                                             // public(record)/private(primary ctor) 字段 + 主构造器。默认空。
+    public bool          IsRecord;           // add-record-attribute：由 RecordExpand 从 [Record] attr 置（替代旧
+                                             // Kind=="record" 哨兵）。ClassDescBuilder 据此打 zbc flags bit3。默认 false。
     public ClassDecl(string kind, string mods, string name, TypeParamList typeParams,
                      TypeExpr[] bases, int baseCount, WhereClause[] wheres, int whereCount, Decl[] members, int mc,
                 Span span) { this.Span = span;
@@ -230,6 +235,8 @@ public sealed class ClassDecl : Decl {
         this.Bases = bases; this.BaseCount = baseCount; this.Wheres = wheres; this.WhereCount = whereCount;
         this.Members = members; this.MemberCount = mc;
         this.IsPartial = false;
+        this.PrimaryParams = new Param[0]; this.PrimaryParamCount = 0;
+        this.IsRecord = false;
     }
     public override string Dump() {
         string m = (this.Mods == "") ? "" : (this.Mods + " ");

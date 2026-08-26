@@ -458,7 +458,9 @@ L2 阶段编译器只接受**无捕获 lambda**——回调字面量（如 `x =>
 所有 z42 **引用类型**（`class`）均隐式继承 `Std.Object`（对应 `z42.core/Object.z42`）。
 编译器在 TypeCheck 和 IrGen 阶段自动注入 `base_class: "Std.Object"`，VM 在 `build_type_registry`
 时将 Object 的虚方法（`ToString`/`Equals`/`GetHashCode`）加入 vtable，派生类可通过 `override` 重写。
-**值类型**（`struct`、`record`）不继承 Object，编译器为其自动合成值语义的 `Equals`/`GetHashCode`/`ToString`。
+**值类型**（`struct`，含 `[Record] struct`）不继承 Object。`[Record] class` 是引用类型、正常继承
+Object。（注：z42 目前**不**为值类型自动合成值语义的 `Equals`/`GetHashCode`/`ToString`——值相等是尚未
+实现的独立特性，见 §8。）
 
 `Object` 提供以下成员：
 
@@ -579,24 +581,27 @@ var copy = red;     // 值拷贝
 
 ---
 
-## 8. Record
+## 8. Record（`[Record]` attribute）与主构造器
 
-不可变数据类型，自动生成相等性比较、`ToString`、解构。
+z42 用内建 attribute **`[Record]`** 标记「记录」类型，作用于 `class` 或 `struct`——把**位置参数**展开为
+public 字段 + 主构造器，并在反射里标记 `IsRecord`。非 `[Record]` 的 `class/struct` 带位置参数则是
+**主构造器**（primary constructor）：参数变成 private 字段。详见
+[`[Record]` attribute 与主构造器](../../book/src/language/record-attribute.md)。
 
 ```z42
-// record class（引用语义）
-public record Person(string Name, int Age);
+[Record] class  Person(string Name, int Age);       // public 字段 + 主构造器 + IsRecord
+[Record] struct Vector2(double X, double Y);         // 值类型 + IsRecord
 
-// record struct（值语义）
-public record struct Vector2(double X, double Y);
+class Counter(int start) {                           // 无 [Record] = 主构造器：private 字段
+    int Next() => start + 1;                          // 裸 start 解析为私有字段
+}
 
-// 使用
 var alice = new Person("Alice", 30);
-var older = alice with { Age = 31 };    // 非破坏性更新
-
-Console.WriteLine(alice);              // Person { Name = Alice, Age = 30 }
-Console.WriteLine(alice == older);     // false
+Console.WriteLine(alice.Name);                        // Alice
 ```
+
+> **范围**：z42 的 `[Record]` 目前**只做**「位置参数糖 + `IsRecord` 反射标记」，**不含** C# record 的
+> 值相等 / `ToString` / `with` / 解构（均为独立特性，尚未实现）。旧 `record` 关键字已由 `[Record]` 取代。
 
 ---
 

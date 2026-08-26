@@ -128,6 +128,15 @@ public sealed class DeclParser {
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
         else { this._p._errorOrIncomplete(DiagnosticCodes.ExpectedToken, "expected type name"); }
         TypeParamList typeParams = this._p._typeP._parseTypeParams();
+        // add-record-attribute：class/struct 后可跟位置参数 `Foo(int X, int Y)`（原 record 专属语法位置）。
+        // parser 仅存进 ClassDecl.PrimaryParams，不展开——RecordExpand（AST 期，能看到 [Record]）按有无
+        // [Record] 展开成 public(record)/private(primary ctor) 字段 + 主构造器。interface 不接受位置参数。
+        Param[] primaryParams = new Param[0];
+        int primaryPc = 0;
+        if (kind != "interface" && this._p._peek().Kind == TokenKind.LParen) {
+            ParamList ppl = this._p._memberP._parseParamList();
+            primaryParams = ppl.Items; primaryPc = ppl.Count;
+        }
         TypeExpr[] bases = new TypeExpr[0];
         int bc = 0;
         if (this._p._peek().Kind == TokenKind.Colon) {
@@ -135,10 +144,19 @@ public sealed class DeclParser {
             bases = bl.Items; bc = bl.Count;
         }
         WhereList wl = this._p._typeP._parseWhereClause();
-        this._p._expect(TokenKind.LBrace, "{");
+        // add-record-attribute：带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体，
+        // 镜像旧 _parseRecord）——body 可选：有 `{` 则解析块成员，否则消一个 `;`。无位置参数仍要求 `{`。
         Decl[] members = new Decl[16];
         int mc = 0;
         bool isIface = (kind == "interface");
+        if (primaryPc > 0 && this._p._peek().Kind != TokenKind.LBrace) {
+            this._p._expectSemi();
+            ClassDecl cds = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
+            cds.IsPartial = this._modsHas(mods, "partial");
+            cds.PrimaryParams = primaryParams; cds.PrimaryParamCount = primaryPc;
+            return cds;
+        }
+        this._p._expect(TokenKind.LBrace, "{");
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             Decl mem = this._p._memberP._parseMember(name);
             // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
@@ -167,6 +185,7 @@ public sealed class DeclParser {
         this._p._expect(TokenKind.RBrace, "}");
         ClassDecl cd = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
         cd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
+        cd.PrimaryParams = primaryParams; cd.PrimaryParamCount = primaryPc;   // add-record-attribute
         return cd;
     }
 

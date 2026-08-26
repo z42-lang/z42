@@ -107,6 +107,9 @@ public sealed class ClassDescBuilder {
 
     internal IrClassDesc _classDesc(ClassDecl c) {
         // 镜像 C# EmitClassDesc：struct/record 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
+        // add-record-attribute：`Kind=="record"`（keyword）仍在 nightly N 保留（N+1 删关键字后去掉）。
+        // 新的 `[Record] class` 走 class（Kind=="class"）→ 自然拿回 Std.Object 基；`[Record] struct` 走
+        // struct → 无基。基类语义随底层 Kind 归位，无需为 attribute 加特例。
         bool isStructOrRecord = c.Kind == "struct" || c.Kind == "record";
         bool isRoot = c.Name == "Object";
         bool hasBase = !(isStructOrRecord || isRoot);
@@ -227,7 +230,10 @@ public sealed class ClassDescBuilder {
         if (IrGenFacts._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
         if (IrGenFacts._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
         if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
-        if (c.Kind == "record")  { flags = flags + 8; }                 // bit3
+        if (c.Kind == "record" || c.IsRecord) { flags = flags + 8; }    // bit3（add-record-attribute：
+        //   nightly N 加法式——旧 keyword `record`（Kind=="record"）与新 RecordExpand 置的 IsRecord
+        //   （[Record] class/struct）都触发。N+1 删关键字后去掉 `Kind=="record"` 项。格式位不变、
+        //   __type_is_record 读法不变，零格式-bump。）
         cd2.Flags = flags;
         cd2.Visibility = IrGenFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
         // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。

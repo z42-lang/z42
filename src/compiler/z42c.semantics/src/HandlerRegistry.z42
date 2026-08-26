@@ -43,7 +43,10 @@ public static class HandlerRegistry {
     // 内建 Generator（BenchmarkDesugar）先跑，再走 store-meta 合成（AttributeSynth）——与收敛前
     // `AttributeSynth.Run(BenchmarkDesugar.Run(cu))` 语义逐字节一致。
     public static CompilationUnit RunAst(CompilationUnit cu) {
-        return AttributeSynth.Run(BenchmarkDesugar.Run(cu));
+        // add-record-attribute：RecordExpand 最内层——先把 class/struct 的位置参数展开成 public(record)/
+        // private(primary ctor) 字段 + 主构造器（并置 IsRecord），再让 BenchmarkDesugar / AttributeSynth
+        // 看到完整成员集。
+        return AttributeSynth.Run(BenchmarkDesugar.Run(RecordExpand.Run(cu)));
     }
 
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────
@@ -78,7 +81,8 @@ public static class HandlerRegistry {
     public static bool IsDirectiveAttr(string name) {
         return HandlerRegistry.IsNativeDirective(name)
             || HandlerRegistry.IsSuppressDirective(name)
-            || HandlerRegistry.IsDeprecatedDirective(name);
+            || HandlerRegistry.IsDeprecatedDirective(name)
+            || HandlerRegistry.IsRecordDirective(name);
     }
 
     // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
@@ -122,6 +126,25 @@ public static class HandlerRegistry {
             a = a + 1;
         }
         return "";
+    }
+
+    // add-record-attribute：`[Record]` directive 识别（保留名，豁免 D8 后缀 + 无 backing 类，同 Suppress/
+    // Native/Deprecated 靠名字识别）。RecordExpand（AST 期）消费它——把位置参数展开成 public 字段 + 主构造器
+    // 并置 ClassDecl.IsRecord（→ ClassDescBuilder 打 zbc flags bit3）。不合成反射工厂 / 不写 store-meta blob。
+    public static bool IsRecordDirective(string name) {
+        return name == "Record";
+    }
+
+    // add-record-attribute：某声明是否带 `[Record]`（RecordExpand 读，决定 public 字段 + bit3 vs private 字段）。
+    public static bool HasRecord(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return false; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (HandlerRegistry.IsRecordDirective(ad.Attrs[a].Name)) { return true; }
+            a = a + 1;
+        }
+        return false;
     }
 
     // StubEmitter 专用：`[Native(...)]` 绑定 directive 识别（取代散落的 `at.Name == "Native"` 字面量）。
