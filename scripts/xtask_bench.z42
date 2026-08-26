@@ -365,6 +365,88 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
     return 1;
 }
 
+// ── extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B ──
+//
+// `bench --micro-diff --current <prMicro.json> --baseline <baseMicro.json> [--threshold-time T]`
+//
+// The micro tier runs `[Benchmark]`s IN-PROCESS under z42b, so (unlike the e2e
+// tier's per-scenario isolated z42vm) base and pr stdlib cannot be co-loaded. The
+// same-runner A/B is therefore achieved by capturing TWO isolated `bench stdlib
+// --json` baselines on THIS runner — one in the base(merge-base) tree, one in the
+// PR tree — and diffing them here. Because both were measured on the same machine,
+// the machine speed factor cancels in ratio = pr/base, making the SEM (from Part A's
+// mean/stddev) statistically valid — exactly as for the e2e A/B, just base-batch
+// then pr-batch instead of hyperfine's adjacent double-command.
+//
+// Per benchmark (matched by name + mode key so interp/jit never cross-compare),
+// `_abVerdict` on mean_ns/stddev_ns/samples. Regression ⟺ R_lower > 1+thr. A
+// benchmark present in PR but absent from base (renamed / newly added) is skipped —
+// no base counterpart to compare against. Exit: 0 = no regression, 1 = regression(s),
+// 2 = bad args / missing file.
+int _benchMicroDiff(ParseResult r) {
+    string root = _root();
+    string current = r.GetOption("current");
+    if (current.Length == 0) { current = "bench/results/micro-pr.json"; }
+    string baseline = r.GetOption("baseline");
+    if (baseline.Length == 0) { baseline = "bench/results/micro-base.json"; }
+    double thr = 0.10;
+    string tt = r.GetOption("threshold-time");
+    if (tt.Length > 0) { thr = Double.Parse(tt); }
+    string curPath  = _absUnder(root, current);
+    string basePath = _absUnder(root, baseline);
+    if (!File.Exists(curPath))  { ConsoleError.WriteLine("error: micro current not found: " + current); return 2; }
+    if (!File.Exists(basePath)) { ConsoleError.WriteLine("error: micro baseline not found: " + baseline); return 2; }
+
+    JsonValue curBs  = JsonValue.Parse(File.ReadAllText(curPath)).Get("benchmarks");
+    JsonValue baseBs = JsonValue.Parse(File.ReadAllText(basePath)).Get("benchmarks");
+    Console.WriteLine("Micro A/B (same-runner base vs pr; gate: R_lower > 1+" + thr.ToString() + "):");
+
+    int regr = 0; int compared = 0; int newb = 0;
+    int j = 0;
+    while (j < curBs.Count()) {
+        JsonValue c = curBs.At(j);
+        string name   = c.Get("name").AsString();
+        string metric = c.Get("metric").AsString();
+        string mkey   = _epBenchModeKey(c);
+        JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
+        if (b == null) { newb = newb + 1; j = j + 1; continue; }
+        AbVerdict v = _abVerdict(_microMean(b), _microSd(b), _microN(b),
+                                 _microMean(c), _microSd(c), _microN(c), thr);
+        compared = compared + 1;
+        _abPrint(name, mkey, v);
+        if (v.IsRegression) { regr = regr + 1; }
+        j = j + 1;
+    }
+    if (newb > 0) {
+        Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
+    }
+    Console.WriteLine("");
+    if (regr > 0) {
+        Console.WriteLine("❌ " + regr.ToString() + " micro regression(s) — R_lower > 1+thr (of "
+            + compared.ToString() + " same-runner comparisons)");
+        return 1;
+    }
+    Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
+    return 0;
+}
+
+// Point estimate for a micro benchmark object: prefer mean_ns; fall back to
+// value (median) when mean_ns is absent/-1 (older baseline).
+double _microMean(JsonValue b) {
+    if (b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0) { return b.Get("mean_ns").AsDouble(); }
+    return b.Get("value").AsDouble();
+}
+// Dispersion: stddev_ns, or 0 (→ _abVerdict no-ci fallback) when absent/-1.
+double _microSd(JsonValue b) {
+    if (b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() >= 0.0) { return b.Get("stddev_ns").AsDouble(); }
+    return 0.0;
+}
+// Sample count n for SEM = stddev/sqrt(n); 0 (→ no-ci) when absent.
+double _microN(JsonValue b) {
+    if (b.ContainsKey("samples")) { return b.Get("samples").AsDouble(); }
+    return 0.0;
+}
+
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
 // against a baseline (both conform to bench/baseline-schema.json): per-benchmark

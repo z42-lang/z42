@@ -417,6 +417,9 @@ ArgParser _benchE2eParser() {
     // unit-checks the pure verdict function (no z42vm scenarios; locally runnable).
     p.AddFlag("ab", "", "same-runner A/B gate (needs --base-vm/--base-libs/--base-driver)");
     p.AddFlag("ab-selftest", "", "unit-check the _abVerdict pure function and exit");
+    // extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B —
+    // diff two `bench stdlib --json` baselines (base tree vs PR tree, same runner).
+    p.AddFlag("micro-diff", "", "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)");
     p.AddOption("base-vm", "", "A/B: base z42vm binary", "");
     p.AddOption("base-libs", "", "A/B: base flat libs dir (stdlib + z42c siblings)", "");
     p.AddOption("base-driver", "", "A/B: base z42c.driver.zpkg", "");
@@ -433,6 +436,7 @@ int _benchE2e(string[] argv) {
     }
     if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); return 0; }
     if (r.GetFlag("ab-selftest")) { return _abSelfTest(); }
+    if (r.GetFlag("micro-diff")) { return _benchMicroDiff(r); }
     Stopwatch sw = _procStart("bench");
     int __rc = r.GetFlag("ab") ? _benchAb(r)
              : (r.GetFlag("diff") ? _benchDiff(r) : _bench(r));

@@ -73,7 +73,25 @@ micro A/B 问的是「**同一段 benchmark 代码，跑在 base stdlib 上 vs p
   用 **pr 工具链**编一遍 → pr 产物。各经 z42b（同一 runner）跑，取 `bench[...] mean= stddev= samples=`。
 - 每个 benchmark（`<lib>.<label>`）按名配对，`_abVerdict(base…, pr…, thr)` 判红，折进 `ab.json`。
 
-### B2 复用既有 micro 编译/运行机制
+### B1.1 实现精化（2026-08-26，实施中发现的约束 → 校正设计）
+
+原 B1/B2 设想「把 base+pr micro 折进 `bench --ab` 单次、注入工具链三元组」。**实施时发现硬约束**：micro
+`[Benchmark]` 在 z42b 里**在进程内**跑（`mode=interp` 默认），而 base 与 pr 的 stdlib 是**同名 zpkg**
+（`z42.core` 等）——同一 z42b 进程里无法同时加载两版。e2e A/B 没这问题（每场景一个**独立 z42vm 子进程**、
+各带自己 `Z42_LIBS`）。
+
+→ **精化为**：micro 同-runner A/B = 在**同一 CI job、同一 runner** 上跑**两个隔离的 `bench stdlib --json`**
+（一个在 base(merge-base) 树、一个在 PR 树），再用纯函数 `bench --micro-diff` 对两份 baseline 逐基准
+`_abVerdict`。同机顺序测量 → 机器因子在 ratio 抵消，Part A 的 mean/stddev 让 SEM 有效（与 e2e 同哲学，
+只是「base 批 → pr 批」而非 hyperfine 相邻双命令）。
+
+与原 B1「统一用 PR benchmark 源」的**取舍变化**：base 树用**自己的** benchmark 源。对「stdlib 实现回归」
+主用例无影响（同名基准体一般不随实现改），且**按名配对**——PR 改名/新增的基准在 base 无对应 → skip。
+好处：零深度重构（`bench stdlib --json` 原样复用，Part A 已让它产 mean_ns/stddev_ns），只加一个纯 diff
+命令 + CI 编排。代价：base 工具链需在 CI 存在（e2e A/B 步已把 base 编译器+stdlib 建进 `base-src/artifacts/
+build`，micro 复用之 + 建 base z42b）。
+
+### B2 复用既有 micro 编译/运行机制（原设想，被 B1.1 取代）
 
 micro 的「编 bench 模块 → z42b 跑 → 解析 stats」全套已在 `_testLibCore`/`_runLibKind`
 （`scripts/test/xtask_test_lib.z42` + `xtask_test_targets.z42`），但它**假定 in-tree 自建工具链**

@@ -48,7 +48,7 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | 缺区间回落 | 任一侧缺 `ci_lower`/`ci_upper` → 裸均值比值门禁，标 `(no-ci)` | 老格式 / 外部结果无 CI 时仍可判，只是回到宽松语义，显式标注让读者知道判据降级了 |
 | 阈值 | 时间 5%（`--threshold-time`；CI 用 0.10）/ 内存 10% | 时间默认严、CI 放宽到 10% 匹配 0.2.3 退出标准；内存指标暂为 informational |
 | 画像键 | `(name, metric, mode_label@os/arch)` | interp/jit、跨平台结果隔离，杜绝 interp 的数字被拿去比 jit 基线 |
-| micro 进 CI | 否 | ns 级测量对共享 runner 噪声过敏，假阳性淹没信号；留给本地/nightly 稳定硬件 |
+| micro 进 CI | **是（同-runner A/B）** | 单快照跨-runner 比确实噪声过敏；但**同-runner** base-batch vs pr-batch 把机器因子约掉，配 Bencher mean/stddev 的 SEM → 门禁有效（`bench --micro-diff`） |
 | 基线存放 | 孤儿分支 `bench-baselines`，非主仓库树 | 结果 JSON 随 push 每日覆盖，进主分支历史会污染 diff；孤儿分支隔离、PR 侧按需 fetch |
 
 ## 三层度量 tier
@@ -56,11 +56,26 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |------|------|------|------|-----------|
 | **z42 e2e** | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁 |
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ❌ 本地/nightly 对比 |
+| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 同-runner A/B（`bench --micro-diff`） |
 | **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke），未接入 xtask | ❌ `cargo bench` 直跑 |
 
 **e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是门禁守护面；**micro** 把回归
-定位到具体函数、守 stdlib 热路径，但 ns 级数字只在稳定硬件上有意义，故（当前）不进门禁。
+定位到具体函数、守 stdlib 热路径——ns 级单快照跨-runner 比确实过敏，但**同-runner A/B**
+（base 树 + pr 树同机各测一遍、比比值）把机器因子约掉，配 mean/stddev 的 SEM 后同样能进门禁。
+
+### micro 同-runner A/B（`bench --micro-diff`，Part B）
+
+micro `[Benchmark]` 在 z42b 里**进程内**跑，base 与 pr 的同名 stdlib zpkg 无法共载（不像 e2e 每场景一个
+独立 z42vm 子进程）。故同-runner A/B 用**两个隔离的 `bench stdlib --json` 基线**实现：
+
+1. **PR 树**跑 `bench stdlib --json micro-pr.json`（PR 工具链编+跑全 stdlib `[Benchmark]`）。
+2. **base(merge-base) 树**跑同样命令 → `micro-base.json`（base 工具链，复用 CI「Build base toolchain」步已建
+   的 base 编译器+stdlib，仅新建 base z42b）。
+3. `bench --micro-diff --current micro-pr.json --baseline micro-base.json` 逐基准（按 `name` + 画像键配对）
+   `_abVerdict`——与 e2e 共用同一判红纯函数。回归 ⟺ R_lower > 1+thr（CI 用 0.10）。
+
+同机顺序测量 → 机器因子在比值抵消；采样越多（自适应）CI 越紧、门禁越敏。PR 新增/改名的基准在 base 无
+对应 → 信息性 skip，不判红。
 
 ### Bencher 统计与自适应采样（`Std.Test.Bencher`）
 
