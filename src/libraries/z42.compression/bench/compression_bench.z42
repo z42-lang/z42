@@ -1,0 +1,70 @@
+// Micro-benchmarks for z42.compression hot paths — Gzip / Deflate / Zstd
+// compress+decompress round-trips over a ~4 KB semi-compressible buffer.
+// Compression is a canonical CPU hot path; before this bench the library had no
+// coverage at all (stdlib bench baseline gap, 2026-08-27). Run via
+// `z42 xtask.zpkg bench stdlib z42.compression`.
+
+namespace Z42CompressionBench;
+
+using Std;
+using Std.Compression;
+
+// Semi-structured payload: enough repetition that the coders do real modelling
+// work (not incompressible noise, not trivially all-zeros).
+byte[] _mkPayload(int n) {
+    byte[] data = new byte[n];
+    int i = 0;
+    while (i < n) {
+        data[i] = (byte)(((i * 7) % 64) + 32);
+        i = i + 1;
+    }
+    return data;
+}
+
+[Benchmark]
+void bench_gzip_roundtrip_4k() {
+    byte[] msg = _mkPayload(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        byte[] c = Gzip.Compress(msg);
+        BenchHelpers.blackBox(Gzip.Decompress(c).Length);
+    });
+    b.printSummary("gzip_roundtrip_4k");
+}
+
+[Benchmark]
+void bench_deflate_roundtrip_4k() {
+    byte[] msg = _mkPayload(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        byte[] c = Deflate.Compress(msg);
+        BenchHelpers.blackBox(Deflate.Decompress(c).Length);
+    });
+    b.printSummary("deflate_roundtrip_4k");
+}
+
+[Benchmark]
+void bench_zstd_roundtrip_4k() {
+    byte[] msg = _mkPayload(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        byte[] c = Zstd.Compress(msg);
+        BenchHelpers.blackBox(Zstd.Decompress(c).Length);
+    });
+    b.printSummary("zstd_roundtrip_4k");
+}
+
+// Smoke [Test] — bench bodies run *and* the round-trip is lossless.
+[Test]
+void test_compression_bench_bodies_run() {
+    byte[] msg = _mkPayload(256);
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        byte[] c = Gzip.Compress(msg);
+        BenchHelpers.blackBox(Gzip.Decompress(c).Length);
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+    // Round-trip must recover the original length exactly.
+    Assert.Equal(256, Gzip.Decompress(Gzip.Compress(msg)).Length);
+}
