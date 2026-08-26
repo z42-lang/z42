@@ -28,6 +28,12 @@ public static class Levenshtein {
         int ls = s.Length;     // smaller
         int lt = t.Length;     // larger
 
+        // Materialise both strings once: the inner DP loop reads s[k-1] O(ls·lt)
+        // times, so a per-read `CharAt` builtin call would dominate. Array
+        // indexing (ArrayGet) is a single opcode.
+        char[] sarr = s.ToCharArray();
+        char[] tarr = t.ToCharArray();
+
         // Two rows: previous and current. Indexes 0..ls.
         int[] prev = new int[ls + 1];
         int[] cur  = new int[ls + 1];
@@ -37,10 +43,10 @@ public static class Levenshtein {
         int i = 1;
         while (i <= lt) {
             cur[0] = i;
-            char tc = t.CharAt(i - 1);
+            char tc = tarr[i - 1];
             int k = 1;
             while (k <= ls) {
-                char sc = s.CharAt(k - 1);
+                char sc = sarr[k - 1];
                 int subCost = (sc == tc) ? 0 : 1;
                 int del = prev[k] + 1;
                 int ins = cur[k - 1] + 1;

@@ -55,10 +55,12 @@ public static class Base64 {
         if ((s.Length & 3) != 0) {
             throw new FormatException("invalid base64 length (must be multiple of 4)");
         }
+        // 一次性物化为 char[]，逐字符解码走 O(1) 数组索引而非 CharAt builtin 调用。
+        char[] cs = s.ToCharArray();
         // 计算 padding 个数 + 校验末尾 `=` 位置
         int padCount = 0;
-        if (s.CharAt(s.Length - 1) == '=') padCount = padCount + 1;
-        if (padCount == 1 && s.CharAt(s.Length - 2) == '=') padCount = padCount + 1;
+        if (cs[s.Length - 1] == '=') padCount = padCount + 1;
+        if (padCount == 1 && cs[s.Length - 2] == '=') padCount = padCount + 1;
         if (padCount > 2) {
             throw new FormatException("too much padding in base64 input");
         }
@@ -69,10 +71,10 @@ public static class Base64 {
         int endQuad = s.Length - 4;
         // 处理完整 4-char 块（除最后一块）
         while (srcI < endQuad) {
-            int q0 = decodeChar(s.CharAt(srcI));
-            int q1 = decodeChar(s.CharAt(srcI + 1));
-            int q2 = decodeChar(s.CharAt(srcI + 2));
-            int q3 = decodeChar(s.CharAt(srcI + 3));
+            int q0 = decodeChar(cs[srcI]);
+            int q1 = decodeChar(cs[srcI + 1]);
+            int q2 = decodeChar(cs[srcI + 2]);
+            int q3 = decodeChar(cs[srcI + 3]);
             int triple = (q0 << 18) | (q1 << 12) | (q2 << 6) | q3;
             result[dstI]     = (byte)((triple >> 16) & 0xFF);
             result[dstI + 1] = (byte)((triple >> 8) & 0xFF);
@@ -81,10 +83,10 @@ public static class Base64 {
             dstI = dstI + 3;
         }
         // 最后一块（可能含 padding）
-        int q0 = decodeChar(s.CharAt(srcI));
-        int q1 = decodeChar(s.CharAt(srcI + 1));
-        int q2 = padCount >= 2 ? 0 : decodeChar(s.CharAt(srcI + 2));
-        int q3 = padCount >= 1 ? 0 : decodeChar(s.CharAt(srcI + 3));
+        int q0 = decodeChar(cs[srcI]);
+        int q1 = decodeChar(cs[srcI + 1]);
+        int q2 = padCount >= 2 ? 0 : decodeChar(cs[srcI + 2]);
+        int q3 = padCount >= 1 ? 0 : decodeChar(cs[srcI + 3]);
         int triple = (q0 << 18) | (q1 << 12) | (q2 << 6) | q3;
         result[dstI] = (byte)((triple >> 16) & 0xFF);
         if (padCount < 2) result[dstI + 1] = (byte)((triple >> 8) & 0xFF);

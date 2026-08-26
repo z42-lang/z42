@@ -93,9 +93,11 @@ public class BigInt {
         if (s == null || s.Length == 0) {
             throw new FormatException("BigInt.Parse: empty input");
         }
+        // 一次性物化为 char[]：数字循环走 O(1) 数组索引而非 CharAt builtin 调用。
+        char[] cs = s.ToCharArray();
         int signFlag = 1;
         int i = 0;
-        char c0 = s.CharAt(0);
+        char c0 = cs[0];
         if (c0 == '-') { signFlag = -1; i = 1; }
         else if (c0 == '+') { i = 1; }
         if (i >= s.Length) {
@@ -112,7 +114,7 @@ public class BigInt {
             long mul = 1;
             int cnt = 0;
             while (j < s.Length && cnt < 9) {
-                int ch = (int)s.CharAt(j);
+                int ch = (int)cs[j];
                 if (ch < 48 || ch > 57) {  // not '0'..'9'
                     throw new FormatException("BigInt.Parse: non-digit character at index " + Int32.ToString(j));
                 }
