@@ -1,14 +1,17 @@
 name: Bench PR Regression
 
 # Trigger: pull requests that touch performance-sensitive code.
-# Runs the full e2e bench against the PR branch, diffs the JSON against the
-# latest baseline published on `bench-baselines` by bench-update.yml, fails
-# the workflow when any time metric regresses by more than the configured
-# threshold.
+# add-same-runner-ab-bench-gate: builds BOTH the PR toolchain and the PR's
+# merge-base (base.sha) toolchain on THIS runner, then `xtask bench --ab`
+# compiles + measures every scenario under each — base and pr adjacent on the
+# same machine, so the runner speed factor cancels in ratio=pr/base and the
+# within-run SEM is statistically valid. A regression = ratio 95% lower bound
+# R_lower > 1 + threshold. This replaces the old cross-runner baseline diff
+# (bench-baselines snapshot on ANOTHER runner ⇒ ±26–60% between-run drift that
+# made the gate near-blind). bench-update.yml + bench-baselines are UNTOUCHED —
+# they stay as an informational historical dashboard, no longer feeding the gate.
 #
-# Threshold: 10% time per the 0.2.3 退出标准 — matches `xtask bench --diff
-# --threshold-time 0.10`. Memory is informational (the bench harness doesn't
-# track RSS yet; --threshold-memory keeps its default).
+# Threshold: 10% time per the 0.2.3 退出标准 (`--threshold-time 0.10`).
 #
 # Trigger paths intentionally narrow — doc-only PRs skip the run.
 
@@ -31,14 +34,24 @@ concurrency:
 jobs:
   bench-regression:
     name: bench-regression(linux-x64)
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
           # Fetch enough history that `git rev-parse --abbrev-ref HEAD` works
-          # for the bench JSON metadata.
+          # for the bench JSON metadata, and that the base.sha diff below resolves.
+          fetch-depth: 0
+
+      # A/B: the PR's merge-base toolchain, built on THIS same runner. Its build
+      # location is irrelevant to the measurement — both base.zbc and pr.zbc are
+      # compiled AND run on this runner, so the same-runner cancellation holds.
+      - name: Checkout base (merge-base) for A/B
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-src
           fetch-depth: 0
 
       - name: Setup Rust
@@ -63,47 +76,78 @@ jobs:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run full e2e bench (xtask, interp + jit)
+      # Build the base (merge-base) toolchain on THIS runner. The PR z42c
+      # (newer) compiles the older base source — the staged-bootstrap discipline
+      # guarantees a newer z42c compiles older source. Only the scenario RUNTIME
+      # is measured, so base's driver being emitted by the PR z42c is irrelevant:
+      # base's driver still runs base's codegen logic → base-style scenario .zbc.
+      # VM reuse: if the PR did not touch src/runtime, base_vm == pr_vm (byte
+      # identical) → skip building base's Rust VM (the heaviest step).
+      - name: Build base (merge-base) toolchain for A/B
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          PRVM="$ROOT/artifacts/build/runtime/release/z42vm"
+          PRDRIVER="$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
+
+          # PR flat libs (stdlib + z42c siblings) — PR driver's runtime resolve
+          # set + the TSIG surface base compiler source is type-checked against.
+          PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
+          cp -f "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg "$PRALL/"
+          cp -f "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg "$PRALL/"
+
+          # base z42vm: reuse PR's unless src/runtime differs base..pr.
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+            echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
+            BASEVM="$PRVM"
+          else
+            echo "→ src/runtime changed → cargo-build base z42vm"
+            ( cd base-src && cargo build --locked --release \
+                --manifest-path src/runtime/Cargo.toml --bin z42vm )
+            BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
+          fi
+
+          # base z42c: PR driver compiles base-src/src/compiler (newer→older).
+          ( cd base-src/src/compiler && \
+            Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release )
+
+          # base flat libs = base z42c siblings + base stdlib (built by base z42c).
+          BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
+          cp -f "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg "$BASEALL/"
+          BASEDRIVER="$BASEALL/z42c.driver.zpkg"
+          ( cd base-src/src/libraries && \
+            Z42_LIBS="$BASEALL" "$BASEVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
+          cp -f "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg "$BASEALL/"
+
+          echo "base_vm=$BASEVM"         >> "$GITHUB_OUTPUT"
+          echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
+          echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
+
+      - name: Same-runner A/B regression gate (>10% time fails)
         shell: bash
         run: |
           set -euo pipefail
           # add-exec-profile-matrix: --mode both measures each scenario under
-          # interp AND jit (two profile-tagged results); the diff below matches
-          # per (name, metric, mode_label@os/arch) so the two never cross-compare.
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- bench --mode both
-
-      - name: Fetch baseline from bench-baselines branch
-        id: baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          # `bench-update.yml` publishes baselines/e2e-ubuntu-latest.json to the
-          # dedicated `bench-baselines` branch on every push to main. Pull it
-          # without touching the worktree.
-          if git fetch origin bench-baselines:bench-baselines 2>/dev/null; then
-            git show bench-baselines:baselines/e2e-ubuntu-latest.json \
-              > /tmp/baseline.json
-            echo "have_baseline=1" >> "$GITHUB_OUTPUT"
-            echo "→ baseline fetched from bench-baselines branch"
-          else
-            echo "have_baseline=0" >> "$GITHUB_OUTPUT"
-            echo "::warning::bench-baselines branch not present yet (bench-update has never run); skipping regression diff"
-          fi
-
-      - name: Diff against baseline (>10% time fails)
-        if: steps.baseline.outputs.have_baseline == '1'
-        shell: bash
-        run: |
-          set -euo pipefail
+          # interp AND jit. Each scenario is compiled + run under BOTH toolchains
+          # on this runner; a regression fails the job (exit 1).
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --diff \
-              --current bench/results/e2e.json \
-              --baseline /tmp/baseline.json \
-              --threshold-time 0.10
+            bench --ab --mode both --threshold-time 0.10 \
+              --base-vm     "${{ steps.base.outputs.base_vm }}" \
+              --base-libs   "${{ steps.base.outputs.base_libs }}" \
+              --base-driver "${{ steps.base.outputs.base_driver }}"
+
+      - name: Upload A/B results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-ab-results
+          path: bench/results/ab.json
+          if-no-files-found: ignore
 
       # ── expose-diagnostics-counters (script-profiling P1c) ────────────────
       # INFORMATIONAL allocations probe. Unlike wall-time (±60% cross-runner
