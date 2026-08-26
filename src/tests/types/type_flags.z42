@@ -24,6 +24,9 @@ struct Vec2 {
 
 [Record] class Pair(int a, int b);
 
+// [Record] struct → both bits: IsValueType (struct) AND IsRecord ([Record]).
+[Record] struct RecPair(int a, int b);
+
 void Main() {
     Type ts = typeof(Shape);
     Assert.True(ts.IsAbstract);
@@ -46,7 +49,12 @@ void Main() {
 
     Type tr = typeof(Pair);
     Assert.True(tr.IsRecord);
-    Assert.False(tr.IsValueType);
+    Assert.False(tr.IsValueType);   // [Record] class = reference type
+
+    // [Record] struct sets BOTH bits — value type (bit2) and is-record (bit3).
+    Type trs = typeof(RecPair);
+    Assert.True(trs.IsRecord);
+    Assert.True(trs.IsValueType);
 
     // Modifiers do not propagate through inheritance.
     Type td = typeof(Derived);

@@ -151,9 +151,15 @@ void test_record() {
                  parseUnit("[Record] public class Person(string Name) : Base { int Age() { return 0; } }"));
     // [Record] class 无位置参数（块式）
     Assert.Equal("(unit (attr [Record] (class Empty)))", parseUnit("[Record] class Empty { }"));
+    // [Record] struct — 与 class 同一就地展开（public 字段 + 主构造器），Kind=struct（值类型轴）
+    Assert.Equal("(unit (attr [Record] (struct Vec (field public int X) (field public int Y) (ctor Vec (int X, int Y) (block (expr (= (. this X) X)) (expr (= (. this Y) Y)))))))",
+                 parseUnit("[Record] struct Vec(int X, int Y);"));
     // 裸主构造器（无 [Record]）：位置参数 → PRIVATE 字段 + 主构造器（C# 12 primary ctor 语义）
     Assert.Equal("(unit (class Point (field private int X) (field private int Y) (ctor Point (int X, int Y) (block (expr (= (. this X) X)) (expr (= (. this Y) Y))))))",
                  parseUnit("class Point(int X, int Y);"));
+    // 裸主构造器 struct（无 [Record]）：位置参数 → PRIVATE 字段（值类型主构造器）
+    Assert.Equal("(unit (struct P (field private int X) (ctor P (int X) (block (expr (= (. this X) X))))))",
+                 parseUnit("struct P(int X);"));
 }
 
 [Test]
