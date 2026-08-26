@@ -2,12 +2,12 @@ namespace Demo;
 
 using Std;
 
-// add-record-attribute: `[Record]` attribute replaces the `record` keyword. It expands a
-// class/struct's positional parameters into public fields + a primary constructor and marks
-// the type is-record (zbc flags bit3, read back via reflection Type.IsRecord). A bare
+// add-record-attribute: `[Record]` attribute replaces the (now removed) `record` keyword. It
+// expands a class/struct's positional parameters into public fields + a primary constructor and
+// marks the type is-record (zbc flags bit3, read back via reflection Type.IsRecord). A bare
 // `class/struct Foo(params)` (no [Record]) is a primary constructor: private fields, not
-// is-record. This is the nightly-N support test — [Record] and the legacy `record` keyword
-// coexist; here we exercise the new attribute form end-to-end.
+// is-record. `[Record]` works on BOTH class and struct — this test exercises both end-to-end:
+// class (reference type, IsValueType=false) and struct (value type, IsValueType=true, value copy).
 
 // [Record] class — positional params become PUBLIC fields; is-record.
 [Record] class Point(int X, int Y);
@@ -21,6 +21,12 @@ using Std;
 
 // [Record] struct — value type + is-record (bit2 + bit3).
 [Record] struct Vec(int X, int Y);
+
+// [Record] struct with a block-member method (parity with [Record] class Person) — bare field
+// access inside the method (this.X / this.Y) resolves to the public positional fields.
+[Record] struct Vec3(int X, int Y) {
+    int Sum() { return this.X + this.Y; }
+}
 
 // Bare primary constructor (no [Record]) — params become PRIVATE fields, accessible as bare
 // names in the body (resolved to instance fields); NOT is-record.
@@ -54,6 +60,19 @@ void Main() {
     Assert.Equal(6, v.Y);
     Assert.True(typeof(Vec).IsRecord);
     Assert.True(typeof(Vec).IsValueType);
+
+    // [Record] struct has VALUE semantics — assignment copies; mutating the copy leaves the
+    // original untouched (this is the defining class-vs-struct difference for records).
+    var vCopy = v;
+    vCopy.X = 99;
+    Assert.Equal(5, v.X);        // original unchanged
+    Assert.Equal(99, vCopy.X);   // copy mutated independently
+
+    // [Record] struct with a method: bare field access inside the body.
+    var v3 = new Vec3(3, 4);
+    Assert.Equal(7, v3.Sum());
+    Assert.True(typeof(Vec3).IsRecord);
+    Assert.True(typeof(Vec3).IsValueType);
 
     // Primary constructor (no [Record]): bare field access, NOT is-record.
     var c = new Counter(100, 2);
