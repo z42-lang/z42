@@ -57,15 +57,31 @@ R_lower = ratio * (1 - Z * relSE)                       // Z=1.96 (95%)
 
 ### Decision 3: CI 建 base 工具链 + z42vm 复用优化
 
-**问题：** base ref 怎么取、成本多大？
+**问题：** base ref 怎么取、base 工具链怎么建、成本多大？
 **决定：**
 - base ref = `${{ github.event.pull_request.base.sha }}`（PR 的目标分支分叉点），第二个 `actions/checkout`
-  用 `path: base-src` + `ref: <base.sha>` 落地，再对该树跑 `ci-bootstrap` → base 工具链。
-- **z42vm 复用优化**：若 `git diff --quiet <base>..<pr> -- src/runtime` 为真（本 PR 未动 Rust VM），
-  base 与 pr 的 z42vm 字节等价 → **base 复用 pr_vm**，跳过 base 的 Rust release 建（省最重一环）；只建
-  base 的 stdlib+z42c+xtask。动了 `src/runtime` 才全建 base_vm。
-- 成本：动 runtime 的 PR ~2× bootstrap（Swatinem 缓存 Rust 依赖，净增一次 crate 编译 + 一次 warm
-  self-build）；仅动 stdlib/compiler 的 PR 因复用 vm，增量只有一次 warm self-build。bench-pr 的
+  用 `path: base-src` + `ref: <base.sha>` 落地。
+- **base 工具链建法（实施期修正）**：**不复用 `ci-bootstrap` composite 建 base**。原设计设想「对
+  base-src 跑 ci-bootstrap」，但该 composite 头一步 `cd "$(git rev-parse --show-toplevel)"` 会把工作目录
+  锁回 **PR checkout**（`uses:` 步骤无法改工作目录、composite 不接受 root 入参），无法指向 base-src。
+  改用**已 bootstrap 的 PR z42c 直接编 base 源**：
+  - **base z42c** = `PR z42c.driver` 编 `base-src/src/compiler`（`driver -- build --workspace --release`，
+    Z42_LIBS=PR alllibs）。**新编译器编旧源码**恒成立（staged-bootstrap 纪律：新 z42c 能编旧源；base 是
+    PR 祖先）。
+  - **base stdlib** = 上一步产出的 **base z42c** 编 `base-src/src/libraries`。
+  - base flat libs（`--base-libs`）= base z42c 6 siblings + base stdlib 拼一个平铺目录；
+    `--base-driver` = 其中的 `z42c.driver.zpkg`。
+  - **为何测量仍有效**：只测 scenario **运行时**。base driver 虽由 PR z42c 生成其字节码，但它运行的是
+    **base 的 codegen 逻辑** → 产出 **base 风格的 scenario .zbc**，再由 base_vm 跑。base driver 自身跑多快
+    （编译期）不进测量。故「PR z42c 编 base driver」对 scenario 运行时零影响，A/B 语义完整。
+- **z42vm 复用优化**：若 `git diff --quiet <base.sha>..HEAD -- src/runtime` 为真（本 PR 未动 Rust VM），
+  base 与 pr 的 z42vm 字节等价 → **base 复用 pr_vm**，跳过 base 的 cargo release 建（最重一环）；动了
+  `src/runtime` 才对 base-src cargo build z42vm。
+- **格式-bump 边角（已知瞬态）**：PR bump zpkg 格式且**同时**动 src/runtime 时，base driver 是 PR(新)格式
+  而 base_vm 是 base(旧)格式读不了 → 该 PR 当次 bench 可能红。与 bootstrap-seed.md「格式-bump 周期 bench
+  瞬态红、随 nightly 自愈」一致，不阻塞（格式-bump 时 perf 对照本就意义有限）。
+- 成本：动 runtime 的 PR ~2× 构建（Swatinem 缓存 Rust 依赖，净增一次 crate 编译 + 一次 base z42c+stdlib
+  warm 建）；仅动 stdlib/compiler 的 PR 因复用 vm，增量只有 base z42c+stdlib 一次 warm 建。bench-pr 的
   `timeout-minutes` 由 30 提到 **45** 兜底。
 
 ### Decision 4: 退休 bench-baselines 作门禁 source，保留作历史 dashboard
