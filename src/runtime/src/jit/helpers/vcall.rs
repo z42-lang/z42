@@ -187,7 +187,10 @@ pub unsafe extern "C" fn jit_vcall(
                     Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
                 }
             }
-            if method == "ToString" {
+            // add-record-value-semantics: record structs step aside from the native type-name
+            // intercept so their compiler-synthesized `<Type>.ToString` (record format) is reached
+            // via the candidate lookup below (mirrors interp exec_vcall.rs).
+            if method == "ToString" && !b.type_desc().is_record() {
                 // add-boxed-struct-identity (P4b): type name lives on the box's shared object.
                 let n: &str = &b.type_desc().name;
                 let short = n.rsplit('.').next().unwrap_or(n);

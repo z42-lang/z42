@@ -29,6 +29,10 @@ public sealed class OperatorEmitter {
             if ((op == "==" || op == "!=") && this._ee._isBlobStruct(b.Left.Type()) && this._ee._isBlobStruct(b.Right.Type())) {
                 return this._emitStructEquality(op == "==", a, c, this._ee._blobStructName(b.Left.Type()));
             }
+            // add-record-value-semantics：record-class（引用）的 ==/!= → 值 Equals 脱糖（null-safe，非句柄身份）。
+            if ((op == "==" || op == "!=") && this._isRecordClass(b.Left.Type())) {
+                return this._emitRecordEquality(op == "==", a, c);
+            }
             return this._emitCompare(op, a, c);   // → bool
         }
         TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
@@ -311,5 +315,40 @@ public sealed class OperatorEmitter {
         this._ctx.EndBlock(new BrTerm(endL));
         this._ctx.StartBlock(endL);
         return result;
+    }
+
+    // ── add-record-value-semantics：record-class（引用）`==`/`!=` → 值 Equals（null-safe 脱糖）─────────
+    // `==`：(a==null) ? (c==null) : a.Equals(c)；`!=`：取反。避免 `null == r` VCall 空引用崩（对齐 C#
+    // record op_Equality 的 null-safe 语义）。Equals 经 vtable 派发到合成的值相等版（RecordSynth）。
+    private TypedReg _emitRecordEquality(bool wantEqual, TypedReg a, TypedReg c) {
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        TypedReg nullR = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(nullR));
+        TypedReg aNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(aNull, a, nullR));
+        string aNullL = this._ctx.Fresh("req_op_anull");
+        string aNotL = this._ctx.Fresh("req_op_anot");
+        string endL = this._ctx.Fresh("req_op_end");
+        this._ctx.EndBlock(new BrCondTerm(aNull, aNullL, aNotL));
+        this._ctx.StartBlock(aNullL);
+        TypedReg cNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(cNull, c, nullR));
+        this._ctx.Emit(new CopyInstr(result, cNull));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(aNotL);
+        TypedReg[] eqArgs = new TypedReg[1]; eqArgs[0] = c;
+        TypedReg eqr = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new VCallInstr(eqr, a, "Equals", eqArgs, 1));
+        this._ctx.Emit(new CopyInstr(result, eqr));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(endL);
+        if (wantEqual) { return result; }
+        TypedReg neg = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new NotInstr(neg, result));
+        return neg;
+    }
+
+    private bool _isRecordClass(Z42Type t) {
+        return (t is Z42ClassType) && (t as Z42ClassType).IsRecord && !(t as Z42ClassType).IsStruct;
     }
 }

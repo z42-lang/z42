@@ -1,0 +1,88 @@
+namespace Demo;
+
+using Std;
+
+// add-record-value-semantics: `[Record]` types get synthesized VALUE semantics — member-wise
+// Equals / GetHashCode / == / != (type-exact, C# EqualityContract) + record-format ToString
+// (`T { A = v, B = v }`). class (reference type) synthesizes all four via vtable override; struct
+// (value type) already has value Equals (blob) + native value hash and here gains record ToString.
+// Equality compares ALL instance fields (incl private); ToString prints only PUBLIC fields.
+
+[Record] class Point(int X, int Y);
+[Record] class Wrap(string Name);
+[Record] class Empty { }                        // zero-field record (parser requires block for no positional params)
+[Record] class Line(Point A, Point B);        // nested reference (record) fields — recursive value eq
+[Record] class A2(int V);                       // type-exact: A2 vs B2 (same shape, different type)
+[Record] class B2(int V);
+
+// private (block) field participates in equality but NOT in ToString.
+[Record] class Tagged(int X) {
+    int secret = 0;                             // default visibility = private
+    void SetSecret(int s) { this.secret = s; }
+}
+
+// user-declared ToString must NOT be overwritten by synthesis.
+[Record] class Custom(int X) {
+    public override string ToString() { return "custom"; }
+}
+
+[Record] struct Vec(int X, int Y);              // struct record — ToString now record-format
+
+void Main() {
+    // ── class: value equality ──────────────────────────────────────────────
+    var p1 = new Point(1, 2);
+    var p2 = new Point(1, 2);
+    var p3 = new Point(1, 9);
+    Assert.True(p1.Equals(p2));
+    Assert.False(p1.Equals(p3));
+    Assert.True(p1 == p2);
+    Assert.False(p1 == p3);
+    Assert.False(p1 != p2);
+    Assert.True(p1 != p3);
+
+    // same value → same hash
+    Assert.Equal(p1.GetHashCode(), p2.GetHashCode());
+
+    // null / cross-type
+    Assert.False(p1.Equals(null));
+    Assert.False(p1 == null);
+    Assert.True(p1 != null);
+    Assert.False(p1.Equals("hello"));
+
+    // type-exact (EqualityContract): same-shape different types are NOT equal
+    Assert.False(new A2(1).Equals(new B2(1)));
+
+    // ── class: record-format ToString ──────────────────────────────────────
+    Assert.Equal("Point { X = 1, Y = 2 }", p1.ToString());
+    Assert.Equal("Wrap { Name = z42 }", new Wrap("z42").ToString());
+    Assert.Equal("Empty { }", new Empty().ToString());
+
+    // ── nested reference fields: recursive value equality + nested ToString ──
+    var l1 = new Line(new Point(1, 2), new Point(3, 4));
+    var l2 = new Line(new Point(1, 2), new Point(3, 4));
+    var l3 = new Line(new Point(1, 2), new Point(9, 9));
+    Assert.True(l1.Equals(l2));
+    Assert.False(l1.Equals(l3));
+    Assert.Equal("Line { A = Point { X = 1, Y = 2 }, B = Point { X = 3, Y = 4 } }", l1.ToString());
+
+    // ── field ranges: private participates in equality, absent from ToString ─
+    var t1 = new Tagged(5);
+    var t2 = new Tagged(5);
+    Assert.True(t1.Equals(t2));       // both secret=0
+    t2.SetSecret(7);
+    Assert.False(t1.Equals(t2));      // private secret differs → not equal
+    Assert.Equal("Tagged { X = 5 }", t1.ToString());   // secret NOT printed
+
+    // ── user ToString override is preserved ─────────────────────────────────
+    Assert.Equal("custom", new Custom(5).ToString());
+
+    // ── struct record: ToString now record-format; value semantics intact ───
+    // (struct value equality uses `==` — the blob-struct value-equality path; unboxed `.Equals()`
+    //  is the existing boxed-only protocol, out of this change's scope.)
+    var v1 = new Vec(5, 6);
+    var v2 = new Vec(5, 6);
+    var v3 = new Vec(5, 9);
+    Assert.True(v1 == v2);
+    Assert.False(v1 == v3);
+    Assert.Equal("Vec { X = 5, Y = 6 }", v1.ToString());
+}

@@ -212,7 +212,10 @@ pub(super) fn vcall(
                 let h = crate::corelib::convert::builtin_struct_hash_code(ctx, &[obj_val.clone()])?;
                 frame.set(dst, h); return Ok(None);
             }
-            if method == "ToString" {
+            // add-record-value-semantics: record structs step aside from the native type-name
+            // intercept so their compiler-synthesized `<Type>.ToString` (record format) is reached
+            // via the candidate lookup below. Non-record structs keep the type-name default.
+            if method == "ToString" && !b.type_desc().is_record() {
                 // add-boxed-struct-identity (P4b): type name lives on the box's shared object.
                 let n: &str = &b.type_desc().name;
                 let short = n.rsplit('.').next().unwrap_or(n);
