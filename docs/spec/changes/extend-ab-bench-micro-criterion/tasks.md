@@ -34,15 +34,18 @@
 - [~] 逃逸阀 `--ab-e2e-only`/`--ab-micro-only`：**不需要**（micro 是独立 `bench stdlib`+`--micro-diff`，非折进
       `bench --ab`）——精化后 e2e 与 micro 天然解耦，各自 CI step。
 
-## Part C — criterion A/B 门禁（Stage 3）
+## Part C — criterion A/B 门禁（Stage 3）✅ 完成（本机验 parser + criterion 机制；CI 待 runtime PR）
 
-- [ ] bench-pr.yml：加 `if src/runtime changed` 的 criterion A/B step——
-      base-src `cargo bench --bench gc_cycle_bench -- --save-baseline ab-base`，
-      pr `cargo bench --bench gc_cycle_bench -- --baseline ab-base`，解析 change/estimates.json，
-      任一 bench 回归（>10% 且 criterion 判 Regressed）→ 红。
-- [ ] smoke_bench 保留但不门禁（注释说明其 sanity 角色）。
-- [ ] 文档：criterion 门禁只在 runtime 变时跑；gc_cycle_bench 纳入、smoke 不纳入。
-- [ ] GREEN：交 CI（criterion 编译重，本机可选跑 `cargo bench --bench gc_cycle_bench` 冒烟）。
+- [x] bench-pr.yml：加 `if src/runtime changed`（`git diff --quiet base..HEAD -- src/runtime`）的 criterion
+      step——共享 `CRITERION_HOME`；base-src `--save-baseline ab-base`，pr `--baseline ab-base`；python3
+      解析 `<bench>/change/estimates.json` 的 `mean.point_estimate`+`confidence_interval.lower_bound`，
+      >10% 且 CI 下界>0 → exit 1。
+- [x] smoke_bench 保留不门禁（step 注释说明 sanity 角色，只 gate gc_cycle_bench）。
+- [x] 文档：benchmarking.md 加 criterion A/B 节 + tier 表 + CI 步骤；roadmap Deferred 划掉；README。
+- [x] 本机验：`cargo bench --bench gc_cycle_bench -- --save-baseline ab-base` + `--baseline ab-base` 跑通，
+      criterion 产 `change/estimates.json`（schema/路径与 parser 假设一致）；parser 对真实输出判 exit 0。
+      **CI 两-树 A/B 仅 src/runtime 改动 PR 触发**——本 PR 不动 runtime → 该 step 会 skip（不自证，
+      待将来 runtime PR 验；与 Stage 1 格式-bump 边角同类不可本地全验）。
 
 ## 文档（doc-check）
 

@@ -6,10 +6,10 @@
 
 | 层 | 工具 | 位置 | 状态 |
 |----|------|------|------|
-| Rust 微基准 | criterion | `src/runtime/benches/` | ✅（未接入 xtask，直接 `cargo bench`） |
+| Rust 微基准 | criterion | `src/runtime/benches/` | ✅ 同-runner A/B（criterion 原生 baseline 对照；仅 src/runtime 改动时）|
 | z42 端到端 | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | ✅ |
-| **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（z42b 派发）** | **各 lib `bench/*_bench.z42`** | **✅** |
-| **PR 回归门禁（同-runner A/B）** | **`xtask bench --ab`** | **`.github/workflows/bench-pr.yml`** | **✅** |
+| **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（z42b 派发）** | **各 lib `bench/*_bench.z42`** | **✅ 同-runner A/B（`bench --micro-diff`）** |
+| **PR 回归门禁（同-runner A/B）** | **`xtask bench --ab`（e2e）+ `--micro-diff`（micro）+ criterion baseline** | **`.github/workflows/bench-pr.yml`** | **✅** |
 | 基线对比（本地 / 历史 dashboard） | `xtask bench --diff` | `bench/baselines/` | ✅（不再是 PR 门禁）|
 | 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` | — | ✅（降级 dashboard）|
 
@@ -47,11 +47,13 @@ wasm/mobile 等无线程 VM 安全略过 `06_thread_scaling` 之类场景。
 | 粒度 | 单个操作（`String.Replace` / `SortedSet.Add` / `JsonValue.Parse`），ns 级 | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 |
 | 用途 | 把回归**定位到具体函数**；守护 stdlib 热路径；量化单操作优化 | 捕获**全管线**回归（启动开销 / dispatch / 整体吞吐）|
 | 运行 | `xtask bench stdlib <lib>`（本地/按需）| `xtask bench`（本地 + CI）|
-| CI | **不进 CI** — ns 量级对共享 runner 噪声过敏感，假阳性多 | ✅ informational diff（粗粒度，噪声可容忍）|
+| CI | ✅ **同-runner A/B**（`bench --micro-diff`：base 树 vs pr 树同机各测一遍）| ✅ 同-runner A/B（`bench --ab`）|
 
-> **为何 micro 不进 CI**：与 Rust criterion 微基准 tier 一致 ——
-> 它们同样只做本地/按需，不进 CI 门禁。微基准的价值在**稳定硬件上的本地对比**；
-> CI 共享 runner 噪声会让 ns 级测量产生大量假回归。CI 门禁留给粗粒度 e2e。
+> **micro 如何进 CI**（extend-ab-bench-micro-criterion）：ns 级**单快照跨-runner** 比确实过敏，
+> 故 micro 走**同-runner A/B**——PR 树 + base 树在同一 job 各跑一遍 `bench stdlib --json`，
+> `bench --micro-diff` 比比值（机器因子抵消，配 Bencher mean/stddev 的 SEM）。criterion(Rust) tier
+> 同理走其原生 `--save-baseline`/`--baseline`（仅 src/runtime 改动时）。判红语义 SoT 见
+> `docs/book/src/dev/benchmarking.md`。
 
 ### 运行 micro-benchmarks（本地）
 
@@ -90,10 +92,9 @@ z42 xtask.zpkg bench --diff --current /tmp/after.json \
 #    → ↑ 回归(exit 1) / ↓ 改进 / ≈ 持平 / (new)/(removed)
 ```
 
-> **不进 CI 硬门禁**：micro 的 ns 级数字在共享 runner 上噪声过大，当 PR 门禁会误报
-> （见「micro vs e2e」）。本能力面向**本地 / nightly** 的优化前后对比。CI 持久化（存
-> `bench-baselines` 分支）+ nightly 宽阈值门禁是后续事项（Deferred
-> `stdlib-bench-baseline-future-ci-nightly`）。
+> **`bench --diff` 是本地/历史用法**（跨快照裸比值，宽阈值）；micro 的 **CI 硬门禁**走
+> `bench --micro-diff`（同-runner A/B，见上「micro vs e2e」）——两者别混：`--diff` 面向本地优化
+> 前后对比、`--micro-diff` 面向 PR 门禁（同机 base vs pr、SEM 判红）。
 >
 > **两种 [Benchmark] 签名均可**：form-1（自建 `Bencher`）与 form-2
 > （`void f(Bencher b)`，z42c AST-desugar 成零参 wrapper——fix-benchmark-bencher-arg-trampoline

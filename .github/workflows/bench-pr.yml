@@ -193,6 +193,52 @@ jobs:
               --current  "$PWD/bench/results/micro-pr.json" \
               --baseline "$PWD/bench/results/micro-base.json"
 
+      # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
+      # Only when the PR touched src/runtime (VM unchanged ⇒ criterion result cannot
+      # move). Uses criterion's NATIVE same-runner baseline compare — base tree SAVES
+      # a baseline, PR tree COMPARES against it — with criterion doing its own outlier
+      # detection + bootstrap CI. A shared CRITERION_HOME lets the two trees' runs meet.
+      # gc_cycle_bench is a real VM benchmark (gated); smoke_bench is a pure-Rust
+      # sanity harness (NOT gated). Gate: any bench mean change >10% AND CI-separated.
+      - name: Criterion(Rust) A/B gate (gc_cycle_bench; only if src/runtime changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+            echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
+            exit 0
+          fi
+          export CRITERION_HOME="$PWD/.criterion-ab"
+          rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
+          echo "── base: save criterion baseline 'ab-base' (base tree) ──"
+          ( cd base-src && CRITERION_HOME="$CRITERION_HOME" \
+              cargo bench --locked --manifest-path src/runtime/Cargo.toml \
+                --bench gc_cycle_bench -- --save-baseline ab-base )
+          echo "── pr: compare against 'ab-base' (this tree) ──"
+          CRITERION_HOME="$CRITERION_HOME" \
+            cargo bench --locked --manifest-path src/runtime/Cargo.toml \
+              --bench gc_cycle_bench -- --baseline ab-base
+          echo "── gate: mean change >10% AND CI-separated (lower_bound>0) = regression ──"
+          python3 - "$CRITERION_HOME" <<'PY'
+          import json, os, sys, glob
+          home = sys.argv[1]; thr = 0.10; regr = []
+          for est in glob.glob(os.path.join(home, "**", "change", "estimates.json"), recursive=True):
+              with open(est) as f: d = json.load(f)
+              mean = d.get("mean", {}); pe = mean.get("point_estimate")
+              lo = mean.get("confidence_interval", {}).get("lower_bound")
+              if pe is None or lo is None: continue
+              bench = est.split(os.sep)[-3]
+              tag = f"{pe*100:+.1f}% (CI lower {lo*100:+.1f}%)"
+              if pe > thr and lo > 0.0:
+                  regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
+              else:
+                  print(f"  ≈ {bench}: {tag}")
+          if regr:
+              print(f"❌ {len(regr)} criterion regression(s) — mean >{int(thr*100)}% AND CI-separated"); sys.exit(1)
+          print("✅ no criterion regression")
+          PY
+
       - name: Upload A/B results
         if: always()
         uses: actions/upload-artifact@v4
