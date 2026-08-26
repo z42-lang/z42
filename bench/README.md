@@ -9,8 +9,9 @@
 | Rust 微基准 | criterion | `src/runtime/benches/` | ✅（未接入 xtask，直接 `cargo bench`） |
 | z42 端到端 | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | ✅ |
 | **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（z42b 派发）** | **各 lib `bench/*_bench.z42`** | **✅** |
-| 基线对比 | `xtask bench --diff` | `bench/baselines/` | ✅ |
-| 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` | — | ✅ |
+| **PR 回归门禁（同-runner A/B）** | **`xtask bench --ab`** | **`.github/workflows/bench-pr.yml`** | **✅** |
+| 基线对比（本地 / 历史 dashboard） | `xtask bench --diff` | `bench/baselines/` | ✅（不再是 PR 门禁）|
+| 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` | — | ✅（降级 dashboard）|
 
 > **C# 编译器吞吐（BenchmarkDotNet / `z42.Bench`）已随 C# bootstrap 移除**（2026-06-26）——
 > 该 tier 不复存在；schema 不再有 `csharp-throughput`。
@@ -144,17 +145,22 @@ cargo bench --manifest-path src/runtime/Cargo.toml
 > 本节只是操作速查。
 
 PR 触碰性能敏感路径（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
-`scripts/**/*.z42`）时，`.github/workflows/bench-pr.yml` **自动跑区间感知回归门禁并在真回归时 fail**：
+`scripts/**/*.z42`）时，`.github/workflows/bench-pr.yml` **自动跑同-runner A/B 回归门禁并在真回归时 fail**
+（add-same-runner-ab-bench-gate，取代旧的跨-runner baseline diff）：
 
-1. `xtask bench --mode both` 跑全量 e2e（interp + jit，仅 ubuntu-latest）
-2. `git fetch origin bench-baselines` 取最新 main 基线（`baselines/e2e-ubuntu-latest.json`）
-3. `xtask bench --diff --threshold-time 0.10` 做**区间感知**判定 —— 回归 → exit 1 → **workflow fail**
+1. checkout PR + checkout `base.sha`（`path: base-src`）
+2. bootstrap PR 工具链；再在**同一 runner** 用 PR z42c 编 base 源建 base 工具链
+   （`src/runtime` 无变更时 base_vm 复用 pr_vm）
+3. `xtask bench --ab --mode both --threshold-time 0.10 --base-vm/-libs/-driver …`：每场景×mode 在
+   base/pr 两套工具链下**同机相邻**编译+测量（hyperfine 双命令），比值 95% 下界 `R_lower > 1+thr` →
+   回归 → exit 1 → **workflow fail**；结果落 `bench/results/ab.json` 并上传 artifact
 4. 另跑一个 informational allocations 探针（确定性指标，只打印不 fail）
 
-判红准则（区间分离 AND 均值超阈值）见下「退化判定」节。纯文档 PR 因路径过滤自动跳过。
-基线分支不存在时（首次 bootstrap）跳过 diff 并 warning，不阻塞。
+判红准则（`R_lower > 1+thr`，SEM 误差传播）与「为什么同机比才有效」见 book 页。纯文档 PR 因路径过滤自动跳过。
+本地自验判红纯函数：`z42 xtask.zpkg bench --ab-selftest`（4 例，不跑 z42vm 场景）。
 
-**主分支 baseline 持久化**：每次 push 到 main，`bench-update.yml` 自动跑全量 e2e 并把结果提交到 `bench-baselines` 分支：
+**历史 dashboard（不再喂门禁）**：每次 push 到 main，`bench-update.yml` 仍自动跑全量 e2e 并把结果提交到
+`bench-baselines` 分支，作趋势记录 / 本地 `--diff` 对比源：
 
 ```
 bench-baselines/

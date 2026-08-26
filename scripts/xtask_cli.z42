@@ -411,6 +411,15 @@ ArgParser _benchE2eParser() {
     p.AddOption("threshold-time", "", "time regression threshold", "");
     p.AddOption("threshold-memory", "", "memory regression threshold", "");
     p.AddFlag("quiet", "", "quiet output");
+    // add-same-runner-ab-bench-gate: same-runner A/B regression gate. `--ab`
+    // compiles + measures each scenario under BOTH the base and PR toolchains on
+    // this runner (cross-runner drift cancels in the ratio). `--ab-selftest`
+    // unit-checks the pure verdict function (no z42vm scenarios; locally runnable).
+    p.AddFlag("ab", "", "same-runner A/B gate (needs --base-vm/--base-libs/--base-driver)");
+    p.AddFlag("ab-selftest", "", "unit-check the _abVerdict pure function and exit");
+    p.AddOption("base-vm", "", "A/B: base z42vm binary", "");
+    p.AddOption("base-libs", "", "A/B: base flat libs dir (stdlib + z42c siblings)", "");
+    p.AddOption("base-driver", "", "A/B: base z42c.driver.zpkg", "");
     return p;
 }
 
@@ -423,8 +432,10 @@ int _benchE2e(string[] argv) {
         return 2;
     }
     if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); return 0; }
+    if (r.GetFlag("ab-selftest")) { return _abSelfTest(); }
     Stopwatch sw = _procStart("bench");
-    int __rc = r.GetFlag("diff") ? _benchDiff(r) : _bench(r);
+    int __rc = r.GetFlag("ab") ? _benchAb(r)
+             : (r.GetFlag("diff") ? _benchDiff(r) : _bench(r));
     if (__rc == 0) { _procEnd("bench", sw); }
     return __rc;
 }
