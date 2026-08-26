@@ -112,6 +112,259 @@ int _bench(ParseResult r) {
     return 0;
 }
 
+// ── add-same-runner-ab-bench-gate: 同-runner A/B 对照门禁 ──────────────────────
+// The regression verdict of one scenario's A/B comparison (base vs pr, both
+// compiled + measured on the SAME runner, seconds apart). See `_abVerdict`.
+class AbVerdict {
+    public double Ratio;      // pr_mean / base_mean  (>1 = pr slower)
+    public double RLower;     // 95% lower bound of the true ratio (SEM-propagated)
+    public double RUpper;     // 95% upper bound
+    public string Verdict;    // "regression" | "faster" | "overlap" | "no-data"
+    public bool IsRegression;
+    public bool HasCi;        // false = stddev/n missing → bare-ratio fallback (no-ci)
+    public AbVerdict() {
+        this.Ratio = 1.0; this.RLower = 1.0; this.RUpper = 1.0;
+        this.Verdict = "overlap"; this.IsRegression = false; this.HasCi = true;
+    }
+}
+
+// Pure regression verdict from two same-runner measurements. Because base & pr
+// are measured on the SAME machine seconds apart, the machine speed factor k
+// cancels in ratio = pr/base, so the within-run SEM is statistically valid here
+// (it is NOT under the old cross-runner baseline diff — that is the whole point
+// of same-runner A/B). thr = fractional regression threshold (0.10 = 10%);
+// Z = 1.96 (95%). Missing stddev/n (n≤1 or stddev≤0) → bare-ratio (no-ci).
+//   relSE = sqrt((SEM_p/mean_p)^2 + (SEM_b/mean_b)^2)      // quotient error prop
+//   R_lower = ratio*(1 - Z*relSE);  regression ⟺ R_lower > 1 + thr
+AbVerdict _abVerdict(double baseMean, double baseStddev, double baseN,
+                     double prMean, double prStddev, double prN, double thr) {
+    AbVerdict v = new AbVerdict();
+    if (baseMean <= 0.0 || prMean <= 0.0) { v.Verdict = "no-data"; return v; }
+    v.Ratio = prMean / baseMean;
+    bool haveCi = baseStddev > 0.0 && prStddev > 0.0 && baseN > 1.0 && prN > 1.0;
+    if (!haveCi) {
+        v.HasCi = false;
+        v.RLower = v.Ratio; v.RUpper = v.Ratio;
+        _abClassify(v, thr);
+        return v;
+    }
+    double semB = baseStddev / Math.Sqrt(baseN);
+    double semP = prStddev / Math.Sqrt(prN);
+    double relB = semB / baseMean;
+    double relP = semP / prMean;
+    double relSE = Math.Sqrt(relP * relP + relB * relB);
+    double z = 1.96;
+    v.RLower = v.Ratio * (1.0 - z * relSE);
+    v.RUpper = v.Ratio * (1.0 + z * relSE);
+    _abClassify(v, thr);
+    return v;
+}
+
+// Fill Verdict/IsRegression from R_lower/R_upper vs the threshold band.
+void _abClassify(AbVerdict v, double thr) {
+    if (v.RLower > 1.0 + thr) { v.Verdict = "regression"; v.IsRegression = true; }
+    else if (v.RUpper < 1.0 - thr) { v.Verdict = "faster"; }
+    else { v.Verdict = "overlap"; }
+}
+
+// Result of running one scenario×mode A/B comparison.
+class AbOutcome {
+    public int Rc;            // 0 = ok, 2 = tool error (compile/hyperfine failed)
+    public bool IsRegression;
+    public string Json;       // one ab.json result fragment ("" on error)
+    public AbOutcome() { this.Rc = 0; this.IsRegression = false; this.Json = ""; }
+}
+
+// Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
+int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
+    return _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", libs));
+}
+
+// One scenario×mode A/B: compile base.zbc + pr.zbc, then hyperfine BOTH commands
+// in a single invocation (same runner, adjacent → between-run drift cancels).
+// The `env Z42_LIBS=… <vm> …` prefix lets one hyperfine invocation run each side
+// under its own libs (--shell=none execs `env`, a real binary; CI/dev are unix).
+AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
+    string baseVm, string baseDriver, string baseLibs,
+    string prVm, string prDriver, string prLibs,
+    string warmup, string runs, double thr) {
+    AbOutcome o = new AbOutcome();
+    string baseZbc = Path.Join(work, name + "-base.zbc");
+    string prZbc   = Path.Join(work, name + "-pr.zbc");
+    if (_abEmitZbc(baseVm, baseDriver, baseLibs, src, baseZbc) != 0) { o.Rc = 2; return o; }
+    if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
+    string outJson = Path.Join(work, name + "-" + m + "-ab.json");
+    string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
+    string prCmd   = "env Z42_LIBS=" + prLibs   + " " + prVm   + " " + prZbc   + " " + ns + ".Main --mode " + m;
+    Console.WriteLine("→ A/B " + name + " [" + m + "] (warmup=" + warmup + ", runs=" + runs + ")...");
+    int hc = _exec(new Process("hyperfine")
+        .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
+        .Arg("--export-json").Arg(outJson).Arg("--shell=none")
+        .Arg("--command-name").Arg(name + "-base").Arg(baseCmd)
+        .Arg("--command-name").Arg(name + "-pr").Arg(prCmd));
+    if (hc != 0) { o.Rc = 2; return o; }
+    JsonValue res = JsonValue.Parse(File.ReadAllText(outJson)).Get("results");
+    JsonValue b = res.At(0);
+    JsonValue p = res.At(1);
+    double nRuns = Double.Parse(runs);
+    AbVerdict v = _abVerdict(b.Get("mean").AsDouble(), b.Get("stddev").AsDouble(), nRuns,
+                             p.Get("mean").AsDouble(), p.Get("stddev").AsDouble(), nRuns, thr);
+    o.IsRegression = v.IsRegression;
+    o.Json = _abResultJson(name, m, b, p, v);
+    _abPrint(name, m, v);
+    return o;
+}
+
+// one ab.json result object (hyperfine means/stddevs are seconds → ms).
+string _abResultJson(string name, string m, JsonValue b, JsonValue p, AbVerdict v) {
+    string bMean = (b.Get("mean").AsDouble() * 1000.0).ToString();
+    string bSd   = (b.Get("stddev").AsDouble() * 1000.0).ToString();
+    string pMean = (p.Get("mean").AsDouble() * 1000.0).ToString();
+    string pSd   = (p.Get("stddev").AsDouble() * 1000.0).ToString();
+    return "    {\n      \"name\": \"" + name + "\",\n      \"mode\": \"" + m + "\""
+        + ",\n      \"base_mean_ms\": " + bMean + ",\n      \"base_stddev_ms\": " + bSd
+        + ",\n      \"pr_mean_ms\": " + pMean + ",\n      \"pr_stddev_ms\": " + pSd
+        + ",\n      \"ratio\": " + v.Ratio.ToString() + ",\n      \"r_lower\": " + v.RLower.ToString()
+        + ",\n      \"r_upper\": " + v.RUpper.ToString() + ",\n      \"verdict\": \"" + v.Verdict + "\"\n    }";
+}
+
+// human-readable one-line A/B verdict.
+void _abPrint(string name, string m, AbVerdict v) {
+    string sym = "≈";
+    if (v.Verdict == "regression") { sym = "↑"; }
+    else if (v.Verdict == "faster") { sym = "↓"; }
+    string tag = v.HasCi ? "" : " (no-ci)";
+    Console.WriteLine("  " + name + " [" + m + "]  " + sym + " " + v.Verdict + tag
+        + "  ratio=" + v.Ratio.ToString() + "  R_lower=" + v.RLower.ToString()
+        + "  R_upper=" + v.RUpper.ToString());
+}
+
+// `bench --ab --base-vm V --base-libs L --base-driver D [--mode M] [--threshold-time T] [--quick]`
+// Same-runner A/B regression gate. For each scenario×mode: compile with the base
+// toolchain and the PR toolchain, hyperfine both on this runner, and verdict via
+// `_abVerdict`. Writes bench/results/ab.json. Exit: 0 = no regression, 1 =
+// regression(s), 2 = tool error / bad args. bench-baselines/bench-update untouched.
+int _benchAb(ParseResult r) {
+    string baseVm = r.GetOption("base-vm");
+    string baseLibs = r.GetOption("base-libs");
+    string baseDriver = r.GetOption("base-driver");
+    if (baseVm.Length == 0 || baseLibs.Length == 0 || baseDriver.Length == 0) {
+        ConsoleError.WriteLine("error: bench --ab requires --base-vm, --base-libs and --base-driver");
+        return 2;
+    }
+    bool quick = r.GetFlag("quick");
+    string warmup = quick ? "1" : "3";
+    string runs = quick ? "3" : "10";
+    double thr = 0.10;
+    string tt = r.GetOption("threshold-time");
+    if (tt.Length > 0) { thr = Double.Parse(tt); }
+    string root = _root();
+    string scenDir = Path.Join(root, "bench/scenarios");
+    string resultsDir = Path.Join(root, "bench/results");
+    Directory.Create(resultsDir);
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+    string prVm = _builtVm(root, "release");
+    string prFlat = _assembleAllLibs(root, "release");
+    string prDriver = _driverZpkg(root);
+    // Probe the PR (measured) VM once — mode sweep + cap gating mirror `_bench`.
+    string probeZbc = _epEnsureProbe(root, prVm, prDriver, prFlat);
+    VmCaps vmc = _epProbe(prVm, prFlat, probeZbc);
+    string[] modes = _epModesToSweep(r.GetOption("mode"));
+    string work = Directory.CreateTempDir("xtask-bench-ab");
+
+    string items = "";
+    int nb = 0; int count = 0; int regr = 0; int toolErr = 0;
+    // Sort — filesystem order is non-deterministic (common-pitfalls §1).
+    foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
+        if (!f.EndsWith(".z42")) { continue; }
+        if (quick && count >= 2) { break; }
+        string name = f.Substring(0, f.Length - 4);
+        string src = Path.Join(scenDir, f);
+        string srcText = File.ReadAllText(src);
+        string ns = _extractNamespace(srcText);
+        if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
+        string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), vmc.Caps);
+        if (missing.Length > 0) {
+            Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing));
+            count = count + 1; continue;
+        }
+        for (int mi = 0; mi < modes.Length; mi = mi + 1) {
+            string m = modes[mi];
+            if (_epCellStatus(_epTiersForMode(m), new string[0], vmc.ExecModes) != "runnable") {
+                Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: not runnable on this VM");
+                continue;
+            }
+            AbOutcome o = _abOneScenario(work, name, ns, m, src,
+                baseVm, baseDriver, baseLibs, prVm, prDriver, prFlat, warmup, runs, thr);
+            if (o.Rc != 0) { toolErr = toolErr + 1; continue; }
+            if (nb > 0) { items = items + ",\n"; }
+            items = items + o.Json; nb = nb + 1;
+            if (o.IsRegression) { regr = regr + 1; }
+        }
+        count = count + 1;
+    }
+    _abWriteJson(root, resultsDir, items);
+    return _abFinish(nb, regr, toolErr);
+}
+
+// wrap accumulated A/B result fragments in the ab-v1 envelope → bench/results/ab.json.
+void _abWriteJson(string root, string resultsDir, string items) {
+    string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
+    string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+    string doc = "{\n  \"schema\": \"ab-v1\",\n  \"commit\": \"" + commit
+        + "\",\n  \"branch\": \"" + branch + "\",\n  \"timestamp\": \"" + _utcNow()
+        + "\",\n  \"results\": [\n" + items + "\n  ]\n}\n";
+    File.WriteAllText(Path.Join(resultsDir, "ab.json"), doc);
+}
+
+// summary line + exit code for the A/B run.
+int _abFinish(int nb, int regr, int toolErr) {
+    Console.WriteLine("");
+    if (toolErr > 0) {
+        Console.WriteLine("⚠️  " + toolErr.ToString() + " scenario(s) errored (compile/hyperfine)");
+        return 2;
+    }
+    if (regr > 0) {
+        Console.WriteLine("❌ " + regr.ToString() + " regression(s) — R_lower > 1+thr (out of "
+            + nb.ToString() + " same-runner A/B comparisons)");
+        return 1;
+    }
+    Console.WriteLine("✅ no regression (same-runner A/B; " + nb.ToString() + " comparisons)");
+    return 0;
+}
+
+// `bench --ab-selftest` — unit-check the `_abVerdict` pure function (locally
+// runnable; no z42vm scenario spawning). Four cases: real regression, noisy
+// overlap, faster, no-ci fallback. Exit 0 = all pass, 1 = failure(s).
+int _abSelfTest() {
+    int fails = 0;
+    AbVerdict a = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.10);
+    fails = fails + _abExpect("real-regression", a, "regression", true);
+    AbVerdict b = _abVerdict(100.0, 20.0, 10.0, 115.0, 20.0, 10.0, 0.10);
+    fails = fails + _abExpect("noisy-overlap", b, "overlap", false);
+    AbVerdict c = _abVerdict(100.0, 1.0, 10.0, 80.0, 1.0, 10.0, 0.10);
+    fails = fails + _abExpect("faster", c, "faster", false);
+    AbVerdict d = _abVerdict(100.0, 0.0, 10.0, 120.0, 0.0, 10.0, 0.10);
+    fails = fails + _abExpect("no-ci-regression", d, "regression", true);
+    if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict selftest: 4/4 passed"); return 0; }
+    Console.WriteLine("❌ _abVerdict selftest: " + fails.ToString() + " failure(s)");
+    return 1;
+}
+
+int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
+    if (v.Verdict == wantVerdict && v.IsRegression == wantRegr) {
+        Console.WriteLine("  ok " + label + ": " + v.Verdict + " (ratio=" + v.Ratio.ToString()
+            + " R_lower=" + v.RLower.ToString() + " R_upper=" + v.RUpper.ToString() + ")");
+        return 0;
+    }
+    Console.WriteLine("  FAIL " + label + ": got verdict=" + v.Verdict
+        + " regr=" + (v.IsRegression ? "true" : "false")
+        + " want verdict=" + wantVerdict + " regr=" + (wantRegr ? "true" : "false"));
+    return 1;
+}
+
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
 // against a baseline (both conform to bench/baseline-schema.json): per-benchmark
