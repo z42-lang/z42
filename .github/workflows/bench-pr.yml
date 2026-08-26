@@ -101,9 +101,14 @@ jobs:
 
           # PR flat libs (stdlib + z42c siblings) — PR driver's runtime resolve
           # set + the TSIG surface base compiler source is type-checked against.
+          # Per-file copy (not a single `cp <glob> dir/`): each z42c member's dist
+          # bundles copies of its sibling zpkgs, so the compiler glob resolves the
+          # same basename (e.g. z42c.core.zpkg) from multiple dirs → GNU cp aborts
+          # with "will not overwrite just-created". The copies are byte-identical, so
+          # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
           PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
           cp -f "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg "$PRALL/"
-          cp -f "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg "$PRALL/"
+          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$PRALL/"; done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
           if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
@@ -122,11 +127,11 @@ jobs:
 
           # base flat libs = base z42c siblings + base stdlib (built by base z42c).
           BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
-          cp -f "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg "$BASEALL/"
+          for f in "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
           ( cd base-src/src/libraries && \
             Z42_LIBS="$BASEALL" "$BASEVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
-          cp -f "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg "$BASEALL/"
+          for f in "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
 
           echo "base_vm=$BASEVM"         >> "$GITHUB_OUTPUT"
           echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
