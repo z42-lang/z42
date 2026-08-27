@@ -1,6 +1,6 @@
 // Micro-benchmarks for z42.time hot paths — ISO-8601 parse / format + calendar
 // arithmetic. Baseline data for the 0.4.x perf stream. Run via
-// `z42 xtask.zpkg bench stdlib z42.time`.
+// `z42 xtask.zpkg bench stdlib z42.core`.
 
 namespace Z42TimeBench;
 

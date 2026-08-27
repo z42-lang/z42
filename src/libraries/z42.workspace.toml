@@ -38,7 +38,6 @@ default-members = [
     "z42.collections",
     "z42.encoding",
     "z42.text",
-    "z42.time",
     "z42.toml",
     "z42.project",
     "z42.build",
