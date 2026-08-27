@@ -5,9 +5,11 @@ namespace Std;
 //
 // L3-G4b primitive-as-struct: declares Char's interface conformance.
 public struct Char : IComparable<char>, IEquatable<char> {
-    [Native("__char_equals")]         public extern bool Equals(char other);
-    [Native("__char_hash_code")]      public extern int  GetHashCode();
     [Native("__char_to_string")]      public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    public bool Equals(char other) { return this == other; }
+    public int GetHashCode() { return (int)this; }
 
     // 2026-04-27 wave2-compare-to-script + add-char-comparison：直接用 char `<`/`>`。
     public int CompareTo(char other) {
@@ -16,12 +18,25 @@ public struct Char : IComparable<char>, IEquatable<char> {
         return 0;
     }
 
-    // 2026-04-24 simplify-string-stdlib: primitive helpers that back script-side
-    // string operations (Trim / ToLower / ToUpper). Casing uses ASCII rules;
-    // locale-sensitive casing (Turkish I etc.) deferred to L3 CultureInfo.
+    // 2026-04-24 simplify-string-stdlib: primitive helper that backs script-side
+    // string operations (Trim). IsWhiteSpace keeps [Native]: Rust
+    // `char::is_whitespace()` is genuine Unicode classification (unlike casing
+    // below, which is ASCII-only) — a pure-script ASCII version would change
+    // Trim's behavior on Unicode whitespace.
     [Native("__char_is_whitespace")]  public extern bool IsWhiteSpace();
-    [Native("__char_to_lower")]       public extern char ToLower();
-    [Native("__char_to_upper")]       public extern char ToUpper();
+
+    // shrink-primitive-native-interop (2026-08-27): ToLower/ToUpper 迁纯脚本。
+    // 旧 __char_to_lower/upper 实为 Rust `to_ascii_lowercase/uppercase`（纯 ASCII），
+    // 脚本按 ASCII 规则等价——非 ASCII 字符原样返回，locale-sensitive casing
+    // (Turkish I 等) 仍 defer 到 L3 CultureInfo。
+    public char ToLower() {
+        if (!(this < 'A') && !(this > 'Z')) return (char)((int)this + 32);
+        return this;
+    }
+    public char ToUpper() {
+        if (!(this < 'a') && !(this > 'z')) return (char)((int)this - 32);
+        return this;
+    }
 
     // add-char-isdigit-isletter (review §2.6): ASCII classification helpers so
     // callers stop hand-rolling `(int)ch < 48 || (int)ch > 57` (BigInt.Parse,
