@@ -153,11 +153,15 @@ public sealed class OperatorEmitter {
             } else {
                 string thenL = this._ctx.Fresh("swx_arm");
                 string nextL = this._ctx.Fresh("swx_next");
-                TypedReg pat = this._ee.Emit(arm.Pattern);
-                TypedReg cmp = this._ctx.Alloc(IrType.Bool);
-                this._ctx.Emit(new EqInstr(cmp, subj, pat));
-                this._ctx.EndBlock(new BrCondTerm(cmp, thenL, nextL));
+                // 模式匹配（含绑定）→ thenL；失败 → nextL。常量模式 lowering 与旧 Eq 链 byte-identical。
+                this._ee._pat.EmitMatch(subj, arm.Pattern, thenL, nextL);
                 this._ctx.StartBlock(thenL);
+                if (arm.Guard != null) {   // 守卫：匹配后评估，假 → nextL
+                    TypedReg g = this._ee.Emit(arm.Guard);
+                    string gokL = this._ctx.Fresh("swx_guard");
+                    this._ctx.EndBlock(new BrCondTerm(g, gokL, nextL));
+                    this._ctx.StartBlock(gokL);
+                }
                 TypedReg bodyR = this._ee.Emit(arm.Body);
                 this._ctx.Emit(new CopyInstr(result, bodyR));
                 this._ctx.EndBlock(new BrTerm(endL));

@@ -194,11 +194,17 @@ public sealed class ExprTyper {
             int ai = 0;
             while (ai < se.ArmCount) {
                 SwitchArm a = se.Arms[ai];
-                BoundExpr pat = null;
-                if (a.HasPattern) { pat = this._bindExpr(a.Pattern, env); }
-                BoundExpr armBody = this._bindExpr(a.Body, env);
+                TypeEnv armScope = env.PushScope();   // 模式绑定进本臂作用域（body/guard 可见，不泄漏）
+                BoundPattern pat = null;
+                BoundExpr guard = null;
+                if (a.HasPattern) { pat = this._tc._pattern.Bind(a.Pattern, subj.Type(), armScope); }
+                if (a.Guard != null) {
+                    guard = this._bindExpr(a.Guard, armScope);
+                    this._tc._requireBool(guard.Type(), "switch guard", a.Guard.Span);
+                }
+                BoundExpr armBody = this._bindExpr(a.Body, armScope);
                 if (ai == 0) { resTy = armBody.Type(); }
-                arms[ai] = new BoundSwitchArm(a.HasPattern, pat, armBody, a.Span);
+                arms[ai] = new BoundSwitchArm(a.HasPattern, pat, guard, armBody, a.Span);
                 ai = ai + 1;
             }
             return new BoundSwitchExpr(subj, arms, se.ArmCount, resTy, se.Span);

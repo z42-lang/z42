@@ -292,12 +292,13 @@ public sealed class IsExpr : Expr {
 
 // switch 表达式的单个 arm：`pattern => body` 或 `_ => body`（HasPattern=false）。
 public sealed class SwitchArm {
-    public Span Span;
-    public bool HasPattern;
-    public Expr Pattern;   // 仅 HasPattern 时有效
-    public Expr Body;
-    public SwitchArm(bool hasPattern, Expr pattern, Expr body, Span span) { this.Span = span;
-        this.HasPattern = hasPattern; this.Pattern = pattern; this.Body = body;
+    public Span    Span;
+    public bool    HasPattern;
+    public Pattern Pattern;   // 仅 HasPattern 时有效（模式匹配核心 A1：Expr→Pattern）
+    public Expr    Guard;     // 守卫 `P if <guard> => body`（null=无守卫）
+    public Expr    Body;
+    public SwitchArm(bool hasPattern, Pattern pattern, Expr guard, Expr body, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Guard = guard; this.Body = body;
     }
 }
 

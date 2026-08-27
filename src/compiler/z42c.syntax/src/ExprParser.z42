@@ -69,12 +69,16 @@ public sealed class ExprParser {
                     }
                     Span asp = this._p._peek().Span;
                     bool hasPat = true;
-                    Expr pat = null;
-                    if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }
-                    else { pat = this._parseExpr(11); }
+                    Pattern pat = null;
+                    Expr guard = null;
+                    if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
+                    else {
+                        pat = this._p._patP._parsePattern();
+                        if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(11); }
+                    }
                     this._p._expect(TokenKind.FatArrow, "=>");
                     Expr armBody = this._parseExpr(11);
-                    arms[ac] = new SwitchArm(hasPat, pat, armBody, asp); ac = ac + 1;
+                    arms[ac] = new SwitchArm(hasPat, pat, guard, armBody, asp); ac = ac + 1;
                     if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
                 }
                 this._p._expect(TokenKind.RBrace, "}");

@@ -227,11 +227,15 @@ public sealed class StmtEmitter {
             } else {
                 string bodyL = this._fe._ctx.Fresh("sw_case");
                 string nextL = this._fe._ctx.Fresh("sw_next");
-                TypedReg pat = this._fe._expr.Emit(c.Pattern);
-                TypedReg cmp = this._fe._ctx.Alloc(IrType.Bool);
-                this._fe._ctx.Emit(new EqInstr(cmp, subj, pat));
-                this._fe._ctx.EndBlock(new BrCondTerm(cmp, bodyL, nextL));
+                // 模式匹配（含绑定）→ bodyL；失败 → nextL。常量模式 lowering 与旧 Eq 链 byte-identical。
+                this._fe._expr._pat.EmitMatch(subj, c.Pattern, bodyL, nextL);
                 this._fe._ctx.StartBlock(bodyL);
+                if (c.Guard != null) {   // 守卫：匹配后评估，假 → nextL
+                    TypedReg g = this._fe._expr.Emit(c.Guard);
+                    string gokL = this._fe._ctx.Fresh("sw_guard");
+                    this._fe._ctx.EndBlock(new BrCondTerm(g, gokL, nextL));
+                    this._fe._ctx.StartBlock(gokL);
+                }
                 int bi2 = 0;
                 while (bi2 < c.BodyCount) { if (this._fe._ctx.Ended) { break; } this._emitStmt(c.Body[bi2]); bi2 = bi2 + 1; }
                 if (!this._fe._ctx.Ended) { this._fe._ctx.EndBlock(new BrTerm(endL)); }
