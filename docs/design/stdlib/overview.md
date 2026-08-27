@@ -1,5 +1,10 @@
 # z42 Standard Library Architecture
 
+> ⚠️ **2026-08-27 更新（refine-interop-native-separation）**：io/net/threading 的 **native 语义层**
+> 及纯脚本的 **`z42.time`** 均已上移 `z42.core`；`z42.io`/`z42.net`/`z42.threading` 转为**纯脚本应用层**，
+> `z42.time` 包**已删除**。本文中「z42.io 允许 extern / 依赖 native OS API」「z42.time 包」等描述已过时——
+> interop 归属以 [organization.md「native 语义层 → core」](organization.md) 为唯一 SoT。
+>
 > **Status:** Design (L2 implementation target — M7)
 >
 > This document defines the three-tier standard library implementation architecture: VM intrinsics,

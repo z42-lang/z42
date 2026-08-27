@@ -5,6 +5,5 @@ kind    = "lib"
 
 [dependencies]
 "z42.core"     = "0.1.0"
-"z42.time"     = "0.1.0"   # Std.Process.Timeout takes a Std.Time.TimeSpan
 "z42.encoding" = "0.1.0"   # Std.IO.StreamReader/Writer takes a Std.Encoding.Encoding
 "z42.text"     = "0.1.0"   # Std.IO.StringWriter uses Std.Text.StringBuilder

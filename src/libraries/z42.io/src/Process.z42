@@ -221,40 +221,4 @@ public class Process {
 // the public `Process` class stays free of cross-cutting `extern`
 // declarations. Mirrors the `__process_run` / `__process_spawn`
 // contract in src/runtime/src/corelib/process.rs.
-public static class ProcessNative {
-    [Native("__process_run")]
-    public static extern object[] Run(
-        string program,
-        string[] args,
-        string[] envKeys,
-        string[] envVals,
-        string[] envRemove,
-        bool envClear,
-        string? cwd,
-        int stdinMode,
-        byte[]? stdinBytes,
-        int stdoutMode,
-        string? stdoutPath,
-        int stderrMode,
-        string? stderrPath,
-        long timeoutMs);
-
-    [Native("__process_spawn")]
-    public static extern object[] Spawn(
-        string program,
-        string[] args,
-        string[] envKeys,
-        string[] envVals,
-        string[] envRemove,
-        bool envClear,
-        string? cwd,
-        int stdinMode,
-        byte[]? stdinBytes,
-        int stdoutMode,
-        string? stdoutPath,
-        int stderrMode,
-        string? stderrPath);
-
-    [Native("__process_which")]
-    public static extern string? Which(string name);
-}
+// (native 语义层已上移 z42.core: src/IO/ProcessNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

@@ -273,7 +273,7 @@ bool _targetExcludes(string rid, string caseName) {
         if (caseName.StartsWith("z42.io/path_glob")) { return true; }  // fs glob (path_glob/path_glob_recursive)
         if (caseName == "z42.io/gc_heap_snapshot")   { return true; }  // writes a heap-snapshot file
         if (caseName.StartsWith("z42.crypto/secure_random")) { return true; }  // OS entropy (basic/distribution)
-        if (caseName == "z42.time/datetime")         { return true; }  // DateTime.UtcNow → system clock (parse/calendar/offset cases still run)
+        if (caseName == "z42.core/datetime")         { return true; }  // DateTime.UtcNow → system clock (time 迁入 core 后 case 名变；parse/calendar/offset cases still run)
     }
 
     // ── ANDROID-ONLY gap: iOS's simulator sandbox runs this; the Android

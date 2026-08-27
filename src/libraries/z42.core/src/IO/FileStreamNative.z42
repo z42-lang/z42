@@ -1,0 +1,33 @@
+// FileStream 的 native 语义层（slot-based 文件句柄原语）。
+//
+// 归属规则见 docs/design/stdlib/organization.md「native 语义层 → core」（2026-08-27）：
+// FileStream 应用层（Stream 状态机）留 z42.io，其 __file_* 原语上移 core。原为
+// FileStream 内 `private static extern`，抽出后为 public（供 z42.io 的 FileStream 调）。
+// 命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/fs.rs。
+namespace Std.IO;
+
+public static class FileStreamNative {
+    [Native("__file_open")]
+    public static extern long _FileOpen(string path, int mode);
+
+    [Native("__file_read")]
+    public static extern int _FileRead(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__file_write")]
+    public static extern void _FileWrite(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__file_seek")]
+    public static extern long _FileSeek(long slotId, long offset, int origin);
+
+    [Native("__file_length")]
+    public static extern long _FileLength(long slotId);
+
+    [Native("__file_position")]
+    public static extern long _FilePosition(long slotId);
+
+    [Native("__file_flush")]
+    public static extern void _FileFlush(long slotId);
+
+    [Native("__file_close")]
+    public static extern void _FileClose(long slotId);
+}

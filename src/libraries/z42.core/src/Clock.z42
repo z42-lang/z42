@@ -1,11 +1,12 @@
 namespace Std.Runtime;
 
 // The single declaration site for the VM's clock intrinsics
-// (consolidate-core-intrinsics, A1). z42.time / z42.io / z42.net / z42.test
+// (consolidate-core-intrinsics, A1). z42.io / z42.net / z42.test
 // delegate here rather than re-declaring the externs (rule: 单一声明点).
 //
 // Minimal by design: only the two raw primitives. Semantic wrappers
-// (DateTime / TimeSpan / Stopwatch) live in z42.time.
+// (DateTime / TimeSpan / Stopwatch) live in core src/Time/（refine-interop-
+// native-separation：z42.time 纯脚本类型下沉 core，2026-08-27）.
 public static class Clock {
     // Wall-clock time as Unix milliseconds (may jump; for timestamps).
     [Native("__time_now_ms")]

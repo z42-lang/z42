@@ -6,4 +6,3 @@ kind    = "lib"
 [dependencies]
 "z42.core" = "0.1.0"
 "z42.io"   = "0.1.0"   # Stream overloads on Parse / WriteTo (StreamReader / StreamWriter)
-"z42.time" = "0.1.0"   # DateTime for yaml-future-timestamps (2026-05-27)

@@ -1,8 +1,13 @@
 # z42.time — 设计文档
 
+> ⚠️ **2026-08-27 迁移（refine-interop-native-separation）**：`z42.time` 包**已删除**，其类型
+> （`DateTime`/`DateTimeOffset`/`TimeSpan`/`Stopwatch`/`TimeZone`）**整体迁入 `z42.core/src/Time/`**
+> （对齐 .NET CoreLib）。命名空间 `Std.Time` 与 API **不变**，用户代码无感（`using Std.Time;` 照旧；
+> 不再需要 `z42.time` 依赖，core 是隐式 prelude）。下文除"包路径"外仍准确。归属规则见 [organization.md](organization.md)。
+
 > 落地版本：2026-05-14（add-z42-time）
 > 增量：2026-05-26 `add-datetime-iso8601` · 2026-05-27 `add-thread-sleep`（迁 z42.threading）· 2026-05-27 `add-timezone-basics`
-> 包路径：`src/libraries/z42.time/`
+> 包路径：~~`src/libraries/z42.time/`~~ → **`z42.core/src/Time/`**（2026-08-27 迁入）
 > 命名空间：`Std.Time`
 
 ## 职责与范围

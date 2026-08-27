@@ -12,7 +12,7 @@
 
 1. **每个 zpkg 是分发单元，对应 `[project] name = "z42.<domain>"`**；命名空间可跨 zpkg。
 2. **z42.core 是隐式 prelude** — 所有程序自动加载 + 不可声明依赖。
-3. **interop（extern/[Native]）只允许在 `z42.core` + 独立平台能力库**（io / net / threading / compression 等承载平台相关、某平台可能缺席的能力的库）；**其余库一律纯脚本、零 interop → 全平台共享**。详见下「[平台边界库 vs 全平台共享库](#平台边界库-vs-全平台共享库interop-收缩规则)」。（取代旧「VM extern 只能在 core，io 唯一例外」的表述。）
+3. **interop（extern/[Native]）按 native 角色两层安置**（2026-08-27 细化，见下「[native 语义层 → core，应用层 → 纯脚本能力库](#更锐利的判据native-语义层--core应用层--纯脚本能力库2026-08-27)」）：**执行基座**（io/net/threading）的 native 语义层**并入 `z42.core`**、应用层留库转纯脚本（逻辑薄则删包）；**可插拔工具/算法**（compression/crypto/diagnostics/test/build）整体留独立库；**其余库一律纯脚本、零 interop**。（先后取代「VM extern 只能在 core，io 唯一例外」与「io/net/threading 各作平台边界库」两版表述。）
 4. **包按层叠层分类**（L0 → L1 → L2 → L3），上层依赖下层，**禁止反向依赖** —— 这是硬约束，决定了哪些接口必须在 core。stdlib 层级是更通用规则"包依赖必须无环"（见 [project.md L5 — 依赖必须无环](../compiler/project.md#依赖必须无环no-circular-dependencies)）的特化形式：stdlib 不仅要求 DAG，还规定了固定的层级顺序。
 5. **「Extension over Expansion」**：**未来新增**类型方法 / 高层 trait 时，优先用外部包 + `impl Trait for Type` 扩展（L3-Impl2 已支持），而非塞回类型所在包。**已有 core 内容不做回溯迁移**（见规则 #6）。
 6. **不回溯迁移 core 内已有的接口/类型**：core 自身的实现（如 List 的 IEquatable / IComparable 约束、Dictionary 的 IEquatable 约束）以及未来可能添加的策略重载（`Sort(IComparer<T>)` / `Dictionary(IEqualityComparer<K>)`）都需要这些 protocol 在 core scope 内；迁出会让 core → L1 形成反向依赖，违反规则 #4。**这条规则比 #5 优先级高。**
@@ -28,25 +28,29 @@
 
 ### 规则
 
-stdlib 的每个库属于且仅属于以下两类之一：
+> **2026-08-27 细化**：下表原分「平台边界库（含 interop）vs 全平台共享库（纯脚本）」两类；现按
+> **native 角色**细化为三类（见「[native 语义层 → core，应用层 → 纯脚本能力库](#更锐利的判据native-语义层--core应用层--纯脚本能力库2026-08-27)」为准）。核心变化：io/net/threading 的 native **语义层上移 core**、
+> 库体转纯脚本应用层，故它们从"平台边界库"变为"纯脚本库"。
 
-| 类别 | 允许 interop？ | 全平台可用？ | 成员 |
-|------|:---:|:---:|------|
-| **① 平台边界库** | ✅ | ❌（某平台可能缺席/不同）| `z42.core`（特殊，见下）+ 独立能力库：`z42.io` / `z42.net` / `z42.threading` / `z42.compression` … |
-| **② 全平台共享库** | ❌（纯脚本，零 interop） | ✅（VM 能跑就能跑） | 其余全部：collections / math / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary … |
+stdlib 的每个库属于以下三类之一：
 
-**① 平台边界库**又分两种角色：
+| 类别 | 声明 interop？ | 成员 |
+|------|:---:|------|
+| **① 语义汇聚核（core）** | ✅（全部执行基座 + 内核原语） | `z42.core`：值语义/反射/GC/libm + **io/net/threading 的 OS 语义原语**（2026-08-27 上移） |
+| **② 可插拔工具/算法库** | ✅（各库自持工具 native） | `z42.compression` / `z42.crypto` / `z42.diagnostics` / `z42.test` / `z42.build`——正常执行不需要、可独立编译/按需加载/裁剪 |
+| **③ 纯脚本库** | ❌（零 interop） | 其余全部：**io / net / threading（语义上移后的应用层）** + collections / math / text / encoding / time / toml / json / yaml / uri / regex / cli / random / numerics / io.binary … |
 
-- **`z42.core`** —— 承载**全平台通用的基础机制原语**（cross-cutting：Object/String/数值等类型系统
-  协议、libm 数学、时钟、位转换、数值 parse/format）。这些能力**每个平台的 VM 都能提供**，是"人人都用"
-  的底座。core 是 L0（在所有库之下）且是隐式 prelude，所以**它是唯一能承载 cross-cutting 原语的地方**
-  ——core 之下没有更底的层可放共享 sink。
-- **独立能力库**（io / net / threading / compression …）—— 承载**平台相关、某些平台可能缺失或不同**
-  的能力（OS 文件/进程、socket、线程、native codec）。各自封装自己的 interop，**本身就不保证全平台可用**
-  （如 browser 无多线程 → `z42.threading` 在该平台缺席）。
+三类的角色：
 
-**② 全平台共享库**要用 native 能力时，一律**通过调用 core 或某个平台能力库的公开 API 间接使用**，
-自身不声明任何 extern/[Native]。
+- **① `z42.core`** —— 唯一的 native **语义汇聚点**：cross-cutting 内核原语（Object/String/数值类型系统
+  协议、libm、时钟、位转换、parse/format、反射、GC）**加上执行基座**（io/net/threading 的 OS 原语）。
+  core 是 L0（在所有库之下）+ 隐式 prelude，是唯一能承载共享 sink 的地方；把执行基座语义集中于此得到
+  单一可审计的 native ABI 面。native 实现仍**按需加载**（调用期按名解析），集中声明不影响裁剪体积。
+- **② 可插拔工具/算法库** —— native 是**可选插件**（codec、密码、GC 内省、测试 harness、blake3），正常
+  程序执行不依赖；整库（语义 + 应用）独立，可单独编译、按需加载、可从部署裁剪。
+- **③ 纯脚本库** —— 零 `extern`/`[Native]`，要用 native 时**通过 core 或工具库的公开 API 间接使用**。
+  io/net/threading 抽走 OS 语义原语后，其高层 API（`File`/`TcpClient`/`Thread`/stream 等）落此类
+  （若剩余逻辑很薄则删包、逻辑并入 core）。
 
 ### 归属判据（新库/新方法）
 
@@ -58,6 +62,39 @@ stdlib 的每个库属于且仅属于以下两类之一：
     → 归入对应的独立能力库（无则按 R3/R4 评估新开一个能力库）
   两者都不是（纯计算逻辑）？                                    → 纯脚本，放全平台共享库，零 interop
 ```
+
+### 更锐利的判据：native 语义层 → core，应用层 → 纯脚本能力库（2026-08-27）
+
+> 把上面的「cross-cutting vs 平台相关」细化成**两层分解 + 按 native 角色安置**。每个能力拆两层：
+> ① **native 语义层**（`extern`/`[Native]` 原语，最低层 native 意义）；② **应用层**（在语义原语之上的
+> **纯脚本**高层 API 类——`File`/`TcpClient`/`Thread`/`Path`/stream 等）。
+
+**安置规则**：
+
+| native 角色 | 语义层（extern 原语） | 应用层（高层 API） |
+|-------------|----------------------|-------------------|
+| **执行基座**：io（FS/Console/Env/Process）、net（socket/TLS/DNS）、threading（Thread/Mutex/Channel/Atomic） | **并入 `z42.core`**（对齐 .NET CoreLib：File/Thread/Socket 原语随运行时恒在） | **留在 `z42.io`/`z42.net`/`z42.threading`，转为纯脚本**（调 core 原语）；抽走语义后剩余逻辑很薄的包→**直接删包**、逻辑并入 core |
+| **可插拔工具 / 算法**：diagnostics（Heap 内省）、test（harness）、build（blake3）、compression / crypto | **整体留独立库**——正常执行不需要的可选插件，可独立编译、按需加载、可裁剪 | 同左，整体留库 |
+| **运行时内核**：值语义 / 反射 / GC / libm | 本就在 `z42.core` | — |
+
+`Std.Diagnostics.Heap`（`DirectReferrers`/`RetainingRoots`，heap 反向可达查询）是「可插拔工具」样板：
+虽与 GC 耦合，但**对正常执行非必需、可裁剪** → 语义 + 应用整体留 `z42.diagnostics`，不进 core。
+
+**关键 —— 「语义并入 core」为何不违背「按需加载 native、减少运行时体积」**：z42 把 `[Native]` 降成
+**按名字（字符串池下标）** 的 Builtin/CallNative 引用，native 实现在**调用期按名解析**（wasm 构建更直接
+把 native-interop builtin 编译掉）。**extern 声明在哪个 zpkg，与 native 实现模块何时加载，完全解耦**——
+把声明集中到 core，VM 依然只在某 builtin **首次被调用**时才加载其 native 模块。于是「语义集中到 core」
+拿到**单一、可审计的 native ABI 面（.NET CoreLib 式）**，同时**不牺牲按需加载 / 裁剪体积**（那是 VM
+运行期的惰性加载职责，与声明位置无关）。
+
+**代价（认清）**：extern 全声明在 core 后，**失去「按包有无 extern 判定平台纯度」的包级静态信号**
+（core 现声明全部平台原语）。需要「这段代码是否零平台依赖」时，改用**能力清单 / 属性标注**表达
+（如 `Platform.Capabilities()` / 方法级 `[RequiresCapability("net")]`），不再靠"包里有没有 extern"。
+
+**与 .NET 的关系 —— 对齐**：io/threading 语义入 core = 对齐 .NET（CoreLib 持 `File`/`Thread`）；
+compression/crypto/diagnostics 独立 = 对齐 .NET 独立程序集。z42 **额外**把**应用层**从语义层剥离为纯脚本
+（.NET 无此分层，因其 native 与 BCL 同语言、无"脚本 vs native"之别）——这层剥离服务 z42 的
+Script-First 纪律。
 
 ### 配套纪律
 
@@ -72,9 +109,12 @@ stdlib 的每个库属于且仅属于以下两类之一：
 ### 澄清：收缩 interop 与「zpkg 跨平台字节相同」的关系
 
 zpkg 是可移植字节码；z42c 把 `[Native]` 只降低成 **按名字（字符串池下标）** 引用的 BuiltinInstr /
-CallNativeInstr，native 函数在 **VM 加载期按名解析**，编码里无任何 target/arch/位宽/字节序信息。stdlib
-源码零条件编译。**因此所有 stdlib zpkg（含 core）本就跨平台字节相同**，与 interop 声明在哪儿无关。真正随
-平台变的是 **Rust VM 二进制 + native 动态库**（如 `libz42_compression.*`），不是 zpkg。
+CallNativeInstr，native 名在 **VM 调用期按名解析**（惰性、按调用点：解释器缺名走 name-fallback 报
+`unknown builtin`、JIT 侧在函数首次编译时解析——均非 zpkg 加载期一次性校验），编码里无任何
+target/arch/位宽/字节序信息。stdlib 源码零条件编译。**因此所有 stdlib zpkg（含 core）本就跨平台字节相同**，
+与 interop 声明在哪儿无关；**且带缺失 builtin 的 zpkg（含 core）仍能正常加载，缺的 builtin 调用到才报
+运行期错**（wasm 构建把 native-interop builtin 编译掉即属此情形——恰是 .NET `PlatformNotSupportedException`
+契约）。真正随平台变的是 **Rust VM 二进制 + native 动态库**（如 `libz42_compression.*`），不是 zpkg。
 
 所以本规则收缩 interop 面**不是**为了"让其他库字节相同"（那已成立），而是为了：
 
@@ -103,19 +143,25 @@ converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.
 
 ---
 
-## 现状（2026-04-26）
+## 现状（2026-04-26；2026-08-27 refine-interop-native-separation 更新）
+
+> **2026-08-27 变更**：io/net/threading 的 native 语义层 + 纯脚本的 time 类型均已上移
+> `z42.core`（见上「native 语义层 → core」节）。下表 `z42.core` 行含新增的
+> `Std.IO`（Console/File/Directory/Environment/Path + FileStreamNative/ProcessNative）、
+> `Std.Threading`/`Std.Net.Sockets` 的 `*Native` 原语、`Std.Time`（DateTime/TimeSpan/…）。
+> `z42.time` 包**已删除**；`z42.io`/`z42.net`/`z42.threading` 转为纯脚本应用层。
 
 | 包 | 层级 | 内容（节选） | extern？ |
 |----|----|----|----|
-| `z42.core` | L0 | Object、primitive 类型（int/long/double/float/char/bool/string）、Type、Convert、Assert、Exception 树、核心接口（IComparable / IEquatable / IComparer / IEqualityComparer / IFormattable / IDisposable / IEnumerable / INumber）、Collections/{List, Dictionary} | ✅ VM intrinsic |
+| `z42.core` | L0 | Object、primitive、Type、Convert、Assert、Exception 树、核心接口、Collections/{List,Dictionary}；**+ Std.IO（Console/File/Directory/Environment/Path）、Std.Time（DateTime/TimeSpan/Stopwatch/…）、io/net/threading 的 `*Native` 语义原语**（2026-08-27 上移） | ✅ VM intrinsic + 执行基座 native |
 | `z42.collections` | L1 | Stack、Queue、LinkedList、SortedSet（计划：SortedDictionary、PriorityQueue） | ❌ 纯脚本 |
 | `z42.text` | L1 | StringBuilder（纯脚本，2026-04-26 迁移）；Regex 占位 | ❌ 纯脚本 |
 | `z42.encoding` | L1 | Hex、Base64（RFC 4648 §4）、Utf8 | ❌ 纯脚本 |
-| `z42.io` | L2 | Console、File、Path、Environment | ✅ host FFI（仅此包例外） |
-| `z42.time` | L1 | DateTime（UTC 时刻）、TimeSpan（时间段）、Stopwatch（单调计时器） | ❌ 纯脚本（时钟经 core `Std.Runtime.Clock`——A1 起，不再自声明 `__time_now_*`） |
+| `z42.io` | L2 | FileStream、Stream 家族、Process/ProcessHandle、Ansi、Stdio（**Console/File/Path/Environment 已上移 core**） | ❌ 纯脚本应用层（native 语义在 core `*Native`） |
+| ~~`z42.time`~~ | — | **已删除（2026-08-27）**：DateTime/TimeSpan/Stopwatch/… 迁入 `z42.core/src/Time/` | — |
 | `z42.toml` | L1 | TomlValue（discriminated union）、TomlException、TOML 1.0 subset reader/writer | ❌ 纯脚本 |
 | `z42.json` | L1 | JsonValue（discriminated union）、JsonException、JSON RFC 8259 reader/writer | ❌ 纯脚本 |
-| `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 z42.time） |
+| `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 core `Std.Time`） |
 | `z42.uri` | L1 | Uri / UriException / UriCodec，RFC 3986 子集 parser + percent codec | ❌ 纯脚本 |
 | `z42.io.binary` | L1 | BinaryReader / BinaryWriter / BinaryException：LE+BE int16/32/64 + UTF-8 string + byte[] helper | ❌ 纯脚本 |
 | `z42.diagnostics` | L1 | Log / LogLevel：全局 facade，5 level，stderr 输出 | ❌ 纯脚本 |
@@ -192,22 +238,23 @@ std (full OS)
 z42 处于 **C# 风（包就是分发单位 + 大 stdlib 集合）** 与 **Rust 风（小 std + 第三方繁荣）** 之间，但加了两个独有约束：
 
 1. **包名 = zpkg 文件名** — `z42.core.zpkg`、`z42.io.zpkg` 是物理产物。命名空间 `Std.<X>` 可以跨多个 zpkg（W1 决策）
-2. **VM extern 只在 z42.core**（host FFI 仅 z42.io 例外） — 决定了"哪些功能必须捆在哪个包"
+2. **执行基座 native 语义层集中在 z42.core**（2026-08-27 起，见上「native 语义层 → core」节）——
+   io/net/threading 的 OS 原语 + `Std.IO`/`Std.Time` 类型都在 core；可插拔工具/算法（compression/crypto/
+   diagnostics/test）的 native 留各自独立库。（先后取代「VM extern 只在 core，io 例外」表述。）
 
 z42 的层级模型把 C#/Rust 两边的精华都拿过来：
 
 ```
-L0  z42.core              (隐式 prelude，VM intrinsic 唯一来源)
+L0  z42.core              (隐式 prelude；VM intrinsic + 执行基座 native 语义 + Std.IO/Std.Time)
         ↑ 依赖
 L1  z42.collections, z42.text, z42.encoding, ...
     （纯脚本，按 domain 分；可任意组合用）
         ↑
-L2  z42.io                (host FFI 例外，OS 能力)
-    z42.threading         (待 L3 并发模型；走 host FFI / VM 协作)
-    z42.async             (待 L3 async；同上)
+L2  z42.io                (纯脚本应用层：Stream/Process/…；native 语义在 core *Native)
+    z42.threading         (纯脚本应用层：Thread/Mutex/Channel；native 语义在 core)
         ↑
-L3  z42.net, z42.linq, z42.json, z42.test, z42.diagnostics, ...
-    （依赖 L2 runtime 服务）
+L3  z42.net, z42.json, z42.test, z42.diagnostics, ...
+    （依赖 L2；net 应用层纯脚本，native 语义在 core）
 ```
 
 ---
@@ -279,15 +326,16 @@ L1 包的判定：
 | 数学 libm 原语 `Math`（= `System.Math`）→ **`z42.core`**（move-math-to-core A2 迁入，随 CoreLib）；未来非原语数值类型（BigInteger / 矩阵）→ `z42.numerics` |
 | 文本（StringBuilder / Regex / Encoding） → `z42.text` |
 | 数值扩展（BigInteger / Decimal / 复数）→ `z42.numerics`（未来）|
-| 日期时间（DateTime / TimeSpan）→ `z42.time`（未来；纯脚本可行性待评估）|
+| 日期时间（DateTime / TimeSpan / Stopwatch）→ **`z42.core/src/Time/`**（refine-interop-native-separation 迁入，随 CoreLib；原 `z42.time` 包已删）|
 
 ### R3 — L2 runtime 包
 
 L2 包的判定：
 
-- 依赖 z42.core（必然）+ 可选依赖其他 L2（如 threading 依赖 io 做 stderr 输出）
+- 依赖 z42.core（必然）+ 可选依赖其他 L2
 - 提供 **OS / runtime 服务接口**（文件、网络、线程、计时器）
-- 通常需要 host FFI（z42.io 已是例外） OR 与 VM 紧密协作
+- **native 语义层在 core**（2026-08-27 起）——L2 包本身是纯脚本应用层，通过调 core 的 `*Native`
+  原语间接用 OS 能力；不再自带 host FFI（旧表述「z42.io 是 host FFI 例外」已废，见「native 语义层 → core」节）
 
 | runtime → 包 |
 |---|

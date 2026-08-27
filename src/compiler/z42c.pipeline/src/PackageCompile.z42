@@ -270,6 +270,13 @@ public static class PackageCompile {
         if (scan != null) {
             depList = ZpkgBuilder.BuildDependencyMap(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name + ".zpkg");
         }
+        // fix-crosspkg-ns-split-deps（refine-interop-native-separation）：命名空间跨包时
+        // （如 Std.IO 分布在 z42.core + z42.io），BuildDependencyMap 的 ns→file 是 first-wins，
+        // 只记第一个提供包（prelude 优先 = core），漏掉第二个（z42.io）→ 运行时惰性加载拿不到
+        // z42.io 作候选 → Std.IO.Process/Stdio undefined。补救：把 toml 声明的依赖并入 DEPS，
+        // 确保每个声明依赖都成为运行时候选（lazy_loader 按 dep.file 发现候选、读候选自身导出 ns
+        // 匹配，故 Namespaces 字段惰性路径不读；填空即可、确定性）。
+        depList = PackageCompile._unionDeclaredDeps(depList, inp.DeclaredDeps, inp.DepCount, inp.Name + ".zpkg");
         ZpkgFileZ z = ZpkgBuilder.BuildPackedD(inp.Name, inp.Version, isExe, inp.HasEntry, inp.Entry,
                                                mods, srcCount, depList.Items, depList.Count);
         z.Exported = exported;
@@ -302,6 +309,29 @@ public static class PackageCompile {
         int j = 0;
         while (j < bn) { r[an + j] = b[j]; j = j + 1; }
         return r;
+    }
+
+    // fix-crosspkg-ns-split-deps：把 toml 声明的依赖并入 DEPS（file = "<name>.zpkg"），
+    // 已存在 / 自依赖跳过；命名空间跨包时（ns-first-wins 漏第二提供包）确保声明依赖成为运行时
+    // 惰性候选。Namespaces 惰性路径不读（lazy_loader 读候选自身导出 ns），填空、确定序（toml 声明序）。
+    private static ZpkgDepList _unionDeclaredDeps(ZpkgDepList depList, string[] declaredDeps, int depCount, string selfZpkgFile) {
+        if (depCount <= 0) { return depList; }
+        ZpkgDepZ[] merged = new ZpkgDepZ[depList.Count + depCount];
+        int n = 0;
+        while (n < depList.Count) { merged[n] = depList.Items[n]; n = n + 1; }
+        int d = 0;
+        while (d < depCount) {
+            string file = declaredDeps[d] + ".zpkg";
+            bool skip = (file == selfZpkgFile);
+            int k = 0;
+            while (k < n) { if (merged[k].File == file) { skip = true; } k = k + 1; }
+            if (!skip) {
+                merged[n] = new ZpkgDepZ(file, new string[0], 0);
+                n = n + 1;
+            }
+            d = d + 1;
+        }
+        return new ZpkgDepList(merged, n);
     }
 
     // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。

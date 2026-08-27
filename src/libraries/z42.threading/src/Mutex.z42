@@ -49,18 +49,5 @@ public class Mutex<T> {
     }
 }
 
-// Native binding sink — isolates [Native] extern signatures from the
-// public Mutex<T> surface (same pattern as ProcessNative / ThreadNative).
-public static class MutexNative {
-    [Native("__mutex_new")]
-    public static extern long New(object initial);
-
-    [Native("__mutex_lock_acquire")]
-    public static extern object LockAcquire(long slotId);
-
-    [Native("__mutex_store")]
-    public static extern object Store(long slotId, object newValue);
-
-    [Native("__mutex_unlock")]
-    public static extern object Unlock(long slotId);
-}
+// MutexNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
+// 见 organization.md「native 语义层 → core」（2026-08-27）。

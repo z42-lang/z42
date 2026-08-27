@@ -30,7 +30,7 @@ public class FileStream : Stream {
     /// Default mode = `FileMode.Read`. Convenience for the dominant
     /// "open existing for read" case.
     public FileStream(string path) {
-        this._slotId = FileStream._FileOpen(path, FileMode.Read);
+        this._slotId = FileStreamNative._FileOpen(path, FileMode.Read);
         this._mode   = FileMode.Read;
         this._closed = false;
     }
@@ -39,7 +39,7 @@ public class FileStream : Stream {
         if (mode != FileMode.Read && mode != FileMode.Write && mode != FileMode.Append) {
             throw new ArgumentException("FileStream: unknown FileMode " + mode.ToString());
         }
-        this._slotId = FileStream._FileOpen(path, mode);
+        this._slotId = FileStreamNative._FileOpen(path, mode);
         this._mode   = mode;
         this._closed = false;
     }
@@ -74,7 +74,7 @@ public class FileStream : Stream {
             throw new ArgumentException("Read: buffer / offset / count out of range");
         }
         if (count == 0) { return 0; }
-        return FileStream._FileRead(this._slotId, buffer, offset, count);
+        return FileStreamNative._FileRead(this._slotId, buffer, offset, count);
     }
 
     // ── Write ────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ public class FileStream : Stream {
             throw new ArgumentException("Write: buffer / offset / count out of range");
         }
         if (count == 0) { return; }
-        FileStream._FileWrite(this._slotId, buffer, offset, count);
+        FileStreamNative._FileWrite(this._slotId, buffer, offset, count);
     }
 
     // ── Seek / Length / Position ─────────────────────────────────────────
@@ -99,14 +99,14 @@ public class FileStream : Stream {
         if (this._closed) {
             throw new InvalidOperationException("FileStream: stream is closed");
         }
-        return FileStream._FileLength(this._slotId);
+        return FileStreamNative._FileLength(this._slotId);
     }
 
     public override long Position() {
         if (this._closed) {
             throw new InvalidOperationException("FileStream: stream is closed");
         }
-        return FileStream._FilePosition(this._slotId);
+        return FileStreamNative._FilePosition(this._slotId);
     }
 
     public override long Seek(long offset, int origin) {
@@ -128,9 +128,9 @@ public class FileStream : Stream {
         if (origin == SeekOrigin.Begin) {
             basePos = 0L;
         } else if (origin == SeekOrigin.Current) {
-            basePos = FileStream._FilePosition(this._slotId);
+            basePos = FileStreamNative._FilePosition(this._slotId);
         } else {
-            basePos = FileStream._FileLength(this._slotId);
+            basePos = FileStreamNative._FileLength(this._slotId);
         }
         long newPos = basePos + offset;
         if (newPos < 0L) {
@@ -138,49 +138,22 @@ public class FileStream : Stream {
                 "Seek: resulting position would be negative (basePos="
                 + basePos.ToString() + ", offset=" + offset.ToString() + ")");
         }
-        return FileStream._FileSeek(this._slotId, offset, origin);
+        return FileStreamNative._FileSeek(this._slotId, offset, origin);
     }
 
     // ── Flush / Close ────────────────────────────────────────────────────
 
     public override void Flush() {
         if (this._closed) { return; }
-        FileStream._FileFlush(this._slotId);
+        FileStreamNative._FileFlush(this._slotId);
     }
 
     public override void Close() {
         if (this._closed) { return; }
-        FileStream._FileClose(this._slotId);
+        FileStreamNative._FileClose(this._slotId);
         this._closed = true;
     }
 
-    // ── Native bindings ──────────────────────────────────────────────────
-    //
-    // All implemented as static built-ins in src/runtime/src/corelib/fs.rs
-    // (see "add-z42-io-filestream" section). Short-form `[Native(name)]`
-    // → BuiltinInstr dispatch (not ext-cdylib, so no `lib=` qualifier).
-
-    [Native("__file_open")]
-    private static extern long _FileOpen(string path, int mode);
-
-    [Native("__file_read")]
-    private static extern int _FileRead(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__file_write")]
-    private static extern void _FileWrite(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__file_seek")]
-    private static extern long _FileSeek(long slotId, long offset, int origin);
-
-    [Native("__file_length")]
-    private static extern long _FileLength(long slotId);
-
-    [Native("__file_position")]
-    private static extern long _FilePosition(long slotId);
-
-    [Native("__file_flush")]
-    private static extern void _FileFlush(long slotId);
-
-    [Native("__file_close")]
-    private static extern void _FileClose(long slotId);
+    // native 语义层（__file_* slot 原语）已上移 z42.core（src/IO/FileStreamNative.z42）——
+    // 见 organization.md「native 语义层 → core」（2026-08-27）。上方调用点用 FileStreamNative.*。
 }

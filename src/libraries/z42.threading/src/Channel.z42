@@ -86,26 +86,5 @@ public class Channel<T> {
     }
 }
 
-// Native binding sink.
-public static class ChannelNative {
-    [Native("__channel_new")]
-    public static extern long New();
-
-    [Native("__channel_new_bounded")]
-    public static extern long NewBounded(long capacity);
-
-    [Native("__channel_send")]
-    public static extern object Send(long slotId, object value);
-
-    [Native("__channel_recv")]
-    public static extern object[] Recv(long slotId);
-
-    [Native("__channel_try_recv")]
-    public static extern object[] TryRecv(long slotId);
-
-    [Native("__channel_close")]
-    public static extern object Close(long slotId);
-
-    [Native("__channel_try_send")]
-    public static extern long TrySend(long slotId, object value);
-}
+// ChannelNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
+// 见 organization.md「native 语义层 → core」（2026-08-27）。

@@ -72,18 +72,5 @@ public class Thread {
     }
 }
 
-// Native binding sink. Keeps the [Native] extern signatures isolated so
-// the public `Thread` class stays free of cross-cutting `extern`
-// declarations. Mirrors `__thread_spawn` / `__thread_join` in
-// src/runtime/src/corelib/threading.rs.
-public static class ThreadNative {
-    [Native("__thread_spawn")]
-    public static extern long Spawn(object action);
-
-    // add-thread-sleep (2026-05-27)
-    [Native("__thread_sleep")]
-    public static extern void Sleep(long millis);
-
-    [Native("__thread_join")]
-    public static extern object[] Join(long slotId);
-}
+// ThreadNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
+// 见 organization.md「native 语义层 → core」（2026-08-27）。此处仅保留纯脚本应用层。

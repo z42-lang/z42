@@ -7,27 +7,7 @@ using Std.IO;
 // `__net_tls_*` VM builtins (corelib/tls.rs). The kind-tagged Array tuple
 // shape is identical to `__net_tcp_*`, so decoding reuses `NetTcpDecode`
 // (KIND_OK / KIND_SOCKET_ERR / KIND_HANDLE_INVALID / KIND_UNSUPPORTED).
-public static class NetTlsNative {
-    // timeoutMs <= 0 → blocking connect + handshake; > 0 bounds both.
-    [Native("__net_tls_connect")]
-    public static extern object[] Connect(string host, int port, int timeoutMs);
-
-    [Native("__net_tls_socket_read")]
-    public static extern object[] SocketRead(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__net_tls_socket_write")]
-    public static extern object[] SocketWrite(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__net_tls_socket_drop")]
-    public static extern void SocketDrop(long slotId);
-
-    // millis <= 0 clears the deadline (back to blocking).
-    [Native("__net_tls_socket_set_read_timeout")]
-    public static extern object[] SocketSetReadTimeout(long slotId, int millis);
-
-    [Native("__net_tls_socket_set_write_timeout")]
-    public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
-}
+// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
 
 // add-z42-net-tls (2026-06-03): byte-oriented Stream over a rustls client TLS
 // session — the TLS analogue of `NetworkStream`. Read/Write forward to
