@@ -1,0 +1,61 @@
+namespace Demo;
+
+using Std;
+
+// 模式匹配核心（A1）e2e：`is` 结构化模式 —— 位置(record)/属性/嵌套/常量/通配 + 绑定在 true 分支可见。
+// 老 `x is T` / `x is T v` 仍走 IsExpr（byte-identical）。绑定用裸标识符（无 var）；纯 Assert，空 stdout。
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+void Main() {
+    // ── is 位置解构 + 绑定（true 分支可见）───────────────────
+    object p = new Point(3, 4);
+    int sum = 0;
+    if (p is Point(a, b)) {
+        sum = a + b;
+    }
+    Assert.Equal(7, sum);
+
+    // ── is 位置内常量：匹配 ─────────────────────────────────
+    object q = new Point(0, 9);
+    string s = "no";
+    if (q is Point(0, y)) {
+        s = "y=" + y.ToString();
+    }
+    Assert.Equal("y=9", s);
+
+    // ── is 位置内常量：不匹配 → false ───────────────────────
+    object q2 = new Point(5, 9);
+    bool m = q2 is Point(0, yy);
+    Assert.False(m);
+
+    // ── is 嵌套 + 通配 ─────────────────────────────────────
+    object ln = new Line(new Point(1, 2), new Point(3, 4));
+    int ax = -1;
+    if (ln is Line(Point(px, _), _)) {
+        ax = px;
+    }
+    Assert.Equal(1, ax);
+
+    // ── is 属性模式 ────────────────────────────────────────
+    object pp = new Point(0, 7);
+    string ps = "no";
+    if (pp is Point { X: 0, Y: yv }) {
+        ps = "yv=" + yv.ToString();
+    }
+    Assert.Equal("yv=7", ps);
+
+    // ── 老 is（type / type+bind）仍工作（byte-identical 路径）─
+    object c = new Point(1, 1);
+    Assert.True(c is Point);
+    string tb = "no";
+    if (c is Point pt) {
+        tb = "point-x-" + pt.X.ToString();
+    }
+    Assert.Equal("point-x-1", tb);
+
+    // ── is 非匹配类型 → false ──────────────────────────────
+    object other = new Line(new Point(0, 0), new Point(1, 1));
+    Assert.False(other is Point(zz, ww));
+}

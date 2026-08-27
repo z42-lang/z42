@@ -152,17 +152,21 @@ public sealed class DoWhileStmt : Stmt {
 // HasPattern=false ⇒ default 分支。Body 为该分支下的语句序列（typed array + count，受限写法）。
 public sealed class SwitchCase {
     public Span Span;
-    public bool   HasPattern;
-    public Expr   Pattern;   // 仅 HasPattern 时有效
-    public Stmt[] Body;
-    public int    BodyCount;
-    public SwitchCase(bool hasPattern, Expr pattern, Stmt[] body, int bodyCount, Span span) { this.Span = span;
-        this.HasPattern = hasPattern; this.Pattern = pattern;
+    public bool    HasPattern;
+    public Pattern Pattern;   // 仅 HasPattern 时有效（模式匹配核心 A1：Expr→Pattern）
+    public Expr    Guard;     // 守卫 `case P if <guard>:`（null=无守卫）
+    public Stmt[]  Body;
+    public int     BodyCount;
+    public SwitchCase(bool hasPattern, Pattern pattern, Expr guard, Stmt[] body, int bodyCount, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Guard = guard;
         this.Body = body; this.BodyCount = bodyCount;
     }
     public string Dump() {
         string s = "(default";
-        if (this.HasPattern) { s = "(case " + this.Pattern.Dump(); }
+        if (this.HasPattern) {
+            s = "(case " + this.Pattern.Dump();
+            if (this.Guard != null) { s = s + " if " + this.Guard.Dump(); }
+        }
         int i = 0;
         while (i < this.BodyCount) { s = s + " " + this.Body[i].Dump(); i = i + 1; }
         return s + ")";

@@ -70,4 +70,6 @@ public static class TokenKind {
     public static int Partial = 149;       // partial 类型/方法修饰（add-partial-types）
     public static int Readonly = 150;      // readonly 字段修饰（add-readonly-fields-opt；值仅需互异、不入 zbc）
     public static int Const = 151;         // const 编译期常量（add-const-keyword；字段修饰 + 局部声明前缀；值仅需互异、不入 zbc）
+    public static int At = 152;            // @ 模式绑定（模式匹配 A2：name @ P；值仅需互异、不入 zbc）
+    public static int DotDotEq = 153;      // ..= 闭区间范围模式（模式匹配 A2；值仅需互异、不入 zbc）
 }

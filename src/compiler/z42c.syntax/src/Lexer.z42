@@ -380,6 +380,7 @@ public sealed class Lexer {
         if (c == '?' && d == '?') { this._adv2(); this._emit(TokenKind.QuestionQuestion, "??"); return; }
         if (c == '?' && d == '.') { this._adv2(); this._emit(TokenKind.QuestionDot, "?."); return; }
         if (c == ':' && d == ':') { this._adv2(); this._emit(TokenKind.ColonColon, "::"); return; }
+        if (c == '.' && d == '.' && this._ch(this._pos + 2) == '=') { this._adv2(); this._advance(); this._emit(TokenKind.DotDotEq, "..="); return; }   // 模式匹配 A2：闭区间；须先于 `..`
         if (c == '.' && d == '.') { this._adv2(); this._emit(TokenKind.DotDot, ".."); return; }
         if (c == '+' && d == '+') { this._adv2(); this._emit(TokenKind.PlusPlus, "++"); return; }
         if (c == '-' && d == '-') { this._adv2(); this._emit(TokenKind.MinusMinus, "--"); return; }
@@ -409,6 +410,7 @@ public sealed class Lexer {
         if (c == '|') { this._emit(TokenKind.Pipe, "|"); return; }
         if (c == '^') { this._emit(TokenKind.Caret, "^"); return; }
         if (c == '~') { this._emit(TokenKind.Tilde, "~"); return; }
+        if (c == '@') { this._emit(TokenKind.At, "@"); return; }   // 模式匹配 A2：@ 绑定
         if (c == '+') { this._emit(TokenKind.Plus, "+"); return; }
         if (c == '-') { this._emit(TokenKind.Minus, "-"); return; }
         if (c == '*') { this._emit(TokenKind.Star, "*"); return; }

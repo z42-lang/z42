@@ -69,12 +69,16 @@ public sealed class ExprParser {
                     }
                     Span asp = this._p._peek().Span;
                     bool hasPat = true;
-                    Expr pat = null;
-                    if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }
-                    else { pat = this._parseExpr(11); }
+                    Pattern pat = null;
+                    Expr guard = null;
+                    if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
+                    else {
+                        pat = this._p._patP._parsePattern();
+                        if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(11); }
+                    }
                     this._p._expect(TokenKind.FatArrow, "=>");
                     Expr armBody = this._parseExpr(11);
-                    arms[ac] = new SwitchArm(hasPat, pat, armBody, asp); ac = ac + 1;
+                    arms[ac] = new SwitchArm(hasPat, pat, guard, armBody, asp); ac = ac + 1;
                     if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
                 }
                 this._p._expect(TokenKind.RBrace, "}");
@@ -100,16 +104,36 @@ public sealed class ExprParser {
                 this._p._pendingGt = gtMark;
                 // 落到下面二元 '<'
             }
-            // is / as（bp 60，右侧为类型）
-            if ((k == TokenKind.Is || k == TokenKind.As) && minBp <= 60) {
-                bool isIs = (k == TokenKind.Is);
+            // is（bp 60）：结构化模式（模式匹配核心 A1）或 老 type/type+bind（byte-identical 保持）
+            if (k == TokenKind.Is && minBp <= 60) {
+                this._p._advance();
+                int nk = this._p._peek().Kind;
+                // 结构化前瞻：字面量/负号/_/{/关系算子 → 直接结构化模式（老 is 从不以这些开头）。
+                // 用 _parsePrimaryPattern（非 or-链）：is 内 `|` 保持位或语义（`x is 1 | 2` = `(x is 1) | 2`），
+                // or/`@` 不入 is（design Decision 1）。
+                if (this._p._patP._isPatternLead(nk)) {
+                    Pattern pat = this._p._patP._parsePrimaryPattern();
+                    left = new IsPatternExpr(left, pat, left.Span);
+                    continue;
+                }
+                // 类型引导：解析类型后看后随；`(`/`{` → 结构化（位置/属性），否则走老路
+                TypeExpr ty = this._p._typeP._parseType();
+                int nk2 = this._p._peek().Kind;
+                if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
+                    Pattern pat = this._p._patP._continueFromType(ty, ty.Span);
+                    left = new IsPatternExpr(left, pat, left.Span);
+                } else {
+                    string bind = "";   // 老 is：`x is T` / `x is T v`（byte-identical）
+                    if (nk2 == TokenKind.Identifier) { bind = this._p._peek().Text; this._p._advance(); }
+                    left = new IsExpr(left, ty, bind, left.Span);
+                }
+                continue;
+            }
+            // as（bp 60，右侧为类型）
+            if (k == TokenKind.As && minBp <= 60) {
                 this._p._advance();
                 TypeExpr ty = this._p._typeP._parseType();
-                if (isIs) {
-                    string bind = "";   // is-pattern：`x is T v` → 绑定变量 v（true 分支可见）
-                    if (this._p._peek().Kind == TokenKind.Identifier) { bind = this._p._peek().Text; this._p._advance(); }
-                    left = new IsExpr(left, ty, bind, left.Span);
-                } else { left = new AsExpr(left, ty, left.Span); }
+                left = new AsExpr(left, ty, left.Span);
                 continue;
             }
             // ??（右结合，bp 25）

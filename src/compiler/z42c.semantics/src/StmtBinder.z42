@@ -69,13 +69,19 @@ public sealed class StmtBinder {
             int ci = 0;
             while (ci < sw.CaseCount) {
                 SwitchCase sc = sw.Cases[ci];
-                BoundExpr pat = null;
-                if (sc.HasPattern) { pat = this._tc._expr._bindExpr(sc.Pattern, env); }
                 TypeEnv caseScope = env.PushScope();
+                BoundPattern pat = null;
+                BoundExpr guard = null;
+                // 模式在 caseScope 绑定：绑定变量注册进本臂作用域（body/guard 可见，不泄漏其它臂）。
+                if (sc.HasPattern) { pat = this._tc._pattern.Bind(sc.Pattern, subj.Type(), caseScope); }
+                if (sc.Guard != null) {
+                    guard = this._tc._expr._bindExpr(sc.Guard, caseScope);
+                    this._tc._requireBool(guard.Type(), "switch guard", sc.Guard.Span);
+                }
                 BoundStmt[] cbody = new BoundStmt[sc.BodyCount];
                 int bi = 0;
                 while (bi < sc.BodyCount) { cbody[bi] = this._bindStmt(sc.Body[bi], caseScope, ret); bi = bi + 1; }
-                cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, cbody, sc.BodyCount, sc.Span);
+                cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, guard, cbody, sc.BodyCount, sc.Span);
                 ci = ci + 1;
             }
             return new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
