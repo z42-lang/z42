@@ -1,0 +1,59 @@
+namespace Demo;
+
+using Std;
+
+// 模式匹配 D e2e 自检：`with` 表达式 —— record 非破坏式更新。脱糖为「读原对象各字段作主构造器实参 +
+// 覆盖指定字段」→ new。覆盖：单字段/多字段覆盖、字段简写、原对象不变、链式 with、嵌套 record 字段。
+// 纯 Assert，空 stdout。
+
+[Record] class Point(int X, int Y);
+[Record] class Box3(int A, int B, int C);
+[Record] class Line(Point Start, Point End);
+
+void Main() {
+    // ── 单字段覆盖：p with { Y = 99 } → Point(1, 99)，p 不变 ──
+    Point p = new Point(1, 2);
+    Point q = p with { Y = 99 };
+    Assert.Equal(1, q.X);
+    Assert.Equal(99, q.Y);
+    Assert.Equal(1, p.X);      // 原对象不变
+    Assert.Equal(2, p.Y);
+
+    // ── 覆盖第一个字段 ──────────────────────────────────────
+    Point r = p with { X = 7 };
+    Assert.Equal(7, r.X);
+    Assert.Equal(2, r.Y);
+
+    // ── 多字段覆盖 ──────────────────────────────────────────
+    Box3 b = new Box3(1, 2, 3);
+    Box3 b2 = b with { A = 10, C = 30 };
+    Assert.Equal(10, b2.A);
+    Assert.Equal(2, b2.B);     // 未覆盖 → 读原值
+    Assert.Equal(30, b2.C);
+    Assert.Equal(1, b.A);      // 原对象不变
+    Assert.Equal(3, b.C);
+
+    // ── 字段简写：with { Y }（等价 Y = Y）——用同名局部覆盖 ──
+    int Y = 55;
+    Point s = p with { Y };
+    Assert.Equal(1, s.X);
+    Assert.Equal(55, s.Y);
+
+    // ── 覆盖值为表达式 ──────────────────────────────────────
+    Point t = p with { X = p.X + p.Y + 100 };   // 1 + 2 + 100 = 103
+    Assert.Equal(103, t.X);
+    Assert.Equal(2, t.Y);
+
+    // ── 链式 with ───────────────────────────────────────────
+    Point u = p with { X = 8 } with { Y = 9 };
+    Assert.Equal(8, u.X);
+    Assert.Equal(9, u.Y);
+
+    // ── with 结果参与嵌套 record 构造 ───────────────────────
+    Line ln = new Line(new Point(0, 0), new Point(1, 1));
+    Line ln2 = ln with { End = ln.End with { Y = 42 } };
+    Assert.Equal(0, ln2.Start.X);
+    Assert.Equal(1, ln2.End.X);
+    Assert.Equal(42, ln2.End.Y);
+    Assert.Equal(1, ln.End.Y);   // 原 Line 不变
+}

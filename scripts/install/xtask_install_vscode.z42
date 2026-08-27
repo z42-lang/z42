@@ -22,7 +22,7 @@ using Std.Time;
 string[] _kwControl() { return new string[]{ "return", "if", "else", "while", "for", "foreach", "in", "do", "break", "continue", "switch", "case", "default", "try", "catch", "finally", "throw", "await" }; }
 string[] _kwDeclaration() { return new string[]{ "import", "namespace", "using", "var", "class", "struct", "enum", "interface", "delegate", "event", "impl", "operator", "where" }; }
 string[] _kwModifier() { return new string[]{ "static", "public", "private", "protected", "internal", "ref", "out", "params", "abstract", "extern", "sealed", "override", "virtual", "async", "pinned", "partial", "readonly", "const", "implicit", "explicit" }; }
-string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "is", "as" }; }
+string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "is", "as", "with" }; }
 string[] _kwPrimType() { return new string[]{ "string", "int", "long", "short", "double", "float", "byte", "uint", "ulong", "ushort", "sbyte", "object", "bool", "char", "void", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64" }; }
 string[] _kwLiteral() { return new string[]{ "null", "true", "false" }; }
 

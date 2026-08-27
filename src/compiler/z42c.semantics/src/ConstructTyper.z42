@@ -44,6 +44,69 @@ public sealed class ConstructTyper {
         return new BoundSeqExpr(pre, oi.FieldCount + 1, val, val.Type(), sp);
     }
 
+    // with 表达式 `target with { F = v }`（模式匹配 D）：record 非破坏式更新。脱糖为「读原对象各字段作
+    // 主构造器实参、覆盖指定字段」→ new：`$t = target; new T($t.F0, /*覆盖*/v, $t.F2, ...)`。读原字段作 ctor
+    // 实参（非 new 后逐字段 set）避开 record 字段 readonly/init 的可赋值性校验。复用 BoundSeqExpr（同对象初始化器）。
+    internal BoundExpr _bindWith(WithExpr we, TypeEnv env) {
+        Span sp = we.Span;
+        BoundExpr targetB = this._et._bindExpr(we.Target, env);
+        Z42Type tt = targetB.Type();
+        if (!(tt is Z42ClassType)) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "`with` requires a record type, got " + tt.Name(), sp);
+            return new BoundError("with on non-record", new Z42ErrorType(), sp);
+        }
+        Z42ClassType ct = tt as Z42ClassType;
+        if (!ct.IsRecord) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "`with` requires a record type: " + tt.Name(), sp);
+            return new BoundError("with on non-record", new Z42ErrorType(), sp);
+        }
+        if (ct.IsStruct) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "`with` on a struct record is not yet supported: " + tt.Name(), sp);
+            return new BoundError("with on struct record", new Z42ErrorType(), sp);
+        }
+        // 校验覆盖字段名均为该 record 的主构造器字段
+        int k = 0;
+        while (k < we.FieldCount) {
+            if (!ConstructTyper._isOwnField(ct, we.FieldNames[k])) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no field `" + we.FieldNames[k] + "` on record " + tt.Name() + " to update with `with`", sp);
+            }
+            k = k + 1;
+        }
+        // $t = target（求值一次，避免非破坏式更新重复求值 target 副作用）
+        TypeExpr tyExpr = this._et._typeToTypeExpr(tt, sp);
+        string tmp = this._et._freshColl();
+        Z42Type voidT = new Z42VoidType();
+        BoundStmt[] pre = new BoundStmt[1];
+        Stmt declS = new VarDeclStmt(tyExpr, tmp, we.Target, sp);
+        pre[0] = this._tc._stmt.BindStmt(declS, env, voidT);
+        // 按主构造器声明序造实参：覆盖项用 with 值，否则读 $t.<field>
+        int n = ct.OwnFieldCount;
+        Expr[] ctorArgs = new Expr[n];
+        int i = 0;
+        while (i < n) {
+            string fname = ct.OwnFieldNames[i];
+            Expr argExpr = ConstructTyper._findOverride(we, fname, sp);
+            if (argExpr == null) { argExpr = new MemberExpr(new IdentExpr(tmp, sp), fname, sp); }
+            ctorArgs[i] = argExpr;
+            i = i + 1;
+        }
+        BoundExpr val = this._et._bindExpr(new ObjNewExpr(tyExpr, ctorArgs, n, sp), env);
+        return new BoundSeqExpr(pre, 1, val, val.Type(), sp);
+    }
+
+    private static bool _isOwnField(Z42ClassType ct, string name) {
+        int i = 0;
+        while (i < ct.OwnFieldCount) { if (ct.OwnFieldNames[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 覆盖字段查找：命中 → 该字段的 with 值表达式；否则 null（调用方回落读原字段）。
+    private static Expr _findOverride(WithExpr we, string fname, Span sp) {
+        int i = 0;
+        while (i < we.FieldCount) { if (we.FieldNames[i] == fname) { return we.FieldValues[i]; } i = i + 1; }
+        return null;
+    }
+
     // expected：target-typed new（n.Type == null）时的目标类型；非 target-typed 时传 null（忽略）。
     internal BoundExpr _bindNew(ObjNewExpr n, TypeEnv env, Z42Type expected) {
         Z42Type t;
