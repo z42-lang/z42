@@ -41,8 +41,4 @@ public static class Dns {
 }
 
 /// Native sink — keeps the [Native] extern signature isolated.
-public static class DnsNative {
-    /// Returns `[0, string[]]` ok / `[1, msg]` err / `[3]` unsupported.
-    [Native("__net_dns_lookup")]
-    public static extern object[] Lookup(string host);
-}
+// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

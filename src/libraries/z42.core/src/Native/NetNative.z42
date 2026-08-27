@@ -1,0 +1,143 @@
+// 执行基座 native 语义层：TCP / UDP / TLS / DNS socket 原语。
+//
+// 归属规则见 docs/design/stdlib/organization.md「native 语义层 → core，应用层 →
+// 纯脚本能力库」（2026-08-27）。高层 API（TcpClient / TcpListener / NetworkStream /
+// UdpClient / TlsClient / Dns + 各 *Decode 解码器）留在 z42.net 转纯脚本、调这里的
+// *Native 原语。命名空间保持 Std.Net.Sockets 不变，故 z42.net 调用点无需改动。
+// native 实现镜像 src/runtime/src/corelib/network.rs。
+namespace Std.Net.Sockets;
+
+public static class DnsNative {
+    /// Returns `[0, string[]]` ok / `[1, msg]` err / `[3]` unsupported.
+    [Native("__net_dns_lookup")]
+    public static extern object[] Lookup(string host);
+}
+
+public static class NetTcpNative {
+    [Native("__net_tcp_connect")]
+    public static extern object[] Connect(string host, int port);
+
+    [Native("__net_tcp_listen")]
+    public static extern object[] Listen(string host, int port);
+
+    [Native("__net_tcp_accept")]
+    public static extern object[] Accept(long listenerSlotId);
+
+    [Native("__net_tcp_socket_read")]
+    public static extern object[] SocketRead(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__net_tcp_socket_write")]
+    public static extern object[] SocketWrite(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__net_tcp_socket_drop")]
+    public static extern void SocketDrop(long slotId);
+
+    [Native("__net_tcp_listener_drop")]
+    public static extern void ListenerDrop(long slotId);
+
+    // add-httpclient-timeout (2026-05-27): socket read/write deadlines.
+    // millis <= 0 clears the timeout (back to blocking).
+    [Native("__net_tcp_socket_set_read_timeout")]
+    public static extern object[] SocketSetReadTimeout(long slotId, int millis);
+
+    [Native("__net_tcp_socket_set_write_timeout")]
+    public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
+
+    // add-z42-net-socket-options (2026-05-27): TCP_NODELAY + IP_TTL.
+    [Native("__net_tcp_socket_set_nodelay")]
+    public static extern object[] SocketSetNoDelay(long slotId, bool enable);
+
+    [Native("__net_tcp_socket_set_ttl")]
+    public static extern object[] SocketSetTtl(long slotId, int ttl);
+
+    [Native("__net_tcp_listener_set_ttl")]
+    public static extern object[] ListenerSetTtl(long slotId, int ttl);
+
+    // add-net-socket-options-extended (2026-05-30): connect-with-timeout,
+    // SO_KEEPALIVE, SO_REUSEADDR via Listen-with-options.
+    [Native("__net_tcp_connect_with_timeout")]
+    public static extern object[] ConnectWithTimeout(string host, int port, int millis);
+
+    [Native("__net_tcp_socket_set_keepalive")]
+    public static extern object[] SocketSetKeepalive(long slotId, bool enable);
+
+    // add-net-keepalive-tuning (2026-06-03): per-OS idle / interval / probes.
+    [Native("__net_tcp_socket_set_keepalive_tuned")]
+    public static extern object[] SocketSetKeepaliveTuned(long slotId, bool enable,
+                                                          long idleSecs, long intervalSecs,
+                                                          long probes);
+
+    [Native("__net_tcp_listen_with_options")]
+    public static extern object[] ListenWithOptions(string host, int port, bool reuseAddr);
+}
+
+public static class NetTlsNative {
+    // timeoutMs <= 0 → blocking connect + handshake; > 0 bounds both.
+    [Native("__net_tls_connect")]
+    public static extern object[] Connect(string host, int port, int timeoutMs);
+
+    [Native("__net_tls_socket_read")]
+    public static extern object[] SocketRead(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__net_tls_socket_write")]
+    public static extern object[] SocketWrite(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__net_tls_socket_drop")]
+    public static extern void SocketDrop(long slotId);
+
+    // millis <= 0 clears the deadline (back to blocking).
+    [Native("__net_tls_socket_set_read_timeout")]
+    public static extern object[] SocketSetReadTimeout(long slotId, int millis);
+
+    [Native("__net_tls_socket_set_write_timeout")]
+    public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
+}
+
+public static class UdpNative {
+    [Native("__net_udp_bind")]
+    public static extern object[] Bind(string host, int port);
+
+    /// Returns `[0, bytesSent]` ok / `[1, msg]` err / `[2]` invalid.
+    [Native("__net_udp_send")]
+    public static extern object[] Send(long slotId, byte[] buf, int offset, int count, string remoteHost, int remotePort);
+
+    /// Returns `[0, buf, remoteHost, remotePort]` ok / `[1, msg]` err / `[2]` invalid.
+    [Native("__net_udp_recv")]
+    public static extern object[] Recv(long slotId);
+
+    [Native("__net_udp_drop")]
+    public static extern void Drop(long slotId);
+
+    /// add-z42-net-udp-recv-into (2026-05-27): receive into caller's buffer.
+    /// Returns `[0, bytesWritten, remoteHost, remotePort]` ok / `[1, msg]`
+    /// err / `[2]` invalid. Datagram clamped to `count` (silent truncation).
+    [Native("__net_udp_recv_into")]
+    public static extern object[] RecvInto(long slotId, byte[] buf, int offset, int count);
+
+    /// add-z42-net-udp-multicast (2026-05-27): IPv4 multicast membership.
+    /// `groupIp` must be in the multicast range (224.0.0.0/4); `ifaceIp` of
+    /// "0.0.0.0" defaults to the OS's chosen outgoing interface.
+    /// Returns `[0]` ok / `[1, msg]` err / `[2]` invalid.
+    [Native("__net_udp_join_multicast")]
+    public static extern object[] JoinMulticast(long slotId, string groupIp, string ifaceIp);
+
+    [Native("__net_udp_leave_multicast")]
+    public static extern object[] LeaveMulticast(long slotId, string groupIp, string ifaceIp);
+
+    /// add-z42-net-udp-multicast (2026-05-27): IP_MULTICAST_LOOP. When
+    /// true (default), the kernel echoes the multicast back to the sender.
+    [Native("__net_udp_set_multicast_loop")]
+    public static extern object[] SetMulticastLoop(long slotId, bool enable);
+
+    /// add-z42-net-socket-options (2026-05-27): IP_TTL for unicast sends.
+    [Native("__net_udp_set_ttl")]
+    public static extern object[] SetTtl(long slotId, int ttl);
+
+    // add-net-socket-options-extended (2026-05-30): UDP read/write timeouts.
+    // `millis <= 0` clears the timeout (back to blocking I/O).
+    [Native("__net_udp_set_read_timeout")]
+    public static extern object[] SetReadTimeout(long slotId, int millis);
+
+    [Native("__net_udp_set_write_timeout")]
+    public static extern object[] SetWriteTimeout(long slotId, int millis);
+}

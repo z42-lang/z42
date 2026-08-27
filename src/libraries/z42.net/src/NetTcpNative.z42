@@ -7,63 +7,7 @@ using Std;
 // described in `src/runtime/src/corelib/network.rs`. Decoding done by
 // `NetTcpDecode` so the high-level classes (TcpClient / TcpListener /
 // NetworkStream) don't repeat the kind-switch.
-public static class NetTcpNative {
-    [Native("__net_tcp_connect")]
-    public static extern object[] Connect(string host, int port);
-
-    [Native("__net_tcp_listen")]
-    public static extern object[] Listen(string host, int port);
-
-    [Native("__net_tcp_accept")]
-    public static extern object[] Accept(long listenerSlotId);
-
-    [Native("__net_tcp_socket_read")]
-    public static extern object[] SocketRead(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__net_tcp_socket_write")]
-    public static extern object[] SocketWrite(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__net_tcp_socket_drop")]
-    public static extern void SocketDrop(long slotId);
-
-    [Native("__net_tcp_listener_drop")]
-    public static extern void ListenerDrop(long slotId);
-
-    // add-httpclient-timeout (2026-05-27): socket read/write deadlines.
-    // millis <= 0 clears the timeout (back to blocking).
-    [Native("__net_tcp_socket_set_read_timeout")]
-    public static extern object[] SocketSetReadTimeout(long slotId, int millis);
-
-    [Native("__net_tcp_socket_set_write_timeout")]
-    public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
-
-    // add-z42-net-socket-options (2026-05-27): TCP_NODELAY + IP_TTL.
-    [Native("__net_tcp_socket_set_nodelay")]
-    public static extern object[] SocketSetNoDelay(long slotId, bool enable);
-
-    [Native("__net_tcp_socket_set_ttl")]
-    public static extern object[] SocketSetTtl(long slotId, int ttl);
-
-    [Native("__net_tcp_listener_set_ttl")]
-    public static extern object[] ListenerSetTtl(long slotId, int ttl);
-
-    // add-net-socket-options-extended (2026-05-30): connect-with-timeout,
-    // SO_KEEPALIVE, SO_REUSEADDR via Listen-with-options.
-    [Native("__net_tcp_connect_with_timeout")]
-    public static extern object[] ConnectWithTimeout(string host, int port, int millis);
-
-    [Native("__net_tcp_socket_set_keepalive")]
-    public static extern object[] SocketSetKeepalive(long slotId, bool enable);
-
-    // add-net-keepalive-tuning (2026-06-03): per-OS idle / interval / probes.
-    [Native("__net_tcp_socket_set_keepalive_tuned")]
-    public static extern object[] SocketSetKeepaliveTuned(long slotId, bool enable,
-                                                          long idleSecs, long intervalSecs,
-                                                          long probes);
-
-    [Native("__net_tcp_listen_with_options")]
-    public static extern object[] ListenWithOptions(string host, int port, bool reuseAddr);
-}
+// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
 
 // add-z42-net K1 (2026-05-24): decode helpers for the kind-tagged tuple
 // shape returned by every `__net_tcp_*` builtin (see network.rs Return

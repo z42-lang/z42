@@ -6,54 +6,7 @@ using Std;
 // `__net_udp_*` VM builtins. Returns the raw kind-tagged Array tuples
 // described in `src/runtime/src/corelib/network.rs` UDP section.
 // Decoded by `UdpDecode` helpers below.
-public static class UdpNative {
-    [Native("__net_udp_bind")]
-    public static extern object[] Bind(string host, int port);
-
-    /// Returns `[0, bytesSent]` ok / `[1, msg]` err / `[2]` invalid.
-    [Native("__net_udp_send")]
-    public static extern object[] Send(long slotId, byte[] buf, int offset, int count, string remoteHost, int remotePort);
-
-    /// Returns `[0, buf, remoteHost, remotePort]` ok / `[1, msg]` err / `[2]` invalid.
-    [Native("__net_udp_recv")]
-    public static extern object[] Recv(long slotId);
-
-    [Native("__net_udp_drop")]
-    public static extern void Drop(long slotId);
-
-    /// add-z42-net-udp-recv-into (2026-05-27): receive into caller's buffer.
-    /// Returns `[0, bytesWritten, remoteHost, remotePort]` ok / `[1, msg]`
-    /// err / `[2]` invalid. Datagram clamped to `count` (silent truncation).
-    [Native("__net_udp_recv_into")]
-    public static extern object[] RecvInto(long slotId, byte[] buf, int offset, int count);
-
-    /// add-z42-net-udp-multicast (2026-05-27): IPv4 multicast membership.
-    /// `groupIp` must be in the multicast range (224.0.0.0/4); `ifaceIp` of
-    /// "0.0.0.0" defaults to the OS's chosen outgoing interface.
-    /// Returns `[0]` ok / `[1, msg]` err / `[2]` invalid.
-    [Native("__net_udp_join_multicast")]
-    public static extern object[] JoinMulticast(long slotId, string groupIp, string ifaceIp);
-
-    [Native("__net_udp_leave_multicast")]
-    public static extern object[] LeaveMulticast(long slotId, string groupIp, string ifaceIp);
-
-    /// add-z42-net-udp-multicast (2026-05-27): IP_MULTICAST_LOOP. When
-    /// true (default), the kernel echoes the multicast back to the sender.
-    [Native("__net_udp_set_multicast_loop")]
-    public static extern object[] SetMulticastLoop(long slotId, bool enable);
-
-    /// add-z42-net-socket-options (2026-05-27): IP_TTL for unicast sends.
-    [Native("__net_udp_set_ttl")]
-    public static extern object[] SetTtl(long slotId, int ttl);
-
-    // add-net-socket-options-extended (2026-05-30): UDP read/write timeouts.
-    // `millis <= 0` clears the timeout (back to blocking I/O).
-    [Native("__net_udp_set_read_timeout")]
-    public static extern object[] SetReadTimeout(long slotId, int millis);
-
-    [Native("__net_udp_set_write_timeout")]
-    public static extern object[] SetWriteTimeout(long slotId, int millis);
-}
+// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
 
 // add-z42-net-udp K2 (2026-05-25): decode helpers — kind-tag → typed value
 // or exception. Mirrors `NetTcpDecode` shape for the TCP K1 builtins.
