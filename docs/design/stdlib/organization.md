@@ -143,19 +143,25 @@ converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.
 
 ---
 
-## 现状（2026-04-26）
+## 现状（2026-04-26；2026-08-27 refine-interop-native-separation 更新）
+
+> **2026-08-27 变更**：io/net/threading 的 native 语义层 + 纯脚本的 time 类型均已上移
+> `z42.core`（见上「native 语义层 → core」节）。下表 `z42.core` 行含新增的
+> `Std.IO`（Console/File/Directory/Environment/Path + FileStreamNative/ProcessNative）、
+> `Std.Threading`/`Std.Net.Sockets` 的 `*Native` 原语、`Std.Time`（DateTime/TimeSpan/…）。
+> `z42.time` 包**已删除**；`z42.io`/`z42.net`/`z42.threading` 转为纯脚本应用层。
 
 | 包 | 层级 | 内容（节选） | extern？ |
 |----|----|----|----|
-| `z42.core` | L0 | Object、primitive 类型（int/long/double/float/char/bool/string）、Type、Convert、Assert、Exception 树、核心接口（IComparable / IEquatable / IComparer / IEqualityComparer / IFormattable / IDisposable / IEnumerable / INumber）、Collections/{List, Dictionary} | ✅ VM intrinsic |
+| `z42.core` | L0 | Object、primitive、Type、Convert、Assert、Exception 树、核心接口、Collections/{List,Dictionary}；**+ Std.IO（Console/File/Directory/Environment/Path）、Std.Time（DateTime/TimeSpan/Stopwatch/…）、io/net/threading 的 `*Native` 语义原语**（2026-08-27 上移） | ✅ VM intrinsic + 执行基座 native |
 | `z42.collections` | L1 | Stack、Queue、LinkedList、SortedSet（计划：SortedDictionary、PriorityQueue） | ❌ 纯脚本 |
 | `z42.text` | L1 | StringBuilder（纯脚本，2026-04-26 迁移）；Regex 占位 | ❌ 纯脚本 |
 | `z42.encoding` | L1 | Hex、Base64（RFC 4648 §4）、Utf8 | ❌ 纯脚本 |
-| `z42.io` | L2 | Console、File、Path、Environment | ✅ host FFI（仅此包例外） |
-| `z42.time` | L1 | DateTime（UTC 时刻）、TimeSpan（时间段）、Stopwatch（单调计时器） | ❌ 纯脚本（时钟经 core `Std.Runtime.Clock`——A1 起，不再自声明 `__time_now_*`） |
+| `z42.io` | L2 | FileStream、Stream 家族、Process/ProcessHandle、Ansi、Stdio（**Console/File/Path/Environment 已上移 core**） | ❌ 纯脚本应用层（native 语义在 core `*Native`） |
+| ~~`z42.time`~~ | — | **已删除（2026-08-27）**：DateTime/TimeSpan/Stopwatch/… 迁入 `z42.core/src/Time/` | — |
 | `z42.toml` | L1 | TomlValue（discriminated union）、TomlException、TOML 1.0 subset reader/writer | ❌ 纯脚本 |
 | `z42.json` | L1 | JsonValue（discriminated union）、JsonException、JSON RFC 8259 reader/writer | ❌ 纯脚本 |
-| `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 z42.time） |
+| `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 core `Std.Time`） |
 | `z42.uri` | L1 | Uri / UriException / UriCodec，RFC 3986 子集 parser + percent codec | ❌ 纯脚本 |
 | `z42.io.binary` | L1 | BinaryReader / BinaryWriter / BinaryException：LE+BE int16/32/64 + UTF-8 string + byte[] helper | ❌ 纯脚本 |
 | `z42.diagnostics` | L1 | Log / LogLevel：全局 facade，5 level，stderr 输出 | ❌ 纯脚本 |
