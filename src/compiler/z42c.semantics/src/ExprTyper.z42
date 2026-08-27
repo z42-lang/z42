@@ -328,6 +328,7 @@ public sealed class ExprTyper {
             return this._construct._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
         }
         if (e is ObjInitExpr) { return this._construct._bindObjInit(e as ObjInitExpr, env, null); }
+        if (e is WithExpr) { return this._construct._bindWith(e as WithExpr, env); }   // 模式匹配 D：record 非破坏式更新
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }
