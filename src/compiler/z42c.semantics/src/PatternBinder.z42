@@ -32,6 +32,24 @@ public sealed class PatternBinder {
         return new BoundWildcardPattern(pat.Span);
     }
 
+    // 解构声明（模式匹配 B）不可失败校验：结构仅允许 通配 / 裸绑定 / 嵌套位置模式；且每个位置模式的期望类型
+    // （顶层=init 静态类型，嵌套=父 record 字段类型）须与模式类型**精确一致**（IsInstance 恒真）→ 无失败分支。
+    // 含常量 / or / 范围 / 关系 / 类型测试子模式，或类型不匹配 → 报错（该声明本可运行时失败）。
+    internal void CheckIrrefutable(BoundPattern bp, Z42Type expected, Span sp) {
+        if (bp is BoundWildcardPattern) { return; }
+        if (bp is BoundBindingPattern) { return; }
+        if (bp is BoundPositionalPattern) {
+            BoundPositionalPattern pp = bp as BoundPositionalPattern;
+            if (expected.Name() != pp.Type.Name()) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "destructuring declaration requires the value's static type to match the pattern exactly: " + expected.Name() + " vs " + pp.TypeName, sp);
+            }
+            int i = 0;
+            while (i < pp.ElemCount) { this.CheckIrrefutable(pp.Elems[i], pp.FieldTypes[i], sp); i = i + 1; }
+            return;
+        }
+        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "destructuring declaration pattern must be irrefutable: only wildcards, bindings, and nested record patterns are allowed (no constants, ranges, relational, type tests, or or-patterns)", sp);
+    }
+
     // or-模式（A2 起；A3 补带绑定）：逐 alt 绑定（同一 subjType）。每个 alt 绑进独立子作用域，收集其
     // 绑定集（名字 → 类型），校验各 alt 绑定集**完全一致**（同名同类型，User 裁决 A3）；不一致 → 报错。
     // 统一后的绑定集一次性注册进真实 env（供守卫 / arm body 类型检查），并存入 BoundOrPattern 供 emit 合流。

@@ -148,6 +148,34 @@ public sealed class PatternEmitter {
         this._ctx.EndBlock(new BrTerm(failL));   // 兜底：不匹配
     }
 
+    // 解构声明（模式匹配 B）：不可失败位置模式的 lowering。binder 已静态保证 irrefutable（子模式仅
+    // 通配 / 裸绑定 / 嵌套位置，且各层类型精确匹配）→ 无需 IsInstance、无失败分支：只逐字段 field_get 直读
+    // + 绑定，递归下降嵌套位置。匹配完成 → 跳 contL。字段读同 EmitMatch：直读不 as_cast（避 jit 误编）。
+    internal void EmitIrrefutable(TypedReg subj, BoundPattern pat, string contL) {
+        if (pat is BoundBindingPattern) {
+            BoundBindingPattern bp = pat as BoundBindingPattern;
+            this._ctx.Locals.Put(bp.Name, subj);   // 裸绑定：别名到 subj 寄存器
+            this._ctx.EndBlock(new BrTerm(contL));
+            return;
+        }
+        if (pat is BoundPositionalPattern) {
+            BoundPositionalPattern pp = pat as BoundPositionalPattern;
+            int i = 0;
+            while (i < pp.ElemCount) {
+                TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(pp.FieldTypes[i]));
+                this._ctx.Emit(new FieldGetInstr(fReg, subj, pp.FieldNames[i]));   // 直读，不 as_cast
+                string nextL = this._ctx.Fresh("des_fld");
+                this.EmitIrrefutable(fReg, pp.Elems[i], nextL);
+                this._ctx.StartBlock(nextL);
+                i = i + 1;
+            }
+            this._ctx.EndBlock(new BrTerm(contL));
+            return;
+        }
+        // 通配（及 binder 保证不达的其它节点）：无绑定，直接续。
+        this._ctx.EndBlock(new BrTerm(contL));
+    }
+
     // 关系模式算子（TokenKind）→ 比较指令。默认回落 Gt（binder 已保证 Op ∈ {Gt,GtEq,Lt,LtEq}）。
     private IrInstr _relInstr(int op, TypedReg dst, TypedReg a, TypedReg b) {
         if (op == TokenKind.GtEq) { return new GeInstr(dst, a, b); }

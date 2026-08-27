@@ -27,6 +27,7 @@ public sealed class TypeChecker {
     public ExprTyper _expr;                // God-Class 拆分 step4：表达式类型检查子绑定器
     public DeclBinder _decl;               // God-Class 拆分 step5：声明绑定编排子绑定器
     public PatternBinder _pattern;         // 模式匹配核心 A1：模式绑定子绑定器
+    public ExhaustChecker _exhaust;        // 模式匹配 C：switch 穷尽性诊断（bool/enum 封闭域）
     // enforce-class-access：绑定期类型引用点访问校验（体引用：new/var/cast/is/as/typeof/default/catch/泛型实参）。
     // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
@@ -48,6 +49,7 @@ public sealed class TypeChecker {
         this._expr = new ExprTyper(this);
         this._decl = new DeclBinder(this);
         this._pattern = new PatternBinder(this);
+        this._exhaust = new ExhaustChecker(this);
     }
 
     // add-primitive-value-boxing: 整数值 → object/接口 的隐式装箱插入点。仅**整数**需装箱

@@ -64,6 +64,13 @@ public sealed class StmtEmitter {
                 }
                 if (dst.Id != r.Id) { this._fe._ctx.Emit(new CopyInstr(dst, r)); }
             }
+        } else if (s is BoundDeconstructDeclStmt) {
+            // 解构声明（模式匹配 B）：irrefutable 位置模式 → 逐字段 field_get + 绑定，无 IsInstance / 无失败分支。
+            BoundDeconstructDeclStmt d = s as BoundDeconstructDeclStmt;
+            TypedReg subj = this._fe._expr.Emit(d.Init);
+            string contL = this._fe._ctx.Fresh("des_cont");
+            this._fe._expr._pat.EmitIrrefutable(subj, d.Pat, contL);
+            this._fe._ctx.StartBlock(contL);
         } else if (s is BoundReturn) {
             BoundReturn ret = s as BoundReturn;
             // 返回值须在 finally 运行前求值（finally 改到的变量不影响已定的返回值，镜像 C#/Java）。

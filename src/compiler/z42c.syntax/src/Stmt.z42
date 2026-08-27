@@ -40,6 +40,15 @@ public sealed class VarDeclStmt : Stmt {
     }
 }
 
+// 解构声明（模式匹配 B）：`Point(x, y) = p;` —— record 位置解构到新声明的局部变量。
+// Pat 为不可失败位置模式（子模式仅通配/裸绑定/嵌套位置，binder 静态校验 irrefutable）；绑定在后续语句可见。
+public sealed class DeconstructDeclStmt : Stmt {
+    public Pattern Pat;
+    public Expr    Init;
+    public DeconstructDeclStmt(Pattern pat, Expr init, Span span) { this.Span = span; this.Pat = pat; this.Init = init; }
+    public override string Dump() { return "(destructure " + this.Pat.Dump() + " " + this.Init.Dump() + ")"; }
+}
+
 public sealed class ReturnStmt : Stmt {
     public bool HasValue;
     public Expr Value;   // 仅 HasValue 时有效

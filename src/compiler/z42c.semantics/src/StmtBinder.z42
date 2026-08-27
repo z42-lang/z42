@@ -84,7 +84,18 @@ public sealed class StmtBinder {
                 cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, guard, cbody, sc.BodyCount, sc.Span);
                 ci = ci + 1;
             }
-            return new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
+            BoundSwitch bsw = new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
+            this._tc._exhaust.CheckStmt(bsw, env);   // 模式匹配 C：封闭域（bool/enum）穷尽性诊断
+            return bsw;
+    }
+
+    // 解构声明（模式匹配 B）：`T(x,y) = init;`。绑进**当前 env**（后续语句可见，同 is 语义，非 PushScope）。
+    // 复用模式引擎 Bind（record/arity/字段类型校验 + 绑定注册）；再 CheckIrrefutable 静态保证不可失败。
+    private BoundStmt _bindDeconstructDecl(DeconstructDeclStmt d, TypeEnv env) {
+            BoundExpr init = this._tc._expr._bindExpr(d.Init, env);
+            BoundPattern pat = this._tc._pattern.Bind(d.Pat, init.Type(), env);
+            this._tc._pattern.CheckIrrefutable(pat, init.Type(), d.Span);
+            return new BoundDeconstructDeclStmt(pat, init, d.Span);
     }
 
     private BoundStmt _bindDoWhile(DoWhileStmt dw, TypeEnv env, Z42Type ret) {
@@ -265,6 +276,7 @@ public sealed class StmtBinder {
         if (s is BlockStmt) { return this._bindBlock(s as BlockStmt, env, ret); }
         if (s is LocalFunctionStmt) { return this._bindLocalFunction(s as LocalFunctionStmt, env, ret); }
         if (s is VarDeclStmt) { return this._bindVarDecl(s as VarDeclStmt, env, ret); }
+        if (s is DeconstructDeclStmt) { return this._bindDeconstructDecl(s as DeconstructDeclStmt, env); }
         if (s is ReturnStmt) { return this._bindReturn(s as ReturnStmt, env, ret); }
         if (s is ExprStmt) {
             ExprStmt e = s as ExprStmt;

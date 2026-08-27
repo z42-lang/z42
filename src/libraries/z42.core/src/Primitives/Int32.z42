@@ -9,9 +9,13 @@ namespace Std;
 // and by the VM to dispatch methods on Value::I64 receivers.
 public struct Int32 : IComparable<int>, IEquatable<int>, INumber<int> {
     [Native("__int32_parse")]      public static extern int Parse(string s);
-    [Native("__int32_equals")]     public extern bool Equals(int other);
-    [Native("__int32_hash_code")]  public extern int GetHashCode();
     [Native("__int32_to_string")]  public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 从 [Native]
+    // 迁纯脚本（对齐 wave1-bool-script）。`==` 走 IR eq 指令；int 的 hash 是恒等值
+    // （C# Int32.GetHashCode 返回自身）。
+    public bool Equals(int other) { return this == other; }
+    public int GetHashCode() { return this; }
 
     // 2026-04-27 wave2-compare-to-script: 脚本实现，用 IR 自带 lt/gt 指令。
     public int CompareTo(int other) {

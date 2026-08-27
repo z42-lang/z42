@@ -331,6 +331,37 @@ public sealed class StmtParser {
         return new LocalFunctionStmt(md as MethodDecl, sp);
     }
 
+    // 解构声明起始判别（模式匹配 B）：`T ( ... ) =` —— record 位置解构到新局部。跟函数调用语句区别：
+    // 调用后随 `;`，解构声明后随 `=`（`f(x) = y` 在 z42 非合法赋值，故 `T(...)=` 是干净信号）。
+    // 类型名前缀走 _skipTypeOffset（支持 `Ns.T` 点分/`T[]`/泛型），其后须紧跟 `(`，配平到匹配 `)` 后见 `=`。
+    internal bool _isDeconstructDeclStart() {
+        int first = this._p._peek().Kind;
+        if (first != TokenKind.Identifier) { return false; }
+        int o = this._skipTypeOffset(0);
+        if (o <= 0) { return false; }
+        if (this._p._peekAt(o).Kind != TokenKind.LParen) { return false; }
+        int depth = 0;
+        while (o < 256) {
+            int kk = this._p._peekAt(o).Kind;
+            if (kk == TokenKind.LParen) { depth = depth + 1; }
+            else if (kk == TokenKind.RParen) { depth = depth - 1; if (depth == 0) { o = o + 1; break; } }
+            else if (kk == TokenKind.Eof || kk == TokenKind.Semicolon || kk == TokenKind.LBrace) { return false; }
+            o = o + 1;
+        }
+        return this._p._peekAt(o).Kind == TokenKind.Eq;
+    }
+
+    // 解构声明解析：`<PositionalPattern> = <expr> ;`。位置模式复用模式引擎 _parsePrimaryPattern（不走 or-链）。
+    internal Stmt _parseDeconstructDecl() {
+        Span sp = this._p._peek().Span;
+        Pattern pat = this._p._patP._parsePrimaryPattern();
+        if (this._p._peek().Kind == TokenKind.Eq) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected '=' in destructuring declaration", this._p._peek().Span); }
+        Expr init = this._p._exprP._parseExpr(0);
+        this._p._expectSemi();
+        return new DeconstructDeclStmt(pat, init, sp);
+    }
+
     internal Stmt _parseVarDecl() {
         Span sp = this._p._peek().Span;
         bool isConst = false;   // add-const-keyword：消费前导 `const`
