@@ -104,15 +104,14 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__str_char_at",     string::builtin_str_char_at),
     ("__str_to_chars",    string::builtin_str_to_chars),
     ("__str_from_chars", string::builtin_str_from_chars),
-    // shrink-primitive-native-interop (2026-08-27): __str_to_string removed —
-    // Std.String.ToString 现在是脚本 `return this;`。
+    ("__str_to_string",  string::builtin_str_to_string),
     ("__str_equals",     string::builtin_str_equals),
     ("__str_hash_code",  string::builtin_str_hash_code),
 
     // ── Char ──────────────────────────────────────────────────────────────────
-    // shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
-    // removed — ASCII-only casing 迁纯脚本。IsWhiteSpace 保留（真 Unicode）。
     ("__char_is_whitespace", char::builtin_char_is_whitespace),
+    ("__char_to_lower",      char::builtin_char_to_lower),
+    ("__char_to_upper",      char::builtin_char_to_upper),
 
     // ── Parse / convert ───────────────────────────────────────────────────────
     //
@@ -140,16 +139,19 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // `__int32_*` underlying routines are shared by all narrow integer wrapper
     // types (Int16 / SByte / Byte / UInt16 / UInt32 / UInt64 / Int64) since
     // VM stores them all as Value::I64.
-    // shrink-primitive-native-interop (2026-08-27): __int32_equals/__int32_hash_code,
-    // __double_equals/__double_hash_code, __char_equals/__char_hash_code removed —
-    // 迁纯脚本（对齐 wave1-bool-script）。ToString/Parse/compare 保留 native。
+    ("__int32_equals",      convert::builtin_int32_equals),
+    ("__int32_hash_code",   convert::builtin_int32_hash_code),
     ("__int32_to_string",   convert::builtin_int32_to_string),
+    ("__double_equals",     convert::builtin_double_equals),
+    ("__double_hash_code",  convert::builtin_double_hash_code),
     ("__double_to_string",  convert::builtin_double_to_string),
     // add-binary-float (2026-06-09): IEEE-754 bit reinterpret for BinaryReader/Writer
     ("__single_to_bits",    convert::builtin_single_to_bits),
     ("__single_from_bits",  convert::builtin_single_from_bits),
     ("__double_to_bits",    convert::builtin_double_to_bits),
     ("__double_from_bits",  convert::builtin_double_from_bits),
+    ("__char_equals",       convert::builtin_char_equals),
+    ("__char_hash_code",    convert::builtin_char_hash_code),
     ("__char_to_string",    convert::builtin_char_to_string),
     ("__str_compare_to",    convert::builtin_str_compare_to),
 

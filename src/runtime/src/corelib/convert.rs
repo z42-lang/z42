@@ -336,10 +336,15 @@ pub fn builtin_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 // 2026-04-27 wave2-compare-to-script: builtin_int_compare_to removed.
 // `Std.Int32.CompareTo` / `Std.Int64.CompareTo` 现在是脚本（用 IR `<`/`>`）。
 
-// shrink-primitive-native-interop (2026-08-27): builtin_int32_equals /
-// builtin_int32_hash_code removed — Std.{Int32,Int16,SByte,Byte,UInt16,UInt32,
-// Int64,UInt64}.Equals/GetHashCode 现在是脚本（`this == other` / `(int)this`；
-// 64 位类型折叠高低字 `(int)(v ^ (v >> 32))`）。
+pub fn builtin_int32_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_i64(args, 0, "Int32.Equals")?;
+    let b = arg_i64(args, 1, "Int32.Equals")?;
+    Ok(Value::Bool(a == b))
+}
+pub fn builtin_int32_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_i64(args, 0, "Int32.GetHashCode")?;
+    Ok(Value::I64(a))  // identity hash for integers
+}
 pub fn builtin_int32_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let a = arg_i64(args, 0, "Int32.ToString")?;
     Ok(Value::Str(a.to_string().into()))
@@ -348,9 +353,15 @@ pub fn builtin_int32_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value
 // 2026-04-27 wave2-compare-to-script: builtin_double_compare_to removed.
 // `Std.Double.CompareTo` / `Std.Single.CompareTo` 现在是脚本（NaN → 0 由 `<`/`>` 自然返回 false 实现）。
 
-// shrink-primitive-native-interop (2026-08-27): builtin_double_equals /
-// builtin_double_hash_code removed — Std.{Double,Single}.Equals/GetHashCode 现在
-// 是脚本（`this == other`；hash 经 BitConverter 折叠 IEEE-754 位模式）。
+pub fn builtin_double_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_f64(args, 0, "Double.Equals")?;
+    let b = arg_f64(args, 1, "Double.Equals")?;
+    Ok(Value::Bool(a == b))
+}
+pub fn builtin_double_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_f64(args, 0, "Double.GetHashCode")?;
+    Ok(Value::I64(a.to_bits() as i64))
+}
 pub fn builtin_double_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let a = arg_f64(args, 0, "Double.ToString")?;
     Ok(Value::Str(a.to_string().into()))
@@ -386,8 +397,15 @@ pub fn builtin_double_from_bits(_ctx: &VmContext, args: &[Value]) -> Result<Valu
 // 2026-04-27 wave2-compare-to-script: builtin_char_compare_to removed.
 // `Std.Char.CompareTo` 现在是脚本（codepoint `<`/`>` 比较）。
 
-// shrink-primitive-native-interop (2026-08-27): builtin_char_equals /
-// builtin_char_hash_code removed — Std.Char.Equals/GetHashCode 现在是脚本。
+pub fn builtin_char_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_char(args, 0, "Char.Equals")?;
+    let b = arg_char(args, 1, "Char.Equals")?;
+    Ok(Value::Bool(a == b))
+}
+pub fn builtin_char_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_char(args, 0, "Char.GetHashCode")?;
+    Ok(Value::I64(a as i64))
+}
 pub fn builtin_char_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let a = arg_char(args, 0, "Char.ToString")?;
     Ok(Value::Str(a.to_string().into()))

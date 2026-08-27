@@ -109,8 +109,17 @@ pub fn builtin_str_from_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value>
 
 // ── Object protocol overrides for string ─────────────────────────────────────
 
-// shrink-primitive-native-interop (2026-08-27): builtin_str_to_string removed —
-// Std.String.ToString 现在是脚本 `return this;`（旧 builtin 只是原样返回自身）。
+/// string.ToString() — returns the string itself.
+/// args: [this: str]
+///
+/// refactor-corelib-typed-extractors (2026-05-17): `arg_str` returns `&str`,
+/// here we own a fresh `String` to fit `Value::Str(String)`. Only ONE clone
+/// at the return boundary, vs the old code's double-clone（require_str clone
+/// 一次 + Value::Str(s) 再持有一次）。
+pub fn builtin_str_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let s = arg_str(args, 0, "__str_to_string")?;
+    Ok(Value::Str(s.to_owned().into()))
+}
 
 /// string.Equals(other) — value equality.
 /// args: [this: str, other: str | null]

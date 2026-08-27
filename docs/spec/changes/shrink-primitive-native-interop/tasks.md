@@ -4,11 +4,11 @@
 > 变更类型：refactor + fix（删 9 个 builtin + 修 long/ulong hash 截断）
 > 文档影响：`src/libraries/README.md`（Primitive 协议表 + 汇总）；无 book 机制页变更（纯 native→脚本搬迁，行为等价）
 
-## 进度概览
+## 进度概览（本 PR = Stage 1：只迁源，保留 builtin）
 - [x] 阶段 1: z42 脚本迁移（12 个 primitive/String 文件）
-- [x] 阶段 2: Rust 删 builtin（3 impl 文件 + 派发表）
-- [x] 阶段 3: 账本 + 文档同步
-- [x] 阶段 4: 验证（cargo build + cargo test --lib 全绿；stdlib/selfhost GREEN 交 CI/PR）
+- [~] 阶段 2: Rust 删 builtin —— **移出本 PR → Stage 2 follow-up**（bootstrap-seed 纪律）
+- [x] 阶段 3: 账本 + 文档同步（标 🟡 源迁，builtin 留 Stage 2）
+- [ ] 阶段 4: 验证 —— stdlib/自举/jit GREEN 交 CI（Stage 1 修订版重跑）
 
 ## 阶段 1: z42 脚本迁移
 - [x] 1.1 Int32.z42：Equals→`this==other`；GetHashCode→`this`
@@ -19,25 +19,32 @@
 - [x] 1.6 Single.z42：Equals→`this==other`；GetHashCode→`BitConverter.SingleToBits`
 - [x] 1.7 String.z42：ToString extern→`return this;`（String 静态类已有多个 `this`-脚本方法先例：IsEmpty/Contains/StartsWith）
 
-## 阶段 2: Rust 删 builtin
-- [x] 2.1 convert.rs：删 builtin_int32_equals/int32_hash_code/double_equals/double_hash_code/char_equals/char_hash_code（6）
-- [x] 2.2 char.rs：删 builtin_char_to_lower/builtin_char_to_upper（2）
-- [x] 2.3 string.rs：删 builtin_str_to_string（1）
-- [x] 2.4 mod.rs：删对应 9 个派发表登记行 + 留迁移注释（对齐 wave1-bool-script 风格）
-- [x] 2.5 corelib/tests.rs：删 char_to_lower/upper 的 Rust 单测（行为改由 z42 stdlib 测覆盖）
+## 阶段 2: Rust 删 builtin —— ⛔ **移出本 PR，改 Stage 2 follow-up**
+> bootstrap-seed 纪律：已发布 nightly 种子 z42c.zpkg 仍引用 `__int32_equals` 等；零格式-bump 路径
+> 当前 VM 直接跑旧种子 → 删 builtin 即 `unknown builtin` panic（实测 PR #310 首版 CI 全红
+> resolver.rs:392）。故本 PR（Stage 1）**保留全部 9 个 builtin**，删除等 Stage 1 进 nightly 后另开
+> Stage 2 PR 做。（首版已删、现已 `git checkout origin/main` 还原 5 个 Rust 文件。）
+- [ ] （Stage 2）convert.rs：删 6 个 int/double/char eq·hash builtin fn
+- [ ] （Stage 2）char.rs：删 builtin_char_to_lower/builtin_char_to_upper
+- [ ] （Stage 2）string.rs：删 builtin_str_to_string
+- [ ] （Stage 2）mod.rs：删 9 个派发登记；corelib/tests.rs：删 char casing 直测
 
 ## 阶段 3: 账本 + 文档同步
 - [x] 3.1 README.md「Primitive 协议」表：9 项标 ✅ 已删（脚本），注明 change 名
 - [x] 3.2 README.md：纠正 char casing「Unicode native」→「ToLower/ToUpper=ASCII 脚本；IsWhiteSpace=Unicode native」
 - [x] 3.3 README.md 汇总 + Wave 进度：加 Wave 4 行，总数 ~43→~34
 
-## 阶段 4: 验证
-- [x] 4.1 cargo build --release（z42vm）—— 无新增编译错误 / 警告（3 个 pre-existing 警告与本改无关）
+## 阶段 4: 验证（Stage 1 修订版）
+- [x] 4.1 cargo build --release（z42vm）—— 编译无错（Rust 未改，builtin 保留）
 - [x] 4.5 新增测试：z42.core/tests/primitive_protocol_script.z42（int/long hash 折叠 + char ASCII casing + double/single hash 一致性 + string ToString）
-- [x] 4.a cargo test --lib —— 1006 + 21 全绿（删 2 个 char casing Rust 单测后）
-- [ ] 4.2 xtask test stdlib —— **交 CI**（本机 z42vm 退出期挂起 hazard，见 memory；不本地跑避免僵进程）
-- [ ] 4.3 xtask test compiler（自举字节不动点）—— **交 CI**
-- [ ] 4.4 完整 xtask test + verify-selfhost + jit —— **PR CI 为权威 GREEN**
+- [x] 4.a cargo test --lib —— 全绿（Rust 已还原 origin/main，char casing 单测保留）
+- [ ] 4.2 CI compile-toolchain + test-host —— Stage 1 修订版重跑（首版因删 builtin 全红，还原后应过）
+- [ ] 4.4 完整 CI GREEN（stdlib dogfood + bootstrap + jit）—— **PR CI 为权威**
+
+## 备注（追加）
+- **首版失败根因（已修）**：删 builtin → 零格式-bump 路径当前 VM 直接跑旧种子 z42c（引用 `__int32_equals`）
+  → `unknown builtin` panic（resolver.rs:392）。教训：**删 runtime builtin 前必查「已发布种子是否引用它」**
+  （z42c 内部 int hash/eq 必引用 `__int32_*`）；引用则须两阶段跨 nightly（本 PR 只迁源，Stage 2 删）。
 
 ## 备注
 - 零格式 bump（不动 zbc/zpkg 格式）——规避 two-gen bootstrap format-bump 红（见 memory）
