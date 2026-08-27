@@ -4,7 +4,8 @@ z42 的 `switch`（语句 + 表达式）与 `is` 支持一套统一的**结构�
 **record 位置解构**、属性、嵌套、裸绑定，配 `if` 守卫。record 是积类型数据载体，模式匹配是消费它的
 天然方式——`Point(x, y)` 直接按主构造器声明序绑定字段，**无需 `Deconstruct` 方法、无需 `out` 参数**。
 
-> 本页对应 A1（结构化核心）+ A2（组合子：or-模式 `|` / `@` 绑定 / `..=` 闭区间 / 关系模式 `> 0`）。
+> 本页对应 A1（结构化核心）+ A2（组合子：or-模式 `|` / `@` 绑定 / `..=` 闭区间 / 关系模式 `> 0`）
+> + A3（or-模式**带绑定**：`Circle(r) | Square(r)` 各 alt 绑同一变量）。
 > 解构声明 `Point(x,y) = p`（B）、穷尽性诊断（C）、`with`/`init`（D/E）为后续独立特性。
 
 ## 模式文法
@@ -109,14 +110,44 @@ if (v is 1 ..= 100) { ... }
 | `..=` 范围 | `lo ..= hi` | `subj >= lo && subj <= hi`（含端点）；仅可全序基元 | switch 臂 + `is` |
 | 关系 | `> v` / `>= v` / `< v` / `<= v` | `subj <op> v`；仅可全序基元 | switch 臂 + `is` |
 
-### A2 的三条边界（设计取舍）
+### A2 的两条边界（设计取舍）
 
 - **or / `@` 不入 `is`**：`is` 表达式里 `x is Circle | flags` 的 `|` 恒解析为**位或**（`(x is Circle) | flags`，
   与 C# 一致——C# 用 `or` 关键字而非 `|`）；`@` 与 `is` 的类型引导冲突。故 or / `@` 只在 `:` / `=>` 定界的
   switch 臂内。`..=` / 关系起始无歧义，`is` 收之。
-- **or 的子模式不引入绑定**：`case Circle(r) | Square(r):` 报错。各 alt 绑定集一致性 + 合流寄存器 phi 是独立
-  复杂度，A2 的 or 只覆盖多常量 / 多类型 / 多区间等无绑定组合（占绝大多数）。带绑定 or 为后续。
 - **`..=` / 关系仅可全序基元**（numeric | char）：subject 静态类型非可比较基元 → 诊断。
+
+## A3：or-模式带绑定
+
+A2 曾禁止 or 各 alt 引入绑定（`case Circle(r) | Square(r):` 报错）——因不同 alt 把同名变量绑到**不同寄存器**，
+到 arm body 需合流。A3 补齐这块，让 Rust 最自然的**「多变体、同处理」**成立：
+
+```z42
+int sizeOf(Shape s) {
+    return s switch {
+        Circle(r) | Square(r) => r,           // r 来自任一变体（同名同类型）
+        Pair(a, b) | Duo(a, b) => a + b,      // 多绑定
+        Circle(r) | Square(r) if r > 10 => 99,// 带守卫
+        Box(Circle(r) | Square(r)) => r,      // 嵌套 or（or 作子模式）
+        _ => -1
+    };
+}
+```
+
+**一致性约束**：各 alt 必须绑定**完全相同的变量集**（同名），且同名变量**类型完全相同**（不做 LUB / 公共
+基类推断）。不一致 → 诊断：
+
+| 情形 | 诊断 |
+|------|------|
+| `Circle(r) \| Square(x)` | 名字集不同 → `must bind the same set of variables` |
+| `Circle(r) \| Triangle`  | `Triangle` 无绑定 → `'r' is not bound by every alternative` |
+| `Circle(r) \| Wide(r)`（int vs double） | 同名不同类型 → `inconsistent type across alternatives` |
+
+**合流机制（phi-free）**：z42 IR 无 phi 节点，绑定在 A1/A2 是零成本别名（指向既有寄存器）。or 各 alt 产出
+不同寄存器 → 别名失效。A3 用**稳定寄存器 + `Copy`**：为每个统一绑定预分配一个稳定寄存器，各 alt 匹配成功后把
+该 alt 绑的变量 `Copy` 进稳定寄存器再跳 matchL；matchL 处所有绑定 = 稳定寄存器（单一一致）。**递归可组合**：
+嵌套 or 先合流成自己的稳定寄存器，外层读到单一寄存器再 Copy——无需特判嵌套深度。**无绑定 or**（A2 全部用法）
+走逐字未改的旧 lowering（byte-identical）。
 
 ### or 与常量吞 `|` 的解析处理
 
@@ -151,7 +182,7 @@ flowchart LR
 | 类型 `T` / `T x` | `IsInstance(subj, T)` | `T x`：命中后 `x ← as_cast(subj, T)` |
 | 位置 `T(p_i)` | `IsInstance(subj, T)` ∧ 逐字段 | `field_get subj.f_i` → 递归子模式 |
 | 属性 `T{F:p}` | `IsInstance(subj, T)`（T 可省）∧ 按名 | `field_get subj.F` → 递归子模式 |
-| or `P1\|P2`（A2） | 依次试 alt：前 n-1 失败落下一 alt，末 alt 失败落 `failL` | 子模式无绑定 |
+| or `P1\|P2`（A2/A3） | 依次试 alt：前 n-1 失败落下一 alt，末 alt 失败落 `failL` | A2 无绑定：子模式无绑定；**A3 带绑定**：预分配稳定寄存器，各 alt 成功后 `Copy` 进稳定寄存器再跳 `matchL`（phi-free 合流，递归可组合） |
 | `@`（A2） | 恒真 + 匹配子模式 | `name ← subj`（别名，同裸绑定） |
 | `..=`（A2） | `Ge(subj, lo)` 短路 → `Le(subj, hi)` | — |
 | 关系（A2） | `Gt/Ge/Lt/Le(subj, v)` | — |

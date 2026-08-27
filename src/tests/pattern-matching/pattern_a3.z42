@@ -1,0 +1,133 @@
+namespace Demo;
+
+using Std;
+
+// 模式匹配 A3 e2e 自检：or-模式**带绑定**（各 alt 绑定集一致 + phi-free 合流寄存器）。
+// 覆盖：headline `Circle(r) | Square(r)` 绑 r（switch-stmt + switch-expr）、多绑定、守卫、@ + or、
+// 嵌套 or（or 作 record 子模式）。绑定用裸标识符（无 var）；所有局部显式类型。纯 Assert，空 stdout。
+
+class Shape { }
+[Record] class Circle(int R)          : Shape;   // 第 0 位字段 int
+[Record] class Square(int R)          : Shape;   // 同形（int），与 Circle 位置绑定一致
+[Record] class Rect(int W, int H)     : Shape;
+[Record] class Pair(int A, int B)     : Shape;
+[Record] class Duo(int C, int D)      : Shape;    // 与 Pair 位置同形（int,int）
+[Record] class Box(Shape Inner)       : Shape;    // 持 Shape 字段，供嵌套 or 子模式
+
+// headline：or 带绑定 switch-expr —— Circle(r) | Square(r) 都绑 r
+int sizeOf(Shape s) {
+    return s switch {
+        Circle(r) | Square(r) => r,
+        Rect(w, h)            => w * h,
+        _                     => -1
+    };
+}
+
+// or 带绑定 + 守卫：仅当 r 大 → "big"
+string bigness(Shape s) {
+    return s switch {
+        Circle(r) | Square(r) if r > 10 => "big",
+        Circle(r) | Square(r)           => "small",
+        _                               => "other"
+    };
+}
+
+// 多绑定一致：Pair(a,b) | Duo(a,b) 都绑 {a,b}
+int combine(Shape s) {
+    return s switch {
+        Pair(a, b) | Duo(a, b) => a * 100 + b,
+        _                      => 0
+    };
+}
+
+// @ + or：n @ >0 | n @ <0 都绑 n（int）—— 非零时绑 n、返回 |n| 的符号载体
+int nonZero(int n) {
+    return n switch {
+        v @ > 0 | v @ < 0 => v,
+        _                 => 0
+    };
+}
+
+void Main() {
+    // ── headline：or 带绑定（switch-expr）───────────────────
+    Assert.Equal(5, sizeOf(new Circle(5)));     // 走 Circle alt，r=5
+    Assert.Equal(9, sizeOf(new Square(9)));     // 走 Square alt，r=9
+    Assert.Equal(12, sizeOf(new Rect(3, 4)));   // 非 or 臂
+    Assert.Equal(-1, sizeOf(new Box(new Circle(1))));
+
+    // ── or 带绑定（switch-stmt）─────────────────────────────
+    Shape sh = new Square(42);
+    int got = -1;
+    switch (sh) {
+        case Circle(r) | Square(r):
+            got = r;
+            break;
+        default:
+            got = -99;
+            break;
+    }
+    Assert.Equal(42, got);
+
+    // 走第一 alt（Circle）时也正确合流
+    Shape sh2 = new Circle(7);
+    int got2 = -1;
+    switch (sh2) {
+        case Circle(r) | Square(r):
+            got2 = r;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(7, got2);
+
+    // ── or 带绑定 + 守卫 ────────────────────────────────────
+    Assert.Equal("big", bigness(new Circle(20)));
+    Assert.Equal("small", bigness(new Square(3)));
+    Assert.Equal("big", bigness(new Square(50)));
+    Assert.Equal("other", bigness(new Rect(1, 1)));
+
+    // ── 多绑定一致（{a,b}）─────────────────────────────────
+    Assert.Equal(304, combine(new Pair(3, 4)));
+    Assert.Equal(506, combine(new Duo(5, 6)));
+
+    // ── @ + or 绑定 ────────────────────────────────────────
+    Assert.Equal(8, nonZero(8));
+    Assert.Equal(-5, nonZero(-5));
+    Assert.Equal(0, nonZero(0));
+
+    // ── 嵌套 or：or 作 record 子模式（Box(Circle(r) | Square(r)))─
+    Box b1 = new Box(new Circle(11));
+    Box b2 = new Box(new Square(22));
+    int inr = -1;
+    switch (b1) {
+        case Box(Circle(r) | Square(r)):
+            inr = r;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(11, inr);
+
+    int inr2 = -1;
+    switch (b2) {
+        case Box(Circle(r) | Square(r)):
+            inr2 = r;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(22, inr2);
+
+    // 嵌套 or 未命中（Box 里是 Rect）→ default
+    Box b3 = new Box(new Rect(2, 2));
+    int inr3 = -1;
+    switch (b3) {
+        case Box(Circle(r) | Square(r)):
+            inr3 = r;
+            break;
+        default:
+            inr3 = -7;
+            break;
+    }
+    Assert.Equal(-7, inr3);
+}

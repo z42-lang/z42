@@ -32,19 +32,62 @@ public sealed class PatternBinder {
         return new BoundWildcardPattern(pat.Span);
     }
 
-    // or-模式（A2）：逐 alt 绑定（同一 subjType）。alt 引入任何绑定 → 报错（A2 defer 绑定合流，见 design Decision 3）。
+    // or-模式（A2 起；A3 补带绑定）：逐 alt 绑定（同一 subjType）。每个 alt 绑进独立子作用域，收集其
+    // 绑定集（名字 → 类型），校验各 alt 绑定集**完全一致**（同名同类型，User 裁决 A3）；不一致 → 报错。
+    // 统一后的绑定集一次性注册进真实 env（供守卫 / arm body 类型检查），并存入 BoundOrPattern 供 emit 合流。
     private BoundPattern _bindOr(OrPattern op, Z42Type subjType, TypeEnv env) {
         BoundPattern[] alts = new BoundPattern[op.Count];
+        string[]  refNames = new string[0];
+        Z42Type[] refTypes = new Z42Type[0];
+        int       refCount = 0;
         int i = 0;
         while (i < op.Count) {
-            BoundPattern a = this.Bind(op.Alts[i], subjType, env);
-            if (PatternBinder._patternBinds(a)) {
-                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "or-pattern alternatives may not introduce bindings (A2)", op.Alts[i].Span);
+            TypeEnv child = env.PushScope();          // alt 绑定落 child.Vars，不污染 env / 兄弟 alt
+            alts[i] = this.Bind(op.Alts[i], subjType, child);
+            string[] names = child.Vars.Keys();
+            if (i == 0) {
+                refCount = names.Length;
+                refNames = names;
+                refTypes = new Z42Type[refCount];
+                int k = 0;
+                while (k < refCount) { refTypes[k] = child.Vars.Get(refNames[k]) as Z42Type; k = k + 1; }
+            } else {
+                this._checkOrBindConsistency(refNames, refTypes, refCount, names, child, op.Alts[i].Span);
             }
-            alts[i] = a;
             i = i + 1;
         }
-        return new BoundOrPattern(alts, op.Count, op.Span);
+        // 统一绑定集注册进真实 env（类型来自首个 alt）
+        int j = 0;
+        while (j < refCount) { env.Define(refNames[j], refTypes[j]); j = j + 1; }
+        return new BoundOrPattern(alts, op.Count, refNames, refTypes, refCount, op.Span);
+    }
+
+    // 校验一个 alt 的绑定集（altNames + child.Vars 类型）与参考集（refNames/refTypes）完全一致。
+    private void _checkOrBindConsistency(string[] refNames, Z42Type[] refTypes, int refCount, string[] altNames, TypeEnv child, Span sp) {
+        if (altNames.Length != refCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "or-pattern alternatives must bind the same set of variables", sp);
+            return;
+        }
+        int i = 0;
+        while (i < altNames.Length) {
+            string nm = altNames[i];
+            int idx = PatternBinder._indexOf(refNames, refCount, nm);
+            if (idx < 0) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "or-pattern binding '" + nm + "' is not bound by every alternative", sp);
+            } else {
+                Z42Type t = child.Vars.Get(nm) as Z42Type;
+                if (t.Name() != refTypes[idx].Name()) {
+                    this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "or-pattern binding '" + nm + "' has inconsistent type across alternatives: " + refTypes[idx].Name() + " vs " + t.Name(), sp);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private static int _indexOf(string[] arr, int count, string s) {
+        int i = 0;
+        while (i < count) { if (arr[i] == s) { return i; } i = i + 1; }
+        return -1;
     }
 
     // @ 绑定（A2）：绑 Name 到整个 subject（subjType），再匹配子模式（子模式绑定照常，@ 不涉合流）。
@@ -71,29 +114,6 @@ public sealed class PatternBinder {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "relational pattern requires an orderable (numeric or char) subject, got " + subjType.Name(), rp.Span);
         }
         return new BoundRelationalPattern(rp.Op, v, rp.Span);
-    }
-
-    // 递归判定一个已绑定模式是否引入任何绑定（or 无绑定校验用）。
-    private static bool _patternBinds(BoundPattern bp) {
-        if (bp is BoundBindingPattern) { return true; }
-        if (bp is BoundAtPattern)      { return true; }
-        if (bp is BoundTypePattern)    { return (bp as BoundTypePattern).Bind != ""; }
-        if (bp is BoundPositionalPattern) {
-            BoundPositionalPattern pp = bp as BoundPositionalPattern;
-            int i = 0; while (i < pp.ElemCount) { if (PatternBinder._patternBinds(pp.Elems[i])) { return true; } i = i + 1; }
-            return false;
-        }
-        if (bp is BoundPropertyPattern) {
-            BoundPropertyPattern pp = bp as BoundPropertyPattern;
-            int i = 0; while (i < pp.FieldCount) { if (PatternBinder._patternBinds(pp.Pats[i])) { return true; } i = i + 1; }
-            return false;
-        }
-        if (bp is BoundOrPattern) {
-            BoundOrPattern op = bp as BoundOrPattern;
-            int i = 0; while (i < op.Count) { if (PatternBinder._patternBinds(op.Alts[i])) { return true; } i = i + 1; }
-            return false;
-        }
-        return false;
     }
 
     // 名字/类型模式：`T x`（恒类型+绑定）/ `T`（类型）/ 点分名（常量）/ 单裸名（绑定）。
