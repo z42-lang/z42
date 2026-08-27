@@ -1,0 +1,87 @@
+// Bound 树——模式节点（Rust 风格模式匹配核心 A1）。纯节点定义无逻辑。
+// 由 PatternBinder 从 syntax Pattern 绑定产出；由 PatternEmitter lowering 到既有 IR
+// （IsInstance / Eq / FieldGet / BrCond）。三应用位点（switch case / switch-expr arm / is 结构化）共用。
+namespace Z42.Semantics;
+
+using Z42.Core;
+
+public class BoundPattern {
+    public Span Span;
+    public virtual string Dump() { return "?bpat"; }
+}
+
+// 通配 `_`：恒匹配、不绑定。
+public sealed class BoundWildcardPattern : BoundPattern {
+    public BoundWildcardPattern(Span span) { this.Span = span; }
+    public override string Dump() { return "_"; }
+}
+
+// 常量：携 BoundExpr 值。emit → Eq(subj, value)（与旧 switch 常量路径 byte-identical）。
+public sealed class BoundConstantPattern : BoundPattern {
+    public BoundExpr Value;
+    public BoundConstantPattern(BoundExpr value, Span span) { this.Span = span; this.Value = value; }
+    public override string Dump() { return this.Value.Dump(); }
+}
+
+// 类型模式 `T` / `T x`：IsInstance(subj, TypeName)（+ 可选绑定 Bind）。TypeName 用 AST 原始名（同 BoundIsExpr）。
+public sealed class BoundTypePattern : BoundPattern {
+    public string  TypeName;
+    public string  Bind;        // ""=无绑定
+    public Z42Type BoundType;   // resolved 类型（bind 变量类型 / narrowed）
+    public BoundTypePattern(string typeName, string bind, Z42Type boundType, Span span) { this.Span = span;
+        this.TypeName = typeName; this.Bind = bind; this.BoundType = boundType;
+    }
+    public override string Dump() {
+        if (this.Bind.Length > 0) { return "(type " + this.TypeName + " " + this.Bind + ")"; }
+        return "(type " + this.TypeName + ")";
+    }
+}
+
+// 裸绑定：匹配任意、绑 subj 到 Name。
+public sealed class BoundBindingPattern : BoundPattern {
+    public string  Name;
+    public Z42Type Type;
+    public BoundBindingPattern(string name, Z42Type type, Span span) { this.Span = span; this.Name = name; this.Type = type; }
+    public override string Dump() { return "(bind " + this.Name + ")"; }
+}
+
+// 位置模式（record 解构）：IsInstance(subj, TypeName) + 逐字段 field_get subj.FieldNames[i] + 子模式递归。
+// FieldNames = record 主构造器声明序字段名（PatternBinder 从 OwnFieldNames 填）。
+public sealed class BoundPositionalPattern : BoundPattern {
+    public string         TypeName;
+    public Z42Type        Type;
+    public string[]       FieldNames;
+    public Z42Type[]      FieldTypes;   // 第 i 字段类型（emit 分配 field_get 目标寄存器 IrType 用）
+    public BoundPattern[] Elems;
+    public int            ElemCount;
+    public BoundPositionalPattern(string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] elems, int elemCount, Span span) { this.Span = span;
+        this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Elems = elems; this.ElemCount = elemCount;
+    }
+    public override string Dump() {
+        string s = "(pos " + this.TypeName;
+        int i = 0;
+        while (i < this.ElemCount) { s = s + " " + this.FieldNames[i] + "=" + this.Elems[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
+// 属性模式：IsInstance(subj, TypeName)（HasType 时）+ 按字段名 field_get subj.FieldNames[i] + 子模式递归。
+public sealed class BoundPropertyPattern : BoundPattern {
+    public bool           HasType;
+    public string         TypeName;   // HasType 时有效
+    public Z42Type        Type;
+    public string[]       FieldNames;
+    public Z42Type[]      FieldTypes;   // 第 i 字段类型（emit 分配 field_get 目标寄存器 IrType 用）
+    public BoundPattern[] Pats;
+    public int            FieldCount;
+    public BoundPropertyPattern(bool hasType, string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] pats, int fieldCount, Span span) { this.Span = span;
+        this.HasType = hasType; this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Pats = pats; this.FieldCount = fieldCount;
+    }
+    public override string Dump() {
+        string s = "(prop";
+        if (this.HasType) { s = s + " " + this.TypeName; }
+        int i = 0;
+        while (i < this.FieldCount) { s = s + " " + this.FieldNames[i] + ":" + this.Pats[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}

@@ -25,7 +25,10 @@
 | `src/DeclEnforcer.z42` | 声明良构约束簇：**D8 类名后缀强制**（attribute E0444 / analyzer E0445 / generator E0447）+ **partial 类型/方法校验**（全标 partial / Kind 一致 / 嵌套 partial / method 配对，E0430–E0435） |
 | `src/BoundExpr.z42` | Bound 树**主/取值表达式节点**（`refactor-bound-node-split`）：base `BoundExpr` + 字面量 / 插值 / ident / func-ref / 成员·索引访问 / static-get / 捕获 / default / error，virtual Dump 出含类型注解 s-expr |
 | `src/BoundExprOp.z42` | Bound 树**运算/调用/转换/构造表达式节点**：switch-expr / seq / assign / binary·unary / conditional / call·method-group·indirect-call / new / ref-arg / cast·convert·box·is·typeof / array-new·lit / lambda |
-| `src/BoundStmt.z42` | Bound 树**语句节点**：base `BoundStmt` + decl / return / expr-stmt / local-fn / block / if / try·catch·finally / throw / while·do-while / switch / for / foreach / break / continue |
+| `src/BoundStmt.z42` | Bound 树**语句节点**：base `BoundStmt` + decl / return / expr-stmt / local-fn / block / if / try·catch·finally / throw / while·do-while / switch / for / foreach / break / continue；BoundSwitchCase/BoundSwitchArm 持 BoundPattern + Guard |
+| `src/BoundPattern.z42` | Bound 树**模式节点**（模式匹配核心 A1）：base `BoundPattern` + Wildcard/Constant/Type/Binding/Positional(record 解构)/Property；携 resolved 类型 + 字段名/类型 + 绑定名 |
+| `src/PatternBinder.z42` | **模式绑定**（A1）：syntax Pattern → BoundPattern。裸名两级歧义消解（类型 vs 常量 vs 绑定）+ record 位置模式 `IsRecord`/arity 校验 + 字段类型递归 + 绑定注册 TypeEnv。switch/is 共用。机制见 [book 模式匹配](../../../docs/book/src/language/pattern-matching.md) |
+| `src/PatternEmitter.z42` | **模式 lowering**（A1）：BoundPattern 递归下降 → 既有 IR（IsInstance/Eq/FieldGet/BrCond），`EmitMatch(subj,pat,matchL,failL)` 短路。**常量模式 byte-identical 旧 Eq 链（自举不动点）；位置/属性字段 field_get 直读禁 as_cast（jit 硬约束）**。switch(_emitSwitch/_emitSwitchExpr) 与 is(_emitIsPattern) 共用 |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
 | `src/AccessChecker.z42` | 访问权限强制（enforce-access-control）：`CheckAccess` 对 private/protected/internal 成员访问 emit E0404；机制见 [book](../../../docs/book/src/compiler/access-control.md) |

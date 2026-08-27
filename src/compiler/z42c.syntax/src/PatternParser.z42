@@ -1,0 +1,116 @@
+// 模式子解析器（Rust 风格模式匹配核心 A1）。递归下降。
+// 持 _p：游标原语 + _p._typeP._parseType / _p._exprP._parseExpr。三位点（switch case / switch-expr arm /
+// is 结构化）共用 _parsePattern；is 老路（type / type+bind）不经此、保持 IsExpr byte-identical。
+//
+// 名字形状分流（design Decision 2）：字面量/负号→Constant；`_`→Wildcard；`{`→省略类型 Property；
+// 类型引导→解析类型后按后随分流（`(`→Positional / `{`→Property / ident→Name(type+bind) / 其它→Name）。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class PatternParser {
+    private Parser _p;
+    public PatternParser(Parser p) { this._p = p; }
+
+    // 解析一个模式（从头）。
+    internal Pattern _parsePattern() {
+        Token t = this._p._peek();
+        Span sp = t.Span;
+        int k = t.Kind;
+        // 1. 字面量常量（含前导负号数字）
+        if (this._isConstStart(k)) {
+            Expr e = this._p._exprP._parseExpr(0);
+            return new ConstantPattern(e, sp);
+        }
+        // 2. 通配 `_`
+        if (k == TokenKind.Underscore) { this._p._advance(); return new WildcardPattern(sp); }
+        // 3. 省略类型的属性模式 `{ F: p }`
+        if (k == TokenKind.LBrace) {
+            TypeExpr none = new NamedType("", new TypeExpr[0], 0, sp);
+            return this._parsePropertyBody(none, false, sp);
+        }
+        // 4. 类型/名字引导
+        if (k == TokenKind.Identifier || this._p._isTypeKeyword(k)) {
+            TypeExpr ty = this._p._typeP._parseType();
+            return this._continueFromType(ty, sp);
+        }
+        // 5. 回退：报错 + 通配恢复
+        this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected pattern", sp);
+        return new WildcardPattern(sp);
+    }
+
+    // 已解析出类型 ty 后，按后随 token 分流（供 _parsePattern 与 is 结构化前瞻复用）。
+    internal Pattern _continueFromType(TypeExpr ty, Span sp) {
+        int nk = this._p._peek().Kind;
+        if (nk == TokenKind.LParen) { return this._parsePositionalBody(ty, sp); }
+        if (nk == TokenKind.LBrace) { return this._parsePropertyBody(ty, true, sp); }
+        if (nk == TokenKind.Identifier) {
+            string bind = this._p._peek().Text;
+            this._p._advance();
+            return new NamePattern(ty, bind, sp);
+        }
+        return new NamePattern(ty, "", sp);
+    }
+
+    // 位置模式体：`( p0, p1, ... )`。
+    private Pattern _parsePositionalBody(TypeExpr ty, Span sp) {
+        this._p._expect(TokenKind.LParen, "(");
+        Pattern[] elems = new Pattern[4];
+        int ec = 0;
+        while (this._p._peek().Kind != TokenKind.RParen && this._p._peek().Kind != TokenKind.Eof) {
+            if (ec == elems.Length) {
+                Pattern[] big = new Pattern[elems.Length * 2];
+                int i = 0; while (i < ec) { big[i] = elems[i]; i = i + 1; }
+                elems = big;
+            }
+            elems[ec] = this._parsePattern(); ec = ec + 1;
+            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        return new PositionalPattern(ty, elems, ec, sp);
+    }
+
+    // 属性模式体：`{ F0: p0, F1: p1, ... }`。空 `{}` 合法（仅测类型 / 恒真）。
+    private Pattern _parsePropertyBody(TypeExpr ty, bool hasType, Span sp) {
+        this._p._expect(TokenKind.LBrace, "{");
+        string[]  names = new string[4];
+        Pattern[] pats  = new Pattern[4];
+        int fc = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            if (fc == names.Length) {
+                string[]  bn = new string[names.Length * 2];
+                Pattern[] bp = new Pattern[pats.Length * 2];
+                int i = 0; while (i < fc) { bn[i] = names[i]; bp[i] = pats[i]; i = i + 1; }
+                names = bn; pats = bp;
+            }
+            string fname = this._p._peek().Text;
+            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+            else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected field name in property pattern", this._p._peek().Span); }
+            this._p._expect(TokenKind.Colon, ":");
+            names[fc] = fname;
+            pats[fc]  = this._parsePattern();
+            fc = fc + 1;
+            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new PropertyPattern(ty, hasType, names, pats, fc, sp);
+    }
+
+    // 非类型引导的模式起始（供 is 结构化前瞻）：字面量/负号/`_`/`{`。类型引导（标识符/类型关键字）不在此。
+    internal bool _isPatternLead(int k) {
+        if (this._isConstStart(k)) { return true; }
+        if (k == TokenKind.Underscore) { return true; }
+        if (k == TokenKind.LBrace) { return true; }
+        return false;
+    }
+
+    // 常量起始 token：字面量（含负号数字）。裸标识符/点分名不在此（走类型引导路 → NamePattern，bind 期定性）。
+    private bool _isConstStart(int k) {
+        if (k == TokenKind.IntLiteral || k == TokenKind.FloatLiteral) { return true; }
+        if (k == TokenKind.StringLiteral || k == TokenKind.CharLiteral) { return true; }
+        if (k == TokenKind.RawStringLiteral || k == TokenKind.InterpolatedStringLiteral) { return true; }
+        if (k == TokenKind.True || k == TokenKind.False || k == TokenKind.Null) { return true; }
+        if (k == TokenKind.Minus) { return true; }
+        return false;
+    }
+}

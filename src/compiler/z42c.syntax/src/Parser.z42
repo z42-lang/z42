@@ -25,6 +25,7 @@ public sealed class Parser {
     public StmtParser _stmtP;             // review P1-2：语句子解析器
     public DeclParser _declP;             // review P1-2：声明子解析器
     public MemberParser _memberP;         // review P1-2：成员子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
+    public PatternParser _patP;           // 模式子解析器（Rust 风格模式匹配核心 A1）
 
     // attribute-handler-registry PR3c：`#suppress`/`#restore` 局部抑制收集。子解析器经 `this._p`
     // 引用共享同一累加器。_supRegions=已闭合区间；_supOpen*=开区间栈（LIFO 按 RuleId 配对）。收尾
@@ -44,6 +45,7 @@ public sealed class Parser {
         this._stmtP = new StmtParser(this);
         this._declP = new DeclParser(this);
         this._memberP = new MemberParser(this);
+        this._patP = new PatternParser(this);
         this._supRegions = new SuppressRegion[0]; this._supCount = 0;
         this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
     }

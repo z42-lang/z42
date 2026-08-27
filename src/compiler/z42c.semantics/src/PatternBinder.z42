@@ -1,0 +1,153 @@
+// 模式绑定器（Rust 风格模式匹配核心 A1）。把 syntax Pattern 绑定成 BoundPattern：
+// 类型解析、裸名歧义消解（类型 vs 常量 vs 绑定，见 design Decision 2）、record 位置解构校验
+// （IsRecord + arity）、字段类型递归、绑定变量注册进 TypeEnv。三位点（switch/is）共用。
+// 持 TypeChecker 反向引用 _tc：_tc._expr._bindExpr（常量子表达式）、_tc._chkTypeRef（类型引用检查）、_tc._diags。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR.BinaryFormat;
+
+public sealed class PatternBinder {
+    private TypeChecker _tc;
+    public PatternBinder(TypeChecker tc) { this._tc = tc; }
+
+    // 绑定一个模式：subjType=被匹配值的静态类型（用于裸绑定变量类型 / 子模式字段类型来源）。
+    internal BoundPattern Bind(Pattern pat, Z42Type subjType, TypeEnv env) {
+        if (pat is WildcardPattern) { return new BoundWildcardPattern(pat.Span); }
+        if (pat is ConstantPattern) {
+            ConstantPattern cp = pat as ConstantPattern;
+            BoundExpr v = this._tc._expr._bindExpr(cp.Value, env);
+            return new BoundConstantPattern(v, pat.Span);
+        }
+        if (pat is NamePattern)       { return this._bindName(pat as NamePattern, subjType, env); }
+        if (pat is PositionalPattern) { return this._bindPositional(pat as PositionalPattern, env); }
+        if (pat is PropertyPattern)   { return this._bindProperty(pat as PropertyPattern, env); }
+        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported pattern", pat.Span);
+        return new BoundWildcardPattern(pat.Span);
+    }
+
+    // 名字/类型模式：`T x`（恒类型+绑定）/ `T`（类型）/ 点分名（常量）/ 单裸名（绑定）。
+    private BoundPattern _bindName(NamePattern np, Z42Type subjType, TypeEnv env) {
+        Z42Type resolved = env.ResolveType(np.Type);
+        string tn = PatternBinder._rawTypeName(np.Type, resolved);
+        // 显式 `T x` → 恒类型模式 + 绑定
+        if (np.Bind != "") {
+            this._tc._chkTypeRef(resolved, env, np.Span);
+            env.Define(np.Bind, resolved);
+            return new BoundTypePattern(tn, np.Bind, resolved, np.Span);
+        }
+        // 无绑定：命中类型名 → 类型模式（不绑定）
+        if (!(resolved is Z42UnknownType)) {
+            this._tc._chkTypeRef(resolved, env, np.Span);
+            return new BoundTypePattern(tn, "", resolved, np.Span);
+        }
+        // 非类型：点分名 → 常量（枚举/限定常量）；单裸名 → 新绑定
+        if (tn.IndexOf(".") >= 0) {
+            Expr ce = PatternBinder._dottedToExpr(tn, np.Span);
+            BoundExpr bv = this._tc._expr._bindExpr(ce, env);
+            return new BoundConstantPattern(bv, np.Span);
+        }
+        env.Define(tn, subjType);
+        return new BoundBindingPattern(tn, subjType, np.Span);
+    }
+
+    // 位置模式（record 解构）：T 必须 record class；子模式数 == 声明序字段数；逐字段递归绑定。
+    private BoundPattern _bindPositional(PositionalPattern pp, TypeEnv env) {
+        Z42Type resolved = env.ResolveType(pp.Type);
+        string tn = PatternBinder._rawTypeName(pp.Type, resolved);
+        this._tc._chkTypeRef(resolved, env, pp.Span);
+        if (!(resolved is Z42ClassType)) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional pattern requires a record type: " + tn, pp.Span);
+            return new BoundWildcardPattern(pp.Span);
+        }
+        Z42ClassType ct = resolved as Z42ClassType;
+        if (!ct.IsRecord) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional (deconstruction) pattern is only allowed on record types: " + tn, pp.Span);
+            return new BoundWildcardPattern(pp.Span);
+        }
+        if (ct.IsStruct) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional pattern on struct record is not yet supported (A1): " + tn, pp.Span);
+            return new BoundWildcardPattern(pp.Span);
+        }
+        if (pp.ElemCount != ct.OwnFieldCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional pattern arity mismatch: " + tn + " has " + ct.OwnFieldCount.ToString() + " fields", pp.Span);
+            return new BoundWildcardPattern(pp.Span);
+        }
+        string[]       fieldNames = new string[pp.ElemCount];
+        Z42Type[]      fieldTypes = new Z42Type[pp.ElemCount];
+        BoundPattern[] elems      = new BoundPattern[pp.ElemCount];
+        int i = 0;
+        while (i < pp.ElemCount) {
+            string fname = ct.OwnFieldNames[i];
+            fieldNames[i] = fname;
+            Z42Type fty = PatternBinder._fieldType(ct, fname);
+            fieldTypes[i] = fty;
+            elems[i] = this.Bind(pp.Elems[i], fty, env);
+            i = i + 1;
+        }
+        return new BoundPositionalPattern(tn, resolved, fieldNames, fieldTypes, elems, pp.ElemCount, pp.Span);
+    }
+
+    // 属性模式：T{F:p}（HasType 测类型）/ {F:p}（省类型，仅按字段名）。逐字段递归绑定。
+    private BoundPattern _bindProperty(PropertyPattern pp, TypeEnv env) {
+        Z42Type resolved = new Z42UnknownType();
+        string tn = "";
+        if (pp.HasType) {
+            resolved = env.ResolveType(pp.Type);
+            tn = PatternBinder._rawTypeName(pp.Type, resolved);
+            this._tc._chkTypeRef(resolved, env, pp.Span);
+        }
+        string[]       names      = new string[pp.FieldCount];
+        Z42Type[]      fieldTypes = new Z42Type[pp.FieldCount];
+        BoundPattern[] pats       = new BoundPattern[pp.FieldCount];
+        int i = 0;
+        while (i < pp.FieldCount) {
+            string fname = pp.FieldNames[i];
+            names[i] = fname;
+            Z42Type fty = new Z42UnknownType();
+            if (resolved is Z42ClassType) {
+                Z42ClassType ct = resolved as Z42ClassType;
+                if (ct.Fields.ContainsKey(fname)) { fty = PatternBinder._fieldType(ct, fname); }
+                else { this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no field '" + fname + "' on " + tn, pp.Span); }
+            }
+            fieldTypes[i] = fty;
+            pats[i] = this.Bind(pp.FieldPats[i], fty, env);
+            i = i + 1;
+        }
+        return new BoundPropertyPattern(pp.HasType, tn, resolved, names, fieldTypes, pats, pp.FieldCount, pp.Span);
+    }
+
+    // AST 原始类型名（镜像 BoundIsExpr：NamedType 优先取原始点串名，否则 resolved.Name()）。
+    private static string _rawTypeName(TypeExpr te, Z42Type resolved) {
+        if (te is NamedType) { return (te as NamedType).Name; }
+        return resolved.Name();
+    }
+
+    private static Z42Type _fieldType(Z42ClassType ct, string fname) {
+        if (ct.Fields.ContainsKey(fname)) {
+            FieldSymbol fs = ct.Fields.Get(fname) as FieldSymbol;
+            if (fs != null) { return fs.FieldType; }
+        }
+        return new Z42UnknownType();
+    }
+
+    // 点分名 "A.B.C" → MemberExpr(MemberExpr(IdentExpr("A"),"B"),"C")（供枚举/限定常量绑定，与 _parseExpr 等价）。
+    private static Expr _dottedToExpr(string name, Span sp) {
+        Expr e = null;
+        int start = 0;
+        int i = 0;
+        while (i <= name.Length) {
+            bool atEnd = (i == name.Length);
+            if (atEnd || name.CharAt(i) == '.') {
+                string seg = name.Substring(start, i - start);
+                if (e == null) { e = new IdentExpr(seg, sp); }
+                else { e = new MemberExpr(e, seg, sp); }
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        return e;
+    }
+}

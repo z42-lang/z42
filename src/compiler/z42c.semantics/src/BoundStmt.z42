@@ -152,13 +152,14 @@ public sealed class BoundDoWhile : BoundStmt {
 
 // switch (subject) { case P: ...; default: ... }（镜像 C# BoundSwitch：等值比较链）。
 public sealed class BoundSwitchCase {
-    public Span      Span;
-    public bool      HasPattern;
-    public BoundExpr Pattern;   // 仅 HasPattern 时有效（default 无）
-    public BoundStmt[] Body;
-    public int       BodyCount;
-    public BoundSwitchCase(bool hasPattern, BoundExpr pattern, BoundStmt[] body, int bodyCount, Span span) { this.Span = span;
-        this.HasPattern = hasPattern; this.Pattern = pattern; this.Body = body; this.BodyCount = bodyCount;
+    public Span         Span;
+    public bool         HasPattern;
+    public BoundPattern Pattern;   // 仅 HasPattern 时有效（default 无）；模式匹配核心 A1：BoundExpr→BoundPattern
+    public BoundExpr    Guard;     // 守卫（null=无）
+    public BoundStmt[]  Body;
+    public int          BodyCount;
+    public BoundSwitchCase(bool hasPattern, BoundPattern pattern, BoundExpr guard, BoundStmt[] body, int bodyCount, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Guard = guard; this.Body = body; this.BodyCount = bodyCount;
     }
 }
 

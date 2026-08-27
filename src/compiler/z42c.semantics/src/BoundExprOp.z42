@@ -8,12 +8,13 @@ using Z42.Core;
 
 // switch 表达式（求值版 switch）：等值比较链写入结果寄存器（镜像 C# BoundSwitchExpr）。
 public sealed class BoundSwitchArm {
-    public Span      Span;
-    public bool      HasPattern;
-    public BoundExpr Pattern;   // 仅 HasPattern 时有效
-    public BoundExpr Body;
-    public BoundSwitchArm(bool hasPattern, BoundExpr pattern, BoundExpr body, Span span) { this.Span = span;
-        this.HasPattern = hasPattern; this.Pattern = pattern; this.Body = body;
+    public Span         Span;
+    public bool         HasPattern;
+    public BoundPattern Pattern;   // 仅 HasPattern 时有效（模式匹配核心 A1：BoundExpr→BoundPattern）
+    public BoundExpr    Guard;     // 守卫（null=无）
+    public BoundExpr    Body;
+    public BoundSwitchArm(bool hasPattern, BoundPattern pattern, BoundExpr guard, BoundExpr body, Span span) { this.Span = span;
+        this.HasPattern = hasPattern; this.Pattern = pattern; this.Guard = guard; this.Body = body;
     }
 }
 
@@ -164,6 +165,16 @@ public sealed class BoundIsExpr : BoundExpr {
     public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
+}
+
+// `x is <structural pattern>`（模式匹配核心 A1）：BoundPattern 作 is 右侧，结果 bool。绑定漏入 true 分支。
+public sealed class BoundIsPatternExpr : BoundExpr {
+    public BoundExpr    E;
+    public BoundPattern Pat;
+    private Z42Type _type;
+    public BoundIsPatternExpr(BoundExpr e, BoundPattern pat, Span span) { this.Span = span; this.E = e; this.Pat = pat; this._type = Z42ClassType.Builtin("bool"); }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(is-pat " + this.E.Dump() + " :bool)"; }
 }
 
 // 转换（1D）：x as T → T（结果类型 = 目标）。

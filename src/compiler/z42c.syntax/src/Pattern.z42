@@ -1,0 +1,77 @@
+// 模式 AST 节点（z42c.syntax）—— Rust 风格模式匹配核心（A1）。
+// 三应用位点共用一套模式文法：switch 语句 case / switch 表达式 arm / is 表达式右侧。
+// 受限写法：class 继承 + virtual Dump()（s-expression）。绑定用裸标识符（无 var）。
+//
+// 歧义消解（详见 docs/spec/changes/add-pattern-matching-core/design.md Decision 2）：
+//   解析期按名字形状先分流（字面量→Constant / `_`→Wildcard / 名字→Name / `(`→Positional / `{`→Property）；
+//   NamePattern 的「类型 vs 常量 vs 绑定」留 bind 期（PatternBinder）按类型表唯一定性。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public class Pattern {
+    public Span Span;
+    public virtual string Dump() { return "?pat"; }
+}
+
+// 通配 `_`：匹配任意、不绑定。仅出现在嵌套子模式位；顶层 switch 的 catch-all 仍走 default/`_`（hasPattern=false）。
+public sealed class WildcardPattern : Pattern {
+    public WildcardPattern(Span span) { this.Span = span; }
+    public override string Dump() { return "_"; }
+}
+
+// 常量模式：字面量（1/"s"/'c'/true/null）或点分枚举/常量（Color.Red）。携原始 Expr，
+// binder 走既有 _bindExpr、emit 走 Eq(subj, value) —— 保证与旧 switch 常量路径 byte-identical。
+public sealed class ConstantPattern : Pattern {
+    public Expr Value;
+    public ConstantPattern(Expr value, Span span) { this.Span = span; this.Value = value; }
+    public override string Dump() { return this.Value.Dump(); }
+}
+
+// 名字/类型模式：`T`（类型测试）/ `T x`（类型测试+绑定）/ 裸单名（绑定）/ 点分名（常量）。
+// Bind==""：`T` / 裸名 / 点分名（三者由 bind 期定性）；Bind!=""：`T x`（显式类型+绑定，恒类型模式）。
+public sealed class NamePattern : Pattern {
+    public TypeExpr Type;
+    public string   Bind;   // ""=无显式绑定名
+    public NamePattern(TypeExpr type, string bind, Span span) { this.Span = span; this.Type = type; this.Bind = bind; }
+    public override string Dump() {
+        if (this.Bind.Length > 0) { return "(type " + this.Type.Dump() + " " + this.Bind + ")"; }
+        return "(name " + this.Type.Dump() + ")";
+    }
+}
+
+// 位置模式（record 解构）：T(p0, p1, ...) —— IsInstance(T) + 按主构造器声明序逐字段递归匹配子模式。
+// 约束（PatternBinder 校验）：T 必须 IsRecord；子模式数 == record 字段数。
+public sealed class PositionalPattern : Pattern {
+    public TypeExpr  Type;
+    public Pattern[] Elems;
+    public int       ElemCount;
+    public PositionalPattern(TypeExpr type, Pattern[] elems, int elemCount, Span span) { this.Span = span;
+        this.Type = type; this.Elems = elems; this.ElemCount = elemCount;
+    }
+    public override string Dump() {
+        string s = "(pos " + this.Type.Dump();
+        int i = 0;
+        while (i < this.ElemCount) { s = s + " " + this.Elems[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
+// 属性模式：T { F: p, ... } / { F: p, ... }（HasType=false 省略类型，仅按字段名匹配、不测类型）。
+public sealed class PropertyPattern : Pattern {
+    public TypeExpr  Type;         // HasType==false 时无效
+    public bool      HasType;
+    public string[]  FieldNames;
+    public Pattern[] FieldPats;
+    public int       FieldCount;
+    public PropertyPattern(TypeExpr type, bool hasType, string[] names, Pattern[] pats, int count, Span span) { this.Span = span;
+        this.Type = type; this.HasType = hasType; this.FieldNames = names; this.FieldPats = pats; this.FieldCount = count;
+    }
+    public override string Dump() {
+        string s = "(prop";
+        if (this.HasType) { s = s + " " + this.Type.Dump(); }
+        int i = 0;
+        while (i < this.FieldCount) { s = s + " " + this.FieldNames[i] + ":" + this.FieldPats[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}

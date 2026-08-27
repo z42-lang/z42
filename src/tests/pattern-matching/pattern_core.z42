@@ -1,0 +1,129 @@
+namespace Demo;
+
+using Std;
+
+// Rust 风格模式匹配核心（A1）e2e 自检：switch 语句/表达式 × 通配/常量/类型/位置(record)/属性/嵌套/守卫/裸绑定。
+// 绑定用裸标识符（无 var）；所有局部显式类型。纯 Assert，空 stdout。is 结构化模式见 pattern_is.z42。
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+class Animal { }
+class Cat : Animal { }
+class Dog : Animal { }
+
+// 常量 switch-expr
+string classify(int n) {
+    return n switch {
+        0 => "zero",
+        1 => "one",
+        _ => "many"
+    };
+}
+
+// 类型模式 switch-expr（裸类型名 + 类型+绑定）
+string kind(Animal a) {
+    return a switch {
+        Cat => "cat",
+        Dog d => "dog",
+        _ => "other"
+    };
+}
+
+// 位置模式 + 守卫 switch-expr
+string quadrant(Point p) {
+    return p switch {
+        Point(0, 0) => "origin",
+        Point(x, y) if x > 0 => "right",
+        Point(x, y) => "left"
+    };
+}
+
+void Main() {
+    // ── 常量 ──────────────────────────────────────────────
+    Assert.Equal("zero", classify(0));
+    Assert.Equal("one", classify(1));
+    Assert.Equal("many", classify(9));
+
+    // ── 类型模式（裸类型 + 绑定）────────────────────────────
+    Animal cat = new Cat();
+    Animal dog = new Dog();
+    Assert.Equal("cat", kind(cat));
+    Assert.Equal("dog", kind(dog));
+
+    // ── 位置解构 + 裸绑定（switch-stmt）─────────────────────
+    Point p = new Point(3, 4);
+    int sum = 0;
+    switch (p) {
+        case Point(x, y):
+            sum = x + y;
+            break;
+        default:
+            sum = -1;
+            break;
+    }
+    Assert.Equal(7, sum);
+
+    // ── 位置模式内常量：不匹配则落 default ──────────────────
+    Point q = new Point(0, 5);
+    string qc = "";
+    switch (q) {
+        case Point(0, y):
+            qc = "on-y-axis-" + y.ToString();
+            break;
+        default:
+            qc = "off";
+            break;
+    }
+    Assert.Equal("on-y-axis-5", qc);
+
+    Point q2 = new Point(6, 5);
+    string qc2 = "";
+    switch (q2) {
+        case Point(0, y):
+            qc2 = "on-y-axis";
+            break;
+        default:
+            qc2 = "off";
+            break;
+    }
+    Assert.Equal("off", qc2);
+
+    // ── 嵌套位置 + 通配 ─────────────────────────────────────
+    Line ln = new Line(new Point(1, 2), new Point(3, 4));
+    int ax = -1;
+    switch (ln) {
+        case Line(Point(a, _), _):
+            ax = a;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(1, ax);
+
+    // ── 属性模式 ───────────────────────────────────────────
+    Point pp = new Point(0, 9);
+    string ps = "";
+    switch (pp) {
+        case Point { X: 0, Y: yy }:
+            ps = "x0-y" + yy.ToString();
+            break;
+        default:
+            ps = "no";
+            break;
+    }
+    Assert.Equal("x0-y9", ps);
+
+    // ── 守卫（switch-expr）─────────────────────────────────
+    Assert.Equal("origin", quadrant(new Point(0, 0)));
+    Assert.Equal("right", quadrant(new Point(5, 1)));
+    Assert.Equal("left", quadrant(new Point(-2, 1)));
+
+    // ── 裸绑定 catch-all（switch-expr）──────────────────────
+    int val = 42;
+    string vb = val switch {
+        0 => "z",
+        n => "n=" + n.ToString()
+    };
+    Assert.Equal("n=42", vb);
+}

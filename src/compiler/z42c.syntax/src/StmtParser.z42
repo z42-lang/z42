@@ -67,12 +67,14 @@ public sealed class StmtParser {
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             Span csp = this._p._peek().Span;
             bool hasPattern = false;
-            Expr pattern = new NullLitExpr(csp);
+            Pattern pattern = null;
+            Expr guard = null;
             if (this._p._peek().Kind == TokenKind.Default) {
                 this._p._advance(); this._p._expect(TokenKind.Colon, ":");
             } else {
                 this._p._expect(TokenKind.Case, "case");
-                pattern = this._p._exprP._parseExpr(0); hasPattern = true;
+                pattern = this._p._patP._parsePattern(); hasPattern = true;
+                if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._p._exprP._parseExpr(0); }
                 this._p._expect(TokenKind.Colon, ":");
             }
             Stmt[] body = new Stmt[4];
@@ -91,7 +93,7 @@ public sealed class StmtParser {
                 int i = 0; while (i < cc) { bigger[i] = cases[i]; i = i + 1; }
                 cases = bigger;
             }
-            cases[cc] = new SwitchCase(hasPattern, pattern, body, bc, csp); cc = cc + 1;
+            cases[cc] = new SwitchCase(hasPattern, pattern, guard, body, bc, csp); cc = cc + 1;
         }
         this._p._expect(TokenKind.RBrace, "}");
         return new SwitchStmt(subject, cases, cc, sp);

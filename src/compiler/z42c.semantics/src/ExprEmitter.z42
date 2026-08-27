@@ -14,7 +14,8 @@ public sealed class ExprEmitter {
     private TypeOpEmitter _top;    // is/typeof/cast/box/convert 发射簇（CG-1E follow-up 按职责抽出）
     private OperatorEmitter _op;   // binary/unary/conditional/switch-expr 发射簇（CG-1E follow-up 按职责抽出）
     private AccessEmitter _access; // assign/member/index/ident + struct 值语义机制发射簇（CG-1E follow-up 按职责抽出）
-    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); this._op = new OperatorEmitter(ctx, this); this._access = new AccessEmitter(ctx, this); }
+    public PatternEmitter _pat;    // 模式匹配核心 A1：模式 lowering 发射簇（switch/is 共用）
+    public ExprEmitter(EmitContext ctx, FunctionEmitter fn) { this._ctx = ctx; this._fn = fn; this._call = new CallEmitter(ctx, this); this._top = new TypeOpEmitter(ctx, this); this._op = new OperatorEmitter(ctx, this); this._access = new AccessEmitter(ctx, this); this._pat = new PatternEmitter(ctx, this); }
 
     // 合成 struct Equals/== body 的公开入口（FunctionEmitter 调用）——委回 OperatorEmitter（struct 相等发射簇）。
     public TypedReg EmitSynthEqualsResult(string structName, TypedReg thisReg, TypedReg otherReg) {
@@ -167,6 +168,7 @@ public sealed class ExprEmitter {
         if (e is BoundNew) { return this._call._emitNew(e as BoundNew); }
         if (e is BoundIndex) { return this._access._emitIndex(e as BoundIndex); }
         if (e is BoundIsExpr) { return this._top._emitIs(e as BoundIsExpr); }
+        if (e is BoundIsPatternExpr) { return this._top._emitIsPattern(e as BoundIsPatternExpr); }
         if (e is BoundTypeof) { return this._top._emitTypeof(e as BoundTypeof); }
         if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
         if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }

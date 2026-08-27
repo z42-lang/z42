@@ -1,0 +1,101 @@
+// 模式 lowering 发射器（Rust 风格模式匹配核心 A1）。把 BoundPattern 递归下降 lowering 到既有 IR
+// （IsInstance / Eq / FieldGet / BrCond）。三位点（switch case / switch-expr arm / is 结构化）共用。
+// 与 ExprEmitter 同一 EmitContext（_ctx）；常量子表达式经 _ee.Emit 委回。
+//
+// 关键不变量：
+//   ① 常量模式 lowering = Eq(subj, value) + BrCond —— 与旧 switch 常量路径 byte-identical（自举不动点）。
+//   ② 位置/属性字段读用 **显式 field_get subj.<name> 直读**，绝不 as_cast(subj)→field_get（jit 误编，
+//      record 程序血泪教训）。类型模式的绑定 as_cast（仅存局部、不接 field_get）沿用 _emitIs，安全。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Core;
+
+public sealed class PatternEmitter {
+    private EmitContext _ctx;
+    private ExprEmitter _ee;
+    public PatternEmitter(EmitContext ctx, ExprEmitter ee) { this._ctx = ctx; this._ee = ee; }
+
+    // 发射模式匹配。匹配成功（绑定完成）→ 跳 matchL；失败 → 跳 failL。返回时当前块已 EndBlock。
+    internal void EmitMatch(TypedReg subj, BoundPattern pat, string matchL, string failL) {
+        if (pat is BoundWildcardPattern) {
+            this._ctx.EndBlock(new BrTerm(matchL));
+            return;
+        }
+        if (pat is BoundBindingPattern) {
+            BoundBindingPattern bp = pat as BoundBindingPattern;
+            this._ctx.Locals.Put(bp.Name, subj);   // 裸绑定：别名到 subj 寄存器（只读引用，稳定）
+            this._ctx.EndBlock(new BrTerm(matchL));
+            return;
+        }
+        if (pat is BoundConstantPattern) {
+            // ① byte-identical：Eq(subj, value) + BrCond（复刻旧 _emitSwitch/_emitSwitchExpr 常量臂）
+            BoundConstantPattern cp = pat as BoundConstantPattern;
+            TypedReg patR = this._ee.Emit(cp.Value);
+            TypedReg cmp = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new EqInstr(cmp, subj, patR));
+            this._ctx.EndBlock(new BrCondTerm(cmp, matchL, failL));
+            return;
+        }
+        if (pat is BoundTypePattern) {
+            BoundTypePattern tp = pat as BoundTypePattern;
+            string qn = this._qual(tp.TypeName);
+            TypedReg isR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
+            if (tp.Bind != "") {
+                string bindL = this._ctx.Fresh("pat_bind");
+                this._ctx.EndBlock(new BrCondTerm(isR, bindL, failL));
+                this._ctx.StartBlock(bindL);
+                TypedReg vReg = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new AsCastInstr(vReg, subj, qn));   // 绑定用 as_cast（仅存局部，不接 field_get，安全）
+                this._ctx.Locals.Put(tp.Bind, vReg);
+                this._ctx.EndBlock(new BrTerm(matchL));
+            } else {
+                this._ctx.EndBlock(new BrCondTerm(isR, matchL, failL));
+            }
+            return;
+        }
+        if (pat is BoundPositionalPattern) {
+            BoundPositionalPattern pp = pat as BoundPositionalPattern;
+            this._emitFieldSeq(subj, this._qual(pp.TypeName), true, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
+            return;
+        }
+        if (pat is BoundPropertyPattern) {
+            BoundPropertyPattern pp = pat as BoundPropertyPattern;
+            string qn = "";
+            if (pp.HasType) { qn = this._qual(pp.TypeName); }
+            this._emitFieldSeq(subj, qn, pp.HasType, pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
+            return;
+        }
+        this._ctx.EndBlock(new BrTerm(failL));   // 兜底：不匹配
+    }
+
+    // 类型测试（可选）+ 逐字段 field_get 直读 + 子模式递归。全字段通过 → matchL；任一失败 → failL。
+    private void _emitFieldSeq(TypedReg subj, string qn, bool hasType, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] subPats, int count, string matchL, string failL) {
+        if (hasType) {
+            string okL = this._ctx.Fresh("pat_isok");
+            TypedReg isR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
+            this._ctx.EndBlock(new BrCondTerm(isR, okL, failL));
+            this._ctx.StartBlock(okL);
+        }
+        int i = 0;
+        while (i < count) {
+            TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(fieldTypes[i]));
+            this._ctx.Emit(new FieldGetInstr(fReg, subj, fieldNames[i]));   // 直读，不 as_cast（避 jit bug）
+            string nextFieldL = this._ctx.Fresh("pat_fld");
+            this.EmitMatch(fReg, subPats[i], nextFieldL, failL);
+            this._ctx.StartBlock(nextFieldL);
+            i = i + 1;
+        }
+        this._ctx.EndBlock(new BrTerm(matchL));
+    }
+
+    // 类型名 FQ 化（镜像 _emitIs：基元别名 → 包装类；内建根类硬编码）。
+    private string _qual(string typeName) {
+        string qn = this._ctx.QualifyTypeName(typeName);
+        if (qn == "Array") { qn = "Std.Array"; }
+        else if (qn == "Object") { qn = "Std.Object"; }
+        return qn;
+    }
+}
