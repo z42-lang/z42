@@ -11,19 +11,7 @@ pub fn builtin_char_is_whitespace(_ctx: &VmContext, args: &[Value]) -> Result<Va
     Ok(Value::Bool(c.is_whitespace()))
 }
 
-/// ASCII-rule lowercase conversion — non-letters return themselves unchanged.
-/// args: [this: char]
-/// New in simplify-string-stdlib (2026-04-24): backs script-side string.ToLower().
-/// Locale-sensitive casing (Turkish I etc.) deferred to L3 CultureInfo.
-pub fn builtin_char_to_lower(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let c = arg_char(args, 0, "__char_to_lower")?;
-    Ok(Value::Char(c.to_ascii_lowercase()))
-}
-
-/// ASCII-rule uppercase conversion — non-letters return themselves unchanged.
-/// args: [this: char]
-/// New in simplify-string-stdlib (2026-04-24): backs script-side string.ToUpper().
-pub fn builtin_char_to_upper(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let c = arg_char(args, 0, "__char_to_upper")?;
-    Ok(Value::Char(c.to_ascii_uppercase()))
-}
+// shrink-primitive-native-interop (2026-08-27): builtin_char_to_lower /
+// builtin_char_to_upper removed — 它们本是 ASCII-only (`to_ascii_lowercase/uppercase`)，
+// Std.Char.ToLower/.ToUpper 现在是等价的 ASCII 脚本。IsWhiteSpace 保留 native
+// （Rust `char::is_whitespace()` 是真 Unicode 分类，脚本无法等价）。

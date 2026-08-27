@@ -1,14 +1,17 @@
 # Tasks: 收缩 primitive 协议 native interop
 
-> 状态：🟡 进行中 | 创建：2026-08-27
+> 状态：🟢 Stage 2 落地（删 builtin） | 创建：2026-08-27 | Stage 2：2026-08-28
 > 变更类型：refactor + fix（删 9 个 builtin + 修 long/ulong hash 截断）
 > 文档影响：`src/libraries/README.md`（Primitive 协议表 + 汇总）；无 book 机制页变更（纯 native→脚本搬迁，行为等价）
+>
+> **两-nightly 拆分**：Stage 1（#310，只迁 z42 源、保留 builtin）已合并并随 nightly 发布 →
+> 种子 z42c 不再引用这 9 个 builtin → Stage 2（本 PR）删 Rust builtin 实现 + 派发登记。
 
-## 进度概览（本 PR = Stage 1：只迁源，保留 builtin）
-- [x] 阶段 1: z42 脚本迁移（12 个 primitive/String 文件）
-- [~] 阶段 2: Rust 删 builtin —— **移出本 PR → Stage 2 follow-up**（bootstrap-seed 纪律）
-- [x] 阶段 3: 账本 + 文档同步（标 🟡 源迁，builtin 留 Stage 2）
-- [ ] 阶段 4: 验证 —— stdlib/自举/jit GREEN 交 CI（Stage 1 修订版重跑）
+## 进度概览
+- [x] 阶段 1: z42 脚本迁移（12 个 primitive/String 文件）—— Stage 1 #310
+- [x] 阶段 2: Rust 删 builtin —— **本 PR = Stage 2**（Stage 1 已进 nightly，种子不再引用）
+- [x] 阶段 3: 账本 + 文档同步（Stage 2 把 🟡→✅ 已删，总数 ~43→~34）
+- [x] 阶段 4: 验证 —— cargo build + cargo test --lib 本地全绿；stdlib/自举/jit GREEN 交 CI
 
 ## 阶段 1: z42 脚本迁移
 - [x] 1.1 Int32.z42：Equals→`this==other`；GetHashCode→`this`
@@ -19,15 +22,13 @@
 - [x] 1.6 Single.z42：Equals→`this==other`；GetHashCode→`BitConverter.SingleToBits`
 - [x] 1.7 String.z42：ToString extern→`return this;`（String 静态类已有多个 `this`-脚本方法先例：IsEmpty/Contains/StartsWith）
 
-## 阶段 2: Rust 删 builtin —— ⛔ **移出本 PR，改 Stage 2 follow-up**
-> bootstrap-seed 纪律：已发布 nightly 种子 z42c.zpkg 仍引用 `__int32_equals` 等；零格式-bump 路径
-> 当前 VM 直接跑旧种子 → 删 builtin 即 `unknown builtin` panic（实测 PR #310 首版 CI 全红
-> resolver.rs:392）。故本 PR（Stage 1）**保留全部 9 个 builtin**，删除等 Stage 1 进 nightly 后另开
-> Stage 2 PR 做。（首版已删、现已 `git checkout origin/main` 还原 5 个 Rust 文件。）
-- [ ] （Stage 2）convert.rs：删 6 个 int/double/char eq·hash builtin fn
-- [ ] （Stage 2）char.rs：删 builtin_char_to_lower/builtin_char_to_upper
-- [ ] （Stage 2）string.rs：删 builtin_str_to_string
-- [ ] （Stage 2）mod.rs：删 9 个派发登记；corelib/tests.rs：删 char casing 直测
+## 阶段 2: Rust 删 builtin —— ✅ **本 PR = Stage 2**
+> 前置已满足：Stage 1（#310）已随 nightly 发布，下载的种子 z42c.zpkg 不再引用这 9 个 builtin
+> → 零格式-bump 路径下当前 VM 跑种子 z42c 不再 `unknown builtin`（首版 resolver.rs:392 panic 根因消除）。
+- [x] （Stage 2）convert.rs：删 6 个 int/double/char eq·hash builtin fn（留迁移注释）
+- [x] （Stage 2）char.rs：删 builtin_char_to_lower/builtin_char_to_upper（留迁移注释）
+- [x] （Stage 2）string.rs：删 builtin_str_to_string（留迁移注释）
+- [x] （Stage 2）mod.rs：删 9 个派发登记；corelib/tests.rs：删 char casing 直测（2 个）
 
 ## 阶段 3: 账本 + 文档同步
 - [x] 3.1 README.md「Primitive 协议」表：9 项标 ✅ 已删（脚本），注明 change 名
@@ -38,8 +39,8 @@
 - [x] 4.1 cargo build --release（z42vm）—— 编译无错（Rust 未改，builtin 保留）
 - [x] 4.5 新增测试：z42.core/tests/primitive_protocol_script.z42（int/long hash 折叠 + char ASCII casing + double/single hash 一致性 + string ToString）
 - [x] 4.a cargo test --lib —— 全绿（Rust 已还原 origin/main，char casing 单测保留）
-- [ ] 4.2 CI compile-toolchain + test-host —— Stage 1 修订版重跑（首版因删 builtin 全红，还原后应过）
-- [ ] 4.4 完整 CI GREEN（stdlib dogfood + bootstrap + jit）—— **PR CI 为权威**
+- [x] 4.2 CI compile-toolchain + test-host —— Stage 1 修订版已过（还原 builtin 后绿，#310 已合）
+- [ ] 4.4 Stage 2 完整 CI GREEN（compile-toolchain 不再 panic + stdlib dogfood + bootstrap + jit）—— **PR CI 为权威**
 
 ## 备注（追加）
 - **首版失败根因（已修）**：删 builtin → 零格式-bump 路径当前 VM 直接跑旧种子 z42c（引用 `__int32_equals`）
