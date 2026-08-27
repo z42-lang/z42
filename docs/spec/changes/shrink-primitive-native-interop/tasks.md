@@ -13,7 +13,7 @@
 ## 阶段 1: z42 脚本迁移
 - [x] 1.1 Int32.z42：Equals→`this==other`；GetHashCode→`this`
 - [x] 1.2 Int16/SByte/Byte/UInt16/UInt32.z42：同 Int32（窄整型 hash=`(int)this`）
-- [x] 1.3 Int64/UInt64.z42：Equals→`this==other`；GetHashCode→折叠 `(int)(this ^ (this>>32))`
+- [x] 1.3 Int64/UInt64.z42：Equals→`this==other`；GetHashCode→`(int)this`（与窄整型统一；C# 折叠不适用，z42 `(int)` 不截断）
 - [x] 1.4 Char.z42：Equals→`this==other`；GetHashCode→`(int)this`；ToLower/ToUpper→ASCII 脚本
 - [x] 1.5 Double.z42：Equals→`this==other`；GetHashCode→`BitConverter.DoubleToBits` 折叠
 - [x] 1.6 Single.z42：Equals→`this==other`；GetHashCode→`BitConverter.SingleToBits`

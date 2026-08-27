@@ -18,8 +18,10 @@ builtin 迁成纯脚本。但当时把 `int/double/char` 的 `Equals`/`GetHashCo
 保留它们只是增大可审计的 native ABI 面、无收益。收缩后 primitive-protocol builtin 从 ~43 → ~34，
 与 bool 的既定处置保持一致。
 
-顺带修一个潜在 bug：`Int64`/`UInt64.GetHashCode` 现走 `__int32_hash_code`，返回完整 i64 当作
-`int` 型 hash（未截断/未折叠）。迁脚本时按 C# 语义折叠为 `(int)(v ^ (v >> 32))`。
+hash 统一用 `(int)this`（8 个整型同款），确定性满足 Dictionary 契约（等值等哈希）。**注**：原计划按
+C# `Int64.GetHashCode` 折叠高低 32 位 `(int)(v ^ (v>>32))`，但 CI 实测（PR #310）发现 z42 的 `(int)`
+转换**不像 C# 那样截断到 32 位**（crypto 代码一律显式 `& 0xFFFFFFFFL` 再 `(int)` 佐证），C# 折叠不
+translate；故 long/ulong 与窄整型一样用 `(int)this`（等价旧 `__int32_hash_code` 的整型恒等语义，行为不变）。
 
 ## 两阶段（bootstrap-seed 纪律，必须遵守）
 

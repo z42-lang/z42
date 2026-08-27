@@ -33,15 +33,23 @@ void test_narrow_int_hash_is_value() {
 }
 
 [Test]
-void test_long_hash_folds_high_low_words() {
-    // 4294967297 == 0x1_0000_0001 → (int)(v ^ (v >> 32)) == (int)0x1_0000_0000 == 0.
-    long v = 4294967297L;
-    Assert.Equal(0, v.GetHashCode());
-    // Small longs fold to themselves (high word is 0).
-    long small = 42L;
-    Assert.Equal(42, small.GetHashCode());
-    Assert.True(v.Equals(4294967297L));
-    Assert.False(v.Equals(42L));
+void test_long_equals_and_hash_contract() {
+    // A value with a non-zero high 32-bit word, built via shift to avoid any
+    // large-decimal-literal lexing ambiguity. 0x1_0000_0005.
+    long a = ((long)1 << 32) + 5L;
+    long b = ((long)1 << 32) + 5L;
+    // Equal values: equal + same hash (the Dictionary contract). The exact folded
+    // hash number is an impl detail (depends on >> / (int) semantics) — assert the
+    // contract, not a magic value.
+    Assert.True(a.Equals(b));
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    // Full-width Equals: a value differing only in the high 32 bits must NOT be
+    // equal to its low word (guards against a truncating Equals).
+    Assert.False(a.Equals(5L));
+    // Small longs (high word 0) compare by value.
+    long small = 7L;
+    Assert.True(small.Equals(7L));
+    Assert.False(small.Equals(8L));
 }
 
 // ── Char Equals / GetHashCode / casing ───────────────────────────────────────

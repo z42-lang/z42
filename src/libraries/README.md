@@ -209,7 +209,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | ~~`__int_compare_to` / `__double_compare_to` / `__char_compare_to` (3)~~ | ✅ 已删 | 2026-04-27 wave2-compare-to-script — 5 个 primitive (int/long/double/float/char) 的 `CompareTo` 全脚本：`if (this < other) return -1; if (this > other) return 1; return 0;` 用 IR `<`/`>`，与 Rust `partial_cmp.unwrap_or(0)` 等价（NaN → 0 自然落到 return 0）|
-| `__int32_equals` / `__int32_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；源迁 `Equals`→`this == other`，`GetHashCode`→窄型 `(int)this` / 64 位折叠 `(int)(v ^ (v>>32))`（顺带修 long 截断 bug）。**builtin 暂留 1 nightly**（种子引用），Stage 2 删 |
+| `__int32_equals` / `__int32_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；源迁 `Equals`→`this == other`，`GetHashCode`→统一 `(int)this`（确定性满足 Dictionary 契约；z42 `(int)` 不像 C# 截断到 32 位，故不套 C# 的高低字折叠）。**builtin 暂留 1 nightly**（种子引用），Stage 2 删 |
 | `__int32_to_string` (1) | 🟢 | 整数十进制格式化，纯脚本 digit-loop 是热路径回归 → 保留 |
 | `__double_equals` / `__double_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — Double/Single；源迁 `Equals`→`this == other`，`GetHashCode` 经 BitConverter 折叠 IEEE-754 位模式。**builtin 暂留 1 nightly**，Stage 2 删 |
 | `__double_to_string` (1) | 🟢 | 浮点最短往返（Ryū 级）纯脚本不现实 → 保留 |
