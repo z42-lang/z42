@@ -196,32 +196,4 @@ public class ProcessHandle : IDisposable {
     }
 }
 
-public static class ProcessHandleNative {
-    [Native("__process_handle_wait")]
-    public static extern object[] Wait(long slotId);
-
-    [Native("__process_handle_try_wait")]
-    public static extern object TryWait(long slotId);
-
-    [Native("__process_handle_kill")]
-    public static extern object Kill(long slotId, bool force);
-
-    [Native("__process_handle_write_stdin")]
-    public static extern object WriteStdin(long slotId, byte[] bytes);
-
-    [Native("__process_handle_close_stdin")]
-    public static extern object CloseStdin(long slotId);
-
-    [Native("__process_handle_pid")]
-    public static extern object Pid(long slotId);
-
-    [Native("__process_handle_drop")]
-    public static extern object Drop(long slotId);
-
-    // add-process-stream-stdio (2026-05-24): streaming pipe reads.
-    [Native("__process_handle_read_stdout")]
-    public static extern object ReadStdout(long slotId, byte[] buffer, int offset, int count);
-
-    [Native("__process_handle_read_stderr")]
-    public static extern object ReadStderr(long slotId, byte[] buffer, int offset, int count);
-}
+// (native 语义层已上移 z42.core: src/IO/ProcessNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
