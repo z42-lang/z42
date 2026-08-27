@@ -95,30 +95,5 @@ public class RwLock<T> {
     }
 }
 
-// Native binding sink — isolates [Native] declarations from the public
-// surface (same pattern as MutexNative / ChannelNative / ThreadNative).
-public static class RwLockNative {
-    [Native("__rwlock_new")]
-    public static extern long New(object initial);
-
-    [Native("__rwlock_read_acquire")]
-    public static extern object ReadAcquire(long slotId);
-
-    [Native("__rwlock_read_release")]
-    public static extern object ReadRelease(long slotId);
-
-    [Native("__rwlock_write_acquire")]
-    public static extern object WriteAcquire(long slotId);
-
-    [Native("__rwlock_write_store")]
-    public static extern object WriteStore(long slotId, object newValue);
-
-    [Native("__rwlock_write_release")]
-    public static extern object WriteRelease(long slotId);
-
-    [Native("__rwlock_try_read")]
-    public static extern object[] TryRead(long slotId);
-
-    [Native("__rwlock_try_write")]
-    public static extern object[] TryWrite(long slotId);
-}
+// RwLockNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
+// 见 organization.md「native 语义层 → core」（2026-08-27）。
