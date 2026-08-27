@@ -4,14 +4,16 @@
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| 0 | DRAFT + 6.5 确认 scope | ⬜ 待 User |
-| 1 | Pattern AST + PatternParser（syntax 层） | ⬜ |
-| 2 | switch/is 节点字段迁移 + 接线解析 | ⬜ |
-| 3 | BoundPattern + PatternBinder（bind 层） | ⬜ |
-| 4 | PatternEmitter（lowering，含 byte-identical 常量路径） | ⬜ |
-| 5 | switch-stmt / switch-expr / is 三位点 emit 接线 | ⬜ |
-| 6 | e2e 测试（三位点 × 各模式，interp+jit 双验） | ⬜ |
-| 7 | 验证 + 文档同步（book 机制页 + README） | ⬜ |
+| 0 | DRAFT + 6.5 确认 scope（User 裁定完整 A1：含属性模式 + is 扩展） | ✅ |
+| 1 | Pattern AST + PatternParser（syntax 层） | ✅ |
+| 2 | switch/is 节点字段迁移 + 接线解析 | ✅ |
+| 3 | BoundPattern + PatternBinder（bind 层） | ✅ |
+| 4 | PatternEmitter（lowering，含 byte-identical 常量路径） | ✅ |
+| 5 | switch-stmt / switch-expr / is 三位点 emit 接线 | ✅ |
+| 6 | e2e 测试（pattern_core switch + pattern_is，interp+jit 双验） | ✅ |
+| 7 | 验证（types 112/112·control_flow 16/16 回归绿；本机全 e2e/自举不动点交 CI）+ 文档（book 机制页 + SUMMARY + README） | ✅ |
+
+**落地**：commit c1a39b80（switch 引擎）+ 17a71cf5（is 扩展）。struct record 位置解构在实施期确认 defer（见 proposal Out）。
 
 ## 阶段 1: Pattern AST + PatternParser（syntax 层）
 

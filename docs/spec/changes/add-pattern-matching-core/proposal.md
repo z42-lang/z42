@@ -39,7 +39,8 @@
 
 **Out（后续 change）**：or-模式 `|` / `@` 绑定 / `..=` 范围 / 关系 `> 0`（A2）；解构声明 `Point(x,y) = p`（B）；
 穷尽性诊断（C）；`with`（D）；`init`-only（E）；元组（F）；**泛型 record 的位置/属性模式**（A1 只支持非泛型
-record 位置解构，泛型解构 defer）。
+record 位置解构，泛型解构 defer）；**struct record 的位置解构**（实施期确认 defer——struct 为字节 blob，位置
+解构需按 StructLayout 偏移读取，A1 位置模式限 record class 引用类型；非 record class 用位置模式报 E0402）。
 
 ## Scope（允许改动的文件）
 
