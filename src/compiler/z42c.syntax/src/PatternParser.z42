@@ -12,14 +12,47 @@ public sealed class PatternParser {
     private Parser _p;
     public PatternParser(Parser p) { this._p = p; }
 
-    // 解析一个模式（从头）。
+    // 解析一个模式（从头）——or-链层（A2）：primary ( `|` primary )*。仅 switch 臂用（is 走 _parsePrimaryPattern，
+    // 保持 `|` = 位或）。单 alt 不包 OrPattern 直接返回。
     internal Pattern _parsePattern() {
+        Pattern first = this._parsePrimaryPattern();
+        if (this._p._peek().Kind != TokenKind.Pipe) { return first; }
+        Span sp = first.Span;
+        Pattern[] alts = new Pattern[4];
+        alts[0] = first;
+        int ac = 1;
+        while (this._p._peek().Kind == TokenKind.Pipe) {
+            this._p._advance();
+            if (ac == alts.Length) {
+                Pattern[] big = new Pattern[alts.Length * 2];
+                int i = 0; while (i < ac) { big[i] = alts[i]; i = i + 1; }
+                alts = big;
+            }
+            alts[ac] = this._parsePrimaryPattern(); ac = ac + 1;
+        }
+        return new OrPattern(alts, ac, sp);
+    }
+
+    // 解析单个（非 or）模式。是 A1 的旧 _parsePattern 体 + A2 起始（关系 / `@` / `..=` 尾随）。
+    // is 结构化前瞻直接调此（不经 or-链）。
+    internal Pattern _parsePrimaryPattern() {
         Token t = this._p._peek();
         Span sp = t.Span;
         int k = t.Kind;
-        // 1. 字面量常量（含前导负号数字）
+        // A2. 关系模式起始：`> v` / `>= v` / `< v` / `<= v`（`<` 在模式位不与泛型歧义——泛型以标识符起始）
+        if (this._isRelOp(k)) {
+            this._p._advance();
+            Expr rv = this._parsePatternConst();
+            return new RelationalPattern(k, rv, sp);
+        }
+        // 1. 字面量常量（含前导负号数字）+ A2 `..=` 闭区间尾随
         if (this._isConstStart(k)) {
-            Expr e = this._p._exprP._parseExpr(0);
+            Expr e = this._parsePatternConst();
+            if (this._p._peek().Kind == TokenKind.DotDotEq) {
+                this._p._advance();
+                Expr hi = this._parsePatternConst();
+                return new RangePattern(e, hi, sp);
+            }
             return new ConstantPattern(e, sp);
         }
         // 2. 通配 `_`
@@ -29,6 +62,14 @@ public sealed class PatternParser {
             TypeExpr none = new NamedType("", new TypeExpr[0], 0, sp);
             return this._parsePropertyBody(none, false, sp);
         }
+        // A2. `@` 绑定：`name @ Sub`（须在「标识符走类型引导」之前判）
+        if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.At) {
+            string name = t.Text;
+            this._p._advance();   // ident
+            this._p._advance();   // @
+            Pattern sub = this._parsePrimaryPattern();
+            return new AtPattern(name, sub, sp);
+        }
         // 4. 类型/名字引导
         if (k == TokenKind.Identifier || this._p._isTypeKeyword(k)) {
             TypeExpr ty = this._p._typeP._parseType();
@@ -37,6 +78,17 @@ public sealed class PatternParser {
         // 5. 回退：报错 + 通配恢复
         this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected pattern", sp);
         return new WildcardPattern(sp);
+    }
+
+    // 模式内常量子表达式：bp 45（> Pipe 的 44）→ `_parseExpr` 停在 `|` 处，把 `|` 交回模式层作 or-链（A2）。
+    // 字面量 / 一元负号 / 点分名（`.` postfix 不受 minBp 限）仍完整解析。
+    private Expr _parsePatternConst() { return this._p._exprP._parseExpr(45); }
+
+    // 关系模式起始算子：> >= < <=（A2）。
+    private bool _isRelOp(int k) {
+        if (k == TokenKind.Gt || k == TokenKind.GtEq) { return true; }
+        if (k == TokenKind.Lt || k == TokenKind.LtEq) { return true; }
+        return false;
     }
 
     // 已解析出类型 ty 后，按后随 token 分流（供 _parsePattern 与 is 结构化前瞻复用）。
@@ -96,11 +148,13 @@ public sealed class PatternParser {
         return new PropertyPattern(ty, hasType, names, pats, fc, sp);
     }
 
-    // 非类型引导的模式起始（供 is 结构化前瞻）：字面量/负号/`_`/`{`。类型引导（标识符/类型关键字）不在此。
+    // 非类型引导的模式起始（供 is 结构化前瞻）：字面量/负号/`_`/`{`/关系算子（A2）。类型引导（标识符/类型关键字）不在此；
+    // `|`/`@` 不在此（or/`@` 不入 is —— is 保持 `|` = 位或、`@` 与类型引导冲突，见 design Decision 1）。
     internal bool _isPatternLead(int k) {
         if (this._isConstStart(k)) { return true; }
         if (k == TokenKind.Underscore) { return true; }
         if (k == TokenKind.LBrace) { return true; }
+        if (this._isRelOp(k)) { return true; }   // A2：`x is > 0` / `x is <= 5`
         return false;
     }
 

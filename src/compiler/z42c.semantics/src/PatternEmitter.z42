@@ -10,6 +10,7 @@ namespace Z42.Semantics;
 
 using Z42.IR;
 using Z42.Core;
+using Z42.Syntax;   // A2：关系模式 Op = TokenKind（Gt/GtEq/Lt/LtEq）派发
 
 public sealed class PatternEmitter {
     private EmitContext _ctx;
@@ -67,7 +68,59 @@ public sealed class PatternEmitter {
             this._emitFieldSeq(subj, qn, pp.HasType, pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
             return;
         }
+        if (pat is BoundOrPattern) {
+            // A2 or：依次尝试各 alt，前 n-1 失败落下一 alt 块，末 alt 失败落 failL。
+            BoundOrPattern op = pat as BoundOrPattern;
+            int i = 0;
+            while (i < op.Count - 1) {
+                string nextL = this._ctx.Fresh("pat_or");
+                this.EmitMatch(subj, op.Alts[i], matchL, nextL);
+                this._ctx.StartBlock(nextL);
+                i = i + 1;
+            }
+            this.EmitMatch(subj, op.Alts[op.Count - 1], matchL, failL);
+            return;
+        }
+        if (pat is BoundAtPattern) {
+            // A2 @：绑 Name 到 subj（别名，同裸绑定）+ 匹配子模式。fail 路不读该绑定，安全。
+            BoundAtPattern ap = pat as BoundAtPattern;
+            this._ctx.Locals.Put(ap.Name, subj);
+            this.EmitMatch(subj, ap.Sub, matchL, failL);
+            return;
+        }
+        if (pat is BoundRangePattern) {
+            // A2 ..=：Ge(subj, Lo) 短路 → Le(subj, Hi) → match/fail。
+            BoundRangePattern rp = pat as BoundRangePattern;
+            TypedReg loR = this._ee.Emit(rp.Lo);
+            TypedReg geR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new GeInstr(geR, subj, loR));
+            string midL = this._ctx.Fresh("pat_rng");
+            this._ctx.EndBlock(new BrCondTerm(geR, midL, failL));
+            this._ctx.StartBlock(midL);
+            TypedReg hiR = this._ee.Emit(rp.Hi);
+            TypedReg leR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new LeInstr(leR, subj, hiR));
+            this._ctx.EndBlock(new BrCondTerm(leR, matchL, failL));
+            return;
+        }
+        if (pat is BoundRelationalPattern) {
+            // A2 关系：subj <Op> Value → BrCond。
+            BoundRelationalPattern rp = pat as BoundRelationalPattern;
+            TypedReg vR = this._ee.Emit(rp.Value);
+            TypedReg rR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(this._relInstr(rp.Op, rR, subj, vR));
+            this._ctx.EndBlock(new BrCondTerm(rR, matchL, failL));
+            return;
+        }
         this._ctx.EndBlock(new BrTerm(failL));   // 兜底：不匹配
+    }
+
+    // 关系模式算子（TokenKind）→ 比较指令。默认回落 Gt（binder 已保证 Op ∈ {Gt,GtEq,Lt,LtEq}）。
+    private IrInstr _relInstr(int op, TypedReg dst, TypedReg a, TypedReg b) {
+        if (op == TokenKind.GtEq) { return new GeInstr(dst, a, b); }
+        if (op == TokenKind.Lt)   { return new LtInstr(dst, a, b); }
+        if (op == TokenKind.LtEq) { return new LeInstr(dst, a, b); }
+        return new GtInstr(dst, a, b);
     }
 
     // 类型测试（可选）+ 逐字段 field_get 直读 + 子模式递归。全字段通过 → matchL；任一失败 → failL。

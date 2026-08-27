@@ -24,8 +24,76 @@ public sealed class PatternBinder {
         if (pat is NamePattern)       { return this._bindName(pat as NamePattern, subjType, env); }
         if (pat is PositionalPattern) { return this._bindPositional(pat as PositionalPattern, env); }
         if (pat is PropertyPattern)   { return this._bindProperty(pat as PropertyPattern, env); }
+        if (pat is OrPattern)         { return this._bindOr(pat as OrPattern, subjType, env); }
+        if (pat is AtPattern)         { return this._bindAt(pat as AtPattern, subjType, env); }
+        if (pat is RangePattern)      { return this._bindRange(pat as RangePattern, subjType, env); }
+        if (pat is RelationalPattern) { return this._bindRelational(pat as RelationalPattern, subjType, env); }
         this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported pattern", pat.Span);
         return new BoundWildcardPattern(pat.Span);
+    }
+
+    // or-模式（A2）：逐 alt 绑定（同一 subjType）。alt 引入任何绑定 → 报错（A2 defer 绑定合流，见 design Decision 3）。
+    private BoundPattern _bindOr(OrPattern op, Z42Type subjType, TypeEnv env) {
+        BoundPattern[] alts = new BoundPattern[op.Count];
+        int i = 0;
+        while (i < op.Count) {
+            BoundPattern a = this.Bind(op.Alts[i], subjType, env);
+            if (PatternBinder._patternBinds(a)) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "or-pattern alternatives may not introduce bindings (A2)", op.Alts[i].Span);
+            }
+            alts[i] = a;
+            i = i + 1;
+        }
+        return new BoundOrPattern(alts, op.Count, op.Span);
+    }
+
+    // @ 绑定（A2）：绑 Name 到整个 subject（subjType），再匹配子模式（子模式绑定照常，@ 不涉合流）。
+    private BoundPattern _bindAt(AtPattern ap, Z42Type subjType, TypeEnv env) {
+        env.Define(ap.Name, subjType);
+        BoundPattern sub = this.Bind(ap.Sub, subjType, env);
+        return new BoundAtPattern(ap.Name, subjType, sub, ap.Span);
+    }
+
+    // 闭区间范围（A2）：Lo/Hi 常量；subject 须可全序（numeric | char）。
+    private BoundPattern _bindRange(RangePattern rp, Z42Type subjType, TypeEnv env) {
+        BoundExpr lo = this._tc._expr._bindExpr(rp.Lo, env);
+        BoundExpr hi = this._tc._expr._bindExpr(rp.Hi, env);
+        if (!TypeFacts.IsOrderable(subjType)) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "range pattern requires an orderable (numeric or char) subject, got " + subjType.Name(), rp.Span);
+        }
+        return new BoundRangePattern(lo, hi, rp.Span);
+    }
+
+    // 关系模式（A2）：Value 常量；subject 须可全序（numeric | char）。
+    private BoundPattern _bindRelational(RelationalPattern rp, Z42Type subjType, TypeEnv env) {
+        BoundExpr v = this._tc._expr._bindExpr(rp.Value, env);
+        if (!TypeFacts.IsOrderable(subjType)) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "relational pattern requires an orderable (numeric or char) subject, got " + subjType.Name(), rp.Span);
+        }
+        return new BoundRelationalPattern(rp.Op, v, rp.Span);
+    }
+
+    // 递归判定一个已绑定模式是否引入任何绑定（or 无绑定校验用）。
+    private static bool _patternBinds(BoundPattern bp) {
+        if (bp is BoundBindingPattern) { return true; }
+        if (bp is BoundAtPattern)      { return true; }
+        if (bp is BoundTypePattern)    { return (bp as BoundTypePattern).Bind != ""; }
+        if (bp is BoundPositionalPattern) {
+            BoundPositionalPattern pp = bp as BoundPositionalPattern;
+            int i = 0; while (i < pp.ElemCount) { if (PatternBinder._patternBinds(pp.Elems[i])) { return true; } i = i + 1; }
+            return false;
+        }
+        if (bp is BoundPropertyPattern) {
+            BoundPropertyPattern pp = bp as BoundPropertyPattern;
+            int i = 0; while (i < pp.FieldCount) { if (PatternBinder._patternBinds(pp.Pats[i])) { return true; } i = i + 1; }
+            return false;
+        }
+        if (bp is BoundOrPattern) {
+            BoundOrPattern op = bp as BoundOrPattern;
+            int i = 0; while (i < op.Count) { if (PatternBinder._patternBinds(op.Alts[i])) { return true; } i = i + 1; }
+            return false;
+        }
+        return false;
     }
 
     // 名字/类型模式：`T x`（恒类型+绑定）/ `T`（类型）/ 点分名（常量）/ 单裸名（绑定）。

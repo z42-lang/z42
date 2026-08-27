@@ -75,3 +75,41 @@ public sealed class PropertyPattern : Pattern {
         return s + ")";
     }
 }
+
+// or-模式（A2）：P0 | P1 | ...，任一匹配即匹配。仅出现在 switch 臂（is 保持 `|` = 位或）。
+// 约束（PatternBinder 校验）：子模式不得引入任何绑定（A2 defer 各 alt 绑定集一致性 + 合流 phi）。
+public sealed class OrPattern : Pattern {
+    public Pattern[] Alts;
+    public int       Count;
+    public OrPattern(Pattern[] alts, int count, Span span) { this.Span = span; this.Alts = alts; this.Count = count; }
+    public override string Dump() {
+        string s = "(or";
+        int i = 0;
+        while (i < this.Count) { s = s + " " + this.Alts[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
+// @ 绑定（A2）：name @ P —— 绑 name 到整个 subject 且 subject 须匹配子模式 P。子模式 Sub 不含顶层 or。
+public sealed class AtPattern : Pattern {
+    public string  Name;
+    public Pattern Sub;
+    public AtPattern(string name, Pattern sub, Span span) { this.Span = span; this.Name = name; this.Sub = sub; }
+    public override string Dump() { return "(at " + this.Name + " " + this.Sub.Dump() + ")"; }
+}
+
+// 闭区间范围模式（A2）：lo ..= hi —— subj >= lo && subj <= hi（含端点）。Lo/Hi 为常量 Expr。
+public sealed class RangePattern : Pattern {
+    public Expr Lo;
+    public Expr Hi;
+    public RangePattern(Expr lo, Expr hi, Span span) { this.Span = span; this.Lo = lo; this.Hi = hi; }
+    public override string Dump() { return "(range " + this.Lo.Dump() + " ..= " + this.Hi.Dump() + ")"; }
+}
+
+// 关系模式（A2）：> v / >= v / < v / <= v —— subj <op> v。Op = TokenKind（Gt/GtEq/Lt/LtEq）。V 为常量 Expr。
+public sealed class RelationalPattern : Pattern {
+    public int  Op;
+    public Expr Value;
+    public RelationalPattern(int op, Expr value, Span span) { this.Span = span; this.Op = op; this.Value = value; }
+    public override string Dump() { return "(rel " + this.Op.ToString() + " " + this.Value.Dump() + ")"; }
+}

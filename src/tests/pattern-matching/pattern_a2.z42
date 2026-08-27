@@ -1,0 +1,171 @@
+namespace Demo;
+
+using Std;
+
+// 模式匹配 A2 e2e 自检：or `|` / `@` 绑定 / `..=` 闭区间 / 关系模式，跨 switch-stmt/switch-expr（+ is 关系/范围）。
+// 绑定用裸标识符（无 var）；所有局部显式类型。纯 Assert，空 stdout。
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+class Animal { }
+class Cat : Animal { }
+class Dog : Animal { }
+class Fish : Animal { }
+
+// or-模式 switch-expr（多常量）
+string bucket(int n) {
+    return n switch {
+        1 | 2 | 3 => "low",
+        4 | 5 | 6 => "mid",
+        _ => "high"
+    };
+}
+
+// or-模式 switch-expr（多类型，无绑定）
+string sound(Animal a) {
+    return a switch {
+        Cat | Dog => "pet",
+        Fish => "fish",
+        _ => "wild"
+    };
+}
+
+// 关系模式 switch-expr
+string sign(int n) {
+    return n switch {
+        < 0 => "neg",
+        > 0 => "pos",
+        _ => "zero"
+    };
+}
+
+// 范围 switch-expr（含端点）
+string grade(int score) {
+    return score switch {
+        90 ..= 100 => "A",
+        80 ..= 89 => "B",
+        0 ..= 79 => "C",
+        _ => "?"
+    };
+}
+
+// or + range 混合 switch-expr
+string level(int n) {
+    return n switch {
+        1 ..= 5 | 10 ..= 15 => "in",
+        _ => "out"
+    };
+}
+
+void Main() {
+    // ── or 多常量（switch-expr）─────────────────────────────
+    Assert.Equal("low", bucket(2));
+    Assert.Equal("mid", bucket(5));
+    Assert.Equal("high", bucket(9));
+
+    // ── or 多类型（switch-expr，无绑定）─────────────────────
+    Assert.Equal("pet", sound(new Cat()));
+    Assert.Equal("pet", sound(new Dog()));
+    Assert.Equal("fish", sound(new Fish()));
+
+    // ── or（switch-stmt）───────────────────────────────────
+    int x = 5;
+    string r = "";
+    switch (x) {
+        case 1 | 3 | 5 | 7 | 9:
+            r = "odd";
+            break;
+        case 0 | 2 | 4 | 6 | 8:
+            r = "even";
+            break;
+        default:
+            r = "?";
+            break;
+    }
+    Assert.Equal("odd", r);
+
+    // ── 关系模式（switch-expr）──────────────────────────────
+    Assert.Equal("neg", sign(-3));
+    Assert.Equal("pos", sign(7));
+    Assert.Equal("zero", sign(0));
+
+    // ── 关系模式 >= / <=（switch-stmt）──────────────────────
+    int t = 100;
+    string tc = "";
+    switch (t) {
+        case >= 100:
+            tc = "hot";
+            break;
+        case <= 0:
+            tc = "cold";
+            break;
+        default:
+            tc = "warm";
+            break;
+    }
+    Assert.Equal("hot", tc);
+
+    // ── ..= 闭区间（含端点）─────────────────────────────────
+    Assert.Equal("A", grade(90));    // lo 端点
+    Assert.Equal("A", grade(100));   // hi 端点
+    Assert.Equal("B", grade(85));
+    Assert.Equal("C", grade(0));
+
+    // char 范围
+    char c = 'k';
+    string cc = "";
+    switch (c) {
+        case 'a' ..= 'm':
+            cc = "first-half";
+            break;
+        case 'n' ..= 'z':
+            cc = "second-half";
+            break;
+        default:
+            cc = "other";
+            break;
+    }
+    Assert.Equal("first-half", cc);
+
+    // ── or + range 混合 ────────────────────────────────────
+    Assert.Equal("in", level(3));
+    Assert.Equal("in", level(12));
+    Assert.Equal("out", level(8));
+
+    // ── @ 绑定：绑整体 + 解构（switch-stmt）─────────────────
+    Point pt = new Point(0, 7);
+    string ps = "";
+    switch (pt) {
+        case whole @ Point(0, y):
+            ps = whole.X.ToString() + "," + whole.Y.ToString() + ";y=" + y.ToString();
+            break;
+        default:
+            ps = "no";
+            break;
+    }
+    Assert.Equal("0,7;y=7", ps);
+
+    // @ 嵌套（子模式内 @）
+    Line ln = new Line(new Point(1, 2), new Point(3, 4));
+    int ax = -1;
+    int ay = -1;
+    switch (ln) {
+        case Line(a @ Point(_, _), _):
+            ax = a.X;
+            ay = a.Y;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(1, ax);
+    Assert.Equal(2, ay);
+
+    // ── is 关系 / 范围（无 or/@，`|` 保持位或）───────────────
+    int v = 42;
+    Assert.True(v is > 0);
+    Assert.False(v is < 0);
+    Assert.True(v is >= 42);
+    Assert.True(v is 1 ..= 100);
+    Assert.False(v is 1 ..= 10);
+}
