@@ -168,6 +168,7 @@ public sealed class ExprEmitter {
         if (e is BoundNew) { return this._call._emitNew(e as BoundNew); }
         if (e is BoundIndex) { return this._access._emitIndex(e as BoundIndex); }
         if (e is BoundIsExpr) { return this._top._emitIs(e as BoundIsExpr); }
+        if (e is BoundIsPatternExpr) { return this._top._emitIsPattern(e as BoundIsPatternExpr); }
         if (e is BoundTypeof) { return this._top._emitTypeof(e as BoundTypeof); }
         if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
         if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }

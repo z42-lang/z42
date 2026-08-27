@@ -96,6 +96,14 @@ public sealed class PatternParser {
         return new PropertyPattern(ty, hasType, names, pats, fc, sp);
     }
 
+    // 非类型引导的模式起始（供 is 结构化前瞻）：字面量/负号/`_`/`{`。类型引导（标识符/类型关键字）不在此。
+    internal bool _isPatternLead(int k) {
+        if (this._isConstStart(k)) { return true; }
+        if (k == TokenKind.Underscore) { return true; }
+        if (k == TokenKind.LBrace) { return true; }
+        return false;
+    }
+
     // 常量起始 token：字面量（含负号数字）。裸标识符/点分名不在此（走类型引导路 → NamePattern，bind 期定性）。
     private bool _isConstStart(int k) {
         if (k == TokenKind.IntLiteral || k == TokenKind.FloatLiteral) { return true; }

@@ -313,6 +313,7 @@ public sealed class ExprTyper {
         }
         if (e is NullCondMemberExpr) { return this._bindNullCondMember(e as NullCondMemberExpr, env); }
         if (e is IsExpr) { return this._typeop._bindIsExpr(e as IsExpr, env); }
+        if (e is IsPatternExpr) { return this._typeop._bindIsPatternExpr(e as IsPatternExpr, env); }
         if (e is TypeofExpr) { return this._typeop._bindTypeofExpr(e as TypeofExpr, env); }
         if (e is AsExpr) { return this._typeop._bindAsExpr(e as AsExpr, env); }
         if (e is CastExpr) { return this._typeop._bindCastExpr(e as CastExpr, env); }

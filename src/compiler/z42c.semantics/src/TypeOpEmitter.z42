@@ -31,6 +31,25 @@ public sealed class TypeOpEmitter {
         return dst;
     }
 
+    // x is <structural pattern> → bool（模式匹配核心 A1）：经 PatternEmitter 匹配到 match/fail 块，
+    // 收口成布尔结果寄存器。绑定在 match 路径写入（Locals），true 分支支配其使用（无害于不匹配路径）。
+    internal TypedReg _emitIsPattern(BoundIsPatternExpr e) {
+        TypedReg subj = this._ee.Emit(e.E);
+        TypedReg result = this._ctx.Alloc(IrType.Bool);
+        string matchL = this._ctx.Fresh("is_match");
+        string failL = this._ctx.Fresh("is_fail");
+        string endL = this._ctx.Fresh("is_end");
+        this._ee._pat.EmitMatch(subj, e.Pat, matchL, failL);
+        this._ctx.StartBlock(matchL);
+        this._ctx.Emit(new ConstBoolInstr(result, true));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(failL);
+        this._ctx.Emit(new ConstBoolInstr(result, false));
+        this._ctx.EndBlock(new BrTerm(endL));
+        this._ctx.StartBlock(endL);
+        return result;
+    }
+
     // typeof(T) → Typeof 指令（reflection Std.Type 句柄）。FQ 名镜像 C# Z42TypeName。
     internal TypedReg _emitTypeof(BoundTypeof e) {
         // add-generic-methods：方法级 typeof(T) → MethodTypeArgInsn 具体化（读 frame.method_type_args）。

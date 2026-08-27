@@ -79,4 +79,11 @@ public sealed class TypeOpTyper {
             if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
             return new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
     }
+
+    // `x is <structural pattern>`（模式匹配核心 A1）：绑定模式（同 env，绑定漏入 true 分支，同 _bindIf 语义）。
+    internal BoundExpr _bindIsPatternExpr(IsPatternExpr ix, TypeEnv env) {
+            BoundExpr operand = this._et._bindExpr(ix.E, env);
+            BoundPattern pat = this._tc._pattern.Bind(ix.Pat, operand.Type(), env);
+            return new BoundIsPatternExpr(operand, pat, ix.Span);
+    }
 }

@@ -290,6 +290,15 @@ public sealed class IsExpr : Expr {
     public override string Dump() { return "(is " + this.E.Dump() + " " + this.Type.Dump() + ")"; }
 }
 
+// `x is <structural pattern>`（模式匹配核心 A1）：位置/属性/常量/通配等富模式作 is 右侧。
+// 老 `x is T` / `x is T v` 仍走 IsExpr（byte-identical）。绑定在 true 分支可见（同 env）。
+public sealed class IsPatternExpr : Expr {
+    public Expr    E;
+    public Pattern Pat;
+    public IsPatternExpr(Expr e, Pattern pat, Span span) { this.Span = span; this.E = e; this.Pat = pat; }
+    public override string Dump() { return "(is-pat " + this.E.Dump() + " " + this.Pat.Dump() + ")"; }
+}
+
 // switch 表达式的单个 arm：`pattern => body` 或 `_ => body`（HasPattern=false）。
 public sealed class SwitchArm {
     public Span    Span;

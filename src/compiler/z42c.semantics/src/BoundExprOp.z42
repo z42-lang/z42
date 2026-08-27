@@ -167,6 +167,16 @@ public sealed class BoundIsExpr : BoundExpr {
     public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
 }
 
+// `x is <structural pattern>`（模式匹配核心 A1）：BoundPattern 作 is 右侧，结果 bool。绑定漏入 true 分支。
+public sealed class BoundIsPatternExpr : BoundExpr {
+    public BoundExpr    E;
+    public BoundPattern Pat;
+    private Z42Type _type;
+    public BoundIsPatternExpr(BoundExpr e, BoundPattern pat, Span span) { this.Span = span; this.E = e; this.Pat = pat; this._type = Z42ClassType.Builtin("bool"); }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(is-pat " + this.E.Dump() + " :bool)"; }
+}
+
 // 转换（1D）：x as T → T（结果类型 = 目标）。
 // typeof(T)（make-typeof-return-type）。Target=typeof 内的解析类型；结果类型=Std.Type。
 // FQ 运行期名由 ExprEmitter 算（prim→name / array→elem[] / class·iface→QualifyClass）。
