@@ -187,13 +187,15 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | ~~`__str_split` / `__str_join` (2)~~ | ✅ 已删 | 2026-04-27 wave1-string-script — 脚本基于 `CharAt` + `Substring` 两遍扫描 |
 | ~~`__str_concat`~~ | ✅ 已删 | 2026-04-27 wave3a-str-concat-script — `Std.String.Concat` 用 `+` 即 IR StrConcatInstr |
 | ~~`__str_format`~~ | ✅ 已删 | 2026-04-27 wave3b-str-format-script — `Std.String.Format` 用链式 `Replace` + `Convert.ToString`。原计划等 IFormattable，实测无需（builtin 只做 `{0}` 字面替换） |
-| `__str_to_string` / `__str_equals` / `__str_hash_code` / `__str_compare_to` | 🟢 | Object 协议方法，VM ABI 绑定 |
+| ~~`__str_to_string`~~ | ✅ 已删 | 2026-08-27 shrink-primitive-native-interop — 旧 builtin 只是原样返回自身，迁脚本 `return this;` |
+| `__str_equals` / `__str_hash_code` / `__str_compare_to` | 🟢 | Object 协议方法（`__str_equals` 类型宽容处理 null/装箱），VM ABI 绑定 → 保留 |
 
 ### Char — 3 项
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
-| `__char_is_whitespace` / `__char_to_lower` / `__char_to_upper` | 🟢 | Unicode 分类表，BCL/Rust 同样 native |
+| `__char_is_whitespace` | 🟢 | Rust `char::is_whitespace()` 真 Unicode 分类，脚本无法等价 → 保留 |
+| ~~`__char_to_lower` / `__char_to_upper` (2)~~ | ✅ 已删 | 2026-08-27 shrink-primitive-native-interop — 旧实现是 `to_ascii_lowercase/uppercase`（纯 ASCII，非 Unicode），迁 ASCII 脚本见 [Primitives/Char.z42](z42.core/src/Primitives/Char.z42) |
 
 ### Convert / Parse — 4 项
 
@@ -207,10 +209,13 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | ~~`__int_compare_to` / `__double_compare_to` / `__char_compare_to` (3)~~ | ✅ 已删 | 2026-04-27 wave2-compare-to-script — 5 个 primitive (int/long/double/float/char) 的 `CompareTo` 全脚本：`if (this < other) return -1; if (this > other) return 1; return 0;` 用 IR `<`/`>`，与 Rust `partial_cmp.unwrap_or(0)` 等价（NaN → 0 自然落到 return 0）|
-| `__int_equals` / `__int_hash_code` / `__int_to_string` (3) | 🟢 | Object 协议 ABI |
-| `__double_equals` / `__double_hash_code` / `__double_to_string` (3) | 🟢 | 同上 |
+| ~~`__int32_equals` / `__int32_hash_code` (2)~~ | ✅ 已删 | 2026-08-27 shrink-primitive-native-interop — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；`Equals`→`this == other`，`GetHashCode`→窄型 `(int)this` / 64 位折叠 `(int)(v ^ (v>>32))`（顺带修 long 截断 bug）|
+| `__int32_to_string` (1) | 🟢 | 整数十进制格式化，纯脚本 digit-loop 是热路径回归 → 保留 |
+| ~~`__double_equals` / `__double_hash_code` (2)~~ | ✅ 已删 | 2026-08-27 shrink-primitive-native-interop — Double/Single；`Equals`→`this == other`，`GetHashCode` 经 BitConverter 折叠 IEEE-754 位模式 |
+| `__double_to_string` (1) | 🟢 | 浮点最短往返（Ryū 级）纯脚本不现实 → 保留 |
 | ~~`__bool_equals` / `__bool_hash_code` / `__bool_to_string` (3)~~ | ✅ 已删 | 2026-04-27 wave1-bool-script — 脚本实现见 [z42.core/src/Bool.z42](z42.core/src/Bool.z42)，`ToString` 输出 `"true"/"false"` 小写（与 Rust 一致）|
-| `__char_equals` / `__char_hash_code` / `__char_to_string` (3) | 🟢 | Char primitive ABI |
+| ~~`__char_equals` / `__char_hash_code` (2)~~ | ✅ 已删 | 2026-08-27 shrink-primitive-native-interop — `Equals`→`this == other`，`GetHashCode`→`(int)this` |
+| `__char_to_string` (1) | 🟢 | 保留 native（char→单字符 string）|
 | `__str_compare_to`（已计入 String 区）| — | — |
 
 ### Assert — 0 项（2026-04-27 wave1-assert-script 全部迁出）
@@ -250,8 +255,9 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Wave 2（codegen 特化 → 实际纯脚本）| 3 | ✅ 完成（wave2-compare-to-script）。原计划 codegen 特化，实测 `<`/`>` 走 IR cmp+jmp 已足够 |
 | Wave 3a（str_concat → 脚本）| 1 | ✅ 完成（wave3a-str-concat-script），原计划 codegen，实测 `+` 已是 IR 指令 |
 | Wave 3b（str_format → 脚本）| 1 | ✅ 完成（wave3b-str-format-script），用 Replace + Convert.ToString 替代；IFormattable 等真正需要格式说明符再独立 spec |
-| 🟢 Primitive 必须保留 | ~42 | 与 BCL/Rust 标杆一致 |
-| **当前总计** | **~43** | **长期目标 ~45 ✅ 超越** |
+| Wave 4（primitive Eq/Hash/casing/str-ToString → 脚本）| 9 | ✅ 完成（shrink-primitive-native-interop）。纠正「Object 协议成员必须保留」的错误判据——判据应是「native 实现是否平凡」（bool 早已迁脚本即先例）。删 `__int32_equals`/`__int32_hash_code`/`__double_equals`/`__double_hash_code`/`__char_equals`/`__char_hash_code`/`__char_to_lower`/`__char_to_upper`/`__str_to_string` |
+| 🟢 Primitive 必须保留 | ~33 | ToString/Parse/UTF-8 intrinsic/libm/BitConverter/Object 协议/反射 等，与 BCL/Rust 标杆一致 |
+| **当前总计** | **~34** | 从 ~43 再降 9（Wave 4）|
 
 ### Wave 进度
 
@@ -266,3 +272,4 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Wave 2 | ✅ 已完成（wave2-compare-to-script）| 2026-04-27 |
 | Wave 3a str_concat | ✅ 已完成（wave3a-str-concat-script）| 2026-04-27 |
 | Wave 3b str_format | ✅ 已完成（wave3b-str-format-script）| 2026-04-27 |
+| Wave 4 primitive Eq/Hash/casing/str-ToString | ✅ 已完成（shrink-primitive-native-interop）| 2026-08-27 |

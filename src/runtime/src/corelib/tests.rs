@@ -122,7 +122,11 @@ fn from_chars_empty_array() {
     assert_eq!(exec_builtin(&c, "__str_from_chars", &[arr]).unwrap(), s(""));
 }
 
-// ── __char_is_whitespace / __char_to_lower / __char_to_upper ─────────────────
+// ── __char_is_whitespace ─────────────────────────────────────────────────────
+// shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
+// builtins removed (migrated to ASCII script Std.Char.ToLower/.ToUpper). Their
+// behavior is now covered by the z42 stdlib test
+// z42.core/tests/primitive_protocol_script.z42 (test_char_ascii_casing).
 
 #[test]
 fn char_is_whitespace_ascii() {
@@ -131,23 +135,6 @@ fn char_is_whitespace_ascii() {
     assert_eq!(exec_builtin(&c, "__char_is_whitespace", &[Value::Char('\t')]).unwrap(), Value::Bool(true));
     assert_eq!(exec_builtin(&c, "__char_is_whitespace", &[Value::Char('\n')]).unwrap(), Value::Bool(true));
     assert_eq!(exec_builtin(&c, "__char_is_whitespace", &[Value::Char('a')]).unwrap(), Value::Bool(false));
-}
-
-#[test]
-fn char_to_lower_ascii_only() {
-    let c = ctx();
-    assert_eq!(exec_builtin(&c, "__char_to_lower", &[Value::Char('A')]).unwrap(), Value::Char('a'));
-    assert_eq!(exec_builtin(&c, "__char_to_lower", &[Value::Char('Z')]).unwrap(), Value::Char('z'));
-    assert_eq!(exec_builtin(&c, "__char_to_lower", &[Value::Char('1')]).unwrap(), Value::Char('1'));
-    assert_eq!(exec_builtin(&c, "__char_to_lower", &[Value::Char('a')]).unwrap(), Value::Char('a'));
-}
-
-#[test]
-fn char_to_upper_ascii_only() {
-    let c = ctx();
-    assert_eq!(exec_builtin(&c, "__char_to_upper", &[Value::Char('a')]).unwrap(), Value::Char('A'));
-    assert_eq!(exec_builtin(&c, "__char_to_upper", &[Value::Char('z')]).unwrap(), Value::Char('Z'));
-    assert_eq!(exec_builtin(&c, "__char_to_upper", &[Value::Char('!')]).unwrap(), Value::Char('!'));
 }
 
 // ── dispatch table coverage ───────────────────────────────────────────────────

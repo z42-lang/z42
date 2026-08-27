@@ -13,9 +13,12 @@ namespace Std;
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct UInt64 : IComparable<u64>, IEquatable<u64>, INumber<u64> {
     [Native("__uint64_parse")]     public static extern u64 Parse(string s);
-    [Native("__int32_equals")]     public extern bool Equals(u64 other);
-    [Native("__int32_hash_code")]  public extern int GetHashCode();
     [Native("__int32_to_string")]  public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    // hash 按 C# UInt64.GetHashCode 折叠高低 32 位（`>>` 对 u64 是逻辑移位）。
+    public bool Equals(u64 other) { return this == other; }
+    public int GetHashCode() { return (int)(this ^ (this >> 32)); }
 
     public int CompareTo(u64 other) {
         if (this < other) return -1;

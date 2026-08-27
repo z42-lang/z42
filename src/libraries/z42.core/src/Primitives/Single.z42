@@ -7,9 +7,12 @@ namespace Std;
 // VM represents both float and double as Value::F64 at runtime; builtin names reuse
 // the `__double_*` implementations.
 public struct Single : IComparable<float>, IEquatable<float>, INumber<float> {
-    [Native("__double_equals")]     public extern bool Equals(float other);
-    [Native("__double_hash_code")]  public extern int GetHashCode();
     [Native("__double_to_string")]  public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    // Equals 原生 `==`；hash 用 32 位 IEEE-754 位模式（对齐 C# Single.GetHashCode）。
+    public bool Equals(float other) { return this == other; }
+    public int GetHashCode() { return BitConverter.SingleToBits(this); }
 
     // 2026-04-27 wave2-compare-to-script: 与 Double.CompareTo 同语义（NaN → 0）。
     public int CompareTo(float other) {

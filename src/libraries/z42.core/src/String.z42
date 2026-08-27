@@ -36,7 +36,11 @@ public static class String : IComparable<string>, IEquatable<string> {
 
     // ── Object protocol overrides ────────────────────────────────────────────
 
-    [Native("__str_to_string")] public extern string ToString();
+    // shrink-primitive-native-interop (2026-08-27): ToString 迁纯脚本 —— 旧
+    // __str_to_string 只是原样返回自身（`s.to_owned()`）。Equals(object?) 保留
+    // [Native]：__str_equals 是类型宽容的（处理 null / 非 string 装箱值），纯脚本
+    // 表达不划算。
+    public string ToString() { return this; }
     [Native("__str_equals")]    public extern bool   Equals(object? other);
     [Native("__str_equals")]    public extern bool   Equals(string other);
     [Native("__str_compare_to")] public extern int   CompareTo(string other);
