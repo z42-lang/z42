@@ -108,9 +108,11 @@ public sealed class ExprParser {
             if (k == TokenKind.Is && minBp <= 60) {
                 this._p._advance();
                 int nk = this._p._peek().Kind;
-                // 结构化前瞻：字面量/负号/_/{ → 直接结构化模式（老 is 从不以这些开头）
+                // 结构化前瞻：字面量/负号/_/{/关系算子 → 直接结构化模式（老 is 从不以这些开头）。
+                // 用 _parsePrimaryPattern（非 or-链）：is 内 `|` 保持位或语义（`x is 1 | 2` = `(x is 1) | 2`），
+                // or/`@` 不入 is（design Decision 1）。
                 if (this._p._patP._isPatternLead(nk)) {
-                    Pattern pat = this._p._patP._parsePattern();
+                    Pattern pat = this._p._patP._parsePrimaryPattern();
                     left = new IsPatternExpr(left, pat, left.Span);
                     continue;
                 }

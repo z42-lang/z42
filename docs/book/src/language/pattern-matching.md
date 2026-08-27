@@ -4,8 +4,8 @@ z42 的 `switch`（语句 + 表达式）与 `is` 支持一套统一的**结构�
 **record 位置解构**、属性、嵌套、裸绑定，配 `if` 守卫。record 是积类型数据载体，模式匹配是消费它的
 天然方式——`Point(x, y)` 直接按主构造器声明序绑定字段，**无需 `Deconstruct` 方法、无需 `out` 参数**。
 
-> 本页对应 A1（结构化核心）。or-模式 `|` / `@` 绑定 / `..=` 范围 / 关系模式（A2）、解构声明
-> `Point(x,y) = p`（B）、穷尽性诊断（C）、`with`/`init`（D/E）为后续独立特性。
+> 本页对应 A1（结构化核心）+ A2（组合子：or-模式 `|` / `@` 绑定 / `..=` 闭区间 / 关系模式 `> 0`）。
+> 解构声明 `Point(x,y) = p`（B）、穷尽性诊断（C）、`with`/`init`（D/E）为后续独立特性。
 
 ## 模式文法
 
@@ -19,6 +19,12 @@ Pattern :=
   | <Type> ( <Pattern>, ... )      // 位置模式（record 解构）：Point(x, y) / Point(0, y)
   | <Type>? { <field>: <Pat>, ...} // 属性模式：Point { X: 0, Y: y } / { X: 0 }
                                    // 嵌套：Line(Point(x, _), _)
+  // ── A2 组合子 ──
+  | <Pat> | <Pat> | ...            // or-模式（仅 switch 臂）：1 | 2 | 3 / Circle | Square
+  | <ident> @ <Pat>                // @ 绑定：p @ Point(0, y)（绑整体 + 解构）
+  | <const> ..= <const>            // 闭区间范围：1 ..= 5 / 'a' ..= 'z'（含端点）
+  | > <const> | >= <const>         // 关系模式：> 0 / <= 100
+  | < <const> | <= <const>
 ```
 
 三个应用位点共用同一套文法：
@@ -69,6 +75,55 @@ if (obj is Point(a, b)) { use(a, b); }
 
 > A1 位置解构限 **record class**（引用类型）；struct record 的位置解构（字节偏移读取）为后续特性。
 
+## A2 组合子：or / `@` / `..=` / 关系
+
+A2 在 A1 引擎上加四个 Rust 组合子，全部**纯编译期 lowering 到既有 IR**（新增 `Ge`/`Le`/`Gt`/`Lt` 比较），
+无格式 bump、无新关键字（只加 `@` / `..=` 两个词法记号）。
+
+```z42
+// or-模式：任一 alt 匹配即匹配（仅 switch 臂；is 内 `|` 仍是位或）
+switch (n) {
+    case 1 | 2 | 3:        r = "low";  break;
+    case >= 90:            r = "A";    break;   // 关系模式
+    case 10 ..= 20:        r = "teen"; break;   // 闭区间（含端点）
+}
+string s = shape switch {
+    Circle | Square => "closed",                // 多类型 or（无绑定）
+    _               => "open"
+};
+
+// @ 绑定：绑整体 + 解构
+switch (pt) {
+    case whole @ Point(0, y):  use(whole, y);  break;   // whole=整点, y=Y
+}
+
+// is 支持关系 / 范围（不支持 or / @）
+if (v is > 0) { ... }
+if (v is 1 ..= 100) { ... }
+```
+
+| 组合子 | 语法 | 语义 | 位点 |
+|--------|------|------|------|
+| or | `P1 \| P2 \| ...` | 任一子模式匹配即匹配 | 仅 switch 臂 |
+| `@` 绑定 | `name @ P` | 绑 `name` 到整个 subject **且** 匹配子模式 `P` | 仅 switch 臂 |
+| `..=` 范围 | `lo ..= hi` | `subj >= lo && subj <= hi`（含端点）；仅可全序基元 | switch 臂 + `is` |
+| 关系 | `> v` / `>= v` / `< v` / `<= v` | `subj <op> v`；仅可全序基元 | switch 臂 + `is` |
+
+### A2 的三条边界（设计取舍）
+
+- **or / `@` 不入 `is`**：`is` 表达式里 `x is Circle | flags` 的 `|` 恒解析为**位或**（`(x is Circle) | flags`，
+  与 C# 一致——C# 用 `or` 关键字而非 `|`）；`@` 与 `is` 的类型引导冲突。故 or / `@` 只在 `:` / `=>` 定界的
+  switch 臂内。`..=` / 关系起始无歧义，`is` 收之。
+- **or 的子模式不引入绑定**：`case Circle(r) | Square(r):` 报错。各 alt 绑定集一致性 + 合流寄存器 phi 是独立
+  复杂度，A2 的 or 只覆盖多常量 / 多类型 / 多区间等无绑定组合（占绝大多数）。带绑定 or 为后续。
+- **`..=` / 关系仅可全序基元**（numeric | char）：subject 静态类型非可比较基元 → 诊断。
+
+### or 与常量吞 `|` 的解析处理
+
+模式内常量子表达式在**绑定力 45（> 位或 `|` 的 44）**解析，使 `case 1 | 2` 的 `_parseExpr` 停在 `|` 处、
+把 `|` 交回模式层作 or-链——否则常量解析会把 `1 | 2` 贪吃成位或表达式 `1|2`。字面量 / 一元负号 / 点分名
+（`.` 为 postfix 不受绑定力限）仍完整解析。
+
 ## 实现原理
 
 模式横跨编译器三层，每层一族模式节点，用一条递归下降 lowering 收口到既有 IR。
@@ -96,6 +151,10 @@ flowchart LR
 | 类型 `T` / `T x` | `IsInstance(subj, T)` | `T x`：命中后 `x ← as_cast(subj, T)` |
 | 位置 `T(p_i)` | `IsInstance(subj, T)` ∧ 逐字段 | `field_get subj.f_i` → 递归子模式 |
 | 属性 `T{F:p}` | `IsInstance(subj, T)`（T 可省）∧ 按名 | `field_get subj.F` → 递归子模式 |
+| or `P1\|P2`（A2） | 依次试 alt：前 n-1 失败落下一 alt，末 alt 失败落 `failL` | 子模式无绑定 |
+| `@`（A2） | 恒真 + 匹配子模式 | `name ← subj`（别名，同裸绑定） |
+| `..=`（A2） | `Ge(subj, lo)` 短路 → `Le(subj, hi)` | — |
+| 关系（A2） | `Gt/Ge/Lt/Le(subj, v)` | — |
 
 三位点的**外壳**编排 match→guard→body/result：`switch` 是 case 链（失败落下一 case），`is` 收口成
 布尔结果寄存器（绑定在 match 路径写入，true 分支支配其使用）。
@@ -118,7 +177,7 @@ flowchart LR
 
 ## Deferred（后续独立特性）
 
-- or-模式 `|` / `@` 绑定 / `..=` 范围 / 关系模式 `> 0`（A2）
+- or-模式**带绑定**（各 alt 绑定集一致性 + 合流寄存器 phi）；`is` 中的 or / `@`
 - 解构声明 `Point(x, y) = p`（B，需元组式）
 - 穷尽性诊断（C，封闭域 warning，复用 analyzer 框架）
 - `with` 表达式 / `init`-only 访问器（D/E）

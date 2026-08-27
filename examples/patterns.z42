@@ -90,6 +90,23 @@ string DescribeList(int[] arr) => arr switch {
     [var h, .. var rest] => $"starts with {h}, {rest.Length} more"
 };
 
+// ── A2 组合子：or `|` / `@` 绑定 / `..=` 闭区间 / 关系模式（绑定用裸标识符，无 var）───────────
+
+// or-模式（多常量）+ 关系 + 范围（switch-expr）
+string Fizz(int n) => n switch {
+    0                 => "zero",
+    1 | 2 | 3         => "small",       // or-模式
+    4 ..= 9           => "mid",         // 闭区间（含端点）
+    >= 100            => "huge",        // 关系模式
+    _                 => "big"
+};
+
+// @ 绑定：绑整体 + 位置解构
+string OnAxis(Num n) => n switch {
+    whole @ Num(0.0)  => $"zero node {whole.Value}",   // whole=整节点
+    Num(v)            => $"value {v}"
+};
+
 // ── 入口 ───────────────────────────────────────────────────────────────────
 
 void Main() {

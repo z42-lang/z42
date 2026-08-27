@@ -85,3 +85,41 @@ public sealed class BoundPropertyPattern : BoundPattern {
         return s + ")";
     }
 }
+
+// or-模式（A2）：任一 alt 匹配即匹配。emit → 依次尝试，失败落下一 alt。子模式无绑定（binder 已校验）。
+public sealed class BoundOrPattern : BoundPattern {
+    public BoundPattern[] Alts;
+    public int            Count;
+    public BoundOrPattern(BoundPattern[] alts, int count, Span span) { this.Span = span; this.Alts = alts; this.Count = count; }
+    public override string Dump() {
+        string s = "(or";
+        int i = 0;
+        while (i < this.Count) { s = s + " " + this.Alts[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
+// @ 绑定（A2）：绑 Name 到整个 subject（别名到 subj 寄存器）+ 匹配子模式 Sub。
+public sealed class BoundAtPattern : BoundPattern {
+    public string       Name;
+    public Z42Type      Type;
+    public BoundPattern Sub;
+    public BoundAtPattern(string name, Z42Type type, BoundPattern sub, Span span) { this.Span = span; this.Name = name; this.Type = type; this.Sub = sub; }
+    public override string Dump() { return "(at " + this.Name + " " + this.Sub.Dump() + ")"; }
+}
+
+// 闭区间范围（A2）：Ge(subj, Lo) && Le(subj, Hi)。Lo/Hi 为常量 BoundExpr。
+public sealed class BoundRangePattern : BoundPattern {
+    public BoundExpr Lo;
+    public BoundExpr Hi;
+    public BoundRangePattern(BoundExpr lo, BoundExpr hi, Span span) { this.Span = span; this.Lo = lo; this.Hi = hi; }
+    public override string Dump() { return "(range " + this.Lo.Dump() + " ..= " + this.Hi.Dump() + ")"; }
+}
+
+// 关系模式（A2）：subj <Op> Value。Op = TokenKind（Gt/GtEq/Lt/LtEq）。Value 为常量 BoundExpr。
+public sealed class BoundRelationalPattern : BoundPattern {
+    public int       Op;
+    public BoundExpr Value;
+    public BoundRelationalPattern(int op, BoundExpr value, Span span) { this.Span = span; this.Op = op; this.Value = value; }
+    public override string Dump() { return "(rel " + this.Op.ToString() + " " + this.Value.Dump() + ")"; }
+}
