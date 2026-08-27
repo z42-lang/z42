@@ -22,7 +22,8 @@ include = ["interactive_main.z42"]
 [dependencies]
 "z42.core" = "0.1.0"   # String / core
 "z42.io"   = "0.1.0"   # Console / Environment
-"z42.scripting" = "0.1.0"   # Script.Eval + Std.Repl 行编辑（REPL 引擎）
+"z42.scripting" = "0.1.0"   # Script.Eval / Completeness / Completer（REPL eval-core）
+"z42.repl" = "0.1.0"        # Std.Repl.Repl 行编辑 + ReplEditing 键位（tty 交互；split-z42-repl）
 "z42.threading" = "0.1.0"   # Thread（add-repl-prewarm：启动即 spawn 预热 worker）
 
 [build]

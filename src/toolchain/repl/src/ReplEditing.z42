@@ -22,9 +22,10 @@
 //
 // 「当前逻辑行光标前」= 从末个 '\n' 之后到 pos 的子串；col = 其长度。仅当该前缀**全为空格**
 // 时才介入（纯缩进行）——有词/有内容一律走默认键行为，绝不干扰正常编辑与补全。
-namespace Std.Scripting;
+namespace Std.Repl;
 
 using Std;
+using Std.Scripting;   // Completeness.IsIncomplete / ContinuationIndent（enter 分支整块完整性判定 + 续行缩进）
 
 public static class ReplEditing {
     // 当前逻辑行光标前子串（末个 '\n' 之后到 pos）。pos 假定 ≤ line.Length。

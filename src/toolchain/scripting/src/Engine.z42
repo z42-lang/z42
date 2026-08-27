@@ -1,7 +1,8 @@
 // 脚本引擎底层原语（add-z42-repl 阶段 2，端到端验证通过）：
-//   LoadBytes —— 把 PackageCompile 产出的 packed-zpkg 字节加载进 live VM（零落盘）。
-//   Invoke    —— 按 FQN 调用一个自由函数（如 Repl.__Eval_N），返回其（装箱的）结果。
-// 二者组合 = 「编译一轮会话 → 加载 → 求值」的运行期骨架。
+//   LoadBytes   —— 把 PackageCompile 产出的 packed-zpkg 字节加载进 live VM（零落盘）。
+//   Invoke      —— 按 FQN 调用一个自由函数（如 Repl.__Eval_N），返回其（装箱的）结果。
+//   MemberNames —— 读会话变量活值的运行时类型成员名（补全用反射查询）。
+// 三者组合 = 「编译一轮会话 → 加载 → 求值 / 内省」的运行期骨架。
 namespace Std.Scripting;
 
 using Std;
@@ -12,4 +13,10 @@ public static class Engine {
 
     [Native("__invoke_static")]
     public static extern object Invoke(string fqn);
+
+    // 读会话变量活值（静态字段 FQN = `Repl.R{N}.Vars{N}.{var}`）的运行时类型成员名（字段/方法/属性）。
+    // 零副作用（读已存静态字段，不重求值）。null / 基元 / 未加载 → 空。add-completion-query-api 阶段 3b。
+    // 反射查询（非 tty 行编辑）→ 归引擎，不归 Std.Repl.Repl（split-z42-repl：消 scripting↔repl 环）。
+    [Native("__repl_member_names")]
+    public static extern string[] MemberNames(string staticFieldFqn);
 }

@@ -6,7 +6,7 @@ namespace ReplEditingTest;
 
 using Std;
 using Std.IO;
-using Std.Scripting;
+using Std.Repl;   // ReplEditing.KeyEdit（split-z42-repl：ReplEditing 迁 Std.Repl）
 
 void Main() {
     // 退格：全空白前缀非空 → 去一级缩进（Dedent，光标正确）；否则默认删 1 字符。

@@ -417,7 +417,7 @@ fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
         if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::with_config(config) {
             ed.set_helper(Some(ReplHelper::new()));
             // Indent-aware editing keys (add-repl-indent-editing): the decision logic
-            // lives in z42 (`Std.Scripting.ReplEditing`, via `replKeyEdit`); these
+            // lives in z42 (`Std.Repl.ReplEditing`, via `replKeyEdit`); these
             // handlers only relay (line, pos) and translate the returned action into a
             // redo-immune `Cmd` (`Dedent` for Backspace, `Insert` for Tab grid-snap-ceil).
             // Returning `None` falls back to the key's default (Tab→complete,

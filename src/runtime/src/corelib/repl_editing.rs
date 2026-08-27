@@ -1,7 +1,7 @@
 //! REPL indent-aware key editing (add-repl-indent-editing).
 //!
 //! **Policy-free adapter shell.** The decision logic all lives in z42
-//! (`Std.Scripting.ReplEditing.KeyEdit`, reached via the registered free function
+//! (`Std.Repl.ReplEditing.KeyEdit`, reached via the registered free function
 //! `replKeyEdit`). Here we only, on each controlled key (Backspace / Tab):
 //!   1. re-enter the VM to ask z42 for an "action string", then
 //!   2. translate that string into a rustyline `Cmd`.
