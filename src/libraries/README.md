@@ -187,7 +187,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | ~~`__str_split` / `__str_join` (2)~~ | ✅ 已删 | 2026-04-27 wave1-string-script — 脚本基于 `CharAt` + `Substring` 两遍扫描 |
 | ~~`__str_concat`~~ | ✅ 已删 | 2026-04-27 wave3a-str-concat-script — `Std.String.Concat` 用 `+` 即 IR StrConcatInstr |
 | ~~`__str_format`~~ | ✅ 已删 | 2026-04-27 wave3b-str-format-script — `Std.String.Format` 用链式 `Replace` + `Convert.ToString`。原计划等 IFormattable，实测无需（builtin 只做 `{0}` 字面替换） |
-| `__str_to_string` | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — 旧 builtin 只是原样返回自身，源迁脚本 `return this;`。**builtin 暂留 1 nightly**（种子引用），Stage 2 删 |
+| ~~`__str_to_string`~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 旧 builtin 只是原样返回自身，`Std.String.ToString` 现为脚本 `return this;`（Stage 1 源迁 #310，本阶段删 builtin）|
 | `__str_equals` / `__str_hash_code` / `__str_compare_to` | 🟢 | Object 协议方法（`__str_equals` 类型宽容处理 null/装箱），VM ABI 绑定 → 保留 |
 
 ### Char — 3 项
@@ -195,7 +195,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | `__char_is_whitespace` | 🟢 | Rust `char::is_whitespace()` 真 Unicode 分类，脚本无法等价 → 保留 |
-| `__char_to_lower` / `__char_to_upper` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1**：旧实现是 `to_ascii_lowercase/uppercase`（纯 ASCII，非 Unicode），源已迁 ASCII 脚本见 [Primitives/Char.z42](z42.core/src/Primitives/Char.z42)。**builtin 暂留 1 个 nightly**（已发布种子仍引用），Stage 2 follow-up 删 |
+| ~~`__char_to_lower` / `__char_to_upper` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 旧实现是 `to_ascii_lowercase/uppercase`（纯 ASCII，非 Unicode），`Std.Char.ToLower/.ToUpper` 现为等价 ASCII 脚本见 [Primitives/Char.z42](z42.core/src/Primitives/Char.z42)（Stage 1 源迁 #310）|
 
 ### Convert / Parse — 4 项
 
@@ -209,12 +209,12 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | ~~`__int_compare_to` / `__double_compare_to` / `__char_compare_to` (3)~~ | ✅ 已删 | 2026-04-27 wave2-compare-to-script — 5 个 primitive (int/long/double/float/char) 的 `CompareTo` 全脚本：`if (this < other) return -1; if (this > other) return 1; return 0;` 用 IR `<`/`>`，与 Rust `partial_cmp.unwrap_or(0)` 等价（NaN → 0 自然落到 return 0）|
-| `__int32_equals` / `__int32_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；源迁 `Equals`→`this == other`，`GetHashCode`→统一 `(int)this`（确定性满足 Dictionary 契约；z42 `(int)` 不像 C# 截断到 32 位，故不套 C# 的高低字折叠）。**builtin 暂留 1 nightly**（种子引用），Stage 2 删 |
+| ~~`__int32_equals` / `__int32_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；`Equals`→`this == other`，`GetHashCode`→统一 `(int)this`（确定性满足 Dictionary 契约；z42 `(int)` 不像 C# 截断到 32 位，故不套 C# 的高低字折叠）（Stage 1 源迁 #310）|
 | `__int32_to_string` (1) | 🟢 | 整数十进制格式化，纯脚本 digit-loop 是热路径回归 → 保留 |
-| `__double_equals` / `__double_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — Double/Single；源迁 `Equals`→`this == other`，`GetHashCode` 经 BitConverter 折叠 IEEE-754 位模式。**builtin 暂留 1 nightly**，Stage 2 删 |
+| ~~`__double_equals` / `__double_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — Double/Single；`Equals`→`this == other`，`GetHashCode` 经 BitConverter 折叠 IEEE-754 位模式（Stage 1 源迁 #310）|
 | `__double_to_string` (1) | 🟢 | 浮点最短往返（Ryū 级）纯脚本不现实 → 保留 |
 | ~~`__bool_equals` / `__bool_hash_code` / `__bool_to_string` (3)~~ | ✅ 已删 | 2026-04-27 wave1-bool-script — 脚本实现见 [z42.core/src/Bool.z42](z42.core/src/Bool.z42)，`ToString` 输出 `"true"/"false"` 小写（与 Rust 一致）|
-| `__char_equals` / `__char_hash_code` (2) | 🟡 源已迁脚本 | 2026-08-27 shrink-primitive-native-interop **Stage 1** — 源迁 `Equals`→`this == other`，`GetHashCode`→`(int)this`。**builtin 暂留 1 nightly**，Stage 2 删 |
+| ~~`__char_equals` / `__char_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — `Equals`→`this == other`，`GetHashCode`→`(int)this`（Stage 1 源迁 #310）|
 | `__char_to_string` (1) | 🟢 | 保留 native（char→单字符 string）|
 | `__str_compare_to`（已计入 String 区）| — | — |
 
@@ -255,9 +255,9 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Wave 2（codegen 特化 → 实际纯脚本）| 3 | ✅ 完成（wave2-compare-to-script）。原计划 codegen 特化，实测 `<`/`>` 走 IR cmp+jmp 已足够 |
 | Wave 3a（str_concat → 脚本）| 1 | ✅ 完成（wave3a-str-concat-script），原计划 codegen，实测 `+` 已是 IR 指令 |
 | Wave 3b（str_format → 脚本）| 1 | ✅ 完成（wave3b-str-format-script），用 Replace + Convert.ToString 替代；IFormattable 等真正需要格式说明符再独立 spec |
-| Wave 4（primitive Eq/Hash/casing/str-ToString → 脚本）| 9 | 🟡 **Stage 1 完成（源迁脚本）**（shrink-primitive-native-interop）。纠正「Object 协议成员必须保留」的错误判据——判据应是「native 实现是否平凡」（bool 早已迁脚本即先例）。涉及 `__int32_equals`/`__int32_hash_code`/`__double_equals`/`__double_hash_code`/`__char_equals`/`__char_hash_code`/`__char_to_lower`/`__char_to_upper`/`__str_to_string`。**builtin 删除 = Stage 2 follow-up**（须等 Stage 1 随 nightly 发布后，种子 z42c 不再引用这些 builtin 才能删——否则零格式-bump 路径下当前 VM 直接跑旧种子会 `unknown builtin`）|
+| Wave 4（primitive Eq/Hash/casing/str-ToString → 脚本）| 9 | ✅ **完成**（shrink-primitive-native-interop）。纠正「Object 协议成员必须保留」的错误判据——判据应是「native 实现是否平凡」（bool 早已迁脚本即先例）。涉及 `__int32_equals`/`__int32_hash_code`/`__double_equals`/`__double_hash_code`/`__char_equals`/`__char_hash_code`/`__char_to_lower`/`__char_to_upper`/`__str_to_string`。**Stage 1（源迁脚本，#310）→ 随 nightly 发布后 Stage 2 删 builtin**（两-nightly 变更：种子 z42c 编译期引用这些 builtin，必须等其不再引用才能删——否则零格式-bump 路径下当前 VM 直接跑旧种子会 `unknown builtin`）|
 | 🟢 Primitive 必须保留 | ~34 | ToString/Parse/UTF-8 intrinsic/libm/BitConverter/Object 协议/反射 等，与 BCL/Rust 标杆一致 |
-| **当前总计** | **~43**（Stage 2 后 →~34） | Stage 1 只迁源、builtin 暂留；Stage 2 删 9 个 |
+| **当前总计** | **~34** | Wave 4 Stage 2 删 9 个 builtin 后，余下均为「native 实现非平凡」的必留项 |
 
 ### Wave 进度
 
@@ -272,4 +272,4 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | Wave 2 | ✅ 已完成（wave2-compare-to-script）| 2026-04-27 |
 | Wave 3a str_concat | ✅ 已完成（wave3a-str-concat-script）| 2026-04-27 |
 | Wave 3b str_format | ✅ 已完成（wave3b-str-format-script）| 2026-04-27 |
-| Wave 4 primitive Eq/Hash/casing/str-ToString（Stage 1 源迁）| 🟡 源迁完成（shrink-primitive-native-interop），builtin 删待 Stage 2 | 2026-08-27 |
+| Wave 4 primitive Eq/Hash/casing/str-ToString | ✅ 已完成（shrink-primitive-native-interop；Stage 1 源迁 #310 / Stage 2 删 builtin）| 2026-08-28 |
