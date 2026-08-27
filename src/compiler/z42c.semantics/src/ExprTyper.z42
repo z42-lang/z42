@@ -207,7 +207,9 @@ public sealed class ExprTyper {
                 arms[ai] = new BoundSwitchArm(a.HasPattern, pat, guard, armBody, a.Span);
                 ai = ai + 1;
             }
-            return new BoundSwitchExpr(subj, arms, se.ArmCount, resTy, se.Span);
+            BoundSwitchExpr bse = new BoundSwitchExpr(subj, arms, se.ArmCount, resTy, se.Span);
+            this._tc._exhaust.CheckExpr(bse, env);   // 模式匹配 C：封闭域（bool/enum）穷尽性诊断
+            return bse;
     }
 
     private BoundExpr _bindTernary(TernaryExpr t, TypeEnv env) {

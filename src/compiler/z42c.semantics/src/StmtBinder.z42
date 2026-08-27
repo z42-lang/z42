@@ -84,7 +84,9 @@ public sealed class StmtBinder {
                 cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, guard, cbody, sc.BodyCount, sc.Span);
                 ci = ci + 1;
             }
-            return new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
+            BoundSwitch bsw = new BoundSwitch(subj, cases, sw.CaseCount, sw.Span);
+            this._tc._exhaust.CheckStmt(bsw, env);   // 模式匹配 C：封闭域（bool/enum）穷尽性诊断
+            return bsw;
     }
 
     // 解构声明（模式匹配 B）：`T(x,y) = init;`。绑进**当前 env**（后续语句可见，同 is 语义，非 PushScope）。
