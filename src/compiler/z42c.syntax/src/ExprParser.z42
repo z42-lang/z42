@@ -85,6 +85,13 @@ public sealed class ExprParser {
                 left = new SwitchExpr(left, arms, ac, swsp);
                 continue;
             }
+            // with 表达式（postfix，bp 85）：`target with { F = v, x }`（模式匹配 D：record 非破坏式更新）
+            if (k == TokenKind.With && minBp <= 85) {
+                Span wsp = this._p._peek().Span;
+                this._p._advance();
+                left = this._parseWithBody(left, wsp);
+                continue;
+            }
             // 泛型方法调用 `名<T,...>(args)`（add-generic-methods）：`<` 歧义消解。
             // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'。
             if (k == TokenKind.Lt) {
@@ -413,6 +420,48 @@ public sealed class ExprParser {
     }
 
     // 对象初始化器体 `{ F1 = v1, x, .. }`（已消费到 `{` 前）。条目：`Ident = expr` 或裸 `Ident`（简写）。
+    // with 表达式体 `{ F = v, x }`（模式匹配 D）。复用对象初始化器的字段体文法（`F = v` / 简写 `x` / 尾逗号）；
+    // `..base` 结构更新 defer。产出 WithExpr（target 已解析，wsp = `with` 关键字 span）。
+    private Expr _parseWithBody(Expr target, Span wsp) {
+        this._p._expect(TokenKind.LBrace, "{");
+        string[] names = new string[8];
+        Expr[] values = new Expr[8];
+        int fc = 0;
+        if (this._p._peek().Kind != TokenKind.RBrace) {
+            while (true) {
+                if (this._p._peek().Kind == TokenKind.DotDot) {
+                    this._p._diags.Error(DiagnosticCodes.UnexpectedToken,
+                        "spread `..base` in `with` expression is not yet supported", this._p._peek().Span);
+                    this._p._advance();
+                    this._parseExpr(0);
+                } else {
+                    if (fc == names.Length) {
+                        string[] nb = new string[names.Length * 2];
+                        Expr[] vb = new Expr[values.Length * 2];
+                        int i = 0; while (i < fc) { nb[i] = names[i]; vb[i] = values[i]; i = i + 1; }
+                        names = nb; values = vb;
+                    }
+                    Token fn = this._p._peek();
+                    this._p._expect(TokenKind.Identifier, "field name in `with` expression");
+                    names[fc] = fn.Text;
+                    if (this._p._peek().Kind == TokenKind.Eq) {
+                        this._p._advance();   // =
+                        values[fc] = this._parseExpr(0);
+                    } else {
+                        values[fc] = new IdentExpr(fn.Text, fn.Span);   // 字段简写：x ≡ x = x
+                    }
+                    fc = fc + 1;
+                }
+                if (this._p._peek().Kind == TokenKind.Comma) {
+                    this._p._advance();
+                    if (this._p._peek().Kind == TokenKind.RBrace) { break; }   // 尾逗号
+                } else { break; }
+            }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new WithExpr(target, names, values, fc, wsp);
+    }
+
     private Expr _parseObjInit(TypeExpr ty, Expr[] args, int argCount, Token t) {
         this._p._advance();   // {
         string[] names = new string[8];
