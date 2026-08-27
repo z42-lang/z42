@@ -86,11 +86,19 @@ public sealed class BoundPropertyPattern : BoundPattern {
     }
 }
 
-// or-模式（A2）：任一 alt 匹配即匹配。emit → 依次尝试，失败落下一 alt。子模式无绑定（binder 已校验）。
+// or-模式（A2 起；A3 补带绑定）：任一 alt 匹配即匹配。emit → 依次尝试，失败落下一 alt。
+// A3：各 alt 可引入绑定，但绑定集（名字 + 类型）必须一致（binder 已校验）。BindNames/BindTypes =
+// 统一后的绑定集（声明序）；emit 为每个绑定预分配一个稳定寄存器，各 alt 匹配成功后 Copy 进稳定寄存器
+// 再跳 matchL（phi-free 合流，见 PatternEmitter）。BindCount==0 = 无绑定 or（A2 旧形态，lowering 不变）。
 public sealed class BoundOrPattern : BoundPattern {
     public BoundPattern[] Alts;
     public int            Count;
-    public BoundOrPattern(BoundPattern[] alts, int count, Span span) { this.Span = span; this.Alts = alts; this.Count = count; }
+    public string[]       BindNames;   // 统一绑定集名字（声明序，来自首个 alt）
+    public Z42Type[]      BindTypes;    // 对应类型（各 alt 须一致）
+    public int            BindCount;
+    public BoundOrPattern(BoundPattern[] alts, int count, string[] bindNames, Z42Type[] bindTypes, int bindCount, Span span) { this.Span = span;
+        this.Alts = alts; this.Count = count; this.BindNames = bindNames; this.BindTypes = bindTypes; this.BindCount = bindCount;
+    }
     public override string Dump() {
         string s = "(or";
         int i = 0;
