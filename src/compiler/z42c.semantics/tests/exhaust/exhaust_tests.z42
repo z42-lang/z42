@@ -1,0 +1,88 @@
+// 模式匹配 C：switch 穷尽性诊断单测。封闭域（bool / enum）的 switch（语句 + 表达式）未覆盖全部情形
+// 且无兜底 → W0700 warning。经 SemanticDump.FirstErrorCode（返回首条诊断码，含 warning）断言。
+// 注：独立 Infer 路径不链 stdlib、switch `break` 会触发无关 E0410（最小路径无循环深度）——故
+// switch-stmt 测试源**不写 break**（仅测穷尽性诊断，不测运行时；无 break 时唯一诊断即 W0700）。
+// 覆盖：enum 缺成员 / bool 缺分支 / switch-stmt / switch-expr / or 覆盖 / default 兜底 / 通配兜底 /
+//       全覆盖不报 / 守卫不计覆盖 / 开放域（int）不检查。
+namespace Z42cSemanticsExhaustTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── enum switch-expr 缺成员 → W0700 ──────────────────────────
+[Test]
+void test_enum_expr_missing_member_warns() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " int f(Color c) { return c switch { Color.Red => 1, Color.Green => 2 }; } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── enum switch-expr 全覆盖 → 无诊断 ─────────────────────────
+[Test]
+void test_enum_expr_full_no_warn() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " int f(Color c) { return c switch { Color.Red => 1, Color.Green => 2, Color.Blue => 3 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── enum switch-expr 有 default 兜底 → 无诊断（即使缺成员）──
+[Test]
+void test_enum_expr_default_no_warn() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " int f(Color c) { return c switch { Color.Red => 1, _ => 0 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── enum 用 or-模式覆盖全部成员 → 无诊断 ─────────────────────
+[Test]
+void test_enum_or_covers_all_no_warn() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " int f(Color c) { return c switch { Color.Red | Color.Green | Color.Blue => 1 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── enum switch-stmt 缺成员（无 default，无 break）→ W0700 ────
+[Test]
+void test_enum_stmt_missing_member_warns() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " void f(Color c) { int r = 0; switch (c) { case Color.Red: r = 1; case Color.Green: r = 2; } } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── enum switch-stmt 有 default（无 break）→ 无诊断 ──────────
+[Test]
+void test_enum_stmt_default_no_warn() {
+    string src = "namespace D; enum Color { Red, Green, Blue }"
+        + " void f(Color c) { int r = 0; switch (c) { case Color.Red: r = 1; default: r = 0; } } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── bool switch-expr 缺 false → W0700 ───────────────────────
+[Test]
+void test_bool_expr_missing_false_warns() {
+    string src = "namespace D; int f(bool b) { return b switch { true => 1 }; } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── bool switch-expr 覆盖 true/false → 无诊断 ────────────────
+[Test]
+void test_bool_expr_full_no_warn() {
+    string src = "namespace D; int f(bool b) { return b switch { true => 1, false => 0 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 守卫臂不计无条件覆盖：enum 成员带守卫 → W0700 ────────────
+[Test]
+void test_guarded_arm_not_counted_warns() {
+    string src = "namespace D; enum Color { Red, Green }"
+        + " int f(Color c) { return c switch { Color.Red if false => 1, Color.Green => 2 }; } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 开放域（int）不检查 → 无诊断（int 非封闭域）────────────
+[Test]
+void test_open_domain_int_no_warn() {
+    string src = "namespace D; int f(int n) { return n switch { 1 => 1, 2 => 2 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

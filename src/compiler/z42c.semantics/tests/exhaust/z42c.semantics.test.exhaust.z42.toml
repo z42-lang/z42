@@ -1,0 +1,17 @@
+# 模式匹配 C：switch 穷尽性诊断（bool/enum 封闭域）单测。
+[project]
+name    = "z42c.semantics.test.exhaust"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.semantics/tests/exhaust → artifacts/build/compiler/z42c.semantics/tests/exhaust
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/exhaust"
