@@ -238,22 +238,23 @@ std (full OS)
 z42 处于 **C# 风（包就是分发单位 + 大 stdlib 集合）** 与 **Rust 风（小 std + 第三方繁荣）** 之间，但加了两个独有约束：
 
 1. **包名 = zpkg 文件名** — `z42.core.zpkg`、`z42.io.zpkg` 是物理产物。命名空间 `Std.<X>` 可以跨多个 zpkg（W1 决策）
-2. **VM extern 只在 z42.core**（host FFI 仅 z42.io 例外） — 决定了"哪些功能必须捆在哪个包"
+2. **执行基座 native 语义层集中在 z42.core**（2026-08-27 起，见上「native 语义层 → core」节）——
+   io/net/threading 的 OS 原语 + `Std.IO`/`Std.Time` 类型都在 core；可插拔工具/算法（compression/crypto/
+   diagnostics/test）的 native 留各自独立库。（先后取代「VM extern 只在 core，io 例外」表述。）
 
 z42 的层级模型把 C#/Rust 两边的精华都拿过来：
 
 ```
-L0  z42.core              (隐式 prelude，VM intrinsic 唯一来源)
+L0  z42.core              (隐式 prelude；VM intrinsic + 执行基座 native 语义 + Std.IO/Std.Time)
         ↑ 依赖
 L1  z42.collections, z42.text, z42.encoding, ...
     （纯脚本，按 domain 分；可任意组合用）
         ↑
-L2  z42.io                (host FFI 例外，OS 能力)
-    z42.threading         (待 L3 并发模型；走 host FFI / VM 协作)
-    z42.async             (待 L3 async；同上)
+L2  z42.io                (纯脚本应用层：Stream/Process/…；native 语义在 core *Native)
+    z42.threading         (纯脚本应用层：Thread/Mutex/Channel；native 语义在 core)
         ↑
-L3  z42.net, z42.linq, z42.json, z42.test, z42.diagnostics, ...
-    （依赖 L2 runtime 服务）
+L3  z42.net, z42.json, z42.test, z42.diagnostics, ...
+    （依赖 L2；net 应用层纯脚本，native 语义在 core）
 ```
 
 ---
@@ -325,15 +326,16 @@ L1 包的判定：
 | 数学 libm 原语 `Math`（= `System.Math`）→ **`z42.core`**（move-math-to-core A2 迁入，随 CoreLib）；未来非原语数值类型（BigInteger / 矩阵）→ `z42.numerics` |
 | 文本（StringBuilder / Regex / Encoding） → `z42.text` |
 | 数值扩展（BigInteger / Decimal / 复数）→ `z42.numerics`（未来）|
-| 日期时间（DateTime / TimeSpan）→ `z42.time`（未来；纯脚本可行性待评估）|
+| 日期时间（DateTime / TimeSpan / Stopwatch）→ **`z42.core/src/Time/`**（refine-interop-native-separation 迁入，随 CoreLib；原 `z42.time` 包已删）|
 
 ### R3 — L2 runtime 包
 
 L2 包的判定：
 
-- 依赖 z42.core（必然）+ 可选依赖其他 L2（如 threading 依赖 io 做 stderr 输出）
+- 依赖 z42.core（必然）+ 可选依赖其他 L2
 - 提供 **OS / runtime 服务接口**（文件、网络、线程、计时器）
-- 通常需要 host FFI（z42.io 已是例外） OR 与 VM 紧密协作
+- **native 语义层在 core**（2026-08-27 起）——L2 包本身是纯脚本应用层，通过调 core 的 `*Native`
+  原语间接用 OS 能力；不再自带 host FFI（旧表述「z42.io 是 host FFI 例外」已废，见「native 语义层 → core」节）
 
 | runtime → 包 |
 |---|

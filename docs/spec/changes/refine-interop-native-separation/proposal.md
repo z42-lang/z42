@@ -45,18 +45,25 @@
 
 ## Tasks
 
-1. **[docs, 本次]** 把「两层分解 + 安置规则 + 按需加载动因 + .NET 对齐 + 调用期解析事实校正」写入
-   `organization.md`（已改 TL;DR #3、①/②/③ 分类表、新增判据节、澄清段）；`libraries/README.md §2` 摘要同步（待做）。
-2. **[code, 后续·大]** io/net/threading 的 native 语义层原语上移 core；三库转纯脚本应用层（调 core 原语）；
-   评估薄包删除。⚠️ 触发 bootstrap-seed 轴④（core 是 z42.ir/scripting 运行期自依赖）；冷启动本地必验；
-   格式面零 bump（仅移动声明，不改 zbc/zpkg 编码）。
-3. **[code, 后续]** json 的 5 个反射 extern：核对 #278 `Std.Array`/`PropertyInfo` 是否已覆盖，非重复者归 core。
-4. **[convention, 后续]** compression/crypto/diagnostics/test 的 extern 收进各自 `Native.z42` sink。
-5. **[docs]** 现存重复声明收敛（`__double_to_bits` io.binary+ir 双声明；`__time_now_*` 多声明）——同源 improve-stdlib-org-perf A1。
+1. ✅ **[docs]** 两层分解 + 安置规则 + 按需加载动因 + .NET 对齐 + 调用期解析事实校正写入
+   `organization.md`（TL;DR #3、①/②/③ 分类表、判据节、澄清段、现状表、L2/R3 章节）；`libraries/README.md §2`
+   摘要同步；`time.md`/`overview.md` 迁移 banner。
+2. ✅ **[code]** io/net/threading 的 native 语义层原语上移 core；三库转纯脚本应用层：
+   - threading：4 个 `*Native` → `core/src/Native/ThreadingNative.z42`。
+   - net：4 个 `*Native` → `core/src/Native/NetNative.z42`。
+   - io：Console/ConsoleError/File/Directory/Environment/Path 整搬 `core/src/IO/`（.NET CoreLib 对齐）；
+     FileStream/Process/ProcessHandle 的 native 抽 `core/src/IO/{FileStreamNative,ProcessNative}.z42`；
+     io 现零 extern。测试留 z42.io（迁 core 作 follow-up）。
+   - 格式面零 bump。⚠️ 触发 bootstrap-seed 轴④——**冷启动 + 字节不动点交 CI**（本机 seed 太旧、z42vm 挂起，本地只能 workspace 编译验证 21/24 库全绿）。
+3. ✅ **[code]** `z42.time` 纯脚本类型（DateTime/…）整体下沉 `core/src/Time/`，**删 z42.time 包**（User 决策，.NET CoreLib 对齐）；4 依赖库 toml + workspace default-members + test skip-rule + tests/bench 同步。
+4. ✅ **[核对]** json 反射（NewArray/ArrayGet/…）——**已于 #278/#284 下沉 core**（`Std.Array` + `Reflection.PropertyInfo`），json 现零 extern，无需再动。
+5. ⏳ **[follow-up]** compression/crypto/diagnostics/test 的 extern 收进各自 `Native.z42` sink（独立库内组织，非搬 core）。
+6. ⏳ **[follow-up]** io 测试迁 core/tests；现存重复声明收敛（`__double_to_bits` io.binary+ir；`__time_now_*`）——同源 A1。
 
 ## 验证
 
-- docs-only（本次）：无需 GREEN；人工 review 规则一致 + 无规范冲突。
-- code 部分：`xtask test` 全绿 + 自举字节不动点；冷启动本地必验（轴④）。
+- **本地（种子墙允许范围内）**：workspace 全量重建 21/24 库全绿、零 undefined；threading 端到端编译验证；net 与 threading 同机制等价；time 4 消费方编译验证；io + 全部 File/Console/Path/DateTime 下游消费方编译验证。
+- **CI 权威**（本地不可验）：`xtask test` 全测试 + **自举字节不动点（gen1==gen2）** + cold-start。核心增肥但**零格式 bump**，[[two-gen-bootstrap-regressed]] 的格式-bump 回归不应触发。
+- z42.build 的 `[Record]` 编译错是本机 seed 太旧（落后 origin/main），与本改动无关，abort 挡住 net/z42.build 本地编译。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

@@ -10,11 +10,10 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 |------|------|------|
 | `z42.core/` | `z42.core` | 核心类型 + 隐式 prelude；按子目录组织：`Primitives/`（6 个 primitive 成员方法）/ `Delegates/`（callable + multicast + 订阅）/ `Protocols/`（核心接口）/ `Exceptions/`（Exception 树）/ `Collections/`（List / Dict / KVP）；根留 Object / Type / String / Convert / Assert / GC / Disposable。详见 [src/README.md](z42.core/src/README.md) |
 | `z42.collections/` | `z42.collections` | 次级集合类型：`Queue`、`Stack`（未来 `LinkedList` / `SortedDictionary` / `PriorityQueue`） |
-| `z42.io/` | `z42.io` | IO 类型：`Console`、`File`、`Path`、`Environment` |
+| `z42.io/` | `z42.io` | IO 应用层（纯脚本）：`FileStream` / `Stream` 家族 / `Process` / `ProcessHandle` / `Ansi` / `Stdio`（`Console`/`File`/`Directory`/`Environment`/`Path` 已上移 `z42.core`，native 语义在 core `*Native`）|
 | `z42.text/` | `z42.text` | 文本处理：`StringBuilder`、`Regex` |
 | `z42.encoding/` | `z42.encoding` | 字符 ↔ 字节编码：`Hex`、`Base64` (RFC 4648 §4)、`Utf8` |
 | `z42.test/` | `z42.test` | 单元测试运行时（v0 imperative TestRunner；lambda 就绪后升级 v1）|
-| `z42.time/` | `z42.time` | UTC 时刻（`DateTime`）、时间段（`TimeSpan`）、单调计时器（`Stopwatch`） |
 | `z42.toml/` | `z42.toml` | TOML 1.0 subset reader/writer：`TomlValue.Parse(text)` / `Stringify(root)` |
 | `z42.json/` | `z42.json` | JSON RFC 8259 reader/writer：`JsonValue.Parse(text)` / `Stringify(v)` / `StringifyPretty(v)` |
 | `z42.random/` | `z42.random` | Deterministic PRNG（PCG-XSH-RR）：`new Random(seed).NextInt() / NextLong() / NextDouble() / NextBool() / NextIntRange(min, max)` |
@@ -51,31 +50,29 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 > 格式化 / Assert / Path 字符串操作 / 算术辅助）一律脚本实现。
 > 详见 [docs/design/stdlib/organization.md "Primitive vs Feature (BCL/Rust 对标)"](../../docs/design/stdlib/organization.md)。
 
-### 2. Interop 只允许在 core + 独立平台能力库（平台边界库）
+### 2. Interop 按 native 角色两层安置（native 语义层 → core，应用层 → 纯脚本）
 
-> **取代旧规则**「VM extern 只能在 z42.core，仅 z42.io 例外」——该表述过窄且早已被现实违反
-> （math / time / threading / net / compression / crypto / io.binary / test 都含 interop）。
-> 唯一 SoT：[docs/design/stdlib/organization.md「平台边界库 vs 全平台共享库」](../../docs/design/stdlib/organization.md)。
+> **2026-08-27 refine-interop-native-separation 更新**（先后取代「VM extern 只在 core，io 例外」与
+> 「io/net/threading 各作平台边界库」两版表述）。唯一 SoT：
+> [docs/design/stdlib/organization.md「native 语义层 → core，应用层 → 纯脚本能力库」](../../docs/design/stdlib/organization.md)。
 
-**interop（`extern` / `[Native]`，含 VM intrinsic 与 host FFI 两条通道）只允许出现在两类库：**
+**每个能力拆两层：① native 语义层（`extern`/`[Native]` 原语）② 应用层（纯脚本高层 API）。按 native 角色安置：**
 
-1. **`z42.core`** —— 承载**全平台通用的基础机制原语**（cross-cutting：Object / String / 数值等
-   类型系统协议、libm 数学、时钟、位转换、数值 parse/format）。这些能力每个平台的 VM 都能提供，
-   属"到处都在、人人都用"的底座。
-2. **独立平台能力库** —— 承载**平台相关、某些平台可能缺失或不同**的能力，各自封装自己的 interop：
-   `z42.io`（文件 / 控制台 / 进程 / 环境）、`z42.net`（socket / TLS / DNS）、`z42.threading`
-   （线程 / 锁 / channel —— 如 browser 平台无多线程）、`z42.compression`（native codec 库）等。
-   这类库本身就**不保证全平台可用**。
+1. **执行基座**（io / net / threading）—— native 语义层**并入 `z42.core`**（对齐 .NET CoreLib）；
+   应用层（`FileStream` / `TcpClient` / `Thread` / `Stream` 家族 / 进程编排）留 `z42.io` / `z42.net` /
+   `z42.threading` **转纯脚本**、调 core 的 `*Native` 原语。`Std.IO`（Console/File/Directory/Environment/Path）、
+   `Std.Time`（DateTime/…）也在 core。
+2. **可插拔工具 / 算法**（compression / crypto / diagnostics / test / build）—— native + 应用整库**留独立**：
+   正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。
+3. **运行时内核 + cross-cutting 原语**（值语义 / 反射 / GC / libm / 时钟 / 位转换）—— 本就在 `z42.core`。
 
-**其余所有库一律纯脚本、零 interop** —— 从而**全平台共享、VM 能跑的地方就能跑**（collections /
-math / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random /
-numerics / io.binary / …）。它们要用 native 能力时，一律**通过调用 core 或某个平台能力库的公开
-API 间接使用**。
+**其余所有库一律纯脚本、零 interop**（collections / text / encoding / toml / json / yaml / uri / regex /
+cli / random / numerics / io.binary / …），要用 native 时**通过调 core 或工具库的公开 API 间接使用**。
 
-> **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM 加载期解析"的字符串，**所有 zpkg
-> 本就跨平台字节相同**（core 也是）。本规则收缩 interop 声明面**不是**为了让 zpkg 字节相同（那已
-> 成立），而是为了：① 让"哪些库是平台边界、可能在某平台缺席"一目了然（纯脚本库 = 处处可跑的保证）；
-> ② 单一、可审计的 native ABI 契约；③ 消灭重复声明。
+> **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM **调用期**解析"的字符串，**所有 zpkg
+> 本就跨平台字节相同**（core 也是），且带缺失 builtin 的 zpkg 仍能加载、调用到才报错。本规则**不是**为了
+> 让 zpkg 字节相同（那已成立），而是为了：① 单一、可审计的 native ABI 面（.NET CoreLib 式）；② 服务
+> 后续**按需加载 native、裁剪运行时体积**（声明位置与 native 模块加载解耦）；③ 消灭重复声明。
 
 **配套纪律：**
 
