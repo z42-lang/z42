@@ -230,6 +230,7 @@ public sealed class Parser {
         if (k == TokenKind.Throw)   { this._advance(); Expr te = this._exprP._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span); }
         if (this._stmtP._isLocalFnStart()) { return this._stmtP._parseLocalFn(); }   // impl-local-fn-l2：先于 var-decl 判别
         if (this._stmtP._isVarDeclStart()) { return this._stmtP._parseVarDecl(); }
+        if (this._stmtP._isDeconstructDeclStart()) { return this._stmtP._parseDeconstructDecl(); }   // 模式匹配 B：`T(x,y) = e;`
         Expr e = this._exprP._parseExpr(0);
         this._expectSemi();
         return new ExprStmt(e, st.Span);
