@@ -6,9 +6,16 @@ namespace Std;
 // L3-G4b primitive-as-struct: `double` declared as a struct (C# BCL parity).
 public struct Double : IComparable<double>, IEquatable<double>, INumber<double> {
     [Native("__double_parse")]      public static extern double Parse(string s);
-    [Native("__double_equals")]     public extern bool Equals(double other);
-    [Native("__double_hash_code")]  public extern int GetHashCode();
     [Native("__double_to_string")]  public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    // Equals 是原生 `==`（NaN != NaN，与旧 __double_equals 一致）；hash 折叠 IEEE-754
+    // 位模式高低 32 位（对齐 C# Double.GetHashCode），位重解释借 BitConverter native。
+    public bool Equals(double other) { return this == other; }
+    public int GetHashCode() {
+        long bits = BitConverter.DoubleToBits(this);
+        return (int)(bits ^ (bits >> 32));
+    }
 
     // 2026-04-27 wave2-compare-to-script: NaN 自动落到 return 0
     // (`<` / `>` 对 NaN 都返回 false)，与 Rust `partial_cmp.unwrap_or(0)` 等价。

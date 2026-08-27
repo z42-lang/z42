@@ -1,0 +1,117 @@
+// shrink-primitive-native-interop (2026-08-27): regression coverage for the
+// primitive Object-protocol methods that moved from [Native] builtins to pure
+// z42 script — int/char/double/single Equals + GetHashCode, char ToLower/ToUpper
+// (ASCII), and string ToString. Locks in: the Equals/hash contract (equal values
+// hash equal), the 64-bit hash fold, ASCII casing semantics, and non-letter
+// passthrough.
+namespace Z42CorePrimitiveProtocolTests;
+
+using Std;
+using Std.Test;
+
+// ── Integer Equals / GetHashCode ─────────────────────────────────────────────
+
+[Test]
+void test_int_equals_and_identity_hash() {
+    int a = 42;
+    int b = 42;
+    int c = 43;
+    Assert.True(a.Equals(b));
+    Assert.False(a.Equals(c));
+    // Int32.GetHashCode returns the value itself (C# parity).
+    Assert.Equal(42, a.GetHashCode());
+    // Equal values must hash equal (the hash contract).
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+}
+
+[Test]
+void test_narrow_int_hash_is_value() {
+    u8 x = u8.Parse("200");
+    Assert.Equal(200, x.GetHashCode());
+    i16 y = i16.Parse("-1000");
+    Assert.Equal(-1000, y.GetHashCode());
+}
+
+[Test]
+void test_long_equals_and_hash_contract() {
+    // A value with a non-zero high 32-bit word, built via shift to avoid any
+    // large-decimal-literal lexing ambiguity. 0x1_0000_0005.
+    long a = ((long)1 << 32) + 5L;
+    long b = ((long)1 << 32) + 5L;
+    // Equal values: equal + same hash (the Dictionary contract). The exact folded
+    // hash number is an impl detail (depends on >> / (int) semantics) — assert the
+    // contract, not a magic value.
+    Assert.True(a.Equals(b));
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    // Full-width Equals: a value differing only in the high 32 bits must NOT be
+    // equal to its low word (guards against a truncating Equals).
+    Assert.False(a.Equals(5L));
+    // Small longs (high word 0) compare by value.
+    long small = 7L;
+    Assert.True(small.Equals(7L));
+    Assert.False(small.Equals(8L));
+}
+
+// ── Char Equals / GetHashCode / casing ───────────────────────────────────────
+
+[Test]
+void test_char_equals_and_hash() {
+    char a = 'a';
+    Assert.True(a.Equals('a'));
+    Assert.False(a.Equals('b'));
+    // Char.GetHashCode == codepoint.
+    char upperA = 'A';
+    Assert.Equal(65, upperA.GetHashCode());
+    Assert.Equal(97, a.GetHashCode());
+}
+
+[Test]
+void test_char_ascii_casing() {
+    char bigA = 'A';
+    char bigZ = 'Z';
+    char smallA = 'a';
+    char smallZ = 'z';
+    Assert.Equal('a', bigA.ToLower());
+    Assert.Equal('z', bigZ.ToLower());
+    Assert.Equal('A', smallA.ToUpper());
+    Assert.Equal('Z', smallZ.ToUpper());
+    // Already-cased and non-letters pass through unchanged.
+    Assert.Equal('a', smallA.ToLower());
+    char five = '5';
+    char bang = '!';
+    Assert.Equal('5', five.ToUpper());
+    Assert.Equal('!', bang.ToLower());
+    // Non-ASCII passes through (ASCII-only rules, matching old __char_to_* builtin).
+    char nonAscii = (char)233; // 'é'
+    Assert.Equal(nonAscii, nonAscii.ToUpper());
+}
+
+// ── Double / Single Equals + hash consistency ────────────────────────────────
+
+[Test]
+void test_double_equals_and_hash_consistency() {
+    double a = 1.5;
+    double b = 1.5;
+    double c = 2.5;
+    Assert.True(a.Equals(b));
+    Assert.False(a.Equals(c));
+    // Equal doubles hash equal (bit-pattern fold is deterministic).
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+}
+
+[Test]
+void test_single_equals_and_hash_consistency() {
+    float a = 3.25f;
+    float b = 3.25f;
+    Assert.True(a.Equals(b));
+    Assert.Equal(a.GetHashCode(), b.GetHashCode());
+}
+
+// ── String ToString ──────────────────────────────────────────────────────────
+
+[Test]
+void test_string_to_string_is_self() {
+    string s = "hello";
+    Assert.Equal("hello", s.ToString());
+    Assert.Equal("", "".ToString());
+}

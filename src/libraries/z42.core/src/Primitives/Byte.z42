@@ -8,9 +8,11 @@ namespace Std;
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct Byte : IComparable<u8>, IEquatable<u8>, INumber<u8> {
     [Native("__byte_parse")]       public static extern u8 Parse(string s);
-    [Native("__int32_equals")]     public extern bool Equals(u8 other);
-    [Native("__int32_hash_code")]  public extern int GetHashCode();
     [Native("__int32_to_string")]  public extern string ToString();
+
+    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    public bool Equals(u8 other) { return this == other; }
+    public int GetHashCode() { return (int)this; }
 
     public int CompareTo(u8 other) {
         if (this < other) return -1;
