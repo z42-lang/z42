@@ -26,6 +26,15 @@ public sealed class BoundVarDeclStmt : BoundStmt {
     }
 }
 
+// 解构声明（模式匹配 B）：Pat 为不可失败位置模式（binder 已校验 irrefutable + 各层类型精确匹配）。
+// emit = 逐字段 field_get + 绑定，无 IsInstance / 无失败分支（PatternEmitter.EmitIrrefutable）。
+public sealed class BoundDeconstructDeclStmt : BoundStmt {
+    public BoundPattern Pat;
+    public BoundExpr    Init;
+    public BoundDeconstructDeclStmt(BoundPattern pat, BoundExpr init, Span span) { this.Span = span; this.Pat = pat; this.Init = init; }
+    public override string Dump() { return "(destructure " + this.Pat.Dump() + " " + this.Init.Dump() + ")"; }
+}
+
 public sealed class BoundReturn : BoundStmt {
     public bool      HasValue;
     public BoundExpr Value;     // 仅 HasValue

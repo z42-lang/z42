@@ -206,10 +206,41 @@ flowchart LR
 格式 bump、无新 runtime、无新关键字**（扩 `switch`；`is` 已有；守卫复用 `if`）。新语法只在测试文件出现，
 上一 nightly 的 z42c 仍能编当前源（满足两-nightly 纪律）。
 
+## B：解构声明 `Point(x, y) = p`
+
+模式匹配的**第四个应用位点**：把一个 record 直接按位置解构到**新声明的局部变量**，无需 `switch`/`is`
+外壳。是 Rust `let Point{x,y} = p;` / C# `var (x,y) = p;` 的对应物——积类型数据消费的最简形态。绑定在
+后续语句可见（同普通局部声明的作用域）。
+
+```z42
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+Point p = new Point(3, 4);
+Point(x, y) = p;                             // x ← 3, y ← 4；x/y 在后续语句可见
+int s = x + y;                               // 7
+
+Point(_, b) = p;                             // 通配丢弃 X，只绑 b ← Y
+Line(Point(ax, ay), Point(bx, by)) = seg;    // 嵌套解构
+```
+
+**不可失败（irrefutable）约束**：解构声明**没有失败分支**，故编译期强制模式不可失败——
+
+1. **结构**：子模式**只允许** 通配 `_` / 裸绑定 `x` / 嵌套位置模式；**禁止** 常量 `0` / or `|` / 范围 `..=`
+   / 关系 `>0` / 类型测试 `T x`（这些都可能匹配失败）。违反 → 编译错误。
+2. **类型精确匹配**：每个位置模式的类型须与被解构值的静态类型**精确一致**（顶层=`= e` 右侧静态类型，
+   嵌套=父 record 的字段类型）——保证 `IsInstance` 恒真、无需运行期类型测试。
+
+对齐 Rust `let`（只收 irrefutable 模式；可失败要 `let-else`）。lowering **无 IsInstance、无失败分支**：
+只逐字段 `field_get` 直读 + 绑定，递归下降嵌套位置（`PatternEmitter.EmitIrrefutable`）。解析用一条 lookahead
+判别 `T ( ... ) =`（`StmtParser._isDeconstructDeclStart`）与函数调用语句（后随 `;`）区分。
+
+> B 初版限 **record class + 位置形态**。属性形态解构声明 `Point { X: x } = p`、struct record 解构、
+> 泛型 record 解构、元组模式为后续特性。
+
 ## Deferred（后续独立特性）
 
-- or-模式**带绑定**（各 alt 绑定集一致性 + 合流寄存器 phi）；`is` 中的 or / `@`
-- 解构声明 `Point(x, y) = p`（B，需元组式）
-- 穷尽性诊断（C，封闭域 warning，复用 analyzer 框架）
+- 解构声明的属性形态 `Point { X: x } = p`；struct record / 泛型 record 位置解构；元组模式
+- `is` 中的 or / `@`
+- 穷尽性诊断（C，封闭域 warning）
 - `with` 表达式 / `init`-only 访问器（D/E）
-- struct record 位置解构、泛型 record 位置解构、元组模式

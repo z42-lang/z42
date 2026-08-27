@@ -1,0 +1,44 @@
+namespace Demo;
+
+using Std;
+
+// 模式匹配 B e2e 自检：解构声明 `Point(x, y) = p;` —— record 位置解构到新声明的局部变量。
+// 覆盖：单层解构、通配丢弃、嵌套解构、绑定在后续语句可见、限定类型。绑定用裸标识符（无 var）。
+// 不可失败（irrefutable）：子模式仅通配 / 裸绑定 / 嵌套位置；类型精确匹配。纯 Assert，空 stdout。
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+void Main() {
+    // ── 单层解构：Point(x, y) = p → x←X, y←Y ────────────────
+    Point p = new Point(3, 4);
+    Point(x, y) = p;
+    Assert.Equal(3, x);
+    Assert.Equal(4, y);
+    // 绑定在后续语句可见、可参与运算
+    int sum = x + y;
+    Assert.Equal(7, sum);
+
+    // ── 通配丢弃：Point(_, b) = q → 只绑 b ──────────────────
+    Point q = new Point(10, 20);
+    Point(_, b) = q;
+    Assert.Equal(20, b);
+
+    // ── 嵌套解构：Line(Point(ax, ay), Point(bx, by)) = seg ──
+    Line seg = new Line(new Point(1, 2), new Point(5, 6));
+    Line(Point(ax, ay), Point(bx, by)) = seg;
+    Assert.Equal(1, ax);
+    Assert.Equal(2, ay);
+    Assert.Equal(5, bx);
+    Assert.Equal(6, by);
+
+    // ── 嵌套 + 通配混合：Line(Point(cx, _), _) = seg ───────
+    Line(Point(cx, _), _) = seg;
+    Assert.Equal(1, cx);
+
+    // ── 解构声明产出的绑定可再解构 ─────────────────────────
+    Point mk = new Point(x + b, ay * 10);   // Point(23, 20)
+    Point(m0, m1) = mk;
+    Assert.Equal(23, m0);
+    Assert.Equal(20, m1);
+}
