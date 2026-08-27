@@ -72,4 +72,5 @@ public static class TokenKind {
     public static int Const = 151;         // const 编译期常量（add-const-keyword；字段修饰 + 局部声明前缀；值仅需互异、不入 zbc）
     public static int At = 152;            // @ 模式绑定（模式匹配 A2：name @ P；值仅需互异、不入 zbc）
     public static int DotDotEq = 153;      // ..= 闭区间范围模式（模式匹配 A2；值仅需互异、不入 zbc）
+    public static int With = 154;          // with 表达式（模式匹配 D：record 非破坏式更新；值仅需互异、不入 zbc）
 }

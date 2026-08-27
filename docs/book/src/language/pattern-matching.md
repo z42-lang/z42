@@ -271,9 +271,32 @@ string name = c switch {
 >   子类集」；且无反向子类型索引——无法枚举一个基类的全部已知子类。故 sealed 穷尽性为 out-of-scope
 >   （要支持需先引入封闭子类集语义 + 反向索引，属独立大改动）。
 
+## D：`with` 表达式（record 非破坏式更新）
+
+`p with { Y = 99 }` 产出一个**新 record**——除指定字段外逐字段拷贝原值（Rust `Point { y: 99, ..p }` /
+C# `p with { Y = 99 }` 对应物）。record 是不可变积类型，`with` 是「基于旧值造新值」的头号人体工学特性。
+
+```z42
+[Record] class Point(int X, int Y);
+Point p = new Point(1, 2);
+Point q = p with { Y = 99 };        // q = Point(1, 99)，p 不变
+Point u = p with { X = 8 } with { Y = 9 };   // 链式
+```
+
+**脱糖（读原字段作 ctor 实参 + 替换覆盖项）**：`p with { Y = 99 }` → `$t = p; new Point($t.X, 99)`——
+按主构造器声明序逐字段，覆盖项用 `with` 里的值、其余读原对象字段，收口进既有 `BoundSeqExpr`（`ConstructTyper._bindWith`）。
+
+> **为何读字段作 ctor 实参、而非「new 默认 + 逐字段 set」**：record 主构造器字段常为 readonly/init-only，
+> `new` 后赋值会撞可赋值性校验（E0415）。走 ctor 实参既避开只读问题、又天然产出不可变新值。target 先绑
+> 临时 `$t` 求值一次（非破坏式更新不重复求值 target 副作用）。
+
+适用 **record class**（`IsRecord && !IsStruct`）；覆盖字段须是该 record 的主构造器字段。非 record → 诊断；
+未知字段 → 诊断。struct record `with`、`..base` 结构更新为后续特性。`with` 是后缀表达式（绑定力 85，同
+`switch` 后缀），新增关键字**零格式 bump**（token 末尾追加不入 zbc）。
+
 ## Deferred（后续独立特性）
 
 - 解构声明的属性形态 `Point { X: x } = p`；struct record / 泛型 record 位置解构；元组模式
 - `is` 中的 or / `@`
-- `with` 表达式 / `init`-only 访问器（D/E）
+- `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）
 - sealed 层次穷尽性（需封闭子类集语义 + 反向子类索引）
