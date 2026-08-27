@@ -238,9 +238,42 @@ Line(Point(ax, ay), Point(bx, by)) = seg;    // 嵌套解构
 > B 初版限 **record class + 位置形态**。属性形态解构声明 `Point { X: x } = p`、struct record 解构、
 > 泛型 record 解构、元组模式为后续特性。
 
+## C：switch 穷尽性诊断（封闭域 bool / enum）
+
+`switch`（语句 + 表达式）对**封闭域**（值集有限的类型）未覆盖全部情形且无兜底臂时报 **warning
+`W0700`**（默认开启，不阻断编译）。对齐 Rust `match` 的穷尽性检查——把「漏一个 enum 成员 / 漏 `false`
+分支」从运行期隐患提前到编译期提示。
+
+```z42
+enum Color { Red, Green, Blue }
+string name = c switch {
+    Color.Red   => "r",
+    Color.Green => "g"
+    // ⚠️ W0700: switch on enum Color is not exhaustive: missing Color.Blue
+};
+```
+
+**可行域（仅 bool + enum）**：
+
+| 域 | 判定 |
+|----|------|
+| **bool** | case 覆盖 `true` ∧ `false`，或有兜底臂 → 穷尽 |
+| **enum** | 常量臂的整数值集 ⊇ 全成员整数值集，或有兜底 → 穷尽（enum 成员名在绑定期降级为整数字面量，故**按整数值**比对；别名成员同值天然合并） |
+
+**无条件兜底** = 任一臂无 pattern（`default`），或 pattern 恒匹配（通配 `_` / 裸绑定）且**无守卫**。
+带守卫的臂不计入无条件覆盖（守卫可能为假）。`or`-模式 `Red | Green | Blue` 递归展开各 alt 计入覆盖。
+
+> **两处设计事实（校正早期设想）**：
+> - **不走 analyzer 框架**：analyzer 跑在 AST(syntax) 层，拿不到 subject 的已解析类型与 enum 成员表；
+>   穷尽性判定落在 **binder 语义阶段**（`StmtBinder._bindSwitchStmt` / `ExprTyper._bindSwitchExpr` 尾部
+>   直接经 `DiagnosticBag.Warning` 上报，`ExhaustChecker`）。
+> - **sealed 不在可行域**：z42 的 `sealed` 语义是「不可被继承（final）」，**不是** Rust/Kotlin 的「封闭
+>   子类集」；且无反向子类型索引——无法枚举一个基类的全部已知子类。故 sealed 穷尽性为 out-of-scope
+>   （要支持需先引入封闭子类集语义 + 反向索引，属独立大改动）。
+
 ## Deferred（后续独立特性）
 
 - 解构声明的属性形态 `Point { X: x } = p`；struct record / 泛型 record 位置解构；元组模式
 - `is` 中的 or / `@`
-- 穷尽性诊断（C，封闭域 warning）
 - `with` 表达式 / `init`-only 访问器（D/E）
+- sealed 层次穷尽性（需封闭子类集语义 + 反向子类索引）

@@ -1,0 +1,138 @@
+// switch 穷尽性诊断（模式匹配 C）。封闭域（bool / enum）的 switch（语句 + 表达式）未覆盖全部情形
+// 且无无条件兜底臂时报 warning W0700。**落 binder 语义阶段**（非 analyzer 框架——后者跑 AST 层拿不到
+// 类型/SymbolTable）：subject 类型 + enum 成员表在此已知，直接经 _tc._diags.Warning 上报。
+//
+// 可行域（User 6.5 裁决）：
+//   bool —— 覆盖 true ∧ false，或有兜底。
+//   enum —— 常量臂整数值集 ⊇ EnumConsts 全成员整数值集，或有兜底（enum 成员名 bind 期已丢失、降级
+//            BoundLitInt → 按**整数值**比对；别名成员同值天然合并）。
+//   sealed —— 不可行（z42 sealed=不可继承 final，非封闭子类集，且无反向子类索引）→ out-of-scope。
+//
+// 无条件兜底 = 任一臂无 pattern（default），或 pattern 恒匹配（通配 / 裸绑定）且无守卫。带守卫臂不计覆盖。
+// W0700 首版 semantics 侧走**字面量**发码（避 core→semantics 冷启动 stale-cache，同 E0449/E0450 做法）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Core;
+
+public sealed class ExhaustChecker {
+    private TypeChecker _tc;
+    public ExhaustChecker(TypeChecker tc) { this._tc = tc; }
+
+    // switch 语句穷尽性
+    internal void CheckStmt(BoundSwitch sw, TypeEnv env) {
+        int i = 0;
+        while (i < sw.CaseCount) {
+            BoundSwitchCase c = sw.Cases[i];
+            if (this._isUncond(c.HasPattern, c.Pattern, c.Guard)) { return; }   // 有兜底 → 穷尽
+            i = i + 1;
+        }
+        StrMap covered = new StrMap();
+        i = 0;
+        while (i < sw.CaseCount) {
+            BoundSwitchCase c = sw.Cases[i];
+            if (c.Guard == null && c.HasPattern) { this._collect(c.Pattern, covered); }
+            i = i + 1;
+        }
+        this._report(sw.Subject.Type(), covered, env, sw.Span);
+    }
+
+    // switch 表达式穷尽性
+    internal void CheckExpr(BoundSwitchExpr sw, TypeEnv env) {
+        int i = 0;
+        while (i < sw.ArmCount) {
+            BoundSwitchArm a = sw.Arms[i];
+            if (this._isUncond(a.HasPattern, a.Pattern, a.Guard)) { return; }
+            i = i + 1;
+        }
+        StrMap covered = new StrMap();
+        i = 0;
+        while (i < sw.ArmCount) {
+            BoundSwitchArm a = sw.Arms[i];
+            if (a.Guard == null && a.HasPattern) { this._collect(a.Pattern, covered); }
+            i = i + 1;
+        }
+        this._report(sw.Subject.Type(), covered, env, sw.Span);
+    }
+
+    // 无条件兜底：无 pattern（default），或 pattern 恒匹配（通配 / 裸绑定）且无守卫。
+    private bool _isUncond(bool hasPattern, BoundPattern pat, BoundExpr guard) {
+        if (guard != null) { return false; }
+        if (!hasPattern) { return true; }
+        if (pat is BoundWildcardPattern) { return true; }
+        if (pat is BoundBindingPattern) { return true; }
+        return false;
+    }
+
+    // 收集一个 pattern 覆盖的常量值（进 covered 集，key=值域前缀 + 值文本）；or-模式递归各 alt。
+    private void _collect(BoundPattern pat, StrMap covered) {
+        if (pat is BoundConstantPattern) {
+            string k = this._constKey((pat as BoundConstantPattern).Value);
+            if (k != "") { covered.TryAdd(k, k); }
+            return;
+        }
+        if (pat is BoundOrPattern) {
+            BoundOrPattern op = pat as BoundOrPattern;
+            int i = 0;
+            while (i < op.Count) { this._collect(op.Alts[i], covered); i = i + 1; }
+            return;
+        }
+        // 其它 pattern（范围 / 关系 / 类型 / 位置 …）不覆盖单一常量值 → 忽略（保守，可能过报）。
+    }
+
+    // 常量 BoundExpr → 覆盖集 key。整数 / 枚举成员（降级 BoundLitInt）→ "i:<文本>"；bool → "b:true/false"。
+    private string _constKey(BoundExpr v) {
+        if (v is BoundLitInt) { return "i:" + (v as BoundLitInt).Text; }
+        if (v is BoundLitBool) { if ((v as BoundLitBool).Value) { return "b:true"; } return "b:false"; }
+        return "";
+    }
+
+    private void _report(Z42Type subjType, StrMap covered, TypeEnv env, Span sp) {
+        string tn = subjType.Name();
+        // ── bool ──────────────────────────────────────────────
+        if (PrimModel.Canon(tn) == "bool") {
+            bool hasT = covered.ContainsKey("b:true");
+            bool hasF = covered.ContainsKey("b:false");
+            if (!hasT || !hasF) {
+                string miss = "";
+                if (!hasT) { miss = "true"; }
+                if (!hasF) { if (miss != "") { miss = miss + ", "; } miss = miss + "false"; }
+                this._tc._diags.Warning("W0700", "switch on bool is not exhaustive: missing " + miss + " (add the missing case or a default)", sp);
+            }
+            return;
+        }
+        // ── enum ──────────────────────────────────────────────
+        if (env.Symbols.EnumTypes.ContainsKey(tn)) {
+            string[] keys = env.Symbols.EnumConsts.Keys();
+            string prefix = tn + ".";
+            int missing = 0;
+            string missNames = "";
+            int i = 0;
+            while (i < keys.Length) {
+                string key = keys[i];
+                if (this._startsWith(key, prefix)) {
+                    StrBox vb = env.Symbols.EnumConsts.Get(key) as StrBox;
+                    if (vb != null) {
+                        string vk = "i:" + vb.Value;
+                        if (!covered.ContainsKey(vk)) {
+                            missing = missing + 1;
+                            if (missNames != "") { missNames = missNames + ", "; }
+                            missNames = missNames + key;
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+            if (missing > 0) {
+                this._tc._diags.Warning("W0700", "switch on enum " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
+            }
+        }
+        // 其它类型（开放域）→ 不检查。
+    }
+
+
+    private bool _startsWith(string s, string prefix) {
+        if (s.Length < prefix.Length) { return false; }
+        return s.Substring(0, prefix.Length) == prefix;
+    }
+}
