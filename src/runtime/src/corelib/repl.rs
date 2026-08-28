@@ -1,31 +1,41 @@
 //! REPL line editor builtins — back `Std.Repl.ReadLine` used by the native
-//! interactive REPL (`z42i`, add-z42-repl).
+//! interactive REPL (`z42i`).
 //!
 //! `__repl_readline(prompt, initial)` → one edited line (history, emacs keys,
-//! Ctrl-D EOF), with the edit buffer pre-filled by `initial` (empty for a fresh
-//! line; a computed indent string for an auto-indented continuation line).
+//! Ctrl-D EOF). Multi-line accumulation, completeness judgment, AND the
+//! continuation-indent computation all live in the script layer
+//! (sink-repl-indent-to-script): this builtin is a plain "read one edited line"
+//! primitive — no bracket state machine remains Rust-side.
 //!
-//! Multi-line accumulation, completeness judgment, AND the continuation-indent
-//! computation now all live in the script layer (sink-repl-indent-to-script,
-//! following add-repl-parser-completeness): the parser is the authority on "is the
-//! input complete?" and the z42-side `Std.Scripting.Completeness` computes the
-//! indent from the accumulated text (via the existing Lexer). This builtin is a
-//! plain "read one line, pre-filled with the given string" primitive — no bracket
-//! state machine remains Rust-side.
+//! # Line editor: dlopen'd cdylib, not in-VM (extract-repl-native-cdylib)
+//!
+//! The rustyline-backed editor was extracted into a host-only toolchain cdylib
+//! (`crates/z42-repl` → `libz42_repl.{so,dylib,dll}`). This module keeps only the
+//! **VM-side** pieces:
+//!   - the `__repl_*` builtins the z42 stdlib calls,
+//!   - the re-entrancy core `complete_via_callback` (VM → z42 completer), and
+//!   - `complete_trampoline` — the `extern "C"` shim the cdylib calls back through
+//!     to fetch completion candidates for the word under the cursor.
+//! The lazy dlopen, callback wiring, and plain-stdin fallback live in the sibling
+//! `repl_native` module; the editor itself (rustyline `Completer`/`Hinter`/keys)
+//! lives in the cdylib. No z42 type (`Value`/`VmContext`) crosses the C boundary —
+//! candidates cross as a `\n`-joined C string.
 //!
 //! Return convention: `Value::Str` for a line/block; `Value::Null` on EOF
-//! (Ctrl-D) or interrupt (Ctrl-C) so the z42 side can treat null as "exit".
-//! An empty line is `Value::Str("")` — distinct from EOF.
+//! (Ctrl-D) so the z42 side can treat null as "exit". Ctrl-C (interrupt) returns
+//! `Value::Str("")` — distinct from EOF. An empty line is `Value::Str("")` too.
 //!
-//! Host-only: rustyline backs the editor on non-wasm targets; wasm32 (where the
-//! rustyline dep is cfg-gated out) falls back to a plain stdin read so the
-//! builtins still resolve. The REPL itself is host-only (scripting-charter 2b).
+//! Host-only: the cdylib backs the editor on host targets; wasm32 falls back to a
+//! plain stdin read so the builtins still resolve. The REPL itself is host-only
+//! (scripting-charter 2b).
 
 use crate::corelib::reflection::{builtin_type_members, make_type_from_name};
 use crate::interp::{exec_function, ExecOutcome};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+use std::ffi::{c_char, c_void, CStr, CString};
 
 /// Extract argument `idx` as an owned prompt string (empty when absent/non-str).
 fn prompt_arg(args: &[Value], idx: usize) -> String {
@@ -42,15 +52,17 @@ fn prompt_arg(args: &[Value], idx: usize) -> String {
 pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let prompt = prompt_arg(args, 0);
     // add-repl-prewarm: GC-safe park for the blocking read so a background
-    // prewarm thread's GC can proceed while this thread waits on stdin.
+    // prewarm thread's GC can proceed while this thread waits on stdin. The
+    // cdylib's callbacks (completer / key-editor) un-park via
+    // `NativeUnparkGuard` in the trampolines before re-entering the VM.
     let _park = crate::gc::NativeParkGuard::enter(ctx);
     read_one_line(ctx, &prompt)
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
 /// key invokes (signature `string[] complete(string line, int pos)`). Empty string
-/// clears it. Process-global; the rustyline `Completer` reads it on each Tab.
-/// D5 spike (add-completion-query-api, risk B).
+/// clears it. Process-global; the cdylib's `Completer` reads it (via
+/// `complete_trampoline`) on each Tab. D5 spike (add-completion-query-api, risk B).
 pub fn builtin_repl_set_completer(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let fqn = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
@@ -61,8 +73,8 @@ pub fn builtin_repl_set_completer(_ctx: &VmContext, args: &[Value]) -> Result<Va
     Ok(Value::Null)
 }
 
-/// Registered completer FQN (set by `__repl_set_completer`); read by the rustyline
-/// `Completer` on Tab. Process-global (one REPL per process).
+/// Registered completer FQN (set by `__repl_set_completer`); read by
+/// `complete_trampoline` on Tab. Process-global (one REPL per process).
 static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 
@@ -74,9 +86,10 @@ static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<Strin
 /// `reflection::builtin_invoke_static` but with two call args; the completer
 /// builds the array z42-side so no Rust-side array construction is needed.
 ///
-/// This is the callback core the rustyline `Completer` (risk B) will reuse; here
-/// it is exposed as a direct builtin so a piped z42 program can verify risk A
-/// (builtin → z42 callback with args → string[] back) end-to-end on the real VM.
+/// This is the callback core the cdylib `Completer` (risk B) reuses via
+/// `complete_trampoline`; here it is exposed as a direct builtin so a piped z42
+/// program can verify risk A (builtin → z42 callback with args → string[] back)
+/// end-to-end on the real VM.
 pub fn builtin_repl_complete_probe(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let fqn = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
@@ -94,9 +107,9 @@ pub fn builtin_repl_complete_probe(ctx: &VmContext, args: &[Value]) -> Result<Va
 }
 
 /// Shared callback core: invoke the z42 completer `fqn(line, pos)` and return its
-/// `string[]` result Value. Reused by the probe (risk A) and — once wired — the
-/// rustyline `Completer` (risk B). A `throw` inside the completer propagates with
-/// its original type via `ctx.set_pending_thrown`, same convention as
+/// `string[]` result Value. Reused by the probe (risk A) and the cdylib `Completer`
+/// (risk B, via `complete_trampoline`). A `throw` inside the completer propagates
+/// with its original type via `ctx.set_pending_thrown`, same convention as
 /// `__invoke_static`.
 fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> Result<Value> {
     let module_arc = ctx
@@ -130,6 +143,64 @@ fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> R
             ctx.set_pending_thrown(val);
             bail!("__z42_reflected_throw__")
         }
+    }
+}
+
+/// `extern "C"` completion trampoline the cdylib calls back through
+/// `ReplCallbacks.complete` mid-`readline()`. Casts the opaque `ctx` back to
+/// `&VmContext`, un-parks GC (the outer `NativeParkGuard` from `builtin_repl_readline`
+/// is active for the blocking read), invokes the registered z42 completer via
+/// `complete_via_callback`, and returns the candidates as an owned `\n`-joined C
+/// string (the cdylib splits on `\n`). Returns null on no-editor / no candidates /
+/// error — preserving the completer's "a throw becomes a silent no-op" semantics.
+/// The returned string is freed by the cdylib via `ReplCallbacks.free_str`
+/// (= `repl_native::z42vm_free_str`).
+///
+/// # Safety
+/// `ctx` must be the live `*mut VmContext` the z42vm side installed for this
+/// `readline` span; `line` a valid NUL-terminated C string. Both hold on the same
+/// thread for the duration of the call (same window/thread invariant as the old
+/// `ACTIVE_CTX`).
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+pub(crate) extern "C" fn complete_trampoline(
+    ctx: *mut c_void,
+    line: *const c_char,
+    pos: usize,
+) -> *mut c_char {
+    if ctx.is_null() || line.is_null() {
+        return std::ptr::null_mut();
+    }
+    let fqn = match REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone()) {
+        Some(f) => f,
+        None => return std::ptr::null_mut(),
+    };
+    // SAFETY: `ctx` is the live `&VmContext` installed for this readline span; the
+    // trampoline only runs on that thread during the span.
+    let vmctx: &VmContext = unsafe { &*(ctx as *const VmContext) };
+    let line_str = unsafe { CStr::from_ptr(line) }.to_string_lossy().into_owned();
+    // Fires mid-`readline`, inside the outer NativeParkGuard; temporarily un-park so
+    // the completer runs as a normal mutator (parking at its own safepoints if a
+    // background GC is requested); re-parks on drop before returning to the read.
+    let _unpark = crate::gc::NativeUnparkGuard::exit(vmctx);
+    let line_val = Value::Str(line_str.into());
+    let cands: Vec<String> = match complete_via_callback(vmctx, &fqn, line_val, pos as i64) {
+        Ok(Value::Array(a)) => a
+            .borrow()
+            .iter_boxed()
+            .filter_map(|v| match v {
+                Value::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect(),
+        _ => return std::ptr::null_mut(),
+    };
+    if cands.is_empty() {
+        return std::ptr::null_mut();
+    }
+    // Candidates are identifiers (no `\n`, no interior NUL); join for the C boundary.
+    match CString::new(cands.join("\n")) {
+        Ok(c) => c.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -200,291 +271,13 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
     Ok(())
 }
 
-// ── Tab completion (D5 spike, add-completion-query-api) ──────────────────────
-//
-// rustyline's `Completer` runs Rust-side mid-`readline()`. To fetch candidates it
-// must call back into the VM. We reuse the (Risk-A-proven) `complete_via_callback`;
-// the two pieces it needs are supplied out-of-band:
-//   • the completer FQN — process-global `REGISTERED_COMPLETER` (set by z42 via
-//     `__repl_set_completer`);
-//   • the live `&VmContext` — a thread-local raw pointer set for exactly the span
-//     of `ed.readline()` (below). Sound because `read_one_line` holds `&VmContext`
-//     alive across that call and clears the pointer immediately after; `complete()`
-//     only ever runs on the same thread during that window.
-#[cfg(not(target_arch = "wasm32"))]
-thread_local! {
-    static ACTIVE_CTX: std::cell::Cell<*const VmContext> = const { std::cell::Cell::new(std::ptr::null()) };
-}
+// ── Line source: cdylib editor on host, plain stdin on wasm / when unavailable ──
 
-/// The live `&VmContext` published for the duration of `ed.readline()` (see
-/// `read_one_line`), as a raw pointer; null outside a readline span. Read by the
-/// indent-aware key handlers in `repl_editing` (sibling module). (add-repl-indent-editing)
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) fn active_ctx_ptr() -> *const VmContext {
-    ACTIVE_CTX.with(|c| c.get())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-struct ReplHelper {
-    /// fish-style ghost from prior inputs; the fallback when no live identifier
-    /// completion extends the current word. (add-repl-multiline-completion)
-    history: rustyline::hint::HistoryHinter,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl ReplHelper {
-    fn new() -> Self {
-        Self { history: rustyline::hint::HistoryHinter::new() }
-    }
-
-    /// Inline completion hint for the word under the cursor: ask the session completer
-    /// for candidates and ghost the suffix of the first one that *strictly extends* the
-    /// typed word. Works for both bare identifiers (`Con`→`sole`) **and member context**
-    /// (`Console.W`→`riteLine`) — the latter is what the user expects when typing a
-    /// receiver's method. The completer reconciles the receiver type on demand (cached
-    /// after the first hit), so the per-keystroke cost matches Tab's and is no worse than
-    /// the bare-word ghost already does. Prefix-only filter (`starts_with`) means a
-    /// non-extending candidate list simply yields no hint — the ghost is never wrong, at
-    /// worst absent. (add-repl-multiline-completion; member ghost: add-repl-type-metacommand)
-    fn identifier_hint(&self, line: &str, pos: usize) -> Option<String> {
-        let start = word_start(line, pos);
-        let word = &line[start..pos];
-        // Only skip the empty word (nothing typed yet after a `.` or at line start) —
-        // hinting all members off an empty prefix would be noise.
-        if word.is_empty() {
-            return None;
-        }
-        let fqn = REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone())?;
-        let ctx_ptr = ACTIVE_CTX.with(|c| c.get());
-        if ctx_ptr.is_null() {
-            return None;
-        }
-        // SAFETY: same window/thread invariant as `Completer::complete` — ACTIVE_CTX
-        // holds a live `&VmContext` for the duration of `ed.readline()`, and the hinter
-        // only runs during that span on this thread.
-        let ctx: &VmContext = unsafe { &*ctx_ptr };
-        let _unpark = crate::gc::NativeUnparkGuard::exit(ctx);
-        let line_val = Value::Str(line.into());
-        let cands = match complete_via_callback(ctx, &fqn, line_val, pos as i64) {
-            Ok(Value::Array(a)) => a
-                .borrow()
-                .iter_boxed()
-                .filter_map(|v| match v {
-                    Value::Str(s) => Some(s.to_string()),
-                    _ => None,
-                })
-                .collect::<Vec<String>>(),
-            _ => return None,
-        };
-        cands
-            .into_iter()
-            .find(|c| c.len() > word.len() && c.starts_with(word))
-            .map(|c| c[word.len()..].to_string())
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl rustyline::completion::Completer for ReplHelper {
-    type Candidate = String;
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _rlctx: &rustyline::Context<'_>,
-    ) -> rustyline::Result<(usize, Vec<String>)> {
-        let fqn = match REGISTERED_COMPLETER.get().and_then(|m| m.lock().clone()) {
-            Some(f) => f,
-            None => return Ok((pos, Vec::new())),
-        };
-        let ctx_ptr = ACTIVE_CTX.with(|c| c.get());
-        if ctx_ptr.is_null() {
-            return Ok((pos, Vec::new()));
-        }
-        // SAFETY: set to a live `&VmContext` for the duration of `ed.readline()` in
-        // `read_one_line`, cleared right after; `complete` only runs during that span
-        // on this thread.
-        let ctx: &VmContext = unsafe { &*ctx_ptr };
-        // add-repl-prewarm: this callback fires mid-`readline`, i.e. inside the
-        // outer NativeParkGuard. Temporarily un-park so the completer runs as a
-        // normal mutator (parking at its own safepoints if a background GC is
-        // requested); re-parks on drop before returning to the blocking read.
-        let _unpark = crate::gc::NativeUnparkGuard::exit(ctx);
-        let start = word_start(line, pos);
-        let line_val = Value::Str(line.into());
-        match complete_via_callback(ctx, &fqn, line_val, pos as i64) {
-            Ok(Value::Array(a)) => {
-                let cands = a
-                    .borrow()
-                    .iter_boxed()
-                    .filter_map(|v| match v {
-                        Value::Str(s) => Some(s.to_string()),
-                        _ => None,
-                    })
-                    .collect();
-                Ok((start, cands))
-            }
-            _ => Ok((pos, Vec::new())),
-        }
-    }
-}
-
-// Hinter: inline ghost suggestion. Tries live identifier completion first (ghost the
-// unique/first prefix-extending candidate), then falls back to fish-style history.
-#[cfg(not(target_arch = "wasm32"))]
-impl rustyline::hint::Hinter for ReplHelper {
-    type Hint = String;
-    fn hint(&self, line: &str, pos: usize, rlctx: &rustyline::Context<'_>) -> Option<String> {
-        // Only at end-of-line on a non-empty buffer (matches rustyline's own ghosting
-        // convention — never hint mid-line where it would collide with existing text).
-        if line.is_empty() || pos != line.len() {
-            return None;
-        }
-        self.identifier_hint(line, pos)
-            .or_else(|| self.history.hint(line, pos, rlctx))
-    }
-}
-#[cfg(not(target_arch = "wasm32"))]
-impl rustyline::highlight::Highlighter for ReplHelper {
-    // Render the inline hint dimmed (ANSI bright-black) so the ghost suggestion reads
-    // as a suggestion, not as text the user typed. (add-repl-multiline-completion)
-    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
-        std::borrow::Cow::Owned(format!("\x1b[90m{hint}\x1b[0m"))
-    }
-}
-#[cfg(not(target_arch = "wasm32"))]
-impl rustyline::validate::Validator for ReplHelper {}
-#[cfg(not(target_arch = "wasm32"))]
-impl rustyline::Helper for ReplHelper {}
-
-/// Cross-session REPL history file: `$HOME/.z42_history` (falls back to
-/// `%USERPROFILE%` on Windows). `None` when neither is set — history then stays
-/// in-process only. Kept dependency-free (no `dirs` crate).
-/// (add-repl-history-keyword-completion)
-#[cfg(not(target_arch = "wasm32"))]
-fn history_path() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|h| std::path::PathBuf::from(h).join(".z42_history"))
-}
-
-/// Start index of the identifier word ending at `pos` (letters/digits/`_`); the
-/// replacement span for a chosen candidate. **Excludes `.`** so a member candidate
-/// (`WriteLine`, returned bare by the z42 completer) replaces only the post-`.` prefix
-/// — not the whole `receiver.prefix`, which would wipe the receiver. Matches the z42
-/// side `_wordStart` (Completer.z42), keeping both ends' replacement spans consistent.
-/// (fix-repl-completion-span-and-index)
-#[cfg(not(target_arch = "wasm32"))]
-fn word_start(line: &str, pos: usize) -> usize {
-    let bytes = line.as_bytes();
-    let mut i = pos;
-    while i > 0 {
-        let c = bytes[i - 1];
-        if c.is_ascii_alphanumeric() || c == b'_' {
-            i -= 1;
-        } else {
-            break;
-        }
-    }
-    i
-}
-
-// ── Line source: rustyline on host, plain stdin on wasm / when unavailable ──
-
+/// Host: drive the dlopen'd `libz42_repl` editor (lazy load; plain-stdin fallback
+/// when the lib is absent or the terminal can't host an editor). See `repl_native`.
 #[cfg(not(target_arch = "wasm32"))]
 fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
-    use parking_lot::Mutex;
-    use rustyline::error::ReadlineError;
-    use rustyline::history::DefaultHistory;
-    use rustyline::{CompletionType, Config, Editor};
-    use std::sync::OnceLock;
-
-    // One editor for the process → shared history + completer across calls. Lazily
-    // created; if rustyline can't init (e.g. no tty), we fall back to plain stdin.
-    static EDITOR: OnceLock<Mutex<Option<Editor<ReplHelper, DefaultHistory>>>> = OnceLock::new();
-    let cell = EDITOR.get_or_init(|| Mutex::new(None));
-    let mut guard = cell.lock();
-    if guard.is_none() {
-        // List completion (bash-style: first Tab → longest common prefix, next Tab →
-        // list candidates). rustyline's default is `Circular`, which cycles through
-        // candidates on each Tab and wraps back to the *original* input — read as
-        // Tab "going backward" / losing text. (add-repl-completion-iter2)
-        // indent_size(4): the level `Cmd::Indent`/`Dedent` add/remove per keypress —
-        // matches the script layer's 4-space continuation indent. (add-repl-indent-editing)
-        let config = Config::builder()
-            .completion_type(CompletionType::List)
-            .indent_size(4)
-            .build();
-        if let Ok(mut ed) = Editor::<ReplHelper, DefaultHistory>::with_config(config) {
-            ed.set_helper(Some(ReplHelper::new()));
-            // Indent-aware editing keys (add-repl-indent-editing): the decision logic
-            // lives in z42 (`Std.Repl.ReplEditing`, via `replKeyEdit`); these
-            // handlers only relay (line, pos) and translate the returned action into a
-            // redo-immune `Cmd` (`Dedent` for Backspace, `Insert` for Tab grid-snap-ceil).
-            // Returning `None` falls back to the key's default (Tab→complete,
-            // Backspace→delete one char), so nothing is blocked when unregistered or on a
-            // non-indent line. (add-repl-indent-editing + add-repl-tab-grid-snap)
-            //
-            // Enter is bound to the SAME handler with key "enter" (add-repl-multiline-editing):
-            // it re-enters z42 to judge whether the whole buffer is complete → "accept"
-            // (Cmd::AcceptLine, submit) or "newline:<indent>" (Cmd::Insert "\n"+indent, keep
-            // editing). This turns the editor into a whole-buffer multi-line editor: one
-            // readline() spans an entire statement, arrow keys navigate across its lines, and
-            // a pasted block is editable in place. Returning None (unregistered) falls back to
-            // rustyline's default Enter (submit) — safe single-line behavior.
-            use crate::corelib::repl_editing::KeyEditHandler;
-            use rustyline::{EventHandler, KeyCode, KeyEvent, Modifiers};
-            ed.bind_sequence(
-                KeyEvent(KeyCode::Backspace, Modifiers::NONE),
-                EventHandler::Conditional(Box::new(KeyEditHandler::new("backspace"))),
-            );
-            ed.bind_sequence(
-                KeyEvent(KeyCode::Tab, Modifiers::NONE),
-                EventHandler::Conditional(Box::new(KeyEditHandler::new("tab"))),
-            );
-            ed.bind_sequence(
-                KeyEvent(KeyCode::Enter, Modifiers::NONE),
-                EventHandler::Conditional(Box::new(KeyEditHandler::new("enter"))),
-            );
-            // Load prior sessions' history (best-effort: missing file / parse error is
-            // fine — a fresh session just starts empty). (add-repl-history-keyword-completion)
-            if let Some(p) = history_path() {
-                let _ = ed.load_history(&p);
-            }
-            *guard = Some(ed);
-        }
-    }
-    match guard.as_mut() {
-        Some(ed) => {
-            // Publish the live ctx for the completer, strictly for this readline span.
-            ACTIVE_CTX.with(|c| c.set(ctx as *const VmContext));
-            // Whole-buffer multiline (add-repl-multiline-editing): one readline() reads an
-            // entire (possibly multi-line) statement; the Enter handler inserts newlines +
-            // continuation indent in-buffer until the statement is complete, so there is no
-            // per-line `initial` pre-fill anymore.
-            let res = ed.readline(prompt);
-            ACTIVE_CTX.with(|c| c.set(std::ptr::null()));
-            match res {
-                Ok(line) => {
-                    let _ = ed.add_history_entry(line.as_str());
-                    // Persist after each line so history survives across sessions (and
-                    // crashes). Best-effort: a write failure never breaks the REPL.
-                    if let Some(p) = history_path() {
-                        let _ = ed.save_history(&p);
-                    }
-                    Ok(Value::Str(line.into()))
-                }
-                // Ctrl-C (Interrupt) abandons the current (possibly multi-line) buffer and
-                // re-prompts — return an empty line, which the loop treats as "nothing typed,
-                // continue". Ctrl-D (Eof) returns null → the loop exits. In the old line-by-line
-                // model both mapped to null and `buf` non-empty distinguished them; whole-buffer
-                // editing keeps `buf` empty, so the split must happen here. (add-repl-multiline-editing)
-                Err(ReadlineError::Interrupted) => Ok(Value::Str(String::new().into())),
-                Err(ReadlineError::Eof) => Ok(Value::Null),
-                Err(e) => bail!("__repl_readline: {e}"),
-            }
-        }
-        None => plain_readline(prompt),
-    }
+    super::repl_native::readline(ctx, prompt)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -496,7 +289,7 @@ fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Value> {
 /// No line editing here (non-interactive / no-tty). Whole-buffer multi-line editing is a
 /// tty-only feature; a piped stream still works because the z42 loop accumulates lines and
 /// asks `Completeness.IsIncomplete` when to stop. (add-repl-multiline-editing)
-fn plain_readline(prompt: &str) -> Result<Value> {
+pub(crate) fn plain_readline(prompt: &str) -> Result<Value> {
     use std::io::Write;
     let mut err = std::io::stderr();
     let _ = err.write_all(prompt.as_bytes());
@@ -508,7 +301,3 @@ fn plain_readline(prompt: &str) -> Result<Value> {
     }
     Ok(Value::Str(line.trim_end_matches(['\n', '\r']).to_string().into()))
 }
-
-#[cfg(test)]
-#[path = "repl_tests.rs"]
-mod repl_tests;

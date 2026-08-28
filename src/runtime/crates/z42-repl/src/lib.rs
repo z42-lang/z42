@@ -39,6 +39,11 @@ pub const Z42_REPL_EOF: i32 = 1;
 pub const Z42_REPL_INTERRUPT: i32 = 2;
 /// Editor error (message in [`z42_repl_last_error`]); return value is null.
 pub const Z42_REPL_ERROR: i32 = 3;
+/// The editor could not initialize (no tty / unsupported terminal); return value
+/// is null. Distinct from `Z42_REPL_ERROR` so the z42vm side falls back to a plain
+/// stdin read (matching the old in-VM behavior where a failed `Editor::with_config`
+/// dropped to `plain_readline`) instead of surfacing an error.
+pub const Z42_REPL_NO_EDITOR: i32 = 4;
 
 // ── Re-entrancy callbacks (VM side supplies; this crate calls back) ──────────
 
@@ -254,8 +259,9 @@ fn read_one_line(prompt: &str) -> Result<Option<String>, i32> {
     let ed = match guard.as_mut() {
         Some(ed) => ed,
         None => {
-            set_last_error("rustyline editor unavailable (no tty)");
-            return Err(Z42_REPL_ERROR);
+            // Editor never initialized (no tty / unsupported terminal). Signal the
+            // z42vm side to use its plain-stdin fallback rather than erroring.
+            return Err(Z42_REPL_NO_EDITOR);
         }
     };
     match ed.readline(prompt) {
