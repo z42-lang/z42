@@ -74,7 +74,7 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: host-v2
 
-      # C#-free: seed from the prev nightly + build current source warm (xtask bench
+      # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
       - name: Bootstrap toolchain (nightly z42c seed → current source)
         uses: ./.github/actions/ci-bootstrap

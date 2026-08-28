@@ -1,11 +1,11 @@
 name: xtask-bootstrap-artifact
 description: >
-  C#-free bootstrap by CONSUMING the `toolchain-<host-os>` artifact produced by the
-  toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg, all built without
-  dotnet), plus a host `cargo build` for z42vm + native cdylibs. After this, drive
-  work via `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like the source/download
-  bootstraps — but with NO dotnet. Replaces xtask-bootstrap-source on the package /
-  platform-test jobs. The consuming job MUST `needs: toolchain-bootstrap`.
+  Bootstrap by CONSUMING the `toolchain-<host-os>` artifact produced by the
+  toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg), plus a host
+  `cargo build` for z42vm + native cdylibs. After this, drive work via
+  `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like the source/download
+  bootstraps. Replaces xtask-bootstrap-source on the package / platform-test jobs.
+  The consuming job MUST `needs: toolchain-bootstrap`.
   Linux + macOS host runners (the toolchain artifact is per host OS).
 runs:
   using: composite
@@ -17,9 +17,9 @@ runs:
       shell: bash
       run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml
 
-    # z42c + stdlib + xtask.zpkg (C#-free .zpkg products) → restored at repo root
+    # z42c + stdlib + xtask.zpkg (.zpkg products) → restored at repo root
     # under artifacts/build/{libraries,z42c}/ and artifacts/xtask/.
-    - name: Download C#-free toolchain artifact
+    - name: Download toolchain artifact
       uses: actions/download-artifact@v4
       with:
         name: toolchain-${{ runner.os == 'macOS' && 'macos-15' || 'ubuntu-latest' }}

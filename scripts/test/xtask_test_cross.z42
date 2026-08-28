@@ -10,7 +10,7 @@
 // main's zpkg through z42vm with a temp libs dir that bundles stdlib +
 // our two test packages, capture stdout, and diff against expected.
 //
-// Build / run sequence per test (C#-free — z42c.driver.zpkg on z42vm):
+// Build / run sequence per test (z42c.driver.zpkg on z42vm):
 //   1. z42vm z42c.driver.zpkg build <target>/z42.toml   (no deps)
 //   2. z42vm z42c.driver.zpkg build <ext>/z42.toml      (deps on target)
 //   3. z42vm z42c.driver.zpkg build <main>/z42.toml     (deps on target + ext)

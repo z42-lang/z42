@@ -57,10 +57,10 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: host-v2
 
-      # C#-free: seed the toolchain from the prev nightly (NO dotnet) and build
-      # current source warm — same path as CI build-and-test. `xtask bench` rebuilds
-      # stdlib via the warm self-build, so it needs the primed seed (the old download
-      # action left artifacts/build empty → bench hit the now-removed C# cold seed).
+      # Seed the toolchain from the prev nightly and build current source warm — same
+      # path as CI build-and-test. `xtask bench` rebuilds stdlib via the warm
+      # self-build, so it needs the primed seed (the old download action left
+      # artifacts/build empty).
       - name: Bootstrap toolchain (nightly z42c seed → current source)
         uses: ./.github/actions/ci-bootstrap
         with:
