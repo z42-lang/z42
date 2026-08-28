@@ -5,7 +5,6 @@ namespace Std.Scripting;
 using Std;
 using Std.Collections;
 using Std.Threading;  // Thread（add-repl-prewarm：后台预热 worker 句柄）
-using Z42.Pipeline;   // DepScanResult（perf-optimize-repl-eval ②：跨轮缓存依赖世界）
 
 public class ScriptState {
     public List<string> Usings;    // 生效的 using 命名空间（如 "Std.IO"）
@@ -19,10 +18,12 @@ public class ScriptState {
     // 编译配置（PackageCompile 需要）：依赖目录 + 依赖名白名单。REPL 运行期从 Z42_LIBS 派生。
     public string[] LibsDirs; public int LibsDirsN;
     public string[] DeclaredDeps; public int DepCount;
-    // 依赖世界缓存（perf-optimize-repl-eval ②）：首轮对静态库建一次 DepScan（~98% 的每轮开销），
-    // 之后逐轮作 CompileInputs.CachedScan 复用 + ExtendWithPackage 增量并入本轮 Repl.R{N} 包（carry-
-    // forward 改为全内存增量，不再落盘/不再全量重扫）。null = 尚未建。
-    public DepScanResult CachedScan;
+    // 依赖世界缓存（perf-optimize-repl-eval ②）：首轮对静态库建一次依赖世界（~98% 的每轮开销），
+    // 之后逐轮作复用 + 增量并入本轮 Repl.R{N} 包（carry-forward 改为全内存增量，不再落盘/不再全量
+    // 重扫）。null = 尚未建。**sink-repl-compile-facade：opaque 句柄**——底层是编译器的
+    // `DepScanResult`（住 z42c.pipeline），经 `IReplCompiler` 门面创建/查询/增量，scripting 只当
+    // `object` 持有、从不具名 pipeline 类型（stdlib-only）。
+    public object CachedScan;
     // 后台预热 worker 句柄（add-repl-prewarm）：REPL 启动即 spawn 一个线程跑 Script.Prewarm
     // 构建 CachedScan；首次 Eval 消费前 Join 汇合。null = 无预热 worker（.reset 重建 / -c 单次求值
     // → 走 inline Prewarm 兜底）。

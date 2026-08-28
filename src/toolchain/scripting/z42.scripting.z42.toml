@@ -1,16 +1,20 @@
 # z42.scripting — REPL 编译+执行层（scripting-charter Form B）。
-# 依赖编译器包（z42c.*）——「compiler-consuming stdlib 库」（add-z42-repl D2/A）。
+# sink-repl-compile-facade：编译期 **stdlib-only**——编译走 z42.build 的 `IReplCompiler` 门面
+# （实现 Z42cReplCompiler 住 z42c.pipeline，运行期经 ModuleLoader 反射注入，见 ReplCompilerHost）；
+# 前端 z42c.core/syntax 已是 stdlib（PR-A）。不再静态依赖 z42c.semantics/z42c.pipeline（编译器后端）
+# → apphost 不再静态链编译器，运行期动态加载 z42c.pipeline 组件。物理仍在 src/toolchain（搬 src/
+# libraries 作 follow-up）。
 [project]
 name    = "z42.scripting"
 version = "0.1.0"
 kind    = "lib"
 
 [dependencies]
-"z42.core"       = "0.1.0"
-"z42.io"         = "0.1.0"   # Environment.GetEnvironmentVariable（Z42_LIBS）
-"z42.ir"         = "0.1.0"   # ZpkgWriter / ZpkgBuilder（ZpkgFileZ → bytes）
-"z42c.core"      = "0.1.0"   # Span（Token.Span）
-"z42c.syntax"    = "0.1.0"   # Lexer / Token / Parser / CompilationUnit
-"z42c.semantics" = "0.1.0"   # IrDump.ParseAll
-"z42c.pipeline"  = "0.1.0"   # PackageCompile
-"z42.threading"  = "0.1.0"   # Thread（add-repl-prewarm：后台预热依赖世界的 worker 句柄）
+"z42.core"      = "0.1.0"   # String / Std.Reflection（Type / Activator）
+"z42.io"        = "0.1.0"   # Environment / File / Path / Console（组件定位 + Z42_LIBS）
+"z42.ir"        = "0.1.0"   # ZpkgWriterZ.Major/Minor + ZbcVersion（FormatVersion .version 元指令）
+"z42.build"     = "0.1.0"   # IReplCompiler 门面（编译经此；实现运行期注入）——sink-repl-compile-facade
+"z42.test"      = "0.1.0"   # ModuleLoader（__load_module：反射加载编译器组件 zpkg + 依赖闭包）
+"z42c.core"     = "0.1.0"   # Z42.Core.Span（前端已 stdlib，PR-A）
+"z42c.syntax"   = "0.1.0"   # Lexer / Token / Parser / CompilationUnit（前端已 stdlib，PR-A）
+"z42.threading" = "0.1.0"   # Thread（add-repl-prewarm：后台预热依赖世界的 worker 句柄）

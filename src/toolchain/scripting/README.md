@@ -6,6 +6,14 @@ REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form 
 playground / 用户代码也可 import。**终端行编辑（tty，tier1）已拆到 [z42.repl](../repl/)**
 （`split-z42-repl`），本库只保留跨平台 eval-core。
 
+**编译期 stdlib-only（sink-repl-compile-facade）**：编译不再静态依赖编译器后端（`z42c.semantics`/
+`z42c.pipeline`），改经 `z42.build` 的 `IReplCompiler` 门面——把「有状态增量编译世界」封成 opaque 句柄，
+实现（`Z42cReplCompiler`，住 `z42c.pipeline`）由 `ReplCompilerHost` 运行期反射注入（mirror z42b
+`_hostCompiler`）。前端 `z42c.core`/`z42c.syntax`（Lexer/Parser/Span）已是 stdlib（PR-A）。→ apphost
+不再静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件。机制详见
+[repl.md「编译门面 + 运行期注入」](../../../docs/design/toolchain/repl.md)。（物理仍在 `src/toolchain`，
+搬 `src/libraries` 作 follow-up。）
+
 ## 功能索引
 | 功能 | 入口 / 文件 |
 |------|-----------|
@@ -14,7 +22,8 @@ playground / 用户代码也可 import。**终端行编辑（tty，tier1）已�
 | 会话变量 live 值成员名反射（补全用）| `Std.Scripting.Engine.MemberNames`（`__repl_member_names`；反射查询，split-z42-repl 从 Std.Repl.Repl 下移消环）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
-| 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
+| 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler` 门面 `CompileRound`）|
+| 编译器组件运行期注入 | `ReplCompilerHost.z42`（`Get()`：`ModuleLoader.Load` z42c.pipeline.zpkg → 反射 `Z42cReplCompiler` → `as IReplCompiler`；缺失兜底 `NoReplCompiler`。sink-repl-compile-facade）|
 | 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs`+`gc/safepoint.rs`（add-repl-prewarm）|
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage`+`using` 供后续轮解析；重定义 ERROR；类型名并记 `DeclTypeNames`（`.types`）；**缺省未写可见性的类型声明自动补 `public`**（`Classifier.HasVisibility` 判定），避开每轮独立 package 下 internal 类的 `E0441`/`E0404`（fix-repl-default-type-visibility）|
 | 格式版本（`.version` 数据源）| `Script.FormatVersion`——zbc/zpkg strict-pin 版本串 |

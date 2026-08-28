@@ -111,9 +111,11 @@ int _ensureToolchainDeps(string root) {
     if (!File.Exists(Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg"))) {
         int r = _buildCompiler(); if (r != 0) { return r; }
     }
-    // z42.scripting（L3 compiler-consuming lib，REPL 引擎）→ libs。它依赖 z42c.* 编译器包，
-    // 不属基 stdlib workspace（那里 Z42_LIBS 只含 stdlib），故专用步在此建（scripting-charter
-    // L3 分层）。z42.interactive 依赖它。(add-z42-repl)
+    // z42.scripting（REPL 引擎）+ z42.repl → libs。sink-repl-compile-facade 后 scripting 编译期
+    // 已是 stdlib-only（编译走 z42.build 门面 + 运行期注入 z42c.pipeline，前端 z42c.core/syntax 已
+    // stdlib），但**物理仍在 src/toolchain**（搬 src/libraries 作 follow-up），故仍走本专用步在此建
+    // （合并目录是 stdlib + z42c 的超集，含 z42.build/z42.test/z42c.core/syntax，编得动）。
+    // z42.interactive 依赖它。(add-z42-repl / sink-repl-compile-facade)
     int sc = _buildScriptingLib(root, _builtVm(root, "release"), _selfContainedDriverDir(root), _libsDir(root));
     if (sc != 0) { return sc; }
     return 0;

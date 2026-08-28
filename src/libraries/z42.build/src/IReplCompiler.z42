@@ -1,0 +1,71 @@
+namespace Z42.Build;
+
+// REPL 增量编译 + 补全服务门面（sink-repl-compile-facade）。
+//
+// 设计动机（opaque session，in-process 共享实现）：
+//   REPL（`Std.Scripting`）把编译器当**有状态增量服务**——依赖世界跨轮缓存、逐轮增量并入、
+//   per-type 惰性 reconcile、E0401 回退重编，补全还要遍历导入世界。这些都住编译器
+//   （`z42c.pipeline`/`z42c.semantics`）。本门面把「有状态增量编译世界」封成 opaque `object`
+//   句柄 + 一组 coarse 查询——`Std.Scripting` 只依赖本接口（stdlib），实现（`Z42cReplCompiler`）
+//   运行期经反射注入（mirror `Z42cCompiler`/ICompiler 的 wire-z42b 动态注入）。
+//
+// 依赖方向（DIP）：z42.build **只定义接口**；z42c.pipeline **实现**它 → z42c.pipeline → z42.build
+//   （仅接口，无环）。门面方法只收/返 `string[]`/`byte[]`/`int` → z42.build 依赖面零增长。
+
+/// 一次 REPL 轮次编译结果。纯数据载体（plain class + 显式构造器，无需值语义——不做 [Record]）。
+/// `Bytes` 为 packed zpkg 字节（`ErrorCount>0` 时为空数组）；`Diagnostics` 为**原始**诊断串
+/// （未回映行号——调用方 `Script._remapDiag` 据 prelude 行数回映为用户行号）。
+public class ReplCompileResult {
+    public byte[]   Bytes;
+    public int      ErrorCount;
+    public string[] Diagnostics;
+    public int      DiagCount;
+    public ReplCompileResult(byte[] bytes, int errorCount, string[] diagnostics, int diagCount) {
+        this.Bytes = bytes;
+        this.ErrorCount = errorCount;
+        this.Diagnostics = diagnostics;
+        this.DiagCount = diagCount;
+    }
+}
+
+/// REPL 编译器抽象。实现住编译器库（z42c.pipeline 的 `Z42cReplCompiler`）；z42.build 只持接口。
+/// 依赖世界作 opaque `object` 句柄穿越边界——调用方从不具名任何 pipeline/semantics 类型。
+public interface IReplCompiler {
+    /// 建依赖世界骨架（惰性 scan：路由 nsMap + LazyReconWorld，不预 reconcile）。返回 opaque 句柄。
+    /// `libsDirs`/`libsDirsN`：静态库目录集；`declaredDeps`/`depCount`：依赖名白名单（空 = 放行全部）。
+    object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount);
+
+    /// 编一轮源 `src`（单文件包 `name`）→ packed 字节。内部含 E0401 惰性 per-type / 整包 reconcile
+    /// 重试（据活跃 `usings` 集）。`world` 作 `CachedScan` 复用（跳过每轮全量 DepScan）。
+    ReplCompileResult CompileRound(object world, string name, string src, string[] usings, int usingsCount);
+
+    /// 把刚编出的包字节增量并入世界（carry-forward 声明轮：后续轮 `using Repl.R{n}` 可见其 Vars 类）。
+    void ExtendWorld(object world, byte[] bytes, string pkgName);
+
+    /// 补全①：世界全部命名空间名（`.using` 段补全用；分段/前缀过滤在调用方做，纯串操作）。
+    string[] NamespaceNames(object world);
+
+    /// 补全②：作用域候选——已 reconcile 顶层可命名符号（类/接口/枚举/自由函数，去 mangle 后缀）
+    /// ∪ 活跃 ns（`activeNs`）内「ns 索引已知但未 reconcile」的类型短名。前缀过滤/去重在调用方做。
+    string[] ScopeTypeNames(object world, string[] activeNs, int nsCount);
+
+    /// 补全③：`Type.` 静态成员——按需 reconcile 后列名为 `typeName` 的类的 public 静态方法/字段，
+    /// 或同名枚举的成员（去 mangle 后缀）。前缀过滤在调用方做。
+    string[] StaticMembersOf(object world, string typeName, string[] activeNs, int nsCount);
+}
+
+/// 默认空实现：未注入真实编译器时的兜底（L1「空值 + 调用方检查」idiom）。
+/// runtime-only SDK（无 compiler 组件）→ REPL 退化到此（编译恒失败、补全恒空），与 `NoCompiler` 同构。
+public class NoReplCompiler : IReplCompiler {
+    public object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount) {
+        return null;
+    }
+    public ReplCompileResult CompileRound(object world, string name, string src, string[] usings, int usingsCount) {
+        string[] d = new string[1]; d[0] = "error: no repl compiler component injected";
+        return new ReplCompileResult(new byte[0], 1, d, 1);
+    }
+    public void ExtendWorld(object world, byte[] bytes, string pkgName) { }
+    public string[] NamespaceNames(object world) { return new string[0]; }
+    public string[] ScopeTypeNames(object world, string[] activeNs, int nsCount) { return new string[0]; }
+    public string[] StaticMembersOf(object world, string typeName, string[] activeNs, int nsCount) { return new string[0]; }
+}

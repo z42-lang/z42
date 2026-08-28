@@ -133,6 +133,40 @@ z42 repl
 - REPL 通过 `z42.scripting` 调用已加载的编译器 zpkg（`programs/z42c/`），不直接依赖 `z42c` 命令
 - 行编辑器由 Rust 侧实现（rustyline），通过 native builtin `__repl_readline` 暴露给 z42 程序（`Std.Repl.Repl`）
 
+### 编译门面 + 运行期注入（sink-repl-compile-facade，2026-08-28）
+
+**动机**：REPL 把编译器当**有状态增量服务**（依赖世界跨轮缓存、逐轮增量并入、per-type 惰性
+reconcile、E0401 回退重编，补全还要遍历导入世界）。这些逻辑此前散在 `z42.scripting` 里、**直接
+依赖编译器后端**（`z42c.semantics` 的 `IrDump` + `z42c.pipeline` 的 `PackageCompile`/`DepScan`/
+`DepScanResult`），使 scripting 编译期强耦合整个编译器。route A（门面 + 运行期注入）解耦之。
+
+**门面（`z42.build` 的 `Z42.Build.IReplCompiler`，stdlib）**——6 个 coarse 方法，把「有状态增量
+编译世界」封成 opaque `object` 句柄，方法只收/返 `string[]`/`byte[]`/`int`（z42.build 依赖面零增长）：
+
+| 方法 | 职责（实现侧原出处） |
+|------|---------------------|
+| `CreateWorld(libsDirs, n, declaredDeps, m) → object` | 建依赖世界骨架（惰性 scan）——原 `Script.Prewarm` |
+| `CompileRound(world, name, src, usings, n) → ReplCompileResult` | 编一轮源 → packed 字节 + 原始诊断；内部含 ParseAll + PackageCompile + **E0401 惰性 per-type / 整包 reconcile 重试**——原 `Script._compileSrc*` |
+| `ExtendWorld(world, bytes, pkgName)` | 声明轮增量并入世界（carry-forward）——原 `DepScan.ExtendWithPackage` |
+| `NamespaceNames(world) → string[]` | `.using` 补全全量 ns 名 |
+| `ScopeTypeNames(world, activeNs, n) → string[]` | 作用域候选（已 reconcile 顶层符号 ∪ 活跃 ns 内索引类型短名）——原 Completer `_addImportedNames`+`_addIndexedTypeNames` |
+| `StaticMembersOf(world, typeName, activeNs, n) → string[]` | `Type.` 静态成员（按需 reconcile + 遍历）——原 Completer `_ensureReconciled`+`_typeStaticMembers` |
+
+**实现（`Z42cReplCompiler : IReplCompiler`，住 `z42c.pipeline`）**：opaque 句柄 = `ReplWorld`
+（bundle `DepScanResult` + 编译配置）；复用 `PackageCompile`/`DepScan`/`IrDump` 核心。与
+`Z42cCompiler : ICompiler`（wire-z42b）同构。
+
+**运行期注入（`ReplCompilerHost.Get()`，`z42.scripting`）**——mirror builder `_hostCompiler`：
+`ModuleLoader.Load(z42c.pipeline.zpkg + 依赖闭包)` → `Type.GetType("Z42.Pipeline.Z42cReplCompiler")`
+→ `Activator.CreateInstance` → `as IReplCompiler`；组件缺失/失败 → `NoReplCompiler` 兜底。组件定位序：
+Z42_HOME/programs/z42c → Z42_PORTABLE_VM 反推 SDK → dev artifacts → **Z42_LIBS 各目录**（比 z42b 多这一
+兜底，覆盖 dev warm-z42c 回路 + wasm/playground 把编译器组件挂进 VFS `/libs` 的场景）。
+
+**依赖后果**：`z42.scripting` 编译期变 **stdlib-only**（编译走门面 + 前端 z42c.core/syntax 已 stdlib）——
+不再静态链 `z42c.semantics`/`z42c.pipeline`。→ **z42.interactive apphost 不再静态 bundle 编译器后端，改
+运行期动态加载 `z42c.pipeline` 组件**（与 z42b 一致；runtime-only SDK 无组件时 REPL 退化 `NoReplCompiler`）。
+scripting 物理仍在 `src/toolchain`，搬 `src/libraries` 作 follow-up（**本次不含**）。
+
 ## 启动预热（后台线程，add-repl-prewarm 2026-07-29）
 
 **问题**：首次 `Eval` 要一次性构建依赖世界（`DepScan.ScanDirsLazy` 扫全 stdlib+编译器 zpkg 世界
