@@ -19,7 +19,7 @@ using Std.IO;
 using Std.Collections;
 using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）
 using Z42.Syntax;            // Lexer / TokenKind（_isStatement token 判——前端已是 stdlib）
-using Z42.IR;                // ZpkgWriterZ.Major/Minor（FormatVersion .version 元指令）
+using Z42.Project;           // ZpkgWriterZ.Major/Minor（FormatVersion .version 元指令）
 using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）
 using Z42.Build;             // IReplCompiler / ReplCompileResult（编译经门面——sink-repl-compile-facade）
 

@@ -18,6 +18,7 @@ namespace Std.Scripting;
 using Std;
 using Std.Collections;
 using Z42.Syntax;    // Lexer（关键字表权威源，KeywordCount/KeywordNameAt）——前端已是 stdlib
+using Z42.Build;     // IReplCompiler（ReplCompilerHost.Get() 返回类型；补全查询经门面）
 
 // 当前活跃会话句柄。宿主每轮 read 前 `SetActive(s)`（`.reset` 会重建 `ScriptState` → 必须重设）。
 public static class Completer {
