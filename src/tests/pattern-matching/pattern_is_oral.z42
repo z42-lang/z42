@@ -1,0 +1,77 @@
+namespace Demo;
+
+using Std;
+
+// complete-pattern-engine 特性 2 e2e：`is` 表达式放开 or `|` 与 `@` 绑定（此前 switch-only）。
+// 覆盖：多类型 or（无绑定）、or 带绑定（各 alt 绑同一变量，真分支可见）、`@` 绑整体、`@`+位置解构、
+// 嵌套 or 子模式、不匹配 → false。绑定用裸标识符（无 var）；纯 Assert，空 stdout。
+// 老 `x is T` / `x is T v` 仍走 IsExpr（byte-identical，本文件不重测）。
+
+class Shape { }
+[Record] class Circle(int R)      : Shape;
+[Record] class Square(int R)      : Shape;   // 与 Circle 位置同形（int），or 各 alt 绑定一致
+[Record] class Rect(int W, int H) : Shape;
+[Record] class Box(Shape Inner)   : Shape;
+
+void Main() {
+    // ── 多类型 or（无绑定）：Circle | Square 命中 ──────────────
+    object a = new Circle(5);
+    bool closed = a is Circle | Square;
+    Assert.True(closed);
+    object r = new Rect(2, 3);
+    bool closed2 = r is Circle | Square;
+    Assert.False(closed2);
+
+    // ── or 带绑定：各 alt 绑同一 r，真分支可见 ─────────────────
+    object c = new Circle(7);
+    int got = -1;
+    if (c is Circle(rr) | Square(rr)) {
+        got = rr;
+    }
+    Assert.Equal(7, got);
+
+    object sq = new Square(9);
+    int got2 = -1;
+    if (sq is Circle(rr) | Square(rr)) {
+        got2 = rr;
+    }
+    Assert.Equal(9, got2);
+
+    // ── or 带绑定不匹配 → false，分支不入 ─────────────────────
+    object rc = new Rect(4, 5);
+    int got3 = 100;
+    if (rc is Circle(rr) | Square(rr)) {
+        got3 = rr;
+    }
+    Assert.Equal(100, got3);
+
+    // ── @ 绑整体 + 位置解构 ──────────────────────────────────
+    object p = new Circle(11);
+    int whole = -1;
+    int inner = -1;
+    if (p is w @ Circle(rad)) {
+        // w 绑整个 Circle、rad 绑 R
+        Circle cc = w as Circle;
+        whole = cc.R;
+        inner = rad;
+    }
+    Assert.Equal(11, whole);
+    Assert.Equal(11, inner);
+
+    // ── @ 绑整体 + 通配子模式 ────────────────────────────────
+    object p2 = new Square(13);
+    bool hit = false;
+    if (p2 is v @ Square(_)) {
+        Square vs = v as Square;
+        hit = vs.R == 13;
+    }
+    Assert.True(hit);
+
+    // ── 嵌套 or 作 record 子模式：Box(Circle(r) | Square(r)) ──
+    object bx = new Box(new Square(21));
+    int nested = -1;
+    if (bx is Box(Circle(r0) | Square(r0))) {
+        nested = r0;
+    }
+    Assert.Equal(21, nested);
+}

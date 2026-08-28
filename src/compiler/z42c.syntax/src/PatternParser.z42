@@ -12,11 +12,18 @@ public sealed class PatternParser {
     private Parser _p;
     public PatternParser(Parser p) { this._p = p; }
 
-    // 解析一个模式（从头）——or-链层（A2）：primary ( `|` primary )*。仅 switch 臂用（is 走 _parsePrimaryPattern，
-    // 保持 `|` = 位或）。单 alt 不包 OrPattern 直接返回。
+    // 解析一个模式（从头）——or-链层（A2）：primary ( `|` primary )*。switch 臂用；is 位点（放开 or/@ 后）
+    // 亦经此（ExprParser is 分支已把「老 `x is T`/`x is T v` byte-identical 路」隔离，只在真模式特性时入此）。
+    // 单 alt 不包 OrPattern 直接返回。
     internal Pattern _parsePattern() {
         Pattern first = this._parsePrimaryPattern();
         if (this._p._peek().Kind != TokenKind.Pipe) { return first; }
+        return this._continueOrChain(first);
+    }
+
+    // 已解析出首 alt 后续接 or-链：`first ( `|` primary )*`。供 is 分支复用（首 alt 经类型引导/结构化路
+    // 单独解析，再在此续 or-链）。至少一个 `|`（调用前保证 peek==Pipe，或首 alt 后立即判）。
+    internal Pattern _continueOrChain(Pattern first) {
         Span sp = first.Span;
         Pattern[] alts = new Pattern[4];
         alts[0] = first;
@@ -149,7 +156,8 @@ public sealed class PatternParser {
     }
 
     // 非类型引导的模式起始（供 is 结构化前瞻）：字面量/负号/`_`/`{`/关系算子（A2）。类型引导（标识符/类型关键字）不在此；
-    // `|`/`@` 不在此（or/`@` 不入 is —— is 保持 `|` = 位或、`@` 与类型引导冲突，见 design Decision 1）。
+    // `|`/`@` 亦不在此：`@` 由 is 分支「标识符后跟 @」前瞻单独判、or-链由首 alt 后续 `_continueOrChain` 接
+    // （complete-pattern-engine 放开 or/@ 入 is）。
     internal bool _isPatternLead(int k) {
         if (this._isConstStart(k)) { return true; }
         if (k == TokenKind.Underscore) { return true; }

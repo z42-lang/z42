@@ -331,15 +331,22 @@ public sealed class StmtParser {
         return new LocalFunctionStmt(md as MethodDecl, sp);
     }
 
-    // 解构声明起始判别（模式匹配 B）：`T ( ... ) =` —— record 位置解构到新局部。跟函数调用语句区别：
-    // 调用后随 `;`，解构声明后随 `=`（`f(x) = y` 在 z42 非合法赋值，故 `T(...)=` 是干净信号）。
-    // 类型名前缀走 _skipTypeOffset（支持 `Ns.T` 点分/`T[]`/泛型），其后须紧跟 `(`，配平到匹配 `)` 后见 `=`。
+    // 解构声明起始判别（模式匹配 B + complete-pattern-engine 特性 1）：record 解构到新局部。四种形态：
+    //   位置    `T ( ... ) =`；属性带类型 `T { ... } =`；属性省类型 `{ ... } =`。
+    // 跟函数调用语句/块语句区别：调用/块后随 `;`/无 `=`，解构声明后随 `=`（干净信号）。类型名前缀走
+    // _skipTypeOffset（支持 `Ns.T` 点分/`T[]`/泛型），其后紧跟 `(` 或 `{`，配平到匹配后见 `=`。
     internal bool _isDeconstructDeclStart() {
         int first = this._p._peek().Kind;
+        // 属性省类型：`{ ... } =`
+        if (first == TokenKind.LBrace) { return this._braceBalancedThenEq(0); }
         if (first != TokenKind.Identifier) { return false; }
         int o = this._skipTypeOffset(0);
         if (o <= 0) { return false; }
-        if (this._p._peekAt(o).Kind != TokenKind.LParen) { return false; }
+        int at = this._p._peekAt(o).Kind;
+        // 属性带类型：`T { ... } =`
+        if (at == TokenKind.LBrace) { return this._braceBalancedThenEq(o); }
+        // 位置：`T ( ... ) =`（原 B 逻辑，byte-identical）
+        if (at != TokenKind.LParen) { return false; }
         int depth = 0;
         while (o < 256) {
             int kk = this._p._peekAt(o).Kind;
@@ -351,7 +358,21 @@ public sealed class StmtParser {
         return this._p._peekAt(o).Kind == TokenKind.Eq;
     }
 
-    // 解构声明解析：`<PositionalPattern> = <expr> ;`。位置模式复用模式引擎 _parsePrimaryPattern（不走 or-链）。
+    // 从 o 处的 `{` 起配平大括号（支持嵌套属性子模式 `{A:{B:x}}`），匹配 `}` 后须见 `=`。
+    private bool _braceBalancedThenEq(int o) {
+        int depth = 0;
+        while (o < 256) {
+            int kk = this._p._peekAt(o).Kind;
+            if (kk == TokenKind.LBrace) { depth = depth + 1; }
+            else if (kk == TokenKind.RBrace) { depth = depth - 1; if (depth == 0) { o = o + 1; break; } }
+            else if (kk == TokenKind.Eof || kk == TokenKind.Semicolon) { return false; }
+            o = o + 1;
+        }
+        return this._p._peekAt(o).Kind == TokenKind.Eq;
+    }
+
+    // 解构声明解析：`<Pattern> = <expr> ;`。位置/属性模式复用模式引擎 _parsePrimaryPattern（不走 or-链——
+    // 解构声明恒不可失败，or 属可失败故不入）。`{...}`/`T{...}` → PropertyPattern，`T(...)` → PositionalPattern。
     internal Stmt _parseDeconstructDecl() {
         Span sp = this._p._peek().Span;
         Pattern pat = this._p._patP._parsePrimaryPattern();
