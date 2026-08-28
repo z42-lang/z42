@@ -1,0 +1,16 @@
+# complete-pattern-engine：属性解构声明 irrefutable / struct record 解构 defer 守卫 诊断单测。
+[project]
+name    = "z42c.semantics.test.pattern"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# src/compiler/z42c.semantics/tests/pattern → artifacts/build/compiler/z42c.semantics/tests/pattern
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/pattern"

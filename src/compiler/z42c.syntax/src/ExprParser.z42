@@ -111,26 +111,41 @@ public sealed class ExprParser {
                 this._p._pendingGt = gtMark;
                 // 落到下面二元 '<'
             }
-            // is（bp 60）：结构化模式（模式匹配核心 A1）或 老 type/type+bind（byte-identical 保持）
+            // is（bp 60）：结构化模式（模式匹配核心 A1 + or/@ 放开）或 老 type/type+bind（byte-identical 保持）
             if (k == TokenKind.Is && minBp <= 60) {
                 this._p._advance();
                 int nk = this._p._peek().Kind;
-                // 结构化前瞻：字面量/负号/_/{/关系算子 → 直接结构化模式（老 is 从不以这些开头）。
-                // 用 _parsePrimaryPattern（非 or-链）：is 内 `|` 保持位或语义（`x is 1 | 2` = `(x is 1) | 2`），
-                // or/`@` 不入 is（design Decision 1）。
-                if (this._p._patP._isPatternLead(nk)) {
-                    Pattern pat = this._p._patP._parsePrimaryPattern();
+                // `@` 绑定：`x is name @ P`（标识符后紧跟 `@` → At-模式，类型名后永不合法跟 `@`，无歧义）。
+                // 经 _parsePattern（含 `@` + 可能的 or-链）。放开自 complete-pattern-engine：@ 入 is。
+                if (nk == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.At) {
+                    Pattern pat = this._p._patP._parsePattern();
                     left = new IsPatternExpr(left, pat, left.Span);
                     continue;
                 }
-                // 类型引导：解析类型后看后随；`(`/`{` → 结构化（位置/属性），否则走老路
+                // 结构化前瞻：字面量/负号/_/{/关系算子 → 结构化模式（老 is 从不以这些开头）。
+                // 用 _parsePrimaryPattern 取首 alt，再判 `|` 续 or-链（`x is 1 | 2` 现为 or-模式；旧解析
+                // `(x is 1) | 2` = bool|int 恒类型错、无合法程序回归 —— 放开自 complete-pattern-engine）。
+                if (this._p._patP._isPatternLead(nk)) {
+                    Pattern pat = this._p._patP._parsePrimaryPattern();
+                    if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
+                    left = new IsPatternExpr(left, pat, left.Span);
+                    continue;
+                }
+                // 类型引导：解析类型后看后随。
                 TypeExpr ty = this._p._typeP._parseType();
                 int nk2 = this._p._peek().Kind;
                 if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
+                    // `(`/`{` → 结构化（位置/属性），可续 or-链：`x is Circle(r) | Square(r)`。
                     Pattern pat = this._p._patP._continueFromType(ty, ty.Span);
+                    if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
+                    left = new IsPatternExpr(left, pat, left.Span);
+                } else if (nk2 == TokenKind.Pipe) {
+                    // 纯类型名 or-模式：`x is Circle | Square`（旧解析 (x is Circle)|Square 中 Square 作值恒错）。
+                    Pattern first = new NamePattern(ty, "", ty.Span);
+                    Pattern pat = this._p._patP._continueOrChain(first);
                     left = new IsPatternExpr(left, pat, left.Span);
                 } else {
-                    string bind = "";   // 老 is：`x is T` / `x is T v`（byte-identical）
+                    string bind = "";   // 老 is：`x is T` / `x is T v`（byte-identical，不入模式引擎）
                     if (nk2 == TokenKind.Identifier) { bind = this._p._peek().Text; this._p._advance(); }
                     left = new IsExpr(left, ty, bind, left.Span);
                 }

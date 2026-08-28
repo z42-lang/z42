@@ -9,6 +9,7 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
+using Z42.IR.BinaryFormat;   // 特性 3：Tag.FromName（struct record 字段 blob 读的 TypeTag）
 using Z42.Core;
 using Z42.Syntax;   // A2：关系模式 Op = TokenKind（Gt/GtEq/Lt/LtEq）派发
 
@@ -58,14 +59,18 @@ public sealed class PatternEmitter {
         }
         if (pat is BoundPositionalPattern) {
             BoundPositionalPattern pp = pat as BoundPositionalPattern;
-            this._emitFieldSeq(subj, this._qual(pp.TypeName), true, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
+            // struct record：subject 静态即该 struct（binder 已保证），类型已知 → 不发 IsInstance（值类型不入
+            // IsInstance）；class record → IsInstance 保多态。字段读由 _emitFieldSeq 按 container 分派（特性 3）。
+            bool needTest = !this._ee._isBlobStruct(pp.Type);
+            this._emitFieldSeq(subj, pp.Type, this._qual(pp.TypeName), needTest, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
             return;
         }
         if (pat is BoundPropertyPattern) {
             BoundPropertyPattern pp = pat as BoundPropertyPattern;
+            bool needTest = pp.HasType && !this._ee._isBlobStruct(pp.Type);
             string qn = "";
-            if (pp.HasType) { qn = this._qual(pp.TypeName); }
-            this._emitFieldSeq(subj, qn, pp.HasType, pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
+            if (needTest) { qn = this._qual(pp.TypeName); }
+            this._emitFieldSeq(subj, pp.Type, qn, needTest, pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
             return;
         }
         if (pat is BoundOrPattern) {
@@ -162,12 +167,26 @@ public sealed class PatternEmitter {
             BoundPositionalPattern pp = pat as BoundPositionalPattern;
             int i = 0;
             while (i < pp.ElemCount) {
-                TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(pp.FieldTypes[i]));
-                this._ctx.Emit(new FieldGetInstr(fReg, subj, pp.FieldNames[i]));   // 直读，不 as_cast
+                TypedReg fReg = this._emitPatFieldRead(subj, pp.Type, pp.FieldNames[i], pp.FieldTypes[i]);   // class/struct 分派（特性 3）
                 string nextL = this._ctx.Fresh("des_fld");
                 this.EmitIrrefutable(fReg, pp.Elems[i], nextL);
                 this._ctx.StartBlock(nextL);
                 i = i + 1;
+            }
+            this._ctx.EndBlock(new BrTerm(contL));
+            return;
+        }
+        if (pat is BoundPropertyPattern) {
+            // 属性形态解构声明（complete-pattern-engine 特性 1）：只解构列出的字段（部分字段合法），
+            // 无 IsInstance（binder 已保证类型精确）、无失败分支。逐列字段读（class/struct 分派）+ 递归。
+            BoundPropertyPattern qp = pat as BoundPropertyPattern;
+            int j = 0;
+            while (j < qp.FieldCount) {
+                TypedReg fReg = this._emitPatFieldRead(subj, qp.Type, qp.FieldNames[j], qp.FieldTypes[j]);   // 特性 3
+                string nextL = this._ctx.Fresh("des_prop");
+                this.EmitIrrefutable(fReg, qp.Pats[j], nextL);
+                this._ctx.StartBlock(nextL);
+                j = j + 1;
             }
             this._ctx.EndBlock(new BrTerm(contL));
             return;
@@ -184,8 +203,11 @@ public sealed class PatternEmitter {
         return new GtInstr(dst, a, b);
     }
 
-    // 类型测试（可选）+ 逐字段 field_get 直读 + 子模式递归。全字段通过 → matchL；任一失败 → failL。
-    private void _emitFieldSeq(TypedReg subj, string qn, bool hasType, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] subPats, int count, string matchL, string failL) {
+    // 类型测试（可选）+ 逐字段读 + 子模式递归。全字段通过 → matchL；任一失败 → failL。
+    // container=容器静态类型（用于判 blob-struct 分派字段读，特性 3）；hasType 时才 IsInstance（struct
+    // record 不做类型测试——struct 是值类型不入 IsInstance；带类型属性壳的 struct 也无 IsInstance，由 binder
+    // 精确类型保证，此处 hasType 对 struct 恒 false，见调用点）。
+    private void _emitFieldSeq(TypedReg subj, Z42Type container, string qn, bool hasType, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] subPats, int count, string matchL, string failL) {
         if (hasType) {
             string okL = this._ctx.Fresh("pat_isok");
             TypedReg isR = this._ctx.Alloc(IrType.Bool);
@@ -195,14 +217,31 @@ public sealed class PatternEmitter {
         }
         int i = 0;
         while (i < count) {
-            TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(fieldTypes[i]));
-            this._ctx.Emit(new FieldGetInstr(fReg, subj, fieldNames[i]));   // 直读，不 as_cast（避 jit bug）
+            TypedReg fReg = this._emitPatFieldRead(subj, container, fieldNames[i], fieldTypes[i]);
             string nextFieldL = this._ctx.Fresh("pat_fld");
             this.EmitMatch(fReg, subPats[i], nextFieldL, failL);
             this._ctx.StartBlock(nextFieldL);
             i = i + 1;
         }
         this._ctx.EndBlock(new BrTerm(matchL));
+    }
+
+    // 模式字段读（特性 3：class vs struct record 分派）。class 记录 → FieldGetInstr 直读堆对象字段（不
+    // as_cast，避 jit 误编）。struct record（blob 值语义）→ 按 StructLayout 字节偏移 + TypeTag 发
+    // StructFieldGetPrim（struct 无 auto-property getter，误用 FieldGet 会按 struct tag 解码基元→崩）。
+    // 初版限基元 + 引用字段（嵌套 struct 字段已由 binder 守卫 defer），故只发单条 StructFieldGetPrim。
+    private TypedReg _emitPatFieldRead(TypedReg subj, Z42Type container, string fieldName, Z42Type fieldType) {
+        if (this._ee._isBlobStruct(container)) {
+            string sname = this._ee._blobStructName(container);
+            int off = this._ctx.Gen.Layouts.FieldByteOffset(sname, fieldName);
+            int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName));
+            TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(fieldType));
+            this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, off, tag));
+            return dst;
+        }
+        TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(fieldType));
+        this._ctx.Emit(new FieldGetInstr(fReg, subj, fieldName));   // class 直读，不 as_cast（避 jit bug）
+        return fReg;
     }
 
     // 类型名 FQ 化（镜像 _emitIs：基元别名 → 包装类；内建根类硬编码）。

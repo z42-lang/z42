@@ -74,7 +74,13 @@ if (obj is Point(a, b)) { use(a, b); }
 // Point(0, y) → 先测 X==0，再绑 y ← Y
 ```
 
-> A1 位置解构限 **record class**（引用类型）；struct record 的位置解构（字节偏移读取）为后续特性。
+> **struct record 位置 / 属性解构（complete-pattern-engine 放开）**：位置 / 属性模式除 record class 外，
+> 亦支持 **struct record**（值类型，`[Record] struct`）——覆盖 switch / is / 解构声明全位点。struct 无
+> auto-property getter，字段读走 **blob 字节偏移 + TypeTag**（`StructFieldGetPrim`，`PatternEmitter._emitPatFieldRead`
+> 按 `_isBlobStruct(container)` 分派），而非 class 的 `FieldGet`；struct 静态已知类型 → 不发 `IsInstance`。
+> **初版限扁平 struct record**（字段为基元 + 引用类型）；**嵌套 struct-record 字段**（字段本身是 struct，需
+> blob 值副本）与 **boxed struct subject**（`object` 持 struct，需拆箱 + 类型测试）**defer** → 编译诊断
+> `E0402`（reliable：字段类型经 `SymbolTable.GetClass` 取规范类型判 `IsStruct && IsRecord`，排除基元标量）。
 
 ## A2 组合子：or / `@` / `..=` / 关系
 
@@ -110,12 +116,15 @@ if (v is 1 ..= 100) { ... }
 | `..=` 范围 | `lo ..= hi` | `subj >= lo && subj <= hi`（含端点）；仅可全序基元 | switch 臂 + `is` |
 | 关系 | `> v` / `>= v` / `< v` / `<= v` | `subj <op> v`；仅可全序基元 | switch 臂 + `is` |
 
-### A2 的两条边界（设计取舍）
+### A2 边界（`..=` / 关系）
 
-- **or / `@` 不入 `is`**：`is` 表达式里 `x is Circle | flags` 的 `|` 恒解析为**位或**（`(x is Circle) | flags`，
-  与 C# 一致——C# 用 `or` 关键字而非 `|`）；`@` 与 `is` 的类型引导冲突。故 or / `@` 只在 `:` / `=>` 定界的
-  switch 臂内。`..=` / 关系起始无歧义，`is` 收之。
 - **`..=` / 关系仅可全序基元**（numeric | char）：subject 静态类型非可比较基元 → 诊断。
+
+> **or / `@` 入 `is`（complete-pattern-engine 放开）**：`is` 表达式现支持 or `|` 与 `@` 绑定，与 switch
+> 臂对等——`if (p is Circle(r) | Square(r))`（or 带绑定，`r` 真分支可见）、`if (p is c @ Circle(_))`。
+> A2 曾限 switch-only 的两条顾虑均不成立：① `x is A | B` 旧解析 `(x is A) | B` = `bool | int`，而 z42 `|`
+> 只对整数 → 恒类型错、无合法程序回归 → 放开零风险；② `@` 用「`is` 后 `Identifier @`」一 token 前瞻消解
+> （类型名后永不合法跟 `@`）。binder / emitter 零改（`Bind` / `EmitMatch` 位点无关），纯 parser 层放开。
 
 ## A3：or-模式带绑定
 
@@ -235,7 +244,21 @@ Line(Point(ax, ay), Point(bx, by)) = seg;    // 嵌套解构
 只逐字段 `field_get` 直读 + 绑定，递归下降嵌套位置（`PatternEmitter.EmitIrrefutable`）。解析用一条 lookahead
 判别 `T ( ... ) =`（`StmtParser._isDeconstructDeclStart`）与函数调用语句（后随 `;`）区分。
 
-> B 初版限 **record class + 位置形态**。属性形态解构声明 `Point { X: x } = p`、struct record 解构、
+### 属性形态解构声明 `{ X: x } = p`（complete-pattern-engine）
+
+解构声明除位置形态外，支持**属性形态**——按字段名解构，可省类型、可只列部分字段：
+
+```z42
+{ X: x, Y: y } = p;          // 省类型：类型 = p 的静态类型
+{ X: x } = p;                // 部分字段：只绑 x ← X（属性形态天然允许省字段）
+Point { X: x } = p;          // 带类型标注（须精确 = p 静态类型，恒真无失败分支）
+Line { A: Point(a, _) } = l; // 嵌套位置子模式；亦支持 { A: { X: nx } } 嵌套属性
+```
+
+同位置形态受 **irrefutable 约束**（字段子模式仅通配 / 裸绑定 / 嵌套；带类型须精确匹配）。解析用
+lookahead 判别 `{ ... } =` 与 `T { ... } =`（`StmtParser._isDeconstructDeclStart`，配平 `}` 后见 `=`——
+块语句后不跟 `=`，无歧义）；lowering 复用 `PatternEmitter.EmitIrrefutable` 的属性分支（逐列字段直读 + 递归）。
+
 > 泛型 record 解构、元组模式为后续特性。
 
 ## C：switch 穷尽性诊断（封闭域 bool / enum）
@@ -296,7 +319,8 @@ Point u = p with { X = 8 } with { Y = 9 };   // 链式
 
 ## Deferred（后续独立特性）
 
-- 解构声明的属性形态 `Point { X: x } = p`；struct record / 泛型 record 位置解构；元组模式
-- `is` 中的 or / `@`
+- **嵌套 struct-record 字段**位置 / 属性解构（字段本身是 struct，需 blob 值副本）；**boxed struct subject**
+  （`object` 持 struct，需拆箱 + 类型测试）——均已 defer 诊断 `E0402`
+- 泛型 record 位置解构；元组模式（需元组类型系统构造，可能格式 bump）
 - `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）
 - sealed 层次穷尽性（需封闭子类集语义 + 反向子类索引）

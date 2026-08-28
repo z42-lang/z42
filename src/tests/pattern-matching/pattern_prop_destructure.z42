@@ -1,0 +1,54 @@
+namespace Demo;
+
+using Std;
+
+// complete-pattern-engine 特性 1 e2e：属性形态解构声明 —— `{ X: x } = p` / `T { X: x } = p`。
+// 覆盖：省类型属性解构、带类型属性解构、部分字段（属性形态天然允许）、嵌套（属性套位置 / 属性套属性）、
+// 绑定后续可见。不可失败：字段子模式仅通配 / 裸绑定 / 嵌套；带类型须精确匹配。绑定用裸标识符（无 var）。
+// 纯 Assert，空 stdout。
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+void Main() {
+    // ── 省类型属性解构：{ X: x, Y: y } = p ──────────────────
+    Point p = new Point(3, 4);
+    { X: x, Y: y } = p;
+    Assert.Equal(3, x);
+    Assert.Equal(4, y);
+    Assert.Equal(7, x + y);
+
+    // ── 带类型属性解构：Point { X: gx, Y: gy } = q ──────────
+    Point q = new Point(10, 20);
+    Point { X: gx, Y: gy } = q;
+    Assert.Equal(10, gx);
+    Assert.Equal(20, gy);
+
+    // ── 部分字段：只列 X（属性形态天然允许省字段）──────────
+    Point r = new Point(77, 88);
+    { X: only } = r;
+    Assert.Equal(77, only);
+
+    // ── 嵌套：属性 → 位置子模式 { A: Point(ax, ay) } = seg ──
+    Line seg = new Line(new Point(1, 2), new Point(5, 6));
+    { A: Point(ax, ay) } = seg;
+    Assert.Equal(1, ax);
+    Assert.Equal(2, ay);
+
+    // ── 嵌套：属性 → 属性子模式 { A: { X: nx } } = seg ──────
+    { A: { X: nx } } = seg;
+    Assert.Equal(1, nx);
+
+    // ── 嵌套：位置 → 属性子模式（通过带类型属性壳）─────────
+    Line { A: pa, B: Point { X: bx } } = seg;
+    Assert.Equal(5, bx);
+    Point(pax, pay) = pa;
+    Assert.Equal(1, pax);
+    Assert.Equal(2, pay);
+
+    // ── 属性解构产出的绑定可再运算 ─────────────────────────
+    Point mk = new Point(only + gx, ay * 10);   // Point(87, 20)
+    { X: m0, Y: m1 } = mk;
+    Assert.Equal(87, m0);
+    Assert.Equal(20, m1);
+}

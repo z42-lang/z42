@@ -1,0 +1,82 @@
+// complete-pattern-engine 诊断单测：属性形态解构声明的 irrefutable 校验 + struct record 解构的 defer
+// 守卫（嵌套 struct 字段 / boxed struct）。经 SemanticDump.FirstErrorCode（返回首条诊断码）断言。
+// 注：独立 Infer 路径不链 stdlib → 测试源**不用 Std**、switch-stmt **不写 break**（避无关 E0410）。
+// E0402 = TypeMismatch（irrefutable 违反 / struct 解构 defer 共用）。
+namespace Z42cSemanticsPatternTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 属性形态解构声明：合法（裸绑定子模式）→ 无诊断 ──────────
+[Test]
+void test_prop_destructure_ok() {
+    string src = "namespace D; [Record] class Point(int X, int Y);"
+        + " void f(Point p) { { X: x, Y: y } = p; int s = x + y; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 属性形态解构声明：部分字段（属性形态天然允许）→ 无诊断 ──
+[Test]
+void test_prop_destructure_partial_ok() {
+    string src = "namespace D; [Record] class Point(int X, int Y);"
+        + " void f(Point p) { { X: x } = p; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 属性形态解构声明：常量子模式（可失败）→ E0402 irrefutable ──
+[Test]
+void test_prop_destructure_refutable_const_errors() {
+    string src = "namespace D; [Record] class Point(int X, int Y);"
+        + " void f(Point p) { { X: 0 } = p; } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 属性形态解构声明：带类型且类型不符 → E0402 ──────────────
+[Test]
+void test_prop_destructure_type_mismatch_errors() {
+    string src = "namespace D; [Record] class Point(int X, int Y); [Record] class Line(Point A, Point B);"
+        + " void f(Point p) { Line { A: a } = p; } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── struct record 位置解构：合法（扁平）→ 无诊断 ─────────────
+[Test]
+void test_struct_positional_destructure_ok() {
+    string src = "namespace D; [Record] struct Point(int X, int Y);"
+        + " void f(Point p) { Point(x, y) = p; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── struct record 属性解构：合法 → 无诊断 ────────────────────
+[Test]
+void test_struct_property_destructure_ok() {
+    string src = "namespace D; [Record] struct Point(int X, int Y);"
+        + " void f(Point p) { { X: x } = p; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── struct record 嵌套 struct 字段解构 → E0402 defer ─────────
+[Test]
+void test_struct_nested_field_defer_errors() {
+    string src = "namespace D; [Record] struct Point(int X, int Y); [Record] struct Line(Point A, Point B);"
+        + " void f(Line l) { Line(a, b) = l; } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── boxed struct 模式（object 持 struct，subject 非 struct）→ E0402 defer ──
+[Test]
+void test_struct_boxed_subject_defer_errors() {
+    string src = "namespace D; [Record] struct Point(int X, int Y);"
+        + " int f(object o) { if (o is Point(x, y)) { return x; } return 0; } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── class record 嵌套 struct 字段不受 defer 影响（class 容器）→ 无诊断 ──
+// （守卫仅对 struct 容器生效；class 容器读 struct 字段走既有 A1 路径）
+[Test]
+void test_class_container_struct_field_ok() {
+    string src = "namespace D; [Record] struct Point(int X, int Y); [Record] class Holder(Point P);"
+        + " void f(Holder h) { Holder(p) = h; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

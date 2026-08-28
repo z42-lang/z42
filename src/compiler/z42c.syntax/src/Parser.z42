@@ -216,7 +216,12 @@ public sealed class Parser {
     public Stmt ParseStatement() {
         Token st = this._peek();
         int k = st.Kind;
-        if (k == TokenKind.LBrace)  { return this._stmtP._parseBlock(); }
+        if (k == TokenKind.LBrace)  {
+            // 属性形态解构声明 `{ X: x } = e;`（省类型）须先于块语句判别——配平 `}` 后见 `=` 才是解构声明，
+            // 否则是普通块（块不作 lvalue、后不跟 `=`，无歧义）。complete-pattern-engine 特性 1。
+            if (this._stmtP._isDeconstructDeclStart()) { return this._stmtP._parseDeconstructDecl(); }
+            return this._stmtP._parseBlock();
+        }
         if (k == TokenKind.Return)  { return this._stmtP._parseReturn(); }
         if (k == TokenKind.If)      { return this._stmtP._parseIf(); }
         if (k == TokenKind.While)   { return this._stmtP._parseWhile(); }

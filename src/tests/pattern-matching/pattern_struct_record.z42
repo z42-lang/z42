@@ -1,0 +1,90 @@
+namespace Demo;
+
+using Std;
+
+// complete-pattern-engine 特性 3 e2e：struct record 模式解构（此前 A1 defer E: struct 报错）。
+// struct 值语义 → 字段读走 blob 字节偏移 + TypeTag（StructFieldGetPrim），非 class 的 FieldGet。
+// 覆盖：switch 位置模式、位置内常量、属性模式、解构声明、is 位置、引用类型字段、多字段。
+// **jit 双验必做**（struct blob 读 + 分支是 jit 误编高风险区）。绑定用裸标识符（无 var）；纯 Assert。
+
+[Record] struct Point(int X, int Y);
+[Record] struct Tagged(int Id, string Name);   // 含引用类型字段（string）
+
+void Main() {
+    // ── switch 位置模式（subject 静态即 struct）─────────────
+    Point p = new Point(3, 4);
+    int sum = -1;
+    switch (p) {
+        case Point(a, b): sum = a + b; break;
+        default:          sum = 0;     break;
+    }
+    Assert.Equal(7, sum);
+
+    // ── switch 位置内常量：先测 X==0 再绑 y ─────────────────
+    Point q = new Point(0, 9);
+    string s = "no";
+    switch (q) {
+        case Point(0, y): s = "y=" + y.ToString(); break;
+        default:          s = "other";             break;
+    }
+    Assert.Equal("y=9", s);
+
+    // 不匹配常量 → default
+    Point q2 = new Point(5, 9);
+    string s2 = "no";
+    switch (q2) {
+        case Point(0, yy): s2 = "hit"; break;
+        default:           s2 = "miss"; break;
+    }
+    Assert.Equal("miss", s2);
+
+    // ── switch-expr 位置模式 ─────────────────────────────────
+    Point r = new Point(6, 7);
+    int prod = r switch {
+        Point(x, y) => x * y,
+        _           => -1
+    };
+    Assert.Equal(42, prod);
+
+    // ── 属性模式（struct）─────────────────────────────────────
+    Point pp = new Point(11, 22);
+    int px = -1;
+    switch (pp) {
+        case Point { X: gx }: px = gx; break;
+        default:              px = 0;  break;
+    }
+    Assert.Equal(11, px);
+
+    // ── 解构声明（struct 位置 + 属性）────────────────────────
+    Point d = new Point(100, 200);
+    Point(dx, dy) = d;
+    Assert.Equal(100, dx);
+    Assert.Equal(200, dy);
+    { X: ex, Y: ey } = d;
+    Assert.Equal(100, ex);
+    Assert.Equal(200, ey);
+
+    // ── is 位置模式（struct subject）─────────────────────────
+    Point ip = new Point(8, 15);
+    int isum = -1;
+    if (ip is Point(ia, ib)) {
+        isum = ia + ib;
+    }
+    Assert.Equal(23, isum);
+
+    // ── 引用类型字段（string）：blob 里 ref 叶子按 tag 路由 ──
+    Tagged t = new Tagged(42, "hello");
+    int tid = -1;
+    string tnm = "?";
+    switch (t) {
+        case Tagged(id, nm): tid = id; tnm = nm; break;
+        default:             break;
+    }
+    Assert.Equal(42, tid);
+    Assert.Equal("hello", tnm);
+
+    // 解构声明取 string 字段
+    Tagged(tid2, tnm2) = t;
+    Assert.Equal(42, tid2);
+    Assert.Equal("hello", tnm2);
+}
