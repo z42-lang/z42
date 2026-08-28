@@ -16,7 +16,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 | 来源 | 何时用 | 例子 |
 |------|--------|------|
-| **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c（C#-free） |
+| **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c |
 | **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` → `./.z42` / CI `ci-bootstrap` → SDK）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
 
 > **cold 种子的统一解析（2026-07-04；env 于 2026-07-05 simplify-compiler-build 折叠）**：
@@ -165,7 +165,7 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
   按上面「support 先行、use 晚一 release」拆分，或回退过早的使用。
 
 **何时跑**：改动 z42c（parser/lexer/codegen/zbc·zpkg writer）、加新语法、bump 格式后；CI 的
-`bootstrap-no-csharp` job 是其全量版（下载 nightly → C#-free 重建全栈），本脚本是开发期快速本地版。
+`bootstrap-no-csharp` job 是其全量版（下载 nightly → 重建全栈），本脚本是开发期快速本地版。
 
 ### 为什么这与「不为旧版本提供兼容」不冲突
 

@@ -26,11 +26,11 @@ int _buildCompiler() {
     string profile = "release";
     Stopwatch sw = _procStart("build compiler (z42c self-build)");
     int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }   // warm no-op / cold: stage SDK seed → in-tree
-    int rc = _buildRuntime(); if (rc != 0) { return rc; }   // cargo release z42vm（C#-free）跑种子 driver
+    int rc = _buildRuntime(); if (rc != 0) { return rc; }   // cargo release z42vm 跑种子 driver
     string vm = _builtVm(root, "release");
     string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
     if (!File.Exists(Path.Join(stdlibFlat, "z42.core.zpkg"))) {
-        int sc = _buildStdlib(); if (sc != 0) { return sc; }   // C#-free（A1 warm 种子路径）
+        int sc = _buildStdlib(); if (sc != 0) { return sc; }   // A1 warm 种子路径
     }
     string[] members = _compilerMembers(root);
     int r = _buildCompilerViaZ42c(root, profile, members, vm, stdlibFlat);
@@ -75,12 +75,12 @@ void _copyIfNewer(string src, string dst) {
     }
 }
 
-// C#-free z42c self-build：用现有 z42c.driver.zpkg 作种子编译器，一句 `build --workspace`
+// z42c self-build：用现有 z42c.driver.zpkg 作种子编译器，一句 `build --workspace`
 // 按拓扑序重建 7 个 z42c.* 到各自 dist（兄弟包由 workspace dist 自动解析——旧「E0402
 // wrinkle」已不复现）。driver 先自包含化 → 直接跑，无需拼 selfbuild-runlibs；`stdlibFlat`
 // （稳定的现有 stdlib）作 Z42_LIBS 供种子 driver 运行期 Std.*（编译器构建不动 stdlib）。
 int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
-    _vNormal("  building z42c via z42c (--workspace, C#-free)");
+    _vNormal("  building z42c via z42c (--workspace)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
     string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
     _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.ir 环（须在 workspace build 前）
@@ -168,7 +168,7 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
 // （空输出＝假失败）。故此处显式重建 runtime(z42vm)。z42b 由 _testCompilerUnits 自身
 // 用当前 z42c 重建（cached 时近 no-op），格式始终随当前源码。
 int _ensureCompilerTooling() {
-    Console.WriteLine("  ensuring tooling fresh (z42vm; release; C#-free)");
+    Console.WriteLine("  ensuring tooling fresh (z42vm; release)");
     return _buildRuntime();   // z42vm（z42b 运行所需的当前格式 reader）
 }
 
@@ -275,7 +275,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 totalUnits = totalUnits + 1;
                 Console.WriteLine("");
                 Console.WriteLine("── z42c test: " + members[i] + " / " + unit + " ──");
-                // compile (release/packed) with z42c（C#-free）；Z42_LIBS=flat 含 stdlib+z42c.* 兄弟，
+                // compile (release/packed) with z42c；Z42_LIBS=flat 含 stdlib+z42c.* 兄弟，
                 // z42c.driver 依赖与单元 deps 同从 flat 解析；输出落单元 toml 的 [build] output_dir 镜像。
                 ProcessResult br = new Process(vm)
                     .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
@@ -403,7 +403,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
         Console.WriteLine("❌ z42c self-host 不动点: " + fail.ToString() + "/" + members.Length.ToString() + " packages gen1≠gen2");
         return 1;
     }
-    Console.WriteLine("✅ z42c self-host 不动点: " + ok.ToString() + "/" + members.Length.ToString() + " packages gen1==gen2 (--workspace, C#-free)");
+    Console.WriteLine("✅ z42c self-host 不动点: " + ok.ToString() + "/" + members.Length.ToString() + " packages gen1==gen2 (--workspace)");
     return 0;
 }
 

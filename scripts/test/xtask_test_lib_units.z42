@@ -267,7 +267,7 @@ Process _compilePrep(string root, string lib, TestUnit u,
         string zbc = Path.Join(distDir, projName + ".zbc");
         outToml = "";
         outArtifact = zbc;
-        // C#-free (remove-dotnet-from-builds): z42c (z42vm + z42c.driver.zpkg)
+        // z42c (z42vm + z42c.driver.zpkg)
         // emits the unit to zbc. interp mode is fastest for these many-short
         // single-file compiles — JIT would re-warm the whole z42c closure per
         // unit. Z42_LIBS supplies the stdlib the test references (Assert, the

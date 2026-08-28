@@ -518,7 +518,7 @@ int _dispatchTest(string[] p, ParseResult r) {
 
     if (sub == "embedded")     { return _testEmbedded(r); }   // 嵌入式 test-host 跑 .zbc（desktop harness）
     if (sub == "dist")         { return _testDist(r); }
-    if (sub == "compiler") { return _testCompiler(false); }   // C#-free 自举不动点（C# test compiler 已删）
+    if (sub == "compiler") { return _testCompiler(false); }   // 自举不动点
     if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
     if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
     if (sub == "vscode-syntax") { return _testVscodeSyntax(); }   // grammar ↔ Lexer 关键字一致性

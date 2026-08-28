@@ -905,7 +905,7 @@ jobs:
       # byte-identical (BLID-tolerant) + z42c [Test] units. The closure proof lives in
       # xtask (_testZ42cSelfHostByteIdentical via `test compiler`), not a duplicate
       # shell script — selfhost-bootstrap.sh was exactly this logic reimplemented.
-      - name: Self-host fixpoint (xtask test compiler, C#-free)
+      - name: Self-host fixpoint (xtask test compiler)
         shell: bash
         run: |
           set -euo pipefail

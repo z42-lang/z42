@@ -128,7 +128,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // (<lib>/<profile>/tests/{dist,cache}/) instead of a throwaway temp dir, so
     // they're inspectable, incrementally cached, and visible to the CI
     // release-guard. _compileTestUnit derives the path from root + lib.
-    // C#-free compile toolchain: z42vm + z42c.driver.zpkg + a single flat
+    // compile toolchain: z42vm + z42c.driver.zpkg + a single flat
     // Z42_LIBS dir. z42c.driver runs as a packed zpkg whose OWN siblings
     // (z42c.project / z42c.semantics / …) must be resolvable at runtime, AND
     // the stdlib the test units depend on must live in the SAME dir (the VM
