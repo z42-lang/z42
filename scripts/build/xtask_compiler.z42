@@ -102,7 +102,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // 「新 API 需晚一 nightly」轴④约束。warm dev 代价：z42c build 增量缓存命中下近零（源未变 → probe
 // 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
 void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat) {
-    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.ir + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
+    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.ir + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
     // consolidate-core-intrinsics (A1): 当前源 z42.ir 现调 Std.BitConverter（当前源 z42.core 新增门面）。
     // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.ir 会
     // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.ir。
@@ -118,6 +118,14 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     string projToml = Path.Join(root, "src/libraries/z42.project/z42.project.z42.toml");
     int rcProj = _z42cBuildPackage(vm, driver, projToml, stdlibFlat, stdlibFlat);
     if (rcProj != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.project failed (" + rcProj.ToString() + ")"); }
+    // sink-repl-compile-facade：z42c.pipeline **编译期**消费 z42.build 的新 API（`IReplCompiler` +
+    // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.ir 的轴② ——
+    // z42c 源新用一个 stdlib API，须先把**当前源** z42.build 建进 flat，否则 z42c 自建 z42c.pipeline
+    // 会对着**旧**（种子）z42.build 编 → `E0443: undefined type IReplCompiler`。z42.build 依赖
+    // z42.core（已上预建）+ z42.io（flat 已有）+ z42.project（已上预建）。
+    string buildToml = Path.Join(root, "src/libraries/z42.build/z42.build.z42.toml");
+    int rcBuild = _z42cBuildPackage(vm, driver, buildToml, stdlibFlat, stdlibFlat);
+    if (rcBuild != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.build failed (" + rcBuild.ToString() + ")"); }
     string irToml = Path.Join(root, "src/libraries/z42.ir/z42.ir.z42.toml");
     int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.ir failed (" + rc.ToString() + ")"); }

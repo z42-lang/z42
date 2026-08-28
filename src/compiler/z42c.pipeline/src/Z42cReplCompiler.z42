@@ -1,0 +1,263 @@
+// z42c 的 IReplCompiler 实现（sink-repl-compile-facade）。REPL（Std.Scripting）经 z42.build 的
+// `IReplCompiler` 接口**在进程内**调本类，复用 PackageCompile / DepScan / IrDump 核心——与
+// `Z42cCompiler : ICompiler`（wire-z42b）同构。依赖方向：z42c.pipeline → z42.build（仅接口，无环）。
+//
+// 「有状态增量编译世界」封在 opaque 句柄 `ReplWorld`（bundle DepScanResult + 编译配置），scripting
+// 只当 `object` 持有、从不具名 pipeline/semantics 类型。本类把原先散在 `Script.z42`（编译编排：
+// E0401 惰性 per-type / 整包 reconcile 重试）与 `Completer.z42`（导入世界遍历）的逻辑收进门面实现侧。
+// 私有 helper 全 static（无实例态；接口方法为实例方法，经 ClassName._x 调 static helper——同 Z42cCompiler）。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.Collections;
+using Z42.Syntax;           // CompilationUnit
+using Z42.Semantics;        // IrDump.ParseAll
+using Z42.IR;               // Exported* 世界枚举
+using Z42.IR.BinaryFormat;  // ZpkgWriterZ.WritePacked（packed zpkg 字节）
+using Z42.Project;          // ZpkgBuilder.Sha256Hex
+using Z42.Build;            // IReplCompiler / ReplCompileResult
+
+// opaque 世界句柄：依赖世界 + 编译配置（LibsDirs/DeclaredDeps 供 CompileInputs 组装）。
+// scripting 侧作 `object` 持有（`ScriptState.CachedScan`），从不具名本类型。
+public sealed class ReplWorld {
+    public DepScanResult Scan;
+    public string[] LibsDirs;    public int LibsDirsN;
+    public string[] DeclaredDeps; public int DepCount;
+    public ReplWorld() {
+        this.Scan = null;
+        this.LibsDirs = new string[0]; this.LibsDirsN = 0;
+        this.DeclaredDeps = new string[0]; this.DepCount = 0;
+    }
+}
+
+public class Z42cReplCompiler : IReplCompiler {
+
+    // ── 世界生命周期 ────────────────────────────────────────────────────────────
+    public object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount) {
+        // 惰性 scan 骨架（路由 nsMap + LazyReconWorld，不预 reconcile）——原 Script.Prewarm。
+        DepScanResult skel = DepScan.ScanDirsLazy(libsDirs, libsDirsN, "", declaredDeps, depCount);
+        ReplWorld w = new ReplWorld();
+        w.Scan = skel;
+        w.LibsDirs = libsDirs; w.LibsDirsN = libsDirsN;
+        w.DeclaredDeps = declaredDeps; w.DepCount = depCount;
+        return w;
+    }
+
+    public void ExtendWorld(object world, byte[] bytes, string pkgName) {
+        ReplWorld w = world as ReplWorld;
+        if (w == null || w.Scan == null) { return; }
+        DepScan.ExtendWithPackage(w.Scan, bytes, pkgName);   // 增量并入本轮 Repl.R{n} 包（in-memory）
+    }
+
+    // ── 编译一轮（含 E0401 惰性 reconcile 重试）——原 Script._compileSrc/_compileSrcOnce ───────
+    public ReplCompileResult CompileRound(object world, string name, string src, string[] usings, int usingsCount) {
+        ReplWorld w = world as ReplWorld;
+        if (w == null || w.Scan == null) {
+            string[] d = new string[1]; d[0] = "error: repl world not initialized";
+            return new ReplCompileResult(new byte[0], 1, d, 1);
+        }
+        CompileArtifacts art = Z42cReplCompiler._compileOnce(w, name, src);
+        if (art.ErrorCount > 0) {
+            // repl-per-symbol-reconcile：先只 reconcile 源里引用的**类型**（per-type，比整包快），仍
+            // 失败 → 回退整包 _loadUsingsPackages（保正确性）。见 repl.md T2 节。
+            if (Z42cReplCompiler._loadReferencedTypes(w.Scan, src, usings, usingsCount)) {
+                art = Z42cReplCompiler._compileOnce(w, name, src);
+            }
+            if (art.ErrorCount > 0 && Z42cReplCompiler._loadUsingsPackages(w.Scan, usings, usingsCount)) {
+                art = Z42cReplCompiler._compileOnce(w, name, src);
+            }
+        }
+        // 结果打包：成功 → packed 字节；失败 → 空字节 + 原始诊断（调用方 _remapDiag 回映行号）。
+        byte[] bytes;
+        if (art.ErrorCount == 0) { bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes(); }
+        else { bytes = new byte[0]; }
+        int dc = 0;
+        if (art.CmCount > 0) { dc = art.Cms[0].DiagCount; }
+        string[] diags = new string[dc];
+        int di = 0;
+        while (di < dc) { diags[di] = art.Cms[0].DiagMsgs[di]; di = di + 1; }
+        return new ReplCompileResult(bytes, art.ErrorCount, diags, dc);
+    }
+
+    private static CompileArtifacts _compileOnce(ReplWorld w, string name, string src) {
+        string[] texts = new string[1]; texts[0] = src;
+        string[] files = new string[1]; files[0] = name + ".z42";
+        CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
+        CompileInputs inp = new CompileInputs();
+        inp.Texts = texts; inp.Files = files;
+        string[] hashes = new string[1]; hashes[0] = ZpkgBuilder.Sha256Hex(src);
+        inp.SrcHashes = hashes; inp.SrcCount = 1;
+        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        inp.Name = name; inp.Version = "0.0.0"; inp.Kind = "lib";
+        inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
+        inp.LibsDirs = w.LibsDirs; inp.LibsDirsN = w.LibsDirsN;
+        inp.DeclaredDeps = w.DeclaredDeps; inp.DepCount = w.DepCount;
+        inp.CachedScan = w.Scan;   // perf：复用缓存依赖世界，跳过每轮 DepScan
+        return PackageCompile.Compile(inp);
+    }
+
+    // completer：扫源里首字母大写的标识符（类型候选），对每个活跃 ns 调 ReconcileCandidatesInNs。
+    private static bool _loadReferencedTypes(DepScanResult scan, string src, string[] usings, int usingsCount) {
+        if (scan == null) { return false; }
+        int before = scan.ExportedCount;
+        string[] cands = Z42cReplCompiler._typeCandidates(src);
+        int u = 0;
+        while (u < usingsCount) {
+            if (scan.NsMayHaveCandidate(usings[u], cands, cands.Length)) {
+                DepScan.ReconcileCandidatesInNs(scan, usings[u], cands, cands.Length);
+            }
+            u = u + 1;
+        }
+        if (scan.NsMayHaveCandidate("Std", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std", cands, cands.Length); }
+        if (scan.NsMayHaveCandidate("Std.Runtime", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std.Runtime", cands, cands.Length); }
+        return scan.ExportedCount > before;
+    }
+
+    // 加载首次引用符号所需的包（幂等）。返回 true = 有新包并入（值得重编）。
+    private static bool _loadUsingsPackages(DepScanResult scan, string[] usings, int usingsCount) {
+        if (scan == null) { return false; }
+        int before = scan.ExportedCount;
+        int i = 0;
+        while (i < usingsCount) { DepScan.EnsurePackageLoaded(scan, usings[i]); i = i + 1; }
+        return scan.ExportedCount > before;
+    }
+
+    // 首字母大写的标识符（类型名候选；PascalCase 约定）。去重。字符扫描（不依赖 Lexer，够用且快）。
+    private static string[] _typeCandidates(string src) {
+        string[] outp = new string[16]; int n = 0;
+        int i = 0;
+        while (i < src.Length) {
+            char c = src.CharAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                int j = i;
+                while (j < src.Length) {
+                    char d = src.CharAt(j);
+                    if ((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z') || (d >= '0' && d <= '9') || d == '_') { j = j + 1; }
+                    else { break; }
+                }
+                string wrd = src.Substring(i, j - i);
+                bool seen = false;
+                int k = 0; while (k < n) { if (outp[k] == wrd) { seen = true; } k = k + 1; }
+                if (!seen) {
+                    if (n == outp.Length) { string[] b = new string[outp.Length * 2]; int t = 0; while (t < n) { b[t] = outp[t]; t = t + 1; } outp = b; }
+                    outp[n] = wrd; n = n + 1;
+                }
+                i = j;
+            } else { i = i + 1; }
+        }
+        string[] r = new string[n]; int p = 0; while (p < n) { r[p] = outp[p]; p = p + 1; } return r;
+    }
+
+    // ── 补全查询（原 Completer 世界遍历）────────────────────────────────────────
+    // 前缀过滤 / 去重 / ns 活跃策略（Std/Std.Runtime 免-using）留在 scripting 侧；本侧只做世界遍历。
+    public string[] NamespaceNames(object world) {
+        ReplWorld w = world as ReplWorld;
+        if (w == null || w.Scan == null) { return new string[0]; }
+        DepScanResult sc = w.Scan;
+        string[] r = new string[sc.NsCount];
+        int i = 0;
+        while (i < sc.NsCount) { r[i] = sc.NsNames[i]; i = i + 1; }
+        return r;
+    }
+
+    public string[] ScopeTypeNames(object world, string[] activeNs, int nsCount) {
+        ReplWorld w = world as ReplWorld;
+        if (w == null || w.Scan == null) { return new string[0]; }
+        DepScanResult sc = w.Scan;
+        List<string> outp = new List<string>();
+        // ① 已 reconcile 顶层可命名符号（类/接口/枚举/自由函数）——无 ns 过滤（已 reconcile = 已确认活跃）。
+        int mi = 0;
+        while (mi < sc.ExportedCount) {
+            ExportedModuleZ m = sc.Exported[mi];
+            int c = 0;  while (c < m.ClassCount)     { outp.Add(m.Classes[c].Name);                        c = c + 1; }
+            int f = 0;  while (f < m.InterfaceCount) { outp.Add(m.Interfaces[f].Name);                     f = f + 1; }
+            int e = 0;  while (e < m.EnumCount)      { outp.Add(m.Enums[e].Name);                          e = e + 1; }
+            int gi = 0; while (gi < m.FunctionCount) { outp.Add(Z42cReplCompiler._cleanName(m.Functions[gi].Name)); gi = gi + 1; }
+            mi = mi + 1;
+        }
+        // ② ns 索引已知但未 reconcile 的类型短名——按活跃 ns 过滤（避免列未 import ns 的类型）。
+        int ti = 0;
+        while (ti < sc.TypeMapCount) {
+            if (Z42cReplCompiler._nsActiveIn(sc.TypeNs[ti], activeNs, nsCount)) { outp.Add(sc.TypeShort[ti]); }
+            ti = ti + 1;
+        }
+        return outp.ToArray();
+    }
+
+    public string[] StaticMembersOf(object world, string typeName, string[] activeNs, int nsCount) {
+        ReplWorld w = world as ReplWorld;
+        if (w == null || w.Scan == null) { return new string[0]; }
+        DepScanResult sc = w.Scan;
+        Z42cReplCompiler._ensureReconciled(sc, typeName, activeNs, nsCount);   // 未 reconcile 的类型先按需 reconcile
+        List<string> outp = new List<string>();
+        int mi = 0;
+        while (mi < sc.ExportedCount) {
+            ExportedModuleZ m = sc.Exported[mi];
+            int ci = 0;
+            while (ci < m.ClassCount) {
+                ExportedClassZ cl = m.Classes[ci];
+                if (cl.Name == typeName) {
+                    int j = 0;
+                    while (j < cl.MethodCount) {
+                        ExportedMethodZ mm = cl.Methods[j];
+                        if (mm.IsStatic && mm.Visibility == "public") { outp.Add(Z42cReplCompiler._cleanName(mm.Name)); }
+                        j = j + 1;
+                    }
+                    int fj = 0;
+                    while (fj < cl.FieldCount) {
+                        ExportedFieldZ fd = cl.Fields[fj];
+                        if (fd.IsStatic && fd.Visibility == "public") { outp.Add(fd.Name); }
+                        fj = fj + 1;
+                    }
+                }
+                ci = ci + 1;
+            }
+            int ei = 0;
+            while (ei < m.EnumCount) {
+                ExportedEnumZ en = m.Enums[ei];
+                if (en.Name == typeName) {
+                    int k = 0;
+                    while (k < en.MemberCount) { outp.Add(en.Members[k].Name); k = k + 1; }
+                }
+                ei = ei + 1;
+            }
+            mi = mi + 1;
+        }
+        return outp.ToArray();
+    }
+
+    // 类型仅存于 ns 索引、尚未 reconcile 进 Exported（没执行过）→ 对声明它的活跃 ns 按需 reconcile 一次。
+    private static void _ensureReconciled(DepScanResult sc, string typeName, string[] activeNs, int nsCount) {
+        int mi = 0;
+        while (mi < sc.ExportedCount) {
+            ExportedModuleZ m = sc.Exported[mi];
+            int ci = 0;
+            while (ci < m.ClassCount) { if (m.Classes[ci].Name == typeName) { return; } ci = ci + 1; }
+            int ei = 0;
+            while (ei < m.EnumCount)  { if (m.Enums[ei].Name  == typeName) { return; } ei = ei + 1; }
+            mi = mi + 1;
+        }
+        string[] one = new string[1]; one[0] = typeName;
+        int t = 0;
+        while (t < sc.TypeMapCount) {
+            if (sc.TypeShort[t] == typeName && Z42cReplCompiler._nsActiveIn(sc.TypeNs[t], activeNs, nsCount)) {
+                DepScan.ReconcileCandidatesInNs(sc, sc.TypeNs[t], one, 1);
+                return;
+            }
+            t = t + 1;
+        }
+    }
+
+    private static bool _nsActiveIn(string ns, string[] activeNs, int nsCount) {
+        int i = 0;
+        while (i < nsCount) { if (activeNs[i] == ns) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 去派发 mangle：导出方法/自由函数名带 `$arity$type…` 重载后缀；补全展示源名——截到首个 `$`。
+    private static string _cleanName(string name) {
+        int d = name.IndexOf("$");
+        if (d < 0) { return name; }
+        return name.Substring(0, d);
+    }
+}

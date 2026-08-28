@@ -1,9 +1,13 @@
 // Script.Eval —— REPL 编译+执行层（scripting-charter Form B）。
 //
 // 流程：分类输入（using / var 声明 / 表达式）→ build 每轮源（D7 唯一命名空间 Repl.R{N} +
-// carry-forward Vars{N} 类）→ IrDump.ParseAll → PackageCompile.Compile → ZpkgWriterZ.ToBytes
-// → Engine.LoadBytes（内存加载）→ Engine.Invoke（自由函数 Eval{N}）→ EvalResult。
-// 编译失败不推进会话（错误恢复）。
+// carry-forward Vars{N} 类）→ IReplCompiler.CompileRound（门面：内部 ParseAll→PackageCompile→
+// packed 字节，含 E0401 惰性 reconcile 重试）→ Engine.LoadBytes（内存加载）→ Engine.Invoke（自由
+// 函数 Eval{N}）→ EvalResult。编译失败不推进会话（错误恢复）。
+//
+// sink-repl-compile-facade：编译世界（DepScanResult）+ 编译编排住编译器（z42c.pipeline，经
+// `IReplCompiler` 门面 + 运行期反射注入），scripting 编译期 stdlib-only。CachedScan 是 opaque
+// `object` 句柄；ParseAll/PackageCompile/DepScan 全不在本文件出现。
 //
 // 状态模型（D7 + D8）：会话变量提升为 Vars{N} 类静态字段；每轮 carry 前轮全部变量
 // （`public static var v = Vars{prev}.v;`），新变量追加；用户对变量的裸引用经 Rewriter
@@ -14,12 +18,10 @@ using Std;
 using Std.IO;
 using Std.Collections;
 using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）
-using Z42.Syntax;
-using Z42.Semantics;
-using Z42.Pipeline;
-using Z42.IR;
+using Z42.Syntax;            // Lexer / TokenKind（_isStatement token 判——前端已是 stdlib）
+using Z42.Project;           // ZpkgWriterZ.Major/Minor（FormatVersion .version 元指令）
 using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）
-using Z42.Project;
+using Z42.Build;             // IReplCompiler / ReplCompileResult（编译经门面——sink-repl-compile-facade）
 
 // 分类结果 `ParsedInput` + 分类器 `Classifier` 见 Classifier.z42。
 
@@ -41,7 +43,7 @@ public static class Script {
         s.LibsDirs = envDirs; s.LibsDirsN = envDirs.Length;
         // 默认 using（隐式导入，对齐 C# ImplicitUsings / Kotlin·Scala REPL 默认 import）：常用命名空间
         // 开箱即用（Console / List / StringBuilder / Math），无需手动 using。lazy-repl-depscan：首轮
-        // eager-load 这些包（见 Eval → _loadUsingsPackages）。
+        // eager-load 这些包（在门面 CompileRound 的 E0401 回退里，Z42cReplCompiler._loadUsingsPackages）。
         s.Usings.Add("Std.IO");
         s.Usings.Add("Std.Collections");
         s.Usings.Add("Std.Text");
@@ -55,15 +57,16 @@ public static class Script {
     //
     // repl-lazy-prelude：worker 只建依赖世界**骨架**（nsMap 路由 + 惰性 world），**不 reconcile prelude、
     // 不预载 usings** → 立即发布。`1+1` 类纯表达式零包加载（1.72s→~0.40s），秒回车也不卡。首次引用 Std
-    // 符号时由 _compileSrc 的 E0401 回退按需加载 prelude+usings（前台，一次性）——**已由 T2 per-type
-    // completer（#98/#101）从 ~1.7s 降到 ~0.33s**（见 _loadReferencedTypes / repl.md T2 节）。**不后台
+    // 符号时由门面 CompileRound 的 E0401 回退按需加载 prelude+usings（前台，一次性）——**已由 T2 per-type
+    // completer（#98/#101）从 ~1.7s 降到 ~0.33s**（见 Z42cReplCompiler._loadReferencedTypes / repl.md T2 节）。**不后台
     // reconcile**：本 VM 的 GC 安全点协作会让计算密集的后台线程阻塞
     // 主线程 eval，后台预热反而把 `1+1` 拖慢（实测双缓冲 Phase 2 下秒回车 `1+1`=3s）。
     // 并发安全：worker 建完 skel 即原子发布（64 位指针写）、随即退出——绝无「发布后继续变异 scan」，
     // 与主线程 eval / 补全器无数据竞争；补全器并发读只见 null 或完全成品。幂等：已建则直接返回。
     public static void Prewarm(ScriptState state) {
         if (state.CachedScan != null) { return; }
-        DepScanResult skel = DepScan.ScanDirsLazy(state.LibsDirs, state.LibsDirsN, "", state.DeclaredDeps, state.DepCount);
+        // 门面建依赖世界骨架（惰性 scan：路由 nsMap + LazyReconWorld，不预 reconcile）。opaque 句柄。
+        object skel = ReplCompilerHost.Get().CreateWorld(state.LibsDirs, state.LibsDirsN, state.DeclaredDeps, state.DepCount);
         state.CachedScan = skel;
     }
 
@@ -190,7 +193,7 @@ public static class Script {
         if (trimmed.EndsWith(";")) { trimmed = trimmed.Substring(0, trimmed.Length - 1).Trim(); }
 
         // ── 编译 ──
-        CompileArtifacts art;
+        ReplCompileResult art;
         bool hasValue = true;
         if (isDecl) {
             art = Script._compileBody(state, n, prelude, efn, "return (" + cls + "." + p.VarName + ");");
@@ -202,7 +205,7 @@ public static class Script {
             // 表达式优先；失败 → 回退纯语句（副作用调用等）。
             art = Script._compileBody(state, n, prelude, efn, "return (" + rewritten + ");");
             if (art.ErrorCount > 0) {
-                CompileArtifacts artS = Script._compileBody(state, n, prelude, efn, rewritten + "; return null;");
+                ReplCompileResult artS = Script._compileBody(state, n, prelude, efn, rewritten + "; return null;");
                 if (artS.ErrorCount == 0) { art = artS; hasValue = false; }
             }
         }
@@ -210,15 +213,15 @@ public static class Script {
             int pl = Script._countNewlines(prelude);   // 生成源 = prelude + wrapper+用户输入 → 行号回映基准
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
+            while (di < art.DiagCount) { err = err + Script._remapDiag(art.Diagnostics[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);   // 会话不推进
         }
 
-        // ── bytes → [声明轮] 内存增量并入缓存 scan → VM 内存加载 → invoke ──
+        // ── bytes → [声明轮] 内存增量并入缓存世界 → VM 内存加载 → invoke ──
         // perf ②/⑤：不再落盘。只有声明轮的 Vars{n} 会被后续轮 `using Repl.R{n}` 引用，故仅它们
-        // 并入缓存 scan；非声明轮的包无人在编译期引用（其副作用/赋值经运行期静态字段持久），跳过。
-        byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();
-        if (isDecl) { DepScan.ExtendWithPackage(state.CachedScan, bytes, "repl_r" + n.ToString()); }
+        // 并入缓存世界；非声明轮的包无人在编译期引用（其副作用/赋值经运行期静态字段持久），跳过。
+        byte[] bytes = art.Bytes;
+        if (isDecl) { ReplCompilerHost.Get().ExtendWorld(state.CachedScan, bytes, "repl_r" + n.ToString()); }
         Engine.LoadBytes(bytes);
         object result = Engine.Invoke(ns + "." + efn);
 
@@ -268,16 +271,16 @@ public static class Script {
         string emitText = declText;
         if (p.IsTypeDecl && !p.HasVisibility) { emitText = "public " + declText; }
         string prelude = Script._basePrelude(state, ns);
-        CompileArtifacts art = Script._compileRaw(state, n, prelude + emitText + "\n");
+        ReplCompileResult art = Script._compileRaw(state, n, prelude + emitText + "\n");
         if (art.ErrorCount > 0) {
             int pl = Script._countNewlines(prelude);   // 声明轮：declText 紧接 prelude，行号回映同理
             string err = "";
             int di = 0;
-            while (di < art.Cms[0].DiagCount) { err = err + Script._remapDiag(art.Cms[0].DiagMsgs[di], pl) + "\n"; di = di + 1; }
+            while (di < art.DiagCount) { err = err + Script._remapDiag(art.Diagnostics[di], pl) + "\n"; di = di + 1; }
             return new EvalResult(false, false, null, err, state);
         }
-        byte[] bytes = ZpkgWriterZ.WritePacked(art.Z, false).ToBytes();
-        DepScan.ExtendWithPackage(state.CachedScan, bytes, "repl_r" + n.ToString());
+        byte[] bytes = art.Bytes;
+        ReplCompilerHost.Get().ExtendWorld(state.CachedScan, bytes, "repl_r" + n.ToString());
         Engine.LoadBytes(bytes);
         state.Counter = n;
         state.DeclNamespaces.Add(ns);
@@ -289,113 +292,21 @@ public static class Script {
     }
 
     // 用给定 eval body 编译本轮包（表达式/语句两种 body 复用）。
-    private static CompileArtifacts _compileBody(ScriptState state, int n, string prelude, string efn, string body) {
+    private static ReplCompileResult _compileBody(ScriptState state, int n, string prelude, string efn, string body) {
         return Script._compileSrc(state, n, prelude + "public static object " + efn + "() { " + body + " }\n");
     }
 
     // 编译一整段裸源（顶层声明轮直接把声明附在 prelude 后，不包裹 Eval 函数）。
-    private static CompileArtifacts _compileRaw(ScriptState state, int n, string src) {
+    private static ReplCompileResult _compileRaw(ScriptState state, int n, string src) {
         return Script._compileSrc(state, n, src);
     }
 
-    // 单文件源 → PackageCompile。lazy-repl-depscan：惰性 scan 下，引用未加载包的符号会编译失败
-    // （E0401）；此时按当前 using 集加载尚未加载的包（namespace 已知，绕开 E0401 只有短名的问题），
-    // 若有新包加载则重编一次。`1+2` 不失败 → 不加载 → 保住首轮 ~1.4s；首次引用某包才付其 ~120ms。
-    private static CompileArtifacts _compileSrc(ScriptState state, int n, string src) {
-        CompileArtifacts art = Script._compileSrcOnce(state, n, src);
-        if (art.ErrorCount > 0) {
-            // repl-per-symbol-reconcile（completer）：先只 reconcile 源里引用的**类型**（per-type，
-            // ReconcileOne），比整包 reconcile 快得多（首次 Console：只解 Console+Object，非整个 Std.IO+
-            // 全部默认 usings）。仍失败 → 回退整包 _loadUsingsPackages（保正确性）。
-            if (Script._loadReferencedTypes(state, src)) {
-                art = Script._compileSrcOnce(state, n, src);
-            }
-            if (art.ErrorCount > 0 && Script._loadUsingsPackages(state)) {
-                art = Script._compileSrcOnce(state, n, src);
-            }
-        }
-        return art;
-    }
-
-    // completer：扫源里首字母大写的标识符（类型候选），对每个活跃命名空间（usings + prelude Std/
-    // Std.Runtime）调 DepScan.ReconcileCandidatesInNs（每 ns 只读一次模块、批量 reconcile 命中的候选）。
-    // 返回是否并入新类型（值得重编）。非类型候选（方法名/局部名）不命中任何类 → 无害。
-    private static bool _loadReferencedTypes(ScriptState state, string src) {
-        if (state.CachedScan == null) { return false; }
-        int before = state.CachedScan.ExportedCount;
-        string[] cands = Script._typeCandidates(src);
-        DepScanResult scan = state.CachedScan;
-        // repl-type-nsindex：只对「类型索引显示声明了某候选类型」的活跃 ns 读模块 + reconcile，跳过其余
-        // （首次 Console 原本全扫 6 个活跃 ns/~100ms，现只读 Std.IO/~55ms）。索引空（旧缓存/无索引）→
-        // NsMayHaveCandidate 恒 true → 退化为全扫（旧行为，正确性不变）。活跃 ns：usings + prelude Std/Std.Runtime。
-        int u = 0;
-        while (u < state.Usings.Count) {
-            if (scan.NsMayHaveCandidate(state.Usings[u], cands, cands.Length)) {
-                DepScan.ReconcileCandidatesInNs(scan, state.Usings[u], cands, cands.Length);
-            }
-            u = u + 1;
-        }
-        if (scan.NsMayHaveCandidate("Std", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std", cands, cands.Length); }
-        if (scan.NsMayHaveCandidate("Std.Runtime", cands, cands.Length)) { DepScan.ReconcileCandidatesInNs(scan, "Std.Runtime", cands, cands.Length); }
-        return scan.ExportedCount > before;
-    }
-
-    // 首字母大写的标识符（类型名候选；PascalCase 约定）。去重。字符扫描（不依赖 Lexer，够用且快）。
-    private static string[] _typeCandidates(string src) {
-        string[] outp = new string[16]; int n = 0;
-        int i = 0;
-        while (i < src.Length) {
-            char c = src.CharAt(i);
-            if (c >= 'A' && c <= 'Z') {
-                int j = i;
-                while (j < src.Length) {
-                    char d = src.CharAt(j);
-                    if ((d >= 'A' && d <= 'Z') || (d >= 'a' && d <= 'z') || (d >= '0' && d <= '9') || d == '_') { j = j + 1; }
-                    else { break; }
-                }
-                string w = src.Substring(i, j - i);
-                bool seen = false;
-                int k = 0; while (k < n) { if (outp[k] == w) { seen = true; } k = k + 1; }
-                if (!seen) {
-                    if (n == outp.Length) { string[] b = new string[outp.Length * 2]; int t = 0; while (t < n) { b[t] = outp[t]; t = t + 1; } outp = b; }
-                    outp[n] = w; n = n + 1;
-                }
-                i = j;
-            } else { i = i + 1; }
-        }
-        string[] r = new string[n]; int p = 0; while (p < n) { r[p] = outp[p]; p = p + 1; } return r;
-    }
-
-    // 加载首次引用符号所需的包（幂等）。返回 true = 有新包并入（值得重编）。
-    // repl-lazy-prelude：lazy-prelude 后 prelude(z42.core) 不再于 scan 预 reconcile。默认 using
-    // `Std.Collections` 由 z42.core 声明 → 加载它即把 prelude（z42.core 的 `Std` 免-using 命名空间：
-    // Object/Convert/Environment 等）一并 reconcile 进 scan，故无需显式补 "Std"（实测 Convert/Environment 正确）。
-    private static bool _loadUsingsPackages(ScriptState state) {
-        if (state.CachedScan == null) { return false; }
-        int before = state.CachedScan.ExportedCount;
-        int i = 0;
-        while (i < state.Usings.Count) {
-            DepScan.EnsurePackageLoaded(state.CachedScan, state.Usings[i]);
-            i = i + 1;
-        }
-        return state.CachedScan.ExportedCount > before;
-    }
-
-    private static CompileArtifacts _compileSrcOnce(ScriptState state, int n, string src) {
-        string[] texts = new string[1]; texts[0] = src;
-        string[] files = new string[1]; files[0] = "repl_r" + n.ToString() + ".z42";
-        CompilationUnit[] cus = IrDump.ParseAll(texts, files, 1);
-        CompileInputs inp = new CompileInputs();
-        inp.Texts = texts; inp.Files = files;
-        string[] hashes = new string[1]; hashes[0] = ZpkgBuilder.Sha256Hex(src);
-        inp.SrcHashes = hashes; inp.SrcCount = 1;
-        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
-        inp.Name = "repl_r" + n.ToString(); inp.Version = "0.0.0"; inp.Kind = "lib";
-        inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
-        inp.LibsDirs = state.LibsDirs; inp.LibsDirsN = state.LibsDirsN;
-        inp.DeclaredDeps = state.DeclaredDeps; inp.DepCount = state.DepCount;
-        inp.CachedScan = state.CachedScan;   // perf ②：复用缓存依赖世界，跳过每轮 DepScan
-        return PackageCompile.Compile(inp);
+    // 单文件源 → 门面 CompileRound（sink-repl-compile-facade）。ParseAll/PackageCompile + E0401 惰性
+    // per-type / 整包 reconcile 重试全在编译器实现侧（Z42cReplCompiler），本文件只把源 + 活跃 usings
+    // 交给门面，取回 packed 字节 + 原始诊断。`state.CachedScan` 是 opaque 世界句柄。
+    private static ReplCompileResult _compileSrc(ScriptState state, int n, string src) {
+        string[] usings = state.Usings.ToArray();
+        return ReplCompilerHost.Get().CompileRound(state.CachedScan, "repl_r" + n.ToString(), src, usings, usings.Length);
     }
 
     // perf ③：token 级判「明确是语句」（→ 跳过表达式尝试，省一次编译）。判据保守——只认

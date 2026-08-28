@@ -1,0 +1,86 @@
+// REPL 编译器组件的运行期反射注入（sink-repl-compile-facade）——mirror builder.z42 `_hostCompiler`。
+//
+// scripting 编译期只依赖 z42.build 的 `IReplCompiler` 接口（stdlib-only，前端 z42c.core/syntax 亦已
+// 是 stdlib）；此处经 `ModuleLoader.Load` 把编译器组件 zpkg（z42c.pipeline，含 `Z42cReplCompiler :
+// IReplCompiler` + 6 个 z42c.* 兄弟依赖闭包）加载进 live VM → `Type.GetType` 反射实例化 → 接口 cast。
+// 与 z42b 的 ICompiler 注入同构（wire-z42b-dynamic-injection-preference）。换/升级编译器 = 替换 zpkg，
+// 本文件零改动。组件缺失（runtime-only SDK）→ `NoReplCompiler` 兜底（编译恒失败、补全恒空）。
+namespace Std.Scripting;
+
+using Std;
+using Std.IO;          // Environment / Path / File / ConsoleError
+using Std.Reflection;  // Type / Activator
+using Std.Test;        // ModuleLoader（__load_module：按路径把组件 zpkg + 依赖闭包加载进 live VM）
+using Z42.Build;       // IReplCompiler / NoReplCompiler
+
+public static class ReplCompilerHost {
+    private static IReplCompiler Cached;   // 惰性单例：首次 Get 解析 + 缓存（组件只加载一次）。
+
+    // 取注入的 REPL 编译器实现。首次调用解析组件、反射实例化并缓存；之后瞬回缓存。
+    // 组件缺失 / 加载失败 → NoReplCompiler 兜底（不抛，REPL 退化而非崩）。
+    public static IReplCompiler Get() {
+        if (ReplCompilerHost.Cached != null) { return ReplCompilerHost.Cached; }
+        ReplCompilerHost.Cached = ReplCompilerHost._resolve();
+        return ReplCompilerHost.Cached;
+    }
+
+    private static IReplCompiler _resolve() {
+        string zpkg = ReplCompilerHost._findCompilerZpkg();
+        if (zpkg.Length == 0) {
+            ConsoleError.WriteLine("z42i: compiler component not found (Z42_HOME/programs/z42c, SDK via Z42_PORTABLE_VM, or dev artifacts) — REPL eval unavailable");
+            return new NoReplCompiler();
+        }
+        try {
+            ModuleLoader.Load(zpkg);   // 加载组件 + 依赖闭包（TestEntry[] 返回值 REPL 不用，忽略）
+            Type t = Type.GetType("Z42.Pipeline.Z42cReplCompiler");
+            if (t == null) {
+                ConsoleError.WriteLine("z42i: Z42cReplCompiler type not resolvable after loading " + zpkg);
+                return new NoReplCompiler();
+            }
+            object o = Activator.CreateInstance(t);
+            IReplCompiler c = o as IReplCompiler;
+            if (c == null) {
+                ConsoleError.WriteLine("z42i: loaded Z42cReplCompiler does not satisfy IReplCompiler (component/interface version mismatch?)");
+                return new NoReplCompiler();
+            }
+            return c;
+        } catch (Exception e) {
+            ConsoleError.WriteLine("z42i: compiler component load failed (" + e.Message + "); falling back to NoReplCompiler");
+            return new NoReplCompiler();
+        }
+    }
+
+    // 定位编译器组件 zpkg（z42c.pipeline.zpkg；6 个 z42c.* 兄弟须同目录——ModuleLoader 依赖闭包按
+    // entry-dir + Z42_LIBS 解析）。探测序同 builder.z42 `_findCompilerZpkg`：
+    //   ① Z42_HOME/programs/z42c/（SDK 安装态；launcher 转发 `z42 repl` 时已设）
+    //   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
+    //   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
+    //   ④ Z42_LIBS 各目录（dev warm-z42c 回路 / workspace 运行：编译器组件与 stdlib 同置一处）——
+    //      REPL 的调用上下文比 z42b 更杂（驱动测试直驱 Script.Eval），故比 builder 多这一兜底。
+    private static string _findCompilerZpkg() {
+        string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+        if (home.Length > 0) {
+            string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
+            if (File.Exists(p1)) { return p1; }
+        }
+        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+        if (pv.Length > 0) {
+            string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
+            string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
+            if (File.Exists(p2)) { return p2; }
+        }
+        string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
+        if (File.Exists(p3)) { return p3; }
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        if (libs.Length > 0) {
+            string[] dirs = libs.Split(":");
+            int i = 0;
+            while (i < dirs.Length) {
+                string p4 = Path.Join(dirs[i], "z42c.pipeline.zpkg");
+                if (File.Exists(p4)) { return p4; }
+                i = i + 1;
+            }
+        }
+        return "";
+    }
+}
