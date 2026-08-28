@@ -62,14 +62,14 @@ publish 的解法（`_pubBundleProjectDeps`，`builder/core/builder_publish.z42`
 **典型闭包（z42i / REPL）**：
 
 ```text
-z42.interactive (app 入口, programs/interactive/)
+z42.interactive (app 入口, programs/z42i/)
   └─ z42.scripting        [在 libs/ → 不复制；但递归穿透]
        ├─ z42.core/io/ir   [真·stdlib → 不复制、不递归]
        └─ z42c.core/syntax/semantics/pipeline
-                           [不在 libs/ → 复制进 programs/interactive/；继续递归]
+                           [不在 libs/ → 复制进 programs/z42i/；继续递归]
 ```
 
-结果：`programs/interactive/` 自包含地拿到 `z42c.*`，运行期 `search_dirs=[programs/interactive/, libs/]` 全可解析，`z42i` 直跑与 `z42 repl` 转发均能求值。同一机制让 z42c 把 6 个兄弟库 colocate 进 `programs/z42c/`、launcher 自包含其 `z42.workload.*`——**通用，非任何组件的特例**。
+结果：`programs/z42i/` 自包含地拿到 `z42c.*`，运行期 `search_dirs=[programs/z42i/, libs/]` 全可解析，`z42i` 直跑与 `z42 repl` 转发均能求值。同一机制让 z42c 把 6 个兄弟库 colocate 进 `programs/z42c/`、launcher 自包含其 `z42.workload.*`——**通用，非任何组件的特例**。
 
 > **历史坑**：早期 colocation 只跟「同一 `z42.workspace.toml` 内的成员」，跟不进跨-workspace 的传递链（`z42.interactive` 无 workspace、其依赖散落 `src/toolchain/scripting` + `src/compiler`），导致 shipped 的 z42i 求值报 `undefined Z42.Syntax.Lexer.Tokenize`。改为「按声明依赖做传递 BFS + 按 `libs/` 判框架」后根治（`fix-repl-sdk-layout`）。
 
