@@ -15,7 +15,7 @@ Error: undefined function `Z42.Semantics.IrDump.ParseAll...`
 
 **根因**：REPL 经 `ReplCompilerHost` 运行期反射注入编译器——`ModuleLoader.Load(<sdk>/programs/z42c/z42c.pipeline.zpkg)`
 按**绝对路径**加载 pipeline。但 pipeline 的传递依赖闭包（`z42c.semantics` + 兄弟）解析走的是 **VM 启动时固定的
-`search_dirs`**（= app 自身 entry-dir `programs/interactive/` + `Z42_LIBS`），**不含 pipeline 自身所在的
+`search_dirs`**（= app 自身 entry-dir `programs/z42i/` + `Z42_LIBS`），**不含 pipeline 自身所在的
 `programs/z42c/`**——尽管 semantics 就躺在 pipeline 旁边。→ 依赖闭包解析不到 → `undefined`。
 
 这正是 `xtask_package_desktop.z42` 里那条 KNOWN LIMITATION（「z42i shipped 全量求值缺 semantics/pipeline，正解=

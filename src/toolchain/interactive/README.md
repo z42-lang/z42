@@ -29,7 +29,7 @@ src/toolchain/interactive/core/*.z42  →  z42.interactive.zpkg  →  apphost z4
 ## 状态
 
 🟡 **骨架占位，已打包**。入口 + apphost bin/payload 均已就位，`z42.interactive.z42.toml`
-已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.interactive]`，
+已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.z42i]`，
 2026-07-01 User 裁决），随 SDK 包一起发行——但入口仍只打印 "planned" 后 `Environment.Exit(1)`，
 真正的 REPL 仍待 `extract-compile-pipeline-api` 落地。
 

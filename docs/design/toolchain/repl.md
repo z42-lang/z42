@@ -118,8 +118,8 @@ follow-up（未接）：`ResultFormatter` 对象反射展示（当前 `"" + v` T
 z42 repl
   │
   └── launcher.zpkg 路由 repl 命令
-        │  Z42_LIBS = libs/ + programs/z42c/ + programs/interactive/
-        └── z42vm programs/interactive/z42.interactive.zpkg
+        │  Z42_LIBS = libs/ + programs/z42c/ + programs/z42i/
+        └── z42vm programs/z42i/z42.interactive.zpkg
               ├── z42.repl        — Std.Repl.Repl 行编辑（rustyline）+ ReplEditing 键位（tty 交互层，tier1）
               ├── z42.scripting   — Script.Eval() → compile + load + invoke（跨平台 eval-core）
               │                     + Classifier（分类）/ Completeness（完整性）/ Completer（补全）
@@ -505,12 +505,12 @@ string cont = Std.Repl.ReadLine("... ", Completeness.ContinuationIndent(buf)); /
 | 包 | 位置 | 说明 |
 |----|------|------|
 | `z42.scripting.zpkg` | `libs/` | stdlib，用户也可 import |
-| `z42.interactive.zpkg` | `programs/interactive/` | REPL 主程序（exe zpkg）|
+| `z42.interactive.zpkg` | `programs/z42i/` | REPL 主程序（exe zpkg）|
 
 `z42 repl` 运行时 Z42_LIBS：
 
 ```
-libs/ + programs/z42c/ + programs/interactive/
+libs/ + programs/z42c/ + programs/z42i/
 ```
 
 `programs/z42c/` 含编译器 5 个 zpkg（IR 收敛后），是 `z42.scripting` 运行期动态加载的依赖。

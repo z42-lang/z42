@@ -79,7 +79,7 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 ## 状态
 
 🟡 **骨架占位，已打包**。命令面 + apphost bin/payload 均已就位，`z42.devtools.z42.toml`
-已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.devtools]`，
+已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.z42d]`，
 2026-07-01 User 裁决），随 SDK 包一起发行——但每个子命令目前仍只打印 "planned" 并
 `return 1`，尚无一个真正实现。
 
