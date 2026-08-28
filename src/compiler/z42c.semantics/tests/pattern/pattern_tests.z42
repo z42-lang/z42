@@ -80,3 +80,27 @@ void test_class_container_struct_field_ok() {
         + " void f(Holder h) { Holder(p) = h; } void Main() { }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 泛型 class record 位置解构声明：合法（字段类型 T→int 替换）→ 无诊断 ──
+[Test]
+void test_generic_positional_destructure_ok() {
+    string src = "namespace D; [Record] class Box<T>(T Value);"
+        + " void f(Box<int> b) { Box<int>(v) = b; int s = v + 1; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 泛型 class record 属性解构声明（省类型，用 subject 静态类型）→ 无诊断 ──
+[Test]
+void test_generic_property_destructure_ok() {
+    string src = "namespace D; [Record] class Box<T>(T Value);"
+        + " void f(Box<int> b) { { Value: v } = b; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 泛型 struct record 解构 defer（需单态化 blob 布局，首版限泛型 class record）→ E0402 ──
+[Test]
+void test_generic_struct_destructure_defer_errors() {
+    string src = "namespace D; [Record] struct SBox<T>(T Value);"
+        + " void f(SBox<int> b) { SBox<int>(v) = b; } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}

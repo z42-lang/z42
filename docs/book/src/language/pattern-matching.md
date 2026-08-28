@@ -259,7 +259,31 @@ Line { A: Point(a, _) } = l; // 嵌套位置子模式；亦支持 { A: { X: nx }
 lookahead 判别 `{ ... } =` 与 `T { ... } =`（`StmtParser._isDeconstructDeclStart`，配平 `}` 后见 `=`——
 块语句后不跟 `=`，无歧义）；lowering 复用 `PatternEmitter.EmitIrrefutable` 的属性分支（逐列字段直读 + 递归）。
 
-> 泛型 record 解构、元组模式为后续特性。
+### 泛型 record 解构（`Box<T>` / `Pair<A, B>`）
+
+位置与属性模式支持**泛型 record**——`Box<int>(v)`、`Pair<int, string>(f, s)`、`Box<int> { Value: v }`。
+
+```z42
+[Record] class Box<T>(T Value);
+[Record] class Pair<A, B>(A First, B Second);
+
+Box<int> b = new Box<int>(42);
+switch (b) {
+    case Box<int>(v):  ...    // v : int（字段类型 T 替换成实参 int）
+}
+Box<int>(dv) = b;              // 解构声明亦支持
+if (b is Box<int>(w)) { ... }  // is 结构化模式亦支持
+Pair<int, Box<int>>(o, Box<int>(iw)) = ...;  // 嵌套泛型字段
+```
+
+**机制（运行时擦除 + 编译期替换）**：`Box<int>` 解析成 `Z42InstantiatedType`（`Def = Box`，`TypeArgs = [int]`）。
+binder 解开 `.Def` 走 `IsRecord` / arity 校验，字段类型（声明为 `T`）经 `MemberResolver._substGeneric` 把类
+形参替换成实参（`T → int`）再递归绑定子模式——与字段访问 `b.Value` 的泛型替换同一设施。emit 侧的
+`IsInstance` 只测**擦除基类** `Box`（不 reify `<int>`），与泛型 `is` 表达式（`x is Box<int> b`）一致；字段读
+按名 `FieldGet` 类型擦除。故泛型 record 解构**无新运行时、无格式 bump**，纯 binder 层补线。
+
+> **泛型 struct record 解构** defer（诊断 `E0402`）——struct 值语义需按实例化单态化 blob 布局
+> （`Box<int>` vs `Box<string>` 布局不同），首版限泛型 **class** record。元组模式为后续特性。
 
 ## C：switch 穷尽性诊断（封闭域 bool / enum）
 
@@ -321,6 +345,7 @@ Point u = p with { X = 8 } with { Y = 9 };   // 链式
 
 - **嵌套 struct-record 字段**位置 / 属性解构（字段本身是 struct，需 blob 值副本）；**boxed struct subject**
   （`object` 持 struct，需拆箱 + 类型测试）——均已 defer 诊断 `E0402`
-- 泛型 record 位置解构；元组模式（需元组类型系统构造，可能格式 bump）
+- 泛型 **struct** record 位置解构（需单态化 blob 布局；泛型 class record 已支持，见上「泛型 record 解构」）；
+  元组模式（需元组类型系统构造，可能格式 bump）
 - `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）
 - sealed 层次穷尽性（需封闭子类集语义 + 反向子类索引）
