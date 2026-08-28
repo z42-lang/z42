@@ -28,7 +28,7 @@ stdlib+compiler zpkg world (~2–3.6 MB) through the interpreter, every line.
 2. No cross-round cache: `PackageCompile.Compile` runs a full `DepScan` every
    eval; the stdlib+compiler world never changes within a session.
 3. Expression→statement fallback compiles the whole thing twice for statement
-   inputs — `src/toolchain/scripting/src/Script.z42`.
+   inputs — `src/libraries/z42.scripting/src/Script.z42`.
 
 ## Progress log
 

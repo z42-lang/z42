@@ -132,14 +132,22 @@ target/arch/位宽/字节序信息。stdlib 源码零条件编译。**因此所�
 
 | 类别 | 命名空间 | 面向 | 成员 | 说明 |
 |------|---------|------|------|------|
-| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary / net / threading / compression / crypto / test | 本文档全部划分规则（L0–L3、两层 interop、R1–R4）**只约束这一类** |
-| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`） | 编译器内部件（IR 模型 / zbc·zpkg 后端 / manifest 模型 / builder 骨架）**下沉为共享库**，供 z42c 自身、REPL、z42b 复用 |
+| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary / net / threading / compression / crypto / test / **scripting** | 本文档全部划分规则（L0–L3、两层 interop、R1–R4）**只约束这一类** |
+| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、**`z42c.core`（`Z42.Core`）+ `z42c.syntax`（`Z42.Syntax`）**（可移植编译器前端：Lexer/Parser/AST/Span/Diagnostic，converge-z42-syntax-lib/PR-A 下沉） | 编译器内部件（IR 模型 / zbc·zpkg 后端 / manifest 模型 / builder 骨架 / **可移植前端**）**下沉为共享库**，供 z42c 自身、REPL、z42b 复用 |
 
 **为什么工具链库住在 `src/libraries/`**：它们要被 z42c 运行期加载（如 z42.ir 是 zbc/zpkg 后端），
 又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发（见 [self-hosting.md 轴 ④](../compiler/self-hosting.md)、
 converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.*` 命名空间对应用开发者是内部实现，
 不进用户文档，不受本文档 stdlib 划分规则约束（层级 / 两层 interop 等）。新增编译器支撑库 → `Z42.*`；新增
 用户库 → `Std.*`。
+
+> **`z42.scripting`（`Std.Scripting`）—— 特例（move-scripting-to-libraries，2026-08-28）**：跨平台
+> REPL/eval-core（Engine/Script/Classifier/Completeness/Completer/Rewriter/Playground），是**用户 API**
+> （playground/wasm 与 z42.repl 共享），故落 `Std.*`、成 stdlib workspace 成员。它虽「编译代码」，但编译期
+> **只依赖 stdlib**——走 `z42.build` 的 `IReplCompiler` 门面（实现 `Z42cReplCompiler` 住 `z42c.pipeline`，
+> 运行期反射注入，见 sink-repl-compile-facade/PR-B），前端 `z42c.core/syntax` 已 stdlib（PR-A）。tty 交互层
+> `z42.repl`（`Std.Repl`，真 tty + native 行编辑 builtin、平台绑定重）**不入 stdlib**、留 `src/toolchain/`，
+> 由 toolchain build 步以 `Z42_LIBS=stdlib dist`（已含 scripting）构建。
 
 ---
 

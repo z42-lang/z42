@@ -115,8 +115,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         "src/toolchain/builder/core/z42.builder.z42.toml",
         // devtools (z42d): scaffold placeholder — subcommand prints "planned" but
         // builds+publishes through the same path. interactive (z42i) is built
-        // separately below: it depends on z42.scripting (→ z42c.*), so it needs a
-        // combined Z42_LIBS (stdlib + z42c + scripting), not plain stdlib `libs`.
+        // separately below (after z42.repl) since it depends on z42.repl.
         "src/toolchain/devtools/core/z42.devtools.z42.toml",
     };
     int bi = 0;
@@ -125,12 +124,13 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         if (c != 0) { return c; }
         bi = bi + 1;
     }
-    // z42.scripting（REPL 引擎，L3 compiler-consuming）→ 写入 libs（供 SDK 装载、z42i 运行时
-    // lazy-load）并并入合并 Z42_LIBS；再用「stdlib + z42c + scripting」合并目录编 z42.interactive
-    // （z42cDir = programs/z42c 已含 z42c.*.zpkg）。见 xtask_toolchain.z42:_buildScriptingLib。
-    c = _buildScriptingLib(root, hostVm, z42cDir, libs);
+    // move-scripting-to-libraries：z42.scripting 已成 stdlib 成员，随 [1/5] _buildCompiler → _buildStdlib
+    // 编入 libs；此处只需建 z42.repl（tty 交互层）→ libs（Z42_LIBS=stdlib dist，已含 scripting +
+    // z42c.core/syntax）。z42.interactive 依赖 scripting + repl，二者皆在 libs，故用纯 stdlib libs 编
+    // （不再需要 `.scripting-libs` 合并目录）。z42i 运行期仍 lazy-load z42c.pipeline（见下 KNOWN LIMITATION）。
+    c = _buildReplLib(root, hostVm, z42cDir, libs);
     if (c != 0) { return c; }
-    c = _z42cBuildToml(hostVm, z42cDir, _scriptingLibsDir(root),
+    c = _z42cBuildToml(hostVm, z42cDir, libs,
                        "src/toolchain/interactive/core/z42.interactive.z42.toml");
     if (c != 0) { return c; }
 

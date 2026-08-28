@@ -165,7 +165,9 @@ Z42_HOME/programs/z42c → Z42_PORTABLE_VM 反推 SDK → dev artifacts → **Z4
 **依赖后果**：`z42.scripting` 编译期变 **stdlib-only**（编译走门面 + 前端 z42c.core/syntax 已 stdlib）——
 不再静态链 `z42c.semantics`/`z42c.pipeline`。→ **z42.interactive apphost 不再静态 bundle 编译器后端，改
 运行期动态加载 `z42c.pipeline` 组件**（与 z42b 一致；runtime-only SDK 无组件时 REPL 退化 `NoReplCompiler`）。
-scripting 物理仍在 `src/toolchain`，搬 `src/libraries` 作 follow-up（**本次不含**）。
+scripting 物理已搬 `src/libraries/z42.scripting`，成 stdlib workspace 成员（move-scripting-to-libraries，
+2026-08-28）——随 `xtask build stdlib` 编入 flat dist；`z42.repl`(tty) 留 `src/toolchain`，由 toolchain
+build 步以 `Z42_LIBS=stdlib dist`（已含 scripting）构建；`z42.interactive` 从纯 stdlib dist 解析二者。
 
 ## 启动预热（后台线程，add-repl-prewarm 2026-07-29）
 

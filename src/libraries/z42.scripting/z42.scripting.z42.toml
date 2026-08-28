@@ -2,8 +2,10 @@
 # sink-repl-compile-facade：编译期 **stdlib-only**——编译走 z42.build 的 `IReplCompiler` 门面
 # （实现 Z42cReplCompiler 住 z42c.pipeline，运行期经 ModuleLoader 反射注入，见 ReplCompilerHost）；
 # 前端 z42c.core/syntax 已是 stdlib（PR-A）。不再静态依赖 z42c.semantics/z42c.pipeline（编译器后端）
-# → apphost 不再静态链编译器，运行期动态加载 z42c.pipeline 组件。物理仍在 src/toolchain（搬 src/
-# libraries 作 follow-up）。
+# → apphost 不再静态链编译器，运行期动态加载 z42c.pipeline 组件。
+# move-scripting-to-libraries：物理落 src/libraries/ 成 stdlib workspace 成员（编译期依赖全 stdlib），
+# 由 `z42c build --workspace`（build stdlib）编入 flat dist；z42.repl(tty) 留 src/toolchain，从含本库的
+# stdlib dist 解析。
 [project]
 name    = "z42.scripting"
 version = "0.1.0"
