@@ -86,3 +86,68 @@ void test_open_domain_int_no_warn() {
     string src = "namespace D; int f(int n) { return n switch { 1 => 1, 2 => 2 }; } void Main() { }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 封闭（internal，顶层类默认）层次缺子类 → W0700 ───────────
+// 顶层类默认 internal → 跨包引用不了 → 封闭 → 穷尽性可查。abstract 基类排除出必须覆盖集。
+[Test]
+void test_closed_hierarchy_missing_subclass_warns() {
+    string src = "namespace D; abstract class Shape {} class Circle : Shape {} class Square : Shape {} class Triangle : Shape {}"
+        + " int f(Shape s) { return s switch { Circle => 1, Square => 2 }; } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 封闭层次全覆盖 → 无诊断 ─────────────────────────────────
+[Test]
+void test_closed_hierarchy_full_no_warn() {
+    string src = "namespace D; abstract class Shape {} class Circle : Shape {} class Square : Shape {}"
+        + " int f(Shape s) { return s switch { Circle => 1, Square => 2 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 封闭层次有 default 兜底（缺子类）→ 无诊断 ────────────────
+[Test]
+void test_closed_hierarchy_default_no_warn() {
+    string src = "namespace D; abstract class Shape {} class Circle : Shape {} class Square : Shape {}"
+        + " int f(Shape s) { return s switch { Circle => 1, _ => 0 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── `case Base b:` 型模式吞整棵子树 → 无诊断（视作覆盖全部子类）─
+[Test]
+void test_closed_hierarchy_base_pattern_covers_subtree_no_warn() {
+    string src = "namespace D; abstract class Shape {} class Circle : Shape {} class Square : Shape {}"
+        + " int f(Shape s) { return s switch { Circle => 1, Shape rest => 0 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── public 基类 = 开放世界（下游可扩展）→ 不检查、无诊断 ─────
+[Test]
+void test_public_base_open_no_warn() {
+    string src = "namespace D; public abstract class Shape {} public class Circle : Shape {} public class Square : Shape {} public class Triangle : Shape {}"
+        + " int f(Shape s) { return s switch { Circle => 1, Square => 2 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 非 public 但无子类（孤立类，非层次）→ 不当 sum type、无诊断 ─
+[Test]
+void test_closed_no_subclasses_no_warn() {
+    string src = "namespace D; class Foo {}"
+        + " int f(Foo x) { return x switch { Foo => 1 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 封闭层次 switch-stmt 缺子类（无 default，无 break）→ W0700 ─
+[Test]
+void test_closed_hierarchy_stmt_missing_warns() {
+    string src = "namespace D; abstract class Shape {} class Circle : Shape {} class Square : Shape {}"
+        + " void f(Shape s) { int r = 0; switch (s) { case Circle: r = 1; } } void Main() { }";
+    Assert.Equal("W0700", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 中间 abstract 层被具体叶子覆盖 → 无诊断（abstract 不入必须覆盖集）─
+[Test]
+void test_closed_hierarchy_abstract_intermediate_no_warn() {
+    string src = "namespace D; abstract class Shape {} abstract class Poly : Shape {} class Tri : Poly {} class Quad : Poly {} class Circle : Shape {}"
+        + " int f(Shape s) { return s switch { Tri => 1, Quad => 2, Circle => 3 }; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

@@ -76,6 +76,10 @@ public sealed class Z42ClassType : Z42Type {
     // 从 HandlerRegistry.HasRecord(raw decl) 回填。供 OperatorEmitter 判定 record-class `==`/`!=` 是否
     // 脱糖成值 Equals 调用（引用 record 的 `==` = 值相等，非句柄身份）。
     public bool   IsRecord;
+    // add-internal-hierarchy-exhaustiveness：类级 `abstract`（不可实例化）。默认 false；本地由
+    // StubCollector 从 Mods 回填（镜像 IsSealed）。供封闭层次穷尽性诊断从「必须覆盖的具体类集」排除
+    // abstract 类（值的运行期类型恒为具体叶子）。**仅本地回填**——非 public 基类无 imported 子类。
+    public bool   IsAbstract;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Fields = new StrMap();
@@ -89,6 +93,7 @@ public sealed class Z42ClassType : Z42Type {
         this.IsStruct = false;
         this.IsRecord = false;
         this.IsSealed = false;
+        this.IsAbstract = false;
         this.IsImported = false;
         this.Visibility = "public";
         this.IsDeprecated = false; this.DeprecationMsg = "";
