@@ -55,17 +55,17 @@ int _testPackagesConfig() {
     _pkgAssertLen("sdk resolved components", 8, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
-    _pkgAssertEq("sdk.include[6].name", "devtools", sdkComps[6].name);
-    _pkgAssertEq("sdk.include[7].name", "interactive", sdkComps[7].name);
+    _pkgAssertEq("sdk.include[6].name", "z42d", sdkComps[6].name);
+    _pkgAssertEq("sdk.include[7].name", "z42i", sdkComps[7].name);
 
-    // devtools/interactive (2026-07-01, User decision): registered as scaffold
-    // placeholders — apphost kind, same producer path as launcher/z42c/z42b.
-    _PkgComponent devtools = _pkgcfgFindComponent(cfg, "devtools");
-    _pkgAssertEq("devtools.kind", "apphost", devtools.kind);
-    _pkgAssertEq("devtools.project", "src/toolchain/devtools/core/z42.devtools.z42.toml", devtools.project);
-    _PkgComponent interactive = _pkgcfgFindComponent(cfg, "interactive");
-    _pkgAssertEq("interactive.kind", "apphost", interactive.kind);
-    _pkgAssertEq("interactive.project", "src/toolchain/interactive/core/z42.interactive.z42.toml", interactive.project);
+    // z42d/z42i (devtools/interactive, 2026-07-01 User decision): registered as
+    // scaffold placeholders — apphost kind, same producer path as launcher/z42c/z42b.
+    _PkgComponent z42d = _pkgcfgFindComponent(cfg, "z42d");
+    _pkgAssertEq("z42d.kind", "apphost", z42d.kind);
+    _pkgAssertEq("z42d.project", "src/toolchain/devtools/core/z42.devtools.z42.toml", z42d.project);
+    _PkgComponent z42i = _pkgcfgFindComponent(cfg, "z42i");
+    _pkgAssertEq("z42i.kind", "apphost", z42i.kind);
+    _pkgAssertEq("z42i.project", "src/toolchain/interactive/core/z42.interactive.z42.toml", z42i.project);
 
     // Regression guard: runtime is a pure embeddable runtime — native + stdlib
     // only, never z42c/z42vm (host-only tooling; 2026-07-01 ruling).

@@ -234,7 +234,7 @@ int[] _launcherSmoke(string distDir, string work) {
     // (repl-run-config) `z42 repl --config <file> -c <expr>`: verify the launcher
     // consumes `--config` (sets Z42_CONFIG on the REPL's z42vm) and passes `-c`
     // through to z42i, which evals. Needs the interactive host in the package.
-    string z42i = Path.Join(distDir, "programs/interactive/z42.interactive.zpkg");
+    string z42i = Path.Join(distDir, "programs/z42i/z42.interactive.zpkg");
     if (File.Exists(z42i)) {
         string rcfg = Path.Join(work, "repl-cfg.toml");
         File.WriteAllText(rcfg, "[runtime]\ngc-mode = \"stw\"\n");
@@ -257,7 +257,7 @@ int[] _launcherSmoke(string distDir, string work) {
             fail = fail + 1;
         }
     } else {
-        Console.WriteLine("  SKIP: z42 repl --config (programs/interactive not in package)");
+        Console.WriteLine("  SKIP: z42 repl --config (programs/z42i not in package)");
     }
     // Installed: install.sh --system into a temp $DEST.
     // unify-launcher-apphost (2026-06-21): managed install is now extract-in-

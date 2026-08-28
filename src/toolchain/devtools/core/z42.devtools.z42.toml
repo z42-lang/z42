@@ -5,7 +5,7 @@
 #
 # SCOPE (scaffold): command face only. Every subcommand prints "planned" — the
 # real engines land per roadmap (fmt 0.2.4→0.4.x, doc 0.4.6, prof 0.4.4,
-# lint 0.7.x, dbg/DAP 0.8.x). Registered in packages.toml ([component.devtools],
+# lint 0.7.x, dbg/DAP 0.8.x). Registered in packages.toml ([component.z42d],
 # 2026-07-01) and shipped in the SDK package as a placeholder binary — each
 # subcommand still just prints "planned" until its engine lands. See README.md.
 [project]
@@ -41,4 +41,4 @@ optimize = 2
 apphost     = true
 publish_dir = "../../../../artifacts/build/toolchain/devtools/publish"
 bin         = "bin/z42d"
-payload     = "programs/devtools/z42.devtools.zpkg"
+payload     = "programs/z42d/z42.devtools.zpkg"

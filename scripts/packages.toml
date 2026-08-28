@@ -6,7 +6,7 @@
 # （apphost project 路径、Z42_APPHOST_TEMPLATE 等产出细节全部封在 publish 一步）。
 #
 # 组件分两类，纯按"谁控制它的构建"区分：
-#   ① z42 组件（launcher / z42c / z42b / devtools / interactive）：自带
+#   ① z42 组件（launcher / z42c / z42b / z42d / z42i）：自带
 #      [platform.desktop] bin/payload，统一走 `z42 publish` 产出。这套 bin/payload
 #      是**用户面**机制——任何人发布自己的 app 用的是同一套配置，z42c/z42b 只是
 #      恰好也用它打包自己，不享有特殊待遇。z42c.driver 依赖的 6 个非 driver 兄弟库
@@ -39,7 +39,7 @@
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
-include  = ["z42vm", "native", "stdlib", "z42c", "launcher", "z42b", "devtools", "interactive"]
+include  = ["z42vm", "native", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i"]
 manifest = "auto"
 
 # ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用（2026-07-01 修订）。
@@ -75,15 +75,15 @@ kind = "apphost"
 project = "src/toolchain/builder/core/z42.builder.z42.toml"
 # → bin/z42b + programs/z42b/z42.builder.zpkg
 
-[component.devtools]
+[component.z42d]
 kind = "apphost"
 project = "src/toolchain/devtools/core/z42.devtools.z42.toml"
-# → bin/z42d + programs/devtools/z42.devtools.zpkg（scaffold：子命令均 planned）
+# → bin/z42d + programs/z42d/z42.devtools.zpkg（scaffold：子命令均 planned）
 
-[component.interactive]
+[component.z42i]
 kind = "apphost"
 project = "src/toolchain/interactive/core/z42.interactive.z42.toml"
-# → bin/z42i + programs/interactive/z42.interactive.zpkg（scaffold：REPL 待 extract-compile-pipeline-api）
+# → bin/z42i + programs/z42i/z42.interactive.zpkg（scaffold：REPL 待 extract-compile-pipeline-api）
 
 [component.z42c]
 kind = "apphost"
