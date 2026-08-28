@@ -37,18 +37,27 @@ int _testMultiExeImpl(string mode) {
     if (!Directory.Exists(testsDir)) { return 0; }   // no cases → clean skip
 
     // Tool resolution (mirror cross-zpkg setup: --toolchain consume vs build-tree).
+    // Same VM-role split as cross-zpkg (speed-up-cross-zpkg-compile-vm): compile the
+    // project on the release vm, run each exe zpkg on the debug vm (keeps debug-
+    // assertions + overflow-checks coverage on real execution; compiling on debug adds
+    // no coverage). One fixture here, so the win is small — but it keeps the harness
+    // consistent and trims every test-host leg (multi-exe isn't skipped on any leg).
     string tc = _toolchainDir(root);
     string stdlibDist;
     string driverHome;
-    string vmBin;
+    string compileVm;
+    string runVm;
     if (tc.Length > 0) {
         stdlibDist = _toolchainLibs(tc);
         driverHome = _toolchainDriverHome(tc);
-        vmBin = _toolchainVm(tc);
+        compileVm = _toolchainVm(tc);
+        runVm = compileVm;                        // toolchain ships release vm only
     } else {
         stdlibDist = _libsDir(root);
         driverHome = _assembleDriverHome(root);
-        vmBin = _builtVm(root, "debug");
+        runVm = _builtVm(root, "debug");
+        compileVm = _builtVm(root, "release");
+        if (!File.Exists(compileVm)) { compileVm = runVm; }   // rare local fallback
     }
     if (driverHome.Length == 0) {
         ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
@@ -56,8 +65,8 @@ int _testMultiExeImpl(string mode) {
         return 1;
     }
     string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
-    if (!File.Exists(vmBin)) {
-        ConsoleError.WriteLine("error: z42vm not found at " + vmBin);
+    if (!File.Exists(compileVm) || !File.Exists(runVm)) {
+        ConsoleError.WriteLine("error: z42vm not found (compile=" + compileVm + " run=" + runVm + ")");
         return 1;
     }
 
@@ -72,7 +81,7 @@ int _testMultiExeImpl(string mode) {
         string dir = Path.Join(testsDir, name);
         if (File.Exists(Path.Join(dir, "expected_output.txt"))) {
             Console.WriteLine("── MultiExe: " + name + " ──");
-            string failLabel = _runOneMultiExe(vmBin, driverZpkg, stdlibDist, dir, name, mode);
+            string failLabel = _runOneMultiExe(compileVm, runVm, driverZpkg, stdlibDist, dir, name, mode);
             if (failLabel.Length == 0) {
                 pass = pass + 1;
             } else {
@@ -89,9 +98,9 @@ int _testMultiExeImpl(string mode) {
 // Build the ONE project (→ dist/<exe>.zpkg per `[[exe]]`), then run each produced
 // zpkg and diff the concatenated (sorted-by-path) stdout against expected. The
 // expected file lists each exe's output in sorted-by-zpkg-name order.
-string _runOneMultiExe(string vmBin, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
+string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
     string toml = _findToml(dir);
-    if (toml.Length == 0 || !_invokeBuildCompiler(vmBin, driverZpkg, stdlibDist, dir, toml)) {
+    if (toml.Length == 0 || !_invokeBuildCompiler(compileVm, driverZpkg, stdlibDist, dir, toml)) {
         Console.WriteLine("    build failed");
         return name + " (build)";
     }
@@ -112,7 +121,7 @@ string _runOneMultiExe(string vmBin, string driverZpkg, string stdlibDist, strin
     int zi = 0;
     while (zi < zpkgs.Length) {
         try {
-            ProcessResult vr = new Process(vmBin)
+            ProcessResult vr = new Process(runVm)
                 .Arg(zpkgs[zi])
                 .Arg("--mode").Arg(mode)
                 .Env("Z42_LIBS", testLibs)

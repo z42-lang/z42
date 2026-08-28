@@ -19,6 +19,9 @@ cross-zpkg coverage 注释（描述性，顺带校正）。
 - [x] 1.1 `scripts/test/xtask_test_cross.z42` `_testCrossZpkgImpl`：`vmBin` 拆成 `compileVm`(release)/`runVm`(debug)；
       toolchain 路径两者同为 release（toolchain 只带 release VM）；release 缺失时 compileVm 回落 debug（本地兜底）
 - [x] 1.2 `_runOneCrossCase` 签名 + body：3 阶段编译用 `compileVm`，run main.zpkg 用 `runVm`
+- [x] 1.2b `scripts/test/xtask_test_multiexe.z42` 同款拆分（`_testMultiExeImpl`/`_runOneMultiExe`）：multi-exe stage
+      是 gate stage 且**不在任何腿的 SKIP**（4 腿都跑），编译走 debug 同病；改后编译 release/运行 debug。仅 1 fixture
+      （`two_mains`）→ 时间收益小（~秒/腿），但同款模式、harness 一致、且 trim 全部 4 腿。
 - [x] 1.3 文档同步：test-gate.md 机制说明 + ci.yml 注释校正
 - [x] 1.4 验证：改后 scripts 成功编出 xtask.zpkg（z42 代码编译干净）；逻辑等价于 CI `test-consume` 已全绿的
       release-编译配置（1.2min）。**本地 from-source GREEN 客观不可得**——唯一本地种子已过时 2+ nightly，连
@@ -28,5 +31,5 @@ cross-zpkg coverage 注释（描述性，顺带校正）。
 
 ## 备注
 - `_buildCompilerPkg`/`_invokeBuildCompiler` 的内部形参名仍叫 `vmBin`——它们只做编译，现恒接 `compileVm`，语义正确不改名。
-- 非 cross-zpkg 的 multi-exe 路径（`_testMultiExe`，xtask_test_multiexe.z42:51 也用 debug VM 编译）是同类可优化项，
-  但不在本 change scope（不是 test-host pole）；如需另开 change。
+- multi-exe 路径同款优化已一并纳入（任务 1.2b）——它虽非 pole，但与 cross-zpkg 是**同一个逻辑改动**
+  （test-harness fixture 编译 → release VM），且 multi-exe 在 4 腿都跑，顺手做保持一致。
