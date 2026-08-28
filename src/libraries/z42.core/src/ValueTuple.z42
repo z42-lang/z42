@@ -1,0 +1,25 @@
+namespace Std;
+
+// Value tuples — the runtime carrier for tuple types / literals / patterns `(a, b, ...)`.
+// The surface syntax `(T1, ..., Tn)` desugars (in z42c) to `Std.ValueTupleN<T1, ..., Tn>`,
+// tuple literals `(a, b)` to `new Std.ValueTupleN<...>(a, b)`, and tuple patterns `(x, y)`
+// to positional destructuring of the corresponding struct fields Item1..ItemN.
+//
+// These are `[Record] struct` value types: heap-free blob layout (uniform 8-byte slots,
+// type-erased generics), value equality / hashing / ToString synthesised by the compiler.
+// Aligned with C# System.ValueTuple (struct value tuples, not the deprecated reference Tuple<>).
+// Arities 2..8 (a 1-element `(x)` is a parenthesised expression, not a tuple).
+
+[Record] struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
+
+[Record] struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
+
+[Record] struct ValueTuple4<T1, T2, T3, T4>(T1 Item1, T2 Item2, T3 Item3, T4 Item4);
+
+[Record] struct ValueTuple5<T1, T2, T3, T4, T5>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5);
+
+[Record] struct ValueTuple6<T1, T2, T3, T4, T5, T6>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6);
+
+[Record] struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7);
+
+[Record] struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7, T8 Item8);

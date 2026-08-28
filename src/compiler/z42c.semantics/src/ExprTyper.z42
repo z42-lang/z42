@@ -329,6 +329,7 @@ public sealed class ExprTyper {
         }
         if (e is ObjInitExpr) { return this._construct._bindObjInit(e as ObjInitExpr, env, null); }
         if (e is WithExpr) { return this._construct._bindWith(e as WithExpr, env); }   // 模式匹配 D：record 非破坏式更新
+        if (e is TupleExpr) { return this._construct._bindTuple(e as TupleExpr, env); }   // add-tuple-types：值元组字面量
         if (e is DefaultExpr) {
             return this._bindDefault(e as DefaultExpr, env);
         }

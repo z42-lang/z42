@@ -296,6 +296,25 @@ public sealed class ExprParser {
         if (k == TokenKind.LParen) {
             this._p._advance();
             Expr inner = this._parseExpr(0);
+            // 元组字面量 `(e0, e1, ...)`（add-tuple-types）：首元素后遇 `,` → 收集为 TupleExpr（≥2 元素）。
+            // lambda `(a,b)=>` 已由 _isLambdaStart 在 _parsePrefix 前分流；cast `(T)x` 由 peekAt(2) 前瞻占用；
+            // 故到此处首元素后跟 `,` 只可能是元组。单元素 `(e)` 仍为分组表达式。
+            if (this._p._peek().Kind == TokenKind.Comma) {
+                Expr[] elems = new Expr[4];
+                elems[0] = inner;
+                int en = 1;
+                while (this._p._peek().Kind == TokenKind.Comma) {
+                    this._p._advance();   // ,
+                    if (en == elems.Length) {
+                        Expr[] b = new Expr[elems.Length * 2];
+                        int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
+                        elems = b;
+                    }
+                    elems[en] = this._parseExpr(0); en = en + 1;
+                }
+                this._p._expect(TokenKind.RParen, ")");
+                return new TupleExpr(elems, en, t.Span);
+            }
             this._p._expect(TokenKind.RParen, ")");
             return inner;
         }
