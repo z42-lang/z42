@@ -10,10 +10,12 @@ namespace Z42.Pipeline;
 
 using Std;
 using Std.Collections;
-using Z42.Syntax;      // CompilationUnit
-using Z42.Semantics;   // IrDump.ParseAll
-using Z42.IR;          // ZpkgWriterZ / ZpkgBuilder / Exported* 世界枚举
-using Z42.Build;       // IReplCompiler / ReplCompileResult
+using Z42.Syntax;           // CompilationUnit
+using Z42.Semantics;        // IrDump.ParseAll
+using Z42.IR;               // Exported* 世界枚举
+using Z42.IR.BinaryFormat;  // ZpkgWriterZ.WritePacked（packed zpkg 字节）
+using Z42.Project;          // ZpkgBuilder.Sha256Hex
+using Z42.Build;            // IReplCompiler / ReplCompileResult
 
 // opaque 世界句柄：依赖世界 + 编译配置（LibsDirs/DeclaredDeps 供 CompileInputs 组装）。
 // scripting 侧作 `object` 持有（`ScriptState.CachedScan`），从不具名本类型。
