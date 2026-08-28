@@ -1,7 +1,9 @@
 # z42c.core
 
 ## 职责
-镜像 C# [z42.Core](../../compiler/z42.Core/README.md)：基础设施层（源码位置 Span / 诊断 Diagnostic·DiagnosticBag / 语言特性开关 LanguageFeatures）。无兄弟依赖，被所有子包引用。**B0 骨架：占位类型 `CoreSkeleton`**，真实实现待后续 spec。
+基础设施层（源码位置 Span / 诊断 Diagnostic·DiagnosticBag / 语言特性开关 LanguageFeatures）。命名空间 `Z42.Core`。无兄弟依赖，被编译器前后端引用。
+
+> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.core` / `Z42.Core`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/design/compiler/self-hosting.md) 轴 ④。
 
 ## 核心文件
 | 文件 | 职责 |

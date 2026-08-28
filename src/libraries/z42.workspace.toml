@@ -57,6 +57,14 @@ default-members = [
     "z42.net",
     "z42.numerics",
     "z42.test",
+    # 可移植编译器前端（converge-z42-syntax-lib，route A 地基）——从 src/compiler/ 挪入。
+    # 包名/命名空间不变（z42c.*/Z42.Core/Z42.Syntax），落共享库层供 scripting/playground/runtime
+    # 与 z42c 编译器共享。纯 host-platform-independent 计算（Lexer/Parser/AST/Token/Span/Diagnostic），
+    # 无 syscall/native。**非** Std/z42.* 标准库 API 面——仅恰好与 stdlib 同处 build+ship。
+    # 置于末尾：二者靠 z42.core（隐式 prelude）编译，须待其先建。z42c.core→(prelude only)；
+    # z42c.syntax→z42c.core。
+    "z42c.core",
+    "z42c.syntax",
 ]
 
 [workspace.project]

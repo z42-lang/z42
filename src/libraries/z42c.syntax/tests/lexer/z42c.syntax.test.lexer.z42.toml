@@ -9,10 +9,11 @@ kind    = "lib"
 include = ["**/*.z42"]
 
 [dependencies]
+"z42.test"  = "0.1.0"
 "z42c.syntax" = "0.1.0"
 "z42c.core"   = "0.1.0"
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
-# src/compiler/z42c.syntax/tests/lexer → artifacts/build/compiler/z42c.syntax/tests/lexer (no src pollution).
-output_dir = "../../../../../artifacts/build/compiler/z42c.syntax/tests/lexer"
+# src/libraries/z42c.syntax/tests/lexer → artifacts/build/libraries/z42c.syntax/tests/lexer (no src pollution).
+output_dir = "../../../../../artifacts/build/libraries/z42c.syntax/tests/lexer"

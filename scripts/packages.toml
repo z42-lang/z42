@@ -89,8 +89,9 @@ project = "src/toolchain/interactive/core/z42.interactive.z42.toml"
 kind = "apphost"
 project = "src/compiler/z42c.driver/z42c.driver.z42.toml"
 # → bin/z42c + programs/z42c/z42c.driver.zpkg
-#   + 它的 6 个非 stdlib 项目依赖（z42c.core/ir/syntax/project/semantics/pipeline）
-#     由 `z42 publish` 自动解析拷贝到 programs/z42c/ 同目录。
+#   + 它的非 stdlib 项目依赖（z42c.semantics/pipeline）由 `z42 publish` 自动解析拷贝到
+#     programs/z42c/ 同目录。可移植前端 z42c.core/syntax 与 z42.ir 已下沉共享库层
+#     （src/libraries/），随 stdlib 打进 libs/，driver 运行期从 libs/ 解析（与 z42.io 等同理）。
 
 # ② 固定 staging handler 组件（非 z42-toml 驱动，xtask 各自一个固定函数产出）
 [component.z42vm]

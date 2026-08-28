@@ -49,14 +49,19 @@ jobs:
           rid: ${{ matrix.rid }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: z42c interp vs jit — 7-package workspace byte-identity (mod BLID)
+      - name: z42c interp vs jit — compiler-workspace byte-identity (mod BLID)
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
           libs="$PWD/artifacts/build/libraries/dist/release"
-          members="z42c.core z42c.syntax z42c.semantics z42c.pipeline z42c.driver"
+          # converge-z42-syntax-lib：z42c.core + z42c.syntax（可移植前端）已挪进 src/libraries/，
+          # 由 stdlib workspace 构建（不再是 src/compiler 的 member）。故本 workspace self-build
+          # 只产 semantics/pipeline/driver 三包；前端 lexer/parser 的 jit 安全性归 stdlib jit 覆盖
+          # （test-host jit / stdlib [Test]），此处只比编译器后端。它们在 $libs 里（stdlib dist）
+          # 已 warm，semantics 编译期从那里解析。
+          members="z42c.semantics z42c.pipeline z42c.driver"
 
           fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1"; }
           snapshot() { # $1 = dest dir
@@ -85,7 +90,7 @@ jobs:
             fi
           done
           if [ "$fail" -eq 0 ]; then
-            echo "=== ${{ matrix.rid }}: 7/7 byte-identical → z42c JIT is fixpoint-safe on this platform ==="
+            echo "=== ${{ matrix.rid }}: 3/3 (compiler backend) byte-identical → z42c JIT is fixpoint-safe on this platform ==="
           else
             echo "=== ${{ matrix.rid }}: JIT diverges from interp — do NOT switch z42c to JIT here until root-caused ==="
             exit 1
