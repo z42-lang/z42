@@ -20,8 +20,41 @@
 ```bash
 # 编 agent → app.zpkg（z42b/z42c build）
 z42c build src/toolchain/testhost/agent/z42.testagent.z42.toml --release
-# 嵌入跑（desktop 参考壳 / 或直接 z42vm）：agent 收 <target.zbc> [format]，吐 JSON 报告
+```
+
+agent 通过转发的 `-- <args>` 收**一条一次性命令**，签名（`agent/src/agent.z42` 的 `Main`）：
+
+```
+<target> [format] [out-path]
+```
+
+| 参数 | 取值 | 默认 |
+|------|------|------|
+| `target` | `<x.zbc>`（单测试模块）或 `<manifest.json>`（测试包清单） | 必填 |
+| `format` | `json` / `pretty` / `tap` | `json` |
+| `out-path` | 报告写到此文件；省略 → 写 stdout | 空（stdout） |
+
+**两种 target：**
+
+- **单模块**（`.zbc`）——`Runner.RunModule` 自动发现该模块的 `[Test]` / `[Benchmark]` 并跑，按 `format` 渲染。给了 `out-path` 时改走 `RunModuleResults` → 聚合 JSON → 写文件。
+- **测试包**（以 `.json` 结尾的 manifest `{cases:[…]}`）——聚合成**一份**报告，用例分两类：
+  - `golden` = `{name, zbc, entry, expected}`：整个程序，在**全新隔离 VM**（`RunGoldensIsolated`，每例独立 `VmContext` 不串味）跑，比对 stdout 与 `expected` 文件。
+  - `unit` = `{name, zbc}`：`[Test]` 模块，共享 VM 跑（命名空间隔离，天然无冲突）。
+
+**bundle 模式的两个 env：**
+
+| env | 作用 |
+|-----|------|
+| `Z42_LIBS` | golden 隔离 VM 的 stdlib 目录；缺省回落 `<bundle>/../libs` |
+| `Z42_TEST_JOBS` | golden 并行度：`0`/unset = auto（核数），`1` = 串行 |
+
+```bash
+# 单模块 → stdout（desktop harness 捕获进程 stdout）
 z42vm z42.testagent.zpkg -- <target-test.zbc> json
+# 单模块 → 写文件（wasm / iOS / Android 无进程 stdout，写 VFS/临时路径再读回）
+z42vm z42.testagent.zpkg -- <target-test.zbc> json /tmp/report.json
+# 测试包（聚合 golden + unit）
+z42vm z42.testagent.zpkg -- bundle-manifest.json pretty
 ```
 
 ## 如何测试验证
