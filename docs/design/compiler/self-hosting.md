@@ -15,16 +15,24 @@
 `src/compiler/` 独立顶级目录（与 `src/compiler/` C# bootstrap 平级），独立 workspace（与 `src/libraries/` stdlib 解耦）：
 
 ```
-src/compiler/
+src/compiler/                          # 编译器 workspace（语义/编排/驱动 = 真编译器后端）
 ├── z42.workspace.toml          # members=["*"]，输出 artifacts/build/compiler/<pkg>/<profile>/
-├── z42c.core/      → z42c.core.zpkg      (lib)   镜像 z42.Core
-├── z42c.ir/        → z42c.ir.zpkg        (lib)   镜像 z42.IR
-├── z42c.syntax/    → z42c.syntax.zpkg    (lib)   镜像 z42.Syntax   (Lexer+Parser+AST)
-├── z42c.project/   → z42c.project.zpkg   (lib)   镜像 z42.Project  (manifest reader)
 ├── z42c.semantics/ → z42c.semantics.zpkg (lib)   镜像 z42.Semantics(TypeCheck+Codegen)
 ├── z42c.pipeline/  → z42c.pipeline.zpkg  (lib)   镜像 z42.Pipeline (编排)
 └── z42c.driver/    → z42c.driver.zpkg    (exe)   镜像 z42.Driver   (= z42c 入口别名)
+
+src/libraries/                         # stdlib workspace —— 也承载可移植编译器件
+├── z42.ir/         → z42.ir.zpkg         (lib)   IR 模型 + zbc/zpkg 后端（收敛自旧 z42c.ir+z42c.project）
+├── z42c.core/      → z42c.core.zpkg      (lib)   Z42.Core   (Span/Diagnostic/Features)
+└── z42c.syntax/    → z42c.syntax.zpkg    (lib)   Z42.Syntax (Lexer+Parser+AST)
 ```
+
+**可移植前端下沉（converge-z42-syntax-lib，route A 地基）**：`z42c.core` + `z42c.syntax` 是
+**host-platform-independent 纯计算**（Lexer/Parser/AST/Token/Span/Diagnostic，无 syscall/native），
+故从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的
+可移植库。**包名/命名空间不变**（仍 `z42c.*` / `Z42.Core` / `Z42.Syntax`）——它们**非** Std/z42.* 标准库
+API 面，只是恰好与 stdlib 同处 build+ship。`z42c.semantics/pipeline/driver`（编译器后端）经**跨-workspace
+dist 发现**解析它们（与 `z42.ir` / `z42.project` 同机制），冷启动由破环预建（见轴 ④）供给。
 
 **目录名 == `[project].name` == zpkg basename**（如 `z42c.core`），与 stdlib 约定一致：member 逻辑名（WS001 / default-members）、`${member_name}` 模板、产物名三者重合，消除歧义。命名空间镜像 C#：`Z42.Core` / `Z42.Syntax` / `Z42.IR` / `Z42.Project` / `Z42.Semantics` / `Z42.Pipeline` / `Z42.Driver`。
 
@@ -193,12 +201,12 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  ★ 自举环 ★
 | **① 语法** | vN 源用新语法 → vN-1 z42c 编不了 | **纪律**（support/use 隔一 release，bootstrap-seed.md）|
 | **② zbc/zpkg 格式** | vN-1 z42vm 读不了 vN 格式 | **锚点自动断**：z42vm 是 Rust 建的，新格式产物跑新建 vm；旧 z42c 产中间件用旧格式跑旧 vm，再 re-stage 产新格式 |
 | **③ stdlib API** | xtask/源用新 API → 旧 stdlib 没有 | **纪律**（同 ①）|
-| **④ z42c 自依赖的 stdlib 库**（converge-z42c-ir-metadata） | z42c 运行期依赖 `z42.ir`（stdlib 库，含 IR 模型 + `Z42.Project.ZpkgBuilder`），但 `z42.ir` **由 z42c 构建** → 冷启动 flat dist 里还没有它 | **两代自举（种子先编 z42.ir 进 build-libs）**，见下 |
+| **④ z42c 自依赖的共享库**（converge-z42c-ir-metadata / converge-z42-syntax-lib） | z42c 运行期/编译期依赖 `z42.ir` + `z42c.core` + `z42c.syntax`（均落 stdlib workspace），但它们**由 z42c 构建** → 冷启动 flat dist 里还没有它们 | **破环预建（种子先编这些库进 build-libs）**，见下 |
 
 > 关键：**格式轴不需纪律**——z42vm 不自举（Rust 建）是打破格式环的锚点。真正靠纪律约束的只有
 > 语法/API 轴。
 
-**轴 ④ 的破环细节**（`_ensureBootstrapZ42Ir`，`scripts/build/xtask_compiler.z42`）：z42c 把
+**轴 ④ 的破环细节**（`_ensureBootstrapSelfDepLibs`，`scripts/build/xtask_compiler.z42`）：z42c 把
 IR 模型 + zbc/zpkg 后端下沉到 stdlib 单库 `z42.ir`（收敛自旧 `z42c.ir` + `z42c.project`），于是
 z42c **运行期依赖 `z42.ir`**——它建任何 zpkg 都要调 `Z42.Project.ZpkgBuilder.Sha256Hex` 等。冷启动
 （fresh checkout / CI 新 runner）flat dist 里没有 `z42.ir`，而上一 nightly 种子只把等价代码作
@@ -216,11 +224,20 @@ warm 构建与 byte-identical 不动点**逐字节不受影响**；随后的 `bu
 > **A1 扩展（consolidate-core-intrinsics，2026-08-03）**：`z42.ir` 现调 `Std.BitConverter`（当前源
 > `z42.core` 新增门面，位转换 intrinsic 单一声明点）。冷/首暖构建时 flat 里躺的是种子/上一次的旧
 > `z42.core`（缺 `BitConverter`），若直接单包编 `z42.ir` → `undefined: BitConverter`。故
-> `_ensureBootstrapZ42Ir` 在建 `z42.ir` **前**，用同款「先预建覆盖种子」把**当前源 `z42.core`** 也编进
+> `_ensureBootstrapSelfDepLibs` 在建 `z42.ir` **前**，用同款「先预建覆盖种子」把**当前源 `z42.core`** 也编进
 > build-libs——即：凡 z42c 运行期自依赖链上、且被当前源新引用了新 API 的库（此处 `z42.core`），都须
 > 先于其消费者（`z42.ir`）进 flat。这不是格式/包结构问题，而是**轴 ④ 在「stdlib 库新增 API」维度的
 > 同一破环**：z42c 运行期自依赖库的新 API，必须在自建前就存在于 flat。实测：老 core 编 `z42.ir` 复现
 > `undefined: BitConverter`，预建当前源 core 后通过。
+
+> **前端下沉扩展（converge-z42-syntax-lib，route A 地基）**：`z42c.core` + `z42c.syntax`（可移植前端）
+> 挪入 `src/libraries/` 后，`z42c.semantics/pipeline/driver` 对它们成**跨-workspace 共享库依赖**——正是
+> 轴 ④ 的又一实例（编译器后端自依赖一组由 z42c 自己构建的库）。冷启动 flat 里躺的是上一 nightly 种子
+> 的旧 `z42c.core/syntax`；`_ensureBootstrapSelfDepLibs` 在 `z42.ir` 之后**追加**预建**当前源**
+> `z42c.core` → `z42c.syntax`（顺序：core 靠 `z42.core` 隐式 prelude、syntax 靠 `z42c.core`），
+> 覆盖种子旧版，让 fresh z42c 永远对着**当前源**前端编译+运行。**与 z42.ir 同款「不 warm-skip」**：源
+> 未变时增量缓存近零成本；源变了本就该重建。两代自举 CI 路径（`ci-bootstrap`）天然覆盖——它每代先
+> `build --workspace`（stdlib，现含 z42c.core/syntax）再建 `src/compiler`，前端先于后端进 flat。
 
 ### 分阶段流程（每阶段守哪条不变量）
 
