@@ -2,7 +2,7 @@
 
 > 对齐：2026-08-23（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
 > `add-repl-indent-editing` + `add-repl-tab-grid-snap` + `add-repl-multiline-editing`）
-> 代码：`src/toolchain/scripting/src/Completeness.z42`、`src/toolchain/scripting/src/ReplEditing.z42`、
+> 代码：`src/libraries/z42.scripting/src/Completeness.z42`、`src/toolchain/repl/src/ReplEditing.z42`、
 > `src/compiler/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
 > `src/runtime/src/corelib/repl.rs`、`src/runtime/src/corelib/repl_editing.rs`
 
@@ -104,7 +104,7 @@ z42 与 C#/JS 同属「换行不敏感、分号结尾」，故 `1 +` **续读**�
 ## 缩进感知键位（策略在 z42、Rust 只做适配壳）
 
 > change：`add-repl-indent-editing`（退格/Tab 基础）+ `add-repl-tab-grid-snap`（Tab 网格吸附）。
-> 代码：`src/toolchain/scripting/src/ReplEditing.z42`（策略）、`src/runtime/src/corelib/repl_editing.rs`（适配壳 +
+> 代码：`src/toolchain/repl/src/ReplEditing.z42`（策略）、`src/runtime/src/corelib/repl_editing.rs`（适配壳 +
 > `parse_action`）、`src/runtime/src/corelib/repl.rs`（键绑定 + `indent_size(4)`）。
 
 续行缩进（上节 `ContinuationIndent`）只在**新行开头预填**空格；行内编辑的键位交互是另一套。rustyline 在

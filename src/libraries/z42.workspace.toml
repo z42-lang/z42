@@ -65,6 +65,12 @@ default-members = [
     # z42c.syntax→z42c.core。
     "z42c.core",
     "z42c.syntax",
+    # REPL 编译+执行层（move-scripting-to-libraries）——从 src/toolchain/ 挪入。命名空间 Std.Scripting；
+    # 编译期 stdlib-only（编译走 z42.build 的 IReplCompiler 门面，实现运行期反射注入 z42c.pipeline，见
+    # sink-repl-compile-facade / PR-B），前端 z42c.core/syntax 已 stdlib。跨平台 eval-core（Engine/Script/
+    # Classifier/Completeness/Completer/Rewriter/Playground），供 playground/wasm 与 z42.repl(tty) 共享。
+    # 置于末尾：依赖 z42.build/z42.test/z42c.core/z42c.syntax（须待其先建；z42c topo-sort，此序仅 fallback）。
+    "z42.scripting",
 ]
 
 [workspace.project]

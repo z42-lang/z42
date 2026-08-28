@@ -39,18 +39,21 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 ```
 
 ## 如何测试验证
-依赖编译器包（compiler-consuming 库），用「warm z42c + z42vm」回路编译：
+本库是 **stdlib workspace 成员**（`src/libraries/`），随 `xtask build stdlib`
+（`z42c build --workspace`）编入 flat dist：
 ```bash
-# 组装 Z42_LIBS = 编译器 dist + stdlib dist（真实拷贝，非 symlink——lazy loader 不跟随 symlink）
-z42vm z42c.driver.zpkg --mode interp -- build src/toolchain/scripting/z42.scripting.z42.toml --release --output-dir <out>
+cd src/libraries && z42c build --workspace --release
+# 产物：artifacts/build/libraries/z42.scripting/release/dist/z42.scripting.zpkg
 ```
-CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
+CI 全量 GREEN 以 stdlib 构建（`xtask build stdlib`）+ toolchain 构建（`xtask build toolchain`，编
+`z42.repl` / `z42.interactive`）为准。
 
-> **位置（D2 层级）**：本库虽以 `import z42.scripting` 被引用，物理上**不在** `src/libraries/`
-> 而在 `src/toolchain/scripting/`。原因：`src/libraries/z42.workspace.toml` 的 `members=["*"]`
-> 会把每个子目录当基 stdlib 成员，用「Z42_LIBS 仅含 stdlib」的路径 `build --workspace`；而本库依赖
-> `z42c.*` 编译器包，在那条路径下会 `E0401: undefined Lexer/TokenKind` 而炸。移出 glob 后，由
-> `xtask_toolchain.z42` 的 `_buildScriptingLib` 用「stdlib + z42c 合并 Z42_LIBS」专门构建。
+> **位置（move-scripting-to-libraries）**：本库物理落 `src/libraries/`，是普通 stdlib 成员。
+> 编译期**只依赖 stdlib**——编译走 `z42.build` 的 `IReplCompiler` 门面（实现 `Z42cReplCompiler` 住
+> `z42c.pipeline`，运行期经 `ModuleLoader` 反射注入，见 `ReplCompilerHost`）；前端 `z42c.core/syntax`
+> 亦已下沉 stdlib（PR-A）。故不再触发早期「`members=["*"]` 把子目录当基 stdlib 成员、依赖 `z42c.*`
+> 编译器包会 `E0401` 而炸」的问题，无需 `src/toolchain/` 的合并-libs 特例步。tty 交互层 `z42.repl`
+> 因真 tty + native 行编辑 builtin（平台绑定重）留 `src/toolchain/`。
 
 ## 关联文档
 - 设计/机制：[`docs/design/toolchain/repl.md`](../../../docs/design/toolchain/repl.md)；

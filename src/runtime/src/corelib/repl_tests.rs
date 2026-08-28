@@ -2,7 +2,7 @@
 //!
 //! Bracket-balance detection + continuation-indent computation moved to the script
 //! layer (`Std.Scripting.Completeness`, sink-repl-indent-to-script) and are covered
-//! by the z42 golden test `src/toolchain/scripting/tests/completeness/`. This file
+//! by the z42 golden test `src/libraries/z42.scripting/tests/completeness/`. This file
 //! keeps only the native-side `word_start` coverage.
 
 use super::word_start;

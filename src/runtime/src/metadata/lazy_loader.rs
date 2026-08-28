@@ -449,6 +449,27 @@ impl LazyLoader {
     /// `load_zpkg_file`'s merge (string-pool offset + `remap_const_str` + first-wins
     /// + inheritance fixup); idempotent per module name. (retire-test-runner)
     pub fn load_module_from_path(&mut self, path: &str) -> Result<Vec<LoadedTestEntry>> {
+        // support-colocated-zpkg-deps for mid-run loads: a module loaded by an
+        // absolute/foreign path (e.g. z42.scripting's REPL injector loading
+        // z42c.pipeline.zpkg from the SDK's programs/z42c/) carries a transitive dep
+        // closure (z42c.semantics + siblings) that sits NEXT TO it — outside the VM's
+        // startup search_dirs (app entry dir + Z42_LIBS). Add the loaded artifact's
+        // own directory to search_dirs so those siblings resolve, mirroring app::run's
+        // "entry-zpkg dir first" rule. Appended (lowest priority) + deduped so it never
+        // shadows the app dir / Z42_LIBS; harmless when path has no colocated deps.
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            let dir = if parent.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                parent.to_path_buf()
+            };
+            let is_dir = dir.to_str()
+                .map(|s| crate::corelib::fs_backend::active().is_dir(s))
+                .unwrap_or(false);
+            if is_dir && !self.search_dirs.iter().any(|d| d == &dir) {
+                self.search_dirs.push(dir);
+            }
+        }
         let artifact = load_artifact(path)?;
         let (entries, _static_inits) = self.register_loaded_artifact(artifact)?;
         Ok(entries)

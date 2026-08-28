@@ -50,8 +50,9 @@ public static class ReplCompilerHost {
         }
     }
 
-    // 定位编译器组件 zpkg（z42c.pipeline.zpkg；6 个 z42c.* 兄弟须同目录——ModuleLoader 依赖闭包按
-    // entry-dir + Z42_LIBS 解析）。探测序同 builder.z42 `_findCompilerZpkg`：
+    // 定位编译器组件 zpkg（z42c.pipeline.zpkg；其传递闭包 z42c.semantics/... 须与它同目录——
+    // ModuleLoader.Load 现把被加载 zpkg 自身所在目录并入 search_dirs（fix-repl-sdk-compiler-closure），
+    // 故 programs/z42c/ 里的兄弟自然解析，无需复制进 app payload）。探测序同 builder.z42 `_findCompilerZpkg`：
     //   ① Z42_HOME/programs/z42c/（SDK 安装态；launcher 转发 `z42 repl` 时已设）
     //   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
     //   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
