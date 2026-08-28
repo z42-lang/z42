@@ -1,0 +1,99 @@
+namespace Demo;
+
+using Std;
+
+// 泛型 record 解构 e2e 自检：位置/属性模式支持泛型 record（Box<T> / Pair<A,B>）。
+// 覆盖：switch-stmt/expr 位置解构、属性解构、解构声明、is 结构化模式、嵌套泛型字段。
+// 运行时擦除（IsInstance 只测基类 Box）；字段类型经 _substGeneric 替换（T→int）。
+// 绑定用裸标识符（无 var）；所有局部显式类型。纯 Assert，空 stdout。
+
+[Record] class Box<T>(T Value);
+[Record] class Pair<A, B>(A First, B Second);
+
+// 泛型位置 switch-expr（含常量子模式 + 裸绑定）
+string describe(Box<int> b) {
+    return b switch {
+        Box<int>(0) => "zero",
+        Box<int>(v) => "v=" + v.ToString()
+    };
+}
+
+void Main() {
+    // ── 位置解构（switch-stmt）─────────────────────────────
+    Box<int> bi = new Box<int>(42);
+    int r = 0;
+    switch (bi) {
+        case Box<int>(v):
+            r = v;
+            break;
+        default:
+            r = -1;
+            break;
+    }
+    Assert.Equal(42, r);
+
+    // ── 位置模式内常量：不匹配落下一臂 ─────────────────────
+    Assert.Equal("zero", describe(new Box<int>(0)));
+    Assert.Equal("v=7", describe(new Box<int>(7)));
+
+    // ── 双参泛型 Pair<A,B> 位置解构（异构实参）──────────────
+    Pair<int, string> ps = new Pair<int, string>(3, "hi");
+    int pf = 0;
+    string psnd = "";
+    switch (ps) {
+        case Pair<int, string>(f, s):
+            pf = f;
+            psnd = s;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(3, pf);
+    Assert.Equal("hi", psnd);
+
+    // ── 属性模式（泛型）─────────────────────────────────────
+    Box<int> bp = new Box<int>(99);
+    string bs = "";
+    switch (bp) {
+        case Box<int> { Value: 99 }:
+            bs = "ninety-nine";
+            break;
+        default:
+            bs = "other";
+            break;
+    }
+    Assert.Equal("ninety-nine", bs);
+
+    // ── 解构声明（泛型）────────────────────────────────────
+    Box<int> bd = new Box<int>(123);
+    Box<int>(dv) = bd;
+    Assert.Equal(123, dv);
+
+    Pair<int, string> pd = new Pair<int, string>(8, "world");
+    Pair<int, string>(pa, pb) = pd;
+    Assert.Equal(8, pa);
+    Assert.Equal("world", pb);
+
+    // ── is 结构化模式（泛型）────────────────────────────────
+    Box<int> bx = new Box<int>(55);
+    int iv = -1;
+    if (bx is Box<int>(w)) {
+        iv = w;
+    }
+    Assert.Equal(55, iv);
+
+    // ── 嵌套泛型字段：Pair<int, Box<int>> ──────────────────
+    Pair<int, Box<int>> nested = new Pair<int, Box<int>>(1, new Box<int>(2));
+    int outer = 0;
+    int innerv = 0;
+    switch (nested) {
+        case Pair<int, Box<int>>(o, Box<int>(iw)):
+            outer = o;
+            innerv = iw;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(1, outer);
+    Assert.Equal(2, innerv);
+}

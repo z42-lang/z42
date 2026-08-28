@@ -171,17 +171,28 @@ public sealed class PatternBinder {
     }
 
     // 位置模式（record 解构）：T 必须 record class 或 struct record；子模式数 == 声明序字段数；逐字段递归绑定。
+    // 泛型 record（Box<int>）：resolve 成 Z42InstantiatedType → 解开 Def 走 record/arity 校验，字段类型经
+    // MemberResolver._substGeneric 把类形参（T）替换成实参（int）再递归绑定。运行时擦除（IsInstance 只测基类
+    // Box，同 is 表达式）。inst==null（非泛型）走原路径 byte-identical。
     private BoundPattern _bindPositional(PositionalPattern pp, Z42Type subjType, TypeEnv env) {
         Z42Type resolved = env.ResolveType(pp.Type);
         string tn = PatternBinder._rawTypeName(pp.Type, resolved);
         this._tc._chkTypeRef(resolved, env, pp.Span);
-        if (!(resolved is Z42ClassType)) {
+        Z42InstantiatedType inst = null;
+        Z42ClassType ct = null;
+        if (resolved is Z42InstantiatedType) { inst = resolved as Z42InstantiatedType; ct = inst.Def; }
+        else if (resolved is Z42ClassType) { ct = resolved as Z42ClassType; }
+        else {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional pattern requires a record type: " + tn, pp.Span);
             return new BoundWildcardPattern(pp.Span);
         }
-        Z42ClassType ct = resolved as Z42ClassType;
         if (!ct.IsRecord) {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional (deconstruction) pattern is only allowed on record types: " + tn, pp.Span);
+            return new BoundWildcardPattern(pp.Span);
+        }
+        // 泛型 struct record 解构 defer（需单态化 blob 布局）——首版限泛型 class record。
+        if (inst != null && ct.IsStruct) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "generic struct record destructuring is not yet supported: " + tn, pp.Span);
             return new BoundWildcardPattern(pp.Span);
         }
         // complete-pattern-engine 特性 3：放开 struct record 位置解构（emit 侧按 blob 偏移读字段，见 _emitPatFieldRead）。
@@ -200,6 +211,7 @@ public sealed class PatternBinder {
             string fname = ct.OwnFieldNames[i];
             fieldNames[i] = fname;
             Z42Type fty = PatternBinder._fieldType(ct, fname);
+            if (inst != null) { fty = MemberResolver._substGeneric(fty, inst); }   // 泛型：类形参 T → 实参 int
             fieldTypes[i] = fty;
             this._guardNestedStructField(ct, fty, env, pp.Span);   // 特性 3：struct record 内嵌 struct 字段 defer
             elems[i] = this.Bind(pp.Elems[i], fty, env);
@@ -244,7 +256,18 @@ public sealed class PatternBinder {
             resolved = subjType;   // 省类型 `{F:p}` → 用 subject 静态类型解析字段（解构声明 / switch / is 通用）
             tn = subjType.Name();
         }
-        if (resolved is Z42ClassType) { this._guardStructSubject(resolved as Z42ClassType, subjType, tn, pp.Span); }   // 特性 3：boxed struct defer
+        // 泛型 record 属性解构：解开 Z42InstantiatedType.Def 查字段，字段类型经 _substGeneric 替换（同位置模式）。
+        Z42InstantiatedType inst = null;
+        Z42ClassType ct = null;
+        if (resolved is Z42InstantiatedType) { inst = resolved as Z42InstantiatedType; ct = inst.Def; }
+        else if (resolved is Z42ClassType) { ct = resolved as Z42ClassType; }
+        if (ct != null) {
+            if (inst != null && ct.IsStruct) {
+                this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "generic struct record destructuring is not yet supported: " + tn, pp.Span);
+                return new BoundWildcardPattern(pp.Span);
+            }
+            this._guardStructSubject(ct, subjType, tn, pp.Span);   // 特性 3：boxed struct defer
+        }
         string[]       names      = new string[pp.FieldCount];
         Z42Type[]      fieldTypes = new Z42Type[pp.FieldCount];
         BoundPattern[] pats       = new BoundPattern[pp.FieldCount];
@@ -253,9 +276,12 @@ public sealed class PatternBinder {
             string fname = pp.FieldNames[i];
             names[i] = fname;
             Z42Type fty = new Z42UnknownType();
-            if (resolved is Z42ClassType) {
-                Z42ClassType ct = resolved as Z42ClassType;
-                if (ct.Fields.ContainsKey(fname)) { fty = PatternBinder._fieldType(ct, fname); this._guardNestedStructField(ct, fty, env, pp.Span); }
+            if (ct != null) {
+                if (ct.Fields.ContainsKey(fname)) {
+                    fty = PatternBinder._fieldType(ct, fname);
+                    if (inst != null) { fty = MemberResolver._substGeneric(fty, inst); }   // 泛型：类形参 T → 实参 int
+                    this._guardNestedStructField(ct, fty, env, pp.Span);
+                }
                 else { this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no field '" + fname + "' on " + tn, pp.Span); }
             }
             fieldTypes[i] = fty;
