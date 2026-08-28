@@ -56,19 +56,27 @@ void test_struct_property_destructure_ok() {
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
 
-// ── struct record 嵌套 struct 字段解构 → E0402 defer ─────────
+// ── complete-struct：struct record 嵌套 struct 字段解构（emit 复制值副本子 blob）→ 无诊断 ──
 [Test]
-void test_struct_nested_field_defer_errors() {
+void test_struct_nested_field_ok() {
     string src = "namespace D; [Record] struct Point(int X, int Y); [Record] struct Line(Point A, Point B);"
         + " void f(Line l) { Line(a, b) = l; } void Main() { }";
-    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
 
-// ── boxed struct 模式（object 持 struct，subject 非 struct）→ E0402 defer ──
+// ── complete-struct：boxed struct 模式（object 持装箱 struct，emit IsInstance+AsCast 拆箱）→ 无诊断 ──
 [Test]
-void test_struct_boxed_subject_defer_errors() {
+void test_struct_boxed_subject_ok() {
     string src = "namespace D; [Record] struct Point(int X, int Y);"
         + " int f(object o) { if (o is Point(x, y)) { return x; } return 0; } void Main() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── complete-struct：无关 value struct subject（值 struct 无多态、不可跨 struct 匹配）→ E0402 ──
+[Test]
+void test_struct_unrelated_struct_subject_errors() {
+    string src = "namespace D; [Record] struct Point(int X, int Y); [Record] struct Pair(int A, int B);"
+        + " int f(Point p) { if (p is Pair(x, y)) { return x; } return 0; } void Main() { }";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
 

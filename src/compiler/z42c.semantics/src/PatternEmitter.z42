@@ -59,6 +59,11 @@ public sealed class PatternEmitter {
         }
         if (pat is BoundPositionalPattern) {
             BoundPositionalPattern pp = pat as BoundPositionalPattern;
+            // complete-struct：boxed struct subject（object/接口持装箱 struct）→ IsInstance + AsCast 拆箱后直读。
+            if (pp.Boxed) {
+                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
+                return;
+            }
             // struct record：subject 静态即该 struct（binder 已保证），类型已知 → 不发 IsInstance（值类型不入
             // IsInstance）；class record → IsInstance 保多态。字段读由 _emitFieldSeq 按 container 分派（特性 3）。
             bool needTest = !this._ee._isBlobStruct(pp.Type);
@@ -67,6 +72,10 @@ public sealed class PatternEmitter {
         }
         if (pat is BoundPropertyPattern) {
             BoundPropertyPattern pp = pat as BoundPropertyPattern;
+            if (pp.Boxed) {   // complete-struct：boxed struct 属性解构（HasType 恒真，拆箱后按名读）
+                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
+                return;
+            }
             bool needTest = pp.HasType && !this._ee._isBlobStruct(pp.Type);
             string qn = "";
             if (needTest) { qn = this._qual(pp.TypeName); }
@@ -226,14 +235,41 @@ public sealed class PatternEmitter {
         this._ctx.EndBlock(new BrTerm(matchL));
     }
 
-    // 模式字段读（特性 3：class vs struct record 分派）。class 记录 → FieldGetInstr 直读堆对象字段（不
-    // as_cast，避 jit 误编）。struct record（blob 值语义）→ 按 StructLayout 字节偏移 + TypeTag 发
-    // StructFieldGetPrim（struct 无 auto-property getter，误用 FieldGet 会按 struct tag 解码基元→崩）。
-    // 初版限基元 + 引用字段（嵌套 struct 字段已由 binder 守卫 defer），故只发单条 StructFieldGetPrim。
+    // complete-struct：boxed struct subject（object/接口持装箱 struct）→ IsInstance(subj, StructType) 保类型
+    // 安全（subject 非该 struct 则不匹配落 failL），通过后 AsCast 拆箱得当前帧 arena StructRef 值副本，再以
+    // 该拆箱句柄为 base 逐字段读（走 _emitPatFieldRead 的 blob 分派，与值 subject 同路）。
+    private void _emitBoxedStructSeq(TypedReg subj, Z42Type container, string qn, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] subPats, int count, string matchL, string failL) {
+        string okL = this._ctx.Fresh("pat_unbox");
+        TypedReg isR = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
+        this._ctx.EndBlock(new BrCondTerm(isR, okL, failL));
+        this._ctx.StartBlock(okL);
+        TypedReg unboxed = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new AsCastInstr(unboxed, subj, qn));   // 拆箱到 arena StructRef 值副本
+        int i = 0;
+        while (i < count) {
+            TypedReg fReg = this._emitPatFieldRead(unboxed, container, fieldNames[i], fieldTypes[i]);
+            string nextFieldL = this._ctx.Fresh("pat_fld");
+            this.EmitMatch(fReg, subPats[i], nextFieldL, failL);
+            this._ctx.StartBlock(nextFieldL);
+            i = i + 1;
+        }
+        this._ctx.EndBlock(new BrTerm(matchL));
+    }
+
+    // 模式字段读（特性 3 + complete-struct：class vs struct record 分派）。class 记录 → FieldGetInstr 直读
+    // 堆对象字段（不 as_cast，避 jit 误编）。struct record（blob 值语义）→ 字段本身是 struct（嵌套）→
+    // StructAlloc + copyRegion 复制出子 blob 值副本（供递归子模式解构）；否则叶子基元/引用字段 → 按
+    // StructLayout 字节偏移 + TypeTag 发单条 StructFieldGetPrim（struct 无 auto-property getter，误用 FieldGet
+    // 会按 struct tag 解码基元→崩）。
     private TypedReg _emitPatFieldRead(TypedReg subj, Z42Type container, string fieldName, Z42Type fieldType) {
         if (this._ee._isBlobStruct(container)) {
             string sname = this._ee._blobStructName(container);
             int off = this._ctx.Gen.Layouts.FieldByteOffset(sname, fieldName);
+            if (this._ctx.Gen.Layouts.FieldIsStruct(sname, fieldName)) {
+                string fs = this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName);
+                return this._ee._copyStructOut(subj, off, fs);   // 嵌套 struct 字段：复制出值副本子 blob
+            }
             int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName));
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(fieldType));
             this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, off, tag));

@@ -77,10 +77,18 @@ if (obj is Point(a, b)) { use(a, b); }
 > **struct record 位置 / 属性解构（complete-pattern-engine 放开）**：位置 / 属性模式除 record class 外，
 > 亦支持 **struct record**（值类型，`[Record] struct`）——覆盖 switch / is / 解构声明全位点。struct 无
 > auto-property getter，字段读走 **blob 字节偏移 + TypeTag**（`StructFieldGetPrim`，`PatternEmitter._emitPatFieldRead`
-> 按 `_isBlobStruct(container)` 分派），而非 class 的 `FieldGet`；struct 静态已知类型 → 不发 `IsInstance`。
-> **初版限扁平 struct record**（字段为基元 + 引用类型）；**嵌套 struct-record 字段**（字段本身是 struct，需
-> blob 值副本）与 **boxed struct subject**（`object` 持 struct，需拆箱 + 类型测试）**defer** → 编译诊断
-> `E0402`（reliable：字段类型经 `SymbolTable.GetClass` 取规范类型判 `IsStruct && IsRecord`，排除基元标量）。
+> 按 `_isBlobStruct(container)` 分派），而非 class 的 `FieldGet`；struct 静态已知类型（值 subject）→ 不发 `IsInstance`。
+>
+> **嵌套 struct-record 字段**（字段本身是 struct，如 `struct Line(Point A, Point B)`）与 **boxed struct subject**
+> （`object` / 接口持装箱 struct，如 `object o = point; o is Point(x, y)`）均已支持（complete-struct-pattern-destructuring）：
+> - **嵌套 struct 字段**：字段本身是 struct 时，`_emitPatFieldRead` 走 `StructAlloc` + `copyRegion` 复制出一个
+>   **值副本子 blob**（`ExprEmitter._copyStructOut`，非别名），供递归子模式解构；叶子基元 / 引用字段仍走单条
+>   `StructFieldGetPrim`。
+> - **boxed struct subject**：subject 静态非该 struct（object / 接口）时，binder 标 `Boxed`，emit 发
+>   `IsInstance`（保类型安全，不匹配落 fail）→ `AsCast` **拆箱**得当前帧 arena `StructRef` 值副本 → 逐字段读
+>   （`_emitBoxedStructSeq`）。runtime 侧 `IsInstance` / `AsCast`(`unbox_struct`) / `StructFieldGetPrim` 对
+>   BoxedStruct 全就绪，**无新 IR / 无 runtime 改动**。
+> - **不可跨 struct 匹配**：subject 是别的 value struct / 基元标量（值 struct 无多态、无装箱）→ 编译诊断 `E0402`。
 
 ## A2 组合子：or / `@` / `..=` / 关系
 
@@ -343,8 +351,6 @@ Point u = p with { X = 8 } with { Y = 9 };   // 链式
 
 ## Deferred（后续独立特性）
 
-- **嵌套 struct-record 字段**位置 / 属性解构（字段本身是 struct，需 blob 值副本）；**boxed struct subject**
-  （`object` 持 struct，需拆箱 + 类型测试）——均已 defer 诊断 `E0402`
 - 泛型 **struct** record 位置解构（需单态化 blob 布局；泛型 class record 已支持，见上「泛型 record 解构」）；
   元组模式（需元组类型系统构造，可能格式 bump）
 - `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）

@@ -360,9 +360,19 @@ public sealed class AccessEmitter {
         return this._ctx.Fields.ContainsKey(id.Name);
     }
 
+    // 从 srcBase@srcOff 处复制出一个 struct 值副本到新分配的 blob，返回其句柄（complete-struct：模式嵌套
+    // struct 字段读复用——把子 struct 字段作独立值副本产出供递归子模式解构，非别名）。
+    internal TypedReg _copyStructOut(TypedReg srcBase, int srcOff, string structName) {
+        int sz = this._ctx.Gen.Layouts.StructSize(structName);
+        TypedReg cp = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(structName), sz));
+        this._copyRegion(srcBase, srcOff, cp, 0, structName);
+        return cp;
+    }
+
     // 整个 struct 区间逐叶子复制（复用现有 Get/SetPrim，无区间指令）：嵌套 struct 子字段递归，基元/引用叶子
     // 一读一写。src/dst 为 blob 句柄，srcOff/dstOff 为其内区间起点。
-    private void _copyRegion(TypedReg srcBase, int srcOff, TypedReg dstBase, int dstOff, string structName) {
+    internal void _copyRegion(TypedReg srcBase, int srcOff, TypedReg dstBase, int dstOff, string structName) {
         StructLayoutInfo li = this._ctx.Gen.Layouts.LayoutOf(structName);
         int i = 0;
         while (i < li.FieldCount) {
