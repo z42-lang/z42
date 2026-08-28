@@ -6,7 +6,7 @@
 # SCOPE (scaffold): entry point only — prints "planned" and exits. The real REPL
 # (compile-snippet → VM eval → print) is the 0.3.x capstone (see
 # docs/design/toolchain/repl.md), blocked on extract-compile-pipeline-api.
-# Registered in packages.toml ([component.interactive], 2026-07-01) and shipped
+# Registered in packages.toml ([component.z42i], 2026-07-01) and shipped
 # in the SDK package as a placeholder binary — still just prints "planned" and
 # exits until the REPL lands. See README.md.
 [project]
@@ -41,4 +41,4 @@ optimize = 2
 apphost     = true
 publish_dir = "../../../../artifacts/build/toolchain/interactive/publish"
 bin         = "bin/z42i"
-payload     = "programs/interactive/z42.interactive.zpkg"
+payload     = "programs/z42i/z42.interactive.zpkg"

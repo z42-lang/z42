@@ -44,7 +44,7 @@ void _runLauncher(string[] argv) {
         Environment.Exit(_forwardZ42c(argv));
         return;
     }
-    // `repl` = interactive REPL → forward to z42i (programs/interactive). add-z42-repl.
+    // `repl` = interactive REPL → forward to z42i (programs/z42i). add-z42-repl.
     if (c0 == "repl") {
         Environment.Exit(_forwardRepl(_tail(argv, 1)));
         return;
@@ -130,10 +130,10 @@ void _printReplHelp() {
     Console.WriteLine("  .exit / .quit  quit the REPL (or Ctrl-D)");
 }
 
-// Forward `repl` to z42i (the interactive REPL, programs/interactive/). Runs
+// Forward `repl` to z42i (the interactive REPL, programs/z42i/). Runs
 // `z42vm <z42.interactive.zpkg> -- <argv...>` with Z42_LIBS = libs/ (stdlib incl.
 // z42.scripting) + programs/z42c/ (compiler pkgs z42.scripting loads at runtime)
-// + programs/interactive/ (z42i itself). argv is the tail after `repl` (so
+// + programs/z42i/ (z42i itself). argv is the tail after `repl` (so
 // `z42 repl -c "1+2"` passes `-c "1+2"` through). add-z42-repl.
 int _forwardRepl(string[] argv) {
     // `-h`/`--help` → print help instead of launching (add-repl-help). Skip `-c`'s
@@ -150,13 +150,13 @@ int _forwardRepl(string[] argv) {
         return 2;
     }
     string home = _home();
-    string z42i = Path.Join(home, "programs/interactive/z42.interactive.zpkg");
+    string z42i = Path.Join(home, "programs/z42i/z42.interactive.zpkg");
     if (!File.Exists(z42i)) {
-        ConsoleError.WriteLine("z42: REPL not found at " + z42i + " — reinstall the SDK (programs/interactive/ missing)");
+        ConsoleError.WriteLine("z42: REPL not found at " + z42i + " — reinstall the SDK (programs/z42i/ missing)");
         return 2;
     }
     // Z42_LIBS = 单个 libs/（stdlib + z42.scripting + z42.ir）。z42c.* 已 colocate 进 z42i 的
-    // entry-dir（programs/interactive/，见打包 fix-repl-sdk-layout），运行期由 entry-dir 搜索目录
+    // entry-dir（programs/z42i/，见打包 fix-repl-sdk-layout），运行期由 entry-dir 搜索目录
     // 解析，无需再拼 programs/z42c。**Z42_LIBS 是单目录**（VM config 按 PathBuf 解析），旧版用 `:`
     // 拼三段在 Windows 上会被盘符冒号（C:\）截断——此处只传单目录，跨平台正确。
     string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
