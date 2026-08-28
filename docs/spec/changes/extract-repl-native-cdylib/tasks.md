@@ -31,9 +31,15 @@
       `cargo check --no-default-features --features interp-only`（plain fallback 路径也编过）+ nm 验 3 个 C ABI 符号导出
 
 ## 阶段 3: 打包 + 发现
-- [ ] 3.1 `xtask_toolchain.z42`：build `libz42_repl` cdylib + 拷进 z42i 同侧目录
-- [ ] 3.2 `xtask_package_desktop.z42`：SDK 打包 `libz42_repl` 进 interactive/toolchain 侧（非 `<sdk>/native/`）
-- [ ] 3.3 发现路径与打包位置对齐（`current_exe` 同侧解析验证）
+- [x] 3.1 **dev 流不建 cdylib**（与 compression 一致：`scripts/build/` 从不建 native cdylib，dev 靠开发者
+      `cargo build -p z42-repl` 落 target/ 同侧、被 `repl_native` 探到）——故**不改** `xtask_toolchain.z42`，
+      避免与 compression 不一致
+- [x] 3.2 SDK 打包（`xtask_stage_components.z42`）：`_pkgBuildAndStageRuntime` 加 `_cargo(... "z42-repl")` 建
+      cdylib；`_pkgStageZ42vm` 把 `libz42_repl.{dylib,so}`/`z42_repl.dll` 拷进 **z42vm 组件 bin/**（与 z42i/z42vm
+      同侧，`[assemble]` 自动并入 pkgDir/bin/）；`_copyNativeLibs` 显式**排除** `libz42_repl`/`z42_repl`（否则
+      glob `libz42*` 会误拷进 `native/`）
+- [x] 3.3 发现路径与打包位置对齐：`repl_native::candidates()` = `current_exe().parent()/libz42_repl.*`，SDK 里
+      z42vm/z42i 都在 `bin/`、lib 也在 `bin/` → 同侧解析。**SDK 实际运行验证留 CI/dist smoke（3.x 本地不可跑）**
 
 ## 阶段 4: 测试 + 文档 + GREEN
 - [ ] 4.1 cdylib 单测（parse_action / word_start / Completer 逻辑，mock cbs）
