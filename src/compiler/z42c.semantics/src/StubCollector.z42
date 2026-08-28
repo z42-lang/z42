@@ -192,6 +192,7 @@ public sealed class StubCollector {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
         ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（`[Record] class` 仍是引用类型，IsStruct=false）
         ct.IsSealed = this._sc._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
+        ct.IsAbstract = this._sc._hasWord(c.Mods, "abstract");   // add-internal-hierarchy-exhaustiveness：本地 abstract class（封闭层次穷尽性排除不可实例化类）
         ct.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;

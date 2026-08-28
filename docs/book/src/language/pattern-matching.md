@@ -293,11 +293,11 @@ binder 解开 `.Def` 走 `IsRecord` / arity 校验，字段类型（声明为 `T
 > **泛型 struct record 解构** defer（诊断 `E0402`）——struct 值语义需按实例化单态化 blob 布局
 > （`Box<int>` vs `Box<string>` 布局不同），首版限泛型 **class** record。元组模式为后续特性。
 
-## C：switch 穷尽性诊断（封闭域 bool / enum）
+## C：switch 穷尽性诊断（bool / enum / 封闭类层次）
 
 `switch`（语句 + 表达式）对**封闭域**（值集有限的类型）未覆盖全部情形且无兜底臂时报 **warning
-`W0700`**（默认开启，不阻断编译）。对齐 Rust `match` 的穷尽性检查——把「漏一个 enum 成员 / 漏 `false`
-分支」从运行期隐患提前到编译期提示。
+`W0700`**（默认开启，不阻断编译）。对齐 Rust `match` 的穷尽性检查——把「漏一个 enum 成员 / 漏一个子类」
+从运行期隐患提前到编译期提示。
 
 ```z42
 enum Color { Red, Green, Blue }
@@ -308,23 +308,56 @@ string name = c switch {
 };
 ```
 
-**可行域（仅 bool + enum）**：
+**可行域（bool / enum / 封闭类层次）**：
 
 | 域 | 判定 |
 |----|------|
 | **bool** | case 覆盖 `true` ∧ `false`，或有兜底臂 → 穷尽 |
 | **enum** | 常量臂的整数值集 ⊇ 全成员整数值集，或有兜底 → 穷尽（enum 成员名在绑定期降级为整数字面量，故**按整数值**比对；别名成员同值天然合并） |
+| **封闭类层次** | subject 静态类型是**非 public 类**（`internal`/`private`/`protected`）且有子类时，类型模式须覆盖其全部**具体（非 abstract）子类**，或有兜底 → 穷尽 |
 
 **无条件兜底** = 任一臂无 pattern（`default`），或 pattern 恒匹配（通配 `_` / 裸绑定）且**无守卫**。
 带守卫的臂不计入无条件覆盖（守卫可能为假）。`or`-模式 `Red | Green | Blue` 递归展开各 alt 计入覆盖。
 
-> **两处设计事实（校正早期设想）**：
-> - **不走 analyzer 框架**：analyzer 跑在 AST(syntax) 层，拿不到 subject 的已解析类型与 enum 成员表；
->   穷尽性判定落在 **binder 语义阶段**（`StmtBinder._bindSwitchStmt` / `ExprTyper._bindSwitchExpr` 尾部
->   直接经 `DiagnosticBag.Warning` 上报，`ExhaustChecker`）。
-> - **sealed 不在可行域**：z42 的 `sealed` 语义是「不可被继承（final）」，**不是** Rust/Kotlin 的「封闭
->   子类集」；且无反向子类型索引——无法枚举一个基类的全部已知子类。故 sealed 穷尽性为 out-of-scope
->   （要支持需先引入封闭子类集语义 + 反向索引，属独立大改动）。
+### 封闭类层次：为何用 `internal` 而非新的 `sealed hierarchy` 机制
+
+穷尽性要**健全**，前提是子类集封闭：否则下游包给基类新增子类时，本包判「穷尽」的 switch 在运行期漏网。
+z42 **不引入新的 `[Closed]`/`permits` 机制**——直接复用既有 `internal` 可见性：
+
+> **非 public 基类（`internal`/`private`/`protected`）天然封闭在包内。** 别的包连它的名字都引用不了
+> （`AccessChecker.CheckTypeRef` 对跨包 internal 引用报 E0404）→ 跨包既**无法继承**（派生要命名基类）也
+> **无法 switch** 它 ⟹ 基类 + 全部子类 + 全部 switch **必同处一个包**，编译该包时全部可见 ⟹ 本包可见子类
+> 集 = 完整子类集，穷尽判定**健全**（「兄弟包偷偷加子类」的漏网场景物理上不可能）。
+
+**顶层类默认 `internal`** → 类层次默认即封闭、默认受检；显式标 `public` 即退出为开放世界、不检查
+（下游可扩展）。对齐 Kotlin `sealed`（同 module/package 即封闭）。
+
+```z42
+abstract class Shape { }              // 顶层默认 internal → 封闭
+[Record] class Circle(int R) : Shape;
+[Record] class Square(int S) : Shape;
+[Record] class Triangle(int B, int H) : Shape;
+
+int area = s switch {
+    Circle(r)    => 3 * r * r,
+    Square(side) => side * side
+    // ⚠️ W0700: switch on closed type Shape is not exhaustive: missing Triangle
+};
+```
+
+覆盖判定：具体类 `C` 被覆盖 = 某类型模式命中 `C` 本身，**或**命中它的某个祖先（`case Shape s:` /
+`case AbstractMid:` 经 `IsSubclassOf` 吞整棵子树）。`abstract` 基类/中间层**不入**必须覆盖集（值的运行期
+类型恒为具体叶子）——靠 `Z42ClassType.IsAbstract`（`StubCollector` 从 `abstract` 修饰符回填）排除。
+
+> **设计事实**：
+> - **不走 analyzer 框架**：analyzer 跑在 AST(syntax) 层，拿不到 subject 的已解析类型与子类索引；
+>   穷尽性判定落在 **binder 语义阶段**（`ExhaustChecker._report` / `_reportClosedHierarchy`，经
+>   `DiagnosticBag.Warning` 上报）。子类集由遍历 `SymbolTable.Classes` + `IsSubclassOf` 现算（无需持久化）。
+> - **健全但非全能**：只覆盖**包内**封闭层次。做不了「**公开**的封闭 sum type」（public 基类导出给下游
+>   做穷尽匹配，如 Rust `pub enum`）——那需要把封闭标记持久化进 zpkg + 跨包强制，留作将来独立 `[Closed]`
+>   follow-up（与本机制正交、可叠加：给 public 轴加标记，internal 类型的检测不变）。
+> - **无格式 bump**：`IsAbstract` 是 semantics 内存标志；封闭性纯用既有 `Visibility`（已持久化、已跨包
+>   强制）+ 本包 `IsSubclassOf`，不新增任何持久化位。
 
 ## D：`with` 表达式（record 非破坏式更新）
 
@@ -354,4 +387,6 @@ Point u = p with { X = 8 } with { Y = 9 };   // 链式
 - 泛型 **struct** record 位置解构（需单态化 blob 布局；泛型 class record 已支持，见上「泛型 record 解构」）；
   元组模式（需元组类型系统构造，可能格式 bump）
 - `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）
-- sealed 层次穷尽性（需封闭子类集语义 + 反向子类索引）
+- **公开（public）封闭 sum type** 的穷尽性（需把封闭标记持久化进 zpkg + 跨包强制，独立 `[Closed]`
+  follow-up；包内封闭层次已支持，见「C：封闭类层次」）
+- 接口层次 / 泛型基类的穷尽性（v1 只做非泛型 class 基类）

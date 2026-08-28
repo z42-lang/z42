@@ -77,7 +77,34 @@ public sealed class ExhaustChecker {
             while (i < op.Count) { this._collect(op.Alts[i], covered); i = i + 1; }
             return;
         }
-        // 其它 pattern（范围 / 关系 / 类型 / 位置 …）不覆盖单一常量值 → 忽略（保守，可能过报）。
+        // add-internal-hierarchy-exhaustiveness：类型模式覆盖一个类名（`case Circle c:` / `case Circle(r):`
+        // / `case Circle{R:r}:`）→ 以 "t:"+名 入 covered，供封闭层次穷尽判定。`case Base b:` 命中基类名
+        // → 经 IsSubclassOf 吞整棵子树（_isTypeCovered 处理）。前缀 "t:" 与常量键 "b:"/"i:" 天然隔离。
+        if (pat is BoundTypePattern) {
+            string tn = this._patTypeName((pat as BoundTypePattern).BoundType, (pat as BoundTypePattern).TypeName);
+            if (tn != "") { covered.TryAdd("t:" + tn, tn); }
+            return;
+        }
+        if (pat is BoundPositionalPattern) {
+            string tn = this._patTypeName((pat as BoundPositionalPattern).Type, (pat as BoundPositionalPattern).TypeName);
+            if (tn != "") { covered.TryAdd("t:" + tn, tn); }
+            return;
+        }
+        if (pat is BoundPropertyPattern) {
+            BoundPropertyPattern pp = pat as BoundPropertyPattern;
+            if (pp.HasType) {
+                string tn = this._patTypeName(pp.Type, pp.TypeName);
+                if (tn != "") { covered.TryAdd("t:" + tn, tn); }
+            }
+            return;
+        }
+        // 其它 pattern（范围 / 关系 …）不覆盖单一常量值/类名 → 忽略（保守，可能过报）。
+    }
+
+    // 类型模式的类名：优先 resolved Z42Type.Name()（与 Classes 键一致），回落语法 TypeName。
+    private string _patTypeName(Z42Type t, string fallback) {
+        if (t != null) { return t.Name(); }
+        return fallback;
     }
 
     // 常量 BoundExpr → 覆盖集 key。整数 / 枚举成员（降级 BoundLitInt）→ "i:<文本>"；bool → "b:true/false"。
@@ -126,8 +153,69 @@ public sealed class ExhaustChecker {
             if (missing > 0) {
                 this._tc._diags.Warning("W0700", "switch on enum " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
             }
+            return;
         }
-        // 其它类型（开放域）→ 不检查。
+        // ── 封闭（非 public）类层次 ──────────────────────────────
+        // add-internal-hierarchy-exhaustiveness：subject 静态类型是「非 public 类」（internal/private/
+        // protected）时，别的包命名不了它 → 无法跨包继承/switch → 该基类的全部子类 + 全部 switch 必同处
+        // 本包 ⟹ 本包可见子类集 = 完整子类集，穷尽判定健全。枚举 subtree 里的具体（非 abstract）本地类，
+        // 每个都须被某类型模式覆盖（含 `case Base/AbstractMid:` 吞子树），缺则 W0700。
+        this._reportClosedHierarchy(tn, covered, env, sp);
+        // 其它类型（public/开放域）→ 不检查。
+    }
+
+    private void _reportClosedHierarchy(string tn, StrMap covered, TypeEnv env, Span sp) {
+        Z42ClassType baseCt = env.Symbols.GetClass(tn);
+        if (baseCt == null) { return; }                        // 非 class（接口/枚举/基元）→ 不查
+        if (baseCt.IsImported) { return; }                     // imported（跨包可见）→ 非本包封闭
+        if (baseCt.Visibility == "public") { return; }         // public → 开放世界，下游可扩展，不健全
+        if (baseCt.IsStruct) { return; }                       // struct 值类型无继承层次
+        if (baseCt.GenericParamCount > 0 || baseCt.HasArityMangle) { return; }  // 泛型封闭层次 defer
+
+        string[] names = env.Symbols.Classes.Keys();
+        int subCount = 0;              // 严格子类数（判定是否真为层次，非孤立类）
+        int missing = 0;
+        string missNames = "";
+        int i = 0;
+        while (i < names.Length) {
+            string cn = names[i];
+            Z42ClassType ct = env.Symbols.GetClass(cn);
+            if (ct != null && !ct.IsImported) {
+                bool isStrictSub = (cn != tn) && env.Symbols.IsSubclassOf(cn, tn);
+                if (isStrictSub) { subCount = subCount + 1; }
+                bool inSubtree = (cn == tn) || isStrictSub;
+                // 必须覆盖集 = subtree 里的具体（可实例化）类；abstract 类恒无运行期实例 → 排除。
+                if (inSubtree && !ct.IsAbstract) {
+                    if (!this._isTypeCovered(cn, covered, env)) {
+                        missing = missing + 1;
+                        if (missNames != "") { missNames = missNames + ", "; }
+                        missNames = missNames + cn;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        // 仅当确是封闭层次（≥1 子类）才报——孤立的非 public 类不当作 sum type，避免误报。
+        if (subCount >= 1 && missing > 0) {
+            this._tc._diags.Warning("W0700", "switch on closed type " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
+        }
+    }
+
+    // 具体类 concrete 是否被某类型模式覆盖：直接命中 "t:"+concrete，或被某祖先类型模式吞（`case Base b:`
+    // / `case AbstractMid:` 覆盖整棵子树 → concrete IsSubclassOf 该模式类型）。
+    private bool _isTypeCovered(string concrete, StrMap covered, TypeEnv env) {
+        if (covered.ContainsKey("t:" + concrete)) { return true; }
+        string[] ks = covered.Keys();
+        int i = 0;
+        while (i < ks.Length) {
+            string k = ks[i];
+            if (this._startsWith(k, "t:")) {
+                string tname = k.Substring(2, k.Length - 2);
+                if (env.Symbols.IsSubclassOf(concrete, tname)) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
 

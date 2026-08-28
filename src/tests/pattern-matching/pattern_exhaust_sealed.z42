@@ -1,0 +1,62 @@
+namespace Demo;
+
+using Std;
+
+// 封闭（internal，顶层类默认）类层次的穷尽 switch e2e 自检（模式匹配迭代 ④）。
+// 顶层类默认 internal → 跨包引用不了 → 封闭层次 → 穷尽性可查（W0700 由 semantics 单测覆盖）。
+// 本 e2e 验「穷尽覆盖全部子类的 switch 在 interp+jit 下派发正确」——位置模式解构 record 子类、
+// `case Base:` 吞子树、switch-stmt/expr 双形态。绑定用裸标识符（无 var），纯 Assert，空 stdout。
+
+abstract class Shape { }
+[Record] class Circle(int R) : Shape;
+[Record] class Square(int S) : Shape;
+[Record] class Triangle(int B, int H) : Shape;
+
+// 穷尽 switch-expr：覆盖全部三个具体子类（无 default）。
+int areaX2(Shape s) {
+    return s switch {
+        Circle(r)      => 2 * 3 * r * r,       // ~2πr²（整数近似，避浮点格式）
+        Square(side)   => 2 * side * side,
+        Triangle(b, h) => b * h
+    };
+}
+
+// 穷尽 switch-stmt：覆盖全部子类（无 default，无 break 提前退出靠赋值）。
+string name(Shape s) {
+    string r = "";
+    switch (s) {
+        case Circle:   r = "circle"; break;
+        case Square:   r = "square"; break;
+        case Triangle: r = "triangle"; break;
+    }
+    return r;
+}
+
+// `case Base:` 吞整棵子树（视作覆盖全部子类）。
+int tag(Shape s) {
+    return s switch {
+        Circle => 1,
+        Shape  => 0
+    };
+}
+
+void Main() {
+    Shape c = new Circle(5);
+    Shape sq = new Square(4);
+    Shape tr = new Triangle(6, 3);
+
+    // switch-expr 位置解构派发
+    Assert.Equal(150, areaX2(c));     // 2*3*25
+    Assert.Equal(32, areaX2(sq));     // 2*16
+    Assert.Equal(18, areaX2(tr));     // 6*3
+
+    // switch-stmt 类型模式派发
+    Assert.Equal("circle", name(c));
+    Assert.Equal("square", name(sq));
+    Assert.Equal("triangle", name(tr));
+
+    // case Base 吞子树
+    Assert.Equal(1, tag(c));
+    Assert.Equal(0, tag(sq));
+    Assert.Equal(0, tag(tr));
+}
