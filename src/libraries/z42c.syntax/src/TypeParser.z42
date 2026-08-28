@@ -87,8 +87,9 @@ public sealed class TypeParser {
 
     internal TypeExpr _parseType() {
         Span sp = this._p._peek().Span;
-        // 函数类型 `(T1,...) -> R`（类型位 `(` 只可能是函数类型）。
-        if (this._p._peek().Kind == TokenKind.LParen) { return this._parseFuncType(); }
+        // 类型位 `(`：函数类型 `(T1,...) -> R`、元组类型 `(T1, ..., Tn)`（add-tuple-types）、
+        // 或括号分组 `(T)`。先解析括号内类型列表，再按尾随 `->` 有无分流（func vs tuple/分组）。
+        if (this._p._peek().Kind == TokenKind.LParen) { return this._parseParenType(); }
         string name = this._p._peek().Text;
         this._p._advance();
         while (this._p._peek().Kind == TokenKind.Dot) {
@@ -125,7 +126,11 @@ public sealed class TypeParser {
         return t;
     }
 
-    private TypeExpr _parseFuncType() {
+    // 解析 `( T0, T1, ... )` 后按尾随 `->` 有无分流：
+    //   `->` 跟随 → 函数类型 `(params) -> R`（byte-identical，产 FuncTypeExpr）；
+    //   否则 ≥2 元素 → 元组类型 → NamedType("Std.ValueTupleN", elems)（add-tuple-types 值元组脱糖）；
+    //   否则 1 元素 → 括号分组，返回内层类型本身；0 元素 `()` 无 `->` → 报错（无 unit 类型）。
+    private TypeExpr _parseParenType() {
         Span sp = this._p._peek().Span;
         this._p._expect(TokenKind.LParen, "(");
         TypeExpr[] ps = new TypeExpr[4];
@@ -143,9 +148,21 @@ public sealed class TypeParser {
             }
         }
         this._p._expect(TokenKind.RParen, ")");
-        this._p._expect(TokenKind.Arrow, "->");
-        TypeExpr ret = this._parseType();
-        return new FuncTypeExpr(ps, pc, ret, sp);
+        if (this._p._peek().Kind == TokenKind.Arrow) {
+            this._p._advance();   // ->
+            TypeExpr ret = this._parseType();
+            return new FuncTypeExpr(ps, pc, ret, sp);
+        }
+        if (pc >= 2) {
+            // 元组类型 → 合成 ValueTupleN 泛型实例化（z42.core prelude 恒加载，短名恒可解析；
+            // FQ `Std.ValueTupleN` 反而不经 using 解析，故用短名）。后端沿用泛型 struct record 机制。
+            TypeExpr[] elems = new TypeExpr[pc];
+            int i = 0; while (i < pc) { elems[i] = ps[i]; i = i + 1; }
+            return new NamedType("ValueTuple" + pc.ToString(), elems, pc, sp);
+        }
+        if (pc == 1) { return ps[0]; }   // 括号分组类型 `(T)` = T
+        this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected '->' for function type, or a tuple type with 2+ elements", sp);
+        return this._emptyType();
     }
 
     private bool _tryCloseTypeArgs() {

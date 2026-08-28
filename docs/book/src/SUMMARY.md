@@ -22,6 +22,7 @@
   - [属性与索引器（成员访问器）](language/member-accessors.md)
   - [`[Record]` attribute 与主构造器](language/record-attribute.md)
   - [模式匹配（Rust 风格结构化模式）](language/pattern-matching.md)
+  - [元组（值元组 `(a, b)`）](language/tuples.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

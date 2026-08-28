@@ -64,6 +64,8 @@ public sealed class PatternParser {
         }
         // 2. 通配 `_`
         if (k == TokenKind.Underscore) { this._p._advance(); return new WildcardPattern(sp); }
+        // add-tuple-types：裸 `(` 起始 → 元组模式 `( p0, p1, ... )`（区别于类型引导的位置模式 `T(...)`）。
+        if (k == TokenKind.LParen) { return this._parseTupleBody(sp); }
         // 3. 省略类型的属性模式 `{ F: p }`
         if (k == TokenKind.LBrace) {
             TypeExpr none = new NamedType("", new TypeExpr[0], 0, sp);
@@ -109,6 +111,27 @@ public sealed class PatternParser {
             return new NamePattern(ty, bind, sp);
         }
         return new NamePattern(ty, "", sp);
+    }
+
+    // 元组模式体：裸 `( p0, p1, ... )`（≥2 子模式）。解构 Std.ValueTupleN 的 Item1..ItemN。
+    // 单元素 `(p)` 视为分组子模式（返回内层）；空 `()` 报错。
+    private Pattern _parseTupleBody(Span sp) {
+        this._p._expect(TokenKind.LParen, "(");
+        Pattern[] elems = new Pattern[4];
+        int ec = 0;
+        while (this._p._peek().Kind != TokenKind.RParen && this._p._peek().Kind != TokenKind.Eof) {
+            if (ec == elems.Length) {
+                Pattern[] big = new Pattern[elems.Length * 2];
+                int i = 0; while (i < ec) { big[i] = elems[i]; i = i + 1; }
+                elems = big;
+            }
+            elems[ec] = this._parsePattern(); ec = ec + 1;
+            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        if (ec == 1) { return elems[0]; }   // 括号分组子模式 `(p)` = p
+        if (ec == 0) { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "empty tuple pattern `()` is not allowed", sp); return new WildcardPattern(sp); }
+        return new TuplePattern(elems, ec, sp);
     }
 
     // 位置模式体：`( p0, p1, ... )`。
@@ -162,6 +185,7 @@ public sealed class PatternParser {
         if (this._isConstStart(k)) { return true; }
         if (k == TokenKind.Underscore) { return true; }
         if (k == TokenKind.LBrace) { return true; }
+        if (k == TokenKind.LParen) { return true; }   // add-tuple-types：`x is (a, b)` 元组模式
         if (this._isRelOp(k)) { return true; }   // A2：`x is > 0` / `x is <= 5`
         return false;
     }

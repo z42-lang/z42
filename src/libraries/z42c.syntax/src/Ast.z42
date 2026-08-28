@@ -92,6 +92,22 @@ public sealed class ListLitExpr : Expr {
     }
 }
 
+// 元组字面量 `(e0, e1, ...)`（≥2 元素，圆括号 + 逗号）。语义层脱糖为 new Std.ValueTupleN<...>(e0, ...)
+// （值元组，类型擦除 blob）。单元素 `(e)` 是分组表达式、不入此节点。
+public sealed class TupleExpr : Expr {
+    public Expr[] Elems;
+    public int    Count;
+    public TupleExpr(Expr[] elems, int count, Span span) {
+        this.Span = span; this.Elems = elems; this.Count = count;
+    }
+    public override string Dump() {
+        string s = "(tuple";
+        int i = 0;
+        while (i < this.Count) { s = s + " " + this.Elems[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
 // Dict 字面量 `{k0: v0, k1: v1, ..}`（花括号 + 冒号对）。语义层脱糖为 new Dictionary<K,V>() + Set。
 public sealed class DictLitExpr : Expr {
     public Expr[] Keys;

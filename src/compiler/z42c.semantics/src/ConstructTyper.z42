@@ -94,6 +94,21 @@ public sealed class ConstructTyper {
         return new BoundSeqExpr(pre, 1, val, val.Type(), sp);
     }
 
+    // 元组字面量 `(e0, e1, ...)`（add-tuple-types）：脱糖为 `new Std.ValueTupleN<...>(e0, e1, ...)`。
+    // 泛型实参由 ctor 实参推断（bare `new ValueTupleN(...)`，已验可行且保留元素类型 → 结果为
+    // Z42InstantiatedType(ValueTupleN, [t0..tn])）。arity 2..8；越界报错。复用 _bindNew 的全部构造/校验路径。
+    internal BoundExpr _bindTuple(TupleExpr te, TypeEnv env) {
+        int n = te.Count;
+        if (n < 2 || n > 8) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "tuples support between 2 and 8 elements, got " + n.ToString(), te.Span);
+            return new BoundError("tuple arity out of range", new Z42ErrorType(), te.Span);
+        }
+        NamedType tn = new NamedType("ValueTuple" + n.ToString(), new TypeExpr[0], 0, te.Span);
+        ObjNewExpr on = new ObjNewExpr(tn, te.Elems, n, te.Span);
+        return this._bindNew(on, env, null);
+    }
+
     private static bool _isOwnField(Z42ClassType ct, string name) {
         int i = 0;
         while (i < ct.OwnFieldCount) { if (ct.OwnFieldNames[i] == name) { return true; } i = i + 1; }

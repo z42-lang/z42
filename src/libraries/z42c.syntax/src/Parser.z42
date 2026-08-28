@@ -329,7 +329,7 @@ public sealed class Parser {
             // 覆盖 class/struct/interface/enum/delegate/顶层函数（impl 无可见性，排除）。
             if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface
                 || dk == TokenKind.Enum || dk == TokenKind.Delegate
-                || this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
+                || this._isTypeKeyword(dk) || dk == TokenKind.Identifier || dk == TokenKind.LParen) {
                 if (this._declP._modsHas(mods, "private") || this._declP._modsHas(mods, "protected")) {
                     this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
                         "top-level declaration cannot be private or protected (use internal or public)", this._peek().Span);
@@ -348,8 +348,8 @@ public sealed class Parser {
                 d = this._declP._parseEnum(mods);
             } else if (dk == TokenKind.Delegate) {
                 d = this._declP._parseDelegate(mods);
-            } else if (this._isTypeKeyword(dk) || dk == TokenKind.Identifier) {
-                // 顶层自由函数：Type Name(params) { body }
+            } else if (this._isTypeKeyword(dk) || dk == TokenKind.Identifier || dk == TokenKind.LParen) {
+                // 顶层自由函数：Type Name(params) { body }（Type 可为元组类型 `(int,string) f()` 或函数类型返回）
                 d = this._declP._parseTopLevelFunc(mods);
             } else {
                 this._diags.Error(DiagnosticCodes.UnexpectedToken, "expected declaration (class/struct/interface/enum/delegate/func)", this._peek().Span);

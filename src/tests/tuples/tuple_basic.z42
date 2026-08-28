@@ -1,0 +1,71 @@
+namespace Demo;
+
+using Std;
+
+// add-tuple-types e2e：元组类型 `(T1,...)` / 字面量 `(a, b)` / 模式 `(x, y)`（switch / is / 解构声明）。
+// 后端 = 合成 Std.ValueTupleN 值元组（类型擦除 blob）。**jit 双验必做**（struct blob 读 + 分支高风险区）。
+// 绑定用裸标识符（无 var）；纯 Assert（无 expected 文件 = 空 stdout）。
+
+// 返回元组类型
+(int, string) mkPair() { return (7, "hi"); }
+
+// 元组作参数类型
+int sumTriple((int, int, int) t) {
+    switch (t) {
+        case (a, b, c): return a + b + c;
+        default:        return -1;
+    }
+}
+
+void Main() {
+    // ── 字面量 + 字段访问（.ItemN）─────────────────────────
+    (int, string) p = (7, "hi");
+    Assert.Equal(7, p.Item1);
+    Assert.Equal("hi", p.Item2);
+
+    // ── 返回值元组 ─────────────────────────────────────────
+    (int, string) q = mkPair();
+    Assert.Equal(7, q.Item1);
+    Assert.Equal("hi", q.Item2);
+
+    // ── switch 元组模式（含常量子模式 + 通配）─────────────
+    int sum = -1;
+    switch (p) {
+        case (0, s):  sum = 100; break;
+        case (n, s):  sum = n;   break;
+        default:      sum = -2;  break;
+    }
+    Assert.Equal(7, sum);
+
+    // ── 元组作参数 + 三元组模式 ────────────────────────────
+    Assert.Equal(6, sumTriple((1, 2, 3)));
+
+    // ── is 元组模式 ────────────────────────────────────────
+    (int, int) pt = (3, 4);
+    int isSum = -1;
+    if (pt is (a, b)) { isSum = a + b; }
+    Assert.Equal(7, isSum);
+
+    // ── 解构声明 `(x, y) = t` ──────────────────────────────
+    (x, y) = pt;
+    Assert.Equal(3, x);
+    Assert.Equal(4, y);
+
+    // ── 嵌套元组模式（每层读入寄存器 → 类型擦除深嵌套安全）─
+    ((int, int), int) nested = ((5, 6), 7);
+    int nsum = -1;
+    switch (nested) {
+        case ((aa, bb), cc): nsum = aa + bb + cc; break;
+        default:             nsum = -3;           break;
+    }
+    Assert.Equal(18, nsum);
+
+    // ── 引用类型元素（string）+ 位置常量 ───────────────────
+    (string, int) tag = ("k", 9);
+    int tv = -1;
+    switch (tag) {
+        case ("k", v): tv = v;  break;
+        default:       tv = -4; break;
+    }
+    Assert.Equal(9, tv);
+}

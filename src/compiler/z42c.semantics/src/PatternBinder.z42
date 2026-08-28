@@ -22,6 +22,7 @@ public sealed class PatternBinder {
             return new BoundConstantPattern(v, pat.Span);
         }
         if (pat is NamePattern)       { return this._bindName(pat as NamePattern, subjType, env); }
+        if (pat is TuplePattern)      { return this._bindTuple(pat as TuplePattern, subjType, env); }
         if (pat is PositionalPattern) { return this._bindPositional(pat as PositionalPattern, subjType, env); }
         if (pat is PropertyPattern)   { return this._bindProperty(pat as PropertyPattern, subjType, env); }
         if (pat is OrPattern)         { return this._bindOr(pat as OrPattern, subjType, env); }
@@ -169,6 +170,45 @@ public sealed class PatternBinder {
         env.Define(tn, subjType);
         return new BoundBindingPattern(tn, subjType, np.Span);
     }
+
+    // 元组模式（add-tuple-types）：`( p0, p1, ... )` 解构 Std.ValueTupleN。subject 静态类型须为 ValueTupleN
+    // 实例化类型（switch/is 的 subject 类型，或嵌套元组的父字段类型）；按位取元素类型（Item_k 字段 → 类形参
+    // T_k 经 _substGeneric 具化）递归绑定子模式。产出 BoundPositionalPattern（复用其 struct blob 字段读 emit：
+    // ValueTupleN 是多字段 struct → _isBlobStruct 真 → needTest false、走 StructFieldGetPrim 按位偏移读；不复用
+    // _bindPositional 的 IsRecord/泛型 struct defer 强制）。Boxed=false（值元组，直读 blob）。
+    private BoundPattern _bindTuple(TuplePattern tp, Z42Type subjType, TypeEnv env) {
+        Z42InstantiatedType inst = null;
+        Z42ClassType ct = null;
+        if (subjType is Z42InstantiatedType) { inst = subjType as Z42InstantiatedType; ct = inst.Def; }
+        else if (subjType is Z42ClassType) { ct = subjType as Z42ClassType; }
+        if (ct == null || !PatternBinder._isTupleType(ct.Name())) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "tuple pattern requires a tuple-typed subject, got " + subjType.Name(), tp.Span);
+            return new BoundWildcardPattern(tp.Span);
+        }
+        if (tp.Count != ct.OwnFieldCount) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "tuple pattern arity mismatch: subject is a " + ct.OwnFieldCount.ToString() + "-tuple", tp.Span);
+            return new BoundWildcardPattern(tp.Span);
+        }
+        string[]       fieldNames = new string[tp.Count];
+        Z42Type[]      fieldTypes = new Z42Type[tp.Count];
+        BoundPattern[] elems      = new BoundPattern[tp.Count];
+        int i = 0;
+        while (i < tp.Count) {
+            string fname = ct.OwnFieldNames[i];   // Item1..ItemN
+            fieldNames[i] = fname;
+            Z42Type fty = PatternBinder._fieldType(ct, fname);
+            if (inst != null) { fty = MemberResolver._substGeneric(fty, inst); }   // 类形参 T_k → 元素实参类型
+            fieldTypes[i] = fty;
+            elems[i] = this.Bind(tp.Elems[i], fty, env);
+            i = i + 1;
+        }
+        BoundPositionalPattern bpp = new BoundPositionalPattern(ct.Name(), subjType, fieldNames, fieldTypes, elems, tp.Count, tp.Span);
+        bpp.Boxed = false;
+        return bpp;
+    }
+
+    // 元组类型判定：合成 Std.ValueTupleN（短名/FQ 均含 "ValueTuple"）。
+    private static bool _isTupleType(string name) { return name.IndexOf("ValueTuple") >= 0; }
 
     // 位置模式（record 解构）：T 必须 record class 或 struct record；子模式数 == 声明序字段数；逐字段递归绑定。
     // 泛型 record（Box<int>）：resolve 成 Z42InstantiatedType → 解开 Def 走 record/arity 校验，字段类型经

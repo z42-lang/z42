@@ -204,15 +204,20 @@ public sealed class StmtParser {
         // 函数类型 var-decl：`(T,...) -> R name = ...`。判别：`(...)` 后紧跟 `->`（Arrow 仅
         // 出现在函数类型；lambda 用 `=>` FatArrow），故 `)->` 是干净的函数类型 var-decl 信号。
         if (k == TokenKind.LParen) {
-            int depth = 0; int o = 0;
+            int depth = 0; int o = 0; bool sawComma = false;
             while (o < 64) {
                 int kk = this._p._peekAt(o).Kind;
                 if (kk == TokenKind.LParen) { depth = depth + 1; }
                 else if (kk == TokenKind.RParen) { depth = depth - 1; if (depth == 0) { o = o + 1; break; } }
+                else if (kk == TokenKind.Comma && depth == 1) { sawComma = true; }   // 顶层逗号 → 元组类型信号
                 else if (kk == TokenKind.Eof || kk == TokenKind.Semicolon || kk == TokenKind.LBrace) { return false; }
                 o = o + 1;
             }
-            if (this._p._peekAt(o).Kind == TokenKind.Arrow) { return true; }
+            if (this._p._peekAt(o).Kind == TokenKind.Arrow) { return true; }   // 函数类型 `(T,...) -> R name`
+            // 元组类型 var-decl（add-tuple-types）：`(T1, T2, ...) name`（≥2 元素含顶层逗号 → sawComma；
+            // `)` 后紧跟标识符 = 变量名）。区别于：解构声明 `(a,b)=`（后随 `=`）、元组表达式语句 `(a,b);`
+            // （后随 `;`）、单元素分组/cast `(int) x`（无顶层逗号）。
+            if (sawComma && this._p._peekAt(o).Kind == TokenKind.Identifier) { return true; }
         }
         if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Identifier) { return true; }
         // nullable 类型注解 var-decl：`Name? name`（如 `IPAddress? a = ...`）。区别于三元
@@ -339,6 +344,9 @@ public sealed class StmtParser {
         int first = this._p._peek().Kind;
         // 属性省类型：`{ ... } =`
         if (first == TokenKind.LBrace) { return this._braceBalancedThenEq(0); }
+        // 元组解构声明（add-tuple-types）：裸 `( ... ) =`（配平圆括号后须见 `=`；区别于 `(a,b);` 元组表达式语句、
+        // `(T)x = ...` cast 赋值——后者 `)` 后跟标识符非 `=`）。
+        if (first == TokenKind.LParen) { return this._parenBalancedThenEq(0); }
         if (first != TokenKind.Identifier) { return false; }
         int o = this._skipTypeOffset(0);
         if (o <= 0) { return false; }
@@ -347,6 +355,20 @@ public sealed class StmtParser {
         if (at == TokenKind.LBrace) { return this._braceBalancedThenEq(o); }
         // 位置：`T ( ... ) =`（原 B 逻辑，byte-identical）
         if (at != TokenKind.LParen) { return false; }
+        int depth = 0;
+        while (o < 256) {
+            int kk = this._p._peekAt(o).Kind;
+            if (kk == TokenKind.LParen) { depth = depth + 1; }
+            else if (kk == TokenKind.RParen) { depth = depth - 1; if (depth == 0) { o = o + 1; break; } }
+            else if (kk == TokenKind.Eof || kk == TokenKind.Semicolon || kk == TokenKind.LBrace) { return false; }
+            o = o + 1;
+        }
+        return this._p._peekAt(o).Kind == TokenKind.Eq;
+    }
+
+    // 从 o 处的 `(` 起配平圆括号（支持嵌套元组 `((a,b),c)`），匹配 `)` 后须见 `=`。遇 `;`/`{`/Eof 提前否决
+    // （元组表达式语句 `(a,b);`、块起始等非解构声明）。
+    private bool _parenBalancedThenEq(int o) {
         int depth = 0;
         while (o < 256) {
             int kk = this._p._peekAt(o).Kind;

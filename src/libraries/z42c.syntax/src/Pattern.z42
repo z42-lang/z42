@@ -76,6 +76,21 @@ public sealed class PropertyPattern : Pattern {
     }
 }
 
+// 元组模式（add-tuple-types）：`( p0, p1, ... )`（≥2 子模式）—— 按位解构 Std.ValueTupleN 的
+// Item1..ItemN 字段，逐位递归匹配子模式。裸 `(` 起始（不带类型引导），区别于类型引导的位置模式 `T(...)`。
+// binder 走独立 _bindTuple（subject 须为 ValueTupleN 实例化类型），不复用位置模式的 IsRecord 强制。
+public sealed class TuplePattern : Pattern {
+    public Pattern[] Elems;
+    public int       Count;
+    public TuplePattern(Pattern[] elems, int count, Span span) { this.Span = span; this.Elems = elems; this.Count = count; }
+    public override string Dump() {
+        string s = "(tuple-pat";
+        int i = 0;
+        while (i < this.Count) { s = s + " " + this.Elems[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+}
+
 // or-模式（A2）：P0 | P1 | ...，任一匹配即匹配。仅出现在 switch 臂（is 保持 `|` = 位或）。
 // 约束（PatternBinder 校验）：子模式不得引入任何绑定（A2 defer 各 alt 绑定集一致性 + 合流 phi）。
 public sealed class OrPattern : Pattern {
