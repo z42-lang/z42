@@ -413,6 +413,9 @@ public sealed class ExprEmitter {
     // blob struct 短名（调用方已确认 _isBlobStruct）。
     internal string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
 
+    // complete-struct：模式嵌套 struct 字段读复用 AccessEmitter 的 struct 值副本产出（_access private，故转发）。
+    internal TypedReg _copyStructOut(TypedReg srcBase, int srcOff, string structName) { return this._access._copyStructOut(srcBase, srcOff, structName); }
+
     // zbc tag → IrType（供 _copyRegion 临时寄存器类型；ref 类 Str/Object/Array → Ref）。
     internal int _tagToIrType(int tag) {
         if (tag == Tag.Bool) { return IrType.Bool; }

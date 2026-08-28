@@ -195,10 +195,10 @@ public sealed class PatternBinder {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "generic struct record destructuring is not yet supported: " + tn, pp.Span);
             return new BoundWildcardPattern(pp.Span);
         }
-        // complete-pattern-engine 特性 3：放开 struct record 位置解构（emit 侧按 blob 偏移读字段，见 _emitPatFieldRead）。
-        // struct 无多态 → 要求 subject 静态即该 struct（blob 在寄存器）；boxed struct（object 持 struct）需拆箱，
-        // defer（emit 按 pattern 类型 blob 分派，故 subject 非 struct 时会误读 → 此处拦下）。嵌套 struct 字段亦 defer（下循环守卫）。
-        this._guardStructSubject(ct, subjType, tn, pp.Span);
+        // struct record 位置解构（emit 侧按 blob 偏移读字段）。complete-struct：subject 静态即该 struct →
+        // 值 blob 直读；subject 是 object/接口（持装箱 struct）→ boxed，emit 发 IsInstance + AsCast 拆箱；
+        // subject 是别的 value struct / 基元 → 报错（值 struct 无多态、无装箱，不可跨 struct 匹配）。
+        bool boxed = this._structSubjectBoxed(ct, subjType, tn, env, pp.Span);
         if (pp.ElemCount != ct.OwnFieldCount) {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "positional pattern arity mismatch: " + tn + " has " + ct.OwnFieldCount.ToString() + " fields", pp.Span);
             return new BoundWildcardPattern(pp.Span);
@@ -213,35 +213,30 @@ public sealed class PatternBinder {
             Z42Type fty = PatternBinder._fieldType(ct, fname);
             if (inst != null) { fty = MemberResolver._substGeneric(fty, inst); }   // 泛型：类形参 T → 实参 int
             fieldTypes[i] = fty;
-            this._guardNestedStructField(ct, fty, env, pp.Span);   // 特性 3：struct record 内嵌 struct 字段 defer
-            elems[i] = this.Bind(pp.Elems[i], fty, env);
+            elems[i] = this.Bind(pp.Elems[i], fty, env);   // complete-struct：嵌套 struct 字段由 emit 递归值副本读，不再 defer
             i = i + 1;
         }
-        return new BoundPositionalPattern(tn, resolved, fieldNames, fieldTypes, elems, pp.ElemCount, pp.Span);
+        BoundPositionalPattern bpp = new BoundPositionalPattern(tn, resolved, fieldNames, fieldTypes, elems, pp.ElemCount, pp.Span);
+        bpp.Boxed = boxed;
+        return bpp;
     }
 
-    // 特性 3：struct record 模式要求 subject 静态即该 struct（blob 在寄存器，emit 直发 StructFieldGetPrim）。
-    // boxed struct（subject 为 object/接口/非-struct，struct 装箱进 ref）需拆箱后再读 → defer（初版）。
-    private void _guardStructSubject(Z42ClassType ct, Z42Type subjType, string tn, Span sp) {
-        if (!ct.IsStruct) { return; }
-        // struct 无多态：合法 subject 静态类型名须恰等于 struct 名（`Point p; ... p ...`）。不等 → subject 是
-        // object/接口/别的类型（boxed struct）→ 需拆箱，defer。用 Name() 比对（跨 binder/dump 路径稳定，
-        // 不依赖可能未填充的 IsStruct 位）。
-        if (subjType.Name() != ct.Name()) {
-            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "matching a struct record pattern requires a struct-typed subject (boxed struct not yet supported): " + tn, sp);
+    // complete-struct：判定 struct record 模式的 subject 是「值 subject（直读）」还是「boxed subject（拆箱）」，
+    // 返回 boxed 标志。非 struct（class record）→ false（不涉装箱）。struct：
+    //   - subject 静态即该 struct（Name 相等）→ 值 blob 在寄存器，直读 → false
+    //   - subject 是别的 value struct / 基元标量（GetClass.IsStruct，含 int/float phantom）→ 报错
+    //     （值 struct 无多态、无装箱，不可跨 struct 匹配；基元也不可能持装箱 struct）
+    //   - 否则（object / 接口 / 引用类）→ 可持装箱 struct → boxed（emit 发 IsInstance + AsCast 拆箱）→ true
+    // 用 Name() 比对（跨 binder/dump 稳定，不依赖可能未填充的薄类型 IsStruct 位）。
+    private bool _structSubjectBoxed(Z42ClassType ct, Z42Type subjType, string tn, TypeEnv env, Span sp) {
+        if (!ct.IsStruct) { return false; }
+        if (subjType.Name() == ct.Name()) { return false; }
+        Z42ClassType sc = env.Symbols.GetClass(subjType.Name());
+        if (sc != null && sc.IsStruct) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "cannot match a struct record pattern against an unrelated struct-typed subject: " + subjType.Name() + " vs " + tn, sp);
+            return false;
         }
-    }
-
-    // 特性 3：struct record（blob 容器）的内嵌 struct-record 字段模式解构 defer（6.5 决策 3）——嵌套 struct
-    // 字段读需 blob copyRegion 值副本，初版限基元 + 引用字段。容器是 struct 且字段本身是 struct record → 报错。
-    // ⚠️ 字段类型（FieldSymbol.FieldType）是薄类型、IsStruct 未必填充 → 经 env.Symbols.GetClass 取规范类型判；
-    // 且须 IsStruct **且** IsRecord（排除基元标量 int/float——它们 IsStruct=true 但按 prim 读 struct_fget_prim 正确）。
-    private void _guardNestedStructField(Z42ClassType ct, Z42Type fty, TypeEnv env, Span sp) {
-        if (!ct.IsStruct) { return; }
-        Z42ClassType fclass = env.Symbols.GetClass(fty.Name());
-        if (fclass != null && fclass.IsStruct && fclass.IsRecord) {
-            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "destructuring a nested struct-record field of a struct record is not yet supported: " + fty.Name(), sp);
-        }
+        return true;   // object / 接口 / 引用类 subject 持装箱 struct → 拆箱路径
     }
 
     // 属性模式：T{F:p}（HasType 测类型）/ {F:p}（省类型，仅按字段名）。逐字段递归绑定。
@@ -261,12 +256,13 @@ public sealed class PatternBinder {
         Z42ClassType ct = null;
         if (resolved is Z42InstantiatedType) { inst = resolved as Z42InstantiatedType; ct = inst.Def; }
         else if (resolved is Z42ClassType) { ct = resolved as Z42ClassType; }
+        bool boxed = false;
         if (ct != null) {
             if (inst != null && ct.IsStruct) {
                 this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "generic struct record destructuring is not yet supported: " + tn, pp.Span);
                 return new BoundWildcardPattern(pp.Span);
             }
-            this._guardStructSubject(ct, subjType, tn, pp.Span);   // 特性 3：boxed struct defer
+            boxed = this._structSubjectBoxed(ct, subjType, tn, env, pp.Span);   // complete-struct：boxed struct 拆箱
         }
         string[]       names      = new string[pp.FieldCount];
         Z42Type[]      fieldTypes = new Z42Type[pp.FieldCount];
@@ -280,15 +276,16 @@ public sealed class PatternBinder {
                 if (ct.Fields.ContainsKey(fname)) {
                     fty = PatternBinder._fieldType(ct, fname);
                     if (inst != null) { fty = MemberResolver._substGeneric(fty, inst); }   // 泛型：类形参 T → 实参 int
-                    this._guardNestedStructField(ct, fty, env, pp.Span);
                 }
                 else { this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no field '" + fname + "' on " + tn, pp.Span); }
             }
             fieldTypes[i] = fty;
-            pats[i] = this.Bind(pp.FieldPats[i], fty, env);
+            pats[i] = this.Bind(pp.FieldPats[i], fty, env);   // complete-struct：嵌套 struct 字段由 emit 递归值副本读
             i = i + 1;
         }
-        return new BoundPropertyPattern(pp.HasType, tn, resolved, names, fieldTypes, pats, pp.FieldCount, pp.Span);
+        BoundPropertyPattern bqp = new BoundPropertyPattern(pp.HasType, tn, resolved, names, fieldTypes, pats, pp.FieldCount, pp.Span);
+        bqp.Boxed = boxed;
+        return bqp;
     }
 
     // AST 原始类型名（镜像 BoundIsExpr：NamedType 优先取原始点串名，否则 resolved.Name()）。

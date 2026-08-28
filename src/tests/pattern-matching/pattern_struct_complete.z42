@@ -1,0 +1,87 @@
+namespace Demo;
+
+using Std;
+
+// complete-struct-pattern-destructuring e2e 自检：补齐 #316 的两个 defer——
+// ① 嵌套 struct 字段解构（struct record 字段本身是 struct record，emit 复制值副本子 blob 递归读）
+// ② boxed struct subject（object 持装箱 struct，emit IsInstance + AsCast 拆箱）。
+// 绑定用裸标识符（无 var）；所有局部显式类型。纯 Assert，空 stdout。jit 双验。
+
+[Record] struct Point(int X, int Y);
+[Record] struct Line(Point A, Point B);
+[Record] struct Triangle(Line E1, Line E2);
+
+void Main() {
+    // ── ① 嵌套 struct 字段：解构声明 Line(a, b) = l ──────────
+    Line l = new Line(new Point(1, 2), new Point(3, 4));
+    Line(a, b) = l;                 // a, b : Point（值副本）
+    Assert.Equal(1, a.X);
+    Assert.Equal(2, a.Y);
+    Assert.Equal(3, b.X);
+    Assert.Equal(4, b.Y);
+
+    // ── ① 深层嵌套：解构到叶子基元 Line(Point(ax, ay), Point(bx, by)) ──
+    Line(Point(ax, ay), Point(bx, by)) = l;
+    Assert.Equal(1, ax);
+    Assert.Equal(2, ay);
+    Assert.Equal(3, bx);
+    Assert.Equal(4, by);
+
+    // ── ① 嵌套 + switch（struct record，值 subject）──────────
+    int sum = 0;
+    switch (l) {
+        case Line(Point(x1, _), Point(_, y2)):
+            sum = x1 + y2;       // 1 + 4
+            break;
+        default:
+            sum = -1;
+            break;
+    }
+    Assert.Equal(5, sum);
+
+    // ── ① 三层嵌套 struct：Triangle(Line(Point(...))) ────────
+    Triangle t = new Triangle(new Line(new Point(7, 8), new Point(9, 10)), new Line(new Point(11, 12), new Point(13, 14)));
+    Triangle(Line(Point(p0, _), _), _) = t;
+    Assert.Equal(7, p0);
+
+    // ── ② boxed struct subject：object 持装箱 struct ─────────
+    Point pt = new Point(5, 6);
+    object o = pt;                  // 装箱
+    int bx2 = -1;
+    int by2 = -1;
+    if (o is Point(px, py)) {
+        bx2 = px;
+        by2 = py;
+    }
+    Assert.Equal(5, bx2);
+    Assert.Equal(6, by2);
+
+    // ── ② boxed 不匹配：object 持别的类型 → 不匹配 ───────────
+    object o2 = "not a point";
+    bool matched = false;
+    if (o2 is Point(qx, qy)) {
+        matched = true;
+    }
+    Assert.Equal(false, matched);
+
+    // ── ② boxed struct + switch + 属性模式 ──────────────────
+    object o3 = new Point(0, 99);
+    string desc = "";
+    switch (o3) {
+        case Point { X: 0, Y: yy }:
+            desc = "x0-y" + yy.ToString();
+            break;
+        default:
+            desc = "other";
+            break;
+    }
+    Assert.Equal("x0-y99", desc);
+
+    // ── ② boxed struct 位置 + 嵌套（object 持 Line）──────────
+    object ol = new Line(new Point(21, 22), new Point(23, 24));
+    int nx = -1;
+    if (ol is Line(Point(lx, _), _)) {
+        nx = lx;
+    }
+    Assert.Equal(21, nx);
+}

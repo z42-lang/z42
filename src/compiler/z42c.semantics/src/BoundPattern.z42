@@ -54,6 +54,7 @@ public sealed class BoundPositionalPattern : BoundPattern {
     public Z42Type[]      FieldTypes;   // 第 i 字段类型（emit 分配 field_get 目标寄存器 IrType 用）
     public BoundPattern[] Elems;
     public int            ElemCount;
+    public bool           Boxed;   // complete-struct：subject 为 object/接口持装箱 struct → emit IsInstance+AsCast 拆箱（默认 false=值 subject 直读，byte-identical）
     public BoundPositionalPattern(string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] elems, int elemCount, Span span) { this.Span = span;
         this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Elems = elems; this.ElemCount = elemCount;
     }
@@ -74,6 +75,7 @@ public sealed class BoundPropertyPattern : BoundPattern {
     public Z42Type[]      FieldTypes;   // 第 i 字段类型（emit 分配 field_get 目标寄存器 IrType 用）
     public BoundPattern[] Pats;
     public int            FieldCount;
+    public bool           Boxed;   // complete-struct：subject 为 object/接口持装箱 struct → emit IsInstance+AsCast 拆箱（默认 false，byte-identical）
     public BoundPropertyPattern(bool hasType, string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] pats, int fieldCount, Span span) { this.Span = span;
         this.HasType = hasType; this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Pats = pats; this.FieldCount = fieldCount;
     }
