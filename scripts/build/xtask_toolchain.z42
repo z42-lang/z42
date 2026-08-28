@@ -119,27 +119,39 @@ int _ensureToolchainDeps(string root) {
     return 0;
 }
 
-// 合并 Z42_LIBS 目录（stdlib z42.* + 编译器 z42c.* + z42.scripting）——driver 的 Z42_LIBS 是
-// 单目录，而 z42.scripting/z42.interactive 要同时解析 stdlib 与 z42c.*，故合并到一处。
+// 合并 Z42_LIBS 目录（stdlib z42.* + 编译器 z42c.* + REPL 栈库 z42.scripting/z42.repl）——driver
+// 的 Z42_LIBS 是单目录，而 REPL 栈库 / z42.interactive 要同时解析 stdlib 与 z42c.*，故合并到一处。
 string _scriptingLibsDir(string root) {
     return Path.Join(root, "artifacts/build/toolchain/.scripting-libs");
 }
 
-// build z42.scripting（依赖 z42c.* + stdlib）→ libs。合并目录 = stdlib + z42c.* dist；
-// 建成后把 z42.scripting.zpkg 也并入合并目录，供 z42.interactive 用同一目录解析。
+// build REPL 栈的两个 compiler-consuming 库（依赖 z42c.* + stdlib）→ libs。合并目录 = stdlib +
+// z42c.* dist；每建成一个就并入合并目录，供后续栈库 + z42.interactive 用同一目录解析。
+// 顺序：z42.scripting（eval-core）先，z42.repl（tty 交互，依赖其 Completeness）后。
+// (add-z42-repl / split-z42-repl)
 int _buildScriptingLib(string root, string vm, string z42cDir, string libs) {
     string combined = _scriptingLibsDir(root);
     Directory.Create(combined);
     _copyAll(libs, combined, "z42.*.zpkg");
     _copyAll(z42cDir, combined, "z42c.*.zpkg");
-    string toml = "src/toolchain/scripting/z42.scripting.z42.toml";
-    _vNormal("  scripting: " + toml + " (Z42_LIBS=stdlib+z42c) → " + libs);
+    int c = _buildReplStackToml(vm, z42cDir, libs, combined,
+        "src/toolchain/scripting/z42.scripting.z42.toml", "z42.scripting");
+    if (c != 0) { return c; }
+    c = _buildReplStackToml(vm, z42cDir, libs, combined,
+        "src/toolchain/repl/z42.repl.z42.toml", "z42.repl");
+    if (c != 0) { return c; }
+    return 0;
+}
+
+// 建一个 REPL 栈库：Z42_LIBS=combined（stdlib + z42c + 先前已建栈库）→ libs；建成并入 combined。
+int _buildReplStackToml(string vm, string z42cDir, string libs, string combined, string toml, string name) {
+    _vNormal("  " + name + ": " + toml + " (Z42_LIBS=stdlib+z42c) → " + libs);
     int c = _exec(new Process(vm)
         .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(toml).Arg("--release").Arg("--output-dir").Arg(libs)
         .Env("Z42_LIBS", combined));
-    if (c != 0) { ConsoleError.WriteLine("  ✗ z42.scripting build failed (" + c.ToString() + ")"); return c; }
-    _copyAll(libs, combined, "z42.scripting.zpkg");   // 并入合并目录供 z42.interactive 解析
+    if (c != 0) { ConsoleError.WriteLine("  ✗ " + name + " build failed (" + c.ToString() + ")"); return c; }
+    _copyAll(libs, combined, name + ".zpkg");   // 并入合并目录供后续栈库 + z42.interactive 解析
     return 0;
 }
 

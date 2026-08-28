@@ -3,7 +3,7 @@
 //   · 会话变量 `VarNames` + 声明名 `DeclNames`（`ScriptState`）；
 //   · 导入世界 `CachedScan`（`DepScanResult`）——各命名空间的导出类型 / 接口 / 枚举 / 自由函数名 +
 //     类型的 public 静态成员（`Exported[].Classes/Interfaces/Enums/Functions`）；
-//   · 会话变量 live 值的实例成员（`Repl.MemberNames` 运行期反射）。
+//   · 会话变量 live 值的实例成员（`Engine.MemberNames` 运行期反射）。
 //
 // 三种上下文（按光标前缀 token 判）：
 //   ① `var.mem`（var 是会话变量）→ live 值实例成员（D2；零副作用）。
@@ -16,7 +16,6 @@ namespace Std.Scripting;
 
 using Std;
 using Std.Collections;
-using Std.Repl;      // Repl.MemberNames（会话变量 obj. 实例成员反射）
 using Z42.Pipeline;  // DepScanResult（CachedScan）
 using Z42.IR;        // ExportedModuleZ / ExportedClassZ / ExportedEnumZ …（导入世界枚举）
 using Z42.Syntax;    // Lexer（关键字表权威源，KeywordCount/KeywordNameAt）
@@ -220,11 +219,11 @@ string[] _typeStaticMembers(ScriptState s, string typeName, string prefix) {
     return cands.ToArray();
 }
 
-// 会话变量 obj. 成员补全：构静态字段 FQN → Repl.MemberNames 反射 live 值类型成员 → 前缀过滤。
+// 会话变量 obj. 成员补全：构静态字段 FQN → Engine.MemberNames 反射 live 值类型成员 → 前缀过滤。
 string[] _memberComplete(ScriptState s, string receiver, string prefix) {
     string vr = s.VarsRound.ToString();
     string key = "Repl.R" + vr + ".Vars" + vr + "." + receiver;   // 见 loader.rs 静态字段 FQN 约定
-    string[] members = Repl.MemberNames(key);
+    string[] members = Engine.MemberNames(key);
     List<string> cands = new List<string>();
     int i = 0;
     while (i < members.Length) { _addCand(cands, members[i], prefix); i = i + 1; }

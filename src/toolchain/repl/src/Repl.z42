@@ -8,7 +8,7 @@ using Std;
 public static class Repl {
     // 读入（历史 / emacs 键 / Ctrl-D）。返回 null 表示 EOF（调用方据此退出）。
     // 整块多行编辑（add-repl-multiline-editing）：交互（tty）下一次 ReadLine 读**整条**多行语句——
-    // 回车键重入 z42（Std.Scripting.ReplEditing 的 "enter" 策略）按 Completeness 判「写完没」，没写完
+    // 回车键重入 z42（Std.Repl.ReplEditing 的 "enter" 策略）按 Completeness 判「写完没」，没写完
     // 就在缓冲内插换行 + 续行缩进（可上下方向键跨行编辑、粘贴回改），写完才提交整块。非交互（管道 /
     // 无 tty）下退化成读一物理行，多行仍由调用方按 Completeness.IsIncomplete 累积（见 corelib/repl.rs）。
     // 续行缩进由回车策略在缓冲内插入 → 不再需要 initial 预填参数。
@@ -22,12 +22,7 @@ public static class Repl {
 
     // 注册缩进感知键位回调的自由函数 FQN（契约 `string f(string key, string line, int pos)`）；空串清除。
     // rustyline 在 Backspace / Tab / `}` 按下时回调它取「动作串」（见 z42vm corelib/repl_editing.rs）。
-    // 策略全在 z42（Std.Scripting.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
+    // 策略全在 z42（Std.Repl.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
     [Native("__repl_set_key_editor")]
     public static extern void SetKeyEditor(string fqn);
-
-    // 读会话变量活值（静态字段 FQN = `Repl.R{N}.Vars{N}.{var}`）的运行时类型成员名（字段/方法/属性）。
-    // 零副作用（读已存静态字段，不重求值）。null / 基元 / 未加载 → 空。add-completion-query-api 阶段 3b。
-    [Native("__repl_member_names")]
-    public static extern string[] MemberNames(string staticFieldFqn);
 }

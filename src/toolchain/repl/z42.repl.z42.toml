@@ -1,0 +1,12 @@
+# z42.repl — REPL 终端交互层（tier1）。rustyline 行编辑 + 缩进感知键位策略。
+# 依赖 z42.scripting（Completeness，判「写完没」/续行缩进）——「compiler-consuming stdlib 库」，
+# 与 z42.scripting 同属 src/toolchain/（非基 stdlib workspace），由 xtask_toolchain 专用步构建。
+# 拆自 z42.scripting（split-z42-repl；程序 stdlib-interop-and-repl-split-program 轴 2 PR1）。
+[project]
+name    = "z42.repl"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.core"      = "0.1.0"
+"z42.scripting" = "0.1.0"   # Std.Scripting.Completeness（ReplEditing enter 分支整块完整性 + 续行缩进）

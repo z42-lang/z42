@@ -1,16 +1,17 @@
 # z42.scripting
 
 ## 职责
-REPL / 脚本场景的**编译+执行层**（scripting-charter Form B）：把一段 z42 源即时编译成
-内存 zpkg、加载进 live VM、反射调用求值。是 `z42.interactive`(z42i) 的引擎，用户代码也可 import。
+REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form B）：把一段 z42 源即时编译成
+内存 zpkg、加载进 live VM、反射调用求值 + 补全 / 完整性判定。是 `z42.interactive`(z42i) 的引擎，
+playground / 用户代码也可 import。**终端行编辑（tty，tier1）已拆到 [z42.repl](../repl/)**
+（`split-z42-repl`），本库只保留跨平台 eval-core。
 
 ## 功能索引
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| 行编辑（rustyline）| `Std.Repl.Repl.ReadLine(prompt)`（`Repl.z42` → z42vm builtin；tty 下读**整条多行语句**，非 tty 读一物理行）|
-| 缩进感知键位 + 回车整块判定 | `Std.Scripting.ReplEditing.KeyEdit`（`ReplEditing.z42`；决策全在 z42：退格→`dedent`、Tab→`insert:<空格>`（grid-snap）、Enter→`accept`（写完提交）/`newline:<缩进>`（没写完续行），Rust `parse_action` 只译成 redo-免疫的 `Cmd`）；经 `Repl.SetKeyEditor("Std.Scripting.replKeyEdit")` 注册；机制见 z42vm `corelib/repl_editing.rs`（add-repl-indent-editing / add-repl-tab-grid-snap / add-repl-multiline-editing）|
 | 内存加载编译产物 | `Std.Scripting.Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
+| 会话变量 live 值成员名反射（补全用）| `Std.Scripting.Engine.MemberNames`（`__repl_member_names`；反射查询，split-z42-repl 从 Std.Repl.Repl 下移消环）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`）|
@@ -46,15 +47,15 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）为准。
 - 设计/机制：[`docs/design/toolchain/repl.md`](../../../docs/design/toolchain/repl.md)；
   输入完整性判定机制（parser 权威 / 探针解耦 / 裸 parse）见 [`docs/book/src/toolchain/repl-input-completeness.md`](../../../docs/book/src/toolchain/repl-input-completeness.md)
 - 引入/演进：change `add-z42-repl`（`docs/spec/changes/`；D2 依赖层级 / D7 命名 / D8 状态模型）；
-  完整性判定改 parser 权威见 change `add-repl-parser-completeness`
+  完整性判定改 parser 权威见 change `add-repl-parser-completeness`；终端交互层拆出见 change `split-z42-repl`
+- 终端行编辑 / 键位（tier1）：[z42.repl](../repl/)
 
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `Repl.z42` | `Std.Repl.Repl` 行编辑原生绑定（`ReadLine` / `SetCompleter` / `SetKeyEditor` / `MemberNames`）|
-| `ReplEditing.z42` | `Std.Scripting.ReplEditing.KeyEdit`：键位策略（退格 `dedent` / Tab `insert:` grid-snap / Enter `accept`｜`newline:<缩进>` 整块多行判定，复用 `Completeness`）+ 自由函数 `replKeyEdit` 回调 |
-| `Completeness.z42` | 输入完整性探针 `IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）+ 续行缩进 `ContinuationIndent`（Lexer 数括号）|
-| `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用原语 |
+| `Completeness.z42` | 输入完整性探针 `IsIncomplete`（裸 parse 原文，读 parser `IncompleteAtEof`；与求值解耦）+ 续行缩进 `ContinuationIndent`（Lexer 数括号）——由 z42.repl 的 `ReplEditing.KeyEdit` Enter 分支 / `interactive_main` 逐行累积调用 |
+| `Engine.z42` | `Std.Scripting.Engine` 内存加载 + FQN 调用 + 成员名反射（`LoadBytes` / `Invoke` / `MemberNames`）|
+| `Completer.z42` | Tab 补全（`replComplete`）：会话变量 / 声明名 / 导入世界 / live 值实例成员（`Engine.MemberNames`）|
 | `ScriptState.z42` / `EvalResult.z42` | 会话状态（含声明累积表）/ eval 结果 |
 | `Classifier.z42` | 输入分类：using / var / 顶层函数·类型声明 / 表达式·语句 |
 | `Rewriter.z42` | 会话变量裸引用 → `Vars{N}.x` 限定改写 |

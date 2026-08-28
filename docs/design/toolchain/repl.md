@@ -120,15 +120,18 @@ z42 repl
   └── launcher.zpkg 路由 repl 命令
         │  Z42_LIBS = libs/ + programs/z42c/ + programs/interactive/
         └── z42vm programs/interactive/z42.interactive.zpkg
-              ├── LineEditor      — __readline native builtin（Rust rustyline）
-              ├── InputClassifier — 区分表达式 / 声明 / 语句
-              ├── ReplSession     — 会话状态（growing transcript）
-              └── z42.scripting   — Script.Eval() → compile + load + invoke
+              ├── z42.repl        — Std.Repl.Repl 行编辑（rustyline）+ ReplEditing 键位（tty 交互层，tier1）
+              ├── z42.scripting   — Script.Eval() → compile + load + invoke（跨平台 eval-core）
+              │                     + Classifier（分类）/ Completeness（完整性）/ Completer（补全）
+              └── ReplSession     — 会话状态（growing transcript）
 ```
 
 关键约定：
+- **包分层（split-z42-repl）**：`z42.scripting`(`Std.Scripting`) = 跨平台编译+执行内核（playground/wasm 亦用）；
+  `z42.repl`(`Std.Repl`) = tier1 终端行编辑 / 键位。z42.repl 单向依赖 z42.scripting（Completeness）；
+  反射查询 `Engine.MemberNames`（补全用）归 scripting 引擎、不归 repl（消 scripting↔repl 环）。
 - REPL 通过 `z42.scripting` 调用已加载的编译器 zpkg（`programs/z42c/`），不直接依赖 `z42c` 命令
-- 行编辑器由 Rust 侧实现（rustyline），通过 native builtin `__readline` 暴露给 z42 程序
+- 行编辑器由 Rust 侧实现（rustyline），通过 native builtin `__repl_readline` 暴露给 z42 程序（`Std.Repl.Repl`）
 
 ## 启动预热（后台线程，add-repl-prewarm 2026-07-29）
 
@@ -311,9 +314,12 @@ static int $Eval_3() { return $ReplVars.x + $ReplVars.y; }
 （缺 `}` / 操作数 / 未闭合 `(){}[]` 等）→ 没写完 `... ` 续行、写完才求值。续行缩进由脚本层
 `Completeness.ContinuationIndent`（Lexer 数括号）算好、交 `Repl.ReadLine` 预填；native 无括号状态机。
 
-## z42.scripting API
+## z42.scripting / z42.repl API
 
-REPL 的编译 + 执行层，实现 scripting-charter Form B（状态承载）。位置：`libs/z42.scripting.zpkg`（stdlib，用户代码也可 import）。
+REPL 拆两包（split-z42-repl）：**`z42.scripting`(`Std.Scripting`)** = 跨平台编译+执行内核（scripting-charter
+Form B，状态承载；`libs/z42.scripting.zpkg`，playground/wasm/用户代码亦可 import）；**`z42.repl`(`Std.Repl`)**
+= tier1 终端行编辑 / 键位（`libs/z42.repl.zpkg`）。下方 `Std.Scripting` 面为 eval-core；`Std.Repl.Repl`（`ReadLine`
+/ `SetCompleter` / `SetKeyEditor`）+ `Std.Repl.ReplEditing.KeyEdit` 为 tty 交互面。
 
 ```z42
 namespace Std.Scripting {
