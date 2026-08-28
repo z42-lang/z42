@@ -56,6 +56,23 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
             File.Copy(src, dst);
         }
     }
+    // 前端库（route A 后 z42c.core + z42c.syntax 已挪入 src/libraries，非 compiler member）也被 driver
+    // 自包含 bundle。它们不在 members 循环里 → 若只刷 member，driver 会一直带**旧种子前端**（如缺新增
+    // syntax 节点 TupleExpr），冷启动 semantics self-build 报 `undefined type`、且内部环重试无法收敛
+    // （见 _buildCompilerViaZ42c line 72）。故须从 fresh libraries dist 同步这两个前端库进 driver bundle，
+    // 使重试用的 driver 认得当前源新增的前端符号（post-#317 冷启动收敛的必要环节）。
+    string libDist = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    _copyIfNewer(Path.Join(libDist, "z42c.core.zpkg"),   Path.Join(driverDist, "z42c.core.zpkg"));
+    _copyIfNewer(Path.Join(libDist, "z42c.syntax.zpkg"), Path.Join(driverDist, "z42c.syntax.zpkg"));
+}
+
+// 覆盖复制（存在即删后拷）；src 不存在则跳过（冷启动首刷时 libraries dist 可能尚未产出前端库，
+// 由 _ensureBootstrapSelfDepLibs 建好后的重试刷再命中）。
+void _copyIfNewer(string src, string dst) {
+    if (File.Exists(src) && src != dst) {
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(src, dst);
+    }
 }
 
 // C#-free z42c self-build：用现有 z42c.driver.zpkg 作种子编译器，一句 `build --workspace`
