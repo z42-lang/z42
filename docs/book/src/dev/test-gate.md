@@ -42,7 +42,7 @@ graph LR
     B[stdlib + z42c 自建] --> D[debug z42vm<br/>+ compression cdylib]
     D --> R[regen 构建波<br/>cargo release z42vm<br/>+ golden .zbc]
     R --> S1[e2e goldens<br/>interp]
-    S1 --> S2[e2e cross-zpkg]
+    S1 --> S2[e2e cross-zpkg<br/>编译=release·运行=debug]
     S2 --> S3[stdlib Test 用例]
     S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
     S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
@@ -55,6 +55,13 @@ graph LR
 新增 VM builtin），会在 regen 阶段 panic「unknown builtin」→ 全体 golden 假失败、且 regen 返回 1
 早退使 debug vm 那步永远跑不到。故 `_testAll` / `_testE2eCore` 把 `_buildDebugVmAndCompression()`
 排在 `_regenForTest()` 之前。
+
+**cross-zpkg 的 fixture 编译走 release z42vm、运行走 debug z42vm**（speed-up-cross-zpkg-compile-vm，
+2026-08-29）：该 stage 每个 fixture 要三阶段 z42c 编译（target→ext→main，~40 次/全跑），是
+`test-host(linux-x64)` 的 pole（debug VM 编译慢 release 一个量级 → ~18min）。debug VM 的价值
+（overflow-checks + 内存布局 `debug_assert!`）在**执行期**触发，编译走 debug 零覆盖价值，故
+`_runOneCrossCase` 用 `compileVm`(release) 编 fixture、`runVm`(debug) 跑 main.zpkg——跨包 dispatch
+的 debug 断言覆盖不丢，pole 消失（~18→2-3min）。`--toolchain` 消费路径只带 release VM，编译+运行同为它。
 （`vscode-syntax` 守生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 +
 模板」的重渲染——Lexer 加关键字未 `deps install vscode` 重新生成即红，性质同自举不动点。）
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e

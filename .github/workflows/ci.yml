@@ -844,9 +844,12 @@ jobs:
   # ── cross-zpkg coverage ─────────────────────────────────────────────────────
   # cross-zpkg (zpkg linking + cross-package dispatch) is folded back into
   # test-host(linux-x64): that leg's `_testAll` runs the cross-zpkg stage under
-  # interp (only linux-x64 — other legs skip it; host-independent). The debug
-  # z42vm needed by cross-zpkg fixtures is built by _buildDebugVmAndCompression
-  # inside _testAll. JIT cross-zpkg is dropped: zpkg linking is bytecode-level,
+  # interp (only linux-x64 — other legs skip it; host-independent). Fixtures are
+  # COMPILED on the release z42vm (the 3-stage-per-fixture compile was the ~18min
+  # pole on debug) and RUN on the debug z42vm (keeps debug-assertions + overflow-
+  # checks coverage on real cross-package execution) — speed-up-cross-zpkg-compile-vm.
+  # Both z42vm builds come from _testAll's build wave. JIT cross-zpkg is dropped:
+  # zpkg linking is bytecode-level,
   # and JIT execution correctness is already covered by vm-jit goldens (~222 cases).
 
   # ── self-host bootstrap verification ──────────────
