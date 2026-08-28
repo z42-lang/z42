@@ -150,3 +150,7 @@ pub(crate) extern "C" fn keyedit_trampoline(
         _ => std::ptr::null_mut(),
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]
+#[path = "repl_editing_tests.rs"]
+mod repl_editing_tests;

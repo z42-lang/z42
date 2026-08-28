@@ -301,3 +301,7 @@ pub(crate) fn plain_readline(prompt: &str) -> Result<Value> {
     }
     Ok(Value::Str(line.trim_end_matches(['\n', '\r']).to_string().into()))
 }
+
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]
+#[path = "repl_tests.rs"]
+mod repl_tests;

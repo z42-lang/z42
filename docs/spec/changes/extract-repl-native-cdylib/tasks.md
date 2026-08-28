@@ -43,10 +43,13 @@
 
 ## 阶段 4: 测试 + 文档 + GREEN
 - [ ] 4.1 cdylib 单测（parse_action / word_start / Completer 逻辑，mock cbs）
-- [ ] 4.2 z42vm trampoline 单测（mock cbs 回调 → VmContext 重入 + 异常穿透 + GC unpark）
-      —— 注：阶段 2 删了 z42vm 侧 `repl_tests.rs`(word_start)/`repl_editing_tests.rs`(parse_action)，二者已随
-      代码搬进 cdylib 并在 `cargo test -p z42-repl` 覆盖（helper.rs / editing.rs tests）；本项补的是**新的**
-      VM 侧 trampoline 覆盖（旧两文件不是丢失覆盖，是搬家）
+- [x] 4.2 z42vm trampoline 单测（新 `repl_tests.rs`/`repl_editing_tests.rs`/`repl_native` tests，10 个）：
+      complete/keyedit trampoline 的**防御契约**——null ctx/line/key → null、无注册 → null、callback 出错
+      （module=None）→ **吞成 null 不 panic**（park 嵌套镜像 builtin_repl_readline 保 parked_count 平衡）+
+      `z42vm_free_str` 释放/null no-op + `lib_filename` 平台形状。re-entrancy 正确性由 `__repl_complete_probe`
+      路径 + z42 golden 覆盖（未变）。
+      —— 注：阶段 2 删的旧 `repl_tests.rs`(word_start)/`repl_editing_tests.rs`(parse_action) 已随代码搬进 cdylib
+      由 `cargo test -p z42-repl` 覆盖；本 4.2 是**新**的 VM 侧 trampoline 覆盖，与旧文件同名但内容全换。
 - [x] 4.3 `docs/book/src/runtime/native-extensions.md`（通用机制 SoT，含单向/compression + 双向/repl 两实例、
       ReplCallbacks/trampoline/out_kind/懒 dlopen/GC 重入/打包位置 + 新增扩展清单）+ SUMMARY 接线。
       crate README 不加（与 compression 一致，靠 lib.rs `//!` doc；native/README 无此文件，机制 SoT 已覆盖）

@@ -218,4 +218,26 @@ mod native {
             drop(unsafe { CString::from_raw(s) });
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn free_str_frees_owned_and_ignores_null() {
+            // A pointer from `CString::into_raw` (as the trampolines produce) is
+            // reclaimed without leak/double-free; null is a no-op.
+            let owned = CString::new("candidate").unwrap().into_raw();
+            z42vm_free_str(owned);
+            z42vm_free_str(std::ptr::null_mut());
+        }
+
+        #[test]
+        fn lib_filename_is_platform_shaped() {
+            let f = lib_filename();
+            assert!(f.contains("z42_repl"));
+            // libz42_repl.dylib / .so, or z42_repl.dll on Windows.
+            assert!(f.ends_with(std::env::consts::DLL_SUFFIX));
+        }
+    }
 }
