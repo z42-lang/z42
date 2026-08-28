@@ -40,7 +40,7 @@
 - [x] 4.5 新增测试：z42.core/tests/primitive_protocol_script.z42（int/long hash 折叠 + char ASCII casing + double/single hash 一致性 + string ToString）
 - [x] 4.a cargo test --lib —— 全绿（Rust 已还原 origin/main，char casing 单测保留）
 - [x] 4.2 CI compile-toolchain + test-host —— Stage 1 修订版已过（还原 builtin 后绿，#310 已合）
-- [ ] 4.4 Stage 2 完整 CI GREEN（compile-toolchain 不再 panic + stdlib dogfood + bootstrap + jit）—— **PR CI 为权威**
+- [x] 4.4 Stage 2 完整 CI GREEN（compile-toolchain 不再 panic —— 实测 linux-x64+macos-arm64 均 success；stdlib dogfood + bootstrap + jit）—— PR #315 已合并 main（`1ba8aa15`，2026-08-28）
 
 ## 备注（追加）
 - **首版失败根因（已修）**：删 builtin → 零格式-bump 路径当前 VM 直接跑旧种子 z42c（引用 `__int32_equals`）
