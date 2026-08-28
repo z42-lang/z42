@@ -341,3 +341,61 @@ fn inmemory_package_registers_zpkg_file_as_resident() {
         "the dependent short-circuits on the resident set, never building a disk candidate",
     );
 }
+
+// ── fix-repl-sdk-compiler-closure ────────────────────────────────────────────
+// Loading a module by a foreign absolute path (e.g. z42.scripting's REPL injector
+// loading <sdk>/programs/z42c/z42c.pipeline.zpkg) must let that zpkg's colocated
+// transitive deps (z42c.semantics + siblings, sitting in the SAME dir) resolve —
+// even though that dir isn't in the VM's startup search_dirs. The loader adds the
+// loaded artifact's own directory to search_dirs (appended, lowest priority).
+
+#[test]
+fn load_module_from_path_adds_loaded_module_dir_to_search_dirs() {
+    let base = std::env::temp_dir().join("z42-coloc-loadpath");
+    let start = base.join("startup-empty"); // in startup search_dirs, has nothing
+    let progdir = base.join("programs-z42c"); // where the module + its siblings live
+    let _ = std::fs::create_dir_all(&start);
+    let _ = std::fs::create_dir_all(&progdir);
+    let modpath = progdir.join("colo_mod.zpkg");
+    std::fs::copy(fixture_zpkg(), &modpath).expect("copy fixture zpkg");
+
+    // Loader's startup search_dirs deliberately EXCLUDE progdir.
+    let mut loader = LazyLoader::new(vec![start.clone()], 0, Vec::new(), Vec::new());
+    assert!(
+        !loader.search_dirs.iter().any(|d| d == &progdir),
+        "precondition: loaded module's dir is not a startup search dir",
+    );
+
+    loader
+        .load_module_from_path(modpath.to_str().unwrap())
+        .expect("load colocated fixture module by path");
+
+    assert!(
+        loader.search_dirs.iter().any(|d| d == &progdir),
+        "the loaded module's own directory must be added to search_dirs so its \
+         colocated transitive deps resolve (fix-repl-sdk-compiler-closure)",
+    );
+    // Appended, not prepended: the startup dir keeps priority.
+    assert_eq!(
+        loader.search_dirs.first(),
+        Some(&start),
+        "startup search dir stays first (module dir is a lowest-priority fallback)",
+    );
+}
+
+#[test]
+fn load_module_from_path_dedupes_module_dir() {
+    // If the module's dir is ALREADY a search dir, it isn't added twice.
+    let dir = std::env::temp_dir().join("z42-coloc-dedupe");
+    let _ = std::fs::create_dir_all(&dir);
+    let modpath = dir.join("colo_dedupe.zpkg");
+    std::fs::copy(fixture_zpkg(), &modpath).expect("copy fixture zpkg");
+
+    let mut loader = LazyLoader::new(vec![dir.clone()], 0, Vec::new(), Vec::new());
+    loader
+        .load_module_from_path(modpath.to_str().unwrap())
+        .expect("load fixture module by path");
+
+    let count = loader.search_dirs.iter().filter(|d| **d == dir).count();
+    assert_eq!(count, 1, "module dir already present → not duplicated in search_dirs");
+}
