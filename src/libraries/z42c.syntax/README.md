@@ -1,7 +1,9 @@
 # z42c.syntax
 
 ## 职责
-镜像 C# [z42.Syntax](../../compiler/z42.Syntax/README.md)：语法层（Lexer 词法 + Parser 语法 → AST）。**前端基本成型**：手写 Lexer + Pratt 表达式 + 递归下降语句/声明（class 继承 + virtual `Dump()` 出 s-expression，受限写法）。占位 `SyntaxSkeleton` 暂留（下游未移植子系统仍引用）。
+语法层（Lexer 词法 + Parser 语法 → AST）。命名空间 `Z42.Syntax`。手写 Lexer + Pratt 表达式 + 递归下降语句/声明（class 继承 + virtual `Dump()` 出 s-expression，受限写法）。依赖 `z42c.core`（Span/Diagnostic）。
+
+> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.syntax` / `Z42.Syntax`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/design/compiler/self-hosting.md) 轴 ④。
 
 ## 核心文件
 | 文件 | 职责 |

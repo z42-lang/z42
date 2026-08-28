@@ -11,9 +11,10 @@ kind    = "lib"
 include = ["**/*.z42"]
 
 [dependencies]
+"z42.test"  = "0.1.0"
 "z42c.core" = "0.1.0"
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
-# src/compiler/z42c.core/tests/diag → artifacts/build/compiler/z42c.core/tests/diag (no src pollution).
-output_dir = "../../../../../artifacts/build/compiler/z42c.core/tests/diag"
+# src/libraries/z42c.core/tests/diag → artifacts/build/libraries/z42c.core/tests/diag (no src pollution).
+output_dir = "../../../../../artifacts/build/libraries/z42c.core/tests/diag"

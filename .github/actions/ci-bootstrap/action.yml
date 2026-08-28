@@ -118,7 +118,7 @@ runs:
           # Gen0 stdlib: 旧VM + 旧种子 z42c → 编**当前** stdlib → 产出携带**当前 z42.ir API**
           # (如本次新增的 IR 字段 StackAlloc)的新 z42.ir(旧格式、旧VM 可读)。这样下面 gen1 z42c
           # 才对着「有新 API 的 z42.ir」编——否则 z42c 源新用 z42.ir 字段(轴④)在格式-bump 两代路径
-          # 会 `no field` 编译失败(正常路径由 _ensureBootstrapZ42Ir 解,两代路径此前缺此步)。stdlib
+          # 会 `no field` 编译失败(正常路径由 _ensureBootstrapSelfDepLibs 解,两代路径此前缺此步)。stdlib
           # 源不引用任何比种子更新的 API(轴② 纪律),故旧种子能编它。add-escape-analysis-stack-alloc。
           G0LIBS="$ROOT/.ci-gen0libs"; rm -rf "$G0LIBS"; mkdir -p "$G0LIBS"
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
