@@ -1,0 +1,13 @@
+// Fixture for the bundle-host smoke (wire-z42b-embedded-test ②b): a trivial [Test]
+// unit compiled to .zbc, then run as a single-case test-bundle through
+// `z42b test <manifest.json> --rid host` (Std.Test.BundleRunner). Kept minimal —
+// the smoke asserts the z42b host bundle path executes and exits 0, not any
+// specific stdlib behaviour. No z42.toml here on purpose: this dir is referenced by
+// path from the smoke, not enumerated as a manifest-target fixture.
+namespace BundleHostSmoke;
+
+using Std.Test;
+
+[Test] void bundle_host_ok() {
+    Assert.Equal(3, 1 + 2);
+}

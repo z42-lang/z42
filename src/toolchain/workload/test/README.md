@@ -17,7 +17,8 @@
 |------|-----------|
 | test-agent（命令 → 跑测试 → 结构化报告） | `agent/src/agent.z42` 的 `Z42.TestHost.Agent.Main` |
 | agent 工程（app.zpkg） | `agent/z42.testagent.z42.toml` |
-| 实际测试运行逻辑（发现/执行/报告） | `Std.Test.Runner.RunModule`（`src/libraries/z42.test`）|
+| 单模块执行逻辑（发现/执行/报告） | `Std.Test.Runner.RunModule`（`src/libraries/z42.test`）|
+| **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Test.BundleRunner.RunBundle`（`src/libraries/z42.test`）——**agent 与 z42b 共用一份核**（wire-z42b-embedded-test ②b） |
 | 嵌入入口（load app.zpkg + 跑） | `z42-host::run_app` → `z42::app::run`（`src/runtime`） |
 
 ## 基础用法
@@ -43,7 +44,9 @@ agent 通过转发的 `-- <args>` 收一条一次性命令，签名（`agent/src
 
 - **单模块**（`.zbc`）——`Runner.RunModule` 自动发现该模块的 `[Test]` / `[Benchmark]` 并跑，按
   `format` 渲染。给了 `out-path` 时改走 `RunModuleResults` → 聚合 JSON → 写文件。
-- **测试包**（以 `.json` 结尾的 manifest `{cases:[…]}`）——聚合成**一份**报告，用例分两类：
+- **测试包**（以 `.json` 结尾的 manifest `{cases:[…]}`）——聚合成**一份**报告。agent 把 manifest 解析成
+  `BundleCase[]` 后交 **`Std.Test.BundleRunner.RunBundle`** 执行（**host 上 z42b 直接调同一函数**，无需
+  agent/testhost 进程——wire-z42b-embedded-test ②b）。用例分两类：
   - `golden` = `{name, zbc, entry, expected}`：整个程序，在**全新隔离 VM**（`RunGoldensIsolated`，
     每例独立 `VmContext` 不串味）跑，比对 stdout 与 `expected` 文件。
   - `unit` = `{name, zbc}`：`[Test]` 模块，共享 VM 跑（命名空间隔离，天然无冲突）。
@@ -60,20 +63,23 @@ z42vm z42.testagent.zpkg -- bundle-manifest.json pretty            # 测试包�
 ## 如何测试验证
 
 ```bash
-xtask test embedded        # desktop 嵌入 harness：build agent + 壳 → 跑用例 → 结构化结果
-xtask test platform desktop # 平台 backend 端到端（可跑时）
+xtask test embedded        # host: xtask 组 bundle → 委托 z42b test --rid host（in-process）
+xtask test embedded --rid android-x64  # device: xtask 组 bundle → z42b 组装 {app,libs,bundle} deployable
+xtask test platform desktop # 老 IPlatformBackend 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
 ```
 
 ## 关联文档
 
-- 设计/机制：[embedded-app-run](../../../../docs/design/testing/embedded-app-run.md)、
-  [cross-platform-testing](../../../../docs/design/testing/cross-platform-testing.md)（两层模型 + bundle 缝）
-- 引入/演进：change `unify-test-pipeline-z42b`（`docs/spec/changes/` 或已归档）——本 workload 由
-  独立 `toolchain/testhost/` 迁入；z42b 接管部署 + payload-only workload 打包为后续阶段
+- 设计/机制：[test-pipeline](../../../../docs/book/src/toolchain/test-pipeline.md)（两层模型：z42b 单-bundle
+  执行器 + xtask fleet 编排器 + BundleRunner 缝，SoT）；旧
+  [embedded-app-run](../../../../docs/design/testing/embedded-app-run.md)、
+  [cross-platform-testing](../../../../docs/design/testing/cross-platform-testing.md)（迁移中）
+- 引入/演进：change `unify-test-pipeline-z42b`（阶段①归位）+ `wire-z42b-embedded-test`（②b：z42b 接管
+  host bundle 执行 + 设备语料组装，已落地）；payload-only workload 打包 = `package-test-workload`（进行中）
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `agent/src/agent.z42` | test-agent：命令 → `Runner.RunModule` / bundle 聚合 → 报告 |
+| `agent/src/agent.z42` | test-agent：命令 → `Runner.RunModule`（单模块）/ manifest→`BundleRunner.RunBundle`（bundle）→ 报告 |
 | `agent/z42.testagent.z42.toml` | agent app 工程（deps: z42.core/io/test/json） |
