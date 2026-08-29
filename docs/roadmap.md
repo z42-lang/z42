@@ -510,10 +510,16 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 平台测试 CI / 后续（add-platform-test-pipeline 之后）
 
-> 三平台 xtask 三阶段框架已落地（2026-06-16，wasm 端到端验证 7/7）。剩余：
+> 三平台 xtask 三阶段框架已落地（2026-06-16，wasm 端到端验证 7/7）。
+> **统一执行模型（unify-test-pipeline-z42b，2026-08-29 阶段①已落）**：确立 z42b = 单目标执行器 /
+> xtask = 语料编排器 / bundle manifest 为缝；on-device test-agent 迁入按需下载的能力 workload
+> `workload/test/`（取消独立 testhost 目录）。目标架构 + 分阶段见
+> [cross-platform-testing.md](design/testing/cross-platform-testing.md) 顶部与 change design.md。剩余：
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
+| `z42b-test-take-over-deploy-run` | **阶段②**：z42b 接管 on-device「部署 + 运行一个 bundle/项目」+ test workload 打包发布（payload-only 形状，design D6）。统一 `z42b test [--rid]` 接线 | wire-z42b-host-build 后 |
+| `simplify-xtask-platform-backends-to-z42b` | **阶段②核心**：`xtask_test_platform.z42` 各平台 backend（`IPlatformBackend.BuildProject/Assets/RunTests`）的 bespoke build/deploy/run 全委托 `z42b test --rid`，backend 收缩为「声明 rid + 转调 + 翻译报告」薄壳，消四平台重复；xtask 只留语料级编排 | 随 `z42b-test-take-over-deploy-run` |
 | `infra-ci-platform-test-dashboard` | CI job 跑 wasm(ubuntu+Playwright) / iOS(macos runner + Simulator `xcodebuild test`) / Android(`reactivecircus/android-emulator-runner` + KVM) 三平台 `test platform`，各产 JUnit → **GitHub Checks**（test-reporter action）聚合成 PR check runs = 跨平台测试 dashboard。GitHub 即远程同步层，无需自建服务 | 下一步（User 2026-06-16 要求）|
 | `port-android-emulator-run-to-z42` | AndroidBackend.RunTests 当前桥接 `test.sh`（emulator AVD boot/poll/kill）；完整 z42 化 + JUnit 转换 | CI 稳定后 |
 | `ios-simulator-test` | IosBackend.RunTests 当前 `swift test`（macOS host slice）；加 iOS Simulator `xcodebuild test -destination` 执行 + JUnit | CI 接入时 |
