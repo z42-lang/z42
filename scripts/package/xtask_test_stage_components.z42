@@ -26,6 +26,7 @@ int _testPackagesStaging() {
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "fake-compression-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_platform_ios.a"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
     // z42vm: bin/z42vm staged at the exact dest packages.toml declares, content
     // matches the source (a real copy, not a placeholder).
@@ -34,6 +35,17 @@ int _testPackagesStaging() {
     string vmBin = Path.Join(vmDir, "bin/z42vm");
     _stgAssert("bin/z42vm exists", File.Exists(vmBin));
     _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");
+    // isolate-repl-cdylib: the repl cdylib is NOT staged into bin/ (kept out of the
+    // shared dir the ext scanner walks).
+    _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(vmDir, "bin/libz42_repl.dylib")));
+
+    // repl cdylib: staged into the z42i component's programs/z42i/ (beside the
+    // interactive payload), NOT bin/ (isolate-repl-cdylib).
+    string z42iDir = _pkgStageDir(root, "z42i");
+    _pkgStageReplCdylib(fakeCargoOut, z42iDir);
+    string replLib = Path.Join(z42iDir, "programs/z42i/libz42_repl.dylib");
+    _stgAssert("programs/z42i/libz42_repl.dylib exists", File.Exists(replLib));
+    _stgAssert("repl cdylib content", File.ReadAllText(replLib) == "fake-repl-cdylib");
 
     // native: native/libz42.a + native/libz42_compression.a staged, mobile
     // facade excluded (_copyNativeLibs' existing filter), headers copied from
@@ -64,6 +76,6 @@ int _testPackagesStaging() {
 
     Directory.Delete(fakeCargoOut, true);
     Directory.Delete(_pubStagingRoot(root), true);
-    Console.WriteLine("packages-staging: PASS (z42vm/native/stdlib staging handlers)");
+    Console.WriteLine("packages-staging: PASS (z42vm/native/stdlib/repl-cdylib staging handlers)");
     return 0;
 }
