@@ -567,27 +567,13 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     string agent = _ensureTestAgent(root);
     if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
 
-    // 3. wasm crate → pkg-web (z42_wasm.js + z42_wasm_bg.wasm).
-    string wasmCrate = Path.Join(root, "src/toolchain/workload/wasm/platform");
-    Console.WriteLine("  wasm-pack build --target web");
-    int wc = _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
-        .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"),
-        wasmCrate);
-    if (wc != 0) { ConsoleError.WriteLine("error: wasm-pack build failed"); return ""; }
-
-    // 4. assemble the servable dir. z42b stages {app,libs,bundle} + files.json
-    // (Slice 2 delegation); then add the wasm pkg + static harness on top (these are
-    // fetched directly by the browser, NOT via the VFS files.json). z42b clears
-    // outDir first, so stage BEFORE copying the pkg/harness.
+    // 3. native build + deploy 下沉 z42b (z42b-device-run PR-1): z42b runs
+    // wasm-pack → pkg-web, stages {app,libs,bundle}+files.json, and copies the wasm
+    // pkg + static harness on top (browser-fetched, not via VFS). xtask keeps corpus
+    // build (1) + agent (2); the platform build/deploy is z42b's driver.
     string outDir = Path.Join(root, "artifacts/build/wasm-test");
-    int ac = _z42bStageDeployable(root, manifest, "browser-wasm", agent, outDir);
-    if (ac != 0) { ConsoleError.WriteLine("error: z42b stage wasm deployable failed"); return ""; }
-    string pkgWeb = Path.Join(wasmCrate, "pkg-web");
-    File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"), true);
-    File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"), true);
-    string thDir = Path.Join(root, "src/toolchain/workload/wasm/testhost");
-    File.Copy(Path.Join(thDir, "index.html"), Path.Join(outDir, "index.html"), true);
-    File.Copy(Path.Join(thDir, "run.js"), Path.Join(outDir, "run.js"), true);
+    int ac = _z42bBuildDeployable(root, manifest, "browser-wasm", agent, outDir);
+    if (ac != 0) { ConsoleError.WriteLine("error: z42b build/stage wasm deployable failed"); return ""; }
 
     Console.WriteLine("  wasm test-host → " + outDir);
     Console.WriteLine("  serve that dir (e.g. `python3 -m http.server`) and open index.html;");
@@ -595,11 +581,30 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     return outDir;
 }
 
-// Delegate on-device deployable assembly to z42b (unify-test-pipeline ②b Slice 2):
-// z42b stages destDir/{app,libs,bundle} (+ files.json for browser-wasm) from the
-// bundle manifest + the pre-built test-agent + flat stdlib (Z42_LIBS). xtask (fleet
-// orchestrator) keeps the native platform build + device RUN handoff.
-int _z42bStageDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
+// `test embedded --rid browser-wasm --run`: run the already-built deployable in the
+// browser via z42b's wasm driver (spawns the playwright embedded config). The build
+// step (`--rid browser-wasm` without --run) must have produced the deployable +
+// bundle/manifest.json. node is provisioned on PATH (CI setup-node / local); z42b
+// spawns npx playwright. z42b-device-run PR-1.
+int _runWasmTesthost(string root) {
+    string outDir   = Path.Join(root, "artifacts/build/wasm-test");
+    string manifest = Path.Join(outDir, "bundle/manifest.json");
+    if (!File.Exists(manifest)) {
+        ConsoleError.WriteLine("error: wasm deployable not built — run `test embedded --rid browser-wasm` first (missing " + manifest + ")");
+        return 1;
+    }
+    // --run only spawns playwright (deploy already done); agent/out unused there.
+    return _z42bDevice(root, manifest, "browser-wasm", "", outDir,
+        new string[] { "--run", "--build-root", root });
+}
+
+// Invoke `z42b test <manifest> --rid <device> --out <dir> --agent <agent>` + extra
+// flags, with flat stdlib in Z42_LIBS. z42b is the single-target device executor
+// (z42b-device-run); xtask (fleet orchestrator) provisions the bundle + agent +
+// stdlib + native tooling and hands them over. `extra` selects the sub-step:
+//   ["--stage-only"]                → assemble deployable only (②b; ios/android)
+//   ["--build", "--build-root", R]  → native build + deploy (wasm build 下沉)
+int _z42bDevice(string root, string manifestPath, string rid, string agent, string destDir, string[] extra) {
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
     string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
@@ -608,17 +613,29 @@ int _z42bStageDeployable(string root, string manifestPath, string rid, string ag
         return 1;
     }
     string flat = _assembleAllLibs(root, "release");
-    // --stage-only: keep this call to the ②b assemble-only behaviour. z42b-device-run
-    // made the bare `--rid <device>` default to build+deploy+run; xtask still drives
-    // the native build + device RUN itself (backend 薄化 lands per-platform), so it
-    // asks z42b for the deployable staging only.
-    ProcessResult res = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+    Process p = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
-        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent).Arg("--stage-only")
-        .Env("Z42_LIBS", flat).Run();
+        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent);
+    for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
+    ProcessResult res = p.Env("Z42_LIBS", flat).Run();
     if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
     return res.ExitCode;
+}
+
+// Assemble-only (②b Slice 2): stage destDir/{app,libs,bundle} (+ files.json for
+// browser-wasm). Used by ios/android build funcs (their native build + RUN 下沉
+// lands in PR-2/3); wasm uses _z42bBuildDeployable (build 已下沉 z42b).
+int _z42bStageDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
+    return _z42bDevice(root, manifestPath, rid, agent, destDir, new string[] { "--stage-only" });
+}
+
+// Native build + deploy 下沉 z42b: z42b runs the platform build (wasm-pack) then
+// stages the full deployable (+ pkg/harness). --build-root lets z42b's driver locate
+// the native platform crate (src/toolchain/workload/<plat>/…).
+int _z42bBuildDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
+    return _z42bDevice(root, manifestPath, rid, agent, destDir,
+        new string[] { "--build", "--build-root", root });
 }
 
 // ── mobile embedded test-host (add-wasm-testhost G6: ios / android) ───────────
@@ -803,6 +820,13 @@ int _testEmbedded(ParseResult r) {
     string tfilter = (caseOpt.Length > 0) ? caseOpt : filterOpt;
     string cat = (rid.Length == 0) ? "desktop" : _ridCategory(rid);
     if (cat == "wasm") {
+        // --run: the deployable was already built (a prior `--rid browser-wasm` step);
+        // delegate the browser RUN to z42b's wasm driver (playwright embedded). z42b-
+        // device-run PR-1. Otherwise BUILD the deployable (build 下沉 z42b via
+        // _buildWasmTesthost → z42b --build).
+        if (r.GetFlag("run")) {
+            return _runWasmTesthost(root);
+        }
         string wout = _buildWasmTesthost(root, tfilter, shardK, shardN);
         return (wout.Length > 0) ? 0 : 1;
     }

@@ -1657,12 +1657,17 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
-      - name: Playwright — embedded corpus runs green in-browser
+      # z42b-device-run PR-1: the embedded RUN is z42b's wasm driver (spawns the
+      # playwright embedded config in the tests dir). node is on PATH here
+      # (actions/setup-node) → --node-bin empty. Report回收 = playwright exit code
+      # (run.js still self-asserts window.__report; z42b relays the verdict).
+      - name: Playwright — embedded corpus runs green in-browser (via z42b --run)
         shell: bash
         run: |
           set -euo pipefail
-          cd src/toolchain/workload/wasm/platform/tests
-          npx playwright test --config playwright.embedded.config.ts
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          libs="$PWD/artifacts/build/libraries/dist/release"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --run
       # R1–R7 junit exists only on shard 1 (Playwright embedded reports via `list`,
       # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)

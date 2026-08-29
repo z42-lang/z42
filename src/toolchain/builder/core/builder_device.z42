@@ -67,16 +67,25 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 // pkg/harness) → run (playwright embedded config) → collect report.
 int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
              string libs, string buildRoot, bool wantBuild, bool wantRun) {
-    if (outDir.Length == 0) {
-        ConsoleError.WriteLine("z42b test --rid browser-wasm: --out <dir> required"); return 2;
-    }
     if ((wantBuild || wantRun) && buildRoot.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid browser-wasm --build/--run: --build-root <repo-root> required"); return 2;
     }
     string wasmCrate = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform");
 
-    // 1. native build: wasm-pack → pkg-web (z42_wasm.js + z42_wasm_bg.wasm).
+    // 1. build + deploy (coupled: deploy copies the build output). native build:
+    // wasm-pack → pkg-web; deploy: stage {app,libs,bundle}+files.json (shared Slice 2
+    // core), then copy the wasm pkg + static harness on top (fetched directly by the
+    // browser, not via the VFS files.json). _stageDeployable clears outDir first.
     if (wantBuild) {
+        if (outDir.Length == 0) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --out <dir> required"); return 2;
+        }
+        if (agent.Length == 0 || !File.Exists(agent)) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
+        }
+        if (libs.Length == 0 || !Directory.Exists(libs)) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: Z42_LIBS (flat stdlib dir) required"); return 2;
+        }
         if (Process.Which("wasm-pack") == null) {
             ConsoleError.WriteLine("z42b: wasm-pack not found (required for browser-wasm build)"); return 1;
         }
@@ -87,18 +96,7 @@ int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
         if (wp.Stdout.Length > 0) { Console.Write(wp.Stdout); }
         if (wp.Stderr.Length > 0) { ConsoleError.WriteLine(wp.Stderr); }
         if (wp.ExitCode != 0) { ConsoleError.WriteLine("z42b: wasm-pack build failed"); return wp.ExitCode; }
-    }
 
-    // 2. deploy: stage {app,libs,bundle}+files.json (shared Slice 2 core), then copy
-    // the wasm pkg + static harness on top (fetched directly by the browser, not via
-    // the VFS files.json). _stageDeployable clears outDir first, so stage BEFORE copy.
-    if (wantBuild || wantRun) {
-        if (agent.Length == 0 || !File.Exists(agent)) {
-            ConsoleError.WriteLine("z42b test --rid browser-wasm: --agent <z42.testagent.zpkg> required (not found)"); return 2;
-        }
-        if (libs.Length == 0 || !Directory.Exists(libs)) {
-            ConsoleError.WriteLine("z42b test --rid browser-wasm: Z42_LIBS (flat stdlib dir) required"); return 2;
-        }
         int sc = _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, true);
         if (sc != 0) { return sc; }
         string pkgWeb = Path.Join(wasmCrate, "pkg-web");
@@ -110,11 +108,11 @@ int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
         Console.WriteLine("z42b: wasm deployable → " + outDir);
     }
 
-    // 3. run: spawn playwright (embedded config serves outDir, loads index.html →
-    // run.js → agent → /out/report.json → window.__report). node/browsers are
-    // provisioned by xtask and passed via --node-bin / Z42_PW_BROWSERS. Report is
-    // read back from playwright's exit code (double-read: run.js still self-asserts
-    // window.__report; z42b collects the pass/fail verdict).
+    // 2. run: spawn playwright (embedded config serves the built deployable, loads
+    // index.html → run.js → agent → /out/report.json → window.__report). Assumes the
+    // deployable is already built (--build ran, or default did it above). node/browsers
+    // provisioned by xtask, passed via --node-bin / Z42_PW_BROWSERS. Double-read:
+    // run.js self-asserts window.__report; z42b collects the pass/fail verdict.
     if (wantRun) {
         return _runWasmPlaywright(r, buildRoot);
     }
