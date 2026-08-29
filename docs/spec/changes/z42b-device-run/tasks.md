@@ -22,15 +22,19 @@
       本地验 wasm build+deploy（若装 wasm-pack/playwright 可 smoke run）；playwright RUN 交 CI。
 - [ ] 文档：`test-pipeline.md` 加 verb 扩展 + wasm driver 说明（per-platform 表 PR-2+ 补全）。
 
-## PR-2：ios 全接管
+## PR-2：ios 全接管 ✅
 
-- [ ] ios driver：build（`_buildIosXcframework` 逻辑下沉：cargo×slices + `xcodebuild
-      -create-xcframework`）+ deploy（拷 Resources/embedded）+ run（`xcodebuild test -scheme Z42VM
-      -destination <sim>`；sim UDID 由 `simctl list devices available` 解析）+ 回收报告。
-- [ ] 保持「一次 sim boot 同跑 R1–R7 + embedded bundle」（design D3 风险点）。
-- [ ] `IosBackend`（`xtask_test_ios.z42`）薄化。
-- [ ] `ci.yml` `test-ios-sim` 改调 z42b。
-- [ ] 验证：本地 macOS 若 Xcode 齐可验 sim；CI `test-ios-sim`（macos-15）绿。
+- [x] ios driver（新 `builder_device_ios.z42`）：build（`_buildIosXcframework` 逻辑下沉：cargo×slices +
+      `xcodebuild -create-xcframework`）+ deploy（stage `Resources/embedded`）+ run（`xcodebuild test
+      -scheme Z42VM -destination <sim>`；sim UDID 由 `xcrun simctl list devices available` 解析）+ 回收
+      报告（解析 `Test Case … passed/failed` → junit.xml，z42b 自写）。
+- [x] 保持「一次 sim boot 同跑 R1–R7 + embedded bundle」（design D3）：`--run` = 单个
+      `xcodebuild test -scheme Z42VM`，一 scheme 同含 Z42VMTests + Z42EmbeddedTests，一次 boot。
+- [x] `IosBackend`（`xtask_test_ios.z42`）薄化：`RunTests` → `_runIosTesthost`（删本地 xcodebuild /
+      simUDID / junit）；`_buildIosXcframework` 从 xtask 移入 z42b（`_buildIosTesthost` → z42b `--build`）。
+- [x] `ci.yml` `test-ios-sim` 改调 z42b：`test platform ios run` → `test embedded --rid iossim-arm64 --run`。
+- [x] 验证：本地 macOS（Xcode 16.4）验 z42b `--build`（xcframework）+ `--run`（sim）；GREEN `xtask test`
+      全绿 + self-host 字节不动 + 无格式 bump。CI `test-ios-sim`（macos-15）以 CI 为准。
 
 ## PR-3：android 全接管
 

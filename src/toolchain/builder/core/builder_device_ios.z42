@@ -1,0 +1,208 @@
+// z42b device driver — iOS (z42b-device-run Slice 3, PR-2).
+//
+// Sinks the iOS build+deploy+run pipeline out of xtask (IosBackend +
+// _buildIosXcframework) into z42b, so IPlatformBackend shrinks to a thin
+// delegate. Mirrors the wasm driver (builder_device.z42):
+//   --build  cargo × slices (host + device/sim per rid) → xcodebuild
+//            -create-xcframework, then stage the {app,libs,bundle} corpus into
+//            the XCTest Resources/embedded dir.
+//   --run    xcodebuild test -scheme Z42VM on a simulator — ONE boot runs BOTH
+//            Z42VMTests (R1–R7) and Z42EmbeddedTests (the embedded corpus)
+//            (design D3). Sim UDID via `xcrun simctl` (Z42_IOS_DEST overrides);
+//            the "Test Case … passed/failed" lines → junit.xml. Double-read:
+//            the XCTest cases self-assert; z42b relays the verdict + junit.
+//
+// z42b writes its own junit (Z42Xtask's shared _writeJUnitReport is unreachable
+// from here) — same XML shape, same path (artifacts/test-reports/ios/junit.xml)
+// so CI's report consumer is unchanged.
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// iossim-arm64 / ios-arm64 driver. `here` = the SwiftPM platform crate root.
+int _runIos(ParseResult r, string manifestPath, string outDir, string agent,
+            string libs, string buildRoot, string rid, bool wantBuild, bool wantRun) {
+    if (buildRoot.Length == 0) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + " --build/--run: --build-root <repo-root> required"); return 2;
+    }
+    string here = Path.Join(buildRoot, "src/toolchain/workload/ios/platform");
+
+    // 1. build (xcframework) + deploy (stage the embedded corpus into Resources).
+    if (wantBuild) {
+        if (outDir.Length == 0) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --out <dir> required"); return 2;
+        }
+        if (agent.Length == 0 || !File.Exists(agent)) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
+        }
+        if (libs.Length == 0 || !Directory.Exists(libs)) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: Z42_LIBS (flat stdlib dir) required"); return 2;
+        }
+        if (Process.Which("xcodebuild") == null) {
+            ConsoleError.WriteLine("z42b: xcodebuild not found (Xcode required for iOS build)"); return 1;
+        }
+        if (Process.Which("cargo") == null) {
+            ConsoleError.WriteLine("z42b: cargo not found (https://rustup.rs)"); return 1;
+        }
+        int xc = _buildIosXcframework(buildRoot, here, rid);
+        if (xc != 0) { ConsoleError.WriteLine("z42b: xcframework build failed"); return xc; }
+        int sc = _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, false);
+        if (sc != 0) { return sc; }
+        Console.WriteLine("z42b: ios deployable → " + outDir);
+    }
+
+    // 2. run: xcodebuild test on a simulator (R1–R7 + embedded, one boot).
+    if (wantRun) {
+        return _runIosXcodebuild(buildRoot, here);
+    }
+    return 0;
+}
+
+// Build Z42VM.xcframework for the slices `rid` implies. The macOS-host slice
+// (aarch64-apple-darwin) is ALWAYS built so `swift test` can run on the host; the
+// rid adds its deploy slice — ios-arm64 → device, iossim-arm64 → simulator, "" →
+// both. IPHONEOS_DEPLOYMENT_TARGET pins the C deps (zlib-ng) to the rlibs' min ver
+// (ported from xtask _buildIosXcframework).
+int _buildIosXcframework(string buildRoot, string here, string rid) {
+    string manifest = Path.Join(here, "rust/Cargo.toml");
+    string targetDir = Path.Join(buildRoot, "artifacts/build/runtime");
+    string libName = "libz42_platform_ios.a";
+    bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
+    bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
+    string[] targets = new string[3];
+    int n = 0;
+    targets[n] = "aarch64-apple-darwin"; n = n + 1;              // host (swift test)
+    if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
+    if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
+    int i = 0;
+    while (i < n) {
+        Console.WriteLine("z42b: cargo build --release --target " + targets[i]);
+        int c = _execInherit(new Process("cargo").Arg("build").Arg("--release")
+            .Arg("--manifest-path").Arg(manifest)
+            .Arg("--target-dir").Arg(targetDir)
+            .Arg("--target").Arg(targets[i])
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", "16.0"));
+        if (c != 0) { return c; }
+        i = i + 1;
+    }
+    string xcf = Path.Join(here, "Z42VM.xcframework");
+    if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
+    Console.WriteLine("z42b: xcodebuild -create-xcframework → " + xcf);
+    Process xb = new Process("xcodebuild").Arg("-create-xcframework");
+    xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-darwin/release/" + libName));
+    if (wantDev) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios/release/" + libName)); }
+    if (wantSim) { xb = xb.Arg("-library").Arg(Path.Join(targetDir, "aarch64-apple-ios-sim/release/" + libName)); }
+    return _execInherit(xb.Arg("-output").Arg(xcf));
+}
+
+// Run a prepared Process inheriting the parent's stdio (live streaming; return
+// exit code). Mirrors xtask's `_exec`. Cargo / xcodebuild builds MUST inherit —
+// capturing a build's stdout in a pipe can DEADLOCK C-dep configure scripts
+// (libffi-sys' `./configure` probes the TTY/stdin and hangs on a captured pipe);
+// the pre-PR-2 xtask path (`_exec`) inherited, which CI validates green. The
+// `xcodebuild test` RUN keeps capturing (it needs the stdout to parse junit, and
+// xcodebuild doesn't hang) — same as the former IosBackend.RunTests.
+int _execInherit(Process p) {
+    return p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+// `xcodebuild test -scheme Z42VM -destination <sim>` at the platform crate — ONE
+// simulator boot runs Z42VMTests (R1–R7) + Z42EmbeddedTests (embedded corpus).
+// Z42_IOS_DEST overrides the destination; default = first available iPhone sim.
+int _runIosXcodebuild(string buildRoot, string here) {
+    string dest = Environment.GetEnvironmentVariable("Z42_IOS_DEST") ?? "";
+    if (dest.Length == 0) {
+        string udid = _firstSimulatorUdid();
+        if (udid.Length == 0) {
+            ConsoleError.WriteLine("z42b: no iOS Simulator available (xcrun simctl list devices available)"); return 1;
+        }
+        dest = "id=" + udid;
+    }
+    Console.WriteLine("z42b: xcodebuild test -scheme Z42VM -destination '" + dest + "' (iOS Simulator R1–R7 + embedded)");
+    ProcessResult res = new Process("xcodebuild").Arg("test")
+        .Arg("-scheme").Arg("Z42VM")
+        .Arg("-destination").Arg(dest)
+        .WorkingDirectory(here).Run();
+    _writeIosJUnit(buildRoot, res.Stdout);
+    if (res.ExitCode != 0) {
+        // Surface the failing test-case lines (xcodebuild is verbose).
+        foreach (var line in _iosLines(res.Stdout)) {
+            if (line.IndexOf("' failed") >= 0 || line.IndexOf(" error:") >= 0) { ConsoleError.WriteLine(line.Trim()); }
+        }
+    }
+    return res.ExitCode;
+}
+
+// First available iPhone simulator UDID (first parenthesised group on the line).
+string _firstSimulatorUdid() {
+    ProcessResult r = new Process("xcrun").Arg("simctl").Arg("list").Arg("devices").Arg("available").Run();
+    foreach (var line in _iosLines(r.Stdout)) {
+        string t = line.Trim();
+        if (!t.StartsWith("iPhone")) { continue; }
+        int lp = t.IndexOf("(");
+        if (lp < 0) { continue; }
+        int rp = t.IndexOf(")");
+        if (rp <= lp) { continue; }
+        return t.Substring(lp + 1, rp - lp - 1);
+    }
+    return "";
+}
+
+// Parse xcodebuild `Test Case '-[<Suite> testX]' passed/failed` lines →
+// junit.xml (artifacts/test-reports/ios/). Same XML shape as Z42Xtask's shared
+// _writeJUnitReport; z42b re-implements it inline (that helper is unreachable here).
+void _writeIosJUnit(string buildRoot, string stdout) {
+    int tests = 0;
+    int failures = 0;
+    string body = "";
+    foreach (var line in _iosLines(stdout)) {
+        string t = line.Trim();
+        if (t.IndexOf("Test Case '") < 0) { continue; }
+        bool passed = t.IndexOf("' passed") >= 0;
+        bool failed = t.IndexOf("' failed") >= 0;
+        if (!passed && !failed) { continue; }
+        tests = tests + 1;
+        string name = _xcCaseName(t);
+        if (passed) {
+            body = body + "  <testcase name=\"" + name + "\" classname=\"ios.Z42VMTests\"/>\n";
+        } else {
+            failures = failures + 1;
+            body = body + "  <testcase name=\"" + name + "\" classname=\"ios.Z42VMTests\">\n"
+                 + "    <failure message=\"" + _xmlEscape("failed") + "\"/>\n  </testcase>\n";
+        }
+    }
+    string xml = "<testsuites tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
+               + "<testsuite name=\"ios.Z42VMTests\" tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
+               + body + "</testsuite>\n</testsuites>\n";
+    string reportDir = Path.Join(buildRoot, "artifacts/test-reports/ios");
+    Directory.Create(reportDir);
+    File.WriteAllText(Path.Join(reportDir, "junit.xml"), xml);
+    Console.WriteLine("z42b: junit.xml (" + tests + " cases, " + failures + " failed)");
+}
+
+// Extract the test method name from `... '-[Z42VMTests testFoo]' ...`.
+string _xcCaseName(string line) {
+    int b = line.IndexOf("-[");
+    int e = line.IndexOf("]");
+    if (b < 0 || e <= b) { return "case"; }
+    string inner = line.Substring(b + 2, e - b - 2);   // "Z42VMTests testFoo"
+    int sp = inner.IndexOf(" ");
+    if (sp >= 0) { return inner.Substring(sp + 1); }
+    return inner;
+}
+
+// stdout → lines, CRLF-normalised (mirrors Z42Xtask _stdoutLines).
+string[] _iosLines(string s) {
+    return s.Replace("\r\n", "\n").Split("\n");
+}
+
+string _xmlEscape(string s) {
+    string o = s;
+    o = o.Replace("&", "&amp;");
+    o = o.Replace("<", "&lt;");
+    o = o.Replace(">", "&gt;");
+    o = o.Replace("\"", "&quot;");
+    return o;
+}

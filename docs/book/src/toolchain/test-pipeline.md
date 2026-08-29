@@ -1,6 +1,6 @@
 # 测试流水线：两层模型（z42b 执行器 + xtask 编排器）
 
-> **页型**: 机制页 ｜ **状态**: ✅ ②b 已实现（host 执行 + 设备组装归 z42b）｜ **代码**: `src/toolchain/builder/core/builder_test.z42` · `src/libraries/z42.test/src/BundleRunner.z42` · `scripts/test/xtask_test_embedded.z42` · `src/toolchain/workload/test/agent/`
+> **页型**: 机制页 ｜ **状态**: ✅ ②b + Slice 3 wasm(PR-1)/ios(PR-2) 已实现（host 执行 + 设备 build/deploy/run 归 z42b；android → PR-3）｜ **代码**: `src/toolchain/builder/core/builder_test.z42` · `builder_device.z42` · `builder_device_ios.z42` · `src/libraries/z42.test/src/BundleRunner.z42` · `scripts/test/xtask_test_embedded.z42` · `src/toolchain/workload/test/agent/`
 > **相关**: [xtask](../dev/xtask.md) · [测试门禁](../dev/test-gate.md) ｜ **对齐**: 2026-08-29
 
 ## 概述
@@ -60,29 +60,46 @@ golden 仍由 `RunGoldensIsolated` 起独立 VM（隔离语义不变）。
 
 xtask 的 `_testEmbedded` desktop 分支因此收缩为「组 bundle → 委托 `z42b test --rid host`」。
 
-### device 路径：z42b 组装 deployable，xtask 保留 native build + RUN
+### device 路径：z42b 接管 build + deploy + run（Slice 3）
 
-`z42b test <manifest.json> --rid <device> --out <dir> --agent <z42.testagent.zpkg>`（libs 走
-`Z42_LIBS`）→ `_assembleDeployable` → `_stageDeployable`：把 agent + flat stdlib + bundle 落成
-`<out>/{app,libs,bundle}`；**`browser-wasm` 额外产 `files.json`**（VFS→url 映射，浏览器不能枚举远端目录）。
-枚举前按 ordinal 排序，保证确定序（见 [common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)）。
+`z42b test <manifest.json> --rid <device> [--out <dir>] [--agent <zpkg>] [--build-root <repo>]`
+（libs 走 `Z42_LIBS`）。设备 RID 上 z42b 走完整流水线——sub-step flag 选粒度（默认无 flag =
+build+run）：
 
-xtask 的 `_build{Wasm,Ios,Android}Testhost` 把**语料组装步**委托 z42b；**native 平台构建**
-（wasm-pack / xcframework / cargo-ndk）与**设备 RUN 交接**（Playwright / xcodebuild-sim / gradle）
-**保持在 xtask**——前者是 z42b `build`/`export` 的边界，后者是外部触发（CI-gated）。
+| flag | 语义 |
+|------|------|
+| `--stage-only` | 仅组装 deployable `<out>/{app,libs,bundle}`（②b 行为；`browser-wasm` 额外产 `files.json`）。枚举前按 ordinal 排序保确定序（[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)） |
+| `--build` | native 平台构建 + deploy（stage + 平台产物就位） |
+| `--run` | 触发设备 runner + 回收报告 |
+
+per-platform driver（`builder_device.z42` wasm；`builder_device_ios.z42` ios；android → PR-3）：
+
+| rid | build（`--build`） | run（`--run`，z42b spawn 原生工具） | report |
+|-----|-------|------|--------|
+| `browser-wasm` | `wasm-pack build --target web` + stage {app,libs,bundle}+files.json + 拷 pkg/harness | `npx playwright test --config playwright.embedded.config.ts` | playwright exit code（run.js 自断言 `window.__report`；z42b 转达 verdict） |
+| `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework` + stage embedded corpus 进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑 R1–R7 + embedded**） | 解析 `Test Case … passed/failed` → `artifacts/test-reports/ios/junit.xml`（z42b 自写，格式同 xtask 共享 writer） |
+
+xtask（fleet orchestrator）保留**语料发现/编译/分片**与 native 工具**供给**（node/Xcode/NDK），把单目标
+build/deploy/run 交给 z42b：`_build{Wasm,Ios}Testhost` → z42b `--build`；`_run{Wasm,Ios}Testhost` →
+z42b `--run`。`IPlatformBackend` 的 `RunTests` 相应薄化为委托 z42b（ios `IosBackend.RunTests` →
+`_runIosTesthost`）。
 
 ### RID 值域
 
 `host`（默认，in-process）｜ `browser-wasm` ｜ `ios-arm64` ｜ `iossim-arm64` ｜ `android-arm64` ｜
-`android-x64`。设备 RID 需 `--out` + `--agent`；未知 RID 报错列出合法值。
+`android-x64`。`--build`/`--run` 需 `--build-root`；`--build` 另需 `--out` + `--agent`；未知 RID 报错列出合法值。
 
 ## Deferred / Future Work
 
-### test-pipeline-future-device-run: z42b 接管设备端实际 RUN（Slice 3）
+### test-pipeline-android-device-run: z42b 接管 android build + deploy + run（Slice 3 PR-3）
 
-- **来源**：wire-z42b-embedded-test（②b）
-- **触发原因**：设备 RUN 编排（驱动 Playwright / xcodebuild-sim / gradle）连 xtask 目前也只是
-  CI-gated 外部触发，非「搬迁已有逻辑」而是新建；本轮聚焦 host 执行 + 设备组装。
-- **前置依赖**：设备 RUN 的统一抽象（跨 wasm/ios/android 的 deploy+run+回读报告）。
-- **触发条件**：需要 z42b 单命令完成「设备 deploy→run→收报告」时。
-- **当前 workaround**：xtask 打印 RUN 交接命令；CI 的 wasm/ios/android job 执行实际 RUN。
+- **来源**：z42b-device-run（wasm PR-1 / ios PR-2 已落）
+- **当前状态**：android（`AndroidBackend`）仍是 xtask 自带 `cargo-ndk` build + `gradlew
+  connectedAndroidTest`；embedded corpus 组装已经 z42b（`--stage-only`）。
+- **触发条件**：PR-3 把 android 的 build/deploy/run 下沉 z42b driver（emulator AVD 生命周期仍留 CI
+  action `reactivecircus/android-emulator-runner`，design D2 不对称）。
+
+### test-pipeline-dogfood-workload-install: 设备 agent 走 workload-install（Slice 3 PR-4）
+
+- 设备 driver 的 agent 来源从 in-tree `--agent` 切到「确保 test workload 就位」（查已装 → 无则
+  `z42 workload install test`）；CI 用离线 archive 源，不每次打公网。
