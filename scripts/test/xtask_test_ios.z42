@@ -3,10 +3,12 @@
 // src/toolchain/workload/ios/platform/build.sh, now removed):
 //   ① BuildProject : cargo build × (ios targets + macOS host slice) → xcframework
 //   ② Assets       : fixtures → Tests/.../test-fixtures; stdlib → Resources/stdlib (+ test bundle)
-//   ③ RunTests     : `swift test` (XCTest R1–R7 on macOS host slice)
+//   ③ RunTests     : delegates to z42b's ios driver (z42b-device-run PR-2) — one
+//                    `xcodebuild test` on a simulator (R1–R7 + embedded, one boot).
 //
-// iOS Simulator execution + JUnit conversion deferred (CI change). swift test
-// runs on the macOS host slice (build.ios.extra_rust_targets). Needs Xcode.
+// The build/run pipeline (xcframework + xcodebuild test + junit) now lives in z42b
+// (builder_device_ios.z42); this backend is the thin xtask-side declaration.
+// Needs Xcode.
 namespace Z42Xtask;
 
 using Std;
@@ -66,83 +68,13 @@ public class IosBackend : IPlatformBackend {
             .Arg("-output").Arg(xcf));
     }
 
-    // ③ xcodebuild test on a real iOS Simulator (R1–R7), JUnit derived from the
-    // xcodebuild "Test Case ... passed/failed" lines. Z42_IOS_DEST overrides the
-    // destination; default = first available iPhone simulator (xcrun simctl).
+    // ③ Thinned (z42b-device-run PR-2): the iOS run 下沉 z42b's ios driver. ONE
+    // `xcodebuild test -scheme Z42VM` runs R1–R7 (Z42VMTests) + the embedded corpus
+    // (Z42EmbeddedTests) in a single simulator boot; z42b resolves the sim UDID and
+    // writes junit.xml. Requires a prior `test embedded --rid iossim-arm64` to have
+    // staged the xcframework + Resources/embedded corpus (CI runs it before this).
     public int RunTests(string root) {
-        string here = Path.Join(root, "src/toolchain/workload/ios/platform");
-        string dest = Environment.GetEnvironmentVariable("Z42_IOS_DEST") ?? "";
-        if (dest.Length == 0) {
-            string udid = this._firstSimulatorUdid();
-            if (udid.Length == 0) {
-                ConsoleError.WriteLine("error: no iOS Simulator available (xcrun simctl list devices available)");
-                return 1;
-            }
-            dest = "id=" + udid;
-        }
-        Console.WriteLine("  xcodebuild test -scheme Z42VM -destination '" + dest + "' (iOS Simulator R1–R7)");
-        ProcessResult r = new Process("xcodebuild").Arg("test")
-            .Arg("-scheme").Arg("Z42VM")
-            .Arg("-destination").Arg(dest)
-            .WorkingDirectory(here).Run();
-        this._writeJUnit(root, r.Stdout);
-        if (r.ExitCode != 0) {
-            // Surface the failing test-case lines (xcodebuild is verbose).
-            foreach (var line in _stdoutLines(r.Stdout)) {
-                if (line.IndexOf("' failed") >= 0 || line.IndexOf(" error:") >= 0) { ConsoleError.WriteLine(line.Trim()); }
-            }
-        }
-        return r.ExitCode;
-    }
-
-    // First available iPhone simulator UDID (first parenthesised group on the line).
-    string _firstSimulatorUdid() {
-        ProcessResult r = new Process("xcrun").Arg("simctl").Arg("list").Arg("devices").Arg("available").Run();
-        foreach (var line in _stdoutLines(r.Stdout)) {
-            string t = line.Trim();
-            if (!t.StartsWith("iPhone")) { continue; }
-            int lp = t.IndexOf("(");
-            if (lp < 0) { continue; }
-            int rp = t.IndexOf(")");
-            if (rp <= lp) { continue; }
-            return t.Substring(lp + 1, rp - lp - 1);
-        }
-        return "";
-    }
-
-    // Parse xcodebuild `Test Case '-[Z42VMTests testX]' passed/failed` lines into
-    // JUnitCase[] → shared _writeJUnitReport (artifacts/test-reports/ios/junit.xml).
-    void _writeJUnit(string root, string stdout) {
-        int n = 0;
-        foreach (var line in _stdoutLines(stdout)) {
-            string t = line.Trim();
-            if (t.IndexOf("Test Case '") < 0) { continue; }
-            if (t.IndexOf("' passed") < 0 && t.IndexOf("' failed") < 0) { continue; }
-            n = n + 1;
-        }
-        JUnitCase[] cases = new JUnitCase[n];
-        int idx = 0;
-        foreach (var line in _stdoutLines(stdout)) {
-            string t = line.Trim();
-            if (t.IndexOf("Test Case '") < 0) { continue; }
-            bool passed = t.IndexOf("' passed") >= 0;
-            bool failed = t.IndexOf("' failed") >= 0;
-            if (!passed && !failed) { continue; }
-            cases[idx] = new JUnitCase(this._xcCaseName(t), passed, "failed");
-            idx = idx + 1;
-        }
-        _writeJUnitReport(root, "ios", "ios.Z42VMTests", cases);
-    }
-
-    // Extract the test method name from `... '-[Z42VMTests testFoo]' ...`.
-    string _xcCaseName(string line) {
-        int b = line.IndexOf("-[");
-        int e = line.IndexOf("]");
-        if (b < 0 || e <= b) { return "case"; }
-        string inner = line.Substring(b + 2, e - b - 2);   // "Z42VMTests testFoo"
-        int sp = inner.IndexOf(" ");
-        if (sp >= 0) { return inner.Substring(sp + 1); }
-        return inner;
+        return _runIosTesthost(root, "iossim-arm64");
     }
 
     int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {

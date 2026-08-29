@@ -1734,14 +1734,16 @@ jobs:
           run() { Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- "$@"; }
           # add-wasm-testhost G6 + tier2-mobile-coverage: fold this shard's embedded
           # slice into the SAME xcodebuild/simulator run as R1–R7 (no 2nd sim boot).
-          #  1) embedded --shard k/3 → xcframework (sim+host) + this shard's
-          #     Resources/embedded slice (Z42EmbeddedTests corpus).
+          # z42b-device-run PR-2: iOS build+deploy+run 下沉 z42b's ios driver.
+          #  1) embedded --rid iossim-arm64 → z42b --build: xcframework (sim+host) +
+          #     this shard's Resources/embedded slice (Z42EmbeddedTests corpus).
           #  2) platform ios assets → R1–R7 fixtures + stdlib into Resources.
-          #  3) platform ios run → ONE `xcodebuild test -scheme Z42VM` runs both
-          #     Z42VMTests (R1–R7) and Z42EmbeddedTests, writes the JUnit below.
+          #  3) embedded --rid iossim-arm64 --run → z42b --run: ONE `xcodebuild test
+          #     -scheme Z42VM` runs both Z42VMTests (R1–R7) and Z42EmbeddedTests,
+          #     resolves the sim UDID, and writes the JUnit below.
           run test embedded --rid iossim-arm64 --shard ${{ matrix.shard }}/3
           run test platform ios assets
-          run test platform ios run
+          run test embedded --rid iossim-arm64 --run
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v1
         if: always()

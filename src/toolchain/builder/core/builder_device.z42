@@ -50,17 +50,20 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
         ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath); return 2;
     }
 
-    // browser-wasm is the only driver wired in PR-1 (z42b-device-run); ios/android
-    // land in PR-2/PR-3. Guard so an un-wired rid fails loudly, not silently.
-    if (rid != "browser-wasm") {
-        ConsoleError.WriteLine("z42b test --rid " + rid
-            + ": device build/run not yet wired (z42b-device-run PR-2/3); use --stage-only for now");
-        // stage-only still works for any device rid via the shared path below.
-        if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, agent, libs); }
-        return 2;
-    }
+    // --stage-only is platform-agnostic (shared Slice 2 assembler) — handle it
+    // before the per-platform build/run dispatch so any device rid can stage.
+    if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, agent, libs); }
 
-    return _runWasm(r, manifestPath, outDir, agent, libs, buildRoot, wantBuild, wantRun);
+    // Per-platform build/run drivers: wasm (PR-1), ios (PR-2). android → PR-3.
+    if (rid == "browser-wasm") {
+        return _runWasm(r, manifestPath, outDir, agent, libs, buildRoot, wantBuild, wantRun);
+    }
+    if (rid == "ios-arm64" || rid == "iossim-arm64") {
+        return _runIos(r, manifestPath, outDir, agent, libs, buildRoot, rid, wantBuild, wantRun);
+    }
+    ConsoleError.WriteLine("z42b test --rid " + rid
+        + ": device build/run not yet wired (z42b-device-run PR-3 android); use --stage-only for now");
+    return 2;
 }
 
 // browser-wasm: build (wasm-pack) → deploy (stage {app,libs,bundle}+files.json +
