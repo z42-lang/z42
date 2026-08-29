@@ -1,0 +1,19 @@
+// compile-then-test fixture — a plain test-kind project driven end-to-end by
+// `z42b test <z42.toml>` (add-z42b-compile-then-test). z42b builds this project
+// via the injected in-process compiler, then reflectively runs these free
+// [Test] functions through Std.Test.Runner. Free-function [Test] convention
+// mirrors the stdlib corpus (the form ModuleLoader TIDX indexes).
+namespace CompileThenTest;
+
+using Std;
+using Std.Test;
+
+[Test]
+void it_compiles_and_runs() {
+    Assert.Equal(2, 1 + 1);
+}
+
+[Test]
+void string_concat_works() {
+    Assert.Equal("ab", "a" + "b");
+}

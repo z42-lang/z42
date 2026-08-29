@@ -105,12 +105,42 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
         return 2;
     }
+    // compile-then-test smoke (add-z42b-compile-then-test): drive the whole
+    // toml→build→[Test] path through the single `z42b test <toml>` entry once —
+    // only on the full (unnamed) `test` run, so bench / named-target runs don't
+    // duplicate it. Covers the new project-manifest path the artifact-driven
+    // stdlib/compiler stages don't exercise.
+    if (kind == "test" && name.Length == 0) {
+        failed = failed + _smokeCompileThenTest(root, tt);
+    }
     Console.WriteLine("");
     if (failed > 0) {
         Console.WriteLine("  ❌ manifest-target " + label + ": " + failed.ToString() + " failure(s)");
         return 1;
     }
     Console.WriteLine("  ✅ manifest-target " + label + ": all passed (" + matched.ToString() + " target(s))");
+    return 0;
+}
+
+// compile-then-test smoke: build + run the compile-then-test fixture through the
+// single `z42b test <z42.toml>` entry (add-z42b-compile-then-test). Exercises the
+// new project-manifest → _buildProject → Runner.RunModule path (distinct from the
+// already-compiled-artifact path stdlib/compiler stages cover abundantly).
+// Reuses the prepared tooling (built z42b + flat Z42_LIBS). Returns 0 pass /
+// 1 fail; skips cleanly (0) when the fixture is absent.
+int _smokeCompileThenTest(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/manifest-targets/compile-then-test/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── compile-then-test (z42b test <z42.toml>) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ compile-then-test: `z42b test <toml>` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
     return 0;
 }
 

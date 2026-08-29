@@ -20,7 +20,9 @@ namespace Z42.Build;
     string[] Deps,            // 依赖 .zpkg 路径
     string   Profile,         // debug / release
     bool     StripSymbols,    // 发行剥符号 → 旁挂 .zsym sidecar
-    bool     Incremental);    // 增量编译（可缓存）
+    bool     Incremental,     // 增量编译（可缓存）
+    string   Kind);           // "exe" | "lib"（"" → 默认 exe）。lib 无需 Main()——
+                              // 支持 compile-then-test 直接编测试工程（add-z42b-compile-then-test）
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。
 [Record] public class CompileResult(

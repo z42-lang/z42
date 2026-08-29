@@ -33,7 +33,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 | 文件 | 职责 |
 |------|------|
 | `core/builder_cli.z42` | **CLI 路由**（对照 `launcher_cli.z42`）：`Std.Cli` 嵌套 router + dispatch。LIVE verbs：test / bench / clean / **publish**；new / build / export 仍打 "pending wire-z42b-host-build" |
-| `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器（取代 Rust z42-test-runner，retire-test-runner）|
+| `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器（取代 Rust z42-test-runner，retire-test-runner）。**target 双形态**：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target 默认）→ **compile-then-test**（经注入编译器 `_buildProject` 现编到 dist 再反射跑，`add-z42b-compile-then-test`）|
 | `core/builder_publish.z42` | **desktop publish**（move-publish-to-z42b）：产 apphost + `[platform.desktop]` `bin`/`payload` 布局 + build-if-needed（缺 zpkg 经 z42c 现编）。launcher 转发 `z42 publish` 至此，并经 `Z42_APPHOST_TEMPLATE` 传预解析的 apphost stub。**不依赖 z42.project/z42.build**（不碰自举串味雷区）|
 | `core/builder_apphost.z42` | **内联 apphost patcher**（`_pubProduceApphost`）：z42b 兼作测试运行器，`stdlib [Test]` 构建阶段只有 stdlib 在 Z42_LIBS，**看不到 `z42.workload.desktop`**——故内联 patcher，z42b 保持纯 stdlib 依赖。xtask 打包（`_packageDesktop`）已改为调用 `z42b publish` 复用此实现（move-desktop-packaging-to-publish），不再自带副本。⚠ MAGIC 须与 Rust stub 同步 |
 
