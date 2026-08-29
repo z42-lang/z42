@@ -2,7 +2,7 @@
 
 > 对齐：2026-08-23（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
 > `add-repl-indent-editing` + `add-repl-tab-grid-snap` + `add-repl-multiline-editing`）
-> 代码：`src/libraries/z42.scripting/src/Completeness.z42`、`src/toolchain/repl/src/ReplEditing.z42`、
+> 代码：`src/libraries/z42.scripting/src/Completeness.z42`、`src/toolchain/interactive/repl/src/ReplEditing.z42`、
 > `src/compiler/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
 > `src/runtime/src/corelib/repl.rs`、`src/runtime/src/corelib/repl_editing.rs`
 
@@ -105,7 +105,7 @@ z42 与 C#/JS 同属「换行不敏感、分号结尾」，故 `1 +` **续读**�
 
 > change：`add-repl-indent-editing`（退格/Tab 基础）+ `add-repl-tab-grid-snap`（Tab 网格吸附）+
 > `add-repl-rbrace-floor`（`}` 自动回退 + 退格 floor）。
-> 代码：`src/toolchain/repl/src/ReplEditing.z42`（策略）、`src/runtime/crates/z42-repl/src/editing.rs`（适配壳 +
+> 代码：`src/toolchain/interactive/repl/src/ReplEditing.z42`（策略）、`src/runtime/crates/z42-repl/src/editing.rs`（适配壳 +
 > `parse_action`）、`src/runtime/crates/z42-repl/src/lib.rs`（`build_editor` 键绑定 + `indent_size(4)`）。
 > （行编辑后端已在 `extract-repl-native-cdylib` 剥离成 host-only cdylib `crates/z42-repl`；VM 侧
 > `corelib/repl_editing.rs` 只留 `key_edit_via_callback` 重入 + `__repl_set_key_editor` 薄壳。）

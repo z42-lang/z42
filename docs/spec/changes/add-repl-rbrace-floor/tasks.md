@@ -34,6 +34,12 @@
 - [ ] 3.6 交互验收（拷新鲜 zpkg 进 `.z42/libs`，手测 `}`/退格手感）— 交 CI/dist smoke
 - [ ] 3.7 cold/bootstrap 交 CI 盯绿（零格式 bump）
 
+## 阶段 4: REPL 目录搬迁（Scope 追加，User 授权并入本 PR）
+- [x] 4.1 `git mv src/toolchain/repl → src/toolchain/interactive/repl`（z42.repl 独立包，物理移入 interactive 目录）
+- [x] 4.2 `scripts/build/xtask_toolchain.z42`：`_buildReplLib` 构建路径 → `src/toolchain/interactive/repl/`
+- [x] 4.3 活文档路径：book `repl-input-completeness.md` 代码指针；本 change proposal 的 Scope 表；archive 冻结不动
+- [ ] 4.4 CI 验：`compile-toolchain` + `test-host`（toolchain 构建路径生效）——本机 z42vm 挂起，交 CI
+
 ## 备注
-- 零 zbc/zpkg 格式 bump（纯 VM 行为 + 策略）。
-- 后续独立 change：REPL 目录搬迁（`src/toolchain/repl/` → `interactive/repl/`），不混入本变更。
+- 零 zbc/zpkg 格式 bump（纯 VM 行为 + 策略 + 目录搬迁）。
+- 搬迁作**独立 commit**（refactor 与 feature 分提交，见 commit-log.md）；deps 按名解析，无依赖图变更。

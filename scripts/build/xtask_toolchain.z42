@@ -112,7 +112,8 @@ int _ensureToolchainDeps(string root) {
         int r = _buildCompiler(); if (r != 0) { return r; }
     }
     // z42.repl（tty 交互层）→ libs。move-scripting-to-libraries 后 z42.scripting 已成 stdlib workspace
-    // 成员，由上面 _buildStdlib 编入 libs（flat dist）；z42.repl 留 src/toolchain，此处以普通 build 步
+    // 成员，由上面 _buildStdlib 编入 libs（flat dist）；z42.repl 留 src/toolchain/interactive/repl（host-only
+    // 交互层，与 z42.interactive 同处 interactive 目录），此处以普通 build 步
     // 建入 libs（Z42_LIBS=stdlib dist，已含 z42.scripting + z42c.core/syntax）。z42.interactive 依赖二者，
     // 从同一 libs 解析（不再需要 `.scripting-libs` 合并目录 / `_buildScriptingLib` 特例步）。
     int sc = _buildReplLib(root, _builtVm(root, "release"), _selfContainedDriverDir(root), _libsDir(root));
@@ -125,10 +126,10 @@ int _ensureToolchainDeps(string root) {
 // dist（含 z42.scripting + z42c.core/syntax），故 Z42_LIBS=libs 即可，不再需要合并 z42c.* 的专用目录。
 // 产物写回 libs 供 z42.interactive 从同一 stdlib dist 解析。(split-z42-repl / move-scripting-to-libraries)
 int _buildReplLib(string root, string vm, string z42cDir, string libs) {
-    _vNormal("  z42.repl: src/toolchain/repl/z42.repl.z42.toml (Z42_LIBS=stdlib) → " + libs);
+    _vNormal("  z42.repl: src/toolchain/interactive/repl/z42.repl.z42.toml (Z42_LIBS=stdlib) → " + libs);
     int c = _exec(new Process(vm)
         .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg("src/toolchain/repl/z42.repl.z42.toml").Arg("--release").Arg("--output-dir").Arg(libs)
+        .Arg("--").Arg("build").Arg("src/toolchain/interactive/repl/z42.repl.z42.toml").Arg("--release").Arg("--output-dir").Arg(libs)
         .Env("Z42_LIBS", libs));
     if (c != 0) { ConsoleError.WriteLine("  ✗ z42.repl build failed (" + c.ToString() + ")"); return c; }
     return 0;

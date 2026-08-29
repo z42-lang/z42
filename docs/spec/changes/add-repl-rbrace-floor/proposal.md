@@ -41,12 +41,14 @@ REPL 缩进编辑还差最后一块（roadmap Deferred `repl-multiline-future-rb
 | `src/runtime/crates/z42-repl/Cargo.toml` | MODIFY | 注释更新（rustyline 消费者 + patch 说明）|
 | `src/runtime/crates/z42-repl/src/editing.rs` | MODIFY | `parse_action` 加 `replace:` + 头注 + 内联 `replace:` 单测 |
 | `src/runtime/crates/z42-repl/src/lib.rs` | MODIFY | `build_editor` 绑定 `}` 键到 `KeyEditHandler::new("rbrace")` |
-| `src/toolchain/repl/src/ReplEditing.z42` | MODIFY | `rbrace` 分支 + backspace-floor + 当前逻辑行辅助 |
-| `src/toolchain/repl/tests/repl_editing/driver.z42` | MODIFY | `}`/floor 的 [Test] 覆盖（KeyEdit 动作串断言）|
-| `src/toolchain/repl/tests/repl_editing/expected_output.txt` | MODIFY | golden 期望 |
-| `src/toolchain/repl/README.md` | MODIFY | 功能索引：键位补 `}`/floor |
+| `src/toolchain/interactive/repl/src/ReplEditing.z42` | MODIFY | `rbrace` 分支 + backspace-floor + 当前逻辑行辅助 |
+| `src/toolchain/interactive/repl/tests/repl_editing/driver.z42` | MODIFY | `}`/floor 的 [Test] 覆盖（KeyEdit 动作串断言）|
+| `src/toolchain/interactive/repl/tests/repl_editing/expected_output.txt` | MODIFY | golden 期望 |
+| `src/toolchain/interactive/repl/README.md` | MODIFY | 功能索引：键位补 `}`/floor |
 | `docs/book/src/toolchain/repl-input-completeness.md` | MODIFY | 机制页：删「坑②延后」段，写 patch + rbrace/floor |
 | `docs/roadmap.md` | MODIFY | 关闭 `repl-multiline-future-rbrace-floor` Deferred 行 |
+| `src/toolchain/repl/ → src/toolchain/interactive/repl/` | MOVE | 目录搬迁：z42.repl 独立包物理移入 interactive 目录（deps 按名解析，仅动 `xtask_toolchain.z42` 构建路径 + 活文档）|
+| `scripts/build/xtask_toolchain.z42` | MODIFY | `_buildReplLib` 构建路径 → `src/toolchain/interactive/repl/` |
 
 **外部交付物（不在本仓库 Scope，但属本变更）**：rustyline fork 仓库 + 其内 `edit_insert_text` patch commit。
 
@@ -58,8 +60,11 @@ REPL 缩进编辑还差最后一块（roadmap Deferred `repl-multiline-future-rb
 ## Out of Scope
 
 - 其它缩进键位改动（Tab 网格吸附、Enter 整块判定已落，不动）。
-- REPL 目录搬迁（`src/toolchain/repl/` → `interactive/`）是**独立后续 change**（refactor），不混入本变更。
 - 非空白行（有词/内容）时的 `}`/退格行为——一律走默认键行为，不介入。
+
+> **Scope 追加（User 授权，2026-08-29）**：REPL 目录搬迁（`src/toolchain/repl/` → `interactive/repl/`）本为独立
+> 后续 change，经评估足够简单（deps 按名解析、无自动发现 glob、仅 1 处构建路径 + 少量活文档、archive 冻结不动）
+> 且与本变更同触 `repl/` 目录，故并入本 PR 作**独立 commit**（refactor 与 feature 分提交，见 commit-log.md）。
 
 ## Open Questions
 
