@@ -190,6 +190,31 @@ pub(crate) fn parse_z42_lib_name(path: &std::path::Path) -> Option<String> {
     core.strip_prefix("z42_").map(String::from)
 }
 
+/// Resolve a single native library *beside* a given directory — the "colocated
+/// native dependency" layout: a component's private native lib ships flat in the
+/// same directory as its zpkg (`<zpkg-dir>/lib<name>.<suffix>`), NOT in the shared
+/// `<sdk>/native/` (which is eager-scanned by `load_all` for cross-platform stdlib
+/// ext libs like compression). This is a *named, directed* stat — it never walks
+/// the directory, so a non-stdlib cdylib dropped there is only ever loaded by the
+/// caller that asks for it by name, and the generic ext scanner never warns about it.
+///
+/// `lib_name` is the base name between the platform prefix/suffix (e.g. `z42_repl`
+/// → `libz42_repl.dylib` / `libz42_repl.so` / `z42_repl.dll`). Returns the full path
+/// only when the file exists.
+///
+/// (add-path-dependencies D9/D10 — native dependencies colocated beside the
+/// consumer's zpkg; supersedes isolate-repl-cdylib.)
+pub(crate) fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) -> Option<PathBuf> {
+    let file = format!(
+        "{}{}{}",
+        std::env::consts::DLL_PREFIX,
+        lib_name,
+        std::env::consts::DLL_SUFFIX
+    );
+    let candidate = zpkg_dir.join(file);
+    candidate.is_file().then_some(candidate)
+}
+
 // ── dlopen path (non-wasm) ───────────────────────────────────────────────────
 
 #[cfg(not(feature = "bundled-compression"))]

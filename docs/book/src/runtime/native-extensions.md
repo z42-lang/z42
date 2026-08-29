@@ -14,7 +14,7 @@ z42vm 把一部分「重、依赖多、或平台特有」的能力放进**独立
 |------|-------------------------------|----------------------------------|
 | 加载时机 | **急切**：VM 启动扫描 `<sdk>/native/` | **懒**：首次 `__repl_readline` 才 `dlopen` |
 | 方向 | **单向** VM → native（纯计算） | **双向**：native 还要回调进 VM（补全 / 键位） |
-| 打包位置 | `<sdk>/native/`（跨平台 stdlib 扩展） | `<sdk>/bin/`（与 z42i/z42vm 同侧，host-only） |
+| 打包位置 | `<sdk>/native/`（跨平台 stdlib 扩展） | `<sdk>/programs/z42i/`（平铺在 z42i payload 旁，host-only 组件私有） |
 | 发现路径 | `ext::native_search_paths()` | repl 专用 `repl_native::candidates()` |
 | 缺库行为 | 对应 stdlib facade 抛 NotSupported | 退回 plain-stdin 逐行读 |
 | 边界数据 | `*const u8` 字节缓冲 | C 字符串（prompt / 候选 / 动作串） |
@@ -130,8 +130,11 @@ extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) ->
 结果，探一次文件系统），启动路径完全不碰它。发现顺序（**不走** `native_search_paths()`）：
 
 1. `Z42_REPL_NATIVE`（env 覆盖，接受库文件全路径或含库的目录）；
-2. `current_exe().parent()/libz42_repl.{so,dylib}`（SDK `bin/` —— 与 z42i/z42vm 同侧；
-   dev 下也是 cargo target 目录，`cargo build -p z42-repl` 落在那）。
+2. `current_exe().parent()/libz42_repl.{so,dylib}`（**dev** cargo target 目录，
+   `cargo build -p z42-repl` 落在 z42vm 旁）；
+3. 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的 `ext::resolve_native_beside`
+   解析（**SDK** 布局：repl 库是「组件私有 native」，平铺在 interactive payload 旁，**不在** `bin/`
+   ——见 [Native 库的布局与解析](native-libraries.md)）。
 
 找不到 / 加载失败 / `native-interop` feature 未开 / wasm → 一律退回 `plain_readline`。整个
 `repl_native` 模块 gated `not(target_arch = "wasm32")`，内部 dl 逻辑再 gated `feature = "native-interop"`。
@@ -143,14 +146,17 @@ prewarm 线程的 GC 能在本线程等输入时推进。但回调（`complete`/
 重入 VM 跑 z42 代码，此时必须**临时 unpark**（trampoline 内 `NativeUnparkGuard::exit`），让回调
 作为正常 mutator 在自己的 safepoint 停靠；回调返回、`_unpark` drop 后自动重新停靠回阻塞读。
 
-### 2.6 打包（host-only，进 bin/ 不进 native/）
+### 2.6 打包（host-only 组件私有，进 programs/z42i/ 不进 bin/ / native/）
 
-SDK 打包（`scripts/package/xtask_stage_components.z42`）：`_pkgBuildAndStageRuntime` 里
-`cargo build -p z42-repl`，`_pkgStageZ42vm` 把产物拷进 **z42vm 组件的 `bin/`**（`[assemble]`
-自动并入 `pkgDir/bin/`，与 2.4 的 current_exe-同侧发现对齐）。**关键**：`_copyNativeLibs` 的
-`libz42*` glob 必须**显式排除** `libz42_repl`/`z42_repl`，否则会误拷进 `<sdk>/native/`——REPL
-是 host-only 工具链件，不是跨平台 stdlib 扩展。dev 流不建 cdylib（与 compression 一致，靠开发者
-`cargo build -p`）。
+SDK 打包（`scripts/package/`）：`_pkgBuildAndStageRuntime` 里 `cargo build -p z42-repl`，
+`_pkgStageReplCdylib`（`xtask_package_desktop._pkgStageToolchainComponents` 在 publish z42i 后调用）
+把产物平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的
+`<sdk>/programs/z42i/` 发现对齐）。两条**关键排除**：① `_pkgStageZ42vm` **不**再往 `bin/` 放 repl 库；
+② `_copyNativeLibs` 的 `libz42*` glob **显式排除** `libz42_repl`/`z42_repl`，否则会误拷进
+`<sdk>/native/`。把 repl 移出共享 `bin/` 是为根治 §1 急切扫描器对它喷 `ignoring unknown lib repl`
+——它是**组件私有 native**（跟随 z42i），不是 `<sdk>/native/` 里的跨平台 stdlib 扩展，也不是
+`bin/` 的通用可执行件。布局/解析全轴见 [Native 库的布局与解析](native-libraries.md)。dev 流不建
+cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
 
 ---
 
@@ -162,11 +168,14 @@ SDK 打包（`scripts/package/xtask_stage_components.z42`）：`_pkgBuildAndStag
    **双向 / host-only**（照 repl：回调表 + trampoline + 懒 dlopen + 专用发现路径 + 进 bin/）。
 3. z42vm 侧加加载臂：单向在 `native/ext.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
    懒加载模块。**符号名两侧手抄，务必逐字节对齐**（版本锁同树构建 → 打包期暴露不匹配）。
-4. 打包接线（`xtask_stage_components.z42`）：`cargo build -p z42-<name>` + 拷到正确位置
-   （`native/` 或 `bin/`）；若进 bin/，记得在 `_copyNativeLibs` 里把它从 `native/` glob 排除。
+4. 打包接线（`scripts/package/`）：`cargo build -p z42-<name>` + 拷到正确位置——跨平台 stdlib 扩展
+   进 `<sdk>/native/`；**组件私有 native**（host-only / 跟随某组件）平铺进该组件 payload 旁
+   （如 repl 的 `programs/z42i/`，见 [Native 库的布局与解析](native-libraries.md)）。后者记得在
+   `_copyNativeLibs` 里把它从 `<sdk>/native/` glob 排除。
 5. 缺库 fallback：想清楚库不存在时的降级行为（抛 NotSupported / plain 兜底 / bundled 静态链）。
 6. **边界铁律自查**：有没有让任何 z42 类型跨了 C 边界？`VmContext` 只 opaque 透传、只在 trampoline
    cast 回？回调返回的串谁分配、谁 free（用哪侧的 `free_str`）？
 
-> 相关：[加载上下文（LoadContext）](load-context.md)、[GC 调参与 safepoint 协议](gc-tuning-and-safepoint.md)、
+> 相关：[Native 库的布局与解析](native-libraries.md)（库住哪 / 怎么找 / 发布期拍平）、
+> [加载上下文（LoadContext）](load-context.md)、[GC 调参与 safepoint 协议](gc-tuning-and-safepoint.md)、
 > [REPL 输入完整性判定](../toolchain/repl-input-completeness.md)。

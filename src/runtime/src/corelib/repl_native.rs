@@ -10,9 +10,13 @@
 //!     (script / test) never touches it and startup stays untouched.
 //!   - **Bidirectional**: the editor calls *back* into the VM mid-`readline` (Tab
 //!     completion, indent-aware keys) via the C function pointers in `ReplCallbacks`.
-//!   - **Host-only toolchain, not `<sdk>/native/`**: it ships beside `z42i`/`z42vm`
-//!     (SDK `bin/`, dev cargo target dir) and is found by *this* repl-specific probe,
-//!     never `ext::native_search_paths()`. wasm/mobile never load it (plain fallback).
+//!   - **Host-only toolchain, isolated from `bin/` and `<sdk>/native/`**: the SDK ships
+//!     it in `<sdk>/programs/z42i/` (beside the interactive apphost payload — a *colocated
+//!     native dependency*); dev drops it in the cargo target dir beside `z42vm`. Found by
+//!     *this* repl-specific probe (`candidates()`, via the shared `ext::resolve_native_beside`
+//!     colocated-lib resolver), never `ext::native_search_paths()`. Keeping it out of the
+//!     shared `bin/` stops the eager ext scanner from warning `ignoring unknown lib repl`
+//!     on every VM run. wasm/mobile never load it (plain fallback).
 //!
 //! # Boundary invariant
 //!
@@ -125,9 +129,15 @@ mod native {
 
     /// Repl-specific search order — NOT `ext::native_search_paths()`:
     ///   1. `Z42_REPL_NATIVE` — explicit override (a full lib path, or a dir holding it).
-    ///   2. the directory of the running binary (SDK `bin/` — the cdylib ships beside
-    ///      `z42i`/`z42vm`, host-only toolchain, deliberately not `<sdk>/native/`; dev
-    ///      cargo target dir where `cargo build -p z42-repl` also drops it).
+    ///   2. the directory of the running binary (dev cargo-target dir, where
+    ///      `cargo build -p z42-repl` drops the cdylib beside `z42vm`).
+    ///   3. `<sdk>/programs/z42i/` — the SDK ships the cdylib beside the interactive
+    ///      apphost's payload (a *colocated native dependency*), deliberately isolated
+    ///      from the shared `bin/` so the generic ext scanner (`ext::native_search_paths`,
+    ///      which scans the running binary's own dir) never sees it and never warns
+    ///      `ignoring unknown lib repl`. Derived from the running `<sdk>/bin/<app>` and
+    ///      resolved through the shared `ext::resolve_native_beside` colocated-lib
+    ///      resolver. (add-path-dependencies D9/D10, supersedes isolate-repl-cdylib.)
     fn candidates() -> Vec<PathBuf> {
         let file = lib_filename();
         let mut out = Vec::new();
@@ -140,6 +150,14 @@ mod native {
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 out.push(dir.join(&file));
+                // <sdk>/programs/z42i/ (beside the interactive payload), via the
+                // shared colocated-native-dependency resolver.
+                if let Some(sdk_root) = dir.parent() {
+                    let z42i_dir = sdk_root.join("programs").join("z42i");
+                    if let Some(p) = crate::native::ext::resolve_native_beside(&z42i_dir, "z42_repl") {
+                        out.push(p);
+                    }
+                }
             }
         }
         out

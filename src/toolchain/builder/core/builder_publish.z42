@@ -143,6 +143,10 @@ int _pubDesktop(ParseResult r, string rid) {
     string distDir = Path.GetDirectoryName(zpkgSrc);
     int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
     if (brc != 0) { return brc; }
+    // Colocate declared private native deps beside the zpkg (add-path-dependencies D9/D10).
+    // Skeleton: no-ops until the `[native.dependencies]` app declaration surface lands.
+    int nrc = _pubBundleProjectNativeDeps(tomlPath, toml, distDir);
+    if (nrc != 0) { return nrc; }
 
     // deploy layout (add-package-layout-config): optional bin/payload.
     string binRel     = _pubPlatformStr(toml, "desktop", "bin", "");
@@ -619,6 +623,25 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
             if (s != ownName && !_pubContains(seen, seenN, s)) { seen[seenN] = s; seenN = seenN + 1; queue[qt] = s; qt = qt + 1; }
         }
     }
+    return 0;
+}
+
+// Colocate a project's declared *private native* dependencies flat beside its zpkg
+// (add-path-dependencies D9/D10): a component's native lib follows the component,
+// resolved at runtime by `native::ext::resolve_native_beside(<zpkg-dir>, <name>)`.
+// The publish step picks the target-rid artifact and lays it flat into payloadDir
+// (mirroring _pubBundleProjectDeps for zpkgs); on mobile it copies into the OS lib
+// dir (jniLibs/<abi>, framework) and the OS loader resolves it.
+//
+// DEFERRED (native-future-app-declaration): there is no `[native.dependencies]` app
+// declaration surface yet — the only non-stdlib native lib today (libz42_repl) is a
+// repl-subsystem cdylib staged directly by packaging (_pkgStageReplCdylib), not an
+// app-declared dependency. Standard-library native (compression, `<sdk>/native/`
+// eager) is unchanged. So this is a live-wired no-op skeleton: it reads the (absent)
+// `[native.dependencies]` section and returns 0. Fill in once the declaration surface
+// lands. See docs/spec/changes/add-path-dependencies/design.md Decision 9/10.
+int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string payloadDir) {
+    // No `[native.dependencies]` declaration surface yet → nothing to colocate.
     return 0;
 }
 

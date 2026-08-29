@@ -111,27 +111,10 @@ int _ensureToolchainDeps(string root) {
     if (!File.Exists(Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg"))) {
         int r = _buildCompiler(); if (r != 0) { return r; }
     }
-    // z42.repl（tty 交互层）→ libs。move-scripting-to-libraries 后 z42.scripting 已成 stdlib workspace
-    // 成员，由上面 _buildStdlib 编入 libs（flat dist）；z42.repl 留 src/toolchain/interactive/repl（host-only
-    // 交互层，与 z42.interactive 同处 interactive 目录），此处以普通 build 步
-    // 建入 libs（Z42_LIBS=stdlib dist，已含 z42.scripting + z42c.core/syntax）。z42.interactive 依赖二者，
-    // 从同一 libs 解析（不再需要 `.scripting-libs` 合并目录 / `_buildScriptingLib` 特例步）。
-    int sc = _buildReplLib(root, _builtVm(root, "release"), _selfContainedDriverDir(root), _libsDir(root));
-    if (sc != 0) { return sc; }
-    return 0;
-}
-
-// build z42.repl（tier1 tty 交互层，依赖 z42.core + z42.scripting）→ libs（stdlib flat dist）。
-// scripting 搬入 src/libraries 成 stdlib 成员后（move-scripting-to-libraries），编译期依赖全在 stdlib
-// dist（含 z42.scripting + z42c.core/syntax），故 Z42_LIBS=libs 即可，不再需要合并 z42c.* 的专用目录。
-// 产物写回 libs 供 z42.interactive 从同一 stdlib dist 解析。(split-z42-repl / move-scripting-to-libraries)
-int _buildReplLib(string root, string vm, string z42cDir, string libs) {
-    _vNormal("  z42.repl: src/toolchain/interactive/repl/z42.repl.z42.toml (Z42_LIBS=stdlib) → " + libs);
-    int c = _exec(new Process(vm)
-        .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg("src/toolchain/interactive/repl/z42.repl.z42.toml").Arg("--release").Arg("--output-dir").Arg(libs)
-        .Env("Z42_LIBS", libs));
-    if (c != 0) { ConsoleError.WriteLine("  ✗ z42.repl build failed (" + c.ToString() + ")"); return c; }
+    // z42.repl（tty 交互层）不再单独建入 <sdk>/libs：它是 z42.interactive 的**私有 path 依赖**
+    //（add-path-dependencies）——z42.interactive.z42.toml 声明 `"z42.repl" = { path = "../repl" }`，
+    // z42c build z42.interactive 时自动建 z42.repl 闭包 + colocate z42.repl.zpkg 进 z42i payload
+    //（programs/z42i/），不进共享 libs。故此处删去昔日的 `_buildReplLib` 步。
     return 0;
 }
 

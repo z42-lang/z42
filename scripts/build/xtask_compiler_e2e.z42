@@ -152,6 +152,39 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ hello.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     Console.WriteLine("  ✓ import e2e: z42c-built hello.app.zpkg (using Std; Console.WriteLine) runs on z42vm");
+
+    // path 依赖 e2e（add-path-dependencies 阶段2）：lib foo + exe bar（`{ path="../foo" }`）。
+    // `z42c build bar` 应：① 自动先建 foo 闭包；② bar 解析到 foo 符号；③ foo.zpkg colocate
+    // 进 bar dist（私有 path 依赖，非 stdlib）；④ bar.zpkg 直跑（entry-dir 解析兄弟 foo.zpkg）。
+    string pdRoot = Path.Join(e2eDir, "pathdep");
+    string fooDir = Path.Join(pdRoot, "foo");
+    string barDir = Path.Join(pdRoot, "bar");
+    Directory.Create(fooDir);
+    Directory.Create(barDir);
+    File.WriteAllText(Path.Join(fooDir, "foo.z42"),
+        "namespace PathDep.Foo;\n\npublic static class Foo {\n    public static int Answer() { return 42; }\n}\n");
+    File.WriteAllText(Path.Join(fooDir, "pathdep.foo.z42.toml"),
+        "[project]\nname    = \"pathdep.foo\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    File.WriteAllText(Path.Join(barDir, "bar.z42"),
+        "using PathDep.Foo;\n\nint Main() {\n    int ok = 0;\n    if (Foo.Answer() == 42) { ok = 1; }\n    return 100 / ok;\n}\n");
+    File.WriteAllText(Path.Join(barDir, "pathdep.bar.z42.toml"),
+        "[project]\nname    = \"pathdep.bar\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"pathdep.foo\" = { path = \"../foo\" }\n");
+    string barToml = Path.Join(barDir, "pathdep.bar.z42.toml");
+    // --release：私有 path 依赖走「colocate + 运行期惰性加载」，惰性加载器只认 **packed** 依赖
+    // zpkg（indexed = 开发态多文件布局，非惰性候选）；release 使 foo 闭包产 packed → 可被惰性加载。
+    // 这也是真实部署态（z42.interactive→z42.repl 亦 --release）。
+    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(barToml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ path 依赖 build 失败（foo 闭包未建 / bar 未解析到 foo）"); return 1; }
+    // ③ foo.zpkg colocate 进 bar dist（_bundleExeDeps 真-stdlib 判据放行 path 依赖）。
+    string barFoo = Path.Join(barDir, "dist/pathdep.foo.zpkg");
+    if (!File.Exists(barFoo)) { Console.WriteLine("  ✗ path 依赖：foo.zpkg 未 colocate 进 bar/dist"); return 1; }
+    // ④ bar.zpkg 直跑（entry-zpkg 目录解析兄弟 foo.zpkg）。
+    rc = new Process(vm).Arg(Path.Join(barDir, "dist/pathdep.bar.zpkg"))
+        .Env("Z42_LIBS", _libsDir(root))
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc != 0) { Console.WriteLine("  ✗ path 依赖：bar.zpkg 直跑失败（exit " + rc.ToString() + "）"); return 1; }
+    Console.WriteLine("  ✓ path 依赖 e2e: z42c build bar 自动建 foo 闭包 + colocate foo.zpkg + bar.zpkg 直跑");
     return 0;
 }
 

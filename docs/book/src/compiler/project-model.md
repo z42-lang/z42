@@ -35,7 +35,19 @@ graph LR
 
 含 `path` 者为**本地路径依赖**：依赖工程的源位于 `path`（相对本 manifest 所在目录），编译时由 z42c 先建该依赖闭包再解析——是「非标准库的私有组件级依赖跟随工程走」的表达（对标 Cargo `{ path = ... }`）。解析层落在 `DepEntry.Path`（`""` = 名字依赖）。
 
-> **两阶段（自举纪律）**：本页此小节记的是 **support 阶段（PR-1）已落的解析**——`z42.project` 认得 `path`、填入 `DepEntry.Path`。**z42c 对 path 依赖的消费**（闭包构建、私有组件 colocate 打包）在 **PR-2**（等 PR-1 nightly 发布后），届时本节补「闭包构建机制 + 与 workspace 的关系」。
+#### path 依赖的闭包构建（消费机制）
+
+path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在** `Z42_LIBS`（stdlib / 预建）；path 依赖是**私有**、随消费方走，编译时才**现建**。`z42c build <consumer>`（single build，非 `--workspace`）遇到 path 依赖时：
+
+1. **闭包发现（`PathDepPlan.Resolve`，`z42c.pipeline`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
+2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
+3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 path 依赖的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
+
+> **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
+
+> **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。
+
+> **两阶段（自举纪律）**：`z42.project` 认 `path` 并填 `DepEntry.Path` 是 **support 阶段（PR-1）**；上面 z42c 的**消费机制**（闭包 + colocate）是 **PR-2（use）**，在 PR-1 nightly 发布后落地——上一版 z42c 不引用 `.Path`，故跨版本自举不断链。
 
 ### 依赖解析（跨包符号）
 
