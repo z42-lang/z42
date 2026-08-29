@@ -124,12 +124,11 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         if (c != 0) { return c; }
         bi = bi + 1;
     }
-    // move-scripting-to-libraries：z42.scripting 已成 stdlib 成员，随 [1/5] _buildCompiler → _buildStdlib
-    // 编入 libs；此处只需建 z42.repl（tty 交互层）→ libs（Z42_LIBS=stdlib dist，已含 scripting +
-    // z42c.core/syntax）。z42.interactive 依赖 scripting + repl，二者皆在 libs，故用纯 stdlib libs 编
-    // （不再需要 `.scripting-libs` 合并目录）。z42i 运行期仍 lazy-load z42c.pipeline（见下 KNOWN LIMITATION）。
-    c = _buildReplLib(root, hostVm, z42cDir, libs);
-    if (c != 0) { return c; }
+    // z42.interactive（z42i）：z42.repl 现为其**私有 path 依赖**（add-path-dependencies，
+    // z42.interactive.z42.toml 声明 `"z42.repl" = { path = "../repl" }`）——`z42c build`
+    // 自动建 z42.repl 闭包 + 经 _bundleExeDeps colocate z42.repl.zpkg 进 z42.interactive dist，
+    // 随后 _z42bPublish 的 _pubCopyDistDeps 带进 programs/z42i/ payload。故不再单独 _buildReplLib
+    // 塞 libs。z42.scripting 仍是 stdlib 成员（在 libs）。z42i 运行期仍 lazy-load z42c.pipeline（见下）。
     c = _z42cBuildToml(hostVm, z42cDir, libs,
                        "src/toolchain/interactive/core/z42.interactive.z42.toml");
     if (c != 0) { return c; }

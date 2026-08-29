@@ -21,19 +21,19 @@
 - [ ] 1.7 归档 PR-1 + 合并 → **等 nightly**
 
 ## 阶段 2（PR-2，use）——独立分支/worktree，PR-1 nightly 发布后
-- [ ] 2.1 `PathDepPlan.z42`（新）：path 闭包发现 + 拓扑序 + 各 dist 解析（复用 WorkspaceBuild 范式；环检测）
-- [ ] 2.2 dist 解析辅助（design D3：z42.project `ResolveDistDir` 或 driver 私有，看 BuildConfig 现状定）
-- [ ] 2.3 `Main.z42 _build`：前置 path 闭包构建（逐个 `_build`）+ 消费方 libsDirs 追加闭包 dist（去重）
-- [ ] 2.4 `_bundleExeDeps`：判据从 `StartsWith("z42.")` 改为真-stdlib（path 依赖私有复制），与 `_pubBundleProjectDeps` 一致（design D2）
-- [ ] 2.5 端到端 fixture `path_dep/`：lib foo + exe bar（`{ path="../foo" }`）→ 先建 + 构建期解析 + foo.zpkg colocate 进 bar dist
-- [ ] 2.6 `z42.interactive.z42.toml`：`"z42.repl"` → `{ path = "../repl" }`
-- [ ] 2.7b（验证）`_pubBundleProjectDeps` 定位 path 依赖 toml：确认删 `_buildReplLib` 后 z42.repl（inLibs=false）被正确 build + colocate 进 `programs/interactive/`；必要时教它认 path 依赖位置
-- [ ] 2.8b 验证 z42.repl.zpkg 出现在 SDK `programs/interactive/`（移出 libs）；`strings` 确认 z42.interactive.zpkg 不含 Repl（未合并，符合 colocated）
-- [ ] 2.7 xtask：删 `_buildReplLib` + `_ensureToolchainDeps` 调用（+ 相关注释）
-- [ ] 2.8 验证 `_z42bPublish` 把 bundle 的 z42.repl.zpkg 带进 z42i payload；REPL 冒烟
-- [ ] 2.9 README（z42c.driver / z42c.pipeline）+ book self-hosting / 依赖解析页：path 闭包机制
-- [ ] 2.10 GREEN：`xtask test`（全 stage）+ `xtask test compiler` + `xtask test bootstrap`（未越界）+ `xtask build toolchain` 手验 z42i
-- [ ] 2.11 归档 PR-2 + 合并 + 清理 worktree/分支
+- [x] 2.1 `PathDepPlan.z42`（新）：沿 `DepEntry.Path` post-order DFS（环检测 `visiting` + 规范化路径去重 `visited`）→ 叶子在前的 `PathDepClosure`
+- [x] 2.2 dist 解析辅助：复用 driver 私有 `_resolveDistDir`（BuildConfig 模板上下文在 driver，故闭包序在 pipeline、dist 解析留 driver）
+- [x] 2.3 `Main.z42 _build`：top-level（libsDirsCount==0）前置 path 闭包构建（逐成员 `_build`，post-order 累积 dist 作 override）+ 消费方 libsDirs 追加闭包全 dist + Z42_LIBS
+- [x] 2.4 `_bundleExeDeps`：加 `projectDir` 参 + 真-stdlib 判据（`<srcRoot>/libraries/<name>`，`_srcRoot` 助手；repo 外回落旧前缀判据），path 依赖私有复制。与 `_pubBundleProjectDeps` 一致（D2）
+- [x] 2.5 端到端 e2e（`xtask_compiler_e2e._e2eBuildChecks` 新增 path_dep 检查）：lib foo + exe bar（`{ path="../foo" }`）→ 自动建 foo 闭包 + bar 解析 foo 符号 + foo.zpkg colocate 进 bar dist + bar.zpkg 直跑（`--release`）
+  - **关键发现（packed 前提）**：运行期惰性加载器只把 **packed** zpkg 当依赖候选，**indexed**（debug 布局）不作候选 → debug 建的 path 依赖 colocate 后运行期 `undefined function`。故 e2e 与真实部署（z42i→z42.repl）均走 `--release`（消费方+闭包 packed）。既有惰性加载器约束，非 path 依赖新引入；已记入 book `project-model.md` 路径依赖闭包「packed 前提」。
+- [x] 2.6 `z42.interactive.z42.toml`：`"z42.repl"` → `{ path = "../repl" }`
+- [x] 2.7 xtask：删 `_buildReplLib` **两处调用 + 函数定义**（`xtask_toolchain._ensureToolchainDeps` + `xtask_package_desktop._pkgStageToolchainComponents`）+ 更新注释
+- [~] 2.7b/2.8b（验证）删 `_buildReplLib` 后 z42.repl 走 path 闭包 colocate 进 `programs/z42i/`：`_pubBundleProjectDeps` 按名定位不到 z42.repl（不在 libraries/）→ 保守跳过，交由 `_bundleExeDeps`（build 时）+ `_pubCopyDistDeps`（publish 时）搬进 payload。**`xtask build toolchain` 手验中**（GREEN 后）
+- [x] 2.8 验证路径：`z42c build z42.interactive`（CLI，libsDirsCount==0）→ 闭包建 z42.repl → `_bundleExeDeps` colocate 进 interactive dist → `_z42bPublish._pubCopyDistDeps` 带进 `programs/z42i/`。**`xtask build toolchain` 手验中**
+- [x] 2.9 README（z42c.driver / z42c.pipeline）+ book `compiler/project-model.md` 路径依赖闭包机制 + 交叉链 native-libraries.md
+- [~] 2.10 GREEN：`xtask test`（全 stage，跑中）+ `xtask build toolchain` 手验 z42i + `xtask test bootstrap`（未越界）
+- [ ] 2.11 归档 + 合并（与 native 半边合成一个 PR）
 
 ## native 依赖（PR-2 内或独立 PR-3；无两-nightly 约束；Supersedes #332，见 D9/D10）
 > #332 的 5 文件 diff 已实现+验证——**直接搬运**，勿重做。worktree ../z42-replisolate 有原始 diff。

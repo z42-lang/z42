@@ -1,0 +1,178 @@
+// Path-dependency closure planning (add-path-dependencies 阶段2 use, 2026-08-29).
+//
+// 本地路径依赖 `dep = { path = "../foo" }`：消费方 build 前，先按拓扑序（叶子在前）
+// 构建其 path 依赖的**传递闭包**，把各闭包成员 dist 并入消费方 libsDirs，再编消费方。
+//
+// `Resolve(consumerToml)` 沿 `DepEntry.Path` 非空的边做 **post-order DFS**：
+//   - `visiting` 集（in-progress）检测回边 → 环报错；
+//   - `visited` 集（按**规范化** toml 路径）去重，钻石依赖只建一次；
+//   - post-order 发射 → 叶子在前，消费方在后（消费方本身不发射）。
+// 产出 flat 数组 `Tomls[]`（z42 无交错数组，仿 WsMembers）。dist 解析留 driver
+// （`_resolveDistDir` 依赖 driver 私有的模板上下文），本模块只定拓扑序。
+//
+// z42c 受限子集：无闭包捕获 → 显式 `PathDepState` 状态对象穿透递归；固定数组 + 计数。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.Build.Project;
+
+// 拓扑序（叶子在前）的 path 依赖闭包。Tomls[i] = 成员 manifest 路径（不含消费方自身）。
+public sealed class PathDepClosure {
+    public string[] Tomls;
+    public int      Count;
+    public PathDepClosure(string[] tomls, int count) {
+        this.Tomls = tomls; this.Count = count;
+    }
+}
+
+// DFS 状态：post-order 结果 + in-progress 环集 + 已完成去重集（均按规范化路径）。
+sealed class PathDepState {
+    public string[] Order;    public int Oc;
+    public string[] Visiting; public int Vc;
+    public string[] Visited;  public int Visc;
+    public PathDepState() {
+        this.Order = new string[1024];    this.Oc = 0;
+        this.Visiting = new string[1024]; this.Vc = 0;
+        this.Visited = new string[1024];  this.Visc = 0;
+    }
+}
+
+public static class PathDepPlan {
+
+    // consumerToml → 其 path 依赖的传递闭包，post-order（叶子在前）、按规范化 toml 路径去重。
+    // 不含 consumer 自身。环 → 抛 Exception。
+    public static PathDepClosure Resolve(string consumerToml) {
+        PathDepState st = new PathDepState();
+        // consumer 入 visiting（让指回它的 path 边触发环检测），但不发射到 Order。
+        st.Visiting[st.Vc] = PathDepPlan._norm(consumerToml); st.Vc = st.Vc + 1;
+        PathDepPlan._visitDeps(st, consumerToml);
+        st.Vc = st.Vc - 1;   // pop consumer
+        string[] outp = new string[st.Oc];
+        int i = 0;
+        while (i < st.Oc) { outp[i] = st.Order[i]; i = i + 1; }
+        return new PathDepClosure(outp, st.Oc);
+    }
+
+    // 访问 consumerToml 的每个 path 依赖（按 dep 名稳定序），递归其闭包。
+    static void _visitDeps(PathDepState st, string consumerToml) {
+        ProjectManifest pm = ManifestLoader.Load(consumerToml);
+        string consumerDir = Path.GetDirectoryName(consumerToml);
+        if (consumerDir.Length == 0) { consumerDir = "."; }
+        // 收集 path 依赖（Path 非空）的 (name, resolvedToml)。
+        string[] depNames = new string[pm.DepCount];
+        string[] depTomls = new string[pm.DepCount];
+        int dc = 0;
+        int d = 0;
+        while (d < pm.DepCount) {
+            if (pm.Deps[d].Path.Length > 0) {
+                depNames[dc] = pm.Deps[d].Name;
+                depTomls[dc] = PathDepPlan._resolveDepToml(consumerDir, pm.Deps[d].Path, pm.Deps[d].Name);
+                dc = dc + 1;
+            }
+            d = d + 1;
+        }
+        // 按 name 选择排序 → 稳定发射序（common-pitfalls §1：禁依赖声明/FS 碰巧序）。
+        int p = 0;
+        while (p < dc) {
+            int min = p; int q = p + 1;
+            while (q < dc) { if (depNames[q].CompareTo(depNames[min]) < 0) { min = q; } q = q + 1; }
+            if (min != p) {
+                string tn = depNames[p]; depNames[p] = depNames[min]; depNames[min] = tn;
+                string tt = depTomls[p]; depTomls[p] = depTomls[min]; depTomls[min] = tt;
+            }
+            p = p + 1;
+        }
+        int k = 0;
+        while (k < dc) { PathDepPlan._visit(st, depTomls[k]); k = k + 1; }
+    }
+
+    // 访问单个 path 依赖 toml：去重 → 环检测 → 递归子依赖 → post-order 发射。
+    static void _visit(PathDepState st, string depToml) {
+        string norm = PathDepPlan._norm(depToml);
+        if (PathDepPlan._contains(st.Visited, st.Visc, norm)) { return; }
+        if (PathDepPlan._contains(st.Visiting, st.Vc, norm)) {
+            throw new Exception("z42c build: circular path dependency at " + depToml);
+        }
+        if (st.Oc >= st.Order.Length || st.Vc >= st.Visiting.Length) {
+            throw new Exception("z42c build: path dependency closure too large (>1024)");
+        }
+        st.Visiting[st.Vc] = norm; st.Vc = st.Vc + 1;
+        PathDepPlan._visitDeps(st, depToml);
+        st.Vc = st.Vc - 1;
+        st.Visited[st.Visc] = norm; st.Visc = st.Visc + 1;
+        st.Order[st.Oc] = depToml; st.Oc = st.Oc + 1;
+    }
+
+    // consumerDir/relPath 下恰一份 *.z42.toml → 依赖 manifest；0/多份 → 报错。
+    static string _resolveDepToml(string consumerDir, string relPath, string depName) {
+        string depDir = Path.Join(consumerDir, relPath);
+        string[] manifests = Path.Glob(depDir, "*.z42.toml");
+        if (manifests.Length != 1) {
+            throw new Exception("z42c build: path 依赖 '" + depName + "' 在 " + depDir
+                + " 期望恰 1 份 *.z42.toml，实得 " + manifests.Length.ToString());
+        }
+        return manifests[0];
+    }
+
+    static bool _contains(string[] arr, int n, string v) {
+        int i = 0;
+        while (i < n) { if (arr[i] == v) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 规范化路径（去重 + 环键）：相对 → 绝对（相对 CWD）后折叠 "." / ".." 段。
+    static string _norm(string path) {
+        string abs = Path.IsRooted(path) ? path
+            : Path.Join(Environment.GetCurrentDirectory(), path);
+        string[] segs = PathDepPlan._split(abs);
+        string[] stack = new string[segs.Length];
+        int sp = 0;
+        int i = 0;
+        while (i < segs.Length) {
+            string s = segs[i];
+            i = i + 1;
+            if (s.Length == 0 || s == ".") { continue; }
+            if (s == "..") { if (sp > 0) { sp = sp - 1; } continue; }
+            stack[sp] = s; sp = sp + 1;
+        }
+        string outp = "";
+        int j = 0;
+        while (j < sp) { outp = outp + "/" + stack[j]; j = j + 1; }
+        if (outp.Length == 0) { outp = "/"; }
+        return outp;
+    }
+
+    // 按 '/' 或 '\' 分段。
+    static string[] _split(string s) {
+        int n = s.Length;
+        int count = 1;
+        int i = 0;
+        while (i < n) {
+            char c = s.CharAt(i);
+            if (c == '/' || c == '\\') { count = count + 1; }
+            i = i + 1;
+        }
+        string[] segs = new string[count];
+        int si = 0; int start = 0;
+        i = 0;
+        while (i <= n) {
+            bool sep = (i == n) || (s.CharAt(i) == '/') || (s.CharAt(i) == '\\');
+            if (sep) {
+                segs[si] = PathDepPlan._sub(s, start, i);
+                si = si + 1;
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        return segs;
+    }
+
+    static string _sub(string s, int start, int end) {
+        int len = end - start;
+        char[] cs = new char[len];
+        int i = 0;
+        while (i < len) { cs[i] = s.CharAt(start + i); i = i + 1; }
+        return String.FromChars(cs);
+    }
+}

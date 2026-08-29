@@ -162,6 +162,43 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
         else { libsDirs = new string[0]; libsDirsN = 0; }
     }
+    // ── path 依赖闭包（add-path-dependencies 阶段2 use）──
+    // top-level build（libsDirsCount==0）才解析：沿 `dep = { path = "..." }` 边建传递闭包
+    // （叶子在前），逐个 `_build` 并累积其 dist，最后并入消费方 libsDirs。workspace / 闭包子建
+    // 传 libsDirsOverride（count>0）→ 已由调用方组装好 libsDirs，跳过（叶子无 path 依赖，闭包空）。
+    if (libsDirsCount == 0) {
+        PathDepClosure closure = PathDepPlan.Resolve(tomlPath);
+        if (closure.Count > 0) {
+            string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+            string[] accum = new string[closure.Count];
+            int accN = 0;
+            int ci = 0;
+            while (ci < closure.Count) {
+                string depToml = closure.Tomls[ci];
+                ci = ci + 1;
+                ProjectManifest depPm = ManifestLoader.Load(depToml);
+                string depDir = Path.GetDirectoryName(depToml);
+                if (depDir.Length == 0) { depDir = "."; }
+                string depDist = _resolveDistDir(depPm, depDir, isRelease);
+                // 该成员的 libsDirs override = 已建闭包成员 dist（post-order → 其依赖已在内）+ Z42_LIBS。
+                string[] depOverride = new string[accN + 1];
+                int oi = 0;
+                while (oi < accN) { depOverride[oi] = accum[oi]; oi = oi + 1; }
+                int depOverrideN = accN;
+                if (baseLib.Length > 0) { depOverride[depOverrideN] = baseLib; depOverrideN = depOverrideN + 1; }
+                int dbc = _build(depToml, isRelease, "", depOverride, depOverrideN, noIncremental, optSet, false);
+                if (dbc != 0) { return dbc; }
+                accum[accN] = depDist; accN = accN + 1;
+            }
+            // 消费方 libsDirs = 闭包全 dist + Z42_LIBS。
+            string[] merged = new string[accN + 1];
+            int mi = 0;
+            while (mi < accN) { merged[mi] = accum[mi]; mi = mi + 1; }
+            int mergedN = accN;
+            if (baseLib.Length > 0) { merged[mergedN] = baseLib; mergedN = mergedN + 1; }
+            libsDirs = merged; libsDirsN = mergedN;
+        }
+    }
     // attribute-handler-registry PR4e：handler（[analyzers] zpkg）身份指纹并入增量指纹（design red-line ②
     // 「产物纳入指纹」，helper 在 BuildPaths.z42）——揉进每个文件源 hash，则「换 generator 但源没变」也令所有
     // 缓存失效。空（无 [analyzers]，含 z42c 自建）→ `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
@@ -199,7 +236,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         // 增量 preserved 尚未建模多产物，多 exe 一律全量（unify-run-modes P3）。
         if (pm.ExeCount == 0 && prep.Plan.AllCached && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked)) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+                int sbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
             }
             Console.WriteLine("no changes; preserved -> " + lastZpkg);
@@ -355,7 +392,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+        int mbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         return ExitCode.Ok;
     }
@@ -403,7 +440,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, distDir, libsDirs, libsDirsN);
+        int bc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
@@ -414,12 +451,25 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
 // zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序 = [entry-zpkg 目录,
 // Z42_LIBS]，故 exe 从自身 dist 即可解析兄弟包，stdlib（z42.*）仍走 Z42_LIBS。
 // 仅直接依赖（与 publish 一致：exe 应直接声明全部所需兄弟；传递闭包记 Deferred）。
-int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int libsDirsN) {
+int _bundleExeDeps(ProjectManifest pm, string projectDir, string distDir, string[] libsDirs, int libsDirsN) {
+    // 复制判定（add-path-dependencies D2，镜像 builder _pubBundleProjectDeps）：真-stdlib
+    //（`<srcRoot>/libraries/<name>` 存在）走 Z42_LIBS 不复制；其余（path 依赖 / 非 stdlib 命名
+    // 依赖）= 私有，复制进 dist。srcRoot 找不到（repo 外构建）→ 回落旧判据「z42.* 命名视作
+    // stdlib、path 依赖必复制」。path 依赖名即便 z42.*（如 z42.repl）也不在 libraries → 复制。
+    string srcRoot = _srcRoot(projectDir);
     int i = 0;
     while (i < pm.DepCount) {
         string dep = pm.Deps[i].Name;
+        bool isPathDep = pm.Deps[i].Path.Length > 0;
         i = i + 1;
-        if (dep.StartsWith("z42.")) { continue; }   // 标准库：走 Z42_LIBS，不复制
+        bool isTrueStdlib;
+        if (srcRoot.Length > 0) {
+            isTrueStdlib = !isPathDep
+                && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), dep));
+        } else {
+            isTrueStdlib = !isPathDep && dep.StartsWith("z42.");
+        }
+        if (isTrueStdlib) { continue; }   // 真-stdlib：走 Z42_LIBS，不复制
         string zname = dep + ".zpkg";
         bool copied = false;
         int d = 0;
@@ -445,11 +495,27 @@ int _bundleExeDeps(ProjectManifest pm, string distDir, string[] libsDirs, int li
         }
         if (!copied) {
             ConsoleError.WriteLine("z42c build: exe dep '" + dep
-                + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace）");
+                + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace / path 依赖）");
             return ExitCode.BuildError;
         }
     }
     return ExitCode.Ok;
+}
+
+// src 根：从 projectDir 上溯，找同时含 libraries/ 与 compiler/ 的目录（镜像 builder
+// _pubSrcRoot）。用于 _bundleExeDeps 的真-stdlib 判定。repo 外构建 → 返回 ""。
+string _srcRoot(string projectDir) {
+    string dir = Path.IsRooted(projectDir) ? projectDir
+        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+    while (dir.Length > 0) {
+        if (Directory.Exists(Path.Join(dir, "libraries")) && Directory.Exists(Path.Join(dir, "compiler"))) {
+            return dir;
+        }
+        string parent = Path.GetDirectoryName(dir);
+        if (parent.Length == 0 || parent == dir) { return ""; }
+        dir = parent;
+    }
+    return "";
 }
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找

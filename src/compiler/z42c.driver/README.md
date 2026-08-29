@@ -28,6 +28,8 @@ workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节]
 ## 依赖关系
 → z42c.syntax, z42c.semantics, z42c.core, z42c.pipeline, z42.ir, z42.project。stdlib（Std / Std.IO）自动可用。
 
+`_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42c.pipeline` 的 `PathDepPlan.Resolve` 建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。机制见 book `compiler/project-model.md` 路径依赖闭包。
+
 ## 运行（自举产物）
 z42c 跨包 dep 解析读 `Z42_LIBS`。**通常无需手动设置**：z42vm 会把它解析出的 libs 目录
 （`<binary>/../libs` SDK 布局 / dev flat view）回写进 `$Z42_LIBS`，z42c 透明读到（见

@@ -23,7 +23,7 @@ include = ["interactive_main.z42"]
 "z42.core" = "0.1.0"   # String / core
 "z42.io"   = "0.1.0"   # Console / Environment
 "z42.scripting" = "0.1.0"   # Script.Eval / Completeness / Completer（REPL eval-core）
-"z42.repl" = "0.1.0"        # Std.Repl.Repl 行编辑 + ReplEditing 键位（tty 交互；split-z42-repl）
+"z42.repl" = { path = "../repl" }   # Std.Repl.Repl 行编辑 + ReplEditing 键位（tty 交互）。私有组件 = path 依赖（add-path-dependencies）：z42c 建闭包 + colocate z42.repl.zpkg 进 z42i payload，不入 <sdk>/libs
 "z42.threading" = "0.1.0"   # Thread（add-repl-prewarm：启动即 spawn 预热 worker）
 
 [build]
