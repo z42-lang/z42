@@ -21,10 +21,13 @@
 >
 > **分阶段（尊重 wire-z42b-host-build 时序）**：
 > ① 载荷归位 + 架构定稿（已落，xtask 仍编译+驱动嵌入运行）；
-> ② z42b 接管部署运行 + test workload 打包发布 + **各平台 backend 委托 `z42b test --rid`、退 bespoke**
-> （`xtask_test_platform.z42` 的 `IPlatformBackend` 收缩为薄壳）；
+> ②a **host compile-then-test 首刀（已落，`add-z42b-compile-then-test`）**：`z42b test <z42.toml>`
+> （或无 target 默认 `z42.toml`）经注入编译器现编工程到 dist 再反射跑 `[Test]`，host 侧对工程/产物
+> 统一入口——消除调用方「先 build 再 test」两步；
+> ②b z42b 接管平台部署运行 + test workload 打包发布 + **各平台 backend 委托 `z42b test --rid`、退 bespoke**
+> （`xtask_test_platform.z42` 的 `IPlatformBackend` 收缩为薄壳）——待做；
 > ③ z42b in-process 编译成熟后，「编译一个项目」也走 z42b（语料级编译仍留 xtask）。
-> 详见 change `unify-test-pipeline-z42b` 的 design.md（D1–D6）。
+> 详见 change `unify-test-pipeline-z42b` 的 design.md（D1–D6）+ `add-z42b-compile-then-test`。
 
 > **更新（retire-test-runner，2026-06-30）**：本文多处把 runner 描述为 Rust **library**
 > （`src/toolchain/test-runner/src/lib.rs`，各平台绑库不 fork）。该 Rust runner 已删除——

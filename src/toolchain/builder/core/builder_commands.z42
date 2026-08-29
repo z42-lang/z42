@@ -23,19 +23,26 @@ int _cmdBuild(ParseResult r)   { return _runVerb(r, ""); }
 int _cmdPublish(ParseResult r) { return _runVerb(r, BuildMode.Publish); }
 int _cmdExport(ParseResult r)  { return _runVerb(r, BuildMode.Export); }
 
-int _runVerb(ParseResult r, string mode) {
+// 构建产出：退出码 + dist zpkg 路径（Dist="" 表示无 dist——Export 模式、app.zpkg 缺失或
+// dep-bundle 失败）。compile-then-test（builder_test._runModule）取 Dist 续跑 [Test]；
+// _runVerb 取 Rc 返回。auto-property + 隐式默认 ctor（对齐本 codebase 的 TestUnit/DepBundle）。
+class BuildOutcome {
+    public int    Rc   { get; set; }
+    public string Dist { get; set; }
+}
+
+// 编译一个工程 → BuildOutcome。build（mode=""）/ publish 产 dist/<name>.zpkg；export 只
+// orchestrate 到 GenerateProject、不产 dist。诊断在此打印。_runVerb 与 compile-then-test
+// 共用同一份 orchestrate + dist 组装（单一真相；无 target 默认 z42.toml，对齐 build）。
+BuildOutcome _buildProject(ParseResult r, string mode) {
+    BuildOutcome o = new BuildOutcome();
+    o.Dist = "";
     string tomlPath = r.GetPositional(0);
     if (tomlPath.Length == 0) { tomlPath = "z42.toml"; }
     if (!File.Exists(tomlPath)) {
         ConsoleError.WriteLine("z42b: project manifest not found: " + tomlPath);
-        return 2;
-    }
-    if (mode == BuildMode.Export) {
-        string rid = r.GetOption("rid");
-        if (rid.Length == 0) {
-            ConsoleError.WriteLine("z42b export: --rid required (ios-arm64 / android-arm64 / browser-wasm)");
-            return 2;
-        }
+        o.Rc = 2;
+        return o;
     }
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     string sourceDir = Path.GetDirectoryName(tomlPath);
@@ -43,14 +50,15 @@ int _runVerb(ParseResult r, string mode) {
     Target t = _makeTarget(r, mode);
     if (t.Rid.Length == 0) {
         ConsoleError.WriteLine("z42b: unsupported host (" + Platform.OS() + "/" + Platform.Arch() + "); pass --rid");
-        return 2;
+        o.Rc = 2;
+        return o;
     }
     // `[build] hooks`（projDir 相对目录，"" = 无）——ManifestLoader 未建模该键，
     // 沿 builder_publish 的 TomlValue 直读先例（z42.project 面零改动）。
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
     string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
     int rc = _orchestrate(m, t, sourceDir, hooksRel);
-    if (rc != 0) { return rc; }
+    if (rc != 0) { o.Rc = rc; return o; }
     if (mode != BuildMode.Export) {
         Dirs dirs = _computeDirs(m, sourceDir, t.Profile);
         string builtZpkg = Path.Join(dirs.Intermediate, "app.zpkg");
@@ -59,9 +67,23 @@ int _runVerb(ParseResult r, string mode) {
             string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
             File.Copy(builtZpkg, distZpkg);
             rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist);
+            if (rc == 0) { o.Dist = distZpkg; }
         }
     }
-    return rc;
+    o.Rc = rc;
+    return o;
+}
+
+int _runVerb(ParseResult r, string mode) {
+    // export 需显式 --rid（无 host 默认形态）——前置校验，保持原 exit code 2。
+    if (mode == BuildMode.Export) {
+        string rid = r.GetOption("rid");
+        if (rid.Length == 0) {
+            ConsoleError.WriteLine("z42b export: --rid required (ios-arm64 / android-arm64 / browser-wasm)");
+            return 2;
+        }
+    }
+    return _buildProject(r, mode).Rc;
 }
 
 // 从 CLI 选项构造 Target。--rid 缺省 = host RID；profile 由 --release 决定。

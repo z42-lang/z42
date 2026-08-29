@@ -20,24 +20,34 @@ int _cmdBench(ParseResult r) { return _runModule(r, "bench"); }
 
 // Resolve the target → RunModule. RunModule runs both [Test] and [Benchmark]
 // (mirroring the retired Rust runner), so test / bench share this path — a
-// compiled artifact contains only the relevant category of entries. Building
-// from a .z42.toml first (compile-then-test) needs the in-process compiler and
-// is pending wire-z42b-host-build; here we accept an already-compiled artifact
-// (which is exactly how xtask drives it).
+// compiled artifact contains only the relevant category of entries.
+//
+// Two target forms (add-z42b-compile-then-test — unify-test-pipeline stage ②):
+//   • <file.zbc|.zpkg>          → run the already-compiled module directly
+//                                 (exactly how xtask drives the corpus).
+//   • <project.z42.toml> / none → compile-then-test: build the project via the
+//                                 injected in-process compiler (_buildProject,
+//                                 wire-z42b-host-build), then run its dist zpkg.
+//                                 Empty target defaults to z42.toml (mirrors build).
 int _runModule(ParseResult r, string verb) {
     string target = r.GetPositional(0);
-    if (target.Length == 0) {
-        ConsoleError.WriteLine("z42b " + verb + ": missing <file.zbc|file.zpkg>");
-        return 2;
-    }
     // Output format: pretty (default, human-readable) | json (structured report
     // with per-benchmark bench_stats) — rebuild-bench-structured-output.
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "pretty"; }
+    // Already-compiled artifact → run as-is (dep closure resolved from VM search dirs).
     if (target.EndsWith(".zbc") || target.EndsWith(".zpkg")) {
         return Runner.RunModule(target, format);
     }
-    ConsoleError.WriteLine("z42b " + verb + ": building from " + target
-        + " is pending wire-z42b-host-build; pass a compiled .zbc/.zpkg");
-    return 2;
+    // Otherwise treat as a project manifest (empty → z42.toml): compile then run
+    // the produced dist zpkg through the same reflective Runner path. Build
+    // diagnostics/exit-code come from _buildProject; a missing manifest surfaces
+    // there as rc 2.
+    BuildOutcome b = _buildProject(r, "");
+    if (b.Rc != 0) { return b.Rc; }
+    if (b.Dist.Length == 0) {
+        ConsoleError.WriteLine("z42b " + verb + ": build produced no runnable artifact");
+        return 1;
+    }
+    return Runner.RunModule(b.Dist, format);
 }

@@ -6,7 +6,7 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口 |
+| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口。尊重 `req.Kind`（exe 默认需 Main / lib 免 Main，供 compile-then-test 直接编测试工程，`add-z42b-compile-then-test`）|
 | `src/Z42cReplCompiler.z42` | REPL 增量编译路径（累积声明 + 惰性符号世界）|
 | `src/PackageCompile.z42` | 单包编译编排（源发现 → sem → emit → zpkg）|
 | `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）|

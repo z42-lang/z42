@@ -15,6 +15,7 @@
 | [[bench]] 反射（[Benchmark]） | `basic/bench/micro.z42` |
 | [[example]] 编译门禁 + test=true 执行 | `basic/examples/hello.z42` |
 | 显式覆盖同名 auto | `unit_ok` / `exit_ok` 目标名 == 文件 stem → 覆盖 auto 单元 |
+| compile-then-test（`z42b test <toml>`） | `compile-then-test/`——纯 test 工程（**不**声明 `[[test]]`，故被清单引擎跳过），由 fixtures stage 的 `_smokeCompileThenTest` 单独驱动，验证 toml→build→反射跑（`add-z42b-compile-then-test`）|
 
 ## 如何测试验证
     xtask test targets            # 跑本目录所有 [[test]] 目标（harness 两态）
@@ -35,3 +36,4 @@
 | `basic/tests/*.z42` | harness 两态 + 约定 auto 单元 |
 | `basic/bench/micro.z42` | [Benchmark] 反射目标 |
 | `basic/examples/hello.z42` | example（编译门禁 + test=true 执行） |
+| `compile-then-test/{z42.toml, src/Tests.z42}` | z42b compile-then-test 冒烟夹具（自由函数 `[Test]`；由 `_smokeCompileThenTest` 经 `z42b test <toml>` 驱动） |
