@@ -22,6 +22,21 @@ graph LR
 
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
 
+#### `[dependencies]` 值形态：名字依赖 vs 本地 path 依赖
+
+`[dependencies]` 每一项的值可为**字符串**（版本）或**表** `{ version?, path? }`：
+
+```toml
+[dependencies]
+"z42.core" = "0.1.0"                 # 名字依赖：按名在 Z42_LIBS 解析 <name>.zpkg
+"z42.repl" = { path = "../repl" }    # 本地 path 依赖：源在相对本 manifest 目录的 ../repl
+"foo"      = { version = "0.1.0", path = "../foo" }  # path 依赖可并带 version（path 优先，version 供将来校验）
+```
+
+含 `path` 者为**本地路径依赖**：依赖工程的源位于 `path`（相对本 manifest 所在目录），编译时由 z42c 先建该依赖闭包再解析——是「非标准库的私有组件级依赖跟随工程走」的表达（对标 Cargo `{ path = ... }`）。解析层落在 `DepEntry.Path`（`""` = 名字依赖）。
+
+> **两阶段（自举纪律）**：本页此小节记的是 **support 阶段（PR-1）已落的解析**——`z42.project` 认得 `path`、填入 `DepEntry.Path`。**z42c 对 path 依赖的消费**（闭包构建、私有组件 colocate 打包）在 **PR-2**（等 PR-1 nightly 发布后），届时本节补「闭包构建机制 + 与 workspace 的关系」。
+
 ### 依赖解析（跨包符号）
 
 编译一个包前，`DepScan` 扫描扁平的 `Z42_LIBS` 目录（运行期所有可见 zpkg 汇聚于此），一次产出三样东西：

@@ -31,7 +31,7 @@
 | `src/ProjectManifest.z42`（`OptimizeNames`/`Values`/`Count`） | `[optimize]` | 逐 pass 具名开关（`inline=true`/`const-fold=false`…）中性 name/value 对；消费方按名映射编译器 `Opt` 位（add-compiler-inlining；消费受两-nightly 纪律） |
 | `src/ProjectManifest.z42`（`Analyzers`/`AnalyzerCount`） | `[analyzers]` | 编译期 handler zpkg 引用（DepEntry name/version）——「加载进编译器、编译期运行、不链入目标程序」（attribute-handler-registry D9）；消费方（z42c）按名在 LibsDirs 解析到 `<name>.zpkg` 加载其 `: Analyzer` 类型 |
 | `src/ProjectManifest.z42`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`） | `[lints]` | 诊断规则 severity 覆盖（`Z9002="warning"`/`"pkg.*"="none"`）中性 name/severity 串对 + `warnings-as-errors` 布尔（attribute-handler-registry PR3b）；z42.project 不解释规则/级别语义，消费方（z42c `LintConfig`）做 `EnabledByDefault`+覆盖+通配+WAE 决策 |
-| `src/DepEntry.z42` | `[dependencies]`·`[analyzers]` | 单项依赖（name / version） |
+| `src/DepEntry.z42` | `[dependencies]`·`[analyzers]` | 单项依赖（name / version / **path**）。`path` 非空 = 本地路径依赖（`{ path="../foo" }`，源在相对 manifest 目录处）；为 "" = 名字依赖走 Z42_LIBS。解析 support（add-path-dependencies PR-1）；z42c 消费闭包构建/打包受两-nightly 纪律（PR-2） |
 | `src/ExeTarget.z42` | `[[exe]]` | 多 exe 目标 |
 | `src/TargetSection.z42` | `[tests]`·`[benches]`·`[examples]` | dev 目标段：约定发现 glob（include/exclude/auto）+ dev-deps 隔离 |
 | `src/RunTarget.z42` | `[[test]]`·`[[bench]]`·`[[example]]` | dev 运行目标（三类共用）：name / harness / entry / sources / deps / test（example 纳入 xtask test 执行）|

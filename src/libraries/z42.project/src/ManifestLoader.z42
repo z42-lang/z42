@@ -219,9 +219,13 @@ public static class ManifestLoader {
         while (i < keys.Length) {
             var dv = d.Get(keys[i]);
             string ver = "";
-            if (dv.IsTable()) { if (dv.ContainsKey("version")) { ver = dv.Get("version").AsString(); } }
+            string pth = "";
+            if (dv.IsTable()) {
+                if (dv.ContainsKey("version")) { ver = dv.Get("version").AsString(); }
+                if (dv.ContainsKey("path"))    { pth = dv.Get("path").AsString(); }
+            }
             else { ver = dv.AsString(); }
-            deps[i] = new DepEntry(keys[i], ver);
+            deps[i] = new DepEntry(keys[i], ver, pth);
             i = i + 1;
         }
         return deps;

@@ -73,6 +73,7 @@
   - [workload 与平台发行]()
   - [SDK 与发行包布局]()
   - [测试流水线（两层模型）](toolchain/test-pipeline.md)
+  - [部署模型（正交轴：自包含/apphost/single-file/AOT）](toolchain/deployment-model.md)
   - [编辑器集成（VSCode）](toolchain/editor-integration.md)
   - [REPL 输入完整性判定](toolchain/repl-input-completeness.md)
 
