@@ -13,9 +13,9 @@
 | [devtools/](devtools/) | `z42d` 开发者工具链（muxer apphost）：`fmt`/`doc`/`dbg`/`prof`/`lint` 统一在单 exe + Std.Cli router 下，launcher 分发（`z42 fmt` → `z42d fmt`）。收编原独立 `z42-fmt`/`z42-doc`/`z42-lint` 规划 | 占位 |
 | [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：源码片段 → 编译 → VM 求值 → 打印；0.3.x capstone，前置 `extract-compile-pipeline-api` | 占位 |
 | [repl/](repl/) | `z42.repl`（lib，`Std.Repl`）：REPL **终端交互层（tier1）**——rustyline 行编辑 + 缩进感知键位。依赖 `z42.scripting`（Completeness）。真 tty + native 行编辑 builtin、平台绑定重 → 留 toolchain（非 stdlib 料）。拆自 scripting（`split-z42-repl`） | ✅ 已实装 |
-| [workload/](workload/) | 平台相关能力束（consolidate-platform-into-workload）：`host-api/`（Tier 2 `z42-host` crate）+ `platforms/{ios,android,wasm,desktop}/`（facade + 测试）；按需 `z42 workload install`。host/ 解散后承接 | 🚧 实装中 |
+| [workload/](workload/) | 平台相关能力束（consolidate-platform-into-workload）：`{ios,android,wasm,desktop}/`（各含 `appbuilder/`·`platform/`·`template/`·`tests/`）+ `platform-contract.md`；按需 `z42 workload install`。Tier 2 `z42-host` crate 已移入 `runtime/crates/z42-host` | 🚧 实装中 |
 
-> 命名说明：`toolchain` 取"围绕 compiler/runtime 的整套配套工具"之广义；语言核心**编译器在 [`../compiler/`](../compiler/) + [`../z42c/`](../z42c/)**、VM 在 [`../runtime/`](../runtime/)，不在本目录。
+> 命名说明：`toolchain` 取"围绕 compiler/runtime 的整套配套工具"之广义；语言核心**编译器在 [`../compiler/`](../compiler/)**（自举 z42c，含下沉到 [`../libraries/`](../libraries/) 的前端库）、VM 在 [`../runtime/`](../runtime/)，不在本目录。
 
 ## 构建（add-build-toolchain, 2026-07-05）
 

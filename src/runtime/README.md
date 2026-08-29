@@ -39,10 +39,10 @@
 | `io.rs` | `println`、`print`、`readline`、`concat`、`len` |
 | `string.rs` | `str_length`（`__str_length`）、`str_substring`、`str_split`、`str_join`、`str_format` 等 |
 | `math.rs` | `abs`、`max`、`min`、`pow`、`sqrt`、三角函数等 |
-| `collections.rs` | `list_*` / `dict_*` 集合操作 |
 | `fs.rs` | `file_*` / `path_*` / `env_*` / `process_exit` / `time_now_ms` |
-| `string_builder.rs` | `sb_new`/`sb_append`/`sb_append_line`/`sb_to_string`；`NativeData::StringBuilder` 作为后端存储 |
-| `object.rs` | `obj_get_type`、`obj_ref_eq`、`obj_hash_code`、`assert_*` |
+| `object.rs` | `obj_get_type`、`obj_ref_eq`、`obj_hash_code` |
+
+> StringBuilder / List / Assert 等纯 z42 可写的能力已从 corelib 下沉到 stdlib 脚本（`collections.rs` / `string_builder.rs` 已删）；corelib 只保留真正需要 Rust 的最小面。完整文件表见 [`src/corelib/README.md`](src/corelib/README.md)。
 
 ### 桩模块（未实现）
 | 目录 | 说明 |
@@ -60,6 +60,9 @@
 | `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | ✅ C1 接口锁定 |
 | `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | ✅ 骨架 |
 | `crates/z42-macros/` | proc macro 入口（`Z42Type` derive、`methods`/`trait_impl`、`module!`） | 🟡 入口已注册，展开报 `compile_error!` 指向 C3 |
+| `crates/z42-host/` | Tier 2 宿主嵌入 API（workload host facade，原 `toolchain/workload/host-api` 迁入） | — |
+| `crates/z42-hostrun/` | 宿主运行时驱动（apphost/嵌入执行入口） | — |
+| `crates/z42-compression/` | 压缩后端 Rust crate（`z42.compression` 的 native 侧） | — |
 
 C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/design/compiler/manifest-schema.json`](../../docs/design/compiler/manifest-schema.json)。
 

@@ -41,13 +41,13 @@ full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**:
 
 ```bash
 git clone https://github.com/z42-lang/z42 && cd z42
-./scripts/install-z42.sh                              # → ./.z42/  (launcher + z42c + z42vm + stdlib)
-.z42/z42 workload install desktop --version nightly    # apphost stub (ships with the desktop workload)
-.z42/z42 publish scripts/xtask.z42.toml                # build + deploy → ./xtask (native apphost)
-./xtask test                                          # ./xtask auto-locates ./.z42 — no PATH export
+./scripts/install-z42.sh                     # → ./.z42/  (launcher + z42c + z42vm + stdlib)
+.z42/z42 publish scripts/xtask.z42.toml      # build + deploy → ./xtask  (build hook makes the apphost stub — no workload install needed)
+./xtask test                                 # ./xtask auto-locates ./.z42 — no PATH export
 ```
 
-> Without the desktop workload, drive the CLI through the launcher instead (as CI does):
+> No `workload install` needed — xtask carries a build hook that produces the apphost stub during publish.
+> Prefer to skip the apphost? Drive the CLI straight through the launcher instead (as CI does):
 > `.z42/bin/z42c build scripts/xtask.z42.toml --release && .z42/z42 artifacts/xtask/xtask.zpkg -- test`
 
 **Editor support (VSCode)**: `./xtask deps install vscode` installs `.z42` syntax highlighting

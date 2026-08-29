@@ -329,7 +329,7 @@ publish_dir = ".."   # exe 落在哪（project-dir 相对，同 output_dir）
 
 ```bash
 # 1. 编 xtask.zpkg（冷树先 build stdlib，见 building/stdlib.md）
-dotnet run --project src/compiler/z42.Driver -- build scripts/xtask.z42.toml --release
+.z42/bin/z42c build scripts/xtask.z42.toml --release
 # 2. 从 toml 产 ./xtask（读 [platform.desktop].publish_dir）
 z42 publish scripts/xtask.z42.toml
 ```

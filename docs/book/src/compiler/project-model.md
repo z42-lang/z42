@@ -1,7 +1,7 @@
 # 工程模型、依赖解析与工作区编译
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.project/` · `z42c.pipeline/` · `z42c.ir/DependencyIndex.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [编译产物：zpkg / zbc 格式](format.md) ｜ **对齐**: 2026-07-18
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42.project/` · `src/compiler/z42c.pipeline/` · `src/libraries/z42.ir/DependencyIndex.z42`
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) ｜ **对齐**: 2026-07-18
 
 ## 概述
 

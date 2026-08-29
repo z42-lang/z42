@@ -47,7 +47,7 @@
 ```
 artifacts/
 ├── build/
-│   ├── compiler/<member>/release/dist/  z42c 自举产物（z42c.driver.zpkg + 6 siblings）
+│   ├── compiler/<member>/release/dist/  z42c 自举产物（后端 3 包：z42c.driver.zpkg + 2 siblings）
 │   ├── runtime/{debug,release}/         cargo build 产物（z42vm）
 │   └── libraries/
 │       ├── <lib>/release/dist/          per-lib workspace .zpkg

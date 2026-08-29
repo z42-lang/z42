@@ -166,5 +166,5 @@ arr[i]           （arr 是数组）                  → BoundIndex（原生数
 - 编译器错误码：[错误码体系](../compiler/error-codes.md)
 - 示例：`examples/indexer.z42`（单维 string 键 + 多维矩阵）、`examples/oop.z42`（接口属性）
 - 测试：`src/tests/classes/auto_property.z42`（auto 属性）、`src/tests/types/computed_property.z42`
-  （计算属性 getter）、`src/compiler/z42c.syntax/tests/decl/decl_tests.z42` `test_computed_property_getter`
+  （计算属性 getter）、`src/libraries/z42c.syntax/tests/decl/decl_tests.z42` `test_computed_property_getter`
   （parser golden）、`indexer_basic.z42`（单维泛型索引器）、`indexer_multidim.z42`（多维索引器）

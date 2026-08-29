@@ -13,6 +13,9 @@
 | `z42-abi/` | `z42-abi` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像；`no_std`，无依赖 |
 | `z42-rs/` | `z42-rs` | Tier 2 用户面向 trait（`Z42Type`、`Z42Traceable`、`Visitor`）+ 类型别名 |
 | `z42-macros/` | `z42-macros` | Tier 2 proc macro：`Z42Type` derive、`methods`/`trait_impl` attr、`module!` |
+| `z42-host/` | `z42-host` | 宿主嵌入 API（workload host facade，原 `toolchain/workload/host-api` 迁入） |
+| `z42-hostrun/` | `z42-hostrun` | 宿主运行时驱动（apphost / 嵌入执行入口） |
+| `z42-compression/` | `z42-compression` | 压缩后端（`z42.compression` 的 native 侧） |
 
 ## 依赖关系
 

@@ -167,5 +167,5 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 ## 关联文档
 - 开关 / 管线位置：[optimization-pipeline](optimization-pipeline.md)
 - 闭包栈分配先例：change `impl-closure-l3-escape-stack`（`docs/spec/archive/`）
-- 格式 bump：[version-bumping.md](../../../.claude/rules/version-bumping.md)
+- 格式 bump：[version-bumping.md](../../../../.claude/rules/version-bumping.md)
 - 引入：change `add-escape-analysis-stack-alloc`（`docs/spec/`）

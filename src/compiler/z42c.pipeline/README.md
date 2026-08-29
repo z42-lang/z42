@@ -1,12 +1,16 @@
 # z42c.pipeline
 
 ## 职责
-镜像 C# [z42.Pipeline](../../compiler/z42.Pipeline/README.md)：编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）。**B0 骨架：占位类型 `PipelineSkeleton`**（引用全部 5 个直接依赖，验证最深多依赖节点跨包编译）；真实编排 → 端到端 build 待 0.3.9。
+编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。后端三包的编排层，向下调 `z42c.semantics` 编译、`z42.ir` 产 zpkg。
 
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/PipelineSkeleton.z42` | 占位（`namespace Z42.Pipeline`，引用 core/syntax/semantics/ir/project）|
+| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口 |
+| `src/Z42cReplCompiler.z42` | REPL 增量编译路径（累积声明 + 惰性符号世界）|
+| `src/PackageCompile.z42` | 单包编译编排（源发现 → sem → emit → zpkg）|
+| `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）|
+| `src/GeneratorLoader.z42` | source generator 加载 + 运行 |
 | `src/DepScan.z42` | **扫描编排 hub**（refactor-depscan-concern-split：854→409）：公开扫描 API（`Scan`/`ScanDirs`/`ScanDirsLazy`/`ExtendWithPackage`/`EnsurePackageLoaded`/`ReconcileCandidatesInNs`）+ 共享叶子辅助（`_nsIndexOf`/`_shortOf`/`_nameOfBasename`）。DependencyIndex / nsMap / 跨包类型世界（prelude-first + Ordinal 排序）；`ScanDirsLazy` REPL 惰性路径——`LazyReconWorld` 按包懒填、基类链按 ns 路由只解析引用闭包（lazy-type-world，O(引用) 不随库总量增长）。`ScanDirs` 的 `ZpkgReader.Open` + `TsigReconcile.Rebuild` 经 `DepScanCache` memo（见下）。各簇经 `DepScan._nsIndexOf`/`_shortOf` 单向委回 hub、零簇间边 |
 | `src/DepScanTypes.z42` | DepScan 产物数据类（refactor-depscan-concern-split 从 DepScan 拆出）：`DepScanResult`（扫描产物束：Index/nsMap/Exported/惰性 world/惰性 libOpened/类型→ns 索引）+ `NsIndexEntry`（ns 索引条目）。纯数据无逻辑 |
 | `src/NsIndexCache.z42` | ns 索引 sidecar 缓存簇（拆自 DepScan）：`repl-scan-nsindex-cache` 落盘缓存「每包→命名空间/类型」，命中免 open-all。指纹（`_libsFingerprint`/`_mtimeMs`）+ 读/写索引（`_readNsIndex`/`_writeNsIndex`）+ 从索引建 scan（`_scanFromIndex`）+ 类型→ns 提取/回填（`_extractNsTypes`/`_fillTypeMap`）|
@@ -20,4 +24,4 @@
 `Z42.Pipeline`（命名空间）。
 
 ## 依赖关系
-→ z42c.core, z42c.syntax, z42c.semantics, z42c.ir, z42c.project。stdlib 自动可用。
+→ z42c.core, z42c.syntax, z42c.semantics, z42.ir, z42.project, z42.build（ICompiler 接口）。stdlib 自动可用。

@@ -28,9 +28,7 @@ workload/<plat>/          # ios / android / desktop / wasm
 >
 > 旧「关注点优先」方案（`host-api/` `facades/` `templates/` `apphost/` `conformance/` 顶层）**作废**。host-api（Tier2）→ `runtime/`；facade → 各平台 `platform/`；conformance → 各平台 `tests/`。
 >
-> **迁移状态**：
-> - **A（parked，✅ 完成）**：`pipeline → appbuilder` 重命名 + 建 `template/`（当前仍在 `platforms/<plat>/` 内，零基础设施影响）。
-> - **B（待办，真实 refactor）**：去 `platforms/` 扁平化 + `facade → platform` + `host-api → runtime` + 同步 xtask / CI / gradle / SwiftPM / cmake / `launcher_workload.z42` bedding 路径 + 绿门禁。change 文档（`consolidate-platform-into-workload` / `build-workload-subsystem`）随 B 一并同步。
+> **迁移状态（✅ 完成）**：`platforms/` 中间层已去除——四平台目录（`ios` / `android` / `desktop` / `wasm`）直接挂 `workload/` 下，各含 `appbuilder/`·`platform/`·`template/`·`tests/`（`desktop` 无 `platform/`）；`host-api`（Tier2）已迁入 `runtime/crates/z42-host`；`facade → platform`、`pipeline → appbuilder` 重命名到位。归档见 change `consolidate-platform-into-workload` / `build-workload-subsystem`。
 
 ## 依赖关系
 

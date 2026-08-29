@@ -74,7 +74,7 @@ class Dog : Animal {
 - **元数据**：`IrGenFacts._methodFlags` 从 `Mods` 置 `method_flags` bit2（并连带 bit0=virtual，因 sealed 必虚）。
   类级 sealed 沿用既有 `CLASS_FLAG_SEALED`（zbc 1.12，不新增）。
 - **格式**：加方法级 sealed 位是 zbc 1.29→1.30 / zpkg 34→35 的语义扩展 bump（字节布局不变，bit2 先前保留为 0；
-  strict-pin 下仍 bump 以防同版本号语义分歧，见 [version-bumping](../../../.claude/rules/version-bumping.md)）。
+  strict-pin 下仍 bump 以防同版本号语义分歧，见 [version-bumping](../../../../.claude/rules/version-bumping.md)）。
 
 ## 去虚化（devirtualization，add-sealed-devirt）
 

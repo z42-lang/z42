@@ -43,7 +43,7 @@ facade 会把 stdlib zpkg 打进 `Resources/`，故先备好 z42 工具链：
 
 `test platform ios build`（IosBackend）内部串接：cargo build × 3 target + `xcodebuild -create-xcframework`（含 ios-device/sim/macos slice）。
 
-✅ 产物：`Z42VM.xcframework/` 含 `ios-arm64/` + `ios-arm64_x86_64-simulator/`；`Resources/stdlib/*.zpkg`（22 个，从 `artifacts/build/libraries/dist/release/` 拷入）。
+✅ 产物：`Z42VM.xcframework/` 含 `ios-arm64/` + `ios-arm64_x86_64-simulator/`；`Resources/stdlib/*.zpkg`（从 `artifacts/build/libraries/dist/release/` 拷入）。
 
 ❗ `linker not found for aarch64-apple-ios` → 1.1 rustup target 漏装。
 ❗ `libffi-sys` cross-compile 失败 → 检查 `runtime/Cargo.toml` 的 `libffi` 是否为 5.1+（旧 3.2/libffi-sys 2.3 的 bundled `sysv.S` 在 iOS arm64 触发 CFI advance_loc 错误）；当前默认已是 bundled 模式，无需手工切换。

@@ -47,7 +47,7 @@ z42 源码 ──z42c──> z42 IR
 1. **分层升级后,旧层的指令/代码内存要可回收**。一个函数从 interp tier 升级到 JIT tier 后,若其 interp IR / 旧 JIT 代码不再需要,**其内存必须能被释放,不能无限累积多份表示**。分层是「同一函数多种表示并存」,内存管理是分层的第一等公民,不是事后补丁。
 2. **优化本身的时间/内存开销要有度**:
    - 编译期 pass 不能拖垮编译(pass 复杂度要与收益匹配;先测收益再投)。
-   - 运行时分析(加载期/JIT 期)不能拖垮加载与执行;能编译期算好的静态分析就别留到运行时反复算(见 [self-hosting](self-hosting.md) 的 REGT 先例:reg_types 编译期算好,运行时只消费)。
+   - 运行时分析(加载期/JIT 期)不能拖垮加载与执行;能编译期算好的静态分析就别留到运行时反复算(见 [self-hosting](../../../design/compiler/self-hosting.md) 的 REGT 先例:reg_types 编译期算好,运行时只消费)。
 3. **分层策略要权衡「升级成本 vs 收益」**:只有热函数值得升级(升级有编译+内存成本);冷函数留在 interp。分层决策要有明确的升级触发条件与降级/清理路径。
 4. **回收要池化,避免频繁向 OS 申请/归还内存**。分层升级/回收不得退化成 malloc/mmap 抖动 —— 回收的内存进 **free-list / arena 复用**(下次加载/升级重用),而非回收即还 OS、再要再申请。仓内先例:`REGS_POOL`/`FRAME_POOL`(线程本地寄存器文件 free-list)。JIT code 页、IR blocks 回收同理:按块池化复用,批量申请,减少系统调用次数。
 
@@ -295,6 +295,6 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
 - 因此**低垂果实排序**:先啃单赋值 temp 上的优化(易、interp 直接受益),局部变量的重分析留后阶段。
 
 ## 关联文档
-- 自举与 REGT 先例(编译期算好、运行时消费的模式):[self-hosting](self-hosting.md)
+- 自举与 REGT 先例(编译期算好、运行时消费的模式):[self-hosting](../../../design/compiler/self-hosting.md)
 - JIT 惰性逐函数编译:[jit-lazy-compile](jit-lazy-compile.md)
 - 引入/演进:change `jit-lowering-pipeline`（`docs/spec/changes/`）

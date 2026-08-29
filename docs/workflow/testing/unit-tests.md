@@ -5,7 +5,7 @@
 ## 编译器单测（z42c 自举）
 
 ```bash
-./xtask test compiler       # 建 7 子包 + 不动点（gen1==gen2 逐字节）+ [Test] units
+./xtask test compiler       # 建后端 3 包 + 不动点（gen1==gen2 逐字节）+ [Test] units
 ```
 
 覆盖：lexer / parser / type-check / IR-gen 经「z42c 自编译自身 + 重建产物逐字节一致」端到端验证，外加编译器源码里的 `[Test]`-注解 units。这条是 GREEN gate 的编译器关。机制见 [`bootstrap.md`](bootstrap.md) 与 [`docs/design/compiler/self-hosting.md`](../../design/compiler/self-hosting.md)。

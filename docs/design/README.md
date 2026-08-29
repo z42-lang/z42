@@ -7,7 +7,7 @@ z42 长期设计文档。变更归档时（`docs/spec/changes/<name>/` → `docs
 | 子目录 | 受众 | 内容 |
 |------|------|------|
 | [`language/`](language/) | 语言用户 + 编译器开发者 | 语法、内置语义、类型系统、FFI 表面 |
-| [`compiler/`](compiler/) | 编译器开发者 | C# 编译器内部架构、编译产物策略、工程文件、错误码体系 |
+| [`compiler/`](compiler/) | 编译器开发者 | z42c 自举编译器内部架构、编译产物策略、工程文件、错误码体系 |
 | [`runtime/`](runtime/) | VM 开发者 | Rust VM 架构、IR / zbc 格式、执行模式、JIT / hot-reload / GC、嵌入与跨平台 |
 | [`stdlib/`](stdlib/) | stdlib 设计者 | 三层架构、包边界、缺失包排期 |
 | [`testing/`](testing/) | 测试基础设施 | z42.test 框架、测试运行器、跨平台测试 |

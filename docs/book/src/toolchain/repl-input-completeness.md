@@ -3,7 +3,7 @@
 > 对齐：2026-08-23（change `add-repl-parser-completeness` + `sink-repl-indent-to-script` +
 > `add-repl-indent-editing` + `add-repl-tab-grid-snap` + `add-repl-multiline-editing`）
 > 代码：`src/libraries/z42.scripting/src/Completeness.z42`、`src/toolchain/interactive/repl/src/ReplEditing.z42`、
-> `src/compiler/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
+> `src/libraries/z42c.syntax/src/Parser.z42`、`src/toolchain/interactive/core/interactive_main.z42`、
 > `src/runtime/src/corelib/repl.rs`、`src/runtime/src/corelib/repl_editing.rs`
 
 ## 要解决的问题

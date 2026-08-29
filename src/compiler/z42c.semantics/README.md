@@ -1,7 +1,7 @@
 # z42c.semantics
 
 ## 职责
-镜像 C# [z42.Semantics](../../compiler/z42.Semantics/README.md) 的**类型检查半**：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）。codegen（Bound→IR）是另一半，待 z42c.ir map 后单独设计。首个硬子系统，dogfood 缺口高发段。
+语义分析 + 代码生成：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）→ codegen（Bound→IR：`ExprEmitter` / `FunctionEmitter` / `IrGen` / `IrDump`）+ IR 优化管线。后端最大的子系统，dogfood 缺口高发段。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -63,10 +63,10 @@
 `new TypeChecker(diags).Infer(cu, symbols)` → `SemanticModel`（先 `new SymbolCollector().Collect(cu)` 出 `SymbolTable`）。便捷封装见 `SemanticDump.DumpBody(src, key)` / `ErrorCount(src)`。
 
 ## 依赖关系
-→ z42c.core（Diagnostic/Span/DiagnosticCodes）, z42c.syntax（AST：Expr/Stmt/Decl + TypeExpr）, z42c.ir（codegen 半，当前未消费）。stdlib 自动可用。
+→ z42c.core（Diagnostic/Span/DiagnosticCodes）, z42c.syntax（AST：Expr/Stmt/Decl + TypeExpr）, z42.ir（IR 模型 + zbc/zpkg 后端，codegen 消费）。stdlib 自动可用。
 
 ## 增量进度
-1A 最小类型检查 ✅ / 1B 运算+控制流 ✅ / 1C 调用+receiver+继承 ✅ / 1D is·as·new·数组 ✅ / 1E 三目·?? ✅ / 2A 泛型类·方法·实例化 ✅ / **2B where 约束求解（可行子集：base-class/class/struct/型参引用+互斥；interface·enum·new()·func 延后）✅**。下一步 codegen（Bound→IR，需先 map z42c.ir，单独 design）。
+1A 最小类型检查 ✅ / 1B 运算+控制流 ✅ / 1C 调用+receiver+继承 ✅ / 1D is·as·new·数组 ✅ / 1E 三目·?? ✅ / 2A 泛型类·方法·实例化 ✅ / **2B where 约束求解（可行子集：base-class/class/struct/型参引用+互斥；interface·enum·new()·func 延后）✅** / codegen（Bound→IR）+ IR 优化管线 ✅（见核心文件表 `ExprEmitter` / `IrGen` / `IrOptPipeline` 等）。
 
 ## ExportedTypeExtractor（port-z42c-tsig，2026-06-10；2026-08-24 hub+spoke 分解）
 TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不可迭代）+ 编译器级固定内建面静态表

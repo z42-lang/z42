@@ -1,6 +1,6 @@
 # 编译器构建（z42 自举）
 
-z42 编译器 (`z42c`) 由 z42 自身写成，源码在 [`src/compiler/`](../../../src/compiler/)（7 个子包：`z42c.core/ir/syntax/project/semantics/pipeline/driver`），自编译为 `z42c.driver.zpkg`（driver 入口）。
+z42 编译器 (`z42c`) 由 z42 自身写成，后端源码在 [`src/compiler/`](../../../src/compiler/)（3 个子包：`z42c.semantics` / `z42c.pipeline` / `z42c.driver`）；可移植前端 `z42c.core` / `z42c.syntax` 与 IR·后端库 `z42.ir` 已下沉 [`src/libraries/`](../../../src/libraries/)。自编译为 `z42c.driver.zpkg`（driver 入口）。
 
 ## 前置
 
@@ -11,7 +11,7 @@ z42 编译器 (`z42c`) 由 z42 自身写成，源码在 [`src/compiler/`](../../
 ## 从源码构建编译器
 
 ```bash
-./xtask build compiler      # z42c 自举建 7 子包
+./xtask build compiler      # z42c 自举建后端 3 包（前端 z42c.core/syntax 由 build stdlib 建）
 ```
 
 产物：`artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg` 是 driver 入口。多数用户由 `install-z42.sh` 直接提供 `z42c`，无需此步。

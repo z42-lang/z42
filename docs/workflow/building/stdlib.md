@@ -1,6 +1,6 @@
 # 标准库构建
 
-标准库源码在 [`src/libraries/`](../../../src/libraries/)，22 个包（`z42.core` / `z42.io` / `z42.math` / `z42.text` / `z42.collections` / `z42.test` / `z42.toml` / `z42.json` / `z42.regex` / `z42.crypto` / `z42.net` / `z42.numerics` / … 完整列表见 `src/libraries/`）。每个 `.zpkg` 产物给 VM 加载。
+标准库源码在 [`src/libraries/`](../../../src/libraries/)，24 个包（`z42.core` / `z42.io` / `z42.text` / `z42.collections` / `z42.numerics` / `z42.test` / `z42.toml` / `z42.json` / `z42.regex` / `z42.crypto` / `z42.net` / … 完整列表见 `src/libraries/`）。每个 `.zpkg` 产物给 VM 加载。
 
 ## 何时需要重新编译
 
@@ -19,7 +19,7 @@
 ```
 
 `build stdlib` 的逻辑现已 fold 进 xtask（`scripts/build/xtask_stdlib.z42`），一条命令做两件事：
-(1) `z42c build --workspace --release` 编译 22 个 lib；(2) hard-link 成扁平视图
+(1) `z42c build --workspace --release` 编译 workspace 全部 member（24 个 `z42.*` 包 + 下沉前端 `z42c.core`/`z42c.syntax`）；(2) hard-link 成扁平视图
 `artifacts/build/libraries/dist/release/`（VM 单目录加载点）。不写 namespace 索引——VM
 与嵌入宿主都读各 zpkg 的 `NSPC` section 认领 namespace。核心编译步骤等价于：
 

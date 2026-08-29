@@ -5,7 +5,7 @@
 z42 示例集合，分三类职责：
 
 1. **语言 showcase**（单文件 `.z42`）— 新接手者快速理解语法面貌
-2. **工程化模板**（`workspace-*/`）— 用户学多 member / 跨包依赖布局；同时被 C# 测试回归校验，保证 shipped 模板不腐烂
+2. **工程化模板**（`workspace-*/`）— 用户学多 member / 跨包依赖布局；同时被 `xtask test example`（`scripts/test/xtask_test_example.z42`）回归校验，保证 shipped 模板不腐烂
 3. **SDK 嵌入示例**（`embedding/`）— 随 SDK 包分发给用户的全平台 hello world + 嵌入 API 用例
 
 > 注：纯测试夹具不放这里。例如 TIDX round-trip 用的 test_demo 已挪到

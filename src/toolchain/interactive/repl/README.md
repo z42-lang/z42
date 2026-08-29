@@ -2,7 +2,7 @@
 
 ## 职责
 REPL **终端交互层（tier1）**：rustyline 行编辑 + 缩进感知键位策略。只在真 tty / 终端 REPL 用；
-求值内核（编译 / 加载 / 反射求值 / 补全 / 完整性判定）在 [z42.scripting](../scripting/)。
+求值内核（编译 / 加载 / 反射求值 / 补全 / 完整性判定）在 [z42.scripting](../../../libraries/z42.scripting/)（已下沉 stdlib）。
 拆自 z42.scripting（`split-z42-repl`），以切干净「跨平台 eval-core」与「tier1 tty 交互」的边界。
 
 ## 功能索引
@@ -33,7 +33,7 @@ z42 侧 golden `tests/repl_editing/` 直调 `ReplEditing.KeyEdit`（与 rustylin
 CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）+ dist smoke（`z42 repl -c "1+2"`）为准。
 
 ## 关联文档
-- 设计/机制：[`docs/design/toolchain/repl.md`](../../../docs/design/toolchain/repl.md)；
+- 设计/机制：[`docs/design/toolchain/repl.md`](../../../../docs/design/toolchain/repl.md)；
   键位适配壳（policy-free、动作串范式）见 host-only cdylib `crates/z42-repl/src/editing.rs` 头注
 - 引入/演进：change `add-z42-repl`（REPL MVP）/ `add-repl-indent-editing` / `add-repl-tab-grid-snap` /
   `add-repl-multiline-editing` / `add-repl-rbrace-floor`（`}` 自动回退 + 退格 floor，patch rustyline 光标）；

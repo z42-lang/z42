@@ -107,7 +107,7 @@ xtask 驱动 z42c（`z42vm z42c.driver --mode <m>`）编 stdlib / 自建 z42c / 
 
 ### strict-pin：为什么改格式必须 bump 版本 + regen
 
-z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`src/runtime/src/metadata/zbc_reader.rs`）
+z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`src/runtime/src/metadata/zbc_reader/`）
 加载时**精确匹配 major+minor**，不匹配直接拒（`zpkg minor 22 not supported (writer 0.23)`），
 **没有兼容回退**（pre-1.0「不为旧版本提供兼容」）。推论：
 

@@ -36,7 +36,6 @@ z42 项目文档总入口。
 | [`agent/`](agent/) | 内部 | 面向大模型的模型中立协作材料（`rules/` 开发规范…）|
 | [`design/`](design/) | 混合 | 🟡 **旧**设计文档（迁移中 → book，迁完删）|
 | [`spec/`](spec/) | 内部 | 变更工作区（`changes/` 进行中 + `archive/` 已归档）|
-| [`error-codes/`](error-codes/) | 数据 | `Z.json`：Z#### runtime 错误码 catalog（Rust + C# 共享）|
 
 ## design/ 子目录
 
@@ -44,7 +43,7 @@ z42 项目文档总入口。
 |------|------|
 | [`design/philosophy.md`](design/philosophy.md) | 设计哲学（顶层不动）|
 | [`design/language/`](design/language/) | 语法 / 类型系统 / 内置协议 / FFI 表面（20 文件）|
-| [`design/compiler/`](design/compiler/) | C# Bootstrap 编译器内部 + 工程文件 + 错误码体系（5 文件）|
+| [`design/compiler/`](design/compiler/) | z42c 自举编译器内部（架构 / 自举 / 产物布局）+ 工程文件 + 错误码体系 |
 | [`design/runtime/`](design/runtime/) | Rust VM 架构 + IR/zbc + 嵌入 + 跨平台（10 文件）|
 | [`design/stdlib/`](design/stdlib/) | 三层架构 + 包边界 + 缺失包排期（3 文件）|
 | [`design/testing/`](design/testing/) | z42.test 框架 + runner + 跨平台测试（3 文件）|

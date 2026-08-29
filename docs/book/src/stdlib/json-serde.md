@@ -1,7 +1,7 @@
 # JSON serde（对象 ↔ JSON）
 
 > 对齐：2026-08-22（add-json-serde）。包路径 `src/libraries/z42.json/`；命名空间 `Std.Json`。
-> DOM 层（`JsonValue`）见 [json 设计文档](../../design/stdlib/json.md)。
+> DOM 层（`JsonValue`）见 [json 设计文档](../../../design/stdlib/json.md)。
 
 `Std.Json.JsonSerializer` 经**反射**把用户对象与 JSON 互转，无需手写 DOM 代码。
 

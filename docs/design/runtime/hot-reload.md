@@ -380,7 +380,7 @@ fn main() {
 
 ```
 1. Developer edits game_scripts.z42
-2. Recompiles: dotnet run --project src/compiler/z42.Driver -- build
+2. Recompiles: z42c build game_scripts.z42.toml
 3. VM detects new bytecode: [Reload] reloaded 2 functions in game.scripts
 4. Next frame: UpdateAI() uses new code
 5. Result: < 2 second iteration loop (vs. 30s with restart)

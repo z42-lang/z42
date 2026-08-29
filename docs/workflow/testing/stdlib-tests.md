@@ -5,8 +5,8 @@
 ## 命令
 
 ```bash
-./xtask test stdlib                  # 22 个库全跑
-./xtask test stdlib z42.math         # 仅指定库
+./xtask test stdlib                  # 全部带 [Test] 的库
+./xtask test stdlib z42.numerics     # 仅指定库
 ./xtask test stdlib --jobs 4         # 单元级并行（每批 4 个 unit 同时 compile+run）
 ./xtask test stdlib --mode jit       # 在 JIT 下跑（见下"执行模式"）
 ```

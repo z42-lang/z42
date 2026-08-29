@@ -1,7 +1,7 @@
 # z42c — z42 自举编译器（self-host）
 
 ## 职责
-用 z42 重写 C# bootstrap 编译器（`src/compiler/`），到端到端 `build` 跑通 + 与 C# 实现 byte-identical。当前为 **B0 骨架**：7 子包占位 + 构建管线，无真实编译逻辑（Lexer/Parser/... 是 0.3.3 起的后续 spec）。0.3.x 期间 default 编译器仍是 C#，本树两实现并存逐字节对账。
+用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。C# bootstrap 编译器已于 2026-06-26 删除，z42c 是唯一编译器。后端为 `src/compiler/` 三包（semantics / pipeline / driver）；可移植前端 `z42c.core` / `z42c.syntax` 与 IR·后端库 `z42.ir` 已下沉 `src/libraries/`（见下）。
 
 ## 子包（编译器 workspace = 后端三包）
 | 子包 → zpkg | kind | 命名空间 | 依赖 |
@@ -21,7 +21,7 @@
 见 [self-hosting.md](../../docs/design/compiler/self-hosting.md) 轴 ④）。
 
 ## 入口点
-`z42c.driver.zpkg`（exe）= 用户 `z42c` 命令别名。B0 骨架仅打印 banner（无桥接）。
+`z42c.driver.zpkg`（exe）= 用户 `z42c` 命令别名，路由 `build` / manifest-check 等命令（`z42c.driver/src/Main.z42`，含增量构建 `IncrementalDriver.z42`）。
 
 ## 构建
 ```

@@ -1,6 +1,6 @@
 # 错误码体系
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.core/src/`（`Diagnostic.z42` / `DiagnosticBag.z42` / `DiagnosticCodes.z42`）
+> **页型**: 参考页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.core/src/`（`Diagnostic.z42` / `DiagnosticBag.z42` / `DiagnosticCodes.z42`）
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-07-19
 
 ## 概述

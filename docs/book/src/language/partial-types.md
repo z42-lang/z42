@@ -1,6 +1,6 @@
 # partial 类型
 
-> 对齐：2026-07-22（add-partial-types 落地）。代码路径：`src/compiler/z42c.syntax`（词法/语法）、
+> 对齐：2026-07-22（add-partial-types 落地）。代码路径：`src/libraries/z42c.syntax`（词法/语法）、
 > `src/compiler/z42c.semantics/{SymbolCollector,IrGen,IrDump}.z42`（合并/codegen）、
 > `src/compiler/z42c.pipeline/IncrementalBuild.z42`（增量联动）。
 

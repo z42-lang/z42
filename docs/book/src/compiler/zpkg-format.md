@@ -1,6 +1,6 @@
 # zpkg 包格式
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.32）｜ **代码**: `src/compiler/z42c.project/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
+> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.32）｜ **代码**: `src/libraries/z42.ir/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
 > **相关**: [zbc 字节码格式](zbc-format.md) · [工程模型、依赖解析与工作区编译](project-model.md) ｜ **对齐**: 2026-07-19
 
 ## 概述

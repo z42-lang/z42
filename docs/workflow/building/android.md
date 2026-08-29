@@ -68,7 +68,7 @@ facade 会把 stdlib zpkg 打进 assets，故先备好 z42 工具链：
 ✅ 产物：
 - `z42vm/build/outputs/aar/z42vm-release.aar`
 - `z42vm/src/main/jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so`
-- `z42vm/src/main/assets/stdlib/*.zpkg`（22 个，从 `artifacts/build/libraries/dist/release/` 拷入）
+- `z42vm/src/main/assets/stdlib/*.zpkg`（从 `artifacts/build/libraries/dist/release/` 拷入）
 
 ❗ `error: linker not found for aarch64-linux-android` → `ANDROID_NDK_HOME` 错或 NDK 版本旧。
 ❗ `Could not resolve all dependencies` (Gradle) → JDK < 17 或不在 PATH。
