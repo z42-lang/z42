@@ -1,0 +1,10 @@
+[project]
+name = "compile-then-test"
+version = "0.1.0"
+kind = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+z42.test = "*"
