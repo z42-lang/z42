@@ -5,10 +5,10 @@
 > **native 依赖（User 2026-08-29 并入本 change，Supersedes #332）**：无两-nightly 约束，随 PR-2 或独立 PR-3。
 
 ## 进度概览
-- [ ] 阶段 1（PR-1，support）：z42.project 加 `DepEntry.Path` + 解析
-- [ ] ⏸ 等阶段 1 nightly 发布
+- [x] 阶段 1（PR-1，support）：z42.project 加 `DepEntry.Path` + 解析（PR #335 已合并 `04fd1999`）
+- [ ] ⏸ 等阶段 1 nightly 发布（#335 晚今日 nightly 38 秒未赶上 → 待下个 nightly；PR-2 前置）
 - [ ] 阶段 2（PR-2，use）：z42c path 闭包构建 + 真-stdlib 打包判据（colocated）+ 切 toml + 删 xtask 特殊处理
-- [ ] native 依赖（PR-2 内或 PR-3）：runtime 通用 resolver + repl 接入（搬 #332）+ z42b publish 复制骨架
+- [x] native 依赖（独立 PR-3）：runtime 通用 resolver + repl 接入（搬 #332）+ z42b publish 复制骨架（本 PR）
 - [ ] （独立 follow-up）single-file 打包合并——需 runtime 内嵌 bundle，另开 change
 
 ## 阶段 1（PR-1，support）——独立分支/worktree（纯 z42.project，z42c 不消费）
@@ -37,13 +37,13 @@
 
 ## native 依赖（PR-2 内或独立 PR-3；无两-nightly 约束；Supersedes #332，见 D9/D10）
 > #332 的 5 文件 diff 已实现+验证——**直接搬运**，勿重做。worktree ../z42-replisolate 有原始 diff。
-- [ ] N.1 搬 #332 packaging 4 文件 diff：`xtask_stage_components._pkgStageReplCdylib`（libz42_repl→programs/z42i/）+ `xtask_package_desktop` 调用 + `xtask_package._copyNativeLibs` 注释 + `xtask_test_stage_components` 断言
-- [ ] N.2 `native/ext.rs`：抽 `resolve_native_beside(zpkg_dir, lib_name) → Option<PathBuf>`（平铺，按名，复用 `parse_z42_lib_name` 反向拼 `lib<name><DLL_SUFFIX>`）
-- [ ] N.3 `repl_native.rs`：搬 #332 的 candidates() diff（apphost current_exe→`<sdk>/programs/z42i/`）；把那段派生+平铺查找改为调用 N.2 的共享 `resolve_native_beside`
-- [ ] N.4 `builder_publish.z42`：native 依赖复制**骨架**（挂 `_pubBundleProjectDeps` 邻位；当前无 `[native.dependencies]` 声明面 → 占位 + Deferred 注释，见 D9 Deferred）
-- [ ] N.5 `docs/book/src/runtime/native-libraries.md`：native 解析机制页（stdlib eager vs 非 stdlib 平铺 beside-zpkg + 发布期拍平）+ 挂 SUMMARY
-- [ ] N.6 GREEN：`cargo build --release`（runtime）+ `xtask test`（stage-components 断言 + 无 repl WARN）
-- [ ] N.7 **关掉 PR #332**（本 change supersede；说明「归并进 add-path-dependencies native 半边」）
+- [x] N.1 搬 #332 packaging 4 文件 diff：`xtask_stage_components._pkgStageReplCdylib`（libz42_repl→programs/z42i/）+ `xtask_package_desktop` 调用 + `xtask_package._copyNativeLibs` 注释 + `xtask_test_stage_components` 断言
+- [x] N.2 `native/ext.rs`：抽 `resolve_native_beside(zpkg_dir, lib_name) → Option<PathBuf>`（平铺，按名，用 `DLL_PREFIX`/`DLL_SUFFIX` 反向拼 `lib<name>.<suffix>`，单一 stat）
+- [x] N.3 `repl_native.rs`：搬 #332 的 candidates() diff；`<sdk>/programs/z42i/` 那段派生+查找改为调用 N.2 的共享 `resolve_native_beside`
+- [x] N.4 `builder_publish.z42`：`_pubBundleProjectNativeDeps` 骨架（挂 `_pubBundleProjectDeps` 邻位，live-wired no-op；当前无 `[native.dependencies]` 声明面 → Deferred 注释）
+- [x] N.5 `docs/book/src/runtime/native-libraries.md`：native 布局/解析页（stdlib eager vs 组件私有平铺 beside-zpkg + 发布期拍平）+ 挂 SUMMARY。**doc-structure 裁决（User 2026-08-29）**：新建独立页 + 把已存在的 `native-extensions.md`（其 §2.4/§2.6/表格/§3 因 repl bin/→programs/z42i/ 变旧）就地修订并交叉链到新页——两页职责：extensions=cdylib C-ABI 机制，libraries=库住哪/怎么找。
+- [x] N.6 GREEN：`cargo build --release`（runtime）+ `xtask test`（stage-components 断言 + 无 repl WARN）
+- [~] N.7 **关掉 PR #332**：#332 已于 2026-08-29 05:15 CLOSED（未合并）——无需再关，本 PR body 说明「归并进 add-path-dependencies native 半边」。
 
 ## 阶段 3：文档同步（并入各 PR）
 - [ ] 3.1 触发矩阵：对外行为（新 manifest 语法）→ book 机制页 + README 功能索引

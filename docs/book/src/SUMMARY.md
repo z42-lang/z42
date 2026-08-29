@@ -58,6 +58,7 @@
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
   - [Native 扩展库（独立 cdylib 机制）](runtime/native-extensions.md)
+  - [Native 库的布局与解析（放哪 / 怎么找 / 发布期拍平）](runtime/native-libraries.md)
 
 # 第四部分 · 标准库（Standard Library）
 

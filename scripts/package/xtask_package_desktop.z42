@@ -163,9 +163,18 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     // 已根治（fix-repl-sdk-compiler-closure）：ModuleLoader.load_module_from_path 现把被加载 zpkg 自身所在
     // 目录并入 search_dirs（镜像 app::run「entry-zpkg dir first」），programs/z42c/ 里的 7 兄弟自然解析——
     // 无需把编译器闭包复制进 z42i payload。故此处 publish 不变。
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, _pkgStageDir(root, "z42i"));
+    // Capture the z42i staging dir once (_pkgStageDir resets it) so the repl cdylib
+    // copy below reuses the SAME dir the publish populated (not a fresh reset).
+    string z42iStage = _pkgStageDir(root, "z42i");
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, z42iStage);
     if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42i/ (bin/z42i apphost + programs/z42i/z42.interactive.zpkg)");
+    // Host-only REPL editor cdylib (libz42_repl) → programs/z42i/ beside the payload
+    // (colocated native dependency): out of the shared bin/ so the ext scanner never
+    // warns `ignoring unknown lib repl`; the repl probe derives <sdk>/programs/z42i/.
+    // The [assemble] dir-copy carries it into pkgDir. Runs AFTER the publish (which
+    // populated z42iStage). (add-path-dependencies native)
+    _pkgStageReplCdylib(cargoOut, z42iStage);
+    Console.WriteLine("      ✓ staged z42i/ (bin/z42i apphost + programs/z42i/{z42.interactive.zpkg, libz42_repl})");
     return 0;
 }
 

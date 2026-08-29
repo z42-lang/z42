@@ -43,15 +43,27 @@ string _pkgStageZ42vm(string root, string cargoOut) {
     _copyIfExists(Path.Join(cargoOut, "z42vm"), Path.Join(dir, "bin/z42vm"));
     _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(dir, "bin/z42vm.exe"));
     _makeExe(Path.Join(dir, "bin/z42vm"));
-    // Host-only REPL editor cdylib (libz42_repl) ships in bin/ beside z42vm/z42i —
-    // the repl-specific probe (corelib::repl_native) resolves it relative to the
-    // running binary, deliberately NOT <sdk>/native/ (that's for cross-platform
-    // stdlib ext libs like compression). Whichever platform artifact exists is
-    // copied. (extract-repl-native-cdylib)
-    _copyIfExists(Path.Join(cargoOut, "libz42_repl.dylib"), Path.Join(dir, "bin/libz42_repl.dylib"));
-    _copyIfExists(Path.Join(cargoOut, "libz42_repl.so"), Path.Join(dir, "bin/libz42_repl.so"));
-    _copyIfExists(Path.Join(cargoOut, "z42_repl.dll"), Path.Join(dir, "bin/z42_repl.dll"));
+    // NB: the host-only REPL editor cdylib (libz42_repl) is deliberately NOT staged
+    // into bin/ — it ships in programs/z42i/ beside the interactive apphost payload
+    // (see _pkgStageReplCdylib in xtask_package_desktop.z42), a colocated native
+    // dependency. Keeping it out of the shared bin/ stops the eager ext scanner
+    // (native::ext) from warning `ignoring unknown lib repl` on every VM run.
+    // (add-path-dependencies native)
     return dir;
+}
+
+// Host-only REPL editor cdylib (libz42_repl) → the z42i component's programs/z42i/
+// (beside z42.interactive.zpkg), NOT the shared bin/ — a colocated native dependency.
+// The repl-specific probe (corelib::repl_native, via ext::resolve_native_beside)
+// resolves <sdk>/programs/z42i/ from the running bin/<app>; the generic ext scanner
+// never looks there → no spurious repl WARN. Whichever platform artifact exists is
+// copied. (add-path-dependencies native, supersedes isolate-repl-cdylib)
+void _pkgStageReplCdylib(string cargoOut, string z42iStageDir) {
+    string prog = Path.Join(z42iStageDir, "programs/z42i");
+    Directory.Create(prog);
+    _copyIfExists(Path.Join(cargoOut, "libz42_repl.dylib"), Path.Join(prog, "libz42_repl.dylib"));
+    _copyIfExists(Path.Join(cargoOut, "libz42_repl.so"), Path.Join(prog, "libz42_repl.so"));
+    _copyIfExists(Path.Join(cargoOut, "z42_repl.dll"), Path.Join(prog, "z42_repl.dll"));
 }
 
 // [component.native] kind=cargo-native, dest="native/" — stages
@@ -109,8 +121,9 @@ int _pkgBuildAndStageRuntime(string root, string rid, string profile) {
     c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-compression");
     if (c != 0) { return c; }
     // Host-only REPL editor cdylib (libz42_repl) — separate crate, dlopen'd lazily
-    // by z42vm on first `__repl_readline`. Staged into bin/ by _pkgStageZ42vm.
-    // (extract-repl-native-cdylib)
+    // by z42vm on first `__repl_readline`. Built into cargoOut here; staged into the
+    // z42i component's programs/z42i/ (NOT bin/) by _pkgStageReplCdylib.
+    // (extract-repl-native-cdylib / add-path-dependencies native)
     c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-repl");
     if (c != 0) { return c; }
     string cargoOut = _cargoOutFor(root, rid, profile);

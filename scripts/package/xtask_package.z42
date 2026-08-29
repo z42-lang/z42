@@ -251,9 +251,10 @@ void _copyNativeLibs(string cargoOut, string pkgDir) {
     if (!Directory.Exists(cargoOut)) { return; }
     foreach (var f in Directory.Enumerate(cargoOut)) {
         if (f.StartsWith("libz42_platform")) { continue; }   // mobile facade — not desktop SDK
-        // libz42_repl / z42_repl.dll — host-only REPL editor cdylib. Ships in bin/
-        // (beside z42i/z42vm), found by the repl-specific probe, NOT <sdk>/native/.
-        // (extract-repl-native-cdylib) — staged separately in _pkgStageZ42vm.
+        // libz42_repl / z42_repl.dll — host-only REPL editor cdylib. Ships in
+        // programs/z42i/ (beside the interactive payload), found by the repl-specific
+        // probe, NOT <sdk>/native/. Staged separately by _pkgStageReplCdylib.
+        // (extract-repl-native-cdylib / add-path-dependencies native)
         if (f.StartsWith("libz42_repl") || f.StartsWith("z42_repl")) { continue; }
         bool isLib = f.StartsWith("libz42") || f == "z42.lib" || f == "z42.dll" || f.StartsWith("z42_compression");
         if (isLib && (f.EndsWith(".a") || f.EndsWith(".dylib") || f.EndsWith(".so") || f.EndsWith(".lib") || f.EndsWith(".dll"))) {
