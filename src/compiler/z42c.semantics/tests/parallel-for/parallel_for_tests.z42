@@ -1,0 +1,49 @@
+// ParallelFor 工作池单测（parallelize-package-compile）：确定性（结果与串行同）、
+// jobs=1 等价、jobs>n 收敛、n=0 边界。IParallelBody 接口派发 + Std.Threading 线程。
+namespace Z42cSemanticsParallelForTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 测试体：out[i] = i*i + 1（非平凡，验证每槽独立写、无串扰）。
+sealed class SquareTask : IParallelBody {
+    int[] _out;
+    public SquareTask(int[] o) { this._out = o; }
+    public void Run(int i) { this._out[i] = i * i + 1; }
+}
+
+[Test]
+void test_parallel_matches_serial_formula() {
+    int n = 200;
+    int[] o = new int[n];
+    ParallelFor.Run(n, 4, new SquareTask(o));   // 4 线程
+    int i = 0;
+    while (i < n) { Assert.Equal(i * i + 1, o[i]); i = i + 1; }
+}
+
+[Test]
+void test_jobs1_serial_inline() {
+    int n = 50;
+    int[] o = new int[n];
+    ParallelFor.Run(n, 1, new SquareTask(o));   // jobs<=1 → 串行内联，不起线程
+    int i = 0;
+    while (i < n) { Assert.Equal(i * i + 1, o[i]); i = i + 1; }
+}
+
+[Test]
+void test_jobs_greater_than_n() {
+    int n = 3;
+    int[] o = new int[n];
+    ParallelFor.Run(n, 8, new SquareTask(o));   // jobs>n → min(jobs,n)=3，不起超过 n 个线程
+    Assert.Equal(1, o[0]);   // 0*0+1
+    Assert.Equal(2, o[1]);   // 1*1+1
+    Assert.Equal(5, o[2]);   // 2*2+1
+}
+
+[Test]
+void test_n_zero_no_work() {
+    int[] o = new int[0];
+    ParallelFor.Run(0, 4, new SquareTask(o));   // n=0 直接返回，不崩
+    Assert.Equal(0, o.Length);
+}

@@ -9,6 +9,50 @@ using Z42.IR.BinaryFormat;
 // 字节 / CompiledModuleZ 束。供 [Test] 断言 + driver `--dump-ir`/`--emit-zbc` + pipeline 包编译。
 // 跨包公开 API 全留本类（自举稳定：pipeline/driver 依赖的接口冻结）；私有 CU 编译内核分出 CuCompile、
 // CU 预处理/ns 遮蔽分出 CuPreprocess（irdump-pipeline-split，均同包内消费故 member-compile 内解析）。
+
+// parallelize-package-compile：per-file 编译任务（★② 主并行段）。承载 BuildPackageCus 的 per-file
+// 循环体——cached 回填 或 _compileCu（typecheck+codegen）→ file-scope 检查 → 导出抽取，每项写自己
+// 的 _r[i]。所有输入字段在并行前冻结、Run 内只读（symbols 数据字段 + deps/imported/各聚合表）；
+// 唯 _r[i] 各写各槽 → 确定性、可并行（完成序不影响结果）。诊断已 per-file 隔离进 _r[i]。
+sealed class CompileCuTask : IParallelBody {
+    CompilationUnit[] _cus; string[] _files; SymbolTable _symbols;
+    DependencyIndex _deps; ImportedSymbols _imported;
+    StrMap _classNs; StrMap _localClasses; bool _isRelease;
+    StrMap _partialMerged; int _optSet; IrModule[] _cached;
+    ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
+    CompiledModuleZ[] _r;
+    public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
+                         DependencyIndex deps, ImportedSymbols imported,
+                         StrMap classNs, StrMap localClasses, bool isRelease,
+                         StrMap partialMerged, int optSet, IrModule[] cached,
+                         ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
+                         CompiledModuleZ[] r) {
+        this._cus = cus; this._files = files; this._symbols = symbols;
+        this._deps = deps; this._imported = imported;
+        this._classNs = classNs; this._localClasses = localClasses; this._isRelease = isRelease;
+        this._partialMerged = partialMerged; this._optSet = optSet; this._cached = cached;
+        this._allFuncs = allFuncs; this._afc = afc; this._pkgClassMap = pkgClassMap;
+        this._r = r;
+    }
+    public void Run(int i) {
+        if (this._cached != null && this._cached[i] != null) {
+            // cached：typecheck/codegen 跳过；ns/usings 来自当前 AST/源（与 fresh 同源）。
+            string nsReal = this._cus[i].HasNamespace ? this._cus[i].Namespace : "";
+            string[] us = IrDump.UsingsOf(this._cus[i]);
+            this._r[i] = new CompiledModuleZ(this._cached[i], nsReal, us, us.Length, new string[0], 0, 0);
+            this._r[i].DiagMsgs = new string[0]; this._r[i].DiagCount = 0;
+        } else {
+            this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
+                this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged, this._optSet);
+        }
+        CuPreprocess._enforceFileScope(this._cus[i], this._files[i], this._r[i]);   // 跨包未-using 报错
+        string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
+        if (this._cus[i].HasNamespace) { ns2 = this._cus[i].Namespace; }
+        this._r[i].Exported = ExportedTypeExtractor.ExtractP(this._cus[i], this._symbols, ns2,
+            this._allFuncs, this._afc, this._pkgClassMap, this._classNs);
+    }
+}
+
 public static class IrDump {
     // 指定函数（key="Class.Method" / 顶层函数名）的 IR 文本。
     public static string DumpFunc(string src, string funcKey) {
@@ -151,25 +195,24 @@ public static class IrDump {
             }
             i = i + 1;
         }
-        CompiledModuleZ[] r = new CompiledModuleZ[count];
-        i = 0;
-        while (i < count) {
-            if (cachedModules != null && cachedModules[i] != null) {
-                // cached：typecheck/codegen 跳过；ns/usings 来自当前 AST/源（与 fresh 同源）。
-                string nsReal = cus[i].HasNamespace ? cus[i].Namespace : "";
-                string[] us = IrDump.UsingsOf(cus[i]);   // F1：已解析 CU 在手，免第三次 reparse
-                r[i] = new CompiledModuleZ(cachedModules[i], nsReal, us, us.Length,
-                                           new string[0], 0, 0);
-                r[i].DiagMsgs = new string[0]; r[i].DiagCount = 0;
-            } else {
-                r[i] = CuCompile._compileCu(cus[i], files[i], symbols, deps, imported, classNs, localClasses, isRelease, partialMerged, optSet);
-            }
-            CuPreprocess._enforceFileScope(cus[i], files[i], r[i]);   // add-file-scoped-usings：跨包未-using 报错
-            string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
-            if (cus[i].HasNamespace) { ns2 = cus[i].Namespace; }
-            r[i].Exported = ExportedTypeExtractor.ExtractP(cus[i], symbols, ns2, allFuncs, afc, pkgClassMap, classNs);
-            i = i + 1;
+        // parallelize-package-compile：where 约束解析 hoist 到 per-file 循环前（约束是声明级、包全局：
+        // 一个文件可 new 另一个文件声明的泛型类）。一次性把全包约束冻结进共享 symbols.ClassConstraints，
+        // 之后 per-file 循环（将并行化）只读 Check、绝不再写——消除并行下对 ClassConstraints 的数据竞争。
+        // 诊断入 coll.Diags（包级，与 CollectAll 同路径，line ~176 按 Span.File 分发）。每 CU 用自己的
+        // 别名视图（WithAliases）解析约束类型，不覆写共享 CurrentAliases。
+        ConstraintChecker _cc = new ConstraintChecker(coll.Diags);
+        int cci = 0;
+        while (cci < count) {
+            _cc.Resolve(cus[cci], symbols.WithAliases(SymbolTable.BuildAliases(cus[cci])));
+            cci = cci + 1;
         }
+        // parallelize-package-compile ★②：per-file typecheck+codegen 并行（同层前置已冻结共享态：
+        // symbols 数据字段只读 + 约束已 hoist + 别名 per-file 视图）。每项写 r[i]，确定性。
+        // 并行度 ParallelConfig.Jobs（--jobs / CpuCount）；jobs<=1 串行内联（逃生舱 / 调试）。
+        CompiledModuleZ[] r = new CompiledModuleZ[count];
+        CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported, classNs,
+            localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap, r);
+        ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。
         int pdi = 0;

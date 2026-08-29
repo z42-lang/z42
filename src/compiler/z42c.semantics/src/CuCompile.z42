@@ -81,7 +81,9 @@ public static class CuCompile {
     internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        var model = new TypeChecker(diags).Infer(cu, symbols);
+        // parallelize-package-compile：约束已由 BuildPackageCus 循环前 hoist 到 symbols.ClassConstraints
+        //（并行段只读）；Infer 内建 per-file 别名视图。故 resolveConstraints=false。
+        var model = new TypeChecker(diags).Infer(cu, symbols, false);
         var gen = new IrGen();
         gen.Deps = deps;
         gen.IsRelease = isRelease;   // 传入 release 标志（strip debug info）
