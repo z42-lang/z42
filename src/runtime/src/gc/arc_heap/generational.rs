@@ -191,6 +191,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// old→young references (whose cards were dirtied at the time of
     /// the write but the target young object hasn't yet been promoted).
     pub(super) fn run_cycle_collection_minor(&self) -> u64 {
+        // add-gc-tlab (stage 2, D5): retire the collecting thread's own TLAB so
+        // its freshly-allocated (young, still-borrowed) chunk is merged into the
+        // region before the minor mark/sweep — otherwise those young objects sit
+        // in a borrowed chunk skipped by iteration. Idempotent when unbound.
+        self.retire_thread_tlab();
         let _newly_marked = self.mark_phase_minor();
         self.sweep_phase_young_only()
     }

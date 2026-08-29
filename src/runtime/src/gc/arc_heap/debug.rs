@@ -183,6 +183,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// mutator writes inline.
     #[cfg(test)]
     pub(crate) fn run_cycle_collection_concurrent_inline_for_test(&self) -> u64 {
+        // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
+        self.retire_thread_tlab();
         // Step 1: STW-equivalent root snapshot (no mutators in test).
         self.snapshot_roots_into_mark_queue();
 
@@ -208,6 +210,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// two phases.
     #[cfg(test)]
     pub(super) fn collect_cycles_mark_sweep_for_test(&self) -> u64 {
+        // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
+        self.retire_thread_tlab();
         let _newly_marked = self.mark_phase();
         self.sweep_phase()
     }

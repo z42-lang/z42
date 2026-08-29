@@ -283,6 +283,12 @@ impl MagrGC for ArcMagrGC {
         let mut i = self.inner.lock();
         i.stats.max_bytes      = max;
         i.near_limit_warned    = false; // reset 让新阈值能再次触发 NearHeapLimit
+        // add-gc-tlab (stage 2): mirror into the lock-free atomic (u64::MAX = None)
+        // so `check_pressure` reads the limit without the inner lock.
+        self.max_bytes_atomic.store(
+            max.unwrap_or(u64::MAX),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     fn used_bytes(&self) -> u64 {
@@ -291,6 +297,15 @@ impl MagrGC for ArcMagrGC {
 
     fn set_strict_oom(&self, enabled: bool) {
         self.inner.lock().strict_oom = enabled;
+        // add-gc-tlab (stage 2): mirror so the alloc fast path can check strict
+        // mode lock-free (D6: strict OOM bypasses the TLAB for precise refund).
+        self.strict_oom_atomic.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// **add-gc-tlab (stage 2)**: retire the calling thread's TLAB into this
+    /// heap's regions (see the trait contract). Delegates to the inherent impl.
+    fn retire_thread_tlab(&self) {
+        ArcMagrGC::retire_thread_tlab(self)
     }
 
     // ── 7. Finalization ──────────────────────────────────────────────────────
@@ -401,7 +416,11 @@ impl MagrGC for ArcMagrGC {
     // ── 10. Profiler ─────────────────────────────────────────────────────────
 
     fn set_alloc_sampler(&self, sampler: Option<AllocSamplerFn>) {
+        let active = sampler.is_some();
         self.inner.lock().alloc_sampler = sampler;
+        // add-gc-tlab (stage 2): mirror so the fast path skips the sampler
+        // inner.lock() unless sampling is actually on.
+        self.sampler_active.store(active, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn take_snapshot(&self) -> HeapSnapshot {

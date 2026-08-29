@@ -118,6 +118,9 @@ impl VmContext {
         let boxed = Box::new(ctx);
         let ptr = VmContextPtr(&*boxed as *const VmContext);
         boxed.core.vm_contexts.lock().push(ptr);
+        // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
+        // in Drop). A spawned worker allocates into the TLAB fast path.
+        crate::gc::tlab::arm();
         unsafe { std::pin::Pin::new_unchecked(boxed) }
     }
 
@@ -399,6 +402,9 @@ impl VmContext {
         // `PhantomPinned`), so the contents stay at a stable address until
         // Drop. Constructing the Pin here is the standard idiom for
         // self-referential heap data.
+        // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
+        // in Drop). The primary VM thread now takes the lock-free alloc path.
+        crate::gc::tlab::arm();
         unsafe { std::pin::Pin::new_unchecked(boxed) }
     }
 }
@@ -411,6 +417,14 @@ impl Drop for VmContext {
     /// scan racing this Drop will block on the registry lock and see the
     /// post-removed list.
     fn drop(&mut self) {
+        // add-gc-tlab (stage 2): retire this thread's TLAB before the context
+        // goes away — merge its borrowed chunks' filled objects back into the
+        // shared region so they stay GC-visible (a thread may have handed
+        // objects to other threads). Runs on the owning thread; leaves the
+        // thread-local TLAB unbound for the next context. No-op if unbound.
+        self.core.heap.retire_thread_tlab();
+        // add-gc-tlab (stage 2): balance the arm() from construction.
+        crate::gc::tlab::disarm();
         let ptr = self as *const Self;
         self.core.vm_contexts.lock().retain(|p| p.0 != ptr);
         // Wake any collector sleeping in request_handshake_pause so it

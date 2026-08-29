@@ -61,6 +61,128 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
+    /// **add-gc-tlab (stage 2)**: the lock-free counterpart of [`record_alloc`]
+    /// for the TLAB fast path. Bumps the atomic stat counters and (only when a
+    /// sampler is installed, gated by `sampler_active`) fires the alloc sampler.
+    /// Unlike `record_alloc` it does **no** pressure check / auto-collect — those
+    /// run at retire granularity ([`tlab_retire_pressure`]), keeping the
+    /// per-object fast path free of any `inner` lock.
+    pub(super) fn record_alloc_fast(&self, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
+        use std::sync::atomic::Ordering;
+        self.allocations.fetch_add(1, Ordering::Relaxed);
+        self.used_bytes.fetch_add(size as u64, Ordering::Relaxed);
+        if self.sampler_active.load(Ordering::Relaxed) {
+            let sampler = self.inner.lock().alloc_sampler.clone();
+            if let Some(s) = sampler {
+                s(&AllocSample {
+                    kind: kind_fn(),
+                    size_bytes: size,
+                    timestamp_us: Self::now_us(),
+                });
+            }
+        }
+    }
+
+    /// **add-gc-tlab (stage 2)**: retire-granularity pressure check — run once
+    /// per chunk retire (≈ every CHUNK_SIZE allocs) instead of per object.
+    /// Reads the atomic `used_bytes`; may fire pressure events / arm the
+    /// deferred auto-collect. Coarser than the per-object `record_alloc` path,
+    /// which is fine for a *soft* GC trigger (design D3).
+    pub(super) fn tlab_retire_pressure(&self) {
+        self.check_pressure(0);
+        self.maybe_auto_collect();
+    }
+
+    /// **add-gc-tlab (stage 2)**: object-region fast path. Bump-fills the
+    /// calling thread's TLAB object claim lock-free; borrows a fresh chunk
+    /// (retiring the full one) when needed. Returns `Err(obj)` — handing the
+    /// object back for the ambient locked path — only when this thread's TLAB
+    /// still holds claims bound to a *different* heap (multi-heap test edge).
+    pub(super) fn tlab_alloc_object(
+        &self,
+        obj: ScriptObject,
+        td: &Arc<crate::metadata::TypeDesc>,
+    ) -> Result<Value, ScriptObject> {
+        crate::gc::tlab::with_current_tlab(|tlab| {
+            // Bind an unbound TLAB to this heap; decline if it holds foreign claims.
+            if tlab.heap_epoch != self.epoch {
+                if tlab.is_unbound() {
+                    tlab.heap_epoch = self.epoch;
+                } else {
+                    return Err(obj);
+                }
+            }
+            // Ensure the object claim has a free slot.
+            if tlab.obj.as_ref().map_or(true, |c| !c.has_room()) {
+                if let Some(full) = tlab.obj.take() {
+                    self.region_object.lock().retire_chunk(&full);
+                    self.tlab_retire_pressure();
+                }
+                tlab.obj = Some(self.region_object.lock().borrow_chunk());
+            }
+            // SAFETY: fill only fails on a full claim; we just ensured room.
+            let (entry_ptr, generation) = tlab.obj.as_mut().unwrap().fill(obj).unwrap();
+            // SAFETY: entry_ptr is a fresh, stable slot; generation matches.
+            let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
+            let value = Value::Object(gc);
+            let size = self.object_size_bytes(&value);
+            self.record_alloc_fast(|| AllocKind::Object { class: td.name.clone() }, size);
+            Ok(value)
+        })
+    }
+
+    /// **add-gc-tlab (stage 2)**: array-region fast path (mirror of
+    /// [`tlab_alloc_object`] for `region_array`).
+    pub(super) fn tlab_alloc_array(
+        &self,
+        obj: crate::metadata::types::ArrayObj,
+    ) -> Result<Value, crate::metadata::types::ArrayObj> {
+        let elem_count = obj.len();
+        crate::gc::tlab::with_current_tlab(|tlab| {
+            if tlab.heap_epoch != self.epoch {
+                if tlab.is_unbound() {
+                    tlab.heap_epoch = self.epoch;
+                } else {
+                    return Err(obj);
+                }
+            }
+            if tlab.arr.as_ref().map_or(true, |c| !c.has_room()) {
+                if let Some(full) = tlab.arr.take() {
+                    self.region_array.lock().retire_chunk(&full);
+                    self.tlab_retire_pressure();
+                }
+                tlab.arr = Some(self.region_array.lock().borrow_chunk());
+            }
+            let (entry_ptr, generation) = tlab.arr.as_mut().unwrap().fill(obj).unwrap();
+            let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
+            let value = Value::Array(gc);
+            let size = self.object_size_bytes(&value);
+            self.record_alloc_fast(|| AllocKind::Array { elem_count }, size);
+            Ok(value)
+        })
+    }
+
+    /// **add-gc-tlab (stage 2)**: retire the calling thread's TLAB — merge both
+    /// borrowed chunks' filled prefixes back into their regions and drop the
+    /// claims, leaving the TLAB unbound. Idempotent (no-op when already
+    /// unbound). Called at safepoint park, before a collector marks, and at
+    /// `VmContext::drop`. See the `MagrGC::retire_thread_tlab` contract.
+    pub(super) fn retire_thread_tlab(&self) {
+        crate::gc::tlab::with_current_tlab(|tlab| {
+            if tlab.heap_epoch != self.epoch {
+                // Not bound to this heap (or already unbound) → nothing of ours.
+                return;
+            }
+            if let Some(claim) = tlab.obj.take() {
+                self.region_object.lock().retire_chunk(&claim);
+            }
+            if let Some(claim) = tlab.arr.take() {
+                self.region_array.lock().retire_chunk(&claim);
+            }
+            tlab.heap_epoch = 0; // unbound
+        });
+    }
+
     /// Size estimate helpers for sweep_phase — operate on already-
     /// locked inner data (avoids re-locking via object_size_bytes path).
     pub(super) fn script_object_size_estimate(obj: &ScriptObject) -> u64 {
@@ -180,7 +302,22 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// （struct_bytes 由调用方按 wrapper 标量宽度显式定尺，unify Phase 2 R3）复用本尾部。
     pub(super) fn finish_alloc(&self, obj: ScriptObject) -> Value {
         let td_for_record = Arc::clone(&obj.type_desc);
-        // **add-custom-allocator P1 (2026-05-22)**: alloc into region.
+        // **add-gc-tlab (stage 2)**: chunk-exclusive TLAB fast path (lock-free
+        // bump-fill) — only on a TLAB-armed thread (has a live VmContext) and
+        // not in strict-OOM mode (D6 needs the per-object refund path). `Err`
+        // hands the object back for the ambient path.
+        let obj = if crate::gc::tlab::is_armed()
+            && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            match self.tlab_alloc_object(obj, &td_for_record) {
+                Ok(value) => return value,
+                Err(o) => o,
+            }
+        } else {
+            obj
+        };
+        // **add-custom-allocator P1 (2026-05-22)**: alloc into region (ambient
+        // locked path — strict-OOM or a foreign-heap TLAB).
         // Region::alloc returns a stable handle; resolve gives us the
         // entry pointer for GcRef construction.
         let (entry_ptr, generation, handle) = {
@@ -290,6 +427,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// `alloc_array_typed` funnel through here.
     pub(super) fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
         let elem_count = obj.len();
+        // **add-gc-tlab (stage 2)**: TLAB fast path — armed thread + non-strict (D6).
+        let obj = if crate::gc::tlab::is_armed()
+            && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            match self.tlab_alloc_array(obj) {
+                Ok(value) => return value,
+                Err(o) => o,
+            }
+        } else {
+            obj
+        };
         let (entry_ptr, generation, handle) = {
             let mut region = self.region_array.lock();
             let handle = region.alloc(obj);

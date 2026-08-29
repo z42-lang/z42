@@ -68,6 +68,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// hits entry_ref panic (use-after-finalize). Caught by stress
     /// test + C1 validator.
     pub(super) fn run_cycle_collection_stw(&self) -> u64 {
+        // add-gc-tlab (stage 2, D5): retire the collecting thread's own TLAB
+        // before marking, so its just-allocated (still-borrowed) chunk is merged
+        // into the region and participates in mark/sweep + mark-clearing. Other
+        // mutators retired at their safepoint park; in the no-context / force /
+        // cargo-direct paths (no safepoint) this is the sole retire that keeps a
+        // borrowed chunk from being skipped by sweep. Idempotent when unbound.
+        self.retire_thread_tlab();
         // Defensive reset: ensure clean state for STW mark.
         self.reset_all_marks_in_regions();
         self.mark_queue.lock().clear();
@@ -303,6 +310,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     pub(super) fn finalize_now(&self, value: &Value) -> bool {
+        // add-gc-tlab (stage 2): merge this thread's TLAB first so the target is
+        // an ordinary (retired) region slot before tombstone_via_entry pushes it
+        // to free_list — otherwise a just-allocated, still-borrowed slot could
+        // enter free_list while its chunk is borrowed (slot double-use). Rare
+        // explicit-finalize path, so the retire cost is negligible.
+        self.retire_thread_tlab();
         match value {
             Value::Object(gc) => {
                 let entry_ptr = gc.entry_ptr();

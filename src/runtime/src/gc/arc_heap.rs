@@ -366,6 +366,22 @@ pub struct ArcMagrGC {
     /// counters / heuristic pressure thresholds, not synchronization for other heap state.
     used_bytes: std::sync::atomic::AtomicU64,
     allocations: std::sync::atomic::AtomicU64,
+    /// **add-gc-tlab (stage 2, 2026-08-29)**: lock-free mirrors of three
+    /// `inner`-locked config fields, read on the TLAB allocation fast path so it
+    /// takes **no** `inner` lock per object (the whole point of the TLAB):
+    /// - `strict_oom_atomic`: mirrors `inner.strict_oom`. When `true` the fast
+    ///   path is bypassed entirely (D6 — strict OOM needs per-object precise
+    ///   refund, so it stays on the locked path).
+    /// - `max_bytes_atomic`: mirrors `inner.stats.max_bytes` (`u64::MAX` =
+    ///   `None`). Lets `check_pressure` short-circuit lock-free when no heap
+    ///   limit is set (the common case).
+    /// - `sampler_active`: `true` iff `inner.alloc_sampler.is_some()`. Lets the
+    ///   fast path skip the sampler `inner.lock()` unless sampling is on.
+    ///
+    /// All `Relaxed` — heuristics / rarely-flipped config, not synchronization.
+    strict_oom_atomic: std::sync::atomic::AtomicBool,
+    max_bytes_atomic: std::sync::atomic::AtomicU64,
+    sampler_active: std::sync::atomic::AtomicBool,
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at
@@ -398,6 +414,11 @@ impl Default for ArcMagrGC {
             // add-gc-tlab (option B): live counters start at 0 (no allocations yet).
             used_bytes: std::sync::atomic::AtomicU64::new(0),
             allocations: std::sync::atomic::AtomicU64::new(0),
+            // add-gc-tlab (stage 2): mirrors of inner config, defaults match
+            // `RcHeapInner::default` (strict_oom=false, no limit, no sampler).
+            strict_oom_atomic: std::sync::atomic::AtomicBool::new(false),
+            max_bytes_atomic: std::sync::atomic::AtomicU64::new(u64::MAX),
+            sampler_active: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }

@@ -34,6 +34,7 @@
 
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
 use parking_lot::Mutex;
@@ -131,7 +132,11 @@ impl<T> RegionEntry<T> {
         Self::new(value, (u32::MAX, u16::MAX))
     }
 
-    fn new(value: T, location: (u32, u16)) -> Self {
+    /// **add-gc-tlab (2026-08-29)**: `pub(crate)` so the TLAB fast-fill path
+    /// (`gc/tlab.rs::ChunkClaim::fill`) can construct entries directly into a
+    /// borrowed chunk's raw slots without the region lock. Ambient `Region::alloc`
+    /// still calls it internally.
+    pub(crate) fn new(value: T, location: (u32, u16)) -> Self {
         Self {
             value:          Mutex::new(value),
             marked:         AtomicU8::new(0),
@@ -201,6 +206,94 @@ pub struct RegionHandle {
     pub(crate) generation: u32,
 }
 
+/// **add-gc-tlab (2026-08-29)**: a mutator thread's exclusive write claim on
+/// one region chunk (design D1/D2). Produced by [`Region::borrow_chunk`] (under
+/// the region lock), then filled **lock-free** by the owning thread via
+/// [`ChunkClaim::fill`] until the chunk is full (`next == cap`); the region
+/// re-absorbs the filled prefix at [`Region::retire_chunk`].
+///
+/// # Safety / invariants
+/// - `slots` / `init_ptr` are raw pointers into `Region`-owned, `Box`-stable
+///   memory (chunk arrays + the chunk's `initialized` row, both fixed-size and
+///   never reallocated), valid for the region's lifetime.
+/// - The chunk is marked `borrowed` in the region while a claim is live, so
+///   every region-lock iterate skips it → the owner thread is the **sole**
+///   accessor of these slots. That single-writer/no-reader discipline is what
+///   makes the un-synchronized `fill` writes sound.
+/// - A claim must be retired (or its chunk's `borrowed` flag cleared) before
+///   any GC scan of the region — enforced by safepoint retire-on-park.
+pub struct ChunkClaim<T> {
+    /// Index of the borrowed chunk within `Region::chunks`.
+    pub(crate) chunk_idx: u32,
+    /// Raw pointer to the chunk's `[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]`.
+    slots: *mut MaybeUninit<RegionEntry<T>>,
+    /// Raw pointer to the chunk's `initialized` row (`[bool; CHUNK_SIZE]`
+    /// buffer). Read per slot in `fill` to choose write mode; only the region
+    /// (owner thread) writes it, and never while filling.
+    init_ptr: *const bool,
+    /// Next free slot index within the chunk (bump cursor / high-water mark).
+    next: u16,
+    /// Chunk capacity (`CHUNK_SIZE`).
+    cap: u16,
+}
+
+impl<T> ChunkClaim<T> {
+    /// Bump-fill one object into the claimed chunk **without any lock**.
+    /// Returns `(entry_ptr, generation)` for `GcRef` construction, or `None`
+    /// when the chunk is full (caller retires + borrows a fresh one).
+    ///
+    /// Per-slot write mode (via `init_ptr`):
+    /// - **uninitialized** slot (fresh-grown chunk): `ptr::write` a new
+    ///   `RegionEntry` at generation 0.
+    /// - **initialized** slot (pooled chunk's dead entry): read the tombstone
+    ///   generation, drop the dead entry, and write the new one preserving that
+    ///   generation — the ABA guard (mirrors `Region::alloc`'s free_list path).
+    ///
+    /// # Safety
+    /// Owner-thread-exclusive (see the type's safety contract); the chunk is
+    /// `borrowed` so no concurrent reader exists.
+    #[inline]
+    pub(crate) fn fill(&mut self, value: T) -> Option<(NonNull<RegionEntry<T>>, u32)> {
+        if self.next >= self.cap {
+            return None;
+        }
+        let ei = self.next;
+        // SAFETY: ei < cap == CHUNK_SIZE; `slots`/`init_ptr` point at the
+        // chunk's fixed-size arrays; owner-exclusive access.
+        let slot = unsafe { &mut *self.slots.add(ei as usize) };
+        let was_init = unsafe { *self.init_ptr.add(ei as usize) };
+        let generation = if was_init {
+            // SAFETY: initialized ⇒ constructed (dead) entry.
+            let old = unsafe { slot.assume_init_ref() };
+            let g = old.generation.load(Ordering::Acquire);
+            let ne = RegionEntry::new(value, (self.chunk_idx, ei));
+            ne.generation.store(g, Ordering::Release);
+            // Overwrite: `*` assignment drops the old dead entry, then moves in.
+            unsafe { *slot.assume_init_mut() = ne };
+            g
+        } else {
+            slot.write(RegionEntry::new(value, (self.chunk_idx, ei)));
+            0
+        };
+        self.next = ei + 1;
+        // SAFETY: just wrote a valid entry into this slot.
+        let entry = unsafe { slot.assume_init_ref() };
+        Some((NonNull::from(entry), generation))
+    }
+
+    /// Number of objects filled so far (the retire high-water mark).
+    #[inline]
+    pub(crate) fn filled(&self) -> u16 {
+        self.next
+    }
+
+    /// True while the claimed chunk still has a free slot to `fill`.
+    #[inline]
+    pub(crate) fn has_room(&self) -> bool {
+        self.next < self.cap
+    }
+}
+
 /// Chunked region allocator. Owns user objects of type `T` plus
 /// per-object GC metadata. See module-level docs for the allocation
 /// + sweep model.
@@ -210,9 +303,19 @@ pub struct Region<T> {
     /// address is stable for the chunk's lifetime.
     chunks: Vec<Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>>,
 
-    /// (chunk_idx, entry_idx) — next bump-pointer position. Advances
-    /// linearly; never goes back. Free list pops are separate.
-    next_bump: (u32, u16),
+    /// **add-gc-tlab (2026-08-29)**: ambient (locked-path) bump cursor —
+    /// `Some((chunk_idx, next_entry_idx))` of the chunk the ambient
+    /// `Region::alloc` currently bumps into, or `None` before the first
+    /// ambient alloc / after its chunk filled (next ambient alloc grows a
+    /// *fresh* chunk via [`grow_new_chunk`]). Was `next_bump: (u32,u16)`;
+    /// the old `ci >= chunks.len()` grow heuristic collided with TLAB
+    /// `borrow_chunk` (which also appends to `chunks`) — the ambient path
+    /// could bump into a borrowed chunk's index. Tracking its *own* current
+    /// chunk (only ever a fresh-grown, ambient-exclusive one) makes ambient
+    /// and TLAB share `chunks` without index collision. Ambient never pulls
+    /// from `free_chunk_pool` (that's TLAB-only); it reuses dead slots via
+    /// `free_list` and grows fresh chunks otherwise.
+    ambient_cur: Option<(u32, u16)>,
 
     /// Tombstoned slots reusable by fresh allocs. LIFO (Vec::pop).
     free_list: Vec<(u32, u16)>,
@@ -244,6 +347,29 @@ pub struct Region<T> {
     /// sub-chunk card granularity. v1 uses bit 0 only.
     card_dirty: Vec<u32>,
 
+    /// **add-gc-tlab (2026-08-29)**: per-chunk "currently borrowed by a TLAB"
+    /// flag (one bool per chunk, parallel to `chunks`). A borrowed chunk is
+    /// being lock-free bump-filled by its owning mutator thread, so every
+    /// region-lock iteration (`iterate_alive`/`iterate_young`/
+    /// `iterate_dirty_cards`/`validate`/reclaim) **skips it wholesale** — its
+    /// in-flight objects are invisible to GC until [`retire_chunk`] merges the
+    /// filled prefix back (flips this to `false`). Under STW every TLAB is
+    /// retired first (safepoint retire-on-park), so a collector always sees a
+    /// fully-merged region with no borrowed chunks. Prevents the data race
+    /// between a mutator's un-synchronized fill write and a concurrent
+    /// diagnostic iterate (which no longer serialize on the region lock the
+    /// way the pre-TLAB per-object `alloc` did).
+    borrowed: Vec<bool>,
+
+    /// **add-gc-tlab (2026-08-29)**: chunk-level free pool (D7). Indices of
+    /// chunks that became **fully dead** (every slot tombstoned) at a sweep
+    /// and were normalized (see [`reclaim_dead_chunks`]) — every slot is a
+    /// constructed, dead, generation-preserved `RegionEntry`. [`borrow_chunk`]
+    /// pops from here before growing a brand-new chunk, so short-lived-object
+    /// workloads (the compiler) recycle chunk memory instead of growing
+    /// unboundedly. Slot-level reuse of partial-live chunks stays Deferred.
+    free_chunk_pool: Vec<u32>,
+
     _phantom: PhantomData<T>,
 }
 
@@ -251,11 +377,13 @@ impl<T> Default for Region<T> {
     fn default() -> Self {
         Self {
             chunks:      Vec::new(),
-            next_bump:   (0, 0),
+            ambient_cur: None,
             free_list:   Vec::new(),
             initialized: Vec::new(),
             young_list:  Vec::new(),
             card_dirty:  Vec::new(),
+            borrowed:        Vec::new(),
+            free_chunk_pool: Vec::new(),
             _phantom:    PhantomData,
         }
     }
@@ -300,34 +428,43 @@ impl<T> Region<T> {
             return RegionHandle { chunk_idx: ci, entry_idx: ei, generation: generation };
         }
 
-        // Bump pointer.
-        let (ci, ei) = self.next_bump;
-        if (ci as usize) >= self.chunks.len() {
-            // Grow: push a new chunk of MaybeUninit entries.
-            // SAFETY: MaybeUninit<RegionEntry<T>> is valid to leave uninit.
-            let chunk: Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]> = Box::new(unsafe {
-                MaybeUninit::<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>::uninit().assume_init()
-            });
-            self.chunks.push(chunk);
-            self.initialized.push(vec![false; CHUNK_SIZE]);
-            // add-generational-gc P0: grow card_dirty bitmap (one u32/chunk).
-            self.card_dirty.push(0);
-        }
+        // Bump pointer (ambient path). add-gc-tlab: bump into the ambient
+        // cursor's chunk; when it's absent or full, grow a *fresh*
+        // ambient-exclusive chunk (never a pooled/borrowed one — those belong
+        // to the TLAB path). This keeps ambient off any borrowed chunk index.
+        let (ci, ei) = match self.ambient_cur {
+            Some((c, e)) if (e as usize) < CHUNK_SIZE => (c, e),
+            _ => (self.grow_new_chunk(), 0),
+        };
         let chunk = &mut self.chunks[ci as usize];
         chunk[ei as usize] = MaybeUninit::new(RegionEntry::new(value, (ci, ei)));
         self.initialized[ci as usize][ei as usize] = true;
         // add-generational-gc P0: track newly-allocated entry as young.
         self.young_list.push((ci, ei));
-
-        // Advance next_bump.
-        let next_ei = ei + 1;
-        if (next_ei as usize) >= CHUNK_SIZE {
-            self.next_bump = (ci + 1, 0);
-        } else {
-            self.next_bump = (ci, next_ei);
-        }
+        // Advance the ambient cursor (ei+1 == CHUNK_SIZE → next alloc grows fresh).
+        self.ambient_cur = Some((ci, ei + 1));
 
         RegionHandle { chunk_idx: ci, entry_idx: ei, generation: 0 }
+    }
+
+    /// **add-gc-tlab (2026-08-29)**: append a brand-new, fully-uninitialized
+    /// chunk to `chunks` and grow every parallel per-chunk table
+    /// (`initialized` all-false, `card_dirty` 0, `borrowed` false). Returns
+    /// the new chunk index. Shared by the ambient bump grow and
+    /// [`borrow_chunk`]'s pool-miss path — the single point where `chunks`
+    /// grows, so all per-chunk tables stay length-consistent (validated by
+    /// `CardDirtyLengthMismatch`).
+    fn grow_new_chunk(&mut self) -> u32 {
+        // SAFETY: MaybeUninit<RegionEntry<T>> is valid to leave uninit.
+        let chunk: Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]> = Box::new(unsafe {
+            MaybeUninit::<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>::uninit().assume_init()
+        });
+        let ci = self.chunks.len() as u32;
+        self.chunks.push(chunk);
+        self.initialized.push(vec![false; CHUNK_SIZE]);
+        self.card_dirty.push(0);
+        self.borrowed.push(false);
+        ci
     }
 
     /// Resolve a handle to a `&RegionEntry<T>` reference. Panics if
@@ -488,6 +625,10 @@ impl<T> Region<T> {
             if ci >= self.chunks.len() {
                 continue;
             }
+            // add-gc-tlab: skip borrowed chunks (invisible to GC until retire).
+            if self.borrowed[ci] {
+                continue;
+            }
             for ei in 0..CHUNK_SIZE {
                 if !self.initialized[ci][ei] {
                     continue;
@@ -512,6 +653,12 @@ impl<T> Region<T> {
     /// slots. Order: chunk 0 → chunk N, entry 0 → CHUNK_SIZE-1 within.
     pub fn iterate_alive(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>)) {
         for (ci, chunk) in self.chunks.iter().enumerate() {
+            // add-gc-tlab: a borrowed chunk is being lock-free filled by its
+            // owning mutator — skip it (its slots are invisible to GC until
+            // retire merges them). Under STW no chunk is borrowed.
+            if self.borrowed[ci] {
+                continue;
+            }
             for ei in 0..CHUNK_SIZE {
                 if !self.initialized[ci][ei] {
                     continue;
@@ -574,6 +721,124 @@ impl<T> Region<T> {
         self.chunks.len() * CHUNK_SIZE
     }
 
+    // ── add-gc-tlab (2026-08-29): chunk borrow / retire / reclaim ────────────
+
+    /// **add-gc-tlab**: hand a whole chunk's write ownership to a mutator
+    /// thread's TLAB (design D1/D2). Pops a normalized fully-dead chunk from
+    /// `free_chunk_pool` (→ `reused = true`, every slot a constructed dead
+    /// generation-preserved entry) or grows a brand-new one (→ `reused =
+    /// false`, uninitialized slots). Marks the chunk `borrowed` so every
+    /// region-lock iterate skips it until [`retire_chunk`]. The returned
+    /// [`ChunkClaim`] carries a raw pointer to the chunk's slot array — stable
+    /// for the chunk's lifetime because chunks are `Box`-owned (never move when
+    /// `chunks` reallocs). Caller (owning thread) fills lock-free via
+    /// [`ChunkClaim::fill`].
+    pub fn borrow_chunk(&mut self) -> ChunkClaim<T> {
+        let ci = match self.free_chunk_pool.pop() {
+            Some(ci) => ci,
+            None => self.grow_new_chunk(),
+        };
+        self.borrowed[ci as usize] = true;
+        let slots = self.chunks[ci as usize].as_mut_ptr();
+        // `init_ptr` points at the chunk's `initialized` row buffer (fixed
+        // CHUNK_SIZE, never resized → stable). `fill` reads it per slot to pick
+        // fresh-write (uninit) vs generation-preserving overwrite (constructed
+        // dead entry from a pooled chunk).
+        let init_ptr = self.initialized[ci as usize].as_ptr();
+        ChunkClaim { chunk_idx: ci, slots, init_ptr, next: 0, cap: CHUNK_SIZE as u16 }
+    }
+
+    /// **add-gc-tlab**: merge a TLAB's filled chunk prefix `[0, claim.next)`
+    /// back into the shared region (design D2). Marks those slots
+    /// `initialized` (idempotent for a reused chunk) and pushes them onto
+    /// `young_list` (every fresh alloc is young, gen_age 0), then clears the
+    /// `borrowed` flag so the chunk rejoins GC iteration as ordinary populated
+    /// slots. A partially-filled chunk's tail `[claim.next, cap)` stays as it
+    /// was (uninitialized for a fresh chunk, old dead entries for a reused
+    /// one) — that tail capacity is abandoned (bounded ≤ CHUNK_SIZE-1 per
+    /// safepoint retire; reclaimed wholesale when the chunk later dies).
+    /// Stats are flushed lock-free per-object by the fast path, so retire does
+    /// no stats work.
+    pub fn retire_chunk(&mut self, claim: &ChunkClaim<T>) {
+        let ci = claim.chunk_idx;
+        let hw = claim.next as usize;
+        let init_row = &mut self.initialized[ci as usize];
+        for ei in 0..hw {
+            init_row[ei] = true;
+            self.young_list.push((ci, ei as u16));
+        }
+        self.borrowed[ci as usize] = false;
+    }
+
+    /// **add-gc-tlab (D7)**: after a sweep, move every **fully dead** chunk
+    /// (all slots tombstoned) into `free_chunk_pool` for [`borrow_chunk`] to
+    /// recycle. Normalizes each pooled chunk so its whole `[0, CHUNK_SIZE)`
+    /// slot range is a constructed, dead, generation-preserved `RegionEntry`
+    /// (a partial-retire tail that was never initialized gets filled with a
+    /// fresh dead gen-0 entry — safe because such slots were never handed out,
+    /// so no stale handle can alias them). This lets [`ChunkClaim::fill`] use a
+    /// single uniform "reused" write mode across the whole chunk while
+    /// preserving each slot's tombstone generation (ABA guard). Purges the
+    /// pooled chunk's slots from `free_list` (else the ambient slot-reuse path
+    /// could hand out a slot inside a soon-to-be-borrowed chunk). Skips the
+    /// ambient cursor chunk and any already-borrowed/pooled chunk. Runs under
+    /// STW at the sweep tail.
+    ///
+    /// Returns the number of chunks reclaimed (diagnostics/tests).
+    pub fn reclaim_dead_chunks(&mut self) -> usize {
+        let ambient_ci = self.ambient_cur.map(|(c, _)| c);
+        let already_pooled: std::collections::HashSet<u32> =
+            self.free_chunk_pool.iter().copied().collect();
+        let mut reclaimed: Vec<u32> = Vec::new();
+
+        for ci in 0..self.chunks.len() as u32 {
+            if self.borrowed[ci as usize]
+                || already_pooled.contains(&ci)
+                || ambient_ci == Some(ci)
+            {
+                continue;
+            }
+            // A chunk is reclaimable iff every initialized slot is dead AND it
+            // has at least one initialized slot (never-touched chunks have no
+            // storage to recycle and no free_list entries to purge — skip).
+            let init_row = &self.initialized[ci as usize];
+            let mut any_init = false;
+            let mut all_dead = true;
+            for ei in 0..CHUNK_SIZE {
+                if !init_row[ei] {
+                    continue;
+                }
+                any_init = true;
+                // SAFETY: initialized slot → constructed entry.
+                let entry = unsafe { self.chunks[ci as usize][ei].assume_init_ref() };
+                if entry.alive.load(Ordering::Acquire) {
+                    all_dead = false;
+                    break;
+                }
+            }
+            if any_init && all_dead {
+                reclaimed.push(ci);
+            }
+        }
+
+        if reclaimed.is_empty() {
+            return 0;
+        }
+        let reclaimed_set: std::collections::HashSet<u32> = reclaimed.iter().copied().collect();
+        // Purge free_list of any slot inside a reclaimed chunk (else the ambient
+        // slot-reuse path could hand out a slot inside a borrowed chunk).
+        self.free_list.retain(|&(ci, _)| !reclaimed_set.contains(&ci));
+        // No normalization: a reclaimed chunk may be mixed (initialized dead
+        // slots + a never-initialized tail). `ChunkClaim::fill` consults the
+        // chunk's `initialized` row per slot — preserving the tombstone
+        // generation for constructed slots (ABA guard) and writing fresh gen-0
+        // entries into never-initialized ones (safe: never handed out).
+        for &ci in &reclaimed {
+            self.free_chunk_pool.push(ci);
+        }
+        reclaimed.len()
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: chunk count for tests
     /// + diagnostics.
     #[cfg(test)]
@@ -594,10 +859,9 @@ impl<T> Region<T> {
     /// + diagnostics.
     #[allow(dead_code)]
     pub(crate) fn free_slot_count(&self) -> usize {
-        let bump_remaining = if (self.next_bump.0 as usize) >= self.chunks.len() {
-            0
-        } else {
-            CHUNK_SIZE - self.next_bump.1 as usize
+        let bump_remaining = match self.ambient_cur {
+            Some((_, ei)) => CHUNK_SIZE - ei as usize,
+            None => 0,
         };
         self.free_list.len() + bump_remaining
     }
@@ -698,6 +962,11 @@ impl<T> Region<T> {
         // 3. Walk every initialized entry: alive young must be in
         //    young_list; location must match.
         for (ci, chunk) in self.chunks.iter().enumerate() {
+            // add-gc-tlab: borrowed chunks are mid-fill; skip (STW validate
+            // never runs with a chunk borrowed, but stay defensive).
+            if self.borrowed[ci] {
+                continue;
+            }
             for ei in 0..CHUNK_SIZE {
                 if !self.initialized[ci][ei] {
                     continue;
