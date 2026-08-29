@@ -201,7 +201,7 @@ unsafe fn payload_ptr_of(header: NonNull<GcBlockHeader>) -> *mut u8 {
 
 /// `size_class` sentinel for a block that exceeds the largest in-chunk class and got its own
 /// dedicated, exactly-sized chunk.
-const OVERSIZED_CLASS: u8 = u8::MAX;
+pub(crate) const OVERSIZED_CLASS: u8 = u8::MAX;
 
 /// Smallest total block footprint (header + payload), a power of two. 32 = 16 B header + up
 /// to 16 B payload.
@@ -230,7 +230,7 @@ const MAX_CLASS: u8 = {
 /// Returns `(total_footprint_bytes, size_class)`. `size_class == OVERSIZED_CLASS` when the
 /// block needs a dedicated chunk.
 #[inline]
-fn class_for(payload: usize) -> (usize, u8) {
+pub(crate) fn class_for(payload: usize) -> (usize, u8) {
     let total = GcBlockHeader::DATA_OFFSET + payload;
     let footprint = total.max(MIN_BLOCK).next_power_of_two();
     if footprint > CHUNK_BYTES {
@@ -287,6 +287,77 @@ impl Chunk {
 /// initialized `size`-byte payload; it must not touch the `VarRegion` (called while borrowed).
 pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8, usize);
 
+/// **add-gc-tlab stage 3 (2026-08-29)**: a mutator thread's exclusive write claim on one
+/// `VarRegion` bump chunk (design D4). Produced by [`VarRegion::borrow_chunk`] (under the
+/// region lock), then filled **lock-free** by the owning thread via [`VarChunkClaim::fill`]
+/// until a block doesn't fit (`fill` returns `None`); [`VarRegion::retire_chunk`] then appends
+/// the filled blocks into `all_blocks`.
+///
+/// # Safety / invariants
+/// - `base` is the raw pointer to `Region`-owned chunk memory (a separate `malloc`, never moved
+///   until the region drops), valid for the region's lifetime.
+/// - The chunk is `borrowed` while a claim is live, so only the owning thread touches it; its
+///   blocks are absent from `all_blocks` until retire, so no GC scan reads them. That single
+///   writer / no reader discipline makes the un-synchronized `fill` writes sound.
+/// - Only non-oversized blocks (`footprint ≤ CHUNK_BYTES`) go through the TLAB; oversized and
+///   free-list reuse stay on the locked `VarRegion::alloc` path.
+pub struct VarChunkClaim {
+    chunk_idx: usize,
+    base: *mut u8,
+    cap: usize,
+    off: usize,
+    /// Generation stamped on every block filled from this claim (the chunk's `reuse_gen` at
+    /// borrow time). Fresh chunks → 0; recycled chunks → a value above every prior occupant's
+    /// generation (ABA guard).
+    base_gen: u32,
+    /// Blocks filled from this claim, appended to `all_blocks` at retire.
+    local_blocks: Vec<NonNull<GcBlockHeader>>,
+}
+
+impl VarChunkClaim {
+    /// Bump-fill one block of `payload` bytes / `block_type` into the claimed chunk **without
+    /// any lock**. Returns the stable [`VarGcRef`], or `None` when the chunk can't fit the block
+    /// (caller retires + borrows a fresh one, or — for an oversized block — takes the locked
+    /// path). Caller must only pass non-oversized payloads (checked via `class_for`).
+    ///
+    /// # Safety
+    /// Owner-thread-exclusive (see the type's safety contract); the chunk is `borrowed` so no
+    /// concurrent reader exists. `footprint`/`size_class` come from `class_for(payload)`.
+    #[inline]
+    pub(crate) fn fill(&mut self, payload: usize, footprint: usize, size_class: u8, block_type: BlockType) -> Option<VarGcRef> {
+        if self.off + footprint > self.cap {
+            return None;
+        }
+        let off = self.off;
+        debug_assert_eq!(off % 8, 0, "var TLAB bump offset must stay 8-aligned");
+        // SAFETY: off + footprint <= cap, chunk base is 16-aligned; owner-exclusive.
+        let raw = unsafe { self.base.add(off) };
+        let header_ptr = unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) };
+        // SAFETY: fresh space large enough for header + payload; write header + zero payload.
+        unsafe {
+            header_ptr.as_ptr().write(GcBlockHeader {
+                generation: AtomicU32::new(self.base_gen),
+                size: payload as u32,
+                marked: AtomicU8::new(0),
+                alive: AtomicBool::new(true),
+                type_tag: block_type as u8,
+                size_class,
+            });
+            let data = payload_ptr_of(header_ptr);
+            std::ptr::write_bytes(data, 0, payload);
+        }
+        self.off += footprint;
+        self.local_blocks.push(header_ptr);
+        Some(VarGcRef::pack(header_ptr, self.base_gen))
+    }
+
+    /// True while the claim can still fit a block of `footprint` bytes.
+    #[inline]
+    pub(crate) fn has_room(&self, footprint: usize) -> bool {
+        self.off + footprint <= self.cap
+    }
+}
+
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
 pub struct VarRegion {
@@ -310,6 +381,25 @@ pub struct VarRegion {
     /// region drops with the block still alive. `None` = all payloads POD (PR-1). Consumers
     /// storing non-POD payloads (e.g. closure `ClosureData` with an owned `String`) supply it.
     drop_glue: Option<PayloadDropGlue>,
+
+    // ── add-gc-tlab stage 3 (2026-08-29): per-thread chunk-exclusive var alloc ──
+    /// Per-chunk "borrowed by a TLAB" flag (parallel to `chunks`). A borrowed chunk is being
+    /// lock-free bump-filled by its owning mutator; its blocks are NOT yet in `all_blocks`
+    /// (retire appends them), so `iterate_alive`/`sweep` — which walk `all_blocks` — never see
+    /// them. The flag only gates [`reclaim_dead_var_chunks`] (skip borrowed) and prevents the
+    /// pool from handing out a chunk twice.
+    borrowed: Vec<bool>,
+    /// Chunk-level free pool (D7): indices of **bump** chunks that became fully dead at a sweep,
+    /// available for [`borrow_chunk`] to recycle. Their blocks were purged from `all_blocks` /
+    /// `free_lists`; the chunk memory is re-bumped from offset 0 with a bumped `reuse_gen`.
+    var_free_chunk_pool: Vec<usize>,
+    /// Per-chunk generation base for TLAB-bumped blocks (parallel to `chunks`). Fresh chunks
+    /// start at 0. On reclaim, bumped **above every generation any block in the chunk reached**,
+    /// so a fresh re-bump can never mint a `(address, generation)` pair that collides with a
+    /// stale `VarGcRef` into a prior occupant of the same address — the ABA guard for
+    /// variable-size chunk reuse (fixed-slot `Region<T>` preserves per-slot generation instead;
+    /// var blocks don't re-align on reuse so a per-chunk base is used).
+    reuse_gen: Vec<u32>,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -327,6 +417,9 @@ impl Default for VarRegion {
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             live_count: 0,
             drop_glue: None,
+            borrowed: Vec::new(),
+            var_free_chunk_pool: Vec::new(),
+            reuse_gen: Vec::new(),
         }
     }
 }
@@ -349,6 +442,9 @@ impl VarRegion {
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             live_count: 0,
             drop_glue: Some(glue),
+            borrowed: Vec::new(),
+            var_free_chunk_pool: Vec::new(),
+            reuse_gen: Vec::new(),
         }
     }
 
@@ -450,8 +546,8 @@ impl VarRegion {
             Some(ci) => self.bump_off + footprint > self.chunks[ci].cap,
         };
         if need_new {
-            self.chunks.push(Chunk::new(CHUNK_BYTES));
-            self.bump_chunk = Some(self.chunks.len() - 1);
+            let ci = self.push_chunk(CHUNK_BYTES);
+            self.bump_chunk = Some(ci);
             self.bump_off = 0;
         }
         let ci = self.bump_chunk.expect("bump chunk set above");
@@ -470,10 +566,137 @@ impl VarRegion {
     /// Allocate a dedicated, exactly-sized chunk for an oversized block. Returns the header
     /// ptr at the chunk base.
     fn alloc_dedicated(&mut self, footprint: usize) -> NonNull<GcBlockHeader> {
-        self.chunks.push(Chunk::new(footprint));
-        let base = self.chunks.last().expect("just pushed").base;
+        let ci = self.push_chunk(footprint);
+        let base = self.chunks[ci].base;
         // SAFETY: chunk base is 16-aligned (≥ header align 8) and non-null.
         unsafe { NonNull::new_unchecked(base.as_ptr() as *mut GcBlockHeader) }
+    }
+
+    /// **add-gc-tlab stage 3**: append a fresh chunk of `cap` bytes and grow every parallel
+    /// per-chunk table (`borrowed` false, `reuse_gen` 0). Returns the new chunk index. Single
+    /// growth point so `chunks` / `borrowed` / `reuse_gen` stay length-consistent.
+    fn push_chunk(&mut self, cap: usize) -> usize {
+        self.chunks.push(Chunk::new(cap));
+        self.borrowed.push(false);
+        self.reuse_gen.push(0);
+        self.chunks.len() - 1
+    }
+
+    /// **add-gc-tlab stage 3**: the chunk index owning `ptr` (address ∈ `[base, base+cap)`),
+    /// or `None` for an oversized/dedicated chunk not eligible for pooling. Linear over chunks
+    /// (typically few tens); used only at reclaim (STW, off the hot path).
+    fn chunk_of(&self, ptr: NonNull<GcBlockHeader>) -> Option<usize> {
+        let addr = ptr.as_ptr() as usize;
+        for (ci, c) in self.chunks.iter().enumerate() {
+            let base = c.base.as_ptr() as usize;
+            if addr >= base && addr < base + c.cap {
+                return Some(ci);
+            }
+        }
+        None
+    }
+
+    /// **add-gc-tlab stage 3**: hand a whole bump chunk's write ownership to a mutator's TLAB
+    /// (design D4). Recycles a fully-dead chunk from `var_free_chunk_pool` (its `reuse_gen`
+    /// already bumped past every prior occupant) or grows a fresh `CHUNK_BYTES` one. Marks the
+    /// chunk `borrowed`; the returned claim carries the chunk base pointer (stable — chunk
+    /// memory never moves) and the generation to stamp on filled blocks.
+    pub fn borrow_chunk(&mut self) -> VarChunkClaim {
+        let ci = match self.var_free_chunk_pool.pop() {
+            Some(ci) => ci,
+            None => self.push_chunk(CHUNK_BYTES),
+        };
+        self.borrowed[ci] = true;
+        VarChunkClaim {
+            chunk_idx: ci,
+            base: self.chunks[ci].base.as_ptr(),
+            cap: self.chunks[ci].cap,
+            off: 0,
+            base_gen: self.reuse_gen[ci],
+            local_blocks: Vec::new(),
+        }
+    }
+
+    /// **add-gc-tlab stage 3**: merge a TLAB's filled blocks back into the region (design D4):
+    /// append them to `all_blocks`, bump `live_count`, and clear the chunk's `borrowed` flag so
+    /// it rejoins sweep/reclaim. The chunk's unused tail is abandoned until the whole chunk dies
+    /// and is reclaimed (bounded ≤ CHUNK_BYTES per safepoint retire).
+    pub fn retire_chunk(&mut self, claim: &mut VarChunkClaim) {
+        let n = claim.local_blocks.len();
+        self.all_blocks.extend(claim.local_blocks.drain(..));
+        self.live_count += n;
+        self.borrowed[claim.chunk_idx] = false;
+    }
+
+    /// **add-gc-tlab stage 3 (D7 for var)**: after a sweep, recycle every fully-dead **bump**
+    /// chunk (all its blocks tombstoned) into `var_free_chunk_pool`. Because var blocks are
+    /// variable-size and don't re-align on reuse, ABA is prevented by bumping the chunk's
+    /// `reuse_gen` **above every generation any block in it reached** before re-bumping. Purges
+    /// the reclaimed chunk's dead blocks from `all_blocks` and `free_lists`. Skips borrowed
+    /// chunks, the current ambient bump chunk, dedicated (oversized) chunks, and already-pooled
+    /// chunks. Runs under STW at the sweep tail. Returns the count reclaimed.
+    pub fn reclaim_dead_var_chunks(&mut self) -> usize {
+        let n_chunks = self.chunks.len();
+        // Per-chunk: has any live block? and the max generation seen (for the reuse_gen bump).
+        let mut has_live = vec![false; n_chunks];
+        let mut max_gen = vec![0u32; n_chunks];
+        let mut any_block = vec![false; n_chunks];
+        for &ptr in &self.all_blocks {
+            let Some(ci) = self.chunk_of(ptr) else { continue };
+            any_block[ci] = true;
+            // SAFETY: all_blocks pointers are chunk-owned, valid for the region's lifetime.
+            let header = unsafe { ptr.as_ref() };
+            let g = header.generation();
+            if g > max_gen[ci] {
+                max_gen[ci] = g;
+            }
+            if header.is_alive() {
+                has_live[ci] = true;
+            }
+        }
+        let ambient = self.bump_chunk;
+        let already: std::collections::HashSet<usize> =
+            self.var_free_chunk_pool.iter().copied().collect();
+        let mut reclaim: Vec<usize> = Vec::new();
+        for ci in 0..n_chunks {
+            if self.borrowed[ci]
+                || Some(ci) == ambient
+                || already.contains(&ci)
+                || self.chunks[ci].cap != CHUNK_BYTES   // dedicated/oversized → not pooled
+                || !any_block[ci]                        // never-used → nothing to recycle
+                || has_live[ci]
+            {
+                continue;
+            }
+            reclaim.push(ci);
+        }
+        if reclaim.is_empty() {
+            return 0;
+        }
+        // Snapshot reclaimed chunks' address ranges so the retain closures don't borrow `self`.
+        let ranges: Vec<(usize, usize)> = reclaim
+            .iter()
+            .map(|&ci| {
+                let base = self.chunks[ci].base.as_ptr() as usize;
+                (base, base + self.chunks[ci].cap)
+            })
+            .collect();
+        let in_reclaimed = |p: NonNull<GcBlockHeader>| {
+            let addr = p.as_ptr() as usize;
+            ranges.iter().any(|&(lo, hi)| addr >= lo && addr < hi)
+        };
+        // Purge reclaimed chunks' blocks from all_blocks + free_lists (they're being recycled).
+        self.all_blocks.retain(|&p| !in_reclaimed(p));
+        for fl in &mut self.free_lists {
+            fl.retain(|&p| !in_reclaimed(p));
+        }
+        for &ci in &reclaim {
+            // Bump reuse_gen above every generation this chunk's blocks reached, so a fresh
+            // re-bump can't mint an (address, generation) pair matching a stale VarGcRef.
+            self.reuse_gen[ci] = max_gen[ci].wrapping_add(1);
+            self.var_free_chunk_pool.push(ci);
+        }
+        reclaim.len()
     }
 
     /// Resolve a handle to a shared `&GcBlockHeader`, checking the generation guard. Returns
@@ -570,8 +793,14 @@ impl VarRegion {
 
     /// Total chunk count (tests / diagnostics).
     #[cfg(test)]
-    fn chunk_count(&self) -> usize {
+    pub(crate) fn chunk_count(&self) -> usize {
         self.chunks.len()
+    }
+
+    /// **add-gc-tlab stage 3**: reclaimed-chunk pool size (tests).
+    #[cfg(test)]
+    pub(crate) fn free_chunk_pool_len(&self) -> usize {
+        self.var_free_chunk_pool.len()
     }
 }
 

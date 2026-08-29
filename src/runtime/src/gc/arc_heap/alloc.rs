@@ -162,8 +162,67 @@ impl crate::gc::arc_heap::ArcMagrGC {
         })
     }
 
-    /// **add-gc-tlab (stage 2)**: retire the calling thread's TLAB — merge both
-    /// borrowed chunks' filled prefixes back into their regions and drop the
+    /// **add-gc-tlab (stage 3)**: variable-length region fast path (strings /
+    /// closures / var blocks). Bump-fills the calling thread's TLAB var claim
+    /// lock-free; borrows a fresh chunk (retiring the full one) when needed.
+    /// Returns `None` for an **oversized** block (→ locked `alloc` path, which
+    /// carves a dedicated chunk) or when this thread's TLAB holds foreign-heap
+    /// claims. The caller writes the payload into the returned block.
+    pub(super) fn tlab_alloc_var(
+        &self,
+        payload: usize,
+        block_type: BlockType,
+    ) -> Option<crate::gc::var_region::VarGcRef> {
+        let (footprint, size_class) = crate::gc::var_region::class_for(payload);
+        if size_class == crate::gc::var_region::OVERSIZED_CLASS {
+            return None; // oversized → dedicated-chunk locked path
+        }
+        crate::gc::tlab::with_current_tlab(|tlab| {
+            if tlab.heap_epoch != self.epoch {
+                if tlab.is_unbound() {
+                    tlab.heap_epoch = self.epoch;
+                } else {
+                    return None;
+                }
+            }
+            if tlab.var.as_ref().map_or(true, |c| !c.has_room(footprint)) {
+                if let Some(mut full) = tlab.var.take() {
+                    self.region_var.lock().retire_chunk(&mut full);
+                    self.tlab_retire_pressure();
+                }
+                tlab.var = Some(self.region_var.lock().borrow_chunk());
+            }
+            // A fresh chunk (cap == CHUNK_BYTES) fits any non-oversized footprint,
+            // so fill only returns None on a genuinely full reused claim — which
+            // the has_room check above already excluded.
+            tlab.var.as_mut().unwrap().fill(payload, footprint, size_class, block_type)
+        })
+    }
+
+    /// **add-gc-tlab (stage 3)**: acquire a fresh var block of `payload` bytes —
+    /// via the lock-free TLAB fast path when armed + non-strict + non-oversized,
+    /// else the locked `VarRegion::alloc`. Returns the block handle plus whether
+    /// the fast path was taken (so the caller records via the lock-free
+    /// `record_alloc_fast` vs the locked `record_alloc` + `maybe_auto_collect`).
+    /// The caller writes the payload into the returned (zeroed) block.
+    #[inline]
+    pub(super) fn acquire_var_block(
+        &self,
+        payload: usize,
+        block_type: BlockType,
+    ) -> (crate::gc::var_region::VarGcRef, bool) {
+        if crate::gc::tlab::is_armed()
+            && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            if let Some(vref) = self.tlab_alloc_var(payload, block_type) {
+                return (vref, true);
+            }
+        }
+        (self.region_var.lock().alloc(payload, block_type), false)
+    }
+
+    /// **add-gc-tlab (stage 2/3)**: retire the calling thread's TLAB — merge all
+    /// borrowed chunks' filled contents back into their regions and drop the
     /// claims, leaving the TLAB unbound. Idempotent (no-op when already
     /// unbound). Called at safepoint park, before a collector marks, and at
     /// `VmContext::drop`. See the `MagrGC::retire_thread_tlab` contract.
@@ -178,6 +237,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
             if let Some(claim) = tlab.arr.take() {
                 self.region_array.lock().retire_chunk(&claim);
+            }
+            if let Some(mut claim) = tlab.var.take() {
+                self.region_var.lock().retire_chunk(&mut claim);
             }
             tlab.heap_epoch = 0; // unbound
         });
@@ -357,17 +419,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// env array's own alloc already went through the OOM gate). Exposed via the `MagrGC` trait
     /// (`alloc_closure`) so `ctx.heap()` callers reach it through `&dyn MagrGC`.
     pub(super) fn alloc_closure_in_region(&self, data: ClosureData) -> Value {
-        let vref = {
-            let mut region = self.region_var.lock();
-            let vref = region.alloc(std::mem::size_of::<ClosureData>(), BlockType::Closure);
-            // SAFETY: fresh block sized exactly for `ClosureData`; write before any typed read.
-            unsafe { vref.payload_as_ptr::<ClosureData>().write(data) };
-            vref
-        };
+        // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
+        let (vref, fast) = self.acquire_var_block(std::mem::size_of::<ClosureData>(), BlockType::Closure);
+        // SAFETY: fresh block sized exactly for `ClosureData`; write before any typed read.
+        unsafe { vref.payload_as_ptr::<ClosureData>().write(data) };
         let value = Value::Closure(vref);
         let size = GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>();
-        self.record_alloc(&value, || AllocKind::Object { class: "<closure>".to_string() }, size);
-        self.maybe_auto_collect();
+        if fast {
+            self.record_alloc_fast(|| AllocKind::Object { class: "<closure>".to_string() }, size);
+        } else {
+            self.record_alloc(&value, || AllocKind::Object { class: "<closure>".to_string() }, size);
+            self.maybe_auto_collect();
+        }
         value
     }
 
@@ -378,21 +441,22 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// (`var_drop_glue` already treats `BlockType::Str` as nothing-to-drop). Exposed via the
     /// `MagrGC` trait (`alloc_str`) so ambient-heap callers (`Str::new`) reach it.
     pub(super) fn alloc_str_in_region(&self, s: &str) -> crate::metadata::vstr::Str {
-        let vref = {
-            let mut region = self.region_var.lock();
-            let vref = region.alloc(s.len(), BlockType::Str);
-            // SAFETY: fresh block sized for exactly `s.len()` bytes; write the UTF-8 bytes
-            // into the zeroed payload (derived from the raw block header, D8) before any read.
-            unsafe {
-                std::ptr::copy_nonoverlapping(s.as_ptr(), vref.payload_as_ptr::<u8>(), s.len());
-            }
-            vref
-        };
+        // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
+        let (vref, fast) = self.acquire_var_block(s.len(), BlockType::Str);
+        // SAFETY: fresh block sized for exactly `s.len()` bytes; write the UTF-8 bytes
+        // into the zeroed payload (derived from the raw block header, D8) before any read.
+        unsafe {
+            std::ptr::copy_nonoverlapping(s.as_ptr(), vref.payload_as_ptr::<u8>(), s.len());
+        }
         let size = GcBlockHeader::DATA_OFFSET + s.len();
         // `record_alloc`'s `_value` is unused (only the sampler's lazy `kind_fn` matters), so
         // pass `Null` rather than materialize a throwaway `Value::Str`.
-        self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
-        self.maybe_auto_collect();
+        if fast {
+            self.record_alloc_fast(|| AllocKind::Object { class: "<string>".to_string() }, size);
+        } else {
+            self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
+            self.maybe_auto_collect();
+        }
         crate::metadata::vstr::Str::from_var_ref(vref)
     }
 
@@ -403,22 +467,23 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// bookkeeping as the single-string path (the concatenation is one block).
     pub(super) fn alloc_str_concat2_in_region(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
         let total = a.len() + b.len();
-        let vref = {
-            let mut region = self.region_var.lock();
-            let vref = region.alloc(total, BlockType::Str);
-            // SAFETY: fresh block sized for exactly `total` bytes; write `a` then `b`
-            // into the zeroed payload (raw block header, D8) before any read. Both
-            // segments are valid UTF-8, so their concatenation is valid UTF-8.
-            unsafe {
-                let dst = vref.payload_as_ptr::<u8>();
-                std::ptr::copy_nonoverlapping(a.as_ptr(), dst, a.len());
-                std::ptr::copy_nonoverlapping(b.as_ptr(), dst.add(a.len()), b.len());
-            }
-            vref
-        };
+        // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
+        let (vref, fast) = self.acquire_var_block(total, BlockType::Str);
+        // SAFETY: fresh block sized for exactly `total` bytes; write `a` then `b`
+        // into the zeroed payload (raw block header, D8) before any read. Both
+        // segments are valid UTF-8, so their concatenation is valid UTF-8.
+        unsafe {
+            let dst = vref.payload_as_ptr::<u8>();
+            std::ptr::copy_nonoverlapping(a.as_ptr(), dst, a.len());
+            std::ptr::copy_nonoverlapping(b.as_ptr(), dst.add(a.len()), b.len());
+        }
         let size = GcBlockHeader::DATA_OFFSET + total;
-        self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
-        self.maybe_auto_collect();
+        if fast {
+            self.record_alloc_fast(|| AllocKind::Object { class: "<string>".to_string() }, size);
+        } else {
+            self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
+            self.maybe_auto_collect();
+        }
         crate::metadata::vstr::Str::from_var_ref(vref)
     }
 

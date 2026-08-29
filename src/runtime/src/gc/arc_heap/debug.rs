@@ -51,6 +51,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         &self.region_array
     }
 
+    /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
+    /// (var TLAB chunk-count / pool assertions).
+    #[cfg(test)]
+    pub(crate) fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
+        &self.region_var
+    }
+
     /// **add-generational-gc P3 (2026-05-22)**: test-only entry to the
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).

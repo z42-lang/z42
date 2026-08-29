@@ -37,30 +37,33 @@
 use std::cell::{Cell, RefCell};
 
 use super::region::ChunkClaim;
+use super::var_region::VarChunkClaim;
 use crate::metadata::types::ArrayObj;
 use crate::metadata::ScriptObject;
 
-/// Per-thread allocation buffer: one borrowed chunk claim per fixed-size region
-/// the fast path serves (object + array). The variable-length region
-/// (`region_var`: strings / closures) stays on the locked path until stage 3.
+/// Per-thread allocation buffer: one borrowed chunk claim per region the fast path
+/// serves — the two fixed-size regions (object + array) and, since stage 3, the
+/// variable-length region (`region_var`: strings / closures / array backings).
 pub(crate) struct Tlab {
     /// Active claim on `region_object` (`Value::Object` / boxed struct).
     pub(crate) obj: Option<ChunkClaim<ScriptObject>>,
     /// Active claim on `region_array` (`Value::Array`).
     pub(crate) arr: Option<ChunkClaim<ArrayObj>>,
+    /// **stage 3**: active claim on `region_var` (`Value::Str` / `Closure` / var blocks).
+    pub(crate) var: Option<VarChunkClaim>,
     /// Heap epoch the current claims belong to; `0` = unbound (no live claims).
     pub(crate) heap_epoch: u64,
 }
 
 impl Tlab {
     const fn empty() -> Self {
-        Self { obj: None, arr: None, heap_epoch: 0 }
+        Self { obj: None, arr: None, var: None, heap_epoch: 0 }
     }
 
     /// True when the TLAB holds no live claims (safe to (re)bind to any heap).
     #[inline]
     pub(crate) fn is_unbound(&self) -> bool {
-        self.obj.is_none() && self.arr.is_none()
+        self.obj.is_none() && self.arr.is_none() && self.var.is_none()
     }
 }
 

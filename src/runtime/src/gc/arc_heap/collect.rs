@@ -277,6 +277,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
         self.region_object.lock().reclaim_dead_chunks();
         self.region_array.lock().reclaim_dead_chunks();
+        // stage 3: variable-length region chunk reclaim (fully-dead bump chunks → pool).
+        self.region_var.lock().reclaim_dead_var_chunks();
 
         #[cfg(debug_assertions)]
         self.debug_stw_no_push.store(false, std::sync::atomic::Ordering::SeqCst);

@@ -144,7 +144,10 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {
-        self.region_var.lock().alloc(payload, block_type)
+        // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
+        // (No stats record here — matches the pre-TLAB behavior; the array/backing
+        // caller records the whole allocation's size.)
+        self.acquire_var_block(payload, block_type).0
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
