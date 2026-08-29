@@ -185,7 +185,7 @@ z42c.driver 只 ship 已就绪命令，**绝不** fallback 到 dotnet z42c.dll�
 
 把「下载种子 → 编 xtask → 驱动编项目 → 测试 → 不动点」串成一张端到端图，标注每步守哪条
 不变量。**纪律**见 [`.claude/rules/bootstrap-seed.md`](../../../.claude/rules/bootstrap-seed.md)；本节是总览，
-下文 byte-identical / C#-free 闭环是其细节。
+下文 byte-identical 自举闭环是其细节。
 
 ### 依赖图：环在哪
 
@@ -265,7 +265,7 @@ xtask 绝不能依赖本提交新加的语法/stdlib API。
 
 | 门 | 干什么 | 守 |
 |---|---|---|
-| **A. forward-bootstrap**（`bootstrap-no-csharp` job）| 下载上一 nightly 种子 → C#-free 重建全栈 → 跑测试 | INV-1 + INV-2 |
+| **A. forward-bootstrap**（`bootstrap-no-csharp` job）| 下载上一 nightly 种子 → 重建全栈 → 跑测试 | INV-1 + INV-2 |
 | **B. self-host fixpoint** | 新工具重建自己，byte-identical 7 日零漂移 | INV-3（详见下节）|
 | **C. 本地快门**（`xtask test bootstrap`）| 下载 nightly z42c 编当前 z42c 源，越界立即红 | INV-1（改 parser/codegen/格式后必跑）|
 

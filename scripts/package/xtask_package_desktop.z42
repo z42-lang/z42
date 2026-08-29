@@ -46,7 +46,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
         _copyIfExists(zsp, Path.Join(z42cDir, z42cSeedMembers[zsi] + ".zpkg"));
         zsi = zsi + 1;
     }
-    Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs, C#-free)");
+    Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs)");
 
     // [2/5] z42vm + libz42.* + z42-compression (cargo " + cargoTarget + ", " + profile + ")
     // staged to artifacts/publish/{z42vm,native}/ (packages.toml Decision 6),

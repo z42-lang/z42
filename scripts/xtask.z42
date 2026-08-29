@@ -65,7 +65,6 @@ int _buildRuntime() {
 }
 
 // 编译器自举：用 _buildCompiler（z42c 种子自建，src/compiler）。
-// 自举编译器用 _buildCompiler（C#-free 种子自建）。
 
 // feature-matrix (CI P4.1): verify each Cargo feature combo compiles (host target).
 int _featureMatrix() {
@@ -142,8 +141,8 @@ int _depsCheck(ParseResult r) {
 // `xtask build stdlib && xtask build test`.
 
 int _regenCore(bool rebuildStdlib) {
-    // replace-csharp Phase C：golden 编译走 z42c（不再 dotnet build C# driver）。
-    // _buildStdlib（warm C#-free 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
+    // golden 编译走 z42c。
+    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
     if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
     int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release (launcher runtime needs z42vm)
     // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。

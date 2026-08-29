@@ -58,7 +58,7 @@ int _buildStdlibCore() {
     //    + stdlib dist from an SDK toolchain first. No dotnet — C# was removed
     //    2026-06-26 (remove-dotnet-from-builds).
     string[] members = _compilerMembers(root);
-    // replace-csharp Phase C：C#-free warm 路径用绝对 release z42vm（_z42vm() 返回裸名 "z42vm"
+    // warm 路径用绝对 release z42vm（_z42vm() 返回裸名 "z42vm"
     // 不在 PATH → warm 自建会 NotFound）。缺则 cargo 建（幂等）。
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { int rcv = _buildRuntime(); if (rcv != 0) { return rcv; } }
@@ -170,7 +170,7 @@ void _linkAll(string srcDir, string flatDir, string pattern) {
 // Default --out = artifacts/.z42 (the local SDK set; Decision 1). outOpt is the
 // raw `--out` value ("" = default); a relative value resolves against repo root.
 //
-// P1.3 builds the toolchain via the warm C#-free path (_buildStdlib builds z42c +
+// P1.3 builds the toolchain via the warm path (_buildStdlib builds z42c +
 // stdlib; it self-ensures z42vm) then assembles from the canonical build-tree
 // artifacts. Pair-gen + conditional fixpoint (gen1→gen2, Decision 5/6) layers in
 // P1.4 — here the assembled z42c/stdlib are whatever _buildStdlib produced.
@@ -184,7 +184,7 @@ int _buildSdk(string outOpt, bool noBuild) {
     if (outOpt.Length == 0) { outDir = Path.Join(root, "artifacts/.z42"); }
     else if (!Path.IsRooted(outOpt)) { outDir = Path.Join(root, outOpt); }
 
-    // 1. build current toolchain (z42c 7-pkg seed + stdlib; ensures z42vm), C#-free.
+    // 1. build current toolchain (z42c 7-pkg seed + stdlib; ensures z42vm).
     //    Skipped under --no-build (CI: bootstrap already produced warm artifacts).
     int c = 0;
     if (!noBuild) {
@@ -259,7 +259,7 @@ int _stageToolchain(string dest) {
     string xtDst = Path.Join(dest, "artifacts/xtask");
     Directory.Create(xtDst);
     _copyIfExists(Path.Join(root, "artifacts/xtask/xtask.zpkg"), Path.Join(xtDst, "xtask.zpkg"));
-    Console.WriteLine("staged C#-free toolchain -> " + dest);
+    Console.WriteLine("staged toolchain -> " + dest);
     _procEnd("build stage-toolchain", sw);
     return 0;
 }
