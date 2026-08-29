@@ -27,6 +27,23 @@ static class ExitCode {
     public static int UsageError = 2;  // 命令行/工程文件用法错误（参数缺失、无 toml、无 workspace）
 }
 
+// parallelize-package-compile ★①：per-file 源读取 + SHA-256 并行（解释执行的 SHA-256 是 CPU 热点，
+// D8 增量差价主项）。每文件独立读文本 + 算 hash，写自己的 _texts[i]/_hashes[i] → 确定性、可并行。
+// handlerFp 循环前算好（与文件无关），Run 内只读。
+sealed class SrcReadHashTask : IParallelBody {
+    string[] _srcs; string[] _texts; string[] _hashes; string _handlerFp;
+    public SrcReadHashTask(string[] srcs, string[] texts, string[] hashes, string handlerFp) {
+        this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._handlerFp = handlerFp;
+    }
+    public void Run(int i) {
+        string t = File.ReadAllText(this._srcs[i]);
+        this._texts[i] = t;
+        string hin = t;
+        if (this._handlerFp.Length > 0) { hin = hin + "\n#z42c-handler-fp:" + this._handlerFp; }
+        this._hashes[i] = ZpkgBuilder.Sha256Hex(hin);
+    }
+}
+
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
     // 无 file 参数的动词在 argv≥2 守卫之前分发。
@@ -67,6 +84,10 @@ void Main() {
                 int b = Opt.ByName(argv[ai + 1]);
                 if (b < 0) { ConsoleError.WriteLine("z42c: unknown optimization `" + argv[ai + 1] + "` (expected: const-fold/copy-prop/dce/inline/all/none)"); Environment.Exit(2); return; }
                 cliRemove = cliRemove | b; ai = ai + 1;
+            }
+            // parallelize-package-compile：--jobs N 控制包内文件级并行度（默认 CpuCount；1=串行逃生舱）。
+            else if (argv[ai] == "--jobs" && ai + 1 < argv.Length) {
+                ParallelConfig.SetJobs(Int32.Parse(argv[ai + 1])); ai = ai + 1;
             }
             ai = ai + 1;
         }
@@ -141,24 +162,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
         else { libsDirs = new string[0]; libsDirsN = 0; }
     }
-    // 源文本一次性读入（增量 probe 的 hash、DepScan 的 usings 聚合、包级编译三处共用）。
-    string[] texts = new string[srcs.Length];
-    int ti = 0;
-    while (ti < srcs.Length) { texts[ti] = File.ReadAllText(srcs[ti]); ti = ti + 1; }
     // attribute-handler-registry PR4e：handler（[analyzers] zpkg）身份指纹并入增量指纹（design red-line ②
     // 「产物纳入指纹」，helper 在 BuildPaths.z42）——揉进每个文件源 hash，则「换 generator 但源没变」也令所有
     // 缓存失效。空（无 [analyzers]，含 z42c 自建）→ `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
     string handlerFp = _handlerFingerprint(pm, libsDirs, libsDirsN);
-    // 源 hash 一次计算三处复用（probe / ZbcFileZ / meta——解释执行的 SHA-256 重复算曾是
-    // D8 增量差价主项，见 IncrementalBuild.ProbeFiles 注）。
+    // 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是 D8 增量差价主项）。
+    // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
+    string[] texts = new string[srcs.Length];
     string[] srcHashes = new string[srcs.Length];
-    ti = 0;
-    while (ti < srcs.Length) {
-        string hin = texts[ti];
-        if (handlerFp.Length > 0) { hin = hin + "\n#z42c-handler-fp:" + handlerFp; }
-        srcHashes[ti] = ZpkgBuilder.Sha256Hex(hin);
-        ti = ti + 1;
-    }
+    ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
+        new SrcReadHashTask(srcs, texts, srcHashes, handlerFp));
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
     bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
     // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认

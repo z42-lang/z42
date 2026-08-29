@@ -26,6 +26,22 @@ public sealed class SymbolTable {
         this.CurrentAliases = null;
     }
 
+    // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
+    // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
+    // 段内零共享可变（旧代码 `symbols.CurrentAliases = ...` 覆写共享表在并行下会数据竞争）。
+    public SymbolTable WithAliases(StrMap aliases) {
+        SymbolTable t = new SymbolTable();
+        t.Classes = this.Classes;
+        t.Interfaces = this.Interfaces;
+        t.Functions = this.Functions;
+        t.ClassConstraints = this.ClassConstraints;
+        t.EnumTypes = this.EnumTypes;
+        t.EnumConsts = this.EnumConsts;
+        t.Delegates = this.Delegates;
+        t.CurrentAliases = aliases;
+        return t;
+    }
+
     // add-type-alias：扫 CU 的 UsingAliasDecl → name → Target TypeExpr（文件级）。无别名返回 null。
     public static StrMap BuildAliases(CompilationUnit cu) {
         StrMap m = null;

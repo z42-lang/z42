@@ -272,8 +272,18 @@ public sealed class TypeChecker {
     }
 
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols) {
-        var model = new SemanticModel(symbols);
-        symbols.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：本 CU 文件级别名生效
+        return this.Infer(cu, symbols, true);   // 默认解析 where 约束（单文件 / dump / 测试路径）
+    }
+
+    // parallelize-package-compile：per-file 别名视图 + 约束解析可跳过。
+    //   · 别名根治：不再 `symbols.CurrentAliases = ...` 覆写共享表，而是建 per-call 视图 view
+    //     （WithAliases 浅拷贝：共享数据只读 + 自带本 CU 别名），全程用 view →（并行段内）零共享可变。
+    //   · resolveConstraints=false：包并行路径（_compileCu）用——约束已由 BuildPackageCus 在 per-file
+    //     循环前一次性 hoist 到共享 symbols.ClassConstraints，并行段只读 Check、不重复 Resolve。单文件 /
+    //     dump / 测试走 2-arg 版（true），行为不变。
+    public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols, bool resolveConstraints) {
+        SymbolTable view = symbols.WithAliases(SymbolTable.BuildAliases(cu));   // 本 CU 文件级别名（per-file 隔离）
+        var model = new SemanticModel(view);
         this._curCu = cu;   // add-deprecated-directive：use-site 弃用告警的 #suppress 源
         // 建本 CU 的 #suppress 区间集（cu.SuppressRegions 是 PR3c 既有字段）。语义内构造 → F2 安全。
         this._curSuppress = new SuppressionSet();
@@ -284,23 +294,23 @@ public sealed class TypeChecker {
             _sr = _sr + 1;
         }
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
-        this._constraints.Resolve(cu, symbols);   // Pass 0.5：泛型 where 约束解析（2B，镜像 C# ResolveAllWhereConstraints）
+        if (resolveConstraints) { this._constraints.Resolve(cu, view); }   // Pass 0.5：泛型 where 约束解析（单文件路径）
         this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if (c.Kind == "class" || c.Kind == "struct") { this._decl._bindClass(model, symbols, c); }
+                if (c.Kind == "class" || c.Kind == "struct") { this._decl._bindClass(model, view, c); }
             } else if (d is MethodDecl) {
                 MethodDecl m = d as MethodDecl;
-                this._decl._bindFreeFunc(model, symbols, m);
+                this._decl._bindFreeFunc(model, view, m);
             } else if (d is ImplDecl) {
-                this._decl._bindImpl(model, symbols, d as ImplDecl);   // port-z42c-impl-block 2b
+                this._decl._bindImpl(model, view, d as ImplDecl);   // port-z42c-impl-block 2b
             }
             i = i + 1;
         }
-        this._decl._synthCtors(model, symbols, cu);
+        this._decl._synthCtors(model, view, cu);
         return model;
     }
 

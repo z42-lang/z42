@@ -1,0 +1,100 @@
+// z42c 多线程编译框架（parallelize-package-compile, 2026-08-29）。
+//
+// 一个最小工作池：对 [0,n) 的每个索引跑 body.Run(i)，用 `jobs` 个 OS 线程
+// （Std.Threading.Thread，共享 GC 堆 + static；per-thread 执行栈）并发。
+//
+// 设计要点：
+//   · 静态连续分块 —— worker w 处理 [w*n/jobs, (w+1)*n/jobs)。分发零同步（索引区间
+//     预算好），只靠 Thread.Start/Join。任务大致均匀时负载均衡够用。
+//   · 确定性 —— body.Run(i) 只写自己的输出槽 out[i]，完成顺序与结果无关；故并行产物
+//     与串行逐字节一致（自举不动点前提）。
+//   · jobs<=1 → 串行内联，不起线程（逃生舱：格式-bump 窗口 / 确定性审计 / 调试）。
+//   · 回调用接口 IParallelBody（非 delegate）跨 zpkg 安全传递（compiler-z42c 回调契约用
+//     接口派发）；Action 只在本模块内部包裹（不跨 zpkg）。
+//
+// 消费方：IrDump.BuildPackageCus 的 per-file codegen、driver 的源读取+SHA / 组装 I/O。
+namespace Z42.Semantics;
+
+using Std;
+using Std.Threading;
+
+// 并行体：处理第 i 项（写自己的输出槽）。实现类把捕获的上下文（输入数组 / 输出数组 /
+// 标量参数）作字段，Run(i) 内引用。
+public interface IParallelBody {
+    void Run(int i);
+}
+
+// 并行度全局配置（set-once：driver 启动解析 --jobs 后设置；编译期只读，非并行段可变态）。
+//
+// ⚠️ **默认串行**（parallelize-package-compile 实测：当前共享-STW-堆 GC 下，文件级并行分配
+// 密集，被每-alloc 全局锁（region bump + inner）串行化 + STW 频率随线程数放大 → 净负
+// （24 核比串行慢 2×）。根因见 docs/spec/changes/parallelize-package-compile/design.md「实测与
+// GC 瓶颈」。故并行**opt-in**、休眠，待 GC 线程模型改进（per-thread 分配 / TLAB）能 scale 再翻默认。
+//   · 未设 / --jobs 1 → 串行（默认；ParallelFor 内联、不起线程）。
+//   · --jobs N (N>1)  → N 线程（实验用，当前更慢）。
+//   · --jobs 0        → auto = CpuCount（实验用）。
+// Jobs(n) 上限收敛到 n（不起超过项数的线程）。
+public static class ParallelConfig {
+    private static int _jobs = 1;   // 默认串行（见上：并行当前净负，opt-in 待 GC 改进）
+    private static bool _auto = false;   // --jobs 0 → auto=CpuCount
+    public static void SetJobs(int j) {
+        if (j == 0) { ParallelConfig._auto = true; ParallelConfig._jobs = 0; }
+        else { ParallelConfig._auto = false; ParallelConfig._jobs = j; }
+    }
+    public static int Jobs(int n) {
+        int j = ParallelConfig._auto ? OperatingSystem.CpuCount() : ParallelConfig._jobs;
+        if (j < 1) { j = 1; }
+        if (j > n) { j = n; }
+        return j;
+    }
+}
+
+public static class ParallelFor {
+    // 跑 body.Run(i) for i in [0,n)，jobs 线程静态分块。jobs<=1 串行内联。
+    // worker 内抛的异常经 Join 变 ThreadException；Join 全部后把首个异常重抛（不吞、
+    // 不泄漏未 join 的线程）。
+    public static void Run(int n, int jobs, IParallelBody body) {
+        if (n <= 0) { return; }
+        int w = jobs;
+        if (w > n) { w = n; }
+        if (w <= 1) {
+            int si = 0;
+            while (si < n) { body.Run(si); si = si + 1; }
+            return;
+        }
+        Thread[] ts = new Thread[w];
+        int k = 0;
+        while (k < w) {
+            // 均衡边界：[k*n/w, (k+1)*n/w)（long 中间量防溢出）。
+            int start = (int)(((long)k * (long)n) / (long)w);
+            int end = (int)(((long)(k + 1) * (long)n) / (long)w);
+            ts[k] = ParallelFor._spawnChunk(body, start, end);
+            k = k + 1;
+        }
+        // Join 全部；聚合首个 worker 异常，join 完再重抛（保证不泄漏线程）。
+        ThreadException firstErr = null;
+        int j = 0;
+        while (j < w) {
+            try {
+                ts[j].Join();
+            } catch (ThreadException e) {
+                if (firstErr == null) { firstErr = e; }
+            }
+            j = j + 1;
+        }
+        if (firstErr != null) { throw firstErr; }
+    }
+
+    // 每 chunk 独立参数绑定：z42 局部变量非块作用域 shadow（compiler-z42c.md）——循环体里
+    // 声明的 start/end 会被下一轮复用，闭包会全部捕获到最后一轮的值。故必须经方法参数
+    // （每次调用是新的栈槽）让闭包捕获正确的 [start,end)。
+    private static Thread _spawnChunk(IParallelBody body, int start, int end) {
+        return Thread.Start(() => {
+            int i = start;
+            while (i < end) {
+                body.Run(i);
+                i = i + 1;
+            }
+        });
+    }
+}
