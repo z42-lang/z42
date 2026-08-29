@@ -608,9 +608,13 @@ int _z42bStageDeployable(string root, string manifestPath, string rid, string ag
         return 1;
     }
     string flat = _assembleAllLibs(root, "release");
+    // --stage-only: keep this call to the ②b assemble-only behaviour. z42b-device-run
+    // made the bare `--rid <device>` default to build+deploy+run; xtask still drives
+    // the native build + device RUN itself (backend 薄化 lands per-platform), so it
+    // asks z42b for the deployable staging only.
     ProcessResult res = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
-        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent)
+        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent).Arg("--stage-only")
         .Env("Z42_LIBS", flat).Run();
     if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }

@@ -80,6 +80,18 @@ SubcommandRouter _builderRoot() {
     test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
     test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
     test.AddOption("agent", "", "device RID: path to z42.testagent.zpkg to stage into the deployable", "");
+    // Device RID sub-steps (z42b-device-run Slice 3). Default (no flag) on a device
+    // RID = build+deploy+run full pipeline; the flags select individual steps for
+    // CI / debug. --stage-only preserves the ②b behaviour (assemble deployable only).
+    test.AddFlag("build", "", "device RID: run the native platform build (wasm-pack / xcframework / cargo-ndk)");
+    test.AddFlag("run", "", "device RID: deploy + run on the device/emulator, collect the report");
+    test.AddFlag("stage-only", "", "device RID: only assemble the {app,libs,bundle} deployable (no build/run)");
+    // --build-root: repo root, so the per-platform driver can locate the native
+    // platform crate (src/toolchain/workload/<plat>/…) for --build/--run. The fleet
+    // orchestrator (xtask) knows the repo layout and passes it; z42b owns the build
+    // invocation logic. Required for --build/--run on a device RID.
+    test.AddOption("build-root", "", "device RID --build/--run: repo root for locating the native platform crate", "");
+    test.AddOption("node-bin", "", "device RID --run: hermetic node bin dir (provisioned by xtask) to prepend to PATH", "");
     test.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
