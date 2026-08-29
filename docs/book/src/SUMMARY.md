@@ -57,6 +57,7 @@
   - [诊断与性能分析（采样 profiler / 火焰图 / perfetto）](runtime/diagnostics.md)
   - [嵌入与跨平台（PAL）]()
   - [native interop ABI]()
+  - [Native 扩展库（独立 cdylib 机制）](runtime/native-extensions.md)
 
 # 第四部分 · 标准库（Standard Library）
 

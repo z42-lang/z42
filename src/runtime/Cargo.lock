@@ -2453,7 +2453,6 @@ dependencies = [
  "parking_lot",
  "rustc-hash 2.1.1",
  "rustls",
- "rustyline",
  "serde",
  "serde_json",
  "signal-hook-registry",
@@ -2504,6 +2503,13 @@ dependencies = [
  "quote",
  "syn",
  "trybuild",
+]
+
+[[package]]
+name = "z42-repl"
+version = "0.1.0"
+dependencies = [
+ "rustyline",
 ]
 
 [[package]]

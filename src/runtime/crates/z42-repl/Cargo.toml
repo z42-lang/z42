@@ -1,0 +1,25 @@
+[package]
+name        = "z42-repl"
+version     = "0.1.0"
+edition     = "2024"
+description = "z42 host-only toolchain native extension — the interactive REPL (z42i) line editor. Wraps rustyline; dlopened lazily by z42vm on first __repl_readline. Pure C ABI: VM re-entrancy (completion / key-editing) crosses back via C function pointers in ReplCallbacks, so no z42 internal type crosses the boundary and this crate has no Cargo cycle with the z42 main crate. Host-only (REPL is host-only per scripting-charter 2b); NOT shipped in <sdk>/native/ — packaged next to z42i in the toolchain/interactive dir. (extract-repl-native-cdylib)"
+publish     = false
+
+[lib]
+# - cdylib: libz42_repl.{so,dylib,dll} — dlopened by z42vm's __repl_* shims.
+# - rlib:   in-crate unit tests (`cargo test -p z42-repl`).
+# No staticlib / wasm-bundle: the REPL is host-only, so unlike z42-compression
+# there is no cross-platform / wasm story — wasm keeps its plain-stdin fallback
+# and never loads this lib.
+name       = "z42_repl"
+path       = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The line editor. Lives HERE, not in the z42 main crate — moving it out of the
+# core VM is the whole point (dependency isolation). The `}` auto-dedent + floor
+# rustyline patch ([patch.crates-io] fork) lands on this crate when
+# add-repl-rbrace-floor rebases on top.
+rustyline = "14"
+
+# Profile lives at workspace root (src/runtime/Cargo.toml); one here is ignored.

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-host", "crates/z42-hostrun"]
+members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host", "crates/z42-hostrun"]
 # fix-default-members-include-compression (2026-05-29): z42-compression is a
 # cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
 # main `z42` crate (only pulled in compile-time via `bundled-compression`
@@ -189,11 +189,11 @@ socket2 = { version = "0.5", features = ["all"] }
 # compatibility.
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
-# add-z42-repl (2026-07-23): line editor backing `Std.Repl.ReadLine`
-# for the native REPL (z42i). History + emacs-style editing + Ctrl-D EOF.
-# Host-only (REPL is host-only per scripting-charter path 2b); wasm32 target
-# cfg-gates repl.rs to a plain-stdin fallback so the builtins still resolve.
-rustyline = "14"
+# REPL line editor: rustyline was extracted into the host-only cdylib
+# `crates/z42-repl` (libz42_repl), dlopen'd lazily by `corelib::repl_native`.
+# The core z42vm crate no longer links rustyline (or its ~19 transitive crates);
+# it keeps only the VM-side builtins + re-entrancy trampolines. wasm/no-native-
+# interop builds keep the plain-stdin fallback. (extract-repl-native-cdylib)
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

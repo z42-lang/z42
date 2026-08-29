@@ -1,33 +1,62 @@
-//! Unit tests for the REPL Tab-completion replacement span (`word_start`).
+//! Unit tests for `complete_trampoline` — the `extern "C"` shim the REPL editor
+//! cdylib calls back through for Tab completion (extract-repl-native-cdylib).
 //!
-//! Bracket-balance detection + continuation-indent computation moved to the script
-//! layer (`Std.Scripting.Completeness`, sink-repl-indent-to-script) and are covered
-//! by the z42 golden test `src/libraries/z42.scripting/tests/completeness/`. This file
-//! keeps only the native-side `word_start` coverage.
+//! The re-entrancy core (`complete_via_callback` running a real z42 completer) is
+//! exercised by the `__repl_complete_probe` path + its z42 golden test; here we pin
+//! the trampoline's **defensive contract**: null args and a failing callback must
+//! yield a null pointer (→ the editor performs the key's default), never a crash —
+//! preserving the "a throw in the completer becomes a silent no-op" semantics.
 
-use super::word_start;
+use super::*;
+use crate::vm_context::VmContext;
+use std::ffi::CString;
 
-// ── word_start: replacement span excludes `.` (fix-repl-completion-span-and-index) ──
-// The bug: `.`-inclusive word_start made a member candidate (`WriteLine`) replace the
-// whole `Console.Wr` span → wiping the receiver. It must stop at `.` so only the
-// post-`.` prefix is replaced.
+/// Serialize tests that mutate the process-global `REGISTERED_COMPLETER`.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
-fn word_start_member_stops_after_dot() {
-    // "Console.Wr" → span starts at 'W' (index 8), so `WriteLine` replaces only "Wr".
-    assert_eq!(word_start("Console.Wr", 10), 8);
-    // Nested receiver: "a.b.Wr" → after the LAST dot (index 4).
-    assert_eq!(word_start("a.b.Wr", 6), 4);
-    // Just typed the dot: "Console." → span is the empty word right after the dot.
-    assert_eq!(word_start("Console.", 8), 8);
+fn complete_trampoline_null_ctx_returns_null() {
+    let line = CString::new("Con").unwrap();
+    // Null ctx is rejected by the leading guard before any global / deref.
+    let r = complete_trampoline(std::ptr::null_mut(), line.as_ptr(), 3);
+    assert!(r.is_null());
 }
 
 #[test]
-fn word_start_bare_identifier_spans_whole_word() {
-    // Bare prefix "Con" → whole word (index 0), `Console` replaces "Con".
-    assert_eq!(word_start("Con", 3), 0);
-    // Leading text then a bare word: "x = Con" → start of "Con" (index 4).
-    assert_eq!(word_start("x = Con", 7), 4);
-    // Digits / underscore are part of the word; stops at the space.
-    assert_eq!(word_start("foo_2", 5), 0);
+fn complete_trampoline_null_line_returns_null() {
+    let ctx = VmContext::new();
+    let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
+    let r = complete_trampoline(ctx_ptr, std::ptr::null(), 0);
+    assert!(r.is_null());
+}
+
+#[test]
+fn complete_trampoline_no_completer_registered_returns_null() {
+    let _g = SERIAL.lock().unwrap();
+    let ctx = VmContext::new();
+    // Ensure unset, then a non-null call still returns null (no completer FQN).
+    builtin_repl_set_completer(&ctx, &[Value::Str("".into())]).unwrap();
+    let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
+    let line = CString::new("Con").unwrap();
+    let r = complete_trampoline(ctx_ptr, line.as_ptr(), 3);
+    assert!(r.is_null());
+}
+
+#[test]
+fn complete_trampoline_callback_error_swallowed_to_null() {
+    let _g = SERIAL.lock().unwrap();
+    let ctx = VmContext::new();
+    // Register a completer so we pass the "no FQN" gate and actually re-enter; a
+    // fresh ctx has `core.module == None`, so `complete_via_callback` errors — the
+    // trampoline must swallow that to null, not propagate/panic.
+    builtin_repl_set_completer(&ctx, &[Value::Str("Repl.NoSuchCompleter".into())]).unwrap();
+    let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
+    let line = CString::new("Con").unwrap();
+    // Mirror `builtin_repl_readline`: park around the (would-be blocking) read; the
+    // trampoline unparks/reparks internally, so `parked_count` stays balanced.
+    let park = crate::gc::NativeParkGuard::enter(&ctx);
+    let r = complete_trampoline(ctx_ptr, line.as_ptr(), 3);
+    drop(park);
+    assert!(r.is_null(), "module=None → callback errors → null, never crash");
+    builtin_repl_set_completer(&ctx, &[Value::Str("".into())]).unwrap();
 }
