@@ -33,7 +33,7 @@
 - [x] 2.8 验证路径：`z42c build z42.interactive`（CLI，libsDirsCount==0）→ 闭包建 z42.repl → `_bundleExeDeps` colocate 进 interactive dist → `_z42bPublish._pubCopyDistDeps` 带进 `programs/z42i/`。**`xtask build toolchain` 手验中**
 - [x] 2.9 README（z42c.driver / z42c.pipeline）+ book `compiler/project-model.md` 路径依赖闭包机制 + 交叉链 native-libraries.md
 - [~] 2.10 GREEN：`xtask test`（全 stage，跑中）+ `xtask build toolchain` 手验 z42i + `xtask test bootstrap`（未越界）
-- [ ] 2.11 归档 + 合并（与 native 半边合成一个 PR）
+- [x] 2.11 归档 + 合并：native + path-use 合成 PR #337（squash `57ab2ed9`），CI 必需 check 全绿（唯一红=非必需 bench-regression，其失败发生在 base-tree baseline 捕获步、与本改动无关），User 合并；分支/worktree 已清；本 spec 归档。
 
 ## native 依赖（PR-2 内或独立 PR-3；无两-nightly 约束；Supersedes #332，见 D9/D10）
 > #332 的 5 文件 diff 已实现+验证——**直接搬运**，勿重做。worktree ../z42-replisolate 有原始 diff。

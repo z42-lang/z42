@@ -639,7 +639,7 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
 // app-declared dependency. Standard-library native (compression, `<sdk>/native/`
 // eager) is unchanged. So this is a live-wired no-op skeleton: it reads the (absent)
 // `[native.dependencies]` section and returns 0. Fill in once the declaration surface
-// lands. See docs/spec/changes/add-path-dependencies/design.md Decision 9/10.
+// lands. See docs/spec/archive/2026-08-29-add-path-dependencies/design.md Decision 9/10.
 int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string payloadDir) {
     // No `[native.dependencies]` declaration surface yet → nothing to colocate.
     return 0;

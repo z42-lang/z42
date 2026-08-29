@@ -14,7 +14,7 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 | 盲扫? | 是——扫目录里所有 `libz42_*` 并 `dlopen` | **否**——只 stat 被声明需要的那一个 |
 | 本页焦点 | 现状不变（下 §1 概述） | 本 change 新增（§2/§3） |
 
-> 设计出处：[add-path-dependencies Decision 9/10](../../../spec/changes/add-path-dependencies/design.md)
+> 设计出处：[add-path-dependencies Decision 9/10](../../../spec/archive/2026-08-29-add-path-dependencies/design.md)
 > ——native 库是「path 依赖」的另一半：path 依赖 colocate 私有组件的 **zpkg** 进 payload，native
 > 库同族，也 colocate 在消费方 zpkg 旁。
 
@@ -95,7 +95,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 
 - `builder_publish.z42` 已留 `_pubBundleProjectNativeDeps` **骨架**（挂在 `_pubBundleProjectDeps`
   邻位，当前 no-op），待声明面落地后按「声明的 native 依赖 + 目标 rid → 平铺进消费方 dist」充实。
-- 详见 [add-path-dependencies Deferred](../../../spec/changes/add-path-dependencies/design.md)
+- 详见 [add-path-dependencies Deferred](../../../spec/archive/2026-08-29-add-path-dependencies/design.md)
   的 `native-future-app-declaration`。
 
 ---
