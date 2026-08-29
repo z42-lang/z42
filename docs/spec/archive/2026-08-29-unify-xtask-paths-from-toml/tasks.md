@@ -1,6 +1,6 @@
 # Tasks: xtask 构建路径从 workspace.toml 单源获取
 
-> 状态：🟡 进行中 | 创建：2026-08-29 | 类型：refactor（最小化模式）
+> 状态：🟢 已完成 | 完成：2026-08-29 | 类型：refactor（最小化模式）
 
 **变更说明：** 把 xtask 脚本里散落的构建树布局硬编码（per-member dist / flat dist / driver zpkg / build root / runtime out）收敛到一个布局模块 `scripts/common/xtask_layout.z42`；其中 per-member dist 改为**读 workspace.toml 的 `[workspace.build].output_dir` 模板**（经 `z42.project` 的 `ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`）——与 z42c 的 `WorkspaceBuild.PlanLayout` 共享同一份布局真相。
 
@@ -25,7 +25,7 @@
 - [x] 3. 替换 xtask_common / xtask_stdlib / xtask_compiler / *_e2e / bootstrap_check / toolchain / install_vscode 的布局字面量
 - [x] 4. 编译验证：种子 z42c 编 xtask 项目无错（两次，含新增两处 driver）
 - [x] 5. scripts/README.md 同步路径来源
-- [ ] 6. GREEN（PR CI 完整 gate；本机因 stale-seed 无法跑完整自举，见备注）
+- [x] 6. GREEN（PR #330 CI 全绿 + merge f32432ca）
 
 ## 备注
 - 核心机制（读 toml + `_cleanPath` 折叠 `../../`）已用独立 `ztest` 程序本地跑通：GOT==WANT（libraries/compiler、release/debug 均对）。
