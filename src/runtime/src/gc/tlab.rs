@@ -34,7 +34,7 @@
 //! ambient locked path rather than mixing regions. `VmContext::drop` retires the
 //! TLAB, returning it to the unbound state for the next context on this thread.
 
-use std::cell::{Cell, RefCell};
+use std::cell::UnsafeCell;
 
 use super::region::ChunkClaim;
 use super::var_region::VarChunkClaim;
@@ -67,48 +67,58 @@ impl Tlab {
     }
 }
 
-thread_local! {
-    /// This thread's TLAB. Lazily bound on first allocation; retired (→ unbound)
-    /// at each GC safepoint park and at `VmContext::drop`.
-    static TLAB: RefCell<Tlab> = const { RefCell::new(Tlab::empty()) };
+/// Per-thread TLAB cell: the arm count + the TLAB, behind one `UnsafeCell` so the
+/// hot path does a **single** thread-local access and no runtime borrow check.
+struct TlabCell {
+    /// Arm count (see [`arm`]). The TLAB fast path is used only while `> 0`.
+    armed: u32,
+    tlab: Tlab,
+}
 
-    /// **add-gc-tlab (stage 2)**: per-thread arm count. The TLAB fast path is
-    /// used only while `> 0` — armed for a thread's lifetime by
-    /// `VmContext::new*` and disarmed at `VmContext::drop` (nesting count, so
-    /// sequential/nested contexts on one thread balance). Threads WITHOUT a
-    /// `VmContext` (cargo GC unit tests that drive `ArcMagrGC` directly, ambient
-    /// `Str::new` before any VM, etc.) stay unarmed and keep the pre-TLAB
-    /// locked allocation path — so the region-internal GC unit tests, which
-    /// observe liveness immediately after `alloc` with no intervening
-    /// retire/safepoint, see the same behavior as before.
-    static ARMED: Cell<u32> = const { Cell::new(0) };
+thread_local! {
+    /// This thread's TLAB cell. `UnsafeCell` (not `RefCell`) because the TLAB is
+    /// **owner-thread-exclusive** and the allocation fast path is **non-reentrant**
+    /// — object construction + `borrow_chunk`/`retire_chunk` never allocate a GC
+    /// object while the `&mut Tlab` is held, so no aliasing `&mut` can form. This
+    /// removes the per-alloc `RefCell` borrow-flag check.
+    ///
+    /// `armed` starts 0: threads WITHOUT a `VmContext` (cargo GC unit tests that
+    /// drive `ArcMagrGC` directly, ambient `Str::new` before any VM) stay unarmed
+    /// and keep the pre-TLAB locked path — so region-internal GC unit tests, which
+    /// observe liveness right after `alloc` with no intervening retire/safepoint,
+    /// behave exactly as before. `VmContext::new*` arms; `VmContext::drop` disarms.
+    static TLAB: UnsafeCell<TlabCell> =
+        const { UnsafeCell::new(TlabCell { armed: 0, tlab: Tlab::empty() }) };
 }
 
 /// **add-gc-tlab (stage 2)**: arm this thread for TLAB allocation (called by
-/// `VmContext::new*`). Balanced by [`disarm`].
+/// `VmContext::new*`). Balanced by [`disarm`] (nesting count).
 #[inline]
 pub(crate) fn arm() {
-    ARMED.with(|c| c.set(c.get().saturating_add(1)));
+    // SAFETY: single-threaded access to this thread's own cell; no `&mut Tlab`
+    // is held across this call (arm runs at VmContext construction, not mid-alloc).
+    TLAB.with(|c| unsafe { (*c.get()).armed = (*c.get()).armed.saturating_add(1) });
 }
 
 /// **add-gc-tlab (stage 2)**: disarm this thread (called by `VmContext::drop`
 /// after retiring the TLAB). Saturating so an unbalanced call can't underflow.
 #[inline]
 pub(crate) fn disarm() {
-    ARMED.with(|c| c.set(c.get().saturating_sub(1)));
+    TLAB.with(|c| unsafe { (*c.get()).armed = (*c.get()).armed.saturating_sub(1) });
 }
 
 /// True when this thread has an active `VmContext` and should use the TLAB.
 #[inline]
 pub(crate) fn is_armed() -> bool {
-    ARMED.with(|c| c.get() > 0)
+    // SAFETY: plain read of this thread's own cell.
+    TLAB.with(|c| unsafe { (*c.get()).armed > 0 })
 }
 
-/// Run `f` with a mutable borrow of the current thread's TLAB. The borrow is
-/// non-reentrant: the allocation fast path never re-enters allocation while it
-/// holds this borrow (object construction + `borrow_chunk`/`retire_chunk` do not
-/// allocate GC objects), so the `RefCell` cannot double-borrow.
+/// Run `f` with a mutable reference to the current thread's TLAB. Non-reentrant
+/// by contract (the alloc fast path never re-enters allocation while holding the
+/// `&mut Tlab`), so the `UnsafeCell` deref is sound.
 #[inline]
 pub(crate) fn with_current_tlab<R>(f: impl FnOnce(&mut Tlab) -> R) -> R {
-    TLAB.with(|cell| f(&mut cell.borrow_mut()))
+    // SAFETY: owner-thread-exclusive, non-reentrant (see the `TLAB` docs).
+    TLAB.with(|c| f(unsafe { &mut (*c.get()).tlab }))
 }
