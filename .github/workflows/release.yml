@@ -164,6 +164,11 @@ jobs:
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package sdk --no-build
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package workload
+            # test workload = payload-only, platform-agnostic → build once on the
+            # primary desktop host (package-test-workload). Version read from versions.toml.
+            if [[ "$rid" == "macos-arm64" ]]; then
+              Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package workload test
+            fi
           else
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
           fi
@@ -210,6 +215,11 @@ jobs:
             echo "✓ runtime: z42-runtime-${version}-${rid}"
             _tar "z42-workload-${version}-desktop-${rid}" "z42-workload-${version}-desktop-${rid}"
             echo "✓ desktop workload: z42-workload-${version}-desktop-${rid}"
+            # test workload (payload-only) built only on macos-arm64 → archive once.
+            if [[ "$rid" == "macos-arm64" ]]; then
+              _tar "z42-workload-${version}-test" "z42-workload-${version}-test"
+              echo "✓ test workload: z42-workload-${version}-test"
+            fi
           else
             # Platform RID (ios/android/wasm) — runtime/workload split (B2-3/B2-4):
             #   runtime pack (per RID): z42-runtime-<v>-<rid>/  → z42-runtime-<v>-<rid>

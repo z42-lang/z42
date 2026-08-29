@@ -1,0 +1,49 @@
+// xtask — test workload packaging (package-test-workload, 2026-08-29).
+// Same Z42Xtask namespace.
+//
+// The test workload is a PAYLOAD-ONLY workload (unlike desktop/ios/android/wasm,
+// which are per-RID "tooling"): a single platform-agnostic payload — the test-agent
+// app.zpkg (z42.testagent.zpkg) — with no per-RID apphost and no runtime pack. It is
+// the on-demand capability that `z42 workload install test` fetches so a host can run
+// the corpus on any platform via the embedded test-host.
+//
+// Reuses the desktop template's RID-agnostic manifest shape (kind="workload-tooling",
+// host=["*"], no runtime pack) but describes its single zpkg via a new
+// [contents.payload] section (design D6): install/index code keeps recognising
+// kind="workload-tooling" and skips bedding when runtimes=[] (same path desktop uses).
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// Build the payload-only test workload → z42-workload-<version>-test/ (the agent
+// zpkg + a payload manifest). No per-RID pieces, so NO merge step (design D6b): the
+// dir this produces IS the final publishable artifact (release/CI just tars it).
+int _buildTestWorkload(string root, string version, string profile) {
+    if (profile.Length == 0) { profile = "release"; }
+    bool rel = (profile == "release");
+    string pkgName = "z42-workload-" + version + "-test" + (rel ? "" : "-" + profile);
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Test workload: " + pkgName);
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(pkgDir);
+
+    // Payload: the platform-agnostic test-agent (z42.testagent.zpkg). Reuse the
+    // single builder the embedded harness uses (idempotent) — no duplicate compile path.
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
+    File.Copy(agent, Path.Join(pkgDir, "z42.testagent.zpkg"));
+    Console.WriteLine("      ✓ z42.testagent.zpkg (payload)");
+
+    // Payload-only manifest: RID-agnostic (host=["*"]), no runtime pack, single zpkg
+    // payload described by [contents.payload] (design D6/D6a).
+    string m = _workloadPkgHeader("z42-workload-test", version, "", profile, "");
+    m = m + "[contents.payload]\n";
+    m = m + "payload = \"z42.testagent.zpkg\"  # platform-agnostic test-agent app.zpkg\n";
+    m = m + "host    = [\"*\"]\n\n";
+    m = m + "[compat]\n";
+    m = m + "host-min-version = \"" + version + "\"\n";
+    File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);
+    Console.WriteLine("      ✓ manifest.toml (workload payload — test, RID-agnostic)");
+    return 0;
+}

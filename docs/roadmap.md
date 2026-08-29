@@ -522,7 +522,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
-| `package-test-workload` | **Change C（进行中）**：test workload 打包发布（payload-only 形状，复用 `kind=workload-tooling` + 新 `[contents.payload]`，design D6）+ `workload install` 描述泛化 | 随 ②b |
+| ~~`package-test-workload`~~ ✅ | **Change C（已落地，2026-08-29）**：test workload 打包发布（payload-only，复用 `kind=workload-tooling` + 新 `[contents.payload]`，design D6；不进 packages.toml、无 merge）+ `workload install` 描述泛化为「平台 tooling 或能力」。CI 在 macos-arm64 单 host 建 + 归档 + 纳入 index。归档 [archive/2026-08-29-package-test-workload](spec/archive/2026-08-29-package-test-workload/) | — |
 | `z42b-test-take-over-device-run` | **②b Slice 3（deferred）**：z42b 接管设备端**实际 RUN**（驱动 Playwright / xcodebuild-sim / gradle），当前仍 xtask/CI 外部触发。见 [test-pipeline.md](book/src/toolchain/test-pipeline.md) Deferred | 设备 RUN 统一抽象就绪时 |
 | `infra-ci-platform-test-dashboard` | CI job 跑 wasm(ubuntu+Playwright) / iOS(macos runner + Simulator `xcodebuild test`) / Android(`reactivecircus/android-emulator-runner` + KVM) 三平台 `test platform`，各产 JUnit → **GitHub Checks**（test-reporter action）聚合成 PR check runs = 跨平台测试 dashboard。GitHub 即远程同步层，无需自建服务 | 下一步（User 2026-06-16 要求）|
 | `port-android-emulator-run-to-z42` | AndroidBackend.RunTests 当前桥接 `test.sh`（emulator AVD boot/poll/kill）；完整 z42 化 + JUnit 转换 | CI 稳定后 |

@@ -120,8 +120,8 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     dRids[0] = "linux-x64"; dRids[1] = "linux-arm64"; dRids[2] = "macos-arm64"; dRids[3] = "windows-x64";
     string[] pRids = new string[5];
     pRids[0] = "ios-arm64"; pRids[1] = "iossim-arm64"; pRids[2] = "android-arm64"; pRids[3] = "android-x64"; pRids[4] = "browser-wasm";
-    string[] wls = new string[4];
-    wls[0] = "ios"; wls[1] = "android"; wls[2] = "wasm"; wls[3] = "desktop";
+    string[] wls = new string[5];
+    wls[0] = "ios"; wls[1] = "android"; wls[2] = "wasm"; wls[3] = "desktop"; wls[4] = "test";
 
     // ── validate: every required archive has a sha in SHA256SUMS ──
     int missing = 0;
@@ -168,6 +168,7 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     workloads.Set("android", _jWorkload(label, sums, "android", _strArr4("macos-arm64", "linux-x64", "linux-arm64", "windows-x64"), _strArr2("android-arm64", "android-x64")));
     workloads.Set("wasm",    _jWorkload(label, sums, "wasm",    _strArr1("*"),                                                 _strArr1("browser-wasm")));
     workloads.Set("desktop", _jWorkload(label, sums, "desktop", _strArr1("*"),                                                 JsonValue.OfArray()));
+    workloads.Set("test",    _jWorkload(label, sums, "test",    _strArr1("*"),                                                 JsonValue.OfArray()));
 
     JsonValue idx = JsonValue.OfObject();
     idx.Set("schema",    JsonValue.OfLong(1L));
