@@ -76,16 +76,15 @@ int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, st
         .Run().ExitCode;
 }
 
-// Verify each member's canonical workspace product
-// `<buildRoot>/<member>/<profile>/dist/<member>.zpkg` exists + is non-empty.
+// Verify each member's canonical workspace product (the per-member dist derived
+// from `wsToml`'s [workspace.build].output_dir template) exists + is non-empty.
 // Prints per-member ✓ (verbosity-gated, --detailed) / ✗ (always). Returns the fail
 // count (0 = all present). Shared by `build stdlib` + `test compiler` verify loops.
-int _verifyMemberZpkgs(string buildRoot, string[] members, string profile) {
+int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
     int fail = 0;
     int i = 0;
     while (i < members.Length) {
-        string zpkg = Path.Join(buildRoot,
-            members[i] + "/" + profile + "/dist/" + members[i] + ".zpkg");
+        string zpkg = Path.Join(_memberDist(wsToml, members[i], profile), members[i] + ".zpkg");
         if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
             _vDetailed("    ✓ " + members[i] + ".zpkg (" + File.GetSize(zpkg).ToString() + " bytes)");
         } else {
@@ -351,8 +350,8 @@ string _seedStdlibDir(string root) {
 // hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
 int _ensureSeed(string root) {
     string profile = "release";
-    string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
-    string inDriver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string flatDir = _libsFlatDist(root, profile);
+    string inDriver = _driverZpkg(root, profile);
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
@@ -377,7 +376,7 @@ int _ensureSeed(string root) {
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
-        string dst = Path.Join(root, "artifacts/build/compiler/" + m + "/" + profile + "/dist");
+        string dst = _compilerMemberDist(root, m, profile);
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
@@ -391,7 +390,7 @@ int _ensureSeed(string root) {
     // 缺 z42c.project → `ZpkgBuilder.Sha256Hex` 等 undefined（CI bootstrap 全红根因）。故把
     // driverHome 的**全部 z42c.* 兄弟**（含遗留 z42c.ir/z42c.project）铺到 driver dist，令种子
     // driver 自包含可跑。gen1 起用当前 5 成员就地覆盖，遗留兄弟无害闲置（当前 z42c 不引用）。
-    string driverDist = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist");
+    string driverDist = _driverDist(root, profile);
     Directory.Create(driverDist);
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");
     Directory.Create(flatDir);
@@ -412,7 +411,7 @@ int _ensureSeed(string root) {
 // build sdk) WRITE. Consumer commands (test) that should READ from an active
 // `--toolchain` use _activeLibsDir() instead (which falls back here when unset).
 string _libsDir(string root) {
-    return Path.Join(root, "artifacts/build/libraries/dist/release");
+    return _libsFlatDist(root, "release");
 }
 
 // stdlib libs to READ for the current command: the active --toolchain's libs/
@@ -437,7 +436,7 @@ string _packagesDir(string root) {
 // through this helper so the gate doesn't false-fail on Windows.
 string _builtBin(string root, string profile, string name) {
     string bin = Platform.IsWindows() ? (name + ".exe") : name;
-    string dir = Path.Join(root, Path.Join("artifacts/build/runtime", profile));
+    string dir = _runtimeOut(root, profile);
     return Path.Join(dir, bin);
 }
 

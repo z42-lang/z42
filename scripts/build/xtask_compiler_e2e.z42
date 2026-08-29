@@ -58,7 +58,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     if (rc != 0) { Console.WriteLine("  ✗ z42c build failed"); return 1; }
     string appZpkg = Path.Join(bdir, "dist/check.app.zpkg");
     rc = new Process(vm).Arg(appZpkg)
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Env("Z42_LIBS", _libsDir(root))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ z42c-built zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     Console.WriteLine("  ✓ build e2e: z42c-built check.app.zpkg runs directly on z42vm (entry baked)");
@@ -140,15 +140,15 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     Console.WriteLine("  ✓ z42c build: 6/6 projects built (multi-file packages; functional)");
     // hello-stdlib 直跑（跨包 Call 链可执行性）
     rc = new Process(vm).Arg(Path.Join(cdir, "dist/clos.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Env("Z42_LIBS", _libsDir(root))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ clos.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     rc = new Process(vm).Arg(Path.Join(tdir, "dist/text.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Env("Z42_LIBS", _libsDir(root))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ text.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     rc = new Process(vm).Arg(Path.Join(hdir, "dist/hello.app.zpkg"))
-        .Env("Z42_LIBS", Path.Join(root, "artifacts/build/libraries/dist/release"))
+        .Env("Z42_LIBS", _libsDir(root))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ hello.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     Console.WriteLine("  ✓ import e2e: z42c-built hello.app.zpkg (using Std; Console.WriteLine) runs on z42vm");
@@ -285,7 +285,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
     Directory.Create(e2eDir);
 
-    string libsRel = Path.Join(root, "artifacts/build/libraries/dist/release");
+    string libsRel = _libsDir(root);
 
     if (_e2eOracleChecks(vm, driverZpkg, e2eDir, flat, libsRel) != 0) { return 1; }
 

@@ -98,6 +98,12 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/design/compiler/project.md`）——xtask 不硬编码，
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
+> - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**（unify-xtask-paths-from-toml,
+>   2026-08-29）：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由
+>   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
+>   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 z42c `WorkspaceBuild.PlanLayout`
+>   同一份布局真相）展开——xtask 不再字面拼接。flat dist / runtime out / build root 等 xtask 约定
+>   （无 toml 归属）也集中到该模块单点定义。一次性 `artifacts/.scratch/*` 等临时目录不进此模块。
 
 ## 各命令处理流程
 
@@ -231,7 +237,8 @@ scripts/
 ├── xtask_bench.z42      bench 基准 / --diff 回归对比
 ├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── common/             共享基建（非某个命令专属）
-│   ├── xtask_common.z42     _root/_exec/path/cargo/toolchain 选择器
+│   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + 种子解析
+│   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
 │   └── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 ├── build/              build stdlib / compiler / test-assets + 自举边界检查

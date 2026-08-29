@@ -104,7 +104,7 @@ string _vscodeRenderGrammar(string root) {
 // fork in-tree z42c（warm；缺则先 build compiler）取关键字 dump。失败返回 ""。
 string _vscodeDumpKeywords(string root) {
     string profile = "release";
-    string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string driver = _driverZpkg(root, profile);
     string vm = _builtVm(root, profile);
     if (!File.Exists(driver) || !File.Exists(vm)) {
         Console.WriteLine("  z42c not built — bootstrapping (build compiler)");

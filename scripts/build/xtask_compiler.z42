@@ -28,7 +28,7 @@ int _buildCompiler() {
     int sc0 = _ensureSeed(root); if (sc0 != 0) { return sc0; }   // warm no-op / cold: stage SDK seed → in-tree
     int rc = _buildRuntime(); if (rc != 0) { return rc; }   // cargo release z42vm 跑种子 driver
     string vm = _builtVm(root, "release");
-    string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string stdlibFlat = _libsFlatDist(root, profile);
     if (!File.Exists(Path.Join(stdlibFlat, "z42.core.zpkg"))) {
         int sc = _buildStdlib(); if (sc != 0) { return sc; }   // A1 warm 种子路径
     }
@@ -43,13 +43,13 @@ int _buildCompiler() {
 // z42c build(exe) 本已 bundle（simplify-compiler-build 阶段1）；此处对种子/旧版 z42c
 // 建的 driver 兜底，保证下游一律跑自包含 driver，无需拼 colocated 目录。
 void _ensureDriverSelfContained(string root, string profile, string[] members) {
-    string driverDist = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist");
+    string driverDist = _driverDist(root, profile);
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
         i = i + 1;
         if (m == "z42c.driver") { continue; }
-        string src = Path.Join(Path.Join(root, "artifacts/build/compiler/" + m + "/" + profile + "/dist"), m + ".zpkg");
+        string src = _compilerMemberZpkg(root, m, profile);
         string dst = Path.Join(driverDist, m + ".zpkg");
         if (File.Exists(src) && src != dst) {
             if (File.Exists(dst)) { File.Delete(dst); }
@@ -61,7 +61,7 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
     // syntax 节点 TupleExpr），冷启动 semantics self-build 报 `undefined type`、且内部环重试无法收敛
     // （见 _buildCompilerViaZ42c line 72）。故须从 fresh libraries dist 同步这两个前端库进 driver bundle，
     // 使重试用的 driver 认得当前源新增的前端符号（post-#317 冷启动收敛的必要环节）。
-    string libDist = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string libDist = _libsFlatDist(root, profile);
     _copyIfNewer(Path.Join(libDist, "z42c.core.zpkg"),   Path.Join(driverDist, "z42c.core.zpkg"));
     _copyIfNewer(Path.Join(libDist, "z42c.syntax.zpkg"), Path.Join(driverDist, "z42c.syntax.zpkg"));
 }
@@ -82,7 +82,7 @@ void _copyIfNewer(string src, string dst) {
 int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
     _vNormal("  building z42c via z42c (--workspace)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
-    string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string driver = _driverZpkg(root, profile);
     _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.ir 环（须在 workspace build 前）
     string compilerDir = Path.Join(root, "src/compiler");
     int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat);
@@ -190,10 +190,9 @@ int _testCompiler(bool noBuild) {
 
     string root = _root();
     string profile = "release";
-    string buildRoot = Path.Join(root, "artifacts/build/compiler");
     string[] members = _compilerMembers(root);
 
-    int fail = _verifyMemberZpkgs(buildRoot, members, profile);
+    int fail = _verifyMemberZpkgs(_compilerWsToml(root), members, profile);
     int ok = members.Length - fail;
 
     Console.WriteLine("");
@@ -247,7 +246,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     string flat = _assembleAllLibs(root, profile);
 
     string vm     = _builtVm(root, "release");
-    string driverZpkg = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string driverZpkg = _driverZpkg(root, profile);
     // retire-test-runner: z42c [Test] units run through z42b (z42.builder.zpkg)
     // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
     // resolve from `flat`); incremental/cached when already current.
@@ -292,7 +291,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/tests/<unit>
                 // so the produced .zpkg lands in <mirror>/dist/, NOT beside source.
                 string mirrorDist = Path.Join(
-                    Path.Join(root, "artifacts/build/compiler/" + members[i] + "/tests/" + unit),
+                    Path.Join(_compilerBuildRoot(root), members[i] + "/tests/" + unit),
                     "dist");
                 string[] zps = Path.Glob(mirrorDist, "*.zpkg");
                 // Guard against a recurrence of the prior false-green: before
@@ -352,9 +351,8 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
     Console.WriteLine("");
     Console.WriteLine("── z42c self-host 不动点：--workspace 再建一遍应逐字节复现 ──");
 
-    string buildRoot = Path.Join(root, "artifacts/build/compiler");
-    string driverZpkg = Path.Join(buildRoot, "z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
-    string stdlibFlat = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string driverZpkg = _driverZpkg(root, profile);
+    string stdlibFlat = _libsFlatDist(root, profile);
 
     // gen1 快照：把现有 canonical dist 的 7 个 <member>.zpkg 拷到独立目录（随后 gen2 会
     // 覆盖 canonical dist）。
@@ -362,7 +360,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
     _resetDir(snapDir);
     int i = 0;
     while (i < members.Length) {
-        string src = Path.Join(buildRoot, members[i] + "/" + profile + "/dist/" + members[i] + ".zpkg");
+        string src = _compilerMemberZpkg(root, members[i], profile);
         if (!File.Exists(src)) {
             Console.WriteLine("  ✗ gen1 missing (先跑 build compiler): " + src);
             return 1;
@@ -387,7 +385,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
         i = i + 1;
         byte[] want = File.ReadAllBytes(Path.Join(snapDir, member + ".zpkg"));  // gen1
         byte[] got = File.ReadAllBytes(                                          // gen2
-            Path.Join(buildRoot, member + "/" + profile + "/dist/" + member + ".zpkg"));
+            _compilerMemberZpkg(root, member, profile));
         // Section-level compare: ignore BLID (16B BLAKE3-128 build_id tail).
         if (!_sectionsEqualIgnoreBlid(got, want)) {
             Console.WriteLine("  ✗ sections mismatch: " + member + " (gen2 " + got.Length.ToString() + "B vs gen1 " + want.Length.ToString() + "B)");
