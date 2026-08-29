@@ -1,7 +1,7 @@
-// REPL 缩进感知键位策略测试（add-repl-indent-editing + add-repl-tab-grid-snap）。直接调纯函数
-// ReplEditing.KeyEdit——与 rustyline 键位回调 replKeyEdit 完全同一策略（Rust 侧 parse_action 只把
-// dedent/insert: 译成 redo-免疫的 Cmd，无判断）。动作串用 [..] 包裹渲染（尾随空格可见、不被 trim）；
-// [] = 空串（走该键默认行为）。
+// REPL 缩进感知键位策略测试（add-repl-indent-editing + add-repl-tab-grid-snap + add-repl-rbrace-floor）。
+// 直接调纯函数 ReplEditing.KeyEdit——与 rustyline 键位回调 replKeyEdit 完全同一策略（Rust 侧 parse_action
+// 只把 dedent/insert:/replace: 译成 redo-免疫的 Cmd，无判断）。动作串用 [..] 包裹渲染（尾随空格可见、
+// 不被 trim）；[] = 空串（走该键默认行为）。
 namespace ReplEditingTest;
 
 using Std;
@@ -9,18 +9,19 @@ using Std.IO;
 using Std.Repl;   // ReplEditing.KeyEdit（split-z42-repl：ReplEditing 迁 Std.Repl）
 
 void Main() {
-    // 退格：全空白前缀非空 → 去一级缩进（Dedent，光标正确）；否则默认删 1 字符。
-    // （floor 到前制表位属 Deferred——需 Replace(WholeLine)，其光标归位行首破坏 } 后输入。）
+    // 退格（add-repl-rbrace-floor）：整行纯空白 + 光标行尾 + 缩进错位（col%4≠0）→ floor 到前制表位
+    // （replace:<缩进>，错位一键归正）；对齐缩进（col%4==0）floor 恒等删一级 → 仍走 Dedent；光标在缩进
+    // 中段 / 光标后有内容 → 也 Dedent、不碰光标后内容；非空白前缀 → 默认删 1 字符。
     Console.WriteLine("== backspace ==");
-    _show("bs align4",  "backspace", "    ", 4);           // dedent
-    _show("bs align8",  "backspace", "        ", 8);       // dedent
-    _show("bs shallow2","backspace", "  ", 2);             // dedent
-    _show("bs mis6",    "backspace", "      ", 6);         // dedent（错位也只去一级，非 floor）
+    _show("bs align4",  "backspace", "    ", 4);           // dedent（对齐）
+    _show("bs align8",  "backspace", "        ", 8);       // dedent（对齐）
+    _show("bs shallow2","backspace", "  ", 2);             // replace:（错位 col2 → floor 0）
+    _show("bs mis6",    "backspace", "      ", 6);         // replace:（错位 col6 → floor 4）
     _show("bs nonspace","backspace", "  x", 3);            // default（有内容）
     _show("bs col0",    "backspace", "", 0);               // default
     _show("bs word",    "backspace", "ab", 2);             // default
-    _show("bs multi",   "backspace", "foo(\n    ", 9);     // dedent（末行 4 空格）
-    _show("bs midindent","backspace", "    ", 2);          // dedent（光标在缩进中段）
+    _show("bs multi",   "backspace", "foo(\n    ", 9);     // dedent（末行 4 空格，对齐）
+    _show("bs midindent","backspace", "    ", 2);          // dedent（光标在缩进中段，非行尾）
 
     // Tab：全空白前缀 → grid-snap ceil 到下制表位，补 (next_stop - col) 空格（Insert，光标正确、
     // 零 kill-ring 污染）；有词 → 默认（补全）。这是本 change 的唯一新行为（升级 #253 的定量一级）。
@@ -33,6 +34,17 @@ void Main() {
     _show("tab word",  "tab", "  foo", 5);                 // default（补全）
     _show("tab word0", "tab", "foo", 3);                   // default
     _show("tab multi", "tab", "x(\n  ", 5);                // insert 2（末行 2 空格 ceil →4）
+
+    // }（rbrace，add-repl-rbrace-floor）：整行纯空白 + 光标行尾 → dedent 一级后落 }（replace:<缩进>}，
+    // 目标 = max(0, floorToStop(col)-4)）；col==0（无级可退）/ 光标非行尾 / 有内容 → 默认插入 }（[]）。
+    Console.WriteLine("== rbrace ==");
+    _show("rb align8", "rbrace", "        ", 8);            // replace:    }（8 → 4 + }）
+    _show("rb align4", "rbrace", "    ", 4);                // replace:}（4 → 0 + }）
+    _show("rb mis6",   "rbrace", "      ", 6);             // replace:}（floorToStop6=4，4-4=0 + }）
+    _show("rb col0",   "rbrace", "", 0);                   // default（无级可退，插入 }）
+    _show("rb nonspace","rbrace", "  x", 3);               // default（有内容，插入 }）
+    _show("rb midws",  "rbrace", "        ", 4);           // default（光标缩进中段，非行尾）
+    _show("rb multi",  "rbrace", "if (x) {\n        ", 17); // replace:    }（末行 8 → 4 + }）
 
     // Enter（add-repl-multiline-editing）：对**整块缓冲** line 判完整性。写完 → "accept"（提交；
     // Rust 侧再按光标是否在缓冲末尾兜底 accept_in_the_middle:false，故 KeyEdit 对完整块不看光标）；

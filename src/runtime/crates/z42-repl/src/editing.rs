@@ -10,21 +10,35 @@
 //! **redo-immune** commands (rustyline replays a custom binding through
 //! `redo(Some(1))`, which clobbers movement counts — so only count-free movements
 //! (`Dedent(WholeLine)`) and payload-carrying `Insert(1, text)` survive):
-//!   ""              → `None` (the key's default: Tab→complete, Backspace→delete 1)
-//!   "dedent"        → `Cmd::Dedent(WholeLine)`   (Backspace one-level dedent)
-//!   "insert:<text>" → `Cmd::Insert(1, text)`     (Tab grid-snap-ceil)
-//!   "newline:<ind>" → `Cmd::Insert(1, "\n"+ind)` (Enter on an incomplete buffer)
-//!   "accept"        → `Cmd::AcceptLine`          (Enter on a complete buffer: submit)
+//!   ""               → `None` (the key's default: Tab→complete, Backspace→delete 1, `}`→self-insert)
+//!   "dedent"         → `Cmd::Dedent(WholeLine)`   (Backspace one-level dedent)
+//!   "insert:<text>"  → `Cmd::Insert(1, text)`     (Tab grid-snap-ceil)
+//!   "replace:<text>" → `Cmd::Replace(WholeLine, text)` (variable-width whole-line delete+insert;
+//!                                                       `}` auto-dedent + Backspace floor — add-repl-rbrace-floor)
+//!   "newline:<ind>"  → `Cmd::Insert(1, "\n"+ind)` (Enter on an incomplete buffer)
+//!   "accept"         → `Cmd::AcceptLine`          (Enter on a complete buffer: submit)
 
 use crate::call_key_edit;
 use rustyline::{Cmd, ConditionalEventHandler, Event, EventContext, Movement, RepeatCount};
 
 /// Translate a z42 action string into a rustyline `Cmd`; `None` = the key's default.
+///
+/// `"replace:<text>"` → `Cmd::Replace(Movement::WholeLine, Some(text))` (add-repl-rbrace-floor):
+/// the redo-immune variable-width delete+insert used by `}` auto-dedent and Backspace floor.
+/// `Replace` = `edit_kill(WholeLine)` (cursor homes to the logical line start) + `edit_insert_text`.
+/// Upstream rustyline's `edit_insert_text` left `pos` at column 0 (breaking `} else {`); our
+/// `[patch.crates-io]` fork advances it past the inserted text, so the cursor lands after
+/// `<text>` (e.g. after the `}`). `WholeLine` carries no count and the text rides in the
+/// payload, so `redo(Some(1))` replays it verbatim.
 pub(crate) fn parse_action(s: &str) -> Option<Cmd> {
     match s {
         "dedent" => Some(Cmd::Dedent(Movement::WholeLine)),
         "accept" => Some(Cmd::AcceptLine),
         _ if s.starts_with("insert:") => Some(Cmd::Insert(1, s["insert:".len()..].to_string())),
+        _ if s.starts_with("replace:") => Some(Cmd::Replace(
+            Movement::WholeLine,
+            Some(s["replace:".len()..].to_string()),
+        )),
         _ if s.starts_with("newline:") => {
             Some(Cmd::Insert(1, format!("\n{}", &s["newline:".len()..])))
         }
@@ -94,6 +108,21 @@ mod tests {
     #[test]
     fn accept_maps_to_accept_line() {
         assert!(matches!(parse_action("accept"), Some(Cmd::AcceptLine)));
+    }
+
+    #[test]
+    fn replace_maps_to_replace_wholeline_with_text() {
+        // add-repl-rbrace-floor: `}` auto-dedent + Backspace floor drive a whole-line replace;
+        // the patched rustyline leaves the cursor after the inserted text.
+        match parse_action("replace:    }") {
+            Some(Cmd::Replace(Movement::WholeLine, Some(text))) => assert_eq!(text, "    }"),
+            other => panic!("expected Replace(WholeLine, Some(\"    }}\")), got {other:?}"),
+        }
+        // Floor to column 0 replaces the line with just the (empty) target indent.
+        match parse_action("replace:") {
+            Some(Cmd::Replace(Movement::WholeLine, Some(text))) => assert_eq!(text, ""),
+            other => panic!("expected Replace(WholeLine, Some(\"\")), got {other:?}"),
+        }
     }
 
     #[test]
