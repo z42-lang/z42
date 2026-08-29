@@ -14,6 +14,7 @@ using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Test;
+using Std.Json;
 
 int _cmdTest(ParseResult r)  { return _runModule(r, "test"); }
 int _cmdBench(ParseResult r) { return _runModule(r, "bench"); }
@@ -35,6 +36,21 @@ int _runModule(ParseResult r, string verb) {
     // with per-benchmark bench_stats) — rebuild-bench-structured-output.
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "pretty"; }
+    string rid = r.GetOption("rid");
+
+    // A `.json` target = a test-bundle manifest (assembled by the fleet
+    // orchestrator xtask). z42b is the single-bundle EXECUTOR
+    // (unify-test-pipeline ②b): host runs it in-process, sharing the same
+    // Std.Test.BundleRunner core the on-device agent uses.
+    //   --rid host (or empty) → run the bundle in-process (Slice 1).
+    //   --rid <device>        → assemble the {app,libs,bundle} deployable (Slice 2).
+    if (target.EndsWith(".json")) {
+        if (rid.Length == 0 || rid == "host") {
+            return _runBundleHost(target, format);
+        }
+        return _assembleDeployable(r, target, rid);
+    }
+
     // Already-compiled artifact → run as-is (dep closure resolved from VM search dirs).
     if (target.EndsWith(".zbc") || target.EndsWith(".zpkg")) {
         return Runner.RunModule(target, format);
@@ -50,4 +66,161 @@ int _runModule(ParseResult r, string verb) {
         return 1;
     }
     return Runner.RunModule(b.Dist, format);
+}
+
+// Slice 1 (host): run a test-bundle manifest IN-PROCESS. Parse manifest.json →
+// BundleCase[] (z42.test stays JSON-free, so the parse lives here), run via the
+// shared Std.Test.BundleRunner (goldens isolated + compared, units shared-VM),
+// render in `format`, and return an exit code. No desktop testhost / agent spawn
+// on the host — z42b already runs on a z42vm and calls z42.test directly.
+int _runBundleHost(string manifestPath, string format) {
+    if (!File.Exists(manifestPath)) {
+        ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath);
+        return 2;
+    }
+    string dir = Path.GetDirectoryName(manifestPath);
+    BundleCase[] cases = _parseBundleManifest(manifestPath);
+    TestResult[] all = BundleRunner.RunBundle(cases, dir, "");
+    if (format == "json") {
+        Console.WriteLine(TestReport.toJson("bundle", all));
+    } else {
+        _renderBundlePretty(all);
+    }
+    return BundleRunner.ExitCode(all);
+}
+
+// Parse a bundle manifest (`{cases:[{name,zbc[,entry][,expected]}]}`) into
+// BundleCase[]. `entry` present → golden; absent → unit (Entry null). Mirrors the
+// on-device agent's adapter — the JSON glue is per-host; the execution is shared.
+BundleCase[] _parseBundleManifest(string manifestPath) {
+    JsonValue m = JsonValue.Parse(File.ReadAllText(manifestPath));
+    JsonValue cases = m.Get("cases");
+    int n = cases.Count();
+    BundleCase[] outp = new BundleCase[n];
+    for (int i = 0; i < n; i = i + 1) {
+        JsonValue c = cases.At(i);
+        string name = c.Get("name").AsString();
+        string zbc = c.Get("zbc").AsString();
+        string entry = c.ContainsKey("entry") ? c.Get("entry").AsString() : null;
+        string expected = c.ContainsKey("expected") ? c.Get("expected").AsString() : null;
+        outp[i] = new BundleCase(name, zbc, entry, expected);
+    }
+    return outp;
+}
+
+// Pretty rendering of an aggregated bundle result (json mode uses TestReport.toJson).
+void _renderBundlePretty(TestResult[] all) {
+    int passed = 0; int failed = 0; int skipped = 0;
+    for (int i = 0; i < all.Length; i = i + 1) {
+        TestResult t = all[i];
+        if (t.Status == "passed") {
+            passed = passed + 1;
+            Console.WriteLine("  PASS " + t.Name);
+        } else if (t.Status == "failed") {
+            failed = failed + 1;
+            Console.WriteLine("  FAIL " + t.Name + ((t.Reason != null) ? (": " + t.Reason) : ""));
+        } else {
+            skipped = skipped + 1;
+            Console.WriteLine("  SKIP " + t.Name);
+        }
+    }
+    Console.WriteLine("");
+    Console.WriteLine("  Result: " + passed.ToString() + " passed, "
+        + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
+}
+
+// Slice 2 (device): assemble the on-device {app,libs,bundle} deployable for `rid`.
+// z42b is the single-bundle executor, so "deploy prep" belongs here; the fleet
+// orchestrator (xtask) hands the bundle + the pre-built test-agent + flat stdlib
+// (via --out / --agent / Z42_LIBS), and z42b stages the deployable dir. The native
+// platform build (wasm-pack / xcframework / cargo-ndk) and the device RUN stay in
+// xtask (design D2). Wasm additionally gets a files.json (VFS→url map) since a
+// browser can't enumerate a remote dir.
+int _assembleDeployable(ParseResult r, string manifestPath, string rid) {
+    if (!_isDeviceRid(rid)) {
+        ConsoleError.WriteLine("z42b test: unknown --rid '" + rid
+            + "' (host | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64)");
+        return 2;
+    }
+    string outDir = r.GetOption("out");
+    string agent = r.GetOption("agent");
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (outDir.Length == 0) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": --out <dir> required"); return 2;
+    }
+    if (agent.Length == 0 || !File.Exists(agent)) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": --agent <z42.testagent.zpkg> required (not found)"); return 2;
+    }
+    if (libs.Length == 0 || !Directory.Exists(libs)) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": Z42_LIBS (flat stdlib dir) required"); return 2;
+    }
+    if (!File.Exists(manifestPath)) {
+        ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath); return 2;
+    }
+    return _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, (rid == "browser-wasm"));
+}
+
+bool _isDeviceRid(string rid) {
+    return rid == "browser-wasm" || rid == "ios-arm64" || rid == "iossim-arm64"
+        || rid == "android-arm64" || rid == "android-x64";
+}
+
+// Stage destDir/{app,libs,bundle}: the test-agent app.zpkg, all flat stdlib zpkgs,
+// and the bundle (manifest + case files). For wasm, also emit files.json (a sorted
+// {vfs,url} list of every staged file — the browser fetch-list). Deterministic:
+// libs/bundle enumerations are sorted before staging (common-pitfalls §1).
+int _stageDeployable(string bundleDir, string agent, string libs, string destDir, bool wasm) {
+    if (Directory.Exists(destDir)) { Directory.Delete(destDir, true); }
+    Directory.Create(destDir);
+    string files = "";
+
+    // app/ — the test-agent.
+    string appDir = Path.Join(destDir, "app"); Directory.Create(appDir);
+    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
+    files = _appendFileEntry(files, "/app/z42.testagent.zpkg", "app/z42.testagent.zpkg");
+
+    // libs/ — all flat stdlib zpkgs (every agent + case dep resolves from here).
+    string libsOut = Path.Join(destDir, "libs"); Directory.Create(libsOut);
+    foreach (var z in _sortedDir(libs)) {
+        if (!z.EndsWith(".zpkg")) { continue; }
+        File.Copy(Path.Join(libs, z), Path.Join(libsOut, z), true);
+        files = _appendFileEntry(files, "/libs/" + z, "libs/" + z);
+    }
+
+    // bundle/ — manifest.json + every case zbc/zpkg/expected.
+    string bundleOut = Path.Join(destDir, "bundle"); Directory.Create(bundleOut);
+    foreach (var f in _sortedDir(bundleDir)) {
+        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
+        files = _appendFileEntry(files, "/bundle/" + f, "bundle/" + f);
+    }
+
+    if (wasm) {
+        File.WriteAllText(Path.Join(destDir, "files.json"), "[\n" + files + "\n]\n");
+    }
+    Console.WriteLine("z42b: staged deployable → " + destDir + (wasm ? " (+files.json)" : ""));
+    return 0;
+}
+
+// Append one files.json `{vfs,url}` entry (comma-separated). Mirrors the layout the
+// wasm test-host's run.js consumes.
+string _appendFileEntry(string acc, string vfs, string url) {
+    string e = "  {\"vfs\": \"" + vfs + "\", \"url\": \"" + url + "\"}";
+    if (acc.Length == 0) { return e; }
+    return acc + ",\n" + e;
+}
+
+// Enumerate a dir, sorted (ordinal) for deterministic staging / files.json order.
+string[] _sortedDir(string dir) {
+    string[] names = Directory.Enumerate(dir);
+    int n = names.Length;
+    for (int i = 1; i < n; i = i + 1) {
+        string key = names[i];
+        int j = i - 1;
+        while (j >= 0 && names[j].CompareTo(key) > 0) {
+            names[j + 1] = names[j];
+            j = j - 1;
+        }
+        names[j + 1] = key;
+    }
+    return names;
 }

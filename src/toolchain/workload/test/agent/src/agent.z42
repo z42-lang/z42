@@ -64,111 +64,33 @@ void _emit(string report, string outPath) {
 }
 
 // Bundle mode: read manifest `{cases:[…]}` and RETURN ONE aggregate TestReport.
-// Two case kinds (mature-embed-testhost P1):
-//   golden — `{name, zbc, entry, expected}` : a whole program; run in a FRESH
-//            isolated VM (RunGoldensIsolated → per-case VmContext, no collision),
-//            compare captured stdout to `expected` (a sibling file). Batched.
-//   unit   — `{name, zbc}` : a [Test] module; run via Runner.RunModuleResults
-//            (shared VM — units are namespaced, collision-free by design).
-// z42 has no jagged arrays → grow result arrays manually.
+// The bundle EXECUTION (isolate/compare goldens + run units + aggregate) is the
+// shared Std.Test.BundleRunner (wire-z42b-embedded-test) — the same core z42b runs
+// on the host. This agent only adapts the JSON manifest into BundleCase[] (z42.test
+// stays JSON-free), then renders the aggregate report as JSON.
+//   golden — `{name, zbc, entry, expected}` : whole program, isolated VM + stdout compare.
+//   unit   — `{name, zbc}`                   : [Test] module, shared VM.
 string _runBundleReport(string manifestPath) {
     string dir = Path.GetDirectoryName(manifestPath);
-    JsonValue m = JsonValue.Parse(File.ReadAllText(manifestPath));
-    JsonValue cases = m.Get("cases");
-    int n = cases.Count();
-
-    // Pass 1: count goldens (case has "entry") vs units.
-    int gN = 0;
-    for (int i = 0; i < n; i = i + 1) {
-        if (cases.At(i).ContainsKey("entry")) { gN = gN + 1; }
-    }
-
-    TestResult[] all = new TestResult[0];
-
-    // Goldens: gather → RunGoldensIsolated (batched, isolated) → compare.
-    if (gN > 0) {
-        string[] gPaths = new string[gN];
-        string[] gEntries = new string[gN];
-        string[] gNames = new string[gN];
-        string[] gExpected = new string[gN];
-        int gi = 0;
-        for (int i = 0; i < n; i = i + 1) {
-            JsonValue c = cases.At(i);
-            if (!c.ContainsKey("entry")) { continue; }
-            gPaths[gi] = Path.Join(dir, c.Get("zbc").AsString());
-            gEntries[gi] = c.Get("entry").AsString();
-            gNames[gi] = c.Get("name").AsString();
-            string exp = "";
-            if (c.ContainsKey("expected")) {
-                string ep = Path.Join(dir, c.Get("expected").AsString());
-                if (File.Exists(ep)) { exp = File.ReadAllText(ep); }
-            }
-            gExpected[gi] = exp;
-            gi = gi + 1;
-        }
-        // Each golden runs in a fresh isolated VM, so it needs its own stdlib
-        // dir. Desktop passes it via Z42_LIBS; mobile/wasm have no env, but the
-        // deployable stages the stdlib as a sibling of the bundle dir
-        // (<root>/{libs,bundle,app}), so fall back to <bundle>/../libs.
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
-        if (libs.Length == 0) {
-            string cand = Path.Join(Path.GetDirectoryName(dir), "libs");
-            if (Directory.Exists(cand)) { libs = cand; }
-        }
-        // Parallelism (P2): Z42_TEST_JOBS (int) → workers; 0/unset = auto (cores),
-        // 1 = sequential. Each golden runs in a disjoint isolated VmContext.
-        int jobs = 0;
-        string jv = Environment.GetEnvironmentVariable("Z42_TEST_JOBS") ?? "";
-        if (jv.Length > 0) { try { jobs = int.Parse(jv); } catch (Exception e) { jobs = 0; } }
-        string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs, jobs);
-        TestResult[] gr = new TestResult[gN];
-        for (int i = 0; i < gN; i = i + 1) {
-            string got = _stripNl(outs[i]);
-            string want = _stripNl(gExpected[i]);
-            if (got == want) {
-                gr[i] = new TestResult(gNames[i], "passed", false, null, null);
-            } else {
-                gr[i] = new TestResult(gNames[i], "failed", false,
-                    "stdout mismatch: want [" + _oneLine(want) + "] got [" + _oneLine(got) + "]", null);
-            }
-        }
-        all = _concat(all, gr);
-    }
-
-    // Units: shared-VM [Test] modules.
-    for (int i = 0; i < n; i = i + 1) {
-        JsonValue c = cases.At(i);
-        if (c.ContainsKey("entry")) { continue; }
-        TestResult[] rs = Runner.RunModuleResults(Path.Join(dir, c.Get("zbc").AsString()));
-        all = _concat(all, rs);
-    }
-
+    BundleCase[] cases = _parseManifest(manifestPath);
+    TestResult[] all = BundleRunner.RunBundle(cases, dir, "");
     return TestReport.toJson("bundle", all);
 }
 
-// Grow: return a ++ b (z42 has no jagged arrays / built-in concat here).
-TestResult[] _concat(TestResult[] a, TestResult[] b) {
-    TestResult[] merged = new TestResult[a.Length + b.Length];
-    for (int i = 0; i < a.Length; i = i + 1) { merged[i] = a[i]; }
-    for (int i = 0; i < b.Length; i = i + 1) { merged[a.Length + i] = b[i]; }
-    return merged;
-}
-
-// Strip trailing newlines only (mirror the host golden runner's
-// _stripTrailingNewlines — NOT a full trim, so trailing spaces still matter).
-string _stripNl(string s) {
-    int e = s.Length;
-    while (e > 0) {
-        string ch = s.Substring(e - 1, 1);
-        if (ch == "\n" || ch == "\r") { e = e - 1; } else { break; }
+// Parse a bundle manifest (`{cases:[{name,zbc[,entry][,expected]}]}`) into
+// BundleCase[]. `entry` present → golden; absent → unit (Entry null).
+BundleCase[] _parseManifest(string manifestPath) {
+    JsonValue m = JsonValue.Parse(File.ReadAllText(manifestPath));
+    JsonValue cases = m.Get("cases");
+    int n = cases.Count();
+    BundleCase[] outp = new BundleCase[n];
+    for (int i = 0; i < n; i = i + 1) {
+        JsonValue c = cases.At(i);
+        string name = c.Get("name").AsString();
+        string zbc = c.Get("zbc").AsString();
+        string entry = c.ContainsKey("entry") ? c.Get("entry").AsString() : null;
+        string expected = c.ContainsKey("expected") ? c.Get("expected").AsString() : null;
+        outp[i] = new BundleCase(name, zbc, entry, expected);
     }
-    return s.Substring(0, e);
-}
-
-// First line (for a compact mismatch reason).
-string _oneLine(string s) {
-    int nl = s.IndexOf("\n");
-    string head = (nl >= 0) ? s.Substring(0, nl) : s;
-    if (head.Length > 80) { head = head.Substring(0, 80) + "…"; }
-    return head;
+    return outp;
 }

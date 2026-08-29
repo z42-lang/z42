@@ -73,19 +73,21 @@ SubcommandRouter _builderRoot() {
     // test / bench — 反射式运行器（functional；取代 Rust z42-test-runner）。
     // target 双形态：已编译产物直跑 / 工程 toml（或默认 z42.toml）→ compile-then-test
     // （add-z42b-compile-then-test）；--release 供后者选 build profile（默认 debug）。
-    ArgParser test = new ArgParser("z42b test", "run [Test] in a compiled module or project");
-    test.AddOptionalPositional("target", "<file.zbc|file.zpkg|project.z42.toml> (default: z42.toml)");
+    ArgParser test = new ArgParser("z42b test", "run [Test] in a compiled module, project, or test-bundle");
+    test.AddOptionalPositional("target", "<file.zbc|file.zpkg|bundle.json|project.z42.toml> (default: z42.toml)");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
-    test.AddOption("rid", "", "compile-then-test: target RID (default: host; platform deploy pending)", "");
+    test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
+    test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
+    test.AddOption("agent", "", "device RID: path to z42.testagent.zpkg to stage into the deployable", "");
     test.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
-    root.Add("test", "run [Test] in a compiled module or project", test);
+    root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
     ArgParser bench = new ArgParser("z42b bench", "run [Benchmark] in a compiled module or project");
     bench.AddOptionalPositional("target", "<file.zbc|file.zpkg|project.z42.toml> (default: z42.toml)");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
-    bench.AddOption("rid", "", "compile-then-test: target RID (default: host; platform deploy pending)", "");
+    bench.AddOption("rid", "", "compile-then-test: target RID (default: host)", "");
     bench.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     root.Add("bench", "run [Benchmark] in a compiled module or project", bench);
 

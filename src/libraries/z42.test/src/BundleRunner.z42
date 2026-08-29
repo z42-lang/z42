@@ -1,0 +1,166 @@
+// Shared test-bundle executor (wire-z42b-embedded-test, unify-test-pipeline ②b).
+//
+// A "test-bundle" is a set of cases assembled by the fleet orchestrator (xtask):
+//   golden — a whole program: run in a FRESH isolated VM (ModuleLoader.
+//            RunGoldensIsolated → per-case VmContext, no collision), then compare
+//            captured stdout to an `expected` sibling file.
+//   unit   — a [Test] module: run via Runner.RunModuleResults (shared VM — units
+//            are namespaced, collision-free by design).
+//
+// This is the ALGORITHM (isolate/compare goldens + run units + aggregate),
+// shared by both callers of a bundle:
+//   • the on-device test-agent (Z42.TestHost.Agent — embedded VM, every platform)
+//   • z42b test --rid host    (in-process host executor)
+// The manifest is JSON, but z42.test stays JSON-free (TestReport hand-rolls JSON to
+// avoid a z42.json dependency); so callers parse manifest.json → BundleCase[] with
+// their own z42.json, and hand the parsed cases here. z42 has no jagged arrays →
+// result arrays grow manually.
+namespace Std.Test;
+
+using Std;
+using Std.IO;
+
+// One bundle case. `Entry == null` marks a unit case; a non-null `Entry` (the
+// golden program's entry symbol) marks a golden. `Zbc` / `Expected` are file names
+// relative to the bundle dir.
+public class BundleCase {
+    public string Name;
+    public string Zbc;
+    public string Entry;      // null → unit; non-null → golden entry symbol
+    public string Expected;   // golden: expected-output file name (may be null / "")
+
+    public BundleCase(string name, string zbc, string entry, string expected) {
+        this.Name = name;
+        this.Zbc = zbc;
+        this.Entry = entry;
+        this.Expected = expected;
+    }
+
+    public bool IsGolden() { return this.Entry != null; }
+}
+
+public static class BundleRunner {
+    // Run every case in `cases` and return the aggregated results (goldens first,
+    // then units — the order the agent has always produced). `bundleDir` holds the
+    // case zbc / expected files; `libsDir` is the stdlib dir for the isolated
+    // golden VMs ("" → Z42_LIBS, else <bundleDir>/../libs).
+    public static TestResult[] RunBundle(BundleCase[] cases, string bundleDir, string libsDir) {
+        int n = cases.Length;
+
+        // Pass 1: count goldens (need their own gathered arrays for the batched
+        // isolated run).
+        int gN = 0;
+        for (int i = 0; i < n; i = i + 1) {
+            if (cases[i].IsGolden()) { gN = gN + 1; }
+        }
+
+        TestResult[] all = new TestResult[0];
+
+        // Goldens: gather → RunGoldensIsolated (batched, isolated) → compare stdout.
+        if (gN > 0) {
+            string[] gPaths = new string[gN];
+            string[] gEntries = new string[gN];
+            string[] gNames = new string[gN];
+            string[] gExpected = new string[gN];
+            int gi = 0;
+            for (int i = 0; i < n; i = i + 1) {
+                BundleCase c = cases[i];
+                if (!c.IsGolden()) { continue; }
+                gPaths[gi] = Path.Join(bundleDir, c.Zbc);
+                gEntries[gi] = c.Entry;
+                gNames[gi] = c.Name;
+                string exp = "";
+                if (c.Expected != null && c.Expected.Length > 0) {
+                    string ep = Path.Join(bundleDir, c.Expected);
+                    if (File.Exists(ep)) { exp = File.ReadAllText(ep); }
+                }
+                gExpected[gi] = exp;
+                gi = gi + 1;
+            }
+            string libs = BundleRunner._resolveLibs(libsDir, bundleDir);
+            int jobs = BundleRunner._jobs();
+            string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs, jobs);
+            TestResult[] gr = new TestResult[gN];
+            for (int i = 0; i < gN; i = i + 1) {
+                string got = BundleRunner._stripNl(outs[i]);
+                string want = BundleRunner._stripNl(gExpected[i]);
+                if (got == want) {
+                    gr[i] = new TestResult(gNames[i], "passed", false, null, null);
+                } else {
+                    gr[i] = new TestResult(gNames[i], "failed", false,
+                        "stdout mismatch: want [" + BundleRunner._oneLine(want) + "] got [" + BundleRunner._oneLine(got) + "]", null);
+                }
+            }
+            all = BundleRunner._concat(all, gr);
+        }
+
+        // Units: shared-VM [Test] modules.
+        for (int i = 0; i < n; i = i + 1) {
+            BundleCase c = cases[i];
+            if (c.IsGolden()) { continue; }
+            TestResult[] rs = Runner.RunModuleResults(Path.Join(bundleDir, c.Zbc));
+            all = BundleRunner._concat(all, rs);
+        }
+
+        return all;
+    }
+
+    // Exit code for a bundle result: 1 if any case failed, else 0.
+    public static int ExitCode(TestResult[] results) {
+        int i = 0;
+        while (i < results.Length) {
+            if (results[i].Status == "failed") { return 1; }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    // Resolve the stdlib dir for isolated golden VMs: explicit libsDir wins, else
+    // Z42_LIBS (desktop harness), else <bundleDir>/../libs (the on-device
+    // deployable stages stdlib as a sibling of the bundle dir).
+    static string _resolveLibs(string libsDir, string bundleDir) {
+        if (libsDir != null && libsDir.Length > 0) { return libsDir; }
+        string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        if (env.Length > 0) { return env; }
+        string cand = Path.Join(Path.GetDirectoryName(bundleDir), "libs");
+        if (Directory.Exists(cand)) { return cand; }
+        return "";
+    }
+
+    // Golden parallelism (P2): Z42_TEST_JOBS (int) → workers; 0/unset = auto
+    // (cores), 1 = sequential.
+    static int _jobs() {
+        string jv = Environment.GetEnvironmentVariable("Z42_TEST_JOBS") ?? "";
+        if (jv.Length > 0) {
+            try { return int.Parse(jv); } catch (Exception e) { return 0; }
+        }
+        return 0;
+    }
+
+    // Grow: return a ++ b (z42 has no jagged arrays / built-in concat here).
+    static TestResult[] _concat(TestResult[] a, TestResult[] b) {
+        TestResult[] merged = new TestResult[a.Length + b.Length];
+        for (int i = 0; i < a.Length; i = i + 1) { merged[i] = a[i]; }
+        for (int i = 0; i < b.Length; i = i + 1) { merged[a.Length + i] = b[i]; }
+        return merged;
+    }
+
+    // Strip trailing newlines only (mirror the host golden runner's
+    // _stripTrailingNewlines — NOT a full trim, so trailing spaces still matter).
+    static string _stripNl(string s) {
+        int e = s.Length;
+        while (e > 0) {
+            string ch = s.Substring(e - 1, 1);
+            if (ch == "\n" || ch == "\r") { e = e - 1; } else { break; }
+        }
+        return s.Substring(0, e);
+    }
+
+    // First line (for a compact mismatch reason).
+    static string _oneLine(string s) {
+        int nl = s.IndexOf("\n");
+        string head = (nl >= 0) ? s.Substring(0, nl) : s;
+        if (head.Length > 80) { head = head.Substring(0, 80) + "…"; }
+        return head;
+    }
+}

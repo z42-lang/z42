@@ -112,6 +112,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     // stdlib/compiler stages don't exercise.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
+        failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -141,6 +142,37 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
+    return 0;
+}
+
+// bundle-host smoke (wire-z42b-embedded-test ②b): compile a trivial [Test] unit →
+// .zbc, wrap it in a 1-case manifest, and run it through the single
+// `z42b test <manifest.json> --rid host` entry — exercising the in-process
+// Std.Test.BundleRunner path (the host half of the embedded flow xtask delegates
+// to z42b), which the default gate would otherwise not cover (`test embedded` is a
+// separate stage). Returns 0 pass / 1 fail; skips cleanly (0) if the fixture is absent.
+int _smokeBundleHost(string root, TargetTooling tt) {
+    string src = Path.Join(root, "src/tests/manifest-targets/bundle-host/pass_unit.z42");
+    if (!File.Exists(src)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");
+    string outDir = Path.Join(root, "artifacts/build/embedded-test/smoke-bundle-host");
+    Directory.Create(outDir);
+    string zbc = Path.Join(outDir, "pass_unit.zbc");
+    int ec = _exec(new Process(tt.Vm).Arg(tt.DriverZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("--emit-zbc").Arg(src).Arg(zbc)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (ec != 0) { Console.WriteLine("  ❌ bundle-host: compile fixture failed"); return 1; }
+    string manifest = Path.Join(outDir, "manifest.json");
+    File.WriteAllText(manifest, "{\"cases\":[{\"name\":\"bundle_host_smoke\",\"zbc\":\"pass_unit.zbc\"}]}\n");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(manifest).Arg("--rid").Arg("host").Arg("--format").Arg("json")
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ bundle-host: `z42b test <manifest> --rid host` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ bundle-host: `z42b test <manifest> --rid host` passed");
     return 0;
 }
 

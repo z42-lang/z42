@@ -1,13 +1,17 @@
-// xtask — embedded test-host (wire-embedded-testhost, 2026-08-02).
+// xtask — embedded test-host (wire-embedded-testhost, 2026-08-02;
+// wire-z42b-embedded-test ②b, 2026-08-29).
 //
-// Productionizes the desktop harness flow proven manually in add-embedded-app-run
-// (#95): build the shared test-agent (z42.testagent.zpkg) + the desktop testhost
-// shell (cc testhost.c + link libz42.a) → run a test module THROUGH the embedded
-// VM (testhost → z42_host_run_app → z42::app::run → agent → Std.Test.Runner) →
-// structured result. Same core the z42vm binary uses; desktop self-contained
-// embedding is the template mobile shells reuse (same z42_host_run_app C symbol).
+// xtask is the fleet ORCHESTRATOR here: it discovers/compiles the corpus into a
+// test-bundle (manifest.json + case zbcs) and, per RID, hands that bundle to z42b
+// (the single-bundle EXECUTOR):
+//   • host (desktop)  → z42b test <manifest> --rid host   → runs it in-process via
+//                       Std.Test.BundleRunner (no testhost/agent spawn on the host).
+//   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> --agent <zpkg>
+//     ios/android)      → z42b stages the {app,libs,bundle} deployable; xtask keeps
+//                       the native platform build + device RUN (Playwright /
+//                       xcodebuild-sim / gradle, CI-gated).
 //
-// `xtask test embedded <target.zbc> [--format json|pretty|tap]`
+// `xtask test embedded [target] [--rid <rid>] [--format json|pretty|tap]`
 namespace Z42Xtask;
 
 using Std;
@@ -27,44 +31,6 @@ string _ensureTestAgent(string root) {
         .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
     if (c != 0) { return ""; }
     return zpkg;
-}
-
-// Build the desktop testhost shell: cc testhost.c + STATIC-link libz42.a (explicit
-// .a — `-lz42` would prefer a stale .dylib). Builds libz42.a first if missing.
-string _ensureDesktopTesthost(string root) {
-    string libDir = Path.Join(root, "artifacts/build/runtime/release");
-    string libA = Path.Join(libDir, "libz42.a");
-    if (!File.Exists(libA)) {
-        Console.WriteLine("  cargo rustc --crate-type=staticlib → libz42.a");
-        int rc = _exec(new Process("cargo").Arg("rustc").Arg("--release")
-            .Arg("--manifest-path").Arg("src/runtime/Cargo.toml").Arg("--lib")
-            .Arg("--crate-type=staticlib"));
-        if (rc != 0 || !File.Exists(libA)) { return ""; }
-    }
-    string outDir = Path.Join(root, "artifacts/build/desktop-test");
-    Directory.Create(outDir);
-    string bin = Path.Join(outDir, "testhost");
-    string src = Path.Join(root, "src/toolchain/workload/desktop/shell/testhost.c");
-    Console.WriteLine("  cc testhost.c + libz42.a → testhost");
-    Process cc = new Process("cc").Arg("-O2").Arg("-o").Arg(bin).Arg(src).Arg(libA);
-    foreach (var l in _embeddedNativeLibs()) { cc = cc.Arg(l); }
-    int c = _exec(cc);
-    if (c != 0 || !File.Exists(bin)) { return ""; }
-    return bin;
-}
-
-// Native libs a Rust staticlib needs at link time (mirrors DesktopBackend._nativeLibs).
-string[] _embeddedNativeLibs() {
-    if (Platform.IsMacOS()) {
-        string[] m = new string[3]; m[0] = "-liconv"; m[1] = "-lc"; m[2] = "-lm";
-        return m;
-    }
-    if (Platform.IsLinux()) {
-        string[] l = new string[6];
-        l[0] = "-lc"; l[1] = "-lm"; l[2] = "-lpthread"; l[3] = "-ldl"; l[4] = "-lrt"; l[5] = "-lgcc_s";
-        return l;
-    }
-    return new string[0];
 }
 
 // ── golden → [Test] 归一 (wire-embedded-testhost G1) ─────────────────────────
@@ -596,7 +562,6 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, "browser-wasm", shardK, shardN);
     if (manifest.Length == 0) { return ""; }
-    string bundleDir = Path.GetDirectoryName(manifest);
 
     // 2. shared test-agent app.zpkg (same bytecode runner as desktop).
     string agent = _ensureTestAgent(root);
@@ -610,9 +575,13 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
         wasmCrate);
     if (wc != 0) { ConsoleError.WriteLine("error: wasm-pack build failed"); return ""; }
 
-    // 4. assemble the servable dir: pkg + static harness + assets + files.json.
+    // 4. assemble the servable dir. z42b stages {app,libs,bundle} + files.json
+    // (Slice 2 delegation); then add the wasm pkg + static harness on top (these are
+    // fetched directly by the browser, NOT via the VFS files.json). z42b clears
+    // outDir first, so stage BEFORE copying the pkg/harness.
     string outDir = Path.Join(root, "artifacts/build/wasm-test");
-    Directory.Create(outDir);
+    int ac = _z42bStageDeployable(root, manifest, "browser-wasm", agent, outDir);
+    if (ac != 0) { ConsoleError.WriteLine("error: z42b stage wasm deployable failed"); return ""; }
     string pkgWeb = Path.Join(wasmCrate, "pkg-web");
     File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"), true);
     File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"), true);
@@ -620,38 +589,32 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     File.Copy(Path.Join(thDir, "index.html"), Path.Join(outDir, "index.html"), true);
     File.Copy(Path.Join(thDir, "run.js"), Path.Join(outDir, "run.js"), true);
 
-    string files = "";
-    // app/ — the test-agent.
-    string appDir = Path.Join(outDir, "app"); Directory.Create(appDir);
-    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
-    files = _appendFileEntry(files, "/app/z42.testagent.zpkg", "app/z42.testagent.zpkg");
-    // libs/ — all flat stdlib zpkgs (every agent + case dep resolves from here).
-    string flat = _assembleAllLibs(root, "release");
-    string libsOut = Path.Join(outDir, "libs"); Directory.Create(libsOut);
-    foreach (var z in _sortedStrings(Directory.Enumerate(flat))) {
-        if (!z.EndsWith(".zpkg")) { continue; }
-        File.Copy(Path.Join(flat, z), Path.Join(libsOut, z), true);
-        files = _appendFileEntry(files, "/libs/" + z, "libs/" + z);
-    }
-    // bundle/ — manifest.json + every case zbc.
-    string bundleOut = Path.Join(outDir, "bundle"); Directory.Create(bundleOut);
-    foreach (var f in _sortedStrings(Directory.Enumerate(bundleDir))) {
-        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
-        files = _appendFileEntry(files, "/bundle/" + f, "bundle/" + f);
-    }
-    File.WriteAllText(Path.Join(outDir, "files.json"), "[\n" + files + "\n]\n");
-
     Console.WriteLine("  wasm test-host → " + outDir);
     Console.WriteLine("  serve that dir (e.g. `python3 -m http.server`) and open index.html;");
     Console.WriteLine("  Playwright/CI reads window.__report (the JSON report) once window.__done.");
     return outDir;
 }
 
-// Append one files.json `{vfs,url}` entry (comma-separated).
-string _appendFileEntry(string acc, string vfs, string url) {
-    string e = "  {\"vfs\": \"" + vfs + "\", \"url\": \"" + url + "\"}";
-    if (acc.Length == 0) { return e; }
-    return acc + ",\n" + e;
+// Delegate on-device deployable assembly to z42b (unify-test-pipeline ②b Slice 2):
+// z42b stages destDir/{app,libs,bundle} (+ files.json for browser-wasm) from the
+// bundle manifest + the pre-built test-agent + flat stdlib (Z42_LIBS). xtask (fleet
+// orchestrator) keeps the native platform build + device RUN handoff.
+int _z42bStageDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
+    string vm = _builtVm(root, "release");
+    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
+        ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
+        return 1;
+    }
+    string flat = _assembleAllLibs(root, "release");
+    ProcessResult res = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+        .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
+        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent)
+        .Env("Z42_LIBS", flat).Run();
+    if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
+    if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
+    return res.ExitCode;
 }
 
 // ── mobile embedded test-host (add-wasm-testhost G6: ios / android) ───────────
@@ -662,25 +625,10 @@ string _appendFileEntry(string acc, string vfs, string url) {
 // file (out-path arg) which the native test reads back. Only the packaging +
 // thin native shell differ per platform.
 
-// Assemble the on-device corpus under destDir/{app,libs,bundle}: the test-agent
-// app.zpkg, all flat stdlib zpkgs, and the test bundle (manifest + case zbcs).
-// This is the layout iOS Resources / Android assets consume.
-void _assembleEmbeddedCorpus(string root, string bundleDir, string agent, string destDir) {
-    if (Directory.Exists(destDir)) { Directory.Delete(destDir, true); }
-    Directory.Create(destDir);
-    string appDir = Path.Join(destDir, "app"); Directory.Create(appDir);
-    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
-    string flat = _assembleAllLibs(root, "release");
-    string libsOut = Path.Join(destDir, "libs"); Directory.Create(libsOut);
-    foreach (var z in _sortedStrings(Directory.Enumerate(flat))) {
-        if (!z.EndsWith(".zpkg")) { continue; }
-        File.Copy(Path.Join(flat, z), Path.Join(libsOut, z), true);
-    }
-    string bundleOut = Path.Join(destDir, "bundle"); Directory.Create(bundleOut);
-    foreach (var f in _sortedStrings(Directory.Enumerate(bundleDir))) {
-        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
-    }
-}
+// The on-device {app,libs,bundle} corpus is staged by z42b (_z42bStageDeployable,
+// Slice 2) — the layout iOS Resources / Android assets consume. iOS/Android read
+// it straight from paths (real filesystem, no VFS) and call the SAME
+// z42_host_run_app C symbol as desktop; only the native shell differs per platform.
 
 // Build the iOS xcframework for the slices `rid` implies. The macOS-host slice
 // (aarch64-apple-darwin) is ALWAYS built so `swift test` can run the embedded
@@ -730,13 +678,13 @@ string _buildIosTesthost(string root, string filter, string rid, int shardK, int
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
-    string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
     if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
 
     string here = Path.Join(root, "src/toolchain/workload/ios/platform");
     string resDir = Path.Join(here, "Tests/Z42VMTests/Resources/embedded");
-    _assembleEmbeddedCorpus(root, bundleDir, agent, resDir);
+    int ac = _z42bStageDeployable(root, manifest, rid, agent, resDir);
+    if (ac != 0) { ConsoleError.WriteLine("error: z42b stage ios deployable failed"); return ""; }
     Console.WriteLine("  embedded corpus → " + resDir);
 
     int xc = _buildIosXcframework(root, here, rid);
@@ -795,13 +743,13 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
-    string bundleDir = Path.GetDirectoryName(manifest);
     string agent = _ensureTestAgent(root);
     if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
 
     string here = Path.Join(root, "src/toolchain/workload/android/platform");
     string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
-    _assembleEmbeddedCorpus(root, bundleDir, agent, assetsDir);
+    int ac = _z42bStageDeployable(root, manifest, rid, agent, assetsDir);
+    if (ac != 0) { ConsoleError.WriteLine("error: z42b stage android deployable failed"); return ""; }
     Console.WriteLine("  embedded corpus → " + assetsDir);
 
     // cargo-ndk → libz42_platform_android.so for this ABI into jniLibs. All three
@@ -888,14 +836,22 @@ int _testEmbedded(ParseResult r) {
         runArg = target;
     }
 
-    string agent = _ensureTestAgent(root);
-    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
-    string host = _ensureDesktopTesthost(root);
-    if (host.Length == 0) { ConsoleError.WriteLine("error: build desktop testhost failed"); return 1; }
-
+    // Host desktop: DELEGATE to z42b — the single-bundle EXECUTOR
+    // (unify-test-pipeline ②b). z42b runs the bundle/module in-process via the
+    // shared Std.Test.BundleRunner (goldens isolated + compared, units shared-VM),
+    // the SAME core the on-device agent embeds. No desktop testhost / agent spawn
+    // on the host: xtask (fleet orchestrator) built the bundle; z42b runs it.
+    string vm = _builtVm(root, "release");
+    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
+        ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
+        return 1;
+    }
     string libs = _libsDir(root);
-    Console.WriteLine("→ embedded run: testhost " + Path.GetFileName(agent) + " " + runArg + " " + format);
-    ProcessResult res = new Process(host).Arg(agent).Arg(runArg).Arg(format)
+    Console.WriteLine("→ embedded run (z42b): test " + runArg + " --rid host --format " + format);
+    ProcessResult res = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+        .Arg("--").Arg("test").Arg(runArg).Arg("--rid").Arg("host").Arg("--format").Arg(format)
         .Env("Z42_LIBS", libs).Run();
     Console.Write(res.Stdout);
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }

@@ -476,6 +476,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | **D-3** | N>4 arity Action / Func（自举后用 z42 写生成器）| [language/delegates-events.md](design/language/delegates-events.md#d-3-n4-arity-action--func) |
 | **D-4** | 协变 / 逆变（`<in T, out R>` 等）| [language/generics.md](design/language/generics.md#d-4-协变--逆变in-t-out-r-等) |
 | **D-11** | introduce-bound-visitor（review.md §2.1 visitor 抽象基类）| [compiler/compiler-architecture.md](design/compiler/compiler-architecture.md#d-11-introduce-bound-visitorreviewmd-21-visitor-抽象基类) |
+| `test-pipeline-future-device-run` | ②b Slice 3：z42b 接管设备端**实际 RUN**（驱动 Playwright / xcodebuild-sim / gradle）；当前 xtask/CI 外部触发 | [toolchain/test-pipeline.md](book/src/toolchain/test-pipeline.md#deferred--future-work) |
 | ~~`repl-multiline-future-rbrace-floor`~~ ✅ | 已实现 (2026-08-29) — `add-repl-rbrace-floor`：`}` 自动回退一级 + 退格 floor 到前制表位。用 `Replace(WholeLine)`（唯一 redo-免疫的变量宽度删+插）+ patch rustyline `edit_insert_text` 使插入后推进光标（`[patch.crates-io]` → `z42-lang/rustyline` v14.0.0 单 commit，已同步上游）根治坑 ②「光标归位行首破坏 `} else {`」 | [archive/2026-08-29-add-repl-rbrace-floor/design.md](spec/archive/2026-08-29-add-repl-rbrace-floor/design.md) |
 | ~~`compiler-future-typed-overload-resolution`~~ ✅ | 已修复 (2026-07-01) — `add-type-based-overloads`：type-based mangling（`OverloadResolver`）+ 实例方法协议豁免名单，解锁同元不同类型 ctor / method 重载 | [compiler/compiler-architecture.md](design/compiler/compiler-architecture.md#方法重载决议type-based-mangling--协议豁免名单add-type-based-overloads2026-07-01) |
 | ~~`compiler-future-vcall-base-class-fallback`~~ ✅ | 已修复 (2026-05-26) — 三处协同修复：IrGen.Classes.cs `.base` 元数据用 QualifyClassName；FunctionEmitter.cs base ctor IR 名从 SemanticModel 推导；exec_vcall.rs lazy walk 对深层 base 用 ctx.try_lookup_type() | [compiler/compiler-architecture.md](design/compiler/compiler-architecture.md#compiler-future-vcall-base-class-fallback-已修复-2026-05-26) |
@@ -511,15 +512,18 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 ### 平台测试 CI / 后续（add-platform-test-pipeline 之后）
 
 > 三平台 xtask 三阶段框架已落地（2026-06-16，wasm 端到端验证 7/7）。
-> **统一执行模型（unify-test-pipeline-z42b，2026-08-29 阶段①已落）**：确立 z42b = 单目标执行器 /
-> xtask = 语料编排器 / bundle manifest 为缝；on-device test-agent 迁入按需下载的能力 workload
-> `workload/test/`（取消独立 testhost 目录）。目标架构 + 分阶段见
-> [cross-platform-testing.md](design/testing/cross-platform-testing.md) 顶部与 change design.md。剩余：
+> **统一执行模型（unify-test-pipeline-z42b）**：确立 z42b = 单目标执行器 / xtask = 语料编排器 /
+> bundle manifest 为缝。**①（2026-08-29）**：on-device test-agent 迁入按需下载能力 workload
+> `workload/test/`（取消独立 testhost 目录）。**②a（2026-08-29 PR #331）**：`z42b test <toml>`
+> compile-then-test。**②b（wire-z42b-embedded-test，2026-08-29）**：`z42b test <manifest> --rid host`
+> in-process 跑 bundle（共享核 `Std.Test.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
+> `{app,libs,bundle}` deployable；`xtask test embedded` 委托 z42b。机制 SoT =
+> [test-pipeline.md](book/src/toolchain/test-pipeline.md)。剩余：
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
-| `z42b-test-take-over-deploy-run` | **阶段②**：z42b 接管 on-device「部署 + 运行一个 bundle/项目」+ test workload 打包发布（payload-only 形状，design D6）。统一 `z42b test [--rid]` 接线 | wire-z42b-host-build 后 |
-| `simplify-xtask-platform-backends-to-z42b` | **阶段②核心**：`xtask_test_platform.z42` 各平台 backend（`IPlatformBackend.BuildProject/Assets/RunTests`）的 bespoke build/deploy/run 全委托 `z42b test --rid`，backend 收缩为「声明 rid + 转调 + 翻译报告」薄壳，消四平台重复；xtask 只留语料级编排 | 随 `z42b-test-take-over-deploy-run` |
+| `package-test-workload` | **Change C（进行中）**：test workload 打包发布（payload-only 形状，复用 `kind=workload-tooling` + 新 `[contents.payload]`，design D6）+ `workload install` 描述泛化 | 随 ②b |
+| `z42b-test-take-over-device-run` | **②b Slice 3（deferred）**：z42b 接管设备端**实际 RUN**（驱动 Playwright / xcodebuild-sim / gradle），当前仍 xtask/CI 外部触发。见 [test-pipeline.md](book/src/toolchain/test-pipeline.md) Deferred | 设备 RUN 统一抽象就绪时 |
 | `infra-ci-platform-test-dashboard` | CI job 跑 wasm(ubuntu+Playwright) / iOS(macos runner + Simulator `xcodebuild test`) / Android(`reactivecircus/android-emulator-runner` + KVM) 三平台 `test platform`，各产 JUnit → **GitHub Checks**（test-reporter action）聚合成 PR check runs = 跨平台测试 dashboard。GitHub 即远程同步层，无需自建服务 | 下一步（User 2026-06-16 要求）|
 | `port-android-emulator-run-to-z42` | AndroidBackend.RunTests 当前桥接 `test.sh`（emulator AVD boot/poll/kill）；完整 z42 化 + JUnit 转换 | CI 稳定后 |
 | `ios-simulator-test` | IosBackend.RunTests 当前 `swift test`（macOS host slice）；加 iOS Simulator `xcodebuild test -destination` 执行 + JUnit | CI 接入时 |
