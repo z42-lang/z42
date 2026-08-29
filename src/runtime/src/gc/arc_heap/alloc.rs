@@ -22,13 +22,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// saving a heap alloc + memcpy per object `new` (measured ~10% on
     /// allocation-heavy JIT loops).
     pub(super) fn record_alloc(&self, _value: &Value, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
-        // 1. 更新 stats（先借再放，避免后续触发事件时 borrow 冲突）
-        {
-            let mut i = self.inner.lock();
-            i.stats.allocations += 1;
-            i.stats.used_bytes  = i.stats.used_bytes.saturating_add(size as u64);
-        }
-        // 2. 压力检查（可能触发 GcEvent）
+        use std::sync::atomic::Ordering;
+        // 1. 更新 stats —— **add-gc-tlab (option B)**: lock-free atomic counters (no inner lock).
+        //    `Relaxed` is sufficient: these are monotone heuristic counters, not synchronization.
+        self.allocations.fetch_add(1, Ordering::Relaxed);
+        self.used_bytes.fetch_add(size as u64, Ordering::Relaxed);
+        // 2. 压力检查（可能触发 GcEvent）—— reads the atomic used_bytes.
         self.check_pressure(size as u64);
         // 3. Sampler 调度（仅采样时构造 AllocKind → 省掉热路径的类名 String clone）
         let sampler = self.inner.lock().alloc_sampler.clone();
@@ -38,6 +37,27 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 size_bytes: size,
                 timestamp_us: Self::now_us(),
             });
+        }
+    }
+
+    /// **add-gc-tlab (option B)**: read the lock-free live `used_bytes` counter.
+    #[inline]
+    pub(super) fn used_bytes_atomic(&self) -> u64 {
+        self.used_bytes.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// **add-gc-tlab (option B)**: saturating subtract on the atomic `used_bytes`, used by the
+    /// collect paths to account reclaimed bytes. A CAS loop keeps the saturation correct even
+    /// though collect runs under STW (no concurrent alloc) — cheap and future-proof.
+    pub(super) fn sub_used_bytes(&self, n: u64) {
+        use std::sync::atomic::Ordering;
+        let mut cur = self.used_bytes.load(Ordering::Relaxed);
+        loop {
+            let new = cur.saturating_sub(n);
+            match self.used_bytes.compare_exchange_weak(cur, new, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(actual) => cur = actual,
+            }
         }
     }
 
@@ -62,10 +82,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// **Phase 3-OOM**: 检查在当前 used_bytes 基础上再分配 `size` 字节是否会
     /// 越过 max_heap_bytes 上限。仅在 strict_oom 模式下使用。
     pub(super) fn would_oom_after_alloc(&self, size: u64) -> (bool, u64) {
-        let i = self.inner.lock();
-        if !i.strict_oom { return (false, 0); }
-        let Some(limit) = i.stats.max_bytes else { return (false, 0); };
-        let after = i.stats.used_bytes.saturating_add(size);
+        let (strict, max) = { let i = self.inner.lock(); (i.strict_oom, i.stats.max_bytes) };
+        if !strict { return (false, 0); }
+        let Some(limit) = max else { return (false, 0); };
+        // add-gc-tlab (option B): used_bytes now lives on the atomic, not inner.stats.
+        let after = self.used_bytes_atomic().saturating_add(size);
         (after > limit, limit)
     }
 
@@ -84,10 +105,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// 当 flag 未装（GC 单测直接 `ArcMagrGC::new()` 路径）→ fallback 回原
     /// inline collect，保持单线程现有行为零变化。
     pub(super) fn maybe_auto_collect(&self) {
-        let (used, max_opt, last, paused) = {
+        let (max_opt, last, paused) = {
             let i = self.inner.lock();
-            (i.stats.used_bytes, i.stats.max_bytes, i.last_auto_collect_used, i.pause_count > 0)
+            (i.stats.max_bytes, i.last_auto_collect_used, i.pause_count > 0)
         };
+        let used = self.used_bytes_atomic();
         if paused { return; }
         let Some(limit) = max_opt else { return };
         let cfg = crate::config::runtime_config();
@@ -115,18 +137,20 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// 触发 NearHeapLimit 的同一比率——保证「发一次事件」与「重置事件闩」用同一阈值。
     pub(super) fn maybe_reset_near_limit_warned(&self) {
         let near_ratio = crate::config::runtime_config().gc_near_limit_ratio;
+        let used = self.used_bytes_atomic(); // add-gc-tlab (option B)
         let mut i = self.inner.lock();
         let Some(limit) = i.stats.max_bytes else { return };
         let near_threshold = (limit as f64 * near_ratio) as u64;
-        if i.stats.used_bytes < near_threshold {
+        if used < near_threshold {
             i.near_limit_warned = false;
         }
     }
 
     pub(super) fn check_pressure(&self, requested: u64) {
-        let (used, max, near_warned) = {
+        let used = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        let (max, near_warned) = {
             let i = self.inner.lock();
-            (i.stats.used_bytes, i.stats.max_bytes, i.near_limit_warned)
+            (i.stats.max_bytes, i.near_limit_warned)
         };
         let Some(limit) = max else { return };
         let cfg = crate::config::runtime_config();

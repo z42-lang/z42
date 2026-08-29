@@ -281,12 +281,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// `revive_if_unmarked` outside the lock (only touches RegionEntry
     /// atomics — no heap lock required).
     pub(super) fn revive_soft_refs(&self) {
-        let (entries, used_bytes, max_bytes) = {
+        let used_bytes = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        let (entries, max_bytes) = {
             let inner = self.inner.lock();
             let entries = inner.soft_registry.snapshot_entries();
-            let used = inner.stats.used_bytes;
             let max  = inner.stats.max_bytes.unwrap_or(0);
-            (entries, used, max)
+            (entries, max)
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
         let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes);

@@ -101,7 +101,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn collect_cycles(&self) {
         if self.inner.lock().pause_count > 0 { return; }
         let start = Self::now_us();
-        let used_before = self.inner.lock().stats.used_bytes;
+        let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
         self.fire_event(GcEvent::BeforeCollect {
             kind: GcKind::CycleCollector, used_bytes: used_before,
         });
@@ -111,7 +111,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.stats.gc_cycles += 1;
             i.stats.major_collections += 1;
             i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
-            i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
+            self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
         }
         // Phase 3d: 若 used 已降到 90% 阈值以下，重置 near_limit_warned
         self.maybe_reset_near_limit_warned();
@@ -131,7 +131,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return CollectStats::default();
         }
         let start = Self::now_us();
-        let used_before = self.inner.lock().stats.used_bytes;
+        let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
         self.fire_event(GcEvent::BeforeCollect {
             kind: GcKind::Full, used_bytes: used_before,
         });
@@ -141,7 +141,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.stats.gc_cycles += 1;
             i.stats.major_collections += 1;
             i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
-            i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
+            self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
         }
         self.maybe_reset_near_limit_warned();
         let pause_us = Self::now_us().saturating_sub(start);
@@ -168,7 +168,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 };
                 if self.inner.lock().pause_count > 0 { return; }
                 let start = Self::now_us();
-                let used_before = self.inner.lock().stats.used_bytes;
+                let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
                 self.fire_event(GcEvent::BeforeCollect {
                     kind: GcKind::CycleCollector, used_bytes: used_before,
                 });
@@ -209,7 +209,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     i.stats.gc_cycles += 1;
                     i.stats.major_collections += 1;
                     i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
-                    i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
+                    self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
                 }
                 self.maybe_reset_near_limit_warned();
                 let pause_us = Self::now_us().saturating_sub(start);
@@ -243,7 +243,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 if self.inner.lock().pause_count > 0 { return; }
 
                 let start = Self::now_us();
-                let used_before = self.inner.lock().stats.used_bytes;
+                let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
                 self.fire_event(GcEvent::BeforeCollect {
                     kind: GcKind::CycleCollector, used_bytes: used_before,
                 });
@@ -288,7 +288,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     i.stats.minor_collections += 1;
                     if did_major { i.stats.major_collections += 1; }
                     i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
-                    i.stats.used_bytes = i.stats.used_bytes.saturating_sub(freed_bytes);
+                    self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
                 }
                 self.maybe_reset_near_limit_warned();
                 let pause_us = Self::now_us().saturating_sub(start);

@@ -286,7 +286,7 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn used_bytes(&self) -> u64 {
-        self.inner.lock().stats.used_bytes
+        self.used_bytes_atomic() // add-gc-tlab (option B): lock-free atomic counter
     }
 
     fn set_strict_oom(&self, enabled: bool) {

@@ -358,6 +358,14 @@ pub struct ArcMagrGC {
     /// heap (`corelib::str_meta`) can detect a heap switch and drop entries that would otherwise
     /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
     epoch: u64,
+    /// **add-gc-tlab (option B, 2026-08-29)**: live allocation counters moved OUT of the
+    /// `inner`-locked `HeapStats` onto lock-free atomics, so the per-alloc hot path
+    /// (`record_alloc`) no longer takes the `inner` Mutex (removes 2 of the 4–5 inner locks
+    /// per `new`). `stats()` reads these to fill the returned `HeapStats` snapshot; collect
+    /// paths `sub_used_bytes` the reclaimed bytes. `Relaxed` suffices — these are monotone
+    /// counters / heuristic pressure thresholds, not synchronization for other heap state.
+    used_bytes: std::sync::atomic::AtomicU64,
+    allocations: std::sync::atomic::AtomicU64,
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at
@@ -387,6 +395,9 @@ impl Default for ArcMagrGC {
             debug_stw_no_push: std::sync::atomic::AtomicBool::new(false),
             // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
             epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            // add-gc-tlab (option B): live counters start at 0 (no allocations yet).
+            used_bytes: std::sync::atomic::AtomicU64::new(0),
+            allocations: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
