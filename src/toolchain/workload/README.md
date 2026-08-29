@@ -4,6 +4,8 @@
 
 承载**一切平台相关**的应用工程能力：把 runtime 产的平台无关 `app.zpkg` + 原始库，包装成各平台可发布/可导出的工程与产物。按 dotnet workload 模型，**按需 `z42 workload install <plat>`** 下载。
 
+> **也含一个平台无关的能力 workload**（2026-08-29 起）：`workload/test/`（`z42 workload install test`）——跑测试流程时按需下载的**共享**件（on-device test-agent，平台无关一份字节码）。它不随某平台下载、也不进 SDK 恒在核心；平台专属的嵌入 host 壳仍住各 `workload/<plat>/`。见下「目标结构」。
+
 立柱（见 [platform-export-lifecycle.md](../../../docs/design/toolchain/platform-export-lifecycle.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
 
 与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api** + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + tests 契约 + platform 原生绑定 Tier3）。
@@ -24,7 +26,18 @@ workload/<plat>/          # ios / android / desktop / wasm
 └── platform/     # 原生绑定 Tier3（Swift / Kotlin / TS + rust → 编成 runtime pack；原 facade）
 ```
 
-> 四 workload：`desktop`（仅 publish/export，复用宿主 runtime，**无 `platform/`**）/ `ios` / `android` / `wasm`（含 target runtime pack）。分发模型见 [runtime-workload-distribution.md](../../../docs/design/toolchain/runtime-workload-distribution.md)。
+> 四**平台** workload：`desktop`（仅 publish/export，复用宿主 runtime，**无 `platform/`**）/ `ios` / `android` / `wasm`（含 target runtime pack）。分发模型见 [runtime-workload-distribution.md](../../../docs/design/toolchain/runtime-workload-distribution.md)。
+>
+> 另有一个**非平台的能力 workload**（不套上面平台模板）：
+>
+> ```
+> workload/test/            # 「测试运行」能力 workload（z42 workload install test；平台无关）
+> └── agent/                # on-device test-agent（一份字节码全平台共享；见 test/README.md）
+> ```
+>
+> 它是 **payload-only 形状**（只有 agent zpkg、无 per-RID runtime pack、`host:["*"]`）——install CLI
+> 无需改（名 manifest 驱动、通配 host 已支持），打包/发布落地为后续阶段（change
+> `unify-test-pipeline-z42b` design D6）。
 >
 > 旧「关注点优先」方案（`host-api/` `facades/` `templates/` `apphost/` `conformance/` 顶层）**作废**。host-api（Tier2）→ `runtime/`；facade → 各平台 `platform/`；conformance → 各平台 `tests/`。
 >

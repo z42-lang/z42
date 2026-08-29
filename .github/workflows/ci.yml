@@ -73,7 +73,6 @@ jobs:
               - 'scripts/test/xtask_test_android.z42'
               - 'scripts/test/xtask_test_desktop.z42'
               - 'scripts/test/xtask_test_embedded.z42'
-              - 'src/toolchain/testhost/**'
               - 'versions.toml'
               - '.github/workflows/ci.yml'
             # change-detect rule (b): gates the bootstrap boundary check

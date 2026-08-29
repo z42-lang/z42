@@ -1,5 +1,31 @@
 # Cross-Platform 测试架构
 
+> **更新（unify-test-pipeline-z42b，2026-08-29）—— 两层执行模型 + bundle 缝**：本节是当前
+> 权威的顶层框架，下文旧描述按此校准。
+>
+> **两层职责切分：**
+> - **z42b = 单目标执行器**：给一个目标（项目 or bundle）+ 一个 rid，负责「编译→部署→运行」这
+>   **一份**。host（无 rid）走 `builder_test` 进程内反射；on-device（`--rid`）走部署 + 嵌入 agent。
+>   统一为 `z42b test [--rid]`。
+> - **xtask = 语料/fleet 编排器**：repo 结构知识（发现 `src/tests/**` + `libraries/<lib>/tests/**`、
+>   编译全量 → .zbc、分片、聚合、CI 门禁）留在 harness。z42b 眼里只有「一个项目」，散装 fixture 语料
+>   天然多工程 → 不能塞进 z42b。
+> - **缝 = bundle manifest** `{cases:[golden|unit …]}`：xtask 编完语料吐 bundle，`z42b test --rid`
+>   消费（`agent._runBundleReport` 已支持：golden 隔离 VM + unit 共享 VM）。无需新协议。
+>
+> **on-device 载荷归属**：test-agent 住**按需下载的能力 workload** `workload/test/agent`（平台无关，
+> `z42 workload install test`），非某平台、也不进 SDK 恒在核心。平台专属嵌入 host 壳仍住各
+> `workload/<plat>/`——共享 agent 随 test workload 下载、平台 host 随平台 workload 下载，边界清晰。
+> test workload 是 **payload-only 形状**（无 per-RID runtime pack、`host:["*"]`；install CLI 免改，
+> 打包侧后续扩展）。
+>
+> **分阶段（尊重 wire-z42b-host-build 时序）**：
+> ① 载荷归位 + 架构定稿（已落，xtask 仍编译+驱动嵌入运行）；
+> ② z42b 接管部署运行 + test workload 打包发布 + **各平台 backend 委托 `z42b test --rid`、退 bespoke**
+> （`xtask_test_platform.z42` 的 `IPlatformBackend` 收缩为薄壳）；
+> ③ z42b in-process 编译成熟后，「编译一个项目」也走 z42b（语料级编译仍留 xtask）。
+> 详见 change `unify-test-pipeline-z42b` 的 design.md（D1–D6）。
+
 > **更新（retire-test-runner，2026-06-30）**：本文多处把 runner 描述为 Rust **library**
 > （`src/toolchain/test-runner/src/lib.rs`，各平台绑库不 fork）。该 Rust runner 已删除——
 > host 上 runner 现为 z42b（`z42.builder.zpkg` 经 `z42vm`，见 [testing.md](testing.md)）。
