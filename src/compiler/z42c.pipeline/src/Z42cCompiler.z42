@@ -53,13 +53,16 @@ public class Z42cCompiler : ICompiler {
             declaredDeps[depN] = base; depN = depN + 1;
             d = d + 1;
         }
-        // 5. 构 CompileInputs（app：kind=exe、name=尾目录名、auto-entry）。
+        // 5. 构 CompileInputs（name=尾目录名、auto-entry）。kind 由 req 决定：exe（默认，auto-detect
+        //    Main）/ lib（无需 Main——支持 compile-then-test 直接编测试工程，add-z42b-compile-then-test）。
         CompileInputs inp = new CompileInputs();
         inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
         inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
         string name = Path.GetFileName(req.SourceDir);
         if (name == "") { name = "app"; }
-        inp.Name = name; inp.Version = "0.0.0"; inp.Kind = "exe";
+        string kind = req.Kind;
+        if (kind == "") { kind = "exe"; }              // 未指定 → app 默认 exe（保持既有 MVP 行为）
+        inp.Name = name; inp.Version = "0.0.0"; inp.Kind = kind;
         inp.HasEntry = false; inp.Entry = "";
         inp.IsRelease = req.Profile == "release";
         inp.LibsDirs = libsDirs; inp.LibsDirsN = libsN;

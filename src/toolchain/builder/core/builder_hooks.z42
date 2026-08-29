@@ -47,7 +47,8 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
     string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
 
     string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
-    CompileRequest req = new CompileRequest(staging, outZpkg, deps, "release", false, false);
+    // hooks 合成入口是 exe（含 no-op Main 满足 exe 编译面，见 _synthHooksEntry）。
+    CompileRequest req = new CompileRequest(staging, outZpkg, deps, "release", false, false, "exe");
     CompileResult res = comp.Compile(req);
     if (!res.Ok) {
         ConsoleError.WriteLine("z42b: hooks compile failed (" + hooksDir + "):");
