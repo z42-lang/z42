@@ -357,6 +357,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | L3-G3a 关联类型 | `where T: IAdd<Output=T>` + zbc 扩展 + 运行时校验 | [language/generics.md](design/language/generics.md) |
+| TLAB slot 级复用（gc-tlab-slot-reuse）| chunk 独占 TLAB 绕过 region slot 级 free_list；partial-live chunk 的零散死槽暂不被 TLAB 复用（chunk 级回收已做）。触发：live set 稳定但堆随 GC 轮次单调涨 → per-thread free-slot cache | [book: GC TLAB](book/src/runtime/gc-tlab-chunk-exclusive.md) Deferred 段 |
+| 编译器重阶段并行化（compiler-parallel-heavy-phases）| 真正并行加速前置：把 parse/typecheck/codegen 做成 per-file 并行（当前仅 source-read+SHA 并行 → Amdahl 受限）。TLAB 已铺零锁地基；此为编译器侧 change | [book: GC TLAB](book/src/runtime/gc-tlab-chunk-exclusive.md) 性能门段 |
 | json-serde 集合类型（json-serde-future-collections）| ~~`List<T>` + `Dictionary<string,V>`~~ ✅ add-collection-serde（反射-only + 2 小 runtime 反射修复）。剩：`Dictionary<K,V>` 非字符串键（→ array-of-pairs）、`Set`/`Queue`/`Stack` | [changes/add-collection-serde/design.md](spec/changes/add-collection-serde/design.md) Deferred 段 |
 | json-serde enum/nullable/char（json-serde-future-enum-nullable-char）| enum（名/底层值）、`T?`、char 的 serde 映射 | [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |
 | json-serde 命名策略（json-serde-future-casing-policy）| camelCase↔PascalCase 自动命名策略（workaround：逐成员 `[JsonProperty]`）| [changes/add-json-serde/design.md](spec/changes/add-json-serde/design.md) Deferred 段 |

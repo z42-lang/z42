@@ -1,13 +1,21 @@
 # Tasks: GC 线程本地分配（TLAB / chunk 独占）
 
-> 状态：🟡 进行中 | 创建：2026-08-29
+> 状态：🟢 阶段 1–5 完成（单 PR 待落地）| 创建：2026-08-29
 
 ## 进度概览
-- [ ] 阶段 1: stats 原子化（option B，去 inner 锁；byte-identical）
-- [ ] 阶段 2: Region\<T\> TLAB（对象/数组并行零锁）
-- [ ] 阶段 3: VarRegion TLAB（string/closure/array 数据）
-- [ ] 阶段 4: 翻并行默认 + jobs-scaling 实测
-- [ ] 阶段 5: 文档同步
+- [x] 阶段 1: stats 原子化（option B，去 inner 锁；byte-identical）— commit `457bfa0d`
+- [x] 阶段 2: Region\<T\> TLAB（对象/数组并行零锁）— commit `0cffe86a`
+- [x] 阶段 3: VarRegion TLAB（string/closure/array 数据）— commit `4e993fc0`
+- [x] 阶段 4: jobs-scaling **实测 → 持平（并行未转正）→ 不翻默认**（见下决策）+ fast-path `UnsafeCell` 优化 `2811c484`
+- [x] 阶段 5: 文档同步（book GC TLAB 机制页 + roadmap Deferred + gc README + 本 tasks）
+
+## 阶段 4 决策记录（性能门）
+- **实测**：z42.core（96 文件）串行 vs `--jobs 8/24` 编译墙钟**持平**（base 无 TLAB 也持平，非净负）。
+- **根因**：当前 z42c 只并行了 per-file **源读取 + SHA-256** 一小段（`Main.z42` 唯一 `ParallelFor.Run`），
+  parse/typecheck/codegen 仍串行 → 总时间 Amdahl 受限于该小段，与分配锁无关。
+- **决策**：**不翻 `ParallelConfig` 默认**（性能门「jobs-scaling 转正才翻」未达成），保持 `_jobs=1` 串行 opt-in。
+  TLAB 作为**零锁地基**保留；真正并行加速前置 = 编译器并行化重阶段（roadmap Deferred `compiler-parallel-heavy-phases`）。
+- **串行 overhead**：`UnsafeCell` + 单次 TLS 优化后 ≈ 噪声（~0.5%），production 恒 arm 也不回归。
 
 ## 阶段 1: stats 原子化（去 inner 锁）
 - [ ] 1.1 `gc/types.rs`：`HeapStats.used_bytes` / `allocations` → `AtomicU64`（其余字段沿旧）
