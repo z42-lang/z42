@@ -223,6 +223,18 @@ loom = "0.7"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
+# add-repl-rbrace-floor (2026-08-29): patch rustyline so `edit_insert_text` advances
+# the cursor past inserted text. `[patch.crates-io]` only takes effect at the workspace
+# root, so it lives here even though the sole rustyline consumer is now the host-only
+# `crates/z42-repl` cdylib (the core VM dropped rustyline in extract-repl-native-cdylib).
+# The patched behavior is needed by the `Cmd::Replace(WholeLine, ..)` path that the REPL's
+# `}` auto-dedent + Backspace-floor use for a variable-width delete+insert on the current
+# line; unpatched, the cursor homes to column 0 after the replace (breaking `} else {`).
+# One-commit fork of kkawakam/rustyline v14.0.0; also filed upstream — drop this patch once
+# it merges. See docs/spec/changes/add-repl-rbrace-floor/design.md Decision 2.
+[patch.crates-io]
+rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor" }
+
 [[bench]]
 name = "smoke_bench"
 harness = false

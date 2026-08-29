@@ -242,6 +242,17 @@ fn build_editor() -> Option<Editor> {
             EventHandler::Conditional(Box::new(editing::KeyEditHandler::new(key))),
         );
     }
+    // `}` auto-dedent (add-repl-rbrace-floor): on a whole-whitespace line at the cursor's
+    // end, the z42 side returns "replace:<indent>}" → Cmd::Replace(WholeLine, ..) drops the
+    // line one indent level and lands `}`, cursor after it (the patched rustyline advances
+    // the cursor past inserted text). On any other line it returns "" → None → the default
+    // self-insert of `}`, so ordinary typing is untouched. rustyline folds Shift into the
+    // char, so `}` arrives as Char('}') with Modifiers::NONE — hence its own binding rather
+    // than the named-key loop above.
+    ed.bind_sequence(
+        KeyEvent(KeyCode::Char('}'), Modifiers::NONE),
+        EventHandler::Conditional(Box::new(editing::KeyEditHandler::new("rbrace"))),
+    );
     if let Some(p) = history::history_path() {
         let _ = ed.load_history(&p);
     }

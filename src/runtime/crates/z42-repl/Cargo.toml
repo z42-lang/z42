@@ -17,9 +17,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # The line editor. Lives HERE, not in the z42 main crate — moving it out of the
-# core VM is the whole point (dependency isolation). The `}` auto-dedent + floor
-# rustyline patch ([patch.crates-io] fork) lands on this crate when
-# add-repl-rbrace-floor rebases on top.
+# core VM is the whole point (dependency isolation). The `}` auto-dedent + Backspace-floor
+# need `edit_insert_text` to advance the cursor; a `[patch.crates-io]` fork supplies that
+# (declared at the workspace root, src/runtime/Cargo.toml — see add-repl-rbrace-floor).
 rustyline = "14"
 
 # Profile lives at workspace root (src/runtime/Cargo.toml); one here is ignored.

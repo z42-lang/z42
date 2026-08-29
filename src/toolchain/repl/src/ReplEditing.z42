@@ -4,24 +4,28 @@
 // Repl.SetCompleter/replComplete 同款重入模式。
 //
 // 契约：string replKeyEdit(string key, string line, int pos)
-//   key ∈ { "backspace", "tab" }
+//   key ∈ { "backspace", "tab", "rbrace", "enter" }
 //   返回动作串（Rust 照译成 redo-免疫的 rustyline 命令，见 repl_editing.rs::parse_action）：
-//     ""              → 该键默认行为（Tab 落回补全、退格删 1 字符）
-//     "dedent"        → Cmd::Dedent(WholeLine)：去一级缩进（indent_size=4，见 repl.rs），kill-ring-free
-//     "insert:<text>" → Cmd::Insert(1, text)：光标处补 text（纯空格），kill-ring-free、redo-免疫（text 在 payload）
+//     ""               → 该键默认行为（Tab 落回补全、退格删 1 字符、} 插入 }）
+//     "dedent"         → Cmd::Dedent(WholeLine)：去一级缩进（indent_size=4，见 repl.rs），kill-ring-free
+//     "insert:<text>"  → Cmd::Insert(1, text)：光标处补 text（纯空格），kill-ring-free、redo-免疫（text 在 payload）
+//     "replace:<text>" → Cmd::Replace(WholeLine, text)：整行替换成 text（变量宽度删+插），光标停在 text 末尾
 //
 // Tab 网格吸附（add-repl-tab-grid-snap，升级 #253 的定量一级）：Tab 从「恒加一级(indent_size)」
 // 改为「ceil 到下制表位」，补 (next_stop - col) 个空格（col=2 → 4 而非旧的 → 6）。用 Insert 补
-// delta：光标停在补入空格之后（正确）、不污染 kill-ring。退格仍走 #253 的 Dedent(WholeLine)（去一级）。
+// delta：光标停在补入空格之后（正确）、不污染 kill-ring。
 //
-// 为何退格不做「floor 到前制表位」、} 不自动回退（均 Deferred，见 design Deferred 段）：二者需
-// 「删变量个空格/删一级+插}」的整行替换 Cmd::Replace(WholeLine, text)。Replace 虽 redo-免疫
-// （WholeLine 无计数），但 rustyline 的 edit_insert_text 插入后不推进光标 → 光标归位行首，破坏
-// } 之后继续输入（} else {）。这是 rustyline 局限，需 patch edit_insert_text 才能光标正确，故延后。
-// （这也修正 #253「须 patch rustyline」的判据：redo-免疫无需 patch，但删+插的光标正确需要。）
+// } 自动回退 + 退格 floor（add-repl-rbrace-floor，落地旧 Deferred）：二者需「删变量个空格/删一级+插}」
+// 的整行替换 Cmd::Replace(WholeLine, text)。Replace 本 redo-免疫（WholeLine 无计数、text 在 payload），
+// 唯一坑是 rustyline 的 edit_insert_text 插入后不推进光标（→ 光标归位行首、破坏 } else {）——现已 patch
+// rustyline 使其推进光标（[patch.crates-io] z42-lang/rustyline，见 design Decision 2），故解封落地：
+//   · key=="rbrace"（键入 }）：整行纯空白 + 光标行尾 → dedent 一级后落 }（"replace:<缩进>}"）。
+//   · key=="backspace"：整行纯空白 + 光标行尾 → floor 到前制表位（"replace:<缩进>"，错位一键归正）；
+//     否则（光标后仍有内容的纯前缀空白）保持旧 Dedent 一级、不碰光标后内容。
 //
-// 「当前逻辑行光标前」= 从末个 '\n' 之后到 pos 的子串；col = 其长度。仅当该前缀**全为空格**
-// 时才介入（纯缩进行）——有词/有内容一律走默认键行为，绝不干扰正常编辑与补全。
+// 「当前逻辑行光标前」= 从末个 '\n' 之后到 pos 的子串；col = 其长度。介入前提按键分档：Tab / 旧 Dedent
+// 只要前缀**全为空格**；} / floor 额外要求**整条逻辑行纯空白且光标在行尾**（Replace(WholeLine) 替换整行，
+// 必须确保被替换内容无有意义字符）——任何情形不满足一律走默认键行为，绝不干扰正常编辑与补全。
 namespace Std.Repl;
 
 using Std;
@@ -57,8 +61,18 @@ public static class ReplEditing {
         return s;
     }
 
+    // 当前逻辑行终点（pos 起首个 '\n' 之前；无则到缓冲末尾）。pos 假定 ≤ line.Length。
+    private static int LineEnd(string line, int pos) {
+        int i = pos;
+        while (i < line.Length) {
+            if (line.CharAt(i) == '\n') { return i; }
+            i = i + 1;
+        }
+        return line.Length;
+    }
+
     // 主策略：给定键名 + 当前行 + 光标位，返回动作串。无副作用（enter 分支会 parse 判完整性，但不
-    // 改任何状态）、可 [Test]。backspace/tab 只看当前逻辑行；enter 看**整块缓冲**（含 \n）。
+    // 改任何状态）、可 [Test]。backspace/tab/rbrace 只看当前逻辑行；enter 看**整块缓冲**（含 \n）。
     public static string KeyEdit(string key, string line, int pos) {
         if (key == "enter") {
             // 整块多行编辑（add-repl-multiline-editing）：对整块 line 判完整性——写完 → "accept"
@@ -77,9 +91,28 @@ public static class ReplEditing {
         int col = prefix.Length;
         bool ws = ReplEditing.AllSpaces(prefix);
 
+        // 整行纯空白 + 光标行尾：} / floor 的介入前提（Replace(WholeLine) 替换整条逻辑行，须保证被替换
+        // 内容无有意义字符）。ws 已含「前缀全空格」；pos==lineEnd ⇒ 光标后无内容 ⇒ 整行=前缀=全空格。
+        bool wholeWsAtEnd = ws && pos == ReplEditing.LineEnd(line, pos);
+
+        if (key == "rbrace") {
+            // 纯缩进行键入 } → dedent 一级后落 }（Replace 整行；patch 后光标停在 } 之后，可续打 else {）。
+            // 目标缩进 = 先对齐到制表位再退一级：max(0, floorToStop(col) - 4)。col==0 无级可退 → 默认插入 }。
+            if (wholeWsAtEnd && col > 0) {
+                int target = ((col / 4) * 4) - 4;
+                if (target < 0) { target = 0; }
+                return "replace:" + ReplEditing._spaces(target) + "}";
+            }
+            return "";
+        }
         if (key == "backspace") {
-            // 光标前全是空格且非空 → 去一级缩进（Dedent，删 indent_size，光标正确、零 kill-ring
-            // 污染）；否则默认删 1 字符。（floor 到前制表位属 Deferred，见头注/design。）
+            // 整行纯空白 + 光标行尾 + **缩进错位**（col 非制表位倍数）→ floor 到前制表位（错位一键归正）。
+            // 对齐缩进（col%4==0）floor 恒等于删一级 → 仍走既有 Dedent（不动通用路径）。其余（光标后有内容
+            // 的纯前缀空白、缩进中段）也走 Dedent 删一级、不碰光标后内容；非空白前缀则默认删 1 字符。
+            if (wholeWsAtEnd && col > 0 && (col % 4) != 0) {
+                int floor = ((col - 1) / 4) * 4;
+                return "replace:" + ReplEditing._spaces(floor);
+            }
             if (ws && col > 0) { return "dedent"; }
             return "";
         }
