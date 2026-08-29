@@ -55,7 +55,7 @@ path 依赖把私有组件的 **zpkg**（`z42.repl.zpkg`）colocate 进消费方
 | `src/libraries/z42.project/src/ManifestLoader.z42` | MODIFY | `_parseDeps` 读表内 `path`；构造点传第三参 |
 | `src/libraries/z42.project/tests/manifest_path_dep.z42` | NEW | path 依赖解析单测（表形式 / 省 version / 无 path 回落） |
 | `src/libraries/z42.project/README.md` | MODIFY | `DepEntry` 行补 `path` 语义 |
-| `docs/book/src/toolchain/manifest.md`（或对应 manifest 页） | MODIFY/NEW | `[dependencies]` path 依赖语法说明 |
+| `docs/book/src/compiler/project-model.md` | MODIFY | `[dependencies]` path 依赖语法说明（`[dependencies]` 现有落点即此页；无独立 manifest.md） |
 
 ### 阶段 2（PR-2，use；等 PR-1 nightly 发布后）
 

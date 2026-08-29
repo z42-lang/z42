@@ -12,12 +12,12 @@
 - [ ] （独立 follow-up）single-file 打包合并——需 runtime 内嵌 bundle，另开 change
 
 ## 阶段 1（PR-1，support）——独立分支/worktree（纯 z42.project，z42c 不消费）
-- [ ] 1.1 `DepEntry.z42`：加 `public string Path;` + 3 参构造函数（design D1）
-- [ ] 1.2 `ManifestLoader._parseDeps`：表形式读 `path`（`dv.ContainsKey("path")`），构造点传第三参；纯字符串/省 path → `""`
-- [ ] 1.3 单测：path 依赖解析（表/version+path/省 version/纯字符串回落）
-- [ ] 1.4 `z42.project/README.md`：`DepEntry` 行补 path 语义
-- [ ] 1.5 book manifest 页：`[dependencies]` path 语法（support 阶段先记语法，use 机制留阶段 2）
-- [ ] 1.6 GREEN：`xtask test`（全 stage）；确认 z42c 源未读 `.Path`（`grep -n "\.Path" src/compiler` 应为空）
+- [x] 1.1 `DepEntry.z42`：加 `public string Path;` + 3 参构造函数（design D1）
+- [x] 1.2 `ManifestLoader._parseDeps`：表形式读 `path`（`dv.ContainsKey("path")`），构造点传第三参；纯字符串/省 path → `""`
+- [x] 1.3 单测：path 依赖解析（表/version+path/省 version/纯字符串回落）—— `tests/manifest_path_dep.z42`（5 [Test]）
+- [x] 1.4 `z42.project/README.md`：`DepEntry` 行补 path 语义
+- [x] 1.5 book manifest 页：`[dependencies]` path 语法（落 `compiler/project-model.md`，非占位 manifest.md；support 阶段先记语法，use 机制留阶段 2）
+- [x] 1.6 GREEN：`xtask test` 全 stage 通过（e2e 275/275 + cross-zpkg + stdlib 含 5 path-dep 测试 + z42c 自举 gen1==gen2 不动点 3/3 + vscode-syntax）；z42c 源未读 DepEntry.Path（`.Path` 命中仅 DepScanCache 的文件系统路径缓存，非 dep）
 - [ ] 1.7 归档 PR-1 + 合并 → **等 nightly**
 
 ## 阶段 2（PR-2，use）——独立分支/worktree，PR-1 nightly 发布后

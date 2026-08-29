@@ -4,11 +4,15 @@ namespace Z42.Build.Project;
 // 类型名对齐 z42c.project（DepEntry / WorkspaceManifest），便于日后 z42c 直接引用本库。
 
 /// `[dependencies]` / `[workspace.dependencies]` 的一项。Version "*" = 任意。
+/// Path 非空 = 本地路径依赖（`{ path = "../foo" }`），源在相对 manifest 目录的 Path 处；
+/// Path 为 "" = 名字依赖，按名走 Z42_LIBS 解析。（消费逻辑在 z42c driver，PR-2 落地。）
 public sealed class DepEntry {
     public string Name;
     public string Version;
-    public DepEntry(string name, string version) {
+    public string Path;
+    public DepEntry(string name, string version, string path) {
         this.Name = name;
         this.Version = version;
+        this.Path = path;
     }
 }

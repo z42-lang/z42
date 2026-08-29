@@ -1,0 +1,68 @@
+// add-path-dependencies PR-1（support）：`[dependencies]` 表形式 path 依赖解析。
+// 只验 z42.project 解析层——DepEntry.Path 正确/为空；z42c 消费（闭包构建/打包）在 PR-2。
+namespace Z42ProjectPathDepTests;
+
+using Std;
+using Std.Test;
+using Z42.Build.Project;
+
+[Test]
+void test_path_dep_table_form() {
+    // 表形式、省 version → Path 保留、Version 为 ""。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"z42.repl\" = { path = \"../repl\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.DepCount);
+    Assert.Equal("z42.repl", m.Deps[0].Name);
+    Assert.Equal("", m.Deps[0].Version);
+    Assert.Equal("../repl", m.Deps[0].Path);
+}
+
+[Test]
+void test_path_dep_with_version_and_path() {
+    // 表形式带 version + path → 两者都保留。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"foo\" = { version = \"0.1.0\", path = \"../foo\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.DepCount);
+    Assert.Equal("foo", m.Deps[0].Name);
+    Assert.Equal("0.1.0", m.Deps[0].Version);
+    Assert.Equal("../foo", m.Deps[0].Path);
+}
+
+[Test]
+void test_string_dep_falls_back_empty_path() {
+    // 纯字符串依赖（名字依赖）→ Path 为 ""（走 Z42_LIBS 名字解析）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.DepCount);
+    Assert.Equal("z42.core", m.Deps[0].Name);
+    Assert.Equal("0.1.0", m.Deps[0].Version);
+    Assert.Equal("", m.Deps[0].Path);
+}
+
+[Test]
+void test_table_dep_without_path_empty() {
+    // 表形式但只有 version、无 path → Path 为 ""（等价名字依赖）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"bar\" = { version = \"2.0.0\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.DepCount);
+    Assert.Equal("bar", m.Deps[0].Name);
+    Assert.Equal("2.0.0", m.Deps[0].Version);
+    Assert.Equal("", m.Deps[0].Path);
+}
+
+[Test]
+void test_mixed_path_and_name_deps() {
+    // path 依赖与名字依赖混合 → 按名查（键序不保证）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.repl\" = { path = \"../repl\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(2, m.DepCount);
+    bool sawCore = false; bool sawRepl = false;
+    int i = 0;
+    while (i < m.DepCount) {
+        if (m.Deps[i].Name == "z42.core") { sawCore = true; Assert.Equal("0.1.0", m.Deps[i].Version); Assert.Equal("", m.Deps[i].Path); }
+        if (m.Deps[i].Name == "z42.repl") { sawRepl = true; Assert.Equal("", m.Deps[i].Version); Assert.Equal("../repl", m.Deps[i].Path); }
+        i = i + 1;
+    }
+    Assert.True(sawCore);
+    Assert.True(sawRepl);
+}
