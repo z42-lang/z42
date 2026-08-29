@@ -43,12 +43,14 @@ int _runModule(ParseResult r, string verb) {
     // (unify-test-pipeline ②b): host runs it in-process, sharing the same
     // Std.Test.BundleRunner core the on-device agent uses.
     //   --rid host (or empty) → run the bundle in-process (Slice 1).
-    //   --rid <device>        → assemble the {app,libs,bundle} deployable (Slice 2).
+    //   --rid <device>        → build + deploy + run on the device (Slice 3,
+    //                           builder_device._runDevice); --stage-only keeps the
+    //                           ②b assemble-only behaviour.
     if (target.EndsWith(".json")) {
         if (rid.Length == 0 || rid == "host") {
             return _runBundleHost(target, format);
         }
-        return _assembleDeployable(r, target, rid);
+        return _runDevice(r, target, rid);
     }
 
     // Already-compiled artifact → run as-is (dep closure resolved from VM search dirs).
@@ -129,37 +131,9 @@ void _renderBundlePretty(TestResult[] all) {
         + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
 }
 
-// Slice 2 (device): assemble the on-device {app,libs,bundle} deployable for `rid`.
-// z42b is the single-bundle executor, so "deploy prep" belongs here; the fleet
-// orchestrator (xtask) hands the bundle + the pre-built test-agent + flat stdlib
-// (via --out / --agent / Z42_LIBS), and z42b stages the deployable dir. The native
-// platform build (wasm-pack / xcframework / cargo-ndk) and the device RUN stay in
-// xtask (design D2). Wasm additionally gets a files.json (VFS→url map) since a
-// browser can't enumerate a remote dir.
-int _assembleDeployable(ParseResult r, string manifestPath, string rid) {
-    if (!_isDeviceRid(rid)) {
-        ConsoleError.WriteLine("z42b test: unknown --rid '" + rid
-            + "' (host | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64)");
-        return 2;
-    }
-    string outDir = r.GetOption("out");
-    string agent = r.GetOption("agent");
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
-    if (outDir.Length == 0) {
-        ConsoleError.WriteLine("z42b test --rid " + rid + ": --out <dir> required"); return 2;
-    }
-    if (agent.Length == 0 || !File.Exists(agent)) {
-        ConsoleError.WriteLine("z42b test --rid " + rid + ": --agent <z42.testagent.zpkg> required (not found)"); return 2;
-    }
-    if (libs.Length == 0 || !Directory.Exists(libs)) {
-        ConsoleError.WriteLine("z42b test --rid " + rid + ": Z42_LIBS (flat stdlib dir) required"); return 2;
-    }
-    if (!File.Exists(manifestPath)) {
-        ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath); return 2;
-    }
-    return _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, (rid == "browser-wasm"));
-}
-
+// Device deploy/build/run dispatch now lives in builder_device.z42 (_runDevice,
+// z42b-device-run Slice 3). The shared assembler _stageDeployable (below) is called
+// from there. _isDeviceRid stays here (used by both files, same namespace).
 bool _isDeviceRid(string rid) {
     return rid == "browser-wasm" || rid == "ios-arm64" || rid == "iossim-arm64"
         || rid == "android-arm64" || rid == "android-x64";

@@ -1,0 +1,158 @@
+// z42b device driver — device-RID build + deploy + run (z42b-device-run Slice 3).
+//
+// z42b is the single-target EXECUTOR. On a device RID (browser-wasm / ios / android)
+// the full "build the native host → deploy the {app,libs,bundle} → run on the
+// device → collect the report" pipeline lives here, so IPlatformBackend (xtask) can
+// shrink to a thin "declare rid → delegate to z42b → translate report" shell.
+//
+// z42b can't BE the in-browser/in-sim runner (it runs on a z42vm on the host), so
+// "run" = spawn the platform-native driver (playwright / xcodebuild / gradlew) on
+// the host, inject the staged deployable, and read the report back. The native
+// tooling (node / browsers / Xcode / NDK) is PROVISIONED by the fleet orchestrator
+// (xtask) and its locations passed in (--build-root, --node-bin, …); z42b owns the
+// INVOCATION logic. The staging half (_stageDeployable) is shared with Slice 2.
+//
+// Sub-steps (flags; default on a device RID = build+deploy+run):
+//   --stage-only   assemble the deployable dir only (= ②b behaviour)
+//   --build        native platform build (wasm-pack / xcframework / cargo-ndk)
+//   --run          deploy + run on the device + collect report
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Std.Test;
+
+// Entry from _runModule when target=.json and rid is a device RID. Reads the
+// build/run/stage-only flags and drives the matching per-platform steps.
+int _runDevice(ParseResult r, string manifestPath, string rid) {
+    bool wantStageOnly = r.GetFlag("stage-only");
+    bool wantBuild     = r.GetFlag("build");
+    bool wantRun       = r.GetFlag("run");
+    // Default (no sub-step flag) = full pipeline.
+    if (!wantStageOnly && !wantBuild && !wantRun) {
+        wantBuild = true; wantRun = true;
+    }
+    // --stage-only is the ②b-compatible pure assembly; it wins (ignores build/run).
+    if (wantStageOnly) { wantBuild = false; wantRun = false; }
+
+    string outDir    = r.GetOption("out");
+    string agent     = r.GetOption("agent");
+    string buildRoot = r.GetOption("build-root");
+    string libs      = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+
+    if (!_isDeviceRid(rid)) {
+        ConsoleError.WriteLine("z42b test: unknown --rid '" + rid
+            + "' (host | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64)");
+        return 2;
+    }
+    if (!File.Exists(manifestPath)) {
+        ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath); return 2;
+    }
+
+    // browser-wasm is the only driver wired in PR-1 (z42b-device-run); ios/android
+    // land in PR-2/PR-3. Guard so an un-wired rid fails loudly, not silently.
+    if (rid != "browser-wasm") {
+        ConsoleError.WriteLine("z42b test --rid " + rid
+            + ": device build/run not yet wired (z42b-device-run PR-2/3); use --stage-only for now");
+        // stage-only still works for any device rid via the shared path below.
+        if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, agent, libs); }
+        return 2;
+    }
+
+    return _runWasm(r, manifestPath, outDir, agent, libs, buildRoot, wantBuild, wantRun);
+}
+
+// browser-wasm: build (wasm-pack) → deploy (stage {app,libs,bundle}+files.json +
+// pkg/harness) → run (playwright embedded config) → collect report.
+int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
+             string libs, string buildRoot, bool wantBuild, bool wantRun) {
+    if ((wantBuild || wantRun) && buildRoot.Length == 0) {
+        ConsoleError.WriteLine("z42b test --rid browser-wasm --build/--run: --build-root <repo-root> required"); return 2;
+    }
+    string wasmCrate = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform");
+
+    // 1. build + deploy (coupled: deploy copies the build output). native build:
+    // wasm-pack → pkg-web; deploy: stage {app,libs,bundle}+files.json (shared Slice 2
+    // core), then copy the wasm pkg + static harness on top (fetched directly by the
+    // browser, not via the VFS files.json). _stageDeployable clears outDir first.
+    if (wantBuild) {
+        if (outDir.Length == 0) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --out <dir> required"); return 2;
+        }
+        if (agent.Length == 0 || !File.Exists(agent)) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
+        }
+        if (libs.Length == 0 || !Directory.Exists(libs)) {
+            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: Z42_LIBS (flat stdlib dir) required"); return 2;
+        }
+        if (Process.Which("wasm-pack") == null) {
+            ConsoleError.WriteLine("z42b: wasm-pack not found (required for browser-wasm build)"); return 1;
+        }
+        Console.WriteLine("z42b: wasm-pack build --target web");
+        ProcessResult wp = new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
+            .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript")
+            .WorkingDirectory(wasmCrate).Run();
+        if (wp.Stdout.Length > 0) { Console.Write(wp.Stdout); }
+        if (wp.Stderr.Length > 0) { ConsoleError.WriteLine(wp.Stderr); }
+        if (wp.ExitCode != 0) { ConsoleError.WriteLine("z42b: wasm-pack build failed"); return wp.ExitCode; }
+
+        int sc = _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, true);
+        if (sc != 0) { return sc; }
+        string pkgWeb = Path.Join(wasmCrate, "pkg-web");
+        File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"), true);
+        File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"), true);
+        string thDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/testhost");
+        File.Copy(Path.Join(thDir, "index.html"), Path.Join(outDir, "index.html"), true);
+        File.Copy(Path.Join(thDir, "run.js"), Path.Join(outDir, "run.js"), true);
+        Console.WriteLine("z42b: wasm deployable → " + outDir);
+    }
+
+    // 2. run: spawn playwright (embedded config serves the built deployable, loads
+    // index.html → run.js → agent → /out/report.json → window.__report). Assumes the
+    // deployable is already built (--build ran, or default did it above). node/browsers
+    // provisioned by xtask, passed via --node-bin / Z42_PW_BROWSERS. Double-read:
+    // run.js self-asserts window.__report; z42b collects the pass/fail verdict.
+    if (wantRun) {
+        return _runWasmPlaywright(r, buildRoot);
+    }
+    return 0;
+}
+
+// Spawn `npx playwright test --config playwright.embedded.config.ts` in the wasm
+// tests dir. node bin (hermetic, from xtask) via --node-bin prepended to PATH;
+// browser cache via Z42_PW_BROWSERS. Exit code = the device run verdict.
+int _runWasmPlaywright(ParseResult r, string buildRoot) {
+    string testsDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform/tests");
+    string nodeBin  = r.GetOption("node-bin");
+    string browsers = Environment.GetEnvironmentVariable("Z42_PW_BROWSERS") ?? "";
+    string npx = (nodeBin.Length > 0) ? Path.Join(nodeBin, "npx") : "npx";
+
+    Console.WriteLine("z42b: npx playwright test --config playwright.embedded.config.ts");
+    Process pw = new Process(npx).Arg("playwright").Arg("test")
+        .Arg("--config").Arg("playwright.embedded.config.ts").Arg("--reporter=list")
+        .WorkingDirectory(testsDir);
+    if (nodeBin.Length > 0) {
+        string oldPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+        pw = pw.Env("PATH", nodeBin + ":" + oldPath);
+    }
+    if (browsers.Length > 0) { pw = pw.Env("PLAYWRIGHT_BROWSERS_PATH", browsers); }
+    ProcessResult res = pw.Run();
+    if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
+    if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
+    return res.ExitCode;
+}
+
+// stage-only path for any device rid (delegates to the shared Slice 2 assembler).
+int _stageFor(ParseResult r, string manifestPath, string rid, string outDir, string agent, string libs) {
+    if (outDir.Length == 0) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": --out <dir> required"); return 2;
+    }
+    if (agent.Length == 0 || !File.Exists(agent)) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": --agent <z42.testagent.zpkg> required (not found)"); return 2;
+    }
+    if (libs.Length == 0 || !Directory.Exists(libs)) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + ": Z42_LIBS (flat stdlib dir) required"); return 2;
+    }
+    return _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, (rid == "browser-wasm"));
+}

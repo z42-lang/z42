@@ -316,6 +316,10 @@ SubcommandRouter _testRouter() {
     embedded.AddOption("filter", "", "build+run cases whose name contains this substring", "");
     embedded.AddOption("rid", "", "target RID: host desktop (default, in-process) | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64", "");
     embedded.AddOption("shard", "", "k/n: run shard k of n corpus cases (full slice, NO smoke cap; for parallel tier-2 CI)", "");
+    // --run (device RID): run the already-built deployable on the device (z42b-device-run
+    // PR-1). For browser-wasm: delegate to z42b's wasm driver (spawn playwright embedded).
+    // Without --run a device RID only BUILDS the deployable (compile-once, RUN separate).
+    embedded.AddFlag("run", "", "device RID: run the already-built deployable on the device (delegates to z42b --run)");
     embedded.AddOptionalPositional("target", ".zbc / golden-case dir (omit → build+run full bundle)");
     t.Add("embedded", "run tests via the embedded test-agent (bundle all / --case / --filter / single)", embedded);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
