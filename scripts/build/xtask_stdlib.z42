@@ -30,15 +30,14 @@ using Std.IO;
 // 把各成员 dist/*.zpkg + *.zsym hard-link 汇聚到 flat view（VM 单目录查找点）。
 // 不写 namespace index（VM 扫目录读 NSPC，嵌入解析器读 zpkg NSPC）。
 void _assembleStdlibFlatView(string root, string profile) {
-    string buildLibsRoot = Path.Join(root, "artifacts/build/libraries");
-    string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string flatDir = _libsFlatDist(root, profile);
     string[] libs = _stdlibList(root);
     Directory.Create(flatDir);
     _cleanGlob(flatDir, "*.zpkg");
     _cleanGlob(flatDir, "*.zsym");
     int i = 0;
     while (i < libs.Length) {
-        string srcDir = Path.Join(buildLibsRoot, libs[i] + "/" + profile + "/dist");
+        string srcDir = _libMemberDist(root, libs[i], profile);
         _linkAll(srcDir, flatDir, "*.zpkg");
         _linkAll(srcDir, flatDir, "*.zsym");
         i = i + 1;
@@ -48,8 +47,7 @@ void _assembleStdlibFlatView(string root, string profile) {
 int _buildStdlibCore() {
     string root = _root();
     string profile = "release";
-    string buildLibsRoot = Path.Join(root, "artifacts/build/libraries");
-    string flatDir = Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    string flatDir = _libsFlatDist(root, profile);
     Stopwatch swAll = _procStart("build stdlib (z42c self-build + libs)");
 
     // ── 1+2. Produce the seed: stdlib + z42c, from CURRENT source ─────────
@@ -75,7 +73,7 @@ int _buildStdlibCore() {
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
-    string z42cDriver = Path.Join(root, "artifacts/build/compiler/z42c.driver/" + profile + "/dist/z42c.driver.zpkg");
+    string z42cDriver = _driverZpkg(root, profile);
     if (!File.Exists(z42cDriver) || File.GetSize(z42cDriver) <= 0L) {
         ConsoleError.WriteLine("  ✗ z42c.driver.zpkg invalid: " + z42cDriver);
         return 1;
@@ -91,7 +89,7 @@ int _buildStdlibCore() {
 
     // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────
     string[] libs = _stdlibList(root);
-    int fail = _verifyMemberZpkgs(buildLibsRoot, libs, profile);
+    int fail = _verifyMemberZpkgs(_libsWsToml(root), libs, profile);
     int ok = libs.Length - fail;
     _vlog(1, "  build-stdlib: " + ok.ToString() + " succeeded, " + fail.ToString() + " failed");
     if (fail > 0) { return 1; }
@@ -125,11 +123,11 @@ string _assembleAllLibs(string root, string profile) {
     string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
-    _linkAll(Path.Join(root, "artifacts/build/libraries/dist/" + profile), flat, "*.zpkg");
+    _linkAll(_libsFlatDist(root, profile), flat, "*.zpkg");
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
-        _linkAll(Path.Join(root, "artifacts/build/compiler/" + members[i] + "/" + profile + "/dist"), flat, "*.zpkg");
+        _linkAll(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
         i = i + 1;
     }
     return flat;
@@ -201,7 +199,7 @@ int _buildSdk(string outOpt, bool noBuild) {
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
-        string distDir = Path.Join(root, "artifacts/build/compiler/" + m + "/release/dist");
+        string distDir = _compilerMemberDist(root, m, "release");
         _copyIfExists(Path.Join(distDir, m + ".zpkg"), Path.Join(z42cDir, m + ".zpkg"));
         _copyIfExists(Path.Join(distDir, m + ".zsym"), Path.Join(z42cDir, m + ".zsym"));
         i = i + 1;
@@ -214,7 +212,7 @@ int _buildSdk(string outOpt, bool noBuild) {
 
     string binDir = Path.Join(outDir, "bin");
     Directory.Create(binDir);
-    string cargoOut = Path.Join(root, "artifacts/build/runtime/release");
+    string cargoOut = _runtimeOut(root, "release");
     _copyIfExists(Path.Join(cargoOut, "z42vm"), Path.Join(binDir, "z42vm"));
     _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(binDir, "z42vm.exe"));
     _makeExe(Path.Join(binDir, "z42vm"));
@@ -252,13 +250,13 @@ int _stageToolchain(string dest) {
         fi = fi + 1;
     }
     // 2. stdlib per-member dist (warm-seed self-build inputs)
-    _stageMembers(Path.Join(root, "artifacts/build/libraries"), dest, "artifacts/build/libraries");
+    _stageMembers(_libsBuildRoot(root), dest, "artifacts/build/libraries");
     // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)
-    _stageMembers(Path.Join(root, "artifacts/build/compiler"), dest, "artifacts/build/compiler");
+    _stageMembers(_compilerBuildRoot(root), dest, "artifacts/build/compiler");
     // 4. xtask dev CLI
     string xtDst = Path.Join(dest, "artifacts/xtask");
     Directory.Create(xtDst);
-    _copyIfExists(Path.Join(root, "artifacts/xtask/xtask.zpkg"), Path.Join(xtDst, "xtask.zpkg"));
+    _copyIfExists(_xtaskZpkg(root), Path.Join(xtDst, "xtask.zpkg"));
     Console.WriteLine("staged toolchain -> " + dest);
     _procEnd("build stage-toolchain", sw);
     return 0;

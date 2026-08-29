@@ -86,7 +86,7 @@ string _toolchainZpkg(string root, string tomlPath) {
 // self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-
 // build). Usable directly as the z42c seed dir for _z42cBuildToml.
 string _selfContainedDriverDir(string root) {
-    return Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist");
+    return _driverDist(root, "release");
 }
 
 // The z42c.driver.zpkg inside the self-contained dist — the single z42c seed entry
