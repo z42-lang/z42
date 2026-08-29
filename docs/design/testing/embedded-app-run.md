@@ -1,9 +1,15 @@
 # 嵌入式 app 运行 + 共享测试宿主
 
-> 对齐:2026-08-02(add-embedded-app-run)。
+> 对齐:2026-08-29(unify-test-pipeline-z42b —— test-agent 迁入 `workload/test/agent`)。
 > 实现:`src/runtime/src/app.rs`(核心)、`src/runtime/src/host/mod.rs`(C 符号)、
-> `src/runtime/crates/z42-host`(Rust wrapper)、`src/toolchain/testhost/agent`(test-agent)、
+> `src/runtime/crates/z42-host`(Rust wrapper)、`src/toolchain/workload/test/agent`(test-agent)、
 > `src/toolchain/workload/desktop/shell/testhost.c`(desktop C 壳)。
+>
+> **统一流水线归属(unify-test-pipeline-z42b)**:test-agent 是「跑测试」流程的 on-device 载荷,
+> 归**按需下载的能力 workload** `workload/test/`(非某平台);编排上属 z42b「编译→部署→运行**一个**
+> 目标」的单目标执行器,xtask 保持语料级编排,二者以 bundle manifest(第 3 节)为缝。两层模型 +
+> 分阶段(z42b 接管部署 / payload-only workload 打包为后续阶段)见
+> [cross-platform-testing.md](cross-platform-testing.md)。
 
 ## 1. 动机
 
@@ -33,7 +39,7 @@
 
 ## 3. 共享 test-agent(on-device 测试运行器)
 
-`src/toolchain/testhost/agent`(`Z42.TestHost.Agent.Main`):收命令 `<target.zbc> [format]`
+`src/toolchain/workload/test/agent`(`Z42.TestHost.Agent.Main`):收命令 `<target.zbc> [format]`
 (经 `GetCommandLineArgs` = 转发的 `-- <args>`)→ `Std.Test.Runner.RunModule` → 结构化报告
 (json → 一个 JSON 对象到 stdout)。**一份 z42 字节码,4 平台同一 runner**——消除 R1–R7 driver
 4 语言重复。z42b 是构建工具,test-agent 是运行工具,共用同一 `Std.Test.Runner`。
@@ -385,8 +391,8 @@ R1–R7(嵌入 API 契约:错误码/句柄生命周期)**保留**,与嵌入 corp
 | test-ios | 一次 sim 跑双份:`test embedded --rid iossim-arm64`(建 xcframework sim+host + 装配 Resources/embedded)→ `test platform ios assets`(R1–R7 资产)→ `test platform ios run`(**单个 `xcodebuild test -scheme Z42VM`** 同时跑 Z42VMTests + Z42EmbeddedTests) |
 | test-android | `test platform android build/assets` 后加 `test embedded --rid android-x64`(x86_64 .so 配 emulator ABI + androidTest assets),**同一个 `connectedAndroidTest`** 跑 R1–R7 + Z42EmbeddedInstrumentedTest |
 
-paths-filter 的 `platform` 组已含 `src/toolchain/workload/**`,另补 `xtask_test_embedded.z42` +
-`src/toolchain/testhost/**`。
+paths-filter 的 `platform` 组已含 `src/toolchain/workload/**`(现覆盖 `workload/test/agent` 的 test-agent)
++ `xtask_test_embedded.z42`。
 
 ## 7. Deferred / 后续
 
