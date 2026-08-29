@@ -247,7 +247,7 @@ SubcommandRouter _launcherRoot() {
     root.Add("info", "show Z42_HOME / default / counts",
         new ArgParser("z42 info", "show Z42_HOME / default / counts"));
     ArgParser listP = new ArgParser("z42 list", "list installed runtimes (and, with --workloads, workloads)");
-    listP.AddFlag("workloads", "", "also list installed platform workloads");
+    listP.AddFlag("workloads", "", "also list installed workloads (platform tooling + capabilities)");
     root.Add("list", "list installed runtimes", listP);
 
     ArgParser def = new ArgParser("z42 default", "show or set the default runtime");
@@ -301,22 +301,22 @@ SubcommandRouter _launcherRoot() {
     exp.AddOption("entry", "", "wasm entry point e.g. Hello.Main (wasm only)", "");
     root.Add("export", "generate a native IDE project (--rid selects platform)", exp);
 
-    root.AddRouter("workload", "install / list / uninstall platform workloads", _workloadRouter());
+    root.AddRouter("workload", "install / list / uninstall workloads (platform tooling or capabilities like test)", _workloadRouter());
 
     return root;
 }
 
 SubcommandRouter _workloadRouter() {
-    SubcommandRouter w = new SubcommandRouter("z42 workload", "install / list / uninstall platform workloads");
+    SubcommandRouter w = new SubcommandRouter("z42 workload", "install / list / uninstall workloads (platform tooling or capabilities like test)");
 
-    ArgParser inst = new ArgParser("z42 workload install", "install a platform workload (tooling + runtime)");
-    inst.AddPositional("workload", "<ios|android|wasm|desktop>");
+    ArgParser inst = new ArgParser("z42 workload install", "install a workload (platform tooling + runtime, or a capability like test)");
+    inst.AddPositional("workload", "<ios|android|wasm|desktop|test>");
     inst.AddOption("from", "", "local tooling package dir (omit for manifest network install)", "");
     inst.AddOption("runtime", "", "local runtime pack dir", "");
     inst.AddOption("base-url", "", "manifest root for network install (default: GitHub releases)", "");
     inst.AddOption("version", "", "version (default: from package manifest; required for network)", "");
     inst.AddOption("rid", "", "runtime RID (default: from runtime dir name)", "");
-    w.Add("install", "install a platform workload", inst);
+    w.Add("install", "install a workload (platform tooling or a capability like test)", inst);
 
     w.Add("list", "list installed workloads", new ArgParser("z42 workload list", "list installed workloads"));
 

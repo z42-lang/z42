@@ -55,6 +55,21 @@ graph LR
 **runtime**（嵌入用：native + stdlib）、**workload-desktop**（仅 apphost-stub，per-RID 产出、
 CI 合并四 RID）。包内布局的用户视角描述见工具链部分（待写）。
 
+### payload-only workload（capability workload；package-test-workload）
+
+除四个 per-RID **平台 tooling** workload（desktop/ios/android/wasm）外，还有**纯 payload** 的
+**能力 workload**——目前是 **test**（`z42.testagent.zpkg`，见 [test-pipeline](../toolchain/test-pipeline.md) 两层模型 + `src/toolchain/workload/test/`）：
+平台无关、无 per-RID apphost、无 runtime pack。特点：
+
+- **不进 `packages.toml`**：由 `scripts/package/xtask_package_test.z42` 的 `_buildTestWorkload` **内联**
+  编 agent（复用 `_ensureTestAgent`）+ 写 manifest，不走 `[package.*]` 的 include-组件-staging 模型
+  （它没有可 stage 的组件，只有一份预建 zpkg）。`package workload test [<version>]` 直接产出。
+- **manifest 复用 `kind="workload-tooling"`** + `host=["*"]` + 无 runtime pack，单 zpkg 由新
+  **`[contents.payload]`** 段描述（`payload = "z42.testagent.zpkg"`）。install 侧 `runtimes=[]` →
+  天然跳过 bedding（与 desktop 同路径），故无需新 kind 或新分支。
+- **无 merge**：无 per-RID piece，一步 build 的目录即最终 `z42-workload-<label>-test.tar.gz`。CI 在
+  **macos-arm64 单 host** 建一次（平台无关，避免 4× 重复与同名冲突）。
+
 ## 实现
 
 | 组件 | 位置 | 要点 |

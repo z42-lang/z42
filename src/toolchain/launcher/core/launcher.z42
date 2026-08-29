@@ -167,7 +167,7 @@ void _cmdList(ParseResult r) {
             i = i + 1;
         }
     }
-    // --workloads: also list installed platform workloads (shared with `workload list`).
+    // --workloads: also list installed workloads (platform tooling + capabilities; shared with `workload list`).
     if (r.GetFlag("workloads")) {
         Console.WriteLine("");
         Console.WriteLine("workloads:");

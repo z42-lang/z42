@@ -390,6 +390,13 @@ jobs:
             "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$runner" artifacts/xtask/xtask.zpkg -- package workload
+          # test workload = payload-only, platform-agnostic → build once on macos-arm64
+          # (package-test-workload). Uploaded within artifacts/packages/; publish-nightly
+          # re-archives it to z42-workload-nightly-test.tar.gz.
+          if [ "${{ matrix.platform }}" = "macos-arm64" ]; then
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+              "$runner" artifacts/xtask/xtask.zpkg -- package workload test
+          fi
 
       - name: Launcher run smoke (z42 run <dir> --bin — unify-run-modes P4)
         # Runs on all RIDs incl. Windows (P5 cleanup fixed the dist-test preflight +
@@ -1445,6 +1452,14 @@ jobs:
               fi
           done
 
+          # test workload (payload-only, platform-agnostic) — a SINGLE archive built
+          # once on macos-arm64 (package-test-workload), not per-RID → re-archive here
+          # to the neutral nightly label. No merge (D6b): the built dir is the artifact.
+          twsrc=$(find dist-raw -maxdepth 1 -type d -name "z42-workload-*-test" | head -1)
+          [ -d "$twsrc" ] || { echo "error: missing test workload package (expected z42-workload-*-test in dist-raw)"; exit 1; }
+          tar -C "$twsrc" -czf "${out}/z42-workload-nightly-test.tar.gz" .
+          echo "✓ test workload → z42-workload-nightly-test.tar.gz"
+
       # Merge the 4 per-RID desktop-workload pieces into ONE RID-agnostic
       # z42-workload-nightly-desktop.tar.gz (every RID's apphost-<rid>) → cross-output.
       - name: Assemble single desktop workload (nightly)
@@ -1516,6 +1531,7 @@ jobs:
           | iOS (SwiftPM) | \`z42-workload-nightly-ios.tar.gz\` |
           | Android (Gradle) | \`z42-workload-nightly-android.tar.gz\` |
           | WASM (npm) | \`z42-workload-nightly-wasm.tar.gz\` |
+          | Test (capability; test-agent payload) | \`z42-workload-nightly-test.tar.gz\` |
 
           Verify: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
           EOF

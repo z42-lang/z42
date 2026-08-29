@@ -1,6 +1,7 @@
 // z42 launcher — workload commands (impl-workload-install B2, 2026-06-17).
 //
-// A workload = a platform's tooling (facade Sources + Package.swift + 模板)
+// A workload = a platform's tooling (facade Sources + Package.swift + 模板), or a
+// platform-agnostic CAPABILITY (e.g. test = the test-agent payload, package-test-workload)
 // installed under runtimes/<ver>/workloads/<wl>/; the platform's VM library is
 // a SEPARATE runtime pack installed under runtimes/<rid>/<ver>/ (split for
 // independent version management — see runtime-workload-distribution.md).

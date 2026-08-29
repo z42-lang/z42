@@ -68,6 +68,21 @@ xtask test embedded --rid android-x64  # device: xtask 组 bundle → z42b 组�
 xtask test platform desktop # 老 IPlatformBackend 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
 ```
 
+## 打包发布（payload-only workload）
+
+test workload 是**纯 payload** workload（不同于 desktop/ios/android/wasm 的 per-RID「tooling」）：
+只含一份平台无关 `z42.testagent.zpkg`，无 per-RID apphost、无 runtime pack。打包与发布：
+
+```bash
+xtask package workload test [<version>]   # 产 z42-workload-<version>-test/（agent zpkg + manifest.toml）
+z42 workload install test                 # 用户按需下载安装（release-index.json 的 test 条目）
+```
+
+manifest 复用 `kind="workload-tooling"`（`host=["*"]`、无 runtime pack），单 zpkg 由新
+`[contents.payload]` 段描述（install 侧 `runtimes=[]` → 天然跳过 bedding，同 desktop）。CI（release /
+publish-nightly）在 macos-arm64 单 host 建一次 + 归档 `z42-workload-<label>-test.tar.gz` + 纳入
+`package index`。见 change `package-test-workload`。
+
 ## 关联文档
 
 - 设计/机制：[test-pipeline](../../../../docs/book/src/toolchain/test-pipeline.md)（两层模型：z42b 单-bundle
@@ -75,7 +90,8 @@ xtask test platform desktop # 老 IPlatformBackend 原生 R1–R7 嵌入契约�
   [embedded-app-run](../../../../docs/design/testing/embedded-app-run.md)、
   [cross-platform-testing](../../../../docs/design/testing/cross-platform-testing.md)（迁移中）
 - 引入/演进：change `unify-test-pipeline-z42b`（阶段①归位）+ `wire-z42b-embedded-test`（②b：z42b 接管
-  host bundle 执行 + 设备语料组装，已落地）；payload-only workload 打包 = `package-test-workload`（进行中）
+  host bundle 执行 + 设备语料组装）+ `package-test-workload`（payload-only 打包发布 + `workload install`
+  描述泛化为「平台 tooling 或能力」）
 
 ## 核心文件
 
