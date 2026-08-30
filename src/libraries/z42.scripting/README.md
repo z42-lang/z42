@@ -21,7 +21,7 @@ playground / 用户代码也可 import。**终端行编辑（tty，tier1）已�
 | 按 FQN 调自由函数取结果 | `Std.Scripting.Engine.Invoke`（`__invoke_static`）|
 | 会话变量 live 值成员名反射（补全用）| `Std.Scripting.Engine.MemberNames`（`__repl_member_names`；反射查询，split-z42-repl 从 Std.Repl.Repl 下移消环）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
-| 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`）|
+| 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`；`_typeRefEnd` 跳完整类型引用——限定名/泛型/数组/可空，识别 `List<int> a = new()` 等多 token 类型声明，fix-repl-generic-decl-classify）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler` 门面 `CompileRound`）|
 | 编译器组件运行期注入 | `ReplCompilerHost.z42`（`Get()`：`ModuleLoader.Load` z42c.pipeline.zpkg → 反射 `Z42cReplCompiler` → `as IReplCompiler`；缺失兜底 `NoReplCompiler`。sink-repl-compile-facade）|
 | 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs`+`gc/safepoint.rs`（add-repl-prewarm）|

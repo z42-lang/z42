@@ -1,0 +1,16 @@
+Std.Collections.List{...}
+ok
+ok
+2
+Std.Collections.List{...}
+ok
+1
+[0, 0, 0]
+3
+Std.Collections.Dictionary{...}
+ok
+42
+3
+true
+2
+2
