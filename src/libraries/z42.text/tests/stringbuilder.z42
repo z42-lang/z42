@@ -54,3 +54,43 @@ void test_grow_beyond_initial_capacity() {
     Assert.Equal(10, sb.GetLength());
     Assert.Equal("aaaaaaaaaa", sb.ToString());
 }
+
+// ── add-parser-run-flush: Append(string) / Append(char) overloads ─────────────
+
+[Test]
+void test_append_char() {
+    var sb = new StringBuilder();
+    sb.Append('h');
+    sb.Append('i');
+    Assert.Equal(2, sb.GetLength());
+    Assert.Equal("hi", sb.ToString());
+}
+
+[Test]
+void test_append_char_and_string_mixed() {
+    // Mirrors the run-flush pattern: string runs interleaved with single chars.
+    var sb = new StringBuilder();
+    sb.Append("ab").Append('\n').Append("cd").Append('!');
+    Assert.Equal(6, sb.GetLength());
+    Assert.Equal("ab\ncd!", sb.ToString());
+}
+
+[Test]
+void test_append_string_overload_matches_object() {
+    // The string fast path must produce the same result as the object path.
+    var a = new StringBuilder();
+    a.Append("hello");             // resolves to Append(string)
+    var b = new StringBuilder();
+    object o = "hello";
+    b.Append(o);                   // resolves to Append(object) → Convert.ToString
+    Assert.Equal(a.ToString(), b.ToString());
+}
+
+[Test]
+void test_append_object_nonstring_still_works() {
+    // Non-string/char values still route through Convert.ToString.
+    var sb = new StringBuilder();
+    sb.Append(42);
+    sb.Append(true);
+    Assert.Equal("42true", sb.ToString());
+}

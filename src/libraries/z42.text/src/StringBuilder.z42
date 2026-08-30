@@ -27,16 +27,34 @@ public class StringBuilder {
         this._length = 0;
     }
 
-    // Append value (any type) and return this for chaining.
-    public StringBuilder Append(object value) {
-        string s = Convert.ToString(value);
+    // Append a string directly — the fast path. Skips the `Convert.ToString`
+    // virtual dispatch + object boxing that `Append(object)` incurs. This is
+    // what the JSON/TOML/YAML run-flush parsers append (whole `Substring` runs),
+    // so keeping the `string[]` parts buffer (store-by-reference, single copy at
+    // ToString) is optimal for that pattern — a char[] accumulator would copy
+    // each run twice.
+    public StringBuilder Append(string value) {
         if (this._count == this._capacity) {
             this.Grow();
         }
-        this._parts[this._count] = s;
+        this._parts[this._count] = value;
         this._count = this._count + 1;
-        this._length = this._length + s.Length;
+        this._length = this._length + value.Length;
         return this;
+    }
+
+    // Append a single char. Rare on the run-flush path (escape chars only), so a
+    // per-call 1-char string is acceptable; avoids the Append(object) boxing.
+    public StringBuilder Append(char value) {
+        char[] one = new char[1];
+        one[0] = value;
+        return this.Append(String.FromChars(one));
+    }
+
+    // Append value (any type) and return this for chaining. Non-string/char
+    // values route through Convert.ToString then the string fast path.
+    public StringBuilder Append(object value) {
+        return this.Append(Convert.ToString(value));
     }
 
     // Append value followed by a newline.
