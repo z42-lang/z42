@@ -51,6 +51,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         &self.region_array
     }
 
+    /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
+    /// (var TLAB chunk-count / pool assertions).
+    #[cfg(test)]
+    pub(crate) fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
+        &self.region_var
+    }
+
     /// **add-generational-gc P3 (2026-05-22)**: test-only entry to the
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).
@@ -183,6 +190,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// mutator writes inline.
     #[cfg(test)]
     pub(crate) fn run_cycle_collection_concurrent_inline_for_test(&self) -> u64 {
+        // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
+        self.retire_thread_tlab();
         // Step 1: STW-equivalent root snapshot (no mutators in test).
         self.snapshot_roots_into_mark_queue();
 
@@ -208,6 +217,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// two phases.
     #[cfg(test)]
     pub(super) fn collect_cycles_mark_sweep_for_test(&self) -> u64 {
+        // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
+        self.retire_thread_tlab();
         let _newly_marked = self.mark_phase();
         self.sweep_phase()
     }

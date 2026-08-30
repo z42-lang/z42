@@ -74,6 +74,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// roots. Callers `force_collect()` first so only reachable objects remain.
     pub(super) fn build_retention_graph(&self) -> crate::gc::retention::RetentionGraph {
         use crate::gc::retention::{RetainerInfo, RetainerKind};
+        // add-gc-tlab (stage 2): merge the caller's TLAB so retention analysis
+        // sees its recent allocations (callers already force_collect first, but
+        // this keeps the region view consistent regardless of entry).
+        self.retire_thread_tlab();
         let mut g = crate::gc::retention::RetentionGraph::new();
 
         // Object region → each object's heap-ref slots become reverse edges.

@@ -184,6 +184,13 @@ fn park_until_idle(ctx: &VmContext) {
     // runs ONLY on the park slow path (an actual GC pause), never on the hot
     // `check_safepoint` fast path — so it's free to leave always-on.
     let park_start = std::time::Instant::now();
+    // add-gc-tlab (stage 2, D5): retire this thread's TLAB BEFORE signalling
+    // parked — the collector proceeds to mark/sweep once parked_count reaches
+    // its target, and must see a fully-merged region with no chunk still
+    // borrowed (mid-fill) by this thread. Retire takes the region locks briefly;
+    // the collector is only waiting on parked_count here (holds no region lock),
+    // so no deadlock. Idempotent when the TLAB is already unbound.
+    ctx.heap().retire_thread_tlab();
     ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
     // Acquire the phase lock BEFORE calling notify_all.
     //
@@ -240,6 +247,11 @@ fn park_until_idle(ctx: &VmContext) {
 /// collector waiting for its target. Caller must NOT mutate z42 roots or
 /// allocate until the matching [`native_park_decr`].
 fn native_park_incr(ctx: &VmContext) {
+    // add-gc-tlab (stage 2, D5): retire this thread's TLAB before it counts as
+    // parked for a blocking native call — a background collector may scan the
+    // region while this thread sits in native code, so no chunk may stay
+    // borrowed. (The thread won't allocate again until native_park_decr.)
+    ctx.heap().retire_thread_tlab();
     ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
     // Hold the phase lock across notify_all — same lost-wakeup discipline as
     // park_until_idle: a collector spinning in its wait loop must observe our
@@ -348,6 +360,13 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
         park_until_idle(ctx);
         return None;
     }
+
+    // add-gc-tlab (stage 2, D5): the collector itself may hold a borrowed chunk
+    // from its own prior allocations. Retire it now, before marking — otherwise
+    // its mid-fill chunk stays invisible to sweep (borrowed) and its objects'
+    // mark bits would not be cleared for the next cycle. Other mutators retire
+    // when they park (park_until_idle) below.
+    ctx.heap().retire_thread_tlab();
 
     *ctx.core.gc_phase.lock() = GcPhase::Requested;
 

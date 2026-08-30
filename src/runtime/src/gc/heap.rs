@@ -383,6 +383,17 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// host 可通过 OOM observer 提前感知并主动管理（kill VM / 重置 heap 等）。
     fn set_strict_oom(&self, _enabled: bool) {}
 
+    /// **add-gc-tlab (stage 2, 2026-08-29)**: retire the **calling thread's**
+    /// TLAB — merge every borrowed chunk's filled prefix back into the shared
+    /// region and drop the claims, leaving the thread's TLAB unbound.
+    ///
+    /// MUST be called on the owning thread *before* it becomes GC-visible in a
+    /// consistent state: at a safepoint park (before signalling parked), before
+    /// a collector starts marking, and at `VmContext::drop`. After it returns,
+    /// the region holds no chunk borrowed by this thread, so a collector sees a
+    /// fully-merged heap (design D5). Default no-op for heaps without a TLAB.
+    fn retire_thread_tlab(&self) {}
+
     // ── 7. Finalization ──────────────────────────────────────────────────────
 
     /// 注册一个 finalizer，当 `value` 不可达时触发。

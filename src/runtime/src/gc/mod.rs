@@ -41,6 +41,7 @@ pub mod arc_heap;
 pub mod mode;
 pub mod refs;
 pub mod region;
+pub mod tlab;
 pub mod var_region;
 pub mod retention;
 pub mod safepoint;

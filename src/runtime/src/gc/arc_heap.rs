@@ -358,6 +358,30 @@ pub struct ArcMagrGC {
     /// heap (`corelib::str_meta`) can detect a heap switch and drop entries that would otherwise
     /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
     epoch: u64,
+    /// **add-gc-tlab (option B, 2026-08-29)**: live allocation counters moved OUT of the
+    /// `inner`-locked `HeapStats` onto lock-free atomics, so the per-alloc hot path
+    /// (`record_alloc`) no longer takes the `inner` Mutex (removes 2 of the 4–5 inner locks
+    /// per `new`). `stats()` reads these to fill the returned `HeapStats` snapshot; collect
+    /// paths `sub_used_bytes` the reclaimed bytes. `Relaxed` suffices — these are monotone
+    /// counters / heuristic pressure thresholds, not synchronization for other heap state.
+    used_bytes: std::sync::atomic::AtomicU64,
+    allocations: std::sync::atomic::AtomicU64,
+    /// **add-gc-tlab (stage 2, 2026-08-29)**: lock-free mirrors of three
+    /// `inner`-locked config fields, read on the TLAB allocation fast path so it
+    /// takes **no** `inner` lock per object (the whole point of the TLAB):
+    /// - `strict_oom_atomic`: mirrors `inner.strict_oom`. When `true` the fast
+    ///   path is bypassed entirely (D6 — strict OOM needs per-object precise
+    ///   refund, so it stays on the locked path).
+    /// - `max_bytes_atomic`: mirrors `inner.stats.max_bytes` (`u64::MAX` =
+    ///   `None`). Lets `check_pressure` short-circuit lock-free when no heap
+    ///   limit is set (the common case).
+    /// - `sampler_active`: `true` iff `inner.alloc_sampler.is_some()`. Lets the
+    ///   fast path skip the sampler `inner.lock()` unless sampling is on.
+    ///
+    /// All `Relaxed` — heuristics / rarely-flipped config, not synchronization.
+    strict_oom_atomic: std::sync::atomic::AtomicBool,
+    max_bytes_atomic: std::sync::atomic::AtomicU64,
+    sampler_active: std::sync::atomic::AtomicBool,
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at
@@ -387,6 +411,14 @@ impl Default for ArcMagrGC {
             debug_stw_no_push: std::sync::atomic::AtomicBool::new(false),
             // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
             epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            // add-gc-tlab (option B): live counters start at 0 (no allocations yet).
+            used_bytes: std::sync::atomic::AtomicU64::new(0),
+            allocations: std::sync::atomic::AtomicU64::new(0),
+            // add-gc-tlab (stage 2): mirrors of inner config, defaults match
+            // `RcHeapInner::default` (strict_oom=false, no limit, no sampler).
+            strict_oom_atomic: std::sync::atomic::AtomicBool::new(false),
+            max_bytes_atomic: std::sync::atomic::AtomicU64::new(u64::MAX),
+            sampler_active: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }

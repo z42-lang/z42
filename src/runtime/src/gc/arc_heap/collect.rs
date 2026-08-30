@@ -270,6 +270,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 * (GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>()) as u64;
         }
 
+        // **add-gc-tlab (stage 2, D7)**: chunk-level reclaim — move every
+        // fully-dead chunk into its region's `free_chunk_pool` so `borrow_chunk`
+        // recycles it (short-lived-object workloads like the compiler otherwise
+        // grow chunks unboundedly, since the TLAB path bypasses slot-level
+        // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
+        self.region_object.lock().reclaim_dead_chunks();
+        self.region_array.lock().reclaim_dead_chunks();
+        // stage 3: variable-length region chunk reclaim (fully-dead bump chunks → pool).
+        self.region_var.lock().reclaim_dead_var_chunks();
+
         #[cfg(debug_assertions)]
         self.debug_stw_no_push.store(false, std::sync::atomic::Ordering::SeqCst);
         freed_bytes
@@ -281,12 +291,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// `revive_if_unmarked` outside the lock (only touches RegionEntry
     /// atomics — no heap lock required).
     pub(super) fn revive_soft_refs(&self) {
-        let (entries, used_bytes, max_bytes) = {
+        let used_bytes = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        let (entries, max_bytes) = {
             let inner = self.inner.lock();
             let entries = inner.soft_registry.snapshot_entries();
-            let used = inner.stats.used_bytes;
             let max  = inner.stats.max_bytes.unwrap_or(0);
-            (entries, used, max)
+            (entries, max)
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
         let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes);
@@ -310,6 +320,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// heap_registry-walking version. No more `Weak::upgrade` per
     /// entry; just a linear chunks walk with an alive-bit check.
     pub(super) fn snapshot_live_from_registry(&self) -> Vec<Value> {
+        // add-gc-tlab (stage 2): retire the calling thread's TLAB so its own
+        // freshly-allocated (still-borrowed) objects are merged and visible in
+        // the snapshot — otherwise `iterate_alive` skips the borrowed chunk.
+        // This is the single choke point for `take_snapshot` / `stats` /
+        // `iterate_live_objects`. (Other threads' in-flight allocations remain
+        // out of a non-STW diagnostic snapshot, which is acceptable.)
+        self.retire_thread_tlab();
         let mut alive: Vec<Value> = Vec::new();
         {
             let region = self.region_object.lock();
