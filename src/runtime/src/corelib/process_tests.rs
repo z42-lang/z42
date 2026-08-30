@@ -513,3 +513,51 @@ fn tempdir_unique(prefix: &str) -> std::path::PathBuf {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     std::env::temp_dir().join(format!("{}.{}.{}", prefix, std::process::id(), nanos))
 }
+
+// ── process group (arg 14: own_process_group) — fix-repl-launcher-process-group ──
+
+/// Run a child that prints its own process-group id, returning that pgid. `$$` is
+/// the child sh's pid; `ps -o pgid=` prints its pgid header-less.
+#[cfg(unix)]
+fn child_pgid(ctx: &VmContext, args: &[Value]) -> i32 {
+    let r = builtin_process_run(ctx, args).unwrap();
+    assert_eq!(result_kind(&r), KIND_OK);
+    let Value::Str(out) = result_at(&r, 2) else { panic!("stdout not Str") };
+    out.trim().parse().expect("child pgid")
+}
+
+#[cfg(unix)]
+#[test]
+fn run_own_process_group_puts_child_in_fresh_group() {
+    // own_process_group=true (arg 14) → child leads its OWN group; its pgid differs
+    // from ours (so a run-timeout can tree-kill it).
+    let ctx = VmContext::new();
+    let mut args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);
+    args.push(b(true));   // 14 own_process_group
+    let our_pgid = unsafe { libc::getpgrp() };
+    assert_ne!(child_pgid(&ctx, &args), our_pgid, "own-group child must not share our pgid");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_share_process_group_keeps_child_in_caller_group() {
+    // own_process_group=false (Process.ShareProcessGroup) → child STAYS in our group,
+    // so it can join the caller's terminal job-control (interactive `z42 repl`). Its
+    // pgid equals ours.
+    let ctx = VmContext::new();
+    let mut args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);
+    args.push(b(false));  // 14 own_process_group
+    let our_pgid = unsafe { libc::getpgrp() };
+    assert_eq!(child_pgid(&ctx, &args), our_pgid, "shared-group child must share our pgid");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_absent_process_group_arg_defaults_to_own_group() {
+    // A 14-arg call (no arg 14) behaves as own_process_group=true — the defensive read
+    // keeps old zpkgs working on a new VM and vice-versa (no arity / two-nightly coupling).
+    let ctx = VmContext::new();
+    let args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);  // 14 args, no flag
+    let our_pgid = unsafe { libc::getpgrp() };
+    assert_ne!(child_pgid(&ctx, &args), our_pgid);
+}

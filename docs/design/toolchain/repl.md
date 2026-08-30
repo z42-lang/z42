@@ -28,6 +28,14 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
 > 故 `_forwardRepl` 入口显式拦 `-h`/`--help` 打印帮助（跳过 `-c` 的值，`z42 repl -c "-h"` 仍求值该串）。
 > 帮助里的选项须与 `_forwardRepl` 的 launcher 级 flag（`--mode`/`--config`）+ z42i 自身参数（`-c`）同步。
 
+> **进程组：交互式转发必须 `.ShareProcessGroup()`**（fix-repl-launcher-process-group）：`_forwardRepl`
+> 用 `Process(vm).Stdin(Inherit)...Run()` spawn z42i。`Process.Run()` 默认把子进程放**独立进程组**
+> （为 run-timeout 树杀），但独立进程组对控制终端是**后台组**——z42i 拿不到 tty（rustyline 行编辑器
+> 初始化失败 → 无 `>>>`），后台读 tty 触发 SIGTTIN 阻塞（不求值）。故转发链必须加 `.ShareProcessGroup()`
+> 让 z42i 留在 launcher 的前台进程组。`z42i`（apphost 直跑）单层 spawn 天然在前台组，无此问题；
+> 管道模式无 tty 也不触发。机制见 [`Std.IO.Process`](../../../src/libraries/z42.io/src/Process.z42) +
+> `src/runtime/src/corelib/process.rs`（`own_process_group` 门控 `process_group(0)` / `kill(-pid)`）。
+
 ## 实现落地（0.4.0，add-z42-repl）
 
 实测可运行：`z42 repl` 交互循环 + `z42 repl -c "expr"` 单次求值。相对原设计的落地要点：

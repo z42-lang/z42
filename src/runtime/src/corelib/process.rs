@@ -225,6 +225,16 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let stderr_mode = arg_i64(args, 11, NAME)?;
     let stderr_path = optional_str(args, 12, NAME)?;
     let timeout_ms  = arg_i64(args, 13, NAME)?;
+    // arg 14 (own_process_group): `true`/absent → child gets its OWN process group
+    // (the default, so a run-timeout can tree-kill it — see below). `false` → child
+    // stays in the caller's process group, needed when it must join the caller's
+    // terminal job-control (e.g. `z42 repl` forwarding an interactive REPL that drives
+    // the tty). Read defensively (absent → true) so old zpkgs that pass only 14 args
+    // keep working on a new VM and vice-versa — no arity/two-nightly coupling.
+    let own_process_group = match args.get(14) {
+        Some(Value::Bool(b)) => *b,
+        _ => true,
+    };
 
     if env_keys.len() != env_vals.len() {
         bail!("{}: env_keys / env_vals length mismatch ({} vs {})",
@@ -255,8 +265,15 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // holding the inherited stdout/stderr pipe write-ends open — the reader-thread
     // join below then blocks until the grandchild exits naturally (the timeout is
     // detected correctly but the call returns ~5s late). See wait_with_optional_timeout.
+    //
+    // Opt-out (own_process_group == false): keep the child in the caller's process
+    // group. Required for an interactive passthrough child that must control the tty
+    // — a fresh process group is a *background* group for the controlling terminal, so
+    // the child can't grab the tty (line editor fails) and its tty reads stop on SIGTTIN.
+    // `z42 repl` forwards the interactive REPL this way; there is never a run-timeout on
+    // an interactive Inherit-stdin child, so the tree-kill rationale above does not apply.
     #[cfg(unix)]
-    {
+    if own_process_group {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
@@ -289,7 +306,7 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         buf
     }));
 
-    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms)?;
+    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)?;
 
     let out = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
     let err = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
@@ -310,7 +327,7 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// child within one tick. No condvar / signal: stdlib-only path keeps
 /// the implementation portable.
 fn wait_with_optional_timeout(
-    child: &mut Child, timeout_ms: i64,
+    child: &mut Child, timeout_ms: i64, own_process_group: bool,
 ) -> Result<(std::process::ExitStatus, bool)> {
     if timeout_ms < 0 {
         return Ok((child.wait()?, false));
@@ -320,7 +337,7 @@ fn wait_with_optional_timeout(
     loop {
         if let Some(s) = child.try_wait()? { return Ok((s, false)); }
         if start.elapsed() >= timeout {
-            kill_process_tree(child);
+            kill_process_tree(child, own_process_group);
             let status = child.wait()?;
             return Ok((status, true));
         }
@@ -328,15 +345,17 @@ fn wait_with_optional_timeout(
     }
 }
 
-/// SIGKILL the child AND its whole process group (grandchildren included). The
-/// child was spawned with `process_group(0)` (pgid == child pid), so `kill(-pid)`
-/// reaps a forked-grandchild tree (e.g. `sh -c "sleep 5"`). Without the group kill,
-/// killing only the direct child orphans grandchildren that keep the inherited
-/// stdout/stderr pipe write-ends open, blocking the caller's reader-thread joins
-/// until they exit naturally. `child.kill()` is kept as the portable fallback.
-fn kill_process_tree(child: &mut Child) {
+/// SIGKILL the child, plus (when it owns its process group) the whole group so a
+/// forked-grandchild tree (e.g. `sh -c "sleep 5"`) is reaped too. `own_process_group`
+/// is the same flag that gated `process_group(0)` at spawn: only when the child was
+/// put in its OWN group (pgid == child pid) is `kill(-pid)` safe — otherwise a
+/// negative-pid kill would target the *caller's* group. When it shares the caller's
+/// group (interactive passthrough) we kill just the direct child. Without the group
+/// kill, orphaned grandchildren keep the inherited stdout/stderr pipe write-ends open,
+/// blocking the caller's reader-thread joins until they exit naturally.
+fn kill_process_tree(child: &mut Child, own_process_group: bool) {
     #[cfg(unix)]
-    {
+    if own_process_group {
         // Safe: kill(2) on a negative pid targets the process group; a stale/no-such
         // group just returns ESRCH, which we ignore (the child.kill() below covers it).
         let pid = child.id() as i32;
