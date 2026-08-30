@@ -124,11 +124,30 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 - **正确性门**（每阶段）：`cargo test --lib gc::`（含 6 线程并发共享堆压力，debug build 每次 collect 跑
   `debug_validate_invariants`）+ 真机自举 byte-identical（TLAB 是纯运行期分配器内部改动，不改
   zbc/zpkg 产物）。
-- **性能门（阶段 4 实测结论）**：z42.core（96 文件）串行 vs `--jobs 8/24` 编译**墙钟持平**——**并行未转正**。
-  根因**不在分配锁**：当前 z42c 只并行了 **per-file 源读取 + SHA-256** 一小段（`Main.z42` 唯一
-  `ParallelFor.Run`），parse/typecheck/codegen 仍串行 → Amdahl 受限于该小段。**故不翻 `ParallelConfig`
-  默认**（保持 `_jobs=1` 串行 opt-in）。TLAB 是**零锁地基**：待编译器并行化重阶段后，并行才可能真加速，
-  届时 TLAB 让 per-thread 分配不撞锁而可扩展。串行 overhead 经 `UnsafeCell`+单次 TLS 优化后 ≈ 噪声（~0.5%）。
+- **性能门（阶段 4 实测结论，两个层面必须分开看）**：
+
+  **① 分配机制层（微基准 `tlab_alloc_scaling_probe`，本机 24 核，每线程恒定 200k 对象）——TLAB 大幅有效**：
+
+  | 线程 | 1 | 2 | 4 | 8 | 16 | 24 |
+  |------|---|---|---|---|----|----|
+  | 锁路径（无 TLAB）| 0.062s | 0.112s | 0.225s | **1.193s** | **3.771s** | 3.917s |
+  | TLAB | 0.058s | 0.069s | 0.091s | 0.322s | 0.797s | 1.422s |
+  | 加速 | 1.07× | 1.63× | 2.46× | 3.70× | **4.73×** | 2.76× |
+
+  每线程工作量恒定 → 理想墙钟应持平；**锁路径 1→16 线程从 0.062s 暴涨到 3.771s**（region 锁串行化 + 线程自旋），
+  这就是立项的「越多越慢」。**TLAB 把它拉回近似 scale**（16 线程 4.73×）。24 线程 TLAB 回落（1.42s，2.76×）
+  = 满核 oversubscription + retire/borrow 锁 + 内存带宽的**次级瓶颈**（未来精化候选：更大 chunk / 无锁 pool）。
+  → **分配机制层，TLAB 是真实、大幅的修复**，正对立项问题。
+
+  **② 编译器墙钟层——当前看不出来（不是 TLAB 无效，是编译器没充分并行）**：z42.core/z42c.semantics/stdlib
+  workspace 串行 vs `--jobs 8/24` **墙钟持平**。根因：当前 z42c 只并行了 **per-file 源读取 + SHA**（`Main.z42`
+  唯一 build-path `ParallelFor.Run`；#333 从 3 处 fan-out 砍到 1 处），parse/typecheck/codegen 仍串行 →
+  并行段太小、Amdahl 受限、也没充分触发并行分配 → 机制层的 4.73× 在墙钟里被稀释成噪声。
+
+  **决定**：**不翻 `ParallelConfig` 默认**（编译器墙钟这个「性能门」未转正）。但 TLAB **不是**投机地基——
+  微基准证明它已修好分配机制层的「越多越慢」。真加速的**唯一剩余前置 = 编译器把重阶段（parse/typecheck/
+  codegen）也并行化**（编译器侧 change，roadmap Deferred `compiler-parallel-heavy-phases`），届时机制层的
+  4.73× 才会兑现到墙钟。串行 overhead 经 `UnsafeCell`+单次 TLS 优化后 ≈ 噪声（~0.5%）。
 
 ## Deferred / Future Work
 

@@ -14,6 +14,60 @@ use crate::gc::MagrGC;
 use std::sync::Arc as StdArc;
 use std::thread;
 
+/// **add-gc-tlab (perf probe)**: isolate the allocation mechanism from the
+/// compiler's Amdahl limit — N threads hammering ONE shared heap, comparing the
+/// **locked** ambient path (unarmed) vs the **TLAB** (armed). Prints wall-clock
+/// per thread count so we can see whether the region lock serializes parallel
+/// allocation (net-negative scaling) and whether the TLAB removes it.
+///
+/// Ignored by default (timing, not a pass/fail); run with:
+///   cargo test --lib -- --ignored --nocapture tlab_alloc_scaling_probe
+#[test]
+#[ignore]
+fn tlab_alloc_scaling_probe() {
+    use std::time::Instant;
+    const PER_THREAD: usize = 200_000;
+
+    fn run(threads: usize, armed: bool) -> f64 {
+        let heap = StdArc::new(ArcMagrGC::new());
+        let start = Instant::now();
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                let heap = StdArc::clone(&heap);
+                thread::spawn(move || {
+                    if armed {
+                        crate::gc::tlab::arm();
+                    }
+                    let td = dummy_type_desc("P");
+                    for _ in 0..PER_THREAD {
+                        let _ = heap.alloc_object(td.clone(), vec![], NativeData::None);
+                    }
+                    if armed {
+                        heap.retire_thread_tlab();
+                        crate::gc::tlab::disarm();
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        start.elapsed().as_secs_f64()
+    }
+
+    println!("\n=== alloc scaling: {PER_THREAD} objs/thread, shared heap ===");
+    println!("threads |  locked (unarmed)  |  TLAB (armed)  | speedup");
+    for &n in &[1usize, 2, 4, 8, 16, 24] {
+        let locked = run(n, false);
+        let tlab = run(n, true);
+        println!(
+            "{n:>7} | {locked:>10.3}s       | {tlab:>8.3}s     | {:.2}x",
+            locked / tlab
+        );
+    }
+    println!("(total objects scale with threads; wall-clock flat = perfect scaling, rising = contention)");
+}
+
 /// RAII: arms the current thread for TLAB allocation, and on drop retires the
 /// TLAB back into `heap` (→ unbound) and disarms — so a cargo worker thread
 /// reused by a later test starts clean (unarmed + unbound TLAB).
