@@ -1,5 +1,6 @@
 namespace Std.Collections;
 
+
 // `List<T>` — 纯源码级泛型动态数组（L3-G4h step 3：取代 pseudo-class 实现）。
 //
 // 摊还 O(1) Add / indexer，O(n) RemoveAt / Insert / Contains / IndexOf / Remove。
@@ -146,6 +147,44 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
         int k = lo;
         while (i < mid && j < hi) {
             if (this.items[j].CompareTo(this.items[i]) < 0) {
+                scratch[k] = this.items[j];
+                j = j + 1;
+            } else {
+                scratch[k] = this.items[i];
+                i = i + 1;
+            }
+            k = k + 1;
+        }
+        while (i < mid) { scratch[k] = this.items[i]; i = i + 1; k = k + 1; }
+        while (j < hi)  { scratch[k] = this.items[j]; j = j + 1; k = k + 1; }
+        int t = lo;
+        while (t < hi) { this.items[t] = scratch[t]; t = t + 1; }
+    }
+
+    // add-list-sort-comparison: sort using a caller-supplied comparator instead
+    // of the element's own `CompareTo`. Same stable top-down merge sort as
+    // `Sort()`; the ordering criterion is `comparison(a, b)` (< 0 ⇒ a before b).
+    // Lets callers pick the sort key at the call site (e.g. descending, by a
+    // secondary field) without baking it into the type's IComparable.
+    public void Sort(Func<T, T, int> comparison) {
+        if (this.Count < 2) return;
+        T[] scratch = new T[this.Count];
+        this.MergeSortCmp(scratch, 0, this.Count, comparison);
+    }
+
+    // Sort items[lo, hi) ascending under `cmp`, mirroring `MergeSort` but with
+    // the three-way delegate as the comparator. Ties take the left run first
+    // → stable (identical merge shape to the CompareTo version).
+    void MergeSortCmp(T[] scratch, int lo, int hi, Func<T, T, int> cmp) {
+        if (hi - lo < 2) return;
+        int mid = lo + (hi - lo) / 2;
+        this.MergeSortCmp(scratch, lo, mid, cmp);
+        this.MergeSortCmp(scratch, mid, hi, cmp);
+        int i = lo;
+        int j = mid;
+        int k = lo;
+        while (i < mid && j < hi) {
+            if (cmp(this.items[j], this.items[i]) < 0) {
                 scratch[k] = this.items[j];
                 j = j + 1;
             } else {
