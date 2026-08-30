@@ -729,13 +729,18 @@ public sealed class YamlParser {
     private string _ParseDoubleQuotedString() {
         this._Advance();  // consume opening "
         StringBuilder sb = new StringBuilder();
+        // Run-flush: accumulate ordinary chars, flush as one Substring; only
+        // escapes / the closing quote break the run (O(escapes) allocations).
+        int runStart = this._pos;
         while (this._pos < this._src.Length) {
             char c = this._chars[this._pos];
             if (c == '"') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this._Advance();
                 return sb.ToString();
             }
             if (c == '\\') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this._Advance();
                 if (this._pos >= this._src.Length) {
                     throw this._Err("unterminated string escape");
@@ -772,13 +777,13 @@ public sealed class YamlParser {
                 } else {
                     throw this._Err("unknown string escape: \\" + esc.ToString());
                 }
+                runStart = this._pos;   // escape produced output — next run starts after it
                 continue;
             }
             if (c == '\n') {
                 throw this._Err("newline in double-quoted string");
             }
-            sb.Append(c);
-            this._Advance();
+            this._Advance();   // extend run
         }
         throw this._Err("unterminated double-quoted string");
     }
@@ -786,24 +791,29 @@ public sealed class YamlParser {
     private string _ParseSingleQuotedString() {
         this._Advance();  // consume opening '
         StringBuilder sb = new StringBuilder();
+        // Run-flush: single-quoted has only the '' → ' escape; ordinary chars
+        // accumulate into a run flushed as one Substring.
+        int runStart = this._pos;
         while (this._pos < this._src.Length) {
             char c = this._chars[this._pos];
             if (c == '\'') {
                 // YAML 1.2: '' inside a single-quoted string is a literal '.
                 if (this._pos + 1 < this._src.Length && this._chars[this._pos + 1] == '\'') {
+                    if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                     sb.Append('\'');
                     this._Advance();
                     this._Advance();
+                    runStart = this._pos;
                     continue;
                 }
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this._Advance();
                 return sb.ToString();
             }
             if (c == '\n') {
                 throw this._Err("newline in single-quoted string");
             }
-            sb.Append(c);
-            this._Advance();
+            this._Advance();   // extend run
         }
         throw this._Err("unterminated single-quoted string");
     }

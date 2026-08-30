@@ -497,9 +497,13 @@ public sealed class TomlParser {
     private string ParseBasicString() {
         this.Expect('"', "'\"'");
         StringBuilder sb = new StringBuilder();
+        // Run-flush: flush spans of ordinary chars as one Substring (O(escapes)
+        // allocations instead of O(chars)). `runStart` = source index of run start.
+        int runStart = this._pos;
         while (!this.Eof()) {
             char c = this.Peek();
             if (c == '"') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 return sb.ToString();
             }
@@ -507,6 +511,7 @@ public sealed class TomlParser {
                 throw this.Err("newline in basic string (use multi-line \"\"\" — unsupported in v0)");
             }
             if (c == '\\') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 char esc = this.Peek();
                 if (this.Eof()) { throw this.Err("unterminated string escape"); }
@@ -516,9 +521,9 @@ public sealed class TomlParser {
                 else if (esc == 'n') { sb.Append("\n"); }
                 else if (esc == 't') { sb.Append("\t"); }
                 else if (esc == 'r') { sb.Append("\r"); }
-                else if (esc == '0') { char[] z = new char[1]; z[0] = '\0'; sb.Append(String.FromChars(z)); }
-                else if (esc == 'b') { char[] z = new char[1]; z[0] = '\b'; sb.Append(String.FromChars(z)); }
-                else if (esc == 'f') { char[] z = new char[1]; z[0] = '\f'; sb.Append(String.FromChars(z)); }
+                else if (esc == '0') { sb.Append('\0'); }
+                else if (esc == 'b') { sb.Append('\b'); }
+                else if (esc == 'f') { sb.Append('\f'); }
                 else if (esc == 'u') {
                     sb.Append(this.ParseUnicodeEscape(4));
                 } else if (esc == 'U') {
@@ -526,9 +531,9 @@ public sealed class TomlParser {
                 } else {
                     throw this.Err("unknown escape: \\" + this.CharToString(esc));
                 }
+                runStart = this._pos;
             } else {
                 this.Advance();
-                sb.Append(this.CharToString(c));
             }
         }
         throw this.Err("unterminated basic string");
@@ -537,9 +542,13 @@ public sealed class TomlParser {
     private string ParseLiteralString() {
         this.Expect('\'', "'\\''");
         StringBuilder sb = new StringBuilder();
+        // Run-flush: literal strings have no escapes, so the whole body is one
+        // run flushed as a single Substring at the closing quote.
+        int runStart = this._pos;
         while (!this.Eof()) {
             char c = this.Peek();
             if (c == '\'') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 return sb.ToString();
             }
@@ -547,7 +556,6 @@ public sealed class TomlParser {
                 throw this.Err("newline in literal string (multi-line ''' unsupported in v0)");
             }
             this.Advance();
-            sb.Append(this.CharToString(c));
         }
         throw this.Err("unterminated literal string");
     }
@@ -563,10 +571,15 @@ public sealed class TomlParser {
         if (!this.Eof() && this.Peek() == '\r') { this.Advance(); }
         if (!this.Eof() && this.Peek() == '\n') { this.Advance(); }
         StringBuilder sb = new StringBuilder();
+        // Run-flush: ordinary chars (incl. verbatim newlines) accumulate into a
+        // run flushed as one Substring; only escapes / line-continuation folds /
+        // the closing triple break the run.
+        int runStart = this._pos;
         while (!this.Eof()) {
             // Closing triple: but TOML allows up to 2 `"` chars before
             // `"""` (so a value of `foo"""` ends with `"foo"""""`).
             if (this.PeekTriple('"')) {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance(); this.Advance(); this.Advance();
                 // After consuming closing triple, allow at most 2 more `"`s
                 // to be appended (e.g. `"""""` = `""` content + closing).
@@ -580,6 +593,7 @@ public sealed class TomlParser {
             }
             char c = this.Peek();
             if (c == '\\') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 if (this.Eof()) { throw this.Err("unterminated multi-line basic string"); }
                 char esc = this.Peek();
@@ -607,6 +621,7 @@ public sealed class TomlParser {
                                 break;
                             }
                         }
+                        runStart = this._pos;   // fold consumed WS — next run starts here
                         continue;
                     }
                     // Not a line continuation — rewind and treat as bad escape.
@@ -618,19 +633,19 @@ public sealed class TomlParser {
                 else if (esc == 'n')  { sb.Append("\n");                          }
                 else if (esc == 't')  { sb.Append("\t");                          }
                 else if (esc == 'r')  { sb.Append("\r");                          }
-                else if (esc == '0')  { char[] z = new char[1]; z[0] = '\0'; sb.Append(String.FromChars(z)); }
-                else if (esc == 'b')  { char[] z = new char[1]; z[0] = '\b'; sb.Append(String.FromChars(z)); }
-                else if (esc == 'f')  { char[] z = new char[1]; z[0] = '\f'; sb.Append(String.FromChars(z)); }
+                else if (esc == '0')  { sb.Append('\0'); }
+                else if (esc == 'b')  { sb.Append('\b'); }
+                else if (esc == 'f')  { sb.Append('\f'); }
                 else if (esc == 'u')  { sb.Append(this.ParseUnicodeEscape(4)); }
                 else if (esc == 'U')  { sb.Append(this.ParseUnicodeEscape(8)); }
                 else {
                     throw this.Err("unknown escape: \\" + this.CharToString(esc));
                 }
+                runStart = this._pos;   // escape produced output — next run starts after it
                 continue;
             }
-            // Normal char (including newlines — preserved verbatim).
+            // Normal char (including newlines — preserved verbatim) — extend run.
             this.Advance();
-            sb.Append(this.CharToString(c));
         }
         throw this.Err("unterminated multi-line basic string");
     }
@@ -643,8 +658,11 @@ public sealed class TomlParser {
         if (!this.Eof() && this.Peek() == '\r') { this.Advance(); }
         if (!this.Eof() && this.Peek() == '\n') { this.Advance(); }
         StringBuilder sb = new StringBuilder();
+        // Run-flush: literal multi-line has no escapes — verbatim body is one run.
+        int runStart = this._pos;
         while (!this.Eof()) {
             if (this.PeekTriple('\'')) {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance(); this.Advance(); this.Advance();
                 int extra = 0;
                 while (extra < 2 && !this.Eof() && this.Peek() == '\'') {
@@ -654,9 +672,7 @@ public sealed class TomlParser {
                 }
                 return sb.ToString();
             }
-            char c = this.Peek();
             this.Advance();
-            sb.Append(this.CharToString(c));
         }
         throw this.Err("unterminated multi-line literal string");
     }

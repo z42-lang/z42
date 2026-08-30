@@ -237,9 +237,14 @@ public sealed class JsonParser {
         }
         this.Advance();
         StringBuilder sb = new StringBuilder();
+        // Run-flush: accumulate spans of ordinary chars and flush them as one
+        // Substring (O(escapes) allocations instead of O(chars)). `runStart` is
+        // the source index where the current unescaped run began.
+        int runStart = this._pos;
         while (!this.Eof()) {
             char c = this.Peek();
             if (c == '"') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 return sb.ToString();
             }
@@ -248,6 +253,7 @@ public sealed class JsonParser {
                 throw this.Err("unescaped control character in string");
             }
             if (c == '\\') {
+                if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
                 this.Advance();
                 if (this.Eof()) { throw this.Err("unterminated escape"); }
                 char esc = this.Advance();
@@ -257,13 +263,13 @@ public sealed class JsonParser {
                 else if (esc == 'n')  { sb.Append("\n"); }
                 else if (esc == 't')  { sb.Append("\t"); }
                 else if (esc == 'r')  { sb.Append("\r"); }
-                else if (esc == 'b')  { char[] z = new char[1]; z[0] = '\b'; sb.Append(String.FromChars(z)); }
-                else if (esc == 'f')  { char[] z = new char[1]; z[0] = '\f'; sb.Append(String.FromChars(z)); }
+                else if (esc == 'b')  { sb.Append('\b'); }
+                else if (esc == 'f')  { sb.Append('\f'); }
                 else if (esc == 'u')  { sb.Append(this.ParseUnicodeEscape()); }
                 else { throw this.Err("unknown escape: \\" + this.CharToString(esc)); }
+                runStart = this._pos;
             } else {
                 this.Advance();
-                sb.Append(this.CharToString(c));
             }
         }
         throw this.Err("unterminated string");

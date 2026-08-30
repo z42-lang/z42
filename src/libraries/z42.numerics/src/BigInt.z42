@@ -269,19 +269,27 @@ public class BigInt {
             nChunk = nChunk + 1;
             acc = q;
         }
-        // Build the string: highest chunk no zero-pad; lower chunks zero-padded to 9.
-        string s = "";
-        if (this._sign < 0) s = "-";
-        s = s + Int32.ToString(chunks[nChunk - 1]);
+        // Build into an exact-size char[] and materialise once (was O(n²) via
+        // repeated `s = s + chunk` concat). Highest chunk no zero-pad; lower
+        // chunks zero-padded to 9.
+        bool neg = this._sign < 0;
+        string top = Int32.ToString(chunks[nChunk - 1]);
+        int total = (neg ? 1 : 0) + top.Length + 9 * (nChunk - 1);
+        char[] outc = new char[total];
+        int w = 0;
+        if (neg) { outc[w] = '-'; w = w + 1; }
+        int tj = 0;
+        while (tj < top.Length) { outc[w] = top.CharAt(tj); w = w + 1; tj = tj + 1; }
         int idx = nChunk - 2;
         while (idx >= 0) {
             string c = Int32.ToString(chunks[idx]);
             int pad = 9 - c.Length;
-            while (pad > 0) { s = s + "0"; pad = pad - 1; }
-            s = s + c;
+            while (pad > 0) { outc[w] = '0'; w = w + 1; pad = pad - 1; }
+            int cj = 0;
+            while (cj < c.Length) { outc[w] = c.CharAt(cj); w = w + 1; cj = cj + 1; }
             idx = idx - 1;
         }
-        return s;
+        return String.FromChars(outc);
     }
 
     // add-bigint-tobase (2026-05-27): arbitrary-radix string output.
@@ -327,15 +335,19 @@ public class BigInt {
             n = n + 1;
             acc = dm[0];
         }
-        // Digits accumulated little-endian; reverse + prefix sign.
-        string s = "";
-        if (this._sign < 0) s = "-";
+        // Digits accumulated little-endian; reverse into an exact-size char[]
+        // and materialise once (was O(n²) `s = s + digit` concat).
+        bool neg = this._sign < 0;
+        char[] outc = new char[n + (neg ? 1 : 0)];
+        int w = 0;
+        if (neg) { outc[w] = '-'; w = w + 1; }
         int idx = n - 1;
         while (idx >= 0) {
-            s = s + digits[idx].ToString();
+            outc[w] = digits[idx];
+            w = w + 1;
             idx = idx - 1;
         }
-        return s;
+        return String.FromChars(outc);
     }
 
     /// Lowercase hex, no "0x" prefix. "0" for Zero, "-..." for negative.
@@ -364,16 +376,25 @@ public class BigInt {
             n = n + 1;
             acc = dm[0];
         }
-        string s = "";
-        if (this._sign < 0) s = "-";
-        // Top chunk: no zero-pad.
-        s = s + BigInt._chunkToHex(chunks[n - 1], false);
+        // Build into an exact-size char[] and materialise once (was O(n²) via
+        // repeated `s = s + chunkHex` concat). Top chunk no zero-pad; lower
+        // chunks zero-padded to 7.
+        bool neg = this._sign < 0;
+        string top = BigInt._chunkToHex(chunks[n - 1], false);
+        int total = (neg ? 1 : 0) + top.Length + 7 * (n - 1);
+        char[] outc = new char[total];
+        int w = 0;
+        if (neg) { outc[w] = '-'; w = w + 1; }
+        int tj = 0;
+        while (tj < top.Length) { outc[w] = top.CharAt(tj); w = w + 1; tj = tj + 1; }
         int idx = n - 2;
         while (idx >= 0) {
-            s = s + BigInt._chunkToHex(chunks[idx], true);
+            string ch = BigInt._chunkToHex(chunks[idx], true);
+            int cj = 0;
+            while (cj < ch.Length) { outc[w] = ch.CharAt(cj); w = w + 1; cj = cj + 1; }
             idx = idx - 1;
         }
-        return s;
+        return String.FromChars(outc);
     }
 
     // ── Arithmetic ──────────────────────────────────────────────────────
