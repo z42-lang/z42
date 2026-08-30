@@ -697,49 +697,18 @@ int _runIosTesthost(string root, string rid) {
         new string[] { "--run", "--build-root", root });
 }
 
-// Resolve the Android NDK dir: ANDROID_NDK_HOME env, else the highest version
-// installed under versions.toml build.android.install_root/ndk/ (populated by
-// `xtask deps install --os android`).
-string _resolveAndroidNdk(string root) {
-    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
-    if (env.Length > 0 && Directory.Exists(env)) { return env; }
-    string ndkBase = Path.Join(root, "artifacts/tools/android-sdk/ndk");
-    if (!Directory.Exists(ndkBase)) { return ""; }
-    string[] vers = _sortedStrings(Directory.Enumerate(ndkBase));
-    int i = vers.Length - 1;              // highest version dir
-    while (i >= 0) {
-        string d = Path.Join(ndkBase, vers[i]);
-        if (Directory.Exists(d)) { return d; }
-        i = i - 1;
-    }
-    return "";
-}
-
-// Map an android RID to its cargo-ndk ABI name (gradle naming). Empty rid → "".
-string _androidRidAbi(string rid) {
-    if (rid == "android-arm64") { return "arm64-v8a"; }
-    if (rid == "android-x64")   { return "x86_64"; }
-    return "";
-}
-
 // Android: assemble the embedded corpus into the androidTest assets + build
-// libz42_platform_android.so via cargo-ndk (compile-once for the rust cdylib).
-// `rid` selects the ABI — `android-x64` builds only x86_64 (e.g. for an x64
-// emulator), `android-arm64` only arm64-v8a. The embedded runner is
-// Z42EmbeddedInstrumentedTest (in the z42vm test apk) — the AAR build (gradle) +
-// RUN (`connectedAndroidTest` on an emulator) are CI/emulator-gated. Real
-// filesystem → no VFS, same z42_host_run_app core.
+// libz42_platform_android.so via cargo-ndk — both 下沉 z42b (z42b-device-run PR-3,
+// `--build`: cargo ndk -t <abi> build --release + stage). xtask keeps corpus build
+// + agent; the platform .so build/deploy is z42b's android driver (which resolves
+// the NDK + ABI from the rid). `rid` selects the ABI — `android-x64` builds only
+// x86_64 (e.g. for an x64 emulator), `android-arm64` only arm64-v8a. The embedded
+// runner is Z42EmbeddedInstrumentedTest (in the z42vm test apk) — RUN via
+// `test embedded --rid <android> --run` (→ z42b gradlew connectedAndroidTest, one
+// emulator boot with R1–R7). Real filesystem → no VFS, same z42_host_run_app core.
 string _buildAndroidTesthost(string root, string filter, string rid, int shardK, int shardN) {
     if (Process.Which("cargo-ndk") == null) {
         ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
-    }
-    string ndk = _resolveAndroidNdk(root);
-    if (ndk.Length == 0) {
-        ConsoleError.WriteLine("error: Android NDK not found — run `xtask deps install --os android`"); return "";
-    }
-    string abi = _androidRidAbi(rid);
-    if (abi.Length == 0) {
-        ConsoleError.WriteLine("error: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return "";
     }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
@@ -749,26 +718,33 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
 
     string here = Path.Join(root, "src/toolchain/workload/android/platform");
     string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
-    int ac = _z42bStageDeployable(root, manifest, rid, agent, assetsDir);
-    if (ac != 0) { ConsoleError.WriteLine("error: z42b stage android deployable failed"); return ""; }
-    Console.WriteLine("  embedded corpus → " + assetsDir);
+    int ac = _z42bBuildDeployable(root, manifest, rid, agent, assetsDir);
+    if (ac != 0) { ConsoleError.WriteLine("error: z42b build android deployable failed"); return ""; }
 
-    // cargo-ndk → libz42_platform_android.so for this ABI into jniLibs. All three
-    // NDK env vars set (the cmake C-dep cross-build reads NDK/NDK_ROOT too).
-    string rustDir = Path.Join(here, "rust");
-    string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
-    Console.WriteLine("  cargo ndk -t " + abi + " build --release");
-    int c = _execIn(new Process("cargo").Arg("ndk")
-        .Arg("-t").Arg(abi)
-        .Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
-        .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk),
-        rustDir);
-    if (c != 0) { ConsoleError.WriteLine("error: cargo-ndk build failed"); return ""; }
-
-    Console.WriteLine("  Android embedded test-host ready (" + abi + " .so + androidTest assets).");
-    Console.WriteLine("  RUN (emulator/CI): cd " + here + " && ./gradlew :z42vm:connectedAndroidTest");
+    Console.WriteLine("  Android embedded test-host ready (.so + androidTest assets).");
+    Console.WriteLine("  RUN (emulator/CI): test embedded --rid " + rid + " --run  (→ z42b gradlew connectedAndroidTest)");
     Console.WriteLine("    → Z42EmbeddedInstrumentedTest.embeddedBundle (embedded corpus) + R1–R7.");
     return here;
+}
+
+// `test embedded --rid <android> --run`: run the already-built Android test-host on
+// a connected emulator via z42b's android driver (ONE `gradlew
+// :z42vm:connectedAndroidTest` runs R1–R7 + embedded). The build step (`--rid
+// <android>` without --run) must have produced the .so (jniLibs) + androidTest
+// assets/embedded corpus; R1–R7 fixtures come from `test platform android assets`.
+// The emulator is booted by the CI action (reactivecircus) or local dev (design D2
+// asymmetry). Gradle writes its own junit — the CI report consumer reads that path.
+// z42b-device-run PR-3.
+int _runAndroidTesthost(string root, string rid) {
+    string here = Path.Join(root, "src/toolchain/workload/android/platform");
+    string manifest = Path.Join(here, "z42vm/src/androidTest/assets/embedded/bundle/manifest.json");
+    if (!File.Exists(manifest)) {
+        ConsoleError.WriteLine("error: android test-host not built — run `test embedded --rid " + rid + "` first (missing " + manifest + ")");
+        return 1;
+    }
+    // --run only spawns gradlew (build/deploy already done); agent/out unused.
+    return _z42bDevice(root, manifest, rid, "", "",
+        new string[] { "--run", "--build-root", root });
 }
 
 // `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]
@@ -822,6 +798,14 @@ int _testEmbedded(ParseResult r) {
         return (iout.Length > 0) ? 0 : 1;
     }
     if (cat == "android") {
+        // --run: the .so + androidTest assets/embedded corpus were already built (a
+        // prior `--rid <android>` step); delegate the emulator RUN to z42b's android
+        // driver (one gradlew connectedAndroidTest = R1–R7 + embedded). z42b-device-
+        // run PR-3. Otherwise BUILD (cargo-ndk + stage 下沉 z42b via
+        // _buildAndroidTesthost → z42b --build).
+        if (r.GetFlag("run")) {
+            return _runAndroidTesthost(root, rid);
+        }
         string aout = _buildAndroidTesthost(root, tfilter, rid, shardK, shardN);
         return (aout.Length > 0) ? 0 : 1;
     }

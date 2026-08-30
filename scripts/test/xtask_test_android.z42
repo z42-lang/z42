@@ -3,11 +3,16 @@
 // src/toolchain/workload/android/platform/build.sh, now removed):
 //   ① BuildProject : cargo-ndk × ABIs → jniLibs, then gradle :z42vm:assembleRelease (AAR)
 //   ② Assets       : fixtures → androidTest/assets/test-fixtures; stdlib → main/assets/stdlib
-//   ③ RunTests     : delegates to the existing test.sh (emulator boot + connectedAndroidTest)
+//   ③ RunTests     : local emulator-lifecycle harness (test.sh: boot + connectedAndroidTest)
 //
-// ③ keeps test.sh for now: emulator AVD lifecycle (boot/poll/kill) is elaborate
-// and unvalidatable off-CI; full z42 port + JUnit report → follow-up CI change.
-// Needs cargo-ndk + ANDROID_NDK_HOME + JDK + Android SDK.
+// z42b-device-run PR-3: the embedded corpus build+deploy (cargo-ndk .so + stage)
+// AND the emulator RUN (gradlew connectedAndroidTest) 下沉 z42b's android driver
+// (builder_device_android.z42). CI drives z42b directly — `test embedded --rid
+// android-x64` (→ z42b --build) + the reactivecircus action's `script` calls z42b
+// --run. This backend's ③ RunTests keeps test.sh for the LOCAL path only: the
+// emulator AVD lifecycle (boot/poll/kill) stays out of z42b by design (D2
+// asymmetry — CI's reactivecircus action supplies the emulator; test.sh supplies it
+// locally). Needs cargo-ndk + ANDROID_NDK_HOME + JDK + Android SDK.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -79,7 +84,9 @@ public class AndroidBackend : IPlatformBackend {
             .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_HOME", sdk).Env("ANDROID_SDK_ROOT", sdk), here);
     }
 
-    // ③ delegate to test.sh (emulator boot + gradle connectedAndroidTest).
+    // ③ LOCAL emulator-lifecycle path (z42b-device-run PR-3: CI runs z42b --run via
+    // the reactivecircus action instead; this stays for `test platform android run`
+    // on a dev box). Delegates to test.sh (emulator boot + gradle connectedAndroidTest).
     // emulator tier（emulator + system-image + AVD + Gradle，~4GB）是"用到才装"
     // 依赖，零命令面（simplify-xtask-deps, User 裁决 2026-07-07）：在这里检测缺失
     // 并自动安装，绝不由用户手动触发。安装失败 = 测试失败（不吞不跳过）。
