@@ -61,12 +61,26 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-gc-tlab (stage 2)**: the lock-free counterpart of [`record_alloc`]
+    /// **add-gc-tlab (stage 2/3)**: the lock-free counterpart of [`record_alloc`]
     /// for the TLAB fast path. Bumps the atomic stat counters and (only when a
     /// sampler is installed, gated by `sampler_active`) fires the alloc sampler.
-    /// Unlike `record_alloc` it does **no** pressure check / auto-collect — those
-    /// run at retire granularity ([`tlab_retire_pressure`]), keeping the
-    /// per-object fast path free of any `inner` lock.
+    ///
+    /// **Pressure / auto-collect (fix cross_thread_smoke regression)**: when the
+    /// heap is **unbounded** (`max_bytes` unset — the common production case, and
+    /// the `ArcMagrGC::new()` scaling benchmark) this stays fully lock-free — no
+    /// pressure work at all. When a heap **limit is set**, it does the accurate
+    /// **per-object** pressure check + deferred-collect arming (same as the locked
+    /// `record_alloc` path). A retire-granularity check alone would miss the
+    /// threshold — small allocs may never fill a chunk nor GC-park, so a bounded
+    /// heap would never auto-collect (regressed `cross_thread_smoke`'s
+    /// `auto_collect_triggers_via_safepoint_no_race`). `max_bytes_atomic` gates
+    /// this lock-free, so the zero-lock fast path is preserved for unbounded heaps.
+    ///
+    /// MUST be called **outside** the TLAB borrow (`with_current_tlab`): the
+    /// bounded path may run `maybe_auto_collect`, whose (unwired) inline-collect
+    /// branch retires the thread TLAB → would re-enter the borrow. Armed heaps are
+    /// always wired (defer, no inline collect), but calling from outside keeps it
+    /// sound regardless.
     pub(super) fn record_alloc_fast(&self, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
         use std::sync::atomic::Ordering;
         self.allocations.fetch_add(1, Ordering::Relaxed);
@@ -81,16 +95,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 });
             }
         }
-    }
-
-    /// **add-gc-tlab (stage 2)**: retire-granularity pressure check — run once
-    /// per chunk retire (≈ every CHUNK_SIZE allocs) instead of per object.
-    /// Reads the atomic `used_bytes`; may fire pressure events / arm the
-    /// deferred auto-collect. Coarser than the per-object `record_alloc` path,
-    /// which is fine for a *soft* GC trigger (design D3).
-    pub(super) fn tlab_retire_pressure(&self) {
-        self.check_pressure(0);
-        self.maybe_auto_collect();
+        if self.max_bytes_atomic.load(Ordering::Relaxed) != u64::MAX {
+            self.check_pressure(size as u64);
+            self.maybe_auto_collect();
+        }
     }
 
     /// **add-gc-tlab (stage 2)**: object-region fast path. Bump-fills the
@@ -103,7 +111,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         obj: ScriptObject,
         td: &Arc<crate::metadata::TypeDesc>,
     ) -> Result<Value, ScriptObject> {
-        crate::gc::tlab::with_current_tlab(|tlab| {
+        // Fill inside the TLAB borrow; record OUTSIDE it (record_alloc_fast may run
+        // maybe_auto_collect when the heap is bounded — must not re-enter the borrow).
+        let value = match crate::gc::tlab::with_current_tlab(|tlab| {
             // Bind an unbound TLAB to this heap; decline if it holds foreign claims.
             if tlab.heap_epoch != self.epoch {
                 if tlab.is_unbound() {
@@ -116,7 +126,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if tlab.obj.as_ref().map_or(true, |c| !c.has_room()) {
                 if let Some(full) = tlab.obj.take() {
                     self.region_object.lock().retire_chunk(&full);
-                    self.tlab_retire_pressure();
                 }
                 tlab.obj = Some(self.region_object.lock().borrow_chunk());
             }
@@ -124,11 +133,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let (entry_ptr, generation) = tlab.obj.as_mut().unwrap().fill(obj).unwrap();
             // SAFETY: entry_ptr is a fresh, stable slot; generation matches.
             let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-            let value = Value::Object(gc);
-            let size = self.object_size_bytes(&value);
-            self.record_alloc_fast(|| AllocKind::Object { class: td.name.clone() }, size);
-            Ok(value)
-        })
+            Ok(Value::Object(gc))
+        }) {
+            Ok(v) => v,
+            Err(o) => return Err(o),
+        };
+        let size = self.object_size_bytes(&value);
+        self.record_alloc_fast(|| AllocKind::Object { class: td.name.clone() }, size);
+        Ok(value)
     }
 
     /// **add-gc-tlab (stage 2)**: array-region fast path (mirror of
@@ -138,7 +150,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         obj: crate::metadata::types::ArrayObj,
     ) -> Result<Value, crate::metadata::types::ArrayObj> {
         let elem_count = obj.len();
-        crate::gc::tlab::with_current_tlab(|tlab| {
+        // Fill inside the TLAB borrow; record OUTSIDE it (see `record_alloc_fast`).
+        let value = match crate::gc::tlab::with_current_tlab(|tlab| {
             if tlab.heap_epoch != self.epoch {
                 if tlab.is_unbound() {
                     tlab.heap_epoch = self.epoch;
@@ -149,17 +162,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if tlab.arr.as_ref().map_or(true, |c| !c.has_room()) {
                 if let Some(full) = tlab.arr.take() {
                     self.region_array.lock().retire_chunk(&full);
-                    self.tlab_retire_pressure();
                 }
                 tlab.arr = Some(self.region_array.lock().borrow_chunk());
             }
             let (entry_ptr, generation) = tlab.arr.as_mut().unwrap().fill(obj).unwrap();
             let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-            let value = Value::Array(gc);
-            let size = self.object_size_bytes(&value);
-            self.record_alloc_fast(|| AllocKind::Array { elem_count }, size);
-            Ok(value)
-        })
+            Ok(Value::Array(gc))
+        }) {
+            Ok(v) => v,
+            Err(o) => return Err(o),
+        };
+        let size = self.object_size_bytes(&value);
+        self.record_alloc_fast(|| AllocKind::Array { elem_count }, size);
+        Ok(value)
     }
 
     /// **add-gc-tlab (stage 3)**: variable-length region fast path (strings /
@@ -188,7 +203,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if tlab.var.as_ref().map_or(true, |c| !c.has_room(footprint)) {
                 if let Some(mut full) = tlab.var.take() {
                     self.region_var.lock().retire_chunk(&mut full);
-                    self.tlab_retire_pressure();
                 }
                 tlab.var = Some(self.region_var.lock().borrow_chunk());
             }
