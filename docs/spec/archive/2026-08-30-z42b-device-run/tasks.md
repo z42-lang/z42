@@ -52,16 +52,24 @@
 - [ ] 验证：CI `test-android-emu`（Linux+KVM）绿。**本地不可验**（无 NDK/emulator，且 libffi-sys 类
       交叉编译本机环境性挂起）→ 交 CI tier-2（nightly-only，不在 PR 上跑）。
 
-## PR-4：dogfood workload-install + 清理
+## PR-4：dogfood workload + 清理 ✅
 
-- [ ] z42b device driver 的 agent 来源：从 in-tree `--agent` 切到「确保 test workload 就位」
-      （查已装 → 无则 `z42 workload install test`，design D4）。
-- [ ] D4a：CI 离线 workload 源接线（预下载 `z42-workload-nightly-test.tar.gz` 本地源，不每次公网）。
-- [ ] 删死代码：xtask 里被 z42b 取代的 `_buildWasmTesthost`/`_buildIosTesthost`/`_buildAndroidTesthost`
-      的 build/deploy/run 残留、`IPlatformBackend` 冗余方法体。
-- [ ] 文档收口：`test-pipeline.md` per-platform driver 表 + dogfood mermaid；`roadmap.md` flip Slice
-      3 完成；归档本 change 到 `docs/spec/archive/`。
-- [ ] 验证：CI 设备 job 从已发布 nightly workload 拉 agent 端到端绿 = Change C 发布物闭合。
+- [x] z42b device driver 的 agent 来源：从 in-tree `--agent` **彻底切换**到从 z42b 自己 SDK 解析已装
+      `test` workload（`_ensureAgent`：扫 `<home>/runtimes/*/workloads/test/z42.testagent.zpkg`，缺则
+      `<home>/z42 workload install test --from $Z42_WORKLOAD_SRC`）。`--agent` 已全删（z42b 三 driver +
+      builder_cli 选项 + xtask harness plumbing）。
+- [x] D4a（pivot，User 2026-08-30）：CI 设备 job 是 dev-tree 无 launcher → **不下载 archive**，改
+      「编译时输出 agent 到 z42b SDK home workload 目录」：`package workload test dev` →
+      `artifacts/build/runtime/runtimes/dev/workloads/test/z42.testagent.zpkg`，z42b 直接命中（wasm/ios/
+      android 三 job 均加此 provision 步）。install-if-missing 保留给真实已装 SDK。
+- [x] 删死代码：`_z42bStageDeployable`（PR-2/3 后已无调用者）、`--agent` CLI 选项、device 路径的
+      `_ensureTestAgent` 调用（`_ensureTestAgent` 本体保留，`package_test` 仍用）。`IPlatformBackend`
+      `RunTests` 薄化在 PR-2/3 已完成（ios→z42b，android 保 test.sh design D2），无 PR-4 新增死代码。
+- [x] 文档收口：`test-pipeline.md` 加「test-agent 解析：dogfood」节 + 更新 device 签名（删 `--agent`）；
+      `roadmap.md` flip Slice 3 完成；归档本 change 到 `docs/spec/archive/`。
+- [x] 验证：本地验 z42b `_ensureAgent` 解析（agent 预置 workload 目录→stage-only 命中；空 home→清晰
+      install 提示）+ z42.builder/xtask 编译 + 自举字节不动。设备 RUN 端到端交 CI tier-2（nightly-only,
+      本地无 wasm-pack/xcode/ndk）。
 
 ## 全程铁律（每 PR）
 

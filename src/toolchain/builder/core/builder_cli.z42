@@ -79,7 +79,6 @@ SubcommandRouter _builderRoot() {
     test.AddOption("format", "", "output format: pretty|json", "pretty");
     test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
     test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
-    test.AddOption("agent", "", "device RID: path to z42.testagent.zpkg to stage into the deployable", "");
     // Device RID sub-steps (z42b-device-run Slice 3). Default (no flag) on a device
     // RID = build+deploy+run full pipeline; the flags select individual steps for
     // CI / debug. --stage-only preserves the ②b behaviour (assemble deployable only).

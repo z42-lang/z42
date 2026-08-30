@@ -82,20 +82,28 @@ RunTests(root)     → z42b test <manifest> --rid <rid> --run   （回收 z42b �
   `xcodebuild test` 同跑两者）。合流时须保持「一次 boot 跑全部」，别拆成两次（boot 昂贵）。z42b
   driver 的 run 须支持「一个 destination 上跑多个 test target」。**IMPL 时重点验**。
 
-## D4：dogfood `z42 workload install test`（agent 就位）
+## D4：dogfood `test` workload（agent 从 z42b 自己 SDK 解析）—— 已实现 PR-4
 
-设备 RUN 的 agent 来源从 xtask 传入的 in-tree `--agent` 切到 workload-install：
+设备 RUN 的 agent 来源从 xtask 传入的 in-tree `--agent` **彻底切到** z42b 从**自己所在 SDK** 的已装
+`test` workload 解析（`--agent` 已删）。`_ensureAgent()`（`builder_device.z42`）：
 
-- z42b driver 在 deploy 前确保 test workload 就位：查本地 SDK `programs/`（或 workload 安装目录）
-  是否已有 `z42.testagent.zpkg`；无 → `z42 workload install test`（launcher 命令面已支持，Change C
-  已让其可发布）。
-- **Open D4a（CI 网络 / 离线）**：CI 设备 job 每次 `workload install test` 打网络拉 nightly archive
-  不理想（慢 + 脆）。候选：① CI 预先把已发布 `z42-workload-nightly-test.tar.gz` 下载为本地 archive，
-  `workload install test --from <local>`（若 launcher 支持本地源）；② 或 CI 用 `install-z42.sh` 供种
-  时一并带上 test workload，z42b 只做「确保就位」不实际联网。**IMPL PR-5 定**——倾向 ①/② 的离线源，
-  dogfood 的是「install 机制 + 发布物格式」，不必是「每次真打公网」。
-- **Open D4b（本地开发）**：本地 `xtask test` 跑 desktop 不需要 workload（in-tree agent 直用）。
-  dogfood 仅施加于**设备 rid + CI**。desktop 保持 in-tree `_ensureTestAgent` 快路径。
+1. `home = Z42_HOME | reverse(Z42_PORTABLE_VM)`（`<sdk>/bin/z42vm → <sdk>`）。
+2. 扫 `<home>/runtimes/<ver>/workloads/test/z42.testagent.zpkg`（版本目录排序，任一命中即用）。
+3. 缺 → spawn `<home>/z42 workload install test [--from $Z42_WORKLOAD_SRC]`（离线源 / 网络）后重扫。
+
+**User 裁决（2026-08-30）**：agent 来源 = **z42b 当前所在的 SDK**（不下载单独 SDK 作 home）。
+
+- **D4a（CI 供给）—— pivot：编译时输出到 SDK workload 目录，免下载**：CI 设备 job 是 dev-tree 模式
+  （`Z42_PORTABLE_VM` = 现构建的 `artifacts/build/runtime/release/z42vm`，无 launcher / 无 `runtimes/`）。
+  **原「下载已发布 archive + `--from`」方案被 User 简化替代**：既然 CI 编译时本就能产 agent，就把它直接
+  输出到 z42b SDK home 的 workload 目录——`xtask package workload test dev` 产 `z42.testagent.zpkg` →
+  拷进 `artifacts/build/runtime/runtimes/dev/workloads/test/`。z42b 步骤 2 命中 → **无 launcher spawn、
+  无 archive 下载**。CI dogfood 的是「workload 布局 + z42b 解析路径」，用 current 源现编 agent（不是下载
+  已发布 archive——牺牲这点发布物-闭合换取零下载 / 零 launcher 基建）。install-if-missing（步骤 3）保留
+  给真实已装 SDK。
+- **D4b（本地开发）**：本地 `xtask test` 跑 desktop 不需要 workload（in-process `--rid host`，无 agent）。
+  dogfood 仅施加于**设备 rid**。本地跑设备 rid 需 z42b 自己 SDK 里已装 `test` workload（或走步骤 3
+  install-if-missing）。
 
 ## D5：分阶段落地时序（呼应 proposal PR 计划）
 

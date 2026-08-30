@@ -6,10 +6,12 @@
 // (the single-bundle EXECUTOR):
 //   • host (desktop)  → z42b test <manifest> --rid host   → runs it in-process via
 //                       Std.Test.BundleRunner (no testhost/agent spawn on the host).
-//   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> --agent <zpkg>
-//     ios/android)      → z42b stages the {app,libs,bundle} deployable; xtask keeps
-//                       the native platform build + device RUN (Playwright /
-//                       xcodebuild-sim / gradle, CI-gated).
+//   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> [--build|--run]
+//     ios/android)      → z42b owns the full device pipeline: native platform build
+//                       (wasm-pack / xcframework / cargo-ndk) + deploy + device RUN
+//                       (Playwright / xcodebuild-sim / gradle, CI-gated). The
+//                       test-agent is resolved by z42b from the installed `test`
+//                       workload (dogfood, PR-4) — xtask no longer hands it over.
 //
 // `xtask test embedded [target] [--rid <rid>] [--format json|pretty|tap]`
 namespace Z42Xtask;
@@ -563,16 +565,13 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     string manifest = _buildTestBundle(root, filter, "browser-wasm", shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
-    // 2. shared test-agent app.zpkg (same bytecode runner as desktop).
-    string agent = _ensureTestAgent(root);
-    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
-
-    // 3. native build + deploy 下沉 z42b (z42b-device-run PR-1): z42b runs
+    // 2. native build + deploy 下沉 z42b (z42b-device-run PR-1): z42b runs
     // wasm-pack → pkg-web, stages {app,libs,bundle}+files.json, and copies the wasm
     // pkg + static harness on top (browser-fetched, not via VFS). xtask keeps corpus
-    // build (1) + agent (2); the platform build/deploy is z42b's driver.
+    // build (1); the test-agent is resolved by z42b from the installed `test`
+    // workload (dogfood, PR-4) — not handed over by xtask.
     string outDir = Path.Join(root, "artifacts/build/wasm-test");
-    int ac = _z42bBuildDeployable(root, manifest, "browser-wasm", agent, outDir);
+    int ac = _z42bBuildDeployable(root, manifest, "browser-wasm", outDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build/stage wasm deployable failed"); return ""; }
 
     Console.WriteLine("  wasm test-host → " + outDir);
@@ -593,18 +592,20 @@ int _runWasmTesthost(string root) {
         ConsoleError.WriteLine("error: wasm deployable not built — run `test embedded --rid browser-wasm` first (missing " + manifest + ")");
         return 1;
     }
-    // --run only spawns playwright (deploy already done); agent/out unused there.
-    return _z42bDevice(root, manifest, "browser-wasm", "", outDir,
+    // --run only spawns playwright (deploy already done); out unused there.
+    return _z42bDevice(root, manifest, "browser-wasm", outDir,
         new string[] { "--run", "--build-root", root });
 }
 
-// Invoke `z42b test <manifest> --rid <device> --out <dir> --agent <agent>` + extra
-// flags, with flat stdlib in Z42_LIBS. z42b is the single-target device executor
-// (z42b-device-run); xtask (fleet orchestrator) provisions the bundle + agent +
-// stdlib + native tooling and hands them over. `extra` selects the sub-step:
+// Invoke `z42b test <manifest> --rid <device> --out <dir>` + extra flags, with flat
+// stdlib in Z42_LIBS. z42b is the single-target device executor (z42b-device-run);
+// xtask (fleet orchestrator) provisions the bundle + stdlib + native tooling and
+// hands them over. The test-agent is NOT handed over — z42b resolves it from the
+// installed `test` workload (dogfood, PR-4), so Z42_PORTABLE_VM (inherited from the
+// caller's env; CI sets it) must point at the SDK home. `extra` selects the sub-step:
 //   ["--stage-only"]                → assemble deployable only (②b; ios/android)
 //   ["--build", "--build-root", R]  → native build + deploy (wasm build 下沉)
-int _z42bDevice(string root, string manifestPath, string rid, string agent, string destDir, string[] extra) {
+int _z42bDevice(string root, string manifestPath, string rid, string destDir, string[] extra) {
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
     string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
@@ -615,7 +616,7 @@ int _z42bDevice(string root, string manifestPath, string rid, string agent, stri
     string flat = _assembleAllLibs(root, "release");
     Process p = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
-        .Arg("--out").Arg(destDir).Arg("--agent").Arg(agent);
+        .Arg("--out").Arg(destDir);
     for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
     ProcessResult res = p.Env("Z42_LIBS", flat).Run();
     if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
@@ -623,19 +624,12 @@ int _z42bDevice(string root, string manifestPath, string rid, string agent, stri
     return res.ExitCode;
 }
 
-// Assemble-only (②b Slice 2): stage destDir/{app,libs,bundle} (+ files.json for
-// browser-wasm). Used by ios/android build funcs (their native build + RUN 下沉
-// lands in PR-2/3); wasm uses _z42bBuildDeployable (build 已下沉 z42b).
-int _z42bStageDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
-    return _z42bDevice(root, manifestPath, rid, agent, destDir, new string[] { "--stage-only" });
-}
-
 // Native build + deploy 下沉 z42b: z42b runs the platform build (wasm-pack /
 // xcframework) then stages the full deployable (wasm: + pkg/harness; ios: into the
 // XCTest Resources). --build-root lets z42b's driver locate the native platform
 // crate (src/toolchain/workload/<plat>/…).
-int _z42bBuildDeployable(string root, string manifestPath, string rid, string agent, string destDir) {
-    return _z42bDevice(root, manifestPath, rid, agent, destDir,
+int _z42bBuildDeployable(string root, string manifestPath, string rid, string destDir) {
+    return _z42bDevice(root, manifestPath, rid, destDir,
         new string[] { "--build", "--build-root", root });
 }
 
@@ -647,8 +641,8 @@ int _z42bBuildDeployable(string root, string manifestPath, string rid, string ag
 // file (out-path arg) which the native test reads back. Only the packaging +
 // thin native shell differ per platform.
 
-// The on-device {app,libs,bundle} corpus is staged by z42b (_z42bStageDeployable,
-// Slice 2) — the layout iOS Resources / Android assets consume. iOS/Android read
+// The on-device {app,libs,bundle} corpus is staged by z42b (_z42bBuildDeployable,
+// Slice 2/3) — the layout iOS Resources / Android assets consume. iOS/Android read
 // it straight from paths (real filesystem, no VFS) and call the SAME
 // z42_host_run_app C symbol as desktop; only the native shell differs per platform.
 
@@ -665,12 +659,10 @@ string _buildIosTesthost(string root, string filter, string rid, int shardK, int
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
-    string agent = _ensureTestAgent(root);
-    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
 
     string here = Path.Join(root, "src/toolchain/workload/ios/platform");
     string resDir = Path.Join(here, "Tests/Z42VMTests/Resources/embedded");
-    int ac = _z42bBuildDeployable(root, manifest, rid, agent, resDir);
+    int ac = _z42bBuildDeployable(root, manifest, rid, resDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build ios deployable failed"); return ""; }
 
     Console.WriteLine("  iOS embedded test-host ready.");
@@ -692,8 +684,8 @@ int _runIosTesthost(string root, string rid) {
         ConsoleError.WriteLine("error: ios test-host not built — run `test embedded --rid " + rid + "` first (missing " + manifest + ")");
         return 1;
     }
-    // --run only spawns xcodebuild (build/deploy already done); agent/out unused.
-    return _z42bDevice(root, manifest, rid, "", "",
+    // --run only spawns xcodebuild (build/deploy already done); out unused.
+    return _z42bDevice(root, manifest, rid, "",
         new string[] { "--run", "--build-root", root });
 }
 
@@ -713,12 +705,10 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
-    string agent = _ensureTestAgent(root);
-    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return ""; }
 
     string here = Path.Join(root, "src/toolchain/workload/android/platform");
     string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
-    int ac = _z42bBuildDeployable(root, manifest, rid, agent, assetsDir);
+    int ac = _z42bBuildDeployable(root, manifest, rid, assetsDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build android deployable failed"); return ""; }
 
     Console.WriteLine("  Android embedded test-host ready (.so + androidTest assets).");
@@ -742,8 +732,8 @@ int _runAndroidTesthost(string root, string rid) {
         ConsoleError.WriteLine("error: android test-host not built — run `test embedded --rid " + rid + "` first (missing " + manifest + ")");
         return 1;
     }
-    // --run only spawns gradlew (build/deploy already done); agent/out unused.
-    return _z42bDevice(root, manifest, rid, "", "",
+    // --run only spawns gradlew (build/deploy already done); out unused.
+    return _z42bDevice(root, manifest, rid, "",
         new string[] { "--run", "--build-root", root });
 }
 
