@@ -126,3 +126,60 @@ void test_dict_remove_reinserts_probe_chain() {
     Assert.Equal(116, d[16]);
     Assert.Equal(1, d.Count);
 }
+
+// ── add-list-sort-comparison: Sort(Comparison<T>) delegate overload ───────────
+
+[Test]
+void test_sort_comparison_descending() {
+    var xs = new List<int>();
+    xs.Add(3); xs.Add(1); xs.Add(2); xs.Add(5); xs.Add(4);
+    xs.Sort((int a, int b) => b - a);           // descending
+    Assert.Equal(5, xs[0]);
+    Assert.Equal(4, xs[1]);
+    Assert.Equal(3, xs[2]);
+    Assert.Equal(2, xs[3]);
+    Assert.Equal(1, xs[4]);
+}
+
+[Test]
+void test_sort_comparison_matches_default() {
+    // Ascending comparison must produce the same result as parameterless Sort().
+    var xs = new List<int>();
+    int i = 5;
+    while (i >= 1) { xs.Add(i); i = i - 1; }     // 5,4,3,2,1
+    xs.Sort((int a, int b) => a - b);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(2, xs[1]);
+    Assert.Equal(3, xs[2]);
+    Assert.Equal(4, xs[3]);
+    Assert.Equal(5, xs[4]);
+}
+
+[Test]
+void test_sort_comparison_empty_and_single() {
+    var e = new List<int>();
+    e.Sort((int a, int b) => a - b);             // must not trap on n < 2
+    Assert.Equal(0, e.Count);
+
+    var s = new List<int>();
+    s.Add(7);
+    s.Sort((int a, int b) => a - b);
+    Assert.Equal(1, s.Count);
+    Assert.Equal(7, s[0]);
+}
+
+[Test]
+void test_sort_comparison_is_stable() {
+    // Descending by Key; equal-Key elements must keep their insertion (Seq) order.
+    var xs = new List<KV>();
+    xs.Add(new KV(1, 0));
+    xs.Add(new KV(2, 1));
+    xs.Add(new KV(1, 2));
+    xs.Add(new KV(2, 3));
+    xs.Sort((KV a, KV b) => b.Key - a.Key);
+    // Expected: (2,1),(2,3),(1,0),(1,2)
+    Assert.Equal(2, xs[0].Key); Assert.Equal(1, xs[0].Seq);
+    Assert.Equal(2, xs[1].Key); Assert.Equal(3, xs[1].Seq);
+    Assert.Equal(1, xs[2].Key); Assert.Equal(0, xs[2].Seq);
+    Assert.Equal(1, xs[3].Key); Assert.Equal(2, xs[3].Seq);
+}
