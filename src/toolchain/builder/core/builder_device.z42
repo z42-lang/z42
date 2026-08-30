@@ -54,15 +54,17 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
     // before the per-platform build/run dispatch so any device rid can stage.
     if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, agent, libs); }
 
-    // Per-platform build/run drivers: wasm (PR-1), ios (PR-2). android → PR-3.
+    // Per-platform build/run drivers: wasm (PR-1), ios (PR-2), android (PR-3).
     if (rid == "browser-wasm") {
         return _runWasm(r, manifestPath, outDir, agent, libs, buildRoot, wantBuild, wantRun);
     }
     if (rid == "ios-arm64" || rid == "iossim-arm64") {
         return _runIos(r, manifestPath, outDir, agent, libs, buildRoot, rid, wantBuild, wantRun);
     }
-    ConsoleError.WriteLine("z42b test --rid " + rid
-        + ": device build/run not yet wired (z42b-device-run PR-3 android); use --stage-only for now");
+    if (rid == "android-arm64" || rid == "android-x64") {
+        return _runAndroid(r, manifestPath, outDir, agent, libs, buildRoot, rid, wantBuild, wantRun);
+    }
+    ConsoleError.WriteLine("z42b test --rid " + rid + ": device build/run not wired for this rid");
     return 2;
 }
 

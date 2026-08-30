@@ -1877,12 +1877,20 @@ jobs:
           # CONTINUOUSLY in the background so the SIGSEGV/abort + z42vm native
           # frames land on disk as they happen, and `tail` it INLINE into the job
           # log so the cause is visible even if the artifact upload path misses.
+          # z42b-device-run PR-3: the emulator RUN 下沉 z42b's android driver — `test
+          # embedded --rid android-x64 --run` spawns `./gradlew :z42vm:connectedAndroidTest`
+          # (ONE emulator run = R1–R7 + embedded corpus), gradle writes its own junit
+          # to the path the reporter below reads. reactivecircus still supplies the
+          # emulator (design D2 asymmetry); z42b only triggers gradle. `_root()` uses
+          # `git rev-parse` so xtask resolves the repo root regardless of cwd.
           script: |
             set +e
+            vm="$GITHUB_WORKSPACE/artifacts/build/runtime/release/z42vm"
+            libs="$GITHUB_WORKSPACE/artifacts/build/libraries/dist/release"
             adb logcat -c || true
             adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
             LOGCAT_PID=$!
-            ./gradlew :z42vm:connectedAndroidTest
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" "$GITHUB_WORKSPACE/artifacts/xtask/xtask.zpkg" -- test embedded --rid android-x64 --run
             rc=$?
             sleep 3
             kill "$LOGCAT_PID" 2>/dev/null || true

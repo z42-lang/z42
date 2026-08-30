@@ -36,16 +36,21 @@
 - [x] 验证：本地 macOS（Xcode 16.4）验 z42b `--build`（xcframework）+ `--run`（sim）；GREEN `xtask test`
       全绿 + self-host 字节不动 + 无格式 bump。CI `test-ios-sim`（macos-15）以 CI 为准。
 
-## PR-3：android 全接管
+## PR-3：android 全接管 ✅
 
-- [ ] android driver：build（`cargo ndk -t <abi> build --release`）+ deploy（拷 androidTest/assets）
-      + run（`Process(gradlew :z42vm:connectedAndroidTest)`；emulator 由 CI action 供给）+ 回收报告
-      （`adb pull` / out 约定）。
-- [ ] `AndroidBackend`（`xtask_test_android.z42`；现委托 `bash test.sh`）薄化——emulator AVD 生命周期
-      仍留 CI action（design D2 不对称）。
-- [ ] `ci.yml` `test-android-emu` 改调 z42b（保留 `reactivecircus/android-emulator-runner` 起
-      emulator，其 script 内改调 z42b）。
-- [ ] 验证：CI `test-android-emu`（Linux+KVM）绿。
+- [x] android driver（新 `builder_device_android.z42`）：build（`cargo ndk -t <abi> build --release` →
+      jniLibs；NDK+ABI 由 rid 解析）+ deploy（stage embedded corpus 进 `androidTest/assets/embedded`）
+      + run（`Process(gradlew :z42vm:connectedAndroidTest)`；emulator 由 CI action / 本地 test.sh 供给）
+      + 报告（gradle 自产 junit，z42b 转达 exit code，CI 报告路径不变）。
+- [x] `AndroidBackend`（`xtask_test_android.z42`）：embedded build+deploy 下沉 z42b（`_buildAndroidTesthost`
+      → z42b `--build`，`cargo-ndk` 内联删除移入 z42b）；CI RUN 走 z42b `--run`。**RunTests 保留
+      test.sh** 作本地 emulator-lifecycle 路径——emulator AVD 生命周期仍留 CI action / test.sh（design
+      D2 不对称，emulator 供给不进 z42b）。
+- [x] `ci.yml` `test-android-emu` 改调 z42b：reactivecircus action 的 `script` 内
+      `./gradlew :z42vm:connectedAndroidTest` → `test embedded --rid android-x64 --run`（logcat/tombstone
+      诊断包裹保留；`_root()` 用 `git rev-parse` 故 cwd 无关）。
+- [ ] 验证：CI `test-android-emu`（Linux+KVM）绿。**本地不可验**（无 NDK/emulator，且 libffi-sys 类
+      交叉编译本机环境性挂起）→ 交 CI tier-2（nightly-only，不在 PR 上跑）。
 
 ## PR-4：dogfood workload-install + 清理
 

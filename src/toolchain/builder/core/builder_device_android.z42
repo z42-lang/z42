@@ -1,0 +1,139 @@
+// z42b device driver — Android (z42b-device-run Slice 3, PR-3).
+//
+// Sinks the Android build+deploy+run pipeline out of xtask (AndroidBackend +
+// _buildAndroidTesthost) into z42b, so IPlatformBackend shrinks to a thin
+// delegate. Mirrors the wasm/ios drivers (builder_device.z42 / _ios):
+//   --build  cargo ndk -t <abi> build --release → jniLibs (.so), then stage the
+//            {app,libs,bundle} corpus into the androidTest assets/embedded dir.
+//   --run    ./gradlew :z42vm:connectedAndroidTest at the platform crate — ONE
+//            emulator run executes BOTH Z42VMInstrumentedTest (R1–R7) and
+//            Z42EmbeddedInstrumentedTest (the embedded corpus). Gradle writes its
+//            OWN junit under z42vm/build/outputs/androidTest-results/ (the CI
+//            report consumer reads that path unchanged); z42b relays the verdict.
+//
+// ASYMMETRY (design D2, User-confirmed): the emulator AVD lifecycle stays with the
+// CI action (reactivecircus/android-emulator-runner) — z42b only TRIGGERS gradle on
+// an already-booted device. Porting the emulator lifecycle is a separate change.
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// android-arm64 / android-x64 driver. `here` = the Gradle platform crate root.
+int _runAndroid(ParseResult r, string manifestPath, string outDir, string agent,
+                string libs, string buildRoot, string rid, bool wantBuild, bool wantRun) {
+    if (buildRoot.Length == 0) {
+        ConsoleError.WriteLine("z42b test --rid " + rid + " --build/--run: --build-root <repo-root> required"); return 2;
+    }
+    string here = Path.Join(buildRoot, "src/toolchain/workload/android/platform");
+
+    // 1. build (.so via cargo-ndk) + deploy (stage the embedded corpus into assets).
+    if (wantBuild) {
+        if (outDir.Length == 0) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --out <dir> required"); return 2;
+        }
+        if (agent.Length == 0 || !File.Exists(agent)) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
+        }
+        if (libs.Length == 0 || !Directory.Exists(libs)) {
+            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: Z42_LIBS (flat stdlib dir) required"); return 2;
+        }
+        if (Process.Which("cargo-ndk") == null) {
+            ConsoleError.WriteLine("z42b: cargo-ndk not found (cargo install cargo-ndk)"); return 1;
+        }
+        string abi = _androidRidAbi(rid);
+        if (abi.Length == 0) {
+            ConsoleError.WriteLine("z42b: android rid must be android-arm64 or android-x64 (got '" + rid + "')"); return 2;
+        }
+        string ndk = _resolveAndroidNdk(buildRoot);
+        if (ndk.Length == 0) {
+            ConsoleError.WriteLine("z42b: Android NDK not found — set ANDROID_NDK_HOME or run `xtask deps install --os android`"); return 1;
+        }
+        int bc = _cargoNdkBuild(here, abi, ndk);
+        if (bc != 0) { ConsoleError.WriteLine("z42b: cargo-ndk build failed"); return bc; }
+        int sc = _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, false);
+        if (sc != 0) { return sc; }
+        Console.WriteLine("z42b: android deployable → " + outDir + " (" + abi + " .so + embedded corpus)");
+    }
+
+    // 2. run: gradlew connectedAndroidTest (emulator already up — CI action / dev).
+    if (wantRun) {
+        return _runAndroidGradle(buildRoot, here);
+    }
+    return 0;
+}
+
+// cargo ndk -t <abi> -o jniLibs build --release. All three NDK env vars are set:
+// the CMake C-dep cross-build (zlib-ng via z42-compression) reads ANDROID_NDK /
+// ANDROID_NDK_ROOT, cargo-ndk + gradle read ANDROID_NDK_HOME (ported from xtask
+// _buildAndroidTesthost). Inherit stdio — capturing a build's stdout in a pipe can
+// deadlock C-dep configure/cmake probes (same rationale as the ios driver).
+int _cargoNdkBuild(string here, string abi, string ndk) {
+    string rustDir = Path.Join(here, "rust");
+    string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
+    Console.WriteLine("z42b: cargo ndk -t " + abi + " build --release → " + jniLibs);
+    return _execInherit(new Process("cargo").Arg("ndk")
+        .Arg("-t").Arg(abi)
+        .Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
+        .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk)
+        .WorkingDirectory(rustDir));
+}
+
+// ./gradlew :z42vm:connectedAndroidTest at the platform crate — ONE connected
+// emulator runs Z42VMInstrumentedTest (R1–R7) + Z42EmbeddedInstrumentedTest
+// (embedded corpus). The emulator is already booted (CI action / local dev, design
+// D2 asymmetry). Gradle builds the test APK from jniLibs + androidTest assets,
+// installs, runs, and writes its OWN junit under
+// z42vm/build/outputs/androidTest-results/ — the CI report consumer reads that path
+// unchanged, so z42b just relays gradle's exit code. AGP finds the SDK via
+// ANDROID_HOME/ANDROID_SDK_ROOT (CI's setup-android exports them; local = hermetic).
+int _runAndroidGradle(string buildRoot, string here) {
+    string gradlew = Path.Join(here, "gradlew");
+    if (!File.Exists(gradlew)) {
+        ConsoleError.WriteLine("z42b: gradlew not found at " + gradlew); return 1;
+    }
+    string ndk = _resolveAndroidNdk(buildRoot);
+    string sdk = _resolveAndroidSdk(buildRoot);
+    Console.WriteLine("z42b: ./gradlew :z42vm:connectedAndroidTest (emulator R1–R7 + embedded)");
+    Process p = new Process(gradlew).Arg(":z42vm:connectedAndroidTest").WorkingDirectory(here);
+    if (ndk.Length > 0) { p = p.Env("ANDROID_NDK_HOME", ndk); }
+    if (sdk.Length > 0) { p = p.Env("ANDROID_HOME", sdk).Env("ANDROID_SDK_ROOT", sdk); }
+    return _execInherit(p);
+}
+
+// Map an android RID to its cargo-ndk ABI name (gradle naming). Empty rid → "".
+string _androidRidAbi(string rid) {
+    if (rid == "android-arm64") { return "arm64-v8a"; }
+    if (rid == "android-x64")   { return "x86_64"; }
+    return "";
+}
+
+// Resolve the Android NDK dir: ANDROID_NDK_HOME env, else the highest version dir
+// under artifacts/tools/android-sdk/ndk/ (populated by `xtask deps install --os
+// android`). Ported from xtask _resolveAndroidNdk; picks the max basename
+// deterministically (String.CompareTo), never the enumeration order (common-pitfalls §1).
+string _resolveAndroidNdk(string buildRoot) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    string ndkBase = Path.Join(buildRoot, "artifacts/tools/android-sdk/ndk");
+    if (!Directory.Exists(ndkBase)) { return ""; }
+    string best = "";
+    foreach (var name in Directory.Enumerate(ndkBase)) {
+        if (!Directory.Exists(Path.Join(ndkBase, name))) { continue; }
+        if (best.Length == 0 || name.CompareTo(best) > 0) { best = name; }
+    }
+    return (best.Length > 0) ? Path.Join(ndkBase, best) : "";
+}
+
+// Resolve the Android SDK dir: ANDROID_HOME / ANDROID_SDK_ROOT env (CI's
+// setup-android exports these; the reactivecircus action too), else the hermetic
+// SDK (deps install --os android → artifacts/tools/android-sdk). Empty = let gradle
+// resolve it (local.properties / its own env) — z42b only supplies a fallback.
+string _resolveAndroidSdk(string buildRoot) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_HOME") ?? "";
+    if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT") ?? ""; }
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    string auto = Path.Join(buildRoot, "artifacts/tools/android-sdk");
+    return Directory.Exists(auto) ? auto : "";
+}
