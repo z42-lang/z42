@@ -22,6 +22,7 @@ using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Test;
+using Std.Collections;
 
 // Entry from _runModule when target=.json and rid is a device RID. Reads the
 // build/run/stage-only flags and drives the matching per-platform steps.
@@ -37,7 +38,6 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
     if (wantStageOnly) { wantBuild = false; wantRun = false; }
 
     string outDir    = r.GetOption("out");
-    string agent     = r.GetOption("agent");
     string buildRoot = r.GetOption("build-root");
     string libs      = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
 
@@ -52,17 +52,17 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
     // --stage-only is platform-agnostic (shared Slice 2 assembler) — handle it
     // before the per-platform build/run dispatch so any device rid can stage.
-    if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, agent, libs); }
+    if (wantStageOnly) { return _stageFor(r, manifestPath, rid, outDir, libs); }
 
     // Per-platform build/run drivers: wasm (PR-1), ios (PR-2), android (PR-3).
     if (rid == "browser-wasm") {
-        return _runWasm(r, manifestPath, outDir, agent, libs, buildRoot, wantBuild, wantRun);
+        return _runWasm(r, manifestPath, outDir, libs, buildRoot, wantBuild, wantRun);
     }
     if (rid == "ios-arm64" || rid == "iossim-arm64") {
-        return _runIos(r, manifestPath, outDir, agent, libs, buildRoot, rid, wantBuild, wantRun);
+        return _runIos(r, manifestPath, outDir, libs, buildRoot, rid, wantBuild, wantRun);
     }
     if (rid == "android-arm64" || rid == "android-x64") {
-        return _runAndroid(r, manifestPath, outDir, agent, libs, buildRoot, rid, wantBuild, wantRun);
+        return _runAndroid(r, manifestPath, outDir, libs, buildRoot, rid, wantBuild, wantRun);
     }
     ConsoleError.WriteLine("z42b test --rid " + rid + ": device build/run not wired for this rid");
     return 2;
@@ -70,7 +70,7 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
 // browser-wasm: build (wasm-pack) → deploy (stage {app,libs,bundle}+files.json +
 // pkg/harness) → run (playwright embedded config) → collect report.
-int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
+int _runWasm(ParseResult r, string manifestPath, string outDir,
              string libs, string buildRoot, bool wantBuild, bool wantRun) {
     if ((wantBuild || wantRun) && buildRoot.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid browser-wasm --build/--run: --build-root <repo-root> required"); return 2;
@@ -85,9 +85,8 @@ int _runWasm(ParseResult r, string manifestPath, string outDir, string agent,
         if (outDir.Length == 0) {
             ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --out <dir> required"); return 2;
         }
-        if (agent.Length == 0 || !File.Exists(agent)) {
-            ConsoleError.WriteLine("z42b test --rid browser-wasm --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
-        }
+        string agent = _ensureAgent();
+        if (agent.Length == 0) { return 1; }
         if (libs.Length == 0 || !Directory.Exists(libs)) {
             ConsoleError.WriteLine("z42b test --rid browser-wasm --build: Z42_LIBS (flat stdlib dir) required"); return 2;
         }
@@ -149,15 +148,89 @@ int _runWasmPlaywright(ParseResult r, string buildRoot) {
 }
 
 // stage-only path for any device rid (delegates to the shared Slice 2 assembler).
-int _stageFor(ParseResult r, string manifestPath, string rid, string outDir, string agent, string libs) {
+int _stageFor(ParseResult r, string manifestPath, string rid, string outDir, string libs) {
     if (outDir.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid " + rid + ": --out <dir> required"); return 2;
     }
-    if (agent.Length == 0 || !File.Exists(agent)) {
-        ConsoleError.WriteLine("z42b test --rid " + rid + ": --agent <z42.testagent.zpkg> required (not found)"); return 2;
-    }
+    string agent = _ensureAgent();
+    if (agent.Length == 0) { return 1; }
     if (libs.Length == 0 || !Directory.Exists(libs)) {
         ConsoleError.WriteLine("z42b test --rid " + rid + ": Z42_LIBS (flat stdlib dir) required"); return 2;
     }
     return _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, (rid == "browser-wasm"));
+}
+
+// ── test-agent resolution: dogfood `z42 workload install test` (design D4) ────
+//
+// The on-device test agent (z42.testagent.zpkg) is no longer an in-tree --agent
+// handed over by xtask; it is the PUBLISHED `test` workload payload (Change C).
+// z42b resolves it from the installed workload, dogfooding the install mechanism:
+//   1. home = Z42_HOME | reverse(Z42_PORTABLE_VM) (<sdk>/bin/z42vm → <sdk>).
+//   2. scan <home>/runtimes/<ver>/workloads/test/z42.testagent.zpkg (any version).
+//   3. absent → spawn `<home>/z42 workload install test [--from Z42_WORKLOAD_SRC]`
+//      (offline archive dir in CI; omit --from for a network install), then re-scan.
+// Returns the agent zpkg path, or "" (error already reported) on failure.
+string _ensureAgent() {
+    string home = _sdkHome();
+    if (home.Length == 0) {
+        ConsoleError.WriteLine("z42b test: cannot locate SDK home (set Z42_HOME or Z42_PORTABLE_VM) to resolve the test workload agent");
+        return "";
+    }
+    string agent = _findInstalledAgent(home);
+    if (agent.Length > 0) { return agent; }
+
+    // Not installed → dogfood `z42 workload install test`.
+    string launcher = Path.Join(home, "z42");
+    if (!File.Exists(launcher)) {
+        ConsoleError.WriteLine("z42b test: launcher not found at " + launcher + "; install the test workload first (z42 workload install test)");
+        return "";
+    }
+    string src = Environment.GetEnvironmentVariable("Z42_WORKLOAD_SRC") ?? "";
+    Console.WriteLine("z42b: test workload not installed → z42 workload install test"
+        + (src.Length > 0 ? (" --from " + src) : " (network)"));
+    Process p = new Process(launcher).Arg("workload").Arg("install").Arg("test");
+    if (src.Length > 0) { p = p.Arg("--from").Arg(src); }
+    ProcessResult res = p.Run();
+    if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
+    if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
+    if (res.ExitCode != 0) { ConsoleError.WriteLine("z42b: z42 workload install test failed"); return ""; }
+
+    agent = _findInstalledAgent(home);
+    if (agent.Length == 0) {
+        ConsoleError.WriteLine("z42b: test workload installed but z42.testagent.zpkg not found under "
+            + home + "/runtimes/*/workloads/test/");
+    }
+    return agent;
+}
+
+// SDK home: Z42_HOME wins; else reverse-derive from Z42_PORTABLE_VM
+// (<sdk>/bin/z42vm → <sdk>). "" if neither is set.
+string _sdkHome() {
+    string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    if (h.Length > 0) { return h; }
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (pv.Length > 0) {
+        string bin = Path.GetDirectoryName(pv);
+        if (bin.Length > 0) {
+            string sdk = Path.GetDirectoryName(bin);
+            if (sdk.Length > 0) { return sdk; }
+        }
+    }
+    return "";
+}
+
+// Scan <home>/runtimes/<ver>/workloads/test/z42.testagent.zpkg for any installed
+// version. Versions sorted (common-pitfalls §1: deterministic first-match, no
+// reliance on FS enumeration order). "" if none installed.
+string _findInstalledAgent(string home) {
+    string runtimes = Path.Join(home, "runtimes");
+    if (!Directory.Exists(runtimes)) { return ""; }
+    string[] vers = Directory.Enumerate(runtimes);
+    vers.Sort();
+    for (int i = 0; i < vers.Length; i = i + 1) {
+        string cand = Path.Join(Path.Join(Path.Join(Path.Join(runtimes, vers[i]),
+            "workloads"), "test"), "z42.testagent.zpkg");
+        if (File.Exists(cand)) { return cand; }
+    }
+    return "";
 }

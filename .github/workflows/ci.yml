@@ -1646,6 +1646,24 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm
+      # z42b-device-run PR-4 (dogfood): z42b resolves the on-device test-agent from
+      # the installed `test` workload in ITS OWN SDK home (Z42_PORTABLE_VM →
+      # artifacts/build/runtime), not an in-tree --agent. Stage the agent there at
+      # compile time: build the workload payload from current source and drop its
+      # z42.testagent.zpkg into <home>/runtimes/<ver>/workloads/test/ — the exact
+      # path `z42 workload install test` would populate. z42b finds it → no launcher
+      # spawn / archive download needed in CI (design D4; the install-if-missing
+      # branch covers real installed SDKs / local dev).
+      - name: Provision test workload into z42b's SDK (dogfood)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          libs="$PWD/artifacts/build/libraries/dist/release"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- package workload test dev
+          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
+          mkdir -p "$dest"
+          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
       # add-wasm-testhost G6: same runner + primed Playwright — build the embedded
       # deployable (agent+bundle+libs → artifacts/build/wasm-test/) and run the
       # bundled corpus in-browser (distinct config rooted at that dir).
@@ -1732,6 +1750,14 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           libs="$PWD/artifacts/build/libraries/dist/release"
           run() { Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- "$@"; }
+          # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
+          # home workload dir (<home>/runtimes/<ver>/workloads/test/, where
+          # `z42 workload install test` puts it) so z42b resolves it from there — no
+          # in-tree --agent, no launcher spawn / archive download in CI (design D4).
+          run package workload test dev
+          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
+          mkdir -p "$dest"
+          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
           # add-wasm-testhost G6 + tier2-mobile-coverage: fold this shard's embedded
           # slice into the SAME xcodebuild/simulator run as R1–R7 (no 2nd sim boot).
           # z42b-device-run PR-2: iOS build+deploy+run 下沉 z42b's ios driver.
@@ -1828,6 +1854,13 @@ jobs:
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android build
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android assets
+          # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
+          # home workload dir (<home>/runtimes/<ver>/workloads/test/) so z42b's --build
+          # resolves it from there — no in-tree --agent, no launcher / download (design D4).
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- package workload test dev
+          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
+          mkdir -p "$dest"
+          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
           # add-wasm-testhost G6 + tier2-mobile-coverage: build this shard's embedded
           # slice (x86_64 .so — matches the emulator ABI — + androidTest/assets/embedded)
           # so the single connectedAndroidTest below runs Z42EmbeddedInstrumentedTest's

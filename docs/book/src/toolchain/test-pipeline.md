@@ -62,9 +62,10 @@ xtask 的 `_testEmbedded` desktop 分支因此收缩为「组 bundle → 委托 
 
 ### device 路径：z42b 接管 build + deploy + run（Slice 3）
 
-`z42b test <manifest.json> --rid <device> [--out <dir>] [--agent <zpkg>] [--build-root <repo>]`
+`z42b test <manifest.json> --rid <device> [--out <dir>] [--build-root <repo>]`
 （libs 走 `Z42_LIBS`）。设备 RID 上 z42b 走完整流水线——sub-step flag 选粒度（默认无 flag =
-build+run）：
+build+run）。**test-agent 不再由 xtask 经 `--agent` 交付**，而是 z42b 从自己 SDK 里已装的 `test`
+workload 解析（见下「test-agent 解析」）：
 
 | flag | 语义 |
 |------|------|
@@ -87,14 +88,29 @@ z42b `--run`。`IPlatformBackend` 的 `RunTests` 相应薄化为委托 z42b（io
 gradlew）作本地 emulator-lifecycle 路径——CI 走 reactivecircus action 内改调 z42b `--run`，emulator AVD
 生命周期按 design D2 留在 CI action / test.sh，不进 z42b。
 
+### test-agent 解析：dogfood `test` workload（Slice 3 PR-4）
+
+设备 RID 上运行的 on-device test-agent（`z42.testagent.zpkg`）不再是 xtask 树内现编、经 `--agent`
+交给 z42b 的临时产物，而是**已发布 `test` workload 的 payload**（package-test-workload / Change C）。
+z42b 从**自己所在 SDK** 解析它，dogfood workload 的安装位置：
+
+```
+_ensureAgent()（builder_device.z42）:
+  1. home = Z42_HOME | reverse(Z42_PORTABLE_VM)          # <sdk>/bin/z42vm → <sdk>
+  2. 扫 <home>/runtimes/<ver>/workloads/test/z42.testagent.zpkg（版本目录排序，任一命中即用）
+  3. 缺 → spawn `<home>/z42 workload install test [--from $Z42_WORKLOAD_SRC]`（离线源 / 网络）后重扫
+```
+
+- **真实已装 SDK（本地 / 分发）**：`z42 workload install test` 已把 agent 放进 `<home>/runtimes/<ver>/
+  workloads/test/`（步骤 2 命中）；首次缺失走步骤 3 的 install-if-missing。
+- **CI 设备 job（dev-tree，无 launcher）**：编译时把现编 agent 直接输出到 z42b SDK home 的同一 workload
+  目录——`package workload test dev` 产 `z42.testagent.zpkg` → 拷进 `<home>/runtimes/dev/workloads/test/`
+  （`<home>` = `artifacts/build/runtime`，即 `Z42_PORTABLE_VM` 反推）。z42b 步骤 2 直接命中 → **无需
+  launcher spawn、无需下载 archive**。这样 CI dogfood 的是「workload 布局 + z42b 解析」，用的是 current
+  源现编的 agent（非下载已发布 archive）。
+
 ### RID 值域
 
 `host`（默认，in-process）｜ `browser-wasm` ｜ `ios-arm64` ｜ `iossim-arm64` ｜ `android-arm64` ｜
-`android-x64`。`--build`/`--run` 需 `--build-root`；`--build` 另需 `--out` + `--agent`；未知 RID 报错列出合法值。
-
-## Deferred / Future Work
-
-### test-pipeline-dogfood-workload-install: 设备 agent 走 workload-install（Slice 3 PR-4）
-
-- 设备 driver 的 agent 来源从 in-tree `--agent` 切到「确保 test workload 就位」（查已装 → 无则
-  `z42 workload install test`）；CI 用离线 archive 源，不每次打公网。
+`android-x64`。`--build`/`--run` 需 `--build-root`；`--build` 另需 `--out`（agent 由 z42b 从 workload
+解析，见上）；未知 RID 报错列出合法值。

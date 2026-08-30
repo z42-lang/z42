@@ -21,7 +21,7 @@ using Std.IO;
 using Std.Cli;
 
 // android-arm64 / android-x64 driver. `here` = the Gradle platform crate root.
-int _runAndroid(ParseResult r, string manifestPath, string outDir, string agent,
+int _runAndroid(ParseResult r, string manifestPath, string outDir,
                 string libs, string buildRoot, string rid, bool wantBuild, bool wantRun) {
     if (buildRoot.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid " + rid + " --build/--run: --build-root <repo-root> required"); return 2;
@@ -33,9 +33,8 @@ int _runAndroid(ParseResult r, string manifestPath, string outDir, string agent,
         if (outDir.Length == 0) {
             ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --out <dir> required"); return 2;
         }
-        if (agent.Length == 0 || !File.Exists(agent)) {
-            ConsoleError.WriteLine("z42b test --rid " + rid + " --build: --agent <z42.testagent.zpkg> required (not found)"); return 2;
-        }
+        string agent = _ensureAgent();
+        if (agent.Length == 0) { return 1; }
         if (libs.Length == 0 || !Directory.Exists(libs)) {
             ConsoleError.WriteLine("z42b test --rid " + rid + " --build: Z42_LIBS (flat stdlib dir) required"); return 2;
         }
