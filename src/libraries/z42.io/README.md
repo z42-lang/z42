@@ -15,7 +15,7 @@ z42 标准 IO 类型。
 | `Directory.z42` | `Directory` | 目录创建 / 列表 / 删除；`CreateTempDir(prefix)` 为 `File.CreateTempDir` 的 alias |
 | `Path.z42` | `Path` | 路径拼接和解析；`Glob`（直接子项）+ `GlobRecursive(dir, pattern)` 递归 |
 | `Environment.z42` | `Environment` | 环境变量、进程退出 |
-| `Process.z42` / `ProcessHandle.z42` / `ProcessResult.z42` | 进程子系统 | 启动 / 等待 / kill / stdin 写入（`WriteStdin(byte[])` + `WriteStdinString(string)`）；静态 `Process.Which(name)` 在 `$PATH` 查可执行 |
+| `Process.z42` / `ProcessHandle.z42` / `ProcessResult.z42` | 进程子系统 | 启动 / 等待 / kill / stdin 写入（`WriteStdin(byte[])` + `WriteStdinString(string)`）；静态 `Process.Which(name)` 在 `$PATH` 查可执行；`ShareProcessGroup()` 让子进程留在调用方进程组（交互式 tty 透传必需，如 `z42 repl`；默认独立进程组以便 run-timeout 树杀，fix-repl-launcher-process-group） |
 | `ProcessStdinStream.z42` | `ProcessStdinStream` | write-only Stream over a live child stdin pipe (delegates to ProcessHandle.WriteStdin / CloseStdin) |
 | `ProcessOutputStream.z42` | `ProcessOutputStream` | read-only Stream over child stdout/stderr (fd-parameterised；backed by `__process_handle_read_*` builtins) |
 | `Stream.z42` | `Stream` | 流式 I/O base class（capability + Read/Write/Seek + ReadAllBytes / WriteAllBytes / ReadExactly） |
