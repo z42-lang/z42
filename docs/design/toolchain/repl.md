@@ -346,13 +346,21 @@ static int $Eval_3() { return $ReplVars.x + $ReplVars.y; }
 | 类型 | 特征（token） | 处理 |
 |------|------|------|
 | 表达式 | 非声明、非控制流语句 | wrap → `Eval{N}()` → 打印返回值 |
-| 变量声明 | `(var\|T) x =`（token2=`=`） | 提升为 `Vars{N}` 静态字段（carry-forward） |
-| 函数声明 | `[修饰符] RetType Name (`（token2=`(`） | 原样入 `Repl.R{N}` ns，`DeclNamespaces` 登记，后续轮 `using` |
+| 变量声明 | `var x =`，或 `<类型> x =`（类型跳过后紧跟 `<ident> =`） | 提升为 `Vars{N}` 静态字段（carry-forward）；显式类型文本存 `DeclType`（target-typed new 目标） |
+| 函数声明 | `<类型> Name (`（类型跳过后紧跟 `<ident> (`） | 原样入 `Repl.R{N}` ns，`DeclNamespaces` 登记，后续轮 `using` |
 | 类型声明 | `[修饰符] class\|struct\|record\|interface\|enum Name` | 同上（enum 靠 TsigReconcile 导出、类实例方法靠 world-extension 跨轮解析） |
 | using | `using Std.IO;` | 追加到 using 列表 |
 | 纯语句 | 赋值、有副作用调用（顶层 `=`/语句关键字） | wrap → `Eval{N}()` `; return null;` 执行不打印 |
 
 重定义同名函数/类型 → ERROR（`DeclNames` 查重，不 supersede）。
+
+**类型前缀跳过（fix-repl-generic-decl-classify）**：变量声明 / 函数声明的「类型」不限单 token——
+`Classifier._typeRefEnd` 从修饰符后跳过一个**完整类型引用**（限定名 `A.B.C` + 泛型 `<...>`（含嵌套
+`>>`）+ 数组 `[]` + 可空 `?`），再看其后是否 `<ident> =`（变量）或 `<ident> (`（函数）。故
+`List<int> a = new()`、`Std.Collections.List<int> b = new()`、`int[] arr = new int[3]`、
+`Dictionary<string,int> d = new()` 都正确判为声明并跨轮持久（此前只认单 token 类型 → 泛型/限定名
+漏判成 `Eval{N}` 内**局部变量**，下一轮 `a` 未定义；限定名更被误解析成比较链 `Std.Collections.List < int > b`）。
+启发式保守：尖括号不闭合 / 非类型起始 → 退回表达式路径（安全，最坏是编译报错、会话不推进）。
 
 **多行检测**：`interactive_main` **逐行**读、累积，由 parser 权威的 `Completeness.IsIncomplete` 判「写完没」
 （缺 `}` / 操作数 / 未闭合 `(){}[]` 等）→ 没写完 `... ` 续行、写完才求值。续行缩进由脚本层
