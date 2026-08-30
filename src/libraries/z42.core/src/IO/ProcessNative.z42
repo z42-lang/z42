@@ -21,7 +21,8 @@ public static class ProcessNative {
         string? stdoutPath,
         int stderrMode,
         string? stderrPath,
-        long timeoutMs);
+        long timeoutMs,
+        bool ownProcessGroup);   // false → child stays in caller's process group（交互式 tty 透传，见 Process.ShareProcessGroup）
 
     [Native("__process_spawn")]
     public static extern object[] Spawn(

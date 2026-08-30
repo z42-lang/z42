@@ -31,6 +31,7 @@ public class Process {
     private byte[] _stdinBytes;   // null = no one-shot stdin
     private bool _hasStdinBytes;
     private long _timeoutMs;      // -1 = no timeout
+    private bool _ownProcessGroup; // true = child gets its own process group (default; enables run-timeout tree-kill)
 
     public Process(string program) {
         this._program        = program;
@@ -49,6 +50,7 @@ public class Process {
         this._stderr         = Stdio.Pipe();
         this._hasStdinBytes  = false;
         this._timeoutMs      = -1;
+        this._ownProcessGroup = true;
     }
 
     public Process Arg(string a) {
@@ -104,6 +106,20 @@ public class Process {
         return this;
     }
 
+    // Run the child in the CALLER's process group instead of a fresh one of its own.
+    // Needed when the child must join the caller's terminal job-control — an interactive
+    // passthrough child (`Stdin(Stdio.Inherit())`) that drives the tty. A fresh process
+    // group is a *background* group for the controlling terminal, so the child cannot
+    // grab the tty (a line editor / rustyline REPL fails to init) and its tty reads stop
+    // on SIGTTIN. `z42 repl` forwarding the interactive REPL uses this. Trade-off: the
+    // run-timeout tree-kill can no longer group-kill grandchildren — fine for an
+    // interactive child, which never carries a timeout. Only affects `Run()` (Spawn is
+    // never a tty passthrough). Default: own process group (tree-kill preserved).
+    public Process ShareProcessGroup() {
+        this._ownProcessGroup = false;
+        return this;
+    }
+
     // ── Run / Spawn ──────────────────────────────────────────────────────
 
     public ProcessResult Run() {
@@ -121,7 +137,8 @@ public class Process {
             this._stdout.GetMode() == Stdio.ModeFile ? this._stdout.GetPath() : null,
             this._stderr.GetMode(),
             this._stderr.GetMode() == Stdio.ModeFile ? this._stderr.GetPath() : null,
-            this._timeoutMs);
+            this._timeoutMs,
+            this._ownProcessGroup);
 
         long kind = (long)raw[0];
         if (kind == 1) {

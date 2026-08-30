@@ -168,8 +168,13 @@ int _forwardRepl(string[] argv) {
     string[] z42iArgs = _stripFlag(_stripFlag(argv, "--config"), "--mode");
     Process proc = new Process(vm);
     if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
+    // ShareProcessGroup: the REPL is interactive (Stdin.Inherit) and drives the tty via
+    // its line editor. Left in a fresh (background) process group it can't grab the
+    // controlling terminal — no `>>>` prompt, and tty reads stop on SIGTTIN (no eval).
+    // Keep it in the launcher's foreground group so terminal job-control reaches it.
     proc = proc.Arg(z42i).Arg("--")
-        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit())
+        .ShareProcessGroup();
     int i = 0;
     while (i < z42iArgs.Length) { proc = proc.Arg(z42iArgs[i]); i = i + 1; }
     proc = proc.Env("Z42_LIBS", libs);
