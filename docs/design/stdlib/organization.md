@@ -23,7 +23,7 @@
 ## 平台边界库 vs 全平台共享库（interop 收缩规则）
 
 > **2026-08-03 确立。** 取代旧「VM extern 只能在 z42.core，z42.io 唯一例外」规则——后者过窄
-> （现实中 math / time / threading / net / compression / crypto / io.binary / test 都含 interop）
+> （现实中 math / time / threading / net / compression / crypto / io（`Std.IO.Binary`）/ test 都含 interop）
 > 且基于一个误解（见下「澄清」）。这是 interop 归属的**唯一 SoT**，`libraries/README.md §2` 只摘要 + 链接此节。
 
 ### 规则
@@ -38,7 +38,7 @@ stdlib 的每个库属于以下三类之一：
 |------|:---:|------|
 | **① 语义汇聚核（core）** | ✅（全部执行基座 + 内核原语） | `z42.core`：值语义/反射/GC/libm + **io/net/threading 的 OS 语义原语**（2026-08-27 上移） |
 | **② 可插拔工具/算法库** | ✅（各库自持工具 native） | `z42.compression` / `z42.crypto` / `z42.diagnostics` / `z42.test` / `z42.build`——正常执行不需要、可独立编译/按需加载/裁剪 |
-| **③ 纯脚本库** | ❌（零 interop） | 其余全部：**io / net / threading（语义上移后的应用层）** + collections / math / text / encoding / time / toml / json / yaml / uri / regex / cli / random / numerics / io.binary … |
+| **③ 纯脚本库** | ❌（零 interop） | 其余全部：**io / net / threading（语义上移后的应用层）** + collections / math / text / encoding / time / toml / json / yaml / uri / regex / cli / random / numerics … |
 
 三类的角色：
 
@@ -101,7 +101,7 @@ Script-First 纪律。
 1. **Script-First**：逻辑尽量放脚本；interop 只提供**最小基础机制/原语**，不在 native 侧堆高层逻辑。
 2. **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
 3. **单一声明点**：每个 native 符号**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其能力库。
-   （现存违规：`__double_to_bits`/`__single_*`/`__double_from_bits` 在 z42.io.binary + z42.ir 双声明；
+   （现存违规：`__double_to_bits`/`__single_*`/`__double_from_bits` 在 z42.io（`Std.IO.Binary`）+ z42.ir 双声明；
    `__time_now_ms` 在 z42.time/z42.io/z42.net 三声明；`__time_now_mono_ns` 在 z42.time + z42.test 双声明——待收敛。）
 4. **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为 VM 内置实现**。
    VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制，从而**尽量保持逻辑在脚本层**。
@@ -132,7 +132,7 @@ target/arch/位宽/字节序信息。stdlib 源码零条件编译。**因此所�
 
 | 类别 | 命名空间 | 面向 | 成员 | 说明 |
 |------|---------|------|------|------|
-| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / io.binary / net / threading / compression / crypto / test / **scripting** | 本文档全部划分规则（L0–L3、两层 interop、R1–R4）**只约束这一类** |
+| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / time / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / net / threading / compression / crypto / test / **scripting** | 本文档全部划分规则（L0–L3、两层 interop、R1–R4）**只约束这一类** |
 | **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、**`z42c.core`（`Z42.Core`）+ `z42c.syntax`（`Z42.Syntax`）**（可移植编译器前端：Lexer/Parser/AST/Span/Diagnostic，converge-z42-syntax-lib/PR-A 下沉） | 编译器内部件（IR 模型 / zbc·zpkg 后端 / manifest 模型 / builder 骨架 / **可移植前端**）**下沉为共享库**，供 z42c 自身、REPL、z42b 复用 |
 
 **为什么工具链库住在 `src/libraries/`**：它们要被 z42c 运行期加载（如 z42.ir 是 zbc/zpkg 后端），
@@ -165,13 +165,12 @@ converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.
 | `z42.collections` | L1 | Stack、Queue、LinkedList、SortedSet（计划：SortedDictionary、PriorityQueue） | ❌ 纯脚本 |
 | `z42.text` | L1 | StringBuilder（纯脚本，2026-04-26 迁移）；Regex 占位 | ❌ 纯脚本 |
 | `z42.encoding` | L1 | Hex、Base64（RFC 4648 §4）、Utf8 | ❌ 纯脚本 |
-| `z42.io` | L2 | FileStream、Stream 家族、Process/ProcessHandle、Ansi、Stdio（**Console/File/Path/Environment 已上移 core**） | ❌ 纯脚本应用层（native 语义在 core `*Native`） |
+| `z42.io` | L2 | FileStream、Stream 家族、Process/ProcessHandle、Ansi、Stdio + BinaryReader/Writer/Exception（`Std.IO.Binary`，2026-08-31 由原 `z42.io.binary` 并入）（**Console/File/Path/Environment 已上移 core**） | ❌ 纯脚本应用层（native 语义在 core `*Native`） |
 | ~~`z42.time`~~ | — | **已删除（2026-08-27）**：DateTime/TimeSpan/Stopwatch/… 迁入 `z42.core/src/Time/` | — |
 | `z42.toml` | L1 | TomlValue（discriminated union）、TomlException、TOML 1.0 subset reader/writer | ❌ 纯脚本 |
 | `z42.json` | L1 | JsonValue（discriminated union）、JsonException、JSON RFC 8259 reader/writer | ❌ 纯脚本 |
 | `z42.random` | L1 | Random（PCG-XSH-RR 64→32），seeded deterministic PRNG | ❌ 纯脚本（wall-clock seed 走 core `Std.Time`） |
 | `z42.uri` | L1 | Uri / UriException / UriCodec，RFC 3986 子集 parser + percent codec | ❌ 纯脚本 |
-| `z42.io.binary` | L1 | BinaryReader / BinaryWriter / BinaryException：LE+BE int16/32/64 + UTF-8 string + byte[] helper | ❌ 纯脚本 |
 | `z42.diagnostics` | L1 | Log / LogLevel：全局 facade，5 level，stderr 输出 | ❌ 纯脚本 |
 | `z42.regex` | L1 | Regex / Match / RegexException：backtracking NFA，字面+`.`+量词+字符类+分组+alternation | ❌ 纯脚本 |
 | `z42.cli` | L1 | ArgParser / ParseResult / CliException：flag + option + positional + auto -h/--help（Phase 0 of script self-hosting） | ❌ 纯脚本 |

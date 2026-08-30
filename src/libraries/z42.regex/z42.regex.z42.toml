@@ -5,4 +5,3 @@ kind    = "lib"
 
 [dependencies]
 "z42.core"        = "0.1.0"
-"z42.collections" = "0.1.0"

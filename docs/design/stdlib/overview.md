@@ -228,8 +228,7 @@ Rules:
 | Package | Namespace | Load condition | Analogy |
 |---------|-----------|---------------|---------|
 | `z42.core` | `Std` | **Always loaded at VM startup.** No `using` required. | Python `builtins`, Rust `std::prelude` |
-| `z42.io` | `Std.IO` | `using Std.IO;` | C# `System.IO` |
-| `z42.io.binary` | `Std.IO.Binary` | `using Std.IO.Binary;` | C# `System.IO.BinaryReader/Writer` |
+| `z42.io` | `Std.IO` / `Std.IO.Binary` | `using Std.IO;` / `using Std.IO.Binary;`（二进制读写 2026-08-31 由原 `z42.io.binary` 并入本包） | C# `System.IO` + `System.IO.BinaryReader/Writer` |
 | `z42.collections` | `Std.Collections` | `using Std.Collections;`（**仅次级容器** Queue/Stack/SortedSet 等；`List<T>` / `Dictionary<K,V>` 物理驻留 `z42.core`，随 prelude 一起加载）| C# `System.Collections.Generic` 非基础部分 |
 | `z42.text` | `Std.Text` | `using Std.Text;` | C# `System.Text` |
 | `z42.math` | `Std.Math` | `using Std.Math;` | C# `System.Math` |

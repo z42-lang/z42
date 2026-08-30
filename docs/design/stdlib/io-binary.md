@@ -1,8 +1,8 @@
 # z42.io.binary — Low-level binary stream
 
-> 落地版本：2026-05-15（add-z42-io-binary），2026-05-16 升级到 `Std.IO.Binary`（fix-deep-namespace-import-discovery），2026-05-24 后端 byte[] → `Std.IO.Stream`（refactor-binary-reader-stream）
-> 包路径：`src/libraries/z42.io.binary/`
-> 命名空间：`Std.IO.Binary`
+> 落地版本：2026-05-15（add-z42-io-binary），2026-05-16 升级到 `Std.IO.Binary`（fix-deep-namespace-import-discovery），2026-05-24 后端 byte[] → `Std.IO.Stream`（refactor-binary-reader-stream），2026-08-31 由独立包 `z42.io.binary` **并入 `z42.io`**（library-review PR-C，碎包合并；命名空间不变）
+> 包路径：`src/libraries/z42.io/src/Binary{Reader,Writer,Exception}.z42`（原独立包 `z42.io.binary` 已并入 `z42.io`）
+> 命名空间：`Std.IO.Binary`（`BinaryException` 在 `Std`）
 
 ## 职责
 

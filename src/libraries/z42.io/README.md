@@ -28,4 +28,11 @@ z42 标准 IO 类型。
 | `StringWriter.z42` | `StringWriter` | char-oriented writer accumulating into a string（`Write` / `WriteLine` / `ToString` / `Clear`） |
 | `StreamReader.z42` | `StreamReader` | char-oriented reader over a byte `Stream` via an `Encoding`（drain-and-decode v0） |
 | `StreamWriter.z42` | `StreamWriter` | char-oriented writer over a byte `Stream` via an `Encoding`（encode-on-write） |
+| `BinaryReader.z42` | `BinaryReader`（namespace `Std.IO.Binary`） | 低层二进制读：byte / int16 / int32 / int64（LE+BE）/ bytes / UTF-8 string / 7-bit varint / float / double；`new BinaryReader(byte[])` 或 `BinaryReader.OverStream(stream)` |
+| `BinaryWriter.z42` | `BinaryWriter`（namespace `Std.IO.Binary`） | 对称写 API + 内部 `byte[]` 自动 2x grow；`new BinaryWriter()` 或 `BinaryWriter.OverStream(stream)` |
+| `BinaryException.z42` | `BinaryException`（namespace `Std`） | 二进制越界 / 非法参数错误 |
 | `Exceptions/` | 各类 IO 异常 | `FileNotFoundException` / `ProcessHandleInvalidException` 等 |
+
+> **二进制读写**（原独立包 `z42.io.binary`，2026-08-31 并入本包）：`using Std.IO.Binary;`
+> 提供 `BinaryReader` / `BinaryWriter`，LE / BE 显式后缀 + varint + float/double。
+> 用于协议解析、自定义文件格式、调试 `.zbc` 二进制内容等。设计要点见 `docs/design/stdlib/io-binary.md`。
