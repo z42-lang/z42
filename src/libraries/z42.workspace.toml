@@ -45,7 +45,6 @@ default-members = [
     "z42.uri",
     "z42.threading",
     "z42.io",
-    "z42.io.binary",
     "z42.diagnostics",
     "z42.regex",
     "z42.cli",

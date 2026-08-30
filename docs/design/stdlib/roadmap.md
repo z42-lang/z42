@@ -17,7 +17,7 @@
 
 ## 现状回顾（2026-04-30）
 
-已实现包：`z42.cli` / `z42.core` / `z42.collections` / `z42.diagnostics` / `z42.encoding` / `z42.io` / `z42.io.binary` / `z42.json` / `z42.math` / `z42.random` / `z42.regex` / `z42.test` / `z42.text` / `z42.time` / `z42.toml` / `z42.uri`。
+已实现包：`z42.cli` / `z42.core` / `z42.collections` / `z42.diagnostics` / `z42.encoding` / `z42.io`（含 `Std.IO.Binary`，原 `z42.io.binary` 已并入） / `z42.json` / `z42.math` / `z42.random` / `z42.regex` / `z42.test` / `z42.text` / `z42.time` / `z42.toml` / `z42.uri`。
 
 覆盖能力：基础类型、协议接口、基础集合、Math、StringBuilder、Console + File / Directory / Path / Environment / Process、测试框架、编码（Hex/Base64/UTF-8）、UTC 时刻 + 时间段 + 单调计时器、TOML 1.0 子集 reader/writer、JSON RFC 8259 reader/writer。
 
@@ -55,7 +55,7 @@
 - `z42.json`（2026-05-15 add-z42-json）— JSON RFC 8259 完整 reader/writer。详 [json.md](json.md)
 - `z42.random`（2026-05-15 add-z42-random）— PCG-XSH-RR deterministic PRNG。详 [random.md](random.md)
 - `z42.uri`（2026-05-15 add-z42-uri）— RFC 3986 子集 URI parser + percent codec。详 [uri.md](uri.md)
-- `z42.io.binary`（2026-05-15 add-z42-io-binary）— `BinaryReader/Writer` over byte[]，LE+BE int16/32/64 + UTF-8 string。详 [io-binary.md](io-binary.md)
+- `Std.IO.Binary`（2026-05-15 add-z42-io-binary；2026-08-31 由原独立包 `z42.io.binary` 并入 `z42.io`）— `BinaryReader/Writer` over byte[]，LE+BE int16/32/64 + UTF-8 string。详 [io-binary.md](io-binary.md)
 - `z42.diagnostics`（2026-05-15 add-z42-diagnostics）— `Log` static facade + 5 level (TRACE/DEBUG/INFO/WARN/ERROR)，stderr 输出。详 [diagnostics.md](diagnostics.md)
 - `z42.regex`（2026-05-16 add-z42-regex）— RFC 子集 regex parser + backtracking 匹配引擎；Compile/IsMatch/Find/FindAll/Replace/Split。详 [regex.md](regex.md)
 - `z42.cli`（2026-05-16 add-z42-cli）— ArgParser + ParseResult + auto -h/--help；Phase 0 of shell-script → z42 self-hosting。详 [cli.md](cli.md)

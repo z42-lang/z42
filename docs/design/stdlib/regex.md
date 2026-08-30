@@ -365,7 +365,6 @@ brackets; `$1` with no capture groups in pattern → emitted literally.
 ## 跨 stdlib 交互
 
 - 依赖 `z42.core`（基础类型 + Exception）
-- 依赖 `z42.collections`（manifest 声明；当前实际用 raw array，未直接 List<T>）
 - 与 `z42.text` 互补：z42.text 的 StringBuilder + Substring 与本包结合可
   构造非 regex 字符串管道
 - 被未来 `z42.net` / web 处理可能调用（URL 验证、HTTP header parse）

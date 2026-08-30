@@ -10,7 +10,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 |------|------|------|
 | `z42.core/` | `z42.core` | 核心类型 + 隐式 prelude；按子目录组织：`Primitives/`（6 个 primitive 成员方法）/ `Delegates/`（callable + multicast + 订阅）/ `Protocols/`（核心接口）/ `Exceptions/`（Exception 树）/ `Collections/`（List / Dict / KVP）；根留 Object / Type / String / Convert / Assert / GC / Disposable。详见 [src/README.md](z42.core/src/README.md) |
 | `z42.collections/` | `z42.collections` | 次级集合类型：`Queue`、`Stack`（未来 `LinkedList` / `SortedDictionary` / `PriorityQueue`） |
-| `z42.io/` | `z42.io` | IO 应用层（纯脚本）：`FileStream` / `Stream` 家族 / `Process` / `ProcessHandle` / `Ansi` / `Stdio`（`Console`/`File`/`Directory`/`Environment`/`Path` 已上移 `z42.core`，native 语义在 core `*Native`）|
+| `z42.io/` | `z42.io` | IO 应用层（纯脚本）：`FileStream` / `Stream` 家族 / `Process` / `ProcessHandle` / `Ansi` / `Stdio` + 二进制流读写 `BinaryReader` / `BinaryWriter`（namespace `Std.IO.Binary`，2026-08-31 由原 `z42.io.binary` 并入）（`Console`/`File`/`Directory`/`Environment`/`Path` 已上移 `z42.core`，native 语义在 core `*Native`）|
 | `z42.text/` | `z42.text` | 文本处理：`StringBuilder`、`Regex` |
 | `z42.encoding/` | `z42.encoding` | 字符 ↔ 字节编码：`Hex`、`Base64` (RFC 4648 §4)、`Utf8` |
 | `z42.test/` | `z42.test` | 单元测试运行时（v0 imperative TestRunner；lambda 就绪后升级 v1）|
@@ -18,7 +18,6 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.json/` | `z42.json` | JSON RFC 8259 reader/writer：`JsonValue.Parse(text)` / `Stringify(v)` / `StringifyPretty(v)` |
 | `z42.random/` | `z42.random` | Deterministic PRNG（PCG-XSH-RR）：`new Random(seed).NextInt() / NextLong() / NextDouble() / NextBool() / NextIntRange(min, max)` |
 | `z42.uri/` | `z42.uri` | URI / URL parser + percent codec：`Uri.Parse(text)` / `EncodeComponent` / `DecodeComponent`（RFC 3986 子集） |
-| `z42.io.binary/` | `z42.io.binary` | 二进制流读写：`BinaryReader.Read{Byte,Int16/32/64{LE,BE},Bytes,String}` / `BinaryWriter` 对称 + UTF-8 string + 自动 2x grow（namespace `Std.Binary`） |
 | `z42.diagnostics/` | `z42.diagnostics` | 日志门面：`Log.{Trace,Debug,Info,Warn,Error}(msg)` + `Log.SetMinLevel(LogLevel.X)` + stderr 输出 |
 | `z42.regex/` | `z42.regex` | 正则：`Regex.Compile(pat)` + `IsMatch / Find / FindAll / Replace / Split` + `Match.Group(i)`（backtracking NFA） |
 | `z42.cli/` | `z42.cli` | CLI argv 解析：`ArgParser.{AddFlag, AddOption, AddPositional}` + `Parse(argv)` → `ParseResult.{GetFlag, GetOption, GetPositional, ShowHelp}` + auto `-h/--help` |
