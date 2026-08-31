@@ -143,7 +143,17 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
-    string[] srcs = SourceDiscovery.Discover(projectDir, pm.Sources.Include, pm.Sources.IncludeCount);
+    // fix-hooks-source-scan 阶段2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，若声明）。
+    // hooks 由 z42b 单独编（`[build] hooks` → ModuleLoader.Load），不该被 app 的 `**/*.z42` glob 扫进
+    // app zpkg——否则多一个跨包死类 `ProjectHooks : Z42.Build.BuildHooks`（base 非构建期依赖 → own-only
+    // → vtable fixup 假警报刷屏）。目录形式的排除用 `<dir>/**`（SourceDiscovery._matchesExclude 前缀语义）。
+    int baseExcN = pm.Sources.ExcludeCount;
+    int effExcN = pm.Build.HasHooks ? baseExcN + 1 : baseExcN;
+    string[] effExc = new string[effExcN];
+    int exi = 0;
+    while (exi < baseExcN) { effExc[exi] = pm.Sources.Exclude[exi]; exi = exi + 1; }
+    if (pm.Build.HasHooks) { effExc[baseExcN] = pm.Build.HooksDir + "/**"; }
+    string[] srcs = SourceDiscovery.DiscoverWithExclude(projectDir, pm.Sources.Include, pm.Sources.IncludeCount, effExc, effExcN);
     if (srcs.Length == 0) {
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
         return ExitCode.BuildError;

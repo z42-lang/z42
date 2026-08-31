@@ -21,6 +21,17 @@ graph LR
 `z42.toml` 描述单个包，核心三段：`[project]`（name / version / kind / entry / pack）、`[sources]`（include / exclude）、`[dependencies]`（依赖包名与版本）。`z42.workspace.toml` 用 `members` 声明工作区成员。
 
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
+`DiscoverWithExclude(projectDir, includes, excludes)` 是纯 glob 原语：先按 include 展开（`**/*.z42` 递归 /
+`<prefix>/**/<suffix>` / 单层），去重 + Ordinal 排序，再逐条按 exclude glob（`<dir>/**` 前缀 / `**/<suffix>`
+后缀 / 精确相对路径）过滤（另恒排除 `dist/`、`.cache/`）。
+
+**「hooks 目录自动排除」策略在调用方（z42c `_build`），Discover 保持无策略**：若 manifest 声明
+`[build] hooks = "<dir>"`，z42c 把 `<dir>/**` 并入有效 exclude（`有效 exclude = [sources].exclude ++
+(<hooks>/** if [build] hooks)`），使 hooks 源不进 app zpkg。动机：hooks 由 z42b 经 `[build] hooks` **单独
+编译**（`ModuleLoader.Load` 加载 `ProjectHooks : Z42.Build.BuildHooks`）；若被 app 的 `**/*.z42` glob 一起
+扫进 app zpkg，会多一个**跨包死类**（base `BuildHooks` 非本包构建期依赖 → own-only + 跨包基类 → 运行期
+vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径的共同委托点 `_build` 生效，覆盖单包 / workspace
+成员 / path 依赖。（z42b in-process `Z42cCompiler` 发布路径的同款排除见 fix-hooks-source-scan 阶段4。）
 
 #### `[dependencies]` 值形态：名字依赖 vs 本地 path 依赖
 

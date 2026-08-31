@@ -37,9 +37,18 @@
 「hooks 目录自动排除」的**策略**放在调用方（z42c）——把 `build.HooksDir` 并进传给 Discover 的 exclude 列表——
 保持 Discover 是无策略的纯原语。
 
-### ⚠️ 两-nightly 硬约束（bootstrap-seed 轴②）
+### ⚠️ 多-nightly 硬约束（bootstrap-seed 轴② **+ 轴④**——校正）
+
+> **校正（2026-09-01，阶段2 实施时实测）**：原设计假设「阶段2 同 PR 删旧 `Discover`」（轴②「切调用点+
+> 删旧 API 同提交」）。**证伪**：`SourceDiscovery.Discover` 不止被 z42c 源*引用*，它是 z42c 的**运行期
+> 自依赖**——编译器自建时 `Main.z42` 在**运行期**调它发现源，而自建流程 `_ensureBootstrapSelfDepLibs`
+> 先把当前源 z42.project 预建进 flat-libs、种子 z42c（阶段1 nightly，其二进制 `Main.z42` 仍调 3 参
+> `Discover`）随后对着它跑。阶段2 就删 → 种子 z42c 立即 `undefined function Discover$3` 断自举（实测
+> 复现）。故**删除是阶段3**（轴④：z42c 运行期自依赖的 stdlib API，比轴②再晚一 nightly）。详见
+> [tasks.md「阶段划分校正」](tasks.md)。
+
 `SourceDiscovery.Discover` 是 **z42c 消费的 stdlib API**。z42c 源新用一个 stdlib API，该 API 必须已随
-上一个 nightly 发布。故分两阶段跨两 nightly：
+上一个 nightly 发布。故分阶段跨多 nightly：
 
 **阶段 1（本 change 首 PR，additive，z42c 不用）：**
 - `z42.project`：
@@ -49,12 +58,19 @@
   - `BuildConfig` 加 `bool HasHooks` + `string HooksDir`；`ManifestLoader._parseBuild` 解析 `[build] hooks`。
 - z42c / z42b **调用点不动**（仍用旧三参 Discover）。→ 上一 nightly z42c 能编本阶段源。发新 nightly。
 
-**阶段 2（下一 nightly 发布后，第二 PR）：**
-- z42c `Main.z42:_build`：有效 exclude = `pm.Sources.Exclude ++ (build.HooksDir if HasHooks)`，调新 overload。
-- z42c `Z42cCompiler.Compile`（z42b in-process 路径）：若该路径也编带 hooks 的工程，经 `CompileRequest`
-  传入 exclude（z42b 已知 hooks 目录）。**待阶段 2 确认哪条路径实际编 xtask.zpkg**（Main 直编 vs z42b）。
-- **同一 PR 删旧三参 Discover overload**（axis② 阶段2 剧本：切调用点 + 删旧 API 同提交）。
-- xtask 可（可选）显式写 `[sources] exclude`，但因 `[build] hooks` 自动排除，通常无需。
+**阶段 2（下一 nightly 发布后，第二 PR = 本 PR）：切调用点，**保留** shim**
+- z42c `Main.z42:_build`：有效 exclude = `pm.Sources.Exclude ++ (build.HooksDir + "/**" if HasHooks)`，调
+  `DiscoverWithExclude`。**已确认编 xtask.zpkg 的路径 = Main 直编**（`z42c build scripts/xtask.z42.toml`；
+  workspace 两函数均委托 `_build`，故此一处覆盖）。
+- z42c `Z42cCompiler.Compile`（z42b in-process 路径）：切 `DiscoverWithExclude`（空 exclude，行为不变），
+  仅为让阶段3 能删 shim。该路径的 hooks 排除留待**阶段4**（需 `CompileRequest` 增 `Excludes` 字段）。
+- **不删** shim（校正：见上，删除是阶段3）。
+
+**阶段 3（阶段2 nightly 发布后，第三 PR）：删 shim**
+- 删 `SourceDiscovery.Discover` 三参 shim（此时种子 `Main.z42` 已调 `DiscoverWithExclude`、不再引用它）。
+
+**阶段 4（可选）：z42b 发布路径也排除 hooks** —— `CompileRequest.Excludes` additive → nightly →
+`Pipeline.Compile` 填 + `Z42cCompiler` 读。让 `z42 publish` 的 repl/builder 也不含死类。
 
 ## 验证
 - 阶段 1：`xtask test bootstrap`（上一 nightly z42c 编当前 z42c 源无越界）+ 全量 GREEN；新 overload 单测
@@ -66,4 +82,4 @@
 - **与 Layer 1 的关系**：Layer 1（runtime CoW）已让 spam 消失且是通用防御（任何 seeded-own-only 类型）。
   Layer 2 是根因（不产出死代码），二者互补：即便未来又有别的死类被误扫，Layer 1 兜住不刷屏；Layer 2 让
   xtask 这个具体源头不再产出死类。**故 Layer 2 非紧急**（spam 已由 Layer 1 修），可从容走两 nightly。
-- **不做兼容**：阶段 2 删旧 Discover overload（非兼容层，是两-nightly 纪律，见 bootstrap-seed）。
+- **不做兼容**：**阶段 3** 删旧 Discover shim（非兼容层，是多-nightly 纪律，见 bootstrap-seed 轴④）。
