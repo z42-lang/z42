@@ -1,0 +1,57 @@
+// add-core-lib-tests: BitConverter IEEE-754 位重解释的专属覆盖。此前四个方法无直接
+// 测试（仅经 Double/Single 哈希间接触及）。验证已知位模式 + 往返恒等。
+namespace Z42CoreBitConverterTests;
+
+using Std;
+using Std.Test;
+
+// ── Double ↔ 64-bit 位模式 ────────────────────────────────────────────────
+
+[Test]
+void test_double_known_bits() {
+    // 0.0 → 全零；1.0 → 0x3FF0000000000000。
+    Assert.True(BitConverter.DoubleToBits(0.0) == 0L);
+    Assert.True(BitConverter.DoubleToBits(1.0) == 4607182418800017408L);
+}
+
+[Test]
+void test_double_roundtrip() {
+    double v = 3.141592653589793;
+    long bits = BitConverter.DoubleToBits(v);
+    Assert.EqualApprox(v, BitConverter.DoubleFromBits(bits), 0.0);  // 位往返必精确
+    // 负值同样精确往返。
+    double nv = -2.5;
+    Assert.EqualApprox(nv, BitConverter.DoubleFromBits(BitConverter.DoubleToBits(nv)), 0.0);
+}
+
+[Test]
+void test_double_from_known_bits() {
+    // 逆向：0x3FF0000000000000 → 1.0。
+    Assert.EqualApprox(1.0, BitConverter.DoubleFromBits(4607182418800017408L), 0.0);
+    Assert.EqualApprox(0.0, BitConverter.DoubleFromBits(0L), 0.0);
+}
+
+// ── Single ↔ 32-bit 位模式 ────────────────────────────────────────────────
+
+[Test]
+void test_single_known_bits() {
+    // 0.0f → 0；1.0f → 0x3F800000 = 1065353216。
+    Assert.True(BitConverter.SingleToBits(0.0) == 0);
+    Assert.True(BitConverter.SingleToBits(1.0) == 1065353216);
+}
+
+[Test]
+void test_single_roundtrip() {
+    // 2.5 在 float 中精确可表示 → 位往返后仍是 2.5。
+    int bits = BitConverter.SingleToBits(2.5);
+    Assert.EqualApprox(2.5, BitConverter.SingleFromBits(bits), 0.0);
+    // 负值往返。
+    Assert.EqualApprox(-0.5, BitConverter.SingleFromBits(BitConverter.SingleToBits(-0.5)), 0.0);
+}
+
+[Test]
+void test_single_from_known_bits() {
+    // 逆向：0x3F800000 → 1.0f。
+    Assert.EqualApprox(1.0, BitConverter.SingleFromBits(1065353216), 0.0);
+    Assert.EqualApprox(0.0, BitConverter.SingleFromBits(0), 0.0);
+}
