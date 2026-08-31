@@ -106,12 +106,20 @@ impl LazyLoader {
     /// 2026-05-14)
     ///
     /// Arcs are shared with the source module — that bumps strong_count to 2
-    /// for these entries, so `Arc::get_mut` will not succeed on them. That's
-    /// the desired behavior: eagerly-loaded types are already fully merged
-    /// (`build_type_registry` ran on the combined module and resolved their
-    /// inheritance), so `needs_fixup` returns false and no mutation is
-    /// attempted. Only later-arriving lazy-loaded TypeDescs (which have
-    /// strong_count = 1 in this registry) are mutable targets.
+    /// for these entries. Normally that's fine: eagerly-loaded types are
+    /// already fully merged (`build_type_registry` ran on the combined module
+    /// and resolved their inheritance), so `needs_fixup` returns false and the
+    /// fixup pass never touches them. Only later-arriving lazy-loaded TypeDescs
+    /// (strong_count = 1) are the usual mutation targets.
+    ///
+    /// The exception (fix-projecthooks-vtable-fixup): an eagerly-loaded type can
+    /// still be OWN-ONLY when its base lives in a zpkg that is only LAZILY loaded
+    /// (e.g. a `ProjectHooks : BuildHooks` compiled into an app whose `z42.build`
+    /// dep isn't statically linked). Such a type is seeded here (strong_count ≥ 2)
+    /// AND `needs_fixup` is true. `try_fixup_inheritance` handles this with
+    /// `Arc::make_mut` (clone-on-write): it gives THIS registry a private, merged
+    /// copy so the lazy-lookup path resolves the full vtable/fields, while the
+    /// eager source module keeps its own-only copy (unaffected).
     pub fn seed_types_for_lookup(&mut self, types: &FxHashMap<String, Arc<TypeDesc>>) {
         for (name, td) in types {
             if !self.type_registry.contains_key(name) {
