@@ -14,7 +14,8 @@
 ## 1. 动机
 
 跑测试用例(以及跑用户跨平台 app)在 desktop 与 mobile 曾是两套模型:desktop apphost **spawn**
-外部 z42vm(`z42-hostrun`,框架依赖);mobile **嵌入** z42vm(`z42-host`,进程内)。统一到
+外部 z42vm(apphost 的 `hostrun` 模块,框架依赖;曾是独立 `z42-hostrun` crate);mobile **嵌入**
+z42vm(`z42-host`,进程内)。统一到
 **嵌入模型**——4 平台都进程内嵌 VM——才能:一份 test-agent + 一份 app-run 代码全平台共享,
 且这条嵌入路径同时是 **workload 面向用户构建跨平台 app** 的地基。
 

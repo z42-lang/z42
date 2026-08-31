@@ -1,0 +1,41 @@
+// 驱动测试：REPL 求值期运行异常不逃逸终止会话（fix-repl-eval-exception）。
+// 用户 throw / 除零 / 类型不符等在 Engine.Invoke 期抛出的异常，此前直接逃逸 Script.Eval →
+// Main() → 终止 z42i 进程（exit 1）；应被捕获、作失败 EvalResult 返回、会话不推进，REPL 继续。
+// 本测试直接驱动 Std.Scripting.Script.Eval 跨轮，与 expected_output.txt 对账：
+//   ① 异常轮返回错误文本（非崩溃）；② 会话变量在异常后仍完好；③ 异常后仍可新声明并求值。
+// 经 warm-z42c 回路运行（Z42_LIBS = z42.scripting + z42c.* + stdlib）。
+namespace ReplEvalExceptionTest;
+
+using Std;
+using Std.IO;
+using Std.Scripting;
+
+void Main() {
+    ScriptState s = Script.Create();
+
+    // 建立会话状态
+    _step(s, "int a = 10");                           // ok
+    _step(s, "a");                                    // 10
+
+    // 用户 throw：捕获 → 错误文本，进程不死
+    _step(s, "throw new Std.Exception(\"boom\")");    // Exception: boom
+
+    // 会话在异常后完好：a 仍是 10
+    _step(s, "a");                                    // 10
+
+    // 异常后仍可新声明并使用（失败轮未污染编译世界）
+    _step(s, "int b = 20");                           // ok
+    _step(s, "a + b");                                // 30
+
+    // 除零：另一种运行异常同样被捕获、可继续
+    _step(s, "1 / 0");                                // DivideByZeroException: integer / by zero
+    _step(s, "a + b");                                // 30
+}
+
+// 打印一步结果：失败 → 错误文本（去空白）；有值 → 值；否则 → "ok"。
+void _step(ScriptState s, string input) {
+    EvalResult r = Script.Eval(s, input);
+    if (!r.Success) { Console.WriteLine(r.Error.Trim()); return; }
+    if (r.HasValue && r.Value != null) { Console.WriteLine("" + r.Value); return; }
+    Console.WriteLine("ok");
+}

@@ -1,8 +1,10 @@
 //! Locate a deployed `z42vm` (+ libs) and run an app's zpkg **directly** — the
-//! apphost run path. Extracted from the z42 launcher lib (apphost-to-workload,
-//! 2026-06-18) so the apphost stub (owned by the desktop workload) and the
-//! launcher trampoline share one impl, without the workload depending on the
-//! launcher crate.
+//! apphost run path. Originally a standalone `z42-hostrun` crate (extracted from
+//! the z42 launcher lib, apphost-to-workload 2026-06-18) so the apphost stub and
+//! the launcher trampoline could share one impl; the launcher was since rewritten
+//! in z42 (`src/toolchain/launcher/core/*.z42`), leaving the apphost as the sole
+//! Rust consumer, so this logic was folded back in as an apphost module
+//! (merge-hostrun-into-apphost).
 //!
 //! "Find a bare z42vm + libs and exec `z42vm app.zpkg`" — no `launcher.zpkg`,
 //! no muxer, single VM. Zero external dependencies (pure std).
