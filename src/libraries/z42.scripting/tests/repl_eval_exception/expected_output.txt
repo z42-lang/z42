@@ -1,0 +1,8 @@
+10
+10
+Exception: boom
+10
+20
+30
+DivideByZeroException: integer / by zero
+30
