@@ -1,0 +1,29 @@
+namespace Demo.GenStructApp;
+
+using Std.IO;
+using Demo.GenStructTarget;
+using Demo.GenStructExt;
+
+// 跨包泛型值 struct 的数组（核心回归）+ 标量对照 + transitive（经 ext）。
+void Main() {
+    Kv<string, int>[] r = new Kv<string, int>[3];
+    r[0] = new Kv<string, int>("a", 1);
+    r[1] = new Kv<string, int>("b", 2);
+    r[2] = new Kv<string, int>("c", 3);
+    int i = 0;
+    int sum = 0;
+    while (i < r.Length) {
+        Console.WriteLine($"{r[i].Key}={r[i].Value}");   // a=1 / b=2 / c=3
+        sum = sum + r[i].Value;
+        i = i + 1;
+    }
+    Console.WriteLine($"sum={sum}");                       // sum=6
+
+    // 标量跨包泛型 struct（对照：修复前也工作，证明 bug 仅限数组）
+    Kv<string, int> single = new Kv<string, int>("x", 99);
+    Console.WriteLine($"single={single.Key}/{single.Value}");  // single=x/99
+
+    // transitive：ext 构造并返回 Kv[]，main 跨 ext 消费
+    Kv<string, int>[] made = Pairs.Make();
+    Console.WriteLine($"ext={made[0].Key}={made[0].Value},{made[1].Key}={made[1].Value}");  // ext=x=10,y=20
+}

@@ -1,0 +1,6 @@
+a=1
+b=2
+c=3
+sum=6
+single=x/99
+ext=x=10,y=20

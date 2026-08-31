@@ -23,7 +23,15 @@ use super::Frame;
 /// array of `len` zero-initialized elements (C# inline `struct[]`). `None` for primitives /
 /// reference types / single-field structs (they keep `Boxed` / packed backings).
 pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<crate::metadata::types::ArrayObj> {
-    let td = ctx.try_lookup_type(element_type)?;
+    // Generic value structs are type-erased: a single TypeDesc is registered under the
+    // *erased* base name (`Kv`), while `array_new` deliberately carries the non-erased
+    // element name (`Kv<string, int>`) for element reflection. Look the TypeDesc up by the
+    // erased base name (strip the first `<…`) so a `KeyValuePair<K,V>[]` still resolves to
+    // its struct layout and gets a StructBytes backing instead of degrading to a reference
+    // array of Nulls. The full `element_type` is still passed to `struct_backed` below so
+    // `arr.GetType().GetElementType()` keeps returning the real instantiated element type.
+    let erased = element_type.split('<').next().unwrap_or(element_type);
+    let td = ctx.try_lookup_type(erased)?;
     if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
     let layout = td.struct_layout()?;         // value struct with a delivered byte layout
     if layout.size == 0 { return None; }      // self-referential / empty guard

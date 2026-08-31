@@ -1,0 +1,14 @@
+// ext 层：transitive 跨包泛型 struct 数组——ext 依赖 target 的 `Kv<K,V>`，构造并返回其数组，
+// main 再跨 ext 消费。验证泛型值 struct 数组经多层 zpkg 边界的 struct-backed 布局解析。
+namespace Demo.GenStructExt;
+
+using Demo.GenStructTarget;
+
+public static class Pairs {
+    public static Kv<string, int>[] Make() {
+        Kv<string, int>[] r = new Kv<string, int>[2];
+        r[0] = new Kv<string, int>("x", 10);
+        r[1] = new Kv<string, int>("y", 20);
+        return r;
+    }
+}
