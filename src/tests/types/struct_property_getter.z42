@@ -1,0 +1,116 @@
+// fix-struct-property-getter 回归测试：struct 上**用户显式属性 getter**（`T P { get {...} }`）读取。
+//
+// 历史 bug：AccessEmitter._emitMember 对 blob struct 成员一律当字段发 StructFieldGetPrim，漏了属性 getter
+// （struct 也可有 `T P { get {...} }`）——属性名非 byte-layout 存储 → FieldByteOffset 返回 -1 → 运行期
+// `struct ref leaf at byte offset 4294967295`。修复：struct 成员若有 get_X 方法 → 走 struct 静态 Call
+// 传 handle（sret-aware，镜像 struct 实例方法调用；非 VCall——struct 无虚方法）。
+//
+// 覆盖 type 维度：首/非首字段、int/long/bool/char/string(ref) 各类型、算术属性、sret 返回、可变状态
+// （enumerator 式 MoveNext/Current）、[Record] struct 的 body 字段、泛型 struct、auto-property。
+namespace Demo.StructPropGetter;
+
+// ① 计算属性 getter 读非首字段（核心 bug 位）+ 首字段 + 算术
+struct Vec {
+    int x;
+    int y;
+    int z;
+    public Vec(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
+    public int First  { get { return this.x; } }        // 首字段 off 0
+    public int Second { get { return this.y; } }        // 非首字段 off 4（曾崩）
+    public int Third  { get { return this.z; } }        // 非首字段 off 8（曾崩）
+    public int Sum    { get { return this.x + this.y + this.z; } }
+}
+
+// ② 各类型字段的属性 getter（int/long/bool/char/string ref 叶子）
+struct Mixed {
+    int i;
+    long l;
+    bool b;
+    char c;
+    string s;
+    public Mixed(int i, long l, bool b, char c, string s) {
+        this.i = i; this.l = l; this.b = b; this.c = c; this.s = s;
+    }
+    public int    I { get { return this.i; } }
+    public long   L { get { return this.l; } }
+    public bool   B { get { return this.b; } }
+    public char   C { get { return this.c; } }
+    public string S { get { return this.s; } }          // 引用叶子经属性 getter
+}
+
+// ③ 属性 getter 经 sret（struct 从方法返回）后读取
+struct Boxed {
+    int v;
+    public Boxed(int v) { this.v = v; }
+    public int V { get { return this.v; } }
+}
+class BoxMaker {
+    public Boxed Make(int v) { return new Boxed(v); }   // 返回 struct（sret）
+}
+
+// ④ 可变状态 + 属性 getter（enumerator 式：MoveNext 改字段、Current 属性读）
+struct Counter {
+    int end;
+    int pos;
+    public Counter(int end) { this.end = end; this.pos = 0; }
+    public bool MoveNext() { if (this.pos < this.end) { this.pos = this.pos + 1; return true; } return false; }
+    public int Current { get { return this.pos - 1; } }  // 属性读可变字段
+}
+
+// ⑤ [Record] struct：positional + body 字段，属性 getter 读 body 字段
+[Record] struct RecPair(int a) {
+    int extra;
+    public void Bump() { this.extra = this.extra + 10; }
+    public int Extra { get { return this.extra; } }      // 属性读 body 字段（曾崩）
+}
+
+// ⑥ 泛型 struct 属性 getter
+[Record] struct GBox<T>(T item) {
+    int tag;
+    public void SetTag(int t) { this.tag = t; }
+    public int Tag { get { return this.tag; } }
+    public T Item { get { return this.item; } }          // 属性读 positional 泛型字段
+}
+
+void Main() {
+    // ①
+    var v = new Vec(3, 5, 7);
+    Assert.Equal(3, v.First);
+    Assert.Equal(5, v.Second);
+    Assert.Equal(7, v.Third);
+    Assert.Equal(15, v.Sum);
+
+    // ②
+    var m = new Mixed(42, 9000000000L, true, 'z', "hello");
+    Assert.Equal(42, m.I);
+    Assert.Equal(9000000000L, m.L);
+    Assert.True(m.B);
+    Assert.Equal('z', m.C);
+    Assert.Equal("hello", m.S);
+
+    // ③ sret
+    var mk = new BoxMaker();
+    var bx = mk.Make(99);
+    Assert.Equal(99, bx.V);
+
+    // ④ 可变状态 + 属性读（迭代计数正确 = 字段原地更新持久）
+    var cnt = new Counter(4);
+    int sum = 0;
+    int guard = 0;
+    while (cnt.MoveNext() && guard < 100) { sum = sum + cnt.Current; guard = guard + 1; }
+    Assert.Equal(4, guard);        // 迭代 4 次
+    Assert.Equal(6, sum);          // 0+1+2+3
+
+    // ⑤ [Record] body 字段属性
+    var rp = new RecPair(1);
+    rp.Bump();
+    rp.Bump();
+    Assert.Equal(20, rp.Extra);
+    Assert.Equal(1, rp.a);         // positional 仍可读
+
+    // ⑥ 泛型 struct 属性
+    var gb = new GBox<int>(77);
+    gb.SetTag(5);
+    Assert.Equal(5, gb.Tag);
+    Assert.Equal(77, gb.Item);
+}

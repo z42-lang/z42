@@ -75,6 +75,14 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
 - `P b = a`（非 `new`）→ `StructAlloc b` + `StructCopy(b, a)`；`P b = new P(...)` 直接别名 fresh 句柄。
 - `b.x = v` → `StructFieldSetPrim`；`a.x` 读 → `StructFieldGetPrim`。
 - `this.x` / 裸字段（struct 方法/ctor 内）→ 同上（`this`=reg0 句柄）。
+- **属性 getter 读（`x.Prop`，`Prop` 是 `T Prop { get {...} }`）→ 静态 Call `<Struct>.get_Prop`（传 blob
+  句柄，sret-aware），不是 `StructFieldGetPrim`**（fix-struct-property-getter）。判据：成员有 `get_Prop`
+  方法即属性（`MemberCollector` 把属性名也登记进 `Fields` 供类型检查，但计算属性无 byte-layout 存储、
+  auto-property 存储在 `__prop_Prop` 而非源名——故不能按源名查字段偏移）。**镜像 class 属性 getter 的
+  `AccessEmitter._emitMember` 判据（只查 `Methods` 有无 `get_X`，不查 `Fields`），只是 struct 无虚方法 → 走
+  静态 Call 传 handle 而非 `VCall`**（VCall on `StructRef` receiver 会崩「expected object, got StructRef」，
+  同 struct 实例方法调用）。历史坑：曾把 struct 成员一律当字段发 `StructFieldGetPrim`，属性名查布局落空得
+  offset `-1` → 运行期 `struct ref leaf at byte offset 4294967295`。
 
 **优化器完整性**：4 条指令的 def/use 必须录入 `IrOptInfo`（`DstId`/`AddReads`/`ReplaceReads`/`SetDst`）
 + 逃逸分析汇点表——漏 `StructFieldSetPrim` 的 `Val` 读 → DCE 误删喂值的 `const`（实测踩坑）。struct
