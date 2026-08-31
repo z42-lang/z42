@@ -1,0 +1,71 @@
+// library-review PR-D (2026-08-31): non-throwing TryParse → T? for Int32 /
+// Int64 / Double, plus Double IEEE-754 classification (IsNaN / IsInfinity / …).
+namespace Z42CoreScalarTryParseClassifyTests;
+
+using Std;
+using Std.Test;
+
+// ── TryParse → T? (null on malformed) ────────────────────────────────────────
+
+[Test]
+void test_int32_tryparse_ok() {
+    int? a = Int32.TryParse("42");
+    Assert.Equal(42, a ?? -1);
+    int? b = Int32.TryParse("-7");
+    Assert.Equal(-7, b ?? 0);
+}
+
+[Test]
+void test_int32_tryparse_fail() {
+    Assert.Equal(true, Int32.TryParse("abc") == null);
+    Assert.Equal(true, Int32.TryParse("") == null);
+    Assert.Equal(true, Int32.TryParse("3.5") == null);
+    Assert.Equal(true, Int32.TryParse("99999999999999") == null);   // out of i32 range
+}
+
+[Test]
+void test_int64_tryparse() {
+    long? a = Int64.TryParse("9999999999");
+    Assert.Equal(9999999999L, a ?? 0L);
+    Assert.Equal(true, Int64.TryParse("nope") == null);
+}
+
+[Test]
+void test_double_tryparse() {
+    double? a = Double.TryParse("3.14");
+    Assert.Equal(3.14, a ?? 0.0);
+    Assert.Equal(true, Double.TryParse("xyz") == null);
+}
+
+// ── Double classification ────────────────────────────────────────────────────
+
+[Test]
+void test_isnan() {
+    double nan = 0.0 / 0.0;
+    Assert.Equal(true, Double.IsNaN(nan));
+    Assert.Equal(false, Double.IsNaN(1.0));
+    Assert.Equal(false, Double.IsNaN(0.0));
+}
+
+[Test]
+void test_isinfinity() {
+    double inf = 1.0 / 0.0;
+    double ninf = -1.0 / 0.0;
+    Assert.Equal(true, Double.IsInfinity(inf));
+    Assert.Equal(true, Double.IsInfinity(ninf));
+    Assert.Equal(false, Double.IsInfinity(1.0));
+    Assert.Equal(false, Double.IsInfinity(0.0 / 0.0));   // NaN is not infinity
+}
+
+[Test]
+void test_infinity_sign_and_finite() {
+    double inf = 1.0 / 0.0;
+    double ninf = -1.0 / 0.0;
+    Assert.Equal(true, Double.IsPositiveInfinity(inf));
+    Assert.Equal(false, Double.IsPositiveInfinity(ninf));
+    Assert.Equal(true, Double.IsNegativeInfinity(ninf));
+    Assert.Equal(false, Double.IsNegativeInfinity(inf));
+    Assert.Equal(true, Double.IsFinite(1.0));
+    Assert.Equal(false, Double.IsFinite(inf));
+    Assert.Equal(false, Double.IsFinite(0.0 / 0.0));
+}

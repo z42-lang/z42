@@ -54,4 +54,101 @@ public sealed class Array {
     // 与 C# 原生签名一致；native `__array_set` 按 (array, value, index) 读取）。
     [Native("__array_set")]
     public extern void SetValue(Object value, int index);
+
+    // ── Static algorithms (library-review PR-D, 2026-08-31) ───────────────────
+    // 兑现本类顶部注释里预告的「静态算法 Sort/IndexOf/...」。C# `System.Array.*`
+    // 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
+
+    // First index of `value` (by `.Equals`), or -1. Mirrors List<T>.IndexOf.
+    public static int IndexOf<T>(T[] array, T value) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) {
+            if (array[i].Equals(value)) return i;
+        }
+        return -1;
+    }
+
+    // Copy the first `length` elements of `source` into `destination` (both
+    // start at 0). Throws when `length` exceeds either array.
+    public static void Copy<T>(T[] source, T[] destination, int length) {
+        if (length < 0 || length > source.Length || length > destination.Length) {
+            throw new Exception($"Array.Copy: length {length} out of range (src={source.Length}, dst={destination.Length})");
+        }
+        for (int i = 0; i < length; i++) { destination[i] = source[i]; }
+    }
+
+    // Set every element to `value`.
+    public static void Fill<T>(T[] array, T value) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) { array[i] = value; }
+    }
+
+    // Reverse the elements in place.
+    public static void Reverse<T>(T[] array) {
+        int lo = 0;
+        int hi = array.Length - 1;
+        while (lo < hi) {
+            T t = array[lo];
+            array[lo] = array[hi];
+            array[hi] = t;
+            lo = lo + 1;
+            hi = hi - 1;
+        }
+    }
+
+    // Stable ascending sort by the element's own `CompareTo` (same top-down
+    // merge sort as List<T>.Sort — one scratch buffer, O(n log n)).
+    public static void Sort<T>(T[] array) {
+        int n = array.Length;
+        if (n < 2) return;
+        T[] scratch = new T[n];
+        Array._mergeSort<T>(array, scratch, 0, n);
+    }
+
+    static void _mergeSort<T>(T[] a, T[] scratch, int lo, int hi) {
+        if (hi - lo < 2) return;
+        int mid = lo + (hi - lo) / 2;
+        Array._mergeSort<T>(a, scratch, lo, mid);
+        Array._mergeSort<T>(a, scratch, mid, hi);
+        int i = lo;
+        int j = mid;
+        int k = lo;
+        while (i < mid && j < hi) {
+            if (a[j].CompareTo(a[i]) < 0) { scratch[k] = a[j]; j = j + 1; }
+            else                          { scratch[k] = a[i]; i = i + 1; }
+            k = k + 1;
+        }
+        while (i < mid) { scratch[k] = a[i]; i = i + 1; k = k + 1; }
+        while (j < hi)  { scratch[k] = a[j]; j = j + 1; k = k + 1; }
+        int t = lo;
+        while (t < hi) { a[t] = scratch[t]; t = t + 1; }
+    }
+
+    // Stable ascending sort under a caller-supplied comparator (< 0 ⇒ a before b),
+    // mirroring List<T>.Sort(Func<T,T,int>).
+    public static void Sort<T>(T[] array, Func<T, T, int> comparison) {
+        int n = array.Length;
+        if (n < 2) return;
+        T[] scratch = new T[n];
+        Array._mergeSortCmp<T>(array, scratch, 0, n, comparison);
+    }
+
+    static void _mergeSortCmp<T>(T[] a, T[] scratch, int lo, int hi, Func<T, T, int> cmp) {
+        if (hi - lo < 2) return;
+        int mid = lo + (hi - lo) / 2;
+        Array._mergeSortCmp<T>(a, scratch, lo, mid, cmp);
+        Array._mergeSortCmp<T>(a, scratch, mid, hi, cmp);
+        int i = lo;
+        int j = mid;
+        int k = lo;
+        while (i < mid && j < hi) {
+            if (cmp(a[j], a[i]) < 0) { scratch[k] = a[j]; j = j + 1; }
+            else                     { scratch[k] = a[i]; i = i + 1; }
+            k = k + 1;
+        }
+        while (i < mid) { scratch[k] = a[i]; i = i + 1; k = k + 1; }
+        while (j < hi)  { scratch[k] = a[j]; j = j + 1; k = k + 1; }
+        int t = lo;
+        while (t < hi) { a[t] = scratch[t]; t = t + 1; }
+    }
 }

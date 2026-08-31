@@ -337,7 +337,7 @@ src/libraries/z42.core/src/
 │   ├── GCHandle.z42      # Std.GCHandle struct + GCHandleType enum (Weak / Strong)
 │   ├── HeapStats.z42     # Std.GC.GetStats() 返回类型（7 long 字段）
 │   └── WeakHandle.z42    # 轻量 weak ref primitive（内部 Delegates/SubscriptionRefs.z42 用）
-├── Convert.z42           # Convert.ToInt32 / ToDouble / ToString
+├── Convert.z42           # Convert.ToInt32 / ToInt64 / ToDouble / ToString + ToByte / ToInt16 / ToSingle / ToBoolean / ToChar
 ├── Assert.z42            # Assert.Equal / True / Null / Contains
 └── Disposable.z42        # IDisposable 通用实现 + Disposable.From(Action) 工厂
 ```

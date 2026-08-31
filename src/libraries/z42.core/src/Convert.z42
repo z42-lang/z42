@@ -14,4 +14,31 @@ public static class Convert {
 
     [Native("__to_str")]
     public static extern string ToString(object value);
+
+    // ── String → narrow numeric / bool / char (library-review PR-D) ───────────
+    // Delegate to the primitive Parse facades so range checks stay in one place.
+
+    public static u8  ToByte(string s)  { return Byte.Parse(s); }
+    public static i16 ToInt16(string s) { return Int16.Parse(s); }
+
+    // float and double share the VM F64 representation; parse as double then
+    // narrow-cast (Single has no distinct parse builtin — see Single.z42).
+    public static float ToSingle(string s) { return (float)Double.Parse(s); }
+
+    // C# Convert.ToBoolean(string): "true"/"false" (case-insensitive, trimmed).
+    // Anything else throws FormatException — matches the strict BCL contract.
+    public static bool ToBoolean(string s) {
+        string t = s.Trim().ToLower();
+        if (t == "true")  return true;
+        if (t == "false") return false;
+        throw new FormatException($"Convert.ToBoolean: '{s}' is not a valid Boolean");
+    }
+
+    // C# Convert.ToChar(string): the sole character of a length-1 string.
+    public static char ToChar(string s) {
+        if (s.Length != 1) {
+            throw new FormatException($"Convert.ToChar: string must be exactly one character (length={s.Length})");
+        }
+        return s.CharAt(0);
+    }
 }
