@@ -1,0 +1,22 @@
+# fix-type-ref-ns-collision 回归：同短名类 `Foo` 分居 namespace A / B（file-scoped，各一文件）。
+# 两个 [[exe]] probe：probe_a 构造 `new A.Foo`、probe_b 构造 `new B.Foo`，各自打印运行期
+# 身份（GetType().FullName）+ `is A.Foo` / `is B.Foo`。修复前 z42c 把限定名剥成短名撞
+# first/last-wins 赢家 → `new A.Foo` emit `B.Foo`，身份与 is-check 全反。
+[project]
+name    = "ns.collision.demo"
+version = "0.1.0"
+pack    = true
+
+[sources]
+include = ["*.z42"]
+
+[[exe]]
+name  = "probe_a"
+entry = "ProbeA.Main"
+
+[[exe]]
+name  = "probe_b"
+entry = "ProbeB.Main"
+
+[profile.debug]
+mode = "interp"

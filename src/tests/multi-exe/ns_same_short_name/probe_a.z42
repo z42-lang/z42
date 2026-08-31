@@ -1,0 +1,8 @@
+namespace ProbeA;
+using Std.IO;
+void Main() {
+    object x = new A.Foo(1);
+    Console.WriteLine(x.GetType().FullName);
+    Console.WriteLine((x is A.Foo).ToString());
+    Console.WriteLine((x is B.Foo).ToString());
+}

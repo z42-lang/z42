@@ -1,0 +1,2 @@
+namespace A;
+public class Foo { public int V; public Foo(int v) { this.V = v; } }

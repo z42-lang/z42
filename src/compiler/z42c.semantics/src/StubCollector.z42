@@ -160,7 +160,9 @@ public sealed class StubCollector {
                         // 保留 prev（首碎片），不覆盖 → 成员按 Ordinal 序累积进同一 CT（_fillClass 各碎片查同名命中此 CT）。
                     } else {
                         // 新键 OR 碰撞但均非 partial（后者维持既有 last-wins 覆盖，无回归）。
-                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file);
+                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file,
+                                           cu.HasNamespace ? cu.Namespace : "");   // fix-type-ref-ns-collision
+
                     }
                     // add-deprecated-directive：本地类级 `[Deprecated]`（任一碎片带即标记）。stub 已注册 → 回查设位。
                     if (HandlerRegistry.HasDeprecated(cu.Decls[i])) {
@@ -188,8 +190,9 @@ public sealed class StubCollector {
 
     // 建并注册一条类 stub（新键 / 非-partial 碰撞覆盖共用；抽出避免 z42 函数级作用域下 `ct` 重复声明）。
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
-                               string[] ifaces, int ifc, bool needsMangle, string file) {
+                               string[] ifaces, int ifc, bool needsMangle, string file, string ns) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.Namespace = ns;   // fix-type-ref-ns-collision：声明 ns（供 Fqn() + 限定名解析）
         ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（`[Record] class` 仍是引用类型，IsStruct=false）
         ct.IsSealed = this._sc._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class
         ct.IsAbstract = this._sc._hasWord(c.Mods, "abstract");   // add-internal-hierarchy-exhaustiveness：本地 abstract class（封闭层次穷尽性排除不可实例化类）
@@ -200,6 +203,10 @@ public sealed class StubCollector {
         if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
         if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
         table.Classes.Put(key, ct);
+        // fix-type-ref-ns-collision：同时按 FQN 键登记（`ns.key`；全局 ns 用裸 key）。裸名 Classes 会被同短名
+        // 跨 ns 后来者覆盖，此 FQN 视图保留每一份 → `new A.Foo` 的限定名解析命中 ns==A 的那份，不再撞赢家。
+        string fqn = ns == "" ? key : ns + "." + key;
+        table.ClassesByFqn.Put(fqn, ct);
     }
 
 }

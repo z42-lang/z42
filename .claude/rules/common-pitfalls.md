@@ -42,6 +42,12 @@
 > （usings + 本 ns）解析静态调用，只命中调用方 `using` 到的那份 FQN，不再靠排序碰巧选对。sort
 > 仍是**必要的兜底**（活跃集内仍歧义时、以及任何非静态调用的 first-wins 注册仍需确定序），故本
 > §1 的排序规则**不变、继续遵守**；根治只是让「跨包静态调用绑错 ns」这一具体症状不再依赖排序侥幸。
+>
+> **类型引用同款（2026-08-31 fix-type-ref-ns-collision）**：上面修的是**静态调用**；**类型引用**（`new`/
+> `is`/`as`/字段·参数类型）此前仍踩同一坑——`SymbolTable.Classes` 按裸类名 first/last-wins，`new A.Foo`
+> 被剥短名撞赢家 → 对象身份 emit 成 `B.Foo`。根治：`Z42ClassType` 带 `Namespace` + `SymbolTable.ClassesByFqn`
+> 并存 FQN 视图，限定名按 FQN 精确解析、发射端用已解析类型的 `Fqn()`。机制见
+> [source-compile.md「同短名跨命名空间的类型解析」](../../docs/book/src/compiler/source-compile.md)。
 
 ### 强制规则
 
