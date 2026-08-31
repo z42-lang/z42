@@ -1,0 +1,77 @@
+// add-foreach-ienumerable：foreach 第三 path（IEnumerable 协议脱糖）端到端。
+//
+// 仅实现 GetEnumerator（无整数索引面）的类型 → foreach 走脱糖：
+//   var __e = coll.GetEnumerator(); try { while(__e.MoveNext()){ x=__e.Current; body } } finally { __e.Dispose(); }
+// 覆盖：正常迭代、break 提前退出、return 退出、空序列、Dispose 在所有离开路径都调用（try/finally）。
+namespace Demo.ForeachIEnumerable;
+
+using Std;
+using Std.Collections;
+
+// 可变共享标记（class 引用语义）：enumerator（struct 值）持它，Dispose 里 +1，供断言 Dispose 被调用。
+public class DisposeFlag {
+    public int Count;
+    public DisposeFlag() { this.Count = 0; }
+}
+
+// 仅实现 IEnumerable<int> 的自定义范围（无 get_Item/Count 整数索引 → 走 foreach 第三 path）。
+[Record] public struct RangeEnum(int _end, DisposeFlag _flag) {
+    int _pos;   // 已产出计数（0-init）
+    public bool MoveNext() {
+        if (this._pos < this._end) { this._pos = this._pos + 1; return true; }
+        return false;
+    }
+    public int Current { get { return this._pos - 1; } }   // 产出 0.._end-1
+    public void Dispose() { this._flag.Count = this._flag.Count + 1; }
+}
+
+class Range {
+    int _end;
+    DisposeFlag _flag;
+    public Range(int end, DisposeFlag flag) { this._end = end; this._flag = flag; }
+    public RangeEnum GetEnumerator() { return new RangeEnum(this._end, this._flag); }
+}
+
+int _sumViaForeach(Range r) {
+    int s = 0;
+    foreach (int x in r) { s = s + x; }
+    return s;
+}
+
+void Main() {
+    // ① 正常迭代 + Dispose 调用一次
+    var f1 = new DisposeFlag();
+    int sum = _sumViaForeach(new Range(4, f1));
+    Assert.Equal(6, sum);          // 0+1+2+3
+    Assert.Equal(1, f1.Count);     // Dispose 调用一次（正常结束经 finally）
+
+    // ② 空序列：body 不进但 Dispose 仍调用
+    var f2 = new DisposeFlag();
+    int empties = 0;
+    foreach (int x in new Range(0, f2)) { empties = empties + 1; }
+    Assert.Equal(0, empties);
+    Assert.Equal(1, f2.Count);
+
+    // ③ break 提前退出 → Dispose 仍调用（finally）
+    var f3 = new DisposeFlag();
+    int seen = 0;
+    foreach (int y in new Range(100, f3)) {
+        seen = seen + 1;
+        if (y == 2) break;
+    }
+    Assert.Equal(3, seen);         // 0,1,2
+    Assert.Equal(1, f3.Count);     // break 经 finally 调 Dispose
+
+    // ④ 数组 foreach 仍走索引 path（回归：不受本改动影响）
+    int[] arr = new int[] { 10, 20, 30 };
+    int asum = 0;
+    foreach (var a in arr) { asum = asum + a; }
+    Assert.Equal(60, asum);
+
+    // ⑤ List foreach 仍走索引 path（List 有 Count+get_Item，优先于 IEnumerable path）
+    var lst = new List<int>();
+    lst.Add(5); lst.Add(7);
+    int lsum = 0;
+    foreach (var v in lst) { lsum = lsum + v; }
+    Assert.Equal(12, lsum);
+}

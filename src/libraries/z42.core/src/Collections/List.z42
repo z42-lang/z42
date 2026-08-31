@@ -33,6 +33,11 @@ public class List<T> where T: IEquatable<T> + IComparable<T> {
 
     public bool IsEmpty() { return this.Count == 0; }
 
+    // add-foreach-ienumerable（Decision 8：pattern-based 无装箱）：返回**具体** `ListEnumerator<T>` struct
+    // （非 `IEnumerator<T>` 接口），供以接口静态类型 / 泛型约束 / foreach（若走接口 path）迭代。List 自身
+    // foreach 走索引快路径（Count+get_Item），不经此。
+    public ListEnumerator<T> GetEnumerator() { return new ListEnumerator<T>(this); }
+
     public T this[int i] {
         get { return this.items[i]; }
         set { this.items[i] = value; }

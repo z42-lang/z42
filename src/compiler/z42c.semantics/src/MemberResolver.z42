@@ -199,6 +199,19 @@ public sealed class MemberResolver {
                 Z42Type fType = MemberResolver._substGeneric(itFs.FieldType, instT);
                 return new BoundMember(target, m.Name, fType, m.Span);
             }
+            // fix-generic-struct-property-getter：泛型实例化收者的**属性 getter**（无字段但有 get_Name）→
+            // BoundCall(get_Name)，返回类型经 _substGeneric 按 receiver 实参替换（镜像 :218-222 class 路径 +
+            // :97 方法路径的替换）。缺此则 imported 泛型 struct 的计算属性（如 `DictionaryEnumerator<K,V>.
+            // Current` → `KeyValuePair<K,V>`）——imported 元数据里计算属性**无字段** → _findField 落空 → 松绑
+            // Unknown → 下游 retType=Unknown → `_isBlobStruct` false → sret 失配 → 运行期 `StructCopy got Null`。
+            // （in-app 恰好因属性名被本地登记为字段而走上面 field 分支蒙对；跨包无该字段登记才暴露。）
+            MethodSymbol itGetter = this._tc._overload._findMethod(env.Symbols, itDef, "get_" + m.Name);
+            if (itGetter != null && itGetter.Signature != null) {
+                this._tc._access.CheckAccess(itGetter.Visibility, itGetter.ContainingTypeName, env, env.Symbols, "property", m.Name, m.Span);
+                this._tc._access.CheckDeprecatedM(itGetter, m.Name, m.Span);
+                Z42Type gret = MemberResolver._substGeneric(itGetter.Signature.Ret, instT);
+                return new BoundCall("instance", true, target, itDef.Name(), "get_" + m.Name, new BoundExpr[0], 0, gret, m.Span);
+            }
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
         }
         // prim receiver 属性访问（镜像 _bindMemberCall 的 prim 处理）：prim 名首字母大写 →
