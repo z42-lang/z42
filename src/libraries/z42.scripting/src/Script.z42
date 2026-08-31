@@ -3,7 +3,8 @@
 // 流程：分类输入（using / var 声明 / 表达式）→ build 每轮源（D7 唯一命名空间 Repl.R{N} +
 // carry-forward Vars{N} 类）→ IReplCompiler.CompileRound（门面：内部 ParseAll→PackageCompile→
 // packed 字节，含 E0401 惰性 reconcile 重试）→ Engine.LoadBytes（内存加载）→ Engine.Invoke（自由
-// 函数 Eval{N}）→ EvalResult。编译失败不推进会话（错误恢复）。
+// 函数 Eval{N}）→ EvalResult。编译失败**或求值期运行异常**（throw / 除零 / 越界 / 类型不符等）
+// 均不推进会话、作失败 EvalResult 返回（错误恢复）——异常不逃逸，REPL 可继续接受输入。
 //
 // sink-repl-compile-facade：编译世界（DepScanResult）+ 编译编排住编译器（z42c.pipeline，经
 // `IReplCompiler` 门面 + 运行期反射注入），scripting 编译期 stdlib-only。CachedScan 是 opaque
@@ -217,13 +218,28 @@ public static class Script {
             return new EvalResult(false, false, null, err, state);   // 会话不推进
         }
 
-        // ── bytes → [声明轮] 内存增量并入缓存世界 → VM 内存加载 → invoke ──
+        // ── bytes → VM 内存加载 → invoke（try/catch）→ [成功且声明轮] 内存增量并入缓存世界 ──
         // perf ②/⑤：不再落盘。只有声明轮的 Vars{n} 会被后续轮 `using Repl.R{n}` 引用，故仅它们
         // 并入缓存世界；非声明轮的包无人在编译期引用（其副作用/赋值经运行期静态字段持久），跳过。
+        // ExtendWorld 放在 Invoke 成功之后：本轮 Invoke 只依赖已 LoadBytes 的模块，不需要先 ExtendWorld；
+        // 失败轮就不并入缓存世界，避免污染后续轮编译（fix-repl-eval-exception）。
         byte[] bytes = art.Bytes;
-        if (isDecl) { ReplCompilerHost.Get().ExtendWorld(state.CachedScan, bytes, "repl_r" + n.ToString()); }
         Engine.LoadBytes(bytes);
-        object result = Engine.Invoke(ns + "." + efn);
+        object result = null;
+        try {
+            result = Engine.Invoke(ns + "." + efn);
+        } catch (Exception e) {
+            // 运行期异常（用户 throw / 除零 / 越界 / 类型不符如 `int x = "s"` 的 __box_prim 等）
+            // 不得逃逸终止 REPL——捕获后作失败 EvalResult 返回，让 REPL 继续接受下一条输入。
+            // Counter 必须前进（不同于编译错误路径）：本轮模块 Repl.R{n} 已 LoadBytes 进 VM
+            // （含抛出的 Eval{n}），若不前进会重用同一轮号 → 下轮重编同名 Eval{n} 无法覆盖 VM 里
+            // 已加载的旧函数，会再次执行旧的抛出逻辑（异常"粘住"、后续输入全部复现该异常）。
+            // 仅前进 Counter；不 ExtendWorld、不推进 VarsRound/VarNames → 会话变量与编译世界不受污染。
+            state.Counter = n;
+            return new EvalResult(false, false, null, e.GetType().Name + ": " + e.Message + "\n", state);
+        }
+        // 求值成功才把声明轮 Vars{n} 并入缓存世界（供后续轮 `using Repl.R{n}` 编译期解析）。
+        if (isDecl) { ReplCompilerHost.Get().ExtendWorld(state.CachedScan, bytes, "repl_r" + n.ToString()); }
 
         // ── 推进会话状态（⑤：仅声明轮前进 VarsRound + 记变量名）──
         state.Counter = n;
