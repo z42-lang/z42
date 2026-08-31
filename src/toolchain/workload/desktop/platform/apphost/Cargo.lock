@@ -5,10 +5,3 @@ version = 4
 [[package]]
 name = "z42-apphost"
 version = "0.1.0"
-dependencies = [
- "z42-hostrun",
-]
-
-[[package]]
-name = "z42-hostrun"
-version = "0.1.0"

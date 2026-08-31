@@ -61,8 +61,10 @@
 | `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | ✅ 骨架 |
 | `crates/z42-macros/` | proc macro 入口（`Z42Type` derive、`methods`/`trait_impl`、`module!`） | 🟡 入口已注册，展开报 `compile_error!` 指向 C3 |
 | `crates/z42-host/` | Tier 2 宿主嵌入 API（workload host facade，原 `toolchain/workload/host-api` 迁入） | — |
-| `crates/z42-hostrun/` | 宿主运行时驱动（apphost/嵌入执行入口） | — |
 | `crates/z42-compression/` | 压缩后端 Rust crate（`z42.compression` 的 native 侧） | — |
+
+> apphost 的**进程外**运行时解析（原 `crates/z42-hostrun`）已并入桌面 apphost 桩的 `hostrun` 模块
+> （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不再是本 workspace 的 crate（merge-hostrun-into-apphost）。
 
 C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/design/compiler/manifest-schema.json`](../../docs/design/compiler/manifest-schema.json)。
 

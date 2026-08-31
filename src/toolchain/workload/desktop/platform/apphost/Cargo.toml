@@ -1,7 +1,9 @@
 # Per-app native apphost stub — owned by the desktop workload (apphost-to-workload,
 # 2026-06-18). `z42 publish` copies this binary and patches its embedded
-# target placeholder with the app's zpkg path. Shares the "locate z42vm + run app
-# zpkg directly" logic with the launcher trampoline via the z42-hostrun crate.
+# target placeholder with the app's zpkg path. The "locate z42vm + run app zpkg
+# directly" logic lives in the `hostrun` module (src/hostrun.rs) — formerly the
+# standalone `z42-hostrun` crate, folded in once the launcher (its only other
+# consumer) was rewritten in z42 (merge-hostrun-into-apphost). Zero deps: pure std.
 [package]
 name = "z42-apphost"
 version = "0.1.0"
@@ -12,9 +14,6 @@ description = "Per-app native apphost stub — desktop workload publish artifact
 [[bin]]
 name = "apphost"
 path = "src/main.rs"
-
-[dependencies]
-z42-hostrun = { path = "../../../../../runtime/crates/z42-hostrun" }
 
 [profile.release]
 opt-level = "z"
