@@ -243,7 +243,7 @@ z42 run desktop app.z42.toml       # debug apphost（旁 zpkg）+ 直接 exec（
 
 ### 机制：内嵌占位符 patch（.NET 同款）
 
-native apphost stub（`src/toolchain/workload/desktop/platform/apphost`，z42-apphost crate，运行时解析共享 `z42-hostrun`；**统一后 `z42` 自身也是此 stub —— 原 trampoline 实现已删，unify-launcher-apphost 2026-06-21**）内嵌一段固定占位区：32 字节 MAGIC sentinel + 992 字节 payload（共 1024）。patch 逻辑（z42 写，`src/toolchain/workload/desktop/appbuilder/apphost.z42`）：
+native apphost stub（`src/toolchain/workload/desktop/platform/apphost`，z42-apphost crate，运行时解析逻辑在其 `hostrun` 模块 `src/hostrun.rs`——曾是独立 `z42-hostrun` crate，唯一消费者仅剩此 stub 后并入，merge-hostrun-into-apphost；**统一后 `z42` 自身也是此 stub —— 原 trampoline 实现已删，unify-launcher-apphost 2026-06-21**）内嵌一段固定占位区：32 字节 MAGIC sentinel + 992 字节 payload（共 1024）。patch 逻辑（z42 写，`src/toolchain/workload/desktop/appbuilder/apphost.z42`）：
 
 1. 在 stub 模板文件里按 MAGIC 定位占位区；
 2. 把 payload 覆写为 app 的 **zpkg 路径** + NUL（路径形态见下三种模式）；
@@ -269,17 +269,17 @@ patch 同一段占位符的逻辑有**两个调用方**：
 
 **这样设计更加灵活，也避免以后循环依赖带来更多问题**（xtask 自包含、不被 workload 反向拖住）。代价是 MAGIC 字符串现有三处副本（Rust stub 嵌入端＝权威 / workload `apphost.z42` / xtask 内联），改 MAGIC 须三处同步；后续若嫌重复，可把 `PatchBytes` 抽成**编译期共享库**（z42.io 或新建 z42.apphost）让 workload 与 xtask 共用一份——但仍是共享库、不是"下载 workload"。
 
-> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.toml`**（版本 pin + `[runtime]` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 apphost（z42-hostrun）也设 `Z42_CONFIG=sidecar`（unify-run-modes 后续）/ 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
+> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.toml`**（版本 pin + `[runtime]` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 apphost（其 `hostrun` 模块）也设 `Z42_CONFIG=sidecar`（unify-run-modes 后续）/ 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
 
 ### 运行时解析：z42vm 探测（统一 apphost 唯一真相，2026-06-21）
 
-统一 trampoline → apphost 后，**所有原生入口共用同一个 stub、同一套 `z42-hostrun`**：`z42`（launcher，包根）、`bin/` 内工具 apphost（`z42c` 自举后及后续）、per-app apphost（`./xtask` 等）。stub 不捆绑 VM/libs（framework-dependent），定位 **`z42vm`**（设 `Z42_LIBS`；**不需 `launcher.zpkg`**）。
+统一 trampoline → apphost 后，**所有原生入口共用同一个 stub、同一套解析逻辑（apphost 的 `hostrun` 模块）**：`z42`（launcher，包根）、`bin/` 内工具 apphost（`z42c` 自举后及后续）、per-app apphost（`./xtask` 等）。stub 不捆绑 VM/libs（framework-dependent），定位 **`z42vm`**（设 `Z42_LIBS`；**不需 `launcher.zpkg`**）。
 
 **SDK 同址引导（启动第一步，`ensure_portable_vm`）**：apphost 启动时,若 `$Z42_PORTABLE_VM` **未设**且 exe 同址有 z42vm —— `{exe_dir}/z42vm`（apphost 在 `bin/` 内、vm 同级，如 `bin/z42c`）或 `{exe_dir}/bin/z42vm`（apphost 在包根，如 `z42`）—— 就把 `$Z42_PORTABLE_VM` 设成它。
 
 > **为什么经 `$Z42_PORTABLE_VM` 而非单独探测档**：① 让 SDK 包内的 app 用**自己那个包**的 ABI-匹配 vm（payload 与同包 `bin/z42vm` 同版本，zbc 必配）；② 设为进程环境变量后**自动传给它 spawn 的子进程** —— launcher `z42` 跑 `launcher.zpkg`、后者再调 `z42c`/其它 SDK app，子进程继承同一个 vm，全链一致。**exe 同址查找只此一处**（不在 `resolve_app_runtime` 做探测档），范围收窄到 SDK-internal app。直接跑 `bin/z42c`（不经 launcher、无继承）也靠这一步命中同址 vm。
 
-**`resolve_app_runtime` 探测顺序**（`src/runtime/crates/z42-hostrun`）:
+**`resolve_app_runtime` 探测顺序**（`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`）:
 
 **most-local-wins 顺序**（2026-06-21）：
 ```

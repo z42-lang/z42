@@ -7,7 +7,11 @@ using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 using Z42.Syntax;
 
 public sealed class SymbolTable {
-    public StrMap Classes;          // name → Z42ClassType
+    public StrMap Classes;          // name → Z42ClassType（裸名键；同短名跨 ns 碰撞 first/last-wins）
+    // fix-type-ref-ns-collision：FQN 键（`ns.Name` / `ns.Name$N`）→ Z42ClassType。裸名 `Classes` 在同短名
+    // 跨 ns（`A.Foo`/`B.Foo`）时只能留一份；此 map 保留全部，供 ResolveTypeP 的限定名路径按 FQN 精确解析，
+    // 不再靠剥短名撞 first/last-wins 赢家。与 Classes 并存：非限定引用仍走 Classes，限定引用优先走此。
+    public StrMap ClassesByFqn;
     public StrMap Interfaces;       // name → Z42InterfaceType（port-z42c-interface）
     public StrMap Functions;        // name → MethodSymbol（顶层 func）
     public StrMap ClassConstraints; // name → ConstraintSet（2B；仅有 where 子句的泛型类登记）
@@ -17,6 +21,7 @@ public sealed class SymbolTable {
     public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
     public SymbolTable() {
         this.Classes = new StrMap();
+        this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
         this.Interfaces = new StrMap();
         this.Functions = new StrMap();
         this.ClassConstraints = new StrMap();
@@ -32,6 +37,7 @@ public sealed class SymbolTable {
     public SymbolTable WithAliases(StrMap aliases) {
         SymbolTable t = new SymbolTable();
         t.Classes = this.Classes;
+        t.ClassesByFqn = this.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
         t.Interfaces = this.Interfaces;
         t.Functions = this.Functions;
         t.ClassConstraints = this.ClassConstraints;
@@ -177,6 +183,29 @@ public sealed class SymbolTable {
             // 只命中真注册的嵌套键；namespace-qualified（`Std.Console`→`Std+Console` 未注册）自然跳过、
             // 落到下方限定名回退。任意深度（`A.B.C`→`A+B+C`）。
             if (n.IndexOf(".") >= 0) {
+                // fix-type-ref-ns-collision：限定名优先按 FQN 精确解析（`A.Foo` → 声明 ns==A 的那份 Foo），
+                // 不再剥短名撞裸名 Classes 的 first/last-wins 赢家（曾致 `new A.Foo` 绑到 B.Foo）。泛型
+                // `A.Foo<T>` 用 FQN$N 键。只命中显式注册的 ns 限定顶层类；嵌套类型（`+` 键）自然不匹配、下落。
+                if (nt.ArgCount > 0) {
+                    string fqMangle = n + "$" + nt.ArgCount.ToString();
+                    if (this.ClassesByFqn.ContainsKey(fqMangle)) {
+                        Z42ClassType fgdef = this.ClassesByFqn.Get(fqMangle) as Z42ClassType;
+                        Z42Type[] fta = new Z42Type[nt.ArgCount];
+                        int fa = 0;
+                        while (fa < nt.ArgCount) { fta[fa] = this.ResolveTypeP(nt.Args[fa], paramNames, paramCount); fa = fa + 1; }
+                        return new Z42InstantiatedType(fgdef, fta, nt.ArgCount);
+                    }
+                }
+                if (this.ClassesByFqn.ContainsKey(n)) {
+                    Z42ClassType fdef = this.ClassesByFqn.Get(n) as Z42ClassType;
+                    if (nt.ArgCount > 0) {
+                        Z42Type[] fta2 = new Z42Type[nt.ArgCount];
+                        int fa2 = 0;
+                        while (fa2 < nt.ArgCount) { fta2[fa2] = this.ResolveTypeP(nt.Args[fa2], paramNames, paramCount); fa2 = fa2 + 1; }
+                        return new Z42InstantiatedType(fdef, fta2, nt.ArgCount);
+                    }
+                    return fdef;
+                }
                 string plusKey = n.Replace(".", "+");
                 if (this.EnumTypes.ContainsKey(plusKey)) { return new Z42ClassType(plusKey, false, ""); }
                 if (this.Interfaces.ContainsKey(plusKey)) { return this.Interfaces.Get(plusKey) as Z42InterfaceType; }
