@@ -9,10 +9,13 @@ using Std;
 using Std.IO;
 
 public static class SourceDiscovery {
-    // 原三参 API：无 `[sources] exclude`。**符号刻意保持不变**——委托到 `DiscoverWithExclude`
-    // （空 exclude）。⚠️ 两-nightly 纪律（fix-hooks-source-scan）：**不加同名 overload**（会把本
-    // 方法符号从 `Discover` mangle 成 `Discover$3`，断 z42c 自举链），故新能力用独立方法名。
-    // z42c 阶段 1 仍调此版；阶段 2 切 `DiscoverWithExclude`。
+    // 原三参 API：无 `[sources] exclude`。委托到 `DiscoverWithExclude`（空 exclude）。
+    // ⚠️ **删除是阶段3，不是阶段2**：`SourceDiscovery.Discover` 是 z42c 的**运行期自依赖**
+    // （编译器自建时其 Main.z42 调本方法发现源）。阶段2 的种子（阶段1 nightly）其编译进二进制的
+    // Main.z42 仍调 3 参 `Discover`；自建时 `_ensureBootstrapSelfDepLibs` 先把**当前源** z42.project
+    // 预建进 flat-libs，种子 z42c 随后对着它跑——若此刻删了 `Discover`，种子 z42c 立即
+    // `undefined function Discover$3`，断自举。故阶段2 只切调用点、**保留本 shim**；等阶段2 nightly
+    // 发布（其种子 Main.z42 已改调 `DiscoverWithExclude`、不再引用 `Discover`）后，阶段3 才删本 shim。
     public static string[] Discover(string projectDir, string[] includes, int includeCount) {
         string[] noExc = new string[0];
         return SourceDiscovery.DiscoverWithExclude(projectDir, includes, includeCount, noExc, 0);

@@ -20,7 +20,10 @@ public class Z42cCompiler : ICompiler {
     public CompileResult Compile(CompileRequest req) {
         // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
         string[] includes = new string[1]; includes[0] = "**/*.z42";
-        string[] srcs = SourceDiscovery.Discover(req.SourceDir, includes, 1);
+        // fix-hooks-source-scan 阶段2：切 DiscoverWithExclude（空 exclude → 行为不变）。z42b 发布路径
+        // 的 hooks 目录排除待 CompileRequest 增 Excludes 字段后再接（新字段 → z42c 读取需晚一 nightly）。
+        string[] noExc = new string[0];
+        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, 1, noExc, 0);
         if (srcs.Length == 0) {
             return new CompileResult("", "", false, "no .z42 sources under " + req.SourceDir);
         }
