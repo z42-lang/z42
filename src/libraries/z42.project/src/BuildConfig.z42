@@ -9,11 +9,17 @@ public sealed class BuildConfig {
     public bool   HasDistDir;
     public string DistDir;
     public bool   Incremental;
+    // fix-hooks-source-scan：`[build] hooks = "<dir>"`（projDir 相对）。声明后该目录由 z42c
+    // 自动排除出 app 源 glob（hooks 由 z42b 单独编，不该进 app zpkg）。HasHooks=false → 未声明。
+    public bool   HasHooks;
+    public string HooksDir;
     public BuildConfig(bool hasOut, string outDir, bool hasCache, string cacheDir,
-                       bool hasDist, string distDir, bool incremental) {
+                       bool hasDist, string distDir, bool incremental,
+                       bool hasHooks, string hooksDir) {
         this.HasOutputDir = hasOut; this.OutputDir = outDir;
         this.HasCacheDir = hasCache; this.CacheDir = cacheDir;
         this.HasDistDir = hasDist; this.DistDir = distDir;
         this.Incremental = incremental;
+        this.HasHooks = hasHooks; this.HooksDir = hooksDir;
     }
 }

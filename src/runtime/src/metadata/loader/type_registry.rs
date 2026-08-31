@@ -318,28 +318,39 @@ pub fn try_fixup_inheritance(
             Some(arc) => arc,
             None      => continue, // unreachable in normal use
         };
-        match Arc::get_mut(arc) {
-            Some(td) => {
-                td.fields       = new_fields;
-                td.field_index  = new_field_index;
-                td.vtable       = new_vtable;
-                td.vtable_index = new_vtable_index;
-                // unify-object-byte-layout (PR-2): install the recomposed layout.
-                // `td.cold` is `Some` whenever `new_composed` is (both derive from the
-                // own object layout living on cold); guard defensively regardless.
-                if let (Some(cold), Some(composed)) = (td.cold.as_mut(), new_composed) {
-                    cold.composed_object_layout = Some(composed);
-                }
-                newly_fixed += 1;
-            }
-            None => {
-                tracing::warn!(
-                    "try_fixup_inheritance: TypeDesc `{}` has additional Arc holders \
-                     before fixup completed; cross-zpkg fields may be silently wrong",
-                    name
-                );
-            }
+        // fix-projecthooks-vtable-fixup: clone-on-write via `Arc::make_mut`.
+        //
+        // The old code used `Arc::get_mut` and, when it failed (strong_count > 1),
+        // SKIPPED the fixup and emitted a per-round WARN ("cross-zpkg fields may be
+        // silently wrong"). That relied on `seed_types_for_lookup`'s invariant that
+        // an eagerly-loaded (hence Arc-shared) TypeDesc is already fully merged, so
+        // `needs_fixup` is false and this branch never runs. An eager-but-own-only
+        // type VIOLATES that invariant: a `class ProjectHooks : BuildHooks` compiled
+        // into an app whose `z42.build` dep is only LAZILY loaded is seeded into this
+        // registry (strong_count ≥ 2) yet `needs_fixup` is true (its cross-zpkg base
+        // contributed nothing at build time). The result was 25×/run of spurious
+        // WARNs for a class that is never dispatched and whose base has NO fields —
+        // a pure false alarm that also never actually merged the type.
+        //
+        // `make_mut` fixes both: with strong_count == 1 (the common, genuinely
+        // lazy-loaded case) it mutates in place — byte-for-byte the old `get_mut`
+        // path. When shared, it clones the inner `TypeDesc` and gives THIS registry
+        // a private, correctly-merged copy, so the lazy-lookup path resolves the full
+        // vtable/fields and the type CONVERGES (needs_fixup=false next round → no
+        // re-warn). The other Arc holders (the eager main-module registry) keep their
+        // own-only copy — that copy is the build-time limitation and is unaffected.
+        let td = Arc::make_mut(arc);
+        td.fields       = new_fields;
+        td.field_index  = new_field_index;
+        td.vtable       = new_vtable;
+        td.vtable_index = new_vtable_index;
+        // unify-object-byte-layout (PR-2): install the recomposed layout.
+        // `td.cold` is `Some` whenever `new_composed` is (both derive from the
+        // own object layout living on cold); guard defensively regardless.
+        if let (Some(cold), Some(composed)) = (td.cold.as_mut(), new_composed) {
+            cold.composed_object_layout = Some(composed);
         }
+        newly_fixed += 1;
     }
     newly_fixed
 }

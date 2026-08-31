@@ -104,7 +104,7 @@ pub fn default_value_for_tag(tag: u8) -> Value {
 ///
 /// Built once per class at module load time; instances reference it via `Arc`.
 /// Includes the flattened inheritance chain for both fields and virtual methods.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeDesc {
     /// Fully-qualified class name (e.g. `"Demo.Point"`).
     pub name: String,
@@ -718,7 +718,7 @@ fn codec_as_char_u32(v: &Value) -> anyhow::Result<u32> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
     /// itself declares** (excluding inherited). Preserved so the cross-zpkg

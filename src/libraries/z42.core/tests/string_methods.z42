@@ -1,0 +1,266 @@
+// add-core-lib-tests: String 脚本方法的专属覆盖。此前 String 是 z42.core 最中心
+// 却几乎无专测的类型——assert_basics 只顺带碰了 `+` / Contains，split_options 只测
+// 带 options 的 Split。这里补齐 Length/ByteLength、大小写、Trim、IndexOf/Replace、
+// Substring 边界、Join/Concat/Format 变参逻辑等。
+namespace Z42CoreStringMethodsTests;
+
+using Std;
+using Std.Test;
+
+// ── Length vs ByteLength（scalar count vs UTF-8 字节）──────────────────────
+
+[Test]
+void test_length_ascii() {
+    Assert.Equal(5, "hello".Length);
+    Assert.Equal(5, "hello".ByteLength);   // ASCII: 两者相等
+    Assert.Equal(0, "".Length);
+}
+
+[Test]
+void test_length_vs_bytelength_multibyte() {
+    // "你好" = 2 个 Unicode scalar，UTF-8 下每字 3 字节 = 6 字节。
+    string s = "你好";
+    Assert.Equal(2, s.Length);
+    Assert.Equal(6, s.ByteLength);
+}
+
+[Test]
+void test_char_at() {
+    string s = "abc";
+    Assert.Equal('a', s.CharAt(0));
+    Assert.Equal('c', s.CharAt(2));
+}
+
+// ── IsEmpty / IsNullOr* ───────────────────────────────────────────────────
+
+[Test]
+void test_is_empty() {
+    Assert.True("".IsEmpty());
+    Assert.False("x".IsEmpty());
+}
+
+[Test]
+void test_is_null_or_empty() {
+    Assert.True(String.IsNullOrEmpty(null));
+    Assert.True(String.IsNullOrEmpty(""));
+    Assert.False(String.IsNullOrEmpty(" "));
+    Assert.False(String.IsNullOrEmpty("x"));
+}
+
+[Test]
+void test_is_null_or_whitespace() {
+    Assert.True(String.IsNullOrWhiteSpace(null));
+    Assert.True(String.IsNullOrWhiteSpace(""));
+    Assert.True(String.IsNullOrWhiteSpace("   "));
+    Assert.True(String.IsNullOrWhiteSpace(" \t "));
+    Assert.False(String.IsNullOrWhiteSpace(" x "));
+}
+
+// ── Contains / StartsWith / EndsWith ──────────────────────────────────────
+
+[Test]
+void test_contains() {
+    Assert.True("hello world".Contains("o w"));
+    Assert.True("hello".Contains(""));      // 空串处处存在
+    Assert.False("hello".Contains("xyz"));
+}
+
+[Test]
+void test_starts_with() {
+    Assert.True("hello".StartsWith("hel"));
+    Assert.True("hello".StartsWith(""));    // 空前缀恒真
+    Assert.True("hello".StartsWith("hello"));
+    Assert.False("hello".StartsWith("Hel")); // 大小写敏感
+    Assert.False("hi".StartsWith("hello"));  // 前缀比本体长
+}
+
+[Test]
+void test_ends_with() {
+    Assert.True("hello".EndsWith("llo"));
+    Assert.True("hello".EndsWith(""));      // 空后缀恒真
+    Assert.True("hello".EndsWith("hello"));
+    Assert.False("hello".EndsWith("LLO"));
+    Assert.False("hi".EndsWith("hello"));
+}
+
+// ── IndexOf ───────────────────────────────────────────────────────────────
+
+[Test]
+void test_index_of() {
+    Assert.Equal(0, "hello".IndexOf("h"));
+    Assert.Equal(2, "hello".IndexOf("llo"));
+    Assert.Equal(-1, "hello".IndexOf("z"));
+    Assert.Equal(0, "hello".IndexOf(""));    // 空针 → 0
+    Assert.Equal(-1, "hi".IndexOf("hello")); // 针比干草长
+}
+
+// ── Replace ───────────────────────────────────────────────────────────────
+
+[Test]
+void test_replace_basic() {
+    Assert.Equal("hEllO", "hello".Replace("l", "l").Replace("e", "E").Replace("o", "O"));
+    Assert.Equal("a-b-c", "a.b.c".Replace(".", "-"));
+    Assert.Equal("xxyy", "aabb".Replace("a", "x").Replace("b", "y"));
+}
+
+[Test]
+void test_replace_multichar_and_growth() {
+    // 替换串比被替换串长（result 需扩容）。
+    Assert.Equal("[X][X]", "aa".Replace("a", "[X]"));
+    // 替换串更短（result 需缩容）。
+    Assert.Equal("a_a", "aXXa".Replace("XX", "_"));
+    // 无命中：原样返回。
+    Assert.Equal("hello", "hello".Replace("z", "Q"));
+}
+
+[Test]
+void test_replace_empty_old_throws() {
+    Assert.ThrowsAny(() => "hello".Replace("", "x"));
+}
+
+// ── Substring（两种重载 + 越界）───────────────────────────────────────────
+
+[Test]
+void test_substring_from() {
+    Assert.Equal("llo", "hello".Substring(2));
+    Assert.Equal("hello", "hello".Substring(0));
+    Assert.Equal("", "hello".Substring(5));   // 起点到末尾
+}
+
+[Test]
+void test_substring_range() {
+    Assert.Equal("ell", "hello".Substring(1, 3));
+    Assert.Equal("", "hello".Substring(2, 0));
+    Assert.Equal("hello", "hello".Substring(0, 5));
+}
+
+[Test]
+void test_substring_out_of_range_throws() {
+    Assert.ThrowsAny(() => "hello".Substring(-1));
+    Assert.ThrowsAny(() => "hello".Substring(2, 10));   // 越过末尾
+    Assert.ThrowsAny(() => "hello".Substring(0, -1));
+}
+
+// ── ToLower / ToUpper（ASCII 规则）────────────────────────────────────────
+
+[Test]
+void test_to_lower_upper() {
+    Assert.Equal("hello world", "Hello World".ToLower());
+    Assert.Equal("HELLO WORLD", "Hello World".ToUpper());
+    Assert.Equal("abc123!", "ABC123!".ToLower());   // 非字母不变
+    Assert.Equal("", "".ToLower());
+}
+
+// ── Trim / TrimStart / TrimEnd ────────────────────────────────────────────
+
+[Test]
+void test_trim() {
+    Assert.Equal("hello", "  hello  ".Trim());
+    Assert.Equal("hello", "\t hello \n".Trim());
+    Assert.Equal("", "   ".Trim());          // 全空白 → 空
+    Assert.Equal("a b", " a b ".Trim());     // 内部空白保留
+}
+
+[Test]
+void test_trim_start_end() {
+    Assert.Equal("hello  ", "  hello  ".TrimStart());
+    Assert.Equal("  hello", "  hello  ".TrimEnd());
+    Assert.Equal("", "   ".TrimStart());
+    Assert.Equal("", "   ".TrimEnd());
+}
+
+// ── ToCharArray（FromChars 的逆）──────────────────────────────────────────
+
+[Test]
+void test_to_char_array_roundtrip() {
+    char[] cs = "abc".ToCharArray();
+    Assert.Equal(3, cs.Length);
+    Assert.Equal('a', cs[0]);
+    Assert.Equal('c', cs[2]);
+    Assert.Equal("abc", String.FromChars(cs));
+    Assert.Equal(0, "".ToCharArray().Length);
+}
+
+// ── Split（单参）──────────────────────────────────────────────────────────
+
+[Test]
+void test_split_single_arg() {
+    string[] parts = "a,b,c".Split(",");
+    Assert.Equal(3, parts.Length);
+    Assert.Equal("a", parts[0]);
+    Assert.Equal("c", parts[2]);
+    // 无分隔符 → 单段（整串）。
+    string[] one = "abc".Split(",");
+    Assert.Equal(1, one.Length);
+    Assert.Equal("abc", one[0]);
+    // 相邻分隔符 → 空段。
+    string[] blanks = "a,,b".Split(",");
+    Assert.Equal(3, blanks.Length);
+    Assert.Equal("", blanks[1]);
+}
+
+[Test]
+void test_split_empty_separator_throws() {
+    Assert.ThrowsAny(() => "abc".Split(""));
+}
+
+// ── Join（静态 params）────────────────────────────────────────────────────
+
+[Test]
+void test_join_array_and_expanded() {
+    string[] arr = new string[3];
+    arr[0] = "a"; arr[1] = "b"; arr[2] = "c";
+    Assert.Equal("a, b, c", String.Join(", ", arr));       // normal form（直传数组）
+    Assert.Equal("a-b-c", String.Join("-", "a", "b", "c")); // expanded form
+    Assert.Equal("", String.Join(",", new string[0]));      // 空 → ""
+    Assert.Equal("solo", String.Join(",", "solo"));         // 单元素无分隔
+}
+
+// ── Concat（静态 params）──────────────────────────────────────────────────
+
+[Test]
+void test_concat() {
+    Assert.Equal("abc", String.Concat("a", "b", "c"));
+    Assert.Equal("", String.Concat(new string[0]));
+    string[] arr = new string[2];
+    arr[0] = "foo"; arr[1] = "bar";
+    Assert.Equal("foobar", String.Concat(arr));
+}
+
+// ── Format（`{n}` 记号替换）───────────────────────────────────────────────
+
+[Test]
+void test_format_basic() {
+    Assert.Equal("1 + 2 = 3", String.Format("{0} + {1} = {2}", 1, 2, 3));
+    Assert.Equal("hi bob", String.Format("hi {0}", "bob"));
+    // 同一实参多次引用。
+    Assert.Equal("x x x", String.Format("{0} {0} {0}", "x"));
+}
+
+[Test]
+void test_format_edge_tokens() {
+    // 索引越界 → 记号原样保留（不替换、不报错）。
+    Assert.Equal("{5}", String.Format("{5}", "a"));
+    // 非数字花括号 → 原样字面。
+    Assert.Equal("a{b}c", String.Format("a{b}c", "ignored"));
+    // 无记号 → 原样。
+    Assert.Equal("plain text", String.Format("plain text"));
+}
+
+// ── Object 协议（Equals / CompareTo / GetHashCode）────────────────────────
+
+[Test]
+void test_equals_and_compareto() {
+    Assert.True("abc".Equals("abc"));
+    Assert.False("abc".Equals("abd"));
+    Assert.True("abc".CompareTo("abc") == 0);
+    Assert.True("abc".CompareTo("abd") < 0);
+    Assert.True("abd".CompareTo("abc") > 0);
+}
+
+[Test]
+void test_hashcode_stable_for_equal_strings() {
+    // 相等字符串哈希必相等（"a"+"bc" 与字面 "abc" 同值）。
+    string built = "a" + "bc";
+    Assert.Equal("abc".GetHashCode(), built.GetHashCode());
+}
