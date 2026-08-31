@@ -8,7 +8,7 @@ using Z42.Build.Project;
 
 [Test]
 void test_project_manifest_roundtrip() {
-    string toml = "[project]\nname = \"demo\"\nversion = \"1.2.3\"\nkind = \"exe\"\nentry = \"Main\"\n\n[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = [\"src/gen/**\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
+    string toml = "[project]\nname = \"demo\"\nversion = \"1.2.3\"\nkind = \"exe\"\nentry = \"Main\"\n\n[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = [\"src/gen/**\"]\n\n[build]\nhooks = \"hooks\"\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     // [project] → 组合式 m.Project.*
     Assert.Equal("demo", m.Project.Name);
@@ -21,6 +21,9 @@ void test_project_manifest_roundtrip() {
     Assert.Equal("src/**/*.z42", m.Sources.Include[0]);
     Assert.Equal(1, m.Sources.ExcludeCount);
     Assert.Equal("src/gen/**", m.Sources.Exclude[0]);
+    // [build] hooks → BuildConfig.HasHooks / HooksDir（fix-hooks-source-scan 阶段1）
+    Assert.Equal(true, m.Build.HasHooks);
+    Assert.Equal("hooks", m.Build.HooksDir);
     // [dependencies] → 顶层 m.Deps
     Assert.Equal(1, m.DepCount);
     Assert.Equal("z42.core", m.Deps[0].Name);
