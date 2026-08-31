@@ -11,13 +11,14 @@ class Point {
 }
 
 void Main() {
-    // Primitives: name-only Std.Type.
+    // fix-type-reflection-names: primitives resolve to their real `Std.*` wrapper
+    // handle (typeof(int) ≡ (5).GetType()) → Name is the struct simple name `Int32`.
     var t1 = typeof(int);
     var t2 = typeof(string);
     var t3 = typeof(bool);
-    Assert.Equal("int", t1.Name);
-    Assert.Equal("string", t2.Name);
-    Assert.Equal("bool", t3.Name);
+    Assert.Equal("Int32", t1.Name);
+    Assert.Equal("String", t2.Name);
+    Assert.Equal("Boolean", t3.Name);
 
     // User class: typeof resolves to a real handle (members enumerable).
     var tp = typeof(Point);

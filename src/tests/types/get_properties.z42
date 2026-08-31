@@ -26,14 +26,14 @@ void Main() {
             Assert.True(p.CanRead);
             Assert.True(p.CanWrite);
             Type pt = p.PropertyType;      // local receiver (chained-getter footgun)
-            Assert.Equal("int", pt.Name);
+            Assert.Equal("Int32", pt.Name);
         }
         if (p.Name == "Owner") {
             sawOwner = true;
             Assert.True(p.CanRead);
             Assert.False(p.CanWrite);
             Type pt = p.PropertyType;
-            Assert.Equal("string", pt.Name);
+            Assert.Equal("String", pt.Name);
         }
     }
     Assert.True(sawBalance);

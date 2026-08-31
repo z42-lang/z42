@@ -24,13 +24,13 @@ void Main() {
             sawBalance = true;
             Assert.False(f.IsStatic);
             Type ft = f.FieldType;
-            Assert.Equal("int", ft.Name);
+            Assert.Equal("Int32", ft.Name);
         }
         if (f.Name == "count") {
             sawCount = true;
             Assert.True(f.IsStatic);
             Type ft = f.FieldType;
-            Assert.Equal("int", ft.Name);
+            Assert.Equal("Int32", ft.Name);
         }
     }
     Assert.True(sawBalance);
@@ -43,6 +43,6 @@ void Main() {
     foreach (var f in cf) {
         Assert.True(f.IsStatic);
         Type ft = f.FieldType;
-        Assert.Equal("string", ft.Name);
+        Assert.Equal("String", ft.Name);
     }
 }

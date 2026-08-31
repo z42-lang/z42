@@ -314,6 +314,23 @@ fn default_value_for_string_keys_match_tags() {
         Value::F64(v) => assert_eq!(v, 0.0),
         other => panic!("expected F64(0.0), got {:?}", other),
     }
+    // fix-type-reflection-names: FQ wrapper names (from reflective method_type_args,
+    // e.g. `MakeGenericMethod(typeof(int)).Invoke` → `default(T)`) yield the same
+    // value-type zero as the keyword/tag spellings.
+    assert!(matches!(default_value_for("Std.Int32"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Int64"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Byte"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Boolean"), Value::Bool(false)));
+    assert!(matches!(default_value_for("Std.Char"), Value::Char('\0')));
+    assert!(matches!(default_value_for("Std.String"), Value::Null)); // reference → null
+    match default_value_for("Std.Double") {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        other => panic!("expected F64(0.0), got {:?}", other),
+    }
+    match default_value_for("Std.Single") {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        other => panic!("expected F64(0.0), got {:?}", other),
+    }
 }
 
 #[test]

@@ -46,8 +46,9 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
    —— **只能追加、不能插入中间**：表内位置就是稳定的 `BuiltinId`（进程内不变）。
 3. z42 侧用 `[Native("__foo")]` 声明对应外部函数（stdlib）。
 
-**lenient 约定**：类型/反射类 builtin 对「无 handle 的合成 Type（primitive/array）」
-或非预期入参一律返回空数组 / null，不 `bail!`（镜像 C# 返回空结果）。
+**lenient 约定**：类型/反射类 builtin 对「无 handle 的合成 Type（数组 `T[]`，及 z42.core
+未加载时的 primitive 兜底）」或非预期入参一律返回空数组 / null，不 `bail!`（镜像 C# 返回空结果）。
+（fix-type-reflection-names 起 primitive 正常解析为真 `Std.*` 句柄，不再走合成——`typeof(int)` ≡ `(5).GetType()`。）
 
 ## 如何测试验证
 

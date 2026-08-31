@@ -326,3 +326,34 @@ fn type_visibility_handle_less_is_public() {
     assert_eq!(builtin_type_visibility(&c, &[none.clone()]).unwrap(), Value::I64(0));
     assert_eq!(builtin_type_is_nested(&c, &[none]).unwrap(), Value::Bool(false));
 }
+
+#[test]
+fn primitive_fqn_maps_both_vocabularies() {
+    // fix-type-reflection-names: both the field-slot keyword (`int`) and the
+    // function-signature tag (`i32`) map to the one FQ wrapper name, so reflection
+    // resolves `typeof(int)` to the real `Std.Int32` handle (≡ `(5).GetType()`).
+    // (End-to-end handle resolution + generic FullName composition need z42.core →
+    // covered by the `types/primitive_type_identity` + `types/generic_fullname` goldens.)
+    assert_eq!(primitive_fqn("int"), Some("Std.Int32"));
+    assert_eq!(primitive_fqn("i32"), Some("Std.Int32"));
+    assert_eq!(primitive_fqn("long"), Some("Std.Int64"));
+    assert_eq!(primitive_fqn("i64"), Some("Std.Int64"));
+    assert_eq!(primitive_fqn("double"), Some("Std.Double"));
+    assert_eq!(primitive_fqn("f64"), Some("Std.Double"));
+    assert_eq!(primitive_fqn("float"), Some("Std.Single"));
+    assert_eq!(primitive_fqn("f32"), Some("Std.Single"));
+    assert_eq!(primitive_fqn("bool"), Some("Std.Boolean"));
+    assert_eq!(primitive_fqn("char"), Some("Std.Char"));
+    assert_eq!(primitive_fqn("string"), Some("Std.String"));
+    assert_eq!(primitive_fqn("str"), Some("Std.String"));
+    assert_eq!(primitive_fqn("sbyte"), Some("Std.SByte"));
+    assert_eq!(primitive_fqn("byte"), Some("Std.Byte"));
+    assert_eq!(primitive_fqn("short"), Some("Std.Int16"));
+    assert_eq!(primitive_fqn("ushort"), Some("Std.UInt16"));
+    assert_eq!(primitive_fqn("uint"), Some("Std.UInt32"));
+    assert_eq!(primitive_fqn("ulong"), Some("Std.UInt64"));
+    // Non-primitive names pass through (resolved as classes earlier).
+    assert_eq!(primitive_fqn("Std.Int32"), None);
+    assert_eq!(primitive_fqn("Demo.Point"), None);
+    assert_eq!(primitive_fqn("List"), None);
+}

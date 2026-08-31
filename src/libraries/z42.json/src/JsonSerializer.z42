@@ -42,8 +42,12 @@ public static class JsonSerializer {
         if (fn == "Std.String")  { return JsonValue.OfString((string)o); }
         if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
         // add-collection-serde：集合检测**先于**通用对象分派（否则 List/Dict 被当对象遍历内部字段）。
-        if (fn == "Std.Collections.List")       { return JsonSerializer._listToJson(o); }
-        if (fn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o); }
+        // fix-type-reflection-names 起构造型泛型 FullName 含实参，故按去实参的**基名**匹配。
+        string baseFn = fn;
+        int lt = fn.IndexOf("<");
+        if (lt >= 0) { baseFn = fn.Substring(0, lt); }
+        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o); }
         return JsonSerializer._objectToJson(o, t);
     }
 

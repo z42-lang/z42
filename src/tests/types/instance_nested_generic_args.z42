@@ -28,8 +28,8 @@ void Main() {
 
     Type[] innerArgs = inner.GetGenericArguments();
     Assert.True(innerArgs.Length == 2);
-    Assert.True(innerArgs[0].Name == "int");
-    Assert.True(innerArgs[1].Name == "string");   // no leading space (was " string")
+    Assert.True(innerArgs[0].Name == "Int32");
+    Assert.True(innerArgs[1].Name == "String");   // no leading space (was " string")
 
     // ── obj.GetType() == typeof for the same constructed type ──────────────
     Type viaTypeof = typeof(Box<Pair<int, string>>);
@@ -40,5 +40,5 @@ void Main() {
     Box<int> bi = new Box<int>();
     Type[] biArgs = bi.GetType().GetGenericArguments();
     Assert.True(biArgs.Length == 1);
-    Assert.True(biArgs[0].Name == "int");
+    Assert.True(biArgs[0].Name == "Int32");
 }

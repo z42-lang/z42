@@ -1,0 +1,41 @@
+namespace Demo;
+
+using Std;
+
+// fix-type-reflection-names: a primitive keyword resolves through reflection to
+// the *same* real `Std.*` wrapper Type as the boxed runtime value — so
+// `typeof(int)` ≡ `(5).GetType()` (mirrors C# `typeof(int) == 5.GetType()`).
+// Name `Int32`, FullName `Std.Int32`, IsValueType true, members enumerable —
+// no more handle-less "int" alias synthetic.
+
+void Main() {
+    // ── typeof(int) ≡ x.GetType() on every axis ────────────────────────────
+    int x = 5;
+    Type viaTypeof = typeof(int);
+    Type viaGetType = x.GetType();
+
+    Assert.Equal("Std.Int32", viaTypeof.FullName);
+    Assert.Equal("Int32", viaTypeof.Name);
+    Assert.True(viaTypeof.IsValueType);              // int is a value type (was false)
+    Assert.True(viaTypeof.IsPrimitive);
+    Assert.False(viaTypeof.IsClass);
+
+    // Full identity typeof vs GetType.
+    Assert.Equal(viaGetType.FullName, viaTypeof.FullName);
+    Assert.Equal(viaGetType.Name, viaTypeof.Name);
+    Assert.Equal(viaGetType.IsValueType, viaTypeof.IsValueType);
+    Assert.Equal(viaGetType.GetMethods().Length, viaTypeof.GetMethods().Length);
+    Assert.True(viaTypeof.GetMethods().Length > 0);  // real handle → members (was 0)
+
+    // ── FullName / Name across the primitive set ───────────────────────────
+    Assert.Equal("Std.Int64", typeof(long).FullName);
+    Assert.Equal("Int64", typeof(long).Name);
+    Assert.Equal("Std.Double", typeof(double).FullName);
+    Assert.Equal("Double", typeof(double).Name);
+    Assert.Equal("Std.Boolean", typeof(bool).FullName);
+    Assert.Equal("Boolean", typeof(bool).Name);
+    Assert.Equal("Std.Char", typeof(char).FullName);
+    Assert.Equal("Char", typeof(char).Name);
+    Assert.Equal("Std.String", typeof(string).FullName);
+    Assert.Equal("String", typeof(string).Name);
+}

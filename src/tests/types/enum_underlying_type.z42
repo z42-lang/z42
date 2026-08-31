@@ -12,7 +12,7 @@ class Plain { public int X; }
 
 void Main() {
     Type ut = typeof(Status).GetEnumUnderlyingType();
-    Assert.Equal("long", ut.Name);
+    Assert.Equal("Int64", ut.Name);
     Assert.True(!ut.IsEnum);   // the underlying type itself is not an enum
 
     // consistent with GetValues returning long[]
