@@ -106,6 +106,24 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 
 **关键不变量（自举）**：`_finDepth==0`（无 finally 包裹）时发射路径与旧代码逐字节一致 → z42c 自身零 `try/finally`，故 gen1==gen2 不动点不受影响；只有用了 try/finally+早退的 stdlib（JSON/TOML 守卫等）产物改变。用例见 `src/tests/exceptions/finally_nonlocal_exit`。
 
+#### foreach 三-path 下沉（数组 / 索引 / IEnumerable）
+
+`foreach (T x in coll)` 按目标静态类型走**三-path 决策树**（`StmtBinder._bindForeach`，优先级从上到下、首个命中即用）：
+
+1. **数组**（`coll` 是 `Z42ArrayType`）→ `ArrayLen` 求长 + `ConstI32` 计数器 + `ArrayGet` 取元素（`_emitForeach` 计数器循环）。
+2. **索引鸭子**（类有 `get_Item` **且** `Count` 字段/方法）→ `Count` + `get_Item(i)` VCall（`List` 等；比 C# 更快，省 enumerator 构造 + 每步两次 VCall）。
+3. **IEnumerable 协议**（既非数组、也无 `get_Item`+`Count`，但有 `GetEnumerator()`）→ **binder 脱糖**（`_bindForeachEnumerable`）成既有 AST：
+   ```
+   { var __e = <coll>.GetEnumerator();
+     try { while (__e.MoveNext()) { <T> x = __e.Current; <body> } }
+     finally { __e.Dispose(); } }
+   ```
+   再交 `_bindStmt`——**复用** struct 值返回（sret）/ try-finally 栈（上节）/ break-continue-return 经 finally / 方法·属性派发**全部既有 lowering**，零新 Bound 节点、零新 emitter。`__e` 取 `GetEnumerator()` 的**具体 struct 类型**（pattern-based 无装箱），`__e.Current` 是 struct 属性 getter（经 `get_Current` 静态 Call / sret-aware）。
+
+**关键不变量（自举）**：path 1/2 的 `_emitForeach` 完全不动、path 3 的脱糖只在 IEnumerable-only 类型上触发——z42c 源自身 foreach 均走数组/索引 path，从不进脱糖分支 → gen1==gen2 逐字节不动点不受影响。无新 IR 指令 / 无格式 bump（`GetEnumerator`/`MoveNext`/`get_Current`/`Dispose` 全是既有 `Call`/`VCall`）。`ListEnumerator<T>`/`DictionaryEnumerator<K,V>` 是 `Std.Collections` 的 `[Record] struct`（值语义、迭代零堆分配）。用例见 `src/tests/basic/foreach_ienumerable.z42`。
+
+> **配套编译器修复**：struct **属性 getter** 读此前有两个 codegen 缺口——① 成员一律当字段发 `struct_fget_prim @-1`（`fix-struct-property-getter`，见 [struct 值语义](../runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型漏 `_substGeneric` 替换 → 松绑 `Unknown` → sret 失配（`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支补属性 getter + 替换）。二者是 foreach 脱糖用 `__e.Current` 的前置。
+
 ### 写出（Emit）
 
 `IrModule` → `.zbc` / `.zpkg`。由 `ZbcWriter` 将 IR 序列化为二进制：单文件产出 `.zbc`，打包产出 `.zpkg`。二进制布局与各 section 见 [zbc 字节码格式](zbc-format.md) / [zpkg 包格式](zpkg-format.md)。

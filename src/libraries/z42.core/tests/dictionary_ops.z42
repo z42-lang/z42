@@ -1,0 +1,117 @@
+// core-lib-test-completeness (2026-09-01): dogfood coverage for the previously
+// untested Dictionary<TKey,TValue> surface — Clear / Keys() / Values() /
+// Entries() (+ KeyValuePair) / IsEmpty / indexer get·set overwrite. The probe
+// chain (Set/Get/ContainsKey/Remove) is covered by dictionary_hash_edge.z42 +
+// list_sort.z42; this file fills the enumeration + snapshot APIs.
+//
+// Keys()/Values()/Entries() order is NOT guaranteed (capacity scan order, hash
+// dependent), so every assertion here is order-independent (sums / membership).
+namespace Z42CoreDictOpsTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_is_empty_and_clear() {
+    var d = new Dictionary<int, int>();
+    Assert.True(d.IsEmpty());
+    Assert.Equal(0, d.Count);
+
+    d[1] = 10;
+    d[2] = 20;
+    Assert.False(d.IsEmpty());
+    Assert.Equal(2, d.Count);
+
+    d.Clear();
+    Assert.True(d.IsEmpty());
+    Assert.Equal(0, d.Count);
+    Assert.False(d.ContainsKey(1));
+
+    // reusable after Clear
+    d[3] = 30;
+    Assert.Equal(1, d.Count);
+    Assert.Equal(30, d[3]);
+}
+
+[Test]
+void test_indexer_set_overwrites_no_count_growth() {
+    var d = new Dictionary<string, int>();
+    d["a"] = 1;
+    d["a"] = 2;                 // overwrite same key
+    d["a"] = 3;
+    Assert.Equal(1, d.Count);   // overwrite must not grow Count
+    Assert.Equal(3, d["a"]);
+}
+
+[Test]
+void test_keys_snapshot_order_independent() {
+    var d = new Dictionary<int, int>();
+    d[1] = 10;
+    d[2] = 20;
+    d[3] = 30;
+    int[] ks = d.Keys();
+    Assert.Equal(3, ks.Length);
+    int sum = 0;
+    int i = 0;
+    while (i < ks.Length) { sum = sum + ks[i]; i = i + 1; }
+    Assert.Equal(6, sum);       // {1,2,3} regardless of scan order
+}
+
+[Test]
+void test_values_snapshot_order_independent() {
+    var d = new Dictionary<int, int>();
+    d[1] = 10;
+    d[2] = 20;
+    d[3] = 30;
+    int[] vs = d.Values();
+    Assert.Equal(3, vs.Length);
+    int sum = 0;
+    int i = 0;
+    while (i < vs.Length) { sum = sum + vs[i]; i = i + 1; }
+    Assert.Equal(60, sum);      // {10,20,30}
+}
+
+[Test]
+void test_entries_pairs_keyvaluepair() {
+    var d = new Dictionary<int, int>();
+    d[1] = 10;
+    d[2] = 20;
+    d[3] = 30;
+    KeyValuePair<int, int>[] es = d.Entries();
+    Assert.Equal(3, es.Length);
+    int keySum = 0;
+    int valSum = 0;
+    bool relationHolds = true;
+    int i = 0;
+    while (i < es.Length) {
+        keySum = keySum + es[i].Key;
+        valSum = valSum + es[i].Value;
+        if (es[i].Value != es[i].Key * 10) { relationHolds = false; }
+        i = i + 1;
+    }
+    Assert.Equal(6, keySum);
+    Assert.Equal(60, valSum);
+    Assert.True(relationHolds);         // each entry keeps its own key↔value pairing
+}
+
+[Test]
+void test_keyvaluepair_value_equality() {
+    // [Record] struct: synthesised == / != value semantics.
+    var a = new KeyValuePair<int, int>(1, 10);
+    var b = new KeyValuePair<int, int>(1, 10);
+    var c = new KeyValuePair<int, int>(1, 11);
+    Assert.True(a == b);
+    Assert.False(a == c);
+    Assert.True(a != c);
+    Assert.Equal(1, a.Key);
+    Assert.Equal(10, a.Value);
+}
+
+[Test]
+void test_snapshots_empty_dict() {
+    var d = new Dictionary<int, int>();
+    Assert.Equal(0, d.Keys().Length);
+    Assert.Equal(0, d.Values().Length);
+    Assert.Equal(0, d.Entries().Length);
+}

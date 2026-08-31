@@ -1,0 +1,17 @@
+namespace Std.Collections;
+[Record] public struct DictionaryEnumerator<TKey, TValue>(Dictionary<TKey, TValue> _dict) where TKey: IEquatable<TKey> {
+    int _scan;
+    int _cur;
+    public bool MoveNext() {
+        int cap = this._dict._slotCount();
+        while (this._scan < cap) {
+            if (this._dict._slotOccupied(this._scan)) { this._cur = this._scan; this._scan = this._scan + 1; return true; }
+            this._scan = this._scan + 1;
+        }
+        return false;
+    }
+    public KeyValuePair<TKey, TValue> Current {
+        get { return new KeyValuePair<TKey, TValue>(this._dict._slotKey(this._cur), this._dict._slotValue(this._cur)); }
+    }
+    public void Dispose() { }
+}

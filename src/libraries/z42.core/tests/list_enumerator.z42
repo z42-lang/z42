@@ -1,0 +1,59 @@
+// add-foreach-ienumerable：List<T>.GetEnumerator() + ListEnumerator<T> struct 迭代器行为。
+// enumerator 是 [Record] struct 值类型（零堆分配），MoveNext 原地推进 _pos、Current 读 _list[_pos-1]。
+namespace Z42CoreListEnumeratorTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_enumerator_iterates_in_order() {
+    var xs = new List<int>();
+    xs.Add(10);
+    xs.Add(20);
+    xs.Add(30);
+    var e = xs.GetEnumerator();
+    var got = new List<int>();
+    int guard = 0;
+    while (e.MoveNext() && guard < 100) { got.Add(e.Current); guard = guard + 1; }
+    Assert.Equal(3, got.Count);
+    Assert.Equal(10, got[0]);
+    Assert.Equal(20, got[1]);
+    Assert.Equal(30, got[2]);
+    Assert.Equal(3, guard);
+}
+
+[Test]
+void test_enumerator_empty_list() {
+    var xs = new List<int>();
+    var e = xs.GetEnumerator();
+    Assert.False(e.MoveNext());
+}
+
+[Test]
+void test_enumerator_string_elements() {
+    var xs = new List<string>();
+    xs.Add("a");
+    xs.Add("b");
+    var e = xs.GetEnumerator();
+    Assert.True(e.MoveNext());
+    Assert.Equal("a", e.Current);
+    Assert.True(e.MoveNext());
+    Assert.Equal("b", e.Current);
+    Assert.False(e.MoveNext());
+}
+
+[Test]
+void test_enumerator_is_value_type_independent() {
+    // struct 值语义：拷贝 enumerator 得独立游标（改一个不动另一个）。
+    var xs = new List<int>();
+    xs.Add(1);
+    xs.Add(2);
+    xs.Add(3);
+    var e1 = xs.GetEnumerator();
+    Assert.True(e1.MoveNext());        // e1 → 1
+    var e2 = e1;                        // 值拷贝
+    Assert.True(e2.MoveNext());        // e2 → 2（独立推进）
+    Assert.Equal(2, e2.Current);
+    Assert.Equal(1, e1.Current);       // e1 未受 e2 影响
+}
