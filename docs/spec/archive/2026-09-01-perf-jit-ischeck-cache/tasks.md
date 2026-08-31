@@ -1,6 +1,6 @@
 # Tasks: perf-jit-ischeck-cache
 
-> 状态：🟡 进行中 | 创建：2026-08-31 | 类型：perf（runtime）
+> 状态：🟢 已完成 | 创建：2026-08-31 | 完成：2026-09-01（PR #354）| 类型：perf
 
 **变更说明：** 给 JIT 版 `is_subclass_or_eq`（`src/runtime/src/jit/helpers/object.rs`）加缓存，
 与 interp 版共享同一份 per-VmContext `subclass_memo`。

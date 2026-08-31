@@ -1,6 +1,6 @@
 # Tasks: fix-type-ref-ns-collision
 
-> 状态：🟡 进行中 | 创建：2026-08-31 | 类型：fix（编译器 correctness）
+> 状态：🟢 已完成 | 创建：2026-08-31 | 完成：2026-09-01（PR #353）| 类型：fix
 
 **变更说明：** 修复 z42c 对**同短名跨 namespace 类型**的解析/发射缺陷——`new A.Foo`（`A.Foo`/`B.Foo` 同短名不同 ns）
 被编译成 `new B.Foo`（撞 first/last-wins 赢家），致对象身份、`is`/`as`、`GetType().FullName` 全反。
