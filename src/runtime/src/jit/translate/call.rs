@@ -40,27 +40,28 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
                 Instruction::Builtin(insn) => {
                     let BuiltinInsn { dst, name, args } = &**insn;
-                    // formalize-jit-method-token Phase 2 (2026-05-08): emit
-                    // pre-resolved BuiltinId as i32 const, drop name pointers.
-                    // Resolver populates Function.resolved.builtin_tokens at
-                    // load (closed set, never UNRESOLVED at this point).
+                    // formalize-jit-method-token Phase 2 (2026-05-08): emit the
+                    // pre-resolved BuiltinId as an i32 const for zero-hash dispatch.
+                    // fix-jit-builtin-ext-fallback: also emit the name pointer so an
+                    // UNRESOLVED id resolves by name at call time. `resolved` may now be
+                    // UNRESOLVED at this site (native-ext facade unresolvable at compile
+                    // time — see `resolver`) OR absent (resolver hadn't run: direct
+                    // compile_module test callers / lazy JIT-first compile). In BOTH cases
+                    // fall through to a runtime name lookup in `jit_builtin` instead of
+                    // panicking; static builtins still resolve to their id here.
                     let d = self.ri(*dst);
+                    let (np, nl) = self.str_val(name);
                     let (ap, al) = self.regs_val(args);
                     let builtin_id = self.func.resolved.get()
                         .and_then(|r| {
                             let site = *r.site_index.get(self.block_idx)?.get(self.instr_idx)?;
                             r.builtin_tokens.get(site as usize).copied()
                         })
-                        .unwrap_or_else(|| {
-                            // Fallback: resolver hadn't run (shouldn't happen
-                            // in production via Vm::run, but guards against
-                            // direct compile_module callers in tests).
-                            crate::corelib::builtin_id_of(name)
-                                .unwrap_or_else(|| panic!("unknown builtin `{}`", name))
-                                .0
-                        });
+                        .filter(|&id| id != crate::metadata::tokens::UNRESOLVED)
+                        .or_else(|| crate::corelib::builtin_id_of(name).map(|b| b.0))
+                        .unwrap_or(crate::metadata::tokens::UNRESOLVED);
                     let bid = self.builder.ins().iconst(types::I32, builtin_id as i64);
-                    let inst = self.builder.ins().call(self.hr_builtin, &[self.frame_val, self.ctx_val, d, bid, ap, al]);
+                    let inst = self.builder.ins().call(self.hr_builtin, &[self.frame_val, self.ctx_val, d, bid, np, nl, ap, al]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
 

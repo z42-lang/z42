@@ -200,12 +200,16 @@ pub(super) fn builtin(
 ) -> Result<Option<Value>> {
     let arg_vals = collect_args(&frame.regs, args)?;
     let result = match builtin_id {
-        Some(id) => crate::corelib::exec_builtin_by_id(
+        // fix-jit-builtin-ext-fallback: `UNRESOLVED` means the resolver could not bind
+        // this name to a static or ext builtin at resolve time (see
+        // `resolver::resolve_function_tokens`) — resolve by name now, which re-checks the
+        // ext registry (parity with the `None` back-compat path below).
+        Some(id) if id != crate::metadata::tokens::UNRESOLVED => crate::corelib::exec_builtin_by_id(
             ctx,
             crate::metadata::tokens::BuiltinId(id),
             &arg_vals,
         ),
-        None => crate::corelib::exec_builtin(ctx, name, &arg_vals),
+        _ => crate::corelib::exec_builtin(ctx, name, &arg_vals),
     };
     match result {
         Ok(v) => {

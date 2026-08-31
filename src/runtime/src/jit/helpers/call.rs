@@ -173,15 +173,26 @@ pub unsafe extern "C" fn jit_builtin(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32,
     builtin_id: u32,
+    name_ptr: *const u8, name_len: usize,
     args_ptr: *const u32, argc: usize,
 ) -> u8 {
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
     let args: Vec<Value> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
 
-    let id = crate::metadata::tokens::BuiltinId(builtin_id);
     let vm = vm_ctx_ref(ctx);
-    match crate::corelib::exec_builtin_by_id(vm, id, &args) {
+    // fix-jit-builtin-ext-fallback: `UNRESOLVED` means the resolver could not bind this
+    // site's name to a static or ext builtin at resolve time (e.g. a native-ext facade
+    // resolved before its lib was loaded in this VM). Resolve by name now, which re-checks
+    // the per-VM ext registry — mirrors interp `exec_call::builtin`'s name fallback. The
+    // hot path (resolved id) still dispatches by index with no hashing.
+    let result = if builtin_id != crate::metadata::tokens::UNRESOLVED {
+        crate::corelib::exec_builtin_by_id(vm, crate::metadata::tokens::BuiltinId(builtin_id), &args)
+    } else {
+        let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>");
+        crate::corelib::exec_builtin(vm, name, &args)
+    };
+    match result {
         Ok(v)  => { frame_ref.regs[dst as usize] = v; 0 }
         Err(e) => {
             // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42

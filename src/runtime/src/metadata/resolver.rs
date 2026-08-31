@@ -389,12 +389,17 @@ pub fn resolve_function_tokens(
                     let bid = crate::corelib::builtin_id_of(name);
                     #[cfg(feature = "native-interop")]
                     let bid = bid.or_else(|| crate::corelib::ext_builtin_id_of(ctx, name));
-                    bid.unwrap_or_else(|| panic!(
-                        "unknown builtin `{}` (typo? not in BUILTINS table or any \
-                         dlopened native extension?)",
-                        name
-                    ))
-                }.0
+                    // fix-jit-builtin-ext-fallback: a builtin that resolves to neither
+                    // the static `BUILTINS[]` table nor the per-VM ext registry is left
+                    // `UNRESOLVED` rather than panicking. This path can now run at JIT
+                    // compile time (resolve-before-compile at `jit_threshold==1`), before
+                    // an ext facade's native lib is needed/loaded in that VM; a hard panic
+                    // there aborts the whole VM. Both consumers fall back to name-based
+                    // `corelib::exec_builtin` at the actual call (interp `exec_call::builtin`
+                    // / `jit_builtin`), which re-checks the ext registry then — mirroring
+                    // interp's long-standing `None => exec_builtin(name)` back-compat path.
+                    bid.map(|b| b.0).unwrap_or(crate::metadata::tokens::UNRESOLVED)
+                }
             })
             .collect();
 
