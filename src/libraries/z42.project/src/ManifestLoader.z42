@@ -53,10 +53,11 @@ public static class ManifestLoader {
         return pm;
     }
 
-    // ── [native.<name>]（add-native-dep-config）───────────────────────────────
-    // 每个子表头 `[native.<name>]` 声明本包携带的一个私有 native 库（当前只取逻辑名，表体保留位）。
-    // 键按名稳定排序发射（common-pitfalls §1：禁依赖 TOML/容器碰巧序）。文件名/落点由消费方按平台
-    // 派生 <prefix><name><suffix>，z42.project 不解析文件。
+    // ── [native.<name>]（add-native-dep-config / add-precompiled-native）───────
+    // 每个子表头 `[native.<name>]` 声明本包携带的一个私有 native 库。取逻辑名 + 可选 `dir`
+    // （add-precompiled-native：预编译库基目录，相对 manifest；无 hooks 时消费方从
+    // <dir>/<rid>/<prefix><name><suffix> 复制）。键按名稳定排序发射（common-pitfalls §1：禁依赖
+    // TOML/容器碰巧序）。文件名/落点由消费方按平台派生 <prefix><name><suffix>，z42.project 不解析文件。
     private static void _parseNative(TomlValue root, ProjectManifest pm) {
         if (!root.ContainsKey("native")) { return; }
         var n = root.Get("native");
@@ -71,7 +72,13 @@ public static class ManifestLoader {
         }
         NativeSpec[] arr = new NativeSpec[keys.Length];
         int i = 0;
-        while (i < keys.Length) { arr[i] = new NativeSpec(keys[i]); i = i + 1; }
+        while (i < keys.Length) {
+            var sub = n.Get(keys[i]);
+            string dir = "";
+            if (sub.ContainsKey("dir")) { dir = sub.Get("dir").AsString(); }
+            arr[i] = new NativeSpec(keys[i], dir);
+            i = i + 1;
+        }
         pm.Natives = arr; pm.NativeCount = keys.Length;
     }
 

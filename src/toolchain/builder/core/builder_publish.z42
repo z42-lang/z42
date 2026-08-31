@@ -636,37 +636,87 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
 // dir. This replaces the deleted xtask _pkgStageReplCdylib special-case: z42.interactive
 // discovers z42.repl's native purely from the closure + `[native]` declaration.
 //
-// Deps declaring `[native]` but with NO `[build] hooks` (committed prebuilt) are skipped
-// for now — no such consumer yet (design Deferred native-config-future-explicit-files).
+// Deps declaring `[native]` with NO `[build] hooks` (committed prebuilt) are copied by
+// _pubCopyPrebuiltNative from `[native.<name>].dir` (add-precompiled-native — the no-hook
+// sibling of ProvideNative). hooks take precedence when both are present.
+//
+// Closure resolution (add-precompiled-native Decision 5): each dep is resolved by its declared
+// `{ path }` (relative to the DECLARING manifest's dir), falling back to name-search under
+// srcRoot only for version-string / no-path deps. This is NOT gated on srcRoot — an out-of-repo
+// consumer (srcRoot == "") still bundles the native of its path-deps. PR-1 located everything by
+// name under the repo tree and bailed when srcRoot was empty, so native only reached in-repo,
+// name-locatable deps; path-based resolution makes it work for real out-of-repo path-dep
+// consumers (and self-contained fixtures). The BFS queue carries (name, tomlPath) so each dep's
+// own path-deps resolve relative to its own directory (transitively correct).
 int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string distDir, string rid) {
-    string srcRoot = _pubSrcRoot(tomlPath);
-    if (srcRoot.Length == 0) { return 0; }   // repo-external → no closure to walk
+    string srcRoot = _pubSrcRoot(tomlPath);   // may be "" for out-of-repo; path-deps still resolve
     string ownName = _pubTomlStr(toml, "project", "name", "");
     string[] seen  = new string[1024]; int seenN = 0;
-    string[] queue = new string[1024]; int qh = 0; int qt = 0;
+    string[] qName = new string[1024];
+    string[] qToml = new string[1024];   // resolved dep toml path (parallel to qName)
+    int qh = 0; int qt = 0;
     string[] direct = _pubDepNames(toml);
     int di = 0;
     while (di < direct.Length) {
         string d = direct[di]; di = di + 1;
-        if (d != ownName && !_pubContains(seen, seenN, d)) { seen[seenN] = d; seenN = seenN + 1; queue[qt] = d; qt = qt + 1; }
+        if (d == ownName || _pubContains(seen, seenN, d)) { continue; }
+        seen[seenN] = d; seenN = seenN + 1;
+        qName[qt] = d; qToml[qt] = _pubResolveDepToml(tomlPath, toml, d, srcRoot); qt = qt + 1;
     }
     while (qh < qt) {
-        string name = queue[qh]; qh = qh + 1;
-        string depTomlPath = _pubLocateDepToml(srcRoot, name);
+        string name = qName[qh]; string depTomlPath = qToml[qh]; qh = qh + 1;
         if (depTomlPath.Length == 0) { continue; }
         TomlValue depToml = TomlValue.Parse(File.ReadAllText(depTomlPath));
-        if (_pubHasNative(depToml) && _pubTomlStr(depToml, "build", "hooks", "").Length > 0) {
-            int rc = _pubRunDepProvideNative(depTomlPath, depToml, name, distDir, rid);
+        if (_pubHasNative(depToml)) {
+            // hooks 优先：有 [build] hooks → 现场产出（PR-1）；否则 [native.<name>].dir 指向的
+            // 已提交预编译文件按目标 rid 复制（add-precompiled-native）。
+            int rc = 0;
+            if (_pubTomlStr(depToml, "build", "hooks", "").Length > 0) {
+                rc = _pubRunDepProvideNative(depTomlPath, depToml, name, distDir, rid);
+            } else {
+                rc = _pubCopyPrebuiltNative(depTomlPath, depToml, name, distDir, rid);
+            }
             if (rc != 0) { return rc; }
         }
+        // recurse into this dep's deps, resolved relative to depTomlPath (transitive path-deps).
         string[] sub = _pubDepNames(depToml);
         int si = 0;
         while (si < sub.Length) {
             string s = sub[si]; si = si + 1;
-            if (s != ownName && !_pubContains(seen, seenN, s)) { seen[seenN] = s; seenN = seenN + 1; queue[qt] = s; qt = qt + 1; }
+            if (s == ownName || _pubContains(seen, seenN, s)) { continue; }
+            seen[seenN] = s; seenN = seenN + 1;
+            qName[qt] = s; qToml[qt] = _pubResolveDepToml(depTomlPath, depToml, s, srcRoot); qt = qt + 1;
         }
     }
     return 0;
+}
+
+// Resolve a dep's manifest path: path-deps by their declared `{ path }` (relative to the
+// declaring manifest's dir, filename `<depName>.z42.toml` per _pubLocateDepToml convention),
+// version-string / no-path deps by name-search under srcRoot (in-repo). Returns "" if
+// unresolvable — the caller conservatively skips (does not abort publish). add-precompiled-native
+// Decision 5.
+string _pubResolveDepToml(string parentTomlPath, TomlValue parentToml, string depName, string srcRoot) {
+    string path = _pubDepPath(parentToml, depName);
+    if (path.Length > 0) {
+        string base = Path.GetDirectoryName(parentTomlPath);
+        if (base.Length == 0) { base = "."; }
+        string cand = Path.Join(Path.Join(base, path), depName + ".z42.toml");
+        if (File.Exists(cand)) { return cand; }
+        return "";   // declared path but no toml there → conservative skip
+    }
+    if (srcRoot.Length > 0) { return _pubLocateDepToml(srcRoot, depName); }
+    return "";
+}
+
+// The `path` of a `{ path = "..." }` dep entry, or "" for a plain version-string dep.
+string _pubDepPath(TomlValue toml, string name) {
+    if (!toml.ContainsKey("dependencies")) { return ""; }
+    TomlValue deps = toml.Get("dependencies");
+    if (!deps.IsTable() || !deps.ContainsKey(name)) { return ""; }
+    TomlValue d = deps.Get(name);
+    if (d.IsTable() && d.ContainsKey("path") && d.Get("path").IsString()) { return d.Get("path").AsString(); }
+    return "";
 }
 
 // True if `[native.*]` declares ≥1 lib.
@@ -706,6 +756,58 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
         i = i + 1;
     }
     return 0;
+}
+
+// Copy a committed prebuilt native (dep declares `[native.<name>].dir` but NO `[build] hooks`)
+// into distDir (add-precompiled-native — the no-hook sibling of _pubRunDepProvideNative). For
+// each declared native carrying a `dir`, resolve `<depDir>/<dir>/<rid>/<prefix><name><suffix>`
+// (rid-derived filename) and flatten it beside the consumer zpkg; the payload copy
+// (_pubCopyDistDeps) then carries it into the payload dir. Best-effort: a native with no `dir`,
+// or a missing file for this rid, warns and continues (mirrors _pubRunDepProvideNative).
+int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName, string distDir, string rid) {
+    string depDir = Path.GetDirectoryName(depTomlPath);
+    if (depDir.Length == 0) { depDir = "."; }
+    TomlValue nat = depToml.Get("native");
+    string[] keys = nat.Keys();
+    // stable name order (common-pitfalls §1: no reliance on TOML/container incidental order).
+    int a = 0;
+    while (a < keys.Length) {
+        int min = a; int b = a + 1;
+        while (b < keys.Length) { if (keys[b].CompareTo(keys[min]) < 0) { min = b; } b = b + 1; }
+        if (min != a) { string t = keys[a]; keys[a] = keys[min]; keys[min] = t; }
+        a = a + 1;
+    }
+    int i = 0;
+    while (i < keys.Length) {
+        string name = keys[i]; i = i + 1;
+        TomlValue sub = nat.Get(name);
+        string dir = "";
+        if (sub.IsTable() && sub.ContainsKey("dir") && sub.Get("dir").IsString()) { dir = sub.Get("dir").AsString(); }
+        if (dir.Length == 0) {
+            ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' lib '" + name + "' has no [build] hooks and no dir — skipped");
+            continue;
+        }
+        string fname = _pubNativeFileName(name, rid);
+        string src = Path.Join(Path.Join(Path.Join(depDir, dir), rid), fname);
+        if (!File.Exists(src)) {
+            ConsoleError.WriteLine("z42b publish: prebuilt native missing: " + src + " (rid=" + rid + ") — skipped");
+            continue;
+        }
+        string dst = Path.Join(distDir, fname);   // flatten (strip <rid>/), same as _pubRunDepProvideNative
+        if (src != dst && !File.Exists(dst)) { File.Copy(src, dst); }
+    }
+    return 0;
+}
+
+// Platform-derived native filename by TARGET rid (add-precompiled-native): <prefix><name><suffix>
+// — windows-* → <name>.dll (empty prefix); macos-*/ios-*/iossim-* → lib<name>.dylib; else
+// (linux/android) → lib<name>.so. Mirrors builder.z42 _familyOfRid and Rust DLL_PREFIX/DLL_SUFFIX.
+// Unlike the repl hook's host-based _nativeFileName, this derives from the target rid so prebuilt
+// libs can be cross-targeted (publishing linux-x64 from a macOS host picks lib<name>.so).
+string _pubNativeFileName(string name, string rid) {
+    if (rid.StartsWith("windows-")) { return name + ".dll"; }
+    if (rid.StartsWith("macos-") || rid.StartsWith("ios-") || rid.StartsWith("iossim-")) { return "lib" + name + ".dylib"; }
+    return "lib" + name + ".so";
 }
 
 // Copy non-app zpkgs from distDir into targetDir (used by publish to populate

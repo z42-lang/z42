@@ -1,5 +1,5 @@
-// add-native-dep-config：`[native.<name>]` 声明段解析。
-// 只验 z42.project 解析层——ProjectManifest.Natives 名/数/稳定序；文件名派生与产出/复制在消费方。
+// add-native-dep-config / add-precompiled-native：`[native.<name>]` 声明段解析。
+// 只验 z42.project 解析层——ProjectManifest.Natives 名/数/稳定序 + 可选 dir；文件名派生与产出/复制在消费方。
 namespace Z42ProjectNativeTests;
 
 using Std;
@@ -8,11 +8,22 @@ using Z42.Build.Project;
 
 [Test]
 void test_single_native() {
-    // 单个 [native.<name>]（空表）→ 一项 NativeSpec，名正确。
+    // 单个 [native.<name>]（空表）→ 一项 NativeSpec，名正确，无 dir。
     string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[native.z42_repl]\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(1, m.NativeCount);
     Assert.Equal("z42_repl", m.Natives[0].Name);
+    Assert.Equal("", m.Natives[0].Dir);
+}
+
+[Test]
+void test_native_dir_prebuilt() {
+    // add-precompiled-native：[native.<name>].dir → NativeSpec.Dir（预编译库基目录）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[native.foo]\ndir = \"prebuilt\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.NativeCount);
+    Assert.Equal("foo", m.Natives[0].Name);
+    Assert.Equal("prebuilt", m.Natives[0].Dir);
 }
 
 [Test]

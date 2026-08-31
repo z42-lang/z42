@@ -21,7 +21,7 @@
 | 文件 | 段 | 职责 |
 |------|----|------|
 | `src/ManifestLoader.z42` | — | TOML → 模型 加载器：`Load`/`ParseText`（单项目）、`LoadWorkspace`/`ParseWorkspaceText`（workspace）；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[analyzers]`/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
-| `src/NativeSpec.z42` | `[native.<name>]` | 本包携带的私有 native 库声明（逻辑名；文件名平台派生 `<prefix><name><suffix>`）。消费方 z42b publish 沿闭包跑 `ProvideNative` 平铺进 payload（add-native-dep-config） |
+| `src/NativeSpec.z42` | `[native.<name>]` | 本包携带的私有 native 库声明（逻辑名 `Name` + 可选预编译基目录 `Dir`；文件名平台派生 `<prefix><name><suffix>`）。消费方 z42b publish 沿闭包：有 `[build] hooks` 跑 `ProvideNative`、否则从 `Dir` 按 rid 复制预编译文件 → 平铺进 payload（add-native-dep-config / add-precompiled-native） |
 | `src/SourceDiscovery.z42` | — | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重+Ordinal 排序）|
 | `src/PathTemplate.z42` | — | 路径模板展开（`${project_name}`/`${profile}`/`${output_dir}` 等）+ `TemplateContext` |
 | `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目） |
