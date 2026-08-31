@@ -448,6 +448,29 @@ pub unsafe extern "C" fn jit_field_set(
 pub(super) fn is_subclass_or_eq(
     vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
 ) -> bool {
+    if derived == target { return true; }
+    // optimize-subclass-check (JIT arm): share the per-VmContext memo with interp
+    // (`dispatch::is_subclass_or_eq_td`). Since `Z42_JIT_THRESHOLD` defaults to 1,
+    // z42c runs under JIT — so THIS is z42c's hot is-check path (the interp memo,
+    // added in #350, never applied to z42c under JIT). The (derived, target) verdict
+    // is a global, monotonic fact — a loaded type's base/interface chain never
+    // changes and lazy loading only ADDs types — so a hit resolves by `&str` with
+    // zero walk and zero `lazy_loader`-locked `try_lookup_type` (the slow path did a
+    // full base+interface chain walk on every `x is T`). Cleared on module (re)load
+    // (REPL) together with the interp memo — see `vm_context::lookup` load_module_*.
+    if let Some(v) = vm.subclass_memo.lock().get(derived).and_then(|m| m.get(target)).copied() {
+        return v;
+    }
+    let result = is_subclass_or_eq_walk(vm, module, derived, target);
+    vm.subclass_memo.lock().entry(derived.to_string()).or_default().insert(target.to_string(), result);
+    result
+}
+
+/// Alloc-free-fast-path base+interface chain walk backing [`is_subclass_or_eq`].
+/// Caller has already handled `derived == target` and the shared memo.
+fn is_subclass_or_eq_walk(
+    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
+) -> bool {
     // Fast path: zero-alloc &str walk while every link resolves in the MAIN module
     // (the overwhelmingly common case — identical to the pre-fallback walk).
     let mut cur: &str = derived;
