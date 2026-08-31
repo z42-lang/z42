@@ -147,6 +147,19 @@ public sealed class AccessEmitter {
         // 通用 this._ee.Emit(m.Target)，否则嵌套 struct 字段（line.a 的 a）会被误当叶子递归发射
         // StructFieldGetPrim（运行时按 struct tag 解码基元 → 崩）。struct 字段无 auto-property getter。
         if (this._ee._isBlobStruct(m.Target.Type())) {
+            // fix-struct-property-getter：blob struct 也可有**属性 getter**（`X { get {...} }` → get_X 方法）。
+            // 有 get_X → VCall（**镜像下方 class 路径 :182-188 的同款判据，只查 Methods 不查 Fields**——
+            // MemberCollector 把属性名也登记进 Fields 供类型检查，但计算属性无 byte-layout 存储、auto-property
+            // 的存储在 `__prop_X` 而非源名）。否则误当叶子发 _emitBlobFieldGet → `FieldByteOffset(X, 源名)`
+            // 查不到存储 → 烘焙 `struct_fget_prim @-1` + ref tag → 运行期 `struct ref leaf at byte offset
+            // 4294967295`。（原 :148 注释"struct 字段无 auto-property getter"是错的——显式属性 getter 一直漏识别。）
+            Z42ClassType sct = this._ee._receiverClassType(m.Target.Type());
+            if (sct != null && sct.Methods.ContainsKey("get_" + m.MemberName)) {
+                // struct 无虚方法：走**静态 Call 传 handle**（sret-aware），非 VCall（会崩 expected object）。
+                TypedReg sobj = this._ee.Emit(m.Target);
+                string fqGetter = this._ctx.QualifyClass(sct.Name()) + ".get_" + m.MemberName;
+                return this._ee._emitStructPropGet(fqGetter, sobj, m.Type());
+            }
             return this._emitBlobFieldGet(m);
         }
         // add-struct-heap-inline (P3b)：读整个**内联 struct 字段**出堆对象（`Point p = c.pt`）→ 拷进新局部
