@@ -1,6 +1,6 @@
 # Tasks: fix-repl-eval-exception
 
-> 状态：🟡 进行中 | 创建：2026-08-31 | 类型：fix（bug 修复，不改语言语义）
+> 状态：🟢 已完成 | 创建：2026-08-31 | 完成：2026-08-31 | 类型：fix（bug 修复，不改语言语义）
 
 **变更说明：** REPL 求值期抛出的运行异常（用户 `throw` / 除零 / 越界 / `int x = "s"` 之类
 `__box_prim` 类型不符等）此前逃逸 `Script.Eval` → `Main()` 未捕获 → **终止 z42i 进程（exit 1）**；
@@ -23,7 +23,7 @@
       会话变量在异常后完好、异常后仍可新声明并求值。
 - [x] 2.2 README 同步（功能索引 Script.z42 行 + 关联文档 change 登记）。
 - [x] 3.1 本地 e2e 实证：z42i 混合异常+有效表达式，进程不退出、会话不粘（✅ 已验，见备注）+ driver app 对账。
-- [ ] 3.2 GREEN：`cargo build --release`（✅ afe9edca runtime 已建）+ `xtask test` 全 stage——
+- [x] 3.2 GREEN（CI 全绿，PR #352 已合并 `5317477a`）：`cargo build --release`（✅ afe9edca runtime 已建）+ `xtask test` 全 stage——
       **本机 workspace/并行构建 z42vm 死锁挂起（已知本机条件，见 memory runtime-review-improvement-program）**，
       单库构建正常（已用于验证）。纯附加 stdlib 错误处理、不触 runtime 代码 → **以 CI 全绿为准**（PR 门禁）。
 
