@@ -11,15 +11,16 @@
 | `Object.z42` | 所有类型的基类，`ToString()`、`Equals()` 等协议方法 |
 | `String.z42` | 字符串类型；最小 intrinsic 核（`Length` / `CharAt` / `FromChars` / `Equals` / `CompareTo` / `GetHashCode` / `ToString` / `Split(sep)` + `Split(sep, options)` / `Join` / `Concat` / `Format`），其余方法（`Contains` / `StartsWith` / `EndsWith` / `IndexOf` / `Replace` / `Substring` / `ToLower` / `ToUpper` / `Trim*` / `IsNullOr*`）为纯脚本实现 |
 | `SplitOptions.z42` | bitwise 标志位 `Std.SplitOptions.{None, RemoveEmptyEntries, TrimEntries}`（int 常量，OR 组合）— `String.Split(sep, options)` 参数 |
-| `Int.z42` | `struct int` — 整数基元（`Parse` / `CompareTo` / `Equals` / `GetHashCode` / `ToString` + INumber op_* 纯脚本实现）|
-| `Long.z42` | `struct long` — 64-bit 整数（同 Int）|
-| `Double.z42` | `struct double` — 双精度浮点（同 Int）|
+| `Int.z42` | `struct int` — 整数基元（`Parse` / `TryParse`(→`int?`) / `CompareTo` / `Equals` / `GetHashCode` / `ToString` + INumber op_* 纯脚本实现）|
+| `Long.z42` | `struct long` — 64-bit 整数（同 Int，含 `TryParse`→`long?`）|
+| `Double.z42` | `struct double` — 双精度浮点（同 Int，含 `TryParse`→`double?` + IEEE-754 分类 `IsNaN` / `IsInfinity` / `IsPositiveInfinity` / `IsNegativeInfinity` / `IsFinite`）|
 | `Float.z42` | `struct float` — 单精度浮点（VM 用 F64 存储）|
 | `Bool.z42` | `struct bool` — 布尔（只实现 `IEquatable<bool>`）|
 | `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper`）|
 | `Type.z42` | 运行时类型对象（`typeof` 运算符返回值）|
+| `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法 `Sort<T>` / `Sort<T>(cmp)` / `IndexOf<T>` / `Copy<T>` / `Fill<T>` / `Reverse<T>`（C# `System.Array` 对标）|
 | `Assert.z42` | 断言工具（`Assert.True`、`Assert.Equal` 等）|
-| `Convert.z42` | 类型转换工具 |
+| `Convert.z42` | 类型转换工具：`ToInt32` / `ToInt64` / `ToDouble` / `ToString`（native）+ `ToByte` / `ToInt16` / `ToSingle` / `ToBoolean` / `ToChar`（纯脚本）|
 | `IEquatable.z42` | 相等性接口 |
 | `IComparable.z42` | 比较接口 |
 | `IDisposable.z42` | 资源释放接口（`void Dispose()`）|

@@ -1,0 +1,37 @@
+// library-review PR-D (2026-08-31): Convert.To* additions —
+// ToByte / ToInt16 / ToSingle / ToBoolean / ToChar (string → scalar).
+namespace Z42CoreConvertExtrasTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_to_byte_int16() {
+    u8 b = Convert.ToByte("255");
+    Assert.Equal("255", b.ToString());
+    i16 s = Convert.ToInt16("-32768");
+    Assert.Equal("-32768", s.ToString());
+    Assert.ThrowsAny(() => Convert.ToByte("256"));    // out of u8 range
+}
+
+[Test]
+void test_to_single() {
+    float f = Convert.ToSingle("2.5");
+    Assert.Equal(2.5, (double)f);
+}
+
+[Test]
+void test_to_boolean() {
+    Assert.Equal(true, Convert.ToBoolean("true"));
+    Assert.Equal(false, Convert.ToBoolean("false"));
+    Assert.Equal(true, Convert.ToBoolean("  TRUE  "));   // trimmed + case-insensitive
+    Assert.Equal(false, Convert.ToBoolean("False"));
+    Assert.ThrowsAny(() => Convert.ToBoolean("yes"));
+}
+
+[Test]
+void test_to_char() {
+    Assert.Equal('x', Convert.ToChar("x"));
+    Assert.ThrowsAny(() => Convert.ToChar("ab"));
+    Assert.ThrowsAny(() => Convert.ToChar(""));
+}

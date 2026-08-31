@@ -1,0 +1,93 @@
+// library-review PR-D (2026-08-31): Array static algorithms —
+// Sort / IndexOf / Copy / Fill / Reverse (generic static, C# System.Array parity).
+namespace Z42CoreArrayAlgorithmsTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_indexof() {
+    int[] xs = new int[]{ 3, 1, 4, 1, 5 };
+    Assert.Equal(2, Array.IndexOf<int>(xs, 4));
+    Assert.Equal(1, Array.IndexOf<int>(xs, 1));   // first match
+    Assert.Equal(-1, Array.IndexOf<int>(xs, 9));
+    string[] ss = new string[]{ "a", "b", "c" };
+    Assert.Equal(1, Array.IndexOf<string>(ss, "b"));
+}
+
+[Test]
+void test_reverse() {
+    int[] xs = new int[]{ 1, 2, 3, 4 };
+    Array.Reverse<int>(xs);
+    Assert.Equal(4, xs[0]);
+    Assert.Equal(3, xs[1]);
+    Assert.Equal(2, xs[2]);
+    Assert.Equal(1, xs[3]);
+    int[] odd = new int[]{ 1, 2, 3 };
+    Array.Reverse<int>(odd);
+    Assert.Equal(3, odd[0]);
+    Assert.Equal(2, odd[1]);   // middle fixed
+    Assert.Equal(1, odd[2]);
+}
+
+[Test]
+void test_fill() {
+    int[] xs = new int[4];
+    Array.Fill<int>(xs, 7);
+    Assert.Equal(7, xs[0]);
+    Assert.Equal(7, xs[3]);
+}
+
+[Test]
+void test_copy() {
+    int[] src = new int[]{ 10, 20, 30, 40 };
+    int[] dst = new int[4];
+    Array.Copy<int>(src, dst, 3);
+    Assert.Equal(10, dst[0]);
+    Assert.Equal(30, dst[2]);
+    Assert.Equal(0, dst[3]);   // untouched
+}
+
+[Test]
+void test_copy_out_of_range() {
+    int[] src = new int[]{ 1, 2 };
+    int[] dst = new int[2];
+    Assert.ThrowsAny(() => Array.Copy<int>(src, dst, 5));
+}
+
+[Test]
+void test_sort_default() {
+    int[] xs = new int[]{ 3, 1, 4, 1, 5, 9, 2, 6 };
+    Array.Sort<int>(xs);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(1, xs[1]);
+    Assert.Equal(2, xs[2]);
+    Assert.Equal(9, xs[7]);
+    string[] ss = new string[]{ "banana", "apple", "cherry" };
+    Array.Sort<string>(ss);
+    Assert.Equal("apple", ss[0]);
+    Assert.Equal("banana", ss[1]);
+    Assert.Equal("cherry", ss[2]);
+}
+
+[Test]
+void test_sort_comparator_descending() {
+    int[] xs = new int[]{ 3, 1, 4, 1, 5 };
+    Array.Sort<int>(xs, (a, b) => b - a);   // descending
+    Assert.Equal(5, xs[0]);
+    Assert.Equal(4, xs[1]);
+    Assert.Equal(3, xs[2]);
+    Assert.Equal(1, xs[3]);
+    Assert.Equal(1, xs[4]);
+}
+
+[Test]
+void test_sort_stable_small() {
+    int[] xs = new int[]{ 2, 1 };
+    Array.Sort<int>(xs);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(2, xs[1]);
+    int[] one = new int[]{ 42 };
+    Array.Sort<int>(one);   // n<2 no-op
+    Assert.Equal(42, one[0]);
+}
