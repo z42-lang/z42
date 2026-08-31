@@ -20,8 +20,9 @@ z42）；其余逻辑全部用 z42 写。
 > **unify-launcher-apphost（2026-06-21）**：原 Rust trampoline crate（`Cargo.toml` /
 > `src/main.rs` / `src/lib.rs`）**已删**。`z42` 现在就是**通用 per-app apphost stub**
 > （`src/toolchain/workload/desktop/platform/apphost`，z42-apphost crate），SDK 打包时
-> patch 成 payload=`programs/launcher/launcher.zpkg`。运行时解析全部复用 `z42-hostrun`
-> （`resolve_app_runtime` + `ensure_portable_vm`，most-local-wins）。本目录现只剩
+> patch 成 payload=`programs/launcher/launcher.zpkg`。运行时解析全部复用 apphost 桩的 `hostrun`
+> 模块（`resolve_app_runtime` + `ensure_portable_vm`，most-local-wins；原独立 `z42-hostrun` crate
+> 已并入桩，merge-hostrun-into-apphost）。本目录现只剩
 > `core/`（launcher 核心 z42 源 → `launcher.zpkg`）。
 
 ## 命令（P1）

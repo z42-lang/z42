@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host", "crates/z42-hostrun"]
+members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
 # fix-default-members-include-compression (2026-05-29): z42-compression is a
 # cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
 # main `z42` crate (only pulled in compile-time via `bundled-compression`
