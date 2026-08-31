@@ -11,6 +11,12 @@ public struct Int64 : IComparable<long>, IEquatable<long>, INumber<long> {
     [Native("__int64_parse")]      public static extern long Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
+    // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
+    public static long? TryParse(string s) {
+        try { return Int64.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
     // hash 用 `(int)this`，与窄整型一致、确定性满足 Dictionary 契约（等值等哈希）。
     // 注：C# Int64.GetHashCode 折叠高低 32 位，但 z42 的 `(int)` 转换不像 C# 那样

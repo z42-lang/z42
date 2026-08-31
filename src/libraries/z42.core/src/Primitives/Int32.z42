@@ -11,6 +11,15 @@ public struct Int32 : IComparable<int>, IEquatable<int>, INumber<int> {
     [Native("__int32_parse")]      public static extern int Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
+    // Non-throwing parse: returns the value on success, `null` on any malformed
+    // or out-of-range input (mirrors IPAddress.TryParse — nullable return in
+    // place of C#'s `out` parameter). Parse's underlying bail surfaces as a
+    // catchable Std.Exception (make-corelib-errors-catchable, 2026-05-15).
+    public static int? TryParse(string s) {
+        try { return Int32.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 从 [Native]
     // 迁纯脚本（对齐 wave1-bool-script）。`==` 走 IR eq 指令；int 的 hash 是恒等值
     // （C# Int32.GetHashCode 返回自身）。

@@ -8,6 +8,24 @@ public struct Double : IComparable<double>, IEquatable<double>, INumber<double> 
     [Native("__double_parse")]      public static extern double Parse(string s);
     [Native("__double_to_string")]  public extern string ToString();
 
+    // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
+    public static double? TryParse(string s) {
+        try { return Double.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
+    // IEEE-754 classification (pure script; no VM intrinsic needed).
+    // NaN is the only value not equal to itself.
+    public static bool IsNaN(double v) { return v != v; }
+    // For ±∞, `v - v` is NaN (≠ 0); for any finite v it is exactly 0. NaN itself
+    // is excluded by the IsNaN guard. Avoids needing an ∞ constant (1.0/0.0 may throw).
+    public static bool IsInfinity(double v) {
+        return !Double.IsNaN(v) && (v - v) != 0.0;
+    }
+    public static bool IsPositiveInfinity(double v) { return Double.IsInfinity(v) && v > 0.0; }
+    public static bool IsNegativeInfinity(double v) { return Double.IsInfinity(v) && v < 0.0; }
+    public static bool IsFinite(double v) { return !Double.IsNaN(v) && !Double.IsInfinity(v); }
+
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
     // Equals 是原生 `==`（NaN != NaN，与旧 __double_equals 一致）；hash 折叠 IEEE-754
     // 位模式高低 32 位（对齐 C# Double.GetHashCode），位重解释借 BitConverter native。
