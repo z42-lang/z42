@@ -129,14 +129,30 @@ public sealed class MemberResolver {
         string wrapper = TypeFactsTc._primWrapper(rt.Name());
         if (env.Symbols.HasClass(wrapper)) {
             Z42ClassType wct = env.Symbols.GetClass(wrapper);
-            // stabilize-dispatch-keys（方案A，静态-only）：prim 收者的实例方法（string.StartsWith 等）保持
-            // 基线键规则（bare / Name$arity），故沿用 _overloadKey/_findMethod。静态-only 不 mangle 实例方法，
-            // 无需改此路径。（prim 静态 int.Parse/string.FromChars 走下方独立路径，那里才用 RegKey。）
-            string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
-            MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
-            if (wms != null) {
-                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, wms.Signature, env);
-                return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mkey, args, argCount, wms.Signature.Ret, sp);
+            // add-prim-instance-type-overload（方案1，根因）：prim 收者实例方法的重载决议门。
+            // - 单方法 / 纯 arity 重载（同 arity 候选 <2）：走原基线键快路径（_overloadKey/_findMethod，
+            //   bare / Name$arity），字节中性——今天所有 prim 实例方法都在此列。
+            // - 同 arity **多重载**（≥2，如 String.Split(string)/(char[])）：bare/arity 快键会 first-wins
+            //   选错（尤跨包 imported——ImportedSymbolLoader 为 mangled 方法额外注册 bare 别名 → 快路径
+            //   wms!=null 却绑错，emit 裸名 → 运行期 `VCall: expected object`）。此时**跳过快路径**、直接
+            //   走完整 _resolveOverload 做类型决议，取正确 mangle RegKey 派发（镜像 class 收者路径 :57-62）。
+            int _sameArity = this._tc._overload._sameArityOverloadCount(env.Symbols, wct, mem.Name, argCount);
+            if (_sameArity < 2) {
+                string mkey = this._tc._overload._overloadKey(env.Symbols, wct, mem.Name, argCount);
+                MethodSymbol wms = this._tc._overload._findMethod(env.Symbols, wct, mkey);
+                if (wms != null) {
+                    args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, wms.Signature, env);
+                    return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mkey, args, argCount, wms.Signature.Ret, sp);
+                }
+            }
+            // 门扩展：同 arity 多重载（跳过快路径而来）或快路径 wms==null（方法真不存在 → 决议 0 候选返 null →
+            // 落下方 loose-bind，现有树字节中性）→ 追加类型决议。
+            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, sp);
+            if (rms != null) {
+                this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
+                this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp);
+                return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
             }
         }
         args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);

@@ -157,7 +157,12 @@ public sealed class CallEmitter {
                     }
                 }
             }
-            if (!owns && !ifaceRecv && !virtualRecv && this._ctx.Deps != null) {
+            // add-prim-instance-type-overload（辅修 A，对称守卫）：本地 prim 类实例调用（OwnerClass=
+            // 关键字小写，经 _primWrapper 映射到包装类名）恒不进 DepIndex 捷径——对称静态路径 :201-202
+            // 的 ownerIsLocal 守卫，防本地 prim 类方法被下游同短名方法（如 Std.Regex.Split）劫持。
+            bool ownerIsLocalInst = this._ctx.LocalClasses != null
+                && this._ctx.LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass));
+            if (!owns && !ifaceRecv && !virtualRecv && !ownerIsLocalInst && this._ctx.Deps != null) {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
                 if (de != null) {

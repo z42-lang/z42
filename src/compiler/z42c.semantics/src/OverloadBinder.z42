@@ -248,6 +248,22 @@ public sealed class OverloadBinder {
         return null;
     }
 
+    // add-prim-instance-type-overload（方案1）：统计 (name, argCount) 在 ct（含基链）上的同 arity
+    // 非-params 重载候选数。prim 消费端（MemberResolver prim-wrapper 分支）用它判「是否同 arity 多重载」：
+    // ≥2 时 bare/arity 快键会 first-wins 选错（尤跨包 imported 的 bare 别名），须走完整 _resolveOverload
+    // 得正确 mangle RegKey；<2 时走原 arity-only 快路径（字节中性）。复用 _collectOverloads（RegKey 去重、
+    // 走基链）+ _resolveOverload 同款 byArity 过滤（ParamsFrom<0 且 ParamCount==argCount），确保视图一致。
+    internal int _sameArityOverloadCount(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
+        MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
+        int cnt = 0;
+        int i = 0;
+        while (i < all.Length) {
+            if (all[i].Signature.ParamsFrom < 0 && all[i].Signature.ParamCount == argCount) { cnt = cnt + 1; }
+            i = i + 1;
+        }
+        return cnt;
+    }
+
     private MethodSymbol _resolveParamsOverload(MethodSymbol[] all, BoundExpr[] args, int argCount, Span sp, SymbolTable symbols) {
         MethodSymbol[] cand = new MethodSymbol[all.Length];
         int nc = 0;
