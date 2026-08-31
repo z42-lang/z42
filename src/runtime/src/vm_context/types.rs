@@ -335,6 +335,18 @@ pub struct VmContext {
     /// module mutation / cross-thread interning — a thread re-interns its own literals
     /// (negligible for z42's 1–2 threads). See `interp::exec_value::const_str`.
     pub(crate) interned_cache:    Arc<Mutex<FxHashMap<(usize, u32), crate::metadata::vstr::Str>>>,
+    /// **optimize-subclass-check**: memoizes `is_subclass_or_eq_td(derived, target) → bool`
+    /// (interp `is`/`as`/`catch`/vcall dispatch). Without it, every `x is T` check walks the
+    /// derived type's whole base+interface chain and — because the module's `type_registry`
+    /// rarely holds cross-zpkg types (e.g. `z42.ir`'s `IrInstr` subclasses while z42c
+    /// serializes) — falls through to `try_lookup_type` (the `lazy_loader` lock) per level.
+    /// z42c's zpkg serialization dispatches each instruction through a ~60-way `is`-chain,
+    /// making this the top interp hotspot (profiled). The relationship is a global,
+    /// monotonic fact (a loaded type's bases/interfaces never change; lazy-load only ADDS
+    /// types), so the result is cacheable; nested `String→String→bool` map so a hit resolves
+    /// by `&str` with zero allocation. Per-context (not shared) → no lock contention under
+    /// parallel `--jobs` compile. Cleared on explicit module (re)load (REPL redefinition).
+    pub(crate) subclass_memo:     Mutex<FxHashMap<String, FxHashMap<String, bool>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in
