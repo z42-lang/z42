@@ -403,6 +403,12 @@ public sealed class ExprEmitter {
         return null;
     }
 
+    // fix-struct-property-getter：转发 AccessEmitter 的 blob struct 属性 getter 读到 CallEmitter 的
+    // struct-static-call（避免 struct receiver 上发 VCall）。
+    internal TypedReg _emitStructPropGet(string fqGetter, TypedReg recv, Z42Type retType) {
+        return this._call._emitStructInstanceGetter(fqGetter, recv, retType);
+    }
+
     // ── add-struct-value-semantics A-use：blob 值 struct 字段 access 翻转助手 ────────────
     // 某静态类型是否 blob 值 struct（多叶子复合，翻转到字节 blob 值语义）。
     internal bool _isBlobStruct(Z42Type t) {

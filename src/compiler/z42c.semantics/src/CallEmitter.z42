@@ -63,6 +63,13 @@ public sealed class CallEmitter {
         return dst;
     }
 
+    // fix-struct-property-getter：blob struct 属性 getter 读（`x.Prop`）→ **静态 Call 传 handle**（0 参 +
+    // sret-aware），与 struct 实例方法调用同款派发（:99-104）——struct 无虚方法，VCall 会崩「expected object,
+    // got StructRef」。供 AccessEmitter._emitMember 经 ExprEmitter 转发。
+    internal TypedReg _emitStructInstanceGetter(string fqGetter, TypedReg recv, Z42Type retType) {
+        return this._emitCallSretAware(fqGetter, recv, new TypedReg[0], 0, retType);
+    }
+
     // add-generic-methods：BoundCall 的解析后类型实参（Z42Type[]）→ FQ 名 string[]（与 typeof 同款
     // _typeofArgName：FQ + 递归带尖括号，基元/数组保源拼写）。非泛型调用返回空数组。
     private string[] _methodTypeArgNames(BoundCall c) {
