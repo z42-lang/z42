@@ -281,8 +281,8 @@ pub struct JitModuleCtx {
     /// (Compiled/Rejected), so it never overflows in practice.
     pub call_counts: Vec<AtomicU32>,
     /// Tier-up threshold: compile a merged function on its `jit_threshold`-th call
-    /// (N=1 → compile-on-first-call = pre-tiering behavior). From
-    /// `Z42_JIT_THRESHOLD` (default 2), clamped ≥ 1.
+    /// (N=1 → compile-on-first-call). From `Z42_JIT_THRESHOLD` (default 1 since
+    /// lower-jit-threshold-default 2026-08-31; see `jit/mod.rs`), clamped ≥ 1.
     pub jit_threshold: u32,
     /// add-osr-loop-tiering: cache of compiled OSR entries, keyed by
     /// `(merged function id, loop-header block K)`. Keyed by K too because a
@@ -365,6 +365,17 @@ impl JitModuleCtx {
         // Rejected so future calls skip both the scan and the counter.
         let module = &*self.module;
         let func = module.functions.get(idx)?;
+        // fix-jit-first-compile-unresolved-builtin: populate the function's token
+        // table before translating — interp does this in `exec_function`
+        // (`resolve_function_tokens`), but at `jit_threshold == 1` a function
+        // compiles on its FIRST call before interp ever ran it, so `resolved`
+        // would be empty and the JIT builtin-resolution fallback
+        // (`translate::call`, static `BUILTINS` only) panics on native-ext
+        // builtins (e.g. z42.compression's `__zstd_compress`). Idempotent
+        // (OnceLock-gated); `module` is the entry module (identity invariant).
+        if !self.vm_ctx.is_null() && func.resolved.get().is_none() {
+            crate::metadata::resolver::resolve_function_tokens(func, module, &*self.vm_ctx);
+        }
         if super::translate::jit_unsupported_reason(func).is_some() {
             let _ = slot.set(FnEntry::rejected()); // negative-cache the verdict
             return None;
@@ -418,6 +429,14 @@ impl JitModuleCtx {
         }
         if self.vm_ctx.is_null() { return None; }
         let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
+        // fix-jit-first-compile-unresolved-builtin: see `resolve_merged_slot`.
+        // Lazily-loaded functions (z42.compression facades etc.) reach the JIT
+        // via this path; at `jit_threshold == 1` they compile before any interp
+        // run populated `resolved`, so resolve here first. `self.module` is the
+        // entry module the callee executes against (identity invariant).
+        if func.resolved.get().is_none() {
+            crate::metadata::resolver::resolve_function_tokens(&func, &*self.module, &*self.vm_ctx);
+        }
         let mtx = &*self.lazy;
         let mut guard = match mtx.lock() { Ok(g) => g, Err(p) => p.into_inner() };
         if entry_lock.get().is_none() {

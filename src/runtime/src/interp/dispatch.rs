@@ -32,21 +32,78 @@ pub fn is_subclass_or_eq_td(
     derived: &str,
     target: &str,
 ) -> bool {
-    let mut cur: String = derived.to_string();
+    if derived == target {
+        return true;
+    }
+    // optimize-subclass-check: memo the (derived, target) verdict. The relationship is a
+    // global, monotonic fact — a loaded type's base/interface chain never changes, and lazy
+    // loading only ADDs types — so it is cacheable across calls. Nested map ⇒ a hit resolves
+    // by `&str` with zero allocation (the pre-fix path did `derived.to_string()` +
+    // `base.clone()` per level and fell through to the `lazy_loader`-locked `try_lookup_type`
+    // for cross-zpkg types on every call — the top interp hotspot in z42c zpkg serialization,
+    // which dispatches each instruction through a ~60-way `is`-chain). Cleared on explicit
+    // module (re)load (REPL) — see `load_module_*`.
+    if let Some(v) = ctx
+        .subclass_memo
+        .lock()
+        .get(derived)
+        .and_then(|m| m.get(target))
+        .copied()
+    {
+        return v;
+    }
+    let result = is_subclass_or_eq_td_walk(ctx, registry, derived, target);
+    ctx.subclass_memo
+        .lock()
+        .entry(derived.to_string())
+        .or_default()
+        .insert(target.to_string(), result);
+    result
+}
+
+/// Alloc-free base+interface chain walk backing [`is_subclass_or_eq_td`]. Caller has already
+/// handled `derived == target` and the memo. Holds the current `Arc<TypeDesc>` across
+/// iterations and follows `base_name` by `&str` (no per-level `String` allocation).
+fn is_subclass_or_eq_td_walk(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    derived: &str,
+    target: &str,
+) -> bool {
+    let mut cur_td = match registry
+        .get(derived)
+        .cloned()
+        .or_else(|| ctx.try_lookup_type(derived))
+    {
+        Some(td) => td,
+        None => return false,
+    };
     loop {
-        if cur == target { return true; }
-        let td = registry.get(cur.as_str()).cloned()
-            .or_else(|| ctx.try_lookup_type(cur.as_str()));
-        let Some(td) = td else { return false; };
         // add-reflection-transitive-interfaces: a declared interface matches `target`
         // directly OR transitively (interface-extends-interface).
-        if td.interfaces().iter().any(|i| iface_reaches_td(ctx, registry, i, target)) {
+        if cur_td
+            .interfaces()
+            .iter()
+            .any(|i| iface_reaches_td(ctx, registry, i, target))
+        {
             return true;
         }
-        match td.base_name.clone() {
-            Some(base) => cur = base,
+        let base = match cur_td.base_name.as_deref() {
+            Some(b) => b,
             None => return false,
+        };
+        if base == target {
+            return true;
         }
+        let next = match registry
+            .get(base)
+            .cloned()
+            .or_else(|| ctx.try_lookup_type(base))
+        {
+            Some(td) => td,
+            None => return false,
+        };
+        cur_td = next;
     }
 }
 

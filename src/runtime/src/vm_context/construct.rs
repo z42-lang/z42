@@ -112,6 +112,7 @@ impl VmContext {
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
+            subclass_memo: Mutex::new(FxHashMap::default()),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
@@ -376,6 +377,7 @@ impl VmContext {
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
+            subclass_memo: Mutex::new(FxHashMap::default()),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };

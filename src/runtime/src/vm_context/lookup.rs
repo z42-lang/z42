@@ -68,6 +68,10 @@ impl VmContext {
     pub fn load_module_into_vm(
         &self, path: &str,
     ) -> anyhow::Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
+        // optimize-subclass-check: an explicit (re)load can redefine a type (REPL), which
+        // could invalidate a cached subclass answer. Lazy-load ADDs (monotonic) are safe and
+        // don't clear; only these explicit loads do.
+        self.subclass_memo.lock().clear();
         let mut state = self.core.lazy_loader.lock();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
@@ -85,6 +89,7 @@ impl VmContext {
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
     ) -> anyhow::Result<Vec<String>> {
+        self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
         let mut state = self.core.lazy_loader.lock();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
