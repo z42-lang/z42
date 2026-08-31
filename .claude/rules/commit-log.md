@@ -43,6 +43,10 @@ type(scope): 描述
 - 每个 `docs/spec/changes/` 变更对应**一个** commit，不积压、不混合多个独立功能/修复
 - 拆分（refactor）与功能变更**分开提交**（见 [code-organization.md](code-organization.md)）
 - `.claude/`（规则/记忆）与 `docs/spec/`（提案/归档）**必须纳入**对应提交，不得遗漏
+- **归档（`changes/`→`archive/` + tasks.md 改 🟢 + 文档同步）是该变更「同一逻辑单元」的一部分，必须随
+  代码进同一个 PR，禁止 PR 合并后再单独 push 一个 `docs: 归档` 到 main**——那会把一个逻辑单元拆成两次
+  落地、给 main 平白多一条提交。详见 [workflow.md 阶段 9 铁律](workflow.md)。同理，**任何伴随代码变更的
+  文档（book 机制页、README、workflow 手册等）都在同一 PR 内一起改一起提交**，不留「代码先合、文档后补」的尾巴。
 
 ## 页脚
 

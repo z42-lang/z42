@@ -1,0 +1,10 @@
+[project]
+name    = "demo.genstructapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.GenStructApp.Main"
+pack    = true
+
+[dependencies]
+"demo.genstructtarget" = "0.1.0"
+"demo.genstructext"    = "0.1.0"

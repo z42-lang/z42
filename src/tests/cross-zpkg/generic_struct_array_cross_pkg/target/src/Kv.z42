@@ -1,0 +1,7 @@
+// fix-generic-value-struct-array 回归：跨包 ≥2 字段泛型 `[Record] struct` 的**数组**。
+// 曾因 runtime `try_struct_backed` 按带泛型实参的全名 `Kv<string, int>` 查类型，而泛型类型擦除
+// 只注册裸名 `Kv` 的 TypeDesc → miss → 数组退化成引用背衬（元素 Null）→ `struct_fset_prim`
+// 崩 "expected StructRef, got Null"。修复：exec_array 查类型时剥泛型实参用裸名。
+namespace Demo.GenStructTarget;
+
+[Record] public struct Kv<K, V>(K Key, V Value);

@@ -560,6 +560,25 @@ xtask test vscode-syntax
 
 ## 阶段 9：归档（Archive）
 
+> **铁律：归档 = 本次变更的一部分，必须与代码同在一个分支 / 一个 PR 内提交，禁止「PR 合并后再单独
+> `docs: 归档（PR #XXX 已合并）` 直推 main」（2026-09-01 强化）。**
+>
+> 归档动作（tasks.md 改 🟢 + `changes/` → `archive/` 的 mv + 触发矩阵的文档同步）**属于这次变更本身**，
+> 不是合并后的收尾杂活。步骤 1–4 必须在**开 PR 之前**就 commit 到该 change 的分支上（可与实现代码同一
+> commit，或作为该分支的最后一个 commit），随 PR 一起合并——**一次落地、零多余 main 提交**。
+>
+> - ❌ **禁止**：先合 PR（只含代码 + 进行中的 `changes/<name>/`），再单独 push 一个 `docs: 归档` 到 main。
+>   这会给 main 平白多出一条提交，且把「同一逻辑单元」拆成两次落地，违反 [commit-log.md](commit-log.md)
+>   「一个 commit = 一个逻辑单元」与 [parallel-development.md §5](parallel-development.md)「PR 即完整交付」。
+> - ❌ **禁止**在归档 commit message 里写「PR #XXX 已合并」——那正是「归档晚于合并」的症状。归档在 PR 内做，
+>   不需要、也不应该引用一个尚未产生的合并事实。
+> - ✅ **正确**：`changes/<name>/` 里的 proposal / design / spec / tasks 与实现代码本就在同一分支，归档只是
+>   把它们 `git mv` 到 `archive/` 并标 🟢——这是分支内的最后一步，天然进同一个 PR。
+>
+> 历史上（#330 / #333 / #337 / #343+#344 / #352）归档被反复切成合并后的独立 main 提交，即本铁律要根除的坏味道。
+> 唯一例外：与任何 change 无关的**纯文档独立工作**（如重写某 README、替换过时评审文档）——那本就是独立逻辑单元，
+> 单独提交 / 单独 PR 合理，不在本条约束内。
+
 1. 将 tasks.md 状态改为 `🟢 已完成`，更新日期
 2. 移动目录：`docs/spec/changes/<name>/` → `docs/spec/archive/YYYY-MM-DD-<name>/`
 3. **文档同步（统一维护触发矩阵）**：下表是"改了什么 → 必须同步哪些文档"的**唯一 SoT**——

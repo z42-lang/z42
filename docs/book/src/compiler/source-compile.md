@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-07-17
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-08-31
 
 ## 概述
 
@@ -58,6 +58,25 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 > **Deferred**：① 导入跨包同短名类型（`using` 两个包各有 `Foo`）当前只对**本地**类做 FQN keying；②
 > 非限定同短名（`using A; using B;` 后裸写 `Foo`）仍 first/last-wins 静默选一，C# 语义应报歧义诊断。
+
+#### prim 接收者实例方法的 type-based 重载决议
+
+基元接收者（`string` / `int` / `char` …）的实例方法调用，绑定走 `MemberResolver._bindInstanceMemberCall` 的 **prim-wrapper 分支**（`z42c.semantics/src/MemberResolver.z42:129`）：把关键字名映射到 stdlib 包装类（`"string"→"String"`，`TypeFactsTc._primWrapper`），在包装类上解析方法、取真实返回类型，产出 `BoundCall(OwnerClass=PrimModel.Keyword(...), MethodName=派发键)`。
+
+**缺陷（`add-prim-instance-type-overload` 前）**：该分支只用 `_overloadKey`（`name$arity`）+ `_findMethod` 查方法键——**不做类型决议**。当包装类有**同 arity 不同类型**的重载（如 `String.Split(string)` / `Split(char[])`）时，`MemberCollector` 已把它们 mangle 成 `Split$1$string` / `Split$1$char[]`（`OverloadResolver.MangleKey`），`_overloadKey` 试 `Split$1` 查不到 → 回退裸 `Split`：
+
+- **本地编译**（z42.core 编自己）：`MemberCollector` 对 mangle 方法**只注册 mangle 键、无裸键** → `_findMethod` 落空（`wms==null`）→ 裸名 loose-bind Unknown → codegen 的 DepIndex 实例捷径被下游同短名方法（`Std.Regex.Regex.Split`）劫持 → `TrackDepNamespace("Std.Regex")` → **E0436**（`namespace Std.Regex is used but not imported`）。
+- **跨包调用**（用户代码 import z42.core 调 `s.Split(...)`）：`ImportedSymbolLoader` 为每个 mangle 方法**额外注册一个裸-first-wins 别名键**（`ImportedSymbolLoader.z42:308-312`）→ `_findMethod(裸 "Split")` **命中首个重载**（`wms!=null`）→ emit **裸名** VCall → 运行期 VM 查 `Std.String.Split`（非注册函数，实际键是 `Split$1$string`）→ `VCall: expected object`。
+
+**方案（同 arity 多重载才做完整决议）**：`MemberResolver.z42:130-152` 的门，先算 `OverloadBinder._sameArityOverloadCount(...)`（复用 `_collectOverloads` 的 RegKey 去重 + 走基链，同 `_resolveOverload` 的 byArity 过滤）：
+
+- **同 arity 候选 < 2**（单方法 / 纯 arity 重载——今天所有 prim 实例方法）：走原 `_overloadKey`/`_findMethod` 快路径，`wms!=null` 即用其键。**字节中性**。
+- **同 arity 候选 ≥ 2**：**跳过快路径**，直接 `_resolveOverload`（与 class 接收者路径 `MemberResolver.z42:57` 同款类型决议）取命中符号的 `RegKey`（mangle 键）产 `BoundCall`。这样跨包也无视裸别名、按实参类型命中正确重载。
+- 对称守卫：`CallEmitter.z42:160` 的实例 DepIndex 捷径加 `ownerIsLocalInst`（`LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass))`），本地 prim 类即便 `owns` 因故为 false 也不进捷径、不被下游同名劫持（对称静态路径 `:201-202` 的 `ownerIsLocal`）。
+
+**VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
+
+> 阶段纪律（[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
 
 ### IR 生成（IrGen）
 
