@@ -1,0 +1,87 @@
+// add-core-lib-tests: ValueTupleN 值语义的专属覆盖。src/tests/tuples/tuple_basic.z42
+// 这个 golden 已覆盖 Item 访问 / switch·is 模式 / 解构声明 / 嵌套；本文件补齐它未碰的
+// **合成值语义**：== / != 相等、GetHashCode、以及高 arity（4..8）构造与 Item 访问。
+namespace Z42CoreValueTupleTests;
+
+using Std;
+using Std.Test;
+
+// ── 值相等（合成 == / !=）─────────────────────────────────────────────────
+
+[Test]
+void test_tuple2_value_equality() {
+    (int, int) a = (1, 2);
+    (int, int) b = (1, 2);
+    (int, int) c = (1, 3);
+    Assert.True(a == b);     // 字段级相等
+    Assert.False(a == c);
+    Assert.True(a != c);
+    Assert.False(a != b);
+}
+
+[Test]
+void test_tuple_mixed_types_equality() {
+    (int, string) a = (7, "hi");
+    (int, string) b = (7, "hi");
+    (int, string) c = (7, "bye");
+    Assert.True(a == b);
+    Assert.False(a == c);    // 引用类型元素也参与相等
+}
+
+// NOTE（当前实现的已知不完备，2026-09-01 add-core-lib-tests 发现）：
+// 与普通 `[Record] struct` 不同（后者可直接 `.Equals()` / `.GetHashCode()`，见
+// src/tests/types/struct_object_methods.z42 与 attributes/record_value_semantics.z42），
+// ValueTupleN 作类型擦除 blob 目前**只合成了 == / != 操作符**，未暴露可调用的
+// `Equals(other)` / `GetHashCode()` 实例方法（调用报 `undefined function
+// Std.ValueTupleN.Equals`）。故这里仅以 == / != 覆盖值相等；补齐元组的 Equals /
+// GetHashCode 方法面属独立 lang 变更，不在本测试变更范围内。
+
+// ── Item 访问 + 高 arity（4..8）───────────────────────────────────────────
+
+[Test]
+void test_tuple2_items() {
+    (int, string) p = (42, "answer");
+    Assert.Equal(42, p.Item1);
+    Assert.Equal("answer", p.Item2);
+}
+
+[Test]
+void test_tuple3_items() {
+    (int, int, int) t = (1, 2, 3);
+    Assert.Equal(1, t.Item1);
+    Assert.Equal(2, t.Item2);
+    Assert.Equal(3, t.Item3);
+}
+
+[Test]
+void test_tuple4_items() {
+    (int, int, int, int) t = (10, 20, 30, 40);
+    Assert.Equal(10, t.Item1);
+    Assert.Equal(40, t.Item4);
+}
+
+[Test]
+void test_tuple5_items() {
+    (int, int, int, int, int) t = (1, 2, 3, 4, 5);
+    Assert.Equal(1, t.Item1);
+    Assert.Equal(5, t.Item5);
+}
+
+[Test]
+void test_tuple8_items() {
+    (int, int, int, int, int, int, int, int) t = (1, 2, 3, 4, 5, 6, 7, 8);
+    Assert.Equal(1, t.Item1);
+    Assert.Equal(4, t.Item4);
+    Assert.Equal(8, t.Item8);
+}
+
+// ── 高 arity 相等 ─────────────────────────────────────────────────────────
+
+[Test]
+void test_tuple4_equality() {
+    (int, int, int, int) a = (1, 2, 3, 4);
+    (int, int, int, int) b = (1, 2, 3, 4);
+    (int, int, int, int) c = (1, 2, 3, 9);
+    Assert.True(a == b);
+    Assert.False(a == c);
+}
