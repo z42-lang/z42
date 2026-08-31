@@ -553,20 +553,29 @@ Sub : Std.Exception { ... }` 加载时，`Std.Exception`（在 z42.core）尚
   把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用。
 - 扫描整个 `type_registry`，对每个 base 链 *新近可解析* 的 TypeDesc
   （`needs_fixup` 检测），用 `merge_with_base` 用全局 registry 重算
-  layout，然后 `Arc::get_mut` mutate 该 TypeDesc。
+  layout，然后 `Arc::make_mut` mutate 该 TypeDesc。
 - 固定点循环（`while try_fixup_inheritance() > 0`）—— 一次 fix-up 可能
   让另一个 TypeDesc 变可解析（三级链 `A → B → C`：B 先 fix → C 后 fix）。
 
-**`Arc::get_mut` 可行性**：lazy_loader 是当前 TypeDesc 的**唯一**强引
-用持有者（type 还没被任何对象实例化）。`build_type_registry` 之后立刻
-做 `module.type_registry_vec.clear()` 释放 by-id Vec 的 Arc 副本，
-确保 fixup 时 strong_count = 1。
+**`Arc::make_mut`（clone-on-write）**：常态下 lazy_loader 是当前 TypeDesc 的
+**唯一**强引用持有者（type 还没被实例化；`build_type_registry` 之后立刻
+`module.type_registry_vec.clear()` 释放 by-id Vec 的 Arc 副本），此时
+`make_mut` = in-place mutate（等价旧 `get_mut` 快路径）。**例外**
+（fix-projecthooks-vtable-fixup）：seeded 的 eager 类型若本身 own-only（见下），
+strong_count ≥ 2 且 `needs_fixup` 为真 —— 旧代码 `get_mut` 失败即**跳过 +
+每轮 WARN**（对一个从不派发、base 无字段的死类刷屏假警报）。`make_mut` 改为
+clone-on-write：给 lazy registry 一份私有、已 merge 的副本（lazy-lookup 路径
+拿到完整 vtable/fields、收敛不再 warn），eager 源 module 保留其 own-only 副本
+（不受影响）。
 
 **Eager-loaded 类型的可见性**：merge 后的 main module（含 z42.core）
 的 TypeDesc 通过 `VmContext::seed_lazy_loader_types(&final_module.type_registry)`
 克隆到 LazyLoader 的 `type_registry`。这些 Arc strong_count = 2（main
-+ lazy_loader）—— 它们不需要 mutate，因为 `build_type_registry` 已正
-确解析了它们的 base（base 在同一 merged module 内）。
++ lazy_loader）—— **通常**不需要 mutate，因为 `build_type_registry` 已正
+确解析了它们的 base（base 在同一 merged module 内）。**唯一例外**：base 位于
+*仅惰性加载* 的 zpkg（如 `class ProjectHooks : BuildHooks`，app 未静态链
+`z42.build`），则该 eager 类型 own-only 且 `needs_fixup` 为真 —— 由上面的
+`make_mut` CoW 兜底。
 
 **`needs_fixup` 计算**：
 ```text
@@ -577,8 +586,8 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 ```
 
 **幂等性**：fixup 运行两次产生相同结果。已正确的 TypeDesc（`needs_fixup`
-返回 false）跳过；BLOCKED（strong_count > 1）也不算 newly_fixed → 收
-敛到 fixed point。
+返回 false）跳过；`make_mut` CoW 后该副本 `needs_fixup` 即为 false → 下一轮
+不再重算 → 收敛到 fixed point（旧的 BLOCKED-strong_count>1 分支已消除）。
 
 **延后未解析**：base 一直不可解析时 → 不报错，TypeDesc 保持 own-only
 状态。下次新 zpkg 加载触发的 fixup 会重试。VM 退出时若仍有 own-only
